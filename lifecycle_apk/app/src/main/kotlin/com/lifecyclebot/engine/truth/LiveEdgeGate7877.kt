@@ -468,6 +468,7 @@ object LiveEdgeGate7877 {
             // (graduated PumpSwap coins at $10k-$100k), held on the lifecycle rules (RunnerTicket8073).
             if (proven8059 == null && !measuredEdge8060(ts, l8059, nowMs) &&
                 !(try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false }) &&
+                !runnerForming8113(ts, nowMs) && !shadowAuditAdmits8113(ts, l8059) &&
                 !coldStartAdmits8080(ts, l8059, nowMs)) {
                 auditedAdmission8076 = try {
                     com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076("LIVE_PROVEN_SETUP_ONLY_8059", l8059) ||
@@ -493,6 +494,7 @@ object LiveEdgeGate7877 {
             // from the fill latency, so the chase is already in the record) the spike rule stands down.
             if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
                 // V5.0.8097 — the spike rule's own ladder replays (cell, or lane when the cell is thin) prove it refuses runners.
+                !runnerForming8113(ts, nowMs) &&
                 !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
                 !cellOrKindProven8094(ts, l8059, nowMs)) {
                 chaseRefused8065.incrementAndGet()
@@ -642,6 +644,35 @@ object LiveEdgeGate7877 {
             ForensicLogger.lifecycle("LIVE_COLD_START_SETUP_ADMIT_8080", "mint=${ts.mint.take(10)} lane=$lane setup=$setup")
         } catch (_: Throwable) {}
         return true
+    }
+
+    /**
+     * V5.0.8113 §THE_RUN_IS_THE_PROOF. 5.0.8111: Zeo +1,707% missed on LIVE_PROVEN_SETUP_ONLY_8059. A run the bot confirms
+     * live — a RunnerPlay8018 re-entry ticket (+100% over its decision price inside 4 h, chart firming or standing with
+     * buyers; 30-minute record n89 +19.9%) or a RunnerGrab7967 grab (forming in a cell proven to run: n20+, mean - SE >=
+     * +20%; record n19 +105.7%) — cleared watch-first but died at the proven-only door and the spike-chase rule, both
+     * checked first. Those runs are their own evidence, each with its own closed loop that stands it down when its graded
+     * record turns negative. Hard safety, Mayhem, dead launch, Cortex, net edge, sizing and the buy door still decide.
+     */
+    private fun runnerForming8113(ts: TokenState, nowMs: Long): Boolean {
+        val ok = (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false }) ||
+            (try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Throwable) { false })
+        if (ok) try { PipelineHealthCollector.labelInc("LIVE_PROVEN_RUNNER_FORMING_8113") } catch (_: Throwable) {}
+        return ok
+    }
+
+    /**
+     * V5.0.8113 — a READY specialist whose lane's own record of being shadowed proves the shadowing refuses winners
+     * (veto audit SHADOW_NOT_PRIMARY@<lane>: 8111 SHITCOIN n500 +23.0%, all-lane +12.3%, REFUSING_WINNERS). That is the
+     * measured forward return of exactly this population (coins this lane qualified), so it is the candidate's evidence.
+     */
+    private fun shadowAuditAdmits8113(ts: TokenState, lane: String): Boolean {
+        val ok = try {
+            com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.entry(lane, ts.mint)?.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY &&
+                com.lifecyclebot.engine.SpecialistOwnership7951.shadowRefusesWinners8094(lane)
+        } catch (_: Throwable) { false }
+        if (ok) try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SHADOW_AUDIT_8113_$lane") } catch (_: Throwable) {}
+        return ok
     }
 
     private fun measuredEdge8060(ts: TokenState, lane: String, nowMs: Long): Boolean {

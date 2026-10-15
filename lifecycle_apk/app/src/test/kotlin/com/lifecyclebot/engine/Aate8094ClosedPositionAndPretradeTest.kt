@@ -728,4 +728,14 @@ class Aate8094ClosedPositionAndPretradeTest {
         // FinalDecisionGate.evaluate() itself is untouched: the floor call site still reads the helper.
         assertTrue(f.contains("!playbookClearsFloor7937(ts, floorLane7266, waitFloor7266)"))
     }
+
+    @Test fun aConfirmedRunIsItsOwnProofAtTheProvenOnlyDoorAndTheChaseRule() {
+        val g = src("engine/truth/LiveEdgeGate7877.kt")
+        val door = g.substringAfter("proven8059 == null && !measuredEdge8060(ts, l8059, nowMs)").substringBefore("!coldStartAdmits8080(ts, l8059, nowMs)) {")
+        assertTrue(door.contains("!runnerForming8113(ts, nowMs) && !shadowAuditAdmits8113(ts, l8059)"))
+        val chase = g.substringAfter("chasing8065(snap8065.runupFromLocalLowPct").substringBefore("!cellOrKindProven8094(ts, l8059, nowMs)) {")
+        assertTrue(chase.contains("!runnerForming8113(ts, nowMs)"))
+        val helper = g.substringAfter("private fun runnerForming8113(").substringBefore("private fun shadowAuditAdmits8113(")
+        assertTrue(helper.contains("RunnerPlay8018.ticketActive8018(ts.mint, nowMs)") && helper.contains("RunnerGrab7967.grab7967(ts.mint, nowMs)"))
+    }
 }
