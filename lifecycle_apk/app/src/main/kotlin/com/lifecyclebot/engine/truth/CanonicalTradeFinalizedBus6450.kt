@@ -190,7 +190,10 @@ object CanonicalTradeFinalizedBus6450 {
         val pos7776 = CanonicalPositionAuthority6441.getPosition(positionId)
         val src7722 = pos7776?.entryPriceSource?.uppercase() ?: ""
         when {
-            pos7776 != null && (pos7776.lifecycle == CanonicalPositionAuthority6441.Lifecycle.QUARANTINED ||
+            // V5.0.8141 — a FROZEN_HELD_UNSELLABLE settlement quarantines the row so it stops holding a slot; its cost is the
+            // bot's own and its zero recoverable proceeds are a wallet fact, so the freeze loss still teaches (basis rules below).
+            pos7776 != null && !com.lifecyclebot.engine.sell.FrozenHeldUnsellable8141.freezeLossQuarantine8141(pos7776.quarantineReason) &&
+                (pos7776.lifecycle == CanonicalPositionAuthority6441.Lifecycle.QUARANTINED ||
                 pos7776.quarantineReason.isNotBlank()) -> "QUARANTINED_ACCOUNTING_7807"
             mint.isNotBlank() && QuantityInvariantAuthority6500.isQuarantined(mint) -> "QUANTITY_QUARANTINED_7807"
             src7722.contains("OBSERVED_MARK_ADOPTION_7706") -> "OBSERVED_MARK_ADOPTION_7706"

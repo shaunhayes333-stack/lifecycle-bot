@@ -76,15 +76,20 @@ object RunnerExitLive8136 {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pos.positionId)
                 ?.takeIf { it.mint == ts.mint && it.mode.equals("live", true) && it.entryCostSol.isFinite() && it.entryCostSol > 0.0 }
         } catch (_: Throwable) { null }
-        if (canon != null && RunnerExitContract8136.capitalRecoveredConfirmed8136(canon.entryCostSol, canon.realizedProceedsSol, canon.feesSol)) {
+        // V5.0.8141 — a slice whose canonical commit failed was booked by the legacy accounting only; its CONFIRMED
+        // proceeds (RecoveryFallbackLedger8141) count too, or the next tranche re-sells capital already recovered.
+        val fallback8141 = RecoveryFallbackLedger8141.confirmedFallbackSol8141(pos.positionId)
+        val proceeds8141 = if (canon != null) RecoveryFallbackLedger8141.effectiveProceeds8141(canon.realizedProceedsSol, fallback8141) else 0.0
+        if (canon != null && fallback8141 > 0.0) count8136("CAPITAL_RECOVERY_COUNTS_LEGACY_FALLBACK_8141")
+        if (canon != null && RunnerExitContract8136.capitalRecoveredConfirmed8136(canon.entryCostSol, proceeds8141, canon.feesSol)) {
             synchronized(ts) {
                 ts.position = ts.position.copy(capitalRecovered = true, isHouseMoney = true,
-                    capitalRecoveredSol = canon.realizedProceedsSol - canon.feesSol)
+                    capitalRecoveredSol = proceeds8141 - canon.feesSol)
             }
             count8136("CAPITAL_RECOVERED_FROM_CONFIRMED_SLICES_8136")
             return 0.0
         }
-        val unrecovered = if (canon != null) RunnerExitContract8136.unrecoveredSol8136(canon.entryCostSol, canon.realizedProceedsSol, canon.feesSol)
+        val unrecovered = if (canon != null) RecoveryFallbackLedger8141.unrecoveredSol8141(canon.entryCostSol, canon.realizedProceedsSol, fallback8141, canon.feesSol)
             else remainingCostSol.coerceAtLeast(0.0)
         val fraction = RunnerExitContract8136.recoveryFraction8136(unrecovered, grossValueSol, sellCostPct8136(ts))
             .coerceAtMost(((100.0 - pos.partialSoldPct) / 100.0).coerceAtLeast(0.0))

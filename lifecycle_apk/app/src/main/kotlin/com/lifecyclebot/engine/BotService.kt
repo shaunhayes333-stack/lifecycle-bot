@@ -1094,6 +1094,7 @@ class BotService : Service() {
      */
     private fun planOwnsExit7754(ts: com.lifecyclebot.data.TokenState, wouldFire: Boolean, catastrophic: Boolean, exitName: String, stopSide: Boolean = false): Boolean {
         if (!wouldFire || catastrophic) return false
+        if (Tier1Deference8141.tier1(exitName)) return false  // V5.0.8141 — a tier-1 exit never defers to the plan
         val plan = try { com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime) } catch (_: Throwable) { null } ?: return false
         // V5.0.7755 — operator: MOONSHOT "found 200-500% moonshot trades on its own
         // before with no issue. live trading". A runner lane keeps its own stops
@@ -15276,13 +15277,15 @@ class BotService : Service() {
         // V5.0.8031 — CORE and CYCLIC have no per-token buy block: as the one rescue lane they burned the slot a
         // specialist (BLUECHIP / TREASURY / QUALITY ...) could have used.
         val qualifiedDeskLanes6600 = designatedDeskSheet6599?.deskHypotheses?.keys.orEmpty().filter { !ExecutionAuthorityPolicy6533.isTrunkLane(it) && it.uppercase() !in RESCUE_EXCLUDED_8031 }
-        val boundedRescue6600 = ExecutionAuthorityPolicy6533.selectOneRescue(
+        val lotteryRescue8141 = ExecutionAuthorityPolicy6533.selectOneRescue(
             mint = ts.mint,
             candidateVersion = candidateVersion6600,
             primaryLane = primaryLane,
             affinityLanes = ts.laneAffinity,
             eligibleLanes = qualifiedDeskLanes6600,
         )
+        // V5.0.8141 — ONE rescue per candidate version: the election's rescue holder wins; the lottery only fills an empty slot through the same claim.
+        val boundedRescue6600 = SpecialistElection8136.boundedRescue8141(ts.mint, l, primaryLane, lotteryRescue8141)
         val specialistEvaluationAllowed6600 = designatedDeskQualified6599 &&
             (l.equals(primaryLane, true) || l.equals(boundedRescue6600, true) ||
                 SpecialistOwnership7951.handOffAllowed7960(l, ts.mint, primaryLane) ||  // V5.0.7960
