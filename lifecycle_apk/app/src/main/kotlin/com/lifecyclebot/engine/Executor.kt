@@ -26831,6 +26831,22 @@ class Executor(
      * V5.0.7868 — protective sell balance read: the sold mint first (bounded
      * ~2.5 s, cache-first), the whole-wallet scan only when that is unanswered.
      */
+    /**
+     * V5.0.8122 — the issuer froze this wallet's token account: no route can sell it. 8120 DA (ALrNcQ, not a pump mint)
+     * sat in 20 ON-CHAIN_ZERO retries, 250 duplicate sells and catastrophe re-triggers every 2 s on a slot, while every
+     * wallet read logged WALLET_FROZEN_TOKEN_IGNORED_7253. The mint is blacklisted and the proof poller owns its close.
+     */
+    private fun frozenByIssuer8122(ts: TokenState): Boolean {
+        val frozen = try { com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(ts.mint) } catch (_: Throwable) { false }
+        if (!frozen) return false
+        try { TokenBlacklist.block(ts.mint, "FROZEN_BY_ISSUER_8122") } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("SELL_FROZEN_BY_ISSUER_8122")
+            ForensicLogger.lifecycle("SELL_FROZEN_BY_ISSUER_8122", "mint=${ts.mint.take(10)} symbol=${ts.symbol} action=blacklist_and_poller_close")
+        } catch (_: Throwable) {}
+        return true
+    }
+
     private fun sellWalletBalances7868(wallet: SolanaWallet, ts: TokenState): Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> {
         val one = try { wallet.getSingleMintBalanceBounded7868(ts.mint) } catch (_: Throwable) { null }
         if (one != null) {
@@ -27385,7 +27401,7 @@ class Executor(
                 // heldAttempts 34 and 60, 400 duplicate-suppressed sells and 254
                 // catastrophe triggers, holding two of six live slots.
                 val absent7736 = try { com.lifecyclebot.engine.sell.SellAmountAuthority.absentFromCompleteSnapshot7733(ts.mint) } catch (_: Throwable) { null }
-                if (absent7736 != null && absent7736.count >= 2) {
+                if ((absent7736 != null && absent7736.count >= 2) || frozenByIssuer8122(ts)) {
                     try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "ABSENT_FROM_COMPLETE_SNAPSHOT_7736") } catch (_: Throwable) {}
                     try {
@@ -27398,7 +27414,7 @@ class Executor(
                         PipelineHealthCollector.labelInc("LIVESELL_ABSENT_HANDED_TO_PROOF_POLLER_7736")
                         ForensicLogger.lifecycle(
                             "LIVESELL_ABSENT_HANDED_TO_PROOF_POLLER_7736",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason absentReads=${absent7736.count} action=poller_owns_zero_finality",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason absentReads=${absent7736?.count} action=poller_owns_zero_finality",
                         )
                     } catch (_: Throwable) {}
                     return SellResult.WAITING_BALANCE_PROOF

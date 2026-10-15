@@ -811,4 +811,15 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(m.contains(".let { newestTokens8119(it, 8) }"))
         assertTrue(src("engine/MemoryGuard7977.kt").contains("c.flushNow(); c.evictToMemoryCap7979("))
     }
+
+    @Test fun aCoinFrozenByItsIssuerIsBlacklistedAndHandedToThePoller() {
+        val a = com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253
+        a.applyParsedSnapshot(setOf("frozen8122mint", "fine8122mint"), setOf("frozen8122mint"))
+        assertTrue(a.isFrozen("frozen8122mint"))
+        assertFalse(a.isFrozen("fine8122mint"))
+        val e = src("engine/Executor.kt")
+        assertTrue(e.contains("if ((absent7736 != null && absent7736.count >= 2) || frozenByIssuer8122(ts)) {"))
+        assertTrue(e.contains("TokenBlacklist.block(ts.mint, \"FROZEN_BY_ISSUER_8122\")"))
+        a.applyParsedSnapshot(setOf("frozen8122mint"), emptySet())
+    }
 }
