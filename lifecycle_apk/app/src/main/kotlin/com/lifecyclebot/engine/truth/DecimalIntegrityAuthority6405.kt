@@ -125,6 +125,25 @@ object DecimalIntegrityAuthority6405 {
             }
         }
 
+        // 4b) V5.0.8094 — the chain read times out under RPC pressure (8094: 13 SELL_ABORTED_DECIMAL_INTEGRITY on held
+        //     positions while the RPC ladder timed out); one more attempt before anything else.
+        if (wallet != null) {
+            val retry = fetchDecimalsFromChain(mint, wallet)
+            if (retry != null && retry in 0..24) {
+                resolved[mint] = DecimalsRecord(retry, "GET_ACCOUNT_INFO_MINT_RETRY_8094")
+                try { MintDecimalsAuthority6392.resolveAndCache(mint, retry.coerceAtMost(18)) } catch (_: Throwable) {}
+                return retry
+            }
+        }
+
+        // 4c) V5.0.8094 — a pump.fun mint is created by the pump program with 6 decimals; that is the program's own
+        //     invariant, not a guess. Exits must always work: an unreadable RPC must not strand a pump.fun position.
+        if (pumpProgramMint8094(mint)) {
+            resolved[mint] = DecimalsRecord(PUMP_FUN_DECIMALS_8094, "PUMP_FUN_PROGRAM_STANDARD_8094")
+            try { PipelineHealthCollector.labelInc("MINT_DECIMALS_PUMP_PROGRAM_STANDARD_8094") } catch (_: Throwable) {}
+            return PUMP_FUN_DECIMALS_8094
+        }
+
         // 5) Fallback ONLY when the caller has a proven prior source
         //    (e.g. TokenState.decimals stamped by a verified buy tx-meta).
         if (fallbackDecimals != null && fallbackDecimals in 0..24) {
@@ -154,6 +173,12 @@ object DecimalIntegrityAuthority6405 {
      * Returns null on any RPC failure so the caller can either retry or
      * hard-block. Never returns a made-up value.
      */
+    /** V5.0.8094 — every pump.fun bonding-curve mint has 6 decimals (pump program invariant). */
+    const val PUMP_FUN_DECIMALS_8094 = 6
+
+    /** Pure (V5.0.8094): a pump.fun program mint (vanity "pump" suffix on a 43-44 char base58 address). */
+    fun pumpProgramMint8094(mint: String): Boolean = mint.length in 43..44 && mint.endsWith("pump")
+
     private fun fetchDecimalsFromChain(mint: String, wallet: SolanaWallet): Int? {
         return try {
             val params = JSONArray()

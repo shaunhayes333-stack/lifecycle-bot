@@ -418,4 +418,15 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(com.lifecyclebot.engine.sell.PartialNetEconomics8094.discretionary8094("TAIL_SET_ASIDE_8034_TICK_PROFIT_LOCK", 0.75))
         assertTrue(com.lifecyclebot.engine.sell.PartialNetEconomics8094.discretionary8094("PARTIAL_TAKE_PROFIT", 0.25))
     }
+
+    @Test fun aPumpFunPositionIsNeverStrandedOnAnUnreadableDecimalsRpc() {
+        val d = com.lifecyclebot.engine.truth.DecimalIntegrityAuthority6405
+        val pumpMint = "7nKT6ihQBzABCDEFGHJKLMNPQRSTUVWXYZabcdpump"   // 42 chars + suffix shape
+        assertTrue(d.pumpProgramMint8094("CHxwVbJ9B3eMRdEWzYpcKy7ops5H8PxXU79NqzQGpump"))
+        assertFalse(d.pumpProgramMint8094("MINT_D"))
+        assertFalse(d.pumpProgramMint8094("So11111111111111111111111111111111111111112"))
+        assertEquals(d.PUMP_FUN_DECIMALS_8094, d.resolveDecimalsStrict("CHxwVbJ9B3eMRdEWzYpcKy7ops5H8PxXU79NqzQGpump", null, null, null))
+        assertTrue(pumpMint.isNotEmpty())
+        assertTrue(src("network/HeliusWebSocket.kt").contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 8"))
+    }
 }

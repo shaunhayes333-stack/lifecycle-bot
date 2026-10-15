@@ -94,7 +94,7 @@ class Aate7819HeliusScopeTest {
 
     @Test fun sourceContractsForOwnerAndReconnectCauses() {
         val h = src("network/HeliusWebSocket.kt")
-        assertTrue(h.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 16"))  // V5.0.8066 — Helius credit budget
+        assertTrue(h.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 8"))  // V5.0.8094 — Helius OOM + credit budget
         assertTrue(h.contains("override fun onClosing("))
         assertTrue(h.contains("noteReconnect7819(\"SERVER_CLOSE_\$code\")"))
         assertTrue(h.contains("if (!admitMint7819(mint)) return"))

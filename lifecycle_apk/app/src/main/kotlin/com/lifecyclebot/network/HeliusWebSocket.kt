@@ -109,7 +109,9 @@ class HeliusWebSocket(
         // process died in OkHttp's TLS reader. Held mints are pinned; 64 slots keep every hot launch.
         // V5.0.8066 — 64 -> 16: each logsSubscribe on a busy coin streams every log that mentions it; 5.0.8063 streamed
         // 6.9 GB in 16 minutes (~138k credits) and the month's Helius credits were gone. PumpPortal carries launch tape free.
-        const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 16
+        // V5.0.8094 — 16 -> 8: the 16 mention streams still moved 557 MB in 30 min and the process died out of memory in
+        // OkHttp's WebSocketReader (RUNTIME_CRASH OutOfMemoryError). Held mints stay pinned; launch tape comes from PumpPortal.
+        const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 8
         const val MAX_WALLET_SUBSCRIPTIONS_7794 = 64
         // V5.0.7807 — a subscribe request whose ACK never arrives (dropped frame,
         // JSON-RPC error, socket died mid-flight) must not pin a request-map entry

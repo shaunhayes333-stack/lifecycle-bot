@@ -112,7 +112,7 @@ class Aate7807HeliusLifecycleTest {
 
     @Test fun reconnectRegistersOncePerMemberAndOrphansAreUnsubscribed() {
         val h = src("network/HeliusWebSocket.kt")
-        assertTrue(h.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 16"))  // V5.0.8066 — Helius credit budget
+        assertTrue(h.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 8"))  // V5.0.8094 — Helius OOM + credit budget
         val open = h.substringAfter("override fun onOpen").substringBefore("override fun onMessage")
         assertTrue(open.contains("if (!requestToMint7765.containsValue(mint))"))
         assertFalse("onOpen must not wipe requests queued on the new socket", open.contains("requestToMint7765.clear()"))
