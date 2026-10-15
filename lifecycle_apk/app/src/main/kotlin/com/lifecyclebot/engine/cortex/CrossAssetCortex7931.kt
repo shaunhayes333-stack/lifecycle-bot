@@ -41,10 +41,28 @@ object CrossAssetCortex7931 {
         else -> null
     }
 
+    /**
+     * V5.0.8107 §CRYPTO_LANE_PARITY (phase 1). Owner: the crypto trader is meant to run the full meme-trader stack over the
+     * rest of the crypto universe. Every CRYPTO_ALT label and grade fell in ONE lane book (8098: CRYPTO_ALT n1059 -7.0%,
+     * Cortex STRONG -7.4%), so no crypto lane could ever prove itself apart from the others. A crypto candidate the desk
+     * elected to a lane (CryptoLaneDesk7391: MOONSHOT, SHITCOIN, QUALITY, BLUECHIP ...) now learns as CRYPTO_<LANE>.
+     * Learning only: crypto entries, sizing and exits are unchanged.
+     */
+    private val CRYPTO_DESK_LANES_8107 = setOf("CORE", "EXPRESS", "DIP_HUNTER", "TREASURY", "CASHGEN", "QUALITY", "BLUECHIP", "SHITCOIN", "MOONSHOT",
+        "PROJECT_SNIPER", "CYCLIC", "MANIPULATED")
+
+    /** Pure: the learning lane of a cross-asset candidate — CRYPTO_<desk lane> when the crypto desk elected one. */
+    fun laneFor8107(c: AssetClass, deskLane: String?): String? {
+        val d = deskLane?.trim()?.uppercase().orEmpty()
+        return if (c == AssetClass.CRYPTO_ALT && d in CRYPTO_DESK_LANES_8107) "CRYPTO_$d" else laneFor(c)
+    }
+
     fun isCrossAssetLane(lane: String): Boolean {
         val l = lane.substringBefore('@').uppercase()
         // V5.0.7962 — the multi-chain meme lanes (EVM_BSC, EVM_BASE, ...) learn in their own lanes too.
-        return l == "CRYPTO_ALT" || l.startsWith("MKT_") || l.startsWith("EVM_")
+        // V5.0.8107 — and every crypto desk lane (CRYPTO_<LANE>).
+        return l == "CRYPTO_ALT" || l.startsWith("MKT_") || l.startsWith("EVM_") ||
+            (l.startsWith("CRYPTO_") && l.removePrefix("CRYPTO_") in CRYPTO_DESK_LANES_8107)
     }
 
     /**
@@ -76,7 +94,7 @@ object CrossAssetCortex7931 {
 
     /** A fresh TokenState snapshot of the candidate for the labeler and the voters. */
     private fun tokenStateFor(c: CanonicalAssetEntryCandidate6551, nowMs: Long = System.currentTimeMillis()): Pair<TokenState, String>? {
-        val lane = laneFor(c.assetClass) ?: return null
+        val lane = laneFor8107(c.assetClass, c.evidence["deskLane7391"]) ?: return null
         // The labeler grades longs; a short would be learned upside down.
         if (!(c.direction.isBlank() || c.direction.equals("LONG", true) || c.direction.equals("BUY", true))) return null
         if (!c.price.isFinite() || c.price <= 0.0) return null

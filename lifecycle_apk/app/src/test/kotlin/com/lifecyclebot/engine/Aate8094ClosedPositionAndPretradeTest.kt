@@ -687,4 +687,18 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(bs.contains("val expressSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ShitCoinExpress.evaluate("))
         assertTrue(bs.contains("var shitCoinSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate("))
     }
+
+    @Test fun eachCryptoDeskLaneLearnsInItsOwnBook() {
+        val x = com.lifecyclebot.engine.cortex.CrossAssetCortex7931
+        val crypto = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT
+        assertEquals("CRYPTO_MOONSHOT", x.laneFor8107(crypto, "MOONSHOT"))
+        assertEquals("CRYPTO_QUALITY", x.laneFor8107(crypto, "quality"))
+        assertEquals("CRYPTO_ALT", x.laneFor8107(crypto, "NONE"))          // no desk election: the pooled book
+        assertEquals("CRYPTO_ALT", x.laneFor8107(crypto, null))
+        assertEquals("MKT_STOCK", x.laneFor8107(com.lifecyclebot.engine.truth.AssetClass.STOCK, "MOONSHOT"))
+        assertTrue(x.isCrossAssetLane("CRYPTO_MOONSHOT"))
+        assertTrue(x.isCrossAssetLane("CRYPTO_ALT"))
+        assertFalse(x.isCrossAssetLane("MOONSHOT"))                       // the meme lane stays the meme lane
+        assertFalse(x.isCrossAssetLane("CRYPTO_LEV"))
+    }
 }
