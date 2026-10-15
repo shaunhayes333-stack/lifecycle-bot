@@ -29,7 +29,7 @@ def stable_message(message):
     message = re.sub(r'generatedAtMs=\d+', 'generatedAtMs=<TIME>', message)
     message = re.sub(r':\d{7,}:\d+(?=>|,)', ':<VERSION>:<COUNTER>', message)
     if message.startswith('java.lang.StringIndexOutOfBoundsException:'):
-        message = re.sub(r'\b(begin|length) \d+', r'\1 <OFFSET>', message)
+        message = re.sub(r'\b(begin|end|length) \d+', r'\1 <OFFSET>', message)
     return message
 
 
