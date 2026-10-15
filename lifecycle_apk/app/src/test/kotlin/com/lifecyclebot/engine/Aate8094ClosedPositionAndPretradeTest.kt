@@ -514,6 +514,14 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(ws.contains("permessage-deflate"))
     }
 
+    @Test fun theBotNeverSellsTheOwnersUsdcAndTheHiveIsPagedInBeforeTheUpload() {
+        val ex = src("engine/Executor.kt")
+        assertTrue(ex.contains("if (baseQuoteSellRefused8096(ts.mint, reason)) return SellResult.FAILED_FATAL"))
+        val h = src("engine/truth/HiveEdge8000.kt")
+        assertTrue(h.indexOf("if (!fullPulledThisProcess8094) {") in 0 until h.indexOf("// Upload deltas."))
+        assertTrue(h.contains("if (!uploadDue8096 && fullPulledThisProcess8094) return"))
+    }
+
     @Test fun theScannerRejectStoreIsBoundedAndWritesCoalesced() {
         val s = ScannerHardRejectStore
         val stamps = (1..5_000).map { ScannerHardRejectStore.Reject("m$it", "S", "RUG", "x", it.toLong()) }

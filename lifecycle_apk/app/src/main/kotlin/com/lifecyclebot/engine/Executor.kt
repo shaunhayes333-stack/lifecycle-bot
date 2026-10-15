@@ -22855,6 +22855,7 @@ class Executor(
     }
 
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        if (baseQuoteSellRefused8096(ts.mint, reason)) return SellResult.FAILED_FATAL  // V5.0.8096
         // V5.0.7948 — processTokenCycle sells inline on a supervisor worker whose 15 s
         // budget ends in Thread.interrupt (runInterruptible). A live sell past that budget
         // was killed mid quote / broadcast / verifySell and redispatched (5.0.7947: 355
@@ -22864,6 +22865,19 @@ class Executor(
             return requestSellOffSupervisor7948(ts, reason, wallet, walletSol)
         }
         return requestSellCore7948(ts, reason, wallet, walletSol)
+    }
+
+    /**
+     * V5.0.8096 — SOL / USDC / USDT / LST mints are never a bot position, so the bot never sells one on its own. 8095 live:
+     * USDC in the owner's wallet was adopted with a bogus basis, read -99%, and STARTUP_SWEEP_HARD_FLOOR dispatched an
+     * emergency sell 71 times in four minutes (only a missing-mark veto stopped it). A MANUAL sell is the owner's own.
+     * FAILED_FATAL is terminal: the lease and emergency attempts are released and nothing is booked.
+     */
+    internal fun baseQuoteSellRefused8096(mint: String, reason: String): Boolean {
+        if (!com.lifecyclebot.engine.guard.BaseQuoteMintGuard.isBlockedMint(mint)) return false
+        if (reason.uppercase().contains("MANUAL")) return false
+        try { PipelineHealthCollector.labelInc("BASE_QUOTE_SELL_REFUSED_8096") } catch (_: Throwable) {}
+        return true
     }
 
     /**

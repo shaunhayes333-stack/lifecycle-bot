@@ -170,10 +170,30 @@ object HiveEdge8000 {
     /** Every ~10 minutes: upload this instance's deltas, pull the network's changes, promote what the network proves. */
     suspend fun sync8000(client: com.lifecyclebot.collective.TursoClient, instanceId: String) {
         val now = System.currentTimeMillis()
-        if (instanceId.isBlank() || now - lastUploadMs < UPLOAD_MS) return
-        lastUploadMs = now
+        if (instanceId.isBlank()) return
+        // V5.0.8096 — a boot page-in still owed is retried on every sync call, whatever the upload cadence.
+        val uploadDue8096 = now - lastUploadMs >= UPLOAD_MS
+        if (!uploadDue8096 && fullPulledThisProcess8094) return
         ensureLoaded()
         ensureTables(client)
+        // V5.0.8094 — the first sync of every process pages the WHOLE network book in. The aggregate lives only in memory
+        // while lastPullMs is restored from disk, so after any restart (crash, update) the incremental pull below fetched
+        // only rows changed since the last pull: 8094 ran with sharedKeys=0 and every setup / cell record fell back to
+        // local data (SHITCOIN LAUNCH_LADDER_PROVEN n208 +227% -> n127 +37%, SPECIALIST_EDGE n884 -> n51).
+        // V5.0.8096 — BEFORE the upload: 8095 at 243 s was still uploading its restart backlog (uploadedRows=2720 of ~28k
+        // keys) and had not paged anything in (sharedKeys=0), so every proven-setup gate read local-only data for minutes.
+        if (!fullPulledThisProcess8094) {
+            val (rows, to) = pageIn8094(client, 0L)
+            // An unreachable hive (rows=0) retries the full page-in on the next sync.
+            if (rows > 0) fullPulledThisProcess8094 = true
+            lastPullMs = maxOf(lastPullMs, to)
+            pulledRows.addAndGet(rows.toLong())
+            try { PipelineHealthCollector.labelInc("HIVE_FULL_PAGE_IN_AT_BOOT_8094") } catch (_: Throwable) {}
+            save()
+            inherit()
+        }
+        if (!uploadDue8096) return
+        lastUploadMs = now
         // Upload deltas.
         val local = snapshot()
         if (baselineDue8028) {
@@ -200,21 +220,6 @@ object HiveEdge8000 {
             if (!ok) break
             for ((k, _) in chunk) local[k]?.let { uploaded[k] = it.copyOf() }
             uploadedRows.addAndGet(chunk.size.toLong())
-        }
-        // V5.0.8094 — the first sync of every process pages the WHOLE network book in. The aggregate lives only in memory
-        // while lastPullMs is restored from disk, so after any restart (crash, update) the incremental pull below fetched
-        // only rows changed since the last pull: 8094 ran with sharedKeys=0 and every setup / cell record fell back to
-        // local data (SHITCOIN LAUNCH_LADDER_PROVEN n208 +227% -> n127 +37%, SPECIALIST_EDGE n884 -> n51).
-        if (!fullPulledThisProcess8094) {
-            val (rows, to) = pageIn8094(client, 0L)
-            // An unreachable hive (rows=0) retries the full page-in on the next sync.
-            if (rows > 0) fullPulledThisProcess8094 = true
-            lastPullMs = maxOf(lastPullMs, to)
-            pulledRows.addAndGet(rows.toLong())
-            try { PipelineHealthCollector.labelInc("HIVE_FULL_PAGE_IN_AT_BOOT_8094") } catch (_: Throwable) {}
-            save()
-            inherit()
-            return
         }
         // Pull the network's changes since the last pull.
         val res = client.query(
