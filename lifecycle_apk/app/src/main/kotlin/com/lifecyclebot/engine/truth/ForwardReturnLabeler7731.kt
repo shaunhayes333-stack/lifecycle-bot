@@ -762,8 +762,15 @@ object ForwardReturnLabeler7731 {
         // credited the spike ladder on their peak. Live never banks those prints (spike tiers fired=0; a +156% quick take
         // landed at -40%; a +236% peak closed at -18%) — a pump.fun spike is one or two trades, gone before a sell lands.
         // A label is now the lane's own play (its stop first) with the position worth the mark at the read.
-        val tiers8071 = try { if (longHold8077 ?: com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071() else com.lifecyclebot.engine.SpikeCapture7943.TIERS } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
-        val ladder8040: (Double, Double) -> Double = { pk, rest -> heldCredit8071(minOf(pk, o.heldPeak8071), rest, tiers8071) }
+        // V5.0.8106 — a lane whose live buys ride the runner ladder from entry (8104: MOONSHOT / SHITCOIN / EXPRESS /
+        // PROJECT_SNIPER) is graded on THAT ladder (2x / 5x / 11x) and its give-back exit (half of a +40..+199% held peak),
+        // not on the scalp tiers it no longer sells into. Its stop is unchanged: live still takes the lane stop.
+        val runner8106 = try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(o.lane, false) } catch (_: Throwable) { false }
+        val tiers8071 = try { if (longHold8077 ?: com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071() else if (runner8106) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
+        val ladder8040: (Double, Double) -> Double = { pk, rest ->
+            val held = minOf(pk, o.heldPeak8071)
+            heldCredit8071(held, runnerRest8106(runner8106, held, rest), tiers8071)
+        }
         val g = com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stop8029, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
         // V5.0.8040 — the same path under every candidate stop: the lane learns its own stop (StopLearner8040).
         if (stop8029 > 0.0 && longFamily8080 == null) try {
@@ -823,6 +830,10 @@ object ForwardReturnLabeler7731 {
         val g = com.lifecyclebot.engine.SpikeCapture7943.realisableGrossPct(heldPeakPct, restPct, tiers)
         return if (g.isFinite() && g > restPct) g else restPct
     }
+
+    /** Pure (V5.0.8106): a runner-from-entry lane's remainder — its give-back exit banks half a +40..+199% held peak. */
+    fun runnerRest8106(runnerLane: Boolean, heldPeakPct: Double, restPct: Double): Double =
+        if (runnerLane && com.lifecyclebot.engine.RunnerGrab7967.fromEntryGiveback8104(heldPeakPct, restPct)) heldPeakPct * 0.5 else restPct
 
     /** Pure (V5.0.8064): what a label credits for a peak [peakPct] above the mark at the read [restPct] — nothing. */
     fun spikeCredit8064(@Suppress("UNUSED_PARAMETER") peakPct: Double, restPct: Double): Double = restPct

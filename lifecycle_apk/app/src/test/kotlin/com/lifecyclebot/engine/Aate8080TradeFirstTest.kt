@@ -21,9 +21,19 @@ class Aate8080TradeFirstTest {
     }
 
     @Test fun scalpLaneNeverCreditedTheLongHold() {
-        // SHITCOIN is not a lifecycle lane: even a breakout setup exits on the scalp family there.
-        assertFalse(LanePlaybook7907.setupHoldsLong8080("SHITCOIN", "BASE_BREAKOUT"))
-        assertEquals(12.0, LanePlaybook7907.familyLabel8080("SHITCOIN", "BASE_BREAKOUT", 40.0, 41.0, fam).first, 1e-9)
+        // CASHGEN keeps its scalp ladder: even a breakout setup exits on the scalp family there.
+        assertFalse(LanePlaybook7907.setupHoldsLong8080("CASHGEN", "BASE_BREAKOUT"))
+        assertEquals(12.0, LanePlaybook7907.familyLabel8080("CASHGEN", "BASE_BREAKOUT", 40.0, 41.0, fam).first, 1e-9)
+        // V5.0.8106 — owner (8104): every live SHITCOIN buy rides the runner ladder from entry, so its setups are graded
+        // on the hold family, whatever the setup.
+        assertTrue(LanePlaybook7907.setupHoldsLong8080("SHITCOIN", "BASE_BREAKOUT"))
+        assertTrue(LanePlaybook7907.setupHoldsLong8080("EXPRESS", "HIGHER_LOW_PULLBACK"))
+        assertEquals(80.0, LanePlaybook7907.familyLabel8080("SHITCOIN", "BASE_BREAKOUT", 40.0, 41.0, fam).first, 1e-9)
+        // The runner-lane remainder banks half a +40..+199% held peak (its give-back exit), else the mark.
+        val f = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+        assertEquals(60.0, f.runnerRest8106(true, 120.0, -5.0), 1e-9)
+        assertEquals(-5.0, f.runnerRest8106(false, 120.0, -5.0), 1e-9)
+        assertEquals(90.0, f.runnerRest8106(true, 120.0, 90.0), 1e-9)
     }
 
     @Test fun legacyLabelWithoutFamiliesKeepsItsValue() {

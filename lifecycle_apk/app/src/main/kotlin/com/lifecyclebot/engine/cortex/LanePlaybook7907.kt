@@ -1352,7 +1352,10 @@ object LanePlaybook7907 {
         val t = try { com.lifecyclebot.engine.learning.TacticSwitcher.seedTactic8049(lane, setup) } catch (_: Throwable) { return false }
         val long = t == com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.BREAKOUT ||
             t == com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.REACCUMULATION
-        return long && (try { com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(lane) } catch (_: Throwable) { false })
+        // V5.0.8106 — or the lane rides every live buy on the runner ladder from entry (TradeExitContract8077, 8104): its
+        // setups are graded on that family and revised over 1 h / 4 h / 24 h like any hold, not frozen at the 5-minute read.
+        return (long && (try { com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(lane) } catch (_: Throwable) { false })) ||
+            (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false })
     }
 
     /** Pure (V5.0.8080): the (net, gross) a setup is graded on; [fam] = [scalpNet, scalpGross, longNet, longGross]. */
