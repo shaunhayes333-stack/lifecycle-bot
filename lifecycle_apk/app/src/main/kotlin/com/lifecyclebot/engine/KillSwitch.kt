@@ -371,7 +371,9 @@ object KillSwitch {
         }
         // V5.0.8130 — peaks saved before 8130 could carry an unsold (SAC: phantom) mark's gain; re-anchor once.
         if (!prefs.getBoolean("peak_gain_free_8130", false)) {
-            peakBalance = currentBalance
+            // V5.0.8136 — the re-anchor itself is gain-free: [currentBalance] is MARKED equity and may carry the very
+            // phantom gain this block retires.
+            peakBalance = com.lifecyclebot.engine.truth.CapitalDrawdown7948.gainFreeEquity8130(currentBalance, heroUpnl8136())
             peakAt7948 = System.currentTimeMillis()
             prefs.edit().putBoolean("peak_gain_free_8130", true).apply()
             try { PipelineHealthCollector.labelInc("KILL_SWITCH_PEAK_REANCHORED_8130") } catch (_: Throwable) {}
@@ -460,7 +462,7 @@ object KillSwitch {
         
         // 1. Max Daily Loss
         val dailyPnlPct = if (dailyStartBalance > 0) {
-            ((currentBalance - dailyStartBalance) / dailyStartBalance) * 100
+            dailyPnlPct8136(currentBalance)
         } else 0.0
         
         if (dailyPnlPct <= -maxDailyLossPct) {
@@ -533,7 +535,7 @@ object KillSwitch {
         
         // Check daily loss
         val dailyPnlPct = if (dailyStartBalance > 0) {
-            ((currentBalance - dailyStartBalance) / dailyStartBalance) * 100
+            dailyPnlPct8136(currentBalance)
         } else 0.0
         
         val notes7864 = ArrayList<String>(3)
@@ -574,7 +576,7 @@ object KillSwitch {
     ): KillSwitchState {
         
         val dailyPnlPct = if (dailyStartBalance > 0) {
-            ((currentBalance - dailyStartBalance) / dailyStartBalance) * 100
+            dailyPnlPct8136(currentBalance)
         } else 0.0
         
         val drawdownPct = com.lifecyclebot.engine.truth.CapitalDrawdown7948.peekPct7948(currentBalance)
@@ -650,6 +652,19 @@ object KillSwitch {
     // Private helpers
     // ════════════════════════════════════════════════════════════════
     
+    /**
+     * V5.0.8136 — today's P&L percent net of the deposits / withdrawals CapitalDrawdown7948 confirmed since the day
+     * started (CashEquityBook8136.dailyPnlPct8136): moving SOL in or out is not a trading gain or a daily loss.
+     */
+    private fun dailyPnlPct8136(currentBalance: Double): Double {
+        val flows = try { com.lifecyclebot.engine.truth.CapitalDrawdown7948.flowsSince8136(dailyStartDate) } catch (_: Throwable) { 0.0 }
+        return com.lifecyclebot.engine.truth.CashEquityBook8136.dailyPnlPct8136(currentBalance, dailyStartBalance, flows)
+    }
+
+    private fun heroUpnl8136(): Double = try {
+        com.lifecyclebot.engine.truth.HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0
+    } catch (_: Throwable) { 0.0 }
+
     private fun sizeDownNotice7864(reason: String, details: String) {
         try { PipelineHealthCollector.labelInc("KILL_SWITCH_LIMIT_SIZE_DOWN_7864:$reason") } catch (_: Throwable) {}
         ErrorLogger.warn("KillSwitch", "⚠️ $reason: $details — sizing down (LiveRiskPolicy7807), not halting")
