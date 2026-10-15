@@ -269,6 +269,8 @@ object QualityTraderAI {
         // V5.4: was hard $20K floor; now $5K bootstrap → $20K mature
         val learningProgress = FluidLearningAI.getLearningProgress()
         val minLiqUsd = (3_000 + learningProgress * 7_000).coerceIn(3_000.0, MIN_LIQUIDITY_USD)  // V5.9.335: loosened
+        // V5.0.8140 — an unread pool defers (never "low"); a real one below the floor refuses, naming QUALITY.
+        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("QUALITY", liquidityUsd, minLiqUsd)?.let { return QualitySignal(false, reason = it) }
         if (liquidityUsd < minLiqUsd) {
             return QualitySignal(false, reason = "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiqUsd.toInt()} (learning=${(learningProgress*100).toInt()}%)")
         }

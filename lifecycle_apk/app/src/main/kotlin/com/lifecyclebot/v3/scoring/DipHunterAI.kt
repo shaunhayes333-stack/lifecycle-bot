@@ -305,7 +305,8 @@ object DipHunterAI {
             return noDip("MCAP_TOO_HIGH: \$${(marketCapUsd/1_000_000).fmt(1)}M")
         }
         
-        // Liquidity check
+        // Liquidity check — V5.0.8140: an unread pool defers (never "low"); a real one below the floor refuses, naming DIP_HUNTER.
+        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("DIP_HUNTER", liquidityUsd, MIN_LIQUIDITY_USD)?.let { return noDip(it) }
         if (liquidityUsd < MIN_LIQUIDITY_USD) {
             return noDip("LIQ_TOO_LOW: \$${liquidityUsd.toInt()}")
         }

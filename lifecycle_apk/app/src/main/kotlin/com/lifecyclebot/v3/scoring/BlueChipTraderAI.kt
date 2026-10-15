@@ -641,6 +641,20 @@ object BlueChipTraderAI {
         
         // 2. LIQUIDITY FILTER - Must have real liquidity
         val minLiq = getFluidMinLiquidity()
+        // V5.0.8140 — an unread pool defers (never "low"); a real one below the floor refuses, naming BLUECHIP.
+        val liqRefusal8140 = com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("BLUECHIP", liquidityUsd, minLiq)
+        if (liqRefusal8140 != null) {
+            return BlueChipSignal(
+                shouldEnter = false,
+                positionSizeSol = 0.0,
+                takeProfitPct = 0.0,
+                stopLossPct = 0.0,
+                confidence = 0,
+                reason = liqRefusal8140,
+                mode = mode,
+                isPaperMode = isPaperMode
+            )
+        }
         if (liquidityUsd < minLiq) {
             return BlueChipSignal(
                 shouldEnter = false,

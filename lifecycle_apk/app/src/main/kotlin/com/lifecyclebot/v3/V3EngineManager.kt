@@ -224,6 +224,14 @@ object V3EngineManager {
     fun isReady(): Boolean = true
 
     /**
+     * V5.0.8140 — V3's launch-age window (paper 48 h / live 6 h). A launch-lane rule only:
+     * EligibilityGate applies it to tokens no established lane could trade
+     * (LaneAgeLiquidityScope8140.v3AgeWindowRefuses8140) and SHITCOIN applies it on true age.
+     */
+    fun launchAgeWindowMinutes8140(): Double =
+        config?.maxTokenAgeMinutes ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) 2880.0 else 360.0
+
+    /**
      * Get current V3 mode.
      */
     fun getMode(): V3BotMode = context?.mode ?: V3BotMode.PAPER
@@ -296,6 +304,8 @@ object V3EngineManager {
         marketRegime: String = "NEUTRAL",
         isAIDegraded: Boolean = false
     ): V3Decision {
+        // V5.0.8140 — hydrate the pool before V3 and every lane read it; an unread (not proven-zero) pool defers.
+        val liqDefer8140 = com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.v3LiquidityDeferReason8140(ts)
         // V5.9.1003 — FLUID: never hard-block. If orchestrator not ready,
         // return WATCH so FDG + legacy lane scoring still decides the trade.
         // The bot trades in all layers from trade 1, no gate required.
@@ -307,6 +317,7 @@ object V3EngineManager {
         return try {
             val currentContext = context ?: return V3Decision.watch(score = ts.entryScore.toInt().coerceIn(0, 100), confidence = 50)
             val currentBotConfig = botConfig ?: return V3Decision.watch(score = ts.entryScore.toInt().coerceIn(0, 100), confidence = 50)
+            if (liqDefer8140 != null) return V3Decision.rejected(liqDefer8140)
 
             // V5.0.7440 — age-dependent routing waits for canonical birth.
             val tokenAgeMinutes = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)

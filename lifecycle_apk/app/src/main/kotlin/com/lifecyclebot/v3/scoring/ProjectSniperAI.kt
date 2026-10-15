@@ -334,7 +334,8 @@ object ProjectSniperAI {
         // MARKET ASSESSMENT
         // ═══════════════════════════════════════════════════════════════════
         
-        // Liquidity check
+        // Liquidity check — V5.0.8140: an unread pool defers (never "low"); a real one below the floor refuses, naming PROJECT_SNIPER.
+        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("PROJECT_SNIPER", ts.lastLiquidityUsd, MIN_LIQUIDITY_USD)?.let { return noEngage(it, tokenAgeSecs) }
         if (ts.lastLiquidityUsd < MIN_LIQUIDITY_USD) {
             return noEngage("LOW_LIQ: \$${ts.lastLiquidityUsd.toInt()} < \$${MIN_LIQUIDITY_USD.toInt()}", tokenAgeSecs)
         }

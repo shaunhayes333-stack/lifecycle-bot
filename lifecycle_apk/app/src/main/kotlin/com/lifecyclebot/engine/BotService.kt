@@ -28919,7 +28919,7 @@ if (hotExitHandledSweep) {
                             marketCapUsd = ts.lastMcap,
                             liquidityUsd = ts.lastLiquidityUsd,
                             buyPressure = ts.lastBuyPressurePct.toInt(),
-                            tokenAgeMinutes = qualityTokenAgeMinutes,
+                            tokenAgeMinutes = LaneAgeLiquidityTruth8140.establishedAgeMinutes8140(ts, qualityTokenAgeMinutes), // V5.0.8140 — raised to chain truth
                             holderCount = qualityHolderCount,
                             topHolderPct = laneTopHolderPct7809(ts),  // V5.0.7809 — Field Manual L345
                             v3Score = v3Score,
@@ -29902,15 +29902,12 @@ if (hotExitHandledSweep) {
                             )
                         } catch (_: Throwable) {}
                     } else {
-                        // Calculate token age
-                        val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
-                            (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                        } else {
-                            120.0  // Default 2 hours if unknown
-                        }
-                        
+                        // V5.0.8140 — a launch lane reads TRUE chain age (mint birth / pair creation), never
+                        // watchlist first-seen; unknown birth defers and V3's launch window binds on true age.
+                        val tokenAgeMinutes = LaneAgeLiquidityTruth8140.launchAgeMinutesOr8140(ts, 120.0)
+
                         // Check if this qualifies as a shitcoin candidate
-                        if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
+                        if (!LaneAgeLiquidityTruth8140.launchLaneAgeBlocked8140(ts, "SHITCOIN") && com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
                             marketCapUsd = ts.lastMcap,
                             tokenAgeMinutes = tokenAgeMinutes
                         )) {
@@ -30769,10 +30766,8 @@ if (hotExitHandledSweep) {
                 // V5.7.8: Express runs independently, but V5.0.3817 routes it through
                 // the shared bounded lane gate so coverage reports prove it is alive.
                 try {
-                    val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
-                        (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                    } else 60.0
-                    
+                    val tokenAgeMinutes = LaneAgeLiquidityTruth8140.launchAgeMinutesOr8140(ts, 60.0) // V5.0.8140 — true chain age, not watchlist
+
                     // V5.6.29d: Lowered pre-filter to match ShitCoinExpress.kt (was 5%/55%, now 3%/50%)
                     // V5.9.117: Fluid bootstrap gates — mirror ShitCoinExpress's own
                     // fluid gates so fresh-launch tokens with no momentum history
@@ -31369,7 +31364,8 @@ if (hotExitHandledSweep) {
                     // V5.0.7389 — real token age from the first pool (PoolCreationTime7385).
                     // Watchlist age meant a 2-hour-old token had to sit on the watchlist
                     // for 2 hours first; memes are evicted long before, so DIP never fired.
-                    val poolAgeSecs7389 = try { com.lifecyclebot.engine.truth.PoolCreationTime7385.ageSecs(ts.mint) } catch (_: Throwable) { null }
+                    // V5.0.8140 — canonical chain birth (token meta / pump create / first pool), not only the pool witness.
+                    val poolAgeSecs7389 = LaneAgeLiquidityTruth8140.chainAgeSecs8140(ts)
                     val tokenAgeHours = if (poolAgeSecs7389 != null) {
                         poolAgeSecs7389 / 3600.0
                     } else if (ts.addedToWatchlistAt > 0) {

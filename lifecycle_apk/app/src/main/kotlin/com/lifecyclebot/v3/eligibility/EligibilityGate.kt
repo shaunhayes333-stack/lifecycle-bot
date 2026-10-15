@@ -256,9 +256,15 @@ class EligibilityGate(
             }
         }
 
-        // Too old = stale opportunity
-        if (candidate.ageMinutes > config.maxTokenAgeMinutes) {
+        // Too old = stale opportunity — V5.0.8140: for a LAUNCH only. The window (live 6 h) is a
+        // launch-lane rule; an old token with a real established-lane pool is scored, not refused
+        // (CORE / QUALITY / BLUECHIP / DIP_HUNTER / TREASURY / MOONSHOT need that score). SHITCOIN
+        // applies the same window on true age itself (LaneAgeLiquidityTruth8140).
+        if (com.lifecyclebot.engine.LaneAgeLiquidityScope8140.v3AgeWindowRefuses8140(candidate.ageMinutes, config.maxTokenAgeMinutes, candidate.liquidityUsd)) {
             return EligibilityResult.fail("TOO_OLD")
+        }
+        if (candidate.ageMinutes > config.maxTokenAgeMinutes) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_AGE_WINDOW_ESTABLISHED_SCOPE_SCORED_8140") } catch (_: Throwable) {}
         }
 
         // Below min liquidity = too risky

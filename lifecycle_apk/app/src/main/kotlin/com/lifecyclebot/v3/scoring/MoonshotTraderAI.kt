@@ -494,6 +494,8 @@ object MoonshotTraderAI {
             val ts7389 = com.lifecyclebot.engine.BotService.status.tokens[mint]
             if (ts7389 != null) maxOf(liquidityUsd, com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts7389)) else liquidityUsd
         } catch (_: Throwable) { liquidityUsd }
+        // V5.0.8140 — an unread pool defers (never "low"); a real one below the floor refuses, naming MOONSHOT.
+        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("MOONSHOT", liquidityObserved7389, minLiq)?.let { return MoonshotScore(false, 0, 0.0, it) }
         if (liquidityObserved7389 < minLiq) {
             return MoonshotScore(false, 0, 0.0, "liq_too_low_${(liquidityObserved7389/1000).toInt()}K")
         }

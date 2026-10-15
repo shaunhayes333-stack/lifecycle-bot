@@ -317,7 +317,8 @@ object ShitCoinExpress {
             return noRide("MCAP_TOO_LOW: \$${marketCapUsd.toInt()}")
         }
         
-        // Minimum liquidity
+        // Minimum liquidity — V5.0.8140: an unread pool defers (never "low"); a real one below $1k refuses, naming EXPRESS.
+        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("EXPRESS", liquidityUsd, 1_000.0)?.let { return noRide(it) }
         if (liquidityUsd < 1_000) {
             return noRide("LIQ_TOO_LOW: \$${liquidityUsd.toInt()}")
         }
