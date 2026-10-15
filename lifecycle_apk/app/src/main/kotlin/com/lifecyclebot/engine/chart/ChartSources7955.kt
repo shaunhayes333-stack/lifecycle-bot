@@ -759,6 +759,8 @@ object ChartSources7955 {
         val toSec = now / 1000L
         val sources: List<Pair<String, () -> List<Bar7950>?>> = listOf(
             "geckoFeed" to { feedBars(mint) },
+            // V5.0.8128 — keyless local rung: the bot's own trade / mark tapes (every rung below needs a key).
+            "localTape8128" to { LocalTapeBars8128.bars8128(mint, now, BACKFILL_MINUTES * 60_000L, solUsd()) },
             MORALIS to { moralisBars(mint, fromSec, toSec) },
             SOLTRACKER to { keyedBars(SOLTRACKER, "https://data.solanatracker.io/chart/$mint?type=1m&time_from=$fromSec&time_to=$toSec", solTrackerHeaders(), null) { ChartParsers7955.solanaTracker7955(JSONObject(it)) } },
             CODEX to { keyedBars(CODEX, "https://graph.codex.io/graphql", codexHeaders(), codexBody(mint, fromSec, toSec)) { ChartParsers7955.codex7955(JSONObject(it)) } },

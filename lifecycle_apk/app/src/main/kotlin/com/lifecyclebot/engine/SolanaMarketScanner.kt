@@ -1692,7 +1692,48 @@ class SolanaMarketScanner(
         }
     }
 
+    /**
+     * V5.0.8128 — the empty-scan fallback asked DexScreener profiles, the provider most scans had just failed on.
+     * The market sweep's last snapshot (Jupiter / Raydium / Helius rows, no request made here) is asked first;
+     * its figures are the providers' own, 0 stays unknown. Returns the candidates emitted.
+     */
+    private suspend fun scanEmergencySweepRows8128(): Int {
+        val rows = try { com.lifecyclebot.engine.market.MarketSweep7297.emergencyRows8128() } catch (_: Throwable) { emptyList() }
+        var found = 0
+        for (r in rows) {
+            if (isSeen(r.mint)) continue
+            if (r.symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
+            // Same convention as the DexScreener emergency pass below: an unknown age is read as an established 24 h.
+            val ageHours = if (r.ageHours > 0.0) r.ageHours else 24.0
+            val token = ScannedToken(
+                mint = r.mint,
+                symbol = r.symbol.ifBlank { r.mint.take(6) },
+                name = r.name.ifBlank { r.symbol.ifBlank { r.mint.take(6) } },
+                source = TokenSource.DEX_TRENDING,
+                liquidityUsd = r.liquidityUsd,
+                volumeH1 = r.volumeH1Usd,
+                mcapUsd = r.mcapUsd,
+                pairCreatedHoursAgo = ageHours,
+                dexId = "sweep-emergency-8128",
+                priceChangeH1 = r.priceChangeH1Pct,
+                txCountH1 = r.txCountH1,
+                score = scoreToken(r.liquidityUsd, r.volumeH1Usd, r.txCountH1, r.mcapUsd, r.priceChangeH1Pct, ageHours).coerceAtLeast(10.0),
+                priceUsd = r.priceUsd,
+            )
+            if (passesFilter(token)) {
+                emitWithRugcheck(token)
+                found++
+            }
+        }
+        if (found > 0) {
+            ErrorLogger.warn("Scanner", "🛟 Emergency scanner fallback (market sweep 8128) emitted $found candidates")
+            onLog("🛟 Emergency scanner fallback (market sweep) emitted $found candidates")
+        }
+        return found
+    }
+
     private suspend fun scanEmergencyDexProfiles() {
+        if (scanEmergencySweepRows8128() > 0) return  // V5.0.8128 — sweep rows first; DexScreener profiles only after
         val url = "https://api.dexscreener.com/token-profiles/latest/v1?chainId=solana"
         ErrorLogger.warn("Scanner", "🛟 Emergency scanner fallback: fetching latest Solana token profiles")
         val body = getWithRetry(url, maxRetries = 2) ?: return
@@ -3566,7 +3607,52 @@ class SolanaMarketScanner(
         }
     }
 
+    /**
+     * V5.0.8128 — scanRaydiumNewPools was GeckoTerminal new_pools under a Raydium name, so a GeckoTerminal 429
+     * killed this source too. Raydium api-v3 (sr=100%) lists the pools itself: SOL/USDC-paired, opened in the
+     * last 48 h, newest first. True when Raydium served any new pool (GeckoTerminal is then not asked).
+     */
+    private suspend fun scanRaydiumApiNewPools8128(): Boolean {
+        try {
+            val pools = withContext(Dispatchers.IO) { com.lifecyclebot.network.RaydiumMintPools8128.fetchNewPools8128() }
+            if (pools.isEmpty()) return false
+            val nowSec = System.currentTimeMillis() / 1000L
+            var found = 0
+            for (p in pools) {
+                if (found >= 30) break
+                if (isSeen(p.mint)) continue
+                val ageHours = (nowSec - p.openTimeSec) / 3_600.0
+                val token = ScannedToken(
+                    mint = p.mint,
+                    symbol = p.symbol.ifBlank { p.mint.take(6) },
+                    name = p.name.ifBlank { p.symbol.ifBlank { p.mint.take(6) } },
+                    source = TokenSource.RAYDIUM_NEW_POOL,
+                    liquidityUsd = p.tvlUsd,
+                    volumeH1 = 0.0,      // Raydium reports a day's volume only; an hour is not derived from it
+                    mcapUsd = 0.0,       // unknown here (0 = unmeasured)
+                    pairCreatedHoursAgo = ageHours,
+                    dexId = "raydium",
+                    priceChangeH1 = 0.0,
+                    txCountH1 = 0,
+                    score = scoreToken(p.tvlUsd, 0.0, 0, 0.0, 0.0, ageHours),
+                )
+                if (passesFilter(token)) {
+                    emitWithRugcheck(token)
+                    found++
+                }
+            }
+            ErrorLogger.info("Scanner", "scanRaydiumNewPools (Raydium api-v3 8128): ${pools.size} new pools, emitted $found")
+            return true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanRaydiumApiNewPools8128 error: ${e.message}")
+            return false
+        }
+    }
+
     private suspend fun scanRaydiumNewPools() {
+        if (scanRaydiumApiNewPools8128()) return  // V5.0.8128 — Raydium first; GeckoTerminal below is the fallback
         // GeckoTerminal NEW Solana pools — free, no API key, catches launches before they trend
         try {
             val url = "https://api.geckoterminal.com/api/v2/networks/solana/new_pools?page=1"

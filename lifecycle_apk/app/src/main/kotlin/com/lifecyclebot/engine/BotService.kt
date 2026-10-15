@@ -34878,14 +34878,21 @@ if (hotExitHandledSweep) {
     private fun synthesizeFallbackPair(ts: com.lifecyclebot.data.TokenState): com.lifecyclebot.network.PairInfo? {
         if (ts.lastPrice <= 0.0) return null
         val nowMs = System.currentTimeMillis()
+        // V5.0.8128 — DexScreener had no pair: Raydium's deepest pool (cached, asked off-thread) and the on-chain
+        // supply fill what the stand-in left blank; Jupiter's holder count fills the candle. Unknown stays 0.
+        val ray8128 = com.lifecyclebot.network.RaydiumMintPools8128.cached8128(ts.mint)
+        com.lifecyclebot.network.RaydiumMintPools8128.fillPairAddress8128(ts, ray8128)
+        val mcap8128 = com.lifecyclebot.network.RaydiumMintPools8128.standInMcap8128(ts.lastMcap, ts.lastPrice,
+            com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(ts.mint))
         val candle = com.lifecyclebot.data.Candle(
             ts = nowMs,
             priceUsd = ts.lastPrice,
-            marketCap = ts.lastMcap.coerceAtLeast(0.0),
+            marketCap = mcap8128,
             volumeH1 = 0.0,
             volume24h = 0.0,
             buysH1 = 0,
             sellsH1 = 0,
+            holderCount = com.lifecyclebot.network.JupiterHolders8128.holders8128(ts.mint) ?: 0,
             highUsd = ts.lastPrice,
             lowUsd = ts.lastPrice,
             openUsd = ts.lastPrice,
@@ -34906,8 +34913,8 @@ if (hotExitHandledSweep) {
             url = url,
             candle = candle,
             pairCreatedAtMs = ts.addedToWatchlistAt.takeIf { it > 0 } ?: nowMs,
-            liquidity = ts.lastLiquidityUsd.coerceAtLeast(0.0),
-            fdv = ts.lastFdv.takeIf { it > 0 } ?: ts.lastMcap.coerceAtLeast(0.0),
+            liquidity = com.lifecyclebot.network.RaydiumMintPools8128.standInLiquidity8128(ts.lastLiquidityUsd, ray8128),
+            fdv = ts.lastFdv.takeIf { it > 0 } ?: mcap8128,
             baseTokenAddress = ts.mint,
         )
     }

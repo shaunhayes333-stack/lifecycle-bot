@@ -346,6 +346,37 @@ object MarketSweep7297 {
         return prev
     }
 
+    // ── V5.0.8128 — the last sweep as a second source ──
+    // Audit: Jupiter rows carry holderCount (Row.holders) but nothing outside the hunters read it, so every
+    // Candle.holderCount stayed 0; and the scanner's empty-scan fallback asked DexScreener again, the provider
+    // that had just failed. Both read the last snapshot, only while it is young enough to stand in.
+    private const val SNAPSHOT_STANDIN_MS_8128 = 20L * 60_000L
+    @Volatile private var holderIndex8128: Pair<Long, Map<String, Int>> = 0L to emptyMap()
+
+    /** Pure: mint -> holder count for every row that carries one (0 = not supplied, left out). */
+    internal fun holderIndexOf8128(rows: List<Row>): Map<String, Int> =
+        rows.filter { it.holders > 0 }.associate { it.mint to it.holders }
+
+    /** [mint]'s holder count from the last sweep, or null (not listed, or the snapshot is too old). */
+    fun holdersFor8128(mint: String, nowMs: Long = System.currentTimeMillis()): Int? {
+        val snap = last ?: return null
+        if (nowMs - snap.atMs > SNAPSHOT_STANDIN_MS_8128) return null
+        var idx = holderIndex8128
+        if (idx.first != snap.atMs) { idx = snap.atMs to holderIndexOf8128(snap.rows); holderIndex8128 = idx }
+        return idx.second[mint]
+    }
+
+    /** Pure: [snap]'s rows for the scanner's emergency pass, busiest hour first; empty when there is no young snapshot. */
+    internal fun emergencyRowsOf8128(snap: Snapshot?, nowMs: Long, max: Int): List<Row> {
+        if (snap == null || nowMs - snap.atMs !in 0L..SNAPSHOT_STANDIN_MS_8128) return emptyList()
+        return snap.rows.filter { it.mint.length >= 32 && it.mint !in QUOTE_MINTS }
+            .sortedByDescending { if (it.volumeH1Usd.isFinite()) it.volumeH1Usd else 0.0 }
+            .take(max)
+    }
+
+    /** SolanaMarketScanner: the last sweep's rows when a whole scan came back empty. */
+    fun emergencyRows8128(nowMs: Long = System.currentTimeMillis(), max: Int = 100): List<Row> = emergencyRowsOf8128(last, nowMs, max)
+
     /** Pure: combine rows for one mint, keeping every provider-supplied value. */
     fun merge(rows: List<Row>): List<Row> =
         rows.filter { it.mint.length >= 32 && it.mint !in QUOTE_MINTS }

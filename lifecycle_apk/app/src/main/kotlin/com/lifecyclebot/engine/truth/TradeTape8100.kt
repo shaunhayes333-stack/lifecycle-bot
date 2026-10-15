@@ -99,6 +99,15 @@ object TradeTape8100 {
         try { PipelineHealthCollector.labelInc("TRADE_TAPE_FILLED_8100_$feature") } catch (_: Throwable) {}
     }
 
+    /** V5.0.8128 — one executed curve print (SOL per token, SOL size), read by the chart backfill's keyless local rung. */
+    data class Print8128(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean)
+
+    /** V5.0.8128 — [mint]'s executed prints inside [windowMs] before [nowMs], oldest first (a copy; the tape is not changed). */
+    fun prints8128(mint: String, nowMs: Long, windowMs: Long): List<Print8128> {
+        val q = tapes[mint] ?: return emptyList()
+        return synchronized(q) { q.filter { nowMs - it.atMs in 0L..windowMs }.map { Print8128(it.atMs, it.priceSol, it.sol, it.isBuy) } }
+    }
+
     fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()}"
 
     internal fun resetForTest8100() { tapes.clear(); notes.set(0); reads.set(0); filled.set(0) }

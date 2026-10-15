@@ -146,6 +146,7 @@ class DexscreenerApi {
             }
         }
         var result = best?.let { parsePair(it) }
+        if (chainId == "solana") result = result?.let { withHolders8128(it, tokenAddress) }  // V5.0.8128
         // Fallback only — and only to a host that is not circuit-broken.
         if (result == null && allowDexPaprika) {
             // V5.0.7809 — also out when DexPaprika is latched terminal (401/402/403).
@@ -225,6 +226,17 @@ class DexscreenerApi {
                 pairCreatedAt = try { java.time.Instant.parse(json.optString("added_at", "")).toEpochMilli() } catch (_: Throwable) { 0L },
             )
         } catch (_: Throwable) { null }
+    }
+
+    /**
+     * V5.0.8128 — DexScreener carries no holder count, and nothing else filled Candle.holderCount, so
+     * peakHolderCount / holderGrowthRate read 0 on every token. Jupiter's count (sweep row or paced
+     * on-demand search) is stamped on the best pair's candle; no answer leaves it 0 (unknown).
+     */
+    private fun withHolders8128(pair: PairInfo, mint: String): PairInfo {
+        if (pair.candle.holderCount > 0) return pair
+        val h = try { JupiterHolders8128.holders8128(mint) } catch (_: Throwable) { null } ?: return pair
+        return pair.copy(candle = pair.candle.copy(holderCount = h))
     }
 
     private fun scorePair(p: JSONObject): Double {

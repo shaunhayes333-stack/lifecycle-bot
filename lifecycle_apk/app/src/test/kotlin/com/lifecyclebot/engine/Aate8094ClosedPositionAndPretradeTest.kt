@@ -884,4 +884,126 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(d.peakStepCorroborated8128("noJump8128Mint", 60.0, 150.0, 1.0))
         assertFalse(d.peakStepCorroborated8128("phantom8128Mint", 0.0, 1987.0, 8.06e-5))
     }
+
+    // ── V5.0.8128 — single-source data fallbacks ──
+
+    @Test fun aCandidateWithoutADexScreenerPairTakesRaydiumsPoolAndTvl() {
+        val r = com.lifecyclebot.network.RaydiumMintPools8128
+        val mint = "Ray8128Mint".padEnd(44, 'A')
+        val pool = "Pool8128Id".padEnd(44, 'B')
+        val usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        val sol = "So11111111111111111111111111111111111111112"
+        val p = r.parsePool8128("""{"success":true,"data":{"count":1,"data":[{"id":"$pool","mintA":{"address":"$mint"},"mintB":{"address":"$usdc"},"tvl":42000.5,"price":0.0025}]}}""", mint)!!
+        assertEquals(pool, p.poolId)
+        assertEquals(42_000.5, p.tvlUsd, 1e-9)
+        assertEquals(0.0025, p.priceUsd!!, 1e-12)
+        // SOL-quoted: Raydium's price is a pool ratio (SOL per token), not USD -> no price.
+        assertNull(r.parsePool8128("""{"data":{"data":[{"id":"$pool","mintA":{"address":"$sol"},"mintB":{"address":"$mint"},"tvl":900,"price":12.0}]}}""", mint)!!.priceUsd)
+        // A pool of another mint, an empty page, garbage: nothing.
+        assertNull(r.parsePool8128("""{"data":{"data":[{"id":"$pool","mintA":{"address":"$sol"},"mintB":{"address":"$usdc"},"tvl":9}]}}""", mint))
+        assertNull(r.parsePool8128("""{"success":true,"data":{"count":0,"data":[]}}""", mint))
+        assertNull(r.parsePool8128("not json", mint))
+        // Known liquidity wins (a Raydium-only TVL must not read as a drain); TVL fills only an unknown one.
+        assertEquals(15_000.0, r.standInLiquidity8128(15_000.0, p), 1e-9)
+        assertEquals(42_000.5, r.standInLiquidity8128(0.0, p), 1e-9)
+        assertEquals(0.0, r.standInLiquidity8128(0.0, null), 1e-9)
+        // Market cap: known wins; else price x on-chain supply; else unknown.
+        assertEquals(50_000.0, r.standInMcap8128(50_000.0, 1.0, 9.0), 1e-9)
+        assertEquals(20_000.0, r.standInMcap8128(0.0, 0.00002, 1.0e9), 1e-6)
+        assertEquals(0.0, r.standInMcap8128(0.0, 0.00002, 0.0), 1e-9)
+        // The pool id fills only a blank pair, never a pump.fun mint / source (bonding-curve route).
+        assertEquals(pool, r.pairAddressFill8128("", "DEX_TRENDING", false, p))
+        assertNull(r.pairAddressFill8128("ExistingPair8128", "DEX_TRENDING", false, p))
+        assertNull(r.pairAddressFill8128("", "PUMP_FUN_NEW", false, p))
+        assertNull(r.pairAddressFill8128("", "DEX_TRENDING", true, p))
+        assertNull(r.pairAddressFill8128("", "DEX_TRENDING", false, null))
+        // The stand-in pair itself stays SYNTHETIC (blank pairAddress) so 7271 never relabels a seed price.
+        val synth = src("engine/BotService.kt").substringAfter("private fun synthesizeFallbackPair(").substringBefore("private fun refreshExitMarkFromVenue7948(")
+        assertTrue(synth.contains("pairAddress = \"\","))
+        assertTrue(synth.contains("RaydiumMintPools8128.standInLiquidity8128(ts.lastLiquidityUsd, ray8128)"))
+        assertTrue(synth.contains("RaydiumMintPools8128.fillPairAddress8128(ts, ray8128)"))
+    }
+
+    @Test fun theRaydiumScannerAsksRaydiumAndAnEmptyScanFallsBackToTheSweep() {
+        val r = com.lifecyclebot.network.RaydiumMintPools8128
+        val sol = "So11111111111111111111111111111111111111112"
+        val usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        val now = 2_000_000_000L
+        fun pool(id: String, a: String, b: String, open: Long) =
+            """{"id":"${id.padEnd(44, '1')}","mintA":{"address":"$a","symbol":"A","name":"Alpha"},"mintB":{"address":"$b","symbol":"B","name":"Beta"},"tvl":5000,"day":{"volume":800},"openTime":"$open"}"""
+        val newA = "NewA8128".padEnd(44, 'A')
+        val newB = "NewB8128".padEnd(44, 'B')
+        val body = """{"success":true,"data":{"data":[
+            ${pool("P1", newA, sol, now - 3_600)},
+            ${pool("P2", usdc, newB, now - 600)},
+            ${pool("P3", sol, usdc, now - 60)},
+            ${pool("P4", "Old8128".padEnd(44, 'O'), sol, now - 30L * 86_400L)},
+            ${pool("P5", "OthX8128".padEnd(44, 'X'), "OthY8128".padEnd(44, 'Y'), now - 60)},
+            ${pool("P6", "NoTime8128".padEnd(44, 'T'), sol, 0L)}]}}"""
+        val pools = r.parseNewPools8128(body, now)
+        // Newest first; quote/quote, unquoted, old and undated pools left out.
+        assertEquals(listOf(newB, newA), pools.map { it.mint })
+        assertEquals("Beta", pools[0].name)
+        assertEquals(5_000.0, pools[0].tvlUsd, 1e-9)
+        assertEquals(800.0, pools[0].volume24hUsd, 1e-9)
+        assertTrue(r.parseNewPools8128("""{"data":{"data":[]}}""", now).isEmpty())
+        assertTrue(r.parseNewPools8128(null, now).isEmpty())
+        val scanner = src("engine/SolanaMarketScanner.kt")
+        assertTrue(scanner.contains("if (scanRaydiumApiNewPools8128()) return"))
+        assertTrue(scanner.contains("if (scanEmergencySweepRows8128() > 0) return"))
+        // The sweep stands in only while it is young, and never offers a quote mint.
+        val m = com.lifecyclebot.engine.market.MarketSweep7297
+        val row = com.lifecyclebot.engine.market.MarketSweep7297.Row("Swp8128Mint".padEnd(44, 'S'), "S", "S",
+            1.0, 50_000.0, 10_000.0, 1_000.0, 10_000.0, 5.0, 10, 321, 50.0, false, 1.0, setOf("JUP_TRENDING"))
+        val snap = com.lifecyclebot.engine.market.MarketSweep7297.Snapshot(listOf(row, row.copy(mint = sol)), emptyMap(), emptyMap(), 1_000_000L)
+        assertEquals(listOf(row.mint), m.emergencyRowsOf8128(snap, 1_000_000L + 60_000L, 100).map { it.mint })
+        assertTrue(m.emergencyRowsOf8128(snap, 1_000_000L + 30L * 60_000L, 100).isEmpty())
+        assertTrue(m.emergencyRowsOf8128(null, 1_000_000L, 100).isEmpty())
+    }
+
+    @Test fun aShortChartIsBackfilledFromTheBotsOwnTapesWithoutInventingBars() {
+        val L = com.lifecyclebot.engine.chart.LocalTapeBars8128
+        val t0 = 60_000L * 1_000L
+        fun prt(min: Int, sec: Int, px: Double, sol: Double, buy: Boolean) =
+            com.lifecyclebot.engine.truth.TradeTape8100.Print8128(t0 + min * 60_000L + sec * 1_000L, px, sol, buy)
+        val prints = (0 until 12).flatMap { m -> listOf(prt(m, 5, 1e-6 * (1 + m * 0.01), 2.0, true), prt(m, 40, 1.2e-6, 1.0, false)) }
+        val bars = L.fromPrints8128(prints, 150.0)!!
+        assertEquals(12, bars.size)
+        val b0 = bars.first()
+        assertEquals(t0, b0.t)
+        assertEquals(1e-6 * 150.0, b0.o, 1e-15)
+        assertEquals(1.2e-6 * 150.0, b0.h, 1e-15)
+        assertEquals(1.2e-6 * 150.0, b0.c, 1e-15)
+        assertEquals(3.0 * 150.0, b0.v, 1e-9)        // USD here; the backfill loop turns it back into SOL
+        assertEquals(2.0 * 150.0, b0.buyV, 1e-9)
+        // Nine traded minutes is not enough, and gaps are never filled to reach ten.
+        assertNull(L.fromPrints8128((0 until 9).map { prt(it * 3, 1, 1e-6, 1.0, true) }, 150.0))
+        assertNull(L.fromPrints8128(prints, 0.0))      // no SOL price -> no USD bars
+        val marks = (0 until 10).map { com.lifecyclebot.engine.truth.TradePlan7739.Bar(t0 + it * 60_000L, 1.0, 1.1, 0.9, 1.05) }
+        assertEquals(10, L.fromMarks8128(marks)!!.size)
+        assertEquals(0.0, L.fromMarks8128(marks)!!.first().v, 1e-12)   // marks carry no volume; none invented
+        assertNull(L.fromMarks8128(marks.take(9)))
+        assertTrue(src("engine/chart/ChartSources7955.kt").contains("\"localTape8128\" to { LocalTapeBars8128.bars8128(mint, now, BACKFILL_MINUTES * 60_000L, solUsd()) }"))
+    }
+
+    @Test fun holderCountsComeFromJupiterAndAreNeverInvented() {
+        val J = com.lifecyclebot.network.JupiterHolders8128
+        val mint = "Hold8128Mint".padEnd(44, 'H')
+        assertEquals(1234, J.parseHolders8128("""[{"id":"Other8128","holderCount":9},{"id":"$mint","holderCount":1234}]""", mint))
+        assertNull(J.parseHolders8128("""[{"id":"$mint"}]""", mint))
+        assertNull(J.parseHolders8128("""[{"id":"$mint","holderCount":0}]""", mint))
+        assertNull(J.parseHolders8128("[]", mint))
+        assertNull(J.parseHolders8128("{\"error\":1}", mint))
+        // One ask per mint per 10 minutes, and the shared Jupiter host at most every 3 s.
+        assertTrue(J.askDue8128(null, 0L, 10_000L))
+        assertFalse(J.askDue8128(null, 9_000L, 10_000L))
+        assertFalse(J.askDue8128(1_000L, 0L, 1_000L + J.REFRESH_MS_8128 - 1))
+        assertTrue(J.askDue8128(1_000L, 0L, 1_000L + J.REFRESH_MS_8128))
+        val m = com.lifecyclebot.engine.market.MarketSweep7297
+        val row = com.lifecyclebot.engine.market.MarketSweep7297.Row(mint, "H", "H",
+            1.0, 50_000.0, 10_000.0, 1_000.0, 10_000.0, 5.0, 10, 777, 50.0, false, 1.0, setOf("JUP_TRENDING"))
+        assertEquals(mapOf(mint to 777), m.holderIndexOf8128(listOf(row, row.copy(mint = "NoHolders8128".padEnd(44, 'N'), holders = 0))))
+        assertTrue(src("network/DexscreenerApi.kt").contains("if (chainId == \"solana\") result = result?.let { withHolders8128(it, tokenAddress) }"))
+        assertTrue(src("engine/BotService.kt").contains("holderCount = com.lifecyclebot.network.JupiterHolders8128.holders8128(ts.mint) ?: 0,"))
+    }
 }
