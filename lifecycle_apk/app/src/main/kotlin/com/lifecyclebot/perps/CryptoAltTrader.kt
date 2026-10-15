@@ -1300,7 +1300,7 @@ object CryptoAltTrader {
         // Neither channel authorizes a buy; all existing CryptoBrain, FDG,
         // sizing, route and finality gates remain downstream.
         val universe7823 = DynamicAltTokenRegistry.getBlendedOpportunityQueue6544()
-        if (universe7823.isEmpty()) return@withContext
+        if (universe7823.isEmpty()) { drop8135("EMPTY_UNIVERSE"); return@withContext }
         val residentEntries7823 = try {
             CryptoStrategyCandidateBooks7803.priorityAssets7823(1024)
         } catch (_: Throwable) { emptyList() }
@@ -1926,8 +1926,9 @@ object CryptoAltTrader {
                     val executableRows7803 = rows.filter {
                         it.direction == PerpsDirection.LONG || LEVERAGE_VENUE_AVAILABLE_7183
                     }
-                    executableRows7803.firstOrNull { it.strategy7803 == ready7803?.strategy }
-                        ?: executableRows7803.maxByOrNull { it.score * 1000 + it.confidence }
+                    (executableRows7803.firstOrNull { it.strategy7803 == ready7803?.strategy }
+                        ?: executableRows7803.maxByOrNull { it.score * 1000 + it.confidence })
+                        .also { if (it == null) drop8135("NO_EXECUTABLE_DIRECTION") }  // V5.0.8135 — all-SHORT on a spot-only venue
                 }
             // V5.0.6569 — specialist thresholds are features for the shared
             // authority, not a terminal pre-V3 gate. Rank continuously and bound work.
@@ -1950,6 +1951,7 @@ object CryptoAltTrader {
                         val cappedTok6567 = capped.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                             ?: capped.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                         DynamicAltTokenRegistry.markEvaluationDisposition6567(cappedTok6567, "POSITION_CAP_REACHED")
+                        drop8135("POSITION_CAP_REACHED")
                     }
                     break
                 }
@@ -1973,6 +1975,7 @@ object CryptoAltTrader {
                     val openTok6567 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                         ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                     DynamicAltTokenRegistry.markEvaluationDisposition6567(openTok6567, "POSITION_ALREADY_OPEN")
+                    drop8135("POSITION_ALREADY_OPEN")
                     continue
                 }
                 // V5.9.3: respect UI toggle for DynScan signals too
@@ -2132,6 +2135,7 @@ object CryptoAltTrader {
                     val flashSupported = market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS
                     if (!hasMint && !flashSupported) {
                         ErrorLogger.debug(TAG, "🪙 LIVE SKIP: ${market.symbol} — no Solana mint AND not on Flash perps")
+                        drop8135("STATIC_NO_LIVE_ROUTE")
                         continue
                     }
                     if (!hasMint && flashSupported) {
@@ -2143,6 +2147,7 @@ object CryptoAltTrader {
 
                 if (data.price <= 0) {
                     skippedPrice++
+                    drop8135("STATIC_NO_PRICE")
                     if (market.symbol in NO_FEED_SYMBOLS) {
                     ErrorLogger.debug(TAG, "🪙 ${market.symbol}: no feed configured — silenced")
                 } else {
@@ -2270,6 +2275,7 @@ object CryptoAltTrader {
 
         if (v3Filtered.isEmpty()) {
             ErrorLogger.warn(TAG, "🪙 ⚠️ NO SIGNALS — skipping execution")
+            drop8135("STATIC_NO_SIGNALS")
             return
         }
 
@@ -2278,6 +2284,7 @@ object CryptoAltTrader {
         for ((signal, verdict) in v3Filtered) {
             if (activeModePositions7256(positions.values).size >= MAX_POSITIONS) {
                 ErrorLogger.debug(TAG, "Max positions reached (hard cap)")
+                drop8135("STATIC_HARD_CAP")
                 break
             }
             // V5.9.221: At soft cap, try to evict a weak/losing position to make room.
@@ -2286,6 +2293,7 @@ object CryptoAltTrader {
                 val freed = evictWeakestForReplacement(signal.score)
                 if (!freed) {
                     ErrorLogger.debug(TAG, "🪙 Soft cap: no weak slot to replace for ${signal.market.symbol} (score=${signal.score}) — all winners, skipping")
+                    drop8135("STATIC_SOFT_CAP")
                     continue
                 }
             }
@@ -2917,7 +2925,8 @@ object CryptoAltTrader {
             false
         } else isSpot
         val assetType = if (effectiveIsSpot6536) CryptoFinalBuyCandidate.AssetType.SPOT else CryptoFinalBuyCandidate.AssetType.PERP
-        val walletSol = try { WalletManager.getWallet()?.getSolBalance() ?: getEffectiveBalance() } catch (_: Throwable) { getEffectiveBalance() }
+        // V5.0.8135 — paper routes against the paper balance; only live reads the real wallet.
+        val walletSol = if (authoritativePaperMode7425()) getEffectiveBalance() else try { WalletManager.getWallet()?.getSolBalance() ?: getEffectiveBalance() } catch (_: Throwable) { getEffectiveBalance() }
         val route = try { CryptoUniverseRouteResolver.resolve(
             signal.market, walletSol, finalSize,
             assetSymbol6493 = signal.marketSymbol,
@@ -3682,6 +3691,13 @@ object CryptoAltTrader {
             terminalDisposition6613("CANONICAL_INVALID_SEALED_SIZE", "AUTHORITY")
             return
         }
+        // V5.0.8135 — paper/live was read three times per signal; a flip between the gates and the open could send a
+        // paper-sized, paper-gated intent LIVE (skipping the live gates) or open a live-gated intent as paper.
+        if (modeFlipped8135(paper7803, authoritativePaperMode7425())) {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, "MODE_FLIPPED_MID_SIGNAL_8135")
+            terminalDisposition6613("MODE_FLIPPED_MID_SIGNAL_8135", "AUTHORITY")
+            return
+        }
         if (!paper7803 && !com.lifecyclebot.engine.WalletPositionLock.canOpen(
                 "CryptoAlt", canonicalFinalSize6570, WalletManager.cachedSolBalance())) {
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, "LIVE_WALLET_LOCK_7835")
@@ -4042,12 +4058,21 @@ object CryptoAltTrader {
         data class Failed(val reason: String) : LiveCryptoOpenResult7434()
     }
 
+    /** V5.0.8135 — a crypto candidate that leaves the funnel before submission is counted under a named reason. */
+    private fun drop8135(reason: String) {
+        try { PipelineHealthCollector.labelInc("CRYPTO_DROPPED_8135_$reason") } catch (_: Throwable) {}
+    }
+
+    /** Pure. V5.0.8135 — the mode changed between the signal's gates and its open. */
+    internal fun modeFlipped8135(gatedPaper: Boolean, nowPaper: Boolean): Boolean = gatedPaper != nowPaper
+
     /** V5.0.8015 — the shared post-exit lockout (TradeStateMachine) applies to this lane's live buys too. */
     private fun cooldownRefusal8015(mint: String?): String? {
         if (mint.isNullOrBlank()) return null
         val locked = try { com.lifecyclebot.engine.TradeStateMachine.isInCooldown(mint) } catch (_: Throwable) { false }
         // V5.0.8019 — and the cross-lane post-close lockout.
-        if (!locked) return try { com.lifecyclebot.engine.RebuyLockout8019.refusal8019(mint) } catch (_: Throwable) { null }
+        if (!locked) return (try { com.lifecyclebot.engine.RebuyLockout8019.refusal8019(mint) } catch (_: Throwable) { null })
+            ?.also { try { PipelineHealthCollector.labelInc("CRYPTO_LIVE_BUY_REFUSED_$it") } catch (_: Throwable) {} }  // V5.0.8135
         try { PipelineHealthCollector.labelInc("CRYPTO_LIVE_BUY_REFUSED_COOLDOWN_8015") } catch (_: Throwable) {}
         return "CATASTROPHE_COOLDOWN_8015"
     }
