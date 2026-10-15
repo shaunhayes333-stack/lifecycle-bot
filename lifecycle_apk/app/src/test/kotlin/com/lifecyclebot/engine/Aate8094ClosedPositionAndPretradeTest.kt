@@ -555,6 +555,15 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src("engine/Executor.kt").contains("if (opportunityRotation8098(ts, wallet, walletSol)) return true"))
     }
 
+    @Test fun aDegradedProviderReadNoLongerBlocksATokenWithAFreshPrice() {
+        val ex = src("engine/Executor.kt")
+        assertTrue(ex.contains("if (dexSr < 0.70 && jupQSr < 0.60) {"))
+        assertTrue(ex.contains("if (!providerDegradedBuyAllowed8099(ts, layerTag, ec?.entrySetup, ec?.chartPattern, dexSr, jupQSr)) {"))
+        val f = com.lifecyclebot.engine.truth.CandidateMarkFresh8094
+        assertFalse(f.stale8094(0.0001, 1_000_000L, 1_010_000L))   // 10 s old: fresh, buy may proceed
+        assertTrue(f.stale8094(0.0001, 1_000_000L, 1_020_000L))    // 20 s old: still blocked while both providers are down
+    }
+
     @Test fun theScannerRejectStoreIsBoundedAndWritesCoalesced() {
         val s = ScannerHardRejectStore
         val stamps = (1..5_000).map { ScannerHardRejectStore.Reject("m$it", "S", "RUG", "x", it.toLong()) }

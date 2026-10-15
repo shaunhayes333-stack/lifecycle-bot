@@ -14907,6 +14907,30 @@ class Executor(
     }
 
     /**
+     * V5.0.8099 — PROVIDER_DEGRADED_BUY_BLOCK_6264 guards against buying on a stale price while BOTH price surfaces
+     * (DexScreener, Jupiter quote transport) are degraded. 5.0.8096: 11 of 11 live buys refused on that global read while
+     * pump-curve tokens were priced by the PumpPortal trade stream / curve account and Raydium answered 92%. The buy is
+     * allowed when THIS token's own price is fresh (CandidateMarkFresh8094, 15 s) — the executable route's quote, slippage,
+     * wallet and transaction checks still decide downstream — or (unchanged, 6266) when the DNA proves the setup.
+     */
+    private fun providerDegradedBuyAllowed8099(ts: TokenState, layerTag: String, setup: String?, pattern: String?, dexSr: Double, jupQSr: Double): Boolean {
+        val now = System.currentTimeMillis()
+        val fresh = !com.lifecyclebot.engine.truth.CandidateMarkFresh8094.stale8094(ts.lastPrice, ts.lastPriceUpdate, now)
+        if (fresh) {
+            try { PipelineHealthCollector.labelInc("PROVIDER_DEGRADED_TOKEN_PRICE_FRESH_8099") } catch (_: Throwable) {}
+            return true
+        }
+        val dnaBypass6266a = try { com.lifecyclebot.engine.LiveLaneGovernor.dnaApprovedForLane(layerTag, setup, pattern) } catch (_: Throwable) { null }
+        if (dnaBypass6266a == null) return false
+        try {
+            PipelineHealthCollector.labelInc("PROVIDER_DEGRADED_DNA_BYPASS_6266")
+            ForensicLogger.lifecycle("PROVIDER_DEGRADED_DNA_BYPASS_6266",
+                "lane=$layerTag mint=${ts.mint.take(10)} setup=${setup ?: "?"} pattern=${pattern ?: "?"} evidence=$dnaBypass6266a dexSr=${"%.0f".format(dexSr * 100)}% jupQSr=${"%.0f".format(jupQSr * 100)}%")
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
      * V5.0.7951 — is a candidate waiting on capital right now? The one place the
      * rotation asks; repoint it at the specialist-ownership read
      * (capitalDemand7951) when that lands.
@@ -19368,19 +19392,7 @@ class Executor(
                 // trade through the outage — a paralyzed bot cannot grow.
                 // Route-critical still enforced downstream by
                 // ExecutionRouteGuard/LiveProviderQuorum failopen (V5.0.6266).
-                val dnaBypass6266a = try {
-                    com.lifecyclebot.engine.LiveLaneGovernor.dnaApprovedForLane(layerTag, ec?.entrySetup, ec?.chartPattern)
-                } catch (_: Throwable) { null }
-                if (dnaBypass6266a != null) {
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROVIDER_DEGRADED_DNA_BYPASS_6266")
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "PROVIDER_DEGRADED_DNA_BYPASS_6266",
-                            "lane=$layerTag mint=${ts.mint.take(10)} setup=${ec?.entrySetup ?: "?"} pattern=${ec?.chartPattern ?: "?"} evidence=$dnaBypass6266a dexSr=${"%.0f".format(dexSr * 100)}% jupQSr=${"%.0f".format(jupQSr * 100)}%",
-                        )
-                    } catch (_: Throwable) {}
-                    // Fall through — do NOT return; DNA-approved trades execute.
-                } else {
+                if (!providerDegradedBuyAllowed8099(ts, layerTag, ec?.entrySetup, ec?.chartPattern, dexSr, jupQSr)) {
                     val detail = "dexscreener_sr=${"%.0f".format(dexSr * 100)}% jupiter_quote_sr=${"%.0f".format(jupQSr * 100)}% (thresholds 70/60)"
                     liveStage("LIVE_BUY_ABORTED", "reason=PROVIDER_DEGRADED_BUY_BLOCK_6264 detail=$detail")
                     try { emitLiveBuyFail(ts, sol, "PROVIDER_DEGRADED_BUY_BLOCK_6264", detail) } catch (_: Throwable) {}
