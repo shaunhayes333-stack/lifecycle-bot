@@ -12,9 +12,10 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# Owner: every pushed build runs to completion (one group per commit, nothing cancelled) so each APK can be installed.
 concurrency:
-  group: aate-build-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+  group: aate-build-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   build:
