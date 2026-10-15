@@ -59,11 +59,12 @@ class Aate8141IntegrationGapsTest {
     }
 
     @Test fun tier1BeatsTheMoonbagHoldWhileOrdinaryGivebacksStillBankAndHold() {
-        // A banked moonbag at +1100% of a +1408% peak holds an ordinary trail (pinned 7388 behaviour)...
-        assertEquals(MoonbagRunner7322.Action.HOLD_MOONBAG, MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 1100.0, 1408.0, 1408.0))
+        // A banked moonbag still near its peak holds an ordinary trail (tier 1 does not touch ordinary give-backs)...
+        assertTrue(Tier1Deference8141.holdMayAct8141("RAPID_TRAILING_STOP"))
+        assertEquals(MoonbagRunner7322.Action.HOLD_MOONBAG, MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 1400.0, 1408.0, 1408.0))
         assertEquals(MoonbagRunner7322.Action.BANK_PARTIAL, MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 40.0, 60.0, null))
         // ...but a tier-1 exit that reads like a give-back is never held or banked.
-        assertEquals(MoonbagRunner7322.Action.PASS, MoonbagRunner7322.decide("MOONSHOT", "LIQUIDITY_PULLED_TRAIL_STOP", 1100.0, 1408.0, 1408.0))
+        assertEquals(MoonbagRunner7322.Action.PASS, MoonbagRunner7322.decide("MOONSHOT", "LIQUIDITY_PULLED_TRAIL_STOP", 1400.0, 1408.0, 1408.0))
         assertEquals(MoonbagRunner7322.Action.PASS, MoonbagRunner7322.decide("MOONSHOT", "TOKEN_FROZEN_PROFIT_LOCK", 40.0, 60.0, null))
         // The sibling overlays agree.
         assertTrue(LifecycleHold8065.passes8065("TOKEN_FROZEN"))
