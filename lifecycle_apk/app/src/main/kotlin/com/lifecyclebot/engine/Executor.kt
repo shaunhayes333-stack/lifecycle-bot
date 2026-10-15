@@ -3371,6 +3371,7 @@ class Executor(
         if (ts.position.entryTime == lifecycleEntryTime8076) {
             LifecycleHold8065.onConfirmedTake8076(ts.mint, lifecycleEntryTime8076, reason, proof.sig, result.actualConsumedRaw)
         }
+        try { RunnerExitLive8136.noteSliceFill8136(reason, result.solReceived, result.realizedPnl.proportionalCostBasisSol) } catch (_: Throwable) {}  // V5.0.8136 — capture loss
         return result
     }
 
@@ -6854,11 +6855,11 @@ class Executor(
                 return false
             }
             val remainingFraction6028 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
-            val sellFraction6028 = when {
+            val sellFraction6028 = RunnerExitLive8136.budget8136(ts, when {
                 unrealizedProfitSol6028 >= walletSol.coerceAtLeast(0.01) * 1.0 -> 0.65
                 unrealizedProfitSol6028 >= walletSol.coerceAtLeast(0.01) * 0.50 -> 0.50
                 else -> 0.35
-            }.coerceAtMost(remainingFraction6028)
+            }.coerceAtMost(remainingFraction6028), "WALLET_GROWTH_HARVEST_6028")
             if (sellFraction6028 > 0.0) {
                 try {
                     ForensicLogger.lifecycle("WALLET_GROWTH_HARVEST_TRIGGERED_6028", "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x unrealized=${unrealizedProfitSol6028.fmt(4)} wallet=${walletSol.fmt(4)} sellPct=${(sellFraction6028*100).toInt()} reason=land_runner_profit_in_wallet")
@@ -6889,9 +6890,10 @@ class Executor(
             val expectedNetPositionValueSol =
                 proceedsSol7029(pos.qtyToken, actualPrice)?.takeIf { it > 0.0 } ?: currentValue
             val targetRecoverySol = pos.costSol.coerceAtLeast(0.0)
-            val sellFraction = (targetRecoverySol / expectedNetPositionValueSol)
-                .coerceIn(0.0, 1.0)
-                .coerceAtMost((100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0)
+            // V5.0.8136 — cost / gross value (50% at exactly 2x) does not recover cost after fees + slippage, so the
+            // verified-proceeds check below refused to mark it and the next tick sold half the rest again. The tranche is
+            // now grossed up for sell costs and targets only capital not yet recovered by confirmed proceeds.
+            val sellFraction = RunnerExitLive8136.recoveryTranche8136(ts, targetRecoverySol, expectedNetPositionValueSol)
             if (sellFraction <= 0.0) return false
             val sellQty = pos.qtyToken * sellFraction
             // V5.0.7029 — USD, not SOL; see proceedsSol7029. This value is
@@ -6945,7 +6947,7 @@ class Executor(
         
         if (pos.capitalRecovered && !pos.profitLocked && gainMultiple >= profitLockThreshold) {
             val remainingFraction = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
-            val sellFraction = 0.50.coerceAtMost(remainingFraction)
+            val sellFraction = RunnerExitLive8136.budget8136(ts, 0.50.coerceAtMost(remainingFraction), "PROFIT_LOCK_5X_8136")
             if (sellFraction <= 0.0) return false
             val sellQty = pos.qtyToken * sellFraction
             // V5.0.7029 — USD, not SOL; see proceedsSol7029.
@@ -23425,7 +23427,7 @@ class Executor(
         walletBalance: Double,
         receipt6566: ((PartialSellReceipt6566) -> Unit)? = null,
     ) {
-        val pct = sellPercentage.coerceIn(0.0, 1.0)
+        val pct = RunnerExitLive8136.budget8136(ts, sellPercentage.coerceIn(0.0, 1.0), reason)  // V5.0.8136 — one residual share budget
         if (pct <= 0) return
         // V5.0.8030 — a partial take-profit is profit-taking too: none below the round trip + 1%.
         if (try { com.lifecyclebot.engine.truth.NetEdge8030.exitRefusal8030(ts, reason, getActualPrice(ts), partial = true) } catch (_: Throwable) { false }) {

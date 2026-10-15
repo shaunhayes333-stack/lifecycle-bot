@@ -29,15 +29,28 @@ object TradeExitContract8077 {
     fun runnerFromEntryLane8104(lane: String?, paper: Boolean): Boolean =
         !paper && com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(lane) in runnerFromEntryLanes8104
 
+    // V5.0.8136 — the lane only says a lane CAN host a runner. Whether THIS position rides the runner ladder, its
+    // soft-exit deferral, the moonbag and the no-pop-fade-clock rule is its immutable sealed setup or a PROVEN
+    // promotion (RunnerExitContract8136.runnerBasis8136): a QUICK_FLIP scalp bought in MOONSHOT no longer holds 6 h.
     fun runnerFromEntry8104(ts: TokenState): Boolean =
-        ts.position.isOpen && ts.position.entryTime > 0L && runnerFromEntryLane8104(ts.position.tradingMode, ts.position.isPaperPosition)
+        ts.position.isOpen && ts.position.entryTime > 0L && runnerFromEntryLane8104(ts.position.tradingMode, ts.position.isPaperPosition) &&
+            runnerBasis8136(ts) != RunnerExitContract8136.RunnerBasis8136.NONE
 
-    fun longHold(ts: TokenState): Boolean? {
+    /**
+     * V5.0.8136 — why [ts] rides the runner contract: its sealed entry setup, or proof (position.peakGainPct ratchets
+     * only from the chain-verified mark and refuses an uncorroborated jump, PositionDisplayTruth8078 8080/8128).
+     */
+    fun runnerBasis8136(ts: TokenState): RunnerExitContract8136.RunnerBasis8136 =
+        RunnerExitContract8136.runnerBasis8136(laneHostsRunners = true, sealedStyle = sealedStyle8136(ts), corroboratedPeakPct = ts.position.peakGainPct)
+
+    /** V5.0.8136 — the style sealed at entry (the entry snapshot for this exact position, else the policy snapshot). */
+    fun sealedStyle8136(ts: TokenState): String {
         val snap = ts.position.positionId.takeIf { it.isNotBlank() }?.let {
             EntryStrategySnapshot6450.snapshot(it)
         }?.takeIf { it.mint == ts.mint && it.entryTimestampMs == ts.position.entryTime }
-        val sealedStyle = snap?.entryStyle?.takeIf { it.isNotBlank() } ?: ts.position.entryPolicySnapshot
+        return snap?.entryStyle?.takeIf { it.isNotBlank() } ?: ts.position.entryPolicySnapshot
             .split(';').firstOrNull { it.startsWith("style=") }?.substringAfter('=') ?: ""
-        return longHoldStyle(sealedStyle)
     }
+
+    fun longHold(ts: TokenState): Boolean? = longHoldStyle(sealedStyle8136(ts))
 }

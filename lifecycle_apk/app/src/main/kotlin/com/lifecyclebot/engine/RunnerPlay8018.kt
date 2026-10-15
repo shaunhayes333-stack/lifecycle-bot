@@ -62,6 +62,9 @@ object RunnerPlay8018 {
     fun promotes8018(gross: Double, ageMs: Long, firming: Boolean, alreadyRunner: Boolean, standingDown: Boolean): Boolean =
         !alreadyRunner && !standingDown && firming && gross.isFinite() && gross >= PROMOTE_MIN_PCT_8018 && ageMs in 0L..PROMOTE_WINDOW_MS
 
+    /** Pure (V5.0.8136): the verified position peak [peakGainPct] has reached the promotion level. */
+    fun verifiedPeakReached8136(peakGainPct: Double): Boolean = peakGainPct.isFinite() && peakGainPct >= PROMOTE_MIN_PCT_8018
+
     /** Is a coin [gross]% over its decision price [runAgeMs] after the decision a confirmed run worth a second entry? */
     fun confirmsRun8018(gross: Double, runAgeMs: Long, firming: Boolean, held: Boolean): Boolean =
         !held && firming && gross.isFinite() && gross >= RUN_CONFIRM_PCT_8018 && gross <= RUN_MAX_PCT && runAgeMs in 0L..RUN_MAX_AGE_MS
@@ -88,6 +91,9 @@ object RunnerPlay8018 {
         val key = "${ts.mint}|${pos.entryTime}"
         promos[key]?.let { p -> if (gross > p.peak) p.peak = gross; p.last = gross; return }
         if (gross < PROMOTE_MIN_PCT_8018 || nowMs - pos.entryTime > PROMOTE_WINDOW_MS) return
+        // V5.0.8136 — promotion is earned on PROOF: the position's verified peak (chain mark, corroborated jump;
+        // PositionDisplayTruth8078) must itself have reached the level, not one trade print (a phantom +2000% tick).
+        if (!verifiedPeakReached8136(pos.peakGainPct)) return
         if (RunnerGrab7967.holdingRunner8018(ts, nowMs)) return
         ensureLoaded()
         val firming = RunnerGrab7967.firmingNow8018(ts.mint, nowMs)
