@@ -115,6 +115,9 @@ object RunnerGrab7967 {
         val r = reason.uppercase()
         // V5.0.7969 — the early-rug BACKSTOP is a soft -10% tick exit, not rug evidence.
         if (r.contains("EARLY_RUG_BACKSTOP")) return true
+        // V5.0.8136 — tier 1 (RunnerExitContract8136) is never held: the word list below missed REFLEX_LIQ_DRAIN, LP_PULL,
+        // CANNOT_SELL and MINT_AUTH exits, so a green runner deferred a drained pool's exit while its structure "stood".
+        if (RunnerExitContract8136.emergency8136(r)) return false
         // V5.0.8008 — capital-preservation exits (catastrophe family, wallet drain, kill switch) are never held.
         if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(r) == com.lifecyclebot.engine.sell.ProtectiveExitClass7807.Priority.CAPITAL_PRESERVATION) return false
         val integrity = listOf("RUG", "DEV_", "DEV SOLD", "LIQUIDITY", "HONEYPOT", "FREEZE", "FROZEN", "DEAD", "MANUAL",

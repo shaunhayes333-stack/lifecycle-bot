@@ -203,7 +203,14 @@ object SpikeCapture7943 {
         previousFiredTiers8079[key] = done
         firedTiers[key] = reached
         pendingSince8081[key] = now7955
-        val frac = crossedTierFraction8079(tiers, done, reached)
+        // V5.0.8136 — one residual share budget across the spike, runner, tail and lock ladders (RunnerExitLive8136):
+        // a runner's residual is not sold by a ladder that overlaps another. A tier the budget refuses is consumed, not re-armed.
+        val frac = RunnerExitLive8136.budget8136(ts, crossedTierFraction8079(tiers, done, reached), "SPIKE_CAPTURE_7943_T${reached}_${gross.toInt()}PCT")
+        if (frac <= 0.0) {
+            pendingSince8081.remove(key)
+            previousFiredTiers8079.remove(key)
+            return 0
+        }
         fired.incrementAndGet()
         try { ExitProfile7955.onTierFired7955(plan7955, reached) } catch (_: Throwable) {}
         try {
@@ -245,6 +252,8 @@ object SpikeCapture7943 {
             "\n  Cell allocator (§7962):      " + (try { CellAllocator7962.statusLine() } catch (_: Throwable) { "unavailable" }) +
             // V5.0.7967 — runner grab / hold and the missed-runner audit.
             "\n  Runner grab (§7967):         " + (try { RunnerGrab7967.statusLine7967() } catch (_: Throwable) { "unavailable" }) +
+            // V5.0.8136 — the runner exit contract: capture loss, share budget, recovery tranches, unfunded tails.
+            "\n  Runner exits (§8136):        " + (try { RunnerExitLive8136.statusLine8136() } catch (_: Throwable) { "unavailable" }) +
             "\n  Curve ticks (§7968):         " + (try { com.lifecyclebot.network.CurveTicks7968.statusLine7968() } catch (_: Throwable) { "unavailable" })
 
     fun statusLine(): String = "fired=${fired.get()} rearmed7944=${rearmed.get()} tiers=${TIERS.joinToString(",") { "+${it.first.toInt()}%:${(it.second * 100).toInt()}%" }}"

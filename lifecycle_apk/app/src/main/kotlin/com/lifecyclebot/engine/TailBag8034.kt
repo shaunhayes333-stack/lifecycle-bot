@@ -73,6 +73,7 @@ object TailBag8034 {
         if (l !in TAIL_LANES_8034) return Decision.Pass
         if (reason.uppercase().startsWith("TAIL_") || reason.uppercase().startsWith("LIFECYCLE_") ||
             structural8034(reason) || com.lifecyclebot.engine.sell.ProtectiveExitClass7807.bypassesHolds(reason, lane)) return Decision.Pass
+        if (RunnerExitContract8136.emergency8136(reason)) return Decision.Pass   // V5.0.8136 — tier 1 is never held
         if (pnlPct.isFinite() && pnlPct <= -LifecycleHold8065.FLOOR_PCT) return Decision.Pass
         // The first sale may itself recover capital. A retained tail is not necessarily a free ride.
         if (tail == null) return Decision.SetAside
@@ -127,7 +128,7 @@ object TailBag8034 {
         val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(pos.tradingMode) } catch (_: Throwable) { "" }
             .ifBlank { pos.tradingMode }
         val capitalRecovered = capitalRecovered8090(pos.positionId, ts.mint)
-        val d = decidePure8034(lane, reason, pnlOf(ts), tail, nowMs, capitalRecovered)
+        val d = funded8136(decidePure8034(lane, reason, pnlOf(ts), tail, nowMs, capitalRecovered), ts, capitalRecovered)
         if (d == Decision.Hold) held.incrementAndGet()
         if (d == Decision.Pass && tail != null) {
             released.incrementAndGet()
@@ -136,12 +137,35 @@ object TailBag8034 {
         return d
     }
 
+    /**
+     * V5.0.8136 — the funding contract over the moonbag (RunnerExitContract8136.tailFilter8136). 5.0.8135 kept a 25% tail
+     * on an ordinary LOSING exit (a -15% stop sold 75% and left a quarter riding to the -40% floor) just because the
+     * lane is a meme lane. A tail is set aside only when capital is recovered by confirmed proceeds or the set-aside
+     * sale itself recovers it at the current mark net of sell costs; a held tail whose capital never came back is
+     * released once it is red.
+     */
+    private fun funded8136(d: Decision, ts: TokenState, capitalRecovered: Boolean): Decision {
+        if (d != Decision.SetAside && d != Decision.Hold) return d
+        val f = RunnerExitContract8136.tailFilter8136(d == Decision.SetAside, d == Decision.Hold, pnlOf(ts), capitalRecovered,
+            RunnerExitLive8136.sellCostPct8136(ts), TAIL_FRACTION)
+        return when (f) {
+            RunnerExitContract8136.TailFilter8136.KEEP -> d
+            RunnerExitContract8136.TailFilter8136.REFUSE_UNFUNDED_SET_ASIDE -> {
+                RunnerExitLive8136.count8136("TAIL_UNFUNDED_NOT_SET_ASIDE_8136")
+                Decision.Pass
+            }
+            RunnerExitContract8136.TailFilter8136.RELEASE_UNFUNDED_LOSING_TAIL -> {
+                RunnerExitLive8136.count8136("TAIL_UNFUNDED_RELEASED_8136")
+                Decision.Pass
+            }
+        }
+    }
+
     /** A retained runner is funded only by settled net proceeds, never by a mark or a tier flag. */
     fun capitalRecovered8090(positionId: String, mint: String): Boolean {
         val p = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return false
         return p.mode.equals("live", true) && p.mint == mint && p.remainingQtyRaw.signum() > 0 &&
-            p.entryCostSol.isFinite() && p.entryCostSol > 0.0 && p.feesSol.isFinite() && p.feesSol >= 0.0 &&
-            p.realizedProceedsSol.isFinite() && p.realizedProceedsSol - p.feesSol >= p.entryCostSol
+            RunnerExitContract8136.capitalRecoveredConfirmed8136(p.entryCostSol, p.realizedProceedsSol, p.feesSol)
     }
 
     /** The set-aside sale applied: the rest of the position is now the tail. */
@@ -167,7 +191,7 @@ object TailBag8034 {
     fun partialHeld8034(ts: TokenState, reason: String): Boolean {
         if (ts.position.isPaperPosition || reason.uppercase().startsWith("TAIL_") ||
             reason.uppercase().startsWith("LIFECYCLE_") || structural8034(reason) ||
-            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) return false
+            com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason) || RunnerExitContract8136.emergency8136(reason)) return false
         if (!capitalRecovered8090(ts.position.positionId, ts.mint)) return false
         val t = tailOf8034(ts) ?: return false
         if (System.currentTimeMillis() - t.setAt > TAIL_MAX_AGE_MS) return false

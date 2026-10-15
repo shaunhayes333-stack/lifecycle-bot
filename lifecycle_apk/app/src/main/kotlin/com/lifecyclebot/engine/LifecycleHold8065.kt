@@ -82,7 +82,8 @@ object LifecycleHold8065 {
         val r = reason.uppercase()
         return r.startsWith("LIFECYCLE_") || TailBag8034.structural8034(r) || rotation8098(r) ||
             com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(r).rank <=
-                com.lifecyclebot.engine.sell.ProtectiveExitClass7807.Priority.STRUCTURAL_EMERGENCY.rank
+                com.lifecyclebot.engine.sell.ProtectiveExitClass7807.Priority.STRUCTURAL_EMERGENCY.rank ||
+            RunnerExitContract8136.emergency8136(r)  // V5.0.8136 — tier 1 is never held
     }
 
     private fun rotation8098(r: String) = r.startsWith(com.lifecyclebot.engine.truth.OpportunityRotation8098.REASON)
@@ -305,12 +306,15 @@ object LifecycleHold8065 {
         if (gPeak8080 > st.peak) { st.peak = gPeak8080; st.peakAt = nowMs }
         val b = barsFor(ts.mint, px, nowMs)
         val age = nowMs - pos.entryTime
+        // V5.0.8136 — a profit take is decided on a fresh executable mark only; a stale print waits (stops do not).
+        val fresh8136 = takeMarkFresh8136(ts, px, nowMs)
+        if (!fresh8136 && cumulativeTakeDue8079(g, st.taken) != null) try { RunnerExitLive8136.count8136("LIFECYCLE_TAKE_STALE_MARK_WAIT_8136") } catch (_: Throwable) {}
         val why: Pair<String, Double>? = when {
             g <= -FLOOR_PCT -> "LIFECYCLE_STOP_FLOOR_8065_${g.toInt()}PCT" to 1.0
             profitablePeakReversal8079(st.peak, g, ts.lastPrice > 0.0 && px == ts.lastPrice &&
                 ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate in 0L..5_000L) ->
                 "LIFECYCLE_PROFIT_GIVEBACK_8065_${st.peak.toInt()}PK_${g.toInt()}PCT" to 1.0
-            cumulativeTakeDue8079(g, st.taken) != null -> cumulativeTakeDue8079(g, st.taken)!!.let { (i, f) -> "LIFECYCLE_PROFIT_TAKE${i + 1}_8065_${g.toInt()}PCT" to f }
+            fresh8136 && cumulativeTakeDue8079(g, st.taken) != null -> cumulativeTakeDue8079(g, st.taken)!!.let { (i, f) -> "LIFECYCLE_PROFIT_TAKE${i + 1}_8065_${g.toInt()}PCT" to f }
             st.taken == 0 && age >= SETTLE_MS && g < BASE_BROKE_RED_PCT && closedBarBroke(b, 16) ->
                 "LIFECYCLE_STOP_BASE_BROKE_8065_${g.toInt()}PCT" to 1.0
             st.taken >= 1 && (closedBarBroke(b, 24) || peakGiveback8065(st.peak, g)) ->
@@ -344,6 +348,10 @@ object LifecycleHold8065 {
         saveMaybe(nowMs, force = true)
         return true
     }
+
+    /** V5.0.8136 — is [px] the row's own mark and at most RunnerExitContract8136.FRESH_MARK_MS_8136 old? */
+    private fun takeMarkFresh8136(ts: TokenState, px: Double, nowMs: Long): Boolean =
+        ts.lastPriceUpdate > 0L && px == ts.lastPrice && RunnerExitContract8136.freshForCapture8136(nowMs - ts.lastPriceUpdate)
 
     /** Called only after the verified live slice has committed to canonical inventory. */
     fun onConfirmedTake8076(mint: String, entryTime: Long, reason: String, signature: String, consumedRaw: java.math.BigInteger) {
@@ -418,7 +426,8 @@ object LifecycleHold8065 {
 
     fun statusLine(): String {
         load()
-        return "holds=${states.size} freeRides=${states.values.count { it.taken >= 1 }} promoted=${promotions.get()} exitsHeld=${held.get()} slicesHeld=${partialsHeld.get()} " +
+        // V5.0.8136 — a confirmed 2x take is "banked"; a free ride is only what confirmed proceeds prove (label8066).
+        return "holds=${states.size} banked=${states.values.count { it.taken >= 1 }} promoted=${promotions.get()} exitsHeld=${held.get()} slicesHeld=${partialsHeld.get()} " +
             "exits=[${exits.entries.joinToString(",") { "${it.key.removePrefix("LIFECYCLE_")}=${it.value.get()}" }.ifBlank { "-" }}] " +
             "tickets8073[${try { RunnerTicket8073.statusLine() } catch (_: Throwable) { "-" }}] " +
             "lanes=${LANES_8065.joinToString("/")} rule=floor -${FLOOR_PCT.toInt()}% · half at 2x · 30% at 5x/10x · 15m base/trend breaks · dead money 72h"

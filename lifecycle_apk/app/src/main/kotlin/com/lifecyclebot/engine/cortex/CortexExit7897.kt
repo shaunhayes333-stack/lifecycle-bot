@@ -292,6 +292,7 @@ object CortexExit7897 {
             val ru = reason.uppercase()
             if (OPERATOR_OR_SHUTDOWN.any { ru.contains(it) }) return false
             if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) return false
+            if (com.lifecyclebot.engine.RunnerExitContract8136.emergency8136(reason)) return false  // V5.0.8136 — tier 1 is never held
             val entry = ts.position.entryPrice
             val px = ts.lastPrice
             if (entry <= 0.0 || px <= 0.0 || nowMs - ts.lastPriceUpdate > MARK_MAX_AGE_MS) return false
