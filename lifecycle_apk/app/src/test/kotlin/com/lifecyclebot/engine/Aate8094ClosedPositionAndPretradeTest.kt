@@ -42,6 +42,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals("LIQ_BELOW_HARD_FLOOR", pretradeSubReason8094("liq below hard floor"))
         assertEquals("UNSPECIFIED", pretradeSubReason8094("  "))
         assertEquals("HARD_BLOCK_LOW_LIQUIDITY", pretradeSubReason8094("HARD BLOCK: Low liquidity $0 (min=$100)"))
+        // A coded reason keeps its name (4abd6b13a read 13 of these as UNSPECIFIED).
+        assertEquals("FREEZE_AUTHORITY_UNVERIFIED_7238", pretradeSubReason8094("FREEZE_AUTHORITY_UNVERIFIED_7238"))
         assertEquals("PRESENT_AT_SEAL", pretradeSealRelation8094("SAFE", sealHardNo = true, sealRug = 80))
         assertEquals("PRESENT_AT_SEAL", pretradeSealRelation8094("HARD_BLOCK", false, 80))
         assertEquals("PRESENT_AT_SEAL", pretradeSealRelation8094("SAFE", false, 0))
@@ -462,6 +464,14 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(L.KEEP_RESOLVED_ON_DISK_8094 + 1, disk.size)
         assertTrue(disk.contains(open))
         L.resetForTest()
+    }
+
+    @Test fun aShadowedLaneWhoseShadowingRefusesWinnersEvaluatesAndTheFreezeGateAsksTheChain() {
+        val own = src("engine/SpecialistOwnership7951.kt")
+        assertTrue(own.contains("val audit = !ok && ts != null && shadowRefusesWinners8094(l) && receiverRecordSound8094(mint, l)"))
+        assertFalse(SpecialistOwnership7951.shadowRefusesWinners8094("NO_SUCH_LANE_8094"))
+        assertTrue(src("engine/truth/FreezeAuthorityHardBlock7238.kt").contains("OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true)"))
+        assertTrue(src("engine/truth/OnChainMintAuthorityProof7248.kt").contains("MINT_AUTHORITY_PROOF_MISS_8094_"))
     }
 
     @Test fun theScannerRejectStoreIsBoundedAndWritesCoalesced() {

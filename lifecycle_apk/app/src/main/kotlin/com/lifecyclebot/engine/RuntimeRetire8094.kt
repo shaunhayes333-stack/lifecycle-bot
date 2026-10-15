@@ -20,7 +20,9 @@ internal fun walletZeroProvenAt8094(snapshotComplete: Boolean, snapshotAtMs: Lon
 internal fun pretradeSubReason8094(raw: String): String {
     // The leading words up to the first measured value: "HARD BLOCK: Low liquidity $0" -> HARD_BLOCK_LOW_LIQUIDITY.
     val t = raw.trim().uppercase().replace(':', ' ').split(Regex("\\s+"))
-        .takeWhile { w -> w.isNotEmpty() && w.none { it.isDigit() || it == '$' } }
+        // A reason code ("FREEZE_AUTHORITY_UNVERIFIED_7238") is one word that starts with a letter; a measured value
+        // ("$0", "35%", "12.5") starts with a digit or a symbol. 4abd6b13a: every coded reason read UNSPECIFIED.
+        .takeWhile { w -> w.isNotEmpty() && w.first().isLetter() && w.none { it == '$' || it == '%' || it == '=' } }
         .joinToString("_") { w -> w.map { if (it.isLetterOrDigit() || it == '_') it else '_' }.joinToString("") }
         .replace(Regex("_+"), "_").trim('_').take(40)
     return t.ifBlank { "UNSPECIFIED" }

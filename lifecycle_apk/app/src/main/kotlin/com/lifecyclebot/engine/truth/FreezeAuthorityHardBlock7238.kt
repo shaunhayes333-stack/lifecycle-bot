@@ -98,7 +98,7 @@ object FreezeAuthorityHardBlock7238 {
                 // V5.0.7248 — UNKNOWN at the cached safety layer is not the final
                 // answer. Re-prove synchronously through the configured Helius-first
                 // RPC ladder before refusing an otherwise executable live buy.
-                val proof = try { OnChainMintAuthorityProof7248.resolve(mint) } catch (_: Throwable) { null }
+                val proof = try { OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true) } catch (_: Throwable) { null }
                 if (proof != null) {
                     ts.safety = ts.safety.copy(
                         mintAuthorityDisabled = proof.mintAuthorityDisabled,

@@ -331,8 +331,18 @@ object SpecialistOwnership7951 {
             val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
             val ok = ts != null && com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellOrKindProven8094(ts, l)
             if (ok) notePreIntent7951(l, "READY_CELL_PROVEN_EVALUATES_8094")
-            ok
+            // V5.0.8094 — or the lane's OWN graded record of being shadowed proves the shadowing refuses winners
+            // (veto audit 4abd6b13a: SHADOW_NOT_PRIMARY@EXPRESS n500 +30.1%; 10 of 16 runners >= +400% lost to it), and
+            // the lane's strategy for this coin is not a losing one. All gates of the evaluating lane still decide.
+            val audit = !ok && ts != null && shadowRefusesWinners8094(l) && receiverRecordSound8094(mint, l)
+            if (audit) notePreIntent7951(l, "READY_SHADOW_AUDIT_EVALUATES_8094")
+            ok || audit
         }
+    } catch (_: Throwable) { false }
+
+    /** V5.0.8094 — the lane's own veto-audit book of SHADOW_NOT_PRIMARY refusals is proven to win (40+, mean-SE > +2%). */
+    internal fun shadowRefusesWinners8094(lane: String): Boolean = try {
+        com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(LaneParticipation8029.SHADOW_REASON, lane7951(lane))
     } catch (_: Throwable) { false }
 
     // V5.0.8094 — the 7960 hand-off opened only on the primary's FDG refusal; most primaries refuse in their own native

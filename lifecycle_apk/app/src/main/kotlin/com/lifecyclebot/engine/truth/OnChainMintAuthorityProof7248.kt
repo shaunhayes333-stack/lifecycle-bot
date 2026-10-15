@@ -45,7 +45,7 @@ object OnChainMintAuthorityProof7248 {
     private const val ACTIVE_PROOF_TTL_MS_7365 = 5 * 60_000L
     private const val UNANSWERED_RETRY_MS_7365 = 20_000L
 
-    fun resolve(mint: String, maxProviders: Int = 3): Proof? {
+    fun resolve(mint: String, maxProviders: Int = 3, liveGate8094: Boolean = false): Proof? {
         if (mint.isBlank()) return null
         provenDisabled7365[mint]?.let {
             try { PipelineHealthCollector.labelInc("MINT_AUTHORITY_PROOF_CACHED_7365") } catch (_: Throwable) {}
@@ -53,7 +53,9 @@ object OnChainMintAuthorityProof7248 {
         }
         val now7365 = System.currentTimeMillis()
         activeProof7365[mint]?.let { (p, at) -> if (now7365 - at < ACTIVE_PROOF_TTL_MS_7365) return p }
-        unansweredAt7365[mint]?.let { at -> if (now7365 - at < UNANSWERED_RETRY_MS_7365) return null }
+        // V5.0.8094 — the live pre-broadcast gate always asks the chain: a scan-time miss cached for 20 s refused live
+        // buys outright (4abd6b13a: 13 of 17 live buy attempts refused FREEZE_AUTHORITY_UNVERIFIED).
+        if (!liveGate8094) unansweredAt7365[mint]?.let { at -> if (now7365 - at < UNANSWERED_RETRY_MS_7365) return null }
         val helius = RuntimeProviderAuthority6685.configuredHeliusRpc()
         // V5.0.7365 — public RPCs first, Helius last. With Helius at 429 (credits
         // exhausted) the old order sent every probe to Helius first, and when the
@@ -95,13 +97,12 @@ object OnChainMintAuthorityProof7248 {
                     .post(payload.toRequestBody("application/json".toMediaType()))
                     .build()
                 HealthAwareHttp.execute(http, req, host = hostKey7369).use { resp ->
-                    if (!resp.isSuccessful) return@use
-                    val info = JSONObject(resp.body?.string().orEmpty())
-                        .optJSONObject("result")
-                        ?.optJSONObject("value")
-                        ?.optJSONObject("data")
+                    if (!resp.isSuccessful) { miss8094("HTTP_${resp.code}"); return@use }
+                    val value = JSONObject(resp.body?.string().orEmpty()).optJSONObject("result")?.optJSONObject("value")
+                    if (value == null) { miss8094("ACCOUNT_NOT_FOUND"); return@use }
+                    val info = value.optJSONObject("data")
                         ?.optJSONObject("parsed")
-                        ?.optJSONObject("info") ?: return@use
+                        ?.optJSONObject("info") ?: run { miss8094("NOT_PARSED"); return@use }
                     val mintAuth = info.opt("mintAuthority")
                     val freezeAuth = info.opt("freezeAuthority")
                     val proof = Proof(
@@ -126,14 +127,20 @@ object OnChainMintAuthorityProof7248 {
                     }
                     return proof
                 }
-            } catch (_: Throwable) {
+            } catch (t: Throwable) {
                 // Rotate to the next configured endpoint; unknown remains fail-closed.
+                miss8094("THREW_${t.javaClass.simpleName.take(24)}")
             }
         }
         try { PipelineHealthCollector.labelInc("MINT_AUTHORITY_ONCHAIN_PROOF_UNAVAILABLE_7248") } catch (_: Throwable) {}
         if (unansweredAt7365.size > 5_000) unansweredAt7365.clear()
         unansweredAt7365[mint] = System.currentTimeMillis()
         return null
+    }
+
+    /** V5.0.8094 — why one endpoint gave no proof, so an UNVERIFIED refusal names its cause. */
+    private fun miss8094(kind: String) {
+        try { PipelineHealthCollector.labelInc("MINT_AUTHORITY_PROOF_MISS_8094_$kind") } catch (_: Throwable) {}
     }
 
     private fun backoffKey7369(rpc: String): String =
