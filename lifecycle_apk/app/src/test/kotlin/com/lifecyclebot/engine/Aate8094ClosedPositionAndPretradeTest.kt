@@ -491,6 +491,18 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src("engine/truth/TailHunter7996.kt").contains("proven(\"R|\$rule|\$cell\") != null"))
     }
 
+    @Test fun heldMarksCurveTicksAndRentReclaimNameOrRecoverTheirFailures() {
+        // Held-position marks are exit traffic: a scanner lockout on the shared host can no longer starve them.
+        assertTrue(src("network/DexscreenerApi.kt").contains("val body = get(url, exit8095 = slotWaitMs7948 > 0L)"))
+        assertTrue(src("network/DexscreenerApi.kt").contains("header(ExitHttpScope7314.HEADER, \"held-marks\")"))
+        // Curve ticks: refused subscribes are counted and named; unanswered ones are re-sent.
+        val ct = src("network/CurveTicks7968.kt")
+        assertTrue(ct.contains("CURVE_SUB_ERROR_8095_") && ct.contains("CURVE_SUB_RESENT_8095"))
+        assertTrue(com.lifecyclebot.network.CurveTicks7968.statusLine7968().contains("subErrors8095="))
+        // Rent reclaim keeps the end of the error, where the instruction error code is.
+        assertTrue(src("engine/RentReclaimer7927.kt").contains("t.message?.takeLast(90)"))
+    }
+
     @Test fun theScannerRejectStoreIsBoundedAndWritesCoalesced() {
         val s = ScannerHardRejectStore
         val stamps = (1..5_000).map { ScannerHardRejectStore.Reject("m$it", "S", "RUG", "x", it.toLong()) }

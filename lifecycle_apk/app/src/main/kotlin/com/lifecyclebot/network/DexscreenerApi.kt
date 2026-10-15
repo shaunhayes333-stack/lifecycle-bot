@@ -391,7 +391,10 @@ class DexscreenerApi {
         // DS hard limit: 30 mints per request. Trim defensively.
         val take = mints.take(30).joinToString(",")
         val url  = "https://api.dexscreener.com/tokens/v1/solana/$take"
-        val body = get(url) ?: return BatchResult8087(emptyMap(), BatchCause8087.PROVIDER_FAILED, emptyList())
+        // V5.0.8095 — the held-position batch (the only caller that waits for a slot) is exit traffic: a scanner 429 put
+        // the shared "dexscreener" host in OUR lockout and the stop-loss marks came back empty on 1,948 of 2,297 ticks
+        // (4abd6b13a, cause=PROVIDER_FAILED). Exit traffic is never refused by our own lockout (ExitHttpScope7314).
+        val body = get(url, exit8095 = slotWaitMs7948 > 0L) ?: return BatchResult8087(emptyMap(), BatchCause8087.PROVIDER_FAILED, emptyList())
 
         val out = HashMap<String, Double>(mints.size)
         // V5.0.7026 — the liquidity behind each mint's currently-chosen pair,
@@ -455,9 +458,11 @@ class DexscreenerApi {
         return BatchResult8087(out, if (out.isEmpty()) BatchCause8087.NO_DATA else BatchCause8087.PRICED, unlisted)
     }
 
-    private fun get(url: String, host: String = "dexscreener"): String? = try {
+    private fun get(url: String, host: String = "dexscreener", exit8095: Boolean = false): String? = try {
         val req  = Request.Builder().url(url)
-            .header("User-Agent", "lifecycle-bot-android/6.0").build()
+            .header("User-Agent", "lifecycle-bot-android/6.0")
+            .apply { if (exit8095) header(ExitHttpScope7314.HEADER, "held-marks") }
+            .build()
         // V5.0.6495 — never bypass HealthAwareHttp/ApiBackoff with a raw retry.
         // V5.0.7771 — never materialise an unbounded provider body.
         com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = host).use { resp ->

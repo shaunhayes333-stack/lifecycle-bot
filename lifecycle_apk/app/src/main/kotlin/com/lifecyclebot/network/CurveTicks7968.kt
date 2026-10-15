@@ -46,6 +46,11 @@ object CurveTicks7968 {
 
     private val desired = ConcurrentHashMap<String, String>()          // mint -> curve
     private val pending = ConcurrentHashMap<Int, String>()             // request id -> mint
+    // V5.0.8095 — when each pending subscribe was sent; an unanswered one is re-sent (4abd6b13a: held=4 subs=0 ticks=0).
+    private val pendingAt8095 = ConcurrentHashMap<Int, Long>()
+    @Volatile private var lastError8095 = "-"
+    private val subErrors8095 = AtomicLong(0)
+    private const val ACK_TIMEOUT_MS_8095 = 15_000L
     private val subByMint = ConcurrentHashMap<String, Int>()           // mint -> server sub id
     private val mintBySub = ConcurrentHashMap<Int, String>()
     private val nextId = AtomicInteger(1)
@@ -93,6 +98,15 @@ object CurveTicks7968 {
         }
         for (m in desired.keys.toList()) if (m !in want) { desired.remove(m); unsubscribe(m) }
         for ((m, c) in want) if (desired.put(m, c) == null && open) subscribe(m, c)
+        // V5.0.8095 — a desired curve neither subscribed nor awaiting a fresh answer is asked again.
+        if (open) {
+            val now = System.currentTimeMillis()
+            pendingAt8095.entries.removeIf { (id, at) -> (now - at > ACK_TIMEOUT_MS_8095).also { if (it) pending.remove(id) } }
+            for ((m, c) in desired) if (!subByMint.containsKey(m) && !pending.containsValue(m)) {
+                subscribe(m, c)
+                try { PipelineHealthCollector.labelInc("CURVE_SUB_RESENT_8095") } catch (_: Throwable) {}
+            }
+        }
         if (want.isEmpty()) return
         if (ws == null) connect()
     }
@@ -112,7 +126,7 @@ object CurveTicks7968 {
         ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 open = true
-                pending.clear(); subByMint.clear(); mintBySub.clear()
+                pending.clear(); pendingAt8095.clear(); subByMint.clear(); mintBySub.clear()
                 desired.forEach { (m, c) -> subscribe(m, c) }
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -132,9 +146,10 @@ object CurveTicks7968 {
     private fun subscribe(mint: String, curve: String) {
         val id = nextId.getAndIncrement()
         pending[id] = mint
+        pendingAt8095[id] = System.currentTimeMillis()
         val ok = ws?.send(JSONObject().put("jsonrpc", "2.0").put("id", id).put("method", "accountSubscribe")
             .put("params", JSONArray().put(curve).put(JSONObject().put("encoding", "base64").put("commitment", "processed"))).toString()) == true
-        if (!ok) pending.remove(id)
+        if (!ok) { pending.remove(id); pendingAt8095.remove(id) }
     }
 
     private fun unsubscribe(mint: String) {
@@ -146,7 +161,21 @@ object CurveTicks7968 {
 
     private fun handle(text: String) {
         val o = JSONObject(text)
+        // V5.0.8095 — a refused subscribe was dropped silently; it is now counted and named, and re-sent on the next sync.
+        if (o.has("id") && o.has("error")) {
+            val id = o.optInt("id")
+            pendingAt8095.remove(id)
+            if (pending.remove(id) != null) {
+                val e = o.optJSONObject("error")
+                val code = e?.optInt("code", 0) ?: 0
+                subErrors8095.incrementAndGet()
+                lastError8095 = "$code:${e?.optString("message").orEmpty().take(60)}"
+                try { PipelineHealthCollector.labelInc("CURVE_SUB_ERROR_8095_${if (code < 0) "M${-code}" else code.toString()}") } catch (_: Throwable) {}
+            }
+            return
+        }
         if (o.has("id") && o.has("result") && o.opt("result") is Number) {
+            pendingAt8095.remove(o.optInt("id"))
             val mint = pending.remove(o.optInt("id")) ?: return
             val sub = o.optInt("result")
             if (!desired.containsKey(mint)) {
@@ -170,6 +199,6 @@ object CurveTicks7968 {
 
     fun statusLine7968(): String {
         val age = if (lastTickMs > 0L) "${(System.currentTimeMillis() - lastTickMs) / 1000}s" else "-"
-        return "open=$open held=${desired.size} subs=${subByMint.size} ticks=${ticks.get()} lastTick=$age connects=${connects.get()} failures=${failures.get()}"
+        return "open=$open held=${desired.size} subs=${subByMint.size} ticks=${ticks.get()} lastTick=$age connects=${connects.get()} failures=${failures.get()} subErrors8095=${subErrors8095.get()} lastError=$lastError8095"
     }
 }

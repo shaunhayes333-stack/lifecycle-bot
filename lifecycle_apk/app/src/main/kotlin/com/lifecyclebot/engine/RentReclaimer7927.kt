@@ -95,7 +95,8 @@ object RentReclaimer7927 {
             true
         } catch (t: Throwable) {
             failed.incrementAndGet()
-            lastError = "close:${t.message?.take(80) ?: t.javaClass.simpleName}"
+            // V5.0.8095 — keep the END of the message: the instruction error code is what names the cause.
+            lastError = "close:${t.message?.takeLast(90) ?: t.javaClass.simpleName}"
             try { PipelineHealthCollector.labelInc("RENT_RECLAIM_7927_FAILED") } catch (_: Throwable) {}
             false
         }
