@@ -274,6 +274,19 @@ object AntiRewardHackingGuard6439 {
 
     fun currentHigh(): Double = highSol.get()
 
+    /**
+     * V5.0.8136 — a confirmed deposit / withdrawal (CapitalDrawdown7948's external-flow rule) moves the rolling high
+     * by the same amount: a withdrawal is not a drawdown that vetoes every learner, and a deposit does not let one
+     * expand risk on money it never made. The high never goes below zero.
+     */
+    fun noteExternalFlow8136(flowSol: Double) {
+        if (!flowSol.isFinite() || flowSol == 0.0) return
+        val prior = highSol.get()
+        if (prior <= 0.0) return
+        highSol.set(CashEquityBook8136.shiftedHigh8136(prior, flowSol))
+        try { PipelineHealthCollector.labelInc(if (flowSol > 0.0) "ANTI_REWARD_HACK_HIGH_DEPOSIT_8136" else "ANTI_REWARD_HACK_HIGH_WITHDRAWAL_8136") } catch (_: Throwable) {}
+    }
+
     fun statusLine(): String {
         val h = highSol.get()
         val ageMin = ((System.currentTimeMillis() - highAtMs.get()) / 60_000L).coerceAtLeast(0L)

@@ -727,7 +727,24 @@ object Cortex7885 {
     /** Caller holds the lock. */
     private fun laneFraction7955(lane: String): Double {
         val f = board.fractionFor7955(lane, accountMode8077())
-        return if (f > 0.0 && consistent(lane)) f else 0.0
+        return if (f > 0.0 && consistent(lane)) realisedCapped8136(lane, f) else 0.0
+    }
+
+    /**
+     * V5.0.8136 — caller holds the lock. [labelFraction] capped by this lane's realised STRONG closes in the account
+     * mode (CortexRealisedAuthority8136): positive labels with losing real closes earn no sizing / admission power.
+     */
+    private fun realisedCapped8136(lane: String, labelFraction: Double): Double {
+        if (!(labelFraction > 0.0)) return 0.0
+        val s = board.realized["${accountMode8077()}|$lane"]?.getOrNull(CortexScoreboard7885.Bucket.STRONG.ordinal)
+        val n = s?.n ?: 0.0
+        val mean = s?.mean() ?: 0.0
+        val se = if (s != null && s.n > 1.0) kotlin.math.sqrt(s.variance() / s.n) else Double.POSITIVE_INFINITY
+        val capped = CortexRealisedAuthority8136.cappedFraction8136(labelFraction, n, mean, se)
+        if (capped < labelFraction) {
+            inc(if (capped <= 0.0) "AUTHORITY_DENIED_REALISED_NEGATIVE_8136" else "AUTHORITY_CAPPED_REALISED_UNPROVEN_8136")
+        }
+        return capped
     }
 
     /** V5.0.7955 — this lane's graduated Cortex authority in [0, 1] (0 when unread or inconsistent). */
@@ -828,7 +845,8 @@ object Cortex7885 {
                 return false
             }
             val cell8083 = setup8083?.let { synchronized(this) { setupCellAuthority8083(a.lane, it) } }
-            val fraction = maxOf(laneFraction8083, cell8083?.fraction ?: 0.0)
+            // V5.0.8136 — a setup cell's label authority answers to the lane's realised STRONG closes too.
+            val fraction = maxOf(laneFraction8083, synchronized(this) { realisedCapped8136(a.lane, cell8083?.fraction ?: 0.0) })
             // V5.0.7955 review — a lane's own PROVEN_LOSING / PROVEN_NEGATIVE record yields only to full authority.
             // V5.0.8016 — watch-first's measured-negative cell is a proven record too.
             val provenRefusal = refusal.contains("PROVEN_LOSING") || refusal.contains("PROVEN_NEGATIVE") || refusal.contains("CELL_NEGATIVE") || refusal.contains("BAND_NEGATIVE")
@@ -1441,6 +1459,7 @@ object Cortex7885 {
                 sb.append("  realised: " + board.realized.entries.sortedBy { it.key }.take(6).joinToString(" · ") { (k, arr) ->
                     "$k ${fmtStat(arr[2])}/${fmtStat(arr[1])}/${fmtStat(arr[0])}"
                 }.ifBlank { "none yet" } + "  (strong/neutral/refuse)\n")
+                sb.append("  realisedGate8136: denied=${sum("AUTHORITY_DENIED_REALISED_NEGATIVE_8136")} capped=${sum("AUTHORITY_CAPPED_REALISED_UNPROVEN_8136")} (authority needs realised STRONG closes: 5+ positive, full at 20+ mean-SE>0)\n")
                 sb.append("  key: Rp/Rl refuse paper/live · O overrule (auth>=0.5) · auth graduated strong authority, scales size-up · SUSPENDED calibration < 0.5 · INVERTED strong < neutral/refuse")
                 sb.toString().take(1_900)
             }

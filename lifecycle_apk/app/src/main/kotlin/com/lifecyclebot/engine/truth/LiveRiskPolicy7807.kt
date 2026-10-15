@@ -426,6 +426,11 @@ object LiveRiskPolicy7807 {
          * compounding target. 0 = an ordinary request: the decision never exceeds [upstreamSol].
          */
         val compoundingCeilingSol8094: Double = 0.0,
+        /**
+         * V5.0.8136 — the lane's realised whole-position record; the drawdown waiver needs it mature
+         * (LiveSizingTruth8136.drawdownWaiver8136). Null = not measured by the caller (runtimeInputs always measures).
+         */
+        val edgeMaturity8136: LiveSizingTruth8136.EdgeMaturity8136? = null,
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -493,10 +498,12 @@ object LiveRiskPolicy7807 {
         // falls with the wallet and grows back with it; cutting it again for drawdown (to 0.35x) clipped 58 proven orders
         // to the route minimum at a 59% drawdown (4abd6b13a) and the balance could never compound back. Unproven candidates
         // keep the drawdown shrink; daily-loss, governor, lane, depth and the hard loss at the stop bind everyone.
-        val ddWaived8094 = drawdownWaivedForProvenEdge8094(i.edgeKellyFrac8057, i.drawdownFrac)
+        // V5.0.8136 — a label-proven Kelly share waives the drawdown shrink only on a MATURE realised record.
+        val ddWaived8094 = LiveSizingTruth8136.drawdownWaiver8136(i.edgeKellyFrac8057, i.drawdownFrac, i.edgeMaturity8136)
         val ddMult = if (ddWaived8094) 1.0 else drawdownMultiplier(i.drawdownFrac)
         if (ddMult < 1.0) labels += "WALLET_DRAWDOWN_SHRINK_7807"
         if (ddWaived8094) labels += "DRAWDOWN_SHRINK_WAIVED_PROVEN_EDGE_8094"
+        if (!ddWaived8094 && drawdownWaivedForProvenEdge8094(i.edgeKellyFrac8057, i.drawdownFrac)) labels += "DRAWDOWN_WAIVER_DENIED_IMMATURE_EDGE_8136"
         val moonMult = if (planless && canonicalLane(i.lane) == "MOONSHOT") MOONSHOT_NO_PLAN_MULT_7807 else 1.0
         if (moonMult < 1.0) labels += "MOONSHOT_NO_PLAN_SIZE_7807"
         val total = (shrink * growth * admMult * ddMult * moonMult * costMult).coerceIn(TOTAL_FLOOR_7807, MAX_GROWTH_MULT_7807)
@@ -708,7 +715,38 @@ object LiveRiskPolicy7807 {
             edgeKellyFrac8057 = edgeKellyFracFromFdg8094?.takeIf { it.isFinite() && it >= 0.0 }
                 ?: try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { edgeKellyFracFor8057(it, effectiveLane7811) } ?: 0.0 } catch (_: Throwable) { 0.0 },
             compoundingCeilingSol8094 = compoundingCeilingSol8094,
+            edgeMaturity8136 = laneMaturity8136(effectiveLane7811, nowMs),
         )
+    }
+
+    // ── V5.0.8136 — the lane's realised record (drawdown-waiver maturity) ──
+    private val maturityCache8136 = ConcurrentHashMap<String, Pair<Long, LiveSizingTruth8136.EdgeMaturity8136>>()
+
+    /**
+     * The lane's clean, learning-eligible LIVE whole-position closes on the canonical bus (exact per-close spread);
+     * when the bus holds fewer than the maturity bar (e.g. after a restart) the persistent leaderboard's record is
+     * used with a conservative two-point standard error. Cached 20 s.
+     */
+    private fun laneMaturity8136(lane: String, nowMs: Long): LiveSizingTruth8136.EdgeMaturity8136 {
+        val key = canonicalLane(lane)
+        maturityCache8136[key]?.let { (cachedAt, cached) -> if (nowMs - cachedAt in 0L..20_000L) return cached }
+        val bus = try {
+            val envs = CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("live")
+                .filter { it.learningEligible && canonicalLane(it.lane) == key }
+            LiveSizingTruth8136.maturityOf8136(envs.map { it.realizedReturnPct }, envs.map { it.realizedPnlSol })
+        } catch (_: Throwable) { LiveSizingTruth8136.EdgeMaturity8136(0, 0.0, Double.POSITIVE_INFINITY, 0.0) }
+        val m = if (bus.realisedN >= LiveSizingTruth8136.MIN_REALISED_N_8136) bus else try {
+            val row = com.lifecyclebot.engine.StrategyTelemetry.computeCleanLiveTerminalLeaderboard()
+                .firstOrNull { canonicalLane(it.strategy) == key }
+            if (row == null || row.trades <= bus.realisedN) bus else LiveSizingTruth8136.EdgeMaturity8136(
+                row.trades, row.meanPnlPct,
+                LiveSizingTruth8136.twoPointSe8136(row.trades, row.winRatePct, row.avgWinPct, row.avgLossPct, row.meanPnlPct),
+                row.totalSolPnl,
+            )
+        } catch (_: Throwable) { bus }
+        if (maturityCache8136.size > 64) maturityCache8136.clear()
+        maturityCache8136[key] = nowMs to m
+        return m
     }
 
     /** Records the verdict (labels + one forensic line); returns the decision unchanged. */
@@ -728,6 +766,9 @@ object LiveRiskPolicy7807 {
                 PipelineHealthCollector.labelInc(d.reason)
             }
             for (l in d.labels) PipelineHealthCollector.labelInc(l)
+            val binding8136 = noteBinding8136(i, d)
+            ForensicLogger.lifecycle("LIVE_RISK_BINDING_8136", "stage=$stage mint=${mint.take(10)} binding=$binding8136 size=${"%.4f".format(d.sizeSol)} kellyFrac=${"%.4f".format(i.edgeKellyFrac8057)} " +
+                "matureEdge=${i.edgeMaturity8136?.let { LiveSizingTruth8136.edgeMature8136(it) } ?: "unmeasured"} realisedN=${i.edgeMaturity8136?.realisedN ?: -1}")
             ForensicLogger.lifecycle(
                 "LIVE_RISK_POLICY_7807",
                 "stage=$stage mint=${mint.take(10)} symbol=$symbol lane=${canonicalLane(i.lane)} open=${d.open} reason=${d.reason} " +
@@ -740,8 +781,21 @@ object LiveRiskPolicy7807 {
         return d
     }
 
+    // V5.0.8136 — which constraint set each OPEN decision's size (LiveSizingTruth8136.bindingConstraintOf8136).
+    private val bindings8136 = ConcurrentHashMap<String, AtomicLong>()
+
+    private fun noteBinding8136(i: Inputs, d: Decision): String {
+        val b = try { LiveSizingTruth8136.bindingConstraintOf8136(i, d) } catch (_: Throwable) { "UNKNOWN" }
+        if (d.open) {
+            bindings8136.computeIfAbsent(b) { AtomicLong(0) }.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("LIVE_SIZE_BINDING_8136_${b.replace(':', '_')}".take(70)) } catch (_: Throwable) {}
+        }
+        return b
+    }
+
     fun statusLine(): String =
         "LiveRiskPolicy7807: opens=${opens.get()} passes=${passes.entries.joinToString(",") { "${it.key}=${it.value.get()}" }} " +
             "equityPeak=${"%.4f".format(CapitalDrawdown7948.currentPeak7948().peakSol)} " +
+            "binding8136=[${bindings8136.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none yet" }}] " +
             "rotation8098[${OpportunityRotation8098.statusLine8098()}]"
 }

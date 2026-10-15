@@ -25,6 +25,8 @@ data class AateDecisionEnvelope6512(
     val hardSafety: List<String>, val contributors: List<AateBrainContribution6512>,
     val learningState: String, val executionTicket: String = "", val sealed: Boolean = false,
     val positionId: String = "", val createdAtMs: Long = System.currentTimeMillis(),
+    /** V5.0.8136 — the exact entry identity sealed at the canonical open (AateEntryIdentity8136). */
+    val entryIdentity8136: AateEntryIdentity8136? = null,
 )
 
 object PolicySynthesizer6512 {
@@ -141,18 +143,101 @@ object AateDecisionFabric6512 {
         } catch (_: Throwable) {}
 
         byPosition[positionId] = e.copy(positionId = positionId)
+        sealEntryIdentity8136(positionId, e, hypothesisVariant7470)
         try { PipelineHealthCollector.labelInc("AATE_POSITION_ATTRIBUTION_LINKED_6512") } catch (_: Throwable) {}
+        return true
+    }
+
+    // ── V5.0.8136 — sealed entry identity: seal at open, restore at the close, attribution classified ──
+
+    /** Canonical open: seal the exact entry identity beside the envelope link (survives a restart). */
+    private fun sealEntryIdentity8136(positionId: String, e: AateDecisionEnvelope6512, variant: String) {
+        try {
+            val c = e.context
+            val setup = try {
+                StrategyHypothesisEngine.entrySetupTag8091(positionId, c.mint, c.primaryStrategy, c.candidateVersion)
+            } catch (_: Throwable) { "" }
+            val id = AateEntryIdentity8136(
+                mode = c.mode.uppercase(), mint = c.mint, positionId = positionId, candidateVersion = c.candidateVersion,
+                ownerLane = c.primaryStrategy.uppercase(), exactSetup = setup, strategyVariant = variant, tactic = e.tactic,
+                // Entry / exit style come from the entry snapshot, written after this open; the close fills them.
+                entryStyle = "", exitPolicy = "",
+                evidenceVersion = "rev${e.revision}:${e.learningState.take(32)}", decisionTimestampMs = e.createdAtMs,
+                scoreFinal = e.scoreFinal, pWin = e.pWin, expectedPnlPct = e.expectedPnlPct, rugP = e.rugP,
+                contributors = e.contributors, shadow = AateEntryIdentityBook8136.isShadowMode8136(c.mode),
+            )
+            if (AateEntryIdentityBook8136.seal8136(id)) {
+                byPosition[positionId]?.let { byPosition[positionId] = it.copy(entryIdentity8136 = id) }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * The close found no live envelope link (a restart, or the link was never made in this process): rebuild the
+     * envelope from the sealed identity and re-bind the owner policy with the SAME decision features the open bound
+     * (idempotent when that bind survived). Null when no identity was sealed for this position.
+     */
+    private fun restoreFromIdentity8136(env: CanonicalFinalizedTradeBus6464.Envelope): AateDecisionEnvelope6512? {
+        val id = AateEntryIdentityBook8136.identity8136(env.positionId) ?: return null
+        if (!id.mode.equals(env.mode, true) || id.mint != env.mint) return null
+        try {
+            UnifiedPolicyHead.bindDecisionFallback6713(
+                positionId = env.positionId, mint = id.mint, ownerLane = id.ownerLane,
+                scoreFinal = id.scoreFinal, pWin = id.pWin, expectedPnlPct = id.expectedPnlPct, rugP = id.rugP,
+                contributorEffect01 = AateEntryIdentityBook8136.contributorEffect8136(id.contributors),
+            )
+        } catch (_: Throwable) {}
+        val restored = AateDecisionEnvelope6512(
+            envelopeId = "restored8136:${id.mode}:${id.mint}:${id.candidateVersion}", revision = 0L,
+            context = AateStrategyContext6512(
+                candidateId = "", runtimeGeneration = BotRuntimeController.currentGeneration(), mode = id.mode,
+                mint = id.mint, symbol = "", candidateVersion = id.candidateVersion, primaryStrategy = id.ownerLane,
+                source = "ENTRY_IDENTITY_8136", regime = "",
+            ),
+            action = "BUY", pWin = id.pWin, expectedPnlPct = id.expectedPnlPct, moonshotP = null, rugP = id.rugP,
+            scoreBase = id.scoreFinal, scoreFinal = id.scoreFinal, sizeBase = 0.0, sizeFinal = 0.0, tactic = id.tactic,
+            hardSafety = emptyList(), contributors = id.contributors, learningState = "RESTORED_8136",
+            sealed = true, positionId = env.positionId, createdAtMs = id.decisionTimestampMs, entryIdentity8136 = id,
+        )
+        byPosition.putIfAbsent(env.positionId, restored)
+        try { PipelineHealthCollector.labelInc("AATE_ENTRY_IDENTITY_RESTORED_AT_CLOSE_8136") } catch (_: Throwable) {}
+        return restored
+    }
+
+    /** SHADOW decisions are observed, never trained: one label, the causal gate released, no learner mutated. */
+    private fun observeShadowOnly8136(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+        if (!rewardedPositions.add(env.positionId)) return true
+        try { CausalFeedbackAuthority6715.markLearned(env.positionId) } catch (_: Throwable) {}
+        try { AateEntryIdentityBook8136.terminal8136(env.positionId) } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("AATE_SHADOW_TERMINAL_OBSERVED_ONLY_8136") } catch (_: Throwable) {}
         return true
     }
 
     fun onFinalized(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (rewardedPositions.contains(env.positionId)) return true
-        val e = byPosition[env.positionId]?.takeIf {
+        if (AateEntryIdentityBook8136.isShadowMode8136(env.mode)) return observeShadowOnly8136(env)
+        // Entry-time snapshot facts (sealed at entry, carried by the close) fill identity fields the open left blank.
+        try { AateEntryIdentityBook8136.fillBlanks8136(env.positionId, env.entrySetup, env.entryStrategyVariantId, env.entryEntryStyle, env.entryExitStyle) } catch (_: Throwable) {}
+        val hadLink8136 = byPosition.containsKey(env.positionId)
+        val e = (byPosition[env.positionId] ?: restoreFromIdentity8136(env))?.takeIf {
             it.context.mode.equals(env.mode, true) && it.context.mint == env.mint
         }
         try { ToolkitSignalSheet.recordDeskStage(env.lane, "FINALIZED", env.positionId) } catch (_: Throwable) {}
+        // V5.0.8136 — classify the close: exact envelope, restored sealed identity, owner-ledger only, unverifiable.
+        val attribution8136 = AateEntryIdentityBook8136.attribution8136(
+            hasEnvelope = e != null && hadLink8136, hasSealedIdentity = e != null && !hadLink8136,
+            ledgerOwner = if (e != null) null else try { LaneAttributionLedger6427.getEntryLane(env.positionId) } catch (_: Throwable) { null },
+        )
+        AateEntryIdentityBook8136.noteAttribution8136(attribution8136)
         if (e == null && env.lane.uppercase() in setOf("QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE","MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN")) {
-            try { ToolkitSignalSheet.recordCausalIssue6600("specialistLearningMissing", env.lane, "positionId=${env.positionId.take(18)}") } catch (_: Throwable) {}
+            // V5.0.8136 — "missing" means nothing attributes the close; an owner-ledger stamp still trains the owner
+            // lane below and is reported apart. Neither is a negative strategy sample (strategy books need EXACT /
+            // SEALED_IDENTITY attribution); the economics stay on the bus for risk and the dashboard.
+            if (attribution8136 == AateEntryIdentityBook8136.Attribution8136.UNVERIFIABLE) {
+                try { ToolkitSignalSheet.recordCausalIssue6600("specialistLearningMissing", env.lane, "positionId=${env.positionId.take(18)}") } catch (_: Throwable) {}
+            } else {
+                try { ToolkitSignalSheet.recordCausalIssue6600("specialistLearningOwnerOnly8136", env.lane, "positionId=${env.positionId.take(18)}") } catch (_: Throwable) {}
+            }
             // V5.0.6747 §CAUSAL_OWNER_ATTRIBUTION_REPAIR — operator
             // directive: "if a loser cannot reliably be attributed
             // back to the exact lane + tactic + score band + regime
@@ -245,6 +330,8 @@ object AateDecisionFabric6512 {
             // so markLearned + downstream learners fire. See §CAUSAL_LOOP_UNSEVERANCE.
         }
         if (!rewardedPositions.add(env.positionId)) return true
+        // V5.0.8136 — the one whole-position close retires its sealed entry identity (delivered once).
+        try { AateEntryIdentityBook8136.terminal8136(env.positionId) } catch (_: Throwable) {}
         // V5.0.6717 §CAUSAL_LOOP_UNSEVERANCE — always ACK the causal feedback
         // authority regardless of whether per-position policy training bound.
         // The canonical terminal happened; the admission gate MUST NOT stay
@@ -379,6 +466,7 @@ object AateDecisionFabric6512 {
         } catch (_: Throwable) {}
     }
 
-    fun statusLine(): String = "policies=${policies.get()} sealed=${byAttempt.size} attributed=${byPosition.size} rewards=${rewards.get()}"
-    internal fun resetForTest() { byAuthority.clear(); byAttempt.clear(); byPosition.clear(); rewardedPositions.clear(); policies.set(0L); rewards.set(0L) }
+    fun statusLine(): String = "policies=${policies.get()} sealed=${byAttempt.size} attributed=${byPosition.size} rewards=${rewards.get()}" +
+        " ${AateEntryIdentityBook8136.statusLine8136()}"
+    internal fun resetForTest() { byAuthority.clear(); byAttempt.clear(); byPosition.clear(); rewardedPositions.clear(); policies.set(0L); rewards.set(0L); AateEntryIdentityBook8136.resetForTest8136() }
 }

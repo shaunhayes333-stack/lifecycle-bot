@@ -75,6 +75,7 @@ object CapitalDrawdown7948 {
         prevUpnl7981 = Double.NaN
         prevPeakObs7990 = Double.NaN
         realCache7981 = null
+        prevUpnl8136 = Double.NaN
         return true
     }
 
@@ -151,6 +152,7 @@ object CapitalDrawdown7948 {
                             peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)
                             externalFlows7981.incrementAndGet()
                             netExternal7981 += flow
+                            noteExternalFlow8136(flow, nowMs)
                             try {
                                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (flow > 0) "DRAWDOWN_EXTERNAL_INFLOW_7981" else "DRAWDOWN_EXTERNAL_OUTFLOW_7981")
                                 com.lifecyclebot.engine.ForensicLogger.lifecycle("DRAWDOWN_EXTERNAL_FLOW_7981", "flow=${"%.4f".format(flow)} equity=${"%.4f".format(equitySol)} peak=${"%.4f".format(peak7948.peakSol)}")
@@ -173,8 +175,46 @@ object CapitalDrawdown7948 {
         val confirmed7990 = peakCandidate7990(gainFreeEquity8130(equitySol, upnl8130), prevPeakObs7990)
         if (equitySol.isFinite() && equitySol > 0.0) prevPeakObs7990 = equitySol
         peak7948 = rollPeak7948(peak7948, confirmed7990, nowMs)
-        drawdownPct7948(peak7948, equitySol, nowMs)
+        // V5.0.8136 — the drawdown is read on the SAME gain-free basis as the peak (CashEquityBook8136): an unsold gain
+        // can no longer mask a real drawdown (and waive its shrink), and a one-read crash mark cannot invent one.
+        drawdownPct7948(peak7948, observedDrawdownEquity8136(equitySol, upnl8130), nowMs)
     }
+
+    // ── V5.0.8136 — gain-free drawdown basis, external-flow log, the capital split ──
+
+    @Volatile private var prevUpnl8136 = Double.NaN
+    private val flowLog8136 = java.util.concurrent.ConcurrentLinkedDeque<Pair<Long, Double>>()
+
+    /** Caller holds the lock: the drawdown equity of this observation; remembers this read's unrealised P&L. */
+    private fun observedDrawdownEquity8136(equitySol: Double, upnlSol: Double): Double {
+        val dd = CashEquityBook8136.drawdownEquitySol8136(equitySol, upnlSol, prevUpnl8136)
+        if (equitySol.isFinite() && equitySol > 0.0 && upnlSol.isFinite()) prevUpnl8136 = upnlSol
+        return dd
+    }
+
+    /** A confirmed deposit / withdrawal: logged with its time (daily P&L nets it) and the reward-hack high moves with it. */
+    private fun noteExternalFlow8136(flowSol: Double, nowMs: Long) {
+        if (!flowSol.isFinite()) return
+        flowLog8136.addLast(nowMs to flowSol)
+        while (flowLog8136.size > 200) flowLog8136.pollFirst()
+        try { AntiRewardHackingGuard6439.noteExternalFlow8136(flowSol) } catch (_: Throwable) {}
+    }
+
+    /** Net external flow (deposits +) confirmed at or after [sinceMs] (this process; KillSwitch's daily P&L). */
+    fun flowsSince8136(sinceMs: Long): Double = flowLog8136.filter { it.first >= sinceMs }.sumOf { it.second }
+
+    private fun heroUpnl8136(): Double =
+        try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
+
+    /** The live capital in its separate parts (report; CashEquity8136). */
+    private fun cashEquity8136(walletSol: Double, nowMs: Long): CashEquity8136 = CashEquity8136(
+        liquidSol = walletSol,
+        reservedTxSol = try { LiveSpendReserveAuthority7255.RESERVE_SOL } catch (_: Throwable) { 0.0 },
+        openPrincipalSol = try { LiveRiskPolicy7807.liveEquitySol(0.0) } catch (_: Throwable) { 0.0 },
+        validatedUnrealisedSol = heroUpnl8136(),
+        settledRealisedSol = realisedLiveSol7981(nowMs),
+        netExternalFlowSol = netExternal7981,
+    )
 
     @Volatile private var prevPeakObs7990 = Double.NaN
 
@@ -188,7 +228,7 @@ object CapitalDrawdown7948 {
 
     /** Reads the drawdown percent without moving the peak (reports, preflight). */
     fun peekPct7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Double =
-        drawdownPct7948(peak7948, equitySol, nowMs)
+        drawdownPct7948(peak7948, CashEquityBook8136.drawdownEquitySol8136(equitySol, heroUpnl8136(), prevUpnl8136), nowMs)
 
     /** Live marked equity: liquid SOL + canonical live cost basis + the hero's live-only unrealized. */
     fun liveMarkedEquitySol7948(walletSol: Double): Double {
@@ -201,7 +241,8 @@ object CapitalDrawdown7948 {
     fun line7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): String {
         val p = rollPeak7948(peak7948, equitySol, nowMs)
         return "liveDD=${"%.1f".format(peekPct7948(equitySol, nowMs))}% equity=${"%.4f".format(equitySol)} " +
-            "peak24h=${"%.4f".format(p.peakSol)} externalFlows7981=${externalFlows7981.get()} tradeLagCancelled7986=${cancelled7986.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]"
+            "peak24h=${"%.4f".format(p.peakSol)} externalFlows7981=${externalFlows7981.get()} tradeLagCancelled7986=${cancelled7986.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]" +
+            " ${try { CashEquityBook8136.line8136(cashEquity8136(com.lifecyclebot.engine.BotService.status.walletSol, nowMs)) } catch (_: Throwable) { "equity8136=-" }}"
     }
 
     // ── pure: routable capacity sentence ────────────────────────────────────

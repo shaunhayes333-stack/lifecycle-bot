@@ -96,6 +96,8 @@ object CanonicalFinalizedTradeBus6464 {
     private val hydration8076 = ConsumerHydration8076()
     private val publishes = AtomicLong(0L)
     private val duplicates = AtomicLong(0L)
+    private val positionTerminals8136 = PositionTerminalOnce8136()
+    private val positionDuplicates8136 = AtomicLong(0L)
     // V5.0.7493 — monotonic revision of UNIQUE canonical bus population.
     private val canonicalRevision7493 = AtomicLong(0L)
     // V5.0.7494 — ACK/exclusion population revision for exact parity caching.
@@ -181,6 +183,16 @@ object CanonicalFinalizedTradeBus6464 {
      */
     fun publish(env: Envelope): Boolean {
         if (env.tradeId.isBlank() || env.positionId.isBlank() || !env.terminal) return false
+        // V5.0.8136 — one whole-position terminal per positionId, whatever tradeId a later producer stamps.
+        if (!positionTerminals8136.admit(env.positionId, env.tradeId)) {
+            positionDuplicates8136.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("FINALIZED_BUS_DUPLICATE_POSITION_8136")
+                ForensicLogger.lifecycle("FINALIZED_BUS_DUPLICATE_POSITION_8136",
+                    "positionId=${env.positionId.take(24)} tradeId=${env.tradeId.take(24)} action=refused_second_terminal_for_position")
+            } catch (_: Throwable) {}
+            return false
+        }
         val prev = canonicalSeen.putIfAbsent(env.tradeId, env)
         publishes.incrementAndGet()
         if (prev != null) {
@@ -505,7 +517,7 @@ object CanonicalFinalizedTradeBus6464 {
 
     fun statusLine(): String {
         val p = parity()
-        return "canonical=${p.canonicalUnique} publishes=${publishes.get()} duplicates=${duplicates.get()} " +
+        return "canonical=${p.canonicalUnique} publishes=${publishes.get()} duplicates=${duplicates.get()} duplicatePositions8136=${positionDuplicates8136.get()} " +
             "processed=${p.perConsumer.entries.joinToString(",") { "${it.key}=${it.value}" }} " +
             "excluded=${p.excludedByConsumer.entries.joinToString(",") { "${it.key}=${it.value}" }} " +
             "zeroConsumers=${p.zeroConsumers.joinToString(",")}"
@@ -516,6 +528,7 @@ object CanonicalFinalizedTradeBus6464 {
         retryAfter7863.clear()
         canonicalSeen.clear(); consumerAcks.clear(); consumerExcluded.clear(); exclusionReasons.clear()
         publishes.set(0L); duplicates.set(0L); canonicalRevision7493.set(0L)
+        positionTerminals8136.clear(); positionDuplicates8136.set(0L)
         consumerParityRevision7494.set(0L); parityCache7494.set(null); canonicalProjectionCache7497.set(null)
         retryRunning6486.set(false); deliveryInFlight6734.clear()
     }
