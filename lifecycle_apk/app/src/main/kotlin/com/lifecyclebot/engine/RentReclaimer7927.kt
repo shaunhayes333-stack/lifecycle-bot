@@ -33,6 +33,13 @@ object RentReclaimer7927 {
     private val failed = AtomicLong(0)
     private val skippedProtected = AtomicLong(0)
     @Volatile private var lastError = ""
+    // V5.0.8102 — 5.0.8098: lastError=custom program error: 0x23 every pass. Token-2022 error 35 is
+    // AccountHasWithheldTransferFees: the account cannot close until its withheld fees are harvested to the mint, which
+    // only the mint's withdraw authority can do. Such an account is skipped for the rest of the process.
+    private val unclosable8102 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** Pure: does a close failure say the account holds withheld Token-2022 transfer fees (error 0x23)? */
+    fun withheldFeesRefusal8102(message: String?): Boolean = message != null && Regex("custom program error: 0x23\\b").containsMatchIn(message)
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "rent-reclaim-7927").apply { isDaemon = true } }
 
     /** Pure: is a tracked wallet position still in play (not terminal)? */
@@ -66,6 +73,7 @@ object RentReclaimer7927 {
             lastError = "list:${t.javaClass.simpleName}"; failed.incrementAndGet(); return
         }
         val eligible = empties.filter { a ->
+            if (a.address in unclosable8102) return@filter false
             val p = protectedMint(a.mint, now)
             if (p) skippedProtected.incrementAndGet()
             !p
@@ -97,6 +105,7 @@ object RentReclaimer7927 {
             failed.incrementAndGet()
             // V5.0.8095 — keep the END of the message: the instruction error code is what names the cause.
             lastError = "close:${t.message?.takeLast(90) ?: t.javaClass.simpleName}"
+            if (batch.size == 1 && withheldFeesRefusal8102(t.message)) unclosable8102.add(batch[0].address)
             try { PipelineHealthCollector.labelInc("RENT_RECLAIM_7927_FAILED") } catch (_: Throwable) {}
             false
         }
@@ -104,5 +113,5 @@ object RentReclaimer7927 {
     fun statusLine(): String =
         "closed=${closed.get()} reclaimedSol=${"%.5f".format(reclaimedLamports.get() / 1e9)} failed=${failed.get()} " +
             "protectedSkips=${skippedProtected.get()} lastRunAgoSec=${if (lastRunMs > 0) (System.currentTimeMillis() - lastRunMs) / 1000 else -1} " +
-            "lastError=${lastError.ifBlank { "-" }}"
+            "lastError=${lastError.ifBlank { "-" }} withheldFeeSkips8102=${unclosable8102.size}"
 }

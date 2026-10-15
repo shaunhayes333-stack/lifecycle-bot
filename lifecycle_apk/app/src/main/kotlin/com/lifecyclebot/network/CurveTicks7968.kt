@@ -59,6 +59,17 @@ object CurveTicks7968 {
     private val connects = AtomicLong(0)
     private val failures = AtomicLong(0)
     @Volatile private var lastTickMs = 0L
+    // V5.0.8102 — 5.0.8098: subErrors8095=1048 lastError=-32601:Method 'accountSubscribe' not found. The selected
+    // endpoint does not serve accountSubscribe; every 15 s resend was refused again on the same socket. An endpoint
+    // that answers -32601 is closed and benched for [METHOD_MISSING_BENCH_MS_8102]; the next connect takes another.
+    private const val METHOD_MISSING_BENCH_MS_8102 = 30L * 60_000L
+    private val methodMissingAt8102 = ConcurrentHashMap<String, Long>()
+    @Volatile private var currentUrl8102 = ""
+    private val benched8102 = AtomicLong(0)
+
+    /** Pure: the endpoints not benched for answering -32601 within [benchMs] of [nowMs], in their order. */
+    internal fun usableEndpoints8102(all: List<String>, missingAt: Map<String, Long>, nowMs: Long, benchMs: Long = METHOD_MISSING_BENCH_MS_8102): List<String> =
+        all.filter { u -> missingAt[u]?.let { nowMs - it in 0L until benchMs } != true }
 
     private val client: OkHttpClient by lazy {
         SharedHttpClient.builder().pingInterval(20, TimeUnit.SECONDS).readTimeout(0, TimeUnit.MILLISECONDS).build()
@@ -116,12 +127,13 @@ object CurveTicks7968 {
         if (now - lastConnectMs < RECONNECT_GAP_MS) return
         lastConnectMs = now
         val key = try { keyProvider() } catch (_: Throwable) { "" }
-        val endpoints = com.lifecyclebot.engine.RuntimeProviderAuthority6685.websocketCandidates8079(key)
+        val endpoints = usableEndpoints8102(com.lifecyclebot.engine.RuntimeProviderAuthority6685.websocketCandidates8079(key), methodMissingAt8102, now)
         if (endpoints.isEmpty()) return
         val attempt = wsEndpointAttempt8079.getAndIncrement()
         val selected = Math.floorMod(attempt, endpoints.size)
         connects.incrementAndGet()
         if (selected > 0) try { PipelineHealthCollector.labelInc("CURVE_WS_PROVIDER_FALLBACK_8079") } catch (_: Throwable) {}
+        currentUrl8102 = endpoints[selected]
         val req = Request.Builder().url(endpoints[selected]).build()
         ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -137,6 +149,18 @@ object CurveTicks7968 {
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { failures.incrementAndGet(); closed(webSocket) }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { closed(webSocket) }
         })
+    }
+
+    private fun benchCurrent8102() {
+        val url = currentUrl8102
+        val now = System.currentTimeMillis()
+        if (url.isBlank() || usableEndpoints8102(listOf(url), methodMissingAt8102, now).isEmpty()) return
+        methodMissingAt8102[url] = now
+        benched8102.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("CURVE_WS_METHOD_MISSING_BENCHED_8102") } catch (_: Throwable) {}
+        val s = ws ?: return
+        try { s.close(1000, "accountSubscribe unsupported") } catch (_: Throwable) {}
+        closed(s)
     }
 
     private fun closed(s: WebSocket) {
@@ -171,6 +195,7 @@ object CurveTicks7968 {
                 subErrors8095.incrementAndGet()
                 lastError8095 = "$code:${e?.optString("message").orEmpty().take(60)}"
                 try { PipelineHealthCollector.labelInc("CURVE_SUB_ERROR_8095_${if (code < 0) "M${-code}" else code.toString()}") } catch (_: Throwable) {}
+                if (code == -32601) benchCurrent8102()
             }
             return
         }
@@ -199,6 +224,6 @@ object CurveTicks7968 {
 
     fun statusLine7968(): String {
         val age = if (lastTickMs > 0L) "${(System.currentTimeMillis() - lastTickMs) / 1000}s" else "-"
-        return "open=$open held=${desired.size} subs=${subByMint.size} ticks=${ticks.get()} lastTick=$age connects=${connects.get()} failures=${failures.get()} subErrors8095=${subErrors8095.get()} lastError=$lastError8095"
+        return "open=$open held=${desired.size} subs=${subByMint.size} ticks=${ticks.get()} lastTick=$age connects=${connects.get()} failures=${failures.get()} subErrors8095=${subErrors8095.get()} lastError=$lastError8095 benched8102=${benched8102.get()}"
     }
 }

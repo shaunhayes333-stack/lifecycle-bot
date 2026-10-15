@@ -599,4 +599,20 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("o.costPct = (o.costPct - o.chase8094).coerceAtLeast(0.0)"))
         assertTrue(src("engine/truth/CostLedger7962.kt").contains("ForwardReturnLabeler7731.rebaseClearsChase8094(EntryChase7961.laneLatencyMs8094(l))"))
     }
+
+    @Test fun aWebsocketEndpointWithoutAccountSubscribeIsBenchedNotRetried() {
+        val c = com.lifecyclebot.network.CurveTicks7968
+        val all = listOf("wss://a", "wss://b")
+        assertEquals(all, c.usableEndpoints8102(all, emptyMap(), 10_000L))
+        assertEquals(listOf("wss://b"), c.usableEndpoints8102(all, mapOf("wss://a" to 9_000L), 10_000L, benchMs = 5_000L))
+        // The bench expires: the endpoint is tried again later.
+        assertEquals(all, c.usableEndpoints8102(all, mapOf("wss://a" to 1_000L), 10_000L, benchMs = 5_000L))
+        assertTrue(src("network/CurveTicks7968.kt").contains("if (code == -32601) benchCurrent8102()"))
+    }
+
+    @Test fun aToken2022AccountWithWithheldFeesIsSkippedNotRetriedEveryPass() {
+        assertTrue(RentReclaimer7927.withheldFeesRefusal8102("Transaction simulation failed: Error processing Instruction 0: custom program error: 0x23"))
+        assertFalse(RentReclaimer7927.withheldFeesRefusal8102("custom program error: 0x1"))
+        assertFalse(RentReclaimer7927.withheldFeesRefusal8102(null))
+    }
 }
