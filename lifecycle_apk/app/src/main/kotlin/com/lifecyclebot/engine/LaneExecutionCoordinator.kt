@@ -294,9 +294,11 @@ object LaneExecutionCoordinator {
         if (ready.isEmpty()) return null
         val contenders = ready.keys
             .filter(eligible)
-            .filter { laneCanOwnExecution6910(it) }
-            .filter { ownExecutorRefusal7807(mint, it) == null }
+            .filter { laneCanOwnExecution6910(it) || unownable8136(mint, it, "TRADER_DISABLED_7815") }
+            .filter { lane -> ownExecutorRefusal7807(mint, lane)?.let { why -> unownable8136(mint, lane, "OWN_EXECUTOR_7807:$why") } ?: true }
             .filterNot { nativeRefused7774(mint, it) }
+            // V5.0.8136 — a proposal that already ended INELIGIBLE this version (gated primary, refused receiver) does not own it.
+            .filter { SpecialistElection8136.mayOwn8136(mint, it) }
             .distinct()
         val winner = pickFreshPrimary(mint, candidateVersion, contenders) ?: return null
         try {
@@ -313,6 +315,39 @@ object LaneExecutionCoordinator {
      * No gates are bypassed: identity, enabled desks, FDG and capital still apply.
      */
     internal fun readyOwnerForCycle8081(
+        ts: com.lifecyclebot.data.TokenState,
+        proposed: String,
+        eligibleLanes: Set<String>,
+        operatorForced: Boolean,
+    ): String = cycleOwnerUnderElection8136(ts.mint, readyOwnerForCycleCore8136(ts, proposed, eligibleLanes, operatorForced), operatorForced)
+
+    /** V5.0.8136 — a READY lane the coordinator filtered out of ownership ends with its precise reason (never silently). */
+    private fun unownable8136(mint: String, lane: String, reason: String): Boolean {
+        try { SpecialistElection8136.markIneligible8136(mint, lane, reason) } catch (_: Throwable) {}
+        return false
+    }
+
+    /**
+     * V5.0.8136 — the cycle owner under the candidate's ONE election contract (SpecialistElection8136). A sealed FDG
+     * owner or an operator-forced lane is authoritative. An owner re-elected after the primary refused IS the candidate's
+     * one rescue (native evidence, token safety and receiver record checked); a judgement refusal keeps the refused
+     * primary, and once the rescue slot is used a third lane never takes the version.
+     */
+    private fun cycleOwnerUnderElection8136(mint: String, owner: String, operatorForced: Boolean): String = try {
+        val version = candidateVersionFor(mint)
+        val sealed = currentElection6600(mint, version)?.takeIf { it.sealed }?.primaryLane
+        val lane = sealed ?: owner
+        val prior = SpecialistElection8136.primaryOf8136(mint)
+        val ineligible = if (prior.isNotBlank() && !prior.equals(lane, true)) SpecialistOwnership7951.rescueIneligible8136(mint, lane) else null
+        val chosen = SpecialistElection8136.cyclePrimary8136(mint, version, lane, sealed != null || operatorForced, ineligible)
+        SpecialistOwnership7951.noteCycleNative8136(mint)
+        if (!chosen.equals(owner, true)) try {
+            PipelineHealthCollector.labelInc("CYCLE_OWNER_HELD_BY_ELECTION_8136_$chosen")
+        } catch (_: Throwable) {}
+        chosen
+    } catch (_: Throwable) { owner }
+
+    private fun readyOwnerForCycleCore8136(
         ts: com.lifecyclebot.data.TokenState,
         proposed: String,
         eligibleLanes: Set<String>,

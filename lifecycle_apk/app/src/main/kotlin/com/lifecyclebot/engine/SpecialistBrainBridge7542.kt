@@ -265,6 +265,27 @@ object SpecialistBrainBridge7542 {
         // V5.0.8031 — every lane's verdict is named, and a refusal is labelled for the veto audit (DecisionReasons8031).
         try { DecisionReasons8031.nativeVerdicts8031(ts, out.values) } catch (_: Throwable) {}
         // V5.0.7951 — every eligible lane's ownership conviction on ONE common scale (+ chart BUY evidence).
-        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it)}
+        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it);registerElection8136(it)}
+    }
+
+    /**
+     * V5.0.8136 — every fresh native assessment opens / refreshes the candidate version's election record
+     * (SpecialistElection8136): each assessed lane is Discovered, each eligible one a NativeQualified proposal on its OWN
+     * scale (the 7948 / 7951 ownership conviction), and an eligible lane whose trader cannot own execution ends INELIGIBLE.
+     */
+    private fun registerElection8136(s: Snapshot) {
+        try {
+            val version = try { LaneExecutionCoordinator.candidateVersionFor(s.mint) } catch (_: Throwable) { -1L }
+            val views = s.opinions.mapValues { (lane, o) ->
+                val eligible = o.eligible && o.authoritative
+                SpecialistElection8136.NativeView8136(
+                    eligible = eligible,
+                    normalised = SpecialistElection8136.normalised8136(maxOf(o.score, o.confidence).toDouble(), Double.NaN, o.ownershipConviction7948),
+                    reason = o.reason,
+                    ownable = !eligible || LaneExecutionCoordinator.laneCanOwnExecution6910(lane),
+                )
+            }
+            SpecialistElection8136.registerNative8136(s.mint, version, s.evaluatedAtMs, views)
+        } catch (_: Throwable) {}
     }
 }
