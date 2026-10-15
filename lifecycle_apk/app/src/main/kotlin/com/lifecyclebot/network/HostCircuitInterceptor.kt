@@ -77,7 +77,33 @@ object HostCircuitInterceptor : Interceptor {
         // refusal used to open the shared circuit and lock out the keyed fallback too.
         if (host.endsWith("jup.ag", ignoreCase = true) && path.startsWith("/tokens/"))
             (if (host.startsWith("lite-api", ignoreCase = true)) "jupiter_tokens" else "jupiter_tokens_keyed")
-        else providerLabel(host)
+        else endpointClass8125(providerLabel(host), path)
+
+    /**
+     * V5.0.8125 — owner: "we are meant to have multiple multiple sources of data". One label per provider meant a 429
+     * on a low-value call (DexScreener boosts/profiles/search for discovery, the chart library's seed jobs) locked out
+     * the pair and token lookups that price and size candidates and positions. Discovery paths answer to their own
+     * label, and Jupiter's price API no longer shares a lock with the keyless quote/swap path.
+     */
+    internal fun endpointClass8125(base: String, path: String): String = when (base) {
+        "dexscreener" -> if (DEX_PRICE_PATHS_8125.any { path.startsWith(it) }) base else "dexscreener_discovery"
+        "jupiter" -> if (path.startsWith("/price/")) "jupiter_price" else base
+        else -> base
+    }
+
+    private val DEX_PRICE_PATHS_8125 = listOf("/latest/dex/pairs", "/latest/dex/tokens", "/tokens/", "/token-pairs/")
+
+    /**
+     * V5.0.8125 — a caller that is background work (the chart library) tags its requests; their failures cool down
+     * "<provider>_<lane>" and never the provider's live lookups. Stripped before the request goes on the wire.
+     */
+    const val LANE_HEADER_8125 = "X-AATE-Lane"
+
+    /** Pure: the lockout label a request answers to. */
+    fun labelFor8125(host: String, path: String, lane: String?): String {
+        val base = providerLabelFor(host, path)
+        return if (base.isBlank() || lane.isNullOrBlank()) base else "${base}_$lane"
+    }
 
     private fun providerLabel(host: String): String = when {
         host.contains("dexscreener", ignoreCase = true) -> "dexscreener"
@@ -139,7 +165,7 @@ object HostCircuitInterceptor : Interceptor {
         val req = chain.request()
         val host = req.url.host
         val now = System.currentTimeMillis()
-        val provider = providerLabelFor(host, req.url.encodedPath)
+        val provider = labelFor8125(host, req.url.encodedPath, req.header(LANE_HEADER_8125))
         // V5.0.7719 — the cool-down state is keyed by host AND provider label.
         // 7297 split the ApiBackoff label (jupiter_tokens vs jupiter) but this
         // host state stayed per host, so three 403s from the market sweep's
@@ -205,8 +231,8 @@ object HostCircuitInterceptor : Interceptor {
         }
 
         // The probe marker is an internal routing hint — never put it on the wire.
-        val wireReq = if (req.header(PROBE_HEADER_6976) != null || req.header(ExitHttpScope7314.HEADER) != null) {
-            req.newBuilder().removeHeader(PROBE_HEADER_6976).removeHeader(ExitHttpScope7314.HEADER).build()
+        val wireReq = if (req.header(PROBE_HEADER_6976) != null || req.header(ExitHttpScope7314.HEADER) != null || req.header(LANE_HEADER_8125) != null) {
+            req.newBuilder().removeHeader(PROBE_HEADER_6976).removeHeader(ExitHttpScope7314.HEADER).removeHeader(LANE_HEADER_8125).build()
         } else req
 
         val response: Response = try {

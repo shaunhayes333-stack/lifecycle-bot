@@ -855,4 +855,19 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(1, m.carryOrStore8124("FEED_8124", emptyList(), t0 + 5 * 60_000L).size)    // failed: last good rows
         assertTrue(m.carryOrStore8124("FEED_8124", emptyList(), t0 + 25 * 60_000L).isEmpty())   // too old to stand in
     }
+
+    @Test fun aRateLimitOnDiscoveryOrChartsNeverLocksOutPriceLookups() {
+        val h = com.lifecyclebot.network.HostCircuitInterceptor
+        assertEquals("dexscreener", h.labelFor8125("api.dexscreener.com", "/latest/dex/tokens/abc", null))
+        assertEquals("dexscreener", h.labelFor8125("api.dexscreener.com", "/tokens/v1/solana/abc", null))
+        assertEquals("dexscreener_discovery", h.labelFor8125("api.dexscreener.com", "/token-boosts/latest/v1", null))
+        assertEquals("dexscreener_discovery", h.labelFor8125("api.dexscreener.com", "/latest/dex/search", null))
+        assertEquals("dexscreener_chart", h.labelFor8125("api.dexscreener.com", "/tokens/v1/solana/abc", "chart"))
+        assertEquals("jupiter_price", h.labelFor8125("lite-api.jup.ag", "/price/v3", null))
+        assertEquals("jupiter", h.labelFor8125("lite-api.jup.ag", "/swap/v1/quote", null))
+        assertEquals("jupiter_tokens", h.labelFor8125("lite-api.jup.ag", "/tokens/v2/recent", null))
+        assertEquals("", h.labelFor8125("example.org", "/x", "chart"))                       // unmapped hosts stay unmapped
+        assertTrue(src("engine/chart/ChartSources7955.kt").contains("HostCircuitInterceptor.LANE_HEADER_8125, \"chart\""))
+        assertTrue(src("engine/sell/SellReconciler.kt").contains("ExitHttpScope7314.run { com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(openMints) }"))
+    }
 }

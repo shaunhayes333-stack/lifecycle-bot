@@ -376,7 +376,8 @@ object SellReconciler {
         val priceMap: Map<String, Double> = try {
             if (openMints.isEmpty()) emptyMap()
             else withContext(Dispatchers.IO) {
-                com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(openMints)
+                // V5.0.8125 — held positions' prices are exit work: our own provider lockout never refuses them.
+                com.lifecyclebot.network.ExitHttpScope7314.run { com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(openMints) }
             }
         } catch (_: Throwable) { emptyMap() }
 

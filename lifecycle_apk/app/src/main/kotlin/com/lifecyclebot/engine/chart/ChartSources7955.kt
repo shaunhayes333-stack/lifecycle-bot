@@ -589,6 +589,7 @@ object ChartSources7955 {
         p.calls.incrementAndGet()
         val r = try {
             val b = Request.Builder().url(url).header("accept", "application/json").header("user-agent", UA)
+                .header(com.lifecyclebot.network.HostCircuitInterceptor.LANE_HEADER_8125, "chart") // V5.0.8125 — own lockout
             for ((k, v) in headers) b.header(k, v)
             if (post != null) b.post(post.toRequestBody(JSON_MT))
             http.newCall(b.build()).execute().use { resp -> Res(resp.code, resp.body?.string()) }
