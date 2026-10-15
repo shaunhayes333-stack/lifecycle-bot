@@ -438,4 +438,12 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(10.0, LaneExecutionCoordinator.PROVEN_CELL_BONUS_8094, 1e-9)
         assertTrue(src("engine/LaneExecutionCoordinator.kt").contains("+ provenCellBonus8094(mint, laneUpper)"))
     }
+
+    @Test fun theHiveNetworkBooksComeBackInFullAfterEveryRestart() {
+        // The network aggregate lives in memory; lastPullMs survives the restart. The first sync pages everything in.
+        val h = src("engine/truth/HiveEdge8000.kt")
+        assertTrue(h.contains("if (!fullPulledThisProcess8094) {"))
+        assertTrue(h.contains("HIVE_FULL_PAGE_IN_AT_BOOT_8094"))
+        assertTrue(h.contains("pageIn8094(client, 0L)"))
+    }
 }

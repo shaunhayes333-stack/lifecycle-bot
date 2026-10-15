@@ -201,6 +201,21 @@ object HiveEdge8000 {
             for ((k, _) in chunk) local[k]?.let { uploaded[k] = it.copyOf() }
             uploadedRows.addAndGet(chunk.size.toLong())
         }
+        // V5.0.8094 — the first sync of every process pages the WHOLE network book in. The aggregate lives only in memory
+        // while lastPullMs is restored from disk, so after any restart (crash, update) the incremental pull below fetched
+        // only rows changed since the last pull: 8094 ran with sharedKeys=0 and every setup / cell record fell back to
+        // local data (SHITCOIN LAUNCH_LADDER_PROVEN n208 +227% -> n127 +37%, SPECIALIST_EDGE n884 -> n51).
+        if (!fullPulledThisProcess8094) {
+            val (rows, to) = pageIn8094(client, 0L)
+            // An unreachable hive (rows=0) retries the full page-in on the next sync.
+            if (rows > 0) fullPulledThisProcess8094 = true
+            lastPullMs = maxOf(lastPullMs, to)
+            pulledRows.addAndGet(rows.toLong())
+            try { PipelineHealthCollector.labelInc("HIVE_FULL_PAGE_IN_AT_BOOT_8094") } catch (_: Throwable) {}
+            save()
+            inherit()
+            return
+        }
         // Pull the network's changes since the last pull.
         val res = client.query(
             "SELECT k, n, s, ss, w, r, b, updated_ms FROM $EDGE_TABLE_8028 WHERE updated_ms > ? ORDER BY updated_ms LIMIT $PULL_LIMIT",
@@ -234,15 +249,11 @@ object HiveEdge8000 {
     private val seatsInherited = AtomicLong(0)
     private val expertsInherited = AtomicLong(0)
 
-    /**
-     * V5.0.8001 — BOOST (Collective Brain screen): a new or reset install inherits the whole network's
-     * learnt edge now — every shared book paged in from the start, then specialists promoted, Cortex
-     * seats and expert wallets inherited. Returns a one-paragraph summary for the boost dialog.
-     */
-    suspend fun boost8001(client: com.lifecyclebot.collective.TursoClient): String {
-        ensureLoaded()
-        ensureTables(client)
-        var from = 0L
+    @Volatile private var fullPulledThisProcess8094 = false
+
+    /** V5.0.8094 — page every network row updated after [start] into the aggregate: (rows read, last updated_ms). */
+    private suspend fun pageIn8094(client: com.lifecyclebot.collective.TursoClient, start: Long): Pair<Int, Long> {
+        var from = start
         var rows = 0
         var pages = 0
         while (pages < 40) {
@@ -263,6 +274,19 @@ object HiveEdge8000 {
             if (maxTs <= from || res.rows.size < PULL_LIMIT) { from = maxTs; break }
             from = maxTs
         }
+        return rows to from
+    }
+
+    /**
+     * V5.0.8001 — BOOST (Collective Brain screen): a new or reset install inherits the whole network's
+     * learnt edge now — every shared book paged in from the start, then specialists promoted, Cortex
+     * seats and expert wallets inherited. Returns a one-paragraph summary for the boost dialog.
+     */
+    suspend fun boost8001(client: com.lifecyclebot.collective.TursoClient): String {
+        ensureLoaded()
+        ensureTables(client)
+        val (rows, from) = pageIn8094(client, 0L)
+        fullPulledThisProcess8094 = true
         lastPullMs = maxOf(lastPullMs, from)
         pulledRows.addAndGet(rows.toLong())
         save()
