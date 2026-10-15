@@ -464,6 +464,16 @@ class Aate8094ClosedPositionAndPretradeTest {
         L.resetForTest()
     }
 
+    @Test fun theScannerRejectStoreIsBoundedAndWritesCoalesced() {
+        val s = ScannerHardRejectStore
+        val stamps = (1..5_000).map { ScannerHardRejectStore.Reject("m$it", "S", "RUG", "x", it.toLong()) }
+        val evict = s.evictions8094(stamps)
+        assertEquals(5_000 - ScannerHardRejectStore.MAX_REJECTS_8094, evict.size)
+        assertTrue(evict.contains("m1") && !evict.contains("m5000"))
+        assertTrue(s.evictions8094(stamps.take(10)).isEmpty())
+        assertTrue(src("engine/ScannerHardRejectStore.kt").contains("if (!known8094) saveSoon8094()"))
+    }
+
     @Test fun aLabelRebasedAtTheMeasuredFillLatencyIsNotChargedTheChaseTwice() {
         val f = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
         assertFalse(f.rebaseClearsChase8094(0L))

@@ -43,8 +43,9 @@ object ScannerHardRejectStore {
         if (mint.isBlank() || mint.length < 30) return
         val cleanReason = reason.ifBlank { "HARD_REJECT" }.take(160)
         val r = Reject(mint, symbol.ifBlank { mint.take(6) }, cleanReason, source.take(80), System.currentTimeMillis())
-        hardRejects[mint] = r
-        save()
+        val known8094 = hardRejects.put(mint, r) != null
+        // V5.0.8094 — a re-stamp needs no rewrite; a new stamp is written by the coalesced save.
+        if (!known8094) saveSoon8094()
         val taxonomy = try { RejectTaxonomy.classify(cleanReason, TradeAuthorizer.BlockLevel.HARD) } catch (_: Throwable) { null }
         ChokeReliefBus.launch("SCANNER_HARD_REJECT_TAXONOMY_4429", mint) {
             try { if (taxonomy != null) RejectTaxonomyLedger.record(taxonomy, "SCANNER_${r.source}", cleanReason) } catch (_: Throwable) {}
@@ -80,6 +81,7 @@ object ScannerHardRejectStore {
                 )
             }
             purgeTransientLiquidityStamps6913()
+            if (hardRejects.size > MAX_REJECTS_8094) save()  // V5.0.8094 — shrink an oversized store once at load
         } catch (_: Throwable) {}
     }
 
@@ -133,9 +135,33 @@ object ScannerHardRejectStore {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8094 — 8094 OOM snapshot: this store was 2.3 MB (prefsTop #1) and every new stamp rebuilt and rewrote the
+     * whole JSON on the stamping thread, dozens of times a minute on a 512 MB heap that died at 100%. The store keeps
+     * the newest [MAX_REJECTS_8094] stamps (an evicted, long-dead mint is simply re-stamped if it ever reappears) and
+     * writes at most once per [SAVE_COALESCE_MS_8094], off the caller.
+     */
+    const val MAX_REJECTS_8094 = 4_000
+    private const val SAVE_COALESCE_MS_8094 = 20_000L
+    private val saveQueued8094 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun saveSoon8094() {
+        if (!saveQueued8094.compareAndSet(false, true)) return
+        Thread({
+            try { Thread.sleep(SAVE_COALESCE_MS_8094) } catch (_: InterruptedException) {}
+            saveQueued8094.set(false)
+            save()
+        }, "ScannerHardRejectStore-Save-8094").apply { isDaemon = true; priority = Thread.NORM_PRIORITY - 1 }.start()
+    }
+
+    /** Pure: the mints to evict so at most [max] newest stamps remain. */
+    internal fun evictions8094(stamps: Collection<Reject>, max: Int = MAX_REJECTS_8094): List<String> =
+        if (stamps.size <= max) emptyList() else stamps.sortedBy { it.atMs }.take(stamps.size - max).map { it.mint }
+
     private fun save() {
         val c = ctx ?: return
         try {
+            evictions8094(hardRejects.values.toList()).forEach { hardRejects.remove(it) }
             val obj = JSONObject()
             hardRejects.values.forEach { r ->
                 obj.put(r.mint, JSONObject().apply {
