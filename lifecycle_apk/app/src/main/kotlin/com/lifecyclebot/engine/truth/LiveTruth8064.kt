@@ -26,7 +26,9 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object LiveTruth8064 {
     private const val WINDOW_MS = 6L * 60L * 60_000L
-    private const val MIN_N = 8
+    // V5.0.8103 — 8 -> 5. 5.0.8098: CASHGEN 6 live closes, 20% WR, mean -18.5%, one near-total loss, and the book was
+    // still "immature", so neither the lane prior nor the setup refusal saw it. mean + SE < 0 still has to hold.
+    private const val MIN_N = 5
     private const val MAX_PER_LANE = 60
     // V5.0.8070 — a fresh book: the 8064 book was filled from the boot replay with closes made before the honest era.
     private const val KEY = "LIVE_TRUTH_8070"

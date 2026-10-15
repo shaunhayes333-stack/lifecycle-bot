@@ -615,4 +615,12 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(RentReclaimer7927.withheldFeesRefusal8102("custom program error: 0x1"))
         assertFalse(RentReclaimer7927.withheldFeesRefusal8102(null))
     }
+
+    @Test fun aLosingLiveBookIsSeenAfterFiveClosesNotEight() {
+        val t = com.lifecyclebot.engine.truth.LiveTruth8064
+        // 5.0.8098 CASHGEN: six closes, one win, mean -18.5% -> proven losing now.
+        assertTrue(t.provenLosing8064(listOf(-97.0, -8.0, 6.0, -12.0, -5.0, -9.0)))
+        assertFalse(t.provenLosing8064(listOf(-12.0, -5.0, -20.0, -3.0)))            // four closes: still too few
+        assertFalse(t.provenLosing8064(listOf(-12.0, 140.0, -20.0, -3.0, -7.0)))      // a runner pays for the losers
+    }
 }
