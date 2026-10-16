@@ -43,7 +43,7 @@ object ProofDataSwapTape8144 {
         if (!(sol.isFinite() && sol > 0.0 && tokenAmount.isFinite() && tokenAmount > 0.0)) { skippedUnpriced.incrementAndGet(); return false }
         if (!admit8144(sol, tokenAmount, nowMs - pumpPortalLastMs)) { skippedPumpPortal.incrementAndGet(); return false }
         if (signature.isNotBlank() && seen8144.put("$mint|$signature|$isBuy", true) != null) { skippedDuplicate.incrementAndGet(); return false }
-        TradeTape8100.note8100(mint, sol / tokenAmount, sol, isBuy, nowMs)
+        TradeTape8100.note8100(mint, sol / tokenAmount, sol, isBuy, nowMs, TradeTape8100.SRC_HELIUS_8169)   // V5.0.8169 — per-feed count
         taped.incrementAndGet()
         return true
     }

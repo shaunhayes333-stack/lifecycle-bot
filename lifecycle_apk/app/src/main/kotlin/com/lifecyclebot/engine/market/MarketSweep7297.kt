@@ -70,6 +70,12 @@ object MarketSweep7297 {
         // V5.0.8031 — the 5-minute and 24-hour moves (Jupiter stats5m / stats24h). NaN = no provider supplied it.
         val priceChange5mPct: Double = Double.NaN,
         val priceChangeH24Pct: Double = Double.NaN,
+        // V5.0.8169 — the 1h buy and sell counts (Jupiter stats1h numBuys/numSells, DexScreener txns.h1; -1 = not
+        // supplied) and when the row's provider answered (0 = unknown), so a setup input read from the sweep is a
+        // sided, dated observation (SetupFeatureResolver8169), never a stand-in for a missing one.
+        val buysH1: Int = -1,
+        val sellsH1: Int = -1,
+        val observedAtMs8169: Long = 0L,
     )
 
     enum class Band(val minMcap: Double, val maxMcap: Double) {
@@ -402,8 +408,25 @@ object MarketSweep7297 {
                     providers = g.flatMap { it.providers }.toSet(),
                     priceChange5mPct = g.map { it.priceChange5mPct }.firstOrNull { it.isFinite() } ?: Double.NaN,
                     priceChangeH24Pct = g.map { it.priceChangeH24Pct }.firstOrNull { it.isFinite() } ?: Double.NaN,
+                    // V5.0.8169 — the freshest sided row's counts; the OLDEST dated answer of the group (the dated
+                    // feeds are the ones that carry moves and counts), so a merged row is never dated fresher than them.
+                    buysH1 = g.filter { it.buysH1 >= 0 && it.sellsH1 >= 0 }.maxByOrNull { it.observedAtMs8169 }?.buysH1 ?: -1,
+                    sellsH1 = g.filter { it.buysH1 >= 0 && it.sellsH1 >= 0 }.maxByOrNull { it.observedAtMs8169 }?.sellsH1 ?: -1,
+                    observedAtMs8169 = g.map { it.observedAtMs8169 }.filter { it > 0L }.minOrNull() ?: 0L,
                 )
             }
+
+    // ── V5.0.8169 — the last sweep's row for one mint (setup-input fallback) ──
+    @Volatile private var rowIndex8169: Pair<Long, Map<String, Row>> = 0L to emptyMap()
+
+    /** [mint]'s merged row from the last sweep, or null (not listed, or the snapshot is older than [maxAgeMs]). */
+    fun rowFor8169(mint: String, nowMs: Long = System.currentTimeMillis(), maxAgeMs: Long = 20L * 60_000L): Row? {
+        val snap = last ?: return null
+        if (nowMs - snap.atMs !in 0L..maxAgeMs) return null
+        var idx = rowIndex8169
+        if (idx.first != snap.atMs) { idx = snap.atMs to snap.rows.associateBy { it.mint }; rowIndex8169 = idx }
+        return idx.second[mint]
+    }
 
     /** Pure: breadth, median move and volume share per market-cap band. */
     private fun bandStates(rows: List<Row>): Map<Band, BandState> {
@@ -667,6 +690,9 @@ object MarketSweep7297 {
                     verified = false,
                     ageHours = if (created > 0L && created <= now) (now - created) / 3_600_000.0 else 0.0,
                     providers = setOf("DEXSCREENER_ENRICH"),
+                    buysH1 = if (tx != null && tx.has("buys") && tx.has("sells")) tx.optInt("buys", -1) else -1,   // V5.0.8169
+                    sellsH1 = if (tx != null && tx.has("buys") && tx.has("sells")) tx.optInt("sells", -1) else -1,
+                    observedAtMs8169 = now,
                 )
             }
         }
@@ -710,6 +736,9 @@ object MarketSweep7297 {
                 providers = setOf(provider),
                 priceChange5mPct = s5?.optDouble("priceChange", Double.NaN) ?: Double.NaN,
                 priceChangeH24Pct = s24?.optDouble("priceChange", Double.NaN) ?: Double.NaN,
+                buysH1 = if (s1 != null && s1.has("numBuys") && s1.has("numSells")) s1.optInt("numBuys", -1) else -1,   // V5.0.8169
+                sellsH1 = if (s1 != null && s1.has("numBuys") && s1.has("numSells")) s1.optInt("numSells", -1) else -1,
+                observedAtMs8169 = now,
             )
         }
         return out

@@ -219,6 +219,8 @@ object CurveTicks7968 {
         ticks.incrementAndGet()
         lastTickMs = System.currentTimeMillis()
         try { onTick(mint, px, mc) } catch (_: Throwable) {}
+        // V5.0.8169 — the curve's own price reaches the executed-trade tape (price only: change / shape, never buy pressure).
+        try { com.lifecyclebot.engine.truth.TradeTape8100.notePrice8169(mint, px, com.lifecyclebot.engine.truth.TradeTape8100.SRC_CURVE_8169) } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("CURVE_TICK_7968") } catch (_: Throwable) {}
     }
 

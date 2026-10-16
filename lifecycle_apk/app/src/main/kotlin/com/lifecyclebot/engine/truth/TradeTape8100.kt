@@ -30,21 +30,43 @@ object TradeTape8100 {
     private const val FRESH_MS = 120_000L
     private const val BP_WINDOW_MS = 5L * 60_000L
 
-    private class Trade(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean)
+    // V5.0.8169 — [priceOnly]: a pool-state price (bonding-curve account / PumpSwap vault pair) with no side or size.
+    // It states price (change, shape) but never buy pressure and never an executed print for the local bars.
+    private class Trade(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean, val priceOnly: Boolean = false)
     private val tapes = ConcurrentHashMap<String, ArrayDeque<Trade>>()
     private val notes = AtomicLong(0)
     private val reads = AtomicLong(0)
     private val filled = AtomicLong(0)
+    // V5.0.8169 — prints received per feed (pumpportal / helius / pumpswap / curve), for the tape8169 report line.
+    private val bySource8169 = ConcurrentHashMap<String, AtomicLong>()
+    const val SRC_HELIUS_8169 = "helius"
+    const val SRC_PUMPSWAP_8169 = "pumpswap"
+    const val SRC_CURVE_8169 = "curve"
 
     /** PumpFunWS: one executed curve trade (price = curve reserves after the trade, SOL per token). */
-    fun note8100(mint: String, priceSol: Double, sol: Double, isBuy: Boolean, atMs: Long = System.currentTimeMillis()) {
+    fun note8100(mint: String, priceSol: Double, sol: Double, isBuy: Boolean, atMs: Long = System.currentTimeMillis(), source: String = "pumpportal") {
         if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
+        add8169(mint, Trade(atMs, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy), atMs, source)
+    }
+
+    /**
+     * V5.0.8169 — a pool-state price for [mint] (SOL per token) from the pool the trades execute on: the bonding-curve
+     * account (CurveTicks7968) or the PumpSwap vault pair (GradTicks8018). Price only: it feeds the tape's change and
+     * shape, never its buy pressure (no side, no size) and never [prints8128].
+     */
+    fun notePrice8169(mint: String, priceSol: Double, source: String, atMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
+        add8169(mint, Trade(atMs, priceSol, 0.0, false, priceOnly = true), atMs, source)
+    }
+
+    private fun add8169(mint: String, t: Trade, atMs: Long, source: String) {
         val q = tapes.computeIfAbsent(mint) { ArrayDeque() }
         synchronized(q) {
-            q.addLast(Trade(atMs, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy))
+            q.addLast(t)
             while (q.size > MAX_TRADES || (q.isNotEmpty() && atMs - q.first().atMs > KEEP_MS)) q.removeFirst()
         }
         notes.incrementAndGet()
+        bySource8169.computeIfAbsent(source.ifBlank { "other" }) { AtomicLong(0) }.incrementAndGet()
         if (tapes.size > MAX_MINTS) {
             val drop = tapes.entries.sortedBy { e -> synchronized(e.value) { e.value.lastOrNull()?.atMs ?: 0L } }.take(MAX_MINTS / 10)
             for (e in drop) tapes.remove(e.key)
@@ -77,7 +99,7 @@ object TradeTape8100 {
         if (trades.isEmpty() || nowMs - trades.last().atMs > FRESH_MS) return null
         reads.incrementAndGet()
         val last = trades.last().priceSol
-        val bp = buyPressure8100(trades.filter { nowMs - it.atMs in 0L..BP_WINDOW_MS }.map { it.isBuy to it.sol })
+        val bp = buyPressure8100(trades.filter { !it.priceOnly && nowMs - it.atMs in 0L..BP_WINDOW_MS }.map { it.isBuy to it.sol })
         val chg = run {
             val at5 = trades.lastOrNull { it.atMs <= nowMs - 5L * 60_000L } ?: return@run null
             val launchAt = try { com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint) } catch (_: Throwable) { null }
@@ -105,10 +127,27 @@ object TradeTape8100 {
     /** V5.0.8128 — [mint]'s executed prints inside [windowMs] before [nowMs], oldest first (a copy; the tape is not changed). */
     fun prints8128(mint: String, nowMs: Long, windowMs: Long): List<Print8128> {
         val q = tapes[mint] ?: return emptyList()
-        return synchronized(q) { q.filter { nowMs - it.atMs in 0L..windowMs }.map { Print8128(it.atMs, it.priceSol, it.sol, it.isBuy) } }
+        return synchronized(q) { q.filter { !it.priceOnly && nowMs - it.atMs in 0L..windowMs }.map { Print8128(it.atMs, it.priceSol, it.sol, it.isBuy) } }
     }
 
     fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()}"
 
-    internal fun resetForTest8100() { tapes.clear(); notes.set(0); reads.set(0); filled.set(0) }
+    /** V5.0.8169 — why the tape could state nothing for [mint] now: NO_PRINTS (never received) or STALE (newest > 2 min). */
+    fun absentWhy8169(mint: String, nowMs: Long = System.currentTimeMillis()): String {
+        val q = tapes[mint] ?: return "NO_PRINTS"
+        val last = synchronized(q) { q.lastOrNull()?.atMs } ?: return "NO_PRINTS"
+        return if (nowMs - last > FRESH_MS) "STALE" else "TOO_FEW"
+    }
+
+    /** V5.0.8169 — mints whose newest print is fresh enough for [read8100] to state anything. */
+    private fun freshMints8169(nowMs: Long): Int =
+        tapes.values.count { q -> synchronized(q) { q.lastOrNull()?.let { nowMs - it.atMs in 0L..FRESH_MS } == true } }
+
+    /** V5.0.8169 — tape8169[...]: which received prints reached the tape the setup features read. */
+    fun statusLine8169(nowMs: Long = System.currentTimeMillis()): String =
+        "tape8169[mintsWithTape=${tapes.size} fresh=${freshMints8169(nowMs)} prints=${notes.get()} printsBySource{" +
+            bySource8169.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+            "} reads=${reads.get()} filledReads=${filled.get()}]"
+
+    internal fun resetForTest8100() { tapes.clear(); notes.set(0); reads.set(0); filled.set(0); bySource8169.clear() }
 }

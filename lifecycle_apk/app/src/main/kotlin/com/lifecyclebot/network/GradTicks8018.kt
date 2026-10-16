@@ -377,6 +377,8 @@ object GradTicks8018 {
         ticks.incrementAndGet()
         lastTickMs = System.currentTimeMillis()
         try { onTick(mint, px, pool.pool) } catch (_: Throwable) {}
+        // V5.0.8169 — the PumpSwap pool's own price reaches the executed-trade tape (price only: change / shape, never buy pressure).
+        try { com.lifecyclebot.engine.truth.TradeTape8100.notePrice8169(mint, px, com.lifecyclebot.engine.truth.TradeTape8100.SRC_PUMPSWAP_8169) } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("PUMPSWAP_TICK_8018") } catch (_: Throwable) {}
     }
 
