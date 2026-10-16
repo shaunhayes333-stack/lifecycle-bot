@@ -16,6 +16,10 @@ class Aate8170RepairTest {
 
     @Test fun optionalDataCannotOverrideCriticalProof() {
         val a = CandidateAdmission8136
+        assertTrue(a.criticalMissing8170("liq:UNKNOWN"))
+        assertTrue(a.criticalMissing8170("quote:UNKNOWN"))
+        assertFalse(a.criticalMissing8170("shape:UNKNOWN"))
+        assertFalse(a.criticalMissing8170("tape:STALE"))
         val edge = a.Evidence8136(a.KIND_CELL, "PUMP|MOONSHOT|EARLY", 75, 18.0, 4.0)
         val base = a.Candidate8136("mint8170", "MOONSHOT", "CROWD_FORMING",
             priceAgeMs = 1000L, expectedGrossPct = 35.0, costPct = 7.0,
