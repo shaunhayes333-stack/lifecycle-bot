@@ -59,6 +59,8 @@ object BotImprovementReport8168 {
     fun append(sb: StringBuilder, labels: Map<String, Long>, nowMs: Long) {
         sb.append("\n===== BOT IMPROVEMENT EVIDENCE (8168) =====\n")
         sb.append("Scopes: hunter=latest completed sweep; Cortex=context events this process (repeats possible); counters=current collector window. No cross-scope conversion rates.\n")
+        sb.append("Trader execution authority: ").append(EnabledTraderAuthority.effectiveSnapshot().sortedBy { it.name }.joinToString(",") { it.name }).append('\n')
+        sb.append("Hunter scope below: 12 meme specialists; Crypto Universe receives supported desk overlays separately. Cross-asset producer liveness is reported in its own funnel; zero activity is not proof of evaluation.\n")
         val rows = hunts
         sb.append("Discovery lane fit: sweepAgeMs=").append(if (huntAt > 0) (nowMs - huntAt).coerceAtLeast(0) else -1).append('\n')
         if (rows.isEmpty()) sb.append("  NO_HUNT_SNAPSHOT: no completed sweep captured\n")

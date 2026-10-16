@@ -125,9 +125,9 @@ object SpecialistBrainBridge7542 {
     // native brains actually consume. The old fingerprint omitted momentum,
     // volatility, holder/bundle state and Treasury meta fields, allowing a
     // 2.5-second stale ALLOW/VETO to survive a fast lifecycle change.
-    private fun fp(ts:TokenState,paper:Boolean)=listOf(
+    private fun fp(ts:TokenState,paper:Boolean,residents8168:Set<String>)=listOf(
         ts.mint,paper,ts.history.size,
-        com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint).hashCode(),
+        residents8168.hashCode(),
         if(ts.lastPrice>0)(kotlin.math.ln(ts.lastPrice)*10000).toLong()else 0L,
         ts.lastMcap.toLong(),ts.lastLiquidityUsd.toLong(),
         ts.lastBuyPressurePct.toInt(),ts.lastSellPressurePct.toInt(),ts.lastPriceChange5m.toInt(),
@@ -167,7 +167,10 @@ object SpecialistBrainBridge7542 {
         try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
         // V5.0.8094 — a candidate priced more than 15 s ago gets a fresh mark requested before the next cycle.
         try { com.lifecyclebot.engine.truth.CandidateMarkFresh8094.ensureFresh8094(ts) } catch (_: Throwable) {}
-        val f=fp(ts,paper);val now=System.currentTimeMillis();cache[ts.mint]?.snapshot?.let{if(it.fingerprint==f&&now-it.evaluatedAtMs<=CACHE_MS)return it}
+        val residentScope7828 = try {
+            com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint)
+        } catch (_: Throwable) { emptySet() }
+        val f=fp(ts,paper,residentScope7828);val now=System.currentTimeMillis();cache[ts.mint]?.snapshot?.let{if(it.fingerprint==f&&now-it.evaluatedAtMs<=CACHE_MS)return it}
         val hist=try{ts.history.toList().filter{it.priceUsd.isFinite()&&it.priceUsd>0}}catch(_:Throwable){emptyList()}
         val prices=hist.map{it.priceUsd};val price=ts.lastPrice.takeIf{it.isFinite()&&it>0}?:prices.lastOrNull()?:0.0
         val vols=hist.filter{!it.synthetic}.map{it.vol}.filter{it.isFinite()&&it>0};val recent=vols.takeLast(3).takeIf{it.isNotEmpty()}?.average()?:0.0;val prior=vols.dropLast(minOf(3,vols.size)).takeLast(5).takeIf{it.isNotEmpty()}?.average()?:0.0;val volVs=if(recent>0&&prior>0)recent/prior else 1.0
@@ -215,9 +218,6 @@ object SpecialistBrainBridge7542 {
         val cls=try{ModeRouter.classify(ts)}catch(_:Throwable){null};val launch=try{com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)}catch(_:Throwable){null};val runner=try{com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.isRunnerShaped(ts,cls?.tradeType?:ModeRouter.TradeType.UNKNOWN)}catch(_:Throwable){false}
 
         // 8168 — resident claims augment bounded native discovery; execution election remains separate.
-        val residentScope7828 = try {
-            com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint)
-        } catch (_: Throwable) { emptySet() }
         val nativeScope7828 = nativeScope8168(ts.lastMcap, residentScope7828)
         fun owns7828(lane: String): Boolean = lane in nativeScope7828
         try {
