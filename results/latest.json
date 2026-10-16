@@ -1,38 +1,33 @@
 {
- "sha": "fa74339cb2f28d90168e537ac538cfa9d520ee95",
- "gradle_exit": "1",
+ "sha": "12cd074a79e022b244adbb06dc07fc5f334816a3",
+ "gradle_exit": "0",
  "tests": 5246,
- "failures": [
-  {
-   "class": "com.lifecyclebot.engine.Aate7433AuthorityAndStopPreservationTest",
-   "test": "hard no outranks and revokes same-version sealed buy",
-   "type": "java.lang.AssertionError",
-   "message": "java.lang.AssertionError",
-   "frames": [
-    "at com.lifecyclebot.engine.Aate7433AuthorityAndStopPreservationTest.hard no outranks and revokes same-version sealed buy(Aate7433AuthorityAndStopPreservationTest.kt:38)"
-   ]
-  },
-  {
-   "class": "com.lifecyclebot.engine.CanonicalClosureAcceptanceTest6486",
-   "test": "funded open add partial and terminal close conserve paper capital",
-   "type": "java.lang.AssertionError",
-   "message": "java.lang.AssertionError: expected:<2.075> but was:<2.074999999>",
-   "frames": [
-    "at com.lifecyclebot.engine.CanonicalClosureAcceptanceTest6486.funded open add partial and terminal close conserve paper capital(CanonicalClosureAcceptanceTest6486.kt:76)"
-   ]
-  },
-  {
-   "class": "com.lifecyclebot.engine.GoldenTapeRegressionTest",
-   "test": "V5_0_7715_the_field_manual_is_the_baseline_brain_in_both_modes",
-   "type": "java.lang.AssertionError",
-   "message": "java.lang.AssertionError",
-   "frames": [
-    "at com.lifecyclebot.engine.GoldenTapeRegressionTest.V5_0_7715_the_field_manual_is_the_baseline_brain_in_both_modes(GoldenTapeRegressionTest.kt:13357)"
-   ]
-  }
- ],
+ "failures": [],
  "compile_errors": [],
  "gradle_tail": [
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v4/meta/CrossMarketRegimeAI.kt:236:71 Enum argument can be null in Java, but exhaustive when contains no null branch",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v4/meta/LeverageSurvivalAI.kt:53:9 Parameter 'openInterestChangePct' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v4/meta/StrategyTrustAI.kt:354:23 Variable 'aggr' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v4/meta/StrategyTrustAI.kt:367:27 Parameter 'strategy' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v4/meta/TradeLessonRecorder.kt:123:13 This is a delicate API and its use requires care. Make sure you fully read and understand documentation of the declaration that is marked as a delicate API.",
+  "",
+  "> Task :app:compileReleaseJavaWithJavac",
+  "> Task :app:processReleaseJavaRes",
+  "> Task :app:bundleReleaseClassesToRuntimeJar",
+  "> Task :app:bundleReleaseClassesToCompileJar",
+  "> Task :app:compileReleaseUnitTestKotlin",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6622V3SoftOpinionAndLaneEnumCoverageTest.kt:53:13 Variable 'ML' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6662JournalOrphanSettlementCoverageTest.kt:8:46 Type mismatch: inferred type is String? but String was expected",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6664AuthorityContradictionRegressionTest.kt:9:46 Type mismatch: inferred type is String? but String was expected",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6665PatchRotRegressionTest.kt:9:46 Type mismatch: inferred type is String? but String was expected",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate7612SpecialistIntentOwnershipReclaimTest.kt:35:13 Variable 'fn' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate7835AuthorityContinuityTest.kt:32:79 'FinalDecisionGate' is deprecated. V3 Architecture Migration: Use v3/decision/FinalDecisionEngine instead",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate7835AuthorityContinuityTest.kt:33:36 'FinalDecisionGate' is deprecated. V3 Architecture Migration: Use v3/decision/FinalDecisionEngine instead",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate7835AuthorityContinuityTest.kt:34:25 'FinalDecisionGate' is deprecated. V3 Architecture Migration: Use v3/decision/FinalDecisionEngine instead",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate7835AuthorityContinuityTest.kt:35:50 'FinalDecisionGate' is deprecated. V3 Architecture Migration: Use v3/decision/FinalDecisionEngine instead",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate7835AuthorityContinuityTest.kt:187:13 'FinalDecisionGate' is deprecated. V3 Architecture Migration: Use v3/decision/FinalDecisionEngine instead",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8077CloudBudgetTest.kt:75:43 Type mismatch: inferred type is String? but String was expected",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8094ClosedPositionAndPretradeTest.kt:574:78 Destructured parameter 'v' is never used",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Build6324InvariantsTest.kt:88:13 Variable 'originalState' is never used",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Build6324InvariantsTest.kt:133:13 Variable 's' is never used",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/CorrectnessHardeningAcceptanceTest6468.kt:138:13 Variable '_ignored' is never used",
@@ -65,33 +60,10 @@
   "",
   "> Task :app:compileReleaseUnitTestJavaWithJavac NO-SOURCE",
   "> Task :app:processReleaseUnitTestJavaRes",
-  "",
   "> Task :app:testReleaseUnitTest",
+  "gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_2-1792166621046.json",
   "",
-  "com.lifecyclebot.engine.Aate7433AuthorityAndStopPreservationTest > hard no outranks and revokes same-version sealed buy FAILED",
-  "    java.lang.AssertionError at Aate7433AuthorityAndStopPreservationTest.kt:38",
-  "",
-  "com.lifecyclebot.engine.CanonicalClosureAcceptanceTest6486 > funded open add partial and terminal close conserve paper capital FAILED",
-  "    java.lang.AssertionError at CanonicalClosureAcceptanceTest6486.kt:76",
-  "",
-  "com.lifecyclebot.engine.GoldenTapeRegressionTest > V5_0_7715_the_field_manual_is_the_baseline_brain_in_both_modes FAILED",
-  "    java.lang.AssertionError at GoldenTapeRegressionTest.kt:13357",
-  "",
-  "5246 tests completed, 3 failed",
-  "",
-  "> Task :app:testReleaseUnitTest FAILED",
-  "gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_2-1792165754946.json",
-  "",
-  "FAILURE: Build failed with an exception.",
-  "",
-  "* What went wrong:",
-  "Execution failed for task ':app:testReleaseUnitTest'.",
-  "> There were failing tests. See the report at: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/build/reports/tests/testReleaseUnitTest/index.html",
-  "",
-  "* Try:",
-  "> Run with --scan to get full insights.",
-  "",
-  "BUILD FAILED in 9m 53s",
+  "BUILD SUCCESSFUL in 10m 21s",
   "26 actionable tasks: 26 executed"
  ]
 }
