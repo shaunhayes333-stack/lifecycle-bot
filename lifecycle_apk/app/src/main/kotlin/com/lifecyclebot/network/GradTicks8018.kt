@@ -36,6 +36,15 @@ import java.util.concurrent.atomic.AtomicLong
  * Pool layout (after the 8-byte discriminator): pool_bump u8, index u16, creator, base_mint,
  * quote_mint, lp_mint, pool_base_token_account, pool_quote_token_account (32 bytes each), ...
  * SPL token account: amount u64 LE at offset 64. Mint account: decimals u8 at offset 44.
+ *
+ * V5.0.8144 — the device showed pools=0 while every feed ran. A coin was resolved only from addresses the bot happened
+ * to hold (pair / token-map / last-price pool), which for a graduated pump.fun coin are usually the bonding curve or a
+ * DexScreener pair id — never the PumpSwap pool — and only through the configured Helius RPC (blank key: nothing ever
+ * resolved). The resolver failed the same way every 3 minutes for as long as the coin was held, silently. Now the
+ * canonical pool PDA (the address pump.fun migrates every coin to) is the first candidate, the read falls back to the
+ * configured public RPCs, every unresolved coin is counted under its reason (NO_CANDIDATE / NOT_PUMPSWAP /
+ * RPC_UNANSWERED), retries are coalesced and capped per hour, and refused or unanswered vault subscriptions are counted
+ * and re-sent instead of sitting pending forever.
  */
 object GradTicks8018 {
     private const val MAX_POOLS = 20
@@ -79,6 +88,31 @@ object GradTicks8018 {
         return (quoteRaw / 1e9) / (baseRaw / Math.pow(10.0, baseDecimals.toDouble()))
     }
 
+    private fun b58Decode8144(s: String): ByteArray? = try {
+        io.github.novacrypto.base58.Base58.base58Decode(s.trim()).takeIf { it.size == 32 }
+    } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.8144 — the canonical PumpSwap pool for a pump.fun coin: PDA ["pool", 0u16 LE, creator, mint, WSOL] under the
+     * AMM, where creator is the pump program's PDA ["pool-authority", mint]. Verified on read like any candidate (owner
+     * is the AMM, base mint is the coin, quote is WSOL), so a coin that never migrated simply has no such account.
+     */
+    fun canonicalPool8144(mint: String): String? {
+        val m = b58Decode8144(mint) ?: return null
+        val wsol = b58Decode8144(WSOL) ?: return null
+        val authority = PumpCurveKeys7269.findProgramAddress7392(listOf("pool-authority".toByteArray(), m), PUMP_PROGRAM_8144) ?: return null
+        val auth = b58Decode8144(authority) ?: return null
+        return PumpCurveKeys7269.findProgramAddress7392(listOf("pool".toByteArray(), byteArrayOf(0, 0), auth, m, wsol), PUMP_AMM)
+    }
+
+    /** V5.0.8144 — pure: why a coin's pool did not resolve (null = it resolved). */
+    fun unresolvedReason8144(candidates: Int, anyAnswered: Boolean, resolved: Boolean): String? = when {
+        resolved -> null
+        candidates == 0 -> "NO_CANDIDATE"
+        anyAnswered -> "NOT_PUMPSWAP"
+        else -> "RPC_UNANSWERED"
+    }
+
     /** A coin's first vault price must sit within 3x of the bot's own mark (when it has one). */
     fun basisAgrees8018(priceSol: Double, refSol: Double): Boolean =
         !refSol.isFinite() || refSol <= 0.0 || (priceSol / refSol) in (1.0 / 3.0)..3.0
@@ -96,8 +130,21 @@ object GradTicks8018 {
     @Volatile private var lastTickMs = 0L
 
     private val pools = ConcurrentHashMap<String, Pool>()                 // mint -> resolved pool
-    private val failedAt = ConcurrentHashMap<String, Long>()
-    private val resolving = ConcurrentHashMap.newKeySet<String>()
+    private val failedAt = ConcurrentHashMap<String, Long>()              // V5.0.8144: basis-refused bench only
+    // V5.0.8144 — one resolve per coin at a time, 3 min -> 30 min back-off after a futile one, at most 6 per hour.
+    private val resolveGate8144 = com.lifecyclebot.engine.ProofDataCoalescer8144(
+        windowMs = 60L * 60_000L, maxAttemptsPerWindow = 6, baseRetryMs = RETRY_MS, maxRetryMs = 30L * 60_000L,
+    )
+    private val noCandidate8144 = AtomicLong(0)
+    private val notPumpSwap8144 = AtomicLong(0)
+    private val rpcUnanswered8144 = AtomicLong(0)
+    private val subErrors8144 = AtomicLong(0)
+    private val subResent8144 = AtomicLong(0)
+    @Volatile private var lastError8144 = "-"
+    private val pendingAt8144 = ConcurrentHashMap<Int, Long>()
+    private const val ACK_TIMEOUT_MS_8144 = 15_000L
+    private const val PUMP_PROGRAM_8144 = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+    private const val MAX_RPC_TRIES_8144 = 3
     private val desired = ConcurrentHashMap<String, Pool>()               // mint -> watched pool
     private val verified = ConcurrentHashMap.newKeySet<String>()
     private val vaultMint = ConcurrentHashMap<String, String>()           // vault -> mint
@@ -137,48 +184,89 @@ object GradTicks8018 {
             if (want.size >= MAX_POOLS) break
             val p = pools[m]
             if (p != null) { want[m] = p; continue }
-            if (now - (failedAt[m] ?: 0L) >= RETRY_MS && resolving.add(m)) {
-                try { resolver.execute { try { resolve(m) } finally { resolving.remove(m) } } } catch (_: Throwable) { resolving.remove(m) }
-            }
+            if (now - (failedAt[m] ?: 0L) < RETRY_MS) continue
+            if (resolveGate8144.admit8144(m, now) != com.lifecyclebot.engine.ProofDataCoalescer8144.Admit8144.RUN) continue
+            try {
+                resolver.execute {
+                    var ok = false
+                    try { ok = resolve(m) } finally { resolveGate8144.done8144(m, ok, System.currentTimeMillis()) }
+                }
+            } catch (_: Throwable) { resolveGate8144.done8144(m, false, now) }
         }
         for (m in desired.keys.toList()) if (m !in want) { desired.remove(m)?.let { unwatch(it) } }
         for ((m, p) in want) if (desired.put(m, p) == null) watch(p)
+        // V5.0.8144 — a vault subscribe neither acknowledged nor refused within the ack window is sent again.
+        if (open) {
+            pendingAt8144.entries.removeIf { (id, at) -> (now - at > ACK_TIMEOUT_MS_8144).also { if (it) pending.remove(id) } }
+            for (p in desired.values) for (v in listOf(p.baseVault, p.quoteVault)) {
+                if (!subByVault.containsKey(v) && !pending.containsValue(v)) { subscribe(v); subResent8144.incrementAndGet() }
+            }
+        }
         if (want.isNotEmpty() && ws == null) connect()
     }
 
-    private fun resolve(mint: String) {
-        val now = System.currentTimeMillis()
-        for (addr in poolsFor(mint).map { it.trim() }.filter { it.length in 32..44 && it != mint }.distinct()) {
-            val (owner, data) = accountInfo(addr) ?: continue
-            if (owner != PUMP_AMM) continue
+    /** True when [mint]'s PumpSwap pool resolved; otherwise counts the named reason (the gate schedules the retry). */
+    private fun resolve(mint: String): Boolean {
+        val candidates = (listOfNotNull(try { canonicalPool8144(mint) } catch (_: Throwable) { null }) + poolsFor(mint).map { it.trim() })
+            .filter { it.length in 32..44 && it != mint }.distinct()
+        var anyAnswered = false
+        for (addr in candidates) {
+            val read = accountRead8144(addr) ?: continue
+            anyAnswered = true
+            val data = read.second ?: continue
+            if (read.first != PUMP_AMM) continue
             val (bv, qv) = vaults8018(data, mint) ?: continue
             val dec = accountInfo(mint)?.second?.takeIf { it.size > 44 }?.let { it[44].toInt() and 0xFF } ?: continue
             pools[mint] = Pool(mint, addr, bv, qv, dec)
             failedAt.remove(mint)
             resolved.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PUMPSWAP_POOL_RESOLVED_8018") } catch (_: Throwable) {}
-            return
+            return true
         }
-        if (failedAt.size > 2_000) failedAt.clear()
-        failedAt[mint] = now
         unresolved.incrementAndGet()
+        val why = unresolvedReason8144(candidates.size, anyAnswered, resolved = false) ?: return false
+        when (why) {
+            "NO_CANDIDATE" -> noCandidate8144.incrementAndGet()
+            "NOT_PUMPSWAP" -> notPumpSwap8144.incrementAndGet()
+            else -> rpcUnanswered8144.incrementAndGet()
+        }
+        try { PipelineHealthCollector.labelInc("PUMPSWAP_POOL_UNRESOLVED_8144_$why") } catch (_: Throwable) {}
+        return false
     }
 
-    /** (owner, data) of an account via the Helius RPC, or null. */
-    private fun accountInfo(address: String): Pair<String, ByteArray>? {
-        val url = try { rpcProvider() } catch (_: Throwable) { "" }
-        if (url.isBlank()) return null
+    /** V5.0.8144 — the configured Helius RPC first, then the configured public RPCs (a blank key no longer means "never"). */
+    private fun rpcUrls8144(): List<String> {
+        val primary = try { rpcProvider() } catch (_: Throwable) { "" }
+        val rest = try { com.lifecyclebot.engine.RuntimeProviderAuthority6685.rpcCandidates() } catch (_: Throwable) { emptyList() }
+        return (listOf(primary) + rest).map { it.trim() }.filter { it.isNotBlank() }.distinct().take(MAX_RPC_TRIES_8144)
+    }
+
+    /** (owner, data) of an account — data null when the account does not exist — or null when no RPC answered. */
+    private fun accountRead8144(address: String): Pair<String, ByteArray?>? {
         val body = JSONObject().put("jsonrpc", "2.0").put("id", "grad8018").put("method", "getAccountInfo")
             .put("params", JSONArray().put(address).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed")))
-        return try {
-            http.newCall(Request.Builder().url(url).post(body.toString().toRequestBody("application/json".toMediaType())).build()).execute().use { r ->
-                if (!r.isSuccessful) return null
-                val v = JSONObject(r.body?.string().orEmpty()).optJSONObject("result")?.optJSONObject("value") ?: return null
-                val b64 = v.optJSONArray("data")?.optString(0).orEmpty()
-                if (b64.isBlank()) return null
-                v.optString("owner") to java.util.Base64.getDecoder().decode(b64)
-            }
-        } catch (_: Throwable) { null }
+            .toString()
+        for (url in rpcUrls8144()) {
+            val read: Pair<String, ByteArray?>? = try {
+                http.newCall(Request.Builder().url(url).post(body.toRequestBody("application/json".toMediaType())).build()).execute().use { r ->
+                    if (!r.isSuccessful) return@use null
+                    val res = JSONObject(r.body?.string().orEmpty())
+                    if (!res.has("result")) return@use null
+                    val v = res.optJSONObject("result")?.optJSONObject("value") ?: return@use ("" to null)
+                    val b64 = v.optJSONArray("data")?.optString(0).orEmpty()
+                    v.optString("owner") to (if (b64.isBlank()) null else java.util.Base64.getDecoder().decode(b64))
+                }
+            } catch (_: Throwable) { null }
+            if (read != null) return read
+        }
+        return null
+    }
+
+    /** (owner, data) of an existing account via the Helius RPC (public RPCs behind it), or null. */
+    private fun accountInfo(address: String): Pair<String, ByteArray>? {
+        val read = accountRead8144(address) ?: return null
+        val data = read.second ?: return null
+        return read.first to data
     }
 
     private fun watch(p: Pool) {
@@ -228,14 +316,31 @@ object GradTicks8018 {
     private fun subscribe(vault: String) {
         val id = nextId.getAndIncrement()
         pending[id] = vault
+        pendingAt8144[id] = System.currentTimeMillis()
         val ok = ws?.send(JSONObject().put("jsonrpc", "2.0").put("id", id).put("method", "accountSubscribe")
             .put("params", JSONArray().put(vault).put(JSONObject().put("encoding", "base64").put("commitment", "processed"))).toString()) == true
-        if (!ok) pending.remove(id)
+        if (!ok) { pending.remove(id); pendingAt8144.remove(id) }
     }
 
     private fun handle(text: String) {
         val o = JSONObject(text)
+        // V5.0.8144 — a refused vault subscribe was dropped silently (pending forever, pools>0 subs=0): counted, named,
+        // re-sent on the next sync; an endpoint without accountSubscribe is dropped so the next connect rotates.
+        if (o.has("id") && o.has("error")) {
+            val id = o.optInt("id")
+            pendingAt8144.remove(id)
+            if (pending.remove(id) != null) {
+                val e = o.optJSONObject("error")
+                val code = e?.optInt("code", 0) ?: 0
+                subErrors8144.incrementAndGet()
+                lastError8144 = "$code:${e?.optString("message").orEmpty().take(60)}"
+                try { PipelineHealthCollector.labelInc("PUMPSWAP_SUB_ERROR_8144_${if (code < 0) "M${-code}" else code.toString()}") } catch (_: Throwable) {}
+                if (code == -32601) ws?.let { s -> try { s.close(1000, "accountSubscribe unsupported") } catch (_: Throwable) {}; closed(s) }
+            }
+            return
+        }
         if (o.has("id") && o.opt("result") is Number) {
+            pendingAt8144.remove(o.optInt("id"))
             val vault = pending.remove(o.optInt("id")) ?: return
             val sub = o.optInt("result")
             if (!vaultMint.containsKey(vault)) {
@@ -277,6 +382,8 @@ object GradTicks8018 {
 
     fun statusLine(): String {
         val age = if (lastTickMs > 0L) "${(System.currentTimeMillis() - lastTickMs) / 1000}s" else "-"
-        return "open=$open pools=${desired.size} subs=${subByVault.size} ticks=${ticks.get()} lastTick=$age resolved=${resolved.get()} unresolved=${unresolved.get()} basisRefused=${basisRefused.get()}"
+        return "open=$open pools=${desired.size} subs=${subByVault.size} ticks=${ticks.get()} lastTick=$age resolved=${resolved.get()} unresolved=${unresolved.get()} basisRefused=${basisRefused.get()} " +
+            "noCandidate8144=${noCandidate8144.get()} notPumpSwap8144=${notPumpSwap8144.get()} rpcUnanswered8144=${rpcUnanswered8144.get()} " +
+            "subErrors8144=${subErrors8144.get()} subResent8144=${subResent8144.get()} lastError8144=$lastError8144 resolveGate8144[${resolveGate8144.line8144()}]"
     }
 }
