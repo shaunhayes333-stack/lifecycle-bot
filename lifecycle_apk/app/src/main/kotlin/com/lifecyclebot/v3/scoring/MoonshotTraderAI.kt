@@ -1211,7 +1211,7 @@ object MoonshotTraderAI {
     fun stopFor(mint: String): Double? {
         val pos = posOf8083(mint) ?: return null
         val predictiveSlPct: Double? = try {
-            com.lifecyclebot.engine.LosingPatternMemory.recommendedSlPct(
+            com.lifecyclebot.engine.ExitDoctrine8169.recommendedSlPct8169(  // V5.0.8169 — never inside the lane's 15% invalidation
                 tradingMode = "MOONSHOT",
                 v3Score = pos.entryScore.toInt(),
             )
@@ -1228,7 +1228,8 @@ object MoonshotTraderAI {
         val holdMinutes = holdSeconds / 60
         // V5.0.8030 — one stop per lane: the first 12 minutes hold the runner floor (StopAuthority7887, 15%), not a
         // tick-path -10% that contradicted checkExit's -20 floor and cut STRONG coins on the dip before their run.
-        if (holdMinutes <= 12) stop = maxOf(stop, -15.0)
+        // V5.0.8169 — the position's own ordinary stop (StopAuthority7887: lane doctrine, round trip + measured 1m noise), 15..25%.
+        if (holdMinutes <= 12) stop = maxOf(stop, -com.lifecyclebot.engine.ExitDoctrine8169.earlyRunnerStopMag8169(mint))
         val inBreatherWindow = holdMinutes <= 12 && pos.stopLossPct > -10.0
         if (!inBreatherWindow && pos.stopLossPct < 0.0) stop = maxOf(stop, pos.stopLossPct)
         return stop
@@ -1685,7 +1686,7 @@ object MoonshotTraderAI {
         // never widen the existing HARD_FLOOR. Read-only over the journal;
         // no impact on entry sizing or open scripting.
         val predictiveSlPct: Double? = try {
-            com.lifecyclebot.engine.LosingPatternMemory.recommendedSlPct(
+            com.lifecyclebot.engine.ExitDoctrine8169.recommendedSlPct8169(  // V5.0.8169 — never inside the lane's 15% invalidation
                 tradingMode = "MOONSHOT",
                 v3Score = pos.entryScore.toInt(),
             )

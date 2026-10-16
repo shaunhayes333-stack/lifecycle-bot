@@ -86,6 +86,14 @@ object CandidateAdmission8136 {
         val setupTimings: Map<String, Evidence8136> = emptyMap(),
         /** Candidate generation pinned by the live admission adapter; 0 for pure fixtures. */
         val candidateVersion: Long = 0L,
+        /**
+         * V5.0.8169 — true (live adapter): a CELL / STAGE loss pattern refuses only on [cellLoss8169] / [stageLoss8169],
+         * the records booked since the grading epoch (ForwardReturnLabeler7731.freshCellStatFor8169); older evidence
+         * decays to neutral. False (pure fixtures): [cell] / [stageRecord] are the loss records, as before.
+         */
+        val lossEpochAware8169: Boolean = false,
+        val cellLoss8169: Evidence8136? = null,
+        val stageLoss8169: Evidence8136? = null,
     )
 
     /** The one authoritative terminal admission and the evidence trace behind it. */
@@ -136,6 +144,13 @@ object CandidateAdmission8136 {
     /** Pure: proven losing — [PROVEN_LOSING_MIN_N_8136]+ labels and mean + SE below [PROVEN_LOSING_PCT_8136]. */
     internal fun provenLosing8136(e: Evidence8136?): Boolean =
         e != null && e.n >= PROVEN_LOSING_MIN_N_8136 && e.upperPct.isFinite() && e.upperPct < PROVEN_LOSING_PCT_8136
+
+    internal const val STALE_CELL_TRACE_8169 = "staleCellLossDecayed8169="
+    internal const val STALE_STAGE_TRACE_8169 = "staleStageLossDecayed8169="
+
+    /** Pure (V5.0.8169): the all-time record [full] proves a loss that the post-epoch record [fresh] does not. */
+    fun staleLoss8169(epochAware: Boolean, full: Evidence8136?, fresh: Evidence8136?): Boolean =
+        epochAware && provenLosing8136(full) && !provenLosing8136(fresh)
 
     /** Pure: positive but thin — under [SUPPORT_MIN_N_8136] labels; it never bypasses the generic prior. */
     fun thinPositive8136(e: Evidence8136?): Boolean =
@@ -188,11 +203,17 @@ object CandidateAdmission8136 {
                 trace += "setupLosing=${selectedRec?.compact} carried by cell ${c.cell?.compact}"
             }
         }
-        if (provenLosing8136(c.cell)) { trace += "cellLosing=${c.cell?.compact}"; return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen) }
-        if (provenLosing8136(c.stageRecord) && !cellSupported) {
-            trace += "stageLosing=${c.stageRecord?.compact}"
+        // V5.0.8169 — a loss pattern refuses on the record graded since the epoch; an older one is noted and decays to
+        //    neutral (the candidate goes on to the generic prior — never to an ADMIT the stale record cannot support).
+        val cellLoss = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell
+        val stageLoss = if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord
+        if (provenLosing8136(cellLoss)) { trace += "cellLosing=${cellLoss?.compact}"; return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen) }
+        if (staleLoss8169(c.lossEpochAware8169, c.cell, cellLoss)) trace += "$STALE_CELL_TRACE_8169${c.cell?.compact}"
+        if (provenLosing8136(stageLoss) && !cellSupported) {
+            trace += "stageLosing=${stageLoss?.compact}"
             return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
         }
+        if (!cellSupported && staleLoss8169(c.lossEpochAware8169, c.stageRecord, stageLoss)) trace += "$STALE_STAGE_TRACE_8169${c.stageRecord?.compact}"
         if (c.losingTactic != null && bestSetup == null && !cellSupported) {
             trace += "tacticLosing=${c.losingTactic}"
             return done(Terminal8136.REFUSE, "TACTIC_RECORD_LOSING_8136", true, chosen)
@@ -394,6 +415,11 @@ object CandidateAdmission8136 {
             held8144.remove(key)
         }
         try { AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason) } catch (_: Throwable) {}
+        // V5.0.8169 — a loss refusal that decayed to neutral on its epoch, counted once per fresh decision.
+        try {
+            if (d.trace.any { it.startsWith(STALE_CELL_TRACE_8169) }) com.lifecyclebot.engine.ExitDoctrine8169.noteStaleDecay8169(cell = true)
+            if (d.trace.any { it.startsWith(STALE_STAGE_TRACE_8169) }) com.lifecyclebot.engine.ExitDoctrine8169.noteStaleDecay8169(cell = false)
+        } catch (_: Throwable) {}
         // V5.0.8153 — the one strategy identity: every later reader of LanePlaybook7907.selectedSetup8094 gets this choice.
         try {
             val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
@@ -520,6 +546,15 @@ object CandidateAdmission8136 {
             if (fit == null) null else ForwardReturnLabeler7731.stageStatFor7928(fit.lane, fit.stage.name)
                 ?.let { st -> Evidence8136(KIND_STAGE, fit.stage.name, st.n60, st.meanNet60Pct, st.stderr60Pct, st.runnerRate60) }
         } catch (_: Throwable) { null }
+        // V5.0.8169 — the same cell and stage, booked since the grading epoch: the only records a loss pattern refuses on.
+        val cellLoss8169 = try {
+            ForwardReturnLabeler7731.freshCellStatFor8169(ts, lane, nowMs)
+                ?.let { Evidence8136(KIND_CELL, it.key.take(40), it.n60, it.meanNet60Pct, it.stderr60Pct, it.runnerRate60) }
+        } catch (_: Throwable) { null }
+        val stageLoss8169 = try {
+            if (fit == null) null else ForwardReturnLabeler7731.freshStageStatFor8169(fit.lane, fit.stage.name)
+                ?.let { st -> Evidence8136(KIND_STAGE, fit.stage.name, st.n60, st.meanNet60Pct, st.stderr60Pct, st.runnerRate60) }
+        } catch (_: Throwable) { null }
         // V5.0.8153 — unread depth is UNKNOWN, never LOW: the launch probe is costed without impact nobody measured.
         val launch = try {
             FreshLaunchSelector7737.launchRead7742(ts, FieldManual7715.allInCostPct(StrategyMove8153.probeSizeUsd8153(ts.lastLiquidityUsd), ts.lastLiquidityUsd), nowMs)
@@ -556,6 +591,9 @@ object CandidateAdmission8136 {
             structuralRisk = if (fit?.stage == com.lifecyclebot.engine.TokenMetricStageRouter.Stage.RUG_PRONE) "STAGE_RUG_PRONE"
                 else launch?.takeIf { it.verdict == FreshLaunchSelector7737.LaunchVerdict.REFUSED }?.why,
             setupTimings = setupTimings,
+            lossEpochAware8169 = true,
+            cellLoss8169 = cellLoss8169,
+            stageLoss8169 = stageLoss8169,
         )
     }
 }

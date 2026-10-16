@@ -1518,6 +1518,11 @@ object PipelineHealthCollector {
         sb.append("  Stop learner (§8040): ").append(
             try { com.lifecyclebot.engine.cortex.StopLearner8040.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        // V5.0.8169 — stop distance vs measured noise per lane, label stops before / after the peak per lane, rapid
+        // backstops, runner lock states and stale loss refusals that decayed on the grading epoch.
+        sb.append("  Exit doctrine (§8169): ").append(
+            try { ExitDoctrine8169.statusLine8169() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Dead charts (§8027): ").append(
             try { FlatChart8027.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

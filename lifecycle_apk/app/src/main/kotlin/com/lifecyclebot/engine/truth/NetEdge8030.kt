@@ -41,6 +41,17 @@ object NetEdge8030 {
         expectedGrossPct.isFinite() && costPct.isFinite() && expectedGrossPct >= EDGE_MULT * costPct
 
     /** The lowest gross gain a profit-taking exit may sell at: the round trip plus the net buffer. */
+    /**
+     * Pure (V5.0.8169): the cost an exit still has to clear — the round trip [roundTripPct] less the buy leg's fixed cost
+     * ([fixedLegSol] on [positionSol], already paid), never under the sell leg's own fixed share, never over the round trip.
+     * Unknown fixed leg or size: the round trip as before.
+     */
+    fun exitCostPct8169(roundTripPct: Double, fixedLegSol: Double, positionSol: Double): Double {
+        if (!roundTripPct.isFinite() || !fixedLegSol.isFinite() || fixedLegSol <= 0.0 || !positionSol.isFinite() || positionSol <= 0.0) return roundTripPct
+        val legPct = fixedLegSol / positionSol * 100.0
+        return (roundTripPct - legPct).coerceAtLeast(minOf(legPct, roundTripPct))
+    }
+
     fun exitFloorPct8030(costPct: Double): Double = (if (costPct.isFinite() && costPct > 0.0) costPct else 0.0) + NET_BUFFER_PCT
 
     /** An exit that must never be held for profit: stops, safety, operational, manual. */
@@ -321,7 +332,10 @@ object NetEdge8030 {
         val structural = structural8030(reason)
         if (structural) return false
         try { OnChainDepth8038.request8038(ts) } catch (_: Throwable) {}
-        val cost = costPct8030(pos.tradingMode.ifBlank { "UNKNOWN" }, pos.costSol, liquidity8037(ts), ts.mint, ts.lastMcap)
+        // V5.0.8169 — the buy leg's fixed cost is already paid (sunk): an exit is charged the round trip less that leg. On a
+        //    ~0.001 SOL remainder both legs read ~59%, so every profit exit of a small remainder was held.
+        val roundTrip = costPct8030(pos.tradingMode.ifBlank { "UNKNOWN" }, pos.costSol, liquidity8037(ts), ts.mint, ts.lastMcap)
+        val cost = exitCostPct8169(roundTrip, try { com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() / 2.0 } catch (_: Throwable) { Double.NaN }, pos.costSol)
         val floor = exitFloorPct8030(cost)
         if (!profitExitHeld8030(pnl, floor, structural)) return false
         val peak = if (pos.highestPrice > 0.0) (pos.highestPrice / pos.entryPrice - 1.0) * 100.0 else Double.NaN
