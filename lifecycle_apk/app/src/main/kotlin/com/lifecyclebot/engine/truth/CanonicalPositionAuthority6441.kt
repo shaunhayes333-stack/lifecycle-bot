@@ -2316,7 +2316,7 @@ object CanonicalPositionAuthority6441 {
             "unaccounted=${classification.unaccounted} $breakdown)" +
             // V5.0.8169 — the paper ledger is the cash authority; show whether this projection agrees.
             (try {
-                val ledger8169 = PaperAccountLedger6430.cashSol()
+                val ledger8169 = PaperCapitalAuthority6577.cashSol()  // 6604: reads go through the facade
                 " ledgerCashSol=${"%.5f".format(ledger8169)} cashAgree8169=${AccountingIntegrity8169.cashAgreement8169(cash, ledger8169)}"
             } catch (_: Throwable) { "" })
     }

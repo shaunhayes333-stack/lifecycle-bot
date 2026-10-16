@@ -11427,7 +11427,8 @@ class GoldenTapeRegressionTest {
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bs.contains("pnlPct <= explicitPeakLockFloor4301 && !runnerDefer7322"))
         // V5.0.7696 — the runner-lane fluid stop is held at the lane floor (dynamicStopPct7696).
-        assertTrue(bs.contains("if (pnlPct <= dynamicStopPct7696 && !(dynamicStopPct7696 > 0.0 && runnerDefer7322) &&"))
+        // V5.0.8169 — a deferred runner keeps its protective floor (ExitDoctrine8169.fires8169).
+        assertTrue(bs.contains("if (pnlPct <= dynamicStopPct7696 && ExitDoctrine8169.fires8169(ts, dynamicStopPct7696, runnerDefer7322) &&"))
         assertFalse(bs.contains("pnlPct >= 500.0 -> 1.0"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("if (isLivePositionEarly) moonbagGate7322(ts, requestReason, wallet, walletSol)?.let { return it }"))
