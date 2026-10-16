@@ -8,6 +8,7 @@ import com.lifecyclebot.engine.truth.SetupFeatureResolver8169
 import com.lifecyclebot.engine.market.LaneHunter7297
 import com.lifecyclebot.engine.cortex.LanePlaybook7907
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -23,23 +24,23 @@ class Aate8170RepairTest {
         assertTrue(a.criticalMissing8170("quote:UNKNOWN"))
         assertFalse(a.criticalMissing8170("shape:UNKNOWN"))
         assertFalse(a.criticalMissing8170("tape:STALE"))
-        val edge = a.Evidence8136(a.KIND_CELL, "PUMP|MOONSHOT|EARLY", 75, 18.0, 4.0)
-        val base = a.Candidate8136("mint8170", "MOONSHOT", "CROWD_FORMING",
+        val edge = CandidateAdmission8136.Evidence8136(a.KIND_CELL, "PUMP|MOONSHOT|EARLY", 75, 18.0, 4.0)
+        val base = CandidateAdmission8136.Candidate8136("mint8170", "MOONSHOT", "CROWD_FORMING",
             priceAgeMs = 1000L, expectedGrossPct = 35.0, costPct = 7.0,
             cell = edge, genericScore = 8.0, genericFloor = 30.0)
         val optional = a.decide8136(base.copy(missingInputs = listOf("shape:UNKNOWN", "tape:UNKNOWN")))
-        assertEquals(a.Terminal8136.ADMIT, optional.terminal)
+        assertEquals(CandidateAdmission8136.Terminal8136.ADMIT, optional.terminal)
         assertTrue(optional.trace.any { it.startsWith("optionalUnobserved8170=") })
         assertTrue(optional.specific)
         for (critical in listOf("liq:UNKNOWN", "liquidity:UNKNOWN", "price:STALE", "route:UNKNOWN",
             "sellability:UNKNOWN", "decimals:UNKNOWN", "economics:UNKNOWN", "quote:UNKNOWN")) {
             val d = a.decide8136(base.copy(missingInputs = listOf("shape:UNKNOWN", critical)))
-            assertEquals(critical, a.Terminal8136.DEFER_DATA, d.terminal)
+            assertEquals(critical, CandidateAdmission8136.Terminal8136.DEFER_DATA, d.terminal)
             assertTrue(d.trace.any { it.startsWith("criticalUnobserved8170=") })
         }
         val noEdge = a.decide8136(base.copy(cell = null, missingInputs = listOf("shape:UNKNOWN"), genericScore = 90.0))
-        assertEquals(a.Terminal8136.DEFER_DATA, noEdge.terminal)
-        assertEquals(a.Terminal8136.REFUSE, a.decide8136(base.copy(safetyRefusal = "RUG")).terminal)
+        assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA, noEdge.terminal)
+        assertEquals(CandidateAdmission8136.Terminal8136.REFUSE, a.decide8136(base.copy(safetyRefusal = "RUG")).terminal)
     }
 
     @Test fun newVersionReceiverSupersedesOnlyOnANewHandoffAndNeverOnOldEvidence() {
@@ -47,9 +48,9 @@ class Aate8170RepairTest {
         val tk = HandoffReceiverTasks8153
         val base = tk.open8153(null, "mint8170", "MOONSHOT", "PROJECT_SNIPER", "PHASE",
             100L, t0, t0)!!
-        assertEquals(base, tk.open8153(base, "EXPRESS", "PROJECT_SNIPER", "REPEAT", 101L,
+        assertEquals(base, tk.open8153(base, "mint8170", "EXPRESS", "PROJECT_SNIPER", "REPEAT", 101L,
             t0 + 1000L, t0 + 1000L, newHandoffAtMs = t0 - 1L))
-        val newT = tk.open8153(base, "EXPRESS", "PROJECT_SNIPER", "FRESH", 101L,
+        val newT = tk.open8153(base, "mint8170", "EXPRESS", "PROJECT_SNIPER", "FRESH", 101L,
             t0 + 2000L, t0 + 2000L, newHandoffAtMs = t0 + 2000L)!!
         assertEquals("EXPRESS", newT.lane)
         assertEquals(101L, newT.version)
