@@ -22,8 +22,9 @@ class Aate7408HotPathAndPriorRegressionTest {
 
     @Test fun live_paper_seed_is_weak_prior_and_cannot_boost_size() {
         val s = src("engine/LiveProbabilityEngine.kt")
-        assertTrue(s.contains("(paperRawP7408 - 0.5) * 0.25"))
-        assertTrue(s.contains("coerceAtMost(8L)"))
+        // V5.0.7857 — the paper cold-start prior is PAPER-runtime only; LIVE
+        // never receives a paper seed, so the old live shrinkage is moot.
+        assertTrue(s.contains("val paperColdStart7403 = if (!liveRuntime7408 && (laneMetric?.trades ?: 0) == 0) try {"))
         assertTrue(s.contains("if (!liveRuntime7408 && paperColdStartWinner7403"))
     }
 

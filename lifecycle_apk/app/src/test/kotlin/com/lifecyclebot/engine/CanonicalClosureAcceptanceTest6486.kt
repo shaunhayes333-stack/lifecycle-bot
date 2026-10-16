@@ -47,10 +47,13 @@ class CanonicalClosureAcceptanceTest6486 {
         assertEquals(1.235, PaperAccountLedger6430.cashSol(), 1e-9)
         assertEquals(0.75, PaperAccountLedger6430.openCostBasisSol(), 1e-9)
 
-        assertTrue(CanonicalPaperTransaction6486.close(
-            id, mint, "T48", grossProceedsSol = 0.45,
-            soldQtyRaw = unit, soldCostBasisSol = 0.375, sellFeeSol = 0.005,
-            exitReason = "PARTIAL_ACCEPTANCE", terminalSequence = 1L,
+        // V5.0.7056 — an unpriced partial through close() is quarantined (no
+        // exit price to reconstruct qty x price). Paper partials use the
+        // production partial() path, whose basis-derived proceeds are checked
+        // by the V5.0.7066 ratio invariant: 0.75 x 0.5 x 1.20 = 0.45 SOL gross.
+        assertTrue(CanonicalPaperTransaction6486.partial(
+            id, mint, "T48", fraction = 0.5, currentPnlPct = 20.0,
+            feeRate = 0.005 / 0.45, exitReason = "PARTIAL_ACCEPTANCE",
         ).applied)
         val partial = requireNotNull(CanonicalPositionAuthority6441.getPosition(id))
         assertEquals(CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED, partial.lifecycle)

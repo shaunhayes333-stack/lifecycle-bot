@@ -30,9 +30,11 @@ class Repair6513AuthorityFinalityAcceptanceTest {
             signal = "WATCH", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 5_000.0,
             preFdgVerdict = "BUY", candidateVersion = cv, entryScore = 84)
 
+        // V5.0.7277 — the paper executable floor is fee-aware (> the old 0.05).
+        val paperMin7277 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol()
         val staleVerdict = ExecutableOpenGate.canOpenExecutablePosition(
             mint, "RICK", 90, "PAPER", "STANDARD", "test.stale.standard.dispatch",
-            liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
+            liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = paperMin7277,
             electedLane6494 = "PROJECT_SNIPER", electedCandidateVersion6494 = cv,
         )
         assertFalse(staleVerdict.allowed)
@@ -40,7 +42,7 @@ class Repair6513AuthorityFinalityAcceptanceTest {
         assertEquals("IMMUTABLE_ELECTION_LANE_MISMATCH_6653", staleVerdict.logName)
         val verdict = ExecutableOpenGate.canOpenExecutablePosition(
             mint, "RICK", 90, "PAPER", "PROJECT_SNIPER", "test.same.lane.dispatch",
-            liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
+            liveLiquidityUsd = 5_000.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = paperMin7277,
             electedLane6494 = "PROJECT_SNIPER", electedCandidateVersion6494 = cv,
         )
         assertTrue("${verdict.reason} active=${ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv)}", verdict.allowed)

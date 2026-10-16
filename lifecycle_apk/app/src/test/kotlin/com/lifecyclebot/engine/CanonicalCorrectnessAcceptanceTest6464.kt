@@ -172,8 +172,11 @@ class CanonicalCorrectnessAcceptanceTest6464 {
 
     @Test
     fun `alias normalization maps PRESALE_SNIPE to RESALE_SNIPE`() {
-        assertEquals("RESALE_SNIPE", CanonicalIdentityModel6464.normalizeLane("presale_snipe"))
-        assertEquals("BLUE_CHIP", CanonicalIdentityModel6464.normalizeLane("bluechip"))
+        // V5.0.7115 — CanonicalLaneIdentity6506 is the single alias table:
+        // PRESALE_SNIPE / RESALE_SNIPE fold to the PROJECT_SNIPER lane and
+        // BLUE_CHIP folds to BLUECHIP.
+        assertEquals("PROJECT_SNIPER", CanonicalIdentityModel6464.normalizeLane("presale_snipe"))
+        assertEquals("BLUECHIP", CanonicalIdentityModel6464.normalizeLane("bluechip"))
         assertEquals("MOMENTUM_SWING", CanonicalIdentityModel6464.normalizeLane("momentumswing"))
     }
 
@@ -185,7 +188,8 @@ class CanonicalCorrectnessAcceptanceTest6464 {
         // Try to overwrite with a different origin — must be refused.
         CanonicalIdentityModel6464.record(pid, "BLUE_CHIP", "s2", "r2", "MARKETS", "AGGRESSIVE")
         val id = CanonicalIdentityModel6464.getIdentity(pid)!!
-        assertEquals("RESALE_SNIPE", id.canonicalOriginLane)
+        // RESALE_SNIPE is recorded under its canonical lane (CanonicalLaneIdentity6506).
+        assertEquals("PROJECT_SNIPER", id.canonicalOriginLane)
         assertEquals("s1", id.strategyId)
     }
 

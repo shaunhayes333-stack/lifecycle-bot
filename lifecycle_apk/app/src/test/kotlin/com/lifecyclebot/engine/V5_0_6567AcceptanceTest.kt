@@ -22,7 +22,8 @@ class V5_0_6567AcceptanceTest {
         )
         assertTrue(r.executable)
         assertEquals(0.05, r.finalSizeSol, 1e-9)
-        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
+        // V5.0.7840/7841 — live sub-routable promotion carries the route-floor reason.
+        assertEquals("OK_LIVE_ROUTABLE_MIN_PROMOTED_7841", r.reason)
     }
 
     @Test

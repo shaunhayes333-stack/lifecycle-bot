@@ -12,7 +12,7 @@ class Aate7449EarlyStructureSpecialistsTest {
         assertTrue(s.contains("MAX_TOKEN_AGE_SECONDS = 180"))
         assertTrue(s.contains("Phase.PRE_IGNITION"))
         assertTrue(s.contains("Phase.IGNITION"))
-        assertTrue(s.contains("SNIPER_PHASE_HANDOFF_7449_"))
+        assertTrue(s.contains("SNIPER_PHASE_HANDOFF_7794_"))  // V5.0.7794 restamped the phase handoff label
         assertFalse(s.contains("MAX_TOKEN_AGE_SECONDS = 600"))
     }
 

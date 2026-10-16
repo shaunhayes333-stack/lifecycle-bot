@@ -49,21 +49,9 @@ class Bundle6382WinRateIntegrityTest {
         )
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    // Fix 2 : StartupReconciler carries lane from buyRow onto the synth SELL
-    // ────────────────────────────────────────────────────────────────────────
-
-    @Test
-    fun startup_reconciler_synth_rug_sell_inherits_buy_row_lane() {
-        val txt = File("src/main/kotlin/com/lifecyclebot/engine/StartupReconciler.kt").readText()
-        val hasCarry = Regex(
-            """tradingMode\s*=\s*buyRow\.tradingMode""",
-        ).containsMatchIn(txt)
-        assertTrue(
-            "V5.0.6382: synthetic EXTERNAL_RUG_CLOSE SELL must inherit buyRow.tradingMode",
-            hasCarry,
-        )
-    }
+    // Fix 2 (StartupReconciler synthetic rug SELL lane carry) retired: since
+    // V5.0.7364 the reconciler never books a close from a wallet read, so no
+    // synthetic EXTERNAL_RUG_CLOSE SELL row exists to carry a lane.
 
     // ────────────────────────────────────────────────────────────────────────
     // Fix 3 : TacticSwitcher cold-boot raw-journal re-derive

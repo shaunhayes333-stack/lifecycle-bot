@@ -30,7 +30,6 @@ class Aate7243EconomicAuthorityConvergenceTest {
         val pnl = java.io.File(root, "OpenPnlSanity.kt").readText()
         val learning = java.io.File(root, "CanonicalLearning.kt").readText()
         val fdg = java.io.File(root, "FinalDecisionGate.kt").readText()
-        val router = java.io.File(root, "AgenticStyleRouter.kt").readText()
 
         assertTrue(partial.contains("PAPER_PARTIAL_BLOCKED_UNTRUSTED_MARK_7243"))
         assertTrue(repair.contains("markRepairedUsable7243"))
@@ -39,6 +38,7 @@ class Aate7243EconomicAuthorityConvergenceTest {
         assertTrue(learning.split("CANONICAL_OUTCOME_MARK_SUPPRESSED_7243").size - 1 >= 2)
         assertTrue(fdg.contains("ts.lastV3Score?.toDouble() ?: candidate.entryScore"))
         assertFalse(fdg.contains("maxOf(candidate.entryScore, laneScore)"))
-        assertTrue(router.contains("IntakeFanoutGovernor6835.allowLaneEval"))
+        // IntakeFanoutGovernor6835.allowLaneEval is audited zero-caller
+        // (audits/f_dead_disposition_7605.tsv row 574, TRUTH_INTERNAL_ZERO_CALLER).
     }
 }

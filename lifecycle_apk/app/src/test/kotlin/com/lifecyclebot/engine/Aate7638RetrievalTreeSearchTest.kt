@@ -19,7 +19,8 @@ class Aate7638RetrievalTreeSearchTest {
         assertTrue(s.contains("BASE_TACTICAL_HOLD"))
         assertTrue(s.contains("BASE_TACTICAL_BANK"))
         assertTrue(s.contains("CONVICTION_RUNNER"))
-        assertTrue(s.contains("branches.maxByOrNull"))
+        // V5.0.7649 — the best branch is chosen after goal adjustment.
+        assertTrue(s.contains("goalAdjustedBranches7649.maxByOrNull { it.utility }"))
     }
 
     @Test fun plannerConsumesTreeSearchAndOracleExposesRetrieval() {

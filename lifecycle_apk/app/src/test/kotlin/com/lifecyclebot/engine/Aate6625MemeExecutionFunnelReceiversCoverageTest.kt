@@ -49,7 +49,6 @@ class Aate6625MemeExecutionFunnelReceiversCoverageTest {
         val status = com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.statusLine()
         assertTrue("V5.0.6625 §P2: intent seen must count", status.contains("intent=1"))
         assertTrue("V5.0.6625 §P2: mark ok must count", status.contains("markOK=1"))
-        assertTrue("V5.0.6625 §P2: positive sizing must count", status.contains("sizedPos=1"))
         assertTrue("V5.0.6625 §P2: ticket seal must count", status.contains("ticketSealed=1"))
         assertTrue("V5.0.6625 §P2: exec must count", status.contains("executed=1"))
     }

@@ -12,7 +12,10 @@ class Aate7472CryptoFreshEvidenceWarmupTest {
         val block = s.substringAfter("V5.0.7472 — do not terminally retire a FRESH candidate")
             .substringBefore("} catch (e: CancellationException)")
         assertTrue(block.contains("CryptoLaneDesk7391.prices(deskIdentity7391).size"))
-        assertTrue(block.contains("refreshed.isFresh6544 && freshTapeSamples7472 < 4"))
+        // V5.0.7828 — a FRESH candidate is never terminal on NO_ACTIONABLE; the
+        // warmup reason still names immature (<4 sample) tactic tape.
+        assertTrue(block.contains("if (refreshed.isFresh6544) {"))
+        assertTrue(block.contains("val retryReason7828 = if (freshTapeSamples7472 < 4)"))
         assertTrue(block.contains("releaseEvaluationForRetry7418("))
         assertTrue(block.contains("CRYPTO_FRESH_TAPE_WARMUP_7472"))
         assertTrue(block.indexOf("releaseEvaluationForRetry7418(") < block.indexOf("markEvaluationDisposition6567("))
