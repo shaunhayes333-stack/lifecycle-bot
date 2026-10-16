@@ -243,6 +243,14 @@ object CortexExit7897 {
     private val truthPending8153 = ConcurrentHashMap<String, TruthPending8153>()   // positionId
     private val truthBooks8153 = HashMap<String, LearningExitTruth8153.Book8153>()  // MODE|lane
 
+    // V5.0.8171: no later observation can be recovered by a real-time tick
+    // for a historical close replayed long after its grading horizon.
+    // The 8169 report showed 970/973 exit grades had NO_LATER_MARK; most
+    // were replayed historical finality, not measured exit regret.
+    fun recentClose8171(closeAtMs: Long, nowMs: Long, maxAgeMs: Long): Boolean =
+        closeAtMs > 0L && nowMs >= closeAtMs && nowMs - closeAtMs <= maxAgeMs
+
+
     /** CanonicalFinalizedTradeBus6464.publish: freeze a closed position's actual proceeds for its exit grade. */
     fun onClosePartials8153(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (!env.terminal || env.positionId.isBlank() || env.mint.isBlank() || !env.learningEligible) return false
@@ -261,9 +269,14 @@ object CortexExit7897 {
         val built = LearningExitTruth8153.fromLegs8153(legs, fallback) ?: run { inc("EXIT_TRUTH_NO_LEGS_8153"); return false }
         val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(env.lane).uppercase().ifBlank { env.lane.uppercase() } } catch (_: Throwable) { env.lane.uppercase() }
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+        val horizon8171 = if (runner) RUNNER_HORIZON_MS else HORIZON_MS
+        if (!recentClose8171(env.atMs, System.currentTimeMillis(), horizon8171 + GRADE_GRACE_MS)) {
+            inc("EXIT_TRUTH_HISTORICAL_NO_MARK_SKIPPED_8171")
+            return false
+        }
         if (truthPending8153.size >= TRUTH_MAX_PENDING_8153) { inc("EXIT_TRUTH_FULL_8153"); return false }
         truthPending8153[env.positionId] = TruthPending8153(env.mint, lane, mode, built.first, built.second,
-            env.atMs + if (runner) RUNNER_HORIZON_MS else HORIZON_MS)
+            env.atMs + horizon8171)
         inc("EXIT_TRUTH_FROZEN_8153_$mode")
         return true
     }
