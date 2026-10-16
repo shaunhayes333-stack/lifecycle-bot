@@ -60,6 +60,7 @@ object SignedTxLedger8085 {
             writer(durableRows8094(rows.values.toList())) // throws before broadcast; retain the signed identity for retry/proof
         } else persist()
         count("TX_SIGNED_SIGNATURE_PERSISTED_8085")
+        if (e.side == "SELL") try { com.lifecyclebot.engine.sell.SellRouteSpine8144.onPhase8144(e.mint, "SIGNED") } catch (_: Throwable) {}  // V5.0.8144
         return e
     }
 
@@ -201,6 +202,7 @@ object SignedTxLedger8085 {
     /** V5.0.8087 — one place a live sell's submission / acceptance / chain stage reaches the exit clocks. */
     private fun stage8087(mint: String, to: State) {
         if (mint.isBlank()) return
+        try { com.lifecyclebot.engine.sell.SellRouteSpine8144.onPhase8144(mint, to.name) } catch (_: Throwable) {}  // V5.0.8144 — sell spine
         try {
             when (to) {
                 State.SUBMIT_ATTEMPTED -> {

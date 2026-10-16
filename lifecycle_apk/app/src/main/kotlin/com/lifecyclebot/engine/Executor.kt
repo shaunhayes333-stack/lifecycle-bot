@@ -22794,6 +22794,129 @@ class Executor(
         security.enforceSignDelay()
     }
 
+    // ═══ V5.0.8144 — SELL ROUTE (P0-E): spine trigger, pending-signature reuse, corroborated balance, route viability ═══
+
+    /** The sell spine opens on a live exit request; an emergency also warms the confirmed-venue cache off the sell thread. */
+    private fun sellRouteTrigger8144(ts: TokenState, reason: String, wallet: SolanaWallet?) {
+        if (ts.position.isPaperPosition) return
+        try {
+            com.lifecyclebot.engine.sell.SellRouteSpine8144.trigger8144(ts.mint, reason, ts.position.positionId)
+            if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) {
+                com.lifecyclebot.engine.sell.SellRouteVenueProbe8144.prewarm8144(wallet, ts.mint)
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.8144 — the TradeVerifier active-sell signature only blocks a new sale while it may still land. Its chain
+     * status is read first (SellRouteFinality8144.signatureDecision8144): a landed signature is completed from its own
+     * signature / wallet delta (7362 resume) and the remainder sells; a chain-failed, expired or long-dead one is
+     * cleared; an unseen / unreadable young one is reused (waited on, never re-signed). Returns the signature to wait
+     * on, or null to proceed. SignedTxLedger8085 still refuses to sign while its own row is unresolved.
+     */
+    private fun pendingSellSigToReuse8144(ts: TokenState, wallet: SolanaWallet): String? {
+        val sig = TradeVerifier.activeSellSig(ts.mint) ?: return null
+        return try {
+            val status = com.lifecyclebot.engine.sell.SellRouteProbe8144.chainStatus8144(wallet, sig)
+            val ageMs = com.lifecyclebot.engine.sell.SellRouteProbe8144.pendingAgeMs8144(sig)
+            val decision = com.lifecyclebot.engine.sell.SellRouteFinality8144.signatureDecision8144(sig, ageMs, status)
+            val reuse = decision == com.lifecyclebot.engine.sell.SellRouteFinality8144.SigDecision8144.REUSE_PENDING
+            if (!reuse) {
+                TradeVerifier.endSell(ts.mint)
+                if (decision == com.lifecyclebot.engine.sell.SellRouteFinality8144.SigDecision8144.LANDED_SELL_REMAINDER) {
+                    scheduleLiveSellFinalizationResume7362(ts.mint, sig, wallet, ts)
+                }
+            }
+            PipelineHealthCollector.labelInc("SELL_PENDING_SIG_${decision.name}_8144")
+            ForensicLogger.lifecycle(
+                "SELL_PENDING_SIG_DECISION_8144",
+                "mint=${ts.mint.take(10)} sig=${sig.take(16)} status=${status.name} ageMs=$ageMs decision=${decision.name}",
+            )
+            if (reuse) sig else null
+        } catch (_: Throwable) { sig }
+    }
+
+    /**
+     * V5.0.8144 — liveSell's own reads did not list the mint. Before the absent branch hands the exit to the proof
+     * poller (where CATCH bounced: the poller's read listed it, the re-sell's read did not, round and round) ask up to
+     * three distinct RPC providers for the owner+mint accounts. Held there: sell it now. Absent, frozen or unanswered:
+     * null, and the existing branch decides (one provider missing the mint is never zero).
+     */
+    private fun corroboratedHolding8144(ts: TokenState, wallet: SolanaWallet): com.lifecyclebot.engine.truth.CanonicalTokenAmount? {
+        if (ts.position.isPaperPosition) return null
+        return try {
+            val v = com.lifecyclebot.engine.sell.SellRouteProbe8144.balance8144(wallet, ts.mint)
+            if (!com.lifecyclebot.engine.sell.SellRouteProbe8144.held8144(v)) return null
+            PipelineHealthCollector.labelInc("SELL_ABSENT_REFUTED_BY_PROVIDERS_8144")
+            ForensicLogger.lifecycle(
+                "SELL_ABSENT_REFUTED_BY_PROVIDERS_8144",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} raw=${v.raw} decimals=${v.decimals} heldProviders=${v.heldProviders} action=sell_now_no_proof_wait",
+            )
+            com.lifecyclebot.engine.truth.CanonicalTokenAmount(v.raw, v.decimals)
+        } catch (_: Throwable) { null }
+    }
+
+    /**
+     * V5.0.8144 — may this PumpPortal attempt go out. Refused when the endpoint hard-failed this mint (until the
+     * confirmed venue changes), when an auth failure blocks the route, when its per-mint budget is spent or it is in
+     * soft backoff; a first attempt on a venue that puts the aggregator first (no pump curve) also yields to Jupiter —
+     * the rescue attempt may still use PumpPortal.
+     */
+    private fun pumpPortalAdmitted8144(ts: TokenState, venue: com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Venue8144,
+                                       labelTag: String, sellTradeKey: String, traderTag: String): Boolean {
+        val pp = com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.PUMPPORTAL
+        val allowed = com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Admit8144.ALLOWED
+        val now = System.currentTimeMillis()
+        val rescue = labelTag.contains("RESCUE")
+        val skip: String? = if (!rescue && !com.lifecyclebot.engine.sell.SellRouteEndpoint8144.pumpPortalFirst8144(ts.mint, venue, now) &&
+            com.lifecyclebot.engine.sell.SellRouteEndpoint8144.peek8144(ts.mint, pp, now, venue.name) == allowed) {
+            "AGGREGATOR_FIRST_VENUE_${venue.name}"
+        } else {
+            // Non-consuming here: the attempt is counted only when the request is really sent (pumpPortalAttempt8144).
+            val admit = com.lifecyclebot.engine.sell.SellRouteEndpoint8144.peek8144(ts.mint, pp, now, venue.name)
+            if (admit == allowed) null
+            else "${admit.name}${com.lifecyclebot.engine.sell.SellRouteEndpoint8144.hardCause8144(ts.mint, pp, now)?.let { "_${it.name}" } ?: ""}"
+        }
+        if (skip == null) return true
+        try {
+            PipelineHealthCollector.labelInc("PUMPPORTAL_NOT_RESUBMITTED_8144_${skip.substringBefore("_VENUE")}")
+            LiveTradeLogStore.log(sellTradeKey, ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_ROUTE_SKIPPED,
+                "PumpPortal not sent [$labelTag]: $skip venue=${venue.name} — next route", traderTag = traderTag)
+        } catch (_: Throwable) {}
+        return false
+    }
+
+    /** V5.0.8144 — a PumpPortal request is about to be sent: count it against the route's per-mint budget. */
+    private fun pumpPortalAttempt8144(mint: String, venue: com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Venue8144) {
+        try {
+            com.lifecyclebot.engine.sell.SellRouteEndpoint8144.admit8144(
+                mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.PUMPPORTAL, System.currentTimeMillis(), venue.name,
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8144 — how PumpPortal answered this mint (hard 4xx block / soft backoff / OK reset). */
+    private fun pumpPortalOutcome8144(mint: String, failure: com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Failure8144,
+                                      venue: com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Venue8144) {
+        try {
+            com.lifecyclebot.engine.sell.SellRouteEndpoint8144.record8144(
+                mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.PUMPPORTAL, failure, System.currentTimeMillis(), venue.name,
+            )
+            if (failure != com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Failure8144.OK) {
+                PipelineHealthCollector.labelInc("PUMPPORTAL_${failure.name}_8144")
+                if (failure.hard) ForensicLogger.lifecycle("PUMPPORTAL_HARD_FAILURE_8144",
+                    "mint=${mint.take(10)} class=${failure.name} venue=${venue.name} action=no_resubmit_same_route_until_venue_changes")
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8144 — skipping the aggregator ladder needs a direct route that can still answer (confirmed venue + endpoint policy). */
+    private fun directRouteViable8144(mint: String): Boolean = try {
+        com.lifecyclebot.engine.sell.SellRouteEndpoint8144.directRouteViable8144(
+            mint, com.lifecyclebot.engine.sell.SellRouteVenueProbe8144.cached8144(mint), System.currentTimeMillis(),
+        )
+    } catch (_: Throwable) { true }
+
     /** Stamp trigger time; true when [reason] bypasses every hold gate for this live position. */
     private fun protectiveEmergencyAdmit7807(ts: TokenState, reason: String): Boolean {
         if (ts.position.isPaperPosition) return false
@@ -22862,6 +22985,12 @@ class Executor(
      * first attempt: it does not spend up to 6 s on aggregator quotes before its first broadcast.
      */
     private fun skipQuoteLadder8009(ts: TokenState, reason: String): Boolean {
+        // V5.0.8144 — with PumpPortal hard-failed / out of budget (or no pump curve) an escalated emergency that skipped
+        // Jupiter had only Raydium left: NO_SIGNATURE on every attempt. The aggregator stays in the ladder then.
+        if (!directRouteViable8144(ts.mint)) {
+            try { PipelineHealthCollector.labelInc("SELL_QUOTE_LADDER_KEPT_NO_DIRECT_ROUTE_8144") } catch (_: Throwable) {}
+            return false
+        }
         if (emergencyRouteEscalated7807(ts, reason)) return true
         val direct = com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason) &&
             (try { shouldTryPumpDirectFirst6099(ts, "EXIT") } catch (_: Throwable) { false })
@@ -23061,6 +23190,7 @@ class Executor(
         // V5.0.7807 — B1/B2: stamp the trigger and decide, from the reason alone, whether
         // this exit bypasses every hold gate below (Field Manual L248, L311).
         val bypass7807 = protectiveEmergencyAdmit7807(ts, reason)
+        sellRouteTrigger8144(ts, reason, wallet)  // V5.0.8144 — the sell spine opens (TRIGGER)
         // V5.0.6501 §4 — CANONICAL EXISTENCE GATE. Operator's 6500 dump
         // showed 140 PAPER_CLOSE_FAILED + 140 SELL_BLOCKED_NO_CANONICAL_POSITION_6373
         // + 141 TERMINAL_SELL_ABANDONED_6454 rows from stale exit requests
@@ -23328,6 +23458,7 @@ class Executor(
                 // duplicate. The owning close job will complete or terminally fail.
                 return SellResult.FAILED_RETRYABLE
             }
+            com.lifecyclebot.engine.sell.SellRouteSpine8144.mark8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteSpine8144.Stage8144.CLOSE_LEASE)
             // V5.9.1539 — ROOT FIX (operator spec item C): before retrying a sell
             // under an existing lease, short-circuit if the wallet is CONCLUSIVELY
             // empty. MARS looped forever broadcasting the stale tracker-derived
@@ -23358,6 +23489,7 @@ class Executor(
             return try {
                 val r = doSell(ts, canonicalReason, wallet, walletSol)
                 noteEmergencyOutcome7807(ts, canonicalReason, r)
+                com.lifecyclebot.engine.sell.SellRouteSpine8144.onResult8144(ts.mint, r.name)  // V5.0.8144
                 when (r) {
                     // Terminal outcomes → release the lease.
                     SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED,
@@ -27064,8 +27196,8 @@ class Executor(
             }
         } catch (_: Throwable) { /* never block sell on guard failure */ }
         
-        // V5.9.495y — DUPLICATE-EXIT GUARD (spec item 9).
-        TradeVerifier.activeSellSig(ts.mint)?.let { existingSig ->
+        // V5.9.495y — DUPLICATE-EXIT GUARD (spec item 9). V5.0.8144 — only while the signature may still land.
+        pendingSellSigToReuse8144(ts, wallet)?.let { existingSig ->
             onLog("⏳ SELL DEDUPE: ${ts.symbol} — existing sell sig=${existingSig.take(16)}… still verifying. Skipping new $reason exit.", ts.mint)
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -27416,6 +27548,7 @@ class Executor(
                 // Recovered — fall through to the normal tokenData checks
                 // below (which run against the refreshed map).
             }
+            if (tokenData == null || tokenData.first <= 0.0) tokenData = corroboratedHolding8144(ts, wallet) ?: tokenData
             if (tokenData == null || tokenData.first <= 0.0) {
                 // V5.9.72 CRITICAL FIX: previous logic force-closed the position
                 // after 5 "zero balance" reads, calling tradeId.closed(...) and
@@ -31069,9 +31202,18 @@ class Executor(
         traderTag: String,
         labelTag: String,
     ): String? {
+        // V5.0.8144 — the confirmed venue (curve account / complete flag / pool) and the endpoint's memory of this mint.
+        var venue8144 = com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Venue8144.UNKNOWN
         return try {
+            venue8144 = com.lifecyclebot.engine.sell.SellRouteVenueProbe8144.resolve8144(wallet, ts.mint)
+            com.lifecyclebot.engine.sell.SellRouteSpine8144.mark8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteSpine8144.Stage8144.VENUE_RESOLVE)
+            if (!pumpPortalAdmitted8144(ts, venue8144, labelTag, sellTradeKey, traderTag)) return null
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
+            // V5.0.8144 — one wallet read serves the fraction check, the 95% check and the pre-sell snapshot (was three).
+            val walletRead8144: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = try {
+                wallet.getTokenAccountsWithDecimalsBounded()
+            } catch (_: Throwable) { null }
 
             // V5.0.4101 — Wave A of P0 sell-failure patch.
             // BEFORE: keyword-blob test that lumped EXIT-RESCUE / ORPHAN-SWEEP
@@ -31087,12 +31229,7 @@ class Executor(
             // independent of label.
             val requestedFraction: Double = try {
                 if (tokenUnits != null && tokenUnits > 0L) {
-                    val verifiedRaw: java.math.BigInteger = try {
-                        val bal = wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]
-                        val ui = bal?.first ?: 0.0
-                        val dec = bal?.second ?: 9
-                        if (ui > 0.0) java.math.BigDecimal(ui).movePointRight(dec).toBigInteger() else java.math.BigInteger.ZERO
-                    } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                    val verifiedRaw: java.math.BigInteger = walletRead8144?.get(ts.mint)?.raw ?: java.math.BigInteger.ZERO
                     if (verifiedRaw.signum() > 0) {
                         java.math.BigDecimal(tokenUnits)
                             .divide(java.math.BigDecimal(verifiedRaw), 6, java.math.RoundingMode.HALF_UP)
@@ -31125,12 +31262,7 @@ class Executor(
             // previously caused PumpPortal to fall through to Jupiter
             // exact-in even when HostTracker had authoritative qty).
             if (tokenUnits != null && tokenUnits > 0L) {
-                val verifiedRaw: java.math.BigInteger = try {
-                    val bal = wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]
-                    val ui = bal?.first ?: 0.0
-                    val dec = bal?.second ?: 9
-                    if (ui > 0.0) java.math.BigDecimal(ui).movePointRight(dec).toBigInteger() else java.math.BigInteger.ZERO
-                } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                val verifiedRaw: java.math.BigInteger = walletRead8144?.get(ts.mint)?.raw ?: java.math.BigInteger.ZERO
                 // V5.0.3740 — no HostTracker/TX_PARSE fallback for PumpPortal amount authority.
                 val effectiveVerified: java.math.BigInteger = verifiedRaw
                 if (verifiedRaw.signum() <= 0) {
@@ -31171,9 +31303,7 @@ class Executor(
             // and bailed PHANTOM — even though the wallet held thousands of
             // tokens. We now read the WHOLE map separately, detect
             // emptiness, and bail/proceed accordingly.
-            val preBalances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = try {
-                wallet.getTokenAccountsWithDecimalsBounded()
-            } catch (_: Throwable) { null }
+            val preBalances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = walletRead8144
             val preBalancesEmpty = preBalances?.isEmpty() == true
             // V5.0.8094 — the SOL figure only labels this forensic line: the cached wallet balance, not an RPC round trip
             // (up to 3 tries with sleeps) in front of every sell broadcast (8093 SELL_BALANCE_CHECK stages up to 6 s).
@@ -31257,6 +31387,7 @@ class Executor(
                 .isManualEmergency(labelTag) || labelTag.contains("PANIC_DRAIN", ignoreCase = true) ||
                 // V5.0.7807 — B4: liveSell tagged a protective emergency; its rung is already <= 50%.
                 labelTag.contains("EMERGENCY_7807")
+            pumpPortalAttempt8144(ts.mint, venue8144)  // V5.0.8144 — the request is sent now: it counts against the route budget
             val built = com.lifecyclebot.network.PumpFunDirectApi.buildSellTx(
                 publicKeyB58    = wallet.publicKeyB58,
                 mint            = ts.mint,
@@ -31266,6 +31397,8 @@ class Executor(
                 decimals        = sellDecimals,
                 allowEmergencyOverride = emergencyOverride,
             )
+            // V5.0.8144 — the endpoint answered with a transaction: its budget counts endpoint failures only.
+            pumpPortalOutcome8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Failure8144.OK, venue8144)
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_TX_BUILT,
@@ -31417,6 +31550,8 @@ class Executor(
             sig
         } catch (badReq: com.lifecyclebot.network.PumpSellBadRequest) {
             val safe = security.sanitiseForLog(badReq.message ?: "bad_request")
+            // V5.0.8144 — a hard 4xx is remembered: this mint is not resubmitted to PumpPortal until the venue changes.
+            pumpPortalOutcome8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.classifyHttp8144(badReq.httpCode, badReq.message), venue8144)
             if (badReq.httpCode >= 500 || badReq.httpCode == 599) {
                 try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordPumpProviderFailure("HTTP_${badReq.httpCode}:$safe") } catch (_: Throwable) {}
             }
@@ -31451,6 +31586,10 @@ class Executor(
             val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
             if (com.lifecyclebot.engine.sell.ExitProviderHealth.isProviderClassFailure(pumpEx.message)) {
                 try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordPumpProviderFailure(safe) } catch (_: Throwable) {}
+            }
+            // V5.0.8144 — only the endpoint's own answers (HTTP status / JSON error / empty body) count against it.
+            if (pumpEx.message.orEmpty().contains("PumpPortal")) {
+                com.lifecyclebot.engine.sell.SellRouteEndpoint8144.classifyMessage8144(pumpEx.message)?.let { pumpPortalOutcome8144(ts.mint, it, venue8144) }
             }
             onLog("⚠️ PUMP-FIRST [$labelTag] failed (${safe.take(180)}) — falling through to Jupiter Ultra", ts.mint)
             LiveTradeLogStore.log(

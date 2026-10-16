@@ -58,7 +58,9 @@ object BalanceProofWaitState {
     fun priorityFor(reason: String): Int {
         val r = reason.uppercase()
         return when {
-            r.contains("RUG") || r.contains("UNIVERSAL_HARD_FLOOR") || r.contains("CATASTROPHE") -> 100
+            // V5.0.8144 — CATASTROPH (both spellings): CATASTROPHIC_HARD_BACKSTOP / TICK_CATASTROPHIC_CONFIRMED ranked 40,
+            // so a later STRICT_SL merge overwrote the catastrophic exit's desired reason in the wait.
+            r.contains("RUG") || r.contains("UNIVERSAL_HARD_FLOOR") || r.contains("CATASTROPH") -> 100
             r.contains("STRICT_SL") || r.contains("HARD_FLOOR") || r.contains("STOP_LOSS") -> 80
             r.contains("ORPHAN") -> 60
             else -> 40
@@ -147,7 +149,8 @@ object BalanceProofWaitState {
         val w = waits[mint] ?: return
         w.pollAttempt += 1
         w.lastTouchedMs = System.currentTimeMillis()
-        w.nextPollAtMs = System.currentTimeMillis() + backoffFor(w.pollAttempt)
+        // V5.0.8144 — a catastrophic / protective exit's proof wait re-reads at most every 3 s (was up to 30 s).
+        w.nextPollAtMs = System.currentTimeMillis() + SellRouteFinality8144.proofPollBackoffMs8144(w.desiredExitReason, backoffFor(w.pollAttempt))
         try {
             ForensicLogger.lifecycle("BALANCE_PROOF_STILL_UNKNOWN",
                 "mint=${mint.take(10)} symbol=${w.symbol} attempt=${w.pollAttempt} " +
