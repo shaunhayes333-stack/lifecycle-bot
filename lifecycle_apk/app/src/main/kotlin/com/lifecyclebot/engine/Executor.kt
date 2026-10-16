@@ -22987,6 +22987,13 @@ class Executor(
         } catch (_: Throwable) {}
     }
 
+    /** V5.0.8164 — true once a sell of [mint] was accepted by a provider and expired unseen (any route, since its last landing). */
+    private fun sellUnlanded8164(mint: String): Boolean = try {
+        com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.values().any {
+            com.lifecyclebot.engine.sell.SellRouteEndpoint8144.unlanded8164(mint, it) > 0
+        }
+    } catch (_: Throwable) { false }
+
     /** V5.0.8144 — skipping the aggregator ladder needs a direct route that can still answer (confirmed venue + endpoint policy). */
     private fun directRouteViable8144(mint: String): Boolean = try {
         com.lifecyclebot.engine.sell.SellRouteEndpoint8144.directRouteViable8144(
@@ -28124,7 +28131,8 @@ class Executor(
             // structure break) must LAND at the print it chased: drain-exit priority fee and doubled tip.
             // Slippage still follows the reason's own cap (isDrainExit is unchanged for slippage).
             val fastLand7980 = isDrainExit || com.lifecyclebot.engine.sell.CloseLease.urgentProfitCapture7965(reason) ||
-                reason.uppercase().startsWith("RUNNER_STRUCTURE_BREAK_7967") || reason.uppercase().startsWith("RUNNER_HARD_STOP_7967")
+                reason.uppercase().startsWith("RUNNER_STRUCTURE_BREAK_7967") || reason.uppercase().startsWith("RUNNER_HARD_STOP_7967") ||
+                sellUnlanded8164(ts.mint)  // V5.0.8164 — a previous sell of this mint was accepted and never landed: pay to land
             val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason, emergencyAttempt7807(ts))
             if (isDrainExit) {
                 onLog("🚨 DRAIN-EXIT mode for ${ts.symbol} ($reason): ladder=${broadcastSlipLadder.joinToString(",")}bps", tradeId.mint)
@@ -31511,7 +31519,7 @@ class Executor(
             // the Jito / RPC path exactly as before.
             val pumpEnv7311 = try {
                 com.lifecyclebot.network.HeliusSenderEnvelope7250.build(
-                    built.txBase64, wallet.publicKeyB58, costSenderTip8151(cfg(), urgent = labelTag.contains("DRAIN"), ordinary = ordinarySliceLabel8151(labelTag)),
+                    built.txBase64, wallet.publicKeyB58, costSenderTip8151(cfg(), urgent = labelTag.contains("DRAIN") || sellUnlanded8164(ts.mint), ordinary = ordinarySliceLabel8151(labelTag) && !sellUnlanded8164(ts.mint)),
                 )
             } catch (_: Throwable) { null }
             try {

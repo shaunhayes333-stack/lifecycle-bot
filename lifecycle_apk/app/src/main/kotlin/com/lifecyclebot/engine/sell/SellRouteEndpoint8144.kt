@@ -36,6 +36,14 @@ object SellRouteEndpoint8144 {
         SOFT_RATE_LIMIT(false, false),
         SOFT_SERVER(false, false),
         SOFT_TRANSPORT(false, false),
+        /**
+         * V5.0.8164 — the endpoint answered with a transaction, a provider accepted it, and it never landed (blockhash
+         * proven expired, signature unseen). 5.0.8162 live: normie (-61%, HARD_FLOOR / CATASTROPHE) — five PumpPortal
+         * sells ACCEPTED_NOT_LANDED in four minutes while every build counted as OK and reset the route budget, so
+         * [directRouteViable8144] stayed true, the escalated emergency kept skipping Jupiter, and Raydium (no pool for a
+         * curve token) failed behind it. Not a hard block: the route backs off on a growing clock instead.
+         */
+        UNLANDED(false, false),
     }
 
     enum class Admit8144 { ALLOWED, HARD_BLOCKED, AUTH_BLOCKED, BUDGET_EXHAUSTED, BACKOFF }
@@ -49,6 +57,8 @@ object SellRouteEndpoint8144 {
     private const val AUTH_BLOCK_MS_8144 = 15L * 60_000L
     private const val SOFT_BACKOFF_BASE_MS_8144 = 2_000L
     private const val SOFT_BACKOFF_CAP_MS_8144 = 15_000L
+    const val UNLANDED_BACKOFF_BASE_MS_8164 = 45_000L
+    private const val UNLANDED_BACKOFF_CAP_MS_8164 = 5L * 60_000L
 
     private val UNSUPPORTED_MARKERS_8144 = listOf(
         "migrat", "complete", "graduat", "not found", "no pool", "pool not", "unsupported", "invalid mint",
@@ -93,6 +103,8 @@ object SellRouteEndpoint8144 {
         var hardVenue = ""
         var softUntilMs = 0L
         var softStreak = 0
+        var unlanded = 0           // V5.0.8164 — accepted-but-never-landed sends since the last landing
+        var unlandedUntilMs = 0L
     }
 
     private val perMint8144 = ConcurrentHashMap<String, RouteState8144>()
@@ -110,6 +122,7 @@ object SellRouteEndpoint8144 {
             if (!venueChanged) return Admit8144.HARD_BLOCKED
         }
         if (s.softUntilMs > nowMs) return Admit8144.BACKOFF
+        if (s.unlandedUntilMs > nowMs) return Admit8144.BACKOFF   // V5.0.8164 — its last send never landed
         val windowLive = nowMs - s.windowStartMs <= ATTEMPT_WINDOW_MS_8144
         if (windowLive && s.attempts >= MAX_ATTEMPTS_PER_ROUTE_8144) return Admit8144.BUDGET_EXHAUSTED
         return Admit8144.ALLOWED
@@ -136,8 +149,14 @@ object SellRouteEndpoint8144 {
     fun record8144(mint: String, route: Route8144, failure: Failure8144, nowMs: Long, venueKey: String = "") {
         val s = perMint8144.getOrPut(key(mint, route)) { RouteState8144() }
         when {
+            // V5.0.8164 — an answer (a built transaction) is not a landing: it clears the endpoint's soft/hard state but
+            // never the attempt budget or the unlanded backoff. Only [landed8164] (chain-confirmed) resets those.
             failure == Failure8144.OK -> {
-                s.softStreak = 0; s.softUntilMs = 0L; s.hardUntilMs = 0L; s.hardCause = null; s.hardVenue = ""; s.attempts = 0
+                s.softStreak = 0; s.softUntilMs = 0L; s.hardUntilMs = 0L; s.hardCause = null; s.hardVenue = ""
+            }
+            failure == Failure8144.UNLANDED -> {
+                s.unlanded += 1
+                s.unlandedUntilMs = nowMs + unlandedBackoffMs8164(s.unlanded)
             }
             failure.hard -> {
                 s.hardUntilMs = nowMs + HARD_BLOCK_MS_8144
@@ -151,6 +170,22 @@ object SellRouteEndpoint8144 {
             }
         }
     }
+
+    /** V5.0.8164 — a chain-confirmed landing on [route] for [mint]: the route is proven, every budget resets. */
+    @Synchronized
+    fun landed8164(mint: String, route: Route8144) {
+        val s = perMint8144[key(mint, route)] ?: return
+        s.softStreak = 0; s.softUntilMs = 0L; s.hardUntilMs = 0L; s.hardCause = null; s.hardVenue = ""; s.attempts = 0
+        s.unlanded = 0; s.unlandedUntilMs = 0L
+    }
+
+    /** V5.0.8164 — accepted-but-never-landed sends of [route] for [mint] since its last landing. */
+    @Synchronized
+    fun unlanded8164(mint: String, route: Route8144): Int = perMint8144[key(mint, route)]?.unlanded ?: 0
+
+    /** Pure: 45 s, 90 s, 180 s, then a 5 min cap after consecutive unlanded sends. */
+    fun unlandedBackoffMs8164(streak: Int): Long =
+        (UNLANDED_BACKOFF_BASE_MS_8164 shl (streak - 1).coerceIn(0, 4)).coerceAtMost(UNLANDED_BACKOFF_CAP_MS_8164)
 
     /** Pure: 2 s, 4 s, 8 s, then 15 s cap after consecutive soft failures. */
     fun softBackoffMs8144(streak: Int): Long =
@@ -206,14 +241,15 @@ object SellRouteEndpoint8144 {
 
     private fun trim8144(nowMs: Long) {
         if (perMint8144.size <= 4_000) return
-        perMint8144.entries.removeIf { nowMs - maxOf(it.value.windowStartMs, it.value.hardUntilMs, it.value.softUntilMs) > HARD_BLOCK_MS_8144 }
+        perMint8144.entries.removeIf { nowMs - maxOf(it.value.windowStartMs, it.value.hardUntilMs, it.value.softUntilMs, it.value.unlandedUntilMs) > HARD_BLOCK_MS_8144 }
     }
 
     fun statusLine8144(nowMs: Long = System.currentTimeMillis()): String {
         val hard = perMint8144.values.count { it.hardUntilMs > nowMs }
         val soft = perMint8144.values.count { it.softUntilMs > nowMs }
+        val unlanded = perMint8144.values.count { it.unlandedUntilMs > nowMs }
         val global = globalBlockUntil8144.entries.filter { it.value > nowMs }.joinToString(",") { it.key.name }.ifBlank { "-" }
-        return "routes=${perMint8144.size} hardBlocked=$hard softBackoff=$soft authBlocked=$global"
+        return "routes=${perMint8144.size} hardBlocked=$hard softBackoff=$soft unlandedBackoff=$unlanded authBlocked=$global"
     }
 
     internal fun resetForTest8144() { perMint8144.clear(); globalBlockUntil8144.clear() }

@@ -83,6 +83,7 @@ object SignedTxLedger8085 {
         e.state = to; e.updatedAtMs = nowMs
         if (detail.isNotBlank()) e.detail = detail.take(160)
         if (acceptedBy.isNotBlank()) e.acceptedBy = (if (e.acceptedBy.isBlank()) acceptedBy else "${e.acceptedBy},$acceptedBy").take(80)
+        if (e.side == "SELL") routeLanding8164(e, to)
         when (to) {
             State.ACCEPTED -> count("TX_RPC_ACCEPTED_8085")
             State.OUTCOME_UNKNOWN -> count("TX_SUBMIT_OUTCOME_UNKNOWN_8085")
@@ -196,6 +197,32 @@ object SignedTxLedger8085 {
             com.lifecyclebot.engine.ForensicLogger.lifecycle("TX_EXPIRED_ATTRIBUTED_8087",
                 "sig=${e.signature.take(16)} mint=${e.mint.take(10)} side=${e.side} route=$route cause=$cause ageMs=$ageMs " +
                     "signToSubmitMs=$signToSubmitMs acceptedBy=$accepted blockhash=${e.blockhash.take(10)} detail=${detail.take(60)}")
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.8164 — a sell's chain outcome reaches the route policy (SellRouteEndpoint8144). Before, the policy heard only
+     * HTTP answers: a PumpPortal build counted as OK even when its transaction then expired unseen, so an escalated
+     * emergency kept going PumpPortal -> Raydium and never asked Jupiter (5.0.8162 normie: 5 ACCEPTED_NOT_LANDED sells).
+     */
+    private fun routeLanding8164(e: Entry, to: State) {
+        val route = when (e.route.uppercase()) {
+            "PUMPPORTAL" -> com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.PUMPPORTAL
+            "RAYDIUM" -> com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.RAYDIUM
+            "JUPITER", "JUPITER_ULTRA" -> com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.JUPITER
+            else -> return
+        }
+        try {
+            when (to) {
+                State.EXPIRED_PROVEN -> {
+                    com.lifecyclebot.engine.sell.SellRouteEndpoint8144.record8144(
+                        e.mint, route, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Failure8144.UNLANDED, System.currentTimeMillis(),
+                    )
+                    count("SELL_ROUTE_UNLANDED_${route.name}_8164")
+                }
+                State.CONFIRMED -> com.lifecyclebot.engine.sell.SellRouteEndpoint8144.landed8164(e.mint, route)
+                else -> {}
+            }
         } catch (_: Throwable) {}
     }
 

@@ -127,9 +127,38 @@ class Aate8144SellRouteTest {
         // Three endpoint failures inside the window: the route's budget is spent even after the backoff.
         assertEquals(Admit8144.BUDGET_EXHAUSTED, SellRouteEndpoint8144.peek8144(mint, Route8144.PUMPPORTAL, t0 + 14_003))
         assertEquals(Admit8144.ALLOWED, SellRouteEndpoint8144.peek8144(mint, Route8144.PUMPPORTAL, t0 + SellRouteEndpoint8144.ATTEMPT_WINDOW_MS_8144 + 1))
-        // An endpoint that answered with a transaction resets its budget.
+        // V5.0.8164 — an endpoint that answered with a transaction has not landed anything: the budget stays spent.
         SellRouteEndpoint8144.record8144(mint, Route8144.PUMPPORTAL, Failure8144.OK, t0 + 14_004)
-        assertEquals(Admit8144.ALLOWED, SellRouteEndpoint8144.peek8144(mint, Route8144.PUMPPORTAL, t0 + 14_005))
+        assertEquals(Admit8144.BUDGET_EXHAUSTED, SellRouteEndpoint8144.peek8144(mint, Route8144.PUMPPORTAL, t0 + 14_005))
+        // Only a chain-confirmed landing resets it.
+        SellRouteEndpoint8144.landed8164(mint, Route8144.PUMPPORTAL)
+        assertEquals(Admit8144.ALLOWED, SellRouteEndpoint8144.peek8144(mint, Route8144.PUMPPORTAL, t0 + 14_006))
+    }
+
+    // ── V5.0.8164: accepted-but-never-landed sells hand the emergency to the aggregator ──
+
+    @Test fun unlandedPumpPortalSellsBackOffAndStopTheEmergencyFromSkippingJupiter() {
+        assertEquals(45_000L, SellRouteEndpoint8144.unlandedBackoffMs8164(1))
+        assertEquals(90_000L, SellRouteEndpoint8144.unlandedBackoffMs8164(2))
+        assertEquals(300_000L, SellRouteEndpoint8144.unlandedBackoffMs8164(9))
+        assertTrue(SellRouteEndpoint8144.directRouteViable8144(mint, Venue8144.PUMP_CURVE, t0))
+        // The build answered (OK), the send was accepted, and the signature expired unseen.
+        SellRouteEndpoint8144.admit8144(mint, Route8144.PUMPPORTAL, t0, Venue8144.PUMP_CURVE.name)
+        SellRouteEndpoint8144.record8144(mint, Route8144.PUMPPORTAL, Failure8144.OK, t0 + 1, Venue8144.PUMP_CURVE.name)
+        SellRouteEndpoint8144.record8144(mint, Route8144.PUMPPORTAL, Failure8144.UNLANDED, t0 + 60_000, Venue8144.PUMP_CURVE.name)
+        assertEquals(1, SellRouteEndpoint8144.unlanded8164(mint, Route8144.PUMPPORTAL))
+        // PumpPortal backs off; an escalated emergency may no longer skip the aggregator, and Jupiter goes first.
+        assertEquals(Admit8144.BACKOFF, SellRouteEndpoint8144.peek8144(mint, Route8144.PUMPPORTAL, t0 + 60_001, Venue8144.PUMP_CURVE.name))
+        assertFalse(SellRouteEndpoint8144.directRouteViable8144(mint, Venue8144.PUMP_CURVE, t0 + 60_001))
+        assertFalse(SellRouteEndpoint8144.pumpPortalFirst8144(mint, Venue8144.PUMP_CURVE, t0 + 60_001))
+        assertEquals(Route8144.JUPITER, SellRouteEndpoint8144.nextRoute8144(mint, Venue8144.PUMP_CURVE, t0 + 60_001))
+        // A later build that merely answers does not clear the backoff.
+        SellRouteEndpoint8144.record8144(mint, Route8144.PUMPPORTAL, Failure8144.OK, t0 + 60_002, Venue8144.PUMP_CURVE.name)
+        assertEquals(Admit8144.BACKOFF, SellRouteEndpoint8144.peek8144(mint, Route8144.PUMPPORTAL, t0 + 60_003, Venue8144.PUMP_CURVE.name))
+        // After the backoff it may be tried again; a landing clears the streak.
+        assertEquals(Admit8144.ALLOWED, SellRouteEndpoint8144.peek8144(mint, Route8144.PUMPPORTAL, t0 + 60_000 + 45_001, Venue8144.PUMP_CURVE.name))
+        SellRouteEndpoint8144.landed8164(mint, Route8144.PUMPPORTAL)
+        assertEquals(0, SellRouteEndpoint8144.unlanded8164(mint, Route8144.PUMPPORTAL))
     }
 
     // ── 3. route switch from confirmed venue metadata ──
