@@ -76,6 +76,61 @@ object SellRouteVenueProbe8144 {
         }
     }
 
+    /**
+     * V5.0.8153 — pure: the venue an exit routes by without waiting. A fresh probe answers; a stale probe that had
+     * confirmed a venue still answers (the venue only orders the routes — every route keeps its endpoint policy and
+     * failover, and a migrated curve's PumpPortal 4xx falls through to the aggregator) and asks for a refresh; no
+     * confirmed venue at all needs a read. Returns (venue, refresh-or-read needed).
+     */
+    fun exitVenue8153(p: Probe8144?, nowMs: Long): Pair<Venue8144, Boolean> = when {
+        p == null -> Venue8144.UNKNOWN to true
+        fresh8144(p, nowMs) -> p.venue to false
+        p.venue != Venue8144.UNKNOWN -> p.venue to true
+        else -> Venue8144.UNKNOWN to true
+    }
+
+    /** V5.0.8153 — pure: does [p] need a background refresh so it is still fresh [aheadMs] from now. */
+    fun needsRefresh8153(p: Probe8144?, nowMs: Long, aheadMs: Long): Boolean = p == null || !fresh8144(p, nowMs + aheadMs.coerceAtLeast(0L))
+
+    /**
+     * V5.0.8153 — the venue of a live exit (tryPumpPortalSell; was a blocking 1.5 s read per attempt on a cold cache).
+     * Fresh or last-confirmed probe: answered at once (a stale one is refreshed off the sell thread). Never confirmed:
+     * one read bounded at StopLatencyCore8153.EXIT_VENUE_BUDGET_MS_8153 (UNKNOWN keeps the legacy route order).
+     */
+    fun resolveForExit8153(wallet: SolanaWallet?, mint: String, nowMs: Long = System.currentTimeMillis()): Venue8144 {
+        val (venue, needsRead) = exitVenue8153(cache8144[mint], nowMs)
+        if (!needsRead) return venue
+        if (venue != Venue8144.UNKNOWN) {
+            refreshNow8153(wallet, mint)
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SELL_ROUTE_VENUE_LAST_CONFIRMED_USED_8153") } catch (_: Throwable) {}
+            return venue
+        }
+        return resolve8144(wallet, mint, StopLatencyCore8153.EXIT_VENUE_BUDGET_MS_8153)
+    }
+
+    /**
+     * V5.0.8153 — background prewarm: re-read the curve of an open live position before its probe goes stale, on
+     * [lane] (the low-priority prewarm lane), single-flight per mint. True when a read was started.
+     */
+    fun refreshAhead8153(wallet: SolanaWallet?, mint: String, nowMs: Long, aheadMs: Long, lane: java.util.concurrent.Executor): Boolean {
+        if (wallet == null || mint.isBlank()) return false
+        if (!needsRefresh8153(cache8144[mint], nowMs, aheadMs)) return false
+        if (!inFlight8144.add(mint)) return false
+        return try {
+            lane.execute { try { read8144(wallet, mint) } finally { inFlight8144.remove(mint) } }
+            true
+        } catch (_: Throwable) { inFlight8144.remove(mint); false }
+    }
+
+    /** V5.0.8153 — a stale probe: re-read off the sell thread (single-flight), whatever its age. */
+    private fun refreshNow8153(wallet: SolanaWallet?, mint: String) {
+        if (wallet == null || mint.isBlank()) return
+        if (!inFlight8144.add(mint)) return
+        try {
+            executor8144.execute { try { read8144(wallet, mint) } finally { inFlight8144.remove(mint) } }
+        } catch (_: Throwable) { inFlight8144.remove(mint) }
+    }
+
     /** One bounded curve read; stores and returns the probe, or null when the RPC did not answer. */
     private fun read8144(wallet: SolanaWallet, mint: String): Probe8144? {
         val curve = try { com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(mint) } catch (_: Throwable) { null }

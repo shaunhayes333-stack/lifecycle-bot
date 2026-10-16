@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit
 object SellRouteProbe8144 {
 
     private const val STATUS_BUDGET_MS_8144 = 1_500L
+    private const val EXPIRY_READ_EXTRA_MS_8153 = 700L
     private const val BALANCE_BUDGET_MS_8144 = 2_500L
     private const val BALANCE_TTL_MS_8144 = 15_000L
     private const val MAX_PROVIDERS_8144 = 3
@@ -66,15 +67,21 @@ object SellRouteProbe8144 {
             else -> {}
         }
         val w = wallet ?: return ChainStatus8144.RPC_FAILED
+        // V5.0.8153 — an inconclusive verification no longer parks the next exit until the 180 s age fallback or the
+        // wallet resolver's 15 s cadence: the signature's own blockhash is read FIRST (finalized), then its status; unseen
+        // after a blockhash the chain already calls invalid is EXPIRED_PROVEN (SignedTxLedger8085.expiredProven), and the
+        // ledger row moves with it. Unknown / valid blockhash: the signature is still waited on, never re-signed.
+        val blockhash8153 = try { SignedTxLedger8085.get(sig)?.blockhash.orEmpty() } catch (_: Throwable) { "" }
         val fut = try {
             pool8144.submit(java.util.concurrent.Callable {
+                val valid8153 = if (blockhash8153.isBlank()) null else blockhashValid8153(w, blockhash8153)
                 val params = JSONArray().put(JSONArray().put(sig)).put(JSONObject().put("searchTransactionHistory", true))
                 val resp = w.rpcCall("getSignatureStatuses", params)
                 if (resp.has("error")) ChainStatus8144.RPC_FAILED
                 else {
                     val values = resp.optJSONObject("result")?.optJSONArray("value")
                     if (values == null || values.length() != 1) ChainStatus8144.RPC_FAILED
-                    else if (values.isNull(0)) SellRouteFinality8144.statusFrom8144(false, null, null)
+                    else if (values.isNull(0)) expiry8153(sig, SellRouteFinality8144.statusWithExpiry8153(false, SellRouteFinality8144.statusFrom8144(false, null, null), valid8153))
                     else {
                         val v = values.getJSONObject(0)
                         val err = if (v.has("err") && !v.isNull("err")) v.opt("err")?.toString() else null
@@ -83,10 +90,32 @@ object SellRouteProbe8144 {
                 }
             })
         } catch (_: Throwable) { return ChainStatus8144.RPC_FAILED }
-        return try { fut.get(STATUS_BUDGET_MS_8144, TimeUnit.MILLISECONDS) } catch (_: Throwable) {
+        val budget8153 = if (blockhash8153.isBlank()) STATUS_BUDGET_MS_8144 else STATUS_BUDGET_MS_8144 + EXPIRY_READ_EXTRA_MS_8153
+        return try { fut.get(budget8153, TimeUnit.MILLISECONDS) } catch (_: Throwable) {
             try { fut.cancel(true) } catch (_: Throwable) {}
             ChainStatus8144.RPC_FAILED
         }
+    }
+
+    /** V5.0.8153 — isBlockhashValid at finalized commitment: true / false, or null (no proof either way). */
+    private fun blockhashValid8153(w: SolanaWallet, blockhash: String): Boolean? = try {
+        val r = w.rpcCall("isBlockhashValid", JSONArray().put(blockhash).put(JSONObject().put("commitment", "finalized")))
+        if (r.has("error")) null else (r.optJSONObject("result")?.opt("value") as? Boolean)
+    } catch (_: Throwable) { null }
+
+    /** V5.0.8153 — a proven expiry moves the ledger row too (same transition the wallet resolver makes). */
+    private fun expiry8153(sig: String, status: ChainStatus8144): ChainStatus8144 {
+        if (status == ChainStatus8144.EXPIRED_PROVEN) try {
+            SignedTxLedger8085.transition(sig, SignedTxLedger8085.State.EXPIRED_PROVEN, "blockhash_invalid_signature_unseen_8153")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SELL_PENDING_SIG_EXPIRY_PROVEN_8153")
+        } catch (_: Throwable) {}
+        return status
+    }
+
+    /** V5.0.8153 — the cached multi-provider verdict for [mint] with its read time, or null. */
+    fun cachedBalanceAt8153(mint: String, nowMs: Long = System.currentTimeMillis()): Pair<BalanceVerdict8144, Long>? {
+        val c = balanceCache8144[mint] ?: return null
+        return if (nowMs - c.atMs <= BALANCE_TTL_MS_8144) c.verdict to c.atMs else null
     }
 
     /** The cached multi-provider verdict for [mint], or null. */
@@ -99,6 +128,14 @@ object SellRouteProbe8144 {
     fun balance8144(wallet: SolanaWallet?, mint: String): BalanceVerdict8144 {
         val now = System.currentTimeMillis()
         cachedBalance8144(mint, now)?.let { return it }
+        return balanceFresh8153(wallet, mint)
+    }
+
+    /**
+     * V5.0.8153 — the same multi-provider read without the 15 s verdict cache: an emergency's parallel read must never
+     * size a sale from a verdict taken before the previous attempt's order moved the quantity.
+     */
+    fun balanceFresh8153(wallet: SolanaWallet?, mint: String): BalanceVerdict8144 {
         val w = wallet ?: return SellRouteFinality8144.classifyBalance8144(emptyList())
         val owner = try { w.publicKeyB58 } catch (_: Throwable) { "" }
         if (owner.isBlank() || mint.isBlank()) return SellRouteFinality8144.classifyBalance8144(emptyList())

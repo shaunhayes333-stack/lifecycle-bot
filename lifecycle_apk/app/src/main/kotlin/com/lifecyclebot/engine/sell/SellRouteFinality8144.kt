@@ -48,6 +48,15 @@ object SellRouteFinality8144 {
         else -> ChainStatus8144.NOT_FOUND   // processed: not yet final, keep waiting on it
     }
 
+    /**
+     * V5.0.8153 — pure: an UNSEEN signature whose blockhash was already invalid (finalized) when its status was read can
+     * never land: EXPIRED_PROVEN, so the next exit signs at once instead of waiting out [UNLANDABLE_AFTER_MS_8144].
+     * A seen (processed) signature, or an unknown / still-valid blockhash, keeps [status] (waited on, never re-signed).
+     */
+    fun statusWithExpiry8153(statusSeen: Boolean, status: ChainStatus8144, blockhashValidBeforeStatus: Boolean?): ChainStatus8144 =
+        if (!statusSeen && status == ChainStatus8144.NOT_FOUND && blockhashValidBeforeStatus == false) ChainStatus8144.EXPIRED_PROVEN
+        else status
+
     // ── 2. balance ──────────────────────────────────────────────────────────
 
     enum class Read8144 { HELD, FROZEN, ABSENT, FAILED }

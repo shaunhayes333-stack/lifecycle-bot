@@ -86,7 +86,9 @@ object BalanceProofPoller {
         val w = wallet ?: return
         // V5.0.8141 — a settled frozen holding whose wait is gone still thaws when a wallet read sees it unfrozen.
         try { com.lifecyclebot.engine.FrozenHeldUnsellableLive8141.sweepThaw8141() } catch (_: Throwable) {}
-        val due = BalanceProofWaitState.all().filter { BalanceProofWaitState.dueForPoll(it.mint) }
+        // V5.0.8153 — catastrophic / protective waits are polled first: each resolve is a wallet read, and an emergency
+        // never waits behind discretionary waits' reads on the same tick.
+        val due = emergencyFirst8153(BalanceProofWaitState.all().filter { BalanceProofWaitState.dueForPoll(it.mint) })
         if (due.isEmpty()) return
         for (entry in due) {
             try { pollOne(entry, w) } catch (e: Throwable) {
@@ -95,6 +97,10 @@ object BalanceProofPoller {
             }
         }
     }
+
+    /** V5.0.8153 — due waits in exit-priority order (SellRouteFinality8144.Work8144 rank), stable within a class. */
+    internal fun emergencyFirst8153(due: List<BalanceProofWaitState.Wait>): List<BalanceProofWaitState.Wait> =
+        due.sortedBy { try { SellRouteFinality8144.workForExit8144(it.desiredExitReason).rank } catch (_: Throwable) { Int.MAX_VALUE } }
 
     private fun pollOne(entry: BalanceProofWaitState.Wait, w: SolanaWallet) {
         if (frozenHold8136(entry)) return

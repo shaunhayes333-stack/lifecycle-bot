@@ -1559,6 +1559,9 @@ class BotService : Service() {
     }
 
     private fun wireEmergencyHandoff8087() {
+        // V5.0.8153 — every open live position's balance proof and confirmed venue stay warm (low-priority prewarm lane),
+        // so a stop's trigger -> broadcast never starts with blocking wallet / venue reads.
+        com.lifecyclebot.engine.sell.StopLatencyWiring8153.startPrewarm8153({ WalletManager.getWallet() }, { status.running && !isShuttingDown })
         com.lifecyclebot.engine.sell.CloseLease.emergencyHandoff8087 = { mint8087, reason8087 ->
             scope.launch(com.lifecyclebot.engine.sell.EmergencyExitDispatcher7807.forReason(reason8087)) {
                 val ts8087 = synchronized(status.tokens) { status.tokens[mint8087] }

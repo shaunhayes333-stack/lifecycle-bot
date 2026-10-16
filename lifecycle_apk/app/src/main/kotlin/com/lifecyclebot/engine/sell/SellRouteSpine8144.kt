@@ -271,6 +271,16 @@ object SellRouteSpine8144 {
 
     fun timer8144(mint: String): Timer8144? = open8144[mint]
 
+    /** V5.0.8153 — the open spine of [mint] is an emergency exit (the sell hot path reads its urgency from here). */
+    fun emergencyOpen8153(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        mint.isNotBlank() && live8144(mint, nowMs)?.emergency == true
+
+    private const val PENDING_WINDOW_MS_8153 = 120_000L
+
+    /** V5.0.8153 — emergencies still working toward their first broadcast (background prewarm yields to them). */
+    fun emergencyPending8153(nowMs: Long = System.currentTimeMillis()): Int =
+        open8144.values.count { it.emergency && it.broadcastAtMs == 0L && nowMs - it.triggerAtMs in 0..PENDING_WINDOW_MS_8153 }
+
     /** Per class: trigger -> broadcast, the separated stage latencies, failures by stage, outcomes, the last spines. */
     fun statusLine8144(): String {
         val now = System.currentTimeMillis()

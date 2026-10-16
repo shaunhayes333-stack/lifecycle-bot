@@ -2571,6 +2571,7 @@ class Executor(
         sellTradeKey: String? = null,
         traderTag: String = "MEME",
     ): ProcessorAmountPlanner.SellPlan? {
+        hotSellPlan8153(ts, wallet, processor, exitReason, fraction, sellTradeKey, traderTag)?.let { return it }  // V5.0.8153
         return ProcessorAmountPlanner.planSell(
             ts = ts,
             wallet = wallet,
@@ -2581,6 +2582,39 @@ class Executor(
             sellTradeKey = sellTradeKey,
             traderTag = traderTag,
         )
+    }
+
+    /**
+     * V5.0.8153 — an EMERGENCY full exit's processor plan from the proven holding (or one bounded parallel read) instead
+     * of ProcessorAmountPlanner's serial whole-wallet read + re-read (up to ~20 s on a hanging provider, once per
+     * processor: race, Jupiter, PumpPortal, Raydium). Same sizing rule as the planner — min(canonical remaining, wallet),
+     * scale must match — and the planner still builds the plan (planSellFromConfirmed). Any order signed or resolved for
+     * the mint after the read spends the proof, so a retry is re-sized from a fresh wallet read. Null: the planner reads.
+     */
+    private fun hotSellPlan8153(ts: TokenState, wallet: SolanaWallet, processor: String, exitReason: String, fraction: Double?,
+                                sellTradeKey: String?, traderTag: String): ProcessorAmountPlanner.SellPlan? {
+        if (ts.position.isPaperPosition) return null
+        return try {
+            val emergency = com.lifecyclebot.engine.sell.StopLatencyWiring8153.emergencyNow8153(ts.mint, exitReason)
+            if (!com.lifecyclebot.engine.sell.StopLatencyCore8153.fastPlanEligible8153(emergency, fraction, processor)) return null
+            val held = com.lifecyclebot.engine.sell.StopLatencyWiring8153.emergencyHolding8153(wallet, ts.mint) ?: return null
+            val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mint == ts.mint && it.mode == "live" }
+                .maxByOrNull { it.lastMutationMs }
+            val raw = com.lifecyclebot.engine.sell.StopLatencyCore8153.fullExitRaw8153(
+                held.raw, held.decimals, canonical?.remainingQtyRaw, canonical?.quantityScale,
+            ) ?: return null
+            val plan = ProcessorAmountPlanner.planSellFromConfirmed(
+                ts = ts, processor = processor,
+                requestedRaw = raw,
+                requestedUi = com.lifecyclebot.engine.truth.CanonicalTokenAmount(raw, held.decimals).uiDoubleForDisplay(),
+                walletRaw = held.raw,
+                walletUi = com.lifecyclebot.engine.truth.CanonicalTokenAmount(held.raw, held.decimals).uiDoubleForDisplay(),
+                decimals = held.decimals, sellTradeKey = sellTradeKey, traderTag = traderTag,
+            )
+            PipelineHealthCollector.labelInc("STOP_LATENCY_HOT_SELL_PLAN_8153")
+            plan
+        } catch (_: Throwable) { null }
     }
 
     /** V5.0.3764 — single fee authority for live tx builders. */
@@ -27106,6 +27140,10 @@ class Executor(
     }
 
     private fun sellWalletBalances7868(wallet: SolanaWallet, ts: TokenState): Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> {
+        // V5.0.8153 — an emergency answers from the proven holding, else one bounded parallel read (StopLatencyWiring8153):
+        // no serial 2.5 s + 5 s + 6 s ladder and no multi-provider corroboration for a holding the wallet already shows.
+        val hot8153 = try { com.lifecyclebot.engine.sell.StopLatencyWiring8153.hotPathBalances8153(wallet, ts.mint) } catch (_: Throwable) { null }
+        if (hot8153 != null) return hot8153
         val one = try { wallet.getSingleMintBalanceBounded7868(ts.mint) } catch (_: Throwable) { null }
         if (one != null) {
             try { PipelineHealthCollector.labelInc("SELL_SINGLE_MINT_BALANCE_7868") } catch (_: Throwable) {}
@@ -31295,14 +31333,15 @@ class Executor(
         // V5.0.8144 — the confirmed venue (curve account / complete flag / pool) and the endpoint's memory of this mint.
         var venue8144 = com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Venue8144.UNKNOWN
         return try {
-            venue8144 = com.lifecyclebot.engine.sell.SellRouteVenueProbe8144.resolve8144(wallet, ts.mint)
+            venue8144 = com.lifecyclebot.engine.sell.SellRouteVenueProbe8144.resolveForExit8153(wallet, ts.mint)  // V5.0.8153 — prewarmed / last-confirmed venue, no 1.5 s read per attempt
             com.lifecyclebot.engine.sell.SellRouteSpine8144.mark8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteSpine8144.Stage8144.VENUE_RESOLVE)
             if (!pumpPortalAdmitted8144(ts, venue8144, labelTag, sellTradeKey, traderTag)) return null
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
             // V5.0.8144 — one wallet read serves the fraction check, the 95% check and the pre-sell snapshot (was three).
+            // V5.0.8153 — an emergency reuses the proven holding (no whole-wallet scan, up to 11 s, per PumpPortal attempt).
             val walletRead8144: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = try {
-                wallet.getTokenAccountsWithDecimalsBounded()
+                com.lifecyclebot.engine.sell.StopLatencyWiring8153.hotPathBalances8153(wallet, ts.mint) ?: wallet.getTokenAccountsWithDecimalsBounded()
             } catch (_: Throwable) { null }
 
             // V5.0.4101 — Wave A of P0 sell-failure patch.
