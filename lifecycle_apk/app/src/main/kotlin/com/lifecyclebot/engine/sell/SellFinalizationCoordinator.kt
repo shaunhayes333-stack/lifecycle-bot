@@ -346,6 +346,8 @@ object SellFinalizationCoordinator {
                 try { ForensicLogger.lifecycle("LIVE_SELL_CANONICAL_FANOUT_FAILED_6486", "mint=${intent.mint.take(10)} sig=${sellSig.take(12)} err=${t.message?.take(100)}") } catch (_: Throwable) {}
             }
         }
+        // V5.0.8144 — sell spine: chain-proven wallet delta read; canonical close mutated (terminal) or not.
+        try { SellRouteSpine8144.onFinalized8144(intent.mint, !canonicalMutationFailed6486, remainingRaw.signum() == 0) } catch (_: Throwable) {}
         return if (canonicalMutationFailed6486) result6486.copy(pendingRetry = true) else result6486
     }
 }

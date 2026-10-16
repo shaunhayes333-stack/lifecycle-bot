@@ -69,7 +69,22 @@ object MemeVenueRouter {
         val venue: Venue
         val bondingCurveActive: Boolean
         val reason: String
+        // V5.0.8144 — a venue confirmed on chain (curve account / complete flag / pool, SellRouteVenueProbe8144) beats
+        // the suffix and source-tag labels: a graduated pump mint is not PUMP_FUN_BONDING.
+        val confirmed8144 = try { SellRouteVenueProbe8144.cached8144(mint) } catch (_: Throwable) { SellRouteEndpoint8144.Venue8144.UNKNOWN }
         when {
+            confirmed8144 == SellRouteEndpoint8144.Venue8144.PUMP_CURVE -> {
+                venue = Venue.PUMP_FUN_BONDING; bondingCurveActive = true; reason = "confirmed on chain: bonding curve active (8144)"
+            }
+            confirmed8144 == SellRouteEndpoint8144.Venue8144.PUMPSWAP -> {
+                venue = Venue.PUMPSWAP; bondingCurveActive = false; reason = "confirmed on chain: curve complete, migrated (8144)"
+            }
+            confirmed8144 == SellRouteEndpoint8144.Venue8144.RAYDIUM -> {
+                venue = Venue.RAYDIUM; bondingCurveActive = false; reason = "confirmed Raydium pool (8144)"
+            }
+            confirmed8144 == SellRouteEndpoint8144.Venue8144.AGGREGATOR_ONLY -> {
+                venue = Venue.JUPITER_AGGREGATOR; bondingCurveActive = false; reason = "confirmed on chain: no pump curve (8144)"
+            }
             isPumpMint && !pumpSwapPoolFound -> {
                 venue = Venue.PUMP_FUN_BONDING
                 bondingCurveActive = true

@@ -128,7 +128,8 @@ object BalanceProofPoller {
                 // Hand back to BotService — it will re-enqueue into PendingSellQueue
                 // as ACTIVE_SELL_READY (the existing requestSell path now has a
                 // verified-amount RPC reading available).
-                try { onProofReady?.invoke(mint, symbol, reason) } catch (_: Throwable) {}
+                // V5.0.8144 — a catastrophic / protective exit goes straight to the emergency pool instead.
+                if (!emergencyResell8144(mint, reason)) try { onProofReady?.invoke(mint, symbol, reason) } catch (_: Throwable) {}
             }
             is SellAmountAuthority.Resolution.Zero -> onZeroRead7733(entry, resolution.source.name)
             is SellAmountAuthority.Resolution.Unknown -> {
@@ -193,6 +194,59 @@ object BalanceProofPoller {
         return true
     }
 
+    /**
+     * V5.0.8144 — the catastrophic exit of CATCH went trigger -> balance-proof wait -> BALANCE_PROOF_READY ->
+     * DownstreamWorkQueue (Dispatchers.IO, shared with discovery) -> PendingSellQueue -> the next bot-loop tick on the
+     * service pool -> requestSell, and back. A catastrophic / protective exit whose balance is now proven is
+     * re-dispatched on the emergency pool at once (CloseLease.emergencyHandoff8087 -> requestSell), never behind
+     * entry or enrichment work. True when it was dispatched.
+     */
+    private fun emergencyResell8144(mint: String, reason: String): Boolean {
+        if (!SellRouteFinality8144.bypassesQueue8144(reason)) return false
+        val handoff = CloseLease.emergencyHandoff8087 ?: return false
+        return try {
+            handoff(mint, reason)
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_READY_EMERGENCY_DIRECT_8144")
+                ForensicLogger.lifecycle("BALANCE_PROOF_READY_EMERGENCY_DIRECT_8144", "mint=${mint.take(10)} reason=${reason.take(60)} action=emergency_pool_no_queue")
+            } catch (_: Throwable) {}
+            true
+        } catch (_: Throwable) { false }
+    }
+
+    /**
+     * V5.0.8144 — two zero reads from the wallet snapshot are one provider's view. Before ZERO_BALANCE_CONFIRMED,
+     * up to three distinct RPC providers are asked for the owner+mint accounts (SellRouteProbe8144):
+     *  - CONFIRMED_ABSENT (two or more providers): zero finality proceeds;
+     *  - HELD: the wallet holds the tokens — the wait clears as proof-ready and the exit sells (no close);
+     *  - FROZEN_HELD / UNCORROBORATED_ABSENT / RPC_FAILURE: no close; the wait keeps polling.
+     */
+    private fun zeroCorroborated8144(entry: BalanceProofWaitState.Wait): Boolean {
+        val v = try { SellRouteProbe8144.balance8144(wallet, entry.mint) } catch (_: Throwable) { null }
+        if (v != null && SellRouteFinality8144.zeroFinalityAllowed8144(v)) return true
+        if (v != null && SellRouteProbe8144.held8144(v)) {
+            try { SellAmountAuthority.recordProofReady(entry.mint, v.raw, v.decimals, SellAmountAuthority.Source.BALANCE_PROOF_POLLER) } catch (_: Throwable) {}
+            BalanceProofWaitState.resetZeroReads(entry.mint)
+            BalanceProofWaitState.clear(entry.mint, "ZERO_REFUTED_BY_PROVIDERS_8144")
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_ZERO_REFUTED_HELD_8144")
+                ForensicLogger.lifecycle("BALANCE_PROOF_ZERO_REFUTED_HELD_8144",
+                    "mint=${entry.mint.take(10)} symbol=${entry.symbol} raw=${v.raw} heldProviders=${v.heldProviders} action=sell_not_close")
+            } catch (_: Throwable) {}
+            if (!emergencyResell8144(entry.mint, entry.desiredExitReason)) {
+                try { onProofReady?.invoke(entry.mint, entry.symbol, entry.desiredExitReason) } catch (_: Throwable) {}
+            }
+            return false
+        }
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_ZERO_NOT_CORROBORATED_8144_${v?.verdict?.name ?: "NO_READ"}")
+            ForensicLogger.lifecycle("BALANCE_PROOF_ZERO_NOT_CORROBORATED_8144",
+                "mint=${entry.mint.take(10)} symbol=${entry.symbol} verdict=${v?.verdict?.name ?: "NO_READ"} absentProviders=${v?.absentProviders ?: 0} " +
+                    "failedProviders=${v?.failedProviders ?: 0} action=no_close_keep_polling")
+        } catch (_: Throwable) {}
+        return false
+    }
+
     private fun onZeroRead7733(entry: BalanceProofWaitState.Wait, source: String) {
         // V5.0.8136 — last line: a zero/absent read never finalises a frozen holding.
         if (frozenHold8136(entry)) return
@@ -206,6 +260,8 @@ object BalanceProofPoller {
         val streak = BalanceProofWaitState.recordZeroRead(entry.mint)
         BalanceProofWaitState.scheduleNextPoll(entry.mint)
         if (streak >= 2) {
+            // V5.0.8144 — zero finality needs distinct providers agreeing the mint is absent.
+            if (!zeroCorroborated8144(entry)) return
             val reason = entry.desiredExitReason
             val symbol = entry.symbol
             val mint = entry.mint

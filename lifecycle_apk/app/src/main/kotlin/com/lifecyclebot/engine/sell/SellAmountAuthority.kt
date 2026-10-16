@@ -58,7 +58,18 @@ object SellAmountAuthority {
         object Unknown : Resolution()
     }
 
-    enum class Source { ACCOUNT_INFO, TOKEN_ACCOUNTS_BY_OWNER, TX_META_OWNER_DELTA, BALANCE_PROOF_POLLER, WALLET_SNAPSHOT_EMERGENCY_7730 }
+    enum class Source { ACCOUNT_INFO, TOKEN_ACCOUNTS_BY_OWNER, TX_META_OWNER_DELTA, BALANCE_PROOF_POLLER, WALLET_SNAPSHOT_EMERGENCY_7730, MULTI_PROVIDER_8144 }
+
+    /**
+     * V5.0.8144 — a fresh (15 s) owner+mint read from distinct RPC providers that found the tokens
+     * (SellRouteProbe8144). Not single-use like the poller's proof-ready entry: every processor plan of the same
+     * sell (PumpPortal, Jupiter, Raydium, rescue) may size from it while it is fresh.
+     */
+    private fun multiProviderHeld8144(mint: String): Resolution.Confirmed? {
+        val v = try { SellRouteProbe8144.cachedBalance8144(mint) } catch (_: Throwable) { null } ?: return null
+        if (!SellRouteProbe8144.held8144(v)) return null
+        return Resolution.Confirmed(v.raw, v.decimals, Source.MULTI_PROVIDER_8144)
+    }
 
     // V5.0.7730 §A_STOP_THAT_WAITS_FOR_PROOF_IS_NOT_A_STOP.
     //
@@ -316,6 +327,8 @@ object SellAmountAuthority {
             Source.BALANCE_PROOF_POLLER -> BalanceSource.WALLET_SCAN_CONFIRMED
             // V5.0.7730 — a complete two-program wallet snapshot IS a wallet scan.
             Source.WALLET_SNAPSHOT_EMERGENCY_7730 -> BalanceSource.WALLET_SCAN_CONFIRMED
+            // V5.0.8144 — owner+mint token accounts read live from distinct providers.
+            Source.MULTI_PROVIDER_8144 -> BalanceSource.WALLET_SCAN_CONFIRMED
         }
         is Resolution.Zero -> BalanceSource.UNKNOWN   // one provider missing-mint is not two-provider zero proof
         else -> BalanceSource.UNKNOWN
@@ -426,10 +439,12 @@ object SellAmountAuthority {
         if (emergency7815) {
             consumeProofReady(mint)?.let { return it }
             emergencyWalletSnapshotBalance7730(mint, reason)?.let { return it }
+            multiProviderHeld8144(mint)?.let { return it }
         }
 
         val normal = resolve(mint, wallet)
         if (normal is Resolution.Confirmed || normal is Resolution.Zero) return normal
+        multiProviderHeld8144(mint)?.let { return it }   // V5.0.8144
         if (!emergency7815) consumeProofReady(mint)?.let { return it }
 
         val tracked = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
