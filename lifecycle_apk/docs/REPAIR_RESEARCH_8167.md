@@ -14,6 +14,8 @@ Guidance read: docs/FIELD_MANUAL.md; docs/EXPERT_CRYPTO_TRADER_CHEAT_SHEET.md; C
 - SizingQuoteRecheck / Executor: final Jupiter quote output was not used to detect execution-price deterioration. Check the actual quote as a lower bound on drag alongside existing market movement and full round-trip costs. Do not add quote-inclusive fees/impact to those costs twice.
 - Finalized bus: report recent live per-position exclusion reasons so historical replay totals cannot conceal current missing learner delivery.
 
+- Runtime smoke exposed three committed paper stock partials absent from the journal: the training-only 8% partial-label floor was incorrectly used as an accounting rejection. Accounting now shares the same basis and return-math checks without the training-label predicate; learner eligibility remains unchanged. The full-suite gate before this extra fix was 5,276 tests with zero new/changed failures. Release startup was separately blocked by a Pixel Launcher ANR, and is retried unchanged.
+
 ## Investigated; not treated as proven code regressions
 
 - Zero complete feature reads means all eight features were not simultaneously present, including launch-specific tape. It is not zero valid inputs or zero decisions.
@@ -34,4 +36,4 @@ Guidance read: docs/FIELD_MANUAL.md; docs/EXPERT_CRYPTO_TRADER_CHEAT_SHEET.md; C
 
 ## Verification
 
-Eight targeted 8167 tests are in the required GitHub test selection. Existing historical regression and Android install/upgrade checks remain enabled. Passing source guards is not a substitute for those checks. Profitability and live learner delivery require subsequent device evidence; no reset of learning or claimed restoration of historical profits.
+Nine targeted 8167 tests are in the required GitHub test selection. Existing historical regression and Android install/upgrade checks remain enabled. Passing source guards is not a substitute for those checks. Profitability and live learner delivery require subsequent device evidence; no reset of learning or claimed restoration of historical profits.

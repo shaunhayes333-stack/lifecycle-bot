@@ -630,7 +630,8 @@ object TradeHistoryStore {
         // collapse avg-win, profit factor, readiness WR, and lane tuning. A real
         // exit still has its realized SOL preserved in raw forensics; canonical
         // scoreboards require a basis-sane percent.
-        val canonicalPnlVerdict = LearningPnlSanitizer.inspectTrade(t, "TradeHistoryStore.isValidAccountingTrade", emit = false)
+        // Training-label quality cannot erase a partial after cash and inventory already changed.
+        val canonicalPnlVerdict = LearningPnlSanitizer.inspectAccountingTrade8167(t, "TradeHistoryStore.isValidAccountingTrade", emit = false)
         if (!canonicalPnlVerdict.ok) return false
         // Notional cap: a single paper/live meme exit's proceeds cannot exceed a
         // sane SOL notional. The corrupt USDC row booked ~+8722 SOL on a position

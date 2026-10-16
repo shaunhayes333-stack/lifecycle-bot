@@ -11,6 +11,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class Aate8167PipelineRepairTest {
+    @Test fun losingPaperPartialRemainsInAccountingWithoutBecomingTrainingEligible() {
+        val row = com.lifecyclebot.data.Trade(
+            side = "PARTIAL_SELL", mode = "paper", ts = 1_000L, mint = "paper-partial-8167",
+            positionId = "partial-position-8167", economicEventId = "partial-position-8167:1",
+            proofState = "PAPER_SIMULATED", tradingMode = "STOCK_LEV",
+            price = 10.0, entryPriceSnapshot = 10.0, entryCostSol = 0.2,
+            soldCostBasisSol = 0.2, sol = 0.196, grossProceedsSol = 0.196,
+            feeSol = 0.002, pnlSol = -0.006, netPnlSol = -0.006, pnlPct = -3.0,
+            reason = "AI_PARTIAL",
+        )
+        val canonical = CloseOutcomeLabelSanitizer.canonicalize(row, emit = false)
+        assertFalse(LearningPnlSanitizer.inspectTrade(canonical, emit = false).ok)
+        assertTrue(LearningPnlSanitizer.inspectAccountingTrade8167(canonical, emit = false).ok)
+        assertTrue(TradeHistoryStore.isValidAccountingTrade(canonical))
+        for (invalid in listOf(canonical.copy(entryCostSol = 0.0),
+            canonical.copy(pnlPct = Double.NaN), canonical.copy(pnlPct = 500.0))) {
+            assertFalse(TradeHistoryStore.isValidAccountingTrade(invalid))
+        }
+    }
+
     @Test fun nativeReceiverDataGapSurvivesTheRuntimeAdapterUntilHydratedOrExpired() {
         val tasks = HandoffReceiverTasks8153
         val now = System.currentTimeMillis()
