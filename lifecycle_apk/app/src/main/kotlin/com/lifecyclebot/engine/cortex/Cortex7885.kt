@@ -76,6 +76,8 @@ object Cortex7885 {
                           val fired8094: List<String> = emptyList()) {
         /** V5.0.8153 — the strategy the coin trades as at the decision (selectedSetup8094, taken with the snapshot). */
         @Volatile var selected8153: String = ""
+        /** V5.0.8169 — the voters were read after this decision's forward label started (CortexAudit8169.voterReadLeaks8169). */
+        @Volatile var lateRead8169: Boolean = false
     }
 
     private val ledger = CortexLedger7885()
@@ -211,6 +213,38 @@ object Cortex7885 {
     /** Pure: the persisted pending snapshot carries only decisions a label can still reach. */
     fun persistablePending8144(atMs: Long, nowMs: Long): Boolean = nowMs - atMs <= DEAD_PENDING_MS_8144
 
+    // ── V5.0.8169 — audit accessors and the voter-read leakage check ──
+
+    /**
+     * Were this decision's voters read after its forward label started? The labeler starts the label at the first mark
+     * ForwardReturnLabeler7731.rebaseDelayMs8094(lane fill latency) after the decision; a later read graded features that
+     * already contain part of the graded move (a lagged voter "predicts" the pump it watched). Recorded per capture.
+     */
+    private fun lateVoterRead8169(labelLane: String, decisionAtMs: Long, readAtMs: Long): Boolean {
+        val delay = try {
+            com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.rebaseDelayMs8094(
+                try { com.lifecyclebot.engine.truth.EntryChase7961.laneLatencyMs8094(labelLane) } catch (_: Throwable) { 0L })
+        } catch (_: Throwable) { 5_000L }
+        val late = CortexAudit8169.voterReadLeaks8169(readAtMs, decisionAtMs, delay)
+        CortexAudit8169.noteCapture(readAtMs - decisionAtMs, late)
+        return late
+    }
+
+    fun assessedCount8169(): Long = assessed.get()
+    fun gradedCount8169(): Long = graded.get()
+    fun avgAssessMs8169(): Double = assessed.get().let { n -> if (n > 0) assessNanos.get() / n / 1_000_000.0 else 0.0 }
+    fun gradeBookSize8169(): Long = try { synchronized(this) { (gradeBook8144.size() + gradeBook8144.tradeCount()).toLong() } } catch (_: Throwable) { 0L }
+    fun calibrationLine8169(): String = synchronized(this) { "slope=${calibration.line()}" }
+    private fun counterSum8169(prefix: String): Long = counters.entries.filter { it.key.startsWith(prefix) }.sumOf { it.value.get() }
+    fun hygieneLine8169(): String =
+        "lateVoterRead=${counterSum8169("LABEL_HYGIENE_LATE_VOTER_READ_8169")} lateFirstPrice=${counterSum8169("LABEL_HYGIENE_LATE_FIRST_PRICE_8153")} " +
+            "repeat=${counterSum8169("LABEL_HYGIENE_REPEAT")} unexec=${counterSum8169("LABEL_HYGIENE_UNEXECUTABLE")} seen[R/N/S]=" +
+            "${counterSum8169("SEEN_REFUSE")}/${counterSum8169("SEEN_NEUTRAL")}/${counterSum8169("SEEN_STRONG")}"
+    fun gradeBookLine8169(): String =
+        "decisions+trades=${gradeBookSize8169()} unboundFiled=${counterSum8169("REALIZED_UNBOUND_FILED_8153")} " +
+            "replayedCloses=${counterSum8169("REALIZED_REPLAYED_8169")} olderThanBook=${counterSum8169("REALIZED_UNBOUND_OLDER_THAN_BOOK_8169")}"
+    private val loadedAtMs8169 = System.currentTimeMillis()
+
     // ── v1 §2.9 compute model (V5.0.7909): voters run off the decision path ──
     //
     // 5.0.7891: 1,073 assessments at 25.7 ms each, inline on the FDG thread. The
@@ -276,7 +310,12 @@ object Cortex7885 {
 
     private fun captureNow(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?,
                            snap8084: LanePlaybook7907.Classification8084? = null, sel8153: String? = null) {
+        // V5.0.8169 — when were the voters actually read? The job runs behind the pool queue (8168: 52 queued x 165 ms),
+        // and a cache miss reads the LIVE TokenState then while the label starts at the decision's fill-latency mark.
+        val cached8169 = assessCache["${ts.mint}|${canon(labelLane)}"]?.takeIf { nowMs - it.atMs <= ASSESS_TTL_MS }
+        val jobAt8169 = System.currentTimeMillis()
         val a = assess(ts, labelLane, nowMs) ?: return
+        val late8169 = lateVoterRead8169(labelLane, nowMs, if (cached8169 != null && a === cached8169) a.atMs else jobAt8169)
         pruneDeadPending8144(nowMs)
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
@@ -291,7 +330,7 @@ object Cortex7885 {
         // lane x bucket x setup cell, not only the one consumer tag.
         val fired8094 = (snap8084?.takeIf { it.lane == a.lane }?.matched ?: try { LanePlaybook7907.matchedSetups8083(ts, a.lane, nowMs) } catch (_: Throwable) { emptyList() })
             .filter { it.isNotBlank() && it != setup7961 && it != LanePlaybook7907.NO_TRIGGER }.distinct().take(8)
-        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source, setup7961, fired8094).also { it.selected8153 = sel8153.orEmpty() }
+        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source, setup7961, fired8094).also { it.selected8153 = sel8153.orEmpty(); it.lateRead8169 = late8169 }
         // V5.0.8144 — the decision's grade-key context and executability (raw reason), frozen with it; unresolved swept.
         try { pendingCtx8144["${ts.mint}|${labelLane.trim().uppercase()}"] = decisionCtx8144(ts, a.lane, admitted, reason) } catch (_: Throwable) {}
         try { sweepLost8144(nowMs) } catch (_: Throwable) {}
@@ -356,7 +395,8 @@ object Cortex7885 {
                         .put("ce", fin0(a.calibratedEdge)).put("adm", p.legacyAdmitted).put("at", p.atMs)
                         .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("su", p.setup7961).put("ep", PERSIST_KEY).put("i", ids).put("x", xs)
                         .put("pr8076", pr).put("pw8076", pw)
-                        .put("base8076", jsonNumber(a.prediction8076?.base)).put("bw8076", jsonNumber(a.prediction8076?.baseWin)),
+                        .put("base8076", jsonNumber(a.prediction8076?.base)).put("bw8076", jsonNumber(a.prediction8076?.baseWin))
+                        .put("lr8169", p.lateRead8169),
                 )
             }
             // V5.0.8013 — graded decisions held for progressive revision ride along (newest decisions first),
@@ -433,6 +473,7 @@ object Cortex7885 {
                 CortexLedger7885.PredictionSnapshot8076(preds.toDoubleArray(), wins.toDoubleArray(),
                     o.optDouble("base8076", Double.NaN), o.optDouble("bw8076", Double.NaN)))
             pending[k] = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, o.optString("s"), o.optString("su"))
+                .also { it.lateRead8169 = o.optBoolean("lr8169", false) }  // V5.0.8169
             inc("PENDING_RESTORED")
         }
         restoreGraded8013(root, dict, nowMs)
@@ -497,9 +538,13 @@ object Cortex7885 {
         val hyg8144 = synchronized(this) { recordLabel8144(key, p, netPct, grossPct, lat8144) }
         // V5.0.8153 — a label first priced after the fill-latency window kept the unbuyable decision price: observed only.
         val late8153 = lateFirstPrice8153(mint, labelLane, key, p.atMs)
-        if (!hyg8144.authority || late8153) {
+        // V5.0.8169 — voters read after the label started saw part of the graded move: observed record only, no books.
+        val lateRead8169 = p.lateRead8169 && hyg8144.authority && !late8153
+        if (lateRead8169) synchronized(this) { gradeBook8144.markLateEntry8153("$key|${p.atMs}") }
+        if (!hyg8144.authority || late8153 || lateRead8169) {
             try { LanePlaybook7907.dropPending8144(mint, labelLane) } catch (_: Throwable) {}
-            if (late8153 && hyg8144.authority) inc("LABEL_HYGIENE_LATE_FIRST_PRICE_8153") else inc("LABEL_HYGIENE_${hyg8144.tag}_8144")
+            if (lateRead8169) inc("LABEL_HYGIENE_LATE_VOTER_READ_8169")
+            else if (late8153 && hyg8144.authority) inc("LABEL_HYGIENE_LATE_FIRST_PRICE_8153") else inc("LABEL_HYGIENE_${hyg8144.tag}_8144")
             synchronized(this) { noteObservedOnly8153(key, p.atMs) }
             return
         }
@@ -771,9 +816,12 @@ object Cortex7885 {
     private fun fileUnboundClose8153(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope, mode: String,
                                      sealed: com.lifecyclebot.engine.truth.AateEntryIdentity8136?, snapshotTag: String?) {
         if (gradeBook8144.trade(env.positionId) != null) return
+        // V5.0.8169 — a close finalized before this process (the bootstrap replays every historical close: 8168 filed 1,345
+        // in 9 minutes) is counted apart; the book takes it only if it is newer than the book's oldest trade (openTrade).
+        if (env.atMs in 1 until loadedAtMs8169) inc("REALIZED_REPLAYED_8169")
         val (r, owner) = LearningEntryTruth8153.unboundTrade8153(env.positionId, env.mint, mode, env.atMs - env.holdingTimeMs.coerceAtLeast(0L),
             canon(env.lane), sealed?.mode, sealed?.mint, sealed?.ownerLane, sealed?.exactSetup, snapshotTag) ?: run { inc("REALIZED_UNBOUND_NO_OWNER_8153"); return }
-        if (!gradeBook8144.openTrade(r)) return
+        if (!gradeBook8144.openTrade(r)) { inc("REALIZED_UNBOUND_OLDER_THAN_BOOK_8169"); return }
         if (gradeBook8144.closeTrade(env.positionId, owner, env.realizedReturnPct) != null) inc("REALIZED_UNBOUND_FILED_8153_${owner.attribution.name}")
     }
 
@@ -871,6 +919,7 @@ object Cortex7885 {
      */
     fun vetoRefusesWinners7953(reason: String): Boolean {
         ensureLoaded()
+        CortexAudit8169.call("VETO_AUDIT")  // V5.0.8169
         val st = synchronized(this) { vetoBook[vetoRuleOf(reason)] } ?: return false
         if (st.n < 40.0) return false
         val se = kotlin.math.sqrt(st.variance() / st.n)
@@ -885,6 +934,7 @@ object Cortex7885 {
      */
     fun vetoRefusesWinners8006(reason: String, lane: String): Boolean {
         ensureLoaded()
+        CortexAudit8169.call("VETO_AUDIT")  // V5.0.8169
         val rule = vetoRuleOf(reason)
         val l = canon(lane)
         val own = synchronized(this) { vetoBook[vetoLaneKey8006(rule, l)] }
@@ -899,6 +949,7 @@ object Cortex7885 {
     /** A lane-specific refusal can retire only on that lane's own consistent outcome book. */
     fun ownLaneVetoRefusesWinners8076(reason: String, lane: String): Boolean {
         ensureLoaded()
+        CortexAudit8169.call("VETO_AUDIT")  // V5.0.8169
         return synchronized(this) {
             val st = vetoBook[vetoLaneKey8006(vetoRuleOf(reason), canon(lane))] ?: return@synchronized false
             CortexLedger7885.validHiveBin8076(doubleArrayOf(st.n, st.sum, st.sumSq, st.wins, st.runners)) &&
@@ -1111,15 +1162,22 @@ object Cortex7885 {
      */
     fun entryRefusal(ts: TokenState, laneRaw: String, paper: Boolean): String? {
         return try {
+            CortexAudit8169.call("ENTRY_REFUSAL")
             // V5.0.7930 — LIVE never proceeds without a read: a first-seen live candidate
             // (fast lane, launch-heat promotion) used to be admitted on a cache miss.
-            val a = cachedOrSchedule(ts, laneRaw) ?: (if (!paper) assess(ts, laneRaw) else null) ?: return null
+            val a = cachedOrSchedule(ts, laneRaw) ?: (if (!paper) assess(ts, laneRaw) else null) ?: run {
+                CortexAudit8169.noteGate(canon(laneRaw), read = false, refuseBucket = false, authority = false, refused = false)
+                return null
+            }
             val proven = synchronized(this) { board.refusalAuthority(a.lane, a.runnerLane, paper) && consistent(a.lane) }
             // V5.0.8019 — or the relative bar: this lane's REFUSE reads sit measurably below its other reads while
             // its STRONG reads hold authority. Live only (paper already refuses at 20).
             val relative8019 = !paper && !proven && synchronized(this) { board.relativeRefusalAuthority8019(a.lane, a.runnerLane) && consistent(a.lane) }
             val rule = constitutionRefusal(a, ts, paper, proven || relative8019)?.let { if (it == "C3_PROVEN_NEGATIVE_EDGE" && relative8019) "C3_RELATIVE_REFUSE_8019" else it }
                 ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }
+            // V5.0.8169 — per-lane gate reach: 8168 showed Rp/Rl on most lanes and did refused=0; this proves which lanes'
+            // REFUSE reads ever meet the gate and whether the power held there.
+            CortexAudit8169.noteGate(a.lane, true, a.bucket == CortexScoreboard7885.Bucket.REFUSE, proven || relative8019, rule != null)
             if (rule == null) {
                 if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) inc(if (paper) "SHADOW_REFUSE_PAPER" else "SHADOW_REFUSE_LIVE")
                 noteEntryRead(ts.mint, paper, a)
@@ -1151,6 +1209,7 @@ object Cortex7885 {
 
     fun overrulesEdgeRefusal(ts: TokenState, laneRaw: String, refusal: String): Boolean {
         return try {
+            CortexAudit8169.call("OVERRULE")  // V5.0.8169
             val a = cachedOrSchedule(ts, laneRaw) ?: return false
             if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return false
             if (a.staleMark || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
@@ -1230,6 +1289,7 @@ object Cortex7885 {
      */
     fun fullAuthorityOverrules8078(ts: TokenState, laneRaw: String, refusal: String): Boolean {
         return try {
+            CortexAudit8169.call("FULL_AUTHORITY")  // V5.0.8169
             val a = cachedOrSchedule(ts, laneRaw) ?: return false
             if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return false
             if (a.staleMark || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
@@ -1289,6 +1349,7 @@ object Cortex7885 {
     /** FinalDecisionGate (PAPER only): true admits this soft-blocked candidate as the Cortex's choice. */
     fun paperChoice(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         return try {
+            CortexAudit8169.call("PAPER_CHOICE")  // V5.0.8169
             val a = cachedOrSchedule(ts, laneRaw, nowMs) ?: return false
             if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return false
             if (a.staleMark || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
@@ -1371,6 +1432,7 @@ object Cortex7885 {
      * a learning lever at the route minimum); at most 2.5x; downstream caps still apply.
      */
     fun convictionMult(mint: String, laneRaw: String, requestedSol: Double, equitySol: Double): Double {
+        CortexAudit8169.call("CONVICTION")  // V5.0.8169
         if (mint.isBlank() || !(requestedSol > 0.0)) return 1.0
         val lane = canon(laneRaw)
         // V5.0.7955 — each stake is scaled by the authority behind it:
@@ -1484,6 +1546,7 @@ object Cortex7885 {
     /** FinalDecisionGate 6552: record the stack's raw shape and return the shape to use. */
     fun sizeShape(ts: TokenState, laneRaw: String, bounded: Double, raw: Double, nowMs: Long = System.currentTimeMillis()): Double {
         return try {
+            CortexAudit8169.call("SIZE_SHAPE")  // V5.0.8169
             if (raw.isFinite() && raw > 0.0) {
                 if (legacyShape.size > 4_000) legacyShape.entries.removeIf { nowMs - it.value[1].toLong() > 600_000L }
                 legacyShape[ts.mint] = doubleArrayOf(raw, nowMs.toDouble())
@@ -1906,7 +1969,8 @@ object Cortex7885 {
                 "seats=${seats.size} seated=${seated.size}\n" +
                 "      vote cleaning (§8007): ${synchronized(this) { ledger.cleanLine8007() }}\n" +
                 "      invariants & provenance v11 (§7911): ${try { CortexInvariants7911.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
-                "      compute (§2.9 v1, 7909): pool active=${pool.activeCount} queued=${pool.queue.size} done=${pool.completedTaskCount} slowVoters=${CortexVoters7885.slowLine()}\n" +
+                "      compute (§2.9 v1, 7909): pool active=${pool.activeCount} queued=${pool.queue.size} done=${pool.completedTaskCount} slowVoters=${CortexVoters7885.slowLine()} " +
+                "${CortexVoters7885.memoLine8169()} ${CortexAudit8169.captureLine()}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"}\n" +
                 "      outcome truth v12 (§7912, whole-position closes): ${realLedgers.entries.joinToString(" · ") { (mode, l) ->
                     val seated = l.seats.entries.filter { !it.key.contains('@') && !it.key.endsWith("|${CortexLedger7885.GLOBAL}") && it.value.scored > 0 }
