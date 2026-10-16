@@ -309,7 +309,7 @@ class DataOrchestrator(
         return emptyList()
     }
 
-    private suspend fun seedCandleHistory(mint: String, symbol: String) {
+    private suspend fun seedCandleHistory(mint: String, symbol: String, repairShape8168: Boolean = false) {
         val ts = status.tokens[mint] ?: return
         var seeded = 0
 
@@ -359,16 +359,18 @@ class DataOrchestrator(
             val k1mOk7809 = k1m.size >= 2
             if (k1m.size >= 2) {
                 synchronized(ts.history) {
-                    if (ts.history.size < 10) {
+                    if (if (repairShape8168) SetupHistoryRepair8168.canReplace(ts.history.toList(), k1m, System.currentTimeMillis()) else ts.history.size < 10) {
                         ts.history.clear()
                         k1m.forEach { ts.history.addLast(it) }
                         while (ts.history.size > 300) ts.history.removeFirst()
                         ts.candleTimeframeMinutes = 1
                         keylessSeeded6916 += k1m.size
+                        if (repairShape8168) PipelineHealthCollector.labelInc("SETUP_SHAPE_REPAIRED_KEYLESS_8168")
                     }
                 }
             }
-            val k5m = keylessFetch7809(mint, "5m", 60, poolHint6916, attempts = if (k1mOk7809) 1 else 0)
+            if (repairShape8168 && keylessSeeded6916 > 0) return
+            val k5m = keylessFetch7809(mint, "5m", 60, poolHint6916, attempts = if (k1mOk7809 && !repairShape8168) 1 else 0)
             if (k5m.size >= 2) {
                 synchronized(ts.history5m) {
                     if (ts.history5m.size < 5) {
@@ -379,7 +381,7 @@ class DataOrchestrator(
                     }
                 }
             }
-            val k15m = keylessFetch7809(mint, "15m", 48, poolHint6916, attempts = if (k1mOk7809) 1 else 0)
+            val k15m = keylessFetch7809(mint, "15m", 48, poolHint6916, attempts = if (k1mOk7809 && !repairShape8168) 1 else 0)
             if (k15m.size >= 2) {
                 synchronized(ts.history15m) {
                     if (ts.history15m.size < 5) {
@@ -464,15 +466,22 @@ class DataOrchestrator(
             val candles1m = birdeye.getCandles(mint, "1m", 120)
             if (candles1m.isNotEmpty()) {
                 synchronized(ts.history) {
-                    if (ts.history.size < 10) {
+                    if (if (repairShape8168) SetupHistoryRepair8168.canReplace(ts.history.toList(), candles1m, System.currentTimeMillis()) else ts.history.size < 10) {
+                        if (repairShape8168) ts.history.clear()
                         candles1m.forEach { ts.history.addLast(it) }
                         while (ts.history.size > 300) ts.history.removeFirst()
                         ts.candleTimeframeMinutes = 1   // explicitly mark as 1M
                         seeded += candles1m.size
+                        if (repairShape8168) PipelineHealthCollector.labelInc("SETUP_SHAPE_REPAIRED_BACKUP_8168")
                     }
                 }
             }
         } catch (_: Exception) {}
+
+        if (repairShape8168) {
+            if (seeded == 0) PipelineHealthCollector.labelInc("SETUP_SHAPE_REPAIR_UNRESOLVED_8168")
+            return
+        }
 
         // Seed 5m candles (trend direction confirmation)
         try {
@@ -1142,7 +1151,7 @@ class DataOrchestrator(
         fun lbl(k: String) { try { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_${k.uppercase()}_8087") } catch (_: Throwable) {} }
         if (keys.any { it in POLL_INPUTS_8087 }) { forcePoll8085.add(mint); keys.filter { it in POLL_INPUTS_8087 }.forEach(::lbl) }
         if ("shape" in keys) scope.launch {
-            try { seedCandleHistory(mint, symbol) } catch (_: Throwable) {}
+            try { seedCandleHistory(mint, symbol, repairShape8168 = true) } catch (_: Throwable) {}
             lbl("shape")
         }
         if (keys.any { it in TAPE_INPUTS_8087 }) {

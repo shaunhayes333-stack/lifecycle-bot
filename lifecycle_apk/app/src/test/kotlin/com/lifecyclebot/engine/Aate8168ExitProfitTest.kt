@@ -50,6 +50,21 @@ class Aate8168ExitProfitTest {
         assertFalse(5000.0 in profile.baseMin..profile.baseMax)
     }
 
+    @Test fun staleFullHistoryCanBeRepairedButFreshOrInvalidDataCannotReplaceIt() {
+        val now = 10_000_000L
+        fun bars(end: Long) = (0..11).map { com.lifecyclebot.data.Candle(
+            end - (11 - it) * 60_000L, 1.0 + it * 0.01, 1000.0, 100.0, 1000.0) }
+        val stale = bars(now - 3_600_000L)
+        val fresh = bars(now)
+        assertTrue(SetupHistoryRepair8168.canReplace(stale, fresh, now))
+        assertFalse(SetupHistoryRepair8168.canReplace(fresh, fresh, now))
+        assertFalse(SetupHistoryRepair8168.canReplace(stale, stale, now))
+        assertFalse(SetupHistoryRepair8168.canReplace(stale, fresh.reversed(), now))
+        assertFalse(SetupHistoryRepair8168.canReplace(stale, fresh.map { it.copy(synthetic = true) }, now))
+        assertFalse(SetupHistoryRepair8168.canReplace(stale, fresh.take(2), now))
+        assertTrue(source("engine/DataOrchestrator.kt").contains("repairShape8168 = true"))
+    }
+
     private fun source(path: String): String = listOf("src/main/kotlin/com/lifecyclebot", "app/src/main/kotlin/com/lifecyclebot",
         "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot").map { File(it, path) }.first { it.exists() }.readText()
 

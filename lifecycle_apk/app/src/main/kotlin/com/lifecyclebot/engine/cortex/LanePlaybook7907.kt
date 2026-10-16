@@ -735,12 +735,15 @@ object LanePlaybook7907 {
     fun inputRefreshDue8085(lastMs: Long?, nowMs: Long): Boolean = lastMs == null || nowMs - lastMs >= INPUT_REFRESH_GAP_MS_8085
 
     private fun requestInputs8085(mint: String, symbol: String, missing: List<String>, nowMs: Long) {
-        val r = inputRefresher8085 ?: return
+        val r = inputRefresher8085 ?: run {
+            PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_NO_RECEIVER_8168")
+            return
+        }
         if (mint.isBlank() || !inputRefreshDue8085(inputRequestedAt8085[mint], nowMs)) return
         inputRequestedAt8085[mint] = nowMs
         if (inputRequestedAt8085.size > 4_000) inputRequestedAt8085.entries.removeIf { nowMs - it.value > 600_000L }
         try { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_REQUESTED_8085") } catch (_: Throwable) {}
-        try { r(mint, symbol, missing) } catch (_: Throwable) {}
+        try { r(mint, symbol, missing) } catch (_: Throwable) { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_FAILED_8168") }
     }
 
     /** V5.0.8084 — the structured classification of this candidate version (null only on an internal failure). */
@@ -758,6 +761,7 @@ object LanePlaybook7907 {
                 val c = if (cached.revision == revision) cached.c else rerank8084(cached.c, nowMs)
                 classifyCache[ck] = Cached8084(key, revision, cached.featuresAt, nowMs, c)
                 if (c.outcome == Outcome8084.DATA_INCOMPLETE) requestInputs8085(ts.mint, ts.symbol, c.missing, nowMs)
+                com.lifecyclebot.engine.BotImprovementReport8168.noteSetup(ts.mint, lane, c.outcome.name, c.missing, c.reason, nowMs)
                 return c
             }
         }
@@ -778,6 +782,7 @@ object LanePlaybook7907 {
         if (c.outcome == Outcome8084.DATA_INCOMPLETE) requestInputs8085(ts.mint, ts.symbol, c.missing, nowMs)
         if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.featuresAt > 60_000L }
         classifyCache[ck] = Cached8084(key, revision, nowMs, nowMs, c)
+        com.lifecyclebot.engine.BotImprovementReport8168.noteSetup(ts.mint, lane, c.outcome.name, c.missing, c.reason, nowMs)
         return c
     }
 

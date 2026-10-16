@@ -10,6 +10,12 @@ object BotImprovementReport8168 {
         val selected: Int, val unknownAge: Int, val unknownCap: Int, val examples: List<String>)
     @Volatile private var huntAt = 0L
     @Volatile private var hunts: List<Hunt> = emptyList()
+    private val setups = ConcurrentHashMap<String, String>()
+    fun noteSetup(mint: String, lane: String, outcome: String, missing: List<String>, reason: String, atMs: Long) {
+        // Lane vocabulary comes from the playbook menu; one latest classification per lane.
+        if (lane !in setOf("QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE", "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN")) return
+        setups[lane] = "mint=$mint atMs=$atMs outcome=$outcome missing=${missing.joinToString(",")} reason=${reason.take(300)}"
+    }
     private val cortex = ConcurrentHashMap<String, AtomicLong>()
 
     fun hunt(lane: String, rows: List<MarketSweep7297.Row>, inBand: Int,
@@ -65,7 +71,12 @@ object BotImprovementReport8168 {
         sb.append("Cortex decision-context audit: reasonExecutable is a reason-based proxy, NOT native lane acceptance or a landed trade.\n")
         if (cortex.isEmpty()) sb.append("  NO_CONTEXT_EVENTS_CAPTURED\n")
         cortex.entries.sortedBy { it.key }.forEach { sb.append("  ${it.key}=${it.value.get()}\n") }
+        sb.append("Latest setup classification per lane (timestamps identify age; missing fields retain UNKNOWN/STALE/INVALID):\n")
+        if (setups.isEmpty()) sb.append("  NO_SETUP_CLASSIFICATIONS_CAPTURED\n")
+        setups.entries.sortedBy { it.key }.forEach { sb.append("  ${it.key} ${it.value}\n") }
         for ((title, prefixes) in listOf(
+            "Setup input repair" to listOf("SETUP_INPUT_", "SETUP_SHAPE_", "OHLCV_SEED_", "BIRDEYE_SEED_SKIPPED_"),
+            "Hunter delivery" to listOf("MARKET_HUNT_7301_", "MARKET_HUNT_7807_", "RESIDENT_HUNTER_"),
             "Exit queue causes" to listOf("EXIT_QUEUE_CAUSE_", "STOP_LATENCY_BALANCE_", "BALANCE_PROOF_"),
             "Admission delivery" to listOf("HANDOFF_TASK_", "HANDOFF_RECEIVER_", "CANDIDATE_ADMISSION_8136_"),
             "Profit execution checks" to listOf("PROFIT_EXIT_TRUTH_", "PARTIAL_BLOCKED_BELOW_BREAKEVEN", "PARTIAL_EXIT_NET_UNECONOMIC"),
