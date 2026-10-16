@@ -133,7 +133,7 @@ class Aate8144RuntimeTest {
             .replace(Regex("//[^\n]*"), "")
             .replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
         val types = Regex("\\b(?:val|var)\\s+\\w+\\s*:\\s*([\\w.]+)").findAll(body).map { it.groupValues[1] }.toList()
-        val words = types.sumOf { if (it == "Double" || it == "Long") 2 else 1 }
+        val words: Int = types.map { t: String -> if (t == "Double" || t == "Long") 2 else 1 }.sum()
         val masks = (types.size + 31) / 32
         val copyDefaultWords = 1 + words + masks + 1
         assertTrue("BotConfig.copy\$default needs $copyDefaultWords argument registers (hard limit 255)", copyDefaultWords <= 255)
