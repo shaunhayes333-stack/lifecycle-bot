@@ -77,11 +77,16 @@ class Aate8167PipelineRepairTest {
 
     @Test fun repeatedExecutableRouteDoesNotInvalidateItsOwnGeneration() {
         val ts = TokenState("8167CacheMint11111111111111111111111111", symbol = "CACHE")
+        ts.tokenMap.migratedOrGraduated = true
         ts.tokenMap.dexRouteOk = true
         ts.tokenMap.expectedOutAmount = 1.0
         TokenMapAuthority.ensureDiscoveryTokenMap(ts)
         val first = TokenMapVersionGuard6411.stamp7460(ts.mint)
         repeat(5) { TokenMapAuthority.ensureDiscoveryTokenMap(ts) }
+        assertEquals(first, TokenMapVersionGuard6411.stamp7460(ts.mint))
+        val alias = TokenState(ts.mint, symbol = "CACHE")
+        assertEquals("DEX_ROUTABLE", TokenMapAuthority.ensureDiscoveryTokenMap(alias).routeStatus)
+        assertTrue(alias.tokenMap.migratedOrGraduated)
         assertEquals(first, TokenMapVersionGuard6411.stamp7460(ts.mint))
         ts.lastPrice = 0.001
         ts.lastPriceUpdate = System.currentTimeMillis()

@@ -204,8 +204,10 @@ object TokenMapAuthority {
             val ttl = if (pending) PENDING_RESULT_RETRY_MS_6492 else ROUTE_TTL_MS
             val strongerLocalEvidence = (tm.pairAddress.isNotBlank() && tm.pairAddress != cached6492.pairAddress) ||
                 (tm.poolAddress.isNotBlank() && tm.poolAddress != cached6492.poolAddress) ||
-                tm.migratedOrGraduated != cached6492.migratedOrGraduated ||
-                tm.pumpFunExecutable != cached6492.pumpFunExecutable ||
+                // A new alias has default false flags, not evidence that migration or a route was revoked.
+                (tm.migratedOrGraduated && !cached6492.migratedOrGraduated) ||
+                (tm.pumpFunExecutable != cached6492.pumpFunExecutable &&
+                    (tm.pumpFunExecutable || tm.updatedAtMs > 0L)) ||
                 (tm.liquidityUsd != null && tm.liquidityUsd != cached6492.liquidityUsd) ||
                 tm.priceObservedAtMs7858 > cached6492.priceObservedAtMs7858 ||
                 (tm.jupiterQuoteOk && !cached6492.jupiterQuoteOk) || (tm.dexRouteOk && !cached6492.dexRouteOk) ||
