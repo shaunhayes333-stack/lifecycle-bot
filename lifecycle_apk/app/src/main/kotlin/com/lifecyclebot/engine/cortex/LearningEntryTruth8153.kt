@@ -64,17 +64,32 @@ object LearningEntryTruth8153 {
         val neutralN: Int, val neutralMean: Double,
         val refuseN: Int, val refuseMean: Double,
         val strongResolved: Double, val refuseResolved: Double,
+        // V5.0.8165 — the typical coin of each cohort. One 1,000x+ label moved every lane's REFUSE mean by thousands of
+        // points at once (the Cortex panel read "backwards"); the median is what a verdict usually led to.
+        val strongMedian: Double = Double.NaN, val neutralMedian: Double = Double.NaN, val refuseMedian: Double = Double.NaN,
     )
+
+    /** Pure (V5.0.8165): the median of the finite values, NaN when there are none. */
+    fun median8165(xs: List<Double>): Double {
+        val v = xs.filter { it.isFinite() }.sorted()
+        if (v.isEmpty()) return Double.NaN
+        val m = v.size / 2
+        return if (v.size % 2 == 1) v[m] else (v[m - 1] + v[m]) / 2.0
+    }
 
     /** Pure: the verdict stats of [lane] read from the tradeable grade records (executable, first of episode, on time). */
     fun verdictRow8153(book: CortexGradeBook8144, lane: String): VerdictRow8153 {
         val s = CortexScoreboard7885.Bucket.STRONG.ordinal
         val nu = CortexScoreboard7885.Bucket.NEUTRAL.ordinal
         val r = CortexScoreboard7885.Bucket.REFUSE.ordinal
-        val st = CortexWalkForward8144.stat8144(book.executableSeries(lane, null, s))
-        val nt = CortexWalkForward8144.stat8144(book.executableSeries(lane, null, nu))
-        val rt = CortexWalkForward8144.stat8144(book.executableSeries(lane, null, r))
-        return VerdictRow8153(st.n, st.mean, nt.n, nt.mean, rt.n, rt.mean, book.resolvedShare(lane, s), book.resolvedShare(lane, r))
+        val ss = book.executableSeries(lane, null, s)
+        val ns = book.executableSeries(lane, null, nu)
+        val rs = book.executableSeries(lane, null, r)
+        val st = CortexWalkForward8144.stat8144(ss)
+        val nt = CortexWalkForward8144.stat8144(ns)
+        val rt = CortexWalkForward8144.stat8144(rs)
+        return VerdictRow8153(st.n, st.mean, nt.n, nt.mean, rt.n, rt.mean, book.resolvedShare(lane, s), book.resolvedShare(lane, r),
+            median8165(ss), median8165(ns), median8165(rs))
     }
 
     /**

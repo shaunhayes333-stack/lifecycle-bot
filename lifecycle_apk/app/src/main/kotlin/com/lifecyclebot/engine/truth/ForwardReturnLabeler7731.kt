@@ -132,6 +132,33 @@ object ForwardReturnLabeler7731 {
     private val basisSuspect7738 = AtomicLong(0)
     private val purgedCells7738 = AtomicLong(0)
 
+    /**
+     * V5.0.8165 — 8162/8163 device: Cortex lanes read REFUSE +1,298% (CORE), +1,457% (MANIPULATED), +2,332% (MOONSHOT),
+     * +2,630% (QUALITY) — every lane's refuse mean moved by thousands of points at once, an hour after the same rows read
+     * -20..-30%. One coin, refused by every lane, labelled at a 5-minute 1,000x+: a mark on another basis. The 20x guard
+     * lets it through when the cap "moved with it" (the cap is derived from the same price) and the two-feed check only
+     * runs on a step that doubles the previous peak. The coin's own bonding curve is a chain witness neither shares:
+     * while the curve is ACTIVE and read inside [CURVE_WITNESS_MAX_AGE_MS_8165], its spot price bounds the mark.
+     */
+    private const val CURVE_WITNESS_MAX_AGE_MS_8165 = 90_000L
+    private val curveRefusedEntry8165 = AtomicLong(0)
+    private val curveRefusedMark8165 = AtomicLong(0)
+
+    private fun curveContradicts8165(mint: String, markUsd: Double, nowMs: Long): Boolean {
+        val curveSol = try { CurveReserves7951.priceSolFor7951(mint, nowMs, CURVE_WITNESS_MAX_AGE_MS_8165) } catch (_: Throwable) { 0.0 }
+        if (!(curveSol > 0.0)) return false
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!(solUsd > 0.0)) return false
+        return curveDisagrees8165(markUsd, curveSol * solUsd)
+    }
+
+    /** Pure (V5.0.8165): a USD mark more than 2x away (either way) from the curve's own USD spot price. */
+    fun curveDisagrees8165(markUsd: Double, curveUsd: Double): Boolean {
+        if (!(markUsd > 0.0) || !(curveUsd > 0.0) || !markUsd.isFinite() || !curveUsd.isFinite()) return false
+        val r = markUsd / curveUsd
+        return r > 2.0 || r < 0.5
+    }
+
     /** Pure: true when a mark and an entry price cannot be on the same basis. */
     fun basisSuspect7738(entryPrice: Double, markPrice: Double): Boolean {
         if (!entryPrice.isFinite() || !markPrice.isFinite() || entryPrice <= 0.0 || markPrice <= 0.0) return true
@@ -629,6 +656,11 @@ object ForwardReturnLabeler7731 {
         }
         if (px == null || !px.isFinite() || px <= 0.0) {
             skippedNoPrice.incrementAndGet()
+            return
+        }
+        // V5.0.8165 — an entry price the coin's own bonding curve contradicts is not a buyable price.
+        if (curveContradicts8165(ts.mint, px, nowMs)) {
+            curveRefusedEntry8165.incrementAndGet()
             return
         }
         // V5.0.7930 — an ADMIT supersedes a pending refusal of the same (mint, lane): a
@@ -1292,6 +1324,13 @@ object ForwardReturnLabeler7731 {
                 pending.remove(key, o)
                 continue
             }
+            // V5.0.8165 — the chain witness: a mark the coin's own active bonding curve contradicts is a basis error, not a
+            // move. The tick is skipped (the label waits for an agreeing mark).
+            if (curveContradicts8165(o.mint, px, nowMs)) {
+                curveRefusedMark8165.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_CONTRADICTED_8165") } catch (_: Throwable) {}
+                continue
+            }
             val gross = (px / o.entryPrice - 1.0) * 100.0
             // V5.0.8133 — a one-feed jump past the runner bars (re-entry, hive broadcast, runner grab) waits for a second feed.
             if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), px, "FORWARD_LABEL")) continue
@@ -1424,7 +1463,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()}] purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +

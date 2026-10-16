@@ -2,6 +2,8 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.learning.TacticSwitcher
 import com.lifecyclebot.engine.market.LaunchTape7921
+import com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+import com.lifecyclebot.engine.cortex.LearningEntryTruth8153
 import com.lifecyclebot.engine.truth.LearningEpoch8164
 import com.lifecyclebot.engine.truth.LiquidityTruth8037
 import org.junit.After
@@ -95,5 +97,28 @@ class Aate8164PreBuyTest {
         assertTrue(bot.contains("LaunchTape7921.lastPriceSol8165(mint)"))
         assertTrue(bot.contains("marketCapUsd = capUsd8165"))
         assertTrue(bot.contains("liquidityUsd = liqUsd8165"))
+    }
+
+    // ── V5.0.8165: the Cortex panel read "backwards" on one basis error ──
+
+    @Test fun aMarkTheCoinsOwnCurveContradictsIsNotAMove() {
+        val curve = 0.00001
+        assertFalse(ForwardReturnLabeler7731.curveDisagrees8165(curve * 1.6, curve))   // a real move inside the read
+        assertFalse(ForwardReturnLabeler7731.curveDisagrees8165(curve * 0.6, curve))
+        assertTrue(ForwardReturnLabeler7731.curveDisagrees8165(curve * 106.0, curve))  // the SOL/USD factor
+        assertTrue(ForwardReturnLabeler7731.curveDisagrees8165(curve * 23.4, curve))   // the 23x phantom
+        assertTrue(ForwardReturnLabeler7731.curveDisagrees8165(curve / 3.0, curve))
+        assertFalse(ForwardReturnLabeler7731.curveDisagrees8165(Double.NaN, curve))     // no witness, no verdict
+        assertFalse(ForwardReturnLabeler7731.curveDisagrees8165(curve, 0.0))
+        assertTrue(src("engine/BotService.kt").contains("PumpCurveKeys7269.markGraduated7392(mint)"))
+    }
+
+    @Test fun oneThousandXLabelDoesNotFlipTheTypicalCoin() {
+        val refuse = List(140) { -20.0 } + listOf(180_000.0)
+        val mean = refuse.sum() / refuse.size
+        assertTrue(mean > 1_000.0)                                         // the panel's "backwards" number
+        assertEquals(-20.0, LearningEntryTruth8153.median8165(refuse), 1e-9) // what refusing usually led to
+        assertEquals(2.5, LearningEntryTruth8153.median8165(listOf(1.0, 4.0, Double.NaN, 2.0, 3.0)), 1e-9)
+        assertTrue(LearningEntryTruth8153.median8165(emptyList()).isNaN())
     }
 }

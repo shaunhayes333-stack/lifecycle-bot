@@ -11287,6 +11287,8 @@ class BotService : Service() {
                 },
                 onMigration = { mint ->
                     ErrorLogger.info("BotService", "🚀 PumpPortal migration: ${mint.take(8)}…")
+                    // V5.0.8165 — the curve is complete: its reserves stop being a price witness (forward labels, liquidity).
+                    try { com.lifecyclebot.network.PumpCurveKeys7269.markGraduated7392(mint) } catch (_: Throwable) {}
                     // V5.0.7744 — a held curve token routes its exits to the AMM from this event on.
                     try { status.tokens[mint]?.let { RouteTruthHydrator.markGraduatedByEvent7744(it) } } catch (_: Throwable) {}
                     // V5.0.7384 — a graduation is a fresh, high-signal event; it only

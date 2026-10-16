@@ -1837,6 +1837,7 @@ object Cortex7885 {
         /** V5.0.8153 — the decayed bucket books' means (pre-8146 labels included): display context only, never the verdict stats. */
         val legacyStrongMean8153: Double = Double.NaN, val legacyRefuseMean8153: Double = Double.NaN,
         val source8153: String = "",
+        val strongMedian8165: Double = Double.NaN, val neutralMedian8165: Double = Double.NaN, val refuseMedian8165: Double = Double.NaN,
     )
     data class UiSeat8069(val key: String, val authority: Double, val skillPct: Double, val n: Int)
     data class UiVeto8069(val reason: String, val n: Int, val meanPct: Double, val sePct: Double)
@@ -1866,7 +1867,8 @@ object Cortex7885 {
                 val v = LearningEntryTruth8153.verdictRow8153(gradeBook8144, lane)
                 UiLane8069(lane, b.byBucket.sumOf { it.n }.toInt(), v.strongN, v.strongMean, v.neutralN, v.neutralMean,
                     v.refuseN, v.refuseMean, calibration.slope(lane), auth, powers,
-                    legacyStrongMean8153 = b.byBucket[2].mean(), legacyRefuseMean8153 = b.byBucket[0].mean(), source8153 = "TRADEABLE_8153")
+                    legacyStrongMean8153 = b.byBucket[2].mean(), legacyRefuseMean8153 = b.byBucket[0].mean(), source8153 = "TRADEABLE_8153",
+                    strongMedian8165 = v.strongMedian, neutralMedian8165 = v.neutralMedian, refuseMedian8165 = v.refuseMedian)
             }
             val vetoes = vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(10).map { (k, st) ->
                 UiVeto8069(k, st.n.toInt(), st.mean(), if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.NaN)
