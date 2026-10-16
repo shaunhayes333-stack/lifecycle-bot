@@ -891,53 +891,11 @@ object TradeHistoryStore {
                 return
             }
         }
-        // V5.0.6373d — PHANTOM PNL% RECOMPUTE (Bug A of the wide bundle).
-        // Operator saw journal display +$7,819.45 with +1003.5% AVG WIN while
-        // the ACTUAL wallet was -65% from start. Root cause: stored pnlPct on
-        // some SELL rows was fabricated against a phantom cost basis
-        // (qty × entryPrice diverges from cost). Recompute pnlPct against
-        // wallet-truthful SOL flow whenever the row's stored basis is
-        // inconsistent by more than 5%. Labels the recomputed rows so the
-        // operator can see how many rows were corrected.
-        run {
-            val side = trade.side.orEmpty().uppercase()
-            if (side == "SELL" || side.startsWith("PARTIAL")) {
-                val cost = trade.entryCostSol
-                val qty  = trade.entryQtyToken
-                val price = trade.entryPriceSnapshot
-                val soldSol = trade.sol
-                if (cost > 0.0 && qty > 0.0 && price > 0.0 && soldSol >= 0.0) {
-                    val impliedFromBasis = qty * price
-                    val basisRatio = if (impliedFromBasis > 0) impliedFromBasis / cost else 1.0
-                    val basisConsistent = basisRatio in 0.95..1.05
-                    if (!basisConsistent) {
-                        // V5.0.8044 — owner: "profit lock fired on a 40% loss". It did not: WJJkGm's quick take banked
-                        // +0.0082 SOL on chain, and this rewrite set its % to -40 = (trade.sol - WHOLE cost) / whole cost,
-                        // where a profit-lock row's trade.sol is the sold slice's cost (V5.0.3683), not proceeds. The
-                        // realised SOL (pnlSol) is the wallet truth: the % is pnlSol over the slice's cost when known,
-                        // else over the whole cost (never a wrong sign); a stored % that agrees in sign and is at least
-                        // the whole-cost % (a slice's % can only be larger) is kept.
-                        val pnlSolTruth = trade.pnlSol
-                        val sliceCost = trade.soldCostBasisSol.takeIf { it.isFinite() && it > 0.0 }
-                        val realPnlPct = if (pnlSolTruth.isFinite()) {
-                            if (sliceCost != null) pnlSolTruth / sliceCost * 100.0 else pnlSolTruth / cost * 100.0
-                        } else ((soldSol - cost) / cost) * 100.0
-                        val storedPnlPct = trade.pnlPct
-                        val storedAgrees8044 = sliceCost == null && pnlSolTruth.isFinite() &&
-                            ((storedPnlPct >= 0.0) == (pnlSolTruth >= 0.0) || kotlin.math.abs(pnlSolTruth) < 1e-9) &&
-                            kotlin.math.abs(storedPnlPct) + 5.0 >= kotlin.math.abs(realPnlPct)
-                        val delta = if (storedAgrees8044) 0.0 else kotlin.math.abs(realPnlPct - storedPnlPct)
-                        if (delta > 5.0) {
-                            try {
-                                PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D")
-                                PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D|lane=${trade.tradingMode.uppercase().take(24)}")
-                            } catch (_: Throwable) {}
-                            try {
-                                trade.pnlPct = realPnlPct
-                            } catch (_: Throwable) {}
-                        }
-                    }
-                }
+        // V5.0.8163 — SOL economics determine realized %, independently of USD marks.
+        if (trade.side.uppercase() == "SELL" || trade.side.uppercase().startsWith("PARTIAL")) {
+            RealizedReturn8163.percent(trade.pnlSol, trade.soldCostBasisSol, trade.entryCostSol, trade.pnlPct)?.let {
+                if (trade.pnlPct != it) PipelineHealthCollector.labelInc("TRADE_JOURNAL_PHANTOM_PNL_RECOMPUTED_6373D")
+                trade.pnlPct = it
             }
         }
         // V5.0.6373d — WIDER PHANTOM-RETRY DEDUPE (Bug B). Extends the

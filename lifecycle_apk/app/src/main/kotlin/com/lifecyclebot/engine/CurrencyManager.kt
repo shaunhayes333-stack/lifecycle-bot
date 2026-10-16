@@ -75,11 +75,12 @@ class CurrencyManager(private val ctx: Context) {
     // Live rates: currency code → SOL per 1 unit of that currency
     // (i.e. rateVsSol["USD"] = 0.007 means 1 USD = 0.007 SOL)
     // We store solPerUnit so: solAmount / solPerUnit = displayAmount
-    @Volatile private var solUsd    = 0.0
     @Volatile private var rates     = mapOf<String, Double>()   // fiat rates vs USD
     @Volatile private var btcUsd    = 0.0
     @Volatile private var ethUsd    = 0.0
     @Volatile private var lastFetch = 0L
+    private val refreshing8163 = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var lastAttempt8163 = 0L
 
     // V5.9.999b — SharedPreferences cold-load fix.
     //
@@ -120,7 +121,7 @@ class CurrencyManager(private val ctx: Context) {
         refreshIfStale()
         
         // Use WalletManager price as fallback if CurrencyManager hasn't fetched yet
-        val effectiveSolUsd = if (solUsd > 0) solUsd else WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 140.0
+        val effectiveSolUsd = WalletManager.freshSolPrice8163()
         
         // Hardcoded approximate fallback rates (used ONLY when live rates not yet loaded)
         val fallbackRates = mapOf(
@@ -153,6 +154,10 @@ class CurrencyManager(private val ctx: Context) {
      */
     fun format(sol: Double, showPlus: Boolean = false): String {
         val info   = selectedInfo
+        if (selectedCurrency != "SOL" && sol != 0.0 && WalletManager.freshSolPrice8163() <= 0.0) {
+            refreshIfStale()
+            return "${info.symbol} —"
+        }
         val amount = solToDisplay(sol)
         val prefix = if (showPlus && amount > 0) "+" else ""
 
@@ -171,7 +176,7 @@ class CurrencyManager(private val ctx: Context) {
      */
     fun formatPrice(priceUsd: Double): String {
         val info = selectedInfo
-        val effectiveSolUsd = if (solUsd > 0) solUsd else WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 140.0
+        val effectiveSolUsd = WalletManager.freshSolPrice8163()
         val converted = when (selectedCurrency) {
             "SOL" -> if (effectiveSolUsd > 0) priceUsd / effectiveSolUsd else 0.0
             "BTC" -> if (btcUsd > 0) priceUsd / btcUsd else 0.0
@@ -185,7 +190,7 @@ class CurrencyManager(private val ctx: Context) {
     }
 
     /** Get SOL/USD price for display */
-    fun getSolUsd(): Double = solUsd
+    fun getSolUsd(): Double = WalletManager.freshSolPrice8163()
 
     // ── Rate fetching ─────────────────────────────────────────────────
 
@@ -196,12 +201,16 @@ class CurrencyManager(private val ctx: Context) {
     }
 
     fun refreshAsync() {
+        val now = System.currentTimeMillis()
+        if (now - lastAttempt8163 in 0L..30_000L || !refreshing8163.compareAndSet(false, true)) return
+        lastAttempt8163 = now
         Thread {
             try {
                 fetchCryptoRates()
                 fetchFiatRates()
                 lastFetch = System.currentTimeMillis()
             } catch (_: Exception) {}
+            finally { refreshing8163.set(false) }
         }.also { it.isDaemon = true }.start()
     }
 
@@ -214,11 +223,12 @@ class CurrencyManager(private val ctx: Context) {
     }
 
     private fun fetchCryptoRates() {
+        WalletManager.getInstance(ctx).fetchSolPrice()
         val url  = "https://api.coingecko.com/api/v3/simple/price" +
                    "?ids=solana,bitcoin,ethereum&vs_currencies=usd"
         val body = get(url) ?: return
         val json = JSONObject(body)
-        solUsd = json.optJSONObject("solana")?.optDouble("usd", 0.0) ?: 0.0
+        // WalletManager owns SOL/USD freshness and fallback; this fetch only supplies other crypto FX.
         btcUsd = json.optJSONObject("bitcoin")?.optDouble("usd", 0.0) ?: 0.0
         ethUsd = json.optJSONObject("ethereum")?.optDouble("usd", 0.0) ?: 0.0
     }

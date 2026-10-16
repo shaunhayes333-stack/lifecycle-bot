@@ -2855,7 +2855,7 @@ class SolanaMarketScanner(
                 val mint = baseTokenId.removePrefix("solana_")
                 if (mint.isBlank() || mint == baseTokenId || isSeen(mint)) continue
                 val name = attrs.optString("name", "")
-                if (name.contains("/USDC", ignoreCase = true) || name.contains("/USDT", ignoreCase = true)) continue
+                if (name.substringBefore("/").trim().uppercase() in setOf("SOL", "WSOL", "USDC", "USDT")) continue // Exclude quote assets themselves, not tokens paired with them.
 
                 val liqUsd = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
                 val volH1 = attrs.optJSONObject("volume_usd")?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0
@@ -3611,7 +3611,7 @@ class SolanaMarketScanner(
     /**
      * V5.0.8128 — scanRaydiumNewPools was GeckoTerminal new_pools under a Raydium name, so a GeckoTerminal 429
      * killed this source too. Raydium api-v3 (sr=100%) lists the pools itself: SOL/USDC-paired, opened in the
-     * last 48 h, newest first. True when Raydium served any new pool (GeckoTerminal is then not asked).
+     * last 48 h, newest first. True when Raydium served pools; GeckoTerminal remains an independent discovery source.
      */
     private suspend fun scanRaydiumApiNewPools8128(): Boolean {
         try {
@@ -3653,7 +3653,7 @@ class SolanaMarketScanner(
     }
 
     private suspend fun scanRaydiumNewPools() {
-        if (scanRaydiumApiNewPools8128()) return  // V5.0.8128 — Raydium first; GeckoTerminal below is the fallback
+        scanRaydiumApiNewPools8128()  // V5.0.8163 — independent venues complement each other; seen Raydium pools cannot starve new-pool discovery.
         // GeckoTerminal NEW Solana pools — free, no API key, catches launches before they trend
         try {
             val url = "https://api.geckoterminal.com/api/v2/networks/solana/new_pools?page=1"
@@ -3670,7 +3670,7 @@ class SolanaMarketScanner(
                 val mint = baseTokenId.removePrefix("solana_")
                 if (mint.isBlank() || mint == baseTokenId || isSeen(mint)) continue
                 val name = attrs.optString("name", "")
-                if (name.contains("/USDC", ignoreCase = true) || name.contains("/USDT", ignoreCase = true)) continue
+                if (name.substringBefore("/").trim().uppercase() in setOf("SOL", "WSOL", "USDC", "USDT")) continue // Exclude quote assets themselves, not tokens paired with them.
 
                 val liqUsd = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
                 val volH1 = attrs.optJSONObject("volume_usd")?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0
@@ -3737,7 +3737,7 @@ class SolanaMarketScanner(
                 val mint = baseTokenId.removePrefix("solana_")
                 if (mint.isBlank() || mint == baseTokenId || isSeen(mint)) continue
                 val name = attrs.optString("name", "")
-                if (name.contains("/USDC", ignoreCase = true) || name.contains("/USDT", ignoreCase = true)) continue
+                if (name.substringBefore("/").trim().uppercase() in setOf("SOL", "WSOL", "USDC", "USDT")) continue // Exclude quote assets themselves, not tokens paired with them.
 
                 val liqUsd = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
                 val volH1 = attrs.optJSONObject("volume_usd")?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0
@@ -3802,7 +3802,7 @@ class SolanaMarketScanner(
                     val mint = baseTokenId.removePrefix("solana_")
                     if (mint.isBlank() || mint == baseTokenId || isSeen(mint)) continue
                     val name = attrs.optString("name", "")
-                    if (name.contains("/USDC", ignoreCase = true) || name.contains("/USDT", ignoreCase = true)) continue
+                    if (name.substringBefore("/").trim().uppercase() in setOf("SOL", "WSOL", "USDC", "USDT")) continue // Exclude quote assets themselves, not tokens paired with them.
 
                     val liqUsd = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
                     val volH1 = attrs.optJSONObject("volume_usd")?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0
@@ -3868,7 +3868,7 @@ class SolanaMarketScanner(
                 val mint = baseTokenId.removePrefix("solana_")
                 if (mint.isBlank() || mint == baseTokenId || isSeen(mint)) continue
                 val name = attrs.optString("name", "")
-                if (name.contains("/USDC", ignoreCase = true) || name.contains("/USDT", ignoreCase = true)) continue
+                if (name.substringBefore("/").trim().uppercase() in setOf("SOL", "WSOL", "USDC", "USDT")) continue // Exclude quote assets themselves, not tokens paired with them.
 
                 val liqUsd = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
                 val volH1 = attrs.optJSONObject("volume_usd")?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0

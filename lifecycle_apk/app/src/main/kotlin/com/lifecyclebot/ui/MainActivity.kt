@@ -4293,23 +4293,13 @@ for legal compliance.
                         }
                         parent.addView(evSub)
                     }
-                    // EV uses avgWin/avgLoss from persistedStats (TradeHistory
-                    // already computes them). Probabilities use rawWr / (1-rawWr)
-                    // so scratches don't dilute the signal — scratches contribute
-                    // ~0 to EV anyway since they're by definition flat.
-                    if (totalNonScratch >= 5) {
-                        val aw = portfolioStats.avgWinPct
-                        val al = portfolioStats.avgLossPct  // already negative
-                        val pWin = rawWr / 100.0
-                        val pLoss = 1.0 - pWin
-                        val evPct = pWin * aw + pLoss * al
-                        val sign = if (evPct >= 0) "+" else ""
-                        evSub.setTextIfChanged("EV ${sign}${"%.2f".format(evPct)}% / trade")
-                        evSub.setTextColor(when {
-                            evPct >= 5.0  -> green
-                            evPct >= 0.0  -> amber
-                            else          -> red
-                        })
+                    // Realized SOL per accounted position uses the same money and population as PF.
+                    val realized8163 = portfolioStats.realizedPnlSol
+                    if (portfolioStats.trades >= 5 && realized8163 != null && realized8163.isFinite()) {
+                        val meanSol8163 = realized8163 / portfolioStats.trades
+                        val sign = if (meanSol8163 >= 0) "+" else ""
+                        evSub.setTextIfChanged("Avg ${sign}${"%.5f".format(meanSol8163)} SOL / position")
+                        evSub.setTextColor(if (meanSol8163 >= 0.0) green else red)
                         evSub.visibility = android.view.View.VISIBLE
                     } else {
                         evSub.visibility = android.view.View.GONE
@@ -4319,68 +4309,13 @@ for legal compliance.
 
             // ═══════════════════════════════════════════════════════════════════
             // OPEN POSITIONS COUNT
-            // V5.9.475 — DEDUPLICATED count fix. Operator: 'main meme ui open
-            // positions counter is wrong.' Was naive sum:
-            //   memeOpen + shitOpen + qualityOpen + blueOpen + moonOpen + treasuryOpen
-            // ShitCoin / Quality / BlueChip / Moonshot ALL mirror their
-            // positions onto ts.position when they take a trade, so they
-            // appear BOTH in state.openPositions AND their private maps.
-            // Naive sum double-counted every one of them — operator saw
-            // '5 Open' when only 2 visible. Now we union the mint sets and
-            // take size, so each mint is counted exactly once.
-            val openMints = mutableSetOf<String>()
-            try { state.openPositions.forEach { openMints.add(it.mint) } } catch (_: Exception) {}
-            try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
-            try { com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
-            try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
-            try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
-            try { com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
-            try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenTrackedPositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
-            // V5.9.1501 — WALLET-TRUTH open count. Previously this used
-            // TokenLifecycleTracker.openCount() (every non-terminal record) and
-            // HostWalletTokenTracker.getOpenCount() (every OPEN_STATUS row), both
-            // of which accumulated zero-balance ghosts → the "1/31" tile. Now use
-            // the wallet-truth counts (liveMemeOpenCount requires a real token qty;
-            // getOpenCount is itself wallet-truth-filtered as of 1501), and proactively
-            // reap host ghosts so the managed count converges to what is actually held.
-            try { com.lifecyclebot.engine.HostWalletTokenTracker.reapZeroBalanceGhosts() } catch (_: Exception) {}
-            val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.liveMemeOpenCount() } catch (_: Exception) { 0 }
-            val hostOpen = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Exception) { 0 }
-            // V5.9.797 / V5.0.6078 — header/list source unification. The Open
-            // Positions card now binds cachedOpenPositionsModel6078, built off Main.
-            // This tile must read the SAME cached model count, not recompute the
-            // unified list synchronously and not drift from the rendered rows.
-            val unifiedListSize = try { cachedOpenPositionsModel6078.allSorted.size } catch (_: Throwable) { 0 }
-            // V5.9.1509 — WALLET-TRUTH OPEN COUNT (operator hard rule: "unless the
-            // bot has the position currently held it shouldn't acknowledge a
-            // position is open"). The old maxOf() unioned AI-side active maps
-            // (BlueChip/Moonshot/CashGen getActivePositions) + host/lifecycle rows,
-            // none of which are wallet-filtered, so a position the AI still BELIEVED
-            // was open but the wallet had already sold/never settled inflated the
-            // count to "1/39". We now INTERSECT the full union against the canonical
-            // wallet-held set: a mint counts as open ONLY if the wallet actually
-            // holds it (or a sell is in flight). Sub-trader maps can no longer
-            // acknowledge a position the chain doesn't back.
+            // V5.0.8163 — bot-managed positions and host/manual inventory are different populations.
+            val unifiedListSize = cachedOpenPositionsModel6078.allSorted.size
             val heldSet = try { com.lifecyclebot.engine.HostWalletTokenTracker.getActuallyHeldMints() } catch (_: Throwable) { emptySet<String>() }
-            val managedOpenCount = if (heldSet.isEmpty()) {
-                // No wallet-held tokens → truly flat. Honour wallet truth, show 0,
-                // regardless of what stale AI maps claim. (unifiedListSize falls out
-                // of the same intersection below.)
-                0
-            } else {
-                openMints.count { it in heldSet }.coerceAtLeast(hostOpen)
-            }
-            // V5.9.1134 — do not hide source divergence. The screenshot at
-            // 3100 showed "11 Open" in the top tile but only 3 rendered in
-            // Open Positions because the tile counts every managed holder
-            // source (host/lifecycle/private lane stores) while the card shows
-            // the current-mode unified list and excludes dedicated lane cards.
-            // Show as visible/managed so ghost gaps are immediately obvious.
-            tvStatsOpenPos.text = if (managedOpenCount > unifiedListSize) {
-                "$unifiedListSize/$managedOpenCount"
-            } else {
-                "$unifiedListSize"
-            }
+            val managedOpenCount = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .count { it.mode.equals(portfolioMode, true) }
+            tvStatsOpenPos.text = managedOpenCount.toString()
+            tvStatsOpenPos.contentDescription = "Canonical $portfolioMode bot positions; host wallet inventory is separate"
             tvStatsOpenPos.setTextColor(if (managedOpenCount > 0) purple else muted)
             // V5.0.6252 — OPEN COUNT DIAGNOSTIC (rate-limited by V5.0.6254).
             // Operator saw OPEN=18 pre-repaint and OPEN=0 post-repaint;

@@ -17,10 +17,8 @@ class Bundle6373dInvariantsTest {
     fun tradehistorystore_recomputes_phantom_pnl_pct() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
         assertTrue(
-            "V5.0.6373d: recordTrade must recompute pnl% against wallet-truthful SOL flow when basis is inconsistent",
-            txt.contains("V5.0.6373d — PHANTOM PNL% RECOMPUTE") &&
-                txt.contains("basisRatio in 0.95..1.05") &&
-                txt.contains("val realPnlPct = ((soldSol - cost) / cost) * 100.0"),
+            "recordTrade must derive returns from realized SOL and sold-slice SOL cost",
+            txt.contains("RealizedReturn8163.percent(trade.pnlSol, trade.soldCostBasisSol, trade.entryCostSol, trade.pnlPct)"),
         )
         assertTrue(
             "V5.0.6373d: recomputed rows must be counter-labelled for operator visibility",

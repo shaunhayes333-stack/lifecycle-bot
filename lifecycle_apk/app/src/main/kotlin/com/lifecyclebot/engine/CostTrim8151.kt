@@ -285,13 +285,21 @@ object CostMeter8151 {
     }
 
     private val boundedExec8151: java.util.concurrent.ExecutorService by lazy {
-        java.util.concurrent.Executors.newCachedThreadPool { r -> Thread(r, "cost-sim-8151").apply { isDaemon = true } }
+        java.util.concurrent.ThreadPoolExecutor(2, 2, 30L, java.util.concurrent.TimeUnit.SECONDS,
+            java.util.concurrent.ArrayBlockingQueue<Runnable>(16),
+            java.util.concurrent.ThreadFactory { r -> Thread(r, "cost-sim-8151").apply { isDaemon = true } },
+            java.util.concurrent.ThreadPoolExecutor.AbortPolicy())
     }
 
     /** Run [block] for at most [budgetMs]; null when it did not answer in time (the caller proceeds as before). */
-    fun runBounded8151(budgetMs: Long, block: () -> String?): String? = try {
-        boundedExec8151.submit(java.util.concurrent.Callable<String?> { block() }).get(budgetMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-    } catch (_: Throwable) { null }
+    fun runBounded8151(budgetMs: Long, block: () -> String?): String? {
+        val task = try { boundedExec8151.submit(java.util.concurrent.Callable<String?> { block() }) }
+            catch (_: java.util.concurrent.RejectedExecutionException) { return null }
+        return try { task.get(budgetMs, java.util.concurrent.TimeUnit.MILLISECONDS) }
+        catch (_: InterruptedException) { Thread.currentThread().interrupt(); null }
+        catch (_: Exception) { null }
+        finally { if (!task.isDone) task.cancel(true) }
+    }
 
     fun noteTicket8151(sol: Double) { if (sol.isFinite() && sol > 0.0) lastTicketSol = sol }
     fun noteSimRefused8151() { simRefused.incrementAndGet() }

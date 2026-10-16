@@ -236,6 +236,7 @@ jobs:
             --tests '*Aate8153HandoffTest*' \
             --tests '*Aate8153RunnerTest*' \
             --tests '*Aate8153StrategyTest*' \
+            --tests '*Aate8163*' \
             --tests '*Aate8161AdmissionContinuityTest*' \
             --tests '*Aate7687*' \
             --tests '*Aate7688*' \

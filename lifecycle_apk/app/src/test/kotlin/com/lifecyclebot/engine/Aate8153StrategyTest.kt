@@ -354,7 +354,7 @@ class Aate8153StrategyTest {
         // Summary and export carry the binding gate.
         val list = listOf(eternal, ei, fomo, trace.copy(held = true))
         val line = r.summary8144(list)
-        assertTrue(line, line.startsWith("runners=4 captured=1 correct_at_decision=0 wrongly_refused=3"))
+        assertTrue(line, line.startsWith("runners=4 held_entry=1 correct_at_decision=0 wrongly_refused=3"))
         assertTrue(line, line.contains("LIQ_UNREAD_REFUSED_AS_LOW=1") && line.contains("WATCH_FIRST_OVER_SPECIFIC_EVIDENCE=1") && line.contains("TOO_SLOW_ON_SPARSE_RANGE=1"))
         val text = list.joinToString("\n") { r.toJson8144(it).toString() }
         assertEquals(list, r.parseJsonl8144(text))

@@ -28,23 +28,14 @@ import java.util.concurrent.ConcurrentHashMap
  * a large margin the signal was phantom → defer one cycle (the next
  * scanner pass will refresh `ts.lastPrice` with the real value).
  *
- * Failure-soft contract: if Jupiter is unreachable, RFQ rejects, or any
- * exception is thrown, the verifier returns `true` so the existing
- * exit logic keeps banking real winners. This helper exists to PREVENT
- * banking on phantom prices — it must NEVER block banking on real
- * winners. The phantom-cost is one missed cycle; the real-cost would
- * be missing a 100x.
+ * Verification errors are unknown, never proof of profit. The execution boundary independently checks
+ * the exact sold slice against confirmed SOL cost. Stop-loss, structural and manual exits do not use this verifier.
  */
 object RealPriceLock {
 
-    /**
-     * Below this claimed gain we don't bother verifying — every normal
-     * trade is in this band and a sub-5x signal is unlikely to be a
-     * spiked-oracle phantom. The Jupiter quote cost (round-trip + budget)
-     * isn't worth it for ordinary partials.
-     */
-    private const val VERIFY_THRESHOLD_PNL_PCT = 500.0   // verify TP delegate above +500%
-    private const val VERIFY_THRESHOLD_MULTIPLE = 20.0   // verify runner-bank above 20x
+    // All runner banks require evidence, including the previously unchecked 4.3x range.
+    private const val VERIFY_THRESHOLD_PNL_PCT = 500.0
+    private const val VERIFY_THRESHOLD_MULTIPLE = 1.0
 
     /**
      * Tolerance band. The Jupiter quote will rarely match `ts.lastPrice`
@@ -71,16 +62,14 @@ object RealPriceLock {
     fun lastRouteTruth(mint: String, maxAgeMs: Long = 30_000L): RouteTruth? {
         if (mint.isBlank()) return null
         val t = routeTruthByMint[mint] ?: return null
-        return if (System.currentTimeMillis() - t.verifiedAtMs <= maxAgeMs) t else null
+        return if (System.currentTimeMillis() - t.verifiedAtMs in 0L..maxAgeMs) t else null
     }
 
     /**
      * Verify a RAPID TAKE_PROFIT_DELEGATE trigger.
      *
      * Returns `true` if the claimed PnL is plausibly real (Jupiter quote
-     * agrees within tolerance OR verification can't be performed for
-     * technical reasons). Returns `false` ONLY when Jupiter explicitly
-     * disagrees with the claim by a large margin.
+     * agrees within tolerance). Missing verification is not profit evidence.
      */
     fun verifyTakeProfitPrice(ts: TokenState, claimedPnlPct: Double, tpPct: Double): Boolean {
         if (claimedPnlPct < VERIFY_THRESHOLD_PNL_PCT) return true
@@ -91,7 +80,7 @@ object RealPriceLock {
     /**
      * Verify an ULTRA_RUNNER_BANK trigger. Identical logic to TP verify,
      * just with a different threshold (multiples instead of pct) and a
-     * label for forensics. Same failure-soft contract.
+     * label for forensics. Missing evidence defers a profit-labelled exit.
      */
     fun verifyUltraRunnerBank(
         ts: TokenState,
@@ -112,17 +101,18 @@ object RealPriceLock {
         contextLabel: String,
     ): Boolean {
         val nowMs = System.currentTimeMillis()
-        val cached = cache[ts.mint]
-        if (cached != null && nowMs - cached.verifiedAtMs < CACHE_TTL_MS) {
+        val cacheKey = "${ts.mint}|${ts.position.positionId}|${ts.position.entryTime}|${ts.position.costSol}|${ts.position.qtyToken}|$claimedRatio"
+        val cached = cache[cacheKey]
+        if (cached != null && nowMs - cached.verifiedAtMs in 0L until CACHE_TTL_MS) {
             return cached.ok
         }
         val ok = try { runJupiterCheck(ts, claimedRatio, contextLabel) }
                  catch (e: Throwable) {
-                     // Failure-soft: never block banking on a verifier error.
-                     emitFail(ts, contextLabel, "VERIFIER_THREW_${e.javaClass.simpleName}", true)
-                     true
+                     emitFail(ts, contextLabel, "VERIFIER_THREW_${e.javaClass.simpleName}", false)
+                     false
                  }
-        cache[ts.mint] = CacheEntry(nowMs, ok, contextLabel)
+        if (cache.size >= 512) cache.entries.removeIf { nowMs - it.value.verifiedAtMs >= CACHE_TTL_MS }
+        if (cache.size < 512) cache[cacheKey] = CacheEntry(nowMs, ok, contextLabel)
         return ok
     }
 
@@ -131,8 +121,8 @@ object RealPriceLock {
             val pos = ts.position
             val qty = pos.qtyToken
             if (qty <= 0.0 || pos.costSol <= 0.0 || ts.mint.isBlank()) return null
-            val probeQty = (qty * 0.01).coerceAtLeast(1.0)
-            val decimals = pickDecimals(qty)
+            val probeQty = (qty * 0.01).coerceAtLeast(1.0).coerceAtMost(qty)
+            val decimals = pickDecimals(ts) ?: return null
             val amountRaw = (probeQty * decimals).toLong().coerceAtLeast(1L)
             val ctx = try { BotService.instance?.applicationContext } catch (_: Throwable) { null }
             val cfg = try { if (ctx != null) ConfigStore.load(ctx) else null } catch (_: Throwable) { null }
@@ -148,9 +138,9 @@ object RealPriceLock {
             } catch (_: Throwable) { return null }
             val solOut = quote.outAmount.toDouble() / 1_000_000_000.0
             if (solOut <= 0.0 || !solOut.isFinite()) return null
-            val impliedFullSol = solOut * 100.0
+            val impliedFullSol = solOut * qty / (amountRaw.toDouble() / decimals)
             (impliedFullSol / pos.costSol).takeIf { it.isFinite() && it > 0.0 }?.also {
-                try { routeTruthByMint[ts.mint] = RouteTruth(System.currentTimeMillis(), it, ok = true, context = "ROUTE_IMPLIED") } catch (_: Throwable) {}
+                try { if (routeTruthByMint.size > 512) routeTruthByMint.entries.removeIf { System.currentTimeMillis() - it.value.verifiedAtMs > 30_000L }; routeTruthByMint[ts.mint] = RouteTruth(System.currentTimeMillis(), it, ok = true, context = "ROUTE_IMPLIED") } catch (_: Throwable) {}
             }
         } catch (_: Throwable) { null }
     }
@@ -166,19 +156,19 @@ object RealPriceLock {
         // Need real qty + entry + a tradeable mint. Paper positions or
         // bootstrap rows lack on-chain qty → cannot verify via Jupiter.
         if (qty <= 0.0 || entryPrice <= 0.0 || ts.mint.isBlank()) {
-            emitFail(ts, contextLabel, "INSUFFICIENT_POSITION_DATA", true)
-            return true  // failure-soft
+            emitFail(ts, contextLabel, "INSUFFICIENT_POSITION_DATA", false)
+            return false  // Missing evidence cannot prove profit.
         }
         // Probe with 1% of the qty so we don't disturb the market and so
         // the quote represents the real exit-side liquidity at our size.
-        val probeQty = (qty * 0.01).coerceAtLeast(1.0)
-        val decimals = pickDecimals(qty)
+        val probeQty = (qty * 0.01).coerceAtLeast(1.0).coerceAtMost(qty)
+        val decimals = pickDecimals(ts) ?: return unavailable(ts, contextLabel, "MINT_DECIMALS_UNKNOWN")
         val amountRaw = (probeQty * decimals).toLong().coerceAtLeast(1L)
 
         val ctx = try { BotService.instance?.applicationContext } catch (_: Throwable) { null }
         val cfg = try { if (ctx != null) ConfigStore.load(ctx) else null } catch (_: Throwable) { null }
         val apiKey = cfg?.jupiterApiKey ?: ""
-        val jupiter = try { JupiterApi(apiKey) } catch (_: Throwable) { return softTrue(ts, contextLabel, "JUPITER_INIT_FAIL") }
+        val jupiter = try { JupiterApi(apiKey) } catch (_: Throwable) { return unavailable(ts, contextLabel, "JUPITER_INIT_FAIL") }
 
         val quote = try {
             jupiter.getQuote(
@@ -188,23 +178,23 @@ object RealPriceLock {
                 slippageBps = 300,  // 3% — generous, we only care about route existence + price
             )
         } catch (_: Throwable) {
-            return softTrue(ts, contextLabel, "JUPITER_QUOTE_FAIL")
+            return unavailable(ts, contextLabel, "JUPITER_QUOTE_FAIL")
         }
 
         val solOut = quote.outAmount.toDouble() / 1_000_000_000.0
         if (solOut <= 0.0 || !solOut.isFinite()) {
-            return softTrue(ts, contextLabel, "JUPITER_ZERO_OUT")
+            return unavailable(ts, contextLabel, "JUPITER_ZERO_OUT")
         }
         // Compare in SOL terms: the 1% probe returns `solOut` SOL. Therefore
-        // the full-position implied SOL value = solOut × 100, and the implied
+        // scale by the actual raw probe quantity, and the implied
         // gain ratio = impliedFullSol / costSol. This is the true "what would
         // the swap actually return right now" answer — independent of any
         // oracle / pump.fun BC / cross-pool basis issues.
-        val implFullSol = solOut * 100.0
-        if (pos.costSol <= 0.0) return softTrue(ts, contextLabel, "COST_BASIS_ZERO")
+        val implFullSol = solOut * qty / (amountRaw.toDouble() / decimals)
+        if (pos.costSol <= 0.0) return unavailable(ts, contextLabel, "COST_BASIS_ZERO")
         val impliedRatio = implFullSol / pos.costSol
         val ratioOfClaim = if (claimedRatio > 0.0) impliedRatio / claimedRatio else 0.0
-        try { routeTruthByMint[ts.mint] = RouteTruth(System.currentTimeMillis(), impliedRatio, ok = ratioOfClaim >= MIN_JUP_VS_CLAIM_RATIO, context = contextLabel) } catch (_: Throwable) {}
+        try { if (routeTruthByMint.size > 512) routeTruthByMint.entries.removeIf { System.currentTimeMillis() - it.value.verifiedAtMs > 30_000L }; routeTruthByMint[ts.mint] = RouteTruth(System.currentTimeMillis(), impliedRatio, ok = ratioOfClaim >= MIN_JUP_VS_CLAIM_RATIO, context = contextLabel) } catch (_: Throwable) {}
         val ok = ratioOfClaim >= MIN_JUP_VS_CLAIM_RATIO
         if (!ok) {
             try {
@@ -226,9 +216,9 @@ object RealPriceLock {
         return ok
     }
 
-    private fun softTrue(ts: TokenState, contextLabel: String, reason: String): Boolean {
-        emitFail(ts, contextLabel, reason, true)
-        return true
+    private fun unavailable(ts: TokenState, contextLabel: String, reason: String): Boolean {
+        emitFail(ts, contextLabel, reason, false)
+        return false
     }
 
     private fun emitFail(ts: TokenState, contextLabel: String, reason: String, soft: Boolean) {
@@ -241,19 +231,9 @@ object RealPriceLock {
         } catch (_: Throwable) {}
     }
 
-    /**
-     * Pick a decimal scale for amount conversion based on typical mint
-     * decimals. SPL tokens are most commonly 6 or 9 decimals; raw qty
-     * stored in Position has already been decoded into human units, so
-     * we need to multiply back up. We use a heuristic the Executor uses
-     * elsewhere (tokenScale): qty * decimals → raw amount. 1e9 is the
-     * safe default for pump.fun BC tokens.
-     */
-    private fun pickDecimals(humanQty: Double): Double {
-        return when {
-            humanQty >= 1_000_000_000.0 -> 1_000_000.0   // 6 decimals — high-supply
-            humanQty >= 1_000_000.0     -> 1_000_000.0   // 6 decimals
-            else                         -> 1_000_000_000.0  // 9 decimals default
-        }
+    /** Mint metadata supplies the scale; wallet size says nothing about mint decimals. */
+    private fun pickDecimals(ts: TokenState): Double? {
+        val decimals = ts.tokenMap.decimals?.takeIf { it in 0..18 } ?: return null
+        return Math.pow(10.0, decimals.toDouble())
     }
 }

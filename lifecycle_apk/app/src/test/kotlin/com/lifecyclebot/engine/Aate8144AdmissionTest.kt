@@ -341,7 +341,7 @@ class Aate8144AdmissionTest {
         // The summary counts each class and the wrong refusals by gate.
         val list = listOf(base.copy(held = true), base.copy(refusedBy = "GENERIC_SCORE_FLOOR_8136"), base.copy(refusedBy = "SETUP_RECORD_LOSING_8136"))
         val line = r.summary8144(list)
-        assertTrue(line, line.startsWith("runners=3 captured=1 correct_at_decision=1 wrongly_refused=1"))
+        assertTrue(line, line.startsWith("runners=3 held_entry=1 correct_at_decision=1 wrongly_refused=1"))
         assertTrue(line, line.contains("wrongBy{GENERIC_PRIOR_OVER_QUALIFIED=1}"))
         assertEquals("runners=0", r.summary8144(emptyList()))
     }

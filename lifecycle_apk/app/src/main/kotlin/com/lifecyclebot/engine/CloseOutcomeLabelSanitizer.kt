@@ -10,7 +10,7 @@ import com.lifecyclebot.data.Trade
  * MOONSHOT_TAKE_PROFIT at -95% is a LOSS, not a profitable exit. A row like
  * partial_15pct at -93% is a failed/invalid partial, not profit distribution.
  *
- * This object rewrites only the reason label. It never changes PnL, SOL, side,
+ * This object corrects derived return percentages and reason labels. It never changes realized SOL, side,
  * proof state, or mode/lane attribution.
  */
 object CloseOutcomeLabelSanitizer {
@@ -24,10 +24,13 @@ object CloseOutcomeLabelSanitizer {
     )
 
     fun canonicalize(t: Trade, emit: Boolean = true): Trade {
-        val v = inspect(t)
-        if (!v.dirty || v.canonicalReason == t.reason) return t
-        if (emit) emitRewrite(t, v)
-        return t.copy(reason = v.canonicalReason)
+        val pct = if (t.side.uppercase() in setOf("SELL", "PARTIAL_SELL"))
+            RealizedReturn8163.percent(t.pnlSol, t.soldCostBasisSol, t.entryCostSol, t.pnlPct) else null
+        val row = if (pct != null && pct != t.pnlPct) t.copy(pnlPct = pct) else t
+        val v = inspect(row)
+        if (!v.dirty || v.canonicalReason == row.reason) return row
+        if (emit) emitRewrite(row, v)
+        return row.copy(reason = v.canonicalReason)
     }
 
     fun inspect(t: Trade): LabelVerdict {

@@ -11411,10 +11411,10 @@ class BotService : Service() {
             val ethFeed = "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace"
             com.lifecyclebot.network.PythHermesStream.subscribe(
                 feedHexIds = listOf(solFeed, btcFeed, ethFeed),
-            ) { feedId, priceUsd, _, _ ->
+            ) { feedId, priceUsd, _, publishedAt ->
                 try {
                     when (feedId) {
-                        solFeed -> com.lifecyclebot.engine.WalletManager.lastKnownSolPrice = priceUsd
+                        solFeed -> com.lifecyclebot.engine.WalletManager.noteObservedSolPrice7042(priceUsd, publishedAt * 1000L)
                     }
                 } catch (_: Exception) {}
             }

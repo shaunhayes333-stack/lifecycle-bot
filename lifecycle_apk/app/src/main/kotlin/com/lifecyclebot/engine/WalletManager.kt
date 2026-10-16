@@ -73,6 +73,9 @@ class WalletManager private constructor(private val ctx: Context) {
     // Fallback public RPC endpoints (free, no API key needed)
     companion object {
         @Volatile var lastKnownSolPrice: Double = 0.0
+        @Volatile private var lastObservedSolAt8163: Long = 0L
+        fun freshSolPrice8163(nowMs: Long = System.currentTimeMillis()): Double =
+            lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 && nowMs - lastObservedSolAt8163 in 0L..300_000L } ?: 0.0
 
         /**
          * V5.0.7042 §THE_RATE_WAS_OBSERVED_AND_THEN_FORGOTTEN_EVERY_LAUNCH.
@@ -107,7 +110,7 @@ class WalletManager private constructor(private val ctx: Context) {
         private const val KEY_SOL_PRICE_7042 = "last_observed_sol_usd"
         private const val KEY_SOL_PRICE_AT_7042 = "last_observed_at_ms"
         /** Beyond this an observation is too old to price a sale from. */
-        private const val SOL_PRICE_MAX_AGE_MS_7042 = 24L * 60L * 60L * 1000L
+        private const val SOL_PRICE_MAX_AGE_MS_7042 = 5L * 60L * 1000L
 
         @Volatile private var solPrefs7042: android.content.SharedPreferences? = null
 
@@ -115,13 +118,15 @@ class WalletManager private constructor(private val ctx: Context) {
          * Record a rate this device really saw. Only called from the fetch
          * chain's genuine successes, never from its fallback.
          */
-        fun noteObservedSolPrice7042(price: Double) {
-            if (!price.isFinite() || price !in 50.0..1000.0) return
+        fun noteObservedSolPrice7042(price: Double, observedAtMs: Long = System.currentTimeMillis()) {
+            if (!price.isFinite() || price !in 50.0..1000.0 || System.currentTimeMillis() - observedAtMs !in 0L..120_000L) return
+            if (observedAtMs < lastObservedSolAt8163) return
             lastKnownSolPrice = price
+            lastObservedSolAt8163 = observedAtMs
             try {
                 solPrefs7042?.edit()
                     ?.putFloat(KEY_SOL_PRICE_7042, price.toFloat())
-                    ?.putLong(KEY_SOL_PRICE_AT_7042, System.currentTimeMillis())
+                    ?.putLong(KEY_SOL_PRICE_AT_7042, observedAtMs)
                     ?.apply()
             } catch (_: Throwable) {}
         }
@@ -135,12 +140,13 @@ class WalletManager private constructor(private val ctx: Context) {
             try {
                 val p = ctx.applicationContext.getSharedPreferences(PREFS_SOL_7042, Context.MODE_PRIVATE)
                 solPrefs7042 = p
-                if (lastKnownSolPrice in 50.0..1000.0) return
+                if (freshSolPrice8163() > 0.0) return
                 val v = p.getFloat(KEY_SOL_PRICE_7042, 0f).toDouble()
                 val at = p.getLong(KEY_SOL_PRICE_AT_7042, 0L)
                 val ageMs = System.currentTimeMillis() - at
                 if (v in 50.0..1000.0 && at > 0L && ageMs in 0..SOL_PRICE_MAX_AGE_MS_7042) {
                     lastKnownSolPrice = v
+                    lastObservedSolAt8163 = at
                     try {
                         PipelineHealthCollector.labelInc("SOL_PRICE_RESTORED_7042")
                         ForensicLogger.lifecycle(
@@ -588,7 +594,7 @@ class WalletManager private constructor(private val ctx: Context) {
         // Unknown is not an observed SOL price. Preserve a real cached value;
         // callers must defer conversion when a cold start has no observation.
         ErrorLogger.warn("Wallet", "All SOL price sources failed; using observed cache if available")
-        return lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        return freshSolPrice8163().also { if (it == 0.0) lastKnownSolPrice = 0.0 }
     }
     
     private fun tryCoinGecko(): Double {
@@ -599,13 +605,16 @@ class WalletManager private constructor(private val ctx: Context) {
                 .callTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             val req  = okhttp3.Request.Builder()
-                .url("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd")
+                .url("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_last_updated_at=true")
                 .header("Accept", "application/json")
                 .build()
             val resp = http.newCall(req).execute()
             val body = resp.body?.string() ?: return 0.0
             val json = org.json.JSONObject(body)
-            val price = json.optJSONObject("solana")?.optDouble("usd", 0.0) ?: 0.0
+            val sol = json.optJSONObject("solana") ?: return 0.0
+            val observed = sol.optLong("last_updated_at", 0L) * 1000L
+            if (observed <= 0L || System.currentTimeMillis() - observed !in 0L..120_000L) return 0.0
+            val price = sol.optDouble("usd", 0.0)
             if (price > 50.0) {
                 ErrorLogger.info("Wallet", "SOL price from CoinGecko: $${String.format("%.2f", price)}")
             }

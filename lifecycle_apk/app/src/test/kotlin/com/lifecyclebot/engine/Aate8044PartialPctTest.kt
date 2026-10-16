@@ -14,9 +14,8 @@ class Aate8044PartialPctTest {
         val wholeCostPct = 0.00825 / 0.03045 * 100.0
         val slicePct = 0.00825 / 0.01827 * 100.0
         assertTrue(wholeCostPct > 0.0 && slicePct > wholeCostPct)
-        val src = File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
-        assertTrue(src.contains("val storedAgrees8044 = sliceCost == null && pnlSolTruth.isFinite()"))
-        assertTrue(src.contains("if (sliceCost != null) pnlSolTruth / sliceCost * 100.0 else pnlSolTruth / cost * 100.0"))
+        assertEquals(slicePct, RealizedReturn8163.percent(0.00825, 0.01827, 0.03045, -40.0)!!, 1e-9)
+        assertEquals(slicePct, RealizedReturn8163.percent(0.00825, 0.0, 0.03045, slicePct)!!, 1e-9)
     }
 }
 

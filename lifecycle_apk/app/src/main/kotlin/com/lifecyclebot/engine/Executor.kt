@@ -3518,7 +3518,7 @@ class Executor(
         ts: TokenState, pos: Position, sellQty: Double, sellFraction: Double, solBack: Double, reason: String,
     ): ProfitLockSlice7884 {
         val proof = profitLockProofs7884.remove(ts.mint)
-        if (proof != null && sellFraction < 0.999) {
+        if (proof != null) {
             val settled = try { commitVerifiedLiveSlice7835(ts, proof, reason) } catch (_: Throwable) { null }
             if (settled != null) {
                 try { PipelineHealthCollector.labelInc("PROFIT_LOCK_CANONICAL_SLICE_7884") } catch (_: Throwable) {}
@@ -6764,7 +6764,7 @@ class Executor(
             // V5.0.6072 — PAPER PARITY. Was `!pos.isPaperPosition && ...`; paper
             // now fires the same protective peak partial so paper trades log a
             // "banked at +peak%" outcome for learning parity with live.
-            val protectiveArm = peakPct6064 >= 500.0 &&
+            val protectiveArm = gainPct >= 500.0 && peakPct6064 >= 500.0 &&
                 pos.partialSoldPct <= 0.01 &&
                 (pos.isPaperPosition || wallet != null)
             if (protectiveArm) {
@@ -7456,62 +7456,9 @@ class Executor(
             }
         }
 
-        // V5.9.495z29 — operator spec item 4: ExecutableQuoteGate.
-        // Profit-lock is only allowed when a fresh executable Jupiter quote
-        // for the EXACT wallet token amount produces a slippage-adjusted
-        // net SOL output above the entry basis recorded in
-        // TokenLifecycleTracker. Refuses on stale price / zero balance /
-        // missing entry basis / extreme price impact / route-not-found.
-        // Capital-recovery exits (which run at the same call site for
-        // 'capital_recovery_*' reasons) DELIBERATELY skip the gate — they
-        // exit on risk grounds even at a small loss. So we only gate
-        // pure profit-lock paths.
-        val isProfitLockReason = reason.startsWith("profit_lock") ||
-                                 reason.startsWith("partial_profit_lock") ||
-                                 reason.startsWith("take_profit")
-        if (isProfitLockReason && sellUnits > 0L) {
-            val lifecycle = TokenLifecycleTracker.get(ts.mint)
-            val entryBasis = lifecycle?.entrySolSpent ?: 0.0
-            // entryBasis falls back to 0 if the lifecycle tracker hasn't
-            // been populated yet (older positions pre-z28). In that case
-            // we let the profit-lock proceed (operator spec: 'do not
-            // block on missing data, log clearly').
-            if (entryBasis > 0.0) {
-                val gateSlip = SellSlippageProfile.forTier(
-                    SellSlippageProfile.Tier.NORMAL_PROFIT_LOCK
-                ).initialBps
-                val verdict = ExecutableQuoteGate.evaluate(
-                    tokenMint = ts.mint,
-                    currentWalletTokenRaw = sellUnits,
-                    entrySolSpent = entryBasis,
-                    minNetProfitFraction = 0.10,   // ≥10% net required
-                    slippageBps = gateSlip,
-                    jupiter = jupiter,
-                )
-                when (verdict) {
-                    is ExecutableQuoteGate.Verdict.Rejected -> {
-                        onLog(
-                            "🚫 PROFIT_LOCK_BLOCKED ${ts.symbol} " +
-                            "${verdict.code}: ${verdict.reason}", ts.mint,
-                        )
-                        LiveTradeLogStore.log(
-                            LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
-                            ts.mint, ts.symbol, "INFO",
-                            LiveTradeLogStore.Phase.WARNING,
-                            "Profit-lock blocked: ${verdict.code} | ${verdict.reason}",
-                            traderTag = "MEME",
-                        )
-                        return
-                    }
-                    is ExecutableQuoteGate.Verdict.Approved -> {
-                        ErrorLogger.info("Executor",
-                            "✅ PROFIT_LOCK_APPROVED ${ts.symbol} " +
-                            "netSol=${"%.6f".format(verdict.expectedSolOutNet)} " +
-                            "impact=${"%.2f".format(verdict.priceImpactPct)}%")
-                    }
-                }
-            }
-        }
+        // Every profit-labelled slice uses the same confirmed SOL basis, including peak and wallet harvests.
+        // Structural/manual exits continue through their existing route authority.
+        if (!ProfitExitTruth8163.preflight(ts, reason, sellUnits, jupiter)) return
 
         // V5.9.474 — full forensics + V5.9.468 binding-order + V5.9.472 cap removal
         // for the profit-lock / capital-recovery sell path. Operator's screenshot
@@ -7739,6 +7686,7 @@ class Executor(
                         }
                     }
                     val activeQuote7228 = quote ?: continue
+                    if (!ProfitExitTruth8163.acceptQuote(ts, reason, activeQuote7228, com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason))) return
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                     val txResult = buildTxWithRetry(
                         activeQuote7228, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
@@ -8199,7 +8147,7 @@ class Executor(
                     PipelineHealthCollector.labelInc("CAPITAL_RECOVERY_STATE_SUPPRESSED_UNREALIZED_4585")
                 } catch (_: Throwable) {}
             }
-            ts.position = pos.copy(
+            ts.position = ts.position.copy(
                 qtyToken = newQty,
                 costSol = newCost,
                 capitalRecovered = if (realizedCapitalRecovery4585) true else pos.capitalRecovered,

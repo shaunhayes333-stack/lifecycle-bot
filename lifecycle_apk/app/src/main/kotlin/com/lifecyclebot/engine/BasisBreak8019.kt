@@ -92,5 +92,5 @@ object BasisBreak8019 {
         return true
     }
 
-    fun statusLine(): String = "exitsRefused=${refused.get()} phantomPeaks=${phantomRefused.get()} released8025=${releasedCount8025.get()} bar=mark ${MAX_RATIO_8019.toInt()}x from entry"
+    fun statusLine(): String = "exitsRefused=${refused.get()} phantomPeaks=${phantomRefused.get()} released8025=${releasedCount8025.get()} bar=mark ${MAX_RATIO_8019.toInt()}x from entry | ${ProfitExitTruth8163.statusLine()}"
 }

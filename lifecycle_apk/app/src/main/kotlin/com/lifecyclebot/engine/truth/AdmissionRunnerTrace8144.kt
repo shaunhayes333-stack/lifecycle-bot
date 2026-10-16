@@ -175,7 +175,7 @@ object AdmissionRunnerTrace8144 {
     fun summary8144(traces: List<Trace8144>): String {
         if (traces.isEmpty()) return "runners=0"
         val v = traces.map { classify8144(it) }
-        val by = Miss8144.values().joinToString(" ") { m -> "${m.name.lowercase()}=${v.count { it.miss == m }}" }
+        val by = Miss8144.values().joinToString(" ") { m -> "${if (m == Miss8144.CAPTURED) "held_entry" else m.name.lowercase()}=${v.count { it.miss == m }}" }
         val wrong = v.filter { it.miss == Miss8144.WRONGLY_REFUSED }.groupingBy { it.gate.substringBefore(':') }.eachCount()
             .entries.sortedByDescending { it.value }.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
         return "runners=${traces.size} $by wrongBy{$wrong}"
@@ -401,7 +401,7 @@ object AdmissionRunnerTrace8144 {
         val list = traces8144()
         val rows = list.take(6).joinToString(" · ") { t ->
             val v = classify8144(t)
-            "${t.symbol.take(10)} +${t.peakPct.toInt()}% ${v.miss.name}${if (v.gate.isNotBlank()) "(${v.gate.take(48)})" else ""}"
+            "${t.symbol.take(10)} observedPeak=+${t.peakPct.toInt()}% ${if (v.miss == Miss8144.CAPTURED) "HELD_ENTRY" else v.miss.name}${if (v.gate.isNotBlank()) "(${v.gate.take(48)})" else ""}"
         }
         return "trace8144[${summary8144(list)} file=$FILE_8144]${if (rows.isNotBlank()) " | $rows" else ""} | " +
             "${AdmissionHandoff8144.statusLine8144()} | ${AdmissionBirth8144.statusLine8144()}"

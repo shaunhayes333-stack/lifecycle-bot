@@ -949,7 +949,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(r.parseNewPools8128("""{"data":{"data":[]}}""", now).isEmpty())
         assertTrue(r.parseNewPools8128(null, now).isEmpty())
         val scanner = src("engine/SolanaMarketScanner.kt")
-        assertTrue(scanner.contains("if (scanRaydiumApiNewPools8128()) return"))
+        assertFalse(scanner.contains("if (scanRaydiumApiNewPools8128()) return"))
+        assertTrue(scanner.contains("scanRaydiumApiNewPools8128()  // V5.0.8163"))
         assertTrue(scanner.contains("if (scanEmergencySweepRows8128() > 0) return"))
         // The sweep stands in only while it is young, and never offers a quote mint.
         val m = com.lifecyclebot.engine.market.MarketSweep7297
