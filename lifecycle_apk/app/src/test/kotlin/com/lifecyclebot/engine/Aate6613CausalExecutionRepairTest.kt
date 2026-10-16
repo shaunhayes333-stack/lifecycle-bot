@@ -63,9 +63,14 @@ class Aate6613CausalExecutionRepairTest {
         assertTrue(executor.contains("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT"))
         assertTrue(sheet.contains("INTENT_CHOKED") && sheet.contains("MARK_CHOKED") && sheet.contains("LEARNING_CHOKED"))
         assertTrue(partial.contains("TierState6613") && partial.contains("QUANTITY_RESERVED") && partial.contains("COMPLETE"))
-        val candidateStamp=crypto.indexOf("AssetClass.CRYPTO_ALT, \"CANDIDATE\"")
-        val submit=crypto.indexOf("CanonicalEntryAuthority6551.submit", candidateStamp)
+        // The CANDIDATE stamp now lives inside CanonicalEntryAuthority6551.submit itself,
+        // ahead of the SUBMIT stamp, so every crypto submit is counted as a candidate first.
+        val contract=File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+        val submitFn=contract.substringAfter("fun submit(candidate: CanonicalAssetEntryCandidate6551)")
+        val candidateStamp=submitFn.indexOf("markCandidateFor6551(candidate.assetClass")
+        val submit=submitFn.indexOf("markSubmitFor6551(candidate.assetClass", candidateStamp)
         assertTrue(candidateStamp >= 0 && submit > candidateStamp)
+        assertTrue(crypto.contains("CanonicalEntryAuthority6551.submit("))
         assertTrue(crypto.contains("CRYPTO_LEARNED_SIZE_FLOORED_NONZERO_6613"))
         assertTrue(bot.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613"))
     }

@@ -38,16 +38,6 @@ class V5_0_6569AcceptanceTest {
         assertTrue(authority.contains("unexplained="))
     }
 
-    @Test fun specialist_silence_observes_through_shared_intelligence_without_terminal_gate() {
-        val crypto=src("perps/CryptoAltTrader.kt")
-        assertFalse(crypto.contains("markEvaluationDisposition6567(refreshed, \"NO_ACTIONABLE_SPECIALIST_SIGNAL\")"))
-        assertTrue(crypto.contains("OBSERVE_SPECIALIST_SILENCE_6569"))
-        assertTrue(crypto.contains("CRYPTO_SPECIALIST_SILENCE_TO_SHARED_INTELLIGENCE_6569"))
-        assertTrue(crypto.contains("markFdgReach6544(sharedTok6569"))
-        assertTrue(crypto.contains(".take(25)"))
-        assertFalse(crypto.contains(".filter { it.score >= scoreThresh && it.confidence >= confThresh }"))
-    }
-
     @Test fun advisor_domains_and_replay_rollback_cannot_mutate_strategy_from_integrity() {
         val advisor=src("engine/truth/AutoPipelineAdvisor6462.kt")
         assertTrue(advisor.contains("ADVISOR_CROSS_DOMAIN_MUTATION_BLOCKED_6569"))

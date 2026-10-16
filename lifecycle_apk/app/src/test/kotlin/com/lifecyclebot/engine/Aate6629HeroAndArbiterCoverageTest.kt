@@ -184,8 +184,10 @@ class Aate6629HeroAndArbiterCoverageTest {
         val mainSrc = java.io.File(
             "src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt"
         ).readText()
-        assertTrue("V5.0.6643: MEME hero must read unified account snapshot",
-            mainSrc.contains("UnifiedAccountSnapshot6635.read(\"MEME\")"))
+        // V5.0.7045 — the MEME paper hero reads the atomic HeroAccountSnapshot7045
+        // (6635.read() retained stale values as current).
+        assertTrue("V5.0.7045: MEME hero must read the hero account snapshot",
+            mainSrc.contains("HeroAccountSnapshot7045.read(\"MEME\")"))
         val cryptoSrc = java.io.File(
             "src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt"
         ).readText()

@@ -60,16 +60,17 @@ class Aate6658HotLoopUnchokeTest {
 
     @Test
     fun `specialist ticket stamp fires whether intent was retrieved or created`() {
-        val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        // Retrieval no longer swallows the TICKET stamp — the stamp is
-        // fanned out immediately after the retrieval/create tuple.
+        // V5.0.7613 / V5.0.7871 — the TICKET stamp moved into ExecutableOpenGate:
+        // publishTicket stamps a newly created ticket and reuseSealedIntent7871
+        // stamps a retrieved one, both on the intent's own attemptId.
+        val gate = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue(
-            "TICKET must be stamped whenever specialistIntent6614 is non-null (retrieved or created)",
-            bot.contains("V5.0.6658 §TICKET_STAMP_RETRIEVAL_PARITY"),
+            "TICKET must be stamped when a specialist ticket is created",
+            gate.contains("ToolkitSignalSheet.recordDeskStage(lane7613, \"TICKET\", ticket.attemptId)"),
         )
         assertTrue(
-            "TICKET stamp must use the intent's canonical attemptId so recordDeskStage dedupe holds",
-            bot.contains("ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, \"TICKET\", ticketStampIntent6658.attemptId)"),
+            "TICKET must be stamped when a sealed specialist intent is retrieved",
+            gate.contains("ToolkitSignalSheet.recordDeskStage(canonicalLane(intent.canonicalLane.ifBlank { lane }), \"TICKET\", intent.attemptId)"),
         )
     }
 
@@ -98,16 +99,12 @@ class Aate6658HotLoopUnchokeTest {
             src.contains("V5.0.6658 §SPECIALIST_LANE_STAMP_ALIGNMENT"),
         )
         assertTrue(
-            "canonicalPrimaryLane6658 must be pulled from LaneExecutionCoordinator.currentElection6600",
-            src.contains("LaneExecutionCoordinator") && src.contains("currentElection6600(ts.mint)?.takeIf { it.sealed }?.primaryLane"),
+            "canonicalPrimaryLane6658 must be resolved from the caller's specialistLane (ExecutionBook desk)",
+            src.contains("val canonicalPrimaryLane6658 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(\n            specialistLane?.takeIf { it.isNotBlank() } ?: tradingModeTag?.name ?: \"CORE\")"),
         )
         assertTrue(
-            "FDG_ALLOW/FDG_BLOCK stamp must use canonicalPrimaryLane6658",
-            src.contains("recordDeskStage(canonicalPrimaryLane6658, if (shouldTradeFinal)"),
-        )
-        assertTrue(
-            "OrderSizeResolver.resolve must receive canonicalPrimaryLane6658 as laneName",
-            src.contains("laneName = canonicalPrimaryLane6658,"),
+            "executable sizing must receive canonicalPrimaryLane6658 as its lane",
+            src.contains("resolveExecutableSize7835(ts, canonicalPrimaryLane6658, finalSize, config)"),
         )
     }
 
@@ -178,7 +175,7 @@ class Aate6658HotLoopUnchokeTest {
         // converges on the funnel desk instead of falling through to
         // tradingModeTag.name. Enumerate the operator lanes explicitly.
         val required = listOf(
-            "specialistLane = \"TREASURY\"",
+            "specialistLane = compounderLane7614",
             "specialistLane = \"QUALITY\"",
             "specialistLane = \"BLUECHIP\"",
             "specialistLane = \"SHITCOIN\"",

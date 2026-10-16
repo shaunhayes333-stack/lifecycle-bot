@@ -43,7 +43,9 @@ class TacticSwitcherBayesTest {
 
     @Test
     fun post_pivot_tactic_rotates_again_after_four_decisive_losses() {
-        val lane = "MOONSHOT_POST_PIVOT"
+        // V5.0.8049 seeds a MOONSHOT lane on BREAKOUT, not MOMENTUM; use a neutral
+        // (MOMENTUM-seeded) lane so the MOMENTUM -> PULLBACK -> REACCUMULATION path is exercised.
+        val lane = "TEST_POST_PIVOT_${System.nanoTime()}".take(22)
         val band = "S41-60"
         repeat(8) { TacticSwitcher.onTradeClosed(lane, band, pnlPct = -6.0) }
         assertEquals(TacticSwitcher.Tactic.PULLBACK, TacticSwitcher.currentTactic(lane, band))

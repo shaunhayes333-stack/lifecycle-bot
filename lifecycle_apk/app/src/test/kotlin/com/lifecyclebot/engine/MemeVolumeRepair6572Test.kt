@@ -50,13 +50,16 @@ class MemeVolumeRepair6572Test {
         val src = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/Executor.kt"
         ).readText()
+        // V5.0.7850 / V5.0.7852 — paperBuy no longer sizes at all: it consumes the
+        // sealed ticket's resolvedSize, so no graduated tranche can cut it.
+        val paperBuy = src.substringAfter("fun paperBuy(").substringBefore("\n    fun v3Buy(")
         assertTrue(
-            "V5.0.6572: paper graduated tranche must be skipped",
-            src.contains("PAPER_GRADUATED_TRANCHE_SKIPPED_6572"),
+            "paper buy must consume the sealed ticket size",
+            paperBuy.contains("val effectiveBuySol6451 = ticket6513?.resolvedSize ?: run {"),
         )
         assertTrue(
-            "V5.0.6572: paper full-fluid clamp must be present",
-            src.contains("paperBuy.paperFullFluid_6572"),
+            "V5.0.6572: paper graduated tranche must never be applied",
+            !paperBuy.contains("graduatedInitialSize(") && !paperBuy.contains("graduatedInitialPct("),
         )
     }
 }

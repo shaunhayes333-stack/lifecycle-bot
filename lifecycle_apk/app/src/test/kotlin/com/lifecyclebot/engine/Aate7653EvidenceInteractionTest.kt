@@ -40,7 +40,8 @@ class Aate7653EvidenceInteractionTest {
     @Test fun plannerAndCalibrationUseTheInteractionGraph() {
         val e = File("src/main/kotlin/com/lifecyclebot/engine/ExistingIntelligenceContext7650.kt").readText()
         val c = File("src/main/kotlin/com/lifecyclebot/engine/SuperIntelligenceCalibration7636.kt").readText()
-        assertTrue(e.contains("SuperEvidenceInteraction7653.adjustment(lane, topology.familyUtility)"))
+        // V5.0.7664 — the interaction reads the epistemic-budgeted family utility.
+        assertTrue(e.contains("SuperEvidenceInteraction7653.adjustment(lane, budgeted.familyUtility)"))
         assertTrue(c.contains("SuperEvidenceInteraction7653.recordOutcome("))
         assertTrue(c.contains("evidenceInteractions7653"))
     }
