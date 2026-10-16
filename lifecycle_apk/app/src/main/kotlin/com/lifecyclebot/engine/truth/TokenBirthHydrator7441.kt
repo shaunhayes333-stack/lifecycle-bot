@@ -79,7 +79,95 @@ object TokenBirthHydrator7441 {
         if (!launched) inFlight.remove(m)
     }
 
+    // V5.0.8144 §BIRTH_FROM_EVERY_WITNESS. 5.0.8142: 2,015 PROJECT_SNIPER refusals as BIRTH_METADATA_HYDRATING. Three
+    // defects here: (1) the page cursor was the last SUCCESSFUL signature, so a page that ended in failed transactions
+    // (a hot launch's failed bot buys) was re-fetched, and a page of only failed ones never advanced until the page
+    // budget; (2) the oldest row's missing blockTime ended in NO_BLOCKTIME although its slot answers getBlockTime;
+    // (3) nothing learned from a partial read, so a token whose first page already reached back hours stayed "unknown"
+    // instead of proven old. pump.fun's own coin record (created_timestamp) is asked first for a pump mint, every page
+    // publishes its lower bound (AdmissionBirth8144.noteHistoryFloor8144), and paging stops once the token is proven
+    // older than the widest launch window — its exact birth no longer changes any lane's decision.
+    private const val ESTABLISHED_PROOF_MS_8144 = 6L * 60L * 60_000L
+    private const val PUMP_RECORD_RETRY_MS_8144 = 10L * 60_000L
+    private val pumpRecordAskedAt8144 = ConcurrentHashMap<String, Long>()
+
+    /** One getSignaturesForAddress row: [blockTimeSec] 0 when the node had none; [failed] = the transaction errored. */
+    data class SigRow8144(val signature: String, val blockTimeSec: Long, val slot: Long, val failed: Boolean)
+
+    /**
+     * A page read: [oldestBlockMs] of its successful rows (Long.MAX_VALUE when none had a time), [oldestOkSlotNoTime] the
+     * slot of its oldest successful row when that row had no blockTime (0 otherwise), [cursor] the LAST row's signature
+     * whatever its status (the next page starts before it), [complete] = the history ends on this page.
+     */
+    data class PageScan8144(val oldestBlockMs: Long, val oldestOkSlotNoTime: Long, val cursor: String, val complete: Boolean)
+
+    /** Pure: one page of newest-first signatures for the mint. Failed rows never date the mint, but they do page. */
+    fun scanPage8144(rows: List<SigRow8144>, pageLimit: Int): PageScan8144 {
+        var oldest = Long.MAX_VALUE
+        var lastOk: SigRow8144? = null
+        for (r in rows) {
+            if (r.failed) continue
+            lastOk = r
+            if (r.blockTimeSec > 0L) oldest = minOf(oldest, r.blockTimeSec * 1000L)
+        }
+        val slotNoTime = lastOk?.takeIf { it.blockTimeSec <= 0L && it.slot > 0L }?.slot ?: 0L
+        return PageScan8144(oldest, slotNoTime, rows.lastOrNull()?.signature.orEmpty(), rows.size < pageLimit)
+    }
+
+    /** Pure: the history read so far reaches back far enough that no launch window can still contain the birth. */
+    fun provenEstablished8144(oldestBlockMs: Long, nowMs: Long): Boolean =
+        oldestBlockMs != Long.MAX_VALUE && oldestBlockMs > 0L && nowMs - oldestBlockMs > ESTABLISHED_PROOF_MS_8144
+
+    private fun rows8144(page: JSONArray): List<SigRow8144> {
+        val out = ArrayList<SigRow8144>(page.length())
+        for (i in 0 until page.length()) {
+            val row = page.optJSONObject(i) ?: continue
+            out += SigRow8144(row.optString("signature", ""), row.optLong("blockTime", 0L), row.optLong("slot", 0L), !row.isNull("err"))
+        }
+        return out
+    }
+
+    /** pump.fun's coin record for a pump mint: its created_timestamp IS the create event. True when it resolved the birth. */
+    private fun pumpRecord8144(mint: String): Boolean {
+        if (!mint.endsWith("pump")) return false
+        val now = System.currentTimeMillis()
+        val asked = pumpRecordAskedAt8144[mint]
+        if (asked != null && now - asked < PUMP_RECORD_RETRY_MS_8144) return false
+        if (pumpRecordAskedAt8144.size > PROGRESS_SOFT_CAP_7502) pumpRecordAskedAt8144.entries.removeIf { now - it.value > PUMP_RECORD_RETRY_MS_8144 }
+        pumpRecordAskedAt8144[mint] = now
+        val req = Request.Builder().url("https://frontend-api-v3.pump.fun/coins/$mint").header("User-Agent", "Mozilla/5.0").build()
+        val created = try {
+            HealthAwareHttp.execute(http, req, host = "pumpfun").use { resp ->
+                if (!resp.isSuccessful) 0L else JSONObject(resp.body?.string() ?: "{}").optLong("created_timestamp", 0L)
+            }
+        } catch (_: Throwable) { 0L }
+        val ms = AdmissionBirth8144.epochMs8144(created)
+        if (ms <= 1_577_836_800_000L || ms > now + 60_000L) return false
+        AdmissionBirth8144.notePumpCoinRecord8144(mint, ms)
+        try {
+            val ctx = com.lifecyclebot.AATEApp.appContextOrNull()
+            if (ctx != null) TokenMetaCache.get(ctx).register(mint = mint, creationTimeMs = ms)
+        } catch (_: Throwable) {}
+        progress.remove(mint)
+        cooldownUntil.remove(mint)
+        try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_PUMP_RECORD_RESOLVED_8144") } catch (_: Throwable) {}
+        return true
+    }
+
+    private fun blockTimeMs8144(rpc: String, slot: Long): Long? {
+        val body = JSONObject().put("jsonrpc", "2.0").put("id", "birth8144").put("method", "getBlockTime").put("params", JSONArray().put(slot))
+        val req = Request.Builder().url(rpc).header("Content-Type", "application/json")
+            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+        return try {
+            HealthAwareHttp.execute(http, req, host = "solana_rpc").use { resp ->
+                if (!resp.isSuccessful) null
+                else JSONObject(resp.body?.string() ?: "{}").optLong("result", 0L).takeIf { it > 0L }?.let { it * 1000L }
+            }
+        } catch (_: Throwable) { null }
+    }
+
     private fun hydrate(mint: String) {
+        if (pumpRecord8144(mint)) return
         val rpcCandidates = RuntimeProviderAuthority6685.rpcCandidates()
         if (rpcCandidates.isEmpty()) {
             cooldownUntil[mint] = System.currentTimeMillis() + NO_RPC_COOLDOWN_MS
@@ -90,6 +178,8 @@ object TokenBirthHydrator7441 {
         val state = progress.computeIfAbsent(mint) { Progress() }
         state.lastTouchedMs = System.currentTimeMillis()
         if (state.pages >= MAX_PAGES_7770) {
+            // V5.0.8144 — the budget ends the paging, not the evidence: what was read still proves the age's lower bound.
+            if (state.oldestBlockMs != Long.MAX_VALUE) AdmissionBirth8144.noteHistoryFloor8144(mint, state.oldestBlockMs)
             cooldownUntil[mint] = System.currentTimeMillis() + PAGE_BUDGET_COOLDOWN_MS_7770
             try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_HYDRATE_PAGE_BUDGET_7770") } catch (_: Throwable) {}
             return
@@ -107,21 +197,33 @@ object TokenBirthHydrator7441 {
                     publishIfComplete(mint, state)
                     return
                 }
-                var lastSig = ""
-                for (i in 0 until page.length()) {
-                    val row = page.optJSONObject(i) ?: continue
-                    if (!row.isNull("err")) continue
-                    val btSec = row.optLong("blockTime", 0L)
-                    if (btSec > 0L) state.oldestBlockMs = minOf(state.oldestBlockMs, btSec * 1000L)
-                    val sig = row.optString("signature", "")
-                    if (sig.isNotBlank()) lastSig = sig
+                // V5.0.8144 — pure page read: the cursor is the last row whatever its status; a missing oldest blockTime
+                // is asked of its slot; every page's oldest successful time is a published lower bound of the age.
+                val scan = scanPage8144(rows8144(page), PAGE_LIMIT)
+                state.oldestBlockMs = minOf(state.oldestBlockMs, scan.oldestBlockMs)
+                if (scan.complete && scan.oldestOkSlotNoTime > 0L) {
+                    // The creation row itself had no time: a newer row's time is NOT the birth (it would read younger).
+                    val bt = blockTimeMs8144(rpc, scan.oldestOkSlotNoTime)
+                    if (bt == null) {
+                        if (state.oldestBlockMs != Long.MAX_VALUE) AdmissionBirth8144.noteHistoryFloor8144(mint, state.oldestBlockMs)
+                        cooldownUntil[mint] = System.currentTimeMillis() + RETRY_COOLDOWN_MS
+                        try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_SLOT_TIME_PENDING_8144") } catch (_: Throwable) {}
+                        return
+                    }
+                    state.oldestBlockMs = minOf(state.oldestBlockMs, bt)
                 }
-                if (page.length() < PAGE_LIMIT) {
+                if (scan.complete) {
                     publishIfComplete(mint, state)
                     return
                 }
-                if (lastSig.isBlank()) break
-                state.before = lastSig
+                if (state.oldestBlockMs != Long.MAX_VALUE) AdmissionBirth8144.noteHistoryFloor8144(mint, state.oldestBlockMs)
+                if (provenEstablished8144(state.oldestBlockMs, System.currentTimeMillis())) {
+                    cooldownUntil[mint] = System.currentTimeMillis() + PAGE_BUDGET_COOLDOWN_MS_7770
+                    try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_PROVEN_ESTABLISHED_8144") } catch (_: Throwable) {}
+                    return
+                }
+                if (scan.cursor.isBlank()) break
+                state.before = scan.cursor
             }
             if (anyRpcAnswered) break
         }
@@ -164,6 +266,7 @@ object TokenBirthHydrator7441 {
             val ctx = com.lifecyclebot.AATEApp.appContextOrNull()
             if (ctx != null) TokenMetaCache.get(ctx).register(mint = mint, creationTimeMs = ms)
         } catch (_: Throwable) {}
+        AdmissionBirth8144.noteOldestSignature8144(mint, ms)  // V5.0.8144 — in memory too (the meta cache reads disk lazily)
         progress.remove(mint)
         cooldownUntil.remove(mint)
         try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_RPC_RESOLVED_7441") } catch (_: Throwable) {}

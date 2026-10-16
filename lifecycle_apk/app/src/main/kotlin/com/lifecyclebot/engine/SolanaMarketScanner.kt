@@ -1960,6 +1960,7 @@ class SolanaMarketScanner(
                     val vol = 0.0
 
                     val createdTs = coin.optLong("created_timestamp", 0L)
+                    try { com.lifecyclebot.engine.truth.AdmissionBirth8144.notePumpCoinRecord8144(mint, createdTs) } catch (_: Throwable) {}  // V5.0.8144 — the launch's birth
                     val ageHours = if (createdTs > 0) {
                         (now - createdTs) / 3_600_000.0
                     } else {

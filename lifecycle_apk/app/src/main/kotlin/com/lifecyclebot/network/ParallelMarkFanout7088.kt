@@ -532,6 +532,7 @@ object ParallelMarkFanout7088 {
                                     .priceUsd(JSONObject(body))
                             } catch (_: Throwable) { 0.0 }
                             if (px.isFinite() && px > 0.0) out[mint] = px
+                            try { com.lifecyclebot.engine.truth.AdmissionBirth8144.notePumpCoinRecord8144(mint, JSONObject(body).optLong("created_timestamp", 0L)) } catch (_: Throwable) {}  // V5.0.8144 — the same record dates the launch
                         }
                     } catch (_: Throwable) {
                     } finally {

@@ -251,9 +251,16 @@ object ProjectSniperAI {
         
         // V5.0.7440 — no observation-time fallback.
         // V5.0.7769 — the one launch-age rule (CanonicalTokenBirthTime7440.launchAgeMs7767).
+        // V5.0.8144 — an unresolved canonical birth is not yet "hydrating" when another witness knows it (create frame,
+        // pump.fun coin record, oldest signature) or proves the token already older than the window (history floor, the
+        // bot's own first sighting): AdmissionBirth8144. Only a truly unknown birth defers.
         val resolvedAgeMs7440 = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts)
+            ?: com.lifecyclebot.engine.truth.AdmissionBirth8144.provenAgeMs8144(ts, MAX_TOKEN_AGE_SECONDS * 1000L)
             ?: return noEngage("BIRTH_METADATA_HYDRATING_7440", 0, ThreatLevel.RED)
         val tokenAgeSecs = (resolvedAgeMs7440 / 1000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        // V5.0.8144 — an age (resolved, or a proven lower bound) already past the window is OLD: handed on by name and
+        // recorded until a receiving lane has judged it, instead of reading BIRTH_METADATA_HYDRATING / a late phase.
+        if (tokenAgeSecs > MAX_TOKEN_AGE_SECONDS) return handOff8144(ts, "TOO_OLD_8144: ${tokenAgeSecs}s > ${MAX_TOKEN_AGE_SECONDS}s", tokenAgeSecs)
         val launch7449 = try {
             com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)
         } catch (_: Throwable) { null }
@@ -610,6 +617,15 @@ object ProjectSniperAI {
         )
     }
     
+    /** V5.0.8144 — a fit refusal (laneFitRefusal8132 reads TOO_OLD) handed to the runner lane by name, and ledgered. */
+    private fun handOff8144(ts: TokenState, reason: String, tokenAgeSecs: Int): TargetAssessment {
+        val floor = try { MoonshotTraderAI.minMarketCapUsdFluid7719() } catch (_: Throwable) { MoonshotTraderAI.MIN_MARKET_CAP_USD }
+        val lane = com.lifecyclebot.engine.truth.LaunchLifecycle8136.handoffLaneFor8144(ts.lastMcap, floor)
+        try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.emitHandoff8144(ts.mint, "PROJECT_SNIPER", lane, reason) } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("SNIPER_TOO_OLD_HANDOFF_8144") } catch (_: Throwable) {}
+        return noEngage(reason, tokenAgeSecs, ThreatLevel.YELLOW)
+    }
+
     private fun noEngage(reason: String, tokenAgeSecs: Int, threat: ThreatLevel = ThreatLevel.RED): TargetAssessment {
         return TargetAssessment(
             shouldEngage = false,
