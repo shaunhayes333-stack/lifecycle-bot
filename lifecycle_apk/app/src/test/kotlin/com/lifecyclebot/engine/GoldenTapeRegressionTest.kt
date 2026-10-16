@@ -13036,15 +13036,16 @@ class GoldenTapeRegressionTest {
         // no literal -5 first-phase stop remains in either.
         assertEquals(2, Regex(Regex.escape("minOf(EARLY_TIGHT_STOP_PCT_7696, effectiveHardFloor)")).findAll(moon).count())
         assertFalse(moon.contains("minOf(-5.0, effectiveHardFloor)"))
-        // V5.0.8030 — the ≤12-minute tier holds the -15 runner floor; V5.0.7795 hard floor -20.
-        assertTrue(moon.contains("if (holdMinutes <= 12) stop = maxOf(stop, -15.0)"))
+        // V5.0.8030 — the ≤12-minute tier holds a runner floor; V5.0.8169 — it is the position's own doctrine stop (15-25%).
+        assertTrue(moon.contains("if (holdMinutes <= 12) stop = maxOf(stop, -com.lifecyclebot.engine.ExitDoctrine8169.earlyRunnerStopMag8169(mint))"))
         assertTrue(moon.contains("private const val HARD_FLOOR_STOP = -20.0"))
 
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("private const val RUNNER_LANE_MIN_FLUID_STOP_PCT_7696 = -10.0"))
         assertTrue(bot.contains("val dynamicStopPct7696 = if (runnerLane7696 && dynamicStopPct < 0.0 && dynamicStopPct > RUNNER_LANE_MIN_FLUID_STOP_PCT_7696) {"))
         // V5.0.7754 — a plan that owns the exit is consulted after the runner check.
-        assertTrue(bot.contains("if (pnlPct <= dynamicStopPct7696 && !(dynamicStopPct7696 > 0.0 && runnerDefer7322) &&"))
+        // V5.0.8169 — a deferred runner keeps its protective floor (ExitDoctrine8169.fires8169), not every positive stop dropped.
+        assertTrue(bot.contains("if (pnlPct <= dynamicStopPct7696 && ExitDoctrine8169.fires8169(ts, dynamicStopPct7696, runnerDefer7322) &&"))
         assertFalse(bot.contains("if (pnlPct <= dynamicStopPct && !(dynamicStopPct > 0.0 && runnerDefer7322)) {"))
     }
 
