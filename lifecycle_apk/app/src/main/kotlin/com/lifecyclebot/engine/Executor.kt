@@ -11605,7 +11605,7 @@ class Executor(
             pos.tradingMode.equals("EXPRESS", ignoreCase = true) ||
             pos.tradingMode.equals("PUMP_SNIPER", ignoreCase = true)
         val isFreshMeme = isMemePosition && heldSecs < 300L
-        val HARD_FLOOR_STOP_PCT = if (isFreshMeme) 9.0 else 15.0
+        val HARD_FLOOR_STOP_PCT = ExitDoctrine8169.riskHardFloorMag8169(ts, isFreshMeme)  // V5.0.8169 — fresh: the ordinary stop, not 9%; else stop+5 (15..30)
 
         // V5.9.807 — P3 predictive exit hook. If this position's
         // (tradingMode × scoreBand) bucket is a danger zone (≥5 losses,
@@ -11615,7 +11615,7 @@ class Executor(
         // loosened. Read-only over LosingPatternMemory; no impact on
         // entry sizing, swap scripting, or PrecisionExitLogic.
         val predictiveSlPct: Double? = try {
-            com.lifecyclebot.engine.LosingPatternMemory.recommendedSlPct(
+            ExitDoctrine8169.recommendedSlPct8169(  // V5.0.8169 — never inside the lane's Field Manual invalidation
                 tradingMode = pos.tradingMode,
                 v3Score = pos.entryScore.toInt(),
             )

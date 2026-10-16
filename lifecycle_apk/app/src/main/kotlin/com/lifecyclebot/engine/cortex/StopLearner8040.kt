@@ -103,7 +103,9 @@ object StopLearner8040 {
     private fun redecide(lane: String, book: Book, baseStopPct: Double) {
         val rows = synchronized(book) { book.sinceDecide = 0; book.paths.values.toList() }
         val current = learned[lane]?.stopPct ?: baseStopPct
-        val floor = if (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false } || lane == "MOONSHOT") 15.0 else 0.0
+        val runnerFloor = if (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false } || lane == "MOONSHOT") 15.0 else 0.0
+        // V5.0.8169 — nor inside the lane's Field Manual invalidation (5.0.8168 learned 5% for BLUECHIP / QUALITY; doctrine 10%).
+        val floor = maxOf(runnerFloor, com.lifecyclebot.engine.ExitDoctrine8169.doctrinePct8169(lane).takeIf { it.isFinite() } ?: 0.0)
         val pick = decide8040(rows, nearest8040(current), floor) ?: return
         val stop = CANDIDATES_8040[pick.first]
         learned[lane] = Decision(stop, rows.size, pick.second, System.currentTimeMillis())

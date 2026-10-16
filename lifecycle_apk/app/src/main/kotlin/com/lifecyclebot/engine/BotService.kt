@@ -975,7 +975,7 @@ class BotService : Service() {
         val plan7955 = try { ExitProfile7955.planFor7955(ts) } catch (_: Throwable) { null }
         val runnerDeferred = ExitProfile7955.deferGiveBack7955(plan7955, laneDeferred, peakPnlPct)
         val costPct = planCostPct7766(ts)
-        val stop = com.lifecyclebot.engine.truth.FieldManual7715.runnerAwareStop7935(raw, peakPnlPct, costPct, runnerDeferred) {
+        val stop = ExitDoctrine8169.runnerAwareStop8169(ts, raw, peakPnlPct, costPct, runnerDeferred) {  // V5.0.8169 — + the deferred runner's protective floor
             com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(modeDefaultStop, currentPnlPct, minOf(peakPnlPct, 2.9), holdTimeSeconds, volatility, lane)
         }
         return ExitProfile7955.applyTrail7955(plan7955, stop, peakPnlPct, costPct)
@@ -12542,7 +12542,7 @@ class BotService : Service() {
                             try { PipelineHealthCollector.labelInc("RUNNER_FLUID_STOP_HELD_AT_LANE_FLOOR_7696") } catch (_: Throwable) {}
                             RUNNER_LANE_MIN_FLUID_STOP_PCT_7696
                         } else dynamicStopPct
-                        if (pnlPct <= dynamicStopPct7696 && !(dynamicStopPct7696 > 0.0 && runnerDefer7322) &&
+                        if (pnlPct <= dynamicStopPct7696 && ExitDoctrine8169.fires8169(ts, dynamicStopPct7696, runnerDefer7322) &&  // V5.0.8169 — a deferred runner's protective floor fires
                             !planOwnsExit7754(ts, true, false, "RAPID_FLUID", stopSide = true)) {
                             // V5.9.1431 — RAPID ENTRY PROTECT REMOVED (operator
                             // directive). No more ENTRY_PROTECT stop label/behaviour.
@@ -19426,8 +19426,8 @@ class BotService : Service() {
         // val was function-scoped (val HARD_FLOOR_STOP_PCT = 15.0) so it
         // isn't visible from this helper. Behaviour-preserving copy of
         // the same 15.0 hard floor.
-        val HARD_FLOOR_STOP_PCT_CONST = 15.0
-        val catastropheThreshold = getCatastropheThreshold(cfg.paperMode)
+        val HARD_FLOOR_STOP_PCT_CONST = ExitDoctrine8169.rapidHardFloorMag8169(ts)  // V5.0.8169 — under the ordinary stop, 15..30%
+        val catastropheThreshold = ExitDoctrine8169.rapidCatastrophePct8169(ts, getCatastropheThreshold(cfg.paperMode))  // V5.0.8169 — never above the hard floor / lifecycle floor
         val peakGainPct = ts.position.peakGainPct
         val drawdownFromPeak = peakGainPct - pnlPct
         // V5.0.6836 §GIVE_BACK_WAS_FLAT_POINTS — drawdownFromPeak is in pnl POINTS, so
