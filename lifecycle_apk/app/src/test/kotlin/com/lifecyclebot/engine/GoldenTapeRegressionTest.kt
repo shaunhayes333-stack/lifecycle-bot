@@ -2242,7 +2242,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Trade row must persist cost basis snapshot", models.contains("val entryCostSol: Double"))
         assertTrue("Trade row must persist partial accounting quantities", models.contains("val soldQtyToken: Double") && models.contains("val remainingQtyToken: Double"))
 
-        assertTrue("SQLite schema must version immutable receipt columns", store.contains("const val DB_VERSION = 9"))
+        assertTrue("SQLite schema must version immutable receipt columns", store.contains("const val DB_VERSION = 10"))
         assertTrue("SQLite schema must store position_id", store.contains("position_id   TEXT"))
         assertTrue("SQLite schema must store entry price snapshot", store.contains("entry_price_snapshot"))
         assertTrue("TradeHistoryStore must enrich missing sell linkage from prior BUY", store.contains("fun enrichJournalLinkage") && store.contains("TRADE_JOURNAL_LINKAGE_ENRICHED"))
@@ -10974,7 +10974,7 @@ class GoldenTapeRegressionTest {
         assertTrue(sanity.contains("requestRepair(mint, \"OpenPnlSanity_absurd_gain_7298\")"))
         assertTrue(sanity.contains("OPEN_PNL_ABSURD_GAIN_REPAIRED_7298"))
         val repair = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MarkIdentityRepairAuthority7236.kt").readText()
-        assertTrue(repair.indexOf("resolve7088(listOf(bare7298))") < repair.indexOf("PriceResolverFallback.resolve(mint, solUsd)"))
+        assertTrue(repair.indexOf("resolve7088(listOf(bare7298))") < repair.indexOf("PriceResolverFallback.resolve(cascadeMint8169, solUsd)"))
         val hunter = java.io.File("src/main/kotlin/com/lifecyclebot/engine/market/LaneHunter7297.kt").readText()
         assertTrue(hunter.contains("ModeLearning.getScannerPrefs(k)"))
         assertTrue(hunter.contains("MomentumPredictorAI.getStrongMomentumTokens()"))

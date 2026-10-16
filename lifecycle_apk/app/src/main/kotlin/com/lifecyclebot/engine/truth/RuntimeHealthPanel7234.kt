@@ -51,6 +51,8 @@ object RuntimeHealthPanel7234 {
         sb.append("│        venueMissing=${pad(mi.venueMissing)} suppressed=${pad(mi.executionSuppressed)}\n")
         sb.append("│ REPAIR requested=${pad(mr.requested)} ok=${pad(mr.succeeded)} fail=${pad(mr.failed)}\n")
         sb.append("│        cacheHits=${pad(mr.cacheHits)} stale=${pad(mr.cacheMissesStale)} size=${mr.cacheSize}\n")
+        // V5.0.8169 — why repairs failed (named), and identities that were never repairable.
+        sb.append("│        failBy=${MarkIdentityRepairAuthority7236.failReasons8169().take(120)}\n")
         sb.append("│ LIFT   allowed=${pad(rg.liftAllowed)} refusedWeak=${pad(rg.totalRefused)}\n")
         sb.append("│        (score=${rg.refusedWeakScore},regime=${rg.refusedWeakRegime},proof=${rg.refusedPendingProof},cmpst=${rg.refusedComposite})\n")
         sb.append("│ LIVE   terminal=${pad(CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("LIVE").size.toLong())} broadcastReads=${pad(lt.excludedBroadcast)}\n")

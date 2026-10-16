@@ -43,8 +43,12 @@ object MarkIdentityRepairAuthority7236 {
     /** Cached repaired price is trusted for this window. */
     private const val REPAIR_FRESH_MS: Long = 30_000L
 
-    /** Repair attempts for the same mint are debounced. */
-    private const val REPAIR_DEBOUNCE_MS: Long = 3_000L
+    /**
+     * Repair attempts for the same mint are debounced.
+     * V5.0.8169 — 3 s -> 6 s: the price cascade answers null for 5 s after it last priced a mint
+     * (PriceResolverFallback hot cache), so a 3 s retry was a guaranteed counted failure.
+     */
+    private const val REPAIR_DEBOUNCE_MS: Long = 6_000L
 
     private data class Repaired(
         val priceUsd: Double,
@@ -65,6 +69,23 @@ object MarkIdentityRepairAuthority7236 {
     private val repairFailed = AtomicLong(0L)
     private val cacheHits = AtomicLong(0L)
     private val cacheMissesStale = AtomicLong(0L)
+    // V5.0.8169 — every failed (or skipped) repair carries a named reason in the report.
+    private val failBy8169 = ConcurrentHashMap<String, AtomicLong>()
+    private val skippedNonSolana8169 = AtomicLong(0L)
+
+    private fun noteFail8169(reason: String) {
+        failBy8169.getOrPut(reason) { AtomicLong(0L) }.incrementAndGet()
+        repairFailed.incrementAndGet()
+        try {
+            PipelineHealthCollector.labelInc("MARK_REPAIR_FAILED_7236")
+            PipelineHealthCollector.labelInc("MARK_REPAIR_FAILED_8169_$reason")
+        } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8169 — failure reasons, e.g. "NO_FEED_ANSWERED=12,NO_NEW_OBSERVATION_HOT_CACHE=40". */
+    fun failReasons8169(): String =
+        failBy8169.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" } +
+            " skippedNonSolana=${skippedNonSolana8169.get()}"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -80,6 +101,14 @@ object MarkIdentityRepairAuthority7236 {
         val prev = lastAttempt[mint] ?: 0L
         if (now - prev < REPAIR_DEBOUNCE_MS) return
         lastAttempt[mint] = now
+        // V5.0.8169 — only a Solana mint can be priced by these feeds; any other identity is a named skip,
+        // never a counted repair (and the broken mark stays suppressed by its gate).
+        val cascadeMint8169 = AccountingIntegrity8169.repairIdentity8169(mint)
+        if (cascadeMint8169 == null) {
+            skippedNonSolana8169.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("MARK_REPAIR_SKIPPED_NON_SOLANA_IDENTITY_8169") } catch (_: Throwable) {}
+            return
+        }
         repairAttempts.incrementAndGet()
         try { PipelineHealthCollector.labelInc("MARK_REPAIR_REQUESTED_7236") } catch (_: Throwable) {}
         scope.launch {
@@ -93,8 +122,10 @@ object MarkIdentityRepairAuthority7236 {
                 // parallel fan-out only answers with a price the feeds do not
                 // contest (a corroborated cluster, or a single feed alone).
                 val bare7298 = mint.removePrefix("solana|").trim()
+                var fanContested8169 = false
                 val fan7298 = if (bare7298.isBlank() || bare7298.contains('|')) null else try {
                     com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(bare7298))[bare7298]
+                        ?.also { if (it.sourceCount >= 2 && !it.corroborated) fanContested8169 = true }
                         ?.takeIf { !(it.sourceCount >= 2 && !it.corroborated) && it.priceUsd.isFinite() && it.priceUsd > 0.0 }
                 } catch (_: Throwable) { null }
                 if (fan7298 != null) {
@@ -105,7 +136,8 @@ object MarkIdentityRepairAuthority7236 {
                     try { PipelineHealthCollector.labelInc("MARK_REPAIR_SUCCEEDED_7236_FANOUT_7298") } catch (_: Throwable) {}
                     return@launch
                 }
-                val resolved = com.lifecyclebot.engine.sell.PriceResolverFallback.resolve(mint, solUsd)
+                // V5.0.8169 — the cascade gets the bare mint ("solana|<mint>" was never priceable).
+                val resolved = com.lifecyclebot.engine.sell.PriceResolverFallback.resolve(cascadeMint8169, solUsd)
                 if (resolved != null && resolved.priceUsd.isFinite() && resolved.priceUsd > 0.0) {
                     // A cross-source cascade returned a positive price.
                     // The cascade internally rotates on health, so a
@@ -128,12 +160,11 @@ object MarkIdentityRepairAuthority7236 {
                         }
                     } catch (_: Throwable) {}
                 } else {
-                    repairFailed.incrementAndGet()
-                    try { PipelineHealthCollector.labelInc("MARK_REPAIR_FAILED_7236") } catch (_: Throwable) {}
+                    val hot8169 = try { com.lifecyclebot.engine.sell.PriceResolverFallback.hotCacheHit8169(cascadeMint8169) } catch (_: Throwable) { false }
+                    noteFail8169(AccountingIntegrity8169.repairFailureReason8169(true, false, fanContested8169, hot8169))
                 }
             } catch (_: Throwable) {
-                repairFailed.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("MARK_REPAIR_FAILED_7236") } catch (_: Throwable) {}
+                noteFail8169(AccountingIntegrity8169.repairFailureReason8169(true, true, false, false))
             }
         }
     }
@@ -274,13 +305,14 @@ object MarkIdentityRepairAuthority7236 {
         val s = summary()
         return "MarkIdentityRepairAuthority7236 requested=${s.requested} " +
             "ok=${s.succeeded} fail=${s.failed} " +
-            "cacheHits=${s.cacheHits} cacheStale=${s.cacheMissesStale} cacheSize=${s.cacheSize}"
+            "cacheHits=${s.cacheHits} cacheStale=${s.cacheMissesStale} cacheSize=${s.cacheSize} failBy8169[${failReasons8169()}]"
     }
 
     internal fun clearForTest() {
         cache.clear(); lastAttempt.clear()
         cacheHitEmitAt7409.clear(); cacheStaleEmitAt7409.clear()
         repairAttempts.set(0L); repairSucceeded.set(0L); repairFailed.set(0L)
+        failBy8169.clear(); skippedNonSolana8169.set(0L)
         cacheHits.set(0L); cacheMissesStale.set(0L)
     }
 }

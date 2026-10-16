@@ -37,6 +37,9 @@ object ReconcileRunner8144 {
     @Volatile private var walletSnap8144: Map<String, CanonicalTokenAmount>? = null
     @Volatile private var walletSnapAtMs8144 = 0L
     @Volatile private var walletSnapComplete8144 = false
+    // V5.0.8169 — unsigned journal buys given their local signature from SignedTxLedger8085 on the last pass.
+    @Volatile private var sigRecovered8169 = 0
+    @Volatile private var sigAmbiguous8169 = 0
 
     private val scheduler8144 by lazy {
         Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "reconcile-8144").apply { isDaemon = true } }
@@ -142,16 +145,28 @@ object ReconcileRunner8144 {
         val txs = txRows.map { ReconcileClassifier8144.Tx8144(it.signature, it.mint, it.side, it.state.name) }
         try { CanonicalPositionAuthority6441.pendingEntryPositions6461().filter { it.mode.equals("live", true) }.forEach { pending += it.mint } } catch (_: Throwable) {}
 
-        val journal = try {
+        val journalRows = try {
             TradeHistoryStore.getAllValidTradesSnapshot(JOURNAL_WINDOW_8144).filter { it.mode.equals("live", true) }.map { t ->
                 ReconcileClassifier8144.Row8144(
                     side = t.side, mint = t.mint, positionId = t.positionId, sig = t.sig,
                     soldQty = t.soldQtyToken, consumedRaw = t.canonicalConsumedRaw, costSol = t.sol,
                     grossProceedsSol = t.grossProceedsSol, reason = t.reason, ts = t.ts,
-                    fillQty = t.entryQtyToken, fillRaw = t.entryRawQty,
+                    fillQty = t.entryQtyToken, fillRaw = t.entryRawQty, proofState = t.proofState,
                 )
             }
         } catch (_: Throwable) { emptyList() }
+        // V5.0.8169 — carry the locally signed BUY signature into rows whose journal copy lost it.
+        val sigRes = com.lifecyclebot.engine.truth.AccountingIntegrity8169.resolveJournalBuySignatures8169(
+            journalRows,
+            txRows.filter { it.side == "BUY" }.map {
+                com.lifecyclebot.engine.truth.AccountingIntegrity8169.SignedBuy8169(
+                    it.signature, it.mint, it.createdAtMs, it.state == com.lifecyclebot.network.SignedTxLedger8085.State.CONFIRMED,
+                )
+            },
+        )
+        sigRecovered8169 = sigRes.recovered
+        sigAmbiguous8169 = sigRes.ambiguous
+        val journal = sigRes.journal
         journal.forEach { if (ReconcileClassifier8144.isBuy8144(it.side) && it.mint.isNotBlank()) evidence += it.mint }
 
         val dust = HashSet<String>()
@@ -195,5 +210,6 @@ object ReconcileRunner8144 {
     fun statusLine8144(nowMs: Long = System.currentTimeMillis()): String =
         ReconcileClassifier8144.statusLine8144(last, if (lastAtMs > 0L) nowMs - lastAtMs else 0L, runs.get(), lastError) +
             " | ${try { ReconcileLineageLedger8144.statusLine8144() } catch (_: Throwable) { "lineage8144 unavailable" }}" +
-            " dupSigBlocked=${ReconcileSignatureGuard8144.blockedCount8144()} started=${started.get()}"
+            " dupSigBlocked=${ReconcileSignatureGuard8144.blockedCount8144()} started=${started.get()}" +
+            " sigRecovered8169=$sigRecovered8169 sigAmbiguous8169=$sigAmbiguous8169"
 }

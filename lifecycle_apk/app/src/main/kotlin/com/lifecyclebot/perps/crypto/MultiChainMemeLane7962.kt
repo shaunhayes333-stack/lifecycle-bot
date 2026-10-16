@@ -367,6 +367,9 @@ object MultiChainMemeLane7962 {
     private val geckoDeferred = AtomicLong(0)
     private val dexCalls = AtomicLong(0)
     private val budgetSkipped = AtomicLong(0)
+    // V5.0.8169 — marks refused as an implausible multiple (8168: paper mean +3.75e36 %), and closes kept out of the book.
+    private val implausibleMarks8169 = AtomicLong(0)
+    private val unbookableCloses8169 = AtomicLong(0)
     @Volatile private var geckoCursor = 0
     @Volatile private var lastGeckoMs = 0L
     @Volatile private var lastDexListMs = 0L
@@ -555,7 +558,13 @@ object MultiChainMemeLane7962 {
             val at = System.currentTimeMillis()
             for (k in batch) {
                 markAskedAt[k] = at
-                markFromPairs7962(pairs, k.substringAfter('|'), pairOf[k].orEmpty())?.let { marks[k] = it to at }
+                markFromPairs7962(pairs, k.substringAfter('|'), pairOf[k].orEmpty())?.let { px ->
+                    // V5.0.8169 — a read implausibly far above the last one means one of the two is a pair/unit
+                    // mismatch: neither is kept (no mark beats a fabricated one); the next read starts clean.
+                    val refusal8169 = com.lifecyclebot.engine.truth.AccountingIntegrity8169.markMultipleRefusal8169(marks[k]?.first ?: Double.NaN, px)
+                    if (refusal8169 != null) { noteImplausibleMark8169(k, refusal8169); marks.remove(k); return@let }
+                    marks[k] = px to at
+                }
             }
         }
         if (marks.size > 5_000) marks.entries.removeIf { now - it.value.second > OBS_KEEP_MS }
@@ -779,6 +788,15 @@ object MultiChainMemeLane7962 {
             if (p.state == "PENDING_SELL") { if (ctx != null) runSell(ctx, chain, p, cs); continue }
             val mark = freshMark7962("${p.chain}|${p.token}", now) ?: continue
             if (!(p.entryPriceUsd > 0.0)) continue
+            // V5.0.8169 — an implausible upside multiple is never booked or acted on (a collapse still is).
+            // A paper position whose entry and mark cannot both be true closes unbooked (no slot held forever);
+            // a live position keeps its wallet-paid basis and waits for a plausible mark.
+            val markRefusal8169 = com.lifecyclebot.engine.truth.AccountingIntegrity8169.markMultipleRefusal8169(p.entryPriceUsd, mark)
+            if (markRefusal8169 != null) {
+                noteImplausibleMark8169("${p.chain}|${p.token}", markRefusal8169)
+                if (!p.live) close(p, markRefusal8169, Double.NaN, now)
+                continue
+            }
             p.lastMarkUsd = mark
             val pnl = (mark / p.entryPriceUsd - 1.0) * 100.0
             if (pnl > p.peakPct) p.peakPct = pnl
@@ -844,7 +862,9 @@ object MultiChainMemeLane7962 {
         p.realizedPct = realizedPct
         val book = if (p.live) closedLive else closedPaper
         synchronized(book) {
-            if (realizedPct.isFinite()) book.addLast(realizedPct)
+            // V5.0.8169 — only a plausible closed percent enters the mean.
+            if (com.lifecyclebot.engine.truth.AccountingIntegrity8169.bookablePct8169(realizedPct)) book.addLast(realizedPct)
+            else if (realizedPct.isFinite()) unbookableCloses8169.incrementAndGet()
             while (book.size > 200) book.removeFirst()
         }
         try { PipelineHealthCollector.labelInc("MULTICHAIN_${if (p.live) "LIVE" else "PAPER"}_CLOSE_7962_${p.chain.uppercase()}") } catch (_: Throwable) {}
@@ -890,6 +910,12 @@ object MultiChainMemeLane7962 {
         } catch (t: Throwable) { ErrorLogger.warn(TAG, "restore: ${t.message}") }
     }
 
+    private fun noteImplausibleMark8169(key: String, reason: String) {
+        implausibleMarks8169.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("MULTICHAIN_${reason}") } catch (_: Throwable) {}
+        try { if (implausibleMarks8169.get() % 25L == 1L) ErrorLogger.warn(TAG, "mark refused $reason key=${key.take(60)}") } catch (_: Throwable) {}
+    }
+
     // ── diag ──
 
     private fun fmtBook(b: ArrayDeque<Double>): String = synchronized(b) {
@@ -908,6 +934,8 @@ object MultiChainMemeLane7962 {
             .append(" calls[gecko=").append(geckoCalls.get()).append(" deferred=").append(geckoDeferred.get())
             .append(" dex=").append(dexCalls.get()).append(']')
             .append(" closed[live ").append(fmtBook(closedLive)).append(" · paper ").append(fmtBook(closedPaper)).append(']')
+            .append(" markGuard8169[implausible=").append(implausibleMarks8169.get()).append(" unbookable=").append(unbookableCloses8169.get())
+            .append(" maxMultiple=").append(com.lifecyclebot.engine.truth.AccountingIntegrity8169.MAX_MARK_MULTIPLE_8169.toInt()).append(']')
         for (c in EvmSwapExecutor7962.CHAINS_7962) {
             val cs = chains[c.key] ?: continue
             val lane = laneOf7962(c.key)

@@ -40,6 +40,11 @@ object ReconcileClassifier8144 {
         ORPHAN_SELL_MANUAL_HOLDING(false),
         /** A LIVE BUY row without a transaction signature. */
         LIVE_BUY_NO_SIGNATURE(false),
+        /**
+         * V5.0.8169 — a chain-proven LIVE BUY (proofState LIVE_FINALIZED / LIVE_SIG_CONFIRMED) whose signature
+         * was lost by the pre-v10 journal (no `sig` column) and is not in the signed ledger any more.
+         */
+        LIVE_BUY_SIG_NOT_PERSISTED(false),
         /** A LIVE BUY row whose signature the signed ledger proves failed / expired / rejected. */
         LIVE_BUY_TX_NOT_CONFIRMED(false),
         /** A LIVE BUY row with no confirmed fill quantity. */
@@ -98,6 +103,8 @@ object ReconcileClassifier8144 {
         /** For a LIVE BUY row: the confirmed fill quantity (ui / raw). */
         val fillQty: Double = 0.0,
         val fillRaw: BigInteger = BigInteger.ZERO,
+        /** V5.0.8169 — the journal row's proofState (chain proof at write time). */
+        val proofState: String = "",
     )
 
     data class Inputs8144(
@@ -199,7 +206,10 @@ object ReconcileClassifier8144 {
         val lotMints = i.lots.mapTo(HashSet()) { it.mint }
         val lotPids = i.lots.mapTo(HashSet()) { it.positionId }
         for (b in buys) {
-            if (b.sig.isBlank()) out += Exception8144(Cause8144.LIVE_BUY_NO_SIGNATURE, b.mint, b.positionId, "reason=${b.reason.take(40)}")
+            if (b.sig.isBlank()) out += Exception8144(
+                // V5.0.8169 — a chain-proven row lost its signature in storage; only an unproven one is unsigned.
+                if (AccountingIntegrity8169.chainProvenProofState8169(b.proofState)) Cause8144.LIVE_BUY_SIG_NOT_PERSISTED else Cause8144.LIVE_BUY_NO_SIGNATURE,
+                b.mint, b.positionId, "reason=${b.reason.take(40)} proof=${b.proofState.take(24)}")
             else failedSigs[b.sig]?.let { out += Exception8144(Cause8144.LIVE_BUY_TX_NOT_CONFIRMED, b.mint, b.positionId, "sig=${b.sig.take(12)} state=${it.state}") }
             if (!(b.fillQty > 0.0) && b.fillRaw.signum() <= 0) {
                 out += Exception8144(Cause8144.LIVE_BUY_NO_CONFIRMED_FILL, b.mint, b.positionId, "reason=${b.reason.take(40)}")
