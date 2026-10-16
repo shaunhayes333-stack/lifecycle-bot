@@ -72,6 +72,16 @@ object BotImprovementReport8168 {
             "Learning delivery exceptions" to listOf("FINALIZED_BUS_CONSUMER_", "LEARNING_ELIGIBILITY_", "REWARD_PURITY_REJECT_"))) {
             sb.append(title).append(": ").append(counterSection(labels, prefixes)).append('\n')
         }
+        sb.append("Recent runner decision traces (latest six; later peak is diagnostic, not decision-time proof):\n")
+        val traces = com.lifecyclebot.engine.truth.AdmissionRunnerTrace8144.traces8144().take(6)
+        if (traces.isEmpty()) sb.append("  NO_RUNNER_TRACES_CAPTURED\n")
+        for (t in traces) {
+            sb.append("  mint=${t.mint} lane=${t.lane} detectedAtMs=${t.detectedAtMs} observedPeakPct=${t.peakPct} held=${t.held}\n")
+            sb.append("    firstSeenMs=${t.firstSeenMs} source=${t.source} birth=${t.birthKind}/${t.birthSource} birthAgeMs=${t.birthAgeMs} liqUsd=${t.liquidityUsd}\n")
+            sb.append("    nativeAtMs=${t.nativeAtMs} natives=${t.natives} qualified=${t.qualified} setup=${t.setup} admission=${t.admission}\n")
+            sb.append("    fdg=${t.fdgLane}/${t.fdgVerdict} handoff=${t.handoff} binding=${t.binding} evidence=${t.bindingEvidence} identity=${t.identity}\n")
+            sb.append("    labelRefusal=${t.refusedBy} downstream=${t.downstream} mark=${t.markPx} windowAtMs=${t.windowAtMs} costPct=${t.windowCostPct} measured=${t.windowCostMeasured} route=${t.route}\n")
+        }
         sb.append("Interpretation: selected != native-qualified != FDG-allowed != filled. Forward returns != banked SOL. Compare actual whole-position outcomes and paid fees separately from observed peaks.\n")
     }
 }
