@@ -6201,7 +6201,7 @@ object FinalDecisionGate {
             val stopPct8094 = risk8094?.stopPct ?: 0.0
             val costPct8094 = risk8094?.costPct ?: 0.0
             com.lifecyclebot.engine.truth.LiveSizeTarget8094.recordSealed8094(com.lifecyclebot.engine.truth.LiveSizeTarget8094.Row(
-                mint = ts.mint, lane = lane, strategy = (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane, System.currentTimeMillis()) } catch (_: Throwable) { null }) ?: "UNCLASSIFIED",
+                mint = ts.mint, lane = lane, strategy = (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, System.currentTimeMillis()) } catch (_: Throwable) { null }) ?: "UNCLASSIFIED",  // V5.0.8153
                 walletCash = cash, markedEquity = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(cash),
                 requestedSol = proposal8094, approvedKellySol = sz?.kellySol ?: 0.0, riskBudgetSol = sz?.riskBudgetSol ?: 0.0,
                 laneCapSol = sz?.laneCapSol ?: 0.0, walletShareCapSol = configuredCap, liquidityCapSol = minOf(depthCap, sz?.liquidityCapSol ?: Double.POSITIVE_INFINITY),

@@ -857,7 +857,7 @@ object LanePlaybook7907 {
      */
     fun playbookScore7937(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Double? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
+        val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8153 — scored as the strategy it trades as
         if (setup == null || setup == NO_TRIGGER) null else {
             val also = classify8084(ts, lane, nowMs)?.matched.orEmpty().count { it != setup }
             val exp = synchronized(this) { expected(lane, setup) }
@@ -884,7 +884,8 @@ object LanePlaybook7907 {
         return try {
             val lane = canon(laneRaw)
             val c8084 = classify8084(ts, lane, nowMs) ?: return null
-            val setup = c8084.tag ?: return null
+            // V5.0.8153 — the strategy the coin trades as (a proven-losing default no longer refuses a supported fired one).
+            val setup = strategyFor8153(ts, lane, c8084, nowMs) ?: return null
             // V5.0.8084 — DATA_INCOMPLETE / CLASSIFIER_ERROR are not the NO_TRIGGER cohort: no economic refusal is drawn
             // from them (the proven-only live step still needs the candidate's own positive evidence to carry money).
             if (c8084.outcome != Outcome8084.MATCHED && c8084.outcome != Outcome8084.NO_MATCH) return null
@@ -978,9 +979,15 @@ object LanePlaybook7907 {
         }
     } catch (_: Throwable) { null }
 
-    /** V5.0.8094 — the strategy this coin trades as in [laneRaw]: the best proven fired setup, else the classified one. */
+    /**
+     * V5.0.8094 — the strategy this coin trades as in [laneRaw]: the best proven fired setup, else the classified one.
+     * V5.0.8153 — first the strategy CandidateAdmission8136 decided for this coin (StrategyIdentity8153, while fresh and
+     * still fired), else the best SUPPORTED / VALID fired setup on its own record and timing band (StrategyRank8153).
+     */
     fun selectedSetup8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? =
-        (try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null })
+        (try { admittedSetup8153(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8153 — the admission's one identity
+            ?: (try { rankedSetup8153(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8153 — best evidenced fired setup
+            ?: (try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null })
             ?: (try { validAlternative8144(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8144
             ?: classify(ts, canon(laneRaw), nowMs)
 
@@ -999,6 +1006,120 @@ object LanePlaybook7907 {
         val alt = CortexStrategySelect8144.alternative8144(default, records) ?: return null
         try { PipelineHealthCollector.labelInc("SETUP_NEGATIVE_DEFAULT_YIELDS_8144_$lane") } catch (_: Throwable) {}
         return alt
+    }
+
+    // ── V5.0.8153 §BEST_EXECUTABLE_STRATEGY_PER_TOKEN (StrategyRank8153) ──
+
+    /**
+     * V5.0.8153 — every setup [ts] fired in [laneRaw] with its OWN record in this lane and its record at the coin's CURRENT
+     * timing band (labels net of cost). Fired setups with no record are left out (missing evidence is never edge).
+     */
+    fun strategyOptions8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): List<com.lifecyclebot.engine.truth.StrategyRank8153.Option8153> = try {
+        val lane = canon(laneRaw)
+        val fired = matchedSetups8083(ts, lane, nowMs)
+        // One build per candidate version and book revision for a second (selectedSetup8094 is read by many gates).
+        val ck = "${ts.mint}|$lane"
+        val key = try { inputKey8084(ts) } catch (_: Throwable) { 0L }
+        val rev = bookRevision8077.get()
+        val hit = options8153[ck]?.takeIf { it.key == key && it.rev == rev && it.fired == fired && nowMs - it.atMs in 0L..OPTIONS_TTL_MS_8153 }
+        if (hit != null) hit.opts else if (fired.isEmpty()) emptyList() else {
+            // The band is read only when a fired setup has a timing record to look it up in.
+            val banded = synchronized(this) { timingBooks8094[lane]?.keys?.any { k -> fired.any { k.startsWith("$it|") } } == true }
+            val band = if (banded) timingBandOf8094(ts) else TIMING_UNKNOWN_8094
+            val opts = synchronized(this) {
+                fired.mapNotNull { id ->
+                    val st = stat(lane, id)?.takeIf { it.n >= 1.0 }
+                    val tm = if (st == null || band == TIMING_UNKNOWN_8094) null else timingBooks8094[lane]?.get("$id|$band")?.takeIf { it.n >= 1.0 }
+                    if (st == null) null else com.lifecyclebot.engine.truth.StrategyRank8153.Option8153(
+                        id = id, n = st.n.toInt(), meanPct = st.mean(),
+                        sePct = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY,
+                        runnerRate = st.runnerRate(), netOfCost = true,
+                        timingN = tm?.n?.toInt() ?: 0, timingMeanPct = tm?.mean() ?: Double.NaN,
+                        timingSePct = if (tm != null && tm.n > 1.0) kotlin.math.sqrt(tm.variance() / tm.n) else Double.NaN,
+                    )
+                }
+            }
+            if (options8153.size > 4_000) options8153.entries.removeIf { nowMs - it.value.atMs > OPTIONS_TTL_MS_8153 }
+            options8153[ck] = Options8153(nowMs, key, rev, fired, opts)
+            opts
+        }
+    } catch (_: Throwable) { emptyList() }
+
+    private class Options8153(val atMs: Long, val key: Long, val rev: Long, val fired: List<String>, val opts: List<com.lifecyclebot.engine.truth.StrategyRank8153.Option8153>)
+    private val options8153 = ConcurrentHashMap<String, Options8153>()
+    private const val OPTIONS_TTL_MS_8153 = 1_000L
+
+    /** V5.0.8153 — the ranked strategy pick over this coin's fired setups (default = the classifier's consumer tag). */
+    fun strategyPick8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): com.lifecyclebot.engine.truth.StrategyRank8153.Pick8153? = try {
+        val lane = canon(laneRaw)
+        com.lifecyclebot.engine.truth.StrategyRank8153.select8153(classify(ts, lane, nowMs), strategyOptions8153(ts, lane, nowMs), Double.NaN)
+    } catch (_: Throwable) { null }
+
+    /** V5.0.8153 — the best SUPPORTED / VALID fired setup on its own record and timing band, else null (the default decides). */
+    fun rankedSetup8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
+        val p = strategyPick8153(ts, laneRaw, nowMs) ?: return null
+        if (!com.lifecyclebot.engine.truth.StrategyRank8153.evidenced8153(p.tier)) return null
+        if (p.overDefault) try { PipelineHealthCollector.labelInc("SETUP_RANKED_OVER_DEFAULT_8153_${canon(laneRaw)}") } catch (_: Throwable) {}
+        return p.id
+    }
+
+    /** V5.0.8153 — the strategy CandidateAdmission8136 decided for this coin in this lane, while fresh and still fired. */
+    fun admittedSetup8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
+        val lane = canon(laneRaw)
+        return com.lifecyclebot.engine.truth.StrategyIdentity8153.heldFor8153(ts.mint, lane, nowMs, matchedSetups8083(ts, lane, nowMs))
+    }
+
+    /** V5.0.8153 — the tier of the strategy this coin trades as (null: not classified / no record). */
+    fun selectedTier8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): com.lifecyclebot.engine.truth.StrategyRank8153.Tier8153? = try {
+        val lane = canon(laneRaw)
+        val sel = selectedSetup8094(ts, lane, nowMs)
+        if (sel == null) null else strategyOptions8153(ts, lane, nowMs).firstOrNull { it.id == sel }
+            ?.let { com.lifecyclebot.engine.truth.StrategyRank8153.tier8153(it, Double.NaN) }
+    } catch (_: Throwable) { null }
+
+    /** V5.0.8153 — [n, mean %, SE %] of [setup] (default: the strategy this coin trades as) in this lane, or null. */
+    fun selectedRecord8153(ts: TokenState, laneRaw: String, setup: String?, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
+        val lane = canon(laneRaw)
+        val sel = setup ?: selectedSetup8094(ts, lane, nowMs)
+        if (sel == null || sel == NO_TRIGGER) null else synchronized(this) {
+            stat(lane, sel)?.takeIf { it.n >= 1.0 }?.let { st ->
+                doubleArrayOf(st.n, st.mean(), if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY)
+            }
+        }
+    } catch (_: Throwable) { null }
+
+    /** V5.0.8153 — the strategy this coin trades as is losing on its own record (12+, mean + SE < 0). */
+    fun selectedLosing8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val r = selectedRecord8153(ts, laneRaw, null, nowMs) ?: return false
+        return r[0] >= NEGATIVE_N_8094 && r[1].isFinite() && r[2].isFinite() && r[1] + r[2] < 0.0
+    }
+
+    /**
+     * V5.0.8153 — a deferred candidate's missing evidence (sparse candle history, unread liquidity, an unobserved 1h change)
+     * re-fetched through the same per-mint throttled path as missing setup inputs (requestInputs8085 -> DataOrchestrator:
+     * candle seed, forced poll, tape subscriptions). The deferral itself stays bounded by CandidateAdmission8136's window.
+     */
+    fun requestEvidence8153(ts: TokenState, missing: List<String>, nowMs: Long = System.currentTimeMillis()) {
+        if (missing.isNotEmpty()) requestInputs8085(ts.mint, ts.symbol, missing, nowMs)
+    }
+
+    /** V5.0.8153 — the playbook's setup for a classification: the strategy the coin trades as when it fired, else the tag. */
+    private fun strategyFor8153(ts: TokenState, lane: String, c: Classification8084, nowMs: Long): String? {
+        val tag = c.tag ?: return null
+        val sel = try { selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
+        return if (sel != null && sel != tag && sel in c.matched) sel else tag
+    }
+
+    /**
+     * Pure (V5.0.8153): the decision tag with [primary] (the strategy the coin trades as) first, so the label, the entry
+     * snapshot and the realised close file under the same setup. The same fired set is graded either way.
+     */
+    internal fun primaryTag8153(c: Classification8084, primary: String?): String? {
+        val base = decisionTag8091(c) ?: return null
+        val tag = c.tag ?: return base
+        if (primary == null || primary == tag || primary !in c.matched) return base
+        val rest = (listOf(tag) + c.matched).filter { it != primary && it != NO_TRIGGER }.distinct()
+        return (if (rest.isEmpty()) primary else primary + ";" + rest.joinToString(",")) + "#O=${c.outcome.name}#V=${c.featureVersion}"
     }
 
     /** V5.0.8094 — [mean, variance, n] of this coin's picked setup at its CURRENT timing band, or null when unrecorded. */
@@ -1028,6 +1149,7 @@ object LanePlaybook7907 {
         val setup = classify(ts, lane, nowMs)
         // V5.0.8144 — a negative default does not refuse the coin when another fired setup is valid on its own record.
         val alt8144 = if (setup == null) null else (try { validAlternative8144(ts, lane, nowMs) } catch (_: Throwable) { null })
+            ?: (try { selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null })?.takeIf { it != setup && it != NO_TRIGGER }  // V5.0.8153
         if (setup == null || alt8144 != null) null else synchronized(this) {
             val st = stat(lane, setup)
             if (st != null && setupRecordNegative8094(st.n, st.mean(), st.variance())) setup else null
@@ -1170,7 +1292,7 @@ object LanePlaybook7907 {
     /** LiveEdgeGate7877: the number of labels behind this candidate's classified setup's record (0 = none). */
     fun classifiedSampleN7948(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Int = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
+        val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8153 — the admitted strategy
         if (setup == null) 0 else synchronized(this) { stat(lane, setup)?.n?.toInt() ?: 0 }
     } catch (_: Throwable) { 0 }
 
@@ -1193,7 +1315,7 @@ object LanePlaybook7907 {
     /** LiveEdgeGate7877: [graduated authority, label count] of this candidate's classified setup, or null (none / NO_TRIGGER). */
     fun classifiedAuthority7955(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
+        val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8153 — the admitted strategy
         if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
             val st = stat(lane, setup)
             if (st == null) null else doubleArrayOf(setupFraction7955(st), st.n)
@@ -1207,7 +1329,7 @@ object LanePlaybook7907 {
      */
     fun provenSetupRecord7948(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
         val lane = canon(laneRaw)
-        val setup = classify(ts, lane, nowMs)
+        val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8153 — conviction sizes the admitted strategy
         if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
             val st = stat(lane, setup)
             val f = setupFraction7955(st)
@@ -1313,7 +1435,9 @@ object LanePlaybook7907 {
         if (pending.size > 8_000) pending.keys.take(pending.size / 2).forEach { pending.remove(it) }
         val fired = c.matched.filter { it != setup }
         // V5.0.8084 — the tag carries the outcome and feature version of the decision (restart-safe in the same string).
-        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to requireNotNull(decisionTag8091(c))
+        // V5.0.8153 — the strategy the coin trades as leads the tag (same graded set), matching the entry snapshot.
+        val primary8153 = try { selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
+        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to requireNotNull(primaryTag8153(c, primary8153) ?: decisionTag8091(c))
         if (pendingTiming8094.size > 8_000) pendingTiming8094.keys.take(pendingTiming8094.size / 2).forEach { pendingTiming8094.remove(it) }
         pendingTiming8094["${ts.mint}|${labelLane.trim().uppercase()}"] = timingBandOf8094(ts)
         tagged.computeIfAbsent("$lane|$setup") { AtomicLong(0) }.incrementAndGet()
@@ -1329,7 +1453,10 @@ object LanePlaybook7907 {
 
     /** Exact current classification, independent of an earlier asynchronous forward capture. */
     fun entryTag8091(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): String? =
-        decisionSnapshot8084(ts, lane, nowMs)?.let(::decisionTag8091)
+        decisionSnapshot8084(ts, lane, nowMs)?.let { c ->
+            // V5.0.8153 — the sealed entry setup is the strategy admitted and sized (StrategyIdentity8153), not the default.
+            primaryTag8153(c, try { selectedSetup8094(ts, c.lane, nowMs) } catch (_: Throwable) { null })
+        }
 
     /** V5.0.8085 — the decision-time tag captured for (mint, label lane), or null; read by the entry snapshot. */
     fun decisionTag8085(mint: String, labelLane: String): String? = pending["$mint|${labelLane.trim().uppercase()}"]?.second

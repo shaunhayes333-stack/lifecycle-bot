@@ -255,7 +255,7 @@ object AgenticStyleRouter {
     /** V5.0.8080: the setup to seal for [laneHint]: the sheet's when this lane can run it, else the coin's own lane setup. */
     fun sealedSetup8080(ts: TokenState, sheet: ToolkitSignalSheet.Sheet?, laneHint: String): String =
         if (toolkitFitsLane8080(sheet, laneHint)) sheet!!.setup.name
-        else (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, laneHint) } catch (_: Throwable) { null } ?: "NONE")
+        else (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, laneHint) } catch (_: Throwable) { null } ?: "NONE")  // V5.0.8153 — the admitted strategy
 
     /** Pure (V5.0.8080): may a style declared for [styleLanes] run in [laneHint]? Blank lane / CORE accept any. */
     fun toolkitStyleFitsLane8080(styleLanes: Set<String>, laneHint: String): Boolean {

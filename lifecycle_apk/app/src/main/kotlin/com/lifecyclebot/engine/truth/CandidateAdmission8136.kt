@@ -80,6 +80,8 @@ object CandidateAdmission8136 {
         val structuralRisk: String? = null,
         val genericScore: Double = Double.NaN,
         val genericFloor: Double = Double.NaN,
+        /** V5.0.8153 — each fired setup's record at the coin's CURRENT timing band (StrategyRank8153 ranks with it). */
+        val setupTimings: Map<String, Evidence8136> = emptyMap(),
     )
 
     /** The one authoritative terminal admission and the evidence trace behind it. */
@@ -91,6 +93,8 @@ object CandidateAdmission8136 {
         val chosenSetup: String?,
         val expectedNetPct: Double,
         val trace: List<String>,
+        /** V5.0.8153 — the evidence the terminal and [chosenSetup] rest on (the one identity sizing, seal and exit read). */
+        val basis: String = "",
     ) {
         val admitted: Boolean get() = terminal == Terminal8136.ADMIT
         val compact: String get() = "${terminal.name}:$reason${chosenSetup?.let { " setup=$it" } ?: ""} [${trace.joinToString("; ")}]"
@@ -145,8 +149,8 @@ object CandidateAdmission8136 {
         trace += "lane=${c.lane} setup=${c.selectedSetup ?: "-"} regime=${c.regime.ifBlank { "-" }} stage=${c.stage.ifBlank { "-" }}${if (c.hotLaunch) " hot" else ""}"
         val net = if (c.expectedGrossPct.isFinite() && c.costPct.isFinite()) c.expectedGrossPct - c.costPct else Double.NaN
         trace += "gross=${fmt8136(c.expectedGrossPct)} cost=${fmt8136(c.costPct)} net=${fmt8136(net)} downside=${fmt8136(c.downsidePct)}"
-        fun done(t: Terminal8136, reason: String, specific: Boolean, setup: String?): Decision8136 =
-            Decision8136(t, reason, specific, setup, net, trace.toList())
+        fun done(t: Terminal8136, reason: String, specific: Boolean, setup: String?, basis: String = ""): Decision8136 =
+            Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason })
 
         // 1. hard safety and structural selling risk: nothing overrides them.
         c.safetyRefusal?.let { trace += "safety=$it"; return done(Terminal8136.REFUSE, "SAFETY_REFUSED_8136", true, c.selectedSetup) }
@@ -155,7 +159,9 @@ object CandidateAdmission8136 {
         // 2. candidate-specific loss patterns. The coin's own cell proven to pay, or another fired setup supported on its
         //    own record, is the strategy instead (LiveEdgeGate7877: cellOrKindProven8094 / provenSetup8056 multi-strategy).
         val cellSupported = supported8136(c.cell, c.costPct)
-        val bestSetup = c.setups.filter { !losing8136(it) && supported8136(it, c.costPct) }.maxByOrNull { it.lowerPct }
+        // V5.0.8153 — every fired setup ranked on its own record AND its timing band (StrategyRank8153): a supported setup
+        //    losing at this point of the move is not the strategy; ties of the conservative net go to the runner rate.
+        val bestSetup = bestSetup8153(c)
         val selectedRec = c.setups.firstOrNull { it.id == c.selectedSetup }
         var chosen = c.selectedSetup
         if (losing8136(selectedRec)) {
@@ -214,7 +220,7 @@ object CandidateAdmission8136 {
         // 6. supported candidate-specific edge: the generic score is only a prior.
         if (edge != null) {
             trace += "edge=${edge.compact}${if (edge.runnerRate.isFinite()) " run=${(edge.runnerRate * 100).toInt()}%" else ""}"
-            return done(Terminal8136.ADMIT, "SPECIFIC_EDGE_PROVEN_8136", true, if (edge.kind == KIND_SETUP) edge.id else chosen)
+            return done(Terminal8136.ADMIT, "SPECIFIC_EDGE_PROVEN_8136", true, if (edge.kind == KIND_SETUP) edge.id else chosen, edge.compact)
         }
 
         // 7. no supported edge: thin positives are noted, never admitted; the generic prior decides.
@@ -222,10 +228,24 @@ object CandidateAdmission8136 {
             .forEach { trace += "thinPositive=${it.compact} needs n>=$SUPPORT_MIN_N_8136" }
         if (c.genericScore.isFinite() && c.genericFloor.isFinite()) {
             trace += "generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)}"
-            return if (c.genericScore >= c.genericFloor) done(Terminal8136.ADMIT, "GENERIC_PRIOR_CLEARS_8136", false, chosen)
+            return if (c.genericScore >= c.genericFloor) done(Terminal8136.ADMIT, "GENERIC_PRIOR_CLEARS_8136", false, chosen, "GENERIC_PRIOR:${chosen ?: "-"}")
             else done(Terminal8136.REFUSE, "GENERIC_SCORE_FLOOR_8136", false, chosen)
         }
         return done(Terminal8136.REFUSE, "NO_SUPPORTED_EDGE_8136", false, chosen)
+    }
+
+    /**
+     * Pure (V5.0.8153): the best SUPPORTED fired setup of [c] — the same evidence test as [supported8136] / [losing8136],
+     * ranked by StrategyRank8153 (tier, conservative net capped by the setup's own timing band, runner rate, sample).
+     */
+    internal fun bestSetup8153(c: Candidate8136): Evidence8136? {
+        val options = c.setups.map { e ->
+            val t = c.setupTimings[e.id]
+            StrategyRank8153.Option8153(e.id, e.n, e.meanPct, e.sePct, e.runnerRate, e.netOfCost,
+                t?.n ?: 0, t?.meanPct ?: Double.NaN, t?.sePct ?: Double.NaN)
+        }
+        val best = StrategyRank8153.bestSupported8153(options, c.costPct) ?: return null
+        return c.setups.firstOrNull { it.id == best.id }
     }
 
     const val KIND_SETUP = "SETUP"
@@ -307,6 +327,12 @@ object CandidateAdmission8136 {
     private class Held8144(val decision: Decision8136, val features: List<String>, val atMs: Long)
 
     private val reevals8144 = ConcurrentHashMap<String, Reeval8144>()
+    /** V5.0.8153 — the last decision per mint + lane for [MEMO_MS_8153]: the live edge gate and the FDG floor read one record. */
+    private val memos8153 = ConcurrentHashMap<String, Pair<Long, Decision8136>>()
+    private const val MEMO_MS_8153 = 1_500L
+
+    private fun memo8153(mint: String, laneRaw: String, nowMs: Long): Decision8136? =
+        memos8153["$mint|$laneRaw"]?.takeIf { nowMs - it.first in 0L..MEMO_MS_8153 }?.second
     private val held8144 = ConcurrentHashMap<String, Held8144>()
     private val coalesced8144 = AtomicLong(0)
 
@@ -346,6 +372,14 @@ object CandidateAdmission8136 {
             held8144.remove(key)
         }
         try { AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason) } catch (_: Throwable) {}
+        // V5.0.8153 — the one strategy identity: every later reader of LanePlaybook7907.selectedSetup8094 gets this choice.
+        try {
+            val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
+            StrategyIdentity8153.record8153(mint, lane, d.chosenSetup, d.basis, nowMs)
+            AdmissionRunnerTrace8144.noteIdentity8153(mint, d.chosenSetup, d.basis)
+        } catch (_: Throwable) {}
+        if (memos8153.size > 4_000) memos8153.entries.removeIf { nowMs - it.value.first > MEMO_MS_8153 }
+        memos8153[key] = nowMs to d
     }
 
     /**
@@ -416,22 +450,31 @@ object CandidateAdmission8136 {
     /** The admission record for [ts] in [laneRaw] now, decided. Null only on an internal failure. */
     fun assess8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Decision8136? = try {
         // V5.0.8144 — a data deferral is re-decided when one of its missing features is due (coalesced, not every cycle).
-        coalescedDefer8144(ts.mint, laneRaw, nowMs) ?: decide8136(candidateFor8136(ts, laneRaw, nowMs)).also { noteDecision8144(ts.mint, laneRaw, it, nowMs) }
+        memo8153(ts.mint, laneRaw, nowMs) ?: coalescedDefer8144(ts.mint, laneRaw, nowMs) ?: decide8136(candidateFor8136(ts, laneRaw, nowMs)).also { noteDecision8144(ts.mint, laneRaw, it, nowMs) }
     } catch (_: Throwable) { null }
 
     /** Builds the candidate record from the playbook, forward labels, net-edge cost model and safety report. */
     internal fun candidateFor8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Candidate8136 {
         val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
         val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907
-        val selected = try { pb.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
+        // V5.0.8153 — the strategy is ranked fresh over every fired setup (StrategyRank8153), not read back from the
+        //    identity this record itself holds; its choice is then that identity for every later reader.
+        val pick8153 = try { pb.strategyPick8153(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val options8153 = try { pb.strategyOptions8153(ts, lane, nowMs) } catch (_: Throwable) { emptyList() }
+        val selected = pick8153?.id ?: try { pb.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
         val setups = try {
             pb.firedSetupRecords8136(ts, lane, nowMs).map { (id, r) -> Evidence8136(KIND_SETUP, id, r[0].toInt(), r[1], r[2], r[3]) }
         } catch (_: Throwable) { emptyList() }
+        val band8153 = try { pb.timingBandOf8094(ts) } catch (_: Throwable) { pb.TIMING_UNKNOWN_8094 }
+        val setupTimings = options8153.filter { it.timingN > 0 }.associate { o ->
+            o.id to Evidence8136(KIND_TIMING, "${o.id}@$band8153", o.timingN, o.timingMeanPct, o.timingSePct)
+        }
         val cellStat = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
         // A cell whose observations mostly lost their mark is not a measurement of its coins (LiveEdgeGate7877.mostlyUnpriced8022).
         val cell = cellStat?.takeIf { it.resolvedShare >= LiveEdgeGate7877.MIN_RESOLVED_SHARE_7944 }
             ?.let { Evidence8136(KIND_CELL, it.key.take(40), it.n60, it.meanNet60Pct, it.stderr60Pct, it.runnerRate60) }
-        val timing = try {
+        // V5.0.8153 — the timing record of the strategy selected here (not of whatever selectedSetup8094 held).
+        val timing = if (selected != null && options8153.any { it.id == selected }) setupTimings[selected] else try {
             pb.timingStat8094(ts, lane, nowMs)?.let { a ->
                 Evidence8136(KIND_TIMING, "${selected ?: "-"}@${pb.timingBandOf8094(ts)}", a[2].toInt(), a[0], stdErr8136(a[1], a[2]))
             }
@@ -441,9 +484,13 @@ object CandidateAdmission8136 {
             if (fit == null) null else ForwardReturnLabeler7731.stageStatFor7928(fit.lane, fit.stage.name)
                 ?.let { st -> Evidence8136(KIND_STAGE, fit.stage.name, st.n60, st.meanNet60Pct, st.stderr60Pct, st.runnerRate60) }
         } catch (_: Throwable) { null }
+        // V5.0.8153 — unread depth is UNKNOWN, never LOW: the launch probe is costed without impact nobody measured.
         val launch = try {
-            FreshLaunchSelector7737.launchRead7742(ts, FieldManual7715.allInCostPct(10.0, ts.lastLiquidityUsd), nowMs)
+            FreshLaunchSelector7737.launchRead7742(ts, FieldManual7715.allInCostPct(StrategyMove8153.probeSizeUsd8153(ts.lastLiquidityUsd), ts.lastLiquidityUsd), nowMs)
         } catch (_: Throwable) { null }
+        val cost8153 = try { NetEdge8030.entryCostPct8136(ts, lane) } catch (_: Throwable) { Double.NaN }
+        val curveActive8153 = try { CurveReserves7951.realSolIfActive8046(ts.mint, nowMs) != null } catch (_: Throwable) { false }
+        val liquidityMissing8153 = !curveActive8153 && StrategyMove8153.liquidityRead8153(ts.lastLiquidityUsd) == "UNKNOWN"
         val safety = if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK)
             "HARD_BLOCK:${ts.safety.hardBlockReasons.firstOrNull().orEmpty().take(40)}" else null
         val priceAge = if (ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
@@ -454,9 +501,11 @@ object CandidateAdmission8136 {
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             stage = fit?.stage?.name.orEmpty(),
             priceAgeMs = priceAge,
-            missingInputs = try { pb.dataIncomplete8136(ts, lane, nowMs).orEmpty() } catch (_: Throwable) { emptyList() },
-            expectedGrossPct = try { NetEdge8030.expectedGrossPct8136(ts, lane) } catch (_: Throwable) { Double.NaN },
-            costPct = try { NetEdge8030.entryCostPct8136(ts, lane) } catch (_: Throwable) { Double.NaN },
+            missingInputs = (try { pb.dataIncomplete8136(ts, lane, nowMs).orEmpty() } catch (_: Throwable) { emptyList() }) +
+                (if (liquidityMissing8153) listOf("liquidity:UNKNOWN") else emptyList()),
+            // V5.0.8153 — the selected strategy's expected executable move (NetEdge8030.executableMove8153), as the gate judges it.
+            expectedGrossPct = try { NetEdge8030.expectedGrossFor8153(ts, lane, selected, cost8153) } catch (_: Throwable) { Double.NaN },
+            costPct = cost8153,
             downsidePct = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(lane) } catch (_: Throwable) { Double.NaN },
             setups = setups,
             cell = cell,
@@ -467,6 +516,7 @@ object CandidateAdmission8136 {
             safetyRefusal = safety,
             structuralRisk = if (fit?.stage == com.lifecyclebot.engine.TokenMetricStageRouter.Stage.RUG_PRONE) "STAGE_RUG_PRONE"
                 else launch?.takeIf { it.verdict == FreshLaunchSelector7737.LaunchVerdict.REFUSED }?.why,
+            setupTimings = setupTimings,
         )
     }
 }

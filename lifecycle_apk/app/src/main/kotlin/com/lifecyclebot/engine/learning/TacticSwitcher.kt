@@ -242,7 +242,9 @@ object TacticSwitcher {
     fun tacticForToken8050(ts: com.lifecyclebot.data.TokenState, lane: String, score: Int): Tactic {
         // V5.0.8094 — a coin admitted on a PROVEN setup trades as that setup's tactic (the one its labels were graded on),
         // not as whatever the token-wide classification maps to; the stamp, the style and the tactic record then agree.
-        val proven8094 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, lane)?.first } catch (_: Throwable) { null }
+        // V5.0.8153 — the strategy the admission selected (StrategyIdentity8153 / StrategyRank8153) is the tactic's setup.
+        val selected8153 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane) } catch (_: Throwable) { null }
+        val proven8094 = selected8153 ?: try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, lane)?.first } catch (_: Throwable) { null }
         val setup = proven8094 ?: try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane) } catch (_: Throwable) { null }
         if (!setup.isNullOrBlank() && setup !in setOf("NO_TRIGGER", "SPECIALIST_EDGE", "EXPERT_ENTRY", "LAUNCH_LADDER_PROVEN")) {
             try { PipelineHealthCollector.labelInc("TACTIC_FROM_TOKEN_8050") } catch (_: Throwable) {}

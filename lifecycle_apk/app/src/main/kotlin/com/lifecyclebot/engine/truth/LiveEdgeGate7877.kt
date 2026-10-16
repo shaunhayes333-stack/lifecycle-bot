@@ -271,6 +271,8 @@ object LiveEdgeGate7877 {
         // V5.0.7948 review — a lane's own PROVEN_LOSING record (setup, NO_TRIGGER, stage) is never
         // outweighed by a pooled cohort, nor is a runner lane's runner-setups-only rule (7939).
         if (prior.contains("PROVEN_LOSING")) return null
+        // V5.0.8153 — a pooled plan cohort (not this token's strategy) never outweighs that strategy's own losing record.
+        if (prior.startsWith("PLAYBOOK_SETUP") && (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedLosing8153(ts, lane, nowMs) } catch (_: Throwable) { false })) return null
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
         if (runner && prior.startsWith("PLAYBOOK_NO_TRIGGER")) return null
         return when {
@@ -426,6 +428,12 @@ object LiveEdgeGate7877 {
             // The lane's live book is a bounded NEGATIVE PRIOR: it shapes size and demands this candidate's OWN validated
             // positive evidence below, but never refuses every token, setup and strategy of the lane on its own. Only the
             // candidate's own setup proven losing on live closes refuses (LiveTruth8064.setupRefusal8083).
+            // V5.0.8153 — the admission record decides the coin's ONE strategy first (StrategyIdentity8153): every gate below,
+            //    the tactic, sizing, the sealed entry and its exit policy then read that same identity.
+            //    A record deferred on missing data asks for that data now (candle seed / poll / tape, throttled per mint).
+            (try { CandidateAdmission8136.assess8136(ts, l8059, nowMs) } catch (_: Throwable) { null })
+                ?.takeIf { it.terminal == CandidateAdmission8136.Terminal8136.DEFER_DATA }
+                ?.let { d -> try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, CandidateAdmission8136.missingOf8144(d).map { it.replace("liquidity:", "liq:") }, nowMs) } catch (_: Throwable) {} }
             // V5.0.8094 — the setup this candidate trades as (multi-strategy selection), so refusals and assessments are
             // filed under the strategy actually traded.
             val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) } catch (_: Throwable) { null }
@@ -829,6 +837,14 @@ object LiveEdgeGate7877 {
             cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs)
             return null
         }
+        // V5.0.8153 — the candidate's OWN evidence releases a thin cell (every launch's cell is thin): its strategy valid on
+        //    its own record, its kind proven, a run forming in a cell proven to run, a shadow audit, or its admission record's
+        //    supported specific edge (StrategyWatch8153). A band / cell measured negative still refuses; the plan still decides.
+        specificRelease8153(ts, l, why, nowMs)?.let { basis ->
+            cleared7994.incrementAndGet(); watchReleased8153.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("WATCH_FIRST_RELEASED_8153_$basis") } catch (_: Throwable) {}
+            return null
+        }
         // V5.0.8006 — closed loop: watch-first is graded like every other refusal (the veto audit,
         // per lane, on progressively revised labels). When the coins it held back in this lane are
         // proven to win (40+ graded, mean - SE > +2% net of measured cost), it stands down.
@@ -850,6 +866,18 @@ object LiveEdgeGate7877 {
     }
 
     private val planSkips7995 = java.util.concurrent.atomic.AtomicLong(0)
+    private val watchReleased8153 = AtomicLong(0)
+
+    /** V5.0.8153 — the candidate-specific evidence that releases watch-first's THIN cell for [ts] in [lane], or null. */
+    private fun specificRelease8153(ts: TokenState, lane: String, why: String, nowMs: Long): String? {
+        if (why != StrategyWatch8153.THIN_CELL_8153) return null
+        val tier = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedTier8153(ts, lane, nowMs) } catch (_: Throwable) { null }
+        if (StrategyRank8153.evidenced8153(tier)) return StrategyWatch8153.release8153(why, tier, false, false, false, false)
+        val kind = try { ForwardReturnLabeler7731.kindStatsFor8063(ts, lane).any { cellProven8060(it.n60, it.meanNet60Pct, it.stderr60Pct) } } catch (_: Throwable) { false }
+        val admission = if (kind) null else try { CandidateAdmission8136.assess8136(ts, lane, nowMs) } catch (_: Throwable) { null }
+        return StrategyWatch8153.release8153(why, tier, kind, !kind && runnerForming8113(ts, nowMs), !kind && shadowAuditAdmits8113(ts, lane),
+            admission != null && admission.admitted && admission.specific)
+    }
     private val standDown8006 = java.util.concurrent.atomic.AtomicLong(0)
     private val cortexCleared8016 = java.util.concurrent.atomic.AtomicLong(0)
     private val provenSetupCleared8056 = java.util.concurrent.atomic.AtomicLong(0)
@@ -859,6 +887,8 @@ object LiveEdgeGate7877 {
     /** V5.0.7996 — every live decision opens a 4-hour ladder replay (TailHunter7996). */
     private fun observeTail7996(ts: TokenState, lane: String, reason: String?, nowMs: Long) {
         try { TailHunter7996.observe7996(ts, lane, reason, nowMs) } catch (_: Throwable) {}
+        // V5.0.8153 — the live edge gate's verdict is the runner trace's binding gate, with its decision-time evidence.
+        try { AdmissionRunnerTrace8144.noteBinding8153(ts, lane, reason, nowMs) } catch (_: Throwable) {}
     }
 
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
@@ -983,5 +1013,5 @@ object LiveEdgeGate7877 {
         "bar=cellN>=$CELL_MIN_N&&mean-se>+$LIVE_MARGIN_PCT%|laneProven runner=bestCohort(mean-se>$RUNNER_MARGIN_PCT%) " +
             "admit=[${allowed.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}] " +
             "refuse=[${refused.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]" +
-            " dataDefer8136=${dataDeferred8136.get()}"
+            " dataDefer8136=${dataDeferred8136.get()} watchReleased8153=${watchReleased8153.get()}"
 }
