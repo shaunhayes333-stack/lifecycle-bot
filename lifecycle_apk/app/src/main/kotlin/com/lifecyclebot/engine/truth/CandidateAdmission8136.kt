@@ -121,6 +121,17 @@ object CandidateAdmission8136 {
     internal const val STALE_PRICE_MS_8136 = 5L * 60_000L
     internal const val HOT_STALE_PRICE_MS_8136 = 60_000L
 
+    // V5.0.8170: incomplete optional chart context is not equal to missing executable proof.
+    // Even a genuinely profitable, graded setup must NOT compensate for an unobserved
+    // sellable venue, liquidity, supply/decimals, price or cost.
+    private val CRITICAL_MISSING_8170 = setOf(
+        "LIQ", "LIQUIDITY", "PRICE", "ECONOMICS", "ROUTE", "SELLABILITY",
+        "TOKEN_MAP", "MINT", "IDENTITY", "DECIMALS", "SUPPLY", "DEPTH", "QUOTE",
+    )
+    fun criticalMissing8170(missing: String): Boolean =
+        missing.substringBefore(':').trim().uppercase() in CRITICAL_MISSING_8170
+
+
     internal fun fmt8136(v: Double): String = if (v.isFinite()) "%+.1f".format(v) else "-"
 
     // ── pure evidence tests ──
@@ -247,11 +258,17 @@ object CandidateAdmission8136 {
         // 5. data: a stale price or unknown economics defers every candidate; missing classifier inputs defer a candidate
         //    with no supported evidence of its own (its setup cannot be judged yet).
         val stale = priceStale8136(c.priceAgeMs, c.hotLaunch)
-        if (stale || !econKnown || (c.missingInputs.isNotEmpty() && edge == null)) {
+        val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170)
+        if (stale || !econKnown || criticalMissing8170.isNotEmpty() || (c.missingInputs.isNotEmpty() && edge == null)) {
             val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + (if (!econKnown) listOf("economics") else emptyList())
             trace += "missing=${missing.joinToString(",")}"
+            if (criticalMissing8170.isNotEmpty()) trace += "criticalUnobserved8170=${criticalMissing8170.joinToString(",")}"
             return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, chosen)
         }
+        // A price/route/cost-proven candidate with POSITIVE candidate-specific graded
+        // evidence may trade through an OPTIONAL shape/tape/context gap. Do not
+        // reclassify optional absence as a fake signal; retain the gap in its seal.
+        if (c.missingInputs.isNotEmpty()) trace += "optionalUnobserved8170=${c.missingInputs.joinToString(",")}"
 
         // 6. supported candidate-specific edge: the generic score is only a prior.
         if (edge != null) {
