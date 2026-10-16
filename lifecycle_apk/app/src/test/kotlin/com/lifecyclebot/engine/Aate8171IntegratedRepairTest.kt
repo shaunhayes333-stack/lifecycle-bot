@@ -66,11 +66,11 @@ class Aate8171IntegratedRepairTest {
     @Test fun theUnknownStageRoutesOnlyGenuinelyEstablishedNativeFits() {
         assertTrue(src("engine/TokenMetricStageRouter.kt").contains("UNKNOWN_ESTABLISHED_HANDOFF_8171"))
         val t = TokenMetricStageRouter
-        assertEquals("QUALITY", t.unknownStageOwner8171(t.Stage.UNKNOWN, 300.0, 220_000.0, 25_000.0, 60.0, 39.0))
-        assertEquals("BLUECHIP", t.unknownStageOwner8171(t.Stage.UNKNOWN, 30_000.0, 3_000_000.0, 200_000.0, 57.0, 43.0))
-        assertEquals(null, t.unknownStageOwner8171(t.Stage.UNKNOWN, 1.0, 220_000.0, 25_000.0, 60.0, 39.0))
-        assertEquals(null, t.unknownStageOwner8171(t.Stage.UNKNOWN, 300.0, 220_000.0, 1_000.0, 60.0, 39.0))
-        assertEquals(null, t.unknownStageOwner8171(t.Stage.DUMPING, 300.0, 220_000.0, 25_000.0, 60.0, 39.0))
+        assertEquals("QUALITY", t.unknownStageOwner8171(TokenMetricStageRouter.Stage.UNKNOWN, 300.0, 220_000.0, 25_000.0, 60.0, 39.0))
+        assertEquals("BLUECHIP", t.unknownStageOwner8171(TokenMetricStageRouter.Stage.UNKNOWN, 30_000.0, 3_000_000.0, 200_000.0, 57.0, 43.0))
+        assertEquals(null, t.unknownStageOwner8171(TokenMetricStageRouter.Stage.UNKNOWN, 1.0, 220_000.0, 25_000.0, 60.0, 39.0))
+        assertEquals(null, t.unknownStageOwner8171(TokenMetricStageRouter.Stage.UNKNOWN, 300.0, 220_000.0, 1_000.0, 60.0, 39.0))
+        assertEquals(null, t.unknownStageOwner8171(TokenMetricStageRouter.Stage.DUMPING, 300.0, 220_000.0, 25_000.0, 60.0, 39.0))
     }
 
     @Test fun currentPriceStagePrefersFreshTokenTickOverOldCandles() {
