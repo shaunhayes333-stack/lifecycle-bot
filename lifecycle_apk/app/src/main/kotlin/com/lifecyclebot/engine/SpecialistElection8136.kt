@@ -156,6 +156,8 @@ object SpecialistElection8136 {
         var yieldResolved = false
         var primarySinceMs = 0L
         var primaryVerdictSeen = false
+        // V5.0.8153 — the lane whose rescue claim came from a qualified hand-off task (HandoffReceiverTasks8153).
+        var handoffRescue8153 = ""
     }
 
     private val lock8136 = Any()
@@ -187,6 +189,11 @@ object SpecialistElection8136 {
     private var preempted8144 = 0L
     private var arbitrationErrors8144 = 0L
     private val gateReasons8144 = HashMap<String, String>()
+    private var handoffNamed8153 = 0L
+    private var handoffClaims8153 = 0L
+    private var handoffPreempted8153 = 0L
+    private var handoffDenied8153 = 0L
+    private var handoffRetargeted8153 = 0L
 
     private val records8136 = object : LinkedHashMap<String, Record8136>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Record8136>?): Boolean {
@@ -631,6 +638,13 @@ object SpecialistElection8136 {
             // V5.0.8144 — the receiver a fit refusal named could not evaluate: its yield ends with that precise reason
             // (35 named yields, 0 arrivals, and no name for why on 5.0.8142).
             if (l == namedOpen8144(r)) {
+                // V5.0.8153 — a receiver whose hand-off task is still live and was only kept waiting (slot held, not yet
+                // handed) stays open: it is consumed on a later cycle, not stranded INELIGIBLE for the rest of the version.
+                if (gate == null && HandoffReceiverTasks8153.isDue8153(mint, l, nowMs)) {
+                    end8136(r, s, Terminal8136.CONTRIBUTOR_SHADOW,
+                        if (r.rescue.isNotEmpty()) "RECEIVER_TASK_WAITING_SLOT_${r.rescue}" else "RECEIVER_TASK_PENDING_8153")
+                    return
+                }
                 end8136(r, s, Terminal8136.INELIGIBLE, when {
                     gate != null -> "RECEIVER_GATED_$gate"
                     r.rescue.isNotEmpty() -> "RECEIVER_SLOT_HELD_BY_${r.rescue}"
@@ -729,6 +743,8 @@ object SpecialistElection8136 {
     fun noteScheduled8144(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()) {
         val l = canon8136(lane)
         if (mint.isBlank() || l.isBlank()) return
+        // V5.0.8153 — a hand-off receiver's task was consumed by the cycle (primary or rescue alike).
+        try { HandoffReceiverTasks8153.markScheduled8153(mint, l, nowMs) } catch (_: Throwable) {}
         val version = synchronized(lock8136) { records8136[mint]?.takeIf { it.rescue == l }?.version } ?: return
         ElectionRescueFunnel8144.mark8144(mint, l, ElectionRescueFunnel8144.Stage8144.SCHEDULED, version, nowMs)
     }
@@ -755,15 +771,21 @@ object SpecialistElection8136 {
      * refused (not a judgement), [lane] holds the one slot and has not been ruled ineligible. One owner per version:
      * the coordinator lets it replace only an UNSEALED pre-seal election.
      */
-    fun executableRescue8144(mint: String, lane: String): Boolean {
+    fun executableRescue8144(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val l = canon8136(lane)
         if (mint.isBlank() || l.isBlank()) return false
         return synchronized(lock8136) {
             val r = records8136[mint]
-            r != null && r.rescue == l && r.primary != l && r.primaryRefusal.isNotEmpty() && !r.primaryJudgement &&
-                r.slots[l]?.terminal != Terminal8136.INELIGIBLE
+            r != null && r.rescue == l && r.primary != l && !r.primaryJudgement && r.slots[l]?.terminal != Terminal8136.INELIGIBLE &&
+                // V5.0.8153 — or the rescue is a hand-off receiver and the primary is the sender / sat silent past the window.
+                (r.primaryRefusal.isNotEmpty() || handoffPrimaryOut8153(r, l, nowMs))
         }
     }
+
+    /** V5.0.8153 — [l] took the slot as a hand-off receiver and the primary is out: it handed off itself, or it sat silent. */
+    private fun handoffPrimaryOut8153(r: Record8136, l: String, nowMs: Long): Boolean =
+        r.handoffRescue8153 == l && (r.primary == r.yieldFrom ||
+            (!r.primaryVerdictSeen && r.primarySinceMs > 0L && nowMs - r.primarySinceMs > PRIMARY_SILENT_MS_8136))
 
     /** V5.0.8144 — true while [lane] is the receiver a fit refusal named and its yield is not settled. */
     fun isNamedReceiver8144(mint: String, lane: String): Boolean {
@@ -776,8 +798,9 @@ object SpecialistElection8136 {
      * itself (their own native brain is the independent evidence), so a missing desk hypothesis no longer short-circuits
      * them before the hand-off runs. Every other gate of their lane still decides.
      */
-    fun electionQualified8144(mint: String, lane: String): Boolean = try {
-        holdsRescue8136(mint, lane) || isNamedReceiver8144(mint, lane)
+    fun electionQualified8144(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        holdsRescue8136(mint, lane) || isNamedReceiver8144(mint, lane) ||
+            HandoffReceiverTasks8153.isDue8153(mint, canon8136(lane), nowMs)  // V5.0.8153 — a live hand-off task is its own qualification
     } catch (_: Throwable) { false }
 
     /** V5.0.8144 — a rescue arbitration threw: the lane's proposal ends DEFERRED by name, and it does not evaluate. */
@@ -787,6 +810,122 @@ object SpecialistElection8136 {
             markIneligible8136(mint, lane, "DEFERRED_RESCUE_ARBITRATION_ERROR", nowMs)
         } catch (_: Throwable) {}
     }
+
+    // ── V5.0.8153 — a qualified hand-off receiver is a task the cycle consumes (HandoffReceiverTasks8153) ──
+
+    /**
+     * V5.0.8153 — the receiver a hand-off qualified (PROJECT_SNIPER phase / TOO_OLD, or a primary's fit yield) is this
+     * candidate's named receiver even when the sender is not the cycle primary: the lottery may not fill the slot over it
+     * (lotteryMayFill8144) and the coordinator's other READY pick does not take the version (cyclePrimary8136). The first
+     * OPEN name stands; returns the lane the candidate names (null = none may be named).
+     */
+    fun nameHandoffReceiver8153(mint: String, from: String, receiver: String, nowMs: Long = System.currentTimeMillis()): String? {
+        val t = canon8136(receiver)
+        if (mint.isBlank() || t.isBlank() || t in RESCUE_EXCLUDED_8136) return null
+        return synchronized(lock8136) {
+            val r = recordFor8136(mint, -1L, nowMs) ?: return null
+            val open = namedOpen8144(r)
+            if (open.isNotEmpty()) return open
+            // The receiver already runs as the cycle primary: nothing to reserve (and the lottery is not barred by it).
+            if (r.yieldTo == t || r.primary == t) return t
+            if (r.yieldFrom.isEmpty()) r.yieldFrom = canon8136(from)
+            r.yieldTo = t
+            r.yieldResolved = false
+            yieldNamed8136++
+            handoffNamed8153++
+            r.slots[t]?.let { s -> s.terminal?.let { end8136(r, s, it, s.reason) } }
+            t
+        }
+    }
+
+    /**
+     * V5.0.8153 — the BotService lane gate consumes [lane]'s hand-off task: [lane] asks for the candidate's ONE rescue slot
+     * as the qualified receiver. GRANTED / HELD evaluate; the primary itself is HELD (it evaluates anyway). A named
+     * receiver takes the slot back from an unconsumed LOTTERY claim; an evidence claim or a consumed rescue keeps it
+     * (one executable rescue, no second buyer); a judgement refusal grants nobody; [ineligible] (token safety / receiver
+     * record / DEFERRED_ data) refuses by name.
+     */
+    fun claimHandoffReceiver8153(mint: String, lane: String, primary: String, ineligible: String?,
+                                 nowMs: Long = System.currentTimeMillis()): ElectionRescueContract8144.ClaimOutcome8144 {
+        val l = canon8136(lane)
+        val p = canon8136(primary)
+        if (mint.isBlank() || l.isBlank() || l in RESCUE_EXCLUDED_8136) return ElectionRescueContract8144.ClaimOutcome8144.DENIED_NO_PROPOSAL
+        return synchronized(lock8136) {
+            val r = recordFor8136(mint, -1L, nowMs) ?: return ElectionRescueContract8144.ClaimOutcome8144.DENIED_NO_PROPOSAL
+            if (r.primary.isEmpty() && p.isNotBlank()) setPrimary8136(r, p, nowMs)
+            if (l == r.primary) return ElectionRescueContract8144.ClaimOutcome8144.HELD
+            val self = slotFor8136(r, l, Double.NaN, nowMs)
+            if (r.rescue == l) return ElectionRescueContract8144.ClaimOutcome8144.HELD
+            if (self.terminal == Terminal8136.INELIGIBLE) {
+                handoffDenied8153++
+                return ElectionRescueContract8144.ClaimOutcome8144.DENIED_INELIGIBLE
+            }
+            if (ineligible != null) {
+                markIneligible8136(r, self, ineligible)
+                handoffDenied8153++
+                return ElectionRescueContract8144.ClaimOutcome8144.DENIED_INELIGIBLE
+            }
+            if (r.primaryJudgement) {
+                judgementNoRescue8136++
+                handoffDenied8153++
+                end8136(r, self, Terminal8136.INELIGIBLE, "PRIMARY_JUDGEMENT:" + r.primaryRefusal)
+                return ElectionRescueContract8144.ClaimOutcome8144.DENIED_JUDGEMENT
+            }
+            val named = namedOpen8144(r)
+            if (named.isNotEmpty() && named != l) {
+                handoffDenied8153++
+                return ElectionRescueContract8144.ClaimOutcome8144.DENIED_OUTRANKED
+            }
+            if (r.rescue.isNotEmpty()) {
+                val holder = r.slots[r.rescue]
+                if (r.rescueViaLottery && !r.rescueConsumed && holder != null) {
+                    preempted8144++
+                    handoffPreempted8153++
+                    end8136(r, holder, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_PREEMPTED_BY_HANDOFF_RECEIVER_$l")
+                    r.rescue = ""
+                } else {
+                    rescueHeldDenied8136++
+                    handoffDenied8153++
+                    return ElectionRescueContract8144.ClaimOutcome8144.DENIED_HELD_BY_OTHER
+                }
+            }
+            if (named.isEmpty()) {
+                if (r.yieldFrom.isEmpty()) r.yieldFrom = "HANDOFF"
+                r.yieldTo = l
+                r.yieldResolved = false
+                yieldNamed8136++
+            }
+            claim8136(r, l, nowMs)
+            r.handoffRescue8153 = l
+            handoffClaims8153++
+            ElectionRescueContract8144.ClaimOutcome8144.GRANTED
+        }
+    }
+
+    /**
+     * V5.0.8153 — the hand-off task moved from [from] (it refused on fit) to [to] ("" = no compatible receiver left): the
+     * named receiver follows, a rescue slot [from] held unconsumed is released, and [from]'s proposal ends by name.
+     */
+    fun retargetReceiver8153(mint: String, from: String, to: String, why: String, nowMs: Long = System.currentTimeMillis()) {
+        val o = canon8136(from)
+        val n = canon8136(to)
+        if (mint.isBlank() || o.isBlank()) return
+        synchronized(lock8136) {
+            val r = recordFor8136(mint, -1L, nowMs, create = false) ?: return
+            handoffRetargeted8153++
+            val wasNamed = r.yieldTo == o && !r.yieldResolved
+            if (wasNamed && n.isNotBlank()) r.yieldTo = n
+            if (r.rescue == o && !r.rescueConsumed) r.rescue = ""
+            r.slots[o]?.let { s ->
+                if (s.terminal == null || s.terminal == Terminal8136.CONTRIBUTOR_SHADOW) terminate8136(s, Terminal8136.INELIGIBLE, "HANDOFF_FIT_REFUSED:$why")
+            }
+            if (wasNamed && n.isBlank()) yieldRefused8136(r, "FIT_NO_COMPATIBLE_RECEIVER")
+        }
+    }
+
+    /** V5.0.8153 — the lane gate BotService named for [lane] (noteGateReason8144), read without consuming it. */
+    fun gateReasonOf8153(mint: String, lane: String): String? =
+        synchronized(lock8136) { gateReasons8144["$mint|${canon8136(lane)}"] }
 
     // ── reads ──
 
@@ -874,8 +1013,11 @@ object SpecialistElection8136 {
             "stale=$staleEvents8136 unqualifiedFdg=$unqualifiedFdg8136 | ${lanes.ifBlank { "no proposals yet" }}" +
             // V5.0.8144 — how the one slot was decided, and arbitration failures (never executable).
             " | slot8144(namedWins=$namedWins8144 preempted=$preempted8144 lotteryBarred=$lotteryBarred8144 " +
-            "lineageCarried=$lineageCarried8144 arbitrationErrors=$arbitrationErrors8144)"
-    }
+            "lineageCarried=$lineageCarried8144 arbitrationErrors=$arbitrationErrors8144)" +
+            // V5.0.8153 — qualified hand-off receivers as tasks the cycle consumes.
+            " | handoff8153(named=$handoffNamed8153 claims=$handoffClaims8153 preemptedLottery=$handoffPreempted8153 " +
+            "denied=$handoffDenied8153 retargeted=$handoffRetargeted8153) "
+    } + (try { HandoffReceiverTasks8153.statusLine8153() } catch (_: Throwable) { "handoffTask8153[unavailable]" })  // read outside the election lock
 
     internal fun resetForTests8136() {
         synchronized(lock8136) {
@@ -886,7 +1028,9 @@ object SpecialistElection8136 {
             lotteryFilled8141 = 0L; lotteryRefused8141 = 0L
             lineageCarried8144 = 0L; lotteryBarred8144 = 0L; namedWins8144 = 0L; preempted8144 = 0L; arbitrationErrors8144 = 0L
             gateReasons8144.clear()
+            handoffNamed8153 = 0L; handoffClaims8153 = 0L; handoffPreempted8153 = 0L; handoffDenied8153 = 0L; handoffRetargeted8153 = 0L
         }
+        HandoffReceiverTasks8153.resetForTests8153()
         ElectionRescueFunnel8144.resetForTests8144()
     }
 }

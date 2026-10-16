@@ -188,6 +188,7 @@ object SpecialistOwnership7951 {
     internal fun onFdgVerdict7951(mint: String, lane: String, candidateVersion: Long, shouldTrade: Boolean, blockReason: String?, nowMs: Long = System.currentTimeMillis()) {
         // V5.0.8136 — every FDG verdict (allow or refuse) terminates its lane's proposal in the candidate's election.
         noteFdgVerdict8136(mint, lane, candidateVersion, shouldTrade, blockReason, nowMs)
+        try { HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs) } catch (_: Throwable) {}  // V5.0.8153 — the receiver's task is evaluated
         try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.onFdgVerdict8144(mint, lane, shouldTrade, blockReason, nowMs) } catch (_: Throwable) {}  // V5.0.8144 — hand-off arrival
         if (shouldTrade || mint.isBlank()) return
         val l = lane7951(lane)
@@ -240,6 +241,9 @@ object SpecialistOwnership7951 {
     internal fun noteReadyNotEvaluated7951(lane: String, mint: String, primaryLane: String) {
         val l = lane7951(lane)
         if (l !in SpecialistCandidateBooks7803.LANES) return
+        // V5.0.8153 — a lane holding a live hand-off task that the gate refused: the task records why (binding, fit -> next
+        // receiver, data, or waiting) before the election consumes the gate reason.
+        HandoffTaskRuntime8153.onNotScheduled8153(mint, l)
         val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false }
         // V5.0.8136 — the proposal ends by name in the candidate's election: a gated primary opens the rescue, a gated
         // rescue releases the slot, every other READY lane is a CONTRIBUTOR_SHADOW (it no longer vanishes as a label).
@@ -307,6 +311,9 @@ object SpecialistOwnership7951 {
     internal fun handOffAllowed7960(lane: String, mint: String, primaryLane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val l = lane7951(lane)
         if (l == lane7951(primaryLane) || l !in SpecialistCandidateBooks7803.LANES) return false
+        // V5.0.8153 — a qualified hand-off receiver's pending task is consumed here: it takes the candidate's one rescue
+        // slot through the election (a named receiver beats an unconsumed lottery claim) and evaluates, whoever is primary.
+        if (HandoffTaskRuntime8153.admits8153(l, mint, primaryLane, nowMs)) return true
         val fdgRefused = primaryRefused7960(mint, primaryLane, nowMs)
         val native8094 = !fdgRefused && primaryNativeRefused8094(mint, primaryLane, nowMs)
         // V5.0.8136 — a primary its own cycle gated before the FDG (proof / learned floor / pWin), or one that sat silent with
@@ -517,6 +524,7 @@ object SpecialistOwnership7951 {
         // V5.0.8144 — the receiver RECORDED for this candidate answers: a refreshed snapshot that ranks another lane first
         // no longer strands the lane the primary already named (it used to fail the receiver's own hand-off check).
         return SpecialistElection8136.noteYield8136(mint, lane7951(primary), receiver)
+            .also { named -> if (named != null) HandoffTaskRuntime8153.onYield8153(mint, lane7951(primary), named, ops) }  // V5.0.8153 — the yield is a task
     }
 
     /**
