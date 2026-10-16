@@ -18,8 +18,10 @@ class Aate6713CausalLearningCoreTest {
         val s = File("src/main/kotlin/com/lifecyclebot/engine/truth/EntryStrategySnapshot6450.kt").readText()
         val fn = s.substringAfter("fun record(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean")
             .substringBefore("private fun med")
-        val miss = fn.substringAfter("CAUSAL_ENTRY_SNAPSHOT_MISSING_6568").take(220)
+        // V5.0.7164 added miss-kind diagnostics inside the same ?: run { } block.
+        val miss = fn.substringAfter("CAUSAL_ENTRY_SNAPSHOT_MISSING_6568").substringBefore("val row = Row(")
         assertTrue(miss.contains("return false"))
+        assertFalse(miss.contains("return true"))
     }
 
     @Test fun `policy rewarded latch occurs after exact owner mutation`() {

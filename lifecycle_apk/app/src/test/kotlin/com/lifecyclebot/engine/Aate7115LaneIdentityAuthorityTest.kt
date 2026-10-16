@@ -180,6 +180,10 @@ class Aate7115LaneIdentityAuthorityTest {
         assertTrue("canonicalLane must delegate to the authority",
             body.contains("CanonicalLaneIdentity6506.canonical"))
         // The fold that caused the 1,251 events, and the §11-forbidden merge.
-        assertFalse(gate.contains("\"CASHGEN\", \"CASH_GENERATION\" -> \"TREASURY\""))
+        // The KDoc above canonicalLane() quotes the removed fold, so check code lines only.
+        val code = gate.lines()
+            .filterNot { it.trimStart().startsWith("*") || it.trimStart().startsWith("//") }
+            .joinToString("\n")
+        assertFalse(code.contains("\"CASHGEN\", \"CASH_GENERATION\" -> \"TREASURY\""))
     }
 }

@@ -130,7 +130,7 @@ Here is what I found:
         assertTrue(bs.contains("GroqTokenScout7830.stop(\"stopBot:\$source\")"))
         assertTrue(bs.contains("emitter = { rows -> marketScanner?.emitLlmScout7830(rows) ?: 0 }"))
         val ph = src("engine/PipelineHealthCollector.kt")
-        assertTrue(ph.contains("appendResidentDiscovery7830(sb)"))
+        assertTrue(ph.contains("appendResidentDiscovery7830(sb, s)"))
         assertTrue(ph.contains("GroqTokenScout7830.statusLine()"))
     }
 

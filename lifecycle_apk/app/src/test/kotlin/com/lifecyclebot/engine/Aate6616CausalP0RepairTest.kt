@@ -65,7 +65,10 @@ class Aate6616CausalP0RepairTest {
         val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val registry = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
-        assertEquals(1, Regex("resolveExecutableFromSourceEvidence6616").findAll(bot).count())
+        // Pre-V3 pair-poll promotion plus the V5.0.7279 pump-trade mark publish —
+        // both through the same canonical resolver, no sibling mark path.
+        assertEquals(2, Regex("resolveExecutableFromSourceEvidence6616").findAll(bot).count())
+        assertTrue(bot.contains("val promotion7279 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616("))
         assertEquals(1, Regex("resolveBestSourceEvidence6734").findAll(executor).count())
         assertTrue(registry.contains("fun resolveBestSourceEvidence6734") &&
             registry.contains("last = resolveExecutableFromSourceEvidence6616("))

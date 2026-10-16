@@ -2503,7 +2503,7 @@ class Executor(
     private fun raydiumSerialSell8083(ts: TokenState, wallet: SolanaWallet, c: com.lifecyclebot.data.BotConfig,
                                       race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?,
                                       rayPlan7311: ProcessorAmountPlanner.SellPlan, raySlip7311: Int, fastLand: Boolean,
-                                      sellTradeKey: String): com.lifecyclebot.engine.sell.TxResult8087? {
+                                      sellTradeKey: String, reason: String): com.lifecyclebot.engine.sell.TxResult8087? {
         val reuse8083 = race?.takeIf { it.fresh() && it.rawAmount == rayPlan7311.rawAmount }?.readyOrNull(0L)
         if (reuse8083 != null) try { PipelineHealthCollector.labelInc("SELL_RACE_PREBUILD_REUSED_8083") } catch (_: Throwable) {}
         val built7311 = reuse8083 ?: try {
@@ -2518,6 +2518,7 @@ class Executor(
             "RAYDIUM sell built @ ${raySlip7311}bps | txs=${built7311.transactions.size} | out≈${built7311.outLamports} lamports | sender=HELIUS_FIRST",
             slippageBps = raySlip7311, traderTag = "MEME",
         )
+        if (!ProfitExitTruth8163.acceptProceeds8168(ts, reason, rayPlan7311.rawAmount, built7311.outLamports, raySlip7311)) return null
         return sendRaydiumBuilt8083(wallet, c, built7311, fastLand, ts.mint)
     }
 
@@ -2542,6 +2543,7 @@ class Executor(
             com.lifecyclebot.engine.sell.SellRouteRace8083.selected(if (built == null) "JUPITER_RACE_NOT_READY" else "JUPITER", ts.mint, System.currentTimeMillis() - race.startedAtMs)
             return null
         }
+        if (!ProfitExitTruth8163.acceptProceeds8168(ts, reason, race.rawAmount, built.outLamports, com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason))) return null
         race.sent = true
         com.lifecyclebot.engine.sell.SellRouteRace8083.selected("RAYDIUM", ts.mint, System.currentTimeMillis() - race.startedAtMs)
         var landed: com.lifecyclebot.engine.sell.TxResult8087? = null
@@ -2650,7 +2652,7 @@ class Executor(
     }
 
     /** V5.0.8151 — an entry is ORDINARY unless the runner grab marked it to land next slot (RunnerGrab7967). */
-    private fun entryOrdinary8151(mint: String): Boolean = try { !RunnerGrab7967.isGrabbed7980(mint) } catch (_: Throwable) { false }
+    private fun entryOrdinary8151(mint: String): Boolean = try { !RunnerGrab7967.isGrabbed7980(mint) && !LandingMeter8169.buyUnlandedRecently8169(mint) } catch (_: Throwable) { false }  // V5.0.8169 — a buy that expired unseen retries urgent
 
     /** V5.0.8151 — a PumpPortal sell label that is a non-urgent profit slice (not its rescue). */
     private fun ordinarySliceLabel8151(labelTag: String): Boolean = labelTag.startsWith("PARTIAL-") && !labelTag.contains("RESCUE")
@@ -7596,6 +7598,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=PROFIT-LOCK priority=${sellRoutePriorityFromBuyRoute6099(ts)} action=jupiter_first") } catch (_: Throwable) {}
                 null
             } else tryPumpPortalSell(
+                exitReason8168 = reason,
                 ts = ts,
                 wallet = wallet,
                 tokenUnits = recalcSellPlanForProcessor(
@@ -7751,6 +7754,7 @@ class Executor(
                 val pumpJito = c.jitoEnabled
                 val pumpTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
                 sig = tryPumpPortalSell(
+                    exitReason8168 = reason,
                     ts = ts,
                     wallet = wallet,
                     tokenUnits = recalcSellPlanForProcessor(
@@ -10585,6 +10589,7 @@ class Executor(
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=PARTIAL priority=${sellRoutePriorityFromBuyRoute6099(ts)} action=jupiter_first") } catch (_: Throwable) {}
                     null
                 } else tryPumpPortalSell(
+                    exitReason8168 = "PARTIAL_TAKE_PROFIT",
                     ts = ts,
                     wallet = wallet,
                     tokenUnits = recalcSellPlanForProcessor(
@@ -10622,8 +10627,10 @@ class Executor(
                     ) ?: return false
                     val quote     = getQuoteWithSlippageGuard(
                         ts.mint, JupiterApi.SOL_MINT, partialJupiterPlan.rawAmount, sellSlippage, isBuy = false)
+                    // 8168: the ladder's mark is a trigger, not executable proceeds.
+                    if (!ProfitExitTruth8163.acceptQuote(ts, "PARTIAL_TAKE_PROFIT", quote, sellSlippage)) return false
                     val txResult  = buildTxWithRetry(
-                        quote, wallet.publicKeyB58,
+                        quote, wallet.publicKeyB58, dynamicSlippageMaxBps = sellSlippage,
                         senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = true),
                         ordinary8151 = true,  // V5.0.8151 — PARTIAL_TAKE_PROFIT (tier 5): a non-urgent slice
                     )
@@ -10637,6 +10644,7 @@ class Executor(
                     } catch (jupEx: Exception) {
                         // Jupiter exhausted too — final PumpPortal retry as last resort.
                         val rescue = tryPumpPortalSell(
+                            exitReason8168 = "PARTIAL_TAKE_PROFIT",
                             ts = ts,
                             wallet = wallet,
                             tokenUnits = recalcSellPlanForProcessor(
@@ -11597,7 +11605,7 @@ class Executor(
             pos.tradingMode.equals("EXPRESS", ignoreCase = true) ||
             pos.tradingMode.equals("PUMP_SNIPER", ignoreCase = true)
         val isFreshMeme = isMemePosition && heldSecs < 300L
-        val HARD_FLOOR_STOP_PCT = if (isFreshMeme) 9.0 else 15.0
+        val HARD_FLOOR_STOP_PCT = ExitDoctrine8169.riskHardFloorMag8169(ts, isFreshMeme)  // V5.0.8169 — fresh: the ordinary stop, not 9%; else stop+5 (15..30)
 
         // V5.9.807 — P3 predictive exit hook. If this position's
         // (tradingMode × scoreBand) bucket is a danger zone (≥5 losses,
@@ -11607,7 +11615,7 @@ class Executor(
         // loosened. Read-only over LosingPatternMemory; no impact on
         // entry sizing, swap scripting, or PrecisionExitLogic.
         val predictiveSlPct: Double? = try {
-            com.lifecyclebot.engine.LosingPatternMemory.recommendedSlPct(
+            ExitDoctrine8169.recommendedSlPct8169(  // V5.0.8169 — never inside the lane's Field Manual invalidation
                 tradingMode = pos.tradingMode,
                 v3Score = pos.entryScore.toInt(),
             )
@@ -24160,6 +24168,11 @@ class Executor(
                                 }
                             }
                             val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
+                            // 8168: revalidate every exact slice after every re-quote.
+                            if (!ProfitExitTruth8163.acceptQuote(ts, reason, quote, dynSlipCap)) {
+                                receipt6566?.invoke(PartialSellReceipt6566(false))
+                                return
+                            }
                             val txResult = buildTxWithRetry(
                                 quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
                                 senderTipLamports = effectiveSenderTipLamports(c, urgent = isDrainExit || spike7944),
@@ -28193,6 +28206,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=EXIT priority=${sellRoutePriorityFromBuyRoute6099(ts)} action=jupiter_first") } catch (_: Throwable) {}
                 null
             } else tryPumpPortalSell(
+                exitReason8168 = reason,
                 ts = ts,
                 wallet = wallet,
                 tokenUnits = recalcSellPlanForProcessor(
@@ -28291,6 +28305,7 @@ class Executor(
                     // in-line retries. Jupiter's simulation picks the actual
                     // value within bounds based on real pool state.
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
+                    if (!ProfitExitTruth8163.acceptQuote(ts, reason, quote!!, dynSlipCap)) return SellResult.FAILED_RETRYABLE
                     val txResult = buildTxWithRetry(
                         quote!!, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
                         senderTipLamports = effectiveSenderTipLamports(c, urgent = fastLand7980),
@@ -28443,7 +28458,7 @@ class Executor(
                     )
                     if (rayPlan7311 != null && rayPlan7311.rawAmount > 0L && race8083?.sent != true) {
                         val raySlip7311 = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, emergencyDirectSlipBps7807(ts, reason) ?: if (isDrainExit) 2_500 else 500)
-                        val sent8087 = raydiumSerialSell8083(ts, wallet, c, race8083, rayPlan7311, raySlip7311, fastLand7980, sellTradeKey)
+                        val sent8087 = raydiumSerialSell8083(ts, wallet, c, race8083, rayPlan7311, raySlip7311, fastLand7980, sellTradeKey, reason)
                         val landed7311 = sent8087?.signature
                         sig = landed7311
                         logRaydiumPending8087(sent8087, ts.mint)  // V5.0.8087 — landed only when chain-confirmed
@@ -28492,6 +28507,7 @@ class Executor(
                     try { ForensicLogger.lifecycle("PUMP_RESCUE_SKIPPED_SUPPRESSED", "mint=${ts.mint.take(10)} cause=${com.lifecyclebot.engine.sell.ExitProviderHealth.pumpSuppressionReason(ts.mint)}") } catch (_: Throwable) {}
                 } else {
                 sig = tryPumpPortalSell(
+                    exitReason8168 = reason,
                     ts = ts,
                     wallet = wallet,
                     tokenUnits = recalcSellPlanForProcessor(
@@ -31081,6 +31097,7 @@ class Executor(
                     "mint=${mint.take(10)} label=ORPHAN-SWEEP priority=${sellRoutePriorityFromBuyRoute6099(orphanTs)} action=jupiter_first") } catch (_: Throwable) {}
                 null
             } else tryPumpPortalSell(
+                exitReason8168 = "ORPHAN_SWEEP",
                 ts = orphanTs,
                 wallet = wallet,
                 tokenUnits = recalcSellPlanForProcessor(
@@ -31134,6 +31151,7 @@ class Executor(
                 // Final PumpPortal retry at higher slip if Jupiter died too.
                 val rescueKey = LiveTradeLogStore.keyFor(mint, System.currentTimeMillis())
                 tryPumpPortalSell(
+                    exitReason8168 = "ORPHAN_SWEEP",
                     ts = orphanTs,
                     wallet = wallet,
                     tokenUnits = recalcSellPlanForProcessor(
@@ -31293,7 +31311,10 @@ class Executor(
         sellTradeKey: String,
         traderTag: String,
         labelTag: String,
+        exitReason8168: String,
     ): String? {
+        // 8168: direct-route retries must not bypass profit intent economics.
+        if (!ProfitExitTruth8163.preflight(ts, exitReason8168, tokenUnits ?: 0L, jupiter, releaseLocks = false)) return null
         // V5.0.8144 — the confirmed venue (curve account / complete flag / pool) and the endpoint's memory of this mint.
         var venue8144 = com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Venue8144.UNKNOWN
         return try {
@@ -31858,12 +31879,6 @@ class Executor(
                 traderTag = traderTag,
             )
             if (costPumpBuySimRefused8151(ts, built.txBase64, wallet, tradeKey)) return null  // V5.0.8151 — never pay for a doomed buy
-            LiveTradeLogStore.log(
-                tradeKey, ts.mint, ts.symbol, "BUY",
-                LiveTradeLogStore.Phase.BUY_BROADCAST,
-                "Broadcasting PUMP-FIRST BUY @ ${slipPct}% | route=${if (useJito) "JITO" else "RPC"}",
-                traderTag = traderTag,
-            )
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMP_FIRST sol=$buySol slip=$slipPct") } catch (_: Throwable) {}
             // V5.9.602 — Pump-first must NOT treat a submitted signature as
             // a completed buy. sendTransaction/Jito acceptance can still expire
@@ -31884,6 +31899,14 @@ class Executor(
             try {
                 PipelineHealthCollector.labelInc(if (pumpEnv7311 != null) "PUMP_BUY_HELIUS_SENDER_7311" else "PUMP_BUY_HELIUS_ENVELOPE_REFUSED_7311")
             } catch (_: Throwable) {}
+            // V5.0.8169 — name the route actually used: the Sender envelope (when built) plus the parallel RPC fan-out
+            // (paid + public). The old label said JITO whenever Jito was enabled, even when Sender carried the buy.
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_BROADCAST,
+                "Broadcasting PUMP-FIRST BUY @ ${slipPct}% | route=${if (pumpEnv7311 != null) "SENDER" else if (useJito) "JITO" else "RPC"}+RPC_FANOUT",
+                traderTag = traderTag,
+            )
             // V5.0.8085 — bound to (mint, BUY): an unresolved earlier buy blocks a second order; a sent-but-unconfirmed
             // outcome propagates to liveBuy's 7733 pending-wallet-delta path instead of falling through to Jupiter.
             com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", route = "PUMPPORTAL"))

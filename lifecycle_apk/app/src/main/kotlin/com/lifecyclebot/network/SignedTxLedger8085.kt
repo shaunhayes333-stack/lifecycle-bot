@@ -80,6 +80,7 @@ object SignedTxLedger8085 {
         if (e.side == "SELL") stage8087(e.mint, to)
         if (to == State.SUBMIT_ATTEMPTED && e.submittedAtMs8087 == 0L) e.submittedAtMs8087 = nowMs
         if (to == State.EXPIRED_PROVEN) attributeExpiry8087(e, detail, nowMs)
+        if (to == State.EXPIRED_PROVEN && e.side == "BUY") try { com.lifecyclebot.engine.LandingMeter8169.noteBuyUnlanded8169(e.mint, nowMs) } catch (_: Throwable) {}  // V5.0.8169
         e.state = to; e.updatedAtMs = nowMs
         if (detail.isNotBlank()) e.detail = detail.take(160)
         if (acceptedBy.isNotBlank()) e.acceptedBy = (if (e.acceptedBy.isBlank()) acceptedBy else "${e.acceptedBy},$acceptedBy").take(80)
@@ -224,6 +225,11 @@ object SignedTxLedger8085 {
                 else -> {}
             }
         } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8169 — every row's identity for the per-route landing table (LandingMeter8169). */
+    fun landRows8169(): List<com.lifecyclebot.engine.CostLanding8169.LandRow8169> = rows.values.map {
+        com.lifecyclebot.engine.CostLanding8169.LandRow8169(it.side, it.route, it.state.name, it.submittedAtMs8087 > 0L, it.acceptedBy)
     }
 
     fun expiryLine8087(): String = expiryByRoute8087.entries.sortedByDescending { it.value.get() }

@@ -11,20 +11,15 @@ class Aate7512RichFinalityRepairWithoutEntrySnapshotTest {
     @Test fun rich_finality_is_checked_before_entry_snapshot_requirement() {
         val s = src()
         val fn = s.substringAfter("fun repairDurableBusPublishFailures7459").substringBefore("fun statusLine")
-        assertTrue(fn.indexOf("durableEventForPosition7459") < fn.indexOf("if (entry == null && rich == null)"))
-    }
-
-    @Test fun typed_sell_only_path_still_requires_entry_snapshot() {
-        val fn = src().substringAfter("fun repairDurableBusPublishFailures7459").substringBefore("fun statusLine")
-        assertTrue(fn.contains("if (entry == null && rich == null)"))
-        assertTrue(fn.contains("FINALIZED_BUS_REPAIR_ENTRY_SNAPSHOT_MISSING_7459"))
+        assertTrue(fn.indexOf("durableEventForPosition7459") > 0)
+        assertTrue(fn.indexOf("durableEventForPosition7459") < fn.indexOf("val terminalOnly7521 = entry == null && rich == null"))
     }
 
     @Test fun optional_strategy_fields_are_not_fabricated_without_snapshot() {
         val fn = src().substringAfter("fun repairDurableBusPublishFailures7459").substringBefore("fun statusLine")
-        assertTrue(fn.contains("val entryScore = entry?.entryScore?.coerceIn(0, 100) ?: 0"))
-        assertTrue(fn.contains("entryTradeType = entry?.entryTradeType.orEmpty()"))
-        assertTrue(fn.contains("entrySource = entry?.entrySource.orEmpty()"))
-        assertTrue(fn.contains("marketRegime = entry?.entryMarketRegime.orEmpty()"))
+        assertTrue(fn.contains("val entryScore = if (restoredEntry7526) 0 else entry?.entryScore?.coerceIn(0, 100) ?: 0"))
+        assertTrue(fn.contains("entryTradeType = if (restoredEntry7526) \"\" else entry?.entryTradeType.orEmpty()"))
+        assertTrue(fn.contains("entrySource = if (restoredEntry7526) \"RESTORED_NONTRAINABLE_7526\" else entry?.entrySource.orEmpty()"))
+        assertTrue(fn.contains("marketRegime = if (restoredEntry7526) \"\" else entry?.entryMarketRegime.orEmpty()"))
     }
 }

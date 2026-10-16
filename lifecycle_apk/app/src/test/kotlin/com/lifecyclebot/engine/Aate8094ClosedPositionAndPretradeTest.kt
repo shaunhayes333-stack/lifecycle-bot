@@ -191,7 +191,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(20_000.0, f.rescaledMcap8094(10_000.0, 1.0, 2.0), 1e-9)   // price x supply stays one identity
         assertEquals(10_000.0, f.rescaledMcap8094(10_000.0, 0.0, 2.0), 1e-9)
         val bridge = src("engine/SpecialistBrainBridge7542.kt")
-        assertTrue(bridge.indexOf("CandidateMarkFresh8094.ensureFresh8094(ts)") in 0 until bridge.indexOf("val f=fp(ts,paper)"))
+        // 8168: the fingerprint also carries the resident scope (fp(ts,paper,residents)); the fresh mark still precedes it.
+        assertTrue(bridge.indexOf("CandidateMarkFresh8094.ensureFresh8094(ts)") in 0 until bridge.indexOf("val f=fp(ts,paper,"))
         assertTrue(src("engine/CyclicTradeEngine.kt").contains("CandidateMarkFresh8094.ensureFresh8094(ts)"))
     }
 

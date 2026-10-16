@@ -105,7 +105,7 @@ class Aate8153LearningTest {
         assertTrue(cx.contains("ForwardReturnLabeler7731.lateFirstPrice8153(mint, labelLane, atMs)"))
         assertTrue(cx.contains("gradeBook8144.markLateEntry8153(\"\$key|\$atMs\")"))
         val on = cx.substringAfter("fun onLabel(mint: String, labelLane: String").substringBefore("// ── V5.0.8144 — grade records")
-        assertTrue(on.indexOf("if (!hyg8144.authority || late8153) {") in 0 until on.indexOf("LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080, p.setup7961)"))
+        assertTrue(on.indexOf("if (!hyg8144.authority || late8153 || lateRead8169) {") in 0 until on.indexOf("LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080, p.setup7961)"))
         // A hygiene-excluded decision's revisions move its own observed record, not the older graded decision's books.
         val rv = cx.substringAfter("fun reviseLabel8006(").substringBefore("fun progressiveLine8006(")
         assertTrue(rv.indexOf("if (observedOnlyNewer8153(key)) { reviseObservedOnly8153(key, newNet, newGross); return }") in 0 until rv.indexOf("ledger.revise8006("))

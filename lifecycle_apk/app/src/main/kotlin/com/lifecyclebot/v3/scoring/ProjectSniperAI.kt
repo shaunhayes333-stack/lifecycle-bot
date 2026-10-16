@@ -626,6 +626,17 @@ object ProjectSniperAI {
         return noEngage(reason, tokenAgeSecs, ThreatLevel.YELLOW)
     }
 
+    /** V5.0.8169 — the sniper's launch window, read by the native-scope age pre-filter (LaunchBirth8169): one constant. */
+    const val SNIPER_WINDOW_SECS_8169: Int = MAX_TOKEN_AGE_SECONDS
+
+    /**
+     * V5.0.8169 — LaunchBirth8169.sniperScoped8169 proved [ts] past the window before the native assessment: it is handed
+     * on by name exactly as [assessTarget]'s TOO_OLD_8144 branch does (same reason, same receiver lane, same ledger).
+     */
+    fun tooOldHandOff8169(ts: TokenState, tokenAgeSecs: Int) {
+        handOff8144(ts, "TOO_OLD_8144: ${tokenAgeSecs}s > ${MAX_TOKEN_AGE_SECONDS}s", tokenAgeSecs)
+    }
+
     private fun noEngage(reason: String, tokenAgeSecs: Int, threat: ThreatLevel = ThreatLevel.RED): TargetAssessment {
         return TargetAssessment(
             shouldEngage = false,

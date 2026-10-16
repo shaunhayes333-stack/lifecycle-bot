@@ -13,8 +13,10 @@ class Aate7447TraderBootstrapIsolationTest {
         assertTrue(a > 0 && b > a)
         val region = src.substring(a, b)
         assertTrue(region.contains("traderStep7447"))
-        assertTrue(region.contains("withTimeout(timeoutMs)"))
-        assertTrue(region.contains("runInterruptible(kotlinx.coroutines.Dispatchers.IO)"))
+        // The bounded step helper is defined once, ahead of the phase marker.
+        val step = src.substringAfter("val traderStep7447").substringBefore("canonicalBootstrapJob6515?.join()")
+        assertTrue(step.contains("withTimeout(timeoutMs)"))
+        assertTrue(step.contains("runInterruptible(kotlinx.coroutines.Dispatchers.IO)"))
         listOf("PERPS", "STOCK", "COMMODITY", "METAL", "FOREX", "CRYPTO_ALT_INIT", "CRYPTO_ALT_START")
             .forEach { assertTrue("missing bounded startup for $it", region.contains("traderStep7447(\"$it\"")) }
     }

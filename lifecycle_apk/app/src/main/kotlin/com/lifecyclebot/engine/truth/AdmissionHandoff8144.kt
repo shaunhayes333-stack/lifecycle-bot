@@ -235,9 +235,20 @@ object AdmissionHandoff8144 {
         try { PipelineHealthCollector.labelInc("SNIPER_HANDOFF_8144_$key") } catch (_: Throwable) {}
     }
 
+    // V5.0.8169 — every settled hand-off's verdict by name (5.0.8168: 120 arrivedNativeRefused / 118 taskDeferred / 116
+    // taskRefusedNamed printed as bare totals). Key "<STATE>|<verdict key>" (HandoffReceiverTasks8153.verdictKey8169).
+    private val verdicts8169 = ConcurrentHashMap<String, AtomicLong>()
+
+    private fun tally8169(h: Handoff8144) {
+        val k = "${h.state.name}|${com.lifecyclebot.engine.HandoffReceiverTasks8153.verdictKey8169(h.verdict)}"
+        if (verdicts8169.size >= 512 && !verdicts8169.containsKey(k)) return
+        verdicts8169.computeIfAbsent(k) { AtomicLong(0) }.incrementAndGet()
+    }
+
     /** Counts a settle transition once and feeds the runner trace. */
     private fun settled8144(before: Handoff8144?, after: Handoff8144) {
         if (before === after || before?.state == after.state) return
+        if (!after.open) try { tally8169(after) } catch (_: Throwable) {}  // V5.0.8169
         when (after.state) {
             State8144.ARRIVED_EVALUATED -> count8144(if (after.verdict.startsWith("FDG_")) "ARRIVED_FDG" else "ARRIVED_NATIVE_REFUSED")
             State8144.NO_QUALIFIED_RECEIVER -> count8144("NO_QUALIFIED_RECEIVER")
@@ -310,6 +321,17 @@ object AdmissionHandoff8144 {
         val c = { k: String -> counts[k]?.get() ?: 0L }
         return "handoff8144[emitted=${c("EMITTED")} arrivedFdg=${c("ARRIVED_FDG")} arrivedNativeRefused=${c("ARRIVED_NATIVE_REFUSED")} " +
             "qualified=${c("RECEIVER_QUALIFIED")} noReceiver=${c("NO_QUALIFIED_RECEIVER")} expiredUnevaluated=${c("EXPIRED_NOT_EVALUATED")} " +
-            "open=${ledger.values.count { it.open }} taskDeferred=${c("TASK_DEFERRED_DATA")} taskRefusedNamed=${c("TASK_REFUSED_NAMED")}]"
+            "open=${ledger.values.count { it.open }} taskDeferred=${c("TASK_DEFERRED_DATA")} taskRefusedNamed=${c("TASK_REFUSED_NAMED")} " +
+            // V5.0.8169 — each settled hand-off's verdict, by state: who judged it and how (a refusal is named, a loss is visible).
+            verdictLine8169() + "]"
+    }
+
+    /** V5.0.8169 — "arrivedBy8169{..} expiredBy8169{..} noReceiverBy8169{..}". */
+    internal fun verdictLine8169(): String {
+        val v = verdicts8169.mapValues { it.value.get() }
+        val t = com.lifecyclebot.engine.HandoffReceiverTasks8153
+        return "arrivedBy8169{${t.topTallies8169(v, "${State8144.ARRIVED_EVALUATED.name}|", 8)}} " +
+            "expiredBy8169{${t.topTallies8169(v, "${State8144.EXPIRED_NOT_EVALUATED.name}|", 6)}} " +
+            "noReceiverBy8169{${t.topTallies8169(v, "${State8144.NO_QUALIFIED_RECEIVER.name}|", 3)}}"
     }
 }

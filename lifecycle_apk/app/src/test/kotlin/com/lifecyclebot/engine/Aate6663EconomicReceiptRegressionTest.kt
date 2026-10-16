@@ -47,7 +47,7 @@ class Aate6663EconomicReceiptRegressionTest {
         val exec = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val close = exec.substringAfter("val close6474 = com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.finalizeSell(")
             .substringBefore("canonicalPaperSellCommitted6474 = close6474.applied")
-        assertTrue(close.contains("grossProceedsSol = (grossNoFrictionValue - treasuryShare).coerceAtLeast(0.0)"))
+        assertTrue(close.contains("grossProceedsSol = grossNoFrictionValue.coerceAtLeast(0.0)"))
         assertTrue(close.contains("feesSol = simulatedFeeSol.coerceAtLeast(0.0)"))
         assertFalse(close.contains("grossProceedsSol = (value - treasuryShare)"))
     }
@@ -55,7 +55,8 @@ class Aate6663EconomicReceiptRegressionTest {
     @Test
     fun `paper entry validates the exact snapshot it persists`() {
         val exec = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(exec.contains("val entryMarketSnapshot = mintEntryMarketSnapshot(ts)"))
+        assertTrue(exec.contains("val entryMarketSnapshotRaw7280 = mintEntryMarketSnapshot(ts)"))
+        assertTrue(exec.contains("val entryMarketSnapshot = observeCapDerivedBasis7280(ts, entryMarketSnapshotRaw7280)"))
         assertTrue(exec.contains("source = entryMarketSnapshot.priceSource"))
         assertTrue(exec.contains("poolAddress = entryMarketSnapshot.poolAddress"))
         assertTrue(exec.contains("Provenance.NON_AUTHORITATIVE_MISSING"))

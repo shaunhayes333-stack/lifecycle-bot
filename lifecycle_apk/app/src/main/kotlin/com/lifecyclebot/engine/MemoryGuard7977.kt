@@ -332,7 +332,19 @@ object MemoryGuard7977 {
         // Queues: a queued coroutine / job holds its continuation and captured state.
         r.register8144("sideEffectQueue", 1_024L, { com.lifecyclebot.util.AppDispatchers.sideEffectQueueDepth8144() }, null)
         r.register8144("cortexQueue", 2_048L, { com.lifecyclebot.engine.cortex.Cortex7885.queuedTasks() }, null)
+        // V5.0.8169 — one entry per mint ever seen, never pruned and never counted: the native specialist snapshots
+        // (unreadable past 5 s), the desk sheets, the bundle analyses (unreadable once stale). Each trim drops only
+        // entries no reader can be served (see the owners' pruners).
+        r.register8144("nativeSnapshots", 3_072L, { SpecialistBrainBridge7542.snapshotCount8169() }, { _ -> SpecialistBrainBridge7542.pruneUnreadable8169() })
+        r.register8144("deskSheets", 4_096L, { ToolkitSignalSheet.sheetCount8169() }, { _ -> ToolkitSignalSheet.pruneIdleSheets8169() })
+        r.register8144("bundleAnalyses", 768L, { BundleDetector.cacheCount8169() }, { _ -> BundleDetector.pruneStale8169() })
     }
+
+    /**
+     * Pure (V5.0.8169): heap used minus what the census can attribute to a store. Large while a hard trim recovers a lot
+     * = collectable allocation churn, not a retained holder; large while trims recover nothing = an uncounted holder.
+     */
+    fun unattributedMb8169(usedMb: Long, censusBytes: Long): Long = (usedMb - censusBytes.coerceAtLeast(0L) / (1L shl 20)).coerceAtLeast(0L)
 
     /** Guard thread: the census for the status line (counts O(1); tape / token estimates walk at most a few thousand rows). */
     private fun refreshCensus8144() {
@@ -409,6 +421,8 @@ object MemoryGuard7977 {
         "heap=${lastUsedMb}/${maxMb}MB (${"%.0f".format(lastFrac * 100)}%) peak=${"%.0f".format(peakFrac * 100)}% " +
             "softTrims=${softTrims.get()} hardTrims=${hardTrims.get()} " +
             "pressure8136=$pressure8136 escalation8136=$escalation8136 pressurePruned8136=${pressurePruned8136.get()} " +
-            "ineffectiveHardTrims8136=${ineffectiveHardTrims8136.get()} lastRecoveredMb8136=$lastRecoveredMb8136 tapesFreed8136=${tapesFreed8136.get()} ${sizes()} " +
+            "ineffectiveHardTrims8136=${ineffectiveHardTrims8136.get()} lastRecoveredMb8136=$lastRecoveredMb8136 tapesFreed8136=${tapesFreed8136.get()} " +
+            "attributed8169=[censusMb=${MemoryRegistry8144.totalBytes8144(censusRows8144) / (1L shl 20)} unattributedMb=${unattributedMb8169(lastUsedMb, MemoryRegistry8144.totalBytes8144(censusRows8144))} " +
+            "bundleRestored=${try { BundleDetector.restoredCount8169() } catch (_: Throwable) { -1L }}] ${sizes()} " +
             censusStatus8144
 }

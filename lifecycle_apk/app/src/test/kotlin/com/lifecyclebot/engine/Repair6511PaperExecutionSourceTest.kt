@@ -18,7 +18,9 @@ class Repair6511PaperExecutionSourceTest {
         // specialist can execute at trade #1 (was: silently collapsed to
         // BELOW_MIN_EXECUTABLE, blocking the learning loop entirely).
         PaperAccountLedger6430.resetForTest()
-        PaperAccountLedger6430.initialize(0.1)  // fund at minimum
+        // V5.0.7277 — the paper floor is now fee-aware (FeeAwareSizeFloor7277,
+        // above the historical 0.05), so fund enough to cover it plus the fee reserve.
+        PaperAccountLedger6430.initialize(1.0)
         OrderSizeResolver6441.updatePaperExecutableMinimumSol(
             PaperPreTicketSizeFloor6511.boundedMinimum(0.005),
         )
@@ -53,13 +55,13 @@ class Repair6511PaperExecutionSourceTest {
         assertFalse(minimumBlock.contains("c.smallBuySol"))
         assertFalse(minimumBlock.contains("paperSimulatedBalance * 0.001"))
         assertTrue(minimumBlock.contains("PaperPreTicketSizeFloor6511.boundedMinimum"))
-        val promotion = executor.indexOf("val effectiveRequestedSol6511")
-        val bridge = executor.indexOf("TraderSizingBridge6444.resolveForLane", promotion)
-        val reject = executor.indexOf("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490", bridge)
-        val ticket = executor.indexOf("ExecutableOpenGate.canOpenExecutablePosition", reject)
+        // V5.0.7850 / V5.0.7852 — paperBuy no longer re-resolves size; it consumes
+        // the sealed ticket's resolvedSize, still before the ticket check and commit.
+        val consumed = executor.indexOf("val effectiveBuySol6451 = ticket6513?.resolvedSize ?: run {")
+        val sealed = executor.indexOf("val canonicalBuyIntentSol6490 = requireNotNull(sealedIntent7835).resolvedSize", consumed)
+        val ticket = executor.indexOf("ExecutableOpenGate.canOpenExecutablePosition", sealed)
         val commit = executor.indexOf("V5.0.6485 — ATOMIC PAPER BUY COMMIT", ticket)
-        assertTrue(promotion >= 0 && promotion < bridge && bridge < reject && reject < ticket && ticket < commit)
-        assertTrue(executor.contains("PAPER_SEALED_NOTIONAL_CONSUMED_6552") && executor.contains("sealedNotional6552"))
+        assertTrue(consumed >= 0 && consumed < sealed && sealed < ticket && ticket < commit)
         assertFalse(executor.contains("floorPromotionRequested6511"))
         assertFalse(executor.contains("PAPER_BUY_SIZE_FLOOR_PROMOTED_6511"))
     }

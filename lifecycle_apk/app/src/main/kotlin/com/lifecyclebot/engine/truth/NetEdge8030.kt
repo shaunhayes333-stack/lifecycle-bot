@@ -41,6 +41,17 @@ object NetEdge8030 {
         expectedGrossPct.isFinite() && costPct.isFinite() && expectedGrossPct >= EDGE_MULT * costPct
 
     /** The lowest gross gain a profit-taking exit may sell at: the round trip plus the net buffer. */
+    /**
+     * Pure (V5.0.8169): the cost an exit still has to clear — the round trip [roundTripPct] less the buy leg's fixed cost
+     * ([fixedLegSol] on [positionSol], already paid), never under the sell leg's own fixed share, never over the round trip.
+     * Unknown fixed leg or size: the round trip as before.
+     */
+    fun exitCostPct8169(roundTripPct: Double, fixedLegSol: Double, positionSol: Double): Double {
+        if (!roundTripPct.isFinite() || !fixedLegSol.isFinite() || fixedLegSol <= 0.0 || !positionSol.isFinite() || positionSol <= 0.0) return roundTripPct
+        val legPct = fixedLegSol / positionSol * 100.0
+        return (roundTripPct - legPct).coerceAtLeast(minOf(legPct, roundTripPct))
+    }
+
     fun exitFloorPct8030(costPct: Double): Double = (if (costPct.isFinite() && costPct > 0.0) costPct else 0.0) + NET_BUFFER_PCT
 
     /** An exit that must never be held for profit: stops, safety, operational, manual. */
@@ -91,7 +102,34 @@ object NetEdge8030 {
             FieldManual7715.impactRoundTripPct(if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0)
         else try { FieldManual7715.roundTripCostPct7766(size, if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0) } catch (_: Throwable) { 5.0 }
         val measured = try { CostLedger7962.measuredCostPct7962(lane, size) } catch (_: Throwable) { null }
-        return maxOf(model, measured ?: 0.0).also { lastCostPct = it }
+        return maxOf(model, measured ?: 0.0).also {
+            lastCostPct = it
+            // V5.0.8169 — what the figure is made of (5.0.8168 printed lastCost=58.64% with no lane, size or depth).
+            lastBreakdown8169 = breakdown8169(lane, size, if (depthKnown) liquidityUsd else 0.0, components8151.isFinite(),
+                FieldManual7715.impactRoundTripPct(if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0), measured, it)
+        }
+    }
+
+    @Volatile private var lastBreakdown8169 = "-"
+    @Volatile private var lastEntryBreakdown8169 = "-"
+    @Volatile private var lastComponents8169 = doubleArrayOf(Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN)
+
+    /** V5.0.8169 — one priced round trip, per side: fees per side, the fixed leg, rent, slippage and impact halves. */
+    private fun breakdown8169(lane: String, size: Double, liq: Double, componentModel: Boolean, impactRtPct: Double,
+                              measured: Double?, usedPct: Double): String {
+        val c = lastComponents8169
+        val perSideFees = if (componentModel) c[0] + c[1] + c[2] else Double.NaN
+        val fixedLegPct = if (componentModel && size > 0.0) c[3] / size * 100.0 else Double.NaN
+        val rentPct = if (componentModel && size > 0.0) c[4] / size * 100.0 else Double.NaN
+        val slipHalf = FieldManual7715.SLIPPAGE_ALLOWANCE_PCT_7715 / 2.0
+        val impactHalf = if (impactRtPct.isFinite()) impactRtPct / 2.0 else 0.0
+        val buySide = perSideFees + fixedLegPct + slipHalf + impactHalf
+        val sellSide = perSideFees + fixedLegPct + slipHalf + impactHalf + (if (rentPct.isFinite()) rentPct else 0.0)
+        fun p(v: Double) = if (v.isFinite()) "%.2f".format(v) else "-"
+        return "lane=${lane.uppercase().take(14)} size=${"%.4f".format(size)} liq=${"%.0f".format(liq)} " +
+            "venue=${p(c[0])}+route=${p(c[1])}+app=${p(c[2])}%/side fixedLeg=${"%.6f".format(c[3])}SOL(${p(fixedLegPct)}%) rent=${p(rentPct)}% " +
+            "slip=${p(slipHalf)}%/side impact=${p(impactHalf)}%/side buySide=${p(buySide)}% sellSide=${p(sellSide)}% " +
+            "measured=${measured?.let { p(it) } ?: "-"} used=${p(usedPct)}%"
     }
 
     /**
@@ -105,11 +143,12 @@ object NetEdge8030 {
         val venuePct = if (mint.isBlank()) 0.25 else PaperVenueCost7287.venueFeePct(mint, liquidityUsd, mcapUsd)
         val routePct = com.lifecyclebot.engine.CostTrim8151.routeFeePctPerSide8151(if (curve) "PUMPPORTAL" else "JUPITER")
         val rentLoss = try { com.lifecyclebot.engine.RentReclaimer7927.rentLossRate8151() } catch (_: Throwable) { 0.0 }
+        val fixedLeg = com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() / 2.0
+        val rentSol = com.lifecyclebot.engine.CostTrim8151.ATA_RENT_SOL_8151 * rentLoss
         val rt = com.lifecyclebot.engine.CostTrim8151.roundTripPct8151(
-            venuePct, routePct, com.lifecyclebot.engine.CostTrim8151.APP_FEE_PCT_PER_SIDE_8151,
-            com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() / 2.0,
-            com.lifecyclebot.engine.CostTrim8151.ATA_RENT_SOL_8151 * rentLoss, sizeSol,
+            venuePct, routePct, com.lifecyclebot.engine.CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, fixedLeg, rentSol, sizeSol,
         )
+        lastComponents8169 = doubleArrayOf(venuePct, routePct, com.lifecyclebot.engine.CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, fixedLeg, rentSol)  // V5.0.8169
         if (mint.isNotBlank() && sizeSol >= DEFAULT_TICKET_SOL * 0.5) com.lifecyclebot.engine.CostMeter8151.noteRoundTrip8151(rt)
         return rt
     }
@@ -181,7 +220,8 @@ object NetEdge8030 {
     fun moveBasis8153(mint: String): String = moves8153[mint].orEmpty()
 
     /** V5.0.8136 — the round trip [entryRefusal8030] charges this entry: the default ticket against the observed depth. */
-    fun entryCostPct8136(ts: TokenState, lane: String): Double = costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
+    fun entryCostPct8136(ts: TokenState, lane: String): Double =
+        costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap).also { lastEntryBreakdown8169 = lastBreakdown8169 }
 
     private val slowRefused8035 = AtomicLong(0)
 
@@ -292,7 +332,10 @@ object NetEdge8030 {
         val structural = structural8030(reason)
         if (structural) return false
         try { OnChainDepth8038.request8038(ts) } catch (_: Throwable) {}
-        val cost = costPct8030(pos.tradingMode.ifBlank { "UNKNOWN" }, pos.costSol, liquidity8037(ts), ts.mint, ts.lastMcap)
+        // V5.0.8169 — the buy leg's fixed cost is already paid (sunk): an exit is charged the round trip less that leg. On a
+        //    ~0.001 SOL remainder both legs read ~59%, so every profit exit of a small remainder was held.
+        val roundTrip = costPct8030(pos.tradingMode.ifBlank { "UNKNOWN" }, pos.costSol, liquidity8037(ts), ts.mint, ts.lastMcap)
+        val cost = exitCostPct8169(roundTrip, try { com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() / 2.0 } catch (_: Throwable) { Double.NaN }, pos.costSol)
         val floor = exitFloorPct8030(cost)
         if (!profitExitHeld8030(pnl, floor, structural)) return false
         val peak = if (pos.highestPrice > 0.0) (pos.highestPrice / pos.entryPrice - 1.0) * 100.0 else Double.NaN
@@ -317,6 +360,7 @@ object NetEdge8030 {
     fun statusLine(): String =
         "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} moveHistoryDeferred8153=${historyDeferred8153.get()} scalpTooFlat8054=${scalpRefused8054.get()} swingAlreadyRan8054=${overextendedRefused8054.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} giveBackReleased8048=${giveBackReleased.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
             "rule=entry move>=${EDGE_MULT.toInt()}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)" +
+            " · lastCost8169=[$lastBreakdown8169] lastEntryCost8169=[$lastEntryBreakdown8169]" +
             " · cost8151 " + com.lifecyclebot.engine.CostMeter8151.statusLine8151(DEFAULT_TICKET_SOL)
 
     /** V5.0.8151 — the entry is costed at the last live ticket that actually sealed (TradeVerifier), else the default. */

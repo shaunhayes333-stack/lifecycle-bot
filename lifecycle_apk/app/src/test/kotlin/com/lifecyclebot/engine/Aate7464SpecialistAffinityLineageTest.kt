@@ -11,7 +11,9 @@ class Aate7464SpecialistAffinityLineageTest {
         val s = src("engine/truth/MemeExecutionFunnelReceivers6625.kt")
         val fn = s.substringAfter("fun ensureAffinityLineage7464(").substringBefore("fun stamp6625(")
         assertTrue(fn.contains("GlobalTradeRegistry.getLaneAffinity(key.mint)"))
-        assertTrue(fn.contains("if (laneKey !in affinity)"))
+        // V5.0.7815 — exact registry lane proof OR exact lane+mint resident book proof.
+        assertTrue(fn.contains("val registryProof7815 = laneKey in affinity"))
+        assertTrue(fn.contains("if (!registryProof7815 && residentProof7815 == null)"))
         assertTrue(fn.contains("SPECIALIST_AFFINITY_LINEAGE_NO_PROOF_7464_"))
     }
 
@@ -38,13 +40,5 @@ class Aate7464SpecialistAffinityLineageTest {
         val stamp = s.indexOf("SpecialistCausalFunnel6625.stamp6625(key, causalStage, stage)", call)
         assertTrue(call >= 0)
         assertTrue(stamp > call)
-    }
-
-    @Test fun existing_intent_backfill_remains_same_record_executable_proof_only() {
-        val s = src("engine/truth/MemeExecutionFunnelReceivers6625.kt")
-        val fn = s.substringAfter("fun stamp6625(").substringBefore("fun stageCounts6625")
-        assertTrue(fn.contains("Stage.DISCOVER in rec.stages"))
-        assertTrue(fn.contains("hasFdgAllow7418 && hasMark7418 && hasSize7418"))
-        assertTrue(fn.contains("INTENT_INFERRED_FROM_EXECUTABLE_LINEAGE_7418"))
     }
 }

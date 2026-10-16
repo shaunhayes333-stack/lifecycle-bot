@@ -159,7 +159,9 @@ object LaneHunter7297 {
         ),
         Profile(
             "BLUECHIP", BlueChipTraderAI.MIN_MARKET_CAP_USD, Double.MAX_VALUE,
-            fits = { r -> !r.mint.endsWith("pump", ignoreCase = true) && r.liquidityUsd > 0.0 },
+            // 8168: mint suffix is provenance, not a native BLUECHIP veto. The cap band above and
+            // native liquidity/quality checks still decide whether a graduated token fits this desk.
+            fits = { r -> r.liquidityUsd.isFinite() && r.liquidityUsd > 0.0 },
             rank = { r -> log10(1.0 + r.liquidityUsd) + log10(1.0 + r.volumeH1Usd) + (if (r.verified) 1.0 else 0.0) },
         ),
         Profile(
@@ -485,10 +487,17 @@ object LaneHunter7297 {
     fun hunt(snap: MarketSweep7297.Snapshot): Map<String, List<MarketSweep7297.Row>> {
         ensureSubscribed()
         val byMint = snap.rows.associateBy { it.mint }
+        val audit8168 = ArrayList<com.lifecyclebot.engine.BotImprovementReport8168.Hunt>()
+        // V5.0.8169 — tokenised equities and pegged / receipt tokens are not meme prey (HunterAssetClass8169); rows on the
+        // intake's 10-minute requeue cooldown (re-picked, never re-deliverable) rank after every deliverable row.
+        val nonMeme8169 = snap.rows.mapNotNull { r -> HunterAssetClass8169.of(r).takeIf { it != HunterAssetClass8169.Kind.MEME_TRADEABLE }?.let { r.mint to it } }.toMap()
+        val now8169 = System.currentTimeMillis()
+        requeuedAt8169.entries.removeIf { !onCooldown8169(it.value, now8169) }
         val ranked = profiles.associate { p ->
             val (lo, hi) = fluidBand(p.baseMin, p.baseMax, bucketStatsFor(p.lane))
-            p.lane to snap.rows
-                .filter { it.mcapUsd in lo..hi && p.fits(it) }
+            val inBand8168 = snap.rows.filter { it.mcapUsd in lo..hi && it.mint !in nonMeme8169 }
+            val eligible8168 = inBand8168.filter { p.fits(it) }
+            p.lane to eligible8168
                 // Compute each expensive evidence/ranking multiplier exactly
                 // once per candidate, not O(n log n) times inside TimSort's
                 // comparator. Preserve the original score and stable tie order.
@@ -501,7 +510,13 @@ object LaneHunter7297 {
                 }
                 .sortedByDescending { it.second }
                 .map { it.first.mint }
+                .let { order -> deliverableFirst8169(order) { m -> onCooldown8169(requeuedAt8169[m], now8169) } }
+                .also { ranked8168 -> audit8168 += com.lifecyclebot.engine.BotImprovementReport8168.hunt(
+                    p.lane, snap.rows, inBand8168.size, eligible8168.size,
+                    ranked8168.take(PICKS_PER_LANE).mapNotNull { byMint[it] }) }
         }
+        com.lifecyclebot.engine.BotImprovementReport8168.publishHunts(audit8168, snap.atMs)
+        noteHuntAudit8169(snap, nonMeme8169, ranked.mapValues { (_, mints) -> mints.take(PICKS_PER_LANE) }, now8169)
         // V5.0.7803 — DO NOT deal the market into mutually-exclusive hunter
         // buckets. Each specialist owns a resident candidate book and may watch
         // the same mint independently. Arbitration belongs at READY execution,
@@ -548,6 +563,52 @@ object LaneHunter7297 {
         }
         return out
     }
+
+    // ── V5.0.8169 — deliverable picks first; hunt audit ──
+
+    /** The scanner's requeue cooldown (SolanaMarketScanner.emitResidentHunt7807: one requeue per mint per 10 minutes). */
+    const val REQUEUE_COOLDOWN_MS_8169 = 10L * 60 * 1000
+    private val requeuedAt8169 = ConcurrentHashMap<String, Long>()
+
+    /**
+     * SolanaMarketScanner.emitResidentHunt7807: [mint] was just re-queued to intake. Until its cooldown ends a re-pick of
+     * it cannot be delivered again (8168: MARKET_HUNT_7301_REQUEUE_COOLDOWN_CASHGEN=130, TREASURY=127, BLUECHIP=117 — the
+     * same rows re-picked every sweep), so it ranks after every deliverable row.
+     */
+    fun noteRequeued8169(mint: String, atMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        if (requeuedAt8169.size > 4_000) requeuedAt8169.entries.removeIf { !onCooldown8169(it.value, atMs) }
+        requeuedAt8169[mint] = atMs
+    }
+
+    /** Pure: is a mint re-queued at [requeuedAtMs] still inside the intake's requeue cooldown at [nowMs]? */
+    fun onCooldown8169(requeuedAtMs: Long?, nowMs: Long): Boolean =
+        requeuedAtMs != null && requeuedAtMs > 0L && nowMs - requeuedAtMs in 0L until REQUEUE_COOLDOWN_MS_8169
+
+    /** Pure: [ranked] with the rows [cooling] says cannot be delivered moved to the end, order otherwise unchanged. */
+    fun deliverableFirst8169(ranked: List<String>, cooling: (String) -> Boolean): List<String> {
+        val (cold, hot) = ranked.partition(cooling)
+        return hot + cold
+    }
+
+    @Volatile private var lastAudit8169 = "no hunt yet"
+
+    private fun noteHuntAudit8169(snap: MarketSweep7297.Snapshot, nonMeme: Map<String, HunterAssetClass8169.Kind>,
+                                  picks: Map<String, List<String>>, nowMs: Long) {
+        try {
+            val all = picks.values.flatten()
+            val cooling = all.count { onCooldown8169(requeuedAt8169[it], nowMs) }
+            val byKind = nonMeme.values.groupingBy { it.name }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "0" }
+            val examples = nonMeme.keys.take(3).mapNotNull { m -> snap.rows.firstOrNull { it.mint == m }?.symbol?.take(12) }.joinToString(",")
+            lastAudit8169 = "rows=${snap.rows.size} nonMemeExcluded8169[$byKind${if (examples.isNotBlank()) " e.g. $examples" else ""}] " +
+                "picks=${all.size} uniqueMints=${all.toSet().size} pickedOnRequeueCooldown=$cooling " +
+                "perLane=[${picks.entries.joinToString(" ") { "${it.key}:${it.value.size}" }}]"
+            if (nonMeme.isNotEmpty()) PipelineHealthCollector.labelInc("LANE_HUNT_8169_NON_MEME_EXCLUDED")
+        } catch (_: Throwable) {}
+    }
+
+    /** The latest hunt as the 8169 audit reads it (non-meme exclusions, overlap across lanes, cooldown picks). */
+    fun auditLine8169(): String = lastAudit8169 + " · " + statusLine()
 
     /** All resident hunter lanes for [mint] that still fit their own fluid band. */
     internal fun claimsFor7803(mint: String, currentMcap: Double): Set<String> {

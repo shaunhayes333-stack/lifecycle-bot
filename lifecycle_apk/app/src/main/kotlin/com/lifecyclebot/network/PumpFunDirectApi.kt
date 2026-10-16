@@ -121,13 +121,14 @@ object PumpFunDirectApi {
             .url(URL)
             .header("Content-Type", "application/json")
             .header("Accept", "application/octet-stream")
+            .header(HostCircuitInterceptor.EXECUTION_HEADER_8169, "1")   // V5.0.8169 — a live buy, not background traffic
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         ErrorLogger.info(TAG,
             "🚀 PUMP DIRECT BUY → mint=${mint.take(8)}… sol=${"%.4f".format(solAmount)} slip=$slip%")
 
-        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "pump_direct_build").use { resp ->
+        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "pump_direct_build", allowDuringLockout = true).use { resp ->
             val body = resp.body
                 ?: throw RuntimeException("PumpPortal returned empty body (HTTP ${resp.code})")
             val ct = resp.header("Content-Type", "")?.lowercase() ?: ""
@@ -157,8 +158,10 @@ object PumpFunDirectApi {
                 throw RuntimeException("PumpPortal BUY returned tx too small (${bytes.size} bytes)")
             }
             val txB64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            // V5.0.8169 — what this buy will pay to land (its own CU limit x price) against the market's medium, for the report.
+            try { com.lifecyclebot.engine.LandingMeter8169.noteBuiltPumpBuy8169(bytes, effPriorityFee, ordinary8151, PriorityFee8009.mediumMicro8169()) } catch (_: Throwable) {}
             ErrorLogger.info(TAG,
-                "✅ PUMP DIRECT BUY TX BUILT: bytes=${bytes.size} b64Len=${txB64.length} slip=$slip%")
+                "✅ PUMP DIRECT BUY TX BUILT: bytes=${bytes.size} b64Len=${txB64.length} slip=$slip% priorityFee=${"%.6f".format(effPriorityFee)}SOL ordinary=$ordinary8151")
             return BuiltTx(txBase64 = txB64, pickedSlippagePct = slip)
         }
     }

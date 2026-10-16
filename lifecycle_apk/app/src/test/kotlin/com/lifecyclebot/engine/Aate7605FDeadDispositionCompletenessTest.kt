@@ -25,13 +25,14 @@ class Aate7605FDeadDispositionCompletenessTest {
             val c = it.split('\t')
             c[1] + "\t" + c[2] + "\t" + c[3]
         }
-        assertEquals(keys.size, keys.toSet().size)
-
+        // Overloaded functions appear once per overload in the ledger (seven
+        // owner/function/file keys occur twice), so compare the row multisets:
+        // every ledger row has exactly one disposition row and vice versa.
         val sourceKeys = fDead.map {
             val c = it.split('\t')
             c[1] + "\t" + c[2] + "\t" + c[3]
-        }.toSet()
-        assertEquals(sourceKeys, keys.toSet())
+        }
+        assertEquals(sourceKeys.sorted(), keys.sorted())
     }
 
     @Test

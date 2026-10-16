@@ -16,12 +16,18 @@ class Aate6679SealedOwnerAndModeMatchedLearningTest {
         try { ExecutionDecisionSnapshot6510.resetForTest() } catch (_: Throwable) {}
         try { LaneExecutionCoordinator.resetForTests() } catch (_: Throwable) {}
         try { BotRuntimeController.resetForTests() } catch (_: Throwable) {}
+        try { EnabledTraderAuthority.clear() } catch (_: Throwable) {}
     }
 
     @Test
     fun `sealed fdg specialist owner beats generic wrapper caller order`() {
         BotRuntimeController.resetForTests()
         val generation = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        // V5.0.7815 — only a lane whose trader is enabled can own execution
+        // (laneCanOwnExecution6910). Publish the same MEME set beginStart was given
+        // and pin the runtime to PAPER so the sealed PAPER snapshot is the current one.
+        RuntimeModeAuthority.publishRuntimeStart(paperMode = true, autoTrade = true)
+        EnabledTraderAuthority.publish(setOf(EnabledTraderAuthority.Trader.MEME))
         LaneExecutionCoordinator.resetForTests()
         ExecutionDecisionSnapshot6510.resetForTest()
 

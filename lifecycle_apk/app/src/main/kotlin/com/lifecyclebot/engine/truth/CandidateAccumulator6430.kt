@@ -145,8 +145,17 @@ object CandidateAccumulator6430 {
 
     fun statusLine(): String {
         val ratio = if (rawHits.get() > 0) coalescedCandidates.get().toDouble() / rawHits.get() else 0.0
-        return "raw=${rawHits.get()} coalesced=${coalescedCandidates.get()} dedupSaved=${dedupSavedEvaluations.get()} coalesceRatio=${"%.3f".format(ratio)} activeMints=${evidence.count { it.value.activeEvaluation }}"
+        return "raw=${rawHits.get()} coalesced=${coalescedCandidates.get()} dedupSaved=${dedupSavedEvaluations.get()} coalesceRatio=${"%.3f".format(ratio)} activeMints=${evidence.count { it.value.activeEvaluation }}" +
+            deadNote8169(rawHits.get())
     }
+
+    /**
+     * Pure (V5.0.8169): 5.0.8168 printed "raw=0 coalesced=0" — observe() / tryClaimEvaluation() have no production caller
+     * (only InvariantSelfCheck6430, which resets the book), so zeros here are an unwired component, not a healthy dedup.
+     * Mint fan-in actually runs in TokenMergeQueue and the INTAKE_DEDUPE_* / *_FAMILY_DEDUPE intake counters.
+     */
+    fun deadNote8169(raw: Long): String =
+        if (raw <= 0L) " ⚠NO_CALLERS_8169 (not wired; intake dedup = TokenMergeQueue + INTAKE_DEDUPE_*/FAMILY_DEDUPE counters)" else ""
 
     /** Pipeline-friendly: how many providers agree on the top mints? */
     fun topProviderConfluence(n: Int = 5): List<Pair<String, Int>> =

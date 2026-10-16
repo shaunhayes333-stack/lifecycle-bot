@@ -123,14 +123,32 @@ object LaunchTape7921 {
         return true
     }
 
+    // V5.0.8169 — RECOVERY_BIRTH_UNKNOWN_8168 counts trade EVENTS (5.0.8168: 59), not mints; the distinct birthless mints
+    // are counted once each, split by pump suffix (a pump mint here is a launch whose create frame was missed).
+    private val unknownMints8169 = ConcurrentHashMap.newKeySet<String>()
+
+    private fun noteUnknownMint8169(mint: String) {
+        if (unknownMints8169.size >= MAX_RECS) unknownMints8169.clear()
+        if (unknownMints8169.add(mint)) {
+            inc(if (com.lifecyclebot.engine.truth.LaunchBirth8169.pumpMint8169(mint)) "RECOVERY_UNKNOWN_PUMP_MINTS_8169" else "RECOVERY_UNKNOWN_OTHER_MINTS_8169")
+        }
+    }
+
     /** DataOrchestrator.onTapeTrade7773: one trade from the unified tape. */
     fun onTrade(mint: String, wallet: String, sol: Double, isBuy: Boolean, nowMs: Long = System.currentTimeMillis()) {
         if (!recs.containsKey(mint)) {
-            val birth = try {
-                com.lifecyclebot.engine.truth.AdmissionBirth8144.pumpCreateMs8144(mint)
-                    ?: com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint)
-            } catch (_: Throwable) { null }
-            recoverBirth8167(mint, birth, nowMs)
+            // V5.0.8169 — every direct create witness in memory (create frame, pump.fun record, curve create, the mint's own
+            // bonding-curve pair, its oldest signature), earliest wins and is named; a later pool or first sight never is.
+            val found8169 = try { com.lifecyclebot.engine.truth.LaunchBirth8169.launchBirth8169(mint, nowMs) } catch (_: Throwable) { null }
+            val birth = found8169?.birthMs
+            if (!recoverBirth8167(mint, birth, nowMs)) {
+                inc(if (birth == null) "RECOVERY_BIRTH_UNKNOWN_8168" else if (nowMs - birth !in 0L..TTL_MS)
+                    "RECOVERY_BIRTH_OUTSIDE_WINDOW_8168" else "RECOVERY_CAPACITY_8168")
+                if (birth == null) noteUnknownMint8169(mint)
+            } else {
+                inc("RECOVERY_BIRTH_ACCEPTED_8168")
+                found8169?.let { inc("RECOVERY_SOURCE_8169_${it.source}") }
+            }
         }
         val r = recs[mint] ?: return // no witnessed pump birth: not a launch
         if (nowMs - r.birthMs > TTL_MS || !sol.isFinite() || sol <= 0.0) return

@@ -147,6 +147,8 @@ class DexscreenerApi {
         }
         var result = best?.let { parsePair(it) }
         if (chainId == "solana") result = result?.let { withHolders8128(it, tokenAddress) }  // V5.0.8128
+        // V5.0.8169 — every best pair served is a dated flow reading for the setup inputs (SetupFeatureResolver8169).
+        if (chainId == "solana" && best != null) result?.let { p -> try { com.lifecyclebot.engine.truth.PairFlow8169.notePair8169(tokenAddress, p) } catch (_: Throwable) {} }
         // Fallback only — and only to a host that is not circuit-broken.
         if (result == null && allowDexPaprika) {
             // V5.0.7809 — also out when DexPaprika is latched terminal (401/402/403).
@@ -305,6 +307,8 @@ class DexscreenerApi {
                 com.lifecyclebot.engine.truth.PoolCreationTime7385.record(
                     baseAddr7385, p.optLong("pairCreatedAt", 0L), "DEXSCREENER",
                 )
+                // V5.0.8169 — named birth witness: a pump mint's own curve pair is its birth, any other pool a floor.
+                com.lifecyclebot.engine.truth.AdmissionBirth8144.notePairCreated8169(baseAddr7385, p.optString("dexId", ""), p.optLong("pairCreatedAt", 0L))
             }
         } catch (_: Throwable) {}
         return PairInfo(
@@ -412,6 +416,7 @@ class DexscreenerApi {
         // V5.0.7026 — the liquidity behind each mint's currently-chosen pair,
         // so "best" can actually be compared rather than asserted.
         val bestLiqByMint = HashMap<String, Double>(mints.size)
+        val batchAtMs8169 = System.currentTimeMillis()
         try {
             val arr = JSONArray(body)
             for (i in 0 until arr.length()) {
@@ -457,6 +462,8 @@ class DexscreenerApi {
                 if (bestLiq == null || liq > bestLiq) {
                     bestLiqByMint[mint] = liq
                     out[mint] = priceUsd
+                    // V5.0.8169 — the same pair's flow (txns / priceChange / liquidity) was dropped after the price.
+                    try { com.lifecyclebot.engine.truth.PairFlow8169.note8169(mint, com.lifecyclebot.engine.truth.PairFlow8169.fromJson8169(p, batchAtMs8169)) } catch (_: Throwable) {}
                 }
             }
         } catch (_: Exception) {

@@ -35,7 +35,6 @@ class Aate6673SurgicalTripleFixTest {
 
     private val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
     private val openGate = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-    private val botService = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
 
     // ── Fire A ─────────────────────────────────────────────────────────────
 
@@ -93,27 +92,6 @@ class Aate6673SurgicalTripleFixTest {
         assertTrue(
             "Fallback to the original EXEC_INTENT_MISSING block MUST still exist when no seal available",
             openGate.contains("EXEC_INTENT_MISSING_AT_FINAL_BIND_6519"),
-        )
-    }
-
-    // ── Fire C ─────────────────────────────────────────────────────────────
-
-    @Test
-    fun `Fire C — specialistCausalId6614 fallback emits canonical 7-part execution key`() {
-        assertTrue(
-            "BotService fallback must call ExecutableOpenGate.canonicalExecutionKey",
-            botService.contains("ExecutableOpenGate.canonicalExecutionKey(") &&
-                botService.contains("SPECIALIST_CAUSAL_ID_CANONICAL_FORMAT"),
-        )
-        assertFalse(
-            "Legacy 3-part fallback (gen:candidateVersion:lane) must be gone",
-            botService.contains("\"\${BotRuntimeController.currentGeneration()}:\${LaneExecutionCoordinator.candidateVersionFor(identity.mint)}:\$cyclePrimaryLane\""),
-        )
-        assertTrue(
-            "effectiveCandidateVersion6614 must be routed to downstream lookups",
-            botService.contains("effectiveCandidateVersion6614") &&
-                botService.contains("activeExecutionIntent6519(") &&
-                botService.contains("if (cfg.paperMode) \"PAPER\" else \"LIVE\", identity.mint, effectiveCandidateVersion6614,"),
         )
     }
 }

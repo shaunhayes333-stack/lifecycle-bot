@@ -73,13 +73,18 @@ object StopAuthority7887 {
         } catch (_: Throwable) { 15.0 }
         val mult = if (learned8040 != null) 1.0 else try { com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult(lane) } catch (_: Throwable) { 1.0 }
         sources.computeIfAbsent(if (plan != null) "PLAN" else if (learned8040 != null) "LEARNED_8040" else if (LANE_BASE.containsKey(lane)) "LANE" else "STYLE") { AtomicLong(0) }.incrementAndGet()
-        val composed = compose(plan?.stopPnlPct, base, mult, runner)
+        val composed0 = compose(plan?.stopPnlPct, base, mult, runner)
+        // V5.0.8169 — no plan: the lane base (learned or constant) never sits inside the lane's Field Manual
+        // invalidation (5.0.8168: BLUECHIP / QUALITY learned 5% against a 10% doctrine).
+        val composed = if (plan == null) com.lifecyclebot.engine.ExitDoctrine8169.doctrineFloored8169(lane, composed0) else composed0
         // V5.0.7962 — the key's own winners decide how much room they need (ExitProfile7955).
         val learned = try {
             com.lifecyclebot.engine.ExitProfile7955.learnedStopMag7962(com.lifecyclebot.engine.ExitProfile7955.keyProfileFor7962(ts), composed)
         } catch (_: Throwable) { null }
         if (learned != null) sources.computeIfAbsent("WINNER_DIP_7962") { AtomicLong(0) }.incrementAndGet()
-        return learned ?: composed
+        // V5.0.8169 — and never inside the position's round trip + 2x its measured 1-minute range (ordinary noise).
+        val chosen = learned ?: composed
+        return try { com.lifecyclebot.engine.ExitDoctrine8169.noiseCostFloored8169(ts, lane, chosen) } catch (_: Throwable) { chosen }
     }
 
     /**
@@ -97,7 +102,8 @@ object StopAuthority7887 {
         val learned8040 = try { StopLearner8040.learnedStop8040(l) } catch (_: Throwable) { null }
         val base = learned8040 ?: LANE_BASE[l] ?: try { kotlin.math.abs(com.lifecyclebot.engine.HoldingLogicLayer.getHoldParams(l).stopLossPct) } catch (_: Throwable) { 15.0 }
         val mult = if (learned8040 != null) 1.0 else try { com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult(l) } catch (_: Throwable) { 1.0 }
-        return compose(null, base, mult, runner || l == "MOONSHOT")
+        // V5.0.8169 — labels are graded on the same doctrine-floored stop live positions take.
+        return com.lifecyclebot.engine.ExitDoctrine8169.doctrineFloored8169(l, compose(null, base, mult, runner || l == "MOONSHOT"))
     }
 
     /** The same stop as a signed percent (e.g. -12.0). */

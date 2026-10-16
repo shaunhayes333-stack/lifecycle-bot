@@ -45,6 +45,8 @@ data class RuntimeStateSnapshot(
     val staleBuyPendingBalanceProof: Int = 0,
     val openAwaitingWalletProof: Int = 0,
     val timestampMs: Long = System.currentTimeMillis(),
+    // V5.0.8169 — candidate cycles (processTokenCycle invocations): the fan-out denominator (LoadTelemetry8169).
+    val scanCb: Long = 0L,
 ) {
     data class ApiSummary(val successRatePct: Int, val failures: Int, val avgLatencyMs: Int, val lastError: String)
 
@@ -252,6 +254,7 @@ data class RuntimeStateSnapshot(
                 activeMitigations = RuntimeConfigOverlay.activeCommands().map { "${it.kind}:${it.target}:${it.value}" },
                 staleBuyPendingBalanceProof = staleBuyPendingProof,
                 openAwaitingWalletProof = openAwaitingWalletProof,
+                scanCb = pipe.phaseCounts["SCAN_CB"] ?: 0L,
             )
         }
     }

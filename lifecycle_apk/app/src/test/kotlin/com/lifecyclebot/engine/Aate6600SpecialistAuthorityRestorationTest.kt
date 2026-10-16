@@ -16,7 +16,8 @@ class Aate6600SpecialistAuthorityRestorationTest {
 
     @Test fun project_sniper_cannot_own_from_toolkit_map_insertion_order() {
         val bot = source("engine/BotService.kt")
-        assertTrue(bot.contains("forced ?: styleLanes.firstOrNull()"))
+        // V5.0.7252 — style lanes are filtered to identity-eligible lanes first.
+        assertTrue(bot.contains("forced ?: eligibleStyleLanes7252.firstOrNull()"))
         assertTrue(!bot.contains("strongestDesk6599"))
         assertTrue(bot.contains("boundedRescue6600"))
         assertTrue(bot.contains("currentElection6600"))
@@ -44,7 +45,9 @@ class Aate6600SpecialistAuthorityRestorationTest {
         )
         assertTrue(r.executable)
         assertEquals(0.05, r.finalSizeSol, 1e-9)
-        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
+        // V5.0.7840/7841 — a live sub-routable request promoted to the minimum
+        // carries the live-route-floor reason.
+        assertEquals("OK_LIVE_ROUTABLE_MIN_PROMOTED_7841", r.reason)
     }
 
     @Test fun canonical_position_heals_projection_and_legacy_history_cannot_veto_sell() {

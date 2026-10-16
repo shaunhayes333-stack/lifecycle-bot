@@ -49,12 +49,15 @@ object CostLedger7962 {
     private class EntryMark(val mint: String, val markUsd: Double, val solUsd: Double, val atMs: Long)
 
     private val entryMarks = ConcurrentHashMap<String, EntryMark>()   // positionId
-    private val byLane = HashMap<String, ArrayDeque<DoubleArray>>()    // [costPct, ticketSol, buyPct]
+    private val byLane = HashMap<String, ArrayDeque<DoubleArray>>()    // [costPct, ticketSol, buyPct, sellPct8169, entryFeePct8169]
     private val measured = AtomicLong(0)
     private val noEntryMark = AtomicLong(0)
     private val noExitMark = AtomicLong(0)
     private val noLegs = AtomicLong(0)
     private val insane = AtomicLong(0)
+    // V5.0.8169 — samples whose marks contradict the fills (a negative side, or a buy side past any slippage bound).
+    private val markInconsistent8169 = AtomicLong(0)
+    private val legacyDropped8169 = AtomicLong(0)
     private val refusals = ConcurrentHashMap<String, AtomicLong>()
     private val priorOnly = AtomicLong(0)
     private val subscribed = AtomicBoolean(false)
@@ -203,17 +206,28 @@ object CostLedger7962 {
             }
             legs += TradeCostMeasurement8090.Sale(s.soldQty, s.netProceedsSol, mark, s.solUsdAtExit)
         }
-        val spent = (buy.executedCostSol + buy.entryFeesSol) * soldShare8094(buy.filledQty, soldRaw)
-        val measurement = TradeCostMeasurement8090.measure(spent, soldRaw, buy.tokenDecimals, em.markUsd, em.solUsd, legs)
-        return commitMeasurement8090(e, em, measurement, spent, if (measurement == null) "INVALID_FRICTION" else "MEASURED")
+        val share = soldShare8094(buy.filledQty, soldRaw)
+        val spent = (buy.executedCostSol + buy.entryFeesSol) * share
+        // V5.0.8169 — sides over the SOL spent (they add up); a sample whose marks contradict the fills is not learned.
+        val sides = CostSides8169.sides8169(spent, buy.entryFeesSol * share, soldRaw, buy.tokenDecimals, em.markUsd, em.solUsd, legs)
+        if (sides.verdict == CostSides8169.Verdict8169.MARK_INCONSISTENT) {
+            markInconsistent8169.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("COST_LEDGER_MARK_INCONSISTENT_8169") } catch (_: Throwable) {}
+            return commitMeasurement8090(e, em, null, 0.0, "MARK_INCONSISTENT_8169")
+        }
+        val measurement = if (sides.verdict == CostSides8169.Verdict8169.MEASURED && sides.costPct <= MAX_SANE_COST_PCT)
+            TradeCostMeasurement8090.Measurement(sides.costPct, sides.buyPct) else null
+        return commitMeasurement8090(e, em, measurement, spent, if (measurement == null) "INVALID_FRICTION" else "MEASURED", sides)
     }
 
     private fun commitMeasurement8090(e: CanonicalFinalizedTradeBus6464.Envelope, em: EntryMark,
-        measurement: TradeCostMeasurement8090.Measurement?, spent: Double, reason: String): Boolean {
+        measurement: TradeCostMeasurement8090.Measurement?, spent: Double, reason: String,
+        sides8169: CostSides8169.Sides8169? = null): Boolean {
         val l = lane(e.lane)
         val next = ArrayDeque(byLane[l].orEmpty())
         if (measurement != null) {
-            next.addLast(doubleArrayOf(measurement.costPct, spent, measurement.buyPct))
+            next.addLast(doubleArrayOf(measurement.costPct, spent, measurement.buyPct,
+                sides8169?.sellPct ?: Double.NaN, sides8169?.entryFeePct ?: Double.NaN))
             while (next.size > RING) next.removeFirst()
         }
         val state = encodeState8090(e.positionId, if (measurement != null) l to next else null)
@@ -222,7 +236,9 @@ object CostLedger7962 {
             .put("proof", e.proofState).put("reason", reason).put("entryMarkUsd", em.markUsd)
             .put("entrySolUsd", em.solUsd).put("entryAtMs", em.atMs)
             .put("costPct", measurement?.costPct ?: org.json.JSONObject.NULL)
-            .put("buyPct", measurement?.buyPct ?: org.json.JSONObject.NULL).toString()
+            .put("buyPct", measurement?.buyPct ?: org.json.JSONObject.NULL)
+            .put("sellPct8169", sides8169?.sellPct?.takeIf { it.isFinite() } ?: org.json.JSONObject.NULL)
+            .put("entryFeePct8169", sides8169?.entryFeePct?.takeIf { it.isFinite() } ?: org.json.JSONObject.NULL).toString()
         when (LearningPersistence.commitOnce8090("${key}_receipt", mapOf(PERSIST_KEY to state, key to evidence))) {
             LearningPersistence.Commit8090.RETRY -> return false
             LearningPersistence.Commit8090.ALREADY_COMMITTED -> return true
@@ -321,15 +337,22 @@ object CostLedger7962 {
                         val a = j.optJSONArray(k) ?: continue
                         // Preserve invalid historical samples verbatim outside the cost learner.
                         val excluded = org.json.JSONArray()
+                        // V5.0.8169 — a negative component or an impossible buy side is not a cost: kept verbatim outside
+                        // the learner (excludedLegacy8090), never learned.
+                        val decoded = (0 until a.length()).map { i -> a.optJSONArray(i)?.let { r -> decodeRow8169(r) } }
                         for (i in 0 until a.length()) {
-                            val row = a.optJSONArray(i)
-                            if (row == null || !row.optDouble(0).isFinite() || row.optDouble(0) !in -MAX_SANE_COST_PCT..MAX_SANE_COST_PCT ||
-                                !row.optDouble(2).isFinite() || row.optDouble(2) !in -MAX_SANE_COST_PCT..MAX_SANE_COST_PCT) excluded.put(a.opt(i))
+                            val row = decoded[i]
+                            if (row == null || !CostSides8169.learnableRow8169(row, MAX_SANE_COST_PCT)) excluded.put(a.opt(i))
                         }
-                        if (excluded.length() > 0) excludedLegacy8090.put(k, excluded)
-                        byLane[k] = ArrayDeque((0 until a.length()).mapNotNull { i ->
-                            a.optJSONArray(i)?.let { r -> doubleArrayOf(r.optDouble(0), r.optDouble(1), r.optDouble(2)) }
-                        }.filter { it[0].isFinite() && it[0] in -MAX_SANE_COST_PCT..MAX_SANE_COST_PCT && it[2].isFinite() && it[2] in -MAX_SANE_COST_PCT..MAX_SANE_COST_PCT }.takeLast(RING))
+                        if (excluded.length() > 0) {
+                            val prior = excludedLegacy8090.optJSONArray(k) ?: org.json.JSONArray()
+                            val seen = (0 until prior.length()).map { prior.opt(it).toString() }.toHashSet()
+                            for (i in 0 until excluded.length()) if (seen.add(excluded.opt(i).toString())) prior.put(excluded.opt(i))
+                            excludedLegacy8090.put(k, prior)
+                            legacyDropped8169.addAndGet(excluded.length().toLong())
+                        }
+                        byLane[k] = ArrayDeque(decoded.filterNotNull()
+                            .filter { CostSides8169.learnableRow8169(it, MAX_SANE_COST_PCT) }.takeLast(RING))
                     }
                 }
                 o.optJSONObject("marks")?.let { j ->
@@ -342,6 +365,10 @@ object CostLedger7962 {
             if (LearningPersistence.readFailed8086(PERSIST_KEY)) loaded = false
         }
     }
+
+    /** V5.0.8169 — a persisted row: 3 columns before 8169 (sell side / entry fee NaN), 5 after. */
+    private fun decodeRow8169(r: org.json.JSONArray): DoubleArray =
+        DoubleArray(maxOf(3, minOf(5, r.length()))) { j -> if (j < r.length()) r.optDouble(j) else Double.NaN }
 
     private fun persistMaybe(force: Boolean) {
         if (!loaded) return
@@ -366,6 +393,8 @@ object CostLedger7962 {
             .put("excludedLegacy8090", excludedLegacy8090).toString()
     }
 
+    private fun pct8169(v: Double): String = if (v.isFinite()) "%.2f".format(v) + "%" else "-"
+
     fun statusLine7962(): String {
         ensureSubscribed()
         ensureLoaded()
@@ -374,9 +403,12 @@ object CostLedger7962 {
             val rows = rowsOf(l)
             val m = measuredFrom7962(rows, laneTicketSol(l))
             "$l n=${rows.size} median=${"%.2f".format(median7962(rows.map { it[0] }))}% buySide=${"%.2f".format(median7962(rows.map { it[2] }))}% " +
+                "sellSide8169=${pct8169(median7962(rows.mapNotNull { r -> r.getOrNull(3) }))} entryFee8169=${pct8169(median7962(rows.mapNotNull { r -> r.getOrNull(4) }))} " +
                 "ticket=${"%.4f".format(laneTicketSol(l))} ${if (m != null) "BINDING" else "learning(n<$MIN_LIVE_N)"} refused=${refusals[l]?.get() ?: 0}"
         }.ifBlank { "no measured live round trips yet" }
         return "measured=${measured.get()} openMarks=${entryMarks.size} noEntryMark=${noEntryMark.get()} noExitMark=${noExitMark.get()} noLegs=${noLegs.get()} insane=${insane.get()} " +
-            "unmeasuredPasses=${priorOnly.get()} rule=labels+cards use measured lane cost at n>=$MIN_LIVE_N (estimate before) · refuse COST_EXCEEDS_EDGE_7962 when setup gross < measured cost · $body"
+            "unmeasuredPasses=${priorOnly.get()} markInconsistent8169=${markInconsistent8169.get()} legacyDropped8169=${legacyDropped8169.get()} " +
+            "sides8169=[both over SOL spent, buy+sell=cost, rent excluded, side<-${CostSides8169.NEG_TOLERANCE_PCT_8169}% or buy>${CostSides8169.MAX_BUY_SIDE_PCT_8169}% = marks not cost] " +
+            "rule=labels+cards use measured lane cost at n>=$MIN_LIVE_N (estimate before) · refuse COST_EXCEEDS_EDGE_7962 when setup gross < measured cost · $body"
     }
 }

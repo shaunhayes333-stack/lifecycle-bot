@@ -16,9 +16,15 @@ class Aate7111EntryFloorTunerTest {
 
     @Before fun setUp() { ScoreExpectancyTracker.reset() }
 
-    /** Feed n closes into a lane's score band. */
+    /**
+     * Feed n closes into a lane's score band. V5.0.7835: the tracker only learns
+     * from canonical deliveries, so feed inside a canonical scope of the same
+     * mode the verdict will read under.
+     */
     private fun feed(lane: String, score: Int, pnlPct: Double, n: Int) {
-        repeat(n) { ScoreExpectancyTracker.record(lane, score, pnlPct) }
+        LearningEnvironment7835.withMode(LearningEnvironment7835.mode(), canonical = true) {
+            repeat(n) { ScoreExpectancyTracker.record(lane, score, pnlPct) }
+        }
     }
 
     @Test

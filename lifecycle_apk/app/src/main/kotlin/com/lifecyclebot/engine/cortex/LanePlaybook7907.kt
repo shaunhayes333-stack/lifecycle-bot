@@ -543,17 +543,29 @@ object LanePlaybook7907 {
             if (tapeChg8100 != null) com.lifecyclebot.engine.truth.TradeTape8100.noteFilled8100("chg")
         } catch (_: Throwable) {}
         val liqObs = if (pos(s?.liquidityUsd).isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN
+        // V5.0.8169 — an input the token's own reading and the trade tape both left unobserved is read from any other
+        // healthy source that states it (a fresh DexScreener pair, the market sweep row); SetupFeatureResolver8169 names
+        // the source, or every source's reason when none can. Never overrides a reading, never a default.
+        val swaps8169 = (flow != null && flow.buyTx60s + flow.sellTx60s > 0) || tape8100 != null
+        val fill8169 = try {
+            com.lifecyclebot.engine.truth.SetupFeatureResolver8169.fillFor8169(ts.mint, nowMs, bpObs.name, if (bpKnown) nn(bpRaw).takeIf { it.isFinite() } else null, tapeBp8100,
+                chgObs.name, if (chgKnown) (ts.lastPriceChange5m to ts.lastPriceChange1h) else null, tapeChg8100, shapeObs.name, shapeKnown, tapeShape8100 != null,
+                pos(s?.liquidityUsd).takeIf { it.isFinite() }, tape8100 != null, tape != null, nn(s?.ageMin), swaps8169)
+        } catch (_: Throwable) { null }
+        val altBp8169 = if (!bpKnown && tapeBp8100 == null) fill8169?.bp?.value else null
+        val altChg8169 = if (!chgKnown && tapeChg8100 == null) fill8169?.chg?.value else null
+        val altLiq8169 = if (liqObs != Obs8084.OBSERVED) fill8169?.liq?.value else null
         // V5.0.8144 — name each missing input separately (per-feature counters), not one DATA_INCOMPLETE.
-        try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.observe8144(ts.mint, nowMs, bp = bpKnown || tapeBp8100 != null, chg = chgKnown || tapeChg8100 != null, tape = tape != null, structure = shapeKnown || tapeShape8100 != null, context = !plan.isNullOrBlank() || !phase.isNullOrBlank() || opp != null, liquidity = liqObs == Obs8084.OBSERVED, birth = nn(s?.ageMin).isFinite(), swaps = (flow != null && flow.buyTx60s + flow.sellTx60s > 0) || tape8100 != null) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.observe8144(ts.mint, nowMs, bp = bpKnown || tapeBp8100 != null || altBp8169 != null, chg = chgKnown || tapeChg8100 != null || altChg8169 != null, tape = tape != null, structure = shapeKnown || tapeShape8100 != null, context = !plan.isNullOrBlank() || !phase.isNullOrBlank() || opp != null, liquidity = liqObs == Obs8084.OBSERVED || altLiq8169 != null, birth = nn(s?.ageMin).isFinite(), swaps = swaps8169) } catch (_: Throwable) {}
         return F(
             age = nn(s?.ageMin),
             runup = if (shapeKnown) nn(s?.runupFromLocalLowPct) else tapeShape8100?.runupPct ?: Double.NaN,
             pxPeak = if (shapeKnown) pos(s?.currentVsPeak) else tapeShape8100?.vsPeak ?: Double.NaN,
             dd = if (shapeKnown) nn(s?.drawdownFromPeakPct) else tapeShape8100?.ddPct ?: Double.NaN,
-            bp = if (bpKnown) nn(bpRaw) else tapeBp8100 ?: Double.NaN, liq = pos(s?.liquidityUsd), mcap = pos(s?.marketCapUsd),
+            bp = if (bpKnown) nn(bpRaw) else tapeBp8100 ?: altBp8169 ?: Double.NaN, liq = altLiq8169 ?: pos(s?.liquidityUsd), mcap = pos(s?.marketCapUsd),
             top = nn(s?.topHolderPct),
-            chg5m = if (chgKnown) ts.lastPriceChange5m.takeIf { it.isFinite() } ?: Double.NaN else tapeChg8100?.first ?: Double.NaN,
-            chg1h = if (chgKnown) ts.lastPriceChange1h.takeIf { it.isFinite() } ?: Double.NaN else tapeChg8100?.second ?: Double.NaN,
+            chg5m = if (chgKnown) ts.lastPriceChange5m.takeIf { it.isFinite() } ?: Double.NaN else tapeChg8100?.first ?: altChg8169?.first ?: Double.NaN,
+            chg1h = if (chgKnown) ts.lastPriceChange1h.takeIf { it.isFinite() } ?: Double.NaN else tapeChg8100?.second ?: altChg8169?.second ?: Double.NaN,
             holderGrowth = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() } ?: Double.NaN,
             // V5.0.7925 — 0 is a real reading (flat or falling volume), not "unknown".
             volAccel = volAcc?.takeIf { it.isFinite() } ?: Double.NaN,
@@ -631,9 +643,10 @@ object LanePlaybook7907 {
             beta7978 = try { com.lifecyclebot.engine.market.MemeMeta7973.beta7973(ts.mint, ts.symbol, ts.name, nowMs) } catch (_: Throwable) { false },
             colourBuy7978 = try { com.lifecyclebot.engine.chart.ChartReader7950.cachedRead7955(ts.mint)?.colorBuy7968 == true } catch (_: Throwable) { false },
         ).also { f ->
-            f.obs8084 = mapOf("bp" to (if (tapeBp8100 != null) Obs8084.OBSERVED else bpObs),
-                "chg" to (if (tapeChg8100 != null) Obs8084.OBSERVED else chgObs),
-                "shape" to (if (tapeShape8100 != null) Obs8084.OBSERVED else shapeObs), "liq" to liqObs,
+            f.obs8084 = mapOf("bp" to (if (tapeBp8100 != null || altBp8169 != null) Obs8084.OBSERVED else bpObs),
+                "chg" to (if (tapeChg8100 != null || altChg8169 != null) Obs8084.OBSERVED else chgObs),
+                "shape" to (if (tapeShape8100 != null) Obs8084.OBSERVED else shapeObs),
+                "liq" to (if (altLiq8169 != null) Obs8084.OBSERVED else liqObs),
                 "age" to (if (f.age.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
                 "mcap" to (if (f.mcap.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
                 "tape" to (if (tape != null) Obs8084.OBSERVED else Obs8084.UNKNOWN),
@@ -735,12 +748,15 @@ object LanePlaybook7907 {
     fun inputRefreshDue8085(lastMs: Long?, nowMs: Long): Boolean = lastMs == null || nowMs - lastMs >= INPUT_REFRESH_GAP_MS_8085
 
     private fun requestInputs8085(mint: String, symbol: String, missing: List<String>, nowMs: Long) {
-        val r = inputRefresher8085 ?: return
+        val r = inputRefresher8085 ?: run {
+            PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_NO_RECEIVER_8168")
+            return
+        }
         if (mint.isBlank() || !inputRefreshDue8085(inputRequestedAt8085[mint], nowMs)) return
         inputRequestedAt8085[mint] = nowMs
         if (inputRequestedAt8085.size > 4_000) inputRequestedAt8085.entries.removeIf { nowMs - it.value > 600_000L }
         try { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_REQUESTED_8085") } catch (_: Throwable) {}
-        try { r(mint, symbol, missing) } catch (_: Throwable) {}
+        try { r(mint, symbol, missing) } catch (_: Throwable) { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_FAILED_8168") }
     }
 
     /** V5.0.8084 — the structured classification of this candidate version (null only on an internal failure). */
@@ -758,6 +774,7 @@ object LanePlaybook7907 {
                 val c = if (cached.revision == revision) cached.c else rerank8084(cached.c, nowMs)
                 classifyCache[ck] = Cached8084(key, revision, cached.featuresAt, nowMs, c)
                 if (c.outcome == Outcome8084.DATA_INCOMPLETE) requestInputs8085(ts.mint, ts.symbol, c.missing, nowMs)
+                com.lifecyclebot.engine.BotImprovementReport8168.noteSetup(ts.mint, lane, c.outcome.name, c.missing, c.reason, nowMs)
                 return c
             }
         }
@@ -778,6 +795,7 @@ object LanePlaybook7907 {
         if (c.outcome == Outcome8084.DATA_INCOMPLETE) requestInputs8085(ts.mint, ts.symbol, c.missing, nowMs)
         if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.featuresAt > 60_000L }
         classifyCache[ck] = Cached8084(key, revision, nowMs, nowMs, c)
+        com.lifecyclebot.engine.BotImprovementReport8168.noteSetup(ts.mint, lane, c.outcome.name, c.missing, c.reason, nowMs)
         return c
     }
 

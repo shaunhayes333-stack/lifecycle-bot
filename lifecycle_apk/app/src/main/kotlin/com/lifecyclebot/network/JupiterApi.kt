@@ -128,7 +128,8 @@ class JupiterApi(
         fun isTransientPostFailure8089(msg: String?): Boolean {
             val m = msg ?: return false
             return Regex("Jupiter POST (500|502|503|504|429)").containsMatchIn(m) || m.contains("Jupiter POST timeout") ||
-                m.contains("Jupiter POST network error") || m.contains("Cannot resolve Jupiter host") || m.contains("Empty Jupiter POST response")
+                m.contains("Jupiter POST network error") || m.contains("Cannot resolve Jupiter host") || m.contains("Empty Jupiter POST response") ||
+                m.contains("Jupiter POST LOCAL_LOCKOUT")   // V5.0.8169 — our own refusal: pivot venue, the candidate is fine
         }
         private const val ORDER_ENDPOINT = "$BASE_URL/swap/v2/order"
         private const val EXECUTE_ENDPOINT = "$BASE_URL/swap/v2/execute"
@@ -1090,6 +1091,9 @@ class JupiterApi(
             .url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
             .header("Accept", "application/json")
+            // V5.0.8169 — a swap build / execute is a live trade, not background traffic: our own lockout must never
+            // answer it (owner 5.0.8168 log: "Jupiter POST 503: {}" twice per buy was ApiBackoff's synthetic reply).
+            .header(HostCircuitInterceptor.EXECUTION_HEADER_8169, "1")
             .post(json.toRequestBody(JSON))
 
         if (apiKey.isNotBlank() && url.contains("api.jup.ag")) {
@@ -1102,9 +1106,14 @@ class JupiterApi(
         for (attempt in 0..2) {
             if (attempt > 0) Thread.sleep(1500L * attempt)
             try {
-                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = endpoint.lowercase()).use { resp ->
+                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = endpoint.lowercase(), allowDuringLockout = true).use { resp ->
                     val code = resp.code
                     val body = resp.body?.string()
+                    // V5.0.8169 — a local refusal is not Jupiter's reply: never a 5xx for the gauge, never retried here.
+                    if (HostCircuitInterceptor.isSyntheticBlock(resp)) {
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JUPITER_POST_LOCAL_LOCKOUT_8169") } catch (_: Throwable) {}
+                        throw RuntimeException("Jupiter POST LOCAL_LOCKOUT ($code): ${resp.message.take(120)}")
+                    }
                     if (code == 429) {
                         val msg = "Jupiter POST $code: ${body?.take(300) ?: "no body"}"
                         lastErr = RuntimeException(msg)

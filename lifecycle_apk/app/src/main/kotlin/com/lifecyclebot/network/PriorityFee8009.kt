@@ -65,15 +65,24 @@ object PriorityFee8009 {
      */
     fun ordinaryJupiterMicroLamports8151(tradeLamports: Long): Long {
         refreshIfStale()
-        return com.lifecyclebot.engine.CostTrim8151.ordinaryMicroLamports8151(mediumMicro8151, microLamports, tradeLamports, FLOOR_MICRO_LAMPORTS)
+        val capped = com.lifecyclebot.engine.CostTrim8151.ordinaryMicroLamports8151(mediumMicro8151, microLamports, tradeLamports, FLOOR_MICRO_LAMPORTS)
+        // V5.0.8169 — the size cap may never price an ordinary swap below the market's medium level (it then drops).
+        return com.lifecyclebot.engine.CostLanding8169.atLeastMediumMicro8169(capped, mediumMicro8151, microLamports)
     }
 
     /** V5.0.8151 — an ORDINARY PumpPortal priority fee (SOL) for a trade of [tradeSol] (0 = unknown). */
     fun ordinaryPumpPortalSol8151(callerSol: Double, tradeSol: Double): Double {
         val legacy = pumpPortalSol(callerSol)
         val m = mediumMicro8151
-        return com.lifecyclebot.engine.CostTrim8151.ordinaryPumpSol8151(if (m > 0L) pumpSolFor8009(m) else 0.0, legacy, tradeSol)
+        // V5.0.8169 — the medium CU price at the CU limit PumpPortal actually sets (LandingMeter8169, never below 200k),
+        // and the 8151 size cap may never take the fee below it (5.0.8168 NEYMAR: ordinary buy expired unseen).
+        val mediumSol = if (m > 0L) com.lifecyclebot.engine.CostLanding8169.pumpSolFor8169(m, com.lifecyclebot.engine.LandingMeter8169.pumpCuLimit8169(), PUMP_CAP_SOL) else 0.0
+        val capped = com.lifecyclebot.engine.CostTrim8151.ordinaryPumpSol8151(mediumSol, legacy, tradeSol)
+        return com.lifecyclebot.engine.CostLanding8169.atLeastMediumSol8169(capped, mediumSol, legacy)
     }
+
+    /** V5.0.8169 — the market's current medium CU price (0 = no reading), for the landing report. */
+    fun mediumMicro8169(): Long = mediumMicro8151
 
     fun statusLine(): String = if (readAtMs <= 0L) "no reading (fixed floors)" else
         "${microLamports}µL/CU (pump ${"%.5f".format(pumpSolFor8009(microLamports))} SOL) medium8151=${mediumMicro8151}µL/CU age=${(System.currentTimeMillis() - readAtMs) / 1000}s"

@@ -20,7 +20,7 @@ class Aate7505TokenMapCachePruneTest {
         assertTrue(fn.contains("CanonicalPositionAuthority6441.openPositions()"))
         assertTrue(fn.contains("e.key != keepMint"))
         assertTrue(fn.contains("e.key !in held7505"))
-        assertTrue(fn.contains("e.key !in activeHydrationByMint"))
+        assertTrue(fn.contains("!activeHydrationByMint.containsKey(e.key)"))
     }
 
     @Test fun normal_route_semantics_stay_present() {

@@ -57,6 +57,42 @@ object LearnedAdmissionInputs6909 {
     private fun foundationKey7715(lane: String, mint: String, paperMode: Boolean): String =
         "${if (paperMode) "PAPER" else "LIVE"}|${lane.trim().uppercase()}|${mint.trim()}"
 
+    /**
+     * V5.0.8169 — the Field Manual foundation prior was only ever read from the cache (no caller passed the strategy's
+     * candidate), so the predictive stack never saw the manual's read: every entry ran without its educated base.
+     * The V3 spine stamps it here from the real CandidateDecision before the FDG runs; the executable-entry gate then
+     * reads it as FIELD_MANUAL_FOUNDATION_CACHE_HIT_7715 (same lane/mint/mode key, same 60 s TTL). Bounded evidence
+     * only: safety, FDG and the entry authority stay sovereign.
+     */
+    fun stampFoundation8169(
+        lane: String,
+        mint: String,
+        ts: com.lifecyclebot.data.TokenState?,
+        foundationCandidate: com.lifecyclebot.data.CandidateDecision,
+        foundationSizeSol: Double?,
+        paperMode: Boolean = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false },
+    ) {
+        try {
+            val token = ts ?: return
+            val size = foundationSizeSol?.takeIf { it.isFinite() && it > 0.0 } ?: return
+            val laneKey = lane.trim().uppercase().ifBlank { "UNKNOWN" }
+            val card = FieldManual7715.cardFor(token, foundationCandidate, laneKey, paperMode, size)
+            val prior = FieldManual7715.foundationPrior(card) ?: return
+            foundationByCandidate7715[foundationKey7715(laneKey, mint, paperMode)] = FoundationStamp7715(System.currentTimeMillis(), prior)
+            pruneFoundation8169()
+            PipelineHealthCollector.labelInc("FIELD_MANUAL_FOUNDATION_STAMPED_8169")
+        } catch (_: Throwable) {}
+    }
+
+    private fun pruneFoundation8169() {
+        if (foundationByCandidate7715.size <= FOUNDATION_STAMP_MAX_ROWS_7715) return
+        val cutoff = System.currentTimeMillis() - FOUNDATION_STAMP_TTL_MS_7715
+        foundationByCandidate7715.entries.filter { it.value.atMs < cutoff }.forEach { foundationByCandidate7715.remove(it.key, it.value) }
+        if (foundationByCandidate7715.size > FOUNDATION_STAMP_MAX_ROWS_7715) {
+            foundationByCandidate7715.keys.firstOrNull()?.let(foundationByCandidate7715::remove)
+        }
+    }
+
     private val assembled = AtomicLong(0L)
     private val forecastMissing = AtomicLong(0L)
     private val forecastResolved = AtomicLong(0L)

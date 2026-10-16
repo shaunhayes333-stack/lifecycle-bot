@@ -12,7 +12,9 @@ class Aate7642AutonomousReflectionTest {
         assertTrue(s.contains("ChokeReliefBus.launch(\"SUPER_REFLECTION_7642\""))
         assertTrue(s.contains("MultiAgentCriticStack.reviewAndSubmit("))
         assertTrue(s.contains("sourceTag = \"BACKGROUND_SUPER_REFLECTION_7642\""))
-        assertTrue(s.contains("AsyncStrategyLab").not())
+        // The KDoc names AsyncStrategyLab as the eventual consumer; code must not call it directly.
+        val code = s.lineSequence().filterNot { it.trimStart().startsWith("*") || it.trimStart().startsWith("//") }.joinToString("\n")
+        assertTrue(code.contains("AsyncStrategyLab").not())
     }
 
     @Test fun reflectionNeverDirectlyMutatesExecutionAuthority() {

@@ -45,8 +45,8 @@ class Aate6699RuntimeLoopConvergenceTest {
 
     @Test fun reward_acceptance_parity_counts_processed_plus_terminal_exclusions() {
         val audit = src("engine/truth/AcceptanceInvariantAudit6441.kt")
-        assertTrue(audit.contains("consumerExcludedUnique(\"RewardPurity\")"))
-        assertTrue(audit.contains("CanonicalFinalizedTradeBus6464.canonicalUnique()"))
+        // V5.0.7809 — processed/excluded/bus counts come from one scoped parity read.
+        assertTrue(audit.contains("CanonicalFinalizedTradeBus6464.scopedParity7809(\"RewardPurity\", scope7809.closedIds)"))
         assertTrue(audit.contains("rewardHandled6699 = rewardProcessed6699 + rewardExcluded6699"))
         assertTrue(audit.contains("busCanonical6699 == closedCount && rewardHandled6699 == closedCount"))
         assertFalse(audit.contains("closedCount == (w + l + b).toInt()"))
@@ -92,8 +92,9 @@ class Aate6699RuntimeLoopConvergenceTest {
         assertTrue(close.contains("clearIfCanonicallyReopened6699"))
         assertTrue(close.contains("p.openedAtMs > rec.closedAtMs"))
         assertTrue(close.contains("p.remainingQtyRaw > java.math.BigInteger.ZERO"))
-        assertTrue(close.contains("PaperPositionCloseAuthority.reopen(\"PAPER\", mint)"))
-        assertTrue(close.contains("PaperPositionCloseAuthority.reopen(\"LIVE\", mint)"))
+        // V5.0.7858 — close stamps are mode-keyed; only the stamp's own mode is reopened.
+        assertTrue(close.contains("p.mode.equals(rec.mode, true)"))
+        assertTrue(close.contains("PaperPositionCloseAuthority.reopen(rec.mode, mint)"))
     }
 
     @Test fun specialist_proposal_telemetry_is_bounded_and_not_execution_authority() {

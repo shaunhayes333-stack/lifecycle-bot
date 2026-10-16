@@ -13,8 +13,9 @@ class Aate7526FinalizedBusResidualRepairTest {
             .substringBefore("val netPnl =")
         assertTrue(block.contains("if (rich == null"))
         assertTrue(block.contains("sell.allocatedCostBasisSol <= 0.0"))
-        assertTrue(s.contains("rich?.netRealizedPnlSol"))
-        assertTrue(s.contains("rich?.netReturnPct"))
+        // V5.0.7835 — settled net P&L/return come from whole-position economics.
+        assertTrue(s.contains("val netPnl = whole7835.netSol"))
+        assertTrue(s.contains("val netPct = whole7835.returnPct"))
     }
 
     @Test fun restored_entry_terminal_is_published_but_never_trainable() {

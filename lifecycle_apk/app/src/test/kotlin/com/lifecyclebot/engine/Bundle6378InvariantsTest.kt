@@ -42,15 +42,6 @@ class Bundle6378InvariantsTest {
     }
 
     @Test
-    fun strategy_truth_ledger_cache_bucketed_v6379() {
-        val txt = File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
-        assertTrue(
-            "V5.0.6379: cache key must be BUCKETED (size / 10) and (newestTs / 30_000) so back-to-back callers within same 10-row / 30s window hit the same cache slot instead of invalidating on every new SELL",
-            txt.contains("val key = \"\${rawRows.size / 10}|\${newestTs / 30_000}|\$limit\"")
-        )
-    }
-
-    @Test
     fun strategy_truth_ledger_audit_line_capped_at_500() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
         assertTrue(

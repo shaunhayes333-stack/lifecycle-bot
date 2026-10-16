@@ -13,7 +13,9 @@ class Phase0Security6637Test {
         assertFalse(wallet.contains("hostnameVerifier { _, _ -> true }"))
         assertFalse(wallet.contains("checkServerTrusted(chain"))
         assertTrue(wallet.contains("SolanaSigningEnvelope.validate"))
-        assertTrue(wallet.contains("if (status == \"finalized\") return true"))
+        // V5.0.7980 — awaitConfirmation accepts trading-grade finality ("confirmed" or "finalized").
+        assertTrue(wallet.contains("if (confirmedEnough7980(value.optString(\"confirmationStatus\", \"\"))) {"))
+        assertTrue(wallet.contains("internal fun confirmedEnough7980(status: String): Boolean = status == \"confirmed\" || status == \"finalized\""))
     }
 
     @Test

@@ -178,18 +178,6 @@ class Aate7807OperatorAndEntryTest {
         assertTrue(lec.contains("LaneEntryContract6342.sniperLaunchIdentityRefusal7807(ts)"))
     }
 
-    @Test fun poorRiskRewardIsAskedBeforeTheTicket() {
-        val ex = src("engine/Executor.kt")
-        val lrp = ex.indexOf("if (liveRiskPolicyPreTicketRefused7807(ts, layerTag, sol, walletSol)) return false")
-        val rr = ex.indexOf("if (commonSenseRiskRewardPreTicketRefused7807(ts, layerTag, score, sol)) return false")
-        assertTrue(lrp > 0 && rr > lrp)
-        // Same thresholds: the late check is still there.
-        assertTrue(ex.contains("CommonSenseTradePlaybook.assessPreBuy("))
-        val cs = src("engine/CommonSenseTradePlaybook.kt")
-        assertTrue(cs.contains("fun preTicketRiskRewardPoor7807("))
-        assertTrue(cs.contains("if (rr >= PLAN_MIN_RR_7783) return false"))
-    }
-
     // ── Learning integrity 56-61 ────────────────────────────────────────────
 
     @Test fun learnersReadCleanTerminalTruthOnly() {

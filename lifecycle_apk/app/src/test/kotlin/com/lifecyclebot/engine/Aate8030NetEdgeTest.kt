@@ -44,7 +44,8 @@ class Aate8030NetEdgeTest {
 
     @Test fun oneStopPerLaneAndScalpsClearTheirCost() {
         assertTrue(src("engine/Executor.kt").contains("val rawSL = com.lifecyclebot.engine.cortex.StopAuthority7887.stopMagFor(ts)"))
-        assertTrue(src("v3/scoring/MoonshotTraderAI.kt").contains("if (holdMinutes <= 12) stop = maxOf(stop, -15.0)"))
+        // V5.0.8169 — the first-12-minute stop is the position's own ordinary stop (15..25%), not a flat -15.
+        assertTrue(src("v3/scoring/MoonshotTraderAI.kt").contains("if (holdMinutes <= 12) stop = maxOf(stop, -com.lifecyclebot.engine.ExitDoctrine8169.earlyRunnerStopMag8169(mint))"))
         assertTrue(src("v3/scoring/CashGenerationAI.kt").contains("NetEdge8030.EDGE_MULT * com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(\"TREASURY\", entrySol, 0.0)"))
     }
 }

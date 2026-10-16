@@ -25,8 +25,11 @@ class Aate7547NativeSpecialistDecisionCorrectnessTest {
 
     @Test fun native_brain_cache_tracks_fast_strategy_evidence() {
         val s=src("engine/SpecialistBrainBridge7542.kt")
+        // V5.0.7551 — native brains read signed % momentum from
+        // ts.lastPriceChange5m (not the TokenState.momentum score), so that is
+        // the momentum input the cache identity must carry.
         listOf(
-            "ts.momentum","ts.volatility","ts.topHolderPct","ts.meta.momScore",
+            "ts.lastPriceChange5m","ts.volatility","ts.topHolderPct","ts.meta.momScore",
             "ts.meta.pressScore","ts.meta.velocityScore","ts.meta.emafanAlignment",
             "ts.meta.exhaustion","ts.meta.spikeDetected","ts.safety.firstBlockSupplyPct",
             "ts.sentiment.score","ts.toolAffinity.hashCode()"

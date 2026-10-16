@@ -24,7 +24,8 @@ class Aate7427ExactStrategyIdentityTest {
         assertTrue(e.contains("entryTactic = policyField6568(ts.position.entryPolicySnapshot, \"entryTactic\")"))
         assertTrue(e.contains("tradeType7427="))
         assertTrue(e.contains("setup7427="))
-        assertTrue(e.contains("entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.pendingStrategyVariantId7427"))
+        // V5.0.7428 — the variant is bound to the executed position, not read from a mint-keyed pending map.
+        assertTrue(e.contains("entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.bindExecutedPosition7428("))
     }
 
     @Test fun terminalBusCarriesExactEntryIdentity() {
@@ -40,11 +41,13 @@ class Aate7427ExactStrategyIdentityTest {
 
     @Test fun variantOutcomeUsesEntryStampedVariantNotCloseTimeActiveVariant() {
         val h = File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
-        assertTrue(h.contains("pendingStrategyVariant7427[mint] = v.id"))
-        assertTrue(h.contains("val stampedVariantId7427 = pendingStrategyVariant7427.remove(mint)"))
-        assertTrue(h.contains("StrategyVariantStore.recordOutcome(\n                        stampedVariantId7427"))
-        val outcomeRegion = h.substringAfter("val stampedVariantId7427 = pendingStrategyVariant7427.remove(mint)")
-            .substringBefore("maybeResolve(ctx, h)")
+        // V5.0.7428 — the entry-time variant is stamped into the position-bound decision
+        // and settled from that binding, never from the close-time active variant.
+        assertTrue(h.contains("exactVariantId7428 = v.id"))
+        assertTrue(h.contains("val applied = pendingByPosition7428.remove(positionId)"))
+        assertTrue(h.contains("StrategyVariantStore.recordOutcome(\n                        applied.strategyVariantId"))
+        val outcomeRegion = h.substringAfter("val applied = pendingByPosition7428.remove(positionId)")
+            .substringBefore("maybeResolve(applied.context, h)")
         assertFalse(outcomeRegion.contains("StrategyVariantStore.activeFor("))
     }
 

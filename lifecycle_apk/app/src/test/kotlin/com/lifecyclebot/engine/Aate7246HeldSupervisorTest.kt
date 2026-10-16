@@ -12,7 +12,8 @@ class Aate7246HeldSupervisorTest {
     @Test fun held_inventory_is_canonical_and_separate_from_discovery() {
         val supervisor = src("engine/HeldPositionSupervisor7246.kt")
         val bot = src("engine/BotService.kt")
-        assertTrue(supervisor.contains("CanonicalPositionAuthority6441.openPositions()"))
+        // V5.0.7807 — held ownership = canonical protective inventory (includes funded LIVE quarantine).
+        assertTrue(supervisor.contains("CanonicalPositionAuthority6441.protectiveInventory7807(mode)"))
         assertTrue(supervisor.contains("fun isHeld("))
         assertTrue(bot.contains("HELD_DISCOVERY_BYPASS_7246"))
         assertTrue(bot.contains("HeldPositionSupervisor7246.solanaHeldPositions()"))

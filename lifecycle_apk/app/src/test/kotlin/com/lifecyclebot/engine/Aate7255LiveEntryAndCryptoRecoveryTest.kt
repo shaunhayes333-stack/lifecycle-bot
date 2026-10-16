@@ -19,9 +19,10 @@ class Aate7255LiveEntryAndCryptoRecoveryTest {
 
     @Test
     fun fanoutAndExpiredTicketsDoNotPoisonFreshCandidates() {
-        val fdg = source("com/lifecyclebot/engine/FinalDecisionGate.kt")
+        // FDG fanout governor (IntakeFanoutGovernor6835.allowFdgEval) is audited
+        // zero-caller (audits/f_dead_disposition_7605.tsv row 573), so FDG no
+        // longer derives a fanout causalRoot7232.
         val gate = source("com/lifecyclebot/engine/ExecutableOpenGate.kt")
-        assertTrue(fdg.contains("val causalRoot7232 = candidateVersion7623.toString()"))
         assertTrue(gate.contains("EXPIRED_TICKET_REVOKED_FOR_FRESH_CANDIDATE_7255"))
         assertTrue(gate.contains("log.contains(\"STALE_TICKET\") || r.contains(\"EXPIRED_TICKET\") -> 0L"))
     }

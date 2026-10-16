@@ -8,11 +8,12 @@ class Aate7439IdentityAndCoreCausalRepairTest {
     private fun src(rel: String) = File("src/main/kotlin/com/lifecyclebot/$rel").readText()
 
     @Test fun core_is_real_ensemble_fallback_not_strongest_lane_clone() {
+        // V5.0.7542 / V5.0.7796 — the CORE ensemble (>=2 voters, strongest < 75,
+        // gap <= 10) is decided by CORE's native brain; the toolkit only consumes it.
+        val brain = src("engine/SpecialistBrainBridge7542.kt")
+        assertTrue(brain.contains("val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65)"))
         val s = src("engine/ToolkitSignalSheet.kt")
-        assertTrue(s.contains("coreVoters7439.size >= 2"))
-        assertTrue(s.contains("coreStrongest7439.conviction < 75.0"))
-        assertTrue(s.contains("coreStrongest7439.conviction - coreSecond7439.conviction <= 10.0"))
-        assertTrue(s.contains("LaneEntryContract6342.isLaneIdentityEligible7252(ts, \"CORE\")"))
+        assertTrue(s.contains("nativeBrains7542.opinions[\"CORE\"]?.takeIf { it.authoritative && it.eligible }"))
         assertFalse(s.contains("deskHypotheses[\"CORE\"] = strongest.copy("))
         assertFalse(s.contains("never an independent duplicate scanner or position owner"))
     }

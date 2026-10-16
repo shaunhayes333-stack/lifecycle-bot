@@ -30,6 +30,6 @@ class Aate6693ProviderCredentialAuthorityTest {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/network/KeylessLlmClient.kt").readText()
         assertTrue(src.contains("EMERGENT_KEY_B64"))
         assertTrue(src.contains("if (emergentKey.isNotBlank())"))
-        assertTrue(src.contains("Provider(\"emergent\")"))
+        assertTrue(src.contains("Provider(\"emergent\", \"llm_emergent\")"))
     }
 }

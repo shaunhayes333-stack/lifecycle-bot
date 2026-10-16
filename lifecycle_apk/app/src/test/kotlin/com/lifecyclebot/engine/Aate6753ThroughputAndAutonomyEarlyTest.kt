@@ -98,7 +98,10 @@ class Aate6753ThroughputAndAutonomyEarlyTest {
         // Lifecycle branch on actualQtyRaw sign.
         assertTrue(
             "promotion lifecycle MUST branch on actualQtyRaw sign",
-            src.contains("lifecycle = if (actualQtyRaw.signum() > 0) Lifecycle.OPEN else Lifecycle.CLOSED"),
+            // V5.0.7863 — lifecycle branches on the remaining quantity (fill minus any units a
+            // partial already sold); a zero-qty fill leaves zero remaining and stamps CLOSED.
+            src.contains("val remainingRaw7863 = actualQtyRaw - soldRaw7863") &&
+                src.contains("remainingRaw7863.signum() == 0 -> Lifecycle.CLOSED"),
         )
         assertTrue(
             "zero-qty force-close MUST emit a dedicated diagnostic label",

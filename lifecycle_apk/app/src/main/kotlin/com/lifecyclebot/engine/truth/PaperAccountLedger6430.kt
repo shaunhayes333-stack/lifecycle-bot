@@ -650,6 +650,24 @@ object PaperAccountLedger6430 {
     @Synchronized
     fun overrideOpenCostFromProjections6508(projectionOpenCostSol: Double) {
         val prior = fromPico(openCostBasisPico.get())
+        // V5.0.8169 — 8168: 18 paper projections (18.25 SOL) replaced the scalar although the account
+        // had funded ~12.96 SOL; the identity rebuild then wrote cash=-5.29. Never raise open cost past
+        // the capital the account ever had; lowering it (the 6508 drift repair) is unchanged.
+        val fundable8169 = AccountingIntegrity8169.fundableOpenCost8169(
+            fromPico(startingCashPico.get()), fromPico(realizedPnlPico.get()), fromPico(feesPico.get()), fromPico(treasuryPico.get()),
+        )
+        val refusal8169 = AccountingIntegrity8169.openCostOverrideRefusal8169(projectionOpenCostSol, prior, fundable8169)
+        if (refusal8169 != null) {
+            AccountingIntegrity8169.noteCashRefusal8169(refusal8169,
+                "projection=${"%.4f".format(projectionOpenCostSol)} prior=${"%.4f".format(prior)} fundable=${"%.4f".format(fundable8169)}")
+            try {
+                PipelineHealthCollector.labelInc("PAPER_LEDGER_OPEN_COST_OVERRIDE_REFUSED_8169")
+                ForensicLogger.lifecycle("PAPER_LEDGER_OPEN_COST_OVERRIDE_REFUSED_8169",
+                    "reason=$refusal8169 projection=${"%.6f".format(projectionOpenCostSol)} prior=${"%.6f".format(prior)} " +
+                        "fundable=${"%.6f".format(fundable8169)} action=keep_ledger_open_cost")
+            } catch (_: Throwable) {}
+            return
+        }
         val delta = projectionOpenCostSol - prior
         if (kotlin.math.abs(delta) > 0.001) {
             openCostBasisPico.set(toPico(projectionOpenCostSol))
@@ -720,6 +738,21 @@ object PaperAccountLedger6430 {
         val recomputed = starting + realized - fees - openCost - fromPico(treasuryPico.get())
         val prior = fromPico(cashPico.get())
         val delta = recomputed - prior
+        // V5.0.8169 — an identity that only balances with negative cash proves the inputs disagree
+        // (unfunded open cost); it is reported, never written as spendable capital.
+        val refusal8169 = AccountingIntegrity8169.identityCashRefusal8169(recomputed)
+        if (refusal8169 != null) {
+            AccountingIntegrity8169.noteCashRefusal8169(refusal8169,
+                "rebuilt=${"%.4f".format(recomputed)} prior=${"%.4f".format(prior)} openCost=${"%.4f".format(openCost)}")
+            try {
+                PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_REBUILD_REFUSED_8169")
+                ForensicLogger.lifecycle("PAPER_LEDGER_CASH_REBUILD_REFUSED_8169",
+                    "reason=$refusal8169 rebuilt=${"%.6f".format(recomputed)} prior=${"%.6f".format(prior)} " +
+                        "starting=${"%.6f".format(starting)} realized=${"%.6f".format(realized)} fees=${"%.6f".format(fees)} " +
+                        "openCost=${"%.6f".format(openCost)} action=keep_prior_cash")
+            } catch (_: Throwable) {}
+            return prior
+        }
         if (kotlin.math.abs(delta) > 0.001) {
             cashPico.set(toPico(recomputed))
             opCount.incrementAndGet()
@@ -737,6 +770,8 @@ object PaperAccountLedger6430 {
         } else {
             try { PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_IDENTITY_HEALTHY_6505") } catch (_: Throwable) {}
         }
+        // V5.0.8169 — the canonical paper-cash projection follows the ledger (the one authority).
+        try { CanonicalPositionAuthority6441.setPaperCash(recomputed, "ledger_identity_rebuild_6505_8169") } catch (_: Throwable) {}
         return recomputed
     }
 
@@ -751,6 +786,12 @@ object PaperAccountLedger6430 {
         val starting = fromPico(startingCashPico.get())
         val identityDelta = (starting + realizedSol - feesSol) - (cashSol + openCostSol)
         if (kotlin.math.abs(identityDelta) > 1e-6) return false
+        // V5.0.8169 — a balanced replay with negative cash is unfunded open cost, not spendable capital.
+        AccountingIntegrity8169.identityCashRefusal8169(cashSol)?.let { r ->
+            AccountingIntegrity8169.noteCashRefusal8169(r, "journalReplayCash=${"%.4f".format(cashSol)} openCost=${"%.4f".format(openCostSol)}")
+            try { PipelineHealthCollector.labelInc("PAPER_LEDGER_JOURNAL_RECONCILE_REFUSED_8169") } catch (_: Throwable) {}
+            return false
+        }
         // V5.0.7294 — the journal knows nothing of treasury transfers, so its
         // cash is trading cash + treasury. Keep the treasury; cash is the rest.
         val treasuryKeep7294 = minOf(treasuryPico.get(), toPico(cashSol).coerceAtLeast(0L))
@@ -770,6 +811,7 @@ object PaperAccountLedger6430 {
                     "realized=${"%.6f".format(realizedSol)} fees=${"%.6f".format(feesSol)} delta=${"%.9f".format(identityDelta)}",
             )
         } catch (_: Throwable) {}
+        try { CanonicalPositionAuthority6441.setPaperCash(fromPico(cashPico.get()), "ledger_journal_reconcile_6663_8169") } catch (_: Throwable) {}
         return true
     }
 
@@ -834,7 +876,8 @@ object PaperAccountLedger6430 {
     }
 
     fun statusLine(): String =
-        "cash=${"%.4f".format(cashSol())} openCost=${"%.4f".format(openCostBasisSol())} realized=${"%+.4f".format(realizedPnlSol())} fees=${"%.4f".format(feesSol())} treasury=${"%.4f".format(treasurySol7294())} ops=${opCount.get()}"
+        "cash=${"%.4f".format(cashSol())} openCost=${"%.4f".format(openCostBasisSol())} realized=${"%+.4f".format(realizedPnlSol())} fees=${"%.4f".format(feesSol())} treasury=${"%.4f".format(treasurySol7294())} ops=${opCount.get()} " +
+            AccountingIntegrity8169.cashGuardLine8169()
 
     internal fun resetForTest() {
         startingCashPico.set(0); cashPico.set(0); reservedCashPico.set(0)

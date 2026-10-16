@@ -236,6 +236,9 @@ object PipelineHealthCollector {
                 .asSequence()
                 .filter { sellLike(it.side) }
                 .filter { it.mode.equals(currentMode6651, true) }
+                // V5.0.8169 — the pipeline performance block is the MEME book only;
+                // other desks' terminals must not leak into this WR.
+                .filter { com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.classify(it) == com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME }
                 .map { t ->
                     val entryTs = t.entryTsMs.takeIf { it > 0L } ?: t.ts
                     val entryPrice = t.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 } ?: t.price
@@ -1354,7 +1357,9 @@ object PipelineHealthCollector {
      * verified, unverified, emitted, channelsDiscovered, lastError).
      * Field Manual L412.
      */
-    private fun appendResidentDiscovery7830(sb: StringBuilder) {
+    private fun appendResidentDiscovery7830(sb: StringBuilder, report: Snapshot) {
+        BotImprovementReport8168.append(sb, report.labelCounts, report.nowMs)
+        try { com.lifecyclebot.engine.cortex.CortexAudit8169.append(sb, report.labelCounts, report.intakeBySource, report.nowMs) } catch (_: Throwable) { sb.append("CORTEX / SCANNER / HUNTER AUDIT (8169): unavailable\n") }  // V5.0.8169
         sb.append("  Resident hunters (§7807):     ").append(
             try { com.lifecyclebot.engine.market.ResidentHunterWorker7807.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
@@ -1444,6 +1449,10 @@ object PipelineHealthCollector {
         sb.append("  Memory guard (§7977): ").append(
             try { MemoryGuard7977.statusLine7977() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        // V5.0.8169 — compute load: lane evaluations per candidate cycle, gate skips by reason, Helius calls by caller.
+        sb.append("  Compute load (§8169): ").append(
+            try { LoadTelemetry8169.statusLine8169() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Specialists (§7972): ").append(
             try { com.lifecyclebot.engine.truth.SpecialistMiner7972.statusLine7972() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
@@ -1509,6 +1518,11 @@ object PipelineHealthCollector {
         ).append("\n")
         sb.append("  Stop learner (§8040): ").append(
             try { com.lifecyclebot.engine.cortex.StopLearner8040.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
+        // V5.0.8169 — stop distance vs measured noise per lane, label stops before / after the peak per lane, rapid
+        // backstops, runner lock states and stale loss refusals that decayed on the grading epoch.
+        sb.append("  Exit doctrine (§8169): ").append(
+            try { ExitDoctrine8169.statusLine8169() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
         sb.append("  Dead charts (§8027): ").append(
             try { FlatChart8027.statusLine() } catch (_: Throwable) { "unavailable" }
@@ -3146,7 +3160,7 @@ object PipelineHealthCollector {
                 try { com.lifecyclebot.engine.market.MarketSweep7297.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
             // V5.0.7807 — the resident worker that owns the sweep (Field Manual L412).
-            appendResidentDiscovery7830(sb)
+            appendResidentDiscovery7830(sb, s)
             sb.append("  Opportunity intelligence (§7777): ").append(
                 try { com.lifecyclebot.engine.market.MarketSweep7297.opportunityStatusLine7777() } catch (_: Throwable) { "unavailable" }
             ).append("\n")

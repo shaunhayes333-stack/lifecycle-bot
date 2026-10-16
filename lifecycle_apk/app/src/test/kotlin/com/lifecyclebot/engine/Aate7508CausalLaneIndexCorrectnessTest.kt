@@ -19,7 +19,7 @@ class Aate7508CausalLaneIndexCorrectnessTest {
         val s = src()
         val fn = s.substringAfter("fun stamp6625").substringBefore("fun stageCounts6625")
         assertTrue(fn.contains("val rec = getOrCreateRecord7480(key)"))
-        assertFalse(fn.contains("records.computeIfAbsent"))
+        assertFalse(fn.contains("records.computeIfAbsent("))
     }
 
     @Test fun lane_read_path_remains_indexed() {

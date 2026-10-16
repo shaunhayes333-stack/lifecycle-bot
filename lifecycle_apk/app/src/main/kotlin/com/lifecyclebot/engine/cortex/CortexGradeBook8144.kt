@@ -122,11 +122,21 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
 
     fun openTrade(r: CortexGradeRecord8144): Boolean {
         if (r.kind != 'T' || r.id.isBlank() || trades.containsKey(r.id)) return false
+        // V5.0.8169 — a full book keeps the NEWEST trades by time. It evicted by insertion order, so the boot replay of every
+        // historical close (8168: 1,345 unbound filings in 9 minutes into a 600-trade book) pushed out this session's
+        // entry-bound trade records — the realised STRONG closes the authority caps read — and refiled old ones each boot.
+        if (trades.size >= maxTrades) {
+            val oldest = trades.values.minByOrNull { it.atMs } ?: return false
+            if (!evictsOlder8169(oldest.atMs, r.atMs)) return false
+            trades.remove(oldest.id)
+        }
         trades[r.id] = r
-        if (trades.size > maxTrades) trades.keys.firstOrNull()?.let { trades.remove(it) }
         revision++
         return true
     }
+
+    /** Pure (V5.0.8169): may a record at [newAtMs] take the place of a full book's oldest record at [oldestAtMs]? */
+    fun evictsOlder8169(oldestAtMs: Long, newAtMs: Long): Boolean = newAtMs >= oldestAtMs
 
     /** The close of trade [positionId], routed to its owner; null when no trade record was bound to the position. */
     fun closeTrade(positionId: String, owner: CortexOutcomeRoute8144.Owner8144, realisedPct: Double): CortexGradeRecord8144? {

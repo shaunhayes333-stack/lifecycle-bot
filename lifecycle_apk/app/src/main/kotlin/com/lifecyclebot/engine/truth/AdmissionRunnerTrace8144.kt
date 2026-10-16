@@ -349,9 +349,41 @@ object AdmissionRunnerTrace8144 {
         e.handoff = state.take(90)
     }
 
+    // ── V5.0.8169 §A_RUNNER_RECORD_SURVIVES_A_RESTART ──
+    // 5.0.8168 (9 min uptime): "NO_RUNNER_TRACES_CAPTURED" and runners(4x+,24h)=0. The traces were written to [FILE_8144]
+    // but never read back, and the 24-hour runner list (RunnerCapture8017) lived only in memory, so every restart (the
+    // owner's logs are minutes of uptime) erased the runners — caught and missed alike — and the first new capture
+    // rewrote the file with only itself. The file is now restored once, before anything reads or rewrites it, and the
+    // runner list is rebuilt from it; a frozen decision-time record is never overwritten by a later one.
+    private val restoreTried8169 = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var restored8169 = 0
+
+    /** Pure: the traces worth restoring from an exported file — real mints, plausible detection times, newest per mint. */
+    fun restorable8169(list: List<Trace8144>, nowMs: Long, max: Int = MAX_TRACES_8144): List<Trace8144> =
+        list.filter { it.mint.isNotBlank() && it.detectedAtMs > 0L && it.detectedAtMs <= nowMs + 60_000L }
+            .sortedByDescending { it.detectedAtMs }.distinctBy { it.mint }.take(max)
+
+    /** Once per process, as soon as the app context exists: the exported traces back into memory and the runner list. */
+    internal fun restore8169(nowMs: Long = System.currentTimeMillis()) {
+        if (restoreTried8169.get()) return
+        val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return
+        if (!restoreTried8169.compareAndSet(false, true)) return
+        try {
+            val f = File(ctx.filesDir, FILE_8144)
+            if (!f.exists()) return
+            val list = restorable8169(parseJsonl8144(f.readText()), nowMs)
+            var n = 0
+            for (t in list) if (traces.putIfAbsent(t.mint, t) == null) n++
+            restored8169 = n
+            RunnerCapture8017.restore8169(list, nowMs)
+            try { PipelineHealthCollector.labelInc("RUNNER_TRACE_RESTORED_8169") } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+    }
+
     /** RunnerCapture8017: [mint] passed the 4x runner bar — freeze its decision trace and export it. */
     fun capture8144(mint: String, symbol: String, lane: String, startPx: Double, peakPct: Double, refusedBy: String,
                     downstream: String?, held: Boolean, nowMs: Long = System.currentTimeMillis()) {
+        restore8169(nowMs)  // V5.0.8169 — before the export below rewrites the file
         if (mint.isBlank() || traces.containsKey(mint)) return
         val e = early[mint]
         val ts = tokenOf8144(mint)
@@ -377,6 +409,7 @@ object AdmissionRunnerTrace8144 {
 
     /** RunnerCapture8017: a later label named a better refusal, a downstream stop, or the bot now holds it. */
     fun update8144(mint: String, refusedBy: String, downstream: String?, held: Boolean) {
+        restore8169()  // V5.0.8169
         val t = traces[mint] ?: return
         val next = t.copy(refusedBy = refusedBy, downstream = downstream.orEmpty(), held = t.held || held)
         if (next == t) return
@@ -385,7 +418,10 @@ object AdmissionRunnerTrace8144 {
     }
 
     /** The traces held now, newest first. */
-    internal fun traces8144(): List<Trace8144> = traces.values.sortedByDescending { it.detectedAtMs }
+    internal fun traces8144(): List<Trace8144> {
+        restore8169()  // V5.0.8169 — the report reads the restored record too
+        return traces.values.sortedByDescending { it.detectedAtMs }
+    }
 
     /** Rewrites the exportable JSONL file (one trace per line) and returns it, or null when the app context is absent. */
     internal fun export8144(): File? = try {
@@ -403,7 +439,7 @@ object AdmissionRunnerTrace8144 {
             val v = classify8144(t)
             "${t.symbol.take(10)} observedPeak=+${t.peakPct.toInt()}% ${if (v.miss == Miss8144.CAPTURED) "HELD_ENTRY" else v.miss.name}${if (v.gate.isNotBlank()) "(${v.gate.take(48)})" else ""}"
         }
-        return "trace8144[${summary8144(list)} file=$FILE_8144]${if (rows.isNotBlank()) " | $rows" else ""} | " +
+        return "trace8144[${summary8144(list)} file=$FILE_8144 restored8169=$restored8169]${if (rows.isNotBlank()) " | $rows" else ""} | " +
             "${AdmissionHandoff8144.statusLine8144()} | ${AdmissionBirth8144.statusLine8144()}"
     }
 }

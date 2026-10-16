@@ -70,9 +70,33 @@ object RunnerCapture8017 {
         return if (available > 0.0) bankedPct / available else Double.NaN
     }
 
+    /**
+     * V5.0.8169 — AdmissionRunnerTrace8144.restore8169: the runners of the last 24 h, rebuilt from the exported decision
+     * traces after a restart (held flag, refusal and downstream stop as recorded). A run already seen this process wins.
+     */
+    internal fun restore8169(traces: List<AdmissionRunnerTrace8144.Trace8144>, nowMs: Long) {
+        for (t in restorableRuns8169(traces, nowMs)) {
+            val r = Run(t.mint, t.symbol, t.lane, t.markPx.takeIf { it.isFinite() } ?: 0.0, t.detectedAtMs, t.refusedBy)
+            r.peakPct = t.peakPct
+            r.held = t.held
+            if (runs.putIfAbsent(t.mint, r) == null) {
+                restoredRuns8169++
+                if (t.downstream.isNotBlank()) downstream8047.putIfAbsent(t.mint, t.downstream)
+            }
+        }
+    }
+
+    @Volatile private var restoredRuns8169 = 0
+
+    /** Pure (V5.0.8169): restored traces that are still runners of the last 24 h (finite peak at the bar). */
+    fun restorableRuns8169(traces: List<AdmissionRunnerTrace8144.Trace8144>, nowMs: Long): List<AdmissionRunnerTrace8144.Trace8144> =
+        traces.filter { it.mint.isNotBlank() && it.peakPct.isFinite() && it.peakPct >= RUNNER_PEAK_PCT_8017 && nowMs - it.detectedAtMs in 0L..KEEP_MS }
+            .take(MAX_RUNS)
+
     /** ForwardReturnLabeler7731: a followed coin's peak passed (or rose further past) the runner bar. */
     fun onRunnerPeak8017(mint: String, symbol: String, lane: String, startPx: Double, peakPct: Double, refusedBy: String, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank() || !peakPct.isFinite() || peakPct < RUNNER_PEAK_PCT_8017) return
+        try { AdmissionRunnerTrace8144.restore8169(nowMs) } catch (_: Throwable) {}  // V5.0.8169 — restored runs first, never duplicated
         val r = runs.getOrPut(mint) {
             if (runs.size >= MAX_RUNS) runs.entries.removeIf { nowMs - it.value.atMs > KEEP_MS }
             if (runs.size >= MAX_RUNS) runs.entries.minByOrNull { it.value.atMs }?.key?.let { runs.remove(it) }
@@ -114,8 +138,9 @@ object RunnerCapture8017 {
 
     fun statusLine(): String {
         val now = System.currentTimeMillis()
+        try { AdmissionRunnerTrace8144.restore8169(now) } catch (_: Throwable) {}  // V5.0.8169 — survive the restart
         val recent = runs.values.filter { now - it.atMs <= KEEP_MS }.sortedByDescending { it.peakPct }
-        if (recent.isEmpty()) return "runners(4x+,24h)=0 | ${try { AdmissionRunnerTrace8144.statusLine8144() } catch (_: Throwable) { "trace8144 unavailable" }}"
+        if (recent.isEmpty()) return "runners(4x+,24h)=0 restoredRuns8169=$restoredRuns8169 | ${try { AdmissionRunnerTrace8144.statusLine8144() } catch (_: Throwable) { "trace8144 unavailable" }}"
         val held = recent.filter { it.held }
         val liveHeld = held.count { it.live }
         val entries = held.mapNotNull { entryVsStart8017(it.entryPx, it.startPx).takeIf { v -> v.isFinite() } }.sorted()
@@ -129,7 +154,7 @@ object RunnerCapture8017 {
                 else -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% in@${if (e.isFinite()) "%+.0f%%".format(e) else "?"} HOLDING ${if (r.openNowPct.isFinite()) "%+.0f%%".format(r.openNowPct) else ""}${if (r.live) " LIVE" else " paper"}"
             }
         }
-        return "runners(4x+,24h)=${recent.size} held=${held.size} (live ${liveHeld}) missed=${recent.size - held.size} " +
+        return "runners(4x+,24h)=${recent.size} held=${held.size} (live ${liveHeld}) missed=${recent.size - held.size} restoredRuns8169=$restoredRuns8169 " +
             "entryVsStart(median)=${med(entries)} bankedShareOfRun(median)=${if (shares.isEmpty()) "-" else "%.0f%%".format(shares[shares.size / 2] * 100)} | $rows" +
             " | ${try { AdmissionRunnerTrace8144.statusLine8144() } catch (_: Throwable) { "trace8144 unavailable" }}"  // V5.0.8144
     }

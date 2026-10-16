@@ -138,6 +138,15 @@ object PriceResolverFallback {
      * @return null if every fallback failed. The caller MUST treat null as
      *         UNKNOWN and skip exit gates, not as 0.
      */
+    /**
+     * V5.0.8169 — true while [resolve] would answer null from its hot cache (priced < 5 s ago): a caller
+     * can then name its empty result "no new observation" instead of "no feed answered".
+     */
+    fun hotCacheHit8169(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val c = cache[mint] ?: return false
+        return c.priceUsd > 0.0 && nowMs - c.tsMs <= HOT_CACHE_MS_7399
+    }
+
     fun resolve(mint: String, solUsdHint: Double): Resolved? {
         if (mint.isBlank()) return null
 

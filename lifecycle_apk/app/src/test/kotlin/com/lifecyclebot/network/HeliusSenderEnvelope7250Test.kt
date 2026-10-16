@@ -47,16 +47,18 @@ class HeliusSenderEnvelope7250Test {
         var p = 0
         fun u8() = bytes[p++].toInt() and 0xff
         fun sv(): Int { var v=0; var s=0; while (true) { val b=u8(); v=v or ((b and 127) shl s); if (b and 128 == 0) return v; s += 7 } }
+        // `p += sv()` reads p BEFORE sv() advances it, dropping the length byte; skip explicitly.
+        fun skipVec() { val n = sv(); p += n }
         assertEquals(1, sv()); p += 64
         assertEquals(0x80, u8()); assertEquals(1, u8()); assertEquals(0, u8()); assertEquals(2, u8())
         assertEquals(4, sv()) // tip inserted before two readonly unsigned keys
         p += 4 * 32 + 32
         assertEquals(3, sv())
         assertEquals(2, u8()) // Compute program shifted 1 -> 2
-        assertEquals(0, sv()); p += sv()
+        assertEquals(0, sv()); skipVec()
         assertEquals(3, u8()) // System program shifted 2 -> 3
         assertEquals(1, sv()); assertEquals(4, u8()) // loaded account shifted 3 -> 4
-        p += sv()
+        skipVec()
         assertEquals(3, u8()) // appended transfer uses System Program
         assertEquals(2, sv()); assertEquals(0, u8()); assertEquals(1, u8()) // payer, inserted tip
         assertEquals(12, sv()); assertEquals(2, u8()) // System transfer discriminator

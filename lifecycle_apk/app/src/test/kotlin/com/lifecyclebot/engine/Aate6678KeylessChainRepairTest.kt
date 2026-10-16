@@ -52,17 +52,16 @@ class Aate6678KeylessChainRepairTest {
 
     @Test
     fun `Dead V5-0-6672 providers (Pollinations, DuckDuckGo) are fully removed`() {
-        assertFalse(
-            "Pollinations endpoint must be removed",
-            keyless.contains("text.pollinations.ai"),
-        )
+        // V5.0.6996 §THE_KEYLESS_CLIENT_HAD_NO_KEYLESS_PROVIDER deliberately
+        // re-added Pollinations as the last genuinely keyless member, so only
+        // the DuckDuckGo half of the 6678 removal still holds.
         assertFalse(
             "DuckDuckGo endpoint must be removed",
             keyless.contains("duckduckgo.com/duckchat"),
         )
         assertFalse(
-            "callPollinations / callDuckDuckGo helpers must be removed",
-            keyless.contains("callPollinations(") || keyless.contains("callDuckDuckGo("),
+            "callDuckDuckGo helper must be removed",
+            keyless.contains("callDuckDuckGo("),
         )
     }
 

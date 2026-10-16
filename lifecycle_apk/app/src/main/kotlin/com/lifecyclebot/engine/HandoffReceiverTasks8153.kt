@@ -209,6 +209,32 @@ object HandoffReceiverTasks8153 {
     private val tasks8153 = ConcurrentHashMap<String, Task8153>()
     private val counts8153 = ConcurrentHashMap<String, AtomicLong>()
 
+    // ── V5.0.8169 §EVERY_LOST_HANDOFF_IS_NAMED ──
+    // 5.0.8168: 271 tasks opened, 10 evaluated at the FDG, 118 DEFERRED_DATA and 137 REFUSED — and the status line said
+    // only those totals, so whether a loss was a legitimate refusal (the receiver's judgement, safety, another lane's
+    // sealed buy) or a defect (stale version, never scheduled) could not be read off a device log. Every settled task's
+    // verdict is now tallied by name ([verdictKey8169]) and printed with its outcome.
+    private val verdicts8169 = ConcurrentHashMap<String, AtomicLong>()
+
+    /**
+     * Pure (V5.0.8169): a verdict's stable name — its first two ':'-separated parts (e.g. "RECEIVER_REFUSED:NATIVE_NO_BUY_WAIT",
+     * "DEFERRED_NATIVE:DATA_INCOMPLETE"), each cut at the first space and to 40 chars, with digit runs folded to '#'
+     * so one rule with varying numbers is one key.
+     */
+    fun verdictKey8169(verdict: String): String =
+        verdict.split(':').take(2).joinToString(":") { it.trim().substringBefore(' ').take(40).replace(Regex("[0-9]+"), "#") }
+            .trim(':').ifBlank { "UNNAMED" }
+
+    /** Pure (V5.0.8169): "KEY=n,..." for the [top] largest tallies whose key starts with [prefix] (prefix removed). */
+    fun topTallies8169(tallies: Map<String, Long>, prefix: String, top: Int): String =
+        tallies.entries.filter { it.key.startsWith(prefix) }.sortedWith(compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key })
+            .take(top).joinToString(",") { "${it.key.removePrefix(prefix)}=${it.value}" }.ifBlank { "-" }
+
+    private fun tally8169(t: Task8153) {
+        if (verdicts8169.size >= 512 && !verdicts8169.containsKey("${t.outcome.name}|${verdictKey8169(t.verdict)}")) return
+        verdicts8169.computeIfAbsent("${t.outcome.name}|${verdictKey8169(t.verdict)}") { AtomicLong(0L) }.incrementAndGet()
+    }
+
     private fun count8153(key: String) {
         counts8153.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("HANDOFF_TASK_8153_$key") } catch (_: Throwable) {}
@@ -221,7 +247,10 @@ object HandoffReceiverTasks8153 {
         else if (after.lane != before.lane && after.pending) count8153("TRANSFERRED")
         if (before != null && after.schedules == 1 && before.schedules == 0 && after.createdAtMs == before.createdAtMs &&
             after.lane == before.lane) count8153("SCHEDULED")
-        if (!after.pending && (before == null || before.pending || before.createdAtMs != after.createdAtMs)) count8153(after.outcome.name)
+        if (!after.pending && (before == null || before.pending || before.createdAtMs != after.createdAtMs)) {
+            count8153(after.outcome.name)
+            tally8169(after)  // V5.0.8169
+        }
     }
 
     private fun update8153(mint: String, nowMs: Long, step: (Task8153?) -> Task8153?): Task8153? {
@@ -298,10 +327,19 @@ object HandoffReceiverTasks8153 {
         val c = { k: String -> counts8153[k]?.get() ?: 0L }
         return "handoffTask8153[opened=${c("OPENED")} scheduled=${c("SCHEDULED")} transferred=${c("TRANSFERRED")} " +
             "evaluated=${c(Outcome8153.EVALUATED.name)} deferredData=${c(Outcome8153.DEFERRED_DATA.name)} " +
-            "refused=${c(Outcome8153.REFUSED.name)} pending=${tasks8153.values.count { it.pending }}]"
+            "refused=${c(Outcome8153.REFUSED.name)} pending=${tasks8153.values.count { it.pending }} " +
+            verdictLine8169() + "]"
     }
 
-    internal fun resetForTests8153() { tasks8153.clear(); counts8153.clear() }
+    /** V5.0.8169 — "refusedBy8169{..} deferredBy8169{..} evaluatedBy8169{..}": every settled task's verdict by name. */
+    internal fun verdictLine8169(): String {
+        val v = verdicts8169.mapValues { it.value.get() }
+        return "refusedBy8169{${topTallies8169(v, "${Outcome8153.REFUSED.name}|", 8)}} " +
+            "deferredBy8169{${topTallies8169(v, "${Outcome8153.DEFERRED_DATA.name}|", 5)}} " +
+            "evaluatedBy8169{${topTallies8169(v, "${Outcome8153.EVALUATED.name}|", 4)}}"
+    }
+
+    internal fun resetForTests8153() { tasks8153.clear(); counts8153.clear(); verdicts8169.clear() }
 }
 
 /**

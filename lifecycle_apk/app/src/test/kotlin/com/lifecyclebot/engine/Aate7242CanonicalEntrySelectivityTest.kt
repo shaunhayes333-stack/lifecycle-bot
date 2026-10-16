@@ -28,7 +28,8 @@ class Aate7242CanonicalEntrySelectivityTest {
 
         val modeIdx = src.indexOf("val mode = if (config.paperMode)")
         val selectivityIdx = src.indexOf("§CANONICAL_ENTRY_SELECTIVITY")
-        val laneIdx = src.indexOf("val laneName = tradingModeTag")
+        // V5.0.6658 — laneName now comes from the canonical primary lane.
+        val laneIdx = src.indexOf("val laneName = canonicalPrimaryLane6658")
         assertTrue(modeIdx >= 0 && selectivityIdx > modeIdx && laneIdx > selectivityIdx)
     }
 }

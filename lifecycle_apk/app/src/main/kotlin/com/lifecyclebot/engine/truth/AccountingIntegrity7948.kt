@@ -94,9 +94,9 @@ object AccountingIntegrity7948 {
             committed7948.remove(pid)
             val pos = try { CanonicalPositionAuthority6441.getPosition(pid) } catch (_: Throwable) { null }
             if (pos == null) { unbackfillable7948.incrementAndGet(); continue }
-            val sig = try {
+            val sig = (try {
                 com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(pos.mint)?.buySignature.orEmpty()
-            } catch (_: Throwable) { "" }
+            } catch (_: Throwable) { "" }).ifBlank { ledgerBuySig8169(pos.mint, pos.openedAtMs) }
             val existing = try {
                 com.lifecyclebot.engine.TradeHistoryStore.liveRowsForMint7370(pos.mint).any {
                     it.side.equals("BUY", true) && (it.positionId == pid || (sig.isNotBlank() && it.sig == sig))
@@ -129,6 +129,20 @@ object AccountingIntegrity7948 {
         }
         return written
     }
+
+    /**
+     * V5.0.8169 — the backfilled row's signature when the tracker has none: the one confirmed BUY the
+     * signed ledger holds for this mint near the canonical open (ambiguous or absent -> "").
+     */
+    private fun ledgerBuySig8169(mint: String, openedAtMs: Long): String = try {
+        val signed = com.lifecyclebot.network.SignedTxLedger8085.historyFor8090(mint).filter { it.side == "BUY" }.map {
+            AccountingIntegrity8169.SignedBuy8169(it.signature, it.mint, it.createdAtMs,
+                it.state == com.lifecyclebot.network.SignedTxLedger8085.State.CONFIRMED)
+        }
+        AccountingIntegrity8169.resolveJournalBuySignatures8169(
+            listOf(ReconcileClassifier8144.Row8144(side = "BUY", mint = mint, ts = openedAtMs)), signed,
+        ).journal.firstOrNull()?.sig.orEmpty()
+    } catch (_: Throwable) { "" }
 
     /** One-line verdict for the Buy terminal block. */
     fun coverageLine7948(confirmedBuys: Long, journaledBuys: Long): String {

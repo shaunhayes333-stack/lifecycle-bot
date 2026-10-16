@@ -308,6 +308,37 @@ object ForwardReturnLabeler7731 {
     }
 
     private val pending = ConcurrentHashMap<String, Obs>()          // key = mint|lane
+
+    // ── V5.0.8169 §STALE_LEARNED_REFUSALS ──
+    // 5.0.8168: ~697 CELL / STAGE_PROVEN_LOSING_8136 refusals rested on cells graded under stops this build calls
+    // defective (BLUECHIP / QUALITY 5%, 9% fresh-meme floors: stoppedBeforePeak=750), and LearningEpoch8164 stayed 0
+    // because nobody pressed reset. Beside every cell a FRESH tally books only observations decided after the grading
+    // epoch: the later of the build's grading version ([GRADING_VERSION_8169] — a change starts a new epoch at
+    // attach, no manual reset needed) and the learning reset line (LearningEpoch8164). A loss pattern may refuse only on
+    // fresh labels (CandidateAdmission8136.cellLoss8169); older evidence decays to neutral, never to allow. Local
+    // labels only: the hive's tallies carry no epoch.
+    private const val GRADING_VERSION_8169 = 8169
+    private const val FRESH_KEY_8169 = "fresh_cells_8169"
+    private const val FRESH_EPOCH_KEY_8169 = "fresh_epoch_8169"
+    private const val GRADING_VERSION_KEY_8169 = "grading_version_8169"
+    private val fresh8169 = ConcurrentHashMap<String, Tally>()
+    @Volatile private var freshEpochMs8169 = 0L
+    private val freshBooked8169 = AtomicLong(0)
+    private val freshSkippedPreEpoch8169 = AtomicLong(0)
+
+    /** Pure: the grading epoch — the later of the build's grading start and the learning reset line. */
+    fun gradingEpoch8169(gradingStartMs: Long, learningEpochMs: Long): Long = maxOf(gradingStartMs, learningEpochMs, 0L)
+
+    /** Pure: may an observation decided at [decidedAtMs] teach a loss pattern under epoch [epochMs]? (0 = no epoch yet: none). */
+    fun freshObservation8169(decidedAtMs: Long, epochMs: Long): Boolean = epochMs > 0L && decidedAtMs >= epochMs
+
+    /** A newer learning reset than the fresh book's epoch starts the fresh book over. */
+    private fun syncEpoch8169() {
+        val reset = try { LearningEpoch8164.epochMs8164() } catch (_: Throwable) { 0L }
+        if (reset > freshEpochMs8169) synchronized(fresh8169) {
+            if (reset > freshEpochMs8169) { fresh8169.clear(); freshEpochMs8169 = reset }
+        }
+    }
     private val lastSeenAt = ConcurrentHashMap<String, Long>()       // key = mint|lane
     private val cells = ConcurrentHashMap<String, Tally>()
     @Volatile private var prefs: SharedPreferences? = null
@@ -378,6 +409,7 @@ object ForwardReturnLabeler7731 {
                 if (t.decode(row.substring(sep + 1))) cells[key] = t
             }
         } catch (_: Throwable) {}
+        try { restoreFresh8169(p, System.currentTimeMillis()) } catch (_: Throwable) {}
         // V5.0.7738 — once: cells whose 60-minute mean was built on basis artefacts start over.
         try {
             if (!p.getBoolean("purged7738", false)) {
@@ -421,7 +453,11 @@ object ForwardReturnLabeler7731 {
         bookingsSincePersist.set(0)
         try {
             val enc = cells.entries.joinToString(";") { (k, t) -> "$k=${synchronized(t) { t.encode() }}" }
-            p.edit().putString(CELLS_KEY_7946, enc).putString(PENDING_KEY_7946, encodePending7735(now)).remove("cells").remove("pending").apply()
+            // V5.0.8169 — the fresh (post-epoch) tallies ride beside the cells.
+            val freshEnc8169 = fresh8169.entries.joinToString(";") { (k, t) -> "$k=${synchronized(t) { t.encode() }}" }
+            p.edit().putString(CELLS_KEY_7946, enc).putString(PENDING_KEY_7946, encodePending7735(now))
+                .putString(FRESH_KEY_8169, freshEnc8169).putLong(FRESH_EPOCH_KEY_8169, freshEpochMs8169)
+                .remove("cells").remove("pending").apply()
         } catch (_: Throwable) {}
     }
 
@@ -769,7 +805,46 @@ object ForwardReturnLabeler7731 {
             }
         }
         when (horizon) { 15 -> booked15.incrementAndGet(); 60 -> booked60.incrementAndGet(); else -> booked240.incrementAndGet() }
+        if (horizon == 60) bookFresh8169(o, keys, net, gross)
         if (bookingsSincePersist.incrementAndGet() >= PERSIST_EVERY_BOOKINGS_7731) persist()
+    }
+
+    /** V5.0.8169 — the 5-minute label also books into the fresh (post-epoch) tally when its decision is after the epoch. */
+    private fun bookFresh8169(o: Obs, keys: List<String>, net: Double, gross: Double) {
+        syncEpoch8169()
+        if (!freshObservation8169(o.atMs, freshEpochMs8169)) { freshSkippedPreEpoch8169.incrementAndGet(); return }
+        for (k in keys) {
+            if (!fresh8169.containsKey(k) && fresh8169.size >= MAX_CELLS_7731) continue
+            val t = fresh8169.getOrPut(k) { Tally() }
+            synchronized(t) {
+                t.n60 += 1; t.sum60 += net; t.sumSq60 += net * net; if (net > 0.0) t.win60 += 1; if (gross >= RUNNER_PCT_7731) t.runner60 += 1
+                t.window8014(CELL_WINDOW_8014)
+            }
+        }
+        freshBooked8169.incrementAndGet()
+    }
+
+    /** V5.0.8169 — restore the fresh tallies; a new grading version starts a new epoch now (the old fresh book is dropped). */
+    private fun restoreFresh8169(p: SharedPreferences, nowMs: Long) {
+        val version = p.getInt(GRADING_VERSION_KEY_8169, 0)
+        if (version != GRADING_VERSION_8169) {
+            fresh8169.clear()
+            freshEpochMs8169 = nowMs
+            p.edit().putInt(GRADING_VERSION_KEY_8169, GRADING_VERSION_8169).putLong(FRESH_EPOCH_KEY_8169, nowMs).remove(FRESH_KEY_8169).apply()
+            try {
+                PipelineHealthCollector.labelInc("FORWARD_LABEL_GRADING_EPOCH_STARTED_8169")
+                ForensicLogger.lifecycle("FORWARD_LABEL_GRADING_EPOCH_STARTED_8169", "from=$version to=$GRADING_VERSION_8169 action=older_loss_patterns_decay_to_neutral")
+            } catch (_: Throwable) {}
+        } else {
+            freshEpochMs8169 = p.getLong(FRESH_EPOCH_KEY_8169, nowMs).takeIf { it > 0L } ?: nowMs
+            p.getString(FRESH_KEY_8169, null)?.split(';')?.forEach { row ->
+                val sep = row.lastIndexOf('=')
+                if (sep <= 0) return@forEach
+                val t = Tally()
+                if (t.decode(row.substring(sep + 1))) fresh8169[row.substring(0, sep)] = t
+            }
+        }
+        syncEpoch8169()
     }
 
     private fun markLost(o: Obs) {
@@ -829,6 +904,8 @@ object ForwardReturnLabeler7731 {
         val dipFirst8029 = if (o.dipBeforePeak7962.isFinite()) o.dipBeforePeak7962 else o.minPct7962
         if (g < gross || (stop8029 > 0.0 && o.minPct7962 <= -stop8029)) try {
             com.lifecyclebot.engine.LaneParticipation8029.noteGraded8029(first = dipFirst8029 <= -stop8029, afterPeak = dipFirst8029 > -stop8029)
+            // V5.0.8169 — per lane, and whether the coin ran past the stop distance after stopping out (a shakeout).
+            if (longFamily8080 == null) com.lifecyclebot.engine.ExitDoctrine8169.noteGraded8169(o.lane, stop8029, o.peakPct, dipFirst8029)
         } catch (_: Throwable) {}
         if (g > gross) capturedLabels7945.incrementAndGet()
         return (net + (g - gross)).coerceAtMost(NET_CEILING_PCT_7738) to g
@@ -1442,6 +1519,40 @@ object ForwardReturnLabeler7731 {
 
     /** V5.0.7928 — the 60-minute record of every [lane] decision taken at lifecycle [stage]. */
     fun stageStatFor7928(lane: String, stage: String): CellStat? = cellStat(stageKey7928(lane, stage))
+
+    /** V5.0.8169 — a key's local record since the grading epoch (no hive), the only record a loss pattern may refuse on. */
+    private fun freshStat8169(key: String): CellStat? {
+        syncEpoch8169()
+        val t = fresh8169[key] ?: return null
+        return synchronized(t) {
+            val n = t.n60
+            if (n <= 0) null else {
+                val mean = t.sum60 / n
+                val variance = if (n > 1) ((t.sumSq60 / n) - mean * mean).coerceAtLeast(0.0) else 0.0
+                CellStat(
+                    key = key, n60 = n, meanNet60Pct = mean,
+                    winRate60 = t.win60.toDouble() / n, runnerRate60 = t.runner60.toDouble() / n,
+                    stderr60Pct = if (n > 1) kotlin.math.sqrt(variance / n) else Double.POSITIVE_INFINITY, lost = 0,
+                )
+            }
+        }
+    }
+
+    /** V5.0.8169 — [cellStatFor] since the grading epoch. */
+    fun freshCellStatFor8169(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): CellStat? {
+        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
+        return freshStat8169(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs))
+    }
+
+    /** V5.0.8169 — [stageStatFor7928] since the grading epoch. */
+    fun freshStageStatFor8169(lane: String, stage: String): CellStat? = freshStat8169(stageKey7928(lane, stage))
+
+    /** V5.0.8169 — report: the epoch and the fresh book's size. */
+    fun freshStatus8169(): String {
+        val epoch = freshEpochMs8169
+        val age = if (epoch > 0L) "${(System.currentTimeMillis() - epoch) / 60_000L}m" else "-"
+        return "fresh8169[gradingVersion=$GRADING_VERSION_8169 epochAge=$age learningEpoch8164=${if ((try { LearningEpoch8164.epochMs8164() } catch (_: Throwable) { 0L }) > 0L) "set" else "0"} keys=${fresh8169.size} booked=${freshBooked8169.get()} preEpochSkipped=${freshSkippedPreEpoch8169.get()}]"
+    }
 
     /** V5.0.7737 — the lane's 60-minute label record (LaneAutoPauseGuard's label-proof release). */
     fun laneStatFor7737(lane: String): CellStat? = laneStat(lane)

@@ -51,9 +51,15 @@ class Aate7398GovernorAccountingAndCryptoCoverageTest {
     @Test
     fun crypto_universe_stamps_candidate_and_submit_producer_boundaries() {
         val crypto = src("perps/CryptoAltTrader.kt")
-        val handoff = crypto.substringAfter("V5.0.7398 — this comment promised a producer CANDIDATE stamp")
-        assertTrue(handoff.contains("AssetClass.CRYPTO_ALT, \"CANDIDATE\""))
-        val submit = crypto.substringBefore("val canonicalCryptoAdmission6565")
-        assertTrue(submit.contains("AssetClass.CRYPTO_ALT, \"SUBMIT\""))
+        // The CANDIDATE/SUBMIT producer stamps now live at the one canonical submit
+        // boundary (CanonicalEntryAuthority6551.submit), which crypto calls with CRYPTO_ALT.
+        val admission = crypto.substringAfter("val canonicalCryptoAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(")
+            .take(600)
+        assertTrue(admission.contains("assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,"))
+        val contract = src("engine/truth/CanonicalAssetEntryContract6551.kt")
+        val submit = contract.substringAfter("fun submit(candidate: CanonicalAssetEntryCandidate6551)")
+            .substringBefore("KillSwitch.checkEntry7835")
+        assertTrue(submit.contains("CanonicalEntryAuthority6540.markCandidateFor6551(candidate.assetClass"))
+        assertTrue(submit.contains("CanonicalEntryAuthority6540.markSubmitFor6551(candidate.assetClass"))
     }
 }

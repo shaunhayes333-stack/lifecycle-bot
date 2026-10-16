@@ -90,7 +90,27 @@ object SpecialistBrainBridge7542 {
      */
     fun cachedSnapshot7650(mint:String):Snapshot? {
         val c=cache[mint]?.snapshot?:return null
-        return if(System.currentTimeMillis()-c.evaluatedAtMs<=CACHE_MS*2L)c else null
+        return if(snapshotReadable8169(c.evaluatedAtMs,System.currentTimeMillis()))c else null
+    }
+
+    // ── V5.0.8169 — memory: one snapshot per mint ever evaluated stayed resident for the whole process ──
+    // No reader trusts a snapshot older than 2 x CACHE_MS (cachedSnapshot7650; evaluate itself only CACHE_MS), so an
+    // older one can never be served again: dropping it changes no read. Pruned on insert (at most every 5 s) and by
+    // MemoryGuard7977's registry trim ("nativeSnapshots").
+    private const val PRUNE_AT_8169=256
+    @Volatile private var lastPrune8169=0L
+    /** Pure: may a snapshot evaluated at [evaluatedAtMs] still be served at [nowMs]? */
+    fun snapshotReadable8169(evaluatedAtMs:Long,nowMs:Long):Boolean=nowMs-evaluatedAtMs<=CACHE_MS*2L
+    fun snapshotCount8169():Int=cache.size
+    fun pruneUnreadable8169(nowMs:Long=System.currentTimeMillis()):Int{
+        val before=cache.size
+        cache.entries.removeIf{!snapshotReadable8169(it.value.snapshot.evaluatedAtMs,nowMs)}
+        return (before-cache.size).coerceAtLeast(0)
+    }
+    private fun pruneOnInsert8169(nowMs:Long){
+        if(cache.size<PRUNE_AT_8169||nowMs-lastPrune8169<5_000L)return
+        lastPrune8169=nowMs
+        try{pruneUnreadable8169(nowMs)}catch(_:Throwable){}
     }
 
     data class LaneRuntime7542(val lane:String,val called:Long,val allowed:Long,val rejected:Long,val errors:Long,val eligible:Boolean,val score:Int,val confidence:Int,val authoritative:Boolean,val reason:String)
@@ -125,8 +145,9 @@ object SpecialistBrainBridge7542 {
     // native brains actually consume. The old fingerprint omitted momentum,
     // volatility, holder/bundle state and Treasury meta fields, allowing a
     // 2.5-second stale ALLOW/VETO to survive a fast lifecycle change.
-    private fun fp(ts:TokenState,paper:Boolean)=listOf(
+    private fun fp(ts:TokenState,paper:Boolean,residents8168:Set<String>)=listOf(
         ts.mint,paper,ts.history.size,
+        residents8168.hashCode(),
         if(ts.lastPrice>0)(kotlin.math.ln(ts.lastPrice)*10000).toLong()else 0L,
         ts.lastMcap.toLong(),ts.lastLiquidityUsd.toLong(),
         ts.lastBuyPressurePct.toInt(),ts.lastSellPressurePct.toInt(),ts.lastPriceChange5m.toInt(),
@@ -148,13 +169,28 @@ object SpecialistBrainBridge7542 {
         } catch (_: Throwable) { 0 }
     ).hashCode()
 
+    /** Discovery claims add independent native readers; one resident must not suppress the bootstrap readers. */
+    internal fun nativeScope8168(mcap: Double, residents: Set<String>): Set<String> {
+        val bootstrap = when {
+            mcap.isFinite() && mcap >= 1_000_000.0 ->
+                setOf("BLUECHIP", "QUALITY", "TREASURY", "CASHGEN", "DIP_HUNTER", "CORE")
+            mcap.isFinite() && mcap >= 75_000.0 ->
+                setOf("QUALITY", "DIP_HUNTER", "MOONSHOT", "PROJECT_SNIPER", "SHITCOIN", "CORE")
+            else -> setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "CORE")
+        }
+        return bootstrap + residents.intersect(com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.LANES)
+    }
+
     fun evaluate(ts:TokenState):Snapshot{
         val paper=try{RuntimeModeAuthority.isPaper()}catch(_:Throwable){try{BotRuntimeController.snapshot().paperMode}catch(_:Throwable){true}};ensureInitialized(paper)
         // V5.0.8037 — every native scorer reads ts.lastLiquidityUsd; fill it from the observed value first (LiquidityTruth8037).
         try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
         // V5.0.8094 — a candidate priced more than 15 s ago gets a fresh mark requested before the next cycle.
         try { com.lifecyclebot.engine.truth.CandidateMarkFresh8094.ensureFresh8094(ts) } catch (_: Throwable) {}
-        val f=fp(ts,paper);val now=System.currentTimeMillis();cache[ts.mint]?.snapshot?.let{if(it.fingerprint==f&&now-it.evaluatedAtMs<=CACHE_MS)return it}
+        val residentScope7828 = try {
+            com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint)
+        } catch (_: Throwable) { emptySet() }
+        val f=fp(ts,paper,residentScope7828);val now=System.currentTimeMillis();cache[ts.mint]?.snapshot?.let{if(it.fingerprint==f&&now-it.evaluatedAtMs<=CACHE_MS)return it}
         val hist=try{ts.history.toList().filter{it.priceUsd.isFinite()&&it.priceUsd>0}}catch(_:Throwable){emptyList()}
         val prices=hist.map{it.priceUsd};val price=ts.lastPrice.takeIf{it.isFinite()&&it>0}?:prices.lastOrNull()?:0.0
         val vols=hist.filter{!it.synthetic}.map{it.vol}.filter{it.isFinite()&&it>0};val recent=vols.takeLast(3).takeIf{it.isNotEmpty()}?.average()?:0.0;val prior=vols.dropLast(minOf(3,vols.size)).takeLast(5).takeIf{it.isNotEmpty()}?.average()?:0.0;val volVs=if(recent>0&&prior>0)recent/prior else 1.0
@@ -201,19 +237,9 @@ object SpecialistBrainBridge7542 {
         val bounce=if(prices.size>=4&&price>0){val tail=prices.takeLast(8);val low=tail.minOrNull()?:price;val idx=tail.indexOf(low);low>0&&idx>=0&&idx<tail.lastIndex-1&&price>=low*1.02&&bp>=50&&volVs>=0.5}else false
         val cls=try{ModeRouter.classify(ts)}catch(_:Throwable){null};val launch=try{com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)}catch(_:Throwable){null};val runner=try{com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.isRunnerShaped(ts,cls?.tradeType?:ModeRouter.TradeType.UNKNOWN)}catch(_:Throwable){false}
 
-        // V5.0.7828 — native specialist work follows resident ownership, not global fanout.
-        val residentScope7828 = try {
-            com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint)
-        } catch (_: Throwable) { emptySet() }
-        val nativeScope7828: Set<String> = when {
-            residentScope7828.isNotEmpty() -> residentScope7828 + "CORE"
-            ts.lastMcap.isFinite() && ts.lastMcap >= 1_000_000.0 ->
-                setOf("BLUECHIP", "QUALITY", "TREASURY", "CASHGEN", "DIP_HUNTER", "CORE")
-            ts.lastMcap.isFinite() && ts.lastMcap >= 75_000.0 ->
-                setOf("QUALITY", "DIP_HUNTER", "MOONSHOT", "PROJECT_SNIPER", "SHITCOIN", "CORE")
-            else ->
-                setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "CORE")
-        }
+        // 8168 — resident claims augment bounded native discovery; execution election remains separate.
+        // V5.0.8169 — a token proven past the sniper's launch window leaves its scope before the native call (handed on, counted).
+        val nativeScope7828 = com.lifecyclebot.engine.truth.LaunchBirth8169.sniperScoped8169(ts, nativeScope8168(ts.lastMcap, residentScope7828))
         fun owns7828(lane: String): Boolean = lane in nativeScope7828
         try {
             PipelineHealthCollector.labelInc(
@@ -265,7 +291,7 @@ object SpecialistBrainBridge7542 {
         // V5.0.8031 — every lane's verdict is named, and a refusal is labelled for the veto audit (DecisionReasons8031).
         try { DecisionReasons8031.nativeVerdicts8031(ts, out.values) } catch (_: Throwable) {}
         // V5.0.7951 — every eligible lane's ownership conviction on ONE common scale (+ chart BUY evidence).
-        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it);registerElection8136(it)}
+        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it);pruneOnInsert8169(now);registerElection8136(it)}
     }
 
     /**

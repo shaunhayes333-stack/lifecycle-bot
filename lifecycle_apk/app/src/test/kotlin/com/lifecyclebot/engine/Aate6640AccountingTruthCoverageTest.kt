@@ -35,10 +35,12 @@ class Aate6640AccountingTruthCoverageTest {
     @Test
     fun mainHeroRendersCanonicalBalanceWithReconciliationAnnotation() {
         val src = File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue(src.contains("UnifiedAccountSnapshot6635.read(\"MEME\")"))
-        assertTrue(src.contains("reconciliationStatus6650"))
-        assertTrue(src.contains("RECONCILING…"))
-        assertTrue(src.contains("RECONCILIATION DELTA"))
+        // V5.0.7045 §HERO_CASH_AUTHORITY superseded the 6650 retained-snapshot +
+        // "RECONCILIATION DELTA" annotation: the hero binds to one atomic
+        // HeroAccountSnapshot7045 and shows its canonical cash.
+        assertTrue(src.contains("HeroAccountSnapshot7045.read(\"MEME\")"))
+        assertTrue(src.contains("if (accountRenderable7045) account7045!!.cashSol else 0.0"))
+        assertFalse(src.contains("RECONCILIATION DELTA"))
         assertFalse(src.contains("HERO_BALANCE_WITHHELD_UNRECONCILED_6640"))
         assertFalse(src.contains("PAPER · BALANCE WITHHELD"))
     }

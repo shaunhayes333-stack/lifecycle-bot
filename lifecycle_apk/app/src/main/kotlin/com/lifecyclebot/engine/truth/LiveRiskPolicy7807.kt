@@ -449,6 +449,8 @@ object LiveRiskPolicy7807 {
         val laneDeployedSol8153: Double = Double.NaN,
         /** V5.0.8153 — the token's mark (USD) at this decision, for the pre-broadcast drift check. 0 = unknown. */
         val markPriceUsd8153: Double = 0.0,
+        /** V5.0.8169 — one round trip's fixed legs (network fee + priority + tips, SOL; CostMeter8151). NaN = unknown. */
+        val fixedRoundTripSol8169: Double = Double.NaN,
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -618,6 +620,7 @@ object LiveRiskPolicy7807 {
                     return Decision(false, 0.0, envelopeRefusal8153, labels, stop, minCost7840, total, sizing8094)
                 }
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
+                fixedCostRefusal8169(i, i.execMinSol)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 return Decision(true, i.execMinSol, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", labels, stop, minCost7840, total, sizing8094, firstTarget)
             }
             return Decision(false, 0.0, "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", labels, stop, minCost7840, total, sizing8094)
@@ -627,8 +630,19 @@ object LiveRiskPolicy7807 {
         if (SizingNetEdge8153.netNonPositive8153(i.setupExpectedGrossPct8153, costFinal8153)) {
             return Decision(false, 0.0, SizingNetEdge8153.NET_EV_REFUSAL_8153, labels, stop, costFinal8153, total, sizing8094)
         }
+        fixedCostRefusal8169(i, size)?.let { return Decision(false, 0.0, it, labels, stop, costFinal8153, total, sizing8094) }
         return Decision(true, size, "OPEN_7807", labels, stop, cost1, total, sizing8094, firstTarget)
     }
+
+    /**
+     * V5.0.8169 — the explicit floor under every size-down (drawdown, daily loss, governor, expectancy): a size whose
+     * fixed legs alone take more than CostLanding8169.MAX_FIXED_SHARE_PCT_8169 of the ticket cannot be positive-EV in
+     * any lane, so it is REFUSED (FIXED_COST_DOMINATES_SIZE_8169), never traded thinner. Today's sizes sit at the route
+     * minimum (~0.029 SOL, fixed ~1.8%), so this names the choice rather than binding; unknown fixed cost never refuses.
+     */
+    private fun fixedCostRefusal8169(i: Inputs, sizeSol: Double): String? =
+        if (com.lifecyclebot.engine.CostLanding8169.fixedCostDominates8169(sizeSol, i.fixedRoundTripSol8169))
+            com.lifecyclebot.engine.CostLanding8169.FIXED_COST_REFUSAL_8169 else null
 
     // ── runtime evidence (live only) ────────────────────────────────────────
 
@@ -803,6 +817,7 @@ object LiveRiskPolicy7807 {
                 (walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0) else Double.NaN,
             laneDeployedSol8153 = laneDeployedSol8153(effectiveLane7811),
             markPriceUsd8153 = ts8153?.lastPrice?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+            fixedRoundTripSol8169 = try { com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() } catch (_: Throwable) { Double.NaN },
         )
     }
 

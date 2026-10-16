@@ -36,6 +36,9 @@ object HeliusSender {
     // which is inappropriate for a 0.15 SOL wallet and small meme entries.
     private const val URL = "https://sender.helius-rpc.com/fast?swqos_only=true"
 
+    /** V5.0.8169 — the documented minimum tip of the endpoint mode in use (SWQOS-only 5,000 lamports; default 0.001 SOL). */
+    fun minTipLamports8169(): Long = com.lifecyclebot.engine.CostLanding8169.senderMinTipLamports8169(URL)
+
     private val httpClient: OkHttpClient by lazy {
         SharedHttpClient.builder()
             .connectTimeout(4, TimeUnit.SECONDS)

@@ -142,6 +142,32 @@ object ToolkitSignalSheet {
         val reasons: List<String>,
     )
 
+    // ── V5.0.8169 — memory: one sheet per mint ever refreshed stayed resident for the whole process ──
+    // A sheet whose coin has left the token map (pruned / dropped from intake) and was not refreshed for 30 minutes is
+    // dropped. While the coin is resident its sheet is never touched; a coin that returns through intake gets the same
+    // cold-start fallback + background refresh any new candidate gets, instead of a sheet built 30+ minutes ago.
+    private const val SHEET_IDLE_MS_8169 = 30L * 60_000L
+    private const val SHEET_PRUNE_AT_8169 = 256
+    @Volatile private var lastSheetPrune8169 = 0L
+
+    /** Pure: may a cached sheet of age [ageMs] be dropped? Never while its coin is resident. */
+    fun sheetPrunable8169(ageMs: Long, resident: Boolean): Boolean = !resident && ageMs > SHEET_IDLE_MS_8169
+
+    fun sheetCount8169(): Int = cache.size
+
+    fun pruneIdleSheets8169(nowMs: Long = System.currentTimeMillis(), resident: (String) -> Boolean = { m -> BotService.status.tokens.containsKey(m) }): Int {
+        val before = cache.size
+        cache.entries.removeIf { e -> e.key !in inFlight && sheetPrunable8169(nowMs - e.value.tsMs, try { resident(e.key) } catch (_: Throwable) { true }) }
+        return (before - cache.size).coerceAtLeast(0)
+    }
+
+    private fun pruneOnInsert8169() {
+        val now = System.currentTimeMillis()
+        if (cache.size < SHEET_PRUNE_AT_8169 || now - lastSheetPrune8169 < 60_000L) return
+        lastSheetPrune8169 = now
+        try { pruneIdleSheets8169(now) } catch (_: Throwable) {}
+    }
+
     fun snapshot(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
         val now = System.currentTimeMillis()
         val fp = fingerprint(ts, classification)
@@ -210,6 +236,7 @@ object ToolkitSignalSheet {
                 } catch (_: Throwable) {}
                 val built = build(ts, classification)
                 cache[mint] = CacheEntry(built, System.currentTimeMillis(), fp)
+                pruneOnInsert8169()  // V5.0.8169 — idle sheets of coins no longer resident
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SIGNAL_SHEET_REFRESHED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SETUP_${built.setup.name}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("TOOLKIT_CHART_${built.chartPattern.uppercase().take(48)}") } catch (_: Throwable) {}
@@ -1313,9 +1340,12 @@ object ToolkitSignalSheet {
                 // ticket lineage is already bound, the callback attempt id is
                 // that immutable identity. Legacy pre-seal stages retain the
                 // compact alias until a real sealed attempt exists.
+                // V5.0.8169 — a bound ticket lineage is the identity that executed;
+                // it outranks a newer same-lane sealed intent, matching
+                // candidateVersion6647 above (which already prefers the lineage).
                 val expectedIntentId6647 = when {
-                    sealedIntent7471?.attemptId?.isNotBlank() == true -> sealedIntent7471.attemptId
                     boundLineage7807 != null && attemptId.isNotBlank() -> attemptId
+                    sealedIntent7471?.attemptId?.isNotBlank() == true -> sealedIntent7471.attemptId
                     canonicalAttempt6647 && attemptId.isNotBlank() -> attemptId
                     else -> "$mint:$candidateVersion6647:$lane"
                 }

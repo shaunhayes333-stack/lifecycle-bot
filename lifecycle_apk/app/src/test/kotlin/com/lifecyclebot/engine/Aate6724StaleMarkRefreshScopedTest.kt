@@ -32,7 +32,8 @@ class Aate6724StaleMarkRefreshScopedTest {
         )
         assertTrue(
             "guard must skip non-Solana opens before publish call",
-            src.contains("if (!base58Solana6724.matches(p.mint)) continue"),
+            // V5.0.6902 — the guard now filters the held set before the rotating slice.
+            src.contains(".filter { base58Solana6724.matches(it.mint) }"),
         )
     }
 }
