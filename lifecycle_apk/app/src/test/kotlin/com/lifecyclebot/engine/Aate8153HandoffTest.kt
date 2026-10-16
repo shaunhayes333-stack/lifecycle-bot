@@ -406,6 +406,10 @@ class Aate8153HandoffTest {
         assertTrue(bot.contains("SpecialistElection8136.electionQualified8144(ts.mint, l)"))
         assertTrue(bot.contains("SpecialistOwnership7951.handOffAllowed7960(l, ts.mint, primaryLane)"))
         assertTrue(bot.contains("shouldRunBuyLaneForCycle(ts, \"MOONSHOT\", cyclePrimaryLane)"))
-        assertTrue(bot.contains("SpecialistElection8136.noteScheduled8144(ts.mint, lane)"))
+        val wrapper = bot.substringAfter("private fun laneQualifiedBuyDecision(").substringBefore("private fun laneQualifiedBuyDecisionCore(")
+        assertTrue(wrapper.indexOf("val result = laneQualifiedBuyDecisionCore(") in 0 until wrapper.indexOf("HandoffTaskRuntime8153.onNativeCandidate8153("))
+        val runtime = src("engine/HandoffReceiverTasks8153.kt").substringAfter("fun onNativeCandidate8153(")
+        assertTrue(runtime.contains("SpecialistElection8136.noteScheduled8144(mint, l, nowMs)"))
+        assertTrue(runtime.contains("if (shouldTrade) return // the same task will be completed by its actual FDG verdict"))
     }
 }

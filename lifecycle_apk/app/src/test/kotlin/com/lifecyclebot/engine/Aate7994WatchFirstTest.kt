@@ -14,7 +14,9 @@ class Aate7994WatchFirstTest {
         assertTrue(LiveEdgeGate7877.cellEarnsLive7994(10, 0.0))
         assertFalse(LiveEdgeGate7877.cellEarnsLive7994(50, Double.NaN))
         val g = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
-        assertTrue(g.contains("if (!paper) watchFirst7994(ts, lane, nowMs, auditedAdmission8076)?.let { observeTail7996(ts, lane, it, nowMs); return it }"))
-        assertTrue(g.indexOf("watchFirst7994(ts, lane, nowMs, auditedAdmission8076)") < g.indexOf("val why = liveRefusalCore7970(ts, lane, paper, nowMs)"))
+        val live = g.substringAfter("if (!paper) {\n            val l8059").substringBefore("val why = liveRefusalCore7970(")
+        assertTrue(live.contains("watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136, candidateVersion, admission8136)?.let { observeTail7996(ts, lane, it, nowMs); return it }"))
+        val watch = g.indexOf("watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136, candidateVersion, admission8136)")
+        assertTrue(watch in 1 until g.indexOf("val why = liveRefusalCore7970(ts, lane, paper, nowMs, candidateSpecificAdmission8136)"))
     }
 }

@@ -727,8 +727,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         val f = src("engine/FinalDecisionGate.kt")
         val helper = f.substringAfter("private fun playbookClearsFloor7937(").substringBefore("private fun cortexPaperChoice7915(")
         assertTrue(helper.contains("SpecialistBrainBridge7542.nativeRetiredFor8112(ts.mint, lane)"))
-        // FinalDecisionGate.evaluate() itself is untouched: the floor call site still reads the helper.
-        assertTrue(f.contains("!playbookClearsFloor7937(ts, floorLane7266, waitFloor7266)"))
+        // The floor helper receives the same candidate generation and admission as the live gate.
+        assertTrue(f.contains("!playbookClearsFloor7937(ts, floorLane7266, waitFloor7266, candidateVersion7623, candidateAdmission8136)"))
     }
 
     @Test fun aConfirmedRunIsItsOwnProofAtTheProvenOnlyDoorAndTheChaseRule() {

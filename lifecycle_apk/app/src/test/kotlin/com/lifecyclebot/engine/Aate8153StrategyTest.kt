@@ -281,7 +281,11 @@ class Aate8153StrategyTest {
         assertTrue(src("engine/truth/NetEdge8030.kt").contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153))"))
         // The deferral asks for its evidence through the existing throttled re-fetch (candle seed, forced poll, tape).
         assertTrue(src("engine/truth/NetEdge8030.kt").contains("LanePlaybook7907.requestEvidence8153(ts, listOf(\"shape:HISTORY_SPARSE\", \"chg:UNOBSERVED\", \"liq:REFRESH\"))"))
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("CandidateAdmission8136.missingOf8144(d).map { it.replace(\"liquidity:\", \"liq:\") }"))
+        val defer = src("engine/truth/LiveEdgeGate7877.kt")
+            .substringAfter("CandidateAdmission8136.Terminal8136.DEFER_DATA -> {").substringBefore("CandidateAdmission8136.Terminal8136.REFUSE -> {")
+        assertTrue(defer.contains("val missing = CandidateAdmission8136.missingOf8144(d)"))
+        assertTrue(defer.contains("LanePlaybook7907.requestEvidence8153(ts, missing.map { it.replace(\"liquidity:\", \"liq:\") }, nowMs)"))
+        assertTrue(defer.contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)"))
     }
 
     @Test fun structurallyUnsafeIsStillRefusedAndWatchFirstReleasesOnlyThinCells() {
@@ -300,8 +304,9 @@ class Aate8153StrategyTest {
         assertNull(w.release8153(w.THIN_CELL_8153, Tier8153.REJECTED, false, false, false, false))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         val wf = gate.substringAfter("private fun watchFirst7994(").substringBefore("private val planSkips7995")
-        assertTrue(wf.indexOf("specificRelease8153(ts, l, why, nowMs)") in 0 until wf.indexOf("watched7994.incrementAndGet()"))
-        assertTrue(wf.indexOf("bandNegative -> \"WATCH_FIRST_8019_BAND_NEGATIVE\"") < wf.indexOf("specificRelease8153(ts, l, why, nowMs)"))
+        val release = wf.indexOf("specificRelease8153(ts, l, why, nowMs, candidateVersion, candidateAdmission)")
+        assertTrue(release in 0 until wf.indexOf("watched7994.incrementAndGet()"))
+        assertTrue(wf.indexOf("bandNegative -> \"WATCH_FIRST_8019_BAND_NEGATIVE\"") in 0 until release)
         // A pooled cohort never outweighs the strategy's own losing record.
         assertTrue(gate.contains("LanePlaybook7907.selectedLosing8153(ts, lane, nowMs)"))
     }

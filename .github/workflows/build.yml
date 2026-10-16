@@ -232,6 +232,7 @@ jobs:
           ./gradlew testReleaseUnitTest \
             --tests '*Aate8136AdmissionRecordTest*' \
             --tests '*Aate8144AdmissionTest*' \
+            --tests '*Aate8144ElectionTest*' \
             --tests '*Aate8153HandoffTest*' \
             --tests '*Aate8153RunnerTest*' \
             --tests '*Aate8153StrategyTest*' \

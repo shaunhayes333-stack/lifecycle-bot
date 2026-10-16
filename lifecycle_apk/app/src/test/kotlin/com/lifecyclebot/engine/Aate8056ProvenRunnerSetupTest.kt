@@ -32,7 +32,7 @@ class Aate8059ProvenOnlyLiveTest {
     @Test fun gateIsFirstAndLiveOnly() {
         val g = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         val gate = g.indexOf("return \"LIVE_PROVEN_SETUP_ONLY_8059\"")
-        val watch = g.indexOf("if (!paper) watchFirst7994(ts, lane, nowMs, auditedAdmission8076)")
+        val watch = g.indexOf("watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136, candidateVersion, admission8136)")
         assertTrue(gate in 1 until watch)
         assertTrue(g.contains("if (!paper) {\n            val l8059"))
         val audit = g.indexOf("Cortex7885.ownLaneVetoRefusesWinners8076(\"LIVE_PROVEN_SETUP_ONLY_8059\", l8059)")
