@@ -159,7 +159,9 @@ object LaneHunter7297 {
         ),
         Profile(
             "BLUECHIP", BlueChipTraderAI.MIN_MARKET_CAP_USD, Double.MAX_VALUE,
-            fits = { r -> !r.mint.endsWith("pump", ignoreCase = true) && r.liquidityUsd > 0.0 },
+            // 8168: mint suffix is provenance, not a native BLUECHIP veto. The cap band above and
+            // native liquidity/quality checks still decide whether a graduated token fits this desk.
+            fits = { r -> r.liquidityUsd.isFinite() && r.liquidityUsd > 0.0 },
             rank = { r -> log10(1.0 + r.liquidityUsd) + log10(1.0 + r.volumeH1Usd) + (if (r.verified) 1.0 else 0.0) },
         ),
         Profile(

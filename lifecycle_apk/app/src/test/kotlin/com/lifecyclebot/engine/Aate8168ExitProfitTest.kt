@@ -35,6 +35,21 @@ class Aate8168ExitProfitTest {
         assertTrue(rendered.contains("omittedKeys=6"))
     }
 
+    @Test fun bluechipHunterDoesNotExcludeGraduatedTokensByAddressSuffix() {
+        val row = com.lifecyclebot.engine.market.MarketSweep7297.Row(
+            mint = "graduatedpump", symbol = "GRAD", name = "Graduated", priceUsd = 0.01,
+            mcapUsd = 2_000_000.0, liquidityUsd = 200_000.0, volumeH1Usd = 100_000.0,
+            volumeH24Usd = 1_000_000.0, priceChangeH1Pct = 5.0, txCountH1 = 200,
+            holders = 2000, organicScore = 80.0, verified = true, ageHours = 48.0, providers = setOf("TEST"))
+        val profile = com.lifecyclebot.engine.market.LaneHunter7297.profiles.first { it.lane == "BLUECHIP" }
+        assertTrue(row.mcapUsd in profile.baseMin..profile.baseMax)
+        assertTrue(profile.fits(row))
+        assertTrue(profile.fits(row.copy(mint = "otherAddress")))
+        assertFalse(profile.fits(row.copy(liquidityUsd = 0.0)))
+        assertFalse(profile.fits(row.copy(liquidityUsd = Double.NaN)))
+        assertFalse(5000.0 in profile.baseMin..profile.baseMax)
+    }
+
     private fun source(path: String): String = listOf("src/main/kotlin/com/lifecyclebot", "app/src/main/kotlin/com/lifecyclebot",
         "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot").map { File(it, path) }.first { it.exists() }.readText()
 
