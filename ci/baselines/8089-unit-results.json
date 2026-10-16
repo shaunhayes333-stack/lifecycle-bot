@@ -5,12 +5,6 @@
   "tests": 4832,
   "failures": [
     {
-      "class": "com.lifecyclebot.engine.Aate6673SurgicalTripleFixTest",
-      "test": "Fire C \u2014 specialistCausalId6614 fallback emits canonical 7-part execution key",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: BotService fallback must call ExecutableOpenGate.canonicalExecutionKey"
-    },
-    {
       "class": "com.lifecyclebot.engine.Aate6625MemeExecutionFunnelReceiversCoverageTest",
       "test": "aate6625_express_funnel_advances_on_express_stages",
       "type": "java.lang.AssertionError",
@@ -83,12 +77,6 @@
       "message": "java.lang.AssertionError"
     },
     {
-      "class": "com.lifecyclebot.engine.Bundle6378InvariantsTest",
-      "test": "strategy_truth_ledger_cache_bucketed_v6379",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: V5.0.6379: cache key must be BUCKETED (size / 10) and (newestTs / 30_000) so back-to-back callers within same 10-row / 30s window hit the same cache slot instead of invalidating on every new SELL"
-    },
-    {
       "class": "com.lifecyclebot.engine.Aate7553NativeOccupancyAuthorityTest",
       "test": "canonical_held_authority_remains_the_shared_truth",
       "type": "java.lang.AssertionError",
@@ -117,12 +105,6 @@
       "test": "audit records B risk classifications",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Bundle6383LiveVolumeAndWinnersTest",
-      "test": "stale_paper_flag_is_auto_cleared_not_aborted",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: V5.0.6383: stale paperFlag/shadowFlag on already-open position must auto-clear when runtime is LIVE"
     },
     {
       "class": "com.lifecyclebot.engine.Bundle6383LiveVolumeAndWinnersTest",
@@ -324,12 +306,6 @@
     },
     {
       "class": "com.lifecyclebot.engine.Aate7512RichFinalityRepairWithoutEntrySnapshotTest",
-      "test": "typed_sell_only_path_still_requires_entry_snapshot",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Aate7512RichFinalityRepairWithoutEntrySnapshotTest",
       "test": "rich_finality_is_checked_before_entry_snapshot_requirement",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError"
@@ -391,12 +367,6 @@
     {
       "class": "com.lifecyclebot.engine.Aate7678CoreBluechipSourceContractTest",
       "test": "coreIsExecutableEnsembleNotGenericTrunk",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Aate7678CoreBluechipSourceContractTest",
-      "test": "corePrimarySpineRequiresSameAttemptMarkAndPositiveSize",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError"
     },
@@ -759,12 +729,6 @@
       "test": "aate4536ExitHoldCounterfactualSignalsUseLifecycleBus",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError: V5.0.4536: exit decision fanout must still reach counterfactual and exit-cost consumers through MEE"
-    },
-    {
-      "class": "com.lifecyclebot.engine.GoldenTapeRegressionTest",
-      "test": "live_buy_clamps_to_wallet_and_min_non_micro_before_insufficient_balance",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
     },
     {
       "class": "com.lifecyclebot.engine.GoldenTapeRegressionTest",
@@ -1326,12 +1290,6 @@
     },
     {
       "class": "com.lifecyclebot.engine.GoldenTapeRegressionTest",
-      "test": "live_wallet_growth_releases_caps_for_proven_winner_lanes",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: MOONSHOT cap must release when expectancy allocator says winner"
-    },
-    {
-      "class": "com.lifecyclebot.engine.GoldenTapeRegressionTest",
       "test": "dust_positions_finalize_closed_and_do_not_latch_sell_only_safe_mode",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError"
@@ -1637,28 +1595,10 @@
       "message": "java.lang.AssertionError"
     },
     {
-      "class": "com.lifecyclebot.engine.Aate7410FdgCacheAndHeldEscalationTest",
-      "test": "fdg_cache_is_consulted_before_fanout_budget",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
       "class": "com.lifecyclebot.engine.Aate6619JournalDerivedHeroCoverageTest",
       "test": "aate6619_authority_snapshot_reports_journal_replay_source",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError: V5.0.6619: snapshot must be published after initialize()"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Bundle6381LiveModePromoteTest",
-      "test": "auto_promote_emits_forensic_telemetry",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: V5.0.6381: auto-promote must emit LIVE_MODE_AUTO_PROMOTE_6381 counter + ForensicLogger line so the operator can see the count in the pipeline dump"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Bundle6381LiveModePromoteTest",
-      "test": "executor_auto_promotes_execmode_when_runtime_says_live",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: V5.0.6381: Executor.paperOrLiveBuy must auto-promote execMode from PAPER to LIVE when runtime says LIVE (no more LIVE_MODE_DESYNC on stale sub-trader ExecutionContext)"
     },
     {
       "class": "com.lifecyclebot.engine.Bundle6381LiveModePromoteTest",
@@ -1776,12 +1716,6 @@
     },
     {
       "class": "com.lifecyclebot.engine.Aate7464SpecialistAffinityLineageTest",
-      "test": "existing_intent_backfill_remains_same_record_executable_proof_only",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Aate7464SpecialistAffinityLineageTest",
       "test": "affinity_recovery_requires_exact_registry_lane_proof",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError"
@@ -1801,12 +1735,6 @@
     {
       "class": "com.lifecyclebot.engine.Aate7448LaneHunterOwnershipTest",
       "test": "hunt_claim_never_manufactures_a_specialist_hypothesis",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Aate7448LaneHunterOwnershipTest",
-      "test": "hunt_claim_is_consumed_before_core_ensemble_election",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError"
     },
@@ -1853,20 +1781,8 @@
       "message": "java.lang.AssertionError"
     },
     {
-      "class": "com.lifecyclebot.engine.Bundle6382WinRateIntegrityTest",
-      "test": "startup_reconciler_synth_rug_sell_inherits_buy_row_lane",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: V5.0.6382: synthetic EXTERNAL_RUG_CLOSE SELL must inherit buyRow.tradingMode"
-    },
-    {
       "class": "com.lifecyclebot.engine.Aate7469PostFdgAttemptContinuityTest",
       "test": "express_reuses_sealed_attempt_before_fresh_fallback",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Aate7469PostFdgAttemptContinuityTest",
-      "test": "project_sniper_standalone_attempt_remains_independent",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError"
     },
@@ -2003,24 +1919,6 @@
       "message": "java.lang.AssertionError: Pollinations endpoint must be removed"
     },
     {
-      "class": "com.lifecyclebot.engine.Aate7468GroupedSpecialistAttemptContinuityTest",
-      "test": "all_split_attempt_specialists_reuse_the_sealed_attempt",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: missing sealed attempt reuse for TREASURY"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Aate7468GroupedSpecialistAttemptContinuityTest",
-      "test": "already_correct_explicit_attempt_lanes_are_not_rewritten",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Aate7468GroupedSpecialistAttemptContinuityTest",
-      "test": "shared_helper_requires_version_and_lane_match",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
       "class": "com.lifecyclebot.engine.Aate6709ProtectiveExitAuthorityTest",
       "test": "executor canonical stop price cannot be disabled by signed learned stop",
       "type": "java.lang.AssertionError",
@@ -2105,20 +2003,8 @@
       "message": "java.lang.AssertionError"
     },
     {
-      "class": "com.lifecyclebot.engine.Aate7426CanonicalHighEvParityTest",
-      "test": "canonicalPaperAndLiveRequirePositiveOracleAdmission",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
       "class": "com.lifecyclebot.engine.Aate7433FinalizedHistoryClassificationTest",
       "test": "reconcilerSeparatesPreBusHistoryFromCurrentPublishFailure",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Aate6687RuntimeTruthRepairTest",
-      "test": "finalLiveSizeFloorIsAfterRealisticSizing",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError"
     },
@@ -2249,12 +2135,6 @@
       "message": "java.lang.AssertionError: V5.0.6373: hash must include per-token price / mcap so genuine data changes still trigger rebuild"
     },
     {
-      "class": "com.lifecyclebot.engine.Aate7807OperatorAndEntryTest",
-      "test": "poorRiskRewardIsAskedBeforeTheTicket",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
       "class": "com.lifecyclebot.engine.learning.TacticSwitcherBayesTest",
       "test": "post_pivot_tactic_rotates_again_after_four_decisive_losses",
       "type": "java.lang.AssertionError",
@@ -2267,12 +2147,6 @@
       "message": "java.lang.AssertionError: guard must skip non-Solana opens before publish call"
     },
     {
-      "class": "com.lifecyclebot.engine.CanonicalEntryAuthority6551Test",
-      "test": "low_score_mechanical_paper_candidate_becomes_probe",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
       "class": "com.lifecyclebot.engine.Aate7807LiveRiskPolicyTest",
       "test": "sealedSpecialistLaneOwnsLastMileRisk7811",
       "type": "java.lang.AssertionError",
@@ -2283,12 +2157,6 @@
       "test": "decide_passes_per_candidate_and_never_grows_past_upstream",
       "type": "org.junit.ComparisonFailure",
       "message": "org.junit.ComparisonFailure: expected:<[SIZE_BELOW_MIN_RISK_TOO_WIDE_7807]> but was:<[RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835]>"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Aate7807LiveRiskPolicyTest",
-      "test": "executor_wiring_contract",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
     },
     {
       "class": "com.lifecyclebot.engine.Aate7500TerminalSellIndexTest",
@@ -2345,12 +2213,6 @@
       "message": "java.lang.AssertionError"
     },
     {
-      "class": "com.lifecyclebot.engine.Aate7418Remaining7409RegressionTest",
-      "test": "missing_intent_is_backfilled_only_with_complete_same_record_proof",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
       "class": "com.lifecyclebot.engine.Bundle6373dInvariantsTest",
       "test": "tradehistorystore_recomputes_phantom_pnl_pct",
       "type": "java.lang.AssertionError",
@@ -2385,12 +2247,6 @@
       "test": "openPositions surface is source-contracted to lifecycle-plus-qty truth",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError: openPositions() MUST route through the truth predicate isOpenLifecycleWithQty6743"
-    },
-    {
-      "class": "com.lifecyclebot.engine.TakeProfitWired6582Test",
-      "test": "tp_px_is_no_longer_hard_zero_at_the_scheduler_eval_call",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: Executor.riskCheck must compute tpPx from effTpPct (was hard-zero)"
     },
     {
       "class": "com.lifecyclebot.engine.Phase0Security6637Test",
@@ -2544,18 +2400,6 @@
     },
     {
       "class": "com.lifecyclebot.engine.ExecutionAuthorityInvariantTest",
-      "test": "live_stale_core_auth_lock_without_wallet_truth_does_not_block_specialist_reentry",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: stale CORE auth lock must not cause ALREADY_OPEN_CROSS_BOOK live death: FDG_DECISION_MISSING_7835"
-    },
-    {
-      "class": "com.lifecyclebot.engine.ExecutionAuthorityInvariantTest",
-      "test": "role_fit_treasury_owner_is_not_deferred_or_rewritten",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError: role-fit Treasury owner should authorize on same tick"
-    },
-    {
-      "class": "com.lifecyclebot.engine.ExecutionAuthorityInvariantTest",
       "test": "paper_low_rc_score_six_stays_executable_for_learning",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError: paper low RC score=6 must remain learnable"
@@ -2577,12 +2421,6 @@
       "test": "paper_circuit_breaker_is_telemetry_only_for_learning",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError: paper mode must keep trading through circuit telemetry"
-    },
-    {
-      "class": "com.lifecyclebot.engine.ExecutionAuthorityInvariantTest",
-      "test": "trade_authorizer_returns_finality_attempt_contract",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
     },
     {
       "class": "com.lifecyclebot.engine.ExecutionAuthorityInvariantTest",
@@ -2627,12 +2465,6 @@
       "message": "java.lang.AssertionError"
     },
     {
-      "class": "com.lifecyclebot.engine.V5_0_6569AcceptanceTest",
-      "test": "specialist_silence_observes_through_shared_intelligence_without_terminal_gate",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
       "class": "com.lifecyclebot.engine.Aate6753ThroughputAndAutonomyEarlyTest",
       "test": "buy fill with zero raw quantity stamps CLOSED at promote-time",
       "type": "java.lang.AssertionError",
@@ -2663,18 +2495,6 @@
       "message": "java.lang.AssertionError"
     },
     {
-      "class": "com.lifecyclebot.engine.Aate7629FinalDecisionGateVerifierStructureTest",
-      "test": "extracted helper preserves fanout semantics",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
-      "class": "com.lifecyclebot.engine.Aate7629FinalDecisionGateVerifierStructureTest",
-      "test": "fanout branch is extracted from giant evaluate method",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
       "class": "com.lifecyclebot.engine.Repair6513AuthorityFinalityAcceptanceTest",
       "test": "projectSniperAuthorityRejectsStaleStandardAndSealsOnlySameLaneTicket",
       "type": "java.lang.AssertionError",
@@ -2683,12 +2503,6 @@
     {
       "class": "com.lifecyclebot.engine.Aate7419FinalDecisionGateRuntimeVerifierTest",
       "test": "finalDecisionGateIsRestoredToKnownGood7409Shape",
-      "type": "java.lang.AssertionError",
-      "message": "java.lang.AssertionError"
-    },
-    {
-      "class": "com.lifecyclebot.engine.LiveGovernorRiskBudget7711Test",
-      "test": "liveSizingKeepsLaneConvictionAfterGentleGlobalShape",
       "type": "java.lang.AssertionError",
       "message": "java.lang.AssertionError"
     },
@@ -2745,7 +2559,6 @@
       "stampedFromTheToken"
     ],
     "com.lifecyclebot.engine.Aate6673SurgicalTripleFixTest": [
-      "Fire C \u2014 specialistCausalId6614 fallback emits canonical 7-part execution key",
       "Fire B \u2014 final bind synthesizes intent from sealed authority when immutableTicket is null",
       "Fire A REVERTED \u2014 paper qty heal code path is removed no writes on paper leg"
     ],
@@ -3072,7 +2885,6 @@
       "strict replay recovers only provable immutable full terminals"
     ],
     "com.lifecyclebot.engine.Bundle6378InvariantsTest": [
-      "strategy_truth_ledger_cache_bucketed_v6379",
       "forensic_reconciler_cadence_bumped_to_200",
       "strategy_truth_ledger_audit_line_capped_at_500",
       "strategy_truth_ledger_ttl_bumped_to_10s"
@@ -3245,7 +3057,6 @@
       "audit records B risk classifications"
     ],
     "com.lifecyclebot.engine.Bundle6383LiveVolumeAndWinnersTest": [
-      "stale_paper_flag_is_auto_cleared_not_aborted",
       "moonshot_flat_exit_protects_live_winners",
       "lane_contract_abort_uses_own_counter_not_desync"
     ],
@@ -3833,7 +3644,6 @@
       "calibrationStatePersistsAcrossRestart"
     ],
     "com.lifecyclebot.engine.Aate7512RichFinalityRepairWithoutEntrySnapshotTest": [
-      "typed_sell_only_path_still_requires_entry_snapshot",
       "rich_finality_is_checked_before_entry_snapshot_requirement",
       "optional_strategy_fields_are_not_fabricated_without_snapshot"
     ],
@@ -4117,8 +3927,7 @@
     "com.lifecyclebot.engine.Aate7678CoreBluechipSourceContractTest": [
       "oldSourceTasksAreClosedButRuntimeProofStaysOpen",
       "bluechipUsesSealedAttemptAndOnlyEmitsSizeTicketAfterAuthorization",
-      "coreIsExecutableEnsembleNotGenericTrunk",
-      "corePrimarySpineRequiresSameAttemptMarkAndPositiveSize"
+      "coreIsExecutableEnsembleNotGenericTrunk"
     ],
     "com.lifecyclebot.engine.FillLotLedger6344Test": [
       "latestOpenLot_returns_most_recent_non_terminal",
@@ -4540,7 +4349,6 @@
       "aate4536ExitHoldCounterfactualSignalsUseLifecycleBus",
       "educationFirehose_4505UsesSolBasisBeforeTrainingMemoryBrains",
       "symbolicInvariantProver4235ProtectsGrowthContracts",
-      "live_buy_clamps_to_wallet_and_min_non_micro_before_insufficient_balance",
       "drawdown_circuit_does_not_park_bot_during_bootstrap",
       "operatorCQ1ZeroSizeHitList_4412SeparatesChokesFromBenignZeroes",
       "V5_0_6490_inventory_dedup_and_executable_floor_are_canonical",
@@ -4930,7 +4738,6 @@
       "executorPreAttemptRejectTaxonomy_4428FeedsLedgerWithoutBlockingLiveBuyFail",
       "V5_0_8078_full_cortex_authority_reaches_execution_and_ohlcv_errors_are_not_absence",
       "V5_0_6446_slow_cycle_source_chokes_are_budgeted_before_supervisor",
-      "live_wallet_growth_releases_caps_for_proven_winner_lanes",
       "dust_positions_finalize_closed_and_do_not_latch_sell_only_safe_mode",
       "aate4566OpenManagedTokensCannotBePartitionedIntoIdleSurface",
       "runtime_doctor_classifies_strategy_bleed_and_mechanical_degradation",
@@ -5461,7 +5268,6 @@
       "alchemyIsReadAndLeadsPublicNodes"
     ],
     "com.lifecyclebot.engine.Aate7410FdgCacheAndHeldEscalationTest": [
-      "fdg_cache_is_consulted_before_fanout_budget",
       "held_stale_mark_escalates_outside_discovery"
     ],
     "com.lifecyclebot.engine.Aate6619JournalDerivedHeroCoverageTest": [
@@ -5471,8 +5277,6 @@
       "aate6619_replay_of_empty_journal_returns_startingCash_only"
     ],
     "com.lifecyclebot.engine.Bundle6381LiveModePromoteTest": [
-      "auto_promote_emits_forensic_telemetry",
-      "executor_auto_promotes_execmode_when_runtime_says_live",
       "executor_still_blocks_true_safety_mismatches"
     ],
     "com.lifecyclebot.engine.Aate7812HunterSelectionAndPipelineTest": [
@@ -6040,7 +5844,6 @@
       "durableRepairUsesRotatingCursorInsteadOfRestartingAtZero"
     ],
     "com.lifecyclebot.engine.Aate7464SpecialistAffinityLineageTest": [
-      "existing_intent_backfill_remains_same_record_executable_proof_only",
       "recovery_only_fills_discover_and_qualify",
       "affinity_recovery_requires_exact_registry_lane_proof",
       "toolkit_recovers_lineage_on_the_same_resolved_key_before_stage_stamp",
@@ -6153,8 +5956,7 @@
     "com.lifecyclebot.engine.Aate7448LaneHunterOwnershipTest": [
       "lane_contract_still_gates_claim_consumption",
       "claimed_specialist_becomes_clear_owner_without_changing_its_policy_shape",
-      "hunt_claim_never_manufactures_a_specialist_hypothesis",
-      "hunt_claim_is_consumed_before_core_ensemble_election"
+      "hunt_claim_never_manufactures_a_specialist_hypothesis"
     ],
     "com.lifecyclebot.engine.Aate7953LiveLearningTest": [
       "memesLeadAndInterleave",
@@ -6325,7 +6127,6 @@
     ],
     "com.lifecyclebot.engine.Bundle6382WinRateIntegrityTest": [
       "wave_gate_score_band_gives_high_conviction_headroom",
-      "startup_reconciler_synth_rug_sell_inherits_buy_row_lane",
       "tactic_rederive_wired_from_bot_service_on_create",
       "external_rug_close_row_no_longer_quarantined",
       "wave_gate_vetoes_ejection_candle_on_hot_1h",
@@ -6342,7 +6143,6 @@
     ],
     "com.lifecyclebot.engine.Aate7469PostFdgAttemptContinuityTest": [
       "express_reuses_sealed_attempt_before_fresh_fallback",
-      "project_sniper_standalone_attempt_remains_independent",
       "shitcoin_reuses_sealed_attempt_before_fresh_fallback"
     ],
     "com.lifecyclebot.engine.Aate7459FinalizedBusDurableRepairTest": [
@@ -6730,11 +6530,6 @@
       "evictedBuyIsCheckedAgainstCanonicalOrReportedUnverifiable",
       "realOverSellDuplicateCloseAndRecoveredInventoryAreDistinct"
     ],
-    "com.lifecyclebot.engine.Aate7468GroupedSpecialistAttemptContinuityTest": [
-      "all_split_attempt_specialists_reuse_the_sealed_attempt",
-      "already_correct_explicit_attempt_lanes_are_not_rewritten",
-      "shared_helper_requires_version_and_lane_match"
-    ],
     "com.lifecyclebot.engine.Aate6696LearningHoldExitRepairTest": [
       "predictive_mid_hold_pivot_is_actuated_before_hold_logic",
       "executed_soft_advisor_paper_trade_remains_trainable",
@@ -7114,8 +6909,7 @@
     "com.lifecyclebot.engine.Aate7426CanonicalHighEvParityTest": [
       "diagnosticsExposeHighEvContract",
       "learnedAuthorityFailureCannotFailOpenCanonicalCapital",
-      "probesNeverSpendCanonicalCapital",
-      "canonicalPaperAndLiveRequirePositiveOracleAdmission"
+      "probesNeverSpendCanonicalCapital"
     ],
     "com.lifecyclebot.engine.Aate7247MemeHeldBoundaryTest": [
       "restored_held_mints_cannot_reenter_discovery_during_startup",
@@ -7206,7 +7000,6 @@
       "commonSenseIsLaneSpecificNotGenericOnly"
     ],
     "com.lifecyclebot.engine.Aate6687RuntimeTruthRepairTest": [
-      "finalLiveSizeFloorIsAfterRealisticSizing",
       "staleLaneHardSeedsAreGone",
       "liveTreasuryUsesEffectiveAuthorityEverywherePatched",
       "runnerBasisAcceptsMatchingTxEconomics",
@@ -7821,7 +7614,6 @@
     ],
     "com.lifecyclebot.engine.Aate7807OperatorAndEntryTest": [
       "learnersReadCleanTerminalTruthOnly",
-      "poorRiskRewardIsAskedBeforeTheTicket",
       "scannerCallbacksNoLongerOwnTheBotCyclePhase",
       "sniperLaunchIdentityIsOneSharedPredicate",
       "markFreshnessAndManagementStateAreHonest",
@@ -7882,7 +7674,6 @@
       "mechanically_valid_paper_candidate_seals_buy_intent_before_open",
       "enabled_running_empty_producer_reports_three_window_liveness_fault_context_6569",
       "crypto_alt_identity_survives_intent_dispatch_and_conservation_6569",
-      "low_score_mechanical_paper_candidate_becomes_probe",
       "leveraged_return_with_zero_realized_settles_but_cannot_train_6569",
       "duplicate_candidate_cannot_seal_two_intents"
     ],
@@ -7933,7 +7724,6 @@
       "daily_loss_cap_shrinks_lane_never_pauses",
       "sealedSpecialistLaneOwnsLastMileRisk7811",
       "decide_passes_per_candidate_and_never_grows_past_upstream",
-      "executor_wiring_contract",
       "no_growth_before_ten_positive_live_closes_and_shallow_shrink_under_ten",
       "route_floor_can_bridge_18pct_cap_without_raising_global_cap",
       "drawdown_shrinks_linearly_to_035_and_never_zero",
@@ -8173,7 +7963,6 @@
     ],
     "com.lifecyclebot.engine.Aate7418Remaining7409RegressionTest": [
       "sane_absurd_mark_repair_is_published_to_exit_authority",
-      "missing_intent_is_backfilled_only_with_complete_same_record_proof",
       "crypto_price_unavailable_releases_for_retry_not_terminal_completion"
     ],
     "com.lifecyclebot.engine.Aate7835AuthorityContinuityTest": [
@@ -8325,9 +8114,6 @@
       "worker_is_resident_single_flight_and_bounded",
       "every_one_of_the_twelve_specialist_lanes_receives_a_hunted_set",
       "opportunity_tape_is_fed_from_the_live_poll_not_the_dead_socket"
-    ],
-    "com.lifecyclebot.engine.TakeProfitWired6582Test": [
-      "tp_px_is_no_longer_hard_zero_at_the_scheduler_eval_call"
     ],
     "com.lifecyclebot.engine.Aate7962StopWidthTest": [
       "shakeoutKeysGetRoomCleanKeysGetTight",
@@ -8901,11 +8687,9 @@
       "observation_mark_accepts_fresh_provider_mint_route_but_executable_mark_does_not"
     ],
     "com.lifecyclebot.engine.ExecutionAuthorityInvariantTest": [
-      "live_stale_core_auth_lock_without_wallet_truth_does_not_block_specialist_reentry",
       "live_low_rc_score_six_after_fdg_allow_is_penalty_not_finality_block",
       "mode_authority_rejects_mixed_live_request_while_runtime_paper",
       "non_buy_candidate_is_dropped_without_allowed_attempt",
-      "role_fit_treasury_owner_is_not_deferred_or_rewritten",
       "paper_low_rc_score_six_stays_executable_for_learning",
       "executable_gate_accepts_lane_alias_and_source_bucket_when_fdg_selected_specialist",
       "canonical_zero_price_partial_is_invalid_not_silent_standard_training",
@@ -8920,7 +8704,6 @@
       "canonical_valid_partial_sell_is_trainable_and_partial",
       "regression_guard_summary_fail_is_build_blocking",
       "paper_circuit_breaker_is_telemetry_only_for_learning",
-      "trade_authorizer_returns_finality_attempt_contract",
       "live_fdg_state_creates_ticket_only_at_final_exec_gate",
       "live_circuit_breaker_blocks_before_executable_open_allowed",
       "paper_rc_pending_score_one_stays_executable_finality"
@@ -8965,7 +8748,6 @@
     ],
     "com.lifecyclebot.engine.V5_0_6569AcceptanceTest": [
       "immutable_asset_class_survives_intent_position_finality_persistence_and_learning",
-      "specialist_silence_observes_through_shared_intelligence_without_terminal_gate",
       "leveraged_paper_terminal_uses_effective_proceeds_and_quarantines_arithmetic_divergence",
       "all_cross_asset_producers_have_causal_liveness_and_common_submission",
       "advisor_domains_and_replay_rollback_cannot_mutate_strategy_from_integrity"
@@ -9056,10 +8838,6 @@
       "bluechip_p0_3_does_not_retune_strategy_or_size",
       "bluechip_size_stages_are_written_only_after_authorizer_executes"
     ],
-    "com.lifecyclebot.engine.Aate7629FinalDecisionGateVerifierStructureTest": [
-      "extracted helper preserves fanout semantics",
-      "fanout branch is extracted from giant evaluate method"
-    ],
     "com.lifecyclebot.engine.Aate8040LearnsItsStopsTest": [
       "stopsThatCutRunnersAreWidened",
       "widerStopsThatOnlyLoseMoreAreNotAdopted",
@@ -9096,8 +8874,7 @@
     ],
     "com.lifecyclebot.engine.LiveGovernorRiskBudget7711Test": [
       "smallGlobalSampleDoesNotShapeLiveStakeAndConfidenceFloorNeverBlocksEvidence",
-      "weakerLiveEvidenceNeverRaisesTheGovernorStakeMultiplier",
-      "liveSizingKeepsLaneConvictionAfterGentleGlobalShape"
+      "weakerLiveEvidenceNeverRaisesTheGovernorStakeMultiplier"
     ],
     "com.lifecyclebot.engine.Aate7900TimingCortexTest": [
       "aProvenDipRecordEarnsTheWait"
