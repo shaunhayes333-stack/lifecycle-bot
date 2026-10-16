@@ -1356,6 +1356,7 @@ object PipelineHealthCollector {
      */
     private fun appendResidentDiscovery7830(sb: StringBuilder, report: Snapshot) {
         BotImprovementReport8168.append(sb, report.labelCounts, report.nowMs)
+        try { com.lifecyclebot.engine.cortex.CortexAudit8169.append(sb, report.labelCounts, report.intakeBySource, report.nowMs) } catch (_: Throwable) { sb.append("CORTEX / SCANNER / HUNTER AUDIT (8169): unavailable\n") }  // V5.0.8169
         sb.append("  Resident hunters (§7807):     ").append(
             try { com.lifecyclebot.engine.market.ResidentHunterWorker7807.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

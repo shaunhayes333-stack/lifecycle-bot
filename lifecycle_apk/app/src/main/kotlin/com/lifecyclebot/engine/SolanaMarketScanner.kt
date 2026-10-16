@@ -2251,6 +2251,7 @@ class SolanaMarketScanner(
                     val now7301 = System.currentTimeMillis()
                     if (!watching && now7301 - (huntRequeuedAt7301[r.mint] ?: 0L) >= 10L * 60 * 1000) {
                         huntRequeuedAt7301[r.mint] = now7301
+                        try { com.lifecyclebot.engine.market.LaneHunter7297.noteRequeued8169(r.mint, now7301) } catch (_: Throwable) {}  // V5.0.8169
                         try {
                             TokenMergeQueue.enqueue(
                                 mint = r.mint,
