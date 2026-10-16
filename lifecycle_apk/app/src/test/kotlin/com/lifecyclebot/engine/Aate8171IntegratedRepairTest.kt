@@ -81,6 +81,17 @@ class Aate8171IntegratedRepairTest {
         assertEquals(0.0, t.freshestStagePrice8171(Double.NaN, 0L, Double.NaN, 0L), 0.0)
     }
 
+    @Test fun pricedEntryEconomicsUseFreshObservedDepthWithoutChangingSafetyAuthority() {
+        val net = com.lifecyclebot.engine.truth.NetEdge8030
+        assertEquals(25_000.0, net.pricingDepth8171(25_000.0, 99_000.0), 0.0)
+        assertEquals(8_000.0, net.pricingDepth8171(0.0, 8_000.0), 0.0)
+        assertEquals(0.0, net.pricingDepth8171(0.0, null), 0.0)
+        assertEquals(0.0, net.pricingDepth8171(Double.NaN, -10.0), 0.0)
+        val source = src("engine/truth/NetEdge8030.kt")
+        assertTrue(source.contains("SetupFeatureResolver8169.observedLiquidity8170"))
+        assertTrue(source.contains("NET_EDGE_OBSERVED_DEPTH_COST_ONLY_8171"))
+    }
+
     @Test fun aProvenCostClearingAdmissionGetsAPlanBeforeOptionalBarsWait() {
         val p = src("engine/truth/TradePlan7739.kt")
         val start = p.indexOf("val specific8171 = candidateAdmission")
