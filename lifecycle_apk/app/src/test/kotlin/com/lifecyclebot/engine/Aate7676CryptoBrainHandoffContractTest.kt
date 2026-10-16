@@ -34,6 +34,7 @@ class Aate7676CryptoBrainHandoffContractTest {
         val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertFalse(a.contains("- [ ] Audit CryptoBrain actionable-signal logic"))
         assertFalse(a.contains("- [ ] Preserve static-vs-dynamic candidate identity"))
-        assertTrue(a.contains("- [ ] Prove fresh/routable candidates can reach canonical V3/FDG"))
+        // The runtime acceptance item has since been closed from the 5.0.7677 field log.
+        assertTrue(a.contains("- [x] Runtime proof from fresh 5.0.7677 field log"))
     }
 }

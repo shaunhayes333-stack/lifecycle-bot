@@ -34,6 +34,8 @@ class Aate6614MemeTraderOnlyAcceptanceTest {
             mint = mint, pairOrPool = "RaydiumPool6614", quoteMint = "USDC",
             source = "DEXSCREENER_PAIR_POLL", priceUsd = 0.0000123,
             liquidityUsd = 8_000.0, routeStatus = "DEX_ROUTABLE",
+            // V5.0.7362 — callers must pass the observation time; undated evidence stays unverified.
+            evidenceTimestampMs = System.currentTimeMillis(),
         )
         assertTrue(result.reason, result.promoted)
         val mark = CanonicalPriceMarkRegistry6522.get(mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)
@@ -51,7 +53,10 @@ class Aate6614MemeTraderOnlyAcceptanceTest {
         assertFalse(coordinator.contains("TREASURY_DEFER_SPECIALIST_FIRST"))
         assertTrue(coordinator.contains("Do not re-elect it here using static"))
         assertTrue(auth.contains("CASHGEN,") && bot.contains("\"CORE\" -> TradeAuthorizer.ExecutionBook.CORE") && bot.contains("\"CASHGEN\" -> TradeAuthorizer.ExecutionBook.CASHGEN"))
-        assertTrue(bot.contains("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME") && bot.contains("FDG_ALLOW") && bot.contains("FDG_BLOCK"))
+        // V5.0.7951 — FDG refusals before BUY_INTENT are booked by SpecialistOwnership7951
+        // (pre-intent refusal / capital-only FDG_BLOCK stamps) instead of a BotService counter.
+        val ownership = File("src/main/kotlin/com/lifecyclebot/engine/SpecialistOwnership7951.kt").readText()
+        assertTrue(bot.contains("FDG_ALLOW") && ownership.contains("notePreIntent7951(l, \"FDG_\$reason\")") && ownership.contains("recordDeskStage(lane, \"FDG_BLOCK\", eventId)"))
         assertTrue(gate.contains("markId6614") && gate.contains("sealedProvenance6614") && gate.contains("EXPIRED_TICKET_ECONOMIC_REJECT_6614"))
         assertTrue(sheet.contains("fdgAllow + fdgBlock == 0L") && sheet.contains("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME="))
     }

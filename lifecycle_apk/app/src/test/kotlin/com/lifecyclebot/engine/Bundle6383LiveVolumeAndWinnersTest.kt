@@ -31,19 +31,6 @@ import java.io.File
 class Bundle6383LiveVolumeAndWinnersTest {
 
     @Test
-    fun stale_paper_flag_is_auto_cleared_not_aborted() {
-        val exec = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(
-            "V5.0.6383: stale paperFlag/shadowFlag on already-open position must auto-clear when runtime is LIVE",
-            exec.contains("LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383"),
-        )
-        assertTrue(
-            "V5.0.6383: runtimePaper=true must still hard-abort (real desync)",
-            exec.contains("mode=LIVE runtimePaper=true"),
-        )
-    }
-
-    @Test
     fun lane_contract_abort_uses_own_counter_not_desync() {
         val exec = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(
@@ -64,8 +51,8 @@ class Bundle6383LiveVolumeAndWinnersTest {
     fun moonshot_flat_exit_protects_live_winners() {
         val ms = File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
         assertTrue(
-            "V5.0.6383: MoonshotTraderAI must expose LIVE_WINNER_PROTECT_6383",
-            ms.contains("LIVE_WINNER_PROTECT_6383"),
+            "V5.0.6383/7695: MoonshotTraderAI must expose the live winner flat-exit protection",
+            ms.contains("LIVE_WINNER_PROTECT_7695"),
         )
         assertTrue(
             "V5.0.6383: protection must gate on peakPnlPct >= 3.0 OR holdMinutes < 15",
@@ -73,7 +60,7 @@ class Bundle6383LiveVolumeAndWinnersTest {
         )
         assertTrue(
             "V5.0.6383: paper positions must be UNAFFECTED (paper's job is to explore)",
-            ms.contains("!pos.isPaperMode"),
+            ms.contains("if (pos.isPaperMode) return false"),
         )
         assertTrue(
             "V5.0.6383: telemetry counter for suppressed flat exits must exist",

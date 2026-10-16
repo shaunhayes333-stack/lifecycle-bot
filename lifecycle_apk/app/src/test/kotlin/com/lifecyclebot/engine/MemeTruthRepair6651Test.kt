@@ -84,10 +84,12 @@ class MemeTruthRepair6651Test {
     @Test fun specialistExecutionStagesKeepTheSealedAttemptIdentity() {
         val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val fdg = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue(executor.contains("recordDeskStage(entryLane6450, \"EXEC\", executionAttemptId6514)"))
-        assertTrue(executor.contains("recordDeskStage(entryLane6450, \"POSITION_OPENED\", executionAttemptId6514)"))
+        // V5.0.7809 — EXEC/POSITION_OPENED are stamped through recordEntryExecOpen7809 on the
+        // executor's own (ticketed) attempt, with the sealed intent as fallback.
+        assertTrue(executor.contains("recordEntryExecOpen7809(entryLane6450, executionAttemptId6514, sealedIntent6613?.attemptId)"))
         assertTrue(fdg.contains("causalEventId = \"\""))
-        val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("recordDeskStage(cyclePrimaryLane, \"SIZED_EXECUTABLE\", ticketStampIntent6658.attemptId)"))
+        // V5.0.7807 — SIZED_EXECUTABLE is mirrored onto the immutable ticket's own attemptId.
+        val gate = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(gate.contains("ToolkitSignalSheet.recordDeskStage(lane, \"SIZED_EXECUTABLE\", ticket.attemptId)"))
     }
 }

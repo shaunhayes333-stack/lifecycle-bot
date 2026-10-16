@@ -11,9 +11,11 @@ class Aate7620QualifiedPreFdgElectionParityTest {
     @Test fun preFdgClaimUsesQualifiedContestNotSingletonCaller() {
         val s=src()
         val fn=s.substringAfter("fun canRequestExecution(").substringBefore("fun duplicateOpenSuppressions()")
-        assertTrue(fn.contains("val qualified7620 = qualifiedLanesFor(mint, laneUpper)"))
+        // The qualified contest is now candidate-version scoped.
+        assertTrue(fn.contains("val qualified7620 = qualifiedLanesFor(mint, candidateVersion, laneUpper)"))
         assertTrue(fn.contains("filter { laneCanOwnExecution6910(it) }"))
-        assertTrue(fn.contains("lanes = qualified7620.ifEmpty { listOf(laneUpper) }"))
+        // V5.0.7774 — natively-refused contenders sit out; the qualified contest is the fallback.
+        assertTrue(fn.contains("lanes = willing7774.ifEmpty { qualified7620.ifEmpty { listOf(laneUpper) } }"))
         assertTrue(fn.contains("preferred = null"))
         assertFalse(fn.contains("lanes = listOf(laneUpper),\n                preferred = laneUpper"))
     }

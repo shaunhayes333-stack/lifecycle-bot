@@ -24,8 +24,9 @@ class Repair6495OutcomeAndProviderAcceptanceTest {
 
     @Test fun persistedExpectancyPoisonIsDroppedNotClamped() {
         ScoreExpectancyTracker.reset()
-        ScoreExpectancyTracker.importState(mapOf("MOONSHOT:4" to listOf(10.0, 92_000_000.0, -20.0)))
-        assertEquals(listOf(10.0, -20.0), ScoreExpectancyTracker.exportState()["MOONSHOT:4"])
+        // V5.0.7835 — windows are keyed "MODE|LANE:bucket"; unprefixed legacy keys are not imported.
+        ScoreExpectancyTracker.importState(mapOf("PAPER|MOONSHOT:4" to listOf(10.0, 92_000_000.0, -20.0)))
+        assertEquals(listOf(10.0, -20.0), ScoreExpectancyTracker.exportState()["PAPER|MOONSHOT:4"])
     }
 
     @Test fun dexscreenerCannotRawRetryAroundHealthCircuit() {

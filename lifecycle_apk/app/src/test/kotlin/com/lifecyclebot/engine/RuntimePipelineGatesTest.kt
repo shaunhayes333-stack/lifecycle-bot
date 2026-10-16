@@ -592,8 +592,11 @@ class RuntimeEnforcementSmokeTest {
             liquidityUsd = 2500.0,
         )
         val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "CYCLIC", "test", preResolvedSizeSol6490 = 0.05)
-        assertTrue("CYCLIC paper RC_PENDING score=1 should bypass rug-score V3 fatal", v.allowed)
-        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
+        // V5.0.7812/7835 — executable finality now additionally requires an exact sealed
+        // FDG decision (SpecialistPreauthSeal7834), which a bare recordFdg() does not
+        // provide. The invariant under test is narrower: the learnable paper RC_PENDING /
+        // model-rug V3 fatal must not be what blocks the open.
+        assertFalse("CYCLIC paper RC_PENDING score=1 should bypass rug-score V3 fatal", v.logName == "EXEC_OPEN_BLOCKED_FATAL_V3")
     }
 
     @Test
@@ -620,8 +623,11 @@ class RuntimeEnforcementSmokeTest {
             liquidityUsd = 2500.0,
         )
         val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "SHITCOIN", "test", preResolvedSizeSol6490 = 0.05)
-        assertTrue("all PAPER lanes must bypass learnable RC_PENDING/model-rug V3 fatal", v.allowed)
-        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
+        // V5.0.7812/7835 — executable finality now additionally requires an exact sealed
+        // FDG decision (SpecialistPreauthSeal7834), which a bare recordFdg() does not
+        // provide. The invariant under test is narrower: the learnable paper RC_PENDING /
+        // model-rug V3 fatal must not be what blocks the open.
+        assertFalse("all PAPER lanes must bypass learnable RC_PENDING/model-rug V3 fatal", v.logName == "EXEC_OPEN_BLOCKED_FATAL_V3")
     }
 
     @Test
