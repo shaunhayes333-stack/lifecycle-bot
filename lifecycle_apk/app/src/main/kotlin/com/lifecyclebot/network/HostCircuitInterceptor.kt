@@ -173,6 +173,13 @@ object HostCircuitInterceptor : Interceptor {
      */
     const val PROBE_HEADER_6976 = "X-AATE-Probe"
 
+    /**
+     * V5.0.8169 — a live trade's own request (swap build / execute, PumpPortal trade build). One call per trade cannot
+     * storm a provider, so it is never answered by a lockout or cool-down that background traffic earned; its outcome
+     * is still recorded. Never applies to Birdeye (metered budget). Stripped before the wire.
+     */
+    const val EXECUTION_HEADER_8169 = "X-AATE-Execution"
+
     private fun synthetic(req: okhttp3.Request, code: Int, message: String): Response =
         Response.Builder()
             .request(req)
@@ -209,7 +216,7 @@ object HostCircuitInterceptor : Interceptor {
         val stateKey7719 = if (provider.isNotBlank()) "$host|$provider" else host
         val state = states.getOrPut(stateKey7719) { HostState() }
         // V5.0.6976 — probes bypass the circuit (never the Birdeye budget).
-        val isProbe = req.header(PROBE_HEADER_6976) != null && provider != "birdeye"
+        val isProbe = (req.header(PROBE_HEADER_6976) != null || req.header(EXECUTION_HEADER_8169) != null) && provider != "birdeye"
 
         // V5.0.6758 — Birdeye is a paid/escalation source. The runtime snapshot
         // showed 150000/150000 daily CU while raw callers were still reaching the
@@ -263,8 +270,10 @@ object HostCircuitInterceptor : Interceptor {
         }
 
         // The probe marker is an internal routing hint — never put it on the wire.
-        val wireReq = if (req.header(PROBE_HEADER_6976) != null || req.header(ExitHttpScope7314.HEADER) != null || req.header(LANE_HEADER_8125) != null) {
-            req.newBuilder().removeHeader(PROBE_HEADER_6976).removeHeader(ExitHttpScope7314.HEADER).removeHeader(LANE_HEADER_8125).build()
+        val wireReq = if (req.header(PROBE_HEADER_6976) != null || req.header(ExitHttpScope7314.HEADER) != null || req.header(LANE_HEADER_8125) != null ||
+            req.header(EXECUTION_HEADER_8169) != null) {
+            req.newBuilder().removeHeader(PROBE_HEADER_6976).removeHeader(ExitHttpScope7314.HEADER).removeHeader(LANE_HEADER_8125)
+                .removeHeader(EXECUTION_HEADER_8169).build()
         } else req
 
         val response: Response = try {

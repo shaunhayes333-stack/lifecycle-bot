@@ -121,13 +121,14 @@ object PumpFunDirectApi {
             .url(URL)
             .header("Content-Type", "application/json")
             .header("Accept", "application/octet-stream")
+            .header(HostCircuitInterceptor.EXECUTION_HEADER_8169, "1")   // V5.0.8169 — a live buy, not background traffic
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         ErrorLogger.info(TAG,
             "🚀 PUMP DIRECT BUY → mint=${mint.take(8)}… sol=${"%.4f".format(solAmount)} slip=$slip%")
 
-        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "pump_direct_build").use { resp ->
+        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "pump_direct_build", allowDuringLockout = true).use { resp ->
             val body = resp.body
                 ?: throw RuntimeException("PumpPortal returned empty body (HTTP ${resp.code})")
             val ct = resp.header("Content-Type", "")?.lowercase() ?: ""

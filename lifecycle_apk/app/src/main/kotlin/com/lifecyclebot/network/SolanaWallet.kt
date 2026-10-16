@@ -257,7 +257,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 // V5.0.8083 — the same signed bytes go to EVERY paid endpoint (Helius RPC + Alchemy + saved) at once,
                 // not just the ladder's first responder. Identical bytes = one signature: it lands at most once.
                 val targets8083 = try {
-                    com.lifecyclebot.engine.RuntimeProviderAuthority6685.authenticatedRpcCandidates8083(rpcUrl)
+                    // V5.0.8169 — paid AND the free public nodes, all at once (publicBroadcastRpcs8169).
+                    com.lifecyclebot.engine.RuntimeProviderAuthority6685.broadcastTargets8169(
+                        com.lifecyclebot.engine.RuntimeProviderAuthority6685.authenticatedRpcCandidates8083(rpcUrl),
+                        com.lifecyclebot.engine.RuntimeProviderAuthority6685.publicBroadcastRpcs8169())
                 } catch (_: Throwable) { emptyList() }
                 if (targets8083.isEmpty()) {
                     try {
@@ -275,7 +278,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                                 .post(body8083.toRequestBody(JSON_MT)).build()).execute().use { r ->
                                 // V5.0.8085 — HTTP 200 is transport only: acceptance is a JSON-RPC result equal to the
                                 // signature. A failing endpoint never erases another endpoint's acceptance.
-                                val provider = if (endpoint.contains("alchemy", true)) "alchemy" else if (endpoint.contains("helius", true)) "helius_rpc" else "saved_rpc"
+                                val provider = if (endpoint.contains("alchemy", true)) "alchemy" else if (endpoint.contains("helius", true)) "helius_rpc"
+                                    else if (com.lifecyclebot.engine.RuntimeProviderAuthority6685.publicBroadcastRpcs8169().any { it.equals(endpoint, true) }) "public_rpc" else "saved_rpc"
                                 val body = try { JSONObject(r.body?.string().orEmpty()) } catch (_: Throwable) { null }
                                 val ack = SignedTxLedger8085.classifyRpcReply(r.isSuccessful && body != null, body?.optString("result", ""),
                                     body?.optJSONObject("error")?.optString("message", ""), sig)
@@ -284,6 +288,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
                                         if (provider == "alchemy") "TX_FANOUT_ACCEPTED_ALCHEMY_8083"
                                         else if (provider == "helius_rpc") "TX_FANOUT_ACCEPTED_HELIUS_RPC_8083"
+                                        else if (provider == "public_rpc") "TX_FANOUT_ACCEPTED_PUBLIC_RPC_8169"
                                         else "TX_FANOUT_ACCEPTED_SAVED_RPC_8083") } catch (_: Throwable) {}
                                 } else if (ack == SignedTxLedger8085.Submit.REJECTED) try {
                                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_RPC_REJECTED_8085")
