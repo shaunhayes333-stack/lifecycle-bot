@@ -389,9 +389,17 @@ object OrderSizeResolver6441 {
         // verdict from the gate halves the proposal. Both are ceilings only:
         // the minimum-executable promotion below still applies, and on live
         // the ceiling never undercuts the routable floor (see riskCapSol).
-        val manualCap7715 = try {
+        // V5.0.8153 §ONE_SIZE_FROM_THE_STOP — a LIVE request that IS LiveRiskPolicy7807's FDG decision of the last few
+        // seconds for this mint (policyFinalised8153: at or below that decision's lamports) was already sized from the
+        // plan's stop plus the round trip at its size and capped by the hard loss at the stop. This ceiling re-sized
+        // it from the lane MANDATE stop, a 2.5% flat cost and wallet CASH (not equity): a second, different risk sizing
+        // of a finalised decision, which clipped proven quarter-Kelly sizes to a number no policy chose. Paper, and live
+        // requests the policy has not just decided, keep it; the probe, cash, lane caps and conviction refusal stay.
+        val policyFinal8153 = !paperMode && (try { LiveRiskPolicy7807.policyFinalised8153(mint, requestedSol) } catch (_: Throwable) { false })
+        val manualCap7715 = if (policyFinal8153) Double.POSITIVE_INFINITY else try {
             FieldManual7715.riskCapSol(laneName, paperMode, authoritativeCash)
         } catch (_: Throwable) { Double.POSITIVE_INFINITY }
+        if (policyFinal8153) try { PipelineHealthCollector.labelInc("ORDER_SIZE_POLICY_FINAL_NO_SECOND_STOP_SIZING_8153") } catch (_: Throwable) {}
         val probeMult7715 = try {
             if (mint.isNotBlank() && !alreadyShaped7925) FieldManual7715.probeSizeMultiplier(mint) else 1.0
         } catch (_: Throwable) { 1.0 }

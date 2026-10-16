@@ -37,6 +37,19 @@ internal object WalletCapacitySeal7868 {
         seals[mint] = Seal(sizeSol, walletSol, solUsd, nowMs)
         reservations[mint] = sizeSol to nowMs
         if (seals.size > 2_000) seals.entries.removeIf { nowMs - it.value.atMs > TTL_MS }
+        // V5.0.8153 — the decision's economics are bound to this exact sealed size for the pre-broadcast recheck.
+        SizingQuoteRecheck8153.bindSeal8153(mint, sizeSol, nowMs)
+    }
+
+    /**
+     * Pure (V5.0.8153): may an execution of [executedSol] spend under the seal of [sealedSol]? Only the exact sealed
+     * notional (one lamport of rounding); a larger size is an inflation after the seal and a smaller one is another
+     * ticket. [decide] already honours only the exact size; this names the rule for the immutability audit.
+     */
+    internal fun sealHonours8153(sealedSol: Double, executedSol: Double): Boolean {
+        val s = SizingQuoteRecheck8153.lamports8153(sealedSol)
+        val e = SizingQuoteRecheck8153.lamports8153(executedSol)
+        return s > 0L && e > 0L && kotlin.math.abs(s - e) <= 1L
     }
 
     // ── V5.0.7868 capital reservation ─────────────────────────────────────
@@ -84,7 +97,7 @@ internal object WalletCapacitySeal7868 {
     ): String? {
         if (baseRefusal == null) return null
         if (baseRefusal != "SEALED_SIZE_EXCEEDS_CURRENT_CAP_7835" && baseRefusal != "SEALED_SIZE_BELOW_CURRENT_MINIMUM_7835") return baseRefusal
-        if (seal == null || nowMs - seal.atMs > TTL_MS || kotlin.math.abs(seal.sizeSol - sol) > 1e-9) return baseRefusal
+        if (seal == null || nowMs - seal.atMs > TTL_MS || !sealHonours8153(seal.sizeSol, sol)) return baseRefusal
         if (materiallyChanged(seal, walletNow, solUsdNow)) return "SEALED_INTENT_INVALIDATED_CAPACITY_CHANGED_7868"
         if (sol > (walletNow - reserveSol) + 1e-12) return baseRefusal
         return null
