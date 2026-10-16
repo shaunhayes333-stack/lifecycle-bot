@@ -11835,7 +11835,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7353_flat_position_is_a_slot_not_a_trade() {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("requestSell(ts = ts, reason = \"STALE_FLAT_CULL_7353\", wallet = wallet, walletSol = walletSol)"))
-        assertTrue(ex.contains("if (!runner7353 && posAgeMs >= FLAT_CULL_MIN_HOLD_MS_7353 &&"))
+        assertTrue(ex.contains("if (!runner7353 && posAgeMs >= minHold7353 &&"))
         assertTrue(ex.contains("markPaperBuyNotOpened(\"PEGGED_ASSET_7353\")"))
         val ps = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
         assertTrue(ps.contains("(openMints7353 == null || mint !in openMints7353)"))
@@ -11866,8 +11866,8 @@ class GoldenTapeRegressionTest {
         // The canonical-fill override no longer replaces a slice basis with the whole fill.
         assertTrue(ex.contains("entryCostSol = if (!exitCarriesSliceCost7355 && fill6320.solSpentNet > 0.0) fill6320.solSpentNet else tradeWithMint.entryCostSol,"))
         // Both live partial writers stamp the basis their pnl was computed on.
-        assertTrue(ex.contains("entryCostSol = pos.costSol * pct, entryPriceSnapshot = pos.entryPrice,"))
-        assertTrue(ex.contains("entryCostSol = pos.costSol * sellFraction, entryPriceSnapshot = pos.entryPrice,"))
+        // V5.0.7835 — both writers now stamp the settled proportional cost basis.
+        assertEquals(2, Regex(Regex.escape("entryCostSol = livePartialCostBasisSol, entryPriceSnapshot = pos.entryPrice,")).findAll(ex).count())
         // Ordering: the choke-point decision precedes the override that reads it.
         assertTrue(ex.indexOf("val exitCarriesSliceCost7355") < ex.indexOf("!exitCarriesSliceCost7355 && fill6320"))
     }
@@ -11894,10 +11894,10 @@ class GoldenTapeRegressionTest {
         val v3Call = bs.indexOf("val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(")
         val publish = bs.indexOf("when (val fresh7357 = v3Decision)")
         assertTrue(v3Call > 0 && publish > v3Call && publish - v3Call < 3000)
-        assertEquals(2, Regex("fanoutRole = \"V3_EXEC\"").findAll(bs).count())
+        // The FDG-internal fanout budget (IntakeFanoutGovernor6835.allowFdgEval) is no longer
+        // called from FDG, so the V3_EXEC role key it fed is retired; the parameter remains.
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("fanoutRole: String = \"\","))
-        assertTrue(fdg.contains("(fanoutRole.trim().uppercase().takeIf { it.isNotBlank() }?.let { \":\$it\" } ?: \"\")"))
         val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(phc.contains("reason.removePrefix(\"blocked: \").trimStart()"))
     }
@@ -11944,7 +11944,8 @@ class GoldenTapeRegressionTest {
         // Closes exactly what the journal holds open, credits the receipts' proceeds.
         assertTrue(r.contains("canonicalConsumedRaw = openRaw, remainingRawQty = java.math.BigInteger.ZERO,"))
         assertTrue(r.contains("tokenDecimals = scale, soldCostBasisSol = openBasis,"))
-        assertTrue(r.contains("economicEventId = \"REBUILT7360:\${terminal.idempotencyKey}\""))
+        assertTrue(r.contains("val rebuiltEventId7858 = \"REBUILT7360:\${terminal.idempotencyKey}\""))
+        assertTrue(r.contains("grossProceedsSol = gross, economicEventId = rebuiltEventId7858,"))
         val a = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicAuthority6616.kt").readText()
         assertTrue(a.contains("if (replay == null || !replay.totalsComplete6899 || !globallyReconciled6647) {"))
         assertTrue(a.contains("if (!replay.totalsComplete6899 || !globallyReconciled6647) return"))
@@ -11974,7 +11975,8 @@ class GoldenTapeRegressionTest {
         // V5.0.7364 — the rug row itself is gone: an absent wallet read books nothing.
         assertTrue(sr.contains("JOURNAL_XREF_ZERO_NOT_BOOKED_7364"))
         val cm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
-        assertTrue(cm.contains("evidenceTimestampMs: Long = nowMs,"))
+        // Missing evidence time now stays unverified (0L) rather than defaulting to nowMs.
+        assertTrue(cm.contains("evidenceTimestampMs: Long = 0L,"))
         assertTrue(cm.contains("liquidityUsd = liquidityUsd, evidenceTimestampMs = evidenceTimestampMs, nowMs = nowMs,"))
     }
 
@@ -12000,7 +12002,9 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("?: liveCanonicalOpen7362(ts.mint)?.quantityScale?.takeIf { it in 0..18 },"))
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bs.contains("executor.scheduleLiveSellFinalizationResume7362(mint, sig, WalletManager.getWallet() ?: wallet, ts7362)"))
-        assertTrue(bs.contains("tokenMap6614.updatedAtMs.takeIf { it > 0L } ?: ts.lastPriceUpdate"))
+        // V5.0.7858 — the observation stamp is the token map's own price-observed time.
+        assertTrue(bs.contains("evidenceTimestampMs = if (tokenMap6614.priceUsd != null)"))
+        assertTrue(bs.contains("tokenMap6614.priceObservedAtMs7858"))
         val co = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt").readText()
         assertTrue(co.contains("if (!qtyValidation6522.allowed) { skipCanonical7362(\"QTY_GUARD\"); return@run }"))
     }
@@ -12131,7 +12135,8 @@ class GoldenTapeRegressionTest {
         val rep = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").readText()
         assertTrue(rep.contains("if (TradeHistoryStore.isDurableEconomicEvent7371(eventId)) {"))
         val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue(phc.contains("if (firstOkForMint7371(execOkSeenSell7371, fields)) execLiveSellOk.incrementAndGet()"))
+        // V5.0.7863 — live SELL ok is read from canonical terminal positions (one per position).
+        assertTrue(phc.contains("fun execLiveSellOkCount(): Long = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.terminalEnvelopes7863(\"LIVE\", executionCounterStart7863)"))
     }
 
 
@@ -12166,7 +12171,7 @@ class GoldenTapeRegressionTest {
         assertTrue(w.contains("private fun rpcTokenAccountsByOwnerFiltered(filter: JSONObject, programId: String, overallDeadlineMs: Long = 0L): JSONObject"))
         assertTrue(w.contains("knownMintsFallbackBounded7374()?.let { return it }"))
         assertTrue(w.contains("WalletSnapshotCompleteness7140.markPartial(\"KNOWN_MINTS_FALLBACK_7374"))
-        assertTrue(w.contains("rpcTokenAccountsByOwnerFiltered(JSONObject().put(\"mint\", mint)"))
+        assertTrue(w.contains("val json = rpcTokenAccountsByOwnerFiltered(\n                        JSONObject().put(\"mint\", mint),"))
         val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
         assertTrue(r.contains("if (partial7374) continue"))
     }
@@ -12188,11 +12193,11 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7376_governor_is_advisory() {
         val lec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt").readText()
-        assertTrue(lec.contains("if (govState == \"HOLD\" && !infraBlocked7376) {"))
-        assertTrue(lec.contains("if (govState == \"HOLD\" && infraBlocked7376) {"))
-        assertTrue(lec.contains("GOVERNOR_HOLD_ADVISORY_7376"))
+        // V5.0.7398 — governor HOLD / recovery state is shaping-only, never a live-BUY veto.
+        assertTrue(lec.contains("if (govState == \"HOLD\" || recoveryState7398 == \"BLOCKED_INFRASTRUCTURE\" || recoveryState7398 == \"EXIT_ONLY\") {"))
+        assertTrue(lec.contains("reasons += \"GOVERNOR_SHAPING_ONLY_7398\""))
+        assertTrue(lec.contains("action=continue_to_concrete_safety_gates"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("LIVE_BUY_PROBATION_CLAMP_ADVISORY_7376"))
         assertFalse(ex.contains("GovernorRecovery6388.probationSize(shaped)"))
     }
 
@@ -12213,13 +12218,12 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7378_pending_proof_alone_does_not_refuse_the_routable_lift() {
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/RoutableMinRiskGuard7236.kt").readText()
-        assertTrue(g.contains("if (!weakScore && !weakRegime) {"))
+        // V5.0.7831 — the live routable-min lift is disabled outright, so pending proof
+        // can no longer be the sole refusal of it (the executor's lane-proven lift input is gone).
         assertFalse(g.contains("if (!weakScore && !weakRegime && !pendingProof) {"))
-        assertTrue(g.contains("ROUTABLE_MIN_LIFT_ALLOWED_PENDING_PROOF_7378"))
+        assertTrue(g.contains("PipelineHealthCollector.labelInc(\"ROUTABLE_MIN_LIFT_DISABLED_7831\")"))
         val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
         assertTrue(f.contains("fun bandProvesLane7378(rawLane: String?): Boolean"))
-        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("|| com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.bandProvesLane7378(k7305)"))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("CanonicalEntryFloor7266.bandProvesLane7378(laneKey) ||"))
     }
@@ -12243,10 +12247,12 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7380_live_only_chokes_defer_to_evidence_and_paper_learning() {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue(fdg.contains("if (oracleProven7263 && !oracleDegenerate7380 && evidenceObjections7380 >= 2 &&"))
+        // V5.0.7548 — the evidence-backed consensus veto is mode-neutral (no live-only clause).
+        assertTrue(fdg.contains("if (oracleProven7263 && !oracleDegenerate7380 && evidenceObjections7380 >= 2) {"))
         assertTrue(fdg.contains("if (oracleProvenExc7263 && !oracleDegenerateExc7380 &&"))
-        assertTrue(fdg.contains("val dustTuitionTag4526 = tags.any { t -> t.uppercase().contains(\"PROVEN_DEAD\") }"))
-        assertTrue(fdg.contains("liveWinner4595 || com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.bandProvesLane7378("))
+        // V5.0.7743 — live probe tags are refused outright; V5.0.7403 replaced the
+        // proven-winner RSI leniency with the current-structure exception.
+        assertTrue(fdg.contains("val dustTuitionTag4526 = tags.any { t -> isLiveProbeTag7743(t) }"))
         val st = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScoreExpectancyTracker.kt").readText()
         assertTrue(st.contains("fun laneStats7380(layer: String): Triple<Int, Double, Double>?"))
         val o = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
@@ -12255,8 +12261,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lt.contains("wr < TIMEOUT_FLOOR_PCT && mean7380 <= 0.0 -> Status.TIMEOUT"))
         val lp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LivePauseButton.kt").readText()
         assertTrue(lp.contains("wr < PAUSE_FLOOR_PCT && mean7380 <= 0.0 -> Mode.DEFENSIVE"))
-        val ea = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
-        assertTrue(ea.contains("coolUntil7035 = if (seeded7035 > ownStreak7035) maxOf("))
+        // V5.0.7846 — mode-pure entry history: paper-seeded streak cooldowns no longer reach live.
     }
 
 
@@ -12339,7 +12344,10 @@ class GoldenTapeRegressionTest {
         val dex = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
         assertTrue(dex.contains("PoolCreationTime7385.record("))
         val sniper = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
-        assertTrue(sniper.contains("PoolCreationTime7385.ageSecs(ts.mint)"))
+        // V5.0.7440/7767 — the sniper reads the canonical birth time, which consumes the pool creation time.
+        assertTrue(sniper.contains("CanonicalTokenBirthTime7440.launchAgeMs7767(ts)"))
+        val birth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTokenBirthTime7440.kt").readText()
+        assertTrue(birth.contains("PoolCreationTime7385.createdAtMs(m)"))
         assertTrue(sniper.contains("GRADUATED: not a launch"))
     }
 
@@ -12361,8 +12369,8 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun V5_0_7386_sliding_lock_arms_early_on_every_lane() {
-        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("PROJECT_SNIPER", 10.0))
-        assertEquals(20.0, com.lifecyclebot.engine.RunnerExitProfile7277.armThresholdPct("MOONSHOT", 20.0), 1e-9)
+        // V5.0.7695/7791 superseded "arms from the first tick": runner lanes defer under
+        // +20% (MOONSHOT +50%); see V5_0_7695. Above the bar the lock still slides.
         assertTrue(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "PROJECT_SNIPER"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("SNIPER_TP_PARTIAL_7385"))
@@ -12396,8 +12404,9 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("requestSell(ts = ts, reason = \"DEAD_MONEY_CULL_7388\", wallet = wallet, walletSol = walletSol)"))
         assertTrue(ex.contains("if (lane7388.contains(\"PROJECT_SNIPER\")) return@run"))
-        // Moonbag slides: +1408% peak bag holds above ~+1060% (was +704%).
-        assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 1100.0, 1408.0, 1408.0) == MoonbagRunner7322.Action.HOLD_MOONBAG)
+        // Moonbag slides: on the current PeakDrawdownLock curve (0.112 at +1408%) the
+        // +1408% peak bag holds above ~+1172% (1.5x give-back; was +704%).
+        assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 1200.0, 1408.0, 1408.0) == MoonbagRunner7322.Action.HOLD_MOONBAG)
         assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 900.0, 1408.0, 1408.0) == MoonbagRunner7322.Action.PASS)
         val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
         assertTrue(tx.contains("PAPER_PRELOOP_RECONCILE_PENDING_7388"))
@@ -12416,10 +12425,10 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("ts.position.tradingMode.uppercase() in setOf(\"BLUE_CHIP\", \"BLUECHIP\")"))
         assertTrue(bot.contains("TREASURY_V3_SCORE_REJECT_NOT_BINDING_7389"))
         assertTrue(bot.contains("bounceConfirmed = dipBounce7389"))
-        assertTrue(bot.contains("DIP_RECOVERY_PARTIAL_50PCT"))
+        // The dip recovery partial is now named DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT (asserted below).
         val lec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt").readText()
-        assertTrue(lec.contains("if (ts.lastMcap > ceiling) return false"))
-        assertTrue(lec.contains("if (ts.lastMcap < bcFloor) return false"))
+        assertTrue(lec.contains("if (ts.lastMcap <= 0.0 || ts.lastMcap !in qualityMcapBand7389()) return false"))
+        assertTrue(lec.contains("ts.lastMcap < blueChipMcapFloor7389()) return false"))
         assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane("CORE"))
         val dip = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DipHunterAI.kt").readText()
         assertTrue(dip.contains("NO_BOUNCE_CONFIRMATION"))
@@ -12459,7 +12468,8 @@ class GoldenTapeRegressionTest {
         assertTrue(desk.contains("ToolkitSignalSheet.build(ts, cls)") && desk.contains("MovementPatternSignal.from(ts)"))
         assertTrue(desk.contains("LaneEntryContract6342.isLaneIdentityEligible7252(ts, it.lane)"))
         val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
-        assertTrue(crypto.contains("CryptoLaneDesk7391.elect("))
+        // V5.0.7803 — the trader qualifies every desk lane; elect() is a compatibility read.
+        assertTrue(crypto.contains("CryptoLaneDesk7391.qualifyAll7803("))
         assertTrue(crypto.contains("QualityTraderAI.evaluate(") && crypto.contains("DipHunterAI.evaluate("))
         assertTrue(crypto.contains("DynScan Core ensemble"))
         assertTrue(crypto.contains("com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(tickPeak, tickPnl, deskLane7391)"))
@@ -12488,7 +12498,8 @@ class GoldenTapeRegressionTest {
         val dex = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
         assertTrue(dex.contains("https://api.dexscreener.com/latest/dex/pairs/solana/"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("val minAgeMs7388 = 20L * 60_000L / (if (pressure7388) 2L else 1L)"))
+        // V5.0.7706 — live positions use the live cull hold; paper keeps the pressure-halved 20 min.
+        assertTrue(ex.contains("val minAgeMs7388 = if (live7706) LIVE_CULL_MIN_HOLD_MS_7706 else 20L * 60_000L / (if (pressure7388) 2L else 1L)"))
         assertTrue(ex.contains("PROFIT_LOCK_ON_REPAIRED_MARK_7392"))
         val close = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
         assertTrue(close.contains("\"PROFIT_LOCK\", \"PEAK_LOCK\", \"PEAK_CAPTURE\""))
@@ -12518,7 +12529,9 @@ class GoldenTapeRegressionTest {
         assertTrue(lec.contains("if (lane == \"PROJECT_SNIPER\" && !isSniperLaunch7393(ts)) return false"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("private val LIVE_SNIPER_MAX_MCAP_USD_7385 = LaneEntryContract6342.SNIPER_LAUNCH_MAX_MCAP_USD_7393"))
-        assertTrue(ex.contains("LIVE_ENTRY_RESTAMPED_FROM_FILL_7393"))
+        // V5.0.7875/7988 — the verified fill is the live entry basis (no mark, or a fill well above the mark).
+        assertTrue(ex.contains("LIVE_ENTRY_BASIS_FROM_VERIFIED_FILL_7875"))
+        assertTrue(ex.contains("LIVE_ENTRY_BASIS_FILL_ABOVE_MARK_7988"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("val entryPxForTickLock = basisPx7393"))
     }
@@ -12545,8 +12558,9 @@ class GoldenTapeRegressionTest {
         assertTrue(treasury.contains("return contributeFromMemeSell(realizedProfitSol, solPrice, isPaper)"))
         assertFalse(treasury.contains("TREASURY SCALP 100%"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("private const val MANIPULATED_IS_A_BUYER_7395 = false"))
-        assertTrue(bot.contains("if (manipSignal.shouldEnter && MANIPULATED_IS_A_BUYER_7395) run manipEntry7389@{"))
+        // V5.0.7609/8077 — the operator restored MANIPULATED live participation; the entry is
+        // still gated by one capability switch and every downstream authority.
+        assertTrue(bot.contains("if (manipSignal.shouldEnter && manipulatedBuyerEnabled7609()) run manipEntry7389@{"))
     }
 
     @Test
@@ -12748,12 +12762,13 @@ class GoldenTapeRegressionTest {
         // -5/hard-floor band computed just above it.
         val stopForBody = src.substringAfter("fun stopFor(mint: String): Double? {")
             .substringBefore("fun restorePosition(")
-        assertTrue(stopForBody.contains("if (!goldProtected && pos.peakPnlPct < 8.0) stop = maxOf(stop, minOf(-5.0, effectiveHardFloor))"))
+        // V5.0.7696/7795 — the first-phase value is now the named EARLY_TIGHT_STOP_PCT_7696.
+        assertTrue(stopForBody.contains("if (!goldProtected && pos.peakPnlPct < 8.0) stop = maxOf(stop, minOf(EARLY_TIGHT_STOP_PCT_7696, effectiveHardFloor))"))
         assertFalse(stopForBody.contains("holdSeconds < 60"))
-        // checkExit: the EARLY_TIGHT_STOP(-5) block still stands as the ONLY
+        // checkExit: the EARLY_TIGHT_STOP block still stands as the ONLY
         // early-exit return between it and the peak-P&L update — the old
         // narrower early-death return (a second STOP_LOSS in this span) is gone.
-        val earlyTightStopAt = src.indexOf("EARLY_TIGHT_STOP(-5)")
+        val earlyTightStopAt = src.indexOf("EARLY_TIGHT_STOP(\${EARLY_TIGHT_STOP_PCT_7696.toInt()})")
         val peakUpdateAt = src.indexOf("// Update peak P&L")
         assertTrue(earlyTightStopAt in 1 until peakUpdateAt)
         val betweenSpan = src.substring(earlyTightStopAt, peakUpdateAt)
@@ -12895,7 +12910,8 @@ class GoldenTapeRegressionTest {
         assertTrue(moon.contains("WrRecoveryPartial.minScoreFloor(\"MOONSHOT\")"))
         assertFalse(moon.contains("WrRecoveryPartial.minScoreFloor()"))
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(exec.contains("WrRecoveryPartial.entrySizeMultiplier(layerTag)"))
+        // The executor no longer applies the WR-recovery entry size multiplier at all,
+        // so in particular never the lane-blind form.
         assertFalse(exec.contains("WrRecoveryPartial.entrySizeMultiplier()"))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("val runnerExempt7693 = com.lifecyclebot.engine.WrRecoveryPartial.isRunnerLaneExempt7693(specialistLane)"))
@@ -12978,15 +12994,19 @@ class GoldenTapeRegressionTest {
         assertFalse(rp.contains("fun deferGiveBackLock(lane: String?, peakPnlPct: Double): Boolean = false"))
         val deferFn = rp.substringAfter("fun deferGiveBackLock(lane: String?, peakPnlPct: Double): Boolean {").substringBefore("fun armThresholdPct(")
         assertTrue(deferFn.contains("if (!isRunnerLane(lane)) return false"))
-        assertTrue(deferFn.contains("peakPnlPct < RUNNER_LOCK_ARM_PEAK_PCT_7695"))
-        assertTrue(rp.contains("if (isRunnerLane(lane)) maxOf(defaultPct, RUNNER_LOCK_ARM_PEAK_PCT_7695) else defaultPct"))
+        // V5.0.7791 — the arm peak is per lane: MOONSHOT at the +50 bar, other runner lanes at +20.
+        assertTrue(rp.contains("fun giveBackArmPct7791(lane:String?):Double=if(lane?.uppercase()?.contains(\"MOONSHOT\")==true)MIN_PEAK_FOR_GIVEBACK_LOCK_PCT else RUNNER_LOCK_ARM_PEAK_PCT_7695"))
+        assertTrue(deferFn.contains("peakPnlPct < giveBackArmPct7791(lane)"))
+        assertTrue(rp.contains("if (isRunnerLane(lane)) maxOf(defaultPct, giveBackArmPct7791(lane)) else defaultPct"))
         // The moonbag bar is untouched.
         assertTrue(rp.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 50.0"))
 
         // Every give-back path still reads the one function (no caller was
         // rewritten to bypass it).
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertEquals(3, Regex(Regex.escape("RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode,")).findAll(bot).count())
+        // V5.0.7928/7935 — the fluid-stop caller moved into fluidStop7928 and passes its lane.
+        assertEquals(2, Regex(Regex.escape("RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode,")).findAll(bot).count())
+        assertTrue(bot.contains("RunnerExitProfile7277.deferGiveBackLock(lane, peakPnlPct)"))
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(exec.contains("RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPnlPct)"))
         val pdl = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PeakDrawdownLock.kt").readText()
@@ -13009,19 +13029,22 @@ class GoldenTapeRegressionTest {
         // pump.fun fill marks -2..-4% on its own, so a -5 first-phase stop was
         // decided before the token did anything.
         val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
-        assertTrue(moon.contains("private const val EARLY_TIGHT_STOP_PCT_7696 = -10.0"))
+        // V5.0.7795 — the first-phase stop widened again to the single -20 hard floor
+        // (build #1941 runway); it is never tighter than -10.
+        assertTrue(moon.contains("private const val EARLY_TIGHT_STOP_PCT_7696 = HARD_FLOOR_STOP"))
         // Both the exit path and the tick-path mirror (stopFor) read the constant;
         // no literal -5 first-phase stop remains in either.
         assertEquals(2, Regex(Regex.escape("minOf(EARLY_TIGHT_STOP_PCT_7696, effectiveHardFloor)")).findAll(moon).count())
         assertFalse(moon.contains("minOf(-5.0, effectiveHardFloor)"))
-        // The ≤12-minute tier and the hard floor are unchanged.
-        assertTrue(moon.contains("if (holdMinutes <= 12) stop = maxOf(stop, -10.0)"))
-        assertTrue(moon.contains("private const val HARD_FLOOR_STOP = -15.0"))
+        // V5.0.8030 — the ≤12-minute tier holds the -15 runner floor; V5.0.7795 hard floor -20.
+        assertTrue(moon.contains("if (holdMinutes <= 12) stop = maxOf(stop, -15.0)"))
+        assertTrue(moon.contains("private const val HARD_FLOOR_STOP = -20.0"))
 
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("private const val RUNNER_LANE_MIN_FLUID_STOP_PCT_7696 = -10.0"))
         assertTrue(bot.contains("val dynamicStopPct7696 = if (runnerLane7696 && dynamicStopPct < 0.0 && dynamicStopPct > RUNNER_LANE_MIN_FLUID_STOP_PCT_7696) {"))
-        assertTrue(bot.contains("if (pnlPct <= dynamicStopPct7696 && !(dynamicStopPct7696 > 0.0 && runnerDefer7322)) {"))
+        // V5.0.7754 — a plan that owns the exit is consulted after the runner check.
+        assertTrue(bot.contains("if (pnlPct <= dynamicStopPct7696 && !(dynamicStopPct7696 > 0.0 && runnerDefer7322) &&"))
         assertFalse(bot.contains("if (pnlPct <= dynamicStopPct && !(dynamicStopPct > 0.0 && runnerDefer7322)) {"))
     }
 
@@ -13058,7 +13081,8 @@ class GoldenTapeRegressionTest {
         assertTrue(sizer.contains("val safeShareCap = tradeable * shareGuard7697"))
         assertTrue(sizer.contains("shareGuard = shareGuard7697,"))
         assertTrue(sizer.contains("if (isLive && cappedSize > 0.0 && cappedSize < liveFloorEff7697) {"))
-        assertTrue(sizer.contains("val promoted7142 = liveFloorEff7697.coerceAtMost("))
+        // V5.0.7831 — a sub-floor live size is refused (0.0), never promoted up to the floor.
+        assertTrue(sizer.contains("SMART_SIZER_V3_SUB_ROUTABLE_REFUSED_7831"))
         assertFalse(sizer.contains("val promoted7142 = liveNoDustFloor6269.coerceAtMost("))
 
         // Concurrency: the live slot cap sits above the lane-fairness bypass.
@@ -13126,7 +13150,8 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(exec.contains("private const val LIVE_CULL_MIN_HOLD_MS_7706: Long = 30L * 60_000L"))
         assertTrue(exec.contains("private const val LIVE_CULL_PEAK_EXEMPT_PCT_7706: Double = 3.0"))
-        assertTrue(exec.contains("val pressure7388 = if (live7706) false else try {"))
+        // V5.0.7942 — paper inventory pressure is read through one helper; live never halves.
+        assertTrue(exec.contains("val pressure7388 = !live7706 && inventoryPressureHigh7942(ts)"))
         assertTrue(exec.contains("val minAgeMs7388 = if (live7706) LIVE_CULL_MIN_HOLD_MS_7706 else 20L * 60_000L / (if (pressure7388) 2L else 1L)"))
         assertTrue(exec.contains("val minHold7353 = if (live7706) maxOf(FLAT_CULL_MIN_HOLD_MS_7353, LIVE_CULL_MIN_HOLD_MS_7706) else FLAT_CULL_MIN_HOLD_MS_7353"))
         assertEquals(2, Regex(Regex.escape("LIVE_CULL_DEFERRED_PEAK_SHOWED_LIFE_7706")).findAll(exec).count())
@@ -13172,7 +13197,8 @@ class GoldenTapeRegressionTest {
         // a holding with no mark gets one requested rather than waiting
         // forever, and fill lots only count while the wallet holds the mint.
         val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
-        assertTrue(rec.contains("if (priceUsd == null) requestMarkAsync7707(mint)"))
+        // V5.0.7876 — the mark request also carries the held amount.
+        assertTrue(rec.contains("if (priceUsd == null) requestMarkAsync7707(mint, amount)"))
         assertTrue(rec.contains("HostWalletTokenTracker.recordPriceUpdate(mint, px, 0.0)"))
 
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt").readText()
@@ -13201,7 +13227,7 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("if (failures7714 >= DUST_UNROUTABLE_MIN_FAILURES_7714 || (failures7714 >= 1 && reentryBlocked7714)) {"))
         assertTrue(exec.indexOf("terminalizeDustUnroutable7714(ts, \"ALREADY_MARKED\")") < exec.indexOf("\"RECOVERED_DUST_LIQUIDATION_7708\""))
         // The dust liquidation covers every adopted/recovered position, not one lane.
-        assertTrue(exec.contains("private fun isRecoveredInventory7714(p: com.lifecyclebot.data.Position): Boolean {"))
+        assertTrue(exec.contains("private fun isRecoveredInventory7714(p: com.lifecyclebot.data.Position): Boolean ="))
         assertTrue(exec.contains("if (p7708.isPaperPosition || !isRecoveredInventory7714(p7708)) return@run"))
 
         val trk = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
@@ -13238,10 +13264,14 @@ class GoldenTapeRegressionTest {
         assertTrue(gateFn.contains("\"CRYPTO_LIVE_REFUSED_SLOTS_FULL_7708"))
         assertTrue(gateFn.contains("LiveExitCoverageGuard7701.assess(WalletManager.currentPubkey())"))
         assertTrue(gateFn.contains("\"CRYPTO_LIVE_BLOCKED_UNMANAGED_BOT_HOLD_7708"))
-        assertTrue(gateFn.contains("if (requested < floor) {"))
+        // V5.0.7831 — routability never inflates risk: the gate no longer lifts a sub-floor request.
+        assertFalse(gateFn.contains("if (requested < floor) {"))
         // The gate sits before submit and only on live; paper is untouched.
-        assertTrue(alt.contains("val requestedFinalSize = if (authoritativePaperMode7425()) requestedFinalSize0 else {"))
-        assertTrue(alt.indexOf("liveCryptoEntryGate7708(balance, requestedFinalSize0)") < alt.indexOf("CanonicalSizingBridge6532.resolve("))
+        // V5.0.7835 — the preflight is a pair (size, refusal); paper (authoritativePaperMode7425) skips it.
+        assertTrue(alt.contains("val livePreflight7835 = if (paper7803) requestedFinalSize0 to null\n            else liveCryptoEntryGate7708(balance, requestedFinalSize0)"))
+        assertTrue(alt.contains("val paper7803 = authoritativePaperMode7425()"))
+        val gateAt7708 = alt.indexOf("liveCryptoEntryGate7708(balance, requestedFinalSize0)")
+        assertTrue(gateAt7708 > 0 && gateAt7708 < alt.indexOf("val finalSize = requestedFinalSize"))
         // A verify-pending signed buy stamps its real cost and lane on the tracker row.
         assertTrue(alt.contains("HostWalletTokenTracker.recordSignedBuyBasis7708("))
 
@@ -13353,12 +13383,15 @@ class GoldenTapeRegressionTest {
         // Seam 1: the gate, before any lane-specific gate, both modes.
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         // 7720: the whole block sits in a private helper; evaluate() keeps one call and no locals.
-        assertTrue(fdg.contains("fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }"))
+        // V5.0.7845: that one call is specialistAdvisoryBlock7845 — binding on trunk calls,
+        // advisory (telemetry only) when a specialist owns the BUY.
+        assertTrue(fdg.contains("return fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)"))
         assertTrue(fdg.contains("com.lifecyclebot.engine.truth.FieldManual7715.decide(ts, candidate, lane, paper, proposedSizeSol)"))
         assertTrue(fdg.contains("if (!v.blocks) null else FinalDecision("))
         assertTrue(fdg.contains("blockReason = v.blockReason,"))
-        assertTrue(fdg.indexOf("fieldManualBlock7715(ts, candidate, specialistLane") < fdg.indexOf("val overlayLane = laneName"))
-        assertTrue(fdg.indexOf("fieldManualBlock7715(ts, candidate, specialistLane") > fdg.indexOf("val laneName = tradingModeTag?.name ?: \"STANDARD\""))
+        val advisoryCall7845 = fdg.indexOf("\n        specialistAdvisoryBlock7845(\n")
+        assertTrue(advisoryCall7845 > 0 && advisoryCall7845 < fdg.indexOf("val overlayLane = laneName"))
+        assertTrue(advisoryCall7845 > fdg.indexOf("val laneName = canonicalPrimaryLane6658"))
 
         // Seam 2: the one sizing authority applies the risk cap and the probe multiplier as ceilings.
         val osr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
@@ -13447,8 +13480,9 @@ class GoldenTapeRegressionTest {
         // Bot-sourced dust is adopted at the $2 floor so it is sold, not left squatting a slot.
         val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
         assertTrue(rec.contains("private fun isBotSourcedRow7717(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean ="))
-        // 7718 lowered the bot-holding floor to zero; the row test stands.
-        assertTrue(rec.contains("return if (isBotSignedRow7708(p) || isBotSourcedRow7717(p)) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706"))
+        // 7718 lowered the bot-holding floor to zero; the row test stands (7730 adds coverage attribution).
+        assertTrue(rec.contains("val trackerSaysBot = isBotSignedRow7708(p) || isBotSourcedRow7717(p)"))
+        assertTrue(rec.contains("return if (trackerSaysBot || coverageSaysBot7730) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706"))
     }
 
     @Test
@@ -13459,7 +13493,8 @@ class GoldenTapeRegressionTest {
         // moment it sees one, and the report measures the rule every time.
         val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
         assertTrue(rec.contains("private const val BOT_HOLDING_ADOPTION_FLOOR_USD_7718 = 0.0"))
-        assertTrue(rec.contains("return if (isBotSignedRow7708(p) || isBotSourcedRow7717(p)) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706"))
+        // V5.0.7730 — coverage-attributed holdings also count as the bot's.
+        assertTrue(rec.contains("return if (trackerSaysBot || coverageSaysBot7730) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706"))
         assertTrue(rec.contains("fun requestAdoptionAsync7718(mints: Collection<String>) {"))
         assertTrue(rec.contains("val n = recoverWalletSnapshot(BotService.status, subset)"))
         assertTrue(rec.contains("WalletAccountCache.snapshot(ttlMs = 60_000L)"))
@@ -13582,8 +13617,10 @@ class GoldenTapeRegressionTest {
         assertTrue(evalStart > 0)
         val body = fdg.substring(evalStart)
         val code = body.lines().filter { !it.trim().startsWith("//") }.joinToString("\n")
-        // One call, no locals, no construction, inside evaluate().
-        assertTrue(code.contains("fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }"))
+        // One call, no locals, no construction, inside evaluate(). V5.0.7845: that call is
+        // specialistAdvisoryBlock7845, which wraps fieldManualBlock7715 outside evaluate().
+        assertTrue(code.contains("        specialistAdvisoryBlock7845(\n            ts, candidate, specialistLane, laneName, laneScore, config.paperMode, proposedSizeSol, mode,\n            candidateVersion7623, floorLane7266, candidateAdmission8136,\n        )?.let { return it }"))
+        assertFalse(code.contains("fieldManualBlock7715("))
         assertFalse(code.contains("val manualLane7715"))
         assertFalse(code.contains("val manual7715"))
         assertFalse(code.contains("manual7715.blocks"))
@@ -13669,13 +13706,16 @@ class GoldenTapeRegressionTest {
         // booked -0.055 SOL into canonical performance. A close on an inferred
         // basis stays on the bus for the audit and is excluded from every learner.
         val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
-        assertTrue(bus.contains("val inferredBasis7722: String? = try {"))
+        // V5.0.7807 — the inferred-basis read is one helper shared with the learners.
+        assertTrue(bus.contains("internal fun learningUncleanReason7807(positionId: String, mint: String): String? = try {"))
+        assertTrue(bus.contains("val inferredBasis7722: String? = learningUncleanReason7807(event.positionId, event.mint)"))
         assertTrue(bus.contains("val src7722 = pos7776?.entryPriceSource?.uppercase() ?: \"\""))
         assertTrue(bus.contains("learningEligible = learningEligibility6519.eligible && economicInvalid6495 == null && inferredBasis7722 == null,"))
         assertTrue(bus.contains("\"INFERRED_BASIS_7722:\$inferredBasis7722\""))
         assertTrue(bus.contains("if (economicInvalid6495 == null && inferredBasis7722 != null) {"))
         assertTrue(bus.contains("FINALIZED_BUS_PUBLISHED_EXCLUDED_INFERRED_BASIS_7722"))
-        assertTrue(bus.indexOf("val inferredBasis7722: String? = try {") < bus.indexOf("val env = CanonicalFinalizedTradeBus6464.Envelope("))
+        val inferredAt7807 = bus.indexOf("val inferredBasis7722: String? = learningUncleanReason7807(")
+        assertTrue(inferredAt7807 > 0 && inferredAt7807 < bus.indexOf("val env = CanonicalFinalizedTradeBus6464.Envelope("))
         for (k in listOf("OBSERVED_MARK_ADOPTION_7706", "HOST_TRACKER_SIGNED_BUY_7708", "BASIS_UNKNOWN", "RECOVERY_6686")) {
             assertTrue(k, bus.contains("src7722.contains(\"$k\")"))
         }
@@ -13786,10 +13826,10 @@ class GoldenTapeRegressionTest {
         // Same snapshot: FIELD_MANUAL_WAIT_7715:quote=186 on marks the canonical
         // registry had stamped. Freshness falls back to the canonical mark.
         val fm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FieldManual7715.kt").readText()
-        assertTrue(fm.contains("val quoteAge = if (ts.lastPriceUpdate > 0L) (nowMs - ts.lastPriceUpdate).coerceAtLeast(0L) else canonicalMarkAgeMs7730(ts.mint, nowMs)"))
-        assertTrue(fm.contains("private fun canonicalMarkAgeMs7730(mint: String, nowMs: Long): Long = try {"))
-        assertTrue(fm.contains("val mark = CanonicalPriceMarkRegistry6522.get(mint)"))
-        assertTrue(fm.contains("FIELD_MANUAL_QUOTE_AGE_FROM_CANONICAL_MARK_7730"))
+        // V5.0.7837 — one resolver (token state, canonical mark for the same price, revalidation).
+        assertTrue(fm.contains("internal fun quoteAgeMs7837(ts: TokenState, nowMs: Long): Long {"))
+        assertTrue(fm.contains("val mark = CanonicalPriceMarkRegistry6522.get(ts.mint)"))
+        assertTrue(fm.contains("val quoteAge7809 = quoteAgeMs7837(ts, nowMs)"))
         assertTrue(fm.contains("if (card.quoteAgeMs < 0L) soft += \"quote freshness unknown\""))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
@@ -13832,7 +13872,9 @@ class GoldenTapeRegressionTest {
         assertEquals(NEGATIVE, P.tierFor(stat(100, -40.0, 0.1, 1.0, 0)))
         assertEquals(UNPROVEN, P.tierFor(stat(100, -2.5, 0.1, 1.0, 0)))
         assertEquals(UNPROVEN, P.tierFor(stat(100, -40.0, 0.6, 1.0, 0)))
-        assertEquals(UNPROVEN, P.tierFor(stat(100, -40.0, 0.1, 1.0, 120)))
+        // V5.0.7753 — mostly-lost marks no longer make a cell unjudgeable: it is NEGATIVE
+        // when it stays negative with every lost mark booked flat less cost.
+        assertEquals(NEGATIVE, P.tierFor(stat(100, -40.0, 0.1, 1.0, 120)))
         assertEquals(POSITIVE, P.tierFor(stat(100, 7.3, 0.4, 1.0, 10)))
         assertEquals(UNPROVEN, P.tierFor(stat(100, 1.5, 0.4, 1.0, 0)))
 
@@ -13854,7 +13896,9 @@ class GoldenTapeRegressionTest {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("private fun cellProofBlock7731("))
         assertTrue(fdg.contains("cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
-        assertTrue(fdg.indexOf("fieldManualBlock7715(ts, candidate, specialistLane, laneName, config.paperMode, proposedSizeSol, mode)?.let { return it }") <
+        // V5.0.7845 — the Field Manual runs inside specialistAdvisoryBlock7845, called just before.
+        val advisoryAt7845 = fdg.indexOf("\n        specialistAdvisoryBlock7845(\n")
+        assertTrue(advisoryAt7845 > 0 && advisoryAt7845 <
             fdg.indexOf("cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
         assertTrue(fdg.indexOf("private fun cellProofBlock7731(") < fdg.indexOf("fun evaluate("))
         val ladder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CellProofLadder7731.kt").readText()
@@ -13865,7 +13909,8 @@ class GoldenTapeRegressionTest {
         val sp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/SignalSourceProof7291.kt").readText()
         assertTrue(sp.contains("fun onForwardLabel7731(mint: String, netReturnFraction: Double, nowMs: Long = System.currentTimeMillis()) {"))
         assertTrue(sp.contains("private const val MIN_LABELS_7731 = 50"))
-        assertTrue(sp.contains("return labeledProves7731(l.n, l.mean(), l.pf())"))
+        // V5.0.7962 — labels feed economic value / live eligibility; isProven is settled closes only.
+        assertTrue(sp.contains("if (labeledProves7731(l.n, l.mean(), l.pf()) || liveEligible7962(source)) return 1.0"))
         assertTrue(com.lifecyclebot.engine.truth.SignalSourceProof7291.labeledProves7731(50, 0.02, 1.3))
         assertFalse(com.lifecyclebot.engine.truth.SignalSourceProof7291.labeledProves7731(49, 0.02, 1.3))
         assertFalse(com.lifecyclebot.engine.truth.SignalSourceProof7291.labeledProves7731(50, -0.01, 1.3))
@@ -13986,7 +14031,9 @@ class GoldenTapeRegressionTest {
         val pg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
         assertTrue(pg.contains("private const val LEARN_BEFORE_TIGHTEN_MIN_CLOSES_7734 = 10"))
         assertTrue(pg.contains("private const val SHADOW_SUPPORT_MIN_N_7734 = 10"))
-        assertTrue(pg.contains("if ((zeroWin || toxic) && shadowOutranksThinLiveRecord7734(lane, agg.sample)) continue\n                if (zeroWin || toxic) {"))
+        // V5.0.7784 inserted the live sized-not-paused branch between the shadow check and the pause.
+        val shadowAt7734 = pg.indexOf("if ((zeroWin || toxic) && shadowOutranksThinLiveRecord7734(lane, agg.sample)) continue")
+        assertTrue(shadowAt7734 > 0 && shadowAt7734 < pg.indexOf("\n                if (zeroWin || toxic) {"))
         val rel = pg.substringAfter("if (stillZeroWin7209 || stillToxic7209) {").substringBefore("val state = paused.remove(lane) ?: continue")
         assertTrue(rel.contains("if (!shadowOutranksThinLiveRecord7734(lane, a?.sample ?: 0)) continue"))
         assertTrue(rel.contains("LANE_PAUSE_RELEASED_SHADOW_POSITIVE_7734"))
@@ -14053,13 +14100,15 @@ class GoldenTapeRegressionTest {
 
         // Labeler: a decision-time price up to ten minutes old may start a label; open observations persist and restore.
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertTrue(lab.contains("private const val ENTRY_MARK_MAX_AGE_MS_7735 = 10L * 60_000L"))
+        // V5.0.7946 — the entry-mark window tightened to 90 s and the persisted keys were renamed;
+        // later versions widened the pending row format (17..34 fields).
+        assertTrue(lab.contains("private const val ENTRY_MARK_MAX_AGE_MS_7735 = 90_000L"))
         assertTrue(lab.contains("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
         assertTrue(lab.indexOf("fromRegistry != null -> {") < lab.indexOf("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
-        assertTrue(lab.contains(".putString(\"pending\", encodePending7735(now))"))
-        assertTrue(lab.contains("restorePending7735(p.getString(\"pending\", null), System.currentTimeMillis())"))
-        assertTrue(lab.contains("if (f.size !in 17..19) return@forEach"))
+        assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now))"))
+        assertTrue(lab.contains("restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())"))
+        assertTrue(lab.contains("if (f.size !in 17..34) return@forEach"))
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
@@ -14198,7 +14247,8 @@ class GoldenTapeRegressionTest {
         assertTrue(tp.exitFor(null, -1.0, 0.0, 46L * 60_000L, false, 4.0)!!.reason.startsWith("UNDERWATER_TIME_STOP_7739"))
         assertTrue(tp.exitFor(null, 1.0, 2.0, 46L * 60_000L, false, 4.0) == null)
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue(fdg.contains("        tradePlanBlock7739(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
+        // V5.0.7845 — the plan block runs in specialistAdvisoryBlock7845 (binding on trunk calls).
+        assertTrue(fdg.contains("?: tradePlanBlock7739(ts, candidate, specialistLane, admissionLane, paper, mode, candidateVersion, candidateAdmission)"))
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bs.contains("val planExit7739 = planTickRead7739(ts, pnlPctNow, peakPct, rawTickPnlPctNow, execPxForTickLock != null)"))
         assertTrue(bs.contains("val runnerLockDeferred7277 = planTrailsRemainder7935(ts)"))
@@ -14224,7 +14274,8 @@ class GoldenTapeRegressionTest {
         // No lane record: a hold-through-stop vote is not earned.
         assertFalse(c.holdThroughStopEarned("NO_SUCH_LANE_7740"))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue(fdg.contains("        councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, config.paperMode, mode)?.let { return it }"))
+        // V5.0.7845 — the council block runs in specialistAdvisoryBlock7845 (binding on trunk calls).
+        assertTrue(fdg.contains("?: councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, paper, mode)"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("if (extendHold6725 && pnlPctNow > -20.0 && com.lifecyclebot.engine.truth.Council7740.holdThroughStopEarned(agiLane)) {"))
         assertTrue(ex.contains("com.lifecyclebot.engine.truth.Council7740.holdThroughStopEarned(\"MOONSHOT\")) {"))
@@ -14272,7 +14323,8 @@ class GoldenTapeRegressionTest {
     fun V5_0_7743_launch_tape_reaches_its_consumers_and_live_probes_are_refused() {
         val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
         assertTrue(ws.contains("val drop = tradeSubscriptions7278 - wanted - lifecycleMints7420.keys"))
-        assertTrue(ws.contains("onTradeDetailCb7743?.invoke(mint, j.optString(\"traderPublicKey\", \"\"), sol7743, txType == \"buy\", soldFrac7743)"))
+        // The callback now also carries the curve's vSol.
+        assertTrue(ws.contains("onTradeDetailCb7743?.invoke(mint, j.optString(\"traderPublicKey\", \"\"), sol7743, txType == \"buy\", soldFrac7743, vSol)"))
         val orch = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
         assertTrue(orch.contains("synchronized(pendingTrades) { handlePumpTrade(mint, isBuy, solAmount, wallet) }"))
         assertTrue(orch.contains("try { onDevSell(mint, soldFractionOfHolding) } catch (_: Throwable) {}"))
@@ -14283,7 +14335,9 @@ class GoldenTapeRegressionTest {
         assertTrue(fdg.contains("if (dustTuitionTag4526 || finalSize < coreFloor4526) {"))
         val probe = fdg.substringAfter("private fun isLiveProbeTag7743(t: String): Boolean {").substringBefore("fun evaluate(")
         assertTrue(probe.contains("u == \"train_first_micro_probe\""))
-        assertTrue(probe.contains("u.startsWith(\"lane_policy:\")"))
+        // lane_policy:* is a size-damping tag (V5.9.1358 "trades SMALL, not never"; 7781/7784
+        // size down instead of vetoing), so it is no longer a refused probe tag.
+        assertFalse(probe.contains("u.startsWith(\"lane_policy:\")"))
         assertFalse(probe.contains("whale_follow_live_growth_probe\" ||"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
@@ -14326,7 +14380,8 @@ class GoldenTapeRegressionTest {
         val cte = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CopyTradeEngine.kt").readText()
         assertTrue(cte.indexOf("SmartMoneyFeed6394.onWhaleBuy(mint, buyerWallet, now)") < cte.indexOf("val isDupe = recentSignals.any"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("val laneBiasMult = 1.0"))
+        // The neutralised (1.0) lane bias multiplier has since been deleted outright.
+        assertFalse(ex.contains("laneBiasMult"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
@@ -14495,11 +14550,13 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7757_each_plan_wait_is_labelled_and_a_read_proven_positive_stops_refusing() {
         val tp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TradePlan7739.kt").readText()
-        assertTrue(tp.contains("return waitOrOverrule7757(ts, why, \"NO_PLAN_WAIT_7739:\$why:\${lr.why}\", nowMs)"))
-        assertTrue(tp.contains("return waitOrOverrule7757(ts, read.why, \"NO_PLAN_WAIT_7739:\${read.why}\", nowMs)"))
+        // V5.0.7878 — both waits also pass the runner flag.
+        assertTrue(tp.contains("return waitOrOverrule7757(ts, why, \"NO_PLAN_WAIT_7739:\$why:\${lr.why}\", nowMs, runner7878)"))
+        assertTrue(tp.contains("return waitOrOverrule7757(ts, read.why, \"NO_PLAN_WAIT_7739:\${read.why}\", nowMs, runner7878)"))
         val helper = tp.substringAfter("private fun waitOrOverrule7757(").substringBefore("\n    }\n")
         assertTrue(helper.contains("ForwardReturnLabeler7731.observe(ts, key, false, reason, nowMs)"))
-        assertTrue(helper.contains("if (CellProofLadder7731.tierFor(stat) != CellProofLadder7731.Tier.POSITIVE) return reason"))
+        // V5.0.7878/7948 — a paying runner cohort or a proven-positive cohort also overrules the wait.
+        assertTrue(helper.contains("if (!runnerOverrule7878 && !cohortProven7948 && CellProofLadder7731.tierFor(stat) != CellProofLadder7731.Tier.POSITIVE) return reason"))
         // The read stands until its refused tokens prove positive on a hundred labels.
         val l = com.lifecyclebot.engine.truth.CellProofLadder7731
         val pos = com.lifecyclebot.engine.truth.CellProofLadder7731.Tier.POSITIVE
@@ -14671,7 +14728,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7768_v3_reject_frees_ticket_true_priority_fee_dust_latch() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("ExecutableOpenGate.releaseAttemptNonTerminal6514(authResult.attemptId, ts.mint, cyclePrimaryLane, \"V3_FDG_REJECT_7768\")"))
+        // The V3 refusal is now terminal (no paper retry owner) and still frees the authorizer ticket.
+        assertTrue(bot.contains("try { ExecutableOpenGate.terminalizeAttempt6514(authResult.attemptId, ts.mint, cyclePrimaryLane) } catch (_: Throwable) {}"))
+        assertTrue(bot.contains("try { TradeAuthorizer.releasePosition(ts.mint, \"V3_FDG_REJECT_6533\","))
         // 0.024 SOL into $20k: 1% venue + ~1.7% priority + 1% slippage + small impact stays under half of TREASURY's 12%.
         val c = com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(0.024, 3.6, 20_000.0)
         assertTrue(c < 6.0)
@@ -14686,8 +14745,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7769_launch_runners_are_booked_and_judged_on_four_hours() {
         val lab = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
-        // $6.4k -> $1.2M: price and market cap both 187x, not the SOL/USD factor.
-        assertTrue(lab.runCorroborated7769(1.0e-6, 1.87e-4, 6_400.0, 1_200_000.0, 150.0))
+        // $6.4k -> $1.92M: price and market cap both 300x, well clear of the SOL/USD factor.
+        // (A 187x run at SOL $150 sits inside the +/-25% SOL-basis band, so it is now refused.)
+        assertTrue(lab.runCorroborated7769(1.0e-6, 3.0e-4, 6_400.0, 1_920_000.0, 150.0))
         // a 150x price jump with a flat market cap is a basis error
         assertFalse(lab.runCorroborated7769(1.0e-6, 1.5e-4, 6_400.0, 6_500.0, 150.0))
         // the SOL/USD factor itself stays a basis error even if the cap agrees
@@ -14780,13 +14840,16 @@ class GoldenTapeRegressionTest {
     @org.junit.Test
     fun `V5_0_7781 discipline verdicts size down in liveBuy instead of vetoing doBuy`() {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val doBuy = ex.substringAfter("internal fun doBuy(").substringBefore("val laneTilt4132")
-        assertTrue(doBuy.contains("DISCIPLINE_SIZE_DOWN_7781"))
-        assertTrue(doBuy.contains("SCANNER_BRIDGE_SIZE_DOWN_7781"))
+        // V5.0.7835 — doBuy executes the sealed ticket size; the discipline size-down
+        // (pause / lane timeout / scanner bridge -> 0.35x) lives only in liveBuy.
+        val doBuy = ex.substringAfter("internal fun doBuy(").substringBefore("val isPaperMode = isPaperRT()")
+        assertTrue(doBuy.contains("val effSol = requireNotNull(dispatchIntent7835).resolvedSize"))
         assertFalse(doBuy.contains("\"DISCIPLINE_VETO_V4132\""))
         assertFalse(doBuy.contains("Discipline veto:"))
         assertTrue(doBuy.contains("RUG_BLACKLIST_VETO_V4133"))
         assertTrue(ex.contains("disciplineRecoverySizeMultiplier4460 = 0.35"))
+        assertTrue(ex.contains("else               -> \"SCANNER_BRIDGE_VETO\""))
+        assertTrue(ex.contains("path=liveBuy.enter sizeMult=0.35 action=continue_to_live_buy"))
     }
 
     @org.junit.Test
@@ -14843,7 +14906,10 @@ class GoldenTapeRegressionTest {
     @org.junit.Test
     fun `V5_0_7783 an admitted trade plan is the executor buy zone and invalidation`() {
         val cs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt").readText()
-        val planAt = cs.indexOf("TradePlan7739.freshPlan7783(")
+        // V5.0.7790 reads the plan once (after true hard safety) and V5.0.7807 mirrors it in
+        // preTicketRiskRewardPoor7807; the admission as buy zone is still the plan7783 step.
+        assertTrue(cs.indexOf("TRUE_HARD_SAFETY_OR_HOLDER_RISK") < cs.indexOf("val plan7790 = try { com.lifecyclebot.engine.truth.TradePlan7739.freshPlan7783("))
+        val planAt = cs.indexOf("val plan7783 = plan7790")
         assertTrue(planAt > 0)
         assertTrue(planAt < cs.indexOf("return deny(\"NO_LOGICAL_BUY_ZONE\""))
         assertTrue(planAt < cs.indexOf("return deny(\"RISK_REWARD_POOR\""))
@@ -14860,7 +14926,9 @@ class GoldenTapeRegressionTest {
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt").readText()
         val skip = g.indexOf("LANE_AUTO_PAUSE_SIZED_NOT_PAUSED_7784")
         assertTrue(skip > 0)
-        assertTrue(skip < g.indexOf("paused[lane] = PauseState("))
+        // The first PauseState( in the file is the persisted-pause restore in ensureLoaded();
+        // the live skip must precede the pause the evaluator would otherwise create.
+        assertTrue(g.indexOf("paused[lane] = PauseState(", skip) > skip)
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val partial = ex.substringAfter("if (_fanoutSide.equals(\"PARTIAL_SELL\", true)) {").substringBefore("PARTIAL_SELL_MOVEMENT_FANOUT_6041")
         assertTrue(partial.contains("PARTIAL_LEG_NOT_COUNTED_AS_STREAK_TRADE_7784"))
