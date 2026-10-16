@@ -57,7 +57,10 @@ class Repair6492AcceptanceTest {
         val fresh = CanonicalCapitalAuthority6450.snapshot { 1.4 }
         val stale = CanonicalCapitalAuthority6450.snapshot { 0.0 }
         assertEquals(1.4, fresh.openMarketValueSol, 1e-9)
-        assertEquals(1.4, stale.openMarketValueSol, 1e-9)
+        // V5.0.7160 — a stale last-good mark above cost is held at cost
+        // (STALE_MARK_PROFIT_WITHHELD_7160): stale may not create profit, and
+        // the basis is still never zero.
+        assertEquals(1.0, stale.openMarketValueSol, 1e-9)
         assertEquals(1, stale.staleMarkMints)
         assertTrue(stale.totalEquitySol > stale.cashSol)
     }

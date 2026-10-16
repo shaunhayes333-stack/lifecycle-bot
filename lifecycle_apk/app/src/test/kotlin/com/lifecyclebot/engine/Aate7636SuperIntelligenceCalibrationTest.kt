@@ -30,7 +30,8 @@ class Aate7636SuperIntelligenceCalibrationTest {
 
     @Test fun oracleStampsBothColdAndMaturePlanningDecisions() {
         val s = File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
-        val count = "SuperIntelligenceCalibration7636.recordDecision(".toRegex().findAll(s).count()
+        // Literal count: the call text contains an unbalanced "(" and is not a valid regex.
+        val count = s.split("SuperIntelligenceCalibration7636.recordDecision(").size - 1
         assertTrue(count >= 2)
     }
 }

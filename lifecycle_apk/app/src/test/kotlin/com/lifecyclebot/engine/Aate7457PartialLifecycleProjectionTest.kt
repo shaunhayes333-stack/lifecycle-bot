@@ -20,7 +20,8 @@ class Aate7457PartialLifecycleProjectionTest {
         val fn = s.substringAfter("fun onPartial(positionId: String)").substringBefore("/**\n     * CAS OPEN/PARTIAL")
         assertTrue(fn.contains("CanonicalPositionAuthority6441.getPosition(positionId)"))
         assertTrue(fn.contains("CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED"))
-        assertTrue(fn.contains("canonical.remainingQtyRaw > java.math.BigInteger.ZERO"))
+        // Expressed as the refusal guard: a canonical partial with no remaining quantity is refused.
+        assertTrue(fn.contains("canonical.remainingQtyRaw <= java.math.BigInteger.ZERO"))
         assertTrue(fn.contains("POSITION_STATE_PARTIAL_REFUSED_NO_CANONICAL_PROOF_7457"))
     }
 

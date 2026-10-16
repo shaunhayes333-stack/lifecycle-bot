@@ -29,44 +29,21 @@ import java.io.File
 class Bundle6381LiveModePromoteTest {
 
     @Test
-    fun executor_auto_promotes_execmode_when_runtime_says_live() {
-        val txt = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(
-            "V5.0.6381: Executor.paperOrLiveBuy must auto-promote execMode from PAPER to LIVE when runtime says LIVE (no more LIVE_MODE_DESYNC on stale sub-trader ExecutionContext)",
-            txt.contains("LIVE_MODE_AUTO_PROMOTE_6381")
-        )
-        assertTrue(
-            "V5.0.6381: the auto-promote branch must fire ONLY when runtimePaper==false AND execCtx.execMode==PAPER (never demote LIVE→PAPER)",
-            txt.contains("!runtimePaper && execCtx.execMode == ExecMode.PAPER")
-        )
-    }
-
-    @Test
     fun executor_still_blocks_true_safety_mismatches() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         // V5.0.6381: runtimePaper=true (real desync — bot is running paper mode
         //   but this call is trying to open a live position) must still hard-abort.
-        // V5.0.6383: paperFlag/shadowFlag on an already-open position no longer
-        //   hard-aborts — those are stale relics from prior paper/shadow runs on
-        //   the same mint and are now auto-cleared so live volume can recover.
-        //   See LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383 counter.
         assertTrue(
             "V5.0.6381: runtimePaper=true must still hard-abort (real desync)",
-            txt.contains("if (runtimePaper) return liveAbortDesync"),
+            txt.contains("if (runtimePaper || execModeResolved != ExecMode.LIVE) {"),
         )
+        // The 6381 auto-promote and 6383 stale-flag auto-clear were superseded by the
+        // immutable ExecutionContext authority (see GoldenTapeRegressionTest
+        // live_execution_attempts_have_immutable_mode_tokenmap_first_and_terminal_events):
+        // an already-open paper/shadow position is now a hard desync abort.
         assertTrue(
-            "V5.0.6383: stale paperFlag/shadowFlag on already-open position must auto-clear (not hard-abort)",
-            txt.contains("LIVE_MODE_STALE_FLAG_AUTO_CLEARED_6383"),
-        )
-    }
-
-    @Test
-    fun auto_promote_emits_forensic_telemetry() {
-        val txt = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(
-            "V5.0.6381: auto-promote must emit LIVE_MODE_AUTO_PROMOTE_6381 counter + ForensicLogger line so the operator can see the count in the pipeline dump",
-            txt.contains("PipelineHealthCollector.labelInc(\"LIVE_MODE_AUTO_PROMOTE_6381\")") &&
-                txt.contains("promotedTo=LIVE")
+            "an already-open paper/shadow position must hard-abort a live buy",
+            txt.contains("return liveAbortDesync(\"existing_position_belongs_to_paper_or_shadow\")"),
         )
     }
 }

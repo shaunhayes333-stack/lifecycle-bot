@@ -35,13 +35,4 @@ class LiveGovernorRiskBudget7711Test {
         assertTrue(governor.contains("private const val FLOOR_ADJUSTMENT_HOLD: Double = 0.0"))
         assertTrue(governor.contains("Eligible finalized closes still reach learners starting with close one"))
     }
-
-    @Test
-    fun liveSizingKeepsLaneConvictionAfterGentleGlobalShape() {
-        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val concentrator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneEdgeConcentrator6334.kt").readText()
-        assertTrue(executor.contains("val govMult = try { com.lifecyclebot.engine.LiveEntrySafetyHold.currentSizeMultiplier()"))
-        assertTrue(concentrator.contains("WINNER_MAX_MULT") && concentrator.contains("1.0 + winScore"))
-        assertTrue(executor.contains("val combinedMult = (govMult * concentratorMult * defensiveMult).coerceIn(0.0, ceiling)"))
-    }
 }

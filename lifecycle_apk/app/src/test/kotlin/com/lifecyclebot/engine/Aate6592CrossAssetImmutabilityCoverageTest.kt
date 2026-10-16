@@ -116,7 +116,9 @@ class Aate6592CrossAssetImmutabilityCoverageTest {
             "Class-attributed auth/intent/dispatch belongs to the canonical authority, not CryptoAltTrader",
             contractSrc.contains("markAuthAllowFor6551(candidate.assetClass") &&
                 contractSrc.contains("markIntentCreatedFor6551(candidate.assetClass") &&
-                contractSrc.contains("markAdapterDispatchFor6551(intentAssetClass6569(intent)") &&
+                // V5.0.7815 — the dispatch class is resolved once (cls7815) and reused.
+                contractSrc.contains("val cls7815 = intentAssetClass6569(intent)") &&
+                contractSrc.contains("markAdapterDispatchFor6551(cls7815") &&
                 !altSrc.contains("markAuthAllowFor6551(") && !altSrc.contains("markIntentCreatedFor6551(")
         )
     }

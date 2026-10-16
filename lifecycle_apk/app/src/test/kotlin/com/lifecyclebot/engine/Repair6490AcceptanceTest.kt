@@ -16,18 +16,22 @@ class Repair6490AcceptanceTest {
         // order to canonical minimum." Sub-minimum requests are promoted
         // exactly once to minExec when the authoritative cash and lane
         // hard cap can fund it.
+        // V5.0.7277 — the paper executable minimum is now the fee-aware floor
+        // (~0.1073 SOL, FeeAwareSizeFloor7277), above the 0.05 lane minimum, so the
+        // account and lane cap are sized to fund THAT minimum.
+        val minExec = OrderSizeResolver6441.paperExecutableMinimumSol()
         PaperAccountLedger6430.resetForTest()
-        PaperAccountLedger6430.initialize(0.0583)
+        PaperAccountLedger6430.initialize(0.2)
         val r = OrderSizeResolver6441.resolve(
             requestedSol = 0.021,
             laneName = "SHITCOIN",
-            walletSol = 0.0583,
+            walletSol = 0.2,
             paperMode = true,
-            laneRiskCapSol = 0.05,
+            laneRiskCapSol = 0.2,
             laneMinExecutableSol = 0.05,
         )
         assertTrue(r.executable)
-        assertEquals(0.05, r.finalSizeSol, 1e-9)
+        assertEquals(minExec, r.finalSizeSol, 1e-9)
         assertEquals("OK_MIN_PROMOTED_6600", r.reason)
     }
 

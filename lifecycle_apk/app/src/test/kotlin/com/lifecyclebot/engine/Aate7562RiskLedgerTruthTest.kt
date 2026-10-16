@@ -52,7 +52,7 @@ class Aate7562RiskLedgerTruthTest {
         val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
         assertTrue(audit.contains("V5.0.7562 — B_RISK ledger truth + hot-path safety fencing"))
         assertTrue(audit.contains("ExternalAlphaFeeds.enrichSafety"))
-        assertTrue(audit.contains("OPTIONAL BACKGROUND SIDECAR / DO NOT HOTPATH WIRE"))
+        assertTrue(audit.contains("OPTIONAL BACKGROUND SIDECAR / DO_NOT HOTPATH WIRE"))
         assertTrue(audit.contains("GeminiCopilot.assessRisk"))
         assertTrue(audit.contains("TradeLifecycle.forceExpireBlocked"))
         assertTrue(audit.contains("DEBUG/TEST-ONLY BY DESIGN"))

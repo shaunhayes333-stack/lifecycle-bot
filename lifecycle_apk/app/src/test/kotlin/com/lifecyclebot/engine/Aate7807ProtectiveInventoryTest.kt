@@ -148,7 +148,10 @@ class Aate7807ProtectiveInventoryTest {
         val exec = src("engine/Executor.kt")
         val start = exec.indexOf("fun completeVerifiedLiveBuyWithProof(")
         assertTrue(start > 0)
-        val end = exec.indexOf("return true", start)
+        // V5.0.7863 added an early `return true` (exact reservation already closed) before
+        // the commit, so bound the body at the first statement after the commit check.
+        val end = exec.indexOf("val sealedLiveIntent6613 = sealedIntent7835", start)
+        assertTrue(end > start)
         val body = exec.substring(start, end)
         val commitOk = body.indexOf("if (!canonicalOpen6486)")
         assertTrue("canonical commit check present", commitOk > 0)
