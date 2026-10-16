@@ -23,9 +23,13 @@ class Aate6709ProtectiveExitAuthorityTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val risk = src.substringAfter("fun riskCheck(ts: TokenState")
             .substringBefore("PROTECTIVE_EXIT_DELIVERY_ERROR_6600")
-        assertTrue(risk.contains("effStopPctRaw6709"))
-        assertTrue(risk.contains("val effStopPct = kotlin.math.abs(effStopPctRaw6709)"))
-        assertTrue(risk.contains("PROTECTIVE_EXIT_STOP_SIGN_NORMALIZED_6709"))
-        assertTrue(risk.contains("effStopPct.isFinite() && effStopPct > 0.0"))
+        // V5.0.6882 — riskCheck delegates the stop maths to protectiveExitThresholds6882.
+        assertTrue(risk.contains("protectiveExitThresholds6882("))
+        val thresholds = src.substringAfter("fun protectiveExitThresholds6882(")
+            .substringBefore("fun riskCheck(ts: TokenState")
+        assertTrue(thresholds.contains("val effStopPctRaw = com.lifecyclebot.engine.cortex.StopAuthority7887.stopMagFor(ts)"))
+        assertTrue(thresholds.contains("val effStopPctGlobal7366 = kotlin.math.abs(effStopPctRaw)"))
+        assertTrue(thresholds.contains("PROTECTIVE_EXIT_STOP_SIGN_NORMALIZED_6709"))
+        assertTrue(thresholds.contains("effStopPct.isFinite() && effStopPct > 0.0"))
     }
 }

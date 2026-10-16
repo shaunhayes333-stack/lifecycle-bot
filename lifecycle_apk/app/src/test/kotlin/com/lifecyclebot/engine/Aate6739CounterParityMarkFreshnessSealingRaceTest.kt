@@ -124,7 +124,16 @@ class Aate6739CounterParityMarkFreshnessSealingRaceTest {
             timestampMs = now - 121_000L,
         )
         val r = CanonicalPriceMarkRegistry6522.resolveBestSourceEvidence6734(mint, listOf(e), now)
-        assertFalse("121 s old evidence must NOT promote (execution freshness contract)", r.promoted)
+        // V5.0.6743 — 121-300 s evidence may route to OBSERVATION_SCORING, never to the executable slot.
+        assertFalse(
+            "121 s old evidence must NOT promote (execution freshness contract)",
+            r.mark?.purpose == com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+        )
+        assertNull(
+            CanonicalPriceMarkRegistry6522.getFresh6734(
+                mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, now,
+            ),
+        )
     }
 
     // ─── 3. Sealing race defer ────────────────────────────────────
@@ -137,13 +146,15 @@ class Aate6739CounterParityMarkFreshnessSealingRaceTest {
             src.contains("SEALING_RACE_DEFER") ||
                 src.contains("FDG_ALLOW_SEALING_RACE_DEFERRED_6739"),
         )
+        // V5.0.7219/7220 — the 500 ms stopwatch became a candidate-version identity
+        // check with a bounded deferral count; V5.0.7383 applies it to live too.
         assertTrue(
-            "Defer branch must inspect state.updatedAtMs against a bounded race window",
-            src.contains("stateAgeMs in 0..500L"),
+            "Defer branch must require the FDG state to describe the current candidate",
+            src.contains("stateVersion7220 == currentCandidateVersion"),
         )
         assertTrue(
-            "Defer must be PAPER-only so LIVE retains the strict invariant",
-            src.contains("paperMode && stateAgeMs in 0..500L"),
+            "Defer must be bounded so a seal that never lands still raises the invariant",
+            src.contains("priorDeferrals7219 < MAX_SEALING_RACE_DEFERRALS_7219"),
         )
         assertTrue(
             "Defer must soft-block with the dedicated reason (not the invariant counter)",

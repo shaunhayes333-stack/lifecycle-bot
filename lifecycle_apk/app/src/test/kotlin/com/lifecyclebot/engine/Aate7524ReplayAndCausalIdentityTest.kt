@@ -15,7 +15,9 @@ class Aate7524ReplayAndCausalIdentityTest {
             Trade(side="SELL", mode="paper", sol=1.1, price=1.1, ts=3L, mint="A", positionId="PA", pnlSol=0.1, soldCostBasisSol=1.0, postCostSol=0.0, economicEventId="A_SELL"),
             Trade(side="SELL", mode="paper", sol=1.1, price=1.1, ts=4L, mint="A", positionId="PA", pnlSol=0.1, soldCostBasisSol=1.0, postCostSol=0.0, economicEventId="A_SELL"),
         )
-        val s = PaperAccountReplay6461.replayForTest(10.0, rows)
+        // The replay consumes TradeHistoryStore's newest-first order (it walks asReversed()),
+        // so the chronological fixture is handed over newest-first.
+        val s = PaperAccountReplay6461.replayForTest(10.0, rows.asReversed())
         assertEquals(2.0, s.openCostBasisSol, 1e-9)
     }
 

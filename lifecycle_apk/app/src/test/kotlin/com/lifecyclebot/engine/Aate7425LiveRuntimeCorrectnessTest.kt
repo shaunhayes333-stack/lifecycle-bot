@@ -11,7 +11,9 @@ class Aate7425LiveRuntimeCorrectnessTest {
         assertTrue(src.contains("authoritativePaperMode7425()"))
         assertTrue(src.contains("RuntimeModeAuthority.isPaper()"))
         assertTrue(src.contains("mode = if (authoritativePaperMode7425()) \"PAPER\" else \"LIVE\""))
-        assertTrue(src.contains("routeAvailable = authoritativePaperMode7425() || candidate.executionAdapter != \"NONE\""))
+        // V5.0.7803 — the route proof reads the same authoritative mode via paper7803.
+        assertTrue(src.contains("val paper7803 = authoritativePaperMode7425()"))
+        assertTrue(src.contains("routeAvailable = paper7803 || candidate.executionAdapter == \"CRYPTO_UNIVERSE_EXECUTOR\""))
         assertTrue(src.contains("CRYPTO_MODE_MIRROR_HEALED_7425"))
     }
 

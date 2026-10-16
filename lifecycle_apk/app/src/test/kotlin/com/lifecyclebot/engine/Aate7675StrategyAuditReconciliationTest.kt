@@ -17,7 +17,7 @@ class Aate7675StrategyAuditReconciliationTest {
 
     @Test fun legacyFreshLaunchAuthoritiesStayRetired() {
         val a = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
-        assertTrue(a.contains("EarlyEntryScout6390.evaluate() is superseded/do-not-resurrect"))
-        assertTrue(a.contains("ModeSpecificScanners.scanFreshLaunch() classified legacy/superseded"))
+        assertTrue(a.contains("`EarlyEntryScout6390.evaluate()` is superseded/do-not-resurrect"))
+        assertTrue(a.contains("`ModeSpecificScanners.scanFreshLaunch()` classified legacy/superseded"))
     }
 }

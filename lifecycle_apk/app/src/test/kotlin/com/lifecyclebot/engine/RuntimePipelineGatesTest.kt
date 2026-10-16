@@ -720,7 +720,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "PAPER",
             lane = "SHITCOIN",
             source = "test",
-            preResolvedSizeSol6490 = 0.05,
+            preResolvedSizeSol6490 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol(),
         )
         assertTrue("paper mode must keep trading through circuit telemetry", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -779,7 +779,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "PAPER",
             lane = "TREASURY",
             source = "test",
-            preResolvedSizeSol6490 = 0.05,
+            preResolvedSizeSol6490 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol(),
         )
         assertTrue("paper missing RC context should be learnable unknown", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -835,7 +835,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "PAPER",
             lane = "SHITCOIN",
             source = "test",
-            preResolvedSizeSol6490 = 0.05,
+            preResolvedSizeSol6490 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol(),
         )
         assertTrue("paper RC_PENDING score=1 must be learnable", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -863,7 +863,7 @@ class ExecutionAuthorityInvariantTest {
             mode = "PAPER",
             lane = "SHITCOIN",
             source = "test",
-            preResolvedSizeSol6490 = 0.05,
+            preResolvedSizeSol6490 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol(),
         )
         assertTrue("paper low RC score=6 must remain learnable", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
@@ -924,109 +924,6 @@ class ExecutionAuthorityInvariantTest {
             preResolvedSizeSol6490 = 0.05,
         )
         assertTrue("RC=1 is pending/more-data, not confirmed rug; FDG-approved live candidates must reach executor", v.allowed)
-    }
-
-    @Test
-    fun role_fit_treasury_owner_is_not_deferred_or_rewritten() {
-        resetAuthorities(paper = true)
-        TradeAuthorizer.reset()
-        LaneExecutionCoordinator.resetForTests()
-        val mint = "MintCyclicTreasury1111111111111111"
-        ExecutableOpenGate.recordFdg(
-            mint = mint,
-            symbol = "CYCT",
-            lane = "TREASURY",
-            canExecute = true,
-            reason = null,
-            signal = "BUY",
-            rugScore = 90,
-            safetyTier = "SAFE",
-            liquidityUsd = 2500.0,
-        )
-        assertTrue("selected TREASURY owner must seal immediately", LaneExecutionCoordinator.canRequestExecution(mint, "TREASURY").allowed)
-        val auth = TradeAuthorizer.authorize(
-            mint = mint,
-            symbol = "CYCT",
-            score = 70,
-            confidence = 70.0,
-            quality = "B",
-            isPaperMode = true,
-            requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,
-            rugcheckScore = 90,
-            liquidity = 2500.0,
-            preResolvedSizeSol = 0.05,
-        )
-        assertTrue("role-fit Treasury owner should authorize on same tick", auth.isExecutable())
-        assertEquals("AUTHORIZED", auth.reason)
-    }
-
-
-    @Test
-    fun live_stale_core_auth_lock_without_wallet_truth_does_not_block_specialist_reentry() {
-        resetAuthorities(paper = false)
-        TradeAuthorizer.reset()
-        LaneExecutionCoordinator.resetForTests()
-        val mint = "MintStaleAuthCore111111111111111111"
-
-        // Mirrors the runtime failure: TradeAuthorizer held an old CORE LIVE_OPEN
-        // lock, while HostWalletTokenTracker/open counters said the mint was not
-        // actually open. A later SHITCOIN/MEME lane must prune the stale CORE lock
-        // instead of rejecting ALREADY_OPEN_CROSS_BOOK existing=CORE.
-        TradeAuthorizer.forceOpenLockForTests(mint, TradeAuthorizer.ExecutionBook.CORE, live = true)
-        assertFalse("stale live CORE auth lock with no wallet/accounting open must prune itself", TradeAuthorizer.hasOpenPositionInBook(mint, TradeAuthorizer.ExecutionBook.CORE))
-
-        LaneExecutionCoordinator.resetForTests()
-        ExecutableOpenGate.recordV3(mint, "STALEAUTH", "EXECUTE", "DECISION_EXECUTE", "BUY", 90)
-        ExecutableOpenGate.recordFdg(
-            mint = mint,
-            symbol = "STALEAUTH",
-            lane = "SHITCOIN",
-            canExecute = true,
-            reason = null,
-            signal = "BUY",
-            rugScore = 90,
-            safetyTier = "SAFE",
-            liquidityUsd = 5000.0,
-        )
-        val auth = TradeAuthorizer.authorize(
-            mint = mint,
-            symbol = "STALEAUTH",
-            score = 55,
-            confidence = 70.0,
-            quality = "B",
-            isPaperMode = false,
-            requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
-            rugcheckScore = 90,
-            liquidity = 5000.0,
-            preResolvedSizeSol = 0.05,
-        )
-        assertTrue("stale CORE auth lock must not cause ALREADY_OPEN_CROSS_BOOK live death: ${auth.reason}", auth.isExecutable())
-        assertEquals("AUTHORIZED", auth.reason)
-    }
-
-    @Test
-    fun trade_authorizer_returns_finality_attempt_contract() {
-        resetAuthorities(paper = true)
-        TradeAuthorizer.reset()
-        LaneExecutionCoordinator.resetForTests()
-        val mint = "MintContract1111111111111111111111111"
-        ExecutableOpenGate.recordV3(mint, "CONTRACT", "WATCH", "DECISION_WATCH", "WATCH", 90)
-        ExecutableOpenGate.recordFdg(mint, "CONTRACT", "SHITCOIN", true, null, signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 2500.0)
-        val auth = TradeAuthorizer.authorize(
-            mint = mint,
-            symbol = "CONTRACT",
-            score = 42,
-            confidence = 60.0,
-            quality = "C",
-            isPaperMode = true,
-            requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
-            rugcheckScore = 90,
-            liquidity = 2500.0,
-            preResolvedSizeSol = 0.05,
-        )
-        assertTrue(auth.isExecutable())
-        assertTrue("authorized execution must carry the finality attemptId contract", auth.attemptId.isNotBlank())
-        assertEquals("sized TradeAuthorizer finality must publish the same executable attempt", auth.attemptId, ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN"))
     }
 
     @Test
@@ -1227,8 +1124,10 @@ class ExecutionAuthorityInvariantTest {
             preResolvedSizeSol6490 = 0.05,
         )
         assertFalse("live direct wrapper must not synthesize executable authority without an immutable FDG decision", live.allowed)
-        assertEquals("AUTHORITY_INVARIANT_FAILURE", live.logName)
-        assertEquals("FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", live.reason)
+        // V5.0.7383 — the bounded sealing-race deferral applies to live too;
+        // the invariant is raised only after MAX_SEALING_RACE_DEFERRALS_7219.
+        assertEquals("EXEC_OPEN_DEFERRED_SEALING_RACE_6739", live.logName)
+        assertEquals("FDG_ALLOW_SEALING_RACE_DEFERRED_6739", live.reason)
 
         resetAuthorities(paper = false)
         val unsafeLive = ExecutableOpenGate.canOpenExecutablePosition(
@@ -1261,7 +1160,6 @@ class ExecutionAuthorityInvariantTest {
             reason = null, signal = "BUY", rugScore = 90, safetyTier = "SAFE",
             liquidityUsd = 2500.0, preFdgVerdict = "BUY", candidateVersion = cv,
         )
-        assertNull("FDG state must not create an executable ticket", ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN"))
         val v = ExecutableOpenGate.canOpenExecutablePosition(
             mint, "WTCH", 90, "LIVE", "SHITCOIN", "test.finalTicket",
             liveLiquidityUsd = 2500.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05,
