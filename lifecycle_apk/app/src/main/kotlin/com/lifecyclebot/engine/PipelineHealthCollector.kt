@@ -1922,7 +1922,7 @@ object PipelineHealthCollector {
                     },
                 ).append('\n')
             } catch (_: Throwable) {}
-            sb.append("  Chain reconcile (§8144): ").append(try { ReconcileRunner8144.statusLine8144() } catch (_: Throwable) { "unavailable" }).append('\n')
+            appendReconcile8144(sb)
             sb.append(line("LAB sandbox projection:", labProjection, "isolated hypotheses; never canonical inventory")).append('\n')
             sb.append("  Held supervisor (§7246):     ")
                 .append(try { com.lifecyclebot.engine.HeldPositionSupervisor7246.statusLine() } catch (_: Throwable) { "unavailable" })
@@ -4658,6 +4658,11 @@ object PipelineHealthCollector {
     /** V5.0.8144 — distinct label keys kept (each ~150 B); census reads [labelKeyCount8144]. */
     const val LABEL_KEY_CAP_8144 = 20_000
     fun labelKeyCount8144(): Int = labelCounts.size
+
+    /** V5.0.8144 — the chain reconcile line, outside dumpText (ART method budget). */
+    private fun appendReconcile8144(sb: StringBuilder) {
+        sb.append("  Chain reconcile (§8144): ").append(try { ReconcileRunner8144.statusLine8144() } catch (_: Throwable) { "unavailable" }).append('\n')
+    }
 
     /** V5.0.8087 — add [n] to a label at once (per-mint counts from one batch). */
     fun labelAdd(key: String, n: Long) {
