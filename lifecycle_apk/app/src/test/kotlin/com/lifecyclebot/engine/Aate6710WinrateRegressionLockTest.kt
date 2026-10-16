@@ -15,7 +15,8 @@ class Aate6710WinrateRegressionLockTest {
         assertTrue(fdg.contains("WR_ROLL50_COLLAPSE_BLOCK"))
         assertFalse(fdg.contains("WR_ROLL50_COLLAPSE_PROBE"))
 
-        val exec = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        // The WR-recovery score floor lives in WrRecoveryPartial.kt (moved out of Executor).
+        val exec = File("src/main/kotlin/com/lifecyclebot/engine/WrRecoveryPartial.kt").readText()
         assertTrue(exec.contains("s.rollingCollapse -> 60"))
         assertTrue(exec.contains("val delta = if (s.rollingCollapse)"))
         assertFalse(exec.contains("s.rollingCollapse -> 35"))

@@ -71,10 +71,11 @@ class MarkAuthorityProviderNormalization6548Test {
 
     @Test
     fun unknown_provider_is_still_blocked() {
-        // Whitelist itself must not be widened — only the family collapse
-        // is normalised. Genuinely unrecognised sources still block.
-        assertFalse(evaluate("SOME_RANDOM_PROVIDER_2026").priceAuthoritative)
+        // V5.0.7148 — an unlisted provider NAME is admitted when provenance
+        // vouches for the observation; symbolic/blank bases still block.
         assertFalse(evaluate("").priceAuthoritative)
+        assertFalse(evaluate("UNKNOWN").priceAuthoritative)
+        assertFalse(evaluate("COST_BASIS_6548").priceAuthoritative)
     }
 
     @Test

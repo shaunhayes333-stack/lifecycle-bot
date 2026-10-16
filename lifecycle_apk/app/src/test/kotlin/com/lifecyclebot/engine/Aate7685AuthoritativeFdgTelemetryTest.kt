@@ -10,7 +10,7 @@ class Aate7685AuthoritativeFdgTelemetryTest {
         assertTrue(s.contains("fdgFinalAllow7685"))
         assertTrue(s.contains("fdgFinalBlock7685"))
         assertTrue(s.contains("if (phaseTag == \"FDG\")"))
-        assertTrue(s.contains("val allowed7685 = !verdict.equals(\"BLOCK\", ignoreCase = true)"))
+        assertTrue(s.contains("val allowed7685 = verdict.equals(\"BUY\", ignoreCase = true)"))
     }
 
     @Test fun reportPrefersFinalSealedPopulationAndKeepsLegacyMirrorDiagnosticOnly() {
@@ -23,7 +23,7 @@ class Aate7685AuthoritativeFdgTelemetryTest {
 
     @Test fun executionAuthorityAlreadyEmitsOneFinalFdgVerdict() {
         val g = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue(g.contains("val verdictLabel = if (executableFdg) finalVerdict else \"BLOCK\""))
+        assertTrue(g.contains("val verdictLabel = if (executableFdg) \"BUY\" else \"BLOCK\""))
         assertTrue(g.contains("ForensicLogger.decision(ForensicLogger.PHASE.FDG, symbol, verdictLabel"))
     }
 }

@@ -22,12 +22,14 @@ class Aate7431SmartMoneyLaunchEvidenceTest {
 
     @Test fun realCopyBuyFeedsLaunchCluster() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/CopyTradeEngine.kt").readText()
-        val event = src.indexOf("val signal = CopySignal")
-        val write = src.indexOf("SmartMoneyFeed6394.onWhaleBuy", event)
+        // V5.0.7745 — the evidence write happens BEFORE the copy-signal filters
+        // (dupe window / SOL floor), then the real CopySignal and its callback.
+        val write = src.indexOf("SmartMoneyFeed6394.onWhaleBuy")
+        val event = src.indexOf("val signal = CopySignal", write)
         val callback = src.indexOf("onCopySignal(mint, buyerWallet, solAmount)", event)
-        assertTrue(event >= 0)
-        assertTrue(write > event)
-        assertTrue(callback > write)
+        assertTrue(write >= 0)
+        assertTrue(event > write)
+        assertTrue(callback > event)
         assertTrue(src.contains("SMART_MONEY_FEED_BUY_WRITTEN_7431"))
     }
 

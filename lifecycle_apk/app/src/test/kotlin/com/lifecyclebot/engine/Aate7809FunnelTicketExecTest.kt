@@ -115,7 +115,7 @@ class Aate7809FunnelTicketExecTest {
     @Test fun sourceContracts() {
         val ex = src("engine/Executor.kt")
         assertTrue(ex.contains("recordEntryExecOpen7809(entryLane6450, executionAttemptId6514, sealedIntent6613?.attemptId)"))
-        assertTrue(ex.contains("recordEntryExecOpen7809(liveEntryLane6568, recoveredLiveAttemptId, sealedLiveIntent6613?.attemptId ?: pidLive6486)"))
+        assertTrue(ex.contains("recordEntryExecOpen7809(liveEntryLane6568, requireNotNull(sealedLiveIntent6613).attemptId, sealedLiveIntent6613.attemptId)"))
         val sheet = src("engine/ToolkitSignalSheet.kt")
         // Advisory sizes are still withheld; only a sealed/ticketed attempt counts.
         assertTrue(sheet.contains("stage == \"SIZED_EXECUTABLE\" && sealedIntent7471 == null && boundLineage7807 == null"))

@@ -87,8 +87,16 @@ class Aate6734RecoveryIntegrityTest {
             CanonicalPriceMarkRegistry6522.SourceEvidence6734("TUPLE6734", "pair6734", "USD", "DEXSCREENER_PAIR_POLL", 0.1234, 12_345.0, now - 150_000L),
             CanonicalPriceMarkRegistry6522.SourceEvidence6734("TUPLE6734", "pair6734", "USD", "", 0.1240, 12_345.0, now),
         ), now)
-        assertFalse(r.promoted)
-        assertNull(CanonicalPriceMarkRegistry6522.get("TUPLE6734"))
+        // V5.0.6743 §OBSERVATION_FRESHNESS_ROUTING — the 150s-old provider tuple may
+        // become an observation-only mark, but only as its OWN complete tuple: the
+        // blank-source row's fresher price/timestamp are never spliced onto it.
+        if (r.promoted) {
+            assertEquals("DEXSCREENER_PAIR_POLL", r.mark!!.source)
+            assertEquals(now - 150_000L, r.mark!!.timestampMs)
+            assertEquals(0.1234, r.mark!!.priceUsd.value.toDouble(), 1e-12)
+            assertEquals(CanonicalMarkPurpose6570.OBSERVATION_SCORING, r.mark!!.purpose)
+        }
+        assertNull(CanonicalPriceMarkRegistry6522.get("TUPLE6734", CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE))
     }
     @Test fun healthy_secondary_source_can_supply_its_own_complete_tuple() {
         val now = System.currentTimeMillis()
@@ -170,6 +178,12 @@ class Aate6734RecoveryIntegrityTest {
         CanonicalFinalizedTradeBus6464.publish(env)
         CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { _, _ -> false }
         assertEquals(0, CanonicalFinalizedTradeBus6464.consumerUnique("test6734"))
+        // V5.0.7863 — a refused delivery backs off for 30s before retrying.
+        CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { _, _ -> true }
+        assertEquals(0, CanonicalFinalizedTradeBus6464.consumerUnique("test6734"))
+        // Simulate the backoff elapsing.
+        (CanonicalFinalizedTradeBus6464::class.java.getDeclaredField("retryAfter7863")
+            .apply { isAccessible = true }.get(null) as MutableMap<*, *>).clear()
         CanonicalFinalizedTradeBus6464.deliverToConsumers(env.copy(realizedPnlSol = 99.0)) { _, e ->
             assertEquals(0.01, e.realizedPnlSol, 1e-12); true
         }

@@ -25,17 +25,21 @@ class Aate7812HunterSelectionAndPipelineTest {
 
     @Test fun authorizerDefersUntilExactSealedFdgBuy() {
         val s = src("engine/TradeAuthorizer.kt")
+        // V5.0.7835/7858 — the exact FDG BUY is sealed by SpecialistPreauthSeal7834
+        // (which only returns an fdgAllowed BUY intent for this lane/version) before
+        // lane election; a missing seal is a retryable deferral.
         val start = s.indexOf("V5.0.7812 — only an exact immutable FDG BUY")
-        val gate = s.indexOf("val finality = ExecutableOpenGate.canOpenExecutablePosition(", start)
-        assertTrue(start >= 0 && gate > start)
-        val pre = s.substring(start, gate)
-        assertTrue(pre.contains("activeExecutionIntentForLane7809"))
-        assertTrue(pre.contains("AWAIT_FDG_SEAL_7812"))
-        assertTrue(pre.contains("it.fdgAllowed"))
-        assertTrue(pre.contains("it.fdgVerdict.equals(\"BUY\", true)"))
+        val sealed = s.indexOf("sealedTicketAttempt7948 = sealedIntent7812.attemptId", start)
+        val gate = s.indexOf("val finality = ExecutableOpenGate.canOpenExecutablePosition(", sealed)
+        assertTrue(start >= 0 && sealed > start && gate > sealed)
+        val pre = s.substring(start, sealed)
+        assertTrue(pre.contains("SpecialistPreauthSeal7834.ensure(tokenState7835, fdgDecision7835!!, requestedBook.name, preResolvedSizeSol)"))
+        assertTrue(pre.contains("FDG_SEAL_FAILED_7835"))
         assertTrue(pre.contains("canRetry = true"))
         assertFalse(pre.contains("recordPreSizeRefusal7809("))
         assertFalse(pre.contains("markLost("))
+        val seal = src("engine/SpecialistPreauthSeal7834.kt")
+        assertTrue(seal.contains("it.fdgAllowed && it.fdgVerdict == \"BUY\" && it.hardNoReasons.isEmpty()"))
         assertTrue(s.contains("val finalityAttemptId = sealedIntent7812.attemptId"))
     }
 
