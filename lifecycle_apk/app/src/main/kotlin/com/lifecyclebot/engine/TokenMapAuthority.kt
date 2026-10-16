@@ -202,9 +202,13 @@ object TokenMapAuthority {
         if (cached6492 != null) {
             val pending = cached6492.routeStatus in setOf("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", "ROUTE_STALE_RECHECK", "DEX_DISCOVERY_VERIFIED_PENDING_JUPITER")
             val ttl = if (pending) PENDING_RESULT_RETRY_MS_6492 else ROUTE_TTL_MS
-            val strongerLocalEvidence = (tm.pairAddress.isNotBlank() && cached6492.pairAddress.isBlank()) ||
-                (tm.poolAddress.isNotBlank() && cached6492.poolAddress.isBlank()) ||
-                tm.priceObservedAtMs7858 > cached6492.priceObservedAtMs7858 || tm.jupiterQuoteOk || tm.dexRouteOk ||
+            val strongerLocalEvidence = (tm.pairAddress.isNotBlank() && tm.pairAddress != cached6492.pairAddress) ||
+                (tm.poolAddress.isNotBlank() && tm.poolAddress != cached6492.poolAddress) ||
+                tm.migratedOrGraduated != cached6492.migratedOrGraduated ||
+                tm.pumpFunExecutable != cached6492.pumpFunExecutable ||
+                (tm.liquidityUsd != null && tm.liquidityUsd != cached6492.liquidityUsd) ||
+                tm.priceObservedAtMs7858 > cached6492.priceObservedAtMs7858 ||
+                (tm.jupiterQuoteOk && !cached6492.jupiterQuoteOk) || (tm.dexRouteOk && !cached6492.dexRouteOk) ||
                 // V5.0.8045 — liquidity now known (chain / curve read) beats a cached "liquidity pending" result.
                 ((tm.liquidityUsd ?: 0.0) > 0.0 && (cached6492.liquidityUsd ?: 0.0) <= 0.0)
             if (!strongerLocalEvidence && cached6492.updatedAtMs > 0L && now - cached6492.updatedAtMs < ttl) {

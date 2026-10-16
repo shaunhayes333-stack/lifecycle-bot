@@ -288,13 +288,16 @@ object StructureTracker7962 {
 
     /**
      * CostLedger7962: the market price of [mint] at [atMs] — the close of the last
-     * bucket wholly before it (15 s, else 1 min), if that print is under 2 min old.
+     * bucket whose last print is at or before it (15 s, else 1 min), if that print is under 2 min old.
+     * A fresh first print in an unfinished bucket is valid; a later print in that bucket is not.
      */
     fun markAt7962(mint: String, atMs: Long): Double? {
         val tape = tapes[mint] ?: return null
         return synchronized(tape) {
             fun pick(map: TreeMap<Long, DoubleArray>, tf: Long): Double? {
-                val b = map.lowerEntry(atMs / tf)?.value ?: return null
+                val current = map.floorEntry(atMs / tf)?.value
+                val b = if (current != null && current[6].toLong() <= atMs) current
+                    else map.lowerEntry(atMs / tf)?.value ?: return null
                 return if (atMs - b[6].toLong() in 0L..120_000L && b[3] > 0.0) b[3] else null
             }
             pick(tape.b15, TF15) ?: pick(tape.b60, TF60)

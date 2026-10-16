@@ -516,12 +516,25 @@ object CanonicalFinalizedTradeBus6464 {
         return built7494
     }
 
+    private fun recentExclusions8167(): String {
+        val cutoff = System.currentTimeMillis() - 15L * 60_000L
+        return canonicalSeen.values.filter { it.mode.equals("live", true) && it.atMs >= cutoff }
+            .sortedByDescending { it.atMs }.take(6).joinToString(";") { e ->
+                val reasons = consumerExcluded.keys.mapNotNull { c ->
+                    exclusionReasons["$c|${e.tradeId}"]?.let { reason -> c to reason }
+                }.groupBy({ it.second }, { it.first })
+                "${e.positionId.takeLast(20)}:" + reasons.entries.joinToString("|") {
+                    "${it.key.take(100)}[${it.value.sorted().joinToString(",")}]"
+                }.ifBlank { "none" }
+            }.ifBlank { "none" }
+    }
+
     fun statusLine(): String {
         val p = parity()
         return "canonical=${p.canonicalUnique} publishes=${publishes.get()} duplicates=${duplicates.get()} duplicatePositions8136=${positionDuplicates8136.get()} " +
             "processed=${p.perConsumer.entries.joinToString(",") { "${it.key}=${it.value}" }} " +
             "excluded=${p.excludedByConsumer.entries.joinToString(",") { "${it.key}=${it.value}" }} " +
-            "zeroConsumers=${p.zeroConsumers.joinToString(",")}"
+            "zeroConsumers=${p.zeroConsumers.joinToString(",")} recentLiveExclusions8167=[${recentExclusions8167()}]"
     }
 
     internal fun resetForTest() {
