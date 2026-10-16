@@ -818,6 +818,8 @@ class DataOrchestrator(
                     if (held7787) try { onHeldTradeMark7787?.invoke(mint, safeSol / tokenAmt) } catch (_: Throwable) {}
                     // V5.0.7819 — the same executed price is a candidate's candle print.
                     if (!held7787) onTradePrint7819(mint, safeSol / tokenAmt)
+                    // V5.0.8144 — the same decoded swap reaches the executed-trade tape when PumpPortal is not delivering this mint.
+                    try { com.lifecyclebot.engine.truth.ProofDataSwapTape8144.noteHelius8144(mint, sig, safeSol, tokenAmt, isBuy, lastPumpPortalTradeMs7773[mint] ?: 0L) } catch (_: Throwable) {}
                 }
             },
             onLargeWalletMove = { wallet, mint, solAmt, isBuy ->

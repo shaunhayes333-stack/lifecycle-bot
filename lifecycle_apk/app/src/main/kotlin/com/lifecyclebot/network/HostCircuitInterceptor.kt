@@ -22,6 +22,10 @@ import java.util.concurrent.atomic.AtomicInteger
  *  - Never put a Birdeye request on the wire once the global CU budget is empty.
  *  - Preserve fail-open behaviour for unknown providers.
  *  - Keep NXDOMAIN and repeated 5xx/429 cool-downs self-clearing on success.
+ *
+ * V5.0.8144 — unmapped hosts cool down per traffic lane ([ProofDataLanes8144]): execution (sends, balances, fees,
+ * exits, PumpPortal trades), speculative intelligence, bulk candles and shared reads each hold their own key, so an
+ * intelligence backoff never starves an execution RPC or a held-position mark on the same host.
  */
 object HostCircuitInterceptor : Interceptor {
 
@@ -181,9 +185,19 @@ object HostCircuitInterceptor : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val req = chain.request()
-        val host = req.url.host
+        val wireHost8144 = req.url.host
         val now = System.currentTimeMillis()
-        val provider = labelFor8125(host, req.url.encodedPath, req.header(LANE_HEADER_8125))
+        val provider = labelFor8125(wireHost8144, req.url.encodedPath, req.header(LANE_HEADER_8125))
+        // V5.0.7314 — an exit is never refused by the local lockout/cool-down.
+        val isExit7314 = req.header(ExitHttpScope7314.HEADER) != null || ExitHttpScope7314.active()
+        // V5.0.8144 — an unmapped host (Solana RPCs, PumpPortal) cools down per traffic lane: a 429 earned by speculative
+        // intelligence no longer refuses the next send / balance / held-position read on the same host.
+        val lane8144 = ProofDataLanes8144.laneFor8144(
+            req.header(LANE_HEADER_8125), isExit7314, wireHost8144, req.url.encodedPath,
+            if (provider.isBlank()) ProofDataLanes8144.peekRpcMethod8144(req) else null,
+        )
+        ProofDataLanes8144.noteCall8144(lane8144)
+        val host = ProofDataLanes8144.circuitHost8144(wireHost8144, provider, lane8144)
         // V5.0.7719 — the cool-down state is keyed by host AND provider label.
         // 7297 split the ApiBackoff label (jupiter_tokens vs jupiter) but this
         // host state stayed per host, so three 403s from the market sweep's
@@ -196,8 +210,6 @@ object HostCircuitInterceptor : Interceptor {
         val state = states.getOrPut(stateKey7719) { HostState() }
         // V5.0.6976 — probes bypass the circuit (never the Birdeye budget).
         val isProbe = req.header(PROBE_HEADER_6976) != null && provider != "birdeye"
-        // V5.0.7314 — an exit is never refused by the local lockout/cool-down.
-        val isExit7314 = req.header(ExitHttpScope7314.HEADER) != null || ExitHttpScope7314.active()
 
         // V5.0.6758 — Birdeye is a paid/escalation source. The runtime snapshot
         // showed 150000/150000 daily CU while raw callers were still reaching the
@@ -230,6 +242,7 @@ object HostCircuitInterceptor : Interceptor {
             } catch (_: Throwable) { false }) {
             state.totalBypassed.incrementAndGet()
             totalServerBypass.incrementAndGet()
+            ProofDataLanes8144.noteBypass8144(lane8144)
             return synthetic(
                 req,
                 599,
@@ -242,6 +255,7 @@ object HostCircuitInterceptor : Interceptor {
         if (isExit7314 && now < cooldownUntil) ExitHttpScope7314.noteBypass("HOST_COOLDOWN")
         if (!isProbe && !isExit7314 && now < cooldownUntil) {
             state.totalBypassed.incrementAndGet()
+            ProofDataLanes8144.noteBypass8144(lane8144)
             val remaining = cooldownUntil - now
             if (remaining > SERVER_FAIL_COOLDOWN_MS) totalNxBypass.incrementAndGet()
             else totalServerBypass.incrementAndGet()
@@ -320,6 +334,10 @@ object HostCircuitInterceptor : Interceptor {
             .filter { it.totalBypassed > 0L || it.cooldownRemainingMs > 0L }
             .sortedByDescending { it.totalBypassed }
     }
+
+    /** V5.0.8144 — is the circuit cooling down [stateKey] (a host, "host|provider" or "host#lane") at [nowMs]? */
+    fun coolingDown8144(stateKey: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        (states[stateKey]?.cooldownUntilMs?.get() ?: 0L) > nowMs
 
     fun totalNxBypassedRequests(): Long = totalNxBypass.get()
     fun totalServerBypassedRequests(): Long = totalServerBypass.get()

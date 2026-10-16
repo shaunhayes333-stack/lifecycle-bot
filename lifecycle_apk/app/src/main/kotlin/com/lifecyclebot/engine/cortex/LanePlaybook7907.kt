@@ -544,6 +544,8 @@ object LanePlaybook7907 {
             if (tapeChg8100 != null) com.lifecyclebot.engine.truth.TradeTape8100.noteFilled8100("chg")
         } catch (_: Throwable) {}
         val liqObs = if (pos(s?.liquidityUsd).isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN
+        // V5.0.8144 — name each missing input separately (per-feature counters), not one DATA_INCOMPLETE.
+        try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.observe8144(ts.mint, nowMs, bp = bpKnown || tapeBp8100 != null, chg = chgKnown || tapeChg8100 != null, tape = tape != null, structure = shapeKnown || tapeShape8100 != null, context = !plan.isNullOrBlank() || !phase.isNullOrBlank() || opp != null, liquidity = liqObs == Obs8084.OBSERVED, birth = nn(s?.ageMin).isFinite(), swaps = (flow != null && flow.buyTx60s + flow.sellTx60s > 0) || tape8100 != null) } catch (_: Throwable) {}
         return F(
             age = nn(s?.ageMin),
             runup = if (shapeKnown) nn(s?.runupFromLocalLowPct) else tapeShape8100?.runupPct ?: Double.NaN,

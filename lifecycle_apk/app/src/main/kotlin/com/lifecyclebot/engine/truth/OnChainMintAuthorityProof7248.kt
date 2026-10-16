@@ -131,6 +131,8 @@ object OnChainMintAuthorityProof7248 {
         // V5.0.8136 — single flight: a second caller for the same mint waits for the ask already on the wire. A live
         // gate that joined an ask which came back unanswered asks once more itself (Helius first); a scan does not.
         val flight = flight8136.run(mint, if (liveGate8094) LIVE_JOIN_MS_8136 else SCAN_JOIN_MS_8136) { askChain8136(mint, maxProviders, liveGate8094) }
+        // V5.0.8144 — an unanswered scan read is not dropped: the prefetch queue schedules a bounded BACKGROUND retry.
+        if (flight.value == null && !flight.joined && !liveGate8094) try { AuthorityProofPrefetch8136.noteScanUnanswered8144(mint) } catch (_: Throwable) {}
         if (flight.value != null || !flight.joined || !liveGate8094) return flight.value
         try { PipelineHealthCollector.labelInc("MINT_AUTHORITY_PROOF_JOINED_UNANSWERED_REASK_8136") } catch (_: Throwable) {}
         return flight8136.run(mint, LIVE_JOIN_MS_8136) { askChain8136(mint, maxProviders, true) }.value

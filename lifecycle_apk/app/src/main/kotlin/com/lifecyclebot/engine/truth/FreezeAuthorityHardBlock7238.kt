@@ -95,6 +95,7 @@ object FreezeAuthorityHardBlock7238 {
             }
             if (freeze == true && proof == null) {
                 try { AuthorityProofPrefetch8136.noteGateUnanswered8136(mint) } catch (_: Throwable) {}
+                noteUnverifiedFlight8144(mint)
                 blockedUnverified.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FREEZE_CACHED_TRUE_CHAIN_UNANSWERED_8123") } catch (_: Throwable) {}
                 return Decision(Verdict.BLOCK_FREEZE_UNVERIFIED, "FREEZE_AUTHORITY_UNVERIFIED")
@@ -160,6 +161,7 @@ object FreezeAuthorityHardBlock7238 {
                 }
                 // V5.0.8136 — UNANSWERED stays non-executable; the retry is async and bounded (prefetch ladder).
                 try { AuthorityProofPrefetch8136.noteGateUnanswered8136(mint) } catch (_: Throwable) {}
+                noteUnverifiedFlight8144(mint)
                 blockedUnverified.incrementAndGet()
                 // Unknown freeze — do NOT spend real SOL until an RPC/security
                 // provider affirmatively proves the authority is null. This is
@@ -179,6 +181,17 @@ object FreezeAuthorityHardBlock7238 {
                 return Decision(Verdict.BLOCK_FREEZE_UNVERIFIED, "FREEZE_AUTHORITY_UNVERIFIED")
             }
         }
+    }
+
+    /**
+     * V5.0.8144 — an UNVERIFIED refusal names where the proof stands in the prefetch queue (RETRY_SCHEDULED, QUEUE_REJECTED,
+     * UNANSWERED terminal, ...), so a refusal caused by a saturated queue is no longer indistinguishable from a chain that
+     * did not answer. Diagnostic only: the verdict stays BLOCK_FREEZE_UNVERIFIED whatever the state.
+     */
+    private fun noteUnverifiedFlight8144(mint: String) {
+        try {
+            PipelineHealthCollector.labelInc("FREEZE_UNVERIFIED_FLIGHT_8144_${AuthorityProofPrefetch8136.flightState8144(mint).name}")
+        } catch (_: Throwable) {}
     }
 
     data class Summary(

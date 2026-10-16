@@ -20,6 +20,25 @@ object LaneAgeLiquidityTruth8140 {
         try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8144 — bounded deferral episodes. An unread pool / unresolved birth deferred on every evaluation for as long
+     * as the candidate stayed watched (an unbounded loop with no outcome). Each mint now defers for at most
+     * [DEFER_BUDGET_MS_8144]; past that the deferral becomes a named terminal for [TERMINAL_REST_MS_8144] (still a
+     * refusal — never an approval), then a fresh bounded episode may start. Arriving data ends the episode at once.
+     */
+    private const val DEFER_BUDGET_MS_8144 = 3 * 60_000L
+    private const val TERMINAL_REST_MS_8144 = 10 * 60_000L
+    private val liqDeferral8144 = ProofDataDeferral8144(DEFER_BUDGET_MS_8144, TERMINAL_REST_MS_8144)
+    private val birthDeferral8144 = ProofDataDeferral8144(DEFER_BUDGET_MS_8144, TERMINAL_REST_MS_8144)
+
+    /** Pure: the V3 reason for an unread pool at deferral [step]. Neither reason is ZERO_LIQUIDITY (no quarantine). */
+    fun v3LiquidityReason8144(step: ProofDataDeferral8144.Step8144): String =
+        if (step == ProofDataDeferral8144.Step8144.TERMINAL) "LIQ_UNHYDRATED_TERMINAL_8144" else "LIQ_UNHYDRATED_DEFER_8140"
+
+    fun deferralLine8144(): String =
+        "deferrals8144 liq[terminals=${liqDeferral8144.terminals8144()} open=${liqDeferral8144.size8144()}] " +
+            "birth[terminals=${birthDeferral8144.terminals8144()} open=${birthDeferral8144.size8144()}]"
+
     /** Resolved chain-birth age in minutes; null while the birth is unresolved. */
     private fun chainAgeMinutes8140(ts: TokenState): Double? = try {
         com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)
@@ -51,8 +70,13 @@ object LaneAgeLiquidityTruth8140 {
         } catch (_: Throwable) { 360.0 }
         val age = chainAgeMinutes8140(ts)
         val v = LaneAgeLiquidityScope8140.ageVerdict8140(lane, age, window)
+        if (age != null) birthDeferral8144.resolved8144(ts.mint)
         if (!v.blocksEntry) return false
         count8140(v.label)
+        // V5.0.8144 — a birth that stays unresolved past the deferral budget is a named terminal (still blocked).
+        if (v.outcome == LaneAgeLiquidityScope8140.Outcome8140.DEFER &&
+            birthDeferral8144.step8144(ts.mint, System.currentTimeMillis()) == ProofDataDeferral8144.Step8144.TERMINAL
+        ) count8140("LANE_AGE_BIRTH_UNRESOLVED_TERMINAL_8144")
         try {
             ForensicLogger.lifecycle(
                 v.label,
@@ -97,9 +121,15 @@ object LaneAgeLiquidityTruth8140 {
      */
     fun v3LiquidityDeferReason8140(ts: TokenState): String? {
         return try {
-            if (laneLiquidityUsd8140(ts) > 0.0) return null
+            if (laneLiquidityUsd8140(ts) > 0.0) { liqDeferral8144.resolved8144(ts.mint); return null }
             val hardZero = try { TokenMapAuthority.liquidityVerdict(ts).hardZero } catch (_: Throwable) { false }
-            if (hardZero) return null
+            if (hardZero) { liqDeferral8144.resolved8144(ts.mint); return null }
+            // V5.0.8144 — bounded: past the budget the deferral is named terminal instead of looping on every evaluation.
+            val step8144 = liqDeferral8144.step8144(ts.mint, System.currentTimeMillis())
+            if (step8144 == ProofDataDeferral8144.Step8144.TERMINAL) {
+                count8140("V3_LIQ_UNHYDRATED_TERMINAL_8144")
+                return v3LiquidityReason8144(step8144)
+            }
             count8140("V3_LIQ_UNHYDRATED_DEFER_8140")
             "LIQ_UNHYDRATED_DEFER_8140"
         } catch (_: Throwable) { null }

@@ -44,6 +44,8 @@ object ChartSources7955 {
         val fail = AtomicLong(0)
         val bars = AtomicLong(0)
         val skips = AtomicLong(0)
+        /** V5.0.8144 — calls refused by the app's own circuit (never on the wire, never a provider strike). */
+        val localBlocks8144 = AtomicLong(0)
         @Volatile var nextAtMs = 0L
         @Volatile var backoffUntilMs = 0L
         @Volatile var strikes = 0
@@ -145,6 +147,21 @@ object ChartSources7955 {
         }
     }
 
+    /**
+     * V5.0.8144 — the code [call] reports for a request HostCircuitInterceptor refused locally (synthetic 599). That is
+     * this app declining to ask, not the provider failing: it neither strikes the provider nor spends a job's try.
+     */
+    const val LOCAL_CIRCUIT_8144 = -599
+    private const val LOCAL_CIRCUIT_REST_MS_8144 = 15_000L
+    private const val LOCAL_CIRCUIT_REQUEUES_8144 = 20
+
+    /** Pure: what one failed job does next — requeue on the same provider, try its fallback, or drop. */
+    fun jobRetry8144(code: Int, tries: Int, localBlocks: Int): String = when {
+        code == LOCAL_CIRCUIT_8144 && localBlocks <= LOCAL_CIRCUIT_REQUEUES_8144 -> "requeue_local"
+        code != LOCAL_CIRCUIT_8144 && (code < 0 || code == 429 || code >= 500 || code == 401 || code == 403) && tries < 3 -> "requeue"
+        else -> "fallback"
+    }
+
     /** Pure: the first ready provider at or after [cursor] (cyclic), or -1. */
     fun pickNext7955(ready: BooleanArray, cursor: Int): Int {
         val n = ready.size
@@ -205,7 +222,7 @@ object ChartSources7955 {
         val headers: Map<String, String> = emptyMap(), val post: String? = null,
         /** V5.0.7959 — tried when this job's endpoint refuses for good (e.g. a moved API). */
         val fallback: Job? = null, val parse: (String) -> Out,
-    ) { var tries = 0 }
+    ) { var tries = 0; var localBlocks8144 = 0 }
 
     private val queues: Map<String, RoundRobin7955<Job>> = PROVS.associate { it.id to RoundRobin7955<Job>() }
     private val cryptoBases: MutableSet<String> = ConcurrentHashMap.newKeySet()
@@ -592,11 +609,19 @@ object ChartSources7955 {
                 .header(com.lifecyclebot.network.HostCircuitInterceptor.LANE_HEADER_8125, "chart") // V5.0.8125 — own lockout
             for ((k, v) in headers) b.header(k, v)
             if (post != null) b.post(post.toRequestBody(JSON_MT))
-            http.newCall(b.build()).execute().use { resp -> Res(resp.code, resp.body?.string()) }
+            http.newCall(b.build()).execute().use { resp ->
+                if (com.lifecyclebot.network.HostCircuitInterceptor.isSyntheticBlock(resp)) Res(LOCAL_CIRCUIT_8144, null) else Res(resp.code, resp.body?.string())
+            }
         } catch (e: InterruptedException) {
             throw e
         } catch (_: Throwable) {
             Res(-1, null)
+        }
+        if (r.code == LOCAL_CIRCUIT_8144) {
+            // V5.0.8144 — the local circuit is resting this lane: wait out a short slot, no strike, no backoff climb.
+            p.localBlocks8144.incrementAndGet()
+            synchronized(p) { p.nextAtMs = maxOf(p.nextAtMs, System.currentTimeMillis() + LOCAL_CIRCUIT_REST_MS_8144) }
+            return r
         }
         val challenge = ChartParsers7955.isChallenge7955(r.code, r.body)
         if (r.code in 200..299 && !challenge && r.body != null) {
@@ -685,9 +710,11 @@ object ChartSources7955 {
         val r = call(p, job.url, job.headers, job.post)
         val body = r.body
         if (body == null) {
-            val transient = r.code < 0 || r.code == 429 || r.code >= 500 || r.code == 401 || r.code == 403
-            if (transient && ++job.tries < 3) queues[job.prov]?.add(job.origin, job)
-            else job.fallback?.let { queues[it.prov]?.add(it.origin, it) }
+            if (r.code == LOCAL_CIRCUIT_8144) job.localBlocks8144++ else job.tries++
+            when (jobRetry8144(r.code, job.tries, job.localBlocks8144)) {
+                "requeue_local", "requeue" -> queues[job.prov]?.add(job.origin, job)
+                else -> job.fallback?.let { queues[it.prov]?.add(it.origin, it) }
+            }
             return 0
         }
         val out = try { job.parse(body) } catch (_: Throwable) { p.fail.incrementAndGet(); Out() }
@@ -714,6 +741,16 @@ object ChartSources7955 {
     private val backfillSeeded = AtomicLong(0)
     private val backfillBars = AtomicLong(0)
     private val backfillBySource = ConcurrentHashMap<String, AtomicLong>()
+    /**
+     * V5.0.8144 — a short tape that no source could fill was re-asked every [BACKFILL_RETRY_MS] for as long as it stayed
+     * short (every rung, every time). Per mint: one backfill at a time, exponential back-off after a futile one, at most
+     * [BACKFILL_ATTEMPTS_PER_HOUR_8144] per hour.
+     */
+    private const val BACKFILL_ATTEMPTS_PER_HOUR_8144 = 4
+    private val backfillGate8144 = com.lifecyclebot.engine.ProofDataCoalescer8144(
+        windowMs = 60L * 60_000L, maxAttemptsPerWindow = BACKFILL_ATTEMPTS_PER_HOUR_8144,
+        baseRetryMs = BACKFILL_RETRY_MS, maxRetryMs = 60L * 60_000L,
+    )
     @Volatile private var backfillStarted = false
 
     /** BotService start (via ChartLibraryBuilder7950): remember the context for keys and start the backfill thread. */
@@ -751,7 +788,15 @@ object ChartSources7955 {
     private fun backfillOnce() {
         refreshKeys()
         val now = System.currentTimeMillis()
-        val mint = nextBackfill7955(heldMints(), ChartReader7950.shortTapes7955(), { ChartReader7950.liveBars7955(it) }, { backfillTried[it] ?: 0L }, now) ?: return
+        val mint = nextBackfill7955(heldMints(), ChartReader7950.shortTapes7955(), { ChartReader7950.liveBars7955(it) },
+            { m -> if (backfillGate8144.peek8144(m, now) != com.lifecyclebot.engine.ProofDataCoalescer8144.Admit8144.RUN) now else backfillTried[m] ?: 0L }, now) ?: return
+        if (backfillGate8144.admit8144(mint, now) != com.lifecyclebot.engine.ProofDataCoalescer8144.Admit8144.RUN) return
+        var seeded8144 = false
+        try { backfillMint8144(mint, now) { seeded8144 = true } } finally { backfillGate8144.done8144(mint, seeded8144, System.currentTimeMillis()) }
+    }
+
+    /** One backfill pass for [mint]; [onSeeded] runs when a source seeded live bars. */
+    private fun backfillMint8144(mint: String, now: Long, onSeeded: () -> Unit) {
         backfillTried[mint] = now
         if (backfillTried.size > 3_000) backfillTried.entries.removeIf { now - it.value > BACKFILL_RETRY_MS }
         backfillAsked.incrementAndGet()
@@ -778,6 +823,7 @@ object ChartSources7955 {
             } else usdBarsToSol7955(bars, sol)
             val seeded = ChartReader7950.seedBars7955(mint, ready, now)
             if (seeded > 0) {
+                onSeeded()
                 backfillSeeded.incrementAndGet()
                 backfillBars.addAndGet(seeded.toLong())
                 backfillBySource.computeIfAbsent(name) { AtomicLong(0) }.incrementAndGet()
@@ -837,10 +883,16 @@ object ChartSources7955 {
             }
             val key = if (!p.keyed) "free" else if (hasKey(p)) "present" else "missing"
             out += "  ${p.id.padEnd(14)} calls=${p.calls.get()} ok=${p.ok.get()} fail=${p.fail.get()} bars=${p.bars.get()} " +
-                "skips=${p.skips.get()} queue=${queues[p.id]?.size() ?: 0} state=$state key=$key"
+                "skips=${p.skips.get()} local=${p.localBlocks8144.get()} queue=${queues[p.id]?.size() ?: 0} state=$state key=$key"
         }
         out += "  backfill       asked=${backfillAsked.get()} seeded=${backfillSeeded.get()} bars=${backfillBars.get()} " +
             "by=${backfillBySource.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} short=${ChartReader7950.shortTapes7955().size}"
+        // V5.0.8144 — futile-call coalescing, local-circuit refusals, traffic lanes, the Helius tape and missing features.
+        out += "  backfillGate8144 ${backfillGate8144.line8144()} localBlocks=${PROVS.sumOf { it.localBlocks8144.get() }}"
+        out += "  " + (try { com.lifecyclebot.network.ProofDataLanes8144.statusLine8144() } catch (_: Throwable) { "lanes8144 -" })
+        out += "  " + (try { com.lifecyclebot.engine.truth.ProofDataSwapTape8144.statusLine8144() } catch (_: Throwable) { "heliusTape8144 -" })
+        out += "  " + (try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.statusLine8144(nowMs) } catch (_: Throwable) { "features8144 -" })
+        out += "  " + (try { com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.deferralLine8144() } catch (_: Throwable) { "deferrals8144 -" })
         return out
     }
 
