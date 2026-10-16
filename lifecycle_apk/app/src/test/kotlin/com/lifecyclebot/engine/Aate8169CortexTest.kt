@@ -6,6 +6,7 @@ import com.lifecyclebot.engine.cortex.CortexGradeBook8144
 import com.lifecyclebot.engine.cortex.CortexGradeRecord8144
 import com.lifecyclebot.engine.cortex.CortexVoters7885
 import com.lifecyclebot.engine.market.HunterAssetClass8169
+import com.lifecyclebot.engine.market.HunterAssetClass8169.Kind as K
 import com.lifecyclebot.engine.market.LaneHunter7297
 import com.lifecyclebot.engine.market.MarketSweep7297
 import org.junit.Assert.assertEquals
@@ -108,7 +109,6 @@ class Aate8169CortexTest {
     private val nvdaMint = "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh"
 
     @Test fun equitiesAndPegsAreNotMemePrey() {
-        val K = HunterAssetClass8169.Kind
         assertEquals(K.TOKENIZED_EQUITY, HunterAssetClass8169.kind(nvdaMint, "NVDAx", 7e7, -0.5, Double.NaN, setOf(nvdaMint), false))
         assertEquals(K.TOKENIZED_EQUITY, HunterAssetClass8169.kind("XsNew11111111111111111111111111111111111111", "TSLAx", 1e8, 1.0, 2.0, emptySet(), false))
         assertEquals(K.PEGGED_OR_RECEIPT, HunterAssetClass8169.kind("9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D", "jlUSDC", 4.75e8, 7.2e-4, Double.NaN, emptySet(), false))
