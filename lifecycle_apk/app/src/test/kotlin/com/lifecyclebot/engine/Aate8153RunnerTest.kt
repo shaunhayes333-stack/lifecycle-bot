@@ -276,6 +276,8 @@ class Aate8153RunnerTest {
         assertTrue(after.promoted8153(k))
         assertNull(after.pending8153(k))
         assertEquals(0.3, after.bankedProceedsSol8153(k), 1e-12)
+        assertFalse(after.confirm8153(k, r, 2, "SIG-R", 0.3, 0.05)) // signature dedupe survives a process restart
+        assertEquals(0.3, after.bankedProceedsSol8153(k), 1e-12)
         assertFalse(after.request8153(k, r, 2, "RUNNER_MILESTONE_8136_T2_410PCT", 20L)) // the filled rung is not re-sold
         assertTrue(after.request8153(k, r, 3, "RUNNER_MILESTONE_8136_T3_1010PCT", 20L)) // the unconfirmed one retries
         // Gross opportunity vs net banked on the status line; a closed position moves to the closed totals.

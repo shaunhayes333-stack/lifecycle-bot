@@ -132,6 +132,20 @@ object AdmissionHandoff8144 {
         return now.ordinal > was.ordinal || (n.isNotBlank() && prior.named != null && n != prior.named)
     }
 
+    /** Pure (V5.0.8161): a transferred receiver remains the same hand-off; no eligible successor is a named terminal. */
+    fun retarget8153(h: Handoff8144, from: String, to: String, reason: String, atMs: Long): Handoff8144 {
+        val f = canon8144(from)
+        if (!h.open || h.state != State8144.RECEIVER_QUALIFIED || h.receiver != f) return h
+        val tried = h.tried8153 + f
+        val next = canon8144(to)
+        return if (next.isNotBlank()) h.copy(
+            receiver = next, tried8153 = tried, verdict = "TRANSFERRED_TO_$next:${reason.take(40)}",
+        ) else h.copy(
+            receiver = null, tried8153 = tried, state = State8144.NO_QUALIFIED_RECEIVER,
+            verdict = "FIT_NO_COMPATIBLE_RECEIVER:${reason.take(50)}", settledAtMs = atMs,
+        )
+    }
+
     /**
      * Pure (V5.0.8153): [onNative8144], except that a qualified receiver now refusing on FIT ([fit]: cap / age band,
      * phase, role floor) hands the hand-off on to the best other qualified lane it has not refused for; with none left,
@@ -178,11 +192,12 @@ object AdmissionHandoff8144 {
     }
 
     /** V5.0.8153 — the receiver task moved [from] -> [to] at the lane gate (a fit refusal there): the ledger follows. */
-    fun retarget8153(mint: String, from: String, to: String) {
+    fun retarget8153(mint: String, from: String, to: String, reason: String = "", nowMs: Long = System.currentTimeMillis()) {
         val prior = ledger[mint] ?: return
-        val f = canon8144(from)
-        if (!prior.open || prior.state != State8144.RECEIVER_QUALIFIED || prior.receiver != f) return
-        ledger[mint] = prior.copy(receiver = canon8144(to), tried8153 = prior.tried8153 + f, verdict = "TRANSFERRED_TO_${canon8144(to)}")
+        val next = retarget8153(prior, from, to, reason, nowMs)
+        if (next === prior) return
+        ledger[mint] = next
+        settled8144(prior, next)
     }
 
     /**

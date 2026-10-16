@@ -192,6 +192,15 @@ class Aate8144AdmissionTest {
         val otherDone = a.onNative8144(other, listOf(LaneRead8144("EXPRESS", false, 30, "NO_CONTINUATION")), t0 + 5_000L)
         assertEquals(State8144.ARRIVED_EVALUATED, otherDone.state)
         assertEquals("NATIVE_REFUSED:NO_CONTINUATION", otherDone.verdict)
+        // A fit transfer keeps the same provenance; when no compatible lane remains it closes explicitly.
+        val transferred = a.retarget8153(h1, "MOONSHOT", "EXPRESS", "LANE_CAP", t0 + 4_000L)
+        assertEquals("EXPRESS", transferred.receiver)
+        assertEquals(setOf("MOONSHOT"), transferred.tried8153)
+        assertEquals(State8144.RECEIVER_QUALIFIED, transferred.state)
+        val noSuccessor = a.retarget8153(transferred, "EXPRESS", "", "FIT_NO_COMPATIBLE_RECEIVER", t0 + 5_000L)
+        assertEquals(State8144.NO_QUALIFIED_RECEIVER, noSuccessor.state)
+        assertEquals("FIT_NO_COMPATIBLE_RECEIVER:FIT_NO_COMPATIBLE_RECEIVER", noSuccessor.verdict)
+        assertEquals(t0 + 5_000L, noSuccessor.settledAtMs)
         // The receiver is never the sender or CORE.
         assertEquals("SHITCOIN", a.receiver8144(null, "PROJECT_SNIPER", reads.filter { it.lane != "MOONSHOT" }))
         // A settled hand-off is not re-opened by the sender's next identical refusal, until the hold has passed.
@@ -230,7 +239,7 @@ class Aate8144AdmissionTest {
 
     private fun candidate(setups: List<Evidence8136>, timing: Evidence8136?) = Candidate8136(
         mint = "ADM8144pump", lane = "PROJECT_SNIPER", selectedSetup = "PRE_IGNITION_BASE", priceAgeMs = 5_000L,
-        expectedGrossPct = 30.0, costPct = 6.0, downsidePct = 12.0, setups = setups, timing = timing,
+        expectedGrossPct = 30.0, costPct = 6.0, downsidePct = 12.0, expectedGrossBySetup = setups.associate { it.id to 30.0 }, setups = setups, timing = timing,
         genericScore = 12.0, genericFloor = 30.0,
     )
 

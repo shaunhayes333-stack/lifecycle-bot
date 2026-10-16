@@ -78,7 +78,8 @@ object HandoffReceiverTasks8153 {
     /** The receiving lane's own learned refusal: its judgement (named, not handed on), never mistaken for token safety. */
     private val LANE_JUDGEMENT_8153 = listOf("MEME_CONSENSUS_HARD_BLOCK", "MEME_PWIN_GATE", "RECEIVER_RECORD_UNSOUND")
     /** Missing data, not a verdict: the task waits for it. */
-    private val DATA_WORDS_8153 = listOf("NO_TOKEN_STATE", "PRICE_UNKNOWN", "DATA_MISSING", "MISSING_DATA", "NO_SNAPSHOT", "ARBITRATION_ERROR")
+    private val DATA_WORDS_8153 = listOf("NO_TOKEN_STATE", "PRICE_UNKNOWN", "PRICE_STALE", "DATA_MISSING", "MISSING_DATA",
+        "DATA_INCOMPLETE", "TOO_FEW_BARS", "UNKNOWN_ECONOMICS", "NO_SNAPSHOT", "ARBITRATION_ERROR")
     /** The slot or the cycle was busy: the task waits (named at expiry if it never got in). */
     private val WAIT_WORDS_8153 = listOf("SLOT_HELD", "RESERVED_FOR", "OUTRANKED", "GATE_UNNAMED", "NO_PROPOSAL")
 
@@ -138,15 +139,16 @@ object HandoffReceiverTasks8153 {
     /** Pure: [lane] holds a live task the cycle must consume (inside its validity, and its candidate version not left behind). */
     fun due8153(t: Task8153?, lane: String, nowMs: Long, currentVersion: Long = -1L): Boolean =
         t != null && t.pending && t.lane == canon8153(lane) && nowMs <= t.validUntilMs &&
-            (currentVersion <= 0L || t.version <= 0L || currentVersion <= t.version + 1L)
+            (currentVersion <= 0L || t.version <= 0L || currentVersion == t.version)
 
     /** Pure: the cycle let the receiver evaluate. */
     fun scheduled8153(t: Task8153, lane: String, nowMs: Long): Task8153 =
         if (!t.pending || t.lane != canon8153(lane)) t else t.copy(scheduledAtMs = nowMs, schedules = t.schedules + 1)
 
     /** Pure: the receiver's FinalDecisionGate verdict completes the task (another lane's verdict does not). */
-    fun onFdg8153(t: Task8153, lane: String, allow: Boolean, reason: String?, atMs: Long): Task8153 {
-        if (!t.pending || t.lane != canon8153(lane) || atMs + SAME_READ_SLACK_MS_8153 < t.createdAtMs) return t
+    fun onFdg8153(t: Task8153, lane: String, allow: Boolean, reason: String?, atMs: Long, currentVersion: Long = -1L): Task8153 {
+        if (!t.pending || t.lane != canon8153(lane) || atMs + SAME_READ_SLACK_MS_8153 < t.createdAtMs ||
+            (currentVersion > 0L && !due8153(t, lane, atMs, currentVersion))) return t
         return t.copy(outcome = Outcome8153.EVALUATED, settledAtMs = atMs,
             verdict = if (allow) "FDG_ALLOW" else "FDG_REFUSED:${reason.orEmpty().take(60)}")
     }
@@ -250,9 +252,9 @@ object HandoffReceiverTasks8153 {
         update8153(mint, nowMs) { it?.let { t -> scheduled8153(t, lane, nowMs) } }
     }
 
-    fun onFdgVerdict8153(mint: String, lane: String, allow: Boolean, reason: String?, nowMs: Long) {
+    fun onFdgVerdict8153(mint: String, lane: String, allow: Boolean, reason: String?, nowMs: Long, candidateVersion: Long = -1L) {
         if (tasks8153[mint]?.pending != true) return
-        update8153(mint, nowMs) { it?.let { t -> onFdg8153(t, lane, allow, reason, nowMs) } }
+        update8153(mint, nowMs) { it?.let { t -> onFdg8153(t, lane, allow, reason, nowMs, candidateVersion) } }
     }
 
     fun blockTask8153(mint: String, lane: String, block: Block8153, reason: String, nowMs: Long): Task8153? =
@@ -335,7 +337,7 @@ object HandoffTaskRuntime8153 {
         }
         val next = HandoffReceiverTasks8153.transferTask8153(mint, lane, reason, eligibleNow8153(mint), nowMs)
         try { SpecialistElection8136.retargetReceiver8153(mint, lane, next.orEmpty(), reason, nowMs) } catch (_: Throwable) {}
-        if (next != null) try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.retarget8153(mint, lane, next) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.retarget8153(mint, lane, next.orEmpty(), reason, nowMs) } catch (_: Throwable) {}
     }
 
     /**
@@ -382,7 +384,7 @@ object HandoffTaskRuntime8153 {
     /** AdmissionHandoff8144: the receiver judged and refused natively (not on fit, or fit with no other receiver). */
     fun onReceiverNativeRefused8153(mint: String, lane: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
         try {
-            if (!HandoffReceiverTasks8153.isDue8153(mint, lane, nowMs)) return
+            if (!HandoffReceiverTasks8153.isDue8153(mint, lane, nowMs, version8153(mint))) return
             // Fit with nowhere left to go ends FIT_NO_COMPATIBLE_RECEIVER; safety stays binding; anything else is its judgement.
             val block = when (blockOf8153(reason)) {
                 HandoffReceiverTasks8153.Block8153.BINDING -> HandoffReceiverTasks8153.Block8153.BINDING
@@ -393,12 +395,35 @@ object HandoffTaskRuntime8153 {
         } catch (_: Throwable) {}
     }
 
+    /** A receiver's native lane decision is an evaluation even when it produces no FDG BUY candidate. */
+    fun onNativeCandidate8153(mint: String, lane: String, shouldTrade: Boolean, signal: String, reason: String?,
+                              nowMs: Long = System.currentTimeMillis()) {
+        try {
+            val l = HandoffReceiverTasks8153.canon8153(lane)
+            if (!HandoffReceiverTasks8153.isDue8153(mint, l, nowMs, version8153(mint))) return
+            SpecialistElection8136.noteScheduled8144(mint, l, nowMs)
+            if (shouldTrade) return // the same task will be completed by its actual FDG verdict
+            val r = reason?.takeIf { it.isNotBlank() } ?: "NATIVE_NO_BUY_${signal.ifBlank { "WAIT" }}"
+            when (val block = blockOf8153(r)) {
+                HandoffReceiverTasks8153.Block8153.DATA ->
+                    HandoffReceiverTasks8153.blockTask8153(mint, l, block, "DEFERRED_NATIVE:$r", nowMs)
+                HandoffReceiverTasks8153.Block8153.FIT -> refused8153(mint, l, r, nowMs)
+                HandoffReceiverTasks8153.Block8153.BINDING,
+                HandoffReceiverTasks8153.Block8153.JUDGEMENT -> HandoffReceiverTasks8153.blockTask8153(mint, l, block, r, nowMs)
+                HandoffReceiverTasks8153.Block8153.WAIT -> HandoffReceiverTasks8153.blockTask8153(
+                    mint, l, HandoffReceiverTasks8153.Block8153.JUDGEMENT, "NATIVE_NO_BUY_${signal.ifBlank { "WAIT" }}", nowMs,
+                )
+            }
+        } catch (_: Throwable) {}
+    }
+
     /** AdmissionHandoff8144: the hand-off's receiver refused on fit and the ledger passed it to [to]: the task follows. */
     fun onLedgerTransfer8153(mint: String, from: String, to: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
         try {
-            if (!HandoffReceiverTasks8153.isDue8153(mint, from, nowMs)) return
+            if (!HandoffReceiverTasks8153.isDue8153(mint, from, nowMs, version8153(mint))) return
             val next = HandoffReceiverTasks8153.transferTask8153(mint, from, reason, mapOf(to to 100.0), nowMs)
             SpecialistElection8136.retargetReceiver8153(mint, from, next.orEmpty(), reason, nowMs)
+            com.lifecyclebot.engine.truth.AdmissionHandoff8144.retarget8153(mint, from, next.orEmpty(), reason, nowMs)
         } catch (_: Throwable) {}
     }
 
@@ -445,7 +470,7 @@ object HandoffTaskRuntime8153 {
     fun onNotScheduled8153(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()) {
         try {
             val l = HandoffReceiverTasks8153.canon8153(lane)
-            if (!HandoffReceiverTasks8153.isDue8153(mint, l, nowMs)) return
+            if (!HandoffReceiverTasks8153.isDue8153(mint, l, nowMs, version8153(mint))) return
             val sealedBy = try {
                 LaneExecutionCoordinator.currentElection6600(mint)?.takeIf { it.sealed }?.primaryLane?.takeIf { !it.equals(l, true) }
             } catch (_: Throwable) { null }

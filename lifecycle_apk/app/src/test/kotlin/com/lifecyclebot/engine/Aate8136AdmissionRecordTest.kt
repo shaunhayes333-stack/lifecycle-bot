@@ -29,7 +29,7 @@ class Aate8136AdmissionRecordTest {
     ) = Candidate8136(
         mint = "MINT8136pump", lane = "SHITCOIN", selectedSetup = selected, regime = "TRENDING", stage = "BASE_START",
         priceAgeMs = 5_000L, expectedGrossPct = 30.0, costPct = 6.0, downsidePct = 15.0,
-        setups = setups, cell = cell, timing = timing, genericScore = score, genericFloor = floor,
+        expectedGrossBySetup = setups.associate { it.id to 30.0 }, setups = setups, cell = cell, timing = timing, genericScore = score, genericFloor = floor,
     )
 
     private fun setup(id: String, n: Int, mean: Double, se: Double, run: Double = 0.0) =
@@ -177,13 +177,13 @@ class Aate8136AdmissionRecordTest {
             CandidateAdmission8136.ledgerKey8136("PLAN", Terminal8136.DEFER_DATA, "PLAN_TOO_FEW_BARS"))
         val fdg = src("engine/FinalDecisionGate.kt")
         val helper = fdg.substringAfter("private fun playbookClearsFloor7937(").substringBefore("private fun cortexPaperChoice7915(")
-        assertTrue(helper.indexOf("floorFromAdmission8136(ts, lane, waitFloor)?.let { return it }") in 0 until helper.indexOf("ladderProven7932(ts)"))
-        assertTrue(fdg.contains("recordLaneAdmission7932(ts, lane, waitFloor.coerceIn(0.0, 100.0), false)"))
+        assertTrue(helper.indexOf("floorFromAdmission8136(ts, lane, waitFloor, candidateVersion, candidateAdmission)?.let { return it }") in 0 until helper.indexOf("ladderProven7932(ts)"))
+        assertTrue(fdg.contains("recordLaneAdmission7932(ts, lane, waitFloor.coerceIn(0.0, 100.0), false, candidateVersion)"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.indexOf("dataDefer8136(ts, l8059, setup8083, nowMs)") in 1 until gate.indexOf("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))
         assertTrue(gate.contains("CandidateAdmission8136.noteVerdict8136(\"LIVE\", verdict.name, reason)"))
         val plan = src("engine/truth/TradePlan7739.kt")
-        assertTrue(plan.contains("if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return chartPlanRefusal8136(ts, lane, paper, nowMs)"))
+        assertTrue(plan.contains("if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return chartPlanRefusal8136(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)"))
         assertTrue(plan.contains("LocalTapeBars8128.fromPrints8128(TradeTape8100.prints8128(mint, nowMs, WINDOW_MS_7739), solUsd)"))
         assertTrue(src("engine/truth/CanonicalEntryFloor7266.kt").contains("CandidateAdmission8136.statusLine8136()"))
         assertTrue(CandidateAdmission8136.statusLine8136().startsWith("admission8136[ADMIT="))

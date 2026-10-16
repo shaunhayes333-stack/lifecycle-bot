@@ -343,7 +343,10 @@ object TradePlan7739 {
     // ── entry ──
 
     /** Live-entry verdict: null admits (and records the plan). Paper is never refused. */
-    fun liveBlockReason(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
+    fun liveBlockReason(
+        ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis(), candidateVersion: Long = 0L,
+        candidateAdmission: CandidateAdmission8136.Decision8136? = null,
+    ): String? {
         requestBarsIfShort7819(ts, nowMs)
         if (paper) return null
         // V5.0.7950 — the chart reader's BUY is the plan (hard safety still runs in the edge gate's chart path).
@@ -351,7 +354,7 @@ object TradePlan7739 {
         // this plan (liveEdgeBlock7877), but the executor chokepoint (sniper / native paths) asks only this function, so a
         // chart BUY there skipped the rebuy lockout, the 2x-cost net edge, the proven-losing setup and the proven-only door
         // the FDG path enforces. The same edge verdict now answers here; a chart BUY it admits is planned as before.
-        if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return chartPlanRefusal8136(ts, lane, paper, nowMs)
+        if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return chartPlanRefusal8136(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)
         // V5.0.7878 — a runner lane is judged per cohort by the edge gate below,
         // not by its lane-wide record: MOONSHOT's 10-close live record held every
         // MOONSHOT token to paper (5.0.7876 PIVOT_7876_NEGATIVE_MOONSHOT=1924),
@@ -360,7 +363,7 @@ object TradePlan7739 {
         // V5.0.7876 — under a breached loss limit only evidence-positive lanes stay live.
         if (!runner7878) LivePivotAuthority7876.liveRefusal(lane, paper, nowMs)?.let { return it }
         // V5.0.7877 — always on: live only where a measured, net-of-cost prediction says it pays.
-        LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs)?.let { return it }
+        LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)?.let { return it }
         // V5.0.7975 — admitted on positive evidence (specialist / proven cell / full-authority
         // Cortex): planned as an early launch-style entry now, not made to wait for a chart setup.
         if (LiveEdgeGate7877.positiveAdmit7975(ts.mint, nowMs)) {
@@ -431,8 +434,11 @@ object TradePlan7739 {
     }
 
     /** V5.0.8136 — a chart-reader BUY answers to the same live edge verdict the FDG path applies (null admits). */
-    private fun chartPlanRefusal8136(ts: TokenState, lane: String, paper: Boolean, nowMs: Long): String? {
-        val r = LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs)
+    private fun chartPlanRefusal8136(
+        ts: TokenState, lane: String, paper: Boolean, nowMs: Long, candidateVersion: Long = 0L,
+        candidateAdmission: CandidateAdmission8136.Decision8136? = null,
+    ): String? {
+        val r = LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)
         try { PipelineHealthCollector.labelInc(if (r == null) "PLAN_CHART_BUY_EDGE_ADMITTED_8136" else "PLAN_CHART_BUY_EDGE_REFUSED_8136") } catch (_: Throwable) {}
         return r
     }

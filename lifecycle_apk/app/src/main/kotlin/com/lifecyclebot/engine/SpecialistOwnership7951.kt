@@ -188,7 +188,7 @@ object SpecialistOwnership7951 {
     internal fun onFdgVerdict7951(mint: String, lane: String, candidateVersion: Long, shouldTrade: Boolean, blockReason: String?, nowMs: Long = System.currentTimeMillis()) {
         // V5.0.8136 — every FDG verdict (allow or refuse) terminates its lane's proposal in the candidate's election.
         noteFdgVerdict8136(mint, lane, candidateVersion, shouldTrade, blockReason, nowMs)
-        try { HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs) } catch (_: Throwable) {}  // V5.0.8153 — the receiver's task is evaluated
+        try { HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs, candidateVersion) } catch (_: Throwable) {}  // V5.0.8153 — the receiver's task is evaluated only on its candidate generation
         try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.onFdgVerdict8144(mint, lane, shouldTrade, blockReason, nowMs) } catch (_: Throwable) {}  // V5.0.8144 — hand-off arrival
         if (shouldTrade || mint.isBlank()) return
         val l = lane7951(lane)

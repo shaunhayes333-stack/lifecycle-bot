@@ -14188,6 +14188,24 @@ class BotService : Service() {
         liquidityUsd: Double = -1.0,   // V5.9.1355 P0.3 — -1 = unknown (don't liq-gate; still zero-score-gate)
         mintForProbe: String = "",     // V5.9.1466 — for PROBE GRADUATION (CandidateDecision has no mint field)
     ): com.lifecyclebot.data.CandidateDecision {
+        val result = laneQualifiedBuyDecisionCore(candidate7951, lane, confidenceFloor, liquidityUsd, mintForProbe)
+        try {
+            HandoffTaskRuntime8153.onNativeCandidate8153(
+                mintForProbe, lane, result.shouldTrade,
+                result.finalSignal.ifBlank { result.signal }, result.blockReason,
+            )
+        } catch (_: Throwable) {}
+        return result
+    }
+
+    /** The lane has actually evaluated its signal here; the outer wrapper settles any pending receiver task. */
+    private fun laneQualifiedBuyDecisionCore(
+        candidate7951: com.lifecyclebot.data.CandidateDecision,
+        lane: String,
+        confidenceFloor: Double,
+        liquidityUsd: Double,
+        mintForProbe: String,
+    ): com.lifecyclebot.data.CandidateDecision {
         // V5.0.7951 — every caller passes the owner lane's own confidence as confidenceFloor;
         // an unpopulated (0) aiConfidence carries it instead of reaching FDG as
         // ZERO_CONFIDENCE_LIVE_DEFER_7403 (TREASURY / MANIPULATED / PROJECT_SNIPER / V3 trunk).
@@ -15140,7 +15158,6 @@ class BotService : Service() {
     private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean =
         laneEvaluationAllowed7951(ts, lane, primaryLane).also { allowed ->
             if (!allowed) try { SpecialistOwnership7951.noteReadyNotEvaluated7951(lane, ts.mint, primaryLane) } catch (_: Throwable) {}
-            if (allowed) try { SpecialistElection8136.noteScheduled8144(ts.mint, lane) } catch (_: Throwable) {}  // V5.0.8144 — rescue funnel SCHEDULED
         }
 
     private val RESCUE_EXCLUDED_8031 = setOf("CORE", "CYCLIC")
@@ -31273,6 +31290,8 @@ if (hotExitHandledSweep) {
                                     try {
                                         com.lifecyclebot.engine.truth.LaneScoreAdmission7308.record(
                                             ts.mint, "PROJECT_SNIPER", _sniperScore.toDouble(), exploration = false,
+                                            candidateVersion = authResult.executionIntent7835?.candidateVersion
+                                                ?: LaneExecutionCoordinator.candidateVersionFor(ts.mint),
                                         )
                                     } catch (_: Throwable) {}
                                 }

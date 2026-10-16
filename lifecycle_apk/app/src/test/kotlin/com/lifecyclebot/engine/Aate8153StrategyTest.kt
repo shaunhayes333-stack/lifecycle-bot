@@ -41,6 +41,7 @@ class Aate8153StrategyTest {
     private fun cand(selected: String?, setups: List<Evidence8136>, timings: Map<String, Evidence8136> = emptyMap()) = Candidate8136(
         mint = "STRAT8153pump", lane = "SHITCOIN", selectedSetup = selected, priceAgeMs = 5_000L,
         expectedGrossPct = 30.0, costPct = 6.0, downsidePct = 15.0, setups = setups,
+        expectedGrossBySetup = setups.associate { it.id to 30.0 } + listOfNotNull(selected).associateWith { 30.0 },
         genericScore = 12.0, genericFloor = 30.0, setupTimings = timings,
     )
 
@@ -118,6 +119,34 @@ class Aate8153StrategyTest {
         assertEquals(Terminal8136.ADMIT, fixed.terminal)
     }
 
+    @Test fun supportedAlternativeCannotBorrowThinDefaultsEconomics() {
+        val c = cand("A_SETUP", listOf(ev("A_SETUP", 2, 3.0, 2.0), ev("B_SETUP", 40, 10.0, 2.0)))
+            .copy(expectedGrossPct = 30.0, expectedGrossBySetup = mapOf("B_SETUP" to 8.0))
+        val refused = CandidateAdmission8136.decide8136(c)
+        assertEquals("B_SETUP", refused.chosenSetup)
+        assertEquals("EXECUTION_ECONOMICS_8136", refused.reason)
+        assertEquals(2.0, refused.expectedNetPct, 1e-9)
+        assertEquals(Terminal8136.DEFER_DATA,
+            CandidateAdmission8136.decide8136(c.copy(expectedGrossBySetup = emptyMap())).terminal)
+        val admitted = CandidateAdmission8136.decide8136(c.copy(expectedGrossBySetup = mapOf("B_SETUP" to 30.0)))
+        assertEquals(Terminal8136.ADMIT, admitted.terminal)
+        assertEquals("B_SETUP", admitted.chosenSetup)
+        assertEquals(24.0, admitted.expectedNetPct, 1e-9)
+    }
+
+    @Test fun alternativeSetupMustClearEconomicsOnItsOwnExecutableMove() {
+        val c = cand("A_SETUP", listOf(ev("A_SETUP", 40, -12.0, 2.0), ev("B_SETUP", 40, 10.0, 2.0)))
+            .copy(expectedGrossPct = 30.0, expectedGrossBySetup = mapOf("A_SETUP" to 30.0, "B_SETUP" to 8.0))
+        val d = CandidateAdmission8136.decide8136(c)
+        assertEquals("B_SETUP", d.chosenSetup)
+        assertEquals("EXECUTION_ECONOMICS_8136", d.reason)
+        assertEquals(2.0, d.expectedNetPct, 1e-9)
+        assertTrue(d.trace.any { it == "economicsSetup=B_SETUP gross=+8.0 cost=+6.0 net=+2.0" })
+        val unmeasuredAlternative = CandidateAdmission8136.decide8136(c.copy(expectedGrossBySetup = emptyMap()))
+        assertEquals(Terminal8136.DEFER_DATA, unmeasuredAlternative.terminal)
+        assertTrue(CandidateAdmission8136.missingOf8144(unmeasuredAlternative).contains("economics"))
+    }
+
     @Test fun missingDataDefersInsteadOfRefusing() {
         val d = CandidateAdmission8136.decide8136(cand(null, emptyList()).copy(missingInputs = listOf("liquidity:UNKNOWN")))
         assertEquals(Terminal8136.DEFER_DATA, d.terminal)
@@ -175,7 +204,7 @@ class Aate8153StrategyTest {
         assertTrue(src("engine/ExitProfile7955.kt").contains("LanePlaybook7907.selectedSetup8094(ts, canon(lane), nowMs)"))
         assertTrue(src("engine/FinalDecisionGate.kt").contains("strategy = (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, System.currentTimeMillis())"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(gate.indexOf("CandidateAdmission8136.assess8136(ts, l8059, nowMs)") in 0 until gate.indexOf("val setup8083 = try {"))
+        assertTrue(gate.indexOf("CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion)") in 0 until gate.indexOf("val setup8083 = try {"))
     }
 
     // ── P2: false runner refusals ─────────────────────────────────────────────

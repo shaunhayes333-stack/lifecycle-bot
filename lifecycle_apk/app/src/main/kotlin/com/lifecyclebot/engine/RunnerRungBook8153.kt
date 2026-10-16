@@ -19,7 +19,7 @@ package com.lifecyclebot.engine
  * position's gross opportunity (entry cost x verified peak) beside the net SOL its confirmed slices actually banked.
  * Thread-safe.
  */
-class RunnerRungBook8153(private val cap: Int = 2_048, private val seenCap: Int = 4_096) {
+class RunnerRungBook8153(private val cap: Int = 2_048) {
 
     enum class Stage8153 { REQUESTED, TICKET_ACCEPTED, BROADCAST, CONFIRMED_PARTIAL_FILL, PROCEEDS_BOOKED }
     enum class Revert8153 { REJECTED, SUPERSEDED, EXPIRED }
@@ -149,7 +149,6 @@ class RunnerRungBook8153(private val cap: Int = 2_048, private val seenCap: Int 
         if (sig.isEmpty() || !proceedsSol.isFinite() || proceedsSol < 0.0 || !soldCostSol.isFinite() || soldCostSol <= 0.0) return false
         if (sig in seenSignatures) { duplicateFills++; return false }
         seenSignatures.add(sig)
-        while (seenSignatures.size > seenCap) { val oldest = seenSignatures.iterator(); oldest.next(); oldest.remove() }
         r.proceedsSol += proceedsSol
         r.soldCostSol += soldCostSol
         booked++
@@ -199,13 +198,17 @@ class RunnerRungBook8153(private val cap: Int = 2_048, private val seenCap: Int 
     fun bankedProceedsSol8153(key: String): Double = book[key]?.proceedsSol ?: 0.0
 
     /**
-     * One line per position: key;scalpConfirmed;runnerConfirmed;ladder;promoted;proceeds;soldCost;opportunity, plus a
-     * `#closed` totals line. Pending tranches are never persisted: an unconfirmed request is retryable after a restart.
+     * One line per position: key;scalpConfirmed;runnerConfirmed;ladder;promoted;proceeds;soldCost;opportunity, plus
+     * `#closed` totals and `#sig` idempotency lines. Pending tranches are never persisted: an unconfirmed request is
+     * retryable after a restart.
      */
     @Synchronized
     fun encode8153(): String {
         val sb = StringBuilder()
         sb.append("#closed;").append(closedOpportunitySol).append(';').append(closedNetSol).append(';').append(closedPositions).append('\n')
+        // Persist the idempotency keys with the aggregates. Without these, replaying a confirmed chain event after an
+        // app restart could add the same SOL proceeds a second time even though the in-memory guard worked pre-restart.
+        for (sig in seenSignatures) sb.append("#sig;").append(sig).append('\n')
         for ((k, r) in book) {
             sb.append(k).append(';').append(r.scalpConfirmed).append(';').append(r.runnerConfirmed).append(';').append(r.ladder)
                 .append(';').append(if (r.promoted) 1 else 0).append(';').append(r.proceedsSol).append(';').append(r.soldCostSol)
@@ -221,6 +224,11 @@ class RunnerRungBook8153(private val cap: Int = 2_048, private val seenCap: Int 
         var n = 0
         for (line in text.lineSequence()) {
             val f = line.trim().split(';')
+            if (f.size >= 2 && f[0] == "#sig") {
+                val sig = f[1].trim()
+                if (sig.isNotEmpty()) seenSignatures.add(sig)
+                continue
+            }
             if (f.size >= 4 && f[0] == "#closed") {
                 // The totals line is a snapshot of the same running totals: the newer (more positions) snapshot wins.
                 val positions = f[3].toLongOrNull() ?: 0L

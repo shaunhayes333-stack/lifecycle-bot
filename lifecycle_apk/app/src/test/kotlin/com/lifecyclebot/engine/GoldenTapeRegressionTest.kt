@@ -14668,7 +14668,7 @@ class GoldenTapeRegressionTest {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneScoreAdmission7308.kt").readText()
         assertTrue(src.contains("holdsExplorationSlot7772(it.lane) && !isProven("))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue(fdg.contains("if (shouldTradeFinal) try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.confirm7772(ts.mint) }"))
+        assertTrue(fdg.contains("LaneScoreAdmission7308.confirmExecution7772(ts.mint, canonicalPrimaryLane6658, candidateVersion7623)"))
     }
 
     @Test

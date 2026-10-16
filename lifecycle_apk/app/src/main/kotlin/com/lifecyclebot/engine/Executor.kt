@@ -18164,12 +18164,14 @@ class Executor(
         val sealedTicket = scoreAttempt?.let {
             try { ExecutableOpenGate.ticketForAttempt(it) } catch (_: Throwable) { null }
         }
+        // The FDG-carried score is authority for one owner and one generation only. Resolve the generation once from the
+        // sealed ticket (or the current coordinator when no ticket exists), then use this same value for lookup/logging.
+        val admissionCandidateVersion = sealedTicket?.candidateVersion
+            ?: try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
         val sealedSnapshot = try {
-            val candidateVersion = sealedTicket?.candidateVersion
-                ?: LaneExecutionCoordinator.candidateVersionFor(ts.mint)
             com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
                 ts.mint,
-                candidateVersion,
+                admissionCandidateVersion,
                 "LIVE",
             )
         } catch (_: Throwable) { null }
@@ -18190,7 +18192,11 @@ class Executor(
         }
         // V5.0.7308 — FDG admitted this mint on its lane's own score; the
         // ticket still holds the generic V3 score. Judge on the admission.
-        val laneAdmission7308 = try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.forMint(ts.mint) } catch (_: Throwable) { null }
+        val laneAdmission7308 = try {
+            com.lifecyclebot.engine.truth.LaneScoreAdmission7308.forExecution(
+                ts.mint, canonicalLane, admissionCandidateVersion, mode = "LIVE",
+            )
+        } catch (_: Throwable) { null }
         val effectiveScore = maxOf(rawScore, laneAdmission7308?.score ?: 0.0).coerceIn(0.0, 100.0)
         if (laneAdmission7308 != null && laneAdmission7308.score > rawScore) {
             try { PipelineHealthCollector.labelInc("LIVE_SCORE_FROM_LANE_ADMISSION_7308") } catch (_: Throwable) {}

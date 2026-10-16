@@ -169,9 +169,13 @@ class Aate8153HandoffTest {
         assertEquals(t0 + tk.TASK_MAX_AGE_MS_8153, live.validUntilMs)
         assertTrue(tk.due8153(live, "MOONSHOT", t0 + tk.TASK_MAX_AGE_MS_8153))
         assertFalse(tk.due8153(live, "MOONSHOT", t0 + tk.TASK_MAX_AGE_MS_8153 + 1L))
-        // A candidate version left two buckets behind is not consumed under the old authorisation.
-        assertTrue(tk.due8153(t, "MOONSHOT", t0 + 1_000L, 11L))
-        assertFalse(tk.due8153(t, "MOONSHOT", t0 + 1_000L, 12L))
+        // A handoff is consumed only by the exact candidate generation it names.
+        assertTrue(tk.due8153(t, "MOONSHOT", t0 + 1_000L, 10L))
+        assertFalse(tk.due8153(t, "MOONSHOT", t0 + 1_000L, 11L))
+        assertFalse(tk.due8153(t, "MOONSHOT", t0 + 1_000L, 9L))
+        val freshGeneration = tk.refresh8153(t, "MOONSHOT", 11L, true, t0 + 1_001L, t0 + 1_001L)
+        assertTrue(tk.due8153(freshGeneration, "MOONSHOT", t0 + 1_002L, 11L))
+        assertFalse(tk.due8153(freshGeneration, "MOONSHOT", t0 + 1_002L, 10L))
         // A settled task is not re-opened by the same hand-off inside the hold, only by one emitted after it settled.
         val settled = tk.onFdg8153(t, "MOONSHOT", true, null, t0 + 2_000L)
         assertSame(settled, tk.open8153(settled, m, "MOONSHOT", "PROJECT_SNIPER", "R", 10L, t0 + 3_000L, t0 + 3_000L))
@@ -388,7 +392,7 @@ class Aate8153HandoffTest {
         val o = src("engine/SpecialistOwnership7951.kt")
         assertTrue(o.contains("if (HandoffTaskRuntime8153.admits8153(l, mint, primaryLane, nowMs)) return true"))
         assertTrue(o.contains("HandoffTaskRuntime8153.onNotScheduled8153(mint, l)"))
-        assertTrue(o.contains("HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs)"))
+        assertTrue(o.contains("HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs, candidateVersion)"))
         assertTrue(o.contains("HandoffTaskRuntime8153.onYield8153(mint, lane7951(primary), named, ops)"))
         val el = src("engine/SpecialistElection8136.kt")
         assertTrue(el.contains("HandoffReceiverTasks8153.markScheduled8153(mint, l, nowMs)"))

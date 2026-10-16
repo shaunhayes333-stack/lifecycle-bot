@@ -66,6 +66,8 @@ object CandidateAdmission8136 {
         val expectedGrossPct: Double = Double.NaN,
         val costPct: Double = Double.NaN,
         val downsidePct: Double = Double.NaN,
+        /** Executable move per fired setup; an alternative cannot inherit the selected setup's economics. */
+        val expectedGrossBySetup: Map<String, Double> = emptyMap(),
         /** Every fired setup's own record in this lane (the selected one included). */
         val setups: List<Evidence8136> = emptyList(),
         val cell: Evidence8136? = null,
@@ -82,6 +84,8 @@ object CandidateAdmission8136 {
         val genericFloor: Double = Double.NaN,
         /** V5.0.8153 — each fired setup's record at the coin's CURRENT timing band (StrategyRank8153 ranks with it). */
         val setupTimings: Map<String, Evidence8136> = emptyMap(),
+        /** Candidate generation pinned by the live admission adapter; 0 for pure fixtures. */
+        val candidateVersion: Long = 0L,
     )
 
     /** The one authoritative terminal admission and the evidence trace behind it. */
@@ -146,9 +150,10 @@ object CandidateAdmission8136 {
     /** Pure: the one terminal admission for [c]. Order: safety, structure, loss patterns, timing, economics, data, edge, prior. */
     fun decide8136(c: Candidate8136): Decision8136 {
         val trace = ArrayList<String>(10)
-        trace += "lane=${c.lane} setup=${c.selectedSetup ?: "-"} regime=${c.regime.ifBlank { "-" }} stage=${c.stage.ifBlank { "-" }}${if (c.hotLaunch) " hot" else ""}"
-        val net = if (c.expectedGrossPct.isFinite() && c.costPct.isFinite()) c.expectedGrossPct - c.costPct else Double.NaN
-        trace += "gross=${fmt8136(c.expectedGrossPct)} cost=${fmt8136(c.costPct)} net=${fmt8136(net)} downside=${fmt8136(c.downsidePct)}"
+        trace += "lane=${c.lane} version=${c.candidateVersion} setup=${c.selectedSetup ?: "-"} regime=${c.regime.ifBlank { "-" }} stage=${c.stage.ifBlank { "-" }}${if (c.hotLaunch) " hot" else ""}"
+        var decisionGross = c.expectedGrossPct
+        var net = if (decisionGross.isFinite() && c.costPct.isFinite()) decisionGross - c.costPct else Double.NaN
+        trace += "gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} net=${fmt8136(net)} downside=${fmt8136(c.downsidePct)}"
         fun done(t: Terminal8136, reason: String, specific: Boolean, setup: String?, basis: String = ""): Decision8136 =
             Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason })
 
@@ -164,6 +169,13 @@ object CandidateAdmission8136 {
         val bestSetup = bestSetup8153(c)
         val selectedRec = c.setups.firstOrNull { it.id == c.selectedSetup }
         var chosen = c.selectedSetup
+        fun chooseSetup(id: String) {
+            chosen = id
+            decisionGross = if (id == c.selectedSetup) c.expectedGrossPct
+                else c.expectedGrossBySetup[id] ?: Double.NaN
+            net = if (decisionGross.isFinite() && c.costPct.isFinite()) decisionGross - c.costPct else Double.NaN
+            trace += "economicsSetup=$id gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} net=${fmt8136(net)}"
+        }
         if (losing8136(selectedRec)) {
             if (bestSetup == null && !cellSupported) {
                 trace += "setupLosing=${selectedRec?.compact}"
@@ -171,7 +183,7 @@ object CandidateAdmission8136 {
             }
             if (bestSetup != null) {
                 trace += "altSetup=${bestSetup.compact} over ${selectedRec?.compact}"
-                chosen = bestSetup.id
+                chooseSetup(bestSetup.id)
             } else {
                 trace += "setupLosing=${selectedRec?.compact} carried by cell ${c.cell?.compact}"
             }
@@ -192,24 +204,27 @@ object CandidateAdmission8136 {
         //    timing book belongs to the selected setup, not to the alternative).
         if (chosen == c.selectedSetup && losing8136(c.timing) && !cellSupported && bestSetup != null && bestSetup.id != c.selectedSetup) {
             trace += "altSetup=${bestSetup.compact} over timing ${c.timing?.compact}"
-            chosen = bestSetup.id
+            chooseSetup(bestSetup.id)
         }
         if (chosen == c.selectedSetup && losing8136(c.timing) && !cellSupported) {
             trace += "timing=${c.timing?.compact}"
             return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
         }
 
+        val chosenRec = c.setups.firstOrNull { it.id == chosen }
+        val edge = listOfNotNull(bestSetup ?: chosenRec?.takeIf { supported8136(it, c.costPct) }, c.cell?.takeIf { cellSupported })
+            .maxByOrNull { it.lowerPct }
+        // Resolve the winning strategy before validating its executable economics.
+        if (edge?.kind == KIND_SETUP && edge.id != chosen) chooseSetup(edge.id)
+
         // 4. execution economics: the expected executable move must clear NetEdge8030.EDGE_MULT x the round trip.
-        val econKnown = c.expectedGrossPct.isFinite() && c.costPct.isFinite()
-        if (econKnown && !NetEdge8030.entryClears8030(c.expectedGrossPct, c.costPct)) {
+        val econKnown = decisionGross.isFinite() && c.costPct.isFinite()
+        if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct)) {
             return done(Terminal8136.REFUSE, "EXECUTION_ECONOMICS_8136", true, chosen)
         }
 
         // 5. data: a stale price or unknown economics defers every candidate; missing classifier inputs defer a candidate
         //    with no supported evidence of its own (its setup cannot be judged yet).
-        val chosenRec = c.setups.firstOrNull { it.id == chosen }
-        val edge = listOfNotNull(bestSetup ?: chosenRec?.takeIf { supported8136(it, c.costPct) }, c.cell?.takeIf { cellSupported })
-            .maxByOrNull { it.lowerPct }
         val stale = priceStale8136(c.priceAgeMs, c.hotLaunch)
         if (stale || !econKnown || (c.missingInputs.isNotEmpty() && edge == null)) {
             val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + (if (!econKnown) listOf("economics") else emptyList())
@@ -220,7 +235,7 @@ object CandidateAdmission8136 {
         // 6. supported candidate-specific edge: the generic score is only a prior.
         if (edge != null) {
             trace += "edge=${edge.compact}${if (edge.runnerRate.isFinite()) " run=${(edge.runnerRate * 100).toInt()}%" else ""}"
-            return done(Terminal8136.ADMIT, "SPECIFIC_EDGE_PROVEN_8136", true, if (edge.kind == KIND_SETUP) edge.id else chosen, edge.compact)
+            return done(Terminal8136.ADMIT, "SPECIFIC_EDGE_PROVEN_8136", true, chosen, edge.compact)
         }
 
         // 7. no supported edge: thin positives are noted, never admitted; the generic prior decides.
@@ -324,15 +339,16 @@ object CandidateAdmission8136 {
     fun missingOf8144(d: Decision8136): List<String> =
         d.trace.firstOrNull { it.startsWith("missing=") }?.removePrefix("missing=")?.split(',')?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
 
-    private class Held8144(val decision: Decision8136, val features: List<String>, val atMs: Long)
+    private class Held8144(
+        val candidate: Candidate8136, val decision: Decision8136, val features: List<String>, val atMs: Long,
+        val candidateVersion: Long, val mode: String,
+    )
 
     private val reevals8144 = ConcurrentHashMap<String, Reeval8144>()
-    /** V5.0.8153 — the last decision per mint + lane for [MEMO_MS_8153]: the live edge gate and the FDG floor read one record. */
-    private val memos8153 = ConcurrentHashMap<String, Pair<Long, Decision8136>>()
+    /** A cached verdict is valid only for the same candidate evidence and generation. */
+    private data class Memo8153(val atMs: Long, val candidate: Candidate8136, val decision: Decision8136)
+    private val memos8153 = ConcurrentHashMap<String, Memo8153>()
     private const val MEMO_MS_8153 = 1_500L
-
-    private fun memo8153(mint: String, laneRaw: String, nowMs: Long): Decision8136? =
-        memos8153["$mint|$laneRaw"]?.takeIf { nowMs - it.first in 0L..MEMO_MS_8153 }?.second
     private val held8144 = ConcurrentHashMap<String, Held8144>()
     private val coalesced8144 = AtomicLong(0)
 
@@ -351,23 +367,29 @@ object CandidateAdmission8136 {
     }
 
     /** The held DEFER_DATA decision for [mint] in [laneRaw] while none of its missing features is due yet, else null. */
-    private fun coalescedDefer8144(mint: String, laneRaw: String, nowMs: Long): Decision8136? {
+    private fun coalescedDefer8144(mint: String, laneRaw: String, candidate: Candidate8136, candidateVersion: Long,
+                                   mode: String, nowMs: Long): Decision8136? {
         val h = held8144["$mint|$laneRaw"] ?: return null
         if (nowMs - h.atMs !in 0L..REEVAL_MAX_MS_8144) return null
+        if (h.candidateVersion != candidateVersion || h.mode != mode) return null
+        // A data response, changed price/economics, changed strategy, or new label evidence invalidates the held defer.
+        // Only reuse it when the exact evidence that produced it is still present.
+        if (h.candidate != cacheIdentity8144(candidate)) return null
         if (h.features.any { reevalDue8144(reevals8144["$mint|$it"], nowMs) }) return null
         coalesced8144.incrementAndGet()
         return h.decision
     }
 
     /** Holds a DEFER_DATA decision (scheduling its features) and files the decision in the runner trace. */
-    private fun noteDecision8144(mint: String, laneRaw: String, d: Decision8136, nowMs: Long) {
+    private fun noteDecision8144(mint: String, laneRaw: String, candidate: Candidate8136, d: Decision8136,
+                                 candidateVersion: Long, mode: String, nowMs: Long) {
         if (mint.isBlank()) return
         val key = "$mint|$laneRaw"
         if (d.terminal == Terminal8136.DEFER_DATA) {
             val f = features8144(missingOf8144(d))
             scheduleDue8144(mint, f, nowMs)
             if (held8144.size > 4_000) held8144.entries.removeIf { nowMs - it.value.atMs > REEVAL_MAX_MS_8144 }
-            held8144[key] = Held8144(d, f, nowMs)
+            held8144[key] = Held8144(cacheIdentity8144(candidate), d, f, nowMs, candidateVersion, mode)
         } else {
             held8144.remove(key)
         }
@@ -378,9 +400,14 @@ object CandidateAdmission8136 {
             StrategyIdentity8153.record8153(mint, lane, d.chosenSetup, d.basis, nowMs)
             AdmissionRunnerTrace8144.noteIdentity8153(mint, d.chosenSetup, d.basis)
         } catch (_: Throwable) {}
-        if (memos8153.size > 4_000) memos8153.entries.removeIf { nowMs - it.value.first > MEMO_MS_8153 }
-        memos8153[key] = nowMs to d
+        if (memos8153.size > 4_000) memos8153.entries.removeIf { nowMs - it.value.atMs > MEMO_MS_8153 }
+        memos8153["$mode|$mint|${candidate.lane}|$candidateVersion"] = Memo8153(nowMs, cacheIdentity8144(candidate), d)
     }
+
+    /** Candidate price age affects admission only at the stale/fresh boundary. */
+    private fun cacheIdentity8144(c: Candidate8136): Candidate8136 = c.copy(
+        priceAgeMs = if (priceStale8136(c.priceAgeMs, c.hotLaunch)) Long.MAX_VALUE else 0L,
+    )
 
     /**
      * LiveEdgeGate7877.dataDefer8136: [deferBudget8136] coalesced per mint + missing feature. A call while none of
@@ -448,9 +475,18 @@ object CandidateAdmission8136 {
         if (n > 1.0 && variance.isFinite() && variance >= 0.0) kotlin.math.sqrt(variance / n) else Double.POSITIVE_INFINITY
 
     /** The admission record for [ts] in [laneRaw] now, decided. Null only on an internal failure. */
-    fun assess8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Decision8136? = try {
-        // V5.0.8144 — a data deferral is re-decided when one of its missing features is due (coalesced, not every cycle).
-        memo8153(ts.mint, laneRaw, nowMs) ?: coalescedDefer8144(ts.mint, laneRaw, nowMs) ?: decide8136(candidateFor8136(ts, laneRaw, nowMs)).also { noteDecision8144(ts.mint, laneRaw, it, nowMs) }
+    fun assess8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), candidateVersion: Long = 0L): Decision8136? = try {
+        val rawCandidate = candidateFor8136(ts, laneRaw, nowMs)
+        val version = candidateVersion.takeIf { it > 0L }
+            ?: try { com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
+        val mode = try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "UNKNOWN" }
+        val candidate = rawCandidate.copy(candidateVersion = version)
+        val key = "$mode|${ts.mint}|${candidate.lane}|$version"
+        val identity = cacheIdentity8144(candidate)
+        val cached = memos8153[key]?.takeIf { nowMs - it.atMs in 0L..MEMO_MS_8153 && it.candidate == identity }?.decision
+        cached ?: coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) ?: decide8136(candidate).also {
+            noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs)
+        }
     } catch (_: Throwable) { null }
 
     /** Builds the candidate record from the playbook, forward labels, net-edge cost model and safety report. */
@@ -507,6 +543,9 @@ object CandidateAdmission8136 {
             expectedGrossPct = try { NetEdge8030.expectedGrossFor8153(ts, lane, selected, cost8153) } catch (_: Throwable) { Double.NaN },
             costPct = cost8153,
             downsidePct = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(lane) } catch (_: Throwable) { Double.NaN },
+            expectedGrossBySetup = (options8153.map { it.id } + listOfNotNull(selected)).distinct().associateWith { setup ->
+                try { NetEdge8030.expectedGrossFor8153(ts, lane, setup, cost8153) } catch (_: Throwable) { Double.NaN }
+            },
             setups = setups,
             cell = cell,
             timing = timing,

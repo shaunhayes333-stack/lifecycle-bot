@@ -26,14 +26,38 @@ object LaneScoreAdmission7308 {
     private const val TTL_MS = 10 * 60_000L
     private const val EXPLORATION_SPACING_MS = 5 * 60_000L
 
-    data class Admission(val lane: String, val score: Double, val exploration: Boolean, val atMs: Long)
+    data class Admission(
+        val lane: String,
+        val score: Double,
+        val exploration: Boolean,
+        val atMs: Long,
+        val candidateVersion: Long = 0L,
+        val mode: String = "LIVE",
+    )
 
     private val byMint = ConcurrentHashMap<String, Admission>()
+    private val byExecution = ConcurrentHashMap<String, Admission>()
     @Volatile private var lastExplorationMs = 0L
 
-    fun record(mint: String, lane: String, score: Double, exploration: Boolean, nowMs: Long = System.currentTimeMillis()) {
+    private fun executionKey(mint: String, lane: String, version: Long, mode: String): String =
+        "${mode.trim().uppercase()}|$mint|${lane.trim().uppercase()}|$version"
+
+    fun record(
+        mint: String,
+        lane: String,
+        score: Double,
+        exploration: Boolean,
+        candidateVersion: Long = 0L,
+        mode: String = "LIVE",
+        nowMs: Long = System.currentTimeMillis(),
+    ) {
         if (mint.isBlank() || !score.isFinite()) return
-        byMint[mint] = Admission(lane.trim().uppercase(), score, exploration, nowMs)
+        val version = candidateVersion.takeIf { it > 0L } ?: try { com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint) } catch (_: Throwable) { 0L }
+        val canonicalLane = try { CanonicalLaneIdentity6506.canonical(lane).uppercase() } catch (_: Throwable) { lane.trim().uppercase() }
+        val admission = Admission(canonicalLane, score, exploration, nowMs, version, mode.trim().uppercase())
+        byMint[mint] = admission
+        if (version > 0L && canonicalLane.isNotBlank()) byExecution[executionKey(mint, canonicalLane, version, admission.mode)] = admission
+        if (byExecution.size > 4_000) byExecution.entries.removeIf { nowMs - it.value.atMs > TTL_MS }
         // V5.0.7772 — the slot's 5-minute spacing starts when FinalDecisionGate's
         // final verdict allows the trade (confirm7772), not here: this runs before
         // the Field Manual, cell proof, fresh-launch, plan and council reads, and a
@@ -51,6 +75,17 @@ object LaneScoreAdmission7308 {
         lastExplorationByLane7323[a.lane] = nowMs
     }
 
+    /** Confirm only the exact owner/generation whose FDG verdict was allowed. */
+    fun confirmExecution7772(mint: String, lane: String, candidateVersion: Long, mode: String = "LIVE", nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || candidateVersion <= 0L) return
+        val l = try { CanonicalLaneIdentity6506.canonical(lane).uppercase() } catch (_: Throwable) { lane.trim().uppercase() }
+        val key = executionKey(mint, l, candidateVersion, mode)
+        val a = byExecution[key] ?: return
+        if (nowMs - a.atMs !in 0L..TTL_MS || !a.exploration) return
+        lastExplorationMs = nowMs
+        lastExplorationByLane7323[a.lane] = nowMs
+    }
+
     /**
      * V5.0.7772 — adopted wallet holdings (WALLET_RECOVERED and other recovered
      * stubs) are leftovers the bot exits, not a strategy's exploration. Counted,
@@ -63,6 +98,16 @@ object LaneScoreAdmission7308 {
     fun forMint(mint: String, nowMs: Long = System.currentTimeMillis()): Admission? {
         val a = byMint[mint] ?: return null
         if (nowMs - a.atMs > TTL_MS) { byMint.remove(mint); return null }
+        return a
+    }
+
+    /** The executor may consume only the score recorded for this exact lane, mode and candidate generation. */
+    fun forExecution(mint: String, lane: String, candidateVersion: Long, mode: String = "LIVE", nowMs: Long = System.currentTimeMillis()): Admission? {
+        if (mint.isBlank() || candidateVersion <= 0L) return null
+        val l = try { CanonicalLaneIdentity6506.canonical(lane).uppercase() } catch (_: Throwable) { lane.trim().uppercase() }
+        val key = executionKey(mint, l, candidateVersion, mode)
+        val a = byExecution[key] ?: return null
+        if (nowMs - a.atMs !in 0L..TTL_MS) { byExecution.remove(key, a); return null }
         return a
     }
 

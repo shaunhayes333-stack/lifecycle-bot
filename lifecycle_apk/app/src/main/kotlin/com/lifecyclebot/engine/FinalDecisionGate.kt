@@ -871,14 +871,17 @@ object FinalDecisionGate {
         paper: Boolean,
         proposedSizeSol: Double,
         mode: TradeMode,
+        candidateVersion: Long,
+        admissionLane: String,
+        candidateAdmission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
     ): FinalDecision? {
         // V5.0.7877 — hard on every live path, specialist-owned included: the
         // plan/council below are advisory for a specialist owner (7845), which
         // let unpredicted buys through. A buy with no measured edge stays paper.
-        liveEdgeBlock7877(ts, candidate, specialistLane, laneName, paper, mode)?.let { return it }
+        liveEdgeBlock7877(ts, candidate, admissionLane, paper, mode, candidateVersion, candidateAdmission)?.let { return it }
         if (specialistLane.isNullOrBlank()) {
             return fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)
-                ?: tradePlanBlock7739(ts, candidate, specialistLane, laneName, paper, mode)
+                ?: tradePlanBlock7739(ts, candidate, specialistLane, admissionLane, paper, mode, candidateVersion, candidateAdmission)
                 ?: councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, paper, mode)
         }
         try {
@@ -886,7 +889,7 @@ object FinalDecisionGate {
             if (manual != null) PipelineHealthCollector.labelInc("FDG_ADVISORY_FIELD_MANUAL_7845")
         } catch (_: Throwable) {}
         try {
-            val plan = tradePlanBlock7739(ts, candidate, specialistLane, laneName, paper, mode)
+            val plan = tradePlanBlock7739(ts, candidate, specialistLane, admissionLane, paper, mode, candidateVersion, candidateAdmission)
             if (plan != null) PipelineHealthCollector.labelInc("FDG_ADVISORY_TRADE_PLAN_7845")
         } catch (_: Throwable) {}
         try {
@@ -982,8 +985,8 @@ object FinalDecisionGate {
      * (Cortex7885.paperChoice). Hard, mode and size blocks are never touched.
      */
     /** V5.0.7308 — carry the admission score to the executor's pre-lease floor (moved out of evaluate in 7932). */
-    private fun recordLaneAdmission7932(ts: TokenState, lane: String, score: Double, exploration: Boolean) {
-        try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.record(ts.mint, lane, score, exploration = exploration) } catch (_: Throwable) {}
+    private fun recordLaneAdmission7932(ts: TokenState, lane: String, score: Double, exploration: Boolean, candidateVersion: Long) {
+        try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.record(ts.mint, lane, score, exploration = exploration, candidateVersion = candidateVersion) } catch (_: Throwable) {}
     }
 
     /**
@@ -994,8 +997,11 @@ object FinalDecisionGate {
      * at) is carried to LaneScoreAdmission7308 so one admission decides. False: a candidate-specific refusal — no
      * lane-wide bypass (ladder, lane labels, retired population, playbook score) clears it. Null: the bypasses decide.
      */
-    private fun floorFromAdmission8136(ts: TokenState, lane: String, waitFloor: Double): Boolean? {
-        val a = try { com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(ts, lane) } catch (_: Throwable) { null } ?: return null
+    private fun floorFromAdmission8136(
+        ts: TokenState, lane: String, waitFloor: Double, candidateVersion: Long,
+        candidateAdmission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136? = null,
+    ): Boolean? {
+        val a = candidateAdmission ?: try { com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(ts, lane, candidateVersion = candidateVersion) } catch (_: Throwable) { null } ?: return null
         val verdict = com.lifecyclebot.engine.truth.CandidateAdmission8136.floorVerdict8136(a)
         try {
             com.lifecyclebot.engine.truth.CandidateAdmission8136.note8136("FLOOR", a.terminal, a.reason)
@@ -1005,7 +1011,7 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) {}
         if (verdict == true && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && waitFloor.isFinite()) {
-            recordLaneAdmission7932(ts, lane, waitFloor.coerceIn(0.0, 100.0), false)
+            recordLaneAdmission7932(ts, lane, waitFloor.coerceIn(0.0, 100.0), false, candidateVersion)
         }
         return verdict
     }
@@ -1020,11 +1026,14 @@ object FinalDecisionGate {
      * expected record) is not refused by the generic V3 floor; neither is a
      * ladder-proven launch (7932). NO_TRIGGER and losing setups leave the floor in force.
      */
-    private fun playbookClearsFloor7937(ts: TokenState, lane: String, waitFloor: Double): Boolean {
+    private fun playbookClearsFloor7937(
+        ts: TokenState, lane: String, waitFloor: Double, candidateVersion: Long,
+        candidateAdmission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136? = null,
+    ): Boolean {
         // V5.0.8136 — the candidate's own admission record answers first: supported specific edge clears the generic
         // floor (and is carried past the executor's pre-lease floor); a specific refusal (hostile mint, structure, a
         // losing setup / cell / stage / tactic, adverse timing, bad economics) holds it with no lane-wide bypass below.
-        floorFromAdmission8136(ts, lane, waitFloor)?.let { return it }
+        floorFromAdmission8136(ts, lane, waitFloor, candidateVersion, candidateAdmission)?.let { return it }
         if (com.lifecyclebot.engine.truth.FreshLaunchSelector7737.ladderProven7932(ts)) {
             try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_OVERRULED_BY_LADDER_7932") } catch (_: Throwable) {}
             return true
@@ -1084,13 +1093,15 @@ object FinalDecisionGate {
     private fun liveEdgeBlock7877(
         ts: TokenState,
         candidate: CandidateDecision,
-        specialistLane: String?,
-        laneName: String,
+        lane: String,
         paper: Boolean,
         mode: TradeMode,
+        candidateVersion: Long,
+        candidateAdmission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
     ): FinalDecision? = try {
-        val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
-        val reason = com.lifecyclebot.engine.truth.LiveEdgeGate7877.liveRefusal(ts, lane, paper)
+        val reason = com.lifecyclebot.engine.truth.LiveEdgeGate7877.liveRefusal(
+            ts, lane, paper, candidateVersion = candidateVersion, candidateAdmission = candidateAdmission,
+        )
         if (reason != null) SpecialistOwnership7951.notePreIntent7951(lane, "FDG_$reason") // V5.0.7951
         if (reason == null) null else FinalDecision(
             shouldTrade = false,
@@ -1114,12 +1125,16 @@ object FinalDecisionGate {
         ts: TokenState,
         candidate: CandidateDecision,
         specialistLane: String?,
-        laneName: String,
+        admissionLane: String,
         paper: Boolean,
         mode: TradeMode,
+        candidateVersion: Long,
+        candidateAdmission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
     ): FinalDecision? = try {
-        val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
-        val reason = com.lifecyclebot.engine.truth.TradePlan7739.liveBlockReason(ts, lane, paper)
+        val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: admissionLane
+        val reason = com.lifecyclebot.engine.truth.TradePlan7739.liveBlockReason(
+            ts, lane, paper, candidateVersion = candidateVersion, candidateAdmission = candidateAdmission,
+        )
         if (reason == null) null else FinalDecision(
             shouldTrade = false,
             mode = mode,
@@ -1336,7 +1351,11 @@ object FinalDecisionGate {
         val matureBelow7243 = canonicalV3Score7243 < 30.0
         val matureWaitBelow7243 = canonicalV3Score7243 < 55.0
         val floorLane7266 = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
-            ?: tradingModeTag?.name ?: "STANDARD"
+            ?: tradingModeTag?.name ?: "CORE"
+        // One evidence snapshot for LiveEdge and FDG floor decisions. Both see this exact lane, generation and verdict.
+        val candidateAdmission8136 = try {
+            com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(ts, floorLane7266, candidateVersion = candidateVersion7623)
+        } catch (_: Throwable) { null }
         val floor7266 = try {
             com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.resolve(floorLane7266)
         } catch (_: Throwable) { null }
@@ -1412,7 +1431,9 @@ object FinalDecisionGate {
         }
         // V5.0.7308 — carry the admission score to the executor so its
         // pre-lease floor judges the trade on the score FDG admitted it on.
-        if (!config.paperMode && laneOwnScoreAdmitted7292 && canonicalV3Score7243 < canonicalFloor7266) recordLaneAdmission7932(ts, floorLane7266, laneEvidenceScore7243, exploration7308)
+        if (!config.paperMode && laneOwnScoreAdmitted7292 && canonicalV3Score7243 < canonicalFloor7266) {
+            recordLaneAdmission7932(ts, floorLane7266, laneEvidenceScore7243, exploration7308, candidateVersion7623)
+        }
         val effectiveEntryScore7292 = if (laneOwnScoreAdmitted7292) laneEvidenceScore7243 else canonicalV3Score7243
         if (laneOwnScoreAdmitted7292 && canonicalV3Score7243 < canonicalFloor7266) {
             try {
@@ -1430,8 +1451,12 @@ object FinalDecisionGate {
         val weakWaitPromotion7243 =
             !laneOwnScoreAdmitted7292 &&
                 baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && effectiveEntryScore7292 < waitFloor7266
-        if ((belowCanonicalFloor7243 || weakWaitPromotion7243) && !playbookClearsFloor7937(ts, floorLane7266, waitFloor7266)) {
-            val reason7243 = if (belowCanonicalFloor7243) {
+        if ((belowCanonicalFloor7243 || weakWaitPromotion7243) &&
+            !playbookClearsFloor7937(ts, floorLane7266, waitFloor7266, candidateVersion7623, candidateAdmission8136)) {
+            val authoritativeAdmissionRefusal8136 = candidateAdmission8136?.takeIf {
+                it.specific && it.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.REFUSE
+            }?.let { "CANDIDATE_ADMISSION_8136_${it.reason}" }
+            val reason7243 = authoritativeAdmissionRefusal8136 ?: if (belowCanonicalFloor7243) {
                 "CANONICAL_V3_SCORE_FLOOR_7243"
             } else {
                 "CANONICAL_WAIT_PROMOTION_REFUSED_7243"
@@ -1481,7 +1506,7 @@ object FinalDecisionGate {
         ) {
             try {
                 com.lifecyclebot.engine.truth.LaneScoreAdmission7308.record(
-                    ts.mint, floorLane7266, effectiveEntryScore7292, exploration = false,
+                    ts.mint, floorLane7266, effectiveEntryScore7292, exploration = false, candidateVersion = candidateVersion7623,
                 )
                 PipelineHealthCollector.labelInc("LIVE_CLEARED_SCORE_CARRIED_TO_EXECUTOR_7393")
             } catch (_: Throwable) {}
@@ -1607,7 +1632,10 @@ object FinalDecisionGate {
         // telemetry, but they cannot rewrite an owner lane's BUY into WAIT/PASS.
         // Measured negative expectancy (cell proof), launch structural/learned
         // negative evidence, runtime disablement and hard safety remain binding.
-        specialistAdvisoryBlock7845(ts, candidate, specialistLane, laneName, laneScore, config.paperMode, proposedSizeSol, mode)?.let { return it }
+        specialistAdvisoryBlock7845(
+            ts, candidate, specialistLane, laneName, laneScore, config.paperMode, proposedSizeSol, mode,
+            candidateVersion7623, floorLane7266, candidateAdmission8136,
+        )?.let { return it }
         cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
         freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
 
@@ -5939,7 +5967,9 @@ object FinalDecisionGate {
         }
 
         try { PipelineHealthCollector.labelInc(if (shouldTradeFinal) "FDG_POLICY_ALLOW_7835" else "FDG_POLICY_BLOCK_7835") } catch (_: Throwable) {}
-        if (shouldTradeFinal) try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.confirm7772(ts.mint) } catch (_: Throwable) {}
+        if (shouldTradeFinal) try {
+            com.lifecyclebot.engine.truth.LaneScoreAdmission7308.confirmExecution7772(ts.mint, canonicalPrimaryLane6658, candidateVersion7623)
+        } catch (_: Throwable) {}
         // Contributing desks supply evidence; only the sealed elected owner
         // emits FDG_ALLOW. A proposal cannot stamp approvals for other lanes.
         val aateEnvelope6512 = try {
