@@ -2652,7 +2652,7 @@ class Executor(
     }
 
     /** V5.0.8151 — an entry is ORDINARY unless the runner grab marked it to land next slot (RunnerGrab7967). */
-    private fun entryOrdinary8151(mint: String): Boolean = try { !RunnerGrab7967.isGrabbed7980(mint) } catch (_: Throwable) { false }
+    private fun entryOrdinary8151(mint: String): Boolean = try { !RunnerGrab7967.isGrabbed7980(mint) && !LandingMeter8169.buyUnlandedRecently8169(mint) } catch (_: Throwable) { false }  // V5.0.8169 — a buy that expired unseen retries urgent
 
     /** V5.0.8151 — a PumpPortal sell label that is a non-urgent profit slice (not its rescue). */
     private fun ordinarySliceLabel8151(labelTag: String): Boolean = labelTag.startsWith("PARTIAL-") && !labelTag.contains("RESCUE")
