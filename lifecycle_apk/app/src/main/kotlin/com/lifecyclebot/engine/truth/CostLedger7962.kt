@@ -257,6 +257,22 @@ object CostLedger7962 {
     private fun laneTicketSol(l: String): Double = median7962(rowsOf(l).map { it[1] })
 
     /**
+     * V5.0.8153 — the round trip (%) a lane's forward labels were charged: the setup / cell / kind records are NET of
+     * this, not of the cost at the size being sealed. The lane's measured median (size-blind) or the venue base
+     * estimate, plus the decision-to-fill chase unless the labels were rebased at the measured latency. The smaller
+     * estimate is used so the gross it rebuilds is never overstated. Shared by [liveRefusal7962] and LiveRiskPolicy7807
+     * (setup gross at the size, Kelly re-netted at the size).
+     */
+    fun labelChargedCostPct8153(laneRaw: String): Double {
+        val l = lane(laneRaw)
+        // V5.0.8094 — labels rebased at the measured lane latency carry no chase charge; adding it back would
+        // overstate the gross edge (never looser: older labels still net of the chase read more negative).
+        return costOr7962(l, Double.NaN, FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715) +
+            (if (ForwardReturnLabeler7731.rebaseClearsChase8094(EntryChase7961.laneLatencyMs8094(l))) 0.0
+            else try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
+    }
+
+    /**
      * LiveEdgeGate7877 (LIVE only): COST_EXCEEDS_EDGE_7962 when the classified setup's
      * expected gross (its record net + the cost its labels were charged) is below the
      * measured all-in cost at the lane's ticket size. Null while unmeasured.
@@ -271,11 +287,7 @@ object CostLedger7962 {
         } else {
             val exp = com.lifecyclebot.engine.cortex.LanePlaybook7907.classifiedExpected7962(ts, l)
             if (exp == null) null else {
-                // V5.0.8094 — labels rebased at the measured lane latency carry no chase charge; adding it back would
-                // overstate the gross edge (never looser: older labels still net of the chase read more negative).
-                val labelCost = costOr7962(l, Double.NaN, FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715) +
-                    (if (ForwardReturnLabeler7731.rebaseClearsChase8094(EntryChase7961.laneLatencyMs8094(l))) 0.0
-                    else try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
+                val labelCost = labelChargedCostPct8153(l)
                 val gross = exp + labelCost
                 if (!refuses7962(gross, measuredCost)) null else {
                     refusals.computeIfAbsent(l) { AtomicLong(0) }.incrementAndGet()

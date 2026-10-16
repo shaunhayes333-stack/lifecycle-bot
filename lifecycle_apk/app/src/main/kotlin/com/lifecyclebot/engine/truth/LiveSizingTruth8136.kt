@@ -75,6 +75,12 @@ object LiveSizingTruth8136 {
         val sz = d.sizing8094
         if (d.reason == "OPEN_RISK_SAFE_MIN_PROMOTED_7840") return if (sz != null) "ROUTE_MIN_PROMOTED_KELLY_BELOW_MIN" else "ROUTE_MIN_PROMOTED"
         val eps = 1e-9
+        // V5.0.8153 — the envelope clamps run last in decide, so the last one that acted is the binding one.
+        when {
+            "ENVELOPE_CLAMP_8153" in d.labels -> return "ENVELOPE_CLAMP"
+            "LANE_PORTFOLIO_ENVELOPE_CAP_8153" in d.labels -> return "LANE_PORTFOLIO_ENVELOPE"
+            "TRADEABLE_CASH_CAP_8153" in d.labels -> return "TRADEABLE_CASH"
+        }
         if (sz == null) {
             return when {
                 i.upstreamSol > 0.0 && d.sizeSol >= i.upstreamSol - eps -> "UPSTREAM_PROPOSAL"

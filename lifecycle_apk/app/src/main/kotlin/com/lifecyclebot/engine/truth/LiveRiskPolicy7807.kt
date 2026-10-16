@@ -431,6 +431,24 @@ object LiveRiskPolicy7807 {
          * (LiveSizingTruth8136.drawdownWaiver8136). Null = not measured by the caller (runtimeInputs always measures).
          */
         val edgeMaturity8136: LiveSizingTruth8136.EdgeMaturity8136? = null,
+        /**
+         * V5.0.8153 — the selected setup's expected GROSS return per trade, % (its net record + the round trip its
+         * labels were charged, CostLedger7962.labelChargedCostPct8153). NaN = unmeasured (the target test alone runs).
+         */
+        val setupExpectedGrossPct8153: Double = Double.NaN,
+        /** V5.0.8153 — the record the proven Kelly share came from; null = only the share is known (it is not re-netted). */
+        val edgeRecord8153: SizingNetEdge8153.EdgeRecord8153? = null,
+        /**
+         * V5.0.8153 — the realistic round trip (%) at a SOL size (NetEdge8030.costPct8030: the lane's measured cost or
+         * the fee / fixed-leg / slippage / impact model, the higher). Null = the 7766 model only.
+         */
+        val costAtSizePct8153: ((Double) -> Double)? = null,
+        /** V5.0.8153 — SOL this order can actually spend (wallet - reserve - other sealed reservations). NaN = unknown. */
+        val tradeableSol8153: Double = Double.NaN,
+        /** V5.0.8153 — principal already deployed in this lane's open live positions. NaN = unknown. */
+        val laneDeployedSol8153: Double = Double.NaN,
+        /** V5.0.8153 — the token's mark (USD) at this decision, for the pre-broadcast drift check. 0 = unknown. */
+        val markPriceUsd8153: Double = 0.0,
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -449,7 +467,19 @@ object LiveRiskPolicy7807 {
         val costPct: Double,
         val totalMult: Double,
         val sizing8094: Sizing8094? = null,
+        /** V5.0.8153 — the first target the cost test used (plan, else lane mandate); NaN on a refusal. */
+        val firstTargetPct8153: Double = Double.NaN,
     )
+
+    /**
+     * V5.0.8153 — the round trip (%) of [sizeSol] for [i]: the 7766 model, or the realistic cost the caller supplied
+     * (measured lane cost / component model with impact at THIS size), whichever is higher. Never cheaper than before.
+     */
+    fun costAtSizePct8153(i: Inputs, sizeSol: Double): Double {
+        val model = roundTripCostPct(sizeSol, i.solUsd, i.liquidityUsd)
+        val real = i.costAtSizePct8153?.let { f -> try { f(sizeSol) } catch (_: Throwable) { Double.NaN } } ?: Double.NaN
+        return if (real.isFinite() && real > model) real else model
+    }
 
     fun isRunnerLane(lane: String?): Boolean = canonicalLane(lane) in setOf("MOONSHOT", "PROJECT_SNIPER")
 
@@ -471,11 +501,17 @@ object LiveRiskPolicy7807 {
         }
         // V5.0.8094 — the order is never below the executable minimum, so its cost is judged at least at that size.
         val probeSize = maxOf(if (i.upstreamSol > 0.0) i.upstreamSol else 0.0, i.execMinSol)
-        val cost0 = roundTripCostPct(probeSize, i.solUsd, i.liquidityUsd)
+        // V5.0.8153 — the round trip at the size is the realistic one when the caller supplies it (never below 7766's).
+        val cost0 = costAtSizePct8153(i, probeSize)
         val costMult = when (costVerdict(firstTarget, cost0)) {
             CostVerdict.PASS -> return Decision(false, 0.0, "COST_CONSUMES_MOVE_7807", labels, stop, cost0, 0.0)
             CostVerdict.REDUCE -> { labels += "COST_NEAR_MOVE_SIZE_HALVED_7807"; COST_REDUCE_MULT_7807 }
             CostVerdict.OK -> 1.0
+        }
+        // V5.0.8153 — a plan target clearing 2x the cost is not an expectation: the selected setup's expected gross
+        // must clear the round trip at this size (+5% gross on a 7.5% trip is a loss whatever the target says).
+        if (SizingNetEdge8153.netNonPositive8153(i.setupExpectedGrossPct8153, cost0)) {
+            return Decision(false, 0.0, SizingNetEdge8153.NET_EV_REFUSAL_8153, labels, stop, cost0, 0.0)
         }
 
         val expMult = expectancyMultiplier(i.liveCloses, i.liveMeanNetPct, i.liveTotalNetSol)
@@ -509,7 +545,7 @@ object LiveRiskPolicy7807 {
         val total = (shrink * growth * admMult * ddMult * moonMult * costMult).coerceIn(TOTAL_FLOOR_7807, MAX_GROWTH_MULT_7807)
 
         var size = sizeFromInvalidation(i.equitySol, b.baseRiskFrac, total, stop, cost0)
-        val cost1 = if (size > 0.0) roundTripCostPct(size, i.solUsd, i.liquidityUsd) else cost0
+        val cost1 = if (size > 0.0) costAtSizePct8153(i, size) else cost0
         size = sizeFromInvalidation(i.equitySol, b.baseRiskFrac, total, stop, cost1)
         val laneCap = i.equitySol * b.maxPositionEquityFrac
         val liqCap = if (i.liquidityUsd.isFinite() && i.liquidityUsd > 0.0 && i.solUsd.isFinite() && i.solUsd > 0.0)
@@ -520,7 +556,17 @@ object LiveRiskPolicy7807 {
         // the wallet grows and shrinks as it falls, still bounded by drawdown / daily loss / governor shrink, the lane's
         // position cap, the pool depth and the hard per-trade loss at the stop.
         val dampMult8094 = (ddMult * dailyMult * gov).coerceIn(0.0, 1.0)
-        val kellySol = edgeKellySizeSol8057(i.equitySol, i.edgeKellyFrac8057 * dampMult8094, laneCap, liqCap, stop, cost1)
+        // V5.0.8153 — the Kelly share is re-netted at the round trip of the size it buys (labels are net of the cost
+        // they were charged, not of the impact at a compounding size); a second pass uses the cost at the Kelly size.
+        val netFrac0 = SizingNetEdge8153.netKellyFrac8153(i.edgeKellyFrac8057, i.edgeRecord8153, cost1)
+        val kellySol0 = edgeKellySizeSol8057(i.equitySol, netFrac0 * dampMult8094, laneCap, liqCap, stop, cost1)
+        val kellySol = if (i.edgeRecord8153 == null || kellySol0 <= 0.0) kellySol0 else {
+            val costK = maxOf(cost1, costAtSizePct8153(i, kellySol0))
+            edgeKellySizeSol8057(i.equitySol, minOf(netFrac0, SizingNetEdge8153.netKellyFrac8153(i.edgeKellyFrac8057, i.edgeRecord8153, costK)) * dampMult8094,
+                laneCap, liqCap, stop, costK)
+        }
+        if (i.edgeKellyFrac8057 > 0.0 && netFrac0 < i.edgeKellyFrac8057 - 1e-12)
+            labels += if (netFrac0 <= 0.0) "KELLY_EDGE_CONSUMED_BY_COST_AT_SIZE_8153" else "KELLY_NET_OF_COST_AT_SIZE_8153"
         val riskBudget8094 = size
         if (kellySol > size) { size = kellySol; labels += "PROVEN_EDGE_COMPOUNDING_SIZE_8057" }
         // V5.0.8094 — an ordinary request is still clamped to the upstream proposal; an APPROVED proven target may
@@ -534,12 +580,27 @@ object LiveRiskPolicy7807 {
                 LiveSizeTarget8094.firstBindingCap8094(raw8094, dampMult8094, ddMult, laneCap, liqCap, hardLoss8094, i.compoundingCeilingSol8094))
         } else null
 
+        // V5.0.8153 — the binding envelope. Tradeable SOL (wallet - reserve - other sealed reservations) and the lane's
+        // slot share of the live book: idle cash in other lanes never lets one lane's principal grow past it.
+        val tradeable8153 = if (i.tradeableSol8153.isFinite()) i.tradeableSol8153.coerceAtLeast(0.0) else Double.POSITIVE_INFINITY
+        val laneRoom8153 = SizingNetEdge8153.laneEnvelopeRoomSol8153(i.equitySol, b.maxConcurrentLive, TOTAL_LIVE_SLOTS_7807, i.laneDeployedSol8153)
+        if (size > tradeable8153) { size = tradeable8153; labels += "TRADEABLE_CASH_CAP_8153" }
+        if (size > laneRoom8153) { size = laneRoom8153; labels += "LANE_PORTFOLIO_ENVELOPE_CAP_8153" }
+        // V5.0.8153 — and the sealed amount is re-proven inside every hard cap at once (equity share, depth, hard loss
+        // at the stop at the cost of THIS size). Never binds on a correctly shaped size; named if it ever does.
+        val hardLossFinal8153 = if (size > 0.0) {
+            val c = costAtSizePct8153(i, size)
+            i.equitySol * hardPerTradeRiskCapFrac(i.equitySol) / ((stop + c) / 100.0).coerceAtLeast(0.005)
+        } else Double.POSITIVE_INFINITY
+        val envelope8153 = SizingNetEdge8153.envelopeCapSol8153(laneCap, liqCap, hardLossFinal8153, tradeable8153, laneRoom8153)
+        if (size > envelope8153 + 1e-12) { size = envelope8153; labels += "ENVELOPE_CLAMP_8153" }
+
         if (i.execMinSol > 0.0 && size < i.execMinSol) {
             // V5.0.7840 — prove the venue minimum against the REAL hard-risk
             // envelope instead of rejecting merely because adaptive sizing
             // landed below it. This is the last-mile counterpart to the shared
             // resolver's capacity promotion: no safety/EV veto is bypassed.
-            val minCost7840 = roundTripCostPct(i.execMinSol, i.solUsd, i.liquidityUsd)
+            val minCost7840 = costAtSizePct8153(i, i.execMinSol)
             // V5.0.7987 — on a sub-1-SOL wallet the venue minimum is a large share of equity: a meme
             // lane's 20% position cap refused EVERY meme order below 0.137 SOL equity (5.0.7985: equity
             // 0.1215, cap 0.0243 < min 0.0273, 177 refusals, runner grabs included). The minimum may use
@@ -549,12 +610,24 @@ object LiveRiskPolicy7807 {
             val minRiskSafe7840 = minFundable7840 &&
                 executableMinRiskOk(i.execMinSol, stop, minCost7840, i.equitySol)
             if (minRiskSafe7840) {
+                // V5.0.8153 — risk-safe is not enough: the minimum must be payable from tradeable SOL, fit the lane's
+                // book envelope and still clear the cost (and the setup's expected return) at THAT size, or it is refused.
+                val envelopeRefusal8153 = SizingNetEdge8153.promotionRefusal8153(
+                    i.execMinSol, tradeable8153, laneRoom8153, firstTarget, minCost7840, i.setupExpectedGrossPct8153)
+                if (envelopeRefusal8153 != null) {
+                    return Decision(false, 0.0, envelopeRefusal8153, labels, stop, minCost7840, total, sizing8094)
+                }
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
-                return Decision(true, i.execMinSol, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", labels, stop, minCost7840, total, sizing8094)
+                return Decision(true, i.execMinSol, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", labels, stop, minCost7840, total, sizing8094, firstTarget)
             }
             return Decision(false, 0.0, "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", labels, stop, minCost7840, total, sizing8094)
         }
-        return Decision(true, size, "OPEN_7807", labels, stop, cost1, total, sizing8094)
+        // V5.0.8153 — the final size's own round trip (a compounding size pays more impact than the probe).
+        val costFinal8153 = costAtSizePct8153(i, size)
+        if (SizingNetEdge8153.netNonPositive8153(i.setupExpectedGrossPct8153, costFinal8153)) {
+            return Decision(false, 0.0, SizingNetEdge8153.NET_EV_REFUSAL_8153, labels, stop, costFinal8153, total, sizing8094)
+        }
+        return Decision(true, size, "OPEN_7807", labels, stop, cost1, total, sizing8094, firstTarget)
     }
 
     // ── runtime evidence (live only) ────────────────────────────────────────
@@ -691,6 +764,12 @@ object LiveRiskPolicy7807 {
         val ll = laneLive(effectiveLane7811)
         val plan = try { TradePlan7739.freshPlan7783(mint) } catch (_: Throwable) { null }
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        // V5.0.8153 — the economics at the size: the selected edge's record, its gross, the realistic round trip.
+        val ts8153 = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
+        val rec8153 = ts8153?.let { edgeRecordFor8153(it, effectiveLane7811) }
+        val gross8153 = ts8153?.let { setupExpectedGrossPct8153(it, effectiveLane7811, rec8153) } ?: Double.NaN
+        val mcap8153 = ts8153?.lastMcap ?: 0.0
+        val cost8153: (Double) -> Double = { s -> NetEdge8030.costPct8030(effectiveLane7811, s, liquidityUsd, mint, mcap8153) }
         return Inputs(
             lane = effectiveLane7811,
             equitySol = equity,
@@ -716,8 +795,65 @@ object LiveRiskPolicy7807 {
                 ?: try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { edgeKellyFracFor8057(it, effectiveLane7811) } ?: 0.0 } catch (_: Throwable) { 0.0 },
             compoundingCeilingSol8094 = compoundingCeilingSol8094,
             edgeMaturity8136 = laneMaturity8136(effectiveLane7811, nowMs),
+            setupExpectedGrossPct8153 = gross8153,
+            edgeRecord8153 = rec8153,
+            costAtSizePct8153 = cost8153,
+            // FDG passes wallet cash already net of other candidates' sealed reservations (WalletCapacitySeal7868.freeCashFor).
+            tradeableSol8153 = if (walletSol.isFinite() && walletSol > 0.0)
+                (walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0) else Double.NaN,
+            laneDeployedSol8153 = laneDeployedSol8153(effectiveLane7811),
+            markPriceUsd8153 = ts8153?.lastPrice?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
         )
     }
+
+    /**
+     * V5.0.8153 — the record behind [edgeKellyFracFor8057]'s share (the same candidates: the selected setup — or its
+     * timing band when that band caps it — the coin's proven cell and proven kinds), the one with the largest share,
+     * carrying the round trip its labels were charged. Null when nothing is proven.
+     */
+    private fun edgeRecordFor8153(ts: com.lifecyclebot.data.TokenState, lane: String): SizingNetEdge8153.EdgeRecord8153? = try {
+        val l = canonicalLane(lane)
+        val labelCost = try { CostLedger7962.labelChargedCostPct8153(l) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 }
+        val cands = ArrayList<SizingNetEdge8153.EdgeRecord8153>(4)
+        com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetupStat8057(ts, l)?.let { st ->
+            val tim = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingStat8094(ts, l) } catch (_: Throwable) { null }
+            val f0 = kellyFrac8057(st[0], st[1], st[2])
+            val timingBinds = tim != null && tim.size >= 3 && timingCappedFrac8094(f0, tim) < f0 - 1e-12
+            cands += if (timingBinds && tim != null) SizingNetEdge8153.EdgeRecord8153(tim[0], tim[1], tim[2], labelCost)
+                else SizingNetEdge8153.EdgeRecord8153(st[0], st[1], st[2], labelCost)
+        }
+        val cell = try { ForwardReturnLabeler7731.cellStatFor(ts, l) } catch (_: Throwable) { null }
+        if (cell != null && LiveEdgeGate7877.cellProven8060(cell.n60, cell.meanNet60Pct, cell.stderr60Pct))
+            cands += SizingNetEdge8153.EdgeRecord8153(cell.meanNet60Pct, cell.stderr60Pct * cell.stderr60Pct * cell.n60, cell.n60.toDouble(), labelCost)
+        val kinds = try { ForwardReturnLabeler7731.kindStatsFor8063(ts, l) } catch (_: Throwable) { emptyList<ForwardReturnLabeler7731.CellStat>() }
+        for (k in kinds) {
+            if (LiveEdgeGate7877.cellProven8060(k.n60, k.meanNet60Pct, k.stderr60Pct))
+                cands += SizingNetEdge8153.EdgeRecord8153(k.meanNet60Pct, k.stderr60Pct * k.stderr60Pct * k.n60, k.n60.toDouble(), labelCost)
+        }
+        cands.maxByOrNull { kellyFrac8057(it.meanNetPct, it.variancePct2, it.n) }
+            ?.takeIf { kellyFrac8057(it.meanNetPct, it.variancePct2, it.n) > 0.0 }
+    } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.8153 — the selected setup's expected GROSS return per trade (%): the proven record's net mean when one sized
+     * the trade, else the classified setup's shrunk expectation, plus the round trip those labels were charged.
+     * NaN when the setup has no record (the target test alone then judges cost).
+     */
+    fun setupExpectedGrossPct8153(ts: com.lifecyclebot.data.TokenState, lane: String, rec: SizingNetEdge8153.EdgeRecord8153?): Double = try {
+        val l = canonicalLane(lane)
+        val net = rec?.meanNetPct ?: com.lifecyclebot.engine.cortex.LanePlaybook7907.classifiedExpected7962(ts, l)
+        if (net == null || !net.isFinite()) Double.NaN
+        else net + (rec?.labelCostPct ?: CostLedger7962.labelChargedCostPct8153(l))
+    } catch (_: Throwable) { Double.NaN }
+
+    /** V5.0.8153 — principal deployed in [lane]'s open live positions (the rows that take a lane slot). NaN on a fault. */
+    fun laneDeployedSol8153(lane: String): Double = try {
+        val key = canonicalLane(lane)
+        CanonicalPositionAuthority6441.openPositions().filter {
+            it.mode.equals("live", ignoreCase = true) && canonicalLane(it.lane) == key && !com.lifecyclebot.engine.TailBag8034.isTailMint8034(it.mint) &&
+                !com.lifecyclebot.engine.LifecycleHold8065.freeRide8065(it.mint)
+        }.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
+    } catch (_: Throwable) { Double.NaN }
 
     // ── V5.0.8136 — the lane's realised record (drawdown-waiver maturity) ──
     private val maturityCache8136 = ConcurrentHashMap<String, Pair<Long, LiveSizingTruth8136.EdgeMaturity8136>>()
@@ -757,6 +893,7 @@ object LiveRiskPolicy7807 {
                 // V5.0.8103 — its lane has room but the whole live book is full: ask for the poorest slot of any lane.
                 if (i.edgeKellyFrac8057 > 0.0 && LiveConcentrationDoctrine7697.liveOpenCount() >= TOTAL_LIVE_SLOTS_7807)
                     OpportunityRotation8098.noteBookDemand8103(mint, i.edgeKellyFrac8057)
+                if (stage == "FDG") noteSealedEconomics8153(mint, i, d)
                 PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_${stage}_OPEN_7807")
             } else {
                 passes.computeIfAbsent(d.reason) { AtomicLong(0) }.incrementAndGet()
@@ -781,6 +918,42 @@ object LiveRiskPolicy7807 {
         return d
     }
 
+    // ── V5.0.8153 — what an FDG-approved size was decided on (pre-broadcast recheck, resolver de-duplication) ──
+    private val finalised8153 = ConcurrentHashMap<String, Pair<Long, Long>>()   // mint -> (decision lamports, atMs)
+    const val FINALISED_TTL_MS_8153 = 5_000L
+
+    private fun noteSealedEconomics8153(mint: String, i: Inputs, d: Decision) {
+        if (!d.open || d.sizeSol <= 0.0) return
+        val nowMs = System.currentTimeMillis()
+        val lam = kotlin.math.round(d.sizeSol * 1_000_000_000.0).toLong()
+        finalised8153[mint] = lam to nowMs
+        if (finalised8153.size > 500) finalised8153.entries.removeIf { nowMs - it.value.second > 60_000L }
+        val sizeUsd = if (i.solUsd.isFinite() && i.solUsd > 0.0) d.sizeSol * i.solUsd else 0.0
+        val impactOneWay = try { FieldManual7715.impactRoundTripPct(sizeUsd, i.liquidityUsd) / 2.0 } catch (_: Throwable) { 0.0 }
+        com.lifecyclebot.engine.SizingQuoteRecheck8153.noteDecision8153(mint, com.lifecyclebot.engine.SizingQuoteRecheck8153.SealedEconomics8153(
+            sizeSol = d.sizeSol, expectedGrossPct = i.setupExpectedGrossPct8153, firstTargetPct = d.firstTargetPct8153,
+            costPct = costAtSizePct8153(i, d.sizeSol), impactOneWayPct = if (sizeUsd > 0.0 && i.liquidityUsd > 0.0) impactOneWay else Double.NaN,
+            priceUsd = i.markPriceUsd8153, atMs = nowMs,
+        ))
+    }
+
+    /**
+     * Pure (V5.0.8153): is [requestedLamports] a size this policy just finalised for the mint? FDG hands the resolver
+     * min(proposal, decision) (or the decision itself), so any request at or below the decision, within [ttlMs], is it.
+     */
+    fun finalisedBy8153(decisionLamports: Long, decidedAtMs: Long, requestedLamports: Long, nowMs: Long, ttlMs: Long = FINALISED_TTL_MS_8153): Boolean =
+        decisionLamports > 0L && requestedLamports in 1L..(decisionLamports + 1L) && nowMs - decidedAtMs in 0L..ttlMs
+
+    /**
+     * V5.0.8153 — OrderSizeResolver6441: true when the live request on [mint] is this policy's FDG decision of the last
+     * few seconds, so a second size-from-the-stop ceiling would act on an already-finalised risk decision.
+     */
+    fun policyFinalised8153(mint: String, requestedSol: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (mint.isBlank() || !requestedSol.isFinite() || requestedSol <= 0.0) return false
+        val e = finalised8153[mint] ?: return false
+        return finalisedBy8153(e.first, e.second, kotlin.math.round(requestedSol * 1_000_000_000.0).toLong(), nowMs)
+    }
+
     // V5.0.8136 — which constraint set each OPEN decision's size (LiveSizingTruth8136.bindingConstraintOf8136).
     private val bindings8136 = ConcurrentHashMap<String, AtomicLong>()
 
@@ -797,5 +970,6 @@ object LiveRiskPolicy7807 {
         "LiveRiskPolicy7807: opens=${opens.get()} passes=${passes.entries.joinToString(",") { "${it.key}=${it.value.get()}" }} " +
             "equityPeak=${"%.4f".format(CapitalDrawdown7948.currentPeak7948().peakSol)} " +
             "binding8136=[${bindings8136.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none yet" }}] " +
-            "rotation8098[${OpportunityRotation8098.statusLine8098()}]"
+            "rotation8098[${OpportunityRotation8098.statusLine8098()}] " +
+            "economics8153[${com.lifecyclebot.engine.SizingQuoteRecheck8153.statusLine8153()}]"
 }
