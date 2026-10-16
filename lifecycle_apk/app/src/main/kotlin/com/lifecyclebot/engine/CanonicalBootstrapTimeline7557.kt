@@ -68,6 +68,7 @@ object CanonicalBootstrapTimeline7557 {
         // (a handful of canonical stages plus one STARTING/READY pair per
         // trader). 64 comfortably covers that with headroom.
         phases = if (next.size > 64) next.takeLast(64) else next
+        try { RuntimeBootstrapWatchdog8144.observe(phase) } catch (_: Throwable) {}  // V5.0.8144 — step timing + stall stack
     }
 
     fun statusLine(): String {

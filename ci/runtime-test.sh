@@ -57,15 +57,18 @@ print("::error::BOOTSTRAP_WITNESS_7437 "
       f"onCreatePhase={last(r'SERVICE_ONCREATE_PHASE_7438 phase=([A-Z0-9_]+)')} "
       f"canonicalFailure={last(r'CANONICAL_BOOTSTRAP_FAILED_6515.*?type=([A-Za-z0-9_]+)')} "
       f"lastServicePhase={last(r'SERVICE_BOOTSTRAP_PHASE_6516.*?phase=([A-Z0-9_]+)')} "
-      f"serviceFailure={last(r'SERVICE_BOOTSTRAP_FAILED_6516.*?type=([A-Za-z0-9_]+)')} "
+      f"serviceFailure={last(r'(?<![A-Z_])SERVICE_BOOTSTRAP_FAILED_6516\s+type=([A-Za-z0-9_]+)')} "
       f"processDeath={seen('Process: com.lifecyclebot.aate')} "
       f"uiStart={seen('UI_START_DISPATCHED_6517')}")
 PYWITNESS
+        # V5.0.8144 — the rejected class, the failing/stalled step and the slowest steps.
+        python3 "$WS/ci/runtime_bootstrap_witness.py" annotate "$WS/bootstrap_stage_witness.log" "$WS/logcat_full.txt" || true
     fi
 }
 trap runtime_failure_witness_7437 EXIT
 
 python3 -m unittest discover -s "$WS/ci" -p "test_runtime_liveness.py" -v
+python3 -m unittest discover -s "$WS/ci" -p "test_runtime_bootstrap_witness.py" -v
 
 cd lifecycle_apk
 
@@ -309,9 +312,19 @@ wait_log_marker_any() {
         # from every poll before another read can overwrite it.
         grep -E 'SERVICE_ONCREATE_PHASE_7438|CANONICAL_BOOTSTRAP_PHASE_7438|CANONICAL_BOOTSTRAP_(READY|FAILED)_6515|SERVICE_BOOTSTRAP_(PHASE|READY|FAILED)_6516|UI_START_DISPATCHED_6517|Process: com.lifecyclebot.aate|ANR in com.lifecyclebot.aate' \
             "$WS/runtime_marker_probe.txt" | tail -n 60 >> "$WS/bootstrap_stage_witness.log" || true
+        # V5.0.8144 — the verifier's own text and the step witnesses, which the
+        # phase grep above dropped: they name the class and the call, not a phase.
+        grep -E 'SERVICE_BOOTSTRAP_(STEP|STALL|FAILED_STEP|SLOWEST)_8144|AATE_BOOT_FAIL_7855|Verifier rejected class|java\.lang\.VerifyError' \
+            "$WS/runtime_marker_probe.txt" | tail -n 80 >> "$WS/bootstrap_stage_witness.log" || true
         if python3 "$WS/ci/runtime_liveness.py" has-marker "$WS/runtime_marker_probe.txt" "$markers"; then
             echo "$label proof reached: $markers"
             return 0
+        fi
+        # V5.0.8144 — a service bootstrap that FAILED after this Start never becomes
+        # ready; report it now instead of waiting out the window. Still a red run.
+        if python3 "$WS/ci/runtime_bootstrap_witness.py" failed "$WS/runtime_marker_probe.txt"; then
+            echo "::error::$label service bootstrap failed terminally; not waiting out the timeout"
+            break
         fi
         sleep 2
     done
@@ -328,7 +341,7 @@ wait_log_marker_any() {
     canonical_stage=$(grep 'CANONICAL_BOOTSTRAP_READY_6515' "$stage_history" | tail -1 | cut -c1-180 || true)
     canonical_failed=$(grep 'CANONICAL_BOOTSTRAP_FAILED_6515' "$stage_history" | tail -1 | sed -n 's/.*type=\([A-Za-z0-9_]*\).*/\1/p' || true)
     service_stage=$(grep 'SERVICE_BOOTSTRAP_PHASE_6516' "$stage_history" | tail -1 | sed -n 's/.*phase=\([A-Z0-9_]*\).*/\1/p' || true)
-    service_failed=$(grep 'SERVICE_BOOTSTRAP_FAILED_6516' "$stage_history" | tail -1 | sed -n 's/.*type=\([A-Za-z0-9_]*\).*/\1/p' || true)
+    service_failed=$(grep -E '(^|[^A-Z_])SERVICE_BOOTSTRAP_FAILED_6516 +type=' "$stage_history" | tail -1 | sed -n 's/.*SERVICE_BOOTSTRAP_FAILED_6516 *type=\([A-Za-z0-9_]*\).*/\1/p' || true)
     local canonical_phase oncreate_phase
     canonical_phase=$(grep 'CANONICAL_BOOTSTRAP_PHASE_7438' "$stage_history" | tail -1 | sed -n 's/.*phase=\([A-Z0-9_]*\).*/\1/p' || true)
     oncreate_phase=$(grep 'SERVICE_ONCREATE_PHASE_7438' "$stage_history" | tail -1 | sed -n 's/.*phase=\([A-Z0-9_]*\).*/\1/p' || true)

@@ -16,6 +16,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.lifecyclebot.R
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.RuntimePipelineBadges8144
 
 /**
  * V5.9.666 — In-app Pipeline Health panel.
@@ -83,8 +84,9 @@ class PipelineHealthActivity : AppCompatActivity() {
     // the time onCreate calls renderSnapshotAsync the looper is
     // already prepared and `Handler(bgThread.looper)` returns
     // instantly.
+    // V5.0.8144 — background priority: diagnostics never compete with the trading threads.
     private val bgThread: HandlerThread =
-        HandlerThread("PipelineHealthRender").apply { start() }
+        HandlerThread("PipelineHealthRender", android.os.Process.THREAD_PRIORITY_BACKGROUND).apply { start() }
     // V5.0.6305 — eager init (was `by lazy`). RCA (troubleshoot agent iteration_2)
     // showed a race where an early Copy tap could hit the handler before the
     // lazy delegate fired. Since bgThread is already .start()ed above, the
@@ -92,6 +94,8 @@ class PipelineHealthActivity : AppCompatActivity() {
     private val bgHandler: Handler = Handler(bgThread.looper)
 
     private val refreshIntervalMs = 60_000L  // V5.9.1151: health screen is forensic; reduce main/UI churn while bot runs.
+    // V5.0.8144 — display names for RuntimePipelineBadges8144.FUNNEL_PHASES, same order.
+    private val FUNNEL_LABELS_8144 = arrayOf("INTAKE", "SAFETY", "V3", "LANE EVAL", "FDG", "EXEC")
     private val refreshRunnable = object : Runnable {
         override fun run() {
             if (destroyed || !activityVisible || !viewsBound) return
@@ -214,7 +218,9 @@ class PipelineHealthActivity : AppCompatActivity() {
         val generation = renderGeneration
         bgHandler.post {
             if (destroyed || !activityVisible || generation != renderGeneration) return@post
-            val snap = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { return@post }
+            // V5.0.8144 — the header and funnel draw ~10 numbers; read those by key instead of
+            // copying every counter map and both rings each refresh. The full snapshot is copy-only.
+            val snap = try { PipelineHealthCollector.badges8144() } catch (_: Throwable) { return@post }
             // V5.9.1071 — automatic refresh should not rebuild the full forensic dump.
             // dumpText() walks large rings/maps and then causes TextView layout churn when
             // posted back. Build the full dump only on first render or explicit refresh/copy;
@@ -226,11 +232,15 @@ class PipelineHealthActivity : AppCompatActivity() {
                 try { PipelineHealthCollector.dumpText() } catch (_: Throwable) { "(render error)" }
             } else fullDumpCache
             val sections = if (needFullDump) splitDumpIntoSections(dump) else reportSections
-            val loop = snap.phaseCounts["SCAN_CB"]
-                ?: snap.labelCounts["BOT_LOOP_TICK"]
-                ?: 0L
-            val exec = snap.phaseCounts["EXEC"] ?: 0L
-            val jrnl = snap.labelCounts["TRADEJRNL_REC"] ?: 0L
+            val loop = snap.loop
+            val exec = snap.exec
+            val jrnl = snap.journal
+            // V5.0.8144 — funnel's tightest step and its caption computed here, off-main.
+            val counts7021 = snap.funnel
+            val (worstI7021, worstPct7021) = RuntimePipelineBadges8144.tightest8144(counts7021)
+            val funnelNote8144 = if (worstI7021 > 0) {
+                "TIGHTEST ${FUNNEL_LABELS_8144[worstI7021]} ${"%.0f".format(worstPct7021)}%"
+            } else "—"
             // V5.9.1174 — preformat all stat strings off-main. String.format /
             // DecimalFormatSymbols showed up in ANR stacks; keep main to cheap
             // TextView assignment only.
@@ -275,15 +285,7 @@ class PipelineHealthActivity : AppCompatActivity() {
                 try {
                     val fv7021 = findViewById<FunnelView7021>(R.id.pipelineFunnel)
                     if (fv7021 != null) {
-                        val stages7021 = arrayOf("INTAKE", "SAFETY", "V3", "LANE EVAL", "FDG", "EXEC")
-                        val counts7021 = longArrayOf(
-                            snap.phaseCounts["INTAKE"] ?: 0L,
-                            snap.phaseCounts["SAFETY"] ?: 0L,
-                            snap.phaseCounts["V3"] ?: 0L,
-                            snap.phaseCounts["LANE_EVAL"] ?: 0L,
-                            snap.phaseCounts["FDG"] ?: 0L,
-                            snap.phaseCounts["EXEC"] ?: 0L,
-                        )
+                        val stages7021 = FUNNEL_LABELS_8144
                         if (counts7021.any { it > 0L }) {
                             fv7021.setStages(
                                 stages7021, counts7021,
@@ -293,19 +295,8 @@ class PipelineHealthActivity : AppCompatActivity() {
                                 ),
                             )
                             // Name the worst surviving step, which is the whole
-                            // reason to look at a funnel at all.
-                            var worstI7021 = -1
-                            var worstPct7021 = 101.0
-                            for (i in 1 until counts7021.size) {
-                                val above = counts7021[i - 1]
-                                if (above <= 0L) continue
-                                val pct = counts7021[i] * 100.0 / above
-                                if (pct < worstPct7021) { worstPct7021 = pct; worstI7021 = i }
-                            }
-                            findViewById<android.widget.TextView>(R.id.tvFunnelNote)?.text =
-                                if (worstI7021 > 0) {
-                                    "TIGHTEST ${stages7021[worstI7021]} ${"%.0f".format(worstPct7021)}%"
-                                } else "—"
+                            // reason to look at a funnel at all (computed off-main above).
+                            findViewById<android.widget.TextView>(R.id.tvFunnelNote)?.text = funnelNote8144
                         }
                     }
                 } catch (_: Throwable) {}

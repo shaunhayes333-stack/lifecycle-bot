@@ -3142,6 +3142,7 @@ class BotService : Service() {
     private fun bootFailure7855(t: Throwable) {
         ErrorLogger.crash("BotService", "SERVICE_BOOTSTRAP_FAILED_6516: ${t.javaClass.simpleName}: ${t.message}", t)
         try { android.util.Log.e("AATE_BOOT_FAIL_7855", "${t.javaClass.name}: ${t.message.orEmpty().take(3000)}", t) } catch (_: Throwable) {}
+        try { RuntimeBootstrapWatchdog8144.failure(t) } catch (_: Throwable) {}  // V5.0.8144 — which step, which rejected class
     }
 
     override fun onCreate() {

@@ -131,6 +131,9 @@ object SentienceOrchestrator {
     fun recentReflections(n: Int = 20): List<Reflection> =
         log.toList().takeLast(n).reversed()
 
+    /** V5.0.8144 — the newest reflection without copying the deque (the dashboard ticker reads this on main). */
+    fun latestReflection8144(): Reflection? = log.peekLast()
+
     // ═════════════════════════════════════════════════════════════════════
     // CYCLE
     // ═════════════════════════════════════════════════════════════════════
