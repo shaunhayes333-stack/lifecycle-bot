@@ -15136,6 +15136,7 @@ class BotService : Service() {
     private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean =
         laneEvaluationAllowed7951(ts, lane, primaryLane).also { allowed ->
             if (!allowed) try { SpecialistOwnership7951.noteReadyNotEvaluated7951(lane, ts.mint, primaryLane) } catch (_: Throwable) {}
+            if (allowed) try { SpecialistElection8136.noteScheduled8144(ts.mint, lane) } catch (_: Throwable) {}  // V5.0.8144 — rescue funnel SCHEDULED
         }
 
     private val RESCUE_EXCLUDED_8031 = setOf("CORE", "CYCLIC")
@@ -15167,6 +15168,7 @@ class BotService : Service() {
                     } catch (_: Throwable) {}
                 } else {
                     LaneQuarantineController.logBlockedEntry(lane, ts.symbol, ts.mint, primaryLane)
+                    SpecialistElection8136.noteGateReason8144(ts.mint, lane, "LANE_QUARANTINE_6002")  // V5.0.8144 — total, never throws
                     return false
                 }
             }
@@ -15272,7 +15274,8 @@ class BotService : Service() {
             val claim7301 = com.lifecyclebot.engine.market.LaneHunter7297.claimFor(ts.mint, ts.lastMcap)
             claim7301.equals(l, ignoreCase = true) || (claim7301 == "CASHGEN" && l.equals("TREASURY", ignoreCase = true))
         } catch (_: Throwable) { false }
-        val designatedDeskQualified6599 = designatedDeskSheet6599 == null || designatedDeskSheet6599.deskHypotheses.isEmpty() || designatedDeskHypothesis6599 != null || huntedByLane7297
+        val designatedDeskQualified6599 = designatedDeskSheet6599 == null || designatedDeskSheet6599.deskHypotheses.isEmpty() || designatedDeskHypothesis6599 != null || huntedByLane7297 ||
+            SpecialistElection8136.electionQualified8144(ts.mint, l)  // V5.0.8144 — the rescue holder / named receiver is qualified by its own native evidence
         val candidateVersion6600 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
         // V5.0.8031 — CORE and CYCLIC have no per-token buy block: as the one rescue lane they burned the slot a
         // specialist (BLUECHIP / TREASURY / QUALITY ...) could have used.
@@ -15327,6 +15330,7 @@ class BotService : Service() {
         if (provenDeadHardBlock6604) {
             try {
                 PipelineHealthCollector.labelInc("MEME_SPECIALIST_CONSENSUS_HARD_BLOCK_6604_$l")
+                SpecialistElection8136.noteGateReason8144(ts.mint, l, "MEME_CONSENSUS_HARD_BLOCK_6604")
                 ForensicLogger.lifecycle(
                     "MEME_SPECIALIST_CONSENSUS_HARD_BLOCK_6604",
                     "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} action=terminal_specialist_election_block_7406",
@@ -15366,6 +15370,7 @@ class BotService : Service() {
         if (lanePWinBelowGate6604) {
             try {
                 PipelineHealthCollector.labelInc("MEME_SPECIALIST_PWIN_GATE_6604_$l")
+                SpecialistElection8136.noteGateReason8144(ts.mint, l, "MEME_PWIN_GATE_6604")
                 ForensicLogger.lifecycle(
                     "MEME_SPECIALIST_PWIN_GATE_6604",
                     "lane=$l mint=${ts.mint.take(10)} score=${ts.entryScore.toInt()} floor=${"%.2f".format(SPECIALIST_MIN_PWIN_6604)} " +
@@ -15381,6 +15386,7 @@ class BotService : Service() {
                 sniperSetup6599 == ToolkitSignalSheet.Setup.PUMP_GRADUATION_SNIPE
             if (!genuineSniperPool6599) {
                 try { PipelineHealthCollector.labelInc("PROJECT_SNIPER_DESIGNATED_POOL_REJECTED_6599") } catch (_: Throwable) {}
+                SpecialistElection8136.noteGateReason8144(ts.mint, l, "SNIPER_NOT_DESIGNATED_POOL_6599:" + (sniperSetup6599?.name ?: "NO_DESK_HYPOTHESIS"))
                 return false
             }
         }

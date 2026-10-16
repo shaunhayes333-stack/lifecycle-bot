@@ -314,7 +314,10 @@ object SpecialistOwnership7951 {
             SpecialistElection8136.primarySilent8136(mint, lane7951(primaryLane), nowMs))
         if (!fdgRefused && !native8094 && !preFdg8136) return false
         val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false } ||
-            (native8094 && coreYieldedTo8119(mint, primaryLane, l))
+            (native8094 && coreYieldedTo8119(mint, primaryLane, l)) ||
+            // V5.0.8144 — the receiver the primary's fit refusal named is ready by that naming, also when the primary went
+            // on to refuse at the FDG (native8094 is then false and the yield never reached its receiver).
+            SpecialistElection8136.isNamedReceiver8144(mint, l)
         // V5.0.8094 — a native hand-off goes only to a lane whose OWN strategy for this coin is not losing on its graded
         // record (no fired setup proven and the classified one negative = no hand-off). The withdrawn 8094 hand-off had
         // no such guard; this one does, and every receiving-lane gate (quarantine, rug, FDG, sizing) still runs.
@@ -477,30 +480,42 @@ object SpecialistOwnership7951 {
         }
     } catch (_: Throwable) { "DEFERRED_RESCUE_CHECK_ERROR" }
 
-    /** V5.0.8136 — [lane] asks for the candidate's one rescue slot ([trigger] = why the primary is out, or a proven cell). */
-    private fun rescueClaim8136(lane: String, mint: String, primaryLane: String, trigger: String, nowMs: Long): Boolean = try {
-        val l = lane7951(lane)
-        val p = lane7951(primaryLane)
-        val refusal = when (trigger) {
-            SpecialistElection8136.TRIGGER_NATIVE -> SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions?.get(p)?.reason.orEmpty()
-            SpecialistElection8136.TRIGGER_FDG -> SpecialistElection8136.lastFdgRefusal8136(mint, p, nowMs).orEmpty()
-            SpecialistElection8136.TRIGGER_PRE_FDG ->
-                if (SpecialistElection8136.primaryGatedPreFdg8136(mint, p)) "PRIMARY_GATED_PRE_FDG" else "PRIMARY_SILENT_NO_FDG"
-            else -> ""
+    /**
+     * V5.0.8136 — [lane] asks for the candidate's one rescue slot ([trigger] = why the primary is out, or a proven cell).
+     * V5.0.8144 — the arbitration runs inside ElectionRescueContract8144.guardedClaim8144: an exception is the named
+     * outcome DEFERRED_ARBITRATION_ERROR (the proposal ends DEFERRED by name) and the lane does NOT evaluate. The old
+     * handler answered `true`, so a throw let a lane proceed on a claim nobody granted.
+     */
+    private fun rescueClaim8136(lane: String, mint: String, primaryLane: String, trigger: String, nowMs: Long): Boolean {
+        val outcome = ElectionRescueContract8144.guardedClaim8144 {
+            val l = lane7951(lane)
+            val p = lane7951(primaryLane)
+            val refusal = when (trigger) {
+                SpecialistElection8136.TRIGGER_NATIVE -> SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions?.get(p)?.reason.orEmpty()
+                SpecialistElection8136.TRIGGER_FDG -> SpecialistElection8136.lastFdgRefusal8136(mint, p, nowMs).orEmpty()
+                SpecialistElection8136.TRIGGER_PRE_FDG ->
+                    if (SpecialistElection8136.primaryGatedPreFdg8136(mint, p)) "PRIMARY_GATED_PRE_FDG" else "PRIMARY_SILENT_NO_FDG"
+                else -> ""
+            }
+            SpecialistElection8136.claimRescueOutcome8144(mint, l, p, trigger, refusal,
+                refusalIsJudgement8136(refusal, fdg = trigger == SpecialistElection8136.TRIGGER_FDG),
+                contenders8136(mint), rescueIneligible8136(mint, l), nowMs)
         }
-        val granted = SpecialistElection8136.claimRescue8136(mint, l, p, trigger, refusal,
-            refusalIsJudgement8136(refusal, fdg = trigger == SpecialistElection8136.TRIGGER_FDG),
-            contenders8136(mint), rescueIneligible8136(mint, l), nowMs)
-        if (granted) notePreIntent7951(l, "RESCUE_ELECTED_8136_$trigger")
-        granted
-    } catch (_: Throwable) { true }
+        if (outcome == ElectionRescueContract8144.ClaimOutcome8144.DEFERRED_ARBITRATION_ERROR) {
+            SpecialistElection8136.noteArbitrationError8144(mint, lane7951(lane), nowMs)
+            notePreIntent7951(lane, "RESCUE_ARBITRATION_ERROR_8144")
+        }
+        if (outcome.executable) notePreIntent7951(lane, "RESCUE_ELECTED_8136_$trigger")
+        return outcome.executable
+    }
 
     /** V5.0.8136 — the specialist a fit refusal by [primary] names (top eligible lane on its own scale), recorded once. */
     private fun yieldReceiver8136(mint: String, primary: String, ops: Map<String, SpecialistBrainBridge7542.Opinion>): String? {
         val receiver = SpecialistElection8136.electRescue8136(
             ops.values.filter { it.authoritative && it.eligible }.map { contenderOf8136(it) }, lane7951(primary))
-        SpecialistElection8136.noteYield8136(mint, lane7951(primary), receiver)
-        return receiver
+        // V5.0.8144 — the receiver RECORDED for this candidate answers: a refreshed snapshot that ranks another lane first
+        // no longer strands the lane the primary already named (it used to fail the receiver's own hand-off check).
+        return SpecialistElection8136.noteYield8136(mint, lane7951(primary), receiver)
     }
 
     /**
