@@ -3490,6 +3490,7 @@ class Executor(
             LifecycleHold8065.onConfirmedTake8076(ts.mint, lifecycleEntryTime8076, reason, proof.sig, result.actualConsumedRaw)
         }
         try { RunnerExitLive8136.noteSliceFill8136(reason, result.solReceived, result.realizedPnl.proportionalCostBasisSol) } catch (_: Throwable) {}  // V5.0.8136 — capture loss
+        try { RunnerLive8153.bookSlice8153(ts, reason, proof.sig, result.actualConsumedRaw, result.solReceived, result.realizedPnl.proportionalCostBasisSol) } catch (_: Throwable) {}  // V5.0.8153 — rung confirmed, proceeds booked once
         return result
     }
 
@@ -24508,7 +24509,7 @@ class Executor(
         if (d == TailBag8034.Decision.SetAside) {
             val r = requestPartialSellConfirmed6566(ts, 1.0 - TailBag8034.TAIL_FRACTION, "TAIL_SET_ASIDE_8034_${reason.take(40)}", wallet, walletSol)
             if (!r.applied) return null
-            TailBag8034.markSetAside8034(ts)
+            TailBag8034.markSetAside8034(ts, confirmedSale8153 = !r.terminal)  // V5.0.8153 — a tail only on a confirmed partial with a real remainder
             com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
             return SellResult.FAILED_RETRYABLE
         }

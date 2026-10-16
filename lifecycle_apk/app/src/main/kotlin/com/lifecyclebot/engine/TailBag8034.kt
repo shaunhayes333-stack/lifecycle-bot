@@ -172,8 +172,37 @@ object TailBag8034 {
         return RunnerExitContract8136.capitalRecoveredConfirmed8136(p.entryCostSol, proceeds8144, p.feesSol)
     }
 
-    /** The set-aside sale applied: the rest of the position is now the tail. */
-    fun markSetAside8034(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
+    /**
+     * Pure (V5.0.8153): the remainder a set-aside sale really left — the canonical remaining quantity when the canonical
+     * position is known (0 when it holds nothing), else the runtime quantity; 0 for a closed position.
+     */
+    fun tailRemainder8153(open: Boolean, runtimeQty: Double, canonicalQty: Double?): Double = when {
+        !open -> 0.0
+        canonicalQty != null -> if (canonicalQty.isFinite() && canonicalQty > 0.0) canonicalQty else 0.0
+        runtimeQty.isFinite() && runtimeQty > 0.0 -> runtimeQty
+        else -> 0.0
+    }
+
+    /** The canonical remaining quantity of [ts]'s live position (UI units), or null when the canonical position is unknown. */
+    private fun canonicalRemaining8153(ts: TokenState): Double? = try {
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(ts.position.positionId)
+            ?.takeIf { it.mint == ts.mint && it.mode.equals("live", true) }
+            ?.let { it.remainingQtyRaw.toBigDecimal().movePointLeft(it.quantityScale).toDouble() }
+    } catch (_: Throwable) { null }
+
+    /**
+     * The set-aside sale applied: the rest of the position is now the tail.
+     * V5.0.8153 — only when the sale CONFIRMED as a partial ([confirmedSale8153]: not a full exit) and a real remainder
+     * is still held (canonical remaining quantity); otherwise no tail is recorded — a tail row with nothing behind it
+     * held every later exit of a position that no longer existed.
+     */
+    fun markSetAside8034(ts: TokenState, nowMs: Long = System.currentTimeMillis(), confirmedSale8153: Boolean = true) {
+        val remainder8153 = tailRemainder8153(ts.position.isOpen, ts.position.qtyToken,
+            if (ts.position.isPaperPosition) null else canonicalRemaining8153(ts))
+        if (!confirmedSale8153 || remainder8153 <= 0.0) {
+            RunnerExitLive8136.count8136("TAIL_SET_ASIDE_NO_REMAINDER_8153")
+            return
+        }
         load()
         tails[ts.mint] = Tail(ts.position.entryTime, nowMs, 0)
         setAside.incrementAndGet()
@@ -210,6 +239,8 @@ object TailBag8034 {
         try { RecoveryFallbackLedger8141.retire8144(env.positionId) } catch (_: Throwable) {}
         // V5.0.8144 — a thawed frozen holding that sold: its frozen sub-ledger row closes (its one terminal is this one).
         try { FrozenHeldUnsellableLive8141.onTerminal8144(env.positionId) } catch (_: Throwable) {}
+        // V5.0.8153 — the position's rung / promotion rows retire to the closed opportunity-vs-banked totals.
+        try { RunnerLive8153.retire8153(env.mint, env.atMs - env.holdingTimeMs.coerceAtLeast(0L)) } catch (_: Throwable) {}
         load()
         if (tails.remove(env.mint) == null) return
         if (env.realizedPnlSol.isFinite() && env.realizedPnlSol > 0.0) closedWin.incrementAndGet() else closedLoss.incrementAndGet()

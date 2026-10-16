@@ -39,9 +39,11 @@ object TradeExitContract8077 {
     /**
      * V5.0.8136 — why [ts] rides the runner contract: its sealed entry setup, or proof (position.peakGainPct ratchets
      * only from the chain-verified mark and refuses an uncorroborated jump, PositionDisplayTruth8078 8080/8128).
+     * V5.0.8153 — the one plan (RunnerPlan8153 via RunnerLive8153): sealed style (strategy when the style is unknown),
+     * an entry-time runner admit, or this position's latched / corroborated promotion. This read used the style only
+     * while the arbiter read style OR strategy and RunnerPlay promoted through the grab map; all three now agree.
      */
-    fun runnerBasis8136(ts: TokenState): RunnerExitContract8136.RunnerBasis8136 =
-        RunnerExitContract8136.runnerBasis8136(laneHostsRunners = true, sealedStyle = sealedStyle8136(ts), corroboratedPeakPct = ts.position.peakGainPct)
+    fun runnerBasis8136(ts: TokenState): RunnerExitContract8136.RunnerBasis8136 = RunnerLive8153.basis8153(ts)
 
     /** V5.0.8136 — the style sealed at entry (the entry snapshot for this exact position, else the policy snapshot). */
     fun sealedStyle8136(ts: TokenState): String {

@@ -87,6 +87,8 @@ object ExitTruthArbiter8144 {
         val sellCostPct: Double,
         val remainingShare: Double,
         val continuationConfirmed: Boolean = false,
+        /** V5.0.8153 — the position's plan basis from the one authority (RunnerLive8153: includes a latched promotion). */
+        val planBasis8153: RunnerExitContract8136.RunnerBasis8136? = null,
     )
 
     /** One overlay's exit request: [fraction] of the CURRENT holding (1.0 = full exit). */
@@ -100,12 +102,17 @@ object ExitTruthArbiter8144 {
         val refused: List<String>,
     )
 
-    /** Pure: does the position ride the runner contract — its sealed setup (style, else sealed strategy) or a proven peak? */
+    /**
+     * Pure: does the position ride the runner contract — its sealed setup (style, else sealed strategy) or a proven peak?
+     * V5.0.8153 — one rule (RunnerPlan8153.plan8153): the sealed style decides and the sealed strategy only when the style
+     * is unknown; the live plan basis ([Inputs8144.planBasis8153], which knows a latched promotion) wins when given.
+     */
     fun runnerBasis8144(inp: Inputs8144): RunnerExitContract8136.RunnerBasis8136 {
-        val byStyle = RunnerExitContract8136.runnerBasis8136(inp.laneHostsRunners, inp.entryStyle, inp.confirmedPeakPct)
-        if (byStyle != RunnerExitContract8136.RunnerBasis8136.NONE) return byStyle
-        return if (inp.laneHostsRunners && RunnerExitContract8136.sealedRunnerStyle8136(inp.sealedStrategy))
-            RunnerExitContract8136.RunnerBasis8136.SEALED_SETUP else RunnerExitContract8136.RunnerBasis8136.NONE
+        if (!inp.laneHostsRunners) return RunnerExitContract8136.RunnerBasis8136.NONE
+        inp.planBasis8153?.let { return it }
+        return RunnerPlan8153.basis8153(RunnerPlan8153.plan8153(RunnerPlan8153.Evidence8153(
+            laneHostsRunners = true, sealedStyle = inp.entryStyle, sealedStrategy = inp.sealedStrategy,
+            verifiedPeakPct = inp.confirmedPeakPct)))
     }
 
     private data class Admit8144(val fraction: Double, val refusal: String?)
