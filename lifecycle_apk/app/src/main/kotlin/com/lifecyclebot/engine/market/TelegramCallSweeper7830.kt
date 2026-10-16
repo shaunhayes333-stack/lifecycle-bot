@@ -338,7 +338,11 @@ object TelegramCallSweeper7830 {
     @Volatile private var loaded = false
     @Volatile private var dirty = false
 
-    private class Candidate7830(val mint: String, val pairLike: Boolean, val channel: String, val postTsMs: Long, val looksLikeCall: Boolean)
+    // V5.0.8169 — [attempt] / [notBeforeMs]: a NO_PAIR is asked once more after ScoutPairVerdict8169.NO_PAIR_RETRY_MS_8169.
+    private class Candidate7830(val mint: String, val pairLike: Boolean, val channel: String, val postTsMs: Long, val looksLikeCall: Boolean,
+                                val attempt: Int = 0, val notBeforeMs: Long = 0L)
+    private val verdicts8169 = ScoutPairVerdict8169.Tally8169()
+    private val retriedNoPair8169 = AtomicLong(0L)
     private val verifyQueue = java.util.concurrent.ConcurrentLinkedQueue<Candidate7830>()
     private val emittedAt = ConcurrentHashMap<String, Long>()
 
@@ -675,22 +679,20 @@ object TelegramCallSweeper7830 {
         return true
     }
 
-    /** Verified base mint for a candidate, with its DexScreener pair; null when unverifiable. */
-    private fun verify7830(cand: Candidate7830): Pair<String, PairInfo>? {
+    /**
+     * Verified base mint for a candidate, with its DexScreener pair (null when unverifiable), and the named verdict.
+     * V5.0.8169 — ScoutPairVerdict8169: a pump.fun curve pair with a live price verifies (its liquidity left unknown).
+     */
+    private fun verify7830(cand: Candidate7830): Pair<Pair<String, PairInfo>?, ScoutPairVerdict8169.Verdict8169> {
         val direct = try { dex.getBestPair(cand.mint) } catch (_: Throwable) { null }
-        if (direct != null && pairVerifies7830(cand.mint, direct)) return cand.mint to direct
-        if (!cand.pairLike) return null
+        val dv = ScoutPairVerdict8169.verdict8169(cand.mint, direct)
+        if (direct != null && dv.verified) return (cand.mint to direct) to dv
+        if (!cand.pairLike) return null to dv
         val base = try { dex.pairPriceFetch7392(listOf(cand.mint))[cand.mint]?.first } catch (_: Throwable) { null }
-        if (base == null || !isPlausibleMint7830(base)) return null
-        val p = try { dex.getBestPair(base) } catch (_: Throwable) { null } ?: return null
-        return if (pairVerifies7830(base, p)) base to p else null
-    }
-
-    private fun pairVerifies7830(mint: String, p: PairInfo): Boolean {
-        val base = p.tokenAddress.ifBlank { p.baseTokenAddress }
-        if (base.isNotBlank() && base != mint) return false
-        if (p.chainId.isNotBlank() && !p.chainId.equals("solana", ignoreCase = true)) return false
-        return p.candle.priceUsd.isFinite() && p.candle.priceUsd > 0.0 && p.liquidity > 0.0
+        if (base == null || !isPlausibleMint7830(base)) return null to dv
+        val p = try { dex.getBestPair(base) } catch (_: Throwable) { null }
+        val bv = ScoutPairVerdict8169.verdict8169(base, p)
+        return (if (p != null && bv.verified) base to p else null) to bv
     }
 
     private suspend fun verifyAndEmit7830(emitter: suspend (String, PairInfo) -> String) {
@@ -698,8 +700,11 @@ object TelegramCallSweeper7830 {
         emittedAt.entries.removeIf { now - it.value > EMIT_DEDUPE_TTL_MS_7830 }
         var budget = VERIFY_PER_PASS_7830
         val seenThisPass = HashSet<String>()
+        val later8169 = ArrayList<Candidate7830>()
+        try {
         while (budget > 0) {
             val cand = verifyQueue.poll() ?: break
+            if (cand.notBeforeMs > now) { later8169 += cand; continue }  // V5.0.8169 — a NO_PAIR retry not yet due
             if (!seenThisPass.add(cand.mint)) continue
             val tracked = calls[cand.mint]
             if (tracked != null || emittedAt.containsKey(cand.mint)) {
@@ -708,8 +713,20 @@ object TelegramCallSweeper7830 {
                 continue
             }
             budget--
-            val v = verify7830(cand)
-            if (v == null) { unverifiable.incrementAndGet(); continue }
+            val (v, verdict8169) = verify7830(cand)
+            if (v == null) {
+                // V5.0.8169 — a NO_PAIR (not indexed yet / locally rate-refused) on a still-fresh call is asked once more.
+                if (ScoutPairVerdict8169.retryNoPair8169(verdict8169, cand.attempt, now - cand.postTsMs, FRESH_CALL_MAX_AGE_MS_7830)) {
+                    retriedNoPair8169.incrementAndGet()
+                    later8169 += Candidate7830(cand.mint, cand.pairLike, cand.channel, cand.postTsMs, cand.looksLikeCall,
+                        attempt = cand.attempt + 1, notBeforeMs = now + ScoutPairVerdict8169.NO_PAIR_RETRY_MS_8169)
+                    continue
+                }
+                verdicts8169.note(verdict8169.name)
+                try { PipelineHealthCollector.labelInc("TELEGRAM_CALL_UNVERIFIED_8169_${verdict8169.name}") } catch (_: Throwable) {}
+                unverifiable.incrementAndGet(); continue
+            }
+            verdicts8169.note(verdict8169.name)
             val (mint, pair) = v
             if (mint != cand.mint) {
                 val t2 = calls[mint]
@@ -733,6 +750,10 @@ object TelegramCallSweeper7830 {
                 "call mint=${mint.take(10)} sym=${pair.baseSymbol} ch=${cand.channel} call=${cand.looksLikeCall} " +
                     "liq=${pair.liquidity.toInt()} intake=$outcome",
             )
+        }
+        } finally {
+            // V5.0.8169 — retries not yet due go back on the queue (bounded like any candidate).
+            for (c in later8169) if (verifyQueue.size < MAX_VERIFY_QUEUE_7830) verifyQueue.add(c)
         }
     }
 
@@ -849,6 +870,7 @@ object TelegramCallSweeper7830 {
             "admitted=${admitted.get()} dropped=${dropped.get()} sweeps=${sweeps.get()} fetches=${fetches.get()} " +
             "newPosts=${newPosts.get()} callPosts=${callPosts.get()} casExtracted=${casExtracted.get()} " +
             "stale=${staleSkipped.get()} verified=${verified.get()} unverifiable=${unverifiable.get()} " +
+            "verdicts8169{${verdicts8169.line()}} retriedNoPair8169=${retriedNoPair8169.get()} queued=${verifyQueue.size} " +
             "emitted=${emitted.get()} alreadyWatched=${alreadyInPipeline.get()} dedupe=${dedupeSkipped.get()} " +
             "tracked=${calls.size} booked15=${booked15.get()} booked60=${booked60.get()} lost=${lost.get()} " +
             "throttled=${throttled.get()} backoff=${bo}s lastRun=$age " +

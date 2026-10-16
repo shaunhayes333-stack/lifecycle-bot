@@ -305,6 +305,8 @@ class DexscreenerApi {
                 com.lifecyclebot.engine.truth.PoolCreationTime7385.record(
                     baseAddr7385, p.optLong("pairCreatedAt", 0L), "DEXSCREENER",
                 )
+                // V5.0.8169 — named birth witness: a pump mint's own curve pair is its birth, any other pool a floor.
+                com.lifecyclebot.engine.truth.AdmissionBirth8144.notePairCreated8169(baseAddr7385, p.optString("dexId", ""), p.optLong("pairCreatedAt", 0L))
             }
         } catch (_: Throwable) {}
         return PairInfo(

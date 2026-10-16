@@ -541,13 +541,13 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
                 try { PipelineHealthCollector.labelInc("LLM_SCOUT_FALLOUT_CANDIDATE_7830") } catch (_: Throwable) {}
             }
             val pair = try { dex.getBestPair(mint) } catch (_: Throwable) { null }
-            val baseOk = pair != null && (pair.tokenAddress.isBlank() || pair.tokenAddress == mint)
-            if (pair == null || !baseOk || pair.candle.priceUsd <= 0.0 || pair.liquidity <= 0.0 ||
-                pair.baseSymbol.uppercase() in QUOTE_SYMBOLS_7830
-            ) {
-                markUnverified7830("no_live_pair")
+            // V5.0.8169 — one named verdict (ScoutPairVerdict8169): a pump.fun curve pair with a live price verifies.
+            val verdict8169 = ScoutPairVerdict8169.verdict8169(mint, pair, QUOTE_SYMBOLS_7830)
+            if (pair == null || !verdict8169.verified) {
+                markUnverified7830(verdict8169.name)
                 continue
             }
+            verdicts8169.note(verdict8169.name)
             verified.incrementAndGet()
             out += Verified7830(
                 mint = mint,
@@ -561,8 +561,11 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
         return out
     }
 
+    private val verdicts8169 = ScoutPairVerdict8169.Tally8169()
+
     private fun markUnverified7830(why: String) {
         unverified.incrementAndGet()
+        verdicts8169.note(why)  // V5.0.8169 — printed on the status line: why the scout's candidates failed
         try { PipelineHealthCollector.labelInc("LLM_SCOUT_UNVERIFIED_7830") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("LLM_SCOUT_UNVERIFIED_7830_$why") } catch (_: Throwable) {}
     }
@@ -575,6 +578,7 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
             "today=$callsToday/$MAX_CALLS_PER_DAY_7830 okCalls=${okCalls.get()} rateLimited=${rateLimited.get()} " +
             "httpErr=${httpErrors.get()} parseFail=${parseFailures.get()} searches=${searchesUsed.get()} " +
             "candidatesReturned=${candidatesReturned.get()} verified=${verified.get()} unverified=${unverified.get()} " +
+            "verdicts8169{${verdicts8169.line()}} " +
             "deduped=${deduped.get()} emitted=${emitted.get()} channelsDiscovered=${channels.size} " +
             "skip[noKey=${skippedNoKey.get()} backoff=${skippedBackoff.get()} budget=${skippedBudget.get()}] " +
             "backoff=$bo lastRun=$age" +

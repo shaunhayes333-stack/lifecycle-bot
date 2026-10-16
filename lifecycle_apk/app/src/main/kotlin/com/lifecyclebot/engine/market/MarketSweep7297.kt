@@ -648,6 +648,8 @@ object MarketSweep7297 {
                 val base = p.optJSONObject("baseToken")
                 val tx = p.optJSONObject("txns")?.optJSONObject("h1")
                 val created = p.optLong("pairCreatedAt", 0L)
+                // V5.0.8169 — this pair's creation was parsed and dropped: a pump mint's curve pair is its birth, any other pool a floor.
+                try { com.lifecyclebot.engine.truth.AdmissionBirth8144.notePairCreated8169(mint, p.optString("dexId", ""), created) } catch (_: Throwable) {}
                 val cap = p.optDouble("marketCap", 0.0).finite().takeIf { it > 0.0 } ?: p.optDouble("fdv", 0.0).finite()
                 out += Row(
                     mint = mint,

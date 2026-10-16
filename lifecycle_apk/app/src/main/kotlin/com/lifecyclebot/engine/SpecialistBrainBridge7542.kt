@@ -218,7 +218,8 @@ object SpecialistBrainBridge7542 {
         val cls=try{ModeRouter.classify(ts)}catch(_:Throwable){null};val launch=try{com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)}catch(_:Throwable){null};val runner=try{com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.isRunnerShaped(ts,cls?.tradeType?:ModeRouter.TradeType.UNKNOWN)}catch(_:Throwable){false}
 
         // 8168 — resident claims augment bounded native discovery; execution election remains separate.
-        val nativeScope7828 = nativeScope8168(ts.lastMcap, residentScope7828)
+        // V5.0.8169 — a token proven past the sniper's launch window leaves its scope before the native call (handed on, counted).
+        val nativeScope7828 = com.lifecyclebot.engine.truth.LaunchBirth8169.sniperScoped8169(ts, nativeScope8168(ts.lastMcap, residentScope7828))
         fun owns7828(lane: String): Boolean = lane in nativeScope7828
         try {
             PipelineHealthCollector.labelInc(
