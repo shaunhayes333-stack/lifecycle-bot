@@ -11,6 +11,35 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class Aate8167PipelineRepairTest {
+    @Test fun nativeReceiverDataGapSurvivesTheRuntimeAdapterUntilHydratedOrExpired() {
+        val tasks = HandoffReceiverTasks8153
+        val now = System.currentTimeMillis()
+        val mint = "runtime-data-gap-8167"
+        tasks.openTask8153(mint, "MOONSHOT", "PROJECT_SNIPER", "PHASE_HANDOFF", -1L, now, now)
+        HandoffTaskRuntime8153.onReceiverNativeRefused8153(mint, "MOONSHOT", "LANE_LIQ_UNHYDRATED_DEFER", now + 1)
+        val waiting = tasks.taskOf8153(mint, now + 2)!!
+        assertTrue(waiting.pending)
+        assertTrue(waiting.lastBlock.contains("UNHYDRATED"))
+        tasks.onFdgVerdict8153(mint, "MOONSHOT", true, null, now + 3)
+        assertEquals(HandoffReceiverTasks8153.Outcome8153.EVALUATED, tasks.taskOf8153(mint, now + 4)!!.outcome)
+        val mint2 = "runtime-data-expiry-8167"
+        tasks.openTask8153(mint2, "MOONSHOT", "PROJECT_SNIPER", "PHASE_HANDOFF", -1L, now, now)
+        HandoffTaskRuntime8153.onReceiverNativeRefused8153(mint2, "MOONSHOT", "PRICE_NOT_FRESH", now + 1)
+        assertEquals(HandoffReceiverTasks8153.Outcome8153.DEFERRED_DATA,
+            tasks.taskOf8153(mint2, now + tasks.TASK_TTL_MS_8153 + 1)!!.outcome)
+    }
+
+    @Test fun rejectedForwardMarksCannotRewriteTheBasisBeforeTheirIntegrityChecks() {
+        val roots = listOf("src/main/kotlin/com/lifecyclebot", "app/src/main/kotlin/com/lifecyclebot", "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot")
+        val source = roots.map { java.io.File(it, "engine/truth/ForwardReturnLabeler7731.kt") }.first { it.exists() }.readText()
+        val tick = source.substring(source.indexOf("fun tick(priceFor0:"))
+        val mutation = tick.indexOf("o.rebased8076 = true")
+        assertTrue(mutation > 0)
+        for (guard in listOf("if (curveContradicts8165(o.mint, px, nowMs))", "if (!PositionDisplayTruth8078.highStepOk8133")) {
+            assertTrue("$guard must precede all rebase mutations", tick.indexOf(guard) in 0 until mutation)
+        }
+    }
+
     @Test fun finalBuyQuoteDetectsAdverseFillWhileCachedMarkHasNotMoved() {
         val q = SizingQuoteRecheck8153
         val ts = TokenState("quote-price-8167", symbol = "QUOTE")
@@ -38,6 +67,12 @@ class Aate8167PipelineRepairTest {
         val seal = SizingQuoteRecheck8153.SealedEconomics8153(0.05, 12.0, 30.0, 4.0, 0.1, 1.0, 1000L)
         assertEquals("PRE_BROADCAST_PRICE_DISCONTINUITY_8167", q.recheck8153(seal, 0.05, 50_000_000L, 0.1, 5.0, 2000L))
         assertNull(q.recheck8153(seal, 0.05, 50_000_000L, 0.1, 1.01, 2000L))
+        // Quote fees/impact must not be charged twice; a worse market mark must still bind.
+        assertNull(q.recheck8153(seal, 0.05, 50_000_000L, 0.1, 1.0, 2000L, executionPriceUsd = 1.09))
+        assertEquals("PRE_BROADCAST_NET_EV_NONPOSITIVE_8153",
+            q.recheck8153(seal, 0.05, 50_000_000L, 0.1, 1.09, 2000L, executionPriceUsd = 1.01))
+        assertEquals("PRE_BROADCAST_PRICE_DISCONTINUITY_8167",
+            q.recheck8153(seal, 0.05, 50_000_000L, 0.1, 1.0, 2000L, executionPriceUsd = 5.0))
     }
 
     @Test fun repeatedExecutableRouteDoesNotInvalidateItsOwnGeneration() {

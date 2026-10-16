@@ -387,11 +387,8 @@ object HandoffTaskRuntime8153 {
         try {
             if (!HandoffReceiverTasks8153.isDue8153(mint, lane, nowMs, version8153(mint))) return
             // Fit with nowhere left to go ends FIT_NO_COMPATIBLE_RECEIVER; safety stays binding; anything else is its judgement.
-            val block = when (blockOf8153(reason)) {
-                HandoffReceiverTasks8153.Block8153.BINDING -> HandoffReceiverTasks8153.Block8153.BINDING
-                HandoffReceiverTasks8153.Block8153.FIT -> HandoffReceiverTasks8153.Block8153.FIT
-                else -> HandoffReceiverTasks8153.Block8153.JUDGEMENT
-            }
+            // Preserve missing-data / busy-slot states through the runtime adapter as well as the ledger.
+            val block = blockOf8153(reason)
             HandoffReceiverTasks8153.blockTask8153(mint, lane, block, "NATIVE_REFUSED:$reason", nowMs)
         } catch (_: Throwable) {}
     }
