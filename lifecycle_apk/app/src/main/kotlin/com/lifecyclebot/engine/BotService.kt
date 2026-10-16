@@ -25681,6 +25681,7 @@ if (hotExitHandledSweep) {
         val tier = reason.substringAfter("_T", "").substringBefore('_').toIntOrNull() ?: 0
         scope.launch(Dispatchers.IO) {
             var applied = false
+            try { SpikeCapture7943.dispatched8153(ts, reason) } catch (_: Throwable) {}  // V5.0.8153 — the rung's tranche is handed to the sell door
             try {
                 val paper = ts.position.isPaperPosition
                 val wallet = if (paper) null else WalletManager.getWallet()
@@ -25689,7 +25690,7 @@ if (hotExitHandledSweep) {
             } catch (t: Throwable) {
                 try { ErrorLogger.warn("BotService", "SPIKE_CAPTURE_7943 sell failed: ${t.message}") } catch (_: Throwable) {}
             }
-            if (!applied && tier > 0) SpikeCapture7943.rearm(ts, tier)
+            if (!applied && tier > 0) SpikeCapture7943.rearm(ts, tier) else if (applied) try { SpikeCapture7943.onApplied8153(ts, reason) } catch (_: Throwable) {}
         }
     }
 

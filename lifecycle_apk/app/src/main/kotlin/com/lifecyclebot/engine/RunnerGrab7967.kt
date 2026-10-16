@@ -319,9 +319,19 @@ object RunnerGrab7967 {
     private fun holding7967(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
         // V5.0.8104 — a live meme buy is held on the runner ladder from its own entry, whatever its entry style.
         if (TradeExitContract8077.runnerFromEntry8104(ts)) return nowMs - ts.position.entryTime <= HOLD_WINDOW_MS
-        if (TradeExitContract8077.longHold(ts) == false) return false
+        // V5.0.8153 — one plan (RunnerLive8153). The grab map alone no longer makes a live runner: a grab is an entry-time
+        // admit the plan already reads (only when the sealed style is unknown), and a promotion is latched on the position.
+        // 8018 wrote promotions into this map and the longHold check below it then dropped every promoted QUICK_FLIP.
+        // Paper rides the plan live would (runnerFromEntry8104 is live only).
+        val pos = ts.position
+        return pos.isOpen && pos.isPaperPosition && pos.entryTime > 0L && nowMs - pos.entryTime <= HOLD_WINDOW_MS &&
+            RunnerLive8153.basis8153(ts) != RunnerExitContract8136.RunnerBasis8136.NONE
+    }
+
+    /** V5.0.8153 — RunnerLive8153: was THIS position bought as a runner admit (grab / proven cell / ticket)? */
+    fun grabbedAtEntry8153(ts: TokenState): Boolean {
         val at = grabbed[ts.mint] ?: return false
-        return ts.position.isOpen && ts.position.entryTime >= at - 5L * 60_000L && nowMs - at <= HOLD_WINDOW_MS
+        return ts.position.isOpen && ts.position.entryTime > 0L && ts.position.entryTime >= at - 5L * 60_000L
     }
 
     // ── V5.0.8018 — RunnerPlay8018 hooks ──
@@ -353,7 +363,8 @@ object RunnerGrab7967 {
     fun promote8018(ts: TokenState): Boolean {
         val pos = ts.position
         if (!pos.isOpen || pos.entryTime <= 0L) return false
-        grabbed[ts.mint] = pos.entryTime
+        // V5.0.8153 — latched on the position (persisted), not written into the grab map as if it were an entry admit.
+        RunnerLive8153.latchPromotion8153(ts)
         return true
     }
 

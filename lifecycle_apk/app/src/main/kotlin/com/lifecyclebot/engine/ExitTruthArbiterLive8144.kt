@@ -66,6 +66,10 @@ object ExitTruthArbiterLive8144 {
             pnlPct = gross8144(ts, px),
             sellCostPct = sellCost,
             remainingShare = ((100.0 - pos.partialSoldPct) / 100.0).coerceIn(0.0, 1.0),
+            // V5.0.8153 — the one plan (a latched promotion included) and the runner's live continuation: a standing,
+            // non-distributing runner holds soft FULL exits here (it never holds ranks 1-3 or a budgeted partial).
+            continuationConfirmed = try { RunnerLive8153.continuationConfirmed8153(ts) } catch (_: Throwable) { false },
+            planBasis8153 = try { RunnerLive8153.basis8153(ts) } catch (_: Throwable) { null },
         )
     }
 
@@ -166,6 +170,8 @@ object ExitTruthArbiterLive8144 {
         if (actFull) captures8144.noteExit8144(ts.mint, key8144(ts), gross8144(ts, px), pos.entryPrice, nowMs)
         try {
             dispatch(ts, act.fraction, act.reason)
+            // V5.0.8153 — the rung won the ticket and was handed to the sell door: TICKET_ACCEPTED (not yet a fill).
+            if (spikeRung8144(act.reason)) try { SpikeCapture7943.dispatched8153(ts, act.reason) } catch (_: Throwable) {}
         } catch (failure: Exception) {
             tickets8144.release8144(ts.mint, act.reason)
             if (spikeRung8144(act.reason)) SpikeCapture7943.restoreTier8144(ts)

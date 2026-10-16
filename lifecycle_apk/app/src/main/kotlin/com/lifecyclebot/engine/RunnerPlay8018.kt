@@ -58,7 +58,11 @@ object RunnerPlay8018 {
 
     // ── pure ──
 
-    /** Does a held position at [gross]% [ageMs] after entry, with its chart [firming], join the runner hold? */
+    /**
+     * Does a held position at [gross]% [ageMs] after entry, with its chart [firming], join the runner hold?
+     * V5.0.8153 — retired from the live path: RunnerPlan8153.promotion8153 is the one promotion rule (verified peak and
+     * print, structure, no 30-minute window). Kept for the 8018 record of what the old rule decided.
+     */
     fun promotes8018(gross: Double, ageMs: Long, firming: Boolean, alreadyRunner: Boolean, standingDown: Boolean): Boolean =
         !alreadyRunner && !standingDown && firming && gross.isFinite() && gross >= PROMOTE_MIN_PCT_8018 && ageMs in 0L..PROMOTE_WINDOW_MS
 
@@ -88,35 +92,35 @@ object RunnerPlay8018 {
     fun onMark8018(ts: TokenState, gross: Double, nowMs: Long = System.currentTimeMillis()) {
         val pos = ts.position
         if (!pos.isOpen || pos.entryTime <= 0L || !gross.isFinite()) return
+        // V5.0.8153 — every mark keeps the position's continuation / give-back / distribution / structure state and its
+        // gross opportunity (RunnerLive8153), promoted or not.
+        try { RunnerLive8153.onMark8153(ts, gross, nowMs) } catch (_: Throwable) {}
         val key = "${ts.mint}|${pos.entryTime}"
         promos[key]?.let { p -> if (gross > p.peak) p.peak = gross; p.last = gross; return }
-        if (gross < PROMOTE_MIN_PCT_8018 || nowMs - pos.entryTime > PROMOTE_WINDOW_MS) return
-        // V5.0.8136 — promotion is earned on PROOF: the position's verified peak (chain mark, corroborated jump;
-        // PositionDisplayTruth8078) must itself have reached the level, not one trade print (a phantom +2000% tick).
-        if (!verifiedPeakReached8136(pos.peakGainPct)) return
-        if (RunnerGrab7967.holdingRunner8018(ts, nowMs)) return
         // V5.0.8144 — runner eligibility has one authority (ExitTruthArbiter8144.runnerBasis8144): the immutable sealed
         // entry style / strategy, or a PROVEN peak (+100% corroborated, RunnerExitContract8136). A position sealed as a
-        // scalp is not moved onto the runner ladder (and its scalp rungs reset) by a +25% firming print. The lane is not
-        // the question here (the runner hold hosts the position, TradeExitContract8077.runnerBasis8136 reads it the same way).
-        if ((try { ExitTruthArbiter8144.runnerBasis8144(ExitTruthArbiterLive8144.inputsFor8144(ts, null).copy(laneHostsRunners = true)) }
-                catch (_: Throwable) { RunnerExitContract8136.RunnerBasis8136.NONE }) == RunnerExitContract8136.RunnerBasis8136.NONE) {
-            try { PipelineHealthCollector.labelInc("RUNNER_PROMOTION_NOT_ELIGIBLE_8144") } catch (_: Throwable) {}
-            return
-        }
+        // runner needs no promotion; the lane is not the question here (TradeExitContract8077.runnerBasis8136 agrees).
+        val basis8144 = try { ExitTruthArbiter8144.runnerBasis8144(ExitTruthArbiterLive8144.inputsFor8144(ts, null).copy(laneHostsRunners = true)) }
+            catch (_: Throwable) { RunnerExitContract8136.RunnerBasis8136.NONE }
+        if (basis8144 == RunnerExitContract8136.RunnerBasis8136.SEALED_SETUP) return
+        // V5.0.8153 — ONE promotion rule (RunnerPlan8153.promotion8153). 8136/8144 stacked a +25% print, a +25% verified
+        // peak, a +100% corroborated peak, a firming chart and a 30-minute window here, so nothing was promoted before
+        // +100% (the scalp rung had sold 60% at +40%) and a late continuation never was. Now: the chain-verified peak AND
+        // the print at +25% with the chart firming promotes (before the +40% rung); a corroborated +100% peak latches what
+        // the plan already reads; an uncorroborated print, bad units, a broken structure or distribution is refused.
         ensureLoaded()
-        val firming = RunnerGrab7967.firmingNow8018(ts.mint, nowMs)
         val down = synchronized(promoteRecord) { standsDown8018(promoteRecord) }
-        if (!promotes8018(gross, nowMs - pos.entryTime, firming, false, false)) return
-        if (down) { promoteShadow.incrementAndGet(); return }
+        val verdict = try { RunnerLive8153.promotion8153(ts, gross, down, nowMs) } catch (_: Throwable) { return }
+        if (verdict == RunnerPlan8153.Promotion8153.STOOD_DOWN) { promoteShadow.incrementAndGet(); return }
+        if (!RunnerPlan8153.promotes8153(verdict)) return
         if (!RunnerGrab7967.promote8018(ts)) return
-        try { SpikeCapture7943.resetTiers8018(ts) } catch (_: Throwable) {}
         if (promos.size > 2_000) promos.entries.removeIf { nowMs - it.value.atMs > SEEN_MS }
         promos[key] = Promo(nowMs, gross, gross)
         promoted.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("RUNNER_PROMOTED_8018")
-            ForensicLogger.lifecycle("RUNNER_PROMOTED_8018", "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${pos.tradingMode} gross=${"%.1f".format(gross)}% ageS=${(nowMs - pos.entryTime) / 1000} action=runner_hold")
+            PipelineHealthCollector.labelInc("RUNNER_${verdict.name}_8153")
+            ForensicLogger.lifecycle("RUNNER_PROMOTED_8018", "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${pos.tradingMode} gross=${"%.1f".format(gross)}% verifiedPeak=${"%.1f".format(pos.peakGainPct)}% why=${verdict.name} ageS=${(nowMs - pos.entryTime) / 1000} action=runner_hold")
         } catch (_: Throwable) {}
     }
 

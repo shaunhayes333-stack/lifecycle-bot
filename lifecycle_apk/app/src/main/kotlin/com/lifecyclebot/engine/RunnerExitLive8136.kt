@@ -52,6 +52,12 @@ object RunnerExitLive8136 {
     private fun shareBudget8144(ts: TokenState, fractionOfCurrent: Double, reason: String): Double {
         if (!fractionOfCurrent.isFinite() || fractionOfCurrent <= 0.0) return 0.0
         if (fractionOfCurrent >= 1.0 - 1e-9) return fractionOfCurrent
+        // V5.0.8153 — a proven / sealed runner with a confirmed continuation no longer takes ordinary scalp partials below
+        // its first runner rung: the promotion changed the exit plan before the next scalp tranche (RunnerPlan8153).
+        if (try { RunnerPlan8153.scalpPartialHeld8153(RunnerLive8153.plan8153(ts), RunnerLive8153.continuationConfirmed8153(ts), reason, gross8153(ts)) } catch (_: Throwable) { false }) {
+            count8136("RUNNER_PLAN_HOLDS_SCALP_PARTIAL_8153")
+            return 0.0
+        }
         val reserve = try {
             if (protectsResidual8136(ts)) RunnerExitContract8136.RUNNER_RESIDUAL_SHARE_8136 else 0.0
         } catch (_: Throwable) { 0.0 }
@@ -62,6 +68,12 @@ object RunnerExitLive8136 {
             count8136(if (allowed <= 0.0) "RUNNER_SHARE_BUDGET_REFUSED_8136" else "RUNNER_SHARE_BUDGET_CLAMPED_8136")
         }
         return allowed
+    }
+
+    private fun gross8153(ts: TokenState): Double {
+        val e = ts.position.entryPrice
+        val p = ts.lastPrice
+        return if (e > 0.0 && p > 0.0) (p / e - 1.0) * 100.0 else Double.NaN
     }
 
     /** The sell-side cost of one exit leg, percent: half the measured round trip, at least the 1% platform share. */
@@ -103,13 +115,26 @@ object RunnerExitLive8136 {
         }
         val unrecovered = if (canon != null) RecoveryFallbackLedger8141.unrecoveredSol8141(canon.entryCostSol, canon.realizedProceedsSol, fallback8141, canon.feesSol)
             else remainingCostSol.coerceAtLeast(0.0)
-        val fraction = RunnerExitContract8136.recoveryFraction8136(unrecovered, grossValueSol, sellCostPct8136(ts))
-            .coerceAtMost(((100.0 - pos.partialSoldPct) / 100.0).coerceAtLeast(0.0))
+        // V5.0.8153 — the tranche is validated against what is really held (the canonical remaining quantity), the true
+        // unrecovered principal (confirmed proceeds less cumulative fees, above) and the executable sell cost, and must
+        // leave the residual it is funding (RunnerPlan8153.recoveryTranche8153). 8136 clamped this fraction of the CURRENT
+        // holding by the share of the ORIGINAL quantity still held — two different units.
+        val tranche8153 = RunnerPlan8153.recoveryTranche8153(unrecovered, grossValueSol, sellCostPct8136(ts), sellableShare8153(pos.qtyToken, canon))
+        if (tranche8153.fraction <= 0.0 && unrecovered > 0.0) count8136("CAPITAL_RECOVERY_REFUSED_8153_${tranche8153.why}")
+        val fraction = tranche8153.fraction
         // V5.0.8144 — the recovery tranche holds the position's arbitration ticket like every other tranche: it is sized
         // on confirmed proceeds, so it never sells while another tranche's proceeds are still unconfirmed.
         if (fraction > 0.0 && !(try { ExitTruthArbiterLive8144.admitTranche8144(ts, RECOVERY_TRANCHE_8144) } catch (_: Throwable) { true })) return 0.0
         if (fraction > 0.0) count8136("CAPITAL_RECOVERY_TRANCHE_NET_8136")
         return fraction
+    }
+
+    /** V5.0.8153 — the canonical remaining quantity over the runtime quantity (1 without a canonical position, 0 when none is held). */
+    private fun sellableShare8153(runtimeQty: Double, canon: com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position?): Double {
+        if (canon == null) return 1.0
+        if (!runtimeQty.isFinite() || runtimeQty <= 0.0 || canon.remainingQtyRaw.signum() <= 0) return 0.0
+        val held = canon.remainingQtyRaw.toBigDecimal().movePointLeft(canon.quantityScale).toDouble()
+        return if (held.isFinite() && held > 0.0) (held / runtimeQty).coerceAtMost(1.0) else 0.0
     }
 
     /** Executor.commitVerifiedLiveSlice7835: a confirmed slice of [costBasisSol] returned [proceedsSol]. */
@@ -143,6 +168,8 @@ object RunnerExitLive8136 {
         return "captures=$n meanLossPp=$mean worstPp=${"%.1f".format(worst)} residualShare=${(RunnerExitContract8136.RUNNER_RESIDUAL_SHARE_8136 * 100).toInt()}% " +
             "promote=+${RunnerExitContract8136.PROMOTE_PCT_8136.toInt()}% corroborated · [$top]" +
             " · arbiter8144[" + (try { ExitTruthArbiterLive8144.statusLine8144() } catch (_: Throwable) { "unavailable" }) + "]" +
-            " · proceeds8144[" + (try { RecoveryFallbackLedger8141.statusLine8144() } catch (_: Throwable) { "unavailable" }) + "]"
+            " · proceeds8144[" + (try { RecoveryFallbackLedger8141.statusLine8144() } catch (_: Throwable) { "unavailable" }) + "]" +
+            // V5.0.8153 — gross opportunity (entry cost x verified peak) vs the net SOL confirmed slices actually banked.
+            " · bank8153[" + (try { RunnerLive8153.statusLine8153() } catch (_: Throwable) { "unavailable" }) + "]"
     }
 }
