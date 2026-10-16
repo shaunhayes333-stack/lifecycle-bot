@@ -181,6 +181,13 @@ object CandidateAdmission8136 {
         }
         // 3. timing: the selected setup's record at this point of the move. A token whose own cell pays has already paid
         //    for its timing (its labels start at the fill latency).
+        // V5.0.8144 — the default (selected) setup's adverse timing no longer vetoes before the token's own proven
+        //    alternatives are weighed: another fired setup supported on its own record is the strategy instead (the
+        //    timing book belongs to the selected setup, not to the alternative).
+        if (chosen == c.selectedSetup && losing8136(c.timing) && !cellSupported && bestSetup != null && bestSetup.id != c.selectedSetup) {
+            trace += "altSetup=${bestSetup.compact} over timing ${c.timing?.compact}"
+            chosen = bestSetup.id
+        }
         if (chosen == c.selectedSetup && losing8136(c.timing) && !cellSupported) {
             trace += "timing=${c.timing?.compact}"
             return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
@@ -267,6 +274,93 @@ object CandidateAdmission8136 {
         return open
     }
 
+    // ── V5.0.8144 §COALESCED_MISSING_DATA_REEVALUATION ──
+    //
+    // 5.0.8142: 458 DATA_INCOMPLETE FDG deferrals. Every cycle re-ran the whole admission record (playbook classification,
+    // forward-label cells, timing / stage books, cost model) for a candidate whose missing input had not had time to
+    // arrive, and every re-run spent one of its 40 bounded re-evaluations. A deferral is now scheduled per mint + missing
+    // feature with a backoff ([REEVAL_BASE_MS_8144] doubling to [REEVAL_MAX_MS_8144]): until one of its features is due,
+    // the last DEFER_DATA decision is returned as it was and no budget is spent; when one is due, the record is decided
+    // again in full. The deferral window, its budget and its reset are unchanged, and nothing but DEFER_DATA is cached.
+
+    /** One mint + missing feature: when it is next due and how many times it has been re-scheduled. */
+    data class Reeval8144(val dueMs: Long, val attempts: Int)
+
+    const val REEVAL_BASE_MS_8144 = 5_000L
+    const val REEVAL_MAX_MS_8144 = 60_000L
+
+    /** Pure: the next schedule after a re-evaluation at [nowMs] — the backoff doubles per attempt up to the cap. */
+    fun nextReeval8144(prev: Reeval8144?, nowMs: Long): Reeval8144 {
+        val attempts = (prev?.attempts ?: 0).coerceAtMost(16)
+        val wait = (REEVAL_BASE_MS_8144 shl attempts.coerceAtMost(10)).coerceAtMost(REEVAL_MAX_MS_8144)
+        return Reeval8144(nowMs + wait, attempts + 1)
+    }
+
+    /** Pure: is this feature due (never scheduled, its time reached, or a schedule from a clock that moved back)? */
+    fun reevalDue8144(s: Reeval8144?, nowMs: Long): Boolean =
+        s == null || nowMs >= s.dueMs || s.dueMs - nowMs > 2 * REEVAL_MAX_MS_8144
+
+    /** Pure: the features a DEFER_DATA decision is waiting for (its "missing=" trace entry). */
+    fun missingOf8144(d: Decision8136): List<String> =
+        d.trace.firstOrNull { it.startsWith("missing=") }?.removePrefix("missing=")?.split(',')?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
+
+    private class Held8144(val decision: Decision8136, val features: List<String>, val atMs: Long)
+
+    private val reevals8144 = ConcurrentHashMap<String, Reeval8144>()
+    private val held8144 = ConcurrentHashMap<String, Held8144>()
+    private val coalesced8144 = AtomicLong(0)
+
+    private fun features8144(missing: List<String>): List<String> = missing.ifEmpty { listOf("core:UNKNOWN") }
+
+    /** Schedules every due feature of [mint]; true when at least one was due (the caller re-evaluates now). */
+    private fun scheduleDue8144(mint: String, features: List<String>, nowMs: Long): Boolean {
+        var due = false
+        for (f in features) {
+            val key = "$mint|$f"
+            val prev = reevals8144[key]
+            if (reevalDue8144(prev, nowMs)) { reevals8144[key] = nextReeval8144(prev, nowMs); due = true }
+        }
+        if (reevals8144.size > 8_000) reevals8144.entries.removeIf { nowMs - it.value.dueMs > DEFER_RESET_MS_8136 }
+        return due
+    }
+
+    /** The held DEFER_DATA decision for [mint] in [laneRaw] while none of its missing features is due yet, else null. */
+    private fun coalescedDefer8144(mint: String, laneRaw: String, nowMs: Long): Decision8136? {
+        val h = held8144["$mint|$laneRaw"] ?: return null
+        if (nowMs - h.atMs !in 0L..REEVAL_MAX_MS_8144) return null
+        if (h.features.any { reevalDue8144(reevals8144["$mint|$it"], nowMs) }) return null
+        coalesced8144.incrementAndGet()
+        return h.decision
+    }
+
+    /** Holds a DEFER_DATA decision (scheduling its features) and files the decision in the runner trace. */
+    private fun noteDecision8144(mint: String, laneRaw: String, d: Decision8136, nowMs: Long) {
+        if (mint.isBlank()) return
+        val key = "$mint|$laneRaw"
+        if (d.terminal == Terminal8136.DEFER_DATA) {
+            val f = features8144(missingOf8144(d))
+            scheduleDue8144(mint, f, nowMs)
+            if (held8144.size > 4_000) held8144.entries.removeIf { nowMs - it.value.atMs > REEVAL_MAX_MS_8144 }
+            held8144[key] = Held8144(d, f, nowMs)
+        } else {
+            held8144.remove(key)
+        }
+        try { AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason) } catch (_: Throwable) {}
+    }
+
+    /**
+     * LiveEdgeGate7877.dataDefer8136: [deferBudget8136] coalesced per mint + missing feature. A call while none of
+     * [missing] is due keeps the open window without spending a re-evaluation; a due feature re-evaluates (counted).
+     */
+    fun deferBudgetFor8144(mint: String, missing: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (mint.isBlank()) return false
+        if (scheduleDue8144(mint, features8144(missing), nowMs)) return deferBudget8136(mint, nowMs)
+        val s = defers8136[mint] ?: return deferBudget8136(mint, nowMs)
+        coalesced8144.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("ADMISSION_REEVAL_COALESCED_8144") } catch (_: Throwable) {}
+        return deferOpen8136(s, nowMs)
+    }
+
     // ── the ledger: counts per terminal admission reason ──
 
     private val counts8136 = ConcurrentHashMap<String, AtomicLong>()
@@ -311,7 +405,7 @@ object CandidateAdmission8136 {
         }
         val top = counts8136.entries.sortedByDescending { it.value.get() }.take(12)
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
-        return "admission8136[$byTerminal reasons{$top}]"
+        return "admission8136[$byTerminal reasons{$top}] coalescedReevals8144=${coalesced8144.get()}"
     }
 
     // ── live adapter: the record from the bot's own stores (read-only peeks; no fetch, no synthetic data) ──
@@ -321,7 +415,8 @@ object CandidateAdmission8136 {
 
     /** The admission record for [ts] in [laneRaw] now, decided. Null only on an internal failure. */
     fun assess8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Decision8136? = try {
-        decide8136(candidateFor8136(ts, laneRaw, nowMs))
+        // V5.0.8144 — a data deferral is re-decided when one of its missing features is due (coalesced, not every cycle).
+        coalescedDefer8144(ts.mint, laneRaw, nowMs) ?: decide8136(candidateFor8136(ts, laneRaw, nowMs)).also { noteDecision8144(ts.mint, laneRaw, it, nowMs) }
     } catch (_: Throwable) { null }
 
     /** Builds the candidate record from the playbook, forward labels, net-edge cost model and safety report. */

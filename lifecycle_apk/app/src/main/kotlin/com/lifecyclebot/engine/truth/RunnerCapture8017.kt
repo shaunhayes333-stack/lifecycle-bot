@@ -95,6 +95,11 @@ object RunnerCapture8017 {
                 if (px > 0.0) r.openNowPct = (px / pos.entryPrice - 1.0) * 100.0
             }
         } catch (_: Throwable) {}
+        // V5.0.8144 — the runner's decision trace is frozen the first time (no-op after); later labels refine it.
+        try {
+            AdmissionRunnerTrace8144.capture8144(mint, symbol, lane, startPx, peakPct, r.refusedBy, downstream8047[mint], r.held, nowMs)
+            AdmissionRunnerTrace8144.update8144(mint, r.refusedBy, downstream8047[mint], r.held)
+        } catch (_: Throwable) {}
     }
 
     /** CanonicalFinalizedTradeBus6464: a position closed — if it was a runner, that is what the bot banked. */
@@ -104,12 +109,13 @@ object RunnerCapture8017 {
         r.live = r.live || env.mode.equals("live", ignoreCase = true)
         if (env.realizedReturnPct.isFinite()) r.bankedPct = env.realizedReturnPct
         r.openNowPct = Double.NaN
+        try { AdmissionRunnerTrace8144.update8144(env.mint, r.refusedBy, downstream8047[env.mint], true) } catch (_: Throwable) {}  // V5.0.8144
     }
 
     fun statusLine(): String {
         val now = System.currentTimeMillis()
         val recent = runs.values.filter { now - it.atMs <= KEEP_MS }.sortedByDescending { it.peakPct }
-        if (recent.isEmpty()) return "runners(4x+,24h)=0"
+        if (recent.isEmpty()) return "runners(4x+,24h)=0 | ${try { AdmissionRunnerTrace8144.statusLine8144() } catch (_: Throwable) { "trace8144 unavailable" }}"
         val held = recent.filter { it.held }
         val liveHeld = held.count { it.live }
         val entries = held.mapNotNull { entryVsStart8017(it.entryPx, it.startPx).takeIf { v -> v.isFinite() } }.sorted()
@@ -124,6 +130,7 @@ object RunnerCapture8017 {
             }
         }
         return "runners(4x+,24h)=${recent.size} held=${held.size} (live ${liveHeld}) missed=${recent.size - held.size} " +
-            "entryVsStart(median)=${med(entries)} bankedShareOfRun(median)=${if (shares.isEmpty()) "-" else "%.0f%%".format(shares[shares.size / 2] * 100)} | $rows"
+            "entryVsStart(median)=${med(entries)} bankedShareOfRun(median)=${if (shares.isEmpty()) "-" else "%.0f%%".format(shares[shares.size / 2] * 100)} | $rows" +
+            " | ${try { AdmissionRunnerTrace8144.statusLine8144() } catch (_: Throwable) { "trace8144 unavailable" }}"  // V5.0.8144
     }
 }

@@ -156,7 +156,13 @@ object LaunchLifecycle8136 {
         if (mint.isBlank() || route.eligible) return
         handoffs[mint] = route
         if (handoffs.size > MAX_MINTS) handoffs.keys.take(MAX_MINTS / 10).forEach { handoffs.remove(it) }
+        // V5.0.8144 — the emitted name is not the hand-off: the ledger records it as done only when a receiver has judged it.
+        if (route.handoffLane != null) try { AdmissionHandoff8144.emitHandoff8144(mint, "PROJECT_SNIPER", route.handoffLane, route.reason) } catch (_: Throwable) {}
     }
+
+    /** Pure (V5.0.8144): the runner lane a sniper hand-off names — the same rule as [sniperRoute8136] (MOONSHOT at/above its floor). */
+    fun handoffLaneFor8144(capUsd: Double, moonshotFloorUsd: Double): String =
+        if (capUsd.isFinite() && capUsd >= moonshotFloorUsd) "MOONSHOT" else "SHITCOIN"
 
     /** The last named sniper handoff/refusal for [mint], or null. */
     fun lastHandoff8136(mint: String): SniperRoute8136? = handoffs[mint]

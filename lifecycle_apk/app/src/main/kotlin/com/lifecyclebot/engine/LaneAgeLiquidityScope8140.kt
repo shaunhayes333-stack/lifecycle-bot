@@ -83,6 +83,22 @@ object LaneAgeLiquidityScope8140 {
         return Verdict8140(Outcome8140.PASS, "LANE_AGE_IN_LAUNCH_WINDOW_8140_$l")
     }
 
+    /**
+     * V5.0.8144 — [ageVerdict8140] with a proven LOWER BOUND of the age ([provenMinAgeMinutes]: a successful signature
+     * seen while paging the mint's history, or the bot's own first sighting). Unknown stays DEFER; a lower bound already
+     * past the launch window is proof the token is old, so it REFUSES instead of deferring for a birth that cannot
+     * change the answer. A bound inside the window proves nothing and leaves the DEFER.
+     */
+    fun ageVerdictBounded8144(lane: String, trueAgeMinutes: Double?, provenMinAgeMinutes: Double?, launchWindowMinutes: Double): Verdict8140 {
+        val v = ageVerdict8140(lane, trueAgeMinutes, launchWindowMinutes)
+        if (v.outcome != Outcome8140.DEFER) return v
+        val floor = provenMinAgeMinutes?.takeIf { it.isFinite() && it >= 0.0 } ?: return v
+        if (launchWindowMinutes.isFinite() && launchWindowMinutes > 0.0 && floor > launchWindowMinutes) {
+            return Verdict8140(Outcome8140.REFUSE, "LANE_AGE_PROVEN_PAST_LAUNCH_WINDOW_8144_${canonical8140(lane)}")
+        }
+        return v
+    }
+
     /** The floor a lane refuses below: its own floor; in LIVE never below the exit-safe hard floor. */
     fun effectiveLiquidityFloor8140(laneFloorUsd: Double, live: Boolean): Double {
         val own = if (laneFloorUsd.isFinite() && laneFloorUsd > 0.0) laneFloorUsd else 0.0

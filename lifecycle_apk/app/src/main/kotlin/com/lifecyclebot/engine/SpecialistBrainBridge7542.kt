@@ -287,5 +287,7 @@ object SpecialistBrainBridge7542 {
             }
             SpecialistElection8136.registerNative8136(s.mint, version, s.evaluatedAtMs, views)
         } catch (_: Throwable) {}
+        // V5.0.8144 — a sniper hand-off arrives only when its receiver has judged the token (and the runner trace's first read).
+        try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.onNativeSnapshot8144(s.mint, s.evaluatedAtMs, s.opinions.values.filter { it.authoritative }.map { com.lifecyclebot.engine.truth.AdmissionHandoff8144.LaneRead8144(it.lane, it.eligible, maxOf(it.score, it.confidence), it.reason) }) } catch (_: Throwable) {}
     }
 }

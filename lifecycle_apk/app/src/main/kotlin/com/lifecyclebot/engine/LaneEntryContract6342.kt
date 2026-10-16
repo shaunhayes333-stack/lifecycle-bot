@@ -126,6 +126,8 @@ object LaneEntryContract6342 {
         if (try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false }) return "GRADUATED"
         if (mcapUsd > SNIPER_LAUNCH_MAX_MCAP_USD_7393) return "MCAP_ABOVE_LAUNCH_CAP"
         val age = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs)?.div(1000L) } catch (_: Throwable) { null }
+            // V5.0.8144 — another birth witness, or a proven lower bound already past the window (stale, not unknown).
+            ?: try { com.lifecyclebot.engine.truth.AdmissionBirth8144.provenAgeMs8144(ts, SNIPER_LAUNCH_MAX_AGE_SECS_7393 * 1000L, nowMs)?.div(1000L) } catch (_: Throwable) { null }
             ?: return "LAUNCH_AGE_UNKNOWN"
         if (age > SNIPER_LAUNCH_MAX_AGE_SECS_7393) return "LAUNCH_AGE_STALE"
         return null

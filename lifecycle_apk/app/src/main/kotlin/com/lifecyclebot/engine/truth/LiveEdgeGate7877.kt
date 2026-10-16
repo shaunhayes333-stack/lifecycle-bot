@@ -541,7 +541,7 @@ object LiveEdgeGate7877 {
      */
     private fun dataDefer8136(ts: TokenState, lane: String, setup: String?, nowMs: Long): String? {
         val missing = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return null
-        if (!CandidateAdmission8136.deferBudget8136(ts.mint, nowMs)) return null
+        if (!CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)) return null  // V5.0.8144 — coalesced per mint + missing feature
         val r = DATA_DEFER_REASON_8136
         dataDeferred8136.incrementAndGet()
         try { PipelineHealthCollector.labelInc("${r}_$lane") } catch (_: Throwable) {}

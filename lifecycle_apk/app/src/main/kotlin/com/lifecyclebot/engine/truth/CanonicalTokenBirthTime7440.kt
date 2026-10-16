@@ -34,6 +34,8 @@ object CanonicalTokenBirthTime7440 {
             val pumpMs = PumpCurveKeys7269.createdAtMs7280(m) ?: 0L
             if (plausible(pumpMs, nowMs)) candidates += Resolution(pumpMs, Source.PUMP_CREATE_EVENT)
         } catch (_: Throwable) {}
+        // V5.0.8144 — every create frame (also throttled / reserve-less ones) and pump.fun's coin record are the create event too.
+        try { AdmissionBirth8144.pumpCreateMs8144(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.PUMP_CREATE_EVENT) } } catch (_: Throwable) {}
 
         try {
             val poolMs = PoolCreationTime7385.createdAtMs(m) ?: 0L

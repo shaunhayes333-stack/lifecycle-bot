@@ -25,6 +25,15 @@ object LaneAgeLiquidityTruth8140 {
         com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.8144 — a proven LOWER BOUND of the chain age (minutes) while the birth is unresolved: the oldest successful
+     * signature already read from the mint's history, or the bot's own first sighting (AdmissionBirth8144). Never the
+     * age itself; null when nothing proves one.
+     */
+    private fun provenMinAgeMinutes8144(ts: TokenState): Double? = try {
+        com.lifecyclebot.engine.truth.AdmissionBirth8144.provenMinAgeMs8144(ts)?.div(60_000.0)
+    } catch (_: Throwable) { null }
+
     /** Resolved chain-birth age in whole seconds; null while unresolved. */
     fun chainAgeSecs8140(ts: TokenState): Long? = chainAgeMinutes8140(ts)?.let { (it * 60.0).toLong() }
 
@@ -34,7 +43,10 @@ object LaneAgeLiquidityTruth8140 {
      */
     fun establishedAgeMinutes8140(ts: TokenState, laneMinutes: Double): Double {
         val seen = if (laneMinutes.isFinite() && laneMinutes >= 0.0) laneMinutes else null
-        return LaneAgeLiquidityScope8140.laneAgeMinutes8140("QUALITY", chainAgeMinutes8140(ts), seen) ?: 0.0
+        // V5.0.8144 — a proven lower bound of the chain age is one more lower bound (the older reading wins).
+        val bound = provenMinAgeMinutes8144(ts)
+        val seenOrBound = if (seen != null && bound != null) maxOf(seen, bound) else seen ?: bound
+        return LaneAgeLiquidityScope8140.laneAgeMinutes8140("QUALITY", chainAgeMinutes8140(ts), seenOrBound) ?: 0.0
     }
 
     /** Launch-lane age input: chain truth, else [fallbackMinutes] (entry is then held by [launchLaneAgeBlocked8140]). */
@@ -50,7 +62,8 @@ object LaneAgeLiquidityTruth8140 {
             com.lifecyclebot.v3.V3EngineManager.launchAgeWindowMinutes8140()
         } catch (_: Throwable) { 360.0 }
         val age = chainAgeMinutes8140(ts)
-        val v = LaneAgeLiquidityScope8140.ageVerdict8140(lane, age, window)
+        // V5.0.8144 — unknown defers, but a proven lower bound past the window refuses (old, not unknown).
+        val v = LaneAgeLiquidityScope8140.ageVerdictBounded8144(lane, age, if (age == null) provenMinAgeMinutes8144(ts) else null, window)
         if (!v.blocksEntry) return false
         count8140(v.label)
         try {
