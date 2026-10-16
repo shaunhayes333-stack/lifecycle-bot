@@ -320,7 +320,7 @@ object ExitProfile7955 {
                 }
             }
         } catch (_: Throwable) {}
-        return try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, canon(lane), nowMs) } catch (_: Throwable) { null } ?: "NONE"
+        return try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, canon(lane), nowMs) } catch (_: Throwable) { null } ?: "NONE"  // V5.0.8153
     }
 
     private fun add(lane: String, setup: String, sample: DoubleArray, keyOnly: Boolean = false) {

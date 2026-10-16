@@ -67,6 +67,12 @@ object AdmissionRunnerTrace8144 {
         /** Route evidence at the window: CURVE (live pump curve key) / POOL (real pool address) / "" none observed. */
         val route: String,
         val held: Boolean,
+        /** V5.0.8153 — the LAST binding refusal (live edge gate or FDG) as the gate itself named it; "" = last verdict admitted. */
+        val binding: String = "",
+        /** V5.0.8153 — the decision-time evidence at that refusal: lane, liquidity read, strategy identity / tier, move basis. */
+        val bindingEvidence: String = "",
+        /** V5.0.8153 — the strategy identity CandidateAdmission8136 last decided, with its evidence basis. */
+        val identity: String = "",
     )
 
     // ── (b) replay: pure ──
@@ -79,8 +85,12 @@ object AdmissionRunnerTrace8144 {
 
     private fun has8144(s: String, keys: List<String>): String? = keys.firstOrNull { s.uppercase().contains(it) }
 
-    /** Pure: the gate that stopped the runner — the labeler's refusal, else the FDG refusal, else the admission refusal. */
+    /**
+     * Pure: the gate that stopped the runner — the binding refusal recorded at decision time (V5.0.8153), else the labeler's
+     * refusal, else the FDG refusal, else the admission refusal.
+     */
     internal fun refusingGate8144(t: Trace8144): String = when {
+        t.binding.isNotBlank() -> t.binding
         t.refusedBy.isNotBlank() -> t.refusedBy
         t.fdgVerdict.isNotBlank() && !t.fdgVerdict.startsWith("ALLOW") -> t.fdgVerdict
         t.admission.isNotBlank() && !t.admission.startsWith("ADMIT") -> t.admission
@@ -105,8 +115,8 @@ object AdmissionRunnerTrace8144 {
             }
             // Arrived: the receiver's own verdict is the refusing gate; judge that instead (an FDG allow is an admit).
             val receiverVerdict = t.handoff.substringAfter(':').substringAfter(':').ifBlank { "RECEIVER_REFUSED" }
-            return if (receiverVerdict.startsWith("FDG_ALLOW")) classify8144(t.copy(refusedBy = "", fdgVerdict = "ALLOW", admission = "", handoff = ""))
-            else classify8144(t.copy(refusedBy = receiverVerdict, handoff = ""))
+            return if (receiverVerdict.startsWith("FDG_ALLOW")) classify8144(t.copy(refusedBy = "", fdgVerdict = "ALLOW", admission = "", handoff = "", binding = ""))
+            else classify8144(t.copy(refusedBy = receiverVerdict, handoff = "", binding = ""))
         }
         if (g.contains("BIRTH") || g.contains("AGE_UNKNOWN")) {
             return if (t.birthKind == AdmissionBirth8144.Kind8144.KNOWN.name) Verdict8144(Miss8144.WRONGLY_REFUSED, "BIRTH_KNOWN_BUT_REFUSED:$gate")
@@ -115,11 +125,15 @@ object AdmissionRunnerTrace8144 {
         if (g.contains("LIQ")) {
             return when {
                 g.contains("UNHYDRATED") || g.contains("DEFER") || g.contains("UNKNOWN") -> Verdict8144(Miss8144.DATA_GAP, "LIQUIDITY_UNREAD:$gate")
-                !(t.liquidityUsd > 0.0) -> Verdict8144(Miss8144.WRONGLY_REFUSED, "LIQ_UNREAD_REFUSED_AS_LOW:$gate")
+                !(t.liquidityUsd > 0.0) || evidence8153(t, "liq") == "UNKNOWN" -> Verdict8144(Miss8144.WRONGLY_REFUSED, "LIQ_UNREAD_REFUSED_AS_LOW:$gate")
                 else -> Verdict8144(Miss8144.CORRECT_AT_DECISION, "LIQ_REAL_BELOW_FLOOR:$gate")
             }
         }
         if (g.contains("DATA_INCOMPLETE") || g.startsWith("DEFER")) return Verdict8144(Miss8144.DATA_GAP, "DATA_INCOMPLETE:$gate")
+        // V5.0.8153 — "too slow" judged on a sparse range (two candles of a fresh launch) was not a measurement of the move.
+        if (g.contains("COIN_TOO_SLOW") && evidence8153(t, "move").startsWith("RANGE_SPARSE")) {
+            return Verdict8144(Miss8144.WRONGLY_REFUSED, "TOO_SLOW_ON_SPARSE_RANGE:$gate")
+        }
         has8144(g, PROVEN_NEGATIVE_8144)?.let { return Verdict8144(Miss8144.CORRECT_AT_DECISION, "PROVEN_NEGATIVE:$gate") }
         has8144(g, GENERIC_PRIOR_8144)?.let {
             return if (qualified) Verdict8144(Miss8144.WRONGLY_REFUSED, "GENERIC_PRIOR_OVER_QUALIFIED:$gate")
@@ -133,6 +147,11 @@ object AdmissionRunnerTrace8144 {
                 else -> Verdict8144(Miss8144.WRONGLY_REFUSED, "ADMITTED>NO_BUY_ATTEMPT")
             }
         }
+        // V5.0.8153 — a thin cell refused while the coin's own strategy was evidenced on its own record (StrategyWatch8153).
+        if (g.contains("WATCH_FIRST") && g.contains("THIN_CELL") && StrategyRank8153.evidenced8153(
+                StrategyRank8153.Tier8153.values().firstOrNull { it.name == evidence8153(t, "tier") })) {
+            return Verdict8144(Miss8144.WRONGLY_REFUSED, "WATCH_FIRST_OVER_SPECIFIC_EVIDENCE:$gate")
+        }
         if (g.contains("NOT_PRIMARY") || g.contains("SHADOW")) {
             return if (qualified) Verdict8144(Miss8144.WRONGLY_REFUSED, "ELECTION_SHADOWED:$gate")
             else Verdict8144(Miss8144.CORRECT_AT_DECISION, "SHADOW_NO_QUALIFIED_LANE:$gate")
@@ -140,6 +159,17 @@ object AdmissionRunnerTrace8144 {
         return if (qualified) Verdict8144(Miss8144.WRONGLY_REFUSED, "QUALIFIED_LANE_STOPPED:$gate")
         else Verdict8144(Miss8144.CORRECT_AT_DECISION, "NO_LANE_QUALIFIED:$gate")
     }
+
+    /** Pure (V5.0.8153): one "key=value" field of a trace's binding evidence ("" when absent). */
+    internal fun evidence8153(t: Trace8144, key: String): String =
+        t.bindingEvidence.split(' ').firstOrNull { it.startsWith("$key=") }?.substringAfter('=').orEmpty()
+
+    /** Pure (V5.0.8153): the binding evidence line from its parts (space separated key=value, no spaces in values). */
+    fun evidenceLine8153(lane: String, liquidityUsd: Double, identity: String, tier: String, move: String): String =
+        listOf("lane=" + lane.ifBlank { "-" },
+            "liq=" + (if (StrategyMove8153.liquidityRead8153(liquidityUsd) == "KNOWN") "%.0f".format(liquidityUsd) else "UNKNOWN"),
+            "setup=" + identity.ifBlank { "-" }, "tier=" + tier.ifBlank { "-" }, "move=" + move.ifBlank { "-" })
+            .joinToString(" ") { it.replace(' ', '_') }
 
     /** Pure: one summary line over classified traces — counts per class and per refusing gate stem. */
     fun summary8144(traces: List<Trace8144>): String {
@@ -162,6 +192,7 @@ object AdmissionRunnerTrace8144 {
         .put("fdgVerdict", t.fdgVerdict).put("handoff", t.handoff).put("refusedBy", t.refusedBy).put("downstream", t.downstream)
         .put("markPx", fin8144(t.markPx)).put("windowAtMs", t.windowAtMs).put("windowCostPct", fin8144(t.windowCostPct))
         .put("windowCostMeasured", t.windowCostMeasured).put("route", t.route).put("held", t.held)
+        .put("binding", t.binding).put("bindingEvidence", t.bindingEvidence).put("identity", t.identity)
 
     private fun fin8144(v: Double): Any = if (v.isFinite()) v else JSONObject.NULL
 
@@ -176,6 +207,7 @@ object AdmissionRunnerTrace8144 {
         refusedBy = o.optString("refusedBy", ""), downstream = o.optString("downstream", ""), markPx = o.optDouble("markPx", Double.NaN),
         windowAtMs = o.optLong("windowAtMs", 0L), windowCostPct = o.optDouble("windowCostPct", Double.NaN),
         windowCostMeasured = o.optBoolean("windowCostMeasured", false), route = o.optString("route", ""), held = o.optBoolean("held", false),
+        binding = o.optString("binding", ""), bindingEvidence = o.optString("bindingEvidence", ""), identity = o.optString("identity", ""),
     )
 
     /** Pure: an exported JSONL file's traces (malformed lines skipped). */
@@ -205,6 +237,9 @@ object AdmissionRunnerTrace8144 {
         @Volatile var windowCostPct = Double.NaN
         @Volatile var windowCostMeasured = false
         @Volatile var route = ""
+        @Volatile var binding = ""
+        @Volatile var bindingEvidence = ""
+        @Volatile var identity = ""
     }
 
     private val early = ConcurrentHashMap<String, Early8144>()
@@ -250,7 +285,8 @@ object AdmissionRunnerTrace8144 {
 
     /** The first executable window: a price, observed depth and route evidence, with the round trip charged there. */
     private fun noteWindow8144(e: Early8144, ts: com.lifecyclebot.data.TokenState, reads: Collection<AdmissionHandoff8144.LaneRead8144>, atMs: Long) {
-        if (!(ts.lastPrice > 0.0) || !(ts.lastLiquidityUsd > 0.0)) return
+        // V5.0.8153 — a live pump curve is depth and route evidence of its own: an unread pool figure does not hide its window.
+        if (!(ts.lastPrice > 0.0)) return
         val m = ts.mint
         val graduated = (try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false }) ||
             (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(m) } catch (_: Throwable) { false })
@@ -259,6 +295,7 @@ object AdmissionRunnerTrace8144 {
             ts.tokenMap.pairAddress.ifBlank { ts.tokenMap.poolAddress }.let { it.isNotBlank() && !it.contains("MINT_ROUTE", ignoreCase = true) }
         } catch (_: Throwable) { false }
         val route = when { curve -> "CURVE"; pool -> "POOL"; else -> return }
+        if (route != "CURVE" && !(ts.lastLiquidityUsd > 0.0)) return
         val lane = reads.firstOrNull { it.eligible && it.lane.uppercase() != "CORE" }?.lane ?: "SHITCOIN"
         e.windowAtMs = atMs
         e.route = route
@@ -277,9 +314,33 @@ object AdmissionRunnerTrace8144 {
     /** AdmissionHandoff8144.onFdgVerdict8144: the first FinalDecisionGate verdict for this mint. */
     fun noteFdg8144(mint: String, lane: String, allow: Boolean, reason: String?, atMs: Long) {
         val e = earlyFor8144(mint, atMs) ?: return
+        // V5.0.8153 — the FDG verdict is the last word of a cycle: it is the binding gate (or clears it on an allow).
+        noteBindingOf8153(e, tokenOf8144(mint), lane, if (allow) null else reason.orEmpty().ifBlank { "FDG_REFUSED" }, atMs)
         if (e.fdgVerdict.isNotBlank()) return
         e.fdgLane = lane
         e.fdgVerdict = if (allow) "ALLOW" else "REFUSED:${reason.orEmpty().take(60)}"
+    }
+
+    /** V5.0.8153 — LiveEdgeGate7877.observeTail7996: the live edge gate's verdict for [ts] (null [gate] = admitted). */
+    fun noteBinding8153(ts: com.lifecyclebot.data.TokenState, lane: String, gate: String?, atMs: Long) {
+        val e = earlyFor8144(ts.mint, atMs) ?: return
+        noteBindingOf8153(e, ts, lane, gate, atMs)
+    }
+
+    private fun noteBindingOf8153(e: Early8144, ts: com.lifecyclebot.data.TokenState?, lane: String, gate: String?, atMs: Long) {
+        if (gate.isNullOrBlank()) { e.binding = ""; e.bindingEvidence = ""; return }
+        e.binding = gate.take(90)
+        e.bindingEvidence = if (ts == null) "lane=${lane.ifBlank { "-" }}" else evidenceLine8153(
+            lane, ts.lastLiquidityUsd, StrategyIdentity8153.basisFor8153(ts.mint, CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }, atMs),
+            (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedTier8153(ts, lane, atMs)?.name } catch (_: Throwable) { null }).orEmpty(),
+            NetEdge8030.moveBasis8153(ts.mint),
+        ).take(240)
+    }
+
+    /** V5.0.8153 — CandidateAdmission8136: the strategy identity it decided for [mint] and the evidence it rests on. */
+    fun noteIdentity8153(mint: String, setup: String?, basis: String) {
+        val e = earlyFor8144(mint, System.currentTimeMillis()) ?: return
+        e.identity = "${setup ?: "-"}(${basis.take(60)})"
     }
 
     /** AdmissionHandoff8144: the sniper hand-off's latest state. */
@@ -306,6 +367,7 @@ object AdmissionRunnerTrace8144 {
             refusedBy = refusedBy, downstream = downstream.orEmpty(), markPx = startPx,
             windowAtMs = e?.windowAtMs ?: 0L, windowCostPct = e?.windowCostPct ?: Double.NaN,
             windowCostMeasured = e?.windowCostMeasured ?: false, route = e?.route.orEmpty(), held = held,
+            binding = e?.binding.orEmpty(), bindingEvidence = e?.bindingEvidence.orEmpty(), identity = e?.identity.orEmpty(),
         )
         if (traces.size >= MAX_TRACES_8144) traces.entries.minByOrNull { it.value.detectedAtMs }?.key?.let { traces.remove(it) }
         traces[mint] = t

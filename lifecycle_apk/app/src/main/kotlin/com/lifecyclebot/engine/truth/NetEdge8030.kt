@@ -120,26 +120,65 @@ object NetEdge8030 {
         // V5.0.8035 — owner: "why is it buying bonk ... wouldn't this be common sense everywhere". The lane's textbook
         // move (20% for quality / bluechip) let BLUECHIP buy BONK ($300M cap) whose hour moves 1-3%. Every lane now
         // expects no more than the coin itself is actually moving: its last hour's range (or 1h change).
-        val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
-        val expected = expectedMove8035(mandate, realized)
         val cost = costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
+        // V5.0.8153 — the move judged is the SELECTED strategy's own executable move when its record supports one, else the
+        // mandate capped by a dense range / the 1h change; a fresh launch with only a sparse range defers for evidence
+        // (bounded, coalesced per mint) instead of being refused as slow on two candles (StrategyMove8153).
+        val move = executableMove8153(ts, lane, mandate, cost)
+        if (StrategyMove8153.needsDefer8153(move, cost) &&
+            CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153))) {
+            historyDeferred8153.incrementAndGet()
+            // The evidence the deferral waits for is asked for now: the candle seed and a forced poll (1h change, depth).
+            try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, listOf("shape:HISTORY_SPARSE", "chg:UNOBSERVED", "liq:REFRESH")) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("NET_EDGE_MOVE_HISTORY_DEFER_8153_${lane.uppercase().take(16)}") } catch (_: Throwable) {}
+            return StrategyMove8153.DEFER_REASON_8153
+        }
+        val expected = move.expectedGrossPct
         if (entryClears8030(expected, cost)) return null
         entryRefused.incrementAndGet()
-        val slow = realized != null && realized < mandate
+        val slow = move.basis != "MANDATE" && move.basis != "STRATEGY" && expected < mandate
         if (slow) slowRefused8035.incrementAndGet()
         try { PipelineHealthCollector.labelInc("NET_EDGE_ENTRY_REFUSED_8030_${lane.uppercase().take(16)}") } catch (_: Throwable) {}
         return if (slow) "NET_EDGE_COIN_TOO_SLOW_8035" else "NET_EDGE_BELOW_2X_COST_8030"
     }
 
     /**
-     * V5.0.8136 — CandidateAdmission8136: the same expected executable move [entryRefusal8030] judges (the lane mandate
-     * capped by what the coin is actually moving), or NaN when the lane has no mandate. No counters.
+     * V5.0.8136 — CandidateAdmission8136: the same expected executable move [entryRefusal8030] judges, or NaN when the lane
+     * has no mandate. V5.0.8153 — of [setup] (the strategy the admission selected), at [costPct]; NaN while a fresh launch's
+     * sparse history defers the move (the admission then defers on economics, never refuses on two candles).
      */
-    fun expectedGrossPct8136(ts: TokenState, lane: String): Double {
+    fun expectedGrossFor8153(ts: TokenState, lane: String, setup: String?, costPct: Double): Double {
         val mandate = try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { return Double.NaN }
-        val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
-        return expectedMove8035(mandate, realized)
+        val m = executableMove8153(ts, lane, mandate, costPct, setup)
+        return if (StrategyMove8153.needsDefer8153(m, costPct)) Double.NaN else m.expectedGrossPct
     }
+
+    /** V5.0.8153 — the expected executable move of [setup] (default: the strategy the coin trades as) for this entry. */
+    fun executableMove8153(ts: TokenState, lane: String, mandatePct: Double, costPct: Double, setup: String? = null): StrategyMove8153.Move8153 {
+        val nowMs = System.currentTimeMillis()
+        val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
+        val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
+        val spanMs = if (bars.size >= 2) bars.maxOf { it.ts } - bars.minOf { it.ts } else 0L
+        val h1 = kotlin.math.abs(ts.lastPriceChange1h).takeIf { it.isFinite() && it > 0.0 }
+        val rec = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedRecord8153(ts, lane, setup, nowMs) } catch (_: Throwable) { null }
+        val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null }
+        val m = StrategyMove8153.expected8153(
+            mandatePct = mandatePct, rangePct = range, rangeDense = StrategyMove8153.dense8153(bars.size, spanMs), h1Pct = h1,
+            strategyN = rec?.get(0)?.toInt() ?: 0, strategyMeanPct = rec?.get(1) ?: Double.NaN, strategySePct = rec?.get(2) ?: Double.NaN,
+            costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
+        )
+        if (ts.mint.isNotBlank()) {
+            if (moves8153.size > 4_000) moves8153.clear()
+            moves8153[ts.mint] = "${m.basis}:${"%.1f".format(m.expectedGrossPct)}/bars${bars.size}"
+        }
+        return m
+    }
+
+    private val moves8153 = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val historyDeferred8153 = AtomicLong(0)
+
+    /** V5.0.8153 — AdmissionRunnerTrace8144: the basis of the last expected move judged for [mint] ("" = none). */
+    fun moveBasis8153(mint: String): String = moves8153[mint].orEmpty()
 
     /** V5.0.8136 — the round trip [entryRefusal8030] charges this entry: the default ticket against the observed depth. */
     fun entryCostPct8136(ts: TokenState, lane: String): Double = costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
@@ -276,7 +315,7 @@ object NetEdge8030 {
     }
 
     fun statusLine(): String =
-        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} scalpTooFlat8054=${scalpRefused8054.get()} swingAlreadyRan8054=${overextendedRefused8054.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} giveBackReleased8048=${giveBackReleased.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
+        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} moveHistoryDeferred8153=${historyDeferred8153.get()} scalpTooFlat8054=${scalpRefused8054.get()} swingAlreadyRan8054=${overextendedRefused8054.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} giveBackReleased8048=${giveBackReleased.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
             "rule=entry move>=${EDGE_MULT.toInt()}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)" +
             " · cost8151 " + com.lifecyclebot.engine.CostMeter8151.statusLine8151(DEFAULT_TICKET_SOL)
 
