@@ -265,9 +265,16 @@ object TacticSwitcher {
         return Triple(n, w, if (n > 0) bps / 100.0 / n else 0.0)
     }
 
-    /** Pure (V5.0.8094): a tactic proven losing on its realised closes — 3+ closes, mean < 0, P(loss rate > 50%) >= 0.85. */
+    /**
+     * Pure (V5.0.8094): a tactic proven losing on its realised closes — mean < 0, P(loss rate > 50%) >= 0.85.
+     * V5.0.8164 — on [TACTIC_LOSING_MIN_N_8164] closes, the same bar CandidateAdmission8136 sets for any losing verdict
+     * (LOSING_MIN_N_8136): three closes refused MOONSHOT 896 times and CASHGEN 267 times on a fresh run while the
+     * positive side needs 30 labels. A lane trades its cheat-sheet base until its own record says otherwise.
+     */
     fun tacticLosing8094(n: Int, wins: Int, meanPct: Double): Boolean =
-        n >= 3 && meanPct < 0.0 && posteriorLossProbAbove(n - wins, wins, 0.5) >= 0.85
+        n >= TACTIC_LOSING_MIN_N_8164 && meanPct < 0.0 && posteriorLossProbAbove(n - wins, wins, 0.5) >= 0.85
+
+    private const val TACTIC_LOSING_MIN_N_8164 = 12
 
     /**
      * V5.0.8094 — the tactic this token would be stamped and traded as (tacticForToken8050) when that tactic's own

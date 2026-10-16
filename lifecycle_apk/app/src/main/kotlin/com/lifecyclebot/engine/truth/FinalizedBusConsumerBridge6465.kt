@@ -105,6 +105,17 @@ object FinalizedBusConsumerBridge6465 {
             exactEventPendingLogged6699.remove(pendingKey6699)
         }
 
+        // V5.0.8164 — a close settled before the last RESET ALL LEARNING is history, not education for this run.
+        if (consumer !in NON_LEARNING_CONSUMERS && LearningEpoch8164.preEpoch8164(env.atMs)) {
+            try {
+                CanonicalFinalizedTradeBus6464.exclude(consumer, env.tradeId, "PRE_LEARNING_RESET_EPOCH_8164")
+                excluded.incrementAndGet()
+                releaseExcludedBinding7809(consumer, env)
+                PipelineHealthCollector.labelInc("FINALIZED_PRE_RESET_EPOCH_EXCLUDED_8164")
+            } catch (_: Throwable) {}
+            return false
+        }
+
         if (consumer !in NON_LEARNING_CONSUMERS &&
             LearningQuarantineGate6470.shouldDropForLearning(positionId = env.positionId, mint = env.mint)
         ) {

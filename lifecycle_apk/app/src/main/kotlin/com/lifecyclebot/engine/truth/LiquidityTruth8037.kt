@@ -56,6 +56,11 @@ object LiquidityTruth8037 {
         }
         val obs = try { com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 }
         fill8037(ts.lastLiquidityUsd, obs)?.let { ts.lastLiquidityUsd = it; hydrated.incrementAndGet() }
+        // V5.0.8164 — an ACTIVE pump.fun curve with a priced cap but no reserve frame inside the curve TTL: its real SOL
+        // follows from the cap by the curve's own invariant ([curveRealSolFromCap8048]), so it is derived, not invented.
+        // 5.0.8162 fresh run: SHITCOIN NATIVE_LANE_LIQ_UNHYDRATED_DEFER=1,633 and EXPRESS 1,606 on curve coins whose
+        // cap every scorer already used, and forward labels on the same coins costed at the 20% unknown-depth impact.
+        if (!(ts.lastLiquidityUsd > 0.0)) curveDepthFromCap8164(ts)?.let { ts.lastLiquidityUsd = it; curveCapDerived8164.incrementAndGet() }
         val v = ts.lastLiquidityUsd
         if (!(v > 0.0)) {
             stillUnknown.incrementAndGet()
@@ -71,9 +76,35 @@ object LiquidityTruth8037 {
      * 30 + r virtual SOL against 30 x 1.073B / (30 + r) virtual tokens over a 1B supply, so cap = (30 + r)^2 / 32.19.
      * Replaces the intake guesses (cap x 0.85, virtual reserves x a hard-coded $170) that fed every gate a fake depth.
      */
+    /** V5.0.8164 — USD depth of an active (not graduated) pump.fun curve from its trusted cap, or null. */
+    private fun curveDepthFromCap8164(ts: TokenState): Double? {
+        val mint = ts.mint
+        if (mint.isBlank()) return null
+        if (!(try { com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) } catch (_: Throwable) { false })) return null
+        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val capUsd = try { TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { Double.NaN }
+        return curveDepthUsd8164(capUsd, solUsd)
+    }
+
+    /**
+     * Pure (V5.0.8164): the curve's real SOL in USD from a cap in USD. Null when the price or cap is unknown, or the cap
+     * is past what an active curve can carry ([MAX_ACTIVE_CURVE_CAP_SOL_8164]: the curve completes near 85 real SOL).
+     */
+    fun curveDepthUsd8164(capUsd: Double, solUsd: Double): Double? {
+        if (!(capUsd.isFinite() && capUsd > 0.0 && solUsd.isFinite() && solUsd > 0.0)) return null
+        val capSol = capUsd / solUsd
+        if (capSol > MAX_ACTIVE_CURVE_CAP_SOL_8164) return null
+        val real = curveRealSolFromCap8048(capSol)
+        return if (real > 0.0) real * solUsd else null
+    }
+
+    private const val MAX_ACTIVE_CURVE_CAP_SOL_8164 = 411.0   // (30 + 85)^2 / 32.19: the curve completes at ~85 real SOL
+    private val curveCapDerived8164 = AtomicLong(0)
+
     fun curveRealSolFromCap8048(capSol: Double): Double =
         if (capSol.isFinite() && capSol > 0.0) (kotlin.math.sqrt(capSol * 30.0 * 1.073) - 30.0).coerceAtLeast(0.0) else 0.0
 
     fun statusLine(): String =
-        "curveReal=${curveRealApplied8046.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} rule=chain vaults first (§8038), then tick liquidity 0 -> observed (token map, curve reserves); never lowered, never invented"
+        "curveReal=${curveRealApplied8046.get()} curveCap8164=${curveCapDerived8164.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} rule=chain vaults first (§8038), then tick liquidity 0 -> observed (token map, curve reserves); never lowered, never invented"
 }

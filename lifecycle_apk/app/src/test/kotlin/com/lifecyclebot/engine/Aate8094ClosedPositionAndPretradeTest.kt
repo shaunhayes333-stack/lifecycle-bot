@@ -312,8 +312,9 @@ class Aate8094ClosedPositionAndPretradeTest {
 
     @Test fun aTacticWithALosingRealisedRecordIsNotTradedUnproven() {
         val t = com.lifecyclebot.engine.learning.TacticSwitcher
-        assertTrue(t.tacticLosing8094(3, 0, -15.6))      // SHITCOIN MOMENTUM 0W/3L
-        assertFalse(t.tacticLosing8094(2, 0, -15.6))     // too few closes
+        assertTrue(t.tacticLosing8094(12, 0, -15.6))     // 0W/12L
+        assertFalse(t.tacticLosing8094(3, 0, -15.6))     // V5.0.8164 — 0W/3L is too few closes to veto a lane's base
+        assertFalse(t.tacticLosing8094(11, 0, -15.6))    // too few closes
         assertFalse(t.tacticLosing8094(3, 1, -2.0))      // 1 of 3 won: not proven losing
         assertFalse(t.tacticLosing8094(5, 0, 1.0))       // positive mean
         assertEquals(0, t.tacticRecord8094("NO_SUCH_LANE_8094", com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM).first)

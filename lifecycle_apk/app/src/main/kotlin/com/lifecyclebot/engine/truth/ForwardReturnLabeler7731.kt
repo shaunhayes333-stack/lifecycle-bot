@@ -655,7 +655,9 @@ object ForwardReturnLabeler7731 {
             return
         }
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        val liq = if (ts.lastLiquidityUsd.isFinite()) ts.lastLiquidityUsd else 0.0
+        // V5.0.8164 — the hydrated depth (curve / chain / map), not the raw tick field: an unread tick on a curve coin
+        // charged every label the 20% unknown-depth impact, and those labels refused whole stages as PROVEN_LOSING.
+        val liq = (try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }).let { if (it.isFinite()) it else 0.0 }
         // V5.0.7962 — the lane's measured live round trip once it has 8+ trades (CostLedger7962; excludes the chase).
         // V5.0.7961 — what the lane's fills cost above the decision price (EntryChase7961).
         val chase8094 = (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })

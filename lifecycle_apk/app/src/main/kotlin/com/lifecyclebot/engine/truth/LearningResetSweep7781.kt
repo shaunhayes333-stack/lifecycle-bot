@@ -101,6 +101,7 @@ object LearningResetSweep7781 {
                 catch (_: Throwable) { System.currentTimeMillis() }
             JournalCohort6389.beginNewCohort(generation)
         }
+        z("LEARNING_EPOCH_8164") { LearningEpoch8164.mark8164(app) }  // V5.0.8164 — journal replays stop at this line
         z("LIVE_PAUSE") { com.lifecyclebot.engine.LivePauseButton.reset() }
         z("LANE_TIMEOUT") { com.lifecyclebot.engine.LaneTimeoutGate.reset() }
         z("SCANNER_BRIDGE") { com.lifecyclebot.engine.ScannerLaneBridge.reset() }
@@ -121,8 +122,11 @@ object LearningResetSweep7781 {
     /** Call first in Application.onCreate, before any learner loads. */
     fun applyPendingAtBoot(ctx: Context) {
         val app = ctx.applicationContext
+        // V5.0.8164 — every boot: learners must know the reset line before the journal reconciler replays closes.
+        try { LearningEpoch8164.load8164(app) } catch (_: Throwable) {}
         val marker = try { app.getSharedPreferences(MARKER_PREFS, Context.MODE_PRIVATE) } catch (_: Throwable) { return }
         if (!marker.getBoolean(KEY_PENDING, false)) return
+        if (LearningEpoch8164.epochMs8164() <= 0L) try { LearningEpoch8164.mark8164(app) } catch (_: Throwable) {}
         wipe(app)
         // V5.0.8144 — confirmed transaction evidence (journal, fills, signatures, lineage) is never deleted by a reset.
         for (db in LEARNING_DBS_7975) if (ReconcileEvidenceStores8144.resettable8144(db)) try { app.deleteDatabase(db) } catch (_: Throwable) {}
