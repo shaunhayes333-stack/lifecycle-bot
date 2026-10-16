@@ -65,6 +65,20 @@ class Aate8168ExitProfitTest {
         assertTrue(source("engine/DataOrchestrator.kt").contains("repairShape8168 = true"))
     }
 
+    @Test fun aResidentClaimCannotRemoveOtherNativeReaders() {
+        for (cap in listOf(5000.0, 100_000.0, 2_000_000.0, Double.NaN)) {
+            val baseline = SpecialistBrainBridge7542.nativeScope8168(cap, emptySet())
+            val scoped = SpecialistBrainBridge7542.nativeScope8168(cap, setOf("CYCLIC", "UNKNOWN_LANE"))
+            assertTrue(scoped.containsAll(baseline))
+            assertTrue("CYCLIC" in scoped)
+            assertFalse("UNKNOWN_LANE" in scoped)
+        }
+        val all = com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.LANES
+        assertEquals(all, SpecialistBrainBridge7542.nativeScope8168(100_000.0, all))
+        val hunters = com.lifecyclebot.engine.market.LaneHunter7297.profiles.map { it.lane }.toSet()
+        assertEquals(all, hunters)
+    }
+
     private fun source(path: String): String = listOf("src/main/kotlin/com/lifecyclebot", "app/src/main/kotlin/com/lifecyclebot",
         "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot").map { File(it, path) }.first { it.exists() }.readText()
 

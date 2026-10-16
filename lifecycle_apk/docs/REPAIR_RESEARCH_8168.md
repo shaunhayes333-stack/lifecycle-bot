@@ -22,7 +22,7 @@ Old missing-signature reconciliation exceptions, missing historical cost legs, a
 
 ## Validation
 
-Seven regression tests cover exact-slice loss rejection, later quote deterioration, milestone/risk classification, and the previously omitted runtime call sites. Required CI includes Aate8168. Run release compile, required/full regression baseline, ART install/upgrade and runtime smoke before release acceptance.
+Eight regression tests cover exact-slice loss rejection, later quote deterioration, milestone/risk classification, and the previously omitted runtime call sites. Required CI includes Aate8168. Run release compile, required/full regression baseline, ART install/upgrade and runtime smoke before release acceptance.
 
 ## Export expansion requested during review
 
@@ -39,3 +39,7 @@ All twelve meme lane profiles exist in LaneHunter7297. ResidentHunterWorker hand
 Confirmed shape repair defect: the missing-input callback re-seeded candles, but both primary provider writes required history.size < 10. A full stale or invalid history could never accept a valid repair. Missing-shape requests now explicitly enter repair mode, recheck the current history under its lock, and replace only an unobserved shape with ordered, non-synthetic, positive, fresh provider candles. A concurrently refreshed valid history is preserved. Failed refresh leaves evidence missing; repair never promotes 4H candles into the 1m shape. Existing provider budgets remain. Regression covers stale full history, concurrent fresh history, stale fetched bars, reversed timestamps, synthetic bars and insufficient history.
 
 Export now also includes latest per-lane setup classification with full mint, timestamp, exact missing-field states and classifier reason, plus targeted hydration and hunter-delivery counters. Missing refresher registration and thrown callbacks are explicitly counted. This does not establish that every missing-input cause is repaired, nor change Cortex grading authority.
+
+## Native-reader scope continuity
+
+A first resident claim previously replaced the entire bounded bootstrap native-reader scope. Resident claims now augment that existing scope, and resident membership participates in the native cache fingerprint. Thus a new claim cannot remove previously eligible native readers or remain invisible behind an unchanged cached snapshot. Twelve valid resident lanes can all produce their own native opinions. The primary-plus-one-rescue execution election, enabled-trader authority, safety and FDG are unchanged. Tests assert monotonic scope, unknown-lane exclusion, and all twelve hunter/native-book lane identities. This does not claim all cross-asset traders are enabled or that every candidate is suitable for every lane.

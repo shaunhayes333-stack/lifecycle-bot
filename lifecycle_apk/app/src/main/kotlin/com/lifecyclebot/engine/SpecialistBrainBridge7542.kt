@@ -127,6 +127,7 @@ object SpecialistBrainBridge7542 {
     // 2.5-second stale ALLOW/VETO to survive a fast lifecycle change.
     private fun fp(ts:TokenState,paper:Boolean)=listOf(
         ts.mint,paper,ts.history.size,
+        com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint).hashCode(),
         if(ts.lastPrice>0)(kotlin.math.ln(ts.lastPrice)*10000).toLong()else 0L,
         ts.lastMcap.toLong(),ts.lastLiquidityUsd.toLong(),
         ts.lastBuyPressurePct.toInt(),ts.lastSellPressurePct.toInt(),ts.lastPriceChange5m.toInt(),
@@ -147,6 +148,18 @@ object SpecialistBrainBridge7542 {
             } ?: 0
         } catch (_: Throwable) { 0 }
     ).hashCode()
+
+    /** Discovery claims add independent native readers; one resident must not suppress the bootstrap readers. */
+    internal fun nativeScope8168(mcap: Double, residents: Set<String>): Set<String> {
+        val bootstrap = when {
+            mcap.isFinite() && mcap >= 1_000_000.0 ->
+                setOf("BLUECHIP", "QUALITY", "TREASURY", "CASHGEN", "DIP_HUNTER", "CORE")
+            mcap.isFinite() && mcap >= 75_000.0 ->
+                setOf("QUALITY", "DIP_HUNTER", "MOONSHOT", "PROJECT_SNIPER", "SHITCOIN", "CORE")
+            else -> setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "CORE")
+        }
+        return bootstrap + residents.intersect(com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.LANES)
+    }
 
     fun evaluate(ts:TokenState):Snapshot{
         val paper=try{RuntimeModeAuthority.isPaper()}catch(_:Throwable){try{BotRuntimeController.snapshot().paperMode}catch(_:Throwable){true}};ensureInitialized(paper)
@@ -201,19 +214,11 @@ object SpecialistBrainBridge7542 {
         val bounce=if(prices.size>=4&&price>0){val tail=prices.takeLast(8);val low=tail.minOrNull()?:price;val idx=tail.indexOf(low);low>0&&idx>=0&&idx<tail.lastIndex-1&&price>=low*1.02&&bp>=50&&volVs>=0.5}else false
         val cls=try{ModeRouter.classify(ts)}catch(_:Throwable){null};val launch=try{com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)}catch(_:Throwable){null};val runner=try{com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.isRunnerShaped(ts,cls?.tradeType?:ModeRouter.TradeType.UNKNOWN)}catch(_:Throwable){false}
 
-        // V5.0.7828 — native specialist work follows resident ownership, not global fanout.
+        // 8168 — resident claims augment bounded native discovery; execution election remains separate.
         val residentScope7828 = try {
             com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint)
         } catch (_: Throwable) { emptySet() }
-        val nativeScope7828: Set<String> = when {
-            residentScope7828.isNotEmpty() -> residentScope7828 + "CORE"
-            ts.lastMcap.isFinite() && ts.lastMcap >= 1_000_000.0 ->
-                setOf("BLUECHIP", "QUALITY", "TREASURY", "CASHGEN", "DIP_HUNTER", "CORE")
-            ts.lastMcap.isFinite() && ts.lastMcap >= 75_000.0 ->
-                setOf("QUALITY", "DIP_HUNTER", "MOONSHOT", "PROJECT_SNIPER", "SHITCOIN", "CORE")
-            else ->
-                setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "CORE")
-        }
+        val nativeScope7828 = nativeScope8168(ts.lastMcap, residentScope7828)
         fun owns7828(lane: String): Boolean = lane in nativeScope7828
         try {
             PipelineHealthCollector.labelInc(
