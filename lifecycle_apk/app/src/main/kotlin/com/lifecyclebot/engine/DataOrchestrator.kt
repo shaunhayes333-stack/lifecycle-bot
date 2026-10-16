@@ -309,6 +309,32 @@ class DataOrchestrator(
         return emptyList()
     }
 
+    /**
+     * V5.0.8169 — the setup shape repair's Codex rung. 5.0.8168: the repair ended unresolved 295 times (GeckoTerminal
+     * cooling, Birdeye out of budget) while Codex answered 63 of 63 chart calls. Codex one-minute candles replace only an
+     * unobserved shape and only when they are themselves a valid, fresh, ordered shape (SetupHistoryRepair8168). Each
+     * mint asks at most once per [SetupFeatureResolver8169.CODEX_REPAIR_GAP_MS_8169]; a resting Codex is never waited on.
+     */
+    private fun repairShapeFromCodex8169(ts: TokenState): Boolean {
+        val r = com.lifecyclebot.engine.truth.SetupFeatureResolver8169
+        if (!r.claimCodexRepair8169(ts.mint)) return false
+        val bars = try { com.lifecyclebot.engine.chart.ChartSources7955.codexCandles8169(ts.mint) } catch (_: Throwable) { null }
+        if (bars == null || bars.size < 3) { r.noteShapeRepair8169("codex", "none"); return false }
+        val installed = synchronized(ts.history) {
+            if (!SetupHistoryRepair8168.canReplace(ts.history.toList(), bars, System.currentTimeMillis())) false
+            else {
+                ts.history.clear()
+                bars.forEach { ts.history.addLast(it) }
+                while (ts.history.size > 300) ts.history.removeFirst()
+                ts.candleTimeframeMinutes = 1
+                true
+            }
+        }
+        r.noteShapeRepair8169("codex", if (installed) "ok" else "rejected")
+        if (installed) try { PipelineHealthCollector.labelInc("SETUP_SHAPE_REPAIRED_CODEX_8169") } catch (_: Throwable) {}
+        return installed
+    }
+
     private suspend fun seedCandleHistory(mint: String, symbol: String, repairShape8168: Boolean = false) {
         val ts = status.tokens[mint] ?: return
         var seeded = 0
@@ -370,6 +396,8 @@ class DataOrchestrator(
                 }
             }
             if (repairShape8168 && keylessSeeded6916 > 0) return
+            // V5.0.8169 — a cooling or empty keyless feed hands the shape repair to Codex before the budget-gated backup.
+            if (repairShape8168 && repairShapeFromCodex8169(ts)) return
             val k5m = keylessFetch7809(mint, "5m", 60, poolHint6916, attempts = if (k1mOk7809 && !repairShape8168) 1 else 0)
             if (k5m.size >= 2) {
                 synchronized(ts.history5m) {

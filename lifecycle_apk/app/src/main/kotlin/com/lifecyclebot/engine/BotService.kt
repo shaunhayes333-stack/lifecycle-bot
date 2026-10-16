@@ -26507,10 +26507,7 @@ if (hotExitHandledSweep) {
                 ts.momentum = if (refPrice > 0) (pair.candle.priceUsd - refPrice) / refPrice * 100.0 else null
             }
             
-            synchronized(ts.history) {
-                ts.history.addLast(pair.candle)
-                if (ts.history.size > 300) ts.history.removeFirst()
-            }
+            synchronized(ts.history) { com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.appendInOrder8169(ts.history, pair.candle) }  // V5.0.8169
             // Update peak holder count and growth rate
             val latestHolders = pair.candle.holderCount
             if (latestHolders > ts.peakHolderCount) ts.peakHolderCount = latestHolders

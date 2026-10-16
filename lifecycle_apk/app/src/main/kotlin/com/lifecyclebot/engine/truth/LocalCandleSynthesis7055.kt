@@ -229,7 +229,13 @@ object LocalCandleSynthesis7055 {
             // something to leave to luck once the call rate goes up by four
             // orders of magnitude.
             synchronized(ts) {
-                ts.history.addLast(candle)
+                // V5.0.8169 — a bucket is emitted when the NEXT minute opens, stamped with its own start, so appending it
+                // put it behind the poll snapshots BotService had appended meanwhile (stamped "now"). The history ran
+                // backwards at that point and LanePlaybook7907.shapeObs8084 read shape:INVALID (5.0.8168: the dominant
+                // shape reason) on a coin with a perfectly good chart. The candle now goes in at its minute.
+                val at8169 = orderedIndex8169(ts.history, candle.ts)
+                if (at8169 >= ts.history.size) ts.history.addLast(candle)
+                else { ts.history.add(at8169, candle); insertedInOrder8169.incrementAndGet() }
                 while (ts.history.size > MAX_HISTORY) ts.history.removeFirst()
             }
             val n = candlesEmitted.incrementAndGet()
@@ -246,8 +252,42 @@ object LocalCandleSynthesis7055 {
         } catch (_: Throwable) {}
     }
 
+    /** V5.0.8169 — local candles placed at their own minute instead of behind newer history points. */
+    private val insertedInOrder8169 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    private val repeatedSnapshots8169 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Pure (V5.0.8169): where a candle stamped [atMs] belongs in the oldest-first [history] — after every point not newer. */
+    fun orderedIndex8169(history: List<Candle>, atMs: Long): Int {
+        var i = history.size
+        while (i > 0 && history[i - 1].ts > atMs) i--
+        return i
+    }
+
+    /**
+     * V5.0.8169 — BotService's poll snapshot (pair.candle) into [history], oldest first; the caller holds the history
+     * lock. getBestPair serves the SAME cached PairInfo for up to 45 s (135 s when limited) while the cycle runs every
+     * ~15 s, so the one observation was appended two or three times (equal stamps) and, behind a newer trade candle,
+     * out of order: both read shape:INVALID. The same instance already in the history is not appended again (it is
+     * not a new observation); an older one goes in at its own time. Returns true when the history changed.
+     */
+    fun appendInOrder8169(history: ArrayDeque<Candle>, candle: Candle, max: Int = 300): Boolean {
+        val last = history.lastOrNull()
+        if (last == null || candle.ts > last.ts) {
+            history.addLast(candle)
+        } else if (history.any { it === candle }) {
+            repeatedSnapshots8169.incrementAndGet()
+            return false
+        } else {
+            history.add(orderedIndex8169(history, candle.ts), candle)
+            insertedInOrder8169.incrementAndGet()
+        }
+        while (history.size > max) history.removeFirst()
+        return true
+    }
+
     fun statusLine7055(): String =
-        "ticksBinned=${ticksBinned.get()} candles=${candlesEmitted.get()} " +
+        "ticksBinned=${ticksBinned.get()} candles=${candlesEmitted.get()} insertedInOrder8169=${insertedInOrder8169.get()} repeatedSnapshots8169=${repeatedSnapshots8169.get()} " +
             "openBuckets=${buckets.size} deferredToFetched=${skippedHasFetched.get()} " +
             "tradePrints7819=${tradePrints7819.get()} tradeCandles7819=${tradeCandles7819.get()} " +
             "| sources7819 local=${candlesEmitted.get()} heliusSwaps[${HeliusSwapCandles7819.statusLine7819()}] ${MarkBars7948.statusLine7948()} " +
@@ -255,6 +295,6 @@ object LocalCandleSynthesis7055 {
 
     internal fun resetForTest() {
         buckets.clear(); candlesEmitted.set(0L); ticksBinned.set(0L); skippedHasFetched.set(0L)
-        tradePrints7819.set(0L); tradeCandles7819.set(0L)
+        tradePrints7819.set(0L); tradeCandles7819.set(0L); insertedInOrder8169.set(0L); repeatedSnapshots8169.set(0L)
     }
 }

@@ -859,6 +859,29 @@ object ChartSources7955 {
         return parse(body).also { p.bars.addAndGet(it.size.toLong()) }
     }
 
+    /**
+     * V5.0.8169 — Codex one-minute candles for [mint] (USD prices, traded minutes only) as app candles, for the setup
+     * shape repair when the keyless feed is cooling / empty and Birdeye is out of budget (5.0.8168: codex 63/63 ok while
+     * the shape repair ended unresolved 295 times). Null when Codex has no key, is resting, or its slot is not free
+     * within 3 s (never queued behind a resting provider). Volume is left 0 (not a USD figure the history carries).
+     */
+    fun codexCandles8169(mint: String, minutes: Int = 90, nowMs: Long = System.currentTimeMillis()): List<com.lifecyclebot.data.Candle>? {
+        if (mint.isBlank()) return null
+        refreshKeys()
+        val toSec = nowMs / 1000L
+        val bars = keyedBars(CODEX, "https://graph.codex.io/graphql", codexHeaders(), codexBody(mint, toSec - minutes * 60L, toSec)) {
+            ChartParsers7955.codex7955(JSONObject(it))
+        } ?: return null
+        return bars.filter { it.c.isFinite() && it.c > 0.0 && it.t > 0L }.sortedBy { it.t }.map { b ->
+            com.lifecyclebot.data.Candle(
+                ts = b.t, priceUsd = b.c, marketCap = 0.0, volumeH1 = 0.0, volume24h = 0.0,
+                highUsd = if (b.h.isFinite() && b.h > 0.0) b.h else b.c,
+                lowUsd = if (b.l.isFinite() && b.l > 0.0) b.l else b.c,
+                openUsd = if (b.o.isFinite() && b.o > 0.0) b.o else b.c,
+            )
+        }
+    }
+
     private fun moralisBars(mint: String, fromSec: Long, toSec: Long): List<Bar7950>? {
         val p = byId[MORALIS] ?: return null
         if (!hasKey(p) || !claimWithin(p, 3_000L)) return null
@@ -892,6 +915,9 @@ object ChartSources7955 {
         out += "  " + (try { com.lifecyclebot.network.ProofDataLanes8144.statusLine8144() } catch (_: Throwable) { "lanes8144 -" })
         out += "  " + (try { com.lifecyclebot.engine.truth.ProofDataSwapTape8144.statusLine8144() } catch (_: Throwable) { "heliusTape8144 -" })
         out += "  " + (try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.statusLine8144(nowMs) } catch (_: Throwable) { "features8144 -" })
+        // V5.0.8169 — which source filled each setup input (or why none could), and which feeds reached the trade tape.
+        out += "  " + (try { com.lifecyclebot.engine.truth.SetupFeatureResolver8169.statusLine8169() } catch (_: Throwable) { "features8169 -" })
+        out += "  " + (try { com.lifecyclebot.engine.truth.TradeTape8100.statusLine8169(nowMs) } catch (_: Throwable) { "tape8169 -" })
         out += "  " + (try { com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.deferralLine8144() } catch (_: Throwable) { "deferrals8144 -" })
         return out
     }
