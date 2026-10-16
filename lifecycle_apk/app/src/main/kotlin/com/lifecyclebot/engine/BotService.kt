@@ -25725,11 +25725,19 @@ if (hotExitHandledSweep) {
         try {
             val cfg = ConfigStore.load(applicationContext)
             if (!status.tokens.containsKey(mint)) {
+                // V5.0.8165 — the tape's own executed price is the cap (pump supply 1e9) and the curve gives the depth: a
+                // promoted launch admitted with liq=0 and mcap=0 read as dust and was refused (INTAKE_LIQ_ZERO_REJECT).
+                val solUsd8165 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                val pxSol8165 = try { com.lifecyclebot.engine.market.LaunchTape7921.lastPriceSol8165(mint) } catch (_: Throwable) { 0.0 }
+                val capUsd8165 = if (solUsd8165 > 0.0 && pxSol8165 > 0.0) pxSol8165 * 1_000_000_000.0 * solUsd8165 else 0.0
+                val liqUsd8165 = com.lifecyclebot.engine.truth.LiquidityTruth8037.curveDepthUsd8164(capUsd8165, solUsd8165) ?: 0.0
                 admitProtectedMemeIntake(
                     mint = mint,
                     symbol = symbol.ifBlank { mint.take(6) },
                     name = name.ifBlank { symbol },
                     source = "LAUNCH_HEAT_7921",
+                    marketCapUsd = capUsd8165,
+                    liquidityUsd = liqUsd8165,
                     confidence = 45,
                     allSources = setOf("LAUNCH_HEAT_7921", "PUMP_PORTAL_WS"),
                     expectedRuntimeGeneration = streamGeneration,

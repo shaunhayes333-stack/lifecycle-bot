@@ -93,7 +93,7 @@ object LiquidityTruth8037 {
      */
     fun curveDepthUsd8164(capUsd: Double, solUsd: Double): Double? {
         if (!(capUsd.isFinite() && capUsd > 0.0 && solUsd.isFinite() && solUsd > 0.0)) return null
-        val capSol = capUsd / solUsd
+        val capSol = EconomicUnitInvariant7061.usdToSol(capUsd, solUsd)
         if (capSol > MAX_ACTIVE_CURVE_CAP_SOL_8164) return null
         val real = curveRealSolFromCap8048(capSol)
         return if (real > 0.0) real * solUsd else null

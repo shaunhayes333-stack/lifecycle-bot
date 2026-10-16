@@ -46,6 +46,9 @@ object LaunchTape7921 {
     private const val PROOF_N = 30
     private const val PROOF_PCT = 2.0
     private const val PERSIST_KEY = "LAUNCH_TAPE_7921"
+    // V5.0.8165 — the first-buyers tier: inside the sniper's own window (ProjectSniperAI.MAX_TOKEN_AGE_SECONDS = 180).
+    private const val EARLY_MIN_AGE_MS_8165 = 20_000L
+    private const val EARLY_MAX_AGE_MS_8165 = 180_000L
 
     /** Heat bins for the learned bar. */
     val HEAT_EDGES = doubleArrayOf(0.5, 1.0, 2.0, 4.0, 8.0)
@@ -70,6 +73,11 @@ object LaunchTape7921 {
         var peakPx = 0.0
         var promotedAtMs = 0L
         var checkpointed = false
+        // V5.0.8165 — first-buyers promotion: when, at what price, the peak since, graded once.
+        var earlyAtMs = 0L
+        var earlyPx = 0.0
+        var earlyPeakPx = 0.0
+        var earlyGraded = false
     }
 
     private class Checkpoint(val mint: String, val bin: Int, val priorPass: Boolean, val px: Double, val atMs: Long) {
@@ -81,6 +89,7 @@ object LaunchTape7921 {
     private val binBook = HashMap<Int, CortexLedger7885.Stat>()
     private val priorBook = CortexLedger7885.Stat()
     private val promotedBook = CortexLedger7885.Stat()
+    private val earlyBook = CortexLedger7885.Stat()   // V5.0.8165 — first-buyers promotions, graded at +15 min
     private val counters = ConcurrentHashMap<String, AtomicLong>()
     private val sinceGraded = AtomicLong(0)
     @Volatile private var loaded = false
@@ -125,7 +134,10 @@ object LaunchTape7921 {
     /** DataOrchestrator.onTradePrint7819: the executed price (SOL per token). */
     fun onPrice(mint: String, priceSol: Double) {
         if (!priceSol.isFinite() || priceSol <= 0.0) return
-        recs[mint]?.let { r -> synchronized(r) { if (r.firstPx <= 0.0) r.firstPx = priceSol; r.lastPx = priceSol; if (priceSol > r.peakPx) r.peakPx = priceSol } }
+        recs[mint]?.let { r -> synchronized(r) {
+            if (r.firstPx <= 0.0) r.firstPx = priceSol; r.lastPx = priceSol; if (priceSol > r.peakPx) r.peakPx = priceSol
+            if (r.earlyAtMs > 0L && priceSol > r.earlyPeakPx) r.earlyPeakPx = priceSol
+        } }
         checkpoints[mint]?.let { c -> if (priceSol > c.peakPx) c.peakPx = priceSol }
     }
 
@@ -140,6 +152,20 @@ object LaunchTape7921 {
     fun priorPass(f: Feat): Boolean =
         f.ageMin >= 1.0 && f.ageMin <= 20.0 && f.crowdBuyers >= 15 && f.crowdNetSol >= 3.0 && f.buySharePct >= 60.0 &&
             f.largestBuyerPct <= 30.0 && f.top3Pct <= 55.0 && f.fromPeakPct.isFinite() && f.fromPeakPct >= -35.0
+
+    /**
+     * Pure (V5.0.8165): the first-buyers bar — the cheat sheet's "buy before the pump": real early buying before the
+     * price has moved. 5.0.8162 live: 263 launches, 66 checkpointed, ONE promotion, because the only bar (15 crowd buyers,
+     * 3 SOL) is ignition — and the sniper, whose window is the first 180 s and which only engages PRE_IGNITION, saw one
+     * candidate all session. Age 20 s - 3 min, >= 3 distinct crowd buyers (not the creator), >= 0.3 SOL crowd net,
+     * buy share >= 60%, largest buyer <= 40%, top-3 <= 70%, no dev sell, price at most +60% over its first print and
+     * not more than 20% off its peak. Promotion only re-evaluates: every gate (sniper flow, safety, FDG) still decides.
+     */
+    fun earlyPass8165(f: Feat): Boolean =
+        f.ageMin >= EARLY_MIN_AGE_MS_8165 / 60_000.0 && f.ageMin <= EARLY_MAX_AGE_MS_8165 / 60_000.0 &&
+            f.crowdBuyers >= 3 && f.crowdNetSol >= 0.3 && f.buySharePct >= 60.0 &&
+            f.largestBuyerPct <= 40.0 && f.top3Pct <= 70.0 && !f.devSold &&
+            f.fromFirstPct.isFinite() && f.fromFirstPct <= 60.0 && f.fromPeakPct.isFinite() && f.fromPeakPct >= -20.0
 
     /** Pure: is a graded record proven positive / negative? */
     fun provenPositive(s: CortexLedger7885.Stat): Boolean =
@@ -172,6 +198,7 @@ object LaunchTape7921 {
     private fun binOf(heat: Double): Int = CortexLedger7885.binOf(HEAT_EDGES, heat)
 
     private fun maybePromote(mint: String, r: Rec, nowMs: Long) {
+        maybePromoteEarly8165(mint, r, nowMs)
         val age = nowMs - r.birthMs
         if (r.promotedAtMs > 0L || age < PROMOTE_MIN_AGE_MS || age > PROMOTE_MAX_AGE_MS) return
         val f = features(mint, nowMs) ?: return
@@ -196,6 +223,34 @@ object LaunchTape7921 {
         try { onPromote?.invoke(mint, r.symbol, r.name) } catch (_: Throwable) {}
     }
 
+    /** V5.0.8165 — the first-buyers tier, independent of the crowd-forming promotion (a coin can get both). */
+    private fun maybePromoteEarly8165(mint: String, r: Rec, nowMs: Long) {
+        val age = nowMs - r.birthMs
+        if (r.earlyAtMs > 0L || age < EARLY_MIN_AGE_MS_8165 || age > EARLY_MAX_AGE_MS_8165) return
+        val f = features(mint, nowMs) ?: return
+        if (!earlyPass8165(f)) return
+        ensureLoaded()
+        // Learned: the tier stops promoting once its own graded record is proven negative.
+        if (synchronized(this) { provenNegative(earlyBook) }) { inc("EARLY_SUSPENDED_PROVEN_NEGATIVE"); return }
+        val claimed = synchronized(r) {
+            if (r.earlyAtMs > 0L || r.lastPx <= 0.0) false else { r.earlyAtMs = nowMs; r.earlyPx = r.lastPx; r.earlyPeakPx = r.lastPx; true }
+        }
+        if (!claimed) return
+        inc("PROMOTED_EARLY_FIRST_BUYERS")
+        try {
+            PipelineHealthCollector.labelInc("LAUNCH_TAPE_8165_EARLY_PROMOTED")
+            ForensicLogger.lifecycle(
+                "LAUNCH_TAPE_8165_EARLY_PROMOTED",
+                "mint=${mint.take(10)} sym=${r.symbol} age=${(age / 1000L)}s crowd=${f.crowdBuyers} net=${"%.2f".format(f.crowdNetSol)}SOL " +
+                    "buyShare=${f.buySharePct.toInt()}% largest=${f.largestBuyerPct.toInt()}% top3=${f.top3Pct.toInt()}% fromFirst=${"%+.0f".format(f.fromFirstPct)}%",
+            )
+        } catch (_: Throwable) {}
+        try { onPromote?.invoke(mint, r.symbol, r.name) } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8165 — the tape's last executed price (SOL per token), or 0.0. */
+    fun lastPriceSol8165(mint: String): Double = recs[mint]?.let { r -> synchronized(r) { r.lastPx } } ?: 0.0
+
     /** Heat without the full feature build (no sort) — for the eviction scan. */
     private fun quickHeat(r: Rec, nowMs: Long): Double = synchronized(r) {
         val total = r.crowdBuySol
@@ -211,11 +266,11 @@ object LaunchTape7921 {
      */
     fun tapeInUse7948(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val r = recs[mint] ?: return false
-        return r.promotedAtMs > 0L || nowMs - r.birthMs <= PROMOTE_MAX_AGE_MS
+        return r.promotedAtMs > 0L || r.earlyAtMs > 0L || nowMs - r.birthMs <= PROMOTE_MAX_AGE_MS
     }
 
     /** Was this mint promoted (protect it from Helius eviction; voters read it)? */
-    fun promoted(mint: String): Boolean = (recs[mint]?.promotedAtMs ?: 0L) > 0L
+    fun promoted(mint: String): Boolean = recs[mint]?.let { it.promotedAtMs > 0L || it.earlyAtMs > 0L } ?: false
 
     /**
      * HeliusWebSocket eviction: the coldest launch past its grace period goes
@@ -232,6 +287,16 @@ object LaunchTape7921 {
     fun tick(nowMs: Long = System.currentTimeMillis()) {
         ensureLoaded()
         for ((mint, r) in recs.entries) {
+            // V5.0.8165 — grade a first-buyers promotion 15 min after it (runner = +100% from the promotion price).
+            if (r.earlyAtMs > 0L && !r.earlyGraded && nowMs - r.earlyAtMs >= GRADE_AFTER_MS) {
+                val (px0, last, peak) = synchronized(r) { r.earlyGraded = true; Triple(r.earlyPx, r.lastPx, r.earlyPeakPx) }
+                if (px0 > 0.0 && last > 0.0) {
+                    val ret = ((last / px0 - 1.0) * 100.0).coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+                    synchronized(this) { earlyBook.add(ret, peak / px0 >= 2.0) }
+                    inc("EARLY_GRADED")
+                    if (sinceGraded.incrementAndGet() >= 20) { sinceGraded.set(0); persist() }
+                }
+            }
             if (nowMs - r.birthMs > TTL_MS) { recs.remove(mint); continue }
             if (!r.checkpointed && nowMs - r.birthMs >= CHECKPOINT_AGE_MS && r.lastPx > 0.0 && r.buys >= 3) {
                 r.checkpointed = true
@@ -269,6 +334,7 @@ object LaunchTape7921 {
                 o.optJSONObject("bins")?.let { j -> for (k in j.keys()) k.toIntOrNull()?.let { b -> binBook[b] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } } }
                 o.optString("prior").takeIf { it.isNotBlank() }?.let { priorBook.decode(it) }
                 o.optString("promoted").takeIf { it.isNotBlank() }?.let { promotedBook.decode(it) }
+                o.optString("early8165").takeIf { it.isNotBlank() }?.let { earlyBook.decode(it) }
             } catch (_: Throwable) {}
         }
     }
@@ -278,7 +344,8 @@ object LaunchTape7921 {
             val json = synchronized(this) {
                 org.json.JSONObject()
                     .put("bins", org.json.JSONObject().also { j -> binBook.forEach { (k, v) -> j.put(k.toString(), v.encode()) } })
-                    .put("prior", priorBook.encode()).put("promoted", promotedBook.encode()).toString()
+                    .put("prior", priorBook.encode()).put("promoted", promotedBook.encode())
+                    .put("early8165", earlyBook.encode()).toString()
             }
             LearningPersistence.save(PERSIST_KEY, json)
         } catch (_: Throwable) {}
@@ -292,6 +359,7 @@ object LaunchTape7921 {
         return synchronized(this) {
             "launches=${recs.size} checkpoints=${checkpoints.size} actions=${counters.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
                 "priorBar=${fmt(priorBook)}${if (provenNegative(priorBook)) " SUSPENDED" else ""} promoted=${fmt(promotedBook)} " +
+                "early8165=${fmt(earlyBook)}${if (provenNegative(earlyBook)) " SUSPENDED" else ""} " +
                 "byHeat15m=[${(0..HEAT_EDGES.size).joinToString(" ") { b -> "h$b:${binBook[b]?.let { fmt(it) + if (provenPositive(it)) "*" else "" } ?: "-"}" }}]"
         }
     }

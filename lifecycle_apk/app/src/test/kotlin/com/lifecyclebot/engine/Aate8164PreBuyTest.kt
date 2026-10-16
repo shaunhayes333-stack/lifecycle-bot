@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.learning.TacticSwitcher
+import com.lifecyclebot.engine.market.LaunchTape7921
 import com.lifecyclebot.engine.truth.LearningEpoch8164
 import com.lifecyclebot.engine.truth.LiquidityTruth8037
 import org.junit.After
@@ -62,5 +63,37 @@ class Aate8164PreBuyTest {
         assertFalse(TacticSwitcher.tacticLosing8094(3, 0, -15.6))
         assertFalse(TacticSwitcher.tacticLosing8094(11, 1, -8.0))
         assertTrue(TacticSwitcher.tacticLosing8094(12, 1, -8.0))
+    }
+
+    // ── V5.0.8165: first buyers, before the pump ──
+
+    private fun feat(ageMin: Double = 1.0, crowd: Int = 4, net: Double = 0.8, share: Double = 80.0, largest: Double = 30.0,
+                     top3: Double = 60.0, dev: Boolean = false, fromFirst: Double = 20.0, fromPeak: Double = -5.0) =
+        LaunchTape7921.Feat(ageMin, crowd, net, crowd / ageMin, share, largest, top3, dev, fromFirst, fromPeak, 1.0)
+
+    @Test fun firstBuyersBeforeThePricePromotesInsideTheSniperWindow() {
+        assertTrue(LaunchTape7921.earlyPass8165(feat()))
+        // Inside the sniper's 180 s window only, and not before 20 s.
+        assertFalse(LaunchTape7921.earlyPass8165(feat(ageMin = 0.2)))
+        assertFalse(LaunchTape7921.earlyPass8165(feat(ageMin = 3.5)))
+        // A crowd, not one wallet: >= 3 distinct buyers, none dominant, buying ahead of selling.
+        assertFalse(LaunchTape7921.earlyPass8165(feat(crowd = 2)))
+        assertFalse(LaunchTape7921.earlyPass8165(feat(largest = 55.0)))
+        assertFalse(LaunchTape7921.earlyPass8165(feat(share = 55.0)))
+        assertFalse(LaunchTape7921.earlyPass8165(feat(net = 0.1)))
+        // Before the pump: already +60% over its first print is late; the dev selling is out.
+        assertFalse(LaunchTape7921.earlyPass8165(feat(fromFirst = 75.0)))
+        assertFalse(LaunchTape7921.earlyPass8165(feat(fromPeak = -30.0)))
+        assertFalse(LaunchTape7921.earlyPass8165(feat(dev = true)))
+        assertFalse(LaunchTape7921.earlyPass8165(feat(fromFirst = Double.NaN)))
+        // The crowd-forming bar it complements is ignition: the same coin fails it this early.
+        assertFalse(LaunchTape7921.priorPass(feat()))
+    }
+
+    @Test fun aPromotedLaunchIsAdmittedWithItsTapeCapAndCurveDepth() {
+        val bot = src("engine/BotService.kt")
+        assertTrue(bot.contains("LaunchTape7921.lastPriceSol8165(mint)"))
+        assertTrue(bot.contains("marketCapUsd = capUsd8165"))
+        assertTrue(bot.contains("liquidityUsd = liqUsd8165"))
     }
 }
