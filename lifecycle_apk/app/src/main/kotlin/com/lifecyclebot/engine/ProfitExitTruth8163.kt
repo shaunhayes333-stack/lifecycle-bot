@@ -15,7 +15,7 @@ object ProfitExitTruth8163 {
         val r = reason.uppercase()
         if (listOf("STOP_LOSS", "STRICT_SL", "CATASTROPH", "BACKSTOP", "RUG", "MANUAL", "EMERGENCY", "ORPHAN", "RECONCIL").any { r.contains(it) }) return false
         return RecoveredHoldGuard.isProfitTakingExit7931(reason) ||
-            listOf("HARVEST", "RUNNER_BANK", "RUNNER_LIVE_BANK", "STALE_RUNNER_FORCE", "CAPITAL_RECOVERY", "SPIKE_CAPTURE").any { r.contains(it) }
+            listOf("HARVEST", "RUNNER_BANK", "RUNNER_LIVE_BANK", "STALE_RUNNER_FORCE", "CAPITAL_RECOVERY", "SPIKE_CAPTURE", "RUNNER_MILESTONE", "TAIL_MILESTONE", "LIFECYCLE_PROFIT_TAKE").any { r.contains(it) }
     }
 
     fun sliceCost(remainingCostSol: Double, remainingRaw: BigInteger, sellRaw: BigInteger): Double? {
@@ -38,14 +38,14 @@ object ProfitExitTruth8163 {
         return fixedFeeSol.isFinite() && fixedFeeSol >= 0.0 && net >= costSol * 1.015 + fixedFeeSol
     }
 
-    fun preflight(ts: TokenState, reason: String, raw: Long, jupiter: JupiterApi): Boolean {
+    fun preflight(ts: TokenState, reason: String, raw: Long, jupiter: JupiterApi, releaseLocks: Boolean = true): Boolean {
         if (ts.position.isPaperPosition || !profitTaking(reason)) return true
         val cost = basis(ts, raw)
-        if (cost == null) return refused(ts, "MISSING_CONFIRMED_SLICE_BASIS")
+        if (cost == null) return refused(ts, "MISSING_CONFIRMED_SLICE_BASIS", releaseLocks)
         val slip = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
         val quote = try { jupiter.getQuote(inputMint = ts.mint, outputMint = JupiterApi.SOL_MINT, amountRaw = raw, slippageBps = slip) }
-            catch (_: Exception) { return refused(ts, "EXECUTABLE_QUOTE_UNAVAILABLE") }
-        return if (clears(cost, quote.outAmount, slip, CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "EXECUTABLE_SOL_BELOW_SLICE_COST")
+            catch (_: Exception) { return refused(ts, "EXECUTABLE_QUOTE_UNAVAILABLE", releaseLocks) }
+        return if (clears(cost, quote.outAmount, slip, CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "EXECUTABLE_SOL_BELOW_SLICE_COST", releaseLocks)
     }
 
     /** Recheck the actual route at every retry, so an earlier quote cannot authorize a later losing fill. */
@@ -55,9 +55,15 @@ object ProfitExitTruth8163 {
         return if (clears(basis(ts, quote.inAmount), quote.outAmount, slip, CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "REQUOTE_BELOW_SLICE_COST")
     }
 
-    private fun refused(ts: TokenState, why: String): Boolean {
+    fun acceptProceeds8168(ts: TokenState, reason: String, raw: Long, outLamports: Long, slip: Int): Boolean {
+        if (ts.position.isPaperPosition || !profitTaking(reason)) return true
+        return if (clears(basis(ts, raw), outLamports, slip, CostMeter8151.sellLegFixedSol8151())) true
+        else refused(ts, "ROUTE_PROCEEDS_BELOW_SLICE_COST", releaseLocks = false)
+    }
+
+    private fun refused(ts: TokenState, why: String, releaseLocks: Boolean = true): Boolean {
         // Both preflight and retry rejection occur before a new broadcast. Do not strand a close lease.
-        if (TradeVerifier.activeSellSig(ts.mint) == null) {
+        if (releaseLocks && TradeVerifier.activeSellSig(ts.mint) == null) {
             com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
             com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "PROFIT_QUOTE_REFUSED_8163")
             HostWalletTokenTracker.clearSellInFlight(ts.mint, "PROFIT_QUOTE_REFUSED_8163")

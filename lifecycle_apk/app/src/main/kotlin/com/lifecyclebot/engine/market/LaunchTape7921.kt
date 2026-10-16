@@ -130,7 +130,10 @@ object LaunchTape7921 {
                 com.lifecyclebot.engine.truth.AdmissionBirth8144.pumpCreateMs8144(mint)
                     ?: com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint)
             } catch (_: Throwable) { null }
-            recoverBirth8167(mint, birth, nowMs)
+            if (!recoverBirth8167(mint, birth, nowMs)) {
+                inc(if (birth == null) "RECOVERY_BIRTH_UNKNOWN_8168" else if (nowMs - birth !in 0L..TTL_MS)
+                    "RECOVERY_BIRTH_OUTSIDE_WINDOW_8168" else "RECOVERY_CAPACITY_8168")
+            } else inc("RECOVERY_BIRTH_ACCEPTED_8168")
         }
         val r = recs[mint] ?: return // no witnessed pump birth: not a launch
         if (nowMs - r.birthMs > TTL_MS || !sol.isFinite() || sol <= 0.0) return

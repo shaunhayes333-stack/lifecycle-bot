@@ -105,7 +105,7 @@ object BalanceProofPoller {
     private fun pollOne(entry: BalanceProofWaitState.Wait, w: SolanaWallet) {
         if (frozenHold8136(entry)) return
         val resolution = try {
-            SellAmountAuthority.resolve(entry.mint, w)
+            SellAmountAuthority.resolveForExit(entry.mint, w, entry.desiredExitReason)
         } catch (e: Throwable) {
             ErrorLogger.warn("BalanceProofPoller",
                 "resolve threw mint=${entry.mint.take(10)}: ${e.message}")
