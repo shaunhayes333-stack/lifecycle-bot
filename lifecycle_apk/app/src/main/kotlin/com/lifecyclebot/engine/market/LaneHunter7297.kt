@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.market
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.lifecyclebot.engine.BotService
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.TreasuryScannerFeed
 import com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450
