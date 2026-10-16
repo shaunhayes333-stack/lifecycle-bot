@@ -39,6 +39,20 @@ object TokenMetricStageRouter {
 
     data class LaneFit(val allowed: Boolean, val lane: String, val stage: Stage, val reason: String)
 
+    /** Freshest observed unit price, never a market-cap surrogate. Stale chart
+     * history remains useful for support/peak but cannot become a current mark.
+     */
+    fun freshestStagePrice8171(historyPrice: Double, historyAtMs: Long, tickPrice: Double, tickAtMs: Long): Double {
+        val histOk = historyPrice.isFinite() && historyPrice > 0.0
+        val tickOk = tickPrice.isFinite() && tickPrice > 0.0
+        return when {
+            tickOk && (tickAtMs > historyAtMs || !histOk) -> tickPrice
+            histOk -> historyPrice
+            tickOk -> tickPrice
+            else -> 0.0
+        }
+    }
+
     fun snapshot(ts: TokenState): Snapshot = try {
         val hist = ts.history.toList().filter { it.priceUsd > 0.0 }
         val now = System.currentTimeMillis()
@@ -48,8 +62,14 @@ object TokenMetricStageRouter {
         val launch7401 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts, now) } catch (_: Throwable) { null }
         val ageMin = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, now) ?: Double.NaN } catch (_: Throwable) { Double.NaN }
         val prices = hist.map { it.priceUsd }
-        val current = (prices.lastOrNull() ?: ts.lastPrice).takeIf { it > 0.0 } ?: 0.0
-        val local = prices.takeLast(24).ifEmpty { prices }
+        // V5.0.8171: a stale last candle must not displace the latest verified
+        // token tick when staging an active breakout. 8169 had 9k+ stage
+        // mismatches and insufficient OHLCV while fresh pump trades arrived.
+        val lastHistory = hist.lastOrNull()
+        val current = freshestStagePrice8171(lastHistory?.priceUsd ?: Double.NaN,
+            lastHistory?.ts ?: 0L, ts.lastPrice, ts.lastPriceUpdate)
+        val newestTick = ts.lastPriceUpdate > 0L && ts.lastPriceUpdate > (lastHistory?.ts ?: 0L) && current > 0.0
+        val local = (prices.takeLast(24) + if (newestTick) listOf(current) else emptyList()).takeLast(24)
         val peak = local.maxOrNull()?.takeIf { it > 0.0 } ?: current.takeIf { it > 0.0 } ?: 0.0
         val low = local.minOrNull()?.takeIf { it > 0.0 } ?: current.takeIf { it > 0.0 } ?: 0.0
         val currentVsPeak = if (peak > 0.0 && current > 0.0) (current / peak).coerceIn(0.0, 2.0) else 0.0

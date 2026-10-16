@@ -73,6 +73,14 @@ class Aate8171IntegratedRepairTest {
         assertEquals(null, t.unknownStageOwner8171(t.Stage.DUMPING, 300.0, 220_000.0, 25_000.0, 60.0, 39.0))
     }
 
+    @Test fun currentPriceStagePrefersFreshTokenTickOverOldCandles() {
+        val t = TokenMetricStageRouter
+        assertEquals(3.0, t.freshestStagePrice8171(1.0, 100L, 3.0, 150L), 0.0)
+        assertEquals(1.0, t.freshestStagePrice8171(1.0, 150L, 3.0, 100L), 0.0)
+        assertEquals(3.0, t.freshestStagePrice8171(Double.NaN, 0L, 3.0, 150L), 0.0)
+        assertEquals(0.0, t.freshestStagePrice8171(Double.NaN, 0L, Double.NaN, 0L), 0.0)
+    }
+
     @Test fun aProvenCostClearingAdmissionGetsAPlanBeforeOptionalBarsWait() {
         val p = src("engine/truth/TradePlan7739.kt")
         val start = p.indexOf("val specific8171 = candidateAdmission")
