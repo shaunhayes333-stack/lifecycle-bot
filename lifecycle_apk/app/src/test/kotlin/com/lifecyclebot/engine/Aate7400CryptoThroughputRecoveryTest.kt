@@ -31,16 +31,20 @@ class Aate7400CryptoThroughputRecoveryTest {
     fun crypto_raw_size_does_not_die_before_canonical_sizer() {
         val s = src("perps/CryptoAltTrader.kt")
         assertTrue(s.contains("CRYPTO_PRECANONICAL_DUST_DEFERRED_TO_SIZER_7400"))
-        val beforeSizer = s.substringBefore("CanonicalSizingBridge6532.resolve")
+        // V5.0.7521 — CanonicalEntryAuthority6551.submit() owns sizing for crypto.
+        assertTrue(s.contains("CanonicalEntryAuthority6551.submit("))
+        val beforeSizer = s.substringBefore("CanonicalEntryAuthority6551.submit(")
         assertFalse(beforeSizer.contains("PRE_SUBMIT_SIZE_BELOW_FLOOR"))
     }
 
     @Test
     fun portfolio_guards_read_the_sealed_canonical_size() {
         val s = src("perps/CryptoAltTrader.kt")
-        val afterSizer = s.substringAfter("val finalSize = altSizingRes.finalSizeSol")
-        assertTrue(afterSizer.contains("totalRisk7400 + finalSize"))
-        assertTrue(afterSizer.contains("WalletPositionLock.canOpen(\"CryptoAlt\", finalSize"))
+        // V5.0.7835 — exposure headroom is the canonical lane risk cap (see Aate7244);
+        // the wallet lock after the seal reads the sealed canonical size.
+        assertTrue(s.contains("val canonicalFinalSize6570 = canonicalCryptoIntent6565.resolvedSize"))
+        val afterSizer = s.substringAfter("val canonicalFinalSize6570 = canonicalCryptoIntent6565.resolvedSize")
+        assertTrue(afterSizer.contains("\"CryptoAlt\", canonicalFinalSize6570, WalletManager.cachedSolBalance())"))
     }
 
     @Test

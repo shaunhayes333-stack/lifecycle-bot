@@ -23,7 +23,8 @@ class Aate6641IntelligenceAuthorityTest {
 
     @Test fun crosstalk_rejects_stale_snapshots_and_bounds_each_source() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/v4/meta/CrossTalkFusionEngine.kt").readText()
-        assertTrue(src.contains("System.currentTimeMillis() - snapshot.timestamp >= SIGNAL_TTL_MS"))
+        // V5.0.6826 — getSnapshot() re-fuses an expired cache and never hands back a snapshot past its TTL.
+        assertTrue(src.contains("return currentSnapshot.get()?.takeIf { System.currentTimeMillis() - it.timestamp < SIGNAL_TTL_MS }"))
         assertTrue(src.contains("sameSource.size >= MAX_SIGNALS_PER_SOURCE"))
         assertTrue(src.contains("val snapshot = getSnapshot() ?: return GatedScore("))
     }

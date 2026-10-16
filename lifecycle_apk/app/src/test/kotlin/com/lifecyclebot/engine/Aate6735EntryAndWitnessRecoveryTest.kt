@@ -108,6 +108,8 @@ class Aate6735EntryAndWitnessRecoveryTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(src.contains("if (entryProvenance6658 != com.lifecyclebot.engine.truth.MarketDataProvenance6471.Provenance.AUTHORITATIVE)"))
         assertFalse(src.contains("!exactPaperObservation6734"))
-        assertTrue(src.contains("val entryMarketSnapshot = mintEntryMarketSnapshot(ts)"))
+        // V5.0.7280 — the raw snapshot is observed by the stack before it becomes the entry snapshot.
+        assertTrue(src.contains("val entryMarketSnapshotRaw7280 = mintEntryMarketSnapshot(ts)"))
+        assertTrue(src.contains("val entryMarketSnapshot = observeCapDerivedBasis7280(ts, entryMarketSnapshotRaw7280)"))
     }
 }

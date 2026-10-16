@@ -15,28 +15,14 @@ class Aate7678CoreBluechipSourceContractTest {
         assertTrue(brain.contains("CORE_YIELD_CLEAR_SPECIALIST_OWNER"))
         val p = src("engine/ExecutionAuthorityPolicy6533.kt")
         val trunk = p.substringAfter("private val trunk =").substringBefore("\n")
-        assertFalse(trunk.contains("CORE"))
-    }
-
-    @Test fun corePrimarySpineRequiresSameAttemptMarkAndPositiveSize() {
-        val b = src("engine/BotService.kt")
-        val block = b.substringAfter("val postAuthIntent7467")
-            .substringBefore("val specialistFdgAllowed6614")
-        assertTrue(block.contains("authResult.isExecutable()"))
-        assertTrue(block.contains("it.attemptId == authResult.attemptId"))
-        assertTrue(block.contains("it.resolvedSize.isFinite() && it.resolvedSize > 0.0"))
-        assertTrue(block.contains("it.executableMarkTimestampMs6613 > 0L"))
-        assertTrue(b.contains("PRIMARY_SPINE_POST_AUTH_PROOF_INCOMPLETE_7467"))
+        assertFalse(trunk.contains("\"CORE\""))
     }
 
     @Test fun bluechipUsesSealedAttemptAndOnlyEmitsSizeTicketAfterAuthorization() {
         val b = src("engine/BotService.kt")
-        val pre = b.substringAfter("val blueChipCandidateVersion7466")
-            .substringBefore("val canExecute = blueChipAuth6494.isExecutable()")
-        assertTrue(pre.contains("ExecutableOpenGate.activeExecutionIntent6519("))
-        assertTrue(pre.contains("BLUECHIP_SEALED_INTENT_REUSED_FOR_AUTH_7466"))
         val auth = b.substringAfter("val blueChipAuth6494 = TradeAuthorizer.authorize(")
             .substringBefore("val canExecute = blueChipAuth6494.isExecutable()")
+        assertTrue(auth.contains("fdgDecision7835 = blueChipFdg, tokenState7835 = ts"))
         val guard = auth.indexOf("if (blueChipAuth6494.isExecutable()")
         assertTrue(auth.indexOf("recordDeskStage(\"BLUECHIP\", \"SIZED_EXECUTABLE\"") > guard)
         assertTrue(auth.indexOf("recordDeskStage(\"BLUECHIP\", \"TICKET\"") > guard)

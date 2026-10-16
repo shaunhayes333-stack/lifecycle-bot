@@ -42,7 +42,10 @@ class V5_0_6568AcceptanceTest {
                 mint="mint$n",lane="MOONSHOT",mode="paper",entryScore=55,entryTactic=tactic,learningEligible=true
             )
             assertTrue(causal.record(env))
-            com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486("MOONSHOT","S41-60",tactic,pnl)
+            // V5.0.7835 — tactic credit is counted only inside the canonical finality scope.
+            LearningEnvironment7835.withMode("PAPER", canonical = true) {
+                com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486("MOONSHOT","S41-60",tactic,pnl)
+            }
         }
         assertTrue(causal.rowCountForTest() == 100)
         assertTrue(com.lifecyclebot.engine.learning.TacticSwitcher.historicalOutcomeCount6486() >= before + 100)

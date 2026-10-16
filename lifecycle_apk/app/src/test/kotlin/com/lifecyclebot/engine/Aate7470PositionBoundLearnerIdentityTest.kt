@@ -8,7 +8,7 @@ class Aate7470PositionBoundLearnerIdentityTest {
     @Test fun hypothesis_bind_is_wired_at_canonical_open_attribution() {
         val s = File("src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt").readText()
         val fn = s.substringAfter("fun attachPosition(").substringBefore("fun onFinalized(")
-        assertTrue(fn.contains("UnifiedPolicyHead.bindPosition6681(positionId, mint, lane)"))
+        assertTrue(fn.contains("UnifiedPolicyHead.bindDecisionFallback6713("))
         assertTrue(fn.contains("StrategyHypothesisEngine.bindExecutedPosition7428("))
         assertTrue(fn.contains("candidateVersion = e.context.candidateVersion"))
         assertTrue(fn.contains("lane = e.context.primaryStrategy"))
@@ -16,7 +16,7 @@ class Aate7470PositionBoundLearnerIdentityTest {
 
     @Test fun canonical_position_open_remains_the_single_attach_boundary() {
         val s = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
-        assertTrue(s.contains("AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane)"))
+        assertTrue(s.contains("AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane, candidateVersion7863)"))
     }
 
     @Test fun terminal_hypothesis_credit_remains_position_bound() {
