@@ -221,6 +221,9 @@ object Cortex7885 {
         val fired8094 = (snap8084?.takeIf { it.lane == a.lane }?.matched ?: try { LanePlaybook7907.matchedSetups8083(ts, a.lane, nowMs) } catch (_: Throwable) { emptyList() })
             .filter { it.isNotBlank() && it != setup7961 && it != LanePlaybook7907.NO_TRIGGER }.distinct().take(8)
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source, setup7961, fired8094)
+        // V5.0.8144 — the decision's grade-key context and executability (raw reason), frozen with it; unresolved swept.
+        try { pendingCtx8144["${ts.mint}|${labelLane.trim().uppercase()}"] = decisionCtx8144(ts, a.lane, admitted, reason) } catch (_: Throwable) {}
+        try { sweepLost8144(nowMs) } catch (_: Throwable) {}
         // V5.0.7930 — every admitted decision is matched to its realised close (not only cached-read admits).
         if (admitted) noteEntryRead(ts.mint, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }, a)
         // V5.0.7907 — the lane playbook tags the decision with its setup.
@@ -414,6 +417,15 @@ object Cortex7885 {
         // a runner's first minutes carry its capture, and the Cortex learns 48x sooner.
         if (horizonMin != 60) return
         if (!netPct.isFinite() || !pending.remove(key, p)) return
+        // V5.0.8144 — every label is a grade record; only an executable decision, first of its coin's episode in this lane,
+        // grades the voters, the bucket / setup / veto books and calibration (CortexLabelHygiene8144).
+        val lat8144 = latencyMeasured8144(p.a.lane)
+        val hyg8144 = synchronized(this) { recordLabel8144(key, p, netPct, grossPct, lat8144) }
+        if (!hyg8144.authority) {
+            try { LanePlaybook7907.dropPending8144(mint, labelLane) } catch (_: Throwable) {}
+            inc("LABEL_HYGIENE_${hyg8144.tag}_8144")
+            return
+        }
         try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080, p.setup7961) } catch (_: Throwable) {}
         // V5.0.7908 — discovery quality: the scanner source brain orders and weights
         // intake by each source's record, but learned only from closed trades (a
@@ -460,6 +472,158 @@ object Cortex7885 {
         }
         graded.incrementAndGet()
         if (sincePersist.incrementAndGet() >= PERSIST_EVERY) { sincePersist.set(0); persist() }
+    }
+
+    // ── V5.0.8144 — grade records, label hygiene, walk-forward promotion, outcome to owner ──
+    //
+    // Every graded decision is a CortexGradeRecord8144 (prediction / observed / executable kept apart; exact key lane |
+    // setup | regime | timing | cost band | cohort); every Cortex-bound trade one more, closed by the strategy that owned
+    // it. Only executable, first-of-episode labels grade the books (CortexLabelHygiene8144: the MOONSHOT REFUSE +213%
+    // artefact), and STRONG-side authority needs walk-forward validation on these records as well as the realised cap.
+    private const val GRADES_KEY_8144 = "CORTEX_GRADES_8144"
+    private const val WF_REFRESH_MS_8144 = 30_000L
+    private const val LOST_SWEEP_EVERY_MS_8144 = 120_000L
+    private val gradeBook8144 = CortexGradeBook8144()
+    private val wfCache8144 = HashMap<String, Pair<Long, CortexWalkForward8144.Result8144>>()
+    private val pendingCtx8144 = ConcurrentHashMap<String, DecisionCtx8144>()
+    @Volatile private var lastLostSweepMs8144 = 0L
+
+    /** The decision-time context of a grade key, frozen with the decision. */
+    private class DecisionCtx8144(val timing: String, val costBand: String, val cohort: String, val latencyMeasured: Boolean, val executable: Boolean)
+
+    private fun latencyMeasured8144(lane: String): Boolean =
+        try { com.lifecyclebot.engine.truth.EntryChase7961.laneLatencyMs8094(lane) > 0L } catch (_: Throwable) { false }
+
+    private fun runnerHorizon8144(lane: String): Boolean =
+        (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false }) || isRunner(lane)
+
+    private fun decisionCtx8144(ts: TokenState, lane: String, admitted: Boolean, reason: String?): DecisionCtx8144 {
+        val timing = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
+        val liq = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
+        val cost = try {
+            com.lifecyclebot.engine.truth.CostLedger7962.costOr7962(lane, Double.NaN, com.lifecyclebot.engine.truth.FieldManual7715.allInCostPct(5.0, liq)) +
+                com.lifecyclebot.engine.truth.EntryChase7961.lanePenaltyPct7961(lane)
+        } catch (_: Throwable) { Double.NaN }
+        val cohort = try {
+            com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.mcapBand(com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts))
+        } catch (_: Throwable) { "UNK" }
+        return DecisionCtx8144(timing, CortexLabelHygiene8144.costBand8144(cost), cohort, latencyMeasured8144(lane),
+            CortexLabelHygiene8144.executableDecision8144(admitted, reason))
+    }
+
+    /** Caller holds the lock. */
+    private fun verdict8144(key: String, p: Pending, ctx: DecisionCtx8144?): CortexLabelHygiene8144.Verdict8144 =
+        CortexLabelHygiene8144.Verdict8144(
+            (ctx?.executable ?: true) && CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.vetoRule),
+            CortexLabelHygiene8144.repeatInEpisode8144(p.legacyAdmitted, gradeBook8144.lastGradedAt(key), p.atMs),
+        )
+
+    private fun newDecision8144(id: String, key: String, p: Pending, ctx: DecisionCtx8144?, v: CortexLabelHygiene8144.Verdict8144) =
+        CortexGradeRecord8144('D', id, key, p.atMs, p.a.lane, p.setup7961.ifBlank { "-" }, p.a.regime.ifBlank { "-" },
+            ctx?.timing ?: LanePlaybook7907.TIMING_UNKNOWN_8094, ctx?.costBand ?: "CUNK", ctx?.cohort ?: "UNK",
+            p.a.bucket.ordinal, p.a.calibratedEdge, p.legacyAdmitted, v.executable, v.repeat)
+
+    /** Caller holds the lock. The 5-minute label of [p] as a grade record; returns the hygiene verdict. */
+    private fun recordLabel8144(key: String, p: Pending, netPct: Double, grossPct: Double, latencyMeasured: Boolean): CortexLabelHygiene8144.Verdict8144 {
+        val ctx = pendingCtx8144.remove(key)
+        val id = "$key|${p.atMs}"
+        // A decision swept as unresolved and labelled late keeps the verdict it was filed with.
+        val existing = gradeBook8144.decision(id)
+        val v = existing?.let { CortexLabelHygiene8144.Verdict8144(it.executable, it.repeat) } ?: verdict8144(key, p, ctx)
+        if (existing == null) gradeBook8144.addDecision(newDecision8144(id, key, p, ctx, v))
+        gradeBook8144.label(id, netPct, grossPct, CortexLabelHygiene8144.executablePct8144(netPct, ctx?.latencyMeasured ?: latencyMeasured), true)
+        return v
+    }
+
+    /** Decisions with no 5-minute label after LOST_AFTER_MS_8144 are filed unresolved (the cohort's resolved share). */
+    private fun sweepLost8144(nowMs: Long) {
+        if (nowMs - lastLostSweepMs8144 < LOST_SWEEP_EVERY_MS_8144) return
+        lastLostSweepMs8144 = nowMs
+        synchronized(this) {
+            for ((k, p) in pending.entries) {
+                if (nowMs - p.atMs < CortexLabelHygiene8144.LOST_AFTER_MS_8144) continue
+                val id = "$k|${p.atMs}"
+                if (gradeBook8144.decision(id) != null) continue
+                val ctx = pendingCtx8144[k]
+                if (gradeBook8144.addDecision(newDecision8144(id, k, p, ctx, verdict8144(k, p, ctx))) && gradeBook8144.markLost(id)) inc("LABEL_UNRESOLVED_8144")
+            }
+            if (pendingCtx8144.size > MAX_PENDING) pendingCtx8144.keys.removeIf { !pending.containsKey(it) }
+        }
+    }
+
+    /** Caller holds the lock. Walk-forward result of [lane] (x [setup]) STRONG executable records, refreshed every 30 s. */
+    private fun walkForward8144(lane: String, setup: String?): CortexWalkForward8144.Result8144 {
+        val ck = "$lane|${setup ?: "*"}"
+        val now = System.currentTimeMillis()
+        wfCache8144[ck]?.let { (at, cached) -> if (now - at in 0L until WF_REFRESH_MS_8144) return cached }
+        val strong = CortexScoreboard7885.Bucket.STRONG.ordinal
+        val rivals = listOf(CortexScoreboard7885.Bucket.NEUTRAL.ordinal, CortexScoreboard7885.Bucket.REFUSE.ordinal).map { b ->
+            gradeBook8144.executableSeries(lane, setup, b) to gradeBook8144.resolvedShare(lane, b, setup)
+        }
+        val result = CortexWalkForward8144.promote8144(gradeBook8144.executableSeries(lane, setup, strong), rivals, gradeBook8144.resolvedShare(lane, strong, setup))
+        if (wfCache8144.size > 400) wfCache8144.clear()
+        wfCache8144[ck] = now to result
+        return result
+    }
+
+    /**
+     * Caller holds the lock. [labelFraction] after its realised cap ([realisedCapped], CortexRealisedAuthority8136) and the
+     * walk-forward cap of this lane (or lane x [setup], whose own realised closes cap it too). Only lowers.
+     */
+    private fun walkForwardCapped8144(lane: String, setup: String?, labelFraction: Double, realisedCapped: Double): Double {
+        if (!(realisedCapped > 0.0)) return 0.0
+        val wf = walkForward8144(lane, setup)
+        val cellRealised = if (setup == null) 1.0 else {
+            val st = CortexWalkForward8144.stat8144(gradeBook8144.realisedSeries(lane, setup, CortexScoreboard7885.Bucket.STRONG.ordinal, accountMode8077()))
+            CortexRealisedAuthority8136.cappedFraction8136(1.0, st.n.toDouble(), if (st.n > 0) st.mean else 0.0, st.se)
+        }
+        val out = CortexWalkForward8144.compose8144(labelFraction, realisedCapped, minOf(CortexWalkForward8144.authorityCap8144(wf), cellRealised))
+        if (out < realisedCapped) inc(if (out <= 0.0) "AUTHORITY_DENIED_8144_${wf.verdict.name}" else "AUTHORITY_CAPPED_8144_${wf.verdict.name}")
+        return out
+    }
+
+    /** Caller holds the lock. First sight never fires on a lane whose STRONG closes lost, or whose STRONG reads trail a rival. */
+    private fun firstSightBarred8144(lane: String): Boolean {
+        val s = board.realized["${accountMode8077()}|$lane"]?.getOrNull(CortexScoreboard7885.Bucket.STRONG.ordinal)
+        val denied = s != null && CortexRealisedAuthority8136.verdict8136(s.n, s.mean(),
+            if (s.n > 1.0) kotlin.math.sqrt(s.variance() / s.n) else Double.POSITIVE_INFINITY) == CortexRealisedAuthority8136.Verdict8136.DENIED_REALISED_NEGATIVE
+        return denied || walkForward8144(lane, null).verdict == CortexWalkForward8144.Verdict8144.INVERTED_OOS
+    }
+
+    /** Async (pool): a Cortex-bound position opens its trade record under the entry's exact grade key. */
+    private fun openTrade8144(positionId: String, mint: String, mode: String, a: Assessment, openedAtMs: Long) {
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
+        val ctx = ts?.let { decisionCtx8144(it, a.lane, true, null) }
+        val setup = ts?.let { t -> try { LanePlaybook7907.selectedSetup8094(t, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null } }.orEmpty()
+        val r = CortexGradeRecord8144('T', positionId, "$mint|${a.lane}", openedAtMs, a.lane, setup, a.regime.ifBlank { "-" },
+            ctx?.timing ?: LanePlaybook7907.TIMING_UNKNOWN_8094, ctx?.costBand ?: "CUNK", ctx?.cohort ?: "UNK",
+            a.bucket.ordinal, a.calibratedEdge, true, true, false)
+        r.mode = mode
+        synchronized(this) { if (gradeBook8144.openTrade(r)) inc("TRADE_RECORD_OPENED_8144_$mode") }
+    }
+
+    /** Caller holds the lock. The close returns to the strategy that owned the trade (sealed identity first). */
+    private fun routeRealised8144(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope, mode: String, a: Assessment,
+                                  sealed: com.lifecyclebot.engine.truth.AateEntryIdentity8136?, snapshotTag: String?) {
+        val trade = gradeBook8144.trade(env.positionId) ?: run { inc("REALISED_NO_TRADE_RECORD_8144"); return }
+        val owner = CortexOutcomeRoute8144.owner8144(mode, env.mint, sealed?.mode, sealed?.mint, sealed?.ownerLane, sealed?.exactSetup,
+            snapshotTag, trade.lane.ifBlank { a.lane }, trade.setup)
+        if (gradeBook8144.closeTrade(env.positionId, owner, env.realizedReturnPct) == null) return
+        inc("REALISED_ROUTED_8144_${owner.attribution.name}")
+        if (owner.mismatch) inc("REALISED_OWNER_DIFFERS_FROM_ENTRY_8144")
+    }
+
+    /** Caller holds the lock. Per lane: observed (raw) vs executable (hygiene) STRONG / REFUSE means, resolved shares, verdict. */
+    private fun gradeLine8144(): String {
+        val s = CortexScoreboard7885.Bucket.STRONG.ordinal; val r = CortexScoreboard7885.Bucket.REFUSE.ordinal
+        fun f(xs: List<Double>): String = CortexWalkForward8144.stat8144(xs).let { if (it.n == 0) "-" else "n${it.n}/${"%+.1f".format(it.mean)}%" }
+        val lanes = board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(5).map { it.key }
+        return "decisions=${gradeBook8144.size()} trades=${gradeBook8144.tradeCount()} " + lanes.joinToString(" · ") { lane ->
+            "$lane obs[S=${f(gradeBook8144.observedSeries(lane, s))} R=${f(gradeBook8144.observedSeries(lane, r))}] " +
+                "exec[S=${f(gradeBook8144.executableSeries(lane, null, s))} R=${f(gradeBook8144.executableSeries(lane, null, r))}] " +
+                "resolved[S=${"%.2f".format(gradeBook8144.resolvedShare(lane, s))} R=${"%.2f".format(gradeBook8144.resolvedShare(lane, r))}] " +
+                "wf=${walkForward8144(lane, null).compact()}"
+        }
     }
 
     // ── veto audit (Constitution Phase 3): every existing refusal, graded ──
@@ -615,8 +779,13 @@ object Cortex7885 {
     fun reviseLabel8006(mint: String, labelLane: String, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
         if (!newNet.isFinite()) return
         val key = "$mint|${labelLane.trim().uppercase()}"
+        val lat8144 = latencyMeasured8144(canon(labelLane))
         synchronized(this) {
             val g = graded8006[key] ?: return
+            // V5.0.8144 — the observed record follows every horizon; the books only revise inside the lane's executable hold.
+            val exec8144 = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(g.p.a.lane), System.currentTimeMillis() - g.p.atMs)
+            gradeBook8144.label("$key|${g.p.atMs}", newNet, newGross, CortexLabelHygiene8144.executablePct8144(newNet, lat8144), exec8144)
+            if (!exec8144) { inc("REVISION_PAST_EXEC_HORIZON_8144"); return }
             if (g.trace.scales == null || g.trace.scoreAt == null || g.bookScales == null || g.auxScales == null) {
                 inc("REVISION_LEGACY_WEIGHT_UNKNOWN")
                 return
@@ -727,7 +896,8 @@ object Cortex7885 {
     /** Caller holds the lock. */
     private fun laneFraction7955(lane: String): Double {
         val f = board.fractionFor7955(lane, accountMode8077())
-        return if (f > 0.0 && consistent(lane)) realisedCapped8136(lane, f) else 0.0
+        // V5.0.8144 — and promoted only on walk-forward (out-of-sample) evidence of its executable records.
+        return if (f > 0.0 && consistent(lane)) walkForwardCapped8144(lane, null, f, realisedCapped8136(lane, f)) else 0.0
     }
 
     /**
@@ -846,7 +1016,10 @@ object Cortex7885 {
             }
             val cell8083 = setup8083?.let { synchronized(this) { setupCellAuthority8083(a.lane, it) } }
             // V5.0.8136 — a setup cell's label authority answers to the lane's realised STRONG closes too.
-            val fraction = maxOf(laneFraction8083, synchronized(this) { realisedCapped8136(a.lane, cell8083?.fraction ?: 0.0) })
+            // V5.0.8144 — and the cell's own walk-forward validation and realised closes.
+            val fraction = maxOf(laneFraction8083, synchronized(this) {
+                walkForwardCapped8144(a.lane, setup8083, cell8083?.fraction ?: 0.0, realisedCapped8136(a.lane, cell8083?.fraction ?: 0.0))
+            })
             // V5.0.7955 review — a lane's own PROVEN_LOSING / PROVEN_NEGATIVE record yields only to full authority.
             // V5.0.8016 — watch-first's measured-negative cell is a proven record too.
             val provenRefusal = refusal.contains("PROVEN_LOSING") || refusal.contains("PROVEN_NEGATIVE") || refusal.contains("CELL_NEGATIVE") || refusal.contains("BAND_NEGATIVE")
@@ -917,7 +1090,10 @@ object Cortex7885 {
             // V5.0.8034 — -1 marks an inconsistent Cortex or an inverted lane: first sight never fires there.
             Triple(if (consistent(a.lane) && !board.inverted7948(a.lane, accountMode8077())) board.evidenceFor8025(a.lane, accountMode8077()) else -1.0, copy, CortexScoreboard7885.maturity8025(board.strongLifetime8025(a.lane)))
         }
-        FirstSight8026.grant8026(ts, a.lane, refusal, evidence, strong, maturity)
+        // V5.0.8144 — no first-sight buy where the lane's STRONG closes lost or its STRONG reads trail a rival out of sample.
+        val barred8144 = synchronized(this) { firstSightBarred8144(a.lane) }
+        if (barred8144) inc("FIRST_SIGHT_BARRED_8144")
+        FirstSight8026.grant8026(ts, a.lane, refusal, if (barred8144) -1.0 else evidence, strong, maturity)
     } catch (_: Throwable) { false }
 
     // ── Cortex v13: paper choice (v1 Phase 4, V5.0.7915) ──
@@ -1213,6 +1389,8 @@ object Cortex7885 {
         }
         if (positionReads8076.bind(positionId, normalized, m, a)) {
             inc("ENTRY_BOUND_8076")
+            // V5.0.8144 — the trade's own grade record (off this thread: never take the Cortex lock under the position lock).
+            submit("TRADE_OPEN_8144") { openTrade8144(positionId, mint, m, a, openedAtMs) }
             // Never serialize the learning book while holding the canonical position lock.
             submit("ENTRY_CHECKPOINT") { persist() }
         }
@@ -1262,6 +1440,9 @@ object Cortex7885 {
         val verified8082 = com.lifecyclebot.engine.truth.ExactStrategyPerformance7429.terminalEconomicsEligible8081(env.mode, env.proofState)
         if (!verified8082) inc("REALIZED_UNVERIFIED_FINALITY_8082")
         val eligible = env.learningEligible && env.realizedReturnPct.isFinite() && verified8082
+        // V5.0.8144 — the owner of the trade, read outside the lock: the sealed entry identity, else the entry snapshot.
+        val sealed8144 = if (!eligible) null else try { com.lifecyclebot.engine.truth.AateEntryIdentityBook8136.identity8136(env.positionId) } catch (_: Throwable) { null }
+        val snapTag8144 = if (!eligible) null else try { com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(env.positionId)?.cortexSetupTag8085 } catch (_: Throwable) { null }
         synchronized(this) {
             val a = positionReads8076.take(env.positionId, closeKey7931, mode) ?: run { inc("REALIZED_UNMATCHED"); return }
             entryReads.remove("$closeKey7931|$mode|${canon(a.lane)}", a)
@@ -1276,6 +1457,8 @@ object Cortex7885 {
                 // forward-label skill that grants authority.
                 realLedgers.getOrPut(mode) { CortexLedger7885() }
                     .grade(a.lane, a.ids, a.edges, a.raws, env.realizedReturnPct, env.realizedReturnPct, a.regime, predictionForGrade8076(a))
+                // V5.0.8144 — the realised return goes to the exact strategy that owned the trade.
+                routeRealised8144(env, mode, a, sealed8144, snapTag8144)
             }
         }
         inc(if (eligible) "REALIZED_${mode}" else "REALIZED_NOT_ELIGIBLE")
@@ -1293,6 +1476,7 @@ object Cortex7885 {
             if (loaded) return
             loaded = true
             try {
+                try { gradeBook8144.decode(LearningPersistence.load(GRADES_KEY_8144)) } catch (_: Throwable) {}  // V5.0.8144
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: run {
                     LearningPersistence.load(LEGACY_PERSIST_KEY_7947)?.let { legacy ->
                         org.json.JSONObject(legacy).optJSONObject("real")?.let { j -> for (k in j.keys()) j.optJSONObject(k)?.let { realLedgers[k] = CortexLedger7885().also { l -> l.decode(it) } } }
@@ -1419,6 +1603,8 @@ object Cortex7885 {
             }
             // Keep individual SQLite rows bounded; one transaction binds the two snapshots.
             LearningPersistence.saveTogether8076(mapOf(PERSIST_KEY to json, PENDING_PERSIST_KEY to pendingSnapshot8076().toString()))
+            // V5.0.8144 — the grade records in their own bounded row (never written before the store was read: loaded gate).
+            LearningPersistence.save(GRADES_KEY_8144, synchronized(this) { gradeBook8144.encode() })
         } catch (_: Throwable) {}
     }
 
@@ -1460,6 +1646,9 @@ object Cortex7885 {
                     "$k ${fmtStat(arr[2])}/${fmtStat(arr[1])}/${fmtStat(arr[0])}"
                 }.ifBlank { "none yet" } + "  (strong/neutral/refuse)\n")
                 sb.append("  realisedGate8136: denied=${sum("AUTHORITY_DENIED_REALISED_NEGATIVE_8136")} capped=${sum("AUTHORITY_CAPPED_REALISED_UNPROVEN_8136")} (authority needs realised STRONG closes: 5+ positive, full at 20+ mean-SE>0)\n")
+                sb.append("  promotion8144: " + board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(4)
+                    .joinToString(" · ") { (lane, _) -> "$lane ${walkForward8144(lane, null).verdict.name}" } +
+                    " · labels repeat=${sum("LABEL_HYGIENE_REPEAT")} unexec=${sum("LABEL_HYGIENE_UNEXECUTABLE")} unresolved=${sum("LABEL_UNRESOLVED_8144")} (authority needs walk-forward OOS mean-SE>2% on executable records)\n")
                 sb.append("  key: Rp/Rl refuse paper/live · O overrule (auth>=0.5) · auth graduated strong authority, scales size-up · SUSPENDED calibration < 0.5 · INVERTED strong < neutral/refuse")
                 sb.toString().take(1_900)
             }
@@ -1550,6 +1739,7 @@ object Cortex7885 {
                 "      voter failures: ${voterFailures.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "0" }}\n" +
                 laneLines.ifBlank { "      lanes: no graded decisions yet" } + "\n" +
                 "      verdict x setup (§7961): ${jointLine7961()}\n" +
+                "      grade records (§8144 observed vs executable, walk-forward): ${gradeLine8144()}\n" +
                 "      veto audit (refused candidates' forward return): " +
                 vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(12).joinToString(" · ") { (r, st) ->
                     val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY
