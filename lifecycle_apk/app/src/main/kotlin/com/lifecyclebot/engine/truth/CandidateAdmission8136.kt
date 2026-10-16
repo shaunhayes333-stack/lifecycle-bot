@@ -578,7 +578,18 @@ object CandidateAdmission8136 {
         } catch (_: Throwable) { null }
         val cost8153 = try { NetEdge8030.entryCostPct8136(ts, lane) } catch (_: Throwable) { Double.NaN }
         val curveActive8153 = try { CurveReserves7951.realSolIfActive8046(ts.mint, nowMs) != null } catch (_: Throwable) { false }
-        val liquidityMissing8153 = !curveActive8153 && StrategyMove8153.liquidityRead8153(ts.lastLiquidityUsd) == "UNKNOWN"
+        // V5.0.8170: a live DexScreener pair or sweep already priced the actual
+        // liquidity, but the token-local scalar hadn't received the ordinary poll.
+        // Use the same dated source the setup resolver reads to avoid needless
+        // DATA_INCOMPLETE; the on-chain pool/route hard gates remain later.
+        val observedLiq8170 = try {
+            SetupFeatureResolver8169.observedLiquidity8170(ts.mint,
+                try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts)?.ageMin ?: Double.NaN } catch (_: Throwable) { Double.NaN },
+                nowMs)
+        } catch (_: Throwable) { null }
+        val liquidityMissing8153 = !curveActive8153 &&
+            StrategyMove8153.liquidityRead8153(ts.lastLiquidityUsd) == "UNKNOWN" &&
+            observedLiq8170 == null
         val safety = if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK)
             "HARD_BLOCK:${ts.safety.hardBlockReasons.firstOrNull().orEmpty().take(40)}" else null
         val priceAge = if (ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE

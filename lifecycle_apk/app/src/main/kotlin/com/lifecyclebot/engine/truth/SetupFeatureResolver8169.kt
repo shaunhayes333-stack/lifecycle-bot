@@ -121,46 +121,68 @@ object SetupFeatureResolver8169 {
     }
 
     /** Pure: an answer dated inside the freshness window (a future date beyond a minute's clock skew is not fresh). */
-    internal fun fresh8169(atMs: Long, nowMs: Long): Boolean = atMs > 0L && nowMs - atMs in -60_000L..FRESH_MS_8169
+    internal fun fresh8169(atMs: Long, nowMs: Long, maxAgeMs: Long = FRESH_MS_8169): Boolean =
+        atMs > 0L && nowMs - atMs in -60_000L..maxAgeMs
 
-    fun pairBp8169(f: PairFlow8169.Flow8169?, nowMs: Long): Cand8169<Double> = when {
+    /** Launch data is perishable: the ordinary 15m provider cache can be old enough to
+     * describe the wrong launch phase while a new mint is in its first minutes.
+     * 8170 uses at most 60 seconds for a younger-than-15m launch.
+     */
+    fun maxEvidenceAge8170(ageMin: Double): Long =
+        if (ageMin.isFinite() && ageMin in 0.0..15.0) 60_000L else FRESH_MS_8169
+
+
+    fun pairBp8169(f: PairFlow8169.Flow8169?, nowMs: Long, maxAgeMs: Long = FRESH_MS_8169): Cand8169<Double> = when {
         f == null -> Cand8169(PAIR, null, "NOT_FETCHED")
-        !fresh8169(f.atMs, nowMs) -> Cand8169(PAIR, null, "STALE")
+        !fresh8169(f.atMs, nowMs, maxAgeMs) -> Cand8169(PAIR, null, "STALE")
         else -> countShare8169(f.buysM5, f.sellsM5, f.buysH1, f.sellsH1)?.let { Cand8169(PAIR, it, "") } ?: Cand8169(PAIR, null, "NO_TRADES")
     }
 
-    fun pairChg8169(f: PairFlow8169.Flow8169?, nowMs: Long): Cand8169<Pair<Double, Double>> = when {
+    fun pairChg8169(f: PairFlow8169.Flow8169?, nowMs: Long, maxAgeMs: Long = FRESH_MS_8169): Cand8169<Pair<Double, Double>> = when {
         f == null -> Cand8169(PAIR, null, "NOT_FETCHED")
-        !fresh8169(f.atMs, nowMs) -> Cand8169(PAIR, null, "STALE")
+        !fresh8169(f.atMs, nowMs, maxAgeMs) -> Cand8169(PAIR, null, "STALE")
         f.chg5m.isFinite() && f.chg1h.isFinite() -> Cand8169(PAIR, f.chg5m to f.chg1h, "")
         else -> Cand8169(PAIR, null, "NO_CHANGE")
     }
 
-    fun pairLiq8169(f: PairFlow8169.Flow8169?, nowMs: Long): Cand8169<Double> = when {
+    fun pairLiq8169(f: PairFlow8169.Flow8169?, nowMs: Long, maxAgeMs: Long = FRESH_MS_8169): Cand8169<Double> = when {
         f == null -> Cand8169(PAIR, null, "NOT_FETCHED")
-        !fresh8169(f.atMs, nowMs) -> Cand8169(PAIR, null, "STALE")
+        !fresh8169(f.atMs, nowMs, maxAgeMs) -> Cand8169(PAIR, null, "STALE")
         f.liquidityUsd.isFinite() && f.liquidityUsd > 0.0 -> Cand8169(PAIR, f.liquidityUsd, "")
         else -> Cand8169(PAIR, null, "NO_LIQUIDITY")
     }
 
-    fun sweepBp8169(r: com.lifecyclebot.engine.market.MarketSweep7297.Row?, nowMs: Long): Cand8169<Double> = when {
+    fun sweepBp8169(r: com.lifecyclebot.engine.market.MarketSweep7297.Row?, nowMs: Long, maxAgeMs: Long = FRESH_MS_8169): Cand8169<Double> = when {
         r == null -> Cand8169(SWEEP, null, "NOT_LISTED")
-        !fresh8169(r.observedAtMs8169, nowMs) -> Cand8169(SWEEP, null, "STALE")
+        !fresh8169(r.observedAtMs8169, nowMs, maxAgeMs) -> Cand8169(SWEEP, null, "STALE")
         else -> countShare8169(-1, -1, r.buysH1, r.sellsH1)?.let { Cand8169(SWEEP, it, "") } ?: Cand8169(SWEEP, null, "NO_SPLIT")
     }
 
+    /** One current, dated liquidity reading for admission DATA classification.
+     * Entry authorization STILL requires canonical market-depth, route and quote
+     * checks. A cached provider reading is not a safety/sellability bypass.
+     */
+    fun observedLiquidity8170(mint: String, ageMin: Double, nowMs: Long): Double? {
+        val maxAge = maxEvidenceAge8170(ageMin)
+        val p = try { PairFlow8169.peek8169(mint) } catch (_: Throwable) { null }
+        val pair = pairLiq8169(p, nowMs, maxAge).value
+        if (pair != null) return pair
+        val row = try { com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(mint, nowMs) } catch (_: Throwable) { null }
+        return sweepLiq8169(row, nowMs, maxAge).value
+    }
+
     /** The sweep's 1h move is 0.0 when no provider supplied it (Row contract), so only a non-zero 1h move is a reading. */
-    fun sweepChg8169(r: com.lifecyclebot.engine.market.MarketSweep7297.Row?, nowMs: Long): Cand8169<Pair<Double, Double>> = when {
+    fun sweepChg8169(r: com.lifecyclebot.engine.market.MarketSweep7297.Row?, nowMs: Long, maxAgeMs: Long = FRESH_MS_8169): Cand8169<Pair<Double, Double>> = when {
         r == null -> Cand8169(SWEEP, null, "NOT_LISTED")
-        !fresh8169(r.observedAtMs8169, nowMs) -> Cand8169(SWEEP, null, "STALE")
+        !fresh8169(r.observedAtMs8169, nowMs, maxAgeMs) -> Cand8169(SWEEP, null, "STALE")
         r.priceChange5mPct.isFinite() && r.priceChangeH1Pct.isFinite() && r.priceChangeH1Pct != 0.0 ->
             Cand8169(SWEEP, r.priceChange5mPct to r.priceChangeH1Pct, "")
         else -> Cand8169(SWEEP, null, "NO_CHANGE")
     }
 
-    internal fun sweepLiq8169(r: com.lifecyclebot.engine.market.MarketSweep7297.Row?, nowMs: Long): Cand8169<Double> = when {
+    internal fun sweepLiq8169(r: com.lifecyclebot.engine.market.MarketSweep7297.Row?, nowMs: Long, maxAgeMs: Long = FRESH_MS_8169): Cand8169<Double> = when {
         r == null -> Cand8169(SWEEP, null, "NOT_LISTED")
-        !fresh8169(r.observedAtMs8169, nowMs) -> Cand8169(SWEEP, null, "STALE")
+        !fresh8169(r.observedAtMs8169, nowMs, maxAgeMs) -> Cand8169(SWEEP, null, "STALE")
         r.liquidityUsd.isFinite() && r.liquidityUsd > 0.0 -> Cand8169(SWEEP, r.liquidityUsd, "")
         else -> Cand8169(SWEEP, null, "NO_LIQUIDITY")
     }
@@ -201,11 +223,12 @@ object SetupFeatureResolver8169 {
         val tapeWhy = if (tapeRead) "TOO_FEW" else try { TradeTape8100.absentWhy8169(mint, nowMs) } catch (_: Throwable) { "NO_PRINTS" }
         val pair = try { PairFlow8169.peek8169(mint) } catch (_: Throwable) { null }
         val row = try { com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(mint, nowMs) } catch (_: Throwable) { null }
+        val maxAge = maxEvidenceAge8170(ageMin)
         val fill = resolve8169(
-            bp = listOf(Cand8169(PRIMARY, bpPrimary, bpObs), Cand8169(TAPE, tapeBp, tapeWhy), pairBp8169(pair, nowMs), sweepBp8169(row, nowMs)),
-            chg = listOf(Cand8169(PRIMARY, chgPrimary, chgObs), Cand8169(TAPE, tapeChg, tapeWhy), pairChg8169(pair, nowMs), sweepChg8169(row, nowMs)),
+            bp = listOf(Cand8169(PRIMARY, bpPrimary, bpObs), Cand8169(TAPE, tapeBp, tapeWhy), pairBp8169(pair, nowMs, maxAge), sweepBp8169(row, nowMs, maxAge)),
+            chg = listOf(Cand8169(PRIMARY, chgPrimary, chgObs), Cand8169(TAPE, tapeChg, tapeWhy), pairChg8169(pair, nowMs, maxAge), sweepChg8169(row, nowMs, maxAge)),
             shape = listOf(Cand8169(PRIMARY, if (shapePrimary) true else null, shapeObs), Cand8169(TAPE, if (tapeShape) true else null, tapeWhy)),
-            liq = listOf(Cand8169(PRIMARY, liqPrimary, "UNKNOWN"), pairLiq8169(pair, nowMs), sweepLiq8169(row, nowMs)),
+            liq = listOf(Cand8169(PRIMARY, liqPrimary, "UNKNOWN"), pairLiq8169(pair, nowMs, maxAge), sweepLiq8169(row, nowMs, maxAge)),
         )
         try { count8169(fill, launchTape, if (launchTape) "" else launchTapeWhy8169(mint, ageMin), swaps, if (swaps) "" else tapeWhy) } catch (_: Throwable) {}
         return fill

@@ -516,12 +516,21 @@ object LaneHunter7297 {
                     ranked8168.take(PICKS_PER_LANE).mapNotNull { byMint[it] }) }
         }
         com.lifecyclebot.engine.BotImprovementReport8168.publishHunts(audit8168, snap.atMs)
-        noteHuntAudit8169(snap, nonMeme8169, ranked.mapValues { (_, mints) -> mints.take(PICKS_PER_LANE) }, now8169)
         // V5.0.7803 — DO NOT deal the market into mutually-exclusive hunter
         // buckets. Each specialist owns a resident candidate book and may watch
         // the same mint independently. Arbitration belongs at READY execution,
         // not at discovery.
-        val residentPicks7803 = ranked.mapValues { (_, mints) -> mints.take(PICKS_PER_LANE) }
+        // V5.0.8170: 8169 saw 1046 already-watched hits against only 27 resident
+        // emissions in 14 sweeps. Preserve the best three for hot continuation;
+        // use the remaining slots for fresh mints before repeating watchlist
+        // residents. All 12 lanes keep their own ranking and can still select
+        // the SAME mint; this is discovery ordering, never execution authority.
+        val residentPicks7803 = ranked.mapValues { (_, mints) ->
+            freshFirst8170(mints, { mint ->
+                try { BotService.status.tokens.containsKey(mint) } catch (_: Throwable) { false }
+            }, PICKS_PER_LANE)
+        }
+        noteHuntAudit8169(snap, nonMeme8169, residentPicks7803, now8169)
         val now = System.currentTimeMillis()
         claims.entries.removeIf { now - it.value.atMs > CLAIM_TTL_MS }
         val out = residentPicks7803.mapValues { (lane, mints) ->
@@ -589,6 +598,17 @@ object LaneHunter7297 {
     fun deliverableFirst8169(ranked: List<String>, cooling: (String) -> Boolean): List<String> {
         val (cold, hot) = ranked.partition(cooling)
         return hot + cold
+    }
+
+    /** Keeps a small top-ranked set while rotating new candidates into the rest of a lane's watchbook.
+     * Does not fabricate fit or widen the lane's mandate: inputs were already native ranked.
+     */
+    fun freshFirst8170(ranked: List<String>, watched: (String) -> Boolean, pickLimit: Int): List<String> {
+        if (pickLimit <= 0) return emptyList()
+        val leaders = ranked.take(minOf(3, pickLimit))
+        val rest = ranked.drop(leaders.size)
+        val (old, fresh) = rest.partition(watched)
+        return (leaders + fresh + old).take(pickLimit)
     }
 
     @Volatile private var lastAudit8169 = "no hunt yet"
