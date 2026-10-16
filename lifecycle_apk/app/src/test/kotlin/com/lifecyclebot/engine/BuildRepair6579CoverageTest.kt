@@ -78,7 +78,10 @@ class BuildRepair6579CoverageTest {
         )
         assertTrue(
             "Executor.paperBuy must still refuse if BOTH marks are absent",
-            executorSrc.contains("val paperMarkOk6579 = strictMark6575 != null || observationMark6579 != null") &&
+            // V5.0.7465 — one mode-aware entry-mark resolver supplies the strict or
+            // observation mark; no mark at all still refuses.
+            executorSrc.contains("resolveEntryMarkForMode7465(ts.mint, paperMode = true, nowMs = now6616)") &&
+                executorSrc.contains("val paperMarkOk6579 = paperEntryMark7465.mark != null") &&
                 executorSrc.contains("NO_EXECUTABLE_MARK_6575")
         )
     }

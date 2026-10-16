@@ -11,9 +11,11 @@ class Aate7771LiveTicketHandoffRegressionTest {
     @Test fun authorized_ticket_survives_primary_spine_to_live_buy() {
         val bot = File(root, "engine/BotService.kt").readText()
         val executor = File(root, "engine/Executor.kt").readText()
-        val primary = bot.substringAfter("🧬 MEME_SPINE EXECUTOR_ROUTE").substringBefore("} else {")
-        assertTrue(primary.contains("finalityPrechecked = true"))
-        assertTrue(primary.contains("attemptId          = authResult.attemptId"))
+        // V5.0.7858 — the primary spine hands the sealed attempt straight to the executor.
+        val primary = bot.substringAfter("val actualInitialSize = specialistIntent6614.resolvedSize")
+            .substringBefore("} else if (ts.position.isOpen")
+        assertTrue(primary.contains("executor.maybeActWithDecision("))
+        assertTrue(primary.contains("finalityPrechecked = true, attemptId = authResult.attemptId,"))
         val maybe = executor.substringAfter("fun maybeActWithDecision(").substringBefore("// ── top-up (pyramid add)")
         assertTrue(maybe.contains("finalityPrechecked: Boolean = false"))
         assertTrue(maybe.contains("attemptId: String = \"\""))

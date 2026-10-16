@@ -12,7 +12,11 @@ class Aate7440CanonicalBirthTimeTest {
         assertTrue(s.contains("TOKEN_META_CREATION"))
         assertTrue(s.contains("PUMP_CREATE_EVENT"))
         assertTrue(s.contains("FIRST_POOL_CREATION"))
-        assertFalse(s.contains("addedToWatchlistAt"))
+        // V5.0.7767 launchAgeMs7767 may fall back to watchlist age as an explicit
+        // lower-bound LAUNCH age; the birth authority itself never reads it.
+        val birthAuthority = s.substringBefore("fun launchAgeMs7767(")
+        assertTrue(birthAuthority.contains("fun resolve("))
+        assertFalse(birthAuthority.contains("addedToWatchlistAt"))
         assertFalse(s.contains("history.firstOrNull"))
         assertFalse(s.contains("firstSeenMs"))
     }

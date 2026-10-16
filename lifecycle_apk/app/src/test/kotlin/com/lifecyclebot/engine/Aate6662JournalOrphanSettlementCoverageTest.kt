@@ -18,7 +18,12 @@ class Aate6662JournalOrphanSettlementCoverageTest {
             .substringBefore("\n    fun statusLine")
         assertTrue(repair.contains("openBasisByPosition"))
         assertTrue(repair.contains("CanonicalPositionAuthority6441.getPosition(positionId)"))
-        assertTrue(repair.contains("if (canonical != null) return@forEach"))
+        // V5.0.7360 — a canonical CLOSED lot is rebuilt from ledger receipts; only a
+        // truly orphaned lot (no canonical row) gets the zero-pnl refund below.
+        assertTrue(repair.contains("if (canonical != null) {"))
+        assertTrue(repair.indexOf("rebuildClosedLotFromReceipts7360(") > repair.indexOf("if (canonical != null) {"))
+        assertTrue(repair.indexOf("ORPHANED_STOP_LOT_REFUND_6662") > repair.indexOf("rebuildClosedLotFromReceipts7360("))
+        assertTrue(repair.contains("pnlSol = 0.0, pnlPct = 0.0, feeSol = 0.0, netPnlSol = 0.0"))
         assertTrue(repair.contains("ORPHANED_STOP_LOT_REFUND_6662"))
         assertTrue(repair.contains("soldCostBasisSol = basis"))
         assertTrue(repair.contains("grossProceedsSol = basis"))

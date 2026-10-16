@@ -26,7 +26,8 @@ class Aate7553NativeOccupancyAuthorityTest {
 
     @Test fun canonical_held_authority_remains_the_shared_truth() {
         val h=src("engine/HeldPositionSupervisor7246.kt")
-        assertTrue(h.contains("CanonicalPositionAuthority6441.openPositions()"))
+        // V5.0.7807 — held ownership is canonical protective inventory.
+        assertTrue(h.contains("CanonicalPositionAuthority6441.protectiveInventory7807(mode)"))
         assertTrue(h.contains("fun isHeld("))
         val c=src("engine/CyclicTradeEngine.kt")
         assertTrue(c.contains("HeldPositionSupervisor7246.isHeld"))

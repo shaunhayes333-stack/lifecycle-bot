@@ -25,6 +25,7 @@ class BuildRepair6581CoverageTest {
     private val stockSrc = File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
     private val markGateSrc = File("src/main/kotlin/com/lifecyclebot/engine/truth/MarkAuthorityIntegrityGate6496.kt").readText()
     private val cryptoAltSrc = File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+    private val canonicalContractSrc = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
 
     @Test
     fun p0_1_canonical_sell_fallback_uses_canonical_refund() {
@@ -68,8 +69,12 @@ class BuildRepair6581CoverageTest {
         assertTrue(
             "CryptoAltTrader must stamp CANDIDATE stage before executeSignal so the funnel " +
                 "reports candidate == actionable_after_dedup (was 0 in 6580)",
-            cryptoAltSrc.contains("markProducerStage6569(\n                        com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, \"CANDIDATE\"")
-                || cryptoAltSrc.contains("AssetClass.CRYPTO_ALT, \"CANDIDATE\"")
+            // V5.0.6551/7521 — CRYPTO_ALT hands every candidate to
+            // CanonicalEntryAuthority6551.submit(), which is the single writer of
+            // the CANDIDATE stage (markCandidateFor6551) for every asset class.
+            cryptoAltSrc.contains("com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(") &&
+                canonicalContractSrc.substringAfter("fun submit(candidate: CanonicalAssetEntryCandidate6551)")
+                    .contains("CanonicalEntryAuthority6540.markCandidateFor6551(candidate.assetClass, candidate.symbol, venue)")
         )
     }
 }
