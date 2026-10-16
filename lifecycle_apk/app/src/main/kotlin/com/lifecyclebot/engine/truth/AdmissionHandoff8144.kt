@@ -138,9 +138,23 @@ object AdmissionHandoff8144 {
      * or on any other refusal (judgement / safety stay binding), the receiver judged it exactly as before.
      */
     fun onNativeTransfer8153(h: Handoff8144, reads: Collection<LaneRead8144>, atMs: Long, fit: (String) -> Boolean): Handoff8144 {
-        if (!h.open || h.state != State8144.RECEIVER_QUALIFIED || atMs + SAME_READ_SLACK_MS_8144 < h.emittedAtMs) return onNative8144(h, reads, atMs)
+        if (!h.open || atMs + SAME_READ_SLACK_MS_8144 < h.emittedAtMs) return onNative8144(h, reads, atMs)
+        // A pending price, liquidity or birth hydration is not a native refusal.
+        // Keep the hand-off open for the next fresh read; do not settle it as "evaluated".
+        fun recoverable(reason: String) = when (com.lifecyclebot.engine.HandoffTaskRuntime8153.blockOf8153(reason)) {
+            com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.DATA,
+            com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.WAIT -> true
+            else -> false
+        }
+        if (h.state != State8144.RECEIVER_QUALIFIED) {
+            val namedRead = h.named?.let { named -> reads.firstOrNull { canon8144(it.lane) == named } }
+            if (h.state == State8144.EMITTED && namedRead != null && !namedRead.eligible &&
+                receiver8144(h.named, h.from, reads) == null && recoverable(namedRead.reason)) return h
+            return onNative8144(h, reads, atMs)
+        }
         val receiver = h.receiver ?: return onNative8144(h, reads, atMs)
         val rr = reads.firstOrNull { canon8144(it.lane) == receiver } ?: return h
+        if (!rr.eligible && recoverable(rr.reason)) return h
         if (rr.eligible || !fit(rr.reason)) return onNative8144(h, reads, atMs)
         val tried = h.tried8153 + receiver
         val next = receiver8144(null, h.from, reads.filter { canon8144(it.lane) !in tried }) ?: return onNative8144(h, reads, atMs)
@@ -198,6 +212,15 @@ object AdmissionHandoff8144 {
                     rt.onLedgerTransfer8153(after.mint, was, after.receiver, after.verdict, atMs)
                 } else if (after.state == State8144.ARRIVED_EVALUATED && after.verdict.startsWith("NATIVE_REFUSED:")) {
                     rt.onReceiverNativeRefused8153(after.mint, was, after.verdict.removePrefix("NATIVE_REFUSED:"), atMs)
+                } else if (after.state == State8144.RECEIVER_QUALIFIED && after.receiver == was) {
+                    val nativeRead = reads.firstOrNull { canon8144(it.lane) == was }
+                    if (nativeRead != null && !nativeRead.eligible) {
+                        val kind = rt.blockOf8153(nativeRead.reason)
+                        if (kind == com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.DATA ||
+                            kind == com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.WAIT) {
+                            rt.onReceiverNativeRefused8153(after.mint, was, nativeRead.reason, atMs)
+                        }
+                    }
                 }
             }
             val receiver = after.receiver
