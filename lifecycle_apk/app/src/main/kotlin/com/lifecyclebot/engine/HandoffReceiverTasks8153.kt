@@ -78,7 +78,8 @@ object HandoffReceiverTasks8153 {
     /** The receiving lane's own learned refusal: its judgement (named, not handed on), never mistaken for token safety. */
     private val LANE_JUDGEMENT_8153 = listOf("MEME_CONSENSUS_HARD_BLOCK", "MEME_PWIN_GATE", "RECEIVER_RECORD_UNSOUND")
     /** Missing data, not a verdict: the task waits for it. */
-    private val DATA_WORDS_8153 = listOf("NO_TOKEN_STATE", "PRICE_UNKNOWN", "DATA_MISSING", "MISSING_DATA", "NO_SNAPSHOT", "ARBITRATION_ERROR")
+    private val DATA_WORDS_8153 = listOf("NO_TOKEN_STATE", "PRICE_UNKNOWN", "DATA_MISSING", "MISSING_DATA", "NO_SNAPSHOT", "ARBITRATION_ERROR",
+        "BIRTH_METADATA_HYDRATING", "LIQ_UNHYDRATED", "PAIR_PENDING", "PRICE_NOT_FRESH", "AWAITING_PRICE", "HYDRATION_PENDING")
     /** The slot or the cycle was busy: the task waits (named at expiry if it never got in). */
     private val WAIT_WORDS_8153 = listOf("SLOT_HELD", "RESERVED_FOR", "OUTRANKED", "GATE_UNNAMED", "NO_PROPOSAL")
 
@@ -383,12 +384,11 @@ object HandoffTaskRuntime8153 {
     fun onReceiverNativeRefused8153(mint: String, lane: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
         try {
             if (!HandoffReceiverTasks8153.isDue8153(mint, lane, nowMs)) return
-            // Fit with nowhere left to go ends FIT_NO_COMPATIBLE_RECEIVER; safety stays binding; anything else is its judgement.
-            val block = when (blockOf8153(reason)) {
-                HandoffReceiverTasks8153.Block8153.BINDING -> HandoffReceiverTasks8153.Block8153.BINDING
-                HandoffReceiverTasks8153.Block8153.FIT -> HandoffReceiverTasks8153.Block8153.FIT
-                else -> HandoffReceiverTasks8153.Block8153.JUDGEMENT
-            }
+            // A native "not eligible yet" is not automatically an adverse trade judgement.
+            // Hydrating liquidity, price and birth metadata are recoverable DATA; a held
+            // election slot is WAIT. Only structural/binding or genuine native judgements
+            // close the receiver. The election must use the identical classification.
+            val block = blockOf8153(reason)
             HandoffReceiverTasks8153.blockTask8153(mint, lane, block, "NATIVE_REFUSED:$reason", nowMs)
         } catch (_: Throwable) {}
     }
