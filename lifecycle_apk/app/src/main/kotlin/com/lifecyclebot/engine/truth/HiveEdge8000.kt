@@ -110,6 +110,43 @@ object HiveEdge8000 {
 
     const val HIVE_WINDOW_8014 = 1_000.0
 
+    // ── V5.0.8144 — the network book is capped in memory ──
+    // The boot page-in reads up to 40 pages x 5,000 rows into [aggregate] and every 10-minute pull adds more; nothing
+    // ever removed a key (~170 B each: 200,000 keys ~ 34 MB). Resident keys are capped at [AGGREGATE_CAP_8144] scaled
+    // by heap pressure; this instance's own books (keys it uploaded) are kept first, then the keys with the most network
+    // evidence. An evicted key is never lost: the hive table holds it and the next process boot pages it back in.
+    const val AGGREGATE_CAP_8144 = 60_000
+    const val AGGREGATE_KEY_BYTES_8144 = 170L
+    private val aggregateEvicted8144 = AtomicLong(0)
+
+    /** Cap the network book at [cap] keys (own keys protected, then most evidence). Returns keys evicted. */
+    fun capAggregate8144(cap: Int): Int {
+        if (aggregate.size <= cap) return 0
+        val cands = aggregate.entries.map { (k, v) ->
+            com.lifecyclebot.engine.MemoryBounds8144.Candidate8144(k, v.getOrElse(0) { 0.0 }, 0L, uploaded.containsKey(k))
+        }
+        var n = 0
+        for (k in com.lifecyclebot.engine.MemoryBounds8144.victims8144(cands, com.lifecyclebot.engine.MemoryBounds8144.trimTarget8144(cap))) {
+            if (aggregate.remove(k) != null) n++
+        }
+        if (n > 0) aggregateEvicted8144.addAndGet(n.toLong())
+        return n
+    }
+
+    private fun aggregateCapNow8144(): Int = com.lifecyclebot.engine.MemoryBounds8144.capFor8144(
+        AGGREGATE_CAP_8144, try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144() } catch (_: Throwable) { com.lifecyclebot.engine.RetentionPolicy8136.Pressure.NORMAL }, 10_000)
+
+    /** MemoryGuard7977 (registry trim): the network book at the pressure-scaled cap; stale runner dedupe rows go. */
+    fun trim8144(p: com.lifecyclebot.engine.RetentionPolicy8136.Pressure) {
+        capAggregate8144(com.lifecyclebot.engine.MemoryBounds8144.capFor8144(AGGREGATE_CAP_8144, p, 10_000))
+        val now = System.currentTimeMillis()
+        runnerSeen.entries.removeIf { now - it.value > 24L * 3_600_000L }
+    }
+
+    fun aggregateCount8144(): Int = aggregate.size
+    fun uploadedCount8144(): Int = uploaded.size
+    fun evicted8144(): Long = aggregateEvicted8144.get()
+
     /** Keys of the shared ledger with [prefix] that carry other instances' evidence. */
     fun netKeys8000(prefix: String): List<String> = aggregate.keys.filter { it.startsWith(prefix) && net8000(it) != null }
 
@@ -236,6 +273,7 @@ object HiveEdge8000 {
             }
             pulledRows.addAndGet(res.rows.size.toLong())
             lastPullMs = maxTs
+            capAggregate8144(aggregateCapNow8144())   // V5.0.8144
         }
         save()
         // What the network proves becomes local authority.
@@ -276,6 +314,8 @@ object HiveEdge8000 {
             }
             rows += res.rows.size
             pages++
+            capAggregate8144(aggregateCapNow8144())   // V5.0.8144 — bounded while paging, not after
+
             if (maxTs <= from || res.rows.size < PULL_LIMIT) { from = maxTs; break }
             from = maxTs
         }
@@ -354,7 +394,7 @@ object HiveEdge8000 {
     }
 
     fun statusLine8000(): String =
-        "sharedKeys=${aggregate.size} mineUploaded=${uploaded.size} uploadedRows=${uploadedRows.get()} pulledRows=${pulledRows.get()} " +
+        "sharedKeys=${aggregate.size} evicted8144=${aggregateEvicted8144.get()} mineUploaded=${uploaded.size} uploadedRows=${uploadedRows.get()} pulledRows=${pulledRows.get()} " +
             "specialistsFromHive=${promotedFromHive.get()} seatsInherited=${seatsInherited.get()} expertsInherited=${expertsInherited.get()} runnerSignals[sent=${runnersSent.get()} pulled=${runnersPulled.get()}] " +
             "books=FRL,SPEC,PB,TAIL,CX,DEV,EXP hive=$EDGE_TABLE_8028 baselinedKeys8028=${baselined8028.get()} lastPull=${if (lastPullMs > 0L) "${(System.currentTimeMillis() - lastPullMs) / 1000}s" else "-"}"
 }

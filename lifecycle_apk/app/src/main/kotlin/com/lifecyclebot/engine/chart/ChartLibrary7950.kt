@@ -52,6 +52,13 @@ object ChartLibrary7950 {
 
     fun size(): Int = size
 
+    /**
+     * V5.0.8144 — census: the library is preallocated at [CAPACITY] (byte-quantised fingerprints + outcome columns),
+     * so its resident size is fixed (~5.5 MB, ~1% of a 512 MB heap) whatever the motif count. It is already hard
+     * capped: history enters by reservoir sampling and live motifs replace a crypto slot, so a full library never
+     * grows. Shrinking CAPACITY would truncate the saved library on load, so it is left as is.
+     */
+    fun residentBytes8144(): Long = CAPACITY.toLong() * (DIM + 1 + 4 + 4 + 4 + 1)
 
     private fun q(x: Float): Byte = (x * Q).roundToInt().coerceIn(-127, 127).toByte()
 

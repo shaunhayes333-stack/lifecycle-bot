@@ -4628,8 +4628,13 @@ object PipelineHealthCollector {
      *  Routes through `labelCounts` so the snapshot dump picks it up automatically. */
     fun labelInc(key: String) {
         if (!attached) return
-        bump(labelCounts, key)
+        // V5.0.8144 — some labels carry a mint or free text: past the cap a NEW key counts into one overflow label.
+        bump(labelCounts, if (labelCounts.size >= LABEL_KEY_CAP_8144 && !labelCounts.containsKey(key)) "LABEL_KEY_OVERFLOW_8144" else key)
     }
+
+    /** V5.0.8144 — distinct label keys kept (each ~150 B); census reads [labelKeyCount8144]. */
+    const val LABEL_KEY_CAP_8144 = 20_000
+    fun labelKeyCount8144(): Int = labelCounts.size
 
     /** V5.0.8087 — add [n] to a label at once (per-mint counts from one batch). */
     fun labelAdd(key: String, n: Long) {
