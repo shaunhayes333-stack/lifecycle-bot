@@ -52,6 +52,8 @@ object SpecialistMiner7972 {
     private const val STAT_WINDOW_8014 = 300
 
     class Stat(var n: Int = 0, var sum: Double = 0.0, var sumSq: Double = 0.0, var wins: Int = 0, var runners: Int = 0) {
+        /** V5.0.8144 — last label booked here (eviction rank tie-break; session-only, not persisted). */
+        @Volatile var touchedAtMs8144: Long = 0L
         fun add(net: Double, gross: Double) {
             val y = net.coerceIn(-100.0, NET_CAP)
             n++; sum += y; sumSq += y * y
@@ -237,7 +239,7 @@ object SpecialistMiner7972 {
             if (dev != null && devLabelled.add(mint)) {
                 val s = devs.getOrPut(dev) { Stat() }
                 synchronized(s) { s.add(net, gross) }
-                if (devs.size > 20_000) devs.clear()
+                if (devs.size > MAX_DEVS_8144) evictDevs8144(MAX_DEVS_8144)
                 if (devLabelled.size > 10_000) devLabelled.clear()
             }
         } catch (_: Throwable) {}
@@ -253,9 +255,10 @@ object SpecialistMiner7972 {
                 }
             }
             val s = keys[k] ?: run {
-                if (keys.size >= MAX_KEYS) prune()
+                if (keys.size >= residentCap8144()) prune8144(residentCap8144())
                 keys.getOrPut(k) { Stat() }
             }
+            s.touchedAtMs8144 = decidedAtMs
             val promote = synchronized(s) { s.add(net, gross); !promoted.containsKey(k) && promotes7972(s.n, s.mean(), s.se(), s.wins) }
             if (promote) {
                 val snap = synchronized(s) { Stat(s.n, s.sum, s.sumSq, s.wins, s.runners) }
@@ -316,11 +319,66 @@ object SpecialistMiner7972 {
         return n
     }
 
-    private fun prune() {
-        val victims = keys.entries.filter { !promoted.containsKey(it.key) && it.value.n <= 3 }.take(MAX_KEYS / 5)
-            .ifEmpty { keys.entries.filter { !promoted.containsKey(it.key) }.sortedBy { it.value.n }.take(MAX_KEYS / 10) }
-        victims.forEach { keys.remove(it.key, it.value) }
+    // ── V5.0.8144 — a hard, pressure-scaled resident cap with value-ranked eviction ──
+    // 8142 died at 512/512 MB with the miner trimmed to 10,000 keys 71 times and refilled to 40,000 between trims (a
+    // label books ~350 combinations). Resident keys are now capped at [RESIDENT_KEYS_8144] (~4.8 MB at ~160 B a key)
+    // scaled down by heap pressure; the thinnest, least recently booked unpromoted combinations go first, down to 90%
+    // of the cap so the next label does not re-sort. Promoted specialists (strategy identity) are never evicted.
+    // The file keeps the n>=3 record of what is resident; [MAX_KEYS] stays the load bound of older files.
+    const val RESIDENT_KEYS_8144 = 30_000
+    private const val RESIDENT_FLOOR_8144 = 2_500
+    const val MAX_DEVS_8144 = 16_000
+    const val KEY_BYTES_8144 = 160L
+    private val keysEvicted8144 = AtomicLong(0)
+    private val devsEvicted8144 = AtomicLong(0)
+
+    /** The resident key cap at the heap pressure now. */
+    private fun residentCap8144(): Int = residentCapAt8144(try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144() } catch (_: Throwable) { com.lifecyclebot.engine.RetentionPolicy8136.Pressure.NORMAL })
+
+    /** Pure: the resident key cap at pressure [p]. */
+    fun residentCapAt8144(p: com.lifecyclebot.engine.RetentionPolicy8136.Pressure): Int =
+        com.lifecyclebot.engine.MemoryBounds8144.capFor8144(RESIDENT_KEYS_8144, p, RESIDENT_FLOOR_8144)
+
+    /** Evict the least valuable unpromoted keys so at most 90% of [cap] stay. Returns keys evicted. */
+    private fun prune8144(cap: Int): Int {
+        val target = com.lifecyclebot.engine.MemoryBounds8144.trimTarget8144(cap)
+        if (keys.size <= target) return 0
+        val cands = keys.entries.map { (k, s) ->
+            com.lifecyclebot.engine.MemoryBounds8144.Candidate8144(k, s.n.toDouble(), s.touchedAtMs8144, promoted.containsKey(k))
+        }
+        var n = 0
+        for (k in com.lifecyclebot.engine.MemoryBounds8144.victims8144(cands, target)) if (keys.remove(k) != null) n++
+        if (n > 0) keysEvicted8144.addAndGet(n.toLong())
+        return n
     }
+
+    /** Dev reputations past [cap]: the thinnest records go (the 20,000 clear() wiped every reputation at once). */
+    private fun evictDevs8144(cap: Int) {
+        val target = com.lifecyclebot.engine.MemoryBounds8144.trimTarget8144(cap)
+        val cands = devs.entries.map { (d, s) -> com.lifecyclebot.engine.MemoryBounds8144.Candidate8144(d, s.n.toDouble(), s.touchedAtMs8144, false) }
+        var n = 0
+        for (d in com.lifecyclebot.engine.MemoryBounds8144.victims8144(cands, target)) if (devs.remove(d) != null) n++
+        if (n > 0) devsEvicted8144.addAndGet(n.toLong())
+    }
+
+    fun promotedCount8144(): Int = promoted.size
+    fun devCount8144(): Int = devs.size
+    fun evicted8144(): Long = keysEvicted8144.get() + devsEvicted8144.get()
+
+    /** V5.0.8144 — test seam: book [n] synthetic keys of evidence [evidence] each (an insert storm). */
+    internal fun stormForTest8144(n: Int, evidence: Int, prefix: String = "T") {
+        for (i in 0 until n) {
+            val k = "$prefix|k$i"
+            if (keys[k] == null && keys.size >= residentCap8144()) prune8144(residentCap8144())
+            val s = keys.getOrPut(k) { Stat() }
+            s.n = evidence; s.touchedAtMs8144 = i.toLong()
+        }
+    }
+
+    /** V5.0.8144 — test seam: mark [key] promoted (strategy identity). */
+    internal fun promoteForTest8144(key: String) { promoted[key] = Spec(key, 0L, Stat(30, 900.0, 40_000.0, 20, 0)) }
+
+    internal fun hasKeyForTest8144(key: String): Boolean = keys.containsKey(key)
 
     /** The best promoted specialist of [lane] this token matches now, or null. */
     fun match7972(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Spec? {
@@ -425,7 +483,12 @@ object SpecialistMiner7972 {
         if (!f.exists()) return
         DataInputStream(BufferedInputStream(f.inputStream(), 1 shl 16)).use { i ->
             if (i.readInt() != MAGIC) return
-            repeat(i.readInt().coerceIn(0, MAX_KEYS)) { keys.putIfAbsent(i.readUTF(), readStat(i)) }
+            // V5.0.8144 — loaded in bounded slices: past the resident cap the weakest keys are evicted as reading goes.
+            val cap8144 = residentCap8144()
+            repeat(i.readInt().coerceIn(0, MAX_KEYS)) {
+                keys.putIfAbsent(i.readUTF(), readStat(i))
+                if (keys.size > cap8144 + 2_000) prune8144(cap8144)
+            }
             repeat(i.readInt().coerceIn(0, 10_000)) { val k = i.readUTF(); promoted.putIfAbsent(k, Spec(k, i.readLong(), readStat(i), readStat(i))) }
             repeat(i.readInt().coerceIn(0, 20_000)) { devs.putIfAbsent(i.readUTF(), readStat(i)) }
         }
@@ -433,13 +496,12 @@ object SpecialistMiner7972 {
 
     fun saveNow7972() { file?.let { save(it) } }
 
-    /** V5.0.7977 — MemoryGuard7977: drop the thinnest unpromoted combinations (hard: down to a quarter). */
+    /** V5.0.7977 — MemoryGuard7977: drop the thinnest unpromoted combinations (V5.0.8144: to the pressure-scaled cap). */
     fun trim7977(hard: Boolean) {
-        val keep = if (hard) MAX_KEYS / 4 else MAX_KEYS / 2
-        if (keys.size > keep) {
-            keys.entries.filter { !promoted.containsKey(it.key) }.sortedBy { it.value.n }
-                .take((keys.size - keep).coerceAtLeast(0)).forEach { keys.remove(it.key, it.value) }
-        }
+        // V5.0.8144 — the pressure-scaled cap, value-ranked (evidence, then recency); a hard trim is at least HARD.
+        val now8144 = try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144() } catch (_: Throwable) { com.lifecyclebot.engine.RetentionPolicy8136.Pressure.NORMAL }
+        val floor8144 = if (hard) com.lifecyclebot.engine.RetentionPolicy8136.Pressure.HARD else com.lifecyclebot.engine.RetentionPolicy8136.Pressure.SOFT
+        prune8144(residentCapAt8144(if (now8144.ordinal > floor8144.ordinal) now8144 else floor8144))
         devLabelled.clear(); matched.clear()
         if (hard && devs.size > 5_000) devs.entries.filter { it.value.n < 2 }.forEach { devs.remove(it.key, it.value) }
     }

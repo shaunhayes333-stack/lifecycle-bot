@@ -398,9 +398,55 @@ object UnifiedPolicyHead {
             val x7389 = s.toArray()
             observeInputs7389(x7389) // V5.0.7389 — input degeneracy telemetry for the authority cap.
             pending.computeIfAbsent(mint) { java.util.concurrent.ConcurrentHashMap() }[laneKey] = x7389
-            appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
+            val now8144 = System.currentTimeMillis()
+            pendingStampAt8144[mint] = now8144
+            boundPending8144(now8144)
+            requestSave8144()
         } catch (_: Throwable) {}
     }
+
+    // ── V5.0.8144 — memory: one coalesced save, and a cap on observations no position ever bound ──
+    // Every FDG stamp launched a full export (three modes, every pending observation, re-parsed per mode) and a
+    // whole-file SharedPreferences rewrite on the side-effect pool; a busy scanner queued thousands of them. The
+    // pre-open observations were removed only when a position bound or released them, so every candidate the bot
+    // never bought stayed resident (and persisted) forever. Saves are now coalesced (one in flight, >= 10 s apart,
+    // nothing left unsaved), and past [PENDING_CAP_8144] mints the oldest observations not re-stamped for 30 min go
+    // (a buy is always re-stamped by the FDG that admits it; bound positions live in pendingByPosition6681, untouched).
+    private const val PENDING_CAP_8144 = 3_000
+    private const val PENDING_MIN_AGE_MS_8144 = 30L * 60_000L
+    private val saveCoalescer8144 = MemorySaveCoalescer8144(10_000L)
+    private val pendingStampAt8144 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val pendingEvictedCount8144 = java.util.concurrent.atomic.AtomicLong(0)
+    @Volatile private var lastPendingBound8144 = 0L
+
+    private fun requestSave8144() {
+        val ctx = appContext ?: return
+        if (!saveCoalescer8144.claim8144()) return
+        try {
+            GlobalScope.launch(AppDispatchers.sideEffect) {
+                kotlinx.coroutines.delay(saveCoalescer8144.delayMs8144(System.currentTimeMillis()))
+                saveCoalescer8144.begin8144(System.currentTimeMillis())
+                save(ctx)
+            }.invokeOnCompletion { cause -> if (cause != null) saveCoalescer8144.abort8144() }
+        } catch (_: Throwable) { saveCoalescer8144.abort8144() }
+    }
+
+    private fun boundPending8144(nowMs: Long) {
+        val p = pending
+        if (p.size <= PENDING_CAP_8144 || nowMs - lastPendingBound8144 < 30_000L) return
+        lastPendingBound8144 = nowMs
+        val stamps = HashMap<String, Long>(p.size * 2)
+        for (m in p.keys) stamps[m] = pendingStampAt8144[m] ?: 0L
+        for (m in MemoryBounds8144.oldestBeyondCap8144(stamps, MemoryBounds8144.trimTarget8144(PENDING_CAP_8144), PENDING_MIN_AGE_MS_8144, nowMs)) {
+            if (p.remove(m) != null) pendingEvictedCount8144.incrementAndGet()
+        }
+        pendingStampAt8144.keys.removeIf { k -> models7835.values.none { it.pending.containsKey(k) } }
+    }
+
+    /** V5.0.8144 — census: pre-open observations across modes, evictions, coalesced saves. */
+    fun pendingCount8144(): Int = models7835.values.sumOf { it.pending.size }
+    fun pendingEvicted8144(): Long = pendingEvictedCount8144.get()
+    fun saveLine8144(): String = saveCoalescer8144.statusLine8144() + " pendingEvicted=${pendingEvictedCount8144.get()}"
 
     private fun ownerFeatureCandidateKeys6681(ownerLane: String): List<String> {
         val owner = normalizeLane(ownerLane)
@@ -460,7 +506,7 @@ object UnifiedPolicyHead {
                         )
                         PipelineHealthCollector.labelInc("UNIFIED_POLICY_POSITION_BOUND_6681")
                     } catch (_: Throwable) {}
-                    appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
+                    requestSave8144()
                     true
                 }
             }
@@ -605,7 +651,7 @@ object UnifiedPolicyHead {
         try {
             if (pendingByPosition6681.remove(positionId) != null) {
                 PipelineHealthCollector.labelInc("UNIFIED_POLICY_POSITION_RELEASED_UNTRAINABLE_7809")
-                appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
+                requestSave8144()
             }
         } catch (_: Throwable) {}
     }
@@ -668,7 +714,7 @@ object UnifiedPolicyHead {
                     )
                     PipelineHealthCollector.labelInc("UNIFIED_POLICY_CAUSAL_OUTCOME_6681")
                 } catch (_: Throwable) {}
-                appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
+                requestSave8144()
                 true
             }
         } catch (_: Throwable) { false }

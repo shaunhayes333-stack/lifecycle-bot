@@ -2,9 +2,14 @@ package com.lifecyclebot.util
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
-import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.RejectedExecutionHandler
 import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * V5.9.1349 — ROOT-CAUSE FIX for the "always stalls at ~100 trades" wedge.
@@ -39,14 +44,31 @@ object AppDispatchers {
     // broadcast, notify, wallet reconcile). 8 threads is plenty for telemetry and
     // guarantees that even if all 8 are stuck in 30s socket reads, the 64
     // Dispatchers.IO threads remain free for trade execution.
-    private val sideEffectExecutor =
-        Executors.newFixedThreadPool(8, ThreadFactory { r ->
+    //
+    // V5.0.8144 — the queue is bounded. Executors.newFixedThreadPool queues without limit: with all 8 threads in
+    // slow socket reads, every GlobalScope.launch(sideEffect) (one per FDG stamp in two learners, one per alert,
+    // one per hook) waited in an unbounded LinkedBlockingQueue holding its coroutine and captured state, and the
+    // heap filled (5.0.8142: OutOfMemoryError on DefaultExecutor at 512/512 MB). Past [SIDE_EFFECT_QUEUE_CAP_8144]
+    // queued tasks a dispatch is refused and counted; kotlinx cancels that coroutine (its job completes with the
+    // cancellation), so a refused side effect is dropped visibly instead of queued forever.
+    const val SIDE_EFFECT_QUEUE_CAP_8144 = 4_096
+    private val rejectedCount8144 = AtomicLong(0)
+    private val sideEffectExecutor: ThreadPoolExecutor =
+        ThreadPoolExecutor(8, 8, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue<Runnable>(SIDE_EFFECT_QUEUE_CAP_8144), ThreadFactory { r ->
             Thread(r, "AATE-SideEffect-${threadCounter.incrementAndGet()}").apply {
                 isDaemon = true                       // never keeps the JVM alive
                 priority = Thread.NORM_PRIORITY - 1   // yields to trade-critical work
             }
+        }, RejectedExecutionHandler { _, _ ->
+            rejectedCount8144.incrementAndGet()
+            throw RejectedExecutionException("side-effect queue full (${SIDE_EFFECT_QUEUE_CAP_8144})")
         })
 
     /** Use for ALL non-trade-critical fire-and-forget background coroutines. */
     val sideEffect: CoroutineDispatcher = sideEffectExecutor.asCoroutineDispatcher()
+
+    /** V5.0.8144 — census: side-effect tasks waiting for a thread, and dispatches refused at the cap. */
+    fun sideEffectQueueDepth8144(): Int = sideEffectExecutor.queue.size
+    fun sideEffectActive8144(): Int = sideEffectExecutor.activeCount
+    fun sideEffectRejected8144(): Long = rejectedCount8144.get()
 }

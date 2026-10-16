@@ -295,6 +295,13 @@ object ForwardReturnLabeler7731 {
     private val offWatchCurvePriced7753 = AtomicLong(0)
     private val bookingsSincePersist = AtomicLong(0)
     @Volatile private var lastPersistMs = 0L
+    private val persistDeferredCount8144 = AtomicLong(0)
+
+    /** V5.0.8144 — census: open observations, cell tallies, dedupe stamps, off-watch marks; saves deferred by pressure. */
+    fun pendingCount8144(): Int = pending.size
+    fun cellCount8144(): Int = cells.size
+    fun seenCount8144(): Int = lastSeenAt.size + offWatchAttemptAt7809.size + lastAdmit8094.size
+    fun persistDeferred8144(): Long = persistDeferredCount8144.get()
 
     // ── aggregate keys, kept beside the cells in the same table ──
     private const val AGG_ADMITTED = "AGG|ADMITTED"
@@ -377,6 +384,12 @@ object ForwardReturnLabeler7731 {
         val p = prefs ?: return
         val now = System.currentTimeMillis()
         if (!force && now - lastPersistMs < 60_000L) return
+        // V5.0.8144 — the cells + pending blob (up to 2,000 rows with their facts: ~1.5M chars) is rebuilt and rewritten
+        // whole into SharedPreferences; under heap pressure that rebuild is spaced out (forced saves still run).
+        if (!force && now - lastPersistMs < com.lifecyclebot.engine.MemoryBounds8144.saveIntervalMs8144(60_000L,
+                try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144() } catch (_: Throwable) { com.lifecyclebot.engine.RetentionPolicy8136.Pressure.NORMAL })) {
+            persistDeferredCount8144.incrementAndGet(); return
+        }
         lastPersistMs = now
         bookingsSincePersist.set(0)
         try {

@@ -88,8 +88,51 @@ object StructureTracker7962 {
         }
         if (tapes.size > MAX_MINTS) {
             tapes.entries.filter { atMs - it.value.lastMs > KEEP60_MS }.forEach { tapes.remove(it.key, it.value) }
-            if (tapes.size > MAX_MINTS) tapes.entries.sortedBy { it.value.lastMs }.take(tapes.size - MAX_MINTS).forEach { tapes.remove(it.key, it.value) }
+            // V5.0.8144 — down to 90% of the cap (trimming to the cap re-sorted every tape on each new mint).
+            if (tapes.size > MAX_MINTS) tapes.entries.sortedBy { it.value.lastMs }.take(tapes.size - com.lifecyclebot.engine.MemoryBounds8144.trimTarget8144(MAX_MINTS)).forEach { tapes.remove(it.key, it.value) }
         }
+    }
+
+    // ── V5.0.8144 — the structure tapes under heap pressure ──
+    // Up to 1,500 tapes of 15 s (45 min) and 1 m (2 h) buckets (~38 KB each when busy) and no memory-guard trim ever
+    // reached them: ChartReader's pressure trim freed its own tapes and left these. A tape that has a structure-break
+    // signal still to grade (its mark at +5 min is read from the tape) is kept, as are the caller's protected mints.
+
+    /** Tapes quiet for [quietMs] go (MemoryGuard soft trim through ChartReader7950.trim7977). Returns tapes freed. */
+    fun trimQuiet8144(quietMs: Long, nowMs: Long = System.currentTimeMillis(), isProtected: (String) -> Boolean = { false }): Int {
+        val grading = pending.values.mapTo(HashSet<String>()) { it.mint }
+        var n = 0
+        for (e in tapes.entries.toList()) {
+            if (nowMs - e.value.lastMs <= quietMs || e.key in grading) continue
+            if (try { isProtected(e.key) } catch (_: Throwable) { true }) continue
+            if (tapes.remove(e.key, e.value)) n++
+        }
+        if (readCache.size > 2_000) readCache.clear()
+        return n
+    }
+
+    /** Beyond [maxTapes], the least recently priced unprotected tapes go. Returns tapes freed. */
+    fun trimUnderPressure8144(maxTapes: Int, isProtected: (String) -> Boolean): Int {
+        val excess = tapes.size - maxTapes.coerceAtLeast(0)
+        readCache.clear()
+        if (excess <= 0) return 0
+        val grading = pending.values.mapTo(HashSet<String>()) { it.mint }
+        var freed = 0
+        tapes.entries.sortedBy { it.value.lastMs }.asSequence()
+            .filter { e -> e.key !in grading && !(try { isProtected(e.key) } catch (_: Throwable) { true }) }
+            .take(excess)
+            .forEach { e -> if (tapes.remove(e.key, e.value)) freed++ }
+        return freed
+    }
+
+    /** V5.0.8144 — census: tapes held. */
+    fun tapeCount8144(): Int = tapes.size
+
+    /** V5.0.8144 — census: estimated bytes the tapes hold (walks the tape map; guard thread only). */
+    fun tapeBytes8144(): Long {
+        var buckets = 0L
+        for (t in tapes.values) buckets += t.b15.size + t.b60.size
+        return buckets * ChartReader7950.BUCKET_BYTES_8144 + tapes.size * 160L
     }
 
     fun onTrade7962(mint: String, solAmount: Double, isBuy: Boolean, atMs: Long) {

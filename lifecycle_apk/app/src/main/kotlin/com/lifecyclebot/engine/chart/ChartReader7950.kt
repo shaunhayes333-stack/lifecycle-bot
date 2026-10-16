@@ -119,7 +119,9 @@ object ChartReader7950 {
     private fun trim(nowMs: Long) {
         tapes.entries.filter { nowMs - it.value.lastMs > KEEP_MS }.forEach { tapes.remove(it.key, it.value) }
         if (tapes.size > MAX_MINTS) {
-            tapes.entries.sortedBy { it.value.lastMs }.take(tapes.size - MAX_MINTS).forEach { tapes.remove(it.key, it.value) }
+            // V5.0.8144 — down to 90% of the cap: trimming to the cap itself re-sorted every tape on each new mint.
+            val target8144 = com.lifecyclebot.engine.MemoryBounds8144.trimTarget8144(MAX_MINTS)
+            tapes.entries.sortedBy { it.value.lastMs }.take(tapes.size - target8144).forEach { tapes.remove(it.key, it.value) }
         }
     }
 
@@ -312,8 +314,27 @@ object ChartReader7950 {
         // V5.0.7986 — under heap pressure, tapes quiet for 15 minutes go (the archive keeps the token).
         val now = System.currentTimeMillis()
         tapes.entries.removeIf { now - it.value.lastMs > 15L * 60_000L }
+        // V5.0.8144 — the structure tapes (fed from onPrice for the same mints) were never reached by any trim.
+        try { StructureTracker7962.trimQuiet8144(15L * 60_000L, now) } catch (_: Throwable) {}
+        short7955.entries.removeIf { now - it.value > 30L * 60_000L }
     }
     fun size7977(): Int = reads.size + tapes.size
+
+    /** V5.0.8144 — census: tapes held. */
+    fun tapeCount8144(): Int = tapes.size
+
+    /** V5.0.8144 — census: cached reads + short-tape notes (rebuilt on demand). */
+    fun readCacheCount8144(): Int = reads.size + short7955.size
+
+    /** Pure: one tape bucket on ART (TreeMap entry + boxed key + 7-8 double array). */
+    const val BUCKET_BYTES_8144 = 136L
+
+    /** V5.0.8144 — census: estimated bytes the tapes hold (walks the tape map; guard thread only). */
+    fun tapeBytes8144(): Long {
+        var buckets = 0L
+        for (t in tapes.values) buckets += t.bars.size + t.fine7982.size
+        return buckets * BUCKET_BYTES_8144 + tapes.size * 160L
+    }
 
     /**
      * V5.0.8136 — retention under HARD/CRITICAL heap pressure: the 15-minute quiet rule never freed a fresh tape, so
@@ -322,6 +343,8 @@ object ChartReader7950 {
      * the feed). [isProtected] keeps open positions and active admissions. Returns tapes freed.
      */
     fun trimUnderPressure8136(maxTapes: Int, isProtected: (String) -> Boolean): Int {
+        // V5.0.8144 — the structure tapes get the same cap and the same protection (they hold more mints: up to 1,500).
+        try { StructureTracker7962.trimUnderPressure8144(maxTapes, isProtected) } catch (_: Throwable) {}
         val excess = tapes.size - maxTapes.coerceAtLeast(0)
         if (excess <= 0) return 0
         var freed = 0

@@ -252,6 +252,28 @@ object AutonomousMetaPolicy {
     // and this policy recorded updates=6. A per-lane stamp is kept beside the
     // mint stamp; a close that names its lane credits that lane's context.
     private const val PENDING_MAX_7723 = 4000
+
+    // V5.0.8144 — every FDG stamp launched a full export + SharedPreferences rewrite on the side-effect pool (thousands
+    // queued under a busy scanner). One coalesced save in flight, >= 10 s apart; a change made while a save runs
+    // schedules the next one, so nothing is left unsaved.
+    private val saveCoalescer8144 = MemorySaveCoalescer8144(10_000L)
+
+    private fun requestSave8144() {
+        val ctx = appContext ?: return
+        if (!saveCoalescer8144.claim8144()) return
+        try {
+            GlobalScope.launch(AppDispatchers.sideEffect) {
+                kotlinx.coroutines.delay(saveCoalescer8144.delayMs8144(System.currentTimeMillis()))
+                saveCoalescer8144.begin8144(System.currentTimeMillis())
+                save(ctx)
+            }.invokeOnCompletion { cause -> if (cause != null) saveCoalescer8144.abort8144() }
+        } catch (_: Throwable) { saveCoalescer8144.abort8144() }
+    }
+
+    /** V5.0.8144 — census: decision stamps held and coalesced saves. */
+    fun pendingCount8144(): Int = pending.size
+    fun saveLine8144(): String = saveCoalescer8144.statusLine8144()
+
     private fun mintStampKey7725(mint: String, mode: String): String = "$mode|$mint"
     private fun laneStampKey7723(mint: String, lane: String, mode: String): String = "$mode|$mint|${lane.trim().uppercase()}"
 
@@ -268,7 +290,7 @@ object AutonomousMetaPolicy {
                 while (it.hasNext() && n < PENDING_MAX_7723 / 10) { it.next(); it.remove(); n++ }
                 try { PipelineHealthCollector.labelInc("AUTONOMOUS_META_PENDING_PRUNED_7723") } catch (_: Throwable) {}
             }
-            appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
+            requestSave8144()
         } catch (_: Throwable) {}
     }
 
@@ -308,7 +330,7 @@ object AutonomousMetaPolicy {
             totalUpdates += 1
             if (totalUpdates % DECAY_EVERY == 0L) decayAll()
             // V5.0.6486 — every pending-label removal is durable; async keeps it off hot path.
-            appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
+            requestSave8144()
         } catch (_: Throwable) {}
     }
 

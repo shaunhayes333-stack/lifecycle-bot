@@ -139,9 +139,73 @@ object Cortex7885 {
         assessNanos.addAndGet(System.nanoTime() - t0)
         assessed.incrementAndGet()
         if (assessCache.size >= MAX_ASSESS_CACHE) assessCache.entries.removeIf { nowMs - it.value.atMs > ASSESS_TTL_MS }
+        if (assessCache.size >= ASSESS_PRUNE_AT_8144) pruneAssess8144(nowMs)
         assessCache[key] = a
         return a
     }
+
+    // ── V5.0.8144 — memory: assessments and pending decisions are the heaviest resident Cortex rows ──
+    // An Assessment carries ~400 voter slots (raws, ids, edges and the prediction snapshot): ~15-20 KB. The cache kept
+    // up to 4,000 of them although each is read for 20-60 s (stale ones went only once the cache was full: ~70 MB at
+    // steady state), and a pending decision whose 5-minute label can no longer arrive (ForwardReturnLabeler7731 keeps
+    // an observation 70 min at most) stayed for 5 hours (up to 8,000 x ~18 KB). Neither was reached by any trim.
+    private const val ASSESS_PRUNE_AT_8144 = 512
+    /** The longest any reader trusts a cached assessment (cortexStake7893 and the legacy-shape read: 60 s). */
+    private const val ASSESS_KEEP_MS_8144 = 60_000L
+    /** Past this a pending decision cannot be graded: the labeler never holds an observation past 70 min. */
+    const val DEAD_PENDING_MS_8144 = 90L * 60_000L
+    const val ASSESSMENT_BASE_BYTES_8144 = 512L
+    @Volatile private var lastAssessPruneMs8144 = 0L
+    @Volatile private var lastDeadPrune8144 = 0L
+    private val assessEvicted8144 = AtomicLong(0)
+    private val deadPendingEvicted8144 = AtomicLong(0)
+
+    /** Drop cached assessments no reader can use any more (at most every 5 s). */
+    private fun pruneAssess8144(nowMs: Long) {
+        if (nowMs - lastAssessPruneMs8144 < 5_000L) return
+        lastAssessPruneMs8144 = nowMs
+        val before = assessCache.size
+        assessCache.entries.removeIf { nowMs - it.value.atMs > ASSESS_KEEP_MS_8144 }
+        assessEvicted8144.addAndGet((before - assessCache.size).coerceAtLeast(0).toLong())
+    }
+
+    /** Drop pending decisions older than [DEAD_PENDING_MS_8144] (their label can no longer arrive; at most every 60 s). */
+    private fun pruneDeadPending8144(nowMs: Long, force: Boolean = false) {
+        if (!force && nowMs - lastDeadPrune8144 < 60_000L) return
+        lastDeadPrune8144 = nowMs
+        val before = pending.size
+        pending.entries.removeIf { nowMs - it.value.atMs > DEAD_PENDING_MS_8144 }
+        deadPendingEvicted8144.addAndGet((before - pending.size).coerceAtLeast(0).toLong())
+    }
+
+    /**
+     * MemoryGuard7977 (registry trim): stale assessments and dead pending decisions go at any pressure; under HARD /
+     * CRITICAL pressure every cached assessment older than the 20 s read window goes (each is rebuilt on demand).
+     * Entry reads of open positions (entryReads) and live pending decisions are never touched.
+     */
+    fun trim8144(p: com.lifecyclebot.engine.RetentionPolicy8136.Pressure) {
+        val now = System.currentTimeMillis()
+        lastAssessPruneMs8144 = 0L
+        pruneAssess8144(now)
+        pruneDeadPending8144(now, force = true)
+        if (p == com.lifecyclebot.engine.RetentionPolicy8136.Pressure.HARD || p == com.lifecyclebot.engine.RetentionPolicy8136.Pressure.CRITICAL) {
+            val before = assessCache.size
+            assessCache.entries.removeIf { now - it.value.atMs > ASSESS_TTL_MS }
+            assessEvicted8144.addAndGet((before - assessCache.size).coerceAtLeast(0).toLong())
+            scheduled.entries.removeIf { now - it.value > 30_000L }
+        }
+    }
+
+    fun assessCacheCount8144(): Int = assessCache.size
+    fun entryReadCount8144(): Int = entryReads.size
+    fun gradedCount8144(): Int = synchronized(this) { graded8006.size }
+    fun evicted8144(): Long = assessEvicted8144.get() + deadPendingEvicted8144.get()
+
+    /** Census: bytes of one assessment of the current voter width (raws, ids, edges, prediction: ~40 B a slot). */
+    fun assessmentBytes8144(): Long = ASSESSMENT_BASE_BYTES_8144 + 40L * (try { CortexVoters7885.IDS.size + 120 } catch (_: Throwable) { 400 })
+
+    /** Pure: the persisted pending snapshot carries only decisions a label can still reach. */
+    fun persistablePending8144(atMs: Long, nowMs: Long): Boolean = nowMs - atMs <= DEAD_PENDING_MS_8144
 
     // ── v1 §2.9 compute model (V5.0.7909): voters run off the decision path ──
     //
@@ -207,6 +271,7 @@ object Cortex7885 {
     private fun captureNow(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?,
                            snap8084: LanePlaybook7907.Classification8084? = null) {
         val a = assess(ts, labelLane, nowMs) ?: return
+        pruneDeadPending8144(nowMs)
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
@@ -263,7 +328,10 @@ object Cortex7885 {
             // Voter ids are written once in a dictionary; each decision stores indices (keeps the blob well under 1 MB).
             val dict = LinkedHashMap<String, Int>()
             val arr = org.json.JSONArray()
-            pending.entries.sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX).forEach { (k, p) ->
+            // V5.0.8144 — only decisions a label can still reach: each row is ~400 JSON numbers, and the dead ones made
+            // every 2-minute checkpoint build a multi-MB JSON tree for rows no restart can grade.
+            val now8144 = System.currentTimeMillis()
+            pending.entries.filter { persistablePending8144(it.value.atMs, now8144) }.sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX).forEach { (k, p) ->
                 val a = p.a
                 val ids = org.json.JSONArray()
                 val xs = org.json.JSONArray()
