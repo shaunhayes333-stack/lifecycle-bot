@@ -411,14 +411,33 @@ object HandoffTaskRuntime8153 {
         val l = HandoffReceiverTasks8153.canon8153(lane)
         // Cheap map read first (every non-primary lane asks every cycle); the candidate version only for a live task.
         if (!HandoffReceiverTasks8153.isDue8153(mint, l, nowMs) || !HandoffReceiverTasks8153.isDue8153(mint, l, nowMs, version8153(mint))) false else {
-            val ineligible = SpecialistOwnership7951.rescueIneligible8136(mint, l)
-            val outcome = ElectionRescueContract8144.guardedClaim8144 {
-                SpecialistElection8136.claimHandoffReceiver8153(mint, l, primaryLane, ineligible, nowMs)
+            // 8159: a pending DATA task is permission to RE-EVALUATE, not permission to buy
+            // against a stale/failed native opinion. Recheck the actual receiving lane's
+            // independent native evidence before claiming the candidate's rescue slot.
+            val snapshot = try { SpecialistBrainBridge7542.cachedSnapshot7650(mint) } catch (_: Throwable) { null }
+            val native = snapshot?.opinions?.get(l)
+            val ageMs = if (snapshot == null) Long.MAX_VALUE else nowMs - snapshot.evaluatedAtMs
+            when {
+                native == null || ageMs !in 0L..45_000L || !native.authoritative -> {
+                    HandoffReceiverTasks8153.blockTask8153(mint, l, HandoffReceiverTasks8153.Block8153.DATA,
+                        "DEFERRED_NATIVE_EVIDENCE_NOT_FRESH", nowMs)
+                    false
+                }
+                !native.eligible -> {
+                    refused8153(mint, l, native.reason, nowMs)
+                    false
+                }
+                else -> {
+                    val ineligible = SpecialistOwnership7951.rescueIneligible8136(mint, l)
+                    val outcome = ElectionRescueContract8144.guardedClaim8144 {
+                        SpecialistElection8136.claimHandoffReceiver8153(mint, l, primaryLane, ineligible, nowMs)
+                    }
+                    if (outcome.executable) {
+                        try { PipelineHealthCollector.labelInc("HANDOFF_TASK_8153_ADMITTED_$l") } catch (_: Throwable) {}
+                    } else claimRefused8153(mint, l, outcome, ineligible, nowMs)
+                    outcome.executable
+                }
             }
-            if (outcome.executable) {
-                try { PipelineHealthCollector.labelInc("HANDOFF_TASK_8153_ADMITTED_$l") } catch (_: Throwable) {}
-            } else claimRefused8153(mint, l, outcome, ineligible, nowMs)
-            outcome.executable
         }
     } catch (_: Throwable) { false }
 
