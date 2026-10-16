@@ -76,6 +76,7 @@ class Aate6615LoopStarvationRepairTest {
         assertTrue(gate.contains("EXEC_OPEN_BLOCKED_NO_EXECUTION_INTENT_6615"))
         assertFalse(gate.contains("SIGNAL_NOT_BUY:${'$'}{signal.ifBlank { \"UNKNOWN\" }}"))
         assertTrue(crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED"))
-        assertEquals(1, Regex("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE").findAll(crypto).count())
+        // V5.0.7400 — ranked-out candidates are retained as shared-intelligence
+        // progress (CRYPTO_RANKED_OUT_RETAINED_7400); the _REQUEUE label is gone.
     }
 }

@@ -70,13 +70,16 @@ class Aate6715TradeOneCausalAuthorityTest {
 
     @Test fun `paper score calibration responds on the first loss without hard rejecting`() {
         ScoreExpectancyTracker.reset()
-        ScoreExpectancyTracker.record("EXPRESS", 20, -20.0)
-        assertEquals(1, ScoreExpectancyTracker.bucketSamples("EXPRESS", 20))
-        assertNotNull(ScoreExpectancyTracker.bucketRawMean6715("EXPRESS", 20))
-        assertFalse("hard reject must retain its mature sample rule", ScoreExpectancyTracker.shouldReject("EXPRESS", 20))
-        val mult = ScoreExpectancyTracker.calibrationSizeMult("EXPRESS", 20)
-        assertTrue("first loss must trim next paper size, got $mult", mult < 1.0)
-        assertTrue("trade-one evidence must remain bounded, got $mult", mult > 0.25)
+        // V5.0.7835 — only canonical, trade-mode-scoped deliveries train the tracker.
+        LearningEnvironment7835.withMode("PAPER", canonical = true) {
+            ScoreExpectancyTracker.record("EXPRESS", 20, -20.0)
+            assertEquals(1, ScoreExpectancyTracker.bucketSamples("EXPRESS", 20))
+            assertNotNull(ScoreExpectancyTracker.bucketRawMean6715("EXPRESS", 20))
+            assertFalse("hard reject must retain its mature sample rule", ScoreExpectancyTracker.shouldReject("EXPRESS", 20))
+            val mult = ScoreExpectancyTracker.calibrationSizeMult("EXPRESS", 20)
+            assertTrue("first loss must trim next paper size, got $mult", mult < 1.0)
+            assertTrue("trade-one evidence must remain bounded, got $mult", mult > 0.25)
+        }
     }
 
     @Test fun `source contract has exact terminal consumer and exact owner learner ack`() {
@@ -86,7 +89,8 @@ class Aate6715TradeOneCausalAuthorityTest {
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue(bus.contains("CausalFeedback6715"))
         assertTrue(bridge.contains("deliverToCausalFeedback6715"))
-        assertTrue(bridge.contains("setOf(\"Dashboard\", \"CausalFeedback6715\")"))
+        // V5.0.7835 — KillSwitch7835 joined the non-learning consumer set.
+        assertTrue(bridge.contains("NON_LEARNING_CONSUMERS = setOf(\"Dashboard\", \"CausalFeedback6715\", \"KillSwitch7835\")"))
         assertTrue(fabric.contains("CausalFeedbackAuthority6715.markLearned(env.positionId)"))
         assertTrue(gate.contains("EXEC_OPEN_BLOCKED_CAUSAL_FEEDBACK_6715"))
         assertTrue(gate.contains("stampDecision("))

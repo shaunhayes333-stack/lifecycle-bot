@@ -13,7 +13,7 @@ class Aate7643DistributionalImaginationTest {
         assertTrue(s.contains("upsideP90"))
         assertTrue(s.contains("failureProbability"))
         assertTrue(s.contains("robustUtility"))
-        assertTrue(s.contains("private val shocks"))
+        assertTrue(s.contains("private fun shocksForBudget7646(rawBudget: Int): DoubleArray"))  // V5.0.7646 budgeted shocks
     }
 
     @Test fun treeRanksPoliciesByRobustDistributionalUtility() {

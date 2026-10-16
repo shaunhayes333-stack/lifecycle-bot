@@ -34,7 +34,9 @@ class Aate6680OpenPnlIntegrityRegressionTest {
             emit = false,
         )
         assertFalse("2500x with no immutable same-pool proof must be basis-wait", verdict.ok)
-        assertTrue(verdict.reason.contains("ASTRONOMICAL_RATIO_REQUIRES_SAME_POOL_PROOF_6680"))
+        // V5.0.6854 — the >1000x absurd-gain gate now runs before the 6680
+        // same-pool reproof and rejects this mark first.
+        assertTrue(verdict.reason.contains("OPEN_PNL_ABSURD_GAIN_6854"))
     }
 
     @Test
@@ -56,7 +58,8 @@ class Aate6680OpenPnlIntegrityRegressionTest {
     fun persisted_known_sentinel_entry_never_becomes_trusted_pnl() {
         val verdict = OpenPnlSanity.inspect(
             entryPrice = 0.050250000,
-            currentPrice = 119.0,
+            // 10x: below the V5.0.6854 absurd-gain gate so the sentinel check is reached.
+            currentPrice = 0.5025,
             entrySource = "DEXSCREENER_PAIR_POLL",
             currentSource = "DEXSCREENER_PAIR_POLL",
             entryPool = "SAME_POOL",
