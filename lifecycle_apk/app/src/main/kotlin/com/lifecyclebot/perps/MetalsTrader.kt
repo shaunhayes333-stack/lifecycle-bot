@@ -611,6 +611,8 @@ object MetalsTrader {
         val sizeMult = PerpsFluidSizing.sizeMultiplier(signal.score, signal.confidence)
         val requestedSizeSol = (balance * DEFAULT_SIZE_PCT / 100.0 * sizeMult).coerceAtLeast(0.01)
         val paper7835 = isPaperMode.get()
+        // V5.0.8169 — handoff marker precedes the canonical submit in both modes (was paper-only, after it).
+        try { com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.LANE_EVAL, signal.market.symbol, "lane=MARKETS_METALS source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
         val admission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
             com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551(
                 assetId = signal.market.symbol, symbol = signal.market.symbol,
@@ -691,7 +693,6 @@ object MetalsTrader {
         // fires Jupiter swap at the same positionSizeSol so sizing learnt
         // in paper carries into live 1:1. Live failure rolls back the position.
         if (paper7835) {
-            try { com.lifecyclebot.engine.ForensicLogger.phase(com.lifecyclebot.engine.ForensicLogger.PHASE.LANE_EVAL, signal.market.symbol, "lane=MARKETS_METALS source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
                         val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                 positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
                 lane = "METALS", source = "MetalsTrader",

@@ -293,8 +293,9 @@ At most 15 tokens and 15 channels. For dumps/fallouts/suspected rugs start the r
             when {
                 it.equals(PRIMARY_MODEL_7830, true) -> 0
                 it.equals("compound", true) || it.endsWith("/compound", true) -> 1
-                it.contains("compound-mini", true) -> 2
-                else -> 3
+                // V5.0.8169 — any full compound model outranks compound-mini.
+                it.contains("compound-mini", true) -> 3
+                else -> 2
             }
         }.thenBy { it.length })
     }

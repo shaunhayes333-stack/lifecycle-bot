@@ -39,10 +39,16 @@ object SuperEpistemicBudget7664 {
         // not consume >55% of the total L1 budget. Excess is removed, not
         // redistributed, so headcount can never create extra conviction.
         if (family.size >= 3 && l1 > 0.0) {
-            val cap = l1 * 0.55
-            family = family.mapValues { (_, v) ->
-                val m = abs(v)
-                if (m <= cap) v else if (v >= 0.0) cap else -cap
+            // V5.0.8169 — the cap must hold AFTER clipping. Only one family can
+            // exceed 55% of L1; clip it so it is exactly 55% of the post-clip
+            // total: m / (m + rest) = 0.55  =>  m = (0.55 / 0.45) * rest.
+            val maxAbs = family.values.maxOf { abs(it) }
+            if (maxAbs > l1 * 0.55) {
+                val cap = (0.55 / 0.45) * (l1 - maxAbs)
+                family = family.mapValues { (_, v) ->
+                    val m = abs(v)
+                    if (m <= l1 * 0.55) v else if (v >= 0.0) cap else -cap
+                }
             }
             l1 = family.values.sumOf { abs(it) }
         }

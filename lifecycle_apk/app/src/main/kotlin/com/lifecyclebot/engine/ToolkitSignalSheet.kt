@@ -1313,9 +1313,12 @@ object ToolkitSignalSheet {
                 // ticket lineage is already bound, the callback attempt id is
                 // that immutable identity. Legacy pre-seal stages retain the
                 // compact alias until a real sealed attempt exists.
+                // V5.0.8169 — a bound ticket lineage is the identity that executed;
+                // it outranks a newer same-lane sealed intent, matching
+                // candidateVersion6647 above (which already prefers the lineage).
                 val expectedIntentId6647 = when {
-                    sealedIntent7471?.attemptId?.isNotBlank() == true -> sealedIntent7471.attemptId
                     boundLineage7807 != null && attemptId.isNotBlank() -> attemptId
+                    sealedIntent7471?.attemptId?.isNotBlank() == true -> sealedIntent7471.attemptId
                     canonicalAttempt6647 && attemptId.isNotBlank() -> attemptId
                     else -> "$mint:$candidateVersion6647:$lane"
                 }
