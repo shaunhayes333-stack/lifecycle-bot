@@ -198,6 +198,8 @@ object TokenMapAuthority {
         val target = resolveCanonicalTarget(ts, tm)
         tm.canonicalTargetMint = target
         pruneStaleCache7505(now, target)
+        // Resolve observed migration before cache reuse; a new venue can arrive before its pool address.
+        try { RouteTruthHydrator.markGraduationIfDetected6852(ts) } catch (_: Throwable) {}
         val cached6492 = canonicalResultByMint6492[target]
         if (cached6492 != null) {
             val pending = cached6492.routeStatus in setOf("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", "ROUTE_STALE_RECHECK", "DEX_DISCOVERY_VERIFIED_PENDING_JUPITER")

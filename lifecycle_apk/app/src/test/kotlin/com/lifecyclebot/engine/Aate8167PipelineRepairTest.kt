@@ -92,6 +92,16 @@ class Aate8167PipelineRepairTest {
         ts.lastPriceUpdate = System.currentTimeMillis()
         TokenMapAuthority.ensureDiscoveryTokenMap(ts)
         assertTrue(TokenMapVersionGuard6411.stamp7460(ts.mint).mappingVersion > first.mappingVersion)
+
+        val curve = TokenState("8167MigrationMint111111111111111111111", symbol = "MIGRATE")
+        assertEquals("PUMPFUN_BONDING_CURVE_EXECUTABLE",
+            TokenMapAuthority.ensureDiscoveryTokenMap(curve, "PUMP_FUN_NEW").routeStatus)
+        val curveVersion = TokenMapVersionGuard6411.stamp7460(curve.mint).mappingVersion
+        curve.lastPriceDex = "PUMPSWAP"
+        assertEquals("DEX_ROUTABLE", TokenMapAuthority.ensureDiscoveryTokenMap(curve, "PUMP_FUN_GRADUATE").routeStatus)
+        assertTrue(curve.tokenMap.migratedOrGraduated)
+        assertFalse(curve.tokenMap.pumpFunExecutable)
+        assertTrue(TokenMapVersionGuard6411.stamp7460(curve.mint).mappingVersion > curveVersion)
     }
 
     @Test fun freshPreFillPrintIsUsableInsideItsOpenBucketButFuturePrintIsNot() {
