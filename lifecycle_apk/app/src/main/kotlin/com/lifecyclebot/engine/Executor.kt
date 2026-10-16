@@ -30909,7 +30909,7 @@ class Executor(
         }
 
         security.enforceSignDelay()
-        SizingQuoteRecheck8153.preBroadcastRefusal8153(ts.mint, sol, executionQuote7688.inAmount, executionQuote7688.priceImpactPct, ts.lastPrice)?.let { buyTerminalFail("BUY_TERMINAL_PRE_BROADCAST_ECONOMICS:$it"); return null }  // V5.0.8153
+        SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(ts, sol, executionQuote7688)?.let { buyTerminalFail("BUY_TERMINAL_PRE_BROADCAST_ECONOMICS:$it"); return null }  // V5.0.8167 — final quote economics
 
         useJito = c.jitoEnabled && !executionQuote7688.isUltra
         jitoTip = effectiveJitoTipLamports(c, urgent = false)

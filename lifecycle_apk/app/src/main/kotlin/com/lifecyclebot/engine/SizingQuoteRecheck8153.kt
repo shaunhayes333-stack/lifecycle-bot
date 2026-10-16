@@ -57,6 +57,22 @@ object SizingQuoteRecheck8153 {
         return if (r > 1.0 && r <= MAX_COMPARABLE_PRICE_RATIO_8153) (r - 1.0) * 100.0 else 0.0
     }
 
+    /** Final buy quote price, with observed decimals only; a cheaper quote never cancels a newer adverse mark. */
+    internal fun quotePrice8167(inLamports: Long, outRaw: Long, decimals: Int?, solUsd: Double, markUsd: Double): Double {
+        val mark = markUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        if (inLamports <= 0L || outRaw <= 0L || decimals == null || decimals !in 0..18 || !solUsd.isFinite() || solUsd <= 0.0) return mark
+        val quote = (inLamports.toDouble() / 1_000_000_000.0) * solUsd * Math.pow(10.0, decimals.toDouble()) / outRaw.toDouble()
+        return if (quote.isFinite() && quote > 0.0) maxOf(mark, quote) else mark
+    }
+
+    /** Executor's final SOL-to-token quote: no price inferred from the cached mark or guessed decimal scale. */
+    fun preBroadcastQuoteRefusal8167(ts: com.lifecyclebot.data.TokenState, executedSol: Double, quote: com.lifecyclebot.network.SwapQuote, solUsd: Double = WalletManager.freshSolPrice8163()): String? {
+        val price = if (quote.inputMint == com.lifecyclebot.network.JupiterApi.SOL_MINT && quote.outputMint == ts.mint)
+            quotePrice8167(quote.inAmount, quote.outAmount, ts.tokenMap.decimals, solUsd, ts.lastPrice)
+        else ts.lastPrice
+        return preBroadcastRefusal8153(ts.mint, executedSol, quote.inAmount, quote.priceImpactPct, price)
+    }
+
     /**
      * Pure: the refusal for executing [executedSol] on a quote spending [quotedInLamports] at [freshImpactPct] (the
      * app's percent reading; 0 / non-finite = not surfaced) with the token now at [priceNowUsd], or null.
@@ -70,6 +86,9 @@ object SizingQuoteRecheck8153 {
         if (seal == null || nowMs - seal.atMs !in 0L..SEAL_TTL_MS_8153) return null
         val sealed = lamports8153(seal.sizeSol)
         if (sealed <= 0L || kotlin.math.abs(ticket - sealed) > 1L) return null
+        // An upward discontinuity is not zero drift. Require a new admission instead of buying on incomparable evidence.
+        if (seal.priceUsd.isFinite() && seal.priceUsd > 0.0 && priceNowUsd.isFinite() &&
+            priceNowUsd / seal.priceUsd > MAX_COMPARABLE_PRICE_RATIO_8153) return "PRE_BROADCAST_PRICE_DISCONTINUITY_8167"
         val impact = if (freshImpactPct.isFinite() && freshImpactPct > 0.0) freshImpactPct else Double.NaN
         // Unknown depth at the seal (NaN): the size was never depth-capped and its cost carried no impact, so the budget
         // is the generic depth envelope and the whole fresh impact is extra round trip.

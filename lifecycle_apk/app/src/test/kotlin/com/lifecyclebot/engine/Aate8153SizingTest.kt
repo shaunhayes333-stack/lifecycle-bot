@@ -121,8 +121,8 @@ class Aate8153SizingTest {
         assertNull(q.preBroadcastRefusal8153("MINT_8153_UNSEALED", 0.05, lam, 2.0, 1.0))
         // Wired at the pre-broadcast point on the quote already in hand (no extra quote round trip).
         val ex = src("engine/Executor.kt")
-        assertTrue(ex.contains("SizingQuoteRecheck8153.preBroadcastRefusal8153(ts.mint, sol, executionQuote7688.inAmount, executionQuote7688.priceImpactPct, ts.lastPrice)"))
-        assertTrue(ex.indexOf("SizingQuoteRecheck8153.preBroadcastRefusal8153(") < ex.indexOf("useJito = c.jitoEnabled && !executionQuote7688.isUltra"))
+        assertTrue(ex.contains("SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(ts, sol, executionQuote7688)"))
+        assertTrue(ex.indexOf("SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(") < ex.indexOf("useJito = c.jitoEnabled && !executionQuote7688.isUltra"))
         assertTrue(src("engine/WalletCapacitySeal7868.kt").contains("SizingQuoteRecheck8153.bindSeal8153(mint, sizeSol, nowMs)"))
         assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains("if (stage == \"FDG\") noteSealedEconomics8153(mint, i, d)"))
     }

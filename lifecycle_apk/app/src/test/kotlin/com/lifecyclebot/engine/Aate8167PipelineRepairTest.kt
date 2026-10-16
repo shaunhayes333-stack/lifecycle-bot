@@ -11,6 +11,35 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class Aate8167PipelineRepairTest {
+    @Test fun finalBuyQuoteDetectsAdverseFillWhileCachedMarkHasNotMoved() {
+        val q = SizingQuoteRecheck8153
+        val ts = TokenState("quote-price-8167", symbol = "QUOTE")
+        ts.lastPrice = 1.0
+        ts.tokenMap.decimals = 6
+        run {
+            val now = System.currentTimeMillis()
+            q.noteDecision8153(ts.mint, SizingQuoteRecheck8153.SealedEconomics8153(
+                0.05, 12.0, 30.0, 4.0, 0.1, 1.0, now))
+            q.bindSeal8153(ts.mint, 0.05, now)
+            // Five dollars buys four tokens: $1.25 executable price despite a cached $1 mark.
+            val quote = com.lifecyclebot.network.SwapQuote(org.json.JSONObject(), 4_000_000L, 0.1,
+                inputMint = com.lifecyclebot.network.JupiterApi.SOL_MINT, outputMint = ts.mint, inAmount = 50_000_000L)
+            assertEquals(1.25, q.quotePrice8167(quote.inAmount, quote.outAmount, 6, 100.0, ts.lastPrice), 1e-12)
+            assertEquals("PRE_BROADCAST_NET_EV_NONPOSITIVE_8153", q.preBroadcastQuoteRefusal8167(ts, 0.05, quote, 100.0))
+        }
+    }
+
+    @Test fun quotePriceKeepsUnitsAndDoesNotTreatAnExtremeAdverseFillAsZeroDrift() {
+        val q = SizingQuoteRecheck8153
+        assertEquals(1.25, q.quotePrice8167(50_000_000L, 4_000_000_000L, 9, 100.0, 1.0), 1e-12)
+        assertEquals(1.0, q.quotePrice8167(50_000_000L, 10_000_000L, 6, 100.0, 1.0), 0.0)
+        assertEquals(1.0, q.quotePrice8167(50_000_000L, 4_000_000L, null, 100.0, 1.0), 0.0)
+        assertEquals(1.0, q.quotePrice8167(50_000_000L, 0L, 6, 100.0, 1.0), 0.0)
+        val seal = SizingQuoteRecheck8153.SealedEconomics8153(0.05, 12.0, 30.0, 4.0, 0.1, 1.0, 1000L)
+        assertEquals("PRE_BROADCAST_PRICE_DISCONTINUITY_8167", q.recheck8153(seal, 0.05, 50_000_000L, 0.1, 5.0, 2000L))
+        assertNull(q.recheck8153(seal, 0.05, 50_000_000L, 0.1, 1.01, 2000L))
+    }
+
     @Test fun repeatedExecutableRouteDoesNotInvalidateItsOwnGeneration() {
         val ts = TokenState("8167CacheMint11111111111111111111111111", symbol = "CACHE")
         ts.tokenMap.dexRouteOk = true
