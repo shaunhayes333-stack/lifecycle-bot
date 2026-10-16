@@ -42,6 +42,11 @@ class CortexGradeRecord8144(
     var attribution: String = ""
     /** Trade records: the account mode of the position (PAPER / LIVE); realised books never mix modes. */
     var mode: String = ""
+    /**
+     * V5.0.8153 — decision records: the label's first price arrived after the fill-latency re-base window, so its entry is
+     * the unbuyable decision price (LearningEntryTruth8153). Observed only: never an executable value, unresolved in its cohort.
+     */
+    var lateEntry8153: Boolean = false
 
     /** May this decision's label grade authority (executable, first of its episode)? */
     val graded: Boolean get() = kind == 'D' && executable && !repeat
@@ -93,8 +98,17 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         val r = byId[id] ?: return false
         if (!netPct.isFinite()) return false
         r.observedNetPct = netPct; r.observedGrossPct = grossPct; r.lost = false
-        if (r.graded && executableAllowed && executableValue.isFinite()) r.executablePct = executableValue
+        if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153) r.executablePct = executableValue
         noteGraded(r)
+        revision++
+        return true
+    }
+
+    /** V5.0.8153 — decision [id]'s label started from a late first price: its executable value is withdrawn for good. */
+    fun markLateEntry8153(id: String): Boolean {
+        val r = byId[id] ?: return false
+        if (r.kind != 'D') return false
+        r.lateEntry8153 = true; r.executablePct = Double.NaN
         revision++
         return true
     }
@@ -141,7 +155,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         var ok = 0; var lost = 0
         for (r in decisions) {
             if (r.kind != 'D' || !r.executable || r.repeat || r.lane != lane || r.bucket != bucket || (setup != null && r.setup != setup)) continue
-            if (r.lost) lost++ else if (r.observedNetPct.isFinite()) ok++
+            if (r.lost || r.lateEntry8153) lost++ else if (r.observedNetPct.isFinite()) ok++  // V5.0.8153 — a late-priced label resolves nothing
         }
         return if (ok + lost == 0) 1.0 else ok.toDouble() / (ok + lost)
     }
@@ -183,6 +197,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         if (r.admitted) "1" else "0", if (r.executable) "1" else "0", if (r.repeat) "1" else "0",
         num(r.observedNetPct), num(r.observedGrossPct), num(r.executablePct), if (r.lost) "1" else "0",
         num(r.realisedPct), clean(r.ownerLane), clean(r.ownerSetup), clean(r.attribution), clean(r.mode),
+        if (r.lateEntry8153) "1" else "0",
     ).joinToString(FS.toString())
 
     fun encode(): String = (decisions + trades.values).joinToString(RS.toString()) { encodeOne(it) }
@@ -193,12 +208,15 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         decisions.clear(); byId.clear(); lastGraded.clear(); trades.clear()
         for (row in s.split(RS)) {
             val f = row.split(FS)
-            if (f.size != 24 || f[0].length != 1 || f[1].isBlank()) continue
+            // V5.0.8153 — 25 fields (late-entry flag); a 24-field row from 8146 reads as on time.
+            if ((f.size != 24 && f.size != 25) || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
             r.observedNetPct = dbl(f[15]); r.observedGrossPct = dbl(f[16]); r.executablePct = dbl(f[17]); r.lost = f[18] == "1"
             r.realisedPct = dbl(f[19]); r.ownerLane = f[20]; r.ownerSetup = f[21]; r.attribution = f[22]; r.mode = f[23]
+            r.lateEntry8153 = f.getOrNull(24) == "1"
+            if (r.lateEntry8153) r.executablePct = Double.NaN
             when (r.kind) {
                 'D' -> if (!byId.containsKey(r.id)) { decisions.add(r); byId[r.id] = r; noteGraded(r) }
                 'T' -> trades[r.id] = r

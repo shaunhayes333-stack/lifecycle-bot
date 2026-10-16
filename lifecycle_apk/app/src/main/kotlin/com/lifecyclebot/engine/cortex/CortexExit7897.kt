@@ -182,6 +182,7 @@ object CortexExit7897 {
     /** Called from ExitRegret7752.tick with the loop's fresh-price closure: grades due samples. */
     fun tick(priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
         ensureLoaded()
+        if (truthPending8153.isNotEmpty()) gradeTruth8153(priceFor, nowMs)  // V5.0.8153
         if (pending.isEmpty()) return
         val unpriced = ArrayList<String>()
         for ((k, r) in pending.entries.toList()) {
@@ -226,6 +227,82 @@ object CortexExit7897 {
                 true
             }
         }
+    }
+
+    // ── V5.0.8153 §EXIT_TRUTH_FROM_PROCEEDS (LearningExitTruth8153) ──
+    //
+    // At the canonical close (CanonicalFinalizedTradeBus6464.publish, before TailBag8034 retires the fallback-proceeds rows)
+    // the position's actual sell legs — canonical net proceeds per leg plus the confirmed legacy-fallback proceeds the
+    // canonical book does not carry — are frozen with its cost basis. One exit horizon after the close the sold quantity
+    // is priced again: banked return, regret (what the sold quantity went on to be worth) and tail cuts per mode and lane.
+    // A lane whose exits are proven to cut moves that kept going loses the Cortex's own SELL authority (sellReason).
+    // Never mixed into the forward-mark ledger (FUTURE_MARK_RETURN_V1); paper and live books are kept apart.
+    private const val TRUTH_MAX_PENDING_8153 = 400
+    private class TruthPending8153(val mint: String, val lane: String, val mode: String, val costSol: Double,
+                                   val slices: List<LearningExitTruth8153.Slice8153>, val dueMs: Long)
+    private val truthPending8153 = ConcurrentHashMap<String, TruthPending8153>()   // positionId
+    private val truthBooks8153 = HashMap<String, LearningExitTruth8153.Book8153>()  // MODE|lane
+
+    /** CanonicalFinalizedTradeBus6464.publish: freeze a closed position's actual proceeds for its exit grade. */
+    fun onClosePartials8153(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+        if (!env.terminal || env.positionId.isBlank() || env.mint.isBlank() || !env.learningEligible) return false
+        if (!com.lifecyclebot.engine.truth.ExactStrategyPerformance7429.terminalEconomicsEligible8081(env.mode, env.proofState)) return false
+        val mode = if (env.mode.equals("live", true)) "LIVE" else if (env.mode.equals("paper", true)) "PAPER" else return false
+        val legs = try {
+            com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot().asSequence()
+                .filterIsInstance<com.lifecyclebot.engine.truth.EconomicEventSchema6464.Sell>()
+                .filter { it.positionId == env.positionId && it.mode.equals(env.mode, true) }
+                .map { LearningExitTruth8153.SellLeg8153(it.atMs, it.soldQty.toDouble(), it.soldQty.add(it.remainingQty).toDouble(),
+                    it.netProceedsSol, it.allocatedCostBasisSol, it.remainingCostBasisSol, it.exitPriceUsd) }
+                .toList()
+        } catch (_: Throwable) { emptyList() }
+        // Confirmed fallback fills the canonical book does not carry (read before TailBag8034 retires the rows).
+        val fallback = if (mode == "LIVE") try { com.lifecyclebot.engine.RecoveryFallbackLedger8141.confirmedFallbackSol8141(env.positionId) } catch (_: Throwable) { 0.0 } else 0.0
+        val built = LearningExitTruth8153.fromLegs8153(legs, fallback) ?: run { inc("EXIT_TRUTH_NO_LEGS_8153"); return false }
+        val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(env.lane).uppercase().ifBlank { env.lane.uppercase() } } catch (_: Throwable) { env.lane.uppercase() }
+        val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+        if (truthPending8153.size >= TRUTH_MAX_PENDING_8153) { inc("EXIT_TRUTH_FULL_8153"); return false }
+        truthPending8153[env.positionId] = TruthPending8153(env.mint, lane, mode, built.first, built.second,
+            env.atMs + if (runner) RUNNER_HORIZON_MS else HORIZON_MS)
+        inc("EXIT_TRUTH_FROZEN_8153_$mode")
+        return true
+    }
+
+    private fun gradeTruth8153(priceFor: (String) -> Double?, nowMs: Long) {
+        val unpriced = ArrayList<String>()
+        for ((pid, t) in truthPending8153.entries.toList()) {
+            if (nowMs < t.dueMs) continue
+            val px = (try { priceFor(t.mint) } catch (_: Throwable) { null })?.takeIf { it.isFinite() && it > 0.0 }
+                ?: registryMark(t.mint, nowMs)
+                ?: offMarks[t.mint]?.takeIf { nowMs - it.second in 0L..MARK_MAX_AGE_MS }?.first
+            if (px == null) {
+                if (nowMs - t.dueMs > GRADE_GRACE_MS) {
+                    // No later mark: the banked part is still true; regret stays unknown.
+                    truthPending8153.remove(pid)
+                    LearningExitTruth8153.grade8153(t.costSol, t.slices, 0.0, Double.NaN)?.let { bookTruth8153(t, it) }
+                    inc("EXIT_TRUTH_NO_LATER_MARK_8153")
+                } else unpriced.add(t.mint)
+                continue
+            }
+            truthPending8153.remove(pid)
+            LearningExitTruth8153.grade8153(t.costSol, t.slices, 0.0, px)?.let { bookTruth8153(t, it) }
+        }
+        if (unpriced.isNotEmpty()) fetch(unpriced, nowMs)
+    }
+
+    private fun bookTruth8153(t: TruthPending8153, g: LearningExitTruth8153.Grade8153) {
+        synchronized(this) {
+            if (truthBooks8153.size >= 200 && !truthBooks8153.containsKey("${t.mode}|${t.lane}")) return
+            truthBooks8153.getOrPut("${t.mode}|${t.lane}") { LearningExitTruth8153.Book8153() }.add(g)
+        }
+        dirty8091 = true
+        inc(if (g.tailCut) "EXIT_TRUTH_TAIL_CUT_8153" else "EXIT_TRUTH_GRADED_8153")
+    }
+
+    /** V5.0.8153 — this lane's exits (this account mode) measurably cut moves that kept going. */
+    private fun tailCutting8153(lane: String): Boolean {
+        val mode = try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }
+        return synchronized(this) { truthBooks8153["$mode|$lane"]?.tailCutProven8153() == true }
     }
 
     private fun grade8082(r: Read, fwd: Double) {
@@ -338,6 +415,7 @@ object CortexExit7897 {
             val r = freshRead(ts, nowMs) ?: return null
             if (r.bucket != Bucket.SELL_STRONG) return null
             if (!proven(r.lane, Bucket.SELL_STRONG)) { inc("SHADOW_SELL"); return null }
+            if (tailCutting8153(r.lane)) { inc("SUSPENDED_TAIL_CUT_8153_${r.lane}"); return null }  // V5.0.8153
             inc("SOLD_${r.lane}")
             "CORTEX_EXIT_7897_${r.lane}_FWD${r.fused.edgePct.toInt()}PCT"
         } catch (_: Throwable) { null }
@@ -373,6 +451,9 @@ object CortexExit7897 {
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
                 o.optJSONObject("calibration")?.let { calibration.decode(it) }
                 o.optJSONArray("pending7960")?.let { decodePending7960(it, System.currentTimeMillis()) }
+                o.optJSONObject("truth8153")?.let { j ->
+                    for (k in j.keys()) LearningExitTruth8153.Book8153().also { b -> if (b.decode(j.optString(k))) truthBooks8153[k] = b }
+                }
                 o.optJSONObject("books")?.let { j ->
                     for (k in j.keys()) {
                         val f = j.optString(k).split('|')
@@ -452,7 +533,9 @@ object CortexExit7897 {
         if (!loaded) return
         try {
             val json = synchronized(this) {
-                org.json.JSONObject().put("target8091", TARGET_8091).put("ledger", ledger.encode()).put("calibration", calibration.encode()).put("pending7960", encodePending7960()).put("books", org.json.JSONObject().also { j ->
+                org.json.JSONObject().put("target8091", TARGET_8091).put("ledger", ledger.encode()).put("calibration", calibration.encode()).put("pending7960", encodePending7960())
+                    .put("truth8153", org.json.JSONObject().also { j -> truthBooks8153.forEach { (k, b) -> j.put(k, b.encode()) } })
+                    .put("books", org.json.JSONObject().also { j ->
                     books.forEach { (k, b) ->
                         j.put(k, (b.byBucket.map { it.encode() } + b.positions.map { s -> s.toList().takeLast(200).joinToString(",") { it.replace(",", "").replace("|", "") } }).joinToString("|"))
                     }
@@ -477,7 +560,9 @@ object CortexExit7897 {
                     "$lane sell=${fmt(b.byBucket[0])}/${b.positions[0].size}p neutral=${fmt(b.byBucket[1])} hold=${fmt(b.byBucket[2])}/${b.positions[2].size}p " +
                         "holdAuth=${holdProven(b.byBucket[2], b.positions[2].size)} sellAuth=${sellProven(b.byBucket[0], b.positions[0].size)}"
                 }.ifBlank { "no graded samples yet" }}" +
-                "\n      grades8136: ${dueLine8136(System.currentTimeMillis())}"
+                "\n      grades8136: ${dueLine8136(System.currentTimeMillis())}" +
+                "\n      exitTruth8153 (actual proceeds, regret one horizon after the close): pending=${truthPending8153.size} " +
+                truthBooks8153.entries.sortedBy { it.key }.take(8).joinToString(" · ") { (k, b) -> "$k ${b.line()}" }.ifBlank { "no graded closes yet" }
         }
     }
 

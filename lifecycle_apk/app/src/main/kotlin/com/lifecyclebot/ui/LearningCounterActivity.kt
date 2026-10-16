@@ -391,7 +391,8 @@ class LearningCounterActivity : Activity() {
             target7023().addView(AateComponents6994.metricRow(this, l.lane,
                 "${pct8069(l.strongMean)} / ${pct8069(l.refuseMean)}",
                 when { !gap.isFinite() -> AateUi.TEXT_MUTED; gap > 0.0 -> AateUi.GREEN; else -> AateUi.RED },
-                "STRONG n${l.strongN} vs REFUSE n${l.refuseN} · neutral ${pct8069(l.neutralMean)} n${l.neutralN} · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}"))
+                "STRONG n${l.strongN} vs REFUSE n${l.refuseN} · neutral ${pct8069(l.neutralMean)} n${l.neutralN} · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}" +
+                    (if (l.source8153.isNotBlank()) " · tradeable records (legacy decayed book ${pct8069(l.legacyStrongMean8153)} / ${pct8069(l.legacyRefuseMean8153)})" else "")))
             target7023().addView(AateComponents6994.barRow(this, "authority", (l.auth * 100.0).coerceIn(0.0, 100.0),
                 if (l.auth > 0.0) AateUi.GREEN else AateUi.TEXT_MUTED))
         }
