@@ -33,6 +33,8 @@ object PriorityFee8009 {
     )
 
     @Volatile private var microLamports: Long = 0L
+    // V5.0.8151 — the market's MEDIUM level from the same reading (includeAllPriorityFeeLevels): ordinary trades pay it.
+    @Volatile private var mediumMicro8151: Long = 0L
     @Volatile private var readAtMs: Long = 0L
     private val refreshing = AtomicBoolean(false)
     private val http by lazy { SharedHttpClient.builder().callTimeout(4, TimeUnit.SECONDS).build() }
@@ -57,8 +59,24 @@ object PriorityFee8009 {
         return if (m <= 0L) callerSol else maxOf(callerSol, pumpSolFor8009(m))
     }
 
+    /**
+     * V5.0.8151 — an ORDINARY (discretionary entry / non-urgent slice) Jupiter swap's CU price: the medium reading,
+     * capped against [tradeLamports] and never above the high reading (CostTrim8151.ordinaryMicroLamports8151).
+     */
+    fun ordinaryJupiterMicroLamports8151(tradeLamports: Long): Long {
+        refreshIfStale()
+        return com.lifecyclebot.engine.CostTrim8151.ordinaryMicroLamports8151(mediumMicro8151, microLamports, tradeLamports, FLOOR_MICRO_LAMPORTS)
+    }
+
+    /** V5.0.8151 — an ORDINARY PumpPortal priority fee (SOL) for a trade of [tradeSol] (0 = unknown). */
+    fun ordinaryPumpPortalSol8151(callerSol: Double, tradeSol: Double): Double {
+        val legacy = pumpPortalSol(callerSol)
+        val m = mediumMicro8151
+        return com.lifecyclebot.engine.CostTrim8151.ordinaryPumpSol8151(if (m > 0L) pumpSolFor8009(m) else 0.0, legacy, tradeSol)
+    }
+
     fun statusLine(): String = if (readAtMs <= 0L) "no reading (fixed floors)" else
-        "${microLamports}µL/CU (pump ${"%.5f".format(pumpSolFor8009(microLamports))} SOL) age=${(System.currentTimeMillis() - readAtMs) / 1000}s"
+        "${microLamports}µL/CU (pump ${"%.5f".format(pumpSolFor8009(microLamports))} SOL) medium8151=${mediumMicro8151}µL/CU age=${(System.currentTimeMillis() - readAtMs) / 1000}s"
 
     private fun refreshIfStale() {
         if (System.currentTimeMillis() - readAtMs < TTL_MS || !refreshing.compareAndSet(false, true)) return
@@ -75,12 +93,18 @@ object PriorityFee8009 {
         val body = JSONObject().put("jsonrpc", "2.0").put("id", "pf8009").put("method", "getPriorityFeeEstimate")
             .put("params", JSONArray().put(JSONObject()
                 .put("accountKeys", JSONArray(PROGRAMS))
-                .put("options", JSONObject().put("priorityLevel", "High"))))
+                .put("options", JSONObject().put("priorityLevel", "High").put("includeAllPriorityFeeLevels", true))))
         val req = Request.Builder().url(url).post(body.toString().toRequestBody("application/json".toMediaType())).build()
         http.newCall(req).execute().use { r ->
             if (!r.isSuccessful) return null
             val j = JSONObject(r.body?.string().orEmpty())
-            return j.optJSONObject("result")?.optDouble("priorityFeeEstimate", Double.NaN)?.takeIf { it.isFinite() }
+            val result = j.optJSONObject("result") ?: return null
+            // V5.0.8151 — every level from the same call: medium for ordinary trades, high exactly as before.
+            val levels = result.optJSONObject("priorityFeeLevels")
+            val medium = levels?.optDouble("medium", Double.NaN) ?: Double.NaN
+            if (medium.isFinite() && medium > 0.0) mediumMicro8151 = clampMicro8009(medium)
+            val high = levels?.optDouble("high", Double.NaN) ?: Double.NaN
+            return (if (high.isFinite() && high > 0.0) high else result.optDouble("priorityFeeEstimate", Double.NaN)).takeIf { it.isFinite() }
         }
     }
 }

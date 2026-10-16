@@ -245,6 +245,8 @@ object LivePositionCloseAuthority {
             PositionCloseLedger.markClosed(mint, "CONFIRMED_ZERO_LIVE_CLOSE_$reason", pnlPct, mode = "LIVE")
         }
         setClosedState(mint, symbol, signature, reason)
+        // V5.0.8151 — a confirmed full exit: reclaim its token account's rent within a minute (RentReclaimer7927).
+        if (!signature.isNullOrBlank() && remainingQtyRaw <= 0L) try { com.lifecyclebot.engine.RentReclaimer7927.noteFullExit8151(mint) } catch (_: Throwable) {}
         try {
             HostWalletTokenTracker.recordIndependentZeroBalanceProof(
                 mint = mint,
