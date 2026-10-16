@@ -87,6 +87,17 @@ object RuntimeProviderAuthority6685 {
     fun authenticatedRpcCandidates8083(primary: String? = null, explicit: Context? = null): List<String> =
         rpcCandidates(primary, explicit).filterNot { u -> PUBLIC_SOLANA_RPCS.any { sanitizeRpc(it).equals(u, ignoreCase = true) } }
 
+    /**
+     * V5.0.8169 — owner: the free RPCs are meant to be tried in parallel, not as a fallback. The signed-tx fan-out
+     * reached only the paid endpoints; the keyless public nodes now receive the same signed bytes at the same moment.
+     * Identical bytes = one signature, so it still lands at most once; a public node's refusal changes nothing.
+     */
+    fun publicBroadcastRpcs8169(): List<String> = PUBLIC_SOLANA_RPCS.map { sanitizeRpc(it) }.filter { it.isNotBlank() }
+
+    /** V5.0.8169 — pure: paid targets first, then the public nodes, de-duplicated (same URL never sent twice). */
+    fun broadcastTargets8169(paid: List<String>, public: List<String>): List<String> =
+        LinkedHashSet<String>().apply { paid.forEach { if (it.isNotBlank()) add(it) }; public.forEach { if (it.isNotBlank()) add(it) } }.toList()
+
     fun rpcCandidates(primary: String? = null, explicit: Context? = null): List<String> {
         val cfg = config(explicit)
         val ordered = LinkedHashSet<String>()

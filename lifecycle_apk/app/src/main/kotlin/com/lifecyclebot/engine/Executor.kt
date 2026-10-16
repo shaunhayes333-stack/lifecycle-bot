@@ -31879,12 +31879,6 @@ class Executor(
                 traderTag = traderTag,
             )
             if (costPumpBuySimRefused8151(ts, built.txBase64, wallet, tradeKey)) return null  // V5.0.8151 — never pay for a doomed buy
-            LiveTradeLogStore.log(
-                tradeKey, ts.mint, ts.symbol, "BUY",
-                LiveTradeLogStore.Phase.BUY_BROADCAST,
-                "Broadcasting PUMP-FIRST BUY @ ${slipPct}% | route=${if (useJito) "JITO" else "RPC"}",
-                traderTag = traderTag,
-            )
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMP_FIRST sol=$buySol slip=$slipPct") } catch (_: Throwable) {}
             // V5.9.602 — Pump-first must NOT treat a submitted signature as
             // a completed buy. sendTransaction/Jito acceptance can still expire
@@ -31905,6 +31899,14 @@ class Executor(
             try {
                 PipelineHealthCollector.labelInc(if (pumpEnv7311 != null) "PUMP_BUY_HELIUS_SENDER_7311" else "PUMP_BUY_HELIUS_ENVELOPE_REFUSED_7311")
             } catch (_: Throwable) {}
+            // V5.0.8169 — name the route actually used: the Sender envelope (when built) plus the parallel RPC fan-out
+            // (paid + public). The old label said JITO whenever Jito was enabled, even when Sender carried the buy.
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_BROADCAST,
+                "Broadcasting PUMP-FIRST BUY @ ${slipPct}% | route=${if (pumpEnv7311 != null) "SENDER" else if (useJito) "JITO" else "RPC"}+RPC_FANOUT",
+                traderTag = traderTag,
+            )
             // V5.0.8085 — bound to (mint, BUY): an unresolved earlier buy blocks a second order; a sent-but-unconfirmed
             // outcome propagates to liveBuy's 7733 pending-wallet-delta path instead of falling through to Jupiter.
             com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", route = "PUMPPORTAL"))
