@@ -57,7 +57,7 @@ object SellRouteEndpoint8144 {
     private const val AUTH_BLOCK_MS_8144 = 15L * 60_000L
     private const val SOFT_BACKOFF_BASE_MS_8144 = 2_000L
     private const val SOFT_BACKOFF_CAP_MS_8144 = 15_000L
-    const val UNLANDED_BACKOFF_BASE_MS_8164 = 45_000L
+    private const val UNLANDED_BACKOFF_BASE_MS_8164 = 45_000L
     private const val UNLANDED_BACKOFF_CAP_MS_8164 = 5L * 60_000L
 
     private val UNSUPPORTED_MARKERS_8144 = listOf(
