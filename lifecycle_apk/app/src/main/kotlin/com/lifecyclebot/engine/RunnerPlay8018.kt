@@ -95,6 +95,15 @@ object RunnerPlay8018 {
         // PositionDisplayTruth8078) must itself have reached the level, not one trade print (a phantom +2000% tick).
         if (!verifiedPeakReached8136(pos.peakGainPct)) return
         if (RunnerGrab7967.holdingRunner8018(ts, nowMs)) return
+        // V5.0.8144 — runner eligibility has one authority (ExitTruthArbiter8144.runnerBasis8144): the immutable sealed
+        // entry style / strategy, or a PROVEN peak (+100% corroborated, RunnerExitContract8136). A position sealed as a
+        // scalp is not moved onto the runner ladder (and its scalp rungs reset) by a +25% firming print. The lane is not
+        // the question here (the runner hold hosts the position, TradeExitContract8077.runnerBasis8136 reads it the same way).
+        if ((try { ExitTruthArbiter8144.runnerBasis8144(ExitTruthArbiterLive8144.inputsFor8144(ts, null).copy(laneHostsRunners = true)) }
+                catch (_: Throwable) { RunnerExitContract8136.RunnerBasis8136.NONE }) == RunnerExitContract8136.RunnerBasis8136.NONE) {
+            try { PipelineHealthCollector.labelInc("RUNNER_PROMOTION_NOT_ELIGIBLE_8144") } catch (_: Throwable) {}
+            return
+        }
         ensureLoaded()
         val firming = RunnerGrab7967.firmingNow8018(ts.mint, nowMs)
         val down = synchronized(promoteRecord) { standsDown8018(promoteRecord) }

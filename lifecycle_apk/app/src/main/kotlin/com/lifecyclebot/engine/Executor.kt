@@ -3410,6 +3410,7 @@ class Executor(
             try { PipelineHealthCollector.labelInc("PROFIT_LOCK_CANONICAL_SLICE_UNAVAILABLE_7884") } catch (_: Throwable) {}
         }
         // V5.0.8141 — the canonical ledger never sees this legacy-booked slice: its CONFIRMED proceeds feed the next recovery tranche.
+        RecoveryFallbackLedger8141.stageFillQty8144(proof?.sig.orEmpty(), proof?.rawTokenConsumed)  // V5.0.8144 — durable row carries the qty
         if (sellFraction < 0.999) RecoveryFallbackLedger8141.noteLegacyFallback8141(pos.positionId, proof?.sig.orEmpty(), solBack, proof?.outcome == TradeVerifier.Outcome.LANDED)
         val a = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, reason, "profitLock")
         return ProfitLockSlice7884(a.pnlSol, a.pnlPct, a.netPnlSol, a.feeSol,
@@ -24283,7 +24284,7 @@ class Executor(
         val mbPeak7322 = maxOf(ts.position.peakGainPct, if (mbPnl7322.isFinite()) mbPnl7322 else 0.0)
         MoonbagRunner7322.notePeak(mbKey7322, mbPeak7322)
         val mbLane7322 = ts.position.tradingMode
-        when (MoonbagRunner7322.decide(mbLane7322, requestReason, mbPnl7322, mbPeak7322, MoonbagRunner7322.bankedPeakFor(mbKey7322))) {
+        when (MoonbagRunner7322.decideFunded8144(ts, mbLane7322, requestReason, mbPnl7322, mbPeak7322, MoonbagRunner7322.bankedPeakFor(mbKey7322))) {  // V5.0.8144 — funded only
             MoonbagRunner7322.Action.BANK_PARTIAL -> {
                 val bankFraction7322=MoonbagRunner7322.bankFractionFor7791(mbLane7322)
                 val bank7322 = requestPartialSellConfirmed6566(

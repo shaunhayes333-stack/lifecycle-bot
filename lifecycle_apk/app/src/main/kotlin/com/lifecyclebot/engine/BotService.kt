@@ -25600,11 +25600,12 @@ if (hotExitHandledSweep) {
         } catch (_: Throwable) {}
         // V5.0.7948 — held-curve and PumpPortal trade marks feed the plan's mark bars.
         try { com.lifecyclebot.engine.truth.MarkBars7948.note7948(mint, px, now) } catch (_: Throwable) {}
-        // V5.0.7943 — a spike is sold into on the print that carries it.
-        try { SpikeCapture7943.onMark(ts, px) { t, frac, reason -> sellIntoSpike7943(t, frac, reason) } } catch (_: Throwable) {}
         // V5.0.7982 — a runner's peak capture / hard stop fires on the print too, not on the next
         // 500 ms sweep (heldExit7967's own per-position retry gap stops a double sell).
+        // V5.0.8144 — first: it takes the arbitration ticket, so the spike rung below waits instead of racing it.
         try { RunnerGrab7967.heldExit7967(ts, px, now) { t, frac, reason -> sellIntoSpike7943(t, frac, reason) } } catch (_: Throwable) {}
+        // V5.0.7943 — a spike is sold into on the print that carries it.
+        try { SpikeCapture7943.onMark(ts, px) { t, frac, reason -> sellIntoSpike7943(t, frac, reason) } } catch (_: Throwable) {}
         try { wakeRapidOnFall8008(ts, px) } catch (_: Throwable) {}
         // V5.0.7279 — the executor reads the canonical mark registry, not
         // ts.lastPrice. 7278 wrote the trade mark to the token row only, so a

@@ -119,6 +119,8 @@ object BalanceProofPoller {
                 try { SellAmountAuthority.recordProofReady(entry.mint, resolution.rawAmount, resolution.decimals, resolution.source) } catch (_: Throwable) {}
                 // Reset zero-streak (we just saw a positive balance).
                 BalanceProofWaitState.resetZeroReads(entry.mint)
+                // V5.0.8144 — a positive balance of a sub-ledger frozen holding is its thaw: the same position is restored first.
+                try { com.lifecyclebot.engine.FrozenHeldUnsellableLive8141.onBalanceProven8144(entry.mint) } catch (_: Throwable) {}
                 val reason = entry.desiredExitReason
                 val symbol = entry.symbol
                 val mint = entry.mint
@@ -194,6 +196,13 @@ object BalanceProofPoller {
     private fun onZeroRead7733(entry: BalanceProofWaitState.Wait, source: String) {
         // V5.0.8136 — last line: a zero/absent read never finalises a frozen holding.
         if (frozenHold8136(entry)) return
+        // V5.0.8144 — nor one the frozen-holdings sub-ledger still holds while no wallet read since the restart has shown
+        // its account (the freeze hides it): hold and re-check slowly. A positive balance read still proves a thaw.
+        if (try { com.lifecyclebot.engine.FrozenHeldUnsellableLive8141.heldUnproven8144(entry.mint) } catch (_: Throwable) { false }) {
+            BalanceProofWaitState.scheduleFrozenRecheck8136(entry.mint, FrozenHoldingGuard8136.FROZEN_RECHECK_MS_8136)
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_SUBLEDGER_HELD_NOT_ZERO_8144") } catch (_: Throwable) {}
+            return
+        }
         val streak = BalanceProofWaitState.recordZeroRead(entry.mint)
         BalanceProofWaitState.scheduleNextPoll(entry.mint)
         if (streak >= 2) {

@@ -18,6 +18,13 @@ import java.util.concurrent.ConcurrentHashMap
  *    for the frozen remainder) under the distinct exit reason [EXIT_REASON_8141], so learning sees a freeze loss;
  *  - the mint stays tracked here (and in the poller's slow frozen re-check), so a thaw ([thaw8141]) re-opens a normal
  *    sell of what is still held.
+ *
+ * V5.0.8144 — economic finality corrected (ExitTruthFrozenLedger8144). A frozen account proves PRESENT unsellability,
+ * not a sale and not a permanent realised loss, so a still-held holding no longer publishes a terminal at all: it is a
+ * row in the persisted frozen-holdings sub-ledger (realised proceeds of confirmed fills, unsellable inventory with its
+ * recoverable estimate, an impairment signalled once to learning) and [economics8141] is the whole-position view only
+ * of a holding that is actually closed (nothing left held). A thaw restores the same position; its eventual sale is
+ * the one terminal. [restore8144] rebuilds this registry from the sub-ledger after a restart.
  */
 object FrozenHeldUnsellable8141 {
 
@@ -131,6 +138,17 @@ object FrozenHeldUnsellable8141 {
         return transition
     }
 
+    /**
+     * V5.0.8144 — a restart: the registry is rebuilt from the persisted frozen-holdings sub-ledger
+     * (ExitTruthFrozenLedger8144), so a holding frozen before the restart is still refused a sell, still swept for a
+     * thaw, and is never settled a second time. A mint already tracked is left as it is. True when re-registered.
+     */
+    fun restore8144(mint: String, positionId: String, symbol: String, desiredExitReason: String, frozenAtMs: Long): Boolean {
+        if (mint.isBlank()) return false
+        if (records.size >= CAP_8141 && !records.containsKey(mint)) return false
+        return records.putIfAbsent(mint, Record8141(mint, positionId, symbol, desiredExitReason, frozenAtMs, State8141.FROZEN_HELD_UNSELLABLE)) == null
+    }
+
     /** No sell is routed while the settled holding's account is still frozen. */
     fun refusesSell8141(mint: String, frozenNow: Boolean): Boolean =
         frozenNow && records[mint]?.state == State8141.FROZEN_HELD_UNSELLABLE
@@ -152,5 +170,8 @@ object FrozenHeldUnsellable8141 {
 
     fun heldCount8141(): Int = records.values.count { it.state == State8141.FROZEN_HELD_UNSELLABLE }
 
-    internal fun clearForTest8141() = records.clear()
+    internal fun clearForTest8141() {
+        records.clear()
+        ExitTruthFrozenLedger8144.clearForTest8144()
+    }
 }

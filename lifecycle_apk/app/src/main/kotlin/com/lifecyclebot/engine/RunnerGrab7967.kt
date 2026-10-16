@@ -425,8 +425,12 @@ object RunnerGrab7967 {
         val g = gross(ts, px)
         if (!g.isFinite()) return
         // V5.0.7980 — the peak, tick by tick from entry (curve ticks / trade marks reach here per print).
+        // V5.0.8144 — the CONFIRMED peak: a print never ratchets it above the chain-verified, corroborated position peak
+        // (PositionDisplayTruth8078), so one phantom print cannot arm a peak capture that sells the runner on the next
+        // ordinary print. The raw best print is tracked apart as MFE (ExitTruthArbiter8144.CaptureBook8144).
         val pk = "${ts.mint}|${pos.entryTime}"
-        val peak = peaks7980.merge(pk, g) { a, b -> maxOf(a, b) } ?: g
+        val confirmed8144 = if (pos.peakGainPct.isFinite()) minOf(g, pos.peakGainPct) else g
+        val peak = peaks7980.merge(pk, confirmed8144) { a, b -> maxOf(a, b) } ?: confirmed8144
         if (peaks7980.size > 2_000) peaks7980.clear()
         if (nowMs - pos.entryTime < 60_000L && !peakGiveback7980(peak, g)) return
         val (r15, r60) = StructureTracker7962.reads7967(ts.mint, nowMs)
@@ -449,6 +453,9 @@ object RunnerGrab7967 {
             PipelineHealthCollector.labelInc("RUNNER_EXIT_7967")
             ForensicLogger.lifecycle("RUNNER_EXIT_7967", "mint=${ts.mint.take(10)} sym=${ts.symbol} gross=${"%.1f".format(g)}% why=$why")
         } catch (_: Throwable) {}
+        // V5.0.8144 — a runner breakdown / hard stop is protective (rank 2-3): it takes the arbitration ticket first, so
+        // a ladder rung on the same print waits instead of racing it to the sell door.
+        try { ExitTruthArbiterLive8144.claimProtective8144(ts, why, nowMs) } catch (_: Throwable) {}
         sell(ts, 1.0, why)
     }
 
