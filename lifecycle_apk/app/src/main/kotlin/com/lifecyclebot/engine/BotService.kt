@@ -32525,6 +32525,14 @@ if (hotExitHandledSweep) {
             try { ForensicLogger.lifecycle("FDG_CACHED_REUSE", "mint=${identity.mint.take(10)} reusedVerdict can=${cachedFdg.canExecute()} score=$fdgScoreNow") } catch (_: Throwable) {}
             cachedFdg
         } else {
+            // V5.0.8169 — the Field Manual reads the strategy's own candidate before capital authority runs.
+            com.lifecyclebot.engine.truth.LearnedAdmissionInputs6909.stampFoundation8169(
+                lane = cyclePrimaryLane,
+                mint = identity.mint,
+                ts = ts,
+                foundationCandidate = decision,
+                foundationSizeSol = try { proposedSize } catch (_: Throwable) { null },
+            )
             val fresh = FinalDecisionGate.evaluate(
                 ts = ts,
                 candidate = decision,

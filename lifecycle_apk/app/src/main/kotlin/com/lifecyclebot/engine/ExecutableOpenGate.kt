@@ -242,6 +242,14 @@ object ExecutableOpenGate {
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
     private val executionTickets = ConcurrentHashMap<String, ExecutionIntent>()
     private val activeExecutionIntents6519 = ConcurrentHashMap<String, ExecutionIntent>()
+    /** V5.0.8169 — the live circuit breaker revokes this mint's sealed LIVE ticket and intent for [lanes]. */
+    private fun revokeLiveSealOnBreaker8169(mint: String, lanes: Set<String>) {
+        try {
+            val m = mint.trim()
+            executionTickets.entries.removeIf { it.value.mint == m && it.value.mode == "LIVE" && it.value.canonicalLane in lanes }
+            activeExecutionIntents6519.entries.removeIf { it.value.mint == m && it.value.mode == "LIVE" && it.value.canonicalLane in lanes }
+        } catch (_: Throwable) {}
+    }
     private fun intentKey6519(mode: String, mint: String, candidateVersion: Long): String =
         "${mode.uppercase()}:${mint.trim()}:$candidateVersion"
 
@@ -3306,15 +3314,7 @@ object ExecutableOpenGate {
             // V5.0.8169 — since 7858 recentAllowedAttemptId reads executionTickets,
             // so the sealed LIVE ticket/intent for this mint+lane must go too
             // (same revocation as the causal-revalidation branch).
-            try {
-                val cbLanes8169 = setOf(requestedLane, canonicalSelectedLane)
-                executionTickets.entries.removeIf {
-                    it.value.mint == mint.trim() && it.value.mode == "LIVE" && it.value.canonicalLane in cbLanes8169
-                }
-                activeExecutionIntents6519.entries.removeIf {
-                    it.value.mint == mint.trim() && it.value.mode == "LIVE" && it.value.canonicalLane in cbLanes8169
-                }
-            } catch (_: Throwable) {}
+            revokeLiveSealOnBreaker8169(mint, setOf(requestedLane, canonicalSelectedLane))
             return blocked("EXEC_OPEN_BLOCKED_CIRCUIT_BREAKER", pause.reason.ifBlank { "CIRCUIT_BREAKER" })
         }
         if (pause.active && modeUpper == "PAPER") {

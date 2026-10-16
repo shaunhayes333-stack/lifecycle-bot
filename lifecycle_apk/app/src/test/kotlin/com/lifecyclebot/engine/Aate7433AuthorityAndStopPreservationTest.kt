@@ -33,7 +33,7 @@ class Aate7433AuthorityAndStopPreservationTest {
     fun `hard no outranks and revokes same-version sealed buy`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val precedence = src.substringAfter("V5.0.7433 — HARD_NO is factual impossibility")
-            .substringBefore("V5.0.6910 §LANE_OWNERSHIP_IS_NOT_THE_VERDICT")
+            .substringBefore("val effectiveVerdict = if (keepOld)")  // V5.0.8169 — keepOld moved below the 6910 lane ranks
         assertTrue(precedence.contains("\"HARD_NO_BUY\" -> 4"))
         assertTrue(precedence.contains("!finalVerdict.equals(\"HARD_NO_BUY\", true)"))
         val record = src.substringAfter("V5.0.7433 — the post-record canonical state")
