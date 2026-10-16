@@ -337,9 +337,28 @@ object PaperEconomicAtomicCommit6632 {
 
     private fun maybeEvictOldest() {
         if (entries.size <= CAP) return
-        val oldest = entries.entries.filter { it.value.committedAtMs > 0L }.minByOrNull { it.value.createdAtMs }?.key ?: return
-        entries.remove(oldest)
-        reportedUnpaired7863.remove(oldest)
+        // V5.0.8160 — one batch pass per EVICT_SLACK_8160 of growth, not a full filtered scan on every stamp. The old
+        // per-stamp scan found nothing to evict while a history repair stamped ledger-only (uncommitted) entries, so the
+        // map kept growing and every stamp rescanned all of it (O(n^2)): with the max canonical history the service
+        // bootstrap stalled in repairCryptoHistory6659 (runtime smoke SERVICE_BOOTSTRAP_STALL_8144).
+        if (!EvictionPacing8160.due8160(entries.size, CAP, lastEvictScanSize8160)) return
+        evictBatch8160()
+    }
+
+    @Volatile private var lastEvictScanSize8160 = 0
+
+    @Synchronized private fun evictBatch8160() {
+        val size = entries.size
+        if (!EvictionPacing8160.due8160(size, CAP, lastEvictScanSize8160)) return
+        lastEvictScanSize8160 = size
+        val drop = EvictionPacing8160.dropCount8160(size, CAP)
+        if (drop <= 0) return
+        val oldest = entries.entries.filter { it.value.committedAtMs > 0L }.sortedBy { it.value.createdAtMs }.take(drop)
+        for (e in oldest) {
+            entries.remove(e.key)
+            reportedUnpaired7863.remove(e.key)
+        }
+        lastEvictScanSize8160 = entries.size
     }
 
     fun isCommitted(key: String): Boolean = entries[key]?.committedAtMs?.let { it > 0L } ?: false
