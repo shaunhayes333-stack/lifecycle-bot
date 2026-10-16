@@ -978,7 +978,26 @@ object LanePlaybook7907 {
 
     /** V5.0.8094 — the strategy this coin trades as in [laneRaw]: the best proven fired setup, else the classified one. */
     fun selectedSetup8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? =
-        (try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null }) ?: classify(ts, canon(laneRaw), nowMs)
+        (try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null })
+            ?: (try { validAlternative8144(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8144
+            ?: classify(ts, canon(laneRaw), nowMs)
+
+    /**
+     * V5.0.8144 §COMPETING_STRATEGIES — when the classifier's default setup for this coin is losing on its own record and
+     * another setup the coin fired clears the cold-start bar on ITS own record, that one (CortexStrategySelect8144).
+     */
+    fun validAlternative8144(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
+        val lane = canon(laneRaw)
+        val default = classify(ts, lane, nowMs) ?: return null
+        val fired = matchedSetups8083(ts, lane, nowMs)
+        if (fired.none { it != default }) return null
+        val records = synchronized(this) {
+            (fired + default).distinct().mapNotNull { id -> stat(lane, id)?.let { CortexStrategySelect8144.Record8144(id, it.n, it.mean(), it.variance()) } }
+        }
+        val alt = CortexStrategySelect8144.alternative8144(default, records) ?: return null
+        try { PipelineHealthCollector.labelInc("SETUP_NEGATIVE_DEFAULT_YIELDS_8144_$lane") } catch (_: Throwable) {}
+        return alt
+    }
 
     /** V5.0.8094 — [mean, variance, n] of this coin's picked setup at its CURRENT timing band, or null when unrecorded. */
     fun timingStat8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
@@ -1005,7 +1024,9 @@ object LanePlaybook7907 {
     fun pickedSetupNegative8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
         val lane = canon(laneRaw)
         val setup = classify(ts, lane, nowMs)
-        if (setup == null) null else synchronized(this) {
+        // V5.0.8144 — a negative default does not refuse the coin when another fired setup is valid on its own record.
+        val alt8144 = if (setup == null) null else (try { validAlternative8144(ts, lane, nowMs) } catch (_: Throwable) { null })
+        if (setup == null || alt8144 != null) null else synchronized(this) {
             val st = stat(lane, setup)
             if (st != null && setupRecordNegative8094(st.n, st.mean(), st.variance())) setup else null
         }
@@ -1391,6 +1412,20 @@ object LanePlaybook7907 {
         if (fam == null) net to gross
         else if (setupHoldsLong8080(lane, setup)) fam[2] to fam[3] else fam[0] to fam[1]
 
+    /**
+     * V5.0.8144 — Cortex7885.onLabel: a label the hygiene keeps out of the books (unexecutable decision, or a repeat of
+     * the coin's graded episode) releases its pending setup tag without grading any setup.
+     */
+    fun dropPending8144(mint: String, labelLane: String) {
+        pending.remove("$mint|${labelLane.trim().uppercase()}")
+        pendingTiming8094.remove("$mint|${labelLane.trim().uppercase()}")
+        try { PipelineHealthCollector.labelInc("SETUP_LABEL_HYGIENE_DROPPED_8144") } catch (_: Throwable) {}
+    }
+
+    private fun runnerHorizonLane8144(lane: String): Boolean =
+        (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false }) ||
+            (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false })
+
     private class Grade8076(val lane: String, val stamps: Map<String, Double>, var net: Double, var gross: Double, val atMs: Long)
     private val graded7997 = ConcurrentHashMap<String, Grade8076>()
 
@@ -1399,6 +1434,11 @@ object LanePlaybook7907 {
         if (!newNet.isFinite()) return
         synchronized(this) {
             val g = graded7997["$mint|${labelLane.trim().uppercase()}"] ?: return
+            // V5.0.8144 — a revision past the lane's executable hold horizon is not a return the strategy can bank.
+            if (!CortexLabelHygiene8144.revisionCounts8144(runnerHorizonLane8144(g.lane), System.currentTimeMillis() - g.atMs)) {
+                try { PipelineHealthCollector.labelInc("SETUP_REVISION_PAST_EXEC_HORIZON_8144") } catch (_: Throwable) {}
+                return
+            }
             val yo = g.net.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
             val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
             val ro = g.gross.isFinite() && g.gross >= CortexLedger7885.RUNNER_GROSS_PCT
