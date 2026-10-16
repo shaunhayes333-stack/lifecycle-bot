@@ -95,13 +95,17 @@ object PumpFunDirectApi {
         solAmount: Double,
         slippagePercent: Int,
         priorityFeeSol: Double = 0.0001,
+        ordinary8151: Boolean = false,   // V5.0.8151 — discretionary entry: medium priority capped to the trade size
     ): BuiltTx {
         val slip = slippagePercent.coerceIn(1, 99)
         if (solAmount <= 0.0 || solAmount.isNaN() || solAmount.isInfinite()) {
             throw RuntimeException("PumpPortal BUY: invalid solAmount=$solAmount")
         }
         // V5.9.1524 — Sender tip floor (priorityFee == Jito tip on PumpPortal).
-        val effPriorityFee = PriorityFee8009.pumpPortalSol(priorityFeeSol.coerceAtLeast(0.0002))  // V5.0.8009 — follows the network
+        // V5.0.8151 — the Sender tip is its own transfer (HeliusSenderEnvelope7250, since 7311), so an ordinary entry's
+        // priorityFee is a pure CU priority: the market's medium level, capped against the trade.
+        val effPriorityFee = if (ordinary8151) PriorityFee8009.ordinaryPumpPortalSol8151(priorityFeeSol.coerceAtLeast(0.0002), solAmount)
+            else PriorityFee8009.pumpPortalSol(priorityFeeSol.coerceAtLeast(0.0002))  // V5.0.8009 — follows the network
         val payload = JSONObject().apply {
             put("publicKey", publicKeyB58)
             put("action", "buy")
@@ -196,6 +200,7 @@ object PumpFunDirectApi {
         pool: String = "auto",
         decimals: Int = 6,               // V5.9.1524 — token decimals for canonical UI conversion
         allowEmergencyOverride: Boolean = false, // V5.9.1524 — operator-explicit panic only
+        ordinary8151: Boolean = false,           // V5.0.8151 — non-urgent profit slice: medium priority
     ): BuiltTx {
         // ── V5.9.1524 — CANONICAL SELL PAYLOAD (operator spec items 1, 2).
         // ROOT CAUSE of HTTP 400 / amount="100%": this builder previously
@@ -218,7 +223,8 @@ object PumpFunDirectApi {
         // PumpPortal uses priorityFee AS the Jito tip, so floor it here. This
         // guarantees every Sender-broadcast sell lands instead of being dropped.
         val SENDER_MIN_TIP_SOL = 0.0002
-        val effPriorityFee = PriorityFee8009.pumpPortalSol(priorityFeeSol.coerceAtLeast(SENDER_MIN_TIP_SOL))  // V5.0.8009
+        val effPriorityFee = if (ordinary8151 && !allowEmergencyOverride) PriorityFee8009.ordinaryPumpPortalSol8151(priorityFeeSol.coerceAtLeast(SENDER_MIN_TIP_SOL), 0.0)
+            else PriorityFee8009.pumpPortalSol(priorityFeeSol.coerceAtLeast(SENDER_MIN_TIP_SOL))  // V5.0.8009
 
         // Item 1 — validated amount authority. Prefer the exact raw token units.
         val safeDecimals = decimals.coerceIn(0, 18)

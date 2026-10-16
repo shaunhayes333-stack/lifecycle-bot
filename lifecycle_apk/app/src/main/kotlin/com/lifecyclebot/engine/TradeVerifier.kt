@@ -126,6 +126,7 @@ object TradeVerifier {
             val parsed = parseTxForOwner(wallet, sig, mint)
             if (parsed != null) {
                 if (parsed.metaErr != null) {
+                    try { CostMeter8151.noteFailedLeg8151(parsed.feeLamports) } catch (_: Throwable) {}  // V5.0.8151 — a failed tx still paid
                     return BuyResult(Outcome.FAILED_CONFIRMED, sig, mint, BigInteger.ZERO, 0.0, parsed.decimals, 0L, parsed.solBefore, parsed.solAfter, parsed.feeLamports, parsed.metaErr)
                 }
                 val rawDelta = parsed.rawAfter - parsed.rawBefore
@@ -137,6 +138,7 @@ object TradeVerifier {
                     // (RentReclaimer7927 takes it back), not a price paid for the tokens: it
                     // inflated every live entry basis by ~4.6% on a 0.044 SOL position.
                     val solSpent = buySolSpent7928(parsed.solBefore, parsed.solAfter, parsed.ataRentLamports)
+                    try { CostMeter8151.noteLeg8151(parsed.feeLamports, parsed.ataRentLamports, 0L); CostMeter8151.noteTicket8151(solSpent / 1e9) } catch (_: Throwable) {}  // V5.0.8151
                     return BuyResult(Outcome.LANDED, sig, mint, rawDelta, ui, parsed.decimals, solSpent, parsed.solBefore, parsed.solAfter, parsed.feeLamports, null, parsed.ataRentLamports)
                 }
                 // tx confirmed err==null but ZERO token delta for our owner — could be a non-direct route.
@@ -172,6 +174,7 @@ object TradeVerifier {
             val parsed = parseTxForOwner(wallet, sig, mint)
             if (parsed != null) {
                 if (parsed.metaErr != null) {
+                    try { CostMeter8151.noteFailedLeg8151(parsed.feeLamports) } catch (_: Throwable) {}  // V5.0.8151 — a failed tx still paid
                     return SellResult(Outcome.FAILED_CONFIRMED, sig, mint, BigInteger.ZERO, 0.0, parsed.decimals, 0L, false, parsed.metaErr)
                 }
                 val rawConsumed = (parsed.rawBefore - parsed.rawAfter).coerceAtLeast(BigInteger.ZERO)
@@ -190,6 +193,7 @@ object TradeVerifier {
                 // be reading the partial pre/post snapshot mid-confirm).
                 val solRealised = (parsed.solAfter - parsed.solBefore) > 5_000L
                 if (tokensCleared && solRealised) {
+                    try { CostMeter8151.noteLeg8151(parsed.feeLamports, 0L, parsed.closedRentLamports) } catch (_: Throwable) {}  // V5.0.8151
                     val ui = if (parsed.decimals > 0) {
                         rawConsumed.toBigDecimal().movePointLeft(parsed.decimals).toDouble()
                     } else rawConsumed.toLong().toDouble()

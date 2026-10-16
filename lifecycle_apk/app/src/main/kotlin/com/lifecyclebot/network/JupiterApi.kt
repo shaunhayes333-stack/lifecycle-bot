@@ -561,6 +561,7 @@ class JupiterApi(
         dynamicSlippageMaxBps: Int? = null,
         senderTipLamports: Long = 0L,
         senderComputeUnitPriceMicroLamports: Long = 25_000L,
+        ordinary8151: Boolean = false,   // V5.0.8151 — discretionary trade: medium CU price capped to its size
     ): SwapTxResult {
         require(userPublicKey.isNotBlank()) { "userPublicKey blank" }
 
@@ -577,6 +578,7 @@ class JupiterApi(
             dynamicSlippageMaxBps = dynamicSlippageMaxBps,
             senderTipLamports = senderTipLamports,
             senderComputeUnitPriceMicroLamports = senderComputeUnitPriceMicroLamports,
+            ordinary8151 = ordinary8151,
         )
         val senderEnvelope = if (senderTipLamports >= HeliusSenderEnvelope7250.MIN_SWQOS_TIP_LAMPORTS) {
             try {
@@ -671,6 +673,17 @@ class JupiterApi(
         dynamicSlippageMaxBps: Int? = null,
     ): String = buildSwapTxV6Detailed(quote, userPublicKey, dynamicSlippageMaxBps).first
 
+    /** V5.0.8151 — the SOL side of a quote in lamports (input on a buy, output on a sell); 0 when neither side is SOL. */
+    private fun solSideLamports8151(quote: SwapQuote): Long {
+        val input = quote.inputMint.ifBlank { quote.raw.optString("inputMint", "") }
+        val output = quote.outputMint.ifBlank { quote.raw.optString("outputMint", "") }
+        return when {
+            input == SOL_MINT -> quote.inAmount.coerceAtLeast(0L)
+            output == SOL_MINT -> quote.outAmount.coerceAtLeast(0L)
+            else -> 0L
+        }
+    }
+
     /**
      * V5.9.482 — same as buildSwapTxV6 but returns Triple(txBase64, dynSlipPickedBps, dynSlipIncurredBps).
      * Jupiter's response includes a `dynamicSlippageReport` JSON when dynamicSlippage was requested;
@@ -683,6 +696,7 @@ class JupiterApi(
         dynamicSlippageMaxBps: Int? = null,
         senderTipLamports: Long = 0L,
         senderComputeUnitPriceMicroLamports: Long = 25_000L,
+        ordinary8151: Boolean = false,
     ): Triple<String, Int, Int> {
         val startMs = System.currentTimeMillis()
 
@@ -696,7 +710,8 @@ class JupiterApi(
                 // can encode one prioritization mode, so it builds the CU price;
                 // HeliusSenderEnvelope7250 appends the tip locally before signing.
                 // V5.0.8009 — the network's current High estimate when it is above the caller's price.
-                put("computeUnitPriceMicroLamports", PriorityFee8009.jupiterMicroLamports(senderComputeUnitPriceMicroLamports.coerceAtLeast(1L)))
+                put("computeUnitPriceMicroLamports", if (ordinary8151) PriorityFee8009.ordinaryJupiterMicroLamports8151(solSideLamports8151(quote))
+                    else PriorityFee8009.jupiterMicroLamports(senderComputeUnitPriceMicroLamports.coerceAtLeast(1L)))
             } else {
                 put("prioritizationFeeLamports", "auto")
             }

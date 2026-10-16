@@ -2603,6 +2603,90 @@ class Executor(
         return if (urgent) (floored * 2L).coerceAtMost(1_000_000L) else floored
     }
 
+    /**
+     * V5.0.8151 — the Sender tip by urgency. An urgent / emergency send pays [effectiveSenderTipLamports] exactly as
+     * before; an ORDINARY one (discretionary entry, top-up, non-urgent slice) pays the SWQOS-only minimum with headroom
+     * (HeliusSender posts to `/fast?swqos_only=true`; CostTrim8151).
+     */
+    private fun costSenderTip8151(c: com.lifecyclebot.data.BotConfig, urgent: Boolean, ordinary: Boolean, entry: Boolean = false): Long {
+        val legacy = effectiveSenderTipLamports(c, urgent)
+        val tip = CostTrim8151.senderTipLamports8151(if (ordinary) CostTrim8151.Urgency8151.ORDINARY else CostTrim8151.Urgency8151.URGENT, legacy)
+        try { CostMeter8151.noteTip8151(tip, legacy, entry) } catch (_: Throwable) {}
+        return tip
+    }
+
+    /** V5.0.8151 — an entry is ORDINARY unless the runner grab marked it to land next slot (RunnerGrab7967). */
+    private fun entryOrdinary8151(mint: String): Boolean = try { !RunnerGrab7967.isGrabbed7980(mint) } catch (_: Throwable) { false }
+
+    /** V5.0.8151 — a PumpPortal sell label that is a non-urgent profit slice (not its rescue). */
+    private fun ordinarySliceLabel8151(labelTag: String): Boolean = labelTag.startsWith("PARTIAL-") && !labelTag.contains("RESCUE")
+
+    /** V5.0.8151 — an ordinary PumpPortal buy's slippage from the pool impact model (PaperVenueCost7287); urgent keeps 10%. */
+    private fun costPumpBuySlip8151(ts: TokenState, sol: Double): Int {
+        if (!entryOrdinary8151(ts.mint)) return 10
+        val impact = try {
+            com.lifecyclebot.engine.truth.PaperVenueCost7287.impactPct(ts.mint, sol, ts.lastLiquidityUsd, WalletManager.lastKnownSolPrice)
+        } catch (_: Throwable) { Double.NaN }
+        return CostTrim8151.ordinaryPumpBuySlipPct8151(impact, 10)
+    }
+
+    /**
+     * V5.0.8151 — preflight an ORDINARY PumpPortal buy before it is signed: Sender and the fan-out send with
+     * skipPreflight, so a doomed buy used to pay its fees on chain. A definite simulation failure returns true (the
+     * caller falls through to the Jupiter ladder, which simulates its own build); an unavailable or slow simulator
+     * (budget 900 ms) proves nothing and the buy proceeds exactly as before.
+     */
+    private fun costPumpBuySimRefused8151(ts: TokenState, txBase64: String, wallet: SolanaWallet, tradeKey: String): Boolean {
+        if (!entryOrdinary8151(ts.mint)) return false
+        val err = CostMeter8151.runBounded8151(900L) { jupiter.simulateSwap(txBase64, wallet.rpcUrl) }
+        if (!CostTrim8151.simDefiniteReject8151(err)) return false
+        try {
+            CostMeter8151.noteSimRefused8151()
+            PipelineHealthCollector.labelInc("COST_PUMP_BUY_SIM_REFUSED_8151")
+            LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.BUY_SIM_FAIL,
+                "PUMP-FIRST preflight failed (not signed, no fee paid) → Jupiter ladder: ${err?.take(100)}", traderTag = "MEME")
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
+     * V5.0.8151 — the cheapest executable route for an ORDINARY buy: a pump mint whose curve is confirmed COMPLETE on
+     * chain (SellRouteVenueProbe8144 / ParallelMarkFanout7088 complete flag) trades in a PumpSwap / Raydium pool the
+     * aggregator routes without PumpPortal's 0.5% fee. Once per mint per 10 min (a second attempt keeps PumpPortal
+     * first). Never blocks on the network: an unconfirmed venue keeps the legacy order and warms the probe.
+     */
+    private fun costAggregatorFirst8151(ts: TokenState, wallet: SolanaWallet): Boolean {
+        val cached = try { com.lifecyclebot.engine.sell.SellRouteVenueProbe8144.cached8144(ts.mint).name } catch (_: Throwable) { "UNKNOWN" }
+        val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }
+        val venue = if (cached == "UNKNOWN" && graduated) "PUMPSWAP" else cached
+        if (cached == "UNKNOWN") try { com.lifecyclebot.engine.sell.SellRouteVenueProbe8144.prewarm8144(wallet, ts.mint) } catch (_: Throwable) {}
+        val urgency = if (entryOrdinary8151(ts.mint)) CostTrim8151.Urgency8151.ORDINARY else CostTrim8151.Urgency8151.URGENT
+        if (!CostTrim8151.aggregatorFirstForCost8151(urgency, venue, true, CostMeter8151.aggregatorTriedRecently8151(ts.mint))) return false
+        try {
+            CostMeter8151.noteAggregatorFirst8151(ts.mint)
+            PipelineHealthCollector.labelInc("COST_BUY_AGGREGATOR_FIRST_8151")
+            ForensicLogger.lifecycle("COST_BUY_AGGREGATOR_FIRST_8151", "mint=${ts.mint.take(10)} symbol=${ts.symbol} venue=$venue saves=${CostTrim8151.PUMPPORTAL_FEE_PCT_PER_SIDE_8151}%/side")
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
+     * V5.0.8151 — a partial slice whose fixed exit fees (measured network fee + sell tip) exceed
+     * CostTrim8151.partialFixedFeeMaxShare8151 of its proceeds is not sold. Tier 1-3 exits never wait.
+     */
+    private fun costPartialFixedRefused8151(ts: TokenState, proceedsSol: Double, reason: String, fraction: Double): Boolean {
+        val rank = try { RunnerExitContract8136.tierOf8136(reason).rank } catch (_: Throwable) { 1 }
+        val fixed = CostMeter8151.sellLegFixedSol8151()
+        if (!CostTrim8151.partialFixedFeeRefused8151(fixed, proceedsSol, CostTrim8151.partialFixedFeeMaxShare8151, rank)) return false
+        try {
+            CostMeter8151.notePartialFixedHeld8151()
+            PipelineHealthCollector.labelInc("COST_PARTIAL_FIXED_FEE_HELD_8151")
+            ForensicLogger.lifecycle("COST_PARTIAL_FIXED_FEE_HELD_8151", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(48)} " +
+                "fraction=${"%.3f".format(fraction)} proceeds=${"%.6f".format(proceedsSol)} fixedFee=${"%.6f".format(fixed)} action=keep_inventory")
+        } catch (_: Throwable) {}
+        return true
+    }
+
     private fun recalcBuyPlanForProcessor(
         ts: TokenState,
         wallet: SolanaWallet,
@@ -7182,6 +7266,7 @@ class Executor(
         val f = fractionOfRemaining.coerceIn(0.0, 1.0)
         val proceeds = proceedsSol7029(pos.qtyToken * f, getActualPrice(ts)) ?: return false
         val sliceCost = pos.costSol * f
+        if (costPartialFixedRefused8151(ts, proceeds, reason, f)) return true  // V5.0.8151 — fixed fees vs slice proceeds
         val exitCostPct = try {
             com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(pos.tradingMode, proceeds, ts.lastLiquidityUsd) / 2.0
         } catch (_: Throwable) { com.lifecyclebot.engine.truth.FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 / 2.0 }
@@ -10556,7 +10641,8 @@ class Executor(
                         ts.mint, JupiterApi.SOL_MINT, partialJupiterPlan.rawAmount, sellSlippage, isBuy = false)
                     val txResult  = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
-                        senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
+                        senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = true),
+                        ordinary8151 = true,  // V5.0.8151 — PARTIAL_TAKE_PROFIT (tier 5): a non-urgent slice
                     )
                     security.enforceSignDelay()
 
@@ -13464,7 +13550,8 @@ class Executor(
                 }
                 val txResult = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
-                        senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
+                        senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true),
+                        ordinary8151 = entryOrdinary8151(ts.mint),  // V5.0.8151 — a top-up is a discretionary entry
                     )
                 security.enforceSignDelay()
 
@@ -20494,7 +20581,7 @@ class Executor(
                     srcUpperForRoute.contains("RAYDIUM_NEW_POOL") ||
                     srcUpperForRoute.contains("SCANNER_DIRECT_RAYDIUM_NEW_POOL")
             )
-            val freshPumpRoute = pumpPortalAutoEligible4559
+            val freshPumpRoute = pumpPortalAutoEligible4559 && !costAggregatorFirst8151(ts, wallet)  // V5.0.8151 — cheapest executable route
             val pumpBuyPlan = if (!freshPumpRoute) {
                 try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_ROUTE_POLICY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} src=${ts.source.take(80)} reason=deep_amm_use_jupiter_first pumpPortalAutoEligible4559=false") } catch (_: Throwable) {}
                 null
@@ -20520,7 +20607,7 @@ class Executor(
                 ts = ts,
                 wallet = wallet,
                 solAmount = pumpBuyPlan.solAmount,
-                slipPct = 10,
+                slipPct = costPumpBuySlip8151(ts, pumpBuyPlan.solAmount),  // V5.0.8151 — impact-sized for an ordinary entry (was 10)
                 priorityFeeSol = 0.0001,
                 useJito = c.jitoEnabled,
                 jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
@@ -30774,7 +30861,7 @@ class Executor(
             if (guard7688 is GuardResult.Block) throw Exception("SLIPPAGE_REFRESH_QUOTE_REJECTED_7688:${guard7688.reason}")
             executionQuote7688 = fresh7688
             txResultLocal = buildTxWithRetry(fresh7688, wallet.publicKeyB58,
-                senderTipLamports = effectiveSenderTipLamports(c, urgent = false))
+                senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true), ordinary8151 = entryOrdinary8151(ts.mint))
             txResult = txResultLocal
             simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
         }
@@ -30856,7 +30943,8 @@ class Executor(
         onRaydiumFill: (Pair<String, Double>) -> Unit,
     ): com.lifecyclebot.network.SwapTxResult? {
         return try {
-            buildTxWithRetry(quote, wallet.publicKeyB58, senderTipLamports = effectiveSenderTipLamports(c, urgent = false))
+            buildTxWithRetry(quote, wallet.publicKeyB58, senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true),
+                ordinary8151 = entryOrdinary8151(ts.mint))  // V5.0.8151 — an ordinary entry is not an emergency
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             if (!JupiterApi.isTransientPostFailure8089(e.message)) throw e
@@ -30878,9 +30966,10 @@ class Executor(
         dynamicSlippageMaxBps: Int? = null,
         senderTipLamports: Long = 0L,
         senderComputeUnitPriceMicroLamports: Long = 25_000L,
+        ordinary8151: Boolean = false,   // V5.0.8151 — discretionary trade: medium CU price (CostTrim8151)
     ): com.lifecyclebot.network.SwapTxResult {
         return try {
-            jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps, senderTipLamports, senderComputeUnitPriceMicroLamports)
+            jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps, senderTipLamports, senderComputeUnitPriceMicroLamports, ordinary8151)
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "⚠️ buildSwapTx attempt 1 failed: ${e.javaClass.simpleName} | ${e.message?.take(120)}")
             // V5.0.8089 — a Jupiter 5xx was already retried per host inside postOrThrow; a second full build
@@ -30888,7 +30977,7 @@ class Executor(
             if (JupiterApi.isTransientPostFailure8089(e.message)) throw e
             Thread.sleep(1000)
             try {
-                jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps, senderTipLamports, senderComputeUnitPriceMicroLamports)
+                jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps, senderTipLamports, senderComputeUnitPriceMicroLamports, ordinary8151)
             } catch (e2: Exception) {
                 ErrorLogger.error("Executor", "❌ buildSwapTx attempt 2 ALSO failed: ${e2.javaClass.simpleName} | ${e2.message?.take(120)}")
                 throw e2
@@ -31397,6 +31486,7 @@ class Executor(
                 priorityFeeSol  = priorityFeeSol,
                 decimals        = sellDecimals,
                 allowEmergencyOverride = emergencyOverride,
+                ordinary8151    = ordinarySliceLabel8151(labelTag),  // V5.0.8151 — a non-urgent slice pays medium priority
             )
             // V5.0.8144 — the endpoint answered with a transaction: its budget counts endpoint failures only.
             pumpPortalOutcome8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Failure8144.OK, venue8144)
@@ -31426,7 +31516,7 @@ class Executor(
             // the Jito / RPC path exactly as before.
             val pumpEnv7311 = try {
                 com.lifecyclebot.network.HeliusSenderEnvelope7250.build(
-                    built.txBase64, wallet.publicKeyB58, effectiveSenderTipLamports(cfg(), urgent = labelTag.contains("DRAIN")),
+                    built.txBase64, wallet.publicKeyB58, costSenderTip8151(cfg(), urgent = labelTag.contains("DRAIN"), ordinary = ordinarySliceLabel8151(labelTag)),
                 )
             } catch (_: Throwable) { null }
             try {
@@ -31756,6 +31846,7 @@ class Executor(
                 solAmount       = buySol,
                 slippagePercent = slipPct,
                 priorityFeeSol  = priorityFeeSol,
+                ordinary8151    = entryOrdinary8151(ts.mint),  // V5.0.8151 — medium priority for a discretionary entry
             )
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
@@ -31763,6 +31854,7 @@ class Executor(
                 "Tx built | router=PUMP_DIRECT | slip=${slipPct}% | bytes=${built.txBase64.length}",
                 traderTag = traderTag,
             )
+            if (costPumpBuySimRefused8151(ts, built.txBase64, wallet, tradeKey)) return null  // V5.0.8151 — never pay for a doomed buy
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_BROADCAST,
@@ -31782,7 +31874,8 @@ class Executor(
             val pumpEnv7311 = try {
                 com.lifecyclebot.network.HeliusSenderEnvelope7250.build(
                     // V5.0.7980 — a grabbed runner / proven-cell / specialist entry lands next slot (doubled tip).
-                    built.txBase64, wallet.publicKeyB58, effectiveSenderTipLamports(cfg(), urgent = RunnerGrab7967.isGrabbed7980(ts.mint)),
+                    // V5.0.8151 — an ordinary entry pays the SWQOS-only minimum tip with headroom (costSenderTip8151).
+                    built.txBase64, wallet.publicKeyB58, costSenderTip8151(cfg(), urgent = RunnerGrab7967.isGrabbed7980(ts.mint), ordinary = entryOrdinary8151(ts.mint), entry = true),
                 )
             } catch (_: Throwable) { null }
             try {

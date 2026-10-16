@@ -71,8 +71,13 @@ object NetEdge8030 {
 
     // ── live ──
 
-    /** The round trip (%) for [lane] at [sizeSol] against [liquidityUsd]: measured or modelled, the higher. */
-    fun costPct8030(lane: String, sizeSol: Double, liquidityUsd: Double): Double {
+    /**
+     * The round trip (%) for [lane] at [sizeSol] against [liquidityUsd]: measured or modelled, the higher.
+     * V5.0.8151 — the model is built from the trip's measured components (CostMeter8151: network fee per confirmed leg,
+     * the tips actually set; the venue's fee for [mint]; the route's fee; the app's own fee; rent the reclaimer could
+     * not take back) instead of the 7766 constants (a 1% "platform" fee and 0.000205 SOL a leg).
+     */
+    fun costPct8030(lane: String, sizeSol: Double, liquidityUsd: Double, mint: String = "", mcapUsd: Double = 0.0): Double {
         val size = if (sizeSol.isFinite() && sizeSol > 0.0) sizeSol else DEFAULT_TICKET_SOL
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val sizeUsd = if (solUsd.isFinite() && solUsd > 0.0) size * solUsd else 0.0
@@ -81,9 +86,32 @@ object NetEdge8030 {
         // liquidity"); this rule charges fees, tips and slippage and the impact only of depth it can see.
         val depthKnown = liquidityUsd.isFinite() && liquidityUsd > 0.0
         if (!depthKnown) unpricedDepth8037.incrementAndGet()
-        val model = try { FieldManual7715.roundTripCostPct7766(size, if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0) } catch (_: Throwable) { 5.0 }
+        val components8151 = try { componentsPct8151(size, mint, if (depthKnown) liquidityUsd else 0.0, mcapUsd) } catch (_: Throwable) { Double.NaN }
+        val model = if (components8151.isFinite()) components8151 + FieldManual7715.SLIPPAGE_ALLOWANCE_PCT_7715 +
+            FieldManual7715.impactRoundTripPct(if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0)
+        else try { FieldManual7715.roundTripCostPct7766(size, if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0) } catch (_: Throwable) { 5.0 }
         val measured = try { CostLedger7962.measuredCostPct7962(lane, size) } catch (_: Throwable) { null }
         return maxOf(model, measured ?: 0.0).also { lastCostPct = it }
+    }
+
+    /**
+     * V5.0.8151 — fees and fixed costs of one round trip (%), from the components each trade actually pays: the venue
+     * fee (PaperVenueCost7287 for [mint]; an AMM's 0.25% when the mint is not known), the route fee (PumpPortal 0.5% on
+     * a bonding curve, the aggregator otherwise), the app's 0.5% a side, two measured fixed legs, and the rent share the
+     * reclaimer could not take back. Slippage allowance and impact are added by [costPct8030].
+     */
+    private fun componentsPct8151(sizeSol: Double, mint: String, liquidityUsd: Double, mcapUsd: Double): Double {
+        val curve = mint.isNotBlank() && PaperVenueCost7287.venue(mint, liquidityUsd) == PaperVenueCost7287.Venue.BONDING_CURVE
+        val venuePct = if (mint.isBlank()) 0.25 else PaperVenueCost7287.venueFeePct(mint, liquidityUsd, mcapUsd)
+        val routePct = com.lifecyclebot.engine.CostTrim8151.routeFeePctPerSide8151(if (curve) "PUMPPORTAL" else "JUPITER")
+        val rentLoss = try { com.lifecyclebot.engine.RentReclaimer7927.rentLossRate8151() } catch (_: Throwable) { 0.0 }
+        val rt = com.lifecyclebot.engine.CostTrim8151.roundTripPct8151(
+            venuePct, routePct, com.lifecyclebot.engine.CostTrim8151.APP_FEE_PCT_PER_SIDE_8151,
+            com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() / 2.0,
+            com.lifecyclebot.engine.CostTrim8151.ATA_RENT_SOL_8151 * rentLoss, sizeSol,
+        )
+        if (mint.isNotBlank() && sizeSol >= DEFAULT_TICKET_SOL * 0.5) com.lifecyclebot.engine.CostMeter8151.noteRoundTrip8151(rt)
+        return rt
     }
 
     /** LiveEdgeGate7877 (live): the refusal when [lane]'s expected move is under 2x the round trip, else null. */
@@ -94,7 +122,7 @@ object NetEdge8030 {
         // expects no more than the coin itself is actually moving: its last hour's range (or 1h change).
         val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
         val expected = expectedMove8035(mandate, realized)
-        val cost = costPct8030(lane, DEFAULT_TICKET_SOL, liquidity8037(ts))
+        val cost = costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
         if (entryClears8030(expected, cost)) return null
         entryRefused.incrementAndGet()
         val slow = realized != null && realized < mandate
@@ -114,7 +142,7 @@ object NetEdge8030 {
     }
 
     /** V5.0.8136 — the round trip [entryRefusal8030] charges this entry: the default ticket against the observed depth. */
-    fun entryCostPct8136(ts: TokenState, lane: String): Double = costPct8030(lane, DEFAULT_TICKET_SOL, liquidity8037(ts))
+    fun entryCostPct8136(ts: TokenState, lane: String): Double = costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
 
     private val slowRefused8035 = AtomicLong(0)
 
@@ -151,7 +179,7 @@ object NetEdge8030 {
         val lane = laneRaw.trim().uppercase()
         if (lane in SCALP_LANES_8054) {
             val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
-            val cost = costPct8030(lane, DEFAULT_TICKET_SOL, liquidity8037(ts))
+            val cost = costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
             if (scalpMoveTooSmall8054(realized, cost)) {
                 scalpRefused8054.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("NET_EDGE_SCALP_COIN_TOO_FLAT_8054_$lane") } catch (_: Throwable) {}
@@ -225,7 +253,7 @@ object NetEdge8030 {
         val structural = structural8030(reason)
         if (structural) return false
         try { OnChainDepth8038.request8038(ts) } catch (_: Throwable) {}
-        val cost = costPct8030(pos.tradingMode.ifBlank { "UNKNOWN" }, pos.costSol, liquidity8037(ts))
+        val cost = costPct8030(pos.tradingMode.ifBlank { "UNKNOWN" }, pos.costSol, liquidity8037(ts), ts.mint, ts.lastMcap)
         val floor = exitFloorPct8030(cost)
         if (!profitExitHeld8030(pnl, floor, structural)) return false
         val peak = if (pos.highestPrice > 0.0) (pos.highestPrice / pos.entryPrice - 1.0) * 100.0 else Double.NaN
@@ -249,5 +277,9 @@ object NetEdge8030 {
 
     fun statusLine(): String =
         "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} scalpTooFlat8054=${scalpRefused8054.get()} swingAlreadyRan8054=${overextendedRefused8054.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} giveBackReleased8048=${giveBackReleased.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
-            "rule=entry move>=${EDGE_MULT.toInt()}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)"
+            "rule=entry move>=${EDGE_MULT.toInt()}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)" +
+            " · cost8151 " + com.lifecyclebot.engine.CostMeter8151.statusLine8151(DEFAULT_TICKET_SOL)
+
+    /** V5.0.8151 — the entry is costed at the last live ticket that actually sealed (TradeVerifier), else the default. */
+    private fun entryTicket8151(): Double = com.lifecyclebot.engine.CostMeter8151.ticketSol8151(DEFAULT_TICKET_SOL)
 }
