@@ -2313,6 +2313,11 @@ object CanonicalPositionAuthority6441 {
         return "positions=${positions.size} allModeForensicOpen=$open liveCanonicalOpen=$liveOpen paperCanonicalOpen=$paperOpen closed=$closed paperCashSol=${"%.5f".format(cash)} " +
             "muts=${muts.get()} dups=${duplicates.get()} invViol=${invariantViolations.get()} quarantines=${quarantines.get()} " +
             "sumCheck(total=${classification.total} classified=${classification.byLifecycle.values.sum()} " +
-            "unaccounted=${classification.unaccounted} $breakdown)"
+            "unaccounted=${classification.unaccounted} $breakdown)" +
+            // V5.0.8169 — the paper ledger is the cash authority; show whether this projection agrees.
+            (try {
+                val ledger8169 = PaperAccountLedger6430.cashSol()
+                " ledgerCashSol=${"%.5f".format(ledger8169)} cashAgree8169=${AccountingIntegrity8169.cashAgreement8169(cash, ledger8169)}"
+            } catch (_: Throwable) { "" })
     }
 }

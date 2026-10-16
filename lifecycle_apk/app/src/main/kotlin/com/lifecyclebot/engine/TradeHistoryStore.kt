@@ -282,7 +282,8 @@ object TradeHistoryStore {
             // The DB on device is at v3 from a previous experiment, so returning
             // the codebase to v1 throws SQLiteException on startup and breaks
             // the entire learning pipeline. Bump to v4 to force an upgrade instead.
-            const val DB_VERSION = 9
+            // V5.0.8169 — v10 persists the LIVE transaction signature (column `sig`).
+            const val DB_VERSION = 10
             const val TABLE = "trades"
         }
 
@@ -323,6 +324,7 @@ object TradeHistoryStore {
                     economic_event_id TEXT NOT NULL DEFAULT '',
                     sold_cost_basis_sol REAL NOT NULL DEFAULT 0,
                     gross_proceeds_sol REAL NOT NULL DEFAULT 0,
+                    sig           TEXT    NOT NULL DEFAULT '',
                     dedup_key     TEXT    UNIQUE
                 )
             """.trimIndent())
@@ -361,6 +363,11 @@ object TradeHistoryStore {
             if (oldVersion < 9) {
                 try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN sold_cost_basis_sol REAL NOT NULL DEFAULT 0") } catch (_: Throwable) {}
                 try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN gross_proceeds_sol REAL NOT NULL DEFAULT 0") } catch (_: Throwable) {}
+            }
+            if (oldVersion < 10) {
+                // V5.0.8169 — the signature was never written to disk: every LIVE BUY reloaded after a
+                // restart had sig="" and reconcile8144 counted it LIVE_BUY_NO_SIGNATURE (8168: 12 of 17).
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN sig TEXT NOT NULL DEFAULT ''") } catch (_: Throwable) {}
             }
         }
     }
@@ -1737,6 +1744,7 @@ object TradeHistoryStore {
                         economicEventId = c.stringOrBlank("economic_event_id"),
                         soldCostBasisSol = c.doubleOrZero("sold_cost_basis_sol"),
                         grossProceedsSol = c.doubleOrZero("gross_proceeds_sol"),
+                        sig = c.stringOrBlank("sig"),  // V5.0.8169 — persisted signature
                     )
                     if (!row.mode.equals("live", true)) continue
                     val displayRow = CloseOutcomeLabelSanitizer.canonicalize(row, emit = false)
@@ -1806,6 +1814,7 @@ object TradeHistoryStore {
                         economicEventId = c.stringOrBlank("economic_event_id"),
                         soldCostBasisSol = c.doubleOrZero("sold_cost_basis_sol"),
                         grossProceedsSol = c.doubleOrZero("gross_proceeds_sol"),
+                        sig = c.stringOrBlank("sig"),  // V5.0.8169 — persisted signature
                     )
                     val displayRow = CloseOutcomeLabelSanitizer.canonicalize(row, emit = false)
                     if (isValidAccountingTrade(displayRow)) loaded.add(displayRow)
@@ -2763,6 +2772,7 @@ object TradeHistoryStore {
         put("economic_event_id", t.economicEventId)
         put("sold_cost_basis_sol", t.soldCostBasisSol)
         put("gross_proceeds_sol", t.grossProceedsSol)
+        put("sig",           t.sig)  // V5.0.8169 — LIVE signature survives restart
         put("dedup_key",     "${t.ts}_${t.mint}_${t.side}_${tradeSeq.incrementAndGet()}")
     }
 
@@ -2810,6 +2820,7 @@ object TradeHistoryStore {
                         economicEventId = c.stringOrBlank("economic_event_id"),
                         soldCostBasisSol = c.doubleOrZero("sold_cost_basis_sol"),
                         grossProceedsSol = c.doubleOrZero("gross_proceeds_sol"),
+                        sig = c.stringOrBlank("sig"),  // V5.0.8169 — persisted signature
                     )
                     // V5.0.7058 §6 + §7 — IDENTITY IS NOT ADMISSION.
                     //
