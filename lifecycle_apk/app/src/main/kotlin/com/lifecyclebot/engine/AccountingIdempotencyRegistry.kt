@@ -83,7 +83,8 @@ object AccountingIdempotencyRegistry {
 
     /** Convenience overload for the common signature+mint+action shape. */
     fun claim(signature: String, mint: String, action: String, reasonForLog: String = ""): Boolean =
-        claim(keyFor(signature, mint, action), reasonForLog)
+        claim(keyFor(signature, mint, action), reasonForLog) &&
+            !ReconcileSignatureGuard8144.alreadyJournaled8144(signature, mint, action) // V5.0.8144 — survives restarts
 
     fun size(): Int = seen.size
 

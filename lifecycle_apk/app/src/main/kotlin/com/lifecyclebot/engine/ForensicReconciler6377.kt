@@ -147,7 +147,7 @@ object ForensicReconciler6377 {
 
     @JvmStatic
     /** V5.0.7868 — every mint the canonical authority parents (open, closed, live quarantined). */
-    private fun canonicalParentMints7868(): Set<String> {
+    private fun canonicalParentMints7868(includeDurable8144: Boolean = true): Set<String> {
         val out = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
                 .let { it.openPositions() + it.closedPositions() + it.quarantinedLivePositions7454() }
@@ -159,7 +159,53 @@ object ForensicReconciler6377 {
         try {
             FillLotLedger6344.snapshotForWallet(WalletManager.currentPubkey()).forEach { out += it.mintAddress }
         } catch (_: Throwable) {}
+        // V5.0.8144 — the canonical book is memory-only for LIVE: a restart empties closedPositions(),
+        // and wallet adoption / pending promotion never wrote an economic Buy event. Durable lineage parents those sells.
+        if (includeDurable8144) out += durableParentMints8144()
         return out
+    }
+
+    /**
+     * V5.0.8144 — durable bot-buy lineage that survives a restart: LIVE lot births
+     * (ReconcileLineageLedger8144), durable LIVE economic Buy events and chain-CONFIRMED BUY signatures.
+     */
+    internal fun durableParentMints8144(): Set<String> {
+        val out = HashSet<String>()
+        try { out += com.lifecyclebot.engine.truth.ReconcileLineageLedger8144.mints8144() } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot().forEach { e ->
+                if (e is com.lifecyclebot.engine.truth.EconomicEventSchema6464.Buy && e.mode.equals("live", true) && e.mint.isNotBlank()) out += e.mint
+            }
+        } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.network.SignedTxLedger8085.allRows8144().forEach { r ->
+                if (r.side == "BUY" && r.state == com.lifecyclebot.network.SignedTxLedger8085.State.CONFIRMED && r.mint.isNotBlank()) out += r.mint
+            }
+        } catch (_: Throwable) {}
+        return out
+    }
+
+    /**
+     * V5.0.8144 — pure: split unparented sells by named cause (ReconcileClassifier8144) and count the ones
+     * only durable lineage parents. Returns (orphans by cause, lineageResolved).
+     */
+    internal fun orphanCauses8144(
+        sells: List<Trade>, boughtMints: Set<String>, liveParentMints: Set<String>, durableMints: Set<String>,
+    ): Pair<Map<String, Int>, Int> {
+        val causes = LinkedHashMap<String, Int>()
+        var resolved = 0
+        for (t in sells) {
+            if (t.mint.isBlank() || t.mint in boughtMints || t.mint in liveParentMints) continue
+            if (t.mint in durableMints) { resolved++; continue }
+            val c = com.lifecyclebot.engine.truth.ReconcileClassifier8144.orphanCause8144(
+                com.lifecyclebot.engine.truth.ReconcileClassifier8144.Row8144(
+                    side = t.side, mint = t.mint, positionId = t.positionId, sig = t.sig, reason = t.reason,
+                ),
+                emptySet(),
+            ).name
+            causes[c] = (causes[c] ?: 0) + 1
+        }
+        return causes to resolved
     }
 
     fun runAll(
@@ -368,10 +414,14 @@ object ForensicReconciler6377 {
                 it.mint.isNotBlank() && it.mint !in boughtMints && it.mint !in canonicalMints6900
             }
             val ok = orphans == 0
+            // V5.0.8144 — every orphan carries a named cause, and sells only durable lineage parents are counted.
+            val durable8144 = durableParentMints8144()
+            val (causes8144, resolved8144) = orphanCauses8144(sells, boughtMints, canonicalParentMints7868(includeDurable8144 = false), durable8144)
+            val causeText8144 = causes8144.entries.joinToString(" ") { "${it.key.removePrefix("ORPHAN_SELL_")}=${it.value}" }
             results += CheckResult(
                 "ORPHAN_SELL", ok,
-                if (ok) "sells=${sells.size} all-parented (journal=${boughtMints.size} canonical=${canonicalMints6900.size})"
-                else "orphan sells=$orphans journalBuys=${boughtMints.size} canonicalMints=${canonicalMints6900.size}",
+                if (ok) "sells=${sells.size} all-parented (journal=${boughtMints.size} canonical=${canonicalMints6900.size}) lineageResolved=$resolved8144"
+                else "orphan sells=$orphans $causeText8144 lineageResolved=$resolved8144 journalBuys=${boughtMints.size} canonicalMints=${canonicalMints6900.size}",
             )
         }
 

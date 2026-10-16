@@ -1428,6 +1428,14 @@ object HostWalletTokenTracker {
                 } catch (_: Throwable) {}
             }
 
+            // V5.0.8144 — a stranger token (no canonical / fill-registry lineage and no durable bot-buy evidence) is the
+            // owner's holding. Tracked as OPEN_TRACKING it counted in the host projection (host/canonical mismatch: the
+            // canonical bridge refuses it under 7967), reserved a slot and was offered to the sell reconciler. It is left
+            // as wallet observation; ReconcileRunner8144 reports it as OWNER_UNOWNED.
+            if (!ownedByBot7137 && !LiveCanonicalRecovery6686.botOwnedEvidence8144(mint)) {
+                try { PipelineHealthCollector.labelInc("HOST_TRACKER_OWNER_HOLDING_NOT_TRACKED_8144") } catch (_: Throwable) {}
+                continue
+            }
             // True orphan — bot has no record of buying this. Recover.
             val recovered = TrackedTokenPosition(
                 mint = mint,

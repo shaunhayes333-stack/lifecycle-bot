@@ -110,6 +110,39 @@ object LiveCanonicalRecovery6686 {
                 !OwnerManualHoldings7976.isOwnerManual7976(mint))   // V5.0.7976 — the owner's hand-bought tokens stay his
     } catch (_: Throwable) { false }
 
+    /**
+     * V5.0.8144 — may a wallet holding be adopted as BOT inventory (WalletReconciler stub, StartupReconciler
+     * adoption, HostWalletTokenTracker row)? Only with evidence the bot bought it: the 7967 attribution, a durable
+     * lot birth, a LIVE economic Buy event, a fill lot, a canonical lot or a signed BUY transaction for the mint.
+     * The owner's hand-bought holdings are never adopted (ReconcileClassifier8144.adoptWalletHolding8144).
+     */
+    fun botOwnedEvidence8144(mint: String): Boolean {
+        if (mint.isBlank()) return false
+        val evidence = botAttributed7967(mint) ||
+            (try { com.lifecyclebot.engine.truth.ReconcileLineageLedger8144.hasLineage8144(mint) } catch (_: Throwable) { false }) ||
+            (try {
+                com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot().any {
+                    it is com.lifecyclebot.engine.truth.EconomicEventSchema6464.Buy && it.mint == mint && it.mode.equals("live", true)
+                }
+            } catch (_: Throwable) { false }) ||
+            (try { FillLotLedger6344.snapshotForMint(WalletManager.currentPubkey(), mint).isNotEmpty() } catch (_: Throwable) { false }) ||
+            (try {
+                CanonicalPositionAuthority6441.openPositions().any { it.mint == mint && it.mode.equals("live", true) } ||
+                    CanonicalPositionAuthority6441.quarantinedLivePositions7454(mint).isNotEmpty()
+            } catch (_: Throwable) { false }) ||
+            (try {
+                com.lifecyclebot.network.SignedTxLedger8085.historyFor8090(mint).any {
+                    it.side == "BUY" && it.state != com.lifecyclebot.network.SignedTxLedger8085.State.FAILED_ON_CHAIN &&
+                        it.state != com.lifecyclebot.network.SignedTxLedger8085.State.EXPIRED_PROVEN &&
+                        it.state != com.lifecyclebot.network.SignedTxLedger8085.State.SUBMIT_REJECTED
+                }
+            } catch (_: Throwable) { false })
+        val manual = try { OwnerManualHoldings7976.isOwnerManual7976(mint) } catch (_: Throwable) { false }
+        val adopt = com.lifecyclebot.engine.truth.ReconcileClassifier8144.adoptWalletHolding8144(evidence, manual)
+        if (!adopt) try { PipelineHealthCollector.labelInc("WALLET_HOLDING_NOT_ADOPTED_NO_BOT_EVIDENCE_8144") } catch (_: Throwable) {}
+        return adopt
+    }
+
     private fun isBotSignedRow7708(p: HostWalletTokenTracker.TrackedTokenPosition?): Boolean =
         p != null && !p.buySignature.isNullOrBlank() &&
             (p.source == HostWalletTokenTracker.PositionSource.BOT_BUY || p.source == HostWalletTokenTracker.PositionSource.TX_PARSE)

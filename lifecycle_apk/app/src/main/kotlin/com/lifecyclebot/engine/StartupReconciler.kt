@@ -268,6 +268,8 @@ class StartupReconciler(
                     return@forEach
                 }
                 if (mint in trackedMints) return@forEach
+                // V5.0.8144 — the owner's hand-bought holdings are never adopted as bot positions (left as wallet observation).
+                if (!LiveCanonicalRecovery6686.botOwnedEvidence8144(mint)) { onLog("👤 OWNER HOLDING: ${mint.take(12)}… qty=${"%.4f".format(qty)} — no bot buy evidence, not adopted"); return@forEach }
                 // V5.9.253 FIX: was "?: return@forEach" — silently dropped tokens whose mint
                 // was never scanned into status.tokens (e.g. tokens from previous sessions, xStock
                 // tokens, or anything the scanner hadn't discovered this run). These would sit in

@@ -67,6 +67,9 @@ object SignedTxLedger8085 {
 
     fun historyFor8090(mint: String): List<Entry> = rows.values.filter { it.mint == mint }
 
+    /** V5.0.8144 — every row (in-memory ledger, resolved + unresolved) for the reconciliation classifier. */
+    fun allRows8144(): List<Entry> = rows.values.toList()
+
     fun transition(signature: String, to: State, detail: String = "", acceptedBy: String = "", nowMs: Long = System.currentTimeMillis()) {
         val e = rows[signature] ?: return
         // terminal chain truth never moves back to a provider-side state

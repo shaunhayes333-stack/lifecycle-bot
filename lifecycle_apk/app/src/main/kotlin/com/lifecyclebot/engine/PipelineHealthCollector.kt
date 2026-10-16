@@ -1901,6 +1901,7 @@ object PipelineHealthCollector {
                     },
                 ).append('\n')
             } catch (_: Throwable) {}
+            sb.append("  Chain reconcile (§8144): ").append(try { ReconcileRunner8144.statusLine8144() } catch (_: Throwable) { "unavailable" }).append('\n')
             sb.append(line("LAB sandbox projection:", labProjection, "isolated hypotheses; never canonical inventory")).append('\n')
             sb.append("  Held supervisor (§7246):     ")
                 .append(try { com.lifecyclebot.engine.HeldPositionSupervisor7246.statusLine() } catch (_: Throwable) { "unavailable" })

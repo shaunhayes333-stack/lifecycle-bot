@@ -476,6 +476,8 @@ object CanonicalPositionAuthority6441 {
             markKeyUsed(idempotencyKey)
             if (lifecycle == Lifecycle.OPEN || lifecycle == Lifecycle.PARTIALLY_CLOSED) {
                 positions[positionId]?.let { bindOpenLearning7863(it, candidateVersion7863) }
+                // V5.0.8144 — durable birth record of every LIVE lot: its sells keep a parent across restarts.
+                try { positions[positionId]?.let { noteLineage8144(it, runId, idempotencyKey, promoted = false) } } catch (_: Throwable) {}
             }
             // V5.0.6636 — direct OPEN and promoted OPEN share one commit hook.
             try { positions[positionId]?.let(::lockEntryMetricsAtOpen6636) } catch (_: Throwable) {}
@@ -495,6 +497,16 @@ object CanonicalPositionAuthority6441 {
      * Idempotent: subsequent calls overwrite qty/cost with the observed fill.
      * Callers that never went through openPosition first are auto-upgraded.
      */
+    /** V5.0.8144 — immutable birth (original raw qty, entry cost, basis source) of a LIVE lot. */
+    private fun noteLineage8144(p: Position, runId: String, idempotencyKey: String, promoted: Boolean) {
+        if (!p.mode.equals("live", true)) return
+        ReconcileLineageLedger8144.note8144(
+            positionId = p.positionId, mint = p.mint, mode = p.mode, originalRaw = p.originalQtyRaw,
+            entryCostSol = p.entryCostSol, entrySource = p.entryPriceSource, runId = runId,
+            idempotencyKey = idempotencyKey, promoted = promoted,
+        )
+    }
+
     private fun bindOpenLearning7863(p: Position, candidateVersion7863: Long = 0L) {
         val positionId = p.positionId
         val mint = p.mint
@@ -648,6 +660,8 @@ object CanonicalPositionAuthority6441 {
             positions[positionId] = promoted
             if (promoted.lifecycle == Lifecycle.OPEN || promoted.lifecycle == Lifecycle.PARTIALLY_CLOSED) {
                 bindOpenLearning7863(promoted, candidateVersion7863)
+                // V5.0.8144 — a promoted pending entry has no economic Buy event: its birth is recorded here.
+                try { noteLineage8144(promoted, promoted.runId, "", promoted = true) } catch (_: Throwable) {}
             }
             // V5.0.6636 root fix: normal Executor buys take this promotion
             // branch, so lock the final fill here, not only in openPosition().

@@ -59,6 +59,7 @@ object WalletReconciler {
         val prev = lastRunMs.get()
         if (now - prev < MIN_INTERVAL_MS) return 0
         if (!lastRunMs.compareAndSet(prev, now)) return 0
+        try { ReconcileRunner8144.ensureStarted8144() } catch (_: Throwable) {} // V5.0.8144 — periodic chain reconciliation, off the main thread
 
         val walletMints: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = try {
             // V5.0.7691 — USDC is collateral, never a tradable position; drop it
@@ -100,6 +101,7 @@ object WalletReconciler {
         // every reconcile pass even if the legacy PositionStore drift
         // recovery logic below is short-circuited.
         try { HostWalletTokenTracker.applyWalletSnapshot(walletMints) } catch (_: Throwable) {}
+        try { ReconcileRunner8144.noteWalletSnapshot8144(walletMints) } catch (_: Throwable) {}
 
         var changes = 0
 
@@ -128,6 +130,9 @@ object WalletReconciler {
                 continue
             }
             // ts is missing or position.isOpen == false → orphan recovery.
+            // V5.0.8144 — only for a holding the bot has evidence it bought. The owner's hand buys were stubbed as
+            // WALLET_RECOVERED bot positions, sold by the legacy exits, and journaled as orphan sells (no BUY anywhere).
+            if (!LiveCanonicalRecovery6686.botOwnedEvidence8144(mint)) continue
             recoverOrphanPosition(status, mint, uiAmount, ts)
             changes++
         }
