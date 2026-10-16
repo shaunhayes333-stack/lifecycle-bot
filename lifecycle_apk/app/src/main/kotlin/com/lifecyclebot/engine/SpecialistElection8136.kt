@@ -24,6 +24,13 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Bookkeeping and arbitration of WHO may evaluate only. It never admits, sizes or executes: every lane gate, the FDG,
  * hard safety, sizing and the coordinator's one-owner election still decide. Bounded (LRU + TTL), one lock.
+ *
+ * V5.0.8144 — one contract end to end: DISCOVER > QUALIFY (registerNative8136) > NATIVE_ASSESS > OWNER_SELECT
+ * (cyclePrimary8136) > PRIMARY_DECISION > OPTIONAL_RESCUE (claimRescueOutcome8144 / boundedRescue8141) > FDG
+ * (onFdgVerdict8136) > MARK > SIZE > SEALED_TICKET > EXECUTE > CONFIRM (ElectionRescueFunnel8144 via the desk stages),
+ * on ONE lineage per candidate: a clock-bucket roll no longer closes an unconcluded rescue / refusal / yield, the named
+ * receiver of a fit refusal wins the slot, the lottery fills only an empty slot nobody with evidence wants, the
+ * coordinator honours the elected rescue (executableRescue8144), and an arbitration that throws never executes.
  */
 object SpecialistElection8136 {
     enum class Terminal8136(val rank: Int, val code: String) {
@@ -127,6 +134,13 @@ object SpecialistElection8136 {
     }
 
     private class Record8136(val mint: String, var version: Long, var touchedAtMs: Long) {
+        // V5.0.8144 — one candidate across clock buckets: the first version of this lineage and when it started.
+        var lineageFrom: Long = version
+        val lineageStartMs: Long = touchedAtMs
+        // V5.0.8144 — the silent primary of the version this record replaced keeps its silence clock.
+        var inheritedPrimary = ""
+        var inheritedSinceMs = 0L
+        var rescueViaLottery = false
         val slots = LinkedHashMap<String, Slot8136>()
         val assessed = HashSet<String>()
         val formerPrimaries = HashSet<String>()
@@ -167,6 +181,12 @@ object SpecialistElection8136 {
     private var closedRecords8136 = 0L
     private var lotteryFilled8141 = 0L
     private var lotteryRefused8141 = 0L
+    private var lineageCarried8144 = 0L
+    private var lotteryBarred8144 = 0L
+    private var namedWins8144 = 0L
+    private var preempted8144 = 0L
+    private var arbitrationErrors8144 = 0L
+    private val gateReasons8144 = HashMap<String, String>()
 
     private val records8136 = object : LinkedHashMap<String, Record8136>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Record8136>?): Boolean {
@@ -200,11 +220,45 @@ object SpecialistElection8136 {
             return Record8136(mint, v, nowMs).also { records8136[mint] = it }
         }
         if (v <= 0L || v == r.version) { r.touchedAtMs = nowMs; return r }
-        if (r.version <= 0L) { r.version = v; r.touchedAtMs = nowMs; return r }
-        if (v < r.version) { staleEvents8136++; return null }
+        if (r.version <= 0L) { r.version = v; r.lineageFrom = v; r.touchedAtMs = nowMs; return r }
+        if (v < r.version) {
+            // V5.0.8144 — an earlier bucket of this same lineage (the clock rolled while the rescue was in flight) lands here.
+            if (r.lineageFrom in 1L..v) { r.touchedAtMs = nowMs; return r }
+            staleEvents8136++; return null
+        }
+        // V5.0.8144 — the clock is not a newer candidate: an unconcluded rescue / refusal / yield keeps its record.
+        if (ElectionRescueContract8144.carriesLineage8144(refusalOpen8144(r), r.rescue.isNotEmpty() && !r.rescueConsumed,
+                yieldOpen8144(r), nowMs - r.lineageStartMs)) {
+            lineageCarried8144++
+            r.version = v
+            r.touchedAtMs = nowMs
+            if (r.rescue.isNotEmpty()) ElectionRescueFunnel8144.extend8144(mint, r.rescue, v)
+            return r
+        }
         close8136(r, "NEWER_VERSION")
-        return Record8136(mint, v, nowMs).also { records8136[mint] = it }
+        return Record8136(mint, v, nowMs).also { next ->
+            if (r.primary.isNotEmpty() && !r.primaryVerdictSeen && r.primaryRefusal.isEmpty() && r.primarySinceMs > 0L) {
+                next.inheritedPrimary = r.primary
+                next.inheritedSinceMs = r.primarySinceMs
+            }
+            records8136[mint] = next
+        }
     }
+
+    /** V5.0.8144 — the primary refused (not a judgement) and no rescue has been chosen yet. */
+    private fun refusalOpen8144(r: Record8136): Boolean = r.primaryRefusal.isNotEmpty() && !r.primaryJudgement && r.rescue.isEmpty()
+
+    /** V5.0.8144 — a fit refusal named a receiver that has not yet reached the funnel or ended by name. */
+    private fun yieldOpen8144(r: Record8136): Boolean = r.yieldTo.isNotEmpty() && !r.yieldResolved
+
+    /** V5.0.8144 — the named receiver while its yield is open ("" = none). */
+    private fun namedOpen8144(r: Record8136): String = if (yieldOpen8144(r)) r.yieldTo else ""
+
+    /** V5.0.8144 — the own-scale winner among the open proposals other than the primary (no refusal required). */
+    private fun bestOpen8144(r: Record8136): String? = electRescue8136(r.slots.values.filter { s ->
+        s.lane != r.primary &&
+            (s.terminal == null || s.terminal == Terminal8136.CONTRIBUTOR_SHADOW || s.terminal == Terminal8136.DEFERRED_DATA)
+    }.map { Contender8136(it.lane, it.normalised, it.proven) }, r.primary)
 
     /** The lane's proposal on this record; creating it counts one discovered + qualified + open proposal. */
     private fun slotFor8136(r: Record8136, lane: String, normalised: Double, evidenceAtMs: Long): Slot8136 {
@@ -262,22 +316,32 @@ object SpecialistElection8136 {
         yieldRefusals8136[key] = (yieldRefusals8136[key] ?: 0L) + 1L
     }
 
-    private fun setPrimary8136(r: Record8136, lane: String, nowMs: Long) {
+    private fun setPrimary8136(r: Record8136, lane: String, nowMs: Long, keepSilence: Boolean = false) {
         if (lane.isBlank() || lane == r.primary) return
+        // V5.0.8144 — the silence clock is the candidate's: a re-election without any verdict, or the same primary as the
+        // silent one of the version this record replaced, does not restart it (a flipping owner kept the 6 s rescue shut).
+        val silentSince = when {
+            keepSilence && r.primarySinceMs > 0L && !r.primaryVerdictSeen -> r.primarySinceMs
+            r.primary.isEmpty() && lane == r.inheritedPrimary && r.inheritedSinceMs > 0L -> r.inheritedSinceMs
+            else -> nowMs
+        }
         if (r.primary.isNotEmpty()) r.formerPrimaries.add(r.primary)
         r.formerPrimaries.remove(lane)
         r.primary = lane
-        r.primarySinceMs = nowMs
+        r.primarySinceMs = silentSince
         r.primaryVerdictSeen = false
         r.slots[lane]?.let { if (it.terminal == Terminal8136.CONTRIBUTOR_SHADOW || it.terminal == Terminal8136.DEFERRED_DATA) reopen8136(it) }
     }
 
-    private fun claim8136(r: Record8136, lane: String, nowMs: Long) {
+    private fun claim8136(r: Record8136, lane: String, nowMs: Long, viaLottery: Boolean = false) {
         val s = slotFor8136(r, lane, Double.NaN, nowMs)
         if (s.terminal == Terminal8136.CONTRIBUTOR_SHADOW || s.terminal == Terminal8136.DEFERRED_DATA) reopen8136(s)
         r.rescue = lane
+        r.rescueViaLottery = viaLottery
         r.offerTo = ""
         rescueClaims8136++
+        // V5.0.8144 — the rescue funnel: CLAIMED, bound to this record's version (and carried with its lineage).
+        ElectionRescueFunnel8144.bind8144(r.mint, lane, r.version, adopted = false, nowMs = nowMs)
     }
 
     private fun markIneligible8136(r: Record8136, s: Slot8136, why: String) {
@@ -353,7 +417,7 @@ object SpecialistElection8136 {
                 authoritative -> { authoritativeOverrides8136++; setPrimary8136(r, o, nowMs); owner }
                 r.primaryRefusal.isEmpty() -> {
                     r.slots[r.primary]?.let { end8136(r, it, Terminal8136.CONTRIBUTOR_SHADOW, "PRIMARY_REELECTED_TO_$o") }
-                    setPrimary8136(r, o, nowMs)
+                    setPrimary8136(r, o, nowMs, keepSilence = true)
                     owner
                 }
                 r.primaryJudgement -> {
@@ -365,6 +429,12 @@ object SpecialistElection8136 {
                     rescueHeldDenied8136++
                     r.slots[o]?.let { end8136(r, it, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_SLOT_HELD_BY_${r.rescue}") }
                     r.rescue
+                }
+                // V5.0.8144 — the refusing primary named its receiver: the coordinator's other READY pick does not take
+                // the one slot from it (the receiver claims it through its own hand-off and every gate of its lane).
+                namedOpen8144(r).let { it.isNotEmpty() && it != o } -> {
+                    r.slots[o]?.let { end8136(r, it, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_RESERVED_FOR_${r.yieldTo}") }
+                    r.primary
                 }
                 ownerIneligible != null -> {
                     markIneligible8136(r, slotFor8136(r, o, Double.NaN, nowMs), ownerIneligible)
@@ -388,18 +458,24 @@ object SpecialistElection8136 {
         }
     }
 
-    /** A fit refusal by [from] names [to] as the specialist that wants the coin (null = nobody eligible). */
-    fun noteYield8136(mint: String, from: String, to: String?, nowMs: Long = System.currentTimeMillis()) {
-        if (mint.isBlank()) return
-        synchronized(lock8136) {
-            val r = recordFor8136(mint, -1L, nowMs) ?: return
-            if (r.yieldFrom.isNotEmpty()) return
-            r.yieldFrom = canon8136(from)
+    /**
+     * A fit refusal by [from] names [to] as the specialist that wants the coin (null = nobody eligible). V5.0.8144 —
+     * returns the receiver RECORDED for this candidate (the first name stands for the lineage, so a refreshed snapshot
+     * that would rank another lane first cannot strand the receiver the primary already named), else [to].
+     */
+    fun noteYield8136(mint: String, from: String, to: String?, nowMs: Long = System.currentTimeMillis()): String? {
+        if (mint.isBlank()) return to
+        val f = canon8136(from)
+        return synchronized(lock8136) {
+            val r = recordFor8136(mint, -1L, nowMs) ?: return to
+            if (r.yieldFrom.isNotEmpty()) return if (r.yieldFrom == f) r.yieldTo.ifEmpty { null } else to
+            r.yieldFrom = f
             val t = canon8136(to)
-            if (t.isBlank()) { yieldRefused8136(r, "NO_ELIGIBLE_RECEIVER"); return }
+            if (t.isBlank()) { yieldRefused8136(r, "NO_ELIGIBLE_RECEIVER"); return null }
             r.yieldTo = t
             yieldNamed8136++
             r.slots[t]?.let { s -> s.terminal?.let { end8136(r, s, it, s.reason) } }
+            t
         }
     }
 
@@ -409,18 +485,40 @@ object SpecialistElection8136 {
      * judgement refusal grants nobody; a winner that never claims loses its offer after [OFFER_MS_8136].
      */
     fun claimRescue8136(mint: String, lane: String, primary: String, trigger: String, refusal: String, refusalJudgement: Boolean,
-                        contenders: List<Contender8136>, ineligible: String?, nowMs: Long = System.currentTimeMillis()): Boolean {
+                        contenders: List<Contender8136>, ineligible: String?, nowMs: Long = System.currentTimeMillis()): Boolean =
+        claimRescueOutcome8144(mint, lane, primary, trigger, refusal, refusalJudgement, contenders, ineligible, nowMs).executable
+
+    /**
+     * V5.0.8144 — [claimRescue8136] with its named outcome (ElectionRescueContract8144.ClaimOutcome8144): only GRANTED /
+     * HELD let the lane evaluate as the rescue. The receiver a fit refusal named wins the slot when eligible, and takes it
+     * back from a lottery pick that has not been evaluated yet; a judgement refusal grants nobody.
+     */
+    fun claimRescueOutcome8144(mint: String, lane: String, primary: String, trigger: String, refusal: String, refusalJudgement: Boolean,
+                               contenders: List<Contender8136>, ineligible: String?,
+                               nowMs: Long = System.currentTimeMillis()): ElectionRescueContract8144.ClaimOutcome8144 {
         val l = canon8136(lane)
         val p = canon8136(primary)
-        if (mint.isBlank() || l.isBlank() || l == p) return false
+        if (mint.isBlank() || l.isBlank() || l == p) return ElectionRescueContract8144.ClaimOutcome8144.DENIED_NO_PROPOSAL
         return synchronized(lock8136) {
-            val r = recordFor8136(mint, -1L, nowMs) ?: return false
+            val r = recordFor8136(mint, -1L, nowMs) ?: return ElectionRescueContract8144.ClaimOutcome8144.DENIED_NO_PROPOSAL
             if (r.primary.isEmpty()) setPrimary8136(r, p, nowMs)
             for (c in contenders) { val cl = canon8136(c.lane); if (cl.isNotBlank()) slotFor8136(r, cl, c.normalised, nowMs) }
-            val self = r.slots[l] ?: return false
-            if (r.rescue == l) return true
-            if (ineligible != null) { markIneligible8136(r, self, ineligible); return false }
-            if (r.rescue.isNotEmpty()) { rescueHeldDenied8136++; return false }
+            val self = r.slots[l] ?: return ElectionRescueContract8144.ClaimOutcome8144.DENIED_NO_PROPOSAL
+            if (r.rescue == l) return ElectionRescueContract8144.ClaimOutcome8144.HELD
+            if (ineligible != null) { markIneligible8136(r, self, ineligible); return ElectionRescueContract8144.ClaimOutcome8144.DENIED_INELIGIBLE }
+            val named = namedOpen8144(r)
+            if (r.rescue.isNotEmpty()) {
+                // V5.0.8144 — the named receiver outranks a lottery hash pick that has not reached the FDG yet.
+                val holder = r.slots[r.rescue]
+                if (l == named && r.rescueViaLottery && !r.rescueConsumed && holder != null) {
+                    preempted8144++
+                    end8136(r, holder, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_PREEMPTED_BY_NAMED_RECEIVER_$l")
+                    r.rescue = ""
+                } else {
+                    rescueHeldDenied8136++
+                    return ElectionRescueContract8144.ClaimOutcome8144.DENIED_HELD_BY_OTHER
+                }
+            }
             val primaryTrigger = trigger != TRIGGER_CELL_PROVEN
             if (primaryTrigger && (r.primaryRefusal.isEmpty() || r.primaryRefusal.startsWith(TRIGGER_PRE_FDG))) {
                 r.primaryRefusal = short8136("$trigger:$refusal")
@@ -429,7 +527,7 @@ object SpecialistElection8136 {
             if (r.primaryJudgement) {
                 judgementNoRescue8136++
                 end8136(r, self, Terminal8136.INELIGIBLE, "PRIMARY_JUDGEMENT:" + r.primaryRefusal)
-                return false
+                return ElectionRescueContract8144.ClaimOutcome8144.DENIED_JUDGEMENT
             }
             if (trigger == TRIGGER_CELL_PROVEN) self.proven = true
             val offered = r.offerTo
@@ -439,17 +537,18 @@ object SpecialistElection8136 {
             }
             val refused = r.primaryRefusal.isNotEmpty()
             val pool = r.slots.values.filter { s ->
-                s.lane != r.primary && s.lane != p && (refused || s.proven) &&
+                s.lane != r.primary && s.lane != p && (refused || s.proven || s.lane == named) &&
                     (s.terminal == null || s.terminal == Terminal8136.CONTRIBUTOR_SHADOW || s.terminal == Terminal8136.DEFERRED_DATA)
             }.map { Contender8136(it.lane, it.normalised, it.proven) }
-            val winner = electRescue8136(pool, r.primary)
+            val winner = ElectionRescueContract8144.poolWinner8144(pool, r.primary, named.ifEmpty { null })
             if (winner != l) {
                 outranked8136++
                 if (winner != null && r.offerTo != winner) { r.offerTo = winner; r.offerAtMs = nowMs }
-                return false
+                return ElectionRescueContract8144.ClaimOutcome8144.DENIED_OUTRANKED
             }
+            if (l == named) namedWins8144++
             claim8136(r, l, nowMs)
-            true
+            ElectionRescueContract8144.ClaimOutcome8144.GRANTED
         }
     }
 
@@ -467,10 +566,15 @@ object SpecialistElection8136 {
         return synchronized(lock8136) {
             val r = recordFor8136(mint, -1L, nowMs, create = pick.isNotBlank() && pick == l) ?: return lottery
             if (r.primary.isEmpty()) setPrimary8136(r, p, nowMs)
+            // V5.0.8144 — the hash pick fills an empty slot only when no named receiver and no stronger lane with native
+            // evidence wants it (it used to take the slot on the first cycle, before the primary refused or named anyone).
+            val barred8144 = pick == l && r.rescue.isEmpty() &&
+                !ElectionRescueContract8144.lotteryMayFill8144(l, namedOpen8144(r).ifEmpty { null }, bestOpen8144(r))
+            if (barred8144) lotteryBarred8144++
             val slot = rescueSlot8141(r.rescue, pick, l, r.primary.ifEmpty { p }, r.primaryJudgement,
-                r.slots[l]?.terminal == Terminal8136.INELIGIBLE)
+                r.slots[l]?.terminal == Terminal8136.INELIGIBLE || barred8144)
             if (slot.claim) {
-                claim8136(r, l, nowMs)
+                claim8136(r, l, nowMs, viaLottery = true)
                 lotteryFilled8141++
             } else if (pick.isNotBlank() && pick == l && slot.rescue != l) {
                 lotteryRefused8141++
@@ -508,18 +612,30 @@ object SpecialistElection8136 {
         val p = canon8136(primary)
         if (mint.isBlank() || l.isBlank()) return
         synchronized(lock8136) {
+            // V5.0.8144 — the lane gate BotService named for this refusal (noteGateReason8144), consumed once.
+            val gate = gateReasons8144.remove("$mint|$l")
             val r = recordFor8136(mint, -1L, nowMs, create = ready || l == p) ?: return
             if (r.primary.isEmpty()) setPrimary8136(r, p, nowMs)
             val s = r.slots[l] ?: if (ready) slotFor8136(r, l, normalised, nowMs) else null
             if (l == p) {
                 if (p == r.primary && r.primaryRefusal.isEmpty()) r.primaryRefusal = "$TRIGGER_PRE_FDG:PRIMARY_GATED"
-                s?.let { end8136(r, it, Terminal8136.INELIGIBLE, "PRIMARY_GATED_PRE_FDG") }
+                s?.let { end8136(r, it, Terminal8136.INELIGIBLE, if (gate == null) "PRIMARY_GATED_PRE_FDG" else "PRIMARY_GATED_PRE_FDG:$gate") }
                 return
             }
             if (s == null) return
             if (l == r.rescue && !r.rescueConsumed) {
                 r.rescue = ""
-                end8136(r, s, Terminal8136.INELIGIBLE, "RESCUE_GATED_PRE_FDG")
+                end8136(r, s, Terminal8136.INELIGIBLE, if (gate == null) "RESCUE_GATED_PRE_FDG" else "RESCUE_GATED_PRE_FDG:$gate")
+                return
+            }
+            // V5.0.8144 — the receiver a fit refusal named could not evaluate: its yield ends with that precise reason
+            // (35 named yields, 0 arrivals, and no name for why on 5.0.8142).
+            if (l == namedOpen8144(r)) {
+                end8136(r, s, Terminal8136.INELIGIBLE, when {
+                    gate != null -> "RECEIVER_GATED_$gate"
+                    r.rescue.isNotEmpty() -> "RECEIVER_SLOT_HELD_BY_${r.rescue}"
+                    else -> "RECEIVER_NOT_HANDED_OFF"
+                })
                 return
             }
             // The lane the rescue was offered to could not even evaluate: the offer passes on at once.
@@ -528,9 +644,28 @@ object SpecialistElection8136 {
                 end8136(r, s, Terminal8136.INELIGIBLE, "RESCUE_OFFER_GATED_PRE_FDG")
                 return
             }
-            end8136(r, s, Terminal8136.CONTRIBUTOR_SHADOW,
-                if (r.rescue.isNotEmpty() && r.rescue != l) "RESCUE_SLOT_HELD_BY_${r.rescue}" else "NOT_PRIMARY_$p")
+            end8136(r, s, Terminal8136.CONTRIBUTOR_SHADOW, when {
+                r.rescue.isNotEmpty() && r.rescue != l -> "RESCUE_SLOT_HELD_BY_${r.rescue}"
+                gate != null -> "GATED_$gate"
+                else -> "NOT_PRIMARY_$p"
+            })
         }
+    }
+
+    /**
+     * V5.0.8144 — BotService.laneEvaluationAllowed7951 refused [lane] for [mint] at a named lane gate (quarantine, the
+     * 6604 consensus / pWin gates, the sniper's designated pool). The next noteNotEvaluated8136 for that lane ends its
+     * proposal with this reason instead of the generic one. Total: never throws into the lane gate.
+     */
+    fun noteGateReason8144(mint: String, lane: String, reason: String) {
+        try {
+            val l = canon8136(lane)
+            if (mint.isBlank() || l.isBlank() || reason.isBlank()) return
+            synchronized(lock8136) {
+                if (gateReasons8144.size > 1_024) gateReasons8144.clear()
+                gateReasons8144["$mint|$l"] = short8136(reason)
+            }
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -561,12 +696,17 @@ object SpecialistElection8136 {
                 l == r.rescue -> {
                     r.rescueConsumed = true
                     end8136(r, s, Terminal8136.RESCUE_EVALUATED, if (shouldTrade) "FDG_ALLOW" else "FDG_REFUSED:$why")
+                    rescueEvaluated8144(r, l, shouldTrade, nowMs)
                 }
                 r.rescue.isEmpty() -> {
                     r.rescue = l
                     r.rescueConsumed = true
+                    // Adoption = an FDG verdict with no prior claim; claims are counted separately (rescueClaims8136 /
+                    // the funnel's CLAIMED), so `adopted` never reads as "claimed rescues that executed".
                     rescueAdopted8136++
                     end8136(r, s, Terminal8136.RESCUE_EVALUATED, if (shouldTrade) "ADOPTED_FDG_ALLOW" else "ADOPTED_FDG_REFUSED:$why")
+                    ElectionRescueFunnel8144.bind8144(r.mint, l, r.version, adopted = true, nowMs = nowMs)
+                    rescueEvaluated8144(r, l, shouldTrade, nowMs)
                 }
                 else -> {
                     rescueOverflow8136++
@@ -574,6 +714,78 @@ object SpecialistElection8136 {
                 }
             }
         }
+    }
+
+    /** V5.0.8144 — the rescue's FDG verdict in its funnel: EVALUATED, and FDG_ALLOWED on an allow. */
+    private fun rescueEvaluated8144(r: Record8136, lane: String, allowed: Boolean, nowMs: Long) {
+        ElectionRescueFunnel8144.mark8144(r.mint, lane, ElectionRescueFunnel8144.Stage8144.EVALUATED, r.version, nowMs)
+        if (allowed) ElectionRescueFunnel8144.mark8144(r.mint, lane, ElectionRescueFunnel8144.Stage8144.FDG_ALLOWED, r.version, nowMs)
+    }
+
+    /**
+     * V5.0.8144 — BotService.shouldRunBuyLaneForCycle let [lane] evaluate [mint]: when it holds the candidate's rescue,
+     * the funnel's SCHEDULED stage (a claimed rescue that was never scheduled is a gate problem, not an FDG one).
+     */
+    fun noteScheduled8144(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()) {
+        val l = canon8136(lane)
+        if (mint.isBlank() || l.isBlank()) return
+        val version = synchronized(lock8136) { records8136[mint]?.takeIf { it.rescue == l }?.version } ?: return
+        ElectionRescueFunnel8144.mark8144(mint, l, ElectionRescueFunnel8144.Stage8144.SCHEDULED, version, nowMs)
+    }
+
+    /**
+     * V5.0.8144 — ToolkitSignalSheet desk stage of a BUY attempt ("gen:MODE:mint:BUY:LANE:version:ticket"): a sealed
+     * TICKET is the rescue's EXECUTED stage, EXEC (stamped on the confirmed fill) its CONFIRMED stage. Only a lane with
+     * a live rescue binding for that mint and version whose FDG allowed counts; a primary's own trade is not a rescue
+     * and is not counted at all (the binding is the record of the claim, so a bucket roll cannot lose the fill).
+     */
+    fun noteExecutionStage8144(lane: String, stage: String, attemptId: String, nowMs: Long = System.currentTimeMillis()) {
+        val st = when (stage.uppercase()) {
+            "TICKET" -> ElectionRescueFunnel8144.Stage8144.EXECUTED
+            "EXEC" -> ElectionRescueFunnel8144.Stage8144.CONFIRMED
+            else -> return
+        }
+        val a = ElectionRescueContract8144.parseBuyAttempt8144(attemptId) ?: return
+        val l = canon8136(lane.ifBlank { a.lane })
+        ElectionRescueFunnel8144.mark8144(a.mint, l, st, a.version, nowMs, countUnbound = false)
+    }
+
+    /**
+     * V5.0.8144 — LaneExecutionCoordinator: [lane] is this candidate's executable owner as its rescue — the primary
+     * refused (not a judgement), [lane] holds the one slot and has not been ruled ineligible. One owner per version:
+     * the coordinator lets it replace only an UNSEALED pre-seal election.
+     */
+    fun executableRescue8144(mint: String, lane: String): Boolean {
+        val l = canon8136(lane)
+        if (mint.isBlank() || l.isBlank()) return false
+        return synchronized(lock8136) {
+            val r = records8136[mint]
+            r != null && r.rescue == l && r.primary != l && r.primaryRefusal.isNotEmpty() && !r.primaryJudgement &&
+                r.slots[l]?.terminal != Terminal8136.INELIGIBLE
+        }
+    }
+
+    /** V5.0.8144 — true while [lane] is the receiver a fit refusal named and its yield is not settled. */
+    fun isNamedReceiver8144(mint: String, lane: String): Boolean {
+        val l = canon8136(lane)
+        return l.isNotBlank() && synchronized(lock8136) { records8136[mint]?.let { namedOpen8144(it) == l } == true }
+    }
+
+    /**
+     * V5.0.8144 — BotService desk qualification: the rescue holder and the named receiver are qualified by the election
+     * itself (their own native brain is the independent evidence), so a missing desk hypothesis no longer short-circuits
+     * them before the hand-off runs. Every other gate of their lane still decides.
+     */
+    fun electionQualified8144(mint: String, lane: String): Boolean = try {
+        holdsRescue8136(mint, lane) || isNamedReceiver8144(mint, lane)
+    } catch (_: Throwable) { false }
+
+    /** V5.0.8144 — a rescue arbitration threw: the lane's proposal ends DEFERRED by name, and it does not evaluate. */
+    fun noteArbitrationError8144(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()) {
+        try {
+            synchronized(lock8136) { arbitrationErrors8144++ }
+            markIneligible8136(mint, lane, "DEFERRED_RESCUE_ARBITRATION_ERROR", nowMs)
+        } catch (_: Throwable) {}
     }
 
     // ── reads ──
@@ -659,7 +871,10 @@ object SpecialistElection8136 {
         "election8136 records=${records8136.size} closed=$closedRecords8136 rescue(claim=$rescueClaims8136 adopted=$rescueAdopted8136 " +
             "overflow=$rescueOverflow8136 heldDenied=$rescueHeldDenied8136 outranked=$outranked8136 judgementNone=$judgementNoRescue8136) " +
             "yield(named=$yieldNamed8136 reached=$yieldReached8136 refused={${refused.ifBlank { "-" }}}) authoritative=$authoritativeOverrides8136 " +
-            "stale=$staleEvents8136 unqualifiedFdg=$unqualifiedFdg8136 | ${lanes.ifBlank { "no proposals yet" }}"
+            "stale=$staleEvents8136 unqualifiedFdg=$unqualifiedFdg8136 | ${lanes.ifBlank { "no proposals yet" }}" +
+            // V5.0.8144 — how the one slot was decided, and arbitration failures (never executable).
+            " | slot8144(namedWins=$namedWins8144 preempted=$preempted8144 lotteryBarred=$lotteryBarred8144 " +
+            "lineageCarried=$lineageCarried8144 arbitrationErrors=$arbitrationErrors8144)"
     }
 
     internal fun resetForTests8136() {
@@ -669,6 +884,9 @@ object SpecialistElection8136 {
             judgementNoRescue8136 = 0L; outranked8136 = 0L; staleEvents8136 = 0L; unqualifiedFdg8136 = 0L; yieldNamed8136 = 0L
             yieldReached8136 = 0L; authoritativeOverrides8136 = 0L; closedRecords8136 = 0L
             lotteryFilled8141 = 0L; lotteryRefused8141 = 0L
+            lineageCarried8144 = 0L; lotteryBarred8144 = 0L; namedWins8144 = 0L; preempted8144 = 0L; arbitrationErrors8144 = 0L
+            gateReasons8144.clear()
         }
+        ElectionRescueFunnel8144.resetForTests8144()
     }
 }

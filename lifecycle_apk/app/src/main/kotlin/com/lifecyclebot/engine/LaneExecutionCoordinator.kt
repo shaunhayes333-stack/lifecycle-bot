@@ -576,6 +576,11 @@ object LaneExecutionCoordinator {
         return try { LaneEntryContract6342.sniperLaunchIdentityRefusal7807(ts) } catch (_: Throwable) { null }
     }
 
+    /** V5.0.8144 — [laneUpper] may own execution and is the election's rescue after a (non-judgement) primary refusal. */
+    private fun electedRescueOwner8144(mint: String, laneUpper: String): Boolean = try {
+        SpecialistElection8136.executableRescue8144(mint, laneUpper) && laneCanOwnExecution6910(laneUpper)
+    } catch (_: Throwable) { false }
+
     @Synchronized fun canRequestExecution(
         mint: String,
         lane: String,
@@ -647,6 +652,20 @@ object LaneExecutionCoordinator {
             try { PipelineHealthCollector.labelInc("PRESEAL_OWNER_NATIVE_REFUSED_REELECTED_7774") } catch (_: Throwable) {}
             elections.remove(mapKey, prior7774)
             existing = null
+        }
+        // V5.0.8144 — the coordinator recognises the SAME rescue the election chose: once the primary refused and this
+        // lane holds the candidate's one rescue slot, it is this version's owner (it replaces only an UNSEALED pre-seal
+        // election; a sealed owner keeps the version — never two executable owners). The READY contest used to hand the
+        // version to a third lane that never evaluated, and the rescue ended READY_ARBITRATION_LOST_7803.
+        if (sealedFdgOwner6679 == null && electedRescueOwner8144(mint, laneUpper)) {
+            val prior8144 = existing
+            if (prior8144 != null && !prior8144.sealed && prior8144.primaryLane != laneUpper) {
+                try { PipelineHealthCollector.labelInc("PRESEAL_OWNER_REPLACED_BY_ELECTED_RESCUE_8144") } catch (_: Throwable) {}
+                elections.remove(mapKey, prior8144)
+                existing = null
+            }
+            if (existing == null) existing = elect(mint = mint, lanes = listOf(laneUpper), preferred = laneUpper,
+                candidateVersion = candidateVersion, runtimeGeneration = runtimeGeneration)
         }
         val e = existing ?: if (sealedFdgOwner6679 != null) {
             if (sealedFdgOwner6679 != laneUpper) {

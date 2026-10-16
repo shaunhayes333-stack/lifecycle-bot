@@ -1040,6 +1040,8 @@ object ToolkitSignalSheet {
             return
         }
         deskStageCounts6599.computeIfAbsent("$l|$st") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        // V5.0.8144 — a rescue's sealed TICKET / confirmed EXEC lands in its election funnel (EXECUTED / CONFIRMED).
+        if (st == "TICKET" || st == "EXEC") try { SpecialistElection8136.noteExecutionStage8144(l, st, eventId) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.SpecialistRuntimeRegistry6647.offer(l, st, eventId) } catch (_: Throwable) {}
         // V5.0.6625 — SINGLE SOURCE FAN-OUT into the P2/P3/P4/P5 receivers.
         // Every specialist stage change goes through this one function, so
@@ -1894,7 +1896,10 @@ object ToolkitSignalSheet {
      * Rescue / Shadow / Superseded / Deferred / Ineligible, one terminal per qualified proposal (SpecialistElection8136).
      */
     private fun election8136(lane: String): String =
-        try { SpecialistElection8136.laneCompact8136(lane).replace(' ', '_') } catch (_: Throwable) { "unavailable" }
+        try {
+            // V5.0.8144 — plus the lane's rescue funnel: claimed/adopted > scheduled > evaluated > fdgAllowed > executed > confirmed.
+            SpecialistElection8136.laneCompact8136(lane).replace(' ', '_') + "_rescue8144=" + ElectionRescueFunnel8144.compact8144(lane)
+        } catch (_: Throwable) { "unavailable" }
 
     fun specialistCapitalReport6599(): String = buildString {
         appendLine("===== MEME SPECIALIST CAPITAL =====")
