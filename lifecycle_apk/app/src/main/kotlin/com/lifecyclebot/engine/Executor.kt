@@ -10630,7 +10630,7 @@ class Executor(
                     // 8168: the ladder's mark is a trigger, not executable proceeds.
                     if (!ProfitExitTruth8163.acceptQuote(ts, "PARTIAL_TAKE_PROFIT", quote, sellSlippage)) return false
                     val txResult  = buildTxWithRetry(
-                        quote, wallet.publicKeyB58,
+                        quote, wallet.publicKeyB58, dynamicSlippageMaxBps = sellSlippage,
                         senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = true),
                         ordinary8151 = true,  // V5.0.8151 — PARTIAL_TAKE_PROFIT (tier 5): a non-urgent slice
                     )
@@ -13540,7 +13540,7 @@ class Executor(
                     onLog("🚫 Top-up quote rejected: ${qGuard.reason}", ts.mint); return
                 }
                 val txResult = buildTxWithRetry(
-                        quote, wallet.publicKeyB58,
+                        quote, wallet.publicKeyB58, dynamicSlippageMaxBps = sellSlippage,
                         senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true),
                         ordinary8151 = entryOrdinary8151(ts.mint),  // V5.0.8151 — a top-up is a discretionary entry
                     )

@@ -1354,7 +1354,8 @@ object PipelineHealthCollector {
      * verified, unverified, emitted, channelsDiscovered, lastError).
      * Field Manual L412.
      */
-    private fun appendResidentDiscovery7830(sb: StringBuilder) {
+    private fun appendResidentDiscovery7830(sb: StringBuilder, report: Snapshot) {
+        BotImprovementReport8168.append(sb, report.labelCounts, report.nowMs)
         sb.append("  Resident hunters (§7807):     ").append(
             try { com.lifecyclebot.engine.market.ResidentHunterWorker7807.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
@@ -3146,7 +3147,7 @@ object PipelineHealthCollector {
                 try { com.lifecyclebot.engine.market.MarketSweep7297.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
             // V5.0.7807 — the resident worker that owns the sweep (Field Manual L412).
-            appendResidentDiscovery7830(sb)
+            appendResidentDiscovery7830(sb, s)
             sb.append("  Opportunity intelligence (§7777): ").append(
                 try { com.lifecyclebot.engine.market.MarketSweep7297.opportunityStatusLine7777() } catch (_: Throwable) { "unavailable" }
             ).append("\n")

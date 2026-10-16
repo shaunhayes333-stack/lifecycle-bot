@@ -584,6 +584,8 @@ object Cortex7885 {
         val cohort = try {
             com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.mcapBand(com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts))
         } catch (_: Throwable) { "UNK" }
+        com.lifecyclebot.engine.BotImprovementReport8168.noteCortex(lane, admitted,
+            CortexLabelHygiene8144.executableDecision8144(admitted, reason), reason)
         return DecisionCtx8144(timing, CortexLabelHygiene8144.costBand8144(cost), cohort, latencyMeasured8144(lane),
             CortexLabelHygiene8144.executableDecision8144(admitted, reason))
     }

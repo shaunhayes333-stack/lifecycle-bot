@@ -24,6 +24,17 @@ class Aate8168ExitProfitTest {
             assertFalse(reason, ProfitExitTruth8163.profitTaking(reason))
     }
 
+    @Test fun reportKeepsUnknownEvidenceExplicitAndBoundsCounterDetails() {
+        assertEquals("OUTSIDE_NATIVE_CAP", BotImprovementReport8168.reasonClass("NATIVE_MCAP_TOO_LOW"))
+        assertEquals("DATA_MISSING_OR_STALE", BotImprovementReport8168.reasonClass("NATIVE_BIRTH_METADATA_HYDRATING"))
+        assertEquals("UNSPECIFIED", BotImprovementReport8168.reasonClass(null))
+        assertTrue(BotImprovementReport8168.counterSection(emptyMap(), listOf("EXIT_QUEUE_CAUSE_")).contains("not proof"))
+        val labels = (1..30).associate { "LIFECYCLE/EXIT_QUEUE_CAUSE_$it" to it.toLong() }
+        val rendered = BotImprovementReport8168.counterSection(labels, listOf("EXIT_QUEUE_CAUSE_"))
+        assertTrue(rendered.startsWith("LIFECYCLE/EXIT_QUEUE_CAUSE_30=30"))
+        assertTrue(rendered.contains("omittedKeys=6"))
+    }
+
     private fun source(path: String): String = listOf("src/main/kotlin/com/lifecyclebot", "app/src/main/kotlin/com/lifecyclebot",
         "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot").map { File(it, path) }.first { it.exists() }.readText()
 

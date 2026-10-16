@@ -485,10 +485,12 @@ object LaneHunter7297 {
     fun hunt(snap: MarketSweep7297.Snapshot): Map<String, List<MarketSweep7297.Row>> {
         ensureSubscribed()
         val byMint = snap.rows.associateBy { it.mint }
+        val audit8168 = ArrayList<com.lifecyclebot.engine.BotImprovementReport8168.Hunt>()
         val ranked = profiles.associate { p ->
             val (lo, hi) = fluidBand(p.baseMin, p.baseMax, bucketStatsFor(p.lane))
-            p.lane to snap.rows
-                .filter { it.mcapUsd in lo..hi && p.fits(it) }
+            val inBand8168 = snap.rows.filter { it.mcapUsd in lo..hi }
+            val eligible8168 = inBand8168.filter { p.fits(it) }
+            p.lane to eligible8168
                 // Compute each expensive evidence/ranking multiplier exactly
                 // once per candidate, not O(n log n) times inside TimSort's
                 // comparator. Preserve the original score and stable tie order.
@@ -501,7 +503,11 @@ object LaneHunter7297 {
                 }
                 .sortedByDescending { it.second }
                 .map { it.first.mint }
+                .also { ranked8168 -> audit8168 += com.lifecyclebot.engine.BotImprovementReport8168.hunt(
+                    p.lane, snap.rows, inBand8168.size, eligible8168.size,
+                    ranked8168.take(PICKS_PER_LANE).mapNotNull { byMint[it] }) }
         }
+        com.lifecyclebot.engine.BotImprovementReport8168.publishHunts(audit8168, snap.atMs)
         // V5.0.7803 — DO NOT deal the market into mutually-exclusive hunter
         // buckets. Each specialist owns a resident candidate book and may watch
         // the same mint independently. Arbitration belongs at READY execution,

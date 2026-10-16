@@ -40,6 +40,7 @@ object ProfitExitTruth8163 {
 
     fun preflight(ts: TokenState, reason: String, raw: Long, jupiter: JupiterApi, releaseLocks: Boolean = true): Boolean {
         if (ts.position.isPaperPosition || !profitTaking(reason)) return true
+        PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_DIRECT_8168")
         val cost = basis(ts, raw)
         if (cost == null) return refused(ts, "MISSING_CONFIRMED_SLICE_BASIS", releaseLocks)
         val slip = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
@@ -51,12 +52,14 @@ object ProfitExitTruth8163 {
     /** Recheck the actual route at every retry, so an earlier quote cannot authorize a later losing fill. */
     fun acceptQuote(ts: TokenState, reason: String, quote: SwapQuote, slip: Int): Boolean {
         if (ts.position.isPaperPosition || !profitTaking(reason)) return true
+        PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_QUOTE_8168")
         if (quote.inputMint != ts.mint || quote.outputMint != JupiterApi.SOL_MINT) return refused(ts, "QUOTE_IDENTITY_MISMATCH")
         return if (clears(basis(ts, quote.inAmount), quote.outAmount, slip, CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "REQUOTE_BELOW_SLICE_COST")
     }
 
     fun acceptProceeds8168(ts: TokenState, reason: String, raw: Long, outLamports: Long, slip: Int): Boolean {
         if (ts.position.isPaperPosition || !profitTaking(reason)) return true
+        PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_ROUTE_8168")
         return if (clears(basis(ts, raw), outLamports, slip, CostMeter8151.sellLegFixedSol8151())) true
         else refused(ts, "ROUTE_PROCEEDS_BELOW_SLICE_COST", releaseLocks = false)
     }

@@ -22,4 +22,8 @@ Old missing-signature reconciliation exceptions, missing historical cost legs, a
 
 ## Validation
 
-Four regression tests cover exact-slice loss rejection, later quote deterioration, milestone/risk classification, and the previously omitted runtime call sites. Required CI includes Aate8168. Run release compile, required/full regression baseline, ART install/upgrade and runtime smoke before release acceptance.
+Five regression tests cover exact-slice loss rejection, later quote deterioration, milestone/risk classification, and the previously omitted runtime call sites. Required CI includes Aate8168. Run release compile, required/full regression baseline, ART install/upgrade and runtime smoke before release acceptance.
+
+## Export expansion requested during review
+
+Added a bounded improvement-evidence section to the existing copy/export report. Hunter instrumentation reuses the actual band/mandate filter and ranking results without re-running decisions on export. Per lane: total/in-band/mandate-pass/selected counts, unknown input counts, three selected full mint IDs with cap, liquidity, age, activity and provider provenance. Cortex context counts distinguish reason-based executable proxies from native lane acceptance; no learning policy is changed. Targeted queue, admission delivery, profit-check and learner-exclusion counters are exported even when the general counter list truncates them. Counts explicitly identify their scope and repeated-event semantics. Missing data is not rendered as a healthy zero. Report formatting/limits are regression-tested.
