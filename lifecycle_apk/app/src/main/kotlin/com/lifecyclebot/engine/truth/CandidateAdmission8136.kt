@@ -249,6 +249,19 @@ object CandidateAdmission8136 {
         // Resolve the winning strategy before validating its executable economics.
         if (edge?.kind == KIND_SETUP && edge.id != chosen) chooseSetup(edge.id)
 
+        // V5.0.8171: an unformed optional chart has no gross-move forecast;
+        // that does NOT erase a statistically supported NET executable cohort.
+        // Translate only the conservative measured net lower bound back to gross
+        // using this candidate's KNOWN round-trip cost. Never use a prior, a
+        // thin positive, a hypothetical runner tail or an unknown cost.
+        if (!decisionGross.isFinite() && edge != null && edge.netOfCost &&
+            edge.lowerPct.isFinite() && edge.lowerPct > 0.0 &&
+            c.costPct.isFinite() && c.costPct >= 0.0) {
+            decisionGross = edge.lowerPct + c.costPct
+            net = edge.lowerPct
+            trace += "grossFromProvenNetLower8171=${fmt8136(edge.lowerPct)} cost=${fmt8136(c.costPct)}"
+        }
+
         // 4. execution economics: the expected executable move must clear NetEdge8030.EDGE_MULT x the round trip.
         val econKnown = decisionGross.isFinite() && c.costPct.isFinite()
         if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct)) {

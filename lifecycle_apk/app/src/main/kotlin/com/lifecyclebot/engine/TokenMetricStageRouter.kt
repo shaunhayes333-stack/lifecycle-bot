@@ -181,6 +181,24 @@ object TokenMetricStageRouter {
     private const val REROUTE_MIN_N_7940 = 50
     private val TRUNK_LANES_7940 = setOf("STANDARD", "CORE", "V3")
 
+    /** Older liquid tokens with an UNKNOWN chart stage must not inherit a
+     * launch-lane fallback merely because their full candles have not hydrated.
+     * This ONLY chooses which native specialist evaluates; its stage, safety,
+     * sellability, admission and FDG checks still apply.
+     */
+    fun unknownStageOwner8171(stage: Stage, ageMin: Double, mcapUsd: Double,
+                               liqUsd: Double, buyPressure: Double, sellPressure: Double): String? {
+        if (stage != Stage.UNKNOWN || !ageMin.isFinite() || ageMin < 60.0 ||
+            !mcapUsd.isFinite() || !liqUsd.isFinite() || liqUsd < 12_000.0 ||
+            !buyPressure.isFinite() || buyPressure < 52.0 || sellPressure >= 55.0 ||
+            mcapUsd / liqUsd > 65.0) return null
+        return when {
+            mcapUsd >= 1_000_000.0 && liqUsd >= 20_000.0 -> "BLUECHIP"
+            mcapUsd in 75_000.0..1_000_000.0 -> "QUALITY"
+            else -> null
+        }
+    }
+
     private fun preferredPrimaryLaneByStage(ts: TokenState, fallback: String): String {
         val s = snapshot(ts)
         // V5.0.4091 — ESTABLISHED-TOKEN BLUECHIP OVERRIDE (operator P0: intake
@@ -198,6 +216,11 @@ object TokenMetricStageRouter {
             s.stage != Stage.RUG_PRONE && s.stage != Stage.PEAK_EXHAUSTION && s.stage != Stage.DUMPING) {
             // Dip-buyable established tokens go to DIP_HUNTER, otherwise BLUECHIP.
             return if (s.drawdownFromPeakPct >= 15.0 && s.buyPressurePct >= 50.0) "DIP_HUNTER" else "BLUECHIP"
+        }
+        unknownStageOwner8171(s.stage, s.ageMin, s.marketCapUsd, s.liquidityUsd,
+            s.buyPressurePct, s.sellPressurePct)?.let { owner ->
+            try { PipelineHealthCollector.labelInc("UNKNOWN_ESTABLISHED_HANDOFF_8171_$owner") } catch (_: Throwable) {}
+            return owner
         }
         return when (s.stage) {
             Stage.FRESH_LAUNCH -> {

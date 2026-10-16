@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.engine.cortex.Cortex7885
 import com.lifecyclebot.engine.cortex.CortexExit7897
 import com.lifecyclebot.engine.truth.CandidateAdmission8136
+import com.lifecyclebot.engine.TokenMetricStageRouter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -47,6 +48,29 @@ class Aate8171IntegratedRepairTest {
         assertTrue(r.shouldRecheck8171(true, -1L))
         val source = src("engine/ReconcileRunner8144.kt")
         assertTrue(source.contains("MISMATCH_RECHECK_MS_8171, TimeUnit.MILLISECONDS"))
+    }
+
+    @Test fun optionalCandlesMayUseOnlyStatisticallyProvenNetEconomics() {
+        val c = CandidateAdmission8136
+        val edge = CandidateAdmission8136.Evidence8136("CELL", "MOONSHOT|PROVEN", 60, 21.0, 4.0, netOfCost = true)
+        val base = CandidateAdmission8136.Candidate8136("mint-no-chart", "MOONSHOT", "EARLY_BUYER_EXPANSION_8170",
+            priceAgeMs = 500L, missingInputs = listOf("shape:UNKNOWN", "tape:UNKNOWN"),
+            expectedGrossPct = Double.NaN, costPct = 6.0, cell = edge,
+            genericScore = 5.0, genericFloor = 25.0)
+        val admitted = c.decide8136(base)
+        assertEquals(CandidateAdmission8136.Terminal8136.ADMIT, admitted.terminal)
+        assertTrue(admitted.trace.any { it.startsWith("grossFromProvenNetLower8171=") })
+        assertEquals(17.0, admitted.expectedNetPct, 1e-9)
+    }
+
+    @Test fun theUnknownStageRoutesOnlyGenuinelyEstablishedNativeFits() {
+        assertTrue(src("engine/TokenMetricStageRouter.kt").contains("UNKNOWN_ESTABLISHED_HANDOFF_8171"))
+        val t = TokenMetricStageRouter
+        assertEquals("QUALITY", t.unknownStageOwner8171(t.Stage.UNKNOWN, 300.0, 220_000.0, 25_000.0, 60.0, 39.0))
+        assertEquals("BLUECHIP", t.unknownStageOwner8171(t.Stage.UNKNOWN, 30_000.0, 3_000_000.0, 200_000.0, 57.0, 43.0))
+        assertEquals(null, t.unknownStageOwner8171(t.Stage.UNKNOWN, 1.0, 220_000.0, 25_000.0, 60.0, 39.0))
+        assertEquals(null, t.unknownStageOwner8171(t.Stage.UNKNOWN, 300.0, 220_000.0, 1_000.0, 60.0, 39.0))
+        assertEquals(null, t.unknownStageOwner8171(t.Stage.DUMPING, 300.0, 220_000.0, 25_000.0, 60.0, 39.0))
     }
 
     @Test fun aProvenCostClearingAdmissionGetsAPlanBeforeOptionalBarsWait() {
