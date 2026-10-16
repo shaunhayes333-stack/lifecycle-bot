@@ -817,6 +817,28 @@ object ForwardReturnLabeler7731 {
 
     fun rebaseDelayMs8094(laneLatencyMs: Long): Long = laneLatencyMs.coerceIn(REBASE_MIN_MS_8076, REBASE_MAX_MS_8076 - 5_000L)
     private val rebasedUp8076 = AtomicLong(0)
+
+    // ── V5.0.8153 — the re-base-at-fill-latency flag for labels whose first price arrives late ──
+    // A label re-bases only inside its 5-60 s window. An observation first priced after it (a refused coin off the
+    // watchlist is first priced by the off-watch batch at its horizon) keeps the decision price nobody could buy at.
+    // The Cortex consumes this flag at the 5-minute label (Cortex7885.onLabel): such a label stays an observed grade
+    // record and never an executable value (LearningEntryTruth8153).
+    private const val LATE_KEEP_MS_8153 = 2L * 3_600_000L
+    private const val LATE_MAX_8153 = 4_000
+    private val lateFirst8153 = ConcurrentHashMap<String, Long>()   // "mint|LANE|decisionAtMs" -> flagged at
+    private val lateFirstCount8153 = AtomicLong(0)
+
+    private fun noteLateFirstPrice8153(mint: String, lane: String, atMs: Long, nowMs: Long) {
+        if (lateFirst8153.size >= LATE_MAX_8153) lateFirst8153.entries.removeIf { nowMs - it.value > LATE_KEEP_MS_8153 }
+        if (lateFirst8153.size >= LATE_MAX_8153) return
+        lateFirst8153["$mint|${lane.trim().uppercase()}|$atMs"] = nowMs
+        lateFirstCount8153.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("FORWARD_LABEL_LATE_FIRST_PRICE_8153") } catch (_: Throwable) {}
+    }
+
+    /** Cortex7885.onLabel: was the label of the decision on ([mint], [lane]) at [atMs] first priced late? Consumed once. */
+    fun lateFirstPrice8153(mint: String, lane: String, atMs: Long): Boolean =
+        lateFirst8153.remove("$mint|${lane.trim().uppercase()}|$atMs") != null
     private val rebasedDown8076 = AtomicLong(0)
     @Volatile private var rebaseGapSum8076 = 0.0
 
@@ -1245,6 +1267,8 @@ object ForwardReturnLabeler7731 {
             if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {
               if (age >= rebaseDelayMs8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) {
                 o.rebased8076 = true
+                // V5.0.8153 — the FIRST mark ever seen (lastPxAtMs survives a restart), past the window: the entry stays unbuyable.
+                if (o.lastPxAtMs == 0L && com.lifecyclebot.engine.cortex.LearningEntryTruth8153.lateFirstPrice8153(age, REBASE_MAX_MS_8076)) noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)
                 if (age <= REBASE_MAX_MS_8076 && !basisSuspect7738(o.entryPrice, px)) {
                     if (px > o.entryPrice) rebasedUp8076.incrementAndGet() else rebasedDown8076.incrementAndGet()
                     rebaseGapSum8076 += (px / o.entryPrice - 1.0) * 100.0
@@ -1398,7 +1422,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}%] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
