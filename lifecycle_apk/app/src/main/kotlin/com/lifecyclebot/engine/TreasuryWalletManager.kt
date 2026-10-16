@@ -69,7 +69,7 @@ object TreasuryWalletManager {
         if (keyB58.isBlank()) {
             // First-time setup: generate a fresh Ed25519 keypair and persist.
             keyB58 = generateNewKeypairB58()
-            ConfigStore.save(ctx, cfg.copy(treasuryPrivateKeyB58 = keyB58))
+            RuntimeTreasuryKeyStore8144.persist8144(ctx, cfg, keyB58)  // V5.0.8144 — no 253-register copy under the monitor
             ErrorLogger.info(TAG, "🔑 generated NEW treasury wallet (first-time)")
         }
         try {
@@ -112,7 +112,7 @@ object TreasuryWalletManager {
     fun regenerate(ctx: Context): String {
         val keyB58 = generateNewKeypairB58()
         val cfg = ConfigStore.load(ctx)
-        ConfigStore.save(ctx, cfg.copy(treasuryPrivateKeyB58 = keyB58))
+        RuntimeTreasuryKeyStore8144.persist8144(ctx, cfg, keyB58)
         // Re-init with the new key.
         wallet = null
         publicKeyB58 = ""
@@ -130,7 +130,7 @@ object TreasuryWalletManager {
             val test = SolanaWallet(privateKeyB58, rpc)
             // Persist.
             val cfg = ConfigStore.load(ctx)
-            ConfigStore.save(ctx, cfg.copy(treasuryPrivateKeyB58 = privateKeyB58))
+            RuntimeTreasuryKeyStore8144.persist8144(ctx, cfg, privateKeyB58)
             wallet = test
             publicKeyB58 = test.publicKeyB58
             scope.launch { refreshBalance() }

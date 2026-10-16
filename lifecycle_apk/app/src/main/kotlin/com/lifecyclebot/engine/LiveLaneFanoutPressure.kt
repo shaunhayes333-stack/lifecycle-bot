@@ -9,7 +9,7 @@ object LiveLaneFanoutPressure {
 
     fun snapshot(nowMs: Long = System.currentTimeMillis()): Snapshot {
         if (nowMs - cachedAtMs < TTL_MS) return cached
-        val s = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
+        val s = try { PipelineHealthCollector.phaseView8144("INTAKE", "LANE_EVAL", "EXEC") } catch (_: Throwable) { null }  // V5.0.8144 — 3 counters, not a full snapshot, on the trading loop
         val intake = s?.phaseCounts?.get("INTAKE") ?: 0L
         val lane = s?.phaseCounts?.get("LANE_EVAL") ?: 0L
         val exec = s?.phaseCounts?.get("EXEC") ?: 0L

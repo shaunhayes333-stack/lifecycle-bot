@@ -330,8 +330,14 @@ object PipelineHealthCollector {
     private val stackRing = java.util.concurrent.ConcurrentLinkedDeque<StackSample>()
     private val stackRingSize = AtomicInteger(0)
     private const val STACK_RING_CAP = 30
+    // V5.0.8144 — the watchdog's tick times in a primitive ring, so the Choreographer
+    // callback (main thread) never walks the stackRing deque to ask "was it ticking?".
+    private val tickRing8144 = RuntimeTickRing8144(STACK_RING_CAP)
+    // V5.0.8144 — one FRAME_GAP_WITH_LIVE_MAIN_THREAD_7144 line per 10s from the frame callback; its counter stays exact.
+    private val frameGapLineGate8144 = RuntimeRateGate8144(10_000L)
 
     private fun pushStackSample(sample: StackSample) {
+        tickRing8144.record(sample.tsMs)
         stackRing.addLast(sample)
         if (stackRingSize.incrementAndGet() > STACK_RING_CAP) {
             stackRing.pollFirst()
@@ -1026,17 +1032,17 @@ object PipelineHealthCollector {
                         // A live sampler produces a tick roughly every 250ms.
                         // Require several inside the window so one stale entry
                         // cannot vouch for a long gap.
-                        val inWindow = stackRing.count { it.tsMs in gapStart..nowMs7109 }
+                        val inWindow = tickRing8144.countInWindow(gapStart, nowMs7109)  // V5.0.8144 — no deque walk on main
                         inWindow >= 3
                     } catch (_: Throwable) { false }
                     if (deltaMs > LONG_FRAME_THRESHOLD_MS && ringAliveDuringGap7144 && uiVisible7049) {
                         bump(labelCounts, "FRAME_GAP_WITH_LIVE_MAIN_THREAD_7144")
-                        try {
+                        if (frameGapLineGate8144.admit(nowMs7109)) try {
                             ForensicLogger.lifecycle(
                                 "FRAME_GAP_WITH_LIVE_MAIN_THREAD_7144",
                                 "deltaMs=$deltaMs ringSamplesInGap=${
-                                    stackRing.count { it.tsMs in (nowMs7109 - deltaMs)..nowMs7109 }
-                                } action=frame_delivery_gap_not_counted_as_stall",
+                                    tickRing8144.countInWindow(nowMs7109 - deltaMs, nowMs7109)
+                                } suppressedSinceLast=${frameGapLineGate8144.takeSuppressed()} action=frame_delivery_gap_not_counted_as_stall",
                             )
                         } catch (_: Throwable) {}
                     } else if (deltaMs > LONG_FRAME_THRESHOLD_MS && !uiVisible7049) {
@@ -1231,6 +1237,21 @@ object PipelineHealthCollector {
 
     fun anrHintCountNow(): Int = anrHintCount.get()
     fun maxFrameGapMsNow(): Long = maxFrameGapMs.get()
+
+    // V5.0.8144 — point reads for periodic readers (dashboard tile, health header, the
+    // trading loop's fan-out check). snapshot() copies every map and both rings; these read one key.
+    fun phaseCountNow8144(phase: String): Long = phaseCounts[phase]?.get() ?: 0L
+    private fun labelCountNow8144(label: String): Long = labelCounts[label]?.get() ?: 0L
+
+    /** V5.0.8144 — the immutable handful of numbers the Pipeline tile and health header draw. */
+    fun badges8144(): RuntimePipelineBadges8144 =
+        RuntimePipelineBadges8144.read8144(::phaseCountNow8144, ::labelCountNow8144, anrHintCount.get(), maxFrameGapMs.get())
+
+    /** V5.0.8144 — phase counters for [phases] only, in the shape `Snapshot.phaseCounts` callers already read. */
+    data class PhaseView8144(val phaseCounts: Map<String, Long>)
+
+    fun phaseView8144(vararg phases: String): PhaseView8144 =
+        PhaseView8144(phases.associateWith { phaseCountNow8144(it) })
 
     fun recentEventCount(tag: String, windowMs: Long = 120_000L): Long {
         val cutoff = System.currentTimeMillis() - windowMs.coerceAtLeast(1L)

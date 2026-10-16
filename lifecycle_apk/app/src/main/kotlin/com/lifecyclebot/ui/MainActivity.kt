@@ -1725,9 +1725,9 @@ class MainActivity : AppCompatActivity() {
                     val text: String
                     val color: Int
                     try {
-                        val snap = com.lifecyclebot.engine.PipelineHealthCollector.snapshot()
-                        val anr = snap.anrHints
-                        val exec = snap.phaseCounts["EXEC"] ?: 0L
+                        // V5.0.8144 — two point reads, not a full snapshot (every map + both rings copied every 5s).
+                        val anr = com.lifecyclebot.engine.PipelineHealthCollector.anrHintCountNow()
+                        val exec = com.lifecyclebot.engine.PipelineHealthCollector.phaseCountNow8144("EXEC")
                         text = "ANR $anr · EXEC $exec"
                         color = when {
                             anr == 0  -> AateUi.GREEN
@@ -3008,7 +3008,7 @@ for legal compliance.
         try {
             val pilotTicker = findViewById<android.widget.TextView>(R.id.tvPilotTicker)
             if (pilotTicker != null) {
-                val refl = com.lifecyclebot.engine.SentienceOrchestrator.recentReflections(1).firstOrNull()
+                val refl = com.lifecyclebot.engine.SentienceOrchestrator.latestReflection8144()  // V5.0.8144 — O(1), no deque copy on main
                 if (refl != null && refl.monologue.isNotBlank()) {
                     val agoM = (System.currentTimeMillis() - refl.timestamp) / 60_000L
                     pilotTicker.setTextIfChanged("🧠 PILOT [${agoM}m ago] ${refl.monologue}")
@@ -13377,9 +13377,34 @@ Quick trade or open detailed dialog?
     }
 
     private fun showLearningStats() {
+        // V5.0.8144 — the report reads desk accounting, sorts layer maps and joins six
+        // diagnostic blocks; all of that ran on main on the tap. Compose on a worker,
+        // show the dialog on main.
+        val paper = try { vm.ui.value.config.paperMode } catch (_: Throwable) { return }
+        lifecycleScope.launch(Dispatchers.Default) {
+            val message = composeLearningStats8144(paper) ?: return@launch
+            withContext(Dispatchers.Main) {
+                if (isFinishing || isDestroyed) return@withContext
+                try {
+                    AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)
+                        .setTitle("AI AI Consciousness Report")
+                        .setMessage(message)
+                        .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                        .setNeutralButton("Brain Screen") { d, _ ->
+                            d.dismiss()
+                            startActivity(android.content.Intent(this@MainActivity, CollectiveBrainActivity::class.java))
+                        }
+                        .show()
+                    performHaptic()
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    /** V5.0.8144 — the consciousness report text, built off-main; null when composition fails. */
+    private fun composeLearningStats8144(paper: Boolean): String? {
         // V5.9.230: Full Sentience + MetaCognition + Education + Symbolic dialog
         try {
-            val paper = vm.ui.value.config.paperMode
             val memeLearning6649 = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.accountSnapshot(
                 com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
                 if (paper) "paper" else "live",
@@ -13492,18 +13517,10 @@ ${com.lifecyclebot.engine.WiringHealth.detailBlock()}
 ${com.lifecyclebot.engine.SignalQualityTracker.detailBlock()}
             """.trimIndent()
 
-            AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("AI AI Consciousness Report")
-                .setMessage(message)
-                .setPositiveButton("Close") { d, _ -> d.dismiss() }
-                .setNeutralButton("Brain Screen") { d, _ ->
-                    d.dismiss()
-                    startActivity(android.content.Intent(this, CollectiveBrainActivity::class.java))
-                }
-                .show()
-
-            performHaptic()
-        } catch (_: Exception) {}
+            return message
+        } catch (_: Exception) {
+            return null
+        }
     }
 
     /**
