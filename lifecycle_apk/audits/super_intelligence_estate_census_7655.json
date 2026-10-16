@@ -1,9 +1,9 @@
 {
-  "all_kotlin": 1466,
-  "intelligence_candidates": 266,
+  "all_kotlin": 1469,
+  "intelligence_candidates": 269,
   "classifications": {
     "BACKGROUND_RESEARCH_REVIEW": 5,
-    "CACHE_OR_READBACK_REVIEW": 72,
+    "CACHE_OR_READBACK_REVIEW": 73,
     "CANONICAL_LEARNING_INFRASTRUCTURE": 1,
     "CRYPTO_LEARNING_UPSTREAM": 1,
     "CRYPTO_NATIVE_UPSTREAM": 2,
@@ -21,8 +21,8 @@
     "SOURCE_SELECTION_UPSTREAM": 1,
     "STRATEGY_LEARNED_UPSTREAM": 1,
     "SUPER_UPSTREAM_ROOT": 4,
-    "UNCLASSIFIED_INTELLIGENCE_REVIEW": 62
+    "UNCLASSIFIED_INTELLIGENCE_REVIEW": 64
   },
-  "unclassified": 62,
+  "unclassified": 64,
   "source_reviewed_with_consumer_proof": 12
 }
