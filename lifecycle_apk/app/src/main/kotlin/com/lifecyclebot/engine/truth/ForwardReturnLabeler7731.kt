@@ -1294,6 +1294,15 @@ object ForwardReturnLabeler7731 {
                 }
                 continue
             }
+            // V5.0.8167 — validate before rebasing or deleting the observation. The chain witness: a mark the coin's own active bonding curve contradicts is a basis error, not a
+            // move. Rejecting it must leave the entry basis and rebase eligibility unchanged.
+            if (curveContradicts8165(o.mint, px, nowMs)) {
+                curveRefusedMark8165.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_CONTRADICTED_8165") } catch (_: Throwable) {}
+                continue
+            }
+            // V5.0.8167 — corroborate against the OLD basis; rebasing first hides a phantom jump.
+            if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), px, "FORWARD_LABEL")) continue
             // V5.0.8076 — the label starts where a buy could actually land: the first mark 5-60 s after the decision.
             // V5.0.8094 — at the lane's MEASURED live fill latency (8094 SHITCOIN ~40 s), not the first mark 5 s out: a coin
             // that pumps between the decision and the fill was graded from a price live never gets, so setups graded
@@ -1324,16 +1333,7 @@ object ForwardReturnLabeler7731 {
                 pending.remove(key, o)
                 continue
             }
-            // V5.0.8165 — the chain witness: a mark the coin's own active bonding curve contradicts is a basis error, not a
-            // move. The tick is skipped (the label waits for an agreeing mark).
-            if (curveContradicts8165(o.mint, px, nowMs)) {
-                curveRefusedMark8165.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_CONTRADICTED_8165") } catch (_: Throwable) {}
-                continue
-            }
             val gross = (px / o.entryPrice - 1.0) * 100.0
-            // V5.0.8133 — a one-feed jump past the runner bars (re-entry, hive broadcast, runner grab) waits for a second feed.
-            if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), px, "FORWARD_LABEL")) continue
             if (gross < o.minPct7962) o.minPct7962 = gross
             // V5.0.8000 — a runner inside its first 30 minutes is broadcast to every installed instance.
             if (gross >= 100.0 && age <= 30L * 60_000L) try { HiveEdge8000.noteRunner8000(o.mint, o.symbol, gross, o.atMs) } catch (_: Throwable) {}

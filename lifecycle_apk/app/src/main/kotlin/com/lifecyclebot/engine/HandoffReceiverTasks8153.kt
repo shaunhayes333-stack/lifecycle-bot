@@ -79,7 +79,8 @@ object HandoffReceiverTasks8153 {
     private val LANE_JUDGEMENT_8153 = listOf("MEME_CONSENSUS_HARD_BLOCK", "MEME_PWIN_GATE", "RECEIVER_RECORD_UNSOUND")
     /** Missing data, not a verdict: the task waits for it. */
     private val DATA_WORDS_8153 = listOf("NO_TOKEN_STATE", "PRICE_UNKNOWN", "PRICE_STALE", "DATA_MISSING", "MISSING_DATA",
-        "DATA_INCOMPLETE", "TOO_FEW_BARS", "UNKNOWN_ECONOMICS", "NO_SNAPSHOT", "ARBITRATION_ERROR")
+        "DATA_INCOMPLETE", "TOO_FEW_BARS", "UNKNOWN_ECONOMICS", "NO_SNAPSHOT", "ARBITRATION_ERROR",
+        "UNHYDRATED", "METADATA_HYDRATING", "PRICE_NOT_FRESH")
     /** The slot or the cycle was busy: the task waits (named at expiry if it never got in). */
     private val WAIT_WORDS_8153 = listOf("SLOT_HELD", "RESERVED_FOR", "OUTRANKED", "GATE_UNNAMED", "NO_PROPOSAL")
 
@@ -386,11 +387,8 @@ object HandoffTaskRuntime8153 {
         try {
             if (!HandoffReceiverTasks8153.isDue8153(mint, lane, nowMs, version8153(mint))) return
             // Fit with nowhere left to go ends FIT_NO_COMPATIBLE_RECEIVER; safety stays binding; anything else is its judgement.
-            val block = when (blockOf8153(reason)) {
-                HandoffReceiverTasks8153.Block8153.BINDING -> HandoffReceiverTasks8153.Block8153.BINDING
-                HandoffReceiverTasks8153.Block8153.FIT -> HandoffReceiverTasks8153.Block8153.FIT
-                else -> HandoffReceiverTasks8153.Block8153.JUDGEMENT
-            }
+            // Preserve missing-data / busy-slot states through the runtime adapter as well as the ledger.
+            val block = blockOf8153(reason)
             HandoffReceiverTasks8153.blockTask8153(mint, lane, block, "NATIVE_REFUSED:$reason", nowMs)
         } catch (_: Throwable) {}
     }

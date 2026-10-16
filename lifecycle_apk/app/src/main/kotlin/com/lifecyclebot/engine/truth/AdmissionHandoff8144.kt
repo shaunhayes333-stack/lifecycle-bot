@@ -80,12 +80,16 @@ object AdmissionHandoff8144 {
         return Handoff8144(mint, canon8144(from), canon8144(named).ifBlank { null }, reason.take(80), nowMs)
     }
 
+    private fun dataPending8167(reason: String): Boolean =
+        com.lifecyclebot.engine.HandoffReceiverTasks8153.classify8153(reason, fit = false, binding = false) ==
+            com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.DATA
+
     /** Pure: a native assessment of every lane in scope ([reads], computed at [atMs]) applied to [h]. */
     fun onNative8144(h: Handoff8144, reads: Collection<LaneRead8144>, atMs: Long): Handoff8144 {
         if (!h.open || atMs + SAME_READ_SLACK_MS_8144 < h.emittedAtMs) return h
         if (h.state == State8144.RECEIVER_QUALIFIED) {
             val rr = reads.firstOrNull { canon8144(it.lane) == h.receiver } ?: return h
-            return if (rr.eligible) h
+            return if (rr.eligible || dataPending8167(rr.reason)) h
             else h.copy(state = State8144.ARRIVED_EVALUATED, verdict = "NATIVE_REFUSED:${rr.reason.take(60)}", settledAtMs = atMs)
         }
         receiver8144(h.named, h.from, reads)?.let { r ->
@@ -93,9 +97,11 @@ object AdmissionHandoff8144 {
         }
         val namedRead = h.named?.let { n -> reads.firstOrNull { canon8144(it.lane) == n } }
         if (namedRead != null) {
+            if (dataPending8167(namedRead.reason)) return h
             return h.copy(receiver = h.named, state = State8144.ARRIVED_EVALUATED,
                 verdict = "NATIVE_REFUSED:${namedRead.reason.take(60)}", settledAtMs = atMs)
         }
+        if (reads.any { canon8144(it.lane) != h.from && dataPending8167(it.reason) }) return h
         val others = reads.count { canon8144(it.lane) != h.from && canon8144(it.lane) != "CORE" }
         return if (others > 0) h.copy(state = State8144.NO_QUALIFIED_RECEIVER, verdict = "NONE_OF_${others}_QUALIFIED", settledAtMs = atMs)
         else h

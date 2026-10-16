@@ -81,7 +81,16 @@ object LearningPnlSanitizer {
 
     fun chainProvenPassed8041(): Long = chainProvenPassed8041.get()
 
-    fun inspectTrade(t: Trade, context: String = "trade", emit: Boolean = true): Verdict {
+    fun inspectTrade(t: Trade, context: String = "trade", emit: Boolean = true): Verdict =
+        inspectTrade8167(t, context, emit, requireTrainableLabel = true)
+
+    /** Accounting retains economically valid partials even when their label is unsuitable for training.
+     * All entry-basis, finite-value and return-math checks still apply; learning uses inspectTrade unchanged.
+     */
+    fun inspectAccountingTrade8167(t: Trade, context: String = "accounting", emit: Boolean = true): Verdict =
+        inspectTrade8167(t, context, emit, requireTrainableLabel = false)
+
+    private fun inspectTrade8167(t: Trade, context: String, emit: Boolean, requireTrainableLabel: Boolean): Verdict {
         val side = t.side.uppercase()
         if (side != "SELL" && side != "PARTIAL_SELL") return Verdict(true, t.pnlPct)
         if (t.entryCostSol <= 0.0 || !t.entryCostSol.isFinite()) return reject("MISSING_ENTRY_COST_BASIS", t.pnlPct, context, emit = emit)
@@ -89,7 +98,7 @@ object LearningPnlSanitizer {
         // V5.0.8042 — the chain exemption skips the % checks only; a missing entry basis is not a % rule.
         if (liveChainProven8041(t) && t.pnlPct.isFinite()) { chainProvenPassed8041.incrementAndGet(); return Verdict(true, t.pnlPct) }
         val labelVerdict = try { CloseOutcomeLabelSanitizer.inspect(t) } catch (_: Throwable) { null }
-        if (labelVerdict?.dirty == true && side == "PARTIAL_SELL") {
+        if (requireTrainableLabel && labelVerdict?.dirty == true && side == "PARTIAL_SELL") {
             return reject(labelVerdict.dirtyReason.ifBlank { "DIRTY_PARTIAL_LABEL" }, t.pnlPct, context, emit = emit)
         }
         val realizedSol = t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol

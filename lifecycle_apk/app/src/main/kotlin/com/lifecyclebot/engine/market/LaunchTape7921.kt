@@ -110,9 +110,29 @@ object LaunchTape7921 {
         if (recs.size > MAX_RECS) recs.entries.removeIf { nowMs - it.value.birthMs > TTL_MS }
     }
 
+    /** Restore launch observation from a witnessed pump birth when its create websocket frame was missed.
+     * Only a direct create timestamp qualifies; pool creation and first sight never manufacture a launch.
+     */
+    internal fun recoverBirth8167(mint: String, birthMs: Long?, nowMs: Long): Boolean {
+        if (mint.isBlank() || birthMs == null || birthMs <= 0L || nowMs - birthMs !in 0L..TTL_MS) return false
+        if (recs.size >= MAX_RECS && !recs.containsKey(mint)) {
+            recs.entries.removeIf { nowMs - it.value.birthMs > TTL_MS }
+            if (recs.size >= MAX_RECS) return false
+        }
+        recs.putIfAbsent(mint, Rec(birthMs))
+        return true
+    }
+
     /** DataOrchestrator.onTapeTrade7773: one trade from the unified tape. */
     fun onTrade(mint: String, wallet: String, sol: Double, isBuy: Boolean, nowMs: Long = System.currentTimeMillis()) {
-        val r = recs[mint] ?: return   // launches only: a create must have been seen
+        if (!recs.containsKey(mint)) {
+            val birth = try {
+                com.lifecyclebot.engine.truth.AdmissionBirth8144.pumpCreateMs8144(mint)
+                    ?: com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint)
+            } catch (_: Throwable) { null }
+            recoverBirth8167(mint, birth, nowMs)
+        }
+        val r = recs[mint] ?: return // no witnessed pump birth: not a launch
         if (nowMs - r.birthMs > TTL_MS || !sol.isFinite() || sol <= 0.0) return
         val dev = try { com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null }
         synchronized(r) {

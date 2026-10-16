@@ -57,19 +57,39 @@ object SizingQuoteRecheck8153 {
         return if (r > 1.0 && r <= MAX_COMPARABLE_PRICE_RATIO_8153) (r - 1.0) * 100.0 else 0.0
     }
 
+    /** Final buy quote price, with observed decimals only; a cheaper quote never cancels a newer adverse mark. */
+    internal fun quotePrice8167(inLamports: Long, outRaw: Long, decimals: Int?, solUsd: Double, markUsd: Double): Double {
+        val mark = markUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        if (inLamports <= 0L || outRaw <= 0L || decimals == null || decimals !in 0..18 || !solUsd.isFinite() || solUsd <= 0.0) return mark
+        val quote = (inLamports.toDouble() / 1_000_000_000.0) * solUsd * Math.pow(10.0, decimals.toDouble()) / outRaw.toDouble()
+        return if (quote.isFinite() && quote > 0.0) maxOf(mark, quote) else mark
+    }
+
+    /** Executor's final SOL-to-token quote: no price inferred from the cached mark or guessed decimal scale. */
+    fun preBroadcastQuoteRefusal8167(ts: com.lifecyclebot.data.TokenState, executedSol: Double, quote: com.lifecyclebot.network.SwapQuote, solUsd: Double = WalletManager.freshSolPrice8163()): String? {
+        val price = if (quote.inputMint == com.lifecyclebot.network.JupiterApi.SOL_MINT && quote.outputMint == ts.mint)
+            quotePrice8167(quote.inAmount, quote.outAmount, ts.tokenMap.decimals, solUsd, ts.lastPrice)
+        else ts.lastPrice
+        return preBroadcastRefusal8153(ts.mint, executedSol, quote.inAmount, quote.priceImpactPct, ts.lastPrice, price)
+    }
+
     /**
      * Pure: the refusal for executing [executedSol] on a quote spending [quotedInLamports] at [freshImpactPct] (the
      * app's percent reading; 0 / non-finite = not surfaced) with the token now at [priceNowUsd], or null.
      */
     fun recheck8153(
         seal: SealedEconomics8153?, executedSol: Double, quotedInLamports: Long,
-        freshImpactPct: Double, priceNowUsd: Double, nowMs: Long,
+        freshImpactPct: Double, priceNowUsd: Double, nowMs: Long, executionPriceUsd: Double = Double.NaN,
     ): String? {
         val ticket = lamports8153(executedSol)
         if (ticket > 0L && quotedInLamports > ticket + 1L) return "PRE_BROADCAST_SIZE_INFLATED_AFTER_SEAL_8153"
         if (seal == null || nowMs - seal.atMs !in 0L..SEAL_TTL_MS_8153) return null
         val sealed = lamports8153(seal.sizeSol)
         if (sealed <= 0L || kotlin.math.abs(ticket - sealed) > 1L) return null
+        // An upward discontinuity is not zero drift. Require a new admission instead of buying on incomparable evidence.
+        if (seal.priceUsd.isFinite() && seal.priceUsd > 0.0 && priceNowUsd.isFinite() &&
+            (priceNowUsd / seal.priceUsd > MAX_COMPARABLE_PRICE_RATIO_8153 ||
+                executionPriceUsd / seal.priceUsd > MAX_COMPARABLE_PRICE_RATIO_8153)) return "PRE_BROADCAST_PRICE_DISCONTINUITY_8167"
         val impact = if (freshImpactPct.isFinite() && freshImpactPct > 0.0) freshImpactPct else Double.NaN
         // Unknown depth at the seal (NaN): the size was never depth-capped and its cost carried no impact, so the budget
         // is the generic depth envelope and the whole fresh impact is extra round trip.
@@ -81,10 +101,15 @@ object SizingQuoteRecheck8153 {
         val extraRoundTrip = if (impact.isFinite()) 2.0 * (impact - sealedImpact).coerceAtLeast(0.0) else 0.0
         val costFresh = (if (seal.costPct.isFinite()) seal.costPct.coerceAtLeast(0.0) else 0.0) + extraRoundTrip
         val drift = adverseDriftPct8153(seal.priceUsd, priceNowUsd)
+        // Jupiter outAmount already includes AMM/platform fees and pool impact. Do not charge that buy drag
+        // again as both drift and modelled round-trip cost. Quote drag is a lower bound on total drag; the
+        // full-cost-plus-market-move check still applies. Without a sell quote, do not invent a cost split.
+        val quoteDrag = adverseDriftPct8153(seal.priceUsd, executionPriceUsd)
+        val effectiveCost = maxOf(costFresh, (quoteDrag - drift).coerceAtLeast(0.0))
         if (seal.expectedGrossPct.isFinite()) {
-            if (seal.expectedGrossPct - drift - costFresh <= 0.0) return "PRE_BROADCAST_NET_EV_NONPOSITIVE_8153"
-        } else if (seal.firstTargetPct.isFinite() && seal.firstTargetPct > 0.0 && costFresh > 0.0) {
-            if (com.lifecyclebot.engine.truth.LiveRiskPolicy7807.costVerdict(seal.firstTargetPct - drift, costFresh) ==
+            if (seal.expectedGrossPct - drift - effectiveCost <= 0.0) return "PRE_BROADCAST_NET_EV_NONPOSITIVE_8153"
+        } else if (seal.firstTargetPct.isFinite() && seal.firstTargetPct > 0.0 && effectiveCost > 0.0) {
+            if (com.lifecyclebot.engine.truth.LiveRiskPolicy7807.costVerdict(seal.firstTargetPct - drift, effectiveCost) ==
                 com.lifecyclebot.engine.truth.LiveRiskPolicy7807.CostVerdict.PASS) return "PRE_BROADCAST_COST_CONSUMES_MOVE_8153"
         }
         return null
@@ -113,10 +138,10 @@ object SizingQuoteRecheck8153 {
     }
 
     /** Executor, immediately before broadcast: the named refusal, or null to send. Fail-open on an internal fault. */
-    fun preBroadcastRefusal8153(mint: String, executedSol: Double, quotedInLamports: Long, freshImpactPct: Double, priceNowUsd: Double): String? {
+    fun preBroadcastRefusal8153(mint: String, executedSol: Double, quotedInLamports: Long, freshImpactPct: Double, priceNowUsd: Double, executionPriceUsd: Double = Double.NaN): String? {
         val r = try {
             checks.incrementAndGet()
-            recheck8153(sealed[mint], executedSol, quotedInLamports, freshImpactPct, priceNowUsd, System.currentTimeMillis())
+            recheck8153(sealed[mint], executedSol, quotedInLamports, freshImpactPct, priceNowUsd, System.currentTimeMillis(), executionPriceUsd)
         } catch (_: Throwable) { null } ?: return null
         refusals.computeIfAbsent(r) { AtomicLong(0) }.incrementAndGet()
         try {

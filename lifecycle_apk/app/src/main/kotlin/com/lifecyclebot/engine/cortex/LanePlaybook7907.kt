@@ -533,8 +533,7 @@ object LanePlaybook7907 {
         val chgKnown = chgObs == Obs8084.OBSERVED
         // V5.0.8100 — an input its usual source (DexScreener row, provider candles) left unobserved is read from the
         // coin's own EXECUTED pump trades (TradeTape8100, one source, one-minute bars). Never overrides a reading.
-        val tape8100 = if (shapeKnown && bpKnown && chgKnown) null
-            else try { com.lifecyclebot.engine.truth.TradeTape8100.read8100(ts.mint, nowMs) } catch (_: Throwable) { null }
+        val tape8100 = try { com.lifecyclebot.engine.truth.TradeTape8100.read8100(ts.mint, nowMs) } catch (_: Throwable) { null }
         val tapeShape8100 = if (!shapeKnown) tape8100?.shape else null
         val tapeBp8100 = if (!bpKnown) tape8100?.bp else null
         val tapeChg8100 = if (!chgKnown) tape8100?.chg else null
