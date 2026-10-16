@@ -62,7 +62,7 @@ class Aate8153StrategyTest {
         assertEquals(Terminal8136.ADMIT, d.terminal)
         assertEquals("SPECIFIC_EDGE_PROVEN_8136", d.reason)
         assertEquals(pick.id, d.chosenSetup)
-        assertEquals("SETUP:ACCELERATING_TAPE n61 +23.1±6.0", d.basis)
+        assertEquals("SETUP:ACCELERATING_TAPE n61 +23.1±+6.0", d.basis)
         // A cold-start-valid alternative (n20, 10 ± 3: 10 - 4.5 > 0) beats an unproven default (n5).
         val valid = StrategyRank8153.select8153("PRE_IGNITION_BASE",
             listOf(Option8153("PRE_IGNITION_BASE", 5, 2.0, 4.0), Option8153("RS_LEADER", 20, 10.0, 3.0)), Double.NaN)
