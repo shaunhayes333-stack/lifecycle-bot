@@ -328,4 +328,30 @@ class Aate8153StrategyTest {
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("AdmissionRunnerTrace8144.noteBinding8153(ts, lane, reason, nowMs)"))
         assertTrue(src("engine/truth/AdmissionRunnerTrace8144.kt").contains("noteBindingOf8153(e, tokenOf8144(mint), lane, if (allow) null else reason.orEmpty().ifBlank { \"FDG_REFUSED\" }, atMs)"))
     }
+
+    @Test fun oneProvenSelectedStrategyIsNotVetoedAgainByLegacyLearnedFloors() {
+        // Real candidate-specific evidence is allowed to carry the strategy; a generic
+        // score prior, an adverse timing record, or missing data cannot claim this bypass.
+        val positive = CandidateAdmission8136.decide8136(
+            cand("ACCELERATING_TAPE", listOf(ev("ACCELERATING_TAPE", 61, 23.1, 6.0, 0.18))))
+        assertEquals(Terminal8136.ADMIT, positive.terminal)
+        assertTrue(positive.specific)
+        val generic = CandidateAdmission8136.decide8136(
+            cand("UNPROVEN", emptyList()).copy(genericScore = 80.0))
+        assertEquals(Terminal8136.ADMIT, generic.terminal)
+        assertFalse(generic.specific)
+        val negative = CandidateAdmission8136.decide8136(
+            cand("LOSER", listOf(ev("LOSER", 40, -12.0, 2.0))))
+        assertEquals(Terminal8136.REFUSE, negative.terminal)
+
+        val gate = src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(gate.contains("selectedAdmission8159.specific"))
+        assertTrue(gate.contains("proven8059 == null && !specificAdmit8159 && !measuredEdge8060"))
+        assertTrue(gate.contains("proven8059 == null && !specificAdmit8159 && !cellOrKindProven8094"))
+        // Hard safety, chase protection and the underlying execution rules are not bypassed.
+        assertTrue(gate.contains("OnChainDepth8038.earlyLaunchRefusal8048(ts)"))
+        assertTrue(gate.contains("chasing8065("))
+        assertTrue(gate.contains("liveRefusalCore7970(ts, lane, paper, nowMs)"))
+    }
+
 }

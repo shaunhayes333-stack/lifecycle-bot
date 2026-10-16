@@ -431,9 +431,16 @@ object LiveEdgeGate7877 {
             // V5.0.8153 — the admission record decides the coin's ONE strategy first (StrategyIdentity8153): every gate below,
             //    the tactic, sizing, the sealed entry and its exit policy then read that same identity.
             //    A record deferred on missing data asks for that data now (candle seed / poll / tape, throttled per mint).
-            (try { CandidateAdmission8136.assess8136(ts, l8059, nowMs) } catch (_: Throwable) { null })
+            val selectedAdmission8159 = try { CandidateAdmission8136.assess8136(ts, l8059, nowMs) } catch (_: Throwable) { null }
+            selectedAdmission8159
                 ?.takeIf { it.terminal == CandidateAdmission8136.Terminal8136.DEFER_DATA }
                 ?.let { d -> try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, CandidateAdmission8136.missingOf8144(d).map { it.replace("liquidity:", "liq:") }, nowMs) } catch (_: Throwable) {} }
+            // 8159: the one candidate-specific, cost-aware strategy verdict has already
+            // adjudicated this selected setup's loss, timing and tactic alternatives.
+            // Do not re-veto it below using an obsolete/default playbook identity.
+            // Generic-prior allows and DATA deferrals do NOT earn this exception.
+            val specificAdmit8159 = selectedAdmission8159?.terminal == CandidateAdmission8136.Terminal8136.ADMIT &&
+                selectedAdmission8159.specific
             // V5.0.8094 — the setup this candidate trades as (multi-strategy selection), so refusals and assessments are
             // filed under the strategy actually traded.
             val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) } catch (_: Throwable) { null }
@@ -444,7 +451,7 @@ object LiveEdgeGate7877 {
             // V5.0.8094 — timing: the picked setup's record AT THIS POINT OF THE MOVE (pullback / mid / extended / peak) is
             // losing — wait for a band where it pays (graded at the executable price).
             // (a token whose own cell / kind is proven has already paid for its timing: the labels start at the fill latency)
-            if (!cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
+            if (!specificAdmit8159 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
                 val r8094 = "TIMING_RECORD_NEGATIVE_8094"
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$at") } catch (_: Throwable) {}
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.DEFER, r8094, 1.0, nowMs)
@@ -454,7 +461,7 @@ object LiveEdgeGate7877 {
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
             // V5.0.8094 — no fired setup is proven and the classified setup's own label record is losing (12+ labels,
             // mean + SE < 0, no runner-tail exemption): refused. A proven fired setup is the strategy instead (multi-strategy).
-            if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
+            if (proven8059 == null && !specificAdmit8159 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
                 val r8094 = "PICKED_SETUP_RECORD_NEGATIVE_8094"
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$neg") } catch (_: Throwable) {}
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
@@ -464,7 +471,7 @@ object LiveEdgeGate7877 {
             // (honest labels, mean - SE > 0 on 30+) may still trade it, so the tactic can re-prove itself; nothing else does.
             // (a token whose own cell / kind is proven is not refused on the tactic alone: 8094 missed HULKED +1984%,
             // smol +1862%, MrBeast +972% here.)
-            if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059) } catch (_: Throwable) { null })?.let { t ->
+            if (proven8059 == null && !specificAdmit8159 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059) } catch (_: Throwable) { null })?.let { t ->
                 val r8094 = "TACTIC_RECORD_LOSING_8094"
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$t") } catch (_: Throwable) {}
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
@@ -476,7 +483,7 @@ object LiveEdgeGate7877 {
             // carry live money.
             // V5.0.8072 — or a runner ticket: a small capped budget of unproven buys in the best honest-label group
             // (graduated PumpSwap coins at $10k-$100k), held on the lifecycle rules (RunnerTicket8073).
-            if (proven8059 == null && !measuredEdge8060(ts, l8059, nowMs) &&
+            if (proven8059 == null && !specificAdmit8159 && !measuredEdge8060(ts, l8059, nowMs) &&
                 !(try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false }) &&
                 !runnerForming8113(ts, nowMs) && !shadowAuditAdmits8113(ts, l8059) &&
                 !coldStartAdmits8080(ts, l8059, nowMs)) {

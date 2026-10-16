@@ -78,7 +78,8 @@ object HandoffReceiverTasks8153 {
     /** The receiving lane's own learned refusal: its judgement (named, not handed on), never mistaken for token safety. */
     private val LANE_JUDGEMENT_8153 = listOf("MEME_CONSENSUS_HARD_BLOCK", "MEME_PWIN_GATE", "RECEIVER_RECORD_UNSOUND")
     /** Missing data, not a verdict: the task waits for it. */
-    private val DATA_WORDS_8153 = listOf("NO_TOKEN_STATE", "PRICE_UNKNOWN", "DATA_MISSING", "MISSING_DATA", "NO_SNAPSHOT", "ARBITRATION_ERROR")
+    private val DATA_WORDS_8153 = listOf("NO_TOKEN_STATE", "PRICE_UNKNOWN", "DATA_MISSING", "MISSING_DATA", "NO_SNAPSHOT", "ARBITRATION_ERROR",
+        "BIRTH_METADATA_HYDRATING", "LIQ_UNHYDRATED", "PAIR_PENDING", "PRICE_NOT_FRESH", "AWAITING_PRICE", "HYDRATION_PENDING")
     /** The slot or the cycle was busy: the task waits (named at expiry if it never got in). */
     private val WAIT_WORDS_8153 = listOf("SLOT_HELD", "RESERVED_FOR", "OUTRANKED", "GATE_UNNAMED", "NO_PROPOSAL")
 
@@ -383,12 +384,11 @@ object HandoffTaskRuntime8153 {
     fun onReceiverNativeRefused8153(mint: String, lane: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
         try {
             if (!HandoffReceiverTasks8153.isDue8153(mint, lane, nowMs)) return
-            // Fit with nowhere left to go ends FIT_NO_COMPATIBLE_RECEIVER; safety stays binding; anything else is its judgement.
-            val block = when (blockOf8153(reason)) {
-                HandoffReceiverTasks8153.Block8153.BINDING -> HandoffReceiverTasks8153.Block8153.BINDING
-                HandoffReceiverTasks8153.Block8153.FIT -> HandoffReceiverTasks8153.Block8153.FIT
-                else -> HandoffReceiverTasks8153.Block8153.JUDGEMENT
-            }
+            // A native "not eligible yet" is not automatically an adverse trade judgement.
+            // Hydrating liquidity, price and birth metadata are recoverable DATA; a held
+            // election slot is WAIT. Only structural/binding or genuine native judgements
+            // close the receiver. The election must use the identical classification.
+            val block = blockOf8153(reason)
             HandoffReceiverTasks8153.blockTask8153(mint, lane, block, "NATIVE_REFUSED:$reason", nowMs)
         } catch (_: Throwable) {}
     }
@@ -411,14 +411,33 @@ object HandoffTaskRuntime8153 {
         val l = HandoffReceiverTasks8153.canon8153(lane)
         // Cheap map read first (every non-primary lane asks every cycle); the candidate version only for a live task.
         if (!HandoffReceiverTasks8153.isDue8153(mint, l, nowMs) || !HandoffReceiverTasks8153.isDue8153(mint, l, nowMs, version8153(mint))) false else {
-            val ineligible = SpecialistOwnership7951.rescueIneligible8136(mint, l)
-            val outcome = ElectionRescueContract8144.guardedClaim8144 {
-                SpecialistElection8136.claimHandoffReceiver8153(mint, l, primaryLane, ineligible, nowMs)
+            // 8159: a pending DATA task is permission to RE-EVALUATE, not permission to buy
+            // against a stale/failed native opinion. Recheck the actual receiving lane's
+            // independent native evidence before claiming the candidate's rescue slot.
+            val snapshot = try { SpecialistBrainBridge7542.cachedSnapshot7650(mint) } catch (_: Throwable) { null }
+            val native = snapshot?.opinions?.get(l)
+            val ageMs = if (snapshot == null) Long.MAX_VALUE else nowMs - snapshot.evaluatedAtMs
+            when {
+                native == null || ageMs !in 0L..45_000L || !native.authoritative -> {
+                    HandoffReceiverTasks8153.blockTask8153(mint, l, HandoffReceiverTasks8153.Block8153.DATA,
+                        "DEFERRED_NATIVE_EVIDENCE_NOT_FRESH", nowMs)
+                    false
+                }
+                !native.eligible -> {
+                    refused8153(mint, l, native.reason, nowMs)
+                    false
+                }
+                else -> {
+                    val ineligible = SpecialistOwnership7951.rescueIneligible8136(mint, l)
+                    val outcome = ElectionRescueContract8144.guardedClaim8144 {
+                        SpecialistElection8136.claimHandoffReceiver8153(mint, l, primaryLane, ineligible, nowMs)
+                    }
+                    if (outcome.executable) {
+                        try { PipelineHealthCollector.labelInc("HANDOFF_TASK_8153_ADMITTED_$l") } catch (_: Throwable) {}
+                    } else claimRefused8153(mint, l, outcome, ineligible, nowMs)
+                    outcome.executable
+                }
             }
-            if (outcome.executable) {
-                try { PipelineHealthCollector.labelInc("HANDOFF_TASK_8153_ADMITTED_$l") } catch (_: Throwable) {}
-            } else claimRefused8153(mint, l, outcome, ineligible, nowMs)
-            outcome.executable
         }
     } catch (_: Throwable) { false }
 

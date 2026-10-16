@@ -614,6 +614,18 @@ object SpecialistElection8136 {
      * BotService did not let [lane] evaluate this cycle (SpecialistOwnership7951.noteReadyNotEvaluated7951). The primary
      * gated before the FDG is a refusal (the rescue opens); a gated rescue releases the slot; anyone else is a shadow.
      */
+    /** 8159 repair: a recoverable receiver task must not be made permanently INELIGIBLE by the election.
+     * The task manager already classified a missing-data or waiting-slot refusal as retryable;
+     * the election must preserve the same authority decision until fresh evidence or task expiry.
+     */
+    private fun pendingRecoverableReceiver8159(mint: String, lane: String, gate: String?, nowMs: Long): Boolean {
+        if (!HandoffReceiverTasks8153.isDue8153(mint, lane, nowMs)) return false
+        return when (HandoffTaskRuntime8153.blockOf8153(gate)) {
+            HandoffReceiverTasks8153.Block8153.DATA, HandoffReceiverTasks8153.Block8153.WAIT -> true
+            else -> false
+        }
+    }
+
     fun noteNotEvaluated8136(mint: String, lane: String, primary: String, ready: Boolean, normalised: Double, nowMs: Long = System.currentTimeMillis()) {
         val l = canon8136(lane)
         val p = canon8136(primary)
@@ -632,7 +644,13 @@ object SpecialistElection8136 {
             if (s == null) return
             if (l == r.rescue && !r.rescueConsumed) {
                 r.rescue = ""
-                end8136(r, s, Terminal8136.INELIGIBLE, if (gate == null) "RESCUE_GATED_PRE_FDG" else "RESCUE_GATED_PRE_FDG:$gate")
+                if (pendingRecoverableReceiver8159(mint, l, gate, nowMs)) {
+                    end8136(r, s, Terminal8136.CONTRIBUTOR_SHADOW,
+                        if (gate == null) "RECEIVER_TASK_RETRY_PENDING_8159" else "RECEIVER_TASK_RETRY:$gate")
+                } else {
+                    end8136(r, s, Terminal8136.INELIGIBLE,
+                        if (gate == null) "RESCUE_GATED_PRE_FDG" else "RESCUE_GATED_PRE_FDG:$gate")
+                }
                 return
             }
             // V5.0.8144 — the receiver a fit refusal named could not evaluate: its yield ends with that precise reason
@@ -640,9 +658,13 @@ object SpecialistElection8136 {
             if (l == namedOpen8144(r)) {
                 // V5.0.8153 — a receiver whose hand-off task is still live and was only kept waiting (slot held, not yet
                 // handed) stays open: it is consumed on a later cycle, not stranded INELIGIBLE for the rest of the version.
-                if (gate == null && HandoffReceiverTasks8153.isDue8153(mint, l, nowMs)) {
+                if (pendingRecoverableReceiver8159(mint, l, gate, nowMs)) {
                     end8136(r, s, Terminal8136.CONTRIBUTOR_SHADOW,
-                        if (r.rescue.isNotEmpty()) "RECEIVER_TASK_WAITING_SLOT_${r.rescue}" else "RECEIVER_TASK_PENDING_8153")
+                        when {
+                            r.rescue.isNotEmpty() -> "RECEIVER_TASK_WAITING_SLOT_${r.rescue}"
+                            gate != null -> "RECEIVER_TASK_RETRY:$gate"
+                            else -> "RECEIVER_TASK_PENDING_8153"
+                        })
                     return
                 }
                 end8136(r, s, Terminal8136.INELIGIBLE, when {

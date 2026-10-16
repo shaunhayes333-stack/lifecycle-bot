@@ -404,4 +404,56 @@ class Aate8153HandoffTest {
         assertTrue(bot.contains("shouldRunBuyLaneForCycle(ts, \"MOONSHOT\", cyclePrimaryLane)"))
         assertTrue(bot.contains("SpecialistElection8136.noteScheduled8144(ts.mint, lane)"))
     }
+
+    // 8159 regression: the native "not ready YET" state must not close a launch hand-off.
+    @Test fun hydrationPendingDoesNotBecomePermanentNativeRefusal() {
+        val mint = "mint-hydrating8159"
+        val initial = a.emit8144(null, mint, "PROJECT_SNIPER", "MOONSHOT",
+            "PHASE_HANDOFF_8136_BIRTH_TO_MOONSHOT_FLOW_UNKNOWN", t0)
+        val awaiting = listOf(LaneRead8144("MOONSHOT", false, 0, "NATIVE_BIRTH_METADATA_HYDRATING"))
+        assertEquals(Block8153.DATA, block("NATIVE_BIRTH_METADATA_HYDRATING"))
+        assertEquals(Block8153.DATA, block("NATIVE_LANE_LIQ_UNHYDRATED_DEFER"))
+        assertEquals(Block8153.DATA, block("NATIVE_PRICE_NOT_FRESH"))
+        assertSame(initial, a.onNativeTransfer8153(initial, awaiting, t0 + 1_000L, fit))
+
+        val qualified = a.onNativeTransfer8153(initial,
+            listOf(LaneRead8144("MOONSHOT", true, 62, "MOONSHOT_NATIVE_ALLOW")), t0 + 2_000L, fit)
+        assertEquals(State8144.RECEIVER_QUALIFIED, qualified.state)
+        assertSame(qualified, a.onNativeTransfer8153(qualified,
+            listOf(LaneRead8144("MOONSHOT", false, 0, "NATIVE_LANE_LIQ_UNHYDRATED_DEFER")),
+            t0 + 3_000L, fit))
+        // A genuine adverse native judgement still terminates this receiver.
+        val negative = a.onNativeTransfer8153(qualified,
+            listOf(LaneRead8144("MOONSHOT", false, 10, "NATIVE_SCORE_TOO_LOW")),
+            t0 + 4_000L, fit)
+        assertEquals(State8144.ARRIVED_EVALUATED, negative.state)
+    }
+
+    // 8159 regression: the task can wait for market data while the election remains retryable.
+    @Test fun transientGateCannotPermanentlyIneligibleTheNamedReceiver() {
+        val mint = "mint-gate-retry8159"
+        e.registerNative8136(mint, 8159L, t0,
+            mapOf("SHITCOIN" to view(60.0), "MOONSHOT" to view(63.0)), t0)
+        e.cyclePrimary8136(mint, 8159L, "SHITCOIN", false, null, t0)
+        assertEquals("MOONSHOT", e.nameHandoffReceiver8153(mint, "PROJECT_SNIPER", "MOONSHOT", t0))
+        tk.openTask8153(mint, "MOONSHOT", "PROJECT_SNIPER",
+            "PHASE_HANDOFF_8136_EXPANDING_TO_MOONSHOT", 8159L, t0, t0)
+        e.noteGateReason8144(mint, "MOONSHOT", "NATIVE_LANE_LIQ_UNHYDRATED_DEFER")
+        tk.blockTask8153(mint, "MOONSHOT", Block8153.DATA, "NATIVE_LANE_LIQ_UNHYDRATED_DEFER", t0 + 1L)
+        e.noteNotEvaluated8136(mint, "MOONSHOT", "SHITCOIN", true, 63.0, t0 + 2L)
+        assertEquals(Terminal8136.CONTRIBUTOR_SHADOW, e.terminalOf8136(mint, "MOONSHOT")?.first)
+        assertTrue(e.mayOwn8136(mint, "MOONSHOT"))
+        assertTrue(tk.isDue8153(mint, "MOONSHOT", t0 + 3L, 8159L))
+        assertEquals(ClaimOutcome8144.GRANTED, e.claimHandoffReceiver8153(
+            mint, "MOONSHOT", "SHITCOIN", null, t0 + 4L))
+        // Even after a claimed rescue was deferred at its lane gate, a future call can claim again.
+        e.noteGateReason8144(mint, "MOONSHOT", "NATIVE_PRICE_NOT_FRESH")
+        tk.blockTask8153(mint, "MOONSHOT", Block8153.DATA, "NATIVE_PRICE_NOT_FRESH", t0 + 5L)
+        e.noteNotEvaluated8136(mint, "MOONSHOT", "SHITCOIN", true, 63.0, t0 + 6L)
+        assertEquals("", e.rescueOf8136(mint))
+        assertEquals(Terminal8136.CONTRIBUTOR_SHADOW, e.terminalOf8136(mint, "MOONSHOT")?.first)
+        assertEquals(ClaimOutcome8144.GRANTED, e.claimHandoffReceiver8153(
+            mint, "MOONSHOT", "SHITCOIN", null, t0 + 7L))
+    }
+
 }
