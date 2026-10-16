@@ -107,7 +107,11 @@ object InvariantGuardian {
         // are expected to have walletHeldMints=0 and must not be reported as healthy
         // live wallet drift. They are surfaced separately as paperOpenPositions.
         if (s.liveOpenPositions != s.hostTrackerOpenCount && s.mode == "LIVE") out += Fault(FaultCode.HOST_TRACKER_DESYNC, "HIGH", "liveStore=${s.liveOpenPositions} hostLive=${s.hostTrackerOpenCount} paper=${s.paperOpenPositions} walletHeld=${s.walletHeldMints}")
-        val laneRatio = if (s.intake > 0) s.laneEval.toDouble() / s.intake else 0.0
+        // V5.0.8169 — fan-out is lane evaluations per candidate CYCLE. 5.0.8168 read laneEval/intake=19.00 (HIGH, the
+        // report's root cause) with LANE_EVAL=7,439 over SCAN_CB=7,230 cycles: 1.03 lanes a cycle, each resident
+        // candidate re-cycled ~19 times per intake event. The intake ratio stays in the detail as residency.
+        val laneRatio = LoadTelemetry8169.lanesPerCandidateCycle8169(s.laneEval, s.scanCb, s.intake)
+        val intakeRatio8169 = if (s.intake > 0) s.laneEval.toDouble() / s.intake else 0.0
         // V5.0.6019 — source/lane breadth restore can legitimately push laneEval/intake
         // around the enabled-lane count while FDG/EXEC are flowing. Treat that as
         // productive exploration, not a mechanical fault. Only warn at the old 12×
@@ -127,7 +131,7 @@ object InvariantGuardian {
         val productiveFanout6019 = s.fdg > 0L && s.exec > 0L &&
             (journalRows6591 > 0L || s.exec >= (s.intake / 20L).coerceAtLeast(1L))
         if (s.intake > 0 && (laneRatio > 18.0 || (laneRatio > 12.0 && !productiveFanout6019))) {
-            out += Fault(FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=${"%.2f".format(laneRatio)} productive=$productiveFanout6019")
+            out += Fault(FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/cycle=${"%.2f".format(laneRatio)} laneEval/intake=${"%.2f".format(intakeRatio8169)} productive=$productiveFanout6019")
         }
         // V5.0.3858 — FDG forensic rows are not FDG evaluations. A single
         // approved probe can emit path=…, verdict=…, and FDG_ALLOW rows, which

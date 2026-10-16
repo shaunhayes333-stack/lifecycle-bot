@@ -15158,7 +15158,7 @@ class BotService : Service() {
      * the FDG; that loss now has a name on the lane's liveness row (any return path).
      */
     private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean =
-        laneEvaluationAllowed7951(ts, lane, primaryLane).also { allowed ->
+        LoadTelemetry8169.timedLaneGate8169(ts.mint, lane, primaryLane) { laneEvaluationAllowed7951(ts, lane, primaryLane) }.also { allowed ->  // V5.0.8169 — gate time + skips by reason
             if (!allowed) try { SpecialistOwnership7951.noteReadyNotEvaluated7951(lane, ts.mint, primaryLane) } catch (_: Throwable) {}
         }
 
