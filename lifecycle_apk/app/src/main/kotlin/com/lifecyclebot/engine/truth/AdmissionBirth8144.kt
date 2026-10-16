@@ -39,6 +39,11 @@ object AdmissionBirth8144 {
         val historyFloorMs: Long = 0L,
         /** When this bot first saw the mint (a lower bound only: nothing is seen before it exists). */
         val firstSeenMs: Long = 0L,
+        /**
+         * V5.0.8169 — the creation time of a pool that is NOT the launch itself (a graduated PumpSwap / Raydium pair, any
+         * DexScreener best pair other than a pump mint's own bonding curve): the token existed then, so a lower bound only.
+         */
+        val poolFloorMs: Long = 0L,
     )
 
     /** [birthMs] is set only for KNOWN; [minAgeMs] is the age for KNOWN and the proven lower bound for PROVEN_OLDER_THAN. */
@@ -68,7 +73,7 @@ object AdmissionBirth8144 {
         direct.minByOrNull { it.second }?.let { (src, ms) ->
             return Read8144(Kind8144.KNOWN, ms, (nowMs - ms).coerceAtLeast(0L), src)
         }
-        val floors = listOf("HISTORY_FLOOR" to w.historyFloorMs, "FIRST_SEEN" to w.firstSeenMs)
+        val floors = listOf("HISTORY_FLOOR" to w.historyFloorMs, "POOL_FLOOR" to w.poolFloorMs, "FIRST_SEEN" to w.firstSeenMs)
             .filter { plausible8144(it.second, nowMs) && it.second <= nowMs }
         floors.minByOrNull { it.second }?.let { (src, ms) ->
             return Read8144(Kind8144.PROVEN_OLDER_THAN, 0L, nowMs - ms, src)
@@ -91,6 +96,12 @@ object AdmissionBirth8144 {
     private val oldestSigs = ConcurrentHashMap<String, Long>()
     private val historyFloors = ConcurrentHashMap<String, Long>()
     private val reads = ConcurrentHashMap<String, AtomicLong>()
+    // V5.0.8169 — DexScreener pair creation, already on the wire (best pair, sweep enrichment) and dropped: a pump mint's
+    // own bonding-curve pair is its create event (direct); any other pool only proves the token existed then (a floor).
+    private val curvePairs8169 = ConcurrentHashMap<String, Long>()
+    private val poolFloors8169 = ConcurrentHashMap<String, Long>()
+    // V5.0.8169 — distinct mints a launch lane had to defer as UNKNOWN, keyed by feed and pump suffix.
+    private val unknownMints8169 = ConcurrentHashMap<String, String>()
 
     private fun putEarliest8144(map: ConcurrentHashMap<String, Long>, mint: String, ms: Long) {
         val m = mint.trim()
@@ -122,6 +133,25 @@ object AdmissionBirth8144 {
     /** TokenBirthHydrator7441: a successful signature seen while paging back (history not yet complete): a lower bound. */
     fun noteHistoryFloor8144(mint: String, ms: Long) = putEarliest8144(historyFloors, mint, ms)
 
+    /**
+     * V5.0.8169 — DexscreenerApi.parsePair / MarketSweep7297 enrichment: a pair for [mint] created at [createdMs]. The
+     * pump.fun bonding-curve pair of a pump mint is the create event (a direct witness, PAIR_CREATION); every other pool
+     * is a lower bound of the age (POOL_FLOOR) — never read as the birth, so a graduated pool never makes a token young.
+     */
+    fun notePairCreated8169(mint: String, dexId: String?, createdMs: Long) {
+        when (LaunchBirth8169.pairProof8169(mint, dexId.orEmpty(), createdMs, System.currentTimeMillis())) {
+            LaunchBirth8169.PairProof8169.BIRTH -> putEarliest8144(curvePairs8169, mint, createdMs)
+            LaunchBirth8169.PairProof8169.FLOOR -> putEarliest8144(poolFloors8169, mint, createdMs)
+            LaunchBirth8169.PairProof8169.NONE -> {}
+        }
+    }
+
+    /** V5.0.8169 — the direct create witnesses held here, each by name (LaunchBirth8169.launchBirth8169 reads them). */
+    internal fun createFrameMs8169(mint: String): Long? = createFrames[mint.trim()]
+    internal fun pumpRecordMs8169(mint: String): Long? = pumpRecords[mint.trim()]
+    internal fun curvePairMs8169(mint: String): Long? = curvePairs8169[mint.trim()]
+    internal fun oldestSignatureMs8169(mint: String): Long? = oldestSigs[mint.trim()]
+
     /** CanonicalTokenBirthTime7440: the pump create event witnessed here (create frame or pump.fun coin record), or null. */
     fun pumpCreateMs8144(mint: String): Long? {
         val m = mint.trim()
@@ -137,6 +167,8 @@ object AdmissionBirth8144 {
             oldestSignatureMs = oldestSigs[m] ?: 0L,
             historyFloorMs = historyFloors[m] ?: 0L,
             firstSeenMs = ts.addedToWatchlistAt,
+            pairCreatedMs = curvePairs8169[m] ?: 0L,   // V5.0.8169 — a pump mint's own bonding-curve pair (direct)
+            poolFloorMs = poolFloors8169[m] ?: 0L,      // V5.0.8169 — any other pool (lower bound)
         )
     }
 
@@ -152,8 +184,16 @@ object AdmissionBirth8144 {
         return when (window8144(r, windowMs)) {
             Window8144.IN_WINDOW -> { count8144("BIRTH_8144_KNOWN_${r.source}"); r.minAgeMs }
             Window8144.PAST_WINDOW -> { count8144("BIRTH_8144_PROVEN_PAST_WINDOW_${r.source}"); r.minAgeMs }
-            Window8144.UNKNOWN_DEFER -> { count8144("BIRTH_8144_UNKNOWN_DEFER"); null }
+            Window8144.UNKNOWN_DEFER -> { count8144("BIRTH_8144_UNKNOWN_DEFER"); noteUnknown8169(ts); null }
         }
+    }
+
+    /** V5.0.8169 — one distinct UNKNOWN mint, keyed by its feed and pump suffix (bounded; the first sighting names it). */
+    private fun noteUnknown8169(ts: TokenState) {
+        val m = ts.mint.trim()
+        if (m.isBlank() || unknownMints8169.containsKey(m)) return
+        if (unknownMints8169.size >= CAP_8144) unknownMints8169.clear()
+        unknownMints8169[m] = LaunchBirth8169.unknownKey8169(m, ts.source)
     }
 
     /** The proven lower bound of [ts]'s age (ms) from this object's witnesses, or null when nothing proves one. */
@@ -162,5 +202,8 @@ object AdmissionBirth8144 {
 
     fun statusLine8144(): String =
         "birth8144[frames=${createFrames.size} pumpRecords=${pumpRecords.size} oldestSig=${oldestSigs.size} floors=${historyFloors.size} " +
-            "reads{${reads.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key.removePrefix("BIRTH_8144_")}=${it.value.get()}" }.ifBlank { "-" }}}]"
+            "reads{${reads.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key.removePrefix("BIRTH_8144_")}=${it.value.get()}" }.ifBlank { "-" }}} " +
+            // V5.0.8169 — the pair witnesses, the distinct birthless mints by feed, and the sniper's cheap age pre-filter.
+            "curvePairs8169=${curvePairs8169.size} poolFloors8169=${poolFloors8169.size} " +
+            "unknownMints8169{${LaunchBirth8169.histogram8169(unknownMints8169.values, 5)}} ${LaunchBirth8169.sniperScopeLine8169()}]"
 }
