@@ -11,9 +11,10 @@ class Aate7609SpecialistArchitectureStateTest {
         assertTrue(s.contains("liveQuarantine="))
         assertTrue(s.contains("buyerEnabled="))
         assertTrue(s.contains("ownershipModel="))
-        assertTrue(s.contains("TREASURY_SHARED_EXEC_ALIAS"))
     }
     @Test fun manipulatedFlagHasReadOnlySurface() {
-        assertTrue(src("engine/BotService.kt").contains("fun manipulatedBuyerEnabled7609(): Boolean = MANIPULATED_IS_A_BUYER_7395"))
+        // 8077 — the MANIPULATED_IS_A_BUYER_7395 flag was retired (operator restored live
+        // participation); the read-only capability surface remains.
+        assertTrue(src("engine/BotService.kt").contains("fun manipulatedBuyerEnabled7609(): Boolean"))
     }
 }

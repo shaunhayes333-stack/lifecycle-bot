@@ -38,7 +38,9 @@ class Aate6743CanonicalTruthAndCloseReconstructTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
         assertTrue(
             "openPositions() MUST route through the truth predicate isOpenLifecycleWithQty6743",
-            src.contains("fun openPositions(): List<Position> = positions.values.filter { isOpenLifecycleWithQty6743(it) }"),
+            // V5.0.7496 — served from the revision-cached view, whose open set is the truth predicate.
+            src.contains("fun openPositions(): List<Position> = positionViews7496().open") &&
+                src.contains("val open7496 = snapshot7496.filter { isOpenLifecycleWithQty6743(it) }"),
         )
         assertTrue(
             "the truth predicate must exist and reject non-OPEN/PARTIALLY_CLOSED",
@@ -99,7 +101,8 @@ class Aate6743CanonicalTruthAndCloseReconstructTest {
         )
         assertTrue(
             "reconstructor MUST NOT mutate a mint that is already stamped",
-            src.contains("if (closed.containsKey(mint)) continue"),
+            // V5.0.7858 — the ledger is keyed per mode.
+            src.contains("if (closed.containsKey(key7858(mode, mint))) continue"),
         )
         assertTrue(
             "reconstructor MUST use a synthetic canonical-derived reason so isRejectedCloseReason cannot swallow it",

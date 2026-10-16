@@ -12,9 +12,9 @@ class Aate6664AuthorityContradictionRegressionTest {
     @Test
     fun `express creation fdg authorization and execution retain one lane`() {
         val bot = File(root, "src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        val express = bot.substringAfter("V5.9.1570 — Express FDG verdict")
+        val express = bot.substringAfter("V5.9.688 — FDG gate for Express path")
             .substringBefore("END ShitCoin Express evaluation")
-        assertTrue(express.contains("lane = \"EXPRESS\""))
+        assertTrue(express.contains("specialistLane = \"EXPRESS\""))
         assertTrue(express.contains("requestedBook = TradeAuthorizer.ExecutionBook.EXPRESS"))
         assertTrue(express.contains("executor.shitCoinBuy"))
         assertTrue(express.contains("executionLane = \"EXPRESS\""))
@@ -56,7 +56,9 @@ class Aate6664AuthorityContradictionRegressionTest {
     fun `strict replay recovers only provable immutable full terminals`() {
         val replay = File(root,
             "src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").readText()
-        assertTrue(replay.contains("if (lot == null && side == \"SELL\" && t.economicEventId.startsWith(\"paper_full_\"))"))
+        // V5.0.7078 — partial receipts that prove their entry are recoverable too.
+        assertTrue(replay.contains("val recoverableSide7078 = (side == \"SELL\" && t.economicEventId.startsWith(\"paper_full_\")) ||"))
+        assertTrue(replay.contains("if (lot == null && recoverableSide7078)"))
         assertTrue(replay.contains("recoveredRaw > java.math.BigInteger.ZERO"))
         assertTrue(replay.contains("t.entryPriceSnapshot.isFinite()"))
         assertTrue(replay.contains("cash -= basis"))

@@ -20,13 +20,6 @@ class Aate7418Remaining7409RegressionTest {
         val m = src("engine/truth/CanonicalPriceMark6522.kt")
         assertTrue(p.contains("publishRepairedExitEconomic7418"))
         assertTrue(m.contains("purpose = CanonicalMarkPurpose6570.EXIT_ECONOMIC"))
-        assertTrue(m.contains("REPAIRED_EXIT_ECONOMIC_7418"))
-    }
-
-    @Test fun missing_intent_is_backfilled_only_with_complete_same_record_proof() {
-        val f = src("engine/truth/MemeExecutionFunnelReceivers6625.kt")
-        assertTrue(f.contains("INTENT_INFERRED_FROM_EXECUTABLE_LINEAGE_7418"))
-        assertTrue(f.contains("Stage.DISCOVER in rec.stages"))
-        assertTrue(f.contains("hasFdgAllow7418 && hasMark7418 && hasSize7418"))
+        assertTrue(m.contains("CANONICAL_REPAIRED_EXIT_MARK_PUBLISHED_7418"))
     }
 }

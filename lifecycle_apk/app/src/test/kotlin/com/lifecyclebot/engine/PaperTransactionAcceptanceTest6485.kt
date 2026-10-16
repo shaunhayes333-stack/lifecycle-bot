@@ -39,7 +39,10 @@ class PaperTransactionAcceptanceTest6485 {
         )
         assertTrue(result.executable)
         assertTrue(result.finalSizeSol >= 0.05)
-        assertEquals("OK", result.reason)
+        // V5.0.7277 — the paper floor is fee-aware (~0.1073 SOL), so a funded 0.10 SOL
+        // request is promoted to the canonical minimum rather than refused.
+        assertTrue(result.finalSizeSol >= OrderSizeResolver6441.paperExecutableMinimumSol() - 1e-9)
+        assertEquals("OK_MIN_PROMOTED_6600", result.reason)
     }
 
     @Test

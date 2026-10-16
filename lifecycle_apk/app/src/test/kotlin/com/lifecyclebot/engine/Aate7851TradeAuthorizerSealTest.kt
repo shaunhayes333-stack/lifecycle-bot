@@ -22,6 +22,9 @@ class Aate7851TradeAuthorizerSealTest {
         assertTrue(afterSeal.contains("BannedTokens.isBanned"))
         assertTrue(afterSeal.contains("LiveSafetyCircuitBreaker.isTripped()"))
         assertTrue(afterSeal.contains("rugcheckScore <= 0"))
-        assertTrue(afterSeal.contains("ALREADY_OPEN_CROSS_BOOK"))
+        // Account-ownership (one-mint-one-position) is checked before the seal so a
+        // duplicate callback cannot revoke the first callback's live ticket.
+        val beforeSeal = s.substringBefore("SpecialistPreauthSeal7834.ensure")
+        assertTrue(beforeSeal.contains("reason = \"ALREADY_OPEN_CROSS_BOOK\""))
     }
 }

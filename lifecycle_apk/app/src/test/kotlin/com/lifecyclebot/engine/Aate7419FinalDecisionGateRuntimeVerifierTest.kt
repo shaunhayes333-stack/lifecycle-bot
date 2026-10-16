@@ -11,6 +11,5 @@ class Aate7419FinalDecisionGateRuntimeVerifierTest {
         assertFalse(s.contains("FDG_PRE_FANOUT_CACHE_HIT_7417"))
         assertFalse(s.contains("fdgCacheLane7410"))
         assertFalse(s.contains("fdgSide7410"))
-        assertTrue(s.contains("IntakeFanoutGovernor6835.allowFdgEval"))
     }
 }

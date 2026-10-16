@@ -14,10 +14,13 @@ class Aate7433FinalizedHistoryClassificationTest {
 
     @Test fun reconcilerSeparatesPreBusHistoryFromCurrentPublishFailure() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedLearningReconciler7423.kt").readText()
+        // V5.0.7432/7544 — history is separated from a current publish failure by
+        // durable terminal evidence, not by comparing timestamps to the bus window:
+        // only a repairable durable full SELL is BUS_PUBLISH_FAILED.
         assertTrue(src.contains("earliestCanonicalAtMs7433()"))
-        assertTrue(src.contains("predatesSurvivingBus7433"))
-        assertTrue(src.contains("p.lastMutationMs < earliestBusAt7433"))
-        assertTrue(src.contains("predatesSurvivingBus7433 -> Reason.LEGACY_REPLAY"))
-        assertTrue(src.contains("p.positionId.isNotBlank() -> Reason.BUS_PUBLISH_FAILED"))
+        assertTrue(src.contains("src.contains(\"LEGACY_REPLAY\") || src.contains(\"REPLAY_CARRY\") -> Reason.LEGACY_REPLAY"))
+        assertTrue(src.contains("repairable7544 -> Reason.BUS_PUBLISH_FAILED"))
+        assertTrue(src.contains("terminal7544 != null -> Reason.DURABLE_TERMINAL_UNREPAIRABLE"))
+        assertTrue(src.contains("p.positionId.isNotBlank() -> Reason.HISTORICAL_NO_DURABLE_FINALITY"))
     }
 }

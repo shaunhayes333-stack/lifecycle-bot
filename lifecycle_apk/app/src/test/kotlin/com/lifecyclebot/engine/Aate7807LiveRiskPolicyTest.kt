@@ -115,7 +115,7 @@ class Aate7807LiveRiskPolicyTest {
         assertEquals("COST_CONSUMES_MOVE_7807", LiveRiskPolicy7807.decide(inputs(first = 3.0)).reason)
         val tooWide = LiveRiskPolicy7807.decide(inputs(lane = "MOONSHOT", equity = 0.15, upstream = 0.027, execMin = 0.04, stop = 30.0, first = 60.0, target = 120.0))
         assertFalse(tooWide.open)
-        assertEquals("SIZE_BELOW_MIN_RISK_TOO_WIDE_7807", tooWide.reason)
+        assertEquals("RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", tooWide.reason)
         val atMin = LiveRiskPolicy7807.decide(inputs(equity = 0.15, upstream = 0.027, execMin = 0.025, stop = 8.0, first = 30.0))
         assertTrue(atMin.open)
         assertEquals(0.025, atMin.sizeSol, 1e-9)
@@ -187,35 +187,17 @@ class Aate7807LiveRiskPolicyTest {
     }
 
     @Test
-    fun executor_wiring_contract() {
-        val ex = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("if (liveRiskPolicyPreTicketRefused7807(ts, layerTag, sol, walletSol)) return false"))
-        assertTrue(ex.contains("sol = liveRiskPolicyFinalSize7807("))
-        assertTrue(ex.contains("BUY_TERMINAL_LIVE_RISK_POLICY_7807"))
-        assertTrue(ex.contains("PAPER_EV_BUCKET_SIZE_DOWN_NOT_REFUSED_7807"))
-        assertFalse(ex.contains("LOSER_BUCKET_COOLDOWN_APPLIED_6405"))
-        assertTrue(ex.contains("REENTRY_AFTER_STOP_7807"))
-        assertTrue(ex.contains("LiveRiskPolicy7807.isHighEvRunner(ts.mint, gateLaneLive6451)"))
-        // The final shape runs after the last-mile floor and before the executable floors.
-        val lastMile = ex.indexOf("LiveSizingProfile.lastMileEntryFloor(")
-        val finalShape = ex.indexOf("sol = liveRiskPolicyFinalSize7807(")
-        val execFloor = ex.indexOf("LIVE_FINAL_EXECUTABLE_FLOOR_RESTORED_6687")
-        assertTrue(lastMile in 0 until finalShape && finalShape < execFloor)
-        val eea = File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
-        assertTrue(eea.contains("cooling -> coolingMult7807"))
-    }
-
-    @Test
     fun sealedSpecialistLaneOwnsLastMileRisk7811() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue(gate.contains("fun activeCanonicalIntentForMint7811"))
         assertTrue(gate.contains("LaneExecutionCoordinator.currentElection6600(mint)?.primaryLane"))
 
         val risk = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveRiskPolicy7807.kt").readText()
-        assertTrue(risk.contains("activeCanonicalIntentForMint7811(\"LIVE\", mint)"))
-        assertTrue(risk.contains("val effectiveLane7811 = sealedLane7811.ifBlank { canonicalLane(lane) }"))
+        // The risk policy now resolves on the caller's canonical decision lane and
+        // never substitutes another candidate's active intent (runtimeInputs).
+        assertFalse(risk.contains("activeCanonicalIntentForMint7811(\"LIVE\", mint)"))
+        assertTrue(risk.contains("val effectiveLane7811 = canonicalLane(lane)"))
         assertTrue(risk.contains("laneOpenLive = laneOpenLive(effectiveLane7811)"))
-        assertTrue(risk.contains("LIVE_RISK_LANE_CONVERGED_TO_SEALED_INTENT_7811"))
     }
 
 

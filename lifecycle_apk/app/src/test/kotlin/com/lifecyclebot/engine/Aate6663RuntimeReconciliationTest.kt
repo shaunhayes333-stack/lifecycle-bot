@@ -25,8 +25,15 @@ class Aate6663RuntimeReconciliationTest {
         val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val loop = bot.substringAfter("private suspend fun botLoop()")
         assertTrue(loop.contains("reconcileJournalAuthority6663()"))
-        assertTrue(bot.contains("resolvedSizeSol6558 = actualInitialSizeForAuth6649"))
-        assertTrue(bot.contains("recordDeskStage(cyclePrimaryLane, \"SIZED_EXECUTABLE\", ticketStampIntent6658.attemptId)"))
+        // V5.0.7835/7853 — the FDG size is carried to TradeAuthorizer and sealed
+        // by SpecialistPreauthSeal7834; SIZED_EXECUTABLE is stamped on the
+        // sealed ticket's own attempt (V5.0.7807).
+        assertTrue(bot.contains("preResolvedSizeSol = actualInitialSizeForAuth6649"))
+        val seal = File("src/main/kotlin/com/lifecyclebot/engine/SpecialistPreauthSeal7834.kt").readText()
+        assertTrue(seal.contains("val size = decision.sizeSol"))
+        assertTrue(seal.contains("resolvedSizeSol6558 = size,"))
+        val gate = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(gate.contains("ToolkitSignalSheet.recordDeskStage(lane, \"SIZED_EXECUTABLE\", ticket.attemptId)"))
         val fdg = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("causalEventId = \"\""))
     }

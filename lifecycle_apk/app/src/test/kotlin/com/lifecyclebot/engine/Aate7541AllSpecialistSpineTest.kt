@@ -26,7 +26,8 @@ class Aate7541AllSpecialistSpineTest {
     @Test fun core_is_executable_ensemble_not_trunk() {
         val p = src("engine/ExecutionAuthorityPolicy6533.kt")
         val trunk = p.substringAfter("private val trunk =").substringBefore("\n")
-        assertFalse(trunk.contains("CORE"))
+        // Match the exact lane token: the trunk set legitimately holds "V3_CORE".
+        assertFalse(trunk.contains("\"CORE\""))
         val growth = src("engine/LiveGrowthDoctrine.kt")
         assertTrue(growth.contains("l == \"CORE\" || l.contains(\"CORE_ENSEMBLE\") -> \"CORE\""))
         assertTrue(growth.contains("\"CORE\", \"CYCLIC\", \"CASHGEN\""))

@@ -117,8 +117,11 @@ object JournalEconomicReplay6619 {
             PaperCapitalAuthority6577.startingCashSol().coerceAtLeast(0.0)
         } catch (_: Throwable) { 0.0 }
 
+        // V5.0.8169 — null-safe: with no main looper (null == null) every
+        // caller was treated as the main thread and replay never ran.
         val onMainThread = try {
-            android.os.Looper.myLooper() == android.os.Looper.getMainLooper()
+            val main = android.os.Looper.getMainLooper()
+            main != null && main.thread === Thread.currentThread()
         } catch (_: Throwable) { false }
         if (onMainThread) {
             try { PipelineHealthCollector.labelInc("JOURNAL_REPLAY_MAIN_THREAD_DEFERRED_6619") } catch (_: Throwable) {}

@@ -127,7 +127,8 @@ class Aate7807EconomicIntegrityTest {
         val ex = src("com/lifecyclebot/engine/Executor.kt")
         val block = ex.substringAfter("val canonicalOpen6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(")
             .substringBefore("LIVE_BUY_CANONICAL_COMMIT_REJECTED_6486")
-        assertTrue(block.contains("recoveryLane = ExecutableOpenGate.activeExecutionIntent6519"))
+        // V5.0.7835 — the real lane comes from the sealed execution intent.
+        assertTrue(block.contains("recoveryLane = requireNotNull(sealedIntent7835).canonicalLane"))
         assertTrue(block.contains("val pidLive6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false)"))
         val mirror = src("com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt")
         assertTrue(mirror.contains("CANONICAL_STALE_ACTIVE_POSITION_ID_REALLOCATED_7807"))
@@ -171,9 +172,10 @@ class Aate7807EconomicIntegrityTest {
         val leg = ex.substringAfter("val liveTrade = Trade(\"PARTIAL_SELL\", \"live\"")
             .substringBefore("recordTrade(ts, liveTrade)")
         assertTrue(leg.contains("positionId = pos.positionId.ifBlank"))
-        assertTrue(leg.contains("soldQtyToken = sellQty"))
-        assertTrue(leg.contains("remainingQtyToken = newQty.coerceAtLeast(0.0)"))
-        assertTrue(leg.contains("canonicalConsumedRaw = expectedConsumedRawForAudit"))
+        // V5.0.7835 — the exact sold quantity comes from the on-chain consumption proof.
+        assertTrue(leg.contains("soldQtyToken = proof7835.uiTokenConsumed"))
+        assertTrue(leg.contains("remainingQtyToken = ts.position.qtyToken"))
+        assertTrue(leg.contains("canonicalConsumedRaw = proof7835.rawTokenConsumed"))
         assertTrue(ex.contains("val ledgerPositionId = canonicalJournalPositionId7807(ts, trade)"))
         assertTrue(ex.contains("val _fanoutPositionId = tradeWithMint.positionId.ifBlank { ledgerPositionId }"))
     }

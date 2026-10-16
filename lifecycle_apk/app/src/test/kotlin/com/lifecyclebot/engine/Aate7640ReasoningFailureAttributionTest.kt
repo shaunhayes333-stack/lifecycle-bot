@@ -10,8 +10,8 @@ class Aate7640ReasoningFailureAttributionTest {
         val s = File("src/main/kotlin/com/lifecyclebot/engine/SuperIntelligenceCalibration7636.kt").readText()
         assertTrue(s.contains("val treePolicy: SuperPolicyTree7638.Policy"))
         assertTrue(s.contains("val arbiterDominant: String"))
-        assertTrue(s.contains("tree = tree7638"))
-        assertTrue(s.contains("arbiter = arbiter7639"))
+        assertTrue(s.contains("treePolicy = tree.bestPolicy,"))
+        assertTrue(s.contains("arbiterDominant = arbiter.dominant,"))
     }
 
     @Test fun terminalOutcomeClassifiesReasoningFailureMode() {

@@ -13,14 +13,17 @@ class Aate7794LiveEdgeRepairTest {
         assertTrue(s.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 8"))  // V5.0.8094 — Helius OOM + credit budget
         assertTrue(s.contains("HELIUS_WS_TOKEN_SUB_EVICTED_7794"))
         assertTrue(s.contains("logsUnsubscribe"))
-        assertTrue(s.contains("tokenSnapshot = synchronized(subscriptions)"))
+        // V5.0.7867 — reconnect resubscribe order wraps the locked snapshot.
+        assertTrue(s.contains("val tokenSnapshot = resubscribeOrder7867("))
+        assertTrue(s.contains("synchronized(subscriptions) { subscriptions.keys.toList() }"))
     }
 
     @Test fun liveMatureNegativeScoreBandsAreNoLongerBypassed() {
         val s = src("engine/ScoreExpectancyTracker.kt")
         val block = s.substringAfter("fun shouldReject").substringBefore("fun calibrationSizeMult")
         assertTrue(block.contains("LIVE_EXPECTANCY_REJECT_HONOURED_7794"))
-        assertFalse(block.contains("LIVE_EXPECTANCY_REJECT_BYPASSED"))
+        val code = block.lines().filterNot { it.trim().startsWith("//") }.joinToString("\n")
+        assertFalse(code.contains("LIVE_EXPECTANCY_REJECT_BYPASSED"))
         assertTrue(block.contains("mean < REJECT_MEAN_PNL_PCT"))
     }
 

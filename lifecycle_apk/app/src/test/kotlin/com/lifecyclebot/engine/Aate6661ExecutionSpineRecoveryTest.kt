@@ -37,9 +37,10 @@ class Aate6661ExecutionSpineRecoveryTest {
     @Test
     fun `fanout guardian counts actual FDG gate outcomes first`() {
         val source = File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+        // V5.0.7254 — the gate-first raw count is now fdgDecisionsRaw7254 (cap remedy applied after).
         assertTrue(
             source.contains(
-                "val fdgDecisions = gateVerdicts6640.takeIf { it > 0L }\n" +
+                "val fdgDecisionsRaw7254 = gateVerdicts6640.takeIf { it > 0L }\n" +
                     "            ?: canonicalVerdicts6640.takeIf { it > 0L }"
             )
         )

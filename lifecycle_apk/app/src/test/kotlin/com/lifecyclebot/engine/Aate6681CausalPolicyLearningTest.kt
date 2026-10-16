@@ -66,7 +66,9 @@ class Aate6681CausalPolicyLearningTest {
     @Test
     fun `aate finality path binds and trains by position owner`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt").readText()
-        assertTrue(src.contains("UnifiedPolicyHead.bindPosition6681(positionId, mint, lane)"))
+        // V5.0.6713 — the position is bound to its owner lane from the sealed AATE decision.
+        assertTrue(src.contains("UnifiedPolicyHead.bindDecisionFallback6713("))
+        assertTrue(src.contains("ownerLane = lane,"))
         assertTrue(src.contains("UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct)"))
         assertFalse(src.contains("UnifiedPolicyHead.recordOutcome(env.mint, env.realizedReturnPct)"))
     }

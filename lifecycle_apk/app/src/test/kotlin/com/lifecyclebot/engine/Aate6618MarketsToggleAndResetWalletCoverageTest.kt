@@ -135,18 +135,22 @@ class Aate6618MarketsToggleAndResetWalletCoverageTest {
         journal.resetForTest()
         ledger.initialize(5.0)
         ledger.onBuy(costSol = 3.0, feeSol = 0.03)
-        val preSnap = journal.currentSnapshot()!!
-        val preRev = preSnap.revision
+        // V5.0.6647/V5.0.7360 — the hero snapshot is published only from a
+        // reconciled journal replay (fail-closed), which a cold JVM cannot
+        // produce. The reset contract is asserted at the authority boundary:
+        // the mutation is notified (revision advances) and the ledger holds
+        // exactly the fresh balance the next reconciled publish will carry.
+        val preRev = journal.revision()
         // User hits Reset.
         ledger.resetToFreshBalance6618(11.7647, "USER_TEST_RESET_PUBLISH")
-        val postSnap = journal.currentSnapshot()!!
+        val postRev = journal.revision()
         assertTrue(
-            "V5.0.6618: reset must advance journalEconomicRevision (pre=$preRev post=${postSnap.revision})",
-            postSnap.revision > preRev
+            "V5.0.6618: reset must advance journalEconomicRevision (pre=$preRev post=$postRev)",
+            postRev > preRev
         )
         assertEquals(
-            "V5.0.6618: post-reset snapshot cashSol must equal fresh startingSol",
-            11.7647, postSnap.cashSol, 1e-6
+            "V5.0.6618: post-reset ledger cashSol must equal fresh startingSol",
+            11.7647, ledger.cashSol(), 1e-6
         )
     }
 }

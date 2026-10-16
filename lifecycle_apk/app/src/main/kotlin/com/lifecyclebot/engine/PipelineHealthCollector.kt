@@ -236,6 +236,9 @@ object PipelineHealthCollector {
                 .asSequence()
                 .filter { sellLike(it.side) }
                 .filter { it.mode.equals(currentMode6651, true) }
+                // V5.0.8169 — the pipeline performance block is the MEME book only;
+                // other desks' terminals must not leak into this WR.
+                .filter { com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.classify(it) == com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME }
                 .map { t ->
                     val entryTs = t.entryTsMs.takeIf { it > 0L } ?: t.ts
                     val entryPrice = t.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 } ?: t.price

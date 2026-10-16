@@ -82,21 +82,23 @@ class Aate6748CausalOwnerExitPolicyAndOutcomeDedupeTest {
     @Test
     fun `hypothesis engine settles each mint exactly once`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
+        // V5.0.7428 — settlement is bound to the executed position, so the settle-once
+        // guard is keyed by positionId (recordOutcomeForPosition7428), not by mint.
         assertTrue(
-            "engine MUST define a per-mint settle-once guard set",
-            src.contains("settledOnceGuard6747"),
+            "engine MUST define a per-position settle-once guard set",
+            src.contains("settledPositions7428"),
         )
         assertTrue(
-            "recordOutcome MUST short-circuit when the guard rejects a duplicate mint settle",
-            src.contains("if (!settledOnceGuard6747.add(mint))"),
+            "recordOutcomeForPosition7428 MUST short-circuit when the guard rejects a duplicate settle",
+            src.contains("if (!settledPositions7428.add(positionId))"),
         )
         assertTrue(
             "duplicate-settle path MUST emit a dedicated dedup label",
-            src.contains("HYPOTHESIS_OUTCOME_DEDUPED_PER_CANDIDATE_6747"),
+            src.contains("HYPOTHESIS_POSITION_OUTCOME_DEDUPED_7428"),
         )
         assertTrue(
             "reset() MUST clear the guard so long-running sessions don't leak",
-            src.contains("settledOnceGuard6747.clear()"),
+            src.contains("settledPositions7428.clear()"),
         )
     }
 }

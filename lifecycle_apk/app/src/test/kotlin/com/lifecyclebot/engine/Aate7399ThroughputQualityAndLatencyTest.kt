@@ -23,7 +23,8 @@ class Aate7399ThroughputQualityAndLatencyTest {
         assertTrue(s.contains("SINGLE_ROUTABLE_POSITION_SHARE_7399 = 1.00"))
         assertTrue(s.contains("routableCapacity7218 == 1"))
         assertTrue(s.contains("SINGLE_ROUTABLE_POSITION_SHARE_7399"))
-        assertTrue(s.contains("routableMinSol7127 / SINGLE_ROUTABLE_POSITION_SHARE_7399"))
+        // V5.0.7831 — compute() no longer derives a min-viable size; the read-only preflight keeps it.
+        assertTrue(s.contains("minViableTradeableSol = routableMin / SINGLE_ROUTABLE_POSITION_SHARE_7399"))
     }
 
     @Test

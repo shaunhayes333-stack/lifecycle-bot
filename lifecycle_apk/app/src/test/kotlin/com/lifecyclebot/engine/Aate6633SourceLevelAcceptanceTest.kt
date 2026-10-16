@@ -64,7 +64,8 @@ class Aate6633SourceLevelAcceptanceTest {
         val meme = read("ui/MainActivity.kt")
         val markets = read("ui/MultiAssetActivity.kt")
         val crypto = read("ui/CryptoAltActivity.kt")
-        assertTrue(meme.contains("UnifiedAccountSnapshot6635.read(\"MEME\")"))
+        // V5.0.7045 — the MEME paper hero reads the atomic HeroAccountSnapshot7045.
+        assertTrue(meme.contains("HeroAccountSnapshot7045.read(\"MEME\")"))
         assertTrue(markets.contains("UnifiedAccountSnapshot6635.read(\"MARKETS\")"))
         assertTrue(crypto.contains("UnifiedAccountSnapshot6635.read(\"CRYPTO\")"))
     }

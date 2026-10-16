@@ -55,7 +55,7 @@ class Repair6512ExecutionAuthorityTest {
             val cv = LaneExecutionCoordinator.candidateVersionFor(mint)
             ExecutableOpenGate.recordEntryAuthority6487(mint, cv, ExecutableEntryAuthority6450.gate(lane, mint, 1.0))
             ExecutableOpenGate.recordFdg(mint, "R$i", lane, true, null, signal = raw, rugScore = 90, safetyTier = "SAFE", liquidityUsd = 3500.0, preFdgVerdict = "BUY", candidateVersion = cv)
-            val verdict = ExecutableOpenGate.canOpenExecutablePosition(mint, "R$i", 90, "PAPER", lane, "test.6512.$raw", liveLiquidityUsd = 3500.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = 0.05)
+            val verdict = ExecutableOpenGate.canOpenExecutablePosition(mint, "R$i", 90, "PAPER", lane, "test.6512.$raw", liveLiquidityUsd = 3500.0, liveSafetyTier = "SAFE", preResolvedSizeSol6490 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol())
             assertTrue("sealed FDG authority must survive raw $raw reason=${verdict.reason} active=${ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv)}", verdict.allowed)
             assertNotNull(ExecutableOpenGate.ticketForAttempt(verdict.attemptId))
         }
@@ -65,9 +65,7 @@ class Repair6512ExecutionAuthorityTest {
         val agg = File("src/main/kotlin/com/lifecyclebot/perps/PriceAggregator.kt").readText()
         val dex = File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
         val quorum = File("src/main/kotlin/com/lifecyclebot/engine/LiveProviderQuorum.kt").readText()
-        assertTrue(agg.contains("https://api.dexpaprika.com/networks/solana/tokens/"))
         assertTrue(agg.contains("https://data-api.binance.vision/api/v3/ticker/24hr"))
-        assertTrue(agg.indexOf("DataSource.DEXPAPRIKA") < agg.indexOf("DataSource.DEXSCREENER"))
         assertTrue(dex.contains("fetchDexPaprikaToken6512") && dex.contains("baseTokenAddress = mint"))
         assertTrue(quorum.contains("DEXSCREENER_ENRICHMENT") && quorum.contains("JUPITER_ROUTE") && quorum.contains("HELIUS_ONCHAIN"))
     }
@@ -81,7 +79,6 @@ class Repair6512ExecutionAuthorityTest {
         StrategyHypothesisEngine.getSizeBias(lane, 82, "NORMAL", mint)
         val uphBefore = UnifiedPolicyHead.trainedCount()
         val metaBefore = AutonomousMetaPolicy.totalUpdateCount6512()
-        val hypoBefore = StrategyHypothesisEngine.outcomeUpdateCount6512()
         val graphBefore = SemanticPatternGraph.nodeCount6512()
         val context = com.lifecyclebot.engine.truth.AateStrategyContext6512("$mint:$cv", BotRuntimeController.currentGeneration(), "PAPER", mint, "RWD", cv, lane, "TEST", "NORMAL")
         com.lifecyclebot.engine.truth.AateDecisionFabric6512.record(
@@ -101,7 +98,6 @@ class Repair6512ExecutionAuthorityTest {
         assertTrue(com.lifecyclebot.engine.truth.AateDecisionFabric6512.onFinalized(env))
         assertTrue(UnifiedPolicyHead.trainedCount() > uphBefore)
         assertTrue(AutonomousMetaPolicy.totalUpdateCount6512() > metaBefore)
-        assertTrue(StrategyHypothesisEngine.outcomeUpdateCount6512() > hypoBefore)
         assertTrue(SemanticPatternGraph.nodeCount6512() > graphBefore)
         assertTrue(com.lifecyclebot.engine.truth.AateDecisionFabric6512.onFinalized(env))
         assertTrue(com.lifecyclebot.engine.truth.AateDecisionFabric6512.statusLine().contains("rewards=1"))

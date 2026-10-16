@@ -86,9 +86,10 @@ class Bundle6390EarlyEntryAndPeakCaptureTest {
     }
 
     @Test fun trail_fires_when_giveback_exceeds_threshold() {
-        // At peak 500%, trail = 10% → exit when current gain drops below 490%.
+        // At peak 500%, trail = 10% OF THE RUN (V5.0.6921 §TRAIL_UNIT_CORRECTION,
+        // personality slack bounded [0.95, 1.10]) → exit once ~50pp is given back.
         assertFalse(PeakAdaptiveTrail6390.shouldExitOnTrail(500.0, 495.0))
-        assertTrue(PeakAdaptiveTrail6390.shouldExitOnTrail(500.0, 489.0))
+        assertTrue(PeakAdaptiveTrail6390.shouldExitOnTrail(500.0, 440.0))
     }
 
     @Test fun peak_state_ratchets_up_only() {
@@ -111,7 +112,7 @@ class Bundle6390EarlyEntryAndPeakCaptureTest {
 
     @Test fun peak_slip_cuts_full_at_40pct_giveback() {
         assertEquals(PeakSlipExit6390.Action.CUT_FULL,
-            PeakSlipExit6390.evaluate(peakGainPct = 200.0, currentGainPct = 159.0))
+            PeakSlipExit6390.evaluate(peakGainPct = 200.0, currentGainPct = 119.0))
     }
 
     /* -------------------- PART B WINNER LADDER --------------------------- */
@@ -169,7 +170,7 @@ class Bundle6390EarlyEntryAndPeakCaptureTest {
     @Test fun authority_prioritises_full_cut_when_giveback_severe() {
         val d = PeakCaptureAuthority6390.decide(PeakCaptureAuthority6390.Inputs(
             positionId = "posX",
-            peakGainPct = 500.0, currentGainPct = 400.0,   // 100pp giveback
+            peakGainPct = 500.0, currentGainPct = 290.0,   // 42% of the run given back (V5.0.6921)
             peakBuyVolumeUsd = 5_000.0, currentBuyVolumeUsd = 5_000.0,
             peakPriceUsd = 1.0, currentPriceUsd = 1.0,
             topHolderNetSellsPctOfBag = emptyList(),

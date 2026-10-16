@@ -28,7 +28,7 @@ class Aate7823CryptoResidentConsumptionTest {
         assertTrue(fn.contains("CRYPTO_RESIDENT_SCAN_QUOTA_7823"))
         assertTrue(fn.contains("cryptoResidentLastScanAt7823"))
         assertTrue(fn.contains("genericUniverse7823"))
-        assertTrue(fn.contains("residentSelected7823 + genericBatch7823"))
+        assertTrue(fn.contains("residentSelected7823 + freshSelected7922 + genericBatch7823"))
         assertTrue(fn.contains("CRYPTO_RESIDENT_SCAN_CONSUMED_7823"))
     }
 

@@ -242,6 +242,14 @@ object ExecutableOpenGate {
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
     private val executionTickets = ConcurrentHashMap<String, ExecutionIntent>()
     private val activeExecutionIntents6519 = ConcurrentHashMap<String, ExecutionIntent>()
+    /** V5.0.8169 — the live circuit breaker revokes this mint's sealed LIVE ticket and intent for [lanes]. */
+    private fun revokeLiveSealOnBreaker8169(mint: String, lanes: Set<String>) {
+        try {
+            val m = mint.trim()
+            executionTickets.entries.removeIf { it.value.mint == m && it.value.mode == "LIVE" && it.value.canonicalLane in lanes }
+            activeExecutionIntents6519.entries.removeIf { it.value.mint == m && it.value.mode == "LIVE" && it.value.canonicalLane in lanes }
+        } catch (_: Throwable) {}
+    }
     private fun intentKey6519(mode: String, mint: String, candidateVersion: Long): String =
         "${mode.uppercase()}:${mint.trim()}:$candidateVersion"
 
@@ -2086,11 +2094,6 @@ object ExecutableOpenGate {
                 else -> 1
             }
             val sameVersion = old != null && old.candidateVersion == candidateVersion
-            val keepOld = sameVersion && canonicalLane(old?.selectedLane.orEmpty()) == canonicalLane(lane) &&
-                !finalVerdict.equals("HARD_NO_BUY", true) &&
-                rank(old?.preFdgVerdict) >= rank(finalVerdict)
-            val effectiveVerdict = if (keepOld) old!!.preFdgVerdict else finalVerdict
-            val effectiveCan = if (keepOld) old!!.fdgCan else canExecute
             // V5.0.6910 §LANE_OWNERSHIP_IS_NOT_THE_VERDICT.
             //
             // OPERATOR DIAGNOSIS (5.0.6908), GREG trace, same mint, same version:
@@ -2192,6 +2195,17 @@ object ExecutableOpenGate {
             val incomingLane6910 = lane.uppercase()
             val oldLaneRank6910 = ownerRank6910(old?.selectedLane)
             val newLaneRank6910 = ownerRank6910(incomingLane6910)
+            // V5.0.8169 — one candidate version keeps one elected BUY lane: an equal-or-weaker verdict from
+            // the same lane OR from a lane that does not outrank the stored owner (BUY after BUY, WATCH after BUY)
+            // neither re-elects nor downgrades the stored verdict. A lane that OUTRANKS the stored owner (a real
+            // owner over a placeholder, the cycle's primary over a rescue) keeps its own verdict, so a placeholder's
+            // BUY is never carried onto a specialist that said WATCH.
+            val keepOld = sameVersion &&
+                !finalVerdict.equals("HARD_NO_BUY", true) &&
+                rank(old?.preFdgVerdict) >= rank(finalVerdict) &&
+                (canonicalLane(old?.selectedLane.orEmpty()) == canonicalLane(lane) || newLaneRank6910 <= oldLaneRank6910)
+            val effectiveVerdict = if (keepOld) old!!.preFdgVerdict else finalVerdict
+            val effectiveCan = if (keepOld) old!!.fdgCan else canExecute
             val effectiveLane6910 = when {
                 !sameVersion -> incomingLane6910
                 newLaneRank6910 > oldLaneRank6910 -> incomingLane6910
@@ -3297,6 +3311,10 @@ object ExecutableOpenGate {
             // executable_open_allowed which asserts no allowed-attempt residue
             // survives a downstream blocking gate.
             try { allowedAttempts.remove(laneKey(mint, lane)) } catch (_: Throwable) {}
+            // V5.0.8169 — since 7858 recentAllowedAttemptId reads executionTickets,
+            // so the sealed LIVE ticket/intent for this mint+lane must go too
+            // (same revocation as the causal-revalidation branch).
+            revokeLiveSealOnBreaker8169(mint, setOf(requestedLane, canonicalSelectedLane))
             return blocked("EXEC_OPEN_BLOCKED_CIRCUIT_BREAKER", pause.reason.ifBlank { "CIRCUIT_BREAKER" })
         }
         if (pause.active && modeUpper == "PAPER") {

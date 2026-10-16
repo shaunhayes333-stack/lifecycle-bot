@@ -31,7 +31,7 @@ class Aate7654IntelligenceEstateBridgeTest {
         val t = File("src/main/kotlin/com/lifecyclebot/engine/SuperEvidenceTopology7651.kt").readText()
         val e = File("src/main/kotlin/com/lifecyclebot/engine/ExistingIntelligenceContext7650.kt").readText()
         listOf("AI_CROSSTALK", "LLM_COUNCIL", "SCANNER_ENSEMBLE").forEach { assertTrue(t.contains(it)) }
-        assertTrue(e.contains("estate7654.crossTalkUtility(policy)"))
+        assertTrue(e.contains("estate7654.crossTalkUtility(policy, lane, state)"))
         assertTrue(e.contains("estate7654.llmUtility(policy)"))
         assertTrue(e.contains("estate7654.scannerUtility(policy)"))
         assertTrue(e.contains("estate7654.tag()"))

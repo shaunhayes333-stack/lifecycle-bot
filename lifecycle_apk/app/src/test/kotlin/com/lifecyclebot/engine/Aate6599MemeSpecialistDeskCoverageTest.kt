@@ -15,14 +15,16 @@ class Aate6599MemeSpecialistDeskCoverageTest {
         assertTrue(src.contains("bestByDesk[lane] = candidate to score"))
         assertTrue(src.contains("laneVotes = deskHypotheses.keys"))
         assertTrue(src.contains("deskHypotheses = deskHypotheses"))
-        assertTrue(src.contains("CORE is the ensemble coordinator over real qualified desks"))
+        // V5.0.7796 — CORE is built as an ensemble hypothesis before hunter arbitration.
+        assertTrue(src.contains("CORE remains an ensemble"))
     }
 
     @Test fun project_sniper_pool_excludes_generic_breakout_and_defensive_candidates() {
         val toolkit = source("engine/ToolkitSignalSheet.kt")
         val router = source("engine/AgenticStyleRouter.kt")
         val bot = source("engine/BotService.kt")
-        assertTrue(toolkit.contains("lanes = setOf(\"PROJECT_SNIPER\", \"SHITCOIN\", \"EXPRESS\")"))
+        // V5.0.7402/7450 — metadata-only snipe candidate is now PROJECT_SNIPER + SHITCOIN only.
+        assertTrue(toolkit.contains("lanes = setOf(\"PROJECT_SNIPER\", \"SHITCOIN\"),"))
         assertTrue(toolkit.contains("\"BREAKOUT_CONTINUATION\" -> setOf(\"MOONSHOT\", \"QUALITY\")"))
         assertFalse(toolkit.contains("lanes = setOf(\"MOONSHOT\", \"PROJECT_SNIPER\")"))
         assertFalse(toolkit.contains("lanes = setOf(\"SHITCOIN\", \"PROJECT_SNIPER\", \"EXPRESS\")"))
@@ -34,7 +36,8 @@ class Aate6599MemeSpecialistDeskCoverageTest {
     @Test fun source_style_owner_plus_bounded_qualified_rescue_replace_preselected_hypothesis_collapse() {
         val bot = source("engine/BotService.kt")
         assertFalse(bot.contains("strongestDesk6599"))
-        assertTrue(bot.contains("forced ?: styleLanes.firstOrNull()"))
+        // V5.0.7252 — style owner is chosen from identity-eligible style lanes.
+        assertTrue(bot.contains("forced ?: eligibleStyleLanes7252.firstOrNull()"))
         assertTrue(bot.contains("boundedRescue6600"))
         assertTrue(bot.contains("specialistEvaluationAllowed6600"))
         assertTrue(bot.contains("l.equals(primaryLane, true) || l.equals(boundedRescue6600, true)"))
@@ -75,7 +78,8 @@ class Aate6599MemeSpecialistDeskCoverageTest {
         assertTrue(sheet.contains("PROJECT_SNIPER_NON_SNIPER_ADMISSION ="))
         assertTrue(sheet.contains("===== MEME SPECIALIST CAPITAL ====="))
         assertTrue(sheet.contains("capitalStarved="))
-        assertTrue(sheet.contains("status=\$status"))
+        // V5.0.7809 — reported status is the refined label; raw status kept alongside.
+        assertTrue(sheet.contains("status=\$reportedStatus7809"))
         assertTrue(report.contains("designatedRoleLivenessReport6599()"))
         assertTrue(report.contains("specialistCapitalReport6599()"))
     }

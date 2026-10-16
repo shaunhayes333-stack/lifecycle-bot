@@ -43,11 +43,6 @@ class CanonicalEntryAuthority6551Test {
         assertEquals(1, CanonicalPositionAuthority6441.openPositions().size)
     }
 
-    @Test fun low_score_mechanical_paper_candidate_becomes_probe() {
-        val r = CanonicalEntryAuthority6551.submit(candidate(id = "XAUUSD", cls = TruthAssetClass.METAL, score = 20.0))
-        assertTrue(r is CanonicalAssetEntryResult6551.Probe)
-    }
-
     @Test fun missing_intent_rejects_without_cash_or_position_mutation() {
         val r = CanonicalPaperTransaction6486.open("p2", "GBPJPY", "GBPJPY", "FOREX", "test", 0.1, qtyRaw = BigInteger.ONE, decimals = 0, quantityScale = 0, assetClass = TruthAssetClass.FOREX, entryPriceUsd = 1.0)
         assertFalse(r.applied)

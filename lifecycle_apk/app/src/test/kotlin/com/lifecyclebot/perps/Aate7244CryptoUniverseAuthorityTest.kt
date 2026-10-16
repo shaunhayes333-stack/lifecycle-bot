@@ -41,12 +41,13 @@ class Aate7244CryptoUniverseAuthorityTest {
     fun exposure_pressure_rotates_weak_paper_positions_without_raising_risk_cap() {
         val trader = File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
 
-        assertTrue(trader.contains("rotateWeakPaperExposure7244"))
-        assertTrue(trader.contains("CRYPTO_EXPOSURE_ROTATED_7244"))
         // V5.0.7288 — still 80%, measured against what crypto can reach (its own
         // committed SOL plus free cash) instead of free cash alone.
-        assertTrue(trader.contains("val maxRisk = (balance + totalRisk) * 0.80"))
-        assertTrue(trader.contains("totalRisk + sizeSol > maxRisk"))
+        // V5.0.7835 — the local over-cap gate moved into CanonicalEntryAuthority6551:
+        // the remaining 80% headroom is the lane risk cap and a full book is refused.
+        assertTrue(trader.contains("val remainingExposure7835 = ((balance + totalRisk7835) * 0.80 - totalRisk7835).coerceAtLeast(0.0)"))
+        assertTrue(trader.contains("\"laneRiskCapSol\" to minOf(1.0, remainingExposure7835).toString()"))
+        assertTrue(trader.contains("if (remainingExposure7835 <= 0.0) \"CRYPTO_EXPOSURE_CAP_7835\" else null"))
     }
 
     @Test
@@ -57,6 +58,8 @@ class Aate7244CryptoUniverseAuthorityTest {
         assertTrue(queue.contains("it.isFresh6544"))
         assertTrue(queue.contains("it.price.isFinite() && it.price > 0.0"))
         assertTrue(queue.contains("it.liquidityUsd.isFinite() && it.liquidityUsd > 0.0"))
-        assertFalse(queue.contains(".filter"))
+        // V5.0.8019 — the only filter is the pump-mint exclusion; nothing is dropped for being unpriced.
+        assertTrue(queue.contains("registry.values.filter { !pumpMint8019(it.mint) || it.isStatic }"))
+        assertFalse(queue.substringAfter(".sortedWith(").contains(".filter"))
     }
 }

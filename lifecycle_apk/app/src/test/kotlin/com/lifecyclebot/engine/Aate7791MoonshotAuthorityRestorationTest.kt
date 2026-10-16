@@ -27,7 +27,10 @@ class Aate7791MoonshotAuthorityRestorationTest {
         val h=src("engine/market/LaneHunter7297.kt")
         assertTrue(h.contains("MIN_MARKET_CAP_BOOTSTRAP_USD_7719"))
         val t=src("engine/ToolkitSignalSheet.kt")
-        assertTrue(t.contains("LANE_HUNT_CLAIM_YIELDED_TO_STRONGER_NATIVE_7791"))
+        // V5.0.7803 — hunt-claim arbitration was replaced by resident hunters that may only
+        // nudge their OWN existing hypothesis; no hunter can evict another lane's candidate.
+        assertTrue(t.contains("val existing = deskHypotheses[claimLane] ?: return@forEach"))
+        assertTrue(t.contains("LANE_RESIDENT_HUNTER_TIEBREAK_7803_"))
         assertFalse(t.contains("(otherBest7448 + 11.0)"))
         val b=src("engine/BotService.kt")
         val block=b.substringAfter("val roleFitPrimary6614 = when").substringBefore("val scoreForPivot4524")

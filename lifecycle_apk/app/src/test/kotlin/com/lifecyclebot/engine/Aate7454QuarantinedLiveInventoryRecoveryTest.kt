@@ -11,7 +11,7 @@ class Aate7454QuarantinedLiveInventoryRecoveryTest {
         val s = src("engine/truth/CanonicalPositionAuthority6441.kt")
         assertTrue(s.contains("fun recoverQuarantinedLivePosition7454("))
         assertTrue(s.contains("CANONICAL_QUARANTINED_LIVE_RECOVERED_7454"))
-        assertTrue(s.contains("lockEntryMetricsAtOpen6636(recovered)"))
+        assertTrue(s.contains("lockEntryMetricsAtOpen6636(recovered, freshExecution6715 = false)"))
     }
 
     @Test fun only_recoverable_live_quarantines_can_reopen() {
@@ -38,7 +38,7 @@ class Aate7454QuarantinedLiveInventoryRecoveryTest {
         assertTrue(gate.contains("LIVE_BUY_BLOCKED_UNMANAGED_BOT_HOLD_7701"))
         assertTrue(gate.contains("HostWalletTokenTracker.PositionSource.BOT_BUY"))
         assertTrue(gate.contains("FillLotLedger6344.snapshotForWallet(walletAddress)"))
-        assertTrue(gate.contains("CanonicalPositionAuthority6441.openPositions()"))
+        assertTrue(gate.contains("CanonicalPositionAuthority6441.protectiveInventory7807(\"live\")"))
         assertTrue(gate.contains("quarantinedLivePositions7454()"))
         assertTrue(gate.contains("it in positiveWalletMints"))
         assertTrue(gate.contains("WalletManager.currentPubkey()"))
@@ -52,6 +52,6 @@ class Aate7454QuarantinedLiveInventoryRecoveryTest {
         val a = src("engine/truth/CanonicalPositionAuthority6441.kt")
         val h = src("engine/HeldPositionSupervisor7246.kt")
         assertTrue(a.contains("handoffOpenMintToHeld7246(position.mint"))
-        assertTrue(h.contains("CanonicalPositionAuthority6441.openPositions()"))
+        assertTrue(h.contains("CanonicalPositionAuthority6441.protectiveInventory7807(mode)"))
     }
 }

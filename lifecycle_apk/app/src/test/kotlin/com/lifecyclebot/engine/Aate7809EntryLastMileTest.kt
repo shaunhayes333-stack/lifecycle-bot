@@ -146,7 +146,9 @@ class Aate7809EntryLastMileTest {
         // evaluate() is at the ART verifier limit (5.0.7807): the 7243 wait-promotion line stays byte-identical.
         assertTrue(fdg.contains("baseEntrySignal7243 !in setOf(\"BUY\", \"EXECUTE\") && effectiveEntryScore7292 < waitFloor7266"))
         // V5.0.7835 removed the FDG fanout cap (FDG must not re-decide a candidate); its prior-verdict server went with it.
-        assertFalse(fdg.contains("FDG_FANOUT_CAP_7232"))
+        // Only the historical note on the fanoutRole parameter may still name it.
+        val fdgCode = fdg.lineSequence().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+        assertFalse(fdgCode.contains("FDG_FANOUT_CAP_7232"))
         val esa = src("engine/truth/ExecutionSnapshotAuthority6496.kt")
         assertTrue(esa.contains("!newerSizingDecision7809(mint, snap, resolvedOrderSizeSol)"))
     }

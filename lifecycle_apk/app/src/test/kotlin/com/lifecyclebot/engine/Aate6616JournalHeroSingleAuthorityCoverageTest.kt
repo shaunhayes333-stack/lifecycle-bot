@@ -96,20 +96,27 @@ class Aate6616JournalHeroSingleAuthorityCoverageTest {
         auth.notifyEconomicMutation("SELL")
         val r2 = auth.revision()
         assertTrue("V5.0.6616: revision must be monotonic (r1=$r1 r2=$r2)", r2 > r1)
-        assertNotNull("V5.0.6616: currentSnapshot must be published after mutation", auth.currentSnapshot())
+        // V5.0.6647/V5.0.7360: publication is fail-closed on an unreconciled
+        // replay, so a cold JVM mutation no longer publishes a snapshot.
     }
 
     @Test
     fun aate6616_probe_hero_binding_flags_divergence() {
         val auth = com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
-        auth.notifyEconomicMutation("SELL")
-        val snap = auth.currentSnapshot()
-        assertNotNull(snap)
+        // V5.0.8091: heroes probe the one captured account they painted
+        // (HeroAccountSnapshot7045), not a racing cached journal facade.
+        val snap = com.lifecyclebot.engine.truth.HeroAccountSnapshot7045.Account(
+            cashSol = 10.0, reservedSol = 0.0, openMarketSol = 0.0, unrealizedSol = 0.0,
+            realizedSol = 0.0, feesSol = 0.0, totalEquitySol = 10.0, solUsd = 150.0,
+            openPositions = 0, conservationDeltaSol = 0.0,
+            status = com.lifecyclebot.engine.truth.HeroAccountSnapshot7045.Status.FRESH,
+            revision = 1L, capturedAtMs = 1L,
+        )
         // Matching cash+equity => OK.
-        val ok = auth.probeHeroBinding("MEME", snap!!.cashSol, snap.equitySol)
+        val ok = auth.probeHeroBinding("MEME", snap.cashSol, snap.totalEquitySol, snap)
         assertTrue("V5.0.6616: matched cash+equity must be accepted", ok)
         // Diverged cash => FAIL.
-        val bad = auth.probeHeroBinding("MARKETS", snap.cashSol + 1.0, snap.equitySol)
+        val bad = auth.probeHeroBinding("MARKETS", snap.cashSol + 1.0, snap.totalEquitySol, snap)
         assertTrue("V5.0.6616: cash divergence must be flagged (got $bad)", !bad)
     }
 
@@ -227,9 +234,9 @@ class Aate6616JournalHeroSingleAuthorityCoverageTest {
             "src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt"
         ).readText()
         assertTrue(
-            "V5.0.6643: MainActivity hero must bind to reconciled unified cash",
-            meme.contains("UnifiedAccountSnapshot6635.read(\"MEME\")") &&
-                meme.contains("unifiedSnap6635?.cashSol") && meme.contains("ACCOUNTING ERROR")
+            "V5.0.7258: MainActivity hero must bind to the captured account's cash",
+            meme.contains("HeroAccountSnapshot7045.read(\"MEME\")") &&
+                meme.contains("if (accountRenderable7045) account7045!!.cashSol else 0.0")
         )
     }
 

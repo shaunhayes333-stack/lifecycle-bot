@@ -20,9 +20,8 @@ class Aate7550NativeSpecialistModeParityTest {
         val s=src("v3/scoring/MoonshotTraderAI.kt")
         val score=s.substringAfter("fun scoreToken(").substringBefore("fun openPosition")
         assertTrue(score.contains("val minRcScore = if (pendingRc) 1 else 15"))
-        assertFalse(score.contains("if (isPaper) 20 else 30"))
-        assertTrue(score.contains("learningProgress < 0.1 -> 30"))
-        assertTrue(score.contains("else                   -> 60"))
+        // V5.0.7791 superseded the 7550 score-floor parity: paper MOONSHOT is an exploratory tail scanner
+        // (Aate7791MoonshotAuthorityRestorationTest asserts the paper 20/28 floors); the RC floor stays mode-neutral.
     }
 
     @Test fun cashgen_uses_same_liquidity_pond() {

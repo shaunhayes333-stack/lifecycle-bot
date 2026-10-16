@@ -43,6 +43,8 @@ class Aate7651EvidenceTopologyTest {
         assertTrue(a.contains("fun evidenceTopology7651("))
         assertTrue(a.contains("SuperEvidenceTopology7651.Family.AGGREGATE_CROSSCHECK"))
         assertTrue(a.contains("SuperEvidenceTopology7651.Family.STRATEGY_LEARNING"))
-        assertTrue(a.contains("evidenceTopology7651(policy).decorrelatedUtility"))
+        // V5.0.7664 — the policy prior reads the topology through the epistemic budget.
+        assertTrue(a.contains("val topology = evidenceTopology7651(policy, state)"))
+        assertTrue(a.contains("SuperEpistemicBudget7664.apply(topology)"))
     }
 }
