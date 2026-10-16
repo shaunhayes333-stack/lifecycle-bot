@@ -13540,7 +13540,7 @@ class Executor(
                     onLog("🚫 Top-up quote rejected: ${qGuard.reason}", ts.mint); return
                 }
                 val txResult = buildTxWithRetry(
-                        quote, wallet.publicKeyB58, dynamicSlippageMaxBps = sellSlippage,
+                        quote, wallet.publicKeyB58,
                         senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true),
                         ordinary8151 = entryOrdinary8151(ts.mint),  // V5.0.8151 — a top-up is a discretionary entry
                     )
