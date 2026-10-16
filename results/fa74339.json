@@ -1,0 +1,97 @@
+{
+ "sha": "fa74339cb2f28d90168e537ac538cfa9d520ee95",
+ "gradle_exit": "1",
+ "tests": 5246,
+ "failures": [
+  {
+   "class": "com.lifecyclebot.engine.Aate7433AuthorityAndStopPreservationTest",
+   "test": "hard no outranks and revokes same-version sealed buy",
+   "type": "java.lang.AssertionError",
+   "message": "java.lang.AssertionError",
+   "frames": [
+    "at com.lifecyclebot.engine.Aate7433AuthorityAndStopPreservationTest.hard no outranks and revokes same-version sealed buy(Aate7433AuthorityAndStopPreservationTest.kt:38)"
+   ]
+  },
+  {
+   "class": "com.lifecyclebot.engine.CanonicalClosureAcceptanceTest6486",
+   "test": "funded open add partial and terminal close conserve paper capital",
+   "type": "java.lang.AssertionError",
+   "message": "java.lang.AssertionError: expected:<2.075> but was:<2.074999999>",
+   "frames": [
+    "at com.lifecyclebot.engine.CanonicalClosureAcceptanceTest6486.funded open add partial and terminal close conserve paper capital(CanonicalClosureAcceptanceTest6486.kt:76)"
+   ]
+  },
+  {
+   "class": "com.lifecyclebot.engine.GoldenTapeRegressionTest",
+   "test": "V5_0_7715_the_field_manual_is_the_baseline_brain_in_both_modes",
+   "type": "java.lang.AssertionError",
+   "message": "java.lang.AssertionError",
+   "frames": [
+    "at com.lifecyclebot.engine.GoldenTapeRegressionTest.V5_0_7715_the_field_manual_is_the_baseline_brain_in_both_modes(GoldenTapeRegressionTest.kt:13357)"
+   ]
+  }
+ ],
+ "compile_errors": [],
+ "gradle_tail": [
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Build6324InvariantsTest.kt:88:13 Variable 'originalState' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Build6324InvariantsTest.kt:133:13 Variable 's' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/CorrectnessHardeningAcceptanceTest6468.kt:138:13 Variable '_ignored' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:460:13 Variable 'openGate' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:765:13 Variable 'modeLeniency' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:766:13 Variable 'permit' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:767:13 Variable 'strategy' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:768:13 Variable 'eligibility' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:769:13 Variable 'fatalRisk' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:770:13 Variable 'fluid' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:1015:13 Variable 'journalActivity' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:2774:13 Variable 'history' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:4728:13 Variable 'exec' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:4750:13 Variable 'exec' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:4786:13 Variable 'exec' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:4890:13 Variable 'exec' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:6505:13 Variable 'exec' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:6516:13 Variable 'exec' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:6596:13 Variable 'exec' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:7841:13 Variable 'consumers' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:9659:13 Variable 'fdg' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:9964:13 Variable 'authority' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:9967:13 Variable 'bot' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt:11162:13 Variable 'st' is never used",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/PaperTransactionAcceptanceTest6485.kt:19:31 'updatePaperExecutableMinimumSol(Double): Double' is deprecated. V5.0.6653: executable minimum is immutable; pass laneMinExecutableSol per resolution",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/PaperTransactionAcceptanceTest6485.kt:34:31 'updatePaperExecutableMinimumSol(Double): Double' is deprecated. V5.0.6653: executable minimum is immutable; pass laneMinExecutableSol per resolution",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Repair6510AuthorityAcceptanceTest.kt:65:45 'updatePaperExecutableMinimumSol(Double): Double' is deprecated. V5.0.6653: executable minimum is immutable; pass laneMinExecutableSol per resolution",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Repair6511PaperExecutionSourceTest.kt:24:31 'updatePaperExecutableMinimumSol(Double): Double' is deprecated. V5.0.6653: executable minimum is immutable; pass laneMinExecutableSol per resolution",
+  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/TerminalAuthorityAndIntegrityHoldTest6466.kt:55:13 Variable '_ignored' is never used",
+  "",
+  "> Task :app:compileReleaseUnitTestJavaWithJavac NO-SOURCE",
+  "> Task :app:processReleaseUnitTestJavaRes",
+  "",
+  "> Task :app:testReleaseUnitTest",
+  "",
+  "com.lifecyclebot.engine.Aate7433AuthorityAndStopPreservationTest > hard no outranks and revokes same-version sealed buy FAILED",
+  "    java.lang.AssertionError at Aate7433AuthorityAndStopPreservationTest.kt:38",
+  "",
+  "com.lifecyclebot.engine.CanonicalClosureAcceptanceTest6486 > funded open add partial and terminal close conserve paper capital FAILED",
+  "    java.lang.AssertionError at CanonicalClosureAcceptanceTest6486.kt:76",
+  "",
+  "com.lifecyclebot.engine.GoldenTapeRegressionTest > V5_0_7715_the_field_manual_is_the_baseline_brain_in_both_modes FAILED",
+  "    java.lang.AssertionError at GoldenTapeRegressionTest.kt:13357",
+  "",
+  "5246 tests completed, 3 failed",
+  "",
+  "> Task :app:testReleaseUnitTest FAILED",
+  "gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_2-1792165754946.json",
+  "",
+  "FAILURE: Build failed with an exception.",
+  "",
+  "* What went wrong:",
+  "Execution failed for task ':app:testReleaseUnitTest'.",
+  "> There were failing tests. See the report at: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/build/reports/tests/testReleaseUnitTest/index.html",
+  "",
+  "* Try:",
+  "> Run with --scan to get full insights.",
+  "",
+  "BUILD FAILED in 9m 53s",
+  "26 actionable tasks: 26 executed"
+ ]
+}
