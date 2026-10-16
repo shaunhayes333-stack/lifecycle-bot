@@ -10,21 +10,23 @@ class Aate7433AuthorityAndStopPreservationTest {
     @Test
     fun `paper stop preserves economic positions instead of manufacturing shutdown sells`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(src.contains("paperModeAtStop7433"))
-        assertTrue(src.contains("preserveEconomicPositions7433 = softStopPreservePositions || paperModeAtStop7433"))
-        assertTrue(src.contains("economicLiquidationOnStop7433 = liquidateOnStop && !paperModeAtStop7433"))
-        assertTrue(src.contains("if (economicLiquidationOnStop7433)"))
-        assertTrue(src.contains("STOP_CROSS_ASSET_POSITIONS_PRESERVED_7433"))
+        // V5.0.7928 — liquidation is folded into liquidateOnStop, which a PAPER runtime never sets.
+        assertTrue(src.contains("val paperRuntime7433 = try {"))
+        assertTrue(src.contains("val liquidateOnStop = explicitLiquidationStop7433 && !paperRuntime7433"))
+        assertTrue(src.contains("val softStopPreservePositions = !liquidateOnStop"))
+        assertTrue(src.contains("if (liquidateOnStop) {"))
+        assertTrue(src.contains("if (liquidateOnStop) try {"))
     }
 
     @Test
     fun `v3 execute does not pre-seal fdg buy before real final decision gate`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        val region = src.substringAfter("V5.0.7433 — V3 Execute is an upstream opinion")
+        val region = src.substringAfter("ExecutableOpenGate.clearExecutableApproval(ts.mint, ts.symbol, \"EXECUTE\")")
             .substringBefore("V5.9.1323 — V3 Verdict Reconciliation")
-        assertTrue(region.contains("ExecutableOpenGate.recordV3("))
+        assertTrue(region.contains("FinalExecutionPermit.registerApproval("))
         assertFalse(region.contains("ExecutableOpenGate.recordFdg("))
-        assertTrue(region.contains("V3_EXECUTABLE_TRUNK_HANDOFF_DEFERRED_TO_FDG_7433"))
+        assertTrue(region.contains("V3_CANONICAL_HANDOFF_PENDING_6533"))
+        assertTrue(region.contains("action=real_fdg_then_one_immutable_intent"))
     }
 
     @Test

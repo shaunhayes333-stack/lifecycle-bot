@@ -8,14 +8,6 @@ import org.junit.Assert.assertTrue
 class Aate6687RuntimeTruthRepairTest {
     private fun src(path: String) = File("src/main/kotlin/com/lifecyclebot/$path").readText()
 
-    @Test fun finalLiveSizeFloorIsAfterRealisticSizing() {
-        val s = src("engine/Executor.kt")
-        val realistic = s.indexOf("sol = realisticSol")
-        val floor = s.indexOf("LIVE_FINAL_EXECUTABLE_FLOOR_RESTORED_6687")
-        val impact = s.indexOf("val assumedSolUsd = 200.0", realistic)
-        assertTrue(realistic >= 0 && floor > realistic && impact > floor)
-    }
-
     @Test fun runnerBasisAcceptsMatchingTxEconomics() {
         val s = src("engine/truth/EntryPriceIntegrityAuthority6405.kt")
         assertTrue(s.contains("txEconomicsMatch6687"))

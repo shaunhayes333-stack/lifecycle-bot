@@ -17,9 +17,11 @@ class Aate7614CashgenCanonicalExecutionIdentityTest {
         val s=bot()
         val b=s.substringAfter("val compounderLane7614").substringBefore("// BLUE CHIP TRADER")
         assertTrue(b.contains("cyclePrimaryLane.equals(\"CASHGEN\", true)"))
-        assertTrue(b.contains("ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, compounderLane7614"))
+        // V5.0.7835 — FDG runs under the compounder lane and its decision is sealed by
+        // TradeAuthorizer (SpecialistPreauthSeal7834), not by a BotService-side recordFdg.
+        assertTrue(b.contains("specialistLane = compounderLane7614,"))
+        assertTrue(b.contains("fdgDecision7835 = treasuryFdg, tokenState7835 = ts,"))
         assertTrue(b.contains("requestedBook = executionBookForLane6494(compounderLane7614)"))
-        assertTrue(b.contains("sealedSpecialistAttempt7468(ts.mint, compounderLane7614"))
         assertTrue(b.contains("layer = compounderLane7614"))
         assertTrue(b.contains("ts.position.tradingMode = compounderLane7614"))
         assertFalse(b.contains("alias=TREASURY_CASHGEN_SHARED_EXEC no_fdg=true"))

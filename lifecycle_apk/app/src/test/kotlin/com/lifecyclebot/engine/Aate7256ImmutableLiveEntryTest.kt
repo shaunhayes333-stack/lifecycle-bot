@@ -36,7 +36,8 @@ class Aate7256ImmutableLiveEntryTest {
         val crypto = src("perps/CryptoAltTrader.kt")
 
         assertTrue(held.contains("currentModeOpenPositions()"))
-        assertTrue(held.contains("it.mode.equals(mode, true)"))
+        // V5.0.7807 — the mode filter lives in the protective inventory.
+        assertTrue(held.contains("CanonicalPositionAuthority6441.protectiveInventory7807(mode)"))
         assertTrue(crypto.contains("activeModePositions7256"))
         assertTrue(crypto.contains("it.isPaper == paper"))
         assertTrue(crypto.contains("it.mode.equals(if (activePaperMode) \"paper\" else \"live\", true)"))

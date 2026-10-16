@@ -15,8 +15,10 @@ class Aate7627HypothesisCandidateContinuityTest {
 
     @Test fun `fdg passes its pinned generation into hypothesis stamp`() {
         val f = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        // The argument list now contains nested calls (e.g. `.toInt()`), so bound the
+        // slice at the call's closing line rather than the first ')'.
         val i = f.substringAfter("StrategyHypothesisEngine.getSizeBias(")
-            .substringBefore(")")
+            .substringBefore("\n                        )\n")
         assertTrue(i.contains("candidateVersion7623"))
     }
 }

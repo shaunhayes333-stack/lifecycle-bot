@@ -14,7 +14,8 @@ class Aate7500TerminalSellIndexTest {
 
     @Test fun finalized_reconciler_reuses_terminal_index() {
         val s = File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedLearningReconciler7423.kt").readText()
-        assertTrue(s.contains("EconomicEventSchema6464.fullTerminalPositionIds7500()"))
+        // V5.0.7544 — the terminal id set is the key set of the same one-shot sell index.
+        assertTrue(s.contains("val fullTerminalByPosition7432 = fullTerminalSells7544.keys"))
         assertTrue(s.contains("EconomicEventSchema6464.fullTerminalSellsByPosition7500()"))
     }
 }

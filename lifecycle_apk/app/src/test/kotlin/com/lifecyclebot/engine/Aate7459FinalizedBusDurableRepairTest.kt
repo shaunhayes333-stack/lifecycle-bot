@@ -19,16 +19,18 @@ class Aate7459FinalizedBusDurableRepairTest {
         val fn = s.substringAfter("fun repairDurableBusPublishFailures7459")
             .substringBefore("fun statusLine")
         assertTrue(fn.contains("CanonicalPositionAuthority6441.closedPositions()"))
-        assertTrue(fn.contains("filterIsInstance<EconomicEventSchema6464.Sell>()"))
-        assertTrue(fn.contains("!it.partial"))
+        // V5.0.7500 — full (non-partial) terminal SELLs come from the terminal index.
+        assertTrue(fn.contains("EconomicEventSchema6464.fullTerminalSellsByPosition7500()"))
         assertTrue(fn.contains("EntryStrategySnapshot6450.snapshot(p.positionId)"))
         assertTrue(fn.contains("sell.allocatedCostBasisSol <= 0.0"))
     }
 
     @Test fun reconstruction_uses_net_economics_not_gross_sell_return() {
         val s = src("engine/truth/FinalizedLearningReconciler7423.kt")
-        assertTrue(s.contains("sell.realizedPnlSol - sell.exitFeesSol"))
-        assertTrue(s.contains("netPnl / sell.allocatedCostBasisSol * 100.0"))
+        // V5.0.7835 — net economics come from the whole closed position (fees included).
+        assertTrue(s.contains("WholePositionEconomics7835.from(p)"))
+        assertTrue(s.contains("val netPnl = whole7835.netSol"))
+        assertTrue(s.contains("val netPct = whole7835.returnPct"))
         assertFalse(s.contains("realizedReturnPct = sell.realizedReturnPct"))
     }
 
@@ -41,7 +43,8 @@ class Aate7459FinalizedBusDurableRepairTest {
 
     @Test fun repair_runs_on_independent_wall_clock_not_bot_loop() {
         val s = src("engine/truth/IndependentReconcilerScheduler6431.kt")
-        assertTrue(s.contains("repairDurableBusPublishFailures7459(limit = 8)"))
+        assertTrue(s.contains(".repairDurableBusPublishFailures7459("))
+        assertTrue(s.contains("delay(FULL_CADENCE_MS)"))
         assertTrue(s.contains("FULL_CADENCE_MS"))
     }
 }

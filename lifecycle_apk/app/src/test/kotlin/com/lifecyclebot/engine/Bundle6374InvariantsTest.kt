@@ -186,12 +186,15 @@ class Bundle6374InvariantsTest {
         // the new agg-bad-band gate. Guards against false-positive rotation.
         val lane = "QUALITY_HEALTHY_6374"
         val band = "S41-60"
+        // V5.0.8049 — each lane is seeded on its own starting tactic (no longer always
+        // MOMENTUM); capture the seeded tactic and assert the healthy band never rotates off it.
+        val initialTactic = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(lane, band)
         repeat(30) { com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(lane, band, +15.0) }
         repeat(20) { com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(lane, band, -6.0) }
         val finalTactic = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(lane, band)
         assertEquals(
             "V5.0.6374: a healthy 30W/20L band (WR=60%) must remain on the initial tactic",
-            com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM,
+            initialTactic,
             finalTactic
         )
     }

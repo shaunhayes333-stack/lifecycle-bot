@@ -9,8 +9,9 @@ class Aate7621CandidateQualifiedElectionSetTest {
 
     @Test fun `toolkit publishes exact qualified specialists`() {
         val s=src("engine/ToolkitSignalSheet.kt")
-        assertTrue(s.contains("LaneExecutionCoordinator.registerQualifiedContest7621("))
-        assertTrue(s.contains("deskHypotheses.keys"))
+        // V5.0.7803 — Toolkit publishes the qualified set with per-lane convictions.
+        assertTrue(s.contains("LaneExecutionCoordinator.registerQualifiedContest7803("))
+        assertTrue(s.contains("deskHypotheses.filterKeys { it in nativeReady7803 }.mapValues { it.value.conviction }"))
         assertTrue(s.contains("LaneExecutionCoordinator.candidateVersionFor(ts.mint)"))
     }
 

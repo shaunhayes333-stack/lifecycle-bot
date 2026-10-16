@@ -77,8 +77,9 @@ class Bundle6373InvariantsTest {
         )
         assertTrue(
             "V5.0.6373: hash must include per-token price / mcap so genuine data changes still trigger rebuild",
-            txt.contains("java.lang.Double.doubleToLongBits(t.price)") &&
-                txt.contains("java.lang.Double.doubleToLongBits(t.mcap)"),
+            // V5.0.6905 — values are quantised to their rendered precision, not raw bits.
+            txt.contains("h = h * 31 + quantisePriceForRender6905(t.price)") &&
+                txt.contains("h = h * 31 + Math.round(t.mcap)"),
         )
     }
 }
