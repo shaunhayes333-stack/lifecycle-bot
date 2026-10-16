@@ -20,6 +20,8 @@ object RunnerExitLive8136 {
     /** A capture that gave up at least this many points against its decision price is labelled (fees alone are ~3-8). */
     private const val CAPTURE_LOSS_LABEL_PP_8136 = 15.0
     private const val MAX_COUNTER_KEYS_8136 = 64
+    /** V5.0.8144 — the recovery tranche's identity on the arbitration ticket (rank 4: CAPITAL_RECOVERY). */
+    private const val RECOVERY_TRANCHE_8144 = "CAPITAL_RECOVERY_8136"
 
     private val counts = ConcurrentHashMap<String, AtomicLong>()
     private val captures = AtomicLong(0)
@@ -38,6 +40,16 @@ object RunnerExitLive8136 {
 
     /** The share budget: the fraction of the CURRENT holding a partial [reason] may sell (full exits pass unchanged). */
     fun budget8136(ts: TokenState, fractionOfCurrent: Double, reason: String): Double {
+        val allowed8144 = shareBudget8144(ts, fractionOfCurrent, reason)
+        if (allowed8144 <= 0.0 || allowed8144 >= 1.0 - 1e-9) return allowed8144
+        // V5.0.8144 — one arbitration ticket per position (ExitTruthArbiterLive8144): while another chosen exit's sale is
+        // in flight, a different discretionary tranche from any path (spike / runner / lock / harvest / tail) waits —
+        // two ladders no longer size the same move twice before the first one's proceeds are confirmed. Only a tranche
+        // the share budget lets sell takes the ticket.
+        return if (try { ExitTruthArbiterLive8144.admitTranche8144(ts, reason) } catch (_: Throwable) { true }) allowed8144 else 0.0
+    }
+
+    private fun shareBudget8144(ts: TokenState, fractionOfCurrent: Double, reason: String): Double {
         if (!fractionOfCurrent.isFinite() || fractionOfCurrent <= 0.0) return 0.0
         if (fractionOfCurrent >= 1.0 - 1e-9) return fractionOfCurrent
         val reserve = try {
@@ -93,6 +105,9 @@ object RunnerExitLive8136 {
             else remainingCostSol.coerceAtLeast(0.0)
         val fraction = RunnerExitContract8136.recoveryFraction8136(unrecovered, grossValueSol, sellCostPct8136(ts))
             .coerceAtMost(((100.0 - pos.partialSoldPct) / 100.0).coerceAtLeast(0.0))
+        // V5.0.8144 — the recovery tranche holds the position's arbitration ticket like every other tranche: it is sized
+        // on confirmed proceeds, so it never sells while another tranche's proceeds are still unconfirmed.
+        if (fraction > 0.0 && !(try { ExitTruthArbiterLive8144.admitTranche8144(ts, RECOVERY_TRANCHE_8144) } catch (_: Throwable) { true })) return 0.0
         if (fraction > 0.0) count8136("CAPITAL_RECOVERY_TRANCHE_NET_8136")
         return fraction
     }
@@ -126,6 +141,8 @@ object RunnerExitLive8136 {
         val mean = if (n > 0L) "%.1f".format(sum / n) else "-"
         val top = counts.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
         return "captures=$n meanLossPp=$mean worstPp=${"%.1f".format(worst)} residualShare=${(RunnerExitContract8136.RUNNER_RESIDUAL_SHARE_8136 * 100).toInt()}% " +
-            "promote=+${RunnerExitContract8136.PROMOTE_PCT_8136.toInt()}% corroborated · [$top]"
+            "promote=+${RunnerExitContract8136.PROMOTE_PCT_8136.toInt()}% corroborated · [$top]" +
+            " · arbiter8144[" + (try { ExitTruthArbiterLive8144.statusLine8144() } catch (_: Throwable) { "unavailable" }) + "]" +
+            " · proceeds8144[" + (try { RecoveryFallbackLedger8141.statusLine8144() } catch (_: Throwable) { "unavailable" }) + "]"
     }
 }

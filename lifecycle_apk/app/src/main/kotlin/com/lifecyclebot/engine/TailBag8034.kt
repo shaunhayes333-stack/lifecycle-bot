@@ -164,8 +164,12 @@ object TailBag8034 {
     /** A retained runner is funded only by settled net proceeds, never by a mark or a tier flag. */
     fun capitalRecovered8090(positionId: String, mint: String): Boolean {
         val p = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return false
-        return p.mode.equals("live", true) && p.mint == mint && p.remainingQtyRaw.signum() > 0 &&
-            RunnerExitContract8136.capitalRecoveredConfirmed8136(p.entryCostSol, p.realizedProceedsSol, p.feesSol)
+        if (!p.mode.equals("live", true) || p.mint != mint || p.remainingQtyRaw.signum() <= 0) return false
+        // V5.0.8144 — confirmed legacy-fallback slices count too (durable, deduplicated, reconciled against the canonical
+        // book so a later canonical backfill of the same signature is never counted twice).
+        val proceeds8144 = RecoveryFallbackLedger8141.effectiveProceeds8141(p.realizedProceedsSol,
+            RecoveryFallbackLedger8141.confirmedFallbackSol8141(positionId))
+        return RunnerExitContract8136.capitalRecoveredConfirmed8136(p.entryCostSol, proceeds8144, p.feesSol)
     }
 
     /** The set-aside sale applied: the rest of the position is now the tail. */
@@ -202,6 +206,10 @@ object TailBag8034 {
     /** CanonicalFinalizedTradeBus6464: a tail's position closed — its outcome is counted. */
     fun onClose8034(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
         if (!env.terminal || !env.mode.equals("live", true)) return
+        // V5.0.8144 — the position is closed: its durable fallback-proceeds rows retire (signatures stay deduplicated).
+        try { RecoveryFallbackLedger8141.retire8144(env.positionId) } catch (_: Throwable) {}
+        // V5.0.8144 — a thawed frozen holding that sold: its frozen sub-ledger row closes (its one terminal is this one).
+        try { FrozenHeldUnsellableLive8141.onTerminal8144(env.positionId) } catch (_: Throwable) {}
         load()
         if (tails.remove(env.mint) == null) return
         if (env.realizedPnlSol.isFinite() && env.realizedPnlSol > 0.0) closedWin.incrementAndGet() else closedLoss.incrementAndGet()

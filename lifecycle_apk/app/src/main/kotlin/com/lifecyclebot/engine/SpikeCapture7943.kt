@@ -46,6 +46,8 @@ object SpikeCapture7943 {
             if (done != null && done >= tier) previousFiredTiers8079.remove(key) ?: (tier - 1) else done
         }
         pendingSince8081.remove(key)
+        // V5.0.8144 — the rung's sale did not land: it gives back the arbitration ticket it held.
+        try { ExitTruthArbiterLive8144.releaseTranche8144(ts.mint, "SPIKE_CAPTURE_7943_T$tier") } catch (_: Throwable) {}
         rearmed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_REARMED_7944") } catch (_: Throwable) {}
         return true
@@ -78,9 +80,24 @@ object SpikeCapture7943 {
      * on the freshest mark the row holds. Returns the mark read (the monitor's price).
      */
     fun rapidMark(ts: TokenState, nowMs: Long, sell: (TokenState, Double, String) -> Unit): Double? {
+        // V5.0.8144 — one arbitration ticket per position per tick (ExitTruthArbiterLive8144): every overlay below OFFERS
+        // its exit, the one authority ranks them and only the winner is sold. A spike rung and a structure break on the
+        // same print no longer both reach the sell door.
+        val tick8144 = ExitTruthArbiterLive8144.Tick8144(ts, sell)
+        val px8144 = rapidMarkOffers8144(ts, nowMs, tick8144)
+        try { tick8144.dispatch8144(px8144) } catch (_: Throwable) {}
+        return px8144
+    }
+
+    private fun rapidMarkOffers8144(ts: TokenState, nowMs: Long, tick8144: ExitTruthArbiterLive8144.Tick8144): Double? {
+        val sell = tick8144.offer8144
         val px = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd
         // V5.0.8065 — a lifecycle hold runs its own exits (floor, 2x take, 15m base / trend breaks), not the scalp ones.
-        if (try { LifecycleHold8065.onMark8065(ts, px, nowMs, sell) } catch (_: Throwable) { false }) return px
+        // V5.0.8144 — but a tier-1 exit the chart reader sees beside it (dev sold, rug) is offered too: never held.
+        if (try { LifecycleHold8065.onMark8065(ts, px, nowMs, sell) } catch (_: Throwable) { false }) {
+            try { chartExit7950(ts, px, nowMs, tick8144.tier1Only8144) } catch (_: Throwable) {}
+            return px
+        }
         if (px != null && px > 0.0 && ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate <= FRESH_MARK_MS_7944) {
             try { onMark(ts, px, sell) } catch (_: Throwable) {}
         }
@@ -110,6 +127,18 @@ object SpikeCapture7943 {
         chartExitAt7950[key] = nowMs
         val green = px != null && pos.entryPrice > 0.0 && px > pos.entryPrice
         sell(ts, 1.0, if (green) "CHART_CAPTURE_TOP_7950_$why" else "CHART_STOP_7950_$why")
+    }
+
+    /**
+     * V5.0.8144 — the rung offered on this tick lost the arbitration (or its ticket): the tier goes back to the rung
+     * confirmed or attempted before it, without spending one of its [MAX_REARMS_7944] re-arms.
+     */
+    fun restoreTier8144(ts: TokenState) {
+        val key = "${ts.mint}|${ts.position.entryTime}"
+        val prior = previousFiredTiers8079.remove(key)
+        if (prior != null) { if (prior <= 0) firedTiers.remove(key) else firedTiers[key] = prior }
+        pendingSince8081.remove(key)
+        try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_TIER_RESTORED_8144") } catch (_: Throwable) {}
     }
 
     /** V5.0.8018 — a promoted runner starts its runner ladder fresh (a scalp rung fired earlier is not runner tier 1). */
@@ -169,7 +198,12 @@ object SpikeCapture7943 {
      */
     fun onMark(ts: TokenState, priceUsd: Double, sell: (TokenState, Double, String) -> Unit): Int {
         val pos = ts.position
-        if (!pos.isOpen || pos.entryPrice <= 0.0 || !priceUsd.isFinite() || priceUsd <= 0.0) return 0
+        // V5.0.8144 — a print after a full exit measures what the exit left on the table (post-exit opportunity).
+        if (!pos.isOpen) { ExitTruthArbiterLive8144.notePostExit8144(ts.mint, priceUsd); return 0 }
+        if (pos.entryPrice <= 0.0 || !priceUsd.isFinite() || priceUsd <= 0.0) return 0
+        // V5.0.8144 — a lifecycle hold sells only its own takes (Executor refuses the rung at LifecycleHold8065.partialHeld8065);
+        // on the print path the rung would only claim the arbitration ticket its own take needs.
+        if (try { LifecycleHold8065.holding8065(ts) } catch (_: Throwable) { false }) return 0
         val gross = (priceUsd / pos.entryPrice - 1.0) * 100.0
         // A basis in the wrong units reads as a 100,000% "spike"; that is not a price.
         if (gross > 100_000.0) return 0
@@ -195,6 +229,12 @@ object SpikeCapture7943 {
             done = firedTiers[key] ?: 0
         }
         if (reached <= done) return 0
+        // V5.0.8144 — another chosen exit (a structure break, an in-flight tranche) holds this position's arbitration
+        // ticket: the rung waits for the next print — not consumed, no re-arm spent.
+        if (ExitTruthArbiterLive8144.ticketHeldByOther8144(ts, "SPIKE_CAPTURE_7943_T${reached}_${gross.toInt()}PCT", now7955)) {
+            try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_WAITS_FOR_TICKET_8144") } catch (_: Throwable) {}
+            return 0
+        }
         if (firedTiers.size > 2_000) {
             firedTiers.clear()
             previousFiredTiers8079.clear()

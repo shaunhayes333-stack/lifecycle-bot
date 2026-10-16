@@ -74,6 +74,33 @@ object MoonbagRunner7322 {
         return if (peakPct.isFinite() && peakPct >= BANK_MIN_PEAK_PCT) Action.BANK_PARTIAL else Action.PASS
     }
 
+    /**
+     * Pure (V5.0.8144): the funding contract over a moonbag decision. A bank that keeps [keepFraction] is allowed only
+     * when capital is recovered by confirmed proceeds or the bank sale itself recovers it after costs
+     * (RunnerExitContract8136.tailFunded8136); a held bag whose capital never came back is released. Unfunded, the
+     * ordinary exit sells everything — the moonbag is never an unfunded bet.
+     */
+    fun fundedAction8144(action: Action, pnlPct: Double, capitalRecovered: Boolean, sellCostPct: Double, keepFraction: Double): Action = when (action) {
+        Action.PASS -> Action.PASS
+        Action.BANK_PARTIAL ->
+            if (RunnerExitContract8136.tailFunded8136(pnlPct, capitalRecovered, sellCostPct, keepFraction)) Action.BANK_PARTIAL else Action.PASS
+        Action.HOLD_MOONBAG -> if (capitalRecovered) Action.HOLD_MOONBAG else Action.PASS
+    }
+
+    /**
+     * Executor.moonbagGate7322 (V5.0.8144): [decide] under the funding contract for a LIVE position (capital recovered
+     * = confirmed canonical + legacy-fallback proceeds, TailBag8034.capitalRecovered8090). Paper keeps [decide].
+     */
+    fun decideFunded8144(ts: com.lifecyclebot.data.TokenState, lane: String, reason: String, pnlPct: Double, peakPct: Double, bankedAtPeak: Double?): Action {
+        val action = decide(lane, reason, pnlPct, peakPct, bankedAtPeak)
+        if (action == Action.PASS || ts.position.isPaperPosition) return action
+        val recovered = try { TailBag8034.capitalRecovered8090(ts.position.positionId, ts.mint) } catch (_: Throwable) { false }
+        val cost = try { RunnerExitLive8136.sellCostPct8136(ts) } catch (_: Throwable) { 3.0 }
+        val funded = fundedAction8144(action, pnlPct, recovered, cost, 1.0 - bankFractionFor7791(lane))
+        if (funded != action) try { PipelineHealthCollector.labelInc("MOONBAG_UNFUNDED_REFUSED_8144_${action.name}") } catch (_: Throwable) {}
+        return funded
+    }
+
     fun bankedPeakFor(key: String): Double? = bankedPeak[key]
 
     fun markBanked(key: String, peakPct: Double) {
