@@ -1445,6 +1445,10 @@ object PipelineHealthCollector {
         sb.append("  Memory guard (§7977): ").append(
             try { MemoryGuard7977.statusLine7977() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        // V5.0.8169 — compute load: lane evaluations per candidate cycle, gate skips by reason, Helius calls by caller.
+        sb.append("  Compute load (§8169): ").append(
+            try { LoadTelemetry8169.statusLine8169() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Specialists (§7972): ").append(
             try { com.lifecyclebot.engine.truth.SpecialistMiner7972.statusLine7972() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

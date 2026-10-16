@@ -34,7 +34,94 @@ object BundleDetector {
     // one off the hot path (Helius, at most four in flight, once per cache window).
     private val inFlight7763 = ConcurrentHashMap.newKeySet<String>()
 
-    fun cachedFresh7763(mint: String): BundleAnalysis? = analysisCache[mint]?.takeIf { !it.isStale }
+    fun cachedFresh7763(mint: String): BundleAnalysis? { restoreOnce8169(); return analysisCache[mint]?.takeIf { !it.isStale } }
+
+    // ── V5.0.8169 — credits: a launch block read once is not re-bought after a restart ──
+    // Each analysis is one 100-credit Enhanced call (BUNDLE_SCAN: 72.3k of the day's 99.2k credits on 5.0.8168), and a
+    // measured one is kept 6 h because a launch block never changes — but only in memory, so every install / restart
+    // re-bought the analysis of every coin still young enough to be scanned. Measured (non-UNKNOWN) analyses inside
+    // their 6 h window are saved (at most once a minute, newest [PERSIST_MAX_8169]) and restored once the store is
+    // open; a restored analysis is served exactly as the same process would have served it (same analyzedAt, same
+    // staleness). Stale analyses can never be served, so they are pruned on insert (memory).
+    private const val PERSIST_KEY_8169 = "BUNDLE_ANALYSES_8169"
+    private const val PERSIST_MAX_8169 = 1_500
+    private const val PERSIST_EVERY_MS_8169 = 60_000L
+    private const val PRUNE_AT_8169 = 512
+    private val restored8169 = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var lastPersist8169 = 0L
+    @Volatile private var lastPrune8169 = 0L
+    private val restoredN8169 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Pure: is this analysis worth keeping across a restart (measured, and still inside its window)? */
+    fun persistable8169(risk: BundleRisk, analyzedAtMs: Long, nowMs: Long): Boolean =
+        risk != BundleRisk.UNKNOWN && nowMs >= analyzedAtMs && nowMs - analyzedAtMs <= KNOWN_CACHE_DURATION_MS_7881
+
+    fun cacheCount8169(): Int = analysisCache.size
+    fun restoredCount8169(): Long = restoredN8169.get()
+
+    /** Drop analyses no reader can be served any more (isStale). Returns how many went. */
+    fun pruneStale8169(): Int {
+        val before = analysisCache.size
+        analysisCache.entries.removeIf { it.value.isStale }
+        return (before - analysisCache.size).coerceAtLeast(0)
+    }
+
+    private fun afterInsert8169(nowMs: Long) {
+        if (analysisCache.size >= PRUNE_AT_8169 && nowMs - lastPrune8169 >= 60_000L) {
+            lastPrune8169 = nowMs
+            try { pruneStale8169() } catch (_: Throwable) {}
+        }
+        if (nowMs - lastPersist8169 < PERSIST_EVERY_MS_8169 || !restored8169.get()) return
+        lastPersist8169 = nowMs
+        try {
+            val rows = analysisCache.values.filter { persistable8169(it.bundleRisk, it.analyzedAt, nowMs) }
+                .sortedByDescending { it.analyzedAt }.take(PERSIST_MAX_8169)
+            val arr = JSONArray()
+            for (a in rows) arr.put(toJson8169(a))
+            LearningPersistence.save(PERSIST_KEY_8169, arr.toString())
+        } catch (_: Throwable) {}
+    }
+
+    private fun restoreOnce8169() {
+        if (restored8169.get()) return
+        if (!(try { LearningPersistence.ready() } catch (_: Throwable) { false })) return
+        if (!restored8169.compareAndSet(false, true)) return
+        try {
+            val arr = JSONArray(LearningPersistence.load(PERSIST_KEY_8169) ?: return)
+            val now = System.currentTimeMillis()
+            for (i in 0 until arr.length()) {
+                val a = fromJson8169(arr.optJSONObject(i) ?: continue) ?: continue
+                if (!persistable8169(a.bundleRisk, a.analyzedAt, now)) continue
+                // A fresher in-process analysis always wins.
+                if (analysisCache.putIfAbsent(a.mint, a) == null) restoredN8169.incrementAndGet()
+            }
+        } catch (_: Throwable) {}
+    }
+
+    internal fun toJson8169(a: BundleAnalysis): org.json.JSONObject = org.json.JSONObject()
+        .put("m", a.mint).put("s", a.symbol).put("at", a.analyzedAt).put("hb", a.hasBundles)
+        .put("bt", a.bundleType.name).put("br", a.bundleRisk.name).put("fb", a.firstBlockBuyers)
+        .put("fs", a.firstBlockSupplyPct).put("lb", a.largestBundlePct).put("u10", a.uniqueWalletsFirst10)
+        .put("sold", a.bundledWalletsSold).put("hold", a.bundledWalletsHolding).put("aht", a.avgHoldTimeMinutes)
+        .put("rug", a.isLikelyRug).put("pump", a.isLikelyPump).put("snp", a.isLikelySnipers)
+        .put("rec", a.recommendation).put("why", a.reason)
+
+    internal fun fromJson8169(o: org.json.JSONObject): BundleAnalysis? = try {
+        val mint = o.optString("m", "")
+        val at = o.optLong("at", 0L)
+        val fs = o.optDouble("fs", Double.NaN)
+        val lb = o.optDouble("lb", Double.NaN)
+        val aht = o.optDouble("aht", Double.NaN)
+        if (mint.isBlank() || at <= 0L || !fs.isFinite() || !lb.isFinite() || !aht.isFinite()) null else BundleAnalysis(
+            mint = mint, symbol = o.optString("s", ""), analyzedAt = at, hasBundles = o.optBoolean("hb", false),
+            bundleType = BundleType.valueOf(o.optString("bt", "")), bundleRisk = BundleRisk.valueOf(o.optString("br", "")),
+            firstBlockBuyers = o.optInt("fb", 0), firstBlockSupplyPct = fs, largestBundlePct = lb,
+            uniqueWalletsFirst10 = o.optInt("u10", 0), bundledWalletsSold = o.optInt("sold", 0),
+            bundledWalletsHolding = o.optInt("hold", 0), avgHoldTimeMinutes = aht,
+            isLikelyRug = o.optBoolean("rug", false), isLikelyPump = o.optBoolean("pump", false),
+            isLikelySnipers = o.optBoolean("snp", false), recommendation = o.optString("rec", ""), reason = o.optString("why", ""),
+        )
+    } catch (_: Throwable) { null }
 
     fun requestAsync7763(mint: String, symbol: String, heliusApiKey: String) {
         if (mint.isBlank() || heliusApiKey.isBlank() || cachedFresh7763(mint) != null) return
@@ -121,6 +208,7 @@ object BundleDetector {
         return try {
             val analysis = performAnalysis(mint, symbol, heliusApiKey)
             analysisCache[mint] = analysis
+            afterInsert8169(System.currentTimeMillis())  // V5.0.8169 — prune stale / persist measured
             analysis
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Analysis failed for $symbol: ${e.message}")

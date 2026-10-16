@@ -90,7 +90,27 @@ object SpecialistBrainBridge7542 {
      */
     fun cachedSnapshot7650(mint:String):Snapshot? {
         val c=cache[mint]?.snapshot?:return null
-        return if(System.currentTimeMillis()-c.evaluatedAtMs<=CACHE_MS*2L)c else null
+        return if(snapshotReadable8169(c.evaluatedAtMs,System.currentTimeMillis()))c else null
+    }
+
+    // ── V5.0.8169 — memory: one snapshot per mint ever evaluated stayed resident for the whole process ──
+    // No reader trusts a snapshot older than 2 x CACHE_MS (cachedSnapshot7650; evaluate itself only CACHE_MS), so an
+    // older one can never be served again: dropping it changes no read. Pruned on insert (at most every 5 s) and by
+    // MemoryGuard7977's registry trim ("nativeSnapshots").
+    private const val PRUNE_AT_8169=256
+    @Volatile private var lastPrune8169=0L
+    /** Pure: may a snapshot evaluated at [evaluatedAtMs] still be served at [nowMs]? */
+    fun snapshotReadable8169(evaluatedAtMs:Long,nowMs:Long):Boolean=nowMs-evaluatedAtMs<=CACHE_MS*2L
+    fun snapshotCount8169():Int=cache.size
+    fun pruneUnreadable8169(nowMs:Long=System.currentTimeMillis()):Int{
+        val before=cache.size
+        cache.entries.removeIf{!snapshotReadable8169(it.value.snapshot.evaluatedAtMs,nowMs)}
+        return (before-cache.size).coerceAtLeast(0)
+    }
+    private fun pruneOnInsert8169(nowMs:Long){
+        if(cache.size<PRUNE_AT_8169||nowMs-lastPrune8169<5_000L)return
+        lastPrune8169=nowMs
+        try{pruneUnreadable8169(nowMs)}catch(_:Throwable){}
     }
 
     data class LaneRuntime7542(val lane:String,val called:Long,val allowed:Long,val rejected:Long,val errors:Long,val eligible:Boolean,val score:Int,val confidence:Int,val authoritative:Boolean,val reason:String)
@@ -270,7 +290,7 @@ object SpecialistBrainBridge7542 {
         // V5.0.8031 — every lane's verdict is named, and a refusal is labelled for the veto audit (DecisionReasons8031).
         try { DecisionReasons8031.nativeVerdicts8031(ts, out.values) } catch (_: Throwable) {}
         // V5.0.7951 — every eligible lane's ownership conviction on ONE common scale (+ chart BUY evidence).
-        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it);registerElection8136(it)}
+        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it);pruneOnInsert8169(now);registerElection8136(it)}
     }
 
     /**
