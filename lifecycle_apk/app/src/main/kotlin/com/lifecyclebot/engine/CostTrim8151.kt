@@ -258,6 +258,7 @@ object CostMeter8151 {
     /** The Sender tip a send carries ([legacy] = what the old policy would have paid); [entry] = a buy leg. */
     fun noteTip8151(tipLamports: Long, legacy: Long, entry: Boolean) {
         if (entry && tipLamports > 0L) tipLamportsEwma = CostTrim8151.ewma8151(tipLamportsEwma, tipLamports.toDouble(), ALPHA)
+        if (entry) LandingMeter8169.noteEntryTip8169(tipLamports)   // V5.0.8169 — per-buy tip for the landing report
         if (legacy > tipLamports) { ordinaryTips.incrementAndGet(); tipSavedLamports.addAndGet(legacy - tipLamports) }
     }
 
@@ -331,8 +332,19 @@ object CostMeter8151 {
             "legs=${legs.get()} failedLegs=${failedLegs.get()} failedFeeSol=${"%.6f".format(failedFeeLamports.get() / 1e9)} " +
             "ordinaryTips=${ordinaryTips.get()} tipSavedSol=${"%.6f".format(tipSavedLamports.get() / 1e9)} aggregatorFirst=${aggregatorFirst.get()} " +
             "simRefused=${simRefused.get()} partialFixedHeld=${partialFixedHeld.get()} rentOpenedSol=${"%.5f".format(rentOpenedLamports.get() / 1e9)} " +
-            "rentClosedInTxSol=${"%.5f".format(rentClosedInTxLamports.get() / 1e9)} appFee=${CostTrim8151.APP_FEE_PCT_PER_SIDE_8151}%/side"
+            "rentClosedInTxSol=${"%.5f".format(rentClosedInTxLamports.get() / 1e9)} appFee=${CostTrim8151.APP_FEE_PCT_PER_SIDE_8151}%/side" +
+            " " + landing8169()
     }
+
+    /** V5.0.8169 — landing per route, what each buy paid to land, and the Sender minimum check. */
+    private fun landing8169(): String = try {
+        LandingMeter8169.statusLine8169(
+            com.lifecyclebot.network.SignedTxLedger8085.landRows8169(),
+            com.lifecyclebot.network.HeliusSender.minTipLamports8169(),
+            CostTrim8151.ORDINARY_SENDER_TIP_LAMPORTS_8151,
+            com.lifecyclebot.network.PriorityFee8009.mediumMicro8169(),
+        ) + " fixedFloor8169=${"%.4f".format(CostLanding8169.fixedCostFloorSol8169(roundTripFixedSol8151()))}SOL@${CostLanding8169.MAX_FIXED_SHARE_PCT_8169}%"
+    } catch (_: Throwable) { "landing8169=-" }
 
     internal fun resetForTest8151() {
         feeLamportsEwma = Double.NaN; tipLamportsEwma = Double.NaN; lastTicketSol = Double.NaN; lastRoundTripPct = Double.NaN

@@ -174,7 +174,12 @@ object CapitalDrawdown7948 {
         val upnl8130 = try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
         val confirmed7990 = peakCandidate7990(gainFreeEquity8130(equitySol, upnl8130), prevPeakObs7990)
         if (equitySol.isFinite() && equitySol > 0.0) prevPeakObs7990 = equitySol
-        peak7948 = rollPeak7948(peak7948, confirmed7990, nowMs)
+        // V5.0.8169 — while an unexplained equity change is pending (a deposit, or a sell's SOL credited before its
+        // position closed — 5.0.8168 tradeLagCancelled7986=2 beside a 0.4541 peak no report before it had seen) the
+        // peak does not rise; the change either confirms as an external flow (peak rebased) or resolves as a trade.
+        val frozen8169 = pending7986 != null
+        if (frozen8169 && confirmed7990.isFinite() && confirmed7990 > peak7948.peakSol) peakFrozen8169.incrementAndGet()
+        peak7948 = rollPeak7948(peak7948, com.lifecyclebot.engine.CostLanding8169.peakCandidate8169(confirmed7990, frozen8169), nowMs)
         // V5.0.8136 — the drawdown is read on the SAME gain-free basis as the peak (CashEquityBook8136): an unsold gain
         // can no longer mask a real drawdown (and waive its shrink), and a one-read crash mark cannot invent one.
         drawdownPct7948(peak7948, observedDrawdownEquity8136(equitySol, upnl8130), nowMs)
@@ -217,6 +222,7 @@ object CapitalDrawdown7948 {
     )
 
     @Volatile private var prevPeakObs7990 = Double.NaN
+    private val peakFrozen8169 = java.util.concurrent.atomic.AtomicLong(0)
 
     /** Pure (V5.0.8130): marked equity less any unrealized gain (losses stay in). */
     fun gainFreeEquity8130(equitySol: Double, unrealizedSol: Double): Double =
@@ -241,7 +247,8 @@ object CapitalDrawdown7948 {
     fun line7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): String {
         val p = rollPeak7948(peak7948, equitySol, nowMs)
         return "liveDD=${"%.1f".format(peekPct7948(equitySol, nowMs))}% equity=${"%.4f".format(equitySol)} " +
-            "peak24h=${"%.4f".format(p.peakSol)} externalFlows7981=${externalFlows7981.get()} tradeLagCancelled7986=${cancelled7986.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]" +
+            "peak24h=${"%.4f".format(p.peakSol)} peakAgeMin8169=${if (p.atMs > 0L) ((nowMs - p.atMs) / 60_000L).toString() else "-"} " +
+            "peakRiseFrozen8169=${peakFrozen8169.get()} pendingFlow8169=${pending7986 != null} externalFlows7981=${externalFlows7981.get()} tradeLagCancelled7986=${cancelled7986.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]" +
             " ${try { CashEquityBook8136.line8136(cashEquity8136(com.lifecyclebot.engine.BotService.status.walletSol, nowMs)) } catch (_: Throwable) { "equity8136=-" }}"
     }
 
