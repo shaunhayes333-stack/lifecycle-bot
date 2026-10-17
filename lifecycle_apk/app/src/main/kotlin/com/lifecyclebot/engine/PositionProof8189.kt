@@ -117,7 +117,8 @@ object PositionProof8189 {
         val (compared, total) = coverage8189(buckets)
         return "\n    proof8189 coverage compared=$compared/$total " +
             (try { com.lifecyclebot.engine.truth.HeldExitQuote8189.statusLine8189() } catch (_: Throwable) { "" }) + " " +
-            (try { com.lifecyclebot.engine.sell.ProfitEscalation8189.statusLine8189() } catch (_: Throwable) { "" }) + sb.toString()
+            (try { com.lifecyclebot.engine.sell.ProfitEscalation8189.statusLine8189() } catch (_: Throwable) { "" }) + " " +
+            (try { com.lifecyclebot.engine.sell.StopRoute8189.statusLine8189() } catch (_: Throwable) { "" }) + sb.toString()
     }
 
     private fun lineage8189(p: CanonicalPositionAuthority6441.Position): String =

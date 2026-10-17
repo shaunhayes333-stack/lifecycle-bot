@@ -5,6 +5,8 @@ import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.cortex.StopAuthority7887
 import com.lifecyclebot.engine.sell.ExitHotPath7809
 import com.lifecyclebot.engine.sell.ProfitEscalation8189
+import com.lifecyclebot.engine.sell.SellRouteEndpoint8144
+import com.lifecyclebot.engine.sell.StopRoute8189
 import com.lifecyclebot.engine.truth.HeldExitQuote8189
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -213,5 +215,65 @@ class Aate8189ExitBankingTest {
             assertTrue(field, p.contains(field))
         assertTrue(src("engine/truth/OnChainCost8024.kt").contains("fun cachedVerdict8189(mint: String): String?"))
         assertNotNull(PositionProof8189.block8189())
+    }
+
+    // ── follow-up: realistic expected slippage in the profit truth ──
+
+    @Test fun profitTruthExpectsRealisticSlippageNotTheMinOutCap() {
+        val t = ProfitExitTruth8163
+        assertEquals(100, t.expectedSlippageBps8189(null, 0, 500))
+        assertEquals("measured lane slippage with n >= 5", 250, t.expectedSlippageBps8189(2.5, 6, 500))
+        assertEquals("too few legs: 1.0%", 100, t.expectedSlippageBps8189(2.5, 4, 500))
+        assertEquals("floor 0.5%", 50, t.expectedSlippageBps8189(0.1, 10, 500))
+        assertEquals("never above the cap", 500, t.expectedSlippageBps8189(9.0, 10, 500))
+        assertEquals(30, t.expectedSlippageBps8189(0.1, 10, 30))
+        // a 0.0174 SOL slice quoted at 0.0186 SOL (+6.9% after impact), fixed fee 0.000205 SOL
+        val slice = 0.0174
+        val out = (0.0186 * 1e9).toLong()
+        assertFalse("the 5% cap as the expectation refused it", t.clears(slice, out, 500, 0.000205))
+        assertTrue(t.clears(slice, out, t.expectedSlippageBps8189(null, 0, 500), 0.000205))
+        assertTrue(t.clears(slice, out, t.expectedSlippageBps8189(2.5, 6, 500), 0.000205))
+        assertFalse("a quote that does not clear cost still refuses", t.clears(slice, (0.0176 * 1e9).toLong(), t.expectedSlippageBps8189(null, 0, 500), 0.000205))
+        val p = src("engine/ProfitExitTruth8163.kt")
+        assertEquals(3, p.split("expectedSlip8189(ts, slip)").size - 1)
+        assertTrue("the quote / transaction minOut stays at the cap", p.contains("amountRaw = raw, slippageBps = slip)"))
+        assertTrue(src("engine/truth/CostLedger7962.kt").contains("fun sellSidePct8189(laneRaw: String?): Pair<Double, Int>?"))
+    }
+
+    // ── follow-up: the stop route ──
+
+    @Test fun aStopAsksJupiterFirstAndNeverRebuildsAFailedVenue() {
+        val r = StopRoute8189
+        for (x in listOf("TRAILING_STOP", "HARD_STOP_LOSS", "RAPID_CATASTROPHE_STOP", "PROTECTIVE_EXIT_STOP_LOSS_6450_RISKCLOCK", "RUG_DETECTED"))
+            assertTrue(x, r.stopExit8189(x))
+        for (x in listOf("SPIKE_CAPTURE_7943_T1_45PCT", "FALLBACK_SHITCOIN_TIME_EXIT", ""))
+            assertFalse(x, r.stopExit8189(x))
+        assertTrue(r.jupiterFirst8189("TRAILING_STOP", true))
+        assertFalse("a blocked aggregator keeps the native order", r.jupiterFirst8189("TRAILING_STOP", false))
+        val now = 5_000_000L
+        assertTrue(r.failureActive8189(now - 1_000L, now))
+        assertFalse(r.failureActive8189(now - 90_000L, now))
+        assertFalse(r.failureActive8189(null, now))
+        assertFalse(r.raydiumViable8189(SellRouteEndpoint8144.Venue8144.PUMP_CURVE))
+        assertTrue(r.raydiumViable8189(SellRouteEndpoint8144.Venue8144.PUMPSWAP))
+        assertTrue(r.pastBudget8189(true, 1_000L, 0L, 11_001L))
+        assertFalse(r.pastBudget8189(true, 1_000L, 0L, 11_000L))
+        assertFalse("already broadcast", r.pastBudget8189(true, 1_000L, 2_000L, 60_000L))
+        assertFalse("not a stop", r.pastBudget8189(false, 1_000L, 0L, 60_000L))
+        r.resetForTest8189()
+        r.noteVenueFailure8189("mintR8189", SellRouteEndpoint8144.Route8144.RAYDIUM, now)
+        assertTrue(r.venueBlocked8189("mintR8189", SellRouteEndpoint8144.Route8144.RAYDIUM, now + 1_000L))
+        assertFalse(r.venueBlocked8189("mintR8189", SellRouteEndpoint8144.Route8144.RAYDIUM, now + 90_000L))
+        assertFalse(r.venueBlocked8189("mintR8189", SellRouteEndpoint8144.Route8144.JUPITER, now + 1_000L))
+        assertTrue(r.skipRaydium8189("mintR8189", "TRAILING_STOP", now + 1_000L))
+        r.resetForTest8189()
+    }
+
+    @Test fun stopRouteIsWiredIntoTheLiveSell() {
+        val ex = src("engine/Executor.kt")
+        assertTrue(ex.contains("val exitPumpFirst6099 = exitPumpFirst8189(ts, reason)"))
+        assertTrue(ex.contains("if (jupiterFirstFor8189(ts, reason)) return false  // V5.0.8189"))
+        assertEquals(2, ex.split("StopRoute8189.skipRaydium8189(ts.mint, reason)").size - 1)
+        assertEquals(2, ex.split("StopRoute8189.noteVenueFailure8189(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.RAYDIUM)").size - 1)
     }
 }

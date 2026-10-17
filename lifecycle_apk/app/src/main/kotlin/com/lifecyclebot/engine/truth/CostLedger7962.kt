@@ -261,6 +261,16 @@ object CostLedger7962 {
         return measuredFrom7962(rowsOf(lane(laneRaw)), sizeSol)
     }
 
+    /**
+     * V5.0.8189 — ProfitExitTruth8163: the lane's measured sell-side cost (%, median of the confirmed sell legs, CostSides8169
+     * sellPct) and how many legs measured it. Null when nothing is measured.
+     */
+    fun sellSidePct8189(laneRaw: String?): Pair<Double, Int>? {
+        ensureLoaded()
+        val xs = rowsOf(lane(laneRaw)).mapNotNull { r -> r.getOrNull(3)?.takeIf { it.isFinite() && it >= 0.0 } }
+        return if (xs.isEmpty()) null else median7962(xs) to xs.size
+    }
+
     /** ForwardReturnLabeler7731 / FieldManual7715: the measured cost when the lane has it, else [estimatePct]. */
     fun costOr7962(laneRaw: String?, sizeSol: Double, estimatePct: Double): Double =
         measuredCostPct7962(laneRaw, sizeSol) ?: estimatePct

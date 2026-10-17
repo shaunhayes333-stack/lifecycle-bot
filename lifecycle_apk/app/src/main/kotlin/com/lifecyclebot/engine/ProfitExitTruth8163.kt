@@ -38,6 +38,28 @@ object ProfitExitTruth8163 {
         return fixedFeeSol.isFinite() && fixedFeeSol >= 0.0 && net >= costSol * 1.015 + fixedFeeSol
     }
 
+    /** V5.0.8189 — expected sell slippage when the lane has fewer than [MIN_SLIP_N_8189] measured sell legs. */
+    private const val DEFAULT_SLIP_PCT_8189 = 1.0
+    private const val MIN_SLIP_N_8189 = 5
+    private const val MIN_SLIP_BPS_8189 = 50
+
+    /**
+     * V5.0.8189 — pure: the slippage (bps) a profit exit's EXPECTED proceeds are discounted by. The quote's out amount
+     * already carries price impact; the cap ([capBps], the swap's minOut bound) is the worst case, not the expectation —
+     * 5.0.8186 refused 16 profitable exits by treating it as one. The measured lane sell-side slippage when [n] >= 5
+     * legs, else 1.0%, clamped to [0.5%, cap]. The transaction's own minOut stays at the cap.
+     */
+    fun expectedSlippageBps8189(measuredPct: Double?, n: Int, capBps: Int): Int {
+        val pct = if (measuredPct != null && measuredPct.isFinite() && measuredPct >= 0.0 && n >= MIN_SLIP_N_8189) measuredPct else DEFAULT_SLIP_PCT_8189
+        val cap = capBps.coerceIn(0, 9999)
+        return (Math.round(pct * 100.0).toInt()).coerceIn(minOf(MIN_SLIP_BPS_8189, cap), cap)
+    }
+
+    private fun expectedSlip8189(ts: TokenState, capBps: Int): Int {
+        val m = try { com.lifecyclebot.engine.truth.CostLedger7962.sellSidePct8189(ts.position.tradingMode) } catch (_: Throwable) { null }
+        return expectedSlippageBps8189(m?.first, m?.second ?: 0, capBps)
+    }
+
     fun preflight(ts: TokenState, reason: String, raw: Long, jupiter: JupiterApi, releaseLocks: Boolean = true): Boolean {
         if (ts.position.isPaperPosition || !profitTaking(reason)) return true
         PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_DIRECT_8168")
@@ -46,7 +68,7 @@ object ProfitExitTruth8163 {
         val slip = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
         val quote = try { jupiter.getQuote(inputMint = ts.mint, outputMint = JupiterApi.SOL_MINT, amountRaw = raw, slippageBps = slip) }
             catch (_: Exception) { return refused(ts, "EXECUTABLE_QUOTE_UNAVAILABLE", releaseLocks) }
-        return if (clears(cost, quote.outAmount, slip, CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "EXECUTABLE_SOL_BELOW_SLICE_COST", releaseLocks)
+        return if (clears(cost, quote.outAmount, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "EXECUTABLE_SOL_BELOW_SLICE_COST", releaseLocks)
     }
 
     /** Recheck the actual route at every retry, so an earlier quote cannot authorize a later losing fill. */
@@ -54,13 +76,13 @@ object ProfitExitTruth8163 {
         if (ts.position.isPaperPosition || !profitTaking(reason)) return true
         PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_QUOTE_8168")
         if (quote.inputMint != ts.mint || quote.outputMint != JupiterApi.SOL_MINT) return refused(ts, "QUOTE_IDENTITY_MISMATCH")
-        return if (clears(basis(ts, quote.inAmount), quote.outAmount, slip, CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "REQUOTE_BELOW_SLICE_COST")
+        return if (clears(basis(ts, quote.inAmount), quote.outAmount, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "REQUOTE_BELOW_SLICE_COST")
     }
 
     fun acceptProceeds8168(ts: TokenState, reason: String, raw: Long, outLamports: Long, slip: Int): Boolean {
         if (ts.position.isPaperPosition || !profitTaking(reason)) return true
         PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_ROUTE_8168")
-        return if (clears(basis(ts, raw), outLamports, slip, CostMeter8151.sellLegFixedSol8151())) true
+        return if (clears(basis(ts, raw), outLamports, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true
         else refused(ts, "ROUTE_PROCEEDS_BELOW_SLICE_COST", releaseLocks = false)
     }
 

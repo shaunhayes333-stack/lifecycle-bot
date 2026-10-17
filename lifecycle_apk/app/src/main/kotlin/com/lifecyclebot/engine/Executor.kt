@@ -2504,6 +2504,18 @@ class Executor(
                                       race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?,
                                       rayPlan7311: ProcessorAmountPlanner.SellPlan, raySlip7311: Int, fastLand: Boolean,
                                       sellTradeKey: String, reason: String): com.lifecyclebot.engine.sell.TxResult8087? {
+        // V5.0.8189 — a Raydium build that failed for this mint, a pump-curve mint, or a stop past its budget: not rebuilt.
+        if (com.lifecyclebot.engine.sell.StopRoute8189.skipRaydium8189(ts.mint, reason)) return null
+        return try { raydiumSerialSendOnce8189(ts, wallet, c, race, rayPlan7311, raySlip7311, fastLand, sellTradeKey, reason) } catch (e: Throwable) {
+            com.lifecyclebot.engine.sell.StopRoute8189.noteVenueFailure8189(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.RAYDIUM)
+            throw e
+        }
+    }
+
+    private fun raydiumSerialSendOnce8189(ts: TokenState, wallet: SolanaWallet, c: com.lifecyclebot.data.BotConfig,
+                                          race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?,
+                                          rayPlan7311: ProcessorAmountPlanner.SellPlan, raySlip7311: Int, fastLand: Boolean,
+                                          sellTradeKey: String, reason: String): com.lifecyclebot.engine.sell.TxResult8087? {
         val reuse8083 = race?.takeIf { it.fresh() && it.rawAmount == rayPlan7311.rawAmount }?.readyOrNull(0L)
         if (reuse8083 != null) try { PipelineHealthCollector.labelInc("SELL_RACE_PREBUILD_REUSED_8083") } catch (_: Throwable) {}
         val built7311 = reuse8083 ?: try {
@@ -2537,6 +2549,7 @@ class Executor(
                                 race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?, reason: String, jupiterOut: Long?,
                                 fastLand: Boolean, sellTradeKey: String): com.lifecyclebot.engine.sell.TxResult8087? {
         if (race == null || race.sent) return null
+        if (com.lifecyclebot.engine.sell.StopRoute8189.skipRaydium8189(ts.mint, reason)) return null  // V5.0.8189
         val drain = drainExit8083(reason)
         val built = race.readyOrNull(if (drain) com.lifecyclebot.engine.sell.SellRouteRace8083.DRAIN_WAIT_MS else 0L)
         if (built == null || !race.fresh() || !com.lifecyclebot.engine.sell.SellRouteRace8083.preferRaydium(built, drain, jupiterOut)) {
@@ -2548,6 +2561,7 @@ class Executor(
         com.lifecyclebot.engine.sell.SellRouteRace8083.selected("RAYDIUM", ts.mint, System.currentTimeMillis() - race.startedAtMs)
         var landed: com.lifecyclebot.engine.sell.TxResult8087? = null
         try { landed = sendRaydiumBuilt8083(wallet, c, built, fastLand, ts.mint, race) } catch (e: Throwable) {
+            com.lifecyclebot.engine.sell.StopRoute8189.noteVenueFailure8189(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.RAYDIUM)  // V5.0.8189
             try { ForensicLogger.lifecycle("SELL_RACE_RAYDIUM_SEND_FAILED_8083", "mint=${ts.mint.take(10)} err=${security.sanitiseForLog(e.message ?: "send_failed").take(140)}") } catch (_: Throwable) {}
         }
         // V5.0.8087 — "landed" means chain-confirmed; a kept signature with an unknown outcome is its own count.
@@ -23106,10 +23120,30 @@ class Executor(
             return false
         }
         if (emergencyRouteEscalated7807(ts, reason)) return true
+        if (jupiterFirstFor8189(ts, reason)) return false  // V5.0.8189 — a stop asks the aggregator first
         val direct = com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason) &&
             (try { shouldTryPumpDirectFirst6099(ts, "EXIT") } catch (_: Throwable) { false })
         if (direct) try { PipelineHealthCollector.labelInc("EMERGENCY_SELL_DIRECT_FIRST_8009") } catch (_: Throwable) {}
         return direct
+    }
+
+    /**
+     * V5.0.8189 — a protective / stop exit asks Jupiter (Ultra / lite: pump curves, PumpSwap, Raydium) first for any
+     * mint the aggregator is not blocked on; the venue-native routes follow it (StopRoute8189). 5.0.8186: a TRAILING_STOP
+     * spent 16 attempts / 54 s on PumpPortal-first and Raydium, VENUE_RESOLVE=12 / SIGN=9, before anything broadcast.
+     */
+    private fun jupiterFirstFor8189(ts: TokenState, reason: String): Boolean {
+        val routable = try {
+            com.lifecyclebot.engine.sell.SellRouteEndpoint8144.peek8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.JUPITER,
+                System.currentTimeMillis()) == com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Admit8144.ALLOWED
+        } catch (_: Throwable) { true }
+        return com.lifecyclebot.engine.sell.StopRoute8189.jupiterFirst8189(reason, routable)
+    }
+
+    /** V5.0.8189 — liveSellInScope7314's PumpPortal-first decision: never ahead of the aggregator for a stop. */
+    private fun exitPumpFirst8189(ts: TokenState, reason: String): Boolean {
+        if (jupiterFirstFor8189(ts, reason)) { com.lifecyclebot.engine.sell.StopRoute8189.noteJupiterFirst8189(); return false }
+        return shouldTryPumpDirectFirst6099(ts, "EXIT")
     }
 
     private fun emergencyRouteEscalated7807(ts: TokenState, reason: String): Boolean {
@@ -28223,7 +28257,7 @@ class Executor(
                     "reason=${if (pumpMint) "pump_mint" else "primary"} " +
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} jupiterQuote=${if (jupiterQuoteUnavailable) "unavailable" else "available_fallback"}")
             } catch (_: Throwable) {}
-            val exitPumpFirst6099 = shouldTryPumpDirectFirst6099(ts, "EXIT")
+            val exitPumpFirst6099 = exitPumpFirst8189(ts, reason)
             sig = if (!exitPumpFirst6099) {
                 try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_BUY_ROUTE_6099",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=EXIT priority=${sellRoutePriorityFromBuyRoute6099(ts)} action=jupiter_first") } catch (_: Throwable) {}
