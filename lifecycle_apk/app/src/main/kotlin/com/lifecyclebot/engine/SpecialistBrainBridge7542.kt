@@ -227,7 +227,8 @@ object SpecialistBrainBridge7542 {
         // into momentum so the same 5m print is not scored twice.
         val expressMomentum7555 = ts.lastPriceChange1h
             .takeIf { it.isFinite() && kotlin.math.abs(it) > 0.000001 }
-            ?: histMomentumPct7551
+            ?: ExpressMomentum8190.momentum8190(ts.lastPriceChange1h, histMomentumPct7551, prices.size,
+                if (prices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null)  // V5.0.8190 — not a flat 0.0% on no history
         // volatility intentionally stays on its existing 0..100 score scale:
         // DataOrchestrator and these native lanes already use score-like bands.
         val vol=ts.volatility?.takeIf{it.isFinite()}?:abs(ts.meta.avgAtr)

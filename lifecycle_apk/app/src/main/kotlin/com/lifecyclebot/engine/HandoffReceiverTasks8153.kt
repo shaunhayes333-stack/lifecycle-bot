@@ -56,6 +56,8 @@ object HandoffReceiverTasks8153 {
         val schedules: Int = 0,
         val lastBlock: String = "",
         val tried: Set<String> = emptySet(),
+        /** V5.0.8190 — the version of the pending task this one carried forward (0 = opened fresh). */
+        val carriedFrom8190: Long = 0L,
     ) {
         val pending: Boolean get() = outcome == Outcome8153.PENDING
     }
@@ -133,9 +135,36 @@ object HandoffReceiverTasks8153 {
         if (prior != null && !prior.pending && prior.lane == l && nowMs - prior.settledAtMs in 0L..SETTLED_HOLD_MS_8153 &&
             prior.settledAtMs >= newHandoffAtMs &&
             (version <= 0L || prior.version <= 0L || prior.version == version ||
-                oldEvidence8175(newHandoffAtMs, prior.settledAtMs))) return prior
+                oldEvidence8175(newHandoffAtMs, prior.settledAtMs)) &&
+            !reopensOnFreshEvidence8190(prior, evidenceAtMs)) return prior
+        // V5.0.8190 — a newer hand-off replacing a still-pending task carries its lineage (the receivers already tried);
+        // it is counted CARRIED, not as a refusal of the old version.
+        if (prior != null && prior.pending && nowMs <= prior.validUntilMs) {
+            return Task8153(mint, l, canon8153(from), reason.take(80), version, nowMs, nowMs + TASK_TTL_MS_8153, evidenceAtMs,
+                tried = prior.tried - l, carriedFrom8190 = if (prior.version > 0L) prior.version else -1L)
+        }
         return Task8153(mint, l, canon8153(from), reason.take(80), version, nowMs, nowMs + TASK_TTL_MS_8153, evidenceAtMs)
     }
+
+    /**
+     * Pure (V5.0.8190): a task that ended WITHOUT the receiver judging it (deferred for data, never scheduled, scheduled
+     * without a verdict) is reopened inside the settled hold by a native read newer than its settlement. A judged task
+     * (FDG verdict, receiver refusal, binding, no compatible receiver) keeps the hold.
+     */
+    fun reopensOnFreshEvidence8190(prior: Task8153, evidenceAtMs: Long): Boolean {
+        if (prior.pending || evidenceAtMs <= prior.settledAtMs) return false
+        return prior.outcome == Outcome8153.DEFERRED_DATA ||
+            (prior.outcome == Outcome8153.REFUSED && (prior.verdict.startsWith("STALE_NOT_SCHEDULED") ||
+                prior.verdict.startsWith("NOT_SCHEDULED:") || prior.verdict.startsWith("SCHEDULED_NO_FDG_VERDICT")))
+    }
+
+    /**
+     * Pure (V5.0.8190): the clock is not a newer candidate (LaneExecutionCoordinator 7276). A live task whose candidate
+     * version the bucket has moved past ([currentVersion] newer) carries to it — its validity is unchanged, never prolonged.
+     */
+    fun carry8190(t: Task8153, currentVersion: Long, nowMs: Long): Task8153 =
+        if (!t.pending || nowMs > t.validUntilMs || t.version <= 0L || currentVersion <= t.version) t
+        else t.copy(version = currentVersion)
 
     /** V5.0.8175 — pure: a stamped hand-off emitted at or before [taskAtMs] is old evidence (0 = unstamped, not old). */
     private fun oldEvidence8175(newHandoffAtMs: Long, taskAtMs: Long): Boolean = newHandoffAtMs > 0L && newHandoffAtMs <= taskAtMs
@@ -214,6 +243,9 @@ object HandoffReceiverTasks8153 {
         return when {
             t.lastBlock.startsWith(DEFERRED_PREFIX_8153) ->
                 t.copy(outcome = Outcome8153.DEFERRED_DATA, verdict = t.lastBlock.removePrefix(DEFERRED_PREFIX_8153), settledAtMs = nowMs)
+            // V5.0.8190 — the receiver evaluated natively and kept saying WAIT for the whole validity: its judgement.
+            t.lastBlock.startsWith(HandoffRefusal8190.NATIVE_WAIT_PREFIX_8190) -> t.copy(outcome = Outcome8153.REFUSED,
+                verdict = "RECEIVER_REFUSED:" + t.lastBlock.removePrefix(HandoffRefusal8190.NATIVE_WAIT_PREFIX_8190), settledAtMs = nowMs)
             t.schedules > 0 -> t.copy(outcome = Outcome8153.REFUSED, verdict = "SCHEDULED_NO_FDG_VERDICT_x${t.schedules}", settledAtMs = nowMs)
             t.lastBlock.isNotEmpty() -> t.copy(outcome = Outcome8153.REFUSED, verdict = "NOT_SCHEDULED:${t.lastBlock}", settledAtMs = nowMs)
             else -> t.copy(outcome = Outcome8153.REFUSED, verdict = "STALE_NOT_SCHEDULED", settledAtMs = nowMs)
@@ -259,20 +291,25 @@ object HandoffReceiverTasks8153 {
     /** Counts what changed between [before] and [after] once (opened / transferred / settled by outcome). */
     private fun account8153(before: Task8153?, after: Task8153?) {
         if (after == null || before === after) return
-        if (before != null && before.pending && before.createdAtMs != after.createdAtMs) {
+        // V5.0.8190 — a pending task replaced by a newer hand-off is carried (its lineage continues in [after]), not refused.
+        val carried8190 = before != null && before.pending && before.createdAtMs != after.createdAtMs && after.pending &&
+            after.carriedFrom8190 != 0L
+        if (before != null && before.pending && before.createdAtMs != after.createdAtMs && !carried8190) {
             // Preserve terminal accounting when a newly emitted candidate version
             // supersedes an older pending task; never silently discard lineage.
             count8153("REFUSED")
             tally8169(before.copy(outcome = Outcome8153.REFUSED, verdict = "SUPERSEDED_FRESH_VERSION_8170",
                 settledAtMs = after.createdAtMs))
         }
-        if (before == null || (after.createdAtMs != before.createdAtMs)) count8153("OPENED")
+        if (carried8190) { count8153("CARRIED_8190"); HandoffTrace8190.noteCarried8190() }
+        else if (before == null || (after.createdAtMs != before.createdAtMs)) count8153("OPENED")
         else if (after.lane != before.lane && after.pending) count8153("TRANSFERRED")
         if (before != null && after.schedules == 1 && before.schedules == 0 && after.createdAtMs == before.createdAtMs &&
             after.lane == before.lane) count8153("SCHEDULED")
         if (!after.pending && (before == null || before.pending || before.createdAtMs != after.createdAtMs)) {
             count8153(after.outcome.name)
             tally8169(after)  // V5.0.8169
+            HandoffTrace8190.note8190(after)  // V5.0.8190 — per-task causal trace
         }
     }
 
@@ -309,6 +346,7 @@ object HandoffReceiverTasks8153 {
 
     fun onFdgVerdict8153(mint: String, lane: String, allow: Boolean, reason: String?, nowMs: Long, candidateVersion: Long = -1L) {
         if (tasks8153[mint]?.pending != true) return
+        carryForward8190(mint, candidateVersion, nowMs)  // V5.0.8190 — the receiver's verdict on the newer bucket is its evaluation
         update8153(mint, nowMs) { it?.let { t -> onFdg8153(t, lane, allow, reason, nowMs, candidateVersion) } }
     }
 
@@ -328,6 +366,18 @@ object HandoffReceiverTasks8153 {
 
     /** The mint's task as of [nowMs] (expiry applied on read, not stored). */
     fun taskOf8153(mint: String, nowMs: Long): Task8153? = tasks8153[mint]?.let { expire8153(it, nowMs) }
+
+    /** V5.0.8190 — carry the mint's live task to [currentVersion] when the clock bucket moved past it ([carry8190]). */
+    fun carryForward8190(mint: String, currentVersion: Long, nowMs: Long) {
+        val t = tasks8153[mint] ?: return
+        if (carry8190(t, currentVersion, nowMs) === t) return
+        update8153(mint, nowMs) { it?.let { p -> carry8190(p, currentVersion, nowMs) } }
+        try { PipelineHealthCollector.labelInc("HANDOFF_TASK_VERSION_CARRIED_8190") } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8190 — every live task's target (mint -> validUntil) for the cycle's priority window (HandoffPriority8190). */
+    fun pendingTargets8190(nowMs: Long): List<Pair<String, Long>> =
+        tasks8153.values.filter { it.pending && nowMs <= it.validUntilMs }.map { it.mint to it.validUntilMs }
 
     fun isDue8153(mint: String, lane: String, nowMs: Long, currentVersion: Long = -1L): Boolean =
         due8153(tasks8153[mint], lane, nowMs, currentVersion)
@@ -353,7 +403,7 @@ object HandoffReceiverTasks8153 {
         return "handoffTask8153[opened=${c("OPENED")} scheduled=${c("SCHEDULED")} transferred=${c("TRANSFERRED")} " +
             "evaluated=${c(Outcome8153.EVALUATED.name)} deferredData=${c(Outcome8153.DEFERRED_DATA.name)} " +
             "refused=${c(Outcome8153.REFUSED.name)} pending=${tasks8153.values.count { it.pending }} " +
-            verdictLine8169() + "]"
+            verdictLine8169() + "]" + HandoffTrace8190.statusLine8190()  // V5.0.8190
     }
 
     /** V5.0.8169 — "refusedBy8169{..} deferredBy8169{..} evaluatedBy8169{..}": every settled task's verdict by name. */
@@ -372,7 +422,10 @@ object HandoffReceiverTasks8153 {
  * snapshot, and drives [HandoffReceiverTasks8153]. Every entry point is total (never throws into its caller).
  */
 object HandoffTaskRuntime8153 {
-    private fun version8153(mint: String): Long = try { LaneExecutionCoordinator.candidateVersionFor(mint) } catch (_: Throwable) { -1L }
+    private fun version8153(mint: String): Long = try {
+        LaneExecutionCoordinator.candidateVersionFor(mint)
+            .also { HandoffReceiverTasks8153.carryForward8190(mint, it, System.currentTimeMillis()) }  // V5.0.8190 — the bucket is not a new candidate
+    } catch (_: Throwable) { -1L }
 
     private fun fit8153(reason: String?): Boolean = try { SpecialistOwnership7951.laneFitRefusal8132(reason) } catch (_: Throwable) { false }
 
@@ -380,7 +433,7 @@ object HandoffTaskRuntime8153 {
 
     /** How the runtime treats [reason] (fit / binding read from the same rules the election uses). */
     internal fun blockOf8153(reason: String?): HandoffReceiverTasks8153.Block8153 =
-        HandoffReceiverTasks8153.classify8153(reason, fit8153(reason), binding8153(reason))
+        HandoffRefusal8190.classify8190(reason, fit8153(reason), binding8153(reason))  // V5.0.8190 — data / scope / not-yet named
 
     /** Every authoritative, natively eligible lane that may own execution, on its own scale. */
     private fun eligibleNow8153(mint: String): Map<String, Double> = try {
@@ -393,8 +446,13 @@ object HandoffTaskRuntime8153 {
     } catch (_: Throwable) { emptyMap() }
 
     /** A refusal met by [lane]'s task: fit hands it on (election and ledger follow), anything else is applied as classified. */
-    private fun refused8153(mint: String, lane: String, reason: String, nowMs: Long) {
-        val block = blockOf8153(reason)
+    private fun refused8153(mint: String, lane: String, reason0: String, nowMs: Long) {
+        // V5.0.8190 — a judgement on a stale mark defers (and asks for a fresh mark) instead of ending the task.
+        val classified = blockOf8153(reason0)
+        val block = HandoffRefusal8190.staleAware8190(classified,
+            (classified == HandoffReceiverTasks8153.Block8153.JUDGEMENT || classified == HandoffReceiverTasks8153.Block8153.WAIT) &&
+                HandoffRefusal8190.markStaleFor8190(mint, nowMs))
+        val reason = if (block != classified) HandoffRefusal8190.STALE_PREFIX_8190 + reason0 else reason0
         if (block == HandoffReceiverTasks8153.Block8153.DATA) {
             // Do not spend the entire 45 s receiver TTL merely waiting for another
             // ordinary scanner poll. Request the missing input through the existing
@@ -480,14 +538,22 @@ object HandoffTaskRuntime8153 {
             SpecialistElection8136.noteScheduled8144(mint, l, nowMs)
             if (shouldTrade) return // the same task will be completed by its actual FDG verdict
             val r = reason?.takeIf { it.isNotBlank() } ?: "NATIVE_NO_BUY_${signal.ifBlank { "WAIT" }}"
-            when (val block = blockOf8153(r)) {
+            val classified = blockOf8153(r)
+            // V5.0.8190 — a judgement / wait made on a stale mark is a data deferral (a fresh mark is requested).
+            when (val block = HandoffRefusal8190.staleAware8190(classified,
+                (classified == HandoffReceiverTasks8153.Block8153.JUDGEMENT || classified == HandoffReceiverTasks8153.Block8153.WAIT) &&
+                    HandoffRefusal8190.markStaleFor8190(mint, nowMs))) {
                 HandoffReceiverTasks8153.Block8153.DATA ->
-                    HandoffReceiverTasks8153.blockTask8153(mint, l, block, "DEFERRED_NATIVE:$r", nowMs)
+                    HandoffReceiverTasks8153.blockTask8153(mint, l, block,
+                        "DEFERRED_NATIVE:" + (if (block != classified) HandoffRefusal8190.STALE_PREFIX_8190 else "") + r, nowMs)
                 HandoffReceiverTasks8153.Block8153.FIT -> refused8153(mint, l, r, nowMs)
                 HandoffReceiverTasks8153.Block8153.BINDING,
                 HandoffReceiverTasks8153.Block8153.JUDGEMENT -> HandoffReceiverTasks8153.blockTask8153(mint, l, block, r, nowMs)
+                // V5.0.8190 — a WAIT keeps the task (the receiver re-evaluates each cycle while it is valid); it is named the
+                // receiver's judgement (RECEIVER_REFUSED:NATIVE_NO_BUY_*) only at expiry. superseded: ended it here as JUDGEMENT.
                 HandoffReceiverTasks8153.Block8153.WAIT -> HandoffReceiverTasks8153.blockTask8153(
-                    mint, l, HandoffReceiverTasks8153.Block8153.JUDGEMENT, "NATIVE_NO_BUY_${signal.ifBlank { "WAIT" }}", nowMs,
+                    mint, l, HandoffReceiverTasks8153.Block8153.WAIT,
+                    HandoffRefusal8190.NATIVE_WAIT_PREFIX_8190 + r, nowMs,
                 )
             }
         } catch (_: Throwable) {}

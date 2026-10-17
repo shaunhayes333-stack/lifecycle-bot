@@ -15410,7 +15410,8 @@ class BotService : Service() {
         if (l == "PROJECT_SNIPER") {
             val sniperSetup6599 = designatedDeskHypothesis6599?.setup
             val genuineSniperPool6599 = sniperSetup6599 == ToolkitSignalSheet.Setup.DEGEN_MICRO_SNIPE ||
-                sniperSetup6599 == ToolkitSignalSheet.Setup.PUMP_GRADUATION_SNIPE
+                sniperSetup6599 == ToolkitSignalSheet.Setup.PUMP_GRADUATION_SNIPE ||
+                SniperScope8190.ownHunterPool8190(sniperSetup6599 == null, huntedByLane7297)  // V5.0.8190 — its own hunter's selection is its pool
             if (!genuineSniperPool6599) {
                 try { PipelineHealthCollector.labelInc("PROJECT_SNIPER_DESIGNATED_POOL_REJECTED_6599") } catch (_: Throwable) {}
                 SpecialistElection8136.noteGateReason8144(ts.mint, l, "SNIPER_NOT_DESIGNATED_POOL_6599:" + (sniperSetup6599?.name ?: "NO_DESK_HYPOTHESIS"))
@@ -18761,6 +18762,7 @@ class BotService : Service() {
         val forcedOpenForSupervisor: List<String> = emptyList()
         val mustInclude = mutableListOf<String>()
         mustInclude.addAll(pendingLiveBuyMints8094(otherMints))  // V5.0.8094 — deferred live buys (not opens)
+        mustInclude.addAll(HandoffPriority8190.dueTargets8190(otherMints).filter { it !in mustInclude })  // V5.0.8190 — hand-off receivers evaluate next cycle
         val budget = (PER_CYCLE_CAP - mustInclude.size).coerceAtLeast(0)
         if (budget == 0 || otherMints.isEmpty()) {
             try { emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size) } catch (_: Throwable) {}
@@ -21761,8 +21763,8 @@ val canonicalOpenForPriority6489 = try {
 } catch (_: Throwable) { emptySet() }
 val priorityWindowInput6489 = run {
     val all = effectiveWatchlist.distinct()
-    val opens = all.filter { it in canonicalOpenForPriority6489 }
-    val candidates = all.filterNot { it in canonicalOpenForPriority6489 }
+    val opens = (all.filter { it in canonicalOpenForPriority6489 } + HandoffPriority8190.windowTargets8190(all)).distinct()  // V5.0.8190 — live hand-off targets ride the window
+    val candidates = all.filterNot { it in canonicalOpenForPriority6489 || it in opens }
     if (candidates.size <= 128) opens + candidates else {
         val start6489 = Math.floorMod(watchlistPriorityCursor6489.getAndAdd(128), candidates.size)
         val rotated6489 = ArrayList<String>(128)

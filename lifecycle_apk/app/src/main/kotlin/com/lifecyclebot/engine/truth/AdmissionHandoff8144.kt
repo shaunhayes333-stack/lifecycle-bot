@@ -81,7 +81,7 @@ object AdmissionHandoff8144 {
     }
 
     private fun dataPending8167(reason: String): Boolean =
-        com.lifecyclebot.engine.HandoffReceiverTasks8153.classify8153(reason, fit = false, binding = false) ==
+        com.lifecyclebot.engine.HandoffRefusal8190.classify8190(reason, fit = false, binding = false) ==  // V5.0.8190 — the same data words as the task
             com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.DATA
 
     /** Pure: a native assessment of every lane in scope ([reads], computed at [atMs]) applied to [h]. */
