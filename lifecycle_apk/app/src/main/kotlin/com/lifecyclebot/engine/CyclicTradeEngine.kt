@@ -1103,7 +1103,7 @@ object CyclicTradeEngine {
         // rug / safety finality instead of bypassing it.
         val cyclicScore = (best.lastV3Score ?: best.entryScore.toInt()).coerceIn(0, 100)
         val cyclicFdg = try {
-            FinalDecisionGate.evaluate(
+            FdgOutcomeContinuity8197.evaluate(
                 ts = best,
                 candidate = com.lifecyclebot.data.CandidateDecision(
                     entryScore = cyclicScore.toDouble(),
