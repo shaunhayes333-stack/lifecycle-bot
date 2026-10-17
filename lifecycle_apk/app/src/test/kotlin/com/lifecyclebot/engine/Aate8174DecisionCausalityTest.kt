@@ -23,6 +23,11 @@ class Aate8174DecisionCausalityTest {
         assertTrue(h.due8153(next, "MOONSHOT", t + 300, 2))
     }
 
+    @Test fun staleCurveProofIsARecoverableReceiverDataGap() {
+        assertEquals(HandoffReceiverTasks8153.Block8153.DATA,
+            HandoffReceiverTasks8153.classify8153("CURVE_RESERVES_STALE_DEFER_8174", fit = false, binding = false))
+    }
+
     @Test fun newerVersionCanOpenEvenWhenOldTaskSettledInsideHoldWindow() {
         val h = HandoffReceiverTasks8153
         val first = h.open8153(null, "Mint8174", "MOONSHOT", "PROJECT_SNIPER", "YIELD", 1, 1000, 1000)!!
