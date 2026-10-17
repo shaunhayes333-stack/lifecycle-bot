@@ -343,6 +343,8 @@ object Cortex7885 {
             return
         }
         val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason) } catch (_: Throwable) { null }
+        // Timing requires the decision's price, before the asynchronous queue mutates its TokenState.
+        try { CortexTiming7900.capture(ts, a8174, nowMs) } catch (_: Throwable) {}
         val source8174 = ts.source
         submitCapture8171 { captureNow(ts.mint, labelLane, admitted, nowMs, reason, snap8084, sel8153, a8174, ctx8174, source8174) }
     }
@@ -370,8 +372,7 @@ object Cortex7885 {
         if (frozenCtx8174 != null) pendingCtx8144["$mint|${labelLane.trim().uppercase()}"] = frozenCtx8174
         try { sweepLost8144(nowMs) } catch (_: Throwable) {}
         if (admitted) noteEntryRead(mint, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }, a)
-        // Timing is learned from the same frozen voter assessment; later token metrics do not relabel it.
-        try { CortexTiming7900.captureFrozen8174(mint, a, nowMs) } catch (_: Throwable) {}
+        // Timing was already captured at decision time, never recomputed behind the queue.
         inc(if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) "SEEN_REFUSE" else if (a.bucket == CortexScoreboard7885.Bucket.STRONG) "SEEN_STRONG" else "SEEN_NEUTRAL")
         persistPendingMaybe(nowMs)
         try { LanePlaybook7907.persistPendingMaybe(nowMs) } catch (_: Throwable) {}

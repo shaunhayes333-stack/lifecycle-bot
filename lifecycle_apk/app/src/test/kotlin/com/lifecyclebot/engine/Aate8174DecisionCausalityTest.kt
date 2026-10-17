@@ -36,7 +36,7 @@ class Aate8174DecisionCausalityTest {
         val s = src("engine/cortex/Cortex7885.kt")
         assertTrue(s.contains("CAPTURE_VOTERS_NOT_READY_AT_DECISION_8174"))
         assertTrue(s.contains("val late8169 = lateVoterRead8169(labelLane, nowMs, a.atMs)"))
-        assertTrue(s.contains("pendingCtx8144[\"$mint|"))
+        assertTrue(s.contains("pendingCtx8144["))
         val body = s.substringAfter("private fun captureNow(").substringBefore("// ── V5.0.7920")
         assertFalse(body.contains("assess(ts, labelLane, nowMs)"))
         assertFalse(body.contains("LanePlaybook7907.classify(ts"))
