@@ -436,9 +436,9 @@ object PumpFunWS {
      */
     fun syncTradeSubscriptions7278(mints: Set<String>) {
         val wanted = mints.filter { it.isNotBlank() }.toSet()
+        maybeReprobeAuth8094()
         // V5.0.8192 — held positions are exempt from the launch cap and the daily budget.
         heldMints8192.retainAll(wanted); heldMints8192.addAll(wanted)
-        maybeReprobeAuth8094()
 
         // V5.0.7485 — when token-trade capability is unavailable there is no
         // executable subscription set to diff against. Maintain the desired
