@@ -93,6 +93,14 @@ object PairHydrationState6398 {
             map.pumpFunExecutable && nowMs - map.updatedAtMs in 0L..300_000L &&
             (sourceNativePump || map.venue.contains("PUMP", true) || map.dexId.contains("PUMP", true)) }
         val heliusPool = trustedPool?.takeIf { recent.any { it.contains("HELIUS") } }
+        // An executable PumpFun mint route does not require a supplied curve PDA,
+        // but a creation event alone is insufficient. Retain direct-route proof
+        // without manufacturing a pool address.
+        val pumpDirect = sourceNativePump && map.pumpFunExecutable &&
+            nowMs - map.updatedAtMs in 0L..60_000L &&
+            ts.lastPrice.isFinite() && ts.lastPrice > 0.0 &&
+            nowMs - ts.lastPriceUpdate in 0L..60_000L &&
+            ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0
         return resolve(
             mint = ts.mint,
             dexscreenerPair = trustedPool?.takeIf { recent.any { it.contains("DEXSCREENER") } },
@@ -107,6 +115,7 @@ object PairHydrationState6398 {
             hydrationStartedAtMs = hydrationStartedAtMs,
             nowMs = nowMs,
             sourceNativePool8197 = nativePool?.takeIf { !isRaydium },
+            nativePumpExecutable8197 = pumpDirect,
         )
     }
 
@@ -138,6 +147,7 @@ object PairHydrationState6398 {
         hydrationStartedAtMs: Long,
         nowMs: Long = System.currentTimeMillis(),
         sourceNativePool8197: String? = null,
+        nativePumpExecutable8197: Boolean = false,
     ): Snapshot {
         val hydrationExpiresAt = hydrationStartedAtMs + HYDRATION_TTL_MS
         // Highest-authority canonical pair first.
@@ -149,7 +159,11 @@ object PairHydrationState6398 {
         raydiumPoolFromScanner?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "RAYDIUM_POOL_SCANNER")) }
         sourceNativePool8197?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "SOURCE_NATIVE_POOL_8197")) }
         watchlistLastKnownPair?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "WATCHLIST_LAST_KNOWN")) }
-        // Route without pair.
+        // Route without pair. A verified PumpFun direct-mint route is not a
+        // bonding-curve PDA and must not be written into the pair field.
+        if (nativePumpExecutable8197)
+            return record(Snapshot(mint, State.ROUTE_CONFIRMED_WITHOUT_PAIR, null, providersAttempted,
+                hydrationExpiresAt, "PUMPFUN_DIRECT_EXECUTABLE_8197"))
         if (jupiterRouteOk)
             return record(Snapshot(mint, State.ROUTE_CONFIRMED_WITHOUT_PAIR, null, providersAttempted, hydrationExpiresAt, "JUPITER_ROUTE_OK"))
         // A 45-second timeout without independent fallback attempts is NOT

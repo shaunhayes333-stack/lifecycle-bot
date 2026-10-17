@@ -102,6 +102,26 @@ class Aate8197NativeHandoffAndHydrationTest {
         assertFalse(h.recoveryProbeDue8197(last + 60_001L, last + 1_000L))
     }
 
+    @Test fun executablePumpMintRoutePassesWithoutInventedCurveAddress() {
+        val h = PairHydrationState6398
+        val now = 2_000_000_000_000L
+        val ts = TokenState(mint = "pump-mint-route8197", symbol = "P")
+        ts.source = "PUMP_FUN_NEW"
+        ts.lastPrice = 0.00001
+        ts.lastPriceUpdate = now
+        ts.lastLiquidityUsd = 10_000.0
+        ts.tokenMap.updatedAtMs = now
+        ts.tokenMap.pumpFunExecutable = true
+        val proven = h.resolveFromToken8196(ts, true, now - 120_000L, now)
+        assertEquals(h.State.ROUTE_CONFIRMED_WITHOUT_PAIR, proven.state)
+        assertEquals("PUMPFUN_DIRECT_EXECUTABLE_8197", proven.reason)
+        assertEquals(null, proven.pairAddress)
+        // Stale price may not manufacture a new current route.
+        ts.lastPriceUpdate = now - 120_000L
+        val stale = h.resolveFromToken8196(ts, true, now - 120_000L, now)
+        assertEquals(h.State.PAIR_PENDING_HYDRATION, stale.state)
+    }
+
     @Test fun everyQualifiedLaneIsEligibleForMissingDataRefreshNotOnlyCortexTopTwo() {
         val bridge = SpecialistBrainBridge7542
         fun opinion(lane: String, score: Int, eligible: Boolean = true, authoritative: Boolean = true) =
