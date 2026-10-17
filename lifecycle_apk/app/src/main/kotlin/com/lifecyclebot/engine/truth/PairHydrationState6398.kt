@@ -40,6 +40,63 @@ object PairHydrationState6398 {
         val reason: String,
     )
 
+    /**
+     * 8196: a timeout proves age, not an exhausted route. The former BotService
+     * no-pair path passed DEXSCREENER/BIRDEYE/ORACLE as "attempted" literals
+     * before the asynchronous hydrators had actually returned anything.
+     * Require distinct real metadata and execution-route attempts before
+     * terminalising a candidate as HARD_UNAVAILABLE. A temporary provider
+     * outage or unattempted route remains PENDING, never an invented no-route.
+     */
+    fun fallbackExhausted8196(attempted: List<String>): Boolean {
+        val sources = attempted.map { it.trim().uppercase() }.filter { it.isNotBlank() }.toSet()
+        val metadata = sources.any { it == "DEXSCREENER" || it == "HELIUS" || it == "BIRDEYE" }
+        val route = sources.any { it == "JUPITER" || it == "ORACLE" }
+        return sources.size >= 3 && metadata && route
+    }
+
+    /** Build a real no-pair witness from a token's own source and dated canonical map. */
+    fun resolveFromToken8196(
+        ts: com.lifecyclebot.data.TokenState,
+        sourceNativePump: Boolean,
+        hydrationStartedAtMs: Long,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Snapshot {
+        val map = ts.tokenMap
+        val recent = try {
+            map.providerTimestamps.entries.filter { nowMs - it.value in 0L..600_000L }
+                .map { it.key.uppercase() }
+        } catch (_: Throwable) { emptyList() }
+        // The caller genuinely asked DexScreener and got no pair; every other
+        // producer is counted only when its canonical map says it answered.
+        val attempted = (listOf("DEXSCREENER") + recent).distinct()
+        val candidatePool = map.poolAddress.ifBlank { map.pairAddress }
+        val trustedPool = candidatePool.takeIf { it.isNotBlank() && map.hydrationComplete &&
+            nowMs - map.updatedAtMs in 0L..300_000L }
+        val sourcePool = ts.lastPricePoolAddr.takeIf { it.isNotBlank() &&
+            nowMs - ts.lastPriceUpdate in 0L..300_000L &&
+            (ts.lastPriceDex.contains("RAYDIUM", true) || ts.source.contains("RAYDIUM", true)) }
+        val observedNativePool = sourcePool ?: trustedPool?.takeIf {
+            map.venue.contains("RAYDIUM", true) || map.dexId.contains("RAYDIUM", true)
+        }
+        val heliusPool = trustedPool?.takeIf { recent.any { it.contains("HELIUS") } }
+        return resolve(
+            mint = ts.mint,
+            dexscreenerPair = null,
+            raydiumPoolFromScanner = observedNativePool,
+            pumpFunBondingCurve = if (sourceNativePump) ts.mint else
+                map.pumpFunBondingCurveAddress.takeIf { it.isNotBlank() && map.pumpFunExecutable },
+            heliusPair = heliusPool,
+            jupiterRouteOk = map.jupiterQuoteOk && map.expectedOutAmount > 0.0 &&
+                nowMs - map.updatedAtMs in 0L..60_000L,
+            birdeyePair = trustedPool?.takeIf { recent.any { it.contains("BIRDEYE") } },
+            watchlistLastKnownPair = null,
+            providersAttempted = attempted,
+            hydrationStartedAtMs = hydrationStartedAtMs,
+            nowMs = nowMs,
+        )
+    }
+
     /** Hydration TTL (upper bound) — before this, we keep probation-hot. */
     const val HYDRATION_TTL_MS: Long = 45_000L
 
@@ -80,10 +137,13 @@ object PairHydrationState6398 {
         // Route without pair.
         if (jupiterRouteOk)
             return record(Snapshot(mint, State.ROUTE_CONFIRMED_WITHOUT_PAIR, null, providersAttempted, hydrationExpiresAt, "JUPITER_ROUTE_OK"))
-        // Nothing resolved — pending until TTL expires.
-        if (nowMs < hydrationExpiresAt)
-            return record(Snapshot(mint, State.PAIR_PENDING_HYDRATION, null, providersAttempted, hydrationExpiresAt, "HYDRATION_IN_PROGRESS"))
-        // TTL expired AND every provider attempted — hard unavailable.
+        // A 45-second timeout without independent fallback attempts is NOT
+        // proof that the token has no route. Do not turn source latency into
+        // a permanent hard rejection; cold/probation scheduling owns retries.
+        if (nowMs < hydrationExpiresAt || !fallbackExhausted8196(providersAttempted))
+            return record(Snapshot(mint, State.PAIR_PENDING_HYDRATION, null, providersAttempted, hydrationExpiresAt,
+                if (nowMs < hydrationExpiresAt) "HYDRATION_IN_PROGRESS" else "PROVIDER_ATTEMPTS_UNPROVEN_8196"))
+        // TTL expired AND real fallback attempts are independently recorded — hard unavailable.
         hardUnavailableEvents.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAIR_HARD_UNAVAILABLE_6398") } catch (_: Throwable) {}
         return record(Snapshot(mint, State.PAIR_HARD_UNAVAILABLE, null, providersAttempted, hydrationExpiresAt, "ALL_PROVIDERS_EXHAUSTED_TTL_EXPIRED"))
