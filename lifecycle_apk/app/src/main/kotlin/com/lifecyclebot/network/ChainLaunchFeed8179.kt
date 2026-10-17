@@ -59,6 +59,7 @@ object ChainLaunchFeed8179 {
         RAYDIUM("CHAIN_LAUNCH_RAYDIUM", "raydium"),
         METEORA("CHAIN_LAUNCH_METEORA", "meteora"),
         PUMPSWAP("CHAIN_LAUNCH_PUMPSWAP", "pumpswap"),
+        OTHER("CHAIN_LAUNCH_OTHER", "other"),   // V5.0.8179 — GeckoTerminal pools on any other Solana DEX (orca, ...)
     }
 
     /**
@@ -94,8 +95,12 @@ object ChainLaunchFeed8179 {
         val quoteReserve: Double,
         val mintInitInTx: Boolean,
         val curve: Boolean,
+        /** GeckoTerminal's pool reserve (both sides, USD) for a polled pool; NaN for a chain-read launch. */
+        val reserveUsd: Double = Double.NaN,
+        /** Intake source when it is not the venue's chain label (GECKO_NEW_POOL_<DEX>). */
+        val sourceOverride: String = "",
     ) {
-        val source: String get() = venue.source
+        val source: String get() = sourceOverride.ifBlank { venue.source }
     }
 
     /** pump.fun TradeEvent (Anchor event in a "Program data:" line). Reserves in SOL / whole tokens; real* NaN on old events. */
@@ -345,6 +350,7 @@ object ChainLaunchFeed8179 {
      * real reserve is zero at birth by construction (the ordinary liquidity hydrators read it once trading starts).
      */
     fun quoteDepthUsd8179(l: Launch8179, solUsd: Double): Double {
+        if (l.reserveUsd.isFinite() && l.reserveUsd > 0.0) return l.reserveUsd   // GeckoTerminal's observed pool reserve
         val r = l.quoteReserve
         if (!r.isFinite() || r <= 0.0) return Double.NaN
         return when (l.quoteMint) {
@@ -411,6 +417,7 @@ object ChainLaunchFeed8179 {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean = size > cap
         }
         @Synchronized fun firstSeen8179(key: String): Boolean = map.put(key, true) == null
+        @Synchronized fun contains8179(key: String): Boolean = map.containsKey(key)
         @Synchronized fun size8179(): Int = map.size
     }
 
@@ -558,6 +565,7 @@ object ChainLaunchFeed8179 {
     /** Once a minute: key present, budget left, socket up, parked streams released when their time is served. */
     private fun tick8179() {
         if (!running.get()) return
+        try { pollGecko8179() } catch (_: Throwable) {}   // key-independent: covers the parked firehose venues
         if (key8179().isBlank()) { state = "NO_HELIUS_KEY"; closeSocket8179(); return }
         if (overBudget8179()) { state = "HELIUS_OVER_BUDGET"; closeSocket8179(); return }
         if (ws == null) { connect8179(); return }
@@ -754,8 +762,9 @@ object ChainLaunchFeed8179 {
     }
 
     private fun deliver8179(l: Launch8179) {
-        if (!seenMints.firstSeen8179(l.mint)) { dupMints.incrementAndGet(); return }
+        if (seenMints.contains8179(l.mint)) { dupMints.incrementAndGet(); return }
         if (!discoveryRate.tryAcquire8179(System.currentTimeMillis())) { rateLimited.incrementAndGet(); label("CHAIN_LAUNCH_RATE_LIMITED_8179"); return }
+        seenMints.firstSeen8179(l.mint)
         recordBirth8179(l)
         launchesByVenue.computeIfAbsent(l.target) { AtomicLong(0) }.incrementAndGet()
         lastLaunchMs = System.currentTimeMillis()
@@ -797,6 +806,94 @@ object ChainLaunchFeed8179 {
         } catch (_: Throwable) {}
     }
 
+    // ── V5.0.8179 GeckoTerminal new_pools poller (every DEX on Solana; covers the parked firehose streams) ──
+
+    private const val GECKO_NEW_POOLS_URL_8179 = "https://api.geckoterminal.com/api/v2/networks/solana/new_pools?page="
+    private val geckoPolls = AtomicLong(0)
+    private val geckoCalls = AtomicLong(0)
+    private val geckoFailed = AtomicLong(0)
+    private val geckoPools = AtomicLong(0)
+    private val geckoNew = AtomicLong(0)
+    private val geckoSkipped = AtomicLong(0)
+
+    /** Pure: the Solana mint in a GeckoTerminal id ("solana_<mint>"), or "" when it is not one. */
+    internal fun geckoMint8179(id: String): String {
+        if (!id.startsWith("solana_")) return ""
+        val m = id.substring(7)
+        return if (HeliusSolanaScope7819.isSolanaMint7819(m)) m else ""
+    }
+
+    /** Pure: GeckoTerminal dex id -> venue (raydium*, meteora*, pumpswap; anything else OTHER). */
+    internal fun geckoVenue8179(dexId: String): Venue8179 {
+        val d = dexId.lowercase()
+        return when {
+            d.startsWith("raydium") -> Venue8179.RAYDIUM
+            d.startsWith("meteora") -> Venue8179.METEORA
+            d == "pumpswap" || d == "pump-swap" -> Venue8179.PUMPSWAP
+            else -> Venue8179.OTHER
+        }
+    }
+
+    /** Pure: the intake label for a polled pool, e.g. GECKO_NEW_POOL_RAYDIUM_LAUNCHLAB. */
+    internal fun geckoSource8179(dexId: String): String =
+        "GECKO_NEW_POOL_" + dexId.uppercase().map { if (it.isLetterOrDigit()) it else '_' }.joinToString("").take(24).ifBlank { "UNKNOWN" }
+
+    /**
+     * Pure: launches in one GeckoTerminal new_pools page ([skipped] counts the rest). Skipped: a SOL/USDC/USDT base, a
+     * non-Solana id, a pump.fun bonding curve (the PumpPortal create stream owns those), a pool with no creation time.
+     * The pool creation time is a POOL time, never a mint birth ([Launch8179.mintInitInTx] is always false).
+     */
+    fun parseGeckoNewPools8179(body: String, skipped: AtomicLong? = null): List<Launch8179> {
+        val data = try { JSONObject(body).optJSONArray("data") } catch (_: Throwable) { null } ?: return emptyList()
+        val out = ArrayList<Launch8179>(data.length())
+        for (i in 0 until data.length()) {
+            val p = data.optJSONObject(i) ?: continue
+            val attrs = p.optJSONObject("attributes")
+            val rel = p.optJSONObject("relationships")
+            val base = geckoMint8179(rel?.optJSONObject("base_token")?.optJSONObject("data")?.optString("id", "").orEmpty())
+            val quote = geckoMint8179(rel?.optJSONObject("quote_token")?.optJSONObject("data")?.optString("id", "").orEmpty())
+            val dex = rel?.optJSONObject("dex")?.optJSONObject("data")?.optString("id", "").orEmpty()
+            val createdMs = try { java.time.Instant.parse(attrs?.optString("pool_created_at", "").orEmpty()).toEpochMilli() } catch (_: Throwable) { 0L }
+            if (attrs == null || base.isBlank() || base in QUOTE_MINTS_8179 || createdMs <= 0L ||
+                dex.lowercase().replace("-", "") == "pumpfun"
+            ) { skipped?.incrementAndGet(); continue }
+            // A bonding curve's reserve_in_usd values its unsold token inventory, which no seller can be paid from: unknown.
+            val curve = dex.lowercase().contains("dbc") || dex.lowercase().contains("launchlab")
+            val reserve = if (curve) Double.NaN
+                else attrs.optString("reserve_in_usd", "").toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN
+            val venue = geckoVenue8179(dex)
+            out.add(Launch8179(
+                mint = base, quoteMint = quote, pool = attrs.optString("address", ""), venue = venue, target = "GECKO",
+                instruction = "new_pools", signature = "", slot = 0L, blockTimeMs = createdMs, quoteReserve = Double.NaN,
+                mintInitInTx = false, curve = curve,
+                reserveUsd = reserve, sourceOverride = geckoSource8179(dex),
+            ))
+        }
+        return out
+    }
+
+    /** Scheduler tick (60 s): page 1 every poll, page 2 on alternate polls, through the shared geckoterminal host backoff. */
+    private fun pollGecko8179() {
+        val n = geckoPolls.incrementAndGet()
+        val pages = if (n % 2L == 0L) listOf(1, 2) else listOf(1)
+        for (page in pages) {
+            if (try { com.lifecyclebot.engine.ApiBackoff.isLockedOut("geckoterminal") } catch (_: Throwable) { false }) return
+            geckoCalls.incrementAndGet()
+            val body: String? = try {
+                val req = Request.Builder().url(GECKO_NEW_POOLS_URL_8179 + page)
+                    .header("Accept", "application/json;version=20230302").header("User-Agent", "lifecycle-bot-android/6.0").build()
+                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, "geckoterminal").use { r -> if (r.isSuccessful) r.body?.string() else null }
+            } catch (_: Throwable) { null }
+            if (body == null) { geckoFailed.incrementAndGet(); return }
+            for (l in parseGeckoNewPools8179(body, geckoSkipped)) {
+                geckoPools.incrementAndGet()
+                if (seenMints.contains8179(l.mint)) { geckoSkipped.incrementAndGet(); continue }
+                deliver8179(l)
+                if (seenMints.contains8179(l.mint)) geckoNew.incrementAndGet()
+            }
+        }
+    }
+
     fun statusLine8179(): String {
         val now = System.currentTimeMillis()
         val parked = parkedUntil.entries.filter { it.value > now }.joinToString(",") { "${it.key}:${(it.value - now) / 60_000}m" }.ifBlank { "-" }
@@ -808,6 +905,7 @@ object ChainLaunchFeed8179 {
             "unreadable=${unreadable.get()} queueDropped=${queueDropped.get()} backoffSkipped=${backoffSkipped.get()} budgetSkipped=${budgetSkipped.get()} " +
             "dupMints=${dupMints.get()} rateLimited=${rateLimited.get()} launches{$found} lastLaunch=$age births=${births.get()} floors=${floors.get()} " +
             "parks=${parks.get()} connects=${connects.get()} lastError=$lastError] " +
+            "gecko8179[polls=${geckoPolls.get()} calls=${geckoCalls.get()} failed=${geckoFailed.get()} pools=${geckoPools.get()} new=${geckoNew.get()} skipped=${geckoSkipped.get()}] " +
             "heliusTradeEvent8179[events=${tradeEvents.get()} newSwaps=${tradeSwapsNew.get()} reserves=${tradeReserves.get()}]"
     }
 }

@@ -322,4 +322,74 @@ class Aate8179ChainLaunchFeedTest {
         AdmissionBirth8144.noteChainMintInit8179(mint, now - 10_000L)   // earliest kept
         assertEquals(now - 30_000L, AdmissionBirth8144.chainMintInitMs8179(mint))
     }
+
+    // ── (7) GeckoTerminal new_pools poller ──
+
+    private fun geckoPool(addr: String, name: String, dex: String, base: String, quote: String, created: String?, reserve: String) = JSONObject()
+        .put("id", "solana_$addr").put("type", "pool")
+        .put("attributes", JSONObject().put("base_token_price_usd", "0.0000412").put("address", addr).put("name", name)
+            .apply { if (created != null) put("pool_created_at", created) }
+            .put("fdv_usd", "41200.5").put("market_cap_usd", JSONObject.NULL).put("reserve_in_usd", reserve)
+            .put("price_change_percentage", JSONObject().put("m5", "12.4").put("h1", "12.4"))
+            .put("transactions", JSONObject().put("m5", JSONObject().put("buys", 14).put("sells", 3)))
+            .put("volume_usd", JSONObject().put("m5", "2210.4").put("h1", "2210.4")))
+        .put("relationships", JSONObject()
+            .put("base_token", JSONObject().put("data", JSONObject().put("id", "solana_$base").put("type", "token")))
+            .put("quote_token", JSONObject().put("data", JSONObject().put("id", "solana_$quote").put("type", "token")))
+            .put("dex", JSONObject().put("data", JSONObject().put("id", dex).put("type", "dex"))))
+
+    private val MINT_B = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+    private val MINT_C = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
+
+    private fun geckoBody(): String = JSONObject().put("data", JSONArray()
+        .put(geckoPool("Pool1111111111111111111111111111111111111111".take(43), "NEW / SOL", "meteora-damm-v2", NEW_MINT, f.WSOL_8179, "2026-10-17T09:41:12Z", "18234.77"))
+        .put(geckoPool("Pool2222222222222222222222222222222222222222".take(43), "BONK / SOL", "raydium-launchlab", MINT_B, f.WSOL_8179, "2026-10-17T09:40:58Z", "6100.1"))
+        .put(geckoPool("Pool3333333333333333333333333333333333333333".take(43), "SOL / USDC", "orca", f.WSOL_8179, f.USDC_8179, "2026-10-17T09:40:40Z", "250000"))
+        .put(geckoPool("Pool4444444444444444444444444444444444444444".take(43), "CURVE / SOL", "pump-fun", MINT_C, f.WSOL_8179, "2026-10-17T09:40:30Z", "4100"))
+        .put(geckoPool("Pool5555555555555555555555555555555555555555".take(43), "NOTIME / USDC", "orca", MINT_C, f.USDC_8179, null, "900"))
+        .put(geckoPool("Pool6666666666666666666666666666666666666666".take(43), "JUP / USDT", "orca", MINT_C, f.USDT_8179, "2026-10-17T09:39:00Z", "5000"))
+    ).put("included", JSONArray()).toString()
+
+    @Test fun geckoNewPoolsParseWithQuoteAndCurveExclusions() {
+        val skipped = java.util.concurrent.atomic.AtomicLong(0)
+        val out = f.parseGeckoNewPools8179(geckoBody(), skipped)
+        assertEquals(listOf(NEW_MINT, MINT_B, MINT_C), out.map { it.mint })
+        assertEquals(3L, skipped.get())   // SOL-as-base, pump.fun curve (PumpPortal owns it), no creation time
+        val damm = out[0]
+        assertEquals("GECKO_NEW_POOL_METEORA_DAMM_V2", damm.source)
+        assertEquals(ChainLaunchFeed8179.Venue8179.METEORA, damm.venue)
+        assertEquals(f.WSOL_8179, damm.quoteMint)
+        assertEquals(java.time.Instant.parse("2026-10-17T09:41:12Z").toEpochMilli(), damm.blockTimeMs)
+        assertEquals(18234.77, f.quoteDepthUsd8179(damm, 150.0), 1e-9)
+        // A bonding curve's reserve_in_usd (unsold inventory) is no sellable depth: unknown.
+        assertTrue(out[1].curve)
+        assertTrue(f.quoteDepthUsd8179(out[1], 150.0).isNaN())
+        assertEquals("GECKO_NEW_POOL_RAYDIUM_LAUNCHLAB", out[1].source)
+        assertEquals(ChainLaunchFeed8179.Venue8179.OTHER, out[2].venue)
+        assertEquals(f.USDT_8179, out[2].quoteMint)
+        assertTrue(f.parseGeckoNewPools8179("{\"errors\":[{\"status\":\"429\"}]}").isEmpty())
+        assertTrue(f.parseGeckoNewPools8179("<html>").isEmpty())
+        assertEquals("", f.geckoMint8179("eth_0xabc"))
+    }
+
+    @Test fun geckoPoolTimeIsNeverAMintBirth() {
+        val out = f.parseGeckoNewPools8179(geckoBody())
+        assertTrue(out.none { it.mintInitInTx })
+        // Recorded as a pool floor: a lower bound of age, never KNOWN; an old token stays old.
+        val now = System.currentTimeMillis()
+        val r = AdmissionBirth8144.read8144(AdmissionBirth8144.Witness8144(poolFloorMs = now - 60_000L), now)
+        assertEquals(AdmissionBirth8144.Kind8144.PROVEN_OLDER_THAN, r.kind)
+        assertEquals(AdmissionBirth8144.Window8144.UNKNOWN_DEFER, AdmissionBirth8144.window8144(r, 5 * 60_000L))
+        val old = AdmissionBirth8144.read8144(AdmissionBirth8144.Witness8144(poolFloorMs = now - 60_000L, oldestSignatureMs = now - 3 * 86_400_000L), now)
+        assertEquals(AdmissionBirth8144.Kind8144.KNOWN, old.kind)
+        assertEquals(AdmissionBirth8144.Window8144.PAST_WINDOW, AdmissionBirth8144.window8144(old, 5 * 60_000L))
+    }
+
+    @Test fun sharedDedupPeekDoesNotConsumeASlot() {
+        val s = ChainLaunchFeed8179.BoundedSeen8179(2)
+        assertFalse(s.contains8179(NEW_MINT))
+        assertEquals(0, s.size8179())
+        assertTrue(s.firstSeen8179(NEW_MINT))   // a chain-read launch marks it ...
+        assertTrue(s.contains8179(NEW_MINT))    // ... and the Gecko poll then skips the same mint
+    }
 }
