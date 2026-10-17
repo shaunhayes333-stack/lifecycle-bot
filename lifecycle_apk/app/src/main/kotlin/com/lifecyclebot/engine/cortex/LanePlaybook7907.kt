@@ -769,19 +769,44 @@ object LanePlaybook7907 {
     private val inputRequestedAt8085 = ConcurrentHashMap<String, Long>()
     private const val INPUT_REFRESH_GAP_MS_8085 = 30_000L
 
-    /** Pure throttle: one missing-input re-fetch per mint per 30 s. */
+    /** Pure throttle: the same feature waits 30 s, but other missing features must not disappear behind it. */
     fun inputRefreshDue8085(lastMs: Long?, nowMs: Long): Boolean = lastMs == null || nowMs - lastMs >= INPUT_REFRESH_GAP_MS_8085
+
+    /** 8196: one mint can need different bp / tape / shape / price inputs for independent qualified specialists. */
+    internal fun dueMissingInputs8196(
+        missing: List<String>, lastAt: (String) -> Long?, nowMs: Long,
+    ): List<String> = missing.distinctBy { it.substringBefore(':').trim().lowercase() }
+        .filter { raw ->
+            val feature = raw.substringBefore(':').trim().lowercase()
+            feature.isNotBlank() && inputRefreshDue8085(lastAt(feature), nowMs)
+        }
 
     private fun requestInputs8085(mint: String, symbol: String, missing: List<String>, nowMs: Long) {
         val r = inputRefresher8085 ?: run {
             PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_NO_RECEIVER_8168")
             return
         }
-        if (mint.isBlank() || !inputRefreshDue8085(inputRequestedAt8085[mint], nowMs)) return
-        inputRequestedAt8085[mint] = nowMs
-        if (inputRequestedAt8085.size > 4_000) inputRequestedAt8085.entries.removeIf { nowMs - it.value > 600_000L }
+        if (mint.isBlank() || missing.isEmpty()) return
+        // A mint-wide throttle used to ignore the second specialist's different missing
+        // inputs for 30 s. Per mint + feature keys preserve the same provider budget
+        // without letting a shape request silently swallow a tape / pair / liquidity read.
+        val due8196 = synchronized(inputRequestedAt8085) {
+            val selected = dueMissingInputs8196(missing, { feature -> inputRequestedAt8085["$mint|$feature"] }, nowMs)
+            selected.forEach { raw -> inputRequestedAt8085["$mint|${raw.substringBefore(':').trim().lowercase()}"] = nowMs }
+            if (inputRequestedAt8085.size > 4_000)
+                inputRequestedAt8085.entries.removeIf { nowMs - it.value > 600_000L }
+            selected
+        }
+        if (due8196.isEmpty()) return
         try { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_REQUESTED_8085") } catch (_: Throwable) {}
-        try { r(mint, symbol, missing) } catch (_: Throwable) { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_FAILED_8168") }
+        try { r(mint, symbol, due8196) } catch (_: Throwable) {
+            PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_FAILED_8168")
+            // An upstream throw did not start the missing-feature fetch. Retry next
+            // cycle instead of caching a failed request as if it had been delivered.
+            synchronized(inputRequestedAt8085) {
+                due8196.forEach { raw -> inputRequestedAt8085.remove("$mint|${raw.substringBefore(':').trim().lowercase()}", nowMs) }
+            }
+        }
     }
 
     /** V5.0.8084 — the structured classification of this candidate version (null only on an internal failure). */
