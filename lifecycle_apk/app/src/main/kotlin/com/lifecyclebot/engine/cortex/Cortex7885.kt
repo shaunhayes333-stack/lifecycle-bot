@@ -388,6 +388,21 @@ object Cortex7885 {
         return null
     }
 
+    /**
+     * 8196: the native brain identified a qualified lane BEFORE its FDG read.
+     * Queue a Cortex voter assessment now, so the immutable decision-time
+     * capture can reuse a warm prediction rather than opening an already-late
+     * cold voter read. Strictly bounded by cachedOrSchedule's existing pool.
+     */
+    fun prewarmNative8196(ts: TokenState, lane: String) {
+        try {
+            if (ts.mint.isNotBlank() && lane.isNotBlank()) {
+                val cached = cachedOrSchedule(ts, lane)
+                inc(if (cached == null) "PREWARM_QUEUED_8196" else "PREWARM_CACHE_HIT_8196")
+            }
+        } catch (_: Throwable) { inc("PREWARM_FAILED_8196") }
+    }
+
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
     fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
