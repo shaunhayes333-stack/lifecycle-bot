@@ -82,12 +82,23 @@ object PumpFunWS {
     internal const val AUTH_REPROBE_MS_8094 = 10L * 60_000L
 
     /** Pure (V5.0.8094): has a trade-stream auth denial at [deniedAtMs] aged out for a re-probe at [nowMs]? */
-    internal fun authReprobeDue8094(denied: Boolean, deniedAtMs: Long, nowMs: Long): Boolean =
-        denied && deniedAtMs > 0L && nowMs - deniedAtMs >= AUTH_REPROBE_MS_8094
+    internal fun authReprobeDue8094(denied: Boolean, deniedAtMs: Long, nowMs: Long, delayMs: Long = AUTH_REPROBE_MS_8094): Boolean =
+        denied && deniedAtMs > 0L && nowMs - deniedAtMs >= delayMs
+
+    // V5.0.8182 — a refusal no longer locks the stream for 10 minutes: re-check on a fresh connection after 1, 2, 4, 8,
+    // then every 10 minutes; the first real trade frame resets the ladder.
+    private val authDenials8182 = AtomicLong(0L)
+    @Volatile private var tradeConfirmedAtMs8182 = 0L
+    private val tradeFramesSinceConnect8182 = AtomicLong(0L)
+
+    /** Pure: the wait before re-checking after the [denials]th consecutive refusal (1 → 60 s, doubling, capped at 10 min). */
+    internal fun reprobeDelayMs8182(denials: Long): Long =
+        (60_000L shl (denials - 1).coerceIn(0L, 4L).toInt()).coerceAtMost(AUTH_REPROBE_MS_8094)
 
     private fun maybeReprobeAuth8094(nowMs: Long = System.currentTimeMillis()) {
         refreshKey8181(nowMs)
-        if (apiKey7284.isBlank() || !authReprobeDue8094(tradeAuthDenied7432.get(), tradeAuthDeniedAtMs8094, nowMs)) return
+        if (apiKey7284.isBlank() || !authReprobeDue8094(tradeAuthDenied7432.get(), tradeAuthDeniedAtMs8094, nowMs,
+                reprobeDelayMs8182(authDenials8182.get()))) return
         tradeAuthDenied7432.set(false)
         tradeAuthDeniedAtMs8094 = 0L
         unsupportedTradeDemand7485.clear()
@@ -123,6 +134,7 @@ object PumpFunWS {
         keyChanges8181.incrementAndGet()
         tradeAuthDenied7432.set(false)
         tradeAuthDeniedAtMs8094 = 0L
+        authDenials8182.set(0L)
         unsupportedTradeDemand7485.clear()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TOKEN_TRADE_KEY_RELOADED_8181") } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "PumpPortal data key changed in settings — reconnecting keyed")
@@ -196,6 +208,8 @@ object PumpFunWS {
     fun status7280(): String {
         val recent = synchronized(recentUntyped7286) { recentUntyped7286.toList() }
         return "key8181=${keyState8181(apiKey7284, tradeAuthDenied7432.get(), connectedKeyed8094)} reprobes8181=${authReprobes8181.get()} keyReloads8181=${keyChanges8181.get()} " +
+            "denials8182=${authDenials8182.get()} nextRecheckS8182=${if (tradeAuthDenied7432.get()) ((tradeAuthDeniedAtMs8094 + reprobeDelayMs8182(authDenials8182.get()) - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L) else 0L} " +
+            "tradeFramesThisConnection8182=${tradeFramesSinceConnect8182.get()} tradeConfirmed8182=${if (tradeConfirmedAtMs8182 > 0L) "YES" else "NO"} " +
             "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
             "tradeStream=${if (tradeAuthDenied7432.get()) "AUTH_DENIED" else if (tokenTradeStreamActive7432()) "OBSERVED" else if (tradeStreamKeyed7284()) "KEYED_UNVERIFIED" else "NO_KEY_LAUNCHES_ONLY"} " +
             "PUMP_LIFECYCLE_STREAM_CAPABLE=${lifecycleStreamCapable7420()} " +
@@ -344,7 +358,17 @@ object PumpFunWS {
         apiKey7284: String = "",
     ) {
         if (!running.compareAndSet(false, true)) {
-            ErrorLogger.warn(TAG, "already running — start() ignored")
+            // V5.0.8182 — a restart with a different key used to be ignored while the socket ran; now it reconnects keyed.
+            if (keyChanged8181(this.apiKey7284, apiKey7284.trim())) {
+                this.apiKey7284 = apiKey7284.trim()
+                keyChanges8181.incrementAndGet()
+                tradeAuthDenied7432.set(false)
+                tradeAuthDeniedAtMs8094 = 0L
+                authDenials8182.set(0L)
+                unsupportedTradeDemand7485.clear()
+                ErrorLogger.info(TAG, "already running — key changed, reconnecting keyed")
+                try { ws?.close(1000, "key changed 8182") } catch (_: Throwable) {}
+            } else ErrorLogger.warn(TAG, "already running — start() ignored")
             return
         }
         onNewTokenCb = onNewToken
@@ -380,6 +404,9 @@ object PumpFunWS {
         // V5.0.7284 — the key rides the connection URL, never a log line.
         val url7284 = if (tradeStreamKeyed7284()) "$URL?api-key=${java.net.URLEncoder.encode(apiKey7284, "UTF-8")}" else URL
         val req = Request.Builder().url(url7284).build()
+        // V5.0.8182 — PumpPortal allows one connection: a socket being replaced is closed first, never left open beside it.
+        ws?.let { old -> ws = null; try { old.close(1000, "replaced 8182") } catch (_: Throwable) {} }
+        tradeFramesSinceConnect8182.set(0L)
         connectedKeyed8094 = tradeStreamKeyed7284()
         ErrorLogger.info(TAG, "🔌 connecting to $URL${if (tradeStreamKeyed7284()) " (keyed)" else ""} (attempt ${reconnectAttempt.get() + 1})")
         ws = client?.newWebSocket(req, listener)
@@ -414,6 +441,7 @@ object PumpFunWS {
                 if (!tradeAuthDenied7432.get() && isTradeAuthRefusal7432(error7432)) {
                     tradeAuthDenied7432.set(true)
                     tradeAuthDeniedAtMs8094 = System.currentTimeMillis()
+                    authDenials8182.incrementAndGet()
                     tokenTradeStreamObserved7432.set(false)
                     tradeSubscriptions7278.clear()
                     subFail7420.incrementAndGet()
@@ -459,6 +487,10 @@ object PumpFunWS {
                         val priceSol = vSol / vTok
                         if (!priceSol.isFinite() || priceSol <= 0.0) return
                         if (!tradeAuthDenied7432.get()) tokenTradeStreamObserved7432.set(true)
+                        // V5.0.8182 — an actual trade frame is the only proof the paid stream works.
+                        tradeFramesSinceConnect8182.incrementAndGet()
+                        if (tradeConfirmedAtMs8182 == 0L) tradeConfirmedAtMs8182 = System.currentTimeMillis()
+                        authDenials8182.set(0L)
                         // V5.0.8136 — one swap is one swap: a repeated or re-sent frame (same signature, or the same
                         // signer, side, size and post-trade reserves) stops here, before any buyer tape or counter.
                         val swapKey8136 = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(
@@ -574,15 +606,18 @@ object PumpFunWS {
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            val current8182 = ws === webSocket || ws == null
             if (ws === webSocket) { ws = null; tokenTradeStreamObserved7432.set(false) }
             ErrorLogger.warn(TAG, "❌ failure: ${t.message?.take(100)} — will reconnect")
-            scheduleReconnect()
+            if (current8182) scheduleReconnect()
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            // V5.0.8182 — only the CURRENT socket's close reconnects; a replaced one closing must not open a second.
+            val current8182 = ws === webSocket || ws == null
             if (ws === webSocket) { ws = null; tokenTradeStreamObserved7432.set(false) }
             ErrorLogger.info(TAG, "closed code=$code")
-            if (running.get()) scheduleReconnect()
+            if (running.get() && current8182) scheduleReconnect()
         }
     }
 

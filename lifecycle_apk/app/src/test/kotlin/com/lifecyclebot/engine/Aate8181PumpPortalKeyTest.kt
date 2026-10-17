@@ -43,3 +43,29 @@ class Aate8181PumpPortalKeyTest {
         assertTrue(src("ui/DataKeysCard7962.kt").contains("val pp = pumpPortal(a)?.takeIf { it.isNotBlank() } ?: return"))
     }
 }
+
+/** V5.0.8182 — no 10-minute false lockout, a changed key is never ignored, one connection, and trade frames prove the stream. */
+class Aate8182PumpPortalStreamTest {
+    private fun src(path: String) = File("src/main/kotlin/com/lifecyclebot/$path").readText()
+
+    @Test fun refusalIsRecheckedSoonThenBacksOffToTenMinutes() {
+        assertTrue(PumpFunWS.reprobeDelayMs8182(1L) == 60_000L)
+        assertTrue(PumpFunWS.reprobeDelayMs8182(2L) == 120_000L)
+        assertTrue(PumpFunWS.reprobeDelayMs8182(4L) == 480_000L)
+        assertTrue(PumpFunWS.reprobeDelayMs8182(5L) == PumpFunWS.AUTH_REPROBE_MS_8094)
+        assertTrue(PumpFunWS.reprobeDelayMs8182(50L) == PumpFunWS.AUTH_REPROBE_MS_8094)
+        assertTrue(PumpFunWS.authReprobeDue8094(denied = true, deniedAtMs = 1_000L, nowMs = 61_000L, delayMs = PumpFunWS.reprobeDelayMs8182(1L)))
+    }
+
+    @Test fun oneConnectionAndAChangedKeyReconnects() {
+        val ws = src("network/PumpFunWS.kt")
+        assertTrue(ws.contains("ws?.let { old -> ws = null; try { old.close(1000, \"replaced 8182\") }"))
+        assertTrue(ws.contains("if (running.get() && current8182) scheduleReconnect()"))
+        assertTrue(ws.contains("if (current8182) scheduleReconnect()"))
+        val start = ws.substringAfter("fun start(").substringBefore("onNewTokenCb = onNewToken")
+        assertTrue(start.contains("if (keyChanged8181(this.apiKey7284, apiKey7284.trim()))"))
+        assertTrue(start.contains("ws?.close(1000, \"key changed 8182\")"))
+        assertTrue(ws.contains("tradeConfirmed8182="))
+        assertTrue(ws.contains("authDenials8182.set(0L)"))
+    }
+}
