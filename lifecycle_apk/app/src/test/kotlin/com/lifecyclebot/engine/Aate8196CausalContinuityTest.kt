@@ -1,0 +1,92 @@
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.engine.cortex.CortexLabelHygiene8144
+import com.lifecyclebot.engine.cortex.CortexWalkForward8144
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/** 8196: end-to-end Cortex provenance and native-handoff regression contracts. */
+class Aate8196CausalContinuityTest {
+    private fun source(relative: String) =
+        File("src/main/kotlin/com/lifecyclebot/$relative").readText()
+
+    @Test fun rejectedNativeLaneDoesNotGenerateExecutableCortexTrainingProof() {
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_MCAP_TOO_LOW"))
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "OUTSIDE_NATIVE_AGE"))
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_SELLABILITY_REJECT"))
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", false))
+        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", true))
+        // A landed authorised buy is economic truth, even if a diagnostic reason was later applied.
+        assertTrue(CortexLabelHygiene8144.executableDecision8144(true, "NATIVE_MCAP_TOO_LOW"))
+    }
+
+    @Test fun chronologicalWalkForwardDoesNotBorrowRivalsFromAnotherMarketRegime() {
+        val t0 = 2_000_000_000_000L
+        val minute = 60_000L
+        val positive = List(60) { CortexWalkForward8144.Timed8144(t0 + it * 10L * minute, 11.0) }
+        val stale = List(30) { CortexWalkForward8144.Timed8144(t0 - (30 - it) * 10L * minute, 200.0) }
+        val rival = List(30) { CortexWalkForward8144.Timed8144(t0 + (20L + it) * 10L * minute, 18.0) }
+        assertEquals(CortexWalkForward8144.Verdict8144.VALIDATED,
+            CortexWalkForward8144.promoteTimed8196(positive, listOf(stale to 1.0)).verdict)
+        assertEquals(CortexWalkForward8144.Verdict8144.INVERTED_OOS,
+            CortexWalkForward8144.promoteTimed8196(positive, listOf(rival to 1.0)).verdict)
+        assertEquals(CortexWalkForward8144.Verdict8144.UNRESOLVED_COHORT,
+            CortexWalkForward8144.promoteTimed8196(positive, emptyList(), 0.3).verdict)
+    }
+
+    @Test fun registeredNativeOpinionsPrewarmActualCortexAndFetchMissingSources() {
+        val native = source("engine/SpecialistBrainBridge7542.kt")
+        val cortex = source("engine/cortex/Cortex7885.kt")
+        assertTrue(native.contains("registerElection8136(it);primeDecisionData8196(ts,it)"))
+        assertTrue(native.contains("Cortex7885.prewarmNative8196(ts, o.lane)"))
+        assertTrue(native.contains("LanePlaybook7907.requestEvidence8153(ts, missing, nowMs)"))
+        assertTrue(cortex.contains("fun prewarmNative8196(ts: TokenState, lane: String)"))
+        assertTrue(cortex.contains("val nativeEligible8196 ="))
+        assertTrue(cortex.contains("executableDecision8144(admitted, reason, nativeEligible8196)"))
+        assertFalse(native.contains("PipelineHealthCollector.labelInc(\"SPECIALIST_UPSTREAM_EVIDENCE_FAKE_OBSERVED"))
+    }
+
+    @Test fun newReceiverInvalidatesOldFdgVerdictButRetainsHardSafetyAndRealFinality() {
+        val task = source("engine/HandoffReceiverTasks8153.kt")
+        val fdg = source("engine/FinalDecisionGate.kt")
+        val bot = source("engine/BotService.kt")
+        val native = source("engine/SpecialistOwnership7951.kt")
+        val start = task.indexOf("fun openTask8153(")
+        val end = task.indexOf("fun refreshTask8153(", start)
+        assertTrue(start >= 0 && end > start)
+        val method = task.substring(start, end)
+        assertTrue(method.contains("opened8196 = it != null && it.pending && it !== prior"))
+        assertTrue(method.contains("if (opened8196)"))
+        assertTrue(method.contains("FinalDecisionGate.invalidateCandidate6734(mint)"))
+        assertTrue(fdg.contains("SpecialistOwnership7951.onFdgVerdict7951("))
+        assertTrue(native.contains("HandoffReceiverTasks8153.onFdgVerdict8153("))
+        assertTrue(task.contains("fun due8153("))
+        assertTrue(task.contains("fun onFdg8153("))
+        // The entry spine still requires a separately sealed FDG verdict and an authoriser.
+        assertTrue(bot.contains("fdgDecision7835 = moonshotFdgDecision"))
+        assertTrue(bot.contains("TradeAuthorizer.authorize("))
+        assertTrue(bot.contains("FinalExecutionPermit.tryAcquireExecution("))
+    }
+
+    @Test fun handoffPurityRetainsOneTaskAndOneTerminalVerdict() {
+        val t0 = 2_000_000_000_000L
+        val created = HandoffReceiverTasks8153.open8153(
+            null, "mint8196", "MOONSHOT", "CORE", "YIELD", 100L, t0, t0
+        )!!
+        val deduped = HandoffReceiverTasks8153.open8153(
+            created, "mint8196", "MOONSHOT", "CORE", "YIELD", 100L, t0 + 10L, t0 + 10L
+        )
+        assertTrue(created === deduped)
+        val scheduled = HandoffReceiverTasks8153.scheduled8153(created, "MOONSHOT", t0 + 1000L)
+        val evaluated = HandoffReceiverTasks8153.onFdg8153(
+            scheduled, "MOONSHOT", true, null, t0 + 1200L, 100L
+        )
+        assertEquals(HandoffReceiverTasks8153.Outcome8153.EVALUATED, evaluated.outcome)
+        assertEquals("FDG_ALLOW", evaluated.verdict)
+        assertFalse(evaluated.pending)
+        assertFalse(HandoffReceiverTasks8153.due8153(evaluated, "MOONSHOT", t0 + 1300L, 100L))
+    }
+}
