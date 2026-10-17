@@ -19,20 +19,20 @@ class Aate8197NativeHandoffAndHydrationTest {
         t.lastPricePoolAddr = "actual-meteora-pool"
         t.lastPriceUpdate = now
         val native = h.resolveFromToken8196(t, false, now - 120_000L, now)
-        assertEquals(h.State.PAIR_SOURCE_NATIVE, native.state)
+        assertEquals(PairHydrationState6398.State.PAIR_SOURCE_NATIVE, native.state)
         assertEquals("actual-meteora-pool", native.pairAddress)
         assertEquals("SOURCE_NATIVE_POOL_8197", native.reason)
 
         t.lastPriceUpdate = now - 600_000L
         val stale = h.resolveFromToken8196(t, false, now - 120_000L, now)
-        assertEquals(h.State.PAIR_PENDING_HYDRATION, stale.state)
+        assertEquals(PairHydrationState6398.State.PAIR_PENDING_HYDRATION, stale.state)
 
         t.tokenMap.poolAddress = "verified-dex-pool"
         t.tokenMap.hydrationComplete = true
         t.tokenMap.updatedAtMs = now
         t.tokenMap.providerTimestamps["DEXSCREENER"] = now
         val confirmed = h.resolveFromToken8196(t, false, now - 120_000L, now)
-        assertEquals(h.State.PAIR_CONFIRMED, confirmed.state)
+        assertEquals(PairHydrationState6398.State.PAIR_CONFIRMED, confirmed.state)
         assertEquals("verified-dex-pool", confirmed.pairAddress)
     }
 
@@ -45,7 +45,7 @@ class Aate8197NativeHandoffAndHydrationTest {
             t.lastPricePoolAddr = "provider-pool-" + source
             t.lastPriceUpdate = now
             val result = h.resolveFromToken8196(t, false, now - 120_000L, now)
-            assertEquals(h.State.PAIR_SOURCE_NATIVE, result.state)
+            assertEquals(PairHydrationState6398.State.PAIR_SOURCE_NATIVE, result.state)
             assertEquals(t.lastPricePoolAddr, result.pairAddress)
             assertEquals("SOURCE_NATIVE_POOL_8197", result.reason)
         }
@@ -57,14 +57,14 @@ class Aate8197NativeHandoffAndHydrationTest {
         val t = TokenState(mint = "mint-pump8197", symbol = "P")
         t.source = "PUMP_FUN_NEW"
         val unproven = h.resolveFromToken8196(t, true, now - 120_000L, now)
-        assertEquals(h.State.PAIR_PENDING_HYDRATION, unproven.state)
+        assertEquals(PairHydrationState6398.State.PAIR_PENDING_HYDRATION, unproven.state)
         assertNotEquals(t.mint, unproven.pairAddress)
 
         t.tokenMap.pumpFunBondingCurveAddress = "verified-pda-not-mint"
         t.tokenMap.pumpFunExecutable = true
         t.tokenMap.updatedAtMs = now
         val verified = h.resolveFromToken8196(t, true, now - 120_000L, now)
-        assertEquals(h.State.PAIR_SOURCE_NATIVE, verified.state)
+        assertEquals(PairHydrationState6398.State.PAIR_SOURCE_NATIVE, verified.state)
         assertEquals("verified-pda-not-mint", verified.pairAddress)
     }
 
@@ -113,13 +113,13 @@ class Aate8197NativeHandoffAndHydrationTest {
         ts.tokenMap.updatedAtMs = now
         ts.tokenMap.pumpFunExecutable = true
         val proven = h.resolveFromToken8196(ts, true, now - 120_000L, now)
-        assertEquals(h.State.ROUTE_CONFIRMED_WITHOUT_PAIR, proven.state)
+        assertEquals(PairHydrationState6398.State.ROUTE_CONFIRMED_WITHOUT_PAIR, proven.state)
         assertEquals("PUMPFUN_DIRECT_EXECUTABLE_8197", proven.reason)
         assertEquals(null, proven.pairAddress)
         // Stale price may not manufacture a new current route.
         ts.lastPriceUpdate = now - 120_000L
         val stale = h.resolveFromToken8196(ts, true, now - 120_000L, now)
-        assertEquals(h.State.PAIR_PENDING_HYDRATION, stale.state)
+        assertEquals(PairHydrationState6398.State.PAIR_PENDING_HYDRATION, stale.state)
     }
 
     @Test fun everyQualifiedLaneIsEligibleForMissingDataRefreshNotOnlyCortexTopTwo() {
