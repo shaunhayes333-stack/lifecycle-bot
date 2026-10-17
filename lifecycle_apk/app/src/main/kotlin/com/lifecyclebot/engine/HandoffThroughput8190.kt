@@ -118,7 +118,7 @@ object ReceiverRecord8190 {
     private const val MAX_8190 = 2_048
 
     private val inputDeferredAt8190 = ConcurrentHashMap<String, Long>()
-    private val counts8190 = ConcurrentHashMap<String, AtomicLong>()
+    private val recordCounts8190 = ConcurrentHashMap<String, AtomicLong>()
 
     /**
      * Pure: null = sound. [negativeSetup] = LanePlaybook7907.pickedSetupNegative8094; [missingInputs] = the unobserved
@@ -156,13 +156,13 @@ object ReceiverRecord8190 {
 
     private fun count8190(v: String?) {
         val k = v ?: "SOUND"
-        counts8190.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet()
+        recordCounts8190.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("RECEIVER_RECORD_8190_$k") } catch (_: Throwable) {}
     }
 
-    fun counts8190(): Map<String, Long> = counts8190.mapValues { it.value.get() }
+    fun counts8190(): Map<String, Long> = recordCounts8190.mapValues { it.value.get() }
 
-    internal fun resetForTests8190() { inputDeferredAt8190.clear(); counts8190.clear() }
+    internal fun resetForTests8190() { inputDeferredAt8190.clear(); recordCounts8190.clear() }
 }
 
 /**
@@ -176,7 +176,7 @@ object HandoffPriority8190 {
     /** Pure: [targets] (mint -> validUntil, sooner first) restricted to [present], bounded. */
     fun select8190(targets: List<Pair<String, Long>>, present: Collection<String>, max: Int = MAX_TARGETS_8190): List<String> {
         if (targets.isEmpty() || present.isEmpty()) return emptyList()
-        val set = present as? Set<String> ?: present.toHashSet()
+        val set = present.toHashSet()
         return targets.asSequence().filter { it.first in set }.sortedBy { it.second }.map { it.first }.distinct().take(max).toList()
     }
 
