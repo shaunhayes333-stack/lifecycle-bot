@@ -12,8 +12,8 @@ import java.io.File
 class Aate8174LiquidityProofTest {
     @Test fun priceImpliedCurveLiquidityIsNeverAnExecutableReserveWitness() {
         val c = LaunchCohort8173
-        val observed = c.CurveRead8173(3.0, c.CurveSource8173.RESERVES)
-        val inferred = c.CurveRead8173(55.0, c.CurveSource8173.PRICE_IMPLIED)
+        val observed = LaunchCohort8173.CurveRead8173(3.0, LaunchCohort8173.CurveSource8173.RESERVES)
+        val inferred = LaunchCohort8173.CurveRead8173(55.0, LaunchCohort8173.CurveSource8173.PRICE_IMPLIED)
         assertEquals(3.0, c.executableReserve8174(observed, 1_000L)!!, 1e-9)
         assertNull(c.executableReserve8174(inferred, 1_000L))
         assertNull(c.executableReserve8174(observed, 31_000L))
