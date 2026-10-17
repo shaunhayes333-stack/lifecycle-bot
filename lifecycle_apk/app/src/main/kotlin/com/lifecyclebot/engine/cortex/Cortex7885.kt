@@ -78,6 +78,8 @@ object Cortex7885 {
         @Volatile var selected8153: String = ""
         /** V5.0.8169 — the voters were read after this decision's forward label started (CortexAudit8169.voterReadLeaks8169). */
         @Volatile var lateRead8169: Boolean = false
+        /** Frozen at capture; a persisted pending observation cannot change LIVE/PAPER ownership after restart. */
+        @Volatile var modeAtDecision8196: String = ""
     }
 
     private val ledger = CortexLedger7885()
@@ -445,7 +447,11 @@ object Cortex7885 {
         // lane x bucket x setup cell, not only the one consumer tag.
         val fired8094 = snap8084?.takeIf { it.lane == a.lane }?.matched.orEmpty()
             .filter { it.isNotBlank() && it != setup7961 && it != LanePlaybook7907.NO_TRIGGER }.distinct().take(8)
-        pending["$mint|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, frozenSource8174, setup7961, fired8094).also { it.selected8153 = sel8153.orEmpty(); it.lateRead8169 = late8169 }
+        pending["$mint|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, frozenSource8174, setup7961, fired8094).also {
+            it.selected8153 = sel8153.orEmpty()
+            it.lateRead8169 = late8169
+            it.modeAtDecision8196 = accountMode8077()
+        }
         // The decision's executable context is frozen before enqueue, not read after the price move.
         if (frozenCtx8174 != null) pendingCtx8144["$mint|${labelLane.trim().uppercase()}"] = frozenCtx8174
         try { sweepLost8144(nowMs) } catch (_: Throwable) {}
@@ -509,7 +515,13 @@ object Cortex7885 {
                         .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("su", p.setup7961).put("ep", PERSIST_KEY).put("i", ids).put("x", xs)
                         .put("pr8076", pr).put("pw8076", pw)
                         .put("base8076", jsonNumber(a.prediction8076?.base)).put("bw8076", jsonNumber(a.prediction8076?.baseWin))
-                        .put("lr8169", p.lateRead8169),
+                        .put("lr8169", p.lateRead8169)
+                        .put("mode8196", p.modeAtDecision8196).put("sel8196", p.selected8153)
+                        .put("fired8196", org.json.JSONArray(p.fired8094))
+                        .put("ctx8196", pendingCtx8144[k]?.let { ctx ->
+                            org.json.JSONObject().put("timing", ctx.timing).put("cost", ctx.costBand)
+                                .put("cohort", ctx.cohort).put("lat", ctx.latencyMeasured).put("exec", ctx.executable)
+                        } ?: org.json.JSONObject.NULL),
                 )
             }
             // V5.0.8013 — graded decisions held for progressive revision ride along (newest decisions first),
@@ -560,10 +572,10 @@ object Cortex7885 {
             val o = arr.optJSONObject(i) ?: continue
             val k = o.optString("k")
             val at = o.optLong("at")
-            if (k.isBlank() || pending.containsKey(k) || nowMs - at > PENDING_TTL_MS || at > nowMs) continue
-            // V5.0.8187 — a decision past the labeler's reach (it keeps an observation 70 min at most) cannot be graded: it is
-            // not restored as "pending" (5.0.8175 counted 626 restored, 608 of them pruned unlabelled within a minute).
-            if (!persistablePending8144(at, nowMs)) { inc("PENDING_RESTORE_PAST_LABEL_8187"); continue }
+            // V5.0.8196 — do not silently discard the unresolved denominator on a restart.
+            // Every saved observation is either reconnected to a pending 5m label or closed as LOST.
+            if (k.isBlank() || pending.containsKey(k) || at <= 0L || at > nowMs ||
+                nowMs - at > 24L * 3_600_000L) continue
             // V5.0.7948 — a decision's bucket was assigned by the ledger of its build. One
             // saved before the 7947 label epoch was bucketed on 60/240-minute, spike-blind
             // grades and would be filed into books graded on the 5-minute read.
@@ -588,8 +600,33 @@ object Cortex7885 {
                 fused, o.optDouble("ce", 0.0), b, 0, false, at,
                 CortexLedger7885.PredictionSnapshot8076(preds.toDoubleArray(), wins.toDoubleArray(),
                     o.optDouble("base8076", Double.NaN), o.optDouble("bw8076", Double.NaN)))
-            pending[k] = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, o.optString("s"), o.optString("su"))
-                .also { it.lateRead8169 = o.optBoolean("lr8169", false) }  // V5.0.8169
+            val fired8196 = o.optJSONArray("fired8196")?.let { j ->
+                (0 until minOf(j.length(), 8)).mapNotNull { idx -> j.optString(idx).takeIf { it.isNotBlank() } }
+            } ?: emptyList()
+            val p8196 = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null },
+                o.optString("s"), o.optString("su"), fired8196).also {
+                    it.lateRead8169 = o.optBoolean("lr8169", false)
+                    it.selected8153 = o.optString("sel8196")
+                    it.modeAtDecision8196 = o.optString("mode8196").takeIf { it in listOf("LIVE", "PAPER") }.orEmpty()
+                }
+            val ctx8196 = o.optJSONObject("ctx8196")?.let { x ->
+                DecisionCtx8144(x.optString("timing", LanePlaybook7907.TIMING_UNKNOWN_8094),
+                    x.optString("cost", "CUNK"), x.optString("cohort", "UNK"),
+                    x.optBoolean("lat"), x.optBoolean("exec"))
+            }
+            if (nowMs - at > CortexLabelHygiene8144.LOST_AFTER_MS_8144 ||
+                !persistablePending8144(at, nowMs)) {
+                val id8196 = "$k|$at"
+                if (gradeBook8144.decision(id8196) == null &&
+                    gradeBook8144.addDecision(newDecision8144(id8196, k, p8196, ctx8196,
+                        verdict8144(k, p8196, ctx8196)))) {
+                    gradeBook8144.markLost(id8196)
+                    inc("PENDING_RESTORE_EXPIRED_FILED_LOST_8196")
+                }
+                continue
+            }
+            pending[k] = p8196
+            if (ctx8196 != null) pendingCtx8144[k] = ctx8196
             inc("PENDING_RESTORED")
         }
         restoreGraded8013(root, dict, nowMs)
@@ -780,7 +817,8 @@ object Cortex7885 {
     /** Caller holds the lock. */
     private fun verdict8144(key: String, p: Pending, ctx: DecisionCtx8144?): CortexLabelHygiene8144.Verdict8144 =
         CortexLabelHygiene8144.Verdict8144(
-            (ctx?.executable ?: true) && CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.vetoRule),
+            // Old checkpoint rows had no eligibility context; a missing refusal proof is observed-only, never executable.
+            (ctx?.executable ?: p.legacyAdmitted) && CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.vetoRule),
             CortexLabelHygiene8144.repeatInEpisode8144(p.legacyAdmitted, gradeBook8144.lastGradedAt(key), p.atMs),
         )
 
@@ -788,7 +826,8 @@ object Cortex7885 {
         CortexGradeRecord8144('D', id, key, p.atMs, p.a.lane, p.selected8153.ifBlank { p.setup7961 }.ifBlank { "-" }, p.a.regime.ifBlank { "-" },
             ctx?.timing ?: LanePlaybook7907.TIMING_UNKNOWN_8094, ctx?.costBand ?: "CUNK", ctx?.cohort ?: "UNK",
             p.a.bucket.ordinal, p.a.calibratedEdge, p.legacyAdmitted, v.executable, v.repeat)
-            .also { it.mode = accountMode8077(); it.lateRead8187 = p.lateRead8169 }  // V5.0.8187 — mode for a close's recovery; late read kept
+            .also { it.mode = p.modeAtDecision8196.ifBlank { "UNKNOWN" }; it.lateRead8187 = p.lateRead8169 }
+            // V5.0.8196: a persisted unknown historical mode must never be rebound to a newer account mode.
 
     /** Caller holds the lock. The 5-minute label of [p] as a grade record; returns the hygiene verdict. */
     private fun recordLabel8144(key: String, p: Pending, netPct: Double, grossPct: Double, latencyMeasured: Boolean): CortexLabelHygiene8144.Verdict8144 {
@@ -864,9 +903,10 @@ object Cortex7885 {
         wfCache8144[ck]?.let { (at, cached) -> if (now - at in 0L until WF_REFRESH_MS_8144) return cached }
         val strong = CortexScoreboard7885.Bucket.STRONG.ordinal
         val rivals = listOf(CortexScoreboard7885.Bucket.NEUTRAL.ordinal, CortexScoreboard7885.Bucket.REFUSE.ordinal).map { b ->
-            gradeBook8144.executableSeries(lane, setup, b) to gradeBook8144.resolvedShare(lane, b, setup)
+            gradeBook8144.executableTimed8196(lane, setup, b) to gradeBook8144.resolvedShare(lane, b, setup)
         }
-        val result = CortexWalkForward8144.promote8144(gradeBook8144.executableSeries(lane, setup, strong), rivals, gradeBook8144.resolvedShare(lane, strong, setup))
+        val result = CortexWalkForward8144.promoteChronological8196(
+            gradeBook8144.executableTimed8196(lane, setup, strong), rivals, gradeBook8144.resolvedShare(lane, strong, setup))
         if (wfCache8144.size > 400) wfCache8144.clear()
         wfCache8144[ck] = now to result
         return result
