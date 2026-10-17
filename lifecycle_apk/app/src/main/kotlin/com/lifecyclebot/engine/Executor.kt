@@ -6723,7 +6723,7 @@ class Executor(
             val rp7392 = try { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(ts.mint) } catch (_: Throwable) { null }
             val src7392 = try { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedSource(ts.mint).uppercase() } catch (_: Throwable) { "" }
             val trustedSrc7392 = src7392.startsWith("FANOUT_CORROBORATED") || src7392.contains("PUMP_CURVE") ||
-                src7392.startsWith("LOCKED_VENUE_")
+                src7392.startsWith("LOCKED_VENUE_") || src7392 == com.lifecyclebot.engine.truth.HeldExitQuote8189.SOURCE_8189  // V5.0.8189 — an executable sell quote for the held qty
             if (rp7392 != null && rp7392.isFinite() && rp7392 > 0.0 && pos.entryPrice > 0.0 && trustedSrc7392) {
                 try { PipelineHealthCollector.labelInc("PROFIT_LOCK_ON_REPAIRED_MARK_7392") } catch (_: Throwable) {}
                 rp7392 / pos.entryPrice
@@ -7314,6 +7314,28 @@ class Executor(
                 "fraction=${"%.3f".format(f)} proceeds=${"%.6f".format(proceeds)} sliceCost=${"%.6f".format(sliceCost)} " +
                 "exitCost=${"%.2f".format(exitCostPct)}% net=${"%.6f".format(com.lifecyclebot.engine.sell.PartialNetEconomics8094.sliceNetSol8094(proceeds, sliceCost, exitCostPct))} action=keep_inventory")
         } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
+     * V5.0.8189 — an uneconomic discretionary profit slice escalates to a full profit exit when the WHOLE remaining
+     * position nets a profit after one exit leg's costs (ProfitEscalation8189). Runner holds / confirmed continuations
+     * keep their residual. True when the full exit was requested (it still passes ProfitExitTruth8163 on its own quote).
+     */
+    private fun profitEscalated8189(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): Boolean {
+        val pos = ts.position
+        if (pos.isPaperPosition || !pos.isOpen || reason.startsWith(com.lifecyclebot.engine.sell.ProfitEscalation8189.REASON_PREFIX_8189)) return false
+        val full = proceedsSol7029(pos.qtyToken, getActualPrice(ts)) ?: return false
+        val canon = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pos.positionId)?.takeIf { it.mint == ts.mint } } catch (_: Throwable) { null }
+        val remainingCost = canon?.let { it.entryCostSol - it.soldCostBasisSol }?.takeIf { it.isFinite() && it > 0.0 } ?: pos.costSol
+        val exitCostPct = try { com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(pos.tradingMode, full, ts.lastLiquidityUsd) / 2.0 }
+            catch (_: Throwable) { com.lifecyclebot.engine.truth.FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 / 2.0 }
+        val runner = try { LifecycleHold8065.holding8065(ts) || RunnerLive8153.continuationConfirmed8153(ts) } catch (_: Throwable) { true }
+        val v = com.lifecyclebot.engine.sell.ProfitEscalation8189.verdict8189(true, full, remainingCost, exitCostPct, CostMeter8151.sellLegFixedSol8151(), runner)
+        com.lifecyclebot.engine.sell.ProfitEscalation8189.count8189(v)
+        if (v != com.lifecyclebot.engine.sell.ProfitEscalation8189.Verdict8189.ESCALATE_FULL) return false
+        try { ForensicLogger.lifecycle("PROFIT_SLICE_ESCALATED_FULL_8189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} slice=${reason.take(48)} fullProceeds=${"%.6f".format(full)} cost=${"%.6f".format(remainingCost)}") } catch (_: Throwable) {}
+        requestSell(ts, com.lifecyclebot.engine.sell.ProfitEscalation8189.reason8189(reason), wallet, walletSol)
         return true
     }
 
@@ -23667,6 +23689,7 @@ class Executor(
         }
         // V5.0.8094 — a discretionary profit slice whose net its own exit costs consume is not sent.
         if (partialUneconomic8094(ts, pct, reason)) {
+            if (profitEscalated8189(ts, reason, wallet, walletBalance)) { receipt6566?.invoke(PartialSellReceipt6566(false)); return }  // V5.0.8189
             try { DecisionReasons8031.hold8031(ts, "PARTIAL_EXIT_NET_UNECONOMIC", reason) } catch (_: Throwable) {}
             receipt6566?.invoke(PartialSellReceipt6566(false))
             return

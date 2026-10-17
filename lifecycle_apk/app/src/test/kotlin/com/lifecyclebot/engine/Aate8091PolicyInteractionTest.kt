@@ -75,6 +75,10 @@ class Aate8091PolicyInteractionTest {
         assertNull(LifecycleHold8065.defer8065(ts, "STRICT_SL_-15"))
         // A runner that DID run (peak +60%) keeps the lifecycle contract: ordinary stops held above the -40% floor.
         ts.position.peakGainPct = 60.0
+        // Superseded by V5.0.8189: a sealed runner style alone is not runner evidence — the hold also needs a proven
+        // setup (or a corroborated +100% peak, LifecycleEvidence8189). Unproven, the ordinary exit is not held.
+        assertNull(LifecycleHold8065.defer8065(ts, "CORTEX_EXIT_7897_MOONSHOT_FWD-7PCT"))
+        LifecycleEvidence8189.noteSetupProven8189(ts, true)
         assertNotNull(LifecycleHold8065.defer8065(ts, "CORTEX_EXIT_7897_MOONSHOT_FWD-7PCT"))
         assertNotNull(LifecycleHold8065.defer8065(ts, "STRICT_SL_-15"))
         assertEquals(LifecycleHold8065.FLOOR_PCT, StopAuthority7887.stopMagFor(ts), 0.0)

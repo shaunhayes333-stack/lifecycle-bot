@@ -3075,7 +3075,7 @@ class BotService : Service() {
         val key7809 = ts.mint
         val startedAt7809 = System.currentTimeMillis()
         val selling7948 = try { com.lifecyclebot.engine.sell.CloseLease.sellInFlight7948(key7809) } catch (_: Throwable) { false }
-        if (!com.lifecyclebot.engine.sell.ExitHotPath7809.tryBegin(key7809, startedAt7809, selling7948)) {
+        if (!com.lifecyclebot.engine.sell.ExitHotPath7809.tryBegin(key7809, startedAt7809, selling7948, !selling7948 || com.lifecyclebot.engine.sell.ExitHotPath7809.signedSellPending8189(key7809))) {
             try { PipelineHealthCollector.labelInc("HOT_EXIT_UNIT_COALESCED_7809") } catch (_: Throwable) {}
             return
         }
