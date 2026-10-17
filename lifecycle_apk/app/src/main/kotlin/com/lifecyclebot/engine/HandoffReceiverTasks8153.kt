@@ -123,10 +123,11 @@ object HandoffReceiverTasks8153 {
         // until TTL, preventing the fresh receiver from ever reaching its FDG.
         // Repeated reads of the SAME handoff/version still coalesce as before.
         if (prior != null && prior.pending && nowMs <= prior.validUntilMs &&
-            (version <= 0L || prior.version <= 0L || prior.version == version || newHandoffAtMs <= prior.createdAtMs)
+            (version <= 0L || prior.version <= 0L || prior.version == version)
         ) return prior
         if (prior != null && !prior.pending && prior.lane == l && nowMs - prior.settledAtMs in 0L..SETTLED_HOLD_MS_8153 &&
-            prior.settledAtMs >= newHandoffAtMs) return prior
+            prior.settledAtMs >= newHandoffAtMs &&
+            (version <= 0L || prior.version <= 0L || prior.version == version)) return prior
         return Task8153(mint, l, canon8153(from), reason.take(80), version, nowMs, nowMs + TASK_TTL_MS_8153, evidenceAtMs)
     }
 

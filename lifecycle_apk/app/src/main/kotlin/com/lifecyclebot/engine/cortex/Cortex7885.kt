@@ -330,41 +330,48 @@ object Cortex7885 {
         val snap8084 = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
         // V5.0.8153 — and the strategy the coin trades as (proven / valid alternative / classified), at the same instant.
         val sel8153 = try { LanePlaybook7907.selectedSetup8094(ts, labelLane, nowMs) } catch (_: Throwable) { null }
-        submitCapture8171 { captureNow(ts, labelLane, admitted, nowMs, reason, snap8084, sel8153) }
+        // Playbook labels belong to the decision even when the 291-voter Cortex is not ready.
+        // Freeze the tag and timing here; never classify the mutable TokenState minutes later.
+        val timing8174 = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
+        try { LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap8084, sel8153, timing8174) } catch (_: Throwable) {}
+        val a8174 = assessCache["${ts.mint}|${canon(labelLane)}"]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS }
+        if (a8174 == null) {
+            // A voter read after the decision would predict a move it has already observed.
+            // Warm the cache only for a FUTURE decision. Do not manufacture a contemporaneous label.
+            inc("CAPTURE_VOTERS_NOT_READY_AT_DECISION_8174")
+            cachedOrSchedule(ts, labelLane, nowMs)
+            return
+        }
+        val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason) } catch (_: Throwable) { null }
+        val source8174 = ts.source
+        submitCapture8171 { captureNow(ts.mint, labelLane, admitted, nowMs, reason, snap8084, sel8153, a8174, ctx8174, source8174) }
     }
 
-    private fun captureNow(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?,
-                           snap8084: LanePlaybook7907.Classification8084? = null, sel8153: String? = null) {
-        // V5.0.8169 — when were the voters actually read? The job runs behind the pool queue (8168: 52 queued x 165 ms),
-        // and a cache miss reads the LIVE TokenState then while the label starts at the decision's fill-latency mark.
-        val cached8169 = assessCache["${ts.mint}|${canon(labelLane)}"]?.takeIf { nowMs - it.atMs <= ASSESS_TTL_MS }
-        val jobAt8169 = System.currentTimeMillis()
-        val a = assess(ts, labelLane, nowMs) ?: return
-        val late8169 = lateVoterRead8169(labelLane, nowMs, if (cached8169 != null && a === cached8169) a.atMs else jobAt8169)
+    private fun captureNow(mint: String, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?,
+                           snap8084: LanePlaybook7907.Classification8084?, sel8153: String?,
+                           a: Assessment, frozenCtx8174: DecisionCtx8144?, frozenSource8174: String) {
+        // Decision-time immutable assessment. An asynchronous fresh read is NEVER evidence from an earlier decision.
+        val late8169 = lateVoterRead8169(labelLane, nowMs, a.atMs)
         pruneDeadPending8144(nowMs)
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
-        val setup7961 = (snap8084?.takeIf { it.lane == a.lane }?.consumerTag8087
-            ?: try { LanePlaybook7907.classify(ts, a.lane, nowMs) } catch (_: Throwable) { null }).orEmpty()
+        val setup7961 = snap8084?.takeIf { it.lane == a.lane }?.consumerTag8087.orEmpty()
         // V5.0.8088 — a decision whose coin could not be classified (DATA_INCOMPLETE / MATCHES_UNRANKABLE /
         // CLASSIFIER_ERROR) carries no setup prior and opens no joint cell; the scoreboard counts how many
         // decisions ran blind so the UI shows evidence quality beside the NO_TRIGGER cohort, not pooled into it.
         if (snap8084?.tag in LanePlaybook7907.UNCLASSIFIED_8087) inc("SETUP_UNCLASSIFIED_NO_PRIOR_8087_${snap8084?.outcome?.name}")
         // V5.0.8094 — multi-strategy grading: every setup the coin fired (an unclassified coin's too) is graded in its own
         // lane x bucket x setup cell, not only the one consumer tag.
-        val fired8094 = (snap8084?.takeIf { it.lane == a.lane }?.matched ?: try { LanePlaybook7907.matchedSetups8083(ts, a.lane, nowMs) } catch (_: Throwable) { emptyList() })
+        val fired8094 = snap8084?.takeIf { it.lane == a.lane }?.matched.orEmpty()
             .filter { it.isNotBlank() && it != setup7961 && it != LanePlaybook7907.NO_TRIGGER }.distinct().take(8)
-        pending["${ts.mint}|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, ts.source, setup7961, fired8094).also { it.selected8153 = sel8153.orEmpty(); it.lateRead8169 = late8169 }
-        // V5.0.8144 — the decision's grade-key context and executability (raw reason), frozen with it; unresolved swept.
-        try { pendingCtx8144["${ts.mint}|${labelLane.trim().uppercase()}"] = decisionCtx8144(ts, a.lane, admitted, reason) } catch (_: Throwable) {}
+        pending["$mint|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, frozenSource8174, setup7961, fired8094).also { it.selected8153 = sel8153.orEmpty(); it.lateRead8169 = late8169 }
+        // The decision's executable context is frozen before enqueue, not read after the price move.
+        if (frozenCtx8174 != null) pendingCtx8144["$mint|${labelLane.trim().uppercase()}"] = frozenCtx8174
         try { sweepLost8144(nowMs) } catch (_: Throwable) {}
-        // V5.0.7930 — every admitted decision is matched to its realised close (not only cached-read admits).
-        if (admitted) noteEntryRead(ts.mint, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }, a)
-        // V5.0.7907 — the lane playbook tags the decision with its setup.
-        try { LanePlaybook7907.capture(ts, a.lane, labelLane, nowMs, snap8084) } catch (_: Throwable) {}
-        // V5.0.7900 — Cortex v6: the same decision opens a 5-minute timing label.
-        try { CortexTiming7900.capture(ts, a, nowMs) } catch (_: Throwable) {}
+        if (admitted) noteEntryRead(mint, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }, a)
+        // Timing is learned from the same frozen voter assessment; later token metrics do not relabel it.
+        try { CortexTiming7900.captureFrozen8174(mint, a, nowMs) } catch (_: Throwable) {}
         inc(if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) "SEEN_REFUSE" else if (a.bucket == CortexScoreboard7885.Bucket.STRONG) "SEEN_STRONG" else "SEEN_NEUTRAL")
         persistPendingMaybe(nowMs)
         try { LanePlaybook7907.persistPendingMaybe(nowMs) } catch (_: Throwable) {}

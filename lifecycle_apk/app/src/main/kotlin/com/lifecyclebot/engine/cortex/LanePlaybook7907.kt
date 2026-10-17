@@ -1452,7 +1452,8 @@ object LanePlaybook7907 {
     fun decisionSnapshot8084(ts: TokenState, labelLane: String, nowMs: Long): Classification8084? =
         try { classify8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
 
-    fun capture(ts: TokenState, laneRaw: String, labelLane: String, nowMs: Long, snap8084: Classification8084? = null) {
+    fun capture(ts: TokenState, laneRaw: String, labelLane: String, nowMs: Long, snap8084: Classification8084? = null,
+                selectedAtDecision8174: String? = null, timingAtDecision8174: String? = null) {
         ensureLoaded()
         val lane = canon(laneRaw)
         val c = snap8084?.takeIf { it.lane == lane } ?: run {
@@ -1465,10 +1466,10 @@ object LanePlaybook7907 {
         val fired = c.matched.filter { it != setup }
         // V5.0.8084 — the tag carries the outcome and feature version of the decision (restart-safe in the same string).
         // V5.0.8153 — the strategy the coin trades as leads the tag (same graded set), matching the entry snapshot.
-        val primary8153 = try { selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val primary8153 = selectedAtDecision8174 ?: try { selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to requireNotNull(primaryTag8153(c, primary8153) ?: decisionTag8091(c))
         if (pendingTiming8094.size > 8_000) pendingTiming8094.keys.take(pendingTiming8094.size / 2).forEach { pendingTiming8094.remove(it) }
-        pendingTiming8094["${ts.mint}|${labelLane.trim().uppercase()}"] = timingBandOf8094(ts)
+        pendingTiming8094["${ts.mint}|${labelLane.trim().uppercase()}"] = timingAtDecision8174 ?: timingBandOf8094(ts)
         tagged.computeIfAbsent("$lane|$setup") { AtomicLong(0) }.incrementAndGet()
         for (id in fired) firedCount.computeIfAbsent("$lane|$id") { AtomicLong(0) }.incrementAndGet()
     }
