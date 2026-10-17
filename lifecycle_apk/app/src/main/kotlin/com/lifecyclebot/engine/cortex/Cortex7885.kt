@@ -304,6 +304,7 @@ object Cortex7885 {
     // V5.0.8187 — the queue is admitted to by submitCaptureKeyed8187's own accounting (coalesced per mint|lane, bounded,
     // every refusal counted by reason), so the executor never evicts a queued decision: 8186 lost 86 captures to the
     // oldest-job poll. Its own last resort runs the job on the caller (the decision stays, immutable) and is counted.
+    private const val CAPTURE_QUEUE_HARD_8187 = 416
     private val capturePool8171: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
         1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(CAPTURE_QUEUE_HARD_8187 + 32),
         { r -> Thread(r, "cortex-capture-8171").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
@@ -318,7 +319,6 @@ object Cortex7885 {
     // ── V5.0.8187 §ACCOUNTABLE_CAPTURE_QUEUE ──
     /** Non-admitted decisions queue up to this; an admitted decision (a trade's entry verdict) may use the headroom above. */
     private const val CAPTURE_QUEUE_SOFT_8187 = 320
-    private const val CAPTURE_QUEUE_HARD_8187 = 416
     /** "mint|LANE" -> the newest decision's capture job not yet run (one queued runnable per key). */
     private val captureLatest8187 = ConcurrentHashMap<String, () -> Unit>()
     private val captureQueued8187 = java.util.concurrent.atomic.AtomicInteger(0)

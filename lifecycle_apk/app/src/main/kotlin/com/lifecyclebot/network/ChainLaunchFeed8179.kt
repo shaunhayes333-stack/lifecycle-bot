@@ -486,6 +486,7 @@ object ChainLaunchFeed8179 {
 
     // V5.0.8191 — request ids live above FEED_ID_BASE_8191 so a reply on HeliusWebSocket's shared socket is told apart
     // from that client's own (small) ids without parsing the frame.
+    const val FEED_ID_BASE_8191 = 1_000_000_000
     private val nextId = AtomicInteger(FEED_ID_BASE_8191)
     private val pendingReq = ConcurrentHashMap<Int, String>()        // request id -> target key
     private val pendingSentAt8191 = ConcurrentHashMap<Int, Long>()   // request id -> sent time (ack timeout)
@@ -972,8 +973,6 @@ object ChainLaunchFeed8179 {
     // second socket on the same key; and the dedicated fallback records the handshake's real answer and waits out a
     // refusal (Retry-After / ladder) instead of retrying in 2 s. A request whose ack never arrives is expired after
     // [ACK_TIMEOUT_MS_8191] so it can be sent again; acks (server subscription ids) and notifications are counted.
-
-    const val FEED_ID_BASE_8191 = 1_000_000_000
     private const val ACK_TIMEOUT_MS_8191 = 60_000L
     private const val HANDSHAKE_RATE_BASE_MS_8191 = 30_000L
     private const val HANDSHAKE_MAX_MS_8191 = 10L * 60_000L
