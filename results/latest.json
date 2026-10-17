@@ -1,14 +1,15 @@
 {
- "sha": "ba22b3af4c53e278d0c2978e99763ee587c02bb7",
+ "sha": "5ef815b4c85736aa5725a2cadc4c2f4b0df245c5",
  "gradle_exit": "1",
  "tests": 0,
  "failures": [],
  "compile_errors": [
-  "e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8169CortexTest.kt:111:38 Classifier 'Kind' does not have a companion object, and thus must be initialized here"
+  "e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8196CausalContinuityTest.kt:38:24 Nested enum class 'State' accessed via instance reference",
+  "e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8196CausalContinuityTest.kt:38:24 Classifier 'State' does not have a companion object, and thus must be initialized here",
+  "e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8196CausalContinuityTest.kt:47:24 Nested enum class 'State' accessed via instance reference",
+  "e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8196CausalContinuityTest.kt:47:24 Classifier 'State' does not have a companion object, and thus must be initialized here"
  ],
  "gradle_tail": [
-  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt:634:41 Unnecessary non-null assertion (!!) on a non-null receiver of type String",
-  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt:635:46 Unnecessary non-null assertion (!!) on a non-null receiver of type String",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt:724:87 'MID_CHOP' is deprecated. Use MID_FLAT_CHOP instead",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt:784:9 Parameter 'currentPrice' is never used",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt:790:9 Parameter 'volatility' is never used",
@@ -31,7 +32,6 @@
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring/VolatilityRegimeAI.kt:398:58 Unchecked cast: Any? to List<Double>",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring/VolatilityRegimeAI.kt:399:56 Unchecked cast: Any? to List<Double>",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/scoring/VolatilityRegimeAI.kt:400:60 Unchecked cast: Any? to List<Double>",
-  "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt:512:13 Variable 'safeShareCap7142' is never used",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v4/meta/CrossMarketRegimeAI.kt:64:43 Parameter 'price' is never used",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v4/meta/CrossMarketRegimeAI.kt:64:80 Parameter 'volume' is never used",
   "w: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/v4/meta/CrossMarketRegimeAI.kt:96:13 Variable 'spy' is never used",
@@ -44,13 +44,16 @@
   "",
   "> Task :app:compileReleaseJavaWithJavac",
   "> Task :app:processReleaseJavaRes",
-  "> Task :app:bundleReleaseClassesToRuntimeJar",
   "> Task :app:bundleReleaseClassesToCompileJar",
+  "> Task :app:bundleReleaseClassesToRuntimeJar",
   "> Task :app:compileReleaseUnitTestKotlin",
-  "e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8169CortexTest.kt:111:38 Classifier 'Kind' does not have a companion object, and thus must be initialized here",
+  "e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8196CausalContinuityTest.kt:38:24 Nested enum class 'State' accessed via instance reference",
+  "e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8196CausalContinuityTest.kt:38:24 Classifier 'State' does not have a companion object, and thus must be initialized here",
+  "e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8196CausalContinuityTest.kt:47:24 Nested enum class 'State' accessed via instance reference",
+  "e: file:///home/runner/work/lifecycle-bot/lifecycle-bot/lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate8196CausalContinuityTest.kt:47:24 Classifier 'State' does not have a companion object, and thus must be initialized here",
   "",
   "> Task :app:compileReleaseUnitTestKotlin FAILED",
-  "gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_2-1792168342543.json",
+  "gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_2-1792247244379.json",
   "",
   "FAILURE: Build failed with an exception.",
   "",
@@ -65,7 +68,7 @@
   "> Run with --scan to get full insights.",
   "> Get more help at https://help.gradle.org.",
   "",
-  "BUILD FAILED in 9m 27s",
+  "BUILD FAILED in 9m 37s",
   "24 actionable tasks: 24 executed"
  ]
 }
