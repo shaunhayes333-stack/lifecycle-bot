@@ -222,6 +222,9 @@ object LifecycleHold8065 {
         // A quick contract cannot become a lifecycle hold. A long style still
         // needs the existing lane/ticket/promotion authority; style alone never widens risk.
         if (TradeExitContract8077.longHold(ts) == false) return false
+        // V5.0.8189 — the hold needs runner evidence (a sealed runner style with a proven setup, or a corroborated
+        // +100% peak). An unproven position keeps its lane stop and profit ladder (LifecycleEvidence8189).
+        if (!LifecycleEvidence8189.holds8189(LifecycleEvidence8189.evidenceFor8189(ts, laneOf(ts)))) return false
         if (lifecycleLane8065(laneOf(ts))) return true
         // V5.0.8072 — a runner ticket is held for its lifecycle whatever lane bought it.
         if (try { RunnerTicket8073.isTicket8073(ts.mint) } catch (_: Throwable) { false }) return true
@@ -248,11 +251,11 @@ object LifecycleHold8065 {
 
     /** Executor.requestSellCore7948: non-null when this exit is held for the position's lifecycle. */
     fun defer8065(ts: TokenState, reason: String): String? {
-        if (!holding8065(ts) || passes8065(reason)) return null
+        if (!holding8065(ts) || passes8065(reason)) return release8189(ts, reason)
         // Missing freshness cannot revoke the immutable holding contract.
         // Price-driven exits validate their observation at the executor boundary.
         val g = gross(ts, null)
-        if (g.isFinite() && g <= -FLOOR_PCT) return null
+        if (g.isFinite() && g <= -FLOOR_PCT) return release8189(ts, reason)
         // V5.0.8080 — a hold whose own give-back is due never swallows the profit lock / trail that
         // asked first (the rapid mark that would fire the hold's exit may not have a price this tick).
         val st8080 = states[key(ts)]
@@ -261,15 +264,34 @@ object LifecycleHold8065 {
         if (unprovenLoser8109(peak8109, g, now8109 - ts.position.entryTime) ||
             metricsCollapsed8109(g, ts.position.entryLiquidityUsd, ts.lastLiquidityUsd, ts.lastBuyPressurePct, now8109 - ts.buyPressureObservedAtMs8084 in 0L..120_000L)) {
             try { PipelineHealthCollector.labelInc("LIFECYCLE_LOSER_RELEASED_8109") } catch (_: Throwable) {}
-            return null
+            return release8189(ts, reason)
         }
         if (st8080 != null && givebackDue8080(maxOf(st8080.peak, ts.position.peakGainPct), g, st8080.taken)) {
             try { PipelineHealthCollector.labelInc("LIFECYCLE_GIVEBACK_RELEASED_8080") } catch (_: Throwable) {}
-            return null
+            return release8189(ts, reason)
         }
         held.incrementAndGet()
         try { PipelineHealthCollector.labelInc("LIFECYCLE_HELD_8065") } catch (_: Throwable) {}
-        return "LIFECYCLE_HOLD_8065"
+        // V5.0.8189 — every deferral is named (evidence + exit tier) and its episode is kept for the regret count.
+        val named8189 = LifecycleEvidence8189.deferralReason8189(LifecycleEvidence8189.evidenceFor8189(ts, laneOf(ts)), reason)
+        LifecycleEvidence8189.noteDeferral8189(key(ts), named8189, g)
+        return named8189
+    }
+
+    /**
+     * V5.0.8189 — the exit passes the hold (null). A position whose earlier exits the hold deferred settles its episode
+     * (regret when this exit is worse than the first deferred one); an unproven lifecycle-lane position is counted.
+     */
+    private fun release8189(ts: TokenState, reason: String): String? {
+        try {
+            val pos = ts.position
+            if (pos.isOpen && !pos.isPaperPosition && pos.entryTime > 0L) {
+                LifecycleEvidence8189.noteRelease8189(key(ts), gross(ts, null))
+                if (!passes8065(reason) && lifecycleLane8065(laneOf(ts)) && TradeExitContract8077.longHold(ts) != false &&
+                    !LifecycleEvidence8189.holds8189(LifecycleEvidence8189.evidenceFor8189(ts, laneOf(ts)))) LifecycleEvidence8189.noteUnprovenNotHeld8189()
+            }
+        } catch (_: Throwable) {}
+        return null
     }
 
     /** Executor.requestPartialSell: an ordinary slice (spike tier, ladder, lock) is not sold from a lifecycle hold. */
@@ -430,6 +452,7 @@ object LifecycleHold8065 {
         return "holds=${states.size} banked=${states.values.count { it.taken >= 1 }} promoted=${promotions.get()} exitsHeld=${held.get()} slicesHeld=${partialsHeld.get()} " +
             "exits=[${exits.entries.joinToString(",") { "${it.key.removePrefix("LIFECYCLE_")}=${it.value.get()}" }.ifBlank { "-" }}] " +
             "tickets8073[${try { RunnerTicket8073.statusLine() } catch (_: Throwable) { "-" }}] " +
-            "lanes=${LANES_8065.joinToString("/")} rule=floor -${FLOOR_PCT.toInt()}% · half at 2x · 30% at 5x/10x · 15m base/trend breaks · dead money 72h"
+            "lanes=${LANES_8065.joinToString("/")} rule=floor -${FLOOR_PCT.toInt()}% · half at 2x · 30% at 5x/10x · 15m base/trend breaks · dead money 72h" +
+            " · " + LifecycleEvidence8189.statusLine8189()
     }
 }

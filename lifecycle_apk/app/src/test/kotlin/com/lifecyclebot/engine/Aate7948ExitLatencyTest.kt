@@ -122,6 +122,7 @@ class Aate7948ExitLatencyTest {
         assertTrue(sweep.contains("requestSellOffLoop7288(ts, reason6882, wallet, effectiveBalance)"))
         assertTrue(sweep.contains("dispatchHotExitUnit7809(ts, wallet, effectiveBalance)"))
         assertFalse(sweep.contains("executor.runManageOnly(ts, wallet, effectiveBalance)"))
-        assertTrue(bot.contains("ExitHotPath7809.tryBegin(key7809, startedAt7809, selling7948)"))
+        // Superseded by V5.0.8189: the call also says whether a signed sell is pending (a wedged lease is replaced).
+        assertTrue(bot.contains("ExitHotPath7809.tryBegin(key7809, startedAt7809, selling7948, !selling7948 || com.lifecyclebot.engine.sell.ExitHotPath7809.signedSellPending8189(key7809))"))
     }
 }

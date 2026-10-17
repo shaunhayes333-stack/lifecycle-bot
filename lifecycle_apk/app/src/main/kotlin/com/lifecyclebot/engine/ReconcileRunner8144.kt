@@ -201,7 +201,8 @@ object ReconcileRunner8144 {
         val fresh = walletSnap8144?.takeIf { nowMs - walletSnapAtMs8144 <= SNAPSHOT_MAX_AGE_MS_8144 }
         val snap = fresh ?: try { WalletAccountCache.snapshot(ttlMs = SNAPSHOT_MAX_AGE_MS_8144) } catch (_: Throwable) { null }
         val complete = fresh != null && walletSnapComplete8144
-        val chain: Map<String, BigInteger>? = snap?.mapValues { it.value.raw }
+        // V5.0.8189 — every canonical lot is compared: a mint the snapshot lacks is filled from the exit path's owner+mint reads.
+        val chain: Map<String, BigInteger>? = PositionProof8189.chainFor8189(snap?.mapValues { it.value.raw }, lots.mapTo(HashSet()) { it.mint }, complete, nowMs)
         val frozen = HashSet<String>()
         try { frozen += com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.snapshot() } catch (_: Throwable) {}
         try { frozen += com.lifecyclebot.engine.sell.FrozenHeldUnsellable8141.heldMints8141() } catch (_: Throwable) {}
@@ -222,5 +223,6 @@ object ReconcileRunner8144 {
         ReconcileClassifier8144.statusLine8144(last, if (lastAtMs > 0L) nowMs - lastAtMs else 0L, runs.get(), lastError) +
             " | ${try { ReconcileLineageLedger8144.statusLine8144() } catch (_: Throwable) { "lineage8144 unavailable" }}" +
             " dupSigBlocked=${ReconcileSignatureGuard8144.blockedCount8144()} started=${started.get()}" +
-            " sigRecovered8169=$sigRecovered8169 sigAmbiguous8169=$sigAmbiguous8169"
+            " sigRecovered8169=$sigRecovered8169 sigAmbiguous8169=$sigAmbiguous8169" +
+            (try { PositionProof8189.block8189(nowMs) } catch (_: Throwable) { "" })
 }

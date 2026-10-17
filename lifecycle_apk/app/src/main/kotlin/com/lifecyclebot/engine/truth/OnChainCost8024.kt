@@ -185,6 +185,10 @@ object OnChainCost8024 {
         }
     }
 
+    /** V5.0.8189 — read-only (never asks the chain): the cached cost verdict of [mint] as "STATE:why", or null. */
+    fun cachedVerdict8189(mint: String): String? =
+        cache.entries.firstOrNull { it.key.substringAfter('|') == mint }?.value?.let { "${it.state.name}:${it.why}" }
+
     fun statusLine(): String = "reconciled=${reconciled.get()} unreconciled=${unreconciled.get()} cached=${cache.size} reading=${inFlight.size} unreconciledNow=[${unreconciledNames8027()}]"
 
     /** V5.0.8027 — name every held coin whose chain history does not add up: symbol, mint, why. */

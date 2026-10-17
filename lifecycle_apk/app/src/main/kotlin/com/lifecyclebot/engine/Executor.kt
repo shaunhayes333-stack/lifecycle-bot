@@ -2504,6 +2504,18 @@ class Executor(
                                       race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?,
                                       rayPlan7311: ProcessorAmountPlanner.SellPlan, raySlip7311: Int, fastLand: Boolean,
                                       sellTradeKey: String, reason: String): com.lifecyclebot.engine.sell.TxResult8087? {
+        // V5.0.8189 — a Raydium build that failed for this mint, a pump-curve mint, or a stop past its budget: not rebuilt.
+        if (com.lifecyclebot.engine.sell.StopRoute8189.skipRaydium8189(ts.mint, reason)) return null
+        return try { raydiumSerialSendOnce8189(ts, wallet, c, race, rayPlan7311, raySlip7311, fastLand, sellTradeKey, reason) } catch (e: Throwable) {
+            com.lifecyclebot.engine.sell.StopRoute8189.noteVenueFailure8189(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.RAYDIUM)
+            throw e
+        }
+    }
+
+    private fun raydiumSerialSendOnce8189(ts: TokenState, wallet: SolanaWallet, c: com.lifecyclebot.data.BotConfig,
+                                          race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?,
+                                          rayPlan7311: ProcessorAmountPlanner.SellPlan, raySlip7311: Int, fastLand: Boolean,
+                                          sellTradeKey: String, reason: String): com.lifecyclebot.engine.sell.TxResult8087? {
         val reuse8083 = race?.takeIf { it.fresh() && it.rawAmount == rayPlan7311.rawAmount }?.readyOrNull(0L)
         if (reuse8083 != null) try { PipelineHealthCollector.labelInc("SELL_RACE_PREBUILD_REUSED_8083") } catch (_: Throwable) {}
         val built7311 = reuse8083 ?: try {
@@ -2537,6 +2549,7 @@ class Executor(
                                 race: com.lifecyclebot.engine.sell.SellRouteRace8083.Race?, reason: String, jupiterOut: Long?,
                                 fastLand: Boolean, sellTradeKey: String): com.lifecyclebot.engine.sell.TxResult8087? {
         if (race == null || race.sent) return null
+        if (com.lifecyclebot.engine.sell.StopRoute8189.skipRaydium8189(ts.mint, reason)) return null  // V5.0.8189
         val drain = drainExit8083(reason)
         val built = race.readyOrNull(if (drain) com.lifecyclebot.engine.sell.SellRouteRace8083.DRAIN_WAIT_MS else 0L)
         if (built == null || !race.fresh() || !com.lifecyclebot.engine.sell.SellRouteRace8083.preferRaydium(built, drain, jupiterOut)) {
@@ -2548,6 +2561,7 @@ class Executor(
         com.lifecyclebot.engine.sell.SellRouteRace8083.selected("RAYDIUM", ts.mint, System.currentTimeMillis() - race.startedAtMs)
         var landed: com.lifecyclebot.engine.sell.TxResult8087? = null
         try { landed = sendRaydiumBuilt8083(wallet, c, built, fastLand, ts.mint, race) } catch (e: Throwable) {
+            com.lifecyclebot.engine.sell.StopRoute8189.noteVenueFailure8189(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.RAYDIUM)  // V5.0.8189
             try { ForensicLogger.lifecycle("SELL_RACE_RAYDIUM_SEND_FAILED_8083", "mint=${ts.mint.take(10)} err=${security.sanitiseForLog(e.message ?: "send_failed").take(140)}") } catch (_: Throwable) {}
         }
         // V5.0.8087 — "landed" means chain-confirmed; a kept signature with an unknown outcome is its own count.
@@ -6723,7 +6737,7 @@ class Executor(
             val rp7392 = try { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(ts.mint) } catch (_: Throwable) { null }
             val src7392 = try { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedSource(ts.mint).uppercase() } catch (_: Throwable) { "" }
             val trustedSrc7392 = src7392.startsWith("FANOUT_CORROBORATED") || src7392.contains("PUMP_CURVE") ||
-                src7392.startsWith("LOCKED_VENUE_")
+                src7392.startsWith("LOCKED_VENUE_") || src7392 == com.lifecyclebot.engine.truth.HeldExitQuote8189.SOURCE_8189  // V5.0.8189 — an executable sell quote for the held qty
             if (rp7392 != null && rp7392.isFinite() && rp7392 > 0.0 && pos.entryPrice > 0.0 && trustedSrc7392) {
                 try { PipelineHealthCollector.labelInc("PROFIT_LOCK_ON_REPAIRED_MARK_7392") } catch (_: Throwable) {}
                 rp7392 / pos.entryPrice
@@ -7314,6 +7328,28 @@ class Executor(
                 "fraction=${"%.3f".format(f)} proceeds=${"%.6f".format(proceeds)} sliceCost=${"%.6f".format(sliceCost)} " +
                 "exitCost=${"%.2f".format(exitCostPct)}% net=${"%.6f".format(com.lifecyclebot.engine.sell.PartialNetEconomics8094.sliceNetSol8094(proceeds, sliceCost, exitCostPct))} action=keep_inventory")
         } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
+     * V5.0.8189 — an uneconomic discretionary profit slice escalates to a full profit exit when the WHOLE remaining
+     * position nets a profit after one exit leg's costs (ProfitEscalation8189). Runner holds / confirmed continuations
+     * keep their residual. True when the full exit was requested (it still passes ProfitExitTruth8163 on its own quote).
+     */
+    private fun profitEscalated8189(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): Boolean {
+        val pos = ts.position
+        if (pos.isPaperPosition || !pos.isOpen || reason.startsWith(com.lifecyclebot.engine.sell.ProfitEscalation8189.REASON_PREFIX_8189)) return false
+        val full = proceedsSol7029(pos.qtyToken, getActualPrice(ts)) ?: return false
+        val canon = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pos.positionId)?.takeIf { it.mint == ts.mint } } catch (_: Throwable) { null }
+        val remainingCost = canon?.let { it.entryCostSol - it.soldCostBasisSol }?.takeIf { it.isFinite() && it > 0.0 } ?: pos.costSol
+        val exitCostPct = try { com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(pos.tradingMode, full, ts.lastLiquidityUsd) / 2.0 }
+            catch (_: Throwable) { com.lifecyclebot.engine.truth.FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 / 2.0 }
+        val runner = try { LifecycleHold8065.holding8065(ts) || RunnerLive8153.continuationConfirmed8153(ts) } catch (_: Throwable) { true }
+        val v = com.lifecyclebot.engine.sell.ProfitEscalation8189.verdict8189(true, full, remainingCost, exitCostPct, CostMeter8151.sellLegFixedSol8151(), runner)
+        com.lifecyclebot.engine.sell.ProfitEscalation8189.count8189(v)
+        if (v != com.lifecyclebot.engine.sell.ProfitEscalation8189.Verdict8189.ESCALATE_FULL) return false
+        try { ForensicLogger.lifecycle("PROFIT_SLICE_ESCALATED_FULL_8189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} slice=${reason.take(48)} fullProceeds=${"%.6f".format(full)} cost=${"%.6f".format(remainingCost)}") } catch (_: Throwable) {}
+        requestSell(ts, com.lifecyclebot.engine.sell.ProfitEscalation8189.reason8189(reason), wallet, walletSol)
         return true
     }
 
@@ -23084,10 +23120,30 @@ class Executor(
             return false
         }
         if (emergencyRouteEscalated7807(ts, reason)) return true
+        if (jupiterFirstFor8189(ts, reason)) return false  // V5.0.8189 — a stop asks the aggregator first
         val direct = com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason) &&
             (try { shouldTryPumpDirectFirst6099(ts, "EXIT") } catch (_: Throwable) { false })
         if (direct) try { PipelineHealthCollector.labelInc("EMERGENCY_SELL_DIRECT_FIRST_8009") } catch (_: Throwable) {}
         return direct
+    }
+
+    /**
+     * V5.0.8189 — a protective / stop exit asks Jupiter (Ultra / lite: pump curves, PumpSwap, Raydium) first for any
+     * mint the aggregator is not blocked on; the venue-native routes follow it (StopRoute8189). 5.0.8186: a TRAILING_STOP
+     * spent 16 attempts / 54 s on PumpPortal-first and Raydium, VENUE_RESOLVE=12 / SIGN=9, before anything broadcast.
+     */
+    private fun jupiterFirstFor8189(ts: TokenState, reason: String): Boolean {
+        val routable = try {
+            com.lifecyclebot.engine.sell.SellRouteEndpoint8144.peek8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.JUPITER,
+                System.currentTimeMillis()) == com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Admit8144.ALLOWED
+        } catch (_: Throwable) { true }
+        return com.lifecyclebot.engine.sell.StopRoute8189.jupiterFirst8189(reason, routable)
+    }
+
+    /** V5.0.8189 — liveSellInScope7314's PumpPortal-first decision: never ahead of the aggregator for a stop. */
+    private fun exitPumpFirst8189(ts: TokenState, reason: String): Boolean {
+        if (jupiterFirstFor8189(ts, reason)) { com.lifecyclebot.engine.sell.StopRoute8189.noteJupiterFirst8189(); return false }
+        return shouldTryPumpDirectFirst6099(ts, "EXIT")
     }
 
     private fun emergencyRouteEscalated7807(ts: TokenState, reason: String): Boolean {
@@ -23667,6 +23723,7 @@ class Executor(
         }
         // V5.0.8094 — a discretionary profit slice whose net its own exit costs consume is not sent.
         if (partialUneconomic8094(ts, pct, reason)) {
+            if (profitEscalated8189(ts, reason, wallet, walletBalance)) { receipt6566?.invoke(PartialSellReceipt6566(false)); return }  // V5.0.8189
             try { DecisionReasons8031.hold8031(ts, "PARTIAL_EXIT_NET_UNECONOMIC", reason) } catch (_: Throwable) {}
             receipt6566?.invoke(PartialSellReceipt6566(false))
             return
@@ -28200,7 +28257,7 @@ class Executor(
                     "reason=${if (pumpMint) "pump_mint" else "primary"} " +
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} jupiterQuote=${if (jupiterQuoteUnavailable) "unavailable" else "available_fallback"}")
             } catch (_: Throwable) {}
-            val exitPumpFirst6099 = shouldTryPumpDirectFirst6099(ts, "EXIT")
+            val exitPumpFirst6099 = exitPumpFirst8189(ts, reason)
             sig = if (!exitPumpFirst6099) {
                 try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_BUY_ROUTE_6099",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=EXIT priority=${sellRoutePriorityFromBuyRoute6099(ts)} action=jupiter_first") } catch (_: Throwable) {}

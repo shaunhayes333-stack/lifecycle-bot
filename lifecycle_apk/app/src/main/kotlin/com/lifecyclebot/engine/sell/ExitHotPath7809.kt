@@ -70,7 +70,7 @@ object ExitHotPath7809 {
      * with the same [nowMs]. False = a unit for this position is already in
      * flight (younger than [UNIT_STUCK_MS_7809]); this tick is coalesced.
      */
-    fun tryBegin(key: String, nowMs: Long = System.currentTimeMillis(), sellInFlight7948: Boolean = false): Boolean {
+    fun tryBegin(key: String, nowMs: Long = System.currentTimeMillis(), sellInFlight7948: Boolean = false, signedSellPending8189: Boolean = true): Boolean {
         if (key.isBlank()) return false
         val prior = inFlight7809.putIfAbsent(key, nowMs)
         if (prior == null) {
@@ -85,6 +85,18 @@ object ExitHotPath7809 {
         // (broadcast + 60 s verify), not wedged. A replacement can only bounce off
         // that CloseLease, so it is coalesced instead (5.0.7947: 131 "stuck"
         // replacements feeding 285 sell redispatches).
+        // V5.0.8189 — 5.0.8186 held one unit 278 s: the close lease said "in flight" while no signed sell was pending
+        // (no active verify signature, no unresolved SELL row), so nothing was selling and nothing could replace it.
+        if (sellInFlight7948 && wedgedClose8189(nowMs - prior, signedSellPending8189)) {
+            if (!inFlight7809.replace(key, prior, nowMs)) return false
+            staleSellKeys8174.remove(key)
+            // The wedged lease would block every sell of the mint for its 10 min TTL; nothing is signed, so it is freed.
+            try { CloseLease.release(key, "WEDGED_NO_SIGNED_SELL_8189") } catch (_: Throwable) {}
+            wedgedReplaced8189.incrementAndGet()
+            dispatched7809.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("HOT_EXIT_WEDGED_CLOSE_REPLACED_8189") } catch (_: Throwable) {}
+            return true
+        }
         if (sellInFlight7948) {
             if (nowMs - prior >= SELL_PENDING_STALE_MS_8174 && staleSellKeys8174.add(key)) {
                 staleSellAlerts8174.incrementAndGet()
@@ -100,6 +112,21 @@ object ExitHotPath7809 {
         try { PipelineHealthCollector.labelInc("HOT_EXIT_UNIT_STUCK_REPLACED_7809") } catch (_: Throwable) {}
         return true
     }
+
+    private val wedgedReplaced8189 = AtomicLong(0L)
+
+    /**
+     * V5.0.8189 — pure: a unit whose close lease reads "in flight" is wedged, not selling, once it has been held
+     * [SELL_PENDING_STALE_MS_8174] with no signed sell pending. A pending signature always keeps it (its verify owns it);
+     * the sell locks stay the single-flight authority, so a replacement can never become a second sale.
+     */
+    fun wedgedClose8189(heldMs: Long, signedSellPending: Boolean): Boolean =
+        !signedSellPending && heldMs >= SELL_PENDING_STALE_MS_8174
+
+    /** V5.0.8189 — a signed sell of [mint] is pending: an active verify signature or an unresolved SELL row. */
+    fun signedSellPending8189(mint: String): Boolean =
+        (try { com.lifecyclebot.engine.TradeVerifier.activeSellSig(mint) != null } catch (_: Throwable) { true }) ||
+            (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(mint, "SELL") != null } catch (_: Throwable) { true })
 
     /** Release the claim made at [startedAtMs]; a newer replacement claim is left alone. */
     fun end(key: String, startedAtMs: Long, nowMs: Long = System.currentTimeMillis()) {
@@ -118,7 +145,7 @@ object ExitHotPath7809 {
         val oldest = oldestClaim8174?.let { (nowMs - it.value).coerceAtLeast(0L) } ?: 0L
         return "hotExitUnits7809 inFlight=${inFlight7809.size} oldestMs=$oldest dispatched=${dispatched7809.get()} " +
             "coalesced=${coalesced7809.get()} stuckReplaced=${stuckReplaced7809.get()} maxUnitMs=${maxUnitMs7809.get()} " +
-            "oldestKey8174=${oldestClaim8174?.key?.takeLast(14) ?: "-"} staleSellInFlight8174=${staleSellAlerts8174.get()}"
+            "oldestKey8174=${oldestClaim8174?.key?.takeLast(14) ?: "-"} staleSellInFlight8174=${staleSellAlerts8174.get()} wedgedReplaced8189=${wedgedReplaced8189.get()}"
     }
 
     internal fun resetForTest() {
@@ -129,5 +156,6 @@ object ExitHotPath7809 {
         maxUnitMs7809.set(0L)
         staleSellAlerts8174.set(0L)
         staleSellKeys8174.clear()
+        wedgedReplaced8189.set(0L)
     }
 }

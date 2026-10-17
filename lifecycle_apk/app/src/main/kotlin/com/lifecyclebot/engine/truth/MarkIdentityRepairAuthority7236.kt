@@ -159,6 +159,8 @@ object MarkIdentityRepairAuthority7236 {
                             )
                         }
                     } catch (_: Throwable) {}
+                } else if (heldQuoteRepair8189(mint)) {
+                    // V5.0.8189 — no feed answered: a held position is repaired from a Jupiter sell quote for its held quantity.
                 } else {
                     val hot8169 = try { com.lifecyclebot.engine.sell.PriceResolverFallback.hotCacheHit8169(cascadeMint8169) } catch (_: Throwable) { false }
                     noteFail8169(AccountingIntegrity8169.repairFailureReason8169(true, false, fanContested8169, hot8169))
@@ -167,6 +169,20 @@ object MarkIdentityRepairAuthority7236 {
                 noteFail8169(AccountingIntegrity8169.repairFailureReason8169(true, true, false, false))
             }
         }
+    }
+
+    /**
+     * V5.0.8189 — the repair's last resort for a HELD mint: the price a sale of the bot's actual holding gets
+     * (HeldExitQuote8189, a Jupiter sell quote for min(canonical remaining, wallet)). 24 of 36 repairs failed on
+     * 5.0.8186 with no feed answering; an executable quote is an exit mark, never a peak. Blocking: coroutine only.
+     */
+    private fun heldQuoteRepair8189(mint: String): Boolean {
+        val q = try { HeldExitQuote8189.quoteNow8189(mint) } catch (_: Throwable) { null } ?: return false
+        cache[mint] = Repaired(q.priceUsd, HeldExitQuote8189.SOURCE_8189, q.observedAtMs)
+        try { MarkIdentityExecutionGate7230.markRepairedUsable7243(mint) } catch (_: Throwable) {}
+        repairSucceeded.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("MARK_REPAIR_SUCCEEDED_7236_HELD_SELL_QUOTE_8189") } catch (_: Throwable) {}
+        return true
     }
 
     /**

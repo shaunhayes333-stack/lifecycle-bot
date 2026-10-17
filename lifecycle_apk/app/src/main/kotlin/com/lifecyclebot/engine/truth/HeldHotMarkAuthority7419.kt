@@ -335,6 +335,12 @@ object HeldHotMarkAuthority7419 {
                     px = it; source = EXEC_SOURCE_7876; observedAt8077 = quoteAt8077
                     fallbacks.incrementAndGet()
                 }
+                // V5.0.8189 — that batch quote only gets what is left of the 1.2 s book deadline and is cancelled when
+                // Jupiter answers later; the held sell quote answered off the deadline (HeldExitQuote8189) serves instead.
+                if (ex?.price == null) HeldExitQuote8189.take8189(p.mint, p.remainingQtyRaw, p.quantityScale, now)?.let {
+                    px = it.priceUsd; source = EXEC_SOURCE_7876; observedAt8077 = it.observedAtMs
+                    fallbacks.incrementAndGet()
+                }
             }
 
             if (timedOut) {
