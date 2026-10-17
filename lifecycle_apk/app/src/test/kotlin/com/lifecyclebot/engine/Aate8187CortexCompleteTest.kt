@@ -339,4 +339,40 @@ class Aate8187CortexCompleteTest {
         assertTrue(src("engine/market/LaunchTape7921.kt").contains("binBook.getOrPut(c.bin) { tapeStat8187() }"))
         assertTrue(cx.contains("realLedgers.getOrPut(mode) { CortexLedger7885(Double.POSITIVE_INFINITY) }"))
     }
+
+    // ── 8186 additions: an accountable capture queue; size-ups only on validated after-cost evidence ──
+
+    @Test fun theCaptureQueueCoalescesPerKeyAndRefusesTheNewestWhenFull() {
+        assertTrue(Cortex7885.captureAdmits8187(0, false))
+        assertTrue(Cortex7885.captureAdmits8187(319, false))
+        assertFalse("a refusal is the newest key, never a queued decision", Cortex7885.captureAdmits8187(320, false))
+        assertTrue("an admitted decision keeps headroom", Cortex7885.captureAdmits8187(320, true))
+        assertFalse(Cortex7885.captureAdmits8187(416, true))
+        val cx = src("engine/cortex/Cortex7885.kt")
+        val pool = cx.substringAfter("private val capturePool8171").substringBefore("// ── V5.0.8187 §ACCOUNTABLE_CAPTURE_QUEUE")
+        assertFalse("no oldest-job eviction", pool.contains("ex.queue.poll()"))
+        assertTrue(cx.contains("if (captureLatest8187.put(key, job) != null) { inc(\"CAPTURE_COALESCED_SAME_KEY_8187\"); return }"))
+        assertTrue(cx.contains("inc(if (admitted) \"CAPTURE_DROP_FULL_ADMITTED_8187\" else \"CAPTURE_DROP_FULL_NEWEST_8187\")"))
+    }
+
+    @Test fun forwardLabelsAloneNeverRaiseSize() {
+        // 8186 SHITCOIN: realised STRONG n2 -27.4% — no proof; 20+ positive closes with mean - SE > 0 and a growing wallet — proof.
+        assertNull(Cortex7885.realisedProof8187(listOf(-30.0, -24.8)))
+        assertNull("too few closes", Cortex7885.realisedProof8187(List(10) { 8.0 }))
+        val proven = Cortex7885.realisedProof8187(List(24) { if (it % 2 == 0) 14.0 else 2.0 })
+        assertNotNull(proven)
+        assertEquals(8.0, proven!!.mean, 1e-9)
+        // A realised record carried by one implausible close is read through the cap (a robust mean).
+        val spiky = Cortex7885.realisedProof8187(List(23) { -1.0 } + listOf(50_000.0))
+        assertTrue(spiky == null || spiky.mean < (1_000.0 - 23.0) / 24.0 + 1e-9)
+        // Walk-forward: only a VALIDATED out-of-sample result is proof.
+        val inSample = CortexWalkForward8144.promote8144(List(24) { if (it % 2 == 0) 18.0 else 22.0 } + List(16) { if (it % 2 == 0) -8.0 else -12.0 })
+        assertNull(Cortex7885.walkForwardProof8187(inSample))
+        val cx = src("engine/cortex/Cortex7885.kt")
+        val stake = cx.substringAfter("private fun provenEvidenceStake7948(").substringBefore("class Proof8187(")
+        assertTrue(stake.contains("?: run { inc(\"SIZE_UP_REFUSED_UNVALIDATED_8187_\$lane\"); return emptyList() }"))
+        assertTrue(stake.contains("minOf(setupStake, proofStake) to minOf(setupFraction, proof.fraction)"))
+        val conviction = cx.substringAfter("private fun cortexStake7893(").substringBefore("private fun provenEvidenceStake7948(")
+        assertTrue(conviction.contains("validatedEvidence8187(a.lane, null) ?: run {"))
+    }
 }

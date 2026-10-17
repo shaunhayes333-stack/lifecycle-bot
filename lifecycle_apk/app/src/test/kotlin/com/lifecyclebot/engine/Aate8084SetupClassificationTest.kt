@@ -114,7 +114,8 @@ class Aate8084SetupClassificationTest {
         val c = src("engine/cortex/Cortex7885.kt")
         val cap = c.substringAfter("fun capture(ts: TokenState, labelLane: String, admitted: Boolean").substringBefore("private fun captureNow(")
         // V5.0.8172 — superseded by V5.0.8171: capture runs on its own pool (submitCapture8171); the classification is still frozen before it is queued.
-        assertTrue(cap.indexOf("decisionSnapshot8084(ts, labelLane, nowMs)") in 0 until cap.indexOf("submitCapture8171 {"))
+        // superseded by V5.0.8187: queued through submitCaptureKeyed8187 (coalesced per mint|lane); still frozen before it.
+        assertTrue(cap.indexOf("decisionSnapshot8084(ts, labelLane, nowMs)") in 0 until cap.indexOf("submitCaptureKeyed8187("))
         assertTrue(cap.contains("LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap8084, sel8153, timing8174)"))
         assertTrue(cap.contains("val a8174 = assessCache["))
         val queued = c.substringAfter("private fun captureNow(").substringBefore("// ── V5.0.7920")

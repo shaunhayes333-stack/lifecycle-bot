@@ -274,17 +274,48 @@ object Cortex7885 {
     // original maximum of two workers but reserve one exclusively for captures.
     // Bounded queue: if overwhelmed the oldest observation is discarded and
     // accounted for; we never relabel a late read as decision-time proof.
+    // V5.0.8187 — the queue is admitted to by submitCaptureKeyed8187's own accounting (coalesced per mint|lane, bounded,
+    // every refusal counted by reason), so the executor never evicts a queued decision: 8186 lost 86 captures to the
+    // oldest-job poll. Its own last resort runs the job on the caller (the decision stays, immutable) and is counted.
     private val capturePool8171: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
-        1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(128),
+        1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(CAPTURE_QUEUE_HARD_8187 + 32),
         { r -> Thread(r, "cortex-capture-8171").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
         java.util.concurrent.RejectedExecutionHandler { r, ex ->
             if (!ex.isShutdown) {
-                ex.queue.poll()
-                inc("CAPTURE_QUEUE_DROP_8171")
-                try { ex.execute(r) } catch (_: Throwable) { inc("CAPTURE_REJECTED_8171") }
+                inc("CAPTURE_QUEUE_DROP_8171_CALLER_RUNS_8187")
+                try { r.run() } catch (_: Throwable) { inc("CAPTURE_REJECTED_8171") }
             }
         },
     )
+
+    // ── V5.0.8187 §ACCOUNTABLE_CAPTURE_QUEUE ──
+    /** Non-admitted decisions queue up to this; an admitted decision (a trade's entry verdict) may use the headroom above. */
+    private const val CAPTURE_QUEUE_SOFT_8187 = 320
+    private const val CAPTURE_QUEUE_HARD_8187 = 416
+    /** "mint|LANE" -> the newest decision's capture job not yet run (one queued runnable per key). */
+    private val captureLatest8187 = ConcurrentHashMap<String, () -> Unit>()
+    private val captureQueued8187 = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** Pure (V5.0.8187): may a new key enter a capture queue already holding [queued] keys? */
+    fun captureAdmits8187(queued: Int, admitted: Boolean): Boolean =
+        queued < (if (admitted) CAPTURE_QUEUE_HARD_8187 else CAPTURE_QUEUE_SOFT_8187)
+
+    /**
+     * V5.0.8187 — one queued capture per (mint, lane). A newer decision for a key still queued REPLACES its job (the labeler
+     * keeps one observation per key and an admit supersedes a refusal, so the label belongs to the newest decision; each job
+     * carries its own frozen decision-time evidence). A new key on a full queue is the one refused (the newest, never a queued
+     * decision), admitted decisions keep headroom, and every refusal is counted by reason.
+     */
+    private fun submitCaptureKeyed8187(key: String, admitted: Boolean, job: () -> Unit) {
+        if (captureLatest8187.put(key, job) != null) { inc("CAPTURE_COALESCED_SAME_KEY_8187"); return }
+        if (!captureAdmits8187(captureQueued8187.get(), admitted)) {
+            captureLatest8187.remove(key, job)
+            inc(if (admitted) "CAPTURE_DROP_FULL_ADMITTED_8187" else "CAPTURE_DROP_FULL_NEWEST_8187")
+            return
+        }
+        captureQueued8187.incrementAndGet()
+        submitCapture8171 { try { captureLatest8187.remove(key)?.invoke() } finally { captureQueued8187.decrementAndGet() } }
+    }
 
     private fun submitCapture8171(job: () -> Unit) {
         try {
@@ -347,14 +378,14 @@ object Cortex7885 {
             // after the label opens is held out of authority (LABEL_HYGIENE_LATE_VOTER_READ_8169), never graded as proof.
             val ctxCold8178 = try { decisionCtx8144(ts, canon(labelLane), admitted, reason) } catch (_: Throwable) { null }
             val sourceCold8178 = ts.source
-            submitCapture8171 { captureCold8178(ts, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178) }
+            submitCaptureKeyed8187("${ts.mint}|${labelLane.trim().uppercase()}", admitted) { captureCold8178(ts, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178) }
             return
         }
         val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason) } catch (_: Throwable) { null }
         // Timing requires the decision's price, before the asynchronous queue mutates its TokenState.
         try { CortexTiming7900.capture(ts, a8174, nowMs) } catch (_: Throwable) {}
         val source8174 = ts.source
-        submitCapture8171 { captureNow(ts.mint, labelLane, admitted, nowMs, reason, snap8084, sel8153, a8174, ctx8174, source8174) }
+        submitCaptureKeyed8187("${ts.mint}|${labelLane.trim().uppercase()}", admitted) { captureNow(ts.mint, labelLane, admitted, nowMs, reason, snap8084, sel8153, a8174, ctx8174, source8174) }
     }
 
     /** V5.0.8178 — a cold decision: one voter read on the capture pool (stamped with its own read time), then captureNow. */
@@ -907,6 +938,13 @@ object Cortex7885 {
             canon(env.lane), sealed?.mode, sealed?.mint, sealed?.ownerLane, sealed?.exactSetup, snapshotTag) ?: run { inc("REALIZED_UNBOUND_NO_OWNER_8153"); return }
         if (!gradeBook8144.openTrade(r)) { inc("REALIZED_UNBOUND_OLDER_THAN_BOOK_8169"); return }
         if (gradeBook8144.closeTrade(env.positionId, owner, env.realizedReturnPct) != null) inc("REALIZED_UNBOUND_FILED_8153_${owner.attribution.name}")
+    }
+
+    /** Caller holds the lock. V5.0.8187 — "~raw+X%" when a tradeable cohort's stored mean differs from its capped read. */
+    private fun rawExec8187(lane: String, bucket: Int, robustMean: Double): String {
+        if (!robustMean.isFinite()) return ""
+        val raw = CortexWalkForward8144.stat8144(gradeBook8144.executableSeriesRaw8187(lane, bucket))
+        return if (raw.n > 0 && kotlin.math.abs(raw.mean - robustMean) > 0.05) "~raw${"%+.1f".format(raw.mean)}%" else ""
     }
 
     /** Caller holds the lock. V5.0.8187 — an observed cohort read through the label cap, with the raw mean beside when they differ. */
@@ -1672,7 +1710,9 @@ object Cortex7885 {
                 inc(if (board.inverted7948(a.lane, accountMode8077())) "SUSPENDED_INVERTED_SIZE_UP_7948" else "SHADOW_SIZE_UP"); return none
             }
             if (f < 1.0) inc("PARTIAL_AUTHORITY_SIZE_7955")
-            kellyStakeSol(strong.mean(), strong.variance(), equitySol) to f
+            // V5.0.8187 — never sized past the validated (out-of-sample / realised) evidence's own Kelly stake.
+            val proof8187 = validatedEvidence8187(a.lane, null) ?: run { inc("SIZE_UP_REFUSED_UNVALIDATED_8187_${a.lane}"); return none }
+            minOf(kellyStakeSol(strong.mean(), strong.variance(), equitySol), kellyStakeSol(proof8187.mean, proof8187.variance, equitySol)) to f
         }
     }
 
@@ -1705,8 +1745,45 @@ object Cortex7885 {
             kellyStakeSol(laneStat.meanNet60Pct, cohortVariance7948(laneStat.stderr60Pct, laneStat.n60), equitySol)
         } else 0.0
         // The lane's own proven labels (100+, mean-SE > 0) carry full authority.
-        return listOf(setupStake to setupFraction, laneStake to 1.0)
+        // V5.0.8187 — forward labels alone never raise size (8186: SHITCOIN forward STRONG n63 +41.9%, realised STRONG n2
+        // -27.4%, walk-forward IN_SAMPLE_ONLY, 37 size-ups). A forward stake stands only beside independently validated
+        // after-cost evidence of the same lane / setup — walk-forward out-of-sample proof or proven realised whole-position
+        // closes — and is never larger than that evidence's own Kelly stake, at that evidence's authority.
+        if (!(setupStake > 0.0) && !(laneStake > 0.0)) return emptyList()
+        val setup8187 = try { LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val proof = synchronized(this) { validatedEvidence8187(lane, setup8187) ?: validatedEvidence8187(lane, null) }
+            ?: run { inc("SIZE_UP_REFUSED_UNVALIDATED_8187_$lane"); return emptyList() }
+        val proofStake = kellyStakeSol(proof.mean, proof.variance, equitySol)
+        if (!(proofStake > 0.0)) { inc("SIZE_UP_REFUSED_PROOF_NOT_POSITIVE_8187_$lane"); return emptyList() }
+        inc("SIZE_UP_VALIDATED_${proof.source}_8187")
+        return listOf(minOf(setupStake, proofStake) to minOf(setupFraction, proof.fraction), minOf(laneStake, proofStake) to proof.fraction)
     }
+
+    /** V5.0.8187 — independently validated after-cost evidence: robust mean %, per-trade variance %², authority, source. */
+    class Proof8187(val mean: Double, val variance: Double, val fraction: Double, val source: String)
+
+    /**
+     * Pure (V5.0.8187): proof from a realised whole-position series of one cohort and mode (each close read through the label
+     * cap — a robust mean): CortexRealisedAuthority8136's REALISED_PROVEN (20+ closes, mean - SE > 0) and a wallet that grew.
+     */
+    fun realisedProof8187(xs: List<Double>): Proof8187? {
+        val capped = xs.filter { it.isFinite() }.map { com.lifecyclebot.engine.truth.RobustLabelRead8185.clampLabel8187(it) }
+        val st = CortexWalkForward8144.stat8144(capped)
+        if (st.n < 2 || !st.se.isFinite()) return null
+        if (CortexRealisedAuthority8136.verdict8136(st.n.toDouble(), st.mean, st.se) != CortexRealisedAuthority8136.Verdict8136.REALISED_PROVEN) return null
+        if (!(LearningObjective8153.score8153(capped).growthPerTradePct > 0.0)) return null
+        return Proof8187(st.mean, st.se * st.se * st.n, 1.0, "REALISED")
+    }
+
+    /** Pure (V5.0.8187): proof from a walk-forward result — validated out of sample, at its authority cap. */
+    fun walkForwardProof8187(wf: CortexWalkForward8144.Result8144): Proof8187? {
+        if (!wf.validated || wf.oos.n < 2 || !wf.oos.se.isFinite() || !wf.oos.mean.isFinite()) return null
+        return Proof8187(wf.oos.mean, wf.oos.se * wf.oos.se * wf.oos.n, CortexWalkForward8144.authorityCap8144(wf), "WALK_FORWARD")
+    }
+
+    /** Caller holds the lock. V5.0.8187 — the validated evidence of [lane] (x [setup]) in the account mode, or null. */
+    private fun validatedEvidence8187(lane: String, setup: String?): Proof8187? =
+        walkForwardProof8187(walkForward8144(lane, setup)) ?: realisedProof8187(gradeBook8144.realisedSeries(lane, setup, null, accountMode8077()))
 
     /** Pure: a label set's per-label variance (percent^2) from its standard error and count. */
     fun cohortVariance7948(stderrPct: Double, n: Int): Double =
@@ -2258,7 +2335,9 @@ object Cortex7885 {
                 val runner = isRunner(lane)
                 val v8153 = LearningEntryTruth8153.verdictRow8153(gradeBook8144, lane)
                 "      $lane(5m${if (runner) ",runner" else ""}${if (board.inverted7948(lane, accountMode8077())) ",INVERTED" else ""}): " +
-                    "tradeable8153[refuse=${fmtRow8153(v8153.refuseN, v8153.refuseMean)} neutral=${fmtRow8153(v8153.neutralN, v8153.neutralMean)} strong=${fmtRow8153(v8153.strongN, v8153.strongMean)} held=${"%.2f".format(heldFraction8153(lane))}] " +
+                    "tradeable8153[refuse=${fmtRow8153(v8153.refuseN, v8153.refuseMean)}${rawExec8187(lane, CortexScoreboard7885.Bucket.REFUSE.ordinal, v8153.refuseMean)} " +
+                    "neutral=${fmtRow8153(v8153.neutralN, v8153.neutralMean)}${rawExec8187(lane, CortexScoreboard7885.Bucket.NEUTRAL.ordinal, v8153.neutralMean)} " +
+                    "strong=${fmtRow8153(v8153.strongN, v8153.strongMean)}${rawExec8187(lane, CortexScoreboard7885.Bucket.STRONG.ordinal, v8153.strongMean)} held=${"%.2f".format(heldFraction8153(lane))}] " +
                     "legacyDecayed[refuse=${fmtStat(b.byBucket[0])} neutral=${fmtStat(b.byBucket[1])} strong=${fmtStat(b.byBucket[2])}] " +
                     "| legacyAdmit=${fmtStat(b.legacyAdmitted)} legacyRefuse=${fmtStat(b.legacyRefused)} missedStrong=${fmtStat(b.missedStrong)} " +
                     "| authority: paperRefuse=${board.refusalAuthority(lane, runner, true)} liveRefuse=${board.refusalAuthority(lane, runner, false)} liveOverrule=${board.overruleAuthority(lane)} auth=${"%.2f".format(board.fractionFor7955(lane, accountMode8077()))}"

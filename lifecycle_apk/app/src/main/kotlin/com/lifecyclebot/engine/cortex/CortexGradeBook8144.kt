@@ -104,10 +104,10 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
     private fun evict8187() {
         var drop = decisions.size - maxDecisions
         if (drop <= 0) return
-        val it = decisions.iterator()
-        while (drop > 0 && it.hasNext()) {
-            val r = it.next()
-            if (!r.evidence8187) { it.remove(); byId.remove(r.id); drop-- }
+        val iter = decisions.iterator()
+        while (drop > 0 && iter.hasNext()) {
+            val r = iter.next()
+            if (!r.evidence8187) { iter.remove(); byId.remove(r.id); drop-- }
         }
         while (drop > 0 && decisions.isNotEmpty()) {
             val crowded = decisions.groupingBy { "${it.lane}#${it.bucket}" }.eachCount().maxByOrNull { e -> e.value }?.key
@@ -219,6 +219,11 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
     fun observedSeries(lane: String, bucket: Int): List<Double> =
         decisions.filter { it.kind == 'D' && !it.lost && it.lane == lane && it.bucket == bucket && it.observedNetPct.isFinite() }
             .sortedBy { it.atMs }.map { it.capped8187(it.observedNetPct) }  // V5.0.8187
+
+    /** V5.0.8187 — the executable series as stored (pre-8187 records kept their uncapped values; the screen shows both). */
+    fun executableSeriesRaw8187(lane: String, bucket: Int): List<Double> =
+        decisions.filter { it.graded && !it.lost && it.lane == lane && it.bucket == bucket && it.executablePct.isFinite() }
+            .sortedBy { it.atMs }.map { it.executablePct }
 
     /** V5.0.8187 — the same observed series read raw (the screen shows raw beside robust where they differ). */
     fun observedSeriesRaw8187(lane: String, bucket: Int): List<Double> =
