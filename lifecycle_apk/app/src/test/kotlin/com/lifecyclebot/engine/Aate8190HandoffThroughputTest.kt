@@ -216,6 +216,9 @@ class Aate8190HandoffThroughputTest {
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("SniperScope8190.ownHunterPool8190(sniperSetup6599 == null, huntedByLane7297)"))
         assertTrue(bot.contains("PROJECT_SNIPER_DESIGNATED_POOL_REJECTED_6599"))
+        // An in-window pump launch that arrived by another path is put on the trade stream (bounded lifecycle set).
+        assertTrue(src("engine/truth/LaunchBirth8169.kt").contains("com.lifecyclebot.network.PumpFunWS.watchLaunch8190(ts.mint)"))
+        assertTrue(src("network/PumpFunWS.kt").contains("fun watchLaunch8190(mint: String)"))
     }
 
     @Test fun expressReadsAContinuationInsteadOfAFlatZeroOnNoHistory() {
@@ -226,6 +229,14 @@ class Aate8190HandoffThroughputTest {
         assertEquals(0.0, x.momentum8190(0.0, 0.0, 0, null), 1e-9)
         assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("val expressMomentum7555 = ts.lastPriceChange1h"))
         assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin)"))
+    }
+
+    @Test fun manipulatedReadsAnUnhydratedCapAsDataAndTheLedgerHandsOnLaneFloors() {
+        assertEquals(Block8153.DATA, cls(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.MCAP_UNHYDRATED_DEFER_8190))
+        val manip = src("v3/scoring/ManipulatedTraderAI.kt")
+        assertTrue(manip.indexOf("return noEnter(MCAP_UNHYDRATED_DEFER_8190)") in 0 until manip.indexOf("return noEnter(\"MCAP_TOO_LOW\")"))
+        val ledger = src("engine/truth/AdmissionHandoff8144.kt")
+        assertTrue(ledger.contains("com.lifecyclebot.engine.HandoffTaskRuntime8153.blockOf8153(r) == com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.FIT"))
     }
 
     // ── 6. one executable owner per candidate ──

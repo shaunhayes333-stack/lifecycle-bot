@@ -56,6 +56,7 @@ object ManipulatedTraderAI {
     private const val MIN_MANIP_SCORE_MATURE = 32           // V5.9.1556 tuning: require stronger setup after negative console expectancy
     
     // Market cap range
+    const val MCAP_UNHYDRATED_DEFER_8190 = "MCAP_UNHYDRATED_DEFER_8190"
     private const val MIN_MARKET_CAP_USD = 5_000.0          // $5K minimum
     private const val MAX_MARKET_CAP_USD = 300_000.0        // $300K maximum
     
@@ -283,6 +284,9 @@ object ManipulatedTraderAI {
         } catch (_: Throwable) {}
 
         // Market cap filter
+        // V5.0.8190 — $0 / unread is an unhydrated cap, not a tiny one (EXPRESS 7971, SHITCOIN V5.9.160): it defers by name
+        // (a data gap the hand-off waits on and re-fetches), it never reads as the MCAP_TOO_LOW judgement. Still no entry.
+        if (!(marketCapUsd.isFinite() && marketCapUsd > 0.0)) return noEnter(MCAP_UNHYDRATED_DEFER_8190)
         if (marketCapUsd < MIN_MARKET_CAP_USD) return noEnter("MCAP_TOO_LOW")
         if (marketCapUsd > MAX_MARKET_CAP_USD) return noEnter("MCAP_TOO_HIGH")
 

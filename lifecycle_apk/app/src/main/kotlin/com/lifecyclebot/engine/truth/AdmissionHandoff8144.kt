@@ -294,7 +294,8 @@ object AdmissionHandoff8144 {
         val prior = ledger[mint] ?: return
         // V5.0.8153 — a fit refusal by the receiver hands it on; a qualified receiver becomes a task the cycle consumes.
         val live = expireLive8153(prior, atMs)
-        val judged = onNativeTransfer8153(live, reads, atMs) { r -> try { com.lifecyclebot.engine.SpecialistOwnership7951.laneFitRefusal8132(r) } catch (_: Throwable) { false } }
+        // V5.0.8190 — a lane floor / band (LANE_LIQ_BELOW_FLOOR ...) hands the receiver on here too, as the task does.
+        val judged = onNativeTransfer8153(live, reads, atMs) { r -> try { com.lifecyclebot.engine.HandoffTaskRuntime8153.blockOf8153(r) == com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.FIT } catch (_: Throwable) { false } }
         val next = followTask8153(live, judged, reads, atMs)
         if (next === prior) return
         ledger[mint] = next

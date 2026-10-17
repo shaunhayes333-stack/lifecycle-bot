@@ -250,6 +250,16 @@ object PumpFunWS {
      */
     const val PUMP_INITIAL_VIRTUAL_SOL_7744 = 30.0
 
+    /**
+     * V5.0.8190 — a launch inside PROJECT_SNIPER's window that reached the bot by another path (its lane hunter's sweep, a
+     * throttled create frame) had no trade subscription, so its launch flow read FLOW_UNKNOWN and the sniper handed it on
+     * as BIRTH. It joins the bounded fresh-lifecycle set (same 96 cap, same 15-minute TTL, oldest evicted).
+     */
+    fun watchLaunch8190(mint: String) {
+        if (mint.isBlank() || lifecycleMints7420.containsKey(mint) || tradeSubscriptions7278.contains(mint)) return
+        registerFreshLifecycle7420(mint)
+    }
+
     private fun registerFreshLifecycle7420(mint: String) {
         if (mint.isBlank()) return
         val now = System.currentTimeMillis()
