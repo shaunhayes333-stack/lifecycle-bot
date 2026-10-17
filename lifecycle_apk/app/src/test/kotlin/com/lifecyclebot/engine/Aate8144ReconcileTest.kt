@@ -268,6 +268,18 @@ class Aate8144ReconcileTest {
         val partial = ReconcileClassifier8144.classify8144(clean.copy(chain = emptyMap(), chainComplete = false))
         assertEquals(0, partial.count(Cause8144.CANONICAL_NOT_ON_CHAIN))
         assertEquals("UNVERIFIED_CHAIN_PARTIAL", partial.inventory)
+        for (observed in listOf(1L, 500L, 1_000L, 1_005L)) {
+            val lowerBound = ReconcileClassifier8144.classify8144(clean.copy(chain = mapOf("A" to big(observed)), chainComplete = false))
+            assertEquals("UNVERIFIED_CHAIN_PARTIAL", lowerBound.inventory)
+            assertEquals(0, lowerBound.count(Cause8144.QUANTITY_MISMATCH))
+            assertEquals(0, lowerBound.states[State8144.MATCHED] ?: 0)
+            assertEquals(1, lowerBound.states[State8144.PARTIAL_CHAIN_OBSERVED])
+            assertFalse(lowerBound.ok)
+        }
+        val excess = ReconcileClassifier8144.classify8144(clean.copy(chain = mapOf("A" to big(2_000)), chainComplete = false))
+        assertEquals(1, excess.count(Cause8144.QUANTITY_MISMATCH))
+        val realMissing = ReconcileClassifier8144.classify8144(clean.copy(chain = mapOf("A" to big(500))))
+        assertEquals(1, realMissing.count(Cause8144.QUANTITY_MISMATCH))
         assertEquals("UNVERIFIED_NO_CHAIN", ReconcileClassifier8144.classify8144(clean.copy(chain = null)).inventory)
         // canonical owns a held lot the host projection dropped
         val dropped = ReconcileClassifier8144.classify8144(clean.copy(hostOpenMints = emptySet()))

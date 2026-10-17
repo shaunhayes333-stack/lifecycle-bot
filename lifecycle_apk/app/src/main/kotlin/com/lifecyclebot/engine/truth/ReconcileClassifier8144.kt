@@ -72,7 +72,7 @@ object ReconcileClassifier8144 {
     }
 
     /** Explicitly represented states — described, never exceptions. */
-    enum class State8144 { MATCHED, FROZEN_HELD, DUST, PENDING_TX, QUARANTINED, OWNER_UNOWNED }
+    enum class State8144 { PARTIAL_CHAIN_OBSERVED, MATCHED, FROZEN_HELD, DUST, PENDING_TX, QUARANTINED, OWNER_UNOWNED }
 
     data class Lot8144(
         val positionId: String,
@@ -290,7 +290,11 @@ object ReconcileClassifier8144 {
                     w <= dust -> {
                         // a partial read is a lower bound: absence proves nothing
                         if (i.chainComplete) out += Exception8144(Cause8144.CANONICAL_NOT_ON_CHAIN, m, "", "canonicalRaw=$c chainRaw=$w")
+                        else state(State8144.PARTIAL_CHAIN_OBSERVED)
                     }
+                    // An incomplete account enumeration is a lower bound even when positive.
+                    // It can prove excess holdings, but never missing quantity or a complete match.
+                    !i.chainComplete && (w <= c || qtyMatches8144(c, w)) -> state(State8144.PARTIAL_CHAIN_OBSERVED)
                     qtyMatches8144(c, w) -> state(State8144.MATCHED)
                     m in i.dustMints -> state(State8144.DUST)
                     else -> out += Exception8144(Cause8144.QUANTITY_MISMATCH, m, "", "canonicalRaw=$c chainRaw=$w")

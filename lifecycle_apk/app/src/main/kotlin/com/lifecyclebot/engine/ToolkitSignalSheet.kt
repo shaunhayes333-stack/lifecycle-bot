@@ -1570,12 +1570,12 @@ object ToolkitSignalSheet {
      */
     private val preSizeRefusals7809 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
 
-    fun recordPreSizeRefusal7809(lane: String, reason: String) {
+    fun recordPreSizeRefusal7809(lane: String, reason: String, eventMode8198: String? = null) {
         val l = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane) } catch (_: Throwable) { lane.trim().uppercase() }
         val r = reason.substringBefore(':').trim().uppercase().replace(Regex("[^A-Z0-9_]"), "_").take(64)
         if (l.isBlank() || r.isBlank()) return
         if (preSizeRefusals7809.size > 2_000) preSizeRefusals7809.clear()
-        preSizeRefusals7809.computeIfAbsent("${refusalMode7819()}|$l|$r") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        preSizeRefusals7809.computeIfAbsent("${eventMode8198?.uppercase()?.takeIf { it in setOf("LIVE", "PAPER", "SHADOW") } ?: refusalMode7819()}|$l|$r") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("SPECIALIST_PRE_SIZE_REFUSAL_7809_$l") } catch (_: Throwable) {}
     }
 
@@ -1587,7 +1587,7 @@ object ToolkitSignalSheet {
      * already carries EXEC or EXEC_REFUSED is left alone. `nameRefusal=false` when
      * the caller already counted the reason (TradeAuthorizer's AUTH_<reason>).
      */
-    internal fun terminalizeUnexecutedTicket7948(lane: String, attemptId: String, reason: String, nameRefusal: Boolean = true): Boolean {
+    @Synchronized internal fun terminalizeUnexecutedTicket7948(lane: String, attemptId: String, reason: String, nameRefusal: Boolean = true): Boolean {
         if (attemptId.isBlank()) return false
         val canon = try {
             com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(
@@ -1601,7 +1601,9 @@ object ToolkitSignalSheet {
             deskStageOnce7481["$l|$st|$attemptId"]?.let { now - it <= DESK_STAGE_TTL_MS_7481 } == true
         }
         if (terminated) return false
-        if (nameRefusal) recordPreSizeRefusal7809(l, reason)
+        val eventMode8198 = ExecutableOpenGate.ticketForAttempt(attemptId)?.mode
+            ?: attemptTicketLineage7809(attemptId)?.mode
+        if (nameRefusal) recordPreSizeRefusal7809(l, reason, eventMode8198)
         recordDeskStage(l, "EXEC_REFUSED", attemptId)
         try { PipelineHealthCollector.labelInc("TICKET_UNEXECUTED_TERMINALIZED_7948_$l") } catch (_: Throwable) {}
         return true

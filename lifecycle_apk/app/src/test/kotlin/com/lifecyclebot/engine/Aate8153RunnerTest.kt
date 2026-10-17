@@ -10,6 +10,7 @@ import com.lifecyclebot.engine.RunnerRungBook8153.Revert8153
 import com.lifecyclebot.engine.RunnerRungBook8153.Stage8153
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -360,4 +361,39 @@ class Aate8153RunnerTest {
         assertTrue(exits.contains("bank8153["))
         assertTrue(src("engine/TailBag8034.kt").contains("RunnerLive8153.retire8153(env.mint"))
     }
+    @Test fun invalid_or_duplicate_economics_cannot_consume_a_new_runner_tier_8198() {
+        val b = RunnerRungBook8153()
+        val k = "RUNNER8198|42"
+        val ladder = RunnerRungBook8153.LADDER_RUNNER_8153
+        assertTrue(b.request8153(k, ladder, 1, "RUNNER_MILESTONE_8136_T1", 1L))
+        assertFalse(b.confirm8153(k, ladder, 1, "", 0.2, 0.1))
+        assertFalse(b.confirm8153(k, ladder, 1, "INVALID", Double.NaN, 0.1))
+        assertEquals(0, b.confirmedTier8153(k, ladder))
+        assertNotNull(b.pending8153(k))
+        assertTrue(b.confirm8153(k, ladder, 1, "REAL-SIG8198", 0.2, 0.1))
+        assertTrue(b.request8153(k, ladder, 2, "RUNNER_MILESTONE_8136_T2", 2L))
+        assertFalse(b.confirm8153(k, ladder, 2, "REAL-SIG8198", 0.2, 0.1))
+        assertEquals(1, b.confirmedTier8153(k, ladder))
+        assertEquals(2, b.pending8153(k)?.tier)
+        val restored = RunnerRungBook8153()
+        restored.restore8153(b.encode8153())
+        assertFalse(restored.confirm8153(k, ladder, 2, "REAL-SIG8198", 0.2, 0.1))
+        assertEquals(1, restored.confirmedTier8153(k, ladder))
+        assertEquals(0.1, restored.bankedNetSol8153(k), 1e-12)
+    }
+
+    @Test fun applied_quantity_receipt_is_not_a_fake_proceeds_receipt_8198() {
+        val b = RunnerRungBook8153()
+        val k = "PAPER8198|42"
+        val ladder = RunnerRungBook8153.LADDER_SCALP_8153
+        assertTrue(b.request8153(k, ladder, 1, "SPIKE_CAPTURE_7943_T1", 1L))
+        assertTrue(b.confirmAppliedTier8198(k, ladder, 1))
+        assertFalse(b.confirmAppliedTier8198(k, ladder, 1))
+        assertEquals(1, b.confirmedTier8153(k, ladder))
+        assertNull(b.pending8153(k))
+        assertEquals(0.0, b.bankedProceedsSol8153(k), 0.0)
+        assertTrue(b.confirm8153(k, ladder, 1, "LATE-ECONOMIC-RECEIPT8198", 0.3, 0.1))
+        assertEquals(0.2, b.bankedNetSol8153(k), 1e-12)
+    }
+
 }

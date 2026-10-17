@@ -196,8 +196,10 @@ class Aate7951CapitalThroughputTest {
     }
 
     @Test fun last_slot_is_only_held_for_a_proven_lane_that_exists() {
-        val s = src("engine/truth/LiveSlotPriority7304.kt")
-        assertTrue(s.contains("val defer = shouldDefer(freeSlots, proven, lastSlotSinceMs, nowMs) && anyProvenLane7951()"))
+        // The original anti-starvation intent survives: no lane-history wait after FDG.
+        val s = src("engine/Executor.kt")
+        assertFalse(s.contains("LiveSlotPriority7304.deferLive"))
+        assertTrue(s.contains("WalletCapacitySeal7868.executionRefusal("))
     }
 
     // ── 4. crypto ──────────────────────────────────────────────────────────

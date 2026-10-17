@@ -11100,20 +11100,11 @@ class GoldenTapeRegressionTest {
         val fg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/IntakeFanoutGovernor6835.kt").readText()
         assertTrue(fg.contains("FDG_FANOUT_BUDGET_REFILLED_7304"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("LiveSlotPriority7304.deferLive(gateLaneLive6451, slots7304)"))
-        val p = com.lifecyclebot.engine.truth.LiveSlotPriority7304
-        val proven = com.lifecyclebot.engine.truth.OracleTradeHistory7287.Stat(25, 4.0, 0.5)
-        val young = com.lifecyclebot.engine.truth.OracleTradeHistory7287.Stat(7, 40.0, 0.6)
-        val losing = com.lifecyclebot.engine.truth.OracleTradeHistory7287.Stat(40, -2.0, 0.3)
-        assertTrue(p.isProven(proven))
-        assertFalse(p.isProven(young))
-        assertFalse(p.isProven(losing))
-        assertFalse(p.isProven(null))
-        val t0 = 1_000_000L
-        assertFalse(p.shouldDefer(2, false, t0, t0))
-        assertFalse(p.shouldDefer(1, true, t0, t0))
-        assertTrue(p.shouldDefer(1, false, t0, t0 + 60_000L))
-        assertFalse(p.shouldDefer(1, false, t0, t0 + p.SLOT_RELEASE_MS_7304))
+        // 8198: lane-prior reservation is retired after a valid immutable FDG seal.
+        assertFalse(ex.contains("LiveSlotPriority7304.deferLive"))
+        assertTrue(ex.contains("WalletCapacitySeal7868.executionRefusal("))
+        assertTrue(ex.contains("SealedExecutionSize7835.refusal("))
+
     }
 
     @Test
@@ -11928,7 +11919,11 @@ class GoldenTapeRegressionTest {
         assertTrue(f.contains("val floor7359 = fluidFloor(ts, lane)"))
         assertFalse(f.contains("private const val LIVE_MIN_SCORE: Double = 30.0"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        // 8198: this floor is legacy-only after consuming valid immutable FDG authority.
         assertTrue(ex.contains("LiveMinimumScoreFloor7239.evaluate(ts, effectiveScore, canonicalLane)"))
+        assertTrue(ex.indexOf("SealedExecutionSize7835.strategyScore8198(") <
+            ex.indexOf("LiveMinimumScoreFloor7239.evaluate(ts, effectiveScore, canonicalLane)"))
+        assertTrue(ex.contains("return sealedScore"))
     }
 
 
@@ -15230,4 +15225,23 @@ class GoldenTapeRegressionTest {
                 snap.contains("LiveEdgeGate7877.coldStartConfirm8092(snap.mint)") &&
                 snap.contains("snap.mode8090.equals(\"LIVE\", true)"))
     }
+    @Test fun V5_0_8198_exact_attempt_refusal_and_partial_chain_contracts() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("pending?.attemptId == exact.attemptId"))
+        assertTrue(ex.contains("unresolvedAttempt8198(attemptId)"))
+        assertTrue(ex.contains("EXECUTOR_DEFERRED_SIGNATURE_8198"))
+        assertTrue(ex.contains("EXECUTOR_ENTERED"))
+        val sheet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt").readText()
+        assertTrue(sheet.contains("@Synchronized internal fun terminalizeUnexecutedTicket7948"))
+        assertTrue(sheet.contains("recordPreSizeRefusal7809(l, reason, eventMode8198)"))
+        val rec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ReconcileClassifier8144.kt").readText()
+        assertTrue(rec.contains("!i.chainComplete && (w <= c || qtyMatches8144(c, w))"))
+        assertTrue(rec.contains("State8144.PARTIAL_CHAIN_OBSERVED"))
+        val runner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerRungBook8153.kt").readText()
+        assertTrue(runner.indexOf("if (sig in seenSignatures)") < runner.indexOf("confirmAppliedTier8198(key, ladder, tier)"))
+        val liveRunner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerLive8153.kt").readText()
+        assertTrue(liveRunner.contains("book.confirmAppliedTier8198("))
+        assertFalse(liveRunner.contains("tier, \"\", Double.NaN, Double.NaN"))
+    }
+
 }

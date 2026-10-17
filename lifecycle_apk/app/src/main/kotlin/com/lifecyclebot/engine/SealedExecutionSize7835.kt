@@ -15,6 +15,22 @@ internal object SealedExecutionSize7835 {
         else -> null
     }
 
+    /** A still-valid FDG approval owns its score, not a later mutable lane prior.
+     * This is not route, wallet, finality or safety permission; those remain downstream.
+     */
+    fun strategyScore8198(
+        intent: ExecutableOpenGate.ExecutionIntent?, attemptId: String, mint: String,
+        lane: String, nowMs: Long = System.currentTimeMillis(),
+    ): Double? {
+        if (intent == null || attemptId.isBlank() || intent.attemptId != attemptId) return null
+        if (refusal(intent, mint, "LIVE", lane, intent.resolvedSize) != null) return null
+        if (intent.candidateVersion <= 0L || intent.createdAt > nowMs ||
+            intent.expiresAtMs6613 <= nowMs || intent.effectiveEntryScore7256 !in 0..100) return null
+        if (intent.finalDecision6613 != ExecutableOpenGate.CanonicalFinalDecision6613.BUY ||
+            intent.fdgDecisionId6613.isBlank()) return null
+        return intent.effectiveEntryScore7256.toDouble()
+    }
+
     fun boundsRefusal(size: Double, cap: Double, minimum: Double): String? = when {
         !size.isFinite() || size <= 0.0 -> "EXECUTION_SIZE_INVALID_7835"
         !cap.isFinite() || cap < size - 1e-9 -> "SEALED_SIZE_EXCEEDS_CURRENT_CAP_7835"

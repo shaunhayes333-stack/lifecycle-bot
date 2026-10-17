@@ -66,7 +66,7 @@ class Aate7809EntryLastMileTest {
         assertEquals("CHOKEPOINT_7742_CELL_PROOF_NEGATIVE_7731", TradePlan7739.chokepointTerminalReason7809("CELL_PROOF_NEGATIVE_7731"))
         assertEquals("CHOKEPOINT_7742_UNSPECIFIED", TradePlan7739.chokepointTerminalReason7809(""))
         val ex = src("engine/Executor.kt")
-        assertTrue(ex.contains("emitLiveBuyFail(ts, sol, chokeReason7809(refusal7742), refusal7742)"))
+        assertTrue(ex.contains("emitLiveBuyFail(ts, sol, chokeReason7809(refusal7742), refusal7742, attemptId8198 = attemptId)"))
         assertFalse(ex.contains("emitLiveBuyFail(ts, sol, \"CHOKEPOINT_7742\","))
     }
 

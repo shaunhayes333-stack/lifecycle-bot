@@ -180,7 +180,7 @@ object RunnerLive8153 {
     fun confirmTier8153(ts: TokenState, tier: Int) {
         if (tier <= 0 || !ts.position.isOpen) return
         ensureLoaded8153()
-        book.confirm8153(key8153(ts), ladderOf8153(plan8153(ts)), tier, "", Double.NaN, Double.NaN)
+        book.confirmAppliedTier8198(key8153(ts), ladderOf8153(plan8153(ts)), tier)
         save8153()
     }
 

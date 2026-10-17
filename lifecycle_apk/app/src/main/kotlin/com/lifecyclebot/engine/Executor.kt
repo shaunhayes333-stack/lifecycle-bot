@@ -13901,7 +13901,7 @@ class Executor(
     } catch (_: Throwable) { false }
 
     /** V5.0.8027 — never buy a dead or flatlined chart (FlatChart8027); a hard current-market check like route and safety. */
-    private fun flatChartRefused8027(ts: TokenState, sol: Double): Boolean {
+    private fun flatChartRefused8027(ts: TokenState, sol: Double, attemptId8198: String = ""): Boolean {
         // V5.0.8038 — then the pool itself, read from the chain: API depth or price it contradicts is refused.
         // V5.0.8094 — a clean climb on a fresh launchpad coin in a proven runner cell is the runner, not a manufactured chart.
         val flat8094 = try { FlatChart8027.refusal8027(ts) } catch (_: Throwable) { null }
@@ -13909,7 +13909,7 @@ class Executor(
         val why = flat8094
             ?: try { com.lifecyclebot.engine.truth.OnChainDepth8038.buyRefusal8038(ts) } catch (_: Throwable) { null }
             ?: return false
-        emitLiveBuyFail(ts, sol, why)
+        emitLiveBuyFail(ts, sol, why, attemptId8198 = attemptId8198)
         return true
     }
 
@@ -13934,8 +13934,22 @@ class Executor(
         }
     }
 
-    private fun terminalizeCanonicalLiveFailure7790(ts: TokenState, reason: String) {
+    private fun terminalizeCanonicalLiveFailure7790(ts: TokenState, reason: String, attemptId8198: String = "") {
         try {
+            if (attemptId8198.isNotBlank()) {
+                // Never terminalise a newer candidate because an older dispatch failed.
+                val exact = ExecutableOpenGate.ticketForAttempt(attemptId8198)
+                    ?.takeIf { it.mint == ts.mint && it.mode == "LIVE" }
+                if (exact != null) {
+                    ToolkitSignalSheet.terminalizeUnexecutedTicket7948(exact.canonicalLane, exact.attemptId, reason)
+                    val pending = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551
+                        .findPending(ts.mint, "LIVE", exact.candidateVersion)
+                    if (pending?.attemptId == exact.attemptId) {
+                        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(pending, reason)
+                    }
+                }
+                return
+            }
             val cv = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
             val intent = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE", cv)
                 ?: com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE")
@@ -14122,8 +14136,15 @@ class Executor(
         emitLiveBuyFail(ts, sol, "PRETRADE_HARD_BLOCK_$sub", detail)
     }
 
-    private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
-        terminalizeCanonicalLiveFailure7790(ts, reason)
+    private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "", attemptId8198: String = "") {
+        val failedIntent8198 = attemptId8198.takeIf { it.isNotBlank() }
+            ?.let { ExecutableOpenGate.ticketForAttempt(it) }
+        try { ForensicLogger.lifecycle("EXECUTOR_REFUSED_8198",
+            "attemptId=$attemptId8198 mint=${ts.mint} mode=LIVE " +
+                "lane=${failedIntent8198?.canonicalLane ?: "UNRESOLVED"} " +
+                "candidateVersion=${failedIntent8198?.candidateVersion ?: 0L} " +
+                "sealedSize=${failedIntent8198?.resolvedSize ?: sol} reason=$reason detail=${detail.take(180)}") } catch (_: Throwable) {}
+        terminalizeCanonicalLiveFailure7790(ts, reason, attemptId8198)
         try { com.lifecyclebot.engine.truth.RunnerCapture8017.noteDownstream8047(ts.mint, reason) } catch (_: Throwable) {}  // V5.0.8047
         WalletCapacitySeal7868.release(ts.mint)
         try {
@@ -17759,6 +17780,15 @@ class Executor(
      * fires when none was recorded on the attempt, so every ticket ends by name.
      */
     private fun unexecutedTicket7948(layerTag: String, attemptId: String, reason: String) {
+        val pending8198 = com.lifecyclebot.network.SignedTxLedger8085.unresolvedAttempt8198(attemptId)
+        if (pending8198 != null) {
+            // The wrapper still returns false: neither OPEN nor failure is proven.
+            // The existing signed ledger/reconciler owns this pending transaction.
+            try { ForensicLogger.lifecycle("EXECUTOR_DEFERRED_SIGNATURE_8198",
+                "attemptId=$attemptId mint=${pending8198.mint} mode=LIVE lane=$layerTag " +
+                    "reason=SIGNED_TRANSACTION_PENDING signature=${pending8198.signature} state=${pending8198.state}") } catch (_: Throwable) {}
+            return
+        }
         try { ToolkitSignalSheet.terminalizeUnexecutedTicket7948(normalizeExecutionLane(layerTag), attemptId, reason) } catch (_: Throwable) {}
     }
 
@@ -18156,6 +18186,14 @@ class Executor(
         val sealedTicket = scoreAttempt?.let {
             try { ExecutableOpenGate.ticketForAttempt(it) } catch (_: Throwable) { null }
         }
+        // V5.0.8198: consume the exact still-valid sealed strategy judgement.
+        // Fresh safety/route/finality/capital checks below are not bypassed.
+        SealedExecutionSize7835.strategyScore8198(
+            sealedTicket, scoreAttempt.orEmpty(), ts.mint, canonicalLane,
+        )?.let { sealedScore ->
+            try { PipelineHealthCollector.labelInc("LIVE_SEALED_SCORE_CONSUMED_8198") } catch (_: Throwable) {}
+            return sealedScore
+        }
         // The FDG-carried score is authority for one owner and one generation only. Resolve the generation once from the
         // sealed ticket (or the current coordinator when no ticket exists), then use this same value for lookup/logging.
         val admissionCandidateVersion = sealedTicket?.candidateVersion
@@ -18215,6 +18253,9 @@ class Executor(
         if (floorDecision?.verdict ==
             com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Verdict.BLOCK_BELOW_FLOOR) {
             if (!scoreAttempt.isNullOrBlank()) try {
+                emitLiveBuyFail(ts, sealedTicket?.resolvedSize ?: 0.0,
+                    "LIVE_BUY_REFUSED_PRELEASE_SCORE_7256", floorDecision.reason7239,
+                    attemptId8198 = scoreAttempt)
                 ExecutableOpenGate.terminalizeAttempt6514(scoreAttempt, ts.mint, canonicalLane)
             } catch (_: Throwable) {}
             try {
@@ -18543,9 +18584,13 @@ class Executor(
         @Suppress("NAME_SHADOWING")
         val layerTag: String = LaneAlias.normalize(layerTag).ifBlank { layerTag }
         val sealedIntent7835 = ExecutableOpenGate.ticketForAttempt(attemptId)
+        try { ForensicLogger.lifecycle("EXECUTOR_ENTERED",
+            "attemptId=$attemptId mint=${ts.mint} mode=LIVE lane=$layerTag " +
+                "candidateVersion=${sealedIntent7835?.candidateVersion ?: 0L} " +
+                "sealedSize=${sealedIntent7835?.resolvedSize ?: 0.0} requestedSize=$sol") } catch (_: Throwable) {}
         val sizeRefusal7835 = SealedExecutionSize7835.refusal(sealedIntent7835, ts.mint, "LIVE", layerTag, sol)
         if (sizeRefusal7835 != null) {
-            emitLiveBuyFail(ts, sol, sizeRefusal7835)
+            emitLiveBuyFail(ts, sol, sizeRefusal7835, attemptId8198 = attemptId)
             return false
         }
         val entryEvidence7863 = LiveEntryEvidence7863.capture(ts, requireNotNull(sealedIntent7835))
@@ -18566,7 +18611,7 @@ class Executor(
         // The executor cannot ask the same learned/risk policy to decide the
         // trade again. Current route/safety/finality checks below remain hard.
         try { PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_CONSUMED_SEALED_7850") } catch (_: Throwable) {}
-        if (flatChartRefused8027(ts, sol)) return false
+        if (flatChartRefused8027(ts, sol, attemptId8198 = attemptId)) return false
         // V5.0.7849 — immutable execution intent is the entry verdict.
         // Executor consumes it; learned/history authorities may not re-decide it.
         val gateLaneLive6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "LIVE_STANDARD" }
@@ -18581,6 +18626,7 @@ class Executor(
             if (com.lifecyclebot.engine.sell.ExitProviderHealth.reentryBlockedNow(ts.mint)) {
                 PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_LAST_EXIT_FAILED_7314")
                 ForensicLogger.lifecycle("LIVE_BUY_REFUSED_LAST_EXIT_FAILED_7314", "mint=${ts.mint.take(10)} lane=$gateLaneLive6451")
+                emitLiveBuyFail(ts, sol, "LIVE_BUY_REFUSED_LAST_EXIT_FAILED_7314", attemptId8198 = attemptId)
                 return false
             }
             val systemic7395 = stuck7310 != null && com.lifecyclebot.engine.sell.ExitProviderHealth.exitFailureIsSystemic7395 { m ->
@@ -18599,28 +18645,13 @@ class Executor(
                     "LIVE_BUY_HELD_EXIT_STUCK_7310",
                     "mint=${ts.mint.take(10)} lane=$gateLaneLive6451 stuckExit=${stuck7310.take(10)}",
                 )
+                emitLiveBuyFail(ts, sol, "LIVE_BUY_HELD_EXIT_STUCK_7310", attemptId8198 = attemptId)
                 return false
             }
         } catch (_: Throwable) {}
-        // V5.0.7304 — the last routable live slot goes to a lane with proven
-        // net edge first; it self-releases after 10 minutes with no taker.
-        try {
-            val slots7304 = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(
-                (walletSol - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
-                WalletManager.lastKnownSolPrice,
-            ).capacity
-            // V5.0.7807 — B6: a high-EV runner (MOONSHOT/PROJECT_SNIPER, plan >= 3R)
-            // may take the last slot despite an unproven lane record; it is sized
-            // down by LiveRiskPolicy7807 instead (Field Manual L357).
-            if (!com.lifecyclebot.engine.truth.LiveRiskPolicy7807.isHighEvRunner(ts.mint, gateLaneLive6451) &&
-                com.lifecyclebot.engine.truth.LiveSlotPriority7304.deferLive(gateLaneLive6451, slots7304)) {
-                ForensicLogger.lifecycle(
-                    "LIVE_LAST_SLOT_RESERVED_FOR_PROVEN_LANE_7304",
-                    "mint=${ts.mint.take(10)} lane=$gateLaneLive6451 freeSlots=$slots7304",
-                )
-                return false
-            }
-        } catch (_: Throwable) {}
+        // V5.0.8198: FDG already elected and sized this lane. A later lane-history
+        // priority vote cannot revoke its sealed order. Current wallet/reserve,
+        // exact size, inventory, route and pending-signature checks still bind below.
         val entryAuthoritySol6487 = requireNotNull(sealedIntent7835).resolvedSize
         // V5.0.6444 §1 LIVE EXECUTOR MIGRATION — mirror the live buy
         // attempt into CanonicalPositionAuthority6441 via
@@ -18687,6 +18718,8 @@ class Executor(
                     PipelineHealthCollector.labelInc("LIVE_BUY_COLLAPSE_GUARD_HARD_BLOCK_6326")
                     PipelineHealthCollector.labelInc("BUY_SECURITY_BLOCKED_6324")
                 } catch (_: Throwable) {}
+                emitLiveBuyFail(ts, sol, "LIVE_BUY_COLLAPSE_GUARD_HARD_BLOCK_6326",
+                    guardVerdict.reasons.joinToString(","), attemptId8198 = attemptId)
                 return false
             }
             // V5.0.6405 §17 — LIVE RUG RISK HARD GATE.
@@ -18728,6 +18761,7 @@ class Executor(
                         try {
                             PipelineHealthCollector.labelInc("BUY_SECURITY_BLOCKED_6324")
                         } catch (_: Throwable) {}
+                        emitLiveBuyFail(ts, sol, "LIVE_RUG_RISK_HARD_BLOCK_6405", attemptId8198 = attemptId)
                         return false
                     }
                 }
@@ -18928,7 +18962,7 @@ class Executor(
             if (rugBL4134) {
                 try { ForensicLogger.lifecycle("RUG_BLACKLIST_VETO_V4134", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 path=liveBuy.enter") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("RUG_BLACKLIST_VETO_LIVEBUY") } catch (_: Throwable) {}
-                try { emitLiveBuyFail(ts, sol, "RUG_BLACKLIST", "mint blacklisted ≤24h ago") } catch (_: Throwable) {}
+                try { emitLiveBuyFail(ts, sol, "RUG_BLACKLIST", "mint blacklisted ≤24h ago", attemptId8198 = attemptId) } catch (_: Throwable) {}
                 onLog("🛑 LIVE rug-blacklist veto: ${ts.symbol}", "discipline")
                 return false
             }
@@ -19066,7 +19100,7 @@ class Executor(
         }
         fun liveAbortDesync(reason: String): Boolean {
             liveStage("LIVE_BUY_ABORTED", "reason=LIVE_MODE_DESYNC detail=$reason")
-            try { emitLiveBuyFail(ts, sol, "LIVE_MODE_DESYNC", reason) } catch (_: Throwable) {}
+            try { emitLiveBuyFail(ts, sol, "LIVE_MODE_DESYNC", reason, attemptId8198 = attemptId) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("LIVE_MODE_DESYNC") } catch (_: Throwable) {}
             return false
         }
@@ -19292,7 +19326,7 @@ class Executor(
                     "reason=LIVE_ENTRY_SAFETY_HOLD_6312 detail=${assess6312.reason} failed=${assess6312.failedInvariants.joinToString(",").take(180)}",
                 )
                 try {
-                    emitLiveBuyFail(ts, sol, "LIVE_ENTRY_SAFETY_HOLD_6312", assess6312.reason)
+                    emitLiveBuyFail(ts, sol, "LIVE_ENTRY_SAFETY_HOLD_6312", assess6312.reason, attemptId8198 = attemptId)
                     PipelineHealthCollector.onGate(
                         "EXEC_GATE",
                         ts.symbol,
@@ -19325,7 +19359,7 @@ class Executor(
                 if (cooldownReason6312 != null) {
                     liveStage("LIVE_BUY_ABORTED", "reason=MINT_REENTRY_COOLDOWN_6312 detail=$cooldownReason6312")
                     try {
-                        emitLiveBuyFail(ts, sol, "MINT_REENTRY_COOLDOWN_6312", cooldownReason6312)
+                        emitLiveBuyFail(ts, sol, "MINT_REENTRY_COOLDOWN_6312", cooldownReason6312, attemptId8198 = attemptId)
                         PipelineHealthCollector.onGate(
                             "EXEC_GATE",
                             ts.symbol,
@@ -19523,7 +19557,7 @@ class Executor(
                 if (!providerDegradedBuyAllowed8099(ts, layerTag, ec?.entrySetup, ec?.chartPattern, dexSr, jupQSr)) {
                     val detail = "dexscreener_sr=${"%.0f".format(dexSr * 100)}% jupiter_quote_sr=${"%.0f".format(jupQSr * 100)}% (thresholds 70/60)"
                     liveStage("LIVE_BUY_ABORTED", "reason=PROVIDER_DEGRADED_BUY_BLOCK_6264 detail=$detail")
-                    try { emitLiveBuyFail(ts, sol, "PROVIDER_DEGRADED_BUY_BLOCK_6264", detail) } catch (_: Throwable) {}
+                    try { emitLiveBuyFail(ts, sol, "PROVIDER_DEGRADED_BUY_BLOCK_6264", detail, attemptId8198 = attemptId) } catch (_: Throwable) {}
                     try {
                         com.lifecyclebot.engine.PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "PROVIDER_DEGRADED_BUY_BLOCK_6264 mode=LIVE lane=$layerTag $detail")
                         com.lifecyclebot.engine.ForensicLogger.lifecycle("PROVIDER_DEGRADED_BUY_BLOCK_6264", "$detail lane=$layerTag mint=${ts.mint.take(10)}")
@@ -19560,7 +19594,7 @@ class Executor(
             val feeGate = com.lifecyclebot.engine.LiveLaneGovernor.feeEaterGuard(sol)
             if (feeGate.first) {
                 liveStage("LIVE_BUY_ABORTED", "reason=SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247 detail=${feeGate.second.take(140)}")
-                try { emitLiveBuyFail(ts, sol, "SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247", feeGate.second) } catch (_: Throwable) {}
+                try { emitLiveBuyFail(ts, sol, "SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247", feeGate.second, attemptId8198 = attemptId) } catch (_: Throwable) {}
                 return false
             }
         } catch (_: Throwable) {}
@@ -19585,7 +19619,7 @@ class Executor(
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("LIVE_BUY_ADVISOR_BLOCK") } catch (_: Throwable) {}
             liveStage("LIVE_BUY_ABORTED", "reason=ADVISOR_BLOCK detail=${advisor.second.take(120)}")
-            try { emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", "ADVISOR_BLOCK:${advisor.second}") } catch (_: Throwable) {}
+            try { emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", "ADVISOR_BLOCK:${advisor.second}", attemptId8198 = attemptId) } catch (_: Throwable) {}
             return false
         }
 
@@ -19605,7 +19639,7 @@ class Executor(
         if (entryMarketSnapshot == null) {
             stampLiveEntryMark7790(ts, false, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
             terminalizeCanonicalPreLease7789("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
-            emitLiveBuyFail(ts, sol, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }}")
+            emitLiveBuyFail(ts, sol, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }}", attemptId8198 = attemptId)
             // V5.0.7356 — nothing was spent; give back the mint-version claim so the
             // next cycle (with a fresh mark) is not refused as a duplicate buy.
             try {
@@ -19747,7 +19781,7 @@ class Executor(
                     )
                 } catch (_: Throwable) {}
                 liveStage("LIVE_BUY_ABORTED", "reason=LIVE_SNIPER_NOT_A_LAUNCH_7385 mcap=${mcap7385.toInt()} graduated=$graduated7385")
-                try { emitLiveBuyFail(ts, sol, "LIVE_SNIPER_NOT_A_LAUNCH_7385", "mcap=${mcap7385.toInt()} graduated=$graduated7385") } catch (_: Throwable) {}
+                try { emitLiveBuyFail(ts, sol, "LIVE_SNIPER_NOT_A_LAUNCH_7385", "mcap=${mcap7385.toInt()} graduated=$graduated7385", attemptId8198 = attemptId) } catch (_: Throwable) {}
                 return false
             }
         }
@@ -19767,7 +19801,7 @@ class Executor(
             } else {
                 terminalizeCanonicalPreLease7789("CHOKEPOINT_7742:${refusal7742.take(80)}")
                 liveStage("LIVE_BUY_ABORTED", "reason=CHOKEPOINT_7742 $refusal7742")
-                try { emitLiveBuyFail(ts, sol, chokeReason7809(refusal7742), refusal7742) } catch (_: Throwable) {}
+                try { emitLiveBuyFail(ts, sol, chokeReason7809(refusal7742), refusal7742, attemptId8198 = attemptId) } catch (_: Throwable) {}
                 return false
             }
         }
@@ -19903,7 +19937,7 @@ class Executor(
             if (deferPendingTokenMap7371("pre_plan")) return false
             val missing = missingTokenMapFields()
             liveStage("LIVE_BUY_FAILED", "reason=TOKEN_MAP_INCOMPLETE missing=$missing route=${ts.tokenMap.routeStatus}")
-            emitLiveBuyFail(ts, sol, "TOKEN_MAP_INCOMPLETE", "missing=$missing route=${ts.tokenMap.routeStatus}")
+            emitLiveBuyFail(ts, sol, "TOKEN_MAP_INCOMPLETE", "missing=$missing route=${ts.tokenMap.routeStatus}", attemptId8198 = attemptId)
             buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:TOKEN_MAP_INCOMPLETE_$missing")
             return false
         }
@@ -19975,7 +20009,7 @@ class Executor(
                             "oracleState=not_attached brainVerdict=${commonSenseBrain6026?.verdict ?: "NA"}")
                     } catch (_: Throwable) {}
                     liveStage("LIVE_BUY_ABORTED", "reason=COMMON_SENSE_PREBUY:${commonSense.reason} detail=${commonSense.detail.take(140)} chain=${commonSenseBrain6026?.verdict ?: "NA"} hard=$commonSenseHard6026")
-                    emitLiveBuyFail(ts, sol, "COMMON_SENSE_PREBUY_${commonSense.reason}", commonSense.detail)
+                    emitLiveBuyFail(ts, sol, "COMMON_SENSE_PREBUY_${commonSense.reason}", commonSense.detail, attemptId8198 = attemptId)
                     buyTerminalFail("BUY_TERMINAL_COMMON_SENSE:${commonSense.reason.take(48)}")
                     return false
                 }
@@ -20030,7 +20064,7 @@ class Executor(
             try { ForensicLogger.lifecycle("LIVE_ROUTE_BLOCKED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol reason=${liveRoute.reason}") } catch (_: Throwable) {}
             ErrorLogger.warn("Executor", "🚫 LIVE_ROUTE_BLOCKED: ${ts.symbol} | ${liveRoute.reason}")
             val routeFailBucket = "LIVE_BUY_REJECTED_HARD_BLOCK_ROUTE_${liveRoute.reason.take(72).replace(' ', '_').replace('+', '_')}"
-            emitLiveBuyFail(ts, sol, routeFailBucket, liveRoute.reason)
+            emitLiveBuyFail(ts, sol, routeFailBucket, liveRoute.reason, attemptId8198 = attemptId)
             buyTerminalFail("BUY_TERMINAL_ROUTE_AUTHORITY:${liveRoute.reason.take(80)}")
             return false
         }
@@ -20063,7 +20097,7 @@ class Executor(
                 } catch (_: Throwable) {}
                 providerQuorumSizeMultiplier = 0.60
             } else {
-                emitLiveBuyFail(ts, sol, "LIVE_BUY_REJECTED_HARD_BLOCK_PROVIDER_QUORUM", providerQuorum.reason)
+                emitLiveBuyFail(ts, sol, "LIVE_BUY_REJECTED_HARD_BLOCK_PROVIDER_QUORUM", providerQuorum.reason, attemptId8198 = attemptId)
                 buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:${providerQuorum.reason.take(80)}")
                 return false
             }
@@ -20075,13 +20109,13 @@ class Executor(
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ExecutionRootCauseTrace.buy("LIVE_BUY_ABORT_INVALID_SIZE", ts, "sol=$sol")
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid size $sol for ${ts.symbol}")
-            emitLiveBuyFail(ts, sol, "INVALID_SIZE")
+            emitLiveBuyFail(ts, sol, "INVALID_SIZE", attemptId8198 = attemptId)
             buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:INVALID_SIZE")
             return false
         }
         if (ts.mint.isBlank() || ts.symbol.isBlank()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: empty mint/symbol")
-            emitLiveBuyFail(ts, sol, "EMPTY_MINT_OR_SYMBOL")
+            emitLiveBuyFail(ts, sol, "EMPTY_MINT_OR_SYMBOL", attemptId8198 = attemptId)
             buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:EMPTY_MINT_OR_SYMBOL")
             return false
         }
@@ -20101,7 +20135,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} reason=$why")
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_BLACKLIST")
             } catch (_: Throwable) {}
-            emitLiveBuyFail(ts, sol, "BLACKLIST", why)
+            emitLiveBuyFail(ts, sol, "BLACKLIST", why, attemptId8198 = attemptId)
             buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:BLACKLIST")
             return false
         }
@@ -20152,7 +20186,7 @@ class Executor(
                 if (reasonUpper.contains("WATCH") || reasonUpper.contains("SELECTED_UNKNOWN") ||
                     reasonUpper.contains("UNKNOWN_MODE") || reasonUpper.contains("CANON_LANE_UNRESOLVED")) {
                     liveStage("LIVE_BUY_ABORTED", "reason=OBSERVE_ONLY_NOT_LIVE_EXECUTABLE detail=${executableOpen.reason.take(120)}")
-                    emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", executableOpen.reason)
+                    emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", executableOpen.reason, attemptId8198 = attemptId)
                     buyTerminalFail("BUY_TERMINAL_ABORTED:OBSERVE_ONLY_NOT_LIVE_EXECUTABLE")
                     return observeOnlyLiveEntry("OBSERVE_ONLY_NOT_LIVE_EXECUTABLE", canonicalRoutedLane, executableOpen.reason)
                 }
@@ -20162,12 +20196,12 @@ class Executor(
                         PipelineHealthCollector.labelInc("DEFERRED_REQUOTE_REQUIRED")
                     } catch (_: Throwable) {}
                     liveStage("LIVE_BUY_ABORTED", "reason=DEFERRED_REQUOTE_REQUIRED detail=${executableOpen.reason.take(120)}")
-                    emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", "DEFERRED_REQUOTE_REQUIRED:${executableOpen.reason}")
+                    emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", "DEFERRED_REQUOTE_REQUIRED:${executableOpen.reason}", attemptId8198 = attemptId)
                     buyTerminalFail("BUY_TERMINAL_ABORTED:DEFERRED_REQUOTE_REQUIRED")
                     return false
                 }
                 val failBucket = "FINALITY_BLOCK:${executableOpen.reason.take(72).replace(' ', '_')}"
-                emitLiveBuyFail(ts, sol, failBucket, executableOpen.reason)
+                emitLiveBuyFail(ts, sol, failBucket, executableOpen.reason, attemptId8198 = attemptId)
                 buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:FINALITY_${executableOpen.reason.take(60)}")
                 return false
             }
@@ -20194,7 +20228,7 @@ class Executor(
                 )
             } catch (_: Throwable) {}
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "WRONG_TARGET_MINT")
-            emitLiveBuyFail(ts, sol, "WRONG_TARGET_MINT")
+            emitLiveBuyFail(ts, sol, "WRONG_TARGET_MINT", attemptId8198 = attemptId)
             // V5.0.4187 — LEASE ORPHAN FIX (A1). V5.0.4186 dump showed 25+
             // EXEC_LEASE_PRUNED_EXPIRED for BUYs. Each silent early-return
             // after lease acquire holds the slot for 30s, choking volume.
@@ -20252,14 +20286,14 @@ class Executor(
                 val be = LiveRestoreExecutionPolicy.BreakEven(false, sol, 999.0, 0.0, 999.0, "SKIP_BELOW_BREAK_EVEN")
                 LiveRestoreExecutionPolicy.logBreakEven(ts, be, restorePenalty)
                 try { ForensicLogger.lifecycle("LIVE_RESTORE_SAFETY_TIER_SKIP", "symbol=${ts.symbol} mint=${ts.mint.take(10)} tier=${ts.safety.tier.name} penalty=${restorePenalty.reason}") } catch (_: Throwable) {}
-                emitLiveBuyFail(ts, sol, "RESTORE_SAFETY_TIER_SKIP", restorePenalty.reason)
+                emitLiveBuyFail(ts, sol, "RESTORE_SAFETY_TIER_SKIP", restorePenalty.reason, attemptId8198 = attemptId)
                 // V5.0.4187 — LEASE ORPHAN FIX (A3).
                 buyTerminalFail("BUY_TERMINAL_RESTORE_SAFETY_TIER_SKIP:${restorePenalty.reason.take(40)}")
                 return false
             }
             if (LiveRestoreExecutionPolicy.mintActuallyOpen(ts.mint, ts)) {
                 try { ForensicLogger.lifecycle("TRUE_DUPLICATE_OPEN", "symbol=${ts.symbol} mint=${ts.mint.take(10)} penalty=${restorePenalty.reason}") } catch (_: Throwable) {}
-                emitLiveBuyFail(ts, sol, "TRUE_DUPLICATE_OPEN", restorePenalty.reason)
+                emitLiveBuyFail(ts, sol, "TRUE_DUPLICATE_OPEN", restorePenalty.reason, attemptId8198 = attemptId)
                 // V5.0.4187 — LEASE ORPHAN FIX (A4).
                 buyTerminalFail("BUY_TERMINAL_TRUE_DUPLICATE_OPEN")
                 return false
@@ -20295,7 +20329,7 @@ class Executor(
                 if (deferPendingTokenMap7371("late")) return false
                 val missing = missingTokenMapFields()
                 liveStage("LIVE_BUY_FAILED", "reason=TOKEN_MAP_INCOMPLETE_LATE missing=$missing route=${ts.tokenMap.routeStatus}")
-                emitLiveBuyFail(ts, sol, "TOKEN_MAP_INCOMPLETE", "late missing=$missing route=${ts.tokenMap.routeStatus}")
+                emitLiveBuyFail(ts, sol, "TOKEN_MAP_INCOMPLETE", "late missing=$missing route=${ts.tokenMap.routeStatus}", attemptId8198 = attemptId)
                 buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:TOKEN_MAP_INCOMPLETE_LATE_$missing")
                 return false
             }
@@ -20375,7 +20409,7 @@ class Executor(
                     } catch (_: Throwable) {}
                     val abortReason = if (tokenMapPending) "TOKEN_MAP_INCOMPLETE" else "SAFETY_PROOF_INCOMPLETE"
                     liveStage("LIVE_BUY_ABORTED", "reason=$abortReason detail=${preTrade.detail.take(120)}")
-                    emitLiveBuyFail(ts, sol, abortReason, preTrade.detail)
+                    emitLiveBuyFail(ts, sol, abortReason, preTrade.detail, attemptId8198 = attemptId)
                     buyTerminalFail("BUY_TERMINAL_ABORTED:$abortReason")
                     return false
                 }
@@ -20441,13 +20475,13 @@ class Executor(
             ts.mint, sol, walletSol, maxSpendableSol, maxOf(liveMinExecutableBuySol, spendCap7842.routableMinSol),
         )
         if (spendRefusal7835 != null) {
-            emitLiveBuyFail(ts, sol, spendRefusal7835)
+            emitLiveBuyFail(ts, sol, spendRefusal7835, attemptId8198 = attemptId)
             buyTerminalFail(spendRefusal7835)
             return false
         }
         val assumedSolUsd = WalletManager.lastKnownSolPrice
         if (!assumedSolUsd.isFinite() || assumedSolUsd <= 0.0) {
-            emitLiveBuyFail(ts, sol, "SOL_USD_MISSING_7835")
+            emitLiveBuyFail(ts, sol, "SOL_USD_MISSING_7835", attemptId8198 = attemptId)
             buyTerminalFail("SOL_USD_MISSING_7835")
             return false
         }
@@ -20488,12 +20522,12 @@ class Executor(
         }
         val impactPct = if (liqForImpact > 0.0) ((sol * assumedSolUsd) / liqForImpact) * 100.0 else 999.0
         if (!liveCfg.allowLiveMicroProbe && sol < minNonMicroLiveBuySol) {
-            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol minLiveBuySol=$minNonMicroLiveBuySol allowMicro=false")
+            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol minLiveBuySol=$minNonMicroLiveBuySol allowMicro=false", attemptId8198 = attemptId)
             buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:SIZE_TOO_THIN_FOR_NON_MICRO_TRADE")
             return false
         }
         if (impactPct > liveCfg.maxPoolImpactPct) {
-            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol impactPct=${impactPct.fmt(3)} maxPoolImpactPct=${liveCfg.maxPoolImpactPct} liquidityUsd=${ts.lastLiquidityUsd} liqForImpact=$liqForImpact cascadeUsed=${liqForImpact != ts.lastLiquidityUsd}")
+            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol impactPct=${impactPct.fmt(3)} maxPoolImpactPct=${liveCfg.maxPoolImpactPct} liquidityUsd=${ts.lastLiquidityUsd} liqForImpact=$liqForImpact cascadeUsed=${liqForImpact != ts.lastLiquidityUsd}", attemptId8198 = attemptId)
             buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:POOL_IMPACT_TOO_HIGH_FOR_NON_MICRO_TRADE")
             return false
         }
@@ -20515,7 +20549,7 @@ class Executor(
                 ErrorLogger.warn("Executor",
                     "🚦 GATE_BLOCK ${ts.symbol} ${decision.code} | ${decision.reason}")
                 PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "GATE_${decision.code}")
-                emitLiveBuyFail(ts, sol, "LIVE_EXECUTION_GATE_${decision.code}", decision.reason)
+                emitLiveBuyFail(ts, sol, "LIVE_EXECUTION_GATE_${decision.code}", decision.reason, attemptId8198 = attemptId)
                 buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:EXEC_GATE_${decision.code}")
                 return false
             }
@@ -20534,7 +20568,7 @@ class Executor(
             } else {
                 onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
                 PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.ALREADY_IN_POSITION, "TRUE_DUPLICATE_OPEN")
-                emitLiveBuyFail(ts, sol, "MULTILAYER_TRUE_DUPLICATE_OPEN")
+                emitLiveBuyFail(ts, sol, "MULTILAYER_TRUE_DUPLICATE_OPEN", attemptId8198 = attemptId)
                 buyTerminalFail("BUY_TERMINAL_DUPLICATE_SUPPRESSED:MULTILAYER_TRUE_DUPLICATE_OPEN")
                 return false
             }
@@ -20545,7 +20579,7 @@ class Executor(
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
                 c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
             onLog("🛑 Keypair integrity failure — trade aborted", tradeId.mint)
-            emitLiveBuyFail(ts, sol, "KEYPAIR_INTEGRITY_FAILURE")
+            emitLiveBuyFail(ts, sol, "KEYPAIR_INTEGRITY_FAILURE", attemptId8198 = attemptId)
             buyTerminalFail("BUY_TERMINAL_SUBMIT_FAIL:KEYPAIR_INTEGRITY_FAILURE")
             return false
         }

@@ -9,8 +9,9 @@ class Aate7790LiveCausalClosureTest {
 
     @Test fun liveFailuresTerminalizeCanonicalIntent() {
         val s=src("engine/Executor.kt")
-        assertTrue(s.contains("terminalizeCanonicalLiveFailure7790(ts, reason)"))
-        assertTrue(s.contains("CanonicalEntryAuthority6551.markFailed(intent, reason)"))
+        assertTrue(s.contains("terminalizeCanonicalLiveFailure7790(ts, reason, attemptId8198)"))
+        assertTrue(s.contains("pending?.attemptId == exact.attemptId"))
+        assertTrue(s.contains("CanonicalEntryAuthority6551.markFailed(pending, reason)"))
     }
 
     @Test fun liveEntrySnapshotStampsCausalMark() {

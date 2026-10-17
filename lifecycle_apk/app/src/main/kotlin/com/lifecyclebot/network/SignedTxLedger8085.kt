@@ -66,6 +66,13 @@ object SignedTxLedger8085 {
 
     fun get(signature: String): Entry? = rows[signature]
 
+    /** Exact dispatch only. Another generation on this mint cannot borrow pending status. */
+    fun unresolvedAttempt8198(attemptId: String): Entry? =
+        if (attemptId.isBlank()) null else rows.values.firstOrNull {
+            it.intentId == attemptId && it.side == "BUY" && it.unresolved
+        }
+
+
     fun historyFor8090(mint: String): List<Entry> = rows.values.filter { it.mint == mint }
 
     /** V5.0.8144 — every row (in-memory ledger, resolved + unresolved) for the reconciliation classifier. */

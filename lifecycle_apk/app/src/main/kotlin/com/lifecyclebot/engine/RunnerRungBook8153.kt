@@ -135,24 +135,34 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
      */
     @Synchronized
     fun confirm8153(key: String, ladder: String, tier: Int, signature: String, proceedsSol: Double, soldCostSol: Double): Boolean {
-        if (key.isBlank()) return false
-        val r = rungs(key, ladder)
-        val p = r.pending
-        if (tier > 0) {
-            val l = if (p != null && p.tier == tier) p.ladder else ladder
-            if (l == LADDER_RUNNER_8153) r.runnerConfirmed = maxOf(r.runnerConfirmed, tier) else r.scalpConfirmed = maxOf(r.scalpConfirmed, tier)
-            if (p != null && p.tier <= confirmedOf(r, p.ladder)) { r.pending = null; confirmed++ }
-            r.refusals = 0
-            r.retryAtMs = 0L
-        }
         val sig = signature.trim()
-        if (sig.isEmpty() || !proceedsSol.isFinite() || proceedsSol < 0.0 || !soldCostSol.isFinite() || soldCostSol <= 0.0) return false
+        if (key.isBlank() || sig.isEmpty() || !proceedsSol.isFinite() || proceedsSol < 0.0 ||
+            !soldCostSol.isFinite() || soldCostSol <= 0.0) return false
         if (sig in seenSignatures) { duplicateFills++; return false }
+        confirmAppliedTier8198(key, ladder, tier)
+        val r = rungs(key, ladder)
         seenSignatures.add(sig)
         r.proceedsSol += proceedsSol
         r.soldCostSol += soldCostSol
         booked++
         return true
+    }
+
+    /** An APPLIED quantity receipt confirms a tier, but supplies no banked-proceeds evidence.
+     * Called only by RunnerLive8153's already-applied/chain-consumed callbacks. */
+    @Synchronized
+    internal fun confirmAppliedTier8198(key: String, ladder: String, tier: Int): Boolean {
+        if (key.isBlank() || tier !in 1..16) return false
+        val r = rungs(key, ladder)
+        val p = r.pending
+        val l = if (p != null && p.tier == tier) p.ladder else ladder
+        val previous = confirmedOf(r, l)
+        if (l == LADDER_RUNNER_8153) r.runnerConfirmed = maxOf(r.runnerConfirmed, tier)
+        else r.scalpConfirmed = maxOf(r.scalpConfirmed, tier)
+        if (p != null && p.tier <= confirmedOf(r, p.ladder)) { r.pending = null; confirmed++ }
+        r.refusals = 0
+        r.retryAtMs = 0L
+        return tier > previous
     }
 
     /** The position's gross opportunity: its entry cost x the verified peak gain (ratchets up only). */
