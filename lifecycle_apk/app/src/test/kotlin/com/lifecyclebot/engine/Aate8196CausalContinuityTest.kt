@@ -35,7 +35,7 @@ class Aate8196CausalContinuityTest {
         val now = System.currentTimeMillis()
         val t = com.lifecyclebot.data.TokenState(mint = "mint8196", symbol = "TEST")
         val state = h.resolveFromToken8196(t, false, now - 120_000L, now)
-        assertEquals(h.State.PAIR_PENDING_HYDRATION, state.state)
+        assertEquals(com.lifecyclebot.engine.truth.PairHydrationState6398.State.PAIR_PENDING_HYDRATION, state.state)
         assertEquals("PROVIDER_ATTEMPTS_UNPROVEN_8196", state.reason)
         assertFalse(state.providerAttempted.contains("ORACLE"))
         // A positive dated Helius pool witness wins immediately even after TTL.
@@ -44,7 +44,7 @@ class Aate8196CausalContinuityTest {
         t.tokenMap.updatedAtMs = now
         t.tokenMap.providerTimestamps["HELIUS"] = now
         val recovered = h.resolveFromToken8196(t, false, now - 120_000L, now)
-        assertEquals(h.State.PAIR_CONFIRMED, recovered.state)
+        assertEquals(com.lifecyclebot.engine.truth.PairHydrationState6398.State.PAIR_CONFIRMED, recovered.state)
         assertEquals("route-pool8196", recovered.pairAddress)
         val bot = source("engine/BotService.kt")
         assertTrue(bot.contains("PairHydrationState6398.resolveFromToken8196("))
