@@ -216,6 +216,11 @@ object HeliusCreditEconomy7881 {
     // subscriptions 0, setups DATA_INCOMPLETE. A provider exhaustion answer now latches for [EXHAUSTED_LATCH_MS_8094];
     // non-execution calls are answered locally (callers fall to their next source) with one probe per window.
     private const val EXHAUSTED_LATCH_MS_8094 = 15L * 60_000L
+    // 8197: one independent success probe each minute can disprove an old
+    // provider-exhaustion latch without reopening optional request floods.
+    private const val RECOVERY_PROBE_MS_8197 = 60_000L
+    fun recoveryProbeDue8197(nowMs: Long, lastProbeAtMs: Long): Boolean =
+        nowMs - lastProbeAtMs >= RECOVERY_PROBE_MS_8197
     @Volatile private var exhaustedUntilMs8094 = 0L
     @Volatile private var lastProbeMs8094 = 0L
     private val exhaustedLatches8094 = AtomicLong(0)
@@ -277,11 +282,37 @@ object HeliusCreditEconomy7881 {
         try { PipelineHealthCollector.labelInc("HELIUS_PROVIDER_EXHAUSTED_8094") } catch (_: Throwable) {}
     }
 
+    /**
+     * 8196: a confirmed successful provider request disproves a stale
+     * provider-exhaustion latch. Without this, even a successful recovery
+     * probe left local Helius REST and WebSocket subscriptions disabled for
+     * the remainder of the 15-minute latch (the wallet cannot afford that
+     * missed launch coverage). The independent daily credit budget remains.
+     */
+    fun providerRecovered8196(code: Int, body: String): Boolean =
+        code in 200..299 && !Regex("\\\"error\\\"\\s*:\\s*\\{", RegexOption.IGNORE_CASE).containsMatchIn(body)
+
+    fun clearExhaustionOnProof8196(nowMs: Long = System.currentTimeMillis()) {
+        if (exhaustedUntilMs8094 <= 0L) return
+        exhaustedUntilMs8094 = 0L
+        lastProbeMs8094 = nowMs
+        synchronized(exhaustAnswers8191) { exhaustAnswers8191.clear() }
+        try { PipelineHealthCollector.labelInc("HELIUS_EXHAUSTION_RECOVERED_ON_PROOF_8196") } catch (_: Throwable) {}
+    }
+
     /** True while latched, except one probe per latch window (so recovery is noticed without a restart). */
     fun exhaustedGate8094(nowMs: Long = System.currentTimeMillis()): Boolean {
         if (nowMs >= exhaustedUntilMs8094) return false
-        if (nowMs - lastProbeMs8094 >= EXHAUSTED_LATCH_MS_8094) { lastProbeMs8094 = nowMs; return false }
-        return true
+        // Atomic probe lease: concurrent scanner jobs must not all escape the
+        // latch on the same heartbeat. Full execution and hard daily budget
+        // remain under their existing independent authorities.
+        return synchronized(exhaustAnswers8191) {
+            if (nowMs >= exhaustedUntilMs8094) false
+            else if (recoveryProbeDue8197(nowMs, lastProbeMs8094)) {
+                lastProbeMs8094 = nowMs
+                false
+            } else true
+        }
     }
 
     fun exhaustedLatched8094(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < exhaustedUntilMs8094

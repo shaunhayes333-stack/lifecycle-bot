@@ -40,6 +40,85 @@ object PairHydrationState6398 {
         val reason: String,
     )
 
+    /**
+     * 8196: a timeout proves age, not an exhausted route. The former BotService
+     * no-pair path passed DEXSCREENER/BIRDEYE/ORACLE as "attempted" literals
+     * before the asynchronous hydrators had actually returned anything.
+     * Require distinct real metadata and execution-route attempts before
+     * terminalising a candidate as HARD_UNAVAILABLE. A temporary provider
+     * outage or unattempted route remains PENDING, never an invented no-route.
+     */
+    fun fallbackExhausted8196(attempted: List<String>): Boolean {
+        val sources = attempted.map { it.trim().uppercase() }.filter { it.isNotBlank() }.toSet()
+        val metadata = sources.any { it == "DEXSCREENER" || it == "HELIUS" || it == "BIRDEYE" }
+        val route = sources.any { it == "JUPITER" || it == "ORACLE" }
+        return sources.size >= 3 && metadata && route
+    }
+
+    /** Build a real no-pair witness from a token's own source and dated canonical map. */
+    fun resolveFromToken8196(
+        ts: com.lifecyclebot.data.TokenState,
+        sourceNativePump: Boolean,
+        hydrationStartedAtMs: Long,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Snapshot {
+        val map = ts.tokenMap
+        val recent = try {
+            map.providerTimestamps.entries.filter { nowMs - it.value in 0L..600_000L }
+                .map { it.key.uppercase() }
+        } catch (_: Throwable) { emptyList() }
+        // The caller genuinely asked DexScreener and got no pair; every other
+        // producer is counted only when its canonical map says it answered.
+        val attempted = (listOf("DEXSCREENER") + recent).distinct()
+        val candidatePool = map.poolAddress.ifBlank { map.pairAddress }
+        // A real, recently hydrated pool remains available when the scanner's own
+        // DexScreener call returns no pair. Do not discard the canonical witness.
+        val trustedPool = candidatePool.takeIf { it.isNotBlank() && it != ts.mint && map.hydrationComplete &&
+            nowMs - map.updatedAtMs in 0L..300_000L }
+        val nativeVenues = listOf("RAYDIUM", "PUMPSWAP", "PUMP_SWAP", "METEORA", "ORCA", "BONKSWAP")
+        val priceVenueNative = nativeVenues.any {
+            ts.lastPriceDex.contains(it, true) || ts.source.contains(it, true)
+        }
+        val sourcePool = ts.lastPricePoolAddr.takeIf { it.isNotBlank() && it != ts.mint &&
+            nowMs - ts.lastPriceUpdate in 0L..300_000L && priceVenueNative }
+        val mapVenueNative = nativeVenues.any { map.venue.contains(it, true) || map.dexId.contains(it, true) }
+        val nativePool = sourcePool ?: trustedPool?.takeIf { mapVenueNative }
+        val isRaydium = ts.lastPriceDex.contains("RAYDIUM", true) ||
+            ts.source.contains("RAYDIUM_NEW_POOL", true) ||
+            (sourcePool == null && (map.venue.contains("RAYDIUM", true) || map.dexId.contains("RAYDIUM", true)))
+        val raydiumPool = nativePool?.takeIf { isRaydium }
+        // An actual bonding-curve PDA, not the mint address, is needed to claim
+        // source-native PumpFun route proof. Creation events alone prove birth.
+        val curve = map.pumpFunBondingCurveAddress.takeIf { it.isNotBlank() && it != ts.mint &&
+            map.pumpFunExecutable && nowMs - map.updatedAtMs in 0L..300_000L &&
+            (sourceNativePump || map.venue.contains("PUMP", true) || map.dexId.contains("PUMP", true)) }
+        val heliusPool = trustedPool?.takeIf { recent.any { it.contains("HELIUS") } }
+        // An executable PumpFun mint route does not require a supplied curve PDA,
+        // but a creation event alone is insufficient. Retain direct-route proof
+        // without manufacturing a pool address.
+        val pumpDirect = sourceNativePump && map.pumpFunExecutable &&
+            nowMs - map.updatedAtMs in 0L..60_000L &&
+            ts.lastPrice.isFinite() && ts.lastPrice > 0.0 &&
+            nowMs - ts.lastPriceUpdate in 0L..60_000L &&
+            ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0
+        return resolve(
+            mint = ts.mint,
+            dexscreenerPair = trustedPool?.takeIf { recent.any { it.contains("DEXSCREENER") } },
+            raydiumPoolFromScanner = raydiumPool,
+            pumpFunBondingCurve = curve,
+            heliusPair = heliusPool,
+            jupiterRouteOk = map.jupiterQuoteOk && map.expectedOutAmount > 0.0 &&
+                nowMs - map.updatedAtMs in 0L..60_000L,
+            birdeyePair = trustedPool?.takeIf { recent.any { it.contains("BIRDEYE") } },
+            watchlistLastKnownPair = null,
+            providersAttempted = attempted,
+            hydrationStartedAtMs = hydrationStartedAtMs,
+            nowMs = nowMs,
+            sourceNativePool8197 = nativePool?.takeIf { !isRaydium },
+            nativePumpExecutable8197 = pumpDirect,
+        )
+    }
+
     /** Hydration TTL (upper bound) — before this, we keep probation-hot. */
     const val HYDRATION_TTL_MS: Long = 45_000L
 
@@ -67,6 +146,8 @@ object PairHydrationState6398 {
         providersAttempted: List<String>,
         hydrationStartedAtMs: Long,
         nowMs: Long = System.currentTimeMillis(),
+        sourceNativePool8197: String? = null,
+        nativePumpExecutable8197: Boolean = false,
     ): Snapshot {
         val hydrationExpiresAt = hydrationStartedAtMs + HYDRATION_TTL_MS
         // Highest-authority canonical pair first.
@@ -76,14 +157,22 @@ object PairHydrationState6398 {
         // Source-native fallbacks (never erased by DexScreener degradation).
         pumpFunBondingCurve?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "PUMPFUN_BONDING_CURVE")) }
         raydiumPoolFromScanner?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "RAYDIUM_POOL_SCANNER")) }
+        sourceNativePool8197?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "SOURCE_NATIVE_POOL_8197")) }
         watchlistLastKnownPair?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "WATCHLIST_LAST_KNOWN")) }
-        // Route without pair.
+        // Route without pair. A verified PumpFun direct-mint route is not a
+        // bonding-curve PDA and must not be written into the pair field.
+        if (nativePumpExecutable8197)
+            return record(Snapshot(mint, State.ROUTE_CONFIRMED_WITHOUT_PAIR, null, providersAttempted,
+                hydrationExpiresAt, "PUMPFUN_DIRECT_EXECUTABLE_8197"))
         if (jupiterRouteOk)
             return record(Snapshot(mint, State.ROUTE_CONFIRMED_WITHOUT_PAIR, null, providersAttempted, hydrationExpiresAt, "JUPITER_ROUTE_OK"))
-        // Nothing resolved — pending until TTL expires.
-        if (nowMs < hydrationExpiresAt)
-            return record(Snapshot(mint, State.PAIR_PENDING_HYDRATION, null, providersAttempted, hydrationExpiresAt, "HYDRATION_IN_PROGRESS"))
-        // TTL expired AND every provider attempted — hard unavailable.
+        // A 45-second timeout without independent fallback attempts is NOT
+        // proof that the token has no route. Do not turn source latency into
+        // a permanent hard rejection; cold/probation scheduling owns retries.
+        if (nowMs < hydrationExpiresAt || !fallbackExhausted8196(providersAttempted))
+            return record(Snapshot(mint, State.PAIR_PENDING_HYDRATION, null, providersAttempted, hydrationExpiresAt,
+                if (nowMs < hydrationExpiresAt) "HYDRATION_IN_PROGRESS" else "PROVIDER_ATTEMPTS_UNPROVEN_8196"))
+        // TTL expired AND real fallback attempts are independently recorded — hard unavailable.
         hardUnavailableEvents.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAIR_HARD_UNAVAILABLE_6398") } catch (_: Throwable) {}
         return record(Snapshot(mint, State.PAIR_HARD_UNAVAILABLE, null, providersAttempted, hydrationExpiresAt, "ALL_PROVIDERS_EXHAUSTED_TTL_EXPIRED"))

@@ -4,6 +4,7 @@ import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.LearningPersistence
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.SpecialistBrainBridge7542
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -78,6 +79,9 @@ object Cortex7885 {
         @Volatile var selected8153: String = ""
         /** V5.0.8169 — the voters were read after this decision's forward label started (CortexAudit8169.voterReadLeaks8169). */
         @Volatile var lateRead8169: Boolean = false
+        /** 8196: capture-time account mode and complete refusal are immutable provenance. */
+        @Volatile var decisionMode8196: String = "UNKNOWN"
+        @Volatile var decisionReason8196: String? = null
     }
 
     private val ledger = CortexLedger7885()
@@ -384,6 +388,21 @@ object Cortex7885 {
         return null
     }
 
+    /**
+     * 8196: the native brain identified a qualified lane BEFORE its FDG read.
+     * Queue a Cortex voter assessment now, so the immutable decision-time
+     * capture can reuse a warm prediction rather than opening an already-late
+     * cold voter read. Strictly bounded by cachedOrSchedule's existing pool.
+     */
+    fun prewarmNative8196(ts: TokenState, lane: String) {
+        try {
+            if (ts.mint.isNotBlank() && lane.isNotBlank()) {
+                val cached = cachedOrSchedule(ts, lane)
+                inc(if (cached == null) "PREWARM_QUEUED_8196" else "PREWARM_CACHE_HIT_8196")
+            }
+        } catch (_: Throwable) { inc("PREWARM_FAILED_8196") }
+    }
+
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
     fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
@@ -405,23 +424,25 @@ object Cortex7885 {
             // after the label opens is held out of authority (LABEL_HYGIENE_LATE_VOTER_READ_8169), never graded as proof.
             val ctxCold8178 = try { decisionCtx8144(ts, canon(labelLane), admitted, reason) } catch (_: Throwable) { null }
             val sourceCold8178 = ts.source
-            submitCaptureKeyed8187("${ts.mint}|${labelLane.trim().uppercase()}", admitted) { captureCold8178(ts, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178) }
+            val decisionMode8196 = accountMode8077()
+            submitCaptureKeyed8187("${ts.mint}|${labelLane.trim().uppercase()}", admitted) { captureCold8178(ts, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178, decisionMode8196) }
             return
         }
         val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason) } catch (_: Throwable) { null }
         // Timing requires the decision's price, before the asynchronous queue mutates its TokenState.
         try { CortexTiming7900.capture(ts, a8174, nowMs) } catch (_: Throwable) {}
         val source8174 = ts.source
-        submitCaptureKeyed8187("${ts.mint}|${labelLane.trim().uppercase()}", admitted) { captureNow(ts.mint, labelLane, admitted, nowMs, reason, snap8084, sel8153, a8174, ctx8174, source8174) }
+        val decisionMode8196 = accountMode8077()
+        submitCaptureKeyed8187("${ts.mint}|${labelLane.trim().uppercase()}", admitted) { captureNow(ts.mint, labelLane, admitted, nowMs, reason, snap8084, sel8153, a8174, ctx8174, source8174, decisionMode8196) }
     }
 
     /** V5.0.8178 — a cold decision: one voter read on the capture pool (stamped with its own read time), then captureNow. */
     private fun captureCold8178(ts: TokenState, labelLane: String, admitted: Boolean, decisionAtMs: Long, reason: String?,
                                 snap8084: LanePlaybook7907.Classification8084?, sel8153: String?,
-                                ctx: DecisionCtx8144?, source: String) {
+                                ctx: DecisionCtx8144?, source: String, decisionMode8196: String) {
         val a = assess(ts, labelLane) ?: run { inc("CAPTURE_COLD_ASSESS_FAILED_8178"); return }
         inc("CAPTURE_COLD_READ_8178")
-        captureNow(ts.mint, labelLane, admitted, decisionAtMs, reason, snap8084, sel8153, a, ctx?.takeIf { a.lane == canon(labelLane) }, source)
+        captureNow(ts.mint, labelLane, admitted, decisionAtMs, reason, snap8084, sel8153, a, ctx?.takeIf { a.lane == canon(labelLane) }, source, decisionMode8196)
         // Timing needs the decision's price: only a read that still preceded the label start opens a timing sample.
         val p = pending["${ts.mint}|${labelLane.trim().uppercase()}"]
         if (p != null && p.atMs == decisionAtMs && !p.lateRead8169) try { CortexTiming7900.capture(ts, a, decisionAtMs) } catch (_: Throwable) {}
@@ -429,7 +450,7 @@ object Cortex7885 {
 
     private fun captureNow(mint: String, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?,
                            snap8084: LanePlaybook7907.Classification8084?, sel8153: String?,
-                           a: Assessment, frozenCtx8174: DecisionCtx8144?, frozenSource8174: String) {
+                           a: Assessment, frozenCtx8174: DecisionCtx8144?, frozenSource8174: String, decisionMode8196: String) {
         // Decision-time immutable assessment. An asynchronous fresh read is NEVER evidence from an earlier decision.
         val late8169 = lateVoterRead8169(labelLane, nowMs, a.atMs)
         pruneDeadPending8144(nowMs)
@@ -445,12 +466,17 @@ object Cortex7885 {
         // lane x bucket x setup cell, not only the one consumer tag.
         val fired8094 = snap8084?.takeIf { it.lane == a.lane }?.matched.orEmpty()
             .filter { it.isNotBlank() && it != setup7961 && it != LanePlaybook7907.NO_TRIGGER }.distinct().take(8)
-        pending["$mint|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, frozenSource8174, setup7961, fired8094).also { it.selected8153 = sel8153.orEmpty(); it.lateRead8169 = late8169 }
+        pending["$mint|${labelLane.trim().uppercase()}"] = Pending(a, admitted, nowMs, veto, frozenSource8174, setup7961, fired8094).also {
+            it.selected8153 = sel8153.orEmpty()
+            it.lateRead8169 = late8169
+            it.decisionMode8196 = decisionMode8196
+            it.decisionReason8196 = reason
+        }
         // The decision's executable context is frozen before enqueue, not read after the price move.
         if (frozenCtx8174 != null) pendingCtx8144["$mint|${labelLane.trim().uppercase()}"] = frozenCtx8174
         try { sweepLost8144(nowMs) } catch (_: Throwable) {}
         // V5.0.8187 — the entry read carries its decision time; a read taken after the label started is not an entry verdict.
-        if (admitted && !late8169) noteEntryRead(mint, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }, a, nowMs)
+        if (admitted && !late8169) noteEntryRead(mint, decisionMode8196 == "PAPER", a, nowMs)
         else if (admitted) inc("ENTRY_READ_LATE_NOT_BOUND_8187")
         // Timing was already captured at decision time, never recomputed behind the queue.
         inc(if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) "SEEN_REFUSE" else if (a.bucket == CortexScoreboard7885.Bucket.STRONG) "SEEN_STRONG" else "SEEN_NEUTRAL")
@@ -502,6 +528,12 @@ object Cortex7885 {
                         pw.put(jsonNumber(a.prediction8076?.pWins?.getOrNull(i)))
                     }
                 }
+                // All decision-time context must survive a process restart unchanged.
+                val ctx8196 = pendingCtx8144[k]?.let { c ->
+                    org.json.JSONObject().put("timing", c.timing).put("cost", c.costBand)
+                        .put("cohort", c.cohort).put("latency", c.latencyMeasured)
+                        .put("executable", c.executable)
+                } ?: org.json.JSONObject.NULL
                 arr.put(
                     org.json.JSONObject().put("k", k).put("l", a.lane).put("r", a.runnerLane).put("g", a.regime)
                         .put("b", a.bucket.ordinal).put("e", fin0(a.fused.edgePct)).put("m", fin0(a.fused.laneMean))
@@ -509,7 +541,12 @@ object Cortex7885 {
                         .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("su", p.setup7961).put("ep", PERSIST_KEY).put("i", ids).put("x", xs)
                         .put("pr8076", pr).put("pw8076", pw)
                         .put("base8076", jsonNumber(a.prediction8076?.base)).put("bw8076", jsonNumber(a.prediction8076?.baseWin))
-                        .put("lr8169", p.lateRead8169),
+                        .put("lr8169", p.lateRead8169)
+                        .put("mode8196", p.decisionMode8196)
+                        .put("reason8196", p.decisionReason8196.orEmpty())
+                        .put("selected8196", p.selected8153)
+                        .put("fired8196", org.json.JSONArray(p.fired8094))
+                        .put("ctx8196", ctx8196),
                 )
             }
             // V5.0.8013 — graded decisions held for progressive revision ride along (newest decisions first),
@@ -588,8 +625,20 @@ object Cortex7885 {
                 fused, o.optDouble("ce", 0.0), b, 0, false, at,
                 CortexLedger7885.PredictionSnapshot8076(preds.toDoubleArray(), wins.toDoubleArray(),
                     o.optDouble("base8076", Double.NaN), o.optDouble("bw8076", Double.NaN)))
-            pending[k] = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, o.optString("s"), o.optString("su"))
-                .also { it.lateRead8169 = o.optBoolean("lr8169", false) }  // V5.0.8169
+            val fired8196 = o.optJSONArray("fired8196")?.let { arr8196 ->
+                (0 until arr8196.length()).map { arr8196.optString(it) }.filter { it.isNotBlank() }
+            } ?: emptyList()
+            pending[k] = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, o.optString("s"), o.optString("su"), fired8196).also {
+                it.lateRead8169 = o.optBoolean("lr8169", false)
+                it.decisionMode8196 = o.optString("mode8196", "UNKNOWN").takeIf { m -> m == "LIVE" || m == "PAPER" } ?: "UNKNOWN"
+                it.decisionReason8196 = o.optString("reason8196").ifBlank { null }
+                it.selected8153 = o.optString("selected8196")
+            }
+            o.optJSONObject("ctx8196")?.let { c ->
+                pendingCtx8144[k] = DecisionCtx8144(c.optString("timing"), c.optString("cost"),
+                    c.optString("cohort"), c.optBoolean("latency"), c.optBoolean("executable"))
+            }
+            if (pending[k]?.decisionMode8196 == "UNKNOWN") inc("PENDING_RESTORED_UNVERIFIED_MODE_8196")
             inc("PENDING_RESTORED")
         }
         restoreGraded8013(root, dict, nowMs)
@@ -771,16 +820,21 @@ object Cortex7885 {
         val cohort = try {
             com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.mcapBand(com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts))
         } catch (_: Throwable) { "UNK" }
-        com.lifecyclebot.engine.BotImprovementReport8168.noteCortex(lane, admitted,
-            CortexLabelHygiene8144.executableDecision8144(admitted, reason), reason)
-        return DecisionCtx8144(timing, CortexLabelHygiene8144.costBand8144(cost), cohort, latencyMeasured8144(lane),
-            CortexLabelHygiene8144.executableDecision8144(admitted, reason))
+        val native = try { SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)?.opinions?.get(lane) } catch (_: Throwable) { null }
+        val nativeEligible8196 = native?.takeIf { it.authoritative }?.let { it.eligible && it.gradeable }
+        val executable8196 = CortexLabelHygiene8144.executableDecision8144(admitted, reason, nativeEligible8196)
+        com.lifecyclebot.engine.BotImprovementReport8168.noteCortex(lane, admitted, executable8196, reason)
+        if (!admitted && nativeEligible8196 == false) inc("LABEL_NATIVE_INELIGIBLE_OBSERVED_ONLY_8196")
+        if (!admitted && nativeEligible8196 == null) inc("LABEL_NATIVE_ELIGIBILITY_UNVERIFIED_8196")
+        return DecisionCtx8144(timing, CortexLabelHygiene8144.costBand8144(cost), cohort, latencyMeasured8144(lane), executable8196)
     }
 
     /** Caller holds the lock. */
     private fun verdict8144(key: String, p: Pending, ctx: DecisionCtx8144?): CortexLabelHygiene8144.Verdict8144 =
         CortexLabelHygiene8144.Verdict8144(
-            (ctx?.executable ?: true) && CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.vetoRule),
+            (ctx?.executable ?: (p.decisionReason8196 != null &&
+                CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.decisionReason8196))) &&
+                CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.decisionReason8196),
             CortexLabelHygiene8144.repeatInEpisode8144(p.legacyAdmitted, gradeBook8144.lastGradedAt(key), p.atMs),
         )
 
@@ -788,7 +842,7 @@ object Cortex7885 {
         CortexGradeRecord8144('D', id, key, p.atMs, p.a.lane, p.selected8153.ifBlank { p.setup7961 }.ifBlank { "-" }, p.a.regime.ifBlank { "-" },
             ctx?.timing ?: LanePlaybook7907.TIMING_UNKNOWN_8094, ctx?.costBand ?: "CUNK", ctx?.cohort ?: "UNK",
             p.a.bucket.ordinal, p.a.calibratedEdge, p.legacyAdmitted, v.executable, v.repeat)
-            .also { it.mode = accountMode8077(); it.lateRead8187 = p.lateRead8169 }  // V5.0.8187 — mode for a close's recovery; late read kept
+            .also { it.mode = p.decisionMode8196; it.lateRead8187 = p.lateRead8169 }  // V5.0.8196 — mode from the decision
 
     /** Caller holds the lock. The 5-minute label of [p] as a grade record; returns the hygiene verdict. */
     private fun recordLabel8144(key: String, p: Pending, netPct: Double, grossPct: Double, latencyMeasured: Boolean): CortexLabelHygiene8144.Verdict8144 {
@@ -864,9 +918,9 @@ object Cortex7885 {
         wfCache8144[ck]?.let { (at, cached) -> if (now - at in 0L until WF_REFRESH_MS_8144) return cached }
         val strong = CortexScoreboard7885.Bucket.STRONG.ordinal
         val rivals = listOf(CortexScoreboard7885.Bucket.NEUTRAL.ordinal, CortexScoreboard7885.Bucket.REFUSE.ordinal).map { b ->
-            gradeBook8144.executableSeries(lane, setup, b) to gradeBook8144.resolvedShare(lane, b, setup)
+            gradeBook8144.executableTimed8196(lane, setup, b) to gradeBook8144.resolvedShare(lane, b, setup)
         }
-        val result = CortexWalkForward8144.promote8144(gradeBook8144.executableSeries(lane, setup, strong), rivals, gradeBook8144.resolvedShare(lane, strong, setup))
+        val result = CortexWalkForward8144.promoteTimed8196(gradeBook8144.executableTimed8196(lane, setup, strong), rivals, gradeBook8144.resolvedShare(lane, strong, setup))
         if (wfCache8144.size > 400) wfCache8144.clear()
         wfCache8144[ck] = now to result
         return result
@@ -2108,6 +2162,15 @@ object Cortex7885 {
 
     private fun entryDecisionAt8187(a: Assessment, key: String): Long = entryReadAt8187[key]?.let { minOf(it, a.atMs) } ?: a.atMs
 
+    /** Pure: a pending decision can bind a fast close only when the original
+     * immutable voters were ready at decision time and mode matches the actual fill. */
+    internal fun pendingReadMatches8196(
+        admitted: Boolean, decisionMode: String, closeMode: String,
+        readAtMs: Long, decisionAtMs: Long, openedAtMs: Long, lateRead: Boolean,
+    ): Boolean = admitted && !lateRead && decisionMode == closeMode &&
+        (closeMode == "LIVE" || closeMode == "PAPER") &&
+        readAtMs > 0L && readAtMs <= decisionAtMs && readBindable8187(decisionAtMs, openedAtMs)
+
     /** Pure (V5.0.8187): may a read decided at [decisionAtMs] bind a position opened at [openedAtMs]? */
     fun readBindable8187(decisionAtMs: Long, openedAtMs: Long): Boolean = openedAtMs - decisionAtMs in 0L..ENTRY_READ_MATCH_MS
 
@@ -2147,6 +2210,21 @@ object Cortex7885 {
         val lanes = listOfNotNull(sealed?.takeIf { it.mode.equals(mode, true) && it.mint == env.mint }?.ownerLane, canon(env.lane), env.lane.trim().uppercase())
             .map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
         val sealedAt = sealed?.takeIf { it.mode.equals(mode, true) && it.mint == env.mint }?.decisionTimestampMs ?: 0L
+        // 8196: a fast on-chain close can arrive before the five-minute forward
+        // label books its original entry read. The immutable pending decision
+        // already has the exact lane/mode/voters. Bind it NOW instead of filing
+        // the close as permanently unbound and losing the entry verdict.
+        val stillPending8196 = lanes.asSequence()
+            .flatMap { lane -> sequenceOf(env.mint, closeKey).distinct().map { mint -> "$mint|$lane" } }
+            .mapNotNull { pending[it] }
+            .firstOrNull { p ->
+                pendingReadMatches8196(p.legacyAdmitted, p.decisionMode8196, mode,
+                    p.a.atMs, p.atMs, openedAt, p.lateRead8169)
+            }
+        if (stillPending8196 != null) {
+            inc("REALIZED_BOUND_FROM_PENDING_DECISION_8196")
+            return stillPending8196.a
+        }
         val d = lanes.asSequence().flatMap { l -> sequenceOf(env.mint, closeKey).distinct().map { m -> m to l } }
             .mapNotNull { (m, l) ->
                 (if (sealedAt > 0L) gradeBook8144.admittedDecision8187(m, l, mode, sealedAt + 60_000L, 120_000L) else null)

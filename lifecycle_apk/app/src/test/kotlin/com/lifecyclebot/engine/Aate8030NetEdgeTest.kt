@@ -14,9 +14,9 @@ class Aate8030NetEdgeTest {
     @Test fun entryNeedsTheMoveToCoverTwiceTheRoundTrip() {
         assertTrue(NetEdge8030.entryClears8030(50.0, 6.0))      // runner
         assertTrue(NetEdge8030.entryClears8030(12.0, 6.0))      // treasury at the edge
-        assertFalse(NetEdge8030.entryClears8030(12.0, 6.5))     // treasury scalp the cost eats
+        assertFalse(NetEdge8030.entryClears8030(9.0, 6.5))      // treasury scalp the cost eats (8197: 1.5x)
         assertFalse(NetEdge8030.entryClears8030(3.0, 4.0))      // a 3% scalp
-        assertEquals(2.0, NetEdge8030.EDGE_MULT, 0.0)
+        assertEquals(1.5, NetEdge8030.EDGE_MULT, 0.0)
         val g = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(g.indexOf("NetEdge8030.entryRefusal8030(ts, lane)") < g.indexOf("if (chartAdmits7950(ts, lane, nowMs)) return null"))
         assertTrue(g.indexOf("cortex7950?.let { return it }") < g.indexOf("if (chartAdmits7950(ts, lane, nowMs)) return null"))

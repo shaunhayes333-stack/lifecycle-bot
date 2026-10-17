@@ -25,7 +25,10 @@ import java.util.concurrent.atomic.AtomicLong
  *        rug / liquidity / dev exits, manual, emergency and operational exits are never held.
  */
 object NetEdge8030 {
-    const val EDGE_MULT = 2.0
+    // V5.0.8197 — owner: 1.5x (was 2.0x). At the live minimum ticket (~0.027 SOL, round trip ~7.8%) 2x asked every entry
+    // for a 15.6% expected move, which refused 203 of 317 FDG decisions on 5.0.8196 and capped QUALITY/BLUECHIP (20%
+    // mandate) to coins already moving 15.6%/h. 1.5x still requires the move to beat the round trip by half again.
+    const val EDGE_MULT = 1.5
     const val NET_BUFFER_PCT = 1.0
     const val DEFAULT_TICKET_SOL = 0.0273
     private val entryRefused = AtomicLong(0)
@@ -376,7 +379,7 @@ object NetEdge8030 {
 
     fun statusLine(): String =
         "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} moveHistoryDeferred8153=${historyDeferred8153.get()} scalpTooFlat8054=${scalpRefused8054.get()} swingAlreadyRan8054=${overextendedRefused8054.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} giveBackReleased8048=${giveBackReleased.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
-            "rule=entry move>=${EDGE_MULT.toInt()}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)" +
+            "rule=entry move>=${EDGE_MULT}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)" +
             " · lastCost8169=[$lastBreakdown8169] lastEntryCost8169=[$lastEntryBreakdown8169]" +
             " · cost8151 " + com.lifecyclebot.engine.CostMeter8151.statusLine8151(DEFAULT_TICKET_SOL)
 

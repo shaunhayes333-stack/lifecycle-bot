@@ -106,6 +106,22 @@ EXEMPT = {
     # Verified, not assumed: TursoClient.kt:93 iterates ALL_TABLES, and
     # CollectiveSchema.kt:1103 contains this name.
     "CREATE_HIVE_MESSAGES_TABLE",
+    # V5.0.8196 — wired, called inside its own file, on live decision paths.
+    #
+    # PairHydrationState6398.fallbackExhausted8196 is the no-pair witness
+    # predicate of the pair-hydration state machine: evaluate() calls it at
+    # line 143 to require >=3 distinct real provider attempts (metadata +
+    # route) before a candidate may be terminalised PAIR_HARD_UNAVAILABLE,
+    # so provider latency can never be hardened into an invented no-route.
+    # Cortex7885.pendingReadMatches8196 is the same shape: the close-binding
+    # path calls it at line 2221 to admit only same mint/lane/mode,
+    # pre-entry, non-shadow voter reads when matching a fast finalised close
+    # to its immutable pending entry evidence. Both are internal to their
+    # objects and both have direct regression coverage
+    # (Aate8196CausalContinuityTest), so the "outside its own file" test is
+    # the wrong question for them, exactly as for mintHasAnySnapshot7164.
+    "fallbackExhausted8196",
+    "pendingReadMatches8196",
 }
 
 

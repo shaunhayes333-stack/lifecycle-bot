@@ -243,9 +243,9 @@ class Aate8153StrategyTest {
         assertEquals(4.0, legacy.expectedGrossPct, 1e-9)
         assertFalse(NetEdge8030.entryClears8030(legacy.expectedGrossPct, 6.0))
         assertEquals("RANGE", StrategyMove8153.expected8153(50.0, 4.0, true, null, 40, 2.0, 3.0, 6.0, false).basis)
-        // A supported strategy whose own net is under the round trip still does not clear 2x cost.
-        val small = StrategyMove8153.expected8153(50.0, 4.0, true, null, 40, 3.0, 1.0, 6.0, false)
-        assertEquals(9.0, small.expectedGrossPct, 1e-9)
+        // A supported strategy whose own net is under half the round trip still does not clear 1.5x cost (8197).
+        val small = StrategyMove8153.expected8153(50.0, 4.0, true, null, 40, 2.5, 1.0, 6.0, false)
+        assertEquals(8.5, small.expectedGrossPct, 1e-9)
         assertFalse(NetEdge8030.entryClears8030(small.expectedGrossPct, 6.0))
         // The strategy's move is not capped by a launch's sparse range either.
         val launch = StrategyMove8153.expected8153(50.0, 2.0, false, null, 40, 12.0, 3.0, 6.0, true)

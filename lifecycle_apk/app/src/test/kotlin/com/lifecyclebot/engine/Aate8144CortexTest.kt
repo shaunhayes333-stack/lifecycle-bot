@@ -48,6 +48,45 @@ class Aate8144CortexTest {
 
     private fun alternating(n: Int, a: Double, b: Double) = List(n) { if (it % 2 == 0) a else b }
 
+
+    @Test fun nativeMandateMismatchNeverTeachesExecutableCortex8196() {
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_MCAP_TOO_HIGH"))
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "OUTSIDE_NATIVE_CAP"))
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_SELLABILITY_REJECT"))
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE", false))
+        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE", true))
+        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE"))
+        assertTrue(CortexLabelHygiene8144.executableDecision8144(true, "NATIVE_MCAP_TOO_HIGH"))
+    }
+
+    @Test fun chronologicalCortexProofUsesMatchedMarketWindows8196() {
+        val tenMinutes = 10L * 60_000L
+        val base = t0
+        val strongSeries = List(60) { CortexWalkForward8144.Timed8144(base + it * tenMinutes, 10.0) }
+        val staleRivals = List(20) { CortexWalkForward8144.Timed8144(base - (20L - it) * tenMinutes, 50.0) }
+        val concurrentRivals = List(20) { CortexWalkForward8144.Timed8144(base + (24L + it) * tenMinutes, 30.0) }
+        val validated = CortexWalkForward8144.promoteTimed8196(strongSeries, listOf(staleRivals to 1.0))
+        assertEquals(Verdict8144.VALIDATED, validated.verdict)
+        assertEquals(36, validated.oos.n)
+        assertTrue(validated.rivalOosMean.isNaN())
+        val inverted = CortexWalkForward8144.promoteTimed8196(strongSeries, listOf(concurrentRivals to 1.0))
+        assertEquals(Verdict8144.INVERTED_OOS, inverted.verdict)
+        assertEquals(30.0, inverted.rivalOosMean, 1e-9)
+        assertEquals(Verdict8144.UNRESOLVED_COHORT,
+            CortexWalkForward8144.promoteTimed8196(strongSeries, emptyList(), 0.4).verdict)
+    }
+
+    @Test fun immutableCaptureContextSavedAndRestored8196() {
+        val cx = src("engine/cortex/Cortex7885.kt")
+        assertTrue(cx.contains(".put(\"mode8196\", p.decisionMode8196)"))
+        assertTrue(cx.contains(".put(\"ctx8196\", ctx8196)"))
+        assertTrue(cx.contains(".put(\"selected8196\", p.selected8153)"))
+        assertTrue(cx.contains("it.decisionMode8196 = decisionMode8196"))
+        assertTrue(cx.contains("it.mode = p.decisionMode8196"))
+        assertTrue(cx.contains("promoteTimed8196(gradeBook8144.executableTimed8196"))
+        assertFalse(cx.contains("it.mode = accountMode8077(); it.lateRead8187"))
+    }
+
     // ── 1. forward vs realised separation ──
 
     @Test fun observedExecutableAndRealisedAreSeparateFieldsAndPredictionIsNeverOverwritten() {

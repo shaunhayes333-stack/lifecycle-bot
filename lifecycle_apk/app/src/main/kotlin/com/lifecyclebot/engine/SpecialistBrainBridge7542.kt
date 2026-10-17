@@ -93,6 +93,55 @@ object SpecialistBrainBridge7542 {
         return if(snapshotReadable8169(c.evaluatedAtMs,System.currentTimeMillis()))c else null
     }
 
+    /**
+     * 8196: native specialists run upstream of Cortex capture and CandidateAdmission.
+     * Warm the two most convincing qualified lanes and request missing observations
+     * BEFORE later FDG deferral. Never fabricates market values or grants a trade.
+     * The per-mint source coalescer and bounded Cortex pool preserve hot-path budgets.
+     */
+    /** Qualified native evidence is a 12-lane contract; the Cortex warm pool is separately bounded. */
+    internal fun nativeEvidenceLanes8197(snap: Snapshot): List<Opinion> =
+        snap.opinions.values.filter { it.eligible && it.authoritative }
+            .sortedWith(compareByDescending<Opinion> {
+                it.ownershipConviction7948?.takeIf { c -> c.isFinite() }
+                    ?: maxOf(it.score, it.confidence).toDouble()
+            }.thenBy { it.lane })
+
+    private val primedAt8196 = ConcurrentHashMap<String, Long>()
+    private const val PRIME_GAP_MS_8196 = 15_000L
+    private fun primeDecisionData8196(ts: TokenState, snap: Snapshot) {
+        val nowMs = System.currentTimeMillis()
+        val prior = primedAt8196[ts.mint]
+        if (prior != null && nowMs - prior in 0L until PRIME_GAP_MS_8196) return
+        primedAt8196[ts.mint] = nowMs
+        if (primedAt8196.size > 2048) primedAt8196.entries.removeIf { nowMs - it.value > PRIME_GAP_MS_8196 * 4L }
+        val qualified = nativeEvidenceLanes8197(snap)
+        // Warm the two most promising Cortex decisions without swamping its pool.
+        qualified.take(2).forEach { o ->
+            try { com.lifecyclebot.engine.cortex.Cortex7885.prewarmNative8196(ts, o.lane) } catch (_: Throwable) {}
+        }
+        // All natively qualified specialists, not just those two, require their
+        // own missing setup features. Coalesce by mint + feature before asking
+        // the existing provider-budgeted refresher; don't fabricate values.
+        val missingByFeature = linkedMapOf<String, String>()
+        qualified.forEach { o ->
+            try {
+                val missing = com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, o.lane, nowMs).orEmpty()
+                if (missing.isNotEmpty()) {
+                    missing.forEach { raw ->
+                        val key = raw.substringBefore(':').trim().lowercase()
+                        if (key.isNotBlank()) missingByFeature.putIfAbsent(key, raw)
+                    }
+                    PipelineHealthCollector.labelInc("SPECIALIST_UPSTREAM_EVIDENCE_REQUEST_8196_" + o.lane)
+                }
+            } catch (_: Throwable) {}
+        }
+        if (missingByFeature.isNotEmpty()) try {
+            com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missingByFeature.values.toList(), nowMs)
+        } catch (_: Throwable) {}
+
+    }
+
     // ── V5.0.8169 — memory: one snapshot per mint ever evaluated stayed resident for the whole process ──
     // No reader trusts a snapshot older than 2 x CACHE_MS (cachedSnapshot7650; evaluate itself only CACHE_MS), so an
     // older one can never be served again: dropping it changes no read. Pruned on insert (at most every 5 s) and by
@@ -306,7 +355,7 @@ object SpecialistBrainBridge7542 {
         // V5.0.8031 — every lane's verdict is named, and a refusal is labelled for the veto audit (DecisionReasons8031).
         try { DecisionReasons8031.nativeVerdicts8031(ts, out.values) } catch (_: Throwable) {}
         // V5.0.7951 — every eligible lane's ownership conviction on ONE common scale (+ chart BUY evidence).
-        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it);pruneOnInsert8169(now);registerElection8136(it)}
+        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it);pruneOnInsert8169(now);registerElection8136(it);primeDecisionData8196(ts,it)}
     }
 
     /**

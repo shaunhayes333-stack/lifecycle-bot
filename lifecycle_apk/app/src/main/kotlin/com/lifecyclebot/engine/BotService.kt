@@ -26124,20 +26124,12 @@ if (hotExitHandledSweep) {
                     // compatibility, but the demote decision below
                     // is guided by the canonical state machine.
                     val hydrationStartedAt = try { com.lifecyclebot.engine.GlobalTradeRegistry.getEntry(mint)?.addedAt ?: System.currentTimeMillis() } catch (_: Throwable) { System.currentTimeMillis() }
-                    val pumpBondingCurve = if (isPumpSource) mint else null   // pump.fun bonding curve IS the mint
+                    // 8196 — no fabricated provider attempt receipts: source/native
+                    // pool and Jupiter proofs are read from the dated TokenMap.
+                    // Scheduling entry hydration is not evidence it has completed.
                     val hydrationState = try {
-                        com.lifecyclebot.engine.truth.PairHydrationState6398.resolve(
-                            mint = mint,
-                            dexscreenerPair = null,
-                            raydiumPoolFromScanner = null,
-                            pumpFunBondingCurve = pumpBondingCurve,
-                            heliusPair = null,
-                            jupiterRouteOk = false,
-                            birdeyePair = null,
-                            watchlistLastKnownPair = null,
-                            providersAttempted = listOf("DEXSCREENER", "BIRDEYE", "ORACLE"),
-                            hydrationStartedAtMs = hydrationStartedAt,
-                        )
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.resolveFromToken8196(
+                            ts, isPumpSource, hydrationStartedAt)
                     } catch (_: Throwable) { null }
                     val stateLabel = hydrationState?.state?.name ?: "UNKNOWN"
                     val hardUnavailable7408 =
@@ -28694,7 +28686,7 @@ if (hotExitHandledSweep) {
                             // V5.9.688 — FDG gate for Treasury path
                             var treasuryFdgFailure6663: String? = null
                             val treasuryFdg = try {
-                                FinalDecisionGate.evaluate(
+                                FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal6022.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = treasurySignal6022.confidence.toDouble(),
@@ -29010,7 +29002,7 @@ if (hotExitHandledSweep) {
                         if (qualitySignal6022.shouldEnter) {
                             // V5.9.688 — FDG gate for Quality path
                             val qualityFdg = try {
-                                FinalDecisionGate.evaluate(
+                                FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, qualitySignal6022.qualityScore.toDouble()), "QUALITY", confidenceFloor = qualitySignal6022.qualityScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = qualitySignal6022.qualityScore.toDouble(),
@@ -29273,7 +29265,7 @@ if (hotExitHandledSweep) {
                         if (blueChipSignal6022.shouldEnter) {
                             // V5.9.688 — FDG gate for BlueChip path
                             val blueChipFdg = try {
-                                FinalDecisionGate.evaluate(
+                                FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, blueChipSignal6022.confidence.toDouble()), "BLUE_CHIP", confidenceFloor = blueChipSignal6022.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = blueChipSignal6022.confidence.toDouble(),
@@ -29670,7 +29662,7 @@ if (hotExitHandledSweep) {
                                         ModeSpecificGates.fromTradingMode(ts.position.tradingMode)
                                             ?: ModeSpecificGates.fromTradingMode("MOONSHOT")
                                     } catch (_: Exception) { null }
-                                    FinalDecisionGate.evaluate(
+                                    FdgOutcomeContinuity8197.evaluate(
                                         ts = ts,
                                         candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, moonshotScore.confidence), "MOONSHOT", confidenceFloor = moonshotScore.confidence /* V5.0.7323: already 0-100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                         laneScore = moonshotScore.confidence,            // already 0-100
@@ -30284,7 +30276,7 @@ if (hotExitHandledSweep) {
                             // ═══════════════════════════════════════════════════════════════════
                             // V5.9.688 — FDG gate for ShitCoin path
                             val shitCoinFdg = try {
-                                FinalDecisionGate.evaluate(
+                                FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, shitCoinSignal.confidence.toDouble()), "SHITCOIN", confidenceFloor = shitCoinSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = shitCoinSignal.confidence.toDouble(),  // Int 0-100
@@ -30653,7 +30645,7 @@ if (hotExitHandledSweep) {
                         }
                         // V5.9.688 — FDG gate for Manip path
                         val manipFdg = try {
-                            FinalDecisionGate.evaluate(
+                            FdgOutcomeContinuity8197.evaluate(
                                 ts = ts,
                                 candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.manipScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                 laneScore = manipSignal.manipScore.toDouble(),
@@ -30953,7 +30945,7 @@ if (hotExitHandledSweep) {
                             }
                             // V5.9.688 — FDG gate for Express path
                             val expressFdg = try {
-                                FinalDecisionGate.evaluate(
+                                FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, expressSignal.confidence.toDouble()), "EXPRESS", confidenceFloor = expressSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = expressSignal.confidence.toDouble(),   // Int 0-100
@@ -31289,7 +31281,7 @@ if (hotExitHandledSweep) {
                         if (assessment.shouldEngage && !_sniperBlocked6072 && !sniperOracleRefused7406 && sniperSizedSol7054 > 0.0) {
                             // Authorize with TradeAuthorizer
                             val authResult = TradeAuthorizer.authorize(
-                                fdgDecision7835 = FinalDecisionGate.evaluate(
+                                fdgDecision7835 = FdgOutcomeContinuity8197.evaluate(
                                     ts = ts, candidate = laneQualifiedBuyDecision(decision, "PROJECT_SNIPER", confidenceFloor = assessment.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     config = cfg, proposedSizeSol = sniperSizedSol7054, brain = executor.brain,
                                     specialistLane = "PROJECT_SNIPER", laneScore = assessment.confidence.toDouble(),
@@ -31514,7 +31506,7 @@ if (hotExitHandledSweep) {
                         if (dipSignal.shouldBuy) {
                             // V5.9.688 — FDG gate for DipHunter path
                             val dipFdg = try {
-                                FinalDecisionGate.evaluate(
+                                FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, dipSignal.confidence.toDouble()), "DIP_HUNTER", confidenceFloor = dipSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = dipSignal.confidence.toDouble(),       // Int 0-100
