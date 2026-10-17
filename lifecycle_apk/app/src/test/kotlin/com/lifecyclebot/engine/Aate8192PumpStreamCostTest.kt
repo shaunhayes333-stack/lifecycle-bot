@@ -37,3 +37,17 @@ class Aate8192PumpStreamCostTest {
         assertTrue(s.contains("\${costLine8192()} key8181="))
     }
 }
+
+/** V5.0.8193 — setup watches (8191) and sniper launch watches (8190) share the 8192 budget and per-coin cap. */
+class Aate8193PumpStreamBudgetSharedTest {
+    @Test fun everyMeteredSubscriptionPathChecksTheBudget() {
+        val s = File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
+        val setup = s.substringAfter("fun watchForSetup8191(").substringBefore("setupMints8191[mint] = nowMs")
+        assertTrue(setup.contains("if (!meteredSubAllowed8193(mint)) return false"))
+        val fresh = s.substringAfter("private fun registerFreshLifecycle7420(").substringBefore("lifecycleMints7420[mint] = now")
+        assertTrue(fresh.contains("(framesByMint8192[mint]?.get() ?: 0L) >= LAUNCH_FRAME_CAP_8192"))
+        assertTrue(fresh.contains("launchSubAllowed8192(framesToday8192.get())"))
+        assertTrue(s.contains("framesToday8192.set(0L); framesByMint8192.clear()"))
+        assertTrue(s.contains("fun watchLaunch8190(") && s.substringAfter("fun watchLaunch8190(").take(300).contains("registerFreshLifecycle7420(mint)"))
+    }
+}

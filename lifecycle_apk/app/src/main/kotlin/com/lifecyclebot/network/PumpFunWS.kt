@@ -214,6 +214,8 @@ object PumpFunWS {
     fun watchForSetup8191(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (!HeliusSolanaScope7819.isSolanaMint7819(mint)) return false
         setupRequested8191.incrementAndGet()
+        // V5.0.8193 — the metered stream's budget governs setup watches too (one budget, one per-coin cap).
+        if (!meteredSubAllowed8193(mint)) return false
         val drop = setupEvictions8191(setupMints8191, mint, nowMs, SETUP_MAX_8191, SETUP_TTL_MS_8191) { m -> lifecycleMints7420.containsKey(m) }
         for (m in drop) setupMints8191.remove(m)
         val unsub = drop.filter { tradeSubscriptions7278.remove(it) }
@@ -324,7 +326,7 @@ object PumpFunWS {
 
     private fun rollDay8192(nowMs: Long) {
         val day = nowMs / 86_400_000L
-        if (day != frameDay8192) { frameDay8192 = day; framesToday8192.set(0L) }
+        if (day != frameDay8192) { frameDay8192 = day; framesToday8192.set(0L); framesByMint8192.clear() }
     }
 
     private fun noteTradeFrame8192(mint: String) {
@@ -342,6 +344,7 @@ object PumpFunWS {
             tradeSubscriptions7278.removeAll(drop.toSet()); lifecycleMints7420.keys.removeAll(drop.toSet())
             try { ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray(drop)).toString()) } catch (_: Throwable) {}
             budgetUnsubs8192.addAndGet(drop.size.toLong())
+            setupMints8191.keys.removeAll(drop.toSet())
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_BUDGET_UNSUB_8192") } catch (_: Throwable) {}
             return
         }
@@ -370,9 +373,18 @@ object PumpFunWS {
         registerFreshLifecycle7420(mint)
     }
 
+    /** V5.0.8193 — budget left today, and [mint] has not already used its frame cap today (never re-subscribed after it). */
+    private fun meteredSubAllowed8193(mint: String): Boolean {
+        rollDay8192(System.currentTimeMillis())
+        if ((framesByMint8192[mint]?.get() ?: 0L) >= LAUNCH_FRAME_CAP_8192 && mint !in heldMints8192) return false
+        if (!launchSubAllowed8192(framesToday8192.get())) { launchSubsSkippedBudget8192.incrementAndGet(); return false }
+        return true
+    }
+
     private fun registerFreshLifecycle7420(mint: String) {
         if (mint.isBlank()) return
         rollDay8192(System.currentTimeMillis())
+        if ((framesByMint8192[mint]?.get() ?: 0L) >= LAUNCH_FRAME_CAP_8192) return  // V5.0.8193 — capped today: stays off
         if (!launchSubAllowed8192(framesToday8192.get())) {
             launchSubsSkippedBudget8192.incrementAndGet()
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_LAUNCH_SKIPPED_BUDGET_8192") } catch (_: Throwable) {}
