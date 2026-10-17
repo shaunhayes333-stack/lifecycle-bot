@@ -254,7 +254,9 @@ object CandidateAdmission8136 {
         // Translate only the conservative measured net lower bound back to gross
         // using this candidate's KNOWN round-trip cost. Never use a prior, a
         // thin positive, a hypothetical runner tail or an unknown cost.
-        if (!decisionGross.isFinite() && edge != null && edge.netOfCost &&
+        // V5.0.8172 — only when the candidate's own move is unformed (no chart). A measured chart with an unmeasured
+        // ALTERNATIVE setup defers on economics: the alternative never borrows a move it was not measured on (8153).
+        if (!decisionGross.isFinite() && !c.expectedGrossPct.isFinite() && edge != null && edge.netOfCost &&
             edge.lowerPct.isFinite() && edge.lowerPct > 0.0 &&
             c.costPct.isFinite() && c.costPct >= 0.0) {
             decisionGross = edge.lowerPct + c.costPct
