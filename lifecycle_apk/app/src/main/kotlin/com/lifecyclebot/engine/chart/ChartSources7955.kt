@@ -925,6 +925,7 @@ object ChartSources7955 {
         // V5.0.8144 — futile-call coalescing, local-circuit refusals, traffic lanes, the Helius tape and missing features.
         out += "  backfillGate8144 ${backfillGate8144.line8144()} localBlocks=${PROVS.sumOf { it.localBlocks8144.get() }}"
         out += "  " + (try { com.lifecyclebot.network.ProofDataLanes8144.statusLine8144() } catch (_: Throwable) { "lanes8144 -" })
+        out += "  " + (try { com.lifecyclebot.network.HeliusRateGate8191.statusLine8191(nowMs) } catch (_: Throwable) { "heliusRps8191 -" })
         out += "  " + (try { com.lifecyclebot.engine.truth.ProofDataSwapTape8144.statusLine8144() } catch (_: Throwable) { "heliusTape8144 -" })
         out += "  " + (try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.statusLine8144(nowMs) } catch (_: Throwable) { "features8144 -" })
         // V5.0.8169 — which source filled each setup input (or why none could), and which feeds reached the trade tape.

@@ -1160,7 +1160,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     // sendTransaction failed and trading fees got dropped.
                     if (code == 429 && rpcExhaustedReply8094(code, lastBody)) {
                         if (endpoint.contains("helius", ignoreCase = true)) try {
-                            com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.noteExhausted8094()
+                            com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.noteExhaustionAnswer8191(code)   // V5.0.8191
                         } catch (_: Throwable) {}
                         break
                     }
@@ -1186,7 +1186,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                             // the previous signature stayed unresolved, every new sell was refused: no signature).
                             if (rpcExhaustedReply8094(code, errMsg)) {
                                 if (endpoint.contains("helius", ignoreCase = true)) try {
-                                    com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.noteExhausted8094()
+                                    com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.noteExhaustionAnswer8191(code)   // V5.0.8191
                                 } catch (_: Throwable) {}
                                 break
                             }
@@ -2173,6 +2173,8 @@ internal fun confirmedEnough7980(status: String): Boolean = status == "confirmed
 internal fun rpcExhaustedReply8094(httpCode: Int, errMsg: String): Boolean {
     if (httpCode == 402) return true
     val low = errMsg.lowercase()
+    // V5.0.8191 — a per-second rate limit ("exceeded your rate limit ... upgrade your plan") is not spent credits.
+    if (com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.rateLimitWording8191(low)) return false
     return low.contains("credit") || low.contains("max usage") || low.contains("quota") ||
         low.contains("upgrade your plan") || low.contains("exceeded your") || low.contains("insufficient balance")
 }

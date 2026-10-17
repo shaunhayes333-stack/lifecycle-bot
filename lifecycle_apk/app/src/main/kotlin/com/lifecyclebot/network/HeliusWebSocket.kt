@@ -190,6 +190,7 @@ class HeliusWebSocket(
         callbacks7863.queue.clear()
         reconnectScheduled7803.set(false)
         clientClosedSocket7819 = ws
+        HeliusSocketShare8191.detach8191(ws)   // V5.0.8191 — the chain launch feed's shared streams die with this socket
         ws?.close(1000, "Bot stopped")
         ws = null
         openSocket7819 = null
@@ -435,6 +436,7 @@ class HeliusWebSocket(
                 HeliusSubscriptionTelemetry7807.deflate8096 =
                     if (response.header("Sec-WebSocket-Extensions").orEmpty().contains("permessage-deflate", true)) "on" else "off"
                 onLog("Helius WebSocket connected")
+                HeliusSocketShare8191.attach8191(webSocket)   // V5.0.8191 — ChainLaunchFeed8179's program streams share this socket
                 networkRetry.recordSuccess()
                 reconnectDelay = 2_000L
                 reconnectScheduled7803.set(false)
@@ -474,12 +476,14 @@ class HeliusWebSocket(
                 val current = ws
                 if (current != null && current !== webSocket) return
                 lastInboundMs7819 = System.currentTimeMillis()
+                if (HeliusSocketShare8191.offer8191(text)) return   // V5.0.8191 — the chain launch feed's own reply / stream
                 lastFrameBytes8096 = text.length
                 parseMessage(text)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 dead7819 = true
+                HeliusSocketShare8191.detach8191(webSocket)
                 if (closing7819 || webSocket === clientClosedSocket7819) return // already handled / closed by us
                 // V5.0.7819 — a superseded socket (closed by disconnect/reconnect) failing
                 // late is not a failure of the current connection: it must not trip the
@@ -504,6 +508,7 @@ class HeliusWebSocket(
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 closing7819 = true
                 dead7819 = true
+                HeliusSocketShare8191.detach8191(webSocket)
                 if (webSocket === clientClosedSocket7819) return // reply to our own close
                 val current7819 = ws
                 if (current7819 != null && current7819 !== webSocket) return
@@ -518,6 +523,7 @@ class HeliusWebSocket(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 dead7819 = true
+                HeliusSocketShare8191.detach8191(webSocket)
                 if (closing7819 || webSocket === clientClosedSocket7819) return // already handled / closed by us
                 val current7819 = ws
                 if (current7819 != null && current7819 !== webSocket) return
