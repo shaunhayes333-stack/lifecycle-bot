@@ -5733,6 +5733,10 @@ object CryptoAltTrader {
      * "can't find token" error even when the position was visible on screen.
      */
     fun llmClosePaperSell(symbol: String, reason: String): LlmTradeResult {
+        // V5.0.8184 — the runtime authority, not this trader's local mode copy, decides: a stale copy must never let the
+        // LLM call manualSell on a LIVE meme position.
+        if (!(try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }))
+            return LlmTradeResult.Rejected("V5.0.8184 LIVE_NO_PAPER_8184: LLM sells are paper-only and the runtime is LIVE")
         if (!isPaperMode.get()) return LlmTradeResult.Rejected("HARD RULE V5.9.187: LLM cannot spend real money. Paper mode only.")
         val ticker = symbol.trim().uppercase()
 

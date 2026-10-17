@@ -155,3 +155,13 @@ class Aate8184LiveNoPaperTest {
         assertFalse(dumpBody.contains("LiveNoPaper8184"))
     }
 }
+
+/** V5.0.8184 — an LLM paper sell can never reach a LIVE position through a stale local mode copy. */
+class Aate8184LlmSellAuthorityTest {
+    @org.junit.Test fun llmSellChecksTheRuntimeAuthorityFirst() {
+        val s = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val body = s.substringAfter("fun llmClosePaperSell(").substringBefore("botService.manualSell(")
+        org.junit.Assert.assertTrue(body.contains("com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()"))
+        org.junit.Assert.assertTrue(body.indexOf("RuntimeModeAuthority.isPaper()") < body.indexOf("isPaperMode.get()"))
+    }
+}
