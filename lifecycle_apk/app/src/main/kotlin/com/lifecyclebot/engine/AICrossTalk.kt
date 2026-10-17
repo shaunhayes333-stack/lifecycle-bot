@@ -601,9 +601,11 @@ object AICrossTalk {
         .replace("BLUE_CHIP", "BLUECHIP")
 
     /** V5.0.7329 — does a learned behaviour pattern describe this candidate's lane? */
-    private fun patternAppliesToLane7329(signature: String, lane: String?): Boolean {
+    internal fun patternAppliesToLane7329(signature: String, lane: String?): Boolean {
         if (lane.isNullOrBlank()) return true
-        return canonLane7329(signature).contains(canonLane7329(lane.trim()))
+        // Match the signature's lane field, never substrings buried in the setup or token name.
+        val learnedLane = signature.substringBefore('|').trim()
+        return learnedLane.isNotBlank() && canonLane7329(learnedLane) == canonLane7329(lane.trim())
     }
 
     private fun applyLaneWeights(raw: CrossTalkSignal, lane: String?): CrossTalkSignal {

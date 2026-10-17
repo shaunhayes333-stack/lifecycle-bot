@@ -1895,12 +1895,14 @@ object ToolkitSignalSheet {
                     PipelineHealthCollector.labelInc("FDG_ALLOW_EXPLICIT_CANCEL_7221_$lane")
                 }
             } catch (_: Throwable) {}
-            val executionEligible = ExecutableOpenGate.pendingForLane7863(lane, if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE") > 0
+            val pendingExecutableTicket7863 = ExecutableOpenGate.pendingForLane7863(lane, if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE") > 0
             val native7608 = try { SpecialistBrainBridge7542.laneRuntime7542(lane) } catch (_: Throwable) { null }
             val nativeReason7608 = native7608?.reason?.replace("\n", " ")?.take(120).orEmpty()
             val liveQuarantine7609 = try { LaneQuarantineController.isQuarantined(lane) } catch (_: Throwable) { false }
             val buyerEnabled7609 = if (lane == "MANIPULATED") try { BotService.manipulatedBuyerEnabled7609() } catch (_: Throwable) { false } else true
             val ownershipModel7609 = "SELF"
+            // Lane capability is not the transient presence of a pending BUY ticket.
+            val executionEligible = runtime.runtimeAlive && buyerEnabled7609 && !liveQuarantine7609
             // V5.0.7815 — SpecialistBrainBridge7542 deliberately fan-outs every
             // token through every native brain. Its cached "last opinion" is NOT
             // the lane hunter's selected prey. Label that scope explicitly so a
@@ -1916,7 +1918,7 @@ object ToolkitSignalSheet {
             // capital-only) says why instead of INTENT_CHOKED with no stamp to explain it.
             val preIntent7951 = SpecialistOwnership7951.preIntentRefusals7951(lane)
             val reportedStatus7809 = SpecialistOwnership7951.shownStatus7951(baseStatus7951, buyerEnabled7609, intent, residentReady7815, preIntent7951)
-            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$reportedStatus7809 rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} preIntentRefusals7951=${preIntent7951.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 residentOwnLane7815=${resident7815.size} residentReady7815=$residentReady7815 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609 election8136=${election8136(lane)}")
+            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible pendingExecutableTicket=$pendingExecutableTicket7863 heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$reportedStatus7809 rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} preIntentRefusals7951=${preIntent7951.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 residentOwnLane7815=${resident7815.size} residentReady7815=$residentReady7815 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609 election8136=${election8136(lane)}")
         }
         appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")
     }
