@@ -111,6 +111,7 @@ object LaunchBirth8169 {
             "CURVE_CREATE" to (try { com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(m) } catch (_: Throwable) { null }),
             "CURVE_PAIR" to (try { AdmissionBirth8144.curvePairMs8169(m) } catch (_: Throwable) { null }),
             "OLDEST_SIGNATURE" to (try { AdmissionBirth8144.oldestSignatureMs8169(m) } catch (_: Throwable) { null }),
+            "CHAIN_MINT_INIT" to (try { AdmissionBirth8144.chainMintInitMs8179(m) } catch (_: Throwable) { null }),   // V5.0.8179
         ), nowMs)
     }
 

@@ -41,6 +41,8 @@ object CanonicalTokenBirthTime7440 {
         // mint's oldest signature with its history read to the end (in memory before the meta cache's lazy disk read).
         try { AdmissionBirth8144.curvePairMs8169(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.PUMP_CREATE_EVENT) } } catch (_: Throwable) {}
         try { AdmissionBirth8144.oldestSignatureMs8169(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.TOKEN_META_CREATION) } } catch (_: Throwable) {}
+        // V5.0.8179 — the mint was initialised in the confirmed transaction that created its first pool (chain launch feed).
+        try { AdmissionBirth8144.chainMintInitMs8179(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.FIRST_POOL_CREATION) } } catch (_: Throwable) {}
 
         try {
             val poolMs = PoolCreationTime7385.createdAtMs(m) ?: 0L
