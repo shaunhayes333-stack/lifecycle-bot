@@ -290,9 +290,15 @@ object FrozenHeldUnsellableLive8141 {
         rebuild8144()
         if (FrozenHeldUnsellable8141.stateOf8141(mint) != FrozenHeldUnsellable8141.State8141.FROZEN_HELD_UNSELLABLE) return false
         if (mint !in seenFrozen8144) {
-            // V5.0.8144 — restored from the sub-ledger after a restart and no wallet read has shown its account yet.
-            label("FROZEN_THAW_UNPROVEN_AFTER_RESTART_8144")
-            return false
+            // V5.0.8185 — after a restart a parsed account read that listed the account NOT frozen is the thaw's proof.
+            if (FrozenHoldingGuard8136.thawObserved8185(mint)) {
+                seenFrozen8144.add(mint)
+                label("FROZEN_THAW_PROVEN_AFTER_RESTART_8185")
+            } else {
+                // V5.0.8144 — restored from the sub-ledger after a restart and no wallet read has shown its account yet.
+                label("FROZEN_THAW_UNPROVEN_AFTER_RESTART_8144")
+                return false
+            }
         }
         val rec = FrozenHeldUnsellable8141.thaw8141(mint) ?: return false
         // V5.0.8144 — the sub-ledger row is restored once (no second lifetime position); the impairment is released.

@@ -283,7 +283,9 @@ object AdmissionHandoff8144 {
         if (ledger.size >= MAX_MINTS_8144) sweep8144(nowMs)
         ledger[mint] = next
         count8144("EMITTED")
+        count8144(com.lifecyclebot.engine.HandoffStatus8185.routeCounter8185(named0, named))  // V5.0.8185 — receiver by floors vs as named
         try { AdmissionRunnerTrace8144.noteHandoff8144(mint, "EMITTED:${next.named ?: "-"}:${reason.take(50)}") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.HandoffRetention8185.afterEmit8185(mint, nowMs) } catch (_: Throwable) {}  // V5.0.8185
     }
 
     /** SpecialistBrainBridge7542: a fresh native assessment of every lane in scope for [mint]. */
@@ -329,6 +331,8 @@ object AdmissionHandoff8144 {
         return "handoff8144[emitted=${c("EMITTED")} arrivedFdg=${c("ARRIVED_FDG")} arrivedNativeRefused=${c("ARRIVED_NATIVE_REFUSED")} " +
             "qualified=${c("RECEIVER_QUALIFIED")} noReceiver=${c("NO_QUALIFIED_RECEIVER")} expiredUnevaluated=${c("EXPIRED_NOT_EVALUATED")} " +
             "open=${ledger.values.count { it.open }} taskDeferred=${c("TASK_DEFERRED_DATA")} taskRefusedNamed=${c("TASK_REFUSED_NAMED")} " +
+            // V5.0.8185 — the 8180 routing (desk identities skipped, receiver chosen by floors) and target retention, counted.
+            com.lifecyclebot.engine.HandoffStatus8185.line8185(counts.mapValues { it.value.get() }, com.lifecyclebot.engine.HandoffRetention8185.counts8185()) +
             // V5.0.8169 — each settled hand-off's verdict, by state: who judged it and how (a refusal is named, a loss is visible).
             verdictLine8169() + "]"
     }
