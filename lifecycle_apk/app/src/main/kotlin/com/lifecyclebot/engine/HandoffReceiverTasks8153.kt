@@ -331,10 +331,25 @@ object HandoffReceiverTasks8153 {
 
     /** Open (or keep) the mint's task for [lane]; returns the mint's task after the call. */
     fun openTask8153(mint: String, lane: String, from: String, reason: String, version: Long, evidenceAtMs: Long,
-                     nowMs: Long, newHandoffAtMs: Long = 0L): Task8153? =
-        // V5.0.8180 — a crypto-desk identity has no meme cycle to consume a task (it only ever expired NO_TOKEN_STATE).
-        if (HandoffRoute8180.deskIdentity8180(mint)) null
-        else update8153(mint, nowMs) { open8153(it, mint, lane, from, reason, version, evidenceAtMs, nowMs, newHandoffAtMs) }
+                     nowMs: Long, newHandoffAtMs: Long = 0L): Task8153? {
+        // V5.0.8180 — a crypto-desk identity has no meme cycle to consume a task.
+        if (HandoffRoute8180.deskIdentity8180(mint)) return null
+        var opened8196 = false
+        val task = update8153(mint, nowMs) { prior ->
+            open8153(prior, mint, lane, from, reason, version, evidenceAtMs, nowMs, newHandoffAtMs).also {
+                opened8196 = it != null && it.pending && it !== prior
+            }
+        }
+        // 8196: a newly qualified rescue MUST receive its own FDG verdict. A 12 s
+        // cached refusal from the previous owner/version previously made a receiver
+        // "scheduled" but never "evaluated". Only invalidate on an actual new task;
+        // repeated native reads of the SAME handoff retain the cache.
+        if (opened8196) {
+            try { FinalDecisionGate.invalidateCandidate6734(mint) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("HANDOFF_NEW_RECEIVER_FDG_CACHE_BUST_8196") } catch (_: Throwable) {}
+        }
+        return task
+    }
 
     fun refreshTask8153(mint: String, lane: String, version: Long, candidateValid: Boolean, evidenceAtMs: Long, nowMs: Long): Task8153? =
         update8153(mint, nowMs) { it?.let { t -> refresh8153(t, lane, version, candidateValid, evidenceAtMs, nowMs) } }
