@@ -36,6 +36,15 @@ object CortexLabelHygiene8144 {
         "NO_LIQ", "ZERO_LIQ", "LIQ_ZERO", "BLACKLIST", "TOXIC", "QUARANTIN", "SCAM", "HOSTILE",
     )
 
+    // 8196: a candidate outside its own native mandate cannot be labelled as
+    // executable merely because its refusal reason lacks a generic safety word.
+    private val UNEXECUTABLE_NATIVE_8196 = listOf(
+        "OUTSIDE_NATIVE_", "NATIVE_MCAP_TOO_", "NATIVE_TOKEN_TOO_OLD", "NATIVE_TOO_OLD",
+        "NATIVE_LANE_LIQ_", "NATIVE_LIQ_UNHYDRATED", "NATIVE_MCAP_UNHYDRATED",
+        "NATIVE_SELLABILITY_REJECT", "NATIVE_PRICE_NOT_FRESH", "NATIVE_BIRTH_METADATA_HYDRATING",
+        "NATIVE_NO_PAIR", "PAIR_HARD_UNAVAILABLE", "PAIR_PENDING_HYDRATION",
+    )
+
     data class Verdict8144(val executable: Boolean, val repeat: Boolean) {
         /** May this label grade the voters, the bucket / setup / veto books and calibration? */
         val authority: Boolean get() = executable && !repeat
@@ -43,10 +52,14 @@ object CortexLabelHygiene8144 {
     }
 
     /** Pure: could the decision have been executed? An admit was; a refusal is unless its reason names a hard block. */
-    fun executableDecision8144(admitted: Boolean, reason: String?): Boolean {
+    fun executableDecision8144(admitted: Boolean, reason: String?, nativeEligible: Boolean? = null): Boolean {
         if (admitted) return true
+        // Where the contemporaneous native specialist evaluated this coin,
+        // its refusal is evidence that this was NOT a tradeable lane entry.
+        if (nativeEligible == false) return false
         val r = reason?.uppercase() ?: return true
-        return UNEXECUTABLE_8144.none { r.contains(it) }
+        return UNEXECUTABLE_8144.none { r.contains(it) } &&
+            UNEXECUTABLE_NATIVE_8196.none { r.startsWith(it) || r.contains("_$it") }
     }
 
     /** Pure: a refused decision of a coin whose last graded decision in this lane is under [EPISODE_MS_8144] old. */
