@@ -720,6 +720,19 @@ class HeliusWebSocket(
                 return
             }
         }
+        // V5.0.8191 — a graduated pump coin trades on PumpSwap, whose Buy/SellEvent carries no mint (the pool's base is
+        // the subscribed mint); decoded only for a pump-migrated mint (base = the token, quote = WSOL) and only when the
+        // swap's own price agrees with the pool reserves it reports (a layout mismatch never becomes a print).
+        if (mint.endsWith("pump")) for (i in 0 until logs.length()) {
+            val line = logs.optString(i, "")
+            if (!line.startsWith("Program data: ")) continue
+            val b = try { android.util.Base64.decode(line.removePrefix("Program data: ").trim(), android.util.Base64.DEFAULT) } catch (_: Throwable) { continue }
+            val ev = PumpSwapEvents8191.decode8191(b) ?: continue
+            noteDecoded8096(mint)
+            HeliusSubscriptionTelemetry7807.pumpSwapDecoded8191.incrementAndGet()
+            dispatchCallback7863(mint) { onSwap(mint, ev.isBuy, ev.sol, ev.tokens, ev.user, sig) }
+            return
+        }
 
         // Detect swap direction from log messages
         val logList = (0 until logs.length()).map { logs.optString(it, "") }
@@ -776,9 +789,17 @@ class HeliusWebSocket(
     /** Count one frame for [mint]; true when the stream proved undecodable and was released (frame dropped). */
     private fun undecodedStreamSpent8096(mint: String): Boolean {
         HeliusSubscriptionTelemetry7807.logFrames8096.incrementAndGet()
-        val st = logStats8096.getOrPut(mint) { IntArray(2) }
+        val st = logStats8096.getOrPut(mint) { IntArray(3) }
         st[0]++
+        if (st.size > 2) st[2] = (st[2].toLong() + lastFrameBytes8096).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         if (st[1] == 0) HeliusSubscriptionTelemetry7807.undecodedBytes8096.addAndGet(lastFrameBytes8096.toLong())
+        // V5.0.8191 — one decoded frame used to keep a busy stream forever (5.0.8186: MINT_LOGS 162.8 MB, trade events 0):
+        // a stream whose decode yield stays under 2% after 200 frames, or 2 MB, is released the same way.
+        if (heliusStreamLowYield8191(st[0], st[1], if (st.size > 2) st[2].toLong() else 0L)) {
+            HeliusSubscriptionTelemetry7807.lowYieldReleased8191.incrementAndGet()
+            releaseUndecodable8096(mint)
+            return true
+        }
         if (!heliusStreamUndecodable8096(st[0], st[1], UNDECODED_RELEASE_AFTER_8096)) return false
         releaseUndecodable8096(mint)
         return true
@@ -932,6 +953,9 @@ object HeliusSubscriptionTelemetry7807 {
     internal val logFramesDecoded8096 = java.util.concurrent.atomic.AtomicLong(0L)
     internal val undecodedBytes8096 = java.util.concurrent.atomic.AtomicLong(0L)
     internal val undecodableReleased8096 = AtomicInteger(0)
+    /** V5.0.8191 — streams released for a decode yield under 2%, and PumpSwap Buy/Sell events decoded. */
+    internal val lowYieldReleased8191 = AtomicInteger(0)
+    internal val pumpSwapDecoded8191 = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile internal var deflate8096: String = "unknown"
     private val reconnectReasons7819 = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
     private const val MAX_REASON_KEYS_7819 = 24
@@ -957,7 +981,49 @@ object HeliusSubscriptionTelemetry7807 {
             "nonSolanaRejected=${nonSolanaRejected7819.get()} pinnedExcludedNonSolana=$pinnedExcludedNonSolana7819 " +
             "reconnects=${reconnects7819.get()} reconnectReasons=${reconnectReasonsText7819()} " +
             "logFrames8096=${logFrames8096.get()} decoded=${logFramesDecoded8096.get()} undecodedMB=${"%.1f".format(undecodedBytes8096.get() / 1_048_576.0)} " +
-            "undecodableReleased=${undecodableReleased8096.get()} wireDeflate=$deflate8096"
+            "undecodableReleased=${undecodableReleased8096.get()} wireDeflate=$deflate8096 " +
+            "lowYieldReleased8191=${lowYieldReleased8191.get()} pumpSwapDecoded8191=${pumpSwapDecoded8191.get()}"
+}
+
+/** Pure (V5.0.8191): a stream whose decode yield is under 2% after 200 frames or 2 MB of frames is not worth its bytes. */
+internal fun heliusStreamLowYield8191(frames: Int, decoded: Int, bytes: Long): Boolean =
+    (frames >= 200 || (bytes >= 2L * 1_048_576L && frames >= 40)) && decoded.toLong() * 50L < frames.toLong()
+
+/** V5.0.8191 — one decoded PumpSwap swap: SOL (quote) and tokens (base, 6 decimals) moved, side and signer. */
+internal class PumpSwapEvent8191(val isBuy: Boolean, val sol: Double, val tokens: Double, val user: String)
+
+internal object PumpSwapEvents8191 {
+    private val PUMPSWAP_BUY_DISC_8191 = byteArrayOf(103, 244.toByte(), 82, 31, 44, 245.toByte(), 119, 119)
+    private val PUMPSWAP_SELL_DISC_8191 = byteArrayOf(62, 47, 55, 10, 165.toByte(), 3, 220.toByte(), 42)
+
+    private fun u64At8191(b: ByteArray, off: Int): Double {
+        var v = 0L
+        for (k in 7 downTo 0) v = (v shl 8) or (b[off + k].toLong() and 0xFF)
+        return if (v < 0) v.toDouble() + 18446744073709551616.0 else v.toDouble()
+    }
+
+    /**
+     * Pure (V5.0.8191): PumpSwap (pump AMM) BuyEvent / SellEvent — discriminator(8) timestamp i64, base amount u64, max/min
+     * quote u64, user base / quote reserves u64 x2, pool base / quote reserves u64 x2, quote amount u64, lp fee bps, lp fee,
+     * protocol fee bps, protocol fee, quote with/without lp fee, user quote amount (u64 each), pool(32), user(32). Null for
+     * any other event, a short buffer, or a swap whose own price is more than 25% from the pool reserves' price.
+     */
+    fun decode8191(b: ByteArray): PumpSwapEvent8191? {
+        if (b.size < 184) return null
+        val buy = (0 until 8).all { b[it] == PUMPSWAP_BUY_DISC_8191[it] }
+        val sell = !buy && (0 until 8).all { b[it] == PUMPSWAP_SELL_DISC_8191[it] }
+        if (!buy && !sell) return null
+        val baseRaw = u64At8191(b, 16)
+        val poolBase = u64At8191(b, 48)
+        val poolQuote = u64At8191(b, 56)
+        val quoteRaw = u64At8191(b, 64)
+        if (!(baseRaw > 0.0 && quoteRaw > 0.0 && poolBase > 0.0 && poolQuote > 0.0)) return null
+        val px = quoteRaw / baseRaw
+        val poolPx = poolQuote / poolBase
+        if (!(px.isFinite() && poolPx.isFinite()) || px <= 0.0 || kotlin.math.abs(px / poolPx - 1.0) > 0.25) return null
+        val user = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(152, 184)) } catch (_: Throwable) { "" }
+        return PumpSwapEvent8191(buy, quoteRaw / 1e9, baseRaw / 1e6, user)
+    }
 }
 
 /** Pure (V5.0.8096): a log stream that delivered [frames] frames and decoded none once [after] is reached. */

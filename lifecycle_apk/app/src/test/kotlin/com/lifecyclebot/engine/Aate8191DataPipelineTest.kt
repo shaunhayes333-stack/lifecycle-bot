@@ -134,4 +134,55 @@ class Aate8191DataPipelineTest {
         assertFalse(h.exhaustionConfirmed8191(listOf(t0, t0 + 1_000L, t0 + 2_000L), t0 + 2_000L + h.EXHAUST_CONFIRM_MS_8191 + 1))
         assertTrue(src("network/HeliusCreditMeterInterceptor7881.kt").contains("HeliusCreditEconomy7881.noteExhaustionAnswer8191(resp.code)"))
     }
+
+    // ── coordinator evidence (5.0.8186b) ──
+
+    @Test fun aBusyStreamThatRarelyDecodesIsReleased() {
+        assertFalse(com.lifecyclebot.network.heliusStreamLowYield8191(199, 0, 0L))
+        assertTrue(com.lifecyclebot.network.heliusStreamLowYield8191(200, 3, 0L))      // 1.5% yield
+        assertFalse(com.lifecyclebot.network.heliusStreamLowYield8191(200, 4, 0L))     // 2%
+        assertTrue(com.lifecyclebot.network.heliusStreamLowYield8191(40, 0, 3L * 1_048_576L))
+        assertFalse(com.lifecyclebot.network.heliusStreamLowYield8191(5_000, 4_000, 50L * 1_048_576L))
+    }
+
+    private fun le(v: Long): ByteArray = ByteArray(8) { i -> ((v ushr (8 * i)) and 0xFF).toByte() }
+
+    private fun pumpSwapBuy(base: Long, quote: Long, poolBase: Long, poolQuote: Long): ByteArray {
+        val b = ByteArray(184)
+        byteArrayOf(103, 244.toByte(), 82, 31, 44, 245.toByte(), 119, 119).copyInto(b, 0)
+        le(1_700_000_000L).copyInto(b, 8); le(base).copyInto(b, 16); le(poolBase).copyInto(b, 48)
+        le(poolQuote).copyInto(b, 56); le(quote).copyInto(b, 64)
+        return b
+    }
+
+    @Test fun aPumpSwapBuyEventDecodesOnlyWhenItsPriceAgreesWithThePool() {
+        val ev = com.lifecyclebot.network.PumpSwapEvents8191.decode8191(pumpSwapBuy(1_000_000_000L, 100_000_000L, 1_000_000_000_000L, 100_000_000_000L))
+        assertTrue(ev != null && ev.isBuy)
+        assertEquals(0.1, ev!!.sol, 1e-12)
+        assertEquals(1_000.0, ev.tokens, 1e-9)
+        assertNull(com.lifecyclebot.network.PumpSwapEvents8191.decode8191(pumpSwapBuy(1_000_000_000L, 100_000_000L, 1_000_000_000_000L, 900_000_000_000L)))
+        assertNull(com.lifecyclebot.network.PumpSwapEvents8191.decode8191(ByteArray(100)))
+        assertTrue(src("network/HeliusWebSocket.kt").contains("if (mint.endsWith(\"pump\")) for (i in 0 until logs.length()) {"))
+    }
+
+    @Test fun accountSubscribeGoesToTheKeyedHeliusSocketFirstAndAMethodMissingEndpointIsBenched() {
+        val r = src("engine/RuntimeProviderAuthority6685.kt")
+        assertTrue(r.contains("return (extra + urls).mapNotNull(::websocketFromRpc8079).distinct()"))
+        val g = src("network/GradTicks8018.kt")
+        assertTrue(g.contains("CurveTicks7968.usableEndpoints8102(com.lifecyclebot.engine.RuntimeProviderAuthority6685.websocketCandidates8079(key, preferredRpc), methodMissingAt8191, now)"))
+        assertTrue(g.contains("methodMissingAt8191[currentUrl8191] = System.currentTimeMillis()"))
+    }
+
+    @Test fun theOhlcvRequestAfterAPoolResolveWaitsForItsSlot() {
+        val f = src("network/SolanaOhlcvFeed6916.kt")
+        assertTrue(f.contains("if (lookup6982.askedProvider && awaitSlot8191(MIN_INTERVAL_MS + 500L)) slotWaits8191.incrementAndGet()"))
+        assertTrue(f.indexOf("awaitSlot8191(MIN_INTERVAL_MS + 500L)") < f.indexOf("val candles6982 = fetch6982(url)"))
+    }
+
+    @Test fun theSweepEnrichCallIsEndpointScopedAndARecoveredProviderClearsItsFailure() {
+        val hc = com.lifecyclebot.network.HostCircuitInterceptor
+        val path = "/tokens/v1/solana/So11111111111111111111111111111111111111112,EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        assertEquals("dexscreener@tokens/solana", hc.scopedLabel8179(hc.labelFor8125("api.dexscreener.com", path, null), path))
+        assertTrue(src("engine/market/MarketSweep7297.kt").contains("if (provider.isNotBlank()) lastFail7301.remove(provider)\n                resp.body?.string()"))
+    }
 }
