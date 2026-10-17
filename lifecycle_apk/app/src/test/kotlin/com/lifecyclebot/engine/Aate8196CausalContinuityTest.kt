@@ -27,6 +27,30 @@ class Aate8196CausalContinuityTest {
         assertEquals(listOf("shape:INVALID"), pb.dueMissingInputs8196(listOf("shape:INVALID", "shape:UNKNOWN"), { timestamps[it] }, t0 + 30_000L))
     }
 
+    @Test fun unfinishedProviderHydrationNeverBecomesHardUnavailableAtTimeout() {
+        val h = com.lifecyclebot.engine.truth.PairHydrationState6398
+        assertFalse(h.fallbackExhausted8196(emptyList()))
+        assertFalse(h.fallbackExhausted8196(listOf("DEXSCREENER", "BIRDEYE")))
+        assertTrue(h.fallbackExhausted8196(listOf("DEXSCREENER", "BIRDEYE", "ORACLE")))
+        val now = System.currentTimeMillis()
+        val t = com.lifecyclebot.data.TokenState(mint = "mint8196", symbol = "TEST")
+        val state = h.resolveFromToken8196(t, false, now - 120_000L, now)
+        assertEquals(h.State.PAIR_PENDING_HYDRATION, state.state)
+        assertEquals("PROVIDER_ATTEMPTS_UNPROVEN_8196", state.reason)
+        assertFalse(state.providerAttempted.contains("ORACLE"))
+        // A positive dated Helius pool witness wins immediately even after TTL.
+        t.tokenMap.poolAddress = "route-pool8196"
+        t.tokenMap.hydrationComplete = true
+        t.tokenMap.updatedAtMs = now
+        t.tokenMap.providerTimestamps["HELIUS"] = now
+        val recovered = h.resolveFromToken8196(t, false, now - 120_000L, now)
+        assertEquals(h.State.PAIR_CONFIRMED, recovered.state)
+        assertEquals("route-pool8196", recovered.pairAddress)
+        val bot = source("engine/BotService.kt")
+        assertTrue(bot.contains("PairHydrationState6398.resolveFromToken8196("))
+        assertFalse(bot.contains("providersAttempted = listOf(\"DEXSCREENER\", \"BIRDEYE\", \"ORACLE\")"))
+    }
+
     @Test fun successfulHeliusProofReopensSourcesWithoutForgingProviderHealth() {
         val h = com.lifecyclebot.engine.truth.HeliusCreditEconomy7881
         assertTrue(h.providerRecovered8196(200, "{\"jsonrpc\":\"2.0\",\"result\":123}"))
