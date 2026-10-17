@@ -13,6 +13,20 @@ class Aate8196CausalContinuityTest {
     private fun source(relative: String) =
         File("src/main/kotlin/com/lifecyclebot/$relative").readText()
 
+    @Test fun secondSpecialistCannotLoseASeparateMissingFeatureBehindFirstThrottle() {
+        val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907
+        val t0 = 2_000_000_000_000L
+        val timestamps = mutableMapOf<String, Long>()
+        val first = pb.dueMissingInputs8196(listOf("shape:INVALID", "tape:NO_PRINTS"), { timestamps[it] }, t0)
+        assertEquals(listOf("shape:INVALID", "tape:NO_PRINTS"), first)
+        first.forEach { timestamps[it.substringBefore(':')] = t0 }
+        val second = pb.dueMissingInputs8196(
+            listOf("shape:INVALID", "bp:DEFAULT_UNOBSERVED", "chg:DEFAULT_UNOBSERVED", "tape:UNKNOWN"), { timestamps[it] }, t0 + 1000L)
+        assertEquals(listOf("bp:DEFAULT_UNOBSERVED", "chg:DEFAULT_UNOBSERVED"), second)
+        assertTrue(pb.dueMissingInputs8196(listOf("shape:INVALID", "tape:NO_PRINTS"), { timestamps[it] }, t0 + 1000L).isEmpty())
+        assertEquals(listOf("shape:INVALID"), pb.dueMissingInputs8196(listOf("shape:INVALID", "shape:UNKNOWN"), { timestamps[it] }, t0 + 30_000L))
+    }
+
     @Test fun rejectedNativeLaneDoesNotGenerateExecutableCortexTrainingProof() {
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_MCAP_TOO_LOW"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "OUTSIDE_NATIVE_AGE"))
