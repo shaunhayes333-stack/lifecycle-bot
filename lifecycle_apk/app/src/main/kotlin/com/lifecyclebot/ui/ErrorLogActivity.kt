@@ -230,90 +230,40 @@ class ErrorLogActivity : AppCompatActivity() {
     }
 
     private fun exportLogs() {
-        // V5.9.1049 ANR FIX: ErrorLogger.exportToText() walks the entire
-        // SQLite log table and stringifies every entry — was running on
-        // Main (top-3 ANR site in V5.9.1040 snapshot). Move to a background
-        // thread; show the AlertDialog only after the text is ready.
-        Toast.makeText(this, "Preparing unified report…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Preparing complete report…", Toast.LENGTH_SHORT).show()
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_EXPORT_CLICK_6078", "source=error_log") } catch (_: Throwable) {}
         com.lifecyclebot.engine.ReportingHub.buildTextAsync(
-            com.lifecyclebot.engine.ReportingHub.Kind.UNIFIED_HEALTH,
-            forceFresh = true,
+            com.lifecyclebot.engine.ReportingHub.Kind.UNIFIED_HEALTH, forceFresh = true,
         ) { report, error ->
             if (isFinishing || isDestroyed) return@buildTextAsync
-            val fullText = report?.text ?: buildString {
-                appendLine("AATE report export degraded: ${error?.message ?: "unknown"}")
-                appendLine()
-                append(try { com.lifecyclebot.engine.PipelineHealthCollector.dumpText().take(24_000) } catch (_: Throwable) { "No fallback report available." })
-            }
-            // V5.0.6302 — clipboard payload is capped so setPrimaryClip cannot
-            // trip the Main-thread ANR watchdog on 100KB blobs.
-            val exportText = com.lifecyclebot.engine.ReportingHub.clipboardSafeText(fullText)
-
-            // V5.0.6304 — MOVE setPrimaryClip OFF MAIN. Even a 35KB blob stalls
-            // Main via ClipboardService Binder IPC. Write clip on a background
-            // thread; Toast + AlertDialog still fire on Main.
             Thread({
-                var ok = false
-                var errName = ""
-                try {
-                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", exportText))
-                    ok = true
-                } catch (t: Throwable) {
-                    errName = t.javaClass.simpleName
+                val fullText = report?.text ?: buildString {
+                    appendLine("AATE report export DEGRADED: ${error?.message ?: "unknown"}")
+                    append(try { com.lifecyclebot.engine.PipelineHealthCollector.dumpText() } catch (_: Throwable) { "No fallback report available." })
                 }
-                // V5.0.6401 ANR-KILLER — persist the FULL uncapped report to
-                // a cache file on this same background thread so the share
-                // dialog can hand out a FileProvider URI instead of stuffing
-                // multi-megabytes into Intent.EXTRA_TEXT (which triggers the
-                // exact Binder-IPC freeze this whole path was written to
-                // avoid).
+                val compactText = com.lifecyclebot.engine.ReportBudget8176.forCopy8176(fullText)
+                val copyParts = com.lifecyclebot.engine.ReportBudget8176.chatParts8198(compactText)
+                val exportText = copyParts.first()
+                val ok = try {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("AATE Unified Report part 1/${copyParts.size}", exportText))
+                    true
+                } catch (_: Throwable) { false }
                 val fullReportFile = try {
                     com.lifecyclebot.engine.execution.PipelineReportFileExporter6401
                         .writeReportSync(this, fullText, prefix = "aate_unified")
                 } catch (_: Throwable) { null }
+                val compactReportFile = try {
+                    com.lifecyclebot.engine.execution.PipelineReportFileExporter6401
+                        .writeReportSync(this, compactText, prefix = "aate_unified_compact")
+                } catch (_: Throwable) { null }
                 Handler(Looper.getMainLooper()).post {
                     if (isFinishing || isDestroyed) return@post
-                    if (ok) {
-                        val toastMsg = if (exportText.length < fullText.length) {
-                            "Copied ${exportText.length} of ${fullText.length} chars (paste-safe cap). Full report available via Share."
-                        } else "Unified report copied (${exportText.length} chars)"
-                        Toast.makeText(this, toastMsg, Toast.LENGTH_LONG).show()
-                    } else {
-                        Toast.makeText(this, "Copy failed: $errName", Toast.LENGTH_LONG).show()
-                    }
-                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_EXPORT_COPIED_6304", "chars=${exportText.length} full=${fullText.length} ok=$ok hub=${report != null} err=${error?.javaClass?.simpleName ?: "none"} source=error_log fileBytes=${fullReportFile?.length() ?: -1L}") } catch (_: Throwable) {}
-
-                    // V5.0.6401 — Prefer the file-URI share intent when the
-                    // full report was persisted successfully (streaming
-                    // avoids the Binder-IPC ANR that plain EXTRA_TEXT hit
-                    // on the 60k-line dump). Fall back to EXTRA_TEXT only
-                    // if the cache write failed.
-                    val shareIntent = if (fullReportFile != null) {
-                        com.lifecyclebot.engine.execution.PipelineReportFileExporter6401
-                            .shareIntent(this, fullReportFile,
-                                subject = "AATE Unified Operational Report")
-                    } else null
-                    val fallbackShareIntent = Intent().apply {
-                        action = Intent.ACTION_SEND
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, fullText)
-                        putExtra(Intent.EXTRA_SUBJECT, "AATE Unified Operational Report")
-                    }
-
-                    AlertDialog.Builder(this)
-                        .setTitle("Unified Report Ready")
-                        .setMessage("Unified report copied to clipboard. Would you like to share the full report?")
-                        .setPositiveButton("Share") { _, _ ->
-                            val toShare = shareIntent ?: fallbackShareIntent
-                            startActivity(Intent.createChooser(toShare, "Share AATE report"))
-                        }
-                        .setNegativeButton("Done", null)
-                        .show()
+                    Toast.makeText(this, if (ok) "Copied part 1/${copyParts.size}; all snapshot data retained" else "Clipboard failed; use Share below", Toast.LENGTH_LONG).show()
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_EXPORT_COPIED_6304", "chars=${compactText.length} full=${fullText.length} parts=${copyParts.size} ok=$ok hub=${report != null} source=error_log fileBytes=${fullReportFile?.length() ?: -1L}") } catch (_: Throwable) {}
+                    ReportCopyDialog8198.show(this, copyParts, compactReportFile, fullReportFile, compactText.length, fullText.length)
                 }
             }, "ErrorLog-ClipWriter-6304").start()
-            return@buildTextAsync
         }
     }
 

@@ -76,17 +76,22 @@ object ReportingHub {
                     if (now2 - cached.atMs <= CACHE_TTL_MS) return@withLock cached.report
                 }
             }
+            var sourceAtMs = now2
+            fun fallback(reason: String): String {
+                val cached = textCache[kind]?.report?.takeIf { now2 - it.generatedAtMs in 0L..STALE_CACHE_TTL_MS }
+                if (cached == null) return buildEmergencyText(kind, reason)
+                sourceAtMs = cached.generatedAtMs
+                return "[STALE_REPORT_CACHE sourceAtMs=$sourceAtMs ageMs=${now2 - sourceAtMs} reason=$reason]\n${cached.text}"
+            }
             val text = try {
                 withTimeout(REPORT_BUILD_TIMEOUT_MS) { buildTextSync(kind) }
             } catch (_: TimeoutCancellationException) {
-                textCache[kind]?.takeIf { now2 - it.atMs <= STALE_CACHE_TTL_MS }?.report?.text
-                    ?: buildEmergencyText(kind, "timeout>${REPORT_BUILD_TIMEOUT_MS}ms")
+                fallback("timeout>${REPORT_BUILD_TIMEOUT_MS}ms")
             } catch (t: Throwable) {
-                textCache[kind]?.takeIf { now2 - it.atMs <= STALE_CACHE_TTL_MS }?.report?.text
-                    ?: buildEmergencyText(kind, "error=${t.javaClass.simpleName}:${t.message?.take(80)}")
+                fallback("error=${t.javaClass.simpleName}:${t.message?.take(80)}")
             }
-            val report = TextReport(kind, titleFor(kind), now2, text)
-            textCache[kind] = CacheEntry(now2, report)
+            val report = TextReport(kind, titleFor(kind), sourceAtMs, text)
+            textCache[kind] = CacheEntry(sourceAtMs, report)
             report
         }
     }
@@ -160,48 +165,26 @@ object ReportingHub {
         appendLine("Action: close heavy report screen, keep bot running, then retry after installing the latest build if available.")
     }
 
-    private fun buildUnifiedHealth(): String {
-        val budget = MAX_UNIFIED_REPORT_CHARS
-        val out = StringBuilder(budget + 1024)
-        out.appendHeader("AATE UNIFIED OPERATIONAL REPORT")
-        out.appendLine("Generated: ${stamp()}")
-        out.appendLine("Scope: runtime / pipeline / learning / tuning / journal / forensic / errors")
-        out.appendLine("Size budget: ${budget} chars paste-safe hard cap; every major section is represented; raw rows are summarized, not dumped.")
-        out.appendLine()
-
-        fun addBoundedSection(title: String, maxChars: Int, body: () -> String) {
-            if (out.length >= budget) return
-            out.appendSection(title)
-            val raw = safe(title.lowercase(Locale.US).replace(" ", "_")) { body() }.trimEnd()
-            out.appendLine(condenseText(raw, maxChars.coerceAtMost((budget - out.length - 256).coerceAtLeast(512))))
-            out.appendLine()
+    private fun buildUnifiedHealth(): String = buildString {
+        appendHeader("AATE UNIFIED OPERATIONAL REPORT")
+        appendLine("Generated: ${stamp()}")
+        appendLine("Scope: runtime / pipeline / learning / tuning / journal / forensic / errors; collector snapshots and named summaries; source retention windows apply. No additional report-side clipping. Historical journal rows remain a separate export.")
+        fun section(title: String, body: () -> String) {
+            appendSection(title)
+            appendLine(safe(title.lowercase(Locale.US).replace(" ", "_")) { body() })
+            appendLine()
         }
-
-        // V5.0.4487 — PASTE-SAFE REPORT CONTRACT.
-        // Operator reports were still too large for chat: downstream channels chopped
-        // the tail even though each section had its own local budget. Keep every major
-        // category, but shrink the global envelope and summarize raw/error rows.
-        // V5.0.6048 — REPORT EXPANDED (operator ask 2026-07-03: 'expand the
-        // runtime report for as much data and context as you can handle. grab
-        // as much data as you think will help'). Budgets bumped ~5x per
-        // section, envelope raised to 100_000. Still readable — larger fonts
-        // still line-based.
-        addBoundedSection("EXECUTIVE SNAPSHOT", 8_000) { buildExecutiveSnapshot() }
-        addBoundedSection("TOOLKIT SIGNAL SHEET", 8_000) { buildToolkitSignalSummary() }
-        addBoundedSection("MONEY PATH TRUTH", 9_000) { buildMoneyPathTruthSummary6029() }
-        addBoundedSection("PIPELINE HEALTH — CORE", 25_000) { compactPipelineDump(PipelineHealthCollector.dumpText()) }
-        addBoundedSection("LEARNING + TUNING STATE", 18_000) { buildLearningTuningSummary() }
-        addBoundedSection("TRADE JOURNAL SUMMARY", 12_000) { buildJournalSummary() }
-        addBoundedSection("FORENSIC SUMMARY", 8_000) { buildForensicSummary() }
-        addBoundedSection("ERROR LOGS — RECENT", 8_000) { ErrorLogger.exportToCompactTable(limit = 80) }
-        out.appendLine("Report envelope: PASTE_SAFE_V6048 chars=${out.length}/$budget sections=8 errorLimit=80")
-
-        val text = out.toString().trimEnd()
-        return if (text.length <= budget) text else text.take(budget - 180) + "\n\n[REPORT_TRUNCATED_UNEXPECTED hardCap=$budget chars — paste-safe budgets failed; reduce section budgets]"
+        section("EXECUTIVE SNAPSHOT") { buildExecutiveSnapshot() }
+        section("TOOLKIT SIGNAL SHEET") { buildToolkitSignalSummary() }
+        section("MONEY PATH TRUTH") { buildMoneyPathTruthSummary6029() }
+        section("PIPELINE HEALTH: COMPLETE SNAPSHOT") { PipelineHealthCollector.dumpText() }
+        section("LEARNING + TUNING STATE") { buildLearningTuningSummary() }
+        section("TRADE JOURNAL SUMMARY") { buildJournalSummary() }
+        section("FORENSIC SUMMARY") { buildForensicSummary() }
+        section("ERROR LOG ROLLUP: RECENT 80 RECORDS") { ErrorLogger.exportToCompactTable(limit = 80) }
+        section("ERROR LOGS: RECENT 200 RECORDS WITH FULL STACKS") { ErrorLogger.exportToText(limit = 200, completeStacks = true) }
     }
 
-
-    private const val MAX_UNIFIED_REPORT_CHARS = 100_000
 
     // V5.0.6302/6304 history — the cap was introduced, then lowered 40k -> 20k,
     // on the theory that `setPrimaryClip` payload size was stalling Main and

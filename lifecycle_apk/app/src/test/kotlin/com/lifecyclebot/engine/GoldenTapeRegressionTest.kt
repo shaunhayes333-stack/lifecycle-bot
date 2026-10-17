@@ -373,9 +373,9 @@ class GoldenTapeRegressionTest {
         val sheet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt").readText()
 
         assertTrue("Unified report must include a first-class toolkit section near the top", hub.contains("TOOLKIT SIGNAL SHEET") && hub.contains("buildToolkitSignalSummary"))
-        assertTrue("Unified report budgets must fit under chat cap before hard truncation", hub.contains("PASTE-SAFE REPORT CONTRACT") && hub.contains("paste-safe hard cap"))
-        assertTrue("Pipeline block must be core-only so learning/tuning is not duplicated", hub.contains("PIPELINE HEALTH — CORE") && !hub.contains("PIPELINE HEALTH — CONDENSED", ignoreCase = false))
-        assertTrue("Error logs must be bounded tightly via compact table to avoid eating the report tail", hub.contains("ErrorLogger.exportToCompactTable(limit = 80)"))
+        assertFalse("Full snapshot must not be truncated to a chat cap", hub.contains("REPORT_TRUNCATED_UNEXPECTED"))
+        assertTrue("Complete source snapshot must reach reversible compaction", hub.contains("PIPELINE HEALTH: COMPLETE SNAPSHOT"))
+        assertTrue("Retained errors must not be dropped by the report envelope", hub.contains("ErrorLogger.exportToText(limit = 200, completeStacks = true)"))
         assertTrue("Toolkit setup/chart counters must feed report visibility", sheet.contains("TOOLKIT_SETUP_${'$'}{built.setup.name}") && sheet.contains("TOOLKIT_CHART_${'$'}{built.chartPattern.uppercase().take(48)}"))
         assertTrue("ANR evidence must remain visible in compact report", hub.contains("===== ANR / main-thread health") && hub.contains("===== ANR top blocking call sites") && hub.contains("ANR top:"))
         assertTrue("Internet edge desk must be visible in toolkit report section", hub.contains("InternetEdgeDesk.summaryLine") && hub.contains("INTERNET_EDGE_REFRESHED"))
@@ -636,7 +636,7 @@ class GoldenTapeRegressionTest {
         assertTrue(hub.contains("object ReportingHub"))
         assertTrue(hub.contains("UNIFIED_HEALTH"))
         assertTrue(hub.contains("TRADE JOURNAL SUMMARY"))
-        assertTrue(hub.contains("raw rows are summarized, not dumped"))
+        assertTrue(hub.contains("Historical journal rows remain a separate export"))
         assertTrue(hub.contains("buildMutex"))
         val pipelineUi = java.io.File("src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt").readText()
         val errorUi = java.io.File("src/main/kotlin/com/lifecyclebot/ui/ErrorLogActivity.kt").readText()
@@ -2800,9 +2800,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun unified_report_is_compact_and_includes_learning_tuning_journal() {
         val hub = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
-        assertTrue("Unified report must have a hard chat-size budget", hub.contains("MAX_UNIFIED_REPORT_CHARS = 100_000") && hub.contains("REPORT_TRUNCATED_UNEXPECTED") && hub.contains("PASTE_SAFE_V6048"))
+        assertFalse("Whole report must not be cut to fit a single chat message", hub.contains("MAX_UNIFIED_REPORT_CHARS") || hub.contains("REPORT_TRUNCATED_UNEXPECTED"))
         assertTrue("Unified report scope must include learning/tuning/journal", hub.contains("learning / tuning / journal") && hub.contains("LEARNING + TUNING STATE") && hub.contains("TRADE JOURNAL SUMMARY"))
-        assertTrue("Unified report must use compact core pipeline, not raw full dump only", hub.contains("compactPipelineDump(PipelineHealthCollector.dumpText())") && hub.contains("PIPELINE HEALTH — CORE"))
+        assertTrue("Unified report retains full pipeline before reversible compaction", hub.contains("PIPELINE HEALTH: COMPLETE SNAPSHOT") && hub.contains("PipelineHealthCollector.dumpText()"))
         assertTrue("Learning section must include local and collective memory", hub.contains("TokenWinMemory.getPatternSummary") && hub.contains("LosingPatternMemory.formatForPipelineDump") && hub.contains("CollectiveLearning.getInsightsSummary"))
         assertTrue("Tuning section must include active tuners", hub.contains("PatternAutoTuner.getStatus") && hub.contains("LaneExitTuner.formatForPipelineDump") && hub.contains("StrategyHypothesisEngine.formatForPipelineDump") && hub.contains("UnifiedPolicyHead.formatForPipelineDump"))
         assertTrue("Journal section must use canonical bounded store summaries", hub.contains("TradeHistoryStore.getCanonicalTotals") && hub.contains("TradeHistoryStore.getLifetimeStats") && hub.contains("TradeHistoryStore.getRecentValidClosedTrades"))
@@ -6337,9 +6337,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun reportingHub_4487UnifiedReportIsPasteSafeAndSectionComplete() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
-        assertTrue("V5.0.6048: unified runtime report envelope updated to 100k chars for full operator context", src.contains("MAX_UNIFIED_REPORT_CHARS = 100_000") && src.contains("PASTE_SAFE_V6048") && src.contains("paste-safe hard cap"))
-        assertTrue("V5.0.4487: unified report must retain all major sections while reducing raw-row payload", listOf("EXECUTIVE SNAPSHOT", "TOOLKIT SIGNAL SHEET", "PIPELINE HEALTH — CORE", "LEARNING + TUNING STATE", "TRADE JOURNAL SUMMARY", "FORENSIC SUMMARY", "ERROR LOGS — RECENT").all { src.contains(it) })
-        assertTrue("V5.0.6048: recent error rows must be summarized at V6048 limit=80 (not the old 24 or the pre-4487 60)", src.contains("ErrorLogger.exportToCompactTable(limit = 80)") && !src.contains("ErrorLogger.exportToCompactTable(limit = 60)"))
+        assertFalse("Full operator context has no extra global clipping", src.contains("MAX_UNIFIED_REPORT_CHARS") || src.contains("REPORT_TRUNCATED_UNEXPECTED"))
+        assertTrue("V5.0.4487: unified report must retain all major sections while reducing raw-row payload", listOf("EXECUTIVE SNAPSHOT", "TOOLKIT SIGNAL SHEET", "PIPELINE HEALTH: COMPLETE SNAPSHOT", "LEARNING + TUNING STATE", "TRADE JOURNAL SUMMARY", "FORENSIC SUMMARY", "ERROR LOGS: RECENT 200 RECORDS WITH FULL STACKS").all { src.contains(it) })
+        assertTrue("Retained error records survive full report collection", src.contains("ErrorLogger.exportToText(limit = 200, completeStacks = true)") && src.contains("ErrorLogger.exportToCompactTable(limit = 80)"))
     }
 
 
@@ -7402,7 +7402,7 @@ class GoldenTapeRegressionTest {
                 main.contains("preSorted6078 = true") &&
                 main.contains("val RENDER_CAP = OPENPOS_ROW_CAP"),
         )
-        assertTrue("V5.0.6078: Runtime report export button must always copy an observable unified-report fallback", err.contains("UNIFIED_REPORT_EXPORT_CLICK_6078") && err.contains("Unified report copied") && err.contains("PipelineHealthCollector.dumpText().take(24_000)"))
+        assertTrue("V5.0.6078: Runtime report export button must always copy an observable unified-report fallback", err.contains("UNIFIED_REPORT_EXPORT_CLICK_6078") && err.contains("Copied part 1/") && err.contains("PipelineHealthCollector.dumpText()") && !err.contains("dumpText().take(24_000)") && err.contains("chatParts8198(compactText)"))
         assertTrue("V5.0.6078: all sell-like results must feed LLM/SSI context with accepted/trainable flags while policy heads remain clean-gated", exec.contains("ALL_RESULT_CONTEXT_OBSERVED_6078") && exec.contains("recordExternalOutcome6078") && lab.contains("externalOutcomeSummary6078") && ssi.contains("RESULTS6078"))
         assertTrue("V5.0.6078: live positions must preserve AgenticStyleRouter style surface instead of collapsing to generic lane emoji", exec.contains("preserve the full AgenticStyleRouter style surface") && exec.contains("tradingModeEmoji = listOf") && exec.contains("routedStyleTag.ifBlank"))
     }
@@ -7416,7 +7416,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6308: clipboard writes must happen from mainHandler delivery, not the report builder thread",
             ui.contains("fun deliverReport6308") && ui.contains("mainHandler.post") && ui.contains("cb.setPrimaryClip") && ui.contains("Report generated but clipboard failed"))
         assertTrue("V5.0.6308: generated report must also render on-screen in bounded sections",
-            ui.contains("fullDumpCache = safeText") && ui.contains("reportSections = splitDumpIntoSections(safeText)") && ui.contains("renderCurrentSection()"))
+            ui.contains("fullDumpCache = compactText") && ui.contains("reportSections = displaySections") && ui.contains("val displaySections = splitDumpIntoSections(compactText)") && ui.contains("renderCurrentSection()"))
         assertTrue("V5.0.6308: fallback report must include the choke-critical pipeline surfaces",
             ui.contains("AATE PIPELINE EMERGENCY REPORT V5.0.6308") && ui.contains("FDG BLOCK REASONS") && ui.contains("LIVE BUY FAIL REASONS") && ui.contains("INTAKE BY SOURCE") && ui.contains("RECENT EVENTS"))
     }
@@ -15277,6 +15277,25 @@ class GoldenTapeRegressionTest {
         assertTrue(admission.contains("LanePlaybook7907.selectionRevision8198(), d.admitted"))
         val playbook = java.io.File(root, "cortex/LanePlaybook7907.kt").readText()
         assertTrue(playbook.contains("matchedSetups8083(ts, lane, nowMs), mode, version, selectionRevision8198()"))
+    }
+
+    @Test fun V5_0_8198_full_report_compaction_preserves_data_and_clipboard_parts() {
+        val root = java.io.File("src/main/kotlin/com/lifecyclebot")
+        val formatter = java.io.File(root, "engine/ReportBudget8176.kt").readText()
+        assertTrue(formatter.contains("expand8198(encoded) == raw"))
+        assertTrue(formatter.contains("catch (_: Throwable) { raw }"))
+        assertTrue(formatter.contains("sourceSha256="))
+        val dialog = java.io.File(root, "ui/ReportCopyDialog8198.kt").readText()
+        assertTrue(dialog.contains("Share complete compact file"))
+        assertTrue(dialog.contains("Share complete original file"))
+        assertFalse(dialog.contains("Intent.EXTRA_TEXT"))
+        val hub = java.io.File(root, "engine/ReportingHub.kt").readText()
+        assertTrue(hub.contains("CacheEntry(sourceAtMs, report)"))
+        assertTrue(hub.contains("ErrorLogger.exportToCompactTable(limit = 80)"))
+        assertTrue(hub.contains("ErrorLogger.exportToText(limit = 200, completeStacks = true)"))
+        val logger = java.io.File(root, "engine/ErrorLogger.kt").readText()
+        assertTrue(logger.contains("if (completeStacks) log.stackTrace else log.stackTrace.take(500)"))
+        assertFalse(hub.contains("REPORT_TRUNCATED_UNEXPECTED"))
     }
 
 }

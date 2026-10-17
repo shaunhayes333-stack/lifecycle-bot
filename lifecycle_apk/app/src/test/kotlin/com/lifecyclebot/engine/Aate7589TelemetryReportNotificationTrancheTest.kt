@@ -14,7 +14,7 @@ class Aate7589TelemetryReportNotificationTrancheTest {
   val n=src("perps/PerpsNotificationManager.kt"); assertTrue(n.contains("fun notifyLearningMilestone(")); assertTrue(n.contains("fun notifyLiquidationWarning(")); assertTrue(n.contains("fun notifyMTFAlignment("))
   val p=src("engine/quant/PortfolioAnalytics.kt"); assertTrue(p.contains("fun calculateCorrelations()")); assertTrue(p.contains("fun generateHeatMap()"))
   val r=src("engine/RejectionTelemetry.kt"); assertTrue(r.contains("fun topWindow(")); assertTrue(r.contains("fun topSession("))
-  assertTrue(src("engine/ReportingHub.kt").contains("fun addBoundedSection("))
+  assertTrue(src("engine/ReportingHub.kt").contains("fun section(title: String, body: () -> String)"))
   val rc=src("engine/truth/RootCauseTelemetry6441.kt"); assertTrue(rc.contains("fun attribute(")); assertTrue(rc.contains("fun subsystemBreakdown()"))
   assertTrue(src("engine/RunTracker30D.kt").contains("fun getFilterStats(): String"))
   val s=src("engine/StrategyTelemetry.kt"); assertTrue(s.contains("fun computePaperTerminalLeaderboard(")); assertTrue(s.contains("fun bleeders(")); assertTrue(s.contains("fun getDisabled(): Set<String> = emptySet()"))

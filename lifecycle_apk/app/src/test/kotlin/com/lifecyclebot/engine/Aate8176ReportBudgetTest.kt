@@ -138,7 +138,7 @@ class Aate8176ReportBudgetTest {
         assertTrue(pb.contains("(+3 setups omitted"))
     }
 
-    @Test fun copyPathHoldsTheBudget() {
+    @Test fun fullCopyRetainsAllRowsAndPartsHoldTheBudget() {
         assertEquals(180_000, ReportBudget8176.COPY_BUDGET_CHARS_8176)
         val huge = listOf(
             section("AATE Pipeline Health Snapshot", listOf("  build=5.0.8176")),
@@ -149,14 +149,17 @@ class Aate8176ReportBudgetTest {
         ).joinToString("\n")
         assertTrue(huge.length > 250_000)
         val out = ReportBudget8176.forCopy8176(huge)
-        assertTrue(out.length <= 180_000)
-        assertTrue(out.contains("===== AATE Pipeline Health Snapshot ====="))
-        assertTrue(out.contains("===== Interpretation cheat-sheet ====="))
+        assertEquals(huge, ReportBudget8176.expand8198(out))
+        val parts = ReportBudget8176.chatParts8198(out)
+        assertTrue(parts.all { it.length <= 12_000 })
+        assertEquals(out, parts.joinToString("") { it.substringAfter('\n') })
     }
 
     @Test fun copyButtonUsesTheBudgetedText() {
         val ui = src("ui/PipelineHealthActivity.kt")
-        assertTrue(ui.contains("ReportingHub.clipboardSafeText(com.lifecyclebot.engine.ReportBudget8176.forCopy8176(rawText))"))
+        assertTrue(ui.contains("ReportBudget8176.forCopy8176(rawText)"))
+        assertTrue(ui.contains("ReportBudget8176.chatParts8198(compactText)"))
+        assertFalse(ui.contains("rawText.take(60_000)"))
         // the share file still receives the full, uncapped report
         assertTrue(ui.contains(".writeReportSync(activityRef, rawText, prefix = \"aate_pipeline\")"))
         assertTrue(ui.contains("PipelineHealthCollector.pasteSafeSnapshot()"))

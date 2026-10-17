@@ -318,7 +318,7 @@ object ErrorLogger {
 
     // ── Export ────────────────────────────────────────────────────────
 
-    fun exportToText(limit: Int = 200): String {
+    fun exportToText(limit: Int = 200, completeStacks: Boolean = false): String {
         val logs = getRecentLogs(limit)
         return buildString {
             appendLine("═══════════════════════════════════════════")
@@ -332,7 +332,7 @@ object ErrorLogger {
                 appendLine("${log.timeFormatted} [${log.level}] ${log.component}")
                 appendLine("  ${log.message}")
                 if (!log.stackTrace.isNullOrBlank()) {
-                    appendLine("  Stack: ${log.stackTrace.take(500)}")
+                    appendLine("  Stack: ${if (completeStacks) log.stackTrace else log.stackTrace.take(500)}")
                 }
                 appendLine()
             }
