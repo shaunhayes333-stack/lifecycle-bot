@@ -212,7 +212,7 @@ object LiveRiskPolicy7807 {
         } catch (_: Throwable) { 0.0 }
         // V5.0.8188 — forward setup / cell / kind labels alone never raise size: the share is capped by an independent proof's
         // own Kelly stake (outlier-capped realised whole-position closes, or walk-forward out-of-sample); labels may only lower it.
-        validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), WALK_FORWARD_KELLY_UNAVAILABLE_8188)
+        validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l))
     } catch (_: Throwable) { 0.0 }
 
     // ── V5.0.8188 — an edge-based size-up needs validated after-cost evidence (the Cortex's 8187 rule) ──
@@ -222,10 +222,17 @@ object LiveRiskPolicy7807 {
     // (entry chase, costs, exit policy), so it may shrink a size but never grow one by itself.
 
     /**
-     * The walk-forward out-of-sample proof's Kelly stake. Cortex7885 keeps its walk-forward result private (owned
-     * elsewhere), so no walk-forward stake is readable here yet: 0 = no proof from this source (fail closed).
+     * Pure: the quarter-Kelly stake of a VALIDATED walk-forward out-of-sample record (CortexWalkForward8144), its mean read
+     * at most at RobustLabelRead8185's plausibility cap; 0 for any other verdict (IN_SAMPLE_ONLY, NO_EDGE, ...).
      */
-    private const val WALK_FORWARD_KELLY_UNAVAILABLE_8188 = 0.0
+    fun walkForwardKellyFrac8188(r: com.lifecyclebot.engine.cortex.CortexWalkForward8144.Result8144?): Double {
+        if (r == null || !r.validated || r.oos.n < 2 || !r.oos.se.isFinite() || !r.oos.mean.isFinite()) return 0.0
+        return kellyFrac8057(minOf(r.oos.mean, RobustLabelRead8185.CAP_LABEL_PCT_8185), r.oos.se * r.oos.se * r.oos.n, r.oos.n.toDouble())
+    }
+
+    /** The lane's walk-forward proof stake from the Cortex (0 on a fault: no proof). */
+    private fun laneWalkForwardKellyFrac8188(lane: String): Double =
+        try { walkForwardKellyFrac8188(com.lifecyclebot.engine.cortex.Cortex7885.walkForwardResult8188(lane)) } catch (_: Throwable) { 0.0 }
 
     /** Pure: the forward-label share [labelFrac] capped by the larger independent proof's own Kelly stake (0 without one). */
     fun validatedKellyFrac8188(labelFrac: Double, realisedProofFrac: Double, walkForwardProofFrac: Double): Double {

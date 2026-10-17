@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.cortex.CortexWalkForward8144
 import com.lifecyclebot.engine.truth.CapitalDrawdown7948
 import com.lifecyclebot.engine.truth.LiveRiskPolicy7807
 import com.lifecyclebot.engine.truth.MinPromotion8188
@@ -185,6 +186,61 @@ class Aate8188RiskTruthTest {
         val atCap = rets.toMutableList().also { it[1] = 1_000.0 }
         assertEquals(LiveRiskPolicy7807.realisedProofKellyFrac8188(atCap, sol), LiveRiskPolicy7807.realisedProofKellyFrac8188(withOutlier, sol), 1e-12)
         assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains(
-            "validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), WALK_FORWARD_KELLY_UNAVAILABLE_8188)"))
+            "validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l))"))
+        // Walk-forward: only a VALIDATED out-of-sample record is proof (5.0.8186 read IN_SAMPLE_ONLY on every lane).
+        val oos = CortexWalkForward8144.Stat8144(40, 12.0, 2.0)
+        val validated = CortexWalkForward8144.Result8144(CortexWalkForward8144.Verdict8144.VALIDATED, CortexWalkForward8144.Stat8144(80, 10.0, 1.5), oos, 4, 3, Double.NaN)
+        val inSample = validated.copy(verdict = CortexWalkForward8144.Verdict8144.IN_SAMPLE_ONLY)
+        assertEquals(LiveRiskPolicy7807.kellyFrac8057(12.0, 4.0 * 40, 40.0), LiveRiskPolicy7807.walkForwardKellyFrac8188(validated), 1e-12)
+        assertTrue(LiveRiskPolicy7807.walkForwardKellyFrac8188(validated) > 0.0)
+        assertEquals(0.0, LiveRiskPolicy7807.walkForwardKellyFrac8188(inSample), 0.0)
+        assertEquals(0.0, LiveRiskPolicy7807.walkForwardKellyFrac8188(null), 0.0)
+        assertTrue(src("engine/cortex/Cortex7885.kt").contains("fun walkForwardResult8188(lane: String, setup: String? = null)"))
+    }
+
+    // ── 4. a legacy peak is reconciled against witnesses at load, never reset blindly ──
+
+    @Test fun theInflatedLegacyPeakReconcilesToItsWitness() {
+        val now = 100L * 24L * 3_600_000L
+        val l = PeakLedger8188
+        // 5.0.8186: legacy 0.7625 after refused flows +0.2897 and +0.0240; the anti-reward-hack high read 0.3596.
+        val r = l.reconcile8188(0.7625, 0.2897 + 0.0240,
+            listOf(PeakLedger8188.Witness8188(l.WITNESS_ARH_8188, 0.3596, now - 26L * 60_000L)), verifiedEquitySol = 0.2711, nowMs = now)
+        assertNotNull(r)
+        assertEquals(0.3596, r!!.reconciledSol, 1e-12)
+        assertEquals(l.WITNESS_ARH_8188, r.by)
+        assertEquals(0.7625, r.legacySol, 0.0)
+        assertEquals(0.3137, r.refusedFlowsSol, 1e-12)
+        assertEquals(r, l.decodeReconciled8188(l.encodeReconciled8188(r)))
+        // Never below verified equity, never above the legacy value net of the refused flows.
+        assertEquals(l.WITNESS_EQUITY_FLOOR_8188, l.reconcile8188(0.7625, 0.0, listOf(PeakLedger8188.Witness8188(l.WITNESS_ARH_8188, 0.20, now - 1)), 0.2711, now)!!.by)
+        assertEquals(0.4488, l.reconcile8188(0.7625, 0.3137, listOf(PeakLedger8188.Witness8188(l.WITNESS_CREED_DAY_START_8188, 0.90, now - 1)), 0.27, now)!!.reconciledSol, 1e-12)
+        // No refused flows and no lower witness: the legacy peak stays. No in-window witness at all: it stays too.
+        assertNull(l.reconcile8188(0.7625, 0.0, listOf(PeakLedger8188.Witness8188(l.WITNESS_ARH_8188, 0.80, now - 1)), 0.27, now))
+        assertNull(l.reconcile8188(0.7625, 0.0, emptyList(), 0.27, now))
+        assertNull(l.reconcile8188(0.7625, 0.3137, listOf(PeakLedger8188.Witness8188(l.WITNESS_ARH_8188, 0.3596, now - 25L * 3_600_000L)), 0.27, now))
+        // At load: a RESTORED legacy event is reconciled once, the legacy value and reason stay in its history and report.
+        val legacyAt = now - 330L * 60_000L
+        l.restore8188(null, null)
+        l.noteSeed8188(0.7625, legacyAt, nowMs = now)
+        val done = l.reconcileLegacyAtLoad8188(0.3596, now - 26L * 60_000L, 0.10, nowMs = now)
+        assertNotNull(done)
+        assertEquals(0.3596, done!!.reconciledSol, 1e-9)
+        assertEquals(l.ORIGIN_RECONCILED_8188, l.currentEvent8188()!!.origin)
+        assertEquals(legacyAt, l.currentEvent8188()!!.atMs)
+        assertEquals(done, l.currentReconciled8188())
+        val line = l.line8188(CapitalDrawdown7948.Peak7948(0.3596, legacyAt), now)
+        assertTrue(line, line.contains("reconciled8188=[legacy=0.7625 -> 0.3596 by=ANTI_REWARD_HACK_HIGH"))
+        assertTrue(line, line.contains("marks=legacy=0.7625 by=ANTI_REWARD_HACK_HIGH"))
+        // Reconciled once: a reconciled event is not a legacy event.
+        assertNull(l.reconcileLegacyAtLoad8188(0.20, now - 1, 0.10, nowMs = now))
+        assertTrue(l.encodedReconciled8188().startsWith("v1|0.7625|"))
+        val ks = src("engine/KillSwitch.kt")
+        assertTrue(ks.contains("reconcileLegacyPeak8188(prefs, currentBalance)"))
+        assertTrue(ks.contains("ed.putFloat(com.lifecyclebot.engine.truth.PeakLedger8188.ARH_HIGH_KEY_8188, h.toFloat())"))
+        assertTrue(src("engine/truth/AntiRewardHackingGuard6439.kt").contains("fun currentHighAtMs8188(): Long = highAtMs.get()"))
+        assertTrue(l.antiRewardHigh8188() == null || l.antiRewardHigh8188()!!.first > 0.0)
+        assertEquals("peak_reconciled_8188", l.RECONCILED_KEY_8188)
+        assertEquals("arh_high_at_8188", l.ARH_HIGH_AT_KEY_8188)
     }
 }

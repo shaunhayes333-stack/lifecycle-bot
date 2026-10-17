@@ -28,6 +28,13 @@ object PeakLedger8188 {
 
     const val EVENT_KEY_8188 = "peak_event_8188"
     const val REBASES_KEY_8188 = "peak_rebases_8188"
+    const val RECONCILED_KEY_8188 = "peak_reconciled_8188"
+    const val ARH_HIGH_KEY_8188 = "arh_high_8188"
+    const val ARH_HIGH_AT_KEY_8188 = "arh_high_at_8188"
+    const val ORIGIN_RECONCILED_8188 = "RECONCILED_8188"
+    const val WITNESS_ARH_8188 = "ANTI_REWARD_HACK_HIGH"
+    const val WITNESS_CREED_DAY_START_8188 = "CAPITAL_CREED_DAY_START"
+    const val WITNESS_EQUITY_FLOOR_8188 = "VERIFIED_EQUITY_FLOOR"
     const val ORIGIN_NEW_HIGH_8188 = "NEW_HIGH"
     const val ORIGIN_WINDOW_ROLL_8188 = "WINDOW_ROLL"
     const val ORIGIN_SEEDED_8188 = "SEEDED"
@@ -59,6 +66,53 @@ object PeakLedger8188 {
         val toSol: Double,
         val verdict: String,
     )
+
+    // ── V5.0.8188 — reconciling a legacy peak at load (not a reset) ──
+    //
+    // A peak saved before 8188 carries no components and may have absorbed rebases the wallet rule now refuses
+    // (5.0.8186: 0.7625 SOL while the anti-reward-hack 24 h high, cash + open cost, read 0.3596). It is reconciled against
+    // independent witnesses: the legacy value less the refused flows is only a CEILING (it is the unverified number
+    // itself); the verified witnesses (the anti-reward-hack high, persisted beside the peak, and the capital creed's day start) inside
+    // the 24 h window are the evidence. Reconciled = max(witnesses), never below verified equity, never above the
+    // ceiling. No witness: the legacy peak stays. The legacy value and the reason are kept in history and on the report.
+
+    data class Witness8188(val name: String, val sol: Double, val atMs: Long)
+
+    data class Reconciled8188(
+        val legacySol: Double,
+        val reconciledSol: Double,
+        val by: String,
+        val refusedFlowsSol: Double,
+        val atMs: Long,
+        val witnesses: String,
+    )
+
+    /** Pure: the reconciled peak, or null when the legacy peak stays (no in-window witness, or none lower). */
+    fun reconcile8188(legacySol: Double, refusedFlowsSol: Double, witnesses: List<Witness8188>,
+                      verifiedEquitySol: Double, nowMs: Long): Reconciled8188? {
+        if (!legacySol.isFinite() || legacySol <= 0.0) return null
+        val valid = witnesses.filter { it.sol.isFinite() && it.sol > 0.0 && it.atMs > 0L && nowMs - it.atMs in 0L..WINDOW_MS_8188 }
+        if (valid.isEmpty()) return null
+        val refused = if (refusedFlowsSol.isFinite() && refusedFlowsSol > 0.0) refusedFlowsSol else 0.0
+        val ceiling = (legacySol - refused).coerceAtMost(legacySol)
+        val best = valid.maxByOrNull { it.sol }!!
+        val eq = if (verifiedEquitySol.isFinite() && verifiedEquitySol > 0.0) verifiedEquitySol else 0.0
+        val floorBinds = eq > best.sol
+        val value = minOf(ceiling, maxOf(best.sol, eq)).coerceAtLeast(eq).coerceAtMost(legacySol)
+        if (value >= legacySol - 1e-9) return null
+        return Reconciled8188(legacySol, value, if (floorBinds) WITNESS_EQUITY_FLOOR_8188 else best.name, refused, nowMs,
+            valid.joinToString(" ") { "${it.name}=${"%.4f".format(it.sol)}" })
+    }
+
+    fun encodeReconciled8188(r: Reconciled8188): String =
+        listOf("v1", r.legacySol, r.reconciledSol, clean8188(r.by), r.refusedFlowsSol, r.atMs, clean8188(r.witnesses)).joinToString("|")
+
+    fun decodeReconciled8188(s: String?): Reconciled8188? {
+        val f = s?.split("|") ?: return null
+        if (f.size != 7 || f[0] != "v1") return null
+        return Reconciled8188(f[1].toDoubleOrNull() ?: return null, f[2].toDoubleOrNull() ?: return null, f[3],
+            f[4].toDoubleOrNull() ?: 0.0, f[5].toLongOrNull() ?: 0L, f[6])
+    }
 
     // ── pure ────────────────────────────────────────────────────────────────
 
@@ -136,6 +190,7 @@ object PeakLedger8188 {
     // ── runtime ledger (live only; CapitalDrawdown7948 holds the effective peak) ──
 
     @Volatile private var event8188: PeakEvent8188? = null
+    @Volatile private var reconciled8188: Reconciled8188? = null
     private val rebases8188 = java.util.concurrent.ConcurrentLinkedDeque<Rebase8188>()
     private val refused8188 = java.util.concurrent.atomic.AtomicLong(0)
     @Volatile private var unverifiedCache8188: Pair<Long, Double>? = null
@@ -147,10 +202,59 @@ object PeakLedger8188 {
     fun rebases8188(): List<Rebase8188> = rebases8188.toList()
     fun encodedEvent8188(): String = event8188?.let { encodeEvent8188(it) } ?: ""
     fun encodedRebases8188(): String = encodeRebases8188(rebases8188.toList())
+    fun encodedReconciled8188(): String = reconciled8188?.let { encodeReconciled8188(it) } ?: ""
+    fun currentReconciled8188(): Reconciled8188? = reconciled8188
+
+    /** The anti-reward-hack 24 h high and when it was set (persisted beside the peak as a witness); null when unset. */
+    fun antiRewardHigh8188(): Pair<Double, Long>? = try {
+        val h = AntiRewardHackingGuard6439.currentHigh()
+        val at = AntiRewardHackingGuard6439.currentHighAtMs8188()
+        if (h.isFinite() && h > 0.0 && at > 0L) h to at else null
+    } catch (_: Throwable) { null }
+
+    /**
+     * KillSwitch init, after the peak was seeded: a legacy peak (no recorded components) is reconciled against the
+     * witnesses. Returns the reconciliation when the peak changed (the caller re-seeds the value at the SAME time).
+     * Pre-8188 builds kept no per-flow record across restarts, so the refused-flow sum known at load is the refused
+     * rebases this ledger recorded after the legacy peak (normally none); the witnesses carry the reconciliation.
+     */
+    @Synchronized fun reconcileLegacyAtLoad8188(persistedArhSol: Double, persistedArhAtMs: Long, currentEquitySol: Double,
+                                                nowMs: Long = System.currentTimeMillis()): Reconciled8188? {
+        val e = event8188 ?: return null
+        if (e.origin != ORIGIN_RESTORED_NO_COMPONENTS_8188) return null
+        val w = ArrayList<Witness8188>(4)
+        w += Witness8188(WITNESS_ARH_8188, persistedArhSol, persistedArhAtMs)
+        antiRewardHigh8188()?.let { (h, at) -> w += Witness8188(WITNESS_ARH_8188, h, at) }
+        creedDayStart8188()?.let { w += it }
+        val refused = rebases8188.filter { it.verdict == REBASE_REFUSED_8188 && it.atMs >= e.atMs && it.residualSol > 0.0 }.sumOf { it.residualSol }
+        val upnl = try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
+        val eq = verifiedPeakCandidate8188(CapitalDrawdown7948.gainFreeEquity8130(currentEquitySol, upnl))
+        val r = reconcile8188(e.recordedSol, refused, w, eq, nowMs) ?: return null
+        reconciled8188 = r
+        event8188 = PeakEvent8188(r.reconciledSol, e.atMs, Double.NaN, Double.NaN, Double.NaN, Double.NaN, ORIGIN_RECONCILED_8188,
+            "legacy=${"%.4f".format(r.legacySol)} by=${r.by} refusedFlows=${"%+.4f".format(r.refusedFlowsSol)} witnesses=${r.witnesses}")
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DRAWDOWN_LEGACY_PEAK_RECONCILED_8188")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("DRAWDOWN_LEGACY_PEAK_RECONCILED_8188",
+                "legacy=${"%.4f".format(r.legacySol)} reconciled=${"%.4f".format(r.reconciledSol)} by=${r.by} refusedFlows=${"%+.4f".format(r.refusedFlowsSol)} witnesses=${r.witnesses}")
+        } catch (_: Throwable) {}
+        return r
+    }
+
+    /** The capital creed's UTC day-start equity (LiveRiskPolicy7807.noteEquity8057: wallet + principal, gain-free). */
+    private fun creedDayStart8188(): Witness8188? = try {
+        val f = com.lifecyclebot.engine.LearningPersistence.load("day_start_equity_8057")?.split(',')
+        val v = f?.getOrNull(1)?.toDoubleOrNull()
+        val at = f?.getOrNull(0)?.let { d ->
+            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.parse(d)?.time
+        }
+        if (v != null && at != null) Witness8188(WITNESS_CREED_DAY_START_8188, v, at) else null
+    } catch (_: Throwable) { null }
 
     /** KillSwitch init, before the peak is seeded: the persisted event and its rebases. */
-    @Synchronized fun restore8188(eventStr: String?, rebasesStr: String?) {
+    @Synchronized fun restore8188(eventStr: String?, rebasesStr: String?, reconciledStr: String? = null) {
         event8188 = decodeEvent8188(eventStr)
+        reconciled8188 = decodeReconciled8188(reconciledStr)
         rebases8188.clear()
         rebases8188.addAll(decodeRebases8188(rebasesStr))
     }
@@ -258,8 +362,10 @@ object PeakLedger8188 {
         return "$ev rebases8188=[applied=${applied.size} net=${"%+.4f".format(applied.sumOf { it.toSol - it.fromSol })} " +
             "refusedNotInWallet=${rs.count { it.verdict == REBASE_REFUSED_8188 }} totalRefused=${refused8188.get()} effective=${f(effective.peakSol)}" +
             (if (last != null) " last=${last.verdict}:residual=${"%+.4f".format(last.residualSol)},liquid=${"%+.4f".format(last.liquidDeltaSol)}," +
-                "${f(last.fromSol)}->${f(last.toSol)},ageMin=${(nowMs - last.atMs) / 60_000L}" else "") + "]"
+                "${f(last.fromSol)}->${f(last.toSol)},ageMin=${(nowMs - last.atMs) / 60_000L}" else "") + "]" +
+            (reconciled8188?.let { r -> " reconciled8188=[legacy=${f(r.legacySol)} -> ${f(r.reconciledSol)} by=${r.by} " +
+                "refusedFlows=${"%+.4f".format(r.refusedFlowsSol)} witnesses=${r.witnesses} ageMin=${(nowMs - r.atMs) / 60_000L}]" } ?: "")
     }
 
-    internal fun resetForTests8188() { event8188 = null; rebases8188.clear(); refused8188.set(0); unverifiedCache8188 = null; persist8188 = null }
+    internal fun resetForTests8188() { event8188 = null; reconciled8188 = null; rebases8188.clear(); refused8188.set(0); unverifiedCache8188 = null; persist8188 = null }
 }

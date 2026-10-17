@@ -778,6 +778,10 @@ object Cortex7885 {
         return result
     }
 
+    /** V5.0.8188 — the walk-forward result of [lane] (x [setup]) for LiveRiskPolicy7807's size-up proof; null on a fault. */
+    fun walkForwardResult8188(lane: String, setup: String? = null): CortexWalkForward8144.Result8144? =
+        try { ensureLoaded(); synchronized(this) { walkForward8144(canon(lane), setup) } } catch (_: Throwable) { null }
+
     /**
      * Caller holds the lock. [labelFraction] after its realised cap ([realisedCapped], CortexRealisedAuthority8136) and the
      * walk-forward cap of this lane (or lane x [setup], whose own realised closes cap it too). Only lowers.
