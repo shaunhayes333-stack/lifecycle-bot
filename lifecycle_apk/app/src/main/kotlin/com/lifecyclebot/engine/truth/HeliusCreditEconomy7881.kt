@@ -277,6 +277,24 @@ object HeliusCreditEconomy7881 {
         try { PipelineHealthCollector.labelInc("HELIUS_PROVIDER_EXHAUSTED_8094") } catch (_: Throwable) {}
     }
 
+    /**
+     * 8196: a confirmed successful provider request disproves a stale
+     * provider-exhaustion latch. Without this, even a successful recovery
+     * probe left local Helius REST and WebSocket subscriptions disabled for
+     * the remainder of the 15-minute latch (the wallet cannot afford that
+     * missed launch coverage). The independent daily credit budget remains.
+     */
+    fun providerRecovered8196(code: Int, body: String): Boolean =
+        code in 200..299 && !Regex("\\\"error\\\"\\s*:\\s*\\{", RegexOption.IGNORE_CASE).containsMatchIn(body)
+
+    fun clearExhaustionOnProof8196(nowMs: Long = System.currentTimeMillis()) {
+        if (exhaustedUntilMs8094 <= 0L) return
+        exhaustedUntilMs8094 = 0L
+        lastProbeMs8094 = nowMs
+        synchronized(exhaustAnswers8191) { exhaustAnswers8191.clear() }
+        try { PipelineHealthCollector.labelInc("HELIUS_EXHAUSTION_RECOVERED_ON_PROOF_8196") } catch (_: Throwable) {}
+    }
+
     /** True while latched, except one probe per latch window (so recovery is noticed without a restart). */
     fun exhaustedGate8094(nowMs: Long = System.currentTimeMillis()): Boolean {
         if (nowMs >= exhaustedUntilMs8094) return false
