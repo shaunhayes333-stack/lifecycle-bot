@@ -57,6 +57,7 @@ object CapitalDrawdown7948 {
     /** KillSwitch seeds the persisted peak at init and on reset. */
     fun seed7948(peakSol: Double, atMs: Long) {
         synchronized(this) { peak7948 = Peak7948(peakSol, atMs) }
+        try { PeakLedger8188.noteSeed8188(peakSol, atMs) } catch (_: Throwable) {}  // V5.0.8188 — the seeded peak keeps (or names) its event
     }
 
     fun currentPeak7948(): Peak7948 = peak7948
@@ -68,6 +69,7 @@ object CapitalDrawdown7948 {
     @Synchronized fun reanchorExplicitRun8093(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (!equitySol.isFinite() || equitySol <= 0.0) return false
         peak7948 = Peak7948(equitySol, nowMs)
+        try { PeakLedger8188.noteReanchor8188(equitySol, nowMs) } catch (_: Throwable) {}  // V5.0.8188
         pending7986 = null
         prevRev7986 = -1L
         prevEq7981 = Double.NaN
@@ -76,6 +78,8 @@ object CapitalDrawdown7948 {
         prevPeakObs7990 = Double.NaN
         realCache7981 = null
         prevUpnl8136 = Double.NaN
+        prevLiq8188 = Double.NaN
+        prevPrin8188 = Double.NaN
         return true
     }
 
@@ -107,7 +111,7 @@ object CapitalDrawdown7948 {
     // in between. 5.0.7985 counted 22 "external flows" in 13 minutes: the wallet moves on a bot
     // buy/sell before the position and realised P&L catch up, which read as a deposit/withdrawal.
     private const val CONFIRM_MS_7986 = 45_000L
-    private class Pending7986(val eq: Double, val real: Double, val upnl: Double, val rev: Long, val atMs: Long)
+    private class Pending7986(val eq: Double, val real: Double, val upnl: Double, val rev: Long, val atMs: Long, val liq: Double = Double.NaN, val prin: Double = Double.NaN)
     @Volatile private var pending7986: Pending7986? = null
     @Volatile private var prevRev7986 = -1L
     private val cancelled7986 = java.util.concurrent.atomic.AtomicLong(0)
@@ -141,15 +145,21 @@ object CapitalDrawdown7948 {
             val real = realisedLiveSol7981(nowMs)
             val upnl = try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
             val rev = try { com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343() } catch (_: Throwable) { -1L }
+            val liq8188 = liquidNow8188()
+            val prin8188 = try { LiveRiskPolicy7807.liveEquitySol(0.0) } catch (_: Throwable) { Double.NaN }
             val p = pending7986
             if (p != null) {
                 when (confirmFlow7986(p.rev, rev, p.atMs, nowMs)) {
                     false -> { pending7986 = null; cancelled7986.incrementAndGet() }
                     true -> {
                         pending7986 = null
-                        val flow = if (real.isFinite()) externalFlow7981(equitySol - p.eq, real - p.real, upnl - p.upnl) else 0.0
+                        val residual8188 = if (real.isFinite()) externalFlow7981(equitySol - p.eq, real - p.real, upnl - p.upnl) else 0.0
+                        // V5.0.8188 — only money that moved through the wallet rebases the peak (PeakLedger8188).
+                        val flow = PeakLedger8188.corroborate8188(residual8188, liq8188 - p.liq, prin8188 - p.prin, peak7948.peakSol, nowMs) { isExternal7981(it, equitySol) }
                         if (isExternal7981(flow, equitySol)) {
+                            val before8188 = peak7948
                             peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)
+                            PeakLedger8188.noteRebase8188(before8188, peak7948, residual8188, flow, liq8188 - p.liq, nowMs)
                             externalFlows7981.incrementAndGet()
                             netExternal7981 += flow
                             noteExternalFlow8136(flow, nowMs)
@@ -163,23 +173,27 @@ object CapitalDrawdown7948 {
                 }
             } else if (prevEq7981.isFinite() && real.isFinite() && prevReal7981.isFinite() && rev == prevRev7986) {
                 val flow = externalFlow7981(equitySol - prevEq7981, real - prevReal7981, upnl - prevUpnl7981)
-                if (isExternal7981(flow, equitySol)) pending7986 = Pending7986(prevEq7981, prevReal7981, prevUpnl7981, rev, nowMs)
+                if (isExternal7981(flow, equitySol)) pending7986 = Pending7986(prevEq7981, prevReal7981, prevUpnl7981, rev, nowMs, prevLiq8188, prevPrin8188)
             }
             prevEq7981 = equitySol; prevReal7981 = real; prevUpnl7981 = upnl; prevRev7986 = rev
+            prevLiq8188 = liq8188; prevPrin8188 = prin8188
         }
         // V5.0.7990 — a new high must hold for two observations: one inflated mark set a 24 h peak of
         // 0.6266 against 0.28 equity (5.0.7989, "54.5%" drawdown shrinking every size).
         // V5.0.8130 — the 24 h peak is set from equity without unrealized GAINS: 8127's peak24h=1.0777 against
         // ~0.40 real equity came from SAC's phantom +1988% mark (DD 64%, every size cut). A sold gain is liquid SOL.
         val upnl8130 = try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
-        val confirmed7990 = peakCandidate7990(gainFreeEquity8130(equitySol, upnl8130), prevPeakObs7990)
+        // V5.0.8188 — and only from verified live components (no paper; no principal the wallet tracker has never seen).
+        val confirmed7990 = PeakLedger8188.verifiedPeakCandidate8188(peakCandidate7990(gainFreeEquity8130(equitySol, upnl8130), prevPeakObs7990))
         if (equitySol.isFinite() && equitySol > 0.0) prevPeakObs7990 = equitySol
         // V5.0.8169 — while an unexplained equity change is pending (a deposit, or a sell's SOL credited before its
         // position closed — 5.0.8168 tradeLagCancelled7986=2 beside a 0.4541 peak no report before it had seen) the
         // peak does not rise; the change either confirms as an external flow (peak rebased) or resolves as a trade.
         val frozen8169 = pending7986 != null
         if (frozen8169 && confirmed7990.isFinite() && confirmed7990 > peak7948.peakSol) peakFrozen8169.incrementAndGet()
+        val beforeRoll8188 = peak7948
         peak7948 = rollPeak7948(peak7948, com.lifecyclebot.engine.CostLanding8169.peakCandidate8169(confirmed7990, frozen8169), nowMs)
+        PeakLedger8188.noteMove8188(beforeRoll8188, peak7948, nowMs)  // V5.0.8188 — a new peak is recorded with its components
         // V5.0.8136 — the drawdown is read on the SAME gain-free basis as the peak (CashEquityBook8136): an unsold gain
         // can no longer mask a real drawdown (and waive its shrink), and a one-read crash mark cannot invent one.
         drawdownPct7948(peak7948, observedDrawdownEquity8136(equitySol, upnl8130), nowMs)
@@ -222,6 +236,11 @@ object CapitalDrawdown7948 {
     )
 
     @Volatile private var prevPeakObs7990 = Double.NaN
+    @Volatile private var prevLiq8188 = Double.NaN
+    @Volatile private var prevPrin8188 = Double.NaN
+
+    /** V5.0.8188 — liquid live SOL at this observation (the wallet leg a deposit / withdrawal must show up in). */
+    private fun liquidNow8188(): Double = try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { Double.NaN }
     private val peakFrozen8169 = java.util.concurrent.atomic.AtomicLong(0)
 
     /** Pure (V5.0.8130): marked equity less any unrealized gain (losses stay in). */
@@ -249,7 +268,8 @@ object CapitalDrawdown7948 {
         return "liveDD=${"%.1f".format(peekPct7948(equitySol, nowMs))}% equity=${"%.4f".format(equitySol)} " +
             "peak24h=${"%.4f".format(p.peakSol)} peakAgeMin8169=${if (p.atMs > 0L) ((nowMs - p.atMs) / 60_000L).toString() else "-"} " +
             "peakRiseFrozen8169=${peakFrozen8169.get()} pendingFlow8169=${pending7986 != null} externalFlows7981=${externalFlows7981.get()} tradeLagCancelled7986=${cancelled7986.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]" +
-            " ${try { CashEquityBook8136.line8136(cashEquity8136(com.lifecyclebot.engine.BotService.status.walletSol, nowMs)) } catch (_: Throwable) { "equity8136=-" }}"
+            " ${try { CashEquityBook8136.line8136(cashEquity8136(com.lifecyclebot.engine.BotService.status.walletSol, nowMs)) } catch (_: Throwable) { "equity8136=-" }}" +
+            " ${try { PeakLedger8188.line8188(peak7948, nowMs) } catch (_: Throwable) { "peakEvent8188=-" }}"
     }
 
     // ── pure: routable capacity sentence ────────────────────────────────────

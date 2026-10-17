@@ -521,7 +521,10 @@ class SmartSizerV3(
         // If the risk-sized proposal is below that floor, do not inflate it.
         // V5.0.8180 — a candidate CandidateAdmission8136 admitted on a specific proven edge has justified the routable
         // notional: it is promoted to the floor when the floor fits the concentration cap (LiveRiskPolicy7807 re-proves).
-        val admitted8180 = isLive && com.lifecyclebot.engine.truth.AdmissionEdge8180.admitted8180(candidate.mint)
+        // V5.0.8188 — and only when the promotion holds AT the floor (MinPromotion8188: loss budget, edge after cost, drawdown).
+        val admitted8180 = isLive && com.lifecyclebot.engine.truth.AdmissionEdge8180.admitted8180(candidate.mint) &&
+            (cappedSize >= liveFloorEff7697 || com.lifecyclebot.engine.truth.MinPromotion8188.runtimeRefusal8188(
+                candidate.mint, candidate.extraString("lane"), cappedSize, liveFloorEff7697, candidate.liquidityUsd) == null)
         val promoted8180 = com.lifecyclebot.engine.truth.AdmissionEdge8180.promote8180(admitted8180, cappedSize, liveFloorEff7697, minOf(safeShareCap7142, tradeable))
         val effectiveSize = if (promoted8180 > cappedSize) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_ADMITTED_EDGE_PROMOTED_8180") } catch (_: Throwable) {}

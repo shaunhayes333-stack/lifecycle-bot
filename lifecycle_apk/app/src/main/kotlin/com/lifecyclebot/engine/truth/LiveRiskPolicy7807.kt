@@ -210,8 +210,62 @@ object LiveRiskPolicy7807 {
                 .filter { LiveEdgeGate7877.cellProven8060(it.n60, it.meanNet60Pct, it.stderr60Pct) }
                 .maxOfOrNull { kellyFrac8057(it.meanNet60Pct, it.stderr60Pct * it.stderr60Pct * it.n60, it.n60.toDouble()) } ?: 0.0
         } catch (_: Throwable) { 0.0 }
-        maxOf(setupFrac, cellFrac, kindFrac)
+        // V5.0.8188 — forward setup / cell / kind labels alone never raise size: the share is capped by an independent proof's
+        // own Kelly stake (outlier-capped realised whole-position closes, or walk-forward out-of-sample); labels may only lower it.
+        validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l))
     } catch (_: Throwable) { 0.0 }
+
+    // ── V5.0.8188 — an edge-based size-up needs validated after-cost evidence (the Cortex's 8187 rule) ──
+    //
+    // 5.0.8186: SHITCOIN|LAUNCH_LADDER_PROVEN forward record n578 +103.1% sized up while the same setup's live realised
+    // closes were n2 -47.9% and the lane's walk-forward read IN_SAMPLE_ONLY. A forward label is not an executable outcome
+    // (entry chase, costs, exit policy), so it may shrink a size but never grow one by itself.
+
+    /**
+     * Pure: the quarter-Kelly stake of a VALIDATED walk-forward out-of-sample record (CortexWalkForward8144), its mean read
+     * at most at RobustLabelRead8185's plausibility cap; 0 for any other verdict (IN_SAMPLE_ONLY, NO_EDGE, ...).
+     */
+    fun walkForwardKellyFrac8188(r: com.lifecyclebot.engine.cortex.CortexWalkForward8144.Result8144?): Double {
+        if (r == null || !r.validated || r.oos.n < 2 || !r.oos.se.isFinite() || !r.oos.mean.isFinite()) return 0.0
+        return kellyFrac8057(minOf(r.oos.mean, RobustLabelRead8185.CAP_LABEL_PCT_8185), r.oos.se * r.oos.se * r.oos.n, r.oos.n.toDouble())
+    }
+
+    /** The lane's walk-forward proof stake from the Cortex (0 on a fault: no proof). */
+    private fun laneWalkForwardKellyFrac8188(lane: String): Double =
+        try { walkForwardKellyFrac8188(com.lifecyclebot.engine.cortex.Cortex7885.walkForwardResult8188(lane)) } catch (_: Throwable) { 0.0 }
+
+    /** Pure: the forward-label share [labelFrac] capped by the larger independent proof's own Kelly stake (0 without one). */
+    fun validatedKellyFrac8188(labelFrac: Double, realisedProofFrac: Double, walkForwardProofFrac: Double): Double {
+        if (!labelFrac.isFinite() || labelFrac <= 0.0) return 0.0
+        val proof = maxOf(if (realisedProofFrac.isFinite()) realisedProofFrac else 0.0, if (walkForwardProofFrac.isFinite()) walkForwardProofFrac else 0.0)
+        return minOf(labelFrac, proof).coerceAtLeast(0.0)
+    }
+
+    /**
+     * Pure: the quarter-Kelly stake of realised whole-position closes ([returnsPct] net %, [netSol]), every close read
+     * through RobustLabelRead8185's plausibility cap; 0 unless the record is mature (LiveSizingTruth8136.edgeMature8136).
+     */
+    fun realisedProofKellyFrac8188(returnsPct: List<Double>, netSol: List<Double>): Double {
+        val capped = returnsPct.filter { it.isFinite() }.map { it.coerceIn(-100.0, RobustLabelRead8185.CAP_LABEL_PCT_8185) }
+        val m = LiveSizingTruth8136.maturityOf8136(capped, netSol)
+        if (!LiveSizingTruth8136.edgeMature8136(m)) return 0.0
+        return kellyFrac8057(m.realisedMeanPct, m.realisedSePct * m.realisedSePct * m.realisedN, m.realisedN.toDouble())
+    }
+
+    private val realisedProof8188 = ConcurrentHashMap<String, Pair<Long, Double>>()
+
+    /** The lane's clean live whole-position closes on the canonical bus as a Kelly stake (cached 20 s; 0 on a fault). */
+    private fun laneRealisedProofFrac8188(lane: String, nowMs: Long): Double {
+        val key = canonicalLane(lane)
+        realisedProof8188[key]?.let { (at, v) -> if (nowMs - at in 0L..20_000L) return v }
+        val v = try {
+            val envs = CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("live").filter { it.learningEligible && canonicalLane(it.lane) == key }
+            realisedProofKellyFrac8188(envs.map { it.realizedReturnPct }, envs.map { it.realizedPnlSol })
+        } catch (_: Throwable) { 0.0 }
+        if (realisedProof8188.size > 64) realisedProof8188.clear()
+        realisedProof8188[key] = nowMs to v
+        return v
+    }
 
     // ── V5.0.8057 — the daily doubling scoreboard (report only) ──
     @Volatile private var dayKey8057 = ""
@@ -619,6 +673,10 @@ object LiveRiskPolicy7807 {
                 if (envelopeRefusal8153 != null) {
                     return Decision(false, 0.0, envelopeRefusal8153, labels, stop, minCost7840, total, sizing8094)
                 }
+                // V5.0.8188 — re-evaluated AT the promoted notional: the ORIGINAL loss budget (risk size x stop + its round trip,
+                // +10% at most), a measured positive edge after the round trip at the minimum, and no defensive drawdown.
+                MinPromotion8188.refusal8188(size, i.execMinSol, stop, if (size > 0.0) costAtSizePct8153(i, size) else Double.NaN,
+                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
                 fixedCostRefusal8169(i, i.execMinSol)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 return Decision(true, i.execMinSol, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", labels, stop, minCost7840, total, sizing8094, firstTarget)
@@ -860,6 +918,10 @@ object LiveRiskPolicy7807 {
         if (net == null || !net.isFinite()) Double.NaN
         else net + (rec?.labelCostPct ?: CostLedger7962.labelChargedCostPct8153(l))
     } catch (_: Throwable) { Double.NaN }
+
+    /** V5.0.8188 — the selected setup's expected gross (%) for a route-minimum promotion test outside decide (MinPromotion8188). */
+    fun setupExpectedGrossForPromotion8188(ts: com.lifecyclebot.data.TokenState, lane: String): Double =
+        try { setupExpectedGrossPct8153(ts, lane, edgeRecordFor8153(ts, lane)) } catch (_: Throwable) { Double.NaN }
 
     /** V5.0.8153 — principal deployed in [lane]'s open live positions (the rows that take a lane slot). NaN on a fault. */
     fun laneDeployedSol8153(lane: String): Double = try {

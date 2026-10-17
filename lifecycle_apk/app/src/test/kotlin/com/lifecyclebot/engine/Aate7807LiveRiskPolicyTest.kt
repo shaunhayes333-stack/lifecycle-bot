@@ -117,16 +117,20 @@ class Aate7807LiveRiskPolicyTest {
         assertFalse(tooWide.open)
         assertEquals("RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", tooWide.reason)
         val atMin = LiveRiskPolicy7807.decide(inputs(equity = 0.15, upstream = 0.027, execMin = 0.025, stop = 8.0, first = 30.0))
-        assertTrue(atMin.open)
-        assertEquals(0.025, atMin.sizeSol, 1e-9)
+        // superseded by V5.0.8188 — the risk size here is ~0.02150 SOL; promoted to 0.025 its loss at the stop (0.00291 SOL)
+        // exceeds the original budget (0.00256 SOL) by 13.7% > 10%, so the minimum is refused, not sent (MinPromotion8188).
+        assertFalse(atMin.open)
+        assertEquals(com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188, atMin.reason)
         val safeRouteFloor = LiveRiskPolicy7807.decide(inputs(
             lane = "MOONSHOT", equity = 0.2113, upstream = 0.02274,
             execMin = 0.0414, stop = 8.0, first = 30.0, target = 40.0, liq = 100_000.0,
         ))
-        assertTrue(safeRouteFloor.reason, safeRouteFloor.open)
-        assertEquals("OPEN_RISK_SAFE_MIN_PROMOTED_7840", safeRouteFloor.reason)
-        assertEquals(0.0414, safeRouteFloor.sizeSol, 1e-9)
-        assertTrue("RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840" in safeRouteFloor.labels)
+        // superseded by V5.0.8188 — risk-safe and affordable is not enough: 0.02274 -> 0.0414 SOL (+82%) loses 0.0046 SOL at
+        // the stop against a 0.0027 SOL budget, so it is refused by name (MinPromotion8188).
+        assertFalse(safeRouteFloor.open)
+        assertEquals(com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188, safeRouteFloor.reason)
+        assertEquals(0.0, safeRouteFloor.sizeSol, 0.0)
+        assertFalse("RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840" in safeRouteFloor.labels)
         val big = LiveRiskPolicy7807.decide(inputs(equity = 10.0, upstream = 0.05, n = 40, mean = 40.0, net = 2.0, wr = 60.0))
         assertTrue(big.open && big.sizeSol <= 0.05 + 1e-12)
         val dd = LiveRiskPolicy7807.decide(inputs(equity = 1.0, upstream = 1.0, dd = 0.30))
@@ -166,9 +170,10 @@ class Aate7807LiveRiskPolicyTest {
             laneMinExecutableSol = 0.04137,
             mint = "",
         )
-        assertTrue(r.trace(), r.executable)
-        assertEquals("OK_LIVE_ROUTABLE_MIN_PROMOTED_7841", r.reason)
-        assertTrue(r.finalSizeSol >= 0.04137 - 1e-9)
+        // superseded by V5.0.8188 — 0.02284 -> 0.04137 SOL (+81%) breaks the original loss budget at the stop: refused by name.
+        assertFalse(r.trace(), r.executable)
+        assertEquals(com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188, r.reason)
+        assertEquals(0.0, r.finalSizeSol, 0.0)
     }
 
     @Test

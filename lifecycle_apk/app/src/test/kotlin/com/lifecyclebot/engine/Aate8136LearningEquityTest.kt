@@ -145,9 +145,11 @@ class Aate8136LearningEquityTest {
         assertEquals("COMPOUNDING_CEILING", b(proven(ceiling = 0.035)))
         assertTrue(b(proven()).startsWith("KELLY:"))
         // Drawdown-damped immature Kelly under the minimum, promoted to it.
-        assertEquals("ROUTE_MIN_PROMOTED_KELLY_BELOW_MIN", b(proven(dd = 0.259,
+        // superseded by V5.0.8188 — the drawdown-damped Kelly size (~0.0200) promoted to 0.02892 (+45%) and the 7840 shape
+        // (0.02274 -> 0.0414) both break their original loss budget at the stop: refused, named (MinPromotion8188).
+        assertEquals("REFUSED:" + com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188, b(proven(dd = 0.259,
             maturity = LiveSizingTruth8136.EdgeMaturity8136(4, 30.0, 10.0, 0.05))))
-        assertEquals("ROUTE_MIN_PROMOTED", b(inputs(lane = "MOONSHOT", equity = 0.2113, upstream = 0.02274,
+        assertEquals("REFUSED:" + com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188, b(inputs(lane = "MOONSHOT", equity = 0.2113, upstream = 0.02274,
             execMin = 0.0414, stop = 8.0, first = 30.0, target = 40.0, liq = 100_000.0)))
         assertEquals("UPSTREAM_PROPOSAL", b(inputs(equity = 10.0, upstream = 0.05)))
         assertEquals("REFUSED:LANE_SLOT_CAP_7807", b(inputs(open = LiveRiskPolicy7807.LANE_SLOTS_8098)))

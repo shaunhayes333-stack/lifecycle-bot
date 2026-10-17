@@ -274,6 +274,9 @@ object AntiRewardHackingGuard6439 {
 
     fun currentHigh(): Double = highSol.get()
 
+    /** V5.0.8188 — when the rolling high was set (PeakLedger8188 persists it as a witness for the drawdown peak). */
+    fun currentHighAtMs8188(): Long = highAtMs.get()
+
     /**
      * V5.0.8136 — a confirmed deposit / withdrawal (CapitalDrawdown7948's external-flow rule) moves the rolling high
      * by the same amount: a withdrawal is not a drawdown that vetoes every learner, and a deposit does not let one

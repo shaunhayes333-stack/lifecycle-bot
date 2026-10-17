@@ -6,6 +6,7 @@ import com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
 import com.lifecyclebot.engine.truth.OrderSizeResolver6441
 import com.lifecyclebot.engine.truth.PriceUsd
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -43,11 +44,11 @@ class Aate6600SpecialistAuthorityRestorationTest {
             requestedSol = 0.00154, laneName = "EXPRESS", walletSol = 1.0,
             paperMode = false, laneRiskCapSol = 0.50, laneMinExecutableSol = 0.05,
         )
-        assertTrue(r.executable)
-        assertEquals(0.05, r.finalSizeSol, 1e-9)
-        // V5.0.7840/7841 — a live sub-routable request promoted to the minimum
-        // carries the live-route-floor reason.
-        assertEquals("OK_LIVE_ROUTABLE_MIN_PROMOTED_7841", r.reason)
+        // superseded by V5.0.8188 — 0.00154 -> 0.05 SOL is a 32x size-up of the intended loss: a live promotion must hold
+        // the original loss budget at the stop (MinPromotion8188), so it is refused by name.
+        assertFalse(r.executable)
+        assertEquals(0.0, r.finalSizeSol, 0.0)
+        assertEquals(com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188, r.reason)
     }
 
     @Test fun canonical_position_heals_projection_and_legacy_history_cannot_veto_sell() {
