@@ -54,9 +54,10 @@ object LaunchCohort8173 {
     data class CurveRead8173(val realSol: Double, val source: CurveSource8173)
 
     /** Price-implied reserves rank discoveries; only recent observed reserves prove depth at entry. */
-    fun executableReserve8174(read: CurveRead8173?, ageMs: Long): Double? =
-        read?.realSol?.takeIf { read.source == CurveSource8173.RESERVES &&
-            ageMs in 0L..CURVE_STALE_MS_8173 && it.isFinite() && it >= 0.0 }
+    fun executableReserve8174(read: CurveRead8173?, ageMs: Long): Double? {
+        if (read == null || read.source != CurveSource8173.RESERVES || ageMs !in 0L..CURVE_STALE_MS_8173) return null
+        return read.realSol.takeIf { it.isFinite() && it >= 0.0 }
+    }
 
     fun reserveFresh8174(observedAtMs: Long?, nowMs: Long): Boolean =
         observedAtMs != null && nowMs - observedAtMs in 0L..CURVE_STALE_MS_8173
