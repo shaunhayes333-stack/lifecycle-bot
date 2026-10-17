@@ -12,6 +12,7 @@ import org.junit.Test
 
 class Repair6514PaperExecutionRestoreTest {
     @Before fun reset() {
+        RuntimeModeAuthority.publishRuntimeStart(paperMode = true, autoTrade = false) // V5.0.8184 — paper opens need PAPER authority (LiveNoPaper8184)
         CanonicalPositionAuthority6441.resetForTest()
         PaperAccountLedger6430.resetForTest()
         PaperAccountLedger6430.initialize(1.0)

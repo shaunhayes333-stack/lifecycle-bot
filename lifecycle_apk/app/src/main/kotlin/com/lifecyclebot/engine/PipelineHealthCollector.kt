@@ -1422,6 +1422,8 @@ object PipelineHealthCollector {
             sb.append("  Exit hot path (§7809):        ")
                 .append(com.lifecyclebot.engine.sell.ExitHotPath7809.statusLine())
                 .append("\n")
+            // V5.0.8184 — paper refused while LIVE, by source; frozen / quietly closed paper positions.
+            sb.append("  Live no-paper (§8184):        ").append(LiveNoPaper8184.statusLine8184()).append("\n")
             val unprotected7213 = drainedOpen7213 + q7809.fundedOutsideExitScope
             if (unprotected7213 > 0) {
                 labelInc("PROTECTIVE_EXIT_HOLDINGS_OUTSIDE_EXIT_SCOPE_7213")

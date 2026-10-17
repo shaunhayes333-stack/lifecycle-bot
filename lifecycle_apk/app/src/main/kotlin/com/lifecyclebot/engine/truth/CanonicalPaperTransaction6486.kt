@@ -512,6 +512,8 @@ object CanonicalPaperTransaction6486 {
         // V5.0.7388 — the pre-loop journal reconcile now runs in the background; no
         // paper OPEN before its first attempt (exits are not gated). This is the same
         // guarantee the inline call gave, without holding up the first cycle.
+        // V5.0.8184 — no paper position is opened while the runtime is LIVE.
+        if (!com.lifecyclebot.engine.LiveNoPaper8184.paperEntryAllowed8184("CANONICAL_PAPER_OPEN:$source")) return@withLock Result(false, positionId, "LIVE_NO_PAPER_8184")
         if (!firstReconcileAttempted7388) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_OPEN_DEFERRED_PRELOOP_RECONCILE_7388") } catch (_: Throwable) {}
             return@withLock Result(false, positionId, "PAPER_PRELOOP_RECONCILE_PENDING_7388")
@@ -698,6 +700,8 @@ object CanonicalPaperTransaction6486 {
             addedFeeSol: Double = 0.0, addedQtyRaw: BigInteger = syntheticUnit,
             addedEntryPriceUsd: Double = 0.0,
             quantityScale: Int = 9): Result = lock.withLock {
+        // V5.0.8184 — no paper add (debit) while the runtime is LIVE.
+        if (!com.lifecyclebot.engine.LiveNoPaper8184.paperEntryAllowed8184("CANONICAL_PAPER_ADD")) return@withLock Result(false, positionId, "LIVE_NO_PAPER_8184")
         val pos = CanonicalPositionAuthority6441.getPosition(positionId)
             ?: return@withLock Result(false, positionId, "UNKNOWN_POSITION")
         if (!addedCostSol.isFinite() || addedCostSol <= 0.0 || addedQtyRaw <= BigInteger.ZERO)

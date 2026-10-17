@@ -29,6 +29,7 @@ class Aate7809AcceptanceLoopTest {
     )
 
     @Test fun rejected_paper_open_after_dispatch_is_terminally_failed() {
+        RuntimeModeAuthority.publishRuntimeStart(paperMode = true, autoTrade = false) // V5.0.8184 — paper opens need PAPER authority (LiveNoPaper8184)
         FillLotLedger6504.setTestMemoryMode6641(true)
         CanonicalEntryAuthority6540.clearAllForTest()
         CanonicalPositionAuthority6441.resetForTest()

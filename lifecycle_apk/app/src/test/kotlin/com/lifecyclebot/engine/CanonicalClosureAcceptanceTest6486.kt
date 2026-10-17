@@ -17,6 +17,7 @@ import kotlin.math.abs
 /** V5.0.6486 funded transaction + conservation acceptance contracts. */
 class CanonicalClosureAcceptanceTest6486 {
     private fun reset(starting: Double) {
+        RuntimeModeAuthority.publishRuntimeStart(paperMode = true, autoTrade = false) // V5.0.8184 — paper opens need PAPER authority (LiveNoPaper8184)
         com.lifecyclebot.engine.truth.FillLotLedger6504.setTestMemoryMode6641(true)
         PaperAccountLedger6430.resetForTest()
         CanonicalPositionAuthority6441.resetForTest()

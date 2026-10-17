@@ -23,6 +23,7 @@ object LlmLabTrader {
 
     @Synchronized
     fun openPaper(strategy: LabStrategy, tick: LlmLabEngine.LabUniverseTick, sizeSol: Double) {
+        if (!com.lifecyclebot.engine.LiveNoPaper8184.paperEntryAllowed8184("LLM_LAB_PAPER_OPEN")) return // V5.0.8184
         if (sizeSol <= 0.0) return
         val existingMint6490 = LlmLabStore.allPositions().firstOrNull { it.mint == tick.mint }
         if (existingMint6490 != null) {
@@ -86,6 +87,7 @@ object LlmLabTrader {
     }
 
     fun checkExit(pos: LabPosition, currentPrice: Double) {
+        if (!com.lifecyclebot.engine.LiveNoPaper8184.paperManageAllowed8184("LLM_LAB")) return // V5.0.8184 — frozen while LIVE
         if (currentPrice <= 0) return
         if (pos.entryPrice <= 0.0) {
             // V5.9.733 — entryPrice corruption guard. Cannot compute pnl

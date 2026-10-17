@@ -32,6 +32,7 @@ object ExecutionRouteGuard {
                 // which stores ShadowPosition only and never journals normal paper trades.
                 // Therefore paperBuy() is blocked in LIVE even when shadowPaperEnabled=true.
                 paperBlockedInLive.incrementAndGet()
+                LiveNoPaper8184.paperEntryAllowed8184("MEME_EXECUTOR_PAPER_BUY") // V5.0.8184 — counted refusal (already blocked here)
                 Verdict(false, Route.PAPER, if (shadowEnabled) "PAPER_ROUTE_BLOCKED_IN_LIVE_USE_SHADOW_PATH" else "PAPER_ROUTE_BLOCKED_IN_LIVE")
             }
             else -> {

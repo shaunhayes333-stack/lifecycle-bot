@@ -695,6 +695,7 @@ object MultiChainMemeLane7962 {
     }
 
     private fun openPaper(c: Candidate7962, cs: ChainState, lane: String, gasPct: Double, now: Long, setup: String) {
+        if (!com.lifecyclebot.engine.LiveNoPaper8184.paperEntryAllowed8184("MULTICHAIN_PAPER_OPEN_7962")) return // V5.0.8184 — the label above is kept
         val cost = (if (gasPct.isFinite()) gasPct else 0.0) + 2.0
         val p = Pos("P7962_${c.chain}_${c.token.takeLast(8)}_$now", c.chain, c.token, c.symbol, c.pairAddress, lane,
             live = false, openedAtMs = now, state = "OPEN", entryPriceUsd = c.priceUsd, ticketUsd = ticketUsd(cs), costPct = cost)
@@ -777,6 +778,7 @@ object MultiChainMemeLane7962 {
             }
             val chain = EvmSwapExecutor7962.chainFor7962(p.chain) ?: continue
             val cs = stateOf(p.chain)
+            if (closePaperInLive8184(p, now)) continue
             if (p.state == "PENDING_BUY" && now - p.openedAtMs > 30L * 60_000L) {
                 // Never settled in 30 minutes: surfaced (wallet check), not silently dropped.
                 p.state = "CLOSED"; p.closedAtMs = now; p.closeReason = "BUY_UNSETTLED_CHECK_WALLET_7962"
@@ -818,6 +820,14 @@ object MultiChainMemeLane7962 {
                 runSell(ctx, chain, p, cs)
             }
         }
+    }
+
+    /** V5.0.8184 — a paper position in a LIVE runtime closes quietly: unbooked, no chain action, no live ledger. */
+    private fun closePaperInLive8184(p: Pos, now: Long): Boolean {
+        if (p.live || com.lifecyclebot.engine.LiveNoPaper8184.paperManageAllowed8184("MULTICHAIN_7962")) return false
+        close(p, "LIVE_NO_PAPER_8184", Double.NaN, now)
+        com.lifecyclebot.engine.LiveNoPaper8184.noteQuietClose8184("MULTICHAIN_7962_${p.chain.uppercase()}")
+        return true
     }
 
     private suspend fun runSell(ctx: Context, chain: EvmSwapExecutor7962.Chain7962, p: Pos, cs: ChainState) {

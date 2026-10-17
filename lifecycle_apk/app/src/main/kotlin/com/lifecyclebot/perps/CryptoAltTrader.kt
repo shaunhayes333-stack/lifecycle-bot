@@ -5675,6 +5675,7 @@ object CryptoAltTrader {
     }
 
     fun llmOpenPaperBuy(symbol: String, sizeSol: Double, reason: String): LlmTradeResult {
+        if (!com.lifecyclebot.engine.LiveNoPaper8184.paperEntryAllowed8184("CRYPTO_LLM_PAPER_BUY")) return LlmTradeResult.Rejected("V5.0.8184 LIVE_NO_PAPER_8184: no paper trade while live")
         if (!isPaperMode.get()) return LlmTradeResult.Rejected("HARD RULE V5.9.187: LLM cannot spend real money. Paper mode only.")
         val ticker = symbol.trim().uppercase()
         val market = try { PerpsMarket.valueOf(ticker) } catch (_: Exception) {

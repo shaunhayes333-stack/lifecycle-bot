@@ -9,6 +9,7 @@ import org.junit.Test
 
 class CanonicalEntryAuthority6551Test {
     @Before fun reset() {
+        RuntimeModeAuthority.publishRuntimeStart(paperMode = true, autoTrade = false) // V5.0.8184 — paper opens need PAPER authority (LiveNoPaper8184)
         FillLotLedger6504.setTestMemoryMode6641(true)
         CanonicalEntryAuthority6540.clearAllForTest()
         CanonicalPositionAuthority6441.resetForTest()

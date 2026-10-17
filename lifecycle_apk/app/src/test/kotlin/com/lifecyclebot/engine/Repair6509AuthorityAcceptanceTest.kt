@@ -15,6 +15,7 @@ import org.junit.Test
 
 class Repair6509AuthorityAcceptanceTest {
     private fun reset(cash: Double = 10.0) {
+        RuntimeModeAuthority.publishRuntimeStart(paperMode = true, autoTrade = false) // V5.0.8184 — paper opens need PAPER authority (LiveNoPaper8184)
         com.lifecyclebot.engine.truth.FillLotLedger6504.setTestMemoryMode6641(true)
         PaperAccountLedger6430.resetForTest(); PaperAccountLedger6430.initialize(cash)
         CanonicalPositionAuthority6441.resetForTest(); CanonicalLotQuantity6464.resetForTest()

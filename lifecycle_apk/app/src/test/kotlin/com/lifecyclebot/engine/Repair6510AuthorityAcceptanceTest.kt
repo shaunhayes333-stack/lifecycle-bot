@@ -9,6 +9,7 @@ import org.junit.Test
 
 class Repair6510AuthorityAcceptanceTest {
     private fun resetPaper() {
+        RuntimeModeAuthority.publishRuntimeStart(paperMode = true, autoTrade = false) // V5.0.8184 — paper opens need PAPER authority (LiveNoPaper8184)
         FillLotLedger6504.setTestMemoryMode6641(true)
         PaperAccountLedger6430.resetForTest(); PaperAccountLedger6430.initialize(10.0)
         CanonicalPositionAuthority6441.resetForTest(); CanonicalLotQuantity6464.resetForTest()
