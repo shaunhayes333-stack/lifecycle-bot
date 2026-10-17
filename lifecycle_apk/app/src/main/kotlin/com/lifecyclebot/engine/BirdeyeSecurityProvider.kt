@@ -168,6 +168,7 @@ object BirdeyeSecurityProvider {
         }
         com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
         val url = "https://public-api.birdeye.so/defi/token_security?address=$mint"
+        try { com.lifecyclebot.engine.DataPipeline8191.noteBirdeye8191(url) } catch (_: Throwable) {}   // V5.0.8191
         val reqBuilder = Request.Builder().url(url)
             .header("x-chain", "solana")
             .header("accept", "application/json")

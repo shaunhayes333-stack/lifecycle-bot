@@ -181,6 +181,51 @@ object PumpFunWS {
     private val unsub7420 = AtomicLong(0L)
 
     private fun tradeStreamKeyed7284(): Boolean = apiKey7284.isNotBlank() && !tradeAuthDenied7432.get()
+
+    // ── V5.0.8191 §THE_EVALUATED_COIN_GETS_THE_TAPE ──
+    //
+    // 5.0.8186: tape8169 held 9,768 prints (PumpPortal 9,263) while the setup features read swaps tape8100:NO_PRINTS
+    // 17,412 times. The keyed trade stream carried fresh creates (15-minute lifecycle) and held mints only; the setup
+    // refresher's "subscribe the tape" went to DataOrchestrator's PumpFunWebSocket, which has been disabled since 4169
+    // (pumpWs is null), so an evaluated coin that was not a fresh create never had a trade stream. A coin whose setup
+    // misses bp / chg / shape / tape now joins the keyed stream for [SETUP_TTL_MS_8191] (bounded, eldest first out); its
+    // executed trades reach TradeTape8100 like any other. Nothing is inferred: a coin nobody trades stays NO_PRINTS.
+    private const val SETUP_MAX_8191 = 64
+    private const val SETUP_TTL_MS_8191 = 10L * 60_000L
+    private val setupMints8191 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val setupRequested8191 = AtomicLong(0L)
+    private val setupSubscribed8191 = AtomicLong(0L)
+    private val setupNoKey8191 = AtomicLong(0L)
+
+    private fun setupWatched8191(mint: String, nowMs: Long): Boolean = (setupMints8191[mint] ?: 0L).let { it > 0L && nowMs - it <= SETUP_TTL_MS_8191 }
+
+    /**
+     * Pure: the setup set after admitting [mint] at [nowMs]: expired entries out, then the eldest while over [cap].
+     * Returns the mints to unsubscribe (never one that [keep] still needs).
+     */
+    fun setupEvictions8191(watched: Map<String, Long>, mint: String, nowMs: Long, cap: Int, ttlMs: Long, keep: (String) -> Boolean): List<String> {
+        val live = watched.filter { nowMs - it.value <= ttlMs && it.key != mint }.entries.sortedBy { it.value }.map { it.key }
+        val expired = watched.keys.filter { it != mint && it !in live }
+        val over = (live.size + 1 - cap).coerceAtLeast(0)
+        return (expired + live.take(over)).filter { !keep(it) }
+    }
+
+    /** DataOrchestrator.refreshMissingInputs8087: put [mint] on the keyed trade stream for a while. True when subscribed now. */
+    fun watchForSetup8191(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!HeliusSolanaScope7819.isSolanaMint7819(mint)) return false
+        setupRequested8191.incrementAndGet()
+        val drop = setupEvictions8191(setupMints8191, mint, nowMs, SETUP_MAX_8191, SETUP_TTL_MS_8191) { m -> lifecycleMints7420.containsKey(m) }
+        for (m in drop) setupMints8191.remove(m)
+        val unsub = drop.filter { tradeSubscriptions7278.remove(it) }
+        if (unsub.isNotEmpty() && tradeStreamKeyed7284()) ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray(unsub)).toString())
+        setupMints8191[mint] = nowMs
+        if (!tradeStreamKeyed7284()) { setupNoKey8191.incrementAndGet(); return false }
+        if (!tradeSubscriptions7278.add(mint)) return false
+        val sent = ws?.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray().put(mint)).toString()) == true
+        if (sent) setupSubscribed8191.incrementAndGet()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (sent) "PUMP_TRADE_SETUP_SUBSCRIBED_8191" else "PUMP_TRADE_SETUP_QUEUED_NO_SOCKET_8191") } catch (_: Throwable) {}
+        return sent
+    }
     fun lifecycleStreamCapable7420(): Boolean = tokenTradeStreamActive7432()
     fun lifecycleSubscribedMints7420(): Int = lifecycleMints7420.size
     fun lifecycleEvents7420(): Long = eventBuy7420.get() + eventSell7420.get()
@@ -220,6 +265,7 @@ object PumpFunWS {
             "TOKEN_TRADE_STREAM_AVAILABLE=${tokenTradeStreamActive7432()} ACCOUNT_TRADE_STREAM_AVAILABLE=false " +
             "PUMP_TOKEN_TRADE_FALLBACK_ACTIVE=${tradeAuthDenied7432.get() && rpcFallbackObserved7432.get()} " +
             "tradeSubscribedMints=${tradeSubscriptions7278.size} lifecycleMints=${lifecycleMints7420.size} " +
+            "setup8191[watched=${setupMints8191.size} requested=${setupRequested8191.get()} subscribed=${setupSubscribed8191.get()} noKey=${setupNoKey8191.get()}] " +
             "unsupportedDemand7485=${unsupportedTradeDemand7485.size} coalescedDemand7485=${unsupportedTradeDemandCoalesced7485.get()} " +
             "subscriptionFailures=${subFail7420.get()} subscribeSkippedNoKey=${tradeSubscribeSkippedNoKey7284.get()} " +
             "untypedFrames=${untypedFrames7280.get()} " +
@@ -336,8 +382,10 @@ object PumpFunWS {
         val expired = lifecycleMints7420.entries.filter { now - it.value > LIFECYCLE_TTL_MS_7420 }.map { it.key }
         if (expired.isNotEmpty()) {
             lifecycleMints7420.keys.removeAll(expired.toSet())
-            tradeSubscriptions7278.removeAll(expired.toSet())
-            if (tradeStreamKeyed7284()) ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray(expired)).toString())
+            // V5.0.8191 — a launch that is now a setup candidate keeps its trade stream past the lifecycle TTL.
+            val unsub8191 = expired.filter { !setupWatched8191(it, now) }
+            tradeSubscriptions7278.removeAll(unsub8191.toSet())
+            if (tradeStreamKeyed7284() && unsub8191.isNotEmpty()) ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray(unsub8191)).toString())
             unsub7420.addAndGet(expired.size.toLong())
             try { repeat(expired.size) { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_UNSUBSCRIBED") } } catch (_: Throwable) {}
         }
@@ -411,7 +459,7 @@ object PumpFunWS {
         // to drop them on the next tick of the open-position loop (it passes held
         // curve mints only), which is why 5.0.7741 showed tradeSubscribedMints=3
         // against lifecycleMints=96 and every launch tape was empty.
-        val drop = tradeSubscriptions7278 - wanted - lifecycleMints7420.keys
+        val drop = tradeSubscriptions7278 - wanted - lifecycleMints7420.keys - setupMints8191.keys   // V5.0.8191 — setup candidates keep theirs
         if (add.isEmpty() && drop.isEmpty()) return
         val sock = ws
         if (add.isNotEmpty()) {

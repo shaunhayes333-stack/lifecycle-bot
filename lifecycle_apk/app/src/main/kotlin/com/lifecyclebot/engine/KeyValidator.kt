@@ -99,7 +99,7 @@ object KeyValidator {
             markDead("birdeye", 0, "blank key — no probe", "BIRDEYE_KEY_MISSING")
         }
         if (!heliusKey.isNullOrBlank()) {
-            Thread({ probeHeliusRpc(heliusKey, walletAddress.orEmpty()) }, "KeyValidator-HeliusProbe").apply { isDaemon = true }.start()
+            Thread({ probeHeliusPaced8191(heliusKey, walletAddress.orEmpty()) }, "KeyValidator-HeliusProbe").apply { isDaemon = true }.start()
         } else {
             markDead("helius", 0, "blank key — no probe", "HELIUS_KEY_MISSING")
         }
@@ -190,17 +190,32 @@ object KeyValidator {
             .build()
         fun rpc(method: String, params: JSONArray = JSONArray()): Pair<Int, JSONObject?> {
             val payload = JSONObject().put("jsonrpc", "2.0").put("id", method).put("method", method).put("params", params)
-            val req = Request.Builder().url(url).post(payload.toString().toRequestBody(jsonMedia)).build()
-            client.newCall(req).execute().use { resp ->
-                val body = resp.body?.string().orEmpty()
-                if (resp.code == 401) { markDead(service, 401, body.take(120), "HELIUS_AUTH_FAILED_401"); return resp.code to null }
-                if (resp.code == 403) { markDead(service, 403, body.take(120), "HELIUS_FORBIDDEN_403"); return resp.code to null }
-                if (resp.code == 429) { markDead(service, 429, body.take(120), "HELIUS_RATE_LIMIT_429"); return resp.code to null }
-                if (!resp.isSuccessful) { markDead(service, resp.code, body.take(120), "HELIUS_RPC_ERROR"); return resp.code to null }
-                val json = try { JSONObject(body) } catch (_: Throwable) { JSONObject() }
-                if (json.has("error")) { markDead(service, resp.code, json.opt("error").toString().take(160), "HELIUS_RPC_ERROR"); return resp.code to json }
-                return resp.code to json
+            var attempt8191 = 0
+            while (attempt8191 < HELIUS_PROBE_ATTEMPTS_8191) {
+                attempt8191++
+                val req = Request.Builder().url(url).post(payload.toString().toRequestBody(jsonMedia)).build()
+                var waitMs8191 = -1L
+                client.newCall(req).execute().use { resp ->
+                    val body = resp.body?.string().orEmpty()
+                    if (resp.code == 401) { markDead(service, 401, body.take(120), "HELIUS_AUTH_FAILED_401"); return resp.code to null }
+                    if (resp.code == 403) { markDead(service, 403, body.take(120), "HELIUS_FORBIDDEN_403"); return resp.code to null }
+                    // V5.0.8191 — a 429 (the key's per-second rate) or this app's own local refusal is not a verdict on the key:
+                    // wait (Retry-After) and ask again; still refused -> the key is recorded rate-limited, never invalid.
+                    val synthetic8191 = com.lifecyclebot.network.HostCircuitInterceptor.isSyntheticBlock(resp)
+                    if (resp.code == 429 || synthetic8191) {
+                        waitMs8191 = heliusProbeRetryMs8191(resp.code, synthetic8191, resp.message, resp.header("Retry-After"), attempt8191)
+                        if (waitMs8191 < 0L) { noteHeliusRateLimited8191(resp.code, if (synthetic8191) resp.message else body); return resp.code to null }
+                    } else {
+                        if (!resp.isSuccessful) { markDead(service, resp.code, body.take(120), "HELIUS_RPC_ERROR"); return resp.code to null }
+                        val json = try { JSONObject(body) } catch (_: Throwable) { JSONObject() }
+                        if (json.has("error")) { markDead(service, resp.code, json.opt("error").toString().take(160), "HELIUS_RPC_ERROR"); return resp.code to json }
+                        return resp.code to json
+                    }
+                }
+                if (waitMs8191 < 0L) return 0 to null
+                Thread.sleep(waitMs8191)
             }
+            return 0 to null
         }
         try {
             val h = rpc("getHealth")
@@ -219,6 +234,54 @@ object KeyValidator {
             markDead(service, 0, e.message, "HELIUS_TIMEOUT")
         } catch (e: Throwable) {
             markDead(service, 0, e.message, "HELIUS_RPC_ERROR")
+        }
+    }
+
+    // ── V5.0.8191 §A_429_IS_NOT_AN_INVALID_KEY ──
+    //
+    // 5.0.8186: the credential check answered HTTP 429 and the key was flagged DEAD for 30 minutes
+    // (HELIUS_RATE_LIMIT_429 sat on the full auth window) while the credit budget read 23%. A 429 is the key's per-second
+    // request rate (HeliusRateGate8191 paces it now), not its validity: Helius answers 401 for a key it does not know.
+    // The probe waits out Retry-After (else 2 s, 4 s) and asks again; a key still rate-limited is recorded live with a
+    // named status, and the probe runs again a minute later (at most three rounds) until it reads healthy.
+
+    private const val HELIUS_PROBE_ATTEMPTS_8191 = 3
+    private const val HELIUS_PROBE_ROUNDS_8191 = 3
+    private const val HELIUS_PROBE_ROUND_GAP_MS_8191 = 60_000L
+    @Volatile private var heliusProbeRateLimited8191 = false
+
+    /**
+     * Pure: how long to wait before asking again after a 429 or a local refusal on [attempt] (1-based), or -1 to stop.
+     * Retry-After (seconds) is honoured within 1..10 s; otherwise 2 s, 4 s. The app's own credit-gate answer (AATE_*)
+     * is a budget decision: never retried here.
+     */
+    fun heliusProbeRetryMs8191(code: Int, synthetic: Boolean, message: String, retryAfter: String?, attempt: Int): Long {
+        if (code != 429 && !synthetic) return -1L
+        if (message.startsWith("AATE_")) return -1L
+        if (attempt >= HELIUS_PROBE_ATTEMPTS_8191) return -1L
+        val ra = retryAfter?.trim()?.toLongOrNull()
+        if (ra != null && ra > 0L) return (ra * 1000L).coerceIn(1_000L, 10_000L)
+        return 2_000L shl (attempt - 1).coerceIn(0, 3)
+    }
+
+    /** The key answered with its rate limit (or the app declined to ask): live, named, never DEAD. */
+    private fun noteHeliusRateLimited8191(code: Int, detail: String) {
+        heliusProbeRateLimited8191 = true
+        val prev = verdicts["helius"]
+        // A proven-healthy verdict from earlier stays; only an unknown / rate-limited state is (re)written.
+        if (prev != null && prev.isLive && prev.status == "HELIUS_HEALTHY") return
+        verdicts["helius"] = Verdict(true, System.currentTimeMillis(), code, detail.take(120),
+            status = if (code == 429) "HELIUS_RATE_LIMIT_429_KEY_NOT_INVALID_8191" else "HELIUS_PROBE_LOCALLY_DEFERRED_8191")
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_KEY_PROBE_RATE_LIMITED_8191") } catch (_: Throwable) {}
+    }
+
+    /** The startup probe, re-run (a minute apart, at most [HELIUS_PROBE_ROUNDS_8191] rounds) while the key is rate-limited. */
+    private fun probeHeliusPaced8191(apiKey: String, walletAddress: String) {
+        for (round in 1..HELIUS_PROBE_ROUNDS_8191) {
+            heliusProbeRateLimited8191 = false
+            probeHeliusRpc(apiKey, walletAddress)
+            if (!heliusProbeRateLimited8191 || round == HELIUS_PROBE_ROUNDS_8191) return
+            try { Thread.sleep(HELIUS_PROBE_ROUND_GAP_MS_8191) } catch (_: InterruptedException) { return }
         }
     }
 

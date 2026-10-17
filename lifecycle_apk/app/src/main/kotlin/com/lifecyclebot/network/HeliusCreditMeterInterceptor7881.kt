@@ -52,7 +52,7 @@ object HeliusCreditMeterInterceptor7881 : Interceptor {
         try { com.lifecyclebot.engine.LoadTelemetry8169.noteHelius8169(req.url.encodedPath, methods, bodyText8169, HeliusCreditEconomy7881.creditsFor(host, req.url.encodedPath, methods)) } catch (_: Throwable) {}
         if (resp.code == 402 || resp.code == 403 || resp.code == 429) try {
             val peek = resp.peekBody(4_096).string()
-            if (HeliusCreditEconomy7881.isExhaustionAnswer8094(resp.code, peek)) HeliusCreditEconomy7881.noteExhausted8094()
+            if (HeliusCreditEconomy7881.isExhaustionAnswer8094(resp.code, peek)) HeliusCreditEconomy7881.noteExhaustionAnswer8191(resp.code)   // V5.0.8191 — confirmed, not one burst
         } catch (_: Throwable) {}
         return resp
     }

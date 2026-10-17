@@ -370,6 +370,11 @@ class DataOrchestrator(
         val poolHint6916 = try {
             ts.pairAddress.ifBlank { ts.lastPricePoolAddr }
         } catch (_: Throwable) { "" }
+        // V5.0.8191 — held / near-decision coins ask Codex getBars first (keyed, healthy); the keyless feed and the
+        // Birdeye backup follow. An ordinary new token never spends Birdeye (DataPipeline8191.seedOrder8191).
+        val priority8191 = DataPipeline8191.seedPriority8191(mint)
+        val codexFirst8191 = priority8191 && (if (repairShape8168) repairShapeFromCodex8169(ts) else codexSeed8191(ts))
+        if (repairShape8168 && codexFirst8191) return
         var keylessSeeded6916 = 0
         try {
             // V5.0.7809 §THE_SEED_ASKED_THREE_TIMES_INSIDE_ONE_SLOT. The 1m/5m/15m
@@ -381,7 +386,7 @@ class DataOrchestrator(
             // and retries a bounded number of times; 5m/15m get one slotted read
             // only when the pool answered 1m. A provider in cooldown is never
             // queued behind (Field Manual L404).
-            val k1m = keylessFetch7809(mint, "1m", 120, poolHint6916, attempts = 3)
+            val k1m = if (codexFirst8191) emptyList() else keylessFetch7809(mint, "1m", 120, poolHint6916, attempts = 3)
             val k1mOk7809 = k1m.size >= 2
             if (k1m.size >= 2) {
                 synchronized(ts.history) {
@@ -398,7 +403,7 @@ class DataOrchestrator(
             if (repairShape8168 && keylessSeeded6916 > 0) return
             // V5.0.8169 — a cooling or empty keyless feed hands the shape repair to Codex before the budget-gated backup.
             if (repairShape8168 && repairShapeFromCodex8169(ts)) return
-            val k5m = keylessFetch7809(mint, "5m", 60, poolHint6916, attempts = if (k1mOk7809 && !repairShape8168) 1 else 0)
+            val k5m = keylessFetch7809(mint, "5m", 60, poolHint6916, attempts = if ((k1mOk7809 || codexFirst8191) && !repairShape8168) 1 else 0)
             if (k5m.size >= 2) {
                 synchronized(ts.history5m) {
                     if (ts.history5m.size < 5) {
@@ -409,7 +414,7 @@ class DataOrchestrator(
                     }
                 }
             }
-            val k15m = keylessFetch7809(mint, "15m", 48, poolHint6916, attempts = if (k1mOk7809 && !repairShape8168) 1 else 0)
+            val k15m = keylessFetch7809(mint, "15m", 48, poolHint6916, attempts = if ((k1mOk7809 || codexFirst8191) && !repairShape8168) 1 else 0)
             if (k15m.size >= 2) {
                 synchronized(ts.history15m) {
                     if (ts.history15m.size < 5) {
@@ -434,6 +439,15 @@ class DataOrchestrator(
                 )
             } catch (_: Throwable) {}
             onLog("$symbol: seeded $keylessSeeded6916 keyless candles (GeckoTerminal)", mint)
+        }
+
+        if (keylessSeeded6916 > 0) DataPipeline8191.noteSeed8191(DataPipeline8191.SRC_KEYLESS, "ok")
+        // V5.0.8191 — an ordinary (not held, not near a decision) token: Codex while its per-minute share lasts, then
+        // stop. Birdeye is the backup for held and near-decision coins only.
+        if (!priority8191) {
+            if (ts.history.size < 10 && DataPipeline8191.claimCodexOrdinary8191()) codexSeed8191(ts)
+            if (ts.history.size < 10) DataPipeline8191.noteSeed8191(DataPipeline8191.SRC_BIRDEYE, "skipped_not_priority")
+            return
         }
 
         // V5.0.6947 §REPORT_THE_REAL_REASON. This path checked the BUDGET gate
@@ -491,7 +505,8 @@ class DataOrchestrator(
         // For established tokens DataOrchestrator checks if 4H data exists
         // and uses that as the primary feed, setting candleTimeframeMinutes accordingly.
         try {
-            val candles1m = birdeye.getCandles(mint, "1m", 120)
+            // V5.0.8191 — a timeframe another source already filled is never bought again from Birdeye.
+            val candles1m = if (ts.history.size >= 10 && !repairShape8168) emptyList() else birdeye.getCandles(mint, "1m", 120)
             if (candles1m.isNotEmpty()) {
                 synchronized(ts.history) {
                     if (if (repairShape8168) SetupHistoryRepair8168.canReplace(ts.history.toList(), candles1m, System.currentTimeMillis()) else ts.history.size < 10) {
@@ -513,7 +528,7 @@ class DataOrchestrator(
 
         // Seed 5m candles (trend direction confirmation)
         try {
-            val candles5m = birdeye.getCandles(mint, "5m", 60)
+            val candles5m = if (ts.history5m.size >= 5) emptyList() else birdeye.getCandles(mint, "5m", 60)
             if (candles5m.isNotEmpty()) {
                 synchronized(ts.history5m) {
                     ts.history5m.clear()
@@ -526,7 +541,7 @@ class DataOrchestrator(
 
         // Seed 15m candles (macro trend)
         try {
-            val candles15m = birdeye.getCandles(mint, "15m", 48)
+            val candles15m = if (ts.history15m.size >= 5) emptyList() else birdeye.getCandles(mint, "15m", 48)
             if (candles15m.isNotEmpty()) {
                 synchronized(ts.history15m) {
                     ts.history15m.clear()
@@ -1178,6 +1193,7 @@ class DataOrchestrator(
     internal fun refreshMissingInputs8087(mint: String, symbol: String, missing: List<String>) {
         val keys = missing.map { it.substringBefore(':').trim().lowercase() }.toSet()
         fun lbl(k: String) { try { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_${k.uppercase()}_8087") } catch (_: Throwable) {} }
+        refreshSources8191(mint, keys)
         if (keys.any { it in POLL_INPUTS_8087 }) { forcePoll8085.add(mint); keys.filter { it in POLL_INPUTS_8087 }.forEach(::lbl) }
         if ("shape" in keys) scope.launch {
             try { seedCandleHistory(mint, symbol, repairShape8168 = true) } catch (_: Throwable) {}
@@ -1199,6 +1215,41 @@ class DataOrchestrator(
         if (HolderFetch8185.holderInput8185(keys)) { HolderFetch8185.request8185(mint); forcePoll8085.add(mint); lbl("holders") }
         val unknown = keys - POLL_INPUTS_8087 - TAPE_INPUTS_8087 - "shape" - HolderFetch8185.HOLDER_INPUTS_8185
         if (unknown.isNotEmpty()) { forcePoll8085.add(mint); lbl("other") }
+    }
+
+    /**
+     * V5.0.8191 — the sources behind the refresh. A coin asking for its inputs is near a decision (Birdeye / candle
+     * priority); bp / chg / shape / tape come from executed trades, so the coin joins PumpPortal's keyed trade stream
+     * (pumpWs above has been null since 4169: that subscribe never reached a socket); a DexScreener pair that is
+     * NOT_FETCHED or stale is fetched once a minute at most (the answer lands in PairFlow8169). Nothing is inferred.
+     */
+    private fun refreshSources8191(mint: String, keys: Set<String>) {
+        DataPipeline8191.noteNearDecision8191(mint)
+        if (keys.any { it in TRADE_FED_INPUTS_8191 }) try { PumpFunWS.watchForSetup8191(mint) } catch (_: Throwable) {}
+        if (keys.any { it in PAIR_FED_INPUTS_8191 } && DataPipeline8191.claimPairFetch8191(mint)) scope.launch {
+            try { DexscreenerApi().getBestPair(mint) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("SETUP_PAIR_FETCH_8191") } catch (_: Throwable) {}
+        }
+    }
+
+    private val TRADE_FED_INPUTS_8191 = setOf("bp", "chg", "shape", "tape", "flow", "buyers", "tx", "swaps")
+    private val PAIR_FED_INPUTS_8191 = setOf("bp", "chg", "liq", "mcap", "opp", "vol")
+
+    /** V5.0.8191 — Codex one-minute candles as a seed (not a repair): installed only into a short history. */
+    private fun codexSeed8191(ts: TokenState): Boolean {
+        val bars = try { com.lifecyclebot.engine.chart.ChartSources7955.codexCandles8169(ts.mint) } catch (_: Throwable) { null }
+        if (bars == null || bars.size < 2) { DataPipeline8191.noteSeed8191(DataPipeline8191.SRC_CODEX, "none"); return false }
+        val installed = synchronized(ts.history) {
+            if (ts.history.size >= 10) false else {
+                ts.history.clear()
+                bars.forEach { ts.history.addLast(it) }
+                while (ts.history.size > 300) ts.history.removeFirst()
+                ts.candleTimeframeMinutes = 1
+                true
+            }
+        }
+        DataPipeline8191.noteSeed8191(DataPipeline8191.SRC_CODEX, if (installed) "ok" else "unneeded")
+        return installed
     }
 
     private val POLL_INPUTS_8087 = setOf("bp", "chg", "liq", "mcap", "opp", "vol")

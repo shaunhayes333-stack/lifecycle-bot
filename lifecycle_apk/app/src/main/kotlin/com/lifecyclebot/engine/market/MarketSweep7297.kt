@@ -602,7 +602,12 @@ object MarketSweep7297 {
                 try { PipelineHealthCollector.labelInc("MARKET_SWEEP_7297_HTTP_${resp.code}") } catch (_: Throwable) {}
                 if (provider.isNotBlank()) lastFail7301[provider] = "HTTP_${resp.code}"
                 null
-            } else resp.body?.string()
+            } else {
+                // V5.0.8191 — a provider that answers again is no longer failing: 5.0.8186 still read DEXSCREENER_ENRICH
+                // LOCAL_CIRCUIT from a refusal long since recovered (only the Jupiter paths cleared their last failure).
+                if (provider.isNotBlank()) lastFail7301.remove(provider)
+                resp.body?.string()
+            }
         }
     } catch (e: Exception) {
         ErrorLogger.debug("MarketSweep7297", "GET ${url.take(60)} failed: ${e.message}")

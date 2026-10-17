@@ -173,7 +173,9 @@ object RuntimeProviderAuthority6685 {
         val urls = rpcCandidates(primaryRpc)
         val key = heliusKey?.trim().orEmpty()
         val extra = if (key.isNotBlank()) listOf("https://mainnet.helius-rpc.com/?api-key=$key") else emptyList()
-        return (urls + extra).mapNotNull(::websocketFromRpc8079).distinct()
+        // V5.0.8191 — the keyed Helius standard WebSocket first: it serves accountSubscribe. 5.0.8186's GradTicks met
+        // -32601 "Method 'accountSubscribe' not found" on the configured RPC's socket, which was tried first.
+        return (extra + urls).mapNotNull(::websocketFromRpc8079).distinct()
     }
 
     fun preferredRpc(primary: String? = null, explicit: Context? = null): String =

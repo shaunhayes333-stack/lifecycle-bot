@@ -63,7 +63,8 @@ class Aate7809MarketDataTest {
     @Test fun seedWaitsForTheProviderSlotWithBoundedRetries() {
         val d = src("engine/DataOrchestrator.kt")
         assertTrue(d.contains("keylessFetch7809(mint, \"1m\", 120, poolHint6916, attempts = 3)"))
-        assertTrue(d.contains("attempts = if (k1mOk7809 && !repairShape8168) 1 else 0"))
+        // superseded by V5.0.8191: a Codex-seeded 1m also unlocks the 5m/15m slotted reads.
+        assertTrue(d.contains("attempts = if ((k1mOk7809 || codexFirst8191) && !repairShape8168) 1 else 0"))
         assertTrue(d.contains("providerSlotWait7809()"))
         assertTrue(d.contains("OHLCV_SEED_SKIPPED_PROVIDER_COOLDOWN_7809"))
         assertTrue(d.contains("SEED_RETRY_FLOOR_MS_7809 = 2_600L"))

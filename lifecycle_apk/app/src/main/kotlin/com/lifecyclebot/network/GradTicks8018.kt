@@ -154,6 +154,9 @@ object GradTicks8018 {
     private val vaultBySub = ConcurrentHashMap<Int, String>()
     private val nextId = AtomicInteger(1)
     private val wsEndpointAttempt8079 = AtomicInteger(0)
+    private val methodMissingAt8191 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    @Volatile private var currentUrl8191 = ""
+    private val benched8191 = java.util.concurrent.atomic.AtomicLong(0)
     private val ticks = AtomicLong(0)
     private val resolved = AtomicLong(0)
     private val unresolved = AtomicLong(0)
@@ -291,9 +294,11 @@ object GradTicks8018 {
         lastConnectMs = now
         val key = try { keyProvider() } catch (_: Throwable) { "" }
         val preferredRpc = try { rpcProvider() } catch (_: Throwable) { "" }
-        val endpoints = com.lifecyclebot.engine.RuntimeProviderAuthority6685.websocketCandidates8079(key, preferredRpc)
+        // V5.0.8191 — an endpoint that answered -32601 (no accountSubscribe) is benched like CurveTicks7968's (8102).
+        val endpoints = CurveTicks7968.usableEndpoints8102(com.lifecyclebot.engine.RuntimeProviderAuthority6685.websocketCandidates8079(key, preferredRpc), methodMissingAt8191, now)
         if (endpoints.isEmpty()) return
         val selected = Math.floorMod(wsEndpointAttempt8079.getAndIncrement(), endpoints.size)
+        currentUrl8191 = endpoints[selected]
         if (selected > 0) try { PipelineHealthCollector.labelInc("GRAD_WS_PROVIDER_FALLBACK_8079") } catch (_: Throwable) {}
         ws = client.newWebSocket(Request.Builder().url(endpoints[selected]).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -335,7 +340,10 @@ object GradTicks8018 {
                 subErrors8144.incrementAndGet()
                 lastError8144 = "$code:${e?.optString("message").orEmpty().take(60)}"
                 try { PipelineHealthCollector.labelInc("PUMPSWAP_SUB_ERROR_8144_${if (code < 0) "M${-code}" else code.toString()}") } catch (_: Throwable) {}
-                if (code == -32601) ws?.let { s -> try { s.close(1000, "accountSubscribe unsupported") } catch (_: Throwable) {}; closed(s) }
+                if (code == -32601) {
+                    if (currentUrl8191.isNotBlank()) { methodMissingAt8191[currentUrl8191] = System.currentTimeMillis(); benched8191.incrementAndGet() }
+                    ws?.let { s -> try { s.close(1000, "accountSubscribe unsupported") } catch (_: Throwable) {}; closed(s) }
+                }
             }
             return
         }
@@ -386,6 +394,6 @@ object GradTicks8018 {
         val age = if (lastTickMs > 0L) "${(System.currentTimeMillis() - lastTickMs) / 1000}s" else "-"
         return "open=$open pools=${desired.size} subs=${subByVault.size} ticks=${ticks.get()} lastTick=$age resolved=${resolved.get()} unresolved=${unresolved.get()} basisRefused=${basisRefused.get()} " +
             "noCandidate8144=${noCandidate8144.get()} notPumpSwap8144=${notPumpSwap8144.get()} rpcUnanswered8144=${rpcUnanswered8144.get()} " +
-            "subErrors8144=${subErrors8144.get()} subResent8144=${subResent8144.get()} lastError8144=$lastError8144 resolveGate8144[${resolveGate8144.line8144()}]"
+            "subErrors8144=${subErrors8144.get()} subResent8144=${subResent8144.get()} lastError8144=$lastError8144 benched8191=${benched8191.get()} resolveGate8144[${resolveGate8144.line8144()}]"
     }
 }

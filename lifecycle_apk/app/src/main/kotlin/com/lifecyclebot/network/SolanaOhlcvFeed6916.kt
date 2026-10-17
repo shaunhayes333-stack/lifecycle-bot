@@ -260,6 +260,29 @@ object SolanaOhlcvFeed6916 {
     // confirmed absence and must never be negative-cached as "this mint has no pool".
     private class Fetched6982(val json: JSONObject?, val askedProvider: Boolean, val failed8078: Boolean = false)
 
+    /**
+     * V5.0.8191 §THE_POOL_RESOLVE_ATE_THE_CANDLE_SLOT — 5.0.8186: fetches=347 poolResolves=326 barsDelivered=0
+     * rateLimited6944=74 localSkips. A mint without a pool hint spent the 2.5 s slot on /tokens/{mint}/pools, and the
+     * OHLCV request right behind it was then declined by the same slot every time: the pool resolved, the candles were
+     * never asked for. The OHLCV request that follows a fresh resolve now waits for the next slot (bounded by
+     * [maxWaitMs]); a host in 429/5xx cool-down is still never waited on. Callers are background workers.
+     */
+    private fun awaitSlot8191(maxWaitMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + maxWaitMs
+        var spins = 0
+        while (spins++ < 64) {
+            val now = System.currentTimeMillis()
+            if (now < cooldownUntilMs.get()) return false
+            val gap = MIN_INTERVAL_MS - (now - lastCallAtMs.get())
+            if (gap <= 0L) return true
+            if (now + gap > deadline) return false
+            try { Thread.sleep(gap.coerceIn(10L, MIN_INTERVAL_MS)) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
+        }
+        return false
+    }
+
+    private val slotWaits8191 = AtomicLong(0L)
+
     private fun fetch6982(url: String): Fetched6982 {
         val started = System.currentTimeMillis()
         // The version-pinned Accept header and a real User-Agent are required:
@@ -450,6 +473,8 @@ object SolanaOhlcvFeed6916 {
             return emptyList()
         }
         val url = "$BASE/pools/$pool/ohlcv/$unit?aggregate=$aggregate&limit=$n&currency=usd"
+        // V5.0.8191 — the pool was just resolved on the wire: wait for the next slot instead of being declined by it.
+        if (lookup6982.askedProvider && awaitSlot8191(MIN_INTERVAL_MS + 500L)) slotWaits8191.incrementAndGet()
         val candles6982 = fetch6982(url)
         val json = candles6982.json ?: run {
             if (candles6982.failed8078) providerErrors8078.incrementAndGet()
@@ -679,7 +704,7 @@ object SolanaOhlcvFeed6916 {
             "negativeHits6944=${negativeHits.get()} negCached6944=${negativeCache.size} " +
             "sameKeyCoalesced7484=${sameKeyCoalesced7484.get()} " +
             "localSkips6982=${localSkips6982.get()} providerErrors8078=${providerErrors8078.get()} " +
-            "minIntervalMs=$MIN_INTERVAL_MS " +
+            "minIntervalMs=$MIN_INTERVAL_MS slotWaits8191=${slotWaits8191.get()} " +
             "| dexpaprika7293 served=${paprikaServed7293.get()} empty=${paprikaEmpty7293.get()} pools=${paprikaPools7293.size} " +
             "terminalDisabled=${paprikaTerminalDisabled7446.get()} terminalCode=$paprikaTerminalCode7446 " +
             "| perSource7819[gecko served=${geckoServed7819.get()} bars=${geckoBars7819.get()} " +

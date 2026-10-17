@@ -218,6 +218,7 @@ object HostCircuitInterceptor : Interceptor {
         val state = states.getOrPut(stateKey7719) { HostState() }
         // V5.0.6976 — probes bypass the circuit (never the Birdeye budget).
         val isProbe = ((req.header(PROBE_HEADER_6976) != null || req.header(EXECUTION_HEADER_8169) != null) && provider != "birdeye") ||
+            (wsUpgrade8191(req) && provider != "birdeye") ||   // V5.0.8191 — one long-lived socket's upgrade is never a storm
             halfOpenNow8179(provider, state.cooldownUntilMs.get(), now)   // V5.0.8179 — a scoped endpoint re-tests after a short rest
 
         // V5.0.6758 — Birdeye is a paid/escalation source. The runtime snapshot
@@ -400,6 +401,16 @@ object HostCircuitInterceptor : Interceptor {
     }
 
     fun halfOpenProbes8179(): Long = probeCount8179.get()
+
+    /**
+     * V5.0.8191 §A_SOCKET_UPGRADE_IS_NOT_A_STORM — ChainLaunchFeed8179's socket failed all 8 attempts with
+     * FAIL_599_ProtocolException: OkHttp's "Expected HTTP 101 response but was '599 HostCircuit cool-down ...'". Helius is
+     * an unmapped host, so its SHARED lane is the bare host, and a 429 earned by any background RPC call on
+     * mainnet.helius-rpc.com cooled the host — the WebSocket upgrade included, every reconnect, all session. An upgrade is
+     * one request for a long-lived socket (its owner already backs off between attempts), so the local cool-down and
+     * lockout never answer it; the provider's own answer is still recorded and still cools the host for other traffic.
+     */
+    fun wsUpgrade8191(req: okhttp3.Request): Boolean = req.header("Upgrade")?.equals("websocket", ignoreCase = true) == true
 
     data class HostSnapshot(
         val host: String,

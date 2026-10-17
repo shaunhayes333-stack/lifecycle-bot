@@ -484,8 +484,11 @@ object ChainLaunchFeed8179 {
     @Volatile private var lastLaunchMs = 0L
     @Volatile private var lastFetchMs = 0L
 
-    private val nextId = AtomicInteger(1)
+    // V5.0.8191 — request ids live above FEED_ID_BASE_8191 so a reply on HeliusWebSocket's shared socket is told apart
+    // from that client's own (small) ids without parsing the frame.
+    private val nextId = AtomicInteger(FEED_ID_BASE_8191)
     private val pendingReq = ConcurrentHashMap<Int, String>()        // request id -> target key
+    private val pendingSentAt8191 = ConcurrentHashMap<Int, Long>()   // request id -> sent time (ack timeout)
     private val subByTarget = ConcurrentHashMap<String, Int>()       // target key -> server sub id
     private val targetBySub = ConcurrentHashMap<Int, String>()
     private val parkedUntil = ConcurrentHashMap<String, Long>()
@@ -547,6 +550,7 @@ object ChainLaunchFeed8179 {
     fun start8179(key: () -> String, cb: (Launch8179) -> Unit) {
         keyProvider = key
         onLaunch = cb
+        installShare8191()
         if (!running.compareAndSet(false, true)) return
         state = "STARTING"
         if (!tickScheduled.compareAndSet(false, true)) { try { scheduler.execute { try { tick8179() } catch (_: Throwable) {} } } catch (_: Throwable) {}; return }
@@ -558,23 +562,43 @@ object ChainLaunchFeed8179 {
     fun stop8179() {
         running.set(false)
         state = "STOPPED"
+        if (shared8191) unsubscribeAllShared8191()
+        shared8191 = false
         val s = ws
         ws = null
         open = false
         try { s?.close(1000, "stop") } catch (_: Throwable) {}
-        pendingReq.clear(); subByTarget.clear(); targetBySub.clear()
+        clearSubs8191()
         try { fetchPool.queue.clear() } catch (_: Throwable) {}
     }
 
     private fun overBudget8179(): Boolean =
         try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066() } catch (_: Throwable) { false }
 
-    /** Once a minute: key present, budget left, socket up, parked streams released when their time is served. */
+    /**
+     * Once a minute: key present, budget left, a transport up (HeliusWebSocket's shared socket first, the dedicated
+     * socket only without one), parked streams released when their time is served, unacknowledged requests expired.
+     */
     private fun tick8179() {
         if (!running.get()) return
         try { pollCodex8179() } catch (_: Throwable) {}   // Helius-key independent: covers the parked firehose venues
-        if (key8179().isBlank()) { state = "NO_HELIUS_KEY"; closeSocket8179(); return }
-        if (overBudget8179()) { state = "HELIUS_OVER_BUDGET"; closeSocket8179(); return }
+        transportTick8191()
+    }
+
+    /** V5.0.8191 — the Helius side of the tick (also run when HeliusWebSocket's shared socket opens or dies). */
+    private fun transportTick8191() {
+        if (!running.get()) return
+        if (key8179().isBlank()) { state = "NO_HELIUS_KEY"; standDown8191(); return }
+        if (overBudget8179()) { state = "HELIUS_OVER_BUDGET"; standDown8191(); return }
+        expireUnacked8191(System.currentTimeMillis())
+        if (HeliusSocketShare8191.attached8191()) {
+            if (!shared8191) { closeSocket8179(); clearSubs8191(); shared8191 = true }
+            state = "SHARED_OPEN"
+            subscribeMissing8179()
+            return
+        }
+        if (shared8191) { shared8191 = false; clearSubs8191() }
+        if (now8191() < reconnectNotBeforeMs8191) { state = "BACKOFF"; return }
         if (ws == null) { connect8179(); return }
         if (open) subscribeMissing8179()
     }
@@ -583,7 +607,7 @@ object ChainLaunchFeed8179 {
         val s = ws ?: return
         ws = null
         open = false
-        pendingReq.clear(); subByTarget.clear(); targetBySub.clear()
+        clearSubs8191()
         try { s.close(1000, "standby") } catch (_: Throwable) {}
     }
 
@@ -593,7 +617,7 @@ object ChainLaunchFeed8179 {
         if (key.isBlank()) { state = "NO_HELIUS_KEY"; return }
         connects.incrementAndGet()
         state = "CONNECTING"
-        pendingReq.clear(); subByTarget.clear(); targetBySub.clear()
+        clearSubs8191()
         val req = Request.Builder().url("wss://mainnet.helius-rpc.com/?api-key=$key").build()
         ws = wsClient.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -601,6 +625,7 @@ object ChainLaunchFeed8179 {
                 open = true
                 openedAtMs = System.currentTimeMillis()
                 state = "OPEN"
+                handshakeRefusals8191 = 0; lastHandshakeCode8191 = response.code; lastHandshake8191 = "code=${response.code}_OPEN"
                 subscribeMissing8179()
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -614,6 +639,8 @@ object ChainLaunchFeed8179 {
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { lost8179(webSocket, "CLOSED_$code") }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                // V5.0.8191 — the handshake's actual answer (code, message, synthetic or provider, Retry-After) is kept.
+                noteHandshake8191(response, t)
                 lost8179(webSocket, "FAIL_" + (response?.code?.toString()?.plus("_") ?: "") + t.javaClass.simpleName)
             }
         })
@@ -623,25 +650,29 @@ object ChainLaunchFeed8179 {
         if (ws !== s) return
         ws = null
         open = false
-        pendingReq.clear(); subByTarget.clear(); targetBySub.clear()
+        clearSubs8191()
         lastError = why.take(48)
         if (!running.get()) return
         val now = System.currentTimeMillis()
         reconnectMs = if (openedAtMs > 0L && now - openedAtMs >= STABLE_OPEN_MS) RECONNECT_MIN_MS
             else (reconnectMs * 2).coerceAtMost(RECONNECT_MAX_MS)
+        // V5.0.8191 — a refused upgrade (429 / 401 / 403) waits out Retry-After and a longer ladder; never the 2 s retry.
+        val refusedWait8191 = handshakeBackoffMs8191(lastHandshakeCode8191, lastRetryAfterSec8191, handshakeRefusals8191)
+        if (refusedWait8191 > reconnectMs) reconnectMs = refusedWait8191
+        reconnectNotBeforeMs8191 = now + reconnectMs
         openedAtMs = 0L
         state = "RECONNECTING"
         if (!reconnectPending.compareAndSet(false, true)) return
         try {
             scheduler.schedule({
                 reconnectPending.set(false)
-                if (running.get() && ws == null && key8179().isNotBlank() && !overBudget8179()) connect8179()
+                if (running.get() && ws == null && !shared8191 && !HeliusSocketShare8191.attached8191() && key8179().isNotBlank() && !overBudget8179()) connect8179()
             }, reconnectMs, TimeUnit.MILLISECONDS)
         } catch (_: Throwable) { reconnectPending.set(false) }
     }
 
     private fun subscribeMissing8179() {
-        val s = ws ?: return
+        if (!transportUp8191()) return
         val now = System.currentTimeMillis()
         for (t in TARGETS_8179) {
             if (subByTarget.containsKey(t.key) || pendingReq.containsValue(t.key)) continue
@@ -650,17 +681,18 @@ object ChainLaunchFeed8179 {
             if (until > 0L) { parkedUntil.remove(t.key); governors[t.key]?.reset8179() }
             val id = nextId.getAndIncrement()
             pendingReq[id] = t.key
-            val sent = s.send(JSONObject().put("jsonrpc", "2.0").put("id", id).put("method", "logsSubscribe")
+            pendingSentAt8191[id] = now
+            val sent = send8191(JSONObject().put("jsonrpc", "2.0").put("id", id).put("method", "logsSubscribe")
                 .put("params", JSONArray().put(JSONObject().put("mentions", JSONArray().put(t.mention)))
                     .put(JSONObject().put("commitment", "confirmed"))).toString())
-            if (!sent) pendingReq.remove(id)
+            if (!sent) { pendingReq.remove(id); pendingSentAt8191.remove(id) } else subRequests8191.incrementAndGet()
         }
     }
 
     private fun unsubscribe8179(target: String) {
         val sub = subByTarget.remove(target) ?: return
         targetBySub.remove(sub)
-        ws?.send(JSONObject().put("jsonrpc", "2.0").put("id", nextId.getAndIncrement()).put("method", "logsUnsubscribe")
+        send8191(JSONObject().put("jsonrpc", "2.0").put("id", nextId.getAndIncrement()).put("method", "logsUnsubscribe")
             .put("params", JSONArray().put(sub)).toString())
     }
 
@@ -677,12 +709,14 @@ object ChainLaunchFeed8179 {
         val o = JSONObject(text)
         if (o.has("id") && !o.has("method")) {
             val id = o.optInt("id", -1)
+            pendingSentAt8191.remove(id)
             val target = pendingReq.remove(id) ?: return
             val r = o.opt("result")
             if (r is Number) {
                 subByTarget[target] = r.toInt()
                 targetBySub[r.toInt()] = target
                 subErrors.remove(target)
+                subAcks8191.incrementAndGet()   // V5.0.8191 — the server's subscription id: the stream is registered
             } else {
                 val e = o.optJSONObject("error")
                 lastError = "${e?.optInt("code", 0) ?: 0}:${e?.optString("message").orEmpty().take(40)}"
@@ -929,6 +963,115 @@ object ChainLaunchFeed8179 {
         }
     }
 
+    // ── V5.0.8191 §THE_FEED_RIDES_THE_EXISTING_HELIUS_SOCKET ──
+    //
+    // 5.0.8186: connects=8, every one FAIL_599_ProtocolException, subs=0/8. 599 is this app's own HostCircuitInterceptor
+    // answer (the Helius host was cooling after background 429s), which OkHttp reports as "Expected HTTP 101 response but
+    // was '599 ...'". Three changes: the upgrade is no longer refused by the local circuit (HostCircuitInterceptor
+    // .wsUpgrade8191); the program streams ride HeliusWebSocket's open socket ([HeliusSocketShare8191]) instead of a
+    // second socket on the same key; and the dedicated fallback records the handshake's real answer and waits out a
+    // refusal (Retry-After / ladder) instead of retrying in 2 s. A request whose ack never arrives is expired after
+    // [ACK_TIMEOUT_MS_8191] so it can be sent again; acks (server subscription ids) and notifications are counted.
+
+    const val FEED_ID_BASE_8191 = 1_000_000_000
+    private const val ACK_TIMEOUT_MS_8191 = 60_000L
+    private const val HANDSHAKE_RATE_BASE_MS_8191 = 30_000L
+    private const val HANDSHAKE_MAX_MS_8191 = 10L * 60_000L
+    @Volatile private var shared8191 = false
+    @Volatile private var reconnectNotBeforeMs8191 = 0L
+    @Volatile private var lastHandshake8191 = "-"
+    @Volatile private var lastHandshakeCode8191 = 0
+    @Volatile private var lastRetryAfterSec8191: Long? = null
+    @Volatile private var handshakeRefusals8191 = 0
+    private val shareInstalled8191 = AtomicBoolean(false)
+    private val subRequests8191 = AtomicLong(0)
+    private val subAcks8191 = AtomicLong(0)
+    private val ackExpired8191 = AtomicLong(0)
+
+    private fun now8191(): Long = System.currentTimeMillis()
+
+    /**
+     * Pure: how long a refused upgrade waits before the next attempt. 429 honours Retry-After (5 s .. 10 min), else
+     * climbs 30 s, 60 s, 120 s ... to 10 min with consecutive refusals; 401 / 403 (key or plan) wait 10 min; a local
+     * synthetic 599 waits 30 s; anything else 0 (the ordinary reconnect ladder applies).
+     */
+    fun handshakeBackoffMs8191(code: Int, retryAfterSec: Long?, refusals: Int): Long = when (code) {
+        429 -> if (retryAfterSec != null && retryAfterSec > 0L) (retryAfterSec * 1000L).coerceIn(5_000L, HANDSHAKE_MAX_MS_8191)
+            else (HANDSHAKE_RATE_BASE_MS_8191 shl (refusals - 1).coerceIn(0, 5)).coerceAtMost(HANDSHAKE_MAX_MS_8191)
+        401, 403 -> HANDSHAKE_MAX_MS_8191
+        599 -> HANDSHAKE_RATE_BASE_MS_8191
+        else -> 0L
+    }
+
+    /** Pure: the status-line form of a failed handshake (no spaces). */
+    fun handshakeText8191(code: Int, message: String, synthetic: Boolean, error: Throwable?): String {
+        val m = message.take(48).replace(Regex("\\s+"), "_")
+        val e = (error?.javaClass?.simpleName ?: "-") + ":" + (error?.message ?: "").take(60).replace(Regex("\\s+"), "_")
+        return "code=$code${if (synthetic) "_LOCAL" else ""}_msg=${m.ifBlank { "-" }}_ex=$e"
+    }
+
+    private fun noteHandshake8191(response: Response?, t: Throwable) {
+        val code = response?.code ?: 0
+        val synthetic = try { response != null && HostCircuitInterceptor.isSyntheticBlock(response) } catch (_: Throwable) { false }
+        lastHandshakeCode8191 = code
+        lastRetryAfterSec8191 = response?.header("Retry-After")?.trim()?.toLongOrNull()
+        lastHandshake8191 = handshakeText8191(code, response?.message.orEmpty(), synthetic, t)
+        if (code == 429 || code == 401 || code == 403) handshakeRefusals8191++
+        label("CHAIN_LAUNCH_HANDSHAKE_${if (code > 0) code.toString() else "IO"}_8191")
+    }
+
+    private fun clearSubs8191() {
+        pendingReq.clear(); pendingSentAt8191.clear(); subByTarget.clear(); targetBySub.clear()
+    }
+
+    private fun transportUp8191(): Boolean = if (shared8191) HeliusSocketShare8191.attached8191() else ws != null
+
+    private fun send8191(text: String): Boolean =
+        if (shared8191) HeliusSocketShare8191.send8191(text) else (try { ws?.send(text) == true } catch (_: Throwable) { false })
+
+    private fun unsubscribeAllShared8191() {
+        for (t in subByTarget.keys.toList()) unsubscribe8179(t)
+    }
+
+    /** Budget spent / no key: drop the shared streams (the socket stays HeliusWebSocket's) or close the dedicated one. */
+    private fun standDown8191() {
+        if (shared8191) { unsubscribeAllShared8191(); clearSubs8191(); shared8191 = false }
+        closeSocket8179()
+    }
+
+    private fun expireUnacked8191(nowMs: Long) {
+        for ((id, at) in pendingSentAt8191.entries.toList()) {
+            if (nowMs - at < ACK_TIMEOUT_MS_8191) continue
+            pendingSentAt8191.remove(id)
+            if (pendingReq.remove(id) != null) { ackExpired8191.incrementAndGet(); label("CHAIN_LAUNCH_SUB_ACK_EXPIRED_8191") }
+        }
+    }
+
+    /** HeliusWebSocket's reader: claim the replies to this feed's requests and its own streams' notifications. */
+    private fun route8191(text: String): Boolean {
+        val rid = HeliusSocketShare8191.replyId8191(text)
+        if (rid != null) {
+            if (rid < FEED_ID_BASE_8191) return false
+            if (shared8191) try { handle8179(text) } catch (_: Throwable) {}
+            return true
+        }
+        if (!shared8191) return false
+        val sid = HeliusSocketShare8191.subscriptionId8191(text) ?: return false
+        if (sid > Int.MAX_VALUE || !targetBySub.containsKey(sid.toInt())) return false
+        try { handle8179(text) } catch (_: Throwable) {}
+        return true
+    }
+
+    private fun installShare8191() {
+        if (!shareInstalled8191.compareAndSet(false, true)) return
+        HeliusSocketShare8191.router = { text -> route8191(text) }
+        HeliusSocketShare8191.onChange = { attached ->
+            if (shared8191) clearSubs8191()   // a new socket, or the old one died: its subscriptions are gone either way
+            if (!attached) shared8191 = false
+            if (running.get()) try { scheduler.execute { try { transportTick8191() } catch (_: Throwable) {} } } catch (_: Throwable) {}
+        }
+    }
+
     fun statusLine8179(): String {
         val now = System.currentTimeMillis()
         val parked = parkedUntil.entries.filter { it.value > now }.joinToString(",") { "${it.key}:${(it.value - now) / 60_000}m" }.ifBlank { "-" }
@@ -939,7 +1082,10 @@ object ChainLaunchFeed8179 {
             "swapsFiltered=${swapsFiltered.get()} matches=${matches.get()} fetches=${fetches.get()} fetchFailed=${fetchFailed.get()} " +
             "unreadable=${unreadable.get()} queueDropped=${queueDropped.get()} backoffSkipped=${backoffSkipped.get()} budgetSkipped=${budgetSkipped.get()} " +
             "dupMints=${dupMints.get()} rateLimited=${rateLimited.get()} launches{$found} lastLaunch=$age births=${births.get()} floors=${floors.get()} " +
-            "parks=${parks.get()} connects=${connects.get()} lastError=$lastError] " +
+            "parks=${parks.get()} connects=${connects.get()} lastError=$lastError " +
+            "transport8191=${if (shared8191) "shared" else if (ws != null) "dedicated" else "none"} subRequests=${subRequests8191.get()} " +
+            "subAcks=${subAcks8191.get()} ackExpired=${ackExpired8191.get()} handshake{$lastHandshake8191 refusals=$handshakeRefusals8191} " +
+            "backoffLeftMs=${(reconnectNotBeforeMs8191 - now).coerceAtLeast(0L)}] " +
             "codex8179[polls=${codexPolls.get()} failed=${codexFailed.get()} seen=${codexSeen.get()} new=${codexNew.get()} skipped=${codexSkipped.get()} " +
             "birthHints=${birthHints.get()} query=${if (codexMinimal) "minimal" else "full"} lastError=$codexLastError] " +
             "hostCircuit8179[halfOpenProbes=${try { HostCircuitInterceptor.halfOpenProbes8179() } catch (_: Throwable) { 0L }}] " +

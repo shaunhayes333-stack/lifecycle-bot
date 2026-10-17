@@ -225,8 +225,50 @@ object HeliusCreditEconomy7881 {
         if (code !in setOf(402, 403, 429)) return false
         val b = body.lowercase()
         if (b.contains("aate_helius_budget") || b.contains("aate_helius_exhausted")) return false
+        if (rateLimitWording8191(b)) return false   // V5.0.8191 — a per-second limit names itself; it is not spent credits
         return b.contains("credit") || b.contains("max usage") || b.contains("usage limit") ||
             b.contains("quota") || b.contains("upgrade your plan") || b.contains("exceeded your")
+    }
+
+    // ── V5.0.8191 §A_RATE_LIMIT_IS_NOT_EXHAUSTION ──
+    // 5.0.8186: exhausted8094=LATCHED (55 latches) at 23% of the credit budget. Helius's per-second 429 answers carry
+    // "exceeded your ... upgrade your plan" wording, which the exhaustion test read as spent credits, so every RPS burst
+    // latched 15 minutes of local 429s for all non-execution Helius traffic. A body that names a rate limit is never
+    // exhaustion now, and a 429 / in-body exhaustion answer latches only when [EXHAUST_CONFIRM_N_8191] of them arrive
+    // within [EXHAUST_CONFIRM_MS_8191] (a 402 Payment Required latches at once).
+
+    private const val EXHAUST_CONFIRM_N_8191 = 3
+    const val EXHAUST_CONFIRM_MS_8191 = 120_000L
+    private val exhaustAnswers8191 = java.util.ArrayDeque<Long>()
+    private val exhaustUnconfirmed8191 = AtomicLong(0)
+
+    /** Pure: the answer names a per-second / request-rate limit (not a spent allowance). */
+    fun rateLimitWording8191(lowerBody: String): Boolean {
+        val b = lowerBody.lowercase()
+        return b.contains("rate limit") || b.contains("rate-limit") || b.contains("ratelimit") || b.contains("rate limited") ||
+            b.contains("too many requests") || b.contains("per second") || b.contains("requests per") || b.contains(" rps")
+    }
+
+    /** Pure: do [answerTimes] (ms, oldest first) confirm exhaustion at [nowMs]? */
+    fun exhaustionConfirmed8191(answerTimes: List<Long>, nowMs: Long, n: Int = EXHAUST_CONFIRM_N_8191, windowMs: Long = EXHAUST_CONFIRM_MS_8191): Boolean =
+        answerTimes.count { nowMs - it in 0L..windowMs } >= n
+
+    /**
+     * One provider exhaustion answer with HTTP [code]: a 402 latches now; anything else latches once confirmed by
+     * repeated answers (see above). Returns true when the latch was set.
+     */
+    fun noteExhaustionAnswer8191(code: Int, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (code == 402) { noteExhausted8094(nowMs); return true }
+        val confirmed = synchronized(exhaustAnswers8191) {
+            exhaustAnswers8191.addLast(nowMs)
+            while (exhaustAnswers8191.isNotEmpty() && nowMs - exhaustAnswers8191.peekFirst() > EXHAUST_CONFIRM_MS_8191) exhaustAnswers8191.pollFirst()
+            while (exhaustAnswers8191.size > 16) exhaustAnswers8191.pollFirst()
+            exhaustionConfirmed8191(exhaustAnswers8191.toList(), nowMs)
+        }
+        if (confirmed) { noteExhausted8094(nowMs); return true }
+        exhaustUnconfirmed8191.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("HELIUS_EXHAUSTION_ANSWER_UNCONFIRMED_8191") } catch (_: Throwable) {}
+        return false
     }
 
     fun noteExhausted8094(nowMs: Long = System.currentTimeMillis()) {
@@ -357,7 +399,7 @@ object HeliusCreditEconomy7881 {
         val projected = if (f > 0.01) total / f else total
         fun k(v: Double) = if (v >= 1_000_000) "%.2fM".format(v / 1_000_000) else if (v >= 1_000) "%.1fk".format(v / 1_000) else "%.0f".format(v)
         return synchronized(this) {
-            "  exhausted8094=${if (exhaustedLatched8094(nowMs)) "LATCHED" else "no"}(latches=${exhaustedLatches8094.get()})" +
+            "  exhausted8094=${if (exhaustedLatched8094(nowMs)) "LATCHED" else "no"}(latches=${exhaustedLatches8094.get()} unconfirmed8191=${exhaustUnconfirmed8191.get()})" +
             "  today=${k(total)} credits  pace→${k(projected)}/day  budget=${k(DAILY_BUDGET_CREDITS)}/day (${"%.0f".format(total / DAILY_BUDGET_CREDITS * 100)}%) hardGate8066[refused=${refused8066.get()}]\n" +
                 "  tiers: " + Tier.values().joinToString(" · ") { t -> byTier[t]?.let { "${t.name}=${k(it[1])}(${it[0].toLong()} calls)" } ?: "${t.name}=0" } + "\n" +
                 "  top methods: " + byMethod.entries.sortedByDescending { it.value[1] }.take(8)
