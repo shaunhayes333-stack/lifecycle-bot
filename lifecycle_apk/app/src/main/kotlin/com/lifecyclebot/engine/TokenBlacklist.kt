@@ -49,14 +49,14 @@ object TokenBlacklist {
         timestamps[mint] = System.currentTimeMillis()
     }
 
-    /** A verified hard reason outranks descriptive soft words (e.g. "liquidity dropped"). */
-    fun explicitHardReason8174(reason: String): Boolean {
-        val r = reason.uppercase()
-        return r.contains("CONFIRMED_RUG_COLLAPSE") || r.contains("CONFIRMED RUG") ||
-            r.contains("RUGCHECK_CONFIRMED") || r.contains("KNOWN MALICIOUS") ||
-            r.contains("VERIFIED BLACKLIST") || r.contains("MALICIOUS CONTRACT") ||
-            r.contains("CANNOT SELL") || r.contains("SELL QUOTE IMPOSSIBLE")
-    }
+    /** A verified hard reason outranks descriptive soft words (e.g. "liquidity dropped").
+     *  Match token boundaries: UNCONFIRMED_RUG_COLLAPSE must never match CONFIRMED_RUG_COLLAPSE.
+     */
+    private val explicitHardPattern8174 = Regex(
+        """(?<![A-Z0-9_])(?:CONFIRMED_RUG_COLLAPSE|CONFIRMED RUG|RUGCHECK_CONFIRMED|KNOWN MALICIOUS|VERIFIED BLACKLIST|MALICIOUS CONTRACT|CANNOT SELL|SELL QUOTE IMPOSSIBLE)(?![A-Z0-9_])"""
+    )
+    fun explicitHardReason8174(reason: String): Boolean =
+        explicitHardPattern8174.containsMatchIn(reason.uppercase(java.util.Locale.ROOT))
 
     fun isTrueBlacklistReason(reason: String): Boolean {
         val r = reason.uppercase()
@@ -90,7 +90,8 @@ object TokenBlacklist {
     fun isSoftPenaltyOnlyReason(reason: String): Boolean {
         if (explicitHardReason8174(reason)) return false
         val r = reason.uppercase()
-        return r.contains("2+ LOSSES") ||
+        return r.contains("UNCONFIRMED") || r.contains("UNVERIFIED") ||
+            r.contains("2+ LOSSES") ||
             r.contains("REPEATED LOSSES") ||
             r.contains("PRIOR LOSSES") ||
             r.contains("SAME SYMBOL") ||
