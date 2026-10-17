@@ -38,7 +38,7 @@ class Aate7868RuntimeRepairTest {
         assertNull(WalletCapacitySeal7868.decide(seal, 0.04272, 0.0843, 116.0, 0.01, null, now))
         val exec = src("engine/Executor.kt")
         assertTrue(exec.contains("WalletCapacitySeal7868.executionRefusal("))
-        assertTrue(src("engine/FinalDecisionGate.kt").contains("WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd)"))
+        assertTrue(src("engine/FinalDecisionGate.kt").contains("WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd, candidateVersion = candidateVersion8198, lane = lane)"))
     }
 
     @Test fun losingLaneGetsNamedOwnershipTerminalNotSealFailure() {
@@ -110,6 +110,11 @@ class Aate7868RuntimeRepairTest {
     }
 
     @Test fun ticketRefusedAtExecutorTerminatesByName() {
-        assertTrue(src("engine/Executor.kt").contains("ToolkitSignalSheet.recordDeskStage(lane, \"EXEC_REFUSED\", attemptId)"))
+        val executor = src("engine/Executor.kt")
+        val sheet = src("engine/ToolkitSignalSheet.kt")
+        assertTrue(executor.contains("ToolkitSignalSheet.terminalizeUnexecutedTicket7948(lane, attemptId, reason)"))
+        assertTrue(sheet.contains("fun terminalizeUnexecutedTicket7948"))
+        assertTrue(sheet.contains("EXEC_REFUSED"))
+        assertTrue(sheet.contains("eventMode8198"))
     }
 }

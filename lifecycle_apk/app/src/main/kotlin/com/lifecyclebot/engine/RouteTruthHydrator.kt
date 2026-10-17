@@ -126,7 +126,7 @@ object RouteTruthHydrator {
                     hit("ENTRY_PUMP", "heldEntrySource=$heldEntrySource6099 pool=${heldEntryPool6099.take(12)}")
                 }
                 hay.contains("JUPITER") || hay.contains("ULTRA") || hay.contains("METIS") -> {
-                    tm.jupiterQuoteOk = tm.jupiterQuoteOk || tm.expectedOutAmount > 0.0
+                    // A historical entry venue is discovery context, not a current Jupiter quote.
                     hit("ENTRY_JUPITER", "heldEntrySource=$heldEntrySource6099 pool=${heldEntryPool6099.take(12)}")
                 }
                 heldEntryPool6099.isNotBlank() || hay.contains("RAYDIUM") || hay.contains("ORCA") || hay.contains("METEORA") || hay.contains("DEX") || hay.contains("POOL") -> {

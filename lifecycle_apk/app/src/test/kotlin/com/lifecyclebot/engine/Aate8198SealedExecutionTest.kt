@@ -77,4 +77,56 @@ class Aate8198SealedExecutionTest {
         } finally { counts.remove("LIVE|QUALITY|$reason"); counts.remove("PAPER|QUALITY|$reason") }
     }
 
+    @Test fun stale_attempt_and_preauthorization_cannot_release_newer_cash_reservation() {
+        val book = WalletCapacitySeal7868
+        val i = intent().copy(mint = "reserve8198", createdAt = System.currentTimeMillis())
+        book.record(i.mint, i.resolvedSize, 1.0, 100.0, candidateVersion = i.candidateVersion, lane = i.canonicalLane)
+        book.bindAttempt8198(i)
+        assertFalse(book.release(i.mint, attemptId = "old-attempt"))
+        assertFalse(book.release(i.mint, candidateVersion = i.candidateVersion, lane = i.canonicalLane))
+        assertTrue(book.release(i.mint, attemptId = i.attemptId))
+        assertFalse(book.release(i.mint, attemptId = i.attemptId))
+        book.record(i.mint, i.resolvedSize, 1.0, 100.0, candidateVersion = i.candidateVersion + 1, lane = i.canonicalLane)
+        assertFalse(book.release(i.mint, candidateVersion = i.candidateVersion, lane = i.canonicalLane))
+        assertTrue(book.release(i.mint, candidateVersion = i.candidateVersion + 1, lane = i.canonicalLane))
+    }
+
+    @Test fun discovery_can_request_quotes_without_manufacturing_quote_output() {
+        val ts = com.lifecyclebot.data.TokenState("Discovery8198Mint11111111111111111111111", pairAddress = "pool8198")
+        ts.lastLiquidityUsd = 50_000.0
+        ts.lastPrice = 0.25
+        ts.lastPriceUpdate = System.currentTimeMillis()
+        ts.lastPriceDex = "RAYDIUM"
+        val map = TokenMapAuthority.ensureDiscoveryTokenMap(ts, "DEXSCREENER")
+        assertEquals("DEX_ROUTABLE", map.routeStatus)
+        assertEquals(0.0, map.expectedOutAmount, 0.0)
+        assertFalse(map.jupiterQuoteOk)
+        assertTrue(TokenMapAuthority.executableForLiveBuy(ts))
+        assertEquals(0.0, ts.tokenMap.expectedOutAmount, 0.0)
+        val pump = com.lifecyclebot.data.TokenState("Discovery8198Pump11111111111111111111111")
+        pump.lastPrice = 0.01
+        pump.lastPriceUpdate = System.currentTimeMillis()
+        pump.lastLiquidityUsd = 10_000.0
+        val curve = TokenMapAuthority.ensureDiscoveryTokenMap(pump, "PUMP_FUN_NEW")
+        assertEquals("PUMPFUN_BONDING_CURVE_EXECUTABLE", curve.routeStatus)
+        assertEquals(0.0, curve.expectedOutAmount, 0.0)
+        assertTrue(TokenMapAuthority.executableForLiveBuy(pump))
+    }
+
+    @Test fun final_quote_refuses_wrong_mint_zero_output_and_newer_generation() {
+        val ts = com.lifecyclebot.data.TokenState("quoteBoundary8198")
+        ts.lastPrice = 1.0
+        ts.tokenMap.decimals = 6
+        fun quote(mint: String, out: Long) = com.lifecyclebot.network.SwapQuote(org.json.JSONObject(), out, 0.1,
+            inputMint = com.lifecyclebot.network.JupiterApi.SOL_MINT, outputMint = mint, inAmount = 40_000_000L)
+        val q = SizingQuoteRecheck8153
+        assertEquals("PRE_BROADCAST_QUOTE_IDENTITY_MISMATCH_8198", q.preBroadcastQuoteRefusal8167(ts, 0.04, quote("wrong", 4_000_000L), 100.0))
+        assertEquals("PRE_BROADCAST_QUOTE_AMOUNT_INVALID_8198", q.preBroadcastQuoteRefusal8167(ts, 0.04, quote(ts.mint, 0L), 100.0))
+        val at = System.currentTimeMillis()
+        q.noteDecision8153(ts.mint, SizingQuoteRecheck8153.SealedEconomics8153(0.04, 40.0, 40.0, 2.0, 0.1, 1.0, at))
+        q.bindSeal8153(ts.mint, 0.04, at, candidateVersion8198 = 8199)
+        assertEquals("PRE_BROADCAST_SEAL_GENERATION_CHANGED_8198", q.preBroadcastQuoteRefusal8167(ts, 0.04, quote(ts.mint, 4_000_000L), 100.0, intent().copy(mint = ts.mint)))
+        assertNull(q.preBroadcastQuoteRefusal8167(ts, 0.04, quote(ts.mint, 4_000_000L), 100.0, intent().copy(mint = ts.mint, candidateVersion = 8199)))
+    }
+
 }

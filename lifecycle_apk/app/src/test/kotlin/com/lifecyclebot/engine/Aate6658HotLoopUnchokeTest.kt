@@ -104,7 +104,7 @@ class Aate6658HotLoopUnchokeTest {
         )
         assertTrue(
             "executable sizing must receive canonicalPrimaryLane6658 as its lane",
-            src.contains("resolveExecutableSize7835(ts, canonicalPrimaryLane6658, finalSize, config)"),
+            src.contains("resolveExecutableSize7835(ts, canonicalPrimaryLane6658, finalSize, config, candidateVersion7623)"),
         )
     }
 

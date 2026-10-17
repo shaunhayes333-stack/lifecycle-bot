@@ -497,6 +497,7 @@ object ExecutableOpenGate {
             } catch (_: Throwable) {}
         }
         executionTickets[authoritative.attemptId] = authoritative
+        WalletCapacitySeal7868.bindAttempt8198(authoritative)
         // V5.0.7607 — the immutable ExecutionIntent is the canonical BUY_INTENT
         // authority. Some specialist routes create/reuse it without passing through
         // TradeAuthorizer's telemetry hook, which left the specialist causal funnel

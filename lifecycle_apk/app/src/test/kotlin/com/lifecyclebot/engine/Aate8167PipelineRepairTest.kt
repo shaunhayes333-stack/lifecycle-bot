@@ -118,7 +118,9 @@ class Aate8167PipelineRepairTest {
             TokenMapAuthority.ensureDiscoveryTokenMap(curve, "PUMP_FUN_NEW").routeStatus)
         val curveVersion = TokenMapVersionGuard6411.stamp7460(curve.mint).mappingVersion
         curve.lastPriceDex = "PUMPSWAP"
-        assertEquals("DEX_ROUTABLE", TokenMapAuthority.ensureDiscoveryTokenMap(curve, "PUMP_FUN_GRADUATE").routeStatus)
+        // A graduation label is not a discovered AMM pool or a size-bound quote.
+        assertEquals("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", TokenMapAuthority.ensureDiscoveryTokenMap(curve, "PUMP_FUN_GRADUATE").routeStatus)
+        assertEquals(0.0, curve.tokenMap.expectedOutAmount, 0.0)
         assertTrue(curve.tokenMap.migratedOrGraduated)
         assertFalse(curve.tokenMap.pumpFunExecutable)
         assertTrue(TokenMapVersionGuard6411.stamp7460(curve.mint).mappingVersion > curveVersion)

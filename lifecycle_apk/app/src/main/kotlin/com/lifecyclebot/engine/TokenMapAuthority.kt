@@ -133,12 +133,13 @@ object TokenMapAuthority {
         return detached6492(snap)
     }
 
-    /** V5.0.7471 — strict shared entry-side view of canonical TokenMap proof. */
+    /** Dated entry-assessment price and venue evidence. Not a size-bound executable quote. */
     fun cachedExecutableForEntry7471(mint: String, maxAgeMs: Long = 90_000L): CanonicalTokenMap? {
         val snap = cachedForExit6513(mint, maxAgeMs) ?: return null
         if (snap.canonicalTargetMint.isNotBlank() && snap.canonicalTargetMint != mint) return null
         if (snap.routeStatus !in setOf("PUMPFUN_BONDING_CURVE_EXECUTABLE", "DEX_ROUTABLE")) return null
-        if (snap.expectedOutAmount <= 0.0) return null
+        // Entry assessment uses dated price/liquidity and venue identity, not a fabricated output.
+        // A size-bound SwapQuote is separately required by the transport before broadcast.
         val px = snap.priceUsd ?: return null
         val liq = snap.liquidityUsd ?: return null
         if (!px.isFinite() || px <= 0.0 || !liq.isFinite() || liq <= 0.0) return null
@@ -305,8 +306,8 @@ object TokenMapAuthority {
     fun liquidityVerdict(ts: TokenState): LiquidityVerdict {
         val tm = ensureDiscoveryTokenMap(ts)
         if (tm.routeStatus == "SOURCE_IDENTITY_BAD") return LiquidityVerdict("SOURCE_IDENTITY_BAD", sourceIdentityBad = true, reason = tm.hydrationFailureReasons.joinToString("|"))
-        if (tm.routeStatus == "PUMPFUN_BONDING_CURVE_EXECUTABLE") return LiquidityVerdict(tm.routeStatus, executable = true, reason = "pumpfun_curve_expectedOut=${tm.expectedOutAmount}")
-        if (tm.routeStatus == "DEX_ROUTABLE") return LiquidityVerdict(tm.routeStatus, executable = true, reason = "dex_or_jupiter_expectedOut=${tm.expectedOutAmount}")
+        if (tm.routeStatus == "PUMPFUN_BONDING_CURVE_EXECUTABLE") return LiquidityVerdict(tm.routeStatus, executable = true, reason = "pumpfun_quote_eligible_8198:quotedOut=${tm.expectedOutAmount}")
+        if (tm.routeStatus == "DEX_ROUTABLE") return LiquidityVerdict(tm.routeStatus, executable = true, reason = "dex_quote_eligible_8198:quotedOut=${tm.expectedOutAmount}")
         if (tm.routeStatus == "ROUTE_STALE_RECHECK") return LiquidityVerdict(tm.routeStatus, pending = true, reason = "route older than TTL")
         if (tm.routeStatus == "DEX_DISCOVERY_VERIFIED_PENDING_JUPITER") return LiquidityVerdict(tm.routeStatus, pending = true, reason = "dex discovery verified; executable quote pending")
         val trueZero = tm.hydrationComplete && tm.routeStatus == "NO_ROUTE" && !tm.pumpFunExecutable && !tm.jupiterQuoteOk && !tm.dexRouteOk && (tm.liquidityUsd ?: 0.0) <= 0.0 && tm.providerAttempts >= 2
@@ -317,11 +318,12 @@ object TokenMapAuthority {
         }
     }
 
+    /** Legacy name: eligible to REQUEST a real quote. Never authorizes broadcast or proves an output amount. */
     fun executableForLiveBuy(ts: TokenState): Boolean {
         val v = liquidityVerdict(ts)
         val tm = ts.tokenMap
         val ageOk = tm.updatedAtMs > 0L && System.currentTimeMillis() - tm.updatedAtMs <= ROUTE_TTL_MS
-        return v.executable && ageOk && tm.expectedOutAmount > 0.0 && !MintIntegrityGate.isSystemOrStablecoinMint(tm.canonicalTargetMint) && !isSourceLabel(tm.canonicalTargetMint) && tm.canonicalTargetMint != tm.pairAddress && tm.canonicalTargetMint != tm.poolAddress
+        return v.executable && ageOk && !MintIntegrityGate.isSystemOrStablecoinMint(tm.canonicalTargetMint) && !isSourceLabel(tm.canonicalTargetMint) && tm.canonicalTargetMint != tm.pairAddress && tm.canonicalTargetMint != tm.poolAddress
     }
 
     private fun resolveCanonicalTarget(ts: TokenState, tm: CanonicalTokenMap): String {
@@ -354,7 +356,7 @@ object TokenMapAuthority {
             (tm.pumpFunExecutable || source.contains("PUMP") || (tm.expectedOutAmount > 0.0 && tm.pumpFunBondingCurveStatus.equals("ACTIVE", true)) || (tm.realSolReserves ?: 0.0) > 0.0 || (tm.virtualSolReserves ?: 0.0) > 0.0)) {
             tm.pumpFunExecutable = true
             if (tm.pumpFunBondingCurveStatus.isBlank() || tm.pumpFunBondingCurveStatus == "UNKNOWN") tm.pumpFunBondingCurveStatus = "DISCOVERY_ACTIVE_CANDIDATE"
-            if (tm.expectedOutAmount <= 0.0) tm.expectedOutAmount = 1.0
+            // Discovery never manufactures a quoted output quantity.
             tm.routeStatus = "PUMPFUN_BONDING_CURVE_EXECUTABLE"
             tm.hydrationComplete = true
             tm.hydrationConfidence = maxOf(tm.hydrationConfidence, 0.75)
@@ -371,7 +373,7 @@ object TokenMapAuthority {
         }
         if (tm.jupiterQuoteOk || tm.dexRouteOk || tm.expectedOutAmount > 0.0 || (tm.poolAddress.isNotBlank() && (tm.liquidityUsd ?: 0.0) > 0.0) || (tm.pairAddress.isNotBlank() && (tm.liquidityUsd ?: 0.0) > 0.0)) {
             tm.dexRouteOk = true
-            if (tm.expectedOutAmount <= 0.0) tm.expectedOutAmount = 1.0
+            // Discovery never manufactures a quoted output quantity.
             tm.routeStatus = "DEX_ROUTABLE"
             tm.hydrationComplete = true
             tm.hydrationConfidence = maxOf(tm.hydrationConfidence, 0.8)

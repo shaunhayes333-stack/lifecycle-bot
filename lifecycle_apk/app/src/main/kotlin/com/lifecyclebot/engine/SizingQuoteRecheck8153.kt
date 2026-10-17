@@ -30,6 +30,7 @@ object SizingQuoteRecheck8153 {
         val impactOneWayPct: Double,
         val priceUsd: Double,
         val atMs: Long,
+        val candidateVersion8198: Long = 0L,
     )
 
     const val SEAL_TTL_MS_8153 = 10L * 60_000L
@@ -66,11 +67,13 @@ object SizingQuoteRecheck8153 {
     }
 
     /** Executor's final SOL-to-token quote: no price inferred from the cached mark or guessed decimal scale. */
-    fun preBroadcastQuoteRefusal8167(ts: com.lifecyclebot.data.TokenState, executedSol: Double, quote: com.lifecyclebot.network.SwapQuote, solUsd: Double = WalletManager.freshSolPrice8163()): String? {
+    fun preBroadcastQuoteRefusal8167(ts: com.lifecyclebot.data.TokenState, executedSol: Double, quote: com.lifecyclebot.network.SwapQuote, solUsd: Double = WalletManager.freshSolPrice8163(), intent8198: ExecutableOpenGate.ExecutionIntent? = null): String? {
+        if (quote.inputMint != com.lifecyclebot.network.JupiterApi.SOL_MINT || quote.outputMint != ts.mint) return "PRE_BROADCAST_QUOTE_IDENTITY_MISMATCH_8198"
+        if (quote.inAmount <= 0L || quote.outAmount <= 0L) return "PRE_BROADCAST_QUOTE_AMOUNT_INVALID_8198"
         val price = if (quote.inputMint == com.lifecyclebot.network.JupiterApi.SOL_MINT && quote.outputMint == ts.mint)
             quotePrice8167(quote.inAmount, quote.outAmount, ts.tokenMap.decimals, solUsd, ts.lastPrice)
         else ts.lastPrice
-        return preBroadcastRefusal8153(ts.mint, executedSol, quote.inAmount, quote.priceImpactPct, ts.lastPrice, price)
+        return preBroadcastRefusal8153(ts.mint, executedSol, quote.inAmount, quote.priceImpactPct, ts.lastPrice, price, intent8198)
     }
 
     /**
@@ -130,18 +133,20 @@ object SizingQuoteRecheck8153 {
     }
 
     /** WalletCapacitySeal7868.record: bind the decision's economics to the exact sealed size. */
-    fun bindSeal8153(mint: String, sizeSol: Double, nowMs: Long = System.currentTimeMillis()) {
+    fun bindSeal8153(mint: String, sizeSol: Double, nowMs: Long = System.currentTimeMillis(), candidateVersion8198: Long = 0L) {
         val p = pending.remove(mint) ?: return
         if (nowMs - p.atMs !in 0L..SEAL_TTL_MS_8153 || !sizeSol.isFinite() || sizeSol <= 0.0) return
-        sealed[mint] = p.copy(sizeSol = sizeSol, atMs = nowMs)
+        sealed[mint] = p.copy(sizeSol = sizeSol, atMs = nowMs, candidateVersion8198 = candidateVersion8198)
         if (sealed.size > 2_000) sealed.entries.removeIf { nowMs - it.value.atMs > SEAL_TTL_MS_8153 }
     }
 
     /** Executor, immediately before broadcast: the named refusal, or null to send. Fail-open on an internal fault. */
-    fun preBroadcastRefusal8153(mint: String, executedSol: Double, quotedInLamports: Long, freshImpactPct: Double, priceNowUsd: Double, executionPriceUsd: Double = Double.NaN): String? {
+    fun preBroadcastRefusal8153(mint: String, executedSol: Double, quotedInLamports: Long, freshImpactPct: Double, priceNowUsd: Double, executionPriceUsd: Double = Double.NaN, intent8198: ExecutableOpenGate.ExecutionIntent? = null): String? {
+        val observed8198 = sealed[mint]
+        if (intent8198 != null && observed8198 != null && observed8198.candidateVersion8198 != intent8198.candidateVersion) return "PRE_BROADCAST_SEAL_GENERATION_CHANGED_8198"
         val r = try {
             checks.incrementAndGet()
-            recheck8153(sealed[mint], executedSol, quotedInLamports, freshImpactPct, priceNowUsd, System.currentTimeMillis(), executionPriceUsd)
+            recheck8153(observed8198, executedSol, quotedInLamports, freshImpactPct, priceNowUsd, System.currentTimeMillis(), executionPriceUsd)
         } catch (_: Throwable) { null } ?: return null
         refusals.computeIfAbsent(r) { AtomicLong(0) }.incrementAndGet()
         try {
@@ -153,8 +158,8 @@ object SizingQuoteRecheck8153 {
                     "sealGross=${s?.expectedGrossPct?.let { "%.2f".format(it) } ?: "-"} sealTarget=${s?.firstTargetPct?.let { "%.1f".format(it) } ?: "-"} " +
                     "drift=${"%.2f".format(adverseDriftPct8153(s?.priceUsd ?: 0.0, priceNowUsd))}")
         } catch (_: Throwable) {}
-        sealed.remove(mint)
-        WalletCapacitySeal7868.release(mint)
+        if (observed8198 != null) sealed.remove(mint, observed8198)
+        if (intent8198 != null) WalletCapacitySeal7868.release(mint, attemptId = intent8198.attemptId)
         return r
     }
 

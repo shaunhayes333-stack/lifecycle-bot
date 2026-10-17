@@ -11471,7 +11471,7 @@ class GoldenTapeRegressionTest {
         assertTrue(ray.contains("HeliusSenderEnvelope7250.build(tx, wallet.publicKeyB58, senderTipLamports)"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("val prepared8090 = if (pumpFirstResult == null) {"))
-        assertTrue(ex.contains("prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail)"))
+        assertTrue(ex.contains("prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835)"))
         assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)"))
         assertTrue(ex.contains("val directFill7325 = pumpFirstResult ?: raydiumBuy7325"))
         assertTrue(ex.indexOf("raydiumBuy7325 = tryRaydiumBuy7325") < ex.indexOf("BUY ABORTED: all slippage levels failed"))
@@ -15242,6 +15242,28 @@ class GoldenTapeRegressionTest {
         val liveRunner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerLive8153.kt").readText()
         assertTrue(liveRunner.contains("book.confirmAppliedTier8198("))
         assertFalse(liveRunner.contains("tier, \"\", Double.NaN, Double.NaN"))
+    }
+
+    @Test fun V5_0_8198_discovery_quote_and_reservation_ownership_remain_separate() {
+        val root = java.io.File("src/main/kotlin/com/lifecyclebot/engine")
+        val map = java.io.File(root, "TokenMapAuthority.kt").readText()
+        assertFalse(map.contains("tm.expectedOutAmount = 1.0"))
+        val readiness = map.substringAfter("fun executableForLiveBuy(").substringBefore("private fun resolveCanonicalTarget")
+        assertFalse(readiness.contains("tm.expectedOutAmount > 0.0"))
+        val reserve = java.io.File(root, "WalletCapacitySeal7868.kt").readText()
+        assertTrue(reserve.contains("reservations.remove(mint, old)"))
+        assertTrue(reserve.contains("seal.attemptId == attemptId"))
+        val gate = java.io.File(root, "ExecutableOpenGate.kt").readText()
+        assertTrue(gate.contains("WalletCapacitySeal7868.bindAttempt8198(authoritative)"))
+        val quote = java.io.File(root, "SizingQuoteRecheck8153.kt").readText()
+        assertTrue(quote.contains("PRE_BROADCAST_QUOTE_IDENTITY_MISMATCH_8198"))
+        assertTrue(quote.contains("PRE_BROADCAST_QUOTE_AMOUNT_INVALID_8198"))
+        assertTrue(quote.contains("PRE_BROADCAST_SEAL_GENERATION_CHANGED_8198"))
+        assertTrue(quote.contains("sealed.remove(mint, observed8198)"))
+        val executor = java.io.File(root, "Executor.kt").readText()
+        val failure = executor.substringAfter("private fun terminalizeCanonicalLiveFailure7790").substringBefore("private fun noteLivePreSizeRefusal7809")
+        assertFalse(failure.contains("LaneExecutionCoordinator.candidateVersionFor"))
+        assertTrue(executor.contains("this.emitLiveBuyFail(ts, sol, reason, detail, attemptId8198)"))
     }
 
 }

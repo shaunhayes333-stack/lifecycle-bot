@@ -25,7 +25,8 @@ class Aate7869SpecialistExecTest {
         val mark = exec.substringAfter("private fun stampLiveEntryMark7790").substringBefore("private fun ")
         assertTrue(mark.contains("liveIntentFor7868(ts.mint)"))
         val term = exec.substringAfter("private fun terminalizeCanonicalLiveFailure7790").substringBefore("    /**")
-        assertTrue(term.contains("liveIntentFor7868(ts.mint)"))
+        assertTrue(term.contains("ExecutableOpenGate.ticketForAttempt(attemptId8198)"))
+        assertFalse(term.contains("liveIntentFor7868(ts.mint)"))
         val lookup = exec.substringAfter("private fun liveIntentFor7868").substringBefore("private fun buyPhase")
         assertTrue(lookup.contains("ExecutableOpenGate.activeExecutionIntent6519(\"LIVE\", mint, cv)"))
     }

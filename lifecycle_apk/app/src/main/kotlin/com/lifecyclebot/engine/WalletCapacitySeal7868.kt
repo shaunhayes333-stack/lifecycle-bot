@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
  * still refused.
  */
 internal object WalletCapacitySeal7868 {
-    data class Seal(val sizeSol: Double, val walletSol: Double, val solUsd: Double, val atMs: Long)
+    data class Seal(val sizeSol: Double, val walletSol: Double, val solUsd: Double, val atMs: Long, val candidateVersion: Long = 0L, val lane: String = "", val attemptId: String = "")
 
     private const val TTL_MS = 10L * 60_000L
     /** Wallet drop beyond this fraction of the sealed wallet is a material capacity change. */
@@ -32,13 +32,19 @@ internal object WalletCapacitySeal7868 {
 
     private val seals = ConcurrentHashMap<String, Seal>()
 
-    fun record(mint: String, sizeSol: Double, walletSol: Double, solUsd: Double, nowMs: Long = System.currentTimeMillis()) {
+    @Synchronized
+    fun record(mint: String, sizeSol: Double, walletSol: Double, solUsd: Double, nowMs: Long = System.currentTimeMillis(), candidateVersion: Long = 0L, lane: String = "") {
         if (mint.isBlank() || !sizeSol.isFinite() || sizeSol <= 0.0 || !walletSol.isFinite() || walletSol <= 0.0) return
-        seals[mint] = Seal(sizeSol, walletSol, solUsd, nowMs)
-        reservations[mint] = sizeSol to nowMs
+        val prior = reservations[mint]
+        if (prior != null && prior.attemptId.isNotBlank() && prior.candidateVersion == candidateVersion &&
+            prior.lane.equals(lane, true) && nowMs - prior.atMs in 0L..RESERVATION_TTL_MS &&
+            ExecutableOpenGate.ticketForAttempt(prior.attemptId)?.attemptId == prior.attemptId) return
+        val seal = Seal(sizeSol, walletSol, solUsd, nowMs, candidateVersion, lane)
+        seals[mint] = seal
+        reservations[mint] = seal
         if (seals.size > 2_000) seals.entries.removeIf { nowMs - it.value.atMs > TTL_MS }
         // V5.0.8153 — the decision's economics are bound to this exact sealed size for the pre-broadcast recheck.
-        SizingQuoteRecheck8153.bindSeal8153(mint, sizeSol, nowMs)
+        SizingQuoteRecheck8153.bindSeal8153(mint, sizeSol, nowMs, candidateVersion)
     }
 
     /**
@@ -60,7 +66,7 @@ internal object WalletCapacitySeal7868 {
     // (the swap has left the wallet), fails, or RESERVATION_TTL_MS lapses; the
     // next seal is sized against wallet minus other candidates' reservations.
     internal const val RESERVATION_TTL_MS = 90_000L
-    private val reservations = ConcurrentHashMap<String, Pair<Double, Long>>()
+    private val reservations = ConcurrentHashMap<String, Seal>()
 
     /** Pure: SOL reserved by OTHER live seals still inside the TTL. */
     internal fun reservedExcluding(all: Map<String, Pair<Double, Long>>, mint: String, nowMs: Long): Double =
@@ -71,16 +77,38 @@ internal object WalletCapacitySeal7868 {
         if (!walletSol.isFinite()) return walletSol
         // Only a candidate with a live sealed BUY intent holds capital.
         reservations.entries.removeIf { (m, v) ->
-            nowMs - v.second > RESERVATION_TTL_MS ||
-                (try { ExecutableOpenGate.activeExecutionIntent6519("LIVE", m) } catch (_: Throwable) { null }) == null
+            nowMs - v.atMs > RESERVATION_TTL_MS ||
+                (try { ExecutableOpenGate.activeExecutionIntent6519("LIVE", m, v.candidateVersion) } catch (_: Throwable) { null }) == null
         }
-        val reserved = reservedExcluding(reservations, mint, nowMs)
+        val reserved = reservedExcluding(reservations.mapValues { it.value.sizeSol to it.value.atMs }, mint, nowMs)
         if (reserved > 0.0) try { PipelineHealthCollector.labelInc("LIVE_CAPITAL_RESERVED_FOR_SEALED_INTENT_7868") } catch (_: Throwable) {}
         return (walletSol - reserved).coerceAtLeast(0.0)
     }
 
     /** The swap left the wallet (pending proof), or the buy terminated: release. */
-    fun release(mint: String) { if (mint.isNotBlank()) reservations.remove(mint) }
+    @Synchronized
+    fun bindAttempt8198(intent: ExecutableOpenGate.ExecutionIntent) {
+        if (intent.mode != "LIVE") return
+        val old = reservations[intent.mint] ?: return
+        if (old.candidateVersion != intent.candidateVersion ||
+            !old.lane.equals(intent.canonicalLane, true) || !sealHonours8153(old.sizeSol, intent.resolvedSize)) return
+        if (old.attemptId.isNotBlank() && old.attemptId != intent.attemptId) return
+        val bound = old.copy(attemptId = intent.attemptId)
+        reservations.replace(intent.mint, old, bound)
+        seals.replace(intent.mint, old, bound)
+    }
+
+    internal fun owns8198(seal: Seal, attemptId: String, candidateVersion: Long, lane: String): Boolean =
+        if (seal.attemptId.isNotBlank()) attemptId.isNotBlank() && seal.attemptId == attemptId
+        else candidateVersion > 0L && seal.candidateVersion == candidateVersion &&
+            lane.isNotBlank() && seal.lane.equals(lane, true)
+
+    @Synchronized
+    fun release(mint: String, attemptId: String = "", candidateVersion: Long = 0L, lane: String = ""): Boolean {
+        val old = reservations[mint] ?: return false
+        if (!owns8198(old, attemptId, candidateVersion, lane)) return false
+        return reservations.remove(mint, old)
+    }
 
     /** Pure: is the capacity at execution materially different from the capacity at seal? */
     internal fun materiallyChanged(seal: Seal, walletNow: Double, solUsdNow: Double): Boolean {
@@ -104,10 +132,10 @@ internal object WalletCapacitySeal7868 {
     }
 
     /** The live spend boundary: the sealed size against the capacity it was sealed on. */
-    fun executionRefusal(mint: String, sol: Double, walletNow: Double, capNow: Double, minNow: Double): String? {
+    fun executionRefusal(mint: String, sol: Double, walletNow: Double, capNow: Double, minNow: Double, attemptId8198: String): String? {
         val base = SealedExecutionSize7835.boundsRefusal(sol, capNow, minNow)
         val verdict = decide(
-            seals[mint], sol, walletNow, WalletManager.lastKnownSolPrice,
+            seals[mint]?.takeIf { it.attemptId == attemptId8198 && attemptId8198.isNotBlank() }, sol, walletNow, WalletManager.lastKnownSolPrice,
             com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL, base, System.currentTimeMillis(),
         )
         if (base != null && verdict == null) try {
@@ -120,7 +148,7 @@ internal object WalletCapacitySeal7868 {
         if (verdict == "SEALED_INTENT_INVALIDATED_CAPACITY_CHANGED_7868") try {
             PipelineHealthCollector.labelInc(verdict)
         } catch (_: Throwable) {}
-        if (verdict != null) release(mint)
+        if (verdict != null) release(mint, attemptId = attemptId8198)
         return verdict
     }
 

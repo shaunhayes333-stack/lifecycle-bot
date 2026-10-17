@@ -13770,7 +13770,7 @@ class Executor(
         if (intent != null && intent.mode.equals("LIVE", true)) {
             val lane7871 = intent.canonicalLane.ifBlank { intent.lane }
             LivePendingAttempt7868.bind(intent.mint, intent.attemptId, lane7871, entry7871 = pendingEntrySnapshot7871(intent, lane7871), candidateVersion7876 = intent.candidateVersion)
-            WalletCapacitySeal7868.release(intent.mint)
+            WalletCapacitySeal7868.release(intent.mint, attemptId = intent.attemptId)
         }
     }
 
@@ -13941,7 +13941,7 @@ class Executor(
                 val exact = ExecutableOpenGate.ticketForAttempt(attemptId8198)
                     ?.takeIf { it.mint == ts.mint && it.mode == "LIVE" }
                 if (exact != null) {
-                    ToolkitSignalSheet.terminalizeUnexecutedTicket7948(exact.canonicalLane, exact.attemptId, reason)
+                    noteLivePreSizeRefusal7809(exact.canonicalLane, exact.attemptId, reason)
                     val pending = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551
                         .findPending(ts.mint, "LIVE", exact.candidateVersion)
                     if (pending?.attemptId == exact.attemptId) {
@@ -13950,21 +13950,9 @@ class Executor(
                 }
                 return
             }
-            val cv = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
-            val intent = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE", cv)
-                ?: com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(ts.mint, "LIVE")
-            if (intent != null) {
-                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(intent, reason)
-                PipelineHealthCollector.labelInc("LIVE_FAILURE_CANONICAL_TERMINAL_7790")
-                noteLivePreSizeRefusal7809(intent.canonicalLane, intent.attemptId, reason)
-            } else {
-                // V5.0.7868 — live meme buys run on the sealed gate intent (see
-                // liveIntentFor7868): name the refusal on that lane and attempt.
-                liveIntentFor7868(ts.mint)?.let { gate ->
-                    PipelineHealthCollector.labelInc("LIVE_FAILURE_GATE_INTENT_TERMINAL_7868")
-                    noteLivePreSizeRefusal7809(gate.canonicalLane, gate.attemptId, reason)
-                }
-            }
+            // Unscoped diagnostics cannot mutate whichever newer attempt currently owns this mint.
+            // The scoped liveBuy wrapper/backstop owns terminalization and cash release.
+            PipelineHealthCollector.labelInc("LIVE_FAILURE_UNBOUND_DIAGNOSTIC_8198")
         } catch (_: Throwable) {}
     }
 
@@ -13978,17 +13966,13 @@ class Executor(
      */
     private fun noteLivePreSizeRefusal7809(lane: String, attemptId: String, reason: String) {
         try {
-            ToolkitSignalSheet.recordPreSizeRefusal7809(lane, reason)
             val sizeAuthorityVerdict = reason == "SIZE_BELOW_MIN_RISK_TOO_WIDE_7807" ||
                 reason == "COST_CONSUMES_MOVE_7807" || reason == "LANE_SLOT_CAP_7807"
             if (sizeAuthorityVerdict && attemptId.isNotBlank()) {
                 ToolkitSignalSheet.recordDeskStage(lane, "SIZE_REJECT", attemptId)
-            } else if (attemptId.isNotBlank() && ExecutableOpenGate.ticketForAttempt(attemptId) != null) {
-                // V5.0.7868 — a sealed ticket refused at the executor terminates by
-                // name on its own attempt and lane (spec: TICKET => EXEC or named
-                // terminal; 5.0.7867 MOONSHOT ticket=33 exec=0 had no terminal).
-                ToolkitSignalSheet.recordDeskStage(lane, "EXEC_REFUSED", attemptId)
             }
+            // One idempotent terminal/count using the ticket's event-local mode.
+            ToolkitSignalSheet.terminalizeUnexecutedTicket7948(lane, attemptId, reason)
         } catch (_: Throwable) {}
     }
 
@@ -14146,7 +14130,7 @@ class Executor(
                 "sealedSize=${failedIntent8198?.resolvedSize ?: sol} reason=$reason detail=${detail.take(180)}") } catch (_: Throwable) {}
         terminalizeCanonicalLiveFailure7790(ts, reason, attemptId8198)
         try { com.lifecyclebot.engine.truth.RunnerCapture8017.noteDownstream8047(ts.mint, reason) } catch (_: Throwable) {}  // V5.0.8047
-        WalletCapacitySeal7868.release(ts.mint)
+        WalletCapacitySeal7868.release(ts.mint, attemptId = attemptId8198)
         try {
             val r = reason.uppercase()
             when {
@@ -17789,7 +17773,13 @@ class Executor(
                     "reason=SIGNED_TRANSACTION_PENDING signature=${pending8198.signature} state=${pending8198.state}") } catch (_: Throwable) {}
             return
         }
+        val exact8198 = ExecutableOpenGate.ticketForAttempt(attemptId)
         try { ToolkitSignalSheet.terminalizeUnexecutedTicket7948(normalizeExecutionLane(layerTag), attemptId, reason) } catch (_: Throwable) {}
+        if (exact8198 != null && exact8198.mode == "LIVE") {
+            WalletCapacitySeal7868.release(exact8198.mint, attemptId = exact8198.attemptId)
+            val pending = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(exact8198.mint, "LIVE", exact8198.candidateVersion)
+            if (pending?.attemptId == exact8198.attemptId) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(pending, reason)
+        }
     }
 
     fun blueChipBuy(
@@ -18574,6 +18564,10 @@ class Executor(
                         finalityPrechecked: Boolean = false,
                         attemptId: String = "",
                         executionContext: ExecutionContext? = null): Boolean {    // V5.9.386 — matching emoji
+        fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "", attemptId8198: String = attemptId) {
+            this.emitLiveBuyFail(ts, sol, reason, detail, attemptId8198)
+        }
+
         // V5.0.6312 — POSITION IDENTITY: collapse alias variants so
         // BLUE_CHIP / BLUECHIP never create two separate positions for
         // the same wallet acquisition. Applied at the earliest entry so
@@ -20472,7 +20466,7 @@ class Executor(
         val maxSpendableSol = spendCap7842.maxSpendableSol
         WalletCapacitySeal7868.noteRouteBridge(ts.mint, spendCap7842)
         val spendRefusal7835 = WalletCapacitySeal7868.executionRefusal(
-            ts.mint, sol, walletSol, maxSpendableSol, maxOf(liveMinExecutableBuySol, spendCap7842.routableMinSol),
+            ts.mint, sol, walletSol, maxSpendableSol, maxOf(liveMinExecutableBuySol, spendCap7842.routableMinSol), attemptId8198 = attemptId,
         )
         if (spendRefusal7835 != null) {
             emitLiveBuyFail(ts, sol, spendRefusal7835, attemptId8198 = attemptId)
@@ -20690,7 +20684,7 @@ class Executor(
             // like liveSell does, so memes actually fill instead of phantoming.
             val buyBaseSlippage = c.slippageBps.coerceAtLeast(200)
             val prepared8090 = if (pumpFirstResult == null) {
-                prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail)
+                prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835)
                     ?: return false
             } else null
             val quote = prepared8090?.quote
@@ -30742,6 +30736,7 @@ class Executor(
         ts: TokenState, wallet: SolanaWallet, sol: Double, effectiveSol: Double,
         tradeKey: String, c: com.lifecyclebot.data.BotConfig,
         buyTerminalFail: (String) -> Unit,
+        intent8198: ExecutableOpenGate.ExecutionIntent,
     ): JupiterBuyPreparation8090? {
         val buyBaseSlippage = c.slippageBps.coerceAtLeast(200)
         val slippageLadder = listOf(buyBaseSlippage, 350, 500).distinct()
@@ -31016,7 +31011,7 @@ class Executor(
         }
 
         security.enforceSignDelay()
-        SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(ts, sol, executionQuote7688)?.let { buyTerminalFail("BUY_TERMINAL_PRE_BROADCAST_ECONOMICS:$it"); return null }  // V5.0.8167 — final quote economics
+        SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(ts, sol, executionQuote7688, intent8198 = intent8198)?.let { buyTerminalFail("BUY_TERMINAL_PRE_BROADCAST_ECONOMICS:$it"); return null }  // V5.0.8167 — final quote economics
 
         useJito = c.jitoEnabled && !executionQuote7688.isUltra
         jitoTip = effectiveJitoTipLamports(c, urgent = false)

@@ -65,7 +65,7 @@ class Aate7809FunnelSizingIntentTest {
         val auth = src("engine/TradeAuthorizer.kt")
         assertTrue(auth.contains("ToolkitSignalSheet.recordPreSizeRefusal7809(requestedBook.name, \"AUTH_\$reason\")"))
         val exec = src("engine/Executor.kt")
-        assertTrue(exec.contains("noteLivePreSizeRefusal7809(intent.canonicalLane, intent.attemptId, reason)"))
+        assertTrue(exec.contains("noteLivePreSizeRefusal7809(exact.canonicalLane, exact.attemptId, reason)"))
         val helper = exec.substringAfter("private fun noteLivePreSizeRefusal7809(").substringBefore("private fun stampLiveEntryMark7790(")
         assertTrue(helper.contains("\"SIZE_BELOW_MIN_RISK_TOO_WIDE_7807\""))
         assertTrue(helper.contains("ToolkitSignalSheet.recordDeskStage(lane, \"SIZE_REJECT\", attemptId)"))

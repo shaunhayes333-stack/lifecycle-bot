@@ -6057,7 +6057,7 @@ object FinalDecisionGate {
         // Non-specialist/trunk paths retain its BLOCK semantics.
         val policyAllows7848 = specialistLane?.isNotBlank() == true || aateEnvelope6512?.action != "BLOCK"
         val executableSize7835 = if (shouldTradeFinal && canonicalEconomicApproval7548 && policyAllows7848) {
-            resolveExecutableSize7835(ts, canonicalPrimaryLane6658, finalSize, config)
+            resolveExecutableSize7835(ts, canonicalPrimaryLane6658, finalSize, config, candidateVersion7623)
         } else 0.0
 
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
@@ -6088,7 +6088,7 @@ object FinalDecisionGate {
         ))
     }
 
-    private fun resolveExecutableSize7835(ts: TokenState, lane: String, requested: Double, config: BotConfig): Double {
+    private fun resolveExecutableSize7835(ts: TokenState, lane: String, requested: Double, config: BotConfig, candidateVersion8198: Long): Double {
         if (!requested.isFinite() || requested <= 0.0) return 0.0
         val configuredMinimum7835 = if (config.paperMode) PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
             else if (config.allowLiveMicroProbe) 0.005 else config.minLiveBuySol.coerceAtLeast(0.0)
@@ -6224,7 +6224,7 @@ object FinalDecisionGate {
         )
         if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9) return 0.0
         com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, resolution, lane)
-        if (!config.paperMode) WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd)
+        if (!config.paperMode) WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd, candidateVersion = candidateVersion8198, lane = lane)
         if (!config.paperMode) try {
             com.lifecyclebot.engine.truth.LiveSizeTarget8094.recordCeiling8094(ts.mint, walletShare8094, resolution.finalSizeSol)
             val sz = risk8094?.sizing8094
