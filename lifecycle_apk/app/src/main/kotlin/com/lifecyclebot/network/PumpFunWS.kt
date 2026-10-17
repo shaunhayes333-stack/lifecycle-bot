@@ -488,6 +488,7 @@ object PumpFunWS {
                         val vTok0 = j.optDouble("vTokensInBondingCurve", 0.0)
                         val priceSol0 = if (vSol0.isFinite() && vTok0.isFinite() && vSol0 > 0.0 && vTok0 > 0.0) vSol0 / vTok0 else 0.0
                         try { com.lifecyclebot.engine.truth.AdmissionBirth8144.noteCreateFrame8144(mint) } catch (_: Throwable) {}  // V5.0.8144 — every frame's birth, before the throttle
+                        try { com.lifecyclebot.engine.truth.LaunchCohort8173.noteCreateIntake8173(mint, priceSol0.isFinite() && priceSol0 > 0.0) } catch (_: Throwable) {}  // V5.0.8173 — no reserves in the frame: read the curve now
                         if (priceSol0.isFinite() && priceSol0 > 0.0) {
                             try { PumpCurveKeys7269.rememberCreate7280(mint, priceSol0, System.currentTimeMillis()) } catch (_: Throwable) {}
                             // V5.0.7951 — the create frame's reserves are the curve's first liquidity reading.

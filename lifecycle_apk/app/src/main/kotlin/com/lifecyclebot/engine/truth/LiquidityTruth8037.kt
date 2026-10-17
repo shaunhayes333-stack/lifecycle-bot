@@ -33,7 +33,8 @@ object LiquidityTruth8037 {
         // V5.0.8046 — an active pump.fun curve's liquidity is the SOL buyers actually put in, not its 30 SOL of virtual
         // reserves: 5.0.8043 MOONSHOT read DOGO-type launches as liq=$2.6-3.1K at a $3-4K cap while the wallet showed
         // $1-2 (nobody had bought). Set up or down — this is the curve's own account.
-        val curveReal = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
+        // V5.0.8173 — a stale curve reading is checked against a newer executed price and re-read from chain (LaunchCohort8173).
+        val curveReal = try { LaunchCohort8173.curveRealSolFor8173(ts) } catch (_: Throwable) { null }
         if (curveReal != null) {
             val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
             if (solUsd.isFinite() && solUsd > 0.0) {

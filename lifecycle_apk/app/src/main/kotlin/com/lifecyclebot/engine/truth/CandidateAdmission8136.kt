@@ -221,8 +221,17 @@ object CandidateAdmission8136 {
         if (provenLosing8136(cellLoss)) { trace += "cellLosing=${cellLoss?.compact}"; return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen) }
         if (staleLoss8169(c.lossEpochAware8169, c.cell, cellLoss)) trace += "$STALE_CELL_TRACE_8169${c.cell?.compact}"
         if (provenLosing8136(stageLoss) && !cellSupported) {
-            trace += "stageLosing=${stageLoss?.compact}"
-            return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
+            // V5.0.8173 — the stage record is a lane-wide prior (every coin of the lane at this lifecycle stage). A fired
+            //    setup supported on its own record (StrategyRank8153: n, mean - SE, its own timing band) is the token-specific
+            //    edge and is the strategy instead, exactly as for a losing selected setup or tactic above — unless the
+            //    coin's own cell is losing. 5.0.8172: STAGE_PROVEN_LOSING refused 432 while LAUNCH_LADDER_PROVEN (n210, auth
+            //    1.00) fired on the same launches. Economics, data and the edge test below still decide.
+            if (bestSetup == null || losing8136(cellLoss)) {
+                trace += "stageLosing=${stageLoss?.compact}"
+                return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
+            }
+            trace += "stageLosing=${stageLoss?.compact} carried by setup ${bestSetup.compact}"
+            if (bestSetup.id != chosen) chooseSetup(bestSetup.id)
         }
         if (!cellSupported && staleLoss8169(c.lossEpochAware8169, c.stageRecord, stageLoss)) trace += "$STALE_STAGE_TRACE_8169${c.stageRecord?.compact}"
         if (c.losingTactic != null && bestSetup == null && !cellSupported) {
