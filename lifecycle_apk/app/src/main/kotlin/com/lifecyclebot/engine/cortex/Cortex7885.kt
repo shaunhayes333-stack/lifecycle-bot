@@ -2162,6 +2162,15 @@ object Cortex7885 {
 
     private fun entryDecisionAt8187(a: Assessment, key: String): Long = entryReadAt8187[key]?.let { minOf(it, a.atMs) } ?: a.atMs
 
+    /** Pure: a pending decision can bind a fast close only when the original
+     * immutable voters were ready at decision time and mode matches the actual fill. */
+    internal fun pendingReadMatches8196(
+        admitted: Boolean, decisionMode: String, closeMode: String,
+        readAtMs: Long, decisionAtMs: Long, openedAtMs: Long, lateRead: Boolean,
+    ): Boolean = admitted && !lateRead && decisionMode == closeMode &&
+        (closeMode == "LIVE" || closeMode == "PAPER") &&
+        readAtMs > 0L && readAtMs <= decisionAtMs && readBindable8187(decisionAtMs, openedAtMs)
+
     /** Pure (V5.0.8187): may a read decided at [decisionAtMs] bind a position opened at [openedAtMs]? */
     fun readBindable8187(decisionAtMs: Long, openedAtMs: Long): Boolean = openedAtMs - decisionAtMs in 0L..ENTRY_READ_MATCH_MS
 
@@ -2201,6 +2210,21 @@ object Cortex7885 {
         val lanes = listOfNotNull(sealed?.takeIf { it.mode.equals(mode, true) && it.mint == env.mint }?.ownerLane, canon(env.lane), env.lane.trim().uppercase())
             .map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
         val sealedAt = sealed?.takeIf { it.mode.equals(mode, true) && it.mint == env.mint }?.decisionTimestampMs ?: 0L
+        // 8196: a fast on-chain close can arrive before the five-minute forward
+        // label books its original entry read. The immutable pending decision
+        // already has the exact lane/mode/voters. Bind it NOW instead of filing
+        // the close as permanently unbound and losing the entry verdict.
+        val stillPending8196 = lanes.asSequence()
+            .flatMap { lane -> sequenceOf(env.mint, closeKey).distinct().map { mint -> "$mint|$lane" } }
+            .mapNotNull { pending[it] }
+            .firstOrNull { p ->
+                pendingReadMatches8196(p.legacyAdmitted, p.decisionMode8196, mode,
+                    p.a.atMs, p.atMs, openedAt, p.lateRead8169)
+            }
+        if (stillPending8196 != null) {
+            inc("REALIZED_BOUND_FROM_PENDING_DECISION_8196")
+            return stillPending8196.a
+        }
         val d = lanes.asSequence().flatMap { l -> sequenceOf(env.mint, closeKey).distinct().map { m -> m to l } }
             .mapNotNull { (m, l) ->
                 (if (sealedAt > 0L) gradeBook8144.admittedDecision8187(m, l, mode, sealedAt + 60_000L, 120_000L) else null)

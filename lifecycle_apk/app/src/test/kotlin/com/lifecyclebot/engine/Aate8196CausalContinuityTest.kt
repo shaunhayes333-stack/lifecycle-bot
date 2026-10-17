@@ -67,6 +67,21 @@ class Aate8196CausalContinuityTest {
         assertTrue(meter.indexOf("overBudget8066()") < meter.indexOf("clearExhaustionOnProof8196()"))
     }
 
+    @Test fun quickFinalisedCloseUsesItsOwnImmutablePendingCortexRead() {
+        val cx = com.lifecyclebot.engine.cortex.Cortex7885
+        val at = 2_000_000_000_000L
+        assertTrue(cx.pendingReadMatches8196(true, "LIVE", "LIVE", at - 2_000L, at, at + 5_000L, false))
+        assertFalse(cx.pendingReadMatches8196(false, "LIVE", "LIVE", at - 2_000L, at, at + 5_000L, false))
+        assertFalse(cx.pendingReadMatches8196(true, "PAPER", "LIVE", at - 2_000L, at, at + 5_000L, false))
+        assertFalse(cx.pendingReadMatches8196(true, "LIVE", "LIVE", at + 100L, at, at + 5_000L, false))
+        assertFalse(cx.pendingReadMatches8196(true, "LIVE", "LIVE", at - 1_000L, at, at - 100L, false))
+        assertFalse(cx.pendingReadMatches8196(true, "LIVE", "LIVE", at - 1_000L, at, at + 20L * 60_000L, false))
+        assertFalse(cx.pendingReadMatches8196(true, "LIVE", "LIVE", at - 1_000L, at, at + 5_000L, true))
+        val code = source("engine/cortex/Cortex7885.kt")
+        assertTrue(code.contains("REALIZED_BOUND_FROM_PENDING_DECISION_8196"))
+        assertTrue(code.indexOf("val stillPending8196 =") < code.indexOf("val d = lanes.asSequence()"))
+    }
+
     @Test fun rejectedNativeLaneDoesNotGenerateExecutableCortexTrainingProof() {
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_MCAP_TOO_LOW"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "OUTSIDE_NATIVE_AGE"))
