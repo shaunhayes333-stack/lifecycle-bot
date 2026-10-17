@@ -89,6 +89,9 @@ object CellProofLadder7731 {
      * LIVE only. Returns a block reason when the candidate's cell has proven
      * negative on the labeler's own record; null otherwise (paper always null).
      */
+    /** V5.0.8180 — the rule name the Cortex veto audit grades this refusal under. */
+    const val CELL_PROOF_RULE_8180 = "CELL_PROOF_NEGATIVE_7731"
+
     fun liveBlockReason(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
         if (paper) return null
         val stat = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
@@ -97,6 +100,13 @@ object CellProofLadder7731 {
         // that is measured on more labels (LiveEdgeGate7877: the larger measured sample decides).
         if (tier == Tier.NEGATIVE && LiveEdgeGate7877.cohortOverrulesSmaller7948(LiveEdgeGate7877.provenCohort7948(ts, nowMs), stat?.n60 ?: 0)) {
             try { PipelineHealthCollector.labelInc("CELL_PROOF_NEGATIVE_OUTWEIGHED_BY_COHORT_7948") } catch (_: Throwable) {}
+            return null
+        }
+        // V5.0.8180 — the veto-decay rule every judgement refusal answers to (Cortex7885 veto audit, 40+ graded, mean - SE
+        // > +2% net on this lane's own book): a negative cell whose refused candidates are proven to win stands down.
+        // SEXYSEX +966% was refused here with no audit hook at all. Every later gate still decides.
+        if (tier == Tier.NEGATIVE && try { com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(CELL_PROOF_RULE_8180, lane) } catch (_: Throwable) { false }) {
+            try { PipelineHealthCollector.labelInc("CELL_PROOF_NEGATIVE_RETIRED_BY_AUDIT_8180") } catch (_: Throwable) {}
             return null
         }
         return when (tier) {

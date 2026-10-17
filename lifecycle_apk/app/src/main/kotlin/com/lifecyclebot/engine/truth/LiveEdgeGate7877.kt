@@ -441,6 +441,8 @@ object LiveEdgeGate7877 {
                 CandidateAdmission8136.Terminal8136.DEFER_DATA -> {
                     val d = admission8136
                     val missing = CandidateAdmission8136.missingOf8144(d)
+                    // V5.0.8180 — first, so the mapped inputs (price / economics / core -> liq / chg / shape / bp) take the per-mint request.
+                    try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missing.map { it.replace("liquidity:", "liq:") }, nowMs) } catch (_: Throwable) {}
                     val reason = if (CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs))
                         "DATA_INCOMPLETE_DEFER_8136" else "DATA_DEFER_BUDGET_EXHAUSTED_8136"
@@ -576,6 +578,8 @@ object LiveEdgeGate7877 {
     private fun dataDefer8136(ts: TokenState, lane: String, setup: String?, nowMs: Long): String? {
         val missing = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return null
         if (!CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)) return null  // V5.0.8144 — coalesced per mint + missing feature
+        // V5.0.8180 — the deferral asks for what it waits for (it only spent budget: TZERO +1,884% waited, nothing fetched).
+        try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
         val r = DATA_DEFER_REASON_8136
         dataDeferred8136.incrementAndGet()
         try { PipelineHealthCollector.labelInc("${r}_$lane") } catch (_: Throwable) {}

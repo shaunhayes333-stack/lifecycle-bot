@@ -226,12 +226,16 @@ object CandidateAdmission8136 {
             //    edge and is the strategy instead, exactly as for a losing selected setup or tactic above — unless the
             //    coin's own cell is losing. 5.0.8172: STAGE_PROVEN_LOSING refused 432 while LAUNCH_LADDER_PROVEN (n210, auth
             //    1.00) fired on the same launches. Economics, data and the edge test below still decide.
-            if (bestSetup == null || losing8136(cellLoss)) {
+            // V5.0.8180 — bestSetup (SUPPORTED) was null on nearly every live candidate (thin books): the coin's own
+            //    evidence at the VALID margin (a fired setup, else its own cell) carries the lane-wide stage loss too.
+            val carry8180 = bestSetup ?: StageCarry8180.carry8180(c)
+            if (carry8180 == null || losing8136(cellLoss)) {
                 trace += "stageLosing=${stageLoss?.compact}"
                 return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
             }
-            trace += "stageLosing=${stageLoss?.compact} carried by setup ${bestSetup.compact}"
-            if (bestSetup.id != chosen) chooseSetup(bestSetup.id)
+            trace += "stageLosing=${stageLoss?.compact} carried by ${if (carry8180.kind == KIND_SETUP) "setup" else "cell"} ${carry8180.compact}"
+            // A VALID carry is not an edge: the strategy (and its measured economics) changes only for a SUPPORTED setup.
+            if (bestSetup != null && bestSetup.id != chosen) chooseSetup(bestSetup.id)
         }
         if (!cellSupported && staleLoss8169(c.lossEpochAware8169, c.stageRecord, stageLoss)) trace += "$STALE_STAGE_TRACE_8169${c.stageRecord?.compact}"
         if (c.losingTactic != null && bestSetup == null && !cellSupported) {
@@ -456,6 +460,7 @@ object CandidateAdmission8136 {
             held8144.remove(key)
         }
         try { AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason) } catch (_: Throwable) {}
+        try { AdmissionEdge8180.note8180(mint, AdmissionEdge8180.carriesEdge8180(d), nowMs) } catch (_: Throwable) {}  // V5.0.8180 — sizers read it
         // V5.0.8169 — a loss refusal that decayed to neutral on its epoch, counted once per fresh decision.
         try {
             if (d.trace.any { it.startsWith(STALE_CELL_TRACE_8169) }) com.lifecyclebot.engine.ExitDoctrine8169.noteStaleDecay8169(cell = true)

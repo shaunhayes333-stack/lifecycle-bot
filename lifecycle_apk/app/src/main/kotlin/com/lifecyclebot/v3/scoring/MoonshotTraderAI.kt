@@ -96,6 +96,9 @@ object MoonshotTraderAI {
     // election and the lane refuse the same pools.
     const val MIN_LIQUIDITY_USD_BOOTSTRAP = 2_000.0    // V5.9.343: walk-back to pre-V5.9.341
     private const val MIN_LIQUIDITY_USD_MATURE = 15_000.0     // Higher when mature
+
+    /** V5.0.8180 — the liquidity floor scoreToken applies right now (HandoffRoute8180 names MOONSHOT only above it). */
+    fun minLiquidityUsdNow8180(): Double = if (learningProgress < 0.5) MIN_LIQUIDITY_USD_BOOTSTRAP else MIN_LIQUIDITY_USD_MATURE
     
     // Position sizing - moderate but aggressive
     private const val BASE_POSITION_SOL = 0.08

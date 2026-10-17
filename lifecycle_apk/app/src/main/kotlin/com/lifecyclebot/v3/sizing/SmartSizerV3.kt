@@ -519,7 +519,14 @@ class SmartSizerV3(
         // V5.0.7831 — ROUTABILITY IS A CONSTRAINT, NOT PERMISSION TO INCREASE RISK.
         // A live setup must independently justify at least the executable notional.
         // If the risk-sized proposal is below that floor, do not inflate it.
-        val effectiveSize = if (isLive && cappedSize > 0.0 && cappedSize < liveFloorEff7697) {
+        // V5.0.8180 — a candidate CandidateAdmission8136 admitted on a specific proven edge has justified the routable
+        // notional: it is promoted to the floor when the floor fits the concentration cap (LiveRiskPolicy7807 re-proves).
+        val admitted8180 = isLive && com.lifecyclebot.engine.truth.AdmissionEdge8180.admitted8180(candidate.mint)
+        val promoted8180 = com.lifecyclebot.engine.truth.AdmissionEdge8180.promote8180(admitted8180, cappedSize, liveFloorEff7697, minOf(safeShareCap7142, tradeable))
+        val effectiveSize = if (promoted8180 > cappedSize) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_ADMITTED_EDGE_PROMOTED_8180") } catch (_: Throwable) {}
+            promoted8180
+        } else if (isLive && cappedSize > 0.0 && cappedSize < liveFloorEff7697) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_SUB_ROUTABLE_REFUSED_7831")
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(

@@ -169,9 +169,23 @@ object SpecialistBrainBridge7542 {
         } catch (_: Throwable) { 0 }
     ).hashCode()
 
+    /**
+     * V5.0.8180 — the lane an open hand-off names for [mint] reads the coin natively (a hand-off whose receiver is never
+     * asked can only expire NAMED_<lane>_NEVER_EVALUATED). Its own rules still decide.
+     */
+    internal fun handoffScope8180(mint: String): Set<String> = try {
+        val h = com.lifecyclebot.engine.truth.AdmissionHandoff8144.handoffOf8144(mint)
+        val lane = h?.takeIf { it.open }?.let { it.receiver ?: it.named }
+        if (lane.isNullOrBlank()) emptySet() else setOf(lane)
+    } catch (_: Throwable) { emptySet() }
+
     /** Discovery claims add independent native readers; one resident must not suppress the bootstrap readers. */
     internal fun nativeScope8168(mcap: Double, residents: Set<String>): Set<String> {
         val bootstrap = when {
+            // V5.0.8180 — MOONSHOT hunts up to its own $5M ceiling: a $1M-$5M coin handed to it (Apple +740%,
+            // NAMED_MOONSHOT_NEVER_EVALUATED) was never read because this tier left it out of scope.
+            mcap.isFinite() && mcap >= 1_000_000.0 && mcap <= MoonshotTraderAI.MAX_MARKET_CAP_USD ->
+                setOf("BLUECHIP", "QUALITY", "TREASURY", "CASHGEN", "DIP_HUNTER", "MOONSHOT", "CORE")
             mcap.isFinite() && mcap >= 1_000_000.0 ->
                 setOf("BLUECHIP", "QUALITY", "TREASURY", "CASHGEN", "DIP_HUNTER", "CORE")
             mcap.isFinite() && mcap >= 75_000.0 ->
@@ -187,9 +201,9 @@ object SpecialistBrainBridge7542 {
         try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
         // V5.0.8094 — a candidate priced more than 15 s ago gets a fresh mark requested before the next cycle.
         try { com.lifecyclebot.engine.truth.CandidateMarkFresh8094.ensureFresh8094(ts) } catch (_: Throwable) {}
-        val residentScope7828 = try {
+        val residentScope7828 = (try {
             com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint)
-        } catch (_: Throwable) { emptySet() }
+        } catch (_: Throwable) { emptySet<String>() }) + handoffScope8180(ts.mint)
         val f=fp(ts,paper,residentScope7828);val now=System.currentTimeMillis();cache[ts.mint]?.snapshot?.let{if(it.fingerprint==f&&now-it.evaluatedAtMs<=CACHE_MS)return it}
         val hist=try{ts.history.toList().filter{it.priceUsd.isFinite()&&it.priceUsd>0}}catch(_:Throwable){emptyList()}
         val prices=hist.map{it.priceUsd};val price=ts.lastPrice.takeIf{it.isFinite()&&it>0}?:prices.lastOrNull()?:0.0
