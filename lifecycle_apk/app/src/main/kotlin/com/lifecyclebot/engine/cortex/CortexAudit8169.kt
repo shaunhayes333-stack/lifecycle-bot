@@ -108,7 +108,7 @@ object CortexAudit8169 {
         row(sb, "Cortex core assess/fuse §7885", c.assessedCount8169(), "FDG gate+sizing calls[" +
             "entryRefusal=${calls("ENTRY_REFUSAL")} overrule=${calls("OVERRULE")} fullAuth=${calls("FULL_AUTHORITY")} paperChoice=${calls("PAPER_CHOICE")} " +
             "conviction=${calls("CONVICTION")} sizeShape=${calls("SIZE_SHAPE")} vetoAudit=${calls("VETO_AUDIT")}]",
-            "assessed=${c.assessedCount8169()} avgMs=${"%.1f".format(c.avgAssessMs8169())} ${safe { CortexVoters7885.memoLine8169() }} ${captureLine()}")
+            "assessed=${c.assessedCount8169()} avgMs=${"%.1f".format(c.avgAssessMs8169())} ${safe { c.assessLatencyLine8187() }} ${safe { CortexVoters7885.memoLine8169() }} ${captureLine()}")
         row(sb, "Cortex capture/labels §7885", c.gradedCount8169(), "ForwardReturnLabeler7731.observe/tick",
             "graded=${c.gradedCount8169()} pending=${c.pendingCount()} ${safe { c.hygieneLine8169() }}")
         row(sb, "Scoreboard §7919 (Rp/Rl/O)", calls("ENTRY_REFUSAL"), "LiveEdgeGate7877 entryRefusal C3",
@@ -125,6 +125,9 @@ object CortexAudit8169 {
         val rg = safe { c.progressiveLine8006() }
         row(sb, "Re-grading §8006", numOf(rg, "retained"), "ForwardReturnLabeler7731.revise7997", rg)
         row(sb, "Grade book/walk-forward §8144", c.gradeBookSize8169(), "authority caps (walk-forward, realised)", safe { c.gradeBookLine8169() })
+        // V5.0.8187 — realised binding and this process's Cortex economy (graded per hour, credits per decision).
+        row(sb, "Binding/economy §8187", c.gradedCount8169(), "realised authority (CortexRealisedAuthority8136)",
+            safe { c.bindingLine8187() + " " + c.economyLine8187() })
         row(sb, "Curve witness §8165", labelSum(labels, "FORWARD_LABEL_MARK_CURVE_CONTRADICTED_8165"), "forward label marks",
             "markContradicted=${labelSum(labels, "FORWARD_LABEL_MARK_CURVE_CONTRADICTED_8165")} (entry refusals in labeler curveWitness8165)")
         row(sb, "Median panel §8166", c.gradedCount8169(), "Learning screen Cortex panel (ui8069)", "verdict rows carry strong/neutral/refuse medians")

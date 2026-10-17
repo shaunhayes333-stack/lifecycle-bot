@@ -19,7 +19,10 @@ package com.lifecyclebot.engine.cortex
  *
  * Pure: no Android, no I/O. The runtime object [Cortex7885] owns one instance.
  */
-class CortexLedger7885 {
+class CortexLedger7885(
+    /** V5.0.8187 — labels above this are clamped at ingestion and the books read through it (+inf: realised closes). */
+    val labelCap8187: Double = LABEL_CAP_8187,
+) {
     companion object {
         const val SHRINK_K = 20.0
         const val REGIME_K = 30.0
@@ -34,6 +37,26 @@ class CortexLedger7885 {
         const val Y_MAX = Double.POSITIVE_INFINITY
         const val RUNNER_GROSS_PCT = 50.0
         const val STAT_WINDOW_8014 = 500.0
+        /**
+         * V5.0.8187 — the per-label plausibility cap every Cortex label book is read through and every NEW label is clamped
+         * to at ingestion (RobustLabelRead8185.CAP_LABEL_PCT_8185: an 11x; a 10x runner, the 8072 case, is untouched).
+         * Realised whole-position closes are money, not labels: their books use [realisedStat8187] (no cap).
+         */
+        const val LABEL_CAP_8187 = com.lifecyclebot.engine.truth.RobustLabelRead8185.CAP_LABEL_PCT_8185
+
+        /** V5.0.8187 — a label book whose runner flag is gross >= [RUNNER_GROSS_PCT] (so net > that must be a runner). */
+        fun labelStat8187(): Stat = Stat(LABEL_CAP_8187, RUNNER_GROSS_PCT)
+
+        /** V5.0.8187 — a realised-money book: read raw, never capped. */
+        fun realisedStat8187(): Stat = Stat(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
+
+        /** Pure (V5.0.8187): a book's "n/mean" for a screen — robust mean, with the raw mean beside it when they differ. */
+        fun fmt8187(s: Stat, suffix: String = ""): String {
+            if (s.n < 1.0) return "-"
+            val r = s.robust8187()
+            return "n${s.n.toInt()}/${"%+.1f".format(r.mean)}%$suffix" + (if (r.suspect) "~raw${"%+.1f".format(r.rawMean)}%" else "") +
+                (if (s.readOffset8187 > 0.05) "/exec${"%+.1f".format(r.mean - s.readOffset8187)}%" else "")
+        }
 
         /**
          * V5.0.8007 — vote cleaning. Pure. Multiple-comparison bar: with thousands of seats a few
@@ -104,13 +127,50 @@ class CortexLedger7885 {
         }
     }
 
-    class Stat {
+    /**
+     * V5.0.8187 §ROBUST_CORTEX_READ — [cap8187] is the per-label plausibility cap the book is READ through
+     * (RobustLabelRead8185; +inf = realised money, read raw) and [runnerFloor8187] the label value above which a label must
+     * have been counted a runner (a net label never exceeds its gross; +inf = the book's runner flag means something else).
+     * The stored sums are never changed: [mean] / [variance] are the robust read (identical to the raw ones unless the
+     * aggregates rule the raw mean out), [rawMean8187] / [rawVariance8187] the stored ones.
+     */
+    class Stat(val cap8187: Double = LABEL_CAP_8187, val runnerFloor8187: Double = Double.POSITIVE_INFINITY) {
         var n = 0.0; var sum = 0.0; var sumSq = 0.0; var runners = 0.0; var wins = 0.0
         // Cumulative decay, persisted with the book. A delayed correction must
         // replace only the weight that its original observation still owns.
         var logScale = 0.0
-        fun mean(): Double = if (n > 0.0) sum / n else 0.0
-        fun variance(): Double = if (n > 1.0) ((sumSq / n) - mean() * mean()).coerceAtLeast(0.0) else 0.0
+        /**
+         * V5.0.8187 §EXECUTABLE_LABELS — the lane's measured gap between a forward label and what a trade actually banks
+         * (cost at the ticket above the cost the label was charged, and the realised-vs-label shortfall on the same trades),
+         * subtracted from every authority read of a label book. Read-time only, never stored: the raw label stays for display.
+         */
+        @Volatile var readOffset8187 = 0.0
+        fun rawMean8187(): Double = if (n > 0.0) sum / n else 0.0
+        fun rawVariance8187(): Double = if (n > 1.0) ((sumSq / n) - rawMean8187() * rawMean8187()).coerceAtLeast(0.0) else 0.0
+        /** V5.0.8187 — the robust read of this book (RobustLabelRead8185.robust8187). */
+        fun robust8187(): com.lifecyclebot.engine.truth.RobustLabelRead8185.Read8187 =
+            com.lifecyclebot.engine.truth.RobustLabelRead8185.robust8187(n, sum, sumSq, wins, runners, cap8187, runnerFloor8187)
+        /** The bound on the winsorised mean (allocation-free: fusion reads it for every voter). */
+        private fun upper8187(): Double =
+            com.lifecyclebot.engine.truth.RobustLabelRead8185.upperMeanRunner8187(n, sum, wins, runners, cap8187, runnerFloor8187)
+        /** V5.0.8187 — the raw mean is ruled out by the cap: the book reads at its bound (display shows both). */
+        fun suspect8187(): Boolean = n > 0.0 && cap8187.isFinite() && sum.isFinite() && sum / n > upper8187() + 1e-9
+        fun mean(): Double {
+            if (!(n > 0.0)) return 0.0
+            val off = readOffset8187.takeIf { it.isFinite() } ?: 0.0
+            val raw = sum / n
+            if (!cap8187.isFinite() || !raw.isFinite()) return raw - off
+            val hi = upper8187()
+            return (if (raw > hi + 1e-9) hi else raw) - off
+        }
+        fun variance(): Double {
+            if (!(n > 1.0)) return 0.0
+            if (!suspect8187()) return rawVariance8187()
+            val r = robust8187()
+            return if (r.stderr.isFinite()) r.stderr * r.stderr * n else rawVariance8187()
+        }
+        /** V5.0.8187 — the sum a shrunk prediction may use: the robust mean's worth of n labels. */
+        fun readSum8187(): Double = if (n > 0.0) mean() * n else 0.0
         fun runnerRate(): Double = if (n > 0.0) runners / n else 0.0
         fun winRate(): Double = if (n > 0.0) wins / n else 0.5
         fun add(y: Double, runner: Boolean): Double {
@@ -145,13 +205,14 @@ class CortexLedger7885 {
     }
 
     /** One (voter, lane) seat. */
-    class Seat(binCount: Int) {
-        val bins = Array(binCount) { Stat() }
+    class Seat(binCount: Int, cap8187: Double = LABEL_CAP_8187, floor8187: Double = RUNNER_GROSS_PCT) {
+        // V5.0.8187 — every bin reads through the label cap (a realised-close ledger passes +inf).
+        val bins = Array(binCount) { Stat(cap8187, floor8187) }
         var scored = 0
         var sseModel = 0.0
         var sseBase = 0.0
-        val above = Stat()   // outcomes when this voter predicted above the lane mean
-        val below = Stat()   // ... and below it
+        val above = Stat(cap8187, floor8187)   // outcomes when this voter predicted above the lane mean
+        val below = Stat(cap8187, floor8187)   // ... and below it
         // V5.0.7910 — v1 §2.8 win-probability scoring: decayed Brier and log loss
         // of the voter's P(net > 0) against the lane base rate, prequential.
         var brierModel = 0.0
@@ -202,10 +263,14 @@ class CortexLedger7885 {
     val lanes = HashMap<String, Stat>()
     val seats = HashMap<String, Seat>()      // voterId|lane
 
-    fun lane(lane: String): Stat = lanes.getOrPut(lane) { Stat() }
+    // V5.0.8187 — this ledger's books read through its label cap; every label above the runner threshold is a runner.
+    private fun newStat8187(): Stat = Stat(labelCap8187, RUNNER_GROSS_PCT)
+    private fun newSeat8187(binCount: Int): Seat = Seat(binCount, labelCap8187, RUNNER_GROSS_PCT)
+
+    fun lane(lane: String): Stat = lanes.getOrPut(lane) { newStat8187() }
 
     fun seat(voterId: String, lane: String, binCount: Int): Seat =
-        seats.getOrPut("$voterId|$lane") { Seat(binCount) }.let { if (it.bins.size == binCount) it else Seat(binCount).also { s -> seats["$voterId|$lane"] = s } }
+        seats.getOrPut("$voterId|$lane") { newSeat8187(binCount) }.let { if (it.bins.size == binCount) it else newSeat8187(binCount).also { s -> seats["$voterId|$lane"] = s } }
 
     /**
      * V5.0.7898 — Cortex v4: regime-conditioned calibration (v1 §2.8 cells
@@ -220,7 +285,7 @@ class CortexLedger7885 {
         val lr = l?.runnerRate() ?: 0.0
         if (regime.isBlank()) return m to lr
         val r = lanes["$lane@$regime"] ?: return m to lr
-        return ((r.sum + REGIME_K * m) / (r.n + REGIME_K)) to ((r.runners + REGIME_K * lr) / (r.n + REGIME_K))
+        return ((r.readSum8187() + REGIME_K * m) / (r.n + REGIME_K)) to ((r.runners + REGIME_K * lr) / (r.n + REGIME_K))  // V5.0.8187 — robust sum
     }
 
     /** Shrunk prediction of the net return for [raw] on [edges] in [lane] (and [regime]). */
@@ -234,12 +299,12 @@ class CortexLedger7885 {
         // thin lane borrows the voter's cross-lane bin deviation, so what a voter
         // learned on every lane informs a new one from its first decisions.
         val prior = m + globalDeviation(voterId, bin, lane)
-        var pred = ((b?.sum ?: 0.0) + SHRINK_K * prior) / (n + SHRINK_K)
+        var pred = ((b?.readSum8187() ?: 0.0) + SHRINK_K * prior) / (n + SHRINK_K)  // V5.0.8187 — robust sum
         var runner = ((b?.runners ?: 0.0) + SHRINK_K * lr) / (n + SHRINK_K)
         if (regime.isNotBlank()) {
             val rb = seats["$voterId|$lane@$regime"]?.bins?.getOrNull(bin)
             if (rb != null && rb.n > 0.0) {
-                pred = (rb.sum + REGIME_K * pred) / (rb.n + REGIME_K)
+                pred = (rb.readSum8187() + REGIME_K * pred) / (rb.n + REGIME_K)
                 runner = (rb.runners + REGIME_K * runner) / (rb.n + REGIME_K)
             }
         }
@@ -267,7 +332,7 @@ class CortexLedger7885 {
             if (other == ownLane || other == GLOBAL || '@' in other || CrossAssetCortex7931.isCrossAssetLane(other)) continue
             val cell = seats["$voterId|$other"]?.bins?.getOrNull(bin) ?: continue
             if (cell.n <= 0.0 || baseline.n <= 0.0) continue
-            n += cell.n; sum += cell.sum; laneN += baseline.n; laneSum += baseline.sum
+            n += cell.n; sum += cell.readSum8187(); laneN += baseline.n; laneSum += baseline.readSum8187()  // V5.0.8187
         }
         if (n <= 0.5 || laneN <= 0.5) return 0.0
         return (sum - n * (laneSum / laneN)) / (n + SHRINK_K)
@@ -297,7 +362,8 @@ class CortexLedger7885 {
     fun grade(lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, netPct: Double, grossPct: Double, regime: String = "",
         prediction8076: PredictionSnapshot8076? = null): GradeTrace8006? {
         if (!netPct.isFinite()) return null
-        val y = netPct.coerceIn(Y_MIN, Y_MAX)
+        // V5.0.8187 — clamped at ingestion to this ledger's label cap (realised-close ledgers: no cap).
+        val y = netPct.coerceIn(Y_MIN, labelCap8187)
         val runner = grossPct.isFinite() && grossPct >= RUNNER_GROSS_PCT
         val l = lane(lane)
         val predicted = prediction8076 ?: predictionSnapshot8076(lane, voterIds, edges, raws, regime)
@@ -389,11 +455,12 @@ class CortexLedger7885 {
         val scoreAt = trace.scoreAt ?: return
         fun revise(st: Stat?, at: Int) {
             val stamp = scales.getOrNull(at) ?: return
-            st?.revise(oldNet.coerceIn(Y_MIN, Y_MAX), newNet.coerceIn(Y_MIN, Y_MAX),
+            // V5.0.8187 — the old value leaves exactly as it was booked; the new one is clamped like any new label.
+            st?.revise(oldNet.coerceIn(Y_MIN, Y_MAX), newNet.coerceIn(Y_MIN, labelCap8187),
                 oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT,
                 newGross.isFinite() && newGross >= RUNNER_GROSS_PCT, st.revisionWeight(stamp))
         }
-        val yo = oldNet.coerceIn(Y_MIN, Y_MAX); val yn = newNet.coerceIn(Y_MIN, Y_MAX)
+        val yo = oldNet.coerceIn(Y_MIN, Y_MAX); val yn = newNet.coerceIn(Y_MIN, labelCap8187)
         val ro = oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT
         val rn = newGross.isFinite() && newGross >= RUNNER_GROSS_PCT
         if (yo == yn && ro == rn) return
@@ -526,12 +593,12 @@ class CortexLedger7885 {
     }
 
     fun decode(o: org.json.JSONObject) {
-        o.optJSONObject("lanes")?.let { j -> for (k in j.keys()) lanes[k] = Stat().also { it.decode(j.optString(k)) } }
+        o.optJSONObject("lanes")?.let { j -> for (k in j.keys()) lanes[k] = newStat8187().also { it.decode(j.optString(k)) } }
         o.optJSONObject("seats")?.let { j ->
             for (k in j.keys()) {
                 val s = j.optString(k)
                 val bc = s.substringBefore('#').toIntOrNull() ?: continue
-                seats[k] = Seat(bc).also { it.decode(s.substringAfter('#')) }
+                seats[k] = newSeat8187(bc).also { it.decode(s.substringAfter('#')) }
             }
         }
         o.optJSONObject("pairs")?.let { j ->

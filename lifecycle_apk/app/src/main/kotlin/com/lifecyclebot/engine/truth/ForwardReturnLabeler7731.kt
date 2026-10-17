@@ -929,6 +929,10 @@ object ForwardReturnLabeler7731 {
     fun rebaseClearsChase8094(laneLatencyMs: Long): Boolean = laneLatencyMs > 0L
 
     fun rebaseDelayMs8094(laneLatencyMs: Long): Long = laneLatencyMs.coerceIn(REBASE_MIN_MS_8076, REBASE_MAX_MS_8076 - 5_000L)
+
+    /** Pure (V5.0.8187): an observation never priced yet, still inside its re-base window, needs its first mark now. */
+    fun firstMarkDue8187(rebased: Boolean, lastPxAtMs: Long, ageMs: Long): Boolean =
+        !rebased && lastPxAtMs == 0L && ageMs in REBASE_MIN_MS_8076 until REBASE_MAX_MS_8076
     private val rebasedUp8076 = AtomicLong(0)
 
     // ── V5.0.8153 — the re-base-at-fill-latency flag for labels whose first price arrives late ──
@@ -1230,7 +1234,11 @@ object ForwardReturnLabeler7731 {
         }
         val gross = if (px > 0.0 && o.entryPrice > 0.0) (px / o.entryPrice - 1.0) * 100.0 else Double.NaN
         when (classifyVanished7944(gross, if (at > o.atMs) at - o.atMs else 0L, horizonMs)) {
-            Vanished7944.GAP -> if (horizon == 60) markLost(o)
+            Vanished7944.GAP -> if (horizon == 60) {
+                markLost(o)
+                // V5.0.8187 — the Cortex files the decision unresolved now (it lingered unlabelled until a 90-minute prune).
+                try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "GAP") } catch (_: Throwable) {}
+            }
             Vanished7944.DEAD -> {
                 vanishedDead7944.incrementAndGet()
                 if (horizon == 60) bookSixty7944(o, -100.0, -100.0, nowMs) else bookTwoForty7944(o, -100.0, -100.0)
@@ -1361,7 +1369,11 @@ object ForwardReturnLabeler7731 {
             val age = nowMs - o.atMs
             val px = markFor(o.mint, priceFor, nowMs)
             if (px == null) {
-                if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to (if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
+                // V5.0.8187 — an unpriced observation inside its re-base window asks the off-watch batch FIRST: its label can
+                // only start from a buyable price if a mark lands inside 60 s (else LATE_FIRST_PRICE: observed only, and its
+                // cohort unresolved — the walk-forward's UNRESOLVED_COHORT). Its due time is its decision, so it sorts first.
+                if (firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age)) dueUnpriced7737.add(o.mint to (o.atMs - REBASE_MAX_MS_8076))
+                else if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to (if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
                 // V5.0.8013 — a followed coin's due checkpoint asks for an off-watch mark too.
                 else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to (o.atMs + CK_MS_7997[o.ck7997]))
                 if (!o.done60 && age >= H60_MS_7731 + graceFor7946(H60_MS_7731)) {
@@ -1418,6 +1430,7 @@ object ForwardReturnLabeler7731 {
                 basisSuspect7738.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_SUSPECT_7738") } catch (_: Throwable) {}
                 pending.remove(key, o)
+                if (!o.done60) try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "BASIS") } catch (_: Throwable) {}  // V5.0.8187
                 continue
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
@@ -1513,8 +1526,24 @@ object ForwardReturnLabeler7731 {
 
     fun cellStatFor(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): CellStat? {
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        return cellStat(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs))  // V5.0.8019
+        return executable8187(cellStat(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs)), lane)  // V5.0.8019 / V5.0.8187
     }
+
+    /**
+     * V5.0.8187 §EXECUTABLE_LABELS — the cell / kind / lane records the gates and sizing read (cell proofs, Kelly shares) are
+     * read executable: the lane's measured label-to-bank gap (Cortex7885.executableOffset8187) comes off the mean. The stored
+     * tallies and every display line stay raw.
+     */
+    fun executable8187(c: CellStat?, lane: String): CellStat? {
+        if (c == null) return null
+        val off = try { com.lifecyclebot.engine.cortex.Cortex7885.executableOffset8187(lane) } catch (_: Throwable) { 0.0 }
+        return execShift8187(c, off)
+    }
+
+    /** Pure (V5.0.8187): [c] with [offsetPct] (>= 0) taken off its 5-minute and 60-minute means. */
+    fun execShift8187(c: CellStat, offsetPct: Double): CellStat =
+        if (!offsetPct.isFinite() || offsetPct <= 0.0) c
+        else c.copy(meanNet60Pct = c.meanNet60Pct - offsetPct, meanNet240Pct = c.meanNet240Pct - offsetPct)
 
     /**
      * V5.0.8063 — the 5-minute record of [lane] for coins of [ts]'s kind: (venue x cap band, narrative). A kind proven to
@@ -1524,7 +1553,7 @@ object ForwardReturnLabeler7731 {
         val k = kindOf8063(ts).split('/')
         if (k.size != 2) return emptyList()
         val l = lane.trim().uppercase()
-        return listOfNotNull(cellStat(kindKey8063(l, k[0], mcapBand(TrustedMcap8019.mcap8019(ts)))), cellStat(narrKey8063(l, k[1])))
+        return listOfNotNull(executable8187(cellStat(kindKey8063(l, k[0], mcapBand(TrustedMcap8019.mcap8019(ts)))), l), executable8187(cellStat(narrKey8063(l, k[1])), l))  // V5.0.8187
     }
 
     private fun laneStat(lane: String): CellStat? = cellStat(laneKey(lane.trim().uppercase()))
@@ -1566,7 +1595,7 @@ object ForwardReturnLabeler7731 {
     }
 
     /** V5.0.7737 — the lane's 60-minute label record (LaneAutoPauseGuard's label-proof release). */
-    fun laneStatFor7737(lane: String): CellStat? = laneStat(lane)
+    fun laneStatFor7737(lane: String): CellStat? = executable8187(laneStat(lane), lane)  // V5.0.8187 — executable read
 
     private fun fmtStat(s: CellStat?): String =
         if (s == null) "n=0" else "n=${s.n60} net=${"%+.1f".format(s.meanNet60Pct)}% wr=${"%.0f".format(s.winRate60 * 100)}% run=${"%.0f".format(s.runnerRate60 * 100)}% lost=${s.lost}" +

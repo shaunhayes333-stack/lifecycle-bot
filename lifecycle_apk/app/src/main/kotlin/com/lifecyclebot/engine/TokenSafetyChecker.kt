@@ -969,7 +969,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // contain its launch block only while it is young; past ~30 minutes every
         // 100-credit call returned a first block that was not the first block.
         // V5.0.7885 — and only while the Cortex measures first-block evidence as paying.
-        if (bundle7763 == null && ageMinutes <= BundleDetector.LAUNCH_VISIBLE_MINUTES_7881 &&
+        // V5.0.8187 — never for a coin already hard-blocked: its decisions are unexecutable, so the Cortex neither grades nor
+        // uses the first-block vote there (BUNDLE_SCAN was 43.3k of 65.9k credits on 5.0.8175).
+        if (bundle7763 == null && ageMinutes <= BundleDetector.LAUNCH_VISIBLE_MINUTES_7881 && hard.isEmpty() &&
             com.lifecyclebot.engine.cortex.Cortex7885.enrichmentWorth(com.lifecyclebot.engine.cortex.CortexVoters7885.FIRST_BLOCK_SUPPLY)) {
             try { BundleDetector.requestAsync7763(mint, symbol, cfg().heliusApiKey) } catch (_: Throwable) {}
         }

@@ -301,7 +301,8 @@ class Aate8144CortexTest {
         assertTrue(cx.contains("routeRealised8144(env, mode, a, sealed8144, snapTag8144)"))
         assertTrue(cx.contains("AateEntryIdentityBook8136.identity8136(env.positionId)"))
         val on = cx.substringAfter("fun onLabel(mint: String, labelLane: String").substringBefore("// ── V5.0.8144 — grade records")
-        assertTrue(on.indexOf("recordLabel8144(key, p, netPct, grossPct, lat8144)") in 0 until on.indexOf("LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080, p.setup7961)"))
+        // superseded by V5.0.8187: the playbook takes the label clamped to its cohort's cap (net8187 / gross8187 / fam8187).
+        assertTrue(on.indexOf("recordLabel8144(key, p, netPct, grossPct, lat8144)") in 0 until on.indexOf("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961)"))
         assertTrue(on.contains("LanePlaybook7907.dropPending8144(mint, labelLane)"))
         val rv = cx.substringAfter("fun reviseLabel8006(").substringBefore("fun progressiveLine8006(")
         assertTrue(rv.indexOf("if (!exec8144) { inc(\"REVISION_PAST_EXEC_HORIZON_8144\"); return }") in 0 until rv.indexOf("ledger.revise8006("))

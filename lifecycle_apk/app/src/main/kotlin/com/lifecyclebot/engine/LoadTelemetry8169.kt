@@ -133,6 +133,12 @@ object LoadTelemetry8169 {
 
     private val heliusCalls = AtomicLong(0)
     private val heliusCreditsX10 = AtomicLong(0)
+
+    /** V5.0.8187 — Helius credits spent since this process started (the Cortex's per-decision economy reads this, not the day). */
+    fun sessionCredits8187(): Double = heliusCreditsX10.get() / 10.0
+
+    /** V5.0.8187 — credits spent since this process started by one caller (e.g. "BundleDetector"). */
+    fun sessionCreditsBy8187(caller: String): Double = byCaller[caller]?.let { synchronized(it) { it[1] / 10.0 } } ?: 0.0
     private val byCaller = ConcurrentHashMap<String, LongArray>()  // [calls, creditsX10, dup]
     private val dupByMethod = ConcurrentHashMap<String, AtomicLong>()
     private val lastRead = ConcurrentHashMap<String, Long>()

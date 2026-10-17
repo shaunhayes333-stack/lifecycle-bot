@@ -75,6 +75,68 @@ object CortexTiming7900 {
         if (pending.size >= MAX_PENDING) return
         val dip = fusedMove(a) < -DIP_PCT
         pending["${ts.mint}|${a.lane}|$nowMs"] = Sample(a.lane, a.regime, a.ids, a.edges, a.raws, dip, ts.mint, px, nowMs)
+        persistPendingMaybe8187(nowMs)
+    }
+
+    // ── V5.0.8187 — timing samples survive a restart (their 5-minute window outlives most installs) ──
+    // The exit cortex has kept its pending samples since 7960; the timing cortex dropped every one on each restart, so a
+    // build installed inside the 5-9 minute window graded nothing (5.0.8175: pending=19 graded=0 at 179 s uptime).
+    private const val PENDING_PERSIST_MAX_8187 = 300
+    private const val PENDING_PERSIST_EVERY_MS_8187 = 120_000L
+    @Volatile private var lastPendingPersist8187 = 0L
+    private val persistInFlight8187 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun persistPendingMaybe8187(nowMs: Long) {
+        if (!loaded || nowMs - lastPendingPersist8187 < PENDING_PERSIST_EVERY_MS_8187) return
+        if (!persistInFlight8187.compareAndSet(false, true)) return
+        lastPendingPersist8187 = nowMs
+        try {
+            Thread({ try { persist() } finally { persistInFlight8187.set(false) } }, "cortex-timing-persist-8187").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+        } catch (_: Throwable) { persistInFlight8187.set(false) }
+    }
+
+    /** Pure (V5.0.8187): may a sample read at [atMs] still be graded at [nowMs] (inside its 5 + 4 minute window)? */
+    internal fun gradeable8187(atMs: Long, nowMs: Long): Boolean = atMs > 0L && atMs <= nowMs && nowMs - atMs <= WAIT_MS + GRADE_WINDOW_MS
+
+    private fun encodePending8187(nowMs: Long): org.json.JSONObject {
+        val dict = LinkedHashMap<String, Int>()
+        val arr = org.json.JSONArray()
+        pending.entries.filter { gradeable8187(it.value.atMs, nowMs) }.sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX_8187).forEach { (k, sm) ->
+            val ids = org.json.JSONArray(); val xs = org.json.JSONArray()
+            for (i in sm.ids.indices) {
+                val r = sm.raws.getOrNull(i) ?: continue
+                if (!r.isFinite()) continue
+                ids.put(dict.getOrPut(sm.ids[i]) { dict.size }); xs.put(r)
+            }
+            arr.put(org.json.JSONObject().put("k", k).put("l", sm.lane).put("g", sm.regime).put("d", sm.dip).put("m", sm.mint)
+                .put("p", sm.px0).put("at", sm.atMs).put("i", ids).put("x", xs))
+        }
+        return org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr)
+    }
+
+    private fun restorePending8187(o: org.json.JSONObject?, nowMs: Long) {
+        if (o == null) return
+        val jd = o.optJSONArray("dict") ?: return
+        val dict = List(jd.length()) { jd.optString(it) }
+        val arr = o.optJSONArray("p") ?: return
+        var n = 0L
+        for (i in 0 until arr.length()) {
+            val j = arr.optJSONObject(i) ?: continue
+            val at = j.optLong("at"); val k = j.optString("k"); val px = j.optDouble("p", 0.0)
+            if (k.isBlank() || !gradeable8187(at, nowMs) || !(px > 0.0) || pending.containsKey(k)) continue
+            val ji = j.optJSONArray("i") ?: continue
+            val jx = j.optJSONArray("x") ?: continue
+            val ids = ArrayList<String>(); val edges = ArrayList<DoubleArray>(); val raws = ArrayList<Double>()
+            for (q in 0 until minOf(ji.length(), jx.length())) {
+                val id = dict.getOrNull(ji.optInt(q, -1)) ?: continue
+                val e = CortexVoters7885.edgesFor(id) ?: continue
+                ids.add(id); edges.add(e); raws.add(jx.optDouble(q))
+            }
+            if (ids.isEmpty()) continue
+            pending[k] = Sample(j.optString("l"), j.optString("g"), ids, edges, raws.toDoubleArray(), j.optBoolean("d"), j.optString("m"), px, at)
+            n++
+        }
+        if (n > 0L) counters.computeIfAbsent("PENDING_RESTORED_8187") { AtomicLong(0) }.addAndGet(n)
     }
 
     /** ExitRegret7752.tick clock: grade samples whose 5-minute window has come. */
@@ -89,14 +151,14 @@ object CortexTiming7900 {
             val px = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.markFor7948(s.mint, priceFor, nowMs)
                 ?.takeIf { it.isFinite() && it > 0.0 } ?: continue
             pending.remove(k)
-            if (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(s.px0, px)) continue
+            if (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(s.px0, px)) { inc("BASIS_SUSPECT_8187"); continue }
             val move = (px / s.px0 - 1.0) * 100.0
             synchronized(this) {
                 ledger.grade(s.lane, s.ids, s.edges, s.raws, move, move, s.regime)
                 if (s.dip) {
                     val b = dipBook.getOrPut(s.lane) { CortexLedger7885.Stat() }
                     b.scale(BOOK_DECAY)
-                    b.add(move.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), false)
+                    b.add(move.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187), false)  // V5.0.8187 — clamped at ingestion
                 }
             }
             graded.incrementAndGet()
@@ -138,6 +200,7 @@ object CortexTiming7900 {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
                 o.optJSONObject("dip")?.let { j -> for (k in j.keys()) dipBook[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } }
+                restorePending8187(o.optJSONObject("pending8187"), System.currentTimeMillis())  // V5.0.8187
             } catch (e: Throwable) { LearningPersistence.decodeFailed8086(PERSIST_KEY, e) } finally {
                 // V5.0.8086 — the row is on disk but would not read: stay unloaded (persist() is gated) and retry.
                 if (LearningPersistence.readFailed8086(PERSIST_KEY)) loaded = false
@@ -156,7 +219,8 @@ object CortexTiming7900 {
         try {
             val json = synchronized(this) {
                 org.json.JSONObject().put("ledger", ledger.encode())
-                    .put("dip", org.json.JSONObject().also { j -> dipBook.forEach { (k, v) -> j.put(k, v.encode()) } }).toString()
+                    .put("dip", org.json.JSONObject().also { j -> dipBook.forEach { (k, v) -> j.put(k, v.encode()) } })
+                    .put("pending8187", encodePending8187(System.currentTimeMillis())).toString()
             }
             LearningPersistence.save(PERSIST_KEY, json)
         } catch (_: Throwable) {}

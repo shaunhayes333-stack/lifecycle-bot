@@ -50,7 +50,7 @@ object RunnerGrab7967 {
 
     private val grabbed = ConcurrentHashMap<String, Long>()                  // mint -> first grab
     private val signals = ConcurrentHashMap<String, Pair<Double, Long>>()     // mint -> (px, at) awaiting grade
-    private val record = CortexLedger7885.Stat()
+    private val record = CortexLedger7885.realisedStat8187()  // V5.0.8187 — realised: read raw
     private val lastSell = ConcurrentHashMap<String, Long>()
     private val missedByReason = ConcurrentHashMap<String, AtomicLong>()
     private val missedRecent = java.util.ArrayDeque<String>()

@@ -335,7 +335,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         // to the token's own band when none was passed; it is still graded per setup x timing below.
         assertTrue(src.contains("pendingTiming8094[\"${'$'}{ts.mint}|${'$'}{labelLane.trim().uppercase()}\"] = timingAtDecision8174 ?: timingBandOf8094(ts)"))
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("val timing8174 = try { LanePlaybook7907.timingBandOf8094(ts) }"))
-        assertTrue(src.contains(".getOrPut(\"${'$'}setup|${'$'}timing8094\") { CortexLedger7885.Stat() }"))
+        // superseded by V5.0.8187: the timing book is a robust label book (read through the label cap).
+        assertTrue(src.contains(".getOrPut(\"${'$'}setup|${'$'}timing8094\") { CortexLedger7885.labelStat8187() }"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("LanePlaybook7907.timingNegative8094(ts, l8059, nowMs)"))
     }
 

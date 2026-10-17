@@ -132,6 +132,7 @@ class Aate8082CausalPipelineTest {
         assertFalse(C.jointProvenDead8082(s))                  // it starts paying: the refusal lifts
         val src = src("engine/cortex/Cortex7885.kt")
         assertTrue(src.contains("return \"C6_SETUP_DEAD_8082\""))
-        assertTrue(src.contains("jointBook7961.getOrPut(jk) { CortexLedger7885.Stat() }.also { it.scale(CortexScoreboard7885.BOOK_DECAY) }"))
+        // superseded by V5.0.8187: the verdict x setup cell is a robust label book.
+        assertTrue(src.contains("jointBook7961.getOrPut(jk) { CortexLedger7885.labelStat8187() }.also { it.scale(CortexScoreboard7885.BOOK_DECAY) }"))
     }
 }

@@ -95,4 +95,56 @@ object RobustLabelRead8185 {
 
     private val suspectCount8185 = java.util.concurrent.atomic.AtomicLong(0)
     fun suspectReads8185(): Long = suspectCount8185.get()
+
+    // ── V5.0.8187 §ROBUST_CORTEX_READ — every Cortex book reads through the same cap ──
+    //
+    // 8185 applied the cap to the veto proof and the labeler cells only; every other Cortex book (scoreboard buckets,
+    // legacy books, verdict x setup, playbook setup records, launch-tape heat bins, timing / exit books) still read its raw
+    // running mean (5.0.8175: MOONSHOT neutral n80 +788.8%, launch tape h1 n37 +992.9%). Those books also count RUNNERS
+    // (gross >= the book's runner threshold), and a net label can never exceed its gross. So a label above the runner
+    // threshold [floor] must be a runner: at most min(runners, wins) labels contribute up to the cap; every other winner
+    // contributes at most [floor]. That bound is far tighter than wins x cap on a book whose winners are mostly small.
+
+    /** Pure: the winners count a bound may use — a positive sum with no recorded winner means the count was never kept. */
+    fun winsForBound8187(n: Double, sum: Double, wins: Double): Double =
+        if (!(wins > 0.0) && sum > 0.0) n else wins.coerceIn(0.0, n.coerceAtLeast(0.0))
+
+    /**
+     * Pure: the largest winsorised mean (every label clamped at [cap]) the aggregates allow when every label above [floor]
+     * is a runner ([runners] of them). [floor] = +inf (or >= cap) falls back to [upperMean8185]. Equals the raw mean when the
+     * aggregates are consistent with no label above the cap.
+     */
+    fun upperMeanRunner8187(n: Double, sum: Double, wins: Double, runners: Double, cap: Double, floor: Double): Double {
+        if (!(n > 0.0) || !sum.isFinite()) return 0.0
+        if (!(cap > 0.0) || !cap.isFinite()) return sum / n
+        val w = winsForBound8187(n, sum, wins)
+        if (!floor.isFinite() || floor >= cap || floor < 0.0) return upperMean8185(n, sum, w, cap)
+        val m = minOf(runners.coerceAtLeast(0.0), w)
+        return minOf(sum, m * cap + (w - m) * floor) / n
+    }
+
+    /** One robust read of a Cortex book: the mean / standard error to decide on, the raw mean, and whether they differ. */
+    data class Read8187(val mean: Double, val stderr: Double, val rawMean: Double, val suspect: Boolean)
+
+    /**
+     * Pure: the robust read of a running-sum book (n, sum, sumSq, wins, runners) under [cap] / runner [floor]. A book whose raw
+     * mean the bound rules out reads at the bound with the winsorised range as its standard error (8185: no proven edge and
+     * no manufactured loss); any other book reads exactly as before. [cap] = +inf disables the read (realised money).
+     */
+    fun robust8187(n: Double, sum: Double, sumSq: Double, wins: Double, runners: Double, cap: Double, floor: Double): Read8187 {
+        if (!(n > 0.0)) return Read8187(0.0, Double.POSITIVE_INFINITY, 0.0, false)
+        val raw = sum / n
+        val variance = if (n > 1.0) ((sumSq / n) - raw * raw).coerceAtLeast(0.0) else 0.0
+        val rawSe = if (n > 1.0) kotlin.math.sqrt(variance / n) else Double.POSITIVE_INFINITY
+        if (!cap.isFinite() || !(cap > 0.0) || !sum.isFinite()) return Read8187(raw, rawSe, raw, false)
+        val hi = upperMeanRunner8187(n, sum, wins, runners, cap, floor)
+        if (!(raw > hi + 1e-9)) return Read8187(raw, rawSe, raw, false)
+        val lo = lowerMean8185(n, sum, sumSq, cap).coerceAtMost(hi)
+        val capped = cappedStderr8185(n, variance, cap)
+        return Read8187(hi, maxOf(if (capped.isFinite()) capped else 0.0, hi - lo), raw, true)
+    }
+
+    /** Pure: one new label at ingestion — never above the cap (a total loss stays the floor). */
+    fun clampLabel8187(v: Double, cap: Double = CAP_LABEL_PCT_8185): Double =
+        if (!v.isFinite()) v else if (cap.isFinite() && cap > 0.0) v.coerceIn(LOSS_FLOOR_PCT_8185, cap) else v.coerceAtLeast(LOSS_FLOOR_PCT_8185)
 }

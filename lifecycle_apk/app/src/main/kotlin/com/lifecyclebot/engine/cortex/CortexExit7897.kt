@@ -109,7 +109,7 @@ object CortexExit7897 {
     )
 
     private class Book {
-        val byBucket = Array(Bucket.values().size) { CortexLedger7885.Stat() }
+        val byBucket = Array(Bucket.values().size) { CortexLedger7885.labelStat8187() }  // V5.0.8187 — robust read (fwd label = its own gross)
         val positions = Array(Bucket.values().size) { LinkedHashSet<String>() }
     }
 
@@ -144,8 +144,12 @@ object CortexExit7897 {
         val key = posKey(ts)
         val last = lastSample[key] ?: 0L
         if (nowMs - last < SAMPLE_EVERY_MS) return
-        val px = ts.lastPrice
-        if (!px.isFinite() || px <= 0.0 || nowMs - ts.lastPriceUpdate > MARK_MAX_AGE_MS) return
+        // V5.0.8187 — a position priced through the canonical mark registry (stale lastPriceUpdate) was never sampled
+        // (5.0.8175: exit cortex pending=0 with open positions); the forward label's mark chain prices it instead.
+        val px = samplePx8187(ts.lastPrice, ts.lastPriceUpdate, nowMs)
+            ?: (try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.markFor7948(ts.mint, { null }, nowMs) } catch (_: Throwable) { null })
+                ?.takeIf { it.isFinite() && it > 0.0 }?.also { inc("SAMPLE_PRICED_BY_MARK_CHAIN_8187") }
+            ?: run { inc("SAMPLE_SKIPPED_NO_MARK_8187"); return }
         lastSample[key] = nowMs
         ensureLoaded()
         val lane = laneOf(ts)
@@ -178,6 +182,10 @@ object CortexExit7897 {
         dirty8091 = true
         persistMaybe8091(nowMs)
     }
+
+    /** Pure (V5.0.8187): the token state's own price when it is fresh enough to sample a position on, else null. */
+    fun samplePx8187(lastPrice: Double, lastPriceUpdateMs: Long, nowMs: Long): Double? =
+        lastPrice.takeIf { it.isFinite() && it > 0.0 && lastPriceUpdateMs > 0L && nowMs - lastPriceUpdateMs in 0L..MARK_MAX_AGE_MS }
 
     /** Called from ExitRegret7752.tick with the loop's fresh-price closure: grades due samples. */
     fun tick(priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
@@ -322,10 +330,10 @@ object CortexExit7897 {
         run {
             synchronized(this) {
                 ledger.grade(r.lane, r.ids, r.edges, r.raws, fwd, fwd, r.regime)
-                calibration.learn(r.lane, r.fused.edgePct, r.fused.laneMean, fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
+                calibration.learn(r.lane, r.fused.edgePct, r.fused.laneMean, fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187))
                 val b = books.getOrPut(r.lane) { Book() }
                 for (st in b.byBucket) st.scale(BOOK_DECAY)
-                b.byBucket[r.bucket.ordinal].add(fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), fwd >= CortexLedger7885.RUNNER_GROSS_PCT)
+                b.byBucket[r.bucket.ordinal].add(fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187), fwd >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8187
                 val set = b.positions[r.bucket.ordinal]
                 set.add(r.positionId)
                 if (set.size > 400) set.remove(set.first())
@@ -560,7 +568,7 @@ object CortexExit7897 {
         } catch (_: Throwable) {}
     }
 
-    private fun fmt(s: CortexLedger7885.Stat): String = if (s.n < 1.0) "-" else "n${s.n.toInt()}/${"%+.1f".format(s.mean())}%"
+    private fun fmt(s: CortexLedger7885.Stat): String = CortexLedger7885.fmt8187(s)  // V5.0.8187 — robust, raw beside
 
     fun statusLine(): String {
         ensureLoaded()

@@ -22,6 +22,8 @@ object CortexWalkForward8144 {
     private const val FOLDS_8144 = 5
     private const val MIN_TRAIN_N_8144 = 15
     private const val MIN_OOS_N_8144 = 20
+    /** V5.0.8187 — the executable STRONG records a lane needs before the walk-forward can reach any verdict past INSUFFICIENT_DATA. */
+    const val MIN_SERIES_N_8187 = MIN_TRAIN_N_8144 + MIN_OOS_N_8144
     private const val MIN_RIVAL_N_8144 = 6
     private const val FULL_OOS_N_8144 = 60
     const val MARGIN_PCT_8144 = 2.0

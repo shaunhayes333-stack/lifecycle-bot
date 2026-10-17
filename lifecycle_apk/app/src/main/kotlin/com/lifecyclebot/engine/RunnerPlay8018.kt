@@ -84,7 +84,7 @@ object RunnerPlay8018 {
 
     private class Promo(val atMs: Long, @Volatile var peak: Double, @Volatile var last: Double)
     private val promos = ConcurrentHashMap<String, Promo>()                  // mint|entryTime
-    private val promoteRecord = CortexLedger7885.Stat()                      // realised minus scalp-ladder counterfactual
+    private val promoteRecord = CortexLedger7885.realisedStat8187()                      // realised minus scalp-ladder counterfactual
     private val promoted = AtomicLong(0)
     private val promoteShadow = AtomicLong(0)
 
@@ -143,7 +143,7 @@ object RunnerPlay8018 {
     private val considered = ConcurrentHashMap<String, Long>()               // mint -> last check
     private val armed = ConcurrentHashMap<String, Long>()                    // mint -> ticket issued
     private val signals = ConcurrentHashMap<String, Pair<Double, Long>>()    // mint -> (px, at) awaiting grade
-    private val reentryRecord = CortexLedger7885.Stat()
+    private val reentryRecord = CortexLedger7885.realisedStat8187()  // V5.0.8187 — realised: read raw
     private val runsConfirmed = AtomicLong(0)
     private val tickets = AtomicLong(0)
     private val notFirming = AtomicLong(0)
