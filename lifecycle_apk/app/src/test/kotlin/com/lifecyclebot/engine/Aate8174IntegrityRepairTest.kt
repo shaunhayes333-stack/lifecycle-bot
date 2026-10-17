@@ -15,6 +15,10 @@ class Aate8174IntegrityRepairTest {
         assertTrue(TokenBlacklist.isTrueBlacklistReason(reason))
         assertFalse(TokenBlacklist.isSoftPenaltyOnlyReason(reason))
         assertFalse(TokenBlacklist.isTrueBlacklistReason("UNCONFIRMED_PRICE_COLLAPSE: liquidity unverified"))
+        assertFalse(TokenBlacklist.explicitHardReason8174("UNCONFIRMED_RUG_COLLAPSE: still pending"))
+        assertFalse(TokenBlacklist.explicitHardReason8174("UNCONFIRMED RUG: no verified sell route"))
+        assertFalse(TokenBlacklist.isTrueBlacklistReason("UNCONFIRMED RUG: liquidity unverified"))
+        assertFalse(TokenBlacklist.isTrueBlacklistReason("UNVERIFIED BLACKLIST: pending review"))
     }
 
     @Test fun behaviourPatternBelongsToItsExactSpecialistLane() {
