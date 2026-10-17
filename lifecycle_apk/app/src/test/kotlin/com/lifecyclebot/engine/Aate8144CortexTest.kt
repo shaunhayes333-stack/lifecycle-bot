@@ -174,7 +174,9 @@ class Aate8144CortexTest {
         val obsR = CortexWalkForward8144.stat8144(book.observedSeries(lane, refuse))
         assertEquals(54, obsR.n)
         assertEquals(8.0, obsS.mean, 1e-9)
-        assertEquals((20 * -10.0 + 24 * 1_500.0 + 10 * 300.0) / 54.0, obsR.mean, 1e-6)
+        // superseded by V5.0.8187: each observed label is read through the per-label cap (+1,000%), so the runners' 1,500 reads 1,000;
+        // REFUSE still reads far above STRONG.
+        assertEquals((20 * -10.0 + 24 * 1_000.0 + 10 * 300.0) / 54.0, obsR.mean, 1e-6)
         assertTrue(obsR.mean > obsS.mean)
         assertEquals(Verdict8144.INVERTED_OOS,
             CortexWalkForward8144.promote8144(book.observedSeries(lane, strong), listOf(book.observedSeries(lane, refuse) to 1.0)).verdict)

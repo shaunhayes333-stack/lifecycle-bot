@@ -33,16 +33,20 @@ class Aate8185RemainingGapsTest {
     @After fun tearDown() { tk.resetForTests8153(); HandoffRetention8185.resetForTests8185(); WalletTokenAccountStateAuthority7253.resetForTests8185() }
 
     /** 141 refused candidates, ~15% "labelled" at a basis-error +5,000%, the rest small losers (5.0.8175 NATIVE_MCAP_TOO_HIGH shape). */
+    // superseded by V5.0.8187: new labels are clamped at ingestion, so the poisoned book is the STORED pre-8187 one
+    // (its running sums restored as persisted), which is what the audit read.
     private fun poisoned(): CortexLedger7885.Stat = CortexLedger7885.Stat().also { s ->
-        repeat(141) { i -> s.add(if (i % 7 == 0) 5_000.0 else -10.0, i % 7 == 0) }
+        repeat(141) { i -> val y = if (i % 7 == 0) 5_000.0 else -10.0; s.n += 1.0; s.sum += y; s.sumSq += y * y; if (y > 0.0) s.wins += 1.0; if (i % 7 == 0) s.runners += 1.0 }
     }
 
     // ── 1. robust label read ──
 
     @Test fun outlierLabelsNoLongerRetireAVeto() {
         val st = poisoned()
-        assertTrue("raw mean is the +700% the audit printed", st.mean() > 500.0)
-        assertTrue("the old test alone would retire it", st.mean() - kotlin.math.sqrt(st.variance() / st.n) > 2.0)
+        // superseded by V5.0.8187: mean() is the capped read; the raw stored mean is rawMean8187().
+        assertTrue("raw mean is the +700% the audit printed", st.rawMean8187() > 500.0)
+        assertTrue("the old test alone would retire it", st.rawMean8187() - kotlin.math.sqrt(st.rawVariance8187() / st.n) > 2.0)
+        assertTrue("the capped read no longer shows it", st.mean() < st.rawMean8187())
         assertFalse(Cortex7885.vetoRobustProof8185(st))
         assertFalse(Cortex7885.vetoProvenWinners8006(st))
         assertTrue(RobustLabelRead8185.outlierSuspect8185(st.n, st.sum, st.wins, RobustLabelRead8185.CAP_VETO_PCT_8185))
