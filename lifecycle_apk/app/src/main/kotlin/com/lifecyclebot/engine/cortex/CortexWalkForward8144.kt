@@ -125,6 +125,67 @@ object CortexWalkForward8144 {
         return Result8144(Verdict8144.VALIDATED, ins, oos, tested, passed, rivalMean)
     }
 
+
+    /**
+     * V5.0.8196: decisions and rival cohorts must be tested over the SAME wall-clock OOS windows.
+     * The original promote8144 treats the last four-fifths of each independently sized rival
+     * as contemporaneous, even if its tokens traded days before the STRONG training window.
+     * Never retroactively relabel a decision or use a later observation to justify its entry.
+     */
+    data class TimedReturn8196(val atMs: Long, val netPct: Double)
+
+    fun promoteChronological8196(
+        strong: List<TimedReturn8196>,
+        rivals: List<Pair<List<TimedReturn8196>, Double>> = emptyList(),
+        strongResolvedShare: Double = 1.0,
+        folds: Int = FOLDS_8144,
+        marginPct: Double = MARGIN_PCT_8144,
+    ): Result8144 {
+        val xs = strong.filter { it.atMs > 0L && it.netPct.isFinite() }.sortedBy { it.atMs }
+        val ins = stat8144(xs.map { it.netPct })
+        val none = Stat8144(0, Double.NaN, Double.POSITIVE_INFINITY)
+        if (xs.size < MIN_SERIES_N_8187) return Result8144(Verdict8144.INSUFFICIENT_DATA, ins, none, 0, 0, Double.NaN)
+        if (!strongResolvedShare.isFinite() || strongResolvedShare < MIN_RESOLVED_SHARE_8144)
+            return Result8144(Verdict8144.UNRESOLVED_COHORT, ins, none, 0, 0, Double.NaN)
+        val k = folds.coerceIn(2, 10)
+        val pool = ArrayList<Double>()
+        val testedWindows = ArrayList<LongRange>()
+        var tested = 0
+        var passed = 0
+        for (i in 1 until k) {
+            val start = foldStart(i, xs.size, k)
+            val end = foldStart(i + 1, xs.size, k)
+            if (start < MIN_TRAIN_N_8144 || end <= start) continue
+            if (!(stat8144(xs.subList(0, start).map { it.netPct }).lower > marginPct)) continue
+            val test = xs.subList(start, end)
+            testedWindows.add(test.first().atMs..test.last().atMs)
+            val st = stat8144(test.map { it.netPct })
+            tested++
+            if (st.mean > marginPct) passed++
+            test.forEach { pool.add(it.netPct) }
+        }
+        val oos = stat8144(pool)
+        val claimed = ins.lower > marginPct
+        if (tested == 0 || oos.n < MIN_OOS_N_8144)
+            return Result8144(if (claimed) Verdict8144.IN_SAMPLE_ONLY else Verdict8144.NO_EDGE, ins, oos, tested, passed, Double.NaN)
+        if (!(oos.lower > marginPct) || passed * 2 < tested)
+            return Result8144(if (claimed) Verdict8144.IN_SAMPLE_ONLY else Verdict8144.OOS_BELOW_MARGIN, ins, oos, tested, passed, Double.NaN)
+        val rivalMean = rivals.mapNotNull { (observations, resolved) ->
+            if (!resolved.isFinite() || resolved < MIN_RESOLVED_SHARE_8144) null
+            else {
+                val contemporaneous = observations.filter { row ->
+                    row.atMs > 0L && row.netPct.isFinite() && testedWindows.any { row.atMs in it }
+                }
+                stat8144(contemporaneous.map { it.netPct }).takeIf { it.n >= MIN_RIVAL_N_8144 }?.mean
+            }
+        }.maxOrNull() ?: Double.NaN
+        if (rivalMean.isFinite() && oos.mean <= rivalMean)
+            return Result8144(Verdict8144.INVERTED_OOS, ins, oos, tested, passed, rivalMean)
+        if (rivalMean.isFinite() && !(oos.lower > maxOf(rivalMean, 0.0) + marginPct))
+            return Result8144(Verdict8144.OOS_BELOW_MARGIN, ins, oos, tested, passed, rivalMean)
+        return Result8144(Verdict8144.VALIDATED, ins, oos, tested, passed, rivalMean)
+    }
+
     /** Pure: the authority ceiling a walk-forward result allows: 0 unvalidated, partial below [FULL_OOS_N_8144], else 1. */
     fun authorityCap8144(r: Result8144?): Double = when {
         r == null || !r.validated -> 0.0
