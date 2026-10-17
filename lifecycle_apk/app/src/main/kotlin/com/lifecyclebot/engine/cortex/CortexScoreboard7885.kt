@@ -199,6 +199,13 @@ class CortexScoreboard7885 {
                 // V5.0.8187 — winners too: the robust read bounds a book by its winners and runners.
                 val s = byBucket[b.ordinal]; r.n += s.n; r.sum += s.sum; r.sumSq += s.sumSq; r.runners += s.runners; r.wins += s.wins
             }
+            r.readOffset8187 = byBucket[Bucket.NEUTRAL.ordinal].readOffset8187  // V5.0.8187 — the same executable read
+        }
+
+        /** V5.0.8187 — every label book of this lane reads executable: the lane's label-to-bank gap [offsetPct]. */
+        fun applyOffset8187(offsetPct: Double) {
+            val o = if (offsetPct.isFinite()) offsetPct.coerceAtLeast(0.0) else 0.0
+            for (st in all()) st.readOffset8187 = o
         }
 
         /** V5.0.8025 — every STRONG read this lane has ever had graded (never decayed, never windowed): its maturity. */

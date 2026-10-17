@@ -73,6 +73,14 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
     var revision: Long = 0L
         private set
 
+    /**
+     * V5.0.8187 §EXECUTABLE_LABELS — per lane, the label-to-bank gap the authority reads subtract (Cortex7885 sets it from
+     * the measured cost gap and the realised-vs-label shortfall). 0 by default: a bare book reads its labels as stored.
+     */
+    @Volatile var execOffset8187: (String) -> Double = { 0.0 }
+
+    private fun offset8187(lane: String): Double = try { execOffset8187(lane).takeIf { it.isFinite() && it > 0.0 } ?: 0.0 } catch (_: Throwable) { 0.0 }
+
     fun size(): Int = decisions.size
     fun tradeCount(): Int = trades.size
     fun decision(id: String): CortexGradeRecord8144? = byId[id]
@@ -213,12 +221,39 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
     /** Executable values of graded decisions in [lane] (and [setup] / [bucket] when given), oldest first. */
     fun executableSeries(lane: String, setup: String?, bucket: Int?): List<Double> =
         decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() }
-            .sortedBy { it.atMs }.map { it.capped8187(it.executablePct) }  // V5.0.8187 — every label read through its cap
+            .sortedBy { it.atMs }.map { it.capped8187(it.executablePct) - offset8187(lane) }  // V5.0.8187 — capped, executable-net
 
     /** Observed values of every labelled decision in [lane] for [bucket], hygiene ignored (the raw cohort). */
     fun observedSeries(lane: String, bucket: Int): List<Double> =
         decisions.filter { it.kind == 'D' && !it.lost && it.lane == lane && it.bucket == bucket && it.observedNetPct.isFinite() }
             .sortedBy { it.atMs }.map { it.capped8187(it.observedNetPct) }  // V5.0.8187
+
+    /**
+     * V5.0.8187 — the realised-vs-label shortfall of [lane] in [mode]: every closed trade paired with the admitted decision
+     * that opened it (same coin and lane, decided at most [maxBeforeMs] before the open), label (capped) minus the realised
+     * whole-position return. Returns [pairs, mean shortfall %]; a positive shortfall means the labels promised more than
+     * the trades banked (entry chase, fills, costs at the ticket, the exits actually run).
+     */
+    fun pairedShortfall8187(lane: String, mode: String, maxBeforeMs: Long = 15L * 60_000L): DoubleArray {
+        var n = 0; var sum = 0.0
+        for (t in trades.values) {
+            if (!t.realisedPct.isFinite() || !t.mode.equals(mode, true) || (t.ownerLane.ifBlank { t.lane }) != lane) continue
+            val d = decisions.asReversed().firstOrNull {
+                it.kind == 'D' && it.admitted && it.episode == t.episode && t.atMs - it.atMs in 0L..maxBeforeMs && it.observedNetPct.isFinite()
+            } ?: continue
+            n++; sum += d.capped8187(d.observedNetPct) - t.realisedPct
+        }
+        return doubleArrayOf(n.toDouble(), if (n > 0) sum / n else 0.0)
+    }
+
+    /** V5.0.8187 — every lane with a decision or trade record (the executable offsets are refreshed for these). */
+    fun lanes8187(): Set<String> = (decisions.map { it.lane } + trades.values.map { it.ownerLane.ifBlank { it.lane } }).filter { it.isNotBlank() }.toSet()
+
+    /** V5.0.8187 — (setup -> [closes, mean realised %]) of [lane]'s attributed realised closes in [mode], each capped. */
+    fun realisedBySetup8187(lane: String, mode: String): Map<String, DoubleArray> =
+        trades.values.filter { it.realisedPct.isFinite() && it.ownerLane == lane && it.ownerSetup.isNotBlank() && it.mode.equals(mode, true) }
+            .groupBy { it.ownerSetup }
+            .mapValues { (_, rs) -> doubleArrayOf(rs.size.toDouble(), rs.sumOf { com.lifecyclebot.engine.truth.RobustLabelRead8185.clampLabel8187(it.realisedPct) } / rs.size) }
 
     /** V5.0.8187 — the executable series as stored (pre-8187 records kept their uncapped values; the screen shows both). */
     fun executableSeriesRaw8187(lane: String, bucket: Int): List<Double> =
@@ -290,7 +325,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         return decisions.filter { it.graded && !it.lost && it.executablePct.isFinite() }.groupBy { it.key() + "#" + it.bucket }
             .mapNotNull { (k, rs) ->
                 if (rs.size < minN) null else {
-                    val s = CortexWalkForward8144.stat8144(rs.map { it.capped8187(it.executablePct) })  // V5.0.8187
+                    val s = CortexWalkForward8144.stat8144(rs.map { it.capped8187(it.executablePct) - offset8187(it.lane) })  // V5.0.8187
                     val rr = CortexWalkForward8144.stat8144(realised[k].orEmpty().map { it.realisedPct })
                     Cell8144(k.substringBefore('#'), rs.first().bucket, s.n, s.mean, s.se, rr.n, rr.mean)
                 }

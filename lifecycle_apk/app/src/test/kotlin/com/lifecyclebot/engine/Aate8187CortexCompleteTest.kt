@@ -375,4 +375,75 @@ class Aate8187CortexCompleteTest {
         val conviction = cx.substringAfter("private fun cortexStake7893(").substringBefore("private fun provenEvidenceStake7948(")
         assertTrue(conviction.contains("validatedEvidence8187(a.lane, null) ?: run {"))
     }
+
+    // ── 8186b: a voter time budget, and authority on executable labels ──
+
+    @Test fun slowVotersAreServedFromTheirCacheNeverInline() {
+        val v = com.lifecyclebot.engine.cortex.CortexVoters7885
+        assertFalse(v.servedFromCache8187(0.5, 1.0))
+        assertTrue("slow on average", v.servedFromCache8187(160.0, 1.0))
+        assertTrue("the read is over its budget", v.servedFromCache8187(0.5, v.ASSESS_BUDGET_MS_8187 + 1.0))
+        assertTrue(v.cacheFresh8187(t0, t0 + 30_000L))
+        assertFalse("expired", v.cacheFresh8187(t0, t0 + v.VOTER_CACHE_TTL_MS_8187 + 1L))
+        assertFalse("never a value from the future", v.cacheFresh8187(t0 + 1L, t0))
+        val ring = doubleArrayOf(5.0, 1.0, 3.0, 2000.0, 4.0)
+        assertEquals(4.0, Cortex7885.quantile8187(ring, 5, 0.5), 0.0)
+        assertTrue(Cortex7885.quantile8187(ring, 0, 0.5).isNaN())
+        val src = src("engine/cortex/CortexVoters7885.kt")
+        assertFalse(src.contains("kotlin.random.Random.nextDouble() > 0.10"))
+        assertTrue(src.contains("if (servedFromCache8187(avg, elapsedMs8187)) {"))
+    }
+
+    @Test fun authorityReadsTheExecutableLabel() {
+        // The lane offset: the larger of the cost the labels were not charged and the shrunk realised-vs-label shortfall.
+        assertEquals(3.0, Cortex7885.costGap8187(9.0, 0.0, 6.0), 1e-9)
+        assertEquals(0.0, Cortex7885.costGap8187(5.0, 2.0, 8.0), 1e-9)
+        assertEquals(0.0, Cortex7885.costGap8187(Double.NaN, 0.0, 8.0), 0.0)
+        assertEquals(45.0, Cortex7885.execOffset8187(3.0, 5.0, 90.0), 1e-9)
+        assertEquals(7.0, Cortex7885.execOffset8187(7.0, 0.0, 0.0), 1e-9)
+        assertEquals(Cortex7885.MAX_EXEC_OFFSET_PCT_8187, Cortex7885.execOffset8187(0.0, 100.0, 200.0), 1e-9)
+        // 8186: LAUNCH_LADDER_PROVEN labels n578 +103.1% against realised n2 -47.9% — the record is blended toward the trades.
+        val b = Cortex7885.realisedBlend8187(578.0, 103.1, 2.0, -47.9)
+        assertEquals(30.0, b[0], 1e-9); assertEquals((60.0 * 103.1 - 60.0 * 47.9) / 120.0, b[1], 1e-9)
+        assertEquals(578.0, Cortex7885.realisedBlend8187(578.0, 103.1, 1.0, -47.9)[0], 0.0)   // one close is not a record
+        assertEquals(103.1, Cortex7885.realisedBlend8187(578.0, 103.1, 5.0, 12.0)[1], 0.0)    // agreeing closes leave it
+        // The executable copy: the offset off the mean, the blend's smaller evidence; no change, the same object.
+        val st = CortexLedger7885.labelStat8187().also { x -> repeat(100) { x.add(if (it % 2 == 0) 5.0 else 15.0, false) } }
+        assertTrue(Cortex7885.executableCopy8187(st, 0.0, 0.0, Double.NaN) === st)
+        val ex = Cortex7885.executableCopy8187(st, 4.0, 0.0, Double.NaN)
+        assertEquals(6.0, ex.mean(), 1e-9); assertEquals(100.0, ex.n, 1e-9)
+        val contradicted = Cortex7885.executableCopy8187(st, 0.0, 3.0, -30.0)
+        assertTrue(contradicted.n < st.n && contradicted.mean() < 0.0)
+        // A book read with a lane offset: the stored sum is unchanged, the mean (and every proof on it) is executable.
+        st.readOffset8187 = 4.0
+        assertEquals(6.0, st.mean(), 1e-9); assertEquals(1_000.0, st.sum, 1e-9)
+        assertTrue(CortexLedger7885.fmt8187(st).contains("/exec+6.0%"))
+        // The labeler's cell proofs read executable too.
+        val cell = ForwardReturnLabeler7731.CellStat("SRC|SHITCOIN|MC_10K_100K|AGE_LT15M", 40, 12.0, 0.6, 0.1, 2.0, 0, 10, 20.0)
+        assertEquals(2.0, ForwardReturnLabeler7731.execShift8187(cell, 10.0).meanNet60Pct, 1e-9)
+        assertTrue(ForwardReturnLabeler7731.execShift8187(cell, 0.0) === cell)
+    }
+
+    @Test fun theShortfallIsMeasuredOnTheSameTradesAndTheSeriesReadExecutable() {
+        val book = CortexGradeBook8144()
+        val d = decide(book, "MINT", "SHITCOIN", t0, strong, true, null, 50.0)
+        d.mode = "LIVE"
+        val trade = CortexGradeRecord8144('T', "pos-8187", "MINT|SHITCOIN", t0 + 60_000L, "SHITCOIN", "S", "-", "MID", "C3_6", "MC_10K_100K", strong, 4.5, true, true, false)
+        trade.mode = "LIVE"
+        assertTrue(book.openTrade(trade))
+        val owner = com.lifecyclebot.engine.cortex.CortexOutcomeRoute8144.owner8144("LIVE", "MINT", null, null, null, null, null, "SHITCOIN", "S")
+        assertNotNull(book.closeTrade("pos-8187", owner, -40.0))
+        val sf = book.pairedShortfall8187("SHITCOIN", "LIVE")
+        assertEquals(1.0, sf[0], 0.0); assertEquals(90.0, sf[1], 1e-9)
+        assertEquals(0.0, book.pairedShortfall8187("SHITCOIN", "PAPER")[0], 0.0)
+        assertTrue("SHITCOIN" in book.lanes8187())
+        assertEquals(-40.0, book.realisedBySetup8187("SHITCOIN", "LIVE")["S"]!![1], 1e-9)
+        assertEquals(listOf(50.0), book.executableSeries("SHITCOIN", null, strong))
+        book.execOffset8187 = { l -> if (l == "SHITCOIN") 10.0 else 0.0 }
+        assertEquals(listOf(40.0), book.executableSeries("SHITCOIN", null, strong))
+        val cx = src("engine/cortex/Cortex7885.kt")
+        assertTrue(cx.contains("calibration.calibrate(lane, fused.edgePct, fused.laneMean) } - executableOffset8187(lane)"))
+        assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane)"))
+        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("fun laneStatFor7737(lane: String): CellStat? = executable8187(laneStat(lane), lane)"))
+    }
 }

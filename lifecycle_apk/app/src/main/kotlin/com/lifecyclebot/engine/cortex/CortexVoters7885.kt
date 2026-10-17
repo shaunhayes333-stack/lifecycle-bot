@@ -515,6 +515,69 @@ object CortexVoters7885 {
     fun slowLine(): String = readMs.entries.filter { it.value > SLOW_MS }.sortedByDescending { it.value }.take(6)
         .joinToString(",") { "${it.key}=${"%.1f".format(it.value)}ms/skip${slowSkips[it.key]?.get() ?: 0}" }.ifBlank { "none" }
 
+    // ── V5.0.8187 §VOTER_TIME_BUDGET — the hot read never waits on a slow voter ──
+    //
+    // 5.0.8186: assess avgMs=1,799.9 (8175: 16.6), capture meanLagMs=14,878, lateVoterReads=172 (slow voters 58-160 ms each,
+    // still read inline on a 10% sample, and the cold capture path assessed every coin in full). Now a voter averaging over
+    // [CACHED_MS_8187] — or any voter once the read has spent [ASSESS_BUDGET_MS_8187] — is served from its own per-coin cache
+    // (a value read at most [VOTER_CACHE_TTL_MS_8187] earlier, before this read) or abstains (NaN = unknown, which the ledger
+    // already handles); a missing or stale entry is refreshed on a separate background worker, never on the decision path.
+    private const val CACHED_MS_8187 = 2.0
+    const val ASSESS_BUDGET_MS_8187 = 35.0
+    const val VOTER_CACHE_TTL_MS_8187 = 45_000L
+    private const val VOTER_CACHE_MAX_8187 = 30_000
+    private class CachedRead8187(val v: Double, val atMs: Long)
+    private val voterCache8187 = java.util.concurrent.ConcurrentHashMap<String, CachedRead8187>()
+    private val refreshQueued8187: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val cacheServed8187 = java.util.concurrent.atomic.AtomicLong(0)
+    private val budgetAbstained8187 = java.util.concurrent.atomic.AtomicLong(0)
+    private val refreshDropped8187 = java.util.concurrent.atomic.AtomicLong(0)
+    private val refreshPool8187: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
+        1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(512),
+        { r -> Thread(r, "cortex-voter-refresh-8187").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
+        java.util.concurrent.ThreadPoolExecutor.DiscardPolicy(),
+    )
+
+    /** Pure (V5.0.8187): is a voter served from its cache on this read (slow on average, or the read is over budget)? */
+    fun servedFromCache8187(avgMs: Double, elapsedMs: Double): Boolean = avgMs > CACHED_MS_8187 || elapsedMs > ASSESS_BUDGET_MS_8187
+
+    /** Pure (V5.0.8187): may a cached voter value read at [atMs] stand in for a read at [wallMs]? Never one from the future. */
+    fun cacheFresh8187(atMs: Long, wallMs: Long): Boolean = atMs > 0L && wallMs - atMs in 0L..VOTER_CACHE_TTL_MS_8187
+
+    private fun cacheKey8187(i: Int, mint: String, lane: String): String = if (laneFree8169[i]) "$i|$mint" else "$i|$mint|$lane"
+
+    private fun timedRead8187(i: Int, ts: TokenState, lane: String, nowMs: Long,
+                              failures: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>?): Double {
+        val v = ALL[i]
+        val t0 = System.nanoTime()
+        val r = try { v.read(ts, lane, nowMs)?.takeIf { it.isFinite() } ?: Double.NaN } catch (_: Throwable) {
+            failures?.computeIfAbsent(v.id) { java.util.concurrent.atomic.AtomicLong(0) }?.incrementAndGet()
+            Double.NaN
+        }
+        val ms = (System.nanoTime() - t0) / 1_000_000.0
+        readMs[v.id] = (readMs[v.id] ?: ms) * 0.9 + ms * 0.1
+        return r
+    }
+
+    private fun scheduleRefresh8187(i: Int, key: String, ts: TokenState, lane: String) {
+        if (!refreshQueued8187.add(key)) return
+        try {
+            refreshPool8187.execute {
+                try {
+                    val wall = System.currentTimeMillis()
+                    val r = timedRead8187(i, ts, lane, wall, null)
+                    if (voterCache8187.size >= VOTER_CACHE_MAX_8187) voterCache8187.entries.removeIf { !cacheFresh8187(it.value.atMs, wall) }
+                    if (voterCache8187.size < VOTER_CACHE_MAX_8187) voterCache8187[key] = CachedRead8187(r, wall)
+                } finally { refreshQueued8187.remove(key) }
+            }
+            if (refreshPool8187.queue.remainingCapacity() == 0) refreshDropped8187.incrementAndGet()
+        } catch (_: Throwable) { refreshQueued8187.remove(key); refreshDropped8187.incrementAndGet() }
+    }
+
+    /** "budget8187[...]" for the compute line: cache-served reads, abstentions, dropped refreshes. */
+    fun budgetLine8187(): String = "budget8187[cacheServed=${cacheServed8187.get()} abstained=${budgetAbstained8187.get()} " +
+        "refreshQueued=${refreshPool8187.queue.size} refreshDropped=${refreshDropped8187.get()} cached=${voterCache8187.size} budgetMs=${ASSESS_BUDGET_MS_8187.toInt()}]"
+
     /** Read every voter for (ts, lane). Index-aligned with [ALL]; NaN = abstained or failed. */
     fun readAll(ts: TokenState, lane: String, nowMs: Long, failures: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>? = null): DoubleArray {
         // V5.0.8169 — the lane-free voters (248 of 291 never read the lane) are read once per coin per moment and shared
@@ -522,7 +585,10 @@ object CortexVoters7885 {
         val wall = System.currentTimeMillis()
         val memo = memo8169[ts.mint]?.takeIf { memoReusable8169(it.ts === ts, it.priceAt, ts.lastPriceUpdate, it.wallMs, wall, it.nowMs, nowMs) }
         val free = laneFree8169
-        val out = DoubleArray(ALL.size) { i -> if (memo != null && free[i]) memo.vals[i] else readOne8169(i, ts, lane, nowMs, failures) }
+        val t0 = System.nanoTime()
+        val out = DoubleArray(ALL.size) { i ->
+            if (memo != null && free[i]) memo.vals[i] else readOne8169(i, ts, lane, nowMs, failures, (System.nanoTime() - t0) / 1_000_000.0)
+        }
         if (memo != null) memoHits8169.incrementAndGet() else {
             memoMisses8169.incrementAndGet()
             if (memo8169.size >= MEMO_MAX_8169) memo8169.entries.removeIf { wall - it.value.wallMs > MEMO_MS_8169 }
@@ -532,22 +598,21 @@ object CortexVoters7885 {
     }
 
     private fun readOne8169(i: Int, ts: TokenState, lane: String, nowMs: Long,
-                            failures: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>?): Double {
+                            failures: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>?,
+                            elapsedMs8187: Double = 0.0): Double {
         val v = ALL[i]
         val avg = readMs[v.id] ?: 0.0
-        return if (avg > SLOW_MS && kotlin.random.Random.nextDouble() > 0.10) {
+        // V5.0.8187 — slow (or over-budget) voters are served from their per-coin cache, refreshed in the background.
+        if (servedFromCache8187(avg, elapsedMs8187)) {
+            val key = cacheKey8187(i, ts.mint, lane)
+            val wall = System.currentTimeMillis()
+            val c = voterCache8187[key]
+            val fresh = c != null && cacheFresh8187(c.atMs, wall)
+            if (!fresh || wall - (c?.atMs ?: 0L) > VOTER_CACHE_TTL_MS_8187 / 2) scheduleRefresh8187(i, key, ts, lane)
             slowSkips.computeIfAbsent(v.id) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
-            Double.NaN
-        } else {
-            val t0 = System.nanoTime()
-            val r = try { v.read(ts, lane, nowMs)?.takeIf { it.isFinite() } ?: Double.NaN } catch (_: Throwable) {
-                failures?.computeIfAbsent(v.id) { java.util.concurrent.atomic.AtomicLong(0) }?.incrementAndGet()
-                Double.NaN
-            }
-            val ms = (System.nanoTime() - t0) / 1_000_000.0
-            readMs[v.id] = avg * 0.9 + ms * 0.1
-            r
+            return if (fresh && c != null) { cacheServed8187.incrementAndGet(); c.v } else { budgetAbstained8187.incrementAndGet(); Double.NaN }
         }
+        return timedRead8187(i, ts, lane, nowMs, failures)
     }
 
     // ── V5.0.8169 — lane-free read sharing (behaviour-preserving: same coin object, same price stamp, within 3 s) ──

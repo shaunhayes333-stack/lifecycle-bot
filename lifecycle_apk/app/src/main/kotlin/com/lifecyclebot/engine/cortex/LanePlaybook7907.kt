@@ -684,7 +684,20 @@ object LanePlaybook7907 {
     @Volatile private var loaded = false
     private val sincePersist = AtomicLong(0)
 
+    /**
+     * V5.0.8187 §EXECUTABLE_LABELS — every authority read of a setup record (proof, expected value, graduated authority,
+     * Kelly share, ranking) reads it executable: the lane's label-to-bank gap off its mean, and blended toward the setup's own
+     * realised closes where they contradict it (Cortex7885.executableCopy8187). [statRaw8187] is the stored record (display).
+     */
     private fun stat(lane: String, setup: String): CortexLedger7885.Stat? {
+        val raw = statRaw8187(lane, setup) ?: return null
+        val rr = try { Cortex7885.setupRealised8187(lane, setup) } catch (_: Throwable) { null }
+        return try {
+            Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane), rr?.getOrNull(0) ?: 0.0, rr?.getOrNull(1) ?: Double.NaN)
+        } catch (_: Throwable) { raw }
+    }
+
+    private fun statRaw8187(lane: String, setup: String): CortexLedger7885.Stat? {
         val local = books[lane]?.stats?.get(setup)?.takeIf { it.n == 0.0 ||
             LaneEvidence8077.coherent(it.n, it.sum, it.sumSq, it.wins, it.runners) }
         // V5.0.8000 — the rest of the hive's grades of this setup ride on the local book.
@@ -1806,10 +1819,12 @@ object LanePlaybook7907 {
                     " alsoFired{" + firedCount.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }.take(8)
                         .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" } + "}"
                 val rec = (menuIds(lane) + NO_TRIGGER).joinToString(" ") { id ->
-                    val st = stat(lane, id)
+                    val st = statRaw8187(lane, id)
+                    val ex8187 = stat(lane, id)
                     // V5.0.7955 — a setup holding graduated authority shows it (auth=0.62).
-                    val auth = setupFraction7955(st)
-                    "$id[${if (st == null || st.n < 1.0) "prior ${"%+.1f".format(priorOf(lane, id))}" else "n${st.n.toInt()} ${"%+.1f".format(st.mean())}%${if (st.suspect8187()) "~raw${"%+.1f".format(st.rawMean8187())}%" else ""} exp ${"%+.1f".format(expected(lane, id))}"}${if (auth > 0.0) " auth=${"%.2f".format(auth)}" else ""}]"
+                    // V5.0.8187 — the stored (raw, capped) record is shown; authority and "exec" are the executable read.
+                    val auth = setupFraction7955(ex8187)
+                    "$id[${if (st == null || st.n < 1.0) "prior ${"%+.1f".format(priorOf(lane, id))}" else "n${st.n.toInt()} ${"%+.1f".format(st.mean())}%${if (st.suspect8187()) "~raw${"%+.1f".format(st.rawMean8187())}%" else ""}${if (ex8187 != null && ex8187 !== st) " exec${"%+.1f".format(ex8187.mean())}%" else ""} exp ${"%+.1f".format(expected(lane, id))}"}${if (auth > 0.0) " auth=${"%.2f".format(auth)}" else ""}]"
                 }
                 val oc = outcomeCounts8084.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }
                     .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" }

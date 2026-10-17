@@ -108,7 +108,7 @@ object CortexAudit8169 {
         row(sb, "Cortex core assess/fuse §7885", c.assessedCount8169(), "FDG gate+sizing calls[" +
             "entryRefusal=${calls("ENTRY_REFUSAL")} overrule=${calls("OVERRULE")} fullAuth=${calls("FULL_AUTHORITY")} paperChoice=${calls("PAPER_CHOICE")} " +
             "conviction=${calls("CONVICTION")} sizeShape=${calls("SIZE_SHAPE")} vetoAudit=${calls("VETO_AUDIT")}]",
-            "assessed=${c.assessedCount8169()} avgMs=${"%.1f".format(c.avgAssessMs8169())} ${safe { CortexVoters7885.memoLine8169() }} ${captureLine()}")
+            "assessed=${c.assessedCount8169()} avgMs=${"%.1f".format(c.avgAssessMs8169())} ${safe { c.assessLatencyLine8187() }} ${safe { CortexVoters7885.memoLine8169() }} ${captureLine()}")
         row(sb, "Cortex capture/labels §7885", c.gradedCount8169(), "ForwardReturnLabeler7731.observe/tick",
             "graded=${c.gradedCount8169()} pending=${c.pendingCount()} ${safe { c.hygieneLine8169() }}")
         row(sb, "Scoreboard §7919 (Rp/Rl/O)", calls("ENTRY_REFUSAL"), "LiveEdgeGate7877 entryRefusal C3",

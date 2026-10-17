@@ -54,7 +54,8 @@ class CortexLedger7885(
         fun fmt8187(s: Stat, suffix: String = ""): String {
             if (s.n < 1.0) return "-"
             val r = s.robust8187()
-            return "n${s.n.toInt()}/${"%+.1f".format(r.mean)}%$suffix" + if (r.suspect) "~raw${"%+.1f".format(r.rawMean)}%" else ""
+            return "n${s.n.toInt()}/${"%+.1f".format(r.mean)}%$suffix" + (if (r.suspect) "~raw${"%+.1f".format(r.rawMean)}%" else "") +
+                (if (s.readOffset8187 > 0.05) "/exec${"%+.1f".format(r.mean - s.readOffset8187)}%" else "")
         }
 
         /**
@@ -138,6 +139,12 @@ class CortexLedger7885(
         // Cumulative decay, persisted with the book. A delayed correction must
         // replace only the weight that its original observation still owns.
         var logScale = 0.0
+        /**
+         * V5.0.8187 §EXECUTABLE_LABELS — the lane's measured gap between a forward label and what a trade actually banks
+         * (cost at the ticket above the cost the label was charged, and the realised-vs-label shortfall on the same trades),
+         * subtracted from every authority read of a label book. Read-time only, never stored: the raw label stays for display.
+         */
+        @Volatile var readOffset8187 = 0.0
         fun rawMean8187(): Double = if (n > 0.0) sum / n else 0.0
         fun rawVariance8187(): Double = if (n > 1.0) ((sumSq / n) - rawMean8187() * rawMean8187()).coerceAtLeast(0.0) else 0.0
         /** V5.0.8187 — the robust read of this book (RobustLabelRead8185.robust8187). */
@@ -150,10 +157,11 @@ class CortexLedger7885(
         fun suspect8187(): Boolean = n > 0.0 && cap8187.isFinite() && sum.isFinite() && sum / n > upper8187() + 1e-9
         fun mean(): Double {
             if (!(n > 0.0)) return 0.0
+            val off = readOffset8187.takeIf { it.isFinite() } ?: 0.0
             val raw = sum / n
-            if (!cap8187.isFinite() || !raw.isFinite()) return raw
+            if (!cap8187.isFinite() || !raw.isFinite()) return raw - off
             val hi = upper8187()
-            return if (raw > hi + 1e-9) hi else raw
+            return (if (raw > hi + 1e-9) hi else raw) - off
         }
         fun variance(): Double {
             if (!(n > 1.0)) return 0.0

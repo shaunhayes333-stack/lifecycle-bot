@@ -1526,8 +1526,24 @@ object ForwardReturnLabeler7731 {
 
     fun cellStatFor(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): CellStat? {
         val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        return cellStat(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs))  // V5.0.8019
+        return executable8187(cellStat(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs)), lane)  // V5.0.8019 / V5.0.8187
     }
+
+    /**
+     * V5.0.8187 §EXECUTABLE_LABELS — the cell / kind / lane records the gates and sizing read (cell proofs, Kelly shares) are
+     * read executable: the lane's measured label-to-bank gap (Cortex7885.executableOffset8187) comes off the mean. The stored
+     * tallies and every display line stay raw.
+     */
+    fun executable8187(c: CellStat?, lane: String): CellStat? {
+        if (c == null) return null
+        val off = try { com.lifecyclebot.engine.cortex.Cortex7885.executableOffset8187(lane) } catch (_: Throwable) { 0.0 }
+        return execShift8187(c, off)
+    }
+
+    /** Pure (V5.0.8187): [c] with [offsetPct] (>= 0) taken off its 5-minute and 60-minute means. */
+    fun execShift8187(c: CellStat, offsetPct: Double): CellStat =
+        if (!offsetPct.isFinite() || offsetPct <= 0.0) c
+        else c.copy(meanNet60Pct = c.meanNet60Pct - offsetPct, meanNet240Pct = c.meanNet240Pct - offsetPct)
 
     /**
      * V5.0.8063 — the 5-minute record of [lane] for coins of [ts]'s kind: (venue x cap band, narrative). A kind proven to
@@ -1537,7 +1553,7 @@ object ForwardReturnLabeler7731 {
         val k = kindOf8063(ts).split('/')
         if (k.size != 2) return emptyList()
         val l = lane.trim().uppercase()
-        return listOfNotNull(cellStat(kindKey8063(l, k[0], mcapBand(TrustedMcap8019.mcap8019(ts)))), cellStat(narrKey8063(l, k[1])))
+        return listOfNotNull(executable8187(cellStat(kindKey8063(l, k[0], mcapBand(TrustedMcap8019.mcap8019(ts)))), l), executable8187(cellStat(narrKey8063(l, k[1])), l))  // V5.0.8187
     }
 
     private fun laneStat(lane: String): CellStat? = cellStat(laneKey(lane.trim().uppercase()))
@@ -1579,7 +1595,7 @@ object ForwardReturnLabeler7731 {
     }
 
     /** V5.0.7737 — the lane's 60-minute label record (LaneAutoPauseGuard's label-proof release). */
-    fun laneStatFor7737(lane: String): CellStat? = laneStat(lane)
+    fun laneStatFor7737(lane: String): CellStat? = executable8187(laneStat(lane), lane)  // V5.0.8187 — executable read
 
     private fun fmtStat(s: CellStat?): String =
         if (s == null) "n=0" else "n=${s.n60} net=${"%+.1f".format(s.meanNet60Pct)}% wr=${"%.0f".format(s.winRate60 * 100)}% run=${"%.0f".format(s.runnerRate60 * 100)}% lost=${s.lost}" +

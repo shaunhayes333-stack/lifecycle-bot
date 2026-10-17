@@ -136,7 +136,8 @@ object Cortex7885 {
             ledger.fuse(lane, votes, regime) to ledger.predictionSnapshot8076(lane, ids, edges, raws, regime)
         }
         // V5.0.7901 — Cortex v7: buckets read the calibrated edge, not the raw one.
-        val calibrated = synchronized(this) { calibration.calibrate(lane, fused.edgePct, fused.laneMean) }
+        // V5.0.8187 — and executable: the lane's label-to-bank gap comes off the edge the bucket is read on.
+        val calibrated = synchronized(this) { calibration.calibrate(lane, fused.edgePct, fused.laneMean) } - executableOffset8187(lane)
         val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)
         val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
         val freshestAt = maxOf(ts.lastPriceUpdate, registryAt)
@@ -144,6 +145,7 @@ object Cortex7885 {
         val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs, prediction8076)
         try { CortexInvariants7911.recordProvenance(ts, nowMs) } catch (_: Throwable) {}
         assessNanos.addAndGet(System.nanoTime() - t0)
+        noteAssessMs8187((System.nanoTime() - t0) / 1_000_000.0)
         assessed.incrementAndGet()
         if (assessCache.size >= MAX_ASSESS_CACHE) assessCache.entries.removeIf { nowMs - it.value.atMs > ASSESS_TTL_MS }
         if (assessCache.size >= ASSESS_PRUNE_AT_8144) pruneAssess8144(nowMs)
@@ -229,6 +231,31 @@ object Cortex7885 {
         val late = CortexAudit8169.voterReadLeaks8169(readAtMs, decisionAtMs, delay)
         CortexAudit8169.noteCapture(readAtMs - decisionAtMs, late)
         return late
+    }
+
+    // ── V5.0.8187 — assessment latency distribution (the 8186 mean of 1.8 s hid whether every read was slow) ──
+    private val assessMsRing8187 = DoubleArray(256)
+    private val assessMsN8187 = AtomicLong(0)
+
+    private fun noteAssessMs8187(ms: Double) {
+        if (!ms.isFinite()) return
+        val i = (assessMsN8187.getAndIncrement() % assessMsRing8187.size).toInt()
+        synchronized(assessMsRing8187) { assessMsRing8187[i] = ms }
+    }
+
+    /** Pure (V5.0.8187): the [q]-quantile of the first [n] values of [ring] (NaN with none). */
+    fun quantile8187(ring: DoubleArray, n: Int, q: Double): Double {
+        val m = n.coerceIn(0, ring.size)
+        if (m == 0) return Double.NaN
+        val v = ring.copyOf(m).sorted()
+        return v[((m - 1) * q.coerceIn(0.0, 1.0)).toInt()]
+    }
+
+    /** V5.0.8187 — "assessMs8187[p50= p90= n=]" over the last 256 assessments. */
+    fun assessLatencyLine8187(): String {
+        val n = assessMsN8187.get().coerceAtMost(assessMsRing8187.size.toLong()).toInt()
+        val ring = synchronized(assessMsRing8187) { assessMsRing8187.copyOf() }
+        return "assessMs8187[p50=${"%.1f".format(quantile8187(ring, n, 0.5))} p90=${"%.1f".format(quantile8187(ring, n, 0.9))} n=${assessMsN8187.get()}]"
     }
 
     fun assessedCount8169(): Long = assessed.get()
@@ -705,6 +732,7 @@ object Cortex7885 {
                     .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT)
             }
             if (trace8006 != null) retain8006(key, p, trace8006, net8187, gross8187, bookScales, auxScales)
+            refreshExecutable8187(System.currentTimeMillis())  // V5.0.8187
         }
         graded.incrementAndGet()
         if (sincePersist.incrementAndGet() >= PERSIST_EVERY) { sincePersist.set(0); persist() }
@@ -719,7 +747,7 @@ object Cortex7885 {
     private const val GRADES_KEY_8144 = "CORTEX_GRADES_8144"
     private const val WF_REFRESH_MS_8144 = 30_000L
     private const val LOST_SWEEP_EVERY_MS_8144 = 120_000L
-    private val gradeBook8144 = CortexGradeBook8144()
+    private val gradeBook8144 = CortexGradeBook8144().also { b -> b.execOffset8187 = { l -> execOffsetByLane8187[l] ?: 0.0 } }  // V5.0.8187
     private val wfCache8144 = HashMap<String, Pair<Long, CortexWalkForward8144.Result8144>>()
     private val pendingCtx8144 = ConcurrentHashMap<String, DecisionCtx8144>()
     @Volatile private var lastLostSweepMs8144 = 0L
@@ -1290,6 +1318,112 @@ object Cortex7885 {
         return capped
     }
 
+    // ── V5.0.8187 §EXECUTABLE_LABELS — authority reads the label a trade could have banked ──
+    //
+    // 8186: SHITCOIN|LAUNCH_LADDER_PROVEN setup record n578 +103% auth=1.00 while its live trades closed n2 -47.9% (SHITCOIN
+    // realised n5 -29.6%, canonical PF 0.40). A forward label is a mark move from the (re-based) decision price to the horizon
+    // under the simulated lane play; a trade pays the cost at its ticket and gets the fills and exits it actually gets. Per lane:
+    //   cost gap   the round trip at our ticket (NetEdge8030: measured or modelled, whichever is higher, plus the chase when the
+    //              labels were not re-based at a measured latency) above the cost the labels were charged
+    //              (CostLedger7962.labelChargedCostPct8153);
+    //   shortfall  on the SAME trades, label minus realised whole-position return, shrunk toward 0 by n / (n + 5);
+    //   offset     the larger of the two, 0..60 points.
+    // Every authority read of a label book (scoreboard buckets, verdict x setup, veto books, the walk-forward / tradeable
+    // series, playbook setup records, the labeler's cell proofs, the bucket a read falls in) subtracts the lane offset; the
+    // stored label is unchanged and still shown. A setup whose own realised closes contradict its labels (n >= 2, opposite
+    // sign) has its record blended toward them (realisedBlend8187). Refreshed every minute under the Cortex lock; read lock-free.
+    private const val EXEC_REFRESH_MS_8187 = 60_000L
+    private const val SHORTFALL_SHRINK_K_8187 = 5.0
+    const val MAX_EXEC_OFFSET_PCT_8187 = 60.0
+    private val execOffsetByLane8187 = ConcurrentHashMap<String, Double>()
+    private val realisedBySetup8187 = ConcurrentHashMap<String, DoubleArray>()   // "LANE|SETUP" -> [n, mean]
+    @Volatile private var lastExecRefresh8187 = 0L
+
+    /** Pure (V5.0.8187): the lane offset from its cost gap and its paired shortfall ([pairs], [meanShortfallPct]). */
+    fun execOffset8187(costGapPct: Double, pairs: Double, meanShortfallPct: Double): Double {
+        val gap = if (costGapPct.isFinite()) costGapPct.coerceAtLeast(0.0) else 0.0
+        val shrunk = if (pairs >= 1.0 && meanShortfallPct.isFinite()) meanShortfallPct * pairs / (pairs + SHORTFALL_SHRINK_K_8187) else 0.0
+        return maxOf(gap, shrunk).coerceIn(0.0, MAX_EXEC_OFFSET_PCT_8187)
+    }
+
+    /** Pure (V5.0.8187): the cost the labels were not charged: the round trip at the ticket (+ unmeasured chase) above the charged cost. */
+    fun costGap8187(costAtTicketPct: Double, chasePct: Double, chargedPct: Double): Double {
+        if (!costAtTicketPct.isFinite() || !chargedPct.isFinite()) return 0.0
+        return (costAtTicketPct + (if (chasePct.isFinite()) chasePct.coerceAtLeast(0.0) else 0.0) - chargedPct).coerceAtLeast(0.0)
+    }
+
+    /**
+     * Pure (V5.0.8187): a label record ([nL] labels, mean [meanL]) blended with the realised closes of the same setup ([nR],
+     * [meanR]) when they contradict it (nR >= 2, opposite sign). Labels count at most [LABEL_N_CAP_8187] (they repeat coins
+     * and share a market), a realised close counts [REALISED_WEIGHT_8187] labels, and the record's evidence shrinks by the
+     * realised share. Returns [n, mean]; the record unchanged when there is no contradiction.
+     */
+    fun realisedBlend8187(nL: Double, meanL: Double, nR: Double, meanR: Double): DoubleArray {
+        if (!(nL > 0.0) || !meanL.isFinite() || !(nR >= 2.0) || !meanR.isFinite() || (meanL > 0.0) == (meanR > 0.0)) return doubleArrayOf(nL, meanL)
+        val nEff = minOf(nL, LABEL_N_CAP_8187)
+        val wR = REALISED_WEIGHT_8187 * nR
+        val mean = (nEff * meanL + wR * meanR) / (nEff + wR)
+        return doubleArrayOf(nEff * nEff / (nEff + wR), mean)
+    }
+    private const val LABEL_N_CAP_8187 = 60.0
+    private const val REALISED_WEIGHT_8187 = 30.0
+
+    /**
+     * Pure (V5.0.8187): the executable read of a label record [st]: the realised blend, then the lane [offsetPct]. Returns [st]
+     * itself when nothing applies, else a read-only copy (realised-money read: the copy is built from the robust read).
+     */
+    fun executableCopy8187(st: CortexLedger7885.Stat, offsetPct: Double, realisedN: Double, realisedMean: Double): CortexLedger7885.Stat {
+        val off = if (offsetPct.isFinite()) offsetPct.coerceAtLeast(0.0) else 0.0
+        val m0 = st.mean() + st.readOffset8187
+        val blend = realisedBlend8187(st.n, m0, realisedN, realisedMean)
+        val blended = blend[0] != st.n || blend[1] != m0
+        if (!blended && off <= 0.0) return st
+        val n2 = blend[0]; val m2 = blend[1]
+        val variance = st.variance()
+        return CortexLedger7885.realisedStat8187().also { c ->
+            c.n = n2; c.sum = m2 * n2; c.sumSq = (variance + m2 * m2) * n2
+            c.wins = st.winRate() * n2; c.runners = st.runnerRate() * n2
+            c.readOffset8187 = off
+        }
+    }
+
+    /** V5.0.8187 — the lane's executable offset (points), read lock-free (0 until measured). */
+    fun executableOffset8187(laneRaw: String): Double = execOffsetByLane8187[canon(laneRaw)] ?: 0.0
+
+    /** V5.0.8187 — [closes, mean realised %] of (lane, setup) in the account mode, read lock-free; null when none. */
+    fun setupRealised8187(laneRaw: String, setup: String): DoubleArray? = realisedBySetup8187["${canon(laneRaw)}|$setup"]
+
+    /** Caller holds the lock. Recompute every lane's offset and the setups' realised records; apply them to the books. */
+    private fun refreshExecutable8187(nowMs: Long) {
+        if (nowMs - lastExecRefresh8187 < EXEC_REFRESH_MS_8187) return
+        lastExecRefresh8187 = nowMs
+        val mode = accountMode8077()
+        val lanes = board.books.keys + gradeBook8144.lanes8187()
+        for (lane in lanes) {
+            // The labels' charge already holds the chase when they were not re-based at a measured latency: so does the ticket's.
+            val charged = try { com.lifecyclebot.engine.truth.CostLedger7962.labelChargedCostPct8153(lane) } catch (_: Throwable) { Double.NaN }
+            val atTicket = try {
+                com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(lane, com.lifecyclebot.engine.truth.NetEdge8030.DEFAULT_TICKET_SOL, 0.0)
+            } catch (_: Throwable) { Double.NaN }
+            val chase = try {
+                if (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.rebaseClearsChase8094(com.lifecyclebot.engine.truth.EntryChase7961.laneLatencyMs8094(lane))) 0.0
+                else com.lifecyclebot.engine.truth.EntryChase7961.lanePenaltyPct7961(lane)
+            } catch (_: Throwable) { 0.0 }
+            val sf = gradeBook8144.pairedShortfall8187(lane, mode)
+            val off = execOffset8187(costGap8187(atTicket, chase, charged), sf[0], sf[1])
+            execOffsetByLane8187[lane] = off
+            board.books[lane]?.applyOffset8187(off)
+            for (setup in gradeBook8144.realisedBySetup8187(lane, mode).entries) realisedBySetup8187["$lane|${setup.key}"] = setup.value
+        }
+        for ((k, st) in jointBook7961) st.readOffset8187 = execOffsetByLane8187[k.substringBefore('|')] ?: 0.0
+        for ((k, st) in vetoBook) st.readOffset8187 = if ('@' in k) execOffsetByLane8187[k.substringAfterLast('@')] ?: 0.0 else 0.0
+        inc("EXEC_OFFSETS_REFRESHED_8187")
+    }
+
+    /** V5.0.8187 — "LANE offset(gap/shortfall n)" for the status line. */
+    private fun execLine8187(): String = execOffsetByLane8187.entries.filter { it.value > 0.05 }.sortedByDescending { it.value }.take(8)
+        .joinToString(" · ") { "${it.key} -${"%.1f".format(it.value)}pt" }.ifBlank { "none measured" }
+
     // ── V5.0.8187 §AUTHORITY_GRADUATION — which gate holds each lane's STRONG authority at zero ──
 
     /**
@@ -1547,7 +1681,7 @@ object Cortex7885 {
     private fun firstSight8026(a: Assessment, ts: TokenState, refusal: String): Boolean = try {
         val (evidence, strong, maturity) = synchronized(this) {
             val s = board.books[a.lane]?.byBucket?.get(CortexScoreboard7885.Bucket.STRONG.ordinal)
-            val copy = CortexLedger7885.labelStat8187().also { c -> if (s != null) c.decode(s.encode()) }  // V5.0.8187 — same robust read
+            val copy = CortexLedger7885.labelStat8187().also { c -> if (s != null) { c.decode(s.encode()); c.readOffset8187 = s.readOffset8187 } }  // V5.0.8187 — same robust, executable read
             // V5.0.8034 — -1 marks an inconsistent Cortex or an inverted lane: first sight never fires there.
             Triple(if (consistent(a.lane) && !board.inverted7948(a.lane, accountMode8077())) board.evidenceFor8025(a.lane, accountMode8077()) else -1.0, copy, CortexScoreboard7885.maturity8025(board.strongLifetime8025(a.lane)))
         }
@@ -2067,6 +2201,7 @@ object Cortex7885 {
                     .grade(a.lane, a.ids, a.edges, a.raws, env.realizedReturnPct, env.realizedReturnPct, a.regime, predictionForGrade8076(a))
                 // V5.0.8144 — the realised return goes to the exact strategy that owned the trade.
                 routeRealised8144(env, mode, a, sealed8144, snapTag8144)
+                lastExecRefresh8187 = 0L; refreshExecutable8187(System.currentTimeMillis())  // V5.0.8187 — a close re-measures the gap
             }
         }
         inc(if (eligible) "REALIZED_${mode}" else "REALIZED_NOT_ELIGIBLE")
@@ -2347,10 +2482,11 @@ object Cortex7885 {
                 "      vote cleaning (§8007): ${synchronized(this) { ledger.cleanLine8007() }}\n" +
                 "      invariants & provenance v11 (§7911): ${try { CortexInvariants7911.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      compute (§2.9 v1, 7909): pool active=${pool.activeCount} queued=${pool.queue.size} captureActive8171=${capturePool8171.activeCount} captureQueued8171=${capturePool8171.queue.size} done=${pool.completedTaskCount} slowVoters=${CortexVoters7885.slowLine()} " +
-                "${CortexVoters7885.memoLine8169()} ${CortexAudit8169.captureLine()}\n" +
+                "${CortexVoters7885.memoLine8169()} ${CortexAudit8169.captureLine()} ${assessLatencyLine8187()} ${CortexVoters7885.budgetLine8187()}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"} " +
                 "(day credits / session decisions) ${economyLine8187()}\n" +
                 "      graduation (§8187): ${bindingLine8187()} authority=${blockLine8187()}\n" +
+                "      executable labels (§8187, authority reads label - lane gap): ${execLine8187()}\n" +
                 "      outcome truth v12 (§7912, whole-position closes): ${realLedgers.entries.joinToString(" · ") { (mode, l) ->
                     val seated = l.seats.entries.filter { !it.key.contains('@') && !it.key.endsWith("|${CortexLedger7885.GLOBAL}") && it.value.scored > 0 }
                     "$mode closes=${l.lanes.entries.filter { !it.key.contains('@') && it.key != CortexLedger7885.GLOBAL }.sumOf { it.value.n }.toInt()} " +
