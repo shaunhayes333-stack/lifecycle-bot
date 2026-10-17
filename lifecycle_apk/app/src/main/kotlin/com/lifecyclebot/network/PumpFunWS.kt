@@ -168,8 +168,10 @@ object PumpFunWS {
             (e.contains("api key") || e.contains("funded") || e.contains("only available"))) ||
             e.contains("minimum balance not met")  // V5.0.8181 — the PumpSwap data refusal is the same funding check
     }
-    private const val LIFECYCLE_MAX_7420 = 96
-    private const val LIFECYCLE_TTL_MS_7420 = 15L * 60_000L
+    // V5.0.8192 — PumpPortal meters trade data (0.01 SOL / 10k messages). 96 launches x 15 min streamed ~450-500k
+    // messages a day (~$50). Fewer, shorter launch subscriptions, a per-launch frame cap and a daily budget below.
+    private const val LIFECYCLE_MAX_7420 = 24
+    private const val LIFECYCLE_TTL_MS_7420 = 6L * 60_000L
     private val lifecycleMints7420 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val subRequested7420 = AtomicLong(0L)
     private val subOk7420 = AtomicLong(0L)
@@ -207,7 +209,7 @@ object PumpFunWS {
     /** V5.0.7280 — one line for the pipeline report: what the socket is doing. */
     fun status7280(): String {
         val recent = synchronized(recentUntyped7286) { recentUntyped7286.toList() }
-        return "key8181=${keyState8181(apiKey7284, tradeAuthDenied7432.get(), connectedKeyed8094)} reprobes8181=${authReprobes8181.get()} keyReloads8181=${keyChanges8181.get()} " +
+        return "${costLine8192()} key8181=${keyState8181(apiKey7284, tradeAuthDenied7432.get(), connectedKeyed8094)} reprobes8181=${authReprobes8181.get()} keyReloads8181=${keyChanges8181.get()} " +
             "denials8182=${authDenials8182.get()} nextRecheckS8182=${if (tradeAuthDenied7432.get()) ((tradeAuthDeniedAtMs8094 + reprobeDelayMs8182(authDenials8182.get()) - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L) else 0L} " +
             "tradeFramesThisConnection8182=${tradeFramesSinceConnect8182.get()} tradeConfirmed8182=${if (tradeConfirmedAtMs8182 > 0L) "YES" else "NO"} " +
             "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
@@ -250,8 +252,76 @@ object PumpFunWS {
      */
     const val PUMP_INITIAL_VIRTUAL_SOL_7744 = 30.0
 
+    // ── V5.0.8192 — trade-stream cost control ──
+    /** Daily trade-frame budget (0.01 SOL per 10k): 100k ~= 0.10 SOL/day. Held positions are always kept on the stream. */
+    internal const val DAILY_FRAME_BUDGET_8192 = 100_000L
+    /** A launch (not held) is unsubscribed after this many frames: early-launch evidence is complete; curve RPC carries on. */
+    internal const val LAUNCH_FRAME_CAP_8192 = 250L
+    private val heldMints8192 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val framesByMint8192 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private val framesToday8192 = AtomicLong(0L)
+    @Volatile private var frameDay8192 = 0L
+    private val launchSubsSkippedBudget8192 = AtomicLong(0L)
+    private val launchCapUnsubs8192 = AtomicLong(0L)
+    private val budgetUnsubs8192 = AtomicLong(0L)
+
+    /** Pure: may a NEW launch be subscribed with [framesToday] already streamed (stop at 80% to leave room for holds)? */
+    internal fun launchSubAllowed8192(framesToday: Long, budget: Long = DAILY_FRAME_BUDGET_8192): Boolean =
+        framesToday < budget * 8 / 10
+
+    /** Pure: should a non-held launch leave the stream after [mintFrames] frames, or because the day's budget is spent? */
+    internal fun dropLaunch8192(held: Boolean, mintFrames: Long, framesToday: Long, budget: Long = DAILY_FRAME_BUDGET_8192): Boolean =
+        !held && (mintFrames >= LAUNCH_FRAME_CAP_8192 || framesToday >= budget)
+
+    /** Pure: estimated SOL cost of [frames] metered messages. */
+    internal fun frameCostSol8192(frames: Long): Double = frames / 10_000.0 * 0.01
+
+    private fun rollDay8192(nowMs: Long) {
+        val day = nowMs / 86_400_000L
+        if (day != frameDay8192) { frameDay8192 = day; framesToday8192.set(0L) }
+    }
+
+    private fun noteTradeFrame8192(mint: String) {
+        val now = System.currentTimeMillis()
+        rollDay8192(now)
+        val today = framesToday8192.incrementAndGet()
+        if (framesByMint8192.size > 2_000) framesByMint8192.keys.retainAll(tradeSubscriptions7278 + heldMints8192)
+        val mintFrames = framesByMint8192.computeIfAbsent(mint) { AtomicLong(0L) }.incrementAndGet()
+        val held = mint in heldMints8192
+        if (!dropLaunch8192(held, mintFrames, today)) return
+        if (today >= DAILY_FRAME_BUDGET_8192) {
+            // Budget spent: everything but held positions leaves the stream until the UTC day rolls.
+            val drop = (tradeSubscriptions7278 - heldMints8192).toList()
+            if (drop.isEmpty()) return
+            tradeSubscriptions7278.removeAll(drop.toSet()); lifecycleMints7420.keys.removeAll(drop.toSet())
+            try { ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray(drop)).toString()) } catch (_: Throwable) {}
+            budgetUnsubs8192.addAndGet(drop.size.toLong())
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_BUDGET_UNSUB_8192") } catch (_: Throwable) {}
+            return
+        }
+        if (!tradeSubscriptions7278.remove(mint)) return
+        lifecycleMints7420.remove(mint)
+        try { ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray().put(mint)).toString()) } catch (_: Throwable) {}
+        launchCapUnsubs8192.incrementAndGet()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_LAUNCH_CAP_UNSUB_8192") } catch (_: Throwable) {}
+    }
+
+    fun costLine8192(): String {
+        rollDay8192(System.currentTimeMillis())
+        val f = framesToday8192.get()
+        return "cost8192[framesToday=$f estSolToday=${"%.4f".format(frameCostSol8192(f))} budget=$DAILY_FRAME_BUDGET_8192 " +
+            "(${"%.2f".format(frameCostSol8192(DAILY_FRAME_BUDGET_8192))} SOL) held=${heldMints8192.size} launchCapUnsubs=${launchCapUnsubs8192.get()} " +
+            "budgetUnsubs=${budgetUnsubs8192.get()} launchSubsSkippedBudget=${launchSubsSkippedBudget8192.get()} maxLaunches=$LIFECYCLE_MAX_7420 ttlMin=${LIFECYCLE_TTL_MS_7420 / 60_000L}]"
+    }
+
     private fun registerFreshLifecycle7420(mint: String) {
         if (mint.isBlank()) return
+        rollDay8192(System.currentTimeMillis())
+        if (!launchSubAllowed8192(framesToday8192.get())) {
+            launchSubsSkippedBudget8192.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_LAUNCH_SKIPPED_BUDGET_8192") } catch (_: Throwable) {}
+            return
+        }
         val now = System.currentTimeMillis()
         val expired = lifecycleMints7420.entries.filter { now - it.value > LIFECYCLE_TTL_MS_7420 }.map { it.key }
         if (expired.isNotEmpty()) {
@@ -296,6 +366,8 @@ object PumpFunWS {
      */
     fun syncTradeSubscriptions7278(mints: Set<String>) {
         val wanted = mints.filter { it.isNotBlank() }.toSet()
+        // V5.0.8192 — held positions are exempt from the launch cap and the daily budget.
+        heldMints8192.retainAll(wanted); heldMints8192.addAll(wanted)
         maybeReprobeAuth8094()
 
         // V5.0.7485 — when token-trade capability is unavailable there is no
@@ -477,6 +549,7 @@ object PumpFunWS {
                     txType == "buy" || txType == "sell" -> {
                         val mint = j.optString("mint", "")
                         if (mint.isBlank()) return
+                        noteTradeFrame8192(mint)  // V5.0.8192 — metered: per-launch cap and daily budget
                         try { PumpCurveKeys7269.remember(mint, j.optString("bondingCurveKey", "")) } catch (_: Throwable) {}
                         val vSol = j.optDouble("vSolInBondingCurve", 0.0)
                         val vTok = j.optDouble("vTokensInBondingCurve", 0.0)
