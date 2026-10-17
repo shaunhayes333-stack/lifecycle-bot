@@ -690,7 +690,7 @@ object LanePlaybook7907 {
         // V5.0.8000 — the rest of the hive's grades of this setup ride on the local book.
         val hive = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000("PB|$lane|$setup") } catch (_: Throwable) { null } ?: return local
         if (!CortexLedger7885.validHiveBin8076(hive)) return local
-        val c = CortexLedger7885.Stat()
+        val c = CortexLedger7885.labelStat8187()  // V5.0.8187 — the merged record reads through the same cap
         if (local != null) { c.n = local.n; c.sum = local.sum; c.sumSq = local.sumSq; c.runners = local.runners; c.wins = local.wins }
         c.n += hive[0]; c.sum += hive[1]; c.sumSq += hive[2]; c.wins += hive[3]; c.runners += hive[4]
         return c
@@ -710,7 +710,7 @@ object LanePlaybook7907 {
     private fun expected(lane: String, setup: String): Double {
         val st = stat(lane, setup)
         val n = st?.n ?: 0.0
-        return ((st?.sum ?: 0.0) + SHRINK_K * priorOf(lane, setup)) / (n + SHRINK_K)
+        return ((st?.readSum8187() ?: 0.0) + SHRINK_K * priorOf(lane, setup)) / (n + SHRINK_K)  // V5.0.8187 — robust sum
     }
 
     /** Caller holds the lock. Unmeasured setups retain their original cheat-sheet prior. */
@@ -1500,6 +1500,30 @@ object LanePlaybook7907 {
     /** V5.0.8084 — forward labels by decision outcome per lane: [n, sum net %] (diagnostic; books are unchanged). */
     private val outcomeForward8084 = ConcurrentHashMap<String, DoubleArray>()
 
+    /**
+     * Pure (V5.0.8187): one label into an outcome tally [n, sum, wins] — clamped at ingestion to the label cap; a row restored
+     * from before 8187 (wins unknown, -1) keeps its winners unknown.
+     */
+    internal fun addOutcome8187(a: DoubleArray, netPct: Double) {
+        if (!netPct.isFinite() || a.size < 2) return
+        val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)
+        a[0] += 1.0; a[1] += y
+        if (a.size >= 3 && a[2] >= 0.0 && y > 0.0) a[2] += 1.0
+    }
+
+    /**
+     * Pure (V5.0.8187): an outcome tally's mean for the screen — read through the label cap (no sum of squares or runners is
+     * kept, so the bound is winners x cap; unknown winners = every label). The raw mean is shown beside when it differs.
+     */
+    internal fun outcomeMean8187(a: DoubleArray): String {
+        val n = a.getOrElse(0) { 0.0 }; val sum = a.getOrElse(1) { 0.0 }
+        if (!(n > 0.0) || !sum.isFinite()) return "-%"
+        val wins = a.getOrElse(2) { -1.0 }.let { if (it < 0.0) n else it }
+        val raw = sum / n
+        val hi = com.lifecyclebot.engine.truth.RobustLabelRead8185.upperMean8185(n, sum, wins, CortexLedger7885.LABEL_CAP_8187)
+        return if (raw > hi + 1e-9) "${"%+.1f".format(hi)}%~raw${"%+.1f".format(raw)}%" else "${"%+.1f".format(raw)}%"
+    }
+
     /** Cortex7885.onLabel (graded horizon only): learn (lane, setup) from the forward label. */
     fun onLabel(mint: String, labelLane: String, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null, expectedSetup8084: String? = null) {
         ensureLoaded()
@@ -1526,7 +1550,8 @@ object LanePlaybook7907 {
         try {
             PipelineHealthCollector.labelInc("SETUP_FORWARD_GRADED_8084")
             val ok = outcome8084 ?: "LEGACY"
-            outcomeForward8084.computeIfAbsent("$lane|$ok") { DoubleArray(2) }.let { a -> synchronized(a) { a[0] += 1.0; a[1] += netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX) } }
+            // V5.0.8187 — [n, sum, wins]: clamped at ingestion, winners counted so the read can be bounded.
+            outcomeForward8084.computeIfAbsent("$lane|$ok") { DoubleArray(3) }.let { a -> synchronized(a) { addOutcome8187(a, netPct) } }
         } catch (_: Throwable) {}
         if (graded.isEmpty()) return
         // V5.0.7997 — kept so later checkpoints can revise this label (ForwardReturnLabeler7731).
@@ -1534,17 +1559,18 @@ object LanePlaybook7907 {
             val stamps = graded.distinct().associateWith { setup ->
                 // V5.0.8080 — each setup is graded on its own exit family (scalp vs long hold) of the same path.
                 val (y, g) = familyLabel8080(lane, setup, netPct, grossPct, fam)
-                val stamp = books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.Stat() }
-                    .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
+                // V5.0.8187 — label books read through the cap; new labels clamped at ingestion.
+                val stamp = books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.labelStat8187() }
+                    .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
                 if (timing8094 != null && timing8094 != TIMING_UNKNOWN_8094) timingBooks8094.getOrPut(lane) { HashMap() }
-                    .getOrPut("$setup|$timing8094") { CortexLedger7885.Stat() }
-                    .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
+                    .getOrPut("$setup|$timing8094") { CortexLedger7885.labelStat8187() }
+                    .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
                 stamp
             }
             if (graded7997.size >= 8_000) graded7997.entries.minByOrNull { it.value.atMs }?.key?.let { graded7997.remove(it) }
             // Revisions only ever move long-hold setups, so the grade keeps the long-hold family's value.
             graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps,
-                fam?.get(2) ?: netPct, fam?.get(3) ?: grossPct, System.currentTimeMillis())
+                (fam?.get(2) ?: netPct).coerceAtMost(CortexLedger7885.LABEL_CAP_8187), fam?.get(3) ?: grossPct, System.currentTimeMillis())  // V5.0.8187 — as booked
             bookRevision8077.incrementAndGet()
         }
         if (sincePersist.incrementAndGet() >= 25) { sincePersist.set(0); persist() }
@@ -1599,14 +1625,14 @@ object LanePlaybook7907 {
                 return
             }
             val yo = g.net.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
-            val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+            val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)  // V5.0.8187 — clamped like any new label
             val ro = g.gross.isFinite() && g.gross >= CortexLedger7885.RUNNER_GROSS_PCT
             val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
             // V5.0.8080 — a scalp setup keeps its first-read grade: the later path is not a scalp's return.
             for ((setup, stamp) in g.stamps) if (setupHoldsLong8080(g.lane, setup)) books[g.lane]?.stats?.get(setup)?.let { st ->
                 st.revise(yo, yn, ro, rn, st.revisionWeight(stamp))
             }
-            g.net = newNet; g.gross = newGross
+            g.net = yn; g.gross = newGross  // V5.0.8187 — the booked value is the clamped one
             bookRevision8077.incrementAndGet()
         }
     }
@@ -1672,13 +1698,13 @@ object LanePlaybook7907 {
                         for (l in tj.keys()) {
                             val lj = tj.optJSONObject(l) ?: continue
                             val tb = timingBooks8094.getOrPut(l) { HashMap() }
-                            for (k in lj.keys()) tb[k] = CortexLedger7885.Stat().also { it.decode(lj.optString(k)) }
+                            for (k in lj.keys()) tb[k] = CortexLedger7885.labelStat8187().also { it.decode(lj.optString(k)) }
                         }
                         continue
                     }
                     val j = o.optJSONObject(lane) ?: continue
                     val b = books.getOrPut(lane) { Book() }
-                    for (k in j.keys()) b.stats[k] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) }
+                    for (k in j.keys()) b.stats[k] = CortexLedger7885.labelStat8187().also { it.decode(j.optString(k)) }
                 }
                 // V5.0.8085 — forward results per classification outcome survive restarts (were session-only).
                 o.optJSONObject("_outcomeFwd8085")?.let { fw ->
@@ -1686,7 +1712,9 @@ object LanePlaybook7907 {
                         val parts = fw.optString(k).split(',')
                         val n = parts.getOrNull(0)?.toDoubleOrNull() ?: continue
                         val sum = parts.getOrNull(1)?.toDoubleOrNull() ?: continue
-                        if (n > 0.0 && n.isFinite() && sum.isFinite() && k.contains('|')) outcomeForward8084[k] = doubleArrayOf(n, sum)
+                        // V5.0.8187 — a third field counts winners (rows saved before it read wins as unknown: -1).
+                        val wins = parts.getOrNull(2)?.toDoubleOrNull() ?: -1.0
+                        if (n > 0.0 && n.isFinite() && sum.isFinite() && k.contains('|')) outcomeForward8084[k] = doubleArrayOf(n, sum, wins)
                     }
                 }
                 o.optJSONArray("_grades8077")?.let { rows ->
@@ -1761,7 +1789,7 @@ object LanePlaybook7907 {
                         timingBooks8094.forEach { (l, tb) -> tj.put(l, org.json.JSONObject().also { j -> tb.forEach { (k, v) -> j.put(k, v.encode()) } }) }
                     })
                     o.put("_outcomeFwd8085", org.json.JSONObject().also { j ->
-                        outcomeForward8084.forEach { (k, a) -> synchronized(a) { if (a[0] > 0.0 && a[1].isFinite()) j.put(k, "${a[0]},${a[1]}") } }
+                        outcomeForward8084.forEach { (k, a) -> synchronized(a) { if (a[0] > 0.0 && a[1].isFinite()) j.put(k, "${a[0]},${a[1]},${a.getOrElse(2) { -1.0 }}") } }
                     })
                 }.toString()
             }
@@ -1781,14 +1809,14 @@ object LanePlaybook7907 {
                     val st = stat(lane, id)
                     // V5.0.7955 — a setup holding graduated authority shows it (auth=0.62).
                     val auth = setupFraction7955(st)
-                    "$id[${if (st == null || st.n < 1.0) "prior ${"%+.1f".format(priorOf(lane, id))}" else "n${st.n.toInt()} ${"%+.1f".format(st.mean())}% exp ${"%+.1f".format(expected(lane, id))}"}${if (auth > 0.0) " auth=${"%.2f".format(auth)}" else ""}]"
+                    "$id[${if (st == null || st.n < 1.0) "prior ${"%+.1f".format(priorOf(lane, id))}" else "n${st.n.toInt()} ${"%+.1f".format(st.mean())}%${if (st.suspect8187()) "~raw${"%+.1f".format(st.rawMean8187())}%" else ""} exp ${"%+.1f".format(expected(lane, id))}"}${if (auth > 0.0) " auth=${"%.2f".format(auth)}" else ""}]"
                 }
                 val oc = outcomeCounts8084.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }
                     .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" }
                 val miss = missingCounts8084.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }.take(5)
                     .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" }
                 val fwd = outcomeForward8084.entries.filter { it.key.startsWith("$lane|") }
-                    .joinToString(",") { (k, a) -> "${k.substringAfter('|')} n${a[0].toInt()} ${if (a[0] > 0) "%+.1f".format(a[1] / a[0]) else "-"}%" }.ifBlank { "-" }
+                    .joinToString(",") { (k, a) -> "${k.substringAfter('|')} n${a[0].toInt()} ${outcomeMean8187(a)}" }.ifBlank { "-" }
                 "      $lane tagged{$tags} record: $rec\n        8084 outcomes{$oc} missing{$miss} forward-by-outcome{$fwd}"
             }
             "rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · measured setups expected to lose refused (7948) · setup auth>=0.5 admits over a smaller cell (7955) · paper never refused\n" +

@@ -87,9 +87,17 @@ object LaunchTape7921 {
     private val recs = ConcurrentHashMap<String, Rec>()
     private val checkpoints = ConcurrentHashMap<String, Checkpoint>()
     private val binBook = HashMap<Int, CortexLedger7885.Stat>()
-    private val priorBook = CortexLedger7885.Stat()
-    private val promotedBook = CortexLedger7885.Stat()
-    private val earlyBook = CortexLedger7885.Stat()   // V5.0.8165 — first-buyers promotions, graded at +15 min
+    private val priorBook = tapeStat8187()
+    private val promotedBook = tapeStat8187()
+    private val earlyBook = tapeStat8187()   // V5.0.8165 — first-buyers promotions, graded at +15 min
+
+    /**
+     * V5.0.8187 §ROBUST_CORTEX_READ — a heat-bin book reads through the label cap. Its runner flag is a peak of 2x+ since the
+     * checkpoint and the graded price is never above that peak, so a label above +100% is always a runner: 5.0.8175's
+     * h1 n37 / +992.9% with a 2% runner rate is one implausible label, read at its bound (raw shown beside).
+     */
+    private const val TAPE_RUNNER_FLOOR_PCT_8187 = 100.0
+    internal fun tapeStat8187(): CortexLedger7885.Stat = CortexLedger7885.Stat(CortexLedger7885.LABEL_CAP_8187, TAPE_RUNNER_FLOOR_PCT_8187)
     private val counters = ConcurrentHashMap<String, AtomicLong>()
     private val sinceGraded = AtomicLong(0)
     @Volatile private var loaded = false
@@ -329,7 +337,7 @@ object LaunchTape7921 {
             if (r.earlyAtMs > 0L && !r.earlyGraded && nowMs - r.earlyAtMs >= GRADE_AFTER_MS) {
                 val (px0, last, peak) = synchronized(r) { r.earlyGraded = true; Triple(r.earlyPx, r.lastPx, r.earlyPeakPx) }
                 if (px0 > 0.0 && last > 0.0) {
-                    val ret = ((last / px0 - 1.0) * 100.0).coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+                    val ret = ((last / px0 - 1.0) * 100.0).coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)  // V5.0.8187
                     synchronized(this) { earlyBook.add(ret, peak / px0 >= 2.0) }
                     inc("EARLY_GRADED")
                     if (sinceGraded.incrementAndGet() >= 20) { sinceGraded.set(0); persist() }
@@ -348,11 +356,11 @@ object LaunchTape7921 {
             checkpoints.remove(mint)
             val px = recs[mint]?.lastPx ?: continue
             if (px <= 0.0 || c.px <= 0.0) continue
-            val ret = ((px / c.px - 1.0) * 100.0).coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+            val ret = ((px / c.px - 1.0) * 100.0).coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)  // V5.0.8187 — clamped at ingestion
             val runner = c.peakPx / c.px >= 2.0
             val wasPromoted = promoted(mint)
             synchronized(this) {
-                binBook.getOrPut(c.bin) { CortexLedger7885.Stat() }.add(ret, runner)
+                binBook.getOrPut(c.bin) { tapeStat8187() }.add(ret, runner)
                 if (c.priorPass) priorBook.add(ret, runner)
                 if (wasPromoted) promotedBook.add(ret, runner)
             }
@@ -369,7 +377,7 @@ object LaunchTape7921 {
             loaded = true
             try {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
-                o.optJSONObject("bins")?.let { j -> for (k in j.keys()) k.toIntOrNull()?.let { b -> binBook[b] = CortexLedger7885.Stat().also { it.decode(j.optString(k)) } } }
+                o.optJSONObject("bins")?.let { j -> for (k in j.keys()) k.toIntOrNull()?.let { b -> binBook[b] = tapeStat8187().also { it.decode(j.optString(k)) } } }
                 o.optString("prior").takeIf { it.isNotBlank() }?.let { priorBook.decode(it) }
                 o.optString("promoted").takeIf { it.isNotBlank() }?.let { promotedBook.decode(it) }
                 o.optString("early8165").takeIf { it.isNotBlank() }?.let { earlyBook.decode(it) }
@@ -390,7 +398,7 @@ object LaunchTape7921 {
     }
 
     private fun fmt(s: CortexLedger7885.Stat): String =
-        if (s.n < 1.0) "-" else "n${s.n.toInt()}/${"%+.1f".format(s.mean())}%/run${(s.runnerRate() * 100).toInt()}%"
+        CortexLedger7885.fmt8187(s, "/run${(s.runnerRate() * 100).toInt()}%")  // V5.0.8187 — robust read, raw beside when they differ
 
     fun statusLine(): String {
         ensureLoaded()

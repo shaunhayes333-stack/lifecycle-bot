@@ -87,7 +87,7 @@ object FirstSight8026 {
 
     private val tickets = ConcurrentHashMap<String, Long>()        // mint -> granted at
     private val granted = ConcurrentHashMap<String, Long>()        // mint -> granted at (until close)
-    private val record = CortexLedger7885.Stat()
+    private val record = CortexLedger7885.realisedStat8187()  // V5.0.8187 — realised closes: read raw
     @Volatile private var day = -1L
     @Volatile private var dayStartSol = 0.0
     @Volatile private var lossTodaySol = 0.0

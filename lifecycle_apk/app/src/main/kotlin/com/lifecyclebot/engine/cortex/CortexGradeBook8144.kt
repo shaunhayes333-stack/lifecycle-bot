@@ -47,11 +47,22 @@ class CortexGradeRecord8144(
      * the unbuyable decision price (LearningEntryTruth8153). Observed only: never an executable value, unresolved in its cohort.
      */
     var lateEntry8153: Boolean = false
+    /** V5.0.8187 — the decision's voters were read after its label started (CortexAudit8169): observed only. */
+    var lateRead8187: Boolean = false
 
     /** May this decision's label grade authority (executable, first of its episode)? */
     val graded: Boolean get() = kind == 'D' && executable && !repeat
 
     fun key(): String = "$lane|$setup|$regime|$timing|$costBand|$cohort"
+
+    /** V5.0.8187 — the per-label cap of this record's cohort (RobustLabelRead8185: 4x for the $1M+ band, else 11x). */
+    fun labelCap8187(): Double = com.lifecyclebot.engine.truth.RobustLabelRead8185.capForKey8185(cohort)
+
+    /** V5.0.8187 — a label of this record read through its cap (the stored value is never changed). */
+    internal fun capped8187(v: Double): Double = com.lifecyclebot.engine.truth.RobustLabelRead8185.clampLabel8187(v, labelCap8187())
+
+    /** V5.0.8187 — may this record carry authority evidence (an executable, first-of-episode decision)? Evicted last. */
+    internal val evidence8187: Boolean get() = kind == 'D' && executable && !repeat
 }
 
 class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val maxTrades: Int = 600) {
@@ -74,11 +85,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         if (r.kind != 'D' || r.id.isBlank() || byId.containsKey(r.id)) return false
         decisions.add(r); byId[r.id] = r
         noteGraded(r)
-        if (decisions.size > maxDecisions) {
-            val drop = decisions.size - maxDecisions
-            for (i in 0 until drop) byId.remove(decisions[i].id)
-            decisions.subList(0, drop).clear()
-        }
+        if (decisions.size > maxDecisions) evict8187()
         if (lastGraded.size > maxDecisions * 2) {
             val cutoff = (decisions.firstOrNull()?.atMs ?: 0L) - CortexLabelHygiene8144.EPISODE_MS_8144
             lastGraded.entries.removeIf { it.value < cutoff }
@@ -87,8 +94,38 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         return true
     }
 
+    /**
+     * V5.0.8187 §EVIDENCE_RETENTION — a full book drops what carries no authority evidence first (repeats and unexecutable
+     * refusals, oldest first), then the oldest evidence record of its most crowded lane x verdict cohort. 8175: ~6 captures a
+     * second filled the 3,000-record book in minutes, so no lane's STRONG cohort ever held the 35 executable records the
+     * walk-forward needs (promotion8144 INSUFFICIENT_DATA everywhere). Every cohort keeps its records in time order, lost and
+     * late ones included, so the resolved share is not made a survivor statistic by the eviction.
+     */
+    private fun evict8187() {
+        var drop = decisions.size - maxDecisions
+        if (drop <= 0) return
+        val it = decisions.iterator()
+        while (drop > 0 && it.hasNext()) {
+            val r = it.next()
+            if (!r.evidence8187) { it.remove(); byId.remove(r.id); drop-- }
+        }
+        while (drop > 0 && decisions.isNotEmpty()) {
+            val crowded = decisions.groupingBy { "${it.lane}#${it.bucket}" }.eachCount().maxByOrNull { e -> e.value }?.key
+            val idx = if (crowded == null) 0 else decisions.indexOfFirst { "${it.lane}#${it.bucket}" == crowded }.coerceAtLeast(0)
+            byId.remove(decisions.removeAt(idx).id)
+            drop--
+        }
+        evicted8187++
+    }
+
+    /** V5.0.8187 — eviction passes run (diag). */
+    var evicted8187: Long = 0L
+        private set
+
     private fun noteGraded(r: CortexGradeRecord8144) {
-        if (!r.graded || r.lost || !r.observedNetPct.isFinite()) return
+        // V5.0.8187 — a label kept out of the books (late first price / late voter read) does not open the coin's episode:
+        // the next decision of that coin is the first one graded, not a REPEAT of an excluded label.
+        if (!r.graded || r.lost || r.lateEntry8153 || r.lateRead8187 || !r.observedNetPct.isFinite()) return
         val prior = lastGraded[r.episode]
         if (prior == null || r.atMs > prior) lastGraded[r.episode] = r.atMs
     }
@@ -98,7 +135,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         val r = byId[id] ?: return false
         if (!netPct.isFinite()) return false
         r.observedNetPct = netPct; r.observedGrossPct = grossPct; r.lost = false
-        if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153) r.executablePct = executableValue
+        // V5.0.8187 — the executable (authority) value is clamped to the cohort's cap at ingestion; the observed one is kept.
+        if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153 && !r.lateRead8187) r.executablePct = r.capped8187(executableValue)
         noteGraded(r)
         revision++
         return true
@@ -109,6 +147,28 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         val r = byId[id] ?: return false
         if (r.kind != 'D') return false
         r.lateEntry8153 = true; r.executablePct = Double.NaN
+        reopenEpisode8187(r)
+        revision++
+        return true
+    }
+
+    /**
+     * V5.0.8187 — record [r] was taken out of the books after its label opened the coin's episode: the episode's last graded
+     * time falls back to the newest other graded (on-time, labelled) decision of the same coin and lane, or is cleared.
+     */
+    internal fun reopenEpisode8187(r: CortexGradeRecord8144) {
+        if (lastGraded[r.episode] != r.atMs) return
+        val prior = decisions.filter { it !== r && it.episode == r.episode && it.graded && !it.lost && !it.lateEntry8153 && !it.lateRead8187 && it.observedNetPct.isFinite() }
+            .maxOfOrNull { it.atMs }
+        if (prior == null) lastGraded.remove(r.episode) else lastGraded[r.episode] = prior
+    }
+
+    /** V5.0.8187 — the voters of decision [id] were read after its label started: observed only, the episode stays open. */
+    fun markLateRead8187(id: String): Boolean {
+        val r = byId[id] ?: return false
+        if (r.kind != 'D') return false
+        r.lateRead8187 = true; r.executablePct = Double.NaN
+        reopenEpisode8187(r)
         revision++
         return true
     }
@@ -153,18 +213,54 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
     /** Executable values of graded decisions in [lane] (and [setup] / [bucket] when given), oldest first. */
     fun executableSeries(lane: String, setup: String?, bucket: Int?): List<Double> =
         decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() }
-            .sortedBy { it.atMs }.map { it.executablePct }
+            .sortedBy { it.atMs }.map { it.capped8187(it.executablePct) }  // V5.0.8187 — every label read through its cap
 
     /** Observed values of every labelled decision in [lane] for [bucket], hygiene ignored (the raw cohort). */
     fun observedSeries(lane: String, bucket: Int): List<Double> =
         decisions.filter { it.kind == 'D' && !it.lost && it.lane == lane && it.bucket == bucket && it.observedNetPct.isFinite() }
+            .sortedBy { it.atMs }.map { it.capped8187(it.observedNetPct) }  // V5.0.8187
+
+    /** V5.0.8187 — the same observed series read raw (the screen shows raw beside robust where they differ). */
+    fun observedSeriesRaw8187(lane: String, bucket: Int): List<Double> =
+        decisions.filter { it.kind == 'D' && !it.lost && it.lane == lane && it.bucket == bucket && it.observedNetPct.isFinite() }
             .sortedBy { it.atMs }.map { it.observedNetPct }
+
+    /**
+     * V5.0.8187 — the composition of [lane] x [bucket]'s executable first-of-episode decisions: [labelled on time, lost
+     * (no label), late first price, late voter read]. The walk-forward reads the first; the resolved share all four.
+     */
+    fun cohortCounts8187(lane: String, bucket: Int): IntArray {
+        val out = IntArray(4)
+        for (r in decisions) {
+            if (!r.evidence8187 || r.lane != lane || r.bucket != bucket) continue
+            when {
+                r.lost -> out[1]++
+                r.lateEntry8153 -> out[2]++
+                r.lateRead8187 -> out[3]++
+                r.observedNetPct.isFinite() -> out[0]++
+            }
+        }
+        return out
+    }
+
+    /**
+     * V5.0.8187 — an admitted decision of [mint] in [lane] made at most [maxBeforeMs] before [openedAtMs] (and not after it), in
+     * [mode] when the record knows its mode: the entry verdict a close can be bound to when no entry read was bound.
+     */
+    fun admittedDecision8187(mint: String, lane: String, mode: String, openedAtMs: Long, maxBeforeMs: Long): CortexGradeRecord8144? =
+        decisions.asReversed().firstOrNull {
+            it.kind == 'D' && it.admitted && it.episode == "$mint|$lane" && openedAtMs - it.atMs in 0L..maxBeforeMs &&
+                (it.mode.isBlank() || it.mode.equals(mode, true))
+        }
 
     /** Labelled / (labelled + lost) over the executable first-of-episode decisions of [lane] x [bucket]; 1 when none. */
     fun resolvedShare(lane: String, bucket: Int, setup: String? = null): Double {
         var ok = 0; var lost = 0
         for (r in decisions) {
             if (r.kind != 'D' || !r.executable || r.repeat || r.lane != lane || r.bucket != bucket || (setup != null && r.setup != setup)) continue
+            // V5.0.8187 — a late voter read is neither resolved nor lost: its label came, its verdict was read too late to
+            // count (the lag is queue timing, not outcome), so it leaves the cohort instead of dragging the share down.
+            if (r.lateRead8187 && !r.lost && !r.lateEntry8153) continue
             if (r.lost || r.lateEntry8153) lost++ else if (r.observedNetPct.isFinite()) ok++  // V5.0.8153 — a late-priced label resolves nothing
         }
         return if (ok + lost == 0) 1.0 else ok.toDouble() / (ok + lost)
@@ -189,7 +285,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         return decisions.filter { it.graded && !it.lost && it.executablePct.isFinite() }.groupBy { it.key() + "#" + it.bucket }
             .mapNotNull { (k, rs) ->
                 if (rs.size < minN) null else {
-                    val s = CortexWalkForward8144.stat8144(rs.map { it.executablePct })
+                    val s = CortexWalkForward8144.stat8144(rs.map { it.capped8187(it.executablePct) })  // V5.0.8187
                     val rr = CortexWalkForward8144.stat8144(realised[k].orEmpty().map { it.realisedPct })
                     Cell8144(k.substringBefore('#'), rs.first().bucket, s.n, s.mean, s.se, rr.n, rr.mean)
                 }
@@ -208,6 +304,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         num(r.observedNetPct), num(r.observedGrossPct), num(r.executablePct), if (r.lost) "1" else "0",
         num(r.realisedPct), clean(r.ownerLane), clean(r.ownerSetup), clean(r.attribution), clean(r.mode),
         if (r.lateEntry8153) "1" else "0",
+        if (r.lateRead8187) "1" else "0",
     ).joinToString(FS.toString())
 
     fun encode(): String = (decisions + trades.values).joinToString(RS.toString()) { encodeOne(it) }
@@ -219,14 +316,16 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         for (row in s.split(RS)) {
             val f = row.split(FS)
             // V5.0.8153 — 25 fields (late-entry flag); a 24-field row from 8146 reads as on time.
-            if ((f.size != 24 && f.size != 25) || f[0].length != 1 || f[1].isBlank()) continue
+            // V5.0.8187 — 26 fields (late voter read); a 25-field row reads as on time.
+            if (f.size !in 24..26 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
             r.observedNetPct = dbl(f[15]); r.observedGrossPct = dbl(f[16]); r.executablePct = dbl(f[17]); r.lost = f[18] == "1"
             r.realisedPct = dbl(f[19]); r.ownerLane = f[20]; r.ownerSetup = f[21]; r.attribution = f[22]; r.mode = f[23]
             r.lateEntry8153 = f.getOrNull(24) == "1"
-            if (r.lateEntry8153) r.executablePct = Double.NaN
+            r.lateRead8187 = f.getOrNull(25) == "1"
+            if (r.lateEntry8153 || r.lateRead8187) r.executablePct = Double.NaN
             when (r.kind) {
                 'D' -> if (!byId.containsKey(r.id)) { decisions.add(r); byId[r.id] = r; noteGraded(r) }
                 'T' -> trades[r.id] = r

@@ -185,17 +185,19 @@ class CortexScoreboard7885 {
     }
 
     class Book {
-        val byBucket = Array(Bucket.values().size) { CortexLedger7885.Stat() }
-        val legacyAdmitted = CortexLedger7885.Stat()
-        val legacyRefused = CortexLedger7885.Stat()
+        // V5.0.8187 — label books: read through the label cap (a few +100x basis-bug labels no longer own the means).
+        val byBucket = Array(Bucket.values().size) { CortexLedger7885.labelStat8187() }
+        val legacyAdmitted = CortexLedger7885.labelStat8187()
+        val legacyRefused = CortexLedger7885.labelStat8187()
         /** Legacy refused, Cortex STRONG — the trades an overrule would have added. */
-        val missedStrong = CortexLedger7885.Stat()
+        val missedStrong = CortexLedger7885.labelStat8187()
 
         fun all(): List<CortexLedger7885.Stat> = byBucket.toList() + listOf(legacyAdmitted, legacyRefused, missedStrong)
 
-        fun rest(): CortexLedger7885.Stat = CortexLedger7885.Stat().also { r ->
+        fun rest(): CortexLedger7885.Stat = CortexLedger7885.labelStat8187().also { r ->
             for (b in listOf(Bucket.NEUTRAL, Bucket.STRONG)) {
-                val s = byBucket[b.ordinal]; r.n += s.n; r.sum += s.sum; r.sumSq += s.sumSq; r.runners += s.runners
+                // V5.0.8187 — winners too: the robust read bounds a book by its winners and runners.
+                val s = byBucket[b.ordinal]; r.n += s.n; r.sum += s.sum; r.sumSq += s.sumSq; r.runners += s.runners; r.wins += s.wins
             }
         }
 
@@ -216,7 +218,7 @@ class CortexScoreboard7885 {
 
     fun record(lane: String, bucket: Bucket, legacyAdmitted: Boolean, netPct: Double, grossPct: Double): DoubleArray? {
         if (!netPct.isFinite()) return null
-        val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+        val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)  // V5.0.8187 — clamped at ingestion
         val runner = grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT
         val b = books.getOrPut(lane) { Book() }
         // Decayed memory (~100 own grades per book, V5.0.8082): authority earned in an old regime fades
@@ -238,8 +240,8 @@ class CortexScoreboard7885 {
         if (!oldNet.isFinite() || !newNet.isFinite()) return
         if (scales == null) return
         val b = books[lane] ?: return
-        val yo = oldNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
-        val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
+        val yo = oldNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // as booked
+        val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)  // V5.0.8187 — clamped like any new label
         val ro = oldGross.isFinite() && oldGross >= CortexLedger7885.RUNNER_GROSS_PCT
         val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
         fun revise(st: CortexLedger7885.Stat, index: Int) =
@@ -313,7 +315,8 @@ class CortexScoreboard7885 {
 
     fun recordRealized(mode: String, lane: String, bucket: Bucket, returnPct: Double) {
         if (!returnPct.isFinite()) return
-        val a = realized.getOrPut("${mode.uppercase()}|$lane") { Array(Bucket.values().size) { CortexLedger7885.Stat() } }
+        // V5.0.8187 — realised closes are money: read raw, never capped.
+        val a = realized.getOrPut("${mode.uppercase()}|$lane") { Array(Bucket.values().size) { CortexLedger7885.realisedStat8187() } }
         // V5.0.8082 — realised books decayed too (they never forgot: an old regime's closes could invert a lane for ever).
         a[bucket.ordinal].scale(BOOK_DECAY)
         a[bucket.ordinal].add(returnPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), returnPct >= CortexLedger7885.RUNNER_GROSS_PCT)
@@ -344,7 +347,7 @@ class CortexScoreboard7885 {
             for (k in j.keys()) {
                 val f = j.optString(k).split('|')
                 if (f.size != Bucket.values().size) continue
-                realized[k] = Array(f.size) { i -> CortexLedger7885.Stat().also { it.decode(f[i]) } }
+                realized[k] = Array(f.size) { i -> CortexLedger7885.realisedStat8187().also { it.decode(f[i]) } }
             }
         }
     }
