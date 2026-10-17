@@ -10534,7 +10534,7 @@ This cannot be undone!
             groqApiKey            = etGroqKey.text.toString().trim(),
             geminiApiKey          = etGeminiKey.text.toString().trim(),
             jupiterApiKey         = etJupiterKey.text.toString().trim(),
-            pumpPortalApiKey      = DataKeysCard7962.pumpPortal(this) ?: ConfigStore.load(this).pumpPortalApiKey,  // V5.0.7962
+            pumpPortalApiKey      = DataKeysCard7962.pumpPortal(this)?.takeIf { it.isNotBlank() } ?: ConfigStore.load(this).pumpPortalApiKey,  // V5.0.7962 · V5.0.8181 a blank card never wipes the key
             watchlist             = wl,
             notificationsEnabled  = switchNotifications.isChecked,
             soundEnabled          = switchSounds.isChecked,

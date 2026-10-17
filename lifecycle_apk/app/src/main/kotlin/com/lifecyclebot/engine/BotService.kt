@@ -11172,6 +11172,7 @@ class BotService : Service() {
                     }
                 } catch (_: Throwable) {}
             }
+            com.lifecyclebot.network.PumpFunWS.setKeySupplier8181 { com.lifecyclebot.data.ConfigStore.load(applicationContext).pumpPortalApiKey }  // V5.0.8181
             com.lifecyclebot.network.PumpFunWS.start(
                 // V5.0.7284 — the trade stream is keyed; blank means launches only.
                 apiKey7284 = cfg.pumpPortalApiKey,

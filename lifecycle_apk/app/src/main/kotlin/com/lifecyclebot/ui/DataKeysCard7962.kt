@@ -39,7 +39,8 @@ internal object DataKeysCard7962 {
         try {
             ConfigStore.saveMarketDataKeys7958(a, MARKET_IDS.map { id -> field(a, id)?.text?.toString()?.trim().orEmpty() })
             if (!includePumpPortal) return
-            val pp = pumpPortal(a) ?: return
+            // V5.0.8181 — an empty card (not yet bound, or not typed in) never erases the saved key.
+            val pp = pumpPortal(a)?.takeIf { it.isNotBlank() } ?: return
             val cfg = current()
             if (pp != cfg.pumpPortalApiKey) saveConfig(cfg.copy(pumpPortalApiKey = pp))
         } catch (_: Throwable) {}

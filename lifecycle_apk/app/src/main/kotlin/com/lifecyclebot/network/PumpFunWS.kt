@@ -86,14 +86,55 @@ object PumpFunWS {
         denied && deniedAtMs > 0L && nowMs - deniedAtMs >= AUTH_REPROBE_MS_8094
 
     private fun maybeReprobeAuth8094(nowMs: Long = System.currentTimeMillis()) {
+        refreshKey8181(nowMs)
         if (apiKey7284.isBlank() || !authReprobeDue8094(tradeAuthDenied7432.get(), tradeAuthDeniedAtMs8094, nowMs)) return
         tradeAuthDenied7432.set(false)
         tradeAuthDeniedAtMs8094 = 0L
         unsupportedTradeDemand7485.clear()
+        authReprobes8181.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TOKEN_TRADE_AUTH_REPROBE_8094") } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "re-probing the token trade stream with the configured key")
-        // A socket opened without the key must reconnect keyed; a keyed one just re-subscribes below.
-        if (!connectedKeyed8094) try { ws?.close(1000, "reprobe keyed 8094") } catch (_: Throwable) {}
+        // V5.0.8181 — PumpPortal checks the key's linked-wallet balance when the socket CONNECTS; 8094 re-subscribed on the
+        // same keyed socket, so a wallet funded after start stayed refused all session (5.0.8175: reconnects=0, AUTH_DENIED).
+        // Every re-probe reconnects keyed.
+        try { ws?.close(1000, "reprobe keyed 8181") } catch (_: Throwable) {}
+    }
+
+    // ── V5.0.8181 — the key is re-read from settings: start() read it once, so a key saved later never reached the socket ──
+    @Volatile private var keySupplier8181: (() -> String)? = null
+    @Volatile private var keyReadAtMs8181 = 0L
+    private val authReprobes8181 = AtomicLong(0L)
+    private val keyChanges8181 = AtomicLong(0L)
+    private const val KEY_REREAD_MS_8181 = 60_000L
+
+    fun setKeySupplier8181(supplier: () -> String) { keySupplier8181 = supplier }
+
+    /** Pure: the settings key differs from the connected one (blank settings never erase a working key mid-session). */
+    internal fun keyChanged8181(current: String, fromSettings: String): Boolean =
+        fromSettings.isNotBlank() && fromSettings != current
+
+    private fun refreshKey8181(nowMs: Long) {
+        val supplier = keySupplier8181 ?: return
+        if (nowMs - keyReadAtMs8181 < KEY_REREAD_MS_8181) return
+        keyReadAtMs8181 = nowMs
+        val fresh = try { supplier().trim() } catch (_: Throwable) { return }
+        if (!keyChanged8181(apiKey7284, fresh)) return
+        apiKey7284 = fresh
+        keyChanges8181.incrementAndGet()
+        tradeAuthDenied7432.set(false)
+        tradeAuthDeniedAtMs8094 = 0L
+        unsupportedTradeDemand7485.clear()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TOKEN_TRADE_KEY_RELOADED_8181") } catch (_: Throwable) {}
+        ErrorLogger.info(TAG, "PumpPortal data key changed in settings — reconnecting keyed")
+        try { ws?.close(1000, "key reloaded 8181") } catch (_: Throwable) {}
+    }
+
+    /** Pure: what the owner must know about the trade stream's key, without printing the key. */
+    internal fun keyState8181(key: String, denied: Boolean, connectedKeyed: Boolean): String = when {
+        key.isBlank() -> "NONE(enter the PumpPortal data key in Settings)"
+        denied -> "SET(..${key.takeLast(4)}) connectedKeyed=$connectedKeyed ACTION=PumpPortal says the wallet LINKED to this key " +
+            "(created with the key, not the trading wallet) is under 0.02 SOL; re-checked by a fresh keyed connection every 10m"
+        else -> "SET(..${key.takeLast(4)}) connectedKeyed=$connectedKeyed"
     }
     private val createStreamObserved7432 = AtomicBoolean(false)
     private val migrationStreamObserved7432 = AtomicBoolean(false)
@@ -111,8 +152,9 @@ object PumpFunWS {
         mint.isNotBlank() && tokenTradeStreamActive7432() && tradeSubscriptions7278.contains(mint)
     internal fun isTradeAuthRefusal7432(message: String): Boolean {
         val e = message.lowercase()
-        return (e.contains("subscribetokentrade") || e.contains("subscribeaccounttrade")) &&
-            (e.contains("api key") || e.contains("funded") || e.contains("only available"))
+        return ((e.contains("subscribetokentrade") || e.contains("subscribeaccounttrade")) &&
+            (e.contains("api key") || e.contains("funded") || e.contains("only available"))) ||
+            e.contains("minimum balance not met")  // V5.0.8181 — the PumpSwap data refusal is the same funding check
     }
     private const val LIFECYCLE_MAX_7420 = 96
     private const val LIFECYCLE_TTL_MS_7420 = 15L * 60_000L
@@ -153,7 +195,8 @@ object PumpFunWS {
     /** V5.0.7280 — one line for the pipeline report: what the socket is doing. */
     fun status7280(): String {
         val recent = synchronized(recentUntyped7286) { recentUntyped7286.toList() }
-        return "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
+        return "key8181=${keyState8181(apiKey7284, tradeAuthDenied7432.get(), connectedKeyed8094)} reprobes8181=${authReprobes8181.get()} keyReloads8181=${keyChanges8181.get()} " +
+            "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
             "tradeStream=${if (tradeAuthDenied7432.get()) "AUTH_DENIED" else if (tokenTradeStreamActive7432()) "OBSERVED" else if (tradeStreamKeyed7284()) "KEYED_UNVERIFIED" else "NO_KEY_LAUNCHES_ONLY"} " +
             "PUMP_LIFECYCLE_STREAM_CAPABLE=${lifecycleStreamCapable7420()} " +
             "CREATE_STREAM_AVAILABLE=${running.get() && ws != null && createStreamObserved7432.get()} " +
