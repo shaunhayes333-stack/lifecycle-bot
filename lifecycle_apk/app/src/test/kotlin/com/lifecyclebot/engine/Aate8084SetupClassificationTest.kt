@@ -115,7 +115,10 @@ class Aate8084SetupClassificationTest {
         val cap = c.substringAfter("fun capture(ts: TokenState, labelLane: String, admitted: Boolean").substringBefore("private fun captureNow(")
         // V5.0.8172 — superseded by V5.0.8171: capture runs on its own pool (submitCapture8171); the classification is still frozen before it is queued.
         assertTrue(cap.indexOf("decisionSnapshot8084(ts, labelLane, nowMs)") in 0 until cap.indexOf("submitCapture8171 {"))
-        assertTrue(c.contains("LanePlaybook7907.capture(ts, a.lane, labelLane, nowMs, snap8084)"))
+        assertTrue(cap.contains("LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap8084, sel8153, timing8174)"))
+        assertTrue(cap.contains("val a8174 = assessCache["))
+        val queued = c.substringAfter("private fun captureNow(").substringBefore("// ── V5.0.7920")
+        assertFalse(queued.contains("assess(ts, labelLane, nowMs)"))
         assertTrue(c.contains("LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080, p.setup7961)"))
         val p = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(p.contains("\"#O=\${c.outcome.name}#V=\${c.featureVersion}\""))
