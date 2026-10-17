@@ -74,7 +74,7 @@ class Aate8185RemainingGapsTest {
         // A label confined to [-100, cap] cannot have a variance above (cap + 100)^2 / 4.
         assertEquals(kotlin.math.sqrt(10_000.0 / 4), r.cappedStderr8185(4.0, 1e9, 100.0), 1e-9)
         assertEquals(RobustLabelRead8185.CAP_LARGE_CAP_PCT_8185, r.capForKey8185("BAND|MOONSHOT|MC_GT1M"), 0.0)
-        assertEquals(RobustLabelRead8185.CAP_FIVE_MINUTE_PCT_8185, r.capForKey8185("LANE|MOONSHOT"), 0.0)
+        assertEquals(RobustLabelRead8185.CAP_LABEL_PCT_8185, r.capForKey8185("LANE|MOONSHOT"), 0.0)
     }
 
     @Test fun suspectCellReadsNeutralNeitherEdgeNorLoss() {

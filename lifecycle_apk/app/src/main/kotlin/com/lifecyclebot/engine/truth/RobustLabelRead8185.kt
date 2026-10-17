@@ -10,7 +10,8 @@ package com.lifecyclebot.engine.truth
  * aggregates (n, sum, sumSq, wins), so the bad labels cannot be picked out and removed, and learning is never reset.
  * What changes is how the aggregates are READ:
  *
- *  - Every label is read through a plausibility cap for its horizon (a 4x inside five minutes, a 2x for a $1M+ cap band).
+ *  - Every label is read through a plausibility cap (the cells' labels are revised from 5 minutes up to 7 days, so the cap
+ *    is an 11x for one label, a 4x for a coin already in the $1M+ cap band — where the poisoned labels sat).
  *    The winsorised mean (each label clamped at the cap) is bounded from the aggregates alone:
  *      upper = min(sum, wins * cap) / n     (no positive label can contribute more than the cap; non-positive add <= 0)
  *      lower = (sum - sumSq / (4 * cap)) / n (for every y: y - cap <= y^2 / (4 cap))
@@ -24,17 +25,17 @@ package com.lifecyclebot.engine.truth
  * Data within the cap reads exactly as before ([upper] equals the raw mean when no label exceeds the cap).
  */
 object RobustLabelRead8185 {
-    /** A 4x inside five minutes: the plausible ceiling of one fresh-meme label at the read. */
-    const val CAP_FIVE_MINUTE_PCT_8185 = 300.0
-    /** A 2x inside five minutes for a coin already above a $1M cap. */
-    const val CAP_LARGE_CAP_PCT_8185 = 100.0
+    /** An 11x: the plausible ceiling of one label (read at 5 minutes, revised up to 7 days while the coin lives). */
+    const val CAP_LABEL_PCT_8185 = 1_000.0
+    /** A 4x for a coin already above a $1M cap (5.0.8175's poisoned BAND|*|MC_GT1M labels read +1,500..+3,500% means). */
+    const val CAP_LARGE_CAP_PCT_8185 = 300.0
     /** The veto book revises inside each lane's hold; a refused coin's plausible single-label ceiling. */
-    const val CAP_VETO_PCT_8185 = 300.0
+    const val CAP_VETO_PCT_8185 = 1_000.0
     private const val LOSS_FLOOR_PCT_8185 = -100.0
 
     /** Pure: the per-label cap for a labeler key (the $1M+ cap band reads at the large-cap ceiling). */
     fun capForKey8185(key: String): Double =
-        if (key.contains("MC_GT1M")) CAP_LARGE_CAP_PCT_8185 else CAP_FIVE_MINUTE_PCT_8185
+        if (key.contains("MC_GT1M")) CAP_LARGE_CAP_PCT_8185 else CAP_LABEL_PCT_8185
 
     /** Pure: the largest winsorised mean the aggregates allow (equals the raw mean when no label exceeds the cap). */
     fun upperMean8185(n: Double, sum: Double, wins: Double, cap: Double): Double {
