@@ -129,6 +129,8 @@ object LaunchBirth8169 {
             else AdmissionBirth8144.Read8144(AdmissionBirth8144.Kind8144.KNOWN, nowMs - canonical, canonical, "CANONICAL")
             val window = sniperWindow8169(canonical, read, windowSecs)
             countScope8169(window.name)
+            // V5.0.8190 — an in-window pump launch is put on the trade stream, so its first-minute flow is observed.
+            if (window == AdmissionBirth8144.Window8144.IN_WINDOW && pumpMint8169(ts.mint)) try { com.lifecyclebot.network.PumpFunWS.watchLaunch8190(ts.mint) } catch (_: Throwable) {}
             if (window == AdmissionBirth8144.Window8144.PAST_WINDOW) {
                 val ageSecs = ((canonical ?: read.minAgeMs) / 1000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 try { com.lifecyclebot.v3.scoring.ProjectSniperAI.tooOldHandOff8169(ts, ageSecs) } catch (_: Throwable) {}

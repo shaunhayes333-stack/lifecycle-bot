@@ -817,7 +817,8 @@ class DataOrchestrator(
 
     private fun handlePumpTrade(mint: String, isBuy: Boolean, solAmount: Double, wallet: String) {
         lastWsEventMs[mint] = System.currentTimeMillis()
-        val ts = status.tokens[mint] ?: return
+        // V5.0.8190 — a launch not yet in the map keeps its first-minute flow (the launch window reads it on admission).
+        val ts = status.tokens[mint] ?: run { WhaleDetector.recordLaunchOnly8190(mint, wallet, solAmount, isBuy); return }
 
         // Feed into whale detector
         WhaleDetector.recordTrade(mint, wallet, solAmount, isBuy)

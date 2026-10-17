@@ -314,6 +314,16 @@ object PumpFunWS {
             "budgetUnsubs=${budgetUnsubs8192.get()} launchSubsSkippedBudget=${launchSubsSkippedBudget8192.get()} maxLaunches=$LIFECYCLE_MAX_7420 ttlMin=${LIFECYCLE_TTL_MS_7420 / 60_000L}]"
     }
 
+    /**
+     * V5.0.8190 — a launch inside PROJECT_SNIPER's window that reached the bot by another path (its lane hunter's sweep, a
+     * throttled create frame) had no trade subscription, so its launch flow read FLOW_UNKNOWN and the sniper handed it on
+     * as BIRTH. It joins the bounded fresh-lifecycle set (same cap and TTL as launches, inside the 8192 cost budget).
+     */
+    fun watchLaunch8190(mint: String) {
+        if (mint.isBlank() || lifecycleMints7420.containsKey(mint) || tradeSubscriptions7278.contains(mint)) return
+        registerFreshLifecycle7420(mint)
+    }
+
     private fun registerFreshLifecycle7420(mint: String) {
         if (mint.isBlank()) return
         rollDay8192(System.currentTimeMillis())

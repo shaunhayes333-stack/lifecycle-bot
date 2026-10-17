@@ -437,11 +437,10 @@ object SpecialistOwnership7951 {
         "MINT_AUTH", "BLACKLIST", "ERROR", "ZERO_LIQ", "NO_LIQ", "LIQ_ZERO", "TOXIC", "QUARANTIN")
 
     /** V5.0.8094 — the receiving lane's strategy for this coin: a proven fired setup, or a classified setup not losing. */
-    private fun receiverRecordSound8094(mint: String, lane: String): Boolean = try {
-        val ts = HandoffRoute8180.tokenFor8180(mint)  // V5.0.8180 — the same map, by the meme key too
-        ts != null && (com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, lane) != null ||
-            com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, lane) == null)
-    } catch (_: Throwable) { false }
+    // V5.0.8190 — only a genuine losing record is unsound (ReceiverRecord8190): a missing TokenState or a NO_TRIGGER read
+    // on unobserved setup inputs is a data deferral, carried by rescueIneligible8136 (DEFERRED_*), never a refusal here.
+    private fun receiverRecordSound8094(mint: String, lane: String): Boolean =
+        ReceiverRecord8190.check8190(mint, lane) != ReceiverRecord8190.UNSOUND_8190
 
     // ── V5.0.8136 — one causal election contract per candidate (SpecialistElection8136) ──
 
@@ -485,8 +484,7 @@ object SpecialistOwnership7951 {
         when {
             ts == null -> HandoffRetention8185.noTokenState8185(mint)  // V5.0.8185 — re-hydrate the open target
             ts.safety.isBlocked || ts.safety.hardBlockReasons.isNotEmpty() -> "TOKEN_SAFETY_BLOCKED"
-            !receiverRecordSound8094(mint, l) -> "RECEIVER_RECORD_UNSOUND_8094"
-            else -> null
+            else -> ReceiverRecord8190.check8190(mint, l)  // V5.0.8190 — RECEIVER_RECORD_UNSOUND_8094 only on a genuine losing record
         }
     } catch (_: Throwable) { "DEFERRED_RESCUE_CHECK_ERROR" }
 

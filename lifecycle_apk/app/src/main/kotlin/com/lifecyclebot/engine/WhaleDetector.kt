@@ -80,6 +80,31 @@ object WhaleDetector {
     )
 
     /**
+     * V5.0.8190 — a launch-tape trade for a mint the meme map does not hold YET (PumpPortal streams a fresh launch from
+     * its create frame; the token is admitted to the map seconds to minutes later). DataOrchestrator.handlePumpTrade
+     * returned before recording it, so the launch window's first-minute buyers were lost and the sniper read BIRTH /
+     * NO_EARLY_INTEREST on an empty tape. Only the 90 s launch-flow queue is fed (no whale books); bounded by
+     * [PRE_ADMISSION_MINTS_8190] mints, stale queues pruned first.
+     */
+    fun recordLaunchOnly8190(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || !solAmount.isFinite() || solAmount <= 0.0) return
+        if (!launchTrades7401.containsKey(mint) && launchTrades7401.size >= PRE_ADMISSION_MINTS_8190) {
+            try {
+                launchTrades7401.entries.removeIf { e -> synchronized(e.value) { (e.value.peekLast()?.ts ?: 0L) < nowMs - 90_000L } }
+            } catch (_: Throwable) {}
+            if (launchTrades7401.size >= PRE_ADMISSION_MINTS_8190) return
+        }
+        val q = launchTrades7401.getOrPut(mint) { java.util.ArrayDeque() }
+        synchronized(q) {
+            q.addLast(LaunchTrade(nowMs, wallet, solAmount, isBuy))
+            while (q.isNotEmpty() && nowMs - q.first().ts > 90_000L) q.removeFirst()
+            while (q.size > 512) q.removeFirst()
+        }
+    }
+
+    const val PRE_ADMISSION_MINTS_8190 = 4_096
+
+    /**
      * Record a trade event from Helius/Pump.fun WebSocket.
      * Called by DataOrchestrator on every swap event.
      */

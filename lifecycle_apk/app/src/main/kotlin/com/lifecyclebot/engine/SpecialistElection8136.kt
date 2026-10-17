@@ -816,6 +816,19 @@ object SpecialistElection8136 {
     }
 
     /**
+     * V5.0.8190 — every candidate whose named receiver's yield is still open (HandoffPriority8190 puts it in the next
+     * cycle: 5.0.8186 RECEIVER_SUPERSEDED_EXPIRED=133 — the record expired untouched because the mint was never processed).
+     */
+    fun openYieldMints8190(max: Int = 64): List<String> = synchronized(lock8136) {
+        val out = ArrayList<String>()
+        for (r in records8136.values) {
+            if (out.size >= max) break
+            if (yieldOpen8144(r)) out += r.mint
+        }
+        out
+    }
+
+    /**
      * V5.0.8144 — BotService desk qualification: the rescue holder and the named receiver are qualified by the election
      * itself (their own native brain is the independent evidence), so a missing desk hypothesis no longer short-circuits
      * them before the hand-off runs. Every other gate of their lane still decides.
