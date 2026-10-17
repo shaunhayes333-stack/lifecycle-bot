@@ -185,4 +185,90 @@ class Aate8191DataPipelineTest {
         assertEquals("dexscreener@tokens/solana", hc.scopedLabel8179(hc.labelFor8125("api.dexscreener.com", path, null), path))
         assertTrue(src("engine/market/MarketSweep7297.kt").contains("if (provider.isNotBlank()) lastFail7301.remove(provider)\n                resp.body?.string()"))
     }
+
+    // ── 3. Birdeye spend: held / near-decision only, Codex first for candles ──
+
+    @Test fun birdeyePremiumRunsOnlyForHeldOrNearDecisionCoinsWithoutACheaperFreshSource() {
+        val d = DataPipeline8191
+        assertTrue(d.premiumAllowedPure8191(held = true, nearDecision = false, cheaperFresh = true))
+        assertTrue(d.premiumAllowedPure8191(held = false, nearDecision = true, cheaperFresh = false))
+        assertFalse(d.premiumAllowedPure8191(held = false, nearDecision = true, cheaperFresh = true))
+        assertFalse(d.premiumAllowedPure8191(held = false, nearDecision = false, cheaperFresh = false))
+        val bs = src("engine/BotService.kt")
+        // superseded by V5.0.8191: the tradability-only gate "val tradable = liqUsd >= 2_000.0 && mcapUsd >= 5_000.0".
+        assertFalse(bs.contains("val tradable = liqUsd >= 2_000.0 && mcapUsd >= 5_000.0"))
+        assertTrue(bs.contains("val tradable = DataPipeline8191.premium8191(ts)"))
+        assertTrue(src("engine/DataPipeline8191.kt").contains("ts.lastLiquidityUsd >= 2_000.0 && ts.lastMcap >= 5_000.0 && premiumAllowed8191(ts.mint)"))
+    }
+
+    @Test fun aCoinAskingForItsInputsIsNearADecisionForTenMinutes() {
+        val d = DataPipeline8191
+        d.resetForTests8191()
+        val m = "NearMint8191xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        assertFalse(d.nearDecision8191(m, t0))
+        d.noteNearDecision8191(m, t0)
+        assertTrue(d.nearDecision8191(m, t0 + d.NEAR_DECISION_MS_8191))
+        assertFalse(d.nearDecision8191(m, t0 + d.NEAR_DECISION_MS_8191 + 1))
+        assertFalse(d.nearDecisionAt8191(null, t0))
+        d.resetForTests8191()
+    }
+
+    @Test fun ordinarySeedsShareSixCodexCallsAMinute() {
+        val d = DataPipeline8191
+        d.resetForTests8191()
+        repeat(d.CODEX_ORDINARY_PER_MIN_8191) { assertTrue(d.claimCodexOrdinary8191(t0 + it)) }
+        assertFalse(d.claimCodexOrdinary8191(t0 + 100))
+        assertTrue(d.claimCodexOrdinary8191(t0 + 60_001))
+        d.resetForTests8191()
+    }
+
+    @Test fun birdeyeSpendIsNamedByEndpoint() {
+        val d = DataPipeline8191
+        d.resetForTests8191()
+        assertEquals("defi/v3/token/trade-data", d.birdeyeEndpoint8191("https://public-api.birdeye.so/defi/v3/token/trade-data/single?address=x"))
+        assertEquals("defi/ohlcv", d.birdeyeEndpoint8191("https://public-api.birdeye.so/defi/ohlcv?address=x&type=1m"))
+        d.noteBirdeye8191("https://public-api.birdeye.so/defi/ohlcv?address=x&type=1m")
+        assertTrue(d.statusLine8191().contains("defi/ohlcv=1"))
+        assertTrue(src("network/BirdeyeApi.kt").contains("com.lifecyclebot.engine.DataPipeline8191.noteBirdeye8191(url)"))
+        d.resetForTests8191()
+    }
+
+    @Test fun candleSeedsAskCodexFirstForPriorityCoinsAndNeverBuyAFilledTimeframe() {
+        val o = src("engine/DataOrchestrator.kt")
+        assertTrue(o.contains("val codexFirst8191 = priority8191 && (if (repairShape8168) repairShapeFromCodex8169(ts) else codexSeed8191(ts))"))
+        assertTrue(o.contains("val k1m = if (codexFirst8191) emptyList() else keylessFetch7809(mint, \"1m\", 120, poolHint6916, attempts = 3)"))
+        assertTrue(o.contains("if (ts.history.size < 10 && DataPipeline8191.claimCodexOrdinary8191()) codexSeed8191(ts)"))
+        assertTrue(o.indexOf("if (!priority8191) {") < o.indexOf("val candles1m = "))
+        assertTrue(o.contains("val candles1m = if (ts.history.size >= 10 && !repairShape8168) emptyList() else birdeye.getCandles(mint, \"1m\", 120)"))
+        assertTrue(o.contains("val candles5m = if (ts.history5m.size >= 5) emptyList() else birdeye.getCandles(mint, \"5m\", 60)"))
+    }
+
+    // ── 5. setup features: trade frames reach the evaluated coin, a missing pair is fetched ──
+
+    @Test fun anEvaluatedCoinJoinsTheKeyedTradeStream() {
+        val o = src("engine/DataOrchestrator.kt")
+        assertTrue(o.contains("if (keys.any { it in TRADE_FED_INPUTS_8191 }) try { PumpFunWS.watchForSetup8191(mint) } catch (_: Throwable) {}"))
+        assertTrue(o.contains("refreshSources8191(mint, keys)"))
+        val w = src("network/PumpFunWS.kt")
+        assertTrue(w.contains("val drop = tradeSubscriptions7278 - wanted - lifecycleMints7420.keys - setupMints8191.keys"))
+        assertTrue(w.contains("val unsub8191 = expired.filter { !setupWatched8191(it, now) }"))
+    }
+
+    @Test fun setupWatchEvictsExpiredThenEldestButNeverALiveLaunch() {
+        val w = com.lifecyclebot.network.PumpFunWS
+        val watched = mapOf("a" to t0, "b" to t0 + 1_000L, "c" to t0 + 2_000L, "old" to t0 - 700_000L)
+        assertEquals(listOf("old", "a"), w.setupEvictions8191(watched, "d", t0 + 3_000L, 3, 600_000L) { false })
+        assertEquals(listOf("old"), w.setupEvictions8191(watched, "d", t0 + 3_000L, 3, 600_000L) { it == "a" })
+        assertEquals(listOf("old"), w.setupEvictions8191(watched, "d", t0 + 3_000L, 10, 600_000L) { false })
+    }
+
+    @Test fun aNotFetchedPairTriggersOneFetchAMinute() {
+        val d = DataPipeline8191
+        assertTrue(d.pairFetchDue8191(null, null, t0))
+        assertFalse(d.pairFetchDue8191(null, t0 - 10_000L, t0))
+        assertTrue(d.pairFetchDue8191(null, t0 - d.PAIR_FETCH_GAP_MS_8191, t0))
+        assertFalse(d.pairFetchDue8191(t0 - 60_000L, null, t0))                    // fresh pair flow: nothing to fetch
+        assertTrue(d.pairFetchDue8191(t0 - 16L * 60_000L, null, t0))              // stale
+        assertTrue(src("engine/DataOrchestrator.kt").contains("DataPipeline8191.claimPairFetch8191(mint)) scope.launch {"))
+    }
 }

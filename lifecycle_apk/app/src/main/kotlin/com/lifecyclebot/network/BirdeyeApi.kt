@@ -593,6 +593,7 @@ class BirdeyeApi(private val apiKey: String = "") {
             return null
         }
         com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
+        try { com.lifecyclebot.engine.DataPipeline8191.noteBirdeye8191(url) } catch (_: Throwable) {}   // V5.0.8191 — spend by endpoint
         return getRaw(url)
     }
 
