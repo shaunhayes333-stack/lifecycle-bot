@@ -469,7 +469,8 @@ object CandidateAdmission8136 {
         // V5.0.8153 — the one strategy identity: every later reader of LanePlaybook7907.selectedSetup8094 gets this choice.
         try {
             val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
-            StrategyIdentity8153.record8153(mint, lane, d.chosenSetup, d.basis, nowMs)
+            StrategyIdentity8153.record8153(mint, lane, d.chosenSetup, d.basis, nowMs,
+                mode, candidateVersion, com.lifecyclebot.engine.cortex.LanePlaybook7907.selectionRevision8198(), d.admitted)
             AdmissionRunnerTrace8144.noteIdentity8153(mint, d.chosenSetup, d.basis)
         } catch (_: Throwable) {}
         if (memos8153.size > 4_000) memos8153.entries.removeIf { nowMs - it.value.atMs > MEMO_MS_8153 }

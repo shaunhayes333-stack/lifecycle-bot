@@ -144,31 +144,55 @@ object StrategyRank8153 {
  * A held identity counts only while that setup is still among the coin's fired setups.
  */
 object StrategyIdentity8153 {
-    data class Held8153(val setup: String, val basis: String, val atMs: Long)
+    data class Held8153(val setup: String, val basis: String, val atMs: Long,
+        val mode8198: String = "", val candidateVersion8198: Long = 0L, val revision8198: Long = -1L)
 
     const val TTL_MS_8153 = 90_000L
     private const val MAX_8153 = 4_000
-
     private val held = ConcurrentHashMap<String, Held8153>()
+    private fun key8153(mint: String, lane: String, mode: String, version: Long) =
+        "${mode.uppercase()}|$mint|${lane.trim().uppercase()}|$version"
 
-    private fun key8153(mint: String, lane: String) = "$mint|${lane.trim().uppercase()}"
-
-    /** Pure: is [h] still this coin's identity at [nowMs] (fresh, and the setup still fired)? */
     fun valid8153(h: Held8153?, nowMs: Long, fired: Collection<String>): Boolean =
         h != null && nowMs - h.atMs in 0L..TTL_MS_8153 && h.setup in fired
 
-    /** CandidateAdmission8136.assess8136: the admission's chosen strategy for (mint, lane). */
-    fun record8153(mint: String, lane: String, setup: String?, basis: String, nowMs: Long) {
-        if (mint.isBlank() || lane.isBlank() || setup.isNullOrBlank()) return
-        held[key8153(mint, lane)] = Held8153(setup, basis, nowMs)
+    internal fun freshEvidence8198(h: Held8153, revision: Long, sealed: Boolean): Boolean =
+        h.revision8198 == revision || sealed
+
+    private fun sealed8198(mint: String, lane: String, h: Held8153): Boolean {
+        if (h.mode8198 !in setOf("LIVE", "PAPER") || h.candidateVersion8198 <= 0L) return false
+        val intent = com.lifecyclebot.engine.ExecutableOpenGate.activeExecutionIntent6519(h.mode8198, mint, h.candidateVersion8198)
+        return intent != null && intent.canonicalLane.equals(lane, true)
+    }
+
+    /** Only an admitted, unsealed choice may be pinned. Refusal/defer cannot keep renewing a rejected strategy. */
+    fun record8153(mint: String, lane: String, setup: String?, basis: String, nowMs: Long,
+        mode8198: String = "", candidateVersion8198: Long = 0L, revision8198: Long = -1L, admitted8198: Boolean = true) {
+        if (mint.isBlank() || lane.isBlank()) return
+        val key = key8153(mint, lane, mode8198, candidateVersion8198)
+        held.compute(key) { _, prior ->
+            when {
+                prior != null && sealed8198(mint, lane, prior) -> prior
+                !admitted8198 || setup.isNullOrBlank() -> null
+                else -> Held8153(setup, basis, nowMs, mode8198, candidateVersion8198, revision8198)
+            }
+        }
         if (held.size > MAX_8153) held.entries.removeIf { nowMs - it.value.atMs > TTL_MS_8153 }
     }
 
-    /** The held strategy for (mint, lane) when [valid8153], else null. */
-    fun heldFor8153(mint: String, lane: String, nowMs: Long, fired: Collection<String>): String? =
-        held[key8153(mint, lane)]?.takeIf { valid8153(it, nowMs, fired) }?.setup
+    /** A new learning revision immediately reopens unsealed selection; the sealed ticket remains immutable. */
+    fun heldFor8153(mint: String, lane: String, nowMs: Long, fired: Collection<String>,
+        mode8198: String = "", candidateVersion8198: Long = 0L, revision8198: Long = -1L): String? {
+        val key = key8153(mint, lane, mode8198, candidateVersion8198)
+        val h = held[key]?.takeIf { valid8153(it, nowMs, fired) } ?: return null
+        if (!freshEvidence8198(h, revision8198, sealed8198(mint, lane, h))) {
+            if (held.remove(key, h)) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STRATEGY_PIVOT_REEVALUATE_8198_${mode8198}_${lane.uppercase()}") } catch (_: Throwable) {}
+            return null
+        }
+        return h.setup
+    }
 
-    /** The held strategy's evidence basis ("" when none is fresh), for decision traces. */
-    fun basisFor8153(mint: String, lane: String, nowMs: Long): String =
-        held[key8153(mint, lane)]?.takeIf { nowMs - it.atMs in 0L..TTL_MS_8153 }?.let { "${it.setup}(${it.basis.take(48)})" }.orEmpty()
+    fun basisFor8153(mint: String, lane: String, nowMs: Long, mode8198: String = "", candidateVersion8198: Long = 0L): String =
+        held[key8153(mint, lane, mode8198, candidateVersion8198)]?.takeIf { nowMs - it.atMs in 0L..TTL_MS_8153 }
+            ?.let { "${it.setup}(${it.basis.take(48)})" }.orEmpty()
 }

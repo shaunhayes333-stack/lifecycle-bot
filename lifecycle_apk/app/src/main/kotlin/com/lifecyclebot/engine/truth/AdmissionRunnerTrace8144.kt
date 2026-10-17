@@ -331,7 +331,9 @@ object AdmissionRunnerTrace8144 {
         if (gate.isNullOrBlank()) { e.binding = ""; e.bindingEvidence = ""; return }
         e.binding = gate.take(90)
         e.bindingEvidence = if (ts == null) "lane=${lane.ifBlank { "-" }}" else evidenceLine8153(
-            lane, ts.lastLiquidityUsd, StrategyIdentity8153.basisFor8153(ts.mint, CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }, atMs),
+            lane, ts.lastLiquidityUsd, StrategyIdentity8153.basisFor8153(ts.mint, CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }, atMs,
+                if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE",
+                com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)),
             (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedTier8153(ts, lane, atMs)?.name } catch (_: Throwable) { null }).orEmpty(),
             NetEdge8030.moveBasis8153(ts.mint),
         ).take(240)

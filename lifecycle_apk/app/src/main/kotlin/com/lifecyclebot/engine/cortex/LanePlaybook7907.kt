@@ -732,6 +732,7 @@ object LanePlaybook7907 {
         return LaneEvidence8077.Setup(id, expected(lane, id), st?.n ?: 0.0, st?.mean() ?: 0.0, st?.variance() ?: 0.0)
     }
     private val bookRevision8077 = AtomicLong(0)
+    fun selectionRevision8198(): Long = bookRevision8077.get()
 
     /**
      * V5.0.8084 §ONE_CACHE. The 8077 cache validated price/mcap/liquidity only, for 15 s, while a separate matchCache
@@ -1133,7 +1134,10 @@ object LanePlaybook7907 {
     /** V5.0.8153 — the strategy CandidateAdmission8136 decided for this coin in this lane, while fresh and still fired. */
     fun admittedSetup8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
         val lane = canon(laneRaw)
-        return com.lifecyclebot.engine.truth.StrategyIdentity8153.heldFor8153(ts.mint, lane, nowMs, matchedSetups8083(ts, lane, nowMs))
+        val mode = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        val version = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+        return com.lifecyclebot.engine.truth.StrategyIdentity8153.heldFor8153(ts.mint, lane, nowMs,
+            matchedSetups8083(ts, lane, nowMs), mode, version, selectionRevision8198())
     }
 
     /** V5.0.8153 — the tier of the strategy this coin trades as (null: not classified / no record). */

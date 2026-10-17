@@ -15266,4 +15266,17 @@ class GoldenTapeRegressionTest {
         assertTrue(executor.contains("this.emitLiveBuyFail(ts, sol, reason, detail, attemptId8198)"))
     }
 
+    @Test fun V5_0_8198_rapid_pivot_has_no_refused_pin_or_cross_mode_generation_alias() {
+        val root = java.io.File("src/main/kotlin/com/lifecyclebot/engine")
+        val identity = java.io.File(root, "truth/StrategyRank8153.kt").readText()
+        assertTrue(identity.contains("!admitted8198 || setup.isNullOrBlank() -> null"))
+        assertTrue(identity.contains("h.revision8198 == revision || sealed"))
+        assertTrue(identity.contains("activeExecutionIntent6519(h.mode8198, mint, h.candidateVersion8198)"))
+        assertTrue(identity.contains("held.remove(key, h)"))
+        val admission = java.io.File(root, "truth/CandidateAdmission8136.kt").readText()
+        assertTrue(admission.contains("LanePlaybook7907.selectionRevision8198(), d.admitted"))
+        val playbook = java.io.File(root, "cortex/LanePlaybook7907.kt").readText()
+        assertTrue(playbook.contains("matchedSetups8083(ts, lane, nowMs), mode, version, selectionRevision8198()"))
+    }
+
 }

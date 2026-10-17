@@ -198,7 +198,7 @@ class Aate8153StrategyTest {
         assertTrue(sel.indexOf("rankedSetup8153(ts, laneRaw, nowMs)") < sel.indexOf("provenSetup8056(ts, laneRaw, nowMs)"))
         assertTrue(pb.contains("primaryTag8153(c, try { selectedSetup8094(ts, c.lane, nowMs) } catch (_: Throwable) { null })"))
         assertTrue(pb.contains("val setup = strategyFor8153(ts, lane, c8084, nowMs) ?: return null"))
-        assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("StrategyIdentity8153.record8153(mint, lane, d.chosenSetup, d.basis, nowMs)"))
+        assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("StrategyIdentity8153.record8153(mint, lane, d.chosenSetup, d.basis, nowMs,"))
         assertTrue(src("engine/learning/TacticSwitcher.kt").contains("LanePlaybook7907.selectedSetup8094(ts, lane)"))
         assertTrue(src("engine/AgenticStyleRouter.kt").contains("LanePlaybook7907.selectedSetup8094(ts, laneHint)"))
         assertTrue(src("engine/ExitProfile7955.kt").contains("LanePlaybook7907.selectedSetup8094(ts, canon(lane), nowMs)"))
