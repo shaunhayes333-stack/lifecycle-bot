@@ -213,8 +213,8 @@ class Aate8173LaunchCohortTest {
     }
 
     @Test fun carriedStageStillAnswersToTheCostRule() {
-        // Gross 15% against a 9% round trip does not clear 2x cost: refused on economics, never admitted on the setup alone.
-        val d = CandidateAdmission8136.decide8136(launchCandidate(listOf(ladder), gross = 15.0))
+        // Gross 13% against a 9% round trip does not clear 1.5x cost (8197): refused on economics, never admitted on the setup alone.
+        val d = CandidateAdmission8136.decide8136(launchCandidate(listOf(ladder), gross = 13.0))
         assertEquals("EXECUTION_ECONOMICS_8136", d.reason)
     }
 
