@@ -820,14 +820,13 @@ object Cortex7885 {
         val cohort = try {
             com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.mcapBand(com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts))
         } catch (_: Throwable) { "UNK" }
-        com.lifecyclebot.engine.BotImprovementReport8168.noteCortex(lane, admitted,
-            CortexLabelHygiene8144.executableDecision8144(admitted, reason), reason)
         val native = try { SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)?.opinions?.get(lane) } catch (_: Throwable) { null }
         val nativeEligible8196 = native?.takeIf { it.authoritative }?.let { it.eligible && it.gradeable }
+        val executable8196 = CortexLabelHygiene8144.executableDecision8144(admitted, reason, nativeEligible8196)
+        com.lifecyclebot.engine.BotImprovementReport8168.noteCortex(lane, admitted, executable8196, reason)
         if (!admitted && nativeEligible8196 == false) inc("LABEL_NATIVE_INELIGIBLE_OBSERVED_ONLY_8196")
         if (!admitted && nativeEligible8196 == null) inc("LABEL_NATIVE_ELIGIBILITY_UNVERIFIED_8196")
-        return DecisionCtx8144(timing, CortexLabelHygiene8144.costBand8144(cost), cohort, latencyMeasured8144(lane),
-            CortexLabelHygiene8144.executableDecision8144(admitted, reason, nativeEligible8196))
+        return DecisionCtx8144(timing, CortexLabelHygiene8144.costBand8144(cost), cohort, latencyMeasured8144(lane), executable8196)
     }
 
     /** Caller holds the lock. */
