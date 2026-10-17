@@ -119,7 +119,8 @@ class Aate8084SetupClassificationTest {
         assertTrue(cap.contains("val a8174 = assessCache["))
         val queued = c.substringAfter("private fun captureNow(").substringBefore("// ── V5.0.7920")
         assertFalse(queued.contains("assess(ts, labelLane, nowMs)"))
-        assertTrue(c.contains("LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080, p.setup7961)"))
+        // superseded by V5.0.8187: the playbook takes the label clamped to its cohort's cap.
+        assertTrue(c.contains("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961)"))
         val p = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(p.contains("\"#O=\${c.outcome.name}#V=\${c.featureVersion}\""))
         val on = p.substringAfter("fun onLabel(mint: String, labelLane: String").substringBefore("fun setupHoldsLong8080(")

@@ -1863,8 +1863,8 @@ object Cortex7885 {
     private fun noteEntryRead(mint: String, paper: Boolean, a: Assessment, decisionAtMs: Long = a.atMs) {
         if (entryReads.size > 4_000) entryReads.entries.removeIf { System.currentTimeMillis() - it.value.atMs > PENDING_TTL_MS * 4 }
         val normalized8082 = try { CrossAssetCortex7931.normalizeCloseKey(mint) } catch (_: Throwable) { mint }
+        entryReads["$normalized8082|${if (paper) "PAPER" else "LIVE"}|${canon(a.lane)}"] = a
         val key8187 = "$normalized8082|${if (paper) "PAPER" else "LIVE"}|${canon(a.lane)}"
-        entryReads[key8187] = a
         // V5.0.8187 — the read's decision time, and a position that opened before its (asynchronous) read arrived.
         noteReadAt8187(key8187, minOf(decisionAtMs, a.atMs))
         retryDeferredBinds8187(key8187, a)
