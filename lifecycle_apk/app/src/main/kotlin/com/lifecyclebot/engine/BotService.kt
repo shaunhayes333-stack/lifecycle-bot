@@ -26124,20 +26124,12 @@ if (hotExitHandledSweep) {
                     // compatibility, but the demote decision below
                     // is guided by the canonical state machine.
                     val hydrationStartedAt = try { com.lifecyclebot.engine.GlobalTradeRegistry.getEntry(mint)?.addedAt ?: System.currentTimeMillis() } catch (_: Throwable) { System.currentTimeMillis() }
-                    val pumpBondingCurve = if (isPumpSource) mint else null   // pump.fun bonding curve IS the mint
+                    // 8196 — no fabricated provider attempt receipts: source/native
+                    // pool and Jupiter proofs are read from the dated TokenMap.
+                    // Scheduling entry hydration is not evidence it has completed.
                     val hydrationState = try {
-                        com.lifecyclebot.engine.truth.PairHydrationState6398.resolve(
-                            mint = mint,
-                            dexscreenerPair = null,
-                            raydiumPoolFromScanner = null,
-                            pumpFunBondingCurve = pumpBondingCurve,
-                            heliusPair = null,
-                            jupiterRouteOk = false,
-                            birdeyePair = null,
-                            watchlistLastKnownPair = null,
-                            providersAttempted = listOf("DEXSCREENER", "BIRDEYE", "ORACLE"),
-                            hydrationStartedAtMs = hydrationStartedAt,
-                        )
+                        com.lifecyclebot.engine.truth.PairHydrationState6398.resolveFromToken8196(
+                            ts, isPumpSource, hydrationStartedAt)
                     } catch (_: Throwable) { null }
                     val stateLabel = hydrationState?.state?.name ?: "UNKNOWN"
                     val hardUnavailable7408 =
