@@ -20,10 +20,11 @@ class V5_0_6567AcceptanceTest {
             laneMinExecutableSol = 0.05,
             applyPaperMemeMinimum = false,
         )
-        assertTrue(r.executable)
-        assertEquals(0.05, r.finalSizeSol, 1e-9)
-        // V5.0.7840/7841 — live sub-routable promotion carries the route-floor reason.
-        assertEquals("OK_LIVE_ROUTABLE_MIN_PROMOTED_7841", r.reason)
+        // superseded by V5.0.8188 — a LIVE 0.03 -> 0.05 promotion (+67%) breaks the original loss budget at the stop, so it
+        // is refused by name instead of promoted (MinPromotion8188). Paper promotion is unchanged (Repair6490AcceptanceTest).
+        assertFalse(r.executable)
+        assertEquals(0.0, r.finalSizeSol, 0.0)
+        assertEquals(com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188, r.reason)
     }
 
     @Test

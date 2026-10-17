@@ -294,6 +294,7 @@ object KillSwitch {
             val priorDaily7843 = dailyStartBalance
             val priorReason7843 = killReason
             peakBalance = currentBalance
+            peakAt7948 = System.currentTimeMillis()  // V5.0.8188
             dailyStartBalance = currentBalance
             dailyStartDate = System.currentTimeMillis()
             consecutiveLosses = 0
@@ -317,6 +318,7 @@ object KillSwitch {
             val priorReason7864 = killReason
             isKilled = false; killReason = ""; killTime = 0L
             peakBalance = currentBalance
+            peakAt7948 = System.currentTimeMillis()  // V5.0.8188 — a new peak value is a new peak event, never an old time revalued
             try {
                 PipelineHealthCollector.labelInc("KILL_SWITCH_COMPUTED_LATCH_RETIRED_SIZE_DOWN_7864")
                 ForensicLogger.lifecycle(
@@ -378,6 +380,9 @@ object KillSwitch {
             prefs.edit().putBoolean("peak_gain_free_8130", true).apply()
             try { PipelineHealthCollector.labelInc("KILL_SWITCH_PEAK_REANCHORED_8130") } catch (_: Throwable) {}
         }
+        // V5.0.8188 — the peak's recorded event and rebases come back with it (PeakLedger8188); never revalued here.
+        com.lifecyclebot.engine.truth.PeakLedger8188.restore8188(prefs.getString(com.lifecyclebot.engine.truth.PeakLedger8188.EVENT_KEY_8188, null), prefs.getString(com.lifecyclebot.engine.truth.PeakLedger8188.REBASES_KEY_8188, null))
+        com.lifecyclebot.engine.truth.PeakLedger8188.persist8188 = { persistPeak8188(context.applicationContext) }
         com.lifecyclebot.engine.truth.CapitalDrawdown7948.seed7948(peakBalance, peakAt7948)
         observePeak7948(currentBalance)
         
@@ -741,9 +746,28 @@ object KillSwitch {
         return hour1 == hour2
     }
     
+    /**
+     * V5.0.8188 — the peak is persisted the moment it (or a rebase) is recorded, together with its event, so a restart
+     * restores the event that set it instead of a bare number. Lock-free on purpose: called from inside
+     * CapitalDrawdown7948's observation (KillSwitch -> CapitalDrawdown7948 -> PeakLedger8188 is the only lock order).
+     */
+    private fun persistPeak8188(context: Context) {
+        val p = com.lifecyclebot.engine.truth.CapitalDrawdown7948.currentPeak7948()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putFloat("peak_balance", p.peakSol.toFloat())
+            .putLong("peak_at_7948", p.atMs)
+            .putString(com.lifecyclebot.engine.truth.PeakLedger8188.EVENT_KEY_8188, com.lifecyclebot.engine.truth.PeakLedger8188.encodedEvent8188())
+            .putString(com.lifecyclebot.engine.truth.PeakLedger8188.REBASES_KEY_8188, com.lifecyclebot.engine.truth.PeakLedger8188.encodedRebases8188())
+            .apply()
+    }
+
     private fun save(context: Context) {
+        // V5.0.8188 — the mirror follows the one peak authority, so the saved peak and its saved event describe the same peak.
+        if (initializedLive7835 && !isPaperMode) com.lifecyclebot.engine.truth.CapitalDrawdown7948.currentPeak7948().takeIf { it.atMs > 0L }?.let { peakBalance = it.peakSol; peakAt7948 = it.atMs }
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().apply {
             putInt("environment_schema", 7992)
+            putString(com.lifecyclebot.engine.truth.PeakLedger8188.EVENT_KEY_8188, com.lifecyclebot.engine.truth.PeakLedger8188.encodedEvent8188())
+            putString(com.lifecyclebot.engine.truth.PeakLedger8188.REBASES_KEY_8188, com.lifecyclebot.engine.truth.PeakLedger8188.encodedRebases8188())
             putLong("peak_at_7948", peakAt7948)
             putLong("outcome_baseline_at_7837", outcomeBaselineAt7837)
             putStringSet("canonical_outcomes_7835", canonicalOutcomes7835.toSet())

@@ -138,7 +138,8 @@ class Aate8153SizingTest {
         fun floor(tradeable: Double = Double.NaN, deployed: Double = Double.NaN) = LiveRiskPolicy7807.decide(inputs(
             lane = "MOONSHOT", equity = 0.2113, upstream = 0.02274, execMin = 0.0414, stop = 8.0, first = 30.0, target = 40.0,
             liq = 100_000.0, tradeable = tradeable, laneDeployed = deployed))
-        assertEquals("OPEN_RISK_SAFE_MIN_PROMOTED_7840", floor().reason)
+        // superseded by V5.0.8188 — payable is not enough either: the 7840 shape breaks its original loss budget at the stop.
+        assertEquals(com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188, floor().reason)
         // ...but never forced up to the minimum the wallet cannot pay or the lane's envelope cannot hold.
         val unpayable = floor(tradeable = 0.03)
         assertFalse(unpayable.open)

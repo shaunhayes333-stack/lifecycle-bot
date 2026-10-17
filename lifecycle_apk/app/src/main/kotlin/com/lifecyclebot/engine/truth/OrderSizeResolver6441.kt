@@ -559,6 +559,9 @@ object OrderSizeResolver6441 {
         val refuseMinPromotion6909 = (convictionCollapsed6909 || edgeRefusesPromotion7877) &&
             requestedLamports6491 < minExecLamports6491 &&
             !(!paperMode && AdmissionEdge8180.admitted8180(mint))  // V5.0.8180 — a specific proven-edge ADMIT carries its edge
+        // V5.0.8188 — a live promotion is re-evaluated AT the minimum (MinPromotion8188): loss budget, edge after cost, drawdown tier.
+        val promotionRefusal8188 = if (!paperMode && !refuseMinPromotion6909 && canFundMinimum6600 && requestedLamports6491 > 0L && requestedLamports6491 < minExecLamports6491)
+            MinPromotion8188.runtimeRefusal8188(mint, laneName, fromLamports6491(requestedLamports6491), fromLamports6491(minExecLamports6491), liquidityUsd6992) else null
         // V5.0.7840 — the $5 live route floor is an execution constraint, not a
         // second admission veto. 7831 zeroed every otherwise valid request below
         // the floor even when the wallet/lane could fund the minimum and the
@@ -572,6 +575,7 @@ object OrderSizeResolver6441 {
         //     promoted minimum stays inside the hard loss budget before open.
         val shapedOrMinimumLamports6600 = when {
             refuseMinPromotion6909 -> 0L
+            promotionRefusal8188 != null -> 0L
             requestedLamports6491 >= minExecLamports6491 ->
                 if (clampCollapsed6896 && canFundMinimum6600) minExecLamports6491 else shapedCeilingLamports6896
             canFundMinimum6600 -> minExecLamports6491
@@ -755,6 +759,7 @@ object OrderSizeResolver6441 {
             // operator can tell "the evidence said no" apart from "the account
             // could not fund it", which are opposite problems.
             refuseMinPromotion6909 -> "CONVICTION_REFUSED_MIN_PROMOTION_6909"
+            promotionRefusal8188 != null -> promotionRefusal8188  // V5.0.8188
             // V5.0.7819 — paper never has a "wallet": an empty paper ledger is
             // named as such so it cannot be mistaken for a live-wallet read in a
             // paper session (Field Manual L468: the decision carries its reason).
