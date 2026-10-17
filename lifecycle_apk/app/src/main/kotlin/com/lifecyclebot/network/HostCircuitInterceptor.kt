@@ -194,7 +194,8 @@ object HostCircuitInterceptor : Interceptor {
         val req = chain.request()
         val wireHost8144 = req.url.host
         val now = System.currentTimeMillis()
-        val provider = labelFor8125(wireHost8144, req.url.encodedPath, req.header(LANE_HEADER_8125))
+        // V5.0.8179 — Jupiter token lists and DexScreener cool down per endpoint: one list's refusal never blocks its siblings.
+        val provider = scopedLabel8179(labelFor8125(wireHost8144, req.url.encodedPath, req.header(LANE_HEADER_8125)), req.url.encodedPath)
         // V5.0.7314 — an exit is never refused by the local lockout/cool-down.
         val isExit7314 = req.header(ExitHttpScope7314.HEADER) != null || ExitHttpScope7314.active()
         // V5.0.8144 — an unmapped host (Solana RPCs, PumpPortal) cools down per traffic lane: a 429 earned by speculative
@@ -216,7 +217,8 @@ object HostCircuitInterceptor : Interceptor {
         val stateKey7719 = if (provider.isNotBlank()) "$host|$provider" else host
         val state = states.getOrPut(stateKey7719) { HostState() }
         // V5.0.6976 — probes bypass the circuit (never the Birdeye budget).
-        val isProbe = (req.header(PROBE_HEADER_6976) != null || req.header(EXECUTION_HEADER_8169) != null) && provider != "birdeye"
+        val isProbe = ((req.header(PROBE_HEADER_6976) != null || req.header(EXECUTION_HEADER_8169) != null) && provider != "birdeye") ||
+            halfOpenNow8179(provider, state.cooldownUntilMs.get(), now)   // V5.0.8179 — a scoped endpoint re-tests after a short rest
 
         // V5.0.6758 — Birdeye is a paid/escalation source. The runtime snapshot
         // showed 150000/150000 daily CU while raw callers were still reaching the
@@ -280,9 +282,11 @@ object HostCircuitInterceptor : Interceptor {
             chain.proceed(wireReq)
         } catch (uhe: UnknownHostException) {
             state.cooldownUntilMs.set(now + nxCooldownMs8136(state.nxStreak8136.incrementAndGet()))
+            noteScopedOutcome8179(provider, 599, now)
             throw uhe
         }
         state.nxStreak8136.set(0)
+        noteScopedOutcome8179(provider, response.code, now)
 
         if (provider.isNotBlank()) {
             try {
@@ -323,6 +327,79 @@ object HostCircuitInterceptor : Interceptor {
 
         return response
     }
+
+    // ── V5.0.8179 §ONE_ENDPOINT_NEVER_BLOCKS_ITS_SIBLINGS ──
+    //
+    // 5.0.8175: the market sweep read JUP_TRADED / JUP_ORGANIC / JUP_TRENDING / JUP_SEARCH / JUP_RECENT / DEXSCREENER_ENRICH
+    // as LOCAL_CIRCUIT while both providers answered. Every Jupiter token list shared one label ("jupiter_tokens"), so one
+    // list's 403/429 locked all of them, and that label sat on ApiBackoff's long auth ladder (5 min climbing to 2 h, with
+    // no half-open for 401/403): one refusal could block discovery for the rest of the session. DexScreener's batch token
+    // endpoint shared "dexscreener" with every pair lookup. Those providers now answer per endpoint class
+    // ([pathClass8179]), a scoped endpoint is off the long auth ladder, and while it is cooling down one request is let
+    // through as the half-open probe [SCOPED_PROBE_REST_MS_8179] after its last failure or probe: a provider that
+    // recovered is seen within a minute. Rate limits are still honoured by the existing ladders between probes.
+
+    private val SCOPED_BASES_8179 = setOf("jupiter_tokens", "jupiter_tokens_keyed", "dexscreener", "dexscreener_discovery")
+    private val WORD_SEG_8179 = Regex("^[A-Za-z0-9_-]{1,24}$")
+    private val VERSION_SEG_8179 = Regex("^v\\d{1,2}$")
+    const val SCOPED_PROBE_REST_MS_8179 = 60_000L
+    private const val MAX_SCOPED_KEYS_8179 = 256
+    private val lastFailOrProbe8179 = ConcurrentHashMap<String, Long>()
+    private val probeCount8179 = AtomicLong(0L)
+
+    /** Pure: an endpoint class — up to three word-like path segments; version segments skipped; an address or list ends it. */
+    fun pathClass8179(path: String): String {
+        val out = ArrayList<String>(3)
+        for (seg in path.split('/')) {
+            if (seg.isEmpty() || VERSION_SEG_8179.matches(seg)) continue
+            if (!WORD_SEG_8179.matches(seg)) break
+            out.add(seg.lowercase())
+            if (out.size == 3) break
+        }
+        return out.joinToString("/")
+    }
+
+    /** Pure: the circuit label for this endpoint ("jupiter_tokens@tokens/recent"); providers not scoped keep [label]. */
+    fun scopedLabel8179(label: String, path: String): String {
+        if (label !in SCOPED_BASES_8179) return label
+        val cls = pathClass8179(path)
+        return if (cls.isBlank()) label else "$label@$cls"
+    }
+
+    /** Pure: is [label] an endpoint-scoped circuit label? */
+    fun scoped8179(label: String): Boolean = label.contains('@') && label.substringBefore('@') in SCOPED_BASES_8179
+
+    /** Pure: may a cooling scoped endpoint send its half-open probe at [nowMs]? ([lastMs] = last failure or probe; 0 = none.) */
+    fun halfOpenProbe8179(lastMs: Long, nowMs: Long, restMs: Long = SCOPED_PROBE_REST_MS_8179): Boolean =
+        lastMs <= 0L || nowMs - lastMs >= restMs
+
+    /** One probe per rest window for a scoped endpoint that is cooling down (host cool-down or ApiBackoff lockout). */
+    private fun halfOpenNow8179(provider: String, cooldownUntilMs: Long, nowMs: Long): Boolean {
+        if (!scoped8179(provider)) return false
+        val lockedMs = try { com.lifecyclebot.engine.ApiBackoff.lockoutRemainingMs(provider) } catch (_: Throwable) { 0L }
+        if (lockedMs <= 0L && cooldownUntilMs <= nowMs) return false
+        val prev = lastFailOrProbe8179[provider] ?: 0L
+        if (!halfOpenProbe8179(prev, nowMs)) return false
+        val claimed = if (prev == 0L) lastFailOrProbe8179.putIfAbsent(provider, nowMs) == null
+            else lastFailOrProbe8179.replace(provider, prev, nowMs)
+        if (claimed) {
+            probeCount8179.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HOST_CIRCUIT_HALF_OPEN_PROBE_8179") } catch (_: Throwable) {}
+        }
+        return claimed
+    }
+
+    /** A scoped endpoint's answer: a refusal starts its rest window, a success ends it. */
+    private fun noteScopedOutcome8179(provider: String, code: Int, nowMs: Long) {
+        if (!scoped8179(provider)) return
+        if (code in 200..299) { lastFailOrProbe8179.remove(provider); return }
+        if (code == 429 || code == 401 || code == 403 || code >= 500) {
+            if (lastFailOrProbe8179.size >= MAX_SCOPED_KEYS_8179 && !lastFailOrProbe8179.containsKey(provider)) lastFailOrProbe8179.clear()
+            lastFailOrProbe8179[provider] = nowMs
+        }
+    }
+
+    fun halfOpenProbes8179(): Long = probeCount8179.get()
 
     data class HostSnapshot(
         val host: String,

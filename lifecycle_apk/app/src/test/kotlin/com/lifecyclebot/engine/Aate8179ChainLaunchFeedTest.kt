@@ -4,6 +4,7 @@ import com.lifecyclebot.engine.truth.AdmissionBirth8144
 import com.lifecyclebot.network.ChainLaunchFeed8179
 import com.lifecyclebot.network.ChainLaunchFeed8179.Target8179
 import io.github.novacrypto.base58.Base58
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -323,66 +324,71 @@ class Aate8179ChainLaunchFeedTest {
         assertEquals(now - 30_000L, AdmissionBirth8144.chainMintInitMs8179(mint))
     }
 
-    // ── (7) GeckoTerminal new_pools poller ──
-
-    private fun geckoPool(addr: String, name: String, dex: String, base: String, quote: String, created: String?, reserve: String) = JSONObject()
-        .put("id", "solana_$addr").put("type", "pool")
-        .put("attributes", JSONObject().put("base_token_price_usd", "0.0000412").put("address", addr).put("name", name)
-            .apply { if (created != null) put("pool_created_at", created) }
-            .put("fdv_usd", "41200.5").put("market_cap_usd", JSONObject.NULL).put("reserve_in_usd", reserve)
-            .put("price_change_percentage", JSONObject().put("m5", "12.4").put("h1", "12.4"))
-            .put("transactions", JSONObject().put("m5", JSONObject().put("buys", 14).put("sells", 3)))
-            .put("volume_usd", JSONObject().put("m5", "2210.4").put("h1", "2210.4")))
-        .put("relationships", JSONObject()
-            .put("base_token", JSONObject().put("data", JSONObject().put("id", "solana_$base").put("type", "token")))
-            .put("quote_token", JSONObject().put("data", JSONObject().put("id", "solana_$quote").put("type", "token")))
-            .put("dex", JSONObject().put("data", JSONObject().put("id", dex).put("type", "dex"))))
+    // ── (7) Codex new-token poller ──
 
     private val MINT_B = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
     private val MINT_C = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
+    private val PUMP_MINT = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"
 
-    private fun geckoBody(): String = JSONObject().put("data", JSONArray()
-        .put(geckoPool("Pool1111111111111111111111111111111111111111".take(43), "NEW / SOL", "meteora-damm-v2", NEW_MINT, f.WSOL_8179, "2026-10-17T09:41:12Z", "18234.77"))
-        .put(geckoPool("Pool2222222222222222222222222222222222222222".take(43), "BONK / SOL", "raydium-launchlab", MINT_B, f.WSOL_8179, "2026-10-17T09:40:58Z", "6100.1"))
-        .put(geckoPool("Pool3333333333333333333333333333333333333333".take(43), "SOL / USDC", "orca", f.WSOL_8179, f.USDC_8179, "2026-10-17T09:40:40Z", "250000"))
-        .put(geckoPool("Pool4444444444444444444444444444444444444444".take(43), "CURVE / SOL", "pump-fun", MINT_C, f.WSOL_8179, "2026-10-17T09:40:30Z", "4100"))
-        .put(geckoPool("Pool5555555555555555555555555555555555555555".take(43), "NOTIME / USDC", "orca", MINT_C, f.USDC_8179, null, "900"))
-        .put(geckoPool("Pool6666666666666666666666666666666666666666".take(43), "JUP / USDT", "orca", MINT_C, f.USDT_8179, "2026-10-17T09:39:00Z", "5000"))
-    ).put("included", JSONArray()).toString()
+    private fun codexResult(addr: String, created: Long, liq: String, lp: JSONObject?, exchange: String?) = JSONObject()
+        .put("createdAt", created).put("liquidity", liq).put("volume24", "1830.2")
+        .put("token", JSONObject().put("address", addr).put("name", "Token").put("symbol", "TKN").apply { if (lp != null) put("launchpad", lp) })
+        .put("exchanges", JSONArray().apply { if (exchange != null) put(JSONObject().put("name", exchange)) })
 
-    @Test fun geckoNewPoolsParseWithQuoteAndCurveExclusions() {
+    private fun lp(name: String, completed: Boolean, migrated: Boolean) = JSONObject()
+        .put("launchpadName", name).put("completed", completed).put("migrated", migrated).put("graduationPercent", if (completed) 100.0 else 12.5)
+
+    private fun codexBody(): String = JSONObject().put("data", JSONObject().put("filterTokens", JSONObject().put("results", JSONArray()
+        .put(codexResult(NEW_MINT, 1_760_000_100L, "15234.5", lp("Meteora DBC", false, false), "Meteora DBC"))
+        .put(codexResult(MINT_B, 1_760_000_090L, "48211.0", lp("LaunchLab", true, true), "Raydium CPMM"))
+        .put(codexResult(PUMP_MINT, 1_760_000_080L, "5000", lp("Pump.fun", false, false), "Pump.fun"))
+        .put(codexResult(f.WSOL_8179, 1_760_000_070L, "1", null, "Raydium"))
+        .put(codexResult(MINT_C, 0L, "900", null, "Orca"))
+        .put(codexResult("0xdeadbeef", 1_760_000_060L, "1", null, "Uniswap"))
+    ))).toString()
+
+    @Test fun codexNewTokensParseWithExclusionsAndVenueLabels() {
         val skipped = java.util.concurrent.atomic.AtomicLong(0)
-        val out = f.parseGeckoNewPools8179(geckoBody(), skipped)
-        assertEquals(listOf(NEW_MINT, MINT_B, MINT_C), out.map { it.mint })
-        assertEquals(3L, skipped.get())   // SOL-as-base, pump.fun curve (PumpPortal owns it), no creation time
-        val damm = out[0]
-        assertEquals("GECKO_NEW_POOL_METEORA_DAMM_V2", damm.source)
-        assertEquals(ChainLaunchFeed8179.Venue8179.METEORA, damm.venue)
-        assertEquals(f.WSOL_8179, damm.quoteMint)
-        assertEquals(java.time.Instant.parse("2026-10-17T09:41:12Z").toEpochMilli(), damm.blockTimeMs)
-        assertEquals(18234.77, f.quoteDepthUsd8179(damm, 150.0), 1e-9)
-        // A bonding curve's reserve_in_usd (unsold inventory) is no sellable depth: unknown.
-        assertTrue(out[1].curve)
-        assertTrue(f.quoteDepthUsd8179(out[1], 150.0).isNaN())
-        assertEquals("GECKO_NEW_POOL_RAYDIUM_LAUNCHLAB", out[1].source)
-        assertEquals(ChainLaunchFeed8179.Venue8179.OTHER, out[2].venue)
-        assertEquals(f.USDT_8179, out[2].quoteMint)
-        assertTrue(f.parseGeckoNewPools8179("{\"errors\":[{\"status\":\"429\"}]}").isEmpty())
-        assertTrue(f.parseGeckoNewPools8179("<html>").isEmpty())
-        assertEquals("", f.geckoMint8179("eth_0xabc"))
+        val out = f.parseCodexNewTokens8179(codexBody(), skipped)
+        assertEquals(listOf(NEW_MINT, MINT_B), out.map { it.mint })
+        assertEquals(4L, skipped.get())   // pump.fun (PumpPortal owns it), SOL itself, no creation time, not a Solana address
+        val dbc = out[0]
+        assertEquals("CODEX_NEW_METEORA_DBC", dbc.source)
+        assertEquals(ChainLaunchFeed8179.Venue8179.METEORA, dbc.venue)
+        assertTrue(dbc.curve)
+        assertTrue(f.quoteDepthUsd8179(dbc, 150.0).isNaN())         // still on its curve: no sellable depth figure
+        val grad = out[1]
+        assertEquals("CODEX_NEW_RAYDIUM_CPMM", grad.source)          // migrated: named by the pool it trades on
+        assertEquals(ChainLaunchFeed8179.Venue8179.RAYDIUM, grad.venue)
+        assertEquals(48211.0, f.quoteDepthUsd8179(grad, 150.0), 1e-9)
+        assertEquals(1_760_000_090_000L, grad.blockTimeMs)
+        // A minimal answer (no launchpad / exchange fields) still parses.
+        val minimal = JSONObject().put("data", JSONObject().put("filterTokens", JSONObject().put("results", JSONArray()
+            .put(JSONObject().put("createdAt", 1_760_000_100L).put("liquidity", "800").put("token", JSONObject().put("address", MINT_C)))))).toString()
+        assertEquals("CODEX_NEW_TOKEN", f.parseCodexNewTokens8179(minimal).single().source)
     }
 
-    @Test fun geckoPoolTimeIsNeverAMintBirth() {
-        val out = f.parseGeckoNewPools8179(geckoBody())
-        assertTrue(out.none { it.mintInitInTx })
-        // Recorded as a pool floor: a lower bound of age, never KNOWN; an old token stays old.
+    @Test fun codexQueryIsConservativeAndARejectionIsDetected() {
+        val full = JSONObject(f.codexQuery8179(minimal = false))
+        val min = JSONObject(f.codexQuery8179(minimal = true))
+        assertEquals(ChainLaunchFeed8179.CODEX_SOLANA_8179, min.getJSONObject("variables").getInt("n"))
+        assertTrue(min.getString("query").contains("filterTokens(filters: { network: [\$n] }, rankings: [{ attribute: createdAt, direction: DESC }]"))
+        assertFalse(min.getString("query").contains("launchpad"))
+        assertTrue(full.getString("query").contains("launchpad { launchpadName completed migrated graduationPercent }"))
+        assertTrue(f.codexRejected8179("{\"errors\":[{\"message\":\"Cannot query field \\\"launchpad\\\"\"}],\"data\":null}"))
+        assertFalse(f.codexRejected8179(codexBody()))
+        assertFalse(f.codexRejected8179("<html>"))
+        assertTrue(f.parseCodexNewTokens8179("<html>").isEmpty())
+        assertEquals(10, ChainLaunchFeed8179.CODEX_MAX_PER_MIN)
+    }
+
+    @Test fun codexCreatedAtIsOnlyABirthHint() {
+        val out = f.parseCodexNewTokens8179(codexBody())
+        assertTrue(out.all { !it.chainProven && !it.mintInitInTx })
+        // Chain reads stay proven; an indexer hint never becomes a witness (only the hydrator's oldest signature does).
+        assertTrue(f.extract8179(t("RAY_V4"), "initialize2", "s", rayV4Tx())!!.chainProven)
         val now = System.currentTimeMillis()
-        val r = AdmissionBirth8144.read8144(AdmissionBirth8144.Witness8144(poolFloorMs = now - 60_000L), now)
-        assertEquals(AdmissionBirth8144.Kind8144.PROVEN_OLDER_THAN, r.kind)
-        assertEquals(AdmissionBirth8144.Window8144.UNKNOWN_DEFER, AdmissionBirth8144.window8144(r, 5 * 60_000L))
-        val old = AdmissionBirth8144.read8144(AdmissionBirth8144.Witness8144(poolFloorMs = now - 60_000L, oldestSignatureMs = now - 3 * 86_400_000L), now)
-        assertEquals(AdmissionBirth8144.Kind8144.KNOWN, old.kind)
-        assertEquals(AdmissionBirth8144.Window8144.PAST_WINDOW, AdmissionBirth8144.window8144(old, 5 * 60_000L))
+        assertEquals(AdmissionBirth8144.Kind8144.UNKNOWN, AdmissionBirth8144.read8144(AdmissionBirth8144.Witness8144(), now).kind)
     }
 
     @Test fun sharedDedupPeekDoesNotConsumeASlot() {
@@ -390,6 +396,60 @@ class Aate8179ChainLaunchFeedTest {
         assertFalse(s.contains8179(NEW_MINT))
         assertEquals(0, s.size8179())
         assertTrue(s.firstSeen8179(NEW_MINT))   // a chain-read launch marks it ...
-        assertTrue(s.contains8179(NEW_MINT))    // ... and the Gecko poll then skips the same mint
+        assertTrue(s.contains8179(NEW_MINT))    // ... and the Codex poll then skips the same mint
+    }
+
+    // ── (8) local circuit: one endpoint never blocks its siblings ──
+
+    private fun get(url: String) = okhttp3.Request.Builder().url(url).build()
+
+    private fun chain(req: okhttp3.Request, code: Int, calls: java.util.concurrent.atomic.AtomicInteger): okhttp3.Interceptor.Chain =
+        java.lang.reflect.Proxy.newProxyInstance(okhttp3.Interceptor.Chain::class.java.classLoader, arrayOf<Class<*>>(okhttp3.Interceptor.Chain::class.java)) { _, m, args ->
+            when (m.name) {
+                "request" -> req
+                "proceed" -> {
+                    calls.incrementAndGet()
+                    okhttp3.Response.Builder().request(args!![0] as okhttp3.Request).protocol(okhttp3.Protocol.HTTP_1_1).code(code).message("t")
+                        .body("[]".toResponseBody(null)).build()
+                }
+                else -> null
+            }
+        } as okhttp3.Interceptor.Chain
+
+    @Test fun endpointClassesAreBoundedAndScoped() {
+        val h = com.lifecyclebot.network.HostCircuitInterceptor
+        assertEquals("tokens/toptraded/24h", h.pathClass8179("/tokens/v2/toptraded/24h"))
+        assertEquals("tokens/recent", h.pathClass8179("/tokens/v2/recent"))
+        assertEquals("tokens/solana", h.pathClass8179("/tokens/v1/solana/$NEW_MINT,$MINT_B"))
+        assertEquals("latest/dex/pairs", h.pathClass8179("/latest/dex/pairs/solana/$POOL"))
+        assertEquals("jupiter_tokens@tokens/recent", h.scopedLabel8179("jupiter_tokens", "/tokens/v2/recent"))
+        assertEquals("dexscreener@tokens/solana", h.scopedLabel8179("dexscreener", "/tokens/v1/solana/$NEW_MINT"))
+        assertEquals("jupiter", h.scopedLabel8179("jupiter", "/swap/v1/quote"))          // execution label untouched
+        assertEquals("dexscreener_chart", h.scopedLabel8179("dexscreener_chart", "/tokens/v1/solana/x"))
+        assertEquals("birdeye", h.scopedLabel8179("birdeye", "/defi/price"))
+        assertTrue(h.scoped8179("jupiter_tokens_keyed@tokens/search"))
+        assertFalse(h.scoped8179("jupiter"))
+        // The 8125 labels are unchanged; scoping is a second step.
+        assertEquals("jupiter_tokens", h.labelFor8125("lite-api.jup.ag", "/tokens/v2/recent", null))
+        // Half-open: a cooling endpoint re-tests one minute after its last failure or probe.
+        assertTrue(h.halfOpenProbe8179(0L, 1_000L))
+        assertFalse(h.halfOpenProbe8179(1_000L, 30_000L))
+        assertTrue(h.halfOpenProbe8179(1_000L, 1_000L + h.SCOPED_PROBE_REST_MS_8179))
+    }
+
+    @Test fun aRefusedJupiterListNoLongerBlocksTheOtherLists() {
+        val h = com.lifecyclebot.network.HostCircuitInterceptor
+        val calls = java.util.concurrent.atomic.AtomicInteger(0)
+        val refused = h.intercept(chain(get("https://lite-api.jup.ag/tokens/v2/toporganicscore8179/24h"), 403, calls))
+        assertEquals(403, refused.code)
+        val again = h.intercept(chain(get("https://lite-api.jup.ag/tokens/v2/toporganicscore8179/24h"), 200, calls))
+        assertTrue(h.isSyntheticBlock(again))                  // the refusing list rests (no probe inside a minute)
+        val sibling = h.intercept(chain(get("https://lite-api.jup.ag/tokens/v2/recent8179"), 200, calls))
+        assertFalse(h.isSyntheticBlock(sibling))               // its siblings still answer
+        val dexOther = h.intercept(chain(get("https://api.dexscreener.com/orders8179/v1/solana/$NEW_MINT"), 429, calls))
+        assertEquals(429, dexOther.code)
+        val dexTokens = h.intercept(chain(get("https://api.dexscreener.com/token-pairs8179/v1/solana/$NEW_MINT"), 200, calls))
+        assertFalse(h.isSyntheticBlock(dexTokens))
+        assertEquals(4, calls.get())
     }
 }

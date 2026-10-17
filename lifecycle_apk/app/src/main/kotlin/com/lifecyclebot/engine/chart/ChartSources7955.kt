@@ -882,6 +882,18 @@ object ChartSources7955 {
         }
     }
 
+    /**
+     * V5.0.8179 — one Codex GraphQL POST ([query] = the JSON body) on Codex's own slot, key and backoff, for
+     * ChainLaunchFeed8179's new-token poll. The raw body, or null when Codex has no key, is resting, its slot is not free
+     * within 3 s, or the call failed.
+     */
+    fun codexGraphql8179(query: String): String? {
+        refreshKeys()
+        val p = byId[CODEX] ?: return null
+        if (!hasKey(p) || !claimWithin(p, 3_000L)) return null
+        return call(p, "https://graph.codex.io/graphql", codexHeaders(), query).body
+    }
+
     private fun moralisBars(mint: String, fromSec: Long, toSec: Long): List<Bar7950>? {
         val p = byId[MORALIS] ?: return null
         if (!hasKey(p) || !claimWithin(p, 3_000L)) return null

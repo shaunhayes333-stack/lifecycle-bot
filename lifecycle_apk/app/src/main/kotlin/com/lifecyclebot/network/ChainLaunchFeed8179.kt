@@ -48,6 +48,11 @@ import java.util.concurrent.atomic.AtomicLong
  * through their pool-creation fee accounts (mentioned only by pool creation), not their swap-heavy program ids.
  * Discoveries per minute, the fetch queue, and every dedup map are bounded; nothing runs on the main thread.
  *
+ * Indexer cover for parked streams: every tick also asks Codex (ChartSources7955's key, slot and backoff) for the newest
+ * Solana tokens (filterTokens ranked by createdAt). Those enter the same intake as CODEX_NEW_<VENUE> under the same
+ * dedup and their own per-minute cap; Codex's createdAt is an indexer's claim, so it only asks the birth hydrator for the
+ * mint's oldest signature and is never recorded as a birth.
+ *
  * Trade tape without PumpPortal: HeliusWebSocket's per-mint stream already decodes pump.fun's TradeEvent for the mints
  * it watches; it hands the raw event here ([onHeliusTradeEvent8179]) so the swap also carries LaunchEvidence8136 swap
  * provenance and the curve reserves the event states (CurveReserves7951). The trade tape itself is already fed by
@@ -59,7 +64,7 @@ object ChainLaunchFeed8179 {
         RAYDIUM("CHAIN_LAUNCH_RAYDIUM", "raydium"),
         METEORA("CHAIN_LAUNCH_METEORA", "meteora"),
         PUMPSWAP("CHAIN_LAUNCH_PUMPSWAP", "pumpswap"),
-        OTHER("CHAIN_LAUNCH_OTHER", "other"),   // V5.0.8179 — GeckoTerminal pools on any other Solana DEX (orca, ...)
+        OTHER("CHAIN_LAUNCH_OTHER", "other"),   // V5.0.8179 — indexer launches on any other Solana venue
     }
 
     /**
@@ -95,10 +100,12 @@ object ChainLaunchFeed8179 {
         val quoteReserve: Double,
         val mintInitInTx: Boolean,
         val curve: Boolean,
-        /** GeckoTerminal's pool reserve (both sides, USD) for a polled pool; NaN for a chain-read launch. */
+        /** An indexer's liquidity figure (USD) for a polled token; NaN for a chain-read launch. */
         val reserveUsd: Double = Double.NaN,
-        /** Intake source when it is not the venue's chain label (GECKO_NEW_POOL_<DEX>). */
+        /** Intake source when it is not the venue's chain label (CODEX_NEW_<VENUE>). */
         val sourceOverride: String = "",
+        /** False for an indexer's report: [blockTimeMs] is then a hint for the birth hydrator, never a recorded witness. */
+        val chainProven: Boolean = true,
     ) {
         val source: String get() = sourceOverride.ifBlank { venue.source }
     }
@@ -350,7 +357,7 @@ object ChainLaunchFeed8179 {
      * real reserve is zero at birth by construction (the ordinary liquidity hydrators read it once trading starts).
      */
     fun quoteDepthUsd8179(l: Launch8179, solUsd: Double): Double {
-        if (l.reserveUsd.isFinite() && l.reserveUsd > 0.0) return l.reserveUsd   // GeckoTerminal's observed pool reserve
+        if (l.reserveUsd.isFinite() && l.reserveUsd > 0.0) return l.reserveUsd   // the indexer's observed liquidity
         val r = l.quoteReserve
         if (!r.isFinite() || r <= 0.0) return Double.NaN
         return when (l.quoteMint) {
@@ -565,7 +572,7 @@ object ChainLaunchFeed8179 {
     /** Once a minute: key present, budget left, socket up, parked streams released when their time is served. */
     private fun tick8179() {
         if (!running.get()) return
-        try { pollGecko8179() } catch (_: Throwable) {}   // key-independent: covers the parked firehose venues
+        try { pollCodex8179() } catch (_: Throwable) {}   // Helius-key independent: covers the parked firehose venues
         if (key8179().isBlank()) { state = "NO_HELIUS_KEY"; closeSocket8179(); return }
         if (overBudget8179()) { state = "HELIUS_OVER_BUDGET"; closeSocket8179(); return }
         if (ws == null) { connect8179(); return }
@@ -761,9 +768,9 @@ object ChainLaunchFeed8179 {
         deliver8179(launch)
     }
 
-    private fun deliver8179(l: Launch8179) {
+    private fun deliver8179(l: Launch8179, rate: RateWindow8179 = discoveryRate) {
         if (seenMints.contains8179(l.mint)) { dupMints.incrementAndGet(); return }
-        if (!discoveryRate.tryAcquire8179(System.currentTimeMillis())) { rateLimited.incrementAndGet(); label("CHAIN_LAUNCH_RATE_LIMITED_8179"); return }
+        if (!rate.tryAcquire8179(System.currentTimeMillis())) { rateLimited.incrementAndGet(); label("CHAIN_LAUNCH_RATE_LIMITED_8179"); return }
         seenMints.firstSeen8179(l.mint)
         recordBirth8179(l)
         launchesByVenue.computeIfAbsent(l.target) { AtomicLong(0) }.incrementAndGet()
@@ -774,6 +781,12 @@ object ChainLaunchFeed8179 {
 
     /** The chain's own witness of the launch: a direct birth only when this transaction created the mint, else a floor. */
     private fun recordBirth8179(l: Launch8179) {
+        if (!l.chainProven) {
+            // An indexer's createdAt proves nothing on chain: the hydrator reads the mint's oldest signature itself.
+            try { com.lifecyclebot.engine.truth.TokenBirthHydrator7441.request(l.mint) } catch (_: Throwable) {}
+            birthHints.incrementAndGet()
+            return
+        }
         if (l.blockTimeMs <= 0L) return
         if (l.mintInitInTx) {
             try { com.lifecyclebot.engine.truth.AdmissionBirth8144.noteChainMintInit8179(l.mint, l.blockTimeMs) } catch (_: Throwable) {}
@@ -806,91 +819,113 @@ object ChainLaunchFeed8179 {
         } catch (_: Throwable) {}
     }
 
-    // ── V5.0.8179 GeckoTerminal new_pools poller (every DEX on Solana; covers the parked firehose streams) ──
+    // ── V5.0.8179 Codex new-token poller (an indexer across pump.fun, LaunchLab, DBC, Bonk, PumpSwap, Raydium, Meteora) ──
 
-    private const val GECKO_NEW_POOLS_URL_8179 = "https://api.geckoterminal.com/api/v2/networks/solana/new_pools?page="
-    private val geckoPolls = AtomicLong(0)
-    private val geckoCalls = AtomicLong(0)
-    private val geckoFailed = AtomicLong(0)
-    private val geckoPools = AtomicLong(0)
-    private val geckoNew = AtomicLong(0)
-    private val geckoSkipped = AtomicLong(0)
+    const val CODEX_SOLANA_8179 = 1399811149
+    const val CODEX_MAX_PER_MIN = 10
+    private const val CODEX_RETRY_MS_8179 = 10L * 60_000L
+    private val codexRate = RateWindow8179(CODEX_MAX_PER_MIN, 60_000L)
+    @Volatile private var codexMinimal = false
+    @Volatile private var codexRestUntilMs = 0L
+    @Volatile private var codexLastError = "-"
+    private val codexPolls = AtomicLong(0)
+    private val codexFailed = AtomicLong(0)
+    private val codexSeen = AtomicLong(0)
+    private val codexNew = AtomicLong(0)
+    private val codexSkipped = AtomicLong(0)
+    private val birthHints = AtomicLong(0)
 
-    /** Pure: the Solana mint in a GeckoTerminal id ("solana_<mint>"), or "" when it is not one. */
-    internal fun geckoMint8179(id: String): String {
-        if (!id.startsWith("solana_")) return ""
-        val m = id.substring(7)
-        return if (HeliusSolanaScope7819.isSolanaMint7819(m)) m else ""
+    /**
+     * The filterTokens query, newest first. [minimal] asks only for fields every Codex token result carries; the full
+     * query adds launchpad and exchange fields, and is dropped for the process the first time Codex rejects it.
+     */
+    fun codexQuery8179(minimal: Boolean, limit: Int = 50): String {
+        val fields = if (minimal) "createdAt liquidity token { address name symbol }"
+            else "createdAt liquidity volume24 token { address name symbol launchpad { launchpadName completed migrated graduationPercent } } exchanges { name }"
+        return JSONObject().put("query",
+            "query N(\$n: Int!, \$l: Int!) { filterTokens(filters: { network: [\$n] }, rankings: [{ attribute: createdAt, direction: DESC }], limit: \$l) { results { $fields } } }")
+            .put("variables", JSONObject().put("n", CODEX_SOLANA_8179).put("l", limit))
+            .toString()
     }
 
-    /** Pure: GeckoTerminal dex id -> venue (raydium*, meteora*, pumpswap; anything else OTHER). */
-    internal fun geckoVenue8179(dexId: String): Venue8179 {
-        val d = dexId.lowercase()
+    /** Pure: true when Codex rejected the query itself (GraphQL errors, no filterTokens data) — a schema mismatch. */
+    fun codexRejected8179(body: String): Boolean = try {
+        val o = JSONObject(body)
+        val errs = o.optJSONArray("errors")
+        errs != null && errs.length() > 0 && o.optJSONObject("data")?.optJSONObject("filterTokens") == null
+    } catch (_: Throwable) { false }
+
+    private fun codexLabelPart8179(name: String): String =
+        name.uppercase().map { if (it.isLetterOrDigit()) it else '_' }.joinToString("").trim('_').take(24)
+
+    /** Pure: venue for an indexer launchpad / exchange name. */
+    internal fun codexVenue8179(name: String): Venue8179 {
+        val n = name.lowercase()
         return when {
-            d.startsWith("raydium") -> Venue8179.RAYDIUM
-            d.startsWith("meteora") -> Venue8179.METEORA
-            d == "pumpswap" || d == "pump-swap" -> Venue8179.PUMPSWAP
+            n.contains("pumpswap") || n.contains("pump swap") -> Venue8179.PUMPSWAP
+            n.contains("raydium") || n.contains("launchlab") || n.contains("bonk") -> Venue8179.RAYDIUM
+            n.contains("meteora") || n.contains("dbc") -> Venue8179.METEORA
             else -> Venue8179.OTHER
         }
     }
 
-    /** Pure: the intake label for a polled pool, e.g. GECKO_NEW_POOL_RAYDIUM_LAUNCHLAB. */
-    internal fun geckoSource8179(dexId: String): String =
-        "GECKO_NEW_POOL_" + dexId.uppercase().map { if (it.isLetterOrDigit()) it else '_' }.joinToString("").take(24).ifBlank { "UNKNOWN" }
-
     /**
-     * Pure: launches in one GeckoTerminal new_pools page ([skipped] counts the rest). Skipped: a SOL/USDC/USDT base, a
-     * non-Solana id, a pump.fun bonding curve (the PumpPortal create stream owns those), a pool with no creation time.
-     * The pool creation time is a POOL time, never a mint birth ([Launch8179.mintInitInTx] is always false).
+     * Pure: new tokens in one Codex filterTokens answer ([skipped] counts the rest). Skipped: a non-Solana or quote
+     * address, a pump.fun mint (PumpPortal's free create stream owns those), a result without a creation time. createdAt
+     * is an INDEXER's creation time: [Launch8179.chainProven] is false, so it is only a hint for the birth hydrator.
+     * A launchpad token still on its curve carries no sellable depth figure (unknown).
      */
-    fun parseGeckoNewPools8179(body: String, skipped: AtomicLong? = null): List<Launch8179> {
-        val data = try { JSONObject(body).optJSONArray("data") } catch (_: Throwable) { null } ?: return emptyList()
-        val out = ArrayList<Launch8179>(data.length())
-        for (i in 0 until data.length()) {
-            val p = data.optJSONObject(i) ?: continue
-            val attrs = p.optJSONObject("attributes")
-            val rel = p.optJSONObject("relationships")
-            val base = geckoMint8179(rel?.optJSONObject("base_token")?.optJSONObject("data")?.optString("id", "").orEmpty())
-            val quote = geckoMint8179(rel?.optJSONObject("quote_token")?.optJSONObject("data")?.optString("id", "").orEmpty())
-            val dex = rel?.optJSONObject("dex")?.optJSONObject("data")?.optString("id", "").orEmpty()
-            val createdMs = try { java.time.Instant.parse(attrs?.optString("pool_created_at", "").orEmpty()).toEpochMilli() } catch (_: Throwable) { 0L }
-            if (attrs == null || base.isBlank() || base in QUOTE_MINTS_8179 || createdMs <= 0L ||
-                dex.lowercase().replace("-", "") == "pumpfun"
-            ) { skipped?.incrementAndGet(); continue }
-            // A bonding curve's reserve_in_usd values its unsold token inventory, which no seller can be paid from: unknown.
-            val curve = dex.lowercase().contains("dbc") || dex.lowercase().contains("launchlab")
-            val reserve = if (curve) Double.NaN
-                else attrs.optString("reserve_in_usd", "").toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN
-            val venue = geckoVenue8179(dex)
+    fun parseCodexNewTokens8179(body: String, skipped: AtomicLong? = null): List<Launch8179> {
+        val results = try { JSONObject(body).optJSONObject("data")?.optJSONObject("filterTokens")?.optJSONArray("results") } catch (_: Throwable) { null }
+            ?: return emptyList()
+        val out = ArrayList<Launch8179>(results.length())
+        for (i in 0 until results.length()) {
+            val r = results.optJSONObject(i) ?: continue
+            val tok = r.optJSONObject("token")
+            val mint = tok?.optString("address", "").orEmpty()
+            val createdSec = r.optLong("createdAt", 0L)
+            if (!HeliusSolanaScope7819.isSolanaMint7819(mint) || mint in QUOTE_MINTS_8179 || mint.endsWith("pump") || createdSec <= 0L) {
+                skipped?.incrementAndGet(); continue
+            }
+            val lp = tok?.optJSONObject("launchpad")
+            val lpName = lp?.optString("launchpadName", "").orEmpty()
+            if (lpName.lowercase().replace(".", "").replace(" ", "") == "pumpfun") { skipped?.incrementAndGet(); continue }
+            val onCurve = lp != null && !lp.optBoolean("completed", false) && !lp.optBoolean("migrated", false)
+            val exchange = r.optJSONArray("exchanges")?.optJSONObject(0)?.optString("name", "").orEmpty()
+            val venueName = (if (lpName.isNotBlank() && onCurve) lpName else exchange.ifBlank { lpName })
+            val liq = r.optString("liquidity", "").toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN
             out.add(Launch8179(
-                mint = base, quoteMint = quote, pool = attrs.optString("address", ""), venue = venue, target = "GECKO",
-                instruction = "new_pools", signature = "", slot = 0L, blockTimeMs = createdMs, quoteReserve = Double.NaN,
-                mintInitInTx = false, curve = curve,
-                reserveUsd = reserve, sourceOverride = geckoSource8179(dex),
+                mint = mint, quoteMint = "", pool = "", venue = codexVenue8179(venueName), target = "CODEX",
+                instruction = "filterTokens", signature = "", slot = 0L, blockTimeMs = createdSec * 1000L,
+                quoteReserve = Double.NaN, mintInitInTx = false, curve = onCurve,
+                reserveUsd = if (onCurve) Double.NaN else liq,
+                sourceOverride = "CODEX_NEW_" + codexLabelPart8179(venueName).ifBlank { "TOKEN" },
+                chainProven = false,
             ))
         }
         return out
     }
 
-    /** Scheduler tick (60 s): page 1 every poll, page 2 on alternate polls, through the shared geckoterminal host backoff. */
-    private fun pollGecko8179() {
-        val n = geckoPolls.incrementAndGet()
-        val pages = if (n % 2L == 0L) listOf(1, 2) else listOf(1)
-        for (page in pages) {
-            if (try { com.lifecyclebot.engine.ApiBackoff.isLockedOut("geckoterminal") } catch (_: Throwable) { false }) return
-            geckoCalls.incrementAndGet()
-            val body: String? = try {
-                val req = Request.Builder().url(GECKO_NEW_POOLS_URL_8179 + page)
-                    .header("Accept", "application/json;version=20230302").header("User-Agent", "lifecycle-bot-android/6.0").build()
-                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, "geckoterminal").use { r -> if (r.isSuccessful) r.body?.string() else null }
-            } catch (_: Throwable) { null }
-            if (body == null) { geckoFailed.incrementAndGet(); return }
-            for (l in parseGeckoNewPools8179(body, geckoSkipped)) {
-                geckoPools.incrementAndGet()
-                if (seenMints.contains8179(l.mint)) { geckoSkipped.incrementAndGet(); continue }
-                deliver8179(l)
-                if (seenMints.contains8179(l.mint)) geckoNew.incrementAndGet()
-            }
+    /** Scheduler tick (60 s): one filterTokens call on Codex's own slot and backoff (ChartSources7955). */
+    private fun pollCodex8179() {
+        val now = System.currentTimeMillis()
+        if (now < codexRestUntilMs) return
+        codexPolls.incrementAndGet()
+        val minimal = codexMinimal
+        val body = try { com.lifecyclebot.engine.chart.ChartSources7955.codexGraphql8179(codexQuery8179(minimal)) } catch (_: Throwable) { null }
+        if (body == null) { codexFailed.incrementAndGet(); return }
+        if (codexRejected8179(body)) {
+            codexFailed.incrementAndGet()
+            codexLastError = try { JSONObject(body).optJSONArray("errors")?.optJSONObject(0)?.optString("message", "").orEmpty().take(60) } catch (_: Throwable) { "rejected" }
+            if (!minimal) codexMinimal = true else codexRestUntilMs = now + CODEX_RETRY_MS_8179
+            label("CODEX_QUERY_REJECTED_8179")
+            return
+        }
+        for (l in parseCodexNewTokens8179(body, codexSkipped)) {
+            codexSeen.incrementAndGet()
+            if (seenMints.contains8179(l.mint)) { codexSkipped.incrementAndGet(); continue }
+            deliver8179(l, codexRate)
+            if (seenMints.contains8179(l.mint)) codexNew.incrementAndGet()
         }
     }
 
@@ -905,7 +940,9 @@ object ChainLaunchFeed8179 {
             "unreadable=${unreadable.get()} queueDropped=${queueDropped.get()} backoffSkipped=${backoffSkipped.get()} budgetSkipped=${budgetSkipped.get()} " +
             "dupMints=${dupMints.get()} rateLimited=${rateLimited.get()} launches{$found} lastLaunch=$age births=${births.get()} floors=${floors.get()} " +
             "parks=${parks.get()} connects=${connects.get()} lastError=$lastError] " +
-            "gecko8179[polls=${geckoPolls.get()} calls=${geckoCalls.get()} failed=${geckoFailed.get()} pools=${geckoPools.get()} new=${geckoNew.get()} skipped=${geckoSkipped.get()}] " +
+            "codex8179[polls=${codexPolls.get()} failed=${codexFailed.get()} seen=${codexSeen.get()} new=${codexNew.get()} skipped=${codexSkipped.get()} " +
+            "birthHints=${birthHints.get()} query=${if (codexMinimal) "minimal" else "full"} lastError=$codexLastError] " +
+            "hostCircuit8179[halfOpenProbes=${try { HostCircuitInterceptor.halfOpenProbes8179() } catch (_: Throwable) { 0L }}] " +
             "heliusTradeEvent8179[events=${tradeEvents.get()} newSwaps=${tradeSwapsNew.get()} reserves=${tradeReserves.get()}]"
     }
 }
