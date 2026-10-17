@@ -166,8 +166,10 @@ object LaunchCohort8173 {
             priceImplied.incrementAndGet()
             count8173("CURVE_LIQ_PRICE_IMPLIED_8173")
         }
-        // A derived value is evidence to refresh the curve, not permission to buy.
-        return executableReserve8174(read, nowMs - atMs)
+        // A derived value is evidence to refresh the curve, not permission to buy: the buy door (OnChainDepth8038) re-reads
+        // the reserves and defers on a stale proof (CURVE_RESERVES_STALE_DEFER_8174). V5.0.8178 — discovery and admission
+        // keep the reading; 8174 returned null for every reading over 30 s, so launch coins read as unpriced liquidity.
+        return read.realSol
     }
 
     /** PumpFunWS create frame: a frame without reserves asks the chain for the curve now (single-flight batch). */

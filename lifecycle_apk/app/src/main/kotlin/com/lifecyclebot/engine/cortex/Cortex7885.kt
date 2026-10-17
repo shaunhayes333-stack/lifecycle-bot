@@ -337,9 +337,13 @@ object Cortex7885 {
         val a8174 = assessCache["${ts.mint}|${canon(labelLane)}"]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS }
         if (a8174 == null) {
             // A voter read after the decision would predict a move it has already observed.
-            // Warm the cache only for a FUTURE decision. Do not manufacture a contemporaneous label.
             inc("CAPTURE_VOTERS_NOT_READY_AT_DECISION_8174")
-            cachedOrSchedule(ts, labelLane, nowMs)
+            // V5.0.8178 — 8174 dropped every cold decision (5.0.8175: 1081 dropped vs 19 captured, graded=0). The
+            // voters are read now on the capture pool; captureNow audits that read against the label start, so a read
+            // after the label opens is held out of authority (LABEL_HYGIENE_LATE_VOTER_READ_8169), never graded as proof.
+            val ctxCold8178 = try { decisionCtx8144(ts, canon(labelLane), admitted, reason) } catch (_: Throwable) { null }
+            val sourceCold8178 = ts.source
+            submitCapture8171 { captureCold8178(ts, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178) }
             return
         }
         val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason) } catch (_: Throwable) { null }
@@ -347,6 +351,18 @@ object Cortex7885 {
         try { CortexTiming7900.capture(ts, a8174, nowMs) } catch (_: Throwable) {}
         val source8174 = ts.source
         submitCapture8171 { captureNow(ts.mint, labelLane, admitted, nowMs, reason, snap8084, sel8153, a8174, ctx8174, source8174) }
+    }
+
+    /** V5.0.8178 — a cold decision: one voter read on the capture pool (stamped with its own read time), then captureNow. */
+    private fun captureCold8178(ts: TokenState, labelLane: String, admitted: Boolean, decisionAtMs: Long, reason: String?,
+                                snap8084: LanePlaybook7907.Classification8084?, sel8153: String?,
+                                ctx: DecisionCtx8144?, source: String) {
+        val a = assess(ts, labelLane) ?: run { inc("CAPTURE_COLD_ASSESS_FAILED_8178"); return }
+        inc("CAPTURE_COLD_READ_8178")
+        captureNow(ts.mint, labelLane, admitted, decisionAtMs, reason, snap8084, sel8153, a, ctx?.takeIf { a.lane == canon(labelLane) }, source)
+        // Timing needs the decision's price: only a read that still preceded the label start opens a timing sample.
+        val p = pending["${ts.mint}|${labelLane.trim().uppercase()}"]
+        if (p != null && p.atMs == decisionAtMs && !p.lateRead8169) try { CortexTiming7900.capture(ts, a, decisionAtMs) } catch (_: Throwable) {}
     }
 
     private fun captureNow(mint: String, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?,

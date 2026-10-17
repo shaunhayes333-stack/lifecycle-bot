@@ -604,8 +604,12 @@ object AICrossTalk {
     internal fun patternAppliesToLane7329(signature: String, lane: String?): Boolean {
         if (lane.isNullOrBlank()) return true
         // Match the signature's lane field, never substrings buried in the setup or token name.
-        val learnedLane = signature.substringBefore('|').trim()
-        return learnedLane.isNotBlank() && canonLane7329(learnedLane) == canonLane7329(lane.trim())
+        // V5.0.8178 — 8174 read only the text before the first '|', but BehaviorLearning writes the lane (trader) as the
+        // THIRD '|' field (assetClass|runtimeMode|trader|…) or inside '_'-joined keys (quality_mode_liquidity…), so no
+        // learned pattern matched any lane. The lane must equal a whole field ('|' keys) or whole '_' run ('_' keys).
+        val l = canonLane7329(lane.trim())
+        if ('|' in signature) return signature.split('|').any { canonLane7329(it.trim()) == l }
+        return "_${canonLane7329(signature.trim())}_".contains("_${l}_")
     }
 
     private fun applyLaneWeights(raw: CrossTalkSignal, lane: String?): CrossTalkSignal {

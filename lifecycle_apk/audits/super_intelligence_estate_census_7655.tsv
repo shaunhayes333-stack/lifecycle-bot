@@ -136,6 +136,7 @@ Side	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/execution/Executio
 StrategyTrainingGate	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/execution/StrategyTrainingGate.kt	False
 LabAssetClass	BACKGROUND_RESEARCH_REVIEW	com/lifecyclebot/engine/lab/LlmLabModels.kt	False
 LanePolicy	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/learning/LanePolicy.kt	False
+ScoutPairVerdict8169	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/market/ScoutPairVerdict8169.kt	False
 BalanceProofWaitState	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/sell/BalanceProofWaitState.kt	False
 SellFailureHistory	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/sell/SellFailureHistory.kt	False
 SellSafetyPolicy	SAFETY_SOVEREIGN_REVIEW	com/lifecyclebot/engine/sell/SellSafetyPolicy.kt	False
