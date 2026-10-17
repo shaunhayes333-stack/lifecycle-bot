@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.LaunchCohort8173
+import com.lifecyclebot.engine.sell.ExitHotPath7809
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -27,4 +28,17 @@ class Aate8174LiquidityProofTest {
         assertTrue(s.contains("LaunchCohort8173.reserveFresh8174(refreshedAt8174"))
         assertTrue(s.contains("needCurve8039(ts.mint, nowMs)"))
     }
+    @Test fun staleInFlightCloseIsNamedButNotDoubleDispatched() {
+        val h = ExitHotPath7809
+        h.resetForTest()
+        val key = "Position8174"
+        assertTrue(h.tryBegin(key, 1_000L))
+        assertFalse(h.tryBegin(key, 121_100L, sellInFlight7948 = true))
+        assertTrue(h.statusLine(121_100L).contains("staleSellInFlight8174=1"))
+        assertTrue(h.statusLine(121_100L).contains("oldestKey8174=Position8174"))
+        assertFalse(h.tryBegin(key, 121_101L, sellInFlight7948 = true))
+        h.end(key, 1_000L)
+        assertEquals(0, h.inFlightCount())
+    }
+
 }
