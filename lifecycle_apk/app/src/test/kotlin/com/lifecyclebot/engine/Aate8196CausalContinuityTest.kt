@@ -27,6 +27,22 @@ class Aate8196CausalContinuityTest {
         assertEquals(listOf("shape:INVALID"), pb.dueMissingInputs8196(listOf("shape:INVALID", "shape:UNKNOWN"), { timestamps[it] }, t0 + 30_000L))
     }
 
+    @Test fun successfulHeliusProofReopensSourcesWithoutForgingProviderHealth() {
+        val h = com.lifecyclebot.engine.truth.HeliusCreditEconomy7881
+        assertTrue(h.providerRecovered8196(200, "{\"jsonrpc\":\"2.0\",\"result\":123}"))
+        assertFalse(h.providerRecovered8196(429, "{\"error\":\"credits exceeded\"}"))
+        assertFalse(h.providerRecovered8196(200, "{\"error\":{\"code\":-32005,\"message\":\"rate exceeded\"}}"))
+        val now = System.currentTimeMillis()
+        h.noteExhausted8094(now)
+        assertTrue(h.exhaustedLatched8094(now + 1L))
+        h.clearExhaustionOnProof8196(now + 2L)
+        assertFalse(h.exhaustedLatched8094(now + 3L))
+        val meter = source("network/HeliusCreditMeterInterceptor7881.kt")
+        assertTrue(meter.contains("providerRecovered8196(resp.code, resp.peekBody(4_096).string())"))
+        assertTrue(meter.contains("clearExhaustionOnProof8196()"))
+        assertTrue(meter.indexOf("overBudget8066()") < meter.indexOf("clearExhaustionOnProof8196()"))
+    }
+
     @Test fun rejectedNativeLaneDoesNotGenerateExecutableCortexTrainingProof() {
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_MCAP_TOO_LOW"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "OUTSIDE_NATIVE_AGE"))
