@@ -1464,6 +1464,9 @@ object PipelineHealthCollector {
         sb.append("  Expert wallets (§7962): ").append(
             try { ExpertWallets7962.statusLine7962() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Chain launches (§8179): ").append(
+            try { com.lifecyclebot.network.ChainLaunchFeed8179.statusLine8179() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Memory guard (§7977): ").append(
             try { MemoryGuard7977.statusLine7977() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

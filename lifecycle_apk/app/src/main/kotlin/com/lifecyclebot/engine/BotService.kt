@@ -11329,6 +11329,8 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "PumpFunWS start failed: ${e.message}")
         }
 
+        // V5.0.8179 — pool creations across Raydium / Meteora / PumpSwap from the chain itself (Helius key; none = idle).
+        try { com.lifecyclebot.network.ChainLaunchFeed8179.start8179({ try { ConfigStore.load(applicationContext).heliusApiKey } catch (_: Throwable) { cfg.heliusApiKey } }) { l -> chainLaunchIntake8179(l, streamGeneration) } } catch (_: Throwable) {}
         // 2) Helius Enhanced WS — push whale-wallet activity
         try {
             if (cfg.heliusApiKey.isNotBlank()) {
@@ -11471,6 +11473,7 @@ class BotService : Service() {
     private fun unwireExternalStreams() {
         try { com.lifecyclebot.network.PumpFunWS.stop() } catch (_: Exception) {}
         try { com.lifecyclebot.network.HeliusEnhancedWS.stop() } catch (_: Exception) {}
+        try { com.lifecyclebot.network.ChainLaunchFeed8179.stop8179() } catch (_: Throwable) {}  // V5.0.8179
         try { com.lifecyclebot.network.PythHermesStream.unsubscribeAll() } catch (_: Exception) {}
         // EmergentLlmClient is request-scoped — nothing to disconnect.
     }
@@ -25800,6 +25803,23 @@ if (hotExitHandledSweep) {
         )
         if (ok) try { PipelineHealthCollector.labelInc("TICK_CATASTROPHIC_CONFIRMED_NO_ROUTE_8116") } catch (_: Throwable) {}
         return ok
+    }
+
+    /**
+     * V5.0.8179 — a pool created on chain (ChainLaunchFeed8179, fetch thread) enters the SAME protected intake as every
+     * other source: every authority / Token-2022 / rug / sell-route / liquidity check, FDG and lane gate still runs. The
+     * depth is the pool's seeded quote reserve (one side, read from the transaction) or unknown — never estimated.
+     */
+    private fun chainLaunchIntake8179(l: com.lifecyclebot.network.ChainLaunchFeed8179.Launch8179, generation: Long) {
+        if (!status.running || isShuttingDown) return
+        if (!com.lifecyclebot.engine.ScannerFanoutDedupe6374.admit(l.source, l.mint)) return
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        lastScannerDiscoveryMs = System.currentTimeMillis()
+        admitProtectedMemeIntake(
+            mint = l.mint, symbol = l.mint.take(6), name = l.mint.take(6), source = l.source,
+            marketCapUsd = Double.NaN, liquidityUsd = com.lifecyclebot.network.ChainLaunchFeed8179.quoteDepthUsd8179(l, solUsd),
+            confidence = 30, allSources = linkedSetOf(l.source, "CHAIN_LAUNCH_8179"), expectedRuntimeGeneration = generation,
+        )
     }
 
     /** V5.0.8118 — a PumpPortal launch with no token row entering the proven $10k-$100k band is admitted (PumpBandEntry8118). */

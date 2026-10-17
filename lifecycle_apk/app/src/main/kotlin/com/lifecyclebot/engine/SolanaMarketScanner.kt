@@ -2583,7 +2583,13 @@ class SolanaMarketScanner(
     }
 
     private suspend fun scanDexBoosted() {
-        val url = "https://api.dexscreener.com/token-boosts/top/v1?chainIds=solana"
+        scanDexBoostedFrom8179("https://api.dexscreener.com/token-boosts/top/v1?chainIds=solana", 30)
+        // V5.0.8179 — the LATEST boosts too (token-profiles/latest is read by scanPumpFunActive; boosts/latest was not).
+        // Same shared 30 s feed cache and dexscreener_discovery circuit; other chains are dropped below.
+        scanDexBoostedFrom8179("https://api.dexscreener.com/token-boosts/latest/v1", 20)
+    }
+
+    private suspend fun scanDexBoostedFrom8179(url: String, maxItems: Int) {
         val body = getWithRetry(url) ?: return
 
         try {
@@ -2593,10 +2599,11 @@ class SolanaMarketScanner(
             }
 
             val arr = JSONArray(body)
-            for (i in 0 until minOf(arr.length(), 30)) {
+            for (i in 0 until minOf(arr.length(), maxItems)) {
                 val item = arr.optJSONObject(i) ?: continue
                 val mint = item.optString("tokenAddress", "")
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
+                if (item.optString("chainId", "solana") != "solana") continue   // V5.0.8179 — boosts/latest spans every chain
 
                 // scanDexBoosted: boosted tokens must have a live dex pair for price/liq data
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue

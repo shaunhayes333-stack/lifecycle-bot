@@ -708,7 +708,11 @@ class HeliusWebSocket(
             val tokenAmt = u64le7765(b, 48) / 1_000_000.0
             val isBuy = (b[56].toInt() and 0xFF) == 1
             val wallet = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(57, 89)) } catch (_: Throwable) { "" }
-            if (solAmt > 0.0) { noteDecoded8096(mint); dispatchCallback7863(mint) { onSwap(mint, isBuy, solAmt, tokenAmt, wallet, sig) }; return }
+            if (solAmt > 0.0) {
+                noteDecoded8096(mint); dispatchCallback7863(mint) { onSwap(mint, isBuy, solAmt, tokenAmt, wallet, sig) }
+                ChainLaunchFeed8179.onHeliusTradeEvent8179(mint, sig, b)  // V5.0.8179 — swap provenance + curve reserves
+                return
+            }
         }
 
         // Detect swap direction from log messages
