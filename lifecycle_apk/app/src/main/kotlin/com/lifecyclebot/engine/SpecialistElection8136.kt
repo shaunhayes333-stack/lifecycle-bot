@@ -662,7 +662,15 @@ object SpecialistElection8136 {
             if (l == namedOpen8144(r)) {
                 // V5.0.8153 — a receiver whose hand-off task is still live and was only kept waiting (slot held, not yet
                 // handed) stays open: it is consumed on a later cycle, not stranded INELIGIBLE for the rest of the version.
-                if (gate == null && HandoffReceiverTasks8153.isDue8153(mint, l, nowMs)) {
+                // 8197: a named receiver waiting on data/slot must not be permanently
+                // ineligible in this election while its handoff task remains due.
+                // HandoffTaskRuntime8153.onNotScheduled8153 already settled any
+                // binding judgement or incompatible lane; DATA and WAIT are retryable.
+                val transientGate8197 = gate == null || when (HandoffReceiverTasks8153.classify8153(gate, false, false)) {
+                    HandoffReceiverTasks8153.Block8153.DATA, HandoffReceiverTasks8153.Block8153.WAIT -> true
+                    else -> false
+                }
+                if (transientGate8197 && HandoffReceiverTasks8153.isDue8153(mint, l, nowMs)) {
                     end8136(r, s, Terminal8136.CONTRIBUTOR_SHADOW,
                         if (r.rescue.isNotEmpty()) "RECEIVER_TASK_WAITING_SLOT_${r.rescue}" else "RECEIVER_TASK_PENDING_8153")
                     return

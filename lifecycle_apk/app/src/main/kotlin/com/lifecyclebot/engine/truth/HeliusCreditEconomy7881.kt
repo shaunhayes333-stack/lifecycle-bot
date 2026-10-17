@@ -216,6 +216,11 @@ object HeliusCreditEconomy7881 {
     // subscriptions 0, setups DATA_INCOMPLETE. A provider exhaustion answer now latches for [EXHAUSTED_LATCH_MS_8094];
     // non-execution calls are answered locally (callers fall to their next source) with one probe per window.
     private const val EXHAUSTED_LATCH_MS_8094 = 15L * 60_000L
+    // 8197: one independent success probe each minute can disprove an old
+    // provider-exhaustion latch without reopening optional request floods.
+    private const val RECOVERY_PROBE_MS_8197 = 60_000L
+    fun recoveryProbeDue8197(nowMs: Long, lastProbeAtMs: Long): Boolean =
+        nowMs - lastProbeAtMs >= RECOVERY_PROBE_MS_8197
     @Volatile private var exhaustedUntilMs8094 = 0L
     @Volatile private var lastProbeMs8094 = 0L
     private val exhaustedLatches8094 = AtomicLong(0)
@@ -298,8 +303,16 @@ object HeliusCreditEconomy7881 {
     /** True while latched, except one probe per latch window (so recovery is noticed without a restart). */
     fun exhaustedGate8094(nowMs: Long = System.currentTimeMillis()): Boolean {
         if (nowMs >= exhaustedUntilMs8094) return false
-        if (nowMs - lastProbeMs8094 >= EXHAUSTED_LATCH_MS_8094) { lastProbeMs8094 = nowMs; return false }
-        return true
+        // Atomic probe lease: concurrent scanner jobs must not all escape the
+        // latch on the same heartbeat. Full execution and hard daily budget
+        // remain under their existing independent authorities.
+        return synchronized(exhaustAnswers8191) {
+            if (nowMs >= exhaustedUntilMs8094) false
+            else if (recoveryProbeDue8197(nowMs, lastProbeMs8094)) {
+                lastProbeMs8094 = nowMs
+                false
+            } else true
+        }
     }
 
     fun exhaustedLatched8094(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < exhaustedUntilMs8094

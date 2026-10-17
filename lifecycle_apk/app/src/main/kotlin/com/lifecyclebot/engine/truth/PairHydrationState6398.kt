@@ -71,21 +71,32 @@ object PairHydrationState6398 {
         // producer is counted only when its canonical map says it answered.
         val attempted = (listOf("DEXSCREENER") + recent).distinct()
         val candidatePool = map.poolAddress.ifBlank { map.pairAddress }
-        val trustedPool = candidatePool.takeIf { it.isNotBlank() && map.hydrationComplete &&
+        // A real, recently hydrated pool remains available when the scanner's own
+        // DexScreener call returns no pair. Do not discard the canonical witness.
+        val trustedPool = candidatePool.takeIf { it.isNotBlank() && it != ts.mint && map.hydrationComplete &&
             nowMs - map.updatedAtMs in 0L..300_000L }
-        val sourcePool = ts.lastPricePoolAddr.takeIf { it.isNotBlank() &&
-            nowMs - ts.lastPriceUpdate in 0L..300_000L &&
-            (ts.lastPriceDex.contains("RAYDIUM", true) || ts.source.contains("RAYDIUM", true)) }
-        val observedNativePool = sourcePool ?: trustedPool?.takeIf {
-            map.venue.contains("RAYDIUM", true) || map.dexId.contains("RAYDIUM", true)
-        }
+        val nativeVenues = listOf("RAYDIUM", "PUMPSWAP", "PUMP_SWAP", "METEORA", "ORCA", "BONKSWAP")
+        val priceVenueNative = nativeVenues.any { ts.lastPriceDex.contains(it, true) } ||
+            ts.source.contains("RAYDIUM_NEW_POOL", true) || ts.source.contains("METEORA_NEW_POOL", true)
+        val sourcePool = ts.lastPricePoolAddr.takeIf { it.isNotBlank() && it != ts.mint &&
+            nowMs - ts.lastPriceUpdate in 0L..300_000L && priceVenueNative }
+        val mapVenueNative = nativeVenues.any { map.venue.contains(it, true) || map.dexId.contains(it, true) }
+        val nativePool = sourcePool ?: trustedPool?.takeIf { mapVenueNative }
+        val isRaydium = ts.lastPriceDex.contains("RAYDIUM", true) ||
+            ts.source.contains("RAYDIUM_NEW_POOL", true) ||
+            (sourcePool == null && (map.venue.contains("RAYDIUM", true) || map.dexId.contains("RAYDIUM", true)))
+        val raydiumPool = nativePool?.takeIf { isRaydium }
+        // An actual bonding-curve PDA, not the mint address, is needed to claim
+        // source-native PumpFun route proof. Creation events alone prove birth.
+        val curve = map.pumpFunBondingCurveAddress.takeIf { it.isNotBlank() && it != ts.mint &&
+            map.pumpFunExecutable && nowMs - map.updatedAtMs in 0L..300_000L &&
+            (sourceNativePump || map.venue.contains("PUMP", true) || map.dexId.contains("PUMP", true)) }
         val heliusPool = trustedPool?.takeIf { recent.any { it.contains("HELIUS") } }
         return resolve(
             mint = ts.mint,
-            dexscreenerPair = null,
-            raydiumPoolFromScanner = observedNativePool,
-            pumpFunBondingCurve = if (sourceNativePump) ts.mint else
-                map.pumpFunBondingCurveAddress.takeIf { it.isNotBlank() && map.pumpFunExecutable },
+            dexscreenerPair = trustedPool?.takeIf { recent.any { it.contains("DEXSCREENER") } },
+            raydiumPoolFromScanner = raydiumPool,
+            pumpFunBondingCurve = curve,
             heliusPair = heliusPool,
             jupiterRouteOk = map.jupiterQuoteOk && map.expectedOutAmount > 0.0 &&
                 nowMs - map.updatedAtMs in 0L..60_000L,
@@ -94,6 +105,7 @@ object PairHydrationState6398 {
             providersAttempted = attempted,
             hydrationStartedAtMs = hydrationStartedAtMs,
             nowMs = nowMs,
+            sourceNativePool8197 = nativePool?.takeIf { !isRaydium },
         )
     }
 
@@ -124,6 +136,7 @@ object PairHydrationState6398 {
         providersAttempted: List<String>,
         hydrationStartedAtMs: Long,
         nowMs: Long = System.currentTimeMillis(),
+        sourceNativePool8197: String? = null,
     ): Snapshot {
         val hydrationExpiresAt = hydrationStartedAtMs + HYDRATION_TTL_MS
         // Highest-authority canonical pair first.
@@ -133,6 +146,7 @@ object PairHydrationState6398 {
         // Source-native fallbacks (never erased by DexScreener degradation).
         pumpFunBondingCurve?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "PUMPFUN_BONDING_CURVE")) }
         raydiumPoolFromScanner?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "RAYDIUM_POOL_SCANNER")) }
+        sourceNativePool8197?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "SOURCE_NATIVE_POOL_8197")) }
         watchlistLastKnownPair?.let { return record(Snapshot(mint, State.PAIR_SOURCE_NATIVE, it, providersAttempted, hydrationExpiresAt, "WATCHLIST_LAST_KNOWN")) }
         // Route without pair.
         if (jupiterRouteOk)
