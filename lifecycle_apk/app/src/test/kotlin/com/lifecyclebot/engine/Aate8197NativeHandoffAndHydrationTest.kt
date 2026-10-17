@@ -86,4 +86,24 @@ class Aate8197NativeHandoffAndHydrationTest {
         assertTrue(h.recoveryProbeDue8197(last + 60_000L, last))
         assertFalse(h.recoveryProbeDue8197(last + 60_001L, last + 1_000L))
     }
+
+    @Test fun everyQualifiedLaneIsEligibleForMissingDataRefreshNotOnlyCortexTopTwo() {
+        val bridge = SpecialistBrainBridge7542
+        fun opinion(lane: String, score: Int, eligible: Boolean = true, authoritative: Boolean = true) =
+            SpecialistBrainBridge7542.Opinion(lane, eligible, score, score, 0.03,
+                "NATIVE_READY", "SETUP", "ENTRY", "EXIT", authoritative = authoritative)
+        val snap = SpecialistBrainBridge7542.Snapshot("mint-all-lanes8197", 1, 2_000_000_000_000L,
+            mapOf("SHITCOIN" to opinion("SHITCOIN", 90),
+                "MOONSHOT" to opinion("MOONSHOT", 80),
+                "QUALITY" to opinion("QUALITY", 60),
+                "EXPRESS" to opinion("EXPRESS", 50),
+                "TREASURY" to opinion("TREASURY", 45),
+                "BLOCKED" to opinion("BLOCKED", 100, false),
+                "SHADOW" to opinion("SHADOW", 100, true, false)))
+        val refresh = bridge.nativeEvidenceLanes8197(snap).map { it.lane }
+        assertEquals(listOf("SHITCOIN", "MOONSHOT", "QUALITY", "EXPRESS", "TREASURY"), refresh)
+        // The first two are just the Cortex prewarm budget; the remaining lanes
+        // must still have their missing setup fields requested.
+        assertEquals(5, refresh.size)
+    }
 }

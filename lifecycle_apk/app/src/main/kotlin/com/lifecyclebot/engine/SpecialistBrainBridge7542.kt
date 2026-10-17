@@ -99,6 +99,14 @@ object SpecialistBrainBridge7542 {
      * BEFORE later FDG deferral. Never fabricates market values or grants a trade.
      * The per-mint source coalescer and bounded Cortex pool preserve hot-path budgets.
      */
+    /** Qualified native evidence is a 12-lane contract; the Cortex warm pool is separately bounded. */
+    internal fun nativeEvidenceLanes8197(snap: Snapshot): List<Opinion> =
+        snap.opinions.values.filter { it.eligible && it.authoritative }
+            .sortedWith(compareByDescending<Opinion> {
+                it.ownershipConviction7948?.takeIf { c -> c.isFinite() }
+                    ?: maxOf(it.score, it.confidence).toDouble()
+            }.thenBy { it.lane })
+
     private val primedAt8196 = ConcurrentHashMap<String, Long>()
     private const val PRIME_GAP_MS_8196 = 15_000L
     private fun primeDecisionData8196(ts: TokenState, snap: Snapshot) {
@@ -107,18 +115,31 @@ object SpecialistBrainBridge7542 {
         if (prior != null && nowMs - prior in 0L until PRIME_GAP_MS_8196) return
         primedAt8196[ts.mint] = nowMs
         if (primedAt8196.size > 2048) primedAt8196.entries.removeIf { nowMs - it.value > PRIME_GAP_MS_8196 * 4L }
-        snap.opinions.values.asSequence().filter { it.eligible && it.authoritative }
-            .sortedByDescending { it.ownershipConviction7948 ?: maxOf(it.score, it.confidence).toDouble() }
-            .take(2).forEach { o ->
-                try { com.lifecyclebot.engine.cortex.Cortex7885.prewarmNative8196(ts, o.lane) } catch (_: Throwable) {}
-                try {
-                    val missing = com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, o.lane, nowMs).orEmpty()
-                    if (missing.isNotEmpty()) {
-                        com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missing, nowMs)
-                        PipelineHealthCollector.labelInc("SPECIALIST_UPSTREAM_EVIDENCE_REQUEST_8196_" + o.lane)
+        val qualified = nativeEvidenceLanes8197(snap)
+        // Warm the two most promising Cortex decisions without swamping its pool.
+        qualified.take(2).forEach { o ->
+            try { com.lifecyclebot.engine.cortex.Cortex7885.prewarmNative8196(ts, o.lane) } catch (_: Throwable) {}
+        }
+        // All natively qualified specialists, not just those two, require their
+        // own missing setup features. Coalesce by mint + feature before asking
+        // the existing provider-budgeted refresher; don't fabricate values.
+        val missingByFeature = linkedMapOf<String, String>()
+        qualified.forEach { o ->
+            try {
+                val missing = com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, o.lane, nowMs).orEmpty()
+                if (missing.isNotEmpty()) {
+                    missing.forEach { raw ->
+                        val key = raw.substringBefore(':').trim().lowercase()
+                        if (key.isNotBlank()) missingByFeature.putIfAbsent(key, raw)
                     }
-                } catch (_: Throwable) {}
-            }
+                    PipelineHealthCollector.labelInc("SPECIALIST_UPSTREAM_EVIDENCE_REQUEST_8196_" + o.lane)
+                }
+            } catch (_: Throwable) {}
+        }
+        if (missingByFeature.isNotEmpty()) try {
+            com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missingByFeature.values.toList(), nowMs)
+        } catch (_: Throwable) {}
+
     }
 
     // ── V5.0.8169 — memory: one snapshot per mint ever evaluated stayed resident for the whole process ──
