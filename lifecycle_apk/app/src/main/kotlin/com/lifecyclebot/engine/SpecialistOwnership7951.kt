@@ -424,6 +424,8 @@ object SpecialistOwnership7951 {
     private val FIT_REASONS_8132 = listOf(
         "MCAP_TOO_LOW", "MCAP_TOO_HIGH", "TOO_OLD", "TOO_YOUNG", "TOO_NEW", "NOT_A_DIP",
         "PHASE_HANDOFF", "ROLE_FLOOR", "CORE_YIELD_CLEAR_SPECIALIST_OWNER", "USE_BLUECHIP",
+        // V5.0.8180 — MANIPULATED's "this coin is not a manipulation play" is shape, not a verdict (X +802% lost to it).
+        "NO_KNOWN_MANIPULATION_EVIDENCE",
     )
 
     /** Pure (V5.0.8094): a fresh, graded native refusal on a lane-fit rule (never safety). */
@@ -436,7 +438,7 @@ object SpecialistOwnership7951 {
 
     /** V5.0.8094 — the receiving lane's strategy for this coin: a proven fired setup, or a classified setup not losing. */
     private fun receiverRecordSound8094(mint: String, lane: String): Boolean = try {
-        val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
+        val ts = HandoffRoute8180.tokenFor8180(mint)  // V5.0.8180 — the same map, by the meme key too
         ts != null && (com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, lane) != null ||
             com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, lane) == null)
     } catch (_: Throwable) { false }
@@ -479,7 +481,7 @@ object SpecialistOwnership7951 {
      */
     internal fun rescueIneligible8136(mint: String, lane: String): String? = try {
         val l = lane7951(lane)
-        val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
+        val ts = HandoffRoute8180.tokenFor8180(mint)  // V5.0.8180 — the same map, by the meme key too
         when {
             ts == null -> "DEFERRED_NO_TOKEN_STATE"
             ts.safety.isBlocked || ts.safety.hardBlockReasons.isNotEmpty() -> "TOKEN_SAFETY_BLOCKED"
@@ -541,7 +543,10 @@ object SpecialistOwnership7951 {
             if (op.eligible || !op.authoritative) return
             SpecialistElection8136.notePrimaryRefusal8136(mint, p, "${SpecialistElection8136.TRIGGER_NATIVE}:${op.reason}",
                 !op.gradeable || refusalIsJudgement8136(op.reason, fdg = false), nowMs)
-            if (laneFitRefusal8132(op.reason)) yieldReceiver8136(mint, p, snap.opinions)
+            // V5.0.8180 — any graded, non-binding, non-data refusal names the lane that qualified the coin (NativeYield8180).
+            val fit8180 = laneFitRefusal8132(op.reason)
+            val data8180 = HandoffTaskRuntime8153.blockOf8153(op.reason) == HandoffReceiverTasks8153.Block8153.DATA
+            if (NativeYield8180.namesReceiver8180(op.reason, op.gradeable, fit8180, refusalIsJudgement8136(op.reason, fdg = false), data8180)) yieldReceiver8136(mint, p, snap.opinions)
         } catch (_: Throwable) {}
     }
 

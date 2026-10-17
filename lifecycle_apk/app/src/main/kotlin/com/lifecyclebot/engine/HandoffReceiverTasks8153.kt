@@ -295,7 +295,9 @@ object HandoffReceiverTasks8153 {
     /** Open (or keep) the mint's task for [lane]; returns the mint's task after the call. */
     fun openTask8153(mint: String, lane: String, from: String, reason: String, version: Long, evidenceAtMs: Long,
                      nowMs: Long, newHandoffAtMs: Long = 0L): Task8153? =
-        update8153(mint, nowMs) { open8153(it, mint, lane, from, reason, version, evidenceAtMs, nowMs, newHandoffAtMs) }
+        // V5.0.8180 — a crypto-desk identity has no meme cycle to consume a task (it only ever expired NO_TOKEN_STATE).
+        if (HandoffRoute8180.deskIdentity8180(mint)) null
+        else update8153(mint, nowMs) { open8153(it, mint, lane, from, reason, version, evidenceAtMs, nowMs, newHandoffAtMs) }
 
     fun refreshTask8153(mint: String, lane: String, version: Long, candidateValid: Boolean, evidenceAtMs: Long, nowMs: Long): Task8153? =
         update8153(mint, nowMs) { it?.let { t -> refresh8153(t, lane, version, candidateValid, evidenceAtMs, nowMs) } }
@@ -398,7 +400,7 @@ object HandoffTaskRuntime8153 {
             // ordinary scanner poll. Request the missing input through the existing
             // per-mint 30 s coalescer; failed providers still leave it UNKNOWN.
             try {
-                val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
+                val ts = HandoffRoute8180.tokenFor8180(mint)  // V5.0.8180 — the meme key too
                 if (ts != null) {
                     val missing = com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, lane, nowMs).orEmpty()
                     val liq = if (reason.contains("LIQ", true) && missing.none { it.startsWith("liq:") }) listOf("liq:UNKNOWN") else emptyList()

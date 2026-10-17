@@ -158,6 +158,8 @@ object SpecialistElection8136 {
         var primaryVerdictSeen = false
         // V5.0.8153 — the lane whose rescue claim came from a qualified hand-off task (HandoffReceiverTasks8153).
         var handoffRescue8153 = ""
+        // V5.0.8180 — when the rescue slot was claimed (an unconsumed holder past RescueIdle8180's window is idle).
+        var rescueClaimedAtMs8180 = 0L
     }
 
     private val lock8136 = Any()
@@ -345,10 +347,28 @@ object SpecialistElection8136 {
         if (s.terminal == Terminal8136.CONTRIBUTOR_SHADOW || s.terminal == Terminal8136.DEFERRED_DATA) reopen8136(s)
         r.rescue = lane
         r.rescueViaLottery = viaLottery
+        r.rescueClaimedAtMs8180 = nowMs
         r.offerTo = ""
         rescueClaims8136++
         // V5.0.8144 — the rescue funnel: CLAIMED, bound to this record's version (and carried with its lineage).
         ElectionRescueFunnel8144.bind8144(r.mint, lane, r.version, adopted = false, nowMs = nowMs)
+    }
+
+    private var idleReleased8180 = 0L
+
+    /**
+     * V5.0.8180 — [r]'s rescue holder (not [asker]) claimed the slot more than RescueIdle8180.RESCUE_IDLE_MS_8180 ago and
+     * never produced an FDG verdict: it ends CONTRIBUTOR_SHADOW (RESCUE_IDLE_RELEASED_8180) and the slot is empty. Returns
+     * true when released. A consumed rescue is never released (one executable rescue per version).
+     */
+    private fun releaseIdle8180(r: Record8136, asker: String, nowMs: Long): Boolean {
+        if (r.rescue.isEmpty() || r.rescue == asker || !RescueIdle8180.idle8180(r.rescueConsumed, r.rescueClaimedAtMs8180, nowMs)) return false
+        r.slots[r.rescue]?.let { end8136(r, it, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_IDLE_RELEASED_8180") }
+        r.rescue = ""
+        r.rescueViaLottery = false
+        r.rescueClaimedAtMs8180 = 0L
+        idleReleased8180++
+        return true
     }
 
     private fun markIneligible8136(r: Record8136, s: Slot8136, why: String) {
@@ -432,7 +452,7 @@ object SpecialistElection8136 {
                     r.slots[o]?.let { end8136(r, it, Terminal8136.INELIGIBLE, "PRIMARY_JUDGEMENT:" + r.primaryRefusal) }
                     r.primary
                 }
-                r.rescue.isNotEmpty() -> {
+                r.rescue.isNotEmpty() && !releaseIdle8180(r, o, nowMs) -> {
                     rescueHeldDenied8136++
                     r.slots[o]?.let { end8136(r, it, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_SLOT_HELD_BY_${r.rescue}") }
                     r.rescue
@@ -521,6 +541,8 @@ object SpecialistElection8136 {
                     preempted8144++
                     end8136(r, holder, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_PREEMPTED_BY_NAMED_RECEIVER_$l")
                     r.rescue = ""
+                } else if (releaseIdle8180(r, l, nowMs)) {
+                    // V5.0.8180 — the holder never reached its FDG inside the idle window: the slot is open again.
                 } else {
                     rescueHeldDenied8136++
                     return ElectionRescueContract8144.ClaimOutcome8144.DENIED_HELD_BY_OTHER
@@ -883,6 +905,8 @@ object SpecialistElection8136 {
                     handoffPreempted8153++
                     end8136(r, holder, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_PREEMPTED_BY_HANDOFF_RECEIVER_$l")
                     r.rescue = ""
+                } else if (releaseIdle8180(r, l, nowMs)) {
+                    // V5.0.8180 — an idle holder (no FDG verdict inside the window) no longer blocks the named receiver.
                 } else {
                     rescueHeldDenied8136++
                     handoffDenied8153++
@@ -1013,7 +1037,7 @@ object SpecialistElection8136 {
             "stale=$staleEvents8136 unqualifiedFdg=$unqualifiedFdg8136 | ${lanes.ifBlank { "no proposals yet" }}" +
             // V5.0.8144 — how the one slot was decided, and arbitration failures (never executable).
             " | slot8144(namedWins=$namedWins8144 preempted=$preempted8144 lotteryBarred=$lotteryBarred8144 " +
-            "lineageCarried=$lineageCarried8144 arbitrationErrors=$arbitrationErrors8144)" +
+            "lineageCarried=$lineageCarried8144 arbitrationErrors=$arbitrationErrors8144 idleReleased8180=$idleReleased8180)" +
             // V5.0.8153 — qualified hand-off receivers as tasks the cycle consumes.
             " | handoff8153(named=$handoffNamed8153 claims=$handoffClaims8153 preemptedLottery=$handoffPreempted8153 " +
             "denied=$handoffDenied8153 retargeted=$handoffRetargeted8153) "
@@ -1027,6 +1051,7 @@ object SpecialistElection8136 {
             yieldReached8136 = 0L; authoritativeOverrides8136 = 0L; closedRecords8136 = 0L
             lotteryFilled8141 = 0L; lotteryRefused8141 = 0L
             lineageCarried8144 = 0L; lotteryBarred8144 = 0L; namedWins8144 = 0L; preempted8144 = 0L; arbitrationErrors8144 = 0L
+            idleReleased8180 = 0L
             gateReasons8144.clear()
             handoffNamed8153 = 0L; handoffClaims8153 = 0L; handoffPreempted8153 = 0L; handoffDenied8153 = 0L; handoffRetargeted8153 = 0L
         }

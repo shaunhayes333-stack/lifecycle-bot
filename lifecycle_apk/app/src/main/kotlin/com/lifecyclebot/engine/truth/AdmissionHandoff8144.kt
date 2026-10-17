@@ -265,8 +265,15 @@ object AdmissionHandoff8144 {
     }
 
     /** ProjectSniperAI / LaunchLifecycle8136.noteRoute8136: the sniper handed [mint] on to [named] for [reason]. */
-    fun emitHandoff8144(mint: String, from: String, named: String?, reason: String, nowMs: Long = System.currentTimeMillis()) {
+    fun emitHandoff8144(mint: String, from: String, named0: String?, reason0: String, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank()) return
+        // V5.0.8180 — a crypto-desk identity has no meme TokenState or cycle to receive it (211 DEFERRED_NO_TOKEN_STATE).
+        if (com.lifecyclebot.engine.HandoffRoute8180.deskIdentity8180(mint)) { count8144("DESK_IDENTITY_SKIPPED_8180"); return }
+        // V5.0.8180 — name the runner lane whose own floors the coin meets now; none yet: withheld (no 10-minute settle).
+        val route8180 = com.lifecyclebot.engine.HandoffRoute8180.routeFor8180(mint, named0, reason0)
+        if (route8180.withhold) { count8144("WITHHELD_NO_LANE_FITS_8180"); return }
+        val named = route8180.named
+        val reason = route8180.reason
         val prior = ledger[mint]
         val prev = prior?.let { expireLive8153(it, nowMs) }
         if (prior != null && prev != null && prev !== prior) { ledger[mint] = prev; settled8144(prior, prev) }

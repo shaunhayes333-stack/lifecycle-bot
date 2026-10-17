@@ -557,7 +557,8 @@ object OrderSizeResolver6441 {
             requestedLamports6491 < minExecLamports6491 &&
             !liveEdgeAllows7877(mint, laneName)
         val refuseMinPromotion6909 = (convictionCollapsed6909 || edgeRefusesPromotion7877) &&
-            requestedLamports6491 < minExecLamports6491
+            requestedLamports6491 < minExecLamports6491 &&
+            !(!paperMode && AdmissionEdge8180.admitted8180(mint))  // V5.0.8180 — a specific proven-edge ADMIT carries its edge
         // V5.0.7840 — the $5 live route floor is an execution constraint, not a
         // second admission veto. 7831 zeroed every otherwise valid request below
         // the floor even when the wallet/lane could fund the minimum and the
@@ -923,7 +924,7 @@ object OrderSizeResolver6441 {
         // a runner re-entry ticket, a tail ticket, a Cortex STRONG read, a cell paying +5%). Re-asking only the
         // coarse cell verdict here refused those buys at the minimum size: 5.0.8046 ORDER_SIZE_CONVICTION_REFUSED=708,
         // with three 4x+ runners admitted and never bought. Collapsed conviction still refuses.
-        if (mint.isNotBlank() && LiveEdgeGate7877.positiveAdmit7975(mint)) {
+        if (mint.isNotBlank() && (LiveEdgeGate7877.positiveAdmit7975(mint) || AdmissionEdge8180.admitted8180(mint))) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ORDER_SIZE_POSITIVE_ADMIT_PROMOTED_8047") } catch (_: Throwable) {}
             true
         } else if (ts != null) {
