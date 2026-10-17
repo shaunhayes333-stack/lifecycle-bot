@@ -85,6 +85,29 @@ class Aate8196CausalContinuityTest {
         assertTrue(bot.contains("FinalExecutionPermit.tryAcquireExecution("))
     }
 
+    @Test fun everySpecialistFdgEarlyOutcomeHasOneReceiverReceipt() {
+        val adapter = source("engine/FdgOutcomeContinuity8197.kt")
+        val bot = source("engine/BotService.kt")
+        val cyclic = source("engine/CyclicTradeEngine.kt")
+        val fdg = source("engine/FinalDecisionGate.kt")
+        assertTrue(adapter.contains("SpecialistOwnership7951.onFdgVerdict7951("))
+        assertTrue(adapter.contains("val result = FinalDecisionGate.evaluate("))
+        assertTrue(adapter.contains("if (needsEarlyRecord8197(result))"))
+        // 9 meme/specialist gates, one cyclic gate. The V3 trunk stays unchanged
+        // and is tested separately by Aate7835ProducerWiringTest.
+        assertEquals(9, Regex("FdgOutcomeContinuity8197[.]evaluate[(]").findAll(bot).count())
+        assertEquals(1, Regex("FdgOutcomeContinuity8197[.]evaluate[(]").findAll(cyclic).count())
+        assertTrue(bot.contains("val v3Fdg6533 = FinalDecisionGate.evaluate("))
+        assertTrue(fdg.contains("return rememberFdgVerdict(fdgCacheKey, FinalDecision("))
+        val blocked = FinalDecisionGate.FinalDecision(
+            false, FinalDecisionGate.TradeMode.LIVE, FinalDecisionGate.ApprovalClass.BLOCKED,
+            "C", 0.0, FinalDecisionGate.EdgeVerdict.SKIP, "TEST_EDGE", FinalDecisionGate.BlockLevel.EDGE,
+            0.0, emptyList(), "mint8196", "TEST", "blocked", emptyList())
+        assertTrue(FdgOutcomeContinuity8197.needsEarlyRecord8197(blocked))
+        assertFalse(FdgOutcomeContinuity8197.needsEarlyRecord8197(blocked.copy(
+            candidateVersion7835 = 1234L, canonicalLane7835 = "MOONSHOT")))
+    }
+
     @Test fun handoffPurityRetainsOneTaskAndOneTerminalVerdict() {
         val t0 = 2_000_000_000_000L
         val created = HandoffReceiverTasks8153.open8153(
