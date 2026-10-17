@@ -223,6 +223,14 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() }
             .sortedBy { it.atMs }.map { it.capped8187(it.executablePct) - offset8187(lane) }  // V5.0.8187 — capped, executable-net
 
+    /** V5.0.8196: immutable decision timestamps accompany executable grade values for OOS comparison. */
+    fun executableTimed8196(lane: String, setup: String?, bucket: Int?): List<CortexWalkForward8144.TimedReturn8196> =
+        decisions.asSequence().filter { it.graded && !it.lost && it.lane == lane &&
+            (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) &&
+            it.atMs > 0L && it.executablePct.isFinite() }
+            .sortedBy { it.atMs }
+            .map { CortexWalkForward8144.TimedReturn8196(it.atMs, it.capped8187(it.executablePct) - offset8187(lane)) }.toList()
+
     /** Observed values of every labelled decision in [lane] for [bucket], hygiene ignored (the raw cohort). */
     fun observedSeries(lane: String, bucket: Int): List<Double> =
         decisions.filter { it.kind == 'D' && !it.lost && it.lane == lane && it.bucket == bucket && it.observedNetPct.isFinite() }
