@@ -36,6 +36,21 @@ class Aate8197NativeHandoffAndHydrationTest {
         assertEquals("verified-dex-pool", confirmed.pairAddress)
     }
 
+    @Test fun codexNativeLaunchesKeepTheirActualPoolsWithoutInventedDepth() {
+        val h = PairHydrationState6398
+        val now = 2_000_000_000_000L
+        for (source in listOf("CODEX_NEW_METEORADBC", "CODEX_NEW_PUMPSWAP")) {
+            val t = TokenState(mint = "mint-source-" + source, symbol = "S")
+            t.source = source
+            t.lastPricePoolAddr = "provider-pool-" + source
+            t.lastPriceUpdate = now
+            val result = h.resolveFromToken8196(t, false, now - 120_000L, now)
+            assertEquals(h.State.PAIR_SOURCE_NATIVE, result.state)
+            assertEquals(t.lastPricePoolAddr, result.pairAddress)
+            assertEquals("SOURCE_NATIVE_POOL_8197", result.reason)
+        }
+    }
+
     @Test fun pumpCreateIsNotAFabricatedPoolAndRealCurveRemainsNative() {
         val h = PairHydrationState6398
         val now = 2_000_000_000_000L

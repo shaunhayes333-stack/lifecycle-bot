@@ -76,8 +76,9 @@ object PairHydrationState6398 {
         val trustedPool = candidatePool.takeIf { it.isNotBlank() && it != ts.mint && map.hydrationComplete &&
             nowMs - map.updatedAtMs in 0L..300_000L }
         val nativeVenues = listOf("RAYDIUM", "PUMPSWAP", "PUMP_SWAP", "METEORA", "ORCA", "BONKSWAP")
-        val priceVenueNative = nativeVenues.any { ts.lastPriceDex.contains(it, true) } ||
-            ts.source.contains("RAYDIUM_NEW_POOL", true) || ts.source.contains("METEORA_NEW_POOL", true)
+        val priceVenueNative = nativeVenues.any {
+            ts.lastPriceDex.contains(it, true) || ts.source.contains(it, true)
+        }
         val sourcePool = ts.lastPricePoolAddr.takeIf { it.isNotBlank() && it != ts.mint &&
             nowMs - ts.lastPriceUpdate in 0L..300_000L && priceVenueNative }
         val mapVenueNative = nativeVenues.any { map.venue.contains(it, true) || map.dexId.contains(it, true) }
