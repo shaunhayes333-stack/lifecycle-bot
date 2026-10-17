@@ -89,7 +89,7 @@ object CortexWalkForward8144 {
             tested++
             if (stat8144(sample).mean > marginPct) passed++
             pool.addAll(sample)
-            val until = if (end < xs.size) xs[end].atMs else Long.MAX_VALUE
+            val until = if (end < xs.size) xs[end].atMs else xs.last().atMs + 5L * 60_000L + 1L
             windows.add(from to until)
         }
         val oos = stat8144(pool)
