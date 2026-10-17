@@ -52,7 +52,14 @@ object HeliusCreditMeterInterceptor7881 : Interceptor {
         try { com.lifecyclebot.engine.LoadTelemetry8169.noteHelius8169(req.url.encodedPath, methods, bodyText8169, HeliusCreditEconomy7881.creditsFor(host, req.url.encodedPath, methods)) } catch (_: Throwable) {}
         if (resp.code == 402 || resp.code == 403 || resp.code == 429) try {
             val peek = resp.peekBody(4_096).string()
-            if (HeliusCreditEconomy7881.isExhaustionAnswer8094(resp.code, peek)) HeliusCreditEconomy7881.noteExhaustionAnswer8191(resp.code)   // V5.0.8191 — confirmed, not one burst
+            if (HeliusCreditEconomy7881.isExhaustionAnswer8094(resp.code, peek)) HeliusCreditEconomy7881.noteExhaustionAnswer8191(resp.code)
+        } catch (_: Throwable) {}
+        // 8196: successful Helius proof immediately reopens discovery/enrichment
+        // instead of waiting out a stale 15-minute exhaustion latch. Does not
+        // bypass HeliusCreditEconomy7881.overBudget8066 or the RPS bucket.
+        if (resp.isSuccessful && HeliusCreditEconomy7881.exhaustedLatched8094()) try {
+            if (HeliusCreditEconomy7881.providerRecovered8196(resp.code, resp.peekBody(4_096).string()))
+                HeliusCreditEconomy7881.clearExhaustionOnProof8196()
         } catch (_: Throwable) {}
         return resp
     }
