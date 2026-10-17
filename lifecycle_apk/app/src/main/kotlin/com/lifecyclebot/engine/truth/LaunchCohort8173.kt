@@ -53,6 +53,15 @@ object LaunchCohort8173 {
 
     data class CurveRead8173(val realSol: Double, val source: CurveSource8173)
 
+    /** Price-implied reserves rank discoveries; only recent observed reserves prove depth at entry. */
+    fun executableReserve8174(read: CurveRead8173?, ageMs: Long): Double? {
+        if (read == null || read.source != CurveSource8173.RESERVES || ageMs !in 0L..CURVE_STALE_MS_8173) return null
+        return read.realSol.takeIf { it.isFinite() && it >= 0.0 }
+    }
+
+    fun reserveFresh8174(observedAtMs: Long?, nowMs: Long): Boolean =
+        observedAtMs != null && nowMs - observedAtMs in 0L..CURVE_STALE_MS_8173
+
     // ── pure ──
 
     /** Pure: a launch-cohort coin — its curve is active and its pump birth is inside [LAUNCH_WINDOW_MS_8173]. */
@@ -157,7 +166,8 @@ object LaunchCohort8173 {
             priceImplied.incrementAndGet()
             count8173("CURVE_LIQ_PRICE_IMPLIED_8173")
         }
-        return read.realSol
+        // A derived value is evidence to refresh the curve, not permission to buy.
+        return executableReserve8174(read, nowMs - atMs)
     }
 
     /** PumpFunWS create frame: a frame without reserves asks the chain for the curve now (single-flight batch). */

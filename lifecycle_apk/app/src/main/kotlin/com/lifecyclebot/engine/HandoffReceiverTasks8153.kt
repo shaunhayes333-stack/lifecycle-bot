@@ -80,7 +80,8 @@ object HandoffReceiverTasks8153 {
     /** Missing data, not a verdict: the task waits for it. */
     private val DATA_WORDS_8153 = listOf("NO_TOKEN_STATE", "PRICE_UNKNOWN", "PRICE_STALE", "DATA_MISSING", "MISSING_DATA",
         "DATA_INCOMPLETE", "TOO_FEW_BARS", "UNKNOWN_ECONOMICS", "NO_SNAPSHOT", "ARBITRATION_ERROR",
-        "UNHYDRATED", "METADATA_HYDRATING", "PRICE_NOT_FRESH")
+        "UNHYDRATED", "METADATA_HYDRATING", "PRICE_NOT_FRESH",
+        "CURVE_RESERVES_STALE", "CURVE_DEPTH_UNVERIFIED")
     /** The slot or the cycle was busy: the task waits (named at expiry if it never got in). */
     private val WAIT_WORDS_8153 = listOf("SLOT_HELD", "RESERVED_FOR", "OUTRANKED", "GATE_UNNAMED", "NO_PROPOSAL")
 
@@ -122,13 +123,22 @@ object HandoffReceiverTasks8153 {
         // supersedes the old receiver task. 8169 could keep the old version alive
         // until TTL, preventing the fresh receiver from ever reaching its FDG.
         // Repeated reads of the SAME handoff/version still coalesce as before.
+        // V5.0.8175 — a hand-off whose emission time is KNOWN ([newHandoffAtMs] > 0) and not after the live/settled
+        // task is old evidence: it never supersedes, whatever version it carries. An unstamped (0) different version
+        // still supersedes (8174), so a fresh candidate is never parked behind a stale receiver task.
         if (prior != null && prior.pending && nowMs <= prior.validUntilMs &&
-            (version <= 0L || prior.version <= 0L || prior.version == version || newHandoffAtMs <= prior.createdAtMs)
+            (version <= 0L || prior.version <= 0L || prior.version == version ||
+                oldEvidence8175(newHandoffAtMs, prior.createdAtMs))
         ) return prior
         if (prior != null && !prior.pending && prior.lane == l && nowMs - prior.settledAtMs in 0L..SETTLED_HOLD_MS_8153 &&
-            prior.settledAtMs >= newHandoffAtMs) return prior
+            prior.settledAtMs >= newHandoffAtMs &&
+            (version <= 0L || prior.version <= 0L || prior.version == version ||
+                oldEvidence8175(newHandoffAtMs, prior.settledAtMs))) return prior
         return Task8153(mint, l, canon8153(from), reason.take(80), version, nowMs, nowMs + TASK_TTL_MS_8153, evidenceAtMs)
     }
+
+    /** V5.0.8175 — pure: a stamped hand-off emitted at or before [taskAtMs] is old evidence (0 = unstamped, not old). */
+    private fun oldEvidence8175(newHandoffAtMs: Long, taskAtMs: Long): Boolean = newHandoffAtMs > 0L && newHandoffAtMs <= taskAtMs
 
     /**
      * Pure: a FRESH native read ([evidenceAtMs] after the last refresh) in which [lane] is still eligible and the token

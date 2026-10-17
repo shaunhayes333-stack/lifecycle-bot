@@ -1119,6 +1119,12 @@ object TradeHistoryStore {
                 entryQtyToken = tradeToStore.entryQtyToken,
                 entryCostSol = tradeToStore.entryCostSol,
                 entryPriceSource = tradeToStore.entryPriceSource,
+                soldQtyToken = tradeToStore.soldQtyToken,
+                soldCostBasisSol = tradeToStore.soldCostBasisSol,
+                grossProceedsSol = tradeToStore.grossProceedsSol,
+                feeSol = tradeToStore.feeSol,
+                canonicalConsumedRaw = tradeToStore.canonicalConsumedRaw.toString(),
+                economicEventId = tradeToStore.economicEventId,
                 occurredAtMs8077 = tradeToStore.ts,
             )
         } catch (_: Throwable) { /* never let logging break the record path */ }

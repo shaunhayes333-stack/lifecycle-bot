@@ -12,7 +12,8 @@ object MemeCrossTalkEntryBridge {
     )
 
     fun shapeLaneEntry(lane: String, ts: TokenState, confidenceFloor: Double, isOpenPosition: Boolean = false): EntryShape {
-        val signal = try { AICrossTalk.analyzeCrossTalk(ts, isOpenPosition) } catch (_: Throwable) { null }
+        // The evaluated lane, not the candidate's uninitialised position mode, owns this decision.
+        val signal = try { AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition, lane) } catch (_: Throwable) { null }
         if (signal == null) return EntryShape(lane.uppercase(), confidenceFloor, 1.0, "cross_talk_unavailable")
         val confDelta = signal.confidenceBoost.coerceIn(-8.0, 8.0)
         val shapedConfidence = (confidenceFloor + confDelta).coerceIn(0.0, 100.0)

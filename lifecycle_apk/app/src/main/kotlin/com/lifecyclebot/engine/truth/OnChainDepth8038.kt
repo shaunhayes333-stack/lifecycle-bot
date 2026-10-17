@@ -220,7 +220,20 @@ object OnChainDepth8038 {
         if (pumpLike && (try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }) == null) {
             try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint)) } catch (_: Throwable) {}
         }
-        val curveReal8046 = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
+        var curveReal8046 = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
+        // Revalidate an old create/trade reserve before live buy. Formula-implied liquidity
+        // is provisional discovery evidence, never confirmed chain depth.
+        val observedAt8174 = if (curveReal8046 != null) try { CurveReserves7951.readingAtMs8173(ts.mint) } catch (_: Throwable) { null } else null
+        if (observedAt8174 != null && !LaunchCohort8173.reserveFresh8174(observedAt8174, nowMs)) {
+            try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint)) } catch (_: Throwable) {}
+            val refreshedAt8174 = try { CurveReserves7951.readingAtMs8173(ts.mint) } catch (_: Throwable) { null }
+            if (!LaunchCohort8173.reserveFresh8174(refreshedAt8174, System.currentTimeMillis())) {
+                try { needCurve8039(ts.mint, nowMs) } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("CURVE_RESERVES_STALE_DEFER_8174") } catch (_: Throwable) {}
+                return "CURVE_RESERVES_STALE_DEFER_8174"
+            }
+            curveReal8046 = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
+        }
         if (curveNobodyBought8046(curveReal8046)) {
             emptyCurveRefused8046.incrementAndGet()
             try {

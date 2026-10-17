@@ -45,6 +45,10 @@ object ExitHotPath7809 {
     private val coalesced7809 = AtomicLong(0L)
     private val stuckReplaced7809 = AtomicLong(0L)
     private val maxUnitMs7809 = AtomicLong(0L)
+    // Report a close that holds the unit for minutes without starting another sell.
+    private const val SELL_PENDING_STALE_MS_8174 = 120_000L
+    private val staleSellAlerts8174 = AtomicLong(0L)
+    private val staleSellKeys8174 = ConcurrentHashMap.newKeySet<String>()
 
     private val unitExecutor7809: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newCachedThreadPool { r ->
@@ -82,6 +86,10 @@ object ExitHotPath7809 {
         // that CloseLease, so it is coalesced instead (5.0.7947: 131 "stuck"
         // replacements feeding 285 sell redispatches).
         if (sellInFlight7948) {
+            if (nowMs - prior >= SELL_PENDING_STALE_MS_8174 && staleSellKeys8174.add(key)) {
+                staleSellAlerts8174.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("HOT_EXIT_SELL_INFLIGHT_STALE_8174") } catch (_: Throwable) {}
+            }
             coalesced7809.incrementAndGet()
             try { PipelineHealthCollector.labelInc("HOT_EXIT_UNIT_SELLING_NOT_REPLACED_7948") } catch (_: Throwable) {}
             return false
@@ -97,6 +105,7 @@ object ExitHotPath7809 {
     fun end(key: String, startedAtMs: Long, nowMs: Long = System.currentTimeMillis()) {
         if (key.isBlank()) return
         if (inFlight7809.remove(key, startedAtMs)) {
+            staleSellKeys8174.remove(key)
             val took = (nowMs - startedAtMs).coerceAtLeast(0L)
             maxUnitMs7809.accumulateAndGet(took) { a, b -> maxOf(a, b) }
         }
@@ -105,9 +114,11 @@ object ExitHotPath7809 {
     fun inFlightCount(): Int = inFlight7809.size
 
     fun statusLine(nowMs: Long = System.currentTimeMillis()): String {
-        val oldest = inFlight7809.values.minOrNull()?.let { (nowMs - it).coerceAtLeast(0L) } ?: 0L
+        val oldestClaim8174 = inFlight7809.entries.minByOrNull { it.value }
+        val oldest = oldestClaim8174?.let { (nowMs - it.value).coerceAtLeast(0L) } ?: 0L
         return "hotExitUnits7809 inFlight=${inFlight7809.size} oldestMs=$oldest dispatched=${dispatched7809.get()} " +
-            "coalesced=${coalesced7809.get()} stuckReplaced=${stuckReplaced7809.get()} maxUnitMs=${maxUnitMs7809.get()}"
+            "coalesced=${coalesced7809.get()} stuckReplaced=${stuckReplaced7809.get()} maxUnitMs=${maxUnitMs7809.get()} " +
+            "oldestKey8174=${oldestClaim8174?.key?.takeLast(14) ?: "-"} staleSellInFlight8174=${staleSellAlerts8174.get()}"
     }
 
     internal fun resetForTest() {
@@ -116,5 +127,7 @@ object ExitHotPath7809 {
         coalesced7809.set(0L)
         stuckReplaced7809.set(0L)
         maxUnitMs7809.set(0L)
+        staleSellAlerts8174.set(0L)
+        staleSellKeys8174.clear()
     }
 }

@@ -207,6 +207,14 @@ object CanonicalPositionAuthority6441 {
                 position.originalQtyRaw.toBigDecimal().movePointLeft(position.quantityScale).toDouble()
             else 0.0
         } catch (_: Throwable) { 0.0 }
+        // Proactive entry-basis invariant at the confirmed canonical open/promotion boundary.
+        if (freshExecution6715) try {
+            OpenPositionBasisInvariant6627.onCanonicalOpen6627(
+                mint = position.mint, lane = position.lane,
+                entryPrice = position.entryPriceUsd, entryQty = qtyTokens,
+                entryNotionalSol = position.entryCostSol,
+            )
+        } catch (_: Throwable) {}
         val solUsd6634 = try {
             com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 0.0
         } catch (_: Throwable) { 0.0 }

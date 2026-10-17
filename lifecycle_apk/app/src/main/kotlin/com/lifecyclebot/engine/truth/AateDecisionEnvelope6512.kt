@@ -222,6 +222,12 @@ object AateDecisionFabric6512 {
         val e = (byPosition[env.positionId] ?: restoreFromIdentity8136(env))?.takeIf {
             it.context.mode.equals(env.mode, true) && it.context.mint == env.mint
         }
+        // Rebound the confirmed SELL predecessor from terminal economic truth, not the
+        // optimistic sell-attempt counter. Historical replay without proof is not promoted.
+        if (env.terminal && (env.mode.equals("PAPER", true) ||
+            AccountingIntegrity8169.chainProvenProofState8169(env.proofState))) try {
+            ToolkitSignalSheet.recordDeskStage(env.lane, "SELL_CONFIRMED", env.positionId)
+        } catch (_: Throwable) {}
         try { ToolkitSignalSheet.recordDeskStage(env.lane, "FINALIZED", env.positionId) } catch (_: Throwable) {}
         // V5.0.8136 — classify the close: exact envelope, restored sealed identity, owner-ledger only, unverifiable.
         val attribution8136 = AateEntryIdentityBook8136.attribution8136(
