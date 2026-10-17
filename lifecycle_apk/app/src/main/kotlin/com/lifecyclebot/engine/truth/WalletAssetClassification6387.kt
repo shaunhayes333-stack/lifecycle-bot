@@ -112,9 +112,28 @@ object WalletTokenAccountStateAuthority7253 {
         if (observedMints.isEmpty()) return
         frozenMints.removeAll(observedMints - observedFrozenMints)
         frozenMints.addAll(observedFrozenMints)
+        noteObserved8185(observedMints, observedFrozenMints, System.currentTimeMillis())
     }
 
     fun isFrozen(mint: String): Boolean = mint.isNotBlank() && frozenMints.contains(mint)
+
+    // V5.0.8185 — "not in the frozen set" is also what a mint NO read has listed yet reads as (the set starts empty after a
+    // restart), so it never proved a thaw. A parsed account read in this process that listed the mint's account with a
+    // state other than frozen does: the chain says the account is usable now.
+    private val observedUnfrozenAt8185 = ConcurrentHashMap<String, Long>()
+
+    /** Pure core of the bookkeeping: the parsed read listed [observed]; [frozen] of them read state=frozen. */
+    internal fun noteObserved8185(observed: Set<String>, frozen: Set<String>, nowMs: Long) {
+        for (m in frozen) observedUnfrozenAt8185.remove(m)
+        for (m in observed) if (m !in frozen) observedUnfrozenAt8185[m] = nowMs
+        if (observedUnfrozenAt8185.size > 4_000) observedUnfrozenAt8185.entries.removeIf { nowMs - it.value > 3_600_000L }
+    }
+
+    /** V5.0.8185 — a parsed token-account read since boot listed [mint]'s account and it was not frozen. */
+    fun observedUnfrozen8185(mint: String): Boolean =
+        mint.isNotBlank() && !frozenMints.contains(mint) && observedUnfrozenAt8185.containsKey(mint)
+
+    internal fun resetForTests8185() { frozenMints.clear(); observedUnfrozenAt8185.clear() }
 
     fun snapshot(): Set<String> = frozenMints.toSet()
 }

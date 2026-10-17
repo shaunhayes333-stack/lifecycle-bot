@@ -483,7 +483,7 @@ object SpecialistOwnership7951 {
         val l = lane7951(lane)
         val ts = HandoffRoute8180.tokenFor8180(mint)  // V5.0.8180 — the same map, by the meme key too
         when {
-            ts == null -> "DEFERRED_NO_TOKEN_STATE"
+            ts == null -> HandoffRetention8185.noTokenState8185(mint)  // V5.0.8185 — re-hydrate the open target
             ts.safety.isBlocked || ts.safety.hardBlockReasons.isNotEmpty() -> "TOKEN_SAFETY_BLOCKED"
             !receiverRecordSound8094(mint, l) -> "RECEIVER_RECORD_UNSOUND_8094"
             else -> null

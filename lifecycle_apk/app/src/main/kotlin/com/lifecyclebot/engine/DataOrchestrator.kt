@@ -1194,7 +1194,9 @@ class DataOrchestrator(
                 lbl("tape")
             }
         }
-        val unknown = keys - POLL_INPUTS_8087 - TAPE_INPUTS_8087 - "shape"
+        // V5.0.8185 — holders: ask the holder client now; the forced poll stamps its answer on the next candle.
+        if (HolderFetch8185.holderInput8185(keys)) { HolderFetch8185.request8185(mint); forcePoll8085.add(mint); lbl("holders") }
+        val unknown = keys - POLL_INPUTS_8087 - TAPE_INPUTS_8087 - "shape" - HolderFetch8185.HOLDER_INPUTS_8185
         if (unknown.isNotEmpty()) { forcePoll8085.add(mint); lbl("other") }
     }
 

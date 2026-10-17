@@ -972,7 +972,7 @@ object Cortex7885 {
         val st = synchronized(this) { vetoBook[vetoRuleOf(reason)] } ?: return false
         if (st.n < 40.0) return false
         val se = kotlin.math.sqrt(st.variance() / st.n)
-        val retired = st.mean() - se > 2.0
+        val retired = st.mean() - se > 2.0 && vetoRobustProof8185(st)  // V5.0.8185
         if (retired) inc("VETO_RETIRED_7953_${vetoRuleOf(reason)}")
         return retired
     }
@@ -1009,7 +1009,17 @@ object Cortex7885 {
     /** Pure. V5.0.8006 — refused candidates proven to win: 40+ graded, mean minus one SE above +2% net. */
     fun vetoProvenWinners8006(st: CortexLedger7885.Stat?): Boolean {
         if (st == null || st.n < 40.0) return false
-        return st.mean() - kotlin.math.sqrt(st.variance() / st.n) > 2.0
+        return st.mean() - kotlin.math.sqrt(st.variance() / st.n) > 2.0 && vetoRobustProof8185(st)  // V5.0.8185
+    }
+
+    /**
+     * Pure. V5.0.8185 §ROBUST_LABEL_READ — the veto book's refused winners must also be proven on a winsorised read:
+     * 5.0.8175's NATIVE_MCAP_TOO_HIGH n141 / +802.9% rested on $1M+ coins labelled at 100x+ inside minutes (a basis
+     * error 8180 stopped booking). Stored aggregates are kept; only the read is robust (RobustLabelRead8185).
+     */
+    fun vetoRobustProof8185(st: CortexLedger7885.Stat?): Boolean {
+        if (st == null) return false
+        return com.lifecyclebot.engine.truth.RobustLabelRead8185.robustWinnersProven8185(st.n, st.sum, st.sumSq, st.wins, st.variance())
     }
 
     private fun vetoLaneKey8006(rule: String, lane: String) = "$rule@$lane"
@@ -2042,7 +2052,9 @@ object Cortex7885 {
                 "      veto audit (refused candidates' forward return): " +
                 vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(12).joinToString(" · ") { (r, st) ->
                     val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY
-                    val flag = if (st.n >= 40.0 && st.mean() - se > 2.0) " REFUSING_WINNERS" else if (st.n >= 40.0 && st.mean() + se < -2.0) " ok" else ""
+                    val flag = if (st.n >= 40.0 && st.mean() - se > 2.0 && vetoRobustProof8185(st)) " REFUSING_WINNERS"
+                        else if (st.n >= 40.0 && st.mean() - se > 2.0) " OUTLIER_SUSPECT_8185"  // V5.0.8185 — winners only on implausible labels
+                        else if (st.n >= 40.0 && st.mean() + se < -2.0) " ok" else ""
                     "$r ${fmtStat(st)}$flag"
                 }.ifBlank { "none yet" } + "\n" +
                 "      realised whole-position outcome by entry verdict: " +

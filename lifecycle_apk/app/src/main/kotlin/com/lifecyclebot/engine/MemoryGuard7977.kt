@@ -107,7 +107,7 @@ object MemoryGuard7977 {
             .filter { (m, ts) ->
                 val last = ts.addedToWatchlistAt
                 prunable8025(m in watch, ts.position.isOpen || m in liveOpen,
-                    try { RunnerPlay8018.ticketActive8018(m, now) } catch (_: Throwable) { true }, now - last)
+                    (try { RunnerPlay8018.ticketActive8018(m, now) } catch (_: Throwable) { true }) || HandoffRetention8185.protects8185(m, now), now - last)  // V5.0.8185
             }
             .sortedBy { maxOf(it.value.lastPriceUpdate, it.value.addedToWatchlistAt) }
             .map { it.key }
@@ -184,7 +184,8 @@ object MemoryGuard7977 {
                 mint = m,
                 watched = m in watch,
                 open = ts.position.isOpen || m in liveOpen,
-                admission = m in sealed || com.lifecyclebot.engine.truth.AdmissionProspect8136.isActive8136(m, now),
+                admission = m in sealed || com.lifecyclebot.engine.truth.AdmissionProspect8136.isActive8136(m, now) ||
+                    HandoffRetention8185.protects8185(m, now),  // V5.0.8185 — an open hand-off target
                 critical = critical8136(m, now),
                 addedAtMs = ts.addedToWatchlistAt,
                 lastTouchMs = maxOf(ts.lastPriceUpdate, ts.addedToWatchlistAt),

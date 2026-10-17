@@ -302,6 +302,8 @@ object ForwardReturnLabeler7731 {
         /** V5.0.7769 — the 4-hour record, where a launch cell's runners pay. */
         val n240: Int = 0,
         val meanNet240Pct: Double = 0.0,
+        /** V5.0.8185 — the stored mean is impossible under the per-label plausibility cap (RobustLabelRead8185). */
+        val outlierSuspect8185: Boolean = false,
     ) {
         /** Share of observations that reached a label at the read rather than losing their mark. */
         val resolvedShare: Double get() = if (n60 + lost > 0) n60.toDouble() / (n60 + lost) else 0.0
@@ -1484,15 +1486,17 @@ object ForwardReturnLabeler7731 {
             val wins = t.win60 + (hive?.get(3)?.toInt() ?: 0)
             val runners = t.runner60 + (hive?.get(4)?.toInt() ?: 0)
             if (n <= 0 && t.lost <= 0) null else {
-                val mean = if (n > 0) sum / n else 0.0
-                val variance = if (n > 1) ((sumSq / n) - mean * mean).coerceAtLeast(0.0) else 0.0
-                val se = if (n > 1) kotlin.math.sqrt(variance / n) else Double.POSITIVE_INFINITY
+                // V5.0.8185 — robust read: a record impossible under the per-label plausibility cap proves nothing either way.
+                val robust = RobustLabelRead8185.read8185(key, n, sum, sumSq, wins)
+                val mean = robust.mean
+                val se = robust.stderr
                 CellStat(
                     key = key, n60 = n, meanNet60Pct = mean,
                     winRate60 = if (n > 0) wins.toDouble() / n else 0.0,
                     runnerRate60 = if (n > 0) runners.toDouble() / n else 0.0,
                     stderr60Pct = se, lost = t.lost,
                     n240 = t.n240, meanNet240Pct = if (t.n240 > 0) t.sum240 / t.n240 else 0.0,
+                    outlierSuspect8185 = robust.suspect,
                 )
             }
         }
@@ -1535,12 +1539,11 @@ object ForwardReturnLabeler7731 {
         return synchronized(t) {
             val n = t.n60
             if (n <= 0) null else {
-                val mean = t.sum60 / n
-                val variance = if (n > 1) ((t.sumSq60 / n) - mean * mean).coerceAtLeast(0.0) else 0.0
+                val robust = RobustLabelRead8185.read8185(key, n, t.sum60, t.sumSq60, t.win60)  // V5.0.8185
                 CellStat(
-                    key = key, n60 = n, meanNet60Pct = mean,
+                    key = key, n60 = n, meanNet60Pct = robust.mean,
                     winRate60 = t.win60.toDouble() / n, runnerRate60 = t.runner60.toDouble() / n,
-                    stderr60Pct = if (n > 1) kotlin.math.sqrt(variance / n) else Double.POSITIVE_INFINITY, lost = 0,
+                    stderr60Pct = robust.stderr, lost = 0, outlierSuspect8185 = robust.suspect,
                 )
             }
         }
@@ -1566,7 +1569,8 @@ object ForwardReturnLabeler7731 {
     fun laneStatFor7737(lane: String): CellStat? = laneStat(lane)
 
     private fun fmtStat(s: CellStat?): String =
-        if (s == null) "n=0" else "n=${s.n60} net=${"%+.1f".format(s.meanNet60Pct)}% wr=${"%.0f".format(s.winRate60 * 100)}% run=${"%.0f".format(s.runnerRate60 * 100)}% lost=${s.lost}"
+        if (s == null) "n=0" else "n=${s.n60} net=${"%+.1f".format(s.meanNet60Pct)}% wr=${"%.0f".format(s.winRate60 * 100)}% run=${"%.0f".format(s.runnerRate60 * 100)}% lost=${s.lost}" +
+            (if (s.outlierSuspect8185) " OUTLIER_SUSPECT_8185" else "")
 
     fun statusLine(): String {
         val cellStats = cells.keys
@@ -1587,7 +1591,8 @@ object ForwardReturnLabeler7731 {
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      kinds8063 best: ${kindBest.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }} | worst: ${kindWorst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none" }}\n" +
-            "      lanes60: ${lanes.joinToString(" · ").ifBlank { "no labels yet" }}"
+            "      lanes60: ${lanes.joinToString(" · ").ifBlank { "no labels yet" }}" +
+            " | robust8185[cap5m=${RobustLabelRead8185.CAP_FIVE_MINUTE_PCT_8185.toInt()}% capGT1M=${RobustLabelRead8185.CAP_LARGE_CAP_PCT_8185.toInt()}% suspectReads=${RobustLabelRead8185.suspectReads8185()}]"
     }
 
     /** Called when the service stops: the table survives the restart. */

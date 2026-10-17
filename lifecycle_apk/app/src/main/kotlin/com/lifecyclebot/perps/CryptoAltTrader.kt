@@ -3636,7 +3636,7 @@ object CryptoAltTrader {
                 routeAvailable = paper7803 || candidate.executionAdapter == "CRYPTO_UNIVERSE_EXECUTOR",
                 hardSafetyReasons = candidate.hardNoReasons + listOfNotNull(
                     livePreflight7835.second,
-                    if (!disciplinePassed6647) "CRYPTO_DISCIPLINE_REFUSED_7835" else null,
+                    com.lifecyclebot.engine.CryptoPreFdgReason8185.reasonFor8185(disciplinePassed6647, candidate),  // V5.0.8185 — true cause
                     // V5.0.8043 — owner: "it is off. and still running" — the crypto toggle OFF stops every new live crypto
                     // entry here (the monitor keeps managing positions already open). 6015's sidecar rule ran the crypto
                     // universe whenever the meme trader was on, regardless of the toggle.
