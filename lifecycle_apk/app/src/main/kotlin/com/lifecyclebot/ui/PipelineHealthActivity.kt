@@ -397,7 +397,8 @@ class PipelineHealthActivity : AppCompatActivity() {
         val delivered = java.util.concurrent.atomic.AtomicBoolean(false)
 
         fun deliverReport6308(rawText: String, source: String, buildErr: String = "") {
-            val safeText = try { com.lifecyclebot.engine.ReportingHub.clipboardSafeText(rawText) } catch (_: Throwable) { rawText.take(60_000) }
+            // V5.0.8176 — the COPY holds the 180k budget (compacted, low-priority sections trimmed); the share file keeps rawText.
+            val safeText = try { com.lifecyclebot.engine.ReportingHub.clipboardSafeText(com.lifecyclebot.engine.ReportBudget8176.forCopy8176(rawText)) } catch (_: Throwable) { rawText.take(60_000) }
             // V5.0.6401 ANR-KILLER — persist the FULL uncapped report to a
             // cache file on this background thread so the operator can share
             // it via file-URI (no clipboard truncation, no Binder freeze).
