@@ -98,7 +98,11 @@ class Aate8169CortexTest {
         assertFalse("a read before the decision is fine", CortexAudit8169.voterReadLeaks8169(500L, 1_000L, 5_000L))
         assertFalse("unknown times never flag", CortexAudit8169.voterReadLeaks8169(0L, 1_000L, 5_000L))
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertTrue(cx.contains("val late8169 = lateVoterRead8169(labelLane, nowMs, if (cached8169 != null && a === cached8169) a.atMs else jobAt8169)"))
+        // V5.0.8175 — superseded by V5.0.8174 (decision-time voters): captureNow no longer reads voters behind the queue;
+        // only an assessment cached AT OR BEFORE the decision is used (a later read is rejected), and its read time is audited.
+        assertTrue(cx.contains("val late8169 = lateVoterRead8169(labelLane, nowMs, a.atMs)"))
+        assertTrue(cx.contains("assessCache[\"${'$'}{ts.mint}|${'$'}{canon(labelLane)}\"]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS }"))
+        assertFalse(cx.substringAfter("private fun captureNow(").substringBefore("// ── V5.0.7920").contains("assess(ts, labelLane, nowMs)"))
         assertTrue(cx.contains("if (!hyg8144.authority || late8153 || lateRead8169) {"))
         assertTrue(cx.contains("inc(\"LABEL_HYGIENE_LATE_VOTER_READ_8169\")"))
         assertTrue("survives a restart", cx.contains(".put(\"lr8169\", p.lateRead8169)") && cx.contains("o.optBoolean(\"lr8169\", false)"))

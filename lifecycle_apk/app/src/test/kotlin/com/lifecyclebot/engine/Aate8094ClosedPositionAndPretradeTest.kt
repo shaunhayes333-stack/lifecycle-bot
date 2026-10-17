@@ -331,7 +331,10 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals("MID", pb.timingBand8094(10.0, 0.85))
         assertEquals(pb.TIMING_UNKNOWN_8094, pb.timingBand8094(Double.NaN, 0.9))
         val src = src("engine/cortex/LanePlaybook7907.kt")
-        assertTrue(src.contains("pendingTiming8094[\"${'$'}{ts.mint}|${'$'}{labelLane.trim().uppercase()}\"] = timingBandOf8094(ts)"))
+        // V5.0.8175 — superseded by V5.0.8174: the band is frozen at the decision (Cortex7885.capture) and only falls back
+        // to the token's own band when none was passed; it is still graded per setup x timing below.
+        assertTrue(src.contains("pendingTiming8094[\"${'$'}{ts.mint}|${'$'}{labelLane.trim().uppercase()}\"] = timingAtDecision8174 ?: timingBandOf8094(ts)"))
+        assertTrue(src("engine/cortex/Cortex7885.kt").contains("val timing8174 = try { LanePlaybook7907.timingBandOf8094(ts) }"))
         assertTrue(src.contains(".getOrPut(\"${'$'}setup|${'$'}timing8094\") { CortexLedger7885.Stat() }"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("LanePlaybook7907.timingNegative8094(ts, l8059, nowMs)"))
     }
@@ -360,7 +363,9 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(cold.contains("val candidates = matchedSetups8083(ts, lane, nowMs)"))
         assertTrue(cold.contains("!setupRecordNegative8094(it.n, it.mean(), it.variance())"))
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertTrue(cx.contains("Pending(a, admitted, nowMs, veto, ts.source, setup7961, fired8094)"))
+        // V5.0.8175 — superseded by V5.0.8174: the source is frozen at the decision (ts.source read before enqueue).
+        assertTrue(cx.contains("Pending(a, admitted, nowMs, veto, frozenSource8174, setup7961, fired8094)"))
+        assertTrue(cx.contains("val source8174 = ts.source"))
         assertTrue(cx.contains("for (f in p.fired8094) {"))
         assertTrue(cx.contains("LanePlaybook7907.selectedSetup8094(ts, a.lane, System.currentTimeMillis())"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) }"))
