@@ -1,0 +1,89 @@
+# Temporary (historical test repair): runs the JVM unit suite on this branch and pushes a machine-readable summary of
+# every failure to the `ci-results` branch, because the test-report artifact cannot be downloaded from the repair
+# environment. Removed before the repair merges.
+name: Unit results export
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ diag/8196-tests ]
+  workflow_dispatch:
+
+concurrency:
+  group: unit-results-export-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lifecycle_apk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Version
+        run: |
+          VERSION_NAME="$(tr -d '[:space:]' < AATE_VERSION)"
+          echo "AATE_BUILD_NUMBER=${VERSION_NAME##*.}" >> "$GITHUB_ENV"
+          echo "AATE_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+      - name: Unit tests (full suite, never stops early)
+        run: |
+          set +e
+          ./gradlew testReleaseUnitTest --continue --no-daemon -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME > ../gradle_out.txt 2>&1
+          echo "GRADLE_EXIT=$?" >> "$GITHUB_ENV"
+          tail -5 ../gradle_out.txt
+      - name: Summarise
+        run: |
+          python3 - <<'PY'
+          import glob, json, re, xml.etree.ElementTree as ET, os
+          out = {"sha": os.environ["GITHUB_SHA"], "gradle_exit": os.environ.get("GRADLE_EXIT"), "tests": 0, "failures": []}
+          for f in sorted(glob.glob('app/build/test-results/testReleaseUnitTest/TEST-*.xml')):
+              root = ET.parse(f).getroot()
+              for tc in root.iter('testcase'):
+                  out["tests"] += 1
+                  for fl in list(tc.findall('failure')) + list(tc.findall('error')):
+                      body = (fl.text or '')
+                      frames = [l.strip() for l in body.splitlines() if 'com.lifecyclebot' in l][:6]
+                      out["failures"].append({"class": tc.get('classname'), "test": tc.get('name'),
+                          "type": fl.get('type', ''), "message": (fl.get('message') or '')[:2000], "frames": frames})
+          g = open('../gradle_out.txt', errors='replace').read()
+          out["compile_errors"] = [l for l in g.splitlines() if l.startswith('e: ')][:300]
+          out["gradle_tail"] = g.splitlines()[-60:]
+          json.dump(out, open('../unit_results.json', 'w'), indent=1)
+          print(out["tests"], "tests", len(out["failures"]), "failures", len(out["compile_errors"]), "compile errors")
+          PY
+      - name: Publish summary to ci-results branch
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA::7}"
+          cp unit_results.json /tmp/unit_results.json
+          git config user.name "ci-results-bot"
+          git config user.email "ci-results-bot@users.noreply.github.com"
+          git fetch origin ci-results || true
+          if git rev-parse --verify origin/ci-results >/dev/null 2>&1; then
+            git checkout -B ci-results origin/ci-results
+          else
+            git checkout --orphan ci-results
+            git rm -rq --cached . || true
+            find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          fi
+          mkdir -p results
+          cp /tmp/unit_results.json "results/$SHA.json"
+          cp /tmp/unit_results.json results/latest.json
+          git add results
+          git commit -qm "unit results $SHA"
+          git push origin ci-results
