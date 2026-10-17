@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object ReconcileRunner8144 {
     private const val PERIOD_MS_8144 = 5L * 60_000L
+    private const val MISMATCH_RECHECK_MS_8171 = 60_000L
     private const val INITIAL_DELAY_MS_8144 = 90_000L
     private const val SNAPSHOT_MAX_AGE_MS_8144 = 6L * 60_000L
     private const val JOURNAL_WINDOW_8144 = 2_000
@@ -56,7 +57,10 @@ object ReconcileRunner8144 {
     fun ensureStarted8144() {
         if (!started.compareAndSet(false, true)) return
         scheduler8144.execute { installHooks8144() }
-        scheduler8144.scheduleWithFixedDelay({ runSafely8144() }, INITIAL_DELAY_MS_8144, PERIOD_MS_8144, TimeUnit.MILLISECONDS)
+        // Healthy accounts retain the five-minute full audit; a mismatch is
+        // rechecked every minute after recovery was requested, rather than
+        // leaving a stale chain exception on screen for another five minutes.
+        scheduler8144.scheduleWithFixedDelay({ runSafely8144() }, INITIAL_DELAY_MS_8144, MISMATCH_RECHECK_MS_8171, TimeUnit.MILLISECONDS)
     }
 
     private fun installHooks8144() {
@@ -71,8 +75,15 @@ object ReconcileRunner8144 {
         }
     }
 
+    fun shouldRecheck8171(lastWasHealthy: Boolean, ageMs: Long): Boolean =
+        !lastWasHealthy || ageMs < 0L || ageMs >= PERIOD_MS_8144
+
     private fun runSafely8144() {
-        try { runOnce8144() } catch (t: Throwable) { lastError = t.message ?: t.javaClass.simpleName }
+        try {
+            val now = System.currentTimeMillis()
+            if (lastAtMs > 0L && !shouldRecheck8171(last?.ok == true, now - lastAtMs)) return
+            runOnce8144(now)
+        } catch (t: Throwable) { lastError = t.message ?: t.javaClass.simpleName }
     }
 
     /** One reconciliation pass. Off the main thread only. */

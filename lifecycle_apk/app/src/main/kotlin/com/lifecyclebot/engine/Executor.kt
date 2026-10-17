@@ -2652,7 +2652,7 @@ class Executor(
     }
 
     /** V5.0.8151 — an entry is ORDINARY unless the runner grab marked it to land next slot (RunnerGrab7967). */
-    private fun entryOrdinary8151(mint: String): Boolean = try { !RunnerGrab7967.isGrabbed7980(mint) && !LandingMeter8169.buyUnlandedRecently8169(mint) } catch (_: Throwable) { false }  // V5.0.8169 — a buy that expired unseen retries urgent
+    private fun entryOrdinary8151(mint: String): Boolean = try { !RunnerGrab7967.isGrabbed7980(mint) && !LandingMeter8169.buyUnlandedRecently8169(mint) && !com.lifecyclebot.engine.truth.LaunchCohort8173.latencyCriticalBuy8173(mint) } catch (_: Throwable) { false }  // V5.0.8169 — a buy that expired unseen retries urgent; V5.0.8173 — a fresh-curve launch buy is latency-critical
 
     /** V5.0.8151 — a PumpPortal sell label that is a non-urgent profit slice (not its rescue). */
     private fun ordinarySliceLabel8151(labelTag: String): Boolean = labelTag.startsWith("PARTIAL-") && !labelTag.contains("RESCUE")
@@ -20578,7 +20578,7 @@ class Executor(
                     srcUpperForRoute.contains("RAYDIUM_NEW_POOL") ||
                     srcUpperForRoute.contains("SCANNER_DIRECT_RAYDIUM_NEW_POOL")
             )
-            val freshPumpRoute = pumpPortalAutoEligible4559 && !costAggregatorFirst8151(ts, wallet)  // V5.0.8151 — cheapest executable route
+            val freshPumpRoute = pumpPortalAutoEligible4559 && !costAggregatorFirst8151(ts, wallet) && !com.lifecyclebot.engine.truth.LaunchCohort8173.pumpFallback8173(ts.mint)  // V5.0.8151 — cheapest executable route; V5.0.8173 — PumpPortal just failed for this mint: the route that lands
             val pumpBuyPlan = if (!freshPumpRoute) {
                 try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_ROUTE_POLICY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} src=${ts.source.take(80)} reason=deep_amm_use_jupiter_first pumpPortalAutoEligible4559=false") } catch (_: Throwable) {}
                 null

@@ -27,7 +27,8 @@ object TokenMapAuthority {
      */
     fun observedLiquidityUsd(ts: TokenState): Double {
         // V5.0.8048 — an active curve's own account (real SOL bought) outranks any stored figure, up or down.
-        try { com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }?.let { real ->
+        // V5.0.8173 — the same stale-checked reading LiquidityTruth8037 uses (LaunchCohort8173.curveRealSolFor8173).
+        try { com.lifecyclebot.engine.truth.LaunchCohort8173.curveRealSolFor8173(ts) } catch (_: Throwable) { null }?.let { real ->
             val px = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
             if (px.isFinite() && px > 0.0) return real * px
         }

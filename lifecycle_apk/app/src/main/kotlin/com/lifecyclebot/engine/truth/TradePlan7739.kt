@@ -364,6 +364,20 @@ object TradePlan7739 {
         if (!runner7878) LivePivotAuthority7876.liveRefusal(lane, paper, nowMs)?.let { return it }
         // V5.0.7877 — always on: live only where a measured, net-of-cost prediction says it pays.
         LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)?.let { return it }
+        // V5.0.8171: when the candidate's own graded positive edge is
+        // admitted by the same canonical authority the FDG uses, optional
+        // missing plan bars must not create a contradictory SECOND refusal.
+        // Safety, structural risk, quote economics and the live edge gate have
+        // already been checked. Plan the same graded early exit as 7975.
+        val specific8171 = candidateAdmission ?: try {
+            CandidateAdmission8136.assess8136(ts, lane, nowMs, candidateVersion)
+        } catch (_: Throwable) { null }
+        if (specific8171?.admitted == true && specific8171.specific) {
+            plans[ts.mint] = Plan(Setup.LAUNCH_EARLY, -gradedStopMag8094(lane), LAUNCH_FIRST_TARGET_PCT_7742, LAUNCH_TARGET_PCT_7742, nowMs)
+            admitted.computeIfAbsent(Setup.LAUNCH_EARLY) { AtomicLong(0) }.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("PLAN_GRADED_EDGE_OPTIONAL_BARS_ADMIT_8171") } catch (_: Throwable) {}
+            return null
+        }
         // V5.0.7975 — admitted on positive evidence (specialist / proven cell / full-authority
         // Cortex): planned as an early launch-style entry now, not made to wait for a chart setup.
         if (LiveEdgeGate7877.positiveAdmit7975(ts.mint, nowMs)) {

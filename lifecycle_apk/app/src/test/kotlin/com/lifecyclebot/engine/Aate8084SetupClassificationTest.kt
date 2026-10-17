@@ -113,7 +113,8 @@ class Aate8084SetupClassificationTest {
     @Test fun captureIsFrozenAtDecisionTime() {
         val c = src("engine/cortex/Cortex7885.kt")
         val cap = c.substringAfter("fun capture(ts: TokenState, labelLane: String, admitted: Boolean").substringBefore("private fun captureNow(")
-        assertTrue(cap.indexOf("decisionSnapshot8084(ts, labelLane, nowMs)") in 0 until cap.indexOf("submit(\"CAPTURE\")"))
+        // V5.0.8172 — superseded by V5.0.8171: capture runs on its own pool (submitCapture8171); the classification is still frozen before it is queued.
+        assertTrue(cap.indexOf("decisionSnapshot8084(ts, labelLane, nowMs)") in 0 until cap.indexOf("submitCapture8171 {"))
         assertTrue(c.contains("LanePlaybook7907.capture(ts, a.lane, labelLane, nowMs, snap8084)"))
         assertTrue(c.contains("LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080, p.setup7961)"))
         val p = src("engine/cortex/LanePlaybook7907.kt")

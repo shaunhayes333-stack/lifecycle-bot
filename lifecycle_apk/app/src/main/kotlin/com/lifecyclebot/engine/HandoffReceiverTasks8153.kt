@@ -118,7 +118,13 @@ object HandoffReceiverTasks8153 {
                  evidenceAtMs: Long, nowMs: Long, newHandoffAtMs: Long = 0L): Task8153? {
         val l = canon8153(lane)
         if (mint.isBlank() || l.isBlank() || l in NOT_RECEIVERS_8153 || l == canon8153(from)) return prior
-        if (prior != null && prior.pending && nowMs <= prior.validUntilMs) return prior
+        // A newer, independently emitted handoff with a DIFFERENT candidate version
+        // supersedes the old receiver task. 8169 could keep the old version alive
+        // until TTL, preventing the fresh receiver from ever reaching its FDG.
+        // Repeated reads of the SAME handoff/version still coalesce as before.
+        if (prior != null && prior.pending && nowMs <= prior.validUntilMs &&
+            (version <= 0L || prior.version <= 0L || prior.version == version || newHandoffAtMs <= prior.createdAtMs)
+        ) return prior
         if (prior != null && !prior.pending && prior.lane == l && nowMs - prior.settledAtMs in 0L..SETTLED_HOLD_MS_8153 &&
             prior.settledAtMs >= newHandoffAtMs) return prior
         return Task8153(mint, l, canon8153(from), reason.take(80), version, nowMs, nowMs + TASK_TTL_MS_8153, evidenceAtMs)
@@ -243,6 +249,13 @@ object HandoffReceiverTasks8153 {
     /** Counts what changed between [before] and [after] once (opened / transferred / settled by outcome). */
     private fun account8153(before: Task8153?, after: Task8153?) {
         if (after == null || before === after) return
+        if (before != null && before.pending && before.createdAtMs != after.createdAtMs) {
+            // Preserve terminal accounting when a newly emitted candidate version
+            // supersedes an older pending task; never silently discard lineage.
+            count8153("REFUSED")
+            tally8169(before.copy(outcome = Outcome8153.REFUSED, verdict = "SUPERSEDED_FRESH_VERSION_8170",
+                settledAtMs = after.createdAtMs))
+        }
         if (before == null || (after.createdAtMs != before.createdAtMs)) count8153("OPENED")
         else if (after.lane != before.lane && after.pending) count8153("TRANSFERRED")
         if (before != null && after.schedules == 1 && before.schedules == 0 && after.createdAtMs == before.createdAtMs &&
@@ -370,6 +383,19 @@ object HandoffTaskRuntime8153 {
     /** A refusal met by [lane]'s task: fit hands it on (election and ledger follow), anything else is applied as classified. */
     private fun refused8153(mint: String, lane: String, reason: String, nowMs: Long) {
         val block = blockOf8153(reason)
+        if (block == HandoffReceiverTasks8153.Block8153.DATA) {
+            // Do not spend the entire 45 s receiver TTL merely waiting for another
+            // ordinary scanner poll. Request the missing input through the existing
+            // per-mint 30 s coalescer; failed providers still leave it UNKNOWN.
+            try {
+                val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
+                if (ts != null) {
+                    val missing = com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, lane, nowMs).orEmpty()
+                    val liq = if (reason.contains("LIQ", true) && missing.none { it.startsWith("liq:") }) listOf("liq:UNKNOWN") else emptyList()
+                    com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missing + liq, nowMs)
+                }
+            } catch (_: Throwable) {}
+        }
         if (block != HandoffReceiverTasks8153.Block8153.FIT) {
             HandoffReceiverTasks8153.blockTask8153(mint, lane, block, reason, nowMs)
             return
@@ -424,10 +450,12 @@ object HandoffTaskRuntime8153 {
     fun onReceiverNativeRefused8153(mint: String, lane: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
         try {
             if (!HandoffReceiverTasks8153.isDue8153(mint, lane, nowMs, version8153(mint))) return
-            // Fit with nowhere left to go ends FIT_NO_COMPATIBLE_RECEIVER; safety stays binding; anything else is its judgement.
-            // Preserve missing-data / busy-slot states through the runtime adapter as well as the ledger.
-            val block = blockOf8153(reason)
-            HandoffReceiverTasks8153.blockTask8153(mint, lane, block, "NATIVE_REFUSED:$reason", nowMs)
+            // A fit refusal is THIS lane's refusal, not a token-wide rejection.
+            // The previous path called blockTask8153(FIT) directly and ended a
+            // recoverable handoff even if another native specialist was eligible.
+            // The shared adapter transfers to the next eligible receiver (or
+            // produces a named terminal); safety refusals remain binding.
+            refused8153(mint, lane, reason, nowMs)
         } catch (_: Throwable) {}
     }
 

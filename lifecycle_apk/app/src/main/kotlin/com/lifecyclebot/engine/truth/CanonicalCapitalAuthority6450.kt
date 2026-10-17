@@ -170,6 +170,16 @@ object CanonicalCapitalAuthority6450 {
         val activeMintSet6492 = activeMints.map { it.mint }.toSet()
         lastGoodMark6492.keys.removeIf { it !in activeMintSet6492 }
         val markedValue6492 = activeMints.sumOf { aggregate ->
+            // V5.0.8170: a snapshot with funded open cost=0 and 17 historical
+            // fallback paper mints used to report 19.94 SOL phantom market value,
+            // while unrealized=0 and the conservation checksum still passed.
+            // Withhold valuation until BOTH the ledger and the position have a
+            // funded cost; preserve the canonical inventory for reconciliation.
+            if (!PaperFundingGuard8170.hasFundedBasis8170(openCost, aggregate.remainingCostBasisSol)) {
+                fallbackMarkMints6492++
+                try { PipelineHealthCollector.labelInc("PAPER_UNFUNDED_MARK_SUPPRESSED_8170") } catch (_: Throwable) {}
+                return@sumOf 0.0
+            }
             // V5.0.7060 §8 — prefer the per-token quote and supply the quantity
             // from THIS projection, so market value and cost basis are derived
             // from one canonical row. Falls back to the whole-mint provider

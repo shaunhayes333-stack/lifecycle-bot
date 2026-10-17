@@ -121,6 +121,17 @@ object CandidateAdmission8136 {
     internal const val STALE_PRICE_MS_8136 = 5L * 60_000L
     internal const val HOT_STALE_PRICE_MS_8136 = 60_000L
 
+    // V5.0.8170: incomplete optional chart context is not equal to missing executable proof.
+    // Even a genuinely profitable, graded setup must NOT compensate for an unobserved
+    // sellable venue, liquidity, supply/decimals, price or cost.
+    private val CRITICAL_MISSING_8170 = setOf(
+        "LIQ", "LIQUIDITY", "PRICE", "ECONOMICS", "ROUTE", "SELLABILITY",
+        "TOKEN_MAP", "MINT", "IDENTITY", "DECIMALS", "SUPPLY", "DEPTH", "QUOTE",
+    )
+    fun criticalMissing8170(missing: String): Boolean =
+        missing.substringBefore(':').trim().uppercase() in CRITICAL_MISSING_8170
+
+
     internal fun fmt8136(v: Double): String = if (v.isFinite()) "%+.1f".format(v) else "-"
 
     // ── pure evidence tests ──
@@ -210,8 +221,17 @@ object CandidateAdmission8136 {
         if (provenLosing8136(cellLoss)) { trace += "cellLosing=${cellLoss?.compact}"; return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen) }
         if (staleLoss8169(c.lossEpochAware8169, c.cell, cellLoss)) trace += "$STALE_CELL_TRACE_8169${c.cell?.compact}"
         if (provenLosing8136(stageLoss) && !cellSupported) {
-            trace += "stageLosing=${stageLoss?.compact}"
-            return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
+            // V5.0.8173 — the stage record is a lane-wide prior (every coin of the lane at this lifecycle stage). A fired
+            //    setup supported on its own record (StrategyRank8153: n, mean - SE, its own timing band) is the token-specific
+            //    edge and is the strategy instead, exactly as for a losing selected setup or tactic above — unless the
+            //    coin's own cell is losing. 5.0.8172: STAGE_PROVEN_LOSING refused 432 while LAUNCH_LADDER_PROVEN (n210, auth
+            //    1.00) fired on the same launches. Economics, data and the edge test below still decide.
+            if (bestSetup == null || losing8136(cellLoss)) {
+                trace += "stageLosing=${stageLoss?.compact}"
+                return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
+            }
+            trace += "stageLosing=${stageLoss?.compact} carried by setup ${bestSetup.compact}"
+            if (bestSetup.id != chosen) chooseSetup(bestSetup.id)
         }
         if (!cellSupported && staleLoss8169(c.lossEpochAware8169, c.stageRecord, stageLoss)) trace += "$STALE_STAGE_TRACE_8169${c.stageRecord?.compact}"
         if (c.losingTactic != null && bestSetup == null && !cellSupported) {
@@ -238,6 +258,21 @@ object CandidateAdmission8136 {
         // Resolve the winning strategy before validating its executable economics.
         if (edge?.kind == KIND_SETUP && edge.id != chosen) chooseSetup(edge.id)
 
+        // V5.0.8171: an unformed optional chart has no gross-move forecast;
+        // that does NOT erase a statistically supported NET executable cohort.
+        // Translate only the conservative measured net lower bound back to gross
+        // using this candidate's KNOWN round-trip cost. Never use a prior, a
+        // thin positive, a hypothetical runner tail or an unknown cost.
+        // V5.0.8172 — only when the candidate's own move is unformed (no chart). A measured chart with an unmeasured
+        // ALTERNATIVE setup defers on economics: the alternative never borrows a move it was not measured on (8153).
+        if (!decisionGross.isFinite() && !c.expectedGrossPct.isFinite() && edge != null && edge.netOfCost &&
+            edge.lowerPct.isFinite() && edge.lowerPct > 0.0 &&
+            c.costPct.isFinite() && c.costPct >= 0.0) {
+            decisionGross = edge.lowerPct + c.costPct
+            net = edge.lowerPct
+            trace += "grossFromProvenNetLower8171=${fmt8136(edge.lowerPct)} cost=${fmt8136(c.costPct)}"
+        }
+
         // 4. execution economics: the expected executable move must clear NetEdge8030.EDGE_MULT x the round trip.
         val econKnown = decisionGross.isFinite() && c.costPct.isFinite()
         if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct)) {
@@ -247,11 +282,17 @@ object CandidateAdmission8136 {
         // 5. data: a stale price or unknown economics defers every candidate; missing classifier inputs defer a candidate
         //    with no supported evidence of its own (its setup cannot be judged yet).
         val stale = priceStale8136(c.priceAgeMs, c.hotLaunch)
-        if (stale || !econKnown || (c.missingInputs.isNotEmpty() && edge == null)) {
+        val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170)
+        if (stale || !econKnown || criticalMissing8170.isNotEmpty() || (c.missingInputs.isNotEmpty() && edge == null)) {
             val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + (if (!econKnown) listOf("economics") else emptyList())
             trace += "missing=${missing.joinToString(",")}"
+            if (criticalMissing8170.isNotEmpty()) trace += "criticalUnobserved8170=${criticalMissing8170.joinToString(",")}"
             return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, chosen)
         }
+        // A price/route/cost-proven candidate with POSITIVE candidate-specific graded
+        // evidence may trade through an OPTIONAL shape/tape/context gap. Do not
+        // reclassify optional absence as a fake signal; retain the gap in its seal.
+        if (c.missingInputs.isNotEmpty()) trace += "optionalUnobserved8170=${c.missingInputs.joinToString(",")}"
 
         // 6. supported candidate-specific edge: the generic score is only a prior.
         if (edge != null) {
@@ -561,7 +602,18 @@ object CandidateAdmission8136 {
         } catch (_: Throwable) { null }
         val cost8153 = try { NetEdge8030.entryCostPct8136(ts, lane) } catch (_: Throwable) { Double.NaN }
         val curveActive8153 = try { CurveReserves7951.realSolIfActive8046(ts.mint, nowMs) != null } catch (_: Throwable) { false }
-        val liquidityMissing8153 = !curveActive8153 && StrategyMove8153.liquidityRead8153(ts.lastLiquidityUsd) == "UNKNOWN"
+        // V5.0.8170: a live DexScreener pair or sweep already priced the actual
+        // liquidity, but the token-local scalar hadn't received the ordinary poll.
+        // Use the same dated source the setup resolver reads to avoid needless
+        // DATA_INCOMPLETE; the on-chain pool/route hard gates remain later.
+        val observedLiq8170 = try {
+            SetupFeatureResolver8169.observedLiquidity8170(ts.mint,
+                try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts)?.ageMin ?: Double.NaN } catch (_: Throwable) { Double.NaN },
+                nowMs)
+        } catch (_: Throwable) { null }
+        val liquidityMissing8153 = !curveActive8153 &&
+            StrategyMove8153.liquidityRead8153(ts.lastLiquidityUsd) == "UNKNOWN" &&
+            observedLiq8170 == null
         val safety = if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK)
             "HARD_BLOCK:${ts.safety.hardBlockReasons.firstOrNull().orEmpty().take(40)}" else null
         val priceAge = if (ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE

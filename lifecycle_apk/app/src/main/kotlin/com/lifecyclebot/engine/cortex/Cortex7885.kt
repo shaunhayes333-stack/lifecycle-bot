@@ -264,6 +264,31 @@ object Cortex7885 {
             }
         },
     )
+    // V5.0.8171: decision-time Cortex captures no longer wait behind a queue
+    // of slow native/voter assessments. 8169 measured mean capture lag 3.65 s
+    // with 190 queued and 257 late reads. Two single-worker pools retain the
+    // original maximum of two workers but reserve one exclusively for captures.
+    // Bounded queue: if overwhelmed the oldest observation is discarded and
+    // accounted for; we never relabel a late read as decision-time proof.
+    private val capturePool8171: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
+        1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(128),
+        { r -> Thread(r, "cortex-capture-8171").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
+        java.util.concurrent.RejectedExecutionHandler { r, ex ->
+            if (!ex.isShutdown) {
+                ex.queue.poll()
+                inc("CAPTURE_QUEUE_DROP_8171")
+                try { ex.execute(r) } catch (_: Throwable) { inc("CAPTURE_REJECTED_8171") }
+            }
+        },
+    )
+
+    private fun submitCapture8171(job: () -> Unit) {
+        try {
+            capturePool8171.execute { try { job() } catch (_: Throwable) { inc("CAPTURE_FAILED_8171") } }
+            inc("ASYNC_CAPTURE")
+        } catch (_: Throwable) { inc("CAPTURE_REJECTED_8171") }
+    }
+
     private val scheduled = ConcurrentHashMap<String, Long>()
 
     private fun submit(tag: String, job: () -> Unit) {
@@ -278,7 +303,7 @@ object Cortex7885 {
         try { ensureLoaded(); synchronized(this) { board.inverted7948(canon(laneRaw), accountMode8077()) } } catch (_: Throwable) { false }
 
     /** For CortexInvariants7911. */
-    fun queuedTasks(): Int = try { pool.queue.size } catch (_: Throwable) { 0 }
+    fun queuedTasks(): Int = try { pool.queue.size + capturePool8171.queue.size } catch (_: Throwable) { 0 }
     fun pendingCount(): Int = pending.size
 
     /** The fresh cached assessment, or null after scheduling one (never computes inline). */
@@ -305,7 +330,7 @@ object Cortex7885 {
         val snap8084 = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
         // V5.0.8153 — and the strategy the coin trades as (proven / valid alternative / classified), at the same instant.
         val sel8153 = try { LanePlaybook7907.selectedSetup8094(ts, labelLane, nowMs) } catch (_: Throwable) { null }
-        submit("CAPTURE") { captureNow(ts, labelLane, admitted, nowMs, reason, snap8084, sel8153) }
+        submitCapture8171 { captureNow(ts, labelLane, admitted, nowMs, reason, snap8084, sel8153) }
     }
 
     private fun captureNow(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?,
@@ -1969,7 +1994,7 @@ object Cortex7885 {
                 "seats=${seats.size} seated=${seated.size}\n" +
                 "      vote cleaning (§8007): ${synchronized(this) { ledger.cleanLine8007() }}\n" +
                 "      invariants & provenance v11 (§7911): ${try { CortexInvariants7911.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
-                "      compute (§2.9 v1, 7909): pool active=${pool.activeCount} queued=${pool.queue.size} done=${pool.completedTaskCount} slowVoters=${CortexVoters7885.slowLine()} " +
+                "      compute (§2.9 v1, 7909): pool active=${pool.activeCount} queued=${pool.queue.size} captureActive8171=${capturePool8171.activeCount} captureQueued8171=${capturePool8171.queue.size} done=${pool.completedTaskCount} slowVoters=${CortexVoters7885.slowLine()} " +
                 "${CortexVoters7885.memoLine8169()} ${CortexAudit8169.captureLine()}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"}\n" +
                 "      outcome truth v12 (§7912, whole-position closes): ${realLedgers.entries.joinToString(" · ") { (mode, l) ->

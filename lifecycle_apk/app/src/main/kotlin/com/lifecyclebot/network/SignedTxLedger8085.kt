@@ -82,6 +82,7 @@ object SignedTxLedger8085 {
         if (to == State.EXPIRED_PROVEN) attributeExpiry8087(e, detail, nowMs)
         if (to == State.EXPIRED_PROVEN && e.side == "BUY") try { com.lifecyclebot.engine.LandingMeter8169.noteBuyUnlanded8169(e.mint, nowMs) } catch (_: Throwable) {}  // V5.0.8169
         e.state = to; e.updatedAtMs = nowMs
+        if (e.side == "BUY") try { com.lifecyclebot.engine.truth.LaunchCohort8173.noteBuyOutcome8173(e.mint, e.route, to.name, nowMs) } catch (_: Throwable) {}  // V5.0.8173
         if (detail.isNotBlank()) e.detail = detail.take(160)
         if (acceptedBy.isNotBlank()) e.acceptedBy = (if (e.acceptedBy.isBlank()) acceptedBy else "${e.acceptedBy},$acceptedBy").take(80)
         if (e.side == "SELL") routeLanding8164(e, to)

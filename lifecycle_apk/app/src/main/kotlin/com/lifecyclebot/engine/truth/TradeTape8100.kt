@@ -101,13 +101,14 @@ object TradeTape8100 {
         val last = trades.last().priceSol
         val bp = buyPressure8100(trades.filter { !it.priceOnly && nowMs - it.atMs in 0L..BP_WINDOW_MS }.map { it.isBuy to it.sol })
         val chg = run {
-            val at5 = trades.lastOrNull { it.atMs <= nowMs - 5L * 60_000L } ?: return@run null
             val launchAt = try { com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint) } catch (_: Throwable) { null }
             val launchPx = try { com.lifecyclebot.network.PumpCurveKeys7269.createPriceSol7280(mint) } catch (_: Throwable) { null }
-            val base1h = trades.lastOrNull { it.atMs <= nowMs - 60L * 60_000L }?.priceSol
-                ?: launchPx?.takeIf { launchAt != null && nowMs - launchAt in 0L..60L * 60_000L }
-                ?: return@run null
-            (last / at5.priceSol - 1.0) * 100.0 to (last / base1h - 1.0) * 100.0
+            // V5.0.8173 — a launch younger than 5 minutes has no trade 5 minutes ago: its launch price is the base (as for 1 h).
+            val base5m = LaunchCohort8173.windowBase8173(trades.lastOrNull { it.atMs <= nowMs - 5L * 60_000L }?.priceSol,
+                launchPx, launchAt, nowMs, 5L * 60_000L) ?: return@run null
+            val base1h = LaunchCohort8173.windowBase8173(trades.lastOrNull { it.atMs <= nowMs - 60L * 60_000L }?.priceSol,
+                launchPx, launchAt, nowMs, 60L * 60_000L) ?: return@run null
+            (last / base5m - 1.0) * 100.0 to (last / base1h - 1.0) * 100.0
         }
         val closes = trades.filter { nowMs - it.atMs in 0L..24L * 60_000L }
             .groupBy { it.atMs / 60_000L }.toSortedMap().values.map { it.last().priceSol }

@@ -36,6 +36,11 @@ object CanonicalTokenBirthTime7440 {
         } catch (_: Throwable) {}
         // V5.0.8144 — every create frame (also throttled / reserve-less ones) and pump.fun's coin record are the create event too.
         try { AdmissionBirth8144.pumpCreateMs8144(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.PUMP_CREATE_EVENT) } } catch (_: Throwable) {}
+        // V5.0.8173 — the other direct witnesses AdmissionBirth8144 already holds by mint: a pump mint's own bonding-curve pair
+        // (MarketSweep7297 enrichment notes it there and nowhere else, so launch lanes read UNKNOWN_DEFER beside it) and the
+        // mint's oldest signature with its history read to the end (in memory before the meta cache's lazy disk read).
+        try { AdmissionBirth8144.curvePairMs8169(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.PUMP_CREATE_EVENT) } } catch (_: Throwable) {}
+        try { AdmissionBirth8144.oldestSignatureMs8169(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.TOKEN_META_CREATION) } } catch (_: Throwable) {}
 
         try {
             val poolMs = PoolCreationTime7385.createdAtMs(m) ?: 0L

@@ -132,6 +132,9 @@ object CurveReserves7951 {
         return r.realSol.takeIf { it.isFinite() && it >= 0.0 }
     }
 
+    /** V5.0.8173 — when [mint]'s curve reading was observed (epoch ms), or null when none is held (LaunchCohort8173). */
+    fun readingAtMs8173(mint: String): Long? = rows[mint.trim()]?.atMs
+
     /** True when this mint's curve reserves have been observed. */
     fun known7951(mint: String): Boolean = rows.containsKey(mint.trim())
 

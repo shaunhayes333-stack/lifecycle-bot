@@ -298,8 +298,25 @@ object NetEdge8030 {
     }
     private val unpricedDepth8037 = AtomicLong(0)
 
-    private fun liquidity8037(ts: TokenState): Double =
-        try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
+    /** Price the candidate's expected impact from the same dated, positive
+     * pair/sweep observation that CandidateAdmission8136 reads when its own
+     * token scalar has not hydrated. It is COST ESTIMATION ONLY — never a
+     * liquidity safety permit, an on-chain depth proof, or an entry quote.
+     * A real canonical liquidity reading always takes priority.
+     */
+    fun pricingDepth8171(canonicalUsd: Double, datedObservedUsd: Double?): Double =
+        if (canonicalUsd.isFinite() && canonicalUsd > 0.0) canonicalUsd
+        else datedObservedUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+
+    private fun liquidity8037(ts: TokenState): Double {
+        val canonical = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
+        if (canonical.isFinite() && canonical > 0.0) return canonical
+        val now = System.currentTimeMillis()
+        val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, now) ?: Double.NaN } catch (_: Throwable) { Double.NaN }
+        val dated = try { SetupFeatureResolver8169.observedLiquidity8170(ts.mint, age, now) } catch (_: Throwable) { null }
+        if (dated != null && dated > 0.0) try { PipelineHealthCollector.labelInc("NET_EDGE_OBSERVED_DEPTH_COST_ONLY_8171") } catch (_: Throwable) {}
+        return pricingDepth8171(canonical, dated)
+    }
 
     /** Pure: the move to expect — the lane's mandate, capped by what the coin is actually moving when that is known. */
     fun expectedMove8035(mandatePct: Double, realizedPct: Double?): Double =

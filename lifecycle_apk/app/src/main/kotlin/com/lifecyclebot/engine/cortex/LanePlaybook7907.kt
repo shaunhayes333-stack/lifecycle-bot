@@ -290,6 +290,16 @@ object LanePlaybook7907 {
     // ── V5.0.7924 — the expanded library. Each fires on measurable conditions;
     //    each starts at an educated prior and is graded per lane from trade one.
     //    Launch tape (first minutes since birth) ──
+    // V5.0.8170: early native flow can be judged from observed launch prints
+    // before 5-minute OHLCV exists. The inputs are native LaunchTape observations,
+    // not inferred from unstamped default buy-pressure or fabricated candles.
+    // As with every new playbook setup, this has NO special trading authority:
+    // its edge must first prove positive after costs on forward labels.
+    private val EARLY_BUYER_EXPANSION_8170 = Setup("EARLY_BUYER_EXPANSION_8170", FLOW) { f ->
+        le(f.age, 3.0) && ge(f.liq, 3_000.0) && ge(f.tapeCrowd, 5.0) &&
+            ge(f.tapeBuyersPerMin, 4.0) && ge(f.tapeBuyShare, 65.0) &&
+            ge(f.tapeNetSol, 0.5) && le(f.tapeLargest, 35.0) && le(f.tapeDevSold, 0.0)
+    }
     private val FAST_CROWD = Setup("FAST_CROWD", FLOW) { f ->
         le(f.age, 10.0) && ge(f.tapeBuyersPerMin, 8.0) && ge(f.tapeBuyShare, 60.0) && le(f.tapeLargest, 25.0) && le(f.tapeDevSold, 0.0)
     }
@@ -432,7 +442,9 @@ object LanePlaybook7907 {
     /** V5.0.8061 — the setups 8061 appends to [lane]'s menu (cross-lane + shapes), never one its menu already has. */
     private fun extras8061(lane: String, existing: List<Setup>): List<Setup> {
         val have = existing.map { it.id }.toHashSet()
-        return ((CROSS_8061[lane] ?: emptyList()) + SHAPE_8061).filter { have.add(it.id) }
+        return ((CROSS_8061[lane] ?: emptyList()) + SHAPE_8061 +
+            if (lane in MEME_LANES_7978) listOf(EARLY_BUYER_EXPANSION_8170) else emptyList())
+            .filter { have.add(it.id) }
     }
 
     /** Lane -> its playbook (FIELD_MANUAL §4 families per lane; doc-derived). */

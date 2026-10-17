@@ -25,6 +25,9 @@ class Aate8046EmptyCurveTest {
         assertNull(CurveReserves7951.realSolIfActive8046("Unknown11111111111111111111111111111111pump"))
         CurveReserves7951.resetForTest7951()
         val lt = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiquidityTruth8037.kt").readText()
-        assertTrue(lt.contains("CurveReserves7951.realSolIfActive8046(ts.mint)"))
+        // V5.0.8173 — the curve's real SOL is read through LaunchCohort8173 (stale readings checked against a newer price).
+        assertTrue(lt.contains("LaunchCohort8173.curveRealSolFor8173(ts)"))
+        val lc = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaunchCohort8173.kt").readText()
+        assertTrue(lc.contains("CurveReserves7951.realSolIfActive8046(mint, nowMs)"))
     }
 }
