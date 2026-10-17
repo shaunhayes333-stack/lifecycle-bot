@@ -1568,6 +1568,60 @@ object PipelineHealthCollector {
         return sb.toString()
     }
 
+    /** Keep the massive dumpText method below the ART verifier budget. */
+    private fun appendBasisDivergence8174(sb: StringBuilder, rows: List<ExecRecord>) {
+            // Same-position entry prices must not drift silently across the BUY/SELL report rows.
+            // This is diagnostic (a backfill can legitimately improve the entry witness), not an economic rewrite.
+            val divergentBasis8174 = rows.asSequence().filter { it.positionId.isNotBlank() && it.entryPriceSnapshot > 0.0 }
+                .groupBy { it.positionId }.filter { (_, rows) ->
+                    val lo = rows.minOf { it.entryPriceSnapshot }; val hi = rows.maxOf { it.entryPriceSnapshot }
+                    lo > 0.0 && hi / lo > 1.03
+                }
+            if (divergentBasis8174.isNotEmpty()) {
+                sb.append("  ENTRY_ROW_BASIS_DIVERGENCE_8174: ")
+                divergentBasis8174.entries.take(5).forEach { (pid, rows) ->
+                    sb.append(pid.takeLast(12)).append("(").append(rows.minOf { it.entryPriceSnapshot })
+                        .append("..").append(rows.maxOf { it.entryPriceSnapshot }).append(") ")
+                }
+                sb.append("\n")
+            }
+    }
+
+    private fun appendExecList8174(sb: StringBuilder, df: java.text.DateFormat, title: String, rows: List<ExecRecord>) {
+                sb.append("===== ").append(title).append(" (last ").append(rows.size).append(") =====\n")
+                if (rows.isEmpty()) {
+                    sb.append("  (none)\n\n")
+                    return
+                }
+                for (ex in rows.asReversed()) {
+                    sb.append("  ").append(df.format(Date(ex.tsMs))).append(' ')
+                        .append(ex.side.padEnd(4)).append(' ')
+                        .append(ex.mode.padEnd(5)).append(' ')
+                        .append(ex.symbol.padEnd(10)).append(' ')
+                        .append("sol=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%.6f", ex.sizeSol) else String.format("%.3f", ex.sizeSol)).append(' ')
+                        .append("pnl=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%+.6f", ex.pnlSol) else String.format("%+.3f", ex.pnlSol))
+                    if (ex.proofState.isNotBlank()) sb.append(" proof=").append(ex.proofState)
+                    if (ex.positionId.isNotBlank()) sb.append(" pid=").append(ex.positionId.takeLast(12))
+                    if (ex.lane.isNotBlank()) sb.append(" lane=").append(ex.lane.take(16))
+                    if (ex.entryPriceSnapshot > 0.0) sb.append(" entry=").append(String.format("%.8g", ex.entryPriceSnapshot))
+                    if (ex.entryCostSol > 0.0) sb.append(" cost=").append(String.format("%.4f", ex.entryCostSol))
+                    if (ex.entryQtyToken > 0.0) sb.append(" qty=").append(String.format("%.4g", ex.entryQtyToken))
+                    if (ex.entryMcapUsd > 0.0) sb.append(" mcap=$").append(String.format("%.0f", ex.entryMcapUsd))
+                    if (ex.entryPriceSource.isNotBlank()) sb.append(" src=").append(ex.entryPriceSource.take(18))
+                    if (ex.side.contains("SELL", true)) {
+                        if (ex.soldQtyToken > 0.0) sb.append(" soldQty=").append(String.format("%.6g", ex.soldQtyToken))
+                        if (ex.soldCostBasisSol > 0.0) sb.append(" soldBasis=").append(String.format("%.6f", ex.soldCostBasisSol))
+                        if (ex.grossProceedsSol > 0.0) sb.append(" grossOut=").append(String.format("%.6f", ex.grossProceedsSol))
+                        if (ex.feeSol > 0.0) sb.append(" fee=").append(String.format("%.7f", ex.feeSol))
+                        if (ex.canonicalConsumedRaw.isNotBlank() && ex.canonicalConsumedRaw != "0") sb.append(" consumedRaw=").append(ex.canonicalConsumedRaw.take(42))
+                    }
+                    if (ex.economicEventId.isNotBlank()) sb.append(" event=").append(ex.economicEventId.take(18))
+                    if (ex.reason.isNotBlank()) sb.append(" reason=").append(ex.reason.take(60))
+                    sb.append('\n')
+                }
+                sb.append('\n')
+            }
+
     fun dumpText(): String {
         val s = snapshot()
         // V5.0.6368 — Locale.ROOT for date formatting so we never touch the
@@ -2232,57 +2286,9 @@ object PipelineHealthCollector {
                     }
                 }
             } catch (_: Throwable) {}
-            // Same-position entry prices must not drift silently across the BUY/SELL report rows.
-            // This is diagnostic (a backfill can legitimately improve the entry witness), not an economic rewrite.
-            val divergentBasis8174 = s.recentExecs.asSequence().filter { it.positionId.isNotBlank() && it.entryPriceSnapshot > 0.0 }
-                .groupBy { it.positionId }.filter { (_, rows) ->
-                    val lo = rows.minOf { it.entryPriceSnapshot }; val hi = rows.maxOf { it.entryPriceSnapshot }
-                    lo > 0.0 && hi / lo > 1.03
-                }
-            if (divergentBasis8174.isNotEmpty()) {
-                sb.append("  ENTRY_ROW_BASIS_DIVERGENCE_8174: ")
-                divergentBasis8174.entries.take(5).forEach { (pid, rows) ->
-                    sb.append(pid.takeLast(12)).append("(").append(rows.minOf { it.entryPriceSnapshot })
-                        .append("..").append(rows.maxOf { it.entryPriceSnapshot }).append(") ")
-                }
-                sb.append("\n")
-            }
-            fun appendExecList(title: String, rows: List<ExecRecord>) {
-                sb.append("===== ").append(title).append(" (last ").append(rows.size).append(") =====\n")
-                if (rows.isEmpty()) {
-                    sb.append("  (none)\n\n")
-                    return
-                }
-                for (ex in rows.asReversed()) {
-                    sb.append("  ").append(df.format(Date(ex.tsMs))).append(' ')
-                        .append(ex.side.padEnd(4)).append(' ')
-                        .append(ex.mode.padEnd(5)).append(' ')
-                        .append(ex.symbol.padEnd(10)).append(' ')
-                        .append("sol=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%.6f", ex.sizeSol) else String.format("%.3f", ex.sizeSol)).append(' ')
-                        .append("pnl=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%+.6f", ex.pnlSol) else String.format("%+.3f", ex.pnlSol))
-                    if (ex.proofState.isNotBlank()) sb.append(" proof=").append(ex.proofState)
-                    if (ex.positionId.isNotBlank()) sb.append(" pid=").append(ex.positionId.takeLast(12))
-                    if (ex.lane.isNotBlank()) sb.append(" lane=").append(ex.lane.take(16))
-                    if (ex.entryPriceSnapshot > 0.0) sb.append(" entry=").append(String.format("%.8g", ex.entryPriceSnapshot))
-                    if (ex.entryCostSol > 0.0) sb.append(" cost=").append(String.format("%.4f", ex.entryCostSol))
-                    if (ex.entryQtyToken > 0.0) sb.append(" qty=").append(String.format("%.4g", ex.entryQtyToken))
-                    if (ex.entryMcapUsd > 0.0) sb.append(" mcap=$").append(String.format("%.0f", ex.entryMcapUsd))
-                    if (ex.entryPriceSource.isNotBlank()) sb.append(" src=").append(ex.entryPriceSource.take(18))
-                    if (ex.side.contains("SELL", true)) {
-                        if (ex.soldQtyToken > 0.0) sb.append(" soldQty=").append(String.format("%.6g", ex.soldQtyToken))
-                        if (ex.soldCostBasisSol > 0.0) sb.append(" soldBasis=").append(String.format("%.6f", ex.soldCostBasisSol))
-                        if (ex.grossProceedsSol > 0.0) sb.append(" grossOut=").append(String.format("%.6f", ex.grossProceedsSol))
-                        if (ex.feeSol > 0.0) sb.append(" fee=").append(String.format("%.7f", ex.feeSol))
-                        if (ex.canonicalConsumedRaw.isNotBlank() && ex.canonicalConsumedRaw != "0") sb.append(" consumedRaw=").append(ex.canonicalConsumedRaw.take(42))
-                    }
-                    if (ex.economicEventId.isNotBlank()) sb.append(" event=").append(ex.economicEventId.take(18))
-                    if (ex.reason.isNotBlank()) sb.append(" reason=").append(ex.reason.take(60))
-                    sb.append('\n')
-                }
-                sb.append('\n')
-            }
-            appendExecList("Recent LIVE executions", s.recentExecs.filter { it.mode.equals("LIVE", true) })
-            appendExecList("Recent PAPER executions", s.recentExecs.filter { it.mode.equals("PAPER", true) })
+            appendBasisDivergence8174(sb, s.recentExecs)
+            appendExecList8174(sb, df, "Recent LIVE executions", s.recentExecs.filter { it.mode.equals("LIVE", true) })
+            appendExecList8174(sb, df, "Recent PAPER executions", s.recentExecs.filter { it.mode.equals("PAPER", true) })
         }
 
         // ── V5.0.6312 — LIVE QUALITY FUNNEL / CANONICAL PERFORMANCE / QTY INTEGRITY ─
