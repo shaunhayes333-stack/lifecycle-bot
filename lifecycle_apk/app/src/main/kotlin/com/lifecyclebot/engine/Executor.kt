@@ -14121,6 +14121,11 @@ class Executor(
     }
 
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "", attemptId8198: String = "") {
+        // V5.0.8224 — live pipeline trace: every executor refusal is a BUY_FAILED stage with its reason.
+        try {
+            com.lifecyclebot.engine.truth.LivePipelineTrace6431.bumpStage(com.lifecyclebot.engine.truth.LivePipelineTrace6431.Stage.BUY_FAILED)
+            com.lifecyclebot.engine.truth.LivePipelineTrace6431.bumpBlockReason(reason)
+        } catch (_: Throwable) {}
         val failedIntent8198 = attemptId8198.takeIf { it.isNotBlank() }
             ?.let { ExecutableOpenGate.ticketForAttempt(it) }
         try { ForensicLogger.lifecycle("EXECUTOR_REFUSED_8198",
@@ -18597,6 +18602,7 @@ class Executor(
         @Suppress("NAME_SHADOWING")
         val layerTag: String = LaneAlias.normalize(layerTag).ifBlank { layerTag }
         val sealedIntent7835 = ExecutableOpenGate.ticketForAttempt(attemptId)
+        try { com.lifecyclebot.engine.truth.LivePipelineTrace6431.bumpStage(com.lifecyclebot.engine.truth.LivePipelineTrace6431.Stage.EXEC_ATTEMPT) } catch (_: Throwable) {}  // V5.0.8224
         try { ForensicLogger.lifecycle("EXECUTOR_ENTERED",
             "attemptId=$attemptId mint=${ts.mint} mode=LIVE lane=$layerTag " +
                 "candidateVersion=${sealedIntent7835?.candidateVersion ?: 0L} " +

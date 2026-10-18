@@ -654,6 +654,8 @@ object ExecutableOpenGate {
                 else -> "PUBLISHED_SIZED"
             }
             PipelineHealthCollector.labelInc("STAGE_FDG_INTENT_${stage6753}_6753|$lane6753")
+            // V5.0.8224 — live pipeline trace: an FDG allow that became a sealed live intent.
+            if (intent.mode.equals("LIVE", ignoreCase = true)) com.lifecyclebot.engine.truth.LivePipelineTrace6431.bumpStage(com.lifecyclebot.engine.truth.LivePipelineTrace6431.Stage.FDG_ALLOW)
         } catch (_: Throwable) {}
         registerCanonicalIntent6554(sizedIntent)
     }

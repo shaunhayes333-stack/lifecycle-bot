@@ -627,6 +627,10 @@ object LiveEdgeGate7877 {
         if (why == null && !paper) try {
             if (com.lifecyclebot.engine.RunnerGrab7967.noteAdmit7970(ts, nowMs)) notePositive7975(ts.mint, nowMs)
         } catch (_: Throwable) {}
+        // V5.0.8224 — live pipeline trace: the live edge authority's allow / refusal (reason) stage.
+        if (!paper) try {
+            if (why == null) LivePipelineTrace6431.bumpStage(LivePipelineTrace6431.Stage.AUTHORITY_ALLOW) else LivePipelineTrace6431.bumpBlockReason(why)
+        } catch (_: Throwable) {}
         return why
     }
 

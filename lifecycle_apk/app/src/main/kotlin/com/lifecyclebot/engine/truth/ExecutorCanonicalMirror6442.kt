@@ -296,6 +296,7 @@ object ExecutorCanonicalMirror6442 {
                 try { IdempotencyKeyStore6437.markTerminal(buyIdempotencyKey(positionId), "BUY_CONFIRMED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("CANONICAL_BUY_CONFIRMED_OPEN_6448") } catch (_: Throwable) {}
                 PipelineHealthCollector.onCanonicalBuyCommitted7863(positionId, paperMode)
+                if (!paperMode) try { LivePipelineTrace6431.bumpStage(LivePipelineTrace6431.Stage.BUY_CONFIRMED) } catch (_: Throwable) {}  // V5.0.8224
                 // V5.0.6742 §PILLAR_7_WIRE — the canonical BUY commit
                 // is the real production entry checkpoint for round-trip
                 // verification. Not a manual test helper. Lane is looked
