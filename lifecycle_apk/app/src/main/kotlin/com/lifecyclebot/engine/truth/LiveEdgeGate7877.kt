@@ -488,7 +488,13 @@ object LiveEdgeGate7877 {
                     } catch (_: Throwable) {}
                     val reason = if (budgetOpen8204) "DATA_INCOMPLETE_DEFER_8136"
                         else if (unanswered8204) "DATA_DEFER_FETCH_NEVER_COMPLETED_8204" else "DATA_DEFER_BUDGET_EXHAUSTED_8136"
-                    val terminal = if (reason == "DATA_INCOMPLETE_DEFER_8136") Verdict8083.DEFER else Verdict8083.REFUSE
+                    // V5.0.8229 — a spent deferral budget with the data STILL missing is a data condition, not a verdict on
+                    // the candidate: the assessment stays DEFER (FDG / sizing / plan read "pending", never "refused") while the
+                    // fetch is re-requested above on every pass; the window re-opens on its own reset. Pre-8229 the exhausted
+                    // branch recorded REFUSE, so 93% of evaluations lacking complete features (8220 forensic) ended as
+                    // refusals of coins nothing had judged.
+                    val terminal = Verdict8083.DEFER
+                    if (!budgetOpen8204) try { PipelineHealthCollector.labelInc("DATA_DEFER_EXHAUSTED_KEPT_DEFER_8229") } catch (_: Throwable) {}
                     recordAssessment8083(ts, l8059, d.chosenSetup, terminal, reason, 1.0, nowMs)
                     observeTail7996(ts, lane, reason, nowMs)
                     return reason

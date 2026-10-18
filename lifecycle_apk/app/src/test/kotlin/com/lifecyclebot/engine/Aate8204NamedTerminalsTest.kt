@@ -32,7 +32,8 @@ class Aate8204NamedTerminalsTest {
         assertTrue(le.contains("val unanswered8204 = !budgetOpen8204 && CandidateAdmission8136.deferUnanswered8204(ts.mint, missing, nowMs)"))
         assertTrue(le.contains("AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint)"))
         assertTrue(le.contains("else if (unanswered8204) \"DATA_DEFER_FETCH_NEVER_COMPLETED_8204\" else \"DATA_DEFER_BUDGET_EXHAUSTED_8136\""))
-        assertTrue("an unanswered fetch is still a REFUSE verdict, never an invented input", le.contains("val terminal = if (reason == \"DATA_INCOMPLETE_DEFER_8136\") Verdict8083.DEFER else Verdict8083.REFUSE"))
+        assertTrue("an unanswered fetch stays a DEFER (data pending, never an invented input, never a verdict on the coin) — V5.0.8229", le.contains("val terminal = Verdict8083.DEFER"))
+        assertFalse(le.contains("Verdict8083.DEFER else Verdict8083.REFUSE"))
         val A = com.lifecyclebot.engine.truth.CandidateAdmission8136
         val mint = "deferMint8204" + System.nanoTime()
         assertFalse("nothing recorded yet", A.deferUnanswered8204(mint, listOf("liq:UNKNOWN"), 1_000L))
