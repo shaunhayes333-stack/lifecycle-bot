@@ -75,6 +75,12 @@ object LaneHunter7297 {
     private const val MIN_BUCKET_N = 8
     private const val PREFS = "aate_lane_hunter_7297"
 
+    /** Pure (V5.0.8201): is a sweep row of [ageHours] at sweep time [snapAtMs] past the sniper window by publish time [nowMs]? */
+    internal fun sniperPastWindowAtPublish8201(ageHours: Double, snapAtMs: Long, nowMs: Long): Boolean {
+        val ageSecs = (if (ageHours.isFinite() && ageHours > 0.0) ageHours * 3600.0 else 0.0) + ((nowMs - snapAtMs).coerceAtLeast(0L) / 1000.0)
+        return ageSecs > com.lifecyclebot.v3.scoring.ProjectSniperAI.SNIPER_WINDOW_SECS_8169
+    }
+
     private fun turnover(r: MarketSweep7297.Row) =
         if (r.liquidityUsd > 0.0) r.volumeH1Usd / r.liquidityUsd else 0.0
 
@@ -537,6 +543,15 @@ object LaneHunter7297 {
         val out = residentPicks7803.mapValues { (lane, mints) ->
             mints.mapNotNull { byMint[it] }.also { rows ->
                 rows.forEach { r ->
+                    // V5.0.8201 — ProjectSniperAI is a first-180 s desk and LaunchBirth8169 strips PROJECT_SNIPER from a
+                    // past-window coin's native scope. A sweep pick that is already past the window when it is published
+                    // (row age + sweep latency) can never be evaluated as a sniper candidate: 5.0.8200 hunted 7, book 0.
+                    // It still emits as discovery (MOONSHOT / EXPRESS / SHITCOIN read it natively); it is not a sniper
+                    // resident and is counted.
+                    if (lane == "PROJECT_SNIPER" && sniperPastWindowAtPublish8201(r.ageHours, snap.atMs, now)) {
+                        try { PipelineHealthCollector.labelInc("LANE_HUNT_SNIPER_PAST_WINDOW_AT_PUBLISH_8201") } catch (_: Throwable) {}
+                        return@forEach
+                    }
                     claims[claimKey7803(lane, r.mint)] = Claim(lane, r.mcapUsd, now)
                     try { SpecialistCandidateBooks7803.publishHunt(lane, r.mint, r.symbol, SOURCE_PREFIX + lane) } catch (_: Throwable) {}
                     hunted.merge(lane, 1L, Long::plus)

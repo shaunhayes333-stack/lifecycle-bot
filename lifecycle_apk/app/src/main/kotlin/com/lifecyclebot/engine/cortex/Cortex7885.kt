@@ -1029,21 +1029,34 @@ object Cortex7885 {
     fun strongCohortEvidence8200(ts: TokenState, laneRaw: String): com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136? {
         try {
             CortexAudit8169.call("STRONG_COHORT_8200")
-            val a = cachedOrSchedule(ts, laneRaw) ?: return null
-            if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return null
-            if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return null
-            if (com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts) != null) return null
+            val a = cachedOrSchedule(ts, laneRaw) ?: return nullWhy8201("NO_ASSESSMENT")
+            if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return nullWhy8201("NOT_STRONG")
+            if (a.staleMark) return nullWhy8201("STALE_MARK")
+            if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return nullWhy8201("HARD_BLOCK")
+            if (com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts) != null) return nullWhy8201("MAYHEM")
             val st = synchronized(this) {
-                if (calibration.slope(a.lane) < MIN_CONSISTENT_SLOPE || board.inverted7948(a.lane, accountMode8077()) ||
-                    firstSightBarred8144(a.lane)) null
-                else CortexWalkForward8144.stat8144(gradeBook8144.executableSeries(a.lane, null, CortexScoreboard7885.Bucket.STRONG.ordinal))
+                when {
+                    calibration.slope(a.lane) < MIN_CONSISTENT_SLOPE -> nullWhy8201("UNCALIBRATED")
+                    board.inverted7948(a.lane, accountMode8077()) -> nullWhy8201("INVERTED")
+                    firstSightBarred8144(a.lane) -> nullWhy8201("BARRED")
+                    else -> CortexWalkForward8144.stat8144(gradeBook8144.executableSeries(a.lane, null, CortexScoreboard7885.Bucket.STRONG.ordinal))
+                }
             } ?: return null
-            if (st.n <= 0 || !st.mean.isFinite()) return null
+            if (st.n <= 0 || !st.mean.isFinite()) return nullWhy8201("NO_EXECUTABLE_COHORT")
             inc("STRONG_COHORT_OFFERED_8200")
             return com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136(
                 com.lifecyclebot.engine.truth.CandidateAdmission8136.KIND_CORTEX_8200, "STRONG@${a.lane}", st.n, st.mean, st.se, netOfCost = true,
             )
-        } catch (_: Throwable) { return null }
+        } catch (_: Throwable) { return nullWhy8201("EXCEPTION") }
+    }
+
+    /**
+     * V5.0.8201 — why a STRONG cohort read was NOT offered as admission evidence, by name (STRONG_COHORT_NULL_8201_<why>):
+     * 5.0.8200 shipped the read and still allowed nothing, with no record of which door was shut. Returns null.
+     */
+    private fun <T> nullWhy8201(why: String): T? {
+        inc("STRONG_COHORT_NULL_8201_$why")
+        return null
     }
 
     /** Async (pool): a Cortex-bound position opens its trade record under the entry's exact grade key. */

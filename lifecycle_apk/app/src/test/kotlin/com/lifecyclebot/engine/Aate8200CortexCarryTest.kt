@@ -55,7 +55,9 @@ class Aate8200CortexCarryTest {
         assertTrue(adm.contains("cortexStrong8200 = try { com.lifecyclebot.engine.cortex.Cortex7885.strongCohortEvidence8200(ts, lane) }"))
         val cx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         val fn = cx.substringAfter("fun strongCohortEvidence8200(").substringBefore("/** Async (pool)")
-        assertTrue(fn.contains("a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark"))
+        // V5.0.8201 — the two doors are named separately (NOT_STRONG / STALE_MARK); both still return null.
+        assertTrue(fn.contains("if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return nullWhy8201(\"NOT_STRONG\")"))
+        assertTrue(fn.contains("if (a.staleMark) return nullWhy8201(\"STALE_MARK\")"))
         assertTrue(fn.contains("SafetyTier.HARD_BLOCK"))
         assertTrue(fn.contains("MayhemMode7943.liveRefusal(ts)"))
         assertTrue(fn.contains("board.inverted7948(a.lane, accountMode8077())"))
