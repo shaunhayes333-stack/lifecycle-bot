@@ -2758,6 +2758,9 @@ object Cortex7885 {
                 "      timing cortex v6 (§7900): ${try { CortexTiming7900.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      exit cortex v3 (§7897): ${try { CortexExit7897.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
                 "      stop authority (§7887): ${try { StopAuthority7887.statusLine() } catch (_: Throwable) { "unavailable" }}\n" +
+                "      strong-cohort doors (§8201): offered=${counters["STRONG_COHORT_OFFERED_8200"]?.get() ?: 0L} " +
+                    counters.entries.filter { it.key.startsWith("STRONG_COHORT_NULL_8201_") }.sortedByDescending { it.value.get() }
+                        .joinToString(" ") { "${it.key.removePrefix("STRONG_COHORT_NULL_8201_")}=${it.value.get()}" }.ifBlank { "null=0" } + "\n" +
                 "      actions: ${counters.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
                 "      seated (authority): ${seated.take(12).joinToString(" · ") { (k, s, a) -> "$k a=${"%.2f".format(a)} skill=${"%.1f".format(s.skill() * 100)}% n=${s.scored}" }.ifBlank { "none yet — a seat needs ${CortexLedger7885.MIN_SCORED} graded predictions beating the lane mean out-of-sample" }}\n" +
                 "      best skill per voter (return R² · win-prob Brier · log-loss): ${bestByVoter.take(10).joinToString(" · ") { (k, s, _) -> "$k ${"%+.1f".format(s.skill() * 100)}%/${"%+.1f".format(s.brierSkill() * 100)}%/${"%+.1f".format(s.logLossSkill() * 100)}% n${s.scored}" }.ifBlank { "-" }}\n" +

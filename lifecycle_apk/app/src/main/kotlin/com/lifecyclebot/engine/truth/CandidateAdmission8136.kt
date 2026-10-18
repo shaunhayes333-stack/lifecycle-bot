@@ -306,6 +306,11 @@ object CandidateAdmission8136 {
         // 4. execution economics: the expected executable move must clear NetEdge8030.EDGE_MULT x the round trip.
         val econKnown = decisionGross.isFinite() && c.costPct.isFinite()
         if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct)) {
+            // V5.0.8204 — the refusal names its evidence: expected gross, round-trip cost at the ticket it was costed at
+            // (CostMeter8151 last ticket / default), and the cost breakdown. 5.0.8202: 319 economic refusals, no record of
+            // which notional or liquidity they were judged at.
+            trace += "econRefused8204 gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} needMult=${NetEdge8030.EDGE_MULT} " +
+                "breakdown=${try { NetEdge8030.lastEntryBreakdown8204() } catch (_: Throwable) { "-" }}"
             return done(Terminal8136.REFUSE, "EXECUTION_ECONOMICS_8136", true, chosen)
         }
 
@@ -514,7 +519,24 @@ object CandidateAdmission8136 {
      * LiveEdgeGate7877.dataDefer8136: [deferBudget8136] coalesced per mint + missing feature. A call while none of
      * [missing] is due keeps the open window without spending a re-evaluation; a due feature re-evaluates (counted).
      */
+    private val firstMissing8204 = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
+
+    /**
+     * V5.0.8204 — the inputs this mint was FIRST deferred on (per deferral window). Exhausting the budget while every one
+     * of them is still missing means the requested fetch never completed. Pure given the recorded first set.
+     */
+    fun deferUnanswered8204(mint: String, missingNow: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (mint.isBlank()) return false
+        val first = firstMissing8204[mint] ?: return false
+        return first.isNotEmpty() && missingNow.map { it.trim() }.containsAll(first)
+    }
+
     fun deferBudgetFor8144(mint: String, missing: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (mint.isNotBlank()) {
+            val prev = defers8136[mint]
+            if (prev == null || nowMs < prev.firstMs || nowMs - prev.firstMs >= DEFER_RESET_MS_8136) firstMissing8204[mint] = missing.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+            if (firstMissing8204.size > 4096) firstMissing8204.keys.take(1024).forEach { firstMissing8204.remove(it) }
+        }
         if (mint.isBlank()) return false
         if (scheduleDue8144(mint, features8144(missing), nowMs)) return deferBudget8136(mint, nowMs)
         val s = defers8136[mint] ?: return deferBudget8136(mint, nowMs)

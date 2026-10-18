@@ -585,6 +585,29 @@ object HandoffTaskRuntime8153 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8204 — ExecutableOpenGate refused [lane]'s attempt on [mint] BEFORE (or instead of) an FDG verdict: the gate's
+     * log name and reason are the receiver's terminal. Only a due, pending task of this lane is touched; a task the FDG
+     * already settled, or another lane's task, is not. An FDG refusal surfacing through the gate is already recorded by
+     * SpecialistOwnership7951 and is skipped here. Data/not-yet gates defer (the task survives to re-evaluate); scope
+     * gates transfer to the next eligible receiver; everything else is this lane's named refusal.
+     */
+    fun onPreFdgGateBlock8204(mint: String, lane: String, gateLog: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
+        try {
+            val l = HandoffReceiverTasks8153.canon8153(lane)
+            if (gateLog.contains("FDG")) return
+            if (!HandoffReceiverTasks8153.isDue8153(mint, l, nowMs, version8153(mint))) return
+            val r = "PRE_FDG_GATE:${gateLog.take(48)}:${reason.take(60)}"
+            try { PipelineHealthCollector.labelInc("HANDOFF_RECEIVER_PRE_FDG_GATE_8204_${gateLog.take(48)}") } catch (_: Throwable) {}
+            when (val block = blockOf8153(reason)) {
+                HandoffReceiverTasks8153.Block8153.DATA, HandoffReceiverTasks8153.Block8153.WAIT ->
+                    HandoffReceiverTasks8153.blockTask8153(mint, l, HandoffReceiverTasks8153.Block8153.DATA, "DEFERRED_GATE:$r", nowMs)
+                HandoffReceiverTasks8153.Block8153.FIT -> refused8153(mint, l, r, nowMs)
+                else -> HandoffReceiverTasks8153.blockTask8153(mint, l, block, r, nowMs)
+            }
+        } catch (_: Throwable) {}
+    }
+
     /** AdmissionHandoff8144: the hand-off's receiver refused on fit and the ledger passed it to [to]: the task follows. */
     fun onLedgerTransfer8153(mint: String, from: String, to: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
         try {

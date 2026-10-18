@@ -2834,7 +2834,7 @@ object ExecutableOpenGate {
             }
         } catch (_: Throwable) {}
 
-        return canOpenExecutablePositionInternal(
+        val verdict8204 = canOpenExecutablePositionInternal(
             mint = ts.mint,
             symbol = ts.symbol,
             rug = ts.safety.rugcheckScore,
@@ -2859,6 +2859,13 @@ object ExecutableOpenGate {
             electionId6494 = electionId6494,
             authorityVersion6494 = authorityVersion6494,
         )
+        // V5.0.8204 — a scheduled hand-off receiver whose attempt ends at a pre-FDG gate (lease, slot, exit-only, same-mint,
+        // stall, V3 fatal, ...) gets THAT gate as its named terminal. 5.0.8202: tasks expired SCHEDULED_NO_FDG_VERDICT with
+        // the receiver's true stopping gate unrecorded. An FDG verdict already settled the task first (no-op here).
+        if (!verdict8204.allowed) try {
+            HandoffTaskRuntime8153.onPreFdgGateBlock8204(ts.mint, lane, verdict8204.logName, verdict8204.reason)
+        } catch (_: Throwable) {}
+        return verdict8204
     }
 
     /** V5.0.7847 — immutable entry authority read kept outside ART-pinned finality method. */

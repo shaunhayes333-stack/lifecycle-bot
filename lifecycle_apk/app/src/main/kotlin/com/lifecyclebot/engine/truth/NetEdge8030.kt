@@ -115,6 +115,8 @@ object NetEdge8030 {
 
     @Volatile private var lastBreakdown8169 = "-"
     @Volatile private var lastEntryBreakdown8169 = "-"
+    /** V5.0.8204 — the breakdown of the last entry cost (ticket, liquidity, impact, fees) for the refusal that used it. */
+    fun lastEntryBreakdown8204(): String = lastEntryBreakdown8169
     @Volatile private var lastComponents8169 = doubleArrayOf(Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN)
 
     /** V5.0.8169 — one priced round trip, per side: fees per side, the fixed leg, rent, slippage and impact halves. */

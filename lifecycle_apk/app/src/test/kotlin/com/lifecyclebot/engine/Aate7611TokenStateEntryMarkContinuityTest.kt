@@ -16,13 +16,13 @@ class Aate7611TokenStateEntryMarkContinuityTest {
         assertTrue(fn.contains("ts.lastPriceUpdate"))
         assertTrue(fn.contains("ts.lastPriceSource"))
         assertTrue(fn.contains("ts.lastPricePoolAddr"))
-        assertTrue(fn.indexOf("resolveBestSourceEvidence6734(") < fn.indexOf("return canOpenExecutablePositionInternal("))
+        assertTrue(fn.indexOf("resolveBestSourceEvidence6734(") < fn.indexOf("val verdict8204 = canOpenExecutablePositionInternal("))
     }
 
     @Test fun repairDoesNotFabricateFreshnessOrBypassCanonicalResolver() {
         val s=src()
         val fn=s.substringAfter("V5.0.7611 — restore TokenState -> canonical entry-mark continuity")
-            .substringBefore("return canOpenExecutablePositionInternal(")
+            .substringBefore("val verdict8204 = canOpenExecutablePositionInternal(")
         assertTrue(fn.contains("ts.lastPriceUpdate > 0L"))
         assertTrue(fn.contains("timestampMs = ts.lastPriceUpdate"))
         assertFalse(fn.contains("timestampMs = System.currentTimeMillis()"))

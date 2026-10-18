@@ -458,8 +458,18 @@ object LiveEdgeGate7877 {
                     // V5.0.8180 — first, so the mapped inputs (price / economics / core -> liq / chg / shape / bp) take the per-mint request.
                     try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missing.map { it.replace("liquidity:", "liq:") }, nowMs) } catch (_: Throwable) {}
-                    val reason = if (CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs))
-                        "DATA_INCOMPLETE_DEFER_8136" else "DATA_DEFER_BUDGET_EXHAUSTED_8136"
+                    val budgetOpen8204 = CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)
+                    // V5.0.8204 — a deferral that exhausts its budget with the SAME inputs still missing was never answered by
+                    // the fetch it requested: that is a provider/queue terminal, not the candidate's, and it is named so and
+                    // re-requested once at LIVE priority (near-decision coin first) rather than left to expire quietly.
+                    val unanswered8204 = !budgetOpen8204 && CandidateAdmission8136.deferUnanswered8204(ts.mint, missing, nowMs)
+                    if (unanswered8204) try {
+                        PipelineHealthCollector.labelInc("DATA_DEFER_FETCH_NEVER_COMPLETED_8204")
+                        missing.forEach { PipelineHealthCollector.labelInc("DATA_DEFER_FETCH_NEVER_COMPLETED_8204_" + it.substringBefore(':').take(16).uppercase()) }
+                        AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint)
+                    } catch (_: Throwable) {}
+                    val reason = if (budgetOpen8204) "DATA_INCOMPLETE_DEFER_8136"
+                        else if (unanswered8204) "DATA_DEFER_FETCH_NEVER_COMPLETED_8204" else "DATA_DEFER_BUDGET_EXHAUSTED_8136"
                     val terminal = if (reason == "DATA_INCOMPLETE_DEFER_8136") Verdict8083.DEFER else Verdict8083.REFUSE
                     recordAssessment8083(ts, l8059, d.chosenSetup, terminal, reason, 1.0, nowMs)
                     observeTail7996(ts, lane, reason, nowMs)

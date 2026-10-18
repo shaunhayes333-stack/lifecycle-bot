@@ -103,7 +103,7 @@ class Aate6747TradeQualityBatchTest {
         // Use lastIndexOf to skip past the internal function DEFINITION and
         // find the actual return call site.
         val floorIdx = src.indexOf("EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747")
-        val internalIdx = src.lastIndexOf("return canOpenExecutablePositionInternal(")
+        val internalIdx = src.lastIndexOf("val verdict8204 = canOpenExecutablePositionInternal(")  // V5.0.8204
         assertTrue("floor veto MUST appear in source before the internal open call",
             floorIdx > 0 && internalIdx > 0 && floorIdx < internalIdx)
     }
