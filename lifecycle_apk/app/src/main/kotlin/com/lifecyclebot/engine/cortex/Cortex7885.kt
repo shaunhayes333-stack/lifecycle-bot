@@ -1017,6 +1017,35 @@ object Cortex7885 {
         return denied || walkForward8144(lane, null).verdict == CortexWalkForward8144.Verdict8144.INVERTED_OOS
     }
 
+    /**
+     * V5.0.8200 §THE_LOCKED_DOOR. 5.0.8199 live (40 min): FDG 0 allowed / 7,004 refused, 3,849 of them on lane-wide or
+     * cell loss records (STAGE_PROVEN_LOSING 2,251) while this lane's STRONG reads graded positive on executable-net labels
+     * (MOONSHOT n91 +37%, SHITCOIN n93 +26%, EXPRESS n99 +21%). The overrule authority waits for realised STRONG closes,
+     * which a book that never trades can never earn. The STRONG read on THIS candidate is candidate-specific evidence:
+     * returned as the lane's STRONG executable-net record for CandidateAdmission8136 to weigh at its own margins.
+     * Null unless the read is fresh STRONG, the coin is not hard-blocked or a Mayhem coin, and the lane is calibrated,
+     * not inverted and not barred (STRONG closes lost or STRONG trails a rival out of sample).
+     */
+    fun strongCohortEvidence8200(ts: TokenState, laneRaw: String): com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136? {
+        try {
+            CortexAudit8169.call("STRONG_COHORT_8200")
+            val a = cachedOrSchedule(ts, laneRaw) ?: return null
+            if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return null
+            if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return null
+            if (com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts) != null) return null
+            val st = synchronized(this) {
+                if (calibration.slope(a.lane) < MIN_CONSISTENT_SLOPE || board.inverted7948(a.lane, accountMode8077()) ||
+                    firstSightBarred8144(a.lane)) null
+                else CortexWalkForward8144.stat8144(gradeBook8144.executableSeries(a.lane, null, CortexScoreboard7885.Bucket.STRONG.ordinal))
+            } ?: return null
+            if (st.n <= 0 || !st.mean.isFinite()) return null
+            inc("STRONG_COHORT_OFFERED_8200")
+            return com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136(
+                com.lifecyclebot.engine.truth.CandidateAdmission8136.KIND_CORTEX_8200, "STRONG@${a.lane}", st.n, st.mean, st.se, netOfCost = true,
+            )
+        } catch (_: Throwable) { return null }
+    }
+
     /** Async (pool): a Cortex-bound position opens its trade record under the entry's exact grade key. */
     private fun openTrade8144(positionId: String, mint: String, mode: String, a: Assessment, openedAtMs: Long) {
         val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
