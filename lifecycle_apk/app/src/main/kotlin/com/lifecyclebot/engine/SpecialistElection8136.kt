@@ -68,7 +68,11 @@ object SpecialistElection8136 {
     /** FDG refusals that hold for every lane (token-wide wall / capital / identity): a rescue meets the same wall. */
     private val FDG_WALLS_8136 = listOf(
         "LIQUIDITY", "SELLAB", "CIRCUIT_BREAKER", "AUTO_TRADE_DISABLED", "SIZE_NOT_EXECUTABLE", "SIZE_TOO_SMALL",
-        "CAPITAL", "WALLET", "TOKEN_2022", "HOSTILE", "IDENTITY", "PRICE_UNKNOWN", "REENTRY", "LOCKOUT", "DISTRIBUTION",
+        "CAPITAL", "WALLET", "TOKEN_2022", "HOSTILE", "IDENTITY", "PRICE_UNKNOWN", "REENTRY", "LOCKOUT",
+        // V5.0.8217 — bare "DISTRIBUTION" also matched a lane's chart phase (DISTRIBUTION_PHASE / a SHITCOIN shape rule), so
+        // one lane's shape read became a token-wide wall and the qualified receiver (8215 Speed: MOONSHOT:Y:95 IGNITION_5M)
+        // was never rescued. Holder/whale concentration is the token fact.
+        "HOLDER_DISTRIBUTION", "WHALE_DISTRIBUTION", "HARD_BLOCK_DISTRIBUTION",
     )
 
     // ── pure ──

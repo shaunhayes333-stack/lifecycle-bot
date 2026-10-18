@@ -463,7 +463,9 @@ object SpecialistOwnership7951 {
      * setup could take the coin. A lane's strategy record, lane WR floor, lane toxicity or policy head is that lane's
      * fit, never the token's verdict; HARD_BLOCK_* and BEHAVIOR_BLOCK_* stay token-wide.
      */
-    private val TOKEN_JUDGEMENT_8198 = listOf("RUG", "SAFETY", "HONEYPOT", "HARD_BLOCK", "BEHAVIOR_BLOCK", "DEV", "BUNDLE", "SCAM",
+    // V5.0.8217 — "DEV" matched DEVELOPING / DEVIATION (one lane's chart read); dev-wallet facts are DEV_* (DEV_SELL, DEV_DUMP,
+    // LAUNCH_DEV_SOLD), so the token marker is "DEV_".
+    private val TOKEN_JUDGEMENT_8198 = listOf("RUG", "SAFETY", "HONEYPOT", "HARD_BLOCK", "BEHAVIOR_BLOCK", "DEV_", "BUNDLE", "SCAM",
         "FREEZE", "MINT_AUTH", "BLACKLIST", "ZERO_LIQ", "NO_LIQ", "LIQ_ZERO", "QUARANTIN")
 
     private fun contenderOf8136(o: SpecialistBrainBridge7542.Opinion): SpecialistElection8136.Contender8136 =

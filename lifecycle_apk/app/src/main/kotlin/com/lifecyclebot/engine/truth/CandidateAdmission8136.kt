@@ -698,6 +698,18 @@ object CandidateAdmission8136 {
         val pick8153 = try { pb.strategyPick8153(ts, lane, nowMs) } catch (_: Throwable) { null }
         val options8153 = try { pb.strategyOptions8153(ts, lane, nowMs) } catch (_: Throwable) { emptyList() }
         val selected = pick8153?.id ?: try { pb.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
+        // V5.0.8217 — the lane's native qualification must not depend on one per-mint snapshot surviving in the cache.
+        // A live QUALIFIED/READY entry in that lane's own candidate book (its hunter+brain qualified THIS mint) is the
+        // same native verdict; its setup is the lane's own fired pick. Nothing is qualified that the lane did not qualify.
+        val nativeBook8217 = if (nativeOpinion8213 != null) null else try {
+            com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.entry(lane, ts.mint)?.takeIf {
+                (it.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.QUALIFIED ||
+                    it.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY) &&
+                    com.lifecyclebot.engine.LaneExecutionCoordinator.laneCanOwnExecution6910(lane)
+            }
+        } catch (_: Throwable) { null }
+        val nativeSetupBook8217 = pick8153?.id?.takeIf { nativeBook8217 != null && it.isNotBlank() && !it.equals("NONE", true) }
+        if (nativeSetupBook8217 != null) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_NATIVE_FROM_BOOK_8217_$lane") } catch (_: Throwable) {}
         val setups = try {
             pb.firedSetupRecords8136(ts, lane, nowMs).map { (id, r) -> Evidence8136(KIND_SETUP, id, r[0].toInt(), r[1], r[2], r[3]) }
         } catch (_: Throwable) { emptyList() }
@@ -783,8 +795,8 @@ object CandidateAdmission8136 {
             cellLoss8169 = cellLoss8169,
             stageLoss8169 = stageLoss8169,
             cortexStrong8200 = try { com.lifecyclebot.engine.cortex.Cortex7885.strongCohortEvidence8200(ts, lane) } catch (_: Throwable) { null },
-            nativeQualified8213 = nativeOpinion8213 != null,
-            nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) },
+            nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null,
+            nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) } ?: nativeSetupBook8217,
         )
     }
 }

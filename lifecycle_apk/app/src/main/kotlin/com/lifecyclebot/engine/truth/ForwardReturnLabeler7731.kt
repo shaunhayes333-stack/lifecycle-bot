@@ -1370,6 +1370,17 @@ object ForwardReturnLabeler7731 {
                         got.putAll(curve7753)
                         offWatchCurvePriced7753.addAndGet(curve7753.size.toLong())
                     }
+                    // V5.0.8217 — a graduated (PumpSwap/Raydium/Meteora) young token is off the curve and usually missing from
+                    // Jupiter's price API: its horizon read was lost as GAP (8215: 191 lost-gap). DexScreener's batched pair
+                    // price is a real observed USD mark for that mint; bookable8180 still applies its basis rule downstream.
+                    val missed8217 = batch.filter { it !in got }.take(30)
+                    if (missed8217.isNotEmpty()) {
+                        val dex8217 = try {
+                            com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(missed8217).filter { it.value.isFinite() && it.value > 0.0 }
+                        } catch (_: Throwable) { emptyMap() }
+                        got.putAll(dex8217)
+                        if (dex8217.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_DEX_PRICED_8217", dex8217.size.toLong())
+                    }
                     val at = System.currentTimeMillis()
                     for ((m, px) in got) offWatchMarks7737[m] = px to at
                     offWatchPriced7737.addAndGet(got.size.toLong())
