@@ -68,6 +68,9 @@ object CandidateAdmission8136 {
         val missingInputs: List<String> = emptyList(),
         val expectedGrossPct: Double = Double.NaN,
         val costPct: Double = Double.NaN,
+        /** V5.0.8209 — the executable size (SOL) [costPct] was quoted for, and that quote's breakdown; immutable with the decision. */
+        val costSizeSol: Double = Double.NaN,
+        val costBreakdown: String = "",
         val downsidePct: Double = Double.NaN,
         /** Executable move per fired setup; an alternative cannot inherit the selected setup's economics. */
         val expectedGrossBySetup: Map<String, Double> = emptyMap(),
@@ -117,6 +120,10 @@ object CandidateAdmission8136 {
         val trace: List<String>,
         /** V5.0.8153 — the evidence the terminal and [chosenSetup] rest on (the one identity sizing, seal and exit read). */
         val basis: String = "",
+        /** V5.0.8209 — the cost record this terminal was decided on (cost %, size quoted, breakdown); travels to FDG/sizing unchanged. */
+        val costPct: Double = Double.NaN,
+        val costSizeSol: Double = Double.NaN,
+        val costBreakdown: String = "",
     ) {
         val admitted: Boolean get() = terminal == Terminal8136.ADMIT
         val compact: String get() = "${terminal.name}:$reason${chosenSetup?.let { " setup=$it" } ?: ""} [${trace.joinToString("; ")}]"
@@ -201,9 +208,11 @@ object CandidateAdmission8136 {
         trace += "lane=${c.lane} version=${c.candidateVersion} setup=${c.selectedSetup ?: "-"} regime=${c.regime.ifBlank { "-" }} stage=${c.stage.ifBlank { "-" }}${if (c.hotLaunch) " hot" else ""}"
         var decisionGross = c.expectedGrossPct
         var net = if (decisionGross.isFinite() && c.costPct.isFinite()) decisionGross - c.costPct else Double.NaN
-        trace += "gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} net=${fmt8136(net)} downside=${fmt8136(c.downsidePct)}"
+        trace += "gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} net=${fmt8136(net)} downside=${fmt8136(c.downsidePct)}" +
+            (if (c.costSizeSol.isFinite()) " costSize=${"%.4f".format(c.costSizeSol)}SOL" else "")
         fun done(t: Terminal8136, reason: String, specific: Boolean, setup: String?, basis: String = ""): Decision8136 =
-            Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason })
+            Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason },
+                costPct = c.costPct, costSizeSol = c.costSizeSol, costBreakdown = c.costBreakdown)
 
         // 1. hard safety and structural selling risk: nothing overrides them.
         c.safetyRefusal?.let { trace += "safety=$it"; return done(Terminal8136.REFUSE, "SAFETY_REFUSED_8136", true, c.selectedSetup) }
@@ -310,7 +319,7 @@ object CandidateAdmission8136 {
             // (CostMeter8151 last ticket / default), and the cost breakdown. 5.0.8202: 319 economic refusals, no record of
             // which notional or liquidity they were judged at.
             trace += "econRefused8204 gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} needMult=${NetEdge8030.EDGE_MULT} " +
-                "breakdown=${try { NetEdge8030.lastEntryBreakdown8204() } catch (_: Throwable) { "-" }}"
+                "breakdown=${c.costBreakdown.ifBlank { try { NetEdge8030.lastEntryBreakdown8204() } catch (_: Throwable) { "-" } }}"
             return done(Terminal8136.REFUSE, "EXECUTION_ECONOMICS_8136", true, chosen)
         }
 
@@ -513,6 +522,7 @@ object CandidateAdmission8136 {
     /** Candidate price age affects admission only at the stale/fresh boundary. */
     private fun cacheIdentity8144(c: Candidate8136): Candidate8136 = c.copy(
         priceAgeMs = if (priceStale8136(c.priceAgeMs, c.hotLaunch)) Long.MAX_VALUE else 0L,
+        costBreakdown = "",   // V5.0.8209 — the numbers (costPct, costSizeSol) are identity; the prose is not
     )
 
     /**
@@ -607,8 +617,9 @@ object CandidateAdmission8136 {
          * score in its trace. Callers without a snapshot score pass nothing; nothing is guessed.
          */
         genericScore: Double = Double.NaN, genericFloor: Double = Double.NaN,
+        proposedSizeSol: Double = Double.NaN,   // V5.0.8209 — cost at THIS candidate's size; a material size change re-quotes (identity miss)
     ): Decision8136? = try {
-        val built = candidateFor8136(ts, laneRaw, nowMs)
+        val built = candidateFor8136(ts, laneRaw, nowMs, proposedSizeSol)
         val rawCandidate = if (genericScore.isFinite() && genericFloor.isFinite()) built.copy(genericScore = genericScore, genericFloor = genericFloor) else built
         val version = candidateVersion.takeIf { it > 0L }
             ?: try { com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
@@ -623,7 +634,7 @@ object CandidateAdmission8136 {
     } catch (_: Throwable) { null }
 
     /** Builds the candidate record from the playbook, forward labels, net-edge cost model and safety report. */
-    internal fun candidateFor8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Candidate8136 {
+    internal fun candidateFor8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), proposedSizeSol: Double = Double.NaN): Candidate8136 {
         val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
         val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907
         // V5.0.8153 — the strategy is ranked fresh over every fired setup (StrategyRank8153), not read back from the
@@ -666,7 +677,8 @@ object CandidateAdmission8136 {
         val launch = try {
             FreshLaunchSelector7737.launchRead7742(ts, FieldManual7715.allInCostPct(StrategyMove8153.probeSizeUsd8153(ts.lastLiquidityUsd), ts.lastLiquidityUsd), nowMs)
         } catch (_: Throwable) { null }
-        val cost8153 = try { NetEdge8030.entryCostPct8136(ts, lane) } catch (_: Throwable) { Double.NaN }
+        val costRec8209 = try { NetEdge8030.entryCost8209(ts, lane, proposedSizeSol) } catch (_: Throwable) { null }
+        val cost8153 = costRec8209?.costPct ?: Double.NaN
         val curveActive8153 = try { CurveReserves7951.realSolIfActive8046(ts.mint, nowMs) != null } catch (_: Throwable) { false }
         // V5.0.8170: a live DexScreener pair or sweep already priced the actual
         // liquidity, but the token-local scalar hadn't received the ordinary poll.
@@ -695,6 +707,8 @@ object CandidateAdmission8136 {
             // V5.0.8153 — the selected strategy's expected executable move (NetEdge8030.executableMove8153), as the gate judges it.
             expectedGrossPct = try { NetEdge8030.expectedGrossFor8153(ts, lane, selected, cost8153) } catch (_: Throwable) { Double.NaN },
             costPct = cost8153,
+            costSizeSol = costRec8209?.sizeSol ?: Double.NaN,
+            costBreakdown = costRec8209?.breakdown.orEmpty(),
             downsidePct = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(lane) } catch (_: Throwable) { Double.NaN },
             expectedGrossBySetup = (options8153.map { it.id } + listOfNotNull(selected)).distinct().associateWith { setup ->
                 try { NetEdge8030.expectedGrossFor8153(ts, lane, setup, cost8153) } catch (_: Throwable) { Double.NaN }

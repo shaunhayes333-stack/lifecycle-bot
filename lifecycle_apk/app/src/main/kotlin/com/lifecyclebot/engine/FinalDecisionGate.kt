@@ -781,6 +781,38 @@ object FinalDecisionGate {
         return "EDGE_VETO_ACTIVE"
     }
 
+    /** Pure (V5.0.8209): is the sealed size far enough from the size the admission cost was quoted at to need a re-quote? */
+    internal fun admissionCostStale8209(costSizeSol: Double, sealedSizeSol: Double): Boolean {
+        if (!(costSizeSol.isFinite() && costSizeSol > 0.0 && sealedSizeSol.isFinite() && sealedSizeSol > 0.0)) return false
+        val r = sealedSizeSol / costSizeSol
+        return r < 0.65 || r > 1.5
+    }
+
+    /** Pure (V5.0.8209): does the admission's gross still clear NetEdge8030 at the cost quoted for the sealed size? */
+    internal fun requoteClears8209(expectedNetPct: Double, admittedCostPct: Double, sealedCostPct: Double): Boolean {
+        if (!(expectedNetPct.isFinite() && admittedCostPct.isFinite() && sealedCostPct.isFinite())) return true   // nothing to re-prove
+        return com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(expectedNetPct + admittedCostPct, sealedCostPct)
+    }
+
+    /**
+     * V5.0.8209 — the one cost record (CandidateAdmission8136.Decision8136.costPct/costSizeSol) is preserved through FDG and
+     * sizing: when the sealed executable size moved materially from the quoted size, the economics are re-quoted at the sealed
+     * size and must still clear; a failure is the named terminal ADMISSION_COST_REQUOTE_FAILED_8209 with both quotes in the check.
+     */
+    private fun sealedCostHolds8209(
+        ts: TokenState, lane: String, admission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
+        sealedSizeSol: Double, checks: MutableList<GateCheck>,
+    ): Boolean {
+        if (admission == null || !admission.admitted) return true
+        if (!admissionCostStale8209(admission.costSizeSol, sealedSizeSol)) return true
+        val sealed = try { com.lifecyclebot.engine.truth.NetEdge8030.entryCost8209(ts, lane, sealedSizeSol) } catch (_: Throwable) { return true }
+        val ok = requoteClears8209(admission.expectedNetPct, admission.costPct, sealed.costPct)
+        checks.add(GateCheck("admission_cost_requote_8209", ok,
+            "quoted ${"%.2f".format(admission.costPct)}% @${"%.4f".format(admission.costSizeSol)}SOL -> sealed ${"%.2f".format(sealed.costPct)}% @${"%.4f".format(sealedSizeSol)}SOL net=${"%.2f".format(admission.expectedNetPct)}% ${sealed.breakdown.take(120)}"))
+        try { PipelineHealthCollector.labelInc(if (ok) "FDG_ADMISSION_COST_REQUOTED_OK_8209" else "FDG_ADMISSION_COST_REQUOTE_FAILED_8209") } catch (_: Throwable) {}
+        return ok
+    }
+
     fun hasActiveEdgeVeto(mint: String): EdgeVeto? {
         val veto = edgeVetoes[mint] ?: return null
         val elapsed = System.currentTimeMillis() - veto.timestamp
@@ -1547,6 +1579,7 @@ object FinalDecisionGate {
             com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(
                 ts, floorLane7266, candidateVersion = candidateVersion7623,
                 genericScore = effectiveEntryScore7292, genericFloor = canonicalFloor7266,
+                proposedSizeSol = proposedSizeSol,   // V5.0.8209
             )
         } catch (_: Throwable) { null }
         // V5.0.7843 — do not make a specialist pass TWO score floors.
@@ -6144,11 +6177,14 @@ object FinalDecisionGate {
         val executableSize7835 = if (shouldTradeFinal && canonicalEconomicApproval7548 && policyAllows7848) {
             resolveExecutableSize7835(ts, canonicalPrimaryLane6658, finalSize, config, candidateVersion7623)
         } else 0.0
+        // V5.0.8209 — the admission's net-of-cost proof was quoted at proposedSizeSol; a materially different sealed size is re-quoted here.
+        val sealedCostOk8209 = executableSize7835 <= 0.0 || sealedCostHolds8209(ts, canonicalPrimaryLane6658, candidateAdmission8136, executableSize7835, checks)
+        if (!sealedCostOk8209 && blockReason == null) blockReason = "ADMISSION_COST_REQUOTE_FAILED_8209"
 
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
             shouldTrade = shouldTradeFinal &&
                 canonicalEconomicApproval7548 &&
-                policyAllows7848 && executableSize7835 > 0.0,
+                policyAllows7848 && executableSize7835 > 0.0 && sealedCostOk8209,
             mode = mode,
             approvalClass = approvalClass,
             quality = candidate.finalQuality,

@@ -110,6 +110,7 @@ object NetEdge8030 {
             // V5.0.8169 — what the figure is made of (5.0.8168 printed lastCost=58.64% with no lane, size or depth).
             lastBreakdown8169 = breakdown8169(lane, size, if (depthKnown) liquidityUsd else 0.0, components8151.isFinite(),
                 FieldManual7715.impactRoundTripPct(if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0), measured, it)
+            tlBreakdown8209.set(lastBreakdown8169)   // V5.0.8209 — the same thread reads its own quote's breakdown, not a racing one
         }
     }
 
@@ -227,6 +228,24 @@ object NetEdge8030 {
     /** V5.0.8136 — the round trip [entryRefusal8030] charges this entry: the default ticket against the observed depth. */
     fun entryCostPct8136(ts: TokenState, lane: String): Double =
         costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap).also { lastEntryBreakdown8169 = lastBreakdown8169 }
+
+    /** V5.0.8209 — the cost record of ONE quote: cost %, the size it priced (SOL), and its breakdown read on this thread. */
+    data class EntryCost8209(val costPct: Double, val sizeSol: Double, val breakdown: String)
+
+    /**
+     * V5.0.8209 — the candidate's pre-admission cost at ITS proposed executable size. Pre-8209 every candidate was costed at
+     * CostMeter8151's last sealed ticket (whatever lane or mint sealed last) and the refusal breakdown was a global last-write,
+     * so EXECUTION_ECONOMICS_8136 refused or admitted on another trade's numbers. With no proposed size yet (callers without
+     * a sizing read), the last sealed ticket remains the fallback and the record says so (sizeSol = that ticket).
+     */
+    fun entryCost8209(ts: TokenState, lane: String, proposedSizeSol: Double = Double.NaN): EntryCost8209 {
+        val size = if (proposedSizeSol.isFinite() && proposedSizeSol > 0.0) proposedSizeSol else entryTicket8151()
+        val cost = costPct8030(lane, size, liquidity8037(ts), ts.mint, ts.lastMcap)
+        val bd = tlBreakdown8209.get() ?: lastBreakdown8169
+        lastEntryBreakdown8169 = bd
+        return EntryCost8209(cost, size, bd)
+    }
+    private val tlBreakdown8209 = ThreadLocal<String>()
 
     private val slowRefused8035 = AtomicLong(0)
 
