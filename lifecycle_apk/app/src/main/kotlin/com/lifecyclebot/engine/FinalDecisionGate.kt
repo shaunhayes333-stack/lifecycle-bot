@@ -1217,6 +1217,63 @@ object FinalDecisionGate {
         return true
     }
 
+    /**
+     * V5.0.8203/8204 — ONE executable signal. Returns (hard block reason or null, generic WAIT superseded by a candidate-
+     * SPECIFIC ADMIT). A specific ADMIT with a basis for an elected specialist owner (CandidateAdmission8136: hard safety and
+     * the candidate's own negative evidence already took precedence) supersedes the generic V3 WAIT it is compared against:
+     * 5.0.8202 cleared 36 specific floor admissions and then hard-blocked every one of them on "Signal is WAIT, not BUY"
+     * (FDG 0 / 3,404). A generic-prior ADMIT, a missing-data deferral or no elected owner changes nothing; HARD_NO_BUY
+     * returned terminally before this point.
+     */
+    private fun baseSignalVerdict8203(
+        candidate: CandidateDecision,
+        laneNameForBaseSignal: String?,
+        specialistLane: String?,
+        candidateAdmission8136: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
+        candidateVersion7623: Long,
+        blockReason: String?,
+        checks: MutableList<GateCheck>,
+        tags: MutableList<String>,
+    ): Pair<String?, Boolean> {
+        if (blockReason != null) return null to false
+        if (candidate.blockReason.isEmpty()) { checks.add(GateCheck("candidate_block", true, null)); return null to false }
+        val staleBaseSignalBlock = candidate.blockReason.startsWith("Signal is ") &&
+            candidate.blockReason.endsWith(", not BUY") &&
+            laneNameForBaseSignal != null &&
+            laneNameForBaseSignal != "STANDARD"
+        val specificAdmitSupersedes8203 = staleBaseSignalBlock && specialistLane?.isNotBlank() == true &&
+            candidateAdmission8136?.let { it.specific && it.admitted && it.basis.isNotBlank() } == true
+        if (specificAdmitSupersedes8203 && laneNameForBaseSignal != null) {
+            checks.add(GateCheck("candidate_base_signal", true,
+                "specific_admit_supersedes_generic_wait_8203 lane=$laneNameForBaseSignal setup=${candidateAdmission8136?.chosenSetup} basis=${candidateAdmission8136?.basis?.take(40)} v=$candidateVersion7623"))
+            tags.add("base_signal_superseded_8203:$laneNameForBaseSignal")
+            try { PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_SUPERSEDED_BY_SPECIFIC_ADMIT_8203_$laneNameForBaseSignal") } catch (_: Throwable) {}
+            return null to true
+        }
+        if (staleBaseSignalBlock && laneNameForBaseSignal != null) {
+            // V5.9.1124 — 3090 showed FDG_BASE_SIGNAL_BLOCK_IGNORED=43k. A WAIT/SELL base signal is not executable.
+            checks.add(GateCheck("candidate_base_signal", false, "hard_block_for_lane=$laneNameForBaseSignal: ${candidate.blockReason}"))
+            tags.add("base_signal_hard_block:$laneNameForBaseSignal")
+            try { if (candidateAdmission8136?.admitted == true) PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_BLOCK_AFTER_${if (candidateAdmission8136.specific) "SPECIFIC_NO_BASIS" else "GENERIC"}_ADMIT_8203_$laneNameForBaseSignal") } catch (_: Throwable) {}
+            return candidate.blockReason to false
+        }
+        checks.add(GateCheck("candidate_block", false, candidate.blockReason))
+        return candidate.blockReason to false
+    }
+
+    /** V5.0.8203/8204 — no silent terminal: a base signal that is merely not executable is a named, staged refusal. */
+    private fun unnamedBaseSignalTerminal8203(
+        candidate: CandidateDecision,
+        candidateAdmission8136: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
+        laneName: String,
+        checks: MutableList<GateCheck>,
+    ): String {
+        val sig = candidate.finalSignal.ifBlank { candidate.signal }
+        checks.add(GateCheck("base_signal_executable_8203", false, "signal=$sig shouldTrade=${candidate.shouldTrade} admission=${candidateAdmission8136?.terminal?.name}:${candidateAdmission8136?.specific}"))
+        try { PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_NOT_EXECUTABLE_8203_${laneName.ifBlank { "CORE" }.uppercase()}") } catch (_: Throwable) {}
+        return "BASE_SIGNAL_NOT_EXECUTABLE_8203:${sig.ifBlank { "NONE" }.uppercase().take(24)}"
+    }
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -3158,43 +3215,10 @@ object FinalDecisionGate {
             }
         }
 
-        var baseSignalMismatchIgnoredForLane = false
-        if (blockReason == null && candidate.blockReason.isNotEmpty()) {
-            val laneNameForBaseSignal = tradingModeTag?.name
-            val staleBaseSignalBlock = candidate.blockReason.startsWith("Signal is ") &&
-                candidate.blockReason.endsWith(", not BUY") &&
-                laneNameForBaseSignal != null &&
-                laneNameForBaseSignal != "STANDARD"
-            // V5.0.8203 — ONE executable signal. A candidate-SPECIFIC ADMIT (CandidateAdmission8136: hard safety and the
-            // candidate's own negative evidence already took precedence) for an elected specialist owner supersedes the
-            // generic V3 WAIT it is being compared against: 5.0.8202 cleared 36 specific floor admissions and then hard-
-            // blocked every one of them here on "Signal is WAIT, not BUY" (FDG 0 / 3,404). A generic-prior ADMIT, a
-            // missing-data deferral or no elected owner changes nothing; HARD_NO_BUY returned terminally above.
-            val specificAdmitSupersedes8203 = staleBaseSignalBlock && specialistLane?.isNotBlank() == true &&
-                candidateAdmission8136?.let { it.specific && it.admitted && it.basis.isNotBlank() } == true
-            if (specificAdmitSupersedes8203 && laneNameForBaseSignal != null) {
-                baseSignalMismatchIgnoredForLane = true
-                checks.add(GateCheck("candidate_base_signal", true,
-                    "specific_admit_supersedes_generic_wait_8203 lane=$laneNameForBaseSignal setup=${candidateAdmission8136?.chosenSetup} basis=${candidateAdmission8136?.basis?.take(40)} v=$candidateVersion7623"))
-                tags.add("base_signal_superseded_8203:$laneNameForBaseSignal")
-                try { PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_SUPERSEDED_BY_SPECIFIC_ADMIT_8203_$laneNameForBaseSignal") } catch (_: Throwable) {}
-            } else if (staleBaseSignalBlock && laneNameForBaseSignal != null) {
-                // V5.9.1124 — 3090 showed FDG_BASE_SIGNAL_BLOCK_IGNORED=43k.
-                // A WAIT/SELL base signal is not executable. Specialist lanes may
-                // keep telemetry elsewhere, but FDG must not authorize or preAuth.
-                blockReason = candidate.blockReason
-                blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("candidate_base_signal", false, "hard_block_for_lane=$laneNameForBaseSignal: ${candidate.blockReason}"))
-                tags.add("base_signal_hard_block:$laneNameForBaseSignal")
-                try { if (candidateAdmission8136?.admitted == true) PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_BLOCK_AFTER_${if (candidateAdmission8136.specific) "SPECIFIC_NO_BASIS" else "GENERIC"}_ADMIT_8203_$laneNameForBaseSignal") } catch (_: Throwable) {}
-            } else {
-                blockReason = candidate.blockReason
-                blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("candidate_block", false, candidate.blockReason))
-            }
-        } else if (blockReason == null) {
-            checks.add(GateCheck("candidate_block", true, null))
-        }
+        // V5.0.8204 — base-signal verdict lives in baseSignalVerdict8203 (evaluate() is pinned by the ART method budget).
+        val baseSignal8203 = baseSignalVerdict8203(candidate, tradingModeTag?.name, specialistLane, candidateAdmission8136, candidateVersion7623, blockReason, checks, tags)
+        val baseSignalMismatchIgnoredForLane = baseSignal8203.second
+        if (baseSignal8203.first != null) { blockReason = baseSignal8203.first; blockLevel = BlockLevel.HARD }
 
         // ═══════════════════════════════════════════════════════════════════════════
         // V5.6.9 FIX: RSI OVERBOUGHT HARD REJECTION
@@ -5185,10 +5209,8 @@ object FinalDecisionGate {
         // V5.0.8203 — no silent terminal: a base signal that is merely not executable (candidate.shouldTrade=false with no
         // block of its own) is a named, staged refusal, not shouldTrade=false with blockReason=null.
         if (!shouldTrade && blockReason == null) {
-            blockReason = "BASE_SIGNAL_NOT_EXECUTABLE_8203:${candidate.finalSignal.ifBlank { candidate.signal }.ifBlank { "NONE" }.uppercase().take(24)}"
+            blockReason = unnamedBaseSignalTerminal8203(candidate, candidateAdmission8136, laneName, checks)
             blockLevel = BlockLevel.EDGE
-            checks.add(GateCheck("base_signal_executable_8203", false, "signal=${candidate.finalSignal.ifBlank { candidate.signal }} shouldTrade=${candidate.shouldTrade} admission=${candidateAdmission8136?.terminal?.name}:${candidateAdmission8136?.specific}"))
-            try { PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_NOT_EXECUTABLE_8203_${laneName.ifBlank { "CORE" }.uppercase()}") } catch (_: Throwable) {}
         }
 
         if (!shouldTrade && blockReason != null) {
