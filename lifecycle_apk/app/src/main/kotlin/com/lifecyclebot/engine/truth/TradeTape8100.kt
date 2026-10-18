@@ -95,7 +95,6 @@ object TradeTape8100 {
     internal const val YOUNG_BAR_MS_8220 = 15_000L
     internal const val YOUNG_MIN_SPAN_MS_8220 = 30_000L
     private val youngShapes8220 = java.util.concurrent.atomic.AtomicLong(0)
-    fun youngShapeCount8220(): Long = youngShapes8220.get()
 
     /** Pure-ish: 15-second-bar shape from [trades] within the last 3 minutes, or null when it cannot be stated. */
     private fun youngShape8220(trades: List<Trade>, nowMs: Long): Shape? {
@@ -153,7 +152,7 @@ object TradeTape8100 {
         return synchronized(q) { q.filter { !it.priceOnly && nowMs - it.atMs in 0L..windowMs }.map { Print8128(it.atMs, it.priceSol, it.sol, it.isBuy) } }
     }
 
-    fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()} youngShape15s8220=${youngShapeCount8220()}"
+    fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()} youngShape15s8220=${youngShapes8220.get()}"
 
     /** V5.0.8169 — why the tape could state nothing for [mint] now: NO_PRINTS (never received) or STALE (newest > 2 min). */
     fun absentWhy8169(mint: String, nowMs: Long = System.currentTimeMillis()): String {
