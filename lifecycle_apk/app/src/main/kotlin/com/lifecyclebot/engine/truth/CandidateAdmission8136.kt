@@ -97,6 +97,13 @@ object CandidateAdmission8136 {
         val lossEpochAware8169: Boolean = false,
         val cellLoss8169: Evidence8136? = null,
         val stageLoss8169: Evidence8136? = null,
+        /**
+         * V5.0.8200 — the Cortex's STRONG read on THIS candidate, as the executable-net record of that lane's STRONG reads
+         * (Cortex7885.strongCohortEvidence8200). Null when the read is not STRONG, the lane is uncalibrated / inverted /
+         * barred, or the coin is hard-blocked. It carries a lane-wide stage loss at the VALID margin and is a candidate-
+         * specific edge at the SUPPORTED margin, exactly like a fired setup; it never carries the coin's own losing cell.
+         */
+        val cortexStrong8200: Evidence8136? = null,
     )
 
     /** The one authoritative terminal admission and the evidence trace behind it. */
@@ -251,7 +258,7 @@ object CandidateAdmission8136 {
                 trace += "stageLosing=${stageLoss?.compact}"
                 return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
             }
-            trace += "stageLosing=${stageLoss?.compact} carried by ${if (carry8180.kind == KIND_SETUP) "setup" else "cell"} ${carry8180.compact}"
+            trace += "stageLosing=${stageLoss?.compact} carried by ${carry8180.kind.lowercase()} ${carry8180.compact}"
             // A VALID carry is not an edge: the strategy (and its measured economics) changes only for a SUPPORTED setup.
             if (bestSetup != null && bestSetup.id != chosen) chooseSetup(bestSetup.id)
         }
@@ -275,7 +282,8 @@ object CandidateAdmission8136 {
         }
 
         val chosenRec = c.setups.firstOrNull { it.id == chosen }
-        val edge = listOfNotNull(bestSetup ?: chosenRec?.takeIf { supported8136(it, c.costPct) }, c.cell?.takeIf { cellSupported })
+        val edge = listOfNotNull(bestSetup ?: chosenRec?.takeIf { supported8136(it, c.costPct) }, c.cell?.takeIf { cellSupported },
+            c.cortexStrong8200?.takeIf { supported8136(it, c.costPct) && !losing8136(cellLoss) })  // V5.0.8200
             .maxByOrNull { it.lowerPct }
         // Resolve the winning strategy before validating its executable economics.
         if (edge?.kind == KIND_SETUP && edge.id != chosen) chooseSetup(edge.id)
@@ -349,6 +357,8 @@ object CandidateAdmission8136 {
 
     const val KIND_SETUP = "SETUP"
     const val KIND_CELL = "CELL"
+    /** V5.0.8200 — the Cortex's STRONG cohort on this candidate's lane (executable-net labels). */
+    const val KIND_CORTEX_8200 = "CORTEX"
     const val KIND_TIMING = "TIMING"
     internal const val KIND_STAGE = "STAGE"
 
@@ -680,6 +690,7 @@ object CandidateAdmission8136 {
             lossEpochAware8169 = true,
             cellLoss8169 = cellLoss8169,
             stageLoss8169 = stageLoss8169,
+            cortexStrong8200 = try { com.lifecyclebot.engine.cortex.Cortex7885.strongCohortEvidence8200(ts, lane) } catch (_: Throwable) { null },
         )
     }
 }
