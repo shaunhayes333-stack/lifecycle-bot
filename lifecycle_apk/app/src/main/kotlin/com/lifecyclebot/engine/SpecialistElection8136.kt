@@ -752,6 +752,17 @@ object SpecialistElection8136 {
                     ElectionRescueFunnel8144.bind8144(r.mint, l, r.version, adopted = true, nowMs = nowMs)
                     rescueEvaluated8144(r, l, shouldTrade, nowMs)
                 }
+                // V5.0.8214 — the holder of the rescue slot already refused (its own strategy) and this specialist's FDG allowed:
+                // the allowing specialist takes the slot instead of overflowing. Primary judgement / ineligible still bind.
+                shouldTrade && !r.primaryJudgement && rescueRefused8214(r) && r.slots[l]?.terminal != Terminal8136.INELIGIBLE -> {
+                    r.rescue = l
+                    r.rescueConsumed = true
+                    rescueReplaced8214++
+                    end8136(r, s, Terminal8136.RESCUE_EVALUATED, "ADOPTED_FDG_ALLOW_AFTER_RESCUE_REFUSED_8214")
+                    ElectionRescueFunnel8144.bind8144(r.mint, l, r.version, adopted = true, nowMs = nowMs)
+                    rescueEvaluated8144(r, l, true, nowMs)
+                    try { PipelineHealthCollector.labelInc("ELECTION_RESCUE_REPLACED_BY_ALLOW_8214_$l") } catch (_: Throwable) {}
+                }
                 else -> {
                     rescueOverflow8136++
                     end8136(r, s, Terminal8136.RESCUE_EVALUATED, "OVERFLOW_SECOND_RESCUE:${if (shouldTrade) "ALLOW" else why}")
@@ -770,6 +781,30 @@ object SpecialistElection8136 {
      * V5.0.8144 — BotService.shouldRunBuyLaneForCycle let [lane] evaluate [mint]: when it holds the candidate's rescue,
      * the funnel's SCHEDULED stage (a claimed rescue that was never scheduled is a gate problem, not an FDG one).
      */
+    @Volatile private var rescueReplaced8214 = 0L
+    private fun rescueRefused8214(r: Record8136): Boolean {
+        val h = r.slots[r.rescue] ?: return false
+        return h.terminal == Terminal8136.RESCUE_EVALUATED && !h.reason.startsWith("FDG_ALLOW") && !h.reason.startsWith("ADOPTED_FDG_ALLOW")
+    }
+
+    internal const val NATIVE_EVAL_CAP_8214 = 3
+    private val nativeEval8214 = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
+
+    /**
+     * V5.0.8214 — at most [NATIVE_EVAL_CAP_8214] non-primary specialists per candidate version evaluate on their OWN native
+     * claim (hunter claim / desk hypothesis). Bounded so fan-out cannot grow; the same lane keeps its slot across cycles.
+     */
+    fun nativeEvalSlot8214(mint: String, lane: String, primary: String, version: Long, nativeClaim: Boolean): Boolean {
+        if (!nativeClaim || mint.isBlank()) return false
+        val l = canon8136(lane)
+        if (l.isBlank() || l == canon8136(primary)) return false
+        if (nativeEval8214.size > 4_000) nativeEval8214.clear()
+        val set = nativeEval8214.computeIfAbsent("$mint|$version") { java.util.Collections.synchronizedSet(LinkedHashSet()) }
+        val ok = synchronized(set) { l in set || (set.size < NATIVE_EVAL_CAP_8214 && set.add(l)) }
+        try { PipelineHealthCollector.labelInc(if (ok) "NATIVE_SPECIALIST_EVAL_8214_$l" else "NATIVE_SPECIALIST_EVAL_CAPPED_8214") } catch (_: Throwable) {}
+        return ok
+    }
+
     fun noteScheduled8144(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()) {
         val l = canon8136(lane)
         if (mint.isBlank() || l.isBlank()) return
@@ -1053,7 +1088,7 @@ object SpecialistElection8136 {
             .joinToString(" ; ") { "${it.key}=${compact8136(it.value)}" }
         val refused = yieldRefusals8136.entries.sortedByDescending { it.value }.take(4).joinToString(",") { "${it.key}=${it.value}" }
         "election8136 records=${records8136.size} closed=$closedRecords8136 rescue(claim=$rescueClaims8136 adopted=$rescueAdopted8136 " +
-            "overflow=$rescueOverflow8136 heldDenied=$rescueHeldDenied8136 outranked=$outranked8136 judgementNone=$judgementNoRescue8136) " +
+            "overflow=$rescueOverflow8136 replaced8214=$rescueReplaced8214 nativeEval8214=${nativeEval8214.size} heldDenied=$rescueHeldDenied8136 outranked=$outranked8136 judgementNone=$judgementNoRescue8136) " +
             "yield(named=$yieldNamed8136 reached=$yieldReached8136 refused={${refused.ifBlank { "-" }}}) authoritative=$authoritativeOverrides8136 " +
             "stale=$staleEvents8136 unqualifiedFdg=$unqualifiedFdg8136 | ${lanes.ifBlank { "no proposals yet" }}" +
             // V5.0.8144 — how the one slot was decided, and arbitration failures (never executable).
@@ -1065,6 +1100,7 @@ object SpecialistElection8136 {
     } + (try { HandoffReceiverTasks8153.statusLine8153() } catch (_: Throwable) { "handoffTask8153[unavailable]" })  // read outside the election lock
 
     internal fun resetForTests8136() {
+        nativeEval8214.clear(); rescueReplaced8214 = 0L
         synchronized(lock8136) {
             records8136.clear(); laneCountTable8136.clear(); yieldRefusals8136.clear(); fdgRefusals8136.clear()
             lastSweepMs8136 = 0L; rescueClaims8136 = 0L; rescueAdopted8136 = 0L; rescueOverflow8136 = 0L; rescueHeldDenied8136 = 0L

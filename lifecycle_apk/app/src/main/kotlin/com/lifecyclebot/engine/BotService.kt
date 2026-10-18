@@ -15325,7 +15325,11 @@ class BotService : Service() {
         val specialistEvaluationAllowed6600 = designatedDeskQualified6599 &&
             (l.equals(primaryLane, true) || l.equals(boundedRescue6600, true) ||
                 SpecialistOwnership7951.handOffAllowed7960(l, ts.mint, primaryLane) ||  // V5.0.7960
-                SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane))  // V5.0.8094
+                SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane) ||  // V5.0.8094
+                // V5.0.8214 — a specialist with its OWN native claim (its hunter claimed the coin, or its desk filed a hypothesis)
+                // evaluates its own strategy instead of being dropped as NON_OWNER_NOT_RESCUE behind a hash-lottery rescue.
+                SpecialistElection8136.nativeEvalSlot8214(ts.mint, l, primaryLane, candidateVersion6600,
+                    huntedByLane7297 || designatedDeskHypothesis6599 != null))
         // V5.0.6604 §SPECIALIST_CONSENSUS_GATE (troubleshoot_agent P0 fix).
         //   Root cause slice of the <10% MemeTrader WR: MEME specialists
         //   (SHITCOIN / EXPRESS / MOONSHOT / PROJECT_SNIPER) could satisfy

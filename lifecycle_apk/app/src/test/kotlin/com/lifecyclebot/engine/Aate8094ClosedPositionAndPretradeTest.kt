@@ -403,7 +403,7 @@ class Aate8094ClosedPositionAndPretradeTest {
 
     @Test fun aReadySpecialistWithAProvenCellEvaluatesAndTheTacticGateSparesProvenCells() {
         val bot = src("engine/BotService.kt")
-        assertTrue(bot.contains("SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane))  // V5.0.8094"))
+        assertTrue(bot.contains("SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane) ||  // V5.0.8094"))  // 8214: native-claim slot follows
         val own = src("engine/SpecialistOwnership7951.kt")
         assertTrue(own.contains("LiveEdgeGate7877.cellOrKindProven8094(ts, l)"))
         // Not the primary, not READY, or no token state: no evaluation.
