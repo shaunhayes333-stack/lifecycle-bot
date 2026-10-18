@@ -1,0 +1,26 @@
+name: Admission repair workspace
+on:
+  push:
+    branches: [repair/8210-executable-admission]
+    paths: [.github/workflows/admission-repair-workspace.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Archive tracked source only
+        run: |
+          git rev-parse HEAD > source-commit.txt
+          git archive --format=zip -o source-snapshot.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: admission-repair-source
+          path: |
+            source-snapshot.zip
+            source-commit.txt
+          retention-days: 2
