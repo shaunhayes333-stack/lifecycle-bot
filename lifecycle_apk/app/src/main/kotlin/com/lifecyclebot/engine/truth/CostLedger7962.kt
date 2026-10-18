@@ -210,6 +210,13 @@ object CostLedger7962 {
         val spent = (buy.executedCostSol + buy.entryFeesSol) * share
         // V5.0.8169 — sides over the SOL spent (they add up); a sample whose marks contradict the fills is not learned.
         val sides = CostSides8169.sides8169(spent, buy.entryFeesSol * share, soldRaw, buy.tokenDecimals, em.markUsd, em.solUsd, legs)
+        if (sides.verdict == CostSides8169.Verdict8169.SELL_SIDE_ONLY) {
+            // V5.0.8223 — the entry mark contradicted the fill; the sell legs did not. The sell side is learned.
+            noteSellOnly8223(lane(e.lane), sides.sellPct)
+            markInconsistent8169.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("COST_LEDGER_SELL_SIDE_ONLY_8223") } catch (_: Throwable) {}
+            return commitMeasurement8090(e, em, null, 0.0, "SELL_SIDE_ONLY_8223", sides)
+        }
         if (sides.verdict == CostSides8169.Verdict8169.MARK_INCONSISTENT) {
             markInconsistent8169.incrementAndGet()
             try { PipelineHealthCollector.labelInc("COST_LEDGER_MARK_INCONSISTENT_8169") } catch (_: Throwable) {}
@@ -267,8 +274,45 @@ object CostLedger7962 {
      */
     fun sellSidePct8189(laneRaw: String?): Pair<Double, Int>? {
         ensureLoaded()
-        val xs = rowsOf(lane(laneRaw)).mapNotNull { r -> r.getOrNull(3)?.takeIf { it.isFinite() && it >= 0.0 } }
+        val l = lane(laneRaw)
+        val xs = rowsOf(l).mapNotNull { r -> r.getOrNull(3)?.takeIf { it.isFinite() && it >= 0.0 } } + sellOnlyOf8223(l)
         return if (xs.isEmpty()) null else median7962(xs) to xs.size
+    }
+
+    // V5.0.8223 — sell sides measured on round trips whose entry mark contradicted the fill (CostSides8169.SELL_SIDE_ONLY).
+    private const val SELL_ONLY_KEY_8223 = "COST_LEDGER_SELL_ONLY_8223"
+    private val sellOnlyByLane8223 = HashMap<String, ArrayDeque<Double>>()
+    @Volatile private var sellOnlyLoaded8223 = false
+
+    private fun sellOnlyOf8223(l: String): List<Double> = synchronized(this) {
+        ensureSellOnlyLoaded8223()
+        sellOnlyByLane8223[l]?.toList().orEmpty()
+    }
+
+    private fun noteSellOnly8223(l: String, sellPct: Double) {
+        if (!sellPct.isFinite() || sellPct < 0.0 || sellPct > MAX_SANE_COST_PCT) return
+        synchronized(this) {
+            ensureSellOnlyLoaded8223()
+            val q = sellOnlyByLane8223.getOrPut(l) { ArrayDeque() }
+            q.addLast(sellPct)
+            while (q.size > RING) q.removeFirst()
+            try {
+                LearningPersistence.save(SELL_ONLY_KEY_8223, sellOnlyByLane8223.entries.joinToString(";") { (k, v) -> k + "=" + v.joinToString(",") })
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private fun ensureSellOnlyLoaded8223() {
+        if (sellOnlyLoaded8223) return
+        sellOnlyLoaded8223 = true
+        try {
+            LearningPersistence.load(SELL_ONLY_KEY_8223)?.split(';')?.forEach { part ->
+                val k = part.substringBefore('=', "").trim()
+                if (k.isBlank()) return@forEach
+                val vs = part.substringAfter('=', "").split(',').mapNotNull { it.toDoubleOrNull() }.filter { it.isFinite() && it >= 0.0 }
+                if (vs.isNotEmpty()) sellOnlyByLane8223[k] = ArrayDeque(vs.takeLast(RING))
+            }
+        } catch (_: Throwable) {}
     }
 
     /** ForwardReturnLabeler7731 / FieldManual7715: the measured cost when the lane has it, else [estimatePct]. */

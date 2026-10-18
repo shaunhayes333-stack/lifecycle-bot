@@ -4541,6 +4541,7 @@ object PipelineHealthCollector {
               .append(com.lifecyclebot.engine.truth.StopLatencyClasses6464.statusLine()).append("\n")
               .append("  signed tx identity (8085): ").append(try { com.lifecyclebot.network.SignedTxLedger8085.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
               .append("  sell spine (8144): ").append(try { com.lifecyclebot.engine.sell.SellRouteSpine8144.statusLine8144() + " | endpoints " + com.lifecyclebot.engine.sell.SellRouteEndpoint8144.statusLine8144() } catch (_: Throwable) { "unavailable" }).append("\n")
+              .append("  paper parity (8223): ").append(try { com.lifecyclebot.engine.truth.PaperExitLatency8223.statusLine8223() + " " + com.lifecyclebot.engine.truth.PaperUniverseParity8223.statusLine8223() } catch (_: Throwable) { "unavailable" }).append("\n")
             sb.append("  rootCauseTtl:       ")
               .append(com.lifecyclebot.engine.truth.RootCauseTtl6464.statusLine()).append("\n")
             sb.append("  authorityVersion:   ")

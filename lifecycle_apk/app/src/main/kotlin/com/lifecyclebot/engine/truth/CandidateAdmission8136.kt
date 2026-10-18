@@ -507,6 +507,10 @@ object CandidateAdmission8136 {
     private data class Memo8153(val atMs: Long, val candidate: Candidate8136, val decision: Decision8136)
     private val memos8153 = ConcurrentHashMap<String, Memo8153>()
     private const val MEMO_MS_8153 = 1_500L
+    /** V5.0.8223 — the FDG snapshot prior (score, fluid floor, admission size) carried per candidate generation. */
+    private data class SnapshotPrior8223(val score: Double, val floor: Double, val sizeSol: Double, val atMs: Long)
+    private val snapshotPriors8223 = ConcurrentHashMap<String, SnapshotPrior8223>()
+    private const val PRIOR_CARRY_MS_8223 = 120_000L
     private val held8144 = ConcurrentHashMap<String, Held8144>()
     private val coalesced8144 = AtomicLong(0)
 
@@ -686,10 +690,27 @@ object CandidateAdmission8136 {
                 com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
             )
         } catch (_: Throwable) { proposedSizeSol } else proposedSizeSol
-        val built = candidateFor8136(ts, laneRaw, nowMs, admissionSize8212)
-        val rawCandidate = if (genericScore.isFinite() && genericFloor.isFinite()) built.copy(genericScore = genericScore, genericFloor = genericFloor) else built
         val version = candidateVersion.takeIf { it > 0L }
             ?: try { com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
+        // V5.0.8223 — one canonical prior per candidate generation. FDG is the only caller that knows the authoritative
+        // entry score and fluid floor; LiveEdgeGate7877 / TradePlan7739 / the FDG floor fallback re-assess the same
+        // candidate WITHOUT them, so the memo identity missed (NaN score) and the record re-decided on a prior-less
+        // candidate: GENERIC_PRIOR_CLEARS at the FDG became NO_SUPPORTED_EDGE in the plan (8220 forensic). The snapshot
+        // FDG supplied is carried by (mode, mint, lane, version) and read by every later caller of the same generation.
+        // Nothing is guessed: a candidate FDG never scored still carries no prior.
+        val laneKey8223 = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
+        val priorKey8223 = "$mode|${ts.mint}|$laneKey8223|$version"
+        val prior8223 = if (genericScore.isFinite() && genericFloor.isFinite()) {
+            SnapshotPrior8223(genericScore, genericFloor, admissionSize8212, nowMs).also {
+                if (snapshotPriors8223.size > 4_000) snapshotPriors8223.entries.removeIf { e -> nowMs - e.value.atMs > PRIOR_CARRY_MS_8223 }
+                snapshotPriors8223[priorKey8223] = it
+            }
+        } else snapshotPriors8223[priorKey8223]?.takeIf { nowMs - it.atMs in 0L..PRIOR_CARRY_MS_8223 }?.also {
+            try { PipelineHealthCollector.labelInc("ADMISSION_PRIOR_CARRIED_8223_$laneKey8223") } catch (_: Throwable) {}
+        }
+        val sizeForQuote8223 = if (admissionSize8212.isFinite() && admissionSize8212 > 0.0) admissionSize8212 else prior8223?.sizeSol ?: admissionSize8212
+        val built = candidateFor8136(ts, laneRaw, nowMs, sizeForQuote8223)
+        val rawCandidate = if (prior8223 != null) built.copy(genericScore = prior8223.score, genericFloor = prior8223.floor) else built
         val candidate = rawCandidate.copy(candidateVersion = version)
         val key = "$mode|${ts.mint}|${candidate.lane}|$version"
         val identity = cacheIdentity8144(candidate)

@@ -245,6 +245,10 @@ object SellRouteSpine8144 {
         val c = cls(t)
         fun add(k: String, v: Long) = latency8144.computeIfAbsent("$c|$k") { Agg8144() }.add(v)
         add("trigger->broadcast", t.triggerToBroadcastMs())
+        // V5.0.8223 — the paper exit simulator pays this measured latency (PaperExitLatency8223).
+        if (outcome == "CONFIRMED" || outcome == "CLOSED") try {
+            com.lifecyclebot.engine.truth.PaperExitLatency8223.noteLive8223(t.emergency, t.triggerToBroadcastMs())
+        } catch (_: Throwable) {}
         add("queue", t.queueMs())
         add("balance", t.balanceMs())
         add("quote", t.quoteMs())

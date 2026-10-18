@@ -138,6 +138,36 @@ object PeakLedger8188 {
         else -> REBASE_APPLIED_8188
     }
 
+    private const val REBASE_TRADE_SETTLEMENT_8223 = "REFUSED_TRADE_SETTLEMENT_LAG"
+    /** A bot leg's SOL may land in the wallet read this long after its journal row (settlement + balance poll lag). */
+    const val SETTLEMENT_LAG_MS_8223 = 10L * 60_000L
+
+    /**
+     * Pure (V5.0.8223): is a wallet-corroborated flow explained by the bot's own recent live legs? A sell journaled
+     * BEFORE the wallet poll saw its proceeds moved realised P&L and principal in one observation and liquid SOL in a
+     * later one: at that later observation the residual is +proceeds, liquid rose by +proceeds, principal stood still,
+     * so 8188's wallet rule corroborated it and the past peak rose by a sale the bot made (5.0.8220: 9.4% drawdown
+     * against a peak no equity read had reached). [netLegsSol] = sells' SOL − buys' SOL journaled live inside the lag
+     * window. A flow of the same sign not larger than those legs (within [toleranceSol]) is settlement, not a deposit.
+     */
+    fun settlementExplains8223(flowSol: Double, netLegsSol: Double, toleranceSol: Double = 0.002): Boolean {
+        if (!flowSol.isFinite() || !netLegsSol.isFinite() || flowSol == 0.0 || netLegsSol == 0.0) return false
+        if ((flowSol > 0.0) != (netLegsSol > 0.0)) return false
+        return kotlin.math.abs(flowSol) <= kotlin.math.abs(netLegsSol) + toleranceSol
+    }
+
+    /** CapitalDrawdown7948: a corroborated flow the bot's own legs explain is refused and recorded (peak unchanged). */
+    @Synchronized fun refuseSettlement8223(residualSol: Double, liquidDeltaSol: Double, netLegsSol: Double, peakSol: Double, nowMs: Long) {
+        refused8188.incrementAndGet()
+        addRebase8188(Rebase8188(nowMs, residualSol, liquidDeltaSol, 0.0, peakSol, peakSol, REBASE_TRADE_SETTLEMENT_8223))
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DRAWDOWN_FLOW_IS_TRADE_SETTLEMENT_REFUSED_8223")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("DRAWDOWN_FLOW_IS_TRADE_SETTLEMENT_REFUSED_8223",
+                "residual=${"%+.4f".format(residualSol)} liquidDelta=${"%+.4f".format(liquidDeltaSol)} netLegs=${"%+.4f".format(netLegsSol)} peak=${"%.4f".format(peakSol)} action=peak_unchanged")
+        } catch (_: Throwable) {}
+        persistQuietly8188()
+    }
+
     /** Pure: a peak candidate on verified components only — [candidateSol] less principal no wallet read confirms; NaN in paper. */
     fun verifiedCandidate8188(candidateSol: Double, unverifiedPrincipalSol: Double, paperRuntime: Boolean): Double {
         if (paperRuntime || !candidateSol.isFinite()) return Double.NaN
@@ -357,10 +387,10 @@ object PeakLedger8188 {
                 "unverifiedPrincipalExcluded=${f(e.unverifiedPrincipalSol)} marks=${e.markProvenance}" +
                 (if (e.atMs != effective.atMs) " STALE_EVENT_effectiveAt=${effective.atMs}" else "") + "]"
         val rs = rebases8188.toList()
-        val applied = rs.filter { it.verdict != REBASE_REFUSED_8188 }
+        val applied = rs.filter { it.appliedSol != 0.0 }
         val last = rs.lastOrNull()
         return "$ev rebases8188=[applied=${applied.size} net=${"%+.4f".format(applied.sumOf { it.toSol - it.fromSol })} " +
-            "refusedNotInWallet=${rs.count { it.verdict == REBASE_REFUSED_8188 }} totalRefused=${refused8188.get()} effective=${f(effective.peakSol)}" +
+            "refusedNotInWallet=${rs.count { it.verdict == REBASE_REFUSED_8188 }} refusedSettlement8223=${rs.count { it.verdict == REBASE_TRADE_SETTLEMENT_8223 }} totalRefused=${refused8188.get()} effective=${f(effective.peakSol)}" +
             (if (last != null) " last=${last.verdict}:residual=${"%+.4f".format(last.residualSol)},liquid=${"%+.4f".format(last.liquidDeltaSol)}," +
                 "${f(last.fromSol)}->${f(last.toSol)},ageMin=${(nowMs - last.atMs) / 60_000L}" else "") + "]" +
             (reconciled8188?.let { r -> " reconciled8188=[legacy=${f(r.legacySol)} -> ${f(r.reconciledSol)} by=${r.by} " +

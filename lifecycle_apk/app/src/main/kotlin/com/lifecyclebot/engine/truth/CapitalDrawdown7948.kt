@@ -139,6 +139,20 @@ object CapitalDrawdown7948 {
         return v
     }
 
+    /** V5.0.8223 — the bot's own live legs journaled in [fromMs, toMs]: sells' SOL in, buys' SOL out (net, + = in). */
+    private fun liveLegsNetSol8223(fromMs: Long, toMs: Long): Double = try {
+        com.lifecyclebot.engine.TradeHistoryStore.getRecentValidTrades(250)
+            .filter { it.ts in fromMs..toMs && it.mode.equals("live", ignoreCase = true) && it.sol.isFinite() && it.sol > 0.0 }
+            .sumOf { t ->
+                val s = t.side.uppercase()
+                when {
+                    s == "SELL" || s == "PARTIAL_SELL" -> t.sol
+                    s == "BUY" -> -t.sol
+                    else -> 0.0
+                }
+            }
+    } catch (_: Throwable) { 0.0 }
+
     /** Observes [equitySol] (moves the peak) and returns the drawdown percent. */
     fun observePct7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Double = synchronized(this) {
         if (equitySol.isFinite() && equitySol > 0.0) {
@@ -156,7 +170,13 @@ object CapitalDrawdown7948 {
                         val residual8188 = if (real.isFinite()) externalFlow7981(equitySol - p.eq, real - p.real, upnl - p.upnl) else 0.0
                         // V5.0.8188 — only money that moved through the wallet rebases the peak (PeakLedger8188).
                         val flow = PeakLedger8188.corroborate8188(residual8188, liq8188 - p.liq, prin8188 - p.prin, peak7948.peakSol, nowMs) { isExternal7981(it, equitySol) }
-                        if (isExternal7981(flow, equitySol)) {
+                        // V5.0.8223 — a wallet-corroborated flow the bot's own live legs explain (a sell's proceeds landing
+                        // after its journal row, a buy's spend before) is settlement lag, not a deposit / withdrawal.
+                        val netLegs8223 = liveLegsNetSol8223(p.atMs - PeakLedger8188.SETTLEMENT_LAG_MS_8223, nowMs)
+                        if (isExternal7981(flow, equitySol) && PeakLedger8188.settlementExplains8223(flow, netLegs8223)) {
+                            cancelled7986.incrementAndGet()
+                            PeakLedger8188.refuseSettlement8223(residual8188, liq8188 - p.liq, netLegs8223, peak7948.peakSol, nowMs)
+                        } else if (isExternal7981(flow, equitySol)) {
                             val before8188 = peak7948
                             peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)
                             PeakLedger8188.noteRebase8188(before8188, peak7948, residual8188, flow, liq8188 - p.liq, nowMs)

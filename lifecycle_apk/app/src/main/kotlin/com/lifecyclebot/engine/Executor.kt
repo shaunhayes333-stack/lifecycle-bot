@@ -15823,6 +15823,17 @@ class Executor(
             markPaperBuyNotOpened("PEGGED_ASSET_7353")
             return
         }
+        // V5.0.8223 — paper trades the LIVE universe: the structural wall PreTradeHardGate puts in front of every live
+        // buy (sub-$500 pool, active mint / freeze authority, confirmed rug, 35%+ holder, blacklist, quarantine) refuses
+        // the paper open too, so paper outcomes are measured on coins live can actually buy. Pending proofs still sample.
+        val liveWall8223 = try {
+            com.lifecyclebot.engine.truth.PaperUniverseParity8223.refusal8223(ts, layerTag.ifBlank { ts.position.tradingMode })
+        } catch (_: Throwable) { null }
+        if (liveWall8223 != null) {
+            try { ForensicLogger.lifecycle("PAPER_UNIVERSE_LIVE_WALL_8223", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag wall=$liveWall8223 liq=${ts.lastLiquidityUsd.toInt()}") } catch (_: Throwable) {}
+            markPaperBuyNotOpened("LIVE_WALL_8223_$liveWall8223")
+            return
+        }
         val now6616 = System.currentTimeMillis()
         val WINDOW_MS_6616 = 300_000L
         val tokenMapFresh6616 = ts.tokenMap.updatedAtMs > 0L && now6616 - ts.tokenMap.updatedAtMs <= WINDOW_MS_6616
@@ -25644,13 +25655,25 @@ class Executor(
         // worth at the mark, so a runner exiting at 10x pays impact on 10x the
         // notional, not on its cost.
         val solUsdForImpact7287 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        val markMultiple7287 = if (pos.entryPrice > 0.0 && price > 0.0) (price / pos.entryPrice).coerceIn(0.0, 1_000.0) else 1.0
+        // V5.0.8223 — the paper fill lands where the LIVE path would: the trigger mark moved by the coin's own adverse
+        // momentum over the live-measured trigger -> broadcast latency (PaperExitLatency8223). Impact and fees below
+        // are charged on that executable mark, as live pays them on its fill.
+        val latencyFill8223 = try {
+            com.lifecyclebot.engine.truth.PaperExitLatency8223.paperFill8223(ts.mint, price, reason)
+        } catch (_: Throwable) { null }
+        val executablePrice8223 = latencyFill8223?.price?.takeIf { it.isFinite() && it > 0.0 } ?: price
+        if (latencyFill8223 != null && latencyFill8223.driftPct < 0.0) try {
+            ForensicLogger.lifecycle("PAPER_EXIT_LATENCY_DRIFT_8223",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason trigger=$price fill=${latencyFill8223.price} " +
+                    "drift=${"%.2f".format(latencyFill8223.driftPct)}% latencyMs=${latencyFill8223.latencyMs} measured=${latencyFill8223.measured}")
+        } catch (_: Throwable) {}
+        val markMultiple7287 = if (pos.entryPrice > 0.0 && executablePrice8223 > 0.0) (executablePrice8223 / pos.entryPrice).coerceIn(0.0, 1_000.0) else 1.0
         val exitClipSol7287 = (terminalRemainingCost6492 * markMultiple7287).coerceAtLeast(0.0)
         val simulatedSlippagePct = com.lifecyclebot.engine.truth.PaperVenueCost7287.impactPct(
             ts.mint, exitClipSol7287, ts.lastLiquidityUsd, solUsdForImpact7287,
         )
         val slippageMultiplier = 1.0 - (simulatedSlippagePct / 100.0)
-        var effectivePrice = price * slippageMultiplier
+        var effectivePrice = executablePrice8223 * slippageMultiplier
 
         // V5.0.6734 — a stop reason describes the decision, not an executable price.
         // Retired PAPER_EXIT_PRICE_CLAMPED / PAPER_EXIT_BAND_NO_ENTRY: they could

@@ -30,7 +30,7 @@ object CostSides8169 {
      */
     const val MAX_BUY_SIDE_PCT_8169 = 15.0
 
-    enum class Verdict8169 { MEASURED, MARK_INCONSISTENT, INVALID }
+    enum class Verdict8169 { MEASURED, MARK_INCONSISTENT, INVALID, SELL_SIDE_ONLY }
 
     data class Sides8169(
         val verdict: Verdict8169,
@@ -68,6 +68,11 @@ object CostSides8169 {
         val fee = if (entryFeeSol.isFinite() && entryFeeSol > 0.0) entryFeeSol / spentSol * 100.0 else 0.0
         if (!buy.isFinite() || !sell.isFinite()) return INVALID
         val inconsistent = buy < -NEG_TOLERANCE_PCT_8169 || sell < -NEG_TOLERANCE_PCT_8169 || buy > MAX_BUY_SIDE_PCT_8169
+        // V5.0.8223 — the entry mark on a fast pump is the usual contradiction (a mark 3 s before the fill is another
+        // price); the sell legs' marks are read at the sale and most often hold. The sell side is then still a
+        // measurement (ProfitExitTruth8163 / the paper exit simulator read it); only the round trip is unmeasured.
+        if (inconsistent && sell >= -NEG_TOLERANCE_PCT_8169)
+            return Sides8169(Verdict8169.SELL_SIDE_ONLY, Double.NaN, sell.coerceAtLeast(0.0), Double.NaN, fee)
         if (inconsistent) return Sides8169(Verdict8169.MARK_INCONSISTENT, buy, sell, buy + sell, fee)
         val b = buy.coerceAtLeast(0.0)
         val s = sell.coerceAtLeast(0.0)
