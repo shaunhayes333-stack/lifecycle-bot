@@ -56,11 +56,17 @@ object AdmissionEdge8180 {
     const val TTL_MS_8180 = 120_000L
     private const val MAX_8180 = 2_000
 
-    /** One admission's proof: immutable identity the sizers may rely on. */
+    /** One admission's proof: immutable identity the sizers may rely on. V5.0.8224 — and its economic basis. */
     data class Proof8198(
         val mode: String, val mint: String, val lane: String, val candidateVersion: Long,
         val basis: String, val chosenSetup: String?, val atMs: Long,
-    )
+        /** The admitted setup's expected net (%), the round trip it was costed at (%) and the ticket that cost priced (SOL). */
+        val expectedNetPct: Double = Double.NaN, val costPct: Double = Double.NaN, val costSizeSol: Double = Double.NaN,
+    ) {
+        /** The admission's expected GROSS (%) — net plus the round trip it was charged; NaN when either is unknown. */
+        val expectedGrossPct: Double get() =
+            if (expectedNetPct.isFinite() && costPct.isFinite()) expectedNetPct + costPct else Double.NaN
+    }
 
     private val admitted = ConcurrentHashMap<String, Proof8198>()
 
@@ -75,7 +81,8 @@ object AdmissionEdge8180 {
         if (mint.isBlank() || lane.isBlank()) return
         val k = key8198(mode, mint, lane)
         if (!carriesEdge8180(d)) { admitted.remove(k); return }
-        admitted[k] = Proof8198(mode.trim().uppercase(), mint, k.substringAfterLast('|'), candidateVersion, d.basis, d.chosenSetup, nowMs)
+        admitted[k] = Proof8198(mode.trim().uppercase(), mint, k.substringAfterLast('|'), candidateVersion, d.basis, d.chosenSetup, nowMs,
+            d.expectedNetPct, d.costPct, d.costSizeSol)
         if (admitted.size > MAX_8180) admitted.entries.removeIf { nowMs - it.value.atMs > TTL_MS_8180 }
     }
 

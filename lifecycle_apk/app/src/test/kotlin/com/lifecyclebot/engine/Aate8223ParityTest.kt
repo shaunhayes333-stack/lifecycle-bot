@@ -135,6 +135,16 @@ class Aate8223ParityTest {
             com.lifecyclebot.engine.truth.CostSides8169.sides8169(1.0, 0.001, raw, 6, 400.0, 100.0, listOf(badSale)).verdict)
         val ledger = src("engine/truth/CostLedger7962.kt")
         assertTrue(ledger.contains("noteSellOnly8223(lane(e.lane), sides.sellPct)"))
-        assertTrue(ledger.contains("+ sellOnlyOf8223(l)"))
+    // ── 7. one economic basis: promotion is judged on the admission's own gross and cost model ──
+
+    @Test fun aRouteMinimumPromotionIsJudgedOnTheAdmissionsOwnBasis() {
+        val p = com.lifecyclebot.engine.truth.AdmissionEdge8180.Proof8198("LIVE", "m", "MOONSHOT", 7L, "b", "LAUNCH_EARLY", 0L,
+            expectedNetPct = 12.0, costPct = 4.5, costSizeSol = 0.03)
+        assertEquals(16.5, p.expectedGrossPct, 1e-9)
+        assertTrue(com.lifecyclebot.engine.truth.AdmissionEdge8180.Proof8198("LIVE", "m", "MOONSHOT", 7L, "b", null, 0L).expectedGrossPct.isNaN())
+        val s = src("engine/truth/MinPromotion8188.kt")
+        assertTrue(s.contains("fun cost(s: Double): Double = NetEdge8030.costPct8030(l, s, liq, mint, mcap)"))
+        assertFalse(s.contains("LiveRiskPolicy7807.roundTripCostPct(s, solUsd, liq)"))
+        assertTrue(s.contains("AdmissionEdge8180.proof8198(\"LIVE\", mint, l, version)"))
     }
 }

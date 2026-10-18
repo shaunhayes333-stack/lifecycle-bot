@@ -307,7 +307,9 @@ class Aate8144SellRouteTest {
         assertEquals(listOf("catch-early", "catch-late", "sl", "tp", "entry", "enrich"), ordered.map { it.key })
         assertTrue(SellRouteFinality8144.bypassesQueue8144("CATASTROPHIC_HARD_BACKSTOP_-25"))
         assertTrue(SellRouteFinality8144.bypassesQueue8144("STRICT_SL_-12"))
-        assertFalse(SellRouteFinality8144.bypassesQueue8144("TRAILING_STOP"))
+        // V5.0.8221 — a profit stop (trail / peak giveback) is time-critical and bypasses the bot-loop queue too.
+        assertTrue(SellRouteFinality8144.bypassesQueue8144("TRAILING_STOP"))
+        assertFalse(SellRouteFinality8144.bypassesQueue8144("TIME_EXIT"))
         assertEquals(3_000L, SellRouteFinality8144.proofPollBackoffMs8144("TICK_CATASTROPHIC_CONFIRMED_-60PCT", 30_000L))
         assertEquals(2_000L, SellRouteFinality8144.proofPollBackoffMs8144("TICK_CATASTROPHIC_CONFIRMED_-60PCT", 2_000L))
         assertEquals(30_000L, SellRouteFinality8144.proofPollBackoffMs8144("TAKE_PROFIT", 30_000L))

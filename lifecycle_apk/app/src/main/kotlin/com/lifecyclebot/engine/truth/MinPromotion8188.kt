@@ -61,6 +61,12 @@ object MinPromotion8188 {
      * Runtime (the upstream sizers): the same test with the inputs LiveRiskPolicy7807.runtimeInputs would read — the
      * fresh plan stop (else the lane mandate), the realistic round trip at each size, the setup's expected gross and the
      * verified live drawdown. Any fault refuses ([REFUSED_UNEVALUATED_8188]): an unproven promotion is not made.
+     *
+     * V5.0.8224 §ONE_ECONOMIC_BASIS — the round trip at each size is NetEdge8030.costPct8030, the SAME model (measured
+     * ledger over components over the venue base) CandidateAdmission8136 costed the candidate with; the legacy
+     * roundTripCostPct7766 max was a second estimator that refused promotions admission had never priced. The expected
+     * gross is the admission's OWN (AdmissionEdge8180.Proof8198: its setup's net plus the round trip it was charged) when
+     * this generation holds a proof, else the sizer's record as before.
      */
     fun runtimeRefusal8188(mint: String, lane: String, requestedSol: Double, promotedSol: Double, liquidityUsd: Double): String? {
         if (!(requestedSol < promotedSol)) return null
@@ -72,10 +78,14 @@ object MinPromotion8188 {
             val ts = if (mint.isNotBlank()) try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } else null
             val liq = if (liquidityUsd.isFinite() && liquidityUsd > 0.0) liquidityUsd else (ts?.lastLiquidityUsd ?: 0.0)
             val mcap = ts?.lastMcap ?: 0.0
-            val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-            fun cost(s: Double): Double = maxOf(LiveRiskPolicy7807.roundTripCostPct(s, solUsd, liq),
-                (try { NetEdge8030.costPct8030(l, s, liq, mint, mcap) } catch (_: Throwable) { Double.NaN }).takeIf { it.isFinite() } ?: 0.0)
-            val gross = ts?.let { LiveRiskPolicy7807.setupExpectedGrossForPromotion8188(it, l) } ?: Double.NaN
+            fun cost(s: Double): Double = NetEdge8030.costPct8030(l, s, liq, mint, mcap)
+            val proof8224 = if (mint.isNotBlank()) try {
+                val version = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint)
+                AdmissionEdge8180.proof8198("LIVE", mint, l, version)
+            } catch (_: Throwable) { null } else null
+            val admissionGross8224 = proof8224?.expectedGrossPct?.takeIf { it.isFinite() }
+            if (admissionGross8224 != null) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ROUTE_MIN_PROMOTION_ADMISSION_BASIS_8224") } catch (_: Throwable) {}
+            val gross = admissionGross8224 ?: ts?.let { LiveRiskPolicy7807.setupExpectedGrossForPromotion8188(it, l) } ?: Double.NaN
             refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross, liveDrawdownFrac8188())
         } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 }
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
