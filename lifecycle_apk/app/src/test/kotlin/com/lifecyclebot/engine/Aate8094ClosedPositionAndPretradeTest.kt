@@ -80,7 +80,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         // Multi-strategy: every fired setup is evaluated and the best proven one is the strategy; the losing-record
         // refusal only applies when no fired setup is proven.
         assertTrue(pb.contains("val candidates = matchedSetups8083(ts, lane, nowMs)"))
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs)"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("if (proven8059 == null && !admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs)"))
         assertTrue(pb.contains("val setup = selectedSetup8094(ts, lane, nowMs)"))
         // In-flight cold starts share the 3-coin budget; a mint holding a place keeps it.
         val g8094 = com.lifecyclebot.engine.truth.LiveEdgeGate7877
@@ -410,7 +410,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(SpecialistOwnership7951.readyCellProvenEvaluates8094("MANIPULATED", "NO_SUCH_MINT_8094", "MOONSHOT"))
         assertFalse(SpecialistOwnership7951.readyCellProvenEvaluates8094("MOONSHOT", "NO_SUCH_MINT_8094", "MOONSHOT"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(gate.contains("if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059)"))
+        assertTrue(gate.contains("if (proven8059 == null && !admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059)"))
     }
 
     @Test fun runnersAreEnteredOnTheirCellsProofAndHeldOnTheRunnerRules() {

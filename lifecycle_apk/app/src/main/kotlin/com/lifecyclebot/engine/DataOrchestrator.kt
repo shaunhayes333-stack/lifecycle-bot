@@ -270,6 +270,8 @@ class DataOrchestrator(
 
     private val SEED_RETRY_FLOOR_MS_7809 = 2_600L
     private val SEED_JITTER_MS_7809 = 1_500L
+    /** V5.0.8201 — the longest provider cooldown a first seed attempt waits out instead of returning no bars. */
+    private val SEED_COOLDOWN_WAIT_MAX_MS_8201 = 15_000L
 
     /**
      * V5.0.7809 — one keyless OHLCV read that waits for the provider's request
@@ -292,6 +294,14 @@ class DataOrchestrator(
             val slot: com.lifecyclebot.network.SolanaOhlcvFeed6916.SlotWait7809 =
                 com.lifecyclebot.network.SolanaOhlcvFeed6916.providerSlotWait7809()
             if (slot.cooldown) {
+                // V5.0.8201 — a cooldown about to end is waited out once (bounded), not converted into "no bars": 5.0.8200
+                // skipped 1,950 seeds on cooldown and 27% of FDG decisions deferred on DATA_INCOMPLETE. A long cooldown
+                // still ends the attempt (the per-mint DataDeferFetch8180 retry owns it). Never fabricates.
+                if (tries == 1 && slot.waitMs in 1L..SEED_COOLDOWN_WAIT_MAX_MS_8201) {
+                    try { PipelineHealthCollector.labelInc("OHLCV_SEED_WAITED_SHORT_COOLDOWN_8201") } catch (_: Throwable) {}
+                    delay(slot.waitMs + kotlin.random.Random.nextLong(0L, SEED_JITTER_MS_7809))
+                    continue
+                }
                 try { PipelineHealthCollector.labelInc("OHLCV_SEED_SKIPPED_PROVIDER_COOLDOWN_7809") } catch (_: Throwable) {}
                 return emptyList()
             }

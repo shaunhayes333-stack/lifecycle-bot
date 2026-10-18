@@ -404,6 +404,20 @@ object LiveEdgeGate7877 {
 
     fun assessmentLine8083(): String = "verdicts=" + verdictCounts8083.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
 
+    /**
+     * V5.0.8201 — the terminal of every candidate-specific ADMIT, by name (ADMITTED_THEN_<terminal>_8201_<lane>); the
+     * FDG verdict itself reaches the runner trace through AdmissionHandoff8144.onFdgVerdict8144 (binding). 5.0.8200
+     * reported 200 ADMITs and 0 allows with nothing accounting for the gap. "ALLOW" means the
+     * live edge gate passed it on to the FDG floor / plan / sizing (their own terminals are named there).
+     */
+    private fun admittedTerminal8201(ts: TokenState, lane: String, terminal: String, candidateVersion: Long) {
+        try {
+            val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+            PipelineHealthCollector.labelInc("ADMITTED_THEN_${terminal.take(48)}_8201_$l")
+            if (candidateVersion > 0L) PipelineHealthCollector.labelInc("ADMITTED_TERMINALS_VERSIONED_8201")
+        } catch (_: Throwable) {}
+    }
+
     fun liveRefusal(
         ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis(), candidateVersion: Long = 0L,
         candidateAdmission: CandidateAdmission8136.Decision8136? = null,
@@ -468,12 +482,19 @@ object LiveEdgeGate7877 {
             val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) } catch (_: Throwable) { null }
             (try { LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs) } catch (_: Throwable) { null })?.let { r8083 ->
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8083, 1.0, nowMs)
+                if (candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, r8083, candidateVersion)
                 observeTail7996(ts, lane, r8083, nowMs); return r8083
             }
             // V5.0.8094 — timing: the picked setup's record AT THIS POINT OF THE MOVE (pullback / mid / extended / peak) is
             // losing — wait for a band where it pays (graded at the executable price).
             // (a token whose own cell / kind is proven has already paid for its timing: the labels start at the fill latency)
-            if (!cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
+            // V5.0.8201 — a candidate-specific ADMIT already judged the chosen setup's record, timing band, cell and stage
+            // (CandidateAdmission8136 precedence: safety > specific negative > specific positive > lane priors). The
+            // 8094 setup / timing / tactic re-reads below are lane-prior tier and must not re-veto that judgement
+            // (5.0.8200: 200 ADMITs, 0 FDG allows). Live-close setup refusal, dead launch, spike chase and the buy door
+            // still apply. Each stand-down is counted.
+            val admittedJudged8201 = candidateSpecificAdmission8136
+            if (!admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
                 val r8094 = "TIMING_RECORD_NEGATIVE_8094"
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$at") } catch (_: Throwable) {}
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.DEFER, r8094, 1.0, nowMs)
@@ -483,7 +504,7 @@ object LiveEdgeGate7877 {
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
             // V5.0.8094 — no fired setup is proven and the classified setup's own label record is losing (12+ labels,
             // mean + SE < 0, no runner-tail exemption): refused. A proven fired setup is the strategy instead (multi-strategy).
-            if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
+            if (proven8059 == null && !admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
                 val r8094 = "PICKED_SETUP_RECORD_NEGATIVE_8094"
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$neg") } catch (_: Throwable) {}
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
@@ -493,7 +514,13 @@ object LiveEdgeGate7877 {
             // (honest labels, mean - SE > 0 on 30+) may still trade it, so the tactic can re-prove itself; nothing else does.
             // (a token whose own cell / kind is proven is not refused on the tactic alone: 8094 missed HULKED +1984%,
             // smol +1862%, MrBeast +972% here.)
-            if (proven8059 == null && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059) } catch (_: Throwable) { null })?.let { t ->
+            if (admittedJudged8201) try {
+                val dup = (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { "TIMING" }
+                    ?: (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { "PICKED_SETUP" }
+                    ?: (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059) } catch (_: Throwable) { null })?.let { "TACTIC" }
+                if (dup != null) PipelineHealthCollector.labelInc("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_${dup}_$l8059")
+            } catch (_: Throwable) {}
+            if (proven8059 == null && !admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059) } catch (_: Throwable) { null })?.let { t ->
                 val r8094 = "TACTIC_RECORD_LOSING_8094"
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$t") } catch (_: Throwable) {}
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8094, 1.0, nowMs)
@@ -542,14 +569,19 @@ object LiveEdgeGate7877 {
                 !cellOrKindProven8094(ts, l8059, nowMs)) {
                 chaseRefused8065.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
+                if (candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, "CHASING_SPIKE_8065", candidateVersion)
                 observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
                 return "CHASING_SPIKE_8065"
             }
             // Keep watch-first on the same immutable admission snapshot as the preceding live checks.
-            watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136, candidateVersion, admission8136)?.let { observeTail7996(ts, lane, it, nowMs); return it }
+            watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136, candidateVersion, admission8136)?.let {
+                if (candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, it, candidateVersion)
+                observeTail7996(ts, lane, it, nowMs); return it
+            }
         }
         val why = liveRefusalCore7970(ts, lane, paper, nowMs, candidateSpecificAdmission8136)
         if (!paper) observeTail7996(ts, lane, why, nowMs)
+        if (!paper && candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, why ?: "ALLOW", candidateVersion)
         // V5.0.8083 — one immutable assessment per candidate: the verdict FDG / sizing / trade plan read, and the setup
         // this live buy's close is filed under (LiveTruth8064), so refusals stay attributable to token + strategy.
         if (!paper) try {
