@@ -1296,6 +1296,22 @@ object FinalDecisionGate {
      * (FDG 0 / 3,404). A generic-prior ADMIT, a missing-data deferral or no elected owner changes nothing; HARD_NO_BUY
      * returned terminally before this point.
      */
+    /** An elected specialist's measured-positive, economic-cleared generic admission may supersede a generic WAIT only.
+     * Explicit SELL, HARD_NO_BUY, legacy edge veto, a failed safety, missing data or a negative record remain binding.
+     */
+    internal fun nativeGenericWait8210(
+        candidate: CandidateDecision, specialistLane: String?,
+        admission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
+    ): Boolean {
+        if (specialistLane.isNullOrBlank() || candidate.edgeVeto ||
+            candidate.signal.equals("SELL", true) || candidate.signal.equals("HARD_NO_BUY", true)) return false
+        if (!candidate.finalSignal.ifBlank { candidate.signal }.equals("WAIT", true)) return false
+        if (candidate.blockReason.isNotBlank() &&
+            !(candidate.blockReason.startsWith("Signal is WAIT") && candidate.blockReason.endsWith(", not BUY"))) return false
+        return admission?.admitted == true && admission.reason == "GENERIC_PRIOR_CLEARS_8136" &&
+            !admission.chosenSetup.isNullOrBlank() && admission.expectedNetPct.isFinite() && admission.expectedNetPct > 0.0
+    }
+
     private fun baseSignalVerdict8203(
         candidate: CandidateDecision,
         laneNameForBaseSignal: String?,
@@ -1307,7 +1323,15 @@ object FinalDecisionGate {
         tags: MutableList<String>,
     ): Pair<String?, Boolean> {
         if (blockReason != null) return null to false
-        if (candidate.blockReason.isEmpty()) { checks.add(GateCheck("candidate_block", true, null)); return null to false }
+        if (candidate.blockReason.isEmpty()) {
+            val nativeWait8210 = nativeGenericWait8210(candidate, specialistLane, candidateAdmission8136)
+            checks.add(GateCheck("candidate_block", true, if (nativeWait8210) "qualified native WAIT superseded by positive admission 8210" else null))
+            if (nativeWait8210) {
+                tags.add("native_wait_admitted_8210")
+                try { PipelineHealthCollector.labelInc("FDG_NATIVE_GENERIC_WAIT_ADMITTED_8210") } catch (_: Throwable) {}
+            }
+            return null to nativeWait8210
+        }
         // V5.0.8207 — LifecycleStrategy's "Edge veto: <reason>" block is the legacy edge filter's judgement surfaced on the
         // candidate; it is the same judgement as the sticky record and obeys the same class rule (GENERIC_PRIOR yields to a
         // candidate-specific proven admission, CURRENT_NEGATIVE refuses).
@@ -1324,6 +1348,12 @@ object FinalDecisionGate {
                 "specific_admit_supersedes_generic_wait_8203 lane=$laneNameForBaseSignal setup=${candidateAdmission8136?.chosenSetup} basis=${candidateAdmission8136?.basis?.take(40)} v=$candidateVersion7623"))
             tags.add("base_signal_superseded_8203:$laneNameForBaseSignal")
             try { PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_SUPERSEDED_BY_SPECIFIC_ADMIT_8203_$laneNameForBaseSignal") } catch (_: Throwable) {}
+            return null to true
+        }
+        if (staleBaseSignalBlock && nativeGenericWait8210(candidate, specialistLane, candidateAdmission8136)) {
+            checks.add(GateCheck("candidate_base_signal", true, "qualified native WAIT superseded by economics-cleared admission 8210 v=$candidateVersion7623"))
+            tags.add("native_wait_admitted_8210")
+            try { PipelineHealthCollector.labelInc("FDG_NATIVE_GENERIC_WAIT_ADMITTED_8210") } catch (_: Throwable) {}
             return null to true
         }
         if (staleBaseSignalBlock && laneNameForBaseSignal != null) {

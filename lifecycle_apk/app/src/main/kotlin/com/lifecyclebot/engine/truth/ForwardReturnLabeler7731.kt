@@ -319,7 +319,7 @@ object ForwardReturnLabeler7731 {
     // attach, no manual reset needed) and the learning reset line (LearningEpoch8164). A loss pattern may refuse only on
     // fresh labels (CandidateAdmission8136.cellLoss8169); older evidence decays to neutral, never to allow. Local
     // labels only: the hive's tallies carry no epoch.
-    private const val GRADING_VERSION_8169 = 8169
+    private const val GRADING_VERSION_8169 = 8210
     private const val FRESH_KEY_8169 = "fresh_cells_8169"
     private const val FRESH_EPOCH_KEY_8169 = "fresh_epoch_8169"
     private const val GRADING_VERSION_KEY_8169 = "grading_version_8169"
@@ -618,7 +618,8 @@ object ForwardReturnLabeler7731 {
     fun cellAgeMs8208(ts: TokenState, nowMs: Long): Long {
         val birth = try { LaunchBirth8169.launchBirth8169(ts.mint, nowMs) } catch (_: Throwable) { null }
         if (birth != null && nowMs >= birth.birthMs) return nowMs - birth.birthMs
-        return if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
+        // V5.0.8210 — discovery never proves birth, even when the mint first appeared seconds ago.
+        return -1L
     }
 
     fun cellKey(source: String, lane: String, mcapUsd: Double, ageMs: Long): String =

@@ -7,14 +7,15 @@ import org.junit.Test
 
 /** 5.0.8208 — a cell's age band comes from a direct birth witness; discovery age is only the unwitnessed fallback. */
 class Aate8208CellAgeKeyTest {
-    @Test fun unwitnessedMintFallsBackToDiscoveryAgeAndUnknownWithoutIt() {
+    @Test fun unwitnessedMintNeverClaimsTheFreshLaunchAgeBand() {
         val ts = TokenState(mint = "Unwitnessed8208" + System.nanoTime(), symbol = "X")
         val now = 1_000_000_000L
         ts.addedToWatchlistAt = 0L
         assertEquals(-1L, ForwardReturnLabeler7731.cellAgeMs8208(ts, now))
         assertEquals("AGE_UNKNOWN", ForwardReturnLabeler7731.ageBand(ForwardReturnLabeler7731.cellAgeMs8208(ts, now)))
         ts.addedToWatchlistAt = now - 60_000L
-        assertEquals(60_000L, ForwardReturnLabeler7731.cellAgeMs8208(ts, now))
+        assertEquals(-1L, ForwardReturnLabeler7731.cellAgeMs8208(ts, now))
+        assertEquals("AGE_UNKNOWN", ForwardReturnLabeler7731.ageBand(ForwardReturnLabeler7731.cellAgeMs8208(ts, now)))
     }
 
     @Test fun oneRuleKeysWriterAndBothReaders() {

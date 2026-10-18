@@ -38,7 +38,8 @@ object StageCarry8180 {
         }.maxByOrNull { it.meanPct - StrategyRank8153.VALID_SE_MULT_8153 * it.sePct }
         if (setup != null) return setup
         // V5.0.8200 — else the Cortex's STRONG read on this candidate, at the same VALID margin on its executable-net record.
-        return c.cell?.takeIf { valid8180(it, c.costPct) } ?: c.cortexStrong8200?.takeIf { valid8180(it, c.costPct) }
+        return (if (c.lossEpochAware8169) c.cellLoss8169 else c.cell)?.takeIf { valid8180(it, c.costPct) }
+            ?: c.cortexStrong8200?.takeIf { valid8180(it, c.costPct) }
     }
 }
 

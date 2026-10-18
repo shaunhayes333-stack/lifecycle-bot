@@ -220,7 +220,9 @@ object CandidateAdmission8136 {
 
         // 2. candidate-specific loss patterns. The coin's own cell proven to pay, or another fired setup supported on its
         //    own record, is the strategy instead (LiveEdgeGate7877: cellOrKindProven8094 / provenSetup8056 multi-strategy).
-        val cellSupported = supported8136(c.cell, c.costPct)
+        // Pre-8210 all-mode cells are audit history, not candidate-specific live approval evidence.
+        val liveCell8210 = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell
+        val cellSupported = supported8136(liveCell8210, c.costPct)
         // V5.0.8153 — every fired setup ranked on its own record AND its timing band (StrategyRank8153): a supported setup
         //    losing at this point of the move is not the strategy; ties of the conservative net go to the runner rate.
         val bestSetup = bestSetup8153(c)
@@ -291,7 +293,7 @@ object CandidateAdmission8136 {
         }
 
         val chosenRec = c.setups.firstOrNull { it.id == chosen }
-        val edge = listOfNotNull(bestSetup ?: chosenRec?.takeIf { supported8136(it, c.costPct) }, c.cell?.takeIf { cellSupported },
+        val edge = listOfNotNull(bestSetup ?: chosenRec?.takeIf { supported8136(it, c.costPct) }, liveCell8210?.takeIf { cellSupported },
             c.cortexStrong8200?.takeIf { supported8136(it, c.costPct) && !losing8136(cellLoss) })  // V5.0.8200
             .maxByOrNull { it.lowerPct }
         // Resolve the winning strategy before validating its executable economics.
