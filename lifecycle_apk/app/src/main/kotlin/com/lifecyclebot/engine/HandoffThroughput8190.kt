@@ -163,6 +163,11 @@ object ReceiverRecord8190 {
                     if (inputDeferredAt8190.size > MAX_8190) inputDeferredAt8190.entries.removeIf { nowMs - it.value > 10 * INPUT_GRACE_MS_8190 }
                     try { DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
                 }
+            } else if (v == DEFER_DATA_GAP_PERSISTENT_8221) {
+                // V5.0.8222 — an exhausted request is re-issued (bounded by the playbook's 30 s gap) and the grace
+                // window re-arms, so the gap is re-fetched and re-read instead of standing as a dead deferral.
+                inputDeferredAt8190[key] = nowMs
+                try { DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
             }
             count8190(v)
             v

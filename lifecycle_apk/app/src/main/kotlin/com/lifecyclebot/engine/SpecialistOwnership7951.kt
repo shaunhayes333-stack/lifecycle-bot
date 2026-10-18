@@ -511,7 +511,11 @@ object SpecialistOwnership7951 {
         when {
             ts == null -> HandoffRetention8185.noTokenState8185(mint)  // V5.0.8185 — re-hydrate the open target
             ts.safety.isBlocked || ts.safety.hardBlockReasons.isNotEmpty() -> "TOKEN_SAFETY_BLOCKED"
-            else -> ReceiverRecord8190.check8190(mint, l)  // V5.0.8190 — RECEIVER_RECORD_UNSOUND_8094 only on a genuine losing record
+            else -> ReceiverRecord8190.check8190(mint, l)?.also { v ->  // V5.0.8190 — RECEIVER_RECORD_UNSOUND_8094 only on a genuine losing record
+                // V5.0.8222 — a persistent data gap is counted per lane so the handoff audit can see re-fetch cycles.
+                if (v == ReceiverRecord8190.DEFER_DATA_GAP_PERSISTENT_8221)
+                    try { PipelineHealthCollector.labelInc("RESCUE_DEFERRED_DATA_GAP_PERSISTENT_8222_$l") } catch (_: Throwable) {}
+            }
         }
     } catch (_: Throwable) { "DEFERRED_RESCUE_CHECK_ERROR" }
 
