@@ -135,6 +135,9 @@ class Aate8223ParityTest {
             com.lifecyclebot.engine.truth.CostSides8169.sides8169(1.0, 0.001, raw, 6, 400.0, 100.0, listOf(badSale)).verdict)
         val ledger = src("engine/truth/CostLedger7962.kt")
         assertTrue(ledger.contains("noteSellOnly8223(lane(e.lane), sides.sellPct)"))
+        assertTrue(ledger.contains("+ sellOnlyOf8223(l)"))
+    }
+
     // ── 7. one economic basis: promotion is judged on the admission's own gross and cost model ──
 
     @Test fun aRouteMinimumPromotionIsJudgedOnTheAdmissionsOwnBasis() {
