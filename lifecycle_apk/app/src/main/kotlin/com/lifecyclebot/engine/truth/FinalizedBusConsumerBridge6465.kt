@@ -116,6 +116,20 @@ object FinalizedBusConsumerBridge6465 {
             return false
         }
 
+        // V5.0.8219 — a quarantined pre-7032 contaminated partial is a TERMINAL learning exclusion, not a failed delivery.
+        // 8218: RewardPurity returned false for it -> FINALIZED_BUS_CONSUMER_DELIVERY_FAILED_RewardPurity_6465=236 retries for
+        // a handful of trades, every cycle. Excluded once, durably, for every learning consumer; never ACKed as learned.
+        if (consumer !in NON_LEARNING_CONSUMERS &&
+            (try { ContaminatedPartialQuarantine7032.isContaminated(env.positionId) } catch (_: Throwable) { false })
+        ) {
+            try {
+                CanonicalFinalizedTradeBus6464.exclude(consumer, env.tradeId, "CONTAMINATED_PARTIAL_7032")
+                excluded.incrementAndGet()
+                releaseExcludedBinding7809(consumer, env)
+                PipelineHealthCollector.labelInc("FINALIZED_BUS_EXCLUDED_CONTAMINATED_8219")
+            } catch (_: Throwable) {}
+            return false
+        }
         if (consumer !in NON_LEARNING_CONSUMERS &&
             LearningQuarantineGate6470.shouldDropForLearning(positionId = env.positionId, mint = env.mint)
         ) {
