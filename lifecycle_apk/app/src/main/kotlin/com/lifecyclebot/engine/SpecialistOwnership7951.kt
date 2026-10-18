@@ -343,7 +343,20 @@ object SpecialistOwnership7951 {
             native8094 -> SpecialistElection8136.TRIGGER_NATIVE
             else -> SpecialistElection8136.TRIGGER_PRE_FDG
         }
-        if (ready && !rescueClaim8136(l, mint, primaryLane, trigger8136, nowMs)) return false
+        if (ready && !rescueClaim8136(l, mint, primaryLane, trigger8136, nowMs)) {
+            // V5.0.8221 §P0c — a lost rescue claim is NEVER silent. Operator
+            // 8220 handoff audit: 1437 rescue overflows reported but every
+            // overflow previously returned false with no terminal reason, so
+            // the handoff throughput table could not account for them. Mark
+            // the receiver explicitly ineligible with RESCUE_OVERFLOW_7951 so
+            // SpecialistElection8136.isEligibleReceiver carries the terminal
+            // forward and the audit can match overflow count to receivers.
+            try {
+                PipelineHealthCollector.labelInc("RESCUE_OVERFLOW_7951_$l")
+                SpecialistElection8136.markIneligible8136(mint, l, "RESCUE_OVERFLOW_7951", nowMs)
+            } catch (_: Throwable) {}
+            return false
+        }
         if (ready) notePreIntent7951(l, if (native8094) "READY_HANDED_OFF_NATIVE_${lane7951(primaryLane)}_8094" else "READY_HANDED_OFF_FROM_${lane7951(primaryLane)}_7960")
         return ready
     }

@@ -237,7 +237,23 @@ object CandidateAdmission8136 {
 
         // 1. hard safety and structural selling risk: nothing overrides them.
         c.safetyRefusal?.let { trace += "safety=$it"; return done(Terminal8136.REFUSE, "SAFETY_REFUSED_8136", true, c.selectedSetup) }
-        c.structuralRisk?.let { trace += "structure=$it"; return done(Terminal8136.REFUSE, "STRUCTURAL_RISK_8136", true, c.selectedSetup) }
+        // V5.0.8221 §P0d — a FRESH_LAUNCH statistical refusal (learned negative
+        // setup record from FreshLaunchSelector7737) is NOT a hard structural
+        // hazard. Pre-8221 the structuralRisk field conflated both and short-
+        // circuited admission before alternative supported setups were
+        // evaluated, so cell/kind-proven alternatives from the same lane never
+        // got their chance. Operator 8220 forensic: MONEROCHAN +27139% refused
+        // on FRESH_LAUNCH_SETUP_STOPS_FIRST_7737 while the lane had other
+        // qualified evidence. The learned refusal falls through here into the
+        // alternative-setup evaluation; a true RUG_PRONE still refuses hard.
+        c.structuralRisk?.let {
+            val isLaunchLearned = it.startsWith("FRESH_LAUNCH_")
+            if (!isLaunchLearned) {
+                trace += "structure=$it"; return done(Terminal8136.REFUSE, "STRUCTURAL_RISK_8136", true, c.selectedSetup)
+            }
+            trace += "launchLearned=$it"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_LAUNCH_LEARNED_FALLTHROUGH_8221") } catch (_: Throwable) {}
+        }
 
         // 2. candidate-specific loss patterns. The coin's own cell proven to pay, or another fired setup supported on its
         //    own record, is the strategy instead (LiveEdgeGate7877: cellOrKindProven8094 / provenSetup8056 multi-strategy).
@@ -708,8 +724,23 @@ object CandidateAdmission8136 {
                     com.lifecyclebot.engine.LaneExecutionCoordinator.laneCanOwnExecution6910(lane)
             }
         } catch (_: Throwable) { null }
-        val nativeSetupBook8217 = pick8153?.id?.takeIf { nativeBook8217 != null && it.isNotBlank() && !it.equals("NONE", true) }
-        if (nativeSetupBook8217 != null) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_NATIVE_FROM_BOOK_8217_$lane") } catch (_: Throwable) {}
+        // V5.0.8221 §P0a — preserve native qualification when the playbook has no selected setup. Pre-8221 this field
+        // required BOTH nativeBook8217 != null AND pick8153.id != null. A QUALIFIED/READY candidate-book entry with
+        // no playbook pick (optional data gap) therefore lost its native qualification and could be deferred before
+        // intent. Operator 8220 forensic: MOONSHOT 4832 native approvals, 0 live buys — exactly this failure mode.
+        // Fix: when the book is QUALIFIED/READY, treat the lane's own hunter+brain verdict as native qualification
+        // using a NATIVE_BOOK sentinel when no playbook id is available. The lane still owns the strategy identity;
+        // nothing bypasses safety, rug, FDG or sizing downstream.
+        val nativeSetupBook8217 = when {
+            nativeBook8217 == null -> null
+            pick8153?.id != null && pick8153.id.isNotBlank() && !pick8153.id.equals("NONE", true) -> pick8153.id
+            else -> "NATIVE_BOOK_8221"
+        }
+        if (nativeSetupBook8217 != null) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_NATIVE_FROM_BOOK_8217_$lane")
+            if (nativeSetupBook8217 == "NATIVE_BOOK_8221") com.lifecyclebot.engine.PipelineHealthCollector
+                .labelInc("ADMISSION_NATIVE_BOOK_WITHOUT_PICK_8221_$lane")
+        } catch (_: Throwable) {}
         val setups = try {
             pb.firedSetupRecords8136(ts, lane, nowMs).map { (id, r) -> Evidence8136(KIND_SETUP, id, r[0].toInt(), r[1], r[2], r[3]) }
         } catch (_: Throwable) { emptyList() }

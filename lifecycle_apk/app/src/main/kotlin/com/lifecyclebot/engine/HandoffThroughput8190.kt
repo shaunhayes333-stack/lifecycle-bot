@@ -114,6 +114,15 @@ object ReceiverRecord8190 {
     const val UNSOUND_8190 = "RECEIVER_RECORD_UNSOUND_8094"
     const val DEFER_NO_STATE_8190 = "DEFERRED_RECEIVER_RECORD_NO_TOKEN_STATE_8190"
     const val DEFER_INPUTS_8190 = "DEFERRED_RECEIVER_SETUP_INPUTS_8190"
+    // V5.0.8221 §P0b — a data gap older than the grace window is still a data
+    // gap, NEVER a losing-strategy verdict. Pre-8221 the verdict8190 when-branch
+    // for NO_TRIGGER + missing inputs after INPUT_GRACE_MS_8190 fell through to
+    // UNSOUND_8190, which marked the receiver record losing without any new
+    // evidence. Operator 8220 forensic: 1054 RECEIVER_RECORD_UNSOUND vs 73
+    // DEFERRED_RECEIVER_SETUP_INPUTS — precisely this misclassification class.
+    // The constant uses the DEFERRED_ prefix so rescueIneligible8136 treats it
+    // as a deferral (data pending), never as a terminal receiver-record refusal.
+    const val DEFER_DATA_GAP_PERSISTENT_8221 = "DEFERRED_RECEIVER_DATA_GAP_PERSISTENT_8221"
     const val INPUT_GRACE_MS_8190 = 60_000L
     private const val MAX_8190 = 2_048
 
@@ -128,8 +137,14 @@ object ReceiverRecord8190 {
                     firstDeferAtMs: Long?, nowMs: Long): String? = when {
         !hasState -> DEFER_NO_STATE_8190
         provenSetup || negativeSetup == null -> null
-        negativeSetup == com.lifecyclebot.engine.cortex.LanePlaybook7907.NO_TRIGGER && missingInputs.isNotEmpty() &&
-            (firstDeferAtMs == null || nowMs - firstDeferAtMs in 0L..INPUT_GRACE_MS_8190) -> DEFER_INPUTS_8190
+        // V5.0.8221 §P0b — NO_TRIGGER with missing inputs is a DATA condition
+        // in every window. Within the grace window it is a deferral; after the
+        // grace window it is a persistent data gap, STILL non-terminal. Only a
+        // negative setup with COMPLETE inputs (missingInputs empty) can produce
+        // a learned-losing UNSOUND verdict.
+        negativeSetup == com.lifecyclebot.engine.cortex.LanePlaybook7907.NO_TRIGGER && missingInputs.isNotEmpty() ->
+            if (firstDeferAtMs == null || nowMs - firstDeferAtMs in 0L..INPUT_GRACE_MS_8190) DEFER_INPUTS_8190
+            else DEFER_DATA_GAP_PERSISTENT_8221
         else -> UNSOUND_8190
     }
 

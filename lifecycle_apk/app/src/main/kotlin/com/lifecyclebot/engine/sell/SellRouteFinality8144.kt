@@ -124,8 +124,18 @@ object SellRouteFinality8144 {
     fun order8144(items: List<WorkItem8144>): List<WorkItem8144> =
         items.sortedWith(compareBy<WorkItem8144>({ it.work.rank }, { it.queuedAtMs }))
 
-    /** Catastrophic and protective exits go straight to the emergency pool, never through the bot-loop queue. */
-    fun bypassesQueue8144(reason: String?): Boolean = workForExit8144(reason).rank <= Work8144.PROTECTIVE_EXIT.rank
+    /** Catastrophic, protective AND profit-stop exits go straight to the emergency pool, never through the bot-loop queue. */
+    // V5.0.8221 §STOP_LATENCY — pre-8221 this check was rank <= PROTECTIVE_EXIT
+    // which already included HARD_SL. The gap was PROFIT_EXIT: a trailing stop,
+    // peak giveback or profit-lock stop sat in the bot-loop queue the same as a
+    // discretionary exit. Operator 8220 forensic: BZFYNP stop trigger ->
+    // broadcast = 13050ms with 10363ms of that in the CLOSE_LEASE queue phase.
+    // Trailing/profit stops are time-critical — the comment on CloseLease.kt:182
+    // flagged this concern in 5.0.7965 ("a profit capture on a spike is as time-
+    // critical as a stop"). Extending bypass to rank <= PROFIT_EXIT puts trail /
+    // peak-giveback / breakeven stops on the same fast path as HARD_SL. Only
+    // DISCRETIONARY_EXIT remains in the bot-loop queue.
+    fun bypassesQueue8144(reason: String?): Boolean = workForExit8144(reason).rank <= Work8144.PROFIT_EXIT.rank
 
     private const val EMERGENCY_PROOF_POLL_CAP_MS_8144 = 3_000L
 
