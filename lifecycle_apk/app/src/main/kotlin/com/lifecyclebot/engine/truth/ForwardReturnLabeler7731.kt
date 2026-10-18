@@ -608,6 +608,19 @@ object ForwardReturnLabeler7731 {
         return "${memeVenue8063(ts.mint, dex, curve)}/$narr"
     }
 
+    /**
+     * V5.0.8208 — the age that keys a cell (writer AND both readers, one rule). A DIRECT canonical birth witness
+     * (LaunchBirth8169: create frame, pump coin record, curve create, curve pair, oldest signature, chain mint init) is the
+     * token's age; only when nobody witnessed the birth does the cell fall back to time-since-discovery, the pre-8208 key, so
+     * existing unwitnessed records keep matching. Discovery age graded a days-old coin found a minute ago as AGE_LT15M, so
+     * STAGE/CELL losses and wins were being attributed to the wrong lifecycle band (8205 directive P0 #4).
+     */
+    fun cellAgeMs8208(ts: TokenState, nowMs: Long): Long {
+        val birth = try { LaunchBirth8169.launchBirth8169(ts.mint, nowMs) } catch (_: Throwable) { null }
+        if (birth != null && nowMs >= birth.birthMs) return nowMs - birth.birthMs
+        return if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
+    }
+
     fun cellKey(source: String, lane: String, mcapUsd: Double, ageMs: Long): String =
         "${sourceFamily(source)}|${lane.trim().uppercase().ifBlank { "UNKNOWN" }.take(24)}|${mcapBand(mcapUsd)}|${ageBand(ageMs)}"
 
@@ -724,7 +737,7 @@ object ForwardReturnLabeler7731 {
             try { PipelineHealthCollector.labelInc("FORWARD_LABELER_PENDING_FULL_7731") } catch (_: Throwable) {}
             return
         }
-        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
+        val ageMs = cellAgeMs8208(ts, nowMs)
         // V5.0.8164 — the hydrated depth (curve / chain / map), not the raw tick field: an unread tick on a curve coin
         // charged every label the 20% unknown-depth impact, and those labels refused whole stages as PROVEN_LOSING.
         val liq = (try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }).let { if (it.isFinite()) it else 0.0 }
@@ -1537,7 +1550,7 @@ object ForwardReturnLabeler7731 {
     }
 
     fun cellStatFor(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): CellStat? {
-        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
+        val ageMs = cellAgeMs8208(ts, nowMs)
         return executable8187(cellStat(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs)), lane)  // V5.0.8019 / V5.0.8187
     }
 
@@ -1593,7 +1606,7 @@ object ForwardReturnLabeler7731 {
 
     /** V5.0.8169 — [cellStatFor] since the grading epoch. */
     fun freshCellStatFor8169(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): CellStat? {
-        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
+        val ageMs = cellAgeMs8208(ts, nowMs)
         return freshStat8169(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs))
     }
 
