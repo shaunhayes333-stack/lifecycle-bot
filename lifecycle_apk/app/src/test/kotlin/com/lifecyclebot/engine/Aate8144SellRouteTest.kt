@@ -312,7 +312,8 @@ class Aate8144SellRouteTest {
         assertFalse(SellRouteFinality8144.bypassesQueue8144("TIME_EXIT"))
         assertEquals(3_000L, SellRouteFinality8144.proofPollBackoffMs8144("TICK_CATASTROPHIC_CONFIRMED_-60PCT", 30_000L))
         assertEquals(2_000L, SellRouteFinality8144.proofPollBackoffMs8144("TICK_CATASTROPHIC_CONFIRMED_-60PCT", 2_000L))
-        assertEquals(30_000L, SellRouteFinality8144.proofPollBackoffMs8144("TAKE_PROFIT", 30_000L))
+        assertEquals(3_000L, SellRouteFinality8144.proofPollBackoffMs8144("TAKE_PROFIT", 30_000L))   // V5.0.8221 — profit stops on the fast path
+        assertEquals(30_000L, SellRouteFinality8144.proofPollBackoffMs8144("TIME_EXIT", 30_000L))
         // The proof wait no longer ranks a catastrophic exit below a stop-loss (CATASTROPHIC was not CATASTROPHE).
         assertEquals(100, BalanceProofWaitState.priorityFor("CATASTROPHIC_HARD_BACKSTOP_-25"))
         assertEquals(100, BalanceProofWaitState.priorityFor("RAPID_CATASTROPHE_STOP"))

@@ -44,7 +44,13 @@ class Aate8169CostsTest {
     @Test fun aNegativeSideIsMarkNoiseNotACostAndIsNeverLearned() {
         // 8168 SHITCOIN: buySide -9.48% — the mark 3 s before the fill sat above the price actually paid.
         val neg = CostSides8169.sides8169(0.905, 0.0, BigInteger.valueOf(100), 0, 2.0, 200.0, listOf(sale(100, 0.9)))
-        assertEquals(CostSides8169.Verdict8169.MARK_INCONSISTENT, neg.verdict)
+        // V5.0.8223 — the entry mark contradicted the fill; the sell leg did not, so its side is still a measurement.
+        assertEquals(CostSides8169.Verdict8169.SELL_SIDE_ONLY, neg.verdict)
+        assertTrue(neg.sellPct > 0.0)
+        assertTrue(neg.costPct.isNaN())
+        // Both sides contradicted: nothing is learned.
+        assertEquals(CostSides8169.Verdict8169.MARK_INCONSISTENT,
+            CostSides8169.sides8169(0.905, 0.0, BigInteger.valueOf(100), 0, 2.0, 200.0, listOf(sale(100, 1.2))).verdict)
         // A tick of noise (within 1%) is floored at zero, not learned as a subsidy.
         val tick = CostSides8169.sides8169(0.995, 0.0, BigInteger.valueOf(100), 0, 2.0, 200.0, listOf(sale(100, 0.97)))
         assertEquals(CostSides8169.Verdict8169.MEASURED, tick.verdict)
@@ -59,7 +65,8 @@ class Aate8169CostsTest {
     @Test fun aBuySideBeyondAnySlippageBoundIsTheMarketMovingNotFriction() {
         // 8168 MOONSHOT buySide 23.69%: no live buy can pay 23% over the market inside a <=10% slippage bound.
         val chase = CostSides8169.sides8169(1.3, 0.0, BigInteger.valueOf(100), 0, 2.0, 200.0, listOf(sale(100, 0.98)))
-        assertEquals(CostSides8169.Verdict8169.MARK_INCONSISTENT, chase.verdict)
+        assertEquals(CostSides8169.Verdict8169.SELL_SIDE_ONLY, chase.verdict)   // V5.0.8223 — the sell side still measured
+        assertTrue(chase.buyPct.isNaN())
         assertEquals(CostSides8169.Verdict8169.INVALID,
             CostSides8169.sides8169(1.0, 0.0, BigInteger.valueOf(100), 0, 2.0, 200.0, listOf(sale(50, 0.49))).verdict)
     }
