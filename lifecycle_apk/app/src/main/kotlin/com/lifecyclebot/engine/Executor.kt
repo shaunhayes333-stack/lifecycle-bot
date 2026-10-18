@@ -15755,6 +15755,14 @@ class Executor(
             try { ForensicLogger.lifecycle("PAPER_BUY_NOT_OPENED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$reason attemptId=$executionAttemptId6514") } catch (_: Throwable) {}
         }
 
+        // V5.0.8216 — NO PAPER WHILE LIVE. Operator: a running LIVE runtime must never open paper positions (they took
+        // live slots, exit-manager work and data). Single executor choke: refuse before any price/size/ledger work.
+        if (RuntimeModeAuthority.isLive()) {
+            try { PipelineHealthCollector.labelInc("PAPER_OPEN_REFUSED_LIVE_RUNTIME_8216${if (layerTag.isBlank()) "" else "_" + layerTag.uppercase()}") } catch (_: Throwable) {}
+            markPaperBuyNotOpened("LIVE_RUNTIME_NO_PAPER_8216")
+            return
+        }
+
         fun releasePaperBuyNonTerminal6514(reason: String) {
             try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, "NONTERMINAL_$reason") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PAPER_BUY_NONTERMINAL_DEFERRED_$reason") } catch (_: Throwable) {}

@@ -242,6 +242,9 @@ object CanonicalPositionAuthority6441 {
 
     // ─── Position mutation gate ────────────────────────────────────────────
 
+    internal fun paperRefusedWhileLive8216(mode: String): Boolean =
+        mode == "paper" && try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+
     fun openPosition(
         idempotencyKey: String,
         positionId: String,
@@ -272,6 +275,11 @@ object CanonicalPositionAuthority6441 {
             if (isDuplicate(idempotencyKey)) return MutateResult.DUPLICATE
             val canonicalMode6490 = modeOverride?.trim()?.lowercase()?.takeIf { it in setOf("paper", "live") }
                 ?: if (paperMode) "paper" else "live"
+            // V5.0.8216 — ledger backstop: no new PAPER position while the runtime is LIVE (Markets/Crypto/any caller).
+            if (paperRefusedWhileLive8216(canonicalMode6490)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PAPER_OPEN_REFUSED_LIVE_RUNTIME_8216") } catch (_: Throwable) {}
+                return MutateResult.LIFECYCLE_FORBIDDEN
+            }
             val existingSameMint6490 = positions.values.firstOrNull {
                 it.mode == canonicalMode6490 && it.mint == mint &&
                     it.lifecycle in setOf(Lifecycle.PENDING_ENTRY, Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) &&
@@ -2298,6 +2306,8 @@ object CanonicalPositionAuthority6441 {
     }
 
     internal fun resetForTest() {
+        // V5.0.8216 — a fresh test ledger starts in the default PAPER runtime; a prior test left LIVE would refuse paper opens.
+        try { com.lifecyclebot.engine.RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = false) } catch (_: Throwable) {}
         lock.lock()
         try {
             positions.clear(); mutationKeys.clear()
