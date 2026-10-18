@@ -331,7 +331,9 @@ class Aate8136SpecialistElectionTest {
 
     @Test fun theWiringRunsEveryHandOffThroughTheOneContract() {
         val o = src("engine/SpecialistOwnership7951.kt")
-        assertTrue(o.contains("if (ready && !rescueClaim8136(l, mint, primaryLane, trigger8136, nowMs)) return false"))
+        // V5.0.8221 — a lost rescue claim is terminal-named (RESCUE_OVERFLOW_7951) before it returns false.
+        assertTrue(o.contains("if (ready && !rescueClaim8136(l, mint, primaryLane, trigger8136, nowMs)) {"))
+        assertTrue(o.contains("SpecialistElection8136.markIneligible8136(mint, l, \"RESCUE_OVERFLOW_7951\", nowMs)"))
         assertTrue(o.contains("(ok || audit) && rescueClaim8136(l, mint, primaryLane, SpecialistElection8136.TRIGGER_CELL_PROVEN"))
         assertTrue(o.contains("noteNotEvaluated8136(l, mint, primaryLane, ready)"))
         assertTrue(o.contains("noteFdgVerdict8136(mint, lane, candidateVersion, shouldTrade, blockReason, nowMs)"))

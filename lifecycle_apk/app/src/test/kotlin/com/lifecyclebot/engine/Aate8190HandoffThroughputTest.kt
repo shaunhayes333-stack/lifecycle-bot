@@ -144,7 +144,8 @@ class Aate8190HandoffThroughputTest {
         assertEquals(v.DEFER_INPUTS_8190, v.verdict8190(true, false, nt, listOf("tape:UNKNOWN"), null, t0))
         assertEquals(v.DEFER_INPUTS_8190, v.verdict8190(true, false, nt, listOf("tape:UNKNOWN"), t0 - 1_000L, t0))
         // After the re-fetch grace the record is judged on the best data obtained.
-        assertEquals(v.UNSOUND_8190, v.verdict8190(true, false, nt, listOf("tape:UNKNOWN"), t0 - v.INPUT_GRACE_MS_8190 - 1L, t0))
+        // V5.0.8221 — a data gap older than the grace window is a PERSISTENT data gap (re-fetched, re-armed), never a losing record.
+        assertEquals(v.DEFER_DATA_GAP_PERSISTENT_8221, v.verdict8190(true, false, nt, listOf("tape:UNKNOWN"), t0 - v.INPUT_GRACE_MS_8190 - 1L, t0))
         assertEquals(v.UNSOUND_8190, v.verdict8190(true, false, nt, emptyList(), null, t0))
         assertEquals(v.UNSOUND_8190, v.verdict8190(true, false, "LAUNCH_CONTINUATION", listOf("tape:UNKNOWN"), null, t0))
         assertEquals(v.DEFER_NO_STATE_8190, v.check8190("mint-nostate8190", "MOONSHOT", t0))
