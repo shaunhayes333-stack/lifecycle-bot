@@ -74,10 +74,13 @@ try:
             overlay = next((n for n in nodes if n.get("resource-id") == "android:id/ok"
                             and n.get("text", "").lower() == "got it"), None)
             permission = next((n for n in nodes if n.get("resource-id", "").endswith("/permission_allow_button")), None)
+            # V5.0.8231 — a system "<app> isn't responding" dialog (the launcher ANRs on fresh images) hides the app's
+            # UI; "Wait" dismisses it. Observed on the 8230 run: the app bootstrapped, the Start control was never reachable.
+            anr_wait = next((n for n in nodes if n.get("resource-id") == "android:id/aerr_wait"), None)
             disclaimer = next((n for n in nodes if n.get("text", "").upper() == "I AGREE"), None)
             start = next((n for n in nodes if n.get("resource-id", "").endswith("/btnToggle")
                           and n.get("enabled") == "true" and "start" in n.get("text", "").lower()), None)
-            target = next((n for n in (overlay, permission, disclaimer, start) if n is not None), None)
+            target = next((n for n in (overlay, permission, anr_wait, disclaimer, start) if n is not None), None)
             if target is not None:
                 tap(target)
                 start_tapped = target is start
