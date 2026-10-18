@@ -1,0 +1,43 @@
+name: Admission repair verification
+on:
+  push:
+    branches: [repair/8210-executable-admission]
+    paths:
+      - lifecycle_apk/**
+      - .github/workflows/admission-repair-verify.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: lifecycle_apk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - name: Real FDG regression
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:testReleaseUnitTest --tests '*Aate8210*' --console=plain
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: admission-repair-tests
+          path: |
+            lifecycle_apk/app/build/test-results/testReleaseUnitTest
+            lifecycle_apk/app/build/reports/tests/testReleaseUnitTest
+          retention-days: 5
