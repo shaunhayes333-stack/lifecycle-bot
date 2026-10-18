@@ -1352,10 +1352,6 @@ object FinalDecisionGate {
         val matureWaitBelow7243 = canonicalV3Score7243 < 55.0
         val floorLane7266 = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
             ?: tradingModeTag?.name ?: "CORE"
-        // One evidence snapshot for LiveEdge and FDG floor decisions. Both see this exact lane, generation and verdict.
-        val candidateAdmission8136 = try {
-            com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(ts, floorLane7266, candidateVersion = candidateVersion7623)
-        } catch (_: Throwable) { null }
         val floor7266 = try {
             com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.resolve(floorLane7266)
         } catch (_: Throwable) { null }
@@ -1442,6 +1438,16 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
         val belowCanonicalFloor7243 = effectiveEntryScore7292 < canonicalFloor7266
+        // One evidence snapshot for LiveEdge and FDG floor decisions. Both see this exact lane, generation and verdict.
+        // V5.0.8198 P0-B — the record is built AFTER the authoritative score is known and reads this snapshot's score and
+        // fluid floor as its generic prior, so a candidate with no SUPPORTED edge terminates on GENERIC_PRIOR_CLEARS /
+        // GENERIC_SCORE_FLOOR with the real numbers in its trace instead of NO_SUPPORTED_EDGE (unreachable branch before).
+        val candidateAdmission8136 = try {
+            com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(
+                ts, floorLane7266, candidateVersion = candidateVersion7623,
+                genericScore = effectiveEntryScore7292, genericFloor = canonicalFloor7266,
+            )
+        } catch (_: Throwable) { null }
         // V5.0.7843 — do not make a specialist pass TWO score floors.
         // laneOwnScoreAdmitted7292 already means the native specialist cleared
         // its own adaptive CanonicalEntryFloor7266. The generic WAIT floor was

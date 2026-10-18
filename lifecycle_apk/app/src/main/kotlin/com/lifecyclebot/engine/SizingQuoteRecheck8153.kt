@@ -31,7 +31,13 @@ object SizingQuoteRecheck8153 {
         val priceUsd: Double,
         val atMs: Long,
         val candidateVersion8198: Long = 0L,
+        /** V5.0.8198 — the canonical lane whose FDG decision these economics are (one mint may be judged by several). */
+        val lane8198: String = "",
     )
+
+    /** V5.0.8198 — pending/sealed economics are per (mint, canonical lane): another lane's decision never binds to this seal. */
+    internal fun key8198(mint: String, lane: String): String =
+        "$mint|${com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }}"
 
     const val SEAL_TTL_MS_8153 = 10L * 60_000L
     /** The sealed size was capped at this one-way modelled impact (LiveRiskPolicy7807 LIQ_MAX_ONE_WAY_IMPACT_PCT_7807). */
@@ -128,21 +134,22 @@ object SizingQuoteRecheck8153 {
     /** LiveRiskPolicy7807.record (FDG, open): the economics this decision was made on. */
     fun noteDecision8153(mint: String, econ: SealedEconomics8153) {
         if (mint.isBlank()) return
-        pending[mint] = econ
+        pending[key8198(mint, econ.lane8198)] = econ
         if (pending.size > 2_000) pending.entries.removeIf { econ.atMs - it.value.atMs > SEAL_TTL_MS_8153 }
     }
 
     /** WalletCapacitySeal7868.record: bind the decision's economics to the exact sealed size. */
-    fun bindSeal8153(mint: String, sizeSol: Double, nowMs: Long = System.currentTimeMillis(), candidateVersion8198: Long = 0L) {
-        val p = pending.remove(mint) ?: return
+    fun bindSeal8153(mint: String, sizeSol: Double, nowMs: Long = System.currentTimeMillis(), candidateVersion8198: Long = 0L, lane8198: String = "") {
+        val k = key8198(mint, lane8198)
+        val p = pending.remove(k) ?: return
         if (nowMs - p.atMs !in 0L..SEAL_TTL_MS_8153 || !sizeSol.isFinite() || sizeSol <= 0.0) return
-        sealed[mint] = p.copy(sizeSol = sizeSol, atMs = nowMs, candidateVersion8198 = candidateVersion8198)
+        sealed[k] = p.copy(sizeSol = sizeSol, atMs = nowMs, candidateVersion8198 = candidateVersion8198)
         if (sealed.size > 2_000) sealed.entries.removeIf { nowMs - it.value.atMs > SEAL_TTL_MS_8153 }
     }
 
     /** Executor, immediately before broadcast: the named refusal, or null to send. Fail-open on an internal fault. */
     fun preBroadcastRefusal8153(mint: String, executedSol: Double, quotedInLamports: Long, freshImpactPct: Double, priceNowUsd: Double, executionPriceUsd: Double = Double.NaN, intent8198: ExecutableOpenGate.ExecutionIntent? = null): String? {
-        val observed8198 = sealed[mint]
+        val observed8198 = sealed[key8198(mint, intent8198?.canonicalLane.orEmpty())]
         if (intent8198 != null && observed8198 != null && observed8198.candidateVersion8198 != intent8198.candidateVersion) return "PRE_BROADCAST_SEAL_GENERATION_CHANGED_8198"
         val r = try {
             checks.incrementAndGet()
@@ -150,7 +157,7 @@ object SizingQuoteRecheck8153 {
         } catch (_: Throwable) { null } ?: return null
         refusals.computeIfAbsent(r) { AtomicLong(0) }.incrementAndGet()
         try {
-            val s = sealed[mint]
+            val s = observed8198
             PipelineHealthCollector.labelInc(r)
             ForensicLogger.lifecycle("PRE_BROADCAST_ECONOMICS_REFUSED_8153",
                 "mint=${mint.take(10)} reason=$r sol=${"%.6f".format(executedSol)} quotedLamports=$quotedInLamports impact=${"%.3f".format(freshImpactPct)} " +
@@ -158,7 +165,7 @@ object SizingQuoteRecheck8153 {
                     "sealGross=${s?.expectedGrossPct?.let { "%.2f".format(it) } ?: "-"} sealTarget=${s?.firstTargetPct?.let { "%.1f".format(it) } ?: "-"} " +
                     "drift=${"%.2f".format(adverseDriftPct8153(s?.priceUsd ?: 0.0, priceNowUsd))}")
         } catch (_: Throwable) {}
-        if (observed8198 != null) sealed.remove(mint, observed8198)
+        if (observed8198 != null) sealed.remove(key8198(mint, intent8198?.canonicalLane.orEmpty()), observed8198)
         if (intent8198 != null) WalletCapacitySeal7868.release(mint, attemptId = intent8198.attemptId)
         return r
     }

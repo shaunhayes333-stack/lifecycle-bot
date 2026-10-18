@@ -41,23 +41,67 @@ object StageCarry8180 {
     }
 }
 
-/** V5.0.8180 — mints CandidateAdmission8136 just admitted on a candidate-specific proven edge (read by the sizers). */
+/**
+ * V5.0.8180 — the candidates CandidateAdmission8136 just admitted on a candidate-specific proven edge (read by the sizers).
+ *
+ * V5.0.8198 §ONE_PROOF_PER_CANDIDATE — the record was keyed by mint alone and cleared by ANY other terminal for that mint:
+ * SHITCOIN's specific ADMIT was erased when MOONSHOT refused the same coin a moment later (or was granted to MOONSHOT by
+ * SHITCOIN's admit), and a proof from an earlier candidate generation authorised the next one. The proof is now bound to
+ * (runtime mode, mint, canonical lane, candidate version) and carries the admission identity (basis, chosen setup); only
+ * the same lane's own later terminal replaces or clears it, and a newer candidate version never reads an older proof.
+ */
 object AdmissionEdge8180 {
     const val TTL_MS_8180 = 120_000L
     private const val MAX_8180 = 2_000
-    private val admitted = ConcurrentHashMap<String, Long>()
 
-    /** CandidateAdmission8136.noteDecision8144: a specific ADMIT stamps [mint]; any other terminal clears it. */
-    fun note8180(mint: String, specificAdmit: Boolean, nowMs: Long) {
-        if (mint.isBlank()) return
-        if (!specificAdmit) { admitted.remove(mint); return }
-        admitted[mint] = nowMs
-        if (admitted.size > MAX_8180) admitted.entries.removeIf { nowMs - it.value > TTL_MS_8180 }
+    /** One admission's proof: immutable identity the sizers may rely on. */
+    data class Proof8198(
+        val mode: String, val mint: String, val lane: String, val candidateVersion: Long,
+        val basis: String, val chosenSetup: String?, val atMs: Long,
+    )
+
+    private val admitted = ConcurrentHashMap<String, Proof8198>()
+
+    private fun key8198(mode: String, mint: String, lane: String) =
+        "${mode.trim().uppercase()}|$mint|${CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }}"
+
+    /**
+     * CandidateAdmission8136.noteDecision8144: a specific-edge ADMIT by [lane] in [mode] stamps its own proof; any other
+     * terminal from the SAME lane clears that lane's proof. Another lane's terminal never touches it.
+     */
+    fun note8180(mode: String, mint: String, lane: String, candidateVersion: Long, d: CandidateAdmission8136.Decision8136, nowMs: Long) {
+        if (mint.isBlank() || lane.isBlank()) return
+        val k = key8198(mode, mint, lane)
+        if (!carriesEdge8180(d)) { admitted.remove(k); return }
+        admitted[k] = Proof8198(mode.trim().uppercase(), mint, k.substringAfterLast('|'), candidateVersion, d.basis, d.chosenSetup, nowMs)
+        if (admitted.size > MAX_8180) admitted.entries.removeIf { nowMs - it.value.atMs > TTL_MS_8180 }
     }
 
-    /** Was [mint] admitted on a specific proven edge inside [TTL_MS_8180]? */
-    fun admitted8180(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
-        mint.isNotBlank() && admitted[mint]?.let { nowMs - it in 0L..TTL_MS_8180 } == true
+    /**
+     * The proof [lane] holds for [mint] in [mode] inside [TTL_MS_8180] for candidate generation [candidateVersion]
+     * (a proof stamped on an older generation authorises nothing), else null.
+     */
+    fun proof8198(mode: String, mint: String, lane: String, candidateVersion: Long, nowMs: Long = System.currentTimeMillis()): Proof8198? {
+        if (mint.isBlank() || lane.isBlank()) return null
+        val p = admitted[key8198(mode, mint, lane)] ?: return null
+        if (nowMs - p.atMs !in 0L..TTL_MS_8180) return null
+        if (p.candidateVersion != candidateVersion) return null
+        return p
+    }
+
+    /** Was this exact candidate (mode, mint, lane, generation) admitted on a specific proven edge inside the TTL? */
+    fun admitted8180(mode: String, mint: String, lane: String, candidateVersion: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
+        proof8198(mode, mint, lane, candidateVersion, nowMs) != null
+
+    /**
+     * Runtime read for the sizers: the current mode's proof for [mint] in [lane] at the coordinator's CURRENT candidate
+     * generation for the mint (LaneExecutionCoordinator.candidateVersionFor). Side-effect free.
+     */
+    fun admittedNow8198(paperMode: Boolean, mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (mint.isBlank() || lane.isBlank()) return false
+        val version = try { com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint) } catch (_: Throwable) { 0L }
+        return admitted8180(if (paperMode) "PAPER" else "LIVE", mint, lane, version, nowMs)
+    }
 
     /** Pure: a decision that carries its edge downstream — ADMIT on candidate-specific evidence with a SUPPORTED record. */
     fun carriesEdge8180(d: CandidateAdmission8136.Decision8136): Boolean =

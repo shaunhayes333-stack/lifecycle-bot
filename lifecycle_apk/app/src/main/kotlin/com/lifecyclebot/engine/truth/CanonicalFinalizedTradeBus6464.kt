@@ -113,6 +113,10 @@ object CanonicalFinalizedTradeBus6464 {
         // V5.0.7074 — operator/deployer reputation. See
         // FinalizedBusConsumerBridge6465.deliverToOperatorFingerprint7074.
         "OperatorFingerprint7074", "KillSwitch7835", "CortexExit7897", "CostLedger7962",
+        // V5.0.8198 — the Cortex OutcomeTruth close is a registered, retryable consumer like every learner
+        // (deliverOne6734 ack/backoff; quarantine / reset-epoch / exact-economics gates in the bridge) —
+        // no longer a swallowed direct call inside publish.
+        "CortexOutcome7885",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 
@@ -226,7 +230,9 @@ object CanonicalFinalizedTradeBus6464 {
         try { com.lifecyclebot.engine.TailBag8034.onClose8034(env) } catch (_: Throwable) {}  // V5.0.8034  // V5.0.8031 — every close graded by the price after it
         if (env.terminal && env.mode.equals("live", true)) try { com.lifecyclebot.engine.RebuyLockout8019.onClose8019(env.mint, env.atMs, env.realizedReturnPct) } catch (_: Throwable) {}
         // V5.0.7885 — Cortex OutcomeTruth cross-check: realised outcome by entry verdict.
-        try { com.lifecyclebot.engine.cortex.Cortex7885.onCanonicalClose(env) } catch (_: Throwable) {}
+        // V5.0.8198 — Cortex7885 OutcomeTruth no longer runs as a swallowed direct call here (a failure never entered
+        // the per-consumer ACK/backoff path and a mid-grade failure destroyed the entry read: cortex-wiring-review).
+        // It is the registered consumer "CortexOutcome7885", delivered after this publish like every other learner.
         // V5.0.7962 — the realised close grades its decision cell (live and paper books apart).
         try { com.lifecyclebot.engine.CellAllocator7962.onClose7962(env) } catch (_: Throwable) {}
         // V5.0.7232 §SELL_OK_TRUTH — record the unique finality at the

@@ -123,7 +123,7 @@ class Aate8153SizingTest {
         val ex = src("engine/Executor.kt")
         assertTrue(ex.contains("SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(ts, sol, executionQuote7688, intent8198 = intent8198)"))
         assertTrue(ex.indexOf("SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(") < ex.indexOf("useJito = c.jitoEnabled && !executionQuote7688.isUltra"))
-        assertTrue(src("engine/WalletCapacitySeal7868.kt").contains("SizingQuoteRecheck8153.bindSeal8153(mint, sizeSol, nowMs, candidateVersion)"))
+        assertTrue(src("engine/WalletCapacitySeal7868.kt").contains("SizingQuoteRecheck8153.bindSeal8153(mint, sizeSol, nowMs, candidateVersion, lane)"))
         assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains("if (stage == \"FDG\") noteSealedEconomics8153(mint, i, d)"))
     }
 

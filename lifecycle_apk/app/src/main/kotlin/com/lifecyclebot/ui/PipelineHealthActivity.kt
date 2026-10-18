@@ -397,15 +397,9 @@ class PipelineHealthActivity : AppCompatActivity() {
         val delivered = java.util.concurrent.atomic.AtomicBoolean(false)
 
         fun deliverReport6308(rawText: String, source: String, buildErr: String = "") {
-            // Full snapshot and compact snapshot are both retained; the clipboard holds a numbered part, never a truncated report.
-            val compactText = com.lifecyclebot.engine.ReportBudget8176.forCopy8176(rawText)
-            val copyParts = com.lifecyclebot.engine.ReportBudget8176.chatParts8198(compactText)
-            val safeText = copyParts.first()
-            val displaySections = splitDumpIntoSections(compactText)
-            val compactReportFile = try {
-                com.lifecyclebot.engine.execution.PipelineReportFileExporter6401
-                    .writeReportSync(activityRef, compactText, prefix = "aate_pipeline_compact")
-            } catch (_: Throwable) { null }
+            // 8198 — the clipboard gets the readable budgeted report in ONE payload; the complete uncapped report is the share file.
+            val safeText = try { com.lifecyclebot.engine.ReportingHub.clipboardSafeText(com.lifecyclebot.engine.ReportBudget8176.forCopy8176(rawText)) } catch (_: Throwable) { rawText.take(60_000) }
+            val displaySections = splitDumpIntoSections(safeText)
             // V5.0.6401 ANR-KILLER — persist the FULL uncapped report to a
             // cache file on this background thread so the operator can share
             // it via file-URI (no clipboard truncation, no Binder freeze).
@@ -426,7 +420,7 @@ class PipelineHealthActivity : AppCompatActivity() {
                 }
 
                 try {
-                    fullDumpCache = compactText
+                    fullDumpCache = safeText
                     reportSections = displaySections
                     if (reportSections.isEmpty()) reportSections = listOf(safeText.ifBlank { "(empty report)" })
                     currentSectionIndex = 0
@@ -436,15 +430,15 @@ class PipelineHealthActivity : AppCompatActivity() {
                 if (ok) {
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_OK_6308", "chars=${safeText.length} raw=${rawText.length} source=$source buildErr=$buildErr fileBytes=${fullReportFile?.length() ?: -1L}") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_OK_6308") } catch (_: Throwable) {}
-                    val msg = if (source == "watchdog_fallback") "DEGRADED fallback copied: full builder stalled"
-                        else "Copied part 1/${copyParts.size}; compact=${compactText.length} original=${rawText.length} chars; no snapshot data removed"
+                    val msg = if (source == "watchdog_fallback") "Fallback report copied (${safeText.length} chars): full builder stalled"
+                        else com.lifecyclebot.engine.ReportBudget8176.fullShareNote8198(safeText.length, rawText.length)
                     Toast.makeText(activityRef, msg, Toast.LENGTH_LONG).show()
                 } else {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_COPY_FAIL_6308") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_FAIL_6308", "source=$source buildErr=$buildErr writeErr=$writeErr") } catch (_: Throwable) {}
                     Toast.makeText(activityRef, "Report generated but clipboard failed: $writeErr", Toast.LENGTH_LONG).show()
                 }
-                ReportCopyDialog8198.show(activityRef, copyParts, compactReportFile, fullReportFile, compactText.length, rawText.length)
+                ReportCopyDialog8198.show(activityRef, rawText, fullReportFile, safeText.length, rawText.length, "AATE Pipeline Report")
             }
         }
 

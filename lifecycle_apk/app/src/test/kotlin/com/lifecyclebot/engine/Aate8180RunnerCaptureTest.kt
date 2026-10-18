@@ -201,22 +201,22 @@ class Aate8180RunnerCaptureTest {
 
     @Test fun anAdmittedSpecificEdgeReachesTheRoutableMinimumInsideTheCap() {
         val a = AdmissionEdge8180
-        a.note8180("mE", specificAdmit = true, nowMs = t0)
-        assertTrue(a.admitted8180("mE", t0 + a.TTL_MS_8180))
-        assertFalse(a.admitted8180("mE", t0 + a.TTL_MS_8180 + 1))
-        a.note8180("mE", specificAdmit = false, nowMs = t0 + 1)
-        assertFalse(a.admitted8180("mE", t0 + 2))
+        val edge = CandidateAdmission8136.Decision8136(CandidateAdmission8136.Terminal8136.ADMIT, "SPECIFIC_EDGE_PROVEN_8136", true, "S", 10.0, emptyList(), "SETUP:S n40")
+        val prior = CandidateAdmission8136.Decision8136(CandidateAdmission8136.Terminal8136.ADMIT, "GENERIC_PRIOR_CLEARS_8136", false, "S", 10.0, emptyList())
+        a.note8180("LIVE", "mE", "SHITCOIN", 7L, edge, t0)
+        assertTrue(a.admitted8180("LIVE", "mE", "SHITCOIN", 7L, t0 + a.TTL_MS_8180))
+        assertFalse(a.admitted8180("LIVE", "mE", "SHITCOIN", 7L, t0 + a.TTL_MS_8180 + 1))
+        a.note8180("LIVE", "mE", "SHITCOIN", 7L, prior, t0 + 1)                       // the same lane's later terminal clears it
+        assertFalse(a.admitted8180("LIVE", "mE", "SHITCOIN", 7L, t0 + 2))
         // Promotion only for an admitted edge, only up to the routable minimum, only when the cap funds it.
-        assertEquals(0.05, a.promote8180(true, 0.02, 0.05, 0.10), 1e-12)
-        assertEquals(0.02, a.promote8180(false, 0.02, 0.05, 0.10), 1e-12)
-        assertEquals(0.02, a.promote8180(true, 0.02, 0.05, 0.04), 1e-12)
-        assertEquals(0.0, a.promote8180(true, 0.0, 0.05, 0.10), 1e-12)
-        assertEquals(0.08, a.promote8180(true, 0.08, 0.05, 0.10), 1e-12)
-        val edge = CandidateAdmission8136.Decision8136(CandidateAdmission8136.Terminal8136.ADMIT, "SPECIFIC_EDGE_PROVEN_8136", true, "X", 10.0, emptyList())
-        val prior = CandidateAdmission8136.Decision8136(CandidateAdmission8136.Terminal8136.ADMIT, "GENERIC_PRIOR_CLEARS_8136", false, "X", 10.0, emptyList())
+        assertEquals(0.05, a.promote8180(true, 0.02, 0.05, 0.10), 1e-9)
+        assertEquals(0.02, a.promote8180(false, 0.02, 0.05, 0.10), 1e-9)
+        assertEquals(0.02, a.promote8180(true, 0.02, 0.05, 0.04), 1e-9)               // the cap does not fund the minimum
+        assertEquals(0.08, a.promote8180(true, 0.08, 0.05, 0.10), 1e-9)               // already above the minimum
+        assertEquals(0.0, a.promote8180(true, 0.0, 0.05, 0.10), 1e-9)                 // a zero request is not a request
         assertTrue(a.carriesEdge8180(edge))
         assertFalse(a.carriesEdge8180(prior))
-        assertTrue(src("engine/truth/OrderSizeResolver6441.kt").contains("!(!paperMode && AdmissionEdge8180.admitted8180(mint))"))
+        assertTrue(src("engine/truth/OrderSizeResolver6441.kt").contains("!(!paperMode && AdmissionEdge8180.admittedNow8198(paperMode, mint, laneName))"))
         assertTrue(src("v3/sizing/SmartSizerV3.kt").contains("AdmissionEdge8180.promote8180(admitted8180, cappedSize, liveFloorEff7697, minOf(safeShareCap7142, tradeable))"))
     }
 

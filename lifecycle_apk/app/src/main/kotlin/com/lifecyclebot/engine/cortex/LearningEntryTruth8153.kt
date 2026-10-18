@@ -67,6 +67,10 @@ object LearningEntryTruth8153 {
         // V5.0.8165 — the typical coin of each cohort. One 1,000x+ label moved every lane's REFUSE mean by thousands of
         // points at once (the Cortex panel read "backwards"); the median is what a verdict usually led to.
         val strongMedian: Double = Double.NaN, val neutralMedian: Double = Double.NaN, val refuseMedian: Double = Double.NaN,
+        // 8198 — the typical coin's GROSS move after each verdict (price only). The net medians above subtract the charged
+        // round trip, the 3-point unmeasured-fill haircut and the lane's executable offset (up to 15 points), so on a flat
+        // typical coin every lane read the same -8..-23% cost constant and the panel compared costs, not verdicts.
+        val strongGrossMedian8198: Double = Double.NaN, val neutralGrossMedian8198: Double = Double.NaN, val refuseGrossMedian8198: Double = Double.NaN,
     )
 
     /** Pure (V5.0.8165): the median of the finite values, NaN when there are none. */
@@ -89,7 +93,9 @@ object LearningEntryTruth8153 {
         val nt = CortexWalkForward8144.stat8144(ns)
         val rt = CortexWalkForward8144.stat8144(rs)
         return VerdictRow8153(st.n, st.mean, nt.n, nt.mean, rt.n, rt.mean, book.resolvedShare(lane, s), book.resolvedShare(lane, r),
-            median8165(ss), median8165(ns), median8165(rs))
+            median8165(ss), median8165(ns), median8165(rs),
+            median8165(book.executableGrossSeries8198(lane, null, s)), median8165(book.executableGrossSeries8198(lane, null, nu)),
+            median8165(book.executableGrossSeries8198(lane, null, r)))
     }
 
     /**

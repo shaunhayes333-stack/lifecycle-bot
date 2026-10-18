@@ -794,6 +794,52 @@ object Cortex7885 {
     // it. Only executable, first-of-episode labels grade the books (CortexLabelHygiene8144: the MOONSHOT REFUSE +213%
     // artefact), and STRONG-side authority needs walk-forward validation on these records as well as the realised cap.
     private const val GRADES_KEY_8144 = "CORTEX_GRADES_8144"
+
+    // ── 8198 — durable, replay-safe close delivery (the Cortex close hold) ──
+    /** One durable receipt row per graded canonical close: its existence in the store means the graded state was
+     *  committed in the SAME transaction (LearningPersistence.commitOnce8090), so a restart can reach the receipt
+     *  check before touching any book/voter/strategy mutation. */
+    private const val CLOSE_RECEIPT_KEY_8198 = "CORTEX_CLOSE_RECEIPT_8198|"
+
+    /** Result of one canonical close delivery through FinalizedBusConsumerBridge6465. ACKED only on an accepted
+     *  durable outcome (or an explicit no-mutation disposition); RETRY leaves the envelope unacked for redelivery. */
+    enum class CloseDelivery8198 { ACKED, RETRY }
+
+    /** tradeId -> grade committed durably (this process saw commitOnce8090 COMMITTED/ALREADY_COMMITTED). */
+    private val closeReceipts8198 = ConcurrentHashMap.newKeySet<String>()
+    /** tradeId -> grade applied in memory but its durable receipt commit is still pending (DB refused/busy/off-thread).
+     *  The gate is set BEFORE any mutation, so a redelivery in this process never grades the same close twice. */
+    private val uncommittedCloseGrades8198 = ConcurrentHashMap.newKeySet<String>()
+
+    /** Test seam: the close-path diagnostic counters. */
+    internal fun counter8198(name: String): Long = counters[name]?.get() ?: 0L
+
+    private fun closeReceipt8198(tradeId: String): String = CLOSE_RECEIPT_KEY_8198 + tradeId
+
+    /**
+     * 8198 — the durability barrier. Captures ledger books + grade book + pending reads + the tradeId receipt in ONE
+     *  transaction (commitOnce8090). Returns true only when the outcome is durable (COMMITTED or ALREADY_COMMITTED);
+     *  a refused row, a Main-thread caller, an open transaction or a closed store returns false and the close
+     *  delivery must NOT acknowledge. Never a bare async-persist-then-ack.
+     */
+    private fun durableCloseCommit8198(receipt: String): Boolean {
+        val blobs = synchronized(this) {
+        val out = HashMap<String, String>(4)
+        out[PERSIST_KEY] = org.json.JSONObject()
+            .put("ledger", ledger.encode()).put("board", board.encode()).put("calibration", calibration.encode())
+            .put("real", org.json.JSONObject().also { j -> realLedgers.forEach { (k, l) -> j.put(k, l.encode()) } })
+            .put("vetoes", org.json.JSONObject().also { j -> vetoBook.forEach { (k, v) -> j.put(k, v.encode()) } })
+            .put("joint7961", org.json.JSONObject().also { j -> jointBook7961.forEach { (k, v) -> j.put(k, v.encode()) } })
+            .toString()
+        out[PENDING_PERSIST_KEY] = pendingSnapshot8076().toString()
+        out[GRADES_KEY_8144] = gradeBook8144.encode()
+        out
+        }
+        return when (LearningPersistence.commitOnce8090(receipt, blobs)) {
+            LearningPersistence.Commit8090.COMMITTED, LearningPersistence.Commit8090.ALREADY_COMMITTED -> true
+            LearningPersistence.Commit8090.RETRY -> { inc("CORTEX_CLOSE_DURABLE_RETRY_8198"); false }
+        }
+    }
     private const val WF_REFRESH_MS_8144 = 30_000L
     private const val LOST_SWEEP_EVERY_MS_8144 = 120_000L
     private val gradeBook8144 = CortexGradeBook8144().also { b -> b.execOffset8187 = { l -> execOffsetByLane8187[l] ?: 0.0 } }  // V5.0.8187
@@ -1015,15 +1061,16 @@ object Cortex7885 {
      * snapshot's setup on the close lane) gets the whole-position outcome on the realised book, under no verdict bucket.
      */
     private fun fileUnboundClose8153(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope, mode: String,
-                                     sealed: com.lifecyclebot.engine.truth.AateEntryIdentity8136?, snapshotTag: String?) {
-        if (gradeBook8144.trade(env.positionId) != null) return
+                                     sealed: com.lifecyclebot.engine.truth.AateEntryIdentity8136?, snapshotTag: String?): Boolean {
+        if (gradeBook8144.trade(env.positionId) != null) return false
         // V5.0.8169 — a close finalized before this process (the bootstrap replays every historical close: 8168 filed 1,345
         // in 9 minutes) is counted apart; the book takes it only if it is newer than the book's oldest trade (openTrade).
         if (env.atMs in 1 until loadedAtMs8169) inc("REALIZED_REPLAYED_8169")
         val (r, owner) = LearningEntryTruth8153.unboundTrade8153(env.positionId, env.mint, mode, env.atMs - env.holdingTimeMs.coerceAtLeast(0L),
-            canon(env.lane), sealed?.mode, sealed?.mint, sealed?.ownerLane, sealed?.exactSetup, snapshotTag) ?: run { inc("REALIZED_UNBOUND_NO_OWNER_8153"); return }
-        if (!gradeBook8144.openTrade(r)) { inc("REALIZED_UNBOUND_OLDER_THAN_BOOK_8169"); return }
-        if (gradeBook8144.closeTrade(env.positionId, owner, env.realizedReturnPct) != null) inc("REALIZED_UNBOUND_FILED_8153_${owner.attribution.name}")
+            canon(env.lane), sealed?.mode, sealed?.mint, sealed?.ownerLane, sealed?.exactSetup, snapshotTag) ?: run { inc("REALIZED_UNBOUND_NO_OWNER_8153"); return false }
+        if (!gradeBook8144.openTrade(r)) { inc("REALIZED_UNBOUND_OLDER_THAN_BOOK_8169"); return false }
+        if (gradeBook8144.closeTrade(env.positionId, owner, env.realizedReturnPct) != null) { inc("REALIZED_UNBOUND_FILED_8153_${owner.attribution.name}"); return true }
+        return false
     }
 
     /** Caller holds the lock. V5.0.8187 — "~raw+X%" when a tradeable cohort's stored mean differs from its capped read. */
@@ -2201,7 +2248,9 @@ object Cortex7885 {
      */
     private fun recoverRead8187(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope, closeKey: String, mode: String,
                                 sealed: com.lifecyclebot.engine.truth.AateEntryIdentity8136?): Assessment? {
-        deferredBinds8187.remove(env.positionId)?.let { d ->
+        // 8198 — observe, do not consume: a failed/retried delivery must not destroy the deferred bind, and a later
+        // arriving read still binds through retryDeferredBinds8187. The entry is cleaned by its own TTL/size bound.
+        deferredBinds8187[env.positionId]?.let { d ->
             val a = entryReads[d.key]
             if (a != null && readBindable8187(entryDecisionAt8187(a, d.key), d.openedAtMs)) { inc("REALIZED_BOUND_DEFERRED_READ_8187"); return a }
         }
@@ -2242,11 +2291,24 @@ object Cortex7885 {
         return a
     }
 
-    /** CanonicalFinalizedTradeBus6464 publish: one whole-position outcome (all legs, fees once). */
-    fun onCanonicalClose(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
-        if (!env.terminal) return
+    /**
+     * V5.0.8198 — the Cortex OutcomeTruth close is now a DELIVERY (FinalizedBusConsumerBridge6465 delivers envelope to
+     * registered consumer "CortexOutcome7885"), not a swallowed direct call inside [CanonicalFinalizedTradeBus6464.publish].
+     * It therefore reaches the same quarantine / pre-reset-epoch / exact-economics gates as every learning consumer,
+     * and one delivery can only ACK what is durable:
+     *  • duplicate delivery of a committed close is a no-op (receipt gate first, before any mutation);
+     *  • the entry read is PEEKED and only taken/consumed when the grade is actually applied, so a failed delivery
+     *    leaves the assessment bound for a later bind/recovery instead of destroying it mid-grading;
+     *  • graded state (ledger + books + grades + pending reads) and the per-trade receipt commit in ONE transaction
+     *    (LearningPersistence.commitOnce8090). In-memory grading awaits a durable commit in
+     *    [uncommittedCloseGrades8198]; while that is pending, a redelivery re-attempts ONLY the durable commit,
+     *    never the grade — partial double-grading is impossible in-process, and across restarts the durable receipt
+     *    (or the still-persisted pending read) is the only way back in.
+     */
+    fun onCanonicalClose(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope): CloseDelivery8198 {
+        if (!env.terminal) return CloseDelivery8198.ACKED
         ensureLoaded()
-        val mode = if (env.mode.equals("live", true)) "LIVE" else if (env.mode.equals("paper", true)) "PAPER" else return
+        val mode = if (env.mode.equals("live", true)) "LIVE" else if (env.mode.equals("paper", true)) "PAPER" else return CloseDelivery8198.ACKED
         // V5.0.7931 — cross-asset rows close under "solana|<mint>" / ticker / traded mint;
         // all map onto the identity the entry was captured under.
         val closeKey7931 = try { CrossAssetCortex7931.normalizeCloseKey(env.mint) } catch (_: Throwable) { env.mint }
@@ -2258,37 +2320,103 @@ object Cortex7885 {
         // V5.0.8144 — the owner of the trade, read outside the lock: the sealed entry identity, else the entry snapshot.
         val sealed8144 = if (!eligible) null else try { com.lifecyclebot.engine.truth.AateEntryIdentityBook8136.identity8136(env.positionId) } catch (_: Throwable) { null }
         val snapTag8144 = if (!eligible) null else try { com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(env.positionId)?.cortexSetupTag8085 } catch (_: Throwable) { null }
+        var gradeMutationsBegun8198 = false
         synchronized(this) {
-            val a = positionReads8076.take(env.positionId, closeKey7931, mode) ?: (if (eligible) recoverRead8187(env, closeKey7931, mode, sealed8144) else null) ?: run {
-                // V5.0.8187 — a boot replay of a close the book already filed is not a missed binding.
-                val replay8187 = env.atMs in 1 until loadedAtMs8169
-                if (replay8187 && gradeBook8144.trade(env.positionId) != null) inc("REALIZED_REPLAY_ALREADY_FILED_8187")
-                else if (replay8187) inc("REALIZED_REPLAY_UNMATCHED_8187")
-                else inc("REALIZED_UNMATCHED")
-                if (eligible) fileUnboundClose8153(env, mode, sealed8144, snapTag8144)  // V5.0.8153
-                return
+            val tradeId = env.tradeId
+            // A close this process already committed durably is done, whatever the bus redelivers.
+            if (tradeId in closeReceipts8198) { inc("CORTEX_CLOSE_DUPLICATE_ACKED_8198"); return CloseDelivery8198.ACKED }
+            if (!eligible) {
+                // An unverified / learning-ineligible terminal is explicit, not a failure: release the captured entry
+                // (it never teaches) and acknowledge. Re-delivery is a harmless null re-release.
+                val released8198 = positionReads8076.take(env.positionId, closeKey7931, mode)
+                if (released8198 != null) entryReads.remove("$closeKey7931|$mode|${canon(released8198.lane)}")
+                if (mode == "PAPER") chosen.remove(env.mint)
+                inc("REALIZED_NOT_ELIGIBLE")
+                return CloseDelivery8198.ACKED
             }
-            if (env.atMs >= loadedAtMs8169 || env.atMs <= 0L) inc("REALIZED_BOUND_LIVE_SESSION_8187")
-            entryReads.remove("$closeKey7931|$mode|${canon(a.lane)}", a)
-            val wasChosen = mode == "PAPER" && chosen.remove(env.mint) != null
-            // Ineligible closes still release their captured entry; they never teach.
-            if (eligible) {
-                board.recordRealized(mode, a.lane, a.bucket, env.realizedReturnPct)
-                if (wasChosen) board.recordRealized("PAPER_CHOSEN", a.lane, a.bucket, env.realizedReturnPct)
-                // V5.0.7912 — Cortex v12, OutcomeTruth (v1 §2.7): every voter's entry-time
-                // opinion is also graded on the WHOLE-POSITION realised return, per mode,
-                // in its own ledger — skill on real fills and real exits, beside the
-                // forward-label skill that grants authority.
-                realLedgers.getOrPut(mode) { CortexLedger7885(Double.POSITIVE_INFINITY) }  // V5.0.8187 — money, never capped
-                    .grade(a.lane, a.ids, a.edges, a.raws, env.realizedReturnPct, env.realizedReturnPct, a.regime, predictionForGrade8076(a))
-                // V5.0.8144 — the realised return goes to the exact strategy that owned the trade.
-                routeRealised8144(env, mode, a, sealed8144, snapTag8144)
-                lastExecRefresh8187 = 0L; refreshExecutable8187(System.currentTimeMillis())  // V5.0.8187 — a close re-measures the gap
+            // A committed grade from a previous process life: the receipt row proved the state in its transaction.
+            if (try { LearningPersistence.load(closeReceipt8198(tradeId)) != null } catch (_: Throwable) { false }) {
+                closeReceipts8198.add(tradeId)
+                inc("CORTEX_CLOSE_DURABLE_ALREADY_ACKED_8198")
+                return CloseDelivery8198.ACKED
             }
+            if (tradeId !in uncommittedCloseGrades8198) {
+                // First delivery for this close in this process: grade it once, gate FIRST.
+                uncommittedCloseGrades8198.add(tradeId)
+                try {
+                    // 8198 — PEEK, never take: the entry assessment survives a failed grade or a failed delivery,
+                    // and recovery paths can still see it.
+                    val a: Assessment? = positionReads8076.peek(env.positionId, closeKey7931, mode)
+                        ?: recoverRead8187(env, closeKey7931, mode, sealed8144)
+                    if (a == null) {
+                        // V5.0.8187 — a boot replay of a close the book already filed is not a missed binding.
+                        val replay8187 = env.atMs in 1 until loadedAtMs8169
+                        if (replay8187 && gradeBook8144.trade(env.positionId) != null) inc("REALIZED_REPLAY_ALREADY_FILED_8187")
+                        else if (replay8187) inc("REALIZED_REPLAY_UNMATCHED_8187")
+                        else inc("REALIZED_UNMATCHED")
+                        // 8153 — absent entry evidence is explicit: the sealed owner (no voter raws) takes the outcome.
+                        if (!fileUnboundClose8153(env, mode, sealed8144, snapTag8144)) {
+                            uncommittedCloseGrades8198.remove(tradeId)   // nothing mutated; a redelivery would be the same no-op
+                            return CloseDelivery8198.ACKED
+                        }
+                        // The unbound filing IS graded state: it crosses the same durability barrier below.
+                        gradeMutationsBegun8198 = true
+                    } else {
+                        if (env.atMs >= loadedAtMs8169 || env.atMs <= 0L) inc("REALIZED_BOUND_LIVE_SESSION_8187")
+                        gradeMutationsBegun8198 = true
+                        // The grade consumes the assessment exactly when it is applied (the peek above left it intact).
+                        positionReads8076.take(env.positionId, closeKey7931, mode)
+                        entryReads.remove("$closeKey7931|$mode|${canon(a.lane)}", a)
+                        val wasChosen = mode == "PAPER" && chosen.remove(env.mint) != null
+                        board.recordRealized(mode, a.lane, a.bucket, env.realizedReturnPct)
+                        if (wasChosen) board.recordRealized("PAPER_CHOSEN", a.lane, a.bucket, env.realizedReturnPct)
+                        // V5.0.7912 — Cortex v12, OutcomeTruth (v1 §2.7): every voter's entry-time
+                        // opinion is also graded on the WHOLE-POSITION realised return, per mode,
+                        // in its own ledger — skill on real fills and real exits, beside the
+                        // forward-label skill that grants authority.
+                        realLedgers.getOrPut(mode) { CortexLedger7885(Double.POSITIVE_INFINITY) }  // V5.0.8187 — money, never capped
+                            .grade(a.lane, a.ids, a.edges, a.raws, env.realizedReturnPct, env.realizedReturnPct, a.regime, predictionForGrade8076(a))
+                        // V5.0.8144 — the realised return goes to the exact strategy that owned the trade.
+                        routeRealised8144(env, mode, a, sealed8144, snapTag8144)
+                        lastExecRefresh8187 = 0L; refreshExecutable8187(System.currentTimeMillis())  // V5.0.8187 — a close re-measures the gap
+                        inc("REALIZED_${mode}")
+                    }
+                } catch (t: Throwable) {
+                    // A failure BEFORE the first mutation is a clean retry: the unread gate is released and the next
+                    // delivery re-grades from the still-bound (peeked) read. A failure AFTER the first mutation can
+                    // never be re-applied without double-grading the additive books, so it is terminal for this
+                    // consumer: an explicit, durable exclusion (never an ACK), the half-grade labeled, nothing durable.
+                    uncommittedCloseGrades8198.remove(tradeId)
+                    inc(if (gradeMutationsBegun8198) "CORTEX_CLOSE_GRADE_FAILED_TERMINAL_8198" else "CORTEX_CLOSE_GRADE_FAILED_RETRYABLE_8198")
+                    ForensicLogger.lifecycle(if (gradeMutationsBegun8198) "CORTEX_CLOSE_GRADE_FAILED_TERMINAL_8198" else "CORTEX_CLOSE_GRADE_FAILED_RETRYABLE_8198",
+                        "tradeId=${tradeId.take(24)} positionId=${env.positionId.take(24)} mutationsBegun=$gradeMutationsBegun8198 err=${t.javaClass.simpleName}:${(t.message ?: "").take(100)}")
+                    if (gradeMutationsBegun8198) {
+                        try { com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.exclude(
+                            "CortexOutcome7885", tradeId, "CORTEX_CLOSE_GRADE_FAILED_TERMINAL_8198") } catch (_: Throwable) {}
+                        gradeMutationsBegun8198 = false
+                        return CloseDelivery8198.RETRY   // the recorded exclusion makes this attempt terminal, not re-graded
+                    }
+                    return CloseDelivery8198.RETRY       // clean retry: next delivery re-grades
+                }
+            }
+            // Either freshly graded in this process or a redelivery of an uncommitted grade: (re-)attempt the durable
+            // receipt commit with the current graded state. Never acknowledge a scheduled write.
         }
-        inc(if (eligible) "REALIZED_${mode}" else "REALIZED_NOT_ELIGIBLE")
-        submit("CLOSE_CHECKPOINT") { persist() }
+        val durable = try { durableCloseCommit8198(closeReceipt8198(env.tradeId)) } catch (_: Throwable) { false }
+        return when (durable) {
+            true -> synchronized(this) {
+                closeReceipts8198.add(env.tradeId)
+                uncommittedCloseGrades8198.remove(env.tradeId)
+                inc("CORTEX_CLOSE_DURABLE_ACKED_8198")
+                postCloseCheckpoint8198()
+                CloseDelivery8198.ACKED
+            }
+            false -> CloseDelivery8198.RETRY   // state stays uncommitted: redelivery re-attempts the commit, not the grade
+        }
     }
+
+    /** 8198 — after a durable close commit, refresh the ordinary checkpoint cadence the old direct path used. */
+    private fun postCloseCheckpoint8198() { submit("CLOSE_CHECKPOINT") { persist() } }
 
     // ── persistence ──
 
@@ -2419,6 +2547,9 @@ object Cortex7885 {
 
     @Synchronized private fun persistBlocking8094() {
         if (!loaded) return
+        // 8198 — never write a snapshot that separates the graded state from its receipt: while a close grade
+        // awaits its durable commit, the close commit itself carries the state (see durableCloseCommit8198).
+        if (uncommittedCloseGrades8198.isNotEmpty()) return
         try {
             val json = synchronized(this) {
                 org.json.JSONObject().put("ledger", ledger.encode()).put("board", board.encode()).put("calibration", calibration.encode())
@@ -2495,6 +2626,9 @@ object Cortex7885 {
         val legacyStrongMean8153: Double = Double.NaN, val legacyRefuseMean8153: Double = Double.NaN,
         val source8153: String = "",
         val strongMedian8165: Double = Double.NaN, val neutralMedian8165: Double = Double.NaN, val refuseMedian8165: Double = Double.NaN,
+        val strongGrossMedian8198: Double = Double.NaN, val neutralGrossMedian8198: Double = Double.NaN, val refuseGrossMedian8198: Double = Double.NaN,
+        /** 8198 — the lane's executable offset (points subtracted from every net read), shown so the net figures are legible. */
+        val execOffset8198: Double = 0.0,
     )
     data class UiSeat8069(val key: String, val authority: Double, val skillPct: Double, val n: Int)
     data class UiVeto8069(val reason: String, val n: Int, val meanPct: Double, val sePct: Double)
@@ -2525,7 +2659,9 @@ object Cortex7885 {
                 UiLane8069(lane, b.byBucket.sumOf { it.n }.toInt(), v.strongN, v.strongMean, v.neutralN, v.neutralMean,
                     v.refuseN, v.refuseMean, calibration.slope(lane), auth, powers,
                     legacyStrongMean8153 = b.byBucket[2].mean(), legacyRefuseMean8153 = b.byBucket[0].mean(), source8153 = "TRADEABLE_8153",
-                    strongMedian8165 = v.strongMedian, neutralMedian8165 = v.neutralMedian, refuseMedian8165 = v.refuseMedian)
+                    strongMedian8165 = v.strongMedian, neutralMedian8165 = v.neutralMedian, refuseMedian8165 = v.refuseMedian,
+                    strongGrossMedian8198 = v.strongGrossMedian8198, neutralGrossMedian8198 = v.neutralGrossMedian8198, refuseGrossMedian8198 = v.refuseGrossMedian8198,
+                    execOffset8198 = execOffsetByLane8187[lane] ?: 0.0)
             }
             val vetoes = vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(10).map { (k, st) ->
                 UiVeto8069(k, st.n.toInt(), st.mean(), if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.NaN)

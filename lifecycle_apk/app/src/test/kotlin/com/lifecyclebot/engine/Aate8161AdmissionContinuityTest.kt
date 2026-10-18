@@ -44,7 +44,8 @@ class Aate8161AdmissionContinuityTest {
         assertTrue(tasks.contains("NATIVE_NO_BUY_"))
         assertTrue(tasks.contains("DEFERRED_NATIVE:"))
         assertTrue(tasks.contains("currentVersion == t.version"))
-        assertTrue(fdg.contains("assess8136(ts, floorLane7266, candidateVersion = candidateVersion7623)"))
+        // V5.0.8198 P0-B — the same lane and generation, now built with the gate's own snapshot score and fluid floor.
+        assertTrue(fdg.contains("ts, floorLane7266, candidateVersion = candidateVersion7623,\n                genericScore = effectiveEntryScore7292, genericFloor = canonicalFloor7266,"))
         assertTrue(fdg.contains("?: tradingModeTag?.name ?: \"CORE\""))
         assertTrue(fdg.contains("candidateVersion7623, floorLane7266, candidateAdmission8136"))
         assertTrue(fdg.contains("val authoritativeAdmissionRefusal8136 = candidateAdmission8136?.takeIf"))

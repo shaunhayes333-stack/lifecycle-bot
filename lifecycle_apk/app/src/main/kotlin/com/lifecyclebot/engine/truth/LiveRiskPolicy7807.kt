@@ -1010,7 +1010,7 @@ object LiveRiskPolicy7807 {
         com.lifecyclebot.engine.SizingQuoteRecheck8153.noteDecision8153(mint, com.lifecyclebot.engine.SizingQuoteRecheck8153.SealedEconomics8153(
             sizeSol = d.sizeSol, expectedGrossPct = i.setupExpectedGrossPct8153, firstTargetPct = d.firstTargetPct8153,
             costPct = costAtSizePct8153(i, d.sizeSol), impactOneWayPct = if (sizeUsd > 0.0 && i.liquidityUsd > 0.0) impactOneWay else Double.NaN,
-            priceUsd = i.markPriceUsd8153, atMs = nowMs,
+            priceUsd = i.markPriceUsd8153, atMs = nowMs, lane8198 = i.lane,
         ))
     }
 

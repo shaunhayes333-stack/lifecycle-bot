@@ -808,6 +808,8 @@ object ForwardReturnLabeler7731 {
         }
         when (horizon) { 15 -> booked15.incrementAndGet(); 60 -> booked60.incrementAndGet(); else -> booked240.incrementAndGet() }
         if (horizon == 60) bookFresh8169(o, keys, net, gross)
+        // V5.0.8198 — the late (60-minute) read books into the fresh tally too: the stage rule spares a stage that pays late.
+        if (horizon == 240) bookFreshLate8198(o, keys, net)
         if (bookingsSincePersist.incrementAndGet() >= PERSIST_EVERY_BOOKINGS_7731) persist()
     }
 
@@ -824,6 +826,16 @@ object ForwardReturnLabeler7731 {
             }
         }
         freshBooked8169.incrementAndGet()
+    }
+
+    /** V5.0.8198 — the 60-minute label of a post-epoch decision books into the fresh tally's late slot. */
+    private fun bookFreshLate8198(o: Obs, keys: List<String>, net: Double) {
+        syncEpoch8169()
+        if (!freshObservation8169(o.atMs, freshEpochMs8169)) return
+        for (k in keys) {
+            val t = fresh8169[k] ?: continue   // a key with no post-epoch 5-minute label has no record to spare
+            synchronized(t) { t.n240 += 1; t.sum240 += net; if (net > 0.0) t.win240 += 1; t.window8014(CELL_WINDOW_8014) }
+        }
     }
 
     /** V5.0.8169 — restore the fresh tallies; a new grading version starts a new epoch now (the old fresh book is dropped). */
@@ -1573,6 +1585,7 @@ object ForwardReturnLabeler7731 {
                     key = key, n60 = n, meanNet60Pct = robust.mean,
                     winRate60 = t.win60.toDouble() / n, runnerRate60 = t.runner60.toDouble() / n,
                     stderr60Pct = robust.stderr, lost = 0, outlierSuspect8185 = robust.suspect,
+                    n240 = t.n240, meanNet240Pct = if (t.n240 > 0) t.sum240 / t.n240 else 0.0,  // V5.0.8198
                 )
             }
         }

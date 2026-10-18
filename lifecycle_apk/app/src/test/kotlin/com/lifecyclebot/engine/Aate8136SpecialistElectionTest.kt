@@ -256,6 +256,16 @@ class Aate8136SpecialistElectionTest {
         assertFalse(j.refusalIsJudgement8136("C3_PROVEN_NEGATIVE_EDGE", fdg = true))
         assertFalse(j.refusalIsJudgement8136("LIQ_TOO_LOW: 52 < 309", fdg = false))     // a lane's own floor: 8094 READY hand-off kept
         assertFalse(j.refusalIsJudgement8136(null, fdg = true))
+        // 8198 — one lane's strategy / policy / toxicity refusal is its own fit, not the token's verdict: the election stays rescuable.
+        for (laneOwn in listOf("MEMORY_NEGATIVE_BLOCK", "SELECTION_QUALITY_FLOOR_BLOCKED_6830_MOONSHOT", "FDG_POLICY_BLOCK_7835",
+            "LEARNED_TOXIC_LANE", "TOXIC_PATTERN_TACTIC_PIVOT_6482", "BRAIN_CONSENSUS_SOFT_BLOCK_DAMPED_7263", "FDG_LOCAL_BLOCK",
+            "CANONICAL_EDGE_PARITY_BLOCK_7431", "LANE_EVAL_ERROR")) {
+            assertFalse(laneOwn, j.refusalIsJudgement8136(laneOwn, fdg = true))
+            assertFalse(laneOwn, j.refusalIsJudgement8136(laneOwn, fdg = false))
+        }
+        for (token in listOf("HARD_BLOCK_FREEZE_AUTHORITY", "BEHAVIOR_BLOCK_100PCT_LOSS", "HARD_BLOCK_TOP_HOLDER_", "BUNDLE_DETECTED", "LEARNING_QUARANTINE")) {
+            assertTrue(token, j.refusalIsJudgement8136(token, fdg = false))
+        }
         val m = "mint-judgement"
         e.registerNative8136(m, 100L, t0, mapOf("CASHGEN" to view(55.0), "MOONSHOT" to view(80.0)), t0)
         e.cyclePrimary8136(m, 100L, "CASHGEN", false, null, t0)

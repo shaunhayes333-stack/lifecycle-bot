@@ -123,10 +123,27 @@ class Aate8198SealedExecutionTest {
         assertEquals("PRE_BROADCAST_QUOTE_IDENTITY_MISMATCH_8198", q.preBroadcastQuoteRefusal8167(ts, 0.04, quote("wrong", 4_000_000L), 100.0))
         assertEquals("PRE_BROADCAST_QUOTE_AMOUNT_INVALID_8198", q.preBroadcastQuoteRefusal8167(ts, 0.04, quote(ts.mint, 0L), 100.0))
         val at = System.currentTimeMillis()
-        q.noteDecision8153(ts.mint, SizingQuoteRecheck8153.SealedEconomics8153(0.04, 40.0, 40.0, 2.0, 0.1, 1.0, at))
-        q.bindSeal8153(ts.mint, 0.04, at, candidateVersion8198 = 8199)
+        q.noteDecision8153(ts.mint, SizingQuoteRecheck8153.SealedEconomics8153(0.04, 40.0, 40.0, 2.0, 0.1, 1.0, at, lane8198 = "QUALITY"))
+        q.bindSeal8153(ts.mint, 0.04, at, candidateVersion8198 = 8199, lane8198 = "QUALITY")
         assertEquals("PRE_BROADCAST_SEAL_GENERATION_CHANGED_8198", q.preBroadcastQuoteRefusal8167(ts, 0.04, quote(ts.mint, 4_000_000L), 100.0, intent().copy(mint = ts.mint)))
         assertNull(q.preBroadcastQuoteRefusal8167(ts, 0.04, quote(ts.mint, 4_000_000L), 100.0, intent().copy(mint = ts.mint, candidateVersion = 8199)))
     }
 
+
+    /** V5.0.8198 P4 — another lane's FDG economics never bind to this lane's seal (same mint, two judges). */
+    @Test fun seal_economics_are_bound_to_the_deciding_lane_only() {
+        val ts = com.lifecyclebot.data.TokenState("crossLaneSeal8198")
+        ts.lastPrice = 1.0
+        ts.tokenMap.decimals = 6
+        val q = SizingQuoteRecheck8153
+        val at = System.currentTimeMillis()
+        val quote = com.lifecyclebot.network.SwapQuote(org.json.JSONObject(), 4_000_000L, 0.1,
+            inputMint = com.lifecyclebot.network.JupiterApi.SOL_MINT, outputMint = ts.mint, inAmount = 40_000_000L)
+        // QUALITY decided on +40% gross; MOONSHOT then decided the same mint on economics that cannot pay.
+        q.noteDecision8153(ts.mint, SizingQuoteRecheck8153.SealedEconomics8153(0.04, 40.0, 40.0, 2.0, 0.1, 1.0, at, lane8198 = "QUALITY"))
+        q.noteDecision8153(ts.mint, SizingQuoteRecheck8153.SealedEconomics8153(0.04, 0.5, 0.5, 9.0, 0.1, 1.0, at, lane8198 = "MOONSHOT"))
+        q.bindSeal8153(ts.mint, 0.04, at, candidateVersion8198 = 8199, lane8198 = "QUALITY")
+        // QUALITY's ticket is judged on QUALITY's own economics, not MOONSHOT's later record.
+        assertNull(q.preBroadcastQuoteRefusal8167(ts, 0.04, quote, 100.0, intent().copy(mint = ts.mint, candidateVersion = 8199)))
+    }
 }

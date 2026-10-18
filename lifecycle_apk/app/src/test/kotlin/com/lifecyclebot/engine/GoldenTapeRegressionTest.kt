@@ -7402,7 +7402,7 @@ class GoldenTapeRegressionTest {
                 main.contains("preSorted6078 = true") &&
                 main.contains("val RENDER_CAP = OPENPOS_ROW_CAP"),
         )
-        assertTrue("V5.0.6078: Runtime report export button must always copy an observable unified-report fallback", err.contains("UNIFIED_REPORT_EXPORT_CLICK_6078") && err.contains("Copied part 1/") && err.contains("PipelineHealthCollector.dumpText()") && !err.contains("dumpText().take(24_000)") && err.contains("chatParts8198(compactText)"))
+        assertTrue("V5.0.6078: Runtime report export button must always copy an observable unified-report fallback", err.contains("UNIFIED_REPORT_EXPORT_CLICK_6078") && err.contains("fullShareNote8198(") && err.contains("PipelineHealthCollector.dumpText()") && !err.contains("dumpText().take(24_000)") && err.contains("ReportCopyDialog8198.show("))
         assertTrue("V5.0.6078: all sell-like results must feed LLM/SSI context with accepted/trainable flags while policy heads remain clean-gated", exec.contains("ALL_RESULT_CONTEXT_OBSERVED_6078") && exec.contains("recordExternalOutcome6078") && lab.contains("externalOutcomeSummary6078") && ssi.contains("RESULTS6078"))
         assertTrue("V5.0.6078: live positions must preserve AgenticStyleRouter style surface instead of collapsing to generic lane emoji", exec.contains("preserve the full AgenticStyleRouter style surface") && exec.contains("tradingModeEmoji = listOf") && exec.contains("routedStyleTag.ifBlank"))
     }
@@ -7416,7 +7416,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6308: clipboard writes must happen from mainHandler delivery, not the report builder thread",
             ui.contains("fun deliverReport6308") && ui.contains("mainHandler.post") && ui.contains("cb.setPrimaryClip") && ui.contains("Report generated but clipboard failed"))
         assertTrue("V5.0.6308: generated report must also render on-screen in bounded sections",
-            ui.contains("fullDumpCache = compactText") && ui.contains("reportSections = displaySections") && ui.contains("val displaySections = splitDumpIntoSections(compactText)") && ui.contains("renderCurrentSection()"))
+            ui.contains("fullDumpCache = safeText") && ui.contains("reportSections = displaySections") && ui.contains("val displaySections = splitDumpIntoSections(safeText)") && ui.contains("renderCurrentSection()"))
         assertTrue("V5.0.6308: fallback report must include the choke-critical pipeline surfaces",
             ui.contains("AATE PIPELINE EMERGENCY REPORT V5.0.6308") && ui.contains("FDG BLOCK REASONS") && ui.contains("LIVE BUY FAIL REASONS") && ui.contains("INTAKE BY SOURCE") && ui.contains("RECENT EVENTS"))
     }
@@ -15259,7 +15259,8 @@ class GoldenTapeRegressionTest {
         assertTrue(quote.contains("PRE_BROADCAST_QUOTE_IDENTITY_MISMATCH_8198"))
         assertTrue(quote.contains("PRE_BROADCAST_QUOTE_AMOUNT_INVALID_8198"))
         assertTrue(quote.contains("PRE_BROADCAST_SEAL_GENERATION_CHANGED_8198"))
-        assertTrue(quote.contains("sealed.remove(mint, observed8198)"))
+        // V5.0.8198 — the observed seal is removed under its (mint, canonical lane) key: one mint, several judges.
+        assertTrue(quote.contains("sealed.remove(key8198(mint, intent8198?.canonicalLane.orEmpty()), observed8198)"))
         val executor = java.io.File(root, "Executor.kt").readText()
         val failure = executor.substringAfter("private fun terminalizeCanonicalLiveFailure7790").substringBefore("private fun noteLivePreSizeRefusal7809")
         assertFalse(failure.contains("LaneExecutionCoordinator.candidateVersionFor"))
@@ -15279,16 +15280,15 @@ class GoldenTapeRegressionTest {
         assertTrue(playbook.contains("matchedSetups8083(ts, lane, nowMs), mode, version, selectionRevision8198()"))
     }
 
-    @Test fun V5_0_8198_full_report_compaction_preserves_data_and_clipboard_parts() {
+    @Test fun V5_0_8198_report_copy_is_readable_budget_and_complete_file_is_always_shareable() {
         val root = java.io.File("src/main/kotlin/com/lifecyclebot")
         val formatter = java.io.File(root, "engine/ReportBudget8176.kt").readText()
-        assertTrue(formatter.contains("expand8198(encoded) == raw"))
-        assertTrue(formatter.contains("catch (_: Throwable) { raw }"))
-        assertTrue(formatter.contains("sourceSha256="))
+        assertTrue(formatter.contains("budget8176(compact8176(raw), COPY_BUDGET_CHARS_8176)"))
+        assertFalse(formatter.contains("sourceSha256="))
+        assertFalse(formatter.contains("lossless8198"))
         val dialog = java.io.File(root, "ui/ReportCopyDialog8198.kt").readText()
-        assertTrue(dialog.contains("Share complete compact file"))
-        assertTrue(dialog.contains("Share complete original file"))
-        assertFalse(dialog.contains("Intent.EXTRA_TEXT"))
+        assertTrue(dialog.contains("fileIntent ?: textIntent"))
+        assertTrue(dialog.contains("Intent.EXTRA_TEXT"))
         val hub = java.io.File(root, "engine/ReportingHub.kt").readText()
         assertTrue(hub.contains("CacheEntry(sourceAtMs, report)"))
         assertTrue(hub.contains("ErrorLogger.exportToCompactTable(limit = 80)"))

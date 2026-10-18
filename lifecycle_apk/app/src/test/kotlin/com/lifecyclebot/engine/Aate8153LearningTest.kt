@@ -252,7 +252,9 @@ class Aate8153LearningTest {
         assertNull(LearningEntryTruth8153.unboundTrade8153("", "MU", "LIVE", t0, "MOONSHOT", null, null, null, null, null))
         // Wiring.
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertTrue(cx.contains("if (eligible) fileUnboundClose8153(env, mode, sealed8144, snapTag8144)"))
+        // 8198 — the unbound filing is the delivery's gate inside onCanonicalClose: nothing filed is an explicit ACK,
+        // a filed unbound grade crosses the same durable-commit barrier as a bound one.
+        assertTrue(cx.contains("if (!fileUnboundClose8153(env, mode, sealed8144, snapTag8144)) {"))
         assertTrue(cx.contains("val (setup, src8153) = LearningEntryTruth8153.entrySetup8153("))
         assertTrue(cx.contains("p.selected8153.ifBlank { p.setup7961 }.ifBlank { \"-\" }"))
     }

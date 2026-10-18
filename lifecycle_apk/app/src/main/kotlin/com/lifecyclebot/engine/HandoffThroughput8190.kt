@@ -187,9 +187,32 @@ object HandoffPriority8190 {
         return tasks + yields
     }
 
+    /**
+     * V5.0.8198 P2 — why a live target did NOT ride this cycle, by name: not in the caller's pool (the token left the
+     * watchlist / slice, so no TokenState to evaluate) or beyond the per-cycle bound. 8198: 75 tasks expired
+     * STALE_NOT_SCHEDULED with no cause recorded; these counters make the loss attributable.
+     */
+    fun accountDropped8198(targets: List<Pair<String, Long>>, present: Collection<String>, selected: List<String>, nowMs: Long = System.currentTimeMillis()) {
+        if (targets.isEmpty()) return
+        val set = present.toHashSet(); val chosen = selected.toHashSet()
+        var notInPool = 0; var bound = 0
+        for ((m, _) in targets.distinctBy { it.first }) {
+            val cause = if (m !in set) "NOT_IN_CYCLE_POOL" else if (m !in chosen) "BEYOND_CYCLE_BOUND" else continue
+            if (cause == "NOT_IN_CYCLE_POOL") notInPool++ else bound++
+            try { HandoffReceiverTasks8153.noteUnscheduled8198(m, cause, nowMs) } catch (_: Throwable) {}
+        }
+        try {
+            if (notInPool > 0) PipelineHealthCollector.labelAdd("HANDOFF_TARGET_NOT_IN_POOL_8198", notInPool.toLong())
+            if (bound > 0) PipelineHealthCollector.labelAdd("HANDOFF_TARGET_BEYOND_CYCLE_BOUND_8198", bound.toLong())
+        } catch (_: Throwable) {}
+    }
+
     /** BotService priority window: the due targets among [all] (always inside the window, like open positions). */
     fun windowTargets8190(all: Collection<String>, nowMs: Long = System.currentTimeMillis()): List<String> =
-        try { select8190(targets8190(nowMs), all) } catch (_: Throwable) { emptyList() }
+        try {
+            val targets = targets8190(nowMs)
+            select8190(targets, all).also { accountDropped8198(targets, all, it, nowMs) }
+        } catch (_: Throwable) { emptyList() }
 
     /** BotService.selectOrderedMintsForCycle: the due targets among [otherMints], put in the slice first. */
     fun dueTargets8190(otherMints: List<String>, nowMs: Long = System.currentTimeMillis()): List<String> =

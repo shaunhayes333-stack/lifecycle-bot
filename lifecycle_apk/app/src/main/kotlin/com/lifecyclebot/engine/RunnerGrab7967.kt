@@ -373,8 +373,14 @@ object RunnerGrab7967 {
 
     /** Executor.requestSellCore7948: the deferral label when a held runner should not take this exit. */
     fun deferSell7967(ts: TokenState, reason: String, nowMs: Long = System.currentTimeMillis()): String? {
-        if (!TradeExitContract8077.runnerFromEntry8104(ts) && TradeExitContract8077.longHold(ts) == false) return null
-        if (ts.position.isPaperPosition || !holding7967(ts, nowMs)) return null
+        if (!TradeExitContract8077.runnerFromEntry8104(ts) && TradeExitContract8077.longHold(ts) == false && !pairedPaperRunner8198(ts)) return null
+        // V5.0.8198 — PAPER RIDES THE PLAN LIVE WOULD. This door returned null for every paper position, so a paper runner
+        // took each profit lock, trail and early-rug backstop that a live runner defers: paper taught the Cortex that runners
+        // fail and paper runner PnL sat below the live plan. holding7967 already decides paper from the one shared plan
+        // (RunnerLive8153), and deferrable7967 / holdsThrough7991 / the tape tests below still release integrity,
+        // capital-preservation and emergency exits and losers that never ran, exactly as for live. Nothing is sold or bought
+        // here; it only withholds a soft exit.
+        if (!holding7967(ts, nowMs)) return null
         val g = gross(ts, null)
         if (!deferrable7967(reason, g)) return null
         // V5.0.7991 — the hold is for runners, not for losers: a red position gets shakeout room
@@ -401,6 +407,12 @@ object RunnerGrab7967 {
         deferred.incrementAndGet()
         try { PipelineHealthCollector.labelInc("RUNNER_HOLD_DEFERRED_7967") } catch (_: Throwable) {}
         return "RUNNER_HOLD_7967"
+    }
+
+    /** V5.0.8198 — a paper position that the shared runner plan rides (live-only lane questions do not apply to paper). */
+    internal fun pairedPaperRunner8198(ts: TokenState): Boolean {
+        val pos = ts.position
+        return pos.isOpen && pos.isPaperPosition && pos.entryTime > 0L && RunnerLive8153.basis8153(ts) != RunnerExitContract8136.RunnerBasis8136.NONE
     }
 
     /** V5.0.8080 — pure: is [reason] a give-back exit (it protects a gain already printed)? */

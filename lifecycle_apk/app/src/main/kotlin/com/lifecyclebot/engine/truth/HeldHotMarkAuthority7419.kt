@@ -434,13 +434,60 @@ object HeldHotMarkAuthority7419 {
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val q = try {
             quoteApi7876.getQuote(bare, com.lifecyclebot.network.JupiterApi.SOL_MINT, rawQty.toLong(), 300)
-        } catch (_: Throwable) { null } ?: return null
-        return sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd)
+        } catch (_: Throwable) { null }
+        if (q != null) return sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd)
+        // V5.0.8198 — Jupiter has no route (5.0.8198: 300 of 314 held quotes) while the position sits on a venue the
+        //    chain confirms (PumpSwap / Raydium vaults, or an active pump.fun curve). The mark is that venue's own
+        //    constant-product payout for THIS quantity at a conservative fee: it can only read below spot, never a phantom.
+        //    No reserve read within the window -> no mark (and the pool read is requested for the next pass).
+        return venueReserveSellPriceUsd8198(bare, rawQty, decimals, solUsd)
+    }
+
+    /** Fee haircut applied to reserve-derived held marks (above PumpSwap / Raydium / curve published fees: conservative). */
+    internal const val RESERVE_MARK_FEE_8198 = 0.0125
+    /** A reserve read older than this is not an exit mark. */
+    internal const val RESERVE_MARK_MAX_AGE_MS_8198 = 20_000L
+    private val reserveMarks8198 = java.util.concurrent.atomic.AtomicLong(0)
+    private val reserveMisses8198 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Pure: SOL out of a constant-product pool ([reserveSol], [reserveTokens]) for selling [tokens] at [fee]. */
+    internal fun cpSellOutSol8198(reserveSol: Double, reserveTokens: Double, tokens: Double, fee: Double): Double? {
+        if (!(reserveSol > 0.0) || !(reserveTokens > 0.0) || !(tokens > 0.0) || !(fee in 0.0..0.5)) return null
+        val inEff = tokens * (1.0 - fee)
+        val out = reserveSol * inEff / (reserveTokens + inEff)
+        return out.takeIf { it.isFinite() && it > 0.0 }
+    }
+
+    /** V5.0.8198 — held sell mark from the venue's chain-read reserves when no aggregator route answers. */
+    internal fun venueReserveSellPriceUsd8198(mint: String, rawQty: java.math.BigInteger, decimals: Int, solUsd: Double,
+                                              nowMs: Long = System.currentTimeMillis()): Double? {
+        if (decimals !in 0..18 || rawQty.signum() <= 0 || !solUsd.isFinite() || solUsd <= 20.0 || solUsd >= 5_000.0) return null
+        val tokens = java.math.BigDecimal(rawQty).movePointLeft(decimals).toDouble()
+        if (!tokens.isFinite() || tokens <= 0.0) return null
+        val pool = try { OnChainDepth8038.freshRead8198(mint, RESERVE_MARK_MAX_AGE_MS_8198, nowMs) } catch (_: Throwable) { null }
+        val (venue, outSol) = when {
+            pool != null -> "POOL" to cpSellOutSol8198(pool.quoteSol, pool.baseTokens, tokens, RESERVE_MARK_FEE_8198)
+            else -> {
+                val curve = try { CurveReserves7951.activeReserves8198(mint, nowMs, RESERVE_MARK_MAX_AGE_MS_8198) } catch (_: Throwable) { null }
+                "CURVE" to curve?.let { cpSellOutSol8198(it.first, it.second, tokens, RESERVE_MARK_FEE_8198) }
+            }
+        }
+        if (outSol == null) {
+            reserveMisses8198.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("HELD_MARK_NO_ROUTE_NO_RESERVE_8198") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { OnChainDepth8038.request8038(it) } } catch (_: Throwable) {}
+            return null
+        }
+        reserveMarks8198.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("HELD_MARK_VENUE_RESERVE_8198_$venue") } catch (_: Throwable) {}
+        val px = outSol * solUsd / tokens
+        return px.takeIf { it.isFinite() && it > 0.0 }
     }
 
     fun summary(): Summary = Summary(requests.get(), advanced.get(), unchanged.get(), timeouts.get(), fallbacks.get(), waitedOnEnrichment.get(), waitedOnUi.get(), waitedOnKeyless.get())
     fun statusLine(): String {
         val s = summary()
-        return "req=${s.requests} advanced=${s.advanced} unchanged=${s.unchanged} timeout=${s.timeouts} fallback=${s.fallbacks} waitEnrich=${s.waitedOnEnrichment} waitUi=${s.waitedOnUi} waitKeyless=${s.waitedOnKeyless}"
+        return "req=${s.requests} advanced=${s.advanced} unchanged=${s.unchanged} timeout=${s.timeouts} fallback=${s.fallbacks} waitEnrich=${s.waitedOnEnrichment} waitUi=${s.waitedOnUi} waitKeyless=${s.waitedOnKeyless}" +
+            " reserveMark8198=${reserveMarks8198.get()} noRouteNoReserve8198=${reserveMisses8198.get()}"
     }
 }

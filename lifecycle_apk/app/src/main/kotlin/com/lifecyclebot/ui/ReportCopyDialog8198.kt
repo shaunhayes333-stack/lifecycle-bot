@@ -2,50 +2,43 @@ package com.lifecyclebot.ui
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
-import android.os.Handler
-import android.os.Looper
 import android.widget.Toast
 import com.lifecyclebot.engine.execution.PipelineReportFileExporter6401
 import java.io.File
 
-/** Small presentation-only chooser. Text/parts/files are prepared off Main by the existing report workers. */
+/**
+ * Share prompt for the COMPLETE report. The clipboard already holds the readable copy; this only offers the full
+ * uncapped file. If the file is missing or its share intent fails, the full text is sent as plain EXTRA_TEXT so an
+ * export can never end with nothing to share.
+ */
 object ReportCopyDialog8198 {
-    fun show(activity: Activity, parts: List<String>, compactFile: File?, originalFile: File?, compactChars: Int, originalChars: Int) {
+    fun show(activity: Activity, fullText: String, fullFile: File?, copyChars: Int, fullChars: Int, subject: String = "AATE report") {
         if (activity.isFinishing || activity.isDestroyed) return
-        val choices = ArrayList<Pair<String, () -> Unit>>()
-        fun share(file: File?, title: String) {
-            if (file == null) return
-            choices += title to {
-                val intent = PipelineReportFileExporter6401.shareIntent(activity, file)
-                if (intent != null) try { activity.startActivity(Intent.createChooser(intent, "Share AATE report")) }
-                catch (_: Throwable) { Toast.makeText(activity, "Share unavailable; use numbered copy parts", Toast.LENGTH_LONG).show() }
-            }
+        val trimmed = copyChars < fullChars
+        AlertDialog.Builder(activity)
+            .setTitle(if (trimmed) "Full report available" else "Report copied")
+            .setMessage(
+                if (trimmed) "Clipboard has the readable summary ($copyChars of $fullChars chars). Share the complete file?"
+                else "Copied $copyChars chars. Share it?"
+            )
+            .setPositiveButton("Share") { _, _ -> share(activity, fullText, fullFile, subject) }
+            .setNegativeButton("Done", null)
+            .show()
+    }
+
+    fun share(activity: Activity, fullText: String, fullFile: File?, subject: String) {
+        val fileIntent = if (fullFile != null) try { PipelineReportFileExporter6401.shareIntent(activity, fullFile, subject = subject) } catch (_: Throwable) { null } else null
+        val textIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, subject)
+            putExtra(Intent.EXTRA_TEXT, fullText)
         }
-        share(compactFile, "Share complete compact file ($compactChars chars)")
-        share(originalFile, "Share complete original file ($originalChars chars)")
-        parts.forEachIndexed { index, text ->
-            choices += "Copy part ${index + 1}/${parts.size} (${text.length} chars)" to {
-                Thread({
-                    val ok = try {
-                        val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("AATE report part ${index + 1}/${parts.size}", text))
-                        true
-                    } catch (_: Throwable) { false }
-                    Handler(Looper.getMainLooper()).post {
-                        if (!activity.isFinishing && !activity.isDestroyed) {
-                            Toast.makeText(activity, if (ok) "Copied part ${index + 1}/${parts.size}. Paste in order." else "Copy failed; share the complete file instead.", Toast.LENGTH_LONG).show()
-                            show(activity, parts, compactFile, originalFile, compactChars, originalChars)
-                        }
-                    }
-                }, "ReportPartClipboard8198").start()
-            }
+        try {
+            activity.startActivity(Intent.createChooser(fileIntent ?: textIntent, "Share AATE report"))
+        } catch (_: Throwable) {
+            try { activity.startActivity(Intent.createChooser(textIntent, "Share AATE report")) }
+            catch (_: Throwable) { Toast.makeText(activity, "Share unavailable on this device", Toast.LENGTH_LONG).show() }
         }
-        AlertDialog.Builder(activity).setTitle("Complete report: ${parts.size} copy part(s)")
-            .setItems(choices.map { it.first }.toTypedArray()) { _, which -> choices[which].second() }
-            .setNegativeButton("Done", null).show()
     }
 }

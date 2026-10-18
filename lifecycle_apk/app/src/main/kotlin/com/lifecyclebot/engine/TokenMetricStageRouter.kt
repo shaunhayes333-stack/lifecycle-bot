@@ -344,7 +344,10 @@ object TokenMetricStageRouter {
         val covered = LANE_STAGE_SHEET_7928.values.any { lane in it }
         if (stat != null && stat.n60 >= STAGE_MIN_N_7928) {
             val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else 0.0
-            val late = stat.n240 >= STAGE_MIN_N_7928 && stat.meanNet240Pct > 0.0
+            // V5.0.8198 — one late-read rule for both stage readers (CandidateAdmission8136 applies the same exemption).
+            val late = com.lifecyclebot.engine.truth.CandidateAdmission8136.stageLatePays8198(
+                com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136("STAGE", stage.name, stat.n60, stat.meanNet60Pct, se,
+                    lateN = stat.n240, lateMeanPct = stat.meanNet240Pct))
             if (stat.meanNet60Pct - se > 0.0 || late) return null
             if (stat.meanNet60Pct + se < -2.0) return "STAGE_PROVEN_LOSING_7928_${lane}_${stage.name}"
         }

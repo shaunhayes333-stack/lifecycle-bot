@@ -111,93 +111,21 @@ object ReportBudget8176 {
     private val ALARM_WORD_8176 = Regex("(?i)(fail|error|alarm|fault|crash|stall|timeout|exception|violation|mismatch|stuck|zombie|leak|contradict|unexplained|diverged|\\banr)")
     private val NONZERO_8176 = Regex("[:=]\\s*-?[1-9]|\\s[1-9]\\d*\\s*$")
 
-    /** All source characters survive. No field filtering, rounding, line cap or section removal. */
-    fun forCopy8176(raw: String): String = try { lossless8198(raw) } catch (_: Throwable) { raw }
-
-    private val literal8198 = Regex("[A-Za-z][A-Za-z0-9_./:-]{15,}")
-
-    private fun sha8198(text: String): String = java.security.MessageDigest.getInstance("SHA-256")
-        .digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }
-
-    /** Dictionary literals and repeat-row references retain all occurrences, including identical rows. */
-    internal fun lossless8198(raw: String): String {
-        if (raw.isEmpty()) return raw
-        val marker = listOf("~", "~~", "~AATE:", "~${sha8198(raw).take(12)}:")
-            .firstOrNull { !raw.contains(it) } ?: return raw
-        val counts = HashMap<String, Int>()
-        literal8198.findAll(raw).forEach { counts[it.value] = (counts[it.value] ?: 0) + 1 }
-        val keys = counts.entries.filter { (k, n) -> n >= 3 && (k.length - marker.length - 6) * (n - 1) > k.length + 32 }
-            .sortedWith(compareByDescending<Map.Entry<String, Int>> { (it.key.length - 8) * (it.value - 1) }.thenBy { it.key })
-            .take(128).map { it.key }
-        val ids = keys.withIndex().associate { it.value to it.index }
-        val substituted = literal8198.replace(raw) { m -> ids[m.value]?.let { "${marker}K$it;" } ?: m.value }
-        val lines = substituted.split('\n')
-        val frequencies = lines.groupingBy { it }.eachCount()
-        val repeats = LinkedHashMap<String, Int>()
-        val body = lines.joinToString("\n") { line ->
-            if (line.length < 80 || (frequencies[line] ?: 0) < 2) line
-            else {
-                val id = repeats[line]
-                if (id != null) "${marker}R$id;"
-                else { val next = repeats.size; repeats[line] = next; "${marker}R$next=$line" }
-            }
-        }
-        val encoded = buildString {
-            appendLine("AATE COMPACT DIAGNOSTIC v1 (all source characters retained)")
-            appendLine("marker=$marker sourceChars=${raw.length} sourceSha256=${sha8198(raw)}")
-            appendLine("K<n>=literal; R<n>=row defines a full row; R<n>; repeats it in place. No rows or zero values removed.")
-            val sections = raw.lineSequence().filter { isHeader8176(it) }.map { titleOf8176(it) }.toList()
-            if (sections.isNotEmpty()) appendLine("Section index: " + sections.mapIndexed { i, title -> "${i + 1}. $title" }.joinToString(" | "))
-            keys.forEachIndexed { i, k -> appendLine("${marker}K$i=$k") }
-            appendLine("${marker}DATA")
-            append(body)
-        }
-        // Fail back to the complete original, never a partial copy, if a codec invariant fails.
-        return if (encoded.length < raw.length && expand8198(encoded) == raw) encoded else raw
+    /**
+     * 8198 — the COPY is the readable, budgeted report again (compact8176 + budget8176): plain text a person or the
+     * assistant can read, one clipboard payload, section-structured. The 8198 dictionary/hash encoding made the copy
+     * unreadable (K/R references) and is NOT the copy path. Nothing is lost: the complete uncapped report is always
+     * written to the share file ([fullShareNote8198]); trimmed sections are named in the footer.
+     */
+    fun forCopy8176(raw: String): String = try {
+        budget8176(compact8176(raw), COPY_BUDGET_CHARS_8176)
+    } catch (_: Throwable) {
+        lineCut8176(raw, COPY_BUDGET_CHARS_8176)
     }
 
-    internal fun expand8198(text: String): String {
-        if (!text.startsWith("AATE COMPACT DIAGNOSTIC v1 (all source characters retained)\n")) return text
-        val marker = text.lineSequence().drop(1).first().substringAfter("marker=").substringBefore(' ')
-        val separator = "\n${marker}DATA\n"
-        require(text.contains(separator))
-        val header = text.substringBefore(separator)
-        val keys = HashMap<Int, String>()
-        val keyPattern = Regex("^" + Regex.escape(marker) + "K(\\d+)=(.*)$")
-        header.lineSequence().forEach { line -> keyPattern.matchEntire(line)?.let { keys[it.groupValues[1].toInt()] = it.groupValues[2] } }
-        val rowPattern = Regex("^" + Regex.escape(marker) + "R(\\d+)([=;])(.*)$")
-        val rows = HashMap<Int, String>()
-        val body = text.substringAfter(separator).split('\n').joinToString("\n") { line ->
-            val match = rowPattern.matchEntire(line)
-            if (match == null) line else {
-                val id = match.groupValues[1].toInt()
-                if (match.groupValues[2] == "=") match.groupValues[3].also { rows[id] = it }
-                else { require(match.groupValues[3].isEmpty()); requireNotNull(rows[id]) }
-            }
-        }
-        return Regex(Regex.escape(marker) + "K(\\d+);").replace(body) { requireNotNull(keys[it.groupValues[1].toInt()]) }
-    }
-
-    /** Chat-sized parts preserve exact order/content. A long line is continued, never discarded. */
-    fun chatParts8198(text: String, maxChars: Int = 12_000): List<String> {
-        require(maxChars >= 256)
-        if (text.length <= maxChars) return listOf(text)
-        val capacity = maxChars - 160
-        val chunks = ArrayList<String>()
-        var start = 0
-        while (start < text.length) {
-            var end = (start + capacity).coerceAtMost(text.length)
-            if (end < text.length) {
-                val newline = text.lastIndexOf('\n', end - 1)
-                if (newline >= start) end = newline + 1
-                if (end > start && text[end - 1].isHighSurrogate() && text[end].isLowSurrogate()) end--
-            }
-            chunks += text.substring(start, end)
-            start = end
-        }
-        val id = sha8198(text).take(12)
-        return chunks.mapIndexed { index, chunk -> "AATE report=$id part=${index + 1}/${chunks.size} (join content after each header in order)\n$chunk" }
-    }
+    /** 8198 — the toast/dialog line telling the operator the copy is the readable budget and the file is complete. */
+    fun fullShareNote8198(copyChars: Int, fullChars: Int): String =
+        if (copyChars >= fullChars) "Copied $copyChars chars" else "Copied $copyChars of $fullChars chars (readable summary). Tap Share for the complete file."
 
     // ── section model ───────────────────────────────────────────────────────
 

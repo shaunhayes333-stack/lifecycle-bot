@@ -10,6 +10,10 @@ internal class CortexEntryReadBook8076<T> {
         if (positionId.isBlank() || mint.isBlank() || mode !in setOf("LIVE", "PAPER")) return false
         return entries.putIfAbsent("$mode|$positionId", Bound(positionId, mint, mode, read)) == null
     }
+    /** 8198 — OBSERVE the bound read without consuming it: close grading peeks first and takes only when the grade is applied. */
+    fun peek(positionId: String, mint: String, mode: String): T? =
+        entries["$mode|$positionId"]?.takeIf { it.mint == mint }?.read
+
     fun take(positionId: String, mint: String, mode: String): T? {
         val key = "$mode|$positionId"
         val bound = entries[key]?.takeIf { it.mint == mint } ?: return null

@@ -44,7 +44,7 @@ internal object WalletCapacitySeal7868 {
         reservations[mint] = seal
         if (seals.size > 2_000) seals.entries.removeIf { nowMs - it.value.atMs > TTL_MS }
         // V5.0.8153 — the decision's economics are bound to this exact sealed size for the pre-broadcast recheck.
-        SizingQuoteRecheck8153.bindSeal8153(mint, sizeSol, nowMs, candidateVersion)
+        SizingQuoteRecheck8153.bindSeal8153(mint, sizeSol, nowMs, candidateVersion, lane)  // V5.0.8198 — this lane's own economics
     }
 
     /**

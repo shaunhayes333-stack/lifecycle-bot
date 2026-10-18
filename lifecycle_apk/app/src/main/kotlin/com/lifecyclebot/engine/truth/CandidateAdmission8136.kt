@@ -45,6 +45,9 @@ object CandidateAdmission8136 {
         val sePct: Double,
         val runnerRate: Double = Double.NaN,
         val netOfCost: Boolean = true,
+        /** V5.0.8198 — the late (60-minute, label slot "240") read of the same record: n and mean net (%). */
+        val lateN: Int = 0,
+        val lateMeanPct: Double = Double.NaN,
     ) {
         val lowerPct: Double get() = if (meanPct.isFinite() && sePct.isFinite()) meanPct - sePct else Double.NaN
         val upperPct: Double get() = if (meanPct.isFinite() && sePct.isFinite()) meanPct + sePct else Double.NaN
@@ -156,6 +159,18 @@ object CandidateAdmission8136 {
     internal fun provenLosing8136(e: Evidence8136?): Boolean =
         e != null && e.n >= PROVEN_LOSING_MIN_N_8136 && e.upperPct.isFinite() && e.upperPct < PROVEN_LOSING_PCT_8136
 
+    /**
+     * Pure (V5.0.8198) — the 8114 stage rule's runner exemption (TokenMetricStageRouter.judgeStage7928: "the late read that
+     * spares runner lanes"): a stage whose 5-minute labels lose but whose 60-minute labels pay (STAGE_LATE_MIN_N_8198+, mean
+     * net > 0) is a runner stage, not a losing one. 8136 re-implemented the stage veto here without it, so every stage that
+     * pays late (the 600-700% runs) was refused on its 5-minute read while LiveEdgeGate's own 7928 read still spared it.
+     */
+    fun stageLatePays8198(e: Evidence8136?): Boolean =
+        e != null && e.lateN >= STAGE_LATE_MIN_N_8198 && e.lateMeanPct.isFinite() && e.lateMeanPct > 0.0
+
+    /** Same bar as TokenMetricStageRouter.STAGE_MIN_N_7928 (one rule for both readers). */
+    const val STAGE_LATE_MIN_N_8198 = 30
+
     internal const val STALE_CELL_TRACE_8169 = "staleCellLossDecayed8169="
     internal const val STALE_STAGE_TRACE_8169 = "staleStageLossDecayed8169="
 
@@ -203,16 +218,16 @@ object CandidateAdmission8136 {
             trace += "economicsSetup=$id gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} net=${fmt8136(net)}"
         }
         if (losing8136(selectedRec)) {
-            if (bestSetup == null && !cellSupported) {
-                trace += "setupLosing=${selectedRec?.compact}"
+            // V5.0.8198 — precedence 2 before 3: the selected setup's own losing record is candidate-specific negative
+            //    evidence about THIS executable strategy. Only an independently supported alternative setup (a different
+            //    strategy, with its own economics) replaces it; a positive cell record names no strategy and no longer
+            //    lets the proven-losing setup trade ("carried by cell" admitted it under SPECIFIC_EDGE_PROVEN).
+            if (bestSetup == null) {
+                trace += "setupLosing=${selectedRec?.compact}${if (cellSupported) " cellSupported=${c.cell?.compact} names_no_strategy" else ""}"
                 return done(Terminal8136.REFUSE, "SETUP_RECORD_LOSING_8136", true, c.selectedSetup)
             }
-            if (bestSetup != null) {
-                trace += "altSetup=${bestSetup.compact} over ${selectedRec?.compact}"
-                chooseSetup(bestSetup.id)
-            } else {
-                trace += "setupLosing=${selectedRec?.compact} carried by cell ${c.cell?.compact}"
-            }
+            trace += "altSetup=${bestSetup.compact} over ${selectedRec?.compact}"
+            chooseSetup(bestSetup.id)
         }
         // V5.0.8169 — a loss pattern refuses on the record graded since the epoch; an older one is noted and decays to
         //    neutral (the candidate goes on to the generic prior — never to an ADMIT the stale record cannot support).
@@ -220,7 +235,10 @@ object CandidateAdmission8136 {
         val stageLoss = if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord
         if (provenLosing8136(cellLoss)) { trace += "cellLosing=${cellLoss?.compact}"; return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen) }
         if (staleLoss8169(c.lossEpochAware8169, c.cell, cellLoss)) trace += "$STALE_CELL_TRACE_8169${c.cell?.compact}"
-        if (provenLosing8136(stageLoss) && !cellSupported) {
+        if (provenLosing8136(stageLoss) && !cellSupported && stageLatePays8198(stageLoss)) {
+            trace += "stageLosing5m=${stageLoss?.compact} spared late60m=n${stageLoss?.lateN} ${fmt8136(stageLoss?.lateMeanPct ?: Double.NaN)}"
+        }
+        if (provenLosing8136(stageLoss) && !cellSupported && !stageLatePays8198(stageLoss)) {
             // V5.0.8173 — the stage record is a lane-wide prior (every coin of the lane at this lifecycle stage). A fired
             //    setup supported on its own record (StrategyRank8153: n, mean - SE, its own timing band) is the token-specific
             //    edge and is the strategy instead, exactly as for a losing selected setup or tactic above — unless the
@@ -460,7 +478,7 @@ object CandidateAdmission8136 {
             held8144.remove(key)
         }
         try { AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason) } catch (_: Throwable) {}
-        try { AdmissionEdge8180.note8180(mint, AdmissionEdge8180.carriesEdge8180(d), nowMs) } catch (_: Throwable) {}  // V5.0.8180 — sizers read it
+        try { AdmissionEdge8180.note8180(mode, mint, laneRaw, candidateVersion, d, nowMs) } catch (_: Throwable) {}  // V5.0.8180 / 8198 — this lane's own proof, sizers read it
         // V5.0.8169 — a loss refusal that decayed to neutral on its epoch, counted once per fresh decision.
         try {
             if (d.trace.any { it.startsWith(STALE_CELL_TRACE_8169) }) com.lifecyclebot.engine.ExitDoctrine8169.noteStaleDecay8169(cell = true)
@@ -548,8 +566,18 @@ object CandidateAdmission8136 {
         if (n > 1.0 && variance.isFinite() && variance >= 0.0) kotlin.math.sqrt(variance / n) else Double.POSITIVE_INFINITY
 
     /** The admission record for [ts] in [laneRaw] now, decided. Null only on an internal failure. */
-    fun assess8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), candidateVersion: Long = 0L): Decision8136? = try {
-        val rawCandidate = candidateFor8136(ts, laneRaw, nowMs)
+    fun assess8136(
+        ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), candidateVersion: Long = 0L,
+        /**
+         * V5.0.8198 P0-B — the generic prior from the SAME decision snapshot (FinalDecisionGate: the lane's authoritative
+         * entry score and its fluid CanonicalEntryFloor7266). Without them the record's generic branch was unreachable at
+         * runtime (both defaulted NaN and candidateFor8136 never set them): a VALID carry ended as NO_SUPPORTED_EDGE with no
+         * score in its trace. Callers without a snapshot score pass nothing; nothing is guessed.
+         */
+        genericScore: Double = Double.NaN, genericFloor: Double = Double.NaN,
+    ): Decision8136? = try {
+        val built = candidateFor8136(ts, laneRaw, nowMs)
+        val rawCandidate = if (genericScore.isFinite() && genericFloor.isFinite()) built.copy(genericScore = genericScore, genericFloor = genericFloor) else built
         val version = candidateVersion.takeIf { it > 0L }
             ?: try { com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
         val mode = try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "UNKNOWN" }
@@ -591,7 +619,7 @@ object CandidateAdmission8136 {
         val fit = try { com.lifecyclebot.engine.TokenMetricStageRouter.laneFit(ts, lane) } catch (_: Throwable) { null }
         val stageRecord = try {
             if (fit == null) null else ForwardReturnLabeler7731.stageStatFor7928(fit.lane, fit.stage.name)
-                ?.let { st -> Evidence8136(KIND_STAGE, fit.stage.name, st.n60, st.meanNet60Pct, st.stderr60Pct, st.runnerRate60) }
+                ?.let { st -> Evidence8136(KIND_STAGE, fit.stage.name, st.n60, st.meanNet60Pct, st.stderr60Pct, st.runnerRate60, lateN = st.n240, lateMeanPct = if (st.n240 > 0) st.meanNet240Pct else Double.NaN) }
         } catch (_: Throwable) { null }
         // V5.0.8169 — the same cell and stage, booked since the grading epoch: the only records a loss pattern refuses on.
         val cellLoss8169 = try {
@@ -600,7 +628,7 @@ object CandidateAdmission8136 {
         } catch (_: Throwable) { null }
         val stageLoss8169 = try {
             if (fit == null) null else ForwardReturnLabeler7731.freshStageStatFor8169(fit.lane, fit.stage.name)
-                ?.let { st -> Evidence8136(KIND_STAGE, fit.stage.name, st.n60, st.meanNet60Pct, st.stderr60Pct, st.runnerRate60) }
+                ?.let { st -> Evidence8136(KIND_STAGE, fit.stage.name, st.n60, st.meanNet60Pct, st.stderr60Pct, st.runnerRate60, lateN = st.n240, lateMeanPct = if (st.n240 > 0) st.meanNet240Pct else Double.NaN) }
         } catch (_: Throwable) { null }
         // V5.0.8153 — unread depth is UNKNOWN, never LOW: the launch probe is costed without impact nobody measured.
         val launch = try {

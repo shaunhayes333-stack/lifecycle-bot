@@ -451,8 +451,20 @@ object SpecialistOwnership7951 {
      */
     internal fun refusalIsJudgement8136(reason: String?, fdg: Boolean): Boolean {
         val r = reason?.uppercase()?.replace(' ', '_') ?: return false
-        return HANDOFF_BLOCKING_8094.any { r.contains(it) } || (fdg && SpecialistElection8136.fdgWall8136(r))
+        return TOKEN_JUDGEMENT_8198.any { r.contains(it) } || (fdg && SpecialistElection8136.fdgWall8136(r))
     }
+
+    /**
+     * 8198 — a refusal is a verdict on the TOKEN only when it names token safety or token behaviour. The bare "BLOCK",
+     * "TOXIC" and "ERROR" substrings of [HANDOFF_BLOCKING_8094] also matched one lane's judgement of its own strategy
+     * (MEMORY_NEGATIVE_BLOCK, SELECTION_QUALITY_FLOOR_BLOCKED_6830, FDG_POLICY_BLOCK_7835, LEARNED_TOXIC_LANE,
+     * TOXIC_PATTERN_TACTIC_PIVOT_6482, BRAIN_CONSENSUS_SOFT_BLOCK_*, FDG_LOCAL_BLOCK, a lane evaluation error), so the
+     * primary's losing strategy ended the election (PRIMARY_JUDGEMENT) and no other specialist with its own proven
+     * setup could take the coin. A lane's strategy record, lane WR floor, lane toxicity or policy head is that lane's
+     * fit, never the token's verdict; HARD_BLOCK_* and BEHAVIOR_BLOCK_* stay token-wide.
+     */
+    private val TOKEN_JUDGEMENT_8198 = listOf("RUG", "SAFETY", "HONEYPOT", "HARD_BLOCK", "BEHAVIOR_BLOCK", "DEV", "BUNDLE", "SCAM",
+        "FREEZE", "MINT_AUTH", "BLACKLIST", "ZERO_LIQ", "NO_LIQ", "LIQ_ZERO", "QUARANTIN")
 
     private fun contenderOf8136(o: SpecialistBrainBridge7542.Opinion): SpecialistElection8136.Contender8136 =
         SpecialistElection8136.Contender8136(lane7951(o.lane),

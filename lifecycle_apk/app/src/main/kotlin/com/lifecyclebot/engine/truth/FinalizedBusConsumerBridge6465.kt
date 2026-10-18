@@ -146,6 +146,7 @@ object FinalizedBusConsumerBridge6465 {
             "StrategyHypothesisEngine" -> deliverToStrategyHypothesis(env)
             "CostLedger7962" -> CostLedger7962.onLiveFinalized(env)
             "CortexExit7897" -> com.lifecyclebot.engine.cortex.CortexExit7897.onCanonicalClose8082(env)
+            "CortexOutcome7885" -> deliverToCortexOutcome7885(env)
             "ExactStrategyPerformance7429" -> deliverToExactStrategyPerformance7429(env)
             "MemeCausalLearning6568" -> deliverToMemeCausalLearning6568(env)
             "ForwardOutcomeModel" -> deliverToForwardOutcomeModel6696(env)
@@ -290,6 +291,17 @@ object FinalizedBusConsumerBridge6465 {
 
     /** Consumers that are NOT learning targets — quarantine does not gate them. */
     private val NON_LEARNING_CONSUMERS = setOf("Dashboard", "CausalFeedback6715", "KillSwitch7835")
+
+    /**
+     * V5.0.8198 — the Cortex OutcomeTruth close delivery. ACK only on a durable, replay-safe outcome: the receiver
+     * gates on an in-transaction receipt (graded state + per-trade receipt commit together), peeks the entry read
+     * until the grade is applied, and answers RETRY (unacked, redelivered) when the store refuses the checkpoint.
+     * A throw inside the delivery is caught by deliverOne6734 and retried on the consumer backoff path like any
+     * other consumer — never silently dropped the way the old direct publish call was.
+     */
+    private fun deliverToCortexOutcome7885(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean =
+        com.lifecyclebot.engine.cortex.Cortex7885.onCanonicalClose(env) ==
+            com.lifecyclebot.engine.cortex.Cortex7885.CloseDelivery8198.ACKED
 
     private fun deliverToCausalFeedback6715(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         CausalFeedbackAuthority6715.onTerminal(env)

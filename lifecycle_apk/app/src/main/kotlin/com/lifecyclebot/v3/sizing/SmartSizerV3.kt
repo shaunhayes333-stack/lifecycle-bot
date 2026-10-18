@@ -522,7 +522,7 @@ class SmartSizerV3(
         // V5.0.8180 — a candidate CandidateAdmission8136 admitted on a specific proven edge has justified the routable
         // notional: it is promoted to the floor when the floor fits the concentration cap (LiveRiskPolicy7807 re-proves).
         // V5.0.8188 — and only when the promotion holds AT the floor (MinPromotion8188: loss budget, edge after cost, drawdown).
-        val admitted8180 = isLive && com.lifecyclebot.engine.truth.AdmissionEdge8180.admitted8180(candidate.mint) &&
+        val admitted8180 = isLive && com.lifecyclebot.engine.truth.AdmissionEdge8180.admittedNow8198(false, candidate.mint, candidate.extraString("lane")) &&
             (cappedSize >= liveFloorEff7697 || com.lifecyclebot.engine.truth.MinPromotion8188.runtimeRefusal8188(
                 candidate.mint, candidate.extraString("lane"), cappedSize, liveFloorEff7697, candidate.liquidityUsd) == null)
         val promoted8180 = com.lifecyclebot.engine.truth.AdmissionEdge8180.promote8180(admitted8180, cappedSize, liveFloorEff7697, minOf(safeShareCap7142, tradeable))

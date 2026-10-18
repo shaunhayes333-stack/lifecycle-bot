@@ -114,6 +114,15 @@ object CurveReserves7951 {
     }
 
     /** Spot price in SOL per token from reserves of an active curve observed within [maxAgeMs], or 0.0. */
+    /** V5.0.8198 — an ACTIVE (not graduated) curve's virtual reserves (SOL, tokens) read within [maxAgeMs], else null. */
+    fun activeReserves8198(mint: String, nowMs: Long, maxAgeMs: Long): Pair<Double, Double>? {
+        val r = rows[mint.trim()] ?: return null
+        if (nowMs - r.atMs !in 0L..maxAgeMs) return null
+        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
+        val vSol = r.virtualSol; val vTok = r.virtualTokens
+        return if (vSol.isFinite() && vSol > 0.0 && vTok.isFinite() && vTok > 0.0) vSol to vTok else null
+    }
+
     fun priceSolFor7951(mint: String, nowMs: Long, maxAgeMs: Long): Double {
         val r = rows[mint.trim()] ?: return 0.0
         if (nowMs - r.atMs !in 0L..maxAgeMs) return 0.0

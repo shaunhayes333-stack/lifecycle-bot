@@ -390,16 +390,19 @@ class LearningCounterActivity : Activity() {
             // V5.0.8165 — the headline is the TYPICAL coin of each verdict (median): one 1,000x+ label moved every lane's REFUSE
             // mean by thousands of points and the panel read "backwards". Means stay in the detail line. Grey until STRONG
             // has 5 graded coins: n0-n4 is no comparison.
-            val gap = if (l.strongN >= 5 && l.refuseN >= 5) l.strongMedian8165 - l.refuseMedian8165 else Double.NaN
+            // 8198 — the headline is the typical coin's GROSS move (price only). The net medians (charged cost, unmeasured-fill
+            // haircut and the lane's executable offset subtracted) sit in the detail line with the offset named: on a flat
+            // typical coin they read the same cost constant in every lane, so the panel was comparing costs, not verdicts.
+            val gap = if (l.strongN >= 5 && l.refuseN >= 5) l.strongGrossMedian8198 - l.refuseGrossMedian8198 else Double.NaN
             target7023().addView(AateComponents6994.metricRow(this, l.lane,
-                "${pct8069(l.strongMedian8165)} / ${pct8069(l.refuseMedian8165)}",
+                "${pct8069(l.strongGrossMedian8198)} / ${pct8069(l.refuseGrossMedian8198)}",
                 when { !gap.isFinite() -> AateUi.TEXT_MUTED; gap > 0.0 -> AateUi.GREEN; else -> AateUi.RED },
-                "median STRONG n${l.strongN} vs REFUSE n${l.refuseN} · mean ${pct8069(l.strongMean)} / ${pct8069(l.refuseMean)} · neutral ${pct8069(l.neutralMedian8165)} (mean ${pct8069(l.neutralMean)}) n${l.neutralN} · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}" +
+                "gross median STRONG n${l.strongN} vs REFUSE n${l.refuseN} · neutral gross ${pct8069(l.neutralGrossMedian8198)} n${l.neutralN} · net median ${pct8069(l.strongMedian8165)} / ${pct8069(l.refuseMedian8165)} (neutral ${pct8069(l.neutralMedian8165)}) · net mean ${pct8069(l.strongMean)} / ${pct8069(l.refuseMean)} (neutral ${pct8069(l.neutralMean)}) · exec offset -${"%.1f".format(l.execOffset8198)}pt · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}" +
                     (if (l.source8153.isNotBlank()) " · tradeable records (legacy decayed book ${pct8069(l.legacyStrongMean8153)} / ${pct8069(l.legacyRefuseMean8153)})" else "")))
             target7023().addView(AateComponents6994.barRow(this, "authority", (l.auth * 100.0).coerceIn(0.0, 100.0),
                 if (l.auth > 0.0) AateUi.GREEN else AateUi.TEXT_MUTED))
         }
-        addText("left = what the typical coin it read STRONG did next, right = the typical coin it read REFUSE (medians; means in the detail line). Green: it tells winners from losers. Grey: under 5 graded STRONG or REFUSE coins.", AateUi.TEXT_MUTED, small = true)
+        addText("left = the gross price move of the typical coin it read STRONG, right = the typical coin it read REFUSE (medians, before costs). Net medians/means after the charged round trip, fill haircut and the lane's executable offset are in the detail line. Green: it tells winners from losers. Grey: under 5 graded STRONG or REFUSE coins.", AateUi.TEXT_MUTED, small = true)
 
         addHeader("🎯 Cortex · setups")
         val setups = cachedSetups8069

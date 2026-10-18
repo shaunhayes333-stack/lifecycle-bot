@@ -118,6 +118,10 @@ object OnChainDepth8038 {
         if (apiBeforeChain.size > 3_000) apiBeforeChain.keys.take(300).forEach { apiBeforeChain.remove(it) }
     }
 
+    /** V5.0.8198 — the chain-confirmed vault read of [mint]'s pool when at most [maxAgeMs] old, else null. Never requests. */
+    fun freshRead8198(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): Read? =
+        reads[mint]?.takeIf { nowMs - it.atMs in 0L..maxAgeMs && it.quoteSol > 0.0 && it.baseTokens > 0.0 }
+
     /** LiquidityTruth8037: the fresh on-chain depth (USD, both sides) of [mint]'s pool, or NaN. Never requests. */
     fun chainDepthUsd8038(mint: String, nowMs: Long = System.currentTimeMillis()): Double =
         fresh(mint, nowMs)?.let { depthUsd8038(it.quoteSol, solUsd()) } ?: Double.NaN

@@ -25,6 +25,9 @@ import kotlin.math.abs
  *   returns a cheap O(1) fallback sheet and warms in the background. No bot-loop choke.
  */
 object ToolkitSignalSheet {
+    /** V5.0.8198 — raw SIZE outcome for a sizing whose lineage predecessors were not stamped (not executable-size truth). */
+    const val SIZE_UNLINEAGED_8198 = "SIZE_UNLINEAGED_8198"
+
     private const val CACHE_TTL_MS = 2_500L
     // V5.0.7476 — unchanged analytical evidence does not need to rebuild the
     // whole multi-desk sheet every 2.5s. Real fingerprint changes still refresh
@@ -1423,6 +1426,11 @@ object ToolkitSignalSheet {
                             "mint=${mint.take(10)} lane=$lane mode=$resolvedMode6858 version=$candidateVersion6647 eventId=${eventId.take(80)}",
                         )
                     } catch (_: Throwable) {}
+                    // V5.0.8198 — the sizing DID happen: record it raw on the same immutable key, under an outcome that
+                    //    is not executable-size truth ("SIZED_EXECUTABLE"/"SIZE" stay absent, so validated counts and
+                    //    phantom checks are unchanged and nothing upstream is fabricated). Before, the early return erased
+                    //    the stage entirely, so a real ticket/exec/open after it showed as zero sizing (8198 BLUECHIP).
+                    com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.stamp6625(key, causalStage, SIZE_UNLINEAGED_8198)
                     return
                 }
                 com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.stamp6625(key, causalStage, stage)

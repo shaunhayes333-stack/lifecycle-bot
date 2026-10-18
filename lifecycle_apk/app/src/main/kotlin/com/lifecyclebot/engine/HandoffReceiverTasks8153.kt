@@ -390,6 +390,17 @@ object HandoffReceiverTasks8153 {
         try { PipelineHealthCollector.labelInc("HANDOFF_TASK_VERSION_CARRIED_8190") } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8198 P2 — the cycle could not schedule [mint]'s live task for [cause] (NOT_IN_CYCLE_POOL / BEYOND_CYCLE_BOUND).
+     * Remembered on the task so its expiry terminal names the cause (NOT_SCHEDULED:<cause>) instead of STALE_NOT_SCHEDULED.
+     * A task already scheduled or carrying a receiver block keeps its own record.
+     */
+    fun noteUnscheduled8198(mint: String, cause: String, nowMs: Long) {
+        val t = tasks8153[mint] ?: return
+        if (!t.pending || t.schedules > 0 || t.lastBlock.isNotEmpty() || nowMs > t.validUntilMs) return
+        update8153(mint, nowMs) { it?.let { p -> if (p.pending && p.schedules == 0 && p.lastBlock.isEmpty()) p.copy(lastBlock = cause.take(40)) else p } }
+    }
+
     /** V5.0.8190 — every live task's target (mint -> validUntil) for the cycle's priority window (HandoffPriority8190). */
     fun pendingTargets8190(nowMs: Long): List<Pair<String, Long>> =
         tasks8153.values.filter { it.pending && nowMs <= it.validUntilMs }.map { it.mint to it.validUntilMs }
