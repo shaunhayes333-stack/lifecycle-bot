@@ -39,6 +39,16 @@ CI: GitHub Actions only (no local compiler). Ignore `Runtime Smoke Test`; the ga
   uses the admission's own gross when the generation holds a proof (`ROUTE_MIN_PROMOTION_ADMISSION_BASIS_8224`).
 - Aate8144SellRouteTest aligned to the 8221 contract.
 
+## 8225–8231 — trace writers, DEFER-not-REFUSE, test alignment, CI proof robustness
+- 8225/8226: `LivePipelineTrace6431` writers — INTAKE (markScannerProgress7807, live only), FDG_ALLOW (sealed live intent),
+  AUTHORITY_ALLOW / block reason (LiveEdgeGate7877.liveRefusal), EXEC_ATTEMPT (liveBuy), BUY_CONFIRMED (canonical mirror),
+  BUY_FAILED + reason (emitLiveBuyFail). NOTE: `admitProtectedMemeIntake` is a pinned oversized method — it may only shrink.
+- 8229: LiveEdgeGate7877 data-defer exhausted branch records `Verdict8083.DEFER` (was REFUSE). Counter
+  `DATA_DEFER_EXHAUSTED_KEPT_DEFER_8229`. Aate8204 assertion updated to the new contract.
+- 8224/8227/8228/8230: tests aligned (Aate8144 profit-stop bypass + 3 s poll cap; Aate8169 SELL_SIDE_ONLY; Aate8136 rescue
+  overflow terminal; Aate8190 persistent data gap). All three CI test suites green on 8230.
+- 8230 emulator proof failed on a launcher ANR dialog (infra); 8231 teaches `ci/release-art-startup.py` to tap "Wait".
+
 ## Open (next)
 - P2 Cortex7885 calibration (inverted strong/refused cohorts).
 - `ScannerDedup6430` no callers; `LIVE PIPELINE TRACE` no writers.

@@ -2,8 +2,8 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8224 (Oct 2026) — synced to upstream 8220a, parity repair in flight
-See `memory/audits/v5_0_8221_8224_parity_repair.md` for the 8221→8224 batch (paper trades the live universe, paper exit pays
+## CURRENT: V5.0.8231 (Oct 2026) — synced to upstream 8220a; 8230 CI fully green (APK + all suites + emulator proof)
+See `memory/audits/v5_0_8221_8224_parity_repair.md` for the 8221→8231 batch (paper trades the live universe, paper exit pays
 the live latency, settlement-lag never rebases the peak, one admission prior per generation, sell side learned on a
 contradicted entry mark, promotion judged on the admission's own basis). Gate: `Build AATE APK` (ignore Runtime Smoke Test).
 Bump `AATE_VERSION` + `lifecycle_apk/AATE_VERSION` on every commit; the new-dead-code guard needs every public decl referenced
