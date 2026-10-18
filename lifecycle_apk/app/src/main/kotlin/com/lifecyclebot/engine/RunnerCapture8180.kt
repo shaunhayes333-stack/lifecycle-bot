@@ -121,6 +121,12 @@ object NativeYield8180 {
  * input the refresher knows. Each name maps to the inputs DataOrchestrator.refreshMissingInputs8087 fetches.
  */
 object DataDeferFetch8180 {
+    // 8211: a near-decision deferred pump token gets a bounded, keyed print subscription.
+    // Admission does not use unknown tape as positive evidence; only real incoming trades complete the feature.
+    private val urgentStreamAt8211 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    internal fun streamInputNeeded8211(inputs: List<String>): Boolean = inputs.any {
+        it.substringBefore(':').trim().lowercase() in setOf("bp", "chg", "shape", "tape")
+    }
     /** Pure: the refresher inputs for an admission / playbook "missing" list. */
     fun inputsFor8180(missing: List<String>): List<String> {
         val out = LinkedHashSet<String>()
@@ -141,6 +147,23 @@ object DataDeferFetch8180 {
     fun request8180(ts: TokenState, missing: List<String>, nowMs: Long = System.currentTimeMillis()) {
         val inputs = inputsFor8180(missing)
         if (inputs.isEmpty()) return
+        if (streamInputNeeded8211(inputs) && ts.mint.endsWith("pump") &&
+            (try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false })) {
+            val attempt8211 = synchronized(urgentStreamAt8211) {
+                val prev = urgentStreamAt8211[ts.mint] ?: 0L
+                if (nowMs - prev >= 45_000L || prev <= 0L) {
+                    urgentStreamAt8211[ts.mint] = nowMs
+                    true
+                } else false
+            }
+            if (attempt8211) try {
+                val subscribed = com.lifecyclebot.network.PumpFunWS.watchForSetup8191(ts.mint, nowMs)
+                PipelineHealthCollector.labelInc(if (subscribed) "DATA_DEFER_URGENT_STREAM_SUBSCRIBED_8211" else "DATA_DEFER_URGENT_STREAM_UNAVAILABLE_8211")
+            } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelInc("DATA_DEFER_URGENT_STREAM_FAILED_8211") } catch (_: Throwable) {}
+            }
+            if (urgentStreamAt8211.size > 4096) urgentStreamAt8211.entries.removeIf { nowMs - it.value > 900_000L }
+        }
         try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, inputs, nowMs) } catch (_: Throwable) {}
         if (inputs.any { it.startsWith("liq:") }) try { com.lifecyclebot.engine.truth.OnChainDepth8038.needDepth8047(ts, nowMs) } catch (_: Throwable) {}
         if (inputs.any { it.startsWith("chg:") }) try { com.lifecyclebot.engine.truth.CandidateMarkFresh8094.ensureFresh8094(ts, nowMs) } catch (_: Throwable) {}

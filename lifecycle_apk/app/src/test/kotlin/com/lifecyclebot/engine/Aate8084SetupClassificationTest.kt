@@ -45,6 +45,10 @@ class Aate8084SetupClassificationTest {
         val old = listOf(c(now - 60 * 60_000L, 1.0), c(now - 59 * 60_000L, 1.1), c(now - 58 * 60_000L, 1.2))
         assertEquals(Obs8084.STALE, LanePlaybook7907.shapeObs8084(old, now))
         assertEquals(Obs8084.INVALID, LanePlaybook7907.shapeObs8084(listOf(c(now - 30_000, 1.0), c(now - 30_000, 1.1), c(now, 1.2)), now))
+        // Repeated identical snapshots are NOT new candles, but must not obscure three real time-separated points.
+        val canonical = listOf(c(now - 45_000, 1.0), c(now - 24_000, 1.1), c(now - 3_000, 1.2))
+        assertEquals(Obs8084.OBSERVED, LanePlaybook7907.shapeObs8084(canonical + canonical.last(), now))
+        assertEquals(Obs8084.UNKNOWN, LanePlaybook7907.shapeObs8084(listOf(c(now - 24_000, 1.1), c(now - 24_000, 1.1), c(now, 1.2)), now))
         assertEquals(Obs8084.INVALID, LanePlaybook7907.shapeObs8084(listOf(c(now - 30_000, 1.0), c(now - 20_000, 5_000.0), c(now, 5_001.0)), now))
         val hydrated = old + listOf(c(now - 40_000, 1.3), c(now - 20_000, 1.4), c(now, 1.5))
         assertEquals(Obs8084.OBSERVED, LanePlaybook7907.shapeObs8084(hydrated, now))

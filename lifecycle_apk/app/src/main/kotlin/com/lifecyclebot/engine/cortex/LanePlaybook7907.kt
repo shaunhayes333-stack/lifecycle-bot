@@ -175,7 +175,23 @@ object LanePlaybook7907 {
      */
     fun shapeObs8084(pts: List<com.lifecyclebot.data.Candle>, nowMs: Long): Obs8084 {
         if (pts.size < 3) return Obs8084.UNKNOWN
-        val last3 = pts.takeLast(3)
+        // 8211: local history can contain repeated snapshots with the SAME timestamp and price.
+        // Three genuine time-separated observations are required; exact repeats are not new data.
+        // Conflicting prices at one timestamp remain INVALID rather than being silently reconciled.
+        val seen = HashMap<Long, Double>(8)
+        val distinct = ArrayList<com.lifecyclebot.data.Candle>(3)
+        for (point in pts.takeLast(16).asReversed()) {
+            if (!point.priceUsd.isFinite() || point.priceUsd <= 0.0 || point.ts <= 0L) return Obs8084.INVALID
+            val prev = seen.putIfAbsent(point.ts, point.priceUsd)
+            if (prev != null) {
+                if (prev != point.priceUsd) return Obs8084.INVALID
+                continue
+            }
+            distinct.add(point)
+            if (distinct.size == 3) break
+        }
+        if (distinct.size < 3) return Obs8084.UNKNOWN
+        val last3 = distinct.asReversed()
         for (i in last3.indices) {
             val c = last3[i]
             if (!c.priceUsd.isFinite() || c.priceUsd <= 0.0 || c.ts <= 0L) return Obs8084.INVALID

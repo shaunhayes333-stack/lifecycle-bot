@@ -418,6 +418,22 @@ object LiveEdgeGate7877 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * 8211: a named native setup that already cleared CandidateAdmission8136's canonical score,
+     * negative-evidence checks, data completeness and expected 1.5x round-trip economics should
+     * not be refused by the duplicate LIVE_PROVEN_SETUP_ONLY generic prior. This is NOT a
+     * positive realised-edge claim: all candidate-specific negative, safety and live truth checks
+     * remain upstream; all entry sizing, quote, anti-chase and finality checks remain downstream.
+     */
+    internal fun genericNativeClearsProvenOnly8211(
+        decision: CandidateAdmission8136.Decision8136?,
+    ): Boolean = decision?.let {
+        it.admitted && !it.specific && it.reason == "GENERIC_PRIOR_CLEARS_8136" &&
+            !it.chosenSetup.isNullOrBlank() && it.expectedNetPct.isFinite() && it.expectedNetPct > 0.0 &&
+            it.costPct.isFinite() && it.costPct >= 0.0 &&
+            com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(it.expectedNetPct + it.costPct, it.costPct)
+    } == true
+
     fun liveRefusal(
         ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis(), candidateVersion: Long = 0L,
         candidateAdmission: CandidateAdmission8136.Decision8136? = null,
@@ -451,6 +467,7 @@ object LiveEdgeGate7877 {
             // terminal here; missing inputs remain a bounded data deferral; only a candidate-specific ADMIT clears a
             // generic edge prior. The measured-negative checks below remain binding.
             val admission8136 = candidateAdmission ?: try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion) } catch (_: Throwable) { null }
+            val genericNative8211 = genericNativeClearsProvenOnly8211(admission8136)
             when (admission8136?.terminal) {
                 CandidateAdmission8136.Terminal8136.DEFER_DATA -> {
                     val d = admission8136
@@ -542,7 +559,7 @@ object LiveEdgeGate7877 {
             // carry live money.
             // V5.0.8072 — or a runner ticket: a small capped budget of unproven buys in the best honest-label group
             // (graduated PumpSwap coins at $10k-$100k), held on the lifecycle rules (RunnerTicket8073).
-            if (proven8059 == null && !measuredEdge8060(ts, l8059, nowMs) && !candidateSpecificAdmission8136 &&
+            if (proven8059 == null && !measuredEdge8060(ts, l8059, nowMs) && !candidateSpecificAdmission8136 && !genericNative8211 &&
                 !(try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false }) &&
                 !runnerForming8113(ts, nowMs) && !shadowAuditAdmits8113(ts, l8059) &&
                 !coldStartAdmits8080(ts, l8059, nowMs)) {
@@ -565,6 +582,7 @@ object LiveEdgeGate7877 {
                 try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_AUDIT_CLEARED_8076_$l8059") } catch (_: Throwable) {}
             }
             if (candidateSpecificAdmission8136) try { PipelineHealthCollector.labelInc("LIVE_CANDIDATE_ADMISSION_CLEARED_PROVEN_ONLY_8161_$l8059") } catch (_: Throwable) {}
+            if (genericNative8211) try { PipelineHealthCollector.labelInc("LIVE_GENERIC_NATIVE_ECONOMIC_ADMIT_8211_$l8059") } catch (_: Throwable) {}
             provenOnlyAdmitted8059.incrementAndGet()
             // V5.0.8065 — no buying the top of a spike: 5.0.8063 filled at $300-700k caps right after the rip and was
             // stopped out within a minute (FdZRSo -22% in 11 s). A coin up 80%+ off its recent low and still within
