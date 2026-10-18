@@ -92,6 +92,23 @@ object TradeTape8100 {
         return Shape(((cur - low) / low * 100.0).coerceAtLeast(0.0), (cur / peak).coerceIn(0.0, 2.0), ((peak - cur) / peak * 100.0).coerceAtLeast(0.0))
     }
 
+    internal const val YOUNG_BAR_MS_8220 = 15_000L
+    internal const val YOUNG_MIN_SPAN_MS_8220 = 30_000L
+    private val youngShapes8220 = java.util.concurrent.atomic.AtomicLong(0)
+    fun youngShapeCount8220(): Long = youngShapes8220.get()
+
+    /** Pure-ish: 15-second-bar shape from [trades] within the last 3 minutes, or null when it cannot be stated. */
+    private fun youngShape8220(trades: List<Trade>, nowMs: Long): Shape? {
+        val recent = trades.filter { !it.priceOnly && nowMs - it.atMs in 0L..3L * 60_000L && it.priceSol.isFinite() && it.priceSol > 0.0 }
+        if (recent.size < 3 || recent.last().atMs - recent.first().atMs < YOUNG_MIN_SPAN_MS_8220) return null
+        val bars = recent.groupBy { it.atMs / YOUNG_BAR_MS_8220 }.toSortedMap().values.map { it.last().priceSol }
+        if (bars.size < 3) return null
+        return shape8100(bars)?.also {
+            youngShapes8220.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TAPE_YOUNG_SHAPE_15S_8220") } catch (_: Throwable) {}
+        }
+    }
+
     /** LanePlaybook7907: the tape's readings for [mint] now, each null when the tape cannot state it. */
     fun read8100(mint: String, nowMs: Long = System.currentTimeMillis()): Read? {
         val q = tapes[mint] ?: return null
@@ -112,7 +129,12 @@ object TradeTape8100 {
         }
         val closes = trades.filter { nowMs - it.atMs in 0L..24L * 60_000L }
             .groupBy { it.atMs / 60_000L }.toSortedMap().values.map { it.last().priceSol }
-        val shape = shape8100(closes)
+        // V5.0.8220 — a young coin has fewer than three one-minute bars for its first minutes, so its shape stayed
+        // UNKNOWN, no setup fired and every qualified specialist deferred (8218: "no setup fired; unobserved core inputs:
+        // shape:UNKNOWN", MOONSHOT FDG_DATA_INCOMPLETE_DEFER_8136=760). Its own executed trades, ONE source, in 15-second
+        // bars state the same run-up / peak / drawdown sooner. Requires >= 3 bars of real priced trades spanning >= 30 s;
+        // never mixes sources, never fills a coin that already has minute bars.
+        val shape = shape8100(closes) ?: youngShape8220(trades, nowMs)
         if (bp != null || chg != null || shape != null) filled.incrementAndGet()
         return Read(bp, chg, shape)
     }
@@ -131,7 +153,7 @@ object TradeTape8100 {
         return synchronized(q) { q.filter { !it.priceOnly && nowMs - it.atMs in 0L..windowMs }.map { Print8128(it.atMs, it.priceSol, it.sol, it.isBuy) } }
     }
 
-    fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()}"
+    fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()} youngShape15s8220=${youngShapeCount8220()}"
 
     /** V5.0.8169 — why the tape could state nothing for [mint] now: NO_PRINTS (never received) or STALE (newest > 2 min). */
     fun absentWhy8169(mint: String, nowMs: Long = System.currentTimeMillis()): String {
