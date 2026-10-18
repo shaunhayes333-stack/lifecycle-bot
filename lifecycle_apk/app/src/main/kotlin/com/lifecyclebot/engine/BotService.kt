@@ -15297,9 +15297,15 @@ class BotService : Service() {
         val designatedDeskSheet6599 = try { ToolkitSignalSheet.snapshot(ts) } catch (_: Throwable) { null }
         val designatedDeskHypothesis6599 = designatedDeskSheet6599?.deskHypotheses?.get(l)
         // V5.0.7297 — the lane's own hunt is its desk hypothesis for this token.
+        // V5.0.8212: claimFor returns only the FIRST lane of a mint's multi-lane
+        // hunt. An actual PROJECT_SNIPER hunter pick could therefore be masked
+        // by a SHITCOIN/MOONSHOT claim and marked NOT_DESIGNATED_POOL. Preserve
+        // every candidate's own claim; an exact scanner PROJECT_SNIPE provenance
+        // can also establish its own hunter selection before the claim cache writes.
         val huntedByLane7297 = try {
-            val claim7301 = com.lifecyclebot.engine.market.LaneHunter7297.claimFor(ts.mint, ts.lastMcap)
-            claim7301.equals(l, ignoreCase = true) || (claim7301 == "CASHGEN" && l.equals("TREASURY", ignoreCase = true))
+            val claims8212 = com.lifecyclebot.engine.market.LaneHunter7297.claimsFor7803(ts.mint, ts.lastMcap)
+            claims8212.any { it.equals(l, true) || (it.equals("CASHGEN", true) && l.equals("TREASURY", true)) } ||
+                (l == "PROJECT_SNIPER" && SniperScope8190.directSniperSource8212(ts.source))
         } catch (_: Throwable) { false }
         val designatedDeskQualified6599 = designatedDeskSheet6599 == null || designatedDeskSheet6599.deskHypotheses.isEmpty() || designatedDeskHypothesis6599 != null || huntedByLane7297 ||
             SpecialistElection8136.electionQualified8144(ts.mint, l)  // V5.0.8144 — the rescue holder / named receiver is qualified by its own native evidence

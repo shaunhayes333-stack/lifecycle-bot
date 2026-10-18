@@ -305,4 +305,15 @@ object ExpressMomentum8190 {
  */
 object SniperScope8190 {
     fun ownHunterPool8190(noDeskHypothesis: Boolean, huntedByOwnHunter: Boolean): Boolean = noDeskHypothesis && huntedByOwnHunter
+
+    /** 8212: the source must be an actual PROJECT_SNIPE hunt, not a token's name or an unrelated scout. */
+    internal fun directSniperSource8212(source: String): Boolean = source.uppercase()
+        .split(',', '|', ';').map { it.trim() }.any {
+            it == "MARKET_HUNT_PROJECT_SNIPE" || it == "MARKET_HUNT_PROJECT_SNIPER" ||
+                it == "SCANNER_DIRECT_MARKET_HUNT_PROJECT_SNIPE" || it == "SCANNER_DIRECT_MARKET_HUNT_PROJECT_SNIPER"
+        }
+
+    /** The hunter records multiple lane claims. Its first claim is NOT the sniper's own provenance. */
+    internal fun ownHunterEvidence8212(claims: Set<String>, source: String): Boolean =
+        claims.any { it.equals("PROJECT_SNIPER", true) } || directSniperSource8212(source)
 }

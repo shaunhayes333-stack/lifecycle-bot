@@ -238,6 +238,24 @@ object NetEdge8030 {
      * so EXECUTION_ECONOMICS_8136 refused or admitted on another trade's numbers. With no proposed size yet (callers without
      * a sizing read), the last sealed ticket remains the fallback and the record says so (sizeSol = that ticket).
      */
+    /**
+     * V5.0.8212: admission is an estimate of the eventual routable ticket, not a
+     * permanently unexecutable sub-$3 request. This DOES NOT authorize an increase:
+     * the FDG sizer, route share, live loss budget and exact sealed re-quote all
+     * remain downstream. If one routable ticket is unaffordable, keep the
+     * original requested size so it still refuses.
+     */
+    fun admissionQuoteSize8212(proposed: Double, tradeableSol: Double, solUsd: Double): Double {
+        if (!proposed.isFinite() || proposed <= 0.0 || !tradeableSol.isFinite() ||
+            tradeableSol <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0) return proposed
+        val p = try {
+            com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeableSol, solUsd)
+        } catch (_: Throwable) { return proposed }
+        val min = p.routableMinSol
+        return if (!p.wouldRefuse && min.isFinite() && min > 0.0 && proposed < min &&
+            min <= p.safeShareCapSol && min <= p.tradeableSol) min else proposed
+    }
+
     fun entryCost8209(ts: TokenState, lane: String, proposedSizeSol: Double = Double.NaN): EntryCost8209 {
         val size = if (proposedSizeSol.isFinite() && proposedSizeSol > 0.0) proposedSizeSol else entryTicket8151()
         val cost = costPct8030(lane, size, liquidity8037(ts), ts.mint, ts.lastMcap)

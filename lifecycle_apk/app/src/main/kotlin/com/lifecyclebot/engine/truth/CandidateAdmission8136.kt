@@ -250,7 +250,11 @@ object CandidateAdmission8136 {
         // V5.0.8169 — a loss pattern refuses on the record graded since the epoch; an older one is noted and decays to
         //    neutral (the candidate goes on to the generic prior — never to an ADMIT the stale record cannot support).
         val cellLoss = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell
-        val stageLoss = if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord
+        // V5.0.8212: UNKNOWN is not a lifecycle stage and carries no loss authority.
+        // TokenMetricStageRouter.judgeStage7928 explicitly ignores UNKNOWN; 8136 had
+        // independently been blocking the same unclassified tokens on STAGE|LANE|UNKNOWN.
+        val stageLoss = if (c.stage.equals("UNKNOWN", ignoreCase = true)) null
+            else if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord
         if (provenLosing8136(cellLoss)) { trace += "cellLosing=${cellLoss?.compact}"; return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen) }
         if (staleLoss8169(c.lossEpochAware8169, c.cell, cellLoss)) trace += "$STALE_CELL_TRACE_8169${c.cell?.compact}"
         if (provenLosing8136(stageLoss) && !cellSupported && stageLatePays8198(stageLoss)) {
@@ -621,11 +625,24 @@ object CandidateAdmission8136 {
         genericScore: Double = Double.NaN, genericFloor: Double = Double.NaN,
         proposedSizeSol: Double = Double.NaN,   // V5.0.8209 — cost at THIS candidate's size; a material size change re-quotes (identity miss)
     ): Decision8136? = try {
-        val built = candidateFor8136(ts, laneRaw, nowMs, proposedSizeSol)
+        val mode = try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "UNKNOWN" }
+        // V5.0.8212: an unrouteable 0.0100 SOL proposal has a hypothetical 11.6% round trip
+        // in 8211. The live sizing gate can promote to the wallet's routable minimum when
+        // permitted; price admission on that achievable ticket (only if this wallet can
+        // actually carry it). The later risk/size/route gates still authorize or refuse
+        // the exact sealed SOL amount and re-quote if it materially changes.
+        val admissionSize8212 = if (mode == "LIVE") try {
+            com.lifecyclebot.engine.truth.NetEdge8030.admissionQuoteSize8212(
+                proposedSizeSol,
+                (com.lifecyclebot.engine.BotService.status.walletSol -
+                    com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
+                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
+            )
+        } catch (_: Throwable) { proposedSizeSol } else proposedSizeSol
+        val built = candidateFor8136(ts, laneRaw, nowMs, admissionSize8212)
         val rawCandidate = if (genericScore.isFinite() && genericFloor.isFinite()) built.copy(genericScore = genericScore, genericFloor = genericFloor) else built
         val version = candidateVersion.takeIf { it > 0L }
             ?: try { com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
-        val mode = try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "UNKNOWN" }
         val candidate = rawCandidate.copy(candidateVersion = version)
         val key = "$mode|${ts.mint}|${candidate.lane}|$version"
         val identity = cacheIdentity8144(candidate)

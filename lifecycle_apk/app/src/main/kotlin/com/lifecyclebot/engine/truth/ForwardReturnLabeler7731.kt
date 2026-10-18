@@ -385,7 +385,9 @@ object ForwardReturnLabeler7731 {
             laneDecisionKey8094(o.lane, o.admitted))
         // V5.0.7930 — plan pseudo-lanes (PLANWAIT_/PLANADMIT_) carry no stage book.
         val pseudo = o.lane.startsWith("PLANWAIT_") || o.lane.startsWith("PLANADMIT_")
-        val withStage = if (o.stage.isBlank() || pseudo) base else base + stageKey7928(o.lane, o.stage)
+        // UNKNOWN is not a measured lifecycle stage. Never teach a catch-all
+        // STAGE|lane|UNKNOWN that later refuses legitimate classified strategies.
+        val withStage = if (o.stage.isBlank() || o.stage.equals("UNKNOWN", true) || pseudo) base else base + stageKey7928(o.lane, o.stage)
         // V5.0.8063 — the coin's kind: lane x venue x cap band, and lane x narrative.
         val k = o.kind8063.split('/')
         if (pseudo || k.size != 2 || k[0].isBlank()) return withStage
@@ -1585,7 +1587,8 @@ object ForwardReturnLabeler7731 {
     private fun laneStat(lane: String): CellStat? = cellStat(laneKey(lane.trim().uppercase()))
 
     /** V5.0.7928 — the 60-minute record of every [lane] decision taken at lifecycle [stage]. */
-    fun stageStatFor7928(lane: String, stage: String): CellStat? = cellStat(stageKey7928(lane, stage))
+    fun stageStatFor7928(lane: String, stage: String): CellStat? =
+        if (stage.equals("UNKNOWN", true) || stage.isBlank()) null else cellStat(stageKey7928(lane, stage))
 
     /** V5.0.8169 — a key's local record since the grading epoch (no hive), the only record a loss pattern may refuse on. */
     private fun freshStat8169(key: String): CellStat? {
@@ -1612,7 +1615,8 @@ object ForwardReturnLabeler7731 {
     }
 
     /** V5.0.8169 — [stageStatFor7928] since the grading epoch. */
-    fun freshStageStatFor8169(lane: String, stage: String): CellStat? = freshStat8169(stageKey7928(lane, stage))
+    fun freshStageStatFor8169(lane: String, stage: String): CellStat? =
+        if (stage.equals("UNKNOWN", true) || stage.isBlank()) null else freshStat8169(stageKey7928(lane, stage))
 
     /** V5.0.8169 — report: the epoch and the fresh book's size. */
     fun freshStatus8169(): String {
