@@ -16150,8 +16150,6 @@ class BotService : Service() {
         // beacon so the BG_INTAKE counter reflects real intake activity
         // (was previously never wired, always 0 in the background dump).
         try { markScannerProgress7807("INTAKE") } catch (_: Throwable) {}
-        // V5.0.8224 — the live pipeline trace's first writer (LivePipelineTrace6431 had a renderer and no writers).
-        if (try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }) try { com.lifecyclebot.engine.truth.LivePipelineTrace6431.bumpStage(com.lifecyclebot.engine.truth.LivePipelineTrace6431.Stage.INTAKE) } catch (_: Throwable) {}
         val trustedMarketCapUsd6492 = MarketDataIntegrity6492.trustedMarketCapUsd(
             raw = marketCapUsd, symbol = symbol, source = source, liquidityUsd = liquidityUsd,
         ) ?: 0.0
@@ -18349,6 +18347,11 @@ class BotService : Service() {
      * INTAKE in SlowCycleDiagnostic6437 (Field Manual L190).
      */
     private fun markScannerProgress7807(phase: String) {
+        // V5.0.8225 — the live pipeline trace's first writer (LivePipelineTrace6431 had a renderer and no writers);
+        // lives here because admitProtectedMemeIntake is a pinned oversized method (ART verifier budget).
+        if (phase == "INTAKE" && (try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false })) {
+            try { com.lifecyclebot.engine.truth.LivePipelineTrace6431.bumpStage(com.lifecyclebot.engine.truth.LivePipelineTrace6431.Stage.INTAKE) } catch (_: Throwable) {}
+        }
         if (com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.isCycleThread7807()) {
             markProgress(phase)
             return
