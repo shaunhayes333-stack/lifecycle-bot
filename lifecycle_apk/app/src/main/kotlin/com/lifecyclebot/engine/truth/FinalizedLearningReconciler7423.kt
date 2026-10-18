@@ -135,6 +135,34 @@ object FinalizedLearningReconciler7423 {
      * typed full SELL exists, reconstruct only fields directly supported by
      * the typed economics + immutable entry snapshot.
      */
+    private fun skip8214(stage: String) {
+        try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_SKIP_8214_$stage") } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8214 — net SOL + net % from the first finite authority, matching the snapshot's repairable predicate. */
+    internal fun repairEconomics8214(
+        p: CanonicalPositionAuthority6441.Position,
+        rich: CanonicalTradeFinalizedBus6450.Event?,
+        sell: EconomicEventSchema6464.Sell?,
+    ): Pair<Double, Double>? {
+        try {
+            val w = WholePositionEconomics7835.from(p)
+            if (w.netSol.isFinite() && w.returnPct.isFinite()) return w.netSol to w.returnPct
+        } catch (_: Throwable) {}
+        if (rich != null && rich.netRealizedPnlSol.isFinite() && rich.netReturnPct.isFinite()) {
+            try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_ECON_RICH_8214") } catch (_: Throwable) {}
+            return rich.netRealizedPnlSol to rich.netReturnPct
+        }
+        if (sell != null && sell.allocatedCostBasisSol.isFinite() && sell.allocatedCostBasisSol > 0.0) {
+            val net = sell.realizedPnlSol - sell.exitFeesSol
+            if (net.isFinite()) {
+                try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_ECON_TYPED_SELL_8214") } catch (_: Throwable) {}
+                return net to net / sell.allocatedCostBasisSol * 100.0
+            }
+        }
+        return null
+    }
+
     fun repairDurableBusPublishFailures7459(
         limit: Int = 8,
         maxWorkMs7514: Long = 2_500L,
@@ -181,9 +209,9 @@ object FinalizedLearningReconciler7423 {
                 src.contains("LEGACY_REPLAY") || src.contains("REPLAY_CARRY") ||
                 src.contains("DUPLICATE") || src.contains("INVARIANT_BROKEN") ||
                 !p.entryCostSol.isFinite() || p.entryCostSol <= 0.0
-            ) continue
+            ) { skip8214("ENTRY_EXCLUDED"); continue }
 
-            val sell = sells[p.positionId]?.maxByOrNull { it.atMs } ?: continue
+            val sell = sells[p.positionId]?.maxByOrNull { it.atMs } ?: run { skip8214("NO_TERMINAL_SELL"); null } ?: continue
             // V5.0.7512 — inspect rich durable finality BEFORE requiring the
             // separate entry-strategy snapshot. The normal 6450->6464 publisher
             // already permits a missing EntryStrategySnapshot.
@@ -213,10 +241,14 @@ object FinalizedLearningReconciler7423 {
                 continue
             }
 
-            val whole7835 = try { WholePositionEconomics7835.from(p) } catch (_: Throwable) { continue }
-            val netPnl = whole7835.netSol
-            val netPct = whole7835.returnPct
-            if (!netPnl.isFinite() || !netPct.isFinite()) continue
+            // V5.0.8214 — the SAME economics the repairable predicate (snapshot) accepted. WholePositionEconomics7835
+            // requires remainingQty==0 and finite proceeds on the canonical row; a CLOSED row with durable terminal
+            // finality but an unsettled qty/proceeds field passed the predicate and was then skipped here silently,
+            // every pass, forever (8212: 192 BUS_PUBLISH_FAILED). Whole-position truth first; then the durable rich
+            // finality event; then the typed full terminal SELL on its allocated basis. Nothing is invented.
+            val econ8214 = repairEconomics8214(p, rich, sell) ?: run { skip8214("NO_FINITE_ECONOMICS"); null } ?: continue
+            val netPnl = econ8214.first
+            val netPct = econ8214.second
 
             val eligibility = when {
                 terminalOnly7521 ->
@@ -234,7 +266,7 @@ object FinalizedLearningReconciler7423 {
             }
             val entryScore = if (restoredEntry7526) 0 else entry?.entryScore?.coerceIn(0, 100) ?: 0
             val lane = (rich?.entryLane ?: entry?.entryLane ?: p.lane).ifBlank { p.lane }
-            if (lane.isBlank()) continue
+            if (lane.isBlank()) { skip8214("BLANK_LANE"); continue }
 
             val env = CanonicalFinalizedTradeBus6464.Envelope(
                 tradeId = p.positionId,

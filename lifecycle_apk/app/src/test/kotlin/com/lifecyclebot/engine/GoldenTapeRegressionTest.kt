@@ -1130,7 +1130,10 @@ class GoldenTapeRegressionTest {
         assertTrue(doctor.contains("fun currentFaults()"))
 
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue(report.contains("RuntimeDoctor.currentFaults()"))
+        // V5.0.8214 — current = fresh AND same runtime state; older faults print only as HISTORICAL_FAULTS_8214.
+        assertTrue(report.contains("RuntimeDoctor.faultsForReport8214(loopNow8214)"))
+        assertTrue(report.contains("if (rf8214 != null && rf8214.current) {"))
+        assertTrue(report.contains("HISTORICAL_FAULTS_8214"))
         assertFalse("Root cause line must not print stale recent RuntimeDoctor history", report.contains("RuntimeDoctor.recentFaults()"))
     }
 
@@ -2877,7 +2880,7 @@ class GoldenTapeRegressionTest {
         assertTrue("mechanical degradation must catch ANR hints", dbg.contains("MECHANICAL_FAULT") && dbg.contains("anrHints >= 3"))
         assertTrue("doctor must expose latest diagnosis", doctor.contains("fun currentDiagnosis()"))
         assertTrue("forensic report must print state/subsystem", report.contains("state=${'$'}{doctor.diagnosis.state}") && report.contains("subsystem=${'$'}{doctor.diagnosis.subsystem}"))
-        assertTrue("pipeline root cause must consume doctor diagnosis", collector.contains("RuntimeDoctor.currentDiagnosis()"))
+        assertTrue("pipeline root cause must consume doctor diagnosis", collector.contains("val diag = rf8214?.diagnosis"))  // 8214: same diagnosis, gated on current runtime state
         assertFalse("autonomy diagnosis must not self-edit code", dbg.contains("PatchWriterAI") || dbg.contains("deploy") || dbg.contains("git commit"))
         assertFalse("autonomy diagnosis must not weaken live safety", dbg.contains("disableTerminal") || dbg.contains("ignoreFinality") || dbg.contains("forceLive"))
     }

@@ -1826,11 +1826,18 @@ object PipelineHealthCollector {
             // HOST_TRACKER_DESYNC / SELL_RECONCILER_DEAD) MUST surface as the root
             // cause and can never be masked by the NONE fallthrough.
             try {
-                val faults = com.lifecyclebot.engine.RuntimeDoctor.currentFaults()
-                for (f in faults) { rootCauses.add(0, ("" + f.code + " (" + f.severity + ") " + f.detail).take(120)) }
-                val diag = com.lifecyclebot.engine.RuntimeDoctor.currentDiagnosis()
-                if (diag != null && diag.faultCode !in setOf("NO_FAULT", "HEALTHY")) {
-                    rootCauses.add(0, "${diag.faultCode}/${diag.subsystem}: ${diag.rootCause}".take(160))
+                // V5.0.8214 — only a fresh report from the same runtime state is a current root cause; older ones are history.
+                val loopNow8214 = try { com.lifecyclebot.engine.RuntimeStateSnapshot.current(null).botLoopActive } catch (_: Throwable) { null }
+                val rf8214 = com.lifecyclebot.engine.RuntimeDoctor.faultsForReport8214(loopNow8214)
+                val diag = rf8214?.diagnosis
+                if (rf8214 != null && rf8214.current) {
+                    for (f in rf8214.faults) { rootCauses.add(0, ("" + f.code + " (" + f.severity + ") " + f.detail).take(120)) }
+                    if (diag != null && diag.faultCode !in setOf("NO_FAULT", "HEALTHY")) {
+                        rootCauses.add(0, "${diag.faultCode}/${diag.subsystem}: ${diag.rootCause}".take(160))
+                    }
+                } else if (rf8214 != null && rf8214.faults.isNotEmpty()) {
+                    rootCauses.add(("HISTORICAL_FAULTS_8214 age=${rf8214.ageMs / 1000}s loopThen=${rf8214.loopThen} loopNow=$loopNow8214: " +
+                        rf8214.faults.joinToString(",") { it.code.name }).take(160))
                 }
             } catch (_: Throwable) {}
             // V5.0.6495 §Root-Cause-Wire — the V5.0.6471 priority classifier

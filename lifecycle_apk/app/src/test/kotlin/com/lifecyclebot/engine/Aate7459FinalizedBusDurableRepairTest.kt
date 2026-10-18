@@ -29,8 +29,8 @@ class Aate7459FinalizedBusDurableRepairTest {
         val s = src("engine/truth/FinalizedLearningReconciler7423.kt")
         // V5.0.7835 — net economics come from the whole closed position (fees included).
         assertTrue(s.contains("WholePositionEconomics7835.from(p)"))
-        assertTrue(s.contains("val netPnl = whole7835.netSol"))
-        assertTrue(s.contains("val netPct = whole7835.returnPct"))
+        assertTrue(s.contains("val netPnl = econ8214.first"))  // 8214: whole-position first inside repairEconomics8214
+        assertTrue(s.contains("val netPct = econ8214.second") && s.contains("if (w.netSol.isFinite() && w.returnPct.isFinite()) return w.netSol to w.returnPct"))
         assertFalse(s.contains("realizedReturnPct = sell.realizedReturnPct"))
     }
 

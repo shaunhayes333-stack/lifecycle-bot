@@ -110,6 +110,23 @@ object RuntimeDoctor {
 
     fun latestSnapshot(): RuntimeStateSnapshot = latest ?: RuntimeStateSnapshot.current()
     fun currentFaults(): List<InvariantGuardian.Fault> = latestReport?.faults ?: emptyList()
+
+    /**
+     * V5.0.8214 — a cached report is CURRENT only if it is fresh and was taken in the same runtime state (bot loop
+     * running vs stopped) as now. Otherwise its faults are history: a SELL_RECONCILER_DEAD found while the loop ran
+     * must not be printed as the root cause of a stopped-state report (8212: botLoop=false, 0 live positions).
+     */
+    internal const val REPORT_CURRENT_MAX_AGE_MS_8214 = 180_000L
+    internal fun reportIsCurrent8214(reportAtMs: Long, reportLoopActive: Boolean, nowMs: Long, nowLoopActive: Boolean?): Boolean =
+        reportAtMs > 0L && nowMs - reportAtMs in 0..REPORT_CURRENT_MAX_AGE_MS_8214 && (nowLoopActive == null || nowLoopActive == reportLoopActive)
+    data class ReportFaults8214(val faults: List<InvariantGuardian.Fault>, val diagnosis: StateDebuggerAI.Diagnosis?,
+                                val current: Boolean, val ageMs: Long, val loopThen: Boolean)
+    fun faultsForReport8214(nowLoopActive: Boolean?, nowMs: Long = System.currentTimeMillis()): ReportFaults8214? {
+        val r = latestReport ?: return null
+        val at = r.snapshot.timestampMs
+        return ReportFaults8214(r.faults, r.diagnosis, reportIsCurrent8214(at, r.snapshot.botLoopActive, nowMs, nowLoopActive),
+            nowMs - at, r.snapshot.botLoopActive)
+    }
     fun currentDiagnosis(): StateDebuggerAI.Diagnosis? = latestReport?.diagnosis
     fun recentFaults(): List<InvariantGuardian.Fault> = recentFaults.toList()
 
