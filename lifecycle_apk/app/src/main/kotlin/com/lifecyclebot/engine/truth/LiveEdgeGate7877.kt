@@ -602,12 +602,14 @@ object LiveEdgeGate7877 {
                 return "CHASING_SPIKE_8065"
             }
             // Keep watch-first on the same immutable admission snapshot as the preceding live checks.
-            watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136, candidateVersion, admission8136)?.let {
+            // 8213: the same qualified native admission also clears an UNMEASURED thin-cell wait.
+            // A measured-negative band/cell and every other watch refusal still bind in watchFirst7994.
+            watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136 || genericNative8211, candidateVersion, admission8136)?.let {
                 if (candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, it, candidateVersion)
                 observeTail7996(ts, lane, it, nowMs); return it
             }
         }
-        val why = liveRefusalCore7970(ts, lane, paper, nowMs, candidateSpecificAdmission8136)
+        val why = liveRefusalCore7970(ts, lane, paper, nowMs, candidateSpecificAdmission8136, genericNative8211)
         if (!paper) observeTail7996(ts, lane, why, nowMs)
         if (!paper && candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, why ?: "ALLOW", candidateVersion)
         // V5.0.8083 — one immutable assessment per candidate: the verdict FDG / sizing / trade plan read, and the setup
@@ -992,7 +994,8 @@ object LiveEdgeGate7877 {
 
     fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} bootRecovery8074[${try { LiveBootRecovery8074.statusLine() } catch (_: Throwable) { "-" }}] chaseRefused8065=${chaseRefused8065.get()} liveTruth8064[${try { LiveTruth8064.statusLine() } catch (_: Throwable) { "-" }}] refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
-    private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long, candidateSpecificAdmission8136: Boolean = false): String? {
+    private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long,
+                                    candidateSpecificAdmission8136: Boolean = false, genericNative8211: Boolean = false): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
         // earned that authority (bar V1); until then this returns null.
         val cortex7950 = com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal(ts, lane, paper)
@@ -1001,7 +1004,10 @@ object LiveEdgeGate7877 {
         com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)?.let { return it }
         // V5.0.8030 — positive EV only: the lane's expected move must be at least 2x the round trip. Hard: no
         // chart read, specialist, ticket or Cortex overrule buys a trade whose cost eats half its move.
-        if (!candidateSpecificAdmission8136) NetEdge8030.entryRefusal8030(ts, lane)?.let { return it }
+        // 8213: both canonical ADMIT paths already priced this lane/mint/size and cleared 1.5x cost.
+        // Repricing a generic ADMIT at the *last sealed* (often unrelated) size was a second,
+        // contradictory economics verdict. The exact executable size is still re-quoted at FDG seal.
+        if (!candidateSpecificAdmission8136 && !genericNative8211) NetEdge8030.entryRefusal8030(ts, lane)?.let { return it }
         // V5.0.8054 — scalp lanes need a coin that moves (3x cost in its last hour); swing lanes don't buy a finished run.
         NetEdge8030.laneFitRefusal8054(ts, CanonicalLaneIdentity6506.canonical(lane).ifBlank { lane })?.let { return it }
         // V5.0.8030 — a Cortex refusal that has EARNED authority (proven on its own record) is not bypassed by a

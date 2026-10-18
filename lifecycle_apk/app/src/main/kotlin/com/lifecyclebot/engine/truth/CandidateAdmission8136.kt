@@ -107,6 +107,10 @@ object CandidateAdmission8136 {
          * specific edge at the SUPPORTED margin, exactly like a fired setup; it never carries the coin's own losing cell.
          */
         val cortexStrong8200: Evidence8136? = null,
+        /** 8213: fresh qualified, authoritative native verdict of THIS lane, not an inferred score or another lane's claim. */
+        val nativeQualified8213: Boolean = false,
+        /** Native's own named setup is retained when optional playbook features prevent classification. */
+        val nativeSetup8213: String? = null,
     )
 
     /** The one authoritative terminal admission and the evidence trace behind it. */
@@ -200,6 +204,23 @@ object CandidateAdmission8136 {
     fun priceStale8136(priceAgeMs: Long, hotLaunch: Boolean): Boolean =
         priceAgeMs < 0L || priceAgeMs > (if (hotLaunch) HOT_STALE_PRICE_MS_8136 else STALE_PRICE_MS_8136)
 
+    /**
+     * Shared across all twelve native specialists. Missing optional classifier inputs are NOT an execution-safety
+     * failure when a fresh authoritative native lane verdict, a named native strategy, a passing score and a sized,
+     * positive-after-cost quote are already available. Never synthesise a price, a route, a quote or an edge:
+     * absent/stale executable facts still defer, and known-negative evidence is handled before this helper.
+     */
+    internal fun optionalNativeContextClears8213(c: Candidate8136, gross: Double): Boolean =
+        c.nativeQualified8213 &&
+            !c.nativeSetup8213.isNullOrBlank() &&
+            !c.nativeSetup8213.equals("NONE", true) &&
+            c.genericScore.isFinite() && c.genericFloor.isFinite() && c.genericScore >= c.genericFloor &&
+            c.costPct.isFinite() && c.costPct > 0.0 &&
+            !priceStale8136(c.priceAgeMs, c.hotLaunch) &&
+            c.missingInputs.none(::criticalMissing8170) &&
+            c.safetyRefusal == null && c.structuralRisk == null &&
+            NetEdge8030.entryClears8030(gross, c.costPct)
+
     // ── the decision ──
 
     /** Pure: the one terminal admission for [c]. Order: safety, structure, loss patterns, timing, economics, data, edge, prior. */
@@ -227,7 +248,9 @@ object CandidateAdmission8136 {
         //    losing at this point of the move is not the strategy; ties of the conservative net go to the runner rate.
         val bestSetup = bestSetup8153(c)
         val selectedRec = c.setups.firstOrNull { it.id == c.selectedSetup }
-        var chosen = c.selectedSetup
+        var chosen = c.selectedSetup ?: c.nativeSetup8213?.takeIf {
+            c.nativeQualified8213 && it.isNotBlank() && !it.equals("NONE", true)
+        }
         fun chooseSetup(id: String) {
             chosen = id
             decisionGross = if (id == c.selectedSetup) c.expectedGrossPct
@@ -333,7 +356,10 @@ object CandidateAdmission8136 {
         //    with no supported evidence of its own (its setup cannot be judged yet).
         val stale = priceStale8136(c.priceAgeMs, c.hotLaunch)
         val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170)
-        if (stale || !econKnown || criticalMissing8170.isNotEmpty() || (c.missingInputs.isNotEmpty() && edge == null)) {
+        val nativeOptional8213 = c.missingInputs.isNotEmpty() && edge == null &&
+            optionalNativeContextClears8213(c, decisionGross)
+        if (stale || !econKnown || criticalMissing8170.isNotEmpty() ||
+            (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213)) {
             val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + (if (!econKnown) listOf("economics") else emptyList())
             trace += "missing=${missing.joinToString(",")}"
             if (criticalMissing8170.isNotEmpty()) trace += "criticalUnobserved8170=${criticalMissing8170.joinToString(",")}"
@@ -343,6 +369,7 @@ object CandidateAdmission8136 {
         // evidence may trade through an OPTIONAL shape/tape/context gap. Do not
         // reclassify optional absence as a fake signal; retain the gap in its seal.
         if (c.missingInputs.isNotEmpty()) trace += "optionalUnobserved8170=${c.missingInputs.joinToString(",")}"
+        if (nativeOptional8213) trace += "nativeOptionalCleared8213=${c.nativeSetup8213} score=${fmt8136(c.genericScore)}"
 
         // 6. supported candidate-specific edge: the generic score is only a prior.
         if (edge != null) {
@@ -355,7 +382,8 @@ object CandidateAdmission8136 {
             .forEach { trace += "thinPositive=${it.compact} needs n>=$SUPPORT_MIN_N_8136" }
         if (c.genericScore.isFinite() && c.genericFloor.isFinite()) {
             trace += "generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)}"
-            return if (c.genericScore >= c.genericFloor) done(Terminal8136.ADMIT, "GENERIC_PRIOR_CLEARS_8136", false, chosen, "GENERIC_PRIOR:${chosen ?: "-"}")
+            return if (c.genericScore >= c.genericFloor) done(Terminal8136.ADMIT, "GENERIC_PRIOR_CLEARS_8136", false, chosen,
+                if (nativeOptional8213) "NATIVE_QUALIFIED_8213:${c.nativeSetup8213}" else "GENERIC_PRIOR:${chosen ?: "-"}")
             else done(Terminal8136.REFUSE, "GENERIC_SCORE_FLOOR_8136", false, chosen)
         }
         return done(Terminal8136.REFUSE, "NO_SUPPORTED_EDGE_8136", false, chosen)
@@ -507,6 +535,9 @@ object CandidateAdmission8136 {
         } else {
             held8144.remove(key)
         }
+        if (d.admitted && d.trace.any { it.startsWith("nativeOptionalCleared8213=") }) try {
+            PipelineHealthCollector.labelInc("ADMISSION_NATIVE_OPTIONAL_DATA_ADMITTED_8213_${candidate.lane}")
+        } catch (_: Throwable) {}
         try { AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason) } catch (_: Throwable) {}
         try { AdmissionEdge8180.note8180(mode, mint, laneRaw, candidateVersion, d, nowMs) } catch (_: Throwable) {}  // V5.0.8180 / 8198 — this lane's own proof, sizers read it
         // V5.0.8169 — a loss refusal that decayed to neutral on its epoch, counted once per fresh decision.
@@ -655,6 +686,12 @@ object CandidateAdmission8136 {
     /** Builds the candidate record from the playbook, forward labels, net-edge cost model and safety report. */
     internal fun candidateFor8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), proposedSizeSol: Double = Double.NaN): Candidate8136 {
         val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
+        val nativeOpinion8213 = try {
+            com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)
+                ?.takeIf { it.mint == ts.mint }?.opinions?.get(lane)
+                ?.takeIf { it.eligible && it.authoritative &&
+                    com.lifecyclebot.engine.LaneExecutionCoordinator.laneCanOwnExecution6910(lane) }
+        } catch (_: Throwable) { null }
         val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907
         // V5.0.8153 — the strategy is ranked fresh over every fired setup (StrategyRank8153), not read back from the
         //    identity this record itself holds; its choice is then that identity for every later reader.
@@ -746,6 +783,8 @@ object CandidateAdmission8136 {
             cellLoss8169 = cellLoss8169,
             stageLoss8169 = stageLoss8169,
             cortexStrong8200 = try { com.lifecyclebot.engine.cortex.Cortex7885.strongCohortEvidence8200(ts, lane) } catch (_: Throwable) { null },
+            nativeQualified8213 = nativeOpinion8213 != null,
+            nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) },
         )
     }
 }
