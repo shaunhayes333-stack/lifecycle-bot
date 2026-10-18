@@ -3165,7 +3165,20 @@ object FinalDecisionGate {
                 candidate.blockReason.endsWith(", not BUY") &&
                 laneNameForBaseSignal != null &&
                 laneNameForBaseSignal != "STANDARD"
-            if (staleBaseSignalBlock && laneNameForBaseSignal != null) {
+            // V5.0.8203 — ONE executable signal. A candidate-SPECIFIC ADMIT (CandidateAdmission8136: hard safety and the
+            // candidate's own negative evidence already took precedence) for an elected specialist owner supersedes the
+            // generic V3 WAIT it is being compared against: 5.0.8202 cleared 36 specific floor admissions and then hard-
+            // blocked every one of them here on "Signal is WAIT, not BUY" (FDG 0 / 3,404). A generic-prior ADMIT, a
+            // missing-data deferral or no elected owner changes nothing; HARD_NO_BUY returned terminally above.
+            val specificAdmitSupersedes8203 = staleBaseSignalBlock && specialistLane?.isNotBlank() == true &&
+                candidateAdmission8136?.let { it.specific && it.admitted && it.basis.isNotBlank() } == true
+            if (specificAdmitSupersedes8203 && laneNameForBaseSignal != null) {
+                baseSignalMismatchIgnoredForLane = true
+                checks.add(GateCheck("candidate_base_signal", true,
+                    "specific_admit_supersedes_generic_wait_8203 lane=$laneNameForBaseSignal setup=${candidateAdmission8136?.chosenSetup} basis=${candidateAdmission8136?.basis?.take(40)} v=$candidateVersion7623"))
+                tags.add("base_signal_superseded_8203:$laneNameForBaseSignal")
+                try { PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_SUPERSEDED_BY_SPECIFIC_ADMIT_8203_$laneNameForBaseSignal") } catch (_: Throwable) {}
+            } else if (staleBaseSignalBlock && laneNameForBaseSignal != null) {
                 // V5.9.1124 — 3090 showed FDG_BASE_SIGNAL_BLOCK_IGNORED=43k.
                 // A WAIT/SELL base signal is not executable. Specialist lanes may
                 // keep telemetry elsewhere, but FDG must not authorize or preAuth.
@@ -3173,6 +3186,7 @@ object FinalDecisionGate {
                 blockLevel = BlockLevel.HARD
                 checks.add(GateCheck("candidate_base_signal", false, "hard_block_for_lane=$laneNameForBaseSignal: ${candidate.blockReason}"))
                 tags.add("base_signal_hard_block:$laneNameForBaseSignal")
+                try { if (candidateAdmission8136?.admitted == true) PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_BLOCK_AFTER_${if (candidateAdmission8136.specific) "SPECIFIC_NO_BASIS" else "GENERIC"}_ADMIT_8203_$laneNameForBaseSignal") } catch (_: Throwable) {}
             } else {
                 blockReason = candidate.blockReason
                 blockLevel = BlockLevel.HARD
@@ -5167,7 +5181,15 @@ object FinalDecisionGate {
         // as non-blocking here, identically to canExecute(). Any OTHER non-null
         // blockReason still forces shouldTrade=false; -15% floor + hardNo + genuine FDG
         // veto untouched.
-        val shouldTrade = (blockReason == null || blockReason == "PROBE_ONLY") && (candidate.shouldTrade || baseSignalMismatchIgnoredForLane || "cortex_choice_7915" in tags)
+        var shouldTrade = (blockReason == null || blockReason == "PROBE_ONLY") && (candidate.shouldTrade || baseSignalMismatchIgnoredForLane || "cortex_choice_7915" in tags)
+        // V5.0.8203 — no silent terminal: a base signal that is merely not executable (candidate.shouldTrade=false with no
+        // block of its own) is a named, staged refusal, not shouldTrade=false with blockReason=null.
+        if (!shouldTrade && blockReason == null) {
+            blockReason = "BASE_SIGNAL_NOT_EXECUTABLE_8203:${candidate.finalSignal.ifBlank { candidate.signal }.ifBlank { "NONE" }.uppercase().take(24)}"
+            blockLevel = BlockLevel.EDGE
+            checks.add(GateCheck("base_signal_executable_8203", false, "signal=${candidate.finalSignal.ifBlank { candidate.signal }} shouldTrade=${candidate.shouldTrade} admission=${candidateAdmission8136?.terminal?.name}:${candidateAdmission8136?.specific}"))
+            try { PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_NOT_EXECUTABLE_8203_${laneName.ifBlank { "CORE" }.uppercase()}") } catch (_: Throwable) {}
+        }
 
         if (!shouldTrade && blockReason != null) {
             recordBlock(blockReason)
@@ -6079,6 +6101,7 @@ object FinalDecisionGate {
                 !policyAllows7848 -> "CANONICAL_ENVELOPE_BLOCK_7835"
                 shouldTradeFinal && !canonicalEconomicApproval7548 -> "NON_ECONOMIC_APPROVAL_7835"
                 shouldTradeFinal && executableSize7835 <= 0.0 -> "SIZE_NOT_EXECUTABLE_7835"
+                !shouldTradeFinal -> "FINAL_NOT_EXECUTABLE_UNNAMED_8203"  // V5.0.8203 — never a denied decision without a terminal
                 else -> null
             },
             blockLevel = blockLevelFinal,
