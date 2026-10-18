@@ -440,6 +440,7 @@ object LiveEdgeGate7877 {
     ): String? {
         var auditedAdmission8076 = false
         var candidateSpecificAdmission8136 = false
+        var genericNative8211 = false   // 8213: read by liveRefusalCore7970 outside the live block; false in paper
         // V5.0.8037 — every edge read below sees the observed liquidity, not a missing tick's 0.
         try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
         // V5.0.8038 — a live candidate's pool is read from the chain in the background, ready for the buy door.
@@ -467,7 +468,7 @@ object LiveEdgeGate7877 {
             // terminal here; missing inputs remain a bounded data deferral; only a candidate-specific ADMIT clears a
             // generic edge prior. The measured-negative checks below remain binding.
             val admission8136 = candidateAdmission ?: try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion) } catch (_: Throwable) { null }
-            val genericNative8211 = genericNativeClearsProvenOnly8211(admission8136)
+            genericNative8211 = genericNativeClearsProvenOnly8211(admission8136)
             when (admission8136?.terminal) {
                 CandidateAdmission8136.Terminal8136.DEFER_DATA -> {
                     val d = admission8136

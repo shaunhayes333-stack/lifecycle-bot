@@ -13,6 +13,10 @@ import java.io.File
  * export can never end with nothing to share.
  */
 object ReportCopyDialog8198 {
+    /** 8213 — text that fits one binder transaction; a longer report says the full file is the complete copy. */
+    internal fun binderSafeText8213(text: String, max: Int = 60_000): String =
+        if (text.length <= max) text else text.take(max) + "\n\n… truncated to $max of ${text.length} chars for Android's share limit; use the attached/exported file for the full report."
+
     fun show(activity: Activity, fullText: String, fullFile: File?, copyChars: Int, fullChars: Int, subject: String = "AATE report") {
         if (activity.isFinishing || activity.isDestroyed) return
         val trimmed = copyChars < fullChars
@@ -32,10 +36,12 @@ object ReportCopyDialog8198 {
         val textIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, subject)
-            putExtra(Intent.EXTRA_TEXT, fullText)
+            putExtra(Intent.EXTRA_TEXT, binderSafeText8213(fullText))
         }
         try {
-            activity.startActivity(Intent.createChooser(fileIntent ?: textIntent, "Share AATE report"))
+            val chooser = Intent.createChooser(fileIntent ?: textIntent, "Share AATE report")
+            if (fileIntent != null) chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            activity.startActivity(chooser)
         } catch (_: Throwable) {
             try { activity.startActivity(Intent.createChooser(textIntent, "Share AATE report")) }
             catch (_: Throwable) { Toast.makeText(activity, "Share unavailable on this device", Toast.LENGTH_LONG).show() }

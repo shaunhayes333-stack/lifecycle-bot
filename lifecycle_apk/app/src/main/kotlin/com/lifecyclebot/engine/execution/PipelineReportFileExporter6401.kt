@@ -111,7 +111,9 @@ object PipelineReportFileExporter6401 {
      * under the ~1MB Binder txn ceiling but large enough to carry
      * every pipeline report we've observed in this run (60–200 KB).
      */
-    private const val BINDER_SAFE_MAX_CHARS = 500_000
+    // 8213: 500k chars parcelled as UTF-16 (~1 MB) and duplicated by the chooser exceeded the 1 MB binder transaction
+    // limit; the system dropped the chooser launch silently ("Share does nothing"). The full report travels as the file.
+    internal const val BINDER_SAFE_MAX_CHARS = 60_000
 
     fun shareIntent(ctx: Context, file: File, subject: String = "AATE Pipeline Report"): Intent? {
         return try {
@@ -128,6 +130,7 @@ object PipelineReportFileExporter6401 {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 putExtra(Intent.EXTRA_SUBJECT, "$subject — ${file.name}")
                 putExtra(Intent.EXTRA_TEXT, body)
+                clipData = android.content.ClipData.newRawUri(file.name, uri)   // 8213: grant survives the chooser hop
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
         } catch (t: Throwable) {
