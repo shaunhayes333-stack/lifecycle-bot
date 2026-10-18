@@ -102,6 +102,17 @@ object LaunchBirth8169 {
      * — create frame, pump.fun coin record, curve-key create time, the mint's own bonding-curve pair, its oldest signature
      * (history read to the end). Pool creation of a later pool and first sight are never a launch.
      */
+    /**
+     * V5.0.8207 — EdgeOptimizer.filterTrade(isFresh): "fresh" means a DIRECT canonical birth witness ([launchBirth8169]) puts
+     * the launch inside LaunchChase7280.FRESH_WINDOW_MS. Watchlist discovery / first sight is never freshness: no witness,
+     * not fresh. Pure read of the witnesses already in memory; no provider call.
+     */
+    fun verifiedFresh8207(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val b = try { launchBirth8169(mint, nowMs) } catch (_: Throwable) { null } ?: return false
+        val age = nowMs - b.birthMs
+        return age in 0L..LaunchChase7280.FRESH_WINDOW_MS
+    }
+
     fun launchBirth8169(mint: String, nowMs: Long): Birth8169? {
         val m = mint.trim()
         if (m.isBlank()) return null

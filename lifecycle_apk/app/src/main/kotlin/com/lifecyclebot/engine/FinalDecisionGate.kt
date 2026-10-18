@@ -704,6 +704,8 @@ object FinalDecisionGate {
         val timestamp: Long,
         val reason: String,
         val quality: String,
+        val source: String = "LEGACY_EDGE_FILTER",   // V5.0.8207 — who judged
+        val fresh: Boolean = false,                   // V5.0.8207 — verified launch freshness at the judgement
     )
 
     private val edgeVetoes = java.util.concurrent.ConcurrentHashMap<String, EdgeVeto>()
@@ -723,11 +725,16 @@ object FinalDecisionGate {
     private fun getVetoCooldownMs(): Long =
         if (_isPaperModeForVeto) EDGE_VETO_COOLDOWN_PAPER_MS else EDGE_VETO_COOLDOWN_LIVE_MS
 
-    fun recordEdgeVeto(mint: String, reason: String, quality: String) {
+    fun recordEdgeVeto(
+        mint: String, reason: String, quality: String, source: String = "LEGACY_EDGE_FILTER",
+        fresh: Boolean = try { com.lifecyclebot.engine.truth.LaunchBirth8169.verifiedFresh8207(mint) } catch (_: Throwable) { false },
+    ) {
         edgeVetoes[mint] = EdgeVeto(
             timestamp = System.currentTimeMillis(),
             reason = reason,
             quality = quality,
+            source = source,
+            fresh = fresh,
         )
         val thirtyMinutesAgo = System.currentTimeMillis() - (30 * 60 * 1000L)
         edgeVetoes.entries.removeIf { it.value.timestamp < thirtyMinutesAgo }
@@ -741,6 +748,38 @@ object FinalDecisionGate {
     private fun tailTicket7996(mint: String): Boolean =
         try { com.lifecyclebot.engine.truth.TailHunter7996.ticketActive7996(mint) } catch (_: Throwable) { false } ||
             try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(mint) } catch (_: Throwable) { false }  // V5.0.8018
+
+    /**
+     * V5.0.8207 — ONE verdict for the legacy edge judgement at FDG time. Returns null when the candidate may proceed
+     * (veto absent, retired, tail ticket, or a GENERIC_PRIOR reason outranked by a candidate-specific proven admission at
+     * this candidate version), else the named refusal. Every path writes one GateCheck carrying the originating reason, age,
+     * source, native owner, candidate version, freshness and the admission state, so a device log answers "why" alone.
+     */
+    internal fun legacyEdgeVetoVerdict8207(
+        mint: String, veto: EdgeVeto, owner: String?, candidateVersion: Long,
+        admission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
+        checks: MutableList<GateCheck>, tags: MutableList<String>, nowMs: Long = System.currentTimeMillis(),
+    ): String? {
+        val ageMs = nowMs - veto.timestamp
+        val cls = EdgeOptimizer.legacyVetoClass8207(veto.reason)
+        val specificAdmit = admission?.let { it.specific && it.admitted && it.basis.isNotBlank() } == true
+        val prov = "legacy='${veto.reason.take(60)}' quality=${veto.quality} ageMs=$ageMs source=${veto.source} fresh=${veto.fresh} " +
+            "owner=${owner.orEmpty().ifBlank { "CORE" }} v=$candidateVersion class=$cls admission=${admission?.terminal?.name}:${admission?.reason}" +
+            (admission?.chosenSetup?.let { " setup=$it" } ?: "")
+        if (specificAdmit && cls == EdgeOptimizer.LegacyVetoClass8207.GENERIC_PRIOR) {
+            checks.add(GateCheck("edge_veto_sticky", true, "SUPERSEDED_8207 by candidate-specific admission: $prov"))
+            tags.add("edge_veto_superseded_8207")
+            try { PipelineHealthCollector.labelInc("FDG_LEGACY_EDGE_VETO_SUPERSEDED_BY_SPECIFIC_ADMIT_8207") } catch (_: Throwable) {}
+            return null
+        }
+        checks.add(GateCheck("edge_veto_sticky", false, "Veto active ${getVetoRemainingSeconds(mint)}s (single judgement): $prov"))
+        tags.add("edge_veto_sticky")
+        try {
+            PipelineHealthCollector.labelInc("FDG_LEGACY_EDGE_VETO_REFUSED_${cls.name}_8207")
+            if (specificAdmit) PipelineHealthCollector.labelInc("FDG_SPECIFIC_ADMIT_REFUSED_BY_CURRENT_NEGATIVE_8207")
+        } catch (_: Throwable) {}
+        return "EDGE_VETO_ACTIVE"
+    }
 
     fun hasActiveEdgeVeto(mint: String): EdgeVeto? {
         val veto = edgeVetoes[mint] ?: return null
@@ -1237,8 +1276,13 @@ object FinalDecisionGate {
     ): Pair<String?, Boolean> {
         if (blockReason != null) return null to false
         if (candidate.blockReason.isEmpty()) { checks.add(GateCheck("candidate_block", true, null)); return null to false }
-        val staleBaseSignalBlock = candidate.blockReason.startsWith("Signal is ") &&
-            candidate.blockReason.endsWith(", not BUY") &&
+        // V5.0.8207 — LifecycleStrategy's "Edge veto: <reason>" block is the legacy edge filter's judgement surfaced on the
+        // candidate; it is the same judgement as the sticky record and obeys the same class rule (GENERIC_PRIOR yields to a
+        // candidate-specific proven admission, CURRENT_NEGATIVE refuses).
+        val legacyEdgeBlock8207 = candidate.blockReason.startsWith("Edge veto") && laneNameForBaseSignal != null &&
+            EdgeOptimizer.legacyVetoClass8207(candidate.blockReason.substringAfter(":", "").trim()) == EdgeOptimizer.LegacyVetoClass8207.GENERIC_PRIOR
+        val staleBaseSignalBlock = ((candidate.blockReason.startsWith("Signal is ") &&
+            candidate.blockReason.endsWith(", not BUY")) || legacyEdgeBlock8207) &&
             laneNameForBaseSignal != null &&
             laneNameForBaseSignal != "STANDARD"
         val specificAdmitSupersedes8203 = staleBaseSignalBlock && specialistLane?.isNotBlank() == true &&
@@ -3704,8 +3748,6 @@ object FinalDecisionGate {
         if (blockReason == null) {
             val activeVeto = hasActiveEdgeVeto(ts.mint)
             if (activeVeto != null) {
-                val remainingSec = getVetoRemainingSeconds(ts.mint)
-
                 if (config.paperMode) {
                     checks.add(GateCheck("edge_veto_sticky", true, "PAPER: veto bypassed for learning (original: ${activeVeto.reason})"))
                     tags.add("edge_veto_bypassed")
@@ -3715,18 +3757,11 @@ object FinalDecisionGate {
                     checks.add(GateCheck("edge_veto_sticky", true, "RETIRED_7985: refused candidates proven to win (${activeVeto.reason})"))
                     tags.add("edge_veto_retired_7985")
                 } else {
-                    // V5.0.7403 — a five-second learned edge veto is already
-                    // extremely short. One hot buy-pressure print cannot erase it.
-                    blockReason = "EDGE_VETO_ACTIVE"
-                    blockLevel = BlockLevel.EDGE
-                    checks.add(
-                        GateCheck(
-                            "edge_veto_sticky",
-                            false,
-                            "Veto active ${remainingSec}s: ${activeVeto.reason} (quality=${activeVeto.quality})"
-                        )
-                    )
-                    tags.add("edge_veto_sticky")
+                    // V5.0.7403 — a five-second learned edge veto is already extremely short; one hot buy-pressure print
+                    // cannot erase it. V5.0.8207 — but it is ONE judgement: legacyEdgeVetoVerdict8207 decides once, with
+                    // provenance, and a candidate-specific proven admission outranks its GENERIC_PRIOR reasons.
+                    val vetoVerdict8207 = legacyEdgeVetoVerdict8207(ts.mint, activeVeto, specialistLane, candidateVersion7623, candidateAdmission8136, checks, tags)
+                    if (vetoVerdict8207 != null) { blockReason = vetoVerdict8207; blockLevel = BlockLevel.EDGE }
                     try { PipelineHealthCollector.labelInc("EDGE_VETO_PRESSURE_BYPASS_REMOVED_7403") } catch (_: Throwable) {}
                 }
             } else {

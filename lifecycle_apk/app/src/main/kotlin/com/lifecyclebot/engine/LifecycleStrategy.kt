@@ -585,7 +585,9 @@ class LifecycleStrategy(
         val edgePhase = EdgeOptimizer.detectMarketPhase(hist, prices)
         val currentBuyPct = pressScore  // pressScore is essentially buy pressure
         val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, currentBuyPct)
-        val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, currentBuyPct, edgeTiming, isPaperMode)
+        // V5.0.8207 — launch freshness from canonical birth evidence only (LaunchBirth8169), never from watchlist discovery.
+        val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, currentBuyPct, edgeTiming, isPaperMode,
+            isFresh = com.lifecyclebot.engine.truth.LaunchBirth8169.verifiedFresh8207(ts.mint))
         
         // PRIORITY 1: Track if Edge says SKIP (will veto BUY later)
         val edgeVeto = edgeFilter.quality == "SKIP"
@@ -643,10 +645,7 @@ class LifecycleStrategy(
                 // Record sticky veto in FDG - but ONLY if not already vetoed
                 // This prevents refreshing the cooldown on every cycle
                 if (FinalDecisionGate.hasActiveEdgeVeto(ts.mint) == null) {
-                    FinalDecisionGate.recordEdgeVeto(ts.mint, edgeFilter.reason, edgeFilter.quality)
-                    if (!cfg().v3EngineEnabled) {
-                        ErrorLogger.debug("Edge", "📝 ${ts.symbol}: Veto recorded (20-30s cooldown starts)")
-                    }
+                    FinalDecisionGate.recordEdgeVeto(ts.mint, edgeFilter.reason, edgeFilter.quality)   // 8207: provenance + freshness recorded inside
                 }
             } else {
                 // Edge is NOT vetoing - clear any existing veto (conditions improved)
@@ -1155,7 +1154,9 @@ class LifecycleStrategy(
         val pressScore = result.meta.pressScore
         val volScore = result.meta.volScore
         val edgeTiming = EdgeOptimizer.checkEntryTiming(edgePhase, hist, prices, pressScore)
-        val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, pressScore, edgeTiming, isPaperMode)
+        // V5.0.8207 — launch freshness from canonical birth evidence only (LaunchBirth8169), never from watchlist discovery.
+        val edgeFilter = EdgeOptimizer.filterTrade(edgePhase, volScore, pressScore, edgeTiming, isPaperMode,
+            isFresh = com.lifecyclebot.engine.truth.LaunchBirth8169.verifiedFresh8207(ts.mint))
         
         // ═══════════════════════════════════════════════════════════════════
         // EDGE VETO: Now handled inside filterTrade with isPaperMode flag

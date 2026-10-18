@@ -528,6 +528,25 @@ object EdgeOptimizer {
      * 
      * ADAPTIVE: Thresholds are learned from trade outcomes via EdgeLearning.
      */
+    /**
+     * V5.0.8207 — the legacy edge filter is ONE judgement about a candidate, read three ways downstream (candidate.edgeVeto,
+     * the "Edge veto:" block reason, the five-second sticky FinalDecisionGate record). Its reasons split into two kinds:
+     * GENERIC_PRIOR — a threshold or tactic prior (volume floor, "wait for pullback/reclaim" timing) that a candidate-specific
+     * proven admission (SPECIFIC_EDGE_PROVEN_8136, measured at this candidate version) outranks under the P1 precedence
+     * hard safety > candidate-specific negative > candidate-specific positive > lane priors > economics; and
+     * CURRENT_NEGATIVE — a measured present condition on the tape (no activity, distribution/smart-money selling, buy pressure
+     * below floor) that still refuses whatever the record says. Unknown reasons are CURRENT_NEGATIVE: never relax by default.
+     */
+    enum class LegacyVetoClass8207 { GENERIC_PRIOR, CURRENT_NEGATIVE }
+    fun legacyVetoClass8207(reason: String?): LegacyVetoClass8207 {
+        val r = reason.orEmpty().trim().lowercase()
+        if (r.isBlank()) return LegacyVetoClass8207.CURRENT_NEGATIVE
+        if (r.startsWith("phase is dead") || r.startsWith("distribution phase") || r.startsWith("buy% too low")) return LegacyVetoClass8207.CURRENT_NEGATIVE
+        if (r.startsWith("volume too low")) return LegacyVetoClass8207.GENERIC_PRIOR
+        if (r.contains("pullback") || r.contains("reclaim") || r.contains("timing") || r.contains("wait for") || r.contains("not optimal")) return LegacyVetoClass8207.GENERIC_PRIOR
+        return LegacyVetoClass8207.CURRENT_NEGATIVE
+    }
+
     fun filterTrade(
         phase: PhaseAnalysis,
         volumeScore: Double,
