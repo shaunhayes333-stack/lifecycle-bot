@@ -207,11 +207,34 @@ object HandoffPriority8190 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8216 — a pending receiver no longer needs its mint to be in the ROTATING work pool. 8215: 4,564
+     * HANDOFF_TARGET_NOT_IN_POOL while the token's TokenState still existed. A target joins the pool when its real
+     * TokenState is held ([tokenFor]); one without TokenState is re-requested through the normal throttled watchlist
+     * intake (never invented). Bounded downstream by [MAX_TARGETS_8190].
+     */
+    internal fun poolWithLiveTargets8216(
+        targets: List<Pair<String, Long>>, present: Collection<String>, nowMs: Long,
+        tokenFor: (String) -> Boolean = { m -> HandoffRoute8180.tokenFor8180(m) != null },
+        rehydrate: (String) -> Unit = { m -> try { HandoffRetention8185.rehydrate8185(m, nowMs) } catch (_: Throwable) {} },
+    ): Collection<String> {
+        if (targets.isEmpty()) return present
+        val set = present.toHashSet()
+        var joined = 0
+        for ((m, _) in targets.distinctBy { it.first }) {
+            if (m in set) continue
+            if (tokenFor(m)) { set.add(m); joined++ } else rehydrate(m)
+        }
+        if (joined > 0) try { PipelineHealthCollector.labelAdd("HANDOFF_TARGET_JOINED_POOL_8216", joined.toLong()) } catch (_: Throwable) {}
+        return set
+    }
+
     /** BotService priority window: the due targets among [all] (always inside the window, like open positions). */
     fun windowTargets8190(all: Collection<String>, nowMs: Long = System.currentTimeMillis()): List<String> =
         try {
             val targets = targets8190(nowMs)
-            select8190(targets, all).also { accountDropped8198(targets, all, it, nowMs) }
+            val pool = poolWithLiveTargets8216(targets, all, nowMs)
+            select8190(targets, pool).also { accountDropped8198(targets, pool, it, nowMs) }
         } catch (_: Throwable) { emptyList() }
 
     /** BotService.selectOrderedMintsForCycle: the due targets among [otherMints], put in the slice first. */
