@@ -29,6 +29,27 @@ object RunnerCapture8017 {
         @Volatile var entryPx = 0.0
         @Volatile var bankedPct = Double.NaN
         @Volatile var openNowPct = Double.NaN
+        /** V5.0.8237 — when the stored peak was observed, and whether it fell inside the bot's own holding window. */
+        @Volatile var peakAtMs = 0L
+        @Volatile var peakInHold = true
+    }
+
+    /**
+     * Pure (V5.0.8237): a peak % stated over [obsStartPx] re-expressed over this run's own [runStartPx]. The forward
+     * labeler keeps one observation per (mint, lane) and each starts at its own decision price; the run keeps the
+     * FIRST start. 8236 forensic: YEARN printed +1909% — a later lane's % kept over an earlier lane's start.
+     */
+    fun rebasedPeakPct8237(peakPct: Double, obsStartPx: Double, runStartPx: Double): Double {
+        if (!peakPct.isFinite()) return Double.NaN
+        if (!(obsStartPx > 0.0) || !(runStartPx > 0.0) || obsStartPx == runStartPx) return peakPct
+        val peakPx = obsStartPx * (1.0 + peakPct / 100.0)
+        return (peakPx / runStartPx - 1.0) * 100.0
+    }
+
+    /** Pure (V5.0.8237): was the run's peak observed while the bot held the coin (entry..close)? */
+    fun peakInHold8237(peakAtMs: Long, closeAtMs: Long, holdingTimeMs: Long): Boolean {
+        if (peakAtMs <= 0L || closeAtMs <= 0L || holdingTimeMs <= 0L) return true
+        return peakAtMs in (closeAtMs - holdingTimeMs)..closeAtMs
     }
 
     private val runs = ConcurrentHashMap<String, Run>()
@@ -104,7 +125,10 @@ object RunnerCapture8017 {
             try { PipelineHealthCollector.labelInc("RUNNER_SEEN_8017") } catch (_: Throwable) {}
             Run(mint, symbol, lane, startPx, nowMs, refusedBy)
         }
-        if (peakPct > r.peakPct) r.peakPct = peakPct
+        // V5.0.8237 — every observation's % is read over THIS run's start before it can raise the peak.
+        val rebased8237 = rebasedPeakPct8237(peakPct, startPx, r.startPx)
+        if (rebased8237 != peakPct) try { PipelineHealthCollector.labelInc("RUNNER_PEAK_REBASED_TO_RUN_START_8237") } catch (_: Throwable) {}
+        if (rebased8237.isFinite() && rebased8237 > r.peakPct) { r.peakPct = rebased8237; r.peakAtMs = nowMs }
         // V5.0.8055 — a lane's native opinion (TREASURY "role floor" on a $30K meme) is not what stopped the buy: the
         // first label of a runner is often a lane that would never own it. A gate refusal (watch first, Cortex, net
         // edge ...) from a later label of the same coin names the real stop.
@@ -133,6 +157,9 @@ object RunnerCapture8017 {
         r.live = r.live || env.mode.equals("live", ignoreCase = true)
         if (env.realizedReturnPct.isFinite()) r.bankedPct = env.realizedReturnPct
         r.openNowPct = Double.NaN
+        // V5.0.8237 — a peak before the entry or after the close is not a run the position could have banked.
+        r.peakInHold = peakInHold8237(r.peakAtMs, env.atMs, env.holdingTimeMs)
+        if (!r.peakInHold) try { PipelineHealthCollector.labelInc("RUNNER_PEAK_OUTSIDE_HOLD_8237") } catch (_: Throwable) {}
         try { AdmissionRunnerTrace8144.update8144(env.mint, r.refusedBy, downstream8047[env.mint], true) } catch (_: Throwable) {}  // V5.0.8144
     }
 
@@ -144,12 +171,13 @@ object RunnerCapture8017 {
         val held = recent.filter { it.held }
         val liveHeld = held.count { it.live }
         val entries = held.mapNotNull { entryVsStart8017(it.entryPx, it.startPx).takeIf { v -> v.isFinite() } }.sorted()
-        val shares = held.mapNotNull { bankedShare8017(it.bankedPct, it.peakPct, entryVsStart8017(it.entryPx, it.startPx)).takeIf { v -> v.isFinite() } }.sorted()
+        val shares = held.filter { it.peakInHold }.mapNotNull { bankedShare8017(it.bankedPct, it.peakPct, entryVsStart8017(it.entryPx, it.startPx)).takeIf { v -> v.isFinite() } }.sorted()
         fun med(xs: List<Double>) = if (xs.isEmpty()) "-" else "%+.0f%%".format(xs[xs.size / 2])
         val rows = recent.take(8).joinToString(" · ") { r ->
             val e = entryVsStart8017(r.entryPx, r.startPx)
             when {
                 !r.held -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% MISSED(${missedWhy8047(r.refusedBy, downstream8047[r.mint]).take(40)})"
+                r.bankedPct.isFinite() && !r.peakInHold -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% PEAK_OUTSIDE_HOLD banked ${"%+.0f".format(r.bankedPct)}%${if (r.live) " LIVE" else " paper"}"
                 r.bankedPct.isFinite() -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% in@${if (e.isFinite()) "%+.0f%%".format(e) else "?"} banked ${"%+.0f".format(r.bankedPct)}% (${"%.0f".format((bankedShare8017(r.bankedPct, r.peakPct, e).takeIf { it.isFinite() } ?: 0.0) * 100)}% of run)${if (r.live) " LIVE" else " paper"}"
                 else -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% in@${if (e.isFinite()) "%+.0f%%".format(e) else "?"} HOLDING ${if (r.openNowPct.isFinite()) "%+.0f%%".format(r.openNowPct) else ""}${if (r.live) " LIVE" else " paper"}"
             }

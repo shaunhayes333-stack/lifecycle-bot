@@ -30,7 +30,8 @@ object CloseOutcomeLabelSanitizer {
         val v = inspect(row)
         if (!v.dirty || v.canonicalReason == row.reason) return row
         if (emit) emitRewrite(row, v)
-        return row.copy(reason = v.canonicalReason)
+        // V5.0.8237 — the outcome label replaces the reason; the trigger survives beside it (first rewrite wins).
+        return row.copy(reason = v.canonicalReason, originalExitReason = row.originalExitReason.ifBlank { row.reason })
     }
 
     fun inspect(t: Trade): LabelVerdict {

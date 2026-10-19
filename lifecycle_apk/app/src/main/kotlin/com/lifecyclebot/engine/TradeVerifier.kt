@@ -91,11 +91,12 @@ object TradeVerifier {
             return false
         }
         activeSells[mint] = ActiveSell(sig, now, reason)
+        SellBalanceProof8237.invalidate8237(mint)  // V5.0.8237 — a broadcast spends; the pre-sell balance is no longer proof
         return true
     }
 
     /** Clear the guard once a sell has been verified or failed. */
-    fun endSell(mint: String) { activeSells.remove(mint) }
+    fun endSell(mint: String) { activeSells.remove(mint); SellBalanceProof8237.invalidate8237(mint) }
 
     fun activeSellSig(mint: String): String? = activeSells[mint]?.sig
 

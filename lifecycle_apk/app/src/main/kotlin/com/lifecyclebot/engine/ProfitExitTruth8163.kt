@@ -68,6 +68,7 @@ object ProfitExitTruth8163 {
         val slip = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
         val quote = try { jupiter.getQuote(inputMint = ts.mint, outputMint = JupiterApi.SOL_MINT, amountRaw = raw, slippageBps = slip) }
             catch (_: Exception) { return refused(ts, "EXECUTABLE_QUOTE_UNAVAILABLE", releaseLocks) }
+        reconcileMark8237(ts, raw, quote.outAmount)
         return if (clears(cost, quote.outAmount, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "EXECUTABLE_SOL_BELOW_SLICE_COST", releaseLocks)
     }
 
@@ -76,14 +77,53 @@ object ProfitExitTruth8163 {
         if (ts.position.isPaperPosition || !profitTaking(reason)) return true
         PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_QUOTE_8168")
         if (quote.inputMint != ts.mint || quote.outputMint != JupiterApi.SOL_MINT) return refused(ts, "QUOTE_IDENTITY_MISMATCH")
+        reconcileMark8237(ts, quote.inAmount, quote.outAmount)
         return if (clears(basis(ts, quote.inAmount), quote.outAmount, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "REQUOTE_BELOW_SLICE_COST")
     }
 
     fun acceptProceeds8168(ts: TokenState, reason: String, raw: Long, outLamports: Long, slip: Int): Boolean {
         if (ts.position.isPaperPosition || !profitTaking(reason)) return true
         PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_ROUTE_8168")
+        reconcileMark8237(ts, raw, outLamports)
         return if (clears(basis(ts, raw), outLamports, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true
         else refused(ts, "ROUTE_PROCEEDS_BELOW_SLICE_COST", releaseLocks = false)
+    }
+
+    /**
+     * V5.0.8237 §A_DISPROVEN_MARK_STOPS_HERE — the executable quote is the only price a profit exit can bank; when the
+     * mark the position was displayed, peaked and (nearly) learnt at sits far above it, the mark is disproven: the
+     * position's price and peak are re-based to the quote so the screen, the trailing peak and the learner stop reading
+     * a gain nobody could sell. 8236 forensic (YEARN): +1909%/+2000% displayed, +3.5% executable, 20 of 21 profit quotes
+     * refused against slice cost — the quote proved the mark wrong 20 times and nothing acted on it.
+     */
+    private const val MARK_DISPROOF_RATIO_8237 = 1.5
+
+    /** Pure: the USD price a quote actually states for the slice, or NaN. */
+    fun quoteImpliedUsd8237(outLamports: Long, rawIn: Long, decimals: Int, solUsd: Double): Double {
+        if (outLamports <= 0L || rawIn <= 0L || decimals !in 0..18 || !(solUsd > 0.0) || !solUsd.isFinite()) return Double.NaN
+        val tokens = rawIn / Math.pow(10.0, decimals.toDouble())
+        return (outLamports / 1e9 * solUsd) / tokens
+    }
+
+    /** Pure: is the mark more than [MARK_DISPROOF_RATIO_8237] above the executable price? */
+    fun markDisproven8237(markUsd: Double, quoteUsd: Double): Boolean =
+        markUsd.isFinite() && quoteUsd.isFinite() && markUsd > 0.0 && quoteUsd > 0.0 && markUsd / quoteUsd > MARK_DISPROOF_RATIO_8237
+
+    private fun reconcileMark8237(ts: TokenState, rawIn: Long, outLamports: Long) {
+        try {
+            val dec = ts.decimals ?: ts.position.tokenDecimals.takeIf { it >= 0 } ?: return
+            val q = quoteImpliedUsd8237(outLamports, rawIn, dec, WalletManager.lastKnownSolPrice)
+            if (!markDisproven8237(ts.lastPrice, q)) return
+            val ratio = ts.lastPrice / q
+            ts.lastPrice = q
+            ts.lastPriceSource = "EXEC_QUOTE_8237"
+            ts.lastPriceUpdate = System.currentTimeMillis()
+            val floor = maxOf(q, ts.position.entryPrice)
+            if (ts.position.highestPrice > floor) ts.position.highestPrice = floor
+            PipelineHealthCollector.labelInc("MARK_DISPROVEN_BY_QUOTE_8237")
+            if (ForensicEmitRateLimiter6356.shouldEmit("MARK_DISPROVEN_8237", ts.mint))
+                ForensicLogger.lifecycle("MARK_DISPROVEN_BY_QUOTE_8237", "mint=${ts.mint} markOverQuote=${"%.2f".format(ratio)}x quoteUsd=$q peakRebasedTo=$floor")
+        } catch (_: Throwable) {}
     }
 
     private fun refused(ts: TokenState, why: String, releaseLocks: Boolean = true): Boolean {

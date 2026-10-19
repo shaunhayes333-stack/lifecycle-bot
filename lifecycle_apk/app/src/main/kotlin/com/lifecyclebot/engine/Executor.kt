@@ -21022,7 +21022,9 @@ class Executor(
                     positionId = canonicalPositionId,
                     entryTsMs = ts.position.entryTime,
                     entryPriceSnapshot = verifiedEntryPrice,
-                    entryMcapUsd = entryMarketSnapshot.marketCapUsd,
+                    // V5.0.8237 — the cap is the snapshot's own supply priced at the PROVEN fill, never the pre-buy cap beside the fill price.
+                    entryMcapUsd = com.lifecyclebot.engine.truth.EntryMcapReconcile8237.reconciled8237(entryMarketSnapshot.marketCapUsd, entryMarketSnapshot.priceUsd, verifiedEntryPrice)
+                        .also { com.lifecyclebot.engine.truth.EntryMcapReconcile8237.noteReconciled8237(entryMarketSnapshot.marketCapUsd, it) },
                     entryQtyToken = qtyUi,
                     entryCostSol = actualCostSol,
                     entryDecimals = decimals,
@@ -21553,6 +21555,8 @@ class Executor(
                             )
                         ts.position = ts.position.copy(
                             entryPrice = proofEntryUsd,
+                            // V5.0.8237 — the position's entry cap follows the proven fill (same implied supply as its own stamp).
+                            entryMcap = com.lifecyclebot.engine.truth.EntryMcapReconcile8237.reconciled8237(ts.position.entryMcap, oldEntry, proofEntryUsd),
                             highestPrice = proofEntryUsd,
                             lowestPrice = if (ts.position.lowestPrice > 0.0) minOf(ts.position.lowestPrice, proofEntryUsd) else proofEntryUsd,
                             costSol = actualCostSol6486,

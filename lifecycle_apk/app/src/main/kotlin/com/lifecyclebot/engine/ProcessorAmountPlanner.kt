@@ -194,9 +194,13 @@ object ProcessorAmountPlanner {
         processor: String = "DIRECT",
     ): ConfirmedSellAmount? {
         if (!requestedUiQty.isFinite() || requestedUiQty <= 0.0) return null
-        val first8020 = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
-            ErrorLogger.warn("ProcessorAmountPlanner", "BALANCE_UNKNOWN ${ts.symbol}: token-account read failed: ${e.message}")
-            null
+        // V5.0.8237 — one balance proof per exit attempt, reused across route retries while fresh (invalidated on any
+        // registered / ended sell for the mint). Same read, same downstream checks; not repeated per retry.
+        val first8020 = SellBalanceProof8237.accounts8237(ts.mint, System.currentTimeMillis()) {
+            try { wallet.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
+                ErrorLogger.warn("ProcessorAmountPlanner", "BALANCE_UNKNOWN ${ts.symbol}: token-account read failed: ${e.message}")
+                null
+            }
         }
         // V5.0.8020 — one immediate re-read before a sell is blocked on BALANCE_UNKNOWN: 8018 blocked 7 sells
         // (Altai's partial at +42.6% among them) on a single failed or empty RPC read.

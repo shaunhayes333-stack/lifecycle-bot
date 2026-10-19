@@ -408,6 +408,9 @@ data class Trade(
     // fill-lot and journal writers.  Never derive transaction identity from
     // floating-point proceeds/basis/fee values.
     val economicEventId: String = "",
+    // V5.0.8237 — the instruction that actually triggered the sell (runner lock, profit ladder, stop …), kept apart from
+    // the retrospective outcome label the sanitizer writes into [reason]. Blank = reason was never rewritten.
+    val originalExitReason: String = "",
 )
 
 data class StrategyMeta(
