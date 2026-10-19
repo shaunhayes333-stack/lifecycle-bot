@@ -37,6 +37,7 @@ object FdgOutcomeContinuity8197 {
         val version = try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
         val result = FinalDecisionGate.evaluate(ts, candidate, config, proposedSizeSol, brain,
             tradingModeTag, laneScore, specialistLane, fanoutRole)
+        shadowObserveAdmittedBlock8233(ts, lane, version, result, proposedSizeSol, laneScore)
         if (needsEarlyRecord8197(result)) {
             // Early returns are refusals; never manufacture an allow, finality,
             // size or sealed intent to "unstick" a specialist.
@@ -48,5 +49,31 @@ object FdgOutcomeContinuity8197 {
             } catch (_: Throwable) {}
         }
         return result
+    }
+
+    /**
+     * V5.0.8233 — the shadow book observes every LIVE candidate the edge authority ADMITTED (AdmissionEdge8180 holds a
+     * proof for this generation) that the FDG then blocked downstream. 5.0.8231: 174 admitted, 0 executed, shadow book
+     * opens=0 — the only openers sat behind the live Executor entry. The book is how live learns while it cannot trade;
+     * it stays observation-only (Executor.runShadowPaperBuy never promotes). Paper mode has its own book: skipped.
+     */
+    internal fun shadowOpenReason8233(live: Boolean, admitted: Boolean, blockReason: String?): String? {
+        if (!live || !admitted || blockReason.isNullOrBlank()) return null
+        return "admitted_blocked:" + blockReason.take(40)
+    }
+
+    private fun shadowObserveAdmittedBlock8233(
+        ts: TokenState, lane: String, version: Long, result: FinalDecisionGate.FinalDecision, proposedSizeSol: Double, laneScore: Double,
+    ) {
+        try {
+            if (result.shouldTrade) return
+            val live = !RuntimeModeAuthority.isPaper()
+            val admitted = com.lifecyclebot.engine.truth.AdmissionEdge8180.proof8198("LIVE", ts.mint, lane, version) != null
+            val reason = shadowOpenReason8233(live, admitted, result.blockReason) ?: return
+            val executor = BotService.instance?.executor ?: return
+            val sol = if (proposedSizeSol.isFinite() && proposedSizeSol > 0.0) proposedSizeSol else 0.0285
+            executor.shadowObserve8233(ts, sol, laneScore, lane, reason)
+            PipelineHealthCollector.labelInc("SHADOW_OPEN_ON_ADMITTED_BLOCK_8233_$lane")
+        } catch (_: Throwable) {}
     }
 }

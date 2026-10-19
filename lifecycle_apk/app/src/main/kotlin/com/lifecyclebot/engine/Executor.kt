@@ -14666,6 +14666,16 @@ class Executor(
         }
     }
     
+    /**
+     * V5.0.8233 §THE_SHADOW_BOOK_LEARNS_FROM_WHAT_LIVE_WANTED — FdgOutcomeContinuity8197: a LIVE candidate the edge
+     * authority ADMITTED and a downstream gate (economics at size, watch-first band, launch cap, route minimum) blocked is
+     * observed in the shadow book at its current mark. 5.0.8231: FDG allow=0/2478 with admission ADMIT=174 and the book
+     * read opens=0 — every opener sat behind the Executor's live entry, so a session that executes nothing learned
+     * nothing from the 174 coins its own edge gate wanted. Observation only: the book never promotes a trade.
+     */
+    fun shadowObserve8233(ts: TokenState, sol: Double, score: Double, quality: String, reason: String) =
+        runShadowPaperBuy(ts, sol, score, quality, reason)
+
     fun checkShadowPositions(tokenStates: Map<String, TokenState>) {
         // V5.0.6073 — SHADOW ALWAYS-ON: gate removed (was toggle + live-only).
         val toRemove = mutableListOf<String>()

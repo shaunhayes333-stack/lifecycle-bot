@@ -54,3 +54,12 @@ CI: GitHub Actions only (no local compiler). Ignore `Runtime Smoke Test`; the ga
 - `ScannerDedup6430` no callers; `LIVE PIPELINE TRACE` no writers.
 - Paper exit latency is a projection; a true delayed paper fill (async) would be the next parity step.
 - BASIS_UNCERTAIN_7807 live closes still excluded from learners (CanonicalPositionAuthority6441 quarantine).
+
+## 8232 — one economic basis at the sizer (operator "no trades" 8231 snapshot)
+- 8231 snapshot: FDG allow=0/2478; admission8136 ADMIT=174 yet LiveRiskPolicy7807 passes=NET_EV_NONPOSITIVE_AT_SIZE_8153=15,
+  ROUTE_MIN_PROMOTION_REFUSED_LOSS_BUDGET=3 → every sized candidate refused on a SECOND gross/cost estimator.
+- Fix: `runtimeInputs` gross = AdmissionEdge8180 proof's expectedGrossPct when the generation holds one
+  (`SIZING_GROSS_FROM_ADMISSION_PROOF_8232`); `costAtSizePct8153` = the component/measured cost (costPct8030) when supplied,
+  7766 model only as fallback (no more `max(7766, real)`). Aate8153SizingTest aligned.
+- Structural remainder (not a bug): wallet 0.32 SOL → routable min 0.0285 SOL ticket → ~6.25% round trip; lane records
+  mostly negative (lanes60 nets ≤0; live 0/3). EXECUTION_ECONOMICS (671) refuses gross < 1.5× cost honestly.

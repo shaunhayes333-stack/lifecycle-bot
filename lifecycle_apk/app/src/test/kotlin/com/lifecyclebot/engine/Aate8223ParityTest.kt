@@ -154,4 +154,17 @@ class Aate8223ParityTest {
         assertTrue(risk.contains("val gross8153 = proofGross8232 ?: ts8153?.let { setupExpectedGrossPct8153(it, effectiveLane7811, rec8153) } ?: Double.NaN"))
         assertTrue(risk.contains("return if (real.isFinite() && real > 0.0) real else model"))
     }
+
+    // ── 8. the shadow book observes what live wanted and could not take ──
+
+    @Test fun theShadowBookOpensOnAnAdmittedCandidateTheFdgBlockedInLiveOnly() {
+        val f = com.lifecyclebot.engine.FdgOutcomeContinuity8197
+        assertEquals("admitted_blocked:NET_EV_NONPOSITIVE_AT_SIZE_8153", f.shadowOpenReason8233(true, true, "NET_EV_NONPOSITIVE_AT_SIZE_8153"))
+        assertNull(f.shadowOpenReason8233(false, true, "X"))   // paper mode has its own book
+        assertNull(f.shadowOpenReason8233(true, false, "X"))   // never admitted: not what live wanted
+        assertNull(f.shadowOpenReason8233(true, true, null))   // an allow is the live path's business
+        val s = src("engine/FdgOutcomeContinuity8197.kt")
+        assertTrue(s.contains("shadowObserveAdmittedBlock8233(ts, lane, version, result, proposedSizeSol, laneScore)"))
+        assertTrue(s.contains("executor.shadowObserve8233(ts, sol, laneScore, lane, reason)"))
+    }
 }
