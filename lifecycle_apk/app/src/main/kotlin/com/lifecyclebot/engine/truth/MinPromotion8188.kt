@@ -59,6 +59,26 @@ object MinPromotion8188 {
     }
 
     /**
+     * V5.0.8236 — ONE risk budget for every route-minimum promotion path. A smaller proposed
+     * order is not itself a tradeable loss budget. The canonical wallet/sizer's safe-share
+     * capacity is the upper budget, only when that wallet can route the minimum. This
+     * DOES NOT authorise a spend: the lane envelope, hard per-trade stop loss, available
+     * cash, depth, quote, expected net return and final sealed amount remain binding.
+     * NaN means no proven capacity; refusal8188 then preserves the original tight budget.
+     */
+    fun doctrineBudgetSol8236(tradeableSol: Double, solUsd: Double): Double {
+        if (!tradeableSol.isFinite() || tradeableSol <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0) return Double.NaN
+        return try {
+            val p = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeableSol, solUsd)
+            val cap = p.safeShareCapSol
+            val min = p.routableMinSol
+            if (!p.wouldRefuse && cap.isFinite() && min.isFinite() && min > 0.0 &&
+                cap >= min && cap <= p.tradeableSol && p.tradeableSol <= tradeableSol + 1e-12
+            ) cap else Double.NaN
+        } catch (_: Throwable) { Double.NaN }
+    }
+
+    /**
      * Runtime (the upstream sizers): the same test with the inputs LiveRiskPolicy7807.runtimeInputs would read — the
      * fresh plan stop (else the lane mandate), the realistic round trip at each size, the setup's expected gross and the
      * verified live drawdown. Any fault refuses ([REFUSED_UNEVALUATED_8188]): an unproven promotion is not made.
@@ -93,11 +113,8 @@ object MinPromotion8188 {
             // candidates, every lane). The budget is the account's per-position doctrine — the safe share cap the
             // routable-capacity preflight already enforces — when it is larger than the request; the promoted ticket
             // still has to clear it, and a wallet whose doctrine is below the routable minimum still refuses.
-            val budgetSol8234 = try {
-                val tradeable = (com.lifecyclebot.engine.BotService.status.walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0)
-                val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-                com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd).safeShareCapSol
-            } catch (_: Throwable) { Double.NaN }
+            val tradeable8236 = (com.lifecyclebot.engine.BotService.status.walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0)
+            val budgetSol8234 = doctrineBudgetSol8236(tradeable8236, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
             if (budgetSol8234.isFinite() && budgetSol8234 > requestedSol)
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ROUTE_MIN_PROMOTION_BUDGET_FROM_DOCTRINE_8234") } catch (_: Throwable) {}
             refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross, liveDrawdownFrac8188(), budgetSol8234)
