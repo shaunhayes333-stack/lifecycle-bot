@@ -105,6 +105,7 @@ object HandoffReceiverTasks8153 {
             LANE_SCOPED_8153.any { r.startsWith(it) } -> Block8153.FIT
             LANE_JUDGEMENT_8153.any { r.startsWith(it) } -> Block8153.JUDGEMENT
             binding -> Block8153.BINDING
+            LaneInputTruth8236.nativeDataInputs8237(r).isNotEmpty() -> Block8153.DATA
             DATA_WORDS_8153.any { r.contains(it) } -> Block8153.DATA
             WAIT_WORDS_8153.any { r.contains(it) } -> Block8153.WAIT
             fit -> Block8153.FIT
@@ -638,7 +639,9 @@ object HandoffTaskRuntime8153 {
         }
     } catch (_: Throwable) { false }
 
-    private fun claimRefused8153(mint: String, lane: String, outcome: ElectionRescueContract8144.ClaimOutcome8144, ineligible: String?, nowMs: Long) {
+    /** Both direct handoffs and general rescue claims keep one typed outcome on the live task. */
+    internal fun claimRefused8153(mint: String, lane: String, outcome: ElectionRescueContract8144.ClaimOutcome8144, ineligible: String?, nowMs: Long) {
+        if (outcome.executable || !HandoffReceiverTasks8153.isDue8153(mint, lane, nowMs)) return
         when (outcome) {
             ElectionRescueContract8144.ClaimOutcome8144.DENIED_JUDGEMENT ->
                 HandoffReceiverTasks8153.blockTask8153(mint, lane, HandoffReceiverTasks8153.Block8153.BINDING, "PRIMARY_JUDGEMENT", nowMs)

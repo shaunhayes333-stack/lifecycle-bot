@@ -79,7 +79,8 @@ class Aate8144ElectionTest {
         // The ownership claim runs inside the guard; the old `catch { true }` fallback is gone from the file.
         val o = src("engine/SpecialistOwnership7951.kt")
         assertTrue(o.contains("val outcome = ElectionRescueContract8144.guardedClaim8144 {"))
-        assertTrue(o.contains("return outcome.executable"))
+        assertTrue(o.contains("recordRescueOutcome(lane, mint, outcome, nowMs)"))
+        assertTrue(o.contains("return outcome"))
         assertFalse(o.contains("{ true }"))
         assertBalanced("CASHGEN", "MOONSHOT")
     }

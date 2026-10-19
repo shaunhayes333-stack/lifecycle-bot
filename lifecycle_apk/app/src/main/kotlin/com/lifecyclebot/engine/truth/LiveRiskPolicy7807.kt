@@ -678,9 +678,13 @@ object LiveRiskPolicy7807 {
                 // V5.0.8188 — re-evaluated AT the promoted notional: the loss budget, a measured positive edge after the round trip
                 // at the minimum, and no defensive drawdown.
                 // V5.0.8236 — ONE loss budget with the upstream sizers: the account's per-position doctrine (safe share cap)
-                // when it exceeds the sub-minimum risk size (MinPromotion8188.doctrineBudgetSol8236), not the lane ticket alone.
+                // when it exceeds the sub-minimum risk size. Use this decision's captured wallet/price inputs;
+                // every envelope and stop check remains binding.
+                val doctrineBudget8236 = MinPromotion8188.doctrineBudgetSol8236(tradeable8153, i.solUsd)
+                if (doctrineBudget8236.isFinite() && doctrineBudget8236 > size)
+                    labels += "ROUTE_MIN_BUDGET_SHARED_WITH_UPSTREAM_8236"
                 MinPromotion8188.refusal8188(size, i.execMinSol, stop, if (size > 0.0) costAtSizePct8153(i, size) else Double.NaN,
-                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac, MinPromotion8188.doctrineBudgetSol8236(size))
+                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac, budgetSol = doctrineBudget8236)
                     ?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
                 fixedCostRefusal8169(i, i.execMinSol)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }

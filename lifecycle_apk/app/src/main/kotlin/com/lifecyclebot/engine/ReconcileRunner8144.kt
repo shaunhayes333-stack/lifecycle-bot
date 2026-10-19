@@ -1,7 +1,6 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
-import com.lifecyclebot.engine.truth.CanonicalTokenAmount
 import com.lifecyclebot.engine.truth.ReconcileClassifier8144
 import com.lifecyclebot.engine.truth.ReconcileLineageLedger8144
 import java.math.BigInteger
@@ -35,23 +34,15 @@ object ReconcileRunner8144 {
     @Volatile private var last: ReconcileClassifier8144.Report8144? = null
     @Volatile private var lastAtMs = 0L
     @Volatile private var lastError = ""
-    @Volatile private var walletSnap8144: Map<String, CanonicalTokenAmount>? = null
-    @Volatile private var walletSnapAtMs8144 = 0L
-    @Volatile private var walletSnapComplete8144 = false
+    @Volatile private var auditedWalletAtMs8237 = 0L
+    @Volatile private var auditedWalletComplete8237 = false
+    @Volatile private var auditedWalletSource8237 = "UNREAD"
     // V5.0.8169 — unsigned journal buys given their local signature from SignedTxLedger8085 on the last pass.
     @Volatile private var sigRecovered8169 = 0
     @Volatile private var sigAmbiguous8169 = 0
 
     private val scheduler8144 by lazy {
         Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "reconcile-8144").apply { isDaemon = true } }
-    }
-
-    /** WalletReconciler: the wallet token snapshot it just read (and whether both token programs answered). */
-    fun noteWalletSnapshot8144(walletMints: Map<String, CanonicalTokenAmount>) {
-        if (walletMints.isEmpty()) return
-        walletSnap8144 = walletMints
-        walletSnapAtMs8144 = System.currentTimeMillis()
-        walletSnapComplete8144 = try { !com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { false }
     }
 
     fun ensureStarted8144() {
@@ -77,6 +68,13 @@ object ReconcileRunner8144 {
 
     fun shouldRecheck8171(lastWasHealthy: Boolean, ageMs: Long): Boolean =
         !lastWasHealthy || ageMs < 0L || ageMs >= PERIOD_MS_8144
+
+    internal fun walletObservationForAudit8237(nowMs: Long): WalletAccountCache.Snapshot8237? =
+        WalletAccountCache.snapshotWithProof8237(ttlMs = SNAPSHOT_MAX_AGE_MS_8144, nowMs = nowMs)
+            ?.let { observation ->
+                // Preserve WalletReconciler's collateral exclusion when consuming the raw RPC cache directly.
+                observation.copy(tokens = observation.tokens.filterKeys { it != "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" })
+            }
 
     private fun runSafely8144() {
         try {
@@ -198,9 +196,17 @@ object ReconcileRunner8144 {
         }
         val hostOpen = try { HostWalletTokenTracker.getOpenForAccountingMints() } catch (_: Throwable) { null }
 
-        val fresh = walletSnap8144?.takeIf { nowMs - walletSnapAtMs8144 <= SNAPSHOT_MAX_AGE_MS_8144 }
-        val snap = fresh ?: try { WalletAccountCache.snapshot(ttlMs = SNAPSHOT_MAX_AGE_MS_8144) } catch (_: Throwable) { null }
-        val complete = fresh != null && walletSnapComplete8144
+        // Read the producer's immutable observation, including a successful empty wallet.
+        // The former private nonempty cache survived sell invalidation and ignored every
+        // later empty response, reporting the entire sold balance as a new chain mismatch.
+        val walletObservation8237 = try {
+            walletObservationForAudit8237(nowMs)
+        } catch (_: Throwable) { null }
+        val snap = walletObservation8237?.tokens
+        val complete = walletObservation8237?.complete == true
+        auditedWalletAtMs8237 = walletObservation8237?.observedAtMs ?: 0L
+        auditedWalletComplete8237 = complete
+        auditedWalletSource8237 = walletObservation8237?.source ?: "UNREAD"
         // V5.0.8189 — every canonical lot is compared: a mint the snapshot lacks is filled from the exit path's owner+mint reads.
         val chain: Map<String, BigInteger>? = PositionProof8189.chainFor8189(snap?.mapValues { it.value.raw }, lots.mapTo(HashSet()) { it.mint }, complete, nowMs)
         val frozen = HashSet<String>()
@@ -224,5 +230,7 @@ object ReconcileRunner8144 {
             " | ${try { ReconcileLineageLedger8144.statusLine8144() } catch (_: Throwable) { "lineage8144 unavailable" }}" +
             " dupSigBlocked=${ReconcileSignatureGuard8144.blockedCount8144()} started=${started.get()}" +
             " sigRecovered8169=$sigRecovered8169 sigAmbiguous8169=$sigAmbiguous8169" +
+            " walletObservation8237=[ageMs=${if (auditedWalletAtMs8237 > 0L) nowMs - auditedWalletAtMs8237 else -1L}" +
+            " complete=$auditedWalletComplete8237 source=$auditedWalletSource8237]" +
             (try { PositionProof8189.block8189(nowMs) } catch (_: Throwable) { "" })
 }

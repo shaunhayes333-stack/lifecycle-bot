@@ -19927,6 +19927,10 @@ class Executor(
             val pending = status.isBlank() || status.contains("PENDING", ignoreCase = true)
             if (!pending) return false
             val now = System.currentTimeMillis()
+            // 8237: ensureDiscoveryTokenMap classifies local evidence; it does not
+            // perform a provider lookup. A deferred sealed BUY must request the
+            // missing route/depth proof, then retry with the same safety/quote gates.
+            try { DataDeferFetch8180.request8180(ts, listOf("token_map:$status", "route:UNKNOWN"), now) } catch (_: Throwable) {}
             val prior = tokenMapDeferrals7371[ts.mint]?.filter { now - it < 5 * 60_000L }.orEmpty()
             // V5.0.8080 §DATA_IS_NOT_AN_EXECUTION_FAILURE. A route still resolving after three deferrals is missing DATA:
             // nothing was quoted, built or sent. It was booked as BUY_TERMINAL_ROUTE_FAIL:TOKEN_MAP_INCOMPLETE (8077: 12 of

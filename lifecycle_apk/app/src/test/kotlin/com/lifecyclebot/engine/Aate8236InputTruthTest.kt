@@ -80,9 +80,9 @@ class Aate8236InputTruthTest {
 
     @Test fun bothPromotionPathsReadTheDoctrineBudget() {
         val risk = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveRiskPolicy7807.kt").readText()
-        assertTrue(risk.contains("MinPromotion8188.doctrineBudgetSol8236(size))"))
+        assertTrue(risk.contains("MinPromotion8188.doctrineBudgetSol8236(tradeable8153, i.solUsd)"))
         val promo = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MinPromotion8188.kt").readText()
-        assertTrue(promo.contains("val budgetSol8234 = doctrineBudgetSol8236(requestedSol)"))
+        assertTrue(promo.contains("val budgetSol8234 = doctrineBudgetSol8236(tradeable8236, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)"))
         val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SpecialistBrainBridge7542.kt").readText()
         assertTrue(bridge.contains("LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236)"))
     }

@@ -252,6 +252,21 @@ jobs:
             --tests '*Aate7725AutonomousModeIsolationTest*' \
             --tests '*Aate7725PredictiveSourceEvidenceTest*' \
             --tests '*Aate7803*' \
+            --tests '*Aate7807LiveRiskPolicyTest*' \
+            --tests '*Aate8209CandidateCostProofTest*' \
+            --tests '*Aate8211AdmissionDataRepairTest*' \
+            --tests '*Aate8213AllLaneDataAdmissionTest*' \
+            --tests '*Aate8223ParityTest*' \
+            --tests '*Aate8237*' \
+            --tests '*Aate8236InputTruthTest*' \
+            --tests '*Aate7542NativeSpecialistAuthorityTest*' \
+            --tests '*Aate8180RunnerCaptureTest*' \
+            --tests '*Aate8136SpecialistElectionTest*' \
+            --tests '*Aate8216HandoffPoolTest*' \
+            --tests '*Aate8191DataPipelineTest*' \
+            --tests '*Aate7809MarketDataTest*' \
+            --tests '*Aate8201AdmittedTerminalTest*' \
+            --tests '*Aate7484OhlcvSameKeyCoalescerTest*' \
             --tests '*Aate7832*' \
             --tests '*Aate7833*' \
             --tests '*Aate7835*' \

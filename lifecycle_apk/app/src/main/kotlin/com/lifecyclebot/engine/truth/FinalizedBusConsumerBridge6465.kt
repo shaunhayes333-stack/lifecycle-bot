@@ -324,7 +324,7 @@ object FinalizedBusConsumerBridge6465 {
     private fun deliverToRewardPurity(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean =
         RewardPurityGate6441.outcomeOf(env.positionId) != null ||
             RewardPurityGate6441.acceptFinalizedClose(
-                env.positionId, env.realizedPnlSol, env.economicEventId,
+                env.positionId, env.realizedPnlSol, env.economicEventId, envelopeMode = env.mode,
             )
 
     private fun deliverToLearnerRewardBridge(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {

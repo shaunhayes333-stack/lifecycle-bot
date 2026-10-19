@@ -15,16 +15,11 @@ import java.util.concurrent.atomic.AtomicLong
  *    the report must print LIVE_PIPELINE_CHOKE: stage=X previousCount=Y
  *    currentCount=Z topReasons=[...]'
  *
- * DESIGN
- * ──────
- * Simple typed stage counter registry. Callers invoke bumpStage(...)
- * at every live-pipeline transition point. The renderer produces the
- * §X-mandated block including LIVE_PIPELINE_CHOKE where a stage drops
- * to 0 while a preceding stage has non-zero count.
- *
- * Ready for adoption — callers wire incrementally. Until every stage
- * is wired, choke detection uses a soft rule (only flag when previous
- * stage > 0 AND current stage == 0 AND stage advance is expected).
+ * Stage writers are adopted incrementally and these totals are not joined
+ * by candidate identity. A zero cannot establish a causal choke. In 8236,
+ * unwritten LANE_SELECTED/V3 stages reported a choke despite a confirmed BUY.
+ * 8237 reports that coverage gap explicitly and leaves terminal diagnosis to
+ * the same-candidate intent/execution records.
  */
 object LivePipelineTrace6431 {
 
@@ -49,48 +44,33 @@ object LivePipelineTrace6431 {
 
     fun render(): String = buildString {
         append("===== LIVE PIPELINE TRACE (V5.0.6431 §H) =====\n")
-        // V5.0.6962 §A_PANEL_THAT_REPORTED_ZERO_BECAUSE_NOBODY_WROTE_TO_IT.
-        //
-        // This render() is embedded in the operator health report by
-        // PipelineHealthCollector. Both of its writers — bumpStage and
-        // bumpBlockReason — have ZERO callers anywhere in the codebase. So every
-        // counter below is permanently 0, the "choke stage" is computed from
-        // zeros, and topReasons is always empty.
-        //
-        // That is worse than showing nothing. An all-zeros funnel in a health
-        // report reads as "the pipeline processed no candidates", which is a
-        // five-alarm symptom, and it has been printed on every report for the
-        // life of this module while the pipeline was in fact running normally.
-        // The real instrumentation is MemePipelineTracer, which has 18 write
-        // sites and whose stage counts already reach the operator digest.
-        //
-        // Rather than bridge one tracer's data into the other — two tracers with
-        // one source of truth is the duplicate-authority defect this audit
-        // removes — the panel now says plainly that it has no writers. A report
-        // that admits it is blind is honest; one that reports zeros as
-        // measurements is not.
-        val anyData6962 = counters.values.any { it.get() > 0L } || topBlockReasons.isNotEmpty()
-        if (!anyData6962) {
-            append("  NO DATA — this trace has no writers (bumpStage/bumpBlockReason: 0 callers).\n")
-            append("  These zeros are NOT measurements. Live pipeline instrumentation is\n")
-            append("  MemePipelineTracer (18 write sites); see memeTrace/memeBlockReasons.\n")
-        }
+        val snapshot = counters.mapValues { it.value.get() }
+        append("  Scope: observed stage events; not a matched-candidate conversion funnel.\n")
+        if (snapshot.values.none { it > 0L } && topBlockReasons.isEmpty())
+            append("  NO DATA — no stage events observed in this trace this session.\n")
         var prior = -1L
-        var chokeStage: Stage? = null
+        var gapStage: Stage? = null
         for (s in Stage.entries) {
-            val v = counters[s]?.get() ?: 0L
+            val v = snapshot[s] ?: 0L
             append("  ").append("%-20s".format(s.name)).append(" = ").append(v).append('\n')
-            if (chokeStage == null && prior > 0L && v == 0L && s.ordinal <= Stage.EXEC_ATTEMPT.ordinal) {
-                chokeStage = s
+            if (gapStage == null && prior > 0L && v == 0L && s.ordinal <= Stage.EXEC_ATTEMPT.ordinal) {
+                gapStage = s
             }
             prior = v
         }
-        chokeStage?.let { stage ->
+        gapStage?.let { stage ->
             val priorStage = Stage.entries.getOrNull(stage.ordinal - 1)
-            val priorCount = priorStage?.let { counters[it]?.get() } ?: 0L
-            append("  LIVE_PIPELINE_CHOKE: stage=").append(stage.name)
+            val priorCount = priorStage?.let { snapshot[it] } ?: 0L
+            val downstream = Stage.entries.filter {
+                it.ordinal > stage.ordinal && it != Stage.BUY_FAILED && (snapshot[it] ?: 0L) > 0L
+            }
+            append(if (downstream.isNotEmpty()) "  LIVE_PIPELINE_COVERAGE_GAP_8237: stage="
+                else "  LIVE_PIPELINE_GAP_UNRESOLVED_8237: stage=").append(stage.name)
                 .append(" previousCount=").append(priorCount)
                 .append(" currentCount=0\n")
+            if (downstream.isNotEmpty()) append("  downstreamActivity=[")
+                .append(downstream.joinToString(",") { "${it.name}=${snapshot[it]}" }).append("]\n")
+            append("  Cause needs same-candidate outcomes; zero may reflect incomplete stage instrumentation.\n")
             val top = topBlockReasons.entries
                 .sortedByDescending { it.value.get() }
                 .take(5)

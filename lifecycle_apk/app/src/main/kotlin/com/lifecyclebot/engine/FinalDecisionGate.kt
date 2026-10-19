@@ -6209,7 +6209,7 @@ object FinalDecisionGate {
         } else 0.0
         // V5.0.8209 — the admission's net-of-cost proof was quoted at proposedSizeSol; a materially different sealed size is re-quoted here.
         val sealedCostOk8209 = executableSize7835 <= 0.0 || sealedCostHolds8209(ts, canonicalPrimaryLane6658, candidateAdmission8136, executableSize7835, checks)
-        if (!sealedCostOk8209 && blockReason == null) blockReason = "ADMISSION_COST_REQUOTE_FAILED_8209"
+        if (!sealedCostOk8209) blockReasonFinal = "ADMISSION_COST_REQUOTE_FAILED_8209"  // V5.0.8236: terminal return reads blockReasonFinal, not blockReason
 
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
             shouldTrade = shouldTradeFinal &&

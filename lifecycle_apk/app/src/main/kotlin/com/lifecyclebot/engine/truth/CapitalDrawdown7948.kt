@@ -139,19 +139,15 @@ object CapitalDrawdown7948 {
         return v
     }
 
-    /** V5.0.8223 — the bot's own live legs journaled in [fromMs, toMs]: sells' SOL in, buys' SOL out (net, + = in). */
-    private fun liveLegsNetSol8223(fromMs: Long, toMs: Long): Double = try {
-        com.lifecyclebot.engine.TradeHistoryStore.getRecentValidTrades(250)
-            .filter { it.ts in fromMs..toMs && it.mode.equals("live", ignoreCase = true) && it.sol.isFinite() && it.sol > 0.0 }
-            .sumOf { t ->
-                val s = t.side.uppercase()
-                when {
-                    s == "SELL" || s == "PARTIAL_SELL" -> t.sol
-                    s == "BUY" -> -t.sol
-                    else -> 0.0
-                }
-            }
-    } catch (_: Throwable) { 0.0 }
+    private fun liveCashLegs8237(fromMs: Long, toMs: Long): WalletCashLegs8237.Evidence8237 = try {
+        val recent = com.lifecyclebot.engine.TradeHistoryStore.getRecentValidTrades(250)
+        val evidence = WalletCashLegs8237.evidence8237(recent, fromMs, toMs)
+        // A bounded head that stops inside the settlement window cannot prove that no cash leg exists.
+        if (recent.size >= 250 && (recent.minOfOrNull { it.ts } ?: Long.MAX_VALUE) > fromMs)
+            evidence.copy(unresolvedLegs = evidence.unresolvedLegs + 1) else evidence
+    } catch (_: Throwable) { WalletCashLegs8237.Evidence8237(emptyList(), unresolvedLegs = 1) }
+
+    @Volatile private var lastFlowEvidence8237 = "not_evaluated"
 
     /** Observes [equitySol] (moves the peak) and returns the drawdown percent. */
     fun observePct7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Double = synchronized(this) {
@@ -170,13 +166,22 @@ object CapitalDrawdown7948 {
                         val residual8188 = if (real.isFinite()) externalFlow7981(equitySol - p.eq, real - p.real, upnl - p.upnl) else 0.0
                         // V5.0.8188 — only money that moved through the wallet rebases the peak (PeakLedger8188).
                         val flow = PeakLedger8188.corroborate8188(residual8188, liq8188 - p.liq, prin8188 - p.prin, peak7948.peakSol, nowMs) { isExternal7981(it, equitySol) }
-                        // V5.0.8223 — a wallet-corroborated flow the bot's own live legs explain (a sell's proceeds landing
-                        // after its journal row, a buy's spend before) is settlement lag, not a deposit / withdrawal.
-                        val netLegs8223 = liveLegsNetSol8223(p.atMs - PeakLedger8188.SETTLEMENT_LAG_MS_8223, nowMs)
-                        if (isExternal7981(flow, equitySol) && PeakLedger8188.settlementExplains8223(flow, netLegs8223)) {
+                        // Keep gross directions: a buy observed earlier must not cancel the later sell credit.
+                        // A mixed/ambiguous trade window is not proof of an external transfer.
+                        val cashLegs8237 = liveCashLegs8237(p.atMs - PeakLedger8188.SETTLEMENT_LAG_MS_8223, nowMs)
+                        val cashFlow8237 = WalletCashLegs8237.classify8237(flow, cashLegs8237)
+                        lastFlowEvidence8237 = "state=$cashFlow8237 grossIn=${"%.4f".format(cashLegs8237.grossInSol)} " +
+                            "grossOut=${"%.4f".format(cashLegs8237.grossOutSol)} signedLegs=${cashLegs8237.legs.size} unresolved=${cashLegs8237.unresolvedLegs}"
+                        if (isExternal7981(flow, equitySol) && cashFlow8237 in setOf(
+                                WalletCashLegs8237.Flow8237.POSSIBLE_TRADE_SETTLEMENT,
+                                WalletCashLegs8237.Flow8237.MIXED_TRADE_FLOW_UNRESOLVED,
+                            )) {
                             cancelled7986.incrementAndGet()
-                            PeakLedger8188.refuseSettlement8223(residual8188, liq8188 - p.liq, netLegs8223, peak7948.peakSol, nowMs)
+                            PeakLedger8188.refuseUnresolvedCashFlow8237(residual8188, liq8188 - p.liq, peak7948.peakSol, nowMs,
+                                lastFlowEvidence8237)
                         } else if (isExternal7981(flow, equitySol)) {
+                            // No same-direction bot cash leg: retain the existing external-flow proof gate
+                            // (45s unchanged journal, wallet-correlated movement and unchanged principal).
                             val before8188 = peak7948
                             peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)
                             PeakLedger8188.noteRebase8188(before8188, peak7948, residual8188, flow, liq8188 - p.liq, nowMs)
@@ -289,7 +294,8 @@ object CapitalDrawdown7948 {
             "peak24h=${"%.4f".format(p.peakSol)} peakAgeMin8169=${if (p.atMs > 0L) ((nowMs - p.atMs) / 60_000L).toString() else "-"} " +
             "peakRiseFrozen8169=${peakFrozen8169.get()} pendingFlow8169=${pending7986 != null} externalFlows7981=${externalFlows7981.get()} tradeLagCancelled7986=${cancelled7986.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]" +
             " ${try { CashEquityBook8136.line8136(cashEquity8136(com.lifecyclebot.engine.BotService.status.walletSol, nowMs)) } catch (_: Throwable) { "equity8136=-" }}" +
-            " ${try { PeakLedger8188.line8188(peak7948, nowMs) } catch (_: Throwable) { "peakEvent8188=-" }}"
+            " ${try { PeakLedger8188.line8188(peak7948, nowMs) } catch (_: Throwable) { "peakEvent8188=-" }}" +
+            " flowEvidence8237=[$lastFlowEvidence8237]"
     }
 
     // ── pure: routable capacity sentence ────────────────────────────────────

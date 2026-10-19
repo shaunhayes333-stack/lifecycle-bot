@@ -24522,11 +24522,13 @@ if (hotExitHandledSweep) {
             // worker timeout, or that the orchestrator already says should not be
             // polled this tick. Open positions bypass timeout cooldown above.
             if (supervisorTimeoutCooldownActive(mint)) {
+                HandoffPriority8190.noteWorkerUnavailable8237(mint, "TIMEOUT_COOLDOWN")
                 skipped++
                 cooldownSkipped++
                 continue
             }
             if (orchestrator?.shouldPoll(mint) == false) {
+                HandoffPriority8190.noteWorkerUnavailable8237(mint, "SHOULD_POLL_FALSE")
                 skipped++
                 shouldPollSkipped++
                 continue
@@ -24536,6 +24538,7 @@ if (hotExitHandledSweep) {
                 skipped++
                 continue
             }
+            HandoffPriority8190.noteWorkerAdmitted8237(mint)
             supervisorLifetimeSpawned.incrementAndGet()
             // V5.9.1042 — record last-successful-spawn timestamp so the
             // watchdog above can detect prolonged pool stalls.

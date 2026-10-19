@@ -86,6 +86,24 @@ class Aate8213AllLaneDataAdmissionTest {
         assertEquals("STAGE_PROVEN_LOSING_8136", CandidateAdmission8136.decide8136(stageJudge).reason)
     }
 
+    @Test fun incompleteExecutablePriceOrDepthDefersBeforeAFalseEconomicRefusal8236() {
+        val c = candidate().copy(missingInputs = emptyList(), expectedGrossPct = 5.0, costPct = 60.0)
+        // A measured move that cannot pay the real known round trip is still rejected.
+        assertEquals("EXECUTION_ECONOMICS_8136", CandidateAdmission8136.decide8136(c).reason)
+        // The same cost estimate with missing executable depth or stale price is not proof
+        // of unprofitability. The named missing evidence must be fetched/reassessed first.
+        val unknownDepth = CandidateAdmission8136.decide8136(c.copy(missingInputs = listOf("liquidity:UNKNOWN")))
+        assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA, unknownDepth.terminal)
+        assertTrue(unknownDepth.trace.any { it.contains("liquidity:UNKNOWN") })
+        val stale = CandidateAdmission8136.decide8136(c.copy(priceAgeMs = 700_000L))
+        assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA, stale.terminal)
+        assertTrue(stale.trace.any { it.contains("missing=price") })
+        // Missing optional tape/shape without a verified native high-edge move cannot
+        // make a truly uneconomic ticket pass.
+        assertEquals("EXECUTION_ECONOMICS_8136",
+            CandidateAdmission8136.decide8136(c.copy(missingInputs = listOf("shape:UNKNOWN"))).reason)
+    }
+
     @Test fun statisticalSpecificEdgeDoesNotNeedOptionalChartContextOrNativeQualification() {
         val c = candidate().copy(nativeQualified8213 = false, nativeSetup8213 = null,
             selectedSetup = "IGNITION_5M",

@@ -1117,6 +1117,7 @@ object SpecialistElection8136 {
             handoffNamed8153 = 0L; handoffClaims8153 = 0L; handoffPreempted8153 = 0L; handoffDenied8153 = 0L; handoffRetargeted8153 = 0L
         }
         HandoffReceiverTasks8153.resetForTests8153()
+        HandoffPriority8190.resetForTests8190()
         ElectionRescueFunnel8144.resetForTests8144()
     }
 }

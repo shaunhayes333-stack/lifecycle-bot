@@ -357,6 +357,23 @@ object CandidateAdmission8136 {
             trace += "grossFromProvenNetLower8171=${fmt8136(edge.lowerPct)} cost=${fmt8136(c.costPct)}"
         }
 
+        // V5.0.8236 — market-depth/price/route truth must exist BEFORE an economic
+        // refusal can be final. Otherwise a cost estimated without executable
+        // evidence converts a recoverable provider gap into a negative judgement,
+        // loses the retry request, and permanently misses the candidate. Known
+        // negative setup/timing/safety evidence above remains binding; genuinely
+        // measured uneconomic orders are still refused below. Optional chart/tape
+        // fields continue through the existing native-evidence rule.
+        val stale8236 = priceStale8136(c.priceAgeMs, c.hotLaunch)
+        val criticalMissing8236 = c.missingInputs.filter(::criticalMissing8170)
+        if (stale8236 || criticalMissing8236.isNotEmpty()) {
+            val missing = c.missingInputs + if (stale8236) listOf("price") else emptyList()
+            trace += "missing=${missing.joinToString(",")}"
+            if (criticalMissing8236.isNotEmpty())
+                trace += "criticalUnobserved8170=${criticalMissing8236.joinToString(",")}"
+            return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, chosen)
+        }
+
         // 4. execution economics: the expected executable move must clear NetEdge8030.EDGE_MULT x the round trip.
         val econKnown = decisionGross.isFinite() && c.costPct.isFinite()
         if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct)) {
@@ -370,15 +387,11 @@ object CandidateAdmission8136 {
 
         // 5. data: a stale price or unknown economics defers every candidate; missing classifier inputs defer a candidate
         //    with no supported evidence of its own (its setup cannot be judged yet).
-        val stale = priceStale8136(c.priceAgeMs, c.hotLaunch)
-        val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170)
         val nativeOptional8213 = c.missingInputs.isNotEmpty() && edge == null &&
             optionalNativeContextClears8213(c, decisionGross)
-        if (stale || !econKnown || criticalMissing8170.isNotEmpty() ||
-            (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213)) {
-            val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + (if (!econKnown) listOf("economics") else emptyList())
+        if (!econKnown || (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213)) {
+            val missing = c.missingInputs + if (!econKnown) listOf("economics") else emptyList()
             trace += "missing=${missing.joinToString(",")}"
-            if (criticalMissing8170.isNotEmpty()) trace += "criticalUnobserved8170=${criticalMissing8170.joinToString(",")}"
             return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, chosen)
         }
         // A price/route/cost-proven candidate with POSITIVE candidate-specific graded

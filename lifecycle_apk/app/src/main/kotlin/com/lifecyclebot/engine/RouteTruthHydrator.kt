@@ -21,6 +21,20 @@ object RouteTruthHydrator {
         val reason: String,
     )
 
+    private val AMM_VENUES_8237 = setOf(
+        "RAYDIUM", "RAYDIUM_V4", "RAYDIUM_CPMM", "RAYDIUM_CLMM",
+        "PUMPSWAP", "PUMP_SWAP", "PUMP_AMM", "PUMPFUN_AMM",
+        "ORCA", "WHIRLPOOL", "ORCA_WHIRLPOOL", "METEORA", "METEORA_DLMM",
+        "LIFINITY", "FLUXBEAM", "PHOENIX", "OPENBOOK",
+    )
+
+    /** Scanner buckets (including PUMP_FUN_GRADUATE) are not observations of a venue transition. */
+    internal fun observedAmmVenue8237(value: String): Boolean = value.trim().uppercase()
+        .replace('-', '_').replace('.', '_') in AMM_VENUES_8237
+
+    internal fun explicitMigrationSource8237(value: String): Boolean = value.uppercase()
+        .split(',', '|', ' ').any { it == "PUMP_PORTAL_MIGRATE" }
+
     /**
      * V5.0.6852 §GRADUATION_FLAG_HAD_ZERO_WRITERS — CanonicalTokenMap.migratedOrGraduated
      * was declared `= false` and NEVER assigned anywhere in the tree, while five
@@ -42,21 +56,25 @@ object RouteTruthHydrator {
      */
     fun markGraduationIfDetected6852(ts: TokenState): Boolean {
         val tm = ts.tokenMap
-        if (tm.migratedOrGraduated) return false
-        val hay = listOf(
-            ts.source, tm.sourceScanner, tm.venue, tm.dexId,
-            ts.lastPriceDex, ts.lastPriceSource, tm.routeStatus,
-        ).joinToString(" ").uppercase()
-        // Explicit graduation/migration events emitted by the scanners + pump WS.
-        val explicit = hay.contains("GRADUATE") || hay.contains("MIGRAT")
+        // 8237: scan buckets are also assigned from age or a pump.fun URL. Treating
+        // their names as a migration event permanently disabled a still-active curve.
+        // Only an actual migration event/account witness or a concrete venue id can
+        // change the route family. Existing transport checks still apply.
+        val explicit = explicitMigrationSource8237(ts.source) ||
+            explicitMigrationSource8237(tm.sourceScanner) ||
+            (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false })
         // A real post-curve AMM venue. pump.fun bonding-curve tokens report
         // "PUMPFUN"/"PUMP.FUN"; PUMPSWAP is pump.fun's own AMM and only exists
         // AFTER graduation, so it counts alongside the third-party AMMs.
-        val ammVenue = listOf(
-            "RAYDIUM", "PUMPSWAP", "ORCA", "WHIRLPOOL", "METEORA",
-            "LIFINITY", "FLUXBEAM", "PHOENIX", "OPENBOOK",
-        ).any { hay.contains(it) }
+        val ammVenue = listOf(ts.lastPriceDex, tm.venue, tm.dexId).any(::observedAmmVenue8237)
         if (!explicit && !ammVenue) return false
+        // Reapply observed venue/event proof after an in-memory registry eviction,
+        // even for an already flagged map. A bare historical boolean supplies no proof.
+        if (explicit || ts.mint.endsWith("pump", ignoreCase = true) ||
+            (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(ts.mint) } catch (_: Throwable) { null }) != null) {
+            try { com.lifecyclebot.network.PumpCurveKeys7269.markGraduated7392(ts.mint) } catch (_: Throwable) {}
+        }
+        if (tm.migratedOrGraduated) return false
         tm.migratedOrGraduated = true
         tm.pumpFunExecutable = false
         tm.pumpFunBondingCurveStatus = "COMPLETED_MIGRATED"
@@ -76,6 +94,8 @@ object RouteTruthHydrator {
      */
     fun markGraduatedByEvent7744(ts: TokenState): Boolean {
         val tm = ts.tokenMap
+        // Preserve the observed event across TokenState aliases and route-map refreshes.
+        try { com.lifecyclebot.network.PumpCurveKeys7269.markGraduated7392(ts.mint) } catch (_: Throwable) {}
         if (tm.migratedOrGraduated) return false
         tm.migratedOrGraduated = true
         tm.pumpFunExecutable = false

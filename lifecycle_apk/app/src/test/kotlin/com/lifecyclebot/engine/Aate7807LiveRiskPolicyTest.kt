@@ -141,6 +141,46 @@ class Aate7807LiveRiskPolicyTest {
     }
 
 
+    // V5.0.8236 — reproduce the 5.0.8235 wallet, where risk sizing asked for
+    // less than the $3 route floor and the upstream resolver had already proved it.
+    // This checks the production LiveRiskPolicy.decide call (not just MinPromotion's helper).
+    @Test
+    fun allTwelveLiveLanesUseTheSameProvenMinimumBudgetAsTheUpstreamResolver8236() {
+        val lanes = listOf("QUALITY", "BLUECHIP", "SHITCOIN", "EXPRESS", "CORE", "MOONSHOT",
+            "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN", "CYCLIC")
+        val min = 0.02845
+        val budget = com.lifecyclebot.engine.truth.MinPromotion8188.doctrineBudgetSol8236(0.3139, 105.45)
+        assertTrue("preflight must prove route floor", budget >= min)
+        for (lane in lanes) {
+            val i = inputs(lane = lane, equity = 0.3199, upstream = 0.0199,
+                execMin = min, stop = 10.0, first = 40.0, target = 90.0,
+                liq = 75_000.0, dd = 0.158).copy(
+                solUsd = 105.45, tradeableSol8153 = 0.3139, laneDeployedSol8153 = 0.0,
+                setupExpectedGrossPct8153 = 27.0, costAtSizePct8153 = { 6.25 },
+            )
+            val d = LiveRiskPolicy7807.decide(i)
+            assertTrue("$lane should be routable after all economic/safety checks: ${d.reason} ${d.labels}", d.open)
+            assertEquals("$lane promoted min only", min, d.sizeSol, 1e-9)
+            assertTrue("$lane must stamp shared budget", "ROUTE_MIN_BUDGET_SHARED_WITH_UPSTREAM_8236" in d.labels)
+        }
+    }
+
+    @Test
+    fun routeFloorBudget8236NeverOverridesUnfundedUnsafeOrNegativeEdgeOrders() {
+        val base = inputs(lane = "SHITCOIN", equity = 0.3199, upstream = 0.0199,
+            execMin = 0.02845, stop = 10.0, first = 40.0, target = 90.0,
+            liq = 75_000.0, dd = 0.158).copy(
+            solUsd = 105.45, tradeableSol8153 = 0.3139, laneDeployedSol8153 = 0.0,
+            setupExpectedGrossPct8153 = 27.0, costAtSizePct8153 = { 6.25 },
+        )
+        assertFalse("unfunded", LiveRiskPolicy7807.decide(base.copy(tradeableSol8153 = 0.01)).open)
+        assertFalse("wide stop exceeds hard risk", LiveRiskPolicy7807.decide(base.copy(planStopPct = 80.0)).open)
+        assertFalse("negative after cost", LiveRiskPolicy7807.decide(base.copy(setupExpectedGrossPct8153 = 5.0)).open)
+        assertFalse("defensive drawdown", LiveRiskPolicy7807.decide(base.copy(drawdownFrac = 0.31)).open)
+        assertTrue(com.lifecyclebot.engine.truth.MinPromotion8188.doctrineBudgetSol8236(Double.NaN, 105.45).isNaN())
+        assertTrue(com.lifecyclebot.engine.truth.MinPromotion8188.doctrineBudgetSol8236(0.3139, 0.0).isNaN())
+    }
+
     @Test
     fun route_floor_can_bridge_18pct_cap_without_raising_global_cap() {
         val cap = LiveRiskPolicy7807.routeAwareSpendCap7842(
