@@ -58,7 +58,10 @@ object FdgOutcomeContinuity8197 {
      * it stays observation-only (Executor.runShadowPaperBuy never promotes). Paper mode has its own book: skipped.
      */
     internal fun shadowOpenReason8233(live: Boolean, admitted: Boolean, blockReason: String?): String? {
-        if (!live || !admitted || blockReason.isNullOrBlank()) return null
+        if (!live || blockReason.isNullOrBlank()) return null
+        // V5.0.8238 — a generic-prior candidate refused live money is exactly what the shadow book is for.
+        if (blockReason.contains("LIVE_GENERIC_PRIOR_UNSUPPORTED_8238")) return "generic_prior_shadow:" + blockReason.take(40)
+        if (!admitted) return null
         return "admitted_blocked:" + blockReason.take(40)
     }
 

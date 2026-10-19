@@ -1039,7 +1039,20 @@ object Cortex7885 {
                     calibration.slope(a.lane) < MIN_CONSISTENT_SLOPE -> nullWhy8201("UNCALIBRATED")
                     board.inverted7948(a.lane, accountMode8077()) -> nullWhy8201("INVERTED")
                     firstSightBarred8144(a.lane) -> nullWhy8201("BARRED")
-                    else -> CortexWalkForward8144.stat8144(gradeBook8144.executableSeries(a.lane, null, CortexScoreboard7885.Bucket.STRONG.ordinal))
+                    else -> {
+                        // V5.0.8238 — the in-sample STRONG mean is not evidence: 8237 screens showed CORE STRONG net mean +30%
+                        // with a net MEDIAN of -18% (a few outliers carried the mean; the typical STRONG coin lost), MOONSHOT
+                        // STRONG -24% median vs REFUSE -8.6% — and those cohorts had traded. The door opens only on a
+                        // walk-forward VALIDATED lane whose STRONG executable series has a positive median.
+                        val series = gradeBook8144.executableSeries(a.lane, null, CortexScoreboard7885.Bucket.STRONG.ordinal)
+                        val wf = walkForward8144(a.lane, null)
+                        val median = CortexWalkForward8144.median8238(series)
+                        when {
+                            !wf.validated -> nullWhy8201("NOT_WALK_FORWARD_VALIDATED_${wf.verdict.name}")
+                            !(median > 0.0) -> nullWhy8201("MEDIAN_NOT_POSITIVE")
+                            else -> CortexWalkForward8144.stat8144(series)
+                        }
+                    }
                 }
             } ?: return null
             if (st.n <= 0 || !st.mean.isFinite()) return nullWhy8201("NO_EXECUTABLE_COHORT")

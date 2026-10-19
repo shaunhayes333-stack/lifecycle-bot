@@ -130,6 +130,15 @@ object CortexWalkForward8144 {
         return Stat8144(n, mean, kotlin.math.sqrt(ss / (n - 1) / n))
     }
 
+    /** Pure (V5.0.8238): the median of the finite values — the typical coin, which a few outliers cannot carry; NaN when empty. */
+    fun median8238(xs: List<Double>): Double {
+        val s = xs.filter { it.isFinite() }.sorted()
+        if (s.isEmpty()) return Double.NaN
+        val m = s.size / 2
+        return if (s.size % 2 == 1) s[m] else (s[m - 1] + s[m]) / 2.0
+    }
+
+
     /** Pure: the Wilson score lower bound of a win rate ([wins] of [n]) at [z] standard errors; 0 when n is 0. */
     fun wilsonLower8144(wins: Int, n: Int, z: Double = 1.0): Double {
         if (n <= 0 || wins < 0 || !z.isFinite()) return 0.0

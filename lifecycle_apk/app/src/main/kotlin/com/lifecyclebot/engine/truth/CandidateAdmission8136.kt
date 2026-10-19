@@ -98,6 +98,8 @@ object CandidateAdmission8136 {
          * decays to neutral. False (pure fixtures): [cell] / [stageRecord] are the loss records, as before.
          */
         val lossEpochAware8169: Boolean = false,
+        /** V5.0.8238 — true (live adapter, LIVE account): the generic prior alone cannot admit real money. */
+        val live: Boolean = false,
         val cellLoss8169: Evidence8136? = null,
         val stageLoss8169: Evidence8136? = null,
         /**
@@ -398,9 +400,17 @@ object CandidateAdmission8136 {
             .forEach { trace += "thinPositive=${it.compact} needs n>=$SUPPORT_MIN_N_8136" }
         if (c.genericScore.isFinite() && c.genericFloor.isFinite()) {
             trace += "generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)}"
-            return if (c.genericScore >= c.genericFloor) done(Terminal8136.ADMIT, "GENERIC_PRIOR_CLEARS_8136", false, chosen,
+            if (c.genericScore < c.genericFloor) return done(Terminal8136.REFUSE, "GENERIC_SCORE_FLOOR_8136", false, chosen)
+            // V5.0.8238 §LIVE_IS_PROVEN_EVIDENCE_ONLY — 8237 live book: every recorded live loss (CASHGEN|NO_TRIGGER x3,
+            // CASHGEN|NONE, MOONSHOT|NONE, …) was a generic-prior admit: a V3 score over a fluid floor of 15 with no setup
+            // record, no supported cell, no validated Cortex read. The 700% wins were proven setups. Live money needs a
+            // supported record (step 6); the prior alone admits paper and the shadow book, where it is learnt from.
+            if (c.live && !cellSupported) {
+                trace += "liveGenericPriorUnsupported8238 cell=${c.cell?.compact ?: "-"}"
+                return done(Terminal8136.REFUSE, "LIVE_GENERIC_PRIOR_UNSUPPORTED_8238", false, chosen)
+            }
+            return done(Terminal8136.ADMIT, "GENERIC_PRIOR_CLEARS_8136", false, chosen,
                 if (nativeOptional8213) "NATIVE_QUALIFIED_8213:${c.nativeSetup8213}" else "GENERIC_PRIOR:${chosen ?: "-"}")
-            else done(Terminal8136.REFUSE, "GENERIC_SCORE_FLOOR_8136", false, chosen)
         }
         return done(Terminal8136.REFUSE, "NO_SUPPORTED_EDGE_8136", false, chosen)
     }
@@ -844,6 +854,7 @@ object CandidateAdmission8136 {
                 else launch?.takeIf { it.verdict == FreshLaunchSelector7737.LaunchVerdict.REFUSED }?.why,
             setupTimings = setupTimings,
             lossEpochAware8169 = true,
+            live = mode == "LIVE",
             cellLoss8169 = cellLoss8169,
             stageLoss8169 = stageLoss8169,
             cortexStrong8200 = try { com.lifecyclebot.engine.cortex.Cortex7885.strongCohortEvidence8200(ts, lane) } catch (_: Throwable) { null },
