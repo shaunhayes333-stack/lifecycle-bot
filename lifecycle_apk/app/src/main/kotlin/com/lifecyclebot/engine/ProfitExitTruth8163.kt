@@ -111,7 +111,7 @@ object ProfitExitTruth8163 {
 
     private fun reconcileMark8237(ts: TokenState, rawIn: Long, outLamports: Long) {
         try {
-            val dec = ts.decimals ?: ts.position.tokenDecimals.takeIf { it >= 0 } ?: return
+            val dec = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(ts.mint)?.tokenDecimals?.takeIf { it in 0..18 } ?: return
             val q = quoteImpliedUsd8237(outLamports, rawIn, dec, WalletManager.lastKnownSolPrice)
             if (!markDisproven8237(ts.lastPrice, q)) return
             val ratio = ts.lastPrice / q
