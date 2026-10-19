@@ -42,6 +42,16 @@ object PositionProof8189 {
         return out
     }
 
+    /** A complete current enumeration cannot be refilled by older positive exit-cache reads. */
+    fun coherentChain8237(chain: Map<String, BigInteger>?, chainComplete: Boolean,
+                         canonicalMints: Set<String>, reads: Map<String, BigInteger>): Map<String, BigInteger>? =
+        if (chainComplete && chain != null) chain else augmentChain8189(chain, canonicalMints, reads)
+
+    /** The proof table obeys complete owner enumeration; partial or unread snapshots retain the exit-read fallback. */
+    internal fun walletRawForProof8237(mint: String, chain: Map<String, BigInteger>?, chainComplete: Boolean,
+                                      exitRead: BigInteger?): BigInteger? =
+        if (chainComplete && chain != null) chain[mint] ?: BigInteger.ZERO else chain?.get(mint) ?: exitRead
+
     /** Pure: one position's reconcile outcome (canonical raw vs chain raw; null chain raw = never read). */
     fun bucket8189(canonicalRaw: BigInteger, chainRaw: BigInteger?, chainComplete: Boolean, frozen: Boolean, pending: Boolean): Bucket8189 = when {
         frozen -> Bucket8189.FROZEN
@@ -82,7 +92,7 @@ object PositionProof8189 {
     fun chainFor8189(chain: Map<String, BigInteger>?, canonicalMints: Set<String>, chainComplete: Boolean, nowMs: Long = System.currentTimeMillis()): Map<String, BigInteger>? {
         val reads = HashMap<String, BigInteger>()
         for (m in canonicalMints) walletRead8189(m, nowMs)?.let { reads[m] = it.first }
-        val out = augmentChain8189(chain, canonicalMints, reads)
+        val out = coherentChain8237(chain, chainComplete, canonicalMints, reads)
         lastChain8189 = out
         lastComplete8189 = chainComplete
         return out
@@ -95,14 +105,15 @@ object PositionProof8189 {
         val lots = try { CanonicalPositionAuthority6441.protectiveInventory7807("live") } catch (_: Throwable) { emptyList() }
         if (lots.isEmpty()) return ""
         val chain = lastChain8189
+        val complete = lastComplete8189
         val frozen = try { com.lifecyclebot.engine.sell.FrozenHeldUnsellable8141.heldMints8141().toSet() } catch (_: Throwable) { emptySet() }
         val buckets = ArrayList<Bucket8189>()
         val sb = StringBuilder()
         for (p in lots) {
             val read = walletRead8189(p.mint, nowMs)
-            val chainRaw = chain?.get(p.mint) ?: read?.first
+            val chainRaw = walletRawForProof8237(p.mint, chain, complete, read?.first)
             val signed = try { com.lifecyclebot.engine.sell.ExitHotPath7809.signedSellPending8189(p.mint) } catch (_: Throwable) { false }
-            val bucket = bucket8189(p.remainingQtyRaw, chainRaw, lastComplete8189, p.mint in frozen, signed)
+            val bucket = bucket8189(p.remainingQtyRaw, chainRaw, complete, p.mint in frozen, signed)
             buckets += bucket
             sb.append("\n    proof8189 ").append(p.symbol.ifBlank { "?" }.take(10)).append(' ').append(p.mint.take(8))
                 .append(" wallet=").append(chainRaw?.toString() ?: "UNREAD").append(" canon=").append(p.remainingQtyRaw)

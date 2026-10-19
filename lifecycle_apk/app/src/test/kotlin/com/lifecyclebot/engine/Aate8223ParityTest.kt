@@ -32,9 +32,10 @@ class Aate8223ParityTest {
 
     @Test fun theDrawdownConfirmBranchAsksTheSettlementQuestionBeforeRebasing() {
         val s = src("engine/truth/CapitalDrawdown7948.kt")
-        assertTrue(s.contains("PeakLedger8188.settlementExplains8223(flow, netLegs8223)"))
-        assertTrue(s.contains("PeakLedger8188.refuseSettlement8223("))
-        assertTrue(s.indexOf("settlementExplains8223") < s.indexOf("peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)"))
+        // 8237 keeps buys/sells separate and defers ambiguous mixed cash movements before the original proof gate.
+        assertTrue(s.contains("WalletCashLegs8237.classify8237(flow, cashLegs8237)"))
+        assertTrue(s.contains("PeakLedger8188.refuseUnresolvedCashFlow8237("))
+        assertTrue(s.indexOf("classify8237") < s.indexOf("peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)"))
     }
 
     // ── 2. paper universe = live universe ──

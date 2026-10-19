@@ -675,11 +675,11 @@ object LiveRiskPolicy7807 {
                 if (envelopeRefusal8153 != null) {
                     return Decision(false, 0.0, envelopeRefusal8153, labels, stop, minCost7840, total, sizing8094)
                 }
-                // V5.0.8188 — re-evaluated AT the promoted notional: the ORIGINAL loss budget (risk size x stop + its round trip,
-                // +10% at most), a measured positive edge after the round trip at the minimum, and no defensive drawdown.
-                // V5.0.8236 — the 8234 upstream resolver used the routable wallet safe-share budget,
-                // but this downstream policy silently defaulted to the sub-minimum risk size.
-                // Reuse the SAME pure capacity budget; do not lift any other envelope or stop check.
+                // V5.0.8188 — re-evaluated AT the promoted notional: the loss budget, a measured positive edge after the round trip
+                // at the minimum, and no defensive drawdown.
+                // V5.0.8236 — ONE loss budget with the upstream sizers: the account's per-position doctrine (safe share cap)
+                // when it exceeds the sub-minimum risk size. Use this decision's captured wallet/price inputs;
+                // every envelope and stop check remains binding.
                 val doctrineBudget8236 = MinPromotion8188.doctrineBudgetSol8236(tradeable8153, i.solUsd)
                 if (doctrineBudget8236.isFinite() && doctrineBudget8236 > size)
                     labels += "ROUTE_MIN_BUDGET_SHARED_WITH_UPSTREAM_8236"

@@ -257,6 +257,14 @@ jobs:
             --tests '*Aate8211AdmissionDataRepairTest*' \
             --tests '*Aate8213AllLaneDataAdmissionTest*' \
             --tests '*Aate8223ParityTest*' \
+            --tests '*Aate8237*' \
+            --tests '*Aate8236InputTruthTest*' \
+            --tests '*Aate8136SpecialistElectionTest*' \
+            --tests '*Aate8216HandoffPoolTest*' \
+            --tests '*Aate8191DataPipelineTest*' \
+            --tests '*Aate7809MarketDataTest*' \
+            --tests '*Aate8201AdmittedTerminalTest*' \
+            --tests '*Aate7484OhlcvSameKeyCoalescerTest*' \
             --tests '*Aate7832*' \
             --tests '*Aate7833*' \
             --tests '*Aate7835*' \

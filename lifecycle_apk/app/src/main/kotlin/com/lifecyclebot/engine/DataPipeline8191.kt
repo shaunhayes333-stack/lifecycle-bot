@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicLong
  *  - Candle seeds (DataOrchestrator.seedCandleHistory): priority (held / near decision) asks Codex getBars first,
  *    then the keyless feed, then Birdeye for a timeframe still empty. An ordinary new token: keyless, then Codex while
  *    [CODEX_ORDINARY_PER_MIN_8191] lasts ([claimCodexOrdinary8191]), never Birdeye.
- *  - [pairFetchDue8191]: a setup input whose DexScreener pair is NOT_FETCHED / STALE triggers one pair fetch per
+ *  - [pairFetchDue8191]: a setup input whose DexScreener pair is absent, stale or missing that input triggers one fetch per
  *    [PAIR_FETCH_GAP_MS_8191] per mint (the answer lands in PairFlow8169; nothing is inferred).
  *  - Birdeye spend by endpoint class ([noteBirdeye8191]) so the biggest consumer is named in the report.
  */
@@ -41,6 +41,8 @@ object DataPipeline8191 {
     private val premiumSkippedCovered = AtomicLong(0L)
     private val pairFetches = AtomicLong(0L)
     private val seedBySource = ConcurrentHashMap<String, AtomicLong>()
+    private val PAIR_REPAIR_INPUTS_8237 = setOf("bp", "chg", "liq", "mcap", "opp", "vol",
+        "route", "token_map", "quote", "sellability")
 
     private fun trim(m: ConcurrentHashMap<String, Long>, nowMs: Long, keepMs: Long) {
         if (m.size > CAP_8191) m.entries.removeIf { nowMs - it.value > keepMs }
@@ -98,18 +100,60 @@ object DataPipeline8191 {
         seedBySource.computeIfAbsent("$source:$outcome") { AtomicLong(0L) }.incrementAndGet()
     }
 
-    /** Pure: is a DexScreener pair fetch due for a mint whose pair flow was last answered at [flowAtMs] and last asked at [askedAtMs]? */
-    fun pairFetchDue8191(flowAtMs: Long?, askedAtMs: Long?, nowMs: Long, freshMs: Long = 15L * 60_000L): Boolean {
-        val fresh = flowAtMs != null && nowMs - flowAtMs in -60_000L..freshMs
+    /** Keep the missing route/proof key as well as its depth request. Fresh liquidity alone is not route evidence. */
+    internal fun pairRepairInputs8237(keys: Collection<String>): Set<String> =
+        keys.map { it.substringBefore(':').trim().lowercase() }.filterTo(LinkedHashSet()) { it in PAIR_REPAIR_INPUTS_8237 }
+
+    /** A pair answer covers a repair only when it states every requested input at the resolver's own freshness.
+     * A fresh price/liquidity answer can still lack the buy/sell split or price changes. PairFlow does not carry
+     * mcap, volume, opportunity context or route proof, so its timestamp alone cannot declare those repairs satisfied.
+     */
+    internal fun pairFlowSatisfies8191(
+        flow: com.lifecyclebot.engine.truth.PairFlow8169.Flow8169?, requiredInputs: Set<String>,
+        nowMs: Long, ageMin: Double,
+    ): Boolean {
+        if (flow == null || requiredInputs.isEmpty()) return false
+        val resolver = com.lifecyclebot.engine.truth.SetupFeatureResolver8169
+        val maxAgeMs = resolver.maxEvidenceAge8170(ageMin)
+        return requiredInputs.all { input ->
+            when (input.substringBefore(':').trim().lowercase()) {
+                "bp" -> resolver.pairBp8169(flow, nowMs, maxAgeMs).value != null
+                "chg" -> resolver.pairChg8169(flow, nowMs, maxAgeMs).value != null
+                "liq" -> resolver.pairLiq8169(flow, nowMs, maxAgeMs).value != null
+                else -> false
+            }
+        }
+    }
+
+    /** Pure: a stale or incomplete answer is retried, still within the per-mint provider request budget. */
+    fun pairFetchDue8191(
+        flowAtMs: Long?, askedAtMs: Long?, nowMs: Long, freshMs: Long = 15L * 60_000L,
+        requiredInputsObserved: Boolean = true,
+    ): Boolean {
+        val fresh = requiredInputsObserved && flowAtMs != null && nowMs - flowAtMs in -60_000L..freshMs
         if (fresh) return false
         return askedAtMs == null || nowMs - askedAtMs !in 0L until PAIR_FETCH_GAP_MS_8191
     }
 
-    /** Claim the pair fetch for [mint] now (false = not due). */
-    fun claimPairFetch8191(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
-        val flowAt = try { com.lifecyclebot.engine.truth.PairFlow8169.peek8169(mint)?.atMs } catch (_: Throwable) { null }
-        if (!pairFetchDue8191(flowAt, pairFetchAt[mint], nowMs)) return false
-        pairFetchAt[mint] = nowMs
+    /** Claim one shared fetch across all lanes. Launch repairs and their reader both use the 60-second window;
+     * mature inputs retain the normal window. The claim is atomic, so simultaneous specialist requests coalesce.
+     */
+    fun claimPairFetch8191(
+        mint: String, nowMs: Long = System.currentTimeMillis(),
+        requiredInputs: Set<String> = setOf("bp", "chg", "liq"), ageMin: Double = Double.NaN,
+    ): Boolean {
+        if (mint.isBlank()) return false
+        val flow = try { com.lifecyclebot.engine.truth.PairFlow8169.peek8169(mint) } catch (_: Throwable) { null }
+        val maxAgeMs = com.lifecyclebot.engine.truth.SetupFeatureResolver8169.maxEvidenceAge8170(ageMin)
+        val observed = pairFlowSatisfies8191(flow, requiredInputs, nowMs, ageMin)
+        var claimed = false
+        pairFetchAt.compute(mint) { _, askedAt ->
+            if (pairFetchDue8191(flow?.atMs, askedAt, nowMs, maxAgeMs, observed)) {
+                claimed = true
+                nowMs
+            } else askedAt
+        }
+        if (!claimed) return false
         trim(pairFetchAt, nowMs, PAIR_FETCH_GAP_MS_8191)
         pairFetches.incrementAndGet()
         return true

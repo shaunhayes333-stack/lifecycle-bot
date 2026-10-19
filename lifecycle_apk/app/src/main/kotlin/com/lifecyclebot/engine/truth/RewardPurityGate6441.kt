@@ -42,6 +42,36 @@ object RewardPurityGate6441 {
     private val rejectedAccounting = AtomicLong(0L)
     private val shadowAccepted = AtomicLong(0L)
 
+    private data class LifecyclePending8237(
+        val positionId: String, val economicEventId: String, val envelopeMode: String,
+        val actualLifecycle: String, val actualMode: String, val remainingRaw: String,
+        val firstAtMs: Long, val lastAtMs: Long, val attempts: Long,
+    ) {
+        fun line(nowMs: Long): String = "pid=$positionId mode=$envelopeMode economicEventId=$economicEventId " +
+            "expected=CLOSED actual=$actualLifecycle positionMode=$actualMode remainingRaw=$remainingRaw " +
+            "attempts=$attempts ageS=${((nowMs - firstAtMs) / 1000L).coerceAtLeast(0L)}"
+    }
+    // A retry count alone hides whether one durable envelope or many trades are unresolved. This bounded diagnostic
+    // keeps up to eight exact unresolved identities; it does not acknowledge or exclude an outcome.
+    private val lifecyclePending8237 = LinkedHashMap<String, LifecyclePending8237>()
+
+    private fun noteLifecyclePending8237(
+        positionId: String, economicEventId: String, envelopeMode: String,
+        pos: CanonicalPositionAuthority6441.Position?,
+    ): LifecyclePending8237 = synchronized(lifecyclePending8237) {
+        val nowMs = System.currentTimeMillis()
+        val mode = envelopeMode.ifBlank { pos?.mode ?: "unknown" }
+        val key = "$mode|$positionId|$economicEventId"
+        val previous = lifecyclePending8237[key]
+        if (previous == null && lifecyclePending8237.size >= 8) {
+            lifecyclePending8237.entries.minByOrNull { it.value.lastAtMs }?.key?.let { lifecyclePending8237.remove(it) }
+        }
+        LifecyclePending8237(positionId, economicEventId, mode, pos?.lifecycle?.name ?: "MISSING",
+            pos?.mode ?: "MISSING", pos?.remainingQtyRaw?.toString() ?: "UNKNOWN",
+            previous?.firstAtMs ?: nowMs, nowMs, (previous?.attempts ?: 0L) + 1L,
+        ).also { lifecyclePending8237[key] = it }
+    }
+
     /**
      * Register the canonical finalized outcome for a closed position.
      * Returns true if this call is authoritative (first finalization);
@@ -52,18 +82,24 @@ object RewardPurityGate6441 {
      * other terminal learner (previously ">0 WIN" → contradicted
      * PerformanceAnalytics and LearnerRewardBridge on the same closes).
      */
-    fun acceptFinalizedClose(positionId: String, realizedPnlSol: Double, economicEventId: String = ""): Boolean {
+    fun acceptFinalizedClose(
+        positionId: String, realizedPnlSol: Double, economicEventId: String = "", envelopeMode: String = "",
+    ): Boolean {
         val pos = CanonicalPositionAuthority6441.getPosition(positionId)
         if (pos == null || pos.lifecycle != CanonicalPositionAuthority6441.Lifecycle.CLOSED) {
             rejectedLifecycle.incrementAndGet()
+            val pending = noteLifecyclePending8237(positionId, economicEventId, envelopeMode, pos)
             try {
                 ForensicLogger.lifecycle(
                     "REWARD_PURITY_REJECT_LIFECYCLE_6441",
-                    "positionId=$positionId lifecycle=${pos?.lifecycle}",
+                    "positionId=$positionId lifecycle=${pos?.lifecycle} ${pending.line(System.currentTimeMillis())} action=retry_unacknowledged",
                 )
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("REWARD_PURITY_REJECT_LIFECYCLE_6441") } catch (_: Throwable) {}
             return false
+        }
+        synchronized(lifecyclePending8237) {
+            lifecyclePending8237.entries.removeIf { it.value.positionId == positionId && it.value.economicEventId == economicEventId }
         }
         // V5.0.7032 — a position carrying a pre-7032 paper partial cannot have
         // its economics substantiated (the partial recorded no exit mark and no
@@ -178,8 +214,13 @@ object RewardPurityGate6441 {
 
     fun statusLine(): String {
         val (w, l, b) = canonicalCounts()
+        val pending = synchronized(lifecyclePending8237) { lifecyclePending8237.values.toList() }
+        val nowMs = System.currentTimeMillis()
         return "finalized=${finalizedIds.size} W=$w L=$l BE=$b " +
             "shadow=${shadowSignals.size} accepted=${accepted.get()} " +
-            "rejectLifecycle=${rejectedLifecycle.get()} rejectDup=${rejectedDuplicate.get()} rejectAccounting=${rejectedAccounting.get()}"
+            "rejectLifecycle=${rejectedLifecycle.get()} rejectDup=${rejectedDuplicate.get()} rejectAccounting=${rejectedAccounting.get()} " +
+            "lifecyclePendingSamples8237=${pending.size} [${pending.joinToString("; ") { it.line(nowMs) }}]"
     }
+
+    internal fun clearLifecycleDiagnosticsForTest8237() = synchronized(lifecyclePending8237) { lifecyclePending8237.clear() }
 }

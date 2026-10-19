@@ -12913,7 +12913,11 @@ class BotService : Service() {
                             com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(m)
                     }.take(60).toSet()
                     com.lifecyclebot.network.PumpFunWS.syncTradeSubscriptions7278(curveMints7278)
-                    com.lifecyclebot.network.CurveTicks7968.sync7968(curveMints7278)  // V5.0.7968 — free curve ticks
+                    // V5.0.8236 — free curve ticks follow the held curves AND the freshest watched pump candidates, so a
+                    // fresh coin's shape / change come from its own curve account instead of waiting on scanner polls.
+                    com.lifecyclebot.network.CurveTicks7968.sync7968(
+                        com.lifecyclebot.engine.truth.CurveShapeFeed8236.subscriptionSetNow8236(curveMints7278, status.tokens.values, System.currentTimeMillis()),
+                    )
                 } catch (_: Throwable) {}
                 // V5.0.8018 — held coins on a PumpSwap pool (graduated) get per-trade vault ticks.
                 try { com.lifecyclebot.network.GradTicks8018.sync8018(openMints.take(40).toSet()) } catch (_: Throwable) {}
@@ -24518,11 +24522,13 @@ if (hotExitHandledSweep) {
             // worker timeout, or that the orchestrator already says should not be
             // polled this tick. Open positions bypass timeout cooldown above.
             if (supervisorTimeoutCooldownActive(mint)) {
+                HandoffPriority8190.noteWorkerUnavailable8237(mint, "TIMEOUT_COOLDOWN")
                 skipped++
                 cooldownSkipped++
                 continue
             }
             if (orchestrator?.shouldPoll(mint) == false) {
+                HandoffPriority8190.noteWorkerUnavailable8237(mint, "SHOULD_POLL_FALSE")
                 skipped++
                 shouldPollSkipped++
                 continue
@@ -24532,6 +24538,7 @@ if (hotExitHandledSweep) {
                 skipped++
                 continue
             }
+            HandoffPriority8190.noteWorkerAdmitted8237(mint)
             supervisorLifetimeSpawned.incrementAndGet()
             // V5.9.1042 — record last-successful-spawn timestamp so the
             // watchdog above can detect prolonged pool stalls.
@@ -30882,6 +30889,11 @@ if (hotExitHandledSweep) {
                                 if (ts.lastMcap <= 0.0) "mcap=unknown liq=$${ts.lastLiquidityUsd.toInt()} < \$1K"
                                 else if (ts.lastMcap < 1_000) "mcap=\$$mcap < \$1K"
                                 else "mcap=\$$mcap > \$300K"
+                            // V5.0.8236 — a 0% momentum with no price change observed and buy pressure at its default is
+                            // not "no continuation"; the input has not arrived.
+                            effectiveExpressMom < expressMinMom && ts.momentum == null &&
+                                ts.priceChangeObservedAtMs8084 == 0L && ts.buyPressureObservedAtMs8084 == 0L ->
+                                com.lifecyclebot.engine.LaneInputTruth8236.MOMENTUM_DEFER
                             effectiveExpressMom < expressMinMom -> "mom=${effectiveExpressMom.fmt(1)}% < ${expressMinMom.fmt(1)}% (learning=${(expressLearning*100).toInt()}%)"
                             ts.lastBuyPressurePct < expressMinBuyP -> "buyP=${ts.lastBuyPressurePct.toInt()}% < ${expressMinBuyP.toInt()}%"
                             else -> "unknown"

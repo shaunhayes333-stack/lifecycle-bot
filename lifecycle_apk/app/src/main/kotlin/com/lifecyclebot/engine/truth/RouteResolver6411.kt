@@ -65,12 +65,16 @@ object RouteResolver6411 {
     }
 
     /**
-     * Classify the mint into a venue. Chain-authoritative when
-     * possible (pump.fun mint suffix), otherwise best-effort from
-     * the discovery source.
+     * Classify the mint into a venue. An observed migration outranks
+     * a mint-name/source hint; neither replaces the actual executable quote.
      */
     fun resolveVenue(mint: String, source: String): ExecutableVenue6411 {
-        // 1) Chain-authoritative: pump.fun bonding-curve mints end in "pump".
+        // 8237: graduation does not change the mint suffix. The old early return
+        // sent a proven migrated mint back to its completed bonding curve.
+        val migrated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }
+        if (migrated || com.lifecyclebot.engine.RouteTruthHydrator.explicitMigrationSource8237(source))
+            return ExecutableVenue6411.PUMPSWAP
+        // Mint-name recognition is only an adapter-selection hint.
         val isPumpFun = try { PumpFunDirectApi.isPumpFunMint(mint) } catch (_: Throwable) { false }
         if (isPumpFun) return ExecutableVenue6411.PUMP_FUN_BONDING_CURVE
 

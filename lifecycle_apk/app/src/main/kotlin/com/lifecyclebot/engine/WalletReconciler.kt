@@ -88,9 +88,12 @@ object WalletReconciler {
                     }
             } catch (_: Throwable) {}
         }
-        // V5.9.495t empty-map defence — never wipe positions on RPC failure.
+        // The successful RPC result, including complete empty, is already published
+        // with its own observation time/completeness in WalletAccountCache. The chain
+        // audit consumes that record directly. This legacy management path still
+        // leaves empty-wallet lifecycle changes to explicit owner+mint close proof.
         if (walletMints.isEmpty()) {
-            ErrorLogger.debug(TAG, "wallet returned empty map (likely RPC lag) — skipping reconcile pass")
+            ErrorLogger.debug(TAG, "empty wallet observation published; legacy lifecycle management awaits per-mint proof")
             return 0
         }
 
@@ -101,7 +104,6 @@ object WalletReconciler {
         // every reconcile pass even if the legacy PositionStore drift
         // recovery logic below is short-circuited.
         try { HostWalletTokenTracker.applyWalletSnapshot(walletMints) } catch (_: Throwable) {}
-        try { ReconcileRunner8144.noteWalletSnapshot8144(walletMints) } catch (_: Throwable) {}
 
         var changes = 0
 

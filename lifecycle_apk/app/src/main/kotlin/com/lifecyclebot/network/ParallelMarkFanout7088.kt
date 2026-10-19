@@ -855,7 +855,11 @@ object ParallelMarkFanout7088 {
                         } catch (_: Throwable) {}
                         val priceSol = (vSol / 1e9) / (vTok / Math.pow(10.0, PUMP_TOKEN_DECIMALS_7269.toDouble()))
                         val px = priceSol * solUsd
-                        if (px.isFinite() && px > 0.0) out[mint] = px
+                        if (px.isFinite() && px > 0.0) {
+                            out[mint] = px
+                            // V5.0.8236 — an active curve's read is a curve print on the tape (shape / change for fresh coins).
+                            com.lifecyclebot.engine.truth.CurveShapeFeed8236.onCurveRead8236(mint, priceSol, System.currentTimeMillis())
+                        }
                     }
                 }
             } catch (t: Throwable) {

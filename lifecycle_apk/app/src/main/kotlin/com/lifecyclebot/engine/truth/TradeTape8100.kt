@@ -32,7 +32,8 @@ object TradeTape8100 {
 
     // V5.0.8169 — [priceOnly]: a pool-state price (bonding-curve account / PumpSwap vault pair) with no side or size.
     // It states price (change, shape) but never buy pressure and never an executed print for the local bars.
-    private class Trade(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean, val priceOnly: Boolean = false)
+    internal class Trade(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean,
+                         val priceOnly: Boolean = false, val source: String = "pumpportal")
     private val tapes = ConcurrentHashMap<String, ArrayDeque<Trade>>()
     private val notes = AtomicLong(0)
     private val reads = AtomicLong(0)
@@ -46,7 +47,7 @@ object TradeTape8100 {
     /** PumpFunWS: one executed curve trade (price = curve reserves after the trade, SOL per token). */
     fun note8100(mint: String, priceSol: Double, sol: Double, isBuy: Boolean, atMs: Long = System.currentTimeMillis(), source: String = "pumpportal") {
         if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
-        add8169(mint, Trade(atMs, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy), atMs, source)
+        add8169(mint, Trade(atMs, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy, source = source), atMs, source)
     }
 
     /**
@@ -56,7 +57,7 @@ object TradeTape8100 {
      */
     fun notePrice8169(mint: String, priceSol: Double, source: String, atMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
-        add8169(mint, Trade(atMs, priceSol, 0.0, false, priceOnly = true), atMs, source)
+        add8169(mint, Trade(atMs, priceSol, 0.0, false, priceOnly = true, source = source), atMs, source)
     }
 
     private fun add8169(mint: String, t: Trade, atMs: Long, source: String) {
@@ -99,12 +100,25 @@ object TradeTape8100 {
     /** Pure-ish: 15-second-bar shape from [trades] within the last 3 minutes, or null when it cannot be stated. */
     private fun youngShape8220(trades: List<Trade>, nowMs: Long): Shape? {
         val recent = trades.filter { !it.priceOnly && nowMs - it.atMs in 0L..3L * 60_000L && it.priceSol.isFinite() && it.priceSol > 0.0 }
-        if (recent.size < 3 || recent.last().atMs - recent.first().atMs < YOUNG_MIN_SPAN_MS_8220) return null
-        val bars = recent.groupBy { it.atMs / YOUNG_BAR_MS_8220 }.toSortedMap().values.map { it.last().priceSol }
+        // Three executed prints in one short burst still cannot state the required
+        // three bars / 30 s span. Try that complete shape first, then the curve's
+        // independently sufficient observations. Other price-only pools are not curves.
+        youngShapeOf8236(recent, curve = false)?.let { return it }
+        val curve = trades.filter {
+            it.priceOnly && it.source == SRC_CURVE_8169 && nowMs - it.atMs in 0L..3L * 60_000L &&
+                it.priceSol.isFinite() && it.priceSol > 0.0
+        }
+        return youngShapeOf8236(curve, curve = true)
+    }
+
+    /** Pure: the 15-second-bar shape of one source's prints spanning >= 30 s, or null. */
+    internal fun youngShapeOf8236(src: List<Trade>, curve: Boolean): Shape? {
+        if (src.size < 3 || src.last().atMs - src.first().atMs < YOUNG_MIN_SPAN_MS_8220) return null
+        val bars = src.groupBy { it.atMs / YOUNG_BAR_MS_8220 }.toSortedMap().values.map { it.last().priceSol }
         if (bars.size < 3) return null
         return shape8100(bars)?.also {
             youngShapes8220.incrementAndGet()
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TAPE_YOUNG_SHAPE_15S_8220") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (curve) "TAPE_YOUNG_SHAPE_CURVE_8236" else "TAPE_YOUNG_SHAPE_15S_8220") } catch (_: Throwable) {}
         }
     }
 

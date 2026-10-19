@@ -59,9 +59,10 @@ object MinPromotion8188 {
     }
 
     /**
-     * V5.0.8236 — ONE risk budget for every route-minimum promotion path. A smaller proposed
-     * order is not itself a tradeable loss budget. The canonical wallet/sizer's safe-share
-     * capacity is the upper budget, only when that wallet can route the minimum. This
+     * V5.0.8236 §ONE_RISK_BUDGET — the account's per-position doctrine (the safe share cap
+     * the routable-capacity preflight enforces) is read by BOTH promotion paths: the upstream
+     * sizers and LiveRiskPolicy7807.decide's last-mile promotion. The captured wallet/price
+     * inputs prove that capacity, only when that wallet can route the minimum. This
      * DOES NOT authorise a spend: the lane envelope, hard per-trade stop loss, available
      * cash, depth, quote, expected net return and final sealed amount remain binding.
      * NaN means no proven capacity; refusal8188 then preserves the original tight budget.

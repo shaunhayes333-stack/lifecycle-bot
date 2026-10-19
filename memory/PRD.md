@@ -2,7 +2,14 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8231 (Oct 2026) — synced to upstream 8220a; 8230 CI fully green (APK + all suites + emulator proof)
+## CURRENT: V5.0.8235 (Oct 2026) — last-mile chokepoints to a live buy (8234 CI green; 8235 CI pending at write time)
+See `memory/audits/v5_0_8232_8235_last_mile.md`. 8233 runtime: 144 FDG approvals died in `LiveRiskPolicy7807.decide` (71 route-min
+loss budget → 8234; 50 NET_EV_NONPOSITIVE on generic admits with no `Proof8198` → 8235), MOONSHOT refused 5604 natives on
+rugcheck `-1` (unfetched) → 8235, Pump trade stream AUTH_DENIED (PumpPortal key wallet < 0.02 SOL — operator must fund; now in the
+snapshot catalogue). Shadow book works (8233: opens=58 closes=37). Remaining blocks are mostly evidence-based (execution economics
+on big caps at a 0.0285 SOL ticket, losing setup records, watch-first cells) or data hydration (shape = 3 polled candles).
+
+## V5.0.8231 (Oct 2026) — synced to upstream 8220a; 8230 CI fully green (APK + all suites + emulator proof)
 See `memory/audits/v5_0_8221_8224_parity_repair.md` for the 8221→8231 batch (paper trades the live universe, paper exit pays
 the live latency, settlement-lag never rebases the peak, one admission prior per generation, sell side learned on a
 contradicted entry mark, promotion judged on the admission's own basis). Gate: `Build AATE APK` (ignore Runtime Smoke Test).

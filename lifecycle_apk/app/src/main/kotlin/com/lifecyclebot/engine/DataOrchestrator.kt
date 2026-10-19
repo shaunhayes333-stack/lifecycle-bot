@@ -277,23 +277,36 @@ class DataOrchestrator(
      * V5.0.7809 — one keyless OHLCV read that waits for the provider's request
      * slot instead of being declined by it, retried at most [attempts] times.
      * Retries are spaced past the feed's 2.5 s same-key coalesce window, and a
-     * provider in 429/5xx cooldown ends the attempt rather than queueing behind
-     * it. A provider-answered empty is negative-cached by the feed, so a retry
-     * after one costs no request. Never fabricates: empty means no bars.
+     * provider in a long 429/5xx cooldown ends its rung after independent sources
+     * have been read. Provider absence and rate limits remain scoped to their
+     * sources inside the feed. Never fabricates: empty means no bars.
      */
-    private suspend fun keylessFetch7809(
+    internal suspend fun keylessFetch7809(
         mint: String,
         timeframe: String,
         limit: Int,
         poolHint: String,
         attempts: Int,
+        slotReader: () -> com.lifecyclebot.network.SolanaOhlcvFeed6916.SlotWait7809 = {
+            com.lifecyclebot.network.SolanaOhlcvFeed6916.providerSlotWait7809()
+        },
+        candleReader: () -> List<Candle> = {
+            com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(mint, timeframe, limit, poolHint)
+        },
     ): List<Candle> {
         var tries = 0
         while (tries < attempts) {
             tries++
             val slot: com.lifecyclebot.network.SolanaOhlcvFeed6916.SlotWait7809 =
-                com.lifecyclebot.network.SolanaOhlcvFeed6916.providerSlotWait7809()
+                slotReader()
             if (slot.cooldown) {
+                // This is GeckoTerminal's cooldown. The candle cache and DexPaprika have independent availability;
+                // fetchCandles6916 keeps Gecko's own rate gate closed while still reading those sources.
+                val independent = candleReader()
+                if (independent.isNotEmpty()) {
+                    try { PipelineHealthCollector.labelInc("OHLCV_SEED_SERVED_DURING_GECKO_COOLDOWN") } catch (_: Throwable) {}
+                    return independent
+                }
                 // V5.0.8201 — a cooldown about to end is waited out once (bounded), not converted into "no bars": 5.0.8200
                 // skipped 1,950 seeds on cooldown and 27% of FDG decisions deferred on DATA_INCOMPLETE. A long cooldown
                 // still ends the attempt (the per-mint DataDeferFetch8180 retry owns it). Never fabricates.
@@ -309,7 +322,7 @@ class DataOrchestrator(
                 val floor = if (tries > 1) SEED_RETRY_FLOOR_MS_7809 else 0L
                 delay(maxOf(slot.waitMs, floor) + kotlin.random.Random.nextLong(0L, SEED_JITTER_MS_7809))
             }
-            val got = com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(mint, timeframe, limit, poolHint)
+            val got = candleReader()
             if (got.isNotEmpty()) {
                 if (tries > 1) try { PipelineHealthCollector.labelInc("OHLCV_SEED_SERVED_ON_RETRY_7809") } catch (_: Throwable) {}
                 return got
@@ -617,9 +630,7 @@ class DataOrchestrator(
                     // kept aiming exits at the dead bonding curve. Stamp it the moment
                     // the WS says so; RouteTruthHydrator also derives it from the venue,
                     // this is just the earliest and most authoritative signal.
-                    ts.tokenMap.migratedOrGraduated = true
-                    ts.tokenMap.pumpFunExecutable = false
-                    ts.tokenMap.updatedAtMs = System.currentTimeMillis()
+                    RouteTruthHydrator.markGraduatedByEvent7744(ts)
                     try { PipelineHealthCollector.labelInc("GRADUATION_DETECTED_PUMP_WS") } catch (_: Throwable) {}
                     onNotify("🎓 Graduated", "${ts.symbol} moved to Raydium", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 }
@@ -1231,19 +1242,25 @@ class DataOrchestrator(
      * V5.0.8191 — the sources behind the refresh. A coin asking for its inputs is near a decision (Birdeye / candle
      * priority); bp / chg / shape / tape come from executed trades, so the coin joins PumpPortal's keyed trade stream
      * (pumpWs above has been null since 4169: that subscribe never reached a socket); a DexScreener pair that is
-     * NOT_FETCHED or stale is fetched once a minute at most (the answer lands in PairFlow8169). Nothing is inferred.
+     * absent, stale or missing the requested field is fetched once a minute at most (the answer lands in PairFlow8169).
+     * The repair uses the same age window as the setup resolver. Nothing is inferred.
      */
     private fun refreshSources8191(mint: String, keys: Set<String>) {
-        DataPipeline8191.noteNearDecision8191(mint)
+        val nowMs = System.currentTimeMillis()
+        DataPipeline8191.noteNearDecision8191(mint, nowMs)
         if (keys.any { it in TRADE_FED_INPUTS_8191 }) try { PumpFunWS.watchForSetup8191(mint) } catch (_: Throwable) {}
-        if (keys.any { it in PAIR_FED_INPUTS_8191 } && DataPipeline8191.claimPairFetch8191(mint)) scope.launch {
-            try { DexscreenerApi().getBestPair(mint) } catch (_: Throwable) {}
+        val pairInputs = DataPipeline8191.pairRepairInputs8237(keys)
+        val ageMin = try { status.tokens[mint]?.let { TokenMetricStageRouter.snapshot(it).ageMin } ?: Double.NaN } catch (_: Throwable) { Double.NaN }
+        if (pairInputs.isNotEmpty() && DataPipeline8191.claimPairFetch8191(mint, nowMs, pairInputs, ageMin)) scope.launch {
+            val pair = try { DexscreenerApi().getBestPair(mint) } catch (_: Throwable) { null }
+            // The earlier forced poll may have run while this fetch was in flight. Re-arm the existing scheduler
+            // after the answer lands in PairFlow8169 so every waiting lane re-reads the same dated evidence.
+            if (pair != null) forcePoll8085.add(mint)
             try { PipelineHealthCollector.labelInc("SETUP_PAIR_FETCH_8191") } catch (_: Throwable) {}
         }
     }
 
     private val TRADE_FED_INPUTS_8191 = setOf("bp", "chg", "shape", "tape", "flow", "buyers", "tx", "swaps")
-    private val PAIR_FED_INPUTS_8191 = setOf("bp", "chg", "liq", "mcap", "opp", "vol")
 
     /** V5.0.8191 — Codex one-minute candles as a seed (not a repair): installed only into a short history. */
     private fun codexSeed8191(ts: TokenState): Boolean {

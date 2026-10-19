@@ -134,6 +134,12 @@ object DataDeferFetch8180 {
             when (m.substringBefore(':').trim().lowercase()) {
                 "" -> {}
                 "liquidity", "depth" -> out += "liq:" + m.substringAfter(':', "UNKNOWN")
+                // Route repair must call the real pair/depth readers. An unrecognised
+                // `token_map` key only forced another poll of the same incomplete map.
+                "route", "token_map", "quote", "sellability" -> {
+                    out += m.trim()
+                    out += "liq:REFRESH"
+                }
                 "price", "economics" -> { out += "liq:REFRESH"; out += "chg:UNOBSERVED" }
                 "core" -> { out += "shape:HISTORY_SPARSE"; out += "chg:UNOBSERVED"; out += "bp:UNOBSERVED" }
                 "bars", "candles", "history" -> out += "shape:HISTORY_SPARSE"
