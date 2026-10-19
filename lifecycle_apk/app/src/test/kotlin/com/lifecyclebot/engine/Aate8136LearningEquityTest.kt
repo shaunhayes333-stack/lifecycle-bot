@@ -91,7 +91,8 @@ class Aate8136LearningEquityTest {
         assertTrue(ks.contains("prefs.getBoolean(\"peak_gain_free_8130\", false)"))
         assertTrue(ks.contains("CapitalDrawdown7948.gainFreeEquity8130(currentBalance, heroUpnl8136())"))
         val cd = src("engine/truth/CapitalDrawdown7948.kt")
-        assertTrue(cd.contains("peakCandidate7990(gainFreeEquity8130(equitySol, upnl8130), prevPeakObs7990)"))
+        assertTrue(cd.contains("val candidate8239 = gainFreeEquity8130(equitySol, upnl8130)"))
+        assertTrue(cd.contains("peakCandidate7990(candidate8239, prevPeakObs7990)"))
         assertTrue(cd.contains("drawdownPct7948(peak7948, observedDrawdownEquity8136(equitySol, upnl8130), nowMs)"))
         assertTrue(cd.contains("noteExternalFlow8136(flow, nowMs)"))
     }

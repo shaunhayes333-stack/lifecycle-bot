@@ -55,9 +55,34 @@ object ProfitExitTruth8163 {
         return (Math.round(pct * 100.0).toInt()).coerceIn(minOf(MIN_SLIP_BPS_8189, cap), cap)
     }
 
-    private fun expectedSlip8189(ts: TokenState, capBps: Int): Int {
-        val m = try { com.lifecyclebot.engine.truth.CostLedger7962.sellSidePct8189(ts.position.tradingMode) } catch (_: Throwable) { null }
-        return expectedSlippageBps8189(m?.first, m?.second ?: 0, capBps)
+    /** Measured quote-to-wallet shortfall includes fixed fees; the fallback estimate charges those separately. */
+    internal fun clearsQuoted8239(cost: Double?, outLamports: Long, capBps: Int, measuredShortfallPct: Double?, measuredN: Int,
+                         fixedFeeSol: Double): Boolean {
+        val measured = measuredN >= 5 && measuredShortfallPct?.let { it.isFinite() && it >= 0.0 } == true
+        if (capBps !in 0..9999) return false
+        // A transaction slippage cap does not cap network fees. Measured quote-to-wallet total shortfall
+        // must retain those costs even when it exceeds the price-slippage cap.
+        val discount = if (measured) Math.round(maxOf(0.5, measuredShortfallPct!!) * 100.0).toInt().coerceIn(0, 9999)
+            else expectedSlippageBps8189(null, 0, capBps)
+        return clears(cost, outLamports, discount, if (measured) 0.0 else fixedFeeSol)
+    }
+
+    private fun clearsRoute8239(ts: TokenState, raw: Long, outLamports: Long, slip: Int, route: String = "JUPITER"): Boolean {
+        val m = try { com.lifecyclebot.engine.truth.QuoteFillCost8239.measured(ts.position.tradingMode, outLamports / 1e9, route) } catch (_: Throwable) { null }
+        return clearsQuoted8239(basis(ts, raw), outLamports, slip, m?.first, m?.second ?: 0, CostMeter8151.sellLegFixedSol8151())
+    }
+
+    fun basisPreflight8239(ts: TokenState, reason: String, raw: Long, releaseLocks: Boolean = true): Boolean {
+        if (ts.position.isPaperPosition || !profitTaking(reason)) return true
+        return basis(ts, raw) != null || refused(ts, "MISSING_CONFIRMED_SLICE_BASIS", releaseLocks)
+    }
+
+    private fun captureQuote8239(ts: TokenState, raw: Long, outLamports: Long, route: String, observedAtMs: Long) {
+        if (ts.position.isPaperPosition) return
+        com.lifecyclebot.engine.truth.QuoteFillCost8239.capture(com.lifecyclebot.engine.truth.QuoteFillCost8239.Reference(
+            ts.position.positionId, ts.mint,
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(ts.position.tradingMode).uppercase(),
+            raw, outLamports / 1e9, route, observedAtMs))
     }
 
     fun preflight(ts: TokenState, reason: String, raw: Long, jupiter: JupiterApi, releaseLocks: Boolean = true): Boolean {
@@ -68,34 +93,41 @@ object ProfitExitTruth8163 {
         val slip = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
         val quote = try { jupiter.getQuote(inputMint = ts.mint, outputMint = JupiterApi.SOL_MINT, amountRaw = raw, slippageBps = slip) }
             catch (_: Exception) { return refused(ts, "EXECUTABLE_QUOTE_UNAVAILABLE", releaseLocks) }
-        reconcileMark8237(ts, raw, quote.outAmount)
-        return if (clears(cost, quote.outAmount, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "EXECUTABLE_SOL_BELOW_SLICE_COST", releaseLocks)
+        reconcileMark8237(ts, raw, quote.outAmount, quote.observedAtMs8239)
+        return if (clearsRoute8239(ts, raw, quote.outAmount, slip)) true else refused(ts, "EXECUTABLE_SOL_BELOW_SLICE_COST", releaseLocks)
     }
 
     /** Recheck the actual route at every retry, so an earlier quote cannot authorize a later losing fill. */
-    fun acceptQuote(ts: TokenState, reason: String, quote: SwapQuote, slip: Int): Boolean {
-        if (ts.position.isPaperPosition || !profitTaking(reason)) return true
-        PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_QUOTE_8168")
-        if (quote.inputMint != ts.mint || quote.outputMint != JupiterApi.SOL_MINT) return refused(ts, "QUOTE_IDENTITY_MISMATCH")
-        reconcileMark8237(ts, quote.inAmount, quote.outAmount)
-        return if (clears(basis(ts, quote.inAmount), quote.outAmount, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "REQUOTE_BELOW_SLICE_COST")
+    fun acceptQuote(ts: TokenState, reason: String, quote: SwapQuote, slip: Int, releaseLocks: Boolean = true): Boolean {
+        if (ts.position.isPaperPosition) return true
+        if (profitTaking(reason)) {
+            PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_QUOTE_8168")
+            if (quote.inputMint != ts.mint || quote.outputMint != JupiterApi.SOL_MINT) return refused(ts, "QUOTE_IDENTITY_MISMATCH", releaseLocks)
+            if (System.currentTimeMillis() - quote.observedAtMs8239 !in 0L..10_000L) return refused(ts, "QUOTE_STALE", releaseLocks)
+            reconcileMark8237(ts, quote.inAmount, quote.outAmount, quote.observedAtMs8239)
+            if (!clearsRoute8239(ts, quote.inAmount, quote.outAmount, slip)) return refused(ts, "REQUOTE_BELOW_SLICE_COST", releaseLocks)
+        }
+        if (quote.inputMint == ts.mint && quote.outputMint == JupiterApi.SOL_MINT)
+            captureQuote8239(ts, quote.inAmount, quote.outAmount, "JUPITER", quote.observedAtMs8239)
+        return true
     }
 
-    fun acceptProceeds8168(ts: TokenState, reason: String, raw: Long, outLamports: Long, slip: Int): Boolean {
-        if (ts.position.isPaperPosition || !profitTaking(reason)) return true
-        PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_ROUTE_8168")
-        reconcileMark8237(ts, raw, outLamports)
-        return if (clears(basis(ts, raw), outLamports, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true
-        else refused(ts, "ROUTE_PROCEEDS_BELOW_SLICE_COST", releaseLocks = false)
+    fun acceptProceeds8168(ts: TokenState, reason: String, raw: Long, outLamports: Long, slip: Int,
+                          route: String = "RAYDIUM", observedAtMs: Long = System.currentTimeMillis()): Boolean {
+        if (ts.position.isPaperPosition) return true
+        if (profitTaking(reason)) {
+            PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_ROUTE_8168")
+            if (System.currentTimeMillis() - observedAtMs !in 0L..10_000L) return refused(ts, "NATIVE_QUOTE_STALE", releaseLocks = false)
+            reconcileMark8237(ts, raw, outLamports, observedAtMs)
+            if (!clearsRoute8239(ts, raw, outLamports, slip, route)) return refused(ts, "ROUTE_PROCEEDS_BELOW_SLICE_COST", releaseLocks = false)
+        }
+        captureQuote8239(ts, raw, outLamports, route, observedAtMs)
+        return true
     }
 
-    /**
-     * V5.0.8237 §A_DISPROVEN_MARK_STOPS_HERE — the executable quote is the only price a profit exit can bank; when the
-     * mark the position was displayed, peaked and (nearly) learnt at sits far above it, the mark is disproven: the
-     * position's price and peak are re-based to the quote so the screen, the trailing peak and the learner stop reading
-     * a gain nobody could sell. 8236 forensic (YEARN): +1909%/+2000% displayed, +3.5% executable, 20 of 21 profit quotes
-     * refused against slice cost — the quote proved the mark wrong 20 times and nothing acted on it.
-     */
+    /** An exact full-holding quote can correct the current liquidation valuation. It cannot disprove an earlier peak:
+     * market movement, size impact and route differences may all explain a lower current quote. Historical corrections
+     * require an identified invalid observation or a proven entry-basis repair (RunnerEvidence8239). */
     private const val MARK_DISPROOF_RATIO_8237 = 1.5
 
     /** Pure: the USD price a quote actually states for the slice, or NaN. */
@@ -109,20 +141,27 @@ object ProfitExitTruth8163 {
     fun markDisproven8237(markUsd: Double, quoteUsd: Double): Boolean =
         markUsd.isFinite() && quoteUsd.isFinite() && markUsd > 0.0 && quoteUsd > 0.0 && markUsd / quoteUsd > MARK_DISPROOF_RATIO_8237
 
-    private fun reconcileMark8237(ts: TokenState, rawIn: Long, outLamports: Long) {
+    internal fun reconcileMark8237(ts: TokenState, rawIn: Long, outLamports: Long, observedAtMs: Long) {
         try {
-            val dec = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(ts.mint)?.tokenDecimals?.takeIf { it in 0..18 } ?: return
-            val q = quoteImpliedUsd8237(outLamports, rawIn, dec, WalletManager.lastKnownSolPrice)
+            val canonical = CanonicalPositionAuthority6441.getPosition(ts.position.positionId)?.takeIf {
+                it.mint == ts.mint && it.mode.equals("live", true) && it.tokenDecimals in 0..18 &&
+                    it.remainingQtyRaw == BigInteger.valueOf(rawIn)
+            } ?: return // A partial-slice unit price must not revalue a differently sized remaining holding.
+            val now = System.currentTimeMillis()
+            if (now - observedAtMs !in 0L..10_000L) return
+            val q = quoteImpliedUsd8237(outLamports, rawIn, canonical.tokenDecimals, WalletManager.freshSolPrice8163(now))
             if (!markDisproven8237(ts.lastPrice, q)) return
             val ratio = ts.lastPrice / q
+            val published = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.publishRepairedExitEconomic7418(
+                ts.mint, q, "EXEC_QUOTE_8237", verifiedIdentity7424 = true, observedAtMs7884 = observedAtMs)
+            if (!published) return
             ts.lastPrice = q
             ts.lastPriceSource = "EXEC_QUOTE_8237"
-            ts.lastPriceUpdate = System.currentTimeMillis()
-            val floor = maxOf(q, ts.position.entryPrice)
-            if (ts.position.highestPrice > floor) ts.position.highestPrice = floor
+            ts.lastPriceUpdate = observedAtMs
+            // highestPrice / PositionExcursion / runner opportunity retain their original historical evidence.
             PipelineHealthCollector.labelInc("MARK_DISPROVEN_BY_QUOTE_8237")
             if (ForensicEmitRateLimiter6356.shouldEmit("MARK_DISPROVEN_8237", ts.mint))
-                ForensicLogger.lifecycle("MARK_DISPROVEN_BY_QUOTE_8237", "mint=${ts.mint} markOverQuote=${"%.2f".format(ratio)}x quoteUsd=$q peakRebasedTo=$floor")
+                ForensicLogger.lifecycle("MARK_DISPROVEN_BY_QUOTE_8237", "mint=${ts.mint} markOverQuote=${"%.2f".format(ratio)}x quoteUsd=$q historicalPeak=retained sourceAt=$observedAtMs")
         } catch (_: Throwable) {}
     }
 

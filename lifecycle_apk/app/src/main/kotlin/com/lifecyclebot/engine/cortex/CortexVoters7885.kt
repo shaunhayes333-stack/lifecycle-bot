@@ -528,15 +528,15 @@ object CortexVoters7885 {
     private const val VOTER_CACHE_MAX_8187 = 30_000
     private class CachedRead8187(val v: Double, val atMs: Long)
     private val voterCache8187 = java.util.concurrent.ConcurrentHashMap<String, CachedRead8187>()
-    private val refreshQueued8187: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     private val cacheServed8187 = java.util.concurrent.atomic.AtomicLong(0)
     private val budgetAbstained8187 = java.util.concurrent.atomic.AtomicLong(0)
     private val refreshDropped8187 = java.util.concurrent.atomic.AtomicLong(0)
     private val refreshPool8187: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
         1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(512),
         { r -> Thread(r, "cortex-voter-refresh-8187").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
-        java.util.concurrent.ThreadPoolExecutor.DiscardPolicy(),
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
     )
+    private val refreshAdmission8239 = com.lifecyclebot.engine.KeyedTaskAdmission8239(refreshPool8187)
 
     /** Pure (V5.0.8187): is a voter served from its cache on this read (slow on average, or the read is over budget)? */
     fun servedFromCache8187(avgMs: Double, elapsedMs: Double): Boolean = avgMs > CACHED_MS_8187 || elapsedMs > ASSESS_BUDGET_MS_8187
@@ -560,18 +560,17 @@ object CortexVoters7885 {
     }
 
     private fun scheduleRefresh8187(i: Int, key: String, ts: TokenState, lane: String) {
-        if (!refreshQueued8187.add(key)) return
         try {
-            refreshPool8187.execute {
-                try {
-                    val wall = System.currentTimeMillis()
-                    val r = timedRead8187(i, ts, lane, wall, null)
-                    if (voterCache8187.size >= VOTER_CACHE_MAX_8187) voterCache8187.entries.removeIf { !cacheFresh8187(it.value.atMs, wall) }
-                    if (voterCache8187.size < VOTER_CACHE_MAX_8187) voterCache8187[key] = CachedRead8187(r, wall)
-                } finally { refreshQueued8187.remove(key) }
+            val result = refreshAdmission8239.submit(key) {
+                val r = timedRead8187(i, ts, lane, System.currentTimeMillis(), null)
+                // A slow read may observe mutable state throughout its call. Never
+                // put it in an earlier decision's cache with the start timestamp.
+                val readAt = System.currentTimeMillis()
+                if (voterCache8187.size >= VOTER_CACHE_MAX_8187) voterCache8187.entries.removeIf { !cacheFresh8187(it.value.atMs, readAt) }
+                if (voterCache8187.size < VOTER_CACHE_MAX_8187) voterCache8187[key] = CachedRead8187(r, readAt)
             }
-            if (refreshPool8187.queue.remainingCapacity() == 0) refreshDropped8187.incrementAndGet()
-        } catch (_: Throwable) { refreshQueued8187.remove(key); refreshDropped8187.incrementAndGet() }
+            if (result == com.lifecyclebot.engine.KeyedTaskAdmission8239.Result.REJECTED) refreshDropped8187.incrementAndGet()
+        } catch (_: Throwable) { refreshDropped8187.incrementAndGet() }
     }
 
     /** "budget8187[...]" for the compute line: cache-served reads, abstentions, dropped refreshes. */

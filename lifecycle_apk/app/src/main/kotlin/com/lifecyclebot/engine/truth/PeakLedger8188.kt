@@ -168,6 +168,20 @@ object PeakLedger8188 {
         persistQuietly8188()
     }
 
+    /** Cash timing is unresolved: do not relabel a bot sale, or a possible mixed transfer, as a deposit. */
+    @Synchronized fun refuseUnresolvedCashFlow8237(residualSol: Double, liquidDeltaSol: Double, peakSol: Double,
+                                                  nowMs: Long, evidence: String) {
+        refused8188.incrementAndGet()
+        addRebase8188(Rebase8188(nowMs, residualSol, liquidDeltaSol, 0.0, peakSol, peakSol, "UNRESOLVED_TRADE_CASHFLOW_8237"))
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DRAWDOWN_TRADE_CASHFLOW_UNRESOLVED_8237")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("DRAWDOWN_TRADE_CASHFLOW_UNRESOLVED_8237",
+                "residual=${"%+.4f".format(residualSol)} liquidDelta=${"%+.4f".format(liquidDeltaSol)} " +
+                    "peak=${"%.4f".format(peakSol)} $evidence action=peak_unchanged")
+        } catch (_: Throwable) {}
+        persistQuietly8188()
+    }
+
     /** Pure: a peak candidate on verified components only — [candidateSol] less principal no wallet read confirms; NaN in paper. */
     fun verifiedCandidate8188(candidateSol: Double, unverifiedPrincipalSol: Double, paperRuntime: Boolean): Double {
         if (paperRuntime || !candidateSol.isFinite()) return Double.NaN
@@ -223,6 +237,7 @@ object PeakLedger8188 {
     @Volatile private var reconciled8188: Reconciled8188? = null
     private val rebases8188 = java.util.concurrent.ConcurrentLinkedDeque<Rebase8188>()
     private val refused8188 = java.util.concurrent.atomic.AtomicLong(0)
+    @Volatile private var restoredRebaseTimes8237: Set<Long> = emptySet()
     @Volatile private var unverifiedCache8188: Pair<Long, Double>? = null
 
     /** KillSwitch: writes the ledger next to the peak it describes (set at live init). */
@@ -287,6 +302,9 @@ object PeakLedger8188 {
         reconciled8188 = decodeReconciled8188(reconciledStr)
         rebases8188.clear()
         rebases8188.addAll(decodeRebases8188(rebasesStr))
+        // The old persisted schema contains amounts/times, but no external-transfer signature.
+        // Preserve those values and disclose the missing proof; never silently reset drawdown to current cash.
+        restoredRebaseTimes8237 = rebases8188.filter { it.appliedSol != 0.0 }.mapTo(HashSet()) { it.atMs }
     }
 
     /** CapitalDrawdown7948.seed7948: keep the restored event when it describes this peak; never revalue the peak. */
@@ -301,11 +319,21 @@ object PeakLedger8188 {
     }
 
     /** CapitalDrawdown7948, after the peak rolled: a peak at a new time is recorded with its components now. */
-    @Synchronized fun noteMove8188(before: CapitalDrawdown7948.Peak7948, after: CapitalDrawdown7948.Peak7948, nowMs: Long) {
+    @Synchronized fun noteMove8188(before: CapitalDrawdown7948.Peak7948, after: CapitalDrawdown7948.Peak7948, nowMs: Long,
+                                   observation8239: LiveEquityObservation8239.Observation8239? = null) {
         val origin = moveOrigin8188(before.peakSol, before.atMs, after.peakSol, after.atMs, nowMs) ?: return
-        event8188 = capture8188(after.peakSol, after.atMs, origin)
+        event8188 = if (observation8239 != null) eventFromObservation8239(after.peakSol, after.atMs, origin, observation8239) ?: return
+            else capture8188(after.peakSol, after.atMs, origin)
         rebases8188.clear()
         persistQuietly8188()
+    }
+
+    /** The peak's stored components are the components that established its value. */
+    fun eventFromObservation8239(peakSol: Double, atMs: Long, origin: String,
+                                  observation: LiveEquityObservation8239.Observation8239): PeakEvent8188? {
+        if (!observation.coherent || !peakSol.isFinite() || kotlin.math.abs(peakSol - observation.riskSol) > 1e-8) return null
+        return PeakEvent8188(peakSol, atMs, observation.liquidSol, observation.principalSol,
+            observation.unrealisedSol, 0.0, origin, observation.provenance8239())
     }
 
     /** An explicit proof-run re-anchor (8093) is its own event. */
@@ -388,14 +416,17 @@ object PeakLedger8188 {
                 (if (e.atMs != effective.atMs) " STALE_EVENT_effectiveAt=${effective.atMs}" else "") + "]"
         val rs = rebases8188.toList()
         val applied = rs.filter { it.appliedSol != 0.0 }
+        val unverified8237 = applied.filter { it.atMs in restoredRebaseTimes8237 }
         val last = rs.lastOrNull()
         return "$ev rebases8188=[applied=${applied.size} net=${"%+.4f".format(applied.sumOf { it.toSol - it.fromSol })} " +
             "refusedNotInWallet=${rs.count { it.verdict == REBASE_REFUSED_8188 }} refusedSettlement8223=${rs.count { it.verdict == REBASE_TRADE_SETTLEMENT_8223 }} totalRefused=${refused8188.get()} effective=${f(effective.peakSol)}" +
+            " legacyRebasesUnverified8237=${unverified8237.size} legacyNetUnverifiedSol8237=${"%+.4f".format(unverified8237.sumOf { it.toSol - it.fromSol })}" +
+            (if (unverified8237.isNotEmpty()) " legacyCorrection8237=UNRESOLVED_EXTERNAL_TRANSFER_PROOF" else "") +
             (if (last != null) " last=${last.verdict}:residual=${"%+.4f".format(last.residualSol)},liquid=${"%+.4f".format(last.liquidDeltaSol)}," +
                 "${f(last.fromSol)}->${f(last.toSol)},ageMin=${(nowMs - last.atMs) / 60_000L}" else "") + "]" +
             (reconciled8188?.let { r -> " reconciled8188=[legacy=${f(r.legacySol)} -> ${f(r.reconciledSol)} by=${r.by} " +
                 "refusedFlows=${"%+.4f".format(r.refusedFlowsSol)} witnesses=${r.witnesses} ageMin=${(nowMs - r.atMs) / 60_000L}]" } ?: "")
     }
 
-    internal fun resetForTests8188() { event8188 = null; reconciled8188 = null; rebases8188.clear(); refused8188.set(0); unverifiedCache8188 = null; persist8188 = null }
+    internal fun resetForTests8188() { event8188 = null; reconciled8188 = null; rebases8188.clear(); restoredRebaseTimes8237 = emptySet(); refused8188.set(0); unverifiedCache8188 = null; persist8188 = null }
 }

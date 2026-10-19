@@ -230,6 +230,11 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
     // ── V5.0.8009 — execution speed ──
     @Volatile private var solBalance8009: Pair<Long, Double>? = null
+    @Volatile private var solObservation8239: com.lifecyclebot.engine.truth.WalletSolObservation8239? = null
+
+    /** Read-only cash provenance for equity; a trade invalidates an earlier in-flight observation. */
+    fun balanceObservation8239(nowMs: Long = System.currentTimeMillis()): com.lifecyclebot.engine.truth.WalletSolObservation8239? =
+        solObservation8239?.takeIf { it.usable8239(nowMs, com.lifecyclebot.engine.WalletAccountCache.readGeneration8237()) }
     private val SOL_BALANCE_TTL_MS_8009 = 1_500L
     /** signature -> (signed tx, sent via Sender) while it awaits confirmation: re-broadcast until it lands. */
     private val inFlight8009 = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Boolean>>()
@@ -327,17 +332,25 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         }
         // V5.0.8009 — one read serves a buy attempt: the planner asked for the same balance three
         // or four times in a row (each a round trip, with 300/600 ms retry sleeps on a miss).
-        solBalance8009?.let { (at, v) -> if (System.currentTimeMillis() - at < SOL_BALANCE_TTL_MS_8009) return v }
+        solBalance8009?.let { (at, v) -> if (System.currentTimeMillis() - at in 0L until SOL_BALANCE_TTL_MS_8009) return v }
         var lastEx: Exception? = null
         repeat(3) { attempt ->
             try {
+                val started8239 = System.currentTimeMillis()
+                val generation8239 = com.lifecyclebot.engine.WalletAccountCache.readGeneration8237()
                 val resp = rpc("getBalance", JSONArray().put(publicKeyB58))
                 val error = resp.optJSONObject("error")
                 if (error != null) {
                     throw RuntimeException("RPC error: ${error.optString("message", "unknown")}")
                 }
-                val lam = resp.optJSONObject("result")?.optLong("value", 0L) ?: 0L
-                return (lam / 1_000_000_000.0).also { solBalance8009 = System.currentTimeMillis() to it }
+                val result8239 = resp.optJSONObject("result") ?: throw RuntimeException("getBalance missing result")
+                val lam = result8239.optLong("value", Long.MIN_VALUE)
+                if (lam < 0L) throw RuntimeException("getBalance missing or invalid result.value")
+                val observed8239 = System.currentTimeMillis()
+                solObservation8239 = com.lifecyclebot.engine.truth.WalletSolObservation8239(publicKeyB58, lam,
+                    result8239.optJSONObject("context")?.optLong("slot", -1L) ?: -1L,
+                    started8239, observed8239, generation8239)
+                return (lam / 1_000_000_000.0).also { solBalance8009 = observed8239 to it }
             } catch (e: Exception) {
                 lastEx = e
                 if (attempt < 2) Thread.sleep((300L shl attempt))
@@ -376,6 +389,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         if (android.os.Looper.myLooper() === android.os.Looper.getMainLooper()) {
             throw IllegalStateException("SolanaWallet.getSolBalancePrimaryOnly6685 called from Dispatchers.Main")
         }
+        val started8239 = System.currentTimeMillis()
+        val generation8239 = com.lifecyclebot.engine.WalletAccountCache.readGeneration8237()
         val payload = JSONObject()
             .put("jsonrpc", "2.0")
             .put("id", idGen.getAndIncrement())
@@ -394,7 +409,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         if (err != null) throw RuntimeException("RPC error: ${err.optString("message", "unknown")}")
         val result = json.optJSONObject("result") ?: throw RuntimeException("RPC missing result")
         val lamports = result.optLong("value", Long.MIN_VALUE)
-        if (lamports == Long.MIN_VALUE) throw RuntimeException("RPC missing result.value")
+        if (lamports < 0L) throw RuntimeException("RPC missing or invalid result.value")
+        solObservation8239 = com.lifecyclebot.engine.truth.WalletSolObservation8239(publicKeyB58, lamports,
+            result.optJSONObject("context")?.optLong("slot", -1L) ?: -1L,
+            started8239, System.currentTimeMillis(), generation8239)
         return lamports / 1_000_000_000.0
     }
 
@@ -1500,26 +1518,34 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         //
         // Cache is BUSTED by sell/buy post-broadcast paths via
         // WalletAccountCache.bustNow(), so confirmed trades never stale.
-        com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L)?.let { return it }
+        com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L, owner = publicKeyB58)?.let { return it }
+
+        val walletReadGeneration8237 = com.lifecyclebot.engine.WalletAccountCache.readGeneration8237()
+        val walletObservedAt8237 = System.currentTimeMillis()
 
         val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         val out = mutableMapOf<String, CanonicalTokenAmount>()
+        val ownerTotals8239 = WalletTokenAccountTotals8239(out)
         val parsedMints7253 = mutableSetOf<String>()
         val frozenMints7253 = mutableSetOf<String>()
         val failures = mutableListOf<String>()
         var splProgramOk = false
         var token2022Ok = false
+        var splEnumerationComplete8237 = false
+        var token2022EnumerationComplete8237 = false
 
-        fun mergeFrom(programId: String, json: JSONObject) {
+        fun mergeFrom(programId: String, json: JSONObject): Boolean {
             val err = json.optJSONObject("error")
             if (err != null) throw RuntimeException("RPC error: ${err.optString("message", err.toString())}")
             val result = json.optJSONObject("result") ?: throw RuntimeException("missing result")
             val arr = result.optJSONArray("value") ?: throw RuntimeException("missing result.value")
+            var fullyParsed8237 = true
             for (i in 0 until arr.length()) {
                 val info = arr.optJSONObject(i)
                     ?.optJSONObject("account")?.optJSONObject("data")
-                    ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
+                    ?.optJSONObject("parsed")?.optJSONObject("info")
+                if (info == null) { fullyParsed8237 = false; continue }
                 val mint = info.optString("mint", "")
                 if (mint.isNotBlank()) {
                     parsedMints7253 += mint
@@ -1538,13 +1564,15 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 val tokenAmount = info.optJSONObject("tokenAmount")
                 val rawAmount = tokenAmount?.optString("amount", "") ?: ""
                 val decimals = tokenAmount?.optInt("decimals", -1) ?: -1
-                val amount = try { CanonicalTokenAmount.fromRpcAmount(rawAmount, decimals) } catch (_: Throwable) { null }
-                if (mint.isNotBlank() && mint !in frozenMints7253 && amount != null && amount.raw.signum() > 0) out[mint] = amount
+                // A wallet can hold several separate accounts for one mint. Their exact raw
+                // balances add when decimals agree; malformed or conflicting rows stay partial.
+                if (!ownerTotals8239.record(mint, rawAmount, decimals, excluded = mint in frozenMints7253)) fullyParsed8237 = false
             }
+            return fullyParsed8237
         }
 
         try {
-            mergeFrom(TOKEN_PROGRAM, rpcTokenAccountsByOwnerFast(TOKEN_PROGRAM))
+            splEnumerationComplete8237 = mergeFrom(TOKEN_PROGRAM, rpcTokenAccountsByOwnerFast(TOKEN_PROGRAM))
             splProgramOk = true
         } catch (e: Exception) {
             failures.add("Tokenkeg:${e.message ?: "unknown"}")
@@ -1559,7 +1587,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         }
 
         try {
-            mergeFrom(TOKEN_2022_PROG, rpcTokenAccountsByOwnerFast(TOKEN_2022_PROG))
+            token2022EnumerationComplete8237 = mergeFrom(TOKEN_2022_PROG, rpcTokenAccountsByOwnerFast(TOKEN_2022_PROG))
             token2022Ok = true
         } catch (e: Exception) {
             failures.add("TokenzQd:${e.message ?: "unknown"}")
@@ -1600,19 +1628,26 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // that inference now has to consult.
         // V5.0.8074 — the SPL token program read: the wallet can be seen.
         try { com.lifecyclebot.engine.truth.LiveBootRecovery8074.noteTokenRead8074(true) } catch (_: Throwable) {}
+        val enumerationComplete8237 = splEnumerationComplete8237 && token2022EnumerationComplete8237
         try {
-            if (token2022Ok) {
+            if (enumerationComplete8237) {
                 com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.markComplete()
             } else {
                 com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.markPartial(
-                    "TOKEN_2022_PROGRAM_UNREAD:${failures.joinToString(";").take(120)}",
+                    "OWNER_ENUMERATION_PARTIAL_8237:spl=$splEnumerationComplete8237 token2022=$token2022EnumerationComplete8237 ${failures.joinToString(";").take(120)}",
                 )
             }
         } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKENS_ROBUST_OK", "spl=true token2022=$token2022Ok count=${out.size}") } catch (_: Throwable) {}
         // V5.0.4173 — populate the wallet snapshot cache so subsequent
         // reads within 5s skip the RPC entirely.
-        try { com.lifecyclebot.engine.WalletAccountCache.put(out.toMap()) } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.engine.WalletAccountCache.put(
+                out.toMap(), complete = enumerationComplete8237,
+                source = if (enumerationComplete8237) "OWNER_TOKEN_PROGRAMS" else "OWNER_ENUMERATION_PARTIAL_8237",
+                observedAtMs = walletObservedAt8237, readGeneration = walletReadGeneration8237, owner = publicKeyB58,
+            )
+        } catch (_: Throwable) {}
         return out
     }
 
@@ -1676,7 +1711,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     fun getSingleMintBalanceBounded7868(mint: String, timeoutMs: Long = 2_500L): CanonicalTokenAmount? {
         if (mint.isBlank()) return null
         try {
-            com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L)?.get(mint)
+            com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L, owner = publicKeyB58)?.get(mint)
                 ?.takeIf { it.raw > java.math.BigInteger.ONE }?.let { return it }
         } catch (_: Throwable) {}
         val fut = try {
@@ -1708,6 +1743,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     private fun knownMintsFallbackBounded7374(budgetMs: Long = 6_000L): Map<String, CanonicalTokenAmount>? {
         val mints = knownBotMints7374()
         if (mints.isEmpty()) return null
+        val walletReadGeneration8237 = com.lifecyclebot.engine.WalletAccountCache.readGeneration8237()
+        val walletObservedAt8237 = System.currentTimeMillis()
         val fut = try {
             boundedRpcExecutor().submit(java.util.concurrent.Callable { readKnownMints7374(mints, System.currentTimeMillis() + budgetMs - 250L) })
         } catch (_: Throwable) { return null }
@@ -1724,6 +1761,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         }
         try {
             com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.markPartial("KNOWN_MINTS_FALLBACK_7374 answered=$answered/${mints.size}")
+            com.lifecyclebot.engine.WalletAccountCache.put(
+                held, complete = false, source = "KNOWN_MINTS_FALLBACK_7374",
+                observedAtMs = walletObservedAt8237, readGeneration = walletReadGeneration8237, owner = publicKeyB58,
+            )
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_KNOWN_MINTS_FALLBACK_OK_7374")
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                 "WALLET_KNOWN_MINTS_FALLBACK_OK_7374",

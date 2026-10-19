@@ -38,6 +38,7 @@ object CurveReserves7951 {
         @Volatile var virtualTokens: Double,
         @Volatile var realSol: Double,
         @Volatile var atMs: Long,
+        @Volatile var pairedAtMs8239: Long = if (virtualTokens.isFinite() && virtualTokens > 0.0) atMs else 0L,
     )
 
     private val rows = ConcurrentHashMap<String, Row>()
@@ -78,6 +79,7 @@ object CurveReserves7951 {
             if (atMs >= r.atMs) {
                 r.virtualSol = vSol
                 r.virtualTokens = if (vTok.isFinite() && vTok > 0.0) vTok else r.virtualTokens
+                r.pairedAtMs8239 = if (vTok.isFinite() && vTok > 0.0) atMs else 0L
                 r.realSol = real
                 r.atMs = atMs
             }
@@ -116,11 +118,21 @@ object CurveReserves7951 {
     /** Spot price in SOL per token from reserves of an active curve observed within [maxAgeMs], or 0.0. */
     /** V5.0.8198 — an ACTIVE (not graduated) curve's virtual reserves (SOL, tokens) read within [maxAgeMs], else null. */
     fun activeReserves8198(mint: String, nowMs: Long, maxAgeMs: Long): Pair<Double, Double>? {
+        return activeSnapshot8239(mint, nowMs, maxAgeMs)?.let { it.virtualSol to it.virtualTokens }
+    }
+
+    data class Snapshot8239(val virtualSol: Double, val virtualTokens: Double, val realSol: Double, val atMs: Long)
+
+    /** Reserve values and their clock must come from one read; a later frame must not freshen an older payout. */
+    fun activeSnapshot8239(mint: String, nowMs: Long, maxAgeMs: Long): Snapshot8239? {
         val r = rows[mint.trim()] ?: return null
-        if (nowMs - r.atMs !in 0L..maxAgeMs) return null
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
-        val vSol = r.virtualSol; val vTok = r.virtualTokens
-        return if (vSol.isFinite() && vSol > 0.0 && vTok.isFinite() && vTok > 0.0) vSol to vTok else null
+        return synchronized(r) {
+            val vSol = r.virtualSol; val vTok = r.virtualTokens
+            if (r.pairedAtMs8239 != r.atMs || nowMs - r.atMs !in 0L..maxAgeMs || !vSol.isFinite() || vSol <= 0.0 || !vTok.isFinite() || vTok <= 0.0 ||
+                !r.realSol.isFinite() || r.realSol < 0.0) null
+            else Snapshot8239(vSol, vTok, r.realSol, r.atMs)
+        }
     }
 
     fun priceSolFor7951(mint: String, nowMs: Long, maxAgeMs: Long): Double {
@@ -128,6 +140,17 @@ object CurveReserves7951 {
         if (nowMs - r.atMs !in 0L..maxAgeMs) return 0.0
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }) return 0.0
         return priceSol7951(r.virtualSol, r.virtualTokens)
+    }
+
+    /** The reserve observation time travels with its price; reading the cache never renews it. */
+    fun priceObservation8239(mint: String, solUsd: Double, nowMs: Long, maxAgeMs: Long): ObservedMark8239? {
+        if (!solUsd.isFinite() || solUsd <= 0.0) return null
+        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
+        val r = rows[mint.trim()] ?: return null
+        return synchronized(r) {
+            ObservedMark8239(priceSol7951(r.virtualSol, r.virtualTokens) * solUsd, r.atMs, "CURVE_RESERVES")
+                .takeIf { it.fresh(nowMs, maxAgeMs) }
+        }
     }
 
     /**

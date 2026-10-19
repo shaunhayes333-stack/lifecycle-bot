@@ -186,18 +186,30 @@ object ReceiverRecord8190 {
 }
 
 /**
- * V5.0.8190 — a live hand-off target is processed in the next cycle. BotService's priority window (128 rotating) and
+ * V5.0.8190 — live hand-off targets get priority in the cycle. BotService's priority window (128 rotating) and
  * the supervisor slice (fresh / unseen / cold) did not know a receiver task or an open election yield existed.
- * Bounded: at most [MAX_TARGETS_8190] mints per cycle, soonest-expiring first, only mints already in the caller's list.
+ * Bounded: at most [MAX_TARGETS_8190] mints per cycle, least-recently attempted first, then soonest-expiring.
+ * A receiver waiting for data must not monopolise every slice while the other qualified receivers expire unseen.
  */
 object HandoffPriority8190 {
     const val MAX_TARGETS_8190 = 12
+    private const val MAX_SELECTIONS = 4_096
+    private val lastWorkerAdmissionAt = ConcurrentHashMap<String, Long>()
+    private val lastUnavailableAttemptAt = ConcurrentHashMap<String, Long>()
 
-    /** Pure: [targets] (mint -> validUntil, sooner first) restricted to [present], bounded. */
-    fun select8190(targets: List<Pair<String, Long>>, present: Collection<String>, max: Int = MAX_TARGETS_8190): List<String> {
-        if (targets.isEmpty() || present.isEmpty()) return emptyList()
+    /**
+     * Pure: only a worker admission or an explicit per-mint unavailability spends a turn.
+     * Merely appearing in a selected slice, or losing shared worker capacity, spends none.
+     */
+    fun select8190(targets: List<Pair<String, Long>>, present: Collection<String>, max: Int = MAX_TARGETS_8190,
+                   lastAdmittedAt: Map<String, Long> = emptyMap(), lastUnavailableAt: Map<String, Long> = emptyMap()): List<String> {
+        if (targets.isEmpty() || present.isEmpty() || max <= 0) return emptyList()
         val set = present.toHashSet()
-        return targets.asSequence().filter { it.first in set }.sortedBy { it.second }.map { it.first }.distinct().take(max).toList()
+        return targets.asSequence().filter { it.first in set }
+            .sortedWith(compareBy<Pair<String, Long>> {
+                maxOf(lastAdmittedAt[it.first] ?: Long.MIN_VALUE, lastUnavailableAt[it.first] ?: Long.MIN_VALUE)
+            }.thenBy { it.second })
+            .map { it.first }.distinct().take(max).toList()
     }
 
     /** Every live receiver task target and open election yield now (mint -> deadline). */
@@ -254,12 +266,45 @@ object HandoffPriority8190 {
         try {
             val targets = targets8190(nowMs)
             val pool = poolWithLiveTargets8216(targets, all, nowMs)
-            select8190(targets, pool).also { accountDropped8198(targets, pool, it, nowMs) }
+            // Both selection phases are read-only. The worker-admission path below
+            // decides whether this target actually got a turn, after its own filters.
+            select8190(targets, pool, lastAdmittedAt = lastWorkerAdmissionAt, lastUnavailableAt = lastUnavailableAttemptAt)
+                .also { accountDropped8198(targets, pool, it, nowMs) }
         } catch (_: Throwable) { emptyList() }
 
     /** BotService.selectOrderedMintsForCycle: the due targets among [otherMints], put in the slice first. */
     fun dueTargets8190(otherMints: List<String>, nowMs: Long = System.currentTimeMillis()): List<String> =
-        windowTargets8190(otherMints, nowMs).also { if (it.isNotEmpty()) try { PipelineHealthCollector.labelInc("HANDOFF_TARGET_PRIORITISED_8190") } catch (_: Throwable) {} }
+        windowTargets8190(otherMints, nowMs).also { selected ->
+            if (selected.isNotEmpty()) try { PipelineHealthCollector.labelInc("HANDOFF_TARGET_PRIORITISED_8190") } catch (_: Throwable) {}
+        }
+
+    /** FireSupervisorWorkers calls this only after the mint passes filters and obtains a worker lease. */
+    fun noteWorkerAdmitted8237(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        lastWorkerAdmissionAt[mint] = nowMs
+        pruneTurns8237(nowMs)
+    }
+
+    /**
+     * A real per-mint skip rotates out without pretending a worker ran. Do not call
+     * shouldPoll during selection: it consumes forced polls and the WS-cycle permit.
+     * Shared-capacity/lease failures never spend a turn, so unadmitted prefixes retry first.
+     */
+    fun noteWorkerUnavailable8237(mint: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || (reason != "TIMEOUT_COOLDOWN" && reason != "SHOULD_POLL_FALSE")) return
+        lastUnavailableAttemptAt[mint] = nowMs
+        try { HandoffReceiverTasks8153.noteUnscheduled8198(mint, reason, nowMs) } catch (_: Throwable) {}
+        pruneTurns8237(nowMs)
+    }
+
+    private fun pruneTurns8237(nowMs: Long) {
+        if (lastWorkerAdmissionAt.size <= MAX_SELECTIONS && lastUnavailableAttemptAt.size <= MAX_SELECTIONS) return
+        val live = targets8190(nowMs).mapTo(HashSet()) { it.first }
+        lastWorkerAdmissionAt.keys.removeIf { it !in live }
+        lastUnavailableAttemptAt.keys.removeIf { it !in live }
+    }
+
+    internal fun resetForTests8190() { lastWorkerAdmissionAt.clear(); lastUnavailableAttemptAt.clear() }
 }
 
 /** V5.0.8190 — the per-task causal trace: receiver, candidate version, evidence age, terminal reason (bounded ring). */

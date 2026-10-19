@@ -146,20 +146,20 @@ class Aate8189ExitBankingTest {
         assertFalse(q.due8189(0L, now, true))
         q.resetForTest8189()
         q.putForTest8189("m8189", HeldExitQuote8189.Quote8189(0.002, System.currentTimeMillis(), bi(10)))
-        assertEquals(0.002, q.fresh8189("m8189")!!.priceUsd, 0.0)
+        assertNull("an unbound historical quote cannot serve a current holding", q.fresh8189("m8189"))
     }
 
     @Test fun heldMarkChainUsesTheHeldQuoteWhenFeedsAndTheBatchQuoteFail() {
         val hot = src("engine/truth/HeldHotMarkAuthority7419.kt")
-        assertTrue(hot.contains("if (ex?.price == null) HeldExitQuote8189.take8189(p.mint, p.remainingQtyRaw, p.quantityScale, now)?.let {"))
-        // the held quote keeps the executable source the registry already verifies (no new trust path)
-        assertTrue(hot.contains("px = it.priceUsd; source = EXEC_SOURCE_7876; observedAt8077 = it.observedAtMs"))
+        assertTrue(hot.contains("HeldExitQuote8189.take8189(p.mint, p.remainingQtyRaw, p.quantityScale, now, p.positionId)?.let {"))
+        // Routed and reserve-model observations keep distinct source identities.
+        assertTrue(hot.contains("px = it.priceUsd; source = it.source; observedAt8077 = it.observedAtMs"))
         val rep = src("engine/truth/MarkIdentityRepairAuthority7236.kt")
         assertTrue(rep.contains("} else if (heldQuoteRepair8189(mint)) {"))
-        assertTrue(rep.contains("cache[mint] = Repaired(q.priceUsd, HeldExitQuote8189.SOURCE_8189, q.observedAtMs)"))
-        // stamped at request time, never completion time; never writes a peak
+        assertTrue(rep.contains("cache[mint] = Repaired(q.priceUsd, q.source, q.observedAtMs)"))
+        // The original observation clock survives queue latency; this service never writes a peak.
         val hq = src("engine/truth/HeldExitQuote8189.kt")
-        assertTrue(hq.contains("val q = Quote8189(px, askedAtMs, qty)"))
+        assertTrue(hq.contains("val q = Quote8189(obs.priceUsd, obs.observedAtMs, h.rawQty, h, obs)"))
         assertFalse(hq.contains("peakGainPct"))
     }
 
@@ -235,7 +235,9 @@ class Aate8189ExitBankingTest {
         assertTrue(t.clears(slice, out, t.expectedSlippageBps8189(2.5, 6, 500), 0.000205))
         assertFalse("a quote that does not clear cost still refuses", t.clears(slice, (0.0176 * 1e9).toLong(), t.expectedSlippageBps8189(null, 0, 500), 0.000205))
         val p = src("engine/ProfitExitTruth8163.kt")
-        assertEquals(3, p.split("expectedSlip8189(ts, slip)").size - 1)
+        assertTrue(p.contains("QuoteFillCost8239.measured"))
+        assertTrue(p.contains("clearsQuoted8239(basis(ts, raw)"))
+        assertFalse("all-in mark friction is already represented in route output", p.contains("CostLedger7962.sellSidePct8189"))
         assertTrue("the quote / transaction minOut stays at the cap", p.contains("amountRaw = raw, slippageBps = slip)"))
         assertTrue(src("engine/truth/CostLedger7962.kt").contains("fun sellSidePct8189(laneRaw: String?): Pair<Double, Int>?"))
     }

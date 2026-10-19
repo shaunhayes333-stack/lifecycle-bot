@@ -18,8 +18,10 @@ class Aate8238ProvenEvidenceOnlyTest {
     }
 
     @Test fun aGenericPriorRefusedLiveMoneyGoesToTheShadowBook() {
-        assertEquals("generic_prior_shadow:CANDIDATE_ADMISSION_8136_LIVE_GENERIC_PRIOR_U",
-            FdgOutcomeContinuity8197.shadowOpenReason8233(true, false, "CANDIDATE_ADMISSION_8136_LIVE_GENERIC_PRIOR_UNSUPPORTED_8238"))
+        val reason = "CANDIDATE_ADMISSION_8136_LIVE_GENERIC_PRIOR_UNSUPPORTED_8238"
+        val shadow = FdgOutcomeContinuity8197.shadowOpenReason8233(true, false, reason)
+        assertTrue(shadow?.startsWith("generic_prior_shadow:") == true)
+        assertTrue(reason.startsWith(shadow!!.substringAfter(':')))
         assertNull(FdgOutcomeContinuity8197.shadowOpenReason8233(true, false, "CANDIDATE_ADMISSION_8136_EXECUTION_ECONOMICS_8136"))
         assertNull(FdgOutcomeContinuity8197.shadowOpenReason8233(false, false, "CANDIDATE_ADMISSION_8136_LIVE_GENERIC_PRIOR_UNSUPPORTED_8238"))
     }

@@ -400,6 +400,24 @@ jobs:
             --tests '*Aate8196*' \
             --tests '*Aate8200*' \
             --tests '*Aate8197*' \
+            --tests '*Aate8237CandleFallbackTest*' \
+            --tests '*Aate8237CashSettlementTest*' \
+            --tests '*Aate8237CoreCyclicPrimaryTest*' \
+            --tests '*Aate8237CurveShapeContinuityTest*' \
+            --tests '*Aate8237HandoffContinuityTest*' \
+            --tests '*Aate8237NativeDataRepairTest*' \
+            --tests '*Aate8237NativeInputAuthorityTest*' \
+            --tests '*Aate8237PairInputRepairTest*' \
+            --tests '*Aate8237PipelineCoverageTest*' \
+            --tests '*Aate8237RewardPurityDiagnosticsTest*' \
+            --tests '*Aate8237WalletObservationTest*' \
+            --tests '*Aate8237YearnForensicTest*' \
+            --tests '*Aate8238ProvenEvidenceOnlyTest*' \
+            --tests '*Aate8239EquityObservationTest*' \
+            --tests '*Aate8239ExecutionQualityTest*' \
+            --tests '*Aate8239LearningDataTruthTest*' \
+            --tests '*Aate8239LearningExclusionTest*' \
+            --tests '*Aate8239TradeQualityTest*' \
             --tests '*GoldenTapeRegressionTest.V5_0_7281_floor_is_lamport_exact_recent_basis_accepted_and_ladder_skips_locked_rungs' \
             --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
 

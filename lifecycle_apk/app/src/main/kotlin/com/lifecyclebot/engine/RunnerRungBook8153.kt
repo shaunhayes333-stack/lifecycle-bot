@@ -37,7 +37,16 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         var proceedsSol: Double = 0.0,
         var soldCostSol: Double = 0.0,
         var opportunitySol: Double = 0.0,
+        var opportunityAtMs: Long = 0L,
+        var opportunityPositionId: String = "",
+        var opportunityMode: String = "",
+        var opportunityVersion: Long = 0L,
+        var opportunityValid: Boolean = false,
+        var opportunityCostSol: Double = 0.0,
     )
+    private data class ClosedOpportunity8239(var amount: Double, val net: Double, val atMs: Long, val positionId: String,
+        val mode: String, var version: Long, var valid: Boolean, var costSol: Double)
+    private val closedEvidence8239 = LinkedHashMap<String, ClosedOpportunity8239>()
 
     private val book = LinkedHashMap<String, Rungs8153>()
     private val seenSignatures = LinkedHashSet<String>()
@@ -165,13 +174,55 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         return tier > previous
     }
 
-    /** The position's gross opportunity: its entry cost x the verified peak gain (ratchets up only). */
+    /** Gross opportunity belongs to the original cost and a specific observed peak of one LIVE position. */
     @Synchronized
-    fun noteOpportunity8153(key: String, ladder: String, costSol: Double, verifiedPeakPct: Double) {
+    fun noteOpportunity8153(key: String, ladder: String, costSol: Double, verifiedPeakPct: Double,
+                            observedAtMs8239: Long = 0L, positionId8239: String = "", mode8239: String = "") {
         if (key.isBlank() || !costSol.isFinite() || costSol <= 0.0 || !verifiedPeakPct.isFinite() || verifiedPeakPct <= 0.0) return
         if (verifiedPeakPct >= RunnerPlan8153.BAD_UNITS_PCT_8153) return
         val r = rungs(key, ladder)
-        r.opportunitySol = maxOf(r.opportunitySol, costSol * verifiedPeakPct / 100.0)
+        if (r.opportunityPositionId.isNotBlank() && r.opportunityPositionId != positionId8239) return
+        val amount = costSol * verifiedPeakPct / 100.0
+        val proven = observedAtMs8239 > 0L && positionId8239.isNotBlank() && mode8239.equals("live", true)
+        if (amount > r.opportunitySol || (!r.opportunityValid && proven)) {
+            r.opportunitySol = amount; r.opportunityAtMs = observedAtMs8239
+            r.opportunityPositionId = positionId8239; r.opportunityMode = mode8239.uppercase()
+            r.opportunityCostSol = costSol; r.opportunityValid = proven; r.opportunityVersion++
+        }
+    }
+
+    /** Correct only the identified observation. Confirmed tiers, fees and banked proceeds are never reversed here. */
+    @Synchronized
+    fun invalidateOpportunity8239(positionId: String, invalidObservedAtMs: Long): Boolean {
+        if (positionId.isBlank() || invalidObservedAtMs <= 0L) return false
+        var changed = false
+        for (r in book.values) if (r.opportunityPositionId == positionId && r.opportunityValid &&
+            com.lifecyclebot.engine.truth.RunnerEvidence8239.invalidates(r.opportunityAtMs, invalidObservedAtMs)) {
+            r.opportunityValid = false; r.opportunityVersion++; changed = true
+        }
+        for (r in closedEvidence8239.values) if (r.positionId == positionId && r.valid &&
+            com.lifecyclebot.engine.truth.RunnerEvidence8239.invalidates(r.atMs, invalidObservedAtMs)) {
+            r.valid = false; r.version++; changed = true
+        }
+        return changed
+    }
+
+    /** A tx-proven entry basis changes the return denominator, not the absolute historical peak price. */
+    @Synchronized
+    fun rebaseOpportunity8239(positionId: String, oldEntryUsd: Double, newEntryUsd: Double, originalCostSol: Double): Boolean {
+        if (positionId.isBlank() || !originalCostSol.isFinite() || originalCostSol <= 0.0) return false
+        var changed = false
+        for (r in book.values) if (r.opportunityPositionId == positionId && r.opportunityCostSol > 0.0) {
+            val corrected = com.lifecyclebot.engine.truth.RunnerEvidence8239.rebaseReturn(r.opportunitySol / r.opportunityCostSol * 100.0, oldEntryUsd, newEntryUsd)
+            if (corrected.isFinite()) { r.opportunitySol = originalCostSol * corrected.coerceAtLeast(0.0) / 100.0
+                r.opportunityCostSol = originalCostSol; r.opportunityVersion++; changed = true }
+        }
+        for (r in closedEvidence8239.values) if (r.positionId == positionId && r.costSol > 0.0) {
+            val corrected = com.lifecyclebot.engine.truth.RunnerEvidence8239.rebaseReturn(r.amount / r.costSol * 100.0, oldEntryUsd, newEntryUsd)
+            if (corrected.isFinite()) { val old = r.amount; r.amount = originalCostSol * corrected.coerceAtLeast(0.0) / 100.0
+                closedOpportunitySol += r.amount - old; r.costSol = originalCostSol; r.version++; changed = true }
+        }
+        return changed
     }
 
     /** The position's promotion is latched. Returns true when newly latched. */
@@ -192,6 +243,9 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
     fun retire8153(key: String): Boolean {
         val r = book.remove(key) ?: return false
         closedOpportunitySol += r.opportunitySol
+        closedEvidence8239[key] = ClosedOpportunity8239(r.opportunitySol, r.proceedsSol - r.soldCostSol,
+            r.opportunityAtMs, r.opportunityPositionId, r.opportunityMode, r.opportunityVersion, r.opportunityValid, r.opportunityCostSol)
+        if (closedEvidence8239.size > cap) closedEvidence8239.remove(closedEvidence8239.keys.first())
         closedNetSol += r.proceedsSol - r.soldCostSol
         closedPositions++
         return true
@@ -219,10 +273,15 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         // Persist the idempotency keys with the aggregates. Without these, replaying a confirmed chain event after an
         // app restart could add the same SOL proceeds a second time even though the in-memory guard worked pre-restart.
         for (sig in seenSignatures) sb.append("#sig;").append(sig).append('\n')
+        for ((k, r) in closedEvidence8239) sb.append("#proof;").append(k).append(';').append(r.amount).append(';').append(r.net)
+            .append(';').append(r.atMs).append(';').append(r.positionId).append(';').append(r.mode).append(';').append(r.version)
+            .append(';').append(if (r.valid) 1 else 0).append(';').append(r.costSol).append('\n')
         for ((k, r) in book) {
             sb.append(k).append(';').append(r.scalpConfirmed).append(';').append(r.runnerConfirmed).append(';').append(r.ladder)
                 .append(';').append(if (r.promoted) 1 else 0).append(';').append(r.proceedsSol).append(';').append(r.soldCostSol)
-                .append(';').append(r.opportunitySol).append('\n')
+                .append(';').append(r.opportunitySol).append(';').append(r.opportunityAtMs).append(';').append(r.opportunityPositionId)
+                .append(';').append(r.opportunityMode).append(';').append(r.opportunityVersion).append(';').append(if (r.opportunityValid) 1 else 0)
+                .append(';').append(r.opportunityCostSol).append('\n')
         }
         return sb.toString()
     }
@@ -237,6 +296,17 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
             if (f.size >= 2 && f[0] == "#sig") {
                 val sig = f[1].trim()
                 if (sig.isNotEmpty()) seenSignatures.add(sig)
+                continue
+            }
+            if (f.size >= 10 && f[0] == "#proof") {
+                val version = f[7].toLongOrNull() ?: 0L
+                val current = closedEvidence8239[f[1]]
+                if (f[1].isNotBlank() && (current == null || version > current.version)) {
+                    val at = f[4].toLongOrNull() ?: 0L; val pid = f[5]; val mode = f[6]
+                    closedEvidence8239[f[1]] = ClosedOpportunity8239(f[2].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+                        f[3].toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0, at, pid, mode, version,
+                        f[8] == "1" && at > 0L && pid.isNotBlank() && mode == "LIVE", f[9].toDoubleOrNull() ?: 0.0)
+                }
                 continue
             }
             if (f.size >= 4 && f[0] == "#closed") {
@@ -258,7 +328,15 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
             if (f[4] == "1") r.promoted = true
             r.proceedsSol = maxOf(r.proceedsSol, f[5].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0)
             r.soldCostSol = maxOf(r.soldCostSol, f[6].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0)
-            r.opportunitySol = maxOf(r.opportunitySol, f[7].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0)
+            val version = f.getOrNull(11)?.toLongOrNull() ?: 0L
+            if (version > r.opportunityVersion || (r.opportunityVersion == 0L && version == 0L)) {
+                r.opportunitySol = f[7].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+                r.opportunityAtMs = f.getOrNull(8)?.toLongOrNull() ?: 0L
+                r.opportunityPositionId = f.getOrNull(9).orEmpty(); r.opportunityMode = f.getOrNull(10).orEmpty()
+                r.opportunityVersion = version; r.opportunityCostSol = f.getOrNull(13)?.toDoubleOrNull() ?: 0.0
+                r.opportunityValid = f.getOrNull(12) == "1" && r.opportunityAtMs > 0L &&
+                    r.opportunityPositionId.isNotBlank() && r.opportunityMode == "LIVE"
+            }
             n++
         }
         return n
@@ -267,12 +345,15 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
     /** Gross opportunity vs net SOL actually banked by confirmed slices (partials included), open + closed positions. */
     @Synchronized
     fun statusLine8153(): String {
-        val openOpp = book.values.sumOf { it.opportunitySol }
-        val openNet = book.values.sumOf { it.proceedsSol - it.soldCostSol }
-        val opp = openOpp + closedOpportunitySol
-        val net = openNet + closedNetSol
-        val share = if (opp > 1e-9) "%.0f%%".format(net / opp * 100.0) else "-"
+        val provedOpen = book.values.filter { it.opportunityValid }
+        val provedClosed = closedEvidence8239.values.filter { it.valid }
+        val opp = provedOpen.sumOf { it.opportunitySol } + provedClosed.sumOf { it.amount }
+        val net = book.values.sumOf { it.proceedsSol - it.soldCostSol } + closedNetSol
+        val matchedNet = provedOpen.sumOf { it.proceedsSol - it.soldCostSol } + provedClosed.sumOf { it.net }
+        val unknownOpp = (book.values.sumOf { it.opportunitySol } + closedOpportunitySol - opp).coerceAtLeast(0.0)
+        val share = if (opp > 1e-9) "%.0f%%".format(matchedNet / opp * 100.0) else "-"
         return "grossOppSol=${"%.4f".format(opp)} netBankedSol=${"%+.4f".format(net)} banked/opp=$share " +
+            "matchedNetSol=${"%+.4f".format(matchedNet)} unprovenHistoricalOppSol=${"%.4f".format(unknownOpp)} " +
             "positions=${book.size}+${closedPositions}closed promoted=${book.values.count { it.promoted }} pending=${book.values.count { it.pending != null }} " +
             "rungs[req=$requested ticket=$accepted bcast=$broadcast conf=$confirmed booked=$booked rejected=$rejected superseded=$superseded expired=$expired dupFill=$duplicateFills]"
     }

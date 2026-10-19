@@ -77,7 +77,7 @@ object HeliusSwapCandles7819 {
 
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val nextAllowedMs = ConcurrentHashMap<String, Long>()
-    private val jobStarts = ArrayList<Long>()
+    private val jobBudget8239 = WindowJobBudget8239(MAX_JOBS_PER_MIN, MAX_JOBS_PER_HOUR)
     @Volatile private var cachedKey = ""
     @Volatile private var cachedKeyAtMs = 0L
 
@@ -106,12 +106,18 @@ object HeliusSwapCandles7819 {
         requests.incrementAndGet()
         // V5.0.7881 — up to two 100-credit pages per job (288k credits/day at the old
         // 60/h cap); now also paced on the economy's SWAP_CANDLES share.
-        if (inFlight.size >= MAX_IN_FLIGHT || !claimBudget(nowMs) ||
-            !HeliusCreditEconomy7881.admit(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 200.0, nowMs)) {
+        if (!synchronized(inFlight) { inFlight.size < MAX_IN_FLIGHT && inFlight.add(mint) }) return
+        if (apiKey(nowMs).isBlank()) { inFlight.remove(mint); noKey.incrementAndGet(); return }
+        if (!claimBudget(nowMs) {
+            HeliusCreditEconomy7881.admit(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 200.0, nowMs)
+        }) {
+            inFlight.remove(mint)
             budgetSkips.incrementAndGet()
+            // Refused work did not consume a job; keep one short per-mint retry
+            // delay so twelve lanes cannot repeatedly contend on the same gate.
+            nextAllowedMs[mint] = nowMs + 5_000L
             return
         }
-        if (!inFlight.add(mint)) return
         nextAllowedMs[mint] = nowMs + MINT_RETRY_MS
         if (nextAllowedMs.size > 4_000) nextAllowedMs.entries.removeIf { it.value < nowMs }
         try {
@@ -119,16 +125,10 @@ object HeliusSwapCandles7819 {
                 try { runJob(ts) } catch (_: Throwable) {
                 } finally { inFlight.remove(mint) }
             }, "helius-candles-7819").apply { isDaemon = true }.start()
-        } catch (_: Throwable) { inFlight.remove(mint) }
+        } catch (_: Throwable) { inFlight.remove(mint); jobBudget8239.cancel(nowMs) }
     }
 
-    private fun claimBudget(nowMs: Long): Boolean = synchronized(jobStarts) {
-        jobStarts.removeAll { nowMs - it > 3_600_000L }
-        val lastMinute = jobStarts.count { nowMs - it <= 60_000L }
-        if (lastMinute >= MAX_JOBS_PER_MIN || jobStarts.size >= MAX_JOBS_PER_HOUR) return@synchronized false
-        jobStarts.add(nowMs)
-        true
-    }
+    private fun claimBudget(nowMs: Long, creditAdmit: () -> Boolean): Boolean = jobBudget8239.claim(nowMs, creditAdmit)
 
     private fun apiKey(nowMs: Long): String {
         if (cachedKey.isNotBlank() && nowMs - cachedKeyAtMs < KEY_TTL_MS) return cachedKey
@@ -360,7 +360,7 @@ object HeliusSwapCandles7819 {
             "inFlight=${inFlight.size} budget=${MAX_JOBS_PER_MIN}/min,${MAX_JOBS_PER_HOUR}/h,x${MAX_PAGES}pages"
 
     internal fun resetForTest() {
-        inFlight.clear(); nextAllowedMs.clear(); synchronized(jobStarts) { jobStarts.clear() }
+        inFlight.clear(); nextAllowedMs.clear(); jobBudget8239.clear()
         requests.set(0L); jobs.set(0L); pages.set(0L); served.set(0L); barsDelivered.set(0L)
         barsMerged.set(0L); printsParsed.set(0L); empty.set(0L); httpErrors.set(0L); budgetSkips.set(0L); noKey.set(0L)
     }

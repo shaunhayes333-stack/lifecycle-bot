@@ -501,7 +501,7 @@ object LiveEdgeGate7877 {
                 }
                 CandidateAdmission8136.Terminal8136.REFUSE -> {
                     val d = admission8136
-                    if (d != null && d.specific) {
+                    if (d != null && CandidateAdmission8136.bindingRefusal8239(d)) {
                         val reason = "CANDIDATE_ADMISSION_8136_${d.reason}"
                         recordAssessment8083(ts, l8059, d.chosenSetup, Verdict8083.REFUSE, reason, 1.0, nowMs)
                         observeTail7996(ts, lane, reason, nowMs)
@@ -1100,7 +1100,7 @@ object LiveEdgeGate7877 {
         // V5.0.7883 — a learned shape rule of this lane (tokenomics/timing bin it
         // has proven to lose in) refuses before the cohort read.
         val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) } catch (_: Throwable) { null }
-        // Shape is an independently measured loss rule and remains binding even for a positive setup/cell elsewhere.
+        // 8239: the shape learner resolves current-mode exact setup intersections before broad feature populations.
         if (shape != null && com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, shape)) return null
         if (shape != null) {
             TradeShapeLearner7883.noteRefusal(l, shape)

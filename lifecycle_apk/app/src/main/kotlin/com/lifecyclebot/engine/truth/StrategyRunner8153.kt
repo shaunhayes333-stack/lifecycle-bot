@@ -7,9 +7,9 @@ package com.lifecyclebot.engine.truth
  *  - NET_EDGE_COIN_TOO_SLOW_8035 capped the lane's textbook move by the coin's last-hour range. That range needed six
  *    prints — two candles — so a launch seen for three minutes "moved 5%" and was refused as slow. The expected move is
  *    now the SELECTED strategy's own executable move when its record is supported (30+ labels net of cost, mean - SE > 0:
- *    mean net + the round trip); else the mandate capped by a DENSE range ([DENSE_MIN_BARS_8153]+ candles over
- *    [DENSE_MIN_SPAN_MS_8153]) or the provider's 1h change; a fresh launch with only a sparse range and no 1h change
- *    defers for evidence ([DEFER_REASON_8153], bounded by CandidateAdmission8136's coalesced window) instead of refusing.
+ *    mean net + the round trip); else an observed move capped by the mandate using a DENSE range ([DENSE_MIN_BARS_8153]+ candles over
+ *    [DENSE_MIN_SPAN_MS_8153]) or the provider's observed 1h change. Sparse or absent movement without a supported
+ *    strategy defers for evidence at every age; a lane's return target never supplies the missing forecast.
  *  - Watch-first refused a thin cell (under 10 labels — every launch) even when the proven-only door had just admitted the
  *    candidate on its OWN evidence: its strategy valid on its own record, its kind proven, a run forming in a cell proven
  *    to run, or its admission record's supported specific edge. That evidence now releases the THIN cell; a cap band or
@@ -54,23 +54,21 @@ object StrategyMove8153 {
         if (strategySupported8153(strategyN, strategyMeanPct, strategySePct) && costPct.isFinite() && costPct >= 0.0) {
             return Move8153(strategyMeanPct + costPct, "STRATEGY", false)
         }
-        val range = rangePct?.takeIf { it.isFinite() && it >= 0.0 }
-        val h1 = h1Pct?.takeIf { it.isFinite() && it > 0.0 }
-        if (range != null && !rangeDense && h1 == null && freshLaunch) {
-            return Move8153(NetEdge8030.expectedMove8035(mandatePct, range), "RANGE_SPARSE", true)
-        }
+        // 8239: a lane target is a ceiling, never a market observation. Sparse
+        // ranges cannot gain authority merely because their last print is large.
+        val range = rangePct?.takeIf { it.isFinite() && it >= 0.0 && rangeDense }
+        val h1 = h1Pct?.takeIf { it.isFinite() && it >= 0.0 }
         val realized = if (range != null && h1 != null) maxOf(range, h1) else range ?: h1
-        val basis = when {
-            realized == null || realized >= mandatePct -> "MANDATE"
-            range != null && (h1 == null || range >= h1) -> if (rangeDense) "RANGE" else "RANGE_SPARSE"
-            else -> "H1"
+        if (realized == null) {
+            return Move8153(Double.NaN, if (rangePct != null) "RANGE_SPARSE" else "HISTORY_UNOBSERVED", true)
         }
+        val basis = if (range != null && (h1 == null || range >= h1)) "RANGE" else "H1"
         return Move8153(NetEdge8030.expectedMove8035(mandatePct, realized), basis, false)
     }
 
-    /** Pure: defer for history only when the sparse-range move would refuse (a move that clears needs no wait). */
+    /** Missing observations defer regardless of how cheap a route happens to be. */
     fun needsDefer8153(m: Move8153, costPct: Double): Boolean =
-        m.deferForHistory && !NetEdge8030.entryClears8030(m.expectedGrossPct, costPct)
+        m.deferForHistory || !m.expectedGrossPct.isFinite()
 
     /** Pure: the probe ticket a launch read is costed at — impact only on depth that was actually read. */
     fun probeSizeUsd8153(liquidityUsd: Double): Double = if (liquidityUsd.isFinite() && liquidityUsd > 0.0) 10.0 else 0.0

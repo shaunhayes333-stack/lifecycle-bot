@@ -17,8 +17,9 @@ class Aate8035CoinMoveTest {
         assertFalse(NetEdge8030.entryClears8030(e, 3.9))
         // A $2M coin actually moving 18% in the hour still clears.
         assertTrue(NetEdge8030.entryClears8030(NetEdge8030.expectedMove8035(20.0, 18.0), 3.9))
-        // No data (a brand-new launch): the lane's mandate stands.
-        assertEquals(50.0, NetEdge8030.expectedMove8035(50.0, null), 1e-9)
+        // A lane target does not forecast the return of an unobserved launch.
+        assertTrue(NetEdge8030.expectedMove8035(50.0, null).isNaN())
+        assertFalse(NetEdge8030.entryClears8030(NetEdge8030.expectedMove8035(50.0, null), 3.9))
         // Never more than the mandate.
         assertEquals(20.0, NetEdge8030.expectedMove8035(20.0, 80.0), 1e-9)
     }

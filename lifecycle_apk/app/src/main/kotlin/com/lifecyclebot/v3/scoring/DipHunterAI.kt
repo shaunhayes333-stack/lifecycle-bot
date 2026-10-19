@@ -252,6 +252,7 @@ object DipHunterAI {
         // dip low, price back above it, buy pressure >= 50 and volume present.
         bounceConfirmed: Boolean = true,
     ): DipSignal {
+        com.lifecyclebot.engine.NativeRuleReview8239.begin8239(mint, "DIP_HUNTER")
         
         // ═══════════════════════════════════════════════════════════════════
         // DAILY LIMITS - CRITICAL FOR BOOTSTRAP PROTECTION
@@ -298,10 +299,10 @@ object DipHunterAI {
         
         // Market cap range
         // V5.0.7297 — fluid band from the lane's own graded closes.
-        if (marketCapUsd < com.lifecyclebot.engine.market.LaneHunter7297.floorFor("DIP_HUNTER", MIN_MCAP_USD)) {
+        if (marketCapUsd < com.lifecyclebot.engine.market.LaneHunter7297.floorFor("DIP_HUNTER", MIN_MCAP_USD) && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "DIP_HUNTER", "MCAP_TOO_LOW")) {
             return noDip("MCAP_TOO_LOW: \$${(marketCapUsd/1000).toInt()}K")
         }
-        if (marketCapUsd > com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor("DIP_HUNTER", MAX_MCAP_USD)) {
+        if (marketCapUsd > com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor("DIP_HUNTER", MAX_MCAP_USD) && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "DIP_HUNTER", "MCAP_TOO_HIGH")) {
             return noDip("MCAP_TOO_HIGH: \$${(marketCapUsd/1_000_000).fmt(1)}M")
         }
         
@@ -317,7 +318,7 @@ object DipHunterAI {
         }
         
         // Age check
-        if (tokenAgeHours < MIN_TOKEN_AGE_HOURS) {
+        if (tokenAgeHours < MIN_TOKEN_AGE_HOURS && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "DIP_HUNTER", "TOO_YOUNG")) {
             return noDip("TOO_YOUNG: ${tokenAgeHours.fmt(1)}h")
         }
         

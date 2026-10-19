@@ -73,6 +73,15 @@ object AdmissionRunnerTrace8144 {
         val bindingEvidence: String = "",
         /** V5.0.8153 — the strategy identity CandidateAdmission8136 last decided, with its evidence basis. */
         val identity: String = "",
+        val peakAtMs8239: Long = 0L,
+        val holdingMode8239: String = "",
+        val holdingPositionId8239: String = "",
+        val holdingEntryAtMs8239: Long = 0L,
+        val holdingCloseAtMs8239: Long = 0L,
+        val holdingEntryPx8239: Double = Double.NaN,
+        val bankedPct8239: Double = Double.NaN,
+        val peakValid8239: Boolean = true,
+        val peakCorrection8239: String = "",
     )
 
     // ── (b) replay: pure ──
@@ -99,7 +108,13 @@ object AdmissionRunnerTrace8144 {
 
     /** Pure: was this miss right on what the bot knew at decision time, and which gate decided it. */
     fun classify8144(t: Trace8144): Verdict8144 {
-        if (t.held) return Verdict8144(Miss8144.CAPTURED, "")
+        if (!t.peakValid8239) return Verdict8144(Miss8144.DATA_GAP, "PEAK_EVIDENCE_INVALIDATED_8239:${t.peakCorrection8239}")
+        if (t.held) return when (RunnerEvidence8239.hold(t.peakAtMs8239, t.holdingEntryAtMs8239,
+            t.holdingCloseAtMs8239, t.holdingMode8239, t.holdingPositionId8239)) {
+            RunnerEvidence8239.Hold.HELD -> Verdict8144(Miss8144.CAPTURED, "")
+            RunnerEvidence8239.Hold.OUTSIDE -> Verdict8144(Miss8144.DATA_GAP, "PEAK_OUTSIDE_HOLD_8239")
+            RunnerEvidence8239.Hold.UNKNOWN -> Verdict8144(Miss8144.DATA_GAP, "HOLD_PROVENANCE_UNKNOWN_8239")
+        }
         val gate = refusingGate8144(t)
         val all = listOf(gate, t.fdgVerdict, t.admission, t.downstream).joinToString(" ")
         has8144(all, SAFETY_8144)?.let { return Verdict8144(Miss8144.CORRECT_AT_DECISION, "SAFETY:$it") }
@@ -193,6 +208,11 @@ object AdmissionRunnerTrace8144 {
         .put("markPx", fin8144(t.markPx)).put("windowAtMs", t.windowAtMs).put("windowCostPct", fin8144(t.windowCostPct))
         .put("windowCostMeasured", t.windowCostMeasured).put("route", t.route).put("held", t.held)
         .put("binding", t.binding).put("bindingEvidence", t.bindingEvidence).put("identity", t.identity)
+        .put("peakAtMs8239", t.peakAtMs8239).put("holdingMode8239", t.holdingMode8239)
+        .put("holdingPositionId8239", t.holdingPositionId8239).put("holdingEntryAtMs8239", t.holdingEntryAtMs8239)
+        .put("holdingCloseAtMs8239", t.holdingCloseAtMs8239).put("holdingEntryPx8239", fin8144(t.holdingEntryPx8239))
+        .put("bankedPct8239", fin8144(t.bankedPct8239)).put("peakValid8239", t.peakValid8239)
+        .put("peakCorrection8239", t.peakCorrection8239)
 
     private fun fin8144(v: Double): Any = if (v.isFinite()) v else JSONObject.NULL
 
@@ -208,6 +228,11 @@ object AdmissionRunnerTrace8144 {
         windowAtMs = o.optLong("windowAtMs", 0L), windowCostPct = o.optDouble("windowCostPct", Double.NaN),
         windowCostMeasured = o.optBoolean("windowCostMeasured", false), route = o.optString("route", ""), held = o.optBoolean("held", false),
         binding = o.optString("binding", ""), bindingEvidence = o.optString("bindingEvidence", ""), identity = o.optString("identity", ""),
+        peakAtMs8239 = o.optLong("peakAtMs8239", 0L), holdingMode8239 = o.optString("holdingMode8239", ""),
+        holdingPositionId8239 = o.optString("holdingPositionId8239", ""), holdingEntryAtMs8239 = o.optLong("holdingEntryAtMs8239", 0L),
+        holdingCloseAtMs8239 = o.optLong("holdingCloseAtMs8239", 0L), holdingEntryPx8239 = o.optDouble("holdingEntryPx8239", Double.NaN),
+        bankedPct8239 = o.optDouble("bankedPct8239", Double.NaN), peakValid8239 = o.optBoolean("peakValid8239", true),
+        peakCorrection8239 = o.optString("peakCorrection8239", ""),
     )
 
     /** Pure: an exported JSONL file's traces (malformed lines skipped). */
@@ -335,7 +360,7 @@ object AdmissionRunnerTrace8144 {
                 if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE",
                 com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)),
             (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedTier8153(ts, lane, atMs)?.name } catch (_: Throwable) { null }).orEmpty(),
-            NetEdge8030.moveBasis8153(ts.mint),
+            NetEdge8030.moveBasis8153(ts.mint, lane),
         ).take(240)
     }
 
@@ -416,6 +441,19 @@ object AdmissionRunnerTrace8144 {
         val next = t.copy(refusedBy = refusedBy, downstream = downstream.orEmpty(), held = t.held || held)
         if (next == t) return
         traces[mint] = next
+        export8144()
+    }
+
+    /** Persist the peak's own clock and holding identity; legacy held flags remain explicitly unproven. */
+    internal fun updateRunnerEvidence8239(r: RunnerCapture8017.Run) {
+        val t = traces[r.mint] ?: return
+        val next = t.copy(peakPct = r.peakPct, markPx = r.startPx, held = r.held,
+            peakAtMs8239 = r.peakAtMs, holdingMode8239 = r.holdingMode8239,
+            holdingPositionId8239 = r.holdingPositionId8239, holdingEntryAtMs8239 = r.holdingEntryAtMs8239,
+            holdingCloseAtMs8239 = r.holdingCloseAtMs8239, holdingEntryPx8239 = r.entryPx,
+            bankedPct8239 = r.bankedPct, peakValid8239 = r.peakValid8239, peakCorrection8239 = r.peakCorrection8239)
+        if (next == t) return
+        traces[r.mint] = next
         export8144()
     }
 

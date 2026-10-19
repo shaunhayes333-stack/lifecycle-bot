@@ -465,6 +465,7 @@ object MoonshotTraderAI {
         // than refused as "mcap_too_low" (289 admissions -> 3 executions on 7263).
         runnerShaped7266: Boolean = false,
     ): MoonshotScore {
+        com.lifecyclebot.engine.NativeRuleReview8239.begin8239(mint, "MOONSHOT")
 
         if (!isEnabled.get()) {
             return MoonshotScore(false, 0, 0.0, "moonshot_disabled")
@@ -478,10 +479,10 @@ object MoonshotTraderAI {
         // that rug in one block. The band is the lane's own constants again.
         // V5.0.7719 — fluid: $1,500 at cold start, the 7337 $10k floor when mature.
         val minMcap7266 = minMarketCapUsdFluid7719()
-        if (marketCapUsd < minMcap7266) {
+        if (marketCapUsd < minMcap7266 && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "MOONSHOT", "MCAP_TOO_LOW")) {
             return MoonshotScore(false, 0, 0.0, "mcap_too_low_${(marketCapUsd/1000).toInt()}K_min_${(minMcap7266/1000).toInt()}K")
         }
-        if (marketCapUsd > MAX_MARKET_CAP_USD) {
+        if (marketCapUsd > MAX_MARKET_CAP_USD && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "MOONSHOT", "MCAP_TOO_HIGH")) {
             return MoonshotScore(false, 0, 0.0, "mcap_too_high_${(marketCapUsd/1_000_000).toInt()}M")
         }
 
@@ -541,7 +542,7 @@ object MoonshotTraderAI {
         // V5.0.7550 — pending RC=1 remains pending in both modes; confirmed
         // low RC 2..14 is rejected in both modes.
         val minRcScore = if (pendingRc) 1 else 15
-        if (rugcheckScore < minRcScore) {
+        if (!pendingRc && rugcheckScore < minRcScore) {
             return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
         }
 

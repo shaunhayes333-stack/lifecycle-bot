@@ -32,7 +32,7 @@ class Aate8237YearnForensicTest {
         assertTrue(RunnerCapture8017.peakInHold8237(close - 60_000L, close, 300_000L))
         assertFalse(RunnerCapture8017.peakInHold8237(close - 400_000L, close, 300_000L))   // before entry
         assertFalse(RunnerCapture8017.peakInHold8237(close + 60_000L, close, 300_000L))    // after close
-        assertTrue(RunnerCapture8017.peakInHold8237(0L, close, 300_000L))                  // unknown peak time: not asserted
+        assertFalse(RunnerCapture8017.peakInHold8237(0L, close, 300_000L))                 // missing clock is UNKNOWN, never captured
     }
 
     @Test fun theExecutableQuoteDisprovesAMarkFarAboveIt() {

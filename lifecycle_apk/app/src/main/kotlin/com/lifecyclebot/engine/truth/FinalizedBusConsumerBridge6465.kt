@@ -145,6 +145,8 @@ object FinalizedBusConsumerBridge6465 {
             return false
         }
 
+        if (excludeUnboundEntry8239(consumer, env)) return false
+
         val ok = com.lifecyclebot.engine.LearningEnvironment7835.withMode(env.mode, canonical = true) {
           when (consumer) {
             "KillSwitch7835" -> com.lifecyclebot.engine.KillSwitch.recordCanonical7835(env)
@@ -199,6 +201,23 @@ object FinalizedBusConsumerBridge6465 {
      * the worst case is one extra attribution pass, never a stuck consumer.
      */
     private val attributionApplied7169 = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    /** Resolve storage before deciding permanence. A failed load remains retryable, never an inferred missing entry. */
+    private fun excludeUnboundEntry8239(consumer: String, env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+        if (consumer != "MemeCausalLearning6568") return false
+        val entry = EntryStrategySnapshot6450.snapshot(env.positionId)
+        val reason = EntryLearningExclusion8239.reason8239(consumer, env.positionId, env.mint, env.mode,
+            System.currentTimeMillis() - env.atMs, com.lifecyclebot.engine.LearningPersistence.ready(),
+            com.lifecyclebot.engine.LearningPersistence.readFailed8086(EntryStrategySnapshot6450.persistenceKey6567(env.positionId)), entry)
+            ?: return false
+        CanonicalFinalizedTradeBus6464.exclude(consumer, env.tradeId, reason)
+        excluded.incrementAndGet()
+        releaseExcludedBinding7809(consumer, env)
+        PipelineHealthCollector.labelInc("FINALIZED_ENTRY_FEATURES_EXCLUDED_8239")
+        ForensicLogger.lifecycle("FINALIZED_ENTRY_FEATURES_EXCLUDED_8239",
+            "consumer=$consumer positionId=${env.positionId} mode=${env.mode} reason=$reason action=financial_outcome_kept_features_unbound")
+        return true
+    }
 
     private fun firstAttribution7169(tradeId: String): Boolean {
         if (tradeId.isBlank()) return true
@@ -324,7 +343,7 @@ object FinalizedBusConsumerBridge6465 {
     private fun deliverToRewardPurity(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean =
         RewardPurityGate6441.outcomeOf(env.positionId) != null ||
             RewardPurityGate6441.acceptFinalizedClose(
-                env.positionId, env.realizedPnlSol, env.economicEventId,
+                env.positionId, env.realizedPnlSol, env.economicEventId, envelopeMode = env.mode,
             )
 
     private fun deliverToLearnerRewardBridge(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {

@@ -70,7 +70,8 @@ object CostSides8169 {
         val inconsistent = buy < -NEG_TOLERANCE_PCT_8169 || sell < -NEG_TOLERANCE_PCT_8169 || buy > MAX_BUY_SIDE_PCT_8169
         // V5.0.8223 — the entry mark on a fast pump is the usual contradiction (a mark 3 s before the fill is another
         // price); the sell legs' marks are read at the sale and most often hold. The sell side is then still a
-        // measurement (ProfitExitTruth8163 / the paper exit simulator read it); only the round trip is unmeasured.
+        // entry-ticket-normalized measurement; only the round trip is unmeasured. It must not be used as an
+        // output-normalized quote discount: QuoteFillCost8239 supplies that separate measure.
         if (inconsistent && sell >= -NEG_TOLERANCE_PCT_8169)
             return Sides8169(Verdict8169.SELL_SIDE_ONLY, Double.NaN, sell.coerceAtLeast(0.0), Double.NaN, fee)
         if (inconsistent) return Sides8169(Verdict8169.MARK_INCONSISTENT, buy, sell, buy + sell, fee)

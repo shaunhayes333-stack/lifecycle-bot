@@ -814,6 +814,7 @@ object ShitCoinTraderAI {
         recordEducationScores: Boolean = true,
         tokenState8077: com.lifecyclebot.data.TokenState? = null,
     ): ShitCoinSignal {
+        com.lifecyclebot.engine.NativeRuleReview8239.begin8239(mint, "SHITCOIN")
         
         // Check current mode
         val mode = getCurrentMode()
@@ -841,11 +842,11 @@ object ShitCoinTraderAI {
         // at that edge are profitable; never narrower than the constants.
         val maxMcap7297 = com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor("SHITCOIN", MAX_MARKET_CAP_USD)
         val minMcap7297 = com.lifecyclebot.engine.market.LaneHunter7297.floorFor("SHITCOIN", MIN_MARKET_CAP_USD)
-        if (marketCapUsd > maxMcap7297) {
+        if (marketCapUsd > maxMcap7297 && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "SHITCOIN", "MCAP_TOO_HIGH")) {
             return rejectSignal("MCAP_TOO_HIGH: \$${(marketCapUsd/1000).toInt()}K > \$${(maxMcap7297/1000).toInt()}K", mode, launchPlatform)
         }
 
-        if (marketCapUsd > 0.0 && marketCapUsd < minMcap7297) {
+        if (marketCapUsd > 0.0 && marketCapUsd < minMcap7297 && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "SHITCOIN", "MCAP_TOO_LOW")) {
             return rejectSignal("MCAP_TOO_LOW: \$${marketCapUsd.toInt()} < \$${minMcap7297.toInt()}", mode, launchPlatform)
         }
         
@@ -879,7 +880,7 @@ object ShitCoinTraderAI {
         
         // 7. TOKEN AGE CHECK - Only fresh tokens (fluid during bootstrap)
         val maxAgeHours = effectiveMaxTokenAgeHours()
-        if (tokenAgeMinutes > maxAgeHours * 60) {
+        if (tokenAgeMinutes > maxAgeHours * 60 && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "SHITCOIN", "TOO_OLD")) {
             return rejectSignal("TOO_OLD: ${(tokenAgeMinutes/60).toInt()}h > ${maxAgeHours.toInt()}h", mode, launchPlatform)
         }
         

@@ -111,7 +111,7 @@ object TradeShapeLearner7883 {
         return true
     }
 
-    private class Pending(val lane: String, val bins: IntArray, val atMs: Long)
+    private class Pending(val lane: String, val bins: IntArray, val atMs: Long, val mode: String, val setup: String, val nativeQualified: Boolean)
 
     private val pending = ConcurrentHashMap<String, Pending>()               // mint|lane
     private val stats = ConcurrentHashMap<String, Stat>()                    // lane|feature|bin
@@ -136,9 +136,16 @@ object TradeShapeLearner7883 {
         val liq = if (s.liquidityUsd > 0.0) s.liquidityUsd else -1.0
         val mcap = if (s.marketCapUsd > 0.0) s.marketCapUsd else -1.0
         val ratio = if (liq > 0.0 && mcap > 0.0) s.mcapToLiq else -1.0
+        val now = System.currentTimeMillis()
+        val historyObserved = synchronized(ts.history) {
+            ts.history.count { !it.synthetic && it.priceUsd.isFinite() && it.priceUsd > 0.0 && now - it.ts in 0L..3_600_000L } >= 2
+        }
+        val flowObserved = ts.buyPressureObservedAtMs8084 > 0L && now - ts.buyPressureObservedAtMs8084 in 0L..120_000L
         doubleArrayOf(
-            s.ageMin, s.runupFromLocalLowPct, s.currentVsPeak, s.drawdownFromPeakPct, s.buyPressurePct,
-            liq, mcap, ratio, s.topHolderPct,
+            s.ageMin, if (historyObserved) s.runupFromLocalLowPct else Double.NaN,
+            if (historyObserved) s.currentVsPeak else Double.NaN, if (historyObserved) s.drawdownFromPeakPct else Double.NaN,
+            if (flowObserved) s.buyPressurePct else Double.NaN,
+            liq, mcap, ratio, s.topHolderPct.takeIf { it > 0.0 && it <= 100.0 } ?: Double.NaN,
         )
     } catch (_: Throwable) { null }
 
@@ -154,43 +161,78 @@ object TradeShapeLearner7883 {
         val l = canon(lane)
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) return
-        pending["${ts.mint}|${lane.trim().uppercase()}"] = Pending(l, bins, nowMs)
+        val mode = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l, nowMs).orEmpty() } catch (_: Throwable) { "" }
+        val native = try { com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)?.opinions?.get(l) } catch (_: Throwable) { null }
+        val qualified = native?.let { it.authoritative && it.eligible && it.gradeable } == true &&
+            ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate in 0L..15_000L
+        pending["${ts.mint}|${lane.trim().uppercase()}"] = Pending(l, bins, nowMs, mode, setup, qualified)
         captured.incrementAndGet()
     }
 
     /** Called by ForwardReturnLabeler7731 when the 60-minute label books. */
-    fun onLabel60(mint: String, labelLane: String, netPct: Double, grossPct: Double) {
+    fun onLabel60(mint: String, labelLane: String, netPct: Double, grossPct: Double, observedAtMs: Long = 0L) {
         if (!netPct.isFinite()) return
-        val p = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
+        val key = "$mint|${labelLane.trim().uppercase()}"
+        val p = pending[key] ?: return
+        if (observedAtMs <= 0L || p.atMs != observedAtMs || !pending.remove(key, p)) return
         ensureLoaded()
         synchronized(this) {
             laneAll.getOrPut(p.lane) { Stat() }.add(netPct, grossPct)
+            // Keep legacy observations for diagnosis; only fresh, explicitly native-qualified
+            // decisions create current mode/setup rules. No population guessed from its reason.
             Feature.values().forEachIndexed { i, f ->
                 val b = p.bins[i]
-                if (b >= 0) stats.getOrPut("${p.lane}|${f.name}|$b") { Stat() }.add(netPct, grossPct)
+                if (b >= 0) {
+                    stats.getOrPut("${p.lane}|${f.name}|$b") { Stat() }.add(netPct, grossPct)
+                    if (p.nativeQualified) {
+                        stats.getOrPut(scopedKey8239(p.mode, p.lane, "", f, b)) { Stat() }.add(netPct, grossPct)
+                        if (p.setup.isNotBlank()) stats.getOrPut(scopedKey8239(p.mode, p.lane, p.setup, f, b)) { Stat() }.add(netPct, grossPct)
+                    }
+                }
+            }
+            if (p.nativeQualified) {
+                laneAll.getOrPut(scopedLane8239(p.mode, p.lane)) { Stat() }.add(netPct, grossPct)
             }
         }
         graded.incrementAndGet()
         if (sincePersist.incrementAndGet() >= PERSIST_EVERY) { sincePersist.set(0); persist() }
     }
 
-    /** The learned shape rule [ts] breaks in [lane], or null. Pure read, no side effects. */
+    internal fun scopedKey8239(mode: String, lane: String, setup: String, feature: Feature, bin: Int): String =
+        "8239|${mode.uppercase()}|${lane.uppercase()}|${setup.uppercase()}|${feature.name}|$bin"
+    private fun scopedLane8239(mode: String, lane: String) = "8239|${mode.uppercase()}|${lane.uppercase()}"
+
+    /** An exact setup intersection outranks its broad feature population; neither overrides hard safety. */
+    internal fun bindingScope8239(broadLosing: Boolean, exactLosing: Boolean, supportedSetup: Boolean): String? = when {
+        exactLosing -> "EXACT_SETUP"
+        broadLosing && !supportedSetup -> "LANE_FEATURE"
+        else -> null
+    }
+
+    /** Current-mode shape rule, bound to the strategy actually selected for this decision. */
     fun shapeRefusal(ts: TokenState, lane: String): String? {
         ensureLoaded()
         val l = canon(lane)
         val bins = binsFor(ts) ?: return null
+        val mode = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        val nowMs = System.currentTimeMillis()
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l, nowMs).orEmpty() } catch (_: Throwable) { "" }
+        val supported = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedTier8153(ts, l, nowMs) == StrategyRank8153.Tier8153.SUPPORTED } catch (_: Throwable) { false }
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(l) } catch (_: Throwable) { false }
         return synchronized(this) {
-            val laneMean = laneAll[l]?.mean() ?: 0.0
+            val laneMean = laneAll[scopedLane8239(mode, l)]?.mean() ?: 0.0
             var found: String? = null
             for ((i, f) in Feature.values().withIndex()) {
                 val b = bins[i]
                 if (b < 0) continue
-                val st = stats["$l|${f.name}|$b"] ?: continue
-                if (provenLosing(st, laneMean, runner)) {
-                    found = "SHAPE_7883_${f.name}_${binLabel(f, b)}_n${st.n}_${"%.1f".format(st.mean())}PCT"
-                    break
-                }
+                val broad = stats[scopedKey8239(mode, l, "", f, b)]
+                val exact = setup.takeIf { it.isNotBlank() }?.let { stats[scopedKey8239(mode, l, it, f, b)] }
+                val scope = bindingScope8239(broad?.let { provenLosing(it, laneMean, runner) } == true,
+                    exact?.let { provenLosing(it, laneMean, runner) } == true, supported) ?: continue
+                val st = (if (scope == "EXACT_SETUP") exact else broad) ?: continue
+                found = "SHAPE_7883_${f.name}_${binLabel(f, b)}_n${st.n}_${"%.1f".format(st.mean())}PCT_${scope}_8239"
+                break
             }
             found
         }
@@ -239,8 +281,19 @@ object TradeShapeLearner7883 {
         ensureLoaded()
         return synchronized(this) {
             val rules = ArrayList<String>()
+            val current = ArrayList<String>()
             for ((k, st) in stats) {
-                val parts = k.split('|'); if (parts.size != 3) continue
+                val parts = k.split('|')
+                if (parts.size == 6 && parts[0] == "8239") {
+                    val mode = parts[1]; val lane = parts[2]
+                    val f = try { Feature.valueOf(parts[4]) } catch (_: Throwable) { continue }
+                    val b = parts[5].toIntOrNull() ?: continue
+                    val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+                    if (provenLosing(st, laneAll[scopedLane8239(mode, lane)]?.mean() ?: 0.0, runner))
+                        current += "$mode/$lane/${parts[3].ifBlank { "LANE_FEATURE" }}:${f.name}${binLabel(f, b)}[n=${st.n}]"
+                    continue
+                }
+                if (parts.size != 3) continue
                 val lane = parts[0]
                 val f = try { Feature.valueOf(parts[1]) } catch (_: Throwable) { continue }
                 val b = parts[2].toIntOrNull() ?: continue
@@ -249,9 +302,10 @@ object TradeShapeLearner7883 {
                     rules += "$lane:${f.name}${binLabel(f, b)}[n=${st.n} ${"%+.1f".format(st.mean())}% run=${(st.runnerRate() * 100).toInt()}%]"
                 }
             }
-            "captured=${captured.get()} graded=${graded.get()} pending=${pending.size} bins=${stats.size} " +
+            "captured=${captured.get()} graded=${graded.get()} pending=${pending.size} bins=${stats.size} authority=mode_native_setup_8239 legacyRules=advisory " +
                 "lanes=[${laneAll.entries.sortedByDescending { it.value.n }.take(8).joinToString(",") { "${it.key}:n${it.value.n}/${"%+.1f".format(it.value.mean())}%" }}]\n" +
-                "      rules in force: ${rules.sorted().take(20).joinToString(" · ").ifBlank { "none yet (a bin needs n>=$MIN_N and to be proven losing)" }}\n" +
+                "      current scoped rules: ${current.sorted().take(12).joinToString(" · ").ifBlank { "none yet" }}\n" +
+                "      legacy shape observations: ${rules.sorted().take(20).joinToString(" · ").ifBlank { "none yet (a bin needs n>=$MIN_N and to be proven losing)" }}\n" +
                 "      refusals: ${refusals.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}"
         }
     }

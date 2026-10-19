@@ -39,7 +39,7 @@ class Aate8153LearningTest {
         net: Double, late: Boolean = false, setup: String = "S",
     ): CortexGradeRecord8144 {
         val episode = "$mint|$lane"
-        val v = CortexLabelHygiene8144.assess8144(admitted, reason, book.lastGradedAt(episode), atMs)
+        val v = CortexLabelHygiene8144.assess8144(admitted, reason, book.lastGradedAt(episode), atMs, nativeEligible = true)
         val id = "$episode|$atMs"
         val r = CortexGradeRecord8144('D', id, episode, atMs, lane, setup, "BULL", "MID", "C3_6", "MC_10K_100K", bucket, 4.5, admitted, v.executable, v.repeat)
         assertTrue(book.addDecision(r))

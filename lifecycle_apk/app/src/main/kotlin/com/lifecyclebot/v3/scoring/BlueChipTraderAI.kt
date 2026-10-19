@@ -608,6 +608,7 @@ object BlueChipTraderAI {
         momentum: Double,
         volatility: Double
     ): BlueChipSignal {
+        com.lifecyclebot.engine.NativeRuleReview8239.begin8239(mint, "BLUECHIP")
         
         // Check current mode
         val mode = getCurrentMode()
@@ -626,7 +627,7 @@ object BlueChipTraderAI {
         
         // 1. MARKET CAP FILTER - Must be >$1M. V5.0.7297 — fluid floor, lowered
         // only where the lane's graded closes at that edge are profitable.
-        if (marketCapUsd < com.lifecyclebot.engine.market.LaneHunter7297.floorFor("BLUECHIP", MIN_MARKET_CAP_USD)) {
+        if (marketCapUsd < com.lifecyclebot.engine.market.LaneHunter7297.floorFor("BLUECHIP", MIN_MARKET_CAP_USD) && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "BLUECHIP", "MCAP_TOO_LOW")) {
             return BlueChipSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,

@@ -241,13 +241,12 @@ object HeldHotMarkAuthority7419 {
                 now - (execAttempt7876[p.mint] ?: 0L) >= EXEC_DEBOUNCE_MS_7876 &&
                 p.remainingQtyRaw.signum() > 0 && p.remainingQtyRaw.bitLength() <= 62
         }.sortedBy { execAttempt7876[it.mint] ?: 0L }
-        val quoteAt8077 = System.currentTimeMillis()
-        val quotes8077 = HeldQuoteBatch8077.resolve(quoteCandidates8077.associate { p ->
-            p.positionId to {
-                execAttempt7876[p.mint] = quoteAt8077
-                quoteSellPriceUsd7876(p.mint, p.remainingQtyRaw, p.quantityScale)
-            }
-        }, providerPool, BATCH_FANOUT_DEADLINE_MS_7510)
+        // The quote worker owns its own deadline. Do not start duplicate calls on the book pool,
+        // cancel their useful answer and then repeat the same request on the independent worker.
+        for (p in quoteCandidates8077) {
+            execAttempt7876[p.mint] = now
+            HeldExitQuote8189.take8189(p.mint, p.remainingQtyRaw, p.quantityScale, now, p.positionId)
+        }
 
         for (p in stale) {
             requests.incrementAndGet()
@@ -329,16 +328,8 @@ object HeldHotMarkAuthority7419 {
                 solanaPriced7960(p) &&
                 now - currentCanonicalTs(p.mint) > EXEC_FALLBACK_STALE_MS_7876
             ) {
-                val ex = quotes8077[p.positionId]
-                timedOut = timedOut || (ex?.timedOut == true)
-                ex?.price?.let {
-                    px = it; source = EXEC_SOURCE_7876; observedAt8077 = quoteAt8077
-                    fallbacks.incrementAndGet()
-                }
-                // V5.0.8189 — that batch quote only gets what is left of the 1.2 s book deadline and is cancelled when
-                // Jupiter answers later; the held sell quote answered off the deadline (HeldExitQuote8189) serves instead.
-                if (ex?.price == null) HeldExitQuote8189.take8189(p.mint, p.remainingQtyRaw, p.quantityScale, now)?.let {
-                    px = it.priceUsd; source = EXEC_SOURCE_7876; observedAt8077 = it.observedAtMs
+                HeldExitQuote8189.take8189(p.mint, p.remainingQtyRaw, p.quantityScale, now, p.positionId)?.let {
+                    px = it.priceUsd; source = it.source; observedAt8077 = it.observedAtMs
                     fallbacks.incrementAndGet()
                 }
             }
@@ -363,6 +354,7 @@ object HeldHotMarkAuthority7419 {
             // and then discarded the proof, so the exit registry rejected it.
             // Single-source fanout stays non-authoritative.
             val verified7424 = source.startsWith("LOCKED_VENUE_") || source == EXEC_SOURCE_7876 ||
+                source == HeldExitQuote8189.SOURCE_8189 || source == "HELD_VENUE_RESERVE_MODEL_8239" ||
                 source == "HELD_HOT_CRYPTO_REGISTRY_7419" ||
                 source == "HELD_HOT_FANOUT_CORROBORATED_7419"
             val publishOk = try {
@@ -428,19 +420,26 @@ object HeldHotMarkAuthority7419 {
     }
 
     /** V5.0.7876 — blocking executable sell-quote price for [rawQty] of [mint] (callers run it off the main thread). */
-    internal fun quoteSellPriceUsd7876(mint: String, rawQty: java.math.BigInteger, decimals: Int): Double? {
+    internal fun quoteSellPriceUsd7876(mint: String, rawQty: java.math.BigInteger, decimals: Int): Double? =
+        quoteSellObservation8239(mint, rawQty, decimals, allowReserveModel = false)?.priceUsd
+
+    internal fun quoteSellObservation8239(mint: String, rawQty: java.math.BigInteger, decimals: Int,
+                                         allowReserveModel: Boolean = true): HeldQuoteEvidence8239.Observation? {
         val bare = mint.removePrefix("solana|").trim()
         if (bare.isBlank() || bare.contains('|') || rawQty.signum() <= 0 || rawQty.bitLength() > 62) return null
-        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val requestedAt = System.currentTimeMillis()
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.freshSolPrice8163(requestedAt) } catch (_: Throwable) { 0.0 }
         val q = try {
             quoteApi7876.getQuote(bare, com.lifecyclebot.network.JupiterApi.SOL_MINT, rawQty.toLong(), 300)
         } catch (_: Throwable) { null }
-        if (q != null) return sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd)
-        // V5.0.8198 — Jupiter has no route (5.0.8198: 300 of 314 held quotes) while the position sits on a venue the
-        //    chain confirms (PumpSwap / Raydium vaults, or an active pump.fun curve). The mark is that venue's own
-        //    constant-product payout for THIS quantity at a conservative fee: it can only read below spot, never a phantom.
-        //    No reserve read within the window -> no mark (and the pool read is requested for the next pass).
-        return venueReserveSellPriceUsd8198(bare, rawQty, decimals, solUsd)
+        if (q != null && q.inputMint == bare && q.outputMint == com.lifecyclebot.network.JupiterApi.SOL_MINT &&
+            q.inAmount == rawQty.toLong()) {
+            val px = sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd) ?: return null
+            return HeldQuoteEvidence8239.Observation(px, q.outAmount / 1e9, rawQty, decimals,
+                HeldQuoteEvidence8239.Kind.ROUTED_QUOTE, "JUPITER:${q.router}", "", q.observedAtMs8239, maxOf(requestedAt, q.observedAtMs8239))
+        }
+        // A reserve payout helps value held inventory, but remains explicitly modeled and keeps the reserve's age.
+        return if (allowReserveModel) venueReserveObservation8239(bare, rawQty, decimals, solUsd) else null
     }
 
     /** Fee haircut applied to reserve-derived held marks (above PumpSwap / Raydium / curve published fees: conservative). */
@@ -460,16 +459,21 @@ object HeldHotMarkAuthority7419 {
 
     /** V5.0.8198 — held sell mark from the venue's chain-read reserves when no aggregator route answers. */
     internal fun venueReserveSellPriceUsd8198(mint: String, rawQty: java.math.BigInteger, decimals: Int, solUsd: Double,
-                                              nowMs: Long = System.currentTimeMillis()): Double? {
+                                              nowMs: Long = System.currentTimeMillis()): Double? =
+        venueReserveObservation8239(mint, rawQty, decimals, solUsd, nowMs)?.priceUsd
+
+    internal fun venueReserveObservation8239(mint: String, rawQty: java.math.BigInteger, decimals: Int, solUsd: Double,
+                                             nowMs: Long = System.currentTimeMillis()): HeldQuoteEvidence8239.Observation? {
         if (decimals !in 0..18 || rawQty.signum() <= 0 || !solUsd.isFinite() || solUsd <= 20.0 || solUsd >= 5_000.0) return null
         val tokens = java.math.BigDecimal(rawQty).movePointLeft(decimals).toDouble()
         if (!tokens.isFinite() || tokens <= 0.0) return null
         val pool = try { OnChainDepth8038.freshRead8198(mint, RESERVE_MARK_MAX_AGE_MS_8198, nowMs) } catch (_: Throwable) { null }
+        val curve = if (pool == null) try { CurveReserves7951.activeSnapshot8239(mint, nowMs, RESERVE_MARK_MAX_AGE_MS_8198) } catch (_: Throwable) { null } else null
         val (venue, outSol) = when {
             pool != null -> "POOL" to cpSellOutSol8198(pool.quoteSol, pool.baseTokens, tokens, RESERVE_MARK_FEE_8198)
             else -> {
-                val curve = try { CurveReserves7951.activeReserves8198(mint, nowMs, RESERVE_MARK_MAX_AGE_MS_8198) } catch (_: Throwable) { null }
-                "CURVE" to curve?.let { cpSellOutSol8198(it.first, it.second, tokens, RESERVE_MARK_FEE_8198) }
+                // Virtual reserves set the curve price; only real reserves can actually pay a seller.
+                "CURVE" to curve?.let { cpSellOutSol8198(it.virtualSol, it.virtualTokens, tokens, RESERVE_MARK_FEE_8198)?.coerceAtMost(it.realSol) }
             }
         }
         if (outSol == null) {
@@ -481,7 +485,9 @@ object HeldHotMarkAuthority7419 {
         reserveMarks8198.incrementAndGet()
         try { PipelineHealthCollector.labelInc("HELD_MARK_VENUE_RESERVE_8198_$venue") } catch (_: Throwable) {}
         val px = outSol * solUsd / tokens
-        return px.takeIf { it.isFinite() && it > 0.0 }
+        if (!px.isFinite() || px <= 0.0) return null
+        return HeldQuoteEvidence8239.Observation(px, outSol, rawQty, decimals, HeldQuoteEvidence8239.Kind.RESERVE_MODEL,
+            venue, pool?.pool.orEmpty(), pool?.atMs ?: curve?.atMs ?: return null, nowMs, RESERVE_MARK_FEE_8198 * 100.0)
     }
 
     fun summary(): Summary = Summary(requests.get(), advanced.get(), unchanged.get(), timeouts.get(), fallbacks.get(), waitedOnEnrichment.get(), waitedOnUi.get(), waitedOnKeyless.get())

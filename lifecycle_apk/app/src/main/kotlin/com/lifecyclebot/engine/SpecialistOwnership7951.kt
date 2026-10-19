@@ -343,20 +343,11 @@ object SpecialistOwnership7951 {
             native8094 -> SpecialistElection8136.TRIGGER_NATIVE
             else -> SpecialistElection8136.TRIGGER_PRE_FDG
         }
-        if (ready && !rescueClaim8136(l, mint, primaryLane, trigger8136, nowMs)) {
-            // V5.0.8221 §P0c — a lost rescue claim is NEVER silent. Operator
-            // 8220 handoff audit: 1437 rescue overflows reported but every
-            // overflow previously returned false with no terminal reason, so
-            // the handoff throughput table could not account for them. Mark
-            // the receiver explicitly ineligible with RESCUE_OVERFLOW_7951 so
-            // SpecialistElection8136.isEligibleReceiver carries the terminal
-            // forward and the audit can match overflow count to receivers.
-            try {
-                PipelineHealthCollector.labelInc("RESCUE_OVERFLOW_7951_$l")
-                SpecialistElection8136.markIneligible8136(mint, l, "RESCUE_OVERFLOW_7951", nowMs)
-            } catch (_: Throwable) {}
-            return false
-        }
+        // A slot held by another lane, a pending data proof, an outranked claim or an
+        // arbitration error is not a negative native verdict. Preserve the typed
+        // outcome and the election's original reason; INELIGIBLE would prevent this
+        // receiver from retrying even after its data or the shared slot becomes ready.
+        if (ready && !rescueClaim8136(l, mint, primaryLane, trigger8136, nowMs).executable) return false
         if (ready) notePreIntent7951(l, if (native8094) "READY_HANDED_OFF_NATIVE_${lane7951(primaryLane)}_8094" else "READY_HANDED_OFF_FROM_${lane7951(primaryLane)}_7960")
         return ready
     }
@@ -386,7 +377,7 @@ object SpecialistOwnership7951 {
             if (audit) notePreIntent7951(l, "READY_SHADOW_AUDIT_EVALUATES_8094")
             // V5.0.8136 — a proven cell no longer adds an unbounded extra evaluator: it competes for the candidate's ONE
             // rescue slot (own-scale conviction + the proven-cell bonus), so a strong secondary specialist still gets in.
-            (ok || audit) && rescueClaim8136(l, mint, primaryLane, SpecialistElection8136.TRIGGER_CELL_PROVEN, System.currentTimeMillis())
+            (ok || audit) && rescueClaim8136(l, mint, primaryLane, SpecialistElection8136.TRIGGER_CELL_PROVEN, System.currentTimeMillis()).executable
         }
     } catch (_: Throwable) { false }
 
@@ -525,7 +516,7 @@ object SpecialistOwnership7951 {
      * outcome DEFERRED_ARBITRATION_ERROR (the proposal ends DEFERRED by name) and the lane does NOT evaluate. The old
      * handler answered `true`, so a throw let a lane proceed on a claim nobody granted.
      */
-    private fun rescueClaim8136(lane: String, mint: String, primaryLane: String, trigger: String, nowMs: Long): Boolean {
+    private fun rescueClaim8136(lane: String, mint: String, primaryLane: String, trigger: String, nowMs: Long): ElectionRescueContract8144.ClaimOutcome8144 {
         val outcome = ElectionRescueContract8144.guardedClaim8144 {
             val l = lane7951(lane)
             val p = lane7951(primaryLane)
@@ -540,12 +531,23 @@ object SpecialistOwnership7951 {
                 refusalIsJudgement8136(refusal, fdg = trigger == SpecialistElection8136.TRIGGER_FDG),
                 contenders8136(mint), rescueIneligible8136(mint, l), nowMs)
         }
+        recordRescueOutcome(lane, mint, outcome, nowMs)
+        if (outcome.executable) notePreIntent7951(lane, "RESCUE_ELECTED_8136_$trigger")
+        return outcome
+    }
+
+    /** Account for an arbitration without replacing its proof/data/slot outcome with a new lane veto. */
+    internal fun recordRescueOutcome(lane: String, mint: String, outcome: ElectionRescueContract8144.ClaimOutcome8144, nowMs: Long) {
         if (outcome == ElectionRescueContract8144.ClaimOutcome8144.DEFERRED_ARBITRATION_ERROR) {
             SpecialistElection8136.noteArbitrationError8144(mint, lane7951(lane), nowMs)
-            notePreIntent7951(lane, "RESCUE_ARBITRATION_ERROR_8144")
         }
-        if (outcome.executable) notePreIntent7951(lane, "RESCUE_ELECTED_8136_$trigger")
-        return outcome.executable
+        if (!outcome.executable) {
+            notePreIntent7951(lane, "RESCUE_CLAIM_${outcome.name}")
+            try { PipelineHealthCollector.labelInc("RESCUE_CLAIM_${outcome.name}_${lane7951(lane)}") } catch (_: Throwable) {}
+            // The general rescue path must name the same pending task outcome as
+            // the direct handoff path. No live task means there is nothing to settle.
+            HandoffTaskRuntime8153.claimRefused8153(mint, lane7951(lane), outcome, null, nowMs)
+        }
     }
 
     /** V5.0.8136 — the specialist a fit refusal by [primary] names (top eligible lane on its own scale), recorded once. */
@@ -564,18 +566,27 @@ object SpecialistOwnership7951 {
      * receiver, which must then reach the decision funnel or end with a precise refusal.
      */
     internal fun noteCycleNative8136(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        val snap = SpecialistBrainBridge7542.cachedSnapshot7650(mint) ?: return
+        noteCycleNative8136(mint, snap, nowMs)
+    }
+
+    /** The captured native snapshot supplies both the primary refusal and any qualified receiver. */
+    internal fun noteCycleNative8136(mint: String, snap: SpecialistBrainBridge7542.Snapshot, nowMs: Long) {
         try {
             val p = SpecialistElection8136.primaryOf8136(mint)
             if (p.isBlank()) return
-            val snap = SpecialistBrainBridge7542.cachedSnapshot7650(mint) ?: return
             val op = snap.opinions[p] ?: return
             if (op.eligible || !op.authoritative) return
+            val binding = refusalIsJudgement8136(op.reason, fdg = false)
+            // 8236 marks its five missing-input verdicts nongradeable. That means
+            // waiting for evidence, not a sticky token-wide judgement on this lineage.
+            val nativeData8237 = !binding && LaneInputTruth8236.nativeDataInputs8237(op.reason).isNotEmpty()
             SpecialistElection8136.notePrimaryRefusal8136(mint, p, "${SpecialistElection8136.TRIGGER_NATIVE}:${op.reason}",
-                !op.gradeable || refusalIsJudgement8136(op.reason, fdg = false), nowMs)
+                binding || (!op.gradeable && !nativeData8237), nowMs)
             // V5.0.8180 — any graded, non-binding, non-data refusal names the lane that qualified the coin (NativeYield8180).
             val fit8180 = laneFitRefusal8132(op.reason)
             val data8180 = HandoffTaskRuntime8153.blockOf8153(op.reason) == HandoffReceiverTasks8153.Block8153.DATA
-            if (NativeYield8180.namesReceiver8180(op.reason, op.gradeable, fit8180, refusalIsJudgement8136(op.reason, fdg = false), data8180)) yieldReceiver8136(mint, p, snap.opinions)
+            if (NativeYield8180.namesReceiver8180(op.reason, op.gradeable, fit8180, binding, data8180)) yieldReceiver8136(mint, p, snap.opinions)
         } catch (_: Throwable) {}
     }
 

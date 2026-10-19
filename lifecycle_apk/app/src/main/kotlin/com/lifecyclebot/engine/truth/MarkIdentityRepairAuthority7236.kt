@@ -178,7 +178,7 @@ object MarkIdentityRepairAuthority7236 {
      */
     private fun heldQuoteRepair8189(mint: String): Boolean {
         val q = try { HeldExitQuote8189.quoteNow8189(mint) } catch (_: Throwable) { null } ?: return false
-        cache[mint] = Repaired(q.priceUsd, HeldExitQuote8189.SOURCE_8189, q.observedAtMs)
+        cache[mint] = Repaired(q.priceUsd, q.source, q.observedAtMs)
         try { MarkIdentityExecutionGate7230.markRepairedUsable7243(mint) } catch (_: Throwable) {}
         repairSucceeded.incrementAndGet()
         try { PipelineHealthCollector.labelInc("MARK_REPAIR_SUCCEEDED_7236_HELD_SELL_QUOTE_8189") } catch (_: Throwable) {}

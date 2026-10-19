@@ -43,7 +43,7 @@ class Aate8163ProfitTruthTest {
     @Test fun executionAndDiscoveryWiringCannotBypassTheNewChecks() {
         val root = File("src/main/kotlin/com/lifecyclebot/engine")
         val executor = File(root, "Executor.kt").readText()
-        assertTrue(executor.contains("ProfitExitTruth8163.preflight(ts, reason, sellUnits, jupiter)"))
+        assertTrue(executor.contains("ProfitExitTruth8163.basisPreflight8239(ts, reason, sellUnits)"))
         assertTrue(executor.contains("ProfitExitTruth8163.acceptQuote(ts, reason, activeQuote7228"))
         val scanner = File(root, "SolanaMarketScanner.kt").readText()
         assertFalse(scanner.contains("if (scanRaydiumApiNewPools8128()) return"))

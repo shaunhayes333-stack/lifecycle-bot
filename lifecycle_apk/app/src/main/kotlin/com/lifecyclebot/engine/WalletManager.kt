@@ -364,6 +364,8 @@ class WalletManager private constructor(private val ctx: Context) {
             return false
         }
 
+        // An observation belongs to its signer. In-flight reads for the previous owner cannot publish after a switch.
+        if (previousState.publicKey != pubkey) WalletAccountCache.bustNow()
         var lastError = "Unknown RPC error"
         for (tryRpc in rpcsToTry) {
             try {

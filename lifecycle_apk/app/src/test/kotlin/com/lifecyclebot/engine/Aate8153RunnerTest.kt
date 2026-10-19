@@ -265,7 +265,7 @@ class Aate8153RunnerTest {
         val k = "MINT8153R|42"
         val r = RunnerRungBook8153.LADDER_RUNNER_8153
         b.latchPromotion8153(k)
-        b.noteOpportunity8153(k, r, 0.1, 400.0)
+        b.noteOpportunity8153(k, r, 0.1, 400.0, observedAtMs8239 = 100L, positionId8239 = "P8153R", mode8239 = "LIVE")
         assertTrue(b.request8153(k, r, 2, "RUNNER_MILESTONE_8136_T2_410PCT", 0L))
         b.confirm8153(k, r, 2, "SIG-R", 0.3, 0.05)
         assertTrue(b.request8153(k, r, 3, "RUNNER_MILESTONE_8136_T3_1010PCT", 10L))     // pending: not persisted

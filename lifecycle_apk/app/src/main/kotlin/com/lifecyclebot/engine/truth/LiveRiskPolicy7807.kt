@@ -505,6 +505,8 @@ object LiveRiskPolicy7807 {
         val markPriceUsd8153: Double = 0.0,
         /** V5.0.8169 — one round trip's fixed legs (network fee + priority + tips, SOL; CostMeter8151). NaN = unknown. */
         val fixedRoundTripSol8169: Double = Double.NaN,
+        /** Empty means the runtime captured current, matching cash, inventory and marks. */
+        val equityObservationRefusal8239: String = "",
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -553,6 +555,10 @@ object LiveRiskPolicy7807 {
         val stop = if (!planless) i.planStopPct!! else (mandate?.invalidationPct ?: 10.0)
         val firstTarget = i.planFirstTargetPct?.takeIf { it.isFinite() && it > 0.0 } ?: (mandate?.expectedGrossPct ?: 20.0)
         if (planless) labels += "NO_PLAN_STOP_LANE_MANDATE_USED_7807"
+
+        if (i.equityObservationRefusal8239.isNotBlank()) {
+            return Decision(false, 0.0, "EQUITY_OBSERVATION_DEFER_8239_${i.equityObservationRefusal8239}", labels, stop, 0.0, 0.0)
+        }
 
         if (i.laneOpenLive >= b.maxConcurrentLive) {
             return Decision(false, 0.0, "LANE_SLOT_CAP_7807", labels, stop, 0.0, 0.0)
@@ -678,9 +684,13 @@ object LiveRiskPolicy7807 {
                 // V5.0.8188 — re-evaluated AT the promoted notional: the loss budget, a measured positive edge after the round trip
                 // at the minimum, and no defensive drawdown.
                 // V5.0.8236 — ONE loss budget with the upstream sizers: the account's per-position doctrine (safe share cap)
-                // when it exceeds the sub-minimum risk size (MinPromotion8188.doctrineBudgetSol8236), not the lane ticket alone.
+                // when it exceeds the sub-minimum risk size. Use this decision's captured wallet/price inputs;
+                // every envelope and stop check remains binding.
+                val doctrineBudget8236 = MinPromotion8188.doctrineBudgetSol8236(tradeable8153, i.solUsd)
+                if (doctrineBudget8236.isFinite() && doctrineBudget8236 > size)
+                    labels += "ROUTE_MIN_BUDGET_SHARED_WITH_UPSTREAM_8236"
                 MinPromotion8188.refusal8188(size, i.execMinSol, stop, if (size > 0.0) costAtSizePct8153(i, size) else Double.NaN,
-                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac, MinPromotion8188.doctrineBudgetSol8236(size))
+                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac, budgetSol = doctrineBudget8236)
                     ?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
                 fixedCostRefusal8169(i, i.execMinSol)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
@@ -828,16 +838,13 @@ object LiveRiskPolicy7807 {
         // different candidate's active intent while resolving a new proposal.
         val effectiveLane7811 = canonicalLane(lane)
 
-        val equity = liveEquitySol(walletSol)
-        noteEquity8057(equity, nowMs)
+        val account8239 = LiveEquityObservation8239.capture8239(nowMs)
+        val equity = account8239.sizingEquitySol8239()
+        if (account8239.coherent) noteEquity8057(equity, account8239.walletObservedAtMs)
         // V5.0.7948 — one drawdown authority (CapitalDrawdown7948): marked live equity of
         // the whole wallet vs its rolling-24h peak, the same number KillSwitch reports.
         // The free cash passed here is sizing input; a sealed in-flight buy is not a loss.
-        val dd = CapitalDrawdown7948.observePct7948(
-            CapitalDrawdown7948.liveMarkedEquitySol7948(
-                try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { walletSol }),
-            nowMs,
-        ) / 100.0
+        val dd = CapitalDrawdown7948.observeCaptured8239(account8239, nowMs) / 100.0
         val ll = laneLive(effectiveLane7811)
         val plan = try { TradePlan7739.freshPlan7783(mint) } catch (_: Throwable) { null }
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
@@ -886,11 +893,12 @@ object LiveRiskPolicy7807 {
             edgeRecord8153 = rec8153,
             costAtSizePct8153 = cost8153,
             // FDG passes wallet cash already net of other candidates' sealed reservations (WalletCapacitySeal7868.freeCashFor).
-            tradeableSol8153 = if (walletSol.isFinite() && walletSol > 0.0)
-                (walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0) else Double.NaN,
+            tradeableSol8153 = if (account8239.cashProven && walletSol.isFinite() && walletSol > 0.0)
+                (minOf(walletSol, account8239.liquidSol) - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0) else Double.NaN,
             laneDeployedSol8153 = laneDeployedSol8153(effectiveLane7811),
             markPriceUsd8153 = ts8153?.lastPrice?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
             fixedRoundTripSol8169 = try { com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() } catch (_: Throwable) { Double.NaN },
+            equityObservationRefusal8239 = if (account8239.cashProven) "" else account8239.cashRefusal,
         )
     }
 

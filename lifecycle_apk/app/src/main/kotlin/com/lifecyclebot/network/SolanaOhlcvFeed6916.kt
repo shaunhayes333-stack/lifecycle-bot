@@ -379,14 +379,6 @@ object SolanaOhlcvFeed6916 {
         cache[key]?.let {
             if (now - it.atMs <= CACHE_TTL_MS) { cacheHits.incrementAndGet(); return it.candles }
         }
-        // V5.0.6944 — negative cache. 1990 of 2008 results came back empty, and
-        // without this the same poolless mints are re-requested every scan pass,
-        // which is most of how the request budget was burned.
-        negativeCache[mint]?.let {
-            if (now - it <= NEGATIVE_TTL_MS) { negativeHits.incrementAndGet(); return emptyList() }
-            negativeCache.remove(mint)
-        }
-
         // V5.0.7484 — if another lane requested this exact OHLCV key inside
         // the existing 2.5s provider budget window, a second provider request
         // cannot legally be made yet. Avoid repeating pool/fallback work.
@@ -459,6 +451,12 @@ object SolanaOhlcvFeed6916 {
                 return paprika7293
             }
         } catch (_: Throwable) {}
+        // Only GeckoTerminal's pool lookup writes this negative cache. Its absence is not evidence that
+        // DexPaprika has no chart; the independent provider and existing candle cache above remain readable.
+        negativeCache[mint]?.let {
+            if (now - it <= NEGATIVE_TTL_MS) { negativeHits.incrementAndGet(); return emptyList() }
+            negativeCache.remove(mint)
+        }
         val lookup6982 = resolvePool(mint, poolHint)
         val pool = lookup6982.pool
         if (pool == null) {

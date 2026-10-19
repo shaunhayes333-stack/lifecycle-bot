@@ -2530,7 +2530,7 @@ class Executor(
             "RAYDIUM sell built @ ${raySlip7311}bps | txs=${built7311.transactions.size} | out≈${built7311.outLamports} lamports | sender=HELIUS_FIRST",
             slippageBps = raySlip7311, traderTag = "MEME",
         )
-        if (!ProfitExitTruth8163.acceptProceeds8168(ts, reason, rayPlan7311.rawAmount, built7311.outLamports, raySlip7311)) return null
+        if (!ProfitExitTruth8163.acceptProceeds8168(ts, reason, rayPlan7311.rawAmount, built7311.outLamports, raySlip7311, "RAYDIUM", built7311.observedAtMs8239)) return null
         return sendRaydiumBuilt8083(wallet, c, built7311, fastLand, ts.mint)
     }
 
@@ -2556,7 +2556,7 @@ class Executor(
             com.lifecyclebot.engine.sell.SellRouteRace8083.selected(if (built == null) "JUPITER_RACE_NOT_READY" else "JUPITER", ts.mint, System.currentTimeMillis() - race.startedAtMs)
             return null
         }
-        if (!ProfitExitTruth8163.acceptProceeds8168(ts, reason, race.rawAmount, built.outLamports, com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason))) return null
+        if (!ProfitExitTruth8163.acceptProceeds8168(ts, reason, race.rawAmount, built.outLamports, com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason), "RAYDIUM", built.observedAtMs8239)) return null
         race.sent = true
         com.lifecyclebot.engine.sell.SellRouteRace8083.selected("RAYDIUM", ts.mint, System.currentTimeMillis() - race.startedAtMs)
         var landed: com.lifecyclebot.engine.sell.TxResult8087? = null
@@ -7496,7 +7496,8 @@ class Executor(
 
         // Every profit-labelled slice uses the same confirmed SOL basis, including peak and wallet harvests.
         // Structural/manual exits continue through their existing route authority.
-        if (!ProfitExitTruth8163.preflight(ts, reason, sellUnits, jupiter)) return
+        // Each actual route below proves its own output. A Jupiter outage cannot veto a valid native quote.
+        if (!ProfitExitTruth8163.basisPreflight8239(ts, reason, sellUnits)) return
 
         // V5.9.474 — full forensics + V5.9.468 binding-order + V5.9.472 cap removal
         // for the profit-lock / capital-recovery sell path. Operator's screenshot
@@ -7725,7 +7726,7 @@ class Executor(
                         }
                     }
                     val activeQuote7228 = quote ?: continue
-                    if (!ProfitExitTruth8163.acceptQuote(ts, reason, activeQuote7228, com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason))) return
+                    if (!ProfitExitTruth8163.acceptQuote(ts, reason, activeQuote7228, com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason), releaseLocks = false)) break
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                     val txResult = buildTxWithRetry(
                         activeQuote7228, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
@@ -7779,6 +7780,17 @@ class Executor(
                         slippageBps = currentSlip, traderTag = "MEME",
                     )
                 }
+            }
+            if (sig == null) {
+                // Exact-input native quote/build is independently eligible for a profit slice when Jupiter cannot
+                // supply it. The shared helper checks the same canonical slice cost before any Raydium signature.
+                val nativePlan8239 = recalcSellPlanForProcessor(ts, wallet, "RAYDIUM_PROFIT_8239", sellQty,
+                    exitReason = reason, sellTradeKey = sellTradeKey, traderTag = "MEME")
+                if (nativePlan8239 != null) try {
+                    sig = raydiumSerialSell8083(ts, wallet, c, null, nativePlan8239,
+                        com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason), isDrainExit,
+                        sellTradeKey, reason)?.signature
+                } catch (nativeFailure8239: Exception) { lastBroadcastException = nativeFailure8239 }
             }
             if (sig == null) {
                 // V5.9.495 — PUMP DIRECT FALLBACK after Jupiter ladder
@@ -19927,6 +19939,8 @@ class Executor(
             val pending = status.isBlank() || status.contains("PENDING", ignoreCase = true)
             if (!pending) return false
             val now = System.currentTimeMillis()
+            // Classification alone cannot hydrate missing route/depth evidence for this sealed intent.
+            try { DataDeferFetch8180.request8180(ts, listOf("token_map:$status", "route:UNKNOWN"), now) } catch (_: Throwable) {}
             val prior = tokenMapDeferrals7371[ts.mint]?.filter { now - it < 5 * 60_000L }.orEmpty()
             // V5.0.8080 §DATA_IS_NOT_AN_EXECUTION_FAILURE. A route still resolving after three deferrals is missing DATA:
             // nothing was quoted, built or sent. It was booked as BUY_TERMINAL_ROUTE_FAIL:TOKEN_MAP_INCOMPLETE (8077: 12 of
@@ -21553,11 +21567,16 @@ class Executor(
                                 stampedEntryUsd = oldEntry,
                                 trustedEntryUsd = proofEntryUsd,
                             )
+                        // The fill proves a new entry denominator. Rebase position-bound excursions and durable
+                        // opportunity records; never derive a historical peak from today's liquidation quote.
+                        try { RunnerLive8153.rebaseEntryEvidence8239(ts.position.positionId, oldEntry, proofEntryUsd, actualCostSol6486) } catch (_: Throwable) {}
+                        val observedPeak8239 = try { com.lifecyclebot.engine.truth.PositionExcursion8082.forClose(ts.position.positionId)
+                            ?.takeIf { it.mfePct.isFinite() && it.mfeAtMs >= ts.position.entryTime }?.mfePct } catch (_: Throwable) { null }
                         ts.position = ts.position.copy(
                             entryPrice = proofEntryUsd,
                             // V5.0.8237 — the position's entry cap follows the proven fill (same implied supply as its own stamp).
                             entryMcap = com.lifecyclebot.engine.truth.EntryMcapReconcile8237.reconciled8237(ts.position.entryMcap, oldEntry, proofEntryUsd),
-                            highestPrice = proofEntryUsd,
+                            highestPrice = observedPeak8239?.let { proofEntryUsd * (1.0 + it.coerceAtLeast(0.0) / 100.0) } ?: proofEntryUsd,
                             lowestPrice = if (ts.position.lowestPrice > 0.0) minOf(ts.position.lowestPrice, proofEntryUsd) else proofEntryUsd,
                             costSol = actualCostSol6486,
                             entryPriceSource = trustedEntry6405?.source ?: "LIVE_PROOF_COST_BASIS",
@@ -21673,6 +21692,7 @@ class Executor(
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
                         mode = "live", positionId = pidLive6486, mint = verifyMint, symbol = verifySymbol,
                         idempotencyKey = "buy_live_tx_${verifySig}",
+                        fillSignature8239 = verifySig,
                         executedCostSol = actualCostSol6486, entryFeesSol = actualFeeSol6486,
                         filledQty = proof.amountRaw,
                         // Typed durable field is USD/token; SOL/token belongs
@@ -31450,8 +31470,13 @@ class Executor(
         labelTag: String,
         exitReason8168: String,
     ): String? {
-        // 8168: direct-route retries must not bypass profit intent economics.
-        if (!ProfitExitTruth8163.preflight(ts, exitReason8168, tokenUnits ?: 0L, jupiter, releaseLocks = false)) return null
+        // PumpPortal's opaque build has no exact SOL output proof. A quote from another venue cannot authorize it.
+        // Fall through to the Jupiter/Raydium routes that check their own exact output. Protective/manual exits keep
+        // their existing path; reserve estimates remain valuation only.
+        if (ProfitExitTruth8163.profitTaking(exitReason8168) && !ts.position.isPaperPosition) {
+            try { PipelineHealthCollector.labelInc("PUMP_PROFIT_ROUTE_OUTPUT_UNPROVEN_8239") } catch (_: Throwable) {}
+            return null
+        }
         // V5.0.8144 — the confirmed venue (curve account / complete flag / pool) and the endpoint's memory of this mint.
         var venue8144 = com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Venue8144.UNKNOWN
         return try {

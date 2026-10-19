@@ -51,12 +51,13 @@ object CortexLabelHygiene8144 {
         val tag: String get() = when { !executable -> "UNEXECUTABLE"; repeat -> "REPEAT"; else -> "GRADED" }
     }
 
-    /** Pure: could the decision have been executed? An admit was; a refusal is unless its reason names a hard block. */
+    /** Pure: a refusal requires a completed native acceptance at the decision. A reason string cannot prove it. */
     fun executableDecision8144(admitted: Boolean, reason: String?, nativeEligible: Boolean? = null): Boolean {
         if (admitted) return true
-        // Where the contemporaneous native specialist evaluated this coin,
-        // its refusal is evidence that this was NOT a tradeable lane entry.
-        if (nativeEligible == false) return false
+        // 8239: UNKNOWN used to be treated as true, so thousands of unassessed
+        // or partially hydrated candidates trained the executable authority book.
+        // They still receive observed outcomes, but never native execution proof.
+        if (nativeEligible != true) return false
         val r = reason?.uppercase() ?: return true
         return UNEXECUTABLE_8144.none { r.contains(it) } &&
             UNEXECUTABLE_NATIVE_8196.none { r.startsWith(it) || r.contains("_$it") }
@@ -66,8 +67,8 @@ object CortexLabelHygiene8144 {
     fun repeatInEpisode8144(admitted: Boolean, lastGradedAtMs: Long?, atMs: Long): Boolean =
         !admitted && lastGradedAtMs != null && atMs - lastGradedAtMs in 0L until EPISODE_MS_8144
 
-    fun assess8144(admitted: Boolean, reason: String?, lastGradedAtMs: Long?, atMs: Long): Verdict8144 =
-        Verdict8144(executableDecision8144(admitted, reason), repeatInEpisode8144(admitted, lastGradedAtMs, atMs))
+    fun assess8144(admitted: Boolean, reason: String?, lastGradedAtMs: Long?, atMs: Long, nativeEligible: Boolean? = null): Verdict8144 =
+        Verdict8144(executableDecision8144(admitted, reason, nativeEligible), repeatInEpisode8144(admitted, lastGradedAtMs, atMs))
 
     private fun executableHorizonMs8144(runnerLane: Boolean): Long = if (runnerLane) EXEC_HORIZON_RUNNER_MS_8144 else EXEC_HORIZON_DEFAULT_MS_8144
 
