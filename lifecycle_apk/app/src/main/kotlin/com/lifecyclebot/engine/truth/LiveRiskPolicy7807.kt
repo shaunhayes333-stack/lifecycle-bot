@@ -677,8 +677,15 @@ object LiveRiskPolicy7807 {
                 }
                 // V5.0.8188 — re-evaluated AT the promoted notional: the ORIGINAL loss budget (risk size x stop + its round trip,
                 // +10% at most), a measured positive edge after the round trip at the minimum, and no defensive drawdown.
+                // V5.0.8236 — the 8234 upstream resolver used the routable wallet safe-share budget,
+                // but this downstream policy silently defaulted to the sub-minimum risk size.
+                // Reuse the SAME pure capacity budget; do not lift any other envelope or stop check.
+                val doctrineBudget8236 = MinPromotion8188.doctrineBudgetSol8236(tradeable8153, i.solUsd)
+                if (doctrineBudget8236.isFinite() && doctrineBudget8236 > size)
+                    labels += "ROUTE_MIN_BUDGET_SHARED_WITH_UPSTREAM_8236"
                 MinPromotion8188.refusal8188(size, i.execMinSol, stop, if (size > 0.0) costAtSizePct8153(i, size) else Double.NaN,
-                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
+                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac, budgetSol = doctrineBudget8236)
+                    ?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
                 fixedCostRefusal8169(i, i.execMinSol)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 return Decision(true, i.execMinSol, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", labels, stop, minCost7840, total, sizing8094, firstTarget)
