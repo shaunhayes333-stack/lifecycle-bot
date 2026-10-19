@@ -1100,9 +1100,16 @@ object LiveEdgeGate7877 {
         // V5.0.7883 — a learned shape rule of this lane (tokenomics/timing bin it
         // has proven to lose in) refuses before the cohort read.
         val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) } catch (_: Throwable) { null }
-        // 8239: the shape learner resolves current-mode exact setup intersections before broad feature populations.
-        if (shape != null && com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, shape)) return null
-        if (shape != null) {
+        // 8240: a candidate-specific proven admission supersedes only a BROAD feature prior.
+        // Exact setup losses, hard safety, and executable costs remain binding.
+        val broadShapeSuperseded8240 = candidateSpecificAdmission8136 &&
+            shape?.endsWith("_LANE_FEATURE_8239") == true
+        if (broadShapeSuperseded8240) try {
+            PipelineHealthCollector.labelInc("BROAD_SHAPE_SUPERSEDED_BY_SPECIFIC_ADMIT_8240")
+        } catch (_: Throwable) {}
+        if (shape != null && !broadShapeSuperseded8240 &&
+            com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, shape)) return null
+        if (shape != null && !broadShapeSuperseded8240) {
             TradeShapeLearner7883.noteRefusal(l, shape)
             refused.computeIfAbsent("$l|SHAPE") { AtomicLong(0) }.incrementAndGet()
             return "EDGE_7877_$shape"

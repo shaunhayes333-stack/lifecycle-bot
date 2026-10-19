@@ -23,7 +23,9 @@ class Aate8171IntegratedRepairTest {
         // superseded by V5.0.8187: bounded by keyed accounting (coalesced per mint|lane, refusals counted), never an oldest-job poll.
         assertTrue(code.contains("java.util.concurrent.ArrayBlockingQueue(CAPTURE_QUEUE_HARD_8187 + 32)"))
         assertTrue(code.contains("submitCaptureKeyed8187(\"\${ts.mint}|\${labelLane.trim().uppercase()}\", admitted) { captureNow("))
-        assertTrue(code.contains("CAPTURE_QUEUE_DROP_8171"))
+        assertTrue(code.contains("CAPTURE_DROP_FULL_ADMITTED_8187"))
+        assertTrue(code.contains("CAPTURE_DROP_FULL_NEWEST_8187"))
+        assertTrue(code.contains("CAPTURE_DROP_EXECUTOR_REJECTED_8239"))
         assertTrue(code.contains("capturePool8171.queue.size"))
         assertFalse(code.contains("submit(\"CAPTURE\")"))
     }

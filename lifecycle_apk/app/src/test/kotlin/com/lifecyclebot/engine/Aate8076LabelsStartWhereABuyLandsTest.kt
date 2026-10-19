@@ -11,7 +11,8 @@ class Aate8076LabelsStartWhereABuyLandsTest {
     @Test fun labelEntryIsRebased() {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(f.contains("REBASE_MIN_MS_8076 = 5_000L"))
-        assertTrue(f.contains("if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {"))
+        assertTrue(f.contains("if (!o.rebased8076 && observationAge8239 >= REBASE_MIN_MS_8076) {"))
+        assertTrue(f.contains("observationAge8239 >= rebaseDelayMs8094("))
         assertTrue(f.contains("CELLS_KEY_7946 = \"cells_8076\""))
         assertTrue(src("engine/truth/HiveEdge8000.kt").contains("\"hive_edge_8076\""))
     }

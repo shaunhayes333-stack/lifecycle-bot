@@ -23,7 +23,8 @@ class Aate8062DataChangesTest {
 
     @Test fun priceCoverage() {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(f.contains("CanonicalMarkPurpose6570.values().mapNotNull { CanonicalPriceMarkRegistry6522.get(mint, it) }"))
+        assertTrue(f.contains("for (purpose in CanonicalMarkPurpose6570.values())"))
+        assertTrue(f.contains("CanonicalPriceMarkRegistry6522.get(mint, purpose)"))
         assertTrue(f.contains("CurveReserves7951.priceSolFor7951(mint, nowMs, MARK_MAX_AGE_MS_7731)"))
         val p = src("network/ParallelMarkFanout7088.kt")
         assertTrue(p.contains("\"dataSlice\""))

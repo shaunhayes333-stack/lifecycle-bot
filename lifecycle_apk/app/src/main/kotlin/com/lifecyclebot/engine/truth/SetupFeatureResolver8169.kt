@@ -30,7 +30,7 @@ object PairFlow8169 {
     fun note8169(mint: String, f: Flow8169) {
         if (mint.length < 32 || f.atMs <= 0L) return
         val prev = flows[mint]
-        if (prev != null && prev.atMs > f.atMs) return
+        if (prev != null && prev.atMs >= f.atMs) return
         flows[mint] = f
         noted.incrementAndGet()
         if (flows.size > CAP_8169) {

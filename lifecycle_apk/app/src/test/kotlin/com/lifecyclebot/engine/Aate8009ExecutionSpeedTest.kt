@@ -28,7 +28,7 @@ class Aate8009ExecutionSpeedTest {
         assertTrue(w.contains("echoSend8009(senderSig, signedB64, viaSender = false)"))
         assertTrue(w.contains("echoSend8009(signature, echo.first, echo.second)"))
         assertTrue(w.contains("} finally { inFlight8009.remove(signature) }"))
-        assertTrue(w.contains("solBalance8009?.let { (at, v) -> if (System.currentTimeMillis() - at < SOL_BALANCE_TTL_MS_8009) return v }"))
+        assertTrue(w.contains("solBalance8009?.let { (at, v) -> if (System.currentTimeMillis() - at in 0L until SOL_BALANCE_TTL_MS_8009) return v }"))
         assertTrue(w.contains("JitoMEVProtection.submitProtectedNoWait6489(signedB64, jitoTipLamports)"))
         assertTrue(src("network/SharedHttpClient.kt").contains(".connectionPool(okhttp3.ConnectionPool(24, 5, TimeUnit.MINUTES))"))
         assertTrue(src("network/JupiterApi.kt").contains("PriorityFee8009.jupiterMicroLamports("))

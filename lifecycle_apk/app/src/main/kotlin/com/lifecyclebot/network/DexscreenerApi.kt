@@ -74,6 +74,12 @@ class DexscreenerApi {
     
     // Simple cache for getBestPair results - avoids repeated API calls
     private data class CachedPair(val pair: PairInfo?, val timestamp: Long)
+    // Cache hits carry the ORIGINAL Dex observation time, never a fresh time invented at read.
+    private fun restoreCachedPairFlow8240(chainId: String, mint: String, cached: CachedPair) {
+        if (chainId != "solana") return
+        val pair = cached.pair ?: return
+        try { com.lifecyclebot.engine.truth.PairFlow8169.notePair8169(mint, pair, cached.timestamp) } catch (_: Throwable) {}
+    }
     private val pairCache = java.util.concurrent.ConcurrentHashMap<String, CachedPair>()
     private val CACHE_TTL_MS = 45_000L  // 45 seconds cache (was 15) - reduce API calls
 
@@ -104,7 +110,10 @@ class DexscreenerApi {
         val cacheKey = "$chainId|$tokenAddress"
         val cached = pairCache[cacheKey]
         val now = System.currentTimeMillis()
-        if (cached != null && now - cached.timestamp < CACHE_TTL_MS) return cached.pair
+        if (cached != null && now - cached.timestamp < CACHE_TTL_MS) {
+            restoreCachedPairFlow8240(chainId, tokenAddress, cached)
+            return cached.pair
+        }
 
         // V5.0.6894 §THE_DEAD_PROVIDER_WAS_FIRST_IN_LINE.
         //
@@ -128,7 +137,10 @@ class DexscreenerApi {
         // birdeye only. Nothing is removed and no key is required anywhere in
         // this path.
         if (cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {
-            if (!RateLimiter.allowRequest("dexscreener")) return cached.pair
+            if (!RateLimiter.allowRequest("dexscreener")) {
+                restoreCachedPairFlow8240(chainId, tokenAddress, cached)
+                return cached.pair
+            }
         } else if (!RateLimiter.allowRequest("dexscreener")) return null
 
         val url = "https://api.dexscreener.com/token-pairs/v1/${encode(chainId)}/${encode(tokenAddress)}"

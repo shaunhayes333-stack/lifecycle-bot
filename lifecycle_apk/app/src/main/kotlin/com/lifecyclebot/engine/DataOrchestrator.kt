@@ -360,6 +360,12 @@ class DataOrchestrator(
 
     private suspend fun seedCandleHistory(mint: String, symbol: String, repairShape8168: Boolean = false) {
         val ts = status.tokens[mint] ?: return
+        // 8240: Shared shape repair requests independent bounded Helius real-swap candles
+        // even when Gecko/Codex cooldown; a request never fabricates an observed bar.
+        if (repairShape8168) try {
+            com.lifecyclebot.engine.truth.HeliusSwapCandles7819.request7819(ts)
+            PipelineHealthCollector.labelInc("SETUP_SHAPE_HELIUS_ATTEMPTED_8240")
+        } catch (_: Throwable) {}
         var seeded = 0
 
         // V5.0.4186 — BIRDEYE = BACKUP, not primary. Operator P0 mandate:
