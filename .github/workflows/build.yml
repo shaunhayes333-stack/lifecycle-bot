@@ -252,6 +252,9 @@ jobs:
             --tests '*Aate7725AutonomousModeIsolationTest*' \
             --tests '*Aate7725PredictiveSourceEvidenceTest*' \
             --tests '*Aate7803*' \
+            --tests '*Aate7807LiveRiskPolicyTest*' \
+            --tests '*Aate8213AllLaneDataAdmissionTest*' \
+            --tests '*Aate8223ParityTest*' \
             --tests '*Aate7832*' \
             --tests '*Aate7833*' \
             --tests '*Aate7835*' \
