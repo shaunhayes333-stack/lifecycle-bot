@@ -42,7 +42,7 @@ object QuoteFillCost8239 {
             route.substringBefore('_') != r.route.substringBefore('_')) return
         synchronized(this) {
             load()
-            if (bySignature.size >= 500 && signature !in bySignature) return
+            if (bySignature.size >= 500 && !bySignature.containsKey(signature)) return
             bySignature.putIfAbsent(signature, r)
             save()
         }
