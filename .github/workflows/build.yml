@@ -253,6 +253,7 @@ jobs:
             --tests '*Aate7725PredictiveSourceEvidenceTest*' \
             --tests '*Aate7803*' \
             --tests '*Aate7807LiveRiskPolicyTest*' \
+            --tests '*Aate8209CandidateCostProofTest*' \
             --tests '*Aate8211AdmissionDataRepairTest*' \
             --tests '*Aate8213AllLaneDataAdmissionTest*' \
             --tests '*Aate8223ParityTest*' \
