@@ -234,8 +234,8 @@ object ManipulatedTraderAI {
         // Very fresh token — still in pump phase
         if (ageMinutes < 3.0) score += 10
 
-        // Known rug penalty
-        if (rugcheckScore < 1) score -= 20
+        // Known rug penalty — V5.0.8235: a confirmed 0 only; -1 is "not fetched", not a rug.
+        if (rugcheckScore == 0) score -= 20
 
         // ── V5.9.1347 — OVER-EXTENSION PENALTY (the 3W/21L root cause) ──
         // The old scoring rewarded momentum>=15 (+20) AND buyPressure>=80 (+20)

@@ -67,4 +67,25 @@ class Aate8198AdmissionProofScopeTest {
         assertTrue(src.contains("AdmissionEdge8180.note8180(mode, mint, laneRaw, candidateVersion, d, nowMs)"))
         assertFalse(src.contains("note8180(mint, AdmissionEdge8180.carriesEdge8180(d), nowMs)"))
     }
+
+    // V5.0.8235 — a generic ADMIT carries its economic basis to the sizer, but not promotion rights.
+    @Test fun aGenericAdmitCarriesItsBasisWithoutPromotionRights() {
+        val generic = Decision8136(Terminal8136.ADMIT, "GENERIC_PRIOR_CLEARS_8136", false, "IGNITION_5M", 4.0, emptyList(), "PRIOR",
+            costPct = 6.0, costSizeSol = 0.0285)
+        a.note8180("LIVE", "mG", "SHITCOIN", 2L, generic, t0)
+        val p = a.proof8198("LIVE", "mG", "SHITCOIN", 2L, t0 + 1)
+        assertNotNull(p)
+        assertFalse(p!!.specificEdge)
+        assertEquals(10.0, p.expectedGrossPct, 1e-9)                      // net 4 + round trip 6: the admission's own gross
+        assertFalse(a.admitted8180("LIVE", "mG", "SHITCOIN", 2L, t0 + 1))  // no route-minimum promotion on a prior
+        a.note8180("LIVE", "mG", "SHITCOIN", 2L, refuse, t0 + 2)
+        assertNull(a.proof8198("LIVE", "mG", "SHITCOIN", 2L, t0 + 3))      // the same lane's later terminal clears it
+    }
+
+    @Test fun anUnfetchedRugcheckIsPendingNotARefusal() {
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue(moon.contains("val pendingRc = rugcheckScore == 1 || rugcheckScore < 0"))
+        val manip = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ManipulatedTraderAI.kt").readText()
+        assertTrue(manip.contains("if (rugcheckScore == 0) score -= 20"))
+    }
 }

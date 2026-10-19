@@ -2606,6 +2606,10 @@ object PipelineHealthCollector {
                     "PUMP_TRADE_SUBSCRIBED_MINTS_7279",
                     "PUMP_TRADE_SUBSCRIBE_FRAME_SENT_7279",
                     "PUMP_TRADE_SUBSCRIBE_FRAME_QUEUED_NO_SOCKET_7279",
+                    // V5.0.8235 — the paid trade stream's refusal and re-probes are in the snapshot (8233: 5 error frames,
+                    // 0 trade frames, and nothing in the report said AUTH_DENIED).
+                    "PUMP_TOKEN_TRADE_STREAM_UNAVAILABLE_AUTH_7432",
+                    "PUMP_TOKEN_TRADE_AUTH_REPROBE_8094",
                     "PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279",
                     "PUMP_CURVE_RPC_LADDER_FALLBACK_7279",
                     "PUMP_CURVE_RPC_NO_RUNG_ANSWERED_7279",

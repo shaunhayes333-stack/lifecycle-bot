@@ -534,7 +534,10 @@ object MoonshotTraderAI {
         // before FDG/style sizing could make a dust/probe decision. Confirmed
         // score 0 remains blocked; genuinely low confirmed scores 2..14 remain
         // rejected in live. Pending score 1 passes with FDG/Executor size caps.
-        val pendingRc = rugcheckScore == 1
+        // V5.0.8235 — rugcheckScore -1 is NOT FETCHED (TokenSafetyChecker: provider timeout -> PENDING_REVIEW, "no hard
+        // block"); 8233 forensic: LANE_RUGCHECK=5604 Moonshot refusals ("rugcheck_-1_below_min_15") while /api/providers
+        // was degraded — the lane's whole native population refused on an answer nobody gave. Unfetched = pending, like 1.
+        val pendingRc = rugcheckScore == 1 || rugcheckScore < 0
         // V5.0.7550 — pending RC=1 remains pending in both modes; confirmed
         // low RC 2..14 is rejected in both modes.
         val minRcScore = if (pendingRc) 1 else 15

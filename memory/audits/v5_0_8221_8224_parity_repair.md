@@ -69,3 +69,13 @@ CI: GitHub Actions only (no local compiler). Ignore `Runtime Smoke Test`; the ga
   `AdmissionEdge8180` proof (edge authority ADMITTED) that the FDG blocked opens a shadow observation via
   `Executor.shadowObserve8233` (reason `admitted_blocked:<blockReason>`), counter `SHADOW_OPEN_ON_ADMITTED_BLOCK_8233_<lane>`.
 - Book cap 60, oldest closed at mark; closes feed brain.learnFromTrade and ShadowBookTelemetry7215 (acceptance J: 20 closes).
+
+## 8234 — route-minimum promotion loss budget = account doctrine (operator "still no buys" 8233 snapshot)
+- 8233 snapshot: shadow book now opens (open=18/60, opens=20 ✓). FDG allow=0/1383; admission ADMIT=158; sized=34 →
+  ROUTE_MIN_PROMOTION_REFUSED_LOSS_BUDGET_8188=25, NET_EV_NONPOSITIVE_AT_SIZE=9; FDG SIZE_NOT_EXECUTABLE_7835=44.
+- Cause: lane allocation on a 0.32 SOL wallet (QUALITY 0.0199, CASHGEN 0.0193) < routable min 0.0285 → promotion; the
+  loss budget was read from the sub-minimum "requested" ticket (never executable) with 10% tolerance → every promotion refused.
+- Fix: `MinPromotion8188.refusal8188(..., budgetSol)` — budget = `SmartSizerV3.routableCapacityPreflight7224(...).safeShareCapSol`
+  (the doctrine the preflight already enforces) when larger than the request; counter `ROUTE_MIN_PROMOTION_BUDGET_FROM_DOCTRINE_8234`.
+  Drawdown / unmeasured / negative-edge refusals unchanged. Tests in Aate8223ParityTest §9.
+- Next if still 0 buys: read `LiveRiskPolicy7807: passes=` and `SIZE_NOT_EXECUTABLE_7835` again; then RunnerCapture8180 firing.

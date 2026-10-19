@@ -62,6 +62,8 @@ object AdmissionEdge8180 {
         val basis: String, val chosenSetup: String?, val atMs: Long,
         /** The admitted setup's expected net (%), the round trip it was costed at (%) and the ticket that cost priced (SOL). */
         val expectedNetPct: Double = Double.NaN, val costPct: Double = Double.NaN, val costSizeSol: Double = Double.NaN,
+        /** V5.0.8235 — ADMIT on a candidate-specific proven edge (route-minimum promotion rights); false = generic prior clears. */
+        val specificEdge: Boolean = true,
     ) {
         /** The admission's expected GROSS (%) — net plus the round trip it was charged; NaN when either is unknown. */
         val expectedGrossPct: Double get() =
@@ -74,15 +76,20 @@ object AdmissionEdge8180 {
         "${mode.trim().uppercase()}|$mint|${CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }}"
 
     /**
-     * CandidateAdmission8136.noteDecision8144: a specific-edge ADMIT by [lane] in [mode] stamps its own proof; any other
-     * terminal from the SAME lane clears that lane's proof. Another lane's terminal never touches it.
+     * CandidateAdmission8136.noteDecision8144: an ADMIT by [lane] in [mode] stamps its own proof; any other terminal from
+     * the SAME lane clears that lane's proof. Another lane's terminal never touches it.
+     * V5.0.8235 §ONE_ECONOMIC_BASIS_FOR_EVERY_ADMIT — 8232 gave the sizer the admission's gross only for a SPECIFIC-edge
+     * ADMIT; a GENERIC_PRIOR_CLEARS_8136 admit (the same decisionGross that cleared NetEdge8030 at the admission size)
+     * left no proof, so LiveRiskPolicy7807 re-read the lane's classified record and refused the admitted coin as
+     * NET_EV_NONPOSITIVE_AT_SIZE_8153 (8233 forensic: 50 of 144 sized). Every ADMIT now carries its basis; only a
+     * specific-edge ADMIT carries promotion rights ([admitted8180]).
      */
     fun note8180(mode: String, mint: String, lane: String, candidateVersion: Long, d: CandidateAdmission8136.Decision8136, nowMs: Long) {
         if (mint.isBlank() || lane.isBlank()) return
         val k = key8198(mode, mint, lane)
-        if (!carriesEdge8180(d)) { admitted.remove(k); return }
+        if (d.terminal != CandidateAdmission8136.Terminal8136.ADMIT) { admitted.remove(k); return }
         admitted[k] = Proof8198(mode.trim().uppercase(), mint, k.substringAfterLast('|'), candidateVersion, d.basis, d.chosenSetup, nowMs,
-            d.expectedNetPct, d.costPct, d.costSizeSol)
+            d.expectedNetPct, d.costPct, d.costSizeSol, specificEdge = carriesEdge8180(d))
         if (admitted.size > MAX_8180) admitted.entries.removeIf { nowMs - it.value.atMs > TTL_MS_8180 }
     }
 
@@ -100,7 +107,7 @@ object AdmissionEdge8180 {
 
     /** Was this exact candidate (mode, mint, lane, generation) admitted on a specific proven edge inside the TTL? */
     fun admitted8180(mode: String, mint: String, lane: String, candidateVersion: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
-        proof8198(mode, mint, lane, candidateVersion, nowMs) != null
+        proof8198(mode, mint, lane, candidateVersion, nowMs)?.specificEdge == true
 
     /**
      * Runtime read for the sizers: the current mode's proof for [mint] in [lane] at the coordinator's CURRENT candidate
