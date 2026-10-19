@@ -143,6 +143,13 @@ object DataDeferFetch8180 {
         return out.toList()
     }
 
+    /** Missing executable route, mint-map and sale proof must trigger their actual asynchronous readers. */
+    internal fun missingExecutableProof8236(missing: List<String>): Boolean = missing.any {
+        it.substringBefore(':').trim().lowercase() in setOf(
+            "route", "sellability", "quote", "token_map", "mint", "identity", "decimals", "supply"
+        )
+    }
+
     /** Requests [missing] for [ts] (bounded per mint by the playbook's 30 s request gap); depth and a fresh mark too. */
     fun request8180(ts: TokenState, missing: List<String>, nowMs: Long = System.currentTimeMillis()) {
         val inputs = inputsFor8180(missing)
@@ -163,6 +170,14 @@ object DataDeferFetch8180 {
                 try { PipelineHealthCollector.labelInc("DATA_DEFER_URGENT_STREAM_FAILED_8211") } catch (_: Throwable) {}
             }
             if (urgentStreamAt8211.size > 4096) urgentStreamAt8211.entries.removeIf { nowMs - it.value > 900_000L }
+        }
+        // A generic forced poll cannot complete a missing mint/authority or route proof. This
+        // schedules the existing live-priority on-chain authority and depth readers now; it
+        // never creates a fabricated route/decimals/quote or promotes an unknown to PASS.
+        if (missingExecutableProof8236(missing)) {
+            try { com.lifecyclebot.engine.truth.AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.OnChainDepth8038.needDepth8047(ts, nowMs) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("DATA_DEFER_EXECUTABLE_PROOF_PREFETCH_8236") } catch (_: Throwable) {}
         }
         try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, inputs, nowMs) } catch (_: Throwable) {}
         if (inputs.any { it.startsWith("liq:") }) try { com.lifecyclebot.engine.truth.OnChainDepth8038.needDepth8047(ts, nowMs) } catch (_: Throwable) {}

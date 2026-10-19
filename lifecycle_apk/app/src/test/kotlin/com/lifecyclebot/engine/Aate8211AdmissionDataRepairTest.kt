@@ -34,4 +34,17 @@ class Aate8211AdmissionDataRepairTest {
         assertFalse(DataDeferFetch8180.streamInputNeeded8211(listOf("liq:REFRESH")))
         assertFalse(DataDeferFetch8180.streamInputNeeded8211(emptyList()))
     }
+    @Test fun executableProofGapsQueueRealAuthorityReadersRatherThanBecomingEconomicRefusals() {
+        val f = DataDeferFetch8180
+        assertTrue(f.missingExecutableProof8236(listOf("route:UNKNOWN")))
+        assertTrue(f.missingExecutableProof8236(listOf("sellability:UNKNOWN")))
+        assertTrue(f.missingExecutableProof8236(listOf("decimals:UNKNOWN")))
+        assertTrue(f.missingExecutableProof8236(listOf("token_map:UNKNOWN")))
+        assertTrue(f.missingExecutableProof8236(listOf("quote:UNKNOWN")))
+        assertFalse(f.missingExecutableProof8236(listOf("shape:UNKNOWN", "bp:NO_PRINTS")))
+        val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerCapture8180.kt").readText()
+        assertTrue(source.contains("AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint)"))
+        assertTrue(source.contains("OnChainDepth8038.needDepth8047(ts, nowMs)"))
+    }
+
 }
