@@ -54,7 +54,7 @@ class Aate8209CandidateCostProofTest {
         assertTrue(src.contains("policyAllows7848 && executableSize7835 > 0.0 && sealedCostOk8209"))
         // A false `sealedCostOk8209` is an actual refusal, not a dead write to
         // the pre-final blockReason variable that the return never reads.
-        assertTrue(src.contains("if (!sealedCostOk8209) blockReasonFinal = \\"ADMISSION_COST_REQUOTE_FAILED_8209\\""))
+        assertTrue(src.contains("if (!sealedCostOk8209) blockReasonFinal = \"ADMISSION_COST_REQUOTE_FAILED_8209\""))
         assertTrue(src.contains("blockReason = blockReasonFinal ?: when {"))
         val adm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         assertFalse("the refusal breakdown is the candidate's own quote, never only a global last-write", adm.contains("\"breakdown=\${try { NetEdge8030.lastEntryBreakdown8204() }"))
