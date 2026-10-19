@@ -32,7 +32,7 @@ object TradeTape8100 {
 
     // V5.0.8169 — [priceOnly]: a pool-state price (bonding-curve account / PumpSwap vault pair) with no side or size.
     // It states price (change, shape) but never buy pressure and never an executed print for the local bars.
-    private class Trade(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean, val priceOnly: Boolean = false)
+    internal class Trade(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean, val priceOnly: Boolean = false)
     private val tapes = ConcurrentHashMap<String, ArrayDeque<Trade>>()
     private val notes = AtomicLong(0)
     private val reads = AtomicLong(0)
@@ -99,12 +99,22 @@ object TradeTape8100 {
     /** Pure-ish: 15-second-bar shape from [trades] within the last 3 minutes, or null when it cannot be stated. */
     private fun youngShape8220(trades: List<Trade>, nowMs: Long): Shape? {
         val recent = trades.filter { !it.priceOnly && nowMs - it.atMs in 0L..3L * 60_000L && it.priceSol.isFinite() && it.priceSol > 0.0 }
-        if (recent.size < 3 || recent.last().atMs - recent.first().atMs < YOUNG_MIN_SPAN_MS_8220) return null
-        val bars = recent.groupBy { it.atMs / YOUNG_BAR_MS_8220 }.toSortedMap().values.map { it.last().priceSol }
+        // V5.0.8236 — no executed prints on the paid stream (AUTH_DENIED) or none yet: the curve account's own price-only
+        // reads (CurveTicks7968 / the fan-out's curve RPC, one pricing function of one account) state the same young shape.
+        // Never mixed with executed prints: either set alone.
+        val src = if (recent.size >= 3) recent else trades.filter { it.priceOnly && nowMs - it.atMs in 0L..3L * 60_000L && it.priceSol.isFinite() && it.priceSol > 0.0 }
+        val curve8236 = src !== recent
+        return youngShapeOf8236(src, curve8236)
+    }
+
+    /** Pure: the 15-second-bar shape of one source's prints spanning >= 30 s, or null. */
+    internal fun youngShapeOf8236(src: List<Trade>, curve: Boolean): Shape? {
+        if (src.size < 3 || src.last().atMs - src.first().atMs < YOUNG_MIN_SPAN_MS_8220) return null
+        val bars = src.groupBy { it.atMs / YOUNG_BAR_MS_8220 }.toSortedMap().values.map { it.last().priceSol }
         if (bars.size < 3) return null
         return shape8100(bars)?.also {
             youngShapes8220.incrementAndGet()
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TAPE_YOUNG_SHAPE_15S_8220") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (curve) "TAPE_YOUNG_SHAPE_CURVE_8236" else "TAPE_YOUNG_SHAPE_15S_8220") } catch (_: Throwable) {}
         }
     }
 

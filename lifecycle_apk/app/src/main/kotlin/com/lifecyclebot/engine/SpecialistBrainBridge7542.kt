@@ -337,6 +337,15 @@ object SpecialistBrainBridge7542 {
                 try { PipelineHealthCollector.labelInc("NATIVE_VETO_RETIRED_8048_$lane") } catch (_: Throwable) {}
             }
         }
+        // V5.0.8236 — every specialist: a native rule that fired on an unobserved input (mcap $0, momentum 0 with no
+        // price change observed, buy pressure at its 50 default, no price history, V3 never scored) is a DEFER, not a
+        // refusal. Not gradeable: the veto audit grades refusals, and this one was never a judgement of the coin.
+        val inputs8236 = LaneInputTruth8236.observed8236(ts, prices.size)
+        for ((lane, o) in out.toList()) {
+            if (o.eligible || !o.authoritative) continue
+            val defer8236 = LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236) ?: continue
+            out[lane] = o.copy(reason = defer8236, gradeable = false)
+        }
         val s=out.values.filter{it.authoritative&&it.eligible}.sortedByDescending{maxOf(it.score,it.confidence)};val a=s.getOrNull(0);val b=s.getOrNull(1);val av=a?.let{maxOf(it.score,it.confidence)}?:0;val bv=b?.let{maxOf(it.score,it.confidence)}?:0
         val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65);val fallback=s.isEmpty()&&v3>=40&&v3c>=45&&bp>=50&&ts.lastLiquidityUsd>0&&!ts.safety.isBlocked;val coreOk=ensemble||fallback
         val coreScore=(if(s.isNotEmpty())s.take(4).map{maxOf(it.score,it.confidence)}.average().toInt()else v3).coerceIn(0,100)

@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object CurveTicks7968 {
 
-    private const val MAX_SUBS = 40
+    private const val MAX_SUBS = 72  // V5.0.8236 — held curves (<=40) plus the freshest watched candidates (<=32)
     private const val RECONNECT_GAP_MS = 5_000L
 
     @Volatile private var keyProvider: () -> String = { "" }

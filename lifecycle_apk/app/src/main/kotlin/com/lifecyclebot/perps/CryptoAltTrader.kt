@@ -1527,9 +1527,17 @@ object CryptoAltTrader {
                     cryptoBrainSignals7244++
                     try { PipelineHealthCollector.labelInc("CRYPTO_BRAIN_NATIVE_ACTIONABLE_7244") } catch (_: Throwable) {}
                 } else {
+                    // V5.0.8236 — bp=50 from zero counts and chg=0.0 from a provider row that stated neither are defaults,
+                    // not a flat market: the desk defers the asset instead of filing it as observed-and-unactionable.
+                    val unobserved8236 = com.lifecyclebot.engine.LaneInputTruth8236.cryptoInputsUnobserved8236(buys24h7391, sells24h7391, change)
+                    if (unobserved8236) try { PipelineHealthCollector.labelInc(com.lifecyclebot.engine.LaneInputTruth8236.CRYPTO_DEFER) } catch (_: Throwable) {}
                     DynamicAltTokenRegistry.markEvaluationProgress6570(
                         refreshed,
-                        if (cryptoDecision7244.shadowOnlyLive) "CRYPTO_BRAIN_SHADOW_ONLY_7244" else "CRYPTO_BRAIN_OBSERVE_7244",
+                        when {
+                            unobserved8236 -> com.lifecyclebot.engine.LaneInputTruth8236.CRYPTO_DEFER
+                            cryptoDecision7244.shadowOnlyLive -> "CRYPTO_BRAIN_SHADOW_ONLY_7244"
+                            else -> "CRYPTO_BRAIN_OBSERVE_7244"
+                        },
                     )
                 }
                 // ── ShitCoin sub-AI (low-cap / meme tokens) ──────────────────────────
@@ -2793,6 +2801,12 @@ object CryptoAltTrader {
         // Uses the 24h change as a proxy (real 4h range requires candle
         // fetch; approximate via abs(change) < 0.5 ≈ flat 4h too).
         if (kotlin.math.abs(change) < 0.5 && !reversalSetup && !paperLearningCandidate6562) {
+            // V5.0.8236 — an exact 0.0 change is a provider row that stated no change, not a flat market: defer, named.
+            if (change == 0.0) {
+                try { PipelineHealthCollector.labelInc(com.lifecyclebot.engine.LaneInputTruth8236.CRYPTO_DEFER) } catch (_: Throwable) {}
+                ErrorLogger.debug(TAG, "⏳ ${com.lifecyclebot.engine.LaneInputTruth8236.CRYPTO_DEFER}: ${market.symbol} change=0.0 unobserved")
+                return null
+            }
             ErrorLogger.debug(TAG,
                 "🚫 FLAT_4H_FILTER: ${market.symbol} change=${"%.2f".format(change)}% — chop, skip")
             return null

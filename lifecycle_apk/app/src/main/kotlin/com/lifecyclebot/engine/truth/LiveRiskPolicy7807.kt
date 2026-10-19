@@ -675,10 +675,13 @@ object LiveRiskPolicy7807 {
                 if (envelopeRefusal8153 != null) {
                     return Decision(false, 0.0, envelopeRefusal8153, labels, stop, minCost7840, total, sizing8094)
                 }
-                // V5.0.8188 — re-evaluated AT the promoted notional: the ORIGINAL loss budget (risk size x stop + its round trip,
-                // +10% at most), a measured positive edge after the round trip at the minimum, and no defensive drawdown.
+                // V5.0.8188 — re-evaluated AT the promoted notional: the loss budget, a measured positive edge after the round trip
+                // at the minimum, and no defensive drawdown.
+                // V5.0.8236 — ONE loss budget with the upstream sizers: the account's per-position doctrine (safe share cap)
+                // when it exceeds the sub-minimum risk size (MinPromotion8188.doctrineBudgetSol8236), not the lane ticket alone.
                 MinPromotion8188.refusal8188(size, i.execMinSol, stop, if (size > 0.0) costAtSizePct8153(i, size) else Double.NaN,
-                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
+                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac, MinPromotion8188.doctrineBudgetSol8236(size))
+                    ?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
                 fixedCostRefusal8169(i, i.execMinSol)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 return Decision(true, i.execMinSol, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", labels, stop, minCost7840, total, sizing8094, firstTarget)
