@@ -25,7 +25,7 @@ class Aate8062DataChangesTest {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(f.contains("for (purpose in CanonicalMarkPurpose6570.values())"))
         assertTrue(f.contains("CanonicalPriceMarkRegistry6522.get(mint, purpose)"))
-        assertTrue(f.contains("CurveReserves7951.priceSolFor7951(mint, nowMs, MARK_MAX_AGE_MS_7731)"))
+        assertTrue(f.contains("CurveReserves7951.priceObservation8239(mint, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice, nowMs, MARK_MAX_AGE_MS_7731)"))
         val p = src("network/ParallelMarkFanout7088.kt")
         assertTrue(p.contains("\"dataSlice\""))
         assertTrue(p.contains("return \"helius_curve\""))

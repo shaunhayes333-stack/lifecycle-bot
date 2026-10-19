@@ -286,7 +286,7 @@ object ExecutionSpineAcceptanceWindow6647 {
             val forensic = try { ForensicReconciliation6635.deltas6647() } catch (_: Throwable) { null }
             if (forensic?.reconciled != true &&
                 duration < ExecutionSpineAcceptance6647.MIN_WINDOW_MS + ACCOUNTING_SETTLE_GRACE_MS_8240) {
-                try { PipelineHealthCollector.labelInc("EXECUTION_SPINE_SETTLEMENT_GRACE_8240") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_SETTLEMENT_GRACE_8240") } catch (_: Throwable) {}
                 return null // Retry the SAME window after the asynchronous commit settles.
             }
             // A dispatch begun at the sampling edge may still be legitimately in
