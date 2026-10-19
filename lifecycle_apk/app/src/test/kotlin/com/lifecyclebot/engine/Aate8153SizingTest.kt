@@ -53,12 +53,14 @@ class Aate8153SizingTest {
         val ok = LiveRiskPolicy7807.decide(inputs(gross = 20.0, cost = { 7.5 }))
         assertTrue(ok.reason, ok.open)
         assertEquals(30.0, ok.firstTargetPct8153, 1e-12)
-        // The realistic cost never prices cheaper than the 7766 model, and a faulty cost reader falls back to it.
+        // V5.0.8232 — the realistic (component / measured) cost IS the round trip at the size: the same model admission
+        // priced the candidate with; a faulty or absent cost reader falls back to the 7766 model.
         val base = inputs()
         val model = LiveRiskPolicy7807.roundTripCostPct(0.05, 200.0, 200_000.0)
-        assertEquals(model, LiveRiskPolicy7807.costAtSizePct8153(base.copy(costAtSizePct8153 = { 0.1 }), 0.05), 1e-12)
+        assertEquals(0.1, LiveRiskPolicy7807.costAtSizePct8153(base.copy(costAtSizePct8153 = { 0.1 }), 0.05), 1e-12)
         assertEquals(9.0, LiveRiskPolicy7807.costAtSizePct8153(base.copy(costAtSizePct8153 = { 9.0 }), 0.05), 1e-12)
         assertEquals(model, LiveRiskPolicy7807.costAtSizePct8153(base.copy(costAtSizePct8153 = { throw IllegalStateException() }), 0.05), 1e-12)
+        assertEquals(model, LiveRiskPolicy7807.costAtSizePct8153(base.copy(costAtSizePct8153 = null), 0.05), 1e-12)
     }
 
     @Test fun kellyIsSizedOnTheNetEdgeAtTheSealedSize() {

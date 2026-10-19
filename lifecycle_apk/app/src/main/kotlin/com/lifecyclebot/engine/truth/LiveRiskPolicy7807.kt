@@ -528,13 +528,15 @@ object LiveRiskPolicy7807 {
     )
 
     /**
-     * V5.0.8153 — the round trip (%) of [sizeSol] for [i]: the 7766 model, or the realistic cost the caller supplied
-     * (measured lane cost / component model with impact at THIS size), whichever is higher. Never cheaper than before.
+     * V5.0.8153 — the round trip (%) of [sizeSol] for [i]: the realistic cost the caller supplied (measured lane cost /
+     * component model with impact at THIS size — NetEdge8030.costPct8030, the model admission priced the candidate with),
+     * else the 7766 model. V5.0.8232: the `max(7766, real)` of 8153 was a second estimator — it refused at size what the
+     * same component model had admitted (NET_EV_NONPOSITIVE_AT_SIZE on 15 of 18 sized candidates, 8231 forensic).
      */
     fun costAtSizePct8153(i: Inputs, sizeSol: Double): Double {
         val model = roundTripCostPct(sizeSol, i.solUsd, i.liquidityUsd)
         val real = i.costAtSizePct8153?.let { f -> try { f(sizeSol) } catch (_: Throwable) { Double.NaN } } ?: Double.NaN
-        return if (real.isFinite() && real > model) real else model
+        return if (real.isFinite() && real > 0.0) real else model
     }
 
     fun isRunnerLane(lane: String?): Boolean = canonicalLane(lane) in setOf("MOONSHOT", "PROJECT_SNIPER")
@@ -839,7 +841,17 @@ object LiveRiskPolicy7807 {
         // V5.0.8153 — the economics at the size: the selected edge's record, its gross, the realistic round trip.
         val ts8153 = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
         val rec8153 = ts8153?.let { edgeRecordFor8153(it, effectiveLane7811) }
-        val gross8153 = ts8153?.let { setupExpectedGrossPct8153(it, effectiveLane7811, rec8153) } ?: Double.NaN
+        // V5.0.8232 §ONE_ECONOMIC_BASIS — the gross this candidate was ADMITTED on (AdmissionEdge8180.Proof8198: the
+        // chosen setup's expected net plus the round trip it was costed at) is the gross the sizer nets at the size.
+        // 8231 forensic: admission8136 ADMIT=174 and NET_EV_NONPOSITIVE_AT_SIZE_8153=15 of 18 sized — the sizer re-read
+        // the lane's proven-record / classified expectation, a second estimator that contradicted the admission on the
+        // same coin, same size. Without a proof for this generation the sizer's own read stands as before.
+        val proofGross8232 = try {
+            val version = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint)
+            AdmissionEdge8180.proof8198("LIVE", mint, effectiveLane7811, version)?.expectedGrossPct?.takeIf { it.isFinite() }
+        } catch (_: Throwable) { null }
+        if (proofGross8232 != null) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SIZING_GROSS_FROM_ADMISSION_PROOF_8232") } catch (_: Throwable) {}
+        val gross8153 = proofGross8232 ?: ts8153?.let { setupExpectedGrossPct8153(it, effectiveLane7811, rec8153) } ?: Double.NaN
         val mcap8153 = ts8153?.lastMcap ?: 0.0
         val cost8153: (Double) -> Double = { s -> NetEdge8030.costPct8030(effectiveLane7811, s, liquidityUsd, mint, mcap8153) }
         return Inputs(

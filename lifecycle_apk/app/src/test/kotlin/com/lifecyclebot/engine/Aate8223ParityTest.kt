@@ -149,5 +149,9 @@ class Aate8223ParityTest {
         assertTrue(s.contains("fun cost(s: Double): Double = NetEdge8030.costPct8030(l, s, liq, mint, mcap)"))
         assertFalse(s.contains("LiveRiskPolicy7807.roundTripCostPct(s, solUsd, liq)"))
         assertTrue(s.contains("AdmissionEdge8180.proof8198(\"LIVE\", mint, l, version)"))
+        // V5.0.8232 — the sizer nets the admission's own gross at the size and costs it with the same component model.
+        val risk = src("engine/truth/LiveRiskPolicy7807.kt")
+        assertTrue(risk.contains("val gross8153 = proofGross8232 ?: ts8153?.let { setupExpectedGrossPct8153(it, effectiveLane7811, rec8153) } ?: Double.NaN"))
+        assertTrue(risk.contains("return if (real.isFinite() && real > 0.0) real else model"))
     }
 }
