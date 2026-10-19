@@ -854,7 +854,7 @@ object CandidateAdmission8136 {
                 else launch?.takeIf { it.verdict == FreshLaunchSelector7737.LaunchVerdict.REFUSED }?.why,
             setupTimings = setupTimings,
             lossEpochAware8169 = true,
-            live = mode == "LIVE",
+            live = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false },
             cellLoss8169 = cellLoss8169,
             stageLoss8169 = stageLoss8169,
             cortexStrong8200 = try { com.lifecyclebot.engine.cortex.Cortex7885.strongCohortEvidence8200(ts, lane) } catch (_: Throwable) { null },

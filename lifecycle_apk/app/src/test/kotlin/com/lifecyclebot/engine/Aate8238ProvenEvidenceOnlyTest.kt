@@ -27,7 +27,7 @@ class Aate8238ProvenEvidenceOnlyTest {
     @Test fun theLiveAdapterAndTheCortexDoorCarryTheContract() {
         val adm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         assertTrue(adm.contains("if (c.live && !cellSupported) {"))
-        assertTrue(adm.contains("live = mode == \"LIVE\","))
+        assertTrue(adm.contains("live = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() }"))
         val cortex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         assertTrue(cortex.contains("!wf.validated -> nullWhy8201(\"NOT_WALK_FORWARD_VALIDATED_${'$'}{wf.verdict.name}\")"))
         assertTrue(cortex.contains("!(median > 0.0) -> nullWhy8201(\"MEDIAN_NOT_POSITIVE\")"))
