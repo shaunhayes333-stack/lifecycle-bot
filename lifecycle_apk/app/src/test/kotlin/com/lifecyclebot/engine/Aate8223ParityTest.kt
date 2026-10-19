@@ -180,6 +180,12 @@ class Aate8223ParityTest {
         assertEquals(mp.REFUSED_LOSS_BUDGET_8188, mp.refusal8188(0.0199, 0.0285, 10.0, 6.3, 6.25, 15.0, 0.05, budgetSol = 0.021))
         assertEquals(mp.REFUSED_NEGATIVE_EDGE_8188, mp.refusal8188(0.0199, 0.0285, 10.0, 6.3, 6.25, 5.0, 0.05, budgetSol = 0.078))
         val src = src("engine/truth/MinPromotion8188.kt")
-        assertTrue(src.contains("routableCapacityPreflight7224(tradeable, solUsd).safeShareCapSol"))
+        // V5.0.8236: the preflight budget is now a shared helper used by BOTH
+        // the upstream resolver and LiveRiskPolicy's final route-minimum check.
+        assertTrue(src.contains("fun doctrineBudgetSol8236(tradeableSol: Double, solUsd: Double)"))
+        assertTrue(src.contains("val budgetSol8234 = doctrineBudgetSol8236(tradeable8236"))
+        val risk = src("engine/truth/LiveRiskPolicy7807.kt")
+        assertTrue(risk.contains("MinPromotion8188.doctrineBudgetSol8236(tradeable8153, i.solUsd)"))
+        assertTrue(risk.contains("minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac, budgetSol = doctrineBudget8236"))
     }
 }
