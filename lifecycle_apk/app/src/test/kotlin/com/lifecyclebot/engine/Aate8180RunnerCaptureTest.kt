@@ -114,7 +114,9 @@ class Aate8180RunnerCaptureTest {
         // MANIPULATED's shape refusal is a lane-fit refusal (handed on like a cap / age band).
         assertTrue(SpecialistOwnership7951.laneFitRefusal8132("NO_KNOWN_MANIPULATION_EVIDENCE_7425"))
         assertFalse(SpecialistOwnership7951.laneFitRefusal8132("RUG_DETECTED"))
-        assertTrue(src("engine/SpecialistOwnership7951.kt").contains("if (NativeYield8180.namesReceiver8180(op.reason, op.gradeable, fit8180, refusalIsJudgement8136(op.reason, fdg = false), data8180)) yieldReceiver8136(mint, p, snap.opinions)"))
+        val ownership = src("engine/SpecialistOwnership7951.kt")
+        assertTrue(ownership.contains("val binding = refusalIsJudgement8136(op.reason, fdg = false)"))
+        assertTrue(ownership.contains("if (NativeYield8180.namesReceiver8180(op.reason, op.gradeable, fit8180, binding, data8180)) yieldReceiver8136(mint, p, snap.opinions)"))
     }
 
     // ── 4. SHADOW_NOT_PRIMARY: an idle rescue slot is released ──

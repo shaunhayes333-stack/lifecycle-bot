@@ -10,13 +10,17 @@ class Aate7542NativeSpecialistAuthorityTest {
 
     @Test fun all_twelve_native_brains_are_called_by_one_bridge(){
         val b=src("engine/SpecialistBrainBridge7542.kt")
+        val evaluation=b.substringAfter("fun evaluate(ts:TokenState):Snapshot{").substringBefore("internal fun coreOpinion7542")
         listOf("QualityTraderAI.evaluate","BlueChipTraderAI.evaluate","ShitCoinTraderAI.evaluate",
             "ShitCoinExpress.evaluate","MoonshotTraderAI.scoreToken","ProjectSniperAI.assessTarget",
             "DipHunterAI.evaluate","ManipulatedTraderAI.evaluate","TreasuryBrain.evaluate",
             "CashGenerationAI.evaluate","CyclicTradeEngine.evaluateCandidate7542").forEach{
-            assertTrue("missing native call $it",b.contains(it))
+            assertTrue("missing native call $it",evaluation.contains(it))
         }
-        assertTrue(b.contains("out[\"CORE\"]=op"))
+        // CORE's native aggregate is shared with its behavior tests; evaluate still calls it in CORE's own scope.
+        assertTrue(evaluation.contains("if (owns7828(\"CORE\")) out[\"CORE\"] = coreOpinion7542(ts, out.values, v3, v3c, bp)"))
+        val core=b.substringAfter("internal fun coreOpinion7542").substringBefore("private fun registerElection8136")
+        assertTrue(core.contains("return op(\"CORE\", ensemble || fallback, coreScore, coreScore"))
     }
 
     @Test fun toolkit_cannot_resurrect_native_rejected_lane(){
