@@ -167,4 +167,19 @@ class Aate8223ParityTest {
         assertTrue(s.contains("shadowObserveAdmittedBlock8233(ts, lane, version, result, proposedSizeSol, laneScore)"))
         assertTrue(s.contains("executor.shadowObserve8233(ts, sol, laneScore, lane, reason)"))
     }
+
+    // ── 9. the route-minimum loss budget is the account's doctrine, not a ticket that never routed ──
+
+    @Test fun aLaneAllocationUnderTheRoutableMinimumIsBudgetedByTheDoctrineNotByItself() {
+        val mp = com.lifecyclebot.engine.truth.MinPromotion8188
+        // QUALITY asked 0.0199 on a 0.32 SOL wallet; the routable minimum is 0.0285; stop 10%; cost ~6%; gross 15%.
+        assertEquals(mp.REFUSED_LOSS_BUDGET_8188, mp.refusal8188(0.0199, 0.0285, 10.0, 6.3, 6.25, 15.0, 0.05))
+        // the same promotion inside the doctrine's safe share cap (0.078) is within budget and clears
+        assertNull(mp.refusal8188(0.0199, 0.0285, 10.0, 6.3, 6.25, 15.0, 0.05, budgetSol = 0.078))
+        // a doctrine below the routable minimum still refuses; a negative edge still refuses
+        assertEquals(mp.REFUSED_LOSS_BUDGET_8188, mp.refusal8188(0.0199, 0.0285, 10.0, 6.3, 6.25, 15.0, 0.05, budgetSol = 0.021))
+        assertEquals(mp.REFUSED_NEGATIVE_EDGE_8188, mp.refusal8188(0.0199, 0.0285, 10.0, 6.3, 6.25, 5.0, 0.05, budgetSol = 0.078))
+        val src = src("engine/truth/MinPromotion8188.kt")
+        assertTrue(src.contains("routableCapacityPreflight7224(tradeable, solUsd).safeShareCapSol"))
+    }
 }

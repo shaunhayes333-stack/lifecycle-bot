@@ -63,3 +63,9 @@ CI: GitHub Actions only (no local compiler). Ignore `Runtime Smoke Test`; the ga
   7766 model only as fallback (no more `max(7766, real)`). Aate8153SizingTest aligned.
 - Structural remainder (not a bug): wallet 0.32 SOL → routable min 0.0285 SOL ticket → ~6.25% round trip; lane records
   mostly negative (lanes60 nets ≤0; live 0/3). EXECUTION_ECONOMICS (671) refuses gross < 1.5× cost honestly.
+
+## 8233 — the shadow book learns from what live wanted (operator: "its how live learns quickly")
+- `FdgOutcomeContinuity8197.evaluate` → after every specialist FDG call in LIVE mode, a candidate with an
+  `AdmissionEdge8180` proof (edge authority ADMITTED) that the FDG blocked opens a shadow observation via
+  `Executor.shadowObserve8233` (reason `admitted_blocked:<blockReason>`), counter `SHADOW_OPEN_ON_ADMITTED_BLOCK_8233_<lane>`.
+- Book cap 60, oldest closed at mark; closes feed brain.learnFromTrade and ShadowBookTelemetry7215 (acceptance J: 20 closes).

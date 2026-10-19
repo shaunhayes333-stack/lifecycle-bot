@@ -44,12 +44,13 @@ object MinPromotion8188 {
     fun refusal8188(
         requestedSol: Double, promotedSol: Double, stopPct: Double,
         costRequestedPct: Double, costPromotedPct: Double, expectedGrossPct: Double, drawdownFrac: Double,
+        budgetSol: Double = requestedSol,
     ): String? {
         if (!promotedSol.isFinite() || promotedSol <= 0.0 || !(requestedSol < promotedSol)) return null
         if (defensiveDrawdown8188(drawdownFrac)) return REFUSED_DRAWDOWN_8188
         if (!requestedSol.isFinite() || requestedSol <= 0.0 || !stopPct.isFinite() || stopPct <= 0.0) return REFUSED_LOSS_BUDGET_8188
         val cReq = if (costRequestedPct.isFinite()) costRequestedPct else costPromotedPct
-        val budget = lossAtStopSol8188(requestedSol, stopPct, cReq)
+        val budget = lossAtStopSol8188(if (budgetSol.isFinite() && budgetSol > requestedSol) budgetSol else requestedSol, stopPct, cReq)  // V5.0.8234
         val promotedLoss = lossAtStopSol8188(promotedSol, stopPct, costPromotedPct)
         if (!(promotedLoss <= budget * (1.0 + LOSS_TOLERANCE_8188) + 1e-12)) return REFUSED_LOSS_BUDGET_8188
         if (!expectedGrossPct.isFinite() || !costPromotedPct.isFinite()) return REFUSED_UNMEASURED_EDGE_8188
@@ -86,7 +87,20 @@ object MinPromotion8188 {
             val admissionGross8224 = proof8224?.expectedGrossPct?.takeIf { it.isFinite() }
             if (admissionGross8224 != null) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ROUTE_MIN_PROMOTION_ADMISSION_BASIS_8224") } catch (_: Throwable) {}
             val gross = admissionGross8224 ?: ts?.let { LiveRiskPolicy7807.setupExpectedGrossForPromotion8188(it, l) } ?: Double.NaN
-            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross, liveDrawdownFrac8188())
+            // V5.0.8234 §LOSS_BUDGET_IS_THE_DOCTRINE — a lane's allocation on a small wallet (QUALITY 0.0199, CASHGEN 0.0193
+            // on 0.32 SOL) sits under the routable minimum (0.0285); the "requested" ticket was never executable, so a loss
+            // budget read from it refused EVERY promotion to the only size that routes (8233 forensic: 25 of 34 sized
+            // candidates, every lane). The budget is the account's per-position doctrine — the safe share cap the
+            // routable-capacity preflight already enforces — when it is larger than the request; the promoted ticket
+            // still has to clear it, and a wallet whose doctrine is below the routable minimum still refuses.
+            val budgetSol8234 = try {
+                val tradeable = (com.lifecyclebot.engine.BotService.status.walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0)
+                val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd).safeShareCapSol
+            } catch (_: Throwable) { Double.NaN }
+            if (budgetSol8234.isFinite() && budgetSol8234 > requestedSol)
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ROUTE_MIN_PROMOTION_BUDGET_FROM_DOCTRINE_8234") } catch (_: Throwable) {}
+            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross, liveDrawdownFrac8188(), budgetSol8234)
         } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 }
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
         return r
