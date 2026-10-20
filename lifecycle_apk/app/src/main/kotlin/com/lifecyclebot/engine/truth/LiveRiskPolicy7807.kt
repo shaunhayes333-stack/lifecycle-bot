@@ -507,6 +507,8 @@ object LiveRiskPolicy7807 {
         val fixedRoundTripSol8169: Double = Double.NaN,
         /** Empty means the runtime captured current, matching cash, inventory and marks. */
         val equityObservationRefusal8239: String = "",
+        /** Only an immutable, same-generation LIVE admission based on supported executable evidence. */
+        val specificProof8241: Boolean = false,
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -690,7 +692,8 @@ object LiveRiskPolicy7807 {
                 if (doctrineBudget8236.isFinite() && doctrineBudget8236 > size)
                     labels += "ROUTE_MIN_BUDGET_SHARED_WITH_UPSTREAM_8236"
                 MinPromotion8188.refusal8188(size, i.execMinSol, stop, if (size > 0.0) costAtSizePct8153(i, size) else Double.NaN,
-                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac, budgetSol = doctrineBudget8236)
+                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac, budgetSol = doctrineBudget8236,
+                    specificProof8241 = i.specificProof8241)
                     ?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
                 fixedCostRefusal8169(i, i.execMinSol)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
@@ -856,10 +859,11 @@ object LiveRiskPolicy7807 {
         // 8231 forensic: admission8136 ADMIT=174 and NET_EV_NONPOSITIVE_AT_SIZE_8153=15 of 18 sized — the sizer re-read
         // the lane's proven-record / classified expectation, a second estimator that contradicted the admission on the
         // same coin, same size. Without a proof for this generation the sizer's own read stands as before.
-        val proofGross8232 = try {
+        val admissionProof8241 = try {
             val version = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint)
-            AdmissionEdge8180.proof8198("LIVE", mint, effectiveLane7811, version)?.expectedGrossPct?.takeIf { it.isFinite() }
+            AdmissionEdge8180.proof8198("LIVE", mint, effectiveLane7811, version)
         } catch (_: Throwable) { null }
+        val proofGross8232 = admissionProof8241?.expectedGrossPct?.takeIf { it.isFinite() }
         if (proofGross8232 != null) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SIZING_GROSS_FROM_ADMISSION_PROOF_8232") } catch (_: Throwable) {}
         val gross8153 = proofGross8232 ?: ts8153?.let { setupExpectedGrossPct8153(it, effectiveLane7811, rec8153) } ?: Double.NaN
         val mcap8153 = ts8153?.lastMcap ?: 0.0
@@ -899,6 +903,7 @@ object LiveRiskPolicy7807 {
             markPriceUsd8153 = ts8153?.lastPrice?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
             fixedRoundTripSol8169 = try { com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() } catch (_: Throwable) { Double.NaN },
             equityObservationRefusal8239 = if (account8239.cashProven) "" else account8239.cashRefusal,
+            specificProof8241 = admissionProof8241?.specificEdge == true && proofGross8232 != null,
         )
     }
 

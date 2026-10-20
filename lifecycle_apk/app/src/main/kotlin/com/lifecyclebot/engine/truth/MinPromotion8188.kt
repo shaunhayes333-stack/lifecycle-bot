@@ -45,9 +45,14 @@ object MinPromotion8188 {
         requestedSol: Double, promotedSol: Double, stopPct: Double,
         costRequestedPct: Double, costPromotedPct: Double, expectedGrossPct: Double, drawdownFrac: Double,
         budgetSol: Double = requestedSol,
+        specificProof8241: Boolean = false,
     ): String? {
         if (!promotedSol.isFinite() || promotedSol <= 0.0 || !(requestedSol < promotedSol)) return null
-        if (defensiveDrawdown8188(drawdownFrac)) return REFUSED_DRAWDOWN_8188
+        // A defensive drawdown already sizes down risk upstream. An independently
+        // PROVEN exact live candidate may still check the executable minimum
+        // against the same loss budget, quote economics and hard bounds below.
+        // No unsupported/generic candidate may use this exceptional route.
+        if (defensiveDrawdown8188(drawdownFrac) && !specificProof8241) return REFUSED_DRAWDOWN_8188
         if (!requestedSol.isFinite() || requestedSol <= 0.0 || !stopPct.isFinite() || stopPct <= 0.0) return REFUSED_LOSS_BUDGET_8188
         val cReq = if (costRequestedPct.isFinite()) costRequestedPct else costPromotedPct
         val budget = lossAtStopSol8188(if (budgetSol.isFinite() && budgetSol > requestedSol) budgetSol else requestedSol, stopPct, cReq)  // V5.0.8234
@@ -118,7 +123,8 @@ object MinPromotion8188 {
             val budgetSol8234 = doctrineBudgetSol8236(tradeable8236, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
             if (budgetSol8234.isFinite() && budgetSol8234 > requestedSol)
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ROUTE_MIN_PROMOTION_BUDGET_FROM_DOCTRINE_8234") } catch (_: Throwable) {}
-            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross, liveDrawdownFrac8188(), budgetSol8234)
+            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross, liveDrawdownFrac8188(),
+                budgetSol8234, specificProof8241 = proof8224?.specificEdge == true && admissionGross8224 != null)
         } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 }
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
         return r
