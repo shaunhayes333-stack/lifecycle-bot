@@ -239,6 +239,7 @@ class DataOrchestrator(
     private fun pruneLocalMintCaches7807(now: Long) {
         lastWsEventMs.entries.removeIf { now - it.value > 60_000L }
         lastPumpPortalTradeMs7773.entries.removeIf { now - it.value > 60_000L }
+        lastHeliusTradeMs8252.entries.removeIf { now - it.value > 60_000L }
         val live = HashSet<String>(status.tokens.keys)
         live.addAll(heldMintsForSubscriptions7807())
         // V5.0.7819 — the pinned set is now Solana-only; per-mint caches still cover every held row.
@@ -735,11 +736,34 @@ class DataOrchestrator(
      */
     fun onHeliusTrade7773(mint: String, wallet: String, solAmount: Double, isBuy: Boolean) {
         if (mint.isBlank()) return
+        lastHeliusTradeMs8252[mint] = System.currentTimeMillis()
         val pp = lastPumpPortalTradeMs7773[mint] ?: 0L
         if (System.currentTimeMillis() - pp < PUMPPORTAL_PRIORITY_MS_7773) return
         try { PipelineHealthCollector.labelInc("TAPE_TRADE_FROM_HELIUS_7773") } catch (_: Throwable) {}
         // Helius carries no holding size, so a dev sell's fraction is unknown (0).
         onTapeTrade7773(mint, wallet, solAmount, isBuy, 0.0)
+    }
+
+    /**
+     * V5.0.8252 — a trade stated by two consecutive bonding-curve snapshots (CurveTicks7968.tradeBetween8252). It is
+     * the same executed trade a keyed stream would deliver, so when PumpPortal or the Helius log stream delivered this
+     * mint inside the priority window the curve print stays price-only (nothing counted twice). Otherwise it is taped
+     * with its side and size and walks the one tape path (launch tape, chart reader, whales, candle, buy pressure).
+     * No wallet (the account does not name the trader): never a dev-sell or whale attribution.
+     */
+    fun onCurveTrade8252(mint: String, priceSol: Double, sol: Double, isBuy: Boolean): Boolean {
+        if (mint.isBlank() || !sol.isFinite() || sol <= 0.0 || !priceSol.isFinite() || priceSol <= 0.0) return false
+        val now = System.currentTimeMillis()
+        val streamed = now - (lastPumpPortalTradeMs7773[mint] ?: 0L) < PUMPPORTAL_PRIORITY_MS_7773 ||
+            now - (lastHeliusTradeMs8252[mint] ?: 0L) < PUMPPORTAL_PRIORITY_MS_7773
+        if (streamed) {
+            try { PipelineHealthCollector.labelInc("CURVE_TRADE_STREAM_COVERED_8252") } catch (_: Throwable) {}
+            return false
+        }
+        try { com.lifecyclebot.engine.truth.TradeTape8100.note8100(mint, priceSol, sol, isBuy, now, com.lifecyclebot.engine.truth.TradeTape8100.SRC_CURVE_8169) } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("TAPE_TRADE_FROM_CURVE_8252") } catch (_: Throwable) {}
+        onTapeTrade7773(mint, "", sol, isBuy, 0.0)
+        return true
     }
 
     /**
@@ -774,6 +798,7 @@ class DataOrchestrator(
     fun setOnHeldTradeMark7787(cb: (String, Double) -> Unit) { onHeldTradeMark7787 = cb }
 
     private val lastPumpPortalTradeMs7773 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val lastHeliusTradeMs8252 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val PUMPPORTAL_PRIORITY_MS_7773 = 20_000L
 
     private fun onTapeTrade7773(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) {

@@ -11137,6 +11137,10 @@ class BotService : Service() {
                 try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
                 try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
             }
+            // V5.0.8252 — two curve snapshots are the trade: taped with side and size unless a keyed stream has the mint.
+            com.lifecyclebot.network.CurveTicks7968.onTrade8252 { mint, priceSol, sol, isBuy ->
+                try { orchestrator?.onCurveTrade8252(mint, priceSol, sol, isBuy) ?: false } catch (_: Throwable) { false }
+            }
             // V5.0.8018 — and for held GRADUATED coins: the PumpSwap pool's two vaults on the same free socket type.
             com.lifecyclebot.network.GradTicks8018.start8018(
                 key = { try { ConfigStore.load(applicationContext).heliusApiKey } catch (_: Throwable) { cfg.heliusApiKey } },

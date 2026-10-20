@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object CurveTicks7968 {
 
-    private const val MAX_SUBS = 72  // V5.0.8236 — held curves (<=40) plus the freshest watched candidates (<=32)
+    private const val MAX_SUBS = 88  // V5.0.8252 — held curves (<=40) plus the freshest / nearest-decision watched candidates (<=48)
     private const val RECONNECT_GAP_MS = 5_000L
 
     @Volatile private var keyProvider: () -> String = { "" }
@@ -98,6 +98,48 @@ object CurveTicks7968 {
         keyProvider = key
         onTick = cb
     }
+
+    /**
+     * V5.0.8252 §THE_CURVE_ACCOUNT_IS_THE_TAPE — 5.0.8251: 4,519 curve ticks reached the tape as price-only prints
+     * while `swaps` was missing on 12,092 evaluations (tape8100:NO_PRINTS) and bp on 5,011; PumpPortal delivered 94
+     * prints. Every accountNotification carries the reserves AFTER a trade, so two consecutive snapshots of the same
+     * account ARE the trade: SOL in and tokens out (buy) or SOL out and tokens in (sell), exact, on-chain, one source.
+     * The first snapshot and a rewrite that moved nothing stay price-only. DataOrchestrator decides whether a keyed
+     * stream already delivered this mint's trade (then the print stays price-only, nothing is counted twice).
+     */
+    data class Reserves8252(val vTok: Double, val vSol: Double)
+    data class CurveTrade8252(val sol: Double, val tokens: Double, val isBuy: Boolean)
+
+    /** Pure: the virtual reserves of an active curve account, or null (short, empty or complete). */
+    fun decodeReserves8252(b: ByteArray): Reserves8252? {
+        if (b.size < 49 || b[48].toInt() != 0) return null
+        fun u64(off: Int): Double {
+            var v = 0L
+            for (i in 7 downTo 0) v = (v shl 8) or (b[off + i].toLong() and 0xFF)
+            return if (v < 0) v.toULong().toDouble() else v.toDouble()
+        }
+        val vTok = u64(8); val vSol = u64(16)
+        return if (vTok > 0.0 && vSol > 0.0) Reserves8252(vTok, vSol) else null
+    }
+
+    /** Pure: the executed trade between two reserve snapshots (SOL and tokens in UI units), or null when none is stated. */
+    fun tradeBetween8252(prev: Reserves8252?, cur: Reserves8252): CurveTrade8252? {
+        if (prev == null) return null
+        val dSol = cur.vSol - prev.vSol
+        val dTok = cur.vTok - prev.vTok
+        return when {
+            dSol > 0.0 && dTok < 0.0 -> CurveTrade8252(dSol / 1e9, -dTok / 1e6, true)
+            dSol < 0.0 && dTok > 0.0 -> CurveTrade8252(-dSol / 1e9, dTok / 1e6, false)
+            else -> null
+        }
+    }
+
+    private val lastReserves8252 = ConcurrentHashMap<String, Reserves8252>()
+    private val tradePrints8252 = AtomicLong(0)
+    @Volatile private var onTrade8252: (mint: String, priceSol: Double, sol: Double, isBuy: Boolean) -> Boolean = { _, _, _, _ -> false }
+
+    /** BotService.wireExternalStreams: the receiver of a reserve-delta trade; true when it was taped as a trade. */
+    fun onTrade8252(cb: (mint: String, priceSol: Double, sol: Double, isBuy: Boolean) -> Boolean) { onTrade8252 = cb }
 
     /** Open-position tick: follow the held curve mints. */
     fun sync7968(mints: Set<String>) {
@@ -177,6 +219,7 @@ object CurveTicks7968 {
     }
 
     private fun unsubscribe(mint: String) {
+        lastReserves8252.remove(mint)
         val sub = subByMint.remove(mint) ?: return
         mintBySub.remove(sub)
         ws?.send(JSONObject().put("jsonrpc", "2.0").put("id", nextId.getAndIncrement()).put("method", "accountUnsubscribe")
@@ -219,13 +262,23 @@ object CurveTicks7968 {
         ticks.incrementAndGet()
         lastTickMs = System.currentTimeMillis()
         try { onTick(mint, px, mc) } catch (_: Throwable) {}
+        // V5.0.8252 — two snapshots of the same account are the trade (side, SOL, tokens); the orchestrator tapes it
+        // unless a keyed stream already delivered this mint. Otherwise (first snapshot, no movement, stream covered):
         // V5.0.8169 — the curve's own price reaches the executed-trade tape (price only: change / shape, never buy pressure).
-        try { com.lifecyclebot.engine.truth.TradeTape8100.notePrice8169(mint, px, com.lifecyclebot.engine.truth.TradeTape8100.SRC_CURVE_8169) } catch (_: Throwable) {}
+        val cur = decodeReserves8252(bytes)
+        val trade = if (cur != null) tradeBetween8252(lastReserves8252.put(mint, cur), cur) else null
+        val taped = trade != null && (try { onTrade8252(mint, px, trade.sol, trade.isBuy) } catch (_: Throwable) { false })
+        if (taped) {
+            tradePrints8252.incrementAndGet()
+            try { PipelineHealthCollector.labelInc(if (trade!!.isBuy) "CURVE_TRADE_PRINT_BUY_8252" else "CURVE_TRADE_PRINT_SELL_8252") } catch (_: Throwable) {}
+        } else {
+            try { com.lifecyclebot.engine.truth.TradeTape8100.notePrice8169(mint, px, com.lifecyclebot.engine.truth.TradeTape8100.SRC_CURVE_8169) } catch (_: Throwable) {}
+        }
         try { PipelineHealthCollector.labelInc("CURVE_TICK_7968") } catch (_: Throwable) {}
     }
 
     fun statusLine7968(): String {
         val age = if (lastTickMs > 0L) "${(System.currentTimeMillis() - lastTickMs) / 1000}s" else "-"
-        return "open=$open held=${desired.size} subs=${subByMint.size} ticks=${ticks.get()} lastTick=$age connects=${connects.get()} failures=${failures.get()} subErrors8095=${subErrors8095.get()} lastError=$lastError8095 benched8102=${benched8102.get()}"
+        return "open=$open held=${desired.size} subs=${subByMint.size} ticks=${ticks.get()} tradePrints8252=${tradePrints8252.get()} lastTick=$age connects=${connects.get()} failures=${failures.get()} subErrors8095=${subErrors8095.get()} lastError=$lastError8095 benched8102=${benched8102.get()}"
     }
 }

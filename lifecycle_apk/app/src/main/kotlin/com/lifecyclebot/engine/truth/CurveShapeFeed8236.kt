@@ -19,12 +19,15 @@ import com.lifecyclebot.engine.PipelineHealthCollector
  * from the tape only when the history cannot state it).
  */
 object CurveShapeFeed8236 {
-    private const val MAX_CANDIDATE_SUBS_8236 = 32
+    // V5.0.8252 — 32 -> 48: 5.0.8251 sat at the cap (held=33 subs=33) while 235 evaluated mints had no tape; a curve
+    // accountSubscribe streams one small frame per trade of one account (not the mention-filtered log flood of 8094).
+    private const val MAX_CANDIDATE_SUBS_8236 = 48
     private const val CANDIDATE_MAX_AGE_MS_8236 = 90L * 60_000L
 
     /**
      * Pure: the curve-tick subscription set — every held curve mint first, then the freshest pump candidates on an
      * active (not graduated) curve the bot is currently watching, newest watchlist entries first, bounded.
+     * V5.0.8252 — a candidate whose setup asked for its missing inputs (near a decision) ranks before the merely fresh.
      */
     fun subscriptionSet8236(
         held: Set<String>,
@@ -33,13 +36,14 @@ object CurveShapeFeed8236 {
         hasCurveKey: (String) -> Boolean,
         graduated: (String) -> Boolean,
         maxCandidates: Int = MAX_CANDIDATE_SUBS_8236,
+        nearDecision: (String) -> Boolean = { false },
     ): Set<String> {
         val out = LinkedHashSet<String>(held.filter { it.isNotBlank() })
         val fresh = candidates.asSequence()
             .filter { it.mint.isNotBlank() && it.mint !in out }
             .filter { nowMs - it.addedToWatchlistAt in 0L..CANDIDATE_MAX_AGE_MS_8236 }
             .filter { hasCurveKey(it.mint) && !graduated(it.mint) }
-            .sortedByDescending { it.addedToWatchlistAt }
+            .sortedWith(compareByDescending<TokenState> { nearDecision(it.mint) }.thenByDescending { it.addedToWatchlistAt })
             .take(maxCandidates)
         for (ts in fresh) out += ts.mint
         return out
@@ -51,6 +55,7 @@ object CurveShapeFeed8236 {
             held, candidates, nowMs,
             hasCurveKey = { m -> try { com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(m) != null } catch (_: Throwable) { false } },
             graduated = { m -> try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(m) } catch (_: Throwable) { false } },
+            nearDecision = { m -> try { com.lifecyclebot.engine.DataPipeline8191.nearDecision8191(m, nowMs) } catch (_: Throwable) { false } },
         )
         if (set.size > held.size) try { PipelineHealthCollector.labelInc("CURVE_CANDIDATE_SUBSCRIBED_8236") } catch (_: Throwable) {}
         return set

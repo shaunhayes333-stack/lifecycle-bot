@@ -251,7 +251,10 @@ object OnChainDepth8038 {
         // pump-suffixed (LetsBonk, Meteora, un-suffixed pump.fun) skipped the curve check above. Any coin still at a
         // launch curve's opening cap has no buyers behind it, whichever launchpad minted it.
         val capSol8047 = try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }
-        if (atLaunchCap8047(capSol8047) && !launchCapStoodDown8094(ts.mint, nowMs)) {
+        if (atLaunchCap8047(capSol8047) && curveBuyersProven8252(curveReal8046)) {
+            try { PipelineHealthCollector.labelInc("AT_LAUNCH_CAP_STOOD_DOWN_CURVE_BUYERS_8252") } catch (_: Throwable) {}
+        }
+        if (atLaunchCap8047(capSol8047) && !launchCapStoodDown8094(ts.mint, nowMs) && !curveBuyersProven8252(curveReal8046)) {
             launchCapRefused8047.incrementAndGet()
             lastRefusal8047 = "LAUNCH_CAP ${ts.symbol} cap=${"%.1f".format(capSol8047)}SOL"
             try {
@@ -400,6 +403,7 @@ object OnChainDepth8038 {
                 // (4abd6b13a: AT_LAUNCH_CAP n92 +67.5% run9; VEILDOGE +23,804%, PentAGI +1,605%, WAIT +1,263% missed). Real
                 // buyers must be in the curve (CURVE_NOBODY_BOUGHT above stays binding) and every later gate still runs.
                 if (launchCapStoodDown8094(ts.mint, nowMs)) return null
+                if (curveBuyersProven8252(real)) return null
                 "AT_LAUNCH_CAP_8047"
             }
             else -> return null
@@ -427,6 +431,16 @@ object OnChainDepth8038 {
 
     /** Pure: the coin's cap in SOL is known and still at a launch curve's opening level. */
     fun atLaunchCap8047(capSol: Double): Boolean = capSol.isFinite() && capSol > 0.0 && capSol < LAUNCH_CAP_SOL_8047
+
+    /**
+     * V5.0.8252 — 5.0.8251: the session's only two 20x runners (MF +2,201%, hllwn +2,343%) were refused AT_LAUNCH_CAP_8047
+     * (runners>=+400%: caught=0 missed=2). The launch-cap rule is a PROXY for "no buyers behind it", written for coins
+     * whose curve the bot cannot read; its cap is the API's trusted mcap, which lags a curve being bought right now.
+     * When the chain reading of the same curve is fresh and states [MIN_CURVE_REAL_SOL_8046]+ real SOL from buyers, the
+     * question the proxy asks is already answered by the account itself: the proxy stands down. CURVE_NOBODY_BOUGHT_8046
+     * (the direct measurement) stays binding, as does every later gate (depth, route, quote, economics, sizing).
+     */
+    fun curveBuyersProven8252(realSol: Double?): Boolean = realSol != null && realSol.isFinite() && realSol >= MIN_CURVE_REAL_SOL_8046
 
     fun statusLine(): String =
         "emptyCurveRefused=${emptyCurveRefused8046.get()} launchCapRefused=${launchCapRefused8047.get()} earlyRefused8048=${earlyRefused8048.get()} last=[$lastRefusal8047] " +
