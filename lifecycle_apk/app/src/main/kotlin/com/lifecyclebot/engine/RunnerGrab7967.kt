@@ -135,6 +135,29 @@ object RunnerGrab7967 {
         stat(l, ts, nowMs)?.takeIf { provenCell7967(it.n60, it.meanNet60Pct, it.stderr60Pct) }?.key
     }
 
+    /** V5.0.8260 — a runner cell this coin sits in whose 60 m record is a proven loss (mean + 2·SE < 0 at n≥10). */
+    private fun losingCellFor8260(ts: TokenState, nowMs: Long): String? = RUNNER_LANES.firstNotNullOfOrNull { l ->
+        stat(l, ts, nowMs)?.takeIf { it.n60 >= 10 && it.stderr60Pct.isFinite() && it.meanNet60Pct + 2.0 * it.stderr60Pct < 0.0 }?.key
+    }
+
+    /**
+     * V5.0.8260 — the forming runner on an unlearned book. [grab7967] needs a proven cell, so a reset or thin book
+     * could never grab the +600% coins it identified. A coin that is safe, not in Mayhem, firming or standing, and in
+     * no proven-losing runner cell is the runner lanes' own qualification: it is admitted natively (critical facts,
+     * fresh price, economics, hard safety still bind in [CandidateAdmission8136]). Never a bypass of a proven loss.
+     */
+    fun formingNative8260(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
+        val mint = ts.mint
+        if (mint.isBlank() || ts.position.isOpen) return null
+        if (ts.safety.tier == SafetyTier.HARD_BLOCK) return null
+        if (try { MayhemMode7943.liveRefusal(ts, nowMs) } catch (_: Throwable) { null } != null) return null
+        if (provenCellFor(ts, nowMs) != null) return null
+        if (losingCellFor8260(ts, nowMs) != null) return null
+        if (!firmingNow(mint, nowMs) && !standing7970(mint, nowMs)) return null
+        try { PipelineHealthCollector.labelInc("RUNNER_FORMING_NATIVE_8260") } catch (_: Throwable) {}
+        return "RUNNER_FORMING_8260"
+    }
+
     /**
      * V5.0.8245 — the grab as admission evidence: the proven runner cell's record (key, n, mean, SE at 60 m) when this
      * coin is a grab right now ([grab7967]: safety, Mayhem, proven cell, firming / not breaking, record standing).

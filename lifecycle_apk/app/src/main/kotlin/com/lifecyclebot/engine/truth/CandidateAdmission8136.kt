@@ -469,6 +469,10 @@ object CandidateAdmission8136 {
         if (nativeLive8259) {
             trace += "nativeQualifiedAdmit8259=${c.nativeSetup8213} generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)}"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("NATIVE_QUALIFIED_ADMIT_8259_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            if (c.nativeSetup8213 == RUNNER_FORMING_8260) {
+                runnerEntry8252[c.mint] = System.currentTimeMillis()
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_ADMISSION_FORMING_8260") } catch (_: Throwable) {}
+            }
             return done(Terminal8136.ADMIT, "NATIVE_QUALIFIED_ADMIT_8259", true, chosen ?: c.nativeSetup8213, "NATIVE_QUALIFIED_8259:${c.nativeSetup8213}")
         }
         if (c.genericScore.isFinite() && c.genericFloor.isFinite()) {
@@ -529,6 +533,9 @@ object CandidateAdmission8136 {
     /** Pure (V5.0.8245): the grab's own proven bar — fewer labels than [SUPPORT_MIN_N_8136], a far higher net lower bound. */
     fun grabSupported8245(e: Evidence8136?): Boolean =
         e != null && e.n >= GRAB_MIN_N_8245 && e.lowerPct.isFinite() && e.lowerPct >= GRAB_MARGIN_PCT_8245
+    /** V5.0.8260 — the native setup name of a forming runner admitted on an unlearned book ([RunnerGrab7967.formingNative8260]). */
+    const val RUNNER_FORMING_8260 = "RUNNER_FORMING_8260"
+    private val RUNNER_LANES_8260 = setOf("MOONSHOT", "SHITCOIN", "EXPRESS")
     /** V5.0.8200 — the Cortex's STRONG cohort on this candidate's lane (executable-net labels). */
     const val KIND_CORTEX_8200 = "CORTEX"
     const val KIND_TIMING = "TIMING"
@@ -908,6 +915,10 @@ object CandidateAdmission8136 {
             pick8153?.id != null && pick8153.id.isNotBlank() && !pick8153.id.equals("NONE", true) -> pick8153.id
             else -> "NATIVE_BOOK_8221"
         }
+        // V5.0.8260 — the forming runner on an unlearned book is the runner lanes' own qualification.
+        val runnerForming8260 = if (lane.uppercase() in RUNNER_LANES_8260) try {
+            com.lifecyclebot.engine.RunnerGrab7967.formingNative8260(ts, nowMs)
+        } catch (_: Throwable) { null } else null
         if (nativeSetupBook8217 != null) try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_NATIVE_FROM_BOOK_8217_$lane")
             if (nativeSetupBook8217 == "NATIVE_BOOK_8221") com.lifecyclebot.engine.PipelineHealthCollector
@@ -1008,8 +1019,8 @@ object CandidateAdmission8136 {
             runnerGrab8245 = try {
                 com.lifecyclebot.engine.RunnerGrab7967.grabEvidence8245(ts, nowMs)?.let { Evidence8136(KIND_RUNNER_GRAB_8245, it.key, it.n, it.meanNetPct, it.sePct) }
             } catch (_: Throwable) { null },
-            nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null,
-            nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) } ?: nativeSetupBook8217,
+            nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,
+            nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) } ?: nativeSetupBook8217 ?: runnerForming8260,
         )
     }
 }
