@@ -192,8 +192,13 @@ object TokenRefreshPolicy {
 object WalletAccountCache {
     private const val DEFAULT_TTL_MS = 10_000L
 
-    @Volatile private var cachedAtMs: Long = 0L
-    @Volatile private var cachedTokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = null
+    data class Evidence(val tokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>,
+                        val observedAtMs: Long, val complete: Boolean, val owner: String)
+    @Volatile private var cached: Evidence? = null
+    private val generation = AtomicLong(0L)
+    private val publicationLock = Any()
+
+    fun readGeneration(): Long = generation.get()
 
     private val hits = AtomicLong(0L)
     private val misses = AtomicLong(0L)
@@ -203,13 +208,12 @@ object WalletAccountCache {
      * Returns cached snapshot if within TTL, null otherwise.
      * Callers fetch from RPC on null and call [put] with the result.
      */
-    fun snapshot(ttlMs: Long = DEFAULT_TTL_MS): Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? {
+    fun snapshot(ttlMs: Long = DEFAULT_TTL_MS, owner: String? = null): Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? {
         val now = System.currentTimeMillis()
-        val ageMs = now - cachedAtMs
-        val snap = cachedTokens
-        return if (snap != null && ageMs < ttlMs) {
+        val snap = cached
+        return if (snap != null && now - snap.observedAtMs in 0L until ttlMs && (owner == null || owner == snap.owner)) {
             hits.incrementAndGet()
-            snap
+            snap.tokens
         } else {
             misses.incrementAndGet()
             null
@@ -217,19 +221,28 @@ object WalletAccountCache {
     }
 
     /** V5.0.8094 — when the cached snapshot was taken (0 = none). */
-    fun snapshotAtMs8094(): Long = cachedAtMs
+    fun snapshotAtMs8094(): Long = cached?.observedAtMs ?: 0L
+
+    fun evidence(): Evidence? = cached
 
     /** Store a fresh snapshot. */
-    fun put(tokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>) {
-        cachedTokens = tokens
-        cachedAtMs = System.currentTimeMillis()
+    fun put(tokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>,
+            observedAtMs: Long = System.currentTimeMillis(), complete: Boolean = false, owner: String = "",
+            expectedGeneration: Long = generation.get()): Boolean = synchronized(publicationLock) {
+        if (expectedGeneration != generation.get() || observedAtMs <= 0L || observedAtMs > System.currentTimeMillis()) return@synchronized false
+        val previous = cached
+        if (previous != null && previous.owner == owner && previous.observedAtMs > observedAtMs) return@synchronized false
+        cached = Evidence(tokens.toMap(), observedAtMs, complete, owner)
+        true
     }
 
     /** Force-invalidate. Called by sell/buy post-broadcast paths. */
     fun bustNow() {
-        cachedAtMs = 0L
-        cachedTokens = null
-        busts.incrementAndGet()
+        synchronized(publicationLock) {
+            generation.incrementAndGet()
+            cached = null
+            busts.incrementAndGet()
+        }
     }
 
     data class Stats(val hits: Long, val misses: Long, val busts: Long) {

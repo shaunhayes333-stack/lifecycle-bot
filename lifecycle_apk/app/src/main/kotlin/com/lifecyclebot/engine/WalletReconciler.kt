@@ -90,8 +90,10 @@ object WalletReconciler {
         }
         // V5.9.495t empty-map defence — never wipe positions on RPC failure.
         if (walletMints.isEmpty()) {
-            ErrorLogger.debug(TAG, "wallet returned empty map (likely RPC lag) — skipping reconcile pass")
-            return 0
+            // A failed/partial read still proves nothing. Two distinct complete
+            // observations can retire protective inventory even when truly empty.
+            return try { LiveCanonicalRecovery6686.retireProtectiveQuarantinesOnWalletZero7807(walletMints) }
+                catch (_: Throwable) { 0 }
         }
 
         // V5.9.495z10 — feed the canonical HostWalletTokenTracker with the

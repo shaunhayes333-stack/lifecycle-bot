@@ -176,8 +176,9 @@ object PositionDisplayTruth8078 {
         val solanaPosition = canon?.let { HeldHotMarkAuthority7419.solanaPricedClass7960(it.assetClass, it.mint) }
             ?: !ts.mint.contains('|')
         val exitQuote = canon?.takeIf { solanaPosition }?.let { HeldExitQuote8189.take8189(ts.mint, it.remainingQtyRaw, it.quantityScale, nowMs) }
-        val exitPnl = exitQuote?.let { executableNetPnl(costSol, qty, it.priceUsd,
-            com.lifecyclebot.engine.WalletManager.lastKnownSolPrice, com.lifecyclebot.engine.CostMeter8151.sellLegFixedSol8151()) }
+        val exitPnl = exitQuote?.proceedsSol?.takeIf { it.isFinite() && it > 0.0 }?.let {
+            it - com.lifecyclebot.engine.CostMeter8151.sellLegFixedSol8151() - costSol
+        }
         val markUsd = exitQuote?.priceUsd ?: verified?.first ?: ts.ref
         val markSource = if (exitQuote != null) "HELD_QUANTITY_EXIT_ESTIMATE" else verified?.second ?: ts.lastPriceSource
         val markAge = exitQuote?.let { nowMs - it.observedAtMs } ?: verified?.third ?: if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else -1L

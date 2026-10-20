@@ -40,7 +40,8 @@ object HeldExitQuote8189 {
     /** A wallet read older than this does not cap the quoted quantity. */
     private const val WALLET_READ_MAX_AGE_MS_8189 = 10L * 60_000L
 
-    data class Quote8189(val priceUsd: Double, val observedAtMs: Long, val rawQty: BigInteger)
+    data class Quote8189(val priceUsd: Double, val observedAtMs: Long, val rawQty: BigInteger,
+                         val proceedsSol: Double? = null, val source: String = SOURCE_8189)
 
     // ── pure ──
 
@@ -127,13 +128,13 @@ object HeldExitQuote8189 {
     /** Blocking: quote [qty] of [mint] now and cache it (stamped at [askedAtMs]). Off the main thread only. */
     private fun quoteInto8189(mint: String, qty: BigInteger, scale: Int, askedAtMs: Long): Quote8189? {
         asked.incrementAndGet()
-        val px = try { HeldHotMarkAuthority7419.quoteSellPriceUsd7876(mint, qty, scale) } catch (_: Throwable) { null }
-        if (px == null || !px.isFinite() || px <= 0.0) {
+        val estimate = try { HeldHotMarkAuthority7419.quoteSellEstimate(mint, qty, scale) } catch (_: Throwable) { null }
+        if (estimate == null || !estimate.priceUsd.isFinite() || estimate.priceUsd <= 0.0) {
             empty.incrementAndGet()
             try { PipelineHealthCollector.labelInc("HELD_EXIT_QUOTE_NO_ROUTE_8189") } catch (_: Throwable) {}
             return null
         }
-        val q = Quote8189(px, askedAtMs, qty)
+        val q = Quote8189(estimate.priceUsd, minOf(askedAtMs, estimate.observedAtMs), qty, estimate.proceedsSol, estimate.source)
         quotes[mint] = q
         if (quotes.size > 2_000) quotes.clear()
         answered.incrementAndGet()

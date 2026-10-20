@@ -63,7 +63,8 @@ data class MintEntryMarketSnapshot(
         ): MintEntryMarketSnapshot? {
             if (mark.mint != mint || mark.baseMint != mint || mark.timestampMs <= 0L ||
                 nowMs - mark.timestampMs !in -5_000L..120_000L ||
-                mark.purpose == com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC)
+                mark.purpose !in setOf(com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+                    com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING))
                 return null
             val price = mark.priceUsd.value.toDouble()
             if (com.lifecyclebot.engine.truth.MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(price))

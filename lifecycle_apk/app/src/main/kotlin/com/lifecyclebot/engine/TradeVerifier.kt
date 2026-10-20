@@ -140,6 +140,7 @@ object TradeVerifier {
                     // inflated every live entry basis by ~4.6% on a 0.044 SOL position.
                     val solSpent = buySolSpent7928(parsed.solBefore, parsed.solAfter, parsed.ataRentLamports)
                     try { CostMeter8151.noteLeg8151(parsed.feeLamports, parsed.ataRentLamports, 0L); CostMeter8151.noteTicket8151(solSpent / 1e9) } catch (_: Throwable) {}  // V5.0.8151
+                    WalletAccountCache.bustNow()
                     return BuyResult(Outcome.LANDED, sig, mint, rawDelta, ui, parsed.decimals, solSpent, parsed.solBefore, parsed.solAfter, parsed.feeLamports, null, parsed.ataRentLamports)
                 }
                 // tx confirmed err==null but ZERO token delta for our owner — could be a non-direct route.
@@ -194,6 +195,7 @@ object TradeVerifier {
                 // be reading the partial pre/post snapshot mid-confirm).
                 val solRealised = (parsed.solAfter - parsed.solBefore) > 5_000L
                 if (tokensCleared && solRealised) {
+                    WalletAccountCache.bustNow()
                     try { CostMeter8151.noteLeg8151(parsed.feeLamports, 0L, parsed.closedRentLamports) } catch (_: Throwable) {}  // V5.0.8151
                     val ui = if (parsed.decimals > 0) {
                         rawConsumed.toBigDecimal().movePointLeft(parsed.decimals).toDouble()
