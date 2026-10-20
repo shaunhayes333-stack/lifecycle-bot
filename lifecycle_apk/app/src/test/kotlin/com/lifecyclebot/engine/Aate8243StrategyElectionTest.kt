@@ -89,17 +89,17 @@ class Aate8243StrategyElectionTest {
 
     @Test fun aFormingRunnerInAProvenCellIsJudgedOnItNotDeferredOnAnOptionalInput() {
         val A = com.lifecyclebot.engine.truth.CandidateAdmission8136
-        val grab = A.Evidence8136(A.KIND_RUNNER_GRAB_8245, "PUMP_PORTAL_WS|MOONSHOT|MC_10K_100K|AGE_LT15M", 25, 45.0, 10.0)
+        val grab = com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136(A.KIND_RUNNER_GRAB_8245, "PUMP_PORTAL_WS|MOONSHOT|MC_10K_100K|AGE_LT15M", 25, 45.0, 10.0)
         assertTrue(A.grabSupported8245(grab))
-        assertTrue(!A.grabSupported8245(A.Evidence8136(A.KIND_RUNNER_GRAB_8245, "x", 19, 45.0, 10.0)))
-        assertTrue(!A.grabSupported8245(A.Evidence8136(A.KIND_RUNNER_GRAB_8245, "x", 40, 25.0, 10.0)))
+        assertTrue(!A.grabSupported8245(com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136(A.KIND_RUNNER_GRAB_8245, "x", 19, 45.0, 10.0)))
+        assertTrue(!A.grabSupported8245(com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136(A.KIND_RUNNER_GRAB_8245, "x", 40, 25.0, 10.0)))
         // no setup fired, chart shape unobserved: without the grab this is DATA_INCOMPLETE_DEFER (ZFROG); with it, ADMIT on the grab
         assertEquals("DATA_INCOMPLETE_DEFER_8136", A.decide8136(grabCandidate(null)).reason)
         val d = A.decide8136(grabCandidate(grab))
         assertEquals("SPECIFIC_EDGE_PROVEN_8136", d.reason)
         assertTrue(d.trace.any { it.contains("RUNNER_GRAB:") })
         // the coin's own losing cell is never carried by the grab; a critical missing input still defers
-        val losingCell = A.Evidence8136(A.KIND_CELL, "PUMP_PORTAL_WS|MOONSHOT|MC_LT10K", 40, -9.0, 2.0)
+        val losingCell = com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136(A.KIND_CELL, "PUMP_PORTAL_WS|MOONSHOT|MC_LT10K", 40, -9.0, 2.0)
         assertTrue(A.decide8136(grabCandidate(grab, losingCell)).reason != "SPECIFIC_EDGE_PROVEN_8136")
         assertEquals("DATA_INCOMPLETE_DEFER_8136", A.decide8136(grabCandidate(grab, missing = listOf("liquidity:UNKNOWN"))).reason)
     }
