@@ -18,7 +18,6 @@ import java.math.BigInteger
  * remaining quantity, is closed with THAT sell's economics. Nothing is invented: no sell row, no close.
  */
 object GhostCloseFromFinalizedSell8264 {
-    const val SOURCE_8264 = "ReconcileRunner8144.finalizedSellProof8264"
     /** Confirmed quantity must cover this share of the remaining raw (rounding of a ui quantity to raw). */
     private const val COVER_FRAC_8264 = 0.999
 
@@ -76,7 +75,7 @@ object GhostCloseFromFinalizedSell8264 {
             val sell = provenSell8264(lot, pos.openedAtMs, pos.quantityScale, sells, failedSigs, chainComplete, chain?.get(lot.mint)) ?: continue
             val done = try {
                 if (pos.lifecycle == CanonicalPositionAuthority6441.Lifecycle.QUARANTINED) {
-                    CanonicalPositionAuthority6441.applyProtectiveSellFill7807(lot.mint, lot.remainingRaw, true, SOURCE_8264)
+                    CanonicalPositionAuthority6441.applyProtectiveSellFill7807(lot.mint, lot.remainingRaw, true, "ReconcileRunner8144.finalizedSellProof8264")
                 } else {
                     val share = if (pos.originalQtyRaw.signum() > 0)
                         lot.remainingRaw.toBigDecimal().divide(pos.originalQtyRaw.toBigDecimal(), 12, java.math.RoundingMode.HALF_EVEN).toDouble()
