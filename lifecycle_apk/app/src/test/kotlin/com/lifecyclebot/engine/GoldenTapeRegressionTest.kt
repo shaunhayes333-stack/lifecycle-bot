@@ -12121,7 +12121,7 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("kotlin.math.abs(fan7361.priceUsd - intakePx7371) / intakePx7371 <= 0.10"))
         assertTrue(ex.contains("val cls6752 = com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.classify(requestReason)"))
-        assertTrue(ex.contains("if (deferPendingTokenMap7371(\"pre_plan\")) return false"))
+        assertTrue(ex.contains("if (deferPendingTokenMap7371(\"pre_plan\")) { lastLiveBuyStop8252[ts.mint] = \"TOKEN_MAP_ROUTE_PENDING_7371\"; return false }"))
         assertTrue(ex.contains("if (deferPendingTokenMap7371(\"late\")) return false"))
         // V5.0.8080 — pending deferrals release non-terminally; an exhausted one is the named DEFERRED_DATA outcome.
         assertTrue(ex.contains("if (!exhausted8080) ExecutionAttemptLease.releaseNonTerminal(buyLease.key, \"BUY\", ts.mint, ts.symbol, reason8080)"))

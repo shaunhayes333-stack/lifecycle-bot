@@ -64,7 +64,7 @@ class Aate8213AllLaneDataAdmissionTest {
         assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
             CandidateAdmission8136.decide8136(c.copy(missingInputs = c.missingInputs + "sellability:UNKNOWN")).terminal)
         assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
-            CandidateAdmission8136.decide8136(c.copy(priceAgeMs = 120_000L)).terminal)
+            CandidateAdmission8136.decide8136(c.copy(priceAgeMs = 600_000L)).terminal)   // past STALE_PRICE_MS_8136 (5 min)
     }
 
     @Test fun executionSafetyAndMeasuredNegativesStillBind() {

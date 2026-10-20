@@ -17,7 +17,7 @@ class Aate8217CrossLaneAndNativeTest {
 
     @Test fun nativeBookAndDexLabelFallbackAreWired() {
         val a = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
-        assertTrue(a.contains("nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null,"))
+        assertTrue(a.contains("nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,"))
         assertTrue(a.contains("SpecialistCandidateBooks7803.State.READY"))
         val f = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         val curve = f.indexOf("offWatchCurvePriced7753.addAndGet"); val dex = f.indexOf("DexscreenerApi().batchPriceFetch(missed8217)")

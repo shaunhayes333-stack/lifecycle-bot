@@ -144,9 +144,13 @@ class Aate8188RiskTruthTest {
         assertTrue(ok.reason, ok.open)
         assertEquals("OPEN_RISK_SAFE_MIN_PROMOTED_7840", ok.reason)
         assertEquals(0.025, ok.sizeSol, 1e-12)
-        // The same trade with no measured edge, or in a 30%+ drawdown, is refused by name.
+        // The same trade with no measured edge is refused by name. V5.0.8259: in a 30%+ drawdown ONE promoted
+        // exploration order passes the drawdown lock when LaneScoreAdmission7308's slot is free (the doctrine loss budget
+        // then decides, by name); a busy slot still refuses REFUSED_DRAWDOWN_8188. Either way it is refused here.
         assertEquals(MinPromotion8188.REFUSED_UNMEASURED_EDGE_8188, LiveRiskPolicy7807.decide(quality(0.17, 0.0, Double.NaN)).reason)
-        assertEquals(MinPromotion8188.REFUSED_DRAWDOWN_8188, LiveRiskPolicy7807.decide(quality(0.17, 0.608, 20.0)).reason)
+        val dd = LiveRiskPolicy7807.decide(quality(0.17, 0.608, 20.0))
+        assertTrue(dd.reason, !dd.open && dd.reason in setOf(MinPromotion8188.REFUSED_DRAWDOWN_8188, MinPromotion8188.REFUSED_LOSS_BUDGET_8188))
+        assertEquals(MinPromotion8188.REFUSED_DRAWDOWN_8188, MinPromotion8188.refusal8188(0.02478, 0.025, 8.0, 6.0, 6.0, 20.0, 0.608, explorationSlotFree = false))
         // A smaller wallet's risk size (~0.0215 at 0.15 SOL) is too far below the minimum.
         assertEquals(MinPromotion8188.REFUSED_LOSS_BUDGET_8188, LiveRiskPolicy7807.decide(quality(0.15, 0.0, 20.0)).reason)
         assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains("MinPromotion8188.refusal8188(size, i.execMinSol, stop,"))
