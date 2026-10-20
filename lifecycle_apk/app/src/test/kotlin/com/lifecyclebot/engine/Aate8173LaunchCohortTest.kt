@@ -209,7 +209,12 @@ class Aate8173LaunchCohortTest {
         val thin = CandidateAdmission8136.Evidence8136(CandidateAdmission8136.KIND_SETUP, "VOLUME_IGNITION", 14, 20.0, 15.0)
         assertEquals("STAGE_PROVEN_LOSING_8136", CandidateAdmission8136.decide8136(launchCandidate(listOf(thin))).reason)
         val losingCell = CandidateAdmission8136.Evidence8136(CandidateAdmission8136.KIND_CELL, "PUMP_PORTAL_WS|SHITCOIN|MC_LT10K", 20, -6.0, 2.0)
-        assertEquals("STAGE_PROVEN_LOSING_8136", CandidateAdmission8136.decide8136(launchCandidate(listOf(ladder), losingCell)).reason)
+        // V5.0.8240 — the losing cell is a lane-wide prior like the stage: without a supported setup it refuses first;
+        // the SUPPORTED ladder setup is the strategy and carries both priors (economics still decide).
+        assertEquals("CELL_PROVEN_LOSING_8136", CandidateAdmission8136.decide8136(launchCandidate(listOf(thin), losingCell)).reason)
+        val carried = CandidateAdmission8136.decide8136(launchCandidate(listOf(ladder), losingCell))
+        assertEquals("SPECIFIC_EDGE_PROVEN_8136", carried.reason)
+        assertTrue(carried.trace.any { it.contains("cellLosing=") && it.contains("carried by supported setup") })
     }
 
     @Test fun carriedStageStillAnswersToTheCostRule() {
