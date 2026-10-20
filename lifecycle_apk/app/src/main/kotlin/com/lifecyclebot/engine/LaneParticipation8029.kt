@@ -76,6 +76,7 @@ object LaneParticipation8029 {
             // V5.0.8136 — per lane Discovered > NativeQualified > Elected / FdgRefused / Rescue / Shadow / Superseded /
             // Deferred / Ineligible: every shadow label above is now one named terminal of one candidate's election.
             " || " + (try { SpecialistElection8136.statusLine8136() } catch (_: Throwable) { "election8136 unavailable" }) +
+            " strategy8243[" + (try { com.lifecyclebot.engine.truth.StrategyElection8243.statusLine8243() } catch (_: Throwable) { "unavailable" }) + "]" +
             // V5.0.8144 — per lane, the rescue funnel: claimed (adopted) > scheduled > evaluated > FDG-allowed > executed > confirmed.
             " || " + (try { ElectionRescueFunnel8144.statusLine8144() } catch (_: Throwable) { "rescueFunnel8144 unavailable" })
 }

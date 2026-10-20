@@ -268,7 +268,19 @@ object LaneExecutionCoordinator {
         if (qualified.isEmpty()) return null
         val ready = readyProposalScores7803(mint, candidateVersion)
         val q = currentQualifiedScores7803(mint, candidateVersion)
-        return qualified.maxByOrNull { electionScore7803(mint, candidateVersion, it, qualified, ready, q) }
+        val scores = qualified.associateWith { electionScore7803(mint, candidateVersion, it, qualified, ready, q) }
+        val convictionWinner = scores.maxByOrNull { it.value }?.key
+        // V5.0.8243 — the lane whose candidate-specific admission (the record it meets again at the FDG) is a proven ADMIT
+        // owns the version; conviction breaks ties inside a tier and decides when no lane has judged. 8241: ZFROG
+        // +129,601% owned by MOONSHOT (80, DATA_INCOMPLETE_DEFER) while SHITCOIN (37) held ADMIT:SPECIFIC_EDGE_PROVEN.
+        val ts = try { synchronized(BotService.status.tokens) { BotService.status.tokens[mint] } } catch (_: Throwable) { null }
+            ?: return convictionWinner
+        val verdicts = try {
+            com.lifecyclebot.engine.truth.StrategyElection8243.verdictsFor8243(ts, qualified, candidateVersion)
+        } catch (_: Throwable) { emptyMap() }
+        val owner = com.lifecyclebot.engine.truth.StrategyElection8243.ownerOrder8243(scores, verdicts) ?: convictionWinner
+        com.lifecyclebot.engine.truth.StrategyElection8243.noteElection8243(owner, convictionWinner, verdicts)
+        return owner
     }
 
     /**

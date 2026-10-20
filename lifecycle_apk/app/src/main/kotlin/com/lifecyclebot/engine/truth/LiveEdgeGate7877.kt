@@ -597,16 +597,21 @@ object LiveEdgeGate7877 {
             val snap8065 = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts) } catch (_: Throwable) { null }
             // V5.0.8094 — a runner is "up 80% off its low" by definition; where this token's own cell / kind is proven (graded
             // from the fill latency, so the chase is already in the record) the spike rule stands down.
+            // V5.0.8243 — a candidate-specific ADMIT rests on a SUPPORTED record graded from the fill latency (the chase is
+            // in the record), exactly the cell / kind case above: the spike heuristic stands down for it too (8241: CUyZ
+            // +1774% refused CHASING_SPIKE after ADMIT:SPECIFIC_EDGE_PROVEN). The admitted-terminal count is kept.
             if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
-                // V5.0.8097 — the spike rule's own ladder replays (cell, or lane when the cell is thin) prove it refuses runners.
                 !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) &&
                 !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
                 !cellOrKindProven8094(ts, l8059, nowMs)) {
-                chaseRefused8065.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
-                if (candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, "CHASING_SPIKE_8065", candidateVersion)
-                observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
-                return "CHASING_SPIKE_8065"
+                if (candidateSpecificAdmission8136) {
+                    try { PipelineHealthCollector.labelInc("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_$l8059") } catch (_: Throwable) {}
+                } else {
+                    chaseRefused8065.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
+                    observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
+                    return "CHASING_SPIKE_8065"
+                }
             }
             // Keep watch-first on the same immutable admission snapshot as the preceding live checks.
             // 8213: the same qualified native admission also clears an UNMEASURED thin-cell wait.

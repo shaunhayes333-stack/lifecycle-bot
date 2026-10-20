@@ -476,6 +476,14 @@ object SpecialistElection8136 {
         }
     }
 
+    /** V5.0.8243 — the lane's candidate-specific admission is a proven ADMIT: its open proposal ranks as proven for the rescue. */
+    fun noteStrategyAdmit8243(mint: String, lane: String) {
+        val l = canon8136(lane)
+        if (mint.isBlank() || l.isBlank()) return
+        synchronized(lock8136) { records8136[mint]?.slots?.get(l)?.let { if (!it.proven) { it.proven = true; strategyProven8243++ } } }
+    }
+    private var strategyProven8243 = 0L
+
     /** The primary's native refusal (graded verdict of its own brain). [judgement] = never rescued. */
     fun notePrimaryRefusal8136(mint: String, primary: String, refusal: String, judgement: Boolean, nowMs: Long = System.currentTimeMillis()) {
         val p = canon8136(primary)
@@ -1100,7 +1108,7 @@ object SpecialistElection8136 {
             "lineageCarried=$lineageCarried8144 arbitrationErrors=$arbitrationErrors8144 idleReleased8180=$idleReleased8180)" +
             // V5.0.8153 — qualified hand-off receivers as tasks the cycle consumes.
             " | handoff8153(named=$handoffNamed8153 claims=$handoffClaims8153 preemptedLottery=$handoffPreempted8153 " +
-            "denied=$handoffDenied8153 retargeted=$handoffRetargeted8153) "
+            "denied=$handoffDenied8153 retargeted=$handoffRetargeted8153) strategyProven8243=$strategyProven8243 "
     } + (try { HandoffReceiverTasks8153.statusLine8153() } catch (_: Throwable) { "handoffTask8153[unavailable]" })  // read outside the election lock
 
     internal fun resetForTests8136() {

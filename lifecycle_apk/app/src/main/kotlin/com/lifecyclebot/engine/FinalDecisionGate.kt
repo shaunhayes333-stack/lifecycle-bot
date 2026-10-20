@@ -1020,9 +1020,20 @@ object FinalDecisionGate {
         laneName: String,
         paper: Boolean,
         mode: TradeMode,
+        candidateAdmission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136? = null,
     ): FinalDecision? = try {
         val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
-        val reason = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.liveBlockReason(ts, lane, paper)
+        val raw = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.liveBlockReason(ts, lane, paper)
+        // V5.0.8243 — the fresh-launch setup cell (shape|flow|concentration|multiple over every launch of that shape) is a
+        // learned prior, not a structural hazard (8221). A candidate-specific ADMIT already weighed this coin's SUPPORTED
+        // strategy against the same forward labels; the learned stops-first prior does not re-veto it (8241: ZFROG
+        // +129,601% bound to FRESH_LAUNCH_SETUP_STOPS_FIRST_7737 after ADMIT:SPECIFIC_EDGE_PROVEN). Structural refusals stand.
+        val admitted8243 = candidateAdmission != null && candidateAdmission.specific &&
+            candidateAdmission.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT
+        val reason = if (raw == "FRESH_LAUNCH_SETUP_STOPS_FIRST_7737" && admitted8243) {
+            try { PipelineHealthCollector.labelInc("FRESH_LAUNCH_LEARNED_STOOD_DOWN_FOR_ADMITTED_STRATEGY_8243_$lane") } catch (_: Throwable) {}
+            null
+        } else raw
         if (reason != null) SpecialistOwnership7951.notePreIntent7951(lane, "FDG_$reason") // V5.0.7951
         if (reason == null) null else FinalDecision(
             shouldTrade = false,
@@ -1807,7 +1818,7 @@ object FinalDecisionGate {
             candidateVersion7623, floorLane7266, candidateAdmission8136,
         )?.let { return it }
         cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
-        freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
+        freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)?.let { return it }
 
         val overlayLane = laneName
         if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {
