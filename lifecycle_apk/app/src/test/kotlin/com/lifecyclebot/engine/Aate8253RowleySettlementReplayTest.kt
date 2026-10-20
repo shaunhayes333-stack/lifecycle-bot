@@ -52,6 +52,27 @@ class Aate8253RowleySettlementReplayTest {
         }
     }
 
+    @Test fun confirmedPartialReplayCannotConsumeProtectiveInventoryTwice() {
+        val authority = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+        authority.resetForTest()
+        try {
+            val buy = TradeVerifier.parseTransactionForOwner(transaction("buy"), owner, mint)!!
+            val partial = TradeVerifier.parseTransactionForOwner(transaction("partial"), owner, mint)!!
+            val close = TradeVerifier.parseTransactionForOwner(transaction("close"), owner, mint)!!
+            authority.ensureProtectiveLiveOwnership7807("", mint, "Rowley", "SHITCOIN", buy.rawAfter,
+                6, 0.029891786, 0.000019647738, "rowley-buy-replay", "finalized RPC replay")
+            val consumed = partial.rawBefore - partial.rawAfter
+            repeat(2) {
+                assertTrue(authority.applyProtectiveSellFill7807(mint, consumed, false,
+                    "finalized partial replay", confirmedRemainingRaw = partial.rawAfter))
+                assertEquals(partial.rawAfter, authority.protectiveInventory7807("live").single { it.mint == mint }.remainingQtyRaw)
+            }
+            assertTrue(authority.applyProtectiveSellFill7807(mint, close.rawBefore, true,
+                "finalized close replay", confirmedRemainingRaw = close.rawAfter))
+            assertFalse(mint in authority.protectiveInventoryMints7807("live"))
+        } finally { authority.resetForTest() }
+    }
+
     private data class Leg(val name: String, val proof: TradeVerifier.TxParse, val net: Long,
                            val expected: TxMetaSellFinalizer.FinalState)
 }

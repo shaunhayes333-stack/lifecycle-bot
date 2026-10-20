@@ -1321,7 +1321,8 @@ object CanonicalPositionAuthority6441 {
      * mutated; false when an OPEN/PARTIALLY_CLOSED row exists (the normal
      * canonical sell path owns it) or no protective quarantine exists.
      */
-    fun applyProtectiveSellFill7807(mint: String, soldQtyRaw: BigInteger, walletCleared: Boolean, source: String): Boolean {
+    fun applyProtectiveSellFill7807(mint: String, soldQtyRaw: BigInteger, walletCleared: Boolean, source: String,
+                                   confirmedRemainingRaw: BigInteger? = null): Boolean {
         if (mint.isBlank()) return false
         val changed7807 = ArrayList<Position>(1)
         lock.lock()
@@ -1330,7 +1331,14 @@ object CanonicalPositionAuthority6441 {
             if (live7807.any { isOpenLifecycleWithQty6743(it) }) return false
             val funded7807 = live7807.filter { isFundedProtectiveQuarantine7807(it) }.sortedBy { it.openedAtMs }
             if (funded7807.isEmpty()) return false
-            var toConsume7807 = if (soldQtyRaw.signum() > 0) soldQtyRaw else BigInteger.ZERO
+            val totalRemaining = funded7807.fold(BigInteger.ZERO) { total, p -> total + p.remainingQtyRaw }
+            if (confirmedRemainingRaw != null && confirmedRemainingRaw.signum() < 0) return false
+            // Transaction post-balance is an absolute observation. Replaying a partial
+            // callback must not subtract the same sold slice for a second time.
+            var toConsume7807 = if (confirmedRemainingRaw != null)
+                (totalRemaining - confirmedRemainingRaw).max(BigInteger.ZERO)
+                else if (soldQtyRaw.signum() > 0) soldQtyRaw else BigInteger.ZERO
+            if (!walletCleared && toConsume7807.signum() == 0) return true
             val now7807 = System.currentTimeMillis()
             for (p in funded7807) {
                 val take7807 = if (walletCleared) p.remainingQtyRaw else toConsume7807.min(p.remainingQtyRaw)
