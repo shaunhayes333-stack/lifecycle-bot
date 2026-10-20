@@ -31613,25 +31613,16 @@ class Executor(
                 traderTag = traderTag,
             )
 
-            // V5.9.495k — PHANTOM-POSITION GUARD with WIDENED dust threshold.
-            // V5.9.495f used `preTokenQty in 0.0..1e-9` which was too tight:
-            // a wallet with e.g. 1e-5 tokens (formatted as "0.0000" in the
-            // forensics tile) slipped past the guard, tried to sell the
-            // recorded 4 trillion-token position size, and burned 6 retries
-            // for a +62663% phantom gain in the Trade Journal. Anything
-            // below 0.0001 UI tokens is dust — treat as phantom.
-            // V5.9.495t — but ONLY when the RPC actually returned a map.
-            // An empty-map RPC blip is NOT a confirmation of dust; it's an
-            // RPC failure. If the bot has tokenUnits from a verified buy
-            // (caller resolveSellUnits trusts the tracker), proceed with
-            // broadcast — Jupiter/PumpPortal will reject cleanly if the
-            // wallet truly is empty.
-            if (!preBalancesEmpty && preTokenQty in 0.0..0.0001) {
-                onLog("👻 PHANTOM detected: ${ts.symbol} bot thinks open but wallet ATA = $preTokenQty (dust) — skipping sell ladder", ts.mint)
+            // A zero balance may close a stale projection. A small positive
+            // raw balance must continue through normal route/economic checks;
+            // its displayed UI magnitude is not proof that inventory is absent.
+            // Only exact observed zero proves absence. Positive dust is still a holding.
+            if (walletRead8144?.get(ts.mint)?.raw?.signum() == 0) {
+                onLog("Wallet confirms zero tokens: ${ts.symbol} — skipping sell ladder", ts.mint)
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                     LiveTradeLogStore.Phase.SELL_FAILED,
-                    "👻 PHANTOM: wallet ATA dust (preTokenBal=${"%.6f".format(preTokenQty)}) — local close, no broadcast",
+                    "Wallet confirms exact raw zero — local close, no broadcast",
                     traderTag = traderTag,
                 )
                 // Return a synthetic sentinel sig so the caller treats it
@@ -31677,9 +31668,9 @@ class Executor(
                 "🚀 PUMP-FIRST [$labelTag] @ ${slipPct}% slip | priorityFee=${priorityFeeSol}◎ | tip=${jitoTipLamports}lam",
                 traderTag = traderTag,
             )
-            val sellDecimals = try {
-                com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(ts.mint)?.decimals ?: 6
-            } catch (_: Throwable) { 6 }
+            // Use the same confirmed amount/scale as the route's balance proof.
+            // Missing proof falls through to the next route; never assume six decimals.
+            val sellDecimals = walletRead8144?.get(ts.mint)?.decimals ?: return null
             val emergencyOverride = com.lifecyclebot.engine.sell.SellSafetyPolicy
                 .isManualEmergency(labelTag) || labelTag.contains("PANIC_DRAIN", ignoreCase = true) ||
                 // V5.0.7807 — B4: liveSell tagged a protective emergency; its rung is already <= 50%.

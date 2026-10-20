@@ -79,6 +79,24 @@ class Aate8253ExitEvidenceTest {
         assertTrue(OnChainDepth8038.curveNobodyBought8046(0.0))
     }
 
+    @Test fun pumpSellUsesConfirmedDecimalsAndNeverCallsPositiveDustPhantom() {
+        val route = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+            .substringAfter("private fun tryPumpPortalSell(")
+            .substringBefore("val emergencyOverride")
+        assertTrue(route.contains("walletRead8144?.get(ts.mint)?.raw?.signum() == 0"))
+        assertTrue(route.contains("val sellDecimals = walletRead8144?.get(ts.mint)?.decimals ?: return null"))
+        assertFalse(route.contains("preTokenQty in 0.0..0.0001"))
+        assertFalse(route.contains("?.decimals ?: 6"))
+        // These real raw holdings all rounded into the previous phantom interval.
+        for (decimals in listOf(6, 9, 18)) {
+            val amount = CanonicalTokenAmount.fromRpcAmount("1", decimals)
+            assertTrue(amount.uiDoubleForDisplay() in 0.0..0.0001)
+            assertEquals(BigInteger.ONE, amount.rawRoundTrip())
+            assertEquals(decimals, amount.decimals)
+            assertTrue(amount.raw.signum() > 0)
+        }
+    }
+
     @Test fun incompleteReserveUpdateCannotRefreshAnOlderTokenSideForExitEconomics() {
         val at = System.currentTimeMillis() - 1_000L
         val quantity = BigInteger("1000000000")

@@ -72,6 +72,9 @@ jobs:
       # `ui/*.kt` inside a KDoc; Kotlin block comments nest, so that opened a
       # comment level the KDoc's own `*/` then closed, swallowing the rest of
       # the file and unresolving the object it declared 40 times over.
+      - name: Release runtime evidence gate tests
+        run: python3 ../ci/test_release_runtime_gate.py
+
       - name: Kotlin nested block-comment balance
         run: python3 ci/comment_balance.py app/src
 
@@ -473,6 +476,13 @@ jobs:
           name: release-art-evidence-${{ github.sha }}
           path: release_art_evidence/
           if-no-files-found: warn
+
+      - name: Require successful runtime validation for the publishing commit
+        if: success() && github.ref == 'refs/heads/main'
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 ci/release_runtime_gate.py "$GITHUB_REPOSITORY" "$GITHUB_SHA"
 
       # V5.0.7803 — a release APK is an acceptance artifact, not merely
       # compiler output. Publish it only after the required pipeline regressions
