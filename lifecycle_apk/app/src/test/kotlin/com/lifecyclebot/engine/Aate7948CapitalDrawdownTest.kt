@@ -111,13 +111,17 @@ class Aate7948CapitalDrawdownTest {
             governorLossMult = 1.0, partialProviderEvidence = false, oracleUnproven = false, laneOpenLive = 0,
         ))
         // superseded by V5.0.8188 — still never below the routable minimum, but a sub-minimum risk size is no longer
-        // promoted when the promotion breaks the original loss budget, or at all in the defensive drawdown tier (>= 30%).
+        // promoted when the promotion breaks the original loss budget. V5.0.8259: the defensive tier (>= 30%) admits ONE
+        // promoted exploration order when LaneScoreAdmission7308's slot is free — the loss budget still binds, so this
+        // order stays refused either way; the reason names which gate closed it.
         for (dd in listOf(0.0, 0.25, 0.86, 1.0)) {
             val d = at(dd)
             assertTrue("dd=$dd ${d.reason}", !d.open || d.sizeSol >= 0.0414 - 1e-9)
             assertFalse("dd=$dd ${d.reason}", d.open)
-            assertEquals(if (dd >= 0.30) com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_DRAWDOWN_8188
-                else com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188, d.reason)
+            val allowed = if (dd >= 0.30) setOf(com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_DRAWDOWN_8188,
+                com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188)
+                else setOf(com.lifecyclebot.engine.truth.MinPromotion8188.REFUSED_LOSS_BUDGET_8188)
+            assertTrue("dd=$dd ${d.reason}", d.reason in allowed)
         }
     }
 
