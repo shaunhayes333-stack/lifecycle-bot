@@ -79,6 +79,23 @@ class Aate8253ExitEvidenceTest {
         assertTrue(OnChainDepth8038.curveNobodyBought8046(0.0))
     }
 
+    @Test fun incompleteReserveUpdateCannotRefreshAnOlderTokenSideForExitEconomics() {
+        val at = System.currentTimeMillis() - 1_000L
+        val quantity = BigInteger("1000000000")
+        CurveReserves7951.noteAccount7951(mint, 40.0, 1_000_000.0, 10.0, at)
+        assertNotNull(HeldHotMarkAuthority7419.venueReserveSellEstimate(mint, quantity, 6, 150.0, at))
+        CurveReserves7951.noteFrame7951(mint, 80.0, Double.NaN, at + 1L)
+        assertNull(CurveReserves7951.activeExitObservation(mint, at + 1L, 20_000L))
+        assertNull(HeldHotMarkAuthority7419.venueReserveSellEstimate(mint, quantity, 6, 150.0, at + 1L))
+        // An old complete response must not repair the newer incomplete pair.
+        CurveReserves7951.noteAccount7951(mint, 40.0, 1_000_000.0, 10.0, at)
+        assertNull(CurveReserves7951.activeExitObservation(mint, at + 1L, 20_000L))
+        CurveReserves7951.noteAccount7951(mint, 80.0, 500_000.0, 50.0, at + 2L)
+        val restored = HeldHotMarkAuthority7419.venueReserveSellEstimate(mint, quantity, 6, 150.0, at + 2L)!!
+        assertEquals(at + 2L, restored.observedAtMs)
+        assertTrue(restored.proceedsSol > 0.0 && restored.proceedsSol <= 50.0)
+    }
+
     @Test fun curveEstimateRetainsObservationTimeAndCannotSpendVirtualSol() {
         val at = System.currentTimeMillis() - 500L
         CurveReserves7951.noteAccount7951(mint, 40.0, 1_000_000.0, 0.000001, at)

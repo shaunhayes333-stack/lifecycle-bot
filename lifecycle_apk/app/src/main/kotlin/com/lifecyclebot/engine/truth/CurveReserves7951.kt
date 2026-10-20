@@ -78,7 +78,9 @@ object CurveReserves7951 {
         synchronized(r) {
             if (atMs >= r.atMs) {
                 r.virtualSol = vSol
-                r.virtualTokens = if (vTok.isFinite() && vTok > 0.0) vTok else r.virtualTokens
+                // Both reserve sides must belong to this observation. Carrying an
+                // older token side under this timestamp creates a synthetic exit quote.
+                r.virtualTokens = if (vTok.isFinite() && vTok > 0.0) vTok else Double.NaN
                 r.realSol = real
                 r.atMs = atMs
                 r.accountObserved = accountObserved

@@ -39,23 +39,41 @@ class Aate8253RepairTest {
     }
 
     @Test fun oneLaunchBuyerVerdictProvenRefusedOrUnknown() {
-        assertEquals(LaunchBuyers8252.BUYERS_PROVEN, OnChainDepth8038.launchBuyers8252(3.2, curveReadable = true))
-        assertEquals(LaunchBuyers8252.BUYERS_PROVEN, OnChainDepth8038.launchBuyers8252(7.4, curveReadable = false))
-        assertEquals(LaunchBuyers8252.NO_BUYERS_PROVEN, OnChainDepth8038.launchBuyers8252(1.1, curveReadable = true))
-        assertEquals(LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN, OnChainDepth8038.launchBuyers8252(null, curveReadable = true))
-        assertEquals(LaunchBuyers8252.NO_BUYERS_PROVEN, OnChainDepth8038.launchBuyers8252(null, curveReadable = false))
+        assertEquals(LaunchBuyers8252.BUYERS_PROVEN, OnChainDepth8038.launchBuyers8252(3.2))
+        assertEquals(LaunchBuyers8252.BUYERS_PROVEN, OnChainDepth8038.launchBuyers8252(7.4))
+        assertEquals(LaunchBuyers8252.NO_BUYERS_PROVEN, OnChainDepth8038.launchBuyers8252(1.1))
+        assertEquals(LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN, OnChainDepth8038.launchBuyers8252(null))
+        assertEquals(LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN, OnChainDepth8038.launchBuyers8252(Double.NaN))
         assertTrue(OnChainDepth8038.curveReadable8252("AbCdEfpump"))
         val src = src("engine/truth/OnChainDepth8038.kt")
         val door = src.substringAfter("fun buyRefusal8038(").substringBefore("BUY_DOOR_CURVE_DEPTH_READ_8045")
         // the direct measurement runs first and stays binding; the proxy decides only on the verdict
-        assertTrue(door.indexOf("return \"CURVE_NOBODY_BOUGHT_8046\"") < door.indexOf("launchBuyers8252(curveReal8046, pumpLike)"))
-        assertTrue(door.contains("LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN -> if (unknownDeferAllowed8252(ts.mint)) {"))
+        assertTrue(door.indexOf("return \"CURVE_NOBODY_BOUGHT_8046\"") < door.indexOf("launchBuyers8252(curveReal8046)"))
+        assertTrue(door.contains("LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN -> {"))
         assertTrue(door.contains("return \"LAUNCH_BUYERS_UNKNOWN_DEFER_8252\""))
         assertTrue(door.contains("LaunchBuyers8252.NO_BUYERS_PROVEN -> {"))
         val early = src.substringAfter("fun earlyLaunchRefusal8048(").substringBefore("enum class LaunchBuyers8252")
-        assertTrue(early.contains("launchBuyers8252(real, curveReadable8252(ts.mint))"))
+        assertTrue(early.contains("launchBuyers8252(real)"))
         assertTrue(early.contains("LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN -> {"))
         assertTrue(early.contains("LaunchBuyers8252.NO_BUYERS_PROVEN -> \"AT_LAUNCH_CAP_8047\""))
+    }
+
+    @Test fun unansweredLaunchReadsNeverBecomeAProvenNegative() {
+        repeat(100) {
+            for (unobserved in listOf(null, Double.NaN, Double.POSITIVE_INFINITY, -1.0)) {
+                assertEquals(LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN,
+                    OnChainDepth8038.launchBuyers8252(unobserved))
+            }
+        }
+        assertEquals(LaunchBuyers8252.NO_BUYERS_PROVEN, OnChainDepth8038.launchBuyers8252(0.0))
+        assertEquals(LaunchBuyers8252.BUYERS_PROVEN, OnChainDepth8038.launchBuyers8252(3.0))
+        val door = src("engine/truth/OnChainDepth8038.kt").substringAfter("fun buyRefusal8038(")
+            .substringBefore("fun earlyLaunchRefusal8048(")
+        val unknown = door.substringAfter("LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN -> {")
+            .substringBefore("LaunchBuyers8252.NO_BUYERS_PROVEN -> {")
+        assertTrue(unknown.contains("needDepth8047(ts, nowMs)"))
+        assertTrue(unknown.contains("return \"LAUNCH_BUYERS_UNKNOWN_DEFER_8252\""))
+        assertFalse(unknown.contains("AT_LAUNCH_CAP_8047"))
     }
 
     @Test fun arrivedEvidenceWakesTheHeldDeferThatAskedForIt() {
