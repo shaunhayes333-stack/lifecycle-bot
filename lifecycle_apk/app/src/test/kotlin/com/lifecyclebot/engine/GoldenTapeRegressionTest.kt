@@ -14165,8 +14165,14 @@ class GoldenTapeRegressionTest {
         val runs = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n = 32; tpFirst = 12; stopFirst = 8 }
         assertTrue(sel.cellOverturns(runs))
         assertFalse(sel.cellRefuses(runs))
-        val thin = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n = 12; tpFirst = 0; stopFirst = 12 }
+        // V5.0.8266 — a thin record refuses when its stop-first share is SIGNIFICANT (Wilson LB >= 0.6 at n >= 10):
+        // 12/12 stopped first is; 8/8 is too few to judge; 11/16 (8261's shape short of 14/16) is not yet.
+        val thin = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n = 8; tpFirst = 0; stopFirst = 8 }
         assertFalse(sel.cellRefuses(thin))
+        assertTrue(sel.cellRefuses(com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n = 12; tpFirst = 0; stopFirst = 12 }))
+        assertTrue(sel.cellRefuses(com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n = 16; tpFirst = 2; stopFirst = 14 }))
+        assertFalse(sel.cellRefuses(com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n = 16; tpFirst = 5; stopFirst = 11 }))
+        assertTrue(sel.stopsFirstSignificant8266(16, 14)); assertFalse(sel.stopsFirstSignificant8266(16, 11)); assertFalse(sel.stopsFirstSignificant8266(9, 9))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("        freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)?.let { return it }"))  // V5.0.8243: the admission rides along
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()

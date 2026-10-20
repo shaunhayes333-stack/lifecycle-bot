@@ -148,6 +148,8 @@ private const val LIVE_CULL_PEAK_EXEMPT_PCT_7706: Double = 3.0
 // escape hatch that keeps the backstop's original protective purpose whole.
 private const val CATASTROPHE_LIQ_FLOOR_USD_6904: Double = 5_000.0
 private const val CATASTROPHE_UNAMBIGUOUS_PCT_6904: Double = -60.0
+/** V5.0.8266 — a fresh held sell quote (net, for the actual quantity) above this refutes a -25 % catastrophe read. */
+private const val CATASTROPHE_QUOTE_REFUTES_ABOVE_PCT_8266: Double = -15.0
 
 // V5.0.6054 — REAL PRICE SOURCES for route-lock enforcement.
 // Anything NOT real is treated as symbolic/recovery basis (e.g.
@@ -9291,6 +9293,7 @@ class Executor(
             }
 
             if (priceSaysCatastrophe6904 && evidenceAgrees6904) {
+                if (heldQuoteRefutesCatastrophe8266(ts, pos, worstPnl, execPnlForCatastrophe6903)) return
                 // V5.0.6835 §MISSING_MARK_EXIT_VETO — refuse to
                 // materialise a synthetic -N% closure when the mark
                 // that would justify it is stale/missing/frozen.
@@ -31471,6 +31474,29 @@ class Executor(
     }
 
     private fun Double.fmt(d: Int = 6) = "%.${d}f".format(this)
+
+    /**
+     * V5.0.8266 — 8261: GOMO (MOONSHOT, 48 s old, PUMP_FUN_BC_SYNTHETIC mark) read -25 % with "evidence" true of every
+     * fresh launch (thin liquidity, poor depth) and REALISED -6.9 %. The one read that says what a sell gets is the held
+     * SELL QUOTE for the actual quantity (HeldExitQuote8189). Fresh and nowhere near -25 %: the catastrophe is a phantom
+     * and the normal ladder keeps the position (stops, floor, trail still armed). A genuine rug quotes catastrophic too.
+     */
+    private fun heldQuoteRefutesCatastrophe8266(ts: TokenState, pos: Position, worstPnl: Double, execPnl: Double): Boolean {
+        val quotePnl = try {
+            com.lifecyclebot.engine.truth.HeldExitQuote8189.fresh8189(ts.mint)?.proceedsSol
+                ?.takeIf { it.isFinite() && it > 0.0 && pos.costSol.isFinite() && pos.costSol > 0.0 }
+                ?.let { (it / pos.costSol - 1.0) * 100.0 }
+        } catch (_: Throwable) { null } ?: return false
+        if (quotePnl <= CATASTROPHE_QUOTE_REFUTES_ABOVE_PCT_8266) return false
+        try {
+            PipelineHealthCollector.labelInc("CATASTROPHIC_BACKSTOP_REFUTED_BY_HELD_QUOTE_8266")
+            ForensicLogger.lifecycle("CATASTROPHIC_BACKSTOP_REFUTED_BY_HELD_QUOTE_8266",
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} worstPnl=${worstPnl.fmt(2)} execPnl=${execPnl.fmt(2)} " +
+                    "heldQuotePnl=${quotePnl.fmt(2)} action=phantom_catastrophe_normal_ladder_still_armed")
+        } catch (_: Throwable) {}
+        pos.catastropheStrike6904 = false
+        return true
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // V5.9.495 — UNIVERSAL PUMP-FIRST HELPERS

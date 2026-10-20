@@ -71,13 +71,28 @@ object TokenBirthHydrator7441 {
                 PipelineHealthCollector.labelInc("TOKEN_BIRTH_DORMANT_STATE_PRUNED_7502")
             } catch (_: Throwable) {}
         }
-        if ((cooldownUntil[m] ?: 0L) > now) return
+        requests8265.incrementAndGet()
+        if ((cooldownUntil[m] ?: 0L) > now) { cooldownSkips8265.incrementAndGet(); return }
         if (!inFlight.add(m)) return
         val launched = ChokeReliefBus.launch("TOKEN_BIRTH_HYDRATE_7441", m) {
             try { hydrate(m) } finally { inFlight.remove(m) }
         }
-        if (!launched) inFlight.remove(m)
+        if (!launched) { inFlight.remove(m); busDropped8265.incrementAndGet() } else launched8265.incrementAndGet()
     }
+
+    // V5.0.8265 — 8261: PROJECT_SNIPER refused 1,653 evaluations as BIRTH_METADATA_HYDRATING with no line saying whether
+    // this hydrator was asked, launched, dropped by the relief bus, answered by an RPC, or resolved. Now it says.
+    private val requests8265 = java.util.concurrent.atomic.AtomicLong(0)
+    private val launched8265 = java.util.concurrent.atomic.AtomicLong(0)
+    private val busDropped8265 = java.util.concurrent.atomic.AtomicLong(0)
+    private val cooldownSkips8265 = java.util.concurrent.atomic.AtomicLong(0)
+    private val resolved8265 = java.util.concurrent.atomic.AtomicLong(0)
+    private val noRpc8265 = java.util.concurrent.atomic.AtomicLong(0)
+    private val noAnswer8265 = java.util.concurrent.atomic.AtomicLong(0)
+    fun statusLine7441(): String =
+        "birthHydrator7441[requests=${requests8265.get()} launched=${launched8265.get()} busDropped=${busDropped8265.get()} " +
+            "cooldownSkips=${cooldownSkips8265.get()} resolved=${resolved8265.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
+            "inFlight=${inFlight.size} progress=${progress.size} cooling=${cooldownUntil.size}]"
 
     // V5.0.8144 §BIRTH_FROM_EVERY_WITNESS. 5.0.8142: 2,015 PROJECT_SNIPER refusals as BIRTH_METADATA_HYDRATING. Three
     // defects here: (1) the page cursor was the last SUCCESSFUL signature, so a page that ended in failed transactions
@@ -171,6 +186,7 @@ object TokenBirthHydrator7441 {
         val rpcCandidates = RuntimeProviderAuthority6685.rpcCandidates()
         if (rpcCandidates.isEmpty()) {
             cooldownUntil[mint] = System.currentTimeMillis() + NO_RPC_COOLDOWN_MS
+            noRpc8265.incrementAndGet()
             try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_HYDRATE_NO_RPC_7441") } catch (_: Throwable) {}
             return
         }
@@ -229,6 +245,7 @@ object TokenBirthHydrator7441 {
         }
 
         cooldownUntil[mint] = System.currentTimeMillis() + RETRY_COOLDOWN_MS
+        if (!anyRpcAnswered) noAnswer8265.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc(if (anyRpcAnswered) "TOKEN_BIRTH_HYDRATE_CONTINUE_7441" else "TOKEN_BIRTH_HYDRATE_RPC_FAIL_7441")
         } catch (_: Throwable) {}
@@ -267,6 +284,7 @@ object TokenBirthHydrator7441 {
             if (ctx != null) TokenMetaCache.get(ctx).register(mint = mint, creationTimeMs = ms)
         } catch (_: Throwable) {}
         AdmissionBirth8144.noteOldestSignature8144(mint, ms)  // V5.0.8144 — in memory too (the meta cache reads disk lazily)
+        resolved8265.incrementAndGet()
         progress.remove(mint)
         cooldownUntil.remove(mint)
         try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_RPC_RESOLVED_7441") } catch (_: Throwable) {}

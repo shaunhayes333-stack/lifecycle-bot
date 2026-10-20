@@ -143,6 +143,9 @@ object LaneEntryContract6342 {
         if (ts.lastMcap > 0.0 && ts.lastMcap !in SNIPER_LAUNCH_MIN_MCAP_USD_7803..SNIPER_LAUNCH_MAX_MCAP_USD_7393) return false
         if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd !in SNIPER_LAUNCH_MIN_LIQ_USD_7803..SNIPER_LAUNCH_MAX_LIQ_USD_7803) return false
         val age = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts)?.div(1000L) } catch (_: Throwable) { null }
+            // V5.0.8265 — the same witness fallback the identity test and ProjectSniperAI read (create frame, curve pair,
+            // oldest signature, chain mint init): the door never reads "hydrating" on an age a witness already knows.
+            ?: try { com.lifecyclebot.engine.truth.AdmissionBirth8144.provenAgeMs8144(ts, SNIPER_LAUNCH_MAX_AGE_SECS_7393 * 1000L)?.div(1000L) } catch (_: Throwable) { null }
         if (age == null) {
             try { PipelineHealthCollector.labelInc("SNIPER_BIRTH_HYDRATION_PENDING_7440") } catch (_: Throwable) {}
             return false

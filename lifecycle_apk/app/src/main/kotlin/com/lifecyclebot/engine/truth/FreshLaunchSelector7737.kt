@@ -231,7 +231,22 @@ object FreshLaunchSelector7737 {
         )
 
     /** Pure: does a measured cell refuse its setup? */
-    fun cellRefuses(c: Cell?): Boolean = c != null && c.n >= LEARNED_MIN_N_7737 && c.stopRate >= 0.45 && c.stopFirst >= 1.5 * c.tpFirst
+    fun cellRefuses(c: Cell?): Boolean = c != null && c.stopFirst >= 1.5 * c.tpFirst &&
+        (c.n >= LEARNED_MIN_N_7737 && c.stopRate >= 0.45 || stopsFirstSignificant8266(c.n, c.stopFirst))
+
+    /**
+     * V5.0.8266 — 8261: EXPANDING|FLOW_NONE|CONC_NA|MX_NA n=16, 88 % stopped first, ev15 -10.9 %, still admitted live
+     * because the cell was four results short of 20. The same confidence rule the admission book uses (8257): a thin
+     * record refuses when its stop-first rate is significant, not when it is merely large. Wilson 95 % lower bound
+     * of the stop-first share >= 0.6 at n >= 10 (16/16 -> 0.81, 14/16 -> 0.64, 11/16 -> 0.46: not yet).
+     */
+    fun stopsFirstSignificant8266(n: Int, stopsFirst: Int): Boolean {
+        if (n < 10 || stopsFirst <= 0 || stopsFirst > n) return false
+        val z = 1.96; val p = stopsFirst.toDouble() / n; val z2 = z * z
+        val centre = (p + z2 / (2 * n)) / (1 + z2 / n)
+        val half = z * kotlin.math.sqrt(p * (1 - p) / n + z2 / (4.0 * n * n)) / (1 + z2 / n)
+        return centre - half >= 0.6
+    }
 
     /** Live-entry verdict for a fresh launch, or null to admit (and for anything that is not a fresh launch). */
     fun liveBlockReason(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
@@ -456,7 +471,7 @@ object FreshLaunchSelector7737 {
             .sortedByDescending { it.second.tpRate - it.second.stopRate }
         val fmt = { p: Pair<String, Cell> -> "${p.first}[n=${p.second.n} tp=${"%.0f".format(p.second.tpRate * 100)}% stop=${"%.0f".format(p.second.stopRate * 100)}% n15=${p.second.n15} ev15=${"%+.1f".format(p.second.ev15Pct)}%]" }
         return "pending=${pending.size} observed=${observed.get()} firstTouch[tp=${bookedTp.get()} stop=${bookedStop.get()} neither=${bookedNeither.get()} lost=${lostCount.get()}] " +
-            "live[admitted=${admittedFresh.get()} refusedStructural=${refusedStructural.get()} refusedLearned=${refusedLearned.get()} overturned=${overturned.get()}] cells=${cells.size}\n" +
+            "live[admitted=${admittedFresh.get()} refusedStructural=${refusedStructural.get()} refusedLearned=${refusedLearned.get()} overturned=${overturned.get()}] cells=${cells.size} significantStops8266=${cells.values.count { stopsFirstSignificant8266(it.n, it.stopFirst) }}\n" +
             "      bestSetups: ${top.take(3).joinToString(" · ") { fmt(it) }.ifBlank { "none at n>=5" }}\n" +
             "      worstSetups: ${top.reversed().take(3).joinToString(" · ") { fmt(it) }.ifBlank { "none at n>=5" }}"
     }
