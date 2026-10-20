@@ -42,6 +42,45 @@ class Aate8253ForensicIntegrationTest {
         }
     }
 
+    @Test fun handoffResolvesBareAndSolanaStorageWithoutCrossChainAliasing() {
+        val mint = "8253-alias-fixture"
+        val token = com.lifecyclebot.data.TokenState(mint)
+        val tokens = BotService.status.tokens
+        synchronized(tokens) {
+            val oldBare = tokens.remove(mint)
+            val oldAlias = tokens.remove("solana|$mint")
+            try {
+                tokens["solana|$mint"] = token
+                assertSame(token, HandoffRoute8180.tokenFor8180(mint))
+                assertSame(token, HandoffRoute8180.tokenFor8180("solana|$mint"))
+                assertNull(HandoffRoute8180.tokenFor8180("ethereum|$mint"))
+                tokens.remove("solana|$mint")
+                tokens[mint] = token
+                assertSame(token, HandoffRoute8180.tokenFor8180("solana|$mint"))
+            } finally {
+                tokens.remove(mint)
+                tokens.remove("solana|$mint")
+                if (oldBare != null) tokens[mint] = oldBare
+                if (oldAlias != null) tokens["solana|$mint"] = oldAlias
+            }
+        }
+    }
+
+    @Test fun receiverKeepsItsOwnSupportedAdmissionAcrossOptionalClassifierGaps() {
+        for (lane in lanes) {
+            val decision = Admission.decide8136(Admission.Candidate8136("receiver-$lane", lane, "supported",
+                live = true, missingInputs = listOf("shape:UNKNOWN"), priceAgeMs = 1_000L,
+                expectedGrossPct = 30.0, costPct = 3.0,
+                cell = Admission.Evidence8136("CELL", "fixture", 60, 20.0, 2.0)))
+            assertTrue(lane, ReceiverRecord8190.supportedAdmission8253(decision))
+            assertNull(ReceiverRecord8190.verdict8190(true, ReceiverRecord8190.supportedAdmission8253(decision),
+                "NO_TRIGGER", listOf("shape:UNKNOWN"), null, 1_000L))
+            assertFalse(ReceiverRecord8190.supportedAdmission8253(decision.copy(terminal = Admission.Terminal8136.DEFER_DATA)))
+            assertFalse(ReceiverRecord8190.supportedAdmission8253(decision.copy(expectedNetPct = -1.0)))
+            assertFalse(ReceiverRecord8190.supportedAdmission8253(decision.copy(specific = false)))
+        }
+    }
+
     @Test fun readyLaneCannotHideAnotherQualifiedProvenStrategy() {
         val election = com.lifecyclebot.engine.truth.StrategyElection8243
         for (lane in lanes.filter { it != "SHITCOIN" }) {

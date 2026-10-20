@@ -39,7 +39,10 @@ object HandoffRoute8180 {
     /** The TokenState the meme cycle reads for [mint] (the same map the sender's cycle used), or null. */
     fun tokenFor8180(mint: String): TokenState? = try {
         val tokens = BotService.status.tokens
-        synchronized(tokens) { tokens[mint] ?: tokens[memeKey8180(mint)] }
+        synchronized(tokens) {
+            val bare = memeKey8180(mint)
+            tokens[mint] ?: tokens[bare] ?: if (!deskIdentity8180(bare)) tokens["$SOLANA_PREFIX_8180$bare"] else null
+        }
     } catch (_: Throwable) { null }
 
     /** Pure: a reading meets a floor. Unknown (<= 0 / non-finite) never refuses; a real reading must reach it. */

@@ -3,29 +3,7 @@ package com.lifecyclebot.engine.truth
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * V5.0.6431 §H + §X — LIVE PIPELINE TRACE (stage counters).
- *
- * OPERATOR (V5.0.6424 §H):
- *   'Every candidate that could potentially become live must emit
- *    exactly one step at each stage: LIVE_CANDIDATE_CREATED,
- *    LIVE_INTAKE, LIVE_LANE_SELECTED, LIVE_V3_RESULT, LIVE_FDG_RESULT,
- *    LIVE_AUTHORITY_RESULT, LIVE_EXEC_GATE_RESULT, LIVE_EXEC_ATTEMPT,
- *    LIVE_EXEC_RESULT. If candidate flow disappears between stages
- *    the report must print LIVE_PIPELINE_CHOKE: stage=X previousCount=Y
- *    currentCount=Z topReasons=[...]'
- *
- * DESIGN
- * ──────
- * Simple typed stage counter registry. Callers invoke bumpStage(...)
- * at every live-pipeline transition point. The renderer produces the
- * §X-mandated block including LIVE_PIPELINE_CHOKE where a stage drops
- * to 0 while a preceding stage has non-zero count.
- *
- * Ready for adoption — callers wire incrementally. Until every stage
- * is wired, choke detection uses a soft rule (only flag when previous
- * stage > 0 AND current stage == 0 AND stage advance is expected).
- */
+/** Supplemental event counters. These populations are not a candidate-normalized funnel. */
 object LivePipelineTrace6431 {
 
     enum class Stage {
@@ -47,61 +25,28 @@ object LivePipelineTrace6431 {
         topBlockReasons.computeIfAbsent(truncated) { AtomicLong(0L) }.incrementAndGet()
     }
 
+    // Audited production call sites: BotService, ExecutableOpenGate, LiveEdgeGate,
+    // Executor and ExecutorCanonicalMirror. Unwired stages must never appear as measured zero.
+    private val instrumented = setOf(Stage.INTAKE, Stage.FDG_ALLOW, Stage.AUTHORITY_ALLOW,
+        Stage.EXEC_ATTEMPT, Stage.BUY_CONFIRMED, Stage.BUY_FAILED)
+
     fun render(): String = buildString {
         append("===== LIVE PIPELINE TRACE (V5.0.6431 §H) =====\n")
-        // V5.0.6962 §A_PANEL_THAT_REPORTED_ZERO_BECAUSE_NOBODY_WROTE_TO_IT.
-        //
-        // This render() is embedded in the operator health report by
-        // PipelineHealthCollector. Both of its writers — bumpStage and
-        // bumpBlockReason — have ZERO callers anywhere in the codebase. So every
-        // counter below is permanently 0, the "choke stage" is computed from
-        // zeros, and topReasons is always empty.
-        //
-        // That is worse than showing nothing. An all-zeros funnel in a health
-        // report reads as "the pipeline processed no candidates", which is a
-        // five-alarm symptom, and it has been printed on every report for the
-        // life of this module while the pipeline was in fact running normally.
-        // The real instrumentation is MemePipelineTracer, which has 18 write
-        // sites and whose stage counts already reach the operator digest.
-        //
-        // Rather than bridge one tracer's data into the other — two tracers with
-        // one source of truth is the duplicate-authority defect this audit
-        // removes — the panel now says plainly that it has no writers. A report
-        // that admits it is blind is honest; one that reports zeros as
-        // measurements is not.
-        val anyData6962 = counters.values.any { it.get() > 0L } || topBlockReasons.isNotEmpty()
-        if (!anyData6962) {
-            append("  NO DATA — this trace has no writers (bumpStage/bumpBlockReason: 0 callers).\n")
-            append("  These zeros are NOT measurements. Live pipeline instrumentation is\n")
-            append("  MemePipelineTracer (18 write sites); see memeTrace/memeBlockReasons.\n")
-        }
-        var prior = -1L
-        var chokeStage: Stage? = null
+        append("  Scope: supplemental event counts; repeated assessments and attempts are separate populations.\n")
         for (s in Stage.entries) {
-            val v = counters[s]?.get() ?: 0L
-            append("  ").append("%-20s".format(s.name)).append(" = ").append(v).append('\n')
-            if (chokeStage == null && prior > 0L && v == 0L && s.ordinal <= Stage.EXEC_ATTEMPT.ordinal) {
-                chokeStage = s
-            }
-            prior = v
+            append("  ").append("%-20s".format(s.name)).append(" = ")
+            if (s in instrumented) append(counters[s]?.get() ?: 0L)
+            else append("UNINSTRUMENTED")
+            append('\n')
         }
-        chokeStage?.let { stage ->
-            val priorStage = Stage.entries.getOrNull(stage.ordinal - 1)
-            val priorCount = priorStage?.let { counters[it]?.get() } ?: 0L
-            append("  LIVE_PIPELINE_CHOKE: stage=").append(stage.name)
-                .append(" previousCount=").append(priorCount)
-                .append(" currentCount=0\n")
-            val top = topBlockReasons.entries
-                .sortedByDescending { it.value.get() }
-                .take(5)
-                .joinToString(",") { "${it.key}=${it.value.get()}" }
-            append("  topReasons=[").append(top).append("]\n")
-        }
+        append("  Candidate-loss diagnosis: unavailable from these aggregate counts; use candidate/attempt causal terminals.\n")
+        val top = topBlockReasons.entries.sortedByDescending { it.value.get() }.take(5)
+            .joinToString(",") { "${it.key}=${it.value.get()}" }
+        append("  topReasons=[").append(top).append("]\n")
     }
 
-    fun statusLine(): String {
-        val kv = counters.entries.joinToString(",") { "${it.key.name}=${it.value.get()}" }
-        return kv
+    fun statusLine(): String = Stage.entries.joinToString(",") {
+        "${it.name}=${if (it in instrumented) counters[it]?.get().toString() else "UNINSTRUMENTED"}"
     }
 
     internal fun resetForTest() {

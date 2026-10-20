@@ -372,7 +372,7 @@ object SpecialistOwnership7951 {
         else if (SpecialistElection8136.holdsRescue8136(mint, l)) true
         else if (SpecialistCandidateBooks7803.entry(l, mint)?.state != SpecialistCandidateBooks7803.State.READY) false
         else {
-            val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
+            val ts = HandoffRoute8180.tokenFor8180(mint)
             val ok = ts != null && com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellOrKindProven8094(ts, l)
             if (ok) notePreIntent7951(l, "READY_CELL_PROVEN_EVALUATES_8094")
             // V5.0.8094 — or the lane's OWN graded record of being shadowed proves the shadowing refuses winners

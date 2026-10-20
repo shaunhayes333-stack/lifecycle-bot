@@ -429,7 +429,7 @@ object OnChainDepth8038 {
      * launch cap after being sealed and sized, crowding the lane's tickets (SHITCOIN 35 tickets -> 2 executions).
      */
     fun earlyLaunchRefusal8048(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
-        val real = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
+        val real = try { CurveReserves7951.accountRealSol8253(ts.mint, nowMs) } catch (_: Throwable) { null }
         val why = when {
             curveNobodyBought8046(real) -> "CURVE_NOBODY_BOUGHT_8046"
             atLaunchCap8047(try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }) -> {
