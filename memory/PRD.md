@@ -2,7 +2,32 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8257 (Oct 2026) — the lock was the learned book; curve reserves hydrate from the socket
+## CURRENT: V5.0.8259–8266 (Oct 2026) — unlock the twelve; 8261 runtime repairs (ghost rows, capital demand, phantom catastrophe)
+- **8261 runtime (1639 s, `runtime 69.txt`): six lanes now select owners** (QUALITY, BLUECHIP, SHITCOIN, EXPRESS,
+  MOONSHOT, MANIPULATED); 26 exec-gate allows, 6 open, 9 session closes (most MANUAL by the operator); wallet 0.0263 SOL
+  → ROUTABLE_CAPACITY=REFUSE between buys. Live labels n=22 E=−1.4 % wr 18 %: entries die in 40–60 s (GOMO catastrophic
+  −6.9 % realised on a −25 % synthetic-curve read; 93iqi7 RAPID_FLUID_STOP). CASHGEN/TREASURY/CYCLIC refuse on
+  EXECUTION_ECONOMICS honestly (6.7 % round trip on 0.03 SOL vs 3–12 % expected moves). PROJECT_SNIPER: 1,653
+  BIRTH_METADATA_HYDRATING, 1,231 phase handoffs, 3 qualified. CORE yields by design (X411 superseded).
+- 8259 (CI ✅): the specialist's own qualification admits (`NATIVE_QUALIFIED_ADMIT_8259`, no second V3 floor, no
+  supported-record-only lock); capital recovery slice at 1.25×; one promoted exploration order per lane through the
+  ≥30 % drawdown lock (`explorationSlotFree`); every live-buy early return names its stop (`lastLiveBuyStop8252`).
+- 8260/8262 (CI ✅): **forming runner on an unlearned book** — `RunnerGrab7967.formingNative8260` (safe, not Mayhem,
+  firming/standing, no proven-losing runner cell) is MOONSHOT/SHITCOIN/EXPRESS's native setup `RUNNER_FORMING_8260`,
+  stamped as a runner entry at ADMIT. 8261/8262 fixed 7 historical contract tests that pinned pre-8259 shapes.
+- 8263: an approved live entry the wallet cannot fund raises rotation demand (`noteCapitalDemand8262`; 8261 had 63
+  starved, demands=0); held sell quote usable as an exit mark for 20 s (was 4 s < Jupiter RTT → Fartcoin +370 % mark=NONE).
+- 8264/8265: **`GhostCloseFromFinalizedSell8264`** — complete chain read without the mint + signed chain-proven journaled
+  sell covering the remaining raw ⇒ canonical row closed with that sell (8261: 3 LIVE_FINALIZED sells left rows ARMED).
+- 8266 (CI ✅): held SELL QUOTE refutes a phantom −25 % catastrophe (`heldQuoteRefutesCatastrophe8266`, quote pnl
+  > −15 %); fresh-launch cell refuses on a statistically significant stop-first share (Wilson LB ≥ 0.6, n ≥ 10:
+  EXPANDING|FLOW_NONE 14/16 stopped was admitted at n<20); sniper lane door reads AdmissionBirth8144 witnesses;
+  `TokenBirthHydrator7441.statusLine7441()` (requests/launched/busDropped/resolved/noRpc/noAnswer) in the birth line.
+- Open: why the birth hydrator leaves 1,653 sniper evaluations unresolved (counters now printed); 92 s hard-stop
+  broadcast latency (needs the sell lineage lines, not in the snapshot); CASHGEN/TREASURY need a bigger wallet, not a
+  weaker gate; automatic runner banking still unproven live.
+
+## V5.0.8257 (Oct 2026) — the lock was the learned book; curve reserves hydrate from the socket
 - **8257 runtime (604 s, operator report): trading again** — 3 live buys / 3 sells (2 manual) + 1 profitable partial,
   WR 35.7 %, PF 1.39 / 14 closes (not an edge yet), wallet↔canonical↔chain MATCH, invariants 0. Status + ranked next
   targets: `memory/audits/v5_0_8257_runtime_status.md`. CI: 8255, 8256, 8257 all green on main.
