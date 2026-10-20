@@ -14101,14 +14101,15 @@ class GoldenTapeRegressionTest {
         // Labeler: a decision-time price up to ten minutes old may start a label; open observations persist and restore.
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         // V5.0.7946 — the entry-mark window tightened to 90 s and the persisted keys were renamed;
-        // later versions widened the pending row format (17..34 fields).
+        // later versions widened the pending row format (17..35 fields).
         assertTrue(lab.contains("private const val ENTRY_MARK_MAX_AGE_MS_7735 = 90_000L"))
         assertTrue(lab.contains("tsPriced && tsAge in 0L..ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
         assertTrue(lab.indexOf("fromRegistry != null -> {") < lab.indexOf("tsPriced && tsAge in 0L..ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
         assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now))"))
         assertTrue(lab.contains("restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())"))
-        assertTrue(lab.contains("if (f.size !in 17..34) return@forEach"))
+        assertTrue(lab.contains("if (f.size !in 17..35) return@forEach"))
+        assertTrue(lab.contains("if (f.size >= 35) o.lastPxValidated8239 = f[34] == \"1\""))
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))

@@ -420,6 +420,7 @@ jobs:
             --tests '*Aate8239TradeQualityTest*' \
             --tests '*Aate8240PipelineContinuityTest*' \
             --tests '*Aate8241FinalityRepairTest*' \
+            --tests '*Aate8242AdmissionContinuityTest*' \
             --tests '*GoldenTapeRegressionTest.V5_0_7281_floor_is_lamport_exact_recent_basis_accepted_and_ladder_skips_locked_rungs' \
             --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
 
