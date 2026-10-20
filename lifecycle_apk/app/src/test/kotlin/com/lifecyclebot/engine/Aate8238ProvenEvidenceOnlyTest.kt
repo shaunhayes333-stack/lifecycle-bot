@@ -34,4 +34,16 @@ class Aate8238ProvenEvidenceOnlyTest {
         assertTrue(cortex.contains("!wf.validated -> nullWhy8201(\"NOT_WALK_FORWARD_VALIDATED_${'$'}{wf.verdict.name}\")"))
         assertTrue(cortex.contains("!(median > 0.0) -> nullWhy8201(\"MEDIAN_NOT_POSITIVE\")"))
     }
+
+    /** Main's independently tested shadow price-provenance contract. */
+    @Test fun shadowOpenRequiresAnObservedEntryAndContestedFirstMarkRebases() {
+        val s=com.lifecyclebot.engine.truth.ShadowBasisTruth8239
+        assertTrue(s.observedBasis8239(0.00001,"PUMP_CURVE_RPC",5_000L))
+        assertTrue(!s.observedBasis8239(0.00001,"TOKEN_MAP_CACHE_6513",5_000L))
+        assertTrue(!s.observedBasis8239(0.00001,"DEXSCREENER",120_000L))
+        assertTrue(!s.observedBasis8239(0.0,"DEXSCREENER",1_000L))
+        assertTrue(s.basisContradicted8239(1.0,0.7,10_000L))
+        assertTrue(!s.basisContradicted8239(1.0,0.7,600_000L))
+        assertTrue(!s.basisContradicted8239(1.0,0.9,10_000L))
+    }
 }

@@ -14635,6 +14635,13 @@ class Executor(
                 try { com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onSkipNoPrice7215() } catch (_: Throwable) {}
                 return
             }
+            // 8239/main: SHADOW never learns from a seeded or stale entry basis.
+            if (!com.lifecyclebot.engine.truth.ShadowBasisTruth8239.observedBasis8239(
+                    price, ts.lastPriceSource, System.currentTimeMillis() - ts.lastPriceUpdate)) {
+                try { com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onSkipNoPrice7215() } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("SHADOW_OPEN_SKIPPED_UNOBSERVED_BASIS_8239") } catch (_: Throwable) {}
+                return
+            }
 
             // V5.0.7320 — full book: close the oldest at its last observed mark
             // (booked, learned, counted) instead of evicting it unclosed
@@ -14693,6 +14700,7 @@ class Executor(
         val toRemove = mutableListOf<String>()
         val stopLossPct = cfg().stopLossPct
         val nowShadow7948 = System.currentTimeMillis()
+        val rebases8239 = mutableListOf<ShadowPosition>()
 
         for ((mint, shadow) in shadowPositions) {
             // V5.0.7948 — a refused token leaves the watchlist: price it from the forward
@@ -14705,6 +14713,15 @@ class Executor(
             if (freshPrice7948 != null) shadowLastMark7320[mint] = freshPrice7948
             val currentPrice = freshPrice7948 ?: shadowLastMark7320[mint]
 
+            // 8239/main: first contradicted basis within the bounded window is
+            // updated before shadow profit/loss is ever recorded.
+            if (freshPrice7948 != null &&
+                com.lifecyclebot.engine.truth.ShadowBasisTruth8239.basisContradicted8239(
+                    shadow.entryPrice, freshPrice7948, nowShadow7948 - shadow.entryTime)) {
+                rebases8239 += shadow.copy(entryPrice = freshPrice7948)
+                try { PipelineHealthCollector.labelInc("SHADOW_BASIS_REBASED_8239") } catch (_: Throwable) {}
+                continue
+            }
             val pnlPct = currentPrice?.let { OpenPnlSanity.inspect(shadow.entryPrice, it, context = "Executor.shadow_position_6038/${shadow.mint.take(8)}", emit = true).takeIf { v -> v.ok }?.pnlPct }
             val holdTimeMin = (nowShadow7948 - shadow.entryTime) / 60000
 
@@ -14723,6 +14740,7 @@ class Executor(
         }
         
         toRemove.forEach { shadowPositions.remove(it); shadowLastMark7320.remove(it) }
+        rebases8239.forEach { if (it.mint !in toRemove) shadowPositions[it.mint] = it }
     }
 
     /** V5.0.7320 — one close path for timeout/stop/TP and eviction. */
