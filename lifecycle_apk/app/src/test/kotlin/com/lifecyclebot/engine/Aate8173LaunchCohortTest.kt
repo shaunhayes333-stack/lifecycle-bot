@@ -215,7 +215,14 @@ class Aate8173LaunchCohortTest {
         assertEquals("STAGE_PROVEN_LOSING_8136", CandidateAdmission8136.decide8136(launchCandidate(listOf(thin), losingCell)).reason)
         val carried = CandidateAdmission8136.decide8136(launchCandidate(listOf(ladder), losingCell))
         assertEquals("SPECIFIC_EDGE_PROVEN_8136", carried.reason)
-        assertTrue(carried.trace.any { it.contains("cellLosing=") && it.contains("carried by supported setup") })
+        // n20 is losing, not proven-losing: the stage carry notes it and the supported setup is the strategy.
+        assertTrue(carried.trace.joinToString(), carried.trace.any { it.contains("stageLosing=") && it.contains("carried by setup") })
+        // A PROVEN-losing cell (n30+) is the 8240 case: carried by the supported setup, never a CELL_PROVEN_LOSING miss.
+        val provenLosingCell = losingCell.copy(n = 40)
+        assertEquals("CELL_PROVEN_LOSING_8136", CandidateAdmission8136.decide8136(launchCandidate(listOf(thin), provenLosingCell)).reason)
+        val carried8240 = CandidateAdmission8136.decide8136(launchCandidate(listOf(ladder), provenLosingCell))
+        assertEquals("SPECIFIC_EDGE_PROVEN_8136", carried8240.reason)
+        assertTrue(carried8240.trace.joinToString(), carried8240.trace.any { it.contains("cellLosing=") && it.contains("carried by supported setup") })
     }
 
     @Test fun carriedStageStillAnswersToTheCostRule() {

@@ -147,6 +147,7 @@ object BalanceProofPoller {
                 // snapshot was complete; two such reads at least twenty seconds
                 // apart, outside the fresh-buy grace, are the zero read.
                 if (absentFromCompleteIsZeroRead7733(entry)) onZeroRead7733(entry, "ABSENT_FROM_COMPLETE_SNAPSHOT_7733")
+                else if (multiProviderAbsentIsZeroRead8250(entry)) onZeroRead7733(entry, "MULTI_PROVIDER_CONFIRMED_ABSENT_8250")
                 else BalanceProofWaitState.scheduleNextPoll(entry.mint)
             }
         }
@@ -160,13 +161,7 @@ object BalanceProofPoller {
     private fun absentFromCompleteIsZeroRead7733(entry: BalanceProofWaitState.Wait): Boolean {
         val a: SellAmountAuthority.AbsentFromComplete7733 = SellAmountAuthority.absentFromCompleteSnapshot7733(entry.mint) ?: return false
         if (a.count < ABSENT_COMPLETE_MIN_READS_7733 || a.lastAtMs - a.firstAtMs < ABSENT_COMPLETE_MIN_SPAN_MS_7733) return false
-        val now = System.currentTimeMillis()
-        val buyAt = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(entry.mint)?.buyTimeMs ?: 0L } catch (_: Throwable) { 0L }
-        val freshBuy = (buyAt > 0L && now - buyAt < FRESH_BUY_GRACE_MS_7733) || SellAmountAuthority.hasFreshTxParse7733(entry.mint, now)
-        if (freshBuy) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_ABSENT_DEFERRED_FRESH_BUY_7733") } catch (_: Throwable) {}
-            return false
-        }
+        if (freshBuyGrace7733(entry)) return false
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_ABSENT_COMPLETE_ZERO_READ_7733")
             ForensicLogger.lifecycle("BALANCE_PROOF_ABSENT_COMPLETE_ZERO_READ_7733",
@@ -174,6 +169,68 @@ object BalanceProofPoller {
                 "action=count_as_zero_read_two_close_the_row")
         } catch (_: Throwable) {}
         return true
+    }
+
+    /** The indexer grace both absence paths share: a buy younger than [FRESH_BUY_GRACE_MS_7733] is never read as gone. */
+    private fun freshBuyGrace7733(entry: BalanceProofWaitState.Wait): Boolean {
+        val now = System.currentTimeMillis()
+        val buyAt = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(entry.mint)?.buyTimeMs ?: 0L } catch (_: Throwable) { 0L }
+        val freshBuy = (buyAt > 0L && now - buyAt < FRESH_BUY_GRACE_MS_7733) || SellAmountAuthority.hasFreshTxParse7733(entry.mint, now)
+        if (freshBuy) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_ABSENT_DEFERRED_FRESH_BUY_7733") } catch (_: Throwable) {}
+        }
+        return freshBuy
+    }
+
+    /**
+     * V5.0.8250 — DqPWFV (5.0.8246): CATASTROPHE latched, eight redispatches, SellRouteProbe8144 CONFIRMED_ABSENT from
+     * two providers, tracker STALE_RECOVERY_UNPROVEN, canonical still open at 48,664,757,393 raw. The wallet snapshot
+     * was partial (the optional Token-2022 read failing), so resolve() answered Unknown and cleared the 7733 record on
+     * every poll: the complete-absence zero read could never fire and this branch polled forever while the risk clock
+     * re-dispatched the same sell. An owner+mint read answered absent by two distinct providers
+     * (getTokenAccountsByOwner with a mint filter, which both token programs answer) does not depend on the program
+     * enumeration that made the snapshot partial. Outside the fresh-buy grace, and with no signed sell still
+     * unresolved (its own confirmation decides, with proceeds), it is one zero read. Finality is unchanged: the streak
+     * of two, the frozen guards, zeroCorroborated8144's own re-ask, and the tracker / 7736 quarantine close — no sale is
+     * invented. A HELD answer is the opposite proof and sells.
+     */
+    private fun multiProviderAbsentIsZeroRead8250(entry: BalanceProofWaitState.Wait): Boolean {
+        val v = try { SellRouteProbe8144.balance8144(wallet, entry.mint) } catch (_: Throwable) { null } ?: return false
+        if (SellRouteProbe8144.held8144(v)) {
+            heldRefutesAbsence8144(entry, v)
+            return false
+        }
+        if (!SellRouteFinality8144.zeroFinalityAllowed8144(v)) return false
+        val sellUnresolved = try {
+            com.lifecyclebot.network.SignedTxLedger8085.historyFor8090(entry.mint).any { it.side == "SELL" && it.unresolved }
+        } catch (_: Throwable) { true }
+        if (sellUnresolved) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_ABSENT_DEFERRED_SELL_SIG_UNRESOLVED_8250") } catch (_: Throwable) {}
+            return false
+        }
+        if (freshBuyGrace7733(entry)) return false
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_MULTI_PROVIDER_ABSENT_ZERO_READ_8250")
+            ForensicLogger.lifecycle("BALANCE_PROOF_MULTI_PROVIDER_ABSENT_ZERO_READ_8250",
+                "mint=${entry.mint.take(10)} symbol=${entry.symbol} absentProviders=${v.absentProviders} failedProviders=${v.failedProviders} " +
+                "reason=${entry.desiredExitReason.take(60)} action=count_as_zero_read_snapshot_partial_does_not_block_owner_mint_absence")
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    /** A multi-provider HELD answer while a wait polled: proof-ready, the wait clears and the exit sells (no close). */
+    private fun heldRefutesAbsence8144(entry: BalanceProofWaitState.Wait, v: SellRouteFinality8144.BalanceVerdict8144) {
+        try { SellAmountAuthority.recordProofReady(entry.mint, v.raw, v.decimals, SellAmountAuthority.Source.BALANCE_PROOF_POLLER) } catch (_: Throwable) {}
+        BalanceProofWaitState.resetZeroReads(entry.mint)
+        BalanceProofWaitState.clear(entry.mint, "ZERO_REFUTED_BY_PROVIDERS_8144")
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_ZERO_REFUTED_HELD_8144")
+            ForensicLogger.lifecycle("BALANCE_PROOF_ZERO_REFUTED_HELD_8144",
+                "mint=${entry.mint.take(10)} symbol=${entry.symbol} raw=${v.raw} heldProviders=${v.heldProviders} action=sell_not_close")
+        } catch (_: Throwable) {}
+        if (!emergencyResell8144(entry.mint, entry.desiredExitReason)) {
+            try { onProofReady?.invoke(entry.mint, entry.symbol, entry.desiredExitReason) } catch (_: Throwable) {}
+        }
     }
 
     /**
@@ -231,17 +288,7 @@ object BalanceProofPoller {
         val v = try { SellRouteProbe8144.balance8144(wallet, entry.mint) } catch (_: Throwable) { null }
         if (v != null && SellRouteFinality8144.zeroFinalityAllowed8144(v)) return true
         if (v != null && SellRouteProbe8144.held8144(v)) {
-            try { SellAmountAuthority.recordProofReady(entry.mint, v.raw, v.decimals, SellAmountAuthority.Source.BALANCE_PROOF_POLLER) } catch (_: Throwable) {}
-            BalanceProofWaitState.resetZeroReads(entry.mint)
-            BalanceProofWaitState.clear(entry.mint, "ZERO_REFUTED_BY_PROVIDERS_8144")
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_ZERO_REFUTED_HELD_8144")
-                ForensicLogger.lifecycle("BALANCE_PROOF_ZERO_REFUTED_HELD_8144",
-                    "mint=${entry.mint.take(10)} symbol=${entry.symbol} raw=${v.raw} heldProviders=${v.heldProviders} action=sell_not_close")
-            } catch (_: Throwable) {}
-            if (!emergencyResell8144(entry.mint, entry.desiredExitReason)) {
-                try { onProofReady?.invoke(entry.mint, entry.symbol, entry.desiredExitReason) } catch (_: Throwable) {}
-            }
+            heldRefutesAbsence8144(entry, v)
             return false
         }
         try {

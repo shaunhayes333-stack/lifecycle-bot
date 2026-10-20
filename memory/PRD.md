@@ -2,7 +2,21 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8246 (Oct 2026) — one admission path, a council not a veto chain, the runner capture as evidence
+## CURRENT: V5.0.8250 (Oct 2026) — exit finality on a two-provider absent wallet (8246 runtime: DqPWFV)
+Operator's 8246 runtime: reset restored live trading (15 sealed, 4 buys, 2 sells, SHITCOIN −4.6% / MOONSHOT −14.5%,
+−0.0056 SOL). Faults: DqPWFV CATASTROPHE latched, 8 redispatches, `SELL_ROUTE_BALANCE_PROBE` CONFIRMED_ABSENT (2
+providers), tracker STALE_RECOVERY_UNPROVEN, canonical still open 48,664,757,393 raw (the "486,647" figure is the UI
+amount of the same quantity at 5 decimals, not a second reading). Root cause: snapshot partial (Token-2022 optional
+read failing) → `SellAmountAuthority.resolve` Unknown + 7733 record cleared every poll → `BalanceProofPoller` never
+produced a zero read → no streak, no `zeroCorroborated8144`, no tracker/7736 quarantine → risk clock redispatched
+forever. **8250** `BalanceProofPoller.multiProviderAbsentIsZeroRead8250`: a CONFIRMED_ABSENT multi-provider owner+mint
+verdict (program-agnostic) is one zero read when no signed sell is unresolved and outside the 180 s fresh-buy grace;
+HELD refutes and sells; finality unchanged (streak 2 + corroboration + frozen guards; no invented sale). Also 8173 test
+aligned (n20 cell = losing, carried by stage path; n40 = proven-losing, carried by supported setup).
+Open: feature completeness 177/7035, QUALITY approved but never opened, 10 specialists without executable intents,
+PumpPortal post-funding verification, ARMED_STALL episode (mark gap, 1 episode).
+
+## V5.0.8246 (Oct 2026) — one admission path, a council not a veto chain, the runner capture as evidence
 See `memory/audits/v5_0_8241_log_audit.md` (full issue table from the 8241 runtime log). 8236 input truth across every
 trader/lane; 8237 YEARN forensic (entry mcap reconcile, runner peak arithmetic, exit reason preserved, one balance proof);
 8238 live = proven evidence only + Cortex walk-forward/median door; 8239 shadow book observed basis; 8240 supported setup
