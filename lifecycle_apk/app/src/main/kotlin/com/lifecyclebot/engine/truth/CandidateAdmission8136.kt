@@ -296,7 +296,17 @@ object CandidateAdmission8136 {
         // independently been blocking the same unclassified tokens on STAGE|LANE|UNKNOWN.
         val stageLoss = if (c.stage.equals("UNKNOWN", ignoreCase = true)) null
             else if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord
-        if (provenLosing8136(cellLoss)) { trace += "cellLosing=${cellLoss?.compact}"; return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen) }
+        if (provenLosing8136(cellLoss)) {
+            // V5.0.8240 — the cell (source|lane|mcap|age) is a lane-wide prior over every coin of that shape, exactly like
+            //    the stage record below: it names no strategy. 8241 runner ledger: MONPAD +30584% and KimWhale +2962% were
+            //    MISSED(CELL_PROVEN_LOSING) while a SUPPORTED setup (n, mean - SE and timing band clearing cost — the
+            //    token-specific strategy evidence) had fired on them. As for the stage loss (8173), the supported setup is
+            //    the strategy; without one the cell prior refuses. Economics, data and the edge test below still decide.
+            if (bestSetup == null) { trace += "cellLosing=${cellLoss?.compact}"; return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen) }
+            trace += "cellLosing=${cellLoss?.compact} carried by supported setup ${bestSetup.compact}"
+            if (chosen != bestSetup.id) chooseSetup(bestSetup.id)
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CELL_LOSS_CARRIED_BY_SUPPORTED_SETUP_8240") } catch (_: Throwable) {}
+        }
         if (staleLoss8169(c.lossEpochAware8169, c.cell, cellLoss)) trace += "$STALE_CELL_TRACE_8169${c.cell?.compact}"
         if (provenLosing8136(stageLoss) && !cellSupported && stageLatePays8198(stageLoss)) {
             trace += "stageLosing5m=${stageLoss?.compact} spared late60m=n${stageLoss?.lateN} ${fmt8136(stageLoss?.lateMeanPct ?: Double.NaN)}"
@@ -310,7 +320,7 @@ object CandidateAdmission8136 {
             // V5.0.8180 — bestSetup (SUPPORTED) was null on nearly every live candidate (thin books): the coin's own
             //    evidence at the VALID margin (a fired setup, else its own cell) carries the lane-wide stage loss too.
             val carry8180 = bestSetup ?: StageCarry8180.carry8180(c)
-            if (carry8180 == null || losing8136(cellLoss)) {
+            if (carry8180 == null || (losing8136(cellLoss) && bestSetup == null)) {
                 trace += "stageLosing=${stageLoss?.compact}"
                 return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
             }
