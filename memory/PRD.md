@@ -2,7 +2,25 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8255 (Oct 2026) — 8252 mandate repairs + integration of ChatGPT's repair/8253-integrated-forensics
+## CURRENT: V5.0.8257 (Oct 2026) — the lock was the learned book; curve reserves hydrate from the socket
+- **8257 runtime (604 s, operator report): trading again** — 3 live buys / 3 sells (2 manual) + 1 profitable partial,
+  WR 35.7 %, PF 1.39 / 14 closes (not an edge yet), wallet↔canonical↔chain MATCH, invariants 0. Status + ranked next
+  targets: `memory/audits/v5_0_8257_runtime_status.md`. CI: 8255, 8256, 8257 all green on main.
+- 8255 runtime (433 s) and 8256 runtime (327 s): FDG 0 allow / ~1,400–1,900 block; owner selected 0 in every lane.
+  ~800 blocks were learned-negative records (SETUP_RECORD_LOSING, TIMING_ADVERSE, CELL/STAGE_PROVEN_LOSING,
+  LIVE_PROVEN_SETUP_ONLY) from an 18-trade PF 0.10 book: a cold-start deadlock (nothing trades → nothing earns
+  records → everything refuses). **Operator reset learning → buys resumed at once** (confirms the diagnosis).
+- 8256 (CI green): lane-wide SHAPE_7883 bins and the watch-first lane cell yield to the candidate's own supported
+  setup (116 + 18 of 244 edge-gate admits died there in 8255).
+- 8257 (CI pending): `clearlyLosing8136` — a 12+ label record refuses live only when mean − 2·SE... i.e. mean + 2·SE
+  < 0 (or n≥30 proven); the one-SE band is advisory (traced, counted `*_THIN_ADVISORY_8257`, falls to the generic
+  prior / exploration). CurveTicks file every tick as `CurveReserves7951.noteAccount7951` → liquidity / mcap
+  hydration for curve coins no longer waits on the RPC batch (8256: LIQ_UNHYDRATED_DEFER 745, MCAP 905).
+- Still open: evidence completeness on non-curve coins (tape/shape), QUALITY/BLUECHIP/CASHGEN owner starvation
+  (NATIVE_READY thousands → pre-intent FDG DATA_INCOMPLETE), SIZE_NOT_EXECUTABLE, Cortex walk-forward, per-lane
+  end-to-end fixtures. Post-reset profitability unknown until the next runtime log.
+
+## V5.0.8255 (Oct 2026) — 8252 mandate repairs + integration of ChatGPT's repair/8253-integrated-forensics
 - 8252 (CI green): curve account IS the tape (reserve deltas → side/SOL/tokens prints, deduped vs keyed streams),
   curve subs near-decision first 32→48, launch-cap proxy stands down on proven curve buyers.
 - 8253 (CI green): runner-entry intent stamped at ADMIT (RunnerPlan keeps RUNNER_SEALED over a sealed scalp style);

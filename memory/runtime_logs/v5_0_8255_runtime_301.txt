@@ -1,0 +1,767 @@
+===== AATE Pipeline Health Snapshot =====
+Report revision: 52
+Last crash (§7717): none recorded
+Session completed trades: 0
+Lifetime completed trades: 18
+Open positions: 0
+Canonical buys/partials: 69 / 13
+Build: 5.0.8255 | Tag: 5.0.8255@b5755497a
+Captured at: 03:00:36.980
+Uptime since start: 433s
+Forensic logging: ON
+Execution state: ACTIVE
+Canonical bootstrap timeline (§7557): attempts=1 outcome=READY totalMs=1062 | timeline=[JOB_ENTERED=+0ms -> EVENT_REPLAY_START=+4ms -> EVENT_REPLAY_DONE=+12ms -> POSITION_REBUILD_START=+13ms -> POSITION_REBUILD_DONE=+14ms -> LOT_REBUILD_DONE=+14ms -> LEDGER_RESTORE_START=+14ms -> INVENTORY_REPAIR_START=+18ms -> INVENTORY_REPAIR_DONE=+18ms -> DONE=+19ms -> CANONICAL_READY=+20ms -> CORE_STORES_READY=+296ms -> LEARNING_AND_EXECUTION_STORES_READY=+453ms -> MODEL_AND_LAYER_STATE_READY=+486ms -> TRADER_PERPS_INSIGHTS_STARTING=+487ms -> TRADER_PERPS_INSIGHTS_READY=+488ms -> TRADER_CRYPTO_ALT_INIT_STARTING=+488ms -> TRADER_CRYPTO_ALT_INIT_READY=+1046ms -> TRADER_CRYPTO_ALT_START_STARTING=+1047ms -> TRADER_CRYPTO_ALT_START_READY=+1059ms -> TRADER_ENGINES_STARTED=+1060ms -> AUXILIARY_FEEDS_READY=+1062ms]
+FIRST_TRADE_READINESS_6348 ready=Y pillars=[GOVERNOR_NOT_HOLD:✓,SCANNER_LIVE_READY_QUEUE:✓,FILL_LOT_LEDGER_INIT:✓,CANONICAL_BUY_FILL_REGISTRY_INIT:✓,NO_OUTSTANDING_QUARANTINES:✓]
+🔓 GATE RELAXER (soft-start/fade): SHITCOIN ×0.85(n=11) · EXPRESS ×0.85(n=0) · MANIP ×0.90(n=1) · MOONSHOT ×0.85(n=8) · TREASURY ×0.95(n=0) · CRYPTO ×0.90(n=0) · MARKETS ×0.90(n=0) liveWR=15.8% n=19
+LIVE ENTRY AUTHORITY: hold=✅ open governor=BASELINE minScore=15 canonN=22 wr=13.6% pf=0.11 exp=-0.0032SOL hcAge=1s hcFailed=
+Root cause likely: DEGRADED/api/providers: One or more provider layers are degraded; keep fail-open where safe and avoid hot-path LLM/API dependency.
+
+===== AATE Cortex scoreboard (§7919) =====
+assessed=4800 graded=194 seated=312 pending=1046
+8187: graded/h=1603.6 binding=- clampedAtIngestion=0 lost=8 (robust means; ~raw = stored mean the cap rules out)
+lane graded strong refuse slope powers (strong/refuse = tradeable records §8153)
+MOONSHOT 256 n82/-0.0% n68/+3.3% 1.50 shadow
+SHITCOIN 229 n37/-11.4% n83/+4.9% 0.10 SUSPENDED
+CORE 219 n36/-8.4% n43/-14.4% 1.50 Rp Rl
+EXPRESS 181 n44/-2.2% n31/+22.5% 0.50 shadow
+TREASURY 146 - n46/-12.2% 1.50 Rp Rl
+PROJECT_S 141 n20/+13.9% n9/-52.8% 1.50 Rp Rl
+CASHGEN 135 - n55/-8.9% 0.00 SUSPENDED
+DIP_HUNTE 117 n2/-24.2% n56/-8.1% 0.00 SUSPENDED
+did: refusedPaper=0 refusedLive=51 overruled=0 paperChosen=0 sizedUp=0 stackOverruled=0 partialAuth=0
+shadow: refuse=76 overrule=405 choice=0 size=1146
+realised: LIVE|MOONSHOT -/n1/-14.5%/n5/-8.0% · LIVE|SHITCOIN n6/-10.0%/n1/-6.3%/n2/+0.6% (strong/neutral/refuse)
+realisedGate8136: denied=0 capped=0 (authority needs realised STRONG closes: 5+ positive, full at 20+ mean-SE>0)
+promotion8144: MOONSHOT NO_EDGE · SHITCOIN UNRESOLVED_COHORT · CORE NO_EDGE · EXPRESS UNRESOLVED_COHORT · labels repeat=19 unexec=192 unresolved=0 (authority needs walk-forward OOS mean-SE>2% on executable records)
+truth8153: lateFirstPrice=0 observedOnlyRevisions=0 unboundFiled=0 (strong/refuse columns: executable first-of-episode on-time labels; legacy decayed books in the status line)
+key: Rp/Rl refuse paper/live · O overrule (auth>=0.5) · auth graduated strong authority, scales size-up · SUSPENDED calibration < 0.5 · INVERTED strong < neutral/refuse
+
+===== Pipeline funnel (in-app mirror of CI funnel) =====
+BOT_LOOP_TICK: 107 (loop iterations)
+SCAN_CB: 5398 (processTokenCycle invocations)
+INTAKE: 720 (watchlist intake events)
+SAFETY: 1215 (safety checks)
+V3: 4036 (V3 engine ticks)
+LANE_EVAL: 7005 (lane evaluations)
+FDG: 1937 (FinalDecisionGate decision outcomes)
+EXEC: 0 (executor invocations)
+EXIT: 0 (exit gate evaluations)
+TRADEJRNL_REC: 0 (journal writes)
+
+===== EXECUTION AUTHORITY INVARIANTS 6533 =====
+V3_ALLOW_WITHOUT_FDG_OR_EXPLICIT_REJECT:0
+FDG_ALLOW_WITHOUT_EXEC_INTENT:0
+EXEC_SIGNAL_UNKNOWN_AFTER_FDG_ALLOW:0
+NON_SOLANA_TOKENMAP_HARDNO: 0
+EXECUTABLE_FANOUT_PER_CANDIDATE_GT_2:0
+PRIMARY_WITHOUT_RESCUE_WHEN_PRIMARY_REJECTS:0
+
+===== Bot-loop cycle timing =====
+Cycles seen: 107
+Avg cycle ms: 4021
+Max cycle ms: 4381
+Last 10 cycles (ms): [4025, 4040, 4058, 4056, 4047, 4277, 4197, 4270, 4120, 4381]
+
+===== Runtime stall sentinels =====
+Exit sweep start/done: 15 / 15 (late=0 skip=0 timeout=0 reset=0)
+Universal SL start/done: 15 / 15 (late=0 skip=0 timeout=0 reset=0)
+ExitCoordinator stale resets:0 (EXIT_COORDINATOR_STALE_RESET (should be ~0 in steady state; see event fields for lock age))
+Supervisor cap/sat: 69 / 0 (expiredLeases=0 workerTimeout=0 recent2m=0)
+Paper soft-loss holds: 0 (1086 gate delaying fake instant paper losses)
+UI inactive skips: 0 (should be near zero while Main is visible)
+
+===== Canonical active inventory by lane (mode=live) =====
+Canonical ShitCoin mints: 0 (canonical mode+mint authority)
+Canonical Moonshot mints: 0 (canonical mode+mint authority)
+Canonical active mints (current mode):0 (wallet/slots/occupancy/sizing source)
+Canonical PAPER active mints:0 (mode+mint projection)
+Canonical LIVE active mints:0 (mode+mint projection)
+Canonical active mints (all modes):0 (diagnostic union only)
+Host wallet projection: 0 (LIVE wallet projection only; not paper authority)
+Host projection gap (§7948): none (canonical=0 host=0)
+Chain reconcile (§8144): reconcile8144 ok=false inventory=UNVERIFIED_CHAIN_PARTIAL exceptions=0 causes[none] states[PARTIAL_CHAIN_OBSERVED=0,MATCHED=0,FROZEN_HELD=0,DUST=0,PENDING_TX=0,QUARANTINED=0,OWNER_UNOWNED=1] lineageResolvedSells=1 buys=24 sells=22 lots=0 chainMints=1 ageS=41 runs=6 | lineage8144 records=53 [PENDING_PROMOTION=48,WALLET_RECOVERY=4,OBSERVED_MARK_ADOPTION=1] loaded=53 written=0 durable=true pending=0 dupSigBlocked=0 started=true sigRecovered8169=0 sigAmbiguous8169=0
+LAB sandbox projection: 5 (isolated hypotheses; never canonical inventory)
+Held supervisor (§7246): held=0 fresh=0 staleRefresh=0 missing=0 suppressedRefresh=0 discoveryResident=0
+Read: canonical active mints are the only slot/capital inventory count; HELD must report discoveryResident=0 after handoff.
+
+🎭 Personality tune: size×1.00 · floor+0 · TP+-0.2% · trail×1.00
+
+===== Gate allow / block tally =====
+FDG: allow=0 block=1937
+INTAKE: allow=0 block=83
+SAFETY: allow=500 block=10
+V3: allow=393 block=0
+
+===== Top block reasons (gate -> reason) =====
+FDG/CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_:337
+FDG/CANDIDATE_ADMISSION_8136_SETUP_RECORD_LO:314
+FDG/DATA_INCOMPLETE_DEFER_8136:291
+FDG/CANDIDATE_ADMISSION_8136_EXECUTION_ECONO:266
+FDG/LIVE_PROVEN_SETUP_ONLY_8059:189
+FDG/CANDIDATE_ADMISSION_8136_CELL_PROVEN_LOS:129
+INTAKE/PAIR_PENDING_HYDRATION:83
+FDG/CANDIDATE_ADMISSION_8136_STAGE_PROVEN_LO:83
+FDG/EDGE_7877_SHAPE_7883_AGE_MIN_60-240_n107:53
+FDG/SIZE_NOT_EXECUTABLE_7835:33
+FDG/EDGE_7877_SHAPE_7883_PEAK_POS_0.70-0.88_:26
+FDG/CORTEX_7885_C6_SETUP_DEAD_8082_SHITCOIN:19
+FDG/WATCH_FIRST_7994_CELL_NEGATIVE:18
+FDG/EXPLORATION_DAMPED_DUST_PROBE_6747:18
+FDG/EDGE_7877_SHAPE_7883_AGE_MIN_60-240_n88_:15
+FDG/COST_EXCEEDS_EDGE_7962_SHITCOIN:12
+FDG/FALLING_KNIFE_8130: 12
+FDG/EDGE_7877_SHAPE_7883_AGE_MIN_3-15_n117_-:11
+FDG/EDGE_7877_SHAPE_7883_AGE_MIN_3-15_n121_-:11
+FDG/DUST_PROBE_SHADOW_ONLY_8080:10
+
+===== Top V3 reject reasons (REJECTED_FATAL_V3) =====
+LOW_LIQUIDITY: 465
+SCORE_TOO_LOW: 67
+LIQ_UNHYDRATED_DEFER_8140: 14
+LIQ_UNHYDRATED_TERMINAL_8144:3
+
+===== Intake by source =====
+PROBATION: 210
+SCANNER_DIRECT_MARKET_HUNT_SHITCOIN:73
+HOT_CONVICTION_WARMUP_6282: 48
+SCANNER_DIRECT_RAYDIUM_NEW_POOL:38
+SCANNER_DIRECT_DEX_BOOSTED: 33
+SCANNER_DIRECT_MARKET_HUNT_PROJECT_SNIPE:24
+SCANNER_DIRECT_MARKET_HUNT_BLUECHIP:23
+SCANNER_DIRECT_MARKET_HUNT_MOONSHOT:21
+SCANNER_DIRECT_PUMP_FUN_NEW:19
+SCANNER_DIRECT_MARKET_HUNT_QUALITY:17
+SCANNER_DIRECT_DEX_TRENDING:15
+DEX_TRENDING: 15
+MARKET_HUNT_SHITCOIN: 14
+TREASURY_FEED_7299: 14
+SCANNER_DIRECT_SOLANA_BLUECHIP_WATCHLIST:12
+SCANNER_DIRECT_MARKET_HUNT_DIP_HUNTER:11
+MARKET_HUNT_PROJECT_SNIPER: 7
+PUMP_PORTAL_WS: 6
+MARKET_HUNT_MOONSHOT: 6
+SCANNER_DIRECT_MARKET_HUNT_EXPRESS:5
+
+===== LANE_EVAL by lane =====
+MOONSHOT: 1891
+SHITCOIN: 1692
+QUALITY: 971
+CASHGEN: 910
+BLUECHIP: 707
+TREASURY: 504
+EXPRESS: 106
+DIP_HUNTER: 95
+MANIPULATED: 80
+PROJECT_SNIPER: 49
+
+===== LANE_EVAL shadow/read-only by lane =====
+V3_CORE: 3602 (read-floor; no FDG/exec)
+STANDARD: 3602 (read-floor; no FDG/exec)
+
+===== QUALITY-only runtime leak audit =====
+Policy: hardQualityOnly=false forcedPrimary=none disabled=
+Active mitigations: none
+Active QUALITY eval: 971
+Active non-QUALITY eval: 6034 MULTI_LANE_ACTIVE
+Suppressed non-QUALITY eval: 0
+Shadow/read-only non-QUALITY eval: 7204
+Active QUALITY FDG: 530
+Active non-QUALITY FDG: 1407 MULTI_LANE_ACTIVE
+Suppressed non-QUALITY FDG: 0
+
+===== Top intaked symbols =====
+Gary: 116 (intake hits)
+Xitter: 34 (intake hits)
+FREDDY: 22 (intake hits)
+evolution: 14 (intake hits)
+MOON: 6 (intake hits)
+GCATS: 5 (intake hits)
+FOMO: 4 (intake hits)
+HLPuUk7Rwk8133oGdewT: 4 (intake hits)
+d: 4 (intake hits)
+Xittered: 4 (intake hits)
+Apple: 4 (intake hits)
+wqyjZfZEMAa3UZFvxgYP: 4 (intake hits)
+UNICORN: 4 (intake hits)
+BURR: 4 (intake hits)
+Jamie: 4 (intake hits)
+
+===== LIVE execution telemetry (event-attributed) =====
+FDG allow/block: 0 / 1937
+EXEC attempt: 0
+BUY ok/fail: 0 / 0
+SELL ok/fail/pending: 0 / 0 / 0
+Recent journal rows: 0
+Execution leases: buy=0 sell=0 backoff=0
+SourceChoke4584 preFdg=[V3_SCORER_COMPONENTS|V3_SCORER=2795 · SRC|DEX_TRENDING=2279 · SRC|WATCHLIST_HIGH_TOUCH,HOT_CONVICTION_WARM=1082 · PRE_FDG_CANDIDATE|MOONSHOT=904 · PRE_FDG_ADMIT|MOONSHOT=903] preFdgReject=[SHITCOIN|HARD BLOCK: Low liquidity 100)=6 · SHITCOIN|Insufficient data: thin_data hist=2=2 · SHITCOIN|Insufficient data: bootstrap=1 · SHITCOIN|All quality gates failed=1] sellJournal=[ACCOUNTING_QUARANTINED|CRYPTO_ALT|CROSS_ASSET_HISTORY_REPAIR_6660=18 · ACCOUNTING_QUARANTINED|CRYPTO_ALT|PARTIAL_BELOW_PROFIT_FLOOR_SCRATCH=5 · ACCOUNTING_QUARANTINED|CRYPTO_ALT|PARTIAL_BELOW_PROFIT_FLOOR_LOW_PROFIT=1] stop=[none avgStopMs=0 overrun=0/0] learningQuarantine=[TOKEN_WIN_MEMORY_SHADOW_SOURCE=23]
+
+===== PAPER execution telemetry (event-attributed) =====
+TRADEJRNL_SPLIT liveRows=0 paperRows=0 partialRows=0 quarantinedRows=0
+FDG allow/block: 0 / 0
+BUY ok: 0
+SELL ok: 0
+PARTIAL ok: 0
+PAPER_JOURNAL_ROWS: 0
+PAPER_QUARANTINED_ROWS: 0
+Recent journal rows: 0
+Counter parity: OK paperOk=0 rows=0
+
+===== LIVE QUALITY FUNNEL (V5.0.6312) =====
+Redirected to shadow: 0
+Bypass-denylist blocks: 0 (denylisted labels never authorize live)
+Safety-hold buy blocks: 0
+DNA early-veto (pre-lease): 0
+DNA weak-sample advisory: 0
+Mint re-entry cooldown: 0 (active mints=0)
+Live entry allowed: 0
+Governor: baseline / tight / hold: 109 / 0 / 0
+
+===== CANONICAL LIVE PERFORMANCE (finalised/reconciled only) =====
+Canonical N: 22
+Wins / Losses: 3 / 19
+Win rate: 13.6%
+Profit factor: 0.11
+Expectancy per trade: -0.0032 SOL
+Excluded from canon: broadcast=0 duplicate=0 quarantined=0
+Chain-proven live rows kept (§8041): 293 (no % ceiling / basis check on on-chain trades)
+
+===== QUANTITY / DECIMAL INTEGRITY [SESSION HISTORICAL COUNTERS] =====
+Decimal skew audit: 0
+Skew learning quarantine: 0
+Buy qty wallet backfill: 0
+Sell wallet-clamp events: 0
+Sell unknown-balance adv: 0
+Liq-halved mark invalidated: 0
+Position alias merges: 0
+Exit reason invariant fail: 0
+Phantom qty healed: 0
+===== MEME SPECIALIST ROLE LIVENESS =====
+QUALITY runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636817 queueOwner=BotService:QUALITY queueDepth=1 candidateN=1943 qualifiedN=1477 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_MCAP_TOO_LOW=1588,NATIVE_MCAP_TOO_HIGH_FOR=1066,NATIVE_READY=764,FDG_CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136=268 openPositions7809=0 residentOwnLane7815=233 residentReady7815=13 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=3553 nativeAllow=764 nativeReject=2789 nativeErr=0 nativeEligible=false nativeScore=0 nativeConf=0 nativeReason=MCAP too low: $2972 < $75000 liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D929>Q291>E0/F25/R116/S2/X65/DD0/I76_open7_rescue8144=c97/a28>s0>e50>f0>x0>k0
+BLUECHIP runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636817 queueOwner=BotService:BLUECHIP queueDepth=1 candidateN=2318 qualifiedN=1694 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_MCAP_TOO_LOW=2219,NATIVE_READY=1043,FDG_CANDIDATE_ADMISSION_8136_EXECUTION_ECONOMICS_8136=278,FDG_DATA_INCOMPLETE_DEFER_8136=102 openPositions7809=0 residentOwnLane7815=256 residentReady7815=21 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=3288 nativeAllow=1043 nativeReject=2245 nativeErr=0 nativeEligible=false nativeScore=0 nativeConf=0 nativeReason=MCAP_TOO_LOW: 1M liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D848>Q341>E0/F21/R58/S21/X193/DD0/I32_open16_rescue8144=c52/a4>s0>e25>f0>x0>k0
+SHITCOIN runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636817 queueOwner=BotService:SHITCOIN queueDepth=0 candidateN=733 qualifiedN=723 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_READY=1526,NATIVE_LANE_LIQ_UNHYDRATED_DEFER=1089,NATIVE_LANE_LIQ_BELOW_FLOOR=717,NATIVE_TOO_OLD=625 openPositions7809=0 residentOwnLane7815=69 residentReady7815=21 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=4772 nativeAllow=1526 nativeReject=3246 nativeErr=0 nativeEligible=false nativeScore=0 nativeConf=0 nativeReason=LANE_LIQ_UNHYDRATED_DEFER_8140_SHITCOIN liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D2364>Q594>E0/F37/R48/S28/X293/DD0/I104_open84_rescue8144=c40/a2>s0>e17>f0>x0>k0
+CYCLIC runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636817 queueOwner=BotService:CYCLIC queueDepth=0 candidateN=755 qualifiedN=632 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_SELLABILITY_REJECT=235,NATIVE_READY=94,NATIVE_PRICE_NOT_FRESH=72,NATIVE_CYCLIC_SCORE_BELOW_FLOOR=39 openPositions7809=0 residentOwnLane7815=76 residentReady7815=2 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=440 nativeAllow=94 nativeReject=346 nativeErr=0 nativeEligible=false nativeScore=0 nativeConf=0 nativeReason=SELLABILITY_REJECT liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D120>Q20>E0/F0/R0/S4/X3/DD0/I12_open1_rescue8144=c3/a0>s0>e0>f0>x0>k0
+EXPRESS runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636817 queueOwner=BotService:EXPRESS queueDepth=0 candidateN=129 qualifiedN=112 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_NO_CONTINUATION=1190,NATIVE_LANE_LIQ_UNHYDRATED_DEFER=1089,NATIVE_LANE_LIQ_BELOW_FLOOR=811,NATIVE_NATIVE_MOMENTUM_UNOBSERVED_DEFER=402 openPositions7809=0 residentOwnLane7815=14 residentReady7815=2 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=3931 nativeAllow=130 nativeReject=3801 nativeErr=0 nativeEligible=false nativeScore=0 nativeConf=0 nativeReason=LANE_LIQ_UNHYDRATED_DEFER_8140_EXPRESS liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D2143>Q61>E0/F3/R10/S5/X19/DD0/I13_open11_rescue8144=c6/a1>s0>e3>f0>x0>k0
+CORE runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636796 queueOwner=BotService:CORE queueDepth=0 candidateN=490 qualifiedN=490 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_CORE_YIELD_CLEAR_SPECIALIST=4827,NATIVE_READY=973 openPositions7809=0 residentOwnLane7815=64 residentReady7815=24 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=5800 nativeAllow=973 nativeReject=4827 nativeErr=0 nativeEligible=false nativeScore=0 nativeConf=0 nativeReason=CORE_YIELD_CLEAR_SPECIALIST_OWNER liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D2710>Q425>E0/F0/R0/S6/X244/DD0/I108_open67_rescue8144=c2/a0>s0>e0>f0>x0>k0
+MOONSHOT runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636807 queueOwner=BotService:MOONSHOT queueDepth=0 candidateN=1030 qualifiedN=980 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_READY=2603,NATIVE_NATIVE_MCAP_UNHYDRATED_DEFER=1422,NATIVE_LANE_LIQ_BELOW_FLOOR=928,LANE_RUGCHECK=759 openPositions7809=0 residentOwnLane7815=107 residentReady7815=46 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=5434 nativeAllow=2603 nativeReject=2831 nativeErr=0 nativeEligible=false nativeScore=0 nativeConf=0 nativeReason=LANE_LIQ_UNHYDRATED_DEFER_8140_MOONSHOT liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D2529>Q760>E0/F77/R191/S9/X283/DD0/I104_open96_rescue8144=c80/a12>s20>e55>f0>x0>k0
+PROJECT_SNIPER runtimeAlive=true trafficSeen=false candidateQualified=false executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636817 queueOwner=BotService:PROJECT_SNIPER queueDepth=0 candidateN=0 qualifiedN=0 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=DEAD preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_BIRTH_METADATA_HYDRATING=1152,NATIVE_PHASE_HANDOFF=528,NATIVE_SNIPER_TERMINAL=68,NATIVE_PREIGNITION_FLOW_NOT_PROVEN=2 openPositions7809=0 residentOwnLane7815=24 residentReady7815=0 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=1752 nativeAllow=0 nativeReject=1752 nativeErr=0 nativeEligible=false nativeScore=0 nativeConf=0 nativeReason=PHASE_HANDOFF_8136_BIRTH_TO_MOONSHOT_NO_EARLY_INTEREST liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D1328>Q0>E0/F0/R0/S0/X0/DD0/I0_open0_rescue8144=c0/a0>s0>e0>f0>x0>k0
+DIP_HUNTER runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636817 queueOwner=BotService:DIP_HUNTER queueDepth=0 candidateN=3 qualifiedN=1 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_MCAP_TOO_HIGH=728,NATIVE_NOT_A_DIP=584,NATIVE_LIQ_RATIO_LOW=278,NATIVE_NO_BOUNCE_CONFIRMATION_DIP=134 openPositions7809=0 residentOwnLane7815=15 residentReady7815=0 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=1984 nativeAllow=4 nativeReject=1980 nativeErr=0 nativeEligible=false nativeScore=0 nativeConf=0 nativeReason=NOT_A_DIP: 0.0% < 15% liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D611>Q3>E0/F0/R0/S1/X0/DD0/I2_open0_rescue8144=c0/a0>s0>e0>f0>x0>k0
+MANIPULATED runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636816 queueOwner=BotService:MANIPULATED queueDepth=0 candidateN=99 qualifiedN=86 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_MCAP_UNHYDRATED_DEFER=1422,NATIVE_MCAP_TOO_LOW=1322,NATIVE_TOKEN_TOO_OLD=902,NATIVE_READY=133 openPositions7809=0 residentOwnLane7815=13 residentReady7815=4 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=3920 nativeAllow=13 nativeReject=3907 nativeErr=0 nativeEligible=false nativeScore=0 nativeConf=0 nativeReason=MCAP_TOO_LOW liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D2135>Q38>E0/F4/R21/S1/X1/DD0/I9_open2_rescue8144=c5/a6>s0>e8>f0>x0>k0
+TREASURY runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636817 queueOwner=BotService:TREASURY queueDepth=0 candidateN=1783 qualifiedN=1199 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_TREASURY_ROLE_FLOOR=2093,NATIVE_NEUTRAL_MOMENTUM_BALANCED_BOOK=615,NATIVE_WEAK_MOMENTUM=308,FDG_CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136=70 openPositions7809=0 residentOwnLane7815=256 residentReady7815=2 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=3131 nativeAllow=16 nativeReject=3115 nativeErr=0 nativeEligible=false nativeScore=50 nativeConf=50 nativeReason=TREASURY_ROLE_FLOOR_8031 liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D814>Q59>E0/F0/R2/S0/X1/DD0/I56_open0_rescue8144=c54/a1>s0>e1>f0>x0>k0
+CASHGEN runtimeAlive=true trafficSeen=true candidateQualified=true executionEligible=true pendingExecutableTicket=false heartbeatAtMs=1792515636817 queueOwner=BotService:CASHGEN queueDepth=0 candidateN=822 qualifiedN=765 ownerSelectedN=0 buyIntentN=0 fdgN=0 markN=0 sizedN=0 ticketN=0 execN=0 positionOpenedN=0 finalizedN=0 learningN=0 phantomSizedOnly=0 capitalAvailable=SHARED_CANONICAL status=REFUSED_BEFORE_INTENT_7951 rawStatus7809=INTENT_CHOKED preSizeRefusals7809=NONE preIntentRefusals7951=NATIVE_READY=1360,FDG_CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136=332,FDG_CANDIDATE_ADMISSION_8136_SETUP_RECORD_LOSING_8136=290,FDG_DATA_INCOMPLETE_DEFER_8136=156 openPositions7809=0 residentOwnLane7815=101 residentReady7815=26 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=1593 nativeAllow=1360 nativeReject=233 nativeErr=0 nativeEligible=true nativeScore=52 nativeConf=80 nativeReason=TREASURY_ENTRY: score=52 (liq+20,buy+25,mom+10,holder-10,mode+5,src_DEXSCREENER_LISTED_2) liveQuarantine=false buyerEnabled=true ownershipModel=SELF election8136=D473>Q418>E0/F82/R24/S31/X196/DD6/I67_open12_rescue8144=c32/a6>s0>e20>f0>x0>k0
+PROJECT_SNIPER_NON_SNIPER_ADMISSION = 0
+
+===== MEME SPECIALIST CAPITAL =====
+QUALITY targetAllocation=9.75%(advisory) targetSol=0.0289(advisory) enforcedTargetSol=0.0256 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+BLUECHIP targetAllocation=9.75%(advisory) targetSol=0.0289(advisory) enforcedTargetSol=0.0256 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+SHITCOIN targetAllocation=7.64%(advisory) targetSol=0.0227(advisory) enforcedTargetSol=0.0201 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+CYCLIC targetAllocation=9.75%(advisory) targetSol=0.0289(advisory) enforcedTargetSol=0.0256 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+EXPRESS targetAllocation=9.75%(advisory) targetSol=0.0289(advisory) enforcedTargetSol=0.0256 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+CORE targetAllocation=9.75%(advisory) targetSol=0.0289(advisory) enforcedTargetSol=0.0256 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+MOONSHOT targetAllocation=8.07%(advisory) targetSol=0.0239(advisory) enforcedTargetSol=0.0212 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+PROJECT_SNIPER targetAllocation=2.44%(advisory) targetSol=0.0072(advisory) enforcedTargetSol=0.0256 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+DIP_HUNTER targetAllocation=4.13%(advisory) targetSol=0.0122(advisory) enforcedTargetSol=0.0256 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+MANIPULATED targetAllocation=9.49%(advisory) targetSol=0.0282(advisory) enforcedTargetSol=0.0249 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+TREASURY targetAllocation=9.75%(advisory) targetSol=0.0289(advisory) enforcedTargetSol=0.0256 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+CASHGEN targetAllocation=9.75%(advisory) targetSol=0.0289(advisory) enforcedTargetSol=0.0256 enforcedUtil=0.00x enforcedHeadroom=true availableAllocation=sharedCash:0.2969 usedAllocation=0.0000 openPositions=0 pendingIntents=0 capitalStarved=false capitalRefusals7194=0 capitalDemand7951=0 starvedByLane=NONE allocationDecisionSource=LIVE_WALLET_AUTHORITY_6686+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE
+
+===== MEME SPECIALIST CAUSAL FUNNEL =====
+QUALITY discovered=1943 qualified=1477 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+BLUECHIP discovered=2318 qualified=1694 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+SHITCOIN discovered=733 qualified=723 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+CYCLIC discovered=755 qualified=632 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+EXPRESS discovered=129 qualified=112 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+CORE discovered=490 qualified=490 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+MOONSHOT discovered=1030 qualified=980 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+PROJECT_SNIPER discovered=0 qualified=0 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+DIP_HUNTER discovered=3 qualified=1 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+MANIPULATED discovered=99 qualified=86 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+TREASURY discovered=1783 qualified=1199 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+CASHGEN discovered=822 qualified=765 ownerSelected=0 buyIntent=0 fdgAllow=0 fdgBlock=0 markReady=0 markReject=0 sizedExecutable=0 sizeReject=0 ticket=0 exec=0 positionOpened=0 exit=0 sellAttempt=0 sellConfirmed=0 finalized=0 learningDelivered=0 phantomSizedOnly=0
+ownerLaneChangedAfterSelection=0
+crossLaneExecutionRewrite=0
+telemetryOnlySuppression=0
+missingExecutableMarkWithValidSource=0
+specialistLearningMissing=0
+sellCanonicalLookupFailure=0
+LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT=0
+LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE=0
+SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME=0
+
+===== MEME EXECUTION FUNNEL RECEIVERS (V5.0.6625) =====
+§P2 EXPRESS_HANDOFF intent=0 markOK=0 markMissing=0 sizedPos=0 sizedZero=0 ticketSealed=0 executed=0 superseded=0 rejected=0 stale=0 liveNoTerminal=0
+§P3 PENDING_BACKLOG pending=0 agedOut=0 consumed=0 byLane={}
+§P4 MOONSHOT_EXIT_TX live=0 firstAttempts=0 retries=0 terminated=0
+§P5 CAUSAL_FUNNEL records=10105 indexedLanes=11 evicted6899=0 softCap=12000
+§P6 UI_OFF_MAIN_AUDIT longRuns=0 top=[]
+§P7 RUNTIME_HEALTH_PANEL
+┌─ RUNTIME HEALTH ─────────────────────────────────┐
+│ BASIS sealed=0 refused=0 veto=0
+ │ agree=0 idempotent=0
+ │ SELL unique=70 redispatch=0
+ │ alreadyClosing=0 reconciler=0
+ │ WALLET pnlAllowed=0 pnlSuppressed=87
+ │ buckets=BOT=0,EXT=1,QUA=0,UNS=0
+│ MARK broken=111 uncorroborated=0
+ │ venueMissing=0 suppressed=111
+ │ REPAIR requested=245 ok=93 fail=152
+ │ cacheHits=0 stale=0 size=11
+│ failBy=NO_FEED_ANSWERED=152 skippedNonSolana=0
+│ LIFT allowed=0 refusedWeak=0
+ │ (score=0,regime=0,proof=0,cmpst=0)
+│ LIVE terminal=52 broadcastReads=0
+ │ unknownReads=0
+ │ FREEZE allowed=0 blockActive=0
+ │ blockUnverified=0
+ │ SCORE floor=30 allowed=0 blocked=0
+ │ FANOUT fdgCapped=0 laneCapped=0
+ │ advisoryUngoverned=0 chains=0
+└──────────────────────────────────────────────────┘
+§P7 RUNTIME_HEALTH_ONELINE HEALTH7234 basisVeto=0 sellUnique=70/redispatch=0 walletPnlSup=87 markSup=111 repairOk=93/245 liftRefWeak=0 broadcastPredicateReads=0 freezeBlock=0 scoreFloorBlock=0 fanoutFdgCap=0
+===== LIVE PREFLIGHT (V5.0.7222) — would this bot trade live right now? =====
+mode=LIVE PASS=11 REFUSE=0 UNKNOWN=1
+✅ PASS WALLET_READ walletSol=0.2969 (LIVE_WALLET_AUTHORITY_6686)
+✅ PASS KILL_SWITCH SIZE_DOWN_NOT_HALT_7864: DD 31%/25% (marked live equity vs 24h peak) | liveDD=31.4% equity=0.2969 peak24h=0.4327 peakAgeMin8169=550 peakRiseFrozen8169=0 pendingFlow8169=false externalFlows7981=0 tradeLagCancelled7986=0 netExternal=+0.0000 basis=[live equity = liquid SOL + marked open live positions vs rolling-24h peak (paper excluded)] equity8136=[liquid=0.2969 reservedTx=0.0060 openPrincipal=0.0000 validatedUpnl=+0.0000 settledRealised=-0.0673 netExternal=+0.0000 risk=0.2969 marked=0.2969 tradeable=0.2908] peakEvent8188=[recorded=0.4279 ageMin=550 origin=NEW_HIGH liquid=0.3381 principal=0.0922 upnl=-0.0025 unverifiedPrincipalExcluded=0.0000 marks=hero6503:UNIFIED_ACCOUNT_SNAPSHOT_6635:FAILED ageMs=268 rev=-1 liveOpen=3 lossIncluded] rebases8188=[applied=3 net=+0.0048 refusedNotInWallet=4 refusedSettlement8223=1 totalRefused=0 effective=0.4327 last=REFUSED_NOT_IN_WALLET:residual=+0.0297,liquid=+0.0072,0.4327->0.4327,ageMin=299]
+✅ PASS SOL_PRICE solUsd=106.50
+✅ PASS ROUTABLE_CAPACITY reserve7951=0.0060 tradeable=0.2908 routableMin=0.02817 capacity=10 shareGuard=0.250 safeShareCap=0.07271 minViableWalletSol=0.0342 (§7218 via SmartSizerV3.routableCapacityPreflight7224)
+✅ PASS GOVERNOR state=BASELINE recovery=SOFT_TIGHT shapingOnly=true (§7398); hard execution safety is checked by wallet/route/finality authorities
+ℹ️ INFO RECOVERY_MACHINE state=SOFT_TIGHT allowBuys=true sizing=SOFT_TIGHT
+✅ PASS RPC_LADDER_HEAD head=mainnet.helius-rpc.com candidates=4 (preferred endpoint leads)
+✅ PASS JUPITER_QUOTE jupiter_quote: transport=100% routeAcceptance=25% (candidate 4xx excluded from outage health)
+⚪ UNKNOWN JUPITER_SEND jupiter_send: no samples this session
+✅ PASS HELIUS helius: sr=99%
+ℹ️ INFO HELIUS_SENDER no sender-compatible tx attempted yet; eligible order=Helius Sender -> Jito -> RPC
+✅ PASS EXIT_SCOPE account=live exitScope=0 lifecycleOpen=0 drainedOutOfScope=0 quarantined=0 (§7213)
+✅ PASS EXIT_SCHEDULER serviceAgeMs=139
+✅ PASS TOKEN_ARCHIVE rows=2511 dirty=13 writes=8622 flushFailed=0 decimalsKnown=449
+ℹ️ INFO MARK_STAGE_LIVE live Executor stamps MARK_READY/MARK_REJECT from the exact canonical entry snapshot and immutable intent (§7790); a zero live MARK count now means causal mark continuity is genuinely missing
+ℹ️ INFO SHADOW_BOOK open=15/60 opens=21 closes=6 wins=0 losses=6 wr=0.0% avgPnlPct=-20.61 skipDup=202 skipNoPrice=68 evictedUnclosed=0 acceptanceJ=NOT_MET_needs_20_closes
+===== ENTRY FUNNEL STAGE ACCOUNTING (V5.0.7214) =====
+SPECIALIST_STAGE_BLANK_CAUSAL_ID_REJECTED_6647 0
+SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647 3
+ADVISORY_SIZE_STAMP_WITHHELD_6893 0
+MARK_PROMOTED_BEFORE_CAUSAL_IDENTITY_6883 0
+TICKET_WITHOUT_MARK_VERDICT_7221 0
+FUNNEL_STAGE_COUNT_SUPPRESSED_7214 0
+FUNNEL_SIZING_CHOKED_CONTRADICTED_BY_RESOLVER_7214 0
+GATE_BLOCK_REASON_UNEXPLAINED_7213 0
+LIVE_FLOOR_CONCENTRATED_TO_ROUTABLE_CAPACITY_7218 0
+LIVE_FLOOR_WALLET_BELOW_ROUTABLE_CAPACITY_7218 0
+LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127 0
+SMART_SIZER_V3_DUST_PROMOTED_6271 0
+COST_EXCEEDS_EDGE_REFUSED_7162 0
+COST_EDGE_CLEARED_7162 0
+COST_EDGE_ZERO_WITH_LANE_EVIDENCE_7162 0
+COST_EDGE_ZERO_IMMATURE_EVIDENCE_PROCEEDS_7265 0
+RUNNER_LOCK_SCALED_BAND_7265 1
+MOONSHOT_ZONE_DROPPED_AFTER_ADMISSION_7265 53
+FDG_SUPPRESSED_FANOUT_CAP_7232 0
+CANONICAL_FLOOR_FLUID_BELOW_MATURE_7266 2977
+CANONICAL_FLOOR_FLUID_ABOVE_MATURE_7266 0
+REGIME_OWN_TIGHTEN_FLUID_7266 2
+MOONSHOT_RUNNER_SHAPED_FLOOR_ADMIT_7266 0
+EXIT_BAND_LANE_TUNED_7267 0
+MOONSHOT_MIN_SCORE_LEARNED_7267 0
+ANTI_REWARD_HACK_TOLERANCE_FLUID_7267 0
+ANTI_REWARD_HACK_LANE_EARNED_ALLOW_7267 0
+TOKEN_METRICS_UNVERIFIABLE_CAP_STALE_7268 0
+TOKEN_METRICS_PRICE_CORROBORATED_CAP_DISAGREES_7268 0
+MARK_IDENTITY_CLEARED_CAP_STALE_7268 0
+MARK_MCAP_RECONCILE_SKIPPED_CAP_STALE_7268 0
+METRICS_IDENTITY_BROKEN_7069 472
+MARK_MCAP_DIVERGENCE_CORRECTED_7059 0
+TICK_PROFIT_LOCK_EXEC_PRICE_REBASE 0
+KEYLESS_MARK_JUPITER_QUOTE_7269 1
+KEYLESS_MARK_PUMP_CURVE_RPC_7269 62
+PUMP_CURVE_RPC_COMPLETE_SKIPPED_7269 44
+PUMP_CURVE_KEY_REMEMBERED_7269 332
+MCAP_REFRESHED_FROM_STACK_7269 0
+MCAP_REFRESH_AWAITING_SUPPLY_7269 0
+ENTRY_BASIS_SEED_INVALID_7270 0
+INTAKE_PRICE_NOT_SEEDED_GLOBAL_CAP_7270 0
+OPEN_POS_TICK_GAP_SLOW_7270 86
+PEGGED_ASSET_LANE_SKIPPED_7270 0
+SYNTH_PAIR_SOURCE_PRESERVED_7271 2254
+SYNTH_PAIR_EVIDENCE_UNDATED_7271 225
+PAPER_SELL_REFUSED_ABSURD_GAIN_UNCORROBORATED_7271 0
+PAPER_SELL_ABSURD_GAIN_CORROBORATED_BOOKED_7271 0
+UNIVERSAL_SL_EVAL_SKIPPED_INFLIGHT_7271 0
+CANONICAL_MARK_REJECTED_CYCLE_CONTINUED_7043 463
+PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_CHAIN 0
+PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_REPAIR 0
+PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_FANOUT 0
+PAPER_SELL_GAIN_ON_DEMAND_DISAGREED_7272 0
+MARK_CONTESTED_NOT_APPLIED_7273 0
+MCAP_STACK_REBUILD_BASIS_MISMATCH_7273 0
+EXIT_CACHE_HYDRATE_JUMP_REJECTED_7273 0
+PAPER_SELL_REFUSED_ABSURD_LOSS_CONTRADICTED_7273 0
+ENTRY_HYDRATION_FANOUT_PRICED_7273 14
+ENTRY_HYDRATION_FANOUT_CORROBORATED_7273 2
+ENTRY_HYDRATION_FANOUT_CONTESTED_7273 3
+ENTRY_HYDRATION_FANOUT_EMPTY_7273 21
+EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613 0
+OPEN_POS_LOOP_TICK_6983 87
+MARK_BATCH_EMPTY_6970 0
+EXIT_MARK_REFRESH_ADVANCED_7225 0
+QUICK_RUNNER_EMERGENCY_FULL_EXIT 0
+DYN_MARK_SOLANA_RESCUE_BEFORE_CARRY_7274 22
+CROSS_ASSET_MARK_FROM_SOLANA_FANOUT_7274 0
+CROSS_ASSET_SOLANA_FANOUT_CONTESTED_7274 0
+CROSS_ASSET_SOLANA_FANOUT_EMPTY_7274 0
+PAPER_SELL_DEAD_TOKEN_REFUSED_MARK_FOUND_7274 0
+PAPER_SELL_DEAD_TOKEN_UNOBSERVED_FILL_7274 0
+STRATEGY_ECONOMIC_UNTRUSTED_EXCLUDED_7274 0
+STRATEGY_FORENSIC_EXCLUDED_UNOBSERVED_PAPER_FILL_72740
+CRYPTO_PAPER_ENTRY_BASIS_OBSERVED_7275 0
+CRYPTO_PAPER_ENTRY_BASIS_MOVED_FROM_SCAN_7275 0
+CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275 0
+CRYPTO_PAPER_ENTRY_BASIS_CONTESTED_7275 0
+CANDIDATE_VERSION_LATCHED_TO_FDG_ALLOW_7276 0
+CANONICAL_FLOOR_RAISE_CAPPED_AT_LOSS_BAND_7276 0
+EXPECTED_EDGE_ASYMMETRIC_LANE_READ_7276 0
+LLM_RATE_LIMIT_ROTATED_NOT_BENCHED_7276 1
+LLM_GENERIC_CATALOGUE_7276 2
+LLM_GENERIC_CATALOGUE_UNREAD_7276 0
+LLM_GENERIC_MODEL_ROTATED_7276 1
+LLM_EXTRA_ENDPOINTS_CONFIGURED_7276 0
+LLM_GEMINI_MODEL_ROTATED_7276 0
+RPC_LADDER_HELIUS_LEADS_PUBLIC_SAVED_RPC_7277 0
+RUNNER_GIVEBACK_LOCK_DEFERRED_UNDER_MIN_PEAK_7277 0
+RUNNER_EARLY_CUT_FIRST_STRIKE_7277 0
+RUNNER_TP_MULT_HELD_AT_NEUTRAL_7277 0
+FAST_LANE_EVALUATED_7277 8
+FAST_LANE_SATURATED_7277 0
+SMART_MONEY_RUNNER_MINED_7277 0
+SMART_MONEY_RUNNERS_UNMINED_NO_HELIUS_7277 0
+SMART_MONEY_WALLET_PROMOTED_7277 2
+SMART_MONEY_LEADERBOARD_SEEDED_7277 0
+SMART_MONEY_PUSH_BUY_DETECTED_7277 0
+SMART_MONEY_COPY_BUY_ENQUEUED_7277 3
+SMART_MONEY_COPY_SIGNAL_DISABLED_IN_SETTINGS_7277 0
+PUMP_TRADE_SUBSCRIBED_7278 0
+PUMP_TRADE_EVENT_7278 1280
+PUMP_TRADE_MARK_APPLIED_7278 3236
+PUMP_CURVE_RPC_ATTEMPT_7278 145
+PUMP_CURVE_RPC_HTTP_FAIL_7278 1
+PUMP_CURVE_RPC_JSONRPC_ERROR_7278 0
+PUMP_CURVE_RPC_NO_ACCOUNT_7278 73
+PUMP_CURVE_RPC_NO_DATA_7278 2
+PUMP_CURVE_RPC_SHORT_ACCOUNT_7278 0
+PUMP_CURVE_RPC_ZERO_RESERVES_7278 0
+PUMP_CURVE_RPC_EXCEPTION_7278 0
+ENTRY_SIZE_CAPPED_TO_MCAP_DEPTH_7278 0
+ENTRY_SIZE_CAPPED_TO_CURVE_EXIT_7278 0
+LLM_MODEL_LEVEL_REFUSAL_ROTATED_NOT_BENCHED_7278 0
+INTAKE_PRICE_SEEDED_FROM_CURVE_KEY_7279 9
+PUMP_CREATE_MARK_EMITTED_7279 329
+PUMP_TRADE_MARK_REGISTRY_PUBLISHED_7279 3218
+PUMP_TRADE_MARK_REGISTRY_REFUSED_7279 18
+PUMP_TRADE_SUBSCRIBED_MINTS_7279 0
+PUMP_TRADE_SUBSCRIBE_FRAME_SENT_7279 0
+PUMP_TRADE_SUBSCRIBE_FRAME_QUEUED_NO_SOCKET_7279 0
+PUMP_TOKEN_TRADE_STREAM_UNAVAILABLE_AUTH_7432 2
+PUMP_TOKEN_TRADE_AUTH_REPROBE_8094 2
+PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279 55
+PUMP_CURVE_RPC_LADDER_FALLBACK_7279 53
+PUMP_CURVE_RPC_NO_RUNG_ANSWERED_7279 0
+FDG_ALLOW_SUPERSEDED_STALE_STATE_CLEARED_7279 0
+PAPER_TICKET_BOUND_TO_REQUESTED_SIZE_7280 0
+PAPER_TICKET_CAP_FROM_REALISTIC_SIZER_7280 0
+LAUNCH_CHASE_TICKET_FLOORED_7280 0
+PAPER_ENTRY_BASIS_CAP_DERIVED_OBSERVED_7280 0
+PAPER_ENTRY_BASIS_CAP_DERIVED_UNOBSERVED_7280 0
+PAPER_ENTRY_BASIS_CAP_DERIVED_CONTESTED_7280 0
+PAPER_ENTRY_BASIS_CAP_DERIVED_CONTRADICTED_7280 0
+PAPER_ATOMIC_REFUSED_SIZE_BELOW_MIN_7281 0
+PAPER_ATOMIC_REFUSED_QTY_ZERO_7281 0
+CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281 0
+PUMP_CURVE_RPC_RUNG_SKIPPED_LOCKED_7281 5
+OPEN_POS_LOOP_STALLED_RELAUNCHED_7283 0
+OPEN_POS_LOOP_DEAD_RELAUNCHED_7283 0
+OPEN_POS_TICK_SUPERSEDED_MARKS_DROPPED_7283 0
+MARK_KEYLESS_CHAIN_BUDGET_DEFERRED_7283 0
+OPEN_POS_TICK_SKIPPED_6983_THREW_ERROR 0
+PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284 0
+LLM_REASONING_EFFORT_LOW_APPLIED_7286 180
+ORACLE_HISTORY_REFRESHED_7287 7
+ORACLE_EDGE_PROOF_RESTORED_7287 1
+TICK_SELL_DISPATCHED_OFF_LOOP_7288 0
+TICK_SELL_OFF_LOOP_COALESCED_7288 0
+CRYPTO_DYN_MARK_STALE_OR_MISSING_6654 0
+CRYPTO_HELD_MARK_REFRESH_COALESCED_7251 0
+SOL_MARK_RESCUE_7167 11
+LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226 0
+LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227 0
+ORACLE_VERDICT_ADVISORY_7263_ADMIT 0
+ORACLE_VERDICT_ADVISORY_7263_PROBE 0
+ORACLE_VERDICT_ADVISORY_7263_REFUSE 0
+ORACLE_VERDICT_PROVEN_7263_ADMIT 0
+ORACLE_VERDICT_PROVEN_7263_PROBE 0
+ORACLE_EDGE_PROOF_SCORED_7263 0
+ORACLE_EDGE_PROVEN_7263 0
+ORACLE_EDGE_DEMOTED_7263 0
+CANONICAL_HIGH_EV_ORACLE_ADMIT_7426 0
+CANONICAL_HIGH_EV_ORACLE_REFUSE_REVIEWED_7426 0
+CANONICAL_HIGH_EV_ORACLE_REFUSE_NONBINDING_7426 0
+CANONICAL_HIGH_EV_ORACLE_MISSING_REVIEWED_7426 0
+CANONICAL_HIGH_EV_PROBE_SHADOW_ONLY_7426 0
+CANONICAL_HIGH_EV_AUTHORITY_UNAVAILABLE_7426 0
+STRATEGY_VARIANT_EXACT_STAMPED_7427 0
+STRATEGY_VARIANT_EXACT_OUTCOME_7427 0
+STRATEGY_VARIANT_EXACT_OUTCOME_MISSING_7427 0
+HYPOTHESIS_DECISION_STAMPED_7428 3
+HYPOTHESIS_POSITION_BOUND_7428 0
+HYPOTHESIS_POSITION_BIND_MISSING_7428 0
+HYPOTHESIS_POSITION_OUTCOME_7428 0
+HYPOTHESIS_POSITION_OUTCOME_MISSING_7428 0
+STRATEGY_VARIANT_EXACT_STAMPED_7428 0
+STRATEGY_VARIANT_EXACT_OUTCOME_7428 0
+FDG_EXACT_STRATEGY_IDENTITY_7430 61
+HYPOTHESIS_EXACT_CONTEXT_STAMPED_7430 61
+HYPOTHESIS_EXACT_PARENT_BASELINE_SEEDED_7430 28
+HYPOTHESIS_EXACT_EV_PRIOR_SEEDED_7430 28
+EXACT_STRATEGY_EV_PRIOR_READ_7430 0
+EXACT_STRATEGY_EV_PRIOR_POSITIVE_7430 0
+EXACT_STRATEGY_EV_PRIOR_NEGATIVE_7430 0
+EXACT_STRATEGY_EV_PRIOR_CONSULTED_7432 28
+EXACT_STRATEGY_EV_PRIOR_NO_EVIDENCE_7432 28
+EXACT_STRATEGY_EV_PRIOR_IMMATURE_7432 0
+EXACT_STRATEGY_EV_PRIOR_NEUTRAL_7432 0
+TRADING_MEMORY_PATTERN_CONSULTED_7432 98
+TRADING_MEMORY_PATTERN_READ_7427 2
+TRADING_MEMORY_PATTERN_NEUTRAL_7432 96
+TRADING_COPILOT_PREDICTIVE_CONSULTED_7432 98
+TRADING_COPILOT_PREDICTIVE_READ_7430 0
+TRADING_COPILOT_PREDICTIVE_NEUTRAL_7432 98
+HISTORICAL_SETUP_PREDICTIVE_READ_7430 0
+ORTHOGONAL_AGE_PATTERN_READ_7430 0
+CROSS_ASSET_SYMBOL_FEED_7431 0
+SOURCE_TIMING_LATE_SIGNAL_READ_7429 0
+EXACT_STRATEGY_OUTCOME_7429 0
+EXACT_STRATEGY_ATTRIBUTION_COMPLETE_7429 0
+EXACT_STRATEGY_ATTRIBUTION_INCOMPLETE_7429 0
+HYPOTHESIS_POSITION_BOUND_7428 0
+HYPOTHESIS_POSITION_BIND_MISSING_7428 0
+HYPOTHESIS_POSITION_OUTCOME_7428 0
+HYPOTHESIS_POSITION_OUTCOME_MISSING_7428 0
+STRATEGY_VARIANT_EXACT_STAMPED_7428 0
+STRATEGY_VARIANT_EXACT_OUTCOME_7428 0
+TACTIC_ENTRY_ATTRIBUTION_INVALID_6568 0
+BRAIN_CONSENSUS_SOFT_BLOCK_DAMPED_7263 45
+BRAIN_CONSENSUS_UNAVAILABLE_FAIL_OPEN_7263 0
+CROSS_ASSET_ORACLE_ADVISORY_PASS_7263 0
+CROSS_ASSET_ORACLE_PAPER_EXPLORATION_7262 0
+EXIT_SWEEP_ITERATION_OVERRUN_7121 0
+UNIVERSAL_SL_POSITION_SLOW_6402 0
+UNIVERSAL_SL_SWEEP_SOFT_DEADLINE_6402 0
+EXIT_COORDINATOR_RELAUNCH_BACKOFF_7067 0
+EXIT_UNIVERSAL_SWEEP_ERROR_7121 0
+CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264 0
+LLM_GROQ_CATALOGUE_7262 1
+LLM_GROQ_CATALOGUE_UNREAD_7262 0
+LLM_GROQ_MODEL_RETIRED_7262 0
+LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226 0
+LIVE_SIZING_WALLET_UNREAD_KEPT_CALLER_VALUE_7226 0
+FDG_ALLOW_SEALING_RACE_DEFERRED_6739 0
+FDG_ALLOW_WITHOUT_EXEC_INTENT 0
+FDG_ALLOW_WITHOUT_ANY_STATE_7219 0
+FDG_ALLOW_STATE_VERSION_MISMATCH_7219 0
+FDG_ALLOW_SEAL_NEVER_LANDED_7219 0
+FDG_ALLOW_WITHOUT_INTENT_LIVE_MODE_7219 0
+EXEC_RESTORED_TICKET_VERSION_DRIFT_6692 0
+FDG_ALLOW_STATE_SUPERSEDED_BY_NEWER_CANDIDATE_7220 0
+FDG_ALLOW_STATE_AHEAD_OF_CURRENT_7220 0
+FDG_ALLOW_STATE_VERSION_ZERO_7220 0
+FDG_ALLOW_CURRENT_VERSION_ZERO_7220 0
+CANDIDATE_VERSION_WALLCLOCK_ELIMINATED_6620 3931
+DESK_STAGE_OFFERED_7214_*
+POOL 16863
+QUALIFIED 14297
+FDG 411
+DESK_STAGE_DEDUPED_7214_*
+POOL 6755
+QUALIFIED 6138
+FDG 248
+DESK_STAGE_DROPPED_NO_MINT_IN_KEY_7214_*
+POOL 3
+DESK_STAGE_DROPPED_NO_CANDIDATE_VERSION_7214_* : none
+FDG_ALLOW_SEALING_RACE_DEFERRED_7219_ATTEMPT_* : none
+PUMP_WS_FRAME_7279_*
+buy 1747
+sell 1370
+message 832
+create 332
+migrate 6
+error 2
+PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279_*
+helius_curve 53
+rpc_solana-mainnet.g.alchemy.com 2
+PUMP_CURVE_RPC_NO_DATA_SHAPE_7283_*
+array_len2 2
+PUMP_CURVE_RPC_DATA_ENCODING_7283_* : none
+PAPER_FEE_VENUE_7287_* : none
+ORACLE_DEGENERATE_NON_BINDING_7287_* : none
+LLM_EMPTY_CONTENT_SHAPE_7284_* : none
+LLM_TRANSPORT_OR_PARSE_7284_* : none
+LAUNCH_ENTRY_MULTIPLE_OF_CREATE_7280_* : none
+FDG_ALLOW_EXPLICIT_CANCEL_7221_* : none
+FUNNEL_MARK_STAGE_HAS_NO_PRODUCER_7214_* : none
+LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226_* : none
+LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227_* : none
+LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226_* : none
+EXIT_COORDINATOR_STALE_RESET_REASON_* : none
+EXIT_COORDINATOR_OPEN_POSITIONS_AT_STALE_* : none
+COST_EXCEEDS_EDGE_REFUSED_7162_* : none
+COST_EDGE_ZERO_IMMATURE_EVIDENCE_PROCEEDS_7265_* : none
+FDG_SUPPRESSED_FANOUT_CAP_7232_* : none
+ANTI_REWARD_HACK_LANE_EARNED_ALLOW_7267_* : none
+MOONSHOT_FRESH_DECLINED_7044_*
+NO_DEMAND_SIGNAL 309
+LIQ_BELOW_FLOOR 49
+MCAP_BELOW_FLOOR 2
+LIQ_UNKNOWN 2
+MCAP_UNKNOWN 1
+MOONSHOT_FRESH_ADMIT_7044_*
+ALREADY_PRIMARY 980
+FROM_SHITCOIN 86
+FROM_MANIPULATED 6
+PEGGED_ASSET_LANE_SKIPPED_7270_* : none
+TRADE_AUTHORIZE_ENTERED_7003_*
+CASHGEN 538
+TREASURY 75
+MANIPULATED 66
+SHITCOIN 1
+LIVE_BUY_ABORTED|* : none
+LANE_ENTRY_RECOVERY_ABOVE_PROBATION_UNDER_HOLD_7214* : none
+PRE-QUOTE INVARIANT: execGateAllow=0 abortsWithNamedReason=0 abortsTotal=0
+Governor recovery (§6388): state=SOFT_TIGHT ageMs=432282 allowBuys=true sizing=SOFT_TIGHT lastPromotion=from=BLOCKED_INFRASTRUCTURE to=SOFT_TIGHT reason=INFRA_HEALTHY_GOVERNOR_ALLOW lastDemotion=none
+Shadow paper book (§7215): open=15/60 opens=21 closes=6 wins=0 losses=6 wr=0.0% avgPnlPct=-20.61 skipDup=202 skipNoPrice=68 evictedUnclosed=0 acceptanceJ=NOT_MET_needs_20_closes
+Execution route guard: paperAllowed=0 paperBlockedInLive=0 shadowAllowed=0 liveAllowed=0 liveBlocked=0
+read=paperBlockedInLive is BY DESIGN (no paper fill may touch the live ledger);
+the shadow book is where paper evidence accrues while live. Acceptance J
+reads 'closes' above, and 'evictedUnclosed' is learning thrown away.
+===== RUNTIME LOOP UNCHOKE (V5.0.6626) =====
+§1 HOT_LABEL_COALESCER flushed=415 flushRuns=19 pending=0 keys=1
+§2 ADAPTIVE_TICKET_TTL avgCycleMs=4021 floor=180000 ceiling=600000 lastGranted=180000 extended=0 floored=0
+===== CAUSAL AUTHORITY REPAIR (V5.0.6627) =====
+§2 CAUSAL_INVARIANTS scans=3 clean=3 alarms=0
+§7 OPEN_BASIS_INVARIANT opens=0 clean=0 zeroPrice=0 zeroQty=0
+===== CAUSAL AUTHORITY REPAIR (V5.0.6629) =====
+§6 HERO_ACCOUNT_7045 reads=0 renders=0 divergences=0 unavailable=0 rev=0
+§6 HERO_SNAPSHOT_6629 reads=0 [] nullSnap=0 divergences=0 (facade; no callers)
+§8 SPECIALIST_ARBITER mode=FDG_SEALED_AUTH_TELEMETRY_ONLY accepted=0 dupLane=0 elections=0 dupBuysSuppressed=0 stalePruned=0 liveContests=0 decisions=0
+===== CRITICAL AUTHORITY RECOVERY (V5.0.6630) =====
+§C LEGACY_REPLAY_ISOL migrationAuthorized=false quarantines=0 migrations=0
+===== CORRECTNESS GUARDS (V5.0.6427+) [CANONICAL CURRENT SNAPSHOTS] =====
+✅ AUTHORITATIVE LIVE-OPEN POSITIONS: 0 (source: CanonicalPositionAuthority6441.openPositions())
+NOTE — the sub-ledger status lines below (§H, §6454, §6459)
+are internal-invariant snapshots (per-guard views of the same
+underlying store); they are NOT competing authorities.
+Position state ledger (§H): positions=0 states={} doubleConfirm=0
+Sell qty boundary (§I): positions=0 admits=0 rejects=0 legacyPositions=0 overSoldCandidates=0
+Lane attribution (§K,§L): entries=50 exits=21
+Runner ledger healthy: true
+Scanner dedup (§F): raw=0 coalesced=0 dedupSaved=0 coalesceRatio=0.000 activeMints=0 ⚠NO_CALLERS_8169 (not wired; intake dedup = TokenMergeQueue + INTAKE_DEDUPE_*/FAMILY_DEDUPE counters)
+Paper account ledger (§N): cash=11.8100 openCost=0.0000 realized=+0.0606 fees=0.0106 treasury=0.0000 ops=1182 cashGuard8169[refused=none]
+Paper capital conservation: ✅ OK
+Growth ring (§6550c): no_ring_yet bumps=0
+Reconciler watchdog (§Q): status=HEALTHY lastAttempt=1s ago lastSuccess=1s ago consecFail=0 totalFail=0 totalPasses=112 lastDurMs=0
+Forensic envelope (§AJ): runId=553f04cc epoch=1
+Independent reconciler (§K): running=true quickCadenceMs=5000 fullCadenceMs=30000
+Watchlist rebalance (§6433): runs=0 coalesced=0 skipPct=0.0%
+Token map single-flight: launched=0 coalesced=0 dedupPct=0.0% inflight=0
+Slow cycle diag (§6437): slowCycles=0 worstMs=0 worstPhase= wedgedSamples7289=0 lastWedge7289=-
+Pre-supervisor budget (§6437):worstLearner=SentienceAutoTune worstMs=14 slowCount=0 skipped=0
+Idempotency store (§6437): new=0 dup=0 terminal=0 rows=115 attached=true
+Growth mandate (§7223): dailyFloor=200%(2x) dailyStretch=500%(5x) weekly=12800%(128x) unit=multipleOfDayStart | wasPre7221=5%/30% | wiredToSizing=false wiredToRewardShaping=false consumers=report_only
+read: no sizer, ladder or learner reads the daily growth target. Wiring 2x/day into
+sizing is an operator decision, not a side effect of correcting the constant.
+Capital creed (§6439): targetDaily=200.0%(2.0x) stretch=500.0%(5.0x) targetWeekly=12800.0%(128x) unit=multipleOfDayStart maxDD_D=8.0% maxDD_W=18.0% maxLossStreak=3 minEV=1.15x | consumers=statusLine_only growthTargetWiredToSizing=false (V5.0.8057: sizing compounds on proven edge, the target is the scoreboard) today=[day=2026-10-20 start=0.2211 now=0.2969 multiple=1.34x target=2.0x stretch=5.0x doublingsToday=0.42 sizing=proven-edge quarter-Kelly of equity (target never sizes)] legacyPre7221=5.0%/30.0%
+Losing streak reflex (§6439): cohorts=0 hottest=none:0 cooldownRemSec=0 totalTrips=0 legacyVetoCalls=0
+Growth reward shaper (§6439): shaped=0 wins=0 losses=0 breakevens=0 winRate=0.0%
+Anti-reward-hack (§6439): high24hSol=0.29686 highAgeMin=4 vetoes=0 allows=0 tolerance7267=0.980 samples=107 laneEarnedAllows=0
+Fee accrual (§6439): accrues=0 accruedSol=0.00000 lastFlushSol=0.00000 lastFlushAgeMin=-1
+Paper↔live parity (§6439): artefactsDeclared=10(unverified) measuredLearners=3 paperOnlyEvidence=0 · ForwardOutcomeModel[paper=0 live=12 MODE_ISOLATED] · ExecutableEntryAuthority6450[paper=2 live=9 MODE_ISOLATED] · ColdStreakDamper[paper=0 live=4 MODE_ISOLATED]
+Live education (§7776): liveBusCloses=52 excluded[none] tradingMemory[loss=0 win=0] botBrain=0 resumePathAttempts=0 | TradingMemory: 18 bad tokens, 16 patterns (18 losses, 0 wins), 12 rug patterns, 148 blacklisted creators
+Learning reset (§7781): requests=0 bootSweeps=0 stores=69+db1+files6 livePause=DEFENSIVE_wr17_n12_top:[SHITCOIN=29%n7|MOONSHOT=0%n4] disciplineSizeDown=0
+Learner reward bridge (§6440):queries=0 losses=0 breakevens=0 wins=0
+Runner compounding (§6440): queries=3931 lastWalletSol=0.297 recommendedSizeSol=0.020 live[wallet=0.297,rec=0.020] paper[wallet=0.000,rec=0.000]
+Trading runtime (§6440): heartbeats=8 lastHbAgeSec=6 fg=true wake=true doze=false dozeEnters=0 dozeExits=0
+Canonical positions (§6441): positions=18 allModeForensicOpen=0 liveCanonicalOpen=0 paperCanonicalOpen=0 closed=18 paperCashSol=11.81002 muts=1 dups=0 invViol=0 quarantines=0 sumCheck(total=18 classified=18 unaccounted=0 PENDING_ENTRY=0,OPEN=0,PARTIALLY_CLOSED=0,CLOSED=18,QUARANTINED=0) ledgerCashSol=11.81002 cashAgree8169=AGREE
+Order size resolver (§6441): resolves=3931 exec=2791 skip=1140 last=[req=0.05309 risk=0.05309 ladder=0.05309 cashCap=0.29686 laneCap=5.00000 final=0.05309 exec=true reason=OK] | lastAccount=LIVE lastWalletSol=0.2969 lastLane=MOONSHOT liveResolves=3931 paperResolves=0 liveMaxWalletSol=0.2960 read=a_LIVE_resolve_showing_the_paper_bankroll_is_the_7211_latch_in_a_third_consumer
+Concentration doctrine (§7697):slots=20 share=5% positionSol=0.0282 routableMin=0.0282 fixedCostShare7731=5.7% liveOpen=0 tradeable=0.2908 slotRefusals=0 convictionAllow=61 convictionRefused=0 floorApplied=1037 read=fewer_larger_higher_conviction_live_entries_exits_untouched
+LiveRiskPolicy7807: opens=0 passes=ROUTE_MIN_PROMOTION_REFUSED_DRAWDOWN_8188=60,NET_EV_NONPOSITIVE_AT_SIZE_8153=1 equityPeak=0.4327 binding8136=[none yet] rotation8098[demands=0 rotations=0 waiting=-] economics8153[preBroadcastChecks=0 refused=[none] sealed=0]
+Wallet adoption (§7706): adoptedAtMark=0 belowRoutableNotAdopted=0 awaitingMark=0 dustUnroutable7714=0 botHealKicks7718=0 botHealAdopted7718=0 botHealProtected7819=0 read=basis_missing_holdings_are_adopted_at_observed_mark_in_WALLET_RECOVERED_and_exit_through_normal_rules
+Bot-buy coverage (§7718): OK every bot holding is inside canonical exit scope protectiveInventory7807=0 fundedQuarantined7807=0
+Field manual (§7715): active=true inactiveReads=376 guard=[build=5.0.8255 uptimeMs=450585 suppressed=false suppressedReads=0 lastCrashAgeMin=-1 streak=0] enter=90 probe=1 wait=19 pass=3 riskCapApplied=75 floorWins=0 exits[] last=[ENTER Haaland lane=MANIPULATED setup=F regime=LAUNCH R=2.074 cost=6.147% all fields answered] requote=[QuoteRevalidation7809 requested=2 confirmed=0 moved=0 unanswered=2 throttled=1 inFlight=0]
+Learned admission (§6909): assembled=0 forecastBootstrapOrMissing=0 forecastResolved=0 aggUsed6911=0 matureCohorts6911=0 oracle6915[reads=0 admit=0 refuse=0] expert7813=captures=0 bound=0 terminal=0 forward=0 pending=0 boundOpen=7 stats=80 best=[SHITCOIN|ALL|LIQUIDITY_EXPANSION|P=+0.0%@2.0 · SHITCOIN|ALL|CHASE_RISK|NEG=-2.2%@6.0 · SHITCOIN|ALL|MULTI_PROVIDER_AGREEM=-3.6%@5.0] worst=[MOONSHOT|ALL|CHASE_RISK|POS=-10.6%@5.0 · MOONSHOT|ALL|MULTI_PROVIDER_AGREEM=-9.2%@2.0 · MOONSHOT|ALL|ROUTE_QUALITY|POS=-8.9%@7.0] authority=ordering+bounded_prior no_safety_or_execution_authority=true
+Expert trader core (§7813): captures=0 bound=0 terminal=0 forward=0 pending=0 boundOpen=7 stats=80 best=[SHITCOIN|ALL|LIQUIDITY_EXPANSION|P=+0.0%@2.0 · SHITCOIN|ALL|CHASE_RISK|NEG=-2.2%@6.0 · SHITCOIN|ALL|MULTI_PROVIDER_AGREEM=-3.6%@5.0] worst=[MOONSHOT|ALL|CHASE_RISK|POS=-10.6%@5.0 · MOONSHOT|ALL|MULTI_PROVIDER_AGREEM=-9.2%@2.0 · MOONSHOT|ALL|ROUTE_QUALITY|POS=-8.9%@7.0] authority=ordering+bounded_prior no_safety_or_execution_authority=true
+Entry conviction (§6909): tracked=29 stamps=1298 reads=0 hits=0 ttlMs=60000
+Predictive oracle (§6915): evals=98 admit=0 refuse=98 cellEvidence=0 laneEvidence=0 noEvidence=0 brainReads6917=434 brainCap=18.0% exactFwd7260=0 policyReads7260=98 policyVeto7260=0 coldAdmit7261=0 coldRefuse7287=0 historyLaneReads7287=0 historyCloses=37 bookE=-3.2% bookWR=30% lanes=4 live[n=20,E=-11.3%,wr=15%] paper[n=17,E=+6.3%] authority7263=ADVISORY shrinkK=6.0 refuseAt=-8.0% minConf=0.45
+Pegged assets declined (§7270):0
+Canonical entry floor (§7266):resolves=2977 belowMature=2977 aboveMature=0 mature=30/55 BLUECHIP=15/25(n=0) · CASHGEN=15/25(n=0) · EXPRESS=15/25(n=0) · MANIPULATED=15/25(n=1) · MOONSHOT=18/28(n=8) · PROJECT_SNIPER=15/25(n=0) · QUALITY=15/25(n=0) · SHITCOIN=19/29(n=11) · TREASURY=15/25(n=0) admission8136[ADMIT=252,REFUSE=2235,DEFER_DATA=544 reasons{LIVE|REFUSE:CANDIDATE_ADMISSION_8136=1494,LIVE|DEFER_DATA:DATA_INCOMPLETE_DEFER_8136=529,LIVE|REFUSE:LIVE_PROVEN_SETUP_ONLY_8059=396,LIVE|ADMIT:ADMIT=244,LIVE|REFUSE:EDGE_7877_SHAPE_7883=198,LIVE|REFUSE:CORTEX_7885_C6_SETUP_DEAD_8082=51,LIVE|REFUSE:COST_EXCEEDS_EDGE_7962=20,LIVE|REFUSE:STAGE_LANE_MISFIT_7928=16,FLOOR|DEFER_DATA:DATA_INCOMPLETE_DEFER_8136=13,LIVE|REFUSE:FALLING_KNIFE_8130=12,FLOOR|REFUSE:GENERIC_SCORE_FLOOR_8136=9,LIVE|REFUSE:NET_EDGE_SCALP_COIN_TOO_FLAT_8054=9}] coalescedReevals8144=681 arrivalReevals8252=60
+Oracle edge proof (§7263): tier=ADVISORY liveTier7807=ADVISORY liveAdmitN7807=0 liveRefuseN7807=3 inverted7304=false reason=admitN>=20,refuseN>=10,admitRet>0,admitBrier<=0.25 scored=0 unmatched=70 stale=0 admit[n=0 ret=+0.0% wr=0% brier=1.000] refuse[n=3 ret=-5.9% wr=33%] promotions=0 demotions=0 stamps=150 positionBound7809=0 positionGraded7809=0 positionPending7809=0 persisted7287=true restoredStamps7287=140 bar=admit>=20/refuse>=10/margin=0.02/brier<=0.25
+read: ADVISORY = the oracle's numbers feed the evidence branches but its verdict cannot refuse a trade;
+PROVEN = live is ADMIT-or-nothing. It demotes itself if the edge stops holding.
+Lane shadow proof (§7307): open=0 no closes yet
+Signal source proof (§7291): COPY[n=0 wr=0% mean=+0.0% pf=0.00 labeled7731[n=32 mean=-7.6% pf=0.38] PAPER_ONLY] · NETWORK[n=0 wr=0% mean=+0.0% pf=0.00 labeled7731[n=0 mean=+0.0% pf=0.00] PAPER_ONLY] · LLM_SCOUT[n=0 wr=0% mean=+0.0% pf=0.00 labeled7731[n=1 mean=+1.4% pf=inf] PAPER_ONLY] bar=n>=20,mean>0,pf>=1.2 labeledBar=n>=50 pendingStamps=1
+Forward labels (§7731): read=5m(slot60) early=1m late=60m pending=1963 restored7735=977 observed=1470 booked15=1091 booked60=437 booked240=28 lostMark=54 vanished7944[lastMark=39 dead=15] spikeCredited7945=399 offWatch7737[priced=163 missed=567 curve7753=73 deferred7809=9925] horizonMissed7809=43 basisSuspect7738=15 curveWitness8165[entry=282 mark=2021] purged7738=0 curvePriced8062=749 rebased8076[up=118 down=1061 meanGap=-0.8% lateFirstPrice8153=8] skipped[noPrice=2777 recent=9074 full=0] cells=284/942
+admitted60[n=1104 net=+43.8% wr=37% run=11% lost=14] refused60[n=568 net=-51.6% wr=53% run=52% lost=3851]
+best60: PUMP_PORTAL_WS|CORE|MC_10K_100K|AGE_LT15M[n=142 net=+444.1% wr=61% run=49% lost=8] · PUMP_PORTAL_WS|PROJECT_SNIPER|MC_10K_100K|AGE_LT15M[n=160 net=+394.5% wr=51% run=43% lost=7] · BAND|SHITCOIN|MC_LT10K[n=1300 net=+296.9% wr=30% run=16% lost=155 OUTLIER_SUSPECT_8185]
+worst60: PROBATION|CORE|MC_LT10K|AGE_15M_2H[n=132 net=-47.3% wr=2% run=2% lost=18] · PROBATION|MOONSHOT|MC_LT10K|AGE_15M_2H[n=149 net=-42.0% wr=1% run=1% lost=18] · PROBATION|EXPRESS|MC_LT10K|AGE_15M_2H[n=142 net=-39.6% wr=2% run=2% lost=14]
+kinds8063 best: NARR|MOONSHOT|UNKNOWN[n=1300 net=+500.8% wr=50% run=18% lost=335 OUTLIER_SUSPECT_8185] · NARR|CORE|UNKNOWN[n=1300 net=+446.2% wr=45% run=15% lost=222 OUTLIER_SUSPECT_8185] · NARR|SHITCOIN|UNKNOWN[n=1300 net=+434.6% wr=43% run=19% lost=201 OUTLIER_SUSPECT_8185] · NARR|MANIPULATED|UNKNOWN[n=1300 net=+388.5% wr=39% run=16% lost=153 OUTLIER_SUSPECT_8185] | worst: KIND|BLUECHIP|CURVE|MC_LT10K[n=1288 net=-32.1% wr=7% run=4% lost=22] · KIND|QUALITY|CURVE|MC_LT10K[n=1298 net=-29.9% wr=6% run=3% lost=27] · KIND|CORE|CURVE|MC_LT10K[n=1300 net=-27.6% wr=11% run=6% lost=88]
+lanes60: BLUECHIP[n=1300 net=-4.7% wr=51% run=16% lost=244] · CASHGEN[n=1300 net=+2.6% wr=38% run=5% lost=174] · CORE[n=1299 net=+0.3% wr=59% run=30% lost=413] · CRYPTO_ALT[n=1098 net=-11.7% wr=7% run=2% lost=3] · CRYPTO_BLUECHIP[n=378 net=-3.3% wr=4% run=0% lost=80] · CRYPTO_CORE[n=22 net=-29.2% wr=0% run=0% lost=27] · CRYPTO_DIP_HUNTER[n=1 net=-7.1% wr=0% run=0% lost=0] · CRYPTO_EXPRESS[n=36 net=-14.4% wr=14% run=0% lost=2] · CRYPTO_MOONSHOT[n=143 net=-2.8% wr=13% run=2% lost=157] · CRYPTO_QUALITY[n=309 net=-2.2% wr=19% run=2% lost=112] · CRYPTO_SHITCOIN[n=81 net=-4.8% wr=16% run=1% lost=69] · CRYPTO_TREASURY[n=15 net=-22.0% wr=0% run=0% lost=65] · CYCLIC[n=1265 net=+3.4% wr=22% run=4% lost=65] · DIP_HUNTER[n=1300 net=+90.2% wr=39% run=3% lost=250] · EVM_BASE[n=15 net=-0.1% wr=33% run=7% lost=0] · EVM_BSC[n=548 net=+8.4% wr=42% run=10% lost=4] · EVM_ETH[n=176 net=+2.7% wr=28% run=6% lost=0] · EXPRESS[n=1300 net=-11.0% wr=47% run=25% lost=296] · MANIPULATED[n=1300 net=+12.0% wr=52% run=27% lost=297] · MOONSHOT[n=1300 net=+14.6% wr=67% run=40% lost=562] · PLANWAIT_NO_IMPULSE[n=22 net=+5.8% wr=41% run=0% lost=0] · PLANWAIT_NO_PULLBACK_YET[n=12 net=-17.4% wr=8% run=8% lost=0] · PLANWAIT_TOO_FEW_BARS[n=95 net=-5.3% wr=27% run=6% lost=0] · PROJECT_SNIPER[n=1300 net=+118.3% wr=23% run=13% lost=71] · QUALITY[n=1299 net=-4.9% wr=63% run=22% lost=388] · SHITCOIN[n=1300 net=+63.2% wr=58% run=37% lost=344] · TREASURY[n=1300 net=+86.5% wr=40% run=8% lost=242] | robust8185[cap=1000% capGT1M=300% suspectReads=6224]
+Fresh launch setups (§7737): pending=64 observed=76 firstTouch[tp=3 stop=9 neither=0 lost=0] live[admitted=75 refusedStructural=0 refusedLearned=3 overturned=0] cells=126
+bestSetups: IGNITION|FLOW_STRONG|CONC_HIGH|MX_LT1_5[n=11 tp=91% stop=9% n15=11 ev15=+44.1%] · MATURE_OR_UNKNOWN|FLOW_STRONG|CONC_BROAD|MX_GE3[n=14 tp=64% stop=36% n15=14 ev15=+17.5%] · METADATA_HYDRATING|FLOW_NONE|CONC_NA|MX_NA[n=5 tp=40% stop=20% n15=5 ev15=+17.0%]
+worstSetups: MATURE_OR_UNKNOWN|FLOW_WEAK|CONC_BROAD|MX_1_5_3[n=8 tp=13% stop=88% n15=8 ev15=-6.9%] · POST_PUMP_FADE|FLOW_OK|CONC_BROAD|MX_GE3[n=7 tp=14% stop=86% n15=7 ev15=-5.7%] · MATURE_OR_UNKNOWN|FLOW_OK|CONC_BROAD|MX_1_5_3[n=7 tp=14% stop=86% n15=7 ev15=-15.0%]
+Exit regret (§7752): tracked=0 booked=0 noExitMark=0 lost=0
+byExit: HARD_STOP[n=1 realized=-6.8% hold=-71.4% after=-69.3% holdBeat=0] · RUG_DRAIN[n=1 realized=+13.2% hold=-77.6% after=-80.2% holdBeat=0]
+byLane: SHITCOIN[n=2 realized=+3.2% hold=-74.5% after=-74.8% holdBeat=0] · SHITCOIN|ORDSTOP[n=1 realized=-6.8% hold=-71.4% after=-69.3% holdBeat=0] · SHITCOIN|STOP[n=1 realized=-6.8% hold=-71.4% after=-69.3% holdBeat=0]
+steering7877: stopMult[HARD_STOP-family]=1.00 underwaterExtended=false
+steering7888: targetMult[profit-family]=1.00
+read: after>0 = the price kept rising after we sold (exit cut a winner); hold>realized = holding to 60m would have paid more
+Cortex (§7885): bar=CORTEX_BAR_V1 voters=291static+17laneBrain+4V3modules+crosses assessed=4800 (35.76ms) pending=1046 graded=194 seats=6560 seated=312
+vote cleaning (§8007): seats=14040 seasoned=2920 seated=243 (half-weight=26) filtered: noise=2585 flat=63 inverted=29 fdr=2.12
+invariants & provenance v11 (§7911): alarms=[none] provenance=[HOLDERS:obs67%/unk32%/stale0% LIQUIDITY:obs98%/unk1%/stale0% MCAP:obs93%/unk6%/stale0% PRICE:obs75%/unk23%/stale0% SAFETY:obs67%/unk32%/stale0%]
+compute (§2.9 v1, 7909): pool active=0 queued=0 captureActive8171=0 captureQueued8171=0 done=3552 slowVoters=INSIDER_WALLET_SCORE=14.6ms/skip714 memo8169[hit=2378 miss=2422 laneFree=248/291] captures=1466 meanLagMs=450 maxLagMs=7398 lateVoterReads=39 assessMs8187[p50=18.9 p90=257.6 n=4800] budget8187[cacheServed=4533 abstained=27961 refreshQueued=0 refreshDropped=355 cached=22512 budgetMs=35]
+data economy (§B.6): creditsToday=213250 perAssessedDecision=44.4 perGradedDecision=1099.2 (day credits / session decisions) session8187[credits=16862 perAssessed=3.5 perGraded=86.9 firstBlockVoter=0] gradedPerHour=1603.3
+graduation (§8187): binding8187[rate=- bound=0 unmatched=0 fromDecisionRecord=0 deferredRead=0 lateReadBound=0 replays[filed=0 unmatched=0]] authority=MOONSHOT LABEL_EDGE[strong=n71/+5.3%/exec+2.0% neutral=n88/+4.8%/exec+1.5%] · SHITCOIN LABEL_EDGE[strong=n90/-0.4%/exec-3.7% neutral=n81/-2.1%/exec-5.4%] · CORE LABEL_EDGE[strong=n30/-0.6%/exec-3.9% neutral=n89/+3.0%/exec-0.3%] · EXPRESS LABEL_EDGE[strong=n88/+2.8%/exec-0.5% neutral=n66/+3.9%/exec+0.6%] · TREASURY LABEL_N[strongN=0/15] · PROJECT_SNIPER LABEL_EDGE[strong=n18/+19.5%/exec+16.2% neutral=n37/-11.8%/exec-15.1%] · CASHGEN LABEL_N[strongN=0/15] · DIP_HUNTER LABEL_N[strongN=1/15]
+executable labels (§8187, authority reads label - lane gap): CRYPTO_QUALITY -3.3pt · CORE -3.3pt · MANIPULATED -3.3pt · CASHGEN -3.3pt · SHITCOIN -3.3pt · QUALITY -3.3pt · EVM_ETH -3.3pt · CRYPTO_MOONSHOT -3.3pt
+outcome truth v12 (§7912, whole-position closes): LIVE closes=18 best=[DIST_COOLDOWN|MOONSHOT +0.0%/n7,SELL_PRESSURE|SHITCOIN +0.0%/n8,CHART_MOTIF_PUP|MOONSHOT +0.0%/n3,NARRATIVE_DETECTOR_ADJ|MOONSHOT +0.0%/n7]
+launch tape v16 (§7921): launches=340 checkpoints=18 actions=CHECKPOINTED=18,PROMOTED_EARLY_FIRST_BUYERS=1,PROMOTED_PRIOR_CROWD_FORMING=2,RECOVERY_BIRTH_ACCEPTED_8168=9,RECOVERY_BIRTH_OUTSIDE_WINDOW_8168=36,RECOVERY_BIRTH_UNKNOWN_8168=798,RECOVERY_SOURCE_8169_CURVE_PAIR=9,RECOVERY_UNKNOWN_OTHER_MINTS_8169=1,RECOVERY_UNKNOWN_PUMP_MINTS_8169=25 priorBar=n25/+6.0%/run8% promoted=n151/+1.1%/run7% early8165=n65/+1.9%/run12% byHeat15m=[h0:n500/-2.7%/run2% h1:n156/+5.0%/run0% h2:n121/+0.4%/run0% h3:n118/+0.9%/run4% h4:n111/-2.6%/run4% h5:n153/+1.4%/run8%]
+lane playbooks (§7907): rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · measured setups expected to lose refused (7948) · setup auth>=0.5 admits over a smaller cell (7955) · paper never refused
+refusals: PLAYBOOK_SETUP_EXPECTED_NEGATIVE_7948_MOONSHOT_OPP_BREAKOUT_=5,PLAYBOOK_SETUP_EXPECTED_NEGATIVE_7948_QUALITY_LP_LOCKED_BASE=3,PLAYBOOK_SETUP_EXPECTED_NEGATIVE_7948_MOONSHOT_FLAG_CONTINUA=2,PLAYBOOK_SETUP_EXPECTED_NEGATIVE_7948_SHITCOIN_HIGHER_LOW_CO=1
+QUALITY tagged{DATA_INCOMPLETE=94,NO_TRIGGER=20,RS_IN_WEAK_MARKET=16,IGNITION_5M=4,QUIET_ACCUMULATION=4,BUYERS_DOMINATING=2,OPP_BREAKOUT_EXPANSION=2,LP_LOCKED_BASE=2,HIGHER_LOW_PULLBACK=1,MOMENTUM_PULLBACK_5M=1,RECLAIM_AFTER_WEAKNESS=1,BASE_BREAKOUT_FLOW=1,BREAKOUT_HOLD=1 alsoFired{RS_IN_WEAK_MARKET=14,BREAKOUT_HOLD=6,BUYERS_DOMINATING=5,NEW_HIGH_PUSH=3,LP_LOCKED_BASE=2,RECLAIM_AFTER_WEAKNESS=1,QUIET_ACCUMULATION=1}} record: PLAN_PULLBACK_RECLAIM[prior +1.0] PLAN_BASE_BREAKOUT[n10 -8.0% exec-11.3% exp -3.1] PLAN_SWEEP_RECLAIM[prior +1.0] HIGHER_LOW_PULLBACK[n36 -0.8% exec-4.1% exp -2.5] BREAKOUT_HOLD[n313 -8.3% exec-11.6% exp -10.9] RECLAIM_AFTER_WEAKNESS[n156 +3.7% exec+0.4% exp +0.4] HOLDER_EXPANSION[prior +0.5] OPP_LIQUIDITY_EXPANSION[prior +0.5] OPP_BREAKOUT_EXPANSION[n65 -5.0% exec-8.3% exp -6.2] LP_LOCKED_BASE[n154 -1.4% exec-4.7% exp -4.1] LOW_VOL_COIL[prior +0.5] SECOND_LEG[prior +0.5] MOMENTUM_PULLBACK_5M[n50 +9.3% exec+6.0% exp +4.4] RS_IN_WEAK_MARKET[n220 -12.0% exec-15.3% exp -14.0] HL_RECLAIM[prior +1.0] RANGE_SUPPORT_SWING[prior +0.5] SECOND_WAVE[prior +1.0] SPECIALIST_EDGE[prior +1.0] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[n78 -3.8% exec-7.1% exp -5.6] COLOUR_SEQUENCE[n65 +17.3% exec+14.0% exp +10.8] BUYERS_DOMINATING[n201 -12.2% exec-15.5% exp -14.1] BASE_BREAKOUT_FLOW[n95 -2.9% exec-6.2% exp -5.1] IGNITION_5M[n218 -5.5% exec-8.8% exp -8.0] FIRST_PULLBACK_AFTER_RUN[prior +0.5] DIP_IN_UPTREND[n7 +18.2% exec+14.9% exp +4.2] QUIET_ACCUMULATION[n181 -11.0% exec-14.3% exp -12.9] NEW_HIGH_PUSH[n13 -33.7% exec-37.0% exp -14.3] NO_TRIGGER[n1019 -3.8% exec-7.1% exp -7.0]
+8084 outcomes{MATCHED=613,DATA_INCOMPLETE=610,NO_MATCH=378} missing{tape=888,opp=527,shape=519,chg=253,volAccel=162} forward-by-outcome{MATCHED n56 +0.4%,DATA_INCOMPLETE n118 -2.6%,NO_MATCH n19 -3.9%}
+BLUECHIP tagged{DATA_INCOMPLETE=63,NO_TRIGGER=20,RS_IN_WEAK_MARKET=9,IGNITION_5M=4,FLAG_CONTINUATION=4,BUYERS_DOMINATING=3,QUIET_ACCUMULATION=2,NEW_HIGH_PUSH=2,RELATIVE_STRENGTH=2,DEEP_LIQ_TREND=1 alsoFired{RS_IN_WEAK_MARKET=14,QUIET_ACCUMULATION=5,BUYERS_DOMINATING=4,DEEP_LIQ_TREND=1,FLAG_CONTINUATION=1,RELATIVE_STRENGTH=1}} record: PLAN_PULLBACK_RECLAIM[prior +1.0] PLAN_BASE_BREAKOUT[n14 -6.9% exec-10.2% exp -3.6] TREND_PULLBACK[n9 -10.6% exec-13.9% exp -4.0] RELATIVE_STRENGTH[n95 -6.4% exec-9.7% exp -7.9] FLAG_CONTINUATION[n101 -13.6% exec-16.9% exp -14.0] DEEP_LIQ_TREND[n42 -0.7% exec-4.0% exp -2.5] LOW_VOL_COIL[n1 -0.5% exec-3.8% exp +0.3] MEAN_REVERSION_OVERSOLD[prior +0.5] OPP_RS_LEADER[n10 +74.1% exec+70.8% exp +23.9] OPP_LIQUIDITY_EXPANSION[prior +0.5] OPP_CONTINUATION[n20 +71.6% exec+68.3% exp +34.4 auth=0.67] RS_IN_WEAK_MARKET[n223 -11.9% exec-15.2% exp -13.9] RANGE_SUPPORT_SWING[prior +0.5] SPECIALIST_EDGE[n93 +0.7% exec-2.6% exp -2.0] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[n60 -8.1% exec-11.4% exp -8.4] COLOUR_SEQUENCE[n100 +12.0% exec+8.7% exp +7.3] BUYERS_DOMINATING[n203 -11.9% exec-15.2% exp -13.8] BASE_BREAKOUT_FLOW[n47 +2.8% exec-0.5% exp -0.2] IGNITION_5M[n173 -3.9% exec-7.2% exp -6.4] FIRST_PULLBACK_AFTER_RUN[prior +0.5] DIP_IN_UPTREND[n6 +14.4% exec+11.1% exp +2.9] QUIET_ACCUMULATION[n225 -7.7% exec-11.0% exp -10.0] NEW_HIGH_PUSH[n5 -34.7% exec-38.0% exp -7.2] NO_TRIGGER[n1011 +1.3% exec-2.0% exp -2.0]
+8084 outcomes{MATCHED=494,DATA_INCOMPLETE=446,NO_MATCH=365} missing{tape=796,opp=438,shape=388,chg=263,volAccel=233} forward-by-outcome{NO_MATCH n11 -1.6%,DATA_INCOMPLETE n66 -3.3%,MATCHED n23 -2.4%}
+SHITCOIN tagged{DATA_INCOMPLETE=106,LAUNCH_LADDER_PROVEN=8,LAUNCH_CONTINUATION=7,NO_TRIGGER=6,BREAKOUT_RUNNER=4,IGNITION_5M=4,MICRO_FLAG=3,HL_RECLAIM=1,GRADUATION_APPROACH=1,FRESH_LAUNCH_MOMENTUM=1,HIGHER_LOW_PULLBACK=1,TURNOVER_SPIKE=1,LIVESTREAM_LAUNCH=1,MOMENTUM_PULLBACK_5M=1,COLOUR_SEQUENCE=1 alsoFired{FLAG_CONTINUATION=4,IGNITION_5M=3,SOCIAL_LAUNCH=3,BUYERS_DOMINATING=3,NEW_HIGH_PUSH=2,MICRO_FLAG=2,GRADUATION_APPROACH=2,CROWD_FORMING=2}} record: PLAN_PULLBACK_RECLAIM[prior +1.0] PLAN_BASE_BREAKOUT[n9 -1.7% exec-5.0% exp -0.8] LAUNCH_CONTINUATION[n913 -0.9% exec-4.2% exp -4.1] FIRST_PULLBACK[n24 +2.2% exec-1.1% exp -0.4] PRE_IGNITION_BASE[n354 +0.9% exec-2.4% exp -2.3] CROWD_FORMING[n156 +24.2% exec+20.9% exp +18.5 auth=1.00] LAUNCH_LADDER_PROVEN[n826 +85.3% exec+82.0% exp +80.1 auth=1.00] FAST_CROWD[n18 +3.2% exec-0.1% exp +0.2] BROAD_DISTRIBUTION[n43 +31.0% exec+27.7% exp +19.1 auth=1.00] NET_INFLOW_SURGE[n60 +8.0% exec+4.7% exp +3.7] FIRST_DIP_BOUGHT[prior +0.5] DEV_HOLDS_CROWD_BUYS[n169 +36.6% exec+33.3% exp +29.8 auth=1.00] CLEAN_DEV_LAUNCH[prior +0.5] ACCELERATING_TAPE[n154 +17.9% exec+14.6% exp +12.9 auth=1.00] GRADUATION_RUN[prior +0.5] NO_BUNDLE_CLEAN[prior +0.5] SOCIAL_LAUNCH[n106 +5.7% exec+2.4% exp +2.1] NARRATIVE_WAVE[prior +0.5] INSIDER_ACCUMULATION[prior +0.5] OPP_EARLY_IGNITION[prior +0.5] HL_RECLAIM[n2 +162.7% exec+159.4% exp +15.4] SECOND_WAVE[prior +1.0] EXPERT_ENTRY[n1 -19.2% exec-22.5% exp -0.6] SPECIALIST_EDGE[n1000 +41.9% exec+38.6% exp +37.9 auth=1.00] FRESH_LAUNCH_MOMENTUM[n137 +28.2% exec+24.9% exp +21.8 auth=1.00] MICRO_CAP_IGNITION[n368 +6.0% exec+2.7% exp +2.6] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[n87 -9.1% exec-12.4% exp -10.0] GRADUATION_APPROACH[n439 +3.5% exec+0.2% exp +0.3] LIVESTREAM_LAUNCH[n154 -22.6% exec-25.9% exp -22.9] COPYCAT_BETA[n98 +84.1% exec+80.8% exp +67.2 auth=1.00] COLOUR_SEQUENCE[n90 -5.2% exec-8.5% exp -6.9] BREAKOUT_RUNNER[n183 +26.5% exec+6.0% exp +3.8] RS_LEADER[n311 +8.2% exec+4.9% exp +4.7] VOLUME_IGNITION[prior +0.5] MOMENTUM_PULLBACK_5M[n44 +7.9% exec+4.6% exp +3.3] HIGHER_LOW_CONTINUATION[n53 -1.9% exec-5.2% exp -3.6] HIGHER_LOW_PULLBACK[n72 -6.9% exec-10.2% exp -7.9] MICRO_FLAG[n166 -4.9% exec-8.2% exp -7.3] FLAG_CONTINUATION[n180 -2.4% exec-5.7% exp -5.1] POST_EVENT_RECLAIM[n5 -15.7% exec-19.0% exp -3.4] SECOND_LEG[n2 -18.0% exec-21.3% exp -1.5] TX_VELOCITY_BREAK[prior +0.5] VOLUME_CONTINUATION[n23 -10.1% exec-13.4% exp -6.9] HOLDER_EXPANSION[prior +0.5] OPP_BREAKOUT_EXPANSION[n94 +0.9% exec-2.4% exp -1.9] OPP_RS_LEADER[n23 +26.7% exec+23.4% exp +12.7] BUYERS_DOMINATING[n258 -0.2% exec-3.5% exp -3.2] BASE_BREAKOUT_FLOW[n168 +8.7% exec-0.9% exp -0.3] IGNITION_5M[n729 +15.5% exec+12.2% exp +11.9 auth=1.00] FIRST_PULLBACK_AFTER_RUN[n4 +16.7% exec+13.4% exp +2.7] DIP_IN_UPTREND[n28 +2.6% exec-0.7% exp -0.2] QUIET_ACCUMULATION[n140 -10.8% exec-14.1% exp -12.3] NEW_HIGH_PUSH[n54 -3.1% exec-6.4% exp -4.5] EARLY_BUYER_EXPANSION_8170[n12 +104.8% exec+101.5% exp +38.4] NO_TRIGGER[n1048 +60.0% exec+56.7% exp +55.6]
+8084 outcomes{DATA_INCOMPLETE=2097,MATCHED=1142,NO_MATCH=730} missing{tape=2083,opp=1998,shape=1714,chg=1225,bp=1173} forward-by-outcome{MATCHED n276 +10.8%,DATA_INCOMPLETE n159 -5.1%,NO_MATCH n48 +2.3%}
+EXPRESS tagged{DATA_INCOMPLETE=80,LAUNCH_CONTINUATION=11,IGNITION_5M=5,LAUNCH_LADDER_PROVEN=4,NO_TRIGGER=4,MICRO_FLAG=3,RS_LEADER=2,DIP_IN_UPTREND=1,GRADUATION_APPROACH=1,TURNOVER_SPIKE=1,LIVESTREAM_LAUNCH=1 alsoFired{ACCELERATING_TAPE=3,BREAKOUT_RUNNER=3,GRADUATION_APPROACH=2,NEW_HIGH_PUSH=2,LAUNCH_LADDER_PROVEN=1,RS_LEADER=1,FAST_CROWD=1,PRE_IGNITION_BASE=1}} record: PLAN_BASE_BREAKOUT[n3 -3.9% exec-7.2% exp -0.1] VOLUME_CONTINUATION[n22 -17.5% exec-20.8% exp -10.7] HIGHER_LOW_CONTINUATION[n32 -21.8% exec-25.1% exp -15.2] MICRO_FLAG[n134 +3.4% exec+0.1% exp +0.1] CROWD_FORMING[n95 +35.8% exec+32.5% exp +27.0 auth=1.00] LAUNCH_LADDER_PROVEN[n504 +88.2% exec+84.9% exp +81.7 auth=1.00] ACCELERATING_TAPE[n169 +18.1% exec+14.8% exp +13.3 auth=1.00] FAST_CROWD[n70 +28.0% exec+24.7% exp +19.3 auth=1.00] VOLUME_IGNITION[prior +0.5] TX_VELOCITY_BREAK[prior +0.5] MOMENTUM_PULLBACK_5M[n27 +4.0% exec+0.7% exp +0.6] OPP_EARLY_IGNITION[n4 -7.3% exec-10.6% exp -1.3] OPP_RS_LEADER[n16 +12.0% exec+8.7% exp +4.2 auth=0.02] HL_RECLAIM[prior +1.0] EXPERT_ENTRY[n6 -20.2% exec-23.5% exp -5.0] SPECIALIST_EDGE[n90 +136.2% exec+132.9% exp +109.0 auth=1.00] FRESH_LAUNCH_MOMENTUM[n132 +28.6% exec+25.3% exp +22.0 auth=1.00] MICRO_CAP_IGNITION[n185 +1.0% exec-2.3% exp -2.1] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[n59 -13.1% exec-16.4% exp -12.1] GRADUATION_APPROACH[n231 -3.3% exec-6.6% exp -6.0] LIVESTREAM_LAUNCH[n155 -21.8% exec-25.1% exp -22.2] COPYCAT_BETA[n48 +167.5% exec+164.2% exp +116.0 auth=1.00] COLOUR_SEQUENCE[n50 -1.0% exec-4.3% exp -2.9] PRE_IGNITION_BASE[n371 -4.0% exec-7.3% exp -6.9] BREAKOUT_RUNNER[n90 -1.9% exec-5.2% exp -4.2] RS_LEADER[n230 -2.4% exec-5.7% exp -5.2] FIRST_PULLBACK[n8 -1.4% exec-4.6% exp -1.0] LAUNCH_CONTINUATION[n469 -7.2% exec-10.5% exp -10.1] NET_INFLOW_SURGE[n86 +10.0% exec+6.7% exp +5.5] FIRST_DIP_BOUGHT[prior +0.5] BUYERS_DOMINATING[n285 -4.4% exec-7.7% exp -7.1] BASE_BREAKOUT_FLOW[n205 +1.2% exec-2.1% exp -1.9] IGNITION_5M[n484 +10.2% exec+6.9% exp +6.7 auth=1.00] FIRST_PULLBACK_AFTER_RUN[prior +0.5] DIP_IN_UPTREND[n8 +3.2% exec-0.1% exp +0.3] QUIET_ACCUMULATION[n129 -12.5% exec-15.8% exp -13.6] NEW_HIGH_PUSH[n22 -1.1% exec-4.4% exp -2.0] EARLY_BUYER_EXPANSION_8170[n15 +80.3% exec+77.0% exp +33.3 auth=0.25] NO_TRIGGER[n1038 -8.3% exec-11.6% exp -11.4]
+8084 outcomes{DATA_INCOMPLETE=169,MATCHED=99,NO_MATCH=26} missing{opp=156,tape=149,shape=148,chg=131,bp=124} forward-by-outcome{MATCHED n152 +12.0%,DATA_INCOMPLETE n163 +1.9%,NO_MATCH n38 -5.9%}
+MOONSHOT tagged{DATA_INCOMPLETE=100,NO_TRIGGER=20,LAUNCH_CONTINUATION=11,LAUNCH_LADDER_PROVEN=6,BUYERS_DOMINATING=3,BREAKOUT_RUNNER=2,ACCELERATING_TAPE=2,SOCIAL_LAUNCH=2,GRADUATION_APPROACH=1,HIGHER_LOW_PULLBACK=1,MOMENTUM_PULLBACK_5M=1,FLAG_CONTINUATION=1,POST_EVENT_RECLAIM=1,IGNITION_5M=1,LIVESTREAM_LAUNCH=1,QUIET_ACCUMULATION=1,NEW_HIGH_PUSH=1,BASE_BREAKOUT_FLOW=1,MICRO_FLAG=1,OPP_BREAKOUT_EXPANSION=1,FRESH_LAUNCH_MOMENTUM=1 alsoFired{MICRO_FLAG=4,FLAG_CONTINUATION=3,QUIET_ACCUMULATION=3,RS_LEADER=3,ACCELERATING_TAPE=3,PRE_IGNITION_BASE=2,BREAKOUT_RUNNER=2,CROWD_FORMING=2}} record: PLAN_BASE_BREAKOUT[n5 -4.8% exec-8.1% exp -0.8] LAUNCH_CONTINUATION[n789 -6.2% exec-9.5% exp -9.3] BREAKOUT_RUNNER[n138 -8.1% exec-11.4% exp -9.9] RS_LEADER[n356 -3.9% exec-7.2% exp -6.8] POST_EVENT_RECLAIM[n12 +14.8% exec+11.5% exp +4.6] CROWD_FORMING[n72 +32.1% exec+28.8% exp +22.7 auth=1.00] LAUNCH_LADDER_PROVEN[n659 +66.9% exec+63.6% exp +61.7 auth=1.00] FAST_CROWD[n35 +60.8% exec+57.5% exp +36.8 auth=1.00] NET_INFLOW_SURGE[n53 +1.7% exec-1.6% exp -1.0] GRADUATION_RUN[prior +0.5] POST_MIGRATION_HOLD[n91 +13.7% exec+10.4% exp +8.6 auth=1.00] BOOSTED_LAUNCH[prior +0.0] SOCIAL_LAUNCH[n130 -2.3% exec-5.6% exp -4.8] NARRATIVE_WAVE[prior +0.5] VOLUME_IGNITION[prior +0.5] OPP_BREAKOUT_EXPANSION[n136 -1.3% exec-4.5% exp -3.9] OPP_EARLY_IGNITION[prior +0.5] SECOND_LEG[prior +0.5] CTO_REVIVAL[prior +0.0] HL_RECLAIM[n1 -43.0% exec-46.3% exp -1.3] SECOND_WAVE[prior +1.0] EXPERT_ENTRY[n3 +15.9% exec+12.6% exp +2.1] SPECIALIST_EDGE[n608 +24.0% exec+20.7% exp +20.1 auth=1.00] FRESH_LAUNCH_MOMENTUM[n92 +27.7% exec+24.4% exp +20.1 auth=1.00] MICRO_CAP_IGNITION[n282 +2.4% exec-0.9% exp -0.8] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[n85 -7.3% exec-10.6% exp -8.4] GRADUATION_APPROACH[n465 +1.5% exec-1.8% exp -1.7] LIVESTREAM_LAUNCH[n228 -22.8% exec-26.1% exp -24.0] COPYCAT_BETA[n60 +146.6% exec+143.3% exp +107.6 auth=1.00] COLOUR_SEQUENCE[n98 -3.6% exec-6.9% exp -5.7] ACCELERATING_TAPE[n95 +24.8% exec+21.5% exp +17.9 auth=1.00] PRE_IGNITION_BASE[n423 -5.7% exec-9.0% exp -8.6] FIRST_PULLBACK[n24 +9.3% exec+6.0% exp +3.5] MOMENTUM_PULLBACK_5M[n52 +20.3% exec-1.2% exp -0.4] HIGHER_LOW_PULLBACK[n63 -1.7% exec-5.0% exp -3.6] FLAG_CONTINUATION[n218 -7.1% exec-10.4% exp -9.4] MICRO_FLAG[n220 -6.5% exec-9.8% exp -8.9] TX_VELOCITY_BREAK[prior +0.5] FIRST_DIP_BOUGHT[prior +0.5] BROAD_DISTRIBUTION[n34 +72.3% exec+69.0% exp +43.6 auth=1.00] DEV_HOLDS_CROWD_BUYS[n81 +33.5% exec+30.2% exp +24.3 auth=1.00] BUYERS_DOMINATING[n399 -1.0% exec-4.3% exp -4.1] BASE_BREAKOUT_FLOW[n295 -2.3% exec-5.6% exp -5.2] IGNITION_5M[n566 +9.8% exec+6.5% exp +6.3 auth=1.00] FIRST_PULLBACK_AFTER_RUN[n8 +12.7% exec+9.4% exp +3.0] DIP_IN_UPTREND[n24 -8.6% exec-11.9% exp -6.2] QUIET_ACCUMULATION[n263 -7.2% exec-10.5% exp -9.7] NEW_HIGH_PUSH[n53 +6.7% exec+3.4% exp +2.6] EARLY_BUYER_EXPANSION_8170[n5 +144.4% exec+141.1% exp +28.6] NO_TRIGGER[n1072 +13.0% exec+9.7% exp +9.5]
+8084 outcomes{DATA_INCOMPLETE=1350,MATCHED=838,NO_MATCH=737} missing{tape=1945,opp=1235,shape=1195,chg=716,volAccel=469} forward-by-outcome{NO_MATCH n72 -3.8%,DATA_INCOMPLETE n306 -1.6%,MATCHED n276 +3.3%}
+PROJECT_SNIPER tagged{DATA_INCOMPLETE=41,VERIFIED_LAUNCH=10,DEV_HOLDS_CROWD_BUYS=1 alsoFired{VERIFIED_LAUNCH=1,IGNITION_5M=1,FRESH_LAUNCH_MOMENTUM=1,CROWD_FORMING=1,FAST_CROWD=1,ACCELERATING_TAPE=1}} record: PLAN_BASE_BREAKOUT[prior +1.0] VERIFIED_LAUNCH[n628 -18.5% exec-21.8% exp -21.1] LOW_RUNUP_BASE[n14 -17.5% exec-20.8% exp -8.3] FIRST_PULLBACK[n1 -31.1% exec-34.4% exp -1.2] CROWD_FORMING[n37 +9.7% exec+6.4% exp +4.3] LAUNCH_LADDER_PROVEN[n289 +122.1% exec+118.8% exp +111.2 auth=1.00] CLEAN_DEV_LAUNCH[prior +0.5] SOCIAL_LAUNCH[prior +0.5] BROAD_DISTRIBUTION[prior +0.5] NO_BUNDLE_CLEAN[prior +0.5] LP_LOCKED_BASE[n17 +9.5% exec+6.2% exp +3.1] DEV_HOLDS_CROWD_BUYS[n19 +140.7% exec+137.4% exp +67.2 auth=0.63] POST_MIGRATION_HOLD[n21 +11.4% exec+8.1% exp +4.4] HL_RECLAIM[prior +1.0] EXPERT_ENTRY[prior +0.5] SPECIALIST_EDGE[n56 +205.8% exec+202.5% exp +149.5 auth=1.00] FRESH_LAUNCH_MOMENTUM[n36 +60.6% exec+57.3% exp +37.0 auth=1.00] MICRO_CAP_IGNITION[n149 -8.4% exec-11.7% exp -10.2] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[n45 -17.0% exec-20.3% exp -13.9] GRADUATION_APPROACH[n135 -21.9% exec-25.2% exp -21.9] LIVESTREAM_LAUNCH[n86 -26.1% exec-29.4% exp -23.8] COPYCAT_BETA[n48 +118.3% exec+115.0% exp +81.3 auth=1.00] COLOUR_SEQUENCE[n4 +7.9% exec+4.6% exp +1.2] PRE_IGNITION_BASE[n128 -15.0% exec-18.3% exp -15.7] ACCELERATING_TAPE[n46 +41.2% exec+37.9% exp +26.6 auth=1.00] FAST_CROWD[n13 +79.4% exec+76.2% exp +30.3] FIRST_DIP_BOUGHT[prior +0.5] BUYERS_DOMINATING[n71 -15.6% exec-18.9% exp -14.6] BASE_BREAKOUT_FLOW[n30 +21.8% exec+18.5% exp +11.3] IGNITION_5M[n205 +1.1% exec-2.2% exp -1.9] FIRST_PULLBACK_AFTER_RUN[prior +0.5] DIP_IN_UPTREND[prior +0.5] QUIET_ACCUMULATION[n51 -30.8% exec-34.1% exp -24.4] NEW_HIGH_PUSH[n9 -31.9% exec-35.1% exp -10.6] EARLY_BUYER_EXPANSION_8170[prior +0.5] NO_TRIGGER[n971 -18.6% exec-21.9% exp -21.5]
+8084 outcomes{DATA_INCOMPLETE=78,MATCHED=25,NO_MATCH=1} missing{bp=76,chg=75,shape=67,opp=41,tape=32} forward-by-outcome{MATCHED n94 +3.7%,NO_MATCH n25 -24.3%,DATA_INCOMPLETE n145 -24.8%}
+DIP_HUNTER tagged{DATA_INCOMPLETE=62,NO_TRIGGER=5,BUYERS_DOMINATING=3,QUIET_ACCUMULATION=1 alsoFired{QUIET_ACCUMULATION=2}} record: PLAN_SWEEP_RECLAIM[prior +1.0] SWEEP_RECLAIM_FLOW[prior +0.5] CAPITULATION_HIGHER_LOW[prior +0.5] SUPPORT_FLIP[prior +0.5] MEAN_REVERSION_OVERSOLD[prior +0.5] SECOND_LEG[prior +0.5] FIRST_DIP_BOUGHT[prior +0.5] HOLDER_EXPANSION[prior +0.5] OPP_DIP_RECOVERY[prior +0.5] HL_RECLAIM[prior +1.0] SPECIALIST_EDGE[prior +1.0] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[prior +0.5] COLOUR_SEQUENCE[n10 -6.8% exec-10.1% exp -3.0] BUYERS_DOMINATING[n48 -3.7% exec-7.0% exp -4.8] BASE_BREAKOUT_FLOW[n1 +4.3% exec+1.0% exp +0.5] IGNITION_5M[n6 +1.5% exec-1.8% exp -0.0] FIRST_PULLBACK_AFTER_RUN[prior +0.5] DIP_IN_UPTREND[prior +0.5] QUIET_ACCUMULATION[n34 -3.8% exec-7.1% exp -4.3] NEW_HIGH_PUSH[prior +0.5] NO_TRIGGER[n367 -2.5% exec-5.8% exp -5.6]
+8084 outcomes{NO_MATCH=255,DATA_INCOMPLETE=171,MATCHED=78} missing{tape=335,opp=198,shape=133,bp=62,chg=60} forward-by-outcome{DATA_INCOMPLETE n149 -1.4%,NO_MATCH n15 -5.4%,MATCHED n12 -0.9%}
+MANIPULATED tagged{DATA_INCOMPLETE=113,SPECIALIST_EDGE=8,NO_TRIGGER=6,IGNITION_5M=5,ACCELERATING_TAPE=3,TURNOVER_SPIKE=2,GRADUATION_APPROACH=1,NEW_HIGH_PUSH=1,LIVESTREAM_LAUNCH=1 alsoFired{FRESH_LAUNCH_MOMENTUM=3,BREAKOUT_RUNNER=3,GRADUATION_APPROACH=2,FAST_CROWD=2,RS_LEADER=2,ACCELERATING_TAPE=2,NEW_HIGH_PUSH=1,IGNITION_5M=1}} record: PLAN_SWEEP_RECLAIM[prior +1.0] DISTRIBUTION_RECLAIM[n2 -10.9% exec-14.2% exp -0.8] SWEEP_RECLAIM_FLOW[n13 -12.3% exec-15.6% exp -5.8] CTO_REVIVAL[prior +0.0] ACCELERATING_TAPE[n99 +36.2% exec+32.9% exp +27.5 auth=1.00] FIRST_DIP_BOUGHT[prior +0.5] HL_RECLAIM[prior +1.0] SPECIALIST_EDGE[n272 +10.9% exec+7.6% exp +7.1 auth=1.00] FRESH_LAUNCH_MOMENTUM[n110 +10.6% exec+7.3% exp +6.3] MICRO_CAP_IGNITION[n190 -15.2% exec-18.5% exp -16.7] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[n91 -7.2% exec-10.5% exp -8.5] GRADUATION_APPROACH[n153 -9.0% exec-12.3% exp -10.8] LIVESTREAM_LAUNCH[n126 -24.8% exec-28.1% exp -24.2] COPYCAT_BETA[n57 +207.0% exec+203.7% exp +150.9 auth=1.00] COLOUR_SEQUENCE[n16 -7.3% exec-10.6% exp -4.4] VOLUME_IGNITION[prior +0.5] BREAKOUT_RUNNER[n62 -6.3% exec-9.6% exp -7.2] MOMENTUM_PULLBACK_5M[n17 +13.6% exec+10.3% exp +5.0] RS_LEADER[n142 -0.8% exec-4.1% exp -3.5] FAST_CROWD[n56 +14.3% exec+11.0% exp +8.2] NET_INFLOW_SURGE[n86 +31.4% exec+28.1% exp +22.9 auth=1.00] BUYERS_DOMINATING[n146 -8.9% exec-12.2% exp -10.7] BASE_BREAKOUT_FLOW[n67 +2.6% exec-0.7% exp -0.4] IGNITION_5M[n430 +11.7% exec+8.4% exp +8.0 auth=1.00] FIRST_PULLBACK_AFTER_RUN[n1 -1.5% exec-4.8% exp +0.2] DIP_IN_UPTREND[n14 -7.6% exec-10.9% exp -4.2] QUIET_ACCUMULATION[n65 -21.6% exec-24.8% exp -18.9] NEW_HIGH_PUSH[n27 -1.5% exec-4.8% exp -2.6] EARLY_BUYER_EXPANSION_8170[n11 +97.6% exec+94.3% exp +33.8] NO_TRIGGER[n1020 +20.2% exec+16.9% exp +16.6]
+8084 outcomes{DATA_INCOMPLETE=154,MATCHED=89,NO_MATCH=48} missing{opp=157,shape=144,tape=131,chg=95,bp=89} forward-by-outcome{DATA_INCOMPLETE n26 +6.6%,MATCHED n67 +14.4%,NO_MATCH n20 -2.5%}
+TREASURY tagged{DATA_INCOMPLETE=106,NO_TRIGGER=20,BUYERS_DOMINATING=4,IGNITION_5M=3,DEEP_LIQ_TREND=2,NEW_HIGH_PUSH=2,RECLAIM_AFTER_WEAKNESS=2,QUIET_ACCUMULATION=2,MOMENTUM_PULLBACK_5M=1 alsoFired{QUIET_ACCUMULATION=5,BUYERS_DOMINATING=4,IGNITION_5M=1}} record: PLAN_SWEEP_RECLAIM[prior +1.0] RANGE_LOW_BOUNCE[prior +0.5] RECLAIM_AFTER_WEAKNESS[n80 +1.0% exec-2.3% exp -1.8] MICRO_PULLBACK_TREND[n8 -6.6% exec-9.9% exp -2.5] DEEP_LIQ_TREND[n23 -1.9% exec-5.2% exp -2.5] LOW_VOL_COIL[prior +0.5] MEAN_REVERSION_OVERSOLD[prior +0.5] MOMENTUM_PULLBACK_5M[n9 -7.1% exec-10.4% exp -2.9] OPP_DIP_RECOVERY[n4 -6.3% exec-9.6% exp -1.2] RANGE_SUPPORT_SWING[prior +0.5] SPECIALIST_EDGE[prior +1.0] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[n23 -9.1% exec-12.4% exp -6.4] COLOUR_SEQUENCE[n40 +1.5% exec-1.8% exp -1.0] BUYERS_DOMINATING[n174 -11.5% exec-14.8% exp -13.3] BASE_BREAKOUT_FLOW[n51 -5.8% exec-9.1% exp -6.4] IGNITION_5M[n53 -1.1% exec-4.4% exp -3.0] FIRST_PULLBACK_AFTER_RUN[prior +0.5] DIP_IN_UPTREND[n4 +26.0% exec+22.7% exp +4.2] QUIET_ACCUMULATION[n180 -11.2% exec-14.5% exp -13.0] NEW_HIGH_PUSH[n6 +123.5% exec+120.2% exp +28.1] NO_TRIGGER[n1037 +2.7% exec-0.6% exp -0.6]
+8084 outcomes{DATA_INCOMPLETE=223,MATCHED=189,NO_MATCH=169} missing{tape=373,opp=196,shape=190,chg=84,bp=79} forward-by-outcome{MATCHED n57 -6.9%,DATA_INCOMPLETE n321 -7.7%,NO_MATCH n46 -10.0%}
+CASHGEN tagged{DATA_INCOMPLETE=21,NO_TRIGGER=6,BUYERS_DOMINATING=5,BASE_BREAKOUT_FLOW=1,PLAN_SWEEP_RECLAIM=1,RECLAIM_AFTER_WEAKNESS=1,OPP_CONTINUATION=1,QUIET_ACCUMULATION=1,MICRO_PULLBACK_TREND=1 alsoFired{QUIET_ACCUMULATION=5,DEEP_LIQ_TREND=2,COLOUR_SEQUENCE=1}} record: PLAN_SWEEP_RECLAIM[prior +1.0] RANGE_LOW_BOUNCE[n1 -3.9% exec-7.2% exp +0.1] RECLAIM_AFTER_WEAKNESS[n91 -1.5% exec-4.8% exp -3.8] MICRO_PULLBACK_TREND[n15 -1.1% exec-4.4% exp -1.6] DEEP_LIQ_TREND[n65 -2.1% exec-5.4% exp -4.0] LOW_VOL_COIL[prior +0.5] MEAN_REVERSION_OVERSOLD[prior +0.5] MOMENTUM_PULLBACK_5M[n17 -1.8% exec-5.1% exp -2.1] OPP_CONTINUATION[n12 -5.0% exec-8.3% exp -2.8] RANGE_SUPPORT_SWING[prior +0.5] SPECIALIST_EDGE[prior +1.0] HOLDER_SURGE[n1 +8.5% exec+5.2% exp +0.7] TURNOVER_SPIKE[n10 -19.8% exec-23.1% exp -7.4] COLOUR_SEQUENCE[n28 +1.6% exec-1.7% exp -0.8] BUYERS_DOMINATING[n219 -0.9% exec-4.2% exp -3.8] BASE_BREAKOUT_FLOW[n72 +0.1% exec-3.2% exp -2.4] IGNITION_5M[n48 +5.5% exec+2.2% exp +1.7] FIRST_PULLBACK_AFTER_RUN[prior +0.5] DIP_IN_UPTREND[prior +0.5] QUIET_ACCUMULATION[n255 -1.8% exec-5.1% exp -4.7] NEW_HIGH_PUSH[n10 +13.9% exec+10.6% exp +3.9] NO_TRIGGER[n621 +2.7% exec-0.6% exp -0.6]
+8084 outcomes{DATA_INCOMPLETE=506,MATCHED=459,NO_MATCH=317} missing{tape=823,opp=447,shape=443,chg=273,volAccel=202} forward-by-outcome{NO_MATCH n33 -3.5%,MATCHED n55 +0.7%,DATA_INCOMPLETE n157 -2.6%}
+CYCLIC tagged{DATA_INCOMPLETE=11,NO_TRIGGER=7 alsoFired{-}} record: PLAN_SWEEP_RECLAIM[prior +1.0] PLAN_BASE_BREAKOUT[n4 -2.2% exec-5.5% exp -0.1] RANGE_LOW_BOUNCE[prior +0.5] SUPPORT_FLIP[prior +0.5] MEAN_REVERSION_OVERSOLD[prior +0.5] LOW_VOL_COIL[prior +0.5] OPP_LIQUIDITY_EXPANSION[prior +0.5] SECOND_LEG[prior +0.5] OPP_DIP_RECOVERY[prior +0.5] RANGE_SUPPORT_SWING[prior +0.5] SPECIALIST_EDGE[prior +1.0] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[n11 +28.8% exec+25.5% exp +9.4] COLOUR_SEQUENCE[n1 -0.0% exec-3.3% exp +0.3] BUYERS_DOMINATING[n40 -0.0% exec-3.3% exp -2.1] BASE_BREAKOUT_FLOW[n4 -5.3% exec-8.6% exp -1.0] IGNITION_5M[n16 +15.6% exec+12.3% exp +5.7 auth=0.01] FIRST_PULLBACK_AFTER_RUN[prior +0.5] DIP_IN_UPTREND[prior +0.5] QUIET_ACCUMULATION[n44 -4.1% exec-7.4% exp -4.9] NEW_HIGH_PUSH[prior +0.5] NO_TRIGGER[n134 +9.8% exec+6.5% exp +5.5]
+8084 outcomes{MATCHED=52,DATA_INCOMPLETE=29,NO_MATCH=17} missing{tape=45,shape=24,opp=15,chg=9,bp=7} forward-by-outcome{DATA_INCOMPLETE n56 -1.7%,NO_MATCH n4 +14.2%,MATCHED n5 -3.1%}
+CORE tagged{DATA_INCOMPLETE=156,NO_TRIGGER=5,IGNITION_5M=4,BUYERS_DOMINATING=3,OPP_BREAKOUT_EXPANSION=2,RANGE_LOW_BOUNCE=1,TURNOVER_SPIKE=1,DEEP_LIQ_TREND=1 alsoFired{QUIET_ACCUMULATION=3,NEW_HIGH_PUSH=2,CROWD_FORMING=1,HIGHER_LOW_PULLBACK=1}} record: PLAN_PULLBACK_RECLAIM[prior +1.0] PLAN_BASE_BREAKOUT[n12 -8.1% exec-11.4% exp -3.6] PLAN_SWEEP_RECLAIM[prior +1.0] HIGHER_LOW_PULLBACK[n37 -4.7% exec-8.0% exp -5.0] RANGE_LOW_BOUNCE[prior +0.5] OPP_BREAKOUT_EXPANSION[n63 +2.2% exec-1.1% exp -0.7] OPP_RS_LEADER[n6 -7.2% exec-10.5% exp -2.0] HOLDER_EXPANSION[prior +0.5] VOLUME_IGNITION[prior +0.5] DEEP_LIQ_TREND[n24 -2.4% exec-5.7% exp -2.9] CROWD_FORMING[n40 +48.0% exec+44.7% exp +29.9 auth=1.00] HL_RECLAIM[n1 +2.9% exec-0.4% exp +0.9] RANGE_SUPPORT_SWING[prior +0.5] SPECIALIST_EDGE[n237 +19.4% exec+16.1% exp +15.0 auth=1.00] HOLDER_SURGE[prior +0.5] TURNOVER_SPIKE[n45 -12.7% exec-16.0% exp -10.9] COLOUR_SEQUENCE[n37 -7.6% exec-10.9% exp -6.9] BUYERS_DOMINATING[n196 -6.9% exec-10.2% exp -9.2] BASE_BREAKOUT_FLOW[n74 +0.8% exec-2.5% exp -1.8] IGNITION_5M[n285 -1.4% exec-4.7% exp -4.4] FIRST_PULLBACK_AFTER_RUN[prior +0.5] DIP_IN_UPTREND[n6 -10.4% exec-13.7% exp -2.8] QUIET_ACCUMULATION[n174 -12.8% exec-16.1% exp -14.4] NEW_HIGH_PUSH[n8 -46.2% exec-49.5% exp -13.8] NO_TRIGGER[n1082 +2.8% exec-0.5% exp -0.5]
+8084 outcomes{DATA_INCOMPLETE=821,NO_MATCH=253,MATCHED=152} missing{tape=782,opp=781,shape=719,chg=576,bp=507} forward-by-outcome{NO_MATCH n82 -15.1%,DATA_INCOMPLETE n719 -8.9%,MATCHED n83 +4.2%}
+calibration v7 (§7901): slope=CORE:1.50(n196),MOONSHOT:1.50(n191),SHITCOIN:0.10(n180),TREASURY:1.50(n171),EXPRESS:0.50(n162),PROJECT_SNIPER:1.50(n142),QUALITY:1.50(n120),CASHGEN:0.00(n110)
+timing cortex v6 (§7900): bar=TIMING_BAR_V1 window=5m pending=1051 graded=367 seated=193 actions=BASIS_SUSPECT_8187=8 dip=[CRYPTO_QUALITY:n6/+0.0%,CRYPTO_MOONSHOT:n1/+1.1%,MANIPULATED:n9/-7.7%,CASHGEN:n44/-1.3%,SHITCOIN:n1/-13.9%,CYCLIC:n45/+1.1%,QUALITY:n6/-8.6%,DIP_HUNTER:n12/-13.5%,BLUECHIP:n1/+0.1%,CRYPTO_SHITCOIN:n3/-7.0%,MOONSHOT:n4/+15.8%]
+exit cortex v3 (§7897): bar=EXIT_BAR_V1 target=FUTURE_MARK_RETURN_V1 legacy=retained_separate horizon=30m(runner 120m) sampled/1m pending=0 graded=0 seated=37 slope=WALLET_RECOVERED:1.00(n70)
+actions: EXIT_TRUTH_HISTORICAL_NO_MARK_SKIPPED_8171=70
+seated: POS_PNL_PCT|WALLET_RECOVERED a=0.64 · POS_PARTIAL_SOLD_PCT|WALLET_RECOVERED a=0.64 · POS_HOLD_MIN|WALLET_RECOVERED a=0.64 · POS_GIVEBACK_PTS|WALLET_RECOVERED a=0.64 · MCAP_TO_LIQ|WALLET_RECOVERED a=0.63 · DRAWDOWN_PCT|WALLET_RECOVERED a=0.63 · MARKET_CAP_USD|WALLET_RECOVERED a=0.63 · LIQUIDITY_USD|WALLET_RECOVERED a=0.63 · V4_GLOBAL_RISK_MODE|WALLET_RECOVERED a=0.63 · PEAK_POSITION|WALLET_RECOVERED a=0.62
+lanes: WALLET_RECOVERED sell=n59/+0.1%/1p neutral=n23/-5.5% hold=-/0p holdAuth=false sellAuth=false · SHITCOIN sell=n2/+27.5%/3p neutral=n6/-59.8% hold=-/0p holdAuth=false sellAuth=false · MOONSHOT sell=-/0p neutral=n26/+9.8% hold=-/0p holdAuth=false sellAuth=false
+grades8136: notYetDue=0 dueInGrace=0 overdue=0 graded=0
+exitTruth8153 (actual proceeds, regret one horizon after the close): pending=0 LIVE|MANIPULATED n1 total=-75.4% regret=-%/n0 tailCuts=0 · LIVE|MOONSHOT n1 total=-14.4% regret=-%/n0 tailCuts=0 · LIVE|SHITCOIN n11 total=-11.9% regret=-%/n0 tailCuts=0
+stop authority (§7887): sources=[-] bounds=4-25% lifecycleFloor=40% runnerFloor=15%
+strong-cohort doors (§8201): offered=0 NOT_STRONG=4562 NO_ASSESSMENT=3060 NOT_WALK_FORWARD_VALIDATED_NO_EDGE=1411 UNCALIBRATED=891 STALE_MARK=256 NOT_WALK_FORWARD_VALIDATED_UNRESOLVED_COHORT=214 MAYHEM=37 NOT_WALK_FORWARD_VALIDATED_INSUFFICIENT_DATA=3
+actions: ASYNC_ALREADY_SCHEDULED=1934,ASYNC_ASSESS=3552,ASYNC_CAPTURE=1466,AUTHORITY_BLOCKED_8187_EXPRESS_LABEL_EDGE=2,AUTHORITY_BLOCKED_8187_MANIPULATED_WF_UNRESOLVED_COHORT=24,AUTHORITY_BLOCKED_8187_MOONSHOT_LABEL_EDGE=179,AUTHORITY_BLOCKED_8187_SHITCOIN_LABEL_EDGE=1400,AUTHORITY_DENIED_8144_UNRESOLVED_COHORT=24,C3_STOOD_DOWN_CELL_PROVEN_8094=26,CAPTURE_COALESCED_SAME_KEY_8187=3,CAPTURE_COLD_READ_8178=1268,CAPTURE_VOTERS_NOT_READY_AT_DECISION_8174=1271,EXEC_OFFSETS_REFRESHED_8187=2,FIRST_SIGHT_8026=9,FIRST_SIGHT_BARRED_8144=217,GRADED_RESTORED_8013=150,HIVE_BIN_INVALID_8076=876,HIVE_SCORE_INVALID_8076=2129,LABEL_HYGIENE_LATE_VOTER_RE
