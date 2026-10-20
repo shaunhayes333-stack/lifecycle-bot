@@ -973,6 +973,15 @@ object LanePlaybook7907 {
             // V5.0.8084 — DATA_INCOMPLETE / CLASSIFIER_ERROR are not the NO_TRIGGER cohort: no economic refusal is drawn
             // from them (the proven-only live step still needs the candidate's own positive evidence to carry money).
             if (c8084.outcome != Outcome8084.MATCHED && c8084.outcome != Outcome8084.NO_MATCH) return null
+            liveRefusalForSetup(ts, lane, setup)
+        } catch (_: Throwable) { null }
+    }
+
+    /** The admitted setup is already resolved; a classifier refresh cannot replace its identity here. */
+    fun liveRefusalForSetup(ts: TokenState, laneRaw: String, setup: String?): String? {
+        if (setup == null) return null
+        return try {
+            val lane = canon(laneRaw)
             val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
             val why: String? = synchronized(this) {
                 val st = stat(lane, setup)
@@ -1329,8 +1338,12 @@ object LanePlaybook7907 {
      * it before the chart-reader BUY and specialist doors, which used to admit ahead of the playbook priors.
      */
     fun provenLosingSetupRefusal8079(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
+        provenLosingNamedSetupRefusal(laneRaw, selectedSetup8094(ts, canon(laneRaw), nowMs))
+    } catch (_: Throwable) { null }
+
+    /** Check the strategy carried by admission without selecting a different strategy. */
+    fun provenLosingNamedSetupRefusal(laneRaw: String, setup: String?): String? = try {
         val lane = canon(laneRaw)
-        val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8094 — one strategy identity
         if (setup == null || setup == NO_TRIGGER) null else {
             val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
             val losing = synchronized(this) { stat(lane, setup)?.let { provenLosing(it, runner) } ?: false }

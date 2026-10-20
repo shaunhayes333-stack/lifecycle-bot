@@ -405,29 +405,40 @@ object LiveCanonicalRecovery6686 {
     // snapshots, and not freshly mutated (indexing lag after a landed buy).
     private const val PROTECTIVE_ZERO_MIN_AGE_MS_7807 = 120_000L
     private val protectiveZeroSightings7807 = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val protectiveZeroObservedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /**
      * V5.0.7807 — reconciliation half of protective inventory: retire funded
      * LIVE quarantine rows whose mint a complete wallet read proves gone
      * (Field Manual L39). Returns the number of mints retired.
      */
+    @Synchronized
     fun retireProtectiveQuarantinesOnWalletZero7807(walletMints: Map<String, CanonicalTokenAmount>): Int {
-        val partial7807 = try { com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { true }
-        if (partial7807 || walletMints.isEmpty()) return 0
         val now7807 = System.currentTimeMillis()
+        // Completeness and observation time must describe THIS map, including a
+        // legitimately empty complete read. A process-global flag cannot prove it.
+        val evidence = WalletAccountCache.evidence()?.takeIf {
+            it.complete && it.tokens == walletMints && it.owner == WalletManager.currentPubkey() &&
+                now7807 - it.observedAtMs in 0L..60_000L
+        } ?: return 0
         val rows7807 = try {
             CanonicalPositionAuthority6441.protectiveInventory7807("live")
                 .filter { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.QUARANTINED }
         } catch (_: Throwable) { emptyList() }
         val funded7807 = rows7807.mapTo(HashSet()) { it.mint }
         protectiveZeroSightings7807.keys.retainAll(funded7807)
+        protectiveZeroObservedAt.keys.retainAll(funded7807)
         var retired7807 = 0
         for (p in rows7807) {
             val held7807 = walletMints[p.mint]?.raw ?: BigInteger.ZERO
-            if (held7807 > BigInteger.ONE || now7807 - p.lastMutationMs < PROTECTIVE_ZERO_MIN_AGE_MS_7807) {
+            if (held7807 > BigInteger.ONE || now7807 - p.lastMutationMs < PROTECTIVE_ZERO_MIN_AGE_MS_7807 ||
+                evidence.observedAtMs <= p.lastMutationMs ||
+                com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(p.mint)) {
                 protectiveZeroSightings7807.remove(p.mint)
+                protectiveZeroObservedAt.remove(p.mint)
                 continue
             }
+            if (protectiveZeroObservedAt.put(p.mint, evidence.observedAtMs) == evidence.observedAtMs) continue
             val n7807 = (protectiveZeroSightings7807[p.mint] ?: 0) + 1
             protectiveZeroSightings7807[p.mint] = n7807
             if (n7807 < 2) continue
@@ -437,6 +448,7 @@ object LiveCanonicalRecovery6686 {
             if (done7807) {
                 retired7807++
                 protectiveZeroSightings7807.remove(p.mint)
+                protectiveZeroObservedAt.remove(p.mint)
             }
         }
         return retired7807

@@ -61,7 +61,8 @@ class Aate8180RunnerCaptureTest {
         assertEquals("MOONSHOT", tk.openTask8153(meme, "MOONSHOT", "PROJECT_SNIPER", "TOO_OLD_8144", 10L, t0, t0)?.lane)
         // The receiver's token lookup is the meme map, by the meme key too.
         assertTrue(src("engine/SpecialistOwnership7951.kt").contains("val ts = HandoffRoute8180.tokenFor8180(mint)  // V5.0.8180"))
-        assertTrue(src("engine/RunnerCapture8180.kt").contains("tokens[mint] ?: tokens[memeKey8180(mint)]"))
+        assertTrue(src("engine/RunnerCapture8180.kt").contains("tokens[mint] ?: tokens[bare]"))
+        assertTrue(src("engine/RunnerCapture8180.kt").contains("!deskIdentity8180(bare)"))
     }
 
     // ── 2. arrivals refused on the named lane's own floors ──

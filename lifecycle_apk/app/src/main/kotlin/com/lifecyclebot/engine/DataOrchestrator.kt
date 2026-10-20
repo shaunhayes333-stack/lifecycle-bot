@@ -282,19 +282,27 @@ class DataOrchestrator(
      * it. A provider-answered empty is negative-cached by the feed, so a retry
      * after one costs no request. Never fabricates: empty means no bars.
      */
-    private suspend fun keylessFetch7809(
+    internal suspend fun keylessFetch7809(
         mint: String,
         timeframe: String,
         limit: Int,
         poolHint: String,
         attempts: Int,
+        cached: () -> List<Candle> = { SolanaOhlcvFeed6916.cachedCandles8253(mint, timeframe, limit) },
+        fetch: () -> List<Candle> = { SolanaOhlcvFeed6916.fetchCandles6916(mint, timeframe, limit, poolHint) },
+        slotWait: () -> SolanaOhlcvFeed6916.SlotWait7809 = { SolanaOhlcvFeed6916.providerSlotWait7809() },
     ): List<Candle> {
+        if (attempts <= 0) return emptyList()
+        cached().takeIf { it.isNotEmpty() }?.let { return it }
         var tries = 0
         while (tries < attempts) {
             tries++
             val slot: com.lifecyclebot.network.SolanaOhlcvFeed6916.SlotWait7809 =
-                com.lifecyclebot.network.SolanaOhlcvFeed6916.providerSlotWait7809()
+                slotWait()
             if (slot.cooldown) {
+                // The feed owns per-provider gates. A Gecko cooldown cannot hide its cache or an independent source.
+                val alternative = fetch()
+                if (alternative.isNotEmpty()) return alternative
                 // V5.0.8201 — a cooldown about to end is waited out once (bounded), not converted into "no bars": 5.0.8200
                 // skipped 1,950 seeds on cooldown and 27% of FDG decisions deferred on DATA_INCOMPLETE. A long cooldown
                 // still ends the attempt (the per-mint DataDeferFetch8180 retry owns it). Never fabricates.
@@ -310,7 +318,7 @@ class DataOrchestrator(
                 val floor = if (tries > 1) SEED_RETRY_FLOOR_MS_7809 else 0L
                 delay(maxOf(slot.waitMs, floor) + kotlin.random.Random.nextLong(0L, SEED_JITTER_MS_7809))
             }
-            val got = com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(mint, timeframe, limit, poolHint)
+            val got = fetch()
             if (got.isNotEmpty()) {
                 if (tries > 1) try { PipelineHealthCollector.labelInc("OHLCV_SEED_SERVED_ON_RETRY_7809") } catch (_: Throwable) {}
                 return got

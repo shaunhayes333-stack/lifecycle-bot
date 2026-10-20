@@ -104,7 +104,7 @@ object HeldHotMarkAuthority7419 {
     }
 
     private fun currentCanonicalTs(mint: String): Long = try {
-        CanonicalPriceMarkRegistry6522.get(mint, CanonicalMarkPurpose6570.EXIT_ECONOMIC)?.timestampMs ?: 0L
+        CanonicalPriceMarkRegistry6522.heldRiskMark(mint)?.timestampMs ?: 0L
     } catch (_: Throwable) { 0L }
 
     private fun <T> bounded(block: () -> T?): Pair<T?, Boolean> {
@@ -132,6 +132,11 @@ object HeldHotMarkAuthority7419 {
         // the risk clock logged NO_MARK thousands of times. Refresh whenever
         // EITHER surface is stale, and always when the canonical exit mark is absent.
         val held8077 = activeOpen()
+        // Quotes refresh on their own quantity/freshness contract even when a
+        // spot feed keeps the risk mark fresh. Scheduling is not quote success.
+        for (p in held8077) if (solanaPriced7960(p)) {
+            HeldExitQuote8189.take8189(p.mint, p.remainingQtyRaw, p.quantityScale, now)
+        }
         execAttempt7876.keys.retainAll(held8077.map { it.mint }.toSet())
         val stale = held8077.filter { p ->
             val runtimeStale7822 = runtimeTokenAgeMs(p.mint, now) > HOT_FRESH_MS
@@ -242,10 +247,11 @@ object HeldHotMarkAuthority7419 {
                 p.remainingQtyRaw.signum() > 0 && p.remainingQtyRaw.bitLength() <= 62
         }.sortedBy { execAttempt7876[it.mint] ?: 0L }
         val quoteAt8077 = System.currentTimeMillis()
+        val estimates8253 = java.util.concurrent.ConcurrentHashMap<String, SellEstimate>()
         val quotes8077 = HeldQuoteBatch8077.resolve(quoteCandidates8077.associate { p ->
             p.positionId to {
                 execAttempt7876[p.mint] = quoteAt8077
-                quoteSellPriceUsd7876(p.mint, p.remainingQtyRaw, p.quantityScale)
+                quoteSellEstimate(p.mint, p.remainingQtyRaw, p.quantityScale)?.also { estimates8253[p.positionId] = it }?.priceUsd
             }
         }, providerPool, BATCH_FANOUT_DEADLINE_MS_7510)
 
@@ -332,7 +338,7 @@ object HeldHotMarkAuthority7419 {
                 val ex = quotes8077[p.positionId]
                 timedOut = timedOut || (ex?.timedOut == true)
                 ex?.price?.let {
-                    px = it; source = EXEC_SOURCE_7876; observedAt8077 = quoteAt8077
+                    px = it; source = EXEC_SOURCE_7876; observedAt8077 = estimates8253[p.positionId]?.observedAtMs ?: 0L
                     fallbacks.incrementAndGet()
                 }
                 // V5.0.8189 — that batch quote only gets what is left of the 1.2 s book deadline and is cancelled when
@@ -369,6 +375,8 @@ object HeldHotMarkAuthority7419 {
                 CanonicalPriceMarkRegistry6522.publishRepairedExitEconomic7418(
                     p.mint, px, source, verifiedIdentity7424 = verified7424,
                     observedAtMs7884 = observedAt8077,
+                    exitQuantityRaw = p.remainingQtyRaw.takeIf { source == EXEC_SOURCE_7876 },
+                    exitPositionId = p.positionId.takeIf { source == EXEC_SOURCE_7876 }.orEmpty(),
                 )
             } catch (_: Throwable) { false }
             try {
@@ -428,19 +436,31 @@ object HeldHotMarkAuthority7419 {
     }
 
     /** V5.0.7876 — blocking executable sell-quote price for [rawQty] of [mint] (callers run it off the main thread). */
-    internal fun quoteSellPriceUsd7876(mint: String, rawQty: java.math.BigInteger, decimals: Int): Double? {
+    internal data class SellEstimate(val priceUsd: Double, val proceedsSol: Double,
+                                     val observedAtMs: Long, val source: String)
+
+    internal fun quoteMatchesHolding(q: com.lifecyclebot.network.SwapQuote, mint: String,
+                                     rawQty: java.math.BigInteger): Boolean =
+        q.inputMint == mint && q.outputMint == com.lifecyclebot.network.JupiterApi.SOL_MINT &&
+            rawQty.signum() > 0 && rawQty.bitLength() <= 62 && q.inAmount == rawQty.toLong() && q.outAmount > 0L
+
+    internal fun quoteSellPriceUsd7876(mint: String, rawQty: java.math.BigInteger, decimals: Int): Double? =
+        quoteSellEstimate(mint, rawQty, decimals)?.priceUsd
+
+    internal fun quoteSellEstimate(mint: String, rawQty: java.math.BigInteger, decimals: Int): SellEstimate? {
         val bare = mint.removePrefix("solana|").trim()
-        if (bare.isBlank() || bare.contains('|') || rawQty.signum() <= 0 || rawQty.bitLength() > 62) return null
+        if (bare.isBlank() || bare.contains('|') || rawQty.signum() <= 0 || rawQty.bitLength() > 62 || decimals !in 0..18) return null
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val observedAt = System.currentTimeMillis()
         val q = try {
             quoteApi7876.getQuote(bare, com.lifecyclebot.network.JupiterApi.SOL_MINT, rawQty.toLong(), 300)
         } catch (_: Throwable) { null }
-        if (q != null) return sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd)
-        // V5.0.8198 — Jupiter has no route (5.0.8198: 300 of 314 held quotes) while the position sits on a venue the
-        //    chain confirms (PumpSwap / Raydium vaults, or an active pump.fun curve). The mark is that venue's own
-        //    constant-product payout for THIS quantity at a conservative fee: it can only read below spot, never a phantom.
-        //    No reserve read within the window -> no mark (and the pool read is requested for the next pass).
-        return venueReserveSellPriceUsd8198(bare, rawQty, decimals, solUsd)
+        if (q != null && quoteMatchesHolding(q, bare, rawQty)) {
+            val px = sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd) ?: return null
+            return SellEstimate(px, java.math.BigDecimal.valueOf(q.outAmount).movePointLeft(9).toDouble(),
+                observedAt, "JUPITER_HELD_SELL_QUOTE_8189")
+        }
+        return venueReserveSellEstimate(bare, rawQty, decimals, solUsd)
     }
 
     /** Fee haircut applied to reserve-derived held marks (above PumpSwap / Raydium / curve published fees: conservative). */
@@ -460,28 +480,34 @@ object HeldHotMarkAuthority7419 {
 
     /** V5.0.8198 — held sell mark from the venue's chain-read reserves when no aggregator route answers. */
     internal fun venueReserveSellPriceUsd8198(mint: String, rawQty: java.math.BigInteger, decimals: Int, solUsd: Double,
-                                              nowMs: Long = System.currentTimeMillis()): Double? {
+                                              nowMs: Long = System.currentTimeMillis()): Double? =
+        venueReserveSellEstimate(mint, rawQty, decimals, solUsd, nowMs)?.priceUsd
+
+    internal fun venueReserveSellEstimate(mint: String, rawQty: java.math.BigInteger, decimals: Int, solUsd: Double,
+                                          nowMs: Long = System.currentTimeMillis()): SellEstimate? {
         if (decimals !in 0..18 || rawQty.signum() <= 0 || !solUsd.isFinite() || solUsd <= 20.0 || solUsd >= 5_000.0) return null
         val tokens = java.math.BigDecimal(rawQty).movePointLeft(decimals).toDouble()
         if (!tokens.isFinite() || tokens <= 0.0) return null
         val pool = try { OnChainDepth8038.freshRead8198(mint, RESERVE_MARK_MAX_AGE_MS_8198, nowMs) } catch (_: Throwable) { null }
-        val (venue, outSol) = when {
-            pool != null -> "POOL" to cpSellOutSol8198(pool.quoteSol, pool.baseTokens, tokens, RESERVE_MARK_FEE_8198)
-            else -> {
-                val curve = try { CurveReserves7951.activeReserves8198(mint, nowMs, RESERVE_MARK_MAX_AGE_MS_8198) } catch (_: Throwable) { null }
-                "CURVE" to curve?.let { cpSellOutSol8198(it.first, it.second, tokens, RESERVE_MARK_FEE_8198) }
-            }
+        val curve = if (pool == null) try { CurveReserves7951.activeExitObservation(mint, nowMs, RESERVE_MARK_MAX_AGE_MS_8198) } catch (_: Throwable) { null } else null
+        val outSol = when {
+            pool != null -> cpSellOutSol8198(pool.quoteSol, pool.baseTokens, tokens, RESERVE_MARK_FEE_8198)
+            curve != null -> cpSellOutSol8198(curve.virtualSol, curve.virtualTokens, tokens, RESERVE_MARK_FEE_8198)
+                ?.takeIf { it <= curve.realSol }
+            else -> null
         }
         if (outSol == null) {
             reserveMisses8198.incrementAndGet()
             try { PipelineHealthCollector.labelInc("HELD_MARK_NO_ROUTE_NO_RESERVE_8198") } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { OnChainDepth8038.request8038(it) } } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { OnChainDepth8038.request8038(it, RESERVE_MARK_MAX_AGE_MS_8198) } } catch (_: Throwable) {}
             return null
         }
+        val venue = if (pool != null) "POOL" else "CURVE"
+        val observedAt = pool?.atMs ?: curve?.observedAtMs ?: return null
         reserveMarks8198.incrementAndGet()
         try { PipelineHealthCollector.labelInc("HELD_MARK_VENUE_RESERVE_8198_$venue") } catch (_: Throwable) {}
         val px = outSol * solUsd / tokens
-        return px.takeIf { it.isFinite() && it > 0.0 }
+        return if (px.isFinite() && px > 0.0) SellEstimate(px, outSol, observedAt, "VENUE_RESERVE_$venue") else null
     }
 
     fun summary(): Summary = Summary(requests.get(), advanced.get(), unchanged.get(), timeouts.get(), fallbacks.get(), waitedOnEnrichment.get(), waitedOnUi.get(), waitedOnKeyless.get())

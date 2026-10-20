@@ -311,6 +311,9 @@ object PipelineHealthCollector {
         val feeSol: Double = 0.0,
         val canonicalConsumedRaw: String = "",
         val economicEventId: String = "",
+        val signature: String = "",
+        val originalExitReason: String = "",
+        val originatingLane: String = "",
     )
     private val recentExecs = java.util.concurrent.ConcurrentLinkedDeque<ExecRecord>()
     private val recentExecsSize = AtomicInteger(0)
@@ -795,6 +798,9 @@ object PipelineHealthCollector {
         canonicalConsumedRaw: String = "",
         economicEventId: String = "",
         occurredAtMs8077: Long = System.currentTimeMillis(),
+        signature: String = "",
+        originalExitReason: String = "",
+        originatingLane: String = "",
     ) {
         if (!attached) return
         val eventMode = when (mode.trim().uppercase()) {
@@ -846,6 +852,7 @@ object PipelineHealthCollector {
         if (entryPriceSnapshot > 0.0) bump(labelCounts, "TRADEJRNL_ENTRY_SNAPSHOT_VISIBLE")
         recentExecs.addLast(ExecRecord(
             tsMs = occurredAtMs8077,
+            signature = signature, originalExitReason = originalExitReason, originatingLane = originatingLane,
             side = side,
             mode = eventMode,
             symbol = symbol,
@@ -1622,6 +1629,9 @@ object PipelineHealthCollector {
                     }
                     if (ex.economicEventId.isNotBlank()) sb.append(" event=").append(ex.economicEventId.take(18))
                     if (ex.reason.isNotBlank()) sb.append(" reason=").append(ex.reason.take(60))
+                    if (ex.originalExitReason.isNotBlank()) sb.append(" trigger=").append(ex.originalExitReason)
+                    if (ex.originatingLane.isNotBlank()) sb.append(" entryLane=").append(ex.originatingLane)
+                    if (ex.signature.isNotBlank()) sb.append(" sig=").append(ex.signature)
                     sb.append('\n')
                 }
                 sb.append('\n')

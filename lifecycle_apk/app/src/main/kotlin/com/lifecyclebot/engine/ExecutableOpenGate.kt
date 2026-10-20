@@ -147,6 +147,7 @@ object ExecutableOpenGate {
         // enter canonical PAPER economics; exploration/probes belong to the
         // non-canonical shadow book. Blank preserves legacy callers.
         val approvalClass7525: String = "",
+        val runnerEntry: Boolean = false,
     ) {
         val lane: String get() = canonicalLane
         val signal: String get() = authoritativeSignal
@@ -2362,6 +2363,9 @@ object ExecutableOpenGate {
                             decisionAuthorityId6613 = "FDG_AUTH:${immutableAuthority6519?.authorityVersion ?: winner.candidateVersion}",
                             fdgDecisionId6613 = "${mode6512}:${mint}:${winner.candidateVersion}:${canonicalLane6519}",
                             fdgEvidence6613 = "fdgCan=true;preFdg=${winner.preFdgVerdict};safety=${winner.safetyTier};hardNo=0",
+                            runnerEntry = com.lifecyclebot.engine.truth.AdmissionEdge8180.proof8198(
+                                mode6512, mint, canonicalLane6519, winner.candidateVersion)
+                                ?.let { it.specificEdge && it.basis.startsWith("RUNNER_GRAB:") } == true,
                             expiresAtMs6613 = System.currentTimeMillis() + if (paperRuntime)
                                 // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §2 — adaptive TTL on fresh ticket seal.
                                 com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()

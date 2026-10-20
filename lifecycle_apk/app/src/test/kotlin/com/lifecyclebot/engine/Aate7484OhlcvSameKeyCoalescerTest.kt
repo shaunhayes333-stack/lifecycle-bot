@@ -21,7 +21,8 @@ class Aate7484OhlcvSameKeyCoalescerTest {
     @Test fun provider_interval_and_caches_are_preserved() {
         val s = src()
         assertTrue(s.contains("SAME_KEY_COALESCE_MS_7484 = 2_500L"))
-        assertTrue(s.contains("cache[key]?.let"))
+        assertTrue(s.contains("cachedCandles8253(mint, timeframeLabel, n, now)"))
+        assertTrue(s.contains("val row = cache[key] ?: return emptyList()"))
         assertTrue(s.contains("negativeCache[mint]?.let"))
         assertTrue(s.contains("fetchDexPaprika7293"))
         assertTrue(s.contains("resolvePool(mint, poolHint)"))

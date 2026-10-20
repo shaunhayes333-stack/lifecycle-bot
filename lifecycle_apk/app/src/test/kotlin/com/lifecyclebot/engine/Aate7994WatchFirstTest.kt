@@ -19,6 +19,6 @@ class Aate7994WatchFirstTest {
         val wf = live.substringAfter("watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136 || genericNative8211, candidateVersion, admission8136)?.let {")
         assertTrue(wf.contains("observeTail7996(ts, lane, it, nowMs); return it"))
         val watch = g.indexOf("watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136 || genericNative8211, candidateVersion, admission8136)")
-        assertTrue(watch in 1 until g.indexOf("val why = liveRefusalCore7970(ts, lane, paper, nowMs, candidateSpecificAdmission8136, genericNative8211)"))
+        assertTrue(watch in 1 until g.indexOf("val why = liveRefusalCore7970(ts, lane, paper, nowMs, candidateSpecificAdmission8136, genericNative8211, resolvedAdmission)"))
     }
 }

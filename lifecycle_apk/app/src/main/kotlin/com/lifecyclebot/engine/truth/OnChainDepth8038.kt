@@ -86,7 +86,7 @@ object OnChainDepth8038 {
         if (a == null || b == null) return null
         val sol = listOf(a, b).firstOrNull { it.first == WSOL } ?: return null
         val coin = listOf(a, b).firstOrNull { it.first == mint } ?: return null
-        if (!(sol.second > 0.0) || !(coin.second > 0.0)) return null
+        if (!sol.second.isFinite() || !coin.second.isFinite() || !(sol.second > 0.0) || !(coin.second > 0.0)) return null
         return sol.second to coin.second
     }
 
@@ -120,7 +120,12 @@ object OnChainDepth8038 {
 
     /** V5.0.8198 — the chain-confirmed vault read of [mint]'s pool when at most [maxAgeMs] old, else null. Never requests. */
     fun freshRead8198(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): Read? =
-        reads[mint]?.takeIf { nowMs - it.atMs in 0L..maxAgeMs && it.quoteSol > 0.0 && it.baseTokens > 0.0 }
+        reads[mint]?.takeIf { usableRead(it, maxAgeMs, nowMs) }
+
+    internal fun usableRead(read: Read, maxAgeMs: Long, nowMs: Long): Boolean =
+        read.pool.isNotBlank() && nowMs - read.atMs in 0L..maxAgeMs &&
+            read.quoteSol.isFinite() && read.quoteSol > 0.0 &&
+            read.baseTokens.isFinite() && read.baseTokens > 0.0
 
     /** LiquidityTruth8037: the fresh on-chain depth (USD, both sides) of [mint]'s pool, or NaN. Never requests. */
     fun chainDepthUsd8038(mint: String, nowMs: Long = System.currentTimeMillis()): Double =
@@ -132,9 +137,9 @@ object OnChainDepth8038 {
             .filter { p -> unsupported[p]?.let { System.currentTimeMillis() - it > UNSUPPORTED_RETRY_MS } ?: true }
 
     /** Ask for a read of [ts]'s pool in the background (LiveEdgeGate, exits). Returns immediately. */
-    fun request8038(ts: TokenState) {
+    fun request8038(ts: TokenState, maxAgeMs: Long = FRESH_MS) {
         val mint = ts.mint
-        if (mint.isBlank() || fresh(mint, System.currentTimeMillis()) != null || !inFlight.add(mint)) return
+        if (mint.isBlank() || freshRead8198(mint, maxAgeMs, System.currentTimeMillis()) != null || !inFlight.add(mint)) return
         val ps = pools(ts)
         if (ps.isEmpty()) { inFlight.remove(mint); return }
         try {
@@ -197,13 +202,15 @@ object OnChainDepth8038 {
     private fun fetch(mint: String, poolAddrs: List<String>): Read? {
         for (p in poolAddrs.take(2)) {
             val (a, b) = vaultsFor(p) ?: continue
+            val observedAt = System.currentTimeMillis()
             val res = rpc("getMultipleAccounts", JSONArray().put(JSONArray().put(a).put(b)).put(JSONObject().put("encoding", "jsonParsed").put("commitment", "confirmed")))
             val arr = res?.optJSONArray("value")
             if (arr == null) { failed.incrementAndGet(); continue }
             val sides = sides8038(mint, parsedSide(arr.optJSONObject(0)), parsedSide(arr.optJSONObject(1)))
             if (sides == null) { unsupported[p] = System.currentTimeMillis(); continue }
-            val read = Read(p, sides.first, sides.second, System.currentTimeMillis())
+            val read = Read(p, sides.first, sides.second, observedAt)
             reads[mint] = read
+            CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
             if (reads.size > 3_000) reads.entries.sortedBy { it.value.atMs }.take(300).forEach { reads.remove(it.key) }
             fetched.incrementAndGet()
             return read
@@ -219,8 +226,7 @@ object OnChainDepth8038 {
         // V5.0.8046 — owner: "these are all ... shit buys": DOGO, Gawkbot, BUNKER bought at pump.fun's creation cap with
         // $1-2 real in the curve. An active curve whose buyers have put in under [MIN_CURVE_REAL_SOL_8046] is refused;
         // an unknown curve on a pump mint is read from the chain first.
-        val pumpLike = ts.mint.endsWith("pump", ignoreCase = true) ||
-            (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(ts.mint) } catch (_: Throwable) { null }) != null
+        val pumpLike = curveReadable8252(ts.mint)
         if (pumpLike && (try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }) == null) {
             try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint)) } catch (_: Throwable) {}
         }
@@ -238,6 +244,17 @@ object OnChainDepth8038 {
             }
             curveReal8046 = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
         }
+        // A fresh create frame can still describe the opening curve while another venue is now active.
+        // Re-read the account before binding a negative reserve verdict; unknown is not "nobody bought".
+        if (curveNobodyBought8046(curveReal8046) && CurveReserves7951.accountRealSol8253(ts.mint, nowMs) == null) {
+            try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint)) } catch (_: Throwable) {}
+            val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }
+            curveReal8046 = CurveReserves7951.accountRealSol8253(ts.mint, System.currentTimeMillis())
+            if (!graduated && curveReal8046 == null) {
+                try { needCurve8039(ts.mint, nowMs) } catch (_: Throwable) {}
+                return "CURVE_RESERVES_UNVERIFIED_DEFER_8253"
+            }
+        }
         if (curveNobodyBought8046(curveReal8046)) {
             emptyCurveRefused8046.incrementAndGet()
             try {
@@ -253,20 +270,17 @@ object OnChainDepth8038 {
         val capSol8047 = try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }
         if (atLaunchCap8047(capSol8047) && !launchCapStoodDown8094(ts.mint, nowMs)) {
             // V5.0.8252 — the one three-state launch-buyer verdict (same read as earlyLaunchRefusal8048).
-            when (launchBuyers8252(curveReal8046, pumpLike)) {
+            when (launchBuyers8252(curveReal8046)) {
                 LaunchBuyers8252.BUYERS_PROVEN -> {
                     try { PipelineHealthCollector.labelInc("AT_LAUNCH_CAP_STOOD_DOWN_CURVE_BUYERS_8252") } catch (_: Throwable) {}
                 }
-                LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN -> if (unknownDeferAllowed8252(ts.mint)) {
-                    // The curve is readable but unread even after the read above: ask again, bounded, decide on a reading.
-                    try { needCurve8039(ts.mint, nowMs) } catch (_: Throwable) {}
+                LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN -> {
+                    // Failed requests do not establish absent buyers. Keep the attempt
+                    // non-executable, request the applicable venue, and retain UNKNOWN
+                    // so a later observation can be evaluated on its own evidence.
+                    try { needDepth8047(ts, nowMs) } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("LAUNCH_BUYERS_UNKNOWN_DEFER_8252") } catch (_: Throwable) {}
                     return "LAUNCH_BUYERS_UNKNOWN_DEFER_8252"
-                } else {
-                    launchCapRefused8047.incrementAndGet()
-                    lastRefusal8047 = "LAUNCH_CAP ${ts.symbol} cap=${"%.1f".format(capSol8047)}SOL (buyers unknown after $MAX_UNKNOWN_DEFERS_8252 reads)"
-                    try { PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_AT_LAUNCH_CAP_8047") } catch (_: Throwable) {}
-                    return "AT_LAUNCH_CAP_8047"
                 }
                 LaunchBuyers8252.NO_BUYERS_PROVEN -> {
                     launchCapRefused8047.incrementAndGet()
@@ -411,7 +425,7 @@ object OnChainDepth8038 {
      * launch cap after being sealed and sized, crowding the lane's tickets (SHITCOIN 35 tickets -> 2 executions).
      */
     fun earlyLaunchRefusal8048(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
-        val real = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
+        val real = try { CurveReserves7951.accountRealSol8253(ts.mint, nowMs) } catch (_: Throwable) { null }
         val why = when {
             curveNobodyBought8046(real) -> "CURVE_NOBODY_BOUGHT_8046"
             atLaunchCap8047(try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }) -> {
@@ -421,10 +435,10 @@ object OnChainDepth8038 {
                 if (launchCapStoodDown8094(ts.mint, nowMs)) return null
                 // V5.0.8252 — one three-state verdict with the buy door: proven buyers stand the proxy down; an unread
                 // readable curve is UNKNOWN (the chain is asked, the door decides on the reading), never a refusal here.
-                when (launchBuyers8252(real, curveReadable8252(ts.mint))) {
+                when (launchBuyers8252(real)) {
                     LaunchBuyers8252.BUYERS_PROVEN -> return null
                     LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN -> {
-                        try { needCurve8039(ts.mint, nowMs) } catch (_: Throwable) {}
+                        try { needDepth8047(ts, nowMs) } catch (_: Throwable) {}
                         try { PipelineHealthCollector.labelInc("LAUNCH_BUYERS_UNKNOWN_EARLY_READ_REQUESTED_8252") } catch (_: Throwable) {}
                         return null
                     }
@@ -441,31 +455,21 @@ object OnChainDepth8038 {
     /**
      * V5.0.8252 §LAUNCH_BUYERS — the one launch-buyer verdict, read identically at the early gate and the buy door.
      * BUYERS_PROVEN: a current curve reading states [MIN_CURVE_REAL_SOL_8046]+ real SOL from buyers. NO_BUYERS_PROVEN: a
-     * reading states less (CURVE_NOBODY_BOUGHT_8046 territory), or the coin has no readable curve and only the cap proxy
-     * speaks. BUYER_EVIDENCE_UNKNOWN: the curve is readable (pump key known / pump mint) but no reading exists yet.
+     * valid nonnegative reading states less (CURVE_NOBODY_BOUGHT_8046 territory).
+     * Missing, invalid or unsupported observations stay UNKNOWN regardless of retry count.
+     * Market cap and provider capability are not observations of actual buyers.
      */
     enum class LaunchBuyers8252 { BUYERS_PROVEN, NO_BUYERS_PROVEN, BUYER_EVIDENCE_UNKNOWN }
 
-    fun launchBuyers8252(curveRealSol: Double?, curveReadable: Boolean): LaunchBuyers8252 = when {
+    fun launchBuyers8252(curveRealSol: Double?): LaunchBuyers8252 = when {
         curveBuyersProven8252(curveRealSol) -> LaunchBuyers8252.BUYERS_PROVEN
-        curveRealSol != null && curveRealSol.isFinite() -> LaunchBuyers8252.NO_BUYERS_PROVEN
-        curveReadable -> LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN
-        else -> LaunchBuyers8252.NO_BUYERS_PROVEN
+        curveRealSol != null && curveRealSol.isFinite() && curveRealSol >= 0.0 -> LaunchBuyers8252.NO_BUYERS_PROVEN
+        else -> LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN
     }
 
     /** A curve the bot can read on chain: a pump-suffixed mint or a known pump curve key. */
     fun curveReadable8252(mint: String): Boolean = mint.endsWith("pump", ignoreCase = true) ||
         (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) } catch (_: Throwable) { null }) != null
-
-    private val unknownDefers8252 = java.util.concurrent.ConcurrentHashMap<String, Int>()
-    private const val MAX_UNKNOWN_DEFERS_8252 = 3
-
-    /** Bounded: the buy door defers an UNKNOWN launch-buyer verdict at most [MAX_UNKNOWN_DEFERS_8252] times per mint. */
-    private fun unknownDeferAllowed8252(mint: String): Boolean {
-        val n = unknownDefers8252.merge(mint, 1, Int::plus) ?: 1
-        if (unknownDefers8252.size > 2_000) unknownDefers8252.clear()
-        return n <= MAX_UNKNOWN_DEFERS_8252
-    }
 
     private val launchCapStoodDownAt8094 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private const val STAND_DOWN_TTL_MS_8094 = 10L * 60_000L

@@ -240,7 +240,7 @@ object NetEdge8030 {
      * V5.0.8209 — the candidate's pre-admission cost at ITS proposed executable size. Pre-8209 every candidate was costed at
      * CostMeter8151's last sealed ticket (whatever lane or mint sealed last) and the refusal breakdown was a global last-write,
      * so EXECUTION_ECONOMICS_8136 refused or admitted on another trade's numbers. With no proposed size yet (callers without
-     * a sizing read), the last sealed ticket remains the fallback and the record says so (sizeSol = that ticket).
+     * a sizing read), a deterministic, capacity-bounded preview is used; the final size still re-quotes and seals.
      */
     /**
      * V5.0.8212: admission is an estimate of the eventual routable ticket, not a
@@ -263,7 +263,8 @@ object NetEdge8030 {
     fun entryCost8209(ts: TokenState, lane: String, proposedSizeSol: Double = Double.NaN): EntryCost8209 {
         val size = if (proposedSizeSol.isFinite() && proposedSizeSol > 0.0) proposedSizeSol else entryTicket8151()
         val cost = costPct8030(lane, size, liquidity8037(ts), ts.mint, ts.lastMcap)
-        val bd = tlBreakdown8209.get() ?: lastBreakdown8169
+        val bd = (tlBreakdown8209.get() ?: "COST_BREAKDOWN_UNAVAILABLE") +
+            if (proposedSizeSol.isFinite() && proposedSizeSol > 0.0) " sizeAuthority=CANDIDATE" else " sizeAuthority=PREVIEW"
         lastEntryBreakdown8169 = bd
         return EntryCost8209(cost, size, bd)
     }
@@ -427,5 +428,11 @@ object NetEdge8030 {
             " · cost8151 " + com.lifecyclebot.engine.CostMeter8151.statusLine8151(DEFAULT_TICKET_SOL)
 
     /** V5.0.8151 — the entry is costed at the last live ticket that actually sealed (TradeVerifier), else the default. */
-    private fun entryTicket8151(): Double = com.lifecyclebot.engine.CostMeter8151.ticketSol8151(DEFAULT_TICKET_SOL)
+    // Pre-size evaluations use the configured preview notional promoted only within
+    // current wallet capacity. Another mint's last sealed ticket is never input.
+    private fun entryTicket8151(): Double = try {
+        admissionQuoteSize8212(DEFAULT_TICKET_SOL,
+            (com.lifecyclebot.engine.BotService.status.walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
+            com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+    } catch (_: Throwable) { DEFAULT_TICKET_SOL }
 }

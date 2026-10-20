@@ -148,7 +148,7 @@ class DexscreenerApi {
         var result = best?.let { parsePair(it) }
         if (chainId == "solana") result = result?.let { withHolders8128(it, tokenAddress) }  // V5.0.8128
         // V5.0.8169 — every best pair served is a dated flow reading for the setup inputs (SetupFeatureResolver8169).
-        if (chainId == "solana" && best != null) result?.let { p -> try { com.lifecyclebot.engine.truth.PairFlow8169.notePair8169(tokenAddress, p) } catch (_: Throwable) {} }
+        if (chainId == "solana" && best != null) result?.let { p -> try { com.lifecyclebot.engine.truth.PairFlow8169.notePair8169(tokenAddress, p, now) } catch (_: Throwable) {} }
         // Fallback only — and only to a host that is not circuit-broken.
         if (result == null && allowDexPaprika) {
             // V5.0.7809 — also out when DexPaprika is latched terminal (401/402/403).

@@ -18,7 +18,7 @@ class Aate7545RiskClockCanonicalMarkTest {
         val block = s.substringAfter("CanonicalRiskClock6454.start { positionId, mint ->")
             .substringBefore("// V5.0.7222")
         assertTrue(block.contains("riskClockMark7960(mint, ts6882, now7545)"))
-        assertTrue(markHelper(s).contains("CanonicalMarkPurpose6570.EXIT_ECONOMIC"))
+        assertTrue(markHelper(s).contains("CanonicalPriceMarkRegistry6522.heldRiskMark(mint)"))
         assertTrue(block.contains("RISK_CLOCK_CANONICAL_EXIT_MARK_READ_7545"))
         assertTrue(block.contains("preResolvedMark6891 = exitMarkPx7545"))
         assertTrue(block.contains("copy(markAgeMs = exitMarkAge7545)"))

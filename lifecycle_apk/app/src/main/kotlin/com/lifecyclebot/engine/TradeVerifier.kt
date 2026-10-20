@@ -140,6 +140,7 @@ object TradeVerifier {
                     // inflated every live entry basis by ~4.6% on a 0.044 SOL position.
                     val solSpent = buySolSpent7928(parsed.solBefore, parsed.solAfter, parsed.ataRentLamports)
                     try { CostMeter8151.noteLeg8151(parsed.feeLamports, parsed.ataRentLamports, 0L); CostMeter8151.noteTicket8151(solSpent / 1e9) } catch (_: Throwable) {}  // V5.0.8151
+                    WalletAccountCache.bustNow()
                     return BuyResult(Outcome.LANDED, sig, mint, rawDelta, ui, parsed.decimals, solSpent, parsed.solBefore, parsed.solAfter, parsed.feeLamports, null, parsed.ataRentLamports)
                 }
                 // tx confirmed err==null but ZERO token delta for our owner — could be a non-direct route.
@@ -194,6 +195,7 @@ object TradeVerifier {
                 // be reading the partial pre/post snapshot mid-confirm).
                 val solRealised = (parsed.solAfter - parsed.solBefore) > 5_000L
                 if (tokensCleared && solRealised) {
+                    WalletAccountCache.bustNow()
                     try { CostMeter8151.noteLeg8151(parsed.feeLamports, 0L, parsed.closedRentLamports) } catch (_: Throwable) {}  // V5.0.8151
                     val ui = if (parsed.decimals > 0) {
                         rawConsumed.toBigDecimal().movePointLeft(parsed.decimals).toDouble()
@@ -244,7 +246,7 @@ object TradeVerifier {
         }
     }
 
-    private data class TxParse(
+    internal data class TxParse(
         val metaErr: String?,
         val rawBefore: BigInteger,
         val rawAfter: BigInteger,
@@ -284,6 +286,15 @@ object TradeVerifier {
                     .put("maxSupportedTransactionVersion", 0))
             val resp = wallet.rpcCall("getTransaction", params)
             val result = resp.optJSONObject("result") ?: return null
+            parseTransactionForOwner(result, wallet.publicKeyB58, mint)
+        } catch (e: Throwable) {
+            ErrorLogger.debug(TAG, "parseTxForOwner($sig, $mint) failed: ${e.message?.take(60)}")
+            null
+        }
+    }
+    /** Same decoder used by live verification and captured finalized-transaction replay. */
+    internal fun parseTransactionForOwner(result: JSONObject, owner: String, mint: String): TxParse? {
+        return try {
             val meta = result.optJSONObject("meta") ?: return null
 
             // err
@@ -303,7 +314,7 @@ object TradeVerifier {
                     is String -> k
                     else -> ""
                 }
-                if (pk == wallet.publicKeyB58) { ownerIdx = i; break }
+                if (pk == owner) { ownerIdx = i; break }
             }
             val preBalArr  = meta.optJSONArray("preBalances")  ?: JSONArray()
             val postBalArr = meta.optJSONArray("postBalances") ?: JSONArray()
@@ -319,7 +330,7 @@ object TradeVerifier {
                 for (i in 0 until arr.length()) {
                     val o = arr.optJSONObject(i) ?: continue
                     if (o.optString("mint") != mint) continue
-                    if (o.optString("owner") != wallet.publicKeyB58) continue
+                    if (o.optString("owner") != owner) continue
                     val ta = o.optJSONObject("uiTokenAmount") ?: continue
                     val raw = runCatching { BigInteger(ta.optString("amount", "0")) }.getOrElse { BigInteger.ZERO }
                     val dec = ta.optInt("decimals", 0)
@@ -350,9 +361,7 @@ object TradeVerifier {
                     pre.accountIndex in 0 until postBalArr.length() && postBalArr.optLong(pre.accountIndex, 0L) == 0L
                 ) preBalArr.optLong(pre.accountIndex, 0L).coerceIn(0L, 10_000_000L) else 0L,
             )
-        } catch (e: Throwable) {
-            ErrorLogger.debug(TAG, "parseTxForOwner($sig, $mint) failed: ${e.message?.take(60)}")
-            null
-        }
+        } catch (_: Throwable) { null }
     }
+
 }

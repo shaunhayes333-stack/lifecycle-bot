@@ -159,7 +159,7 @@ class Aate8189ExitBankingTest {
         assertTrue(rep.contains("cache[mint] = Repaired(q.priceUsd, HeldExitQuote8189.SOURCE_8189, q.observedAtMs)"))
         // stamped at request time, never completion time; never writes a peak
         val hq = src("engine/truth/HeldExitQuote8189.kt")
-        assertTrue(hq.contains("val q = Quote8189(px, askedAtMs, qty)"))
+        assertTrue(hq.contains("val q = Quote8189(estimate.priceUsd, minOf(askedAtMs, estimate.observedAtMs), qty, estimate.proceedsSol, estimate.source)"))
         assertFalse(hq.contains("peakGainPct"))
     }
 

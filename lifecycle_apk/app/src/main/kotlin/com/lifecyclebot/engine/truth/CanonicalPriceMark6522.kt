@@ -2,7 +2,7 @@ package com.lifecyclebot.engine.truth
 
 import java.util.concurrent.ConcurrentHashMap
 
-enum class CanonicalMarkPurpose6570 { OBSERVATION_SCORING, EXIT_ECONOMIC, EXECUTABLE_ENTRY_QUOTE }
+enum class CanonicalMarkPurpose6570 { OBSERVATION_SCORING, EXIT_ECONOMIC, EXECUTABLE_ENTRY_QUOTE, HELD_INDICATIVE }
 
 data class CanonicalPriceMark6522(
     val mint: String,
@@ -21,6 +21,8 @@ data class CanonicalPriceMark6522(
     val priceUnits7424: String = "USD_PER_TOKEN",
     val tokenDecimals7424: Int = -1,
     val markVersion7424: Long = timestampMs,
+    val exitQuantityRaw: java.math.BigInteger? = null,
+    val exitPositionId: String = "",
 )
 
 object CanonicalPriceMarkRegistry6522 {
@@ -256,7 +258,7 @@ object CanonicalPriceMarkRegistry6522 {
 
 
     /**
-     * V5.0.7418 — persist a sane repair into EXIT_ECONOMIC only.
+     * Persist quantity-bound exit evidence separately from indicative held marks.
      * This does not authorize a new entry and cannot overwrite an executable
      * entry quote. It stops every consumer from repeatedly repairing the same
      * already-proven bad raw mark.
@@ -270,8 +272,11 @@ object CanonicalPriceMarkRegistry6522 {
         // A quote up to 60 s old was stamped "now" into the EXIT_ECONOMIC slot that
         // drives the risk clock and stops.
         observedAtMs7884: Long = 0L,
+        exitQuantityRaw: java.math.BigInteger? = null,
+        exitPositionId: String = "",
     ): Boolean {
         if (mint.isBlank() || !priceUsd.isFinite() || priceUsd <= 0.0) return false
+        if (observedAtMs7884 <= 0L || observedAtMs7884 > System.currentTimeMillis()) return false
         if (!verifiedIdentity7424) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARK_REPAIR_UNVERIFIED")
@@ -286,14 +291,17 @@ object CanonicalPriceMarkRegistry6522 {
             baseMint = mint,
             quoteMint = "USD",
             source = source.ifBlank { "REPAIRED_EXIT_7418" },
-            timestampMs = observedAtMs7884.takeIf { it > 0L && it <= System.currentTimeMillis() } ?: System.currentTimeMillis(),
+            timestampMs = observedAtMs7884,
             priceUsd = PriceUsd(java.math.BigDecimal.valueOf(priceUsd)),
             liquidityUsd = null,
-            purpose = CanonicalMarkPurpose6570.EXIT_ECONOMIC,
+            purpose = if (exitQuantityRaw != null && exitQuantityRaw.signum() > 0 && exitPositionId.isNotBlank())
+                CanonicalMarkPurpose6570.EXIT_ECONOMIC else CanonicalMarkPurpose6570.HELD_INDICATIVE,
             identityProof6613 = "REPAIRED_AND_VERIFIED_7424",
             canonicalAssetId7424 = mint,
             priceUnits7424 = "USD_PER_TOKEN",
             markVersion7424 = System.currentTimeMillis(),
+            exitQuantityRaw = exitQuantityRaw,
+            exitPositionId = exitPositionId,
         )
         val ok = publish(repaired)
         if (ok) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_REPAIRED_EXIT_MARK_PUBLISHED_7418") } catch (_: Throwable) {}
@@ -574,10 +582,16 @@ object CanonicalPriceMarkRegistry6522 {
     fun get(mint: String, purpose: CanonicalMarkPurpose6570): CanonicalPriceMark6522? =
         marks[mint to purpose]
 
+    /** Risk stops may use a verified market observation without claiming bankable proceeds. */
+    fun heldRiskMark(mint: String): CanonicalPriceMark6522? = listOfNotNull(
+        marks[mint to CanonicalMarkPurpose6570.EXIT_ECONOMIC],
+        marks[mint to CanonicalMarkPurpose6570.HELD_INDICATIVE],
+    ).maxByOrNull { it.timestampMs }
+
     /** Back-compat: prefer strict executable mark, then exit-economic, then observation. */
     fun get(mint: String): CanonicalPriceMark6522? =
         marks[mint to CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE]
-            ?: marks[mint to CanonicalMarkPurpose6570.EXIT_ECONOMIC]
+            ?: heldRiskMark(mint)
             ?: marks[mint to CanonicalMarkPurpose6570.OBSERVATION_SCORING]
 
     /**

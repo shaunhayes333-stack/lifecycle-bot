@@ -19,7 +19,8 @@ class Aate7418Remaining7409RegressionTest {
         val p = src("engine/OpenPnlSanity.kt")
         val m = src("engine/truth/CanonicalPriceMark6522.kt")
         assertTrue(p.contains("publishRepairedExitEconomic7418"))
-        assertTrue(m.contains("purpose = CanonicalMarkPurpose6570.EXIT_ECONOMIC"))
+        assertTrue(m.contains("exitQuantityRaw.signum() > 0 && exitPositionId.isNotBlank()"))
+        assertTrue(m.contains("CanonicalMarkPurpose6570.EXIT_ECONOMIC else CanonicalMarkPurpose6570.HELD_INDICATIVE"))
         assertTrue(m.contains("CANONICAL_REPAIRED_EXIT_MARK_PUBLISHED_7418"))
     }
 }

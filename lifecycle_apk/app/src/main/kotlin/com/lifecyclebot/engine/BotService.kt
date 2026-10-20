@@ -6384,7 +6384,7 @@ class BotService : Service() {
      */
     private fun riskClockMark7960(mint: String, ts: com.lifecyclebot.data.TokenState?, now: Long): RiskMark7960 {
         val m = try {
-            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC)
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.heldRiskMark(mint)
         } catch (_: Throwable) { null }
         val px = try { m?.priceUsd?.value?.toDouble()?.takeIf { it.isFinite() && it > 0.0 } } catch (_: Throwable) { null }
         val age = m?.timestampMs?.takeIf { it > 0L }?.let { (now - it).coerceAtLeast(0L) } ?: Long.MAX_VALUE
@@ -23167,10 +23167,7 @@ if (hotExitHandledSweep) {
                             var refreshed6902 = 0
                             var failed6902 = 0
                             for (p in opens) {
-                                val mark = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
-                                    p.mint,
-                                    com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC,
-                                )
+                                val mark = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.heldRiskMark(p.mint)
                                 val markAge = if (mark == null) Long.MAX_VALUE else now - mark.timestampMs
                                 if (markAge < stalenessLimitMs) continue
                                 val last = staleMarkRefreshCooldown6721[p.mint] ?: 0L

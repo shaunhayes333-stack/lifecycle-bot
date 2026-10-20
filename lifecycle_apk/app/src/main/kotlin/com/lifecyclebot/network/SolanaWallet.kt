@@ -1500,7 +1500,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         //
         // Cache is BUSTED by sell/buy post-broadcast paths via
         // WalletAccountCache.bustNow(), so confirmed trades never stale.
-        com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L)?.let { return it }
+        com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L, owner = publicKeyB58)?.let { return it }
+        val walletReadGeneration = com.lifecyclebot.engine.WalletAccountCache.readGeneration()
+        val walletReadStartedAtMs = System.currentTimeMillis()
 
         val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
@@ -1584,6 +1586,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             .applyParsedSnapshot(parsedMints7253, frozenMints7253)
         com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253
             .snapshot().forEach(out::remove)
+        if (!com.lifecyclebot.engine.WalletAccountCache.put(out.toMap(), walletReadStartedAtMs,
+                complete = token2022Ok, owner = publicKeyB58, expectedGeneration = walletReadGeneration)) {
+            throw IllegalStateException("Wallet observation superseded by a transaction or newer read; refresh required")
+        }
         // V5.0.7140 — the snapshot now carries whether it is whole.
         //
         // Continuing on a Token-2022 failure is correct; calling the result
@@ -1612,7 +1618,6 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKENS_ROBUST_OK", "spl=true token2022=$token2022Ok count=${out.size}") } catch (_: Throwable) {}
         // V5.0.4173 — populate the wallet snapshot cache so subsequent
         // reads within 5s skip the RPC entirely.
-        try { com.lifecyclebot.engine.WalletAccountCache.put(out.toMap()) } catch (_: Throwable) {}
         return out
     }
 

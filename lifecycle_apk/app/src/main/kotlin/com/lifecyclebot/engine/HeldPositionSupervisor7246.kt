@@ -144,7 +144,7 @@ object HeldPositionSupervisor7246 {
             }
 
             val mark = try {
-                CanonicalPriceMarkRegistry6522.get(p.mint, CanonicalMarkPurpose6570.EXIT_ECONOMIC)
+                CanonicalPriceMarkRegistry6522.heldRiskMark(p.mint)
                     ?: CanonicalPriceMarkRegistry6522.get(p.mint)
             } catch (_: Throwable) { null }
             if (mark != null) {

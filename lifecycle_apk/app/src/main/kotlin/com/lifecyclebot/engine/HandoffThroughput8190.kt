@@ -148,12 +148,19 @@ object ReceiverRecord8190 {
         else -> UNSOUND_8190
     }
 
+    internal fun supportedAdmission8253(d: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?): Boolean =
+        d != null && d.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT &&
+            d.specific && d.expectedNetPct.isFinite() && d.expectedNetPct > 0.0
+
     /** SpecialistOwnership7951: the receiver-record verdict for [lane] on [mint] now (null = sound). Never throws. */
     fun check8190(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): String? = try {
         val ts = HandoffRoute8180.tokenFor8180(mint)
         if (ts == null) verdict8190(false, false, null, emptyList(), null, nowMs).also { count8190(it) } else {
             val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907
-            val proven = pb.provenSetup8056(ts, lane, nowMs) != null
+            // Use the receiver's own current admission before a duplicate classifier verdict.
+            // A supported cell/alternative setup can answer optional playbook gaps, but never grants execution here.
+            val admission = com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(ts, lane, nowMs)
+            val proven = supportedAdmission8253(admission) || pb.provenSetup8056(ts, lane, nowMs) != null
             val negative = if (proven) null else pb.pickedSetupNegative8094(ts, lane, nowMs)
             val missing = if (negative == pb.NO_TRIGGER) (pb.classify8084(ts, lane, nowMs)?.missing ?: emptyList()) else emptyList()
             val key = "${ts.mint}|${lane.uppercase()}"

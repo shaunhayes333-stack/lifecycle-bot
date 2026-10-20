@@ -38,6 +38,7 @@ object CurveReserves7951 {
         @Volatile var virtualTokens: Double,
         @Volatile var realSol: Double,
         @Volatile var atMs: Long,
+        @Volatile var accountObserved: Boolean,
     )
 
     private val rows = ConcurrentHashMap<String, Row>()
@@ -59,27 +60,30 @@ object CurveReserves7951 {
     /** A PumpPortal create/trade frame: virtual SOL and virtual tokens (whole units). */
     fun noteFrame7951(mint: String, virtualSol: Double, virtualTokens: Double, atMs: Long = System.currentTimeMillis()) {
         if (!virtualSol.isFinite() || virtualSol <= 0.0) return
-        put(mint, virtualSol, virtualTokens, realSolFromVirtual7951(virtualSol), atMs)
+        put(mint, virtualSol, virtualTokens, realSolFromVirtual7951(virtualSol), atMs, false)
     }
 
     /** The RPC curve read: virtual and real reserves, in SOL and whole tokens. */
     fun noteAccount7951(mint: String, virtualSol: Double, virtualTokens: Double, realSol: Double, atMs: Long = System.currentTimeMillis()) {
         if (!virtualSol.isFinite() || virtualSol <= 0.0) return
-        val real = if (realSol.isFinite() && realSol >= 0.0) realSol else realSolFromVirtual7951(virtualSol)
-        put(mint, virtualSol, virtualTokens, real, atMs)
+        if (!realSol.isFinite() || realSol < 0.0) return
+        put(mint, virtualSol, virtualTokens, realSol, atMs, true)
     }
 
-    private fun put(mint: String, vSol: Double, vTok: Double, real: Double, atMs: Long) {
+    private fun put(mint: String, vSol: Double, vTok: Double, real: Double, atMs: Long, accountObserved: Boolean) {
         val m = mint.trim()
         if (m.isBlank()) return
         if (rows.size >= MAX_MINTS && !rows.containsKey(m)) trim(atMs)
-        val r = rows.computeIfAbsent(m) { Row(vSol, vTok, real, atMs) }
+        val r = rows.computeIfAbsent(m) { Row(vSol, vTok, real, atMs, accountObserved) }
         synchronized(r) {
             if (atMs >= r.atMs) {
                 r.virtualSol = vSol
-                r.virtualTokens = if (vTok.isFinite() && vTok > 0.0) vTok else r.virtualTokens
+                // Both reserve sides must belong to this observation. Carrying an
+                // older token side under this timestamp creates a synthetic exit quote.
+                r.virtualTokens = if (vTok.isFinite() && vTok > 0.0) vTok else Double.NaN
                 r.realSol = real
                 r.atMs = atMs
+                r.accountObserved = accountObserved
             }
         }
         notes.incrementAndGet()
@@ -115,12 +119,17 @@ object CurveReserves7951 {
 
     /** Spot price in SOL per token from reserves of an active curve observed within [maxAgeMs], or 0.0. */
     /** V5.0.8198 — an ACTIVE (not graduated) curve's virtual reserves (SOL, tokens) read within [maxAgeMs], else null. */
-    fun activeReserves8198(mint: String, nowMs: Long, maxAgeMs: Long): Pair<Double, Double>? {
+    data class ExitReserveObservation(val virtualSol: Double, val virtualTokens: Double,
+                                      val realSol: Double, val observedAtMs: Long)
+
+    fun activeExitObservation(mint: String, nowMs: Long, maxAgeMs: Long): ExitReserveObservation? {
         val r = rows[mint.trim()] ?: return null
-        if (nowMs - r.atMs !in 0L..maxAgeMs) return null
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
-        val vSol = r.virtualSol; val vTok = r.virtualTokens
-        return if (vSol.isFinite() && vSol > 0.0 && vTok.isFinite() && vTok > 0.0) vSol to vTok else null
+        return synchronized(r) {
+            if (nowMs - r.atMs !in 0L..maxAgeMs || !r.virtualSol.isFinite() || r.virtualSol <= 0.0 ||
+                !r.virtualTokens.isFinite() || r.virtualTokens <= 0.0 || !r.realSol.isFinite() || r.realSol < 0.0) null
+            else ExitReserveObservation(r.virtualSol, r.virtualTokens, r.realSol, r.atMs)
+        }
     }
 
     fun priceSolFor7951(mint: String, nowMs: Long, maxAgeMs: Long): Double {
@@ -139,6 +148,16 @@ object CurveReserves7951 {
         if (nowMs - r.atMs !in 0L..CURVE_TTL_MS) return null
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }) return null
         return r.realSol.takeIf { it.isFinite() && it >= 0.0 }
+    }
+
+    /** A fresh account read, distinct from virtual-reserve arithmetic on a stream frame. */
+    fun accountRealSol8253(mint: String, nowMs: Long): Double? {
+        val r = rows[mint.trim()] ?: return null
+        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
+        return synchronized(r) {
+            if (!r.accountObserved || !LaunchCohort8173.reserveFresh8174(r.atMs, nowMs)) null
+            else r.realSol.takeIf { it.isFinite() && it >= 0.0 }
+        }
     }
 
     /** V5.0.8173 — when [mint]'s curve reading was observed (epoch ms), or null when none is held (LaunchCohort8173). */

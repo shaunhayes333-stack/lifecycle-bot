@@ -27,6 +27,22 @@ object OnChainMintAuthorityProof7248 {
         val mutableExtension8136: String? = null,
     )
 
+    /** A missing parsed field is unknown, not a revoked authority. Only mint accounts can prove mint safety. */
+    internal fun parseAccountProof8253(value: JSONObject, provider: String): Proof? {
+        val owner = value.optString("owner")
+        if (owner != "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" &&
+            owner != "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb") return null
+        val parsed = value.optJSONObject("data")?.optJSONObject("parsed") ?: return null
+        if (parsed.optString("type") != "mint") return null
+        val info = parsed.optJSONObject("info") ?: return null
+        if (!info.has("mintAuthority") || !info.has("freezeAuthority")) return null
+        val mintAuth = info.opt("mintAuthority")
+        val freezeAuth = info.opt("freezeAuthority")
+        if (listOf(mintAuth, freezeAuth).any { it != JSONObject.NULL && (it !is String || it.isBlank()) }) return null
+        return Proof(mintAuth == JSONObject.NULL, freezeAuth == JSONObject.NULL, provider,
+            hostileExtension8123(info.optJSONArray("extensions")), mutableExtension8136(info.optJSONArray("extensions")))
+    }
+
     /**
      * V5.0.8136 — extensions whose config a live authority can still change after the proof: a transfer-fee authority
      * can raise the fee, a transfer-hook authority can install a hook. Extensions themselves are fixed at mint init,
@@ -186,18 +202,10 @@ object OnChainMintAuthorityProof7248 {
                     if (!resp.isSuccessful) { miss8094("HTTP_${resp.code}"); return@use }
                     val value = JSONObject(resp.body?.string().orEmpty()).optJSONObject("result")?.optJSONObject("value")
                     if (value == null) { miss8094("ACCOUNT_NOT_FOUND"); return@use }
-                    val info = value.optJSONObject("data")
-                        ?.optJSONObject("parsed")
-                        ?.optJSONObject("info") ?: run { miss8094("NOT_PARSED"); return@use }
-                    val mintAuth = info.opt("mintAuthority")
-                    val freezeAuth = info.opt("freezeAuthority")
-                    val proof = Proof(
-                        mintAuthorityDisabled = mintAuth == null || mintAuth == JSONObject.NULL,
-                        freezeAuthorityDisabled = freezeAuth == null || freezeAuth == JSONObject.NULL,
-                        provider = provider,
-                        hostileExtension8123 = hostileExtension8123(info.optJSONArray("extensions")),
-                        mutableExtension8136 = mutableExtension8136(info.optJSONArray("extensions")),
-                    )
+                    val proof = parseAccountProof8253(value, provider) ?: run {
+                        miss8094("INVALID_OR_INCOMPLETE_MINT_ACCOUNT")
+                        return@use // Keep trying eligible RPC providers; this is not a safety verdict.
+                    }
                     // V5.0.8136 — an answer impossible after an immutable-clean proof is not trusted either way.
                     val state8136 = AuthorityProofState8136.observe8136(
                         mint, proof.freezeAuthorityDisabled, proof.mintAuthorityDisabled,
@@ -218,17 +226,17 @@ object OnChainMintAuthorityProof7248 {
                         )
                     } catch (_: Throwable) {}
                     unansweredAt7365.remove(mint)
-                    if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled) {
-                        // V5.0.8123 — a hostile Token-2022 mint is not "proven clean": never cached permanently.
-                        if (proof.hostileExtension8123 != null) { activeProof7365[mint] = proof to System.currentTimeMillis(); return proof }
-                        // V5.0.8136 — clean now but a live Token-2022 authority can change that: short reuse, never permanent.
-                        if (proof.mutableExtension8136 != null) { activeProof7365[mint] = proof to System.currentTimeMillis(); return proof }
+                    if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled &&
+                        proof.hostileExtension8123 == null && proof.mutableExtension8136 == null) {
                         if (provenDisabled7365.size > 20_000) provenDisabled7365.clear()
                         provenDisabled7365[mint] = proof
                     } else {
                         if (activeProof7365.size > 5_000) activeProof7365.clear()
                         activeProof7365[mint] = proof to System.currentTimeMillis()
                     }
+                    // Publish before waking consumers: a retry must read the answer, not race its cache write.
+                    CandidateAdmission8136.evidenceArrived8252(mint, setOf("safety", "freeze", "authority"))
+                    com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint)
                     return proof
                 }
             } catch (t: Throwable) {

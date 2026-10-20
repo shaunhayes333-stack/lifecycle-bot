@@ -63,7 +63,8 @@ data class MintEntryMarketSnapshot(
         ): MintEntryMarketSnapshot? {
             if (mark.mint != mint || mark.baseMint != mint || mark.timestampMs <= 0L ||
                 nowMs - mark.timestampMs !in -5_000L..120_000L ||
-                mark.purpose == com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC)
+                mark.purpose !in setOf(com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+                    com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING))
                 return null
             val price = mark.priceUsd.value.toDouble()
             if (com.lifecyclebot.engine.truth.MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(price))
@@ -13837,6 +13838,7 @@ class Executor(
             entryRugEvidence = "rug=${intent.rugScore};safety=${intent.safetyVerdict}",
             entryPriceUsd = ts?.lastPrice ?: 0.0,
             authorizationReason = "FDG:${intent.fdgVerdict};attempt=${intent.attemptId}",
+            runnerEntry = intent.runnerEntry,
         )
     } catch (_: Throwable) { null }
 
@@ -15590,6 +15592,112 @@ class Executor(
         return null
     }
 
+    /** Keep snapshot construction out of paperBuy's oversized ART register frame. */
+    private fun persistPaperEntrySnapshot8253(
+        ts: TokenState, tradeId: TradeIdentity, layerTag: String, paperPolicySnapshot: String,
+        identity: TradeIdentity?, score: Double, finalMode: String, effectivePrice: Double,
+        executionAttemptId6514: String,
+    ) {
+        // V5.0.6450 §P0 — IMMUTABLE ENTRY STRATEGY SNAPSHOT. Persist the
+        // entry lane / strategy pid / tactic exactly once at BUY so any
+        // subsequent exit path is FORBIDDEN from inferring lane from
+        // current scanner state, latest tactic, or watchlist ownership.
+        try {
+            val pid6450 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
+            val sealedIntent6613 = ExecutableOpenGate.activeExecutionIntent6519("PAPER", tradeId.mint, tradeId.fdgCandidateVersion)
+            val sealedDecision6613 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(tradeId.mint, tradeId.fdgCandidateVersion, "PAPER")
+            val entryLane6450 = sealedIntent6613?.canonicalLane
+                ?: sealedDecision6613?.executionLane
+                ?: layerTag.ifBlank { ts.position.tradingMode.ifBlank { ts.source } }.uppercase().take(24).ifBlank { "STANDARD" }
+            if (sealedIntent6613 == null || !sealedIntent6613.canonicalLane.equals(entryLane6450, true)) try {
+                ToolkitSignalSheet.recordCausalIssue6600("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT", entryLane6450, "mint=${tradeId.mint.take(10)} positionId=${pid6450.take(18)}")
+                if (sealedDecision6613 == null) ToolkitSignalSheet.recordCausalIssue6600("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE", entryLane6450, "mint=${tradeId.mint.take(10)}")
+            } catch (_: Throwable) {}
+            val entryDeskHypothesis6599 = try { com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses[entryLane6450] } catch (_: Throwable) { null }
+            entryDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
+            com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
+                com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
+                    positionId = pid6450, candidateVersion8090 = tradeId.fdgCandidateVersion, mode8090 = "PAPER",
+                    runnerEntry = sealedIntent6613?.runnerEntry == true,
+                    mint = tradeId.mint,
+                    entryLane = entryLane6450,
+                    entryStrategyPid = "",
+                    // V5.0.7427 — entryTactic is ONLY the TacticSwitcher enum.
+                    // Toolkit free-form entryStyle has its own field below.
+                    entryTactic = policyField6568(paperPolicySnapshot, "entryTactic").ifBlank {
+                        try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, entryLane6450, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
+                    },
+                    entryRiskProfile = entryDeskHypothesis6599?.let { "size=${it.sizeMult};hold=${it.holdMult};setup=${it.setup.name}" }.orEmpty(),
+                    entryExitProfile = entryDeskHypothesis6599?.let { "style=${it.exitStyle};tp=${it.tpMult};hold=${it.holdMult}" }.orEmpty(),
+                    entrySource = identity?.source.orEmpty(),
+                    entryScore = score.toInt(),
+                    entryLiquiditySol = 0.0,
+                    entryMarketCapUsd = ts.lastMcap,
+                    entryTimestampMs = System.currentTimeMillis(),
+                    entryThresholdSnapshot = paperPolicySnapshot,
+                    entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
+                    entryPolicySnapshotId = "$pid6450:6568", entryTacticVersion = "6568",
+                    v3Components = "score=${ts.lastV3Score ?: score.toInt()};confidence=${ts.lastV3Confidence ?: 0};phase=${ts.phase}",
+                    brainConsensusVerdict = policyField6568(paperPolicySnapshot, "brainConsensus"),
+                    brainConsensusConfidence = if (ts.lastConsensusObjections.isEmpty()) 1.0 else (1.0 / (1.0 + ts.lastConsensusObjections.size)),
+                    brainConsensusObjections = ts.lastConsensusObjections.joinToString("+").take(240),
+                    policyAuthority = policyField6568(paperPolicySnapshot, "policyAuthority"),
+                    policyProbability = policyField6568(paperPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
+                    metaPolicyContext = "phase=${ts.phase};mode=$finalMode;ema=${ts.meta.emafanAlignment}",
+                    specialistContributions = com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts).ifBlank { "lane=$entryLane6450;tools=${ts.toolAffinity.joinToString("+")}" },
+                    entryLiquidityUsd = ts.lastLiquidityUsd, entryVolumeVelocity = ts.meta.volScore,
+                    entryBuyPressurePct = ts.lastBuyPressurePct, entrySellPressurePct = ts.lastSellPressurePct,
+                    entryHolderConcentrationPct = ts.topHolderPct ?: ts.safety.topHolderPct,
+                    entryRugEvidence = "rug=${ts.safety.rugcheckStatus};hard=${ts.safety.hardBlockReasons.joinToString("+").take(120)}",
+                    entryTokenAgeMs = (System.currentTimeMillis() - ts.addedToWatchlistAt).coerceAtLeast(0L), entryPriceUsd = effectivePrice,
+                    forwardPWin = policyField6568(paperPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
+                    sizingMultipliers = paperPolicySnapshot.substringAfter("sizeMult=", "").take(240),
+                    authorizationReason = policyField6568(paperPolicySnapshot, "reasons"),
+                    entryTradeType = policyField6568(paperPolicySnapshot, "tradeType7427"),
+                    entrySetup = policyField6568(paperPolicySnapshot, "setup7427"),
+                    entryStyle = policyField6568(paperPolicySnapshot, "style"),
+                    entryEntryStyle = entryDeskHypothesis6599?.entryStyle ?: policyField6568(paperPolicySnapshot, "entryStyle7427"),
+                    entryExitStyle = entryDeskHypothesis6599?.exitStyle ?: policyField6568(paperPolicySnapshot, "exitStyle7427"),
+                    entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.bindExecutedPosition7428(pid6450, tradeId.mint, tradeId.fdgCandidateVersion, entryLane6450),
+                )
+            )
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
+                com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pid6450,
+            )
+            // Keep execution telemetry on the sealed attempt record. The
+            // positionId remains the canonical inventory identity.
+            // V5.0.6886 — stamp EXEC/POSITION_OPENED on the sealed intent's
+            // attemptId (the identity TICKET was stamped on in BotService:26819),
+            // not the attemptId paperBuy minted for itself. See the
+            // §THE_STAMPS_DISAGREED_ABOUT_WHICH_TRADE_THIS_IS note above for why
+            // those two can carry different candidateVersions, and why the fix is
+            // confined to telemetry.
+            // V5.0.7809 — the attempt this fill executed (its own ticket) wins
+            // over the lane-blind version lookup; see recordEntryExecOpen7809.
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordEntryExecOpen7809(entryLane6450, executionAttemptId6514, sealedIntent6613?.attemptId)
+            // V5.0.6627 §7 OPEN_POSITION_ENTRY_BASIS_INVARIANT — proactive alarm
+            // at canonical OPEN transition. Fires OPEN_POSITION_ZERO_ENTRY_PRICE_
+            // 6627 if the sealed entry basis is not authoritative, so the source
+            // is visible without waiting for the first inspect() cycle to reject.
+            try {
+                com.lifecyclebot.engine.truth.OpenPositionBasisInvariant6627.onCanonicalOpen6627(
+                    mint = ts.mint,
+                    lane = entryLane6450,
+                    entryPrice = effectivePrice,
+                    entryQty = ts.position.qtyToken,
+                    entryNotionalSol = ts.position.costSol,
+                )
+            } catch (_: Throwable) {}
+            // V5.0.6455 §SELL_DOOR_MIGRATION — seed PositionStateLedger6454
+            // with lifecycle=OPEN so subsequent terminal sell reservations
+            // (reserveTerminalSell CAS OPEN/PARTIAL -> CLOSING) know this
+            // position is legitimately open. Without this seed the CAS
+            // would refuse with REJECTED_UNKNOWN and block legitimate
+            // sells — fail-closed by design.
+            com.lifecyclebot.engine.truth.PositionStateLedger6454.onEntry(pid6450)
+        } catch (_: Throwable) {}
+    }
+
     fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, 
                  quality: String = "C", skipGraduated: Boolean = false,
                  wallet: SolanaWallet? = null, walletSol: Double = 0.0,
@@ -17082,103 +17190,8 @@ class Executor(
             rollbackPaperEntry6485("EXCEPTION_${t.javaClass.simpleName}")
             return
         }
-        // V5.0.6450 §P0 — IMMUTABLE ENTRY STRATEGY SNAPSHOT. Persist the
-        // entry lane / strategy pid / tactic exactly once at BUY so any
-        // subsequent exit path is FORBIDDEN from inferring lane from
-        // current scanner state, latest tactic, or watchlist ownership.
-        try {
-            val pid6450 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
-            val sealedIntent6613 = ExecutableOpenGate.activeExecutionIntent6519("PAPER", tradeId.mint, tradeId.fdgCandidateVersion)
-            val sealedDecision6613 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(tradeId.mint, tradeId.fdgCandidateVersion, "PAPER")
-            val entryLane6450 = sealedIntent6613?.canonicalLane
-                ?: sealedDecision6613?.executionLane
-                ?: layerTag.ifBlank { ts.position.tradingMode.ifBlank { ts.source } }.uppercase().take(24).ifBlank { "STANDARD" }
-            if (sealedIntent6613 == null || !sealedIntent6613.canonicalLane.equals(entryLane6450, true)) try {
-                ToolkitSignalSheet.recordCausalIssue6600("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT", entryLane6450, "mint=${tradeId.mint.take(10)} positionId=${pid6450.take(18)}")
-                if (sealedDecision6613 == null) ToolkitSignalSheet.recordCausalIssue6600("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE", entryLane6450, "mint=${tradeId.mint.take(10)}")
-            } catch (_: Throwable) {}
-            val entryDeskHypothesis6599 = try { com.lifecyclebot.engine.ToolkitSignalSheet.snapshot(ts).deskHypotheses[entryLane6450] } catch (_: Throwable) { null }
-            entryDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
-            com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
-                com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
-                    positionId = pid6450, candidateVersion8090 = tradeId.fdgCandidateVersion, mode8090 = "PAPER",
-                    mint = tradeId.mint,
-                    entryLane = entryLane6450,
-                    entryStrategyPid = "",
-                    // V5.0.7427 — entryTactic is ONLY the TacticSwitcher enum.
-                    // Toolkit free-form entryStyle has its own field below.
-                    entryTactic = policyField6568(paperPolicySnapshot, "entryTactic").ifBlank {
-                        try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, entryLane6450, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
-                    },
-                    entryRiskProfile = entryDeskHypothesis6599?.let { "size=${it.sizeMult};hold=${it.holdMult};setup=${it.setup.name}" }.orEmpty(),
-                    entryExitProfile = entryDeskHypothesis6599?.let { "style=${it.exitStyle};tp=${it.tpMult};hold=${it.holdMult}" }.orEmpty(),
-                    entrySource = identity?.source.orEmpty(),
-                    entryScore = score.toInt(),
-                    entryLiquiditySol = 0.0,
-                    entryMarketCapUsd = ts.lastMcap,
-                    entryTimestampMs = System.currentTimeMillis(),
-                    entryThresholdSnapshot = paperPolicySnapshot,
-                    entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
-                    entryPolicySnapshotId = "$pid6450:6568", entryTacticVersion = "6568",
-                    v3Components = "score=${ts.lastV3Score ?: score.toInt()};confidence=${ts.lastV3Confidence ?: 0};phase=${ts.phase}",
-                    brainConsensusVerdict = policyField6568(paperPolicySnapshot, "brainConsensus"),
-                    brainConsensusConfidence = if (ts.lastConsensusObjections.isEmpty()) 1.0 else (1.0 / (1.0 + ts.lastConsensusObjections.size)),
-                    brainConsensusObjections = ts.lastConsensusObjections.joinToString("+").take(240),
-                    policyAuthority = policyField6568(paperPolicySnapshot, "policyAuthority"),
-                    policyProbability = policyField6568(paperPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
-                    metaPolicyContext = "phase=${ts.phase};mode=$finalMode;ema=${ts.meta.emafanAlignment}",
-                    specialistContributions = com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts).ifBlank { "lane=$entryLane6450;tools=${ts.toolAffinity.joinToString("+")}" },
-                    entryLiquidityUsd = ts.lastLiquidityUsd, entryVolumeVelocity = ts.meta.volScore,
-                    entryBuyPressurePct = ts.lastBuyPressurePct, entrySellPressurePct = ts.lastSellPressurePct,
-                    entryHolderConcentrationPct = ts.topHolderPct ?: ts.safety.topHolderPct,
-                    entryRugEvidence = "rug=${ts.safety.rugcheckStatus};hard=${ts.safety.hardBlockReasons.joinToString("+").take(120)}",
-                    entryTokenAgeMs = (System.currentTimeMillis() - ts.addedToWatchlistAt).coerceAtLeast(0L), entryPriceUsd = effectivePrice,
-                    forwardPWin = policyField6568(paperPolicySnapshot, "policyPWin").toDoubleOrNull() ?: 0.5,
-                    sizingMultipliers = paperPolicySnapshot.substringAfter("sizeMult=", "").take(240),
-                    authorizationReason = policyField6568(paperPolicySnapshot, "reasons"),
-                    entryTradeType = policyField6568(paperPolicySnapshot, "tradeType7427"),
-                    entrySetup = policyField6568(paperPolicySnapshot, "setup7427"),
-                    entryStyle = policyField6568(paperPolicySnapshot, "style"),
-                    entryEntryStyle = entryDeskHypothesis6599?.entryStyle ?: policyField6568(paperPolicySnapshot, "entryStyle7427"),
-                    entryExitStyle = entryDeskHypothesis6599?.exitStyle ?: policyField6568(paperPolicySnapshot, "exitStyle7427"),
-                    entryStrategyVariantId = com.lifecyclebot.engine.StrategyHypothesisEngine.bindExecutedPosition7428(pid6450, tradeId.mint, tradeId.fdgCandidateVersion, entryLane6450),
-                )
-            )
-            com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(
-                com.lifecyclebot.engine.ToolkitSignalSheet.contributionSummary(ts), "POSITION_INFLUENCE", pid6450,
-            )
-            // Keep execution telemetry on the sealed attempt record. The
-            // positionId remains the canonical inventory identity.
-            // V5.0.6886 — stamp EXEC/POSITION_OPENED on the sealed intent's
-            // attemptId (the identity TICKET was stamped on in BotService:26819),
-            // not the attemptId paperBuy minted for itself. See the
-            // §THE_STAMPS_DISAGREED_ABOUT_WHICH_TRADE_THIS_IS note above for why
-            // those two can carry different candidateVersions, and why the fix is
-            // confined to telemetry.
-            // V5.0.7809 — the attempt this fill executed (its own ticket) wins
-            // over the lane-blind version lookup; see recordEntryExecOpen7809.
-            com.lifecyclebot.engine.ToolkitSignalSheet.recordEntryExecOpen7809(entryLane6450, executionAttemptId6514, sealedIntent6613?.attemptId)
-            // V5.0.6627 §7 OPEN_POSITION_ENTRY_BASIS_INVARIANT — proactive alarm
-            // at canonical OPEN transition. Fires OPEN_POSITION_ZERO_ENTRY_PRICE_
-            // 6627 if the sealed entry basis is not authoritative, so the source
-            // is visible without waiting for the first inspect() cycle to reject.
-            try {
-                com.lifecyclebot.engine.truth.OpenPositionBasisInvariant6627.onCanonicalOpen6627(
-                    mint = ts.mint,
-                    lane = entryLane6450,
-                    entryPrice = effectivePrice,
-                    entryQty = ts.position.qtyToken,
-                    entryNotionalSol = ts.position.costSol,
-                )
-            } catch (_: Throwable) {}
-            // V5.0.6455 §SELL_DOOR_MIGRATION — seed PositionStateLedger6454
-            // with lifecycle=OPEN so subsequent terminal sell reservations
-            // (reserveTerminalSell CAS OPEN/PARTIAL -> CLOSING) know this
-            // position is legitimately open. Without this seed the CAS
-            // would refuse with REJECTED_UNKNOWN and block legitimate
-            // sells — fail-closed by design.
-            com.lifecyclebot.engine.truth.PositionStateLedger6454.onEntry(pid6450)
-        } catch (_: Throwable) {}
+        persistPaperEntrySnapshot8253(ts, tradeId, layerTag, paperPolicySnapshot, identity,
+            score, finalMode, effectivePrice, executionAttemptId6514)
         // V5.9.123 — register in CorrelationHedgeAI so other new-entry scoring
         // sees this position as cluster peer pressure.
         try {
@@ -21655,6 +21668,7 @@ class Executor(
                         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
                             positionId = pidLive6486, mint = verifyMint, entryLane = liveEntryLane6568,
                             candidateVersion8090 = requireNotNull(sealedLiveIntent6613).candidateVersion, mode8090 = "LIVE",
+                            runnerEntry = sealedLiveIntent6613.runnerEntry,
                             entryStrategyPid = "", entryTactic = policyField6568(ts.position.entryPolicySnapshot, "entryTactic").ifBlank {
                                 try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
                             },
@@ -31594,25 +31608,16 @@ class Executor(
                 traderTag = traderTag,
             )
 
-            // V5.9.495k — PHANTOM-POSITION GUARD with WIDENED dust threshold.
-            // V5.9.495f used `preTokenQty in 0.0..1e-9` which was too tight:
-            // a wallet with e.g. 1e-5 tokens (formatted as "0.0000" in the
-            // forensics tile) slipped past the guard, tried to sell the
-            // recorded 4 trillion-token position size, and burned 6 retries
-            // for a +62663% phantom gain in the Trade Journal. Anything
-            // below 0.0001 UI tokens is dust — treat as phantom.
-            // V5.9.495t — but ONLY when the RPC actually returned a map.
-            // An empty-map RPC blip is NOT a confirmation of dust; it's an
-            // RPC failure. If the bot has tokenUnits from a verified buy
-            // (caller resolveSellUnits trusts the tracker), proceed with
-            // broadcast — Jupiter/PumpPortal will reject cleanly if the
-            // wallet truly is empty.
-            if (!preBalancesEmpty && preTokenQty in 0.0..0.0001) {
-                onLog("👻 PHANTOM detected: ${ts.symbol} bot thinks open but wallet ATA = $preTokenQty (dust) — skipping sell ladder", ts.mint)
+            // A zero balance may close a stale projection. A small positive
+            // raw balance must continue through normal route/economic checks;
+            // its displayed UI magnitude is not proof that inventory is absent.
+            // Only exact observed zero proves absence. Positive dust is still a holding.
+            if (walletRead8144?.get(ts.mint)?.raw?.signum() == 0) {
+                onLog("Wallet confirms zero tokens: ${ts.symbol} — skipping sell ladder", ts.mint)
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                     LiveTradeLogStore.Phase.SELL_FAILED,
-                    "👻 PHANTOM: wallet ATA dust (preTokenBal=${"%.6f".format(preTokenQty)}) — local close, no broadcast",
+                    "Wallet confirms exact raw zero — local close, no broadcast",
                     traderTag = traderTag,
                 )
                 // Return a synthetic sentinel sig so the caller treats it
@@ -31658,9 +31663,9 @@ class Executor(
                 "🚀 PUMP-FIRST [$labelTag] @ ${slipPct}% slip | priorityFee=${priorityFeeSol}◎ | tip=${jitoTipLamports}lam",
                 traderTag = traderTag,
             )
-            val sellDecimals = try {
-                com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(ts.mint)?.decimals ?: 6
-            } catch (_: Throwable) { 6 }
+            // Use the same confirmed amount/scale as the route's balance proof.
+            // Missing proof falls through to the next route; never assume six decimals.
+            val sellDecimals = walletRead8144?.get(ts.mint)?.decimals ?: return null
             val emergencyOverride = com.lifecyclebot.engine.sell.SellSafetyPolicy
                 .isManualEmergency(labelTag) || labelTag.contains("PANIC_DRAIN", ignoreCase = true) ||
                 // V5.0.7807 — B4: liveSell tagged a protective emergency; its rung is already <= 50%.

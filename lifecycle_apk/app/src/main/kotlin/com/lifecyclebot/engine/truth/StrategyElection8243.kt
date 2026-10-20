@@ -41,6 +41,10 @@ object StrategyElection8243 {
     private class Memo8243(val atMs: Long, val verdict: Verdict8243?)
     private val memos8243 = ConcurrentHashMap<String, Memo8243>()
 
+    fun invalidateEvidence(mint: String) {
+        memos8243.keys.removeIf { it.startsWith("$mint|") }
+    }
+
     /** Pure: the election tier of [v] (null = no read = unjudged). */
     fun tier8243(v: Verdict8243?): Int = when {
         v == null -> TIER_UNJUDGED
@@ -48,6 +52,11 @@ object StrategyElection8243 {
         v.specificRefuse -> TIER_REFUSE
         else -> TIER_UNJUDGED
     }
+
+    /** READY is a scheduling state. It must not hide a natively qualified,
+     * independently admitted strategy before the edge ranking can inspect it. */
+    internal fun contestLanes(ready: Set<String>, qualified: Set<String>, verdicts: Map<String, Verdict8243?>): Set<String> =
+        ready + qualified.filter { verdicts[it]?.provenAdmit == true }
 
     /** Pure: the lane that owns the candidate — best tier, then (ADMIT tier) best net of cost, then conviction, then name. */
     fun ownerOrder8243(scores: Map<String, Double>, verdicts: Map<String, Verdict8243?>): String? {

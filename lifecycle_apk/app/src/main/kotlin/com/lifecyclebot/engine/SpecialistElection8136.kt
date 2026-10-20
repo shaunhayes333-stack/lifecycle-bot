@@ -633,6 +633,17 @@ object SpecialistElection8136 {
     /** V5.0.8141 — (lottery picks that filled the empty slot, lottery picks refused because the slot was held / barred). */
     fun lotteryCounts8141(): Pair<Long, Long> = synchronized(lock8136) { lotteryFilled8141 to lotteryRefused8141 }
 
+    /** Competition is a named shadow outcome, never evidence that the lane is ineligible.
+     * A later released slot may still evaluate this proposal through the same rescue authority. */
+    fun noteRescueCompetition(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()) {
+        synchronized(lock8136) {
+            val r = recordFor8136(mint, -1L, nowMs, create = false) ?: return
+            val s = r.slots[canon8136(lane)] ?: return
+            if (s.terminal != null && s.terminal != Terminal8136.CONTRIBUTOR_SHADOW) return
+            end8136(r, s, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_COMPETITION_SLOT_${r.rescue.ifBlank { "UNAVAILABLE" }}")
+        }
+    }
+
     /** A lane may not take the rescue: [reason] (prefix DEFERRED_ = data missing, not a verdict on the lane). */
     fun markIneligible8136(mint: String, lane: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
         val l = canon8136(lane)

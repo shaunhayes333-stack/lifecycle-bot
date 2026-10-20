@@ -66,6 +66,11 @@ class Aate6679SealedOwnerAndModeMatchedLearningTest {
         )
         assertTrue("sealed PROJECT_SNIPER owner must retain execution authority", specialist.allowed)
         assertEquals("PROJECT_SNIPER", specialist.primaryLane)
+        val sealed = LaneExecutionCoordinator.currentElection6600(mint, version, generation)
+        assertTrue(sealed?.sealed == true)
+        com.lifecyclebot.engine.truth.CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq"))
+        assertEquals("new evidence must not replace a sealed execution owner", sealed,
+            LaneExecutionCoordinator.currentElection6600(mint, version, generation))
     }
 
     @Test

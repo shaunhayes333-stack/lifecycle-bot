@@ -1126,6 +1126,9 @@ object TradeHistoryStore {
                 canonicalConsumedRaw = tradeToStore.canonicalConsumedRaw.toString(),
                 economicEventId = tradeToStore.economicEventId,
                 occurredAtMs8077 = tradeToStore.ts,
+                signature = tradeToStore.sig,
+                originalExitReason = tradeToStore.originalExitReason,
+                originatingLane = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(tradeToStore.positionId)?.entryLane.orEmpty(),
             )
         } catch (_: Throwable) { /* never let logging break the record path */ }
         try { uploadCollectiveJournalRow(tradeToStore) } catch (_: Throwable) {}

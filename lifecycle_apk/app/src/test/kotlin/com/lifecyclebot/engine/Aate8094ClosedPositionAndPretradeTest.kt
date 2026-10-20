@@ -369,7 +369,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(cx.contains("val source8174 = ts.source"))
         assertTrue(cx.contains("for (f in p.fired8094) {"))
         assertTrue(cx.contains("LanePlaybook7907.selectedSetup8094(ts, a.lane, System.currentTimeMillis())"))
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) }"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("val setup8083 = admittedSetup(admission8136) { try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) }"))
     }
 
     @Test fun readySpecialistsAreSeenAcrossTheVersionRollAndTheRefusedPrimaryDoesNotWinAgain() {
@@ -444,8 +444,9 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(src("network/HeliusWebSocket.kt").contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 8"))
         // One strategy identity: refusals, sizing, cost and the admission record read the selected setup.
         val pb = src("engine/cortex/LanePlaybook7907.kt")
-        assertEquals(3, Regex("val setup = selectedSetup8094\\(ts, lane, nowMs\\)  // V5.0.8094 — one strategy identity").findAll(pb).count())
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("val setupAt = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8083, nowMs) }"))
+        assertTrue(pb.contains("provenLosingNamedSetupRefusal(laneRaw, selectedSetup8094(ts, canon(laneRaw), nowMs))"))
+        assertEquals(2, Regex("val setup = selectedSetup8094\\(ts, lane, nowMs\\)  // V5.0.8094 — one strategy identity").findAll(pb).count())
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("val setupAt = admittedSetup(resolvedAdmission) { try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8083, nowMs) }"))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("BuildConfig.VERSION_NAME + \"@\" + com.lifecyclebot.BuildConfig.GIT_SHA"))
         assertEquals(10.0, LaneExecutionCoordinator.PROVEN_CELL_BONUS_8094, 1e-9)
         assertTrue(src("engine/LaneExecutionCoordinator.kt").contains("+ provenCellBonus8094(mint, laneUpper)"))
