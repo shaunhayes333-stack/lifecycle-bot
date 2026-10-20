@@ -1069,7 +1069,7 @@ class Aate8094ClosedPositionAndPretradeTest {
             "engine/ShadowLearningEngine.kt" to listOf("\"SHADOW_BLOCKED\")"),
             "v3/scoring/ProjectSniperAI.kt" to listOf("\"PROJECT_SNIPER\")"),
             "engine/truth/LaneShadowProof7307.kt" to listOf("\"LANE_SHADOW\")"),
-            "engine/truth/ForwardReturnLabeler7731.kt" to listOf("\"FORWARD_LABEL\")) continue"),
+            "engine/truth/ForwardReturnLabeler7731.kt" to listOf("\"FORWARD_LABEL\")) return false"),
             "engine/truth/TailHunter7996.kt" to listOf("\"TAIL_HUNTER\")"),
             "engine/market/TelegramCallSweeper7830.kt" to listOf("\"CALL_SWEEP\")"),
             "engine/BotService.kt" to listOf("\"UNIVERSAL_SWEEP\")"),

@@ -70,6 +70,10 @@ class HeliusWebSocket(
         java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
     ).apply { allowCoreThreadTimeOut(true) }
     @Volatile private var heldCache8008: Pair<Long, Set<String>> = 0L to emptySet()
+    private data class TapeDemand8239(val atMs: Long, val priority: Int)
+    private val tapeDemand8239 = java.util.concurrent.ConcurrentHashMap<String, TapeDemand8239>()
+    private val tapeStarted8239 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val tapePriority8239 = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     private fun isHeld8008(mint: String?): Boolean {
         if (mint.isNullOrBlank()) return false
@@ -264,12 +268,13 @@ class HeliusWebSocket(
         expireStaleRequests7807(System.currentTimeMillis())
         val pinned = pinnedMints7807()
         HeliusSubscriptionTelemetry7807.pinnedHeld = pinned.size
-        if (pinned.isEmpty()) { publishGauges7807(); return }
+        if (pinned.isEmpty()) { drainTapeDemand8239(); publishGauges7807(); return }
         val missing = synchronized(subscriptions) { pinned.filter { it.isNotBlank() && !subscriptions.containsKey(it) && !undecodableNow8096(it) } }
         missing.forEach { mint ->
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_HELD_SUB_REARMED_7807") } catch (_: Throwable) {}
             subscribeToken(mint)
         }
+        drainTapeDemand8239()
         publishGauges7807()
     }
 
@@ -289,6 +294,8 @@ class HeliusWebSocket(
         }
         if (released.isEmpty()) return 0
         for ((mint, serverId) in released) {
+            tapeStarted8239.remove(mint)
+            tapePriority8239.remove(mint)
             // Pending request kept, as on eviction: its late ACK finds the mint unwanted and unsubscribes.
             subscriptionToMint7765.entries.removeIf { it.value == mint }
             serverId?.let { sendUnsubscribe7803("logsUnsubscribe", it) }
@@ -299,11 +306,12 @@ class HeliusWebSocket(
     }
 
     /** Subscribe to all swaps for a specific token mint. */
-    fun subscribeToken(mint: String) {
+    fun subscribeToken(mint: String, priority8239: Int = 0) {
         if (mint.isBlank()) return
         if (!admitMint7819(mint)) return // V5.0.7819 — Field Manual L186: Solana mints only
         if (undecodableNow8096(mint)) return // V5.0.8096 — its logs never decode into a trade
-        expireStaleRequests7807(System.currentTimeMillis())
+        val now8239 = System.currentTimeMillis()
+        expireStaleRequests7807(now8239)
         val pinned = pinnedMints7807()
         // V5.0.8066 — past the day's Helius budget only held positions get a tape.
         if (mint !in pinned && (try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066() } catch (_: Throwable) { false })) return
@@ -315,15 +323,23 @@ class HeliusWebSocket(
         synchronized(subscriptions) {
             if (subscriptions.containsKey(mint)) {
                 subscriptions.get(mint) // V5.0.7807 — access-order touch: re-added mint is fresh again
+                tapePriority8239.compute(mint) { _, old -> maxOf(old ?: 0, priority8239) }
+                tapeDemand8239.remove(mint)
                 return
             }
             if (subscriptions.size >= MAX_TOKEN_SUBSCRIPTIONS_7794) {
                 // V5.0.7807 — eldest NON-held mint is the victim; discovery goes first.
                 // V5.0.7921 — the coldest launch past its 2-minute grace goes first (hot tapes stay).
-                val evictable7921 = subscriptions.keys.filter { it !in pinned }
+                val evictable7921 = subscriptions.keys.filter {
+                    CandidateTapeLease8239.mayReplace(it in pinned, mint in pinned,
+                        tapeStarted8239[it] ?: 0L, tapePriority8239[it] ?: 0, priority8239, now8239)
+                }
                 // A promoted or in-grace launch is never the fallback victim of a non-held mint.
                 val victim = (try { com.lifecyclebot.engine.market.LaunchTape7921.evictionVictim(evictable7921) } catch (_: Throwable) { null })
-                    ?: if (mint in pinned) evictable7921.firstOrNull() else null
+                    ?: evictable7921.firstOrNull {
+                        mint in pinned || (now8239 - (tapeStarted8239[it] ?: now8239) >= CandidateTapeLease8239.ROTATE_AFTER_MS &&
+                            !(try { com.lifecyclebot.engine.market.LaunchTape7921.promoted(it) } catch (_: Throwable) { true }))
+                    }
                 if (victim != null) {
                     evictedMint = victim
                     evictedServerId = subscriptions.remove(victim)
@@ -336,14 +352,23 @@ class HeliusWebSocket(
             if (!deferred) {
                 requestId = idCounter.getAndIncrement()
                 subscriptions[mint] = null
+                tapeStarted8239[mint] = now8239
+                tapePriority8239[mint] = priority8239
+                tapeDemand8239.remove(mint)
             }
         }
         if (deferred) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_DISCOVERY_SUB_DEFERRED_ALL_HELD_7807") } catch (_: Throwable) {}
+            tapeDemand8239.entries.removeIf { now8239 - it.value.atMs !in 0L..CandidateTapeLease8239.DEMAND_TTL_MS }
+            if (tapeDemand8239.size < 256 || tapeDemand8239.containsKey(mint)) {
+                tapeDemand8239.compute(mint) { _, old -> TapeDemand8239(old?.atMs ?: now8239, maxOf(old?.priority ?: 0, priority8239)) }
+            }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_TAPE_RESIDENCY_DEFERRED_8239") } catch (_: Throwable) {}
             return
         }
         if (overCap) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_HELD_SUB_OVER_CAP_7807") } catch (_: Throwable) {}
         evictedMint?.let { old ->
+            tapeStarted8239.remove(old)
+            tapePriority8239.remove(old)
             // V5.0.7807 — the pending request for `old` is deliberately KEPT: its ACK
             // then finds the mint unwanted and unsubscribes server-side immediately.
             subscriptionToMint7765.entries.removeIf { it.value == old }
@@ -353,6 +378,17 @@ class HeliusWebSocket(
         evictedServerId?.let { sendUnsubscribe7803("logsUnsubscribe", it) }
         sendSubscribe(requestId, listOf(mint))
         publishGauges7807()
+    }
+
+    /** Bounded, cached demand: held subscriptions have first priority; completed native candidates follow. */
+    private fun drainTapeDemand8239() {
+        val now = System.currentTimeMillis()
+        val resident = synchronized(subscriptions) { subscriptions.keys.toSet() }
+        tapeStarted8239.keys.removeIf { it !in resident }
+        tapePriority8239.keys.removeIf { it !in resident }
+        tapeDemand8239.entries.removeIf { now - it.value.atMs !in 0L..CandidateTapeLease8239.DEMAND_TTL_MS }
+        tapeDemand8239.entries.sortedWith(compareByDescending<Map.Entry<String, TapeDemand8239>> { it.value.priority }.thenBy { it.value.atMs })
+            .take(MAX_TOKEN_SUBSCRIPTIONS_7794).forEach { subscribeToken(it.key, it.value.priority) }
     }
 
     /** Track a wallet address for large moves (dev wallet, top holders). */

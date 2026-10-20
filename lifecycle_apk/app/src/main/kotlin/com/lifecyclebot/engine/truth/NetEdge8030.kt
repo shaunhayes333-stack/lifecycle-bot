@@ -18,8 +18,8 @@ import java.util.concurrent.atomic.AtomicLong
  * or the model at the real ticket and pool depth (FieldManual7715.roundTripCostPct7766), whichever is higher.
  *
  *  ENTRY (live, every lane, hard — LiveEdgeGate7877): the lane's expected move must be at least [EDGE_MULT]x
- *        the round trip ([entryRefusal8030]). The expected move is the Field Manual lane mandate (runner 50%,
- *        momentum 30%, dip 25%, quality 20%, treasury 12%).
+ *        the round trip ([entryRefusal8030]). A lane mandate caps an observed move; missing movement stays unknown.
+ *        Supported selected-strategy evidence supplies a forecast independently of sparse charts.
  *  EXIT  (live, the sell door — Executor): no profit-taking exit below net break-even + [NET_BUFFER_PCT]
  *        ([exitRefusal8030]). A green position under that line keeps its stop and time limit and holds; stops,
  *        rug / liquidity / dev exits, manual, emergency and operational exits are never held.
@@ -171,7 +171,7 @@ object NetEdge8030 {
         // (bounded, coalesced per mint) instead of being refused as slow on two candles (StrategyMove8153).
         val move = executableMove8153(ts, lane, mandate, cost)
         if (StrategyMove8153.needsDefer8153(move, cost) &&
-            CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153))) {
+            CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153), laneRaw = lane)) {
             historyDeferred8153.incrementAndGet()
             // The evidence the deferral waits for is asked for now: the candle seed and a forced poll (1h change, depth).
             try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, listOf("shape:HISTORY_SPARSE", "chg:UNOBSERVED", "liq:REFRESH")) } catch (_: Throwable) {}
@@ -204,7 +204,10 @@ object NetEdge8030 {
         val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
         val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
         val spanMs = if (bars.size >= 2) bars.maxOf { it.ts } - bars.minOf { it.ts } else 0L
-        val h1 = kotlin.math.abs(ts.lastPriceChange1h).takeIf { it.isFinite() && it > 0.0 }
+        val h1 = ts.lastPriceChange1h.takeIf {
+            it.isFinite() && ts.priceChangeObservedAtMs8084 > 0L &&
+                nowMs - ts.priceChangeObservedAtMs8084 in 0L..120_000L
+        }?.coerceAtLeast(0.0)
         val rec = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedRecord8153(ts, lane, setup, nowMs) } catch (_: Throwable) { null }
         val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null }
         val m = StrategyMove8153.expected8153(
@@ -214,7 +217,7 @@ object NetEdge8030 {
         )
         if (ts.mint.isNotBlank()) {
             if (moves8153.size > 4_000) moves8153.clear()
-            moves8153[ts.mint] = "${m.basis}:${"%.1f".format(m.expectedGrossPct)}/bars${bars.size}"
+            moves8153[moveKey8239(ts.mint, lane)] = "${m.basis}:${"%.1f".format(m.expectedGrossPct)}/bars${bars.size}"
         }
         return m
     }
@@ -223,7 +226,10 @@ object NetEdge8030 {
     private val historyDeferred8153 = AtomicLong(0)
 
     /** V5.0.8153 — AdmissionRunnerTrace8144: the basis of the last expected move judged for [mint] ("" = none). */
-    fun moveBasis8153(mint: String): String = moves8153[mint].orEmpty()
+    fun moveBasis8153(mint: String, lane: String = ""): String = moves8153[moveKey8239(mint, lane)].orEmpty()
+
+    private fun moveKey8239(mint: String, lane: String): String =
+        "${if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"}|$mint|${lane.trim().uppercase()}"
 
     /** V5.0.8136 — the round trip [entryRefusal8030] charges this entry: the default ticket against the observed depth. */
     fun entryCostPct8136(ts: TokenState, lane: String): Double =
@@ -362,7 +368,7 @@ object NetEdge8030 {
 
     /** Pure: the move to expect — the lane's mandate, capped by what the coin is actually moving when that is known. */
     fun expectedMove8035(mandatePct: Double, realizedPct: Double?): Double =
-        if (realizedPct != null && realizedPct.isFinite() && realizedPct >= 0.0) minOf(mandatePct, realizedPct) else mandatePct
+        if (mandatePct.isFinite() && mandatePct > 0.0 && realizedPct != null && realizedPct.isFinite() && realizedPct >= 0.0) minOf(mandatePct, realizedPct) else Double.NaN
 
     /** Pure: the range (%) of [prices] (the last hour's prints), or null with fewer than [minPrints]. */
     fun rangePct8035(prices: List<Double>, minPrints: Int = 6): Double? {
@@ -375,7 +381,10 @@ object NetEdge8030 {
     private fun realizedMovePct8035(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? {
         val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
         val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
-        val h1 = kotlin.math.abs(ts.lastPriceChange1h).takeIf { it.isFinite() && it > 0.0 }
+        val h1 = ts.lastPriceChange1h.takeIf {
+            it.isFinite() && ts.priceChangeObservedAtMs8084 > 0L &&
+                nowMs - ts.priceChangeObservedAtMs8084 in 0L..120_000L
+        }?.coerceAtLeast(0.0)
         return when {
             range != null && h1 != null -> maxOf(range, h1)
             else -> range ?: h1

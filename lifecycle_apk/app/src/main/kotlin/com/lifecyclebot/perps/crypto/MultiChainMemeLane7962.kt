@@ -389,7 +389,13 @@ object MultiChainMemeLane7962 {
     /** CrossAssetCortex7931.priceFor fallback: this lane's fresh pair mark for a labelled identity, else null. */
     fun freshMark7962(key: String, nowMs: Long = System.currentTimeMillis()): Double? {
         val m = marks[key] ?: return null
-        return if (nowMs - m.second <= MARK_MAX_AGE_MS) m.first else null
+        return if (nowMs - m.second in 0L..MARK_MAX_AGE_MS) m.first else null
+    }
+
+    fun markObservation8239(key: String, nowMs: Long = System.currentTimeMillis()): com.lifecyclebot.engine.truth.ObservedMark8239? {
+        val m = marks[key] ?: return null
+        return com.lifecyclebot.engine.truth.ObservedMark8239(m.first, m.second, "MULTICHAIN_PAIR")
+            .takeIf { it.fresh(nowMs, MARK_MAX_AGE_MS) }
     }
 
     /** CryptoAltTrader.start: the lane runs beside the crypto trader (idempotent). */

@@ -97,9 +97,10 @@ class Aate8168ExitProfitTest {
     @Test fun proofPollingKeepsUrgencyAndRaydiumUsesItsOwnProceeds() {
         assertTrue(source("engine/sell/BalanceProofPoller.kt").contains(
             "SellAmountAuthority.resolveForExit(entry.mint, w, entry.desiredExitReason)"))
-        val s = source("engine/Executor.kt")
-        assertTrue(s.contains("rayPlan7311.rawAmount, built7311.outLamports, raySlip7311"))
-        assertTrue(s.contains("race.rawAmount, built.outLamports"))
-        assertTrue(s.contains("tokenUnits ?: 0L, jupiter, releaseLocks = false"))
+        // Position-scoped proceeds and original quote identity now live in shared exit authority.
+        val p = source("engine/ProfitExitTruth8163.kt")
+        assertTrue(p.contains("if (!clearsRoute8239(ts, raw, outLamports, slip, route))"))
+        assertTrue(p.contains("captureQuote8239(ts, raw, outLamports, route, observedAtMs)"))
+        assertTrue(p.contains("quote.inputMint != ts.mint || quote.outputMint != JupiterApi.SOL_MINT"))
     }
 }

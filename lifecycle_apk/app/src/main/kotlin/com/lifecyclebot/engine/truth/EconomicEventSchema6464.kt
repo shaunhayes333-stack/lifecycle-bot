@@ -270,6 +270,7 @@ object EconomicEventSchema6464 {
         tokenDecimals: Int = 9, quantityScale: Int = tokenDecimals,
         lane: String = "",
         assetClassTag: String = "",
+        fillSignature8239: String = "",
     ) {
         // V5.0.6879 — stamp the originating lane onto the durable event. Callers may
         // pass it explicitly; when they do not, resolve it from
@@ -293,6 +294,7 @@ object EconomicEventSchema6464 {
             assetClassTag = assetClassTag,
         )
         if (!appendBounded(e)) return
+        try { CostLedger7962.bindFillReference8239(e, fillSignature8239) } catch (_: Throwable) {}
         recordedBuys.incrementAndGet()
         try { PipelineHealthCollector.labelInc("ECONOMIC_EVENT_BUY_6464") } catch (_: Throwable) {}
     }
@@ -311,6 +313,7 @@ object EconomicEventSchema6464 {
         // call site compiles unchanged; a row that leaves them at zero is
         // self-identifying as unreconstructible. See the Sell fields.
         exitPriceUsd: Double = 0.0, solUsdAtExit: Double = 0.0,
+        fillSignature8239: String = "",
     ) {
         val idKey = idempotencyKey.ifBlank { "sell_${System.nanoTime()}" }
         val gross = grossProceedsSol.coerceAtLeast(0.0)
@@ -343,6 +346,7 @@ object EconomicEventSchema6464 {
             solUsdAtExit = solUsdAtExit,
         )
         if (!appendBounded(e)) return
+        try { CostLedger7962.bindFillReference8239(e, fillSignature8239) } catch (_: Throwable) {}
         if (partial) recordedPartials.incrementAndGet() else recordedSells.incrementAndGet()
         // V5.0.7066 §9 — RE-SCAN ON EVERY SELL, not only on durable load.
         //

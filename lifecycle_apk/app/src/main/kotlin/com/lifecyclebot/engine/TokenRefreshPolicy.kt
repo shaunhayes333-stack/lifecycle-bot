@@ -192,8 +192,20 @@ object TokenRefreshPolicy {
 object WalletAccountCache {
     private const val DEFAULT_TTL_MS = 10_000L
 
-    @Volatile private var cachedAtMs: Long = 0L
-    @Volatile private var cachedTokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? = null
+    /** The observation, its time and completeness must describe the same RPC response.
+     * An empty successful complete response replaces an older nonempty response.
+     * A partial response proves positive balances only; a failed request never calls put.
+     */
+    data class Snapshot8237(
+        val tokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>,
+        val observedAtMs: Long,
+        val complete: Boolean,
+        val source: String,
+        val owner: String = "",
+    )
+
+    @Volatile private var cachedSnapshot8237: Snapshot8237? = null
+    private val readGeneration8237 = AtomicLong(0L)
 
     private val hits = AtomicLong(0L)
     private val misses = AtomicLong(0L)
@@ -203,32 +215,52 @@ object WalletAccountCache {
      * Returns cached snapshot if within TTL, null otherwise.
      * Callers fetch from RPC on null and call [put] with the result.
      */
-    fun snapshot(ttlMs: Long = DEFAULT_TTL_MS): Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? {
-        val now = System.currentTimeMillis()
-        val ageMs = now - cachedAtMs
-        val snap = cachedTokens
-        return if (snap != null && ageMs < ttlMs) {
+    fun snapshot(ttlMs: Long = DEFAULT_TTL_MS, owner: String? = null): Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>? {
+        val snap = snapshotWithProof8237(ttlMs, expectedOwner = owner)
+        return if (snap != null) {
             hits.incrementAndGet()
-            snap
+            snap.tokens
         } else {
             misses.incrementAndGet()
             null
         }
     }
 
-    /** V5.0.8094 — when the cached snapshot was taken (0 = none). */
-    fun snapshotAtMs8094(): Long = cachedAtMs
+    /** Read-only: a consumer cannot renew the age or borrow another request's completeness. */
+    fun snapshotWithProof8237(ttlMs: Long = DEFAULT_TTL_MS, nowMs: Long = System.currentTimeMillis(), expectedOwner: String? = null): Snapshot8237? {
+        val snap = cachedSnapshot8237 ?: return null
+        val ageMs = nowMs - snap.observedAtMs
+        return snap.takeIf { it.observedAtMs > 0L && ageMs >= 0L && ageMs < ttlMs &&
+            (expectedOwner == null || it.owner == expectedOwner) }
+    }
 
-    /** Store a fresh snapshot. */
-    fun put(tokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>) {
-        cachedTokens = tokens
-        cachedAtMs = System.currentTimeMillis()
+    /** V5.0.8094 — when the cached snapshot was taken (0 = none). */
+    fun snapshotAtMs8094(): Long = cachedSnapshot8237?.observedAtMs ?: 0L
+
+    /** Capture before RPC; a trade invalidation makes every earlier in-flight read ineligible to publish. */
+    fun readGeneration8237(): Long = readGeneration8237.get()
+
+    /** Only a successful read supplies completeness; legacy callers remain positive-only. */
+    @Synchronized fun put(
+        tokens: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount>,
+        complete: Boolean = false,
+        source: String = "UNSPECIFIED_POSITIVE_ONLY",
+        observedAtMs: Long = System.currentTimeMillis(),
+        readGeneration: Long? = null,
+        owner: String = "",
+    ): Boolean {
+        if (readGeneration != null && readGeneration != readGeneration8237.get()) return false
+        if (observedAtMs < (cachedSnapshot8237?.observedAtMs ?: 0L)) return false
+        cachedSnapshot8237 = Snapshot8237(
+            java.util.Collections.unmodifiableMap(HashMap(tokens)), observedAtMs, complete, source, owner,
+        )
+        return true
     }
 
     /** Force-invalidate. Called by sell/buy post-broadcast paths. */
-    fun bustNow() {
-        cachedAtMs = 0L
-        cachedTokens = null
+    @Synchronized fun bustNow() {
+        readGeneration8237.incrementAndGet()
+        cachedSnapshot8237 = null
         busts.incrementAndGet()
     }
 

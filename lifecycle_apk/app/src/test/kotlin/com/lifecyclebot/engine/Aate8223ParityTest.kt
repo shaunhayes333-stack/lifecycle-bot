@@ -32,9 +32,9 @@ class Aate8223ParityTest {
 
     @Test fun theDrawdownConfirmBranchAsksTheSettlementQuestionBeforeRebasing() {
         val s = src("engine/truth/CapitalDrawdown7948.kt")
-        assertTrue(s.contains("PeakLedger8188.settlementExplains8223(flow, netLegs8223)"))
-        assertTrue(s.contains("PeakLedger8188.refuseSettlement8223("))
-        assertTrue(s.indexOf("settlementExplains8223") < s.indexOf("peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)"))
+        assertTrue(s.contains("WalletCashLegs8237.classify8237(flow, cashLegs8237)"))
+        assertTrue(s.contains("PeakLedger8188.refuseUnresolvedCashFlow8237("))
+        assertTrue(s.indexOf("WalletCashLegs8237.classify8237") < s.indexOf("peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)"))
     }
 
     // ── 2. paper universe = live universe ──
@@ -180,6 +180,7 @@ class Aate8223ParityTest {
         assertEquals(mp.REFUSED_LOSS_BUDGET_8188, mp.refusal8188(0.0199, 0.0285, 10.0, 6.3, 6.25, 15.0, 0.05, budgetSol = 0.021))
         assertEquals(mp.REFUSED_NEGATIVE_EDGE_8188, mp.refusal8188(0.0199, 0.0285, 10.0, 6.3, 6.25, 5.0, 0.05, budgetSol = 0.078))
         val src = src("engine/truth/MinPromotion8188.kt")
-        assertTrue(src.contains("routableCapacityPreflight7224(tradeable, solUsd).safeShareCapSol"))
+        assertTrue(src.contains("routableCapacityPreflight7224(tradeableSol, solUsd)"))
+        assertTrue(src.contains("cap >= min && cap <= p.tradeableSol"))
     }
 }

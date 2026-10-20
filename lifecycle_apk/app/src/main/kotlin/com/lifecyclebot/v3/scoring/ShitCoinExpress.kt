@@ -270,7 +270,9 @@ object ShitCoinExpress {
         isTrending: Boolean,
         isBoosted: Boolean,
         tokenAgeMinutes: Double,
+        retiredRule8239: (String) -> Boolean = { com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "EXPRESS", it) },
     ): ExpressSignal {
+        com.lifecyclebot.engine.NativeRuleReview8239.begin8239(mint, "EXPRESS")
         
         // ═══════════════════════════════════════════════════════════════════
         // EXPRESS FILTERS - Only the hottest tokens
@@ -307,13 +309,13 @@ object ShitCoinExpress {
         }
         
         // Market cap check
-        if (marketCapUsd > MAX_MARKET_CAP_USD) {
+        if (marketCapUsd > MAX_MARKET_CAP_USD && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "EXPRESS", "MCAP_TOO_HIGH")) {
             return noRide("MCAP_TOO_HIGH: \$${(marketCapUsd/1000).toInt()}K")
         }
         // V5.0.7971 — $0 is an unhydrated mcap (unknown), not a tiny one: 5.0.7964 refused
         // 3,695 of 3,740 EXPRESS reads as "MCAP_TOO_LOW: $0" while the lane's 60-minute labels
         // ran n72 +28.3% net (19% runners). Same rule ShitCoin adopted in V5.9.160.
-        if (marketCapUsd > 0.0 && marketCapUsd < MIN_MARKET_CAP_USD) {
+        if (marketCapUsd > 0.0 && marketCapUsd < MIN_MARKET_CAP_USD && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "EXPRESS", "MCAP_TOO_LOW")) {
             return noRide("MCAP_TOO_LOW: \$${marketCapUsd.toInt()}")
         }
         
@@ -356,14 +358,14 @@ object ShitCoinExpress {
             volumeChange >= 1.5
         val effectiveMomentum = if (flowIgnitionProxy7449) fluidMinMomentum else momentum
 
-        if (effectiveMomentum < fluidMinMomentum) {
+        if (effectiveMomentum < fluidMinMomentum && !retiredRule8239("NO_CONTINUATION")) {
             return noRide("NO_CONTINUATION: ${effectiveMomentum.fmt(1)}% < ${fluidMinMomentum.fmt(1)}% (learning=${(learningProgress*100).toInt()}%)")
         }
 
         // Express is an early continuation desk, not a parabolic-top buyer.
         // Keep very extended prints out even if social/trending visibility is hot.
         val chaseExtended7449 = priceChange5Min > 20.0 || effectiveMomentum > 30.0
-        if (chaseExtended7449) {
+        if (chaseExtended7449 && !retiredRule8239("CHASE_EXTENDED")) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXPRESS_CHASE_REJECTED_7449") } catch (_: Throwable) {}
             return noRide("CHASE_EXTENDED: mom=${effectiveMomentum.fmt(1)}% chg5m=${priceChange5Min.fmt(1)}%")
         }

@@ -29,12 +29,12 @@ object CandidateMarkFresh8094 {
     private val refreshed = AtomicLong(0)
     private val batches = AtomicLong(0)
     private val pool = java.util.concurrent.ThreadPoolExecutor(0, 1, 30L, java.util.concurrent.TimeUnit.SECONDS,
-        java.util.concurrent.SynchronousQueue<Runnable>(), { r -> Thread(r, "candidate-mark-8094").apply { isDaemon = true } },
-        java.util.concurrent.ThreadPoolExecutor.DiscardPolicy())
+        java.util.concurrent.ArrayBlockingQueue<Runnable>(1), { r -> Thread(r, "candidate-mark-8094").apply { isDaemon = true } },
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy())
 
     /** Pure: is this price missing or older than [FRESH_MS_8094]? */
     fun stale8094(lastPrice: Double, lastUpdateMs: Long, nowMs: Long): Boolean =
-        !(lastPrice.isFinite() && lastPrice > 0.0) || lastUpdateMs <= 0L || nowMs - lastUpdateMs > FRESH_MS_8094
+        !(lastPrice.isFinite() && lastPrice > 0.0) || lastUpdateMs <= 0L || nowMs - lastUpdateMs !in 0L..FRESH_MS_8094
 
     /** Pure: the market cap moved with the new price, so price x supply stays one identity. */
     fun rescaledMcap8094(oldMcap: Double, oldPrice: Double, newPrice: Double): Double =
@@ -68,23 +68,29 @@ object CandidateMarkFresh8094 {
                 } catch (_: Throwable) {
                 } finally { inFlight.set(false) }
             }
-        } catch (_: Throwable) { inFlight.set(false) }
+        } catch (_: Throwable) {
+            // A rejected executor submission did no work. Preserve demand and
+            // release ownership so the next cycle can retry this exact batch.
+            batch.forEach { wanted.putIfAbsent(it, nowMs) }
+            inFlight.set(false)
+            try { PipelineHealthCollector.labelInc("CANDIDATE_MARK_QUEUE_REJECTED_8239") } catch (_: Throwable) {}
+        }
     }
 
-    private fun apply8094(prices: Map<String, Double>) {
+    private fun apply8094(prices: Map<String, Double>, source: String = "JUPITER_CANDIDATE_REFRESH_8094") {
         if (prices.isEmpty()) return
         val tokens = com.lifecyclebot.engine.BotService.status.tokens
         val at = System.currentTimeMillis()
         for ((mint, px) in prices) {
             val ts = try { synchronized(tokens) { tokens[mint] } } catch (_: Throwable) { null } ?: continue
             val applied = synchronized(ts) {
-                val fresher = ts.lastPriceUpdate > 0L && at - ts.lastPriceUpdate < 1_000L
+                val fresher = ts.lastPriceUpdate > 0L && at - ts.lastPriceUpdate in 0L until 1_000L
                 val suspect = ts.lastPrice > 0.0 && ForwardReturnLabeler7731.basisSuspect7738(ts.lastPrice, px)
                 if (ts.position.isOpen || fresher || suspect) false else {
                     ts.lastMcap = rescaledMcap8094(ts.lastMcap, ts.lastPrice, px)
                     ts.lastPrice = px
                     ts.lastPriceUpdate = at
-                    ts.lastPriceSource = "JUPITER_CANDIDATE_REFRESH_8094"
+                    ts.lastPriceSource = source
                     true
                 }
             }
@@ -146,7 +152,7 @@ object CandidateMarkFresh8094 {
     private fun applyDex8094(reads: Map<String, DexRead>) {
         if (reads.isEmpty()) return
         dexReads.addAndGet(reads.size.toLong())
-        apply8094(reads.mapValues { it.value.priceUsd })
+        apply8094(reads.mapValues { it.value.priceUsd }, "DEXSCREENER_CANDIDATE_REFRESH_8094")
     }
 
     fun statusLine(): String =

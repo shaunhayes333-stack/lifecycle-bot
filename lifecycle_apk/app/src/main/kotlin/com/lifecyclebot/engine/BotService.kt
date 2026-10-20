@@ -989,36 +989,12 @@ class BotService : Service() {
     /** V5.0.7928 — a stop that fires above entry is a profit lock; below, a stop. */
     private fun rapidStopKind7928(stopPct: Double): String = if (stopPct > 0.0) "TRAILING" else "FLUID"
 
-    /** V5.0.7792 — 7791's Moonshot mcap zone (fluid floor .. MAX_MARKET_CAP_USD). */
-    // V5.0.8105 — the lane's buy door applies the desk's native-veto retirement (SpecialistBrainBridge7542.doorRetires8105)
-    // and names every in-lane refusal on the specialist liveness row, so a lane that evaluates but never intends shows why.
-    private fun laneDoor8105(lane: String, eligible: Boolean, reason: String, mint: String = ""): Boolean {
-        if (eligible) return false
-        // V5.0.8113 — or a run the bot confirms live (re-entry ticket / runner grab) — the same lane-fit refusals only.
-        val runner8113 = mint.isNotBlank() && SpecialistBrainBridge7542.nativeRuleRetirable8048(reason) &&
-            (try { RunnerPlay8018.ticketActive8018(mint) } catch (_: Throwable) { false })
-        val retired = runner8113 || SpecialistBrainBridge7542.doorRetires8105(lane, false, reason) { rule, l ->
-            com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(rule, l)
-        }
-        try {
-            SpecialistOwnership7951.notePreIntent7951(lane, (if (retired) "LANE_VETO_RETIRED_8105_" else "LANE_") + DecisionReasons8031.rule8031(reason))
-            if (retired) PipelineHealthCollector.labelInc("LANE_DOOR_VETO_RETIRED_8105_$lane")
-        } catch (_: Throwable) {}
-        return retired
-    }
-
-    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotScore, mint: String = ""): com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotScore =
-        if (laneDoor8105("MOONSHOT", s.eligible, s.rejectReason, mint)) s.copy(eligible = true, rejectReason = "", suggestedSizeSol = s.suggestedSizeSol.coerceAtLeast(0.01)) else s
-
-    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipSignal, mint: String = ""): com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipSignal =
-        if (laneDoor8105("MANIPULATED", s.shouldEnter, s.reason, mint)) s.copy(shouldEnter = true, positionSizeSol = s.positionSizeSol.coerceAtLeast(0.01)) else s
-
-    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressSignal, mint: String = ""): com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressSignal =
-        if (laneDoor8105("EXPRESS", s.shouldRide, s.reason, mint)) s.copy(shouldRide = true, positionSizeSol = s.positionSizeSol.coerceAtLeast(0.01),
-            rideType = if (s.rideType == com.lifecyclebot.v3.scoring.ShitCoinExpress.RideType.NO_RIDE) com.lifecyclebot.v3.scoring.ShitCoinExpress.RideType.QUICK_FLIP else s.rideType) else s
-
-    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinSignal, mint: String = ""): com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinSignal =
-        if (laneDoor8105("SHITCOIN", s.shouldEnter, s.reason, mint)) s.copy(shouldEnter = true, positionSizeSol = s.positionSizeSol.coerceAtLeast(0.01)) else s
+    // 8239: native rules are reviewed inside each scorer; the buy door cannot
+    // turn an early refusal into a scored, sized entry by copying one Boolean.
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotScore, mint: String = "") = s
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipSignal, mint: String = "") = s
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressSignal, mint: String = "") = s
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinSignal, mint: String = "") = s
 
     private fun moonshotMcapInZone7792(ts: com.lifecyclebot.data.TokenState): Boolean = try {
         ts.lastMcap in com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()..com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD
@@ -1333,7 +1309,10 @@ class BotService : Service() {
                     // V5.0.7731 — forward-return labels for every FDG verdict,
                     // priced from the same closure (canonical mark as fallback).
                     com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.tick({ m ->
-                        tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
+                        tokenStatesCopy[m]?.let {
+                            com.lifecyclebot.engine.truth.ObservedMark8239(it.lastPrice, it.lastPriceUpdate,
+                                it.lastPriceSource.ifBlank { "TOKEN_STATE" })
+                        }
                     }, nowShadow7307)
                     // V5.0.7752 — price closed live trades at their sixty-minute mark.
                     com.lifecyclebot.engine.truth.ExitRegret7752.tick({ m ->
@@ -24522,11 +24501,13 @@ if (hotExitHandledSweep) {
             // worker timeout, or that the orchestrator already says should not be
             // polled this tick. Open positions bypass timeout cooldown above.
             if (supervisorTimeoutCooldownActive(mint)) {
+                HandoffPriority8190.noteWorkerUnavailable8237(mint, "TIMEOUT_COOLDOWN")
                 skipped++
                 cooldownSkipped++
                 continue
             }
             if (orchestrator?.shouldPoll(mint) == false) {
+                HandoffPriority8190.noteWorkerUnavailable8237(mint, "SHOULD_POLL_FALSE")
                 skipped++
                 shouldPollSkipped++
                 continue
@@ -24536,6 +24517,7 @@ if (hotExitHandledSweep) {
                 skipped++
                 continue
             }
+            HandoffPriority8190.noteWorkerAdmitted8237(mint)
             supervisorLifetimeSpawned.incrementAndGet()
             // V5.9.1042 — record last-successful-spawn timestamp so the
             // watchdog above can detect prolonged pool stalls.

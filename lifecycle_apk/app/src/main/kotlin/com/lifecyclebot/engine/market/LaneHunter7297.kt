@@ -494,35 +494,47 @@ object LaneHunter7297 {
     fun hunt(snap: MarketSweep7297.Snapshot): Map<String, List<MarketSweep7297.Row>> {
         ensureSubscribed()
         val byMint = snap.rows.associateBy { it.mint }
-        val audit8168 = ArrayList<com.lifecyclebot.engine.BotImprovementReport8168.Hunt>()
+        val fitCounts8239 = HashMap<String, Pair<Int, Int>>()
+        val priorities8239 = HashMap<String, DiscoveryQuality8239.Priority>()
         // V5.0.8169 — tokenised equities and pegged / receipt tokens are not meme prey (HunterAssetClass8169); rows on the
         // intake's 10-minute requeue cooldown (re-picked, never re-deliverable) rank after every deliverable row.
         val nonMeme8169 = snap.rows.mapNotNull { r -> HunterAssetClass8169.of(r).takeIf { it != HunterAssetClass8169.Kind.MEME_TRADEABLE }?.let { r.mint to it } }.toMap()
         val now8169 = System.currentTimeMillis()
+        val mode8239 = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        // Read each mint's bounded native cache/generation once. No scorer, OHLCV request or provider runs in sorting.
+        val native8239 = snap.rows.associate { r -> r.mint to
+            com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(r.mint) }
+        val versions8239 = snap.rows.associate { r -> r.mint to
+            com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(r.mint) }
         requeuedAt8169.entries.removeIf { !onCooldown8169(it.value, now8169) }
         val ranked = profiles.associate { p ->
             val (lo, hi) = fluidBand(p.baseMin, p.baseMax, bucketStatsFor(p.lane))
             val inBand8168 = snap.rows.filter { it.mcapUsd in lo..hi && it.mint !in nonMeme8169 }
             val eligible8168 = inBand8168.filter { p.fits(it) }
+            fitCounts8239[p.lane] = inBand8168.size to eligible8168.size
             p.lane to eligible8168
                 // Compute each expensive evidence/ranking multiplier exactly
                 // once per candidate, not O(n log n) times inside TimSort's
                 // comparator. Preserve the original score and stable tie order.
                 .map { r ->
                     val heat = MarketSweep7297.Band.of(r.mcapUsd)?.let { snap.bands[it]?.breadthPct } ?: 50.0
-                    r to (p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
+                    val native = native8239[r.mint]?.opinions?.get(p.lane)
+                    val prior = com.lifecyclebot.engine.truth.CandidateAdmission8136.orderingFor8239(
+                        mode8239, r.mint, p.lane, versions8239.getValue(r.mint), now8169)
+                    val priority = qualityPriority8239(r, prior,
+                        native != null && native.authoritative && native.gradeable && !native.eligible, now8169)
+                    priorities8239["${p.lane}|${r.mint}"] = priority
+                    Ranked8239(r.mint, priority, p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
                         (0.9 + 0.2 * heat / 100.0) * opportunityLaneMultiplier7777(p.lane, r) *
                         commonSenseMult7797(p.lane, r) * adaptiveTimingMultiplier7812(p.lane, r) *
                         com.lifecyclebot.engine.ExpertTraderKnowledge7813.marketRankMultiplier7813(p.lane, r))
                 }
-                .sortedByDescending { it.second }
-                .map { it.first.mint }
+                .sortedWith(compareByDescending<Ranked8239> { it.priority.tier }
+                    .thenByDescending { it.priority.netLowerPct.coerceAtMost(100.0) }
+                    .thenByDescending { it.score.takeIf { n -> n.isFinite() } ?: 0.0 })
+                .map { it.mint }
                 .let { order -> deliverableFirst8169(order) { m -> onCooldown8169(requeuedAt8169[m], now8169) } }
-                .also { ranked8168 -> audit8168 += com.lifecyclebot.engine.BotImprovementReport8168.hunt(
-                    p.lane, snap.rows, inBand8168.size, eligible8168.size,
-                    ranked8168.take(PICKS_PER_LANE).mapNotNull { byMint[it] }) }
         }
-        com.lifecyclebot.engine.BotImprovementReport8168.publishHunts(audit8168, snap.atMs)
         // V5.0.7803 — DO NOT deal the market into mutually-exclusive hunter
         // buckets. Each specialist owns a resident candidate book and may watch
         // the same mint independently. Arbitration belongs at READY execution,
@@ -532,26 +544,20 @@ object LaneHunter7297 {
         // use the remaining slots for fresh mints before repeating watchlist
         // residents. All 12 lanes keep their own ranking and can still select
         // the SAME mint; this is discovery ordering, never execution authority.
-        val residentPicks7803 = ranked.mapValues { (_, mints) ->
-            freshFirst8170(mints, { mint ->
+        val residentPicks7803 = ranked.mapValues { (lane, mints) ->
+            selectForDiscovery8239(mints, { mint -> priorities8239["$lane|$mint"]?.tier ?: 0 }, { mint ->
                 try { BotService.status.tokens.containsKey(mint) } catch (_: Throwable) { false }
-            }, PICKS_PER_LANE)
+            }, { mint -> onCooldown8169(requeuedAt8169[mint], now8169) }, PICKS_PER_LANE)
         }
-        noteHuntAudit8169(snap, nonMeme8169, residentPicks7803, now8169)
         val now = System.currentTimeMillis()
         claims.entries.removeIf { now - it.value.atMs > CLAIM_TTL_MS }
         val out = residentPicks7803.mapValues { (lane, mints) ->
-            mints.mapNotNull { byMint[it] }.also { rows ->
+            mints.mapNotNull { byMint[it] }.filter { r ->
+                val past = lane == "PROJECT_SNIPER" && sniperPastWindowAtPublish8201(r.ageHours, snap.atMs, now)
+                if (past) try { PipelineHealthCollector.labelInc("LANE_HUNT_SNIPER_PAST_WINDOW_AT_PUBLISH_8201") } catch (_: Throwable) {}
+                !past
+            }.also { rows ->
                 rows.forEach { r ->
-                    // V5.0.8201 — ProjectSniperAI is a first-180 s desk and LaunchBirth8169 strips PROJECT_SNIPER from a
-                    // past-window coin's native scope. A sweep pick that is already past the window when it is published
-                    // (row age + sweep latency) can never be evaluated as a sniper candidate: 5.0.8200 hunted 7, book 0.
-                    // It still emits as discovery (MOONSHOT / EXPRESS / SHITCOIN read it natively); it is not a sniper
-                    // resident and is counted.
-                    if (lane == "PROJECT_SNIPER" && sniperPastWindowAtPublish8201(r.ageHours, snap.atMs, now)) {
-                        try { PipelineHealthCollector.labelInc("LANE_HUNT_SNIPER_PAST_WINDOW_AT_PUBLISH_8201") } catch (_: Throwable) {}
-                        return@forEach
-                    }
                     claims[claimKey7803(lane, r.mint)] = Claim(lane, r.mcapUsd, now)
                     try { SpecialistCandidateBooks7803.publishHunt(lane, r.mint, r.symbol, SOURCE_PREFIX + lane) } catch (_: Throwable) {}
                     hunted.merge(lane, 1L, Long::plus)
@@ -586,7 +592,39 @@ object LaneHunter7297 {
                 try { PipelineHealthCollector.labelInc("LANE_HUNT_7297_PICKED_$lane") } catch (_: Throwable) {}
             }
         }
+        // Publish the rows actually returned after freshness rotation and birth-window expiry, not the pre-rotation top 12.
+        com.lifecyclebot.engine.BotImprovementReport8168.publishHunts(out.map { (lane, rows) ->
+            val counts = fitCounts8239.getValue(lane)
+            com.lifecyclebot.engine.BotImprovementReport8168.hunt(lane, snap.rows, counts.first, counts.second, rows)
+        }, snap.atMs)
+        noteHuntAudit8169(snap, nonMeme8169, out.mapValues { (_, rows) -> rows.map { it.mint } }, now)
+        val selectedQuality = out.flatMap { (lane, rows) -> rows.mapNotNull { priorities8239["$lane|${it.mint}"] } }
+            .groupingBy { it.reason }.eachCount()
+        lastAudit8169 += " quality8239[${selectedQuality.entries.sortedByDescending { it.value }.joinToString(",") { "${it.key}=${it.value}" }}]"
         return out
+    }
+
+    private data class Ranked8239(val mint: String, val priority: DiscoveryQuality8239.Priority, val score: Double)
+
+    private fun qualityPriority8239(r: MarketSweep7297.Row,
+                                    admission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Ordering8239?,
+                                    nativeJudgement: Boolean, nowMs: Long): DiscoveryQuality8239.Priority {
+        val o = MarketSweep7297.opportunityFor7777(r.mint)?.takeIf { nowMs - it.generatedAtMs in 0L..90_000L }
+        val bp = if (r.buysH1 >= 0 && r.sellsH1 >= 0 && r.buysH1.toLong() + r.sellsH1 > 0L)
+            100.0 * r.buysH1 / (r.buysH1.toDouble() + r.sellsH1) else o?.buyPressurePct ?: Double.NaN
+        return DiscoveryQuality8239.priority(DiscoveryQuality8239.Input(r.observedAtMs8169, r.priceUsd,
+            r.liquidityUsd, r.priceChange5mPct.takeIf { it.isFinite() } ?: o?.priceVelocity5mPct ?: Double.NaN,
+            bp, o?.liquidityDeltaPct ?: Double.NaN, nativeJudgement, admission), nowMs)
+    }
+
+    /** Quality tiers retain their order; novelty rotates only among candidates of the same evidence quality. */
+    internal fun selectForDiscovery8239(ranked: List<String>, tier: (String) -> Int, watched: (String) -> Boolean,
+                                        cooling: (String) -> Boolean, limit: Int): List<String> {
+        if (limit <= 0) return emptyList()
+        val (waiting, deliverable) = ranked.partition(cooling)
+        fun ordered(rows: List<String>) = rows.groupBy(tier).toSortedMap(reverseOrder()).values
+            .flatMap { freshFirst8170(it, watched, it.size) }
+        return (ordered(deliverable) + ordered(waiting)).take(limit)
     }
 
     // ── V5.0.8169 — deliverable picks first; hunt audit ──

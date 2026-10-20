@@ -37,6 +37,8 @@ data class SwapQuote(
     // Metis fallback') instead of leaving the operator wondering why the
     // sell didn't go through Ultra like the buy did.
     val ultraRejectedReason: String = "",
+    /** Kept on the object through retries; reusing a quote never makes its observation younger. */
+    val observedAtMs8239: Long = System.currentTimeMillis(),
 )
 
 data class SwapTxResult(
@@ -374,6 +376,7 @@ class JupiterApi(
             inAmount = amountRaw,
             router = router,
             isRfqRoute = isRfqRoute,
+            observedAtMs8239 = startMs,
         )
     }
 
@@ -453,6 +456,7 @@ class JupiterApi(
             inAmount = amountRaw,
             router = router,
             isRfqRoute = isRfqRoute,
+            observedAtMs8239 = startMs,
         )
     }
 
@@ -494,11 +498,13 @@ class JupiterApi(
         var lastErr: Exception? = null
         var body: String? = null
         var picked = ""
+        var quoteObservedAt8239 = startMs
         hosts@ for (base in v6Hosts7397()) {
           for (params in attempts) {
             val url = "$base$quotePath&$params"
             try {
                 log("📊 V6 QUOTE: ${shortMint(inputMint)} -> ${shortMint(outputMint)} | amountRaw=$amountRaw params=$params")
+                quoteObservedAt8239 = System.currentTimeMillis()
                 body = getOrThrow(url)
                 picked = params
                 break@hosts
@@ -549,6 +555,7 @@ class JupiterApi(
             inAmount = amountRaw,
             router = "metis",
             isRfqRoute = false,
+            observedAtMs8239 = quoteObservedAt8239,
         )
     }
 

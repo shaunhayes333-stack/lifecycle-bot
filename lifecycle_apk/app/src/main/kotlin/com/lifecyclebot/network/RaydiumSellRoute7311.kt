@@ -45,7 +45,8 @@ object RaydiumSellRoute7311 {
             .build()
     }
 
-    data class Built(val transactions: List<String>, val outLamports: Long, val cuPrice: Long)
+    data class Built(val transactions: List<String>, val outLamports: Long, val cuPrice: Long,
+                     val observedAtMs8239: Long = System.currentTimeMillis())
 
     private fun get(url: String): JSONObject {
         val req = Request.Builder().url(url).get().build()
@@ -104,6 +105,7 @@ object RaydiumSellRoute7311 {
     /** Build token -> SOL sell transaction(s). Throws with a named reason on any miss. */
     fun buildSell(wallet: SolanaWallet, mint: String, rawAmount: Long, slippageBps: Int): Built {
         require(rawAmount > 0L) { "raydium_sell_zero_amount" }
+        val observedAtMs8239 = System.currentTimeMillis()
         val quote = get(
             "$COMPUTE_URL?inputMint=$mint&outputMint=${JupiterApi.SOL_MINT}" +
                 "&amount=$rawAmount&slippageBps=${slippageBps.coerceIn(50, 5_000)}&txVersion=V0",
@@ -135,7 +137,7 @@ object RaydiumSellRoute7311 {
                 "mint=${mint.take(10)} raw=$rawAmount outLamports=$outLamports txs=${txs.size} cuPrice=$cuPrice slipBps=$slippageBps",
             )
         } catch (_: Throwable) {}
-        return Built(txs, outLamports, cuPrice)
+        return Built(txs, outLamports, cuPrice, observedAtMs8239)
     }
 
     /**

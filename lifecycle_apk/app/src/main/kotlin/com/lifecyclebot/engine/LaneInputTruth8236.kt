@@ -64,6 +64,22 @@ object LaneInputTruth8236 {
         return "$defer:${reason.take(60)}"
     }
 
+    /**
+     * The five native input deferrals name the observation their existing reader must refresh.
+     * Match the complete leading contract, not an arbitrary DEFER/UNOBSERVED substring. This
+     * identifies data; callers still apply token-safety judgement before treating it as retryable.
+     * V3 is recomputed by the existing forced-poll path, never supplied as a made-up score.
+     */
+    internal fun nativeDataInputs8237(reason: String?): List<String> =
+        when (reason?.substringBefore(':')?.trim()?.uppercase()) {
+            MCAP_DEFER -> listOf("mcap:UNOBSERVED")
+            MOMENTUM_DEFER -> listOf("chg:UNOBSERVED")
+            BUY_PRESSURE_DEFER -> listOf("bp:UNOBSERVED")
+            PRICE_HISTORY_DEFER -> listOf("shape:HISTORY_SPARSE")
+            V3_UNSCORED_DEFER -> listOf("v3:UNSCORED")
+            else -> emptyList()
+        }
+
     /** Pure: the crypto desk's bp (50 from zero counts) and 24h change (exact 0.0) are defaults when no provider stated them. */
     fun cryptoInputsUnobserved8236(buys24h: Int, sells24h: Int, change24hPct: Double): Boolean =
         buys24h + sells24h <= 0 && (!change24hPct.isFinite() || change24hPct == 0.0)

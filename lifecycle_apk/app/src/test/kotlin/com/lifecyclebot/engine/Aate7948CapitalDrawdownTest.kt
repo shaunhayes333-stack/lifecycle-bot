@@ -97,7 +97,8 @@ class Aate7948CapitalDrawdownTest {
         assertTrue(ks.contains("SIZE_DOWN_NOT_HALT_7864"))
         val lrp = src("engine/truth/LiveRiskPolicy7807.kt")
         assertFalse(lrp.contains("private fun observeEquity("))
-        assertTrue(lrp.contains("CapitalDrawdown7948.observePct7948("))
+        assertTrue(lrp.contains("CapitalDrawdown7948.observeCaptured8239(account8239, nowMs)"))
+        assertTrue(lrp.contains("val equity = account8239.sizingEquitySol8239()"))
         val pa = src("engine/PerformanceAnalytics.kt")
         assertTrue(pa.contains("sb.append(drawdownLines7948(stats))"))
     }

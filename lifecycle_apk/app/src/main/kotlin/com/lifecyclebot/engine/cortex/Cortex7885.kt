@@ -121,7 +121,7 @@ object Cortex7885 {
         if (ts.mint.isBlank() || laneRaw.isBlank()) return null
         val lane = canon(laneRaw)
         val key = "${ts.mint}|$lane"
-        assessCache[key]?.let { if (nowMs - it.atMs <= ASSESS_TTL_MS) return it }
+        assessCache[key]?.let { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
         ensureLoaded()
         val t0 = System.nanoTime()
         val staticRaws = CortexVoters7885.readAll(ts, lane, nowMs, voterFailures)
@@ -146,7 +146,12 @@ object Cortex7885 {
         val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
         val freshestAt = maxOf(ts.lastPriceUpdate, registryAt)
         val priceAge = if (freshestAt > 0L) nowMs - freshestAt else Long.MAX_VALUE
-        val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs, prediction8076)
+        // 8239: voters read mutable token/provider state, and fusion may wait for
+        // the learner lock. The caller's start time is NOT an observation time.
+        // Stamping the completed read lets the existing label/binding cutoff hold
+        // out every slow read that has already seen part of the future return.
+        val readAt8239 = readCompletedAt8239(nowMs, System.currentTimeMillis())
+        val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge !in 0L..MARK_STALE_MS, readAt8239, prediction8076)
         try { CortexInvariants7911.recordProvenance(ts, nowMs) } catch (_: Throwable) {}
         assessNanos.addAndGet(System.nanoTime() - t0)
         noteAssessMs8187((System.nanoTime() - t0) / 1_000_000.0)
@@ -156,6 +161,9 @@ object Cortex7885 {
         assessCache[key] = a
         return a
     }
+
+    /** A mutable-state assessment is available only after its last read and fusion finish. */
+    internal fun readCompletedAt8239(startedAtMs: Long, completedAtMs: Long): Long = maxOf(startedAtMs, completedAtMs)
 
     // ── V5.0.8144 — memory: assessments and pending decisions are the heaviest resident Cortex rows ──
     // An Assessment carries ~400 voter slots (raws, ids, edges and the prediction snapshot): ~15-20 KB. The cache kept
@@ -218,7 +226,7 @@ object Cortex7885 {
     fun assessmentBytes8144(): Long = ASSESSMENT_BASE_BYTES_8144 + 40L * (try { CortexVoters7885.IDS.size + 120 } catch (_: Throwable) { 400 })
 
     /** Pure: the persisted pending snapshot carries only decisions a label can still reach. */
-    fun persistablePending8144(atMs: Long, nowMs: Long): Boolean = nowMs - atMs <= DEAD_PENDING_MS_8144
+    fun persistablePending8144(atMs: Long, nowMs: Long): Boolean = atMs > 0L && nowMs - atMs in 0L..DEAD_PENDING_MS_8144
 
     // ── V5.0.8169 — audit accessors and the voter-read leakage check ──
 
@@ -290,34 +298,22 @@ object Cortex7885 {
     private val pool: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
         1, 2, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(256),
         { r -> Thread(r, "cortex-7909").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
-        // V5.0.7930 — a dropped job is counted (ASYNC_DROPPED), never silent.
-        java.util.concurrent.RejectedExecutionHandler { r, ex ->
-            if (!ex.isShutdown) {
-                ex.queue.poll()
-                inc("ASYNC_DROPPED")
-                try { ex.execute(r) } catch (_: Throwable) {}
-            }
-        },
+        // 8239: explicit rejection lets the submitter release its keyed ownership.
+        // Removing someone else's queued job would strand that job's scheduled key.
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
     )
     // V5.0.8171: decision-time Cortex captures no longer wait behind a queue
     // of slow native/voter assessments. 8169 measured mean capture lag 3.65 s
     // with 190 queued and 257 late reads. Two single-worker pools retain the
     // original maximum of two workers but reserve one exclusively for captures.
-    // Bounded queue: if overwhelmed the oldest observation is discarded and
-    // accounted for; we never relabel a late read as decision-time proof.
-    // V5.0.8187 — the queue is admitted to by submitCaptureKeyed8187's own accounting (coalesced per mint|lane, bounded,
-    // every refusal counted by reason), so the executor never evicts a queued decision: 8186 lost 86 captures to the
-    // oldest-job poll. Its own last resort runs the job on the caller (the decision stays, immutable) and is counted.
+    // Admission is coalesced per mint|lane and bounded before submission. Saturation
+    // refuses the new job explicitly; neither eviction nor caller-thread execution
+    // can turn data enrichment into an unbounded decision-path delay.
     private const val CAPTURE_QUEUE_HARD_8187 = 416
     private val capturePool8171: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
         1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(CAPTURE_QUEUE_HARD_8187 + 32),
         { r -> Thread(r, "cortex-capture-8171").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
-        java.util.concurrent.RejectedExecutionHandler { r, ex ->
-            if (!ex.isShutdown) {
-                inc("CAPTURE_QUEUE_DROP_8171_CALLER_RUNS_8187")
-                try { r.run() } catch (_: Throwable) { inc("CAPTURE_REJECTED_8171") }
-            }
-        },
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
     )
 
     // ── V5.0.8187 §ACCOUNTABLE_CAPTURE_QUEUE ──
@@ -338,30 +334,41 @@ object Cortex7885 {
      * decision), admitted decisions keep headroom, and every refusal is counted by reason.
      */
     private fun submitCaptureKeyed8187(key: String, admitted: Boolean, job: () -> Unit) {
-        if (captureLatest8187.put(key, job) != null) { inc("CAPTURE_COALESCED_SAME_KEY_8187"); return }
-        if (!captureAdmits8187(captureQueued8187.get(), admitted)) {
-            captureLatest8187.remove(key, job)
-            inc(if (admitted) "CAPTURE_DROP_FULL_ADMITTED_8187" else "CAPTURE_DROP_FULL_NEWEST_8187")
-            return
+        synchronized(captureLatest8187) {
+            if (captureLatest8187.put(key, job) != null) { inc("CAPTURE_COALESCED_SAME_KEY_8187"); return }
+            if (!captureAdmits8187(captureQueued8187.get(), admitted)) {
+                captureLatest8187.remove(key)
+                inc(if (admitted) "CAPTURE_DROP_FULL_ADMITTED_8187" else "CAPTURE_DROP_FULL_NEWEST_8187")
+                return
+            }
+            captureQueued8187.incrementAndGet()
         }
-        captureQueued8187.incrementAndGet()
-        submitCapture8171 { try { captureLatest8187.remove(key)?.invoke() } finally { captureQueued8187.decrementAndGet() } }
+        if (!submitCapture8171 {
+            try { synchronized(captureLatest8187) { captureLatest8187.remove(key) }?.invoke() }
+            finally { captureQueued8187.decrementAndGet() }
+        }) {
+            synchronized(captureLatest8187) { captureLatest8187.remove(key) }
+            captureQueued8187.decrementAndGet()
+            inc("CAPTURE_DROP_EXECUTOR_REJECTED_8239")
+        }
     }
 
-    private fun submitCapture8171(job: () -> Unit) {
-        try {
+    private fun submitCapture8171(job: () -> Unit): Boolean {
+        return try {
             capturePool8171.execute { try { job() } catch (_: Throwable) { inc("CAPTURE_FAILED_8171") } }
             inc("ASYNC_CAPTURE")
-        } catch (_: Throwable) { inc("CAPTURE_REJECTED_8171") }
+            true
+        } catch (_: Throwable) { inc("CAPTURE_REJECTED_8171"); false }
     }
 
     private val scheduled = ConcurrentHashMap<String, Long>()
 
-    private fun submit(tag: String, job: () -> Unit) {
-        try {
+    private fun submit(tag: String, job: () -> Unit): Boolean {
+        return try {
             pool.execute { try { job() } catch (_: Throwable) {} }
             inc("ASYNC_$tag")
-        } catch (_: Throwable) { inc("ASYNC_REJECTED") }
+            true
+        } catch (_: Throwable) { inc("ASYNC_REJECTED_$tag"); false }
     }
 
     /** V5.0.7948 — CortexTiming7900: an inverted lane's STRONG read is not exempt from the dip wait. */
@@ -376,15 +383,17 @@ object Cortex7885 {
     private fun cachedOrSchedule(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Assessment? {
         if (ts.mint.isBlank() || laneRaw.isBlank()) return null
         val key = "${ts.mint}|${canon(laneRaw)}"
-        assessCache[key]?.let { if (nowMs - it.atMs <= ASSESS_TTL_MS) return it }
-        // A job the full queue dropped never reaches its finally: a key may be
-        // rescheduled after 30 s, so a dropped assessment cannot block a mint forever.
+        assessCache[key]?.let { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
         val prev = scheduled[key]
-        if (prev == null || nowMs - prev > 30_000L) {
-            scheduled[key] = nowMs
-            submit("ASSESS") { try { assess(ts, laneRaw) } finally { scheduled.remove(key) } }
+        if (prev == null || nowMs - prev !in 0L..30_000L) {
+            val claimed = if (prev == null) scheduled.putIfAbsent(key, nowMs) == null
+                else scheduled.replace(key, prev, nowMs)
+            if (claimed) {
+                if (!submit("ASSESS") { try { assess(ts, laneRaw) } finally { scheduled.remove(key, nowMs) } })
+                    scheduled.remove(key, nowMs)
+            } else inc("ASYNC_ALREADY_SCHEDULED")
         } else inc("ASYNC_ALREADY_SCHEDULED")
-        if (scheduled.size > 4_000) scheduled.entries.removeIf { nowMs - it.value > 30_000L }
+        if (scheduled.size > 4_000) scheduled.entries.removeIf { nowMs - it.value !in 0L..30_000L }
         return null
     }
 
@@ -532,12 +541,13 @@ object Cortex7885 {
                 val ctx8196 = pendingCtx8144[k]?.let { c ->
                     org.json.JSONObject().put("timing", c.timing).put("cost", c.costBand)
                         .put("cohort", c.cohort).put("latency", c.latencyMeasured)
-                        .put("executable", c.executable)
+                        .put("executable", c.executable).put("nativeProof8239", true)
                 } ?: org.json.JSONObject.NULL
                 arr.put(
                     org.json.JSONObject().put("k", k).put("l", a.lane).put("r", a.runnerLane).put("g", a.regime)
                         .put("b", a.bucket.ordinal).put("e", fin0(a.fused.edgePct)).put("m", fin0(a.fused.laneMean))
                         .put("ce", fin0(a.calibratedEdge)).put("adm", p.legacyAdmitted).put("at", p.atMs)
+                        .put("readAt8239", a.atMs)
                         .put("v", p.vetoRule.orEmpty()).put("s", p.source).put("su", p.setup7961).put("ep", PERSIST_KEY).put("i", ids).put("x", xs)
                         .put("pr8076", pr).put("pw8076", pw)
                         .put("base8076", jsonNumber(a.prediction8076?.base)).put("bw8076", jsonNumber(a.prediction8076?.baseWin))
@@ -622,21 +632,24 @@ object Cortex7885 {
             val b = buckets.getOrNull(o.optInt("b", 1)) ?: CortexScoreboard7885.Bucket.NEUTRAL
             val fused = CortexLedger7885.Fused(o.optDouble("e", 0.0), 0.0, o.optDouble("m", 0.0), 0.0, 0.0, 0.0, 0.0, emptyList())
             val a = Assessment(o.optString("l"), o.optBoolean("r"), raws.toDoubleArray(), ids, edges, o.optString("g"),
-                fused, o.optDouble("ce", 0.0), b, 0, false, at,
+                fused, o.optDouble("ce", 0.0), b, 0, false, o.optLong("readAt8239", at),
                 CortexLedger7885.PredictionSnapshot8076(preds.toDoubleArray(), wins.toDoubleArray(),
                     o.optDouble("base8076", Double.NaN), o.optDouble("bw8076", Double.NaN)))
             val fired8196 = o.optJSONArray("fired8196")?.let { arr8196 ->
                 (0 until arr8196.length()).map { arr8196.optString(it) }.filter { it.isNotBlank() }
             } ?: emptyList()
             pending[k] = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, o.optString("s"), o.optString("su"), fired8196).also {
-                it.lateRead8169 = o.optBoolean("lr8169", false)
+                // Older pending rows saved only the decision timestamp. Their
+                // voter availability cannot be reconstructed after restart.
+                it.lateRead8169 = o.optBoolean("lr8169", false) || !o.has("readAt8239")
                 it.decisionMode8196 = o.optString("mode8196", "UNKNOWN").takeIf { m -> m == "LIVE" || m == "PAPER" } ?: "UNKNOWN"
                 it.decisionReason8196 = o.optString("reason8196").ifBlank { null }
                 it.selected8153 = o.optString("selected8196")
             }
             o.optJSONObject("ctx8196")?.let { c ->
                 pendingCtx8144[k] = DecisionCtx8144(c.optString("timing"), c.optString("cost"),
-                    c.optString("cohort"), c.optBoolean("latency"), c.optBoolean("executable"))
+                    c.optString("cohort"), c.optBoolean("latency"),
+                    c.optBoolean("executable") && (o.optBoolean("adm") || c.optBoolean("nativeProof8239", false)))
             }
             if (pending[k]?.decisionMode8196 == "UNKNOWN") inc("PENDING_RESTORED_UNVERIFIED_MODE_8196")
             inc("PENDING_RESTORED")
@@ -878,9 +891,7 @@ object Cortex7885 {
     /** Caller holds the lock. */
     private fun verdict8144(key: String, p: Pending, ctx: DecisionCtx8144?): CortexLabelHygiene8144.Verdict8144 =
         CortexLabelHygiene8144.Verdict8144(
-            (ctx?.executable ?: (p.decisionReason8196 != null &&
-                CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.decisionReason8196))) &&
-                CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.decisionReason8196),
+            CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.decisionReason8196, ctx?.executable),
             CortexLabelHygiene8144.repeatInEpisode8144(p.legacyAdmitted, gradeBook8144.lastGradedAt(key), p.atMs),
         )
 
@@ -2104,7 +2115,7 @@ object Cortex7885 {
 
     /** CortexVoters7885: the most recent legacy shape the FDG stack produced for this mint (10 min). */
     fun legacyShapeOf(mint: String, nowMs: Long): Double? =
-        legacyShape[mint]?.takeIf { nowMs - it[1].toLong() <= 600_000L }?.get(0)
+        legacyShape[mint]?.takeIf { nowMs - it[1].toLong() in 0L..600_000L }?.get(0)
 
     /** Pure: the shape after Cortex v15 authority. */
     fun shapeAfterAuthority(bounded: Double, strongProven: Boolean, stackMeasuredNoSkill: Boolean): Double =
@@ -2119,7 +2130,7 @@ object Cortex7885 {
                 legacyShape[ts.mint] = doubleArrayOf(raw, nowMs.toDouble())
             }
             if (bounded >= 1.0) return bounded
-            val a = assessCache["${ts.mint}|${canon(laneRaw)}"]?.takeIf { nowMs - it.atMs <= 60_000L } ?: return bounded
+            val a = assessCache["${ts.mint}|${canon(laneRaw)}"]?.takeIf { nowMs - it.atMs in 0L..60_000L } ?: return bounded
             if (a.bucket != CortexScoreboard7885.Bucket.STRONG || a.staleMark) return bounded
             val (strongProven, noSkill) = synchronized(this) {
                 val seat = ledger.seats["$LEGACY_SIZE_SHAPE|${a.lane}"]

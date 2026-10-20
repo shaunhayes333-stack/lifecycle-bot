@@ -16,7 +16,7 @@ class Aate7542NativeSpecialistAuthorityTest {
             "CashGenerationAI.evaluate","CyclicTradeEngine.evaluateCandidate7542").forEach{
             assertTrue("missing native call $it",b.contains(it))
         }
-        assertTrue(b.contains("out[\"CORE\"]=op"))
+        assertTrue(b.contains("if (owns7828(\"CORE\")) out[\"CORE\"] = coreOpinion7542(ts, out.values, v3, v3c, bp)"))
     }
 
     @Test fun toolkit_cannot_resurrect_native_rejected_lane(){

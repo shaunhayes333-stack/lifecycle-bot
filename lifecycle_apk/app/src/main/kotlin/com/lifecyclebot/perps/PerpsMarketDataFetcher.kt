@@ -526,6 +526,7 @@ object PerpsMarketDataFetcher {
                         change24h = data.priceChange24hPct,
                         mcap      = 0.0,
                         vol24h    = data.volume24h,
+                        observedAtMs8239 = data.lastUpdate,
                     )
                 }
             } catch (_: Exception) {}

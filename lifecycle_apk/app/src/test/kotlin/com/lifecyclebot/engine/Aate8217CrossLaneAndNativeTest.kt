@@ -22,6 +22,6 @@ class Aate8217CrossLaneAndNativeTest {
         val f = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         val curve = f.indexOf("offWatchCurvePriced7753.addAndGet"); val dex = f.indexOf("DexscreenerApi().batchPriceFetch(missed8217)")
         assertTrue(curve in 1 until dex)
-        assertTrue("dex read lands before marks are stored", dex < f.indexOf("for ((m, px) in got) offWatchMarks7737[m] = px to at"))
+        assertTrue("dex read lands before marks are stored", dex < f.indexOf("for ((m, mark) in got) offWatchMarks7737[m] = mark"))
     }
 }

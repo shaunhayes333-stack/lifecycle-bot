@@ -247,7 +247,9 @@ class Aate8191DataPipelineTest {
 
     @Test fun anEvaluatedCoinJoinsTheKeyedTradeStream() {
         val o = src("engine/DataOrchestrator.kt")
-        assertTrue(o.contains("if (keys.any { it in TRADE_FED_INPUTS_8191 }) try { PumpFunWS.watchForSetup8191(mint) } catch (_: Throwable) {}"))
+        assertTrue(o.contains("if (keys.any { it in TRADE_FED_INPUTS_8191 }) {"))
+        assertTrue(o.contains("try { PumpFunWS.watchForSetup8191(mint) } catch (_: Throwable) {}"))
+        assertTrue(o.contains("heliusWs?.subscribeToken(mint, if (completed) 2 else 1)"))
         assertTrue(o.contains("refreshSources8191(mint, keys)"))
         val w = src("network/PumpFunWS.kt")
         assertTrue(w.contains("val drop = tradeSubscriptions7278 - wanted - lifecycleMints7420.keys - setupMints8191.keys"))
@@ -269,6 +271,10 @@ class Aate8191DataPipelineTest {
         assertTrue(d.pairFetchDue8191(null, t0 - d.PAIR_FETCH_GAP_MS_8191, t0))
         assertFalse(d.pairFetchDue8191(t0 - 60_000L, null, t0))                    // fresh pair flow: nothing to fetch
         assertTrue(d.pairFetchDue8191(t0 - 16L * 60_000L, null, t0))              // stale
-        assertTrue(src("engine/DataOrchestrator.kt").contains("DataPipeline8191.claimPairFetch8191(mint)) scope.launch {"))
+        d.resetForTests8191()
+        val mint = "MissingPair8191xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        assertTrue(d.claimPairFetch8191(mint, t0, requiredInputs = setOf("bp"), ageMin = 2.0))
+        assertFalse(d.claimPairFetch8191(mint, t0 + 1, requiredInputs = setOf("chg"), ageMin = 2.0))
+        d.resetForTests8191()
     }
 }

@@ -140,6 +140,7 @@ object TradeVerifier {
                     // inflated every live entry basis by ~4.6% on a 0.044 SOL position.
                     val solSpent = buySolSpent7928(parsed.solBefore, parsed.solAfter, parsed.ataRentLamports)
                     try { CostMeter8151.noteLeg8151(parsed.feeLamports, parsed.ataRentLamports, 0L); CostMeter8151.noteTicket8151(solSpent / 1e9) } catch (_: Throwable) {}  // V5.0.8151
+                    try { com.lifecyclebot.engine.truth.FillMarketReference8239.finalized(sig, mint, "BUY", rawDelta, parsed.decimals, parsed.blockAtMs8239) } catch (_: Throwable) {}
                     return BuyResult(Outcome.LANDED, sig, mint, rawDelta, ui, parsed.decimals, solSpent, parsed.solBefore, parsed.solAfter, parsed.feeLamports, null, parsed.ataRentLamports)
                 }
                 // tx confirmed err==null but ZERO token delta for our owner — could be a non-direct route.
@@ -194,6 +195,9 @@ object TradeVerifier {
                 // be reading the partial pre/post snapshot mid-confirm).
                 val solRealised = (parsed.solAfter - parsed.solBefore) > 5_000L
                 if (tokensCleared && solRealised) {
+                    try { com.lifecyclebot.engine.truth.FillMarketReference8239.finalized(sig, mint, "SELL", rawConsumed, parsed.decimals, parsed.blockAtMs8239) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.truth.QuoteFillCost8239.settled(sig, mint, rawConsumed, solReceived / 1e9) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.truth.HeldExitQuote8189.invalidate8189(mint) } catch (_: Throwable) {}
                     try { CostMeter8151.noteLeg8151(parsed.feeLamports, 0L, parsed.closedRentLamports) } catch (_: Throwable) {}  // V5.0.8151
                     val ui = if (parsed.decimals > 0) {
                         rawConsumed.toBigDecimal().movePointLeft(parsed.decimals).toDouble()
@@ -256,6 +260,7 @@ object TradeVerifier {
         val feeLamports: Long,
         val ataRentLamports: Long = 0L,
         val closedRentLamports: Long = 0L,
+        val blockAtMs8239: Long = 0L,
     )
 
     /** V5.0.7928 — SOL a sell realised for its tokens: the owner delta less a closed account's rent refund. */
@@ -341,6 +346,7 @@ object TradeVerifier {
                 solBefore = solBefore,
                 solAfter  = solAfter,
                 feeLamports = meta.optLong("fee", 0L).coerceAtLeast(0L),
+                blockAtMs8239 = result.optLong("blockTime", 0L).takeIf { it in 1L..(Long.MAX_VALUE / 1_000L) }?.times(1_000L) ?: 0L,
                 // V5.0.7928 — an account absent before and present after was opened here; its
                 // post balance is the rent the owner deposited (a pre-funded account keeps 0).
                 ataRentLamports = if (!pre.existed && post.existed && post.accountIndex in 0 until postBalArr.length() &&

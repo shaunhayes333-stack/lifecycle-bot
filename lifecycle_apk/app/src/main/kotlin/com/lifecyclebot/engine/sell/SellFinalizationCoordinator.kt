@@ -292,6 +292,7 @@ object SellFinalizationCoordinator {
                         preRemainingCostBasisSol = intent.entrySolSpent,
                         grossProceedsSol = sellSolReceived, exitFeesSol = feesSol,
                         solUsdAtExit = liveSolUsd8094(),
+                        fillSignature8239 = sellSig,
                     )
                     if (!partial) {
                         val whole7835 = com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(

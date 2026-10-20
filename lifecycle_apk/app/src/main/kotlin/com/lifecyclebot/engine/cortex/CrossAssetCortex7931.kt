@@ -3,6 +3,7 @@ package com.lifecyclebot.engine.cortex
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.truth.AssetClass
 import com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551
+import com.lifecyclebot.engine.truth.ObservedMark8239
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -115,9 +116,21 @@ object CrossAssetCortex7931 {
             assets.entries.sortedBy { it.value.atMs }.take(assets.size - 3_000).forEach { assets.remove(it.key, it.value) }
         }
         assets[key] = Asset(c.assetClass, c.symbol, c.assetId, nowMs)
+        val priceEvidence8239 = ArrayList<ObservedMark8239>(4)
+        observation8239(key, nowMs)?.let { priceEvidence8239.add(it) }
+        try {
+            for (purpose in com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.values()) {
+                val mark = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(key, purpose) ?: continue
+                priceEvidence8239.add(ObservedMark8239(mark.priceUsd.value.toDouble(), mark.timestampMs, mark.source))
+            }
+        } catch (_: Throwable) {}
+        val priceObservation8239 = candidateObservation8239(c.price, priceEvidence8239, nowMs)
         val ts = TokenState(mint = key, symbol = c.symbol, name = c.symbol).apply {
             lastPrice = c.price
-            lastPriceUpdate = nowMs
+            // Candidate construction is not a market observation. Recover the actual
+            // matching feed tuple, or keep its timestamp unknown for the normal data path.
+            lastPriceUpdate = priceObservation8239?.observedAtMs ?: 0L
+            lastPriceSource = priceObservation8239?.source ?: "CROSS_ASSET_PRICE_TIME_UNPROVEN_8239"
             source = if (c.assetClass == AssetClass.CRYPTO_ALT)
                 "XC_${cryptoKind8063(c.symbol, dyn8063?.sector.orEmpty(), key)}_${capTier8063(mcap8063)}"
             else "XASSET_${c.assetClass.tag}_${c.source}".take(64)
@@ -133,6 +146,9 @@ object CrossAssetCortex7931 {
         }
         return ts to lane
     }
+
+    internal fun candidateObservation8239(price: Double, observations: List<ObservedMark8239>, nowMs: Long): ObservedMark8239? =
+        observations.filter { it.priceUsd == price && it.fresh(nowMs, PRICE_MAX_AGE_MS) }.maxByOrNull { it.observedAtMs }
 
     private val stablesSkipped8063 = java.util.concurrent.atomic.AtomicLong(0)
 
@@ -175,10 +191,26 @@ object CrossAssetCortex7931 {
         } catch (_: Throwable) { null }
     }
 
+    /** Label observations keep the underlying asset feed's timestamp, including cache fallbacks. */
+    fun observation8239(key: String, nowMs: Long = System.currentTimeMillis()): com.lifecyclebot.engine.truth.ObservedMark8239? {
+        val a = assets[key] ?: return com.lifecyclebot.perps.crypto.MultiChainMemeLane7962.markObservation8239(key, nowMs)
+        return try {
+            if (a.assetClass == AssetClass.CRYPTO_ALT || a.assetClass == AssetClass.SOLANA_TOKEN) {
+                val m = com.lifecyclebot.perps.DynamicAltTokenRegistry.priceObservation8239(a.dynKey.ifBlank { key }, nowMs)
+                    ?: com.lifecyclebot.perps.DynamicAltTokenRegistry.priceObservation8239(key, nowMs)
+                if (m != null) return m
+            }
+            val market = marketsBySymbol[a.symbol.uppercase()] ?: return null
+            val d = com.lifecyclebot.perps.PerpsMarketDataFetcher.getCachedPrice(market) ?: return null
+            com.lifecyclebot.engine.truth.ObservedMark8239(d.price, d.lastUpdate, "CROSS_ASSET_MARKET")
+                .takeIf { it.fresh(nowMs, PRICE_MAX_AGE_MS) }
+        } catch (_: Throwable) { null }
+    }
+
     private fun perpsPrice(symbol: String, nowMs: Long): Double? {
         val market = marketsBySymbol[symbol.uppercase()] ?: return null
         val d = com.lifecyclebot.perps.PerpsMarketDataFetcher.getCachedPrice(market) ?: return null
-        return d.price.takeIf { it.isFinite() && it > 0.0 && nowMs - d.lastUpdate <= PRICE_MAX_AGE_MS }
+        return d.price.takeIf { it.isFinite() && it > 0.0 && nowMs - d.lastUpdate in 0L..PRICE_MAX_AGE_MS }
     }
 
     /**

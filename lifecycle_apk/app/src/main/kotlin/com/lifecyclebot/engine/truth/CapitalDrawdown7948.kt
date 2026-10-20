@@ -80,6 +80,7 @@ object CapitalDrawdown7948 {
         prevUpnl8136 = Double.NaN
         prevLiq8188 = Double.NaN
         prevPrin8188 = Double.NaN
+        lastObservation8239 = null; lastCoherent8239 = null; previousPeakObservation8239 = null; lastDrawdown8239 = 0.0
         return true
     }
 
@@ -126,41 +127,65 @@ object CapitalDrawdown7948 {
     @Volatile private var prevEq7981 = Double.NaN
     @Volatile private var prevReal7981 = Double.NaN
     @Volatile private var prevUpnl7981 = Double.NaN
-    @Volatile private var realCache7981: Pair<Long, Double>? = null
+    @Volatile private var realCache7981: Triple<Long, Long, Double>? = null
     private val externalFlows7981 = java.util.concurrent.atomic.AtomicLong(0)
     @Volatile private var netExternal7981 = 0.0
 
     private fun realisedLiveSol7981(nowMs: Long): Double {
-        realCache7981?.let { (at, v) -> if (nowMs - at in 0L..20_000L) return v }
+        val revision = com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343()
+        realCache7981?.let { (at, rev, v) -> if (rev == revision && nowMs - at in 0L..20_000L) return v }
         val v = try {
             com.lifecyclebot.engine.StrategyTelemetry.computeCleanLiveTerminalLeaderboard().sumOf { it.totalSolPnl }
         } catch (_: Throwable) { Double.NaN }
-        realCache7981 = nowMs to v
+        realCache7981 = Triple(nowMs, revision, v)
         return v
     }
 
-    /** V5.0.8223 — the bot's own live legs journaled in [fromMs, toMs]: sells' SOL in, buys' SOL out (net, + = in). */
-    private fun liveLegsNetSol8223(fromMs: Long, toMs: Long): Double = try {
-        com.lifecyclebot.engine.TradeHistoryStore.getRecentValidTrades(250)
-            .filter { it.ts in fromMs..toMs && it.mode.equals("live", ignoreCase = true) && it.sol.isFinite() && it.sol > 0.0 }
-            .sumOf { t ->
-                val s = t.side.uppercase()
-                when {
-                    s == "SELL" || s == "PARTIAL_SELL" -> t.sol
-                    s == "BUY" -> -t.sol
-                    else -> 0.0
-                }
-            }
-    } catch (_: Throwable) { 0.0 }
+    private fun liveCashLegs8237(fromMs: Long, toMs: Long): WalletCashLegs8237.Evidence8237 = try {
+        val recent = com.lifecyclebot.engine.TradeHistoryStore.getRecentValidTrades(250)
+        val evidence = WalletCashLegs8237.evidence8237(recent, fromMs, toMs)
+        // A bounded head that stops inside the settlement window cannot prove that no cash leg exists.
+        if (recent.size >= 250 && (recent.minOfOrNull { it.ts } ?: Long.MAX_VALUE) > fromMs)
+            evidence.copy(unresolvedLegs = evidence.unresolvedLegs + 1) else evidence
+    } catch (_: Throwable) { WalletCashLegs8237.Evidence8237(emptyList(), unresolvedLegs = 1) }
 
-    /** Observes [equitySol] (moves the peak) and returns the drawdown percent. */
-    fun observePct7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Double = synchronized(this) {
+    @Volatile private var lastFlowEvidence8237 = "not_evaluated"
+
+    @Volatile private var lastObservation8239: LiveEquityObservation8239.Observation8239? = null
+    @Volatile private var lastCoherent8239: LiveEquityObservation8239.Observation8239? = null
+    @Volatile private var previousPeakObservation8239: LiveEquityObservation8239.Observation8239? = null
+    @Volatile private var lastDrawdown8239 = 0.0
+
+    /** Compatibility caller: the scalar must agree with the same captured live account. */
+    fun observePct7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Double {
+        val observation = LiveEquityObservation8239.capture8239(nowMs)
+        return observeCaptured8239(if (equitySol.isFinite() && kotlin.math.abs(equitySol - observation.markedSol) <= 1e-8)
+            observation else observation.copy(reason = "CALLER_EQUITY_NOT_CURRENT"), nowMs)
+    }
+
+    /** Sizing and peak recording consume these exact components, without re-reading the hero or wallet. */
+    fun observeCaptured8239(observation: LiveEquityObservation8239.Observation8239, nowMs: Long): Double = synchronized(this) {
+        lastObservation8239 = observation
+        if (!observation.coherent) {
+            peakFrozen8169.incrementAndGet()
+            previousPeakObservation8239 = null
+            prevPeakObs7990 = Double.NaN
+            // Until inventory valuation is complete, verified cash is a conservative equity floor.
+            // It may tighten risk; it cannot waive a drawdown, renew a peak or rebase historical losses.
+            val cashBound8239 = if (observation.cashProven && peak7948.peakSol > 0.0 &&
+                nowMs - peak7948.atMs in 0L..PEAK_WINDOW_MS_7948)
+                ((peak7948.peakSol - observation.liquidSol) / peak7948.peakSol * 100.0).coerceIn(0.0, 100.0)
+                else lastDrawdown8239
+            return@synchronized maxOf(lastDrawdown8239, cashBound8239)
+        }
+        lastCoherent8239 = observation
+        val equitySol = observation.markedSol
         if (equitySol.isFinite() && equitySol > 0.0) {
             val real = realisedLiveSol7981(nowMs)
-            val upnl = try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
-            val rev = try { com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343() } catch (_: Throwable) { -1L }
-            val liq8188 = liquidNow8188()
-            val prin8188 = try { LiveRiskPolicy7807.liveEquitySol(0.0) } catch (_: Throwable) { Double.NaN }
+            val upnl = observation.unrealisedSol
+            val rev = observation.journalRevision
+            val liq8188 = observation.liquidSol
+            val prin8188 = observation.principalSol
             val p = pending7986
             if (p != null) {
                 when (confirmFlow7986(p.rev, rev, p.atMs, nowMs)) {
@@ -170,13 +195,22 @@ object CapitalDrawdown7948 {
                         val residual8188 = if (real.isFinite()) externalFlow7981(equitySol - p.eq, real - p.real, upnl - p.upnl) else 0.0
                         // V5.0.8188 — only money that moved through the wallet rebases the peak (PeakLedger8188).
                         val flow = PeakLedger8188.corroborate8188(residual8188, liq8188 - p.liq, prin8188 - p.prin, peak7948.peakSol, nowMs) { isExternal7981(it, equitySol) }
-                        // V5.0.8223 — a wallet-corroborated flow the bot's own live legs explain (a sell's proceeds landing
-                        // after its journal row, a buy's spend before) is settlement lag, not a deposit / withdrawal.
-                        val netLegs8223 = liveLegsNetSol8223(p.atMs - PeakLedger8188.SETTLEMENT_LAG_MS_8223, nowMs)
-                        if (isExternal7981(flow, equitySol) && PeakLedger8188.settlementExplains8223(flow, netLegs8223)) {
+                        // Keep gross directions: a buy observed earlier must not cancel the later sell credit.
+                        // A mixed/ambiguous trade window is not proof of an external transfer.
+                        val cashLegs8237 = liveCashLegs8237(p.atMs - PeakLedger8188.SETTLEMENT_LAG_MS_8223, nowMs)
+                        val cashFlow8237 = WalletCashLegs8237.classify8237(flow, cashLegs8237)
+                        lastFlowEvidence8237 = "state=$cashFlow8237 grossIn=${"%.4f".format(cashLegs8237.grossInSol)} " +
+                            "grossOut=${"%.4f".format(cashLegs8237.grossOutSol)} signedLegs=${cashLegs8237.legs.size} unresolved=${cashLegs8237.unresolvedLegs}"
+                        if (isExternal7981(flow, equitySol) && cashFlow8237 in setOf(
+                                WalletCashLegs8237.Flow8237.POSSIBLE_TRADE_SETTLEMENT,
+                                WalletCashLegs8237.Flow8237.MIXED_TRADE_FLOW_UNRESOLVED,
+                            )) {
                             cancelled7986.incrementAndGet()
-                            PeakLedger8188.refuseSettlement8223(residual8188, liq8188 - p.liq, netLegs8223, peak7948.peakSol, nowMs)
+                            PeakLedger8188.refuseUnresolvedCashFlow8237(residual8188, liq8188 - p.liq, peak7948.peakSol, nowMs,
+                                lastFlowEvidence8237)
                         } else if (isExternal7981(flow, equitySol)) {
+                            // No same-direction bot cash leg: retain the existing external-flow proof gate
+                            // (45s unchanged journal, wallet-correlated movement and unchanged principal).
                             val before8188 = peak7948
                             peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)
                             PeakLedger8188.noteRebase8188(before8188, peak7948, residual8188, flow, liq8188 - p.liq, nowMs)
@@ -202,10 +236,16 @@ object CapitalDrawdown7948 {
         // 0.6266 against 0.28 equity (5.0.7989, "54.5%" drawdown shrinking every size).
         // V5.0.8130 — the 24 h peak is set from equity without unrealized GAINS: 8127's peak24h=1.0777 against
         // ~0.40 real equity came from SAC's phantom +1988% mark (DD 64%, every size cut). A sold gain is liquid SOL.
-        val upnl8130 = try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
-        // V5.0.8188 — and only from verified live components (no paper; no principal the wallet tracker has never seen).
-        val confirmed7990 = PeakLedger8188.verifiedPeakCandidate8188(peakCandidate7990(gainFreeEquity8130(equitySol, upnl8130), prevPeakObs7990))
-        if (equitySol.isFinite() && equitySol > 0.0) prevPeakObs7990 = equitySol
+        val upnl8130 = observation.unrealisedSol
+        val candidate8239 = gainFreeEquity8130(equitySol, upnl8130)
+        val distinctCash8239 = previousPeakObservation8239?.let { observation.walletObservedAtMs > it.walletObservedAtMs } == true
+        val confirmed7990 = if (distinctCash8239) peakCandidate7990(candidate8239, prevPeakObs7990) else Double.NaN
+        val peakObservation8239 = previousPeakObservation8239?.takeIf { it.riskSol < candidate8239 } ?: observation
+        // Both observations use the gain-free basis; a previous unsold gain is never a second confirmation.
+        if (previousPeakObservation8239 == null || distinctCash8239) {
+            prevPeakObs7990 = candidate8239
+            previousPeakObservation8239 = observation
+        }
         // V5.0.8169 — while an unexplained equity change is pending (a deposit, or a sell's SOL credited before its
         // position closed — 5.0.8168 tradeLagCancelled7986=2 beside a 0.4541 peak no report before it had seen) the
         // peak does not rise; the change either confirms as an external flow (peak rebased) or resolves as a trade.
@@ -213,10 +253,10 @@ object CapitalDrawdown7948 {
         if (frozen8169 && confirmed7990.isFinite() && confirmed7990 > peak7948.peakSol) peakFrozen8169.incrementAndGet()
         val beforeRoll8188 = peak7948
         peak7948 = rollPeak7948(peak7948, com.lifecyclebot.engine.CostLanding8169.peakCandidate8169(confirmed7990, frozen8169), nowMs)
-        PeakLedger8188.noteMove8188(beforeRoll8188, peak7948, nowMs)  // V5.0.8188 — a new peak is recorded with its components
+        PeakLedger8188.noteMove8188(beforeRoll8188, peak7948, nowMs, peakObservation8239)  // V5.0.8188 — a new peak is recorded with its components
         // V5.0.8136 — the drawdown is read on the SAME gain-free basis as the peak (CashEquityBook8136): an unsold gain
         // can no longer mask a real drawdown (and waive its shrink), and a one-read crash mark cannot invent one.
-        drawdownPct7948(peak7948, observedDrawdownEquity8136(equitySol, upnl8130), nowMs)
+        drawdownPct7948(peak7948, observedDrawdownEquity8136(equitySol, upnl8130), nowMs).also { lastDrawdown8239 = it }
     }
 
     // ── V5.0.8136 — gain-free drawdown basis, external-flow log, the capital split ──
@@ -242,14 +282,13 @@ object CapitalDrawdown7948 {
     /** Net external flow (deposits +) confirmed at or after [sinceMs] (this process; KillSwitch's daily P&L). */
     fun flowsSince8136(sinceMs: Long): Double = flowLog8136.filter { it.first >= sinceMs }.sumOf { it.second }
 
-    private fun heroUpnl8136(): Double =
-        try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
+    private fun heroUpnl8136(): Double = lastCoherent8239?.unrealisedSol ?: 0.0
 
     /** The live capital in its separate parts (report; CashEquity8136). */
     private fun cashEquity8136(walletSol: Double, nowMs: Long): CashEquity8136 = CashEquity8136(
-        liquidSol = walletSol,
+        liquidSol = lastCoherent8239?.liquidSol ?: walletSol,
         reservedTxSol = try { LiveSpendReserveAuthority7255.RESERVE_SOL } catch (_: Throwable) { 0.0 },
-        openPrincipalSol = try { LiveRiskPolicy7807.liveEquitySol(0.0) } catch (_: Throwable) { 0.0 },
+        openPrincipalSol = lastCoherent8239?.principalSol ?: 0.0,
         validatedUnrealisedSol = heroUpnl8136(),
         settledRealisedSol = realisedLiveSol7981(nowMs),
         netExternalFlowSol = netExternal7981,
@@ -259,8 +298,6 @@ object CapitalDrawdown7948 {
     @Volatile private var prevLiq8188 = Double.NaN
     @Volatile private var prevPrin8188 = Double.NaN
 
-    /** V5.0.8188 — liquid live SOL at this observation (the wallet leg a deposit / withdrawal must show up in). */
-    private fun liquidNow8188(): Double = try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { Double.NaN }
     private val peakFrozen8169 = java.util.concurrent.atomic.AtomicLong(0)
 
     /** Pure (V5.0.8130): marked equity less any unrealized gain (losses stay in). */
@@ -275,21 +312,23 @@ object CapitalDrawdown7948 {
     fun peekPct7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Double =
         drawdownPct7948(peak7948, CashEquityBook8136.drawdownEquitySol8136(equitySol, heroUpnl8136(), prevUpnl8136), nowMs)
 
-    /** Live marked equity: liquid SOL + canonical live cost basis + the hero's live-only unrealized. */
+    /** Read-only valuation. An incomplete observation cannot renew the age or replace the last coherent account. */
     fun liveMarkedEquitySol7948(walletSol: Double): Double {
-        val deployed = try { LiveRiskPolicy7807.liveEquitySol(0.0) } catch (_: Throwable) { 0.0 }
-        val upnl = try { HeroSnapshotAuthority6503.current()?.liveTotalUnrealizedSol ?: 0.0 } catch (_: Throwable) { 0.0 }
-        return markedEquitySol7948(walletSol, deployed, upnl)
+        val observation = LiveEquityObservation8239.capture8239()
+        lastObservation8239 = observation
+        if (observation.coherent) return observation.markedSol
+        return lastCoherent8239?.markedSol ?: walletSol
     }
 
     /** The one drawdown line every display prints, with its basis. */
     fun line7948(equitySol: Double, nowMs: Long = System.currentTimeMillis()): String {
-        val p = rollPeak7948(peak7948, equitySol, nowMs)
+        val p = peak7948
         return "liveDD=${"%.1f".format(peekPct7948(equitySol, nowMs))}% equity=${"%.4f".format(equitySol)} " +
             "peak24h=${"%.4f".format(p.peakSol)} peakAgeMin8169=${if (p.atMs > 0L) ((nowMs - p.atMs) / 60_000L).toString() else "-"} " +
             "peakRiseFrozen8169=${peakFrozen8169.get()} pendingFlow8169=${pending7986 != null} externalFlows7981=${externalFlows7981.get()} tradeLagCancelled7986=${cancelled7986.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]" +
             " ${try { CashEquityBook8136.line8136(cashEquity8136(com.lifecyclebot.engine.BotService.status.walletSol, nowMs)) } catch (_: Throwable) { "equity8136=-" }}" +
-            " ${try { PeakLedger8188.line8188(peak7948, nowMs) } catch (_: Throwable) { "peakEvent8188=-" }}"
+            " ${try { PeakLedger8188.line8188(peak7948, nowMs) } catch (_: Throwable) { "peakEvent8188=-" }}" +
+            " flowEvidence8237=[$lastFlowEvidence8237] equityObservation8239=[${lastObservation8239?.provenance8239() ?: "UNOBSERVED"}]"
     }
 
     // ── pure: routable capacity sentence ────────────────────────────────────

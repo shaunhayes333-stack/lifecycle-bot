@@ -53,12 +53,15 @@ object PositionDisplayTruth8078 {
     fun ratchetPeak8080(ts: TokenState, candidatePnlPct: Double, writer: String): Double? {
         val pos = ts.position
         if (!pos.isOpen || !candidatePnlPct.isFinite()) return null
+        val now8239 = System.currentTimeMillis()
         if (pos.isPaperPosition) {
-            try { PositionExcursion8082.observe(pos.positionId, candidatePnlPct, "PAPER_MARK_$writer") } catch (_: Throwable) {}
+            val paperAt8239 = ts.lastPriceUpdate
+            if (paperAt8239 > 0L && now8239 - paperAt8239 in 0L..VERIFIED_MARK_MAX_AGE_MS && paperAt8239 >= pos.entryTime)
+                try { PositionExcursion8082.observe(pos.positionId, candidatePnlPct, "PAPER_MARK_$writer", paperAt8239) } catch (_: Throwable) {}
             if (candidatePnlPct > pos.peakGainPct) pos.peakGainPct = candidatePnlPct
             return candidatePnlPct
         }
-        val v = try { view(ts) } catch (_: Throwable) { null }
+        val v = try { view(ts, now8239) } catch (_: Throwable) { null }
         if (v == null || !v.markVerified || !v.basisOk || !v.pnlPct.isFinite()) {
             if (candidatePnlPct > pos.peakGainPct) try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PEAK_UNVERIFIED_MARK_REFUSED_8080_$writer")
@@ -73,7 +76,9 @@ object PositionDisplayTruth8078 {
             requestCorroboration8128(ts.mint)
             return null
         }
-        try { PositionExcursion8082.observe(pos.positionId, v.pnlPct, "VERIFIED_${v.markSource}") } catch (_: Throwable) {}
+        val markAt8239 = now8239 - v.markAgeMs
+        if (markAt8239 < pos.entryTime || markAt8239 > now8239 || markAt8239 <= 0L) return null
+        try { PositionExcursion8082.observe(pos.positionId, v.pnlPct, "VERIFIED_${v.markSource}", markAt8239) } catch (_: Throwable) {}
         if (v.pnlPct > pos.peakGainPct) pos.peakGainPct = v.pnlPct
         return v.pnlPct
     }

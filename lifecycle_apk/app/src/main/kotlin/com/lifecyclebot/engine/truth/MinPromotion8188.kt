@@ -45,9 +45,14 @@ object MinPromotion8188 {
         requestedSol: Double, promotedSol: Double, stopPct: Double,
         costRequestedPct: Double, costPromotedPct: Double, expectedGrossPct: Double, drawdownFrac: Double,
         budgetSol: Double = requestedSol,
+        specificProof8241: Boolean = false,
     ): String? {
         if (!promotedSol.isFinite() || promotedSol <= 0.0 || !(requestedSol < promotedSol)) return null
-        if (defensiveDrawdown8188(drawdownFrac)) return REFUSED_DRAWDOWN_8188
+        // A defensive drawdown already sizes down risk upstream. An independently
+        // PROVEN exact live candidate may still check the executable minimum
+        // against the same loss budget, quote economics and hard bounds below.
+        // No unsupported/generic candidate may use this exceptional route.
+        if (defensiveDrawdown8188(drawdownFrac) && !specificProof8241) return REFUSED_DRAWDOWN_8188
         if (!requestedSol.isFinite() || requestedSol <= 0.0 || !stopPct.isFinite() || stopPct <= 0.0) return REFUSED_LOSS_BUDGET_8188
         val cReq = if (costRequestedPct.isFinite()) costRequestedPct else costPromotedPct
         val budget = lossAtStopSol8188(if (budgetSol.isFinite() && budgetSol > requestedSol) budgetSol else requestedSol, stopPct, cReq)  // V5.0.8234
@@ -56,6 +61,27 @@ object MinPromotion8188 {
         if (!expectedGrossPct.isFinite() || !costPromotedPct.isFinite()) return REFUSED_UNMEASURED_EDGE_8188
         if (expectedGrossPct - costPromotedPct <= 0.0) return REFUSED_NEGATIVE_EDGE_8188
         return null
+    }
+
+    /**
+     * V5.0.8236 §ONE_RISK_BUDGET — the account's per-position doctrine (the safe share cap
+     * the routable-capacity preflight enforces) is read by BOTH promotion paths: the upstream
+     * sizers and LiveRiskPolicy7807.decide's last-mile promotion. The captured wallet/price
+     * inputs prove that capacity, only when that wallet can route the minimum. This
+     * DOES NOT authorise a spend: the lane envelope, hard per-trade stop loss, available
+     * cash, depth, quote, expected net return and final sealed amount remain binding.
+     * NaN means no proven capacity; refusal8188 then preserves the original tight budget.
+     */
+    fun doctrineBudgetSol8236(tradeableSol: Double, solUsd: Double): Double {
+        if (!tradeableSol.isFinite() || tradeableSol <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0) return Double.NaN
+        return try {
+            val p = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeableSol, solUsd)
+            val cap = p.safeShareCapSol
+            val min = p.routableMinSol
+            if (!p.wouldRefuse && cap.isFinite() && min.isFinite() && min > 0.0 &&
+                cap >= min && cap <= p.tradeableSol && p.tradeableSol <= tradeableSol + 1e-12
+            ) cap else Double.NaN
+        } catch (_: Throwable) { Double.NaN }
     }
 
     /**
@@ -93,29 +119,15 @@ object MinPromotion8188 {
             // candidates, every lane). The budget is the account's per-position doctrine — the safe share cap the
             // routable-capacity preflight already enforces — when it is larger than the request; the promoted ticket
             // still has to clear it, and a wallet whose doctrine is below the routable minimum still refuses.
-            val budgetSol8234 = doctrineBudgetSol8236(requestedSol)
-            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross, liveDrawdownFrac8188(), budgetSol8234)
+            val tradeable8236 = (com.lifecyclebot.engine.BotService.status.walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0)
+            val budgetSol8234 = doctrineBudgetSol8236(tradeable8236, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+            if (budgetSol8234.isFinite() && budgetSol8234 > requestedSol)
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ROUTE_MIN_PROMOTION_BUDGET_FROM_DOCTRINE_8234") } catch (_: Throwable) {}
+            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross, liveDrawdownFrac8188(),
+                budgetSol8234, specificProof8241 = proof8224?.specificEdge == true && admissionGross8224 != null)
         } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 }
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
         return r
-    }
-
-    /**
-     * V5.0.8236 §ONE_RISK_BUDGET — the account's per-position doctrine (the safe share cap the routable-capacity
-     * preflight enforces) as the route-minimum loss budget, read by BOTH promotion paths: the upstream sizers
-     * ([runtimeRefusal8188]) and LiveRiskPolicy7807.decide's last-mile promotion. 8234 gave it to the first only; the
-     * second still judged the same promotion against the sub-minimum lane ticket (8235 forensic: 100
-     * ROUTE_MIN_PROMOTION_REFUSED_LOSS_BUDGET_8188, all from the risk policy). NaN when the wallet cannot be read.
-     */
-    fun doctrineBudgetSol8236(requestedSol: Double): Double {
-        val budget = try {
-            val tradeable = (com.lifecyclebot.engine.BotService.status.walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0)
-            val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-            com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd).safeShareCapSol
-        } catch (_: Throwable) { Double.NaN }
-        if (budget.isFinite() && budget > requestedSol)
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ROUTE_MIN_PROMOTION_BUDGET_FROM_DOCTRINE_8234") } catch (_: Throwable) {}
-        return budget
     }
 
     /** The verified live drawdown (fraction), read without moving the peak. */

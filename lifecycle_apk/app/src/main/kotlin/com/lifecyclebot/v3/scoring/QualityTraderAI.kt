@@ -238,6 +238,7 @@ object QualityTraderAI {
         v3Score: Int = 0,
         isMeme: Boolean = false,
     ): QualitySignal {
+        com.lifecyclebot.engine.NativeRuleReview8239.begin8239(mint, "QUALITY")
         
         // V5.0.7552 — local trader maps are projections for exits/UI, not
         // entry authority. CanonicalPositionAuthority/HeldPositionSupervisor own
@@ -258,10 +259,10 @@ object QualityTraderAI {
         // band, widened only where its graded closes at that edge are profitable.
         val minMcap7297 = com.lifecyclebot.engine.market.LaneHunter7297.floorFor("QUALITY", MIN_MARKET_CAP_USD)
         val maxMcap7297 = com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor("QUALITY", MAX_MARKET_CAP_USD)
-        if (marketCapUsd < minMcap7297) {
+        if (marketCapUsd < minMcap7297 && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "QUALITY", "MCAP_TOO_LOW")) {
             return QualitySignal(false, reason = "MCAP too low: $${marketCapUsd.toInt()} < $${minMcap7297.toInt()}")
         }
-        if (marketCapUsd > maxMcap7297) {
+        if (marketCapUsd > maxMcap7297 && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "QUALITY", "MCAP_TOO_HIGH_FOR")) {
             return QualitySignal(false, reason = "MCAP too high for Quality (use BlueChip): $${marketCapUsd.toInt()}")
         }
         
@@ -290,7 +291,7 @@ object QualityTraderAI {
             MIN_AGE_MINUTES_BOOTSTRAP.toDouble()
         else MIN_AGE_MINUTES_MATURE.toDouble()
         
-        if (tokenAgeMinutes < minAgeRequired) {
+        if (tokenAgeMinutes < minAgeRequired && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "QUALITY", "TOO_NEW")) {
             return QualitySignal(false, reason = "Too new: ${tokenAgeMinutes.toInt()}min < ${minAgeRequired.toInt()}min (learning=${(learningProgress*100).toInt()}%)")
         }
         

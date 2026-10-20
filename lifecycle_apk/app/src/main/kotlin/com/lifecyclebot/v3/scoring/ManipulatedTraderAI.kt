@@ -273,6 +273,7 @@ object ManipulatedTraderAI {
         rugcheckScore: Int,
         isPaper: Boolean,
     ): ManipSignal {
+        com.lifecyclebot.engine.NativeRuleReview8239.begin8239(mint, "MANIPULATED")
         fun noEnter(reason: String) = ManipSignal(
             shouldEnter = false, positionSizeSol = 0.0, manipScore = 0, reason = reason
         )
@@ -287,8 +288,8 @@ object ManipulatedTraderAI {
         // V5.0.8190 — $0 / unread is an unhydrated cap, not a tiny one (EXPRESS 7971, SHITCOIN V5.9.160): it defers by name
         // (a data gap the hand-off waits on and re-fetches), it never reads as the MCAP_TOO_LOW judgement. Still no entry.
         if (!(marketCapUsd.isFinite() && marketCapUsd > 0.0)) return noEnter(MCAP_UNHYDRATED_DEFER_8190)
-        if (marketCapUsd < MIN_MARKET_CAP_USD) return noEnter("MCAP_TOO_LOW")
-        if (marketCapUsd > MAX_MARKET_CAP_USD) return noEnter("MCAP_TOO_HIGH")
+        if (marketCapUsd < MIN_MARKET_CAP_USD && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "MANIPULATED", "MCAP_TOO_LOW")) return noEnter("MCAP_TOO_LOW")
+        if (marketCapUsd > MAX_MARKET_CAP_USD && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "MANIPULATED", "MCAP_TOO_HIGH")) return noEnter("MCAP_TOO_HIGH")
 
         // V5.6.8: Fluid liquidity filter
         val minLiq = getFluidMinLiquidity()
@@ -298,7 +299,7 @@ object ManipulatedTraderAI {
 
         // V5.6.8: Fluid age filter — entry is everything on manipulation plays
         val maxAge = getFluidMaxAge()
-        if (ageMinutes > maxAge) return noEnter("TOKEN_TOO_OLD_${ageMinutes.toInt()}m>${maxAge.toInt()}m")
+        if (ageMinutes > maxAge && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, "MANIPULATED", "TOKEN_TOO_OLD")) return noEnter("TOKEN_TOO_OLD_${ageMinutes.toInt()}m>${maxAge.toInt()}m")
 
         // V5.6.8: REMOVED rugcheck block — Manipulated layer INTENTIONALLY trades risky tokens
         // The whole point is to ride manipulator pumps that other layers reject.

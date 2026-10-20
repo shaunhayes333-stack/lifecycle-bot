@@ -186,7 +186,7 @@ class Aate8187CortexCompleteTest {
         net: Double, cohort: String = "MC_10K_100K",
     ): CortexGradeRecord8144 {
         val episode = "$mint|$lane"
-        val v = CortexLabelHygiene8144.assess8144(admitted, reason, book.lastGradedAt(episode), atMs)
+        val v = CortexLabelHygiene8144.assess8144(admitted, reason, book.lastGradedAt(episode), atMs, nativeEligible = true)
         val id = "$episode|$atMs"
         val r = CortexGradeRecord8144('D', id, episode, atMs, lane, "S", "BULL", "MID", "C3_6", cohort, bucket, 4.5, admitted, v.executable, v.repeat)
         assertTrue(book.addDecision(r))

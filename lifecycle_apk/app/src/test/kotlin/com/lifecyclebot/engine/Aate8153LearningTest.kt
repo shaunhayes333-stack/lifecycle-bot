@@ -39,7 +39,7 @@ class Aate8153LearningTest {
         net: Double, late: Boolean = false, setup: String = "S",
     ): CortexGradeRecord8144 {
         val episode = "$mint|$lane"
-        val v = CortexLabelHygiene8144.assess8144(admitted, reason, book.lastGradedAt(episode), atMs)
+        val v = CortexLabelHygiene8144.assess8144(admitted, reason, book.lastGradedAt(episode), atMs, nativeEligible = true)
         val id = "$episode|$atMs"
         val r = CortexGradeRecord8144('D', id, episode, atMs, lane, setup, "BULL", "MID", "C3_6", "MC_10K_100K", bucket, 4.5, admitted, v.executable, v.repeat)
         assertTrue(book.addDecision(r))
@@ -99,8 +99,8 @@ class Aate8153LearningTest {
         // Wiring: the labeler flags it where the re-base window is decided; the Cortex consumes it at the 5-minute label.
         val fl = src("engine/truth/ForwardReturnLabeler7731.kt")
         val rebase = fl.substringAfter("o.rebased8076 = true").substringBefore("o.entryPrice = px")
-        assertTrue(rebase.contains("LearningEntryTruth8153.lateFirstPrice8153(age, REBASE_MAX_MS_8076)) noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)"))
-        assertTrue(rebase.indexOf("noteLateFirstPrice8153") < rebase.indexOf("if (age <= REBASE_MAX_MS_8076"))
+        assertTrue(rebase.contains("LearningEntryTruth8153.lateFirstPrice8153(observationAge8239, REBASE_MAX_MS_8076)) noteLateFirstPrice8153(o.mint, o.lane, o.atMs, mark.observedAtMs)"))
+        assertTrue(rebase.indexOf("noteLateFirstPrice8153") < rebase.indexOf("if (observationAge8239 <= REBASE_MAX_MS_8076"))
         val cx = src("engine/cortex/Cortex7885.kt")
         assertTrue(cx.contains("ForwardReturnLabeler7731.lateFirstPrice8153(mint, labelLane, atMs)"))
         assertTrue(cx.contains("gradeBook8144.markLateEntry8153(\"\$key|\$atMs\")"))

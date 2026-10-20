@@ -38,7 +38,7 @@ class Aate8144CortexTest {
         net: Double, latencyMeasured: Boolean = true, setup: String = "S",
     ): CortexGradeRecord8144 {
         val episode = "$mint|$lane"
-        val v = CortexLabelHygiene8144.assess8144(admitted, reason, book.lastGradedAt(episode), atMs)
+        val v = CortexLabelHygiene8144.assess8144(admitted, reason, book.lastGradedAt(episode), atMs, nativeEligible = true)
         val id = "$episode|$atMs"
         val r = CortexGradeRecord8144('D', id, episode, atMs, lane, setup, "BULL", "MID", "C3_6", "MC_10K_100K", bucket, 4.5, admitted, v.executable, v.repeat)
         assertTrue(book.addDecision(r))
@@ -55,7 +55,7 @@ class Aate8144CortexTest {
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_SELLABILITY_REJECT"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE", false))
         assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE", true))
-        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE"))
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE"))
         assertTrue(CortexLabelHygiene8144.executableDecision8144(true, "NATIVE_MCAP_TOO_HIGH"))
     }
 
@@ -236,8 +236,9 @@ class Aate8144CortexTest {
         assertTrue(CortexLabelHygiene8144.executableDecision8144(true, "SAFETY_X"))       // an admit was executed
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "ROUTE_UNAVAILABLE"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "C1_HARD_SAFETY"))
-        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE"))
-        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, null))
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE"))
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, null))
+        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, null, nativeEligible = true))
         // Repeats: refused, inside the episode of the coin's last graded decision; an admit never is.
         assertTrue(CortexLabelHygiene8144.repeatInEpisode8144(false, t0, t0 + 15L * 60_000L))
         assertFalse(CortexLabelHygiene8144.repeatInEpisode8144(true, t0, t0 + 15L * 60_000L))

@@ -20,7 +20,8 @@ object SpecialistBrainBridge7542 {
         // null = bar unknown, arbitration keeps the raw score/confidence.
         val ownershipConviction7948:Double?=null,
     )
-    data class Snapshot(val mint:String,val fingerprint:Int,val evaluatedAtMs:Long,val opinions:Map<String,Opinion>)
+    data class Snapshot(val mint:String,val fingerprint:Int,val evaluatedAtMs:Long,val opinions:Map<String,Opinion>,
+                        val paperMode8239: Boolean? = null)
     private data class Cached(val snapshot:Snapshot)
     private val cache=ConcurrentHashMap<String,Cached>()
     private val initialized=AtomicBoolean(false)
@@ -65,7 +66,21 @@ object SpecialistBrainBridge7542 {
         cachedSnapshot7650(mint)?.opinions?.get(lane.uppercase())?.reason?.startsWith("NATIVE_VETO_RETIRED_8048") == true
     } catch (_: Throwable) { false }
 
-    fun nativeRuleRetirable8048(reason:String):Boolean{val r=reason.uppercase();return listOf("RUG","SAFETY","HONEYPOT","BLOCK","DEV","BUNDLE","LIQ","SCAM","FREEZE","MINT_AUTH","BLACKLIST","ERROR").none{r.contains(it)}}
+    fun nativeRuleRetirable8048(reason:String):Boolean{val r=reason.uppercase();return listOf("RUG","SAFETY","HONEYPOT","BLOCK","DEV","BUNDLE","LIQ","SCAM","FREEZE","MINT_AUTH","BLACKLIST","ERROR","DEFER").none{r.contains(it)}}
+
+    /** Missing native input is classified before the audit may retire an observed refusal. */
+    internal fun reviewNativeOpinion8237(o: Opinion, inputs8236: LaneInputTruth8236.Inputs8236,
+                                         audit: (String, String) -> Boolean): Opinion {
+        if (o.eligible || !o.authoritative) return o
+        val lane = o.lane
+        val namedData = LaneInputTruth8236.nativeDataInputs8237(o.reason).isNotEmpty() &&
+            !SpecialistOwnership7951.refusalIsJudgement8136(o.reason, fdg = false)
+        val defer8236 = if (namedData) o.reason else LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236)
+        if (defer8236 != null) return o.copy(reason = defer8236, gradeable = false)
+        // 8239: the audit may exempt a rule inside its evaluator. This object
+        // cannot fill in the score, safety checks or sizing skipped by an early return.
+        return o
+    }
     /** CORE is formed after the specialist veto review; only its own measured refusal can rescue it. */
     internal fun reviewCoreYield8077(o: Opinion, ownLaneProof: (String, String) -> Boolean): Opinion {
         if (o.lane != "CORE" || o.eligible || !o.authoritative || !o.gradeable ||
@@ -90,6 +105,7 @@ object SpecialistBrainBridge7542 {
      */
     fun cachedSnapshot7650(mint:String):Snapshot? {
         val c=cache[mint]?.snapshot?:return null
+        if (c.paperMode8239 != null && c.paperMode8239 != RuntimeModeAuthority.isPaper()) return null
         return if(snapshotReadable8169(c.evaluatedAtMs,System.currentTimeMillis()))c else null
     }
 
@@ -101,7 +117,7 @@ object SpecialistBrainBridge7542 {
      */
     /** Qualified native evidence is a 12-lane contract; the Cortex warm pool is separately bounded. */
     internal fun nativeEvidenceLanes8197(snap: Snapshot): List<Opinion> =
-        snap.opinions.values.filter { it.eligible && it.authoritative }
+        snap.opinions.values.filter { it.eligible && it.authoritative && it.gradeable }
             .sortedWith(compareByDescending<Opinion> {
                 it.ownershipConviction7948?.takeIf { c -> c.isFinite() }
                     ?: maxOf(it.score, it.confidence).toDouble()
@@ -109,8 +125,7 @@ object SpecialistBrainBridge7542 {
 
     private val primedAt8196 = ConcurrentHashMap<String, Long>()
     private const val PRIME_GAP_MS_8196 = 15_000L
-    private fun primeDecisionData8196(ts: TokenState, snap: Snapshot) {
-        val nowMs = System.currentTimeMillis()
+    internal fun primeDecisionData8196(ts: TokenState, snap: Snapshot, nowMs: Long = System.currentTimeMillis()) {
         val prior = primedAt8196[ts.mint]
         if (prior != null && nowMs - prior in 0L until PRIME_GAP_MS_8196) return
         primedAt8196[ts.mint] = nowMs
@@ -124,6 +139,18 @@ object SpecialistBrainBridge7542 {
         // own missing setup features. Coalesce by mint + feature before asking
         // the existing provider-budgeted refresher; don't fabricate values.
         val missingByFeature = linkedMapOf<String, String>()
+        // A native rule can now defer before it is eligible. Request its exact missing
+        // observation through the same bounded refresher, without adding it to Cortex's
+        // qualified warm pool or changing its native/election eligibility.
+        snap.opinions.values.filter { !it.eligible && it.authoritative }.forEach { o ->
+            if (!SpecialistOwnership7951.refusalIsJudgement8136(o.reason, fdg = false)) {
+                val missing = LaneInputTruth8236.nativeDataInputs8237(o.reason)
+                missing.forEach { raw -> missingByFeature.putIfAbsent(raw.substringBefore(':'), raw) }
+                if (missing.isNotEmpty()) try {
+                    PipelineHealthCollector.labelInc("SPECIALIST_NATIVE_DATA_REQUEST_8237_" + o.lane)
+                } catch (_: Throwable) {}
+            }
+        }
         qualified.forEach { o ->
             try {
                 val missing = com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, o.lane, nowMs).orEmpty()
@@ -325,31 +352,29 @@ object SpecialistBrainBridge7542 {
         if (owns7828("CASHGEN")) out["CASHGEN"]=try{val x=CashGenerationAI.evaluate(ts.mint,ts.symbol,price,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol,ts.source,ts.lastPriceSource,ts.lastPriceDex,ageMin);op("CASHGEN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"CASHFLOW_SCALP","cashgen_native_cashflow","cashgen_native_quick_bank",0.55,0.82,0.78,setOf("CASHGEN","LIQUIDITY_DEPTH","ORDER_FLOW","TURNOVER"))}catch(t:Throwable){err("CASHGEN",t)}
         if (owns7828("CYCLIC")) out["CYCLIC"]=try{val x=CyclicTradeEngine.evaluateCandidate7542(ts,!paper);op("CYCLIC",x.eligible,x.score,x.confidence,0.0,x.reason,"CYCLIC_COMPOUND","cyclic_native_compound_pick","cyclic_inherit_owner_exit",1.35,0.72,1.18,setOf("CYCLIC","COMPOUND","V3","SELLABILITY"))}catch(t:Throwable){err("CYCLIC",t)}
 
+        // V5.0.8236 — every specialist: a native rule that fired on an unobserved input (mcap $0, momentum 0 with no
+        // price change observed, buy pressure at its 50 default, no price history, V3 never scored) is a DEFER, not a
+        // refusal. Classify this before historical veto retirement so unobserved inputs cannot become eligible.
+        val inputs8236 = LaneInputTruth8236.observed8236(ts, prices.size)
         // V5.0.8048 — closed loop for native refusals: the Cortex veto audit grades every NATIVE_<rule> (8031) and 5.0.8046
         // read NATIVE_NO_CONTINUATION@EXPRESS refusing winners (n56, +7.5%), but nothing ever asked it back. A native rule
         // the audit proves is refusing winners in its own lane (40+ graded, mean - SE > +2% net) stands down; every
         // downstream gate (watch first, net edge, FDG, the buy door) still decides. Safety and liquidity rules never do.
         for ((lane, o) in out.toList()) {
-            if (o.eligible || !o.authoritative || !o.gradeable || !nativeRuleRetirable8048(o.reason)) continue
-            val rule = "NATIVE_${DecisionReasons8031.rule8031(o.reason)}"
-            if (try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(rule, lane) } catch (_: Throwable) { false }) {
-                out[lane] = o.copy(eligible = true, reason = "NATIVE_VETO_RETIRED_8048:${o.reason.take(60)}")
+            val reviewed = reviewNativeOpinion8237(o, inputs8236) { rule, nativeLane ->
+                com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(rule, nativeLane)
+            }
+            if (reviewed === o) continue
+            out[lane] = reviewed
+            if (reviewed.eligible) {
                 try { PipelineHealthCollector.labelInc("NATIVE_VETO_RETIRED_8048_$lane") } catch (_: Throwable) {}
             }
         }
-        // V5.0.8236 — every specialist: a native rule that fired on an unobserved input (mcap $0, momentum 0 with no
-        // price change observed, buy pressure at its 50 default, no price history, V3 never scored) is a DEFER, not a
-        // refusal. Not gradeable: the veto audit grades refusals, and this one was never a judgement of the coin.
-        val inputs8236 = LaneInputTruth8236.observed8236(ts, prices.size)
         for ((lane, o) in out.toList()) {
-            if (o.eligible || !o.authoritative) continue
-            val defer8236 = LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236) ?: continue
-            out[lane] = o.copy(reason = defer8236, gradeable = false)
+            val completed = NativeRuleReview8239.completedReason8239(ts.mint, lane, o.eligible, o.reason)
+            if (completed != o.reason) out[lane] = o.copy(reason = completed)
         }
-        val s=out.values.filter{it.authoritative&&it.eligible}.sortedByDescending{maxOf(it.score,it.confidence)};val a=s.getOrNull(0);val b=s.getOrNull(1);val av=a?.let{maxOf(it.score,it.confidence)}?:0;val bv=b?.let{maxOf(it.score,it.confidence)}?:0
-        val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65);val fallback=s.isEmpty()&&v3>=40&&v3c>=45&&bp>=50&&ts.lastLiquidityUsd>0&&!ts.safety.isBlocked;val coreOk=ensemble||fallback
-        val coreScore=(if(s.isNotEmpty())s.take(4).map{maxOf(it.score,it.confidence)}.average().toInt()else v3).coerceIn(0,100)
-        if (owns7828("CORE")) out["CORE"]=op("CORE",coreOk,coreScore,coreScore,0.0,when{ensemble->"CORE_ENSEMBLE_${s.take(4).joinToString("+"){it.lane}}";fallback->"CORE_GENERALIST_NO_SPECIALIST_FIT";else->"CORE_YIELD_CLEAR_SPECIALIST_OWNER"},a?.setup?:"MAINSTREAM_CRYPTO_SWING","core_native_ensemble","core_inherit_ensemble_exit",1.0,0.8,1.0,s.take(4).flatMap{it.tools}.toSet()+"CORE_ENSEMBLE")
+        if (owns7828("CORE")) out["CORE"] = coreOpinion7542(ts, out.values, v3, v3c, bp)
         out["CORE"]?.let { original ->
             val reviewed = reviewCoreYield8077(original) { rule, lane ->
                 try { com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(rule, lane) }
@@ -364,7 +389,31 @@ object SpecialistBrainBridge7542 {
         // V5.0.8031 — every lane's verdict is named, and a refusal is labelled for the veto audit (DecisionReasons8031).
         try { DecisionReasons8031.nativeVerdicts8031(ts, out.values) } catch (_: Throwable) {}
         // V5.0.7951 — every eligible lane's ownership conviction on ONE common scale (+ chart BUY evidence).
-        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it);pruneOnInsert8169(now);registerElection8136(it);primeDecisionData8196(ts,it)}
+        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap()), paper).also{cache[ts.mint]=Cached(it);pruneOnInsert8169(now);registerElection8136(it);primeDecisionData8196(ts,it)}
+    }
+
+    /**
+     * CORE's existing native aggregate, shared by the live bridge and its regression
+     * fixture. An ensemble or valid generalist fallback may own the primary trunk;
+     * a clear specialist retains its own call. No rescue slot is added for CORE.
+     */
+    internal fun coreOpinion7542(ts: TokenState, opinions: Collection<Opinion>, v3: Int, v3c: Int, bp: Double): Opinion {
+        val s = opinions.filter { it.authoritative && it.eligible }.sortedByDescending { maxOf(it.score, it.confidence) }
+        val a = s.getOrNull(0)
+        val b = s.getOrNull(1)
+        val av = a?.let { maxOf(it.score, it.confidence) } ?: 0
+        val bv = b?.let { maxOf(it.score, it.confidence) } ?: 0
+        val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65)
+        val fallback = s.isEmpty() && v3 >= 40 && v3c >= 45 && bp >= 50 && ts.lastLiquidityUsd > 0 && !ts.safety.isBlocked
+        val coreScore = (if (s.isNotEmpty()) s.take(4).map { maxOf(it.score, it.confidence) }.average().toInt() else v3).coerceIn(0, 100)
+        val reason = when {
+            ensemble -> "CORE_ENSEMBLE_${s.take(4).joinToString("+") { it.lane }}"
+            fallback -> "CORE_GENERALIST_NO_SPECIALIST_FIT"
+            else -> "CORE_YIELD_CLEAR_SPECIALIST_OWNER"
+        }
+        return op("CORE", ensemble || fallback, coreScore, coreScore, 0.0, reason, a?.setup ?: "MAINSTREAM_CRYPTO_SWING",
+            "core_native_ensemble", "core_inherit_ensemble_exit", 1.0, 0.8, 1.0,
+            s.take(4).flatMap { it.tools }.toSet() + "CORE_ENSEMBLE")
     }
 
     /**

@@ -270,22 +270,23 @@ class Aate8153StrategyTest {
         assertTrue(StrategyMove8153.needsDefer8153(sparse, 6.0))
         // The deferral is a data gap (bounded by the admission's coalesced window), never a verdict on the coin.
         assertEquals(Terminal8136.DEFER_DATA, CandidateAdmission8136.terminalOf8136("DEFER", StrategyMove8153.DEFER_REASON_8153))
-        // An older coin with sparse history keeps the old rule; a measured 1h change decides; a clearing move needs no wait.
+        // Missing observations stay missing at every age; an observed 1h change still supplies a measurement.
         val old = StrategyMove8153.expected8153(50.0, 5.0, false, null, 0, Double.NaN, Double.NaN, 6.0, false)
         assertEquals("RANGE_SPARSE", old.basis)
-        assertFalse(StrategyMove8153.needsDefer8153(old, 6.0))
+        assertTrue(old.expectedGrossPct.isNaN())
+        assertTrue(StrategyMove8153.needsDefer8153(old, 6.0))
         val h1 = StrategyMove8153.expected8153(50.0, 5.0, false, 30.0, 0, Double.NaN, Double.NaN, 6.0, true)
         assertEquals("H1", h1.basis)
         assertEquals(30.0, h1.expectedGrossPct, 1e-9)
-        assertFalse(StrategyMove8153.needsDefer8153(StrategyMove8153.expected8153(50.0, 40.0, false, null, 0, Double.NaN, Double.NaN, 6.0, true), 6.0))
-        assertTrue(src("engine/truth/NetEdge8030.kt").contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153))"))
+        assertTrue(StrategyMove8153.needsDefer8153(StrategyMove8153.expected8153(50.0, 40.0, false, null, 0, Double.NaN, Double.NaN, 6.0, true), 6.0))
+        assertTrue(src("engine/truth/NetEdge8030.kt").contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153), laneRaw = lane)"))
         // The deferral asks for its evidence through the existing throttled re-fetch (candle seed, forced poll, tape).
         assertTrue(src("engine/truth/NetEdge8030.kt").contains("LanePlaybook7907.requestEvidence8153(ts, listOf(\"shape:HISTORY_SPARSE\", \"chg:UNOBSERVED\", \"liq:REFRESH\"))"))
         val defer = src("engine/truth/LiveEdgeGate7877.kt")
             .substringAfter("CandidateAdmission8136.Terminal8136.DEFER_DATA -> {").substringBefore("CandidateAdmission8136.Terminal8136.REFUSE -> {")
         assertTrue(defer.contains("val missing = CandidateAdmission8136.missingOf8144(d)"))
         assertTrue(defer.contains("LanePlaybook7907.requestEvidence8153(ts, missing.map { it.replace(\"liquidity:\", \"liq:\") }, nowMs)"))
-        assertTrue(defer.contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)"))
+        assertTrue(defer.contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs, l8059)"))
     }
 
     @Test fun structurallyUnsafeIsStillRefusedAndWatchFirstReleasesOnlyThinCells() {
@@ -354,7 +355,8 @@ class Aate8153StrategyTest {
         // Summary and export carry the binding gate.
         val list = listOf(eternal, ei, fomo, trace.copy(held = true))
         val line = r.summary8144(list)
-        assertTrue(line, line.startsWith("runners=4 held_entry=1 correct_at_decision=0 wrongly_refused=3"))
+        // Held=true alone cannot establish that the position existed when the peak occurred.
+        assertTrue(line, line.startsWith("runners=4 held_entry=0 correct_at_decision=0 wrongly_refused=3 data_gap=1"))
         assertTrue(line, line.contains("LIQ_UNREAD_REFUSED_AS_LOW=1") && line.contains("WATCH_FIRST_OVER_SPECIFIC_EVIDENCE=1") && line.contains("TOO_SLOW_ON_SPARSE_RANGE=1"))
         val text = list.joinToString("\n") { r.toJson8144(it).toString() }
         assertEquals(list, r.parseJsonl8144(text))

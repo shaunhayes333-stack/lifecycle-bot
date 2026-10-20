@@ -22,8 +22,9 @@ import java.util.concurrent.atomic.AtomicLong
  * received net of exit fees, from EconomicEventSchema6464's Buy and Sell rows).
  * That gap is every friction the trade paid: buy and sell slippage against the
  * market, AMM / pump.fun fees, network + priority fees, Jito tips, exit latency.
- * The entry mark is the market at the FILL, not at the decision, so the
- * decision-to-fill chase (EntryChase7961) is not in it and is never charged twice.
+ * References are immutable independent registry observations no more than 2 seconds before the transaction's
+ * block time, bound to its exact successful signature and raw quantity. Seconds of source/chain clock precision
+ * remain observable uncertainty. Missing marks never use a later candle or a modeled quote to manufacture a cost.
  *
  * Rolling median per lane and per ticket-size band. Learned, soft:
  *  - labels (ForwardReturnLabeler7731) and plan cards (FieldManual7715) are graded
@@ -37,7 +38,6 @@ object CostLedger7962 {
     const val MIN_LIVE_N = 8
     const val EARLY_LIVE_N = 3
     private const val RING = 120
-    private const val ENTRY_MARK_LAG_MS = 3_000L
     private const val MAX_SANE_COST_PCT = 60.0
     private const val PERSIST_KEY = "COST_LEDGER_7962"
     internal fun recoveryExpired8091(eventAtMs: Long, nowMs: Long, evidenceReady: Boolean = true): Boolean =
@@ -46,7 +46,9 @@ object CostLedger7962 {
     /** One sell leg: raw tokens sold, SOL received net of exit fees, the market price at the sale (USD). */
     data class Leg7962(val qtyRaw: Double, val netSol: Double, val markUsd: Double)
 
-    private class EntryMark(val mint: String, val markUsd: Double, val solUsd: Double, val atMs: Long)
+    private class EntryMark(val mint: String, val markUsd: Double, val solUsd: Double, val atMs: Long,
+                            val source8239: String = "", val signature8239: String = "", val fillAtMs8239: Long = 0L)
+    private val fillReferences8239 = ConcurrentHashMap<String, FillMarketReference8239.Fill>()
 
     private val entryMarks = ConcurrentHashMap<String, EntryMark>()   // positionId
     private val byLane = HashMap<String, ArrayDeque<DoubleArray>>()    // [costPct, ticketSol, buyPct, sellPct8169, entryFeePct8169]
@@ -136,15 +138,29 @@ object CostLedger7962 {
         CanonicalFinalizedTradeBus6464.registerConsumer("CostLedger7962")
     }
 
-    /** EntryStrategySnapshot6450.setEntry: the market price at this live fill (before our own print). */
+    /** The strategy snapshot is not a fill-time market observation. A proven economic event binds that below. */
     @Synchronized fun onEntry7962(positionId: String, mint: String, fillAtMs: Long, paperMode: Boolean) {
-        ensureSubscribed()
+        ensureSubscribed(); ensureLoaded()
+        if (!paperMode && positionId.isNotBlank() && mint.isNotBlank() && fillAtMs > 0L && !entryMarks.containsKey(positionId))
+            priorOnly.incrementAndGet()
+    }
+
+    /** Accepted canonical event + exact successful signature + exact raw quantity. Replay cannot recapture today's price. */
+    @Synchronized fun bindFillReference8239(event: EconomicEventSchema6464.Event, signature: String) {
+        if (!event.mode.equals("live", true) || signature.isBlank() || event.positionId.isBlank()) return
         ensureLoaded()
-        if (paperMode || positionId.isBlank() || mint.isBlank() || fillAtMs <= 0L) return
-        val mark = try { com.lifecyclebot.engine.chart.StructureTracker7962.markAt7962(mint, fillAtMs - ENTRY_MARK_LAG_MS) } catch (_: Throwable) { null }
-        if (mark == null) { noEntryMark.incrementAndGet(); return }
-        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        entryMarks.putIfAbsent(positionId, EntryMark(mint, mark, solUsd, fillAtMs))
+        val side: String
+        val raw: java.math.BigInteger
+        when (event) {
+            is EconomicEventSchema6464.Buy -> { side = "BUY"; raw = event.filledQty }
+            is EconomicEventSchema6464.Sell -> { side = "SELL"; raw = event.soldQty }
+            else -> return
+        }
+        val reference = FillMarketReference8239.forFill(signature, event.mint, side, raw) ?: return
+        if (fillReferences8239.putIfAbsent(event.idempotencyKey, reference) != null) return
+        if (event is EconomicEventSchema6464.Buy) entryMarks.putIfAbsent(event.positionId,
+            EntryMark(event.mint, reference.mark.priceUsd, reference.mark.solUsd, reference.mark.atMs,
+                reference.mark.source, reference.signature, reference.fillAtMs))
         persistMaybe(force = true)
     }
 
@@ -173,6 +189,8 @@ object CostLedger7962 {
             CanonicalFinalizedTradeBus6464.exclude("CostLedger7962", e.tradeId, "ENTRY_MARK_UNOBSERVED")
             return true
         }
+        if (em.signature8239.isBlank() || em.source8239.isBlank() || em.fillAtMs8239 - em.atMs !in 0L..FillMarketReference8239.MAX_AGE_MS)
+            return commitMeasurement8090(e, em, null, 0.0, "ENTRY_REFERENCE_CLOCK_UNPROVEN_8239")
         fun missing8091(reason: String): Boolean =
             if (recoveryExpired8091(e.atMs, System.currentTimeMillis()))
                 commitMeasurement8090(e, em, null, 0.0, reason)
@@ -199,12 +217,10 @@ object CostLedger7962 {
         }
         val legs = ArrayList<TradeCostMeasurement8090.Sale>()
         for (s in sells) {
-            val mark = try { com.lifecyclebot.engine.chart.StructureTracker7962.markAt7962(em.mint, s.atMs - ENTRY_MARK_LAG_MS) } catch (_: Throwable) { null }
-            if (mark == null) { noExitMark.incrementAndGet(); return missing8091("HISTORICAL_EXIT_MARK_UNOBSERVED_8091") }
-            if (!s.solUsdAtExit.isFinite() || s.solUsdAtExit <= 0.0) {
-                return commitMeasurement8090(e, em, null, 0.0, "EXIT_SOL_USD_UNOBSERVED")
-            }
-            legs += TradeCostMeasurement8090.Sale(s.soldQty, s.netProceedsSol, mark, s.solUsdAtExit)
+            val ref = fillReferences8239[s.idempotencyKey]?.takeIf { it.mint == em.mint && it.side == "SELL" &&
+                it.raw == s.soldQty.toString() && FillMarketReference8239.eligible(it.mark, it.fillAtMs) }
+            if (ref == null) { noExitMark.incrementAndGet(); return missing8091("HISTORICAL_EXIT_MARK_UNOBSERVED_8091") }
+            legs += TradeCostMeasurement8090.Sale(s.soldQty, s.netProceedsSol, ref.mark.priceUsd, ref.mark.solUsd)
         }
         val share = soldShare8094(buy.filledQty, soldRaw)
         val spent = (buy.executedCostSol + buy.entryFeesSol) * share
@@ -242,6 +258,7 @@ object CostLedger7962 {
         val evidence = org.json.JSONObject().put("positionId", e.positionId).put("eventId", e.economicEventId)
             .put("proof", e.proofState).put("reason", reason).put("entryMarkUsd", em.markUsd)
             .put("entrySolUsd", em.solUsd).put("entryAtMs", em.atMs)
+            .put("entrySource8239", em.source8239).put("entrySignature8239", em.signature8239).put("fillAtMs8239", em.fillAtMs8239)
             .put("costPct", measurement?.costPct ?: org.json.JSONObject.NULL)
             .put("buyPct", measurement?.buyPct ?: org.json.JSONObject.NULL)
             .put("sellPct8169", sides8169?.sellPct?.takeIf { it.isFinite() } ?: org.json.JSONObject.NULL)
@@ -269,8 +286,8 @@ object CostLedger7962 {
     }
 
     /**
-     * V5.0.8189 — ProfitExitTruth8163: the lane's measured sell-side cost (%, median of the confirmed sell legs, CostSides8169
-     * sellPct) and how many legs measured it. Null when nothing is measured.
+     * All-in sell friction as a percentage of original spent SOL. This is not quote-to-fill slippage and
+     * must not discount a quote's output; ProfitExitTruth8163 reads QuoteFillCost8239 on an output denominator.
      */
     fun sellSidePct8189(laneRaw: String?): Pair<Double, Int>? {
         ensureLoaded()
@@ -386,6 +403,7 @@ object CostLedger7962 {
             try {
                 val o = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY) ?: return)
                 excludedLegacy8090 = o.optJSONObject("excludedLegacy8090") ?: org.json.JSONObject()
+                val referenceSchema8239 = o.optInt("referenceSchema8239", 0) == 1
                 o.optJSONObject("lanes")?.let { j ->
                     for (k in j.keys()) {
                         val a = j.optJSONArray(k) ?: continue
@@ -396,7 +414,7 @@ object CostLedger7962 {
                         val decoded = (0 until a.length()).map { i -> a.optJSONArray(i)?.let { r -> decodeRow8169(r) } }
                         for (i in 0 until a.length()) {
                             val row = decoded[i]
-                            if (row == null || !CostSides8169.learnableRow8169(row, MAX_SANE_COST_PCT)) excluded.put(a.opt(i))
+                            if (!referenceSchema8239 || row == null || !CostSides8169.learnableRow8169(row, MAX_SANE_COST_PCT)) excluded.put(a.opt(i))
                         }
                         if (excluded.length() > 0) {
                             val prior = excludedLegacy8090.optJSONArray(k) ?: org.json.JSONArray()
@@ -406,14 +424,17 @@ object CostLedger7962 {
                             legacyDropped8169.addAndGet(excluded.length().toLong())
                         }
                         byLane[k] = ArrayDeque(decoded.filterNotNull()
-                            .filter { CostSides8169.learnableRow8169(it, MAX_SANE_COST_PCT) }.takeLast(RING))
+                            .filter { referenceSchema8239 && CostSides8169.learnableRow8169(it, MAX_SANE_COST_PCT) }.takeLast(RING))
                     }
                 }
                 o.optJSONObject("marks")?.let { j ->
                     for (k in j.keys()) {
                         val r = j.optJSONArray(k) ?: continue
-                        if (!entryMarks.containsKey(k)) entryMarks[k] = EntryMark(r.optString(0), r.optDouble(1), r.optDouble(2), r.optLong(3))
+                        if (!entryMarks.containsKey(k)) entryMarks[k] = EntryMark(r.optString(0), r.optDouble(1), r.optDouble(2), r.optLong(3), r.optString(4, ""), r.optString(5, ""), r.optLong(6, 0L))
                     }
+                }
+                o.optJSONObject("fillReferences8239")?.let { j ->
+                    for (k in j.keys()) j.optJSONObject(k)?.let { FillMarketReference8239.decode(it) }?.let { fillReferences8239.putIfAbsent(k, it) }
                 }
             } catch (t: Throwable) { LearningPersistence.decodeFailed8086(PERSIST_KEY, t); loaded = false }
             if (LearningPersistence.readFailed8086(PERSIST_KEY)) loaded = false
@@ -442,9 +463,11 @@ object CostLedger7962 {
             if (x.isFinite()) x else org.json.JSONObject.NULL
         }) })) }
         val marks = org.json.JSONObject()
-        entryMarks.forEach { (k, m) -> if (k != removePosition) marks.put(k, org.json.JSONArray(listOf(m.mint, m.markUsd, m.solUsd, m.atMs))) }
-        return org.json.JSONObject().put("lanes", lanes).put("marks", marks)
-            .put("excludedLegacy8090", excludedLegacy8090).toString()
+        entryMarks.forEach { (k, m) -> if (k != removePosition) marks.put(k, org.json.JSONArray(listOf(m.mint, m.markUsd, m.solUsd, m.atMs, m.source8239, m.signature8239, m.fillAtMs8239))) }
+        val refs = org.json.JSONObject()
+        fillReferences8239.entries.toList().takeLast(2_000).forEach { (k, v) -> refs.put(k, FillMarketReference8239.encode(v)) }
+        return org.json.JSONObject().put("lanes", lanes).put("marks", marks).put("referenceSchema8239", 1)
+            .put("fillReferences8239", refs).put("excludedLegacy8090", excludedLegacy8090).toString()
     }
 
     private fun pct8169(v: Double): String = if (v.isFinite()) "%.2f".format(v) + "%" else "-"
@@ -463,6 +486,6 @@ object CostLedger7962 {
         return "measured=${measured.get()} openMarks=${entryMarks.size} noEntryMark=${noEntryMark.get()} noExitMark=${noExitMark.get()} noLegs=${noLegs.get()} insane=${insane.get()} " +
             "unmeasuredPasses=${priorOnly.get()} markInconsistent8169=${markInconsistent8169.get()} legacyDropped8169=${legacyDropped8169.get()} " +
             "sides8169=[both over SOL spent, buy+sell=cost, rent excluded, side<-${CostSides8169.NEG_TOLERANCE_PCT_8169}% or buy>${CostSides8169.MAX_BUY_SIDE_PCT_8169}% = marks not cost] " +
-            "rule=labels+cards use measured lane cost at n>=$MIN_LIVE_N (estimate before) · refuse COST_EXCEEDS_EDGE_7962 when setup gross < measured cost · $body"
+            "rule=labels+cards use measured lane cost at n>=$MIN_LIVE_N (estimate before) · refuse COST_EXCEEDS_EDGE_7962 when setup gross < measured cost · $body · ${QuoteFillCost8239.statusLine()}"
     }
 }

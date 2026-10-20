@@ -251,7 +251,9 @@ object CanonicalPriceMarkRegistry6522 {
             }
         }
         marks.compute(key) { _, current -> if (current == null || mark.timestampMs >= current.timestampMs) mark else current }
-        return marks[key] == mark
+        val accepted8239 = marks[key] == mark
+        if (accepted8239) try { FillMarketReference8239.observe(mark) } catch (_: Throwable) {}
+        return accepted8239
     }
 
 
@@ -573,6 +575,14 @@ object CanonicalPriceMarkRegistry6522 {
      *  fall back to OBSERVATION_SCORING when the strict mark is absent. */
     fun get(mint: String, purpose: CanonicalMarkPurpose6570): CanonicalPriceMark6522? =
         marks[mint to purpose]
+
+    /** A quantity-changing fill invalidates holding-sized observations, while independent spot observations survive. */
+    fun invalidateHeldQuote8239(mint: String) {
+        val key = mint to CanonicalMarkPurpose6570.EXIT_ECONOMIC
+        val mark = marks[key] ?: return
+        if (mark.source in setOf("JUPITER_HELD_SELL_QUOTE_8189", "HELD_HOT_EXECUTABLE_SELL_QUOTE_7876",
+                "HELD_VENUE_RESERVE_MODEL_8239", "EXEC_QUOTE_8237")) marks.remove(key, mark)
+    }
 
     /** Back-compat: prefer strict executable mark, then exit-economic, then observation. */
     fun get(mint: String): CanonicalPriceMark6522? =

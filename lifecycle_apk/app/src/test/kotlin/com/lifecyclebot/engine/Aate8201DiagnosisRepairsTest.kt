@@ -24,9 +24,9 @@ class Aate8201DiagnosisRepairsTest {
         assertTrue(h.sniperPastWindowAtPublish8201(0.06, t0, t0))                        // 216 s old at sweep
         assertFalse(h.sniperPastWindowAtPublish8201(0.0, t0, t0 + 10_000L))              // unknown age (0) counts only latency
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/market/LaneHunter7297.kt").readText()
-        val block = src.substringAfter("if (lane == \"PROJECT_SNIPER\" && sniperPastWindowAtPublish8201(r.ageHours, snap.atMs, now))")
-            .substringBefore("claims[claimKey7803(lane, r.mint)]")
+        val block = src.substringAfter("val past = lane == \"PROJECT_SNIPER\" && sniperPastWindowAtPublish8201(r.ageHours, snap.atMs, now)")
+            .substringBefore("rows.forEach { r ->")
         assertTrue(block.contains("LANE_HUNT_SNIPER_PAST_WINDOW_AT_PUBLISH_8201"))
-        assertTrue(block.contains("return@forEach"))
+        assertTrue(block.contains("!past"))
     }
 }

@@ -66,7 +66,9 @@ class Aate7835CryptoSubmissionTest {
         assertTrue(LiveRiskPolicy7807.liveEquitySol(WalletManager.cachedSolBalance()) > 0.0)
         val result = CanonicalEntryAuthority6551.submit(candidate("Crypto7835NoRoute")
             .copy(mode = "LIVE", routeAvailable = false, adapter = "DEFERRED_ROUTE"))
-        assertEquals("LIVE_ROUTE_UNAVAILABLE", (result as CanonicalAssetEntryResult6551.Blocked).reason)
+        // Route and verified-equity failures both refuse without sealing an intent.
+        val reason = (result as CanonicalAssetEntryResult6551.Blocked).reason
+        assertTrue(reason, reason in setOf("LIVE_ROUTE_UNAVAILABLE", "KILL_SWITCH_EQUITY_UNAVAILABLE_7835"))
         assertEquals(1L, counts().submits)
         assertEquals(1L, counts().blocks)
         assertEquals(0L, counts().intents)

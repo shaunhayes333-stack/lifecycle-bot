@@ -127,7 +127,14 @@ object RunnerLive8153 {
         val key = key8153(ts)
         val plan = plan8153(ts)
         // Live economics only: the opportunity is read against the SOL the live slices really banked.
-        if (!pos.isPaperPosition) book.noteOpportunity8153(key, ladderOf8153(plan), pos.costSol, pos.peakGainPct)
+        if (!pos.isPaperPosition) {
+            val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pos.positionId)
+                ?.takeIf { it.mint == ts.mint && it.mode.equals("live", true) }
+            val peak = com.lifecyclebot.engine.truth.PositionExcursion8082.forClose(pos.positionId)
+            if (canonical != null && peak != null && peak.mfeAtMs in canonical.openedAtMs..nowMs)
+                book.noteOpportunity8153(key, ladderOf8153(plan), canonical.entryCostSol, peak.mfePct,
+                    peak.mfeAtMs, canonical.positionId, canonical.mode)
+        }
         if (plan == RunnerPlan8153.Plan8153.SCALP) { continuation.remove(key); return }
         val (r15, r60) = StructureTracker7962.reads7967(ts.mint, nowMs)
         val c = RunnerPlan8153.continuation8153(plan, pos.peakGainPct, gross,
@@ -209,6 +216,34 @@ object RunnerLive8153 {
         var any = false
         for (k in keys) { if (book.retire8153(k)) any = true; continuation.remove(k); lastVerdict.remove(k) }
         if (any) save8153()
+    }
+
+    /** Called only with identified invalid observation evidence; a current market dip never invokes this. */
+    fun invalidatePeakEvidence8239(positionId: String, mint: String, observedAtMs: Long, reason: String) {
+        ensureLoaded8153()
+        if (book.invalidateOpportunity8239(positionId, observedAtMs)) {
+            count8153("RUNNER_OPPORTUNITY_INVALIDATED_8239"); save8153()
+        }
+        com.lifecyclebot.engine.truth.RunnerCapture8017.invalidatePeakEvidence8239(mint, observedAtMs, reason)
+    }
+
+    /** Entry-price reconciliation has tx proof; all dependent returns use the same new denominator. */
+    fun rebaseEntryEvidence8239(positionId: String, oldEntryUsd: Double, newEntryUsd: Double, originalCostSol: Double) {
+        if (positionId.isBlank() || oldEntryUsd == newEntryUsd) return
+        if (!newEntryUsd.isFinite() || newEntryUsd <= 0.0) return
+        ensureLoaded8153()
+        if (!oldEntryUsd.isFinite() || oldEntryUsd <= 0.0) {
+            // The transaction proves the replacement basis, but returns over an invalid old denominator
+            // cannot be reconstructed. Invalidate only those identified position observations.
+            val mint = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)?.mint.orEmpty()
+            val old = com.lifecyclebot.engine.truth.PositionExcursion8082.forClose(positionId)
+            if (mint.isNotBlank() && old != null) for (at in setOf(old.mfeAtMs, old.maeAtMs))
+                com.lifecyclebot.engine.truth.PositionExcursion8082.invalidateObservation8239(positionId, mint, at, "TX_PROVEN_ENTRY_INVALID_OLD_DENOMINATOR")
+        } else com.lifecyclebot.engine.truth.PositionExcursion8082.rebaseEntry8239(positionId, oldEntryUsd, newEntryUsd)
+        com.lifecyclebot.engine.truth.RunnerCapture8017.rebaseHolding8239(positionId, newEntryUsd)
+        if (book.rebaseOpportunity8239(positionId, oldEntryUsd, newEntryUsd, originalCostSol)) {
+            count8153("RUNNER_OPPORTUNITY_BASIS_REPAIRED_8239"); save8153()
+        }
     }
 
     fun statusLine8153(): String {

@@ -297,12 +297,13 @@ object CandidateAdmission8136 {
         val stageLoss = if (c.stage.equals("UNKNOWN", ignoreCase = true)) null
             else if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord
         if (provenLosing8136(cellLoss)) {
-            // V5.0.8240 — the cell (source|lane|mcap|age) is a lane-wide prior over every coin of that shape, exactly like
-            //    the stage record below: it names no strategy. 8241 runner ledger: MONPAD +30584% and KimWhale +2962% were
-            //    MISSED(CELL_PROVEN_LOSING) while a SUPPORTED setup (n, mean - SE and timing band clearing cost — the
-            //    token-specific strategy evidence) had fired on them. As for the stage loss (8173), the supported setup is
-            //    the strategy; without one the cell prior refuses. Economics, data and the edge test below still decide.
-            if (bestSetup == null) { trace += "cellLosing=${cellLoss?.compact}"; return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen) }
+            // 8240/main: a cell is lane-wide context, not the coin's own
+            // executed strategy. Only a different, supported fired setup,
+            // evaluated for its timing and economic cost, can carry it.
+            if (bestSetup == null) {
+                trace += "cellLosing=${cellLoss?.compact}"
+                return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen)
+            }
             trace += "cellLosing=${cellLoss?.compact} carried by supported setup ${bestSetup.compact}"
             if (chosen != bestSetup.id) chooseSetup(bestSetup.id)
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CELL_LOSS_CARRIED_BY_SUPPORTED_SETUP_8240") } catch (_: Throwable) {}
@@ -447,13 +448,21 @@ object CandidateAdmission8136 {
     internal const val KIND_STAGE = "STAGE"
 
     /**
-     * Pure: what the record means for a generic score floor — true clears it (supported specific edge), false holds it
-     * with no lane-wide bypass (a specific refusal), null leaves the floor's own bypasses to decide.
+     * Shared by LiveEdge's terminal branch and FDG's score-floor verdict. The explicit live-only unsupported decision
+     * also binds: its lack of specific evidence must not reopen older cold-start or VALID-evidence admission doors.
+     */
+    internal fun bindingRefusal8239(d: Decision8136?): Boolean =
+        d?.terminal == Terminal8136.REFUSE &&
+            (d.specific || d.reason == "LIVE_GENERIC_PRIOR_UNSUPPORTED_8238")
+
+    /**
+     * Pure: true clears the generic floor on supported specific edge; false holds a binding refusal. Null leaves the
+     * floor's own rules to decide only when the admission has not already refused live money or specific evidence.
      */
     fun floorVerdict8136(d: Decision8136?): Boolean? = when {
+        bindingRefusal8239(d) -> false
         d == null || !d.specific -> null
         d.terminal == Terminal8136.ADMIT -> true
-        d.terminal == Terminal8136.REFUSE -> false
         else -> null
     }
 
@@ -475,12 +484,21 @@ object CandidateAdmission8136 {
     fun deferOpen8136(s: Defer8136, nowMs: Long): Boolean =
         s.count <= DEFER_MAX_8136 && nowMs - s.firstMs in 0L..DEFER_WINDOW_MS_8136
 
+    // 8242: one mint can be evaluated by twelve independent specialists.
+    // Budget accounting is per specialist; feature fetches remain single-flight.
+    internal fun deferScope8242(mint: String, laneRaw: String): String {
+        if (laneRaw.isBlank()) return mint
+        val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase()
+            .ifBlank { laneRaw.trim().uppercase() }
+        return "$"+"mint|$"+"lane"
+    }
+
     private val defers8136 = ConcurrentHashMap<String, Defer8136>()
 
     /** Counts one DATA_INCOMPLETE re-evaluation of [mint]; false once its bounded window is spent (the ordinary refusal then stands). */
-    fun deferBudget8136(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun deferBudget8136(mint: String, nowMs: Long = System.currentTimeMillis(), laneRaw: String = ""): Boolean {
         if (mint.isBlank()) return false
-        val s = defers8136.compute(mint) { _, p -> nextDefer8136(p, nowMs) } ?: return false
+        val s = defers8136.compute(deferScope8242(mint, laneRaw)) { _, p -> nextDefer8136(p, nowMs) } ?: return false
         if (defers8136.size > 4_000) defers8136.entries.removeIf { nowMs - it.value.firstMs >= DEFER_RESET_MS_8136 }
         val open = deferOpen8136(s, nowMs)
         if (!open) try { PipelineHealthCollector.labelInc("ADMISSION_DEFER_WINDOW_SPENT_8136") } catch (_: Throwable) {}
@@ -527,6 +545,28 @@ object CandidateAdmission8136 {
     private data class Memo8153(val atMs: Long, val candidate: Candidate8136, val decision: Decision8136)
     private val memos8153 = ConcurrentHashMap<String, Memo8153>()
     private const val MEMO_MS_8153 = 1_500L
+    /** Cached decision-time economics for discovery ordering; this grants no execution authority. */
+    data class Ordering8239(val atMs: Long, val nativeQualified: Boolean, val supported: Boolean,
+                            val netLowerPct: Double, val costPct: Double, val refusal: String?)
+
+    internal fun ordering8239(c: Candidate8136, d: Decision8136, atMs: Long): Ordering8239 {
+        val cell = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell
+        val evidence = (c.setups + listOfNotNull(cell, c.cortexStrong8200))
+            .firstOrNull { d.basis == it.compact }
+        val lower = evidence?.let { if (it.netOfCost) it.lowerPct else it.lowerPct - c.costPct } ?: Double.NaN
+        return Ordering8239(atMs, c.nativeQualified8213, AdmissionEdge8180.carriesEdge8180(d),
+            if (lower.isFinite() && d.expectedNetPct.isFinite()) minOf(lower, d.expectedNetPct) else Double.NaN,
+            d.costPct, d.reason.takeIf { d.terminal == Terminal8136.REFUSE && d.specific })
+    }
+
+    /** One cached lookup by mode, lane and generation; never evaluates a candidate or calls a provider. */
+    fun orderingFor8239(mode: String, mint: String, lane: String, candidateVersion: Long,
+                        nowMs: Long = System.currentTimeMillis()): Ordering8239? {
+        val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+        val m = memos8153["${mode.uppercase()}|$mint|$l|$candidateVersion"] ?: return null
+        if (nowMs - m.atMs !in 0L..30_000L) return null
+        return ordering8239(m.candidate, m.decision, m.atMs)
+    }
     /** V5.0.8223 — the FDG snapshot prior (score, fluid floor, admission size) carried per candidate generation. */
     private data class SnapshotPrior8223(val score: Double, val floor: Double, val sizeSol: Double, val atMs: Long)
     private val snapshotPriors8223 = ConcurrentHashMap<String, SnapshotPrior8223>()
@@ -612,21 +652,22 @@ object CandidateAdmission8136 {
      * V5.0.8204 — the inputs this mint was FIRST deferred on (per deferral window). Exhausting the budget while every one
      * of them is still missing means the requested fetch never completed. Pure given the recorded first set.
      */
-    fun deferUnanswered8204(mint: String, missingNow: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun deferUnanswered8204(mint: String, missingNow: List<String>, nowMs: Long = System.currentTimeMillis(), laneRaw: String = ""): Boolean {
         if (mint.isBlank()) return false
-        val first = firstMissing8204[mint] ?: return false
+        val first = firstMissing8204[deferScope8242(mint, laneRaw)] ?: return false
         return first.isNotEmpty() && missingNow.map { it.trim() }.containsAll(first)
     }
 
-    fun deferBudgetFor8144(mint: String, missing: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean {
-        if (mint.isNotBlank()) {
-            val prev = defers8136[mint]
-            if (prev == null || nowMs < prev.firstMs || nowMs - prev.firstMs >= DEFER_RESET_MS_8136) firstMissing8204[mint] = missing.map { it.trim() }.filter { it.isNotBlank() }.toSet()
-            if (firstMissing8204.size > 4096) firstMissing8204.keys.take(1024).forEach { firstMissing8204.remove(it) }
-        }
+    fun deferBudgetFor8144(mint: String, missing: List<String>, nowMs: Long = System.currentTimeMillis(), laneRaw: String = ""): Boolean {
         if (mint.isBlank()) return false
-        if (scheduleDue8144(mint, features8144(missing), nowMs)) return deferBudget8136(mint, nowMs)
-        val s = defers8136[mint] ?: return deferBudget8136(mint, nowMs)
+        val scope8242 = deferScope8242(mint, laneRaw)
+        val prev = defers8136[scope8242]
+        if (prev == null || nowMs < prev.firstMs || nowMs - prev.firstMs >= DEFER_RESET_MS_8136)
+            firstMissing8204[scope8242] = missing.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        if (firstMissing8204.size > 4096) firstMissing8204.keys.take(1024).forEach { firstMissing8204.remove(it) }
+        // Only the retry ledger is lane-scoped; requests still coalesce by mint+feature.
+        if (scheduleDue8144(mint, features8144(missing), nowMs)) return deferBudget8136(mint, nowMs, laneRaw)
+        val s = defers8136[scope8242] ?: return deferBudget8136(mint, nowMs, laneRaw)
         coalesced8144.incrementAndGet()
         try { PipelineHealthCollector.labelInc("ADMISSION_REEVAL_COALESCED_8144") } catch (_: Throwable) {}
         return deferOpen8136(s, nowMs)
@@ -746,7 +787,7 @@ object CandidateAdmission8136 {
         val nativeOpinion8213 = try {
             com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)
                 ?.takeIf { it.mint == ts.mint }?.opinions?.get(lane)
-                ?.takeIf { it.eligible && it.authoritative &&
+                ?.takeIf { it.eligible && it.authoritative && it.gradeable &&
                     com.lifecyclebot.engine.LaneExecutionCoordinator.laneCanOwnExecution6910(lane) }
         } catch (_: Throwable) { null }
         val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907

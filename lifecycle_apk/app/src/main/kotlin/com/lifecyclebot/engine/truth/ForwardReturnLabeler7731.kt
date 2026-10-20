@@ -105,7 +105,7 @@ object ForwardReturnLabeler7731 {
     /** V5.0.7737 — off-watchlist marks fetched for observations due at a horizon. */
     private const val OFFWATCH_FETCH_GAP_MS_7737 = 20_000L
     private const val OFFWATCH_BATCH_7737 = 50
-    private val offWatchMarks7737 = ConcurrentHashMap<String, Pair<Double, Long>>()
+    private val offWatchMarks7737 = ConcurrentHashMap<String, ObservedMark8239>()
     private val offWatchInFlight7737 = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var offWatchLastFetchMs7737 = 0L
     private val offWatchPriced7737 = AtomicLong(0)
@@ -224,6 +224,8 @@ object ForwardReturnLabeler7731 {
         /** V5.0.7944 — the last price seen for it and when, so a vanished mark books at its real last value. */
         @Volatile var lastPx = 0.0
         @Volatile var lastPxAtMs = 0L
+        /** 8239: only a dated mark that passed every current validation may resolve a later data gap. */
+        @Volatile var lastPxValidated8239 = false
         /** V5.0.7955 — the setup at the decision (ExitProfile7955 key), when the peak was set, and the 5-minute give-back. */
         @Volatile var setup7955 = ""
         @Volatile var peakAtMs7955 = 0L
@@ -491,6 +493,7 @@ object ForwardReturnLabeler7731 {
                     // V5.0.8063 — the coin's kind (field 33).
                     o.kind8063.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '),
                     o.entryStyle8077,
+                    if (o.lastPxValidated8239) "1" else "0",
                 ).joinToString(fs)
             }
     }
@@ -511,10 +514,10 @@ object ForwardReturnLabeler7731 {
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size !in 17..34) return@forEach
+            if (f.size !in 17..35) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
             val ck8013 = if (f.size >= 24) f[23].toIntOrNull() ?: 0 else 0
-            if (atMs <= 0L) return@forEach
+            if (atMs <= 0L || atMs > nowMs) return@forEach
             if (nowMs - atMs > H240_MS_7731 + LOST_GRACE_MS_7731 && !scheduleOpen8013(ck8013, nowMs - atMs)) return@forEach
             val px = f[10].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
             val o = Obs(f[0], f[1], f[2], f[3], f[4], f[5] == "1", f[6].toIntOrNull() ?: -1, f[7], f[8], f[9], px, f[11].toDoubleOrNull() ?: 0.0, atMs)
@@ -540,6 +543,7 @@ object ForwardReturnLabeler7731 {
             if (f.size >= 32) o.reason7967 = f[31]
             if (f.size >= 33) o.kind8063 = f[32]
             if (f.size >= 34) o.entryStyle8077 = f[33]
+            if (f.size >= 35) o.lastPxValidated8239 = f[34] == "1"
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
@@ -688,20 +692,20 @@ object ForwardReturnLabeler7731 {
         // were thrown away for want of a timestamp the registry already held.
         val tsAge = if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
         val tsPriced = ts.lastPrice.isFinite() && ts.lastPrice > 0.0
-        val tsFresh = tsPriced && tsAge <= MARK_MAX_AGE_MS_7731
+        val tsFresh = tsPriced && tsAge in 0L..MARK_MAX_AGE_MS_7731
         val px = if (tsFresh) ts.lastPrice else {
             val fromRegistry = markFor(ts.mint, { null }, nowMs)
             when {
                 fromRegistry != null -> {
                     try { PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733") } catch (_: Throwable) {}
-                    fromRegistry
+                    fromRegistry.priceUsd
                 }
                 // V5.0.7735 — the gate ruled on this very price. 5.0.7734 still
                 // skipped 2,325 verdicts for want of a two-minute-fresh mark while
                 // observing 505; a label may start from the price the decision
                 // was made on when it is under ten minutes old. The exit marks
                 // that close the label keep the two-minute bar.
-                tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {
+                tsPriced && tsAge in 0L..ENTRY_MARK_MAX_AGE_MS_7735 -> {
                     try { PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_STALE_MARK_7735") } catch (_: Throwable) {}
                     ts.lastPrice
                 }
@@ -1024,7 +1028,7 @@ object ForwardReturnLabeler7731 {
         val (net, gross) = captured7945(o, net0, gross0)
         book(o, 60, net, gross)
         o.bookedNet7997 = net; o.bookedGross7997 = gross
-        try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
+        try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross, o.atMs) } catch (_: Throwable) {}
         // V5.0.8080 §ONE_PATH_TWO_EXIT_FAMILIES. The setup books graded every setup that fired on one value, so a
         // momentum scalp and a breakout runner on the same coin were credited the same return. The same observed path is
         // now played under the scalp exits and under the long-hold exits; each setup is graded on its own family.
@@ -1221,7 +1225,8 @@ object ForwardReturnLabeler7731 {
      * pricing the token by its horizon, so its last price is the best read of
      * what it was worth:
      *  - DEAD: the last read was already a collapse (gross <= [DEAD_GROSS_PCT_7944])
-     *    and nothing prices it now: the pool or curve is gone, booked at -100%.
+     *    and nothing prices it now: preserve that validated collapse value. Missing
+     *    providers do not prove a worthless token or an executable total-loss sale.
      *  - LAST_MARK: a read from the second half of the horizon: booked at it.
      *  - GAP: no read late enough to say anything (the app was off, or it left the
      *    watchlist early): stays LOST_MARK and is not booked either way.
@@ -1244,32 +1249,38 @@ object ForwardReturnLabeler7731 {
     private fun resolveVanished7944(o: Obs, horizon: Int, nowMs: Long) {
         val horizonMs = if (horizon == 60) H60_MS_7731 else H240_MS_7731
         val cutoff = o.atMs + horizonMs + graceFor7946(horizonMs)
-        var px = o.lastPx; var at = o.lastPxAtMs
-        // A stale registry read newer than ours is still a later real price.
-        try {
-            val m = CanonicalPriceMarkRegistry6522.get(o.mint)
-            val rp = m?.priceUsd?.value?.toDouble() ?: 0.0
-            if (m != null && m.timestampMs > at && m.timestampMs in (o.atMs + 1)..cutoff && rp.isFinite() && rp > 0.0) { px = rp; at = m.timestampMs }
-        } catch (_: Throwable) {}
+        val px = o.lastPx
+        // Never resurrect the same numeric registry mark rejected by the main
+        // loop. Only its last fully validated observation survives a source gap;
+        // legacy pending rows have no such receipt and remain unresolved.
+        var at = if (o.lastPxValidated8239) o.lastPxAtMs else 0L
         if (at > cutoff) at = 0L
         // V5.0.8180 — the same basis rule as the main mark loop: a registry / last mark the entry cannot share a basis with
         // is no read at all (5.0.8175 BAND|*|MC_GT1M +1,500-1,700% with basisSuspect7738=0 came through this path).
+        var basisInvalid8241 = false
         if (px > 0.0 && o.entryPrice > 0.0 && !LabelBasis8180.bookable8180(o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint),
                 try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 })) {
             basisSuspect7738.incrementAndGet()
             try { PipelineHealthCollector.labelInc("FORWARD_LABEL_VANISHED_BASIS_SUSPECT_8180") } catch (_: Throwable) {}
             at = 0L
+            basisInvalid8241 = true
         }
         val gross = if (px > 0.0 && o.entryPrice > 0.0) (px / o.entryPrice - 1.0) * 100.0 else Double.NaN
         when (classifyVanished7944(gross, if (at > o.atMs) at - o.atMs else 0L, horizonMs)) {
             Vanished7944.GAP -> if (horizon == 60) {
                 markLost(o)
                 // V5.0.8187 — the Cortex files the decision unresolved now (it lingered unlabelled until a 90-minute prune).
-                try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "GAP") } catch (_: Throwable) {}
+                try {
+                    if (basisInvalid8241) com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "BASIS")
+                    else com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "GAP")
+                } catch (_: Throwable) {}
             }
             Vanished7944.DEAD -> {
                 vanishedDead7944.incrementAndGet()
-                if (horizon == 60) bookSixty7944(o, -100.0, -100.0, nowMs) else bookTwoForty7944(o, -100.0, -100.0)
+                // Missing feeds prove no zero proceeds. Preserve the observed
+                // collapse value instead of inventing a total-loss trade.
+                val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
+                if (horizon == 60) bookSixty7944(o, net, gross, nowMs) else bookTwoForty7944(o, net, gross)
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_VANISHED_DEAD_7944") } catch (_: Throwable) {}
             }
             Vanished7944.LAST_MARK -> {
@@ -1290,27 +1301,53 @@ object ForwardReturnLabeler7731 {
      * priced at its window: Timing WINDOW_MISSED=544, shadow book 9 opens / 0 closes.
      */
     fun markFor7948(mint: String, priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()): Double? =
-        try { markFor(mint, priceFor, nowMs) } catch (_: Throwable) { null }
+        try { markFor(mint, { m -> legacyObservation8239(m, priceFor(m), nowMs) }, nowMs)?.priceUsd } catch (_: Throwable) { null }
 
-    private fun markFor(mint: String, priceFor: (String) -> Double?, nowMs: Long): Double? {
-        val fromLoop = try { priceFor(mint) } catch (_: Throwable) { null }
-        if (fromLoop != null && fromLoop.isFinite() && fromLoop > 0.0) return fromLoop
-        // V5.0.8062 — the freshest mark across every purpose. get(mint) returned the first purpose holding ANY mark, so a
-        // stale executable quote hid a fresh observation mark: 5.0.8059 skipped 4,557 decisions for noPrice vs 764 labelled.
-        val fromRegistry = try {
-            CanonicalMarkPurpose6570.values().mapNotNull { CanonicalPriceMarkRegistry6522.get(mint, it) }
-                .filter { it.timestampMs > 0L && nowMs - it.timestampMs in 0L..MARK_MAX_AGE_MS_7731 }
-                .maxByOrNull { it.timestampMs }?.priceUsd?.value?.toDouble()?.takeIf { it.isFinite() && it > 0.0 }
-        } catch (_: Throwable) { null }
-        if (fromRegistry != null) return fromRegistry
-        val off = offWatchMarks7737[mint]
-        if (off != null && nowMs - off.second <= MARK_MAX_AGE_MS_7731) return off.first
-        // V5.0.8062 — an active pump.fun curve's own observed reserves (PumpPortal frame or chain read) are a real price.
-        return try {
-            val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-            val pxSol = CurveReserves7951.priceSolFor7951(mint, nowMs, MARK_MAX_AGE_MS_7731)
-            if (solUsd.isFinite() && solUsd > 0.0 && pxSol.isFinite() && pxSol > 0.0) { curvePriced8062.incrementAndGet(); pxSol * solUsd } else null
-        } catch (_: Throwable) { null }
+    /** Compatibility readers may supply a value only when its original observation can be recovered. */
+    private fun legacyObservation8239(mint: String, price: Double?, nowMs: Long): ObservedMark8239? {
+        if (price == null || !price.isFinite() || price <= 0.0) return null
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
+        if (ts != null && ts.lastPrice == price) return ObservedMark8239(price, ts.lastPriceUpdate, ts.lastPriceSource.ifBlank { "TOKEN_STATE" })
+        return com.lifecyclebot.engine.cortex.CrossAssetCortex7931.observation8239(mint, nowMs)?.takeIf { it.priceUsd == price }
+    }
+
+    private fun marksFor8239(mint: String, priceFor: (String) -> ObservedMark8239?, nowMs: Long): List<ObservedMark8239> {
+        val candidates = ArrayList<ObservedMark8239>(8)
+        try { priceFor(mint)?.let { candidates.add(it) } } catch (_: Throwable) {}
+        try {
+            for (purpose in CanonicalMarkPurpose6570.values()) {
+                val m = CanonicalPriceMarkRegistry6522.get(mint, purpose) ?: continue
+                candidates.add(ObservedMark8239(m.priceUsd.value.toDouble(), m.timestampMs, "REGISTRY:$purpose"))
+            }
+        } catch (_: Throwable) {}
+        offWatchMarks7737[mint]?.let { candidates.add(it) }
+        try {
+            CurveReserves7951.priceObservation8239(mint, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice, nowMs, MARK_MAX_AGE_MS_7731)
+                ?.let { candidates.add(it) }
+        } catch (_: Throwable) {}
+        return candidates.filter { it.fresh(nowMs, MARK_MAX_AGE_MS_7731) }
+            .distinctBy { it.priceUsd to it.observedAtMs }.sortedByDescending { it.observedAtMs }
+    }
+
+    private fun markFor(mint: String, priceFor: (String) -> ObservedMark8239?, nowMs: Long): ObservedMark8239? =
+        marksFor8239(mint, priceFor, nowMs).firstOrNull()
+
+    /** Every source passes the same validation before it can rebase, update a peak or resolve a horizon. */
+    private fun acceptableMark8239(o: Obs, mark: ObservedMark8239, nowMs: Long): Boolean {
+        if (mark.observedAtMs < o.atMs) return false
+        if (curveContradicts8165(o.mint, mark.priceUsd, nowMs)) {
+            curveRefusedMark8165.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_CONTRADICTED_8165") } catch (_: Throwable) {}
+            return false
+        }
+        if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), mark.priceUsd, "FORWARD_LABEL")) return false
+        if (!LabelBasis8180.bookable8180(o.entryPrice, mark.priceUsd, o.entryMcap, nowMcap7769(o.mint),
+                try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 })) {
+            basisSuspect7738.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_SUSPECT_7738") } catch (_: Throwable) {}
+            return false
+        }
+        return true
     }
 
     private val curvePriced8062 = AtomicLong(0)
@@ -1333,6 +1370,13 @@ object ForwardReturnLabeler7731 {
     /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
     fun horizonOpen7809(ageMs: Long, horizonMs: Long): Boolean =
         ageMs >= horizonMs && ageMs <= horizonMs + graceFor7946(horizonMs)
+
+    /** Same bounded terminal policy for missing, stale, contradictory and non-finite source observations. */
+    internal fun unavailableHorizon8239(ageMs: Long, done60: Boolean, done240: Boolean): Int? = when {
+        !done60 && ageMs >= H60_MS_7731 + graceFor7946(H60_MS_7731) -> 60
+        done60 && !done240 && ageMs >= H240_MS_7731 + graceFor7946(H240_MS_7731) -> 240
+        else -> null
+    }
 
     private fun rotateDue7809(due: List<String>, nowMs: Long): List<String> {
         if (offWatchAttemptAt7809.size > MAX_SEEN_7731) {
@@ -1360,14 +1404,20 @@ object ForwardReturnLabeler7731 {
         try {
             Thread({
                 try {
-                    val got = HashMap(com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(batch))
+                    val got = HashMap<String, ObservedMark8239>()
+                    fun received(prices: Map<String, Double>, source: String) {
+                        val at = System.currentTimeMillis()
+                        for ((mint, price) in prices) if (price.isFinite() && price > 0.0)
+                            got[mint] = ObservedMark8239(price, at, source)
+                    }
+                    received(com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(batch), "JUPITER_OFFWATCH_RESPONSE")
                     // V5.0.7753 — Jupiter's price API misses most young tokens
                     // (5.0.7749 offWatch priced=1517 missed=7233); a pump.fun token
                     // still on its curve is priced from the curve account itself.
                     val missed7753 = batch.filter { it !in got }
                     if (missed7753.isNotEmpty()) {
                         val curve7753 = try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(missed7753) } catch (_: Throwable) { emptyMap() }
-                        got.putAll(curve7753)
+                        received(curve7753, "CURVE_RPC_OFFWATCH_RESPONSE")
                         offWatchCurvePriced7753.addAndGet(curve7753.size.toLong())
                     }
                     // V5.0.8217 — a graduated (PumpSwap/Raydium/Meteora) young token is off the curve and usually missing from
@@ -1378,16 +1428,16 @@ object ForwardReturnLabeler7731 {
                         val dex8217 = try {
                             com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(missed8217).filter { it.value.isFinite() && it.value > 0.0 }
                         } catch (_: Throwable) { emptyMap() }
-                        got.putAll(dex8217)
+                        received(dex8217, "DEXSCREENER_OFFWATCH_RESPONSE")
                         if (dex8217.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_DEX_PRICED_8217", dex8217.size.toLong())
                     }
                     val at = System.currentTimeMillis()
-                    for ((m, px) in got) offWatchMarks7737[m] = px to at
+                    for ((m, mark) in got) offWatchMarks7737[m] = mark
                     offWatchPriced7737.addAndGet(got.size.toLong())
                     offWatchMissed7737.addAndGet((batch.size - got.size).toLong())
                     PipelineHealthCollector.labelInc("FORWARD_LABEL_OFFWATCH_BATCH_7737")
                     val cutoff = at - MARK_MAX_AGE_MS_7731
-                    offWatchMarks7737.entries.removeIf { it.value.second < cutoff }
+                    offWatchMarks7737.entries.removeIf { it.value.observedAtMs < cutoff }
                 } catch (_: Throwable) {
                 } finally {
                     offWatchInFlight7737.set(false)
@@ -1398,16 +1448,19 @@ object ForwardReturnLabeler7731 {
         }
     }
 
-    fun tick(priceFor0: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
+    fun tick(priceFor0: (String) -> ObservedMark8239?, nowMs: Long = System.currentTimeMillis()) {
         // V5.0.7931 — crypto-universe and Markets identities are priced by their own feeds.
-        val priceFor: (String) -> Double? = { m -> priceFor0(m) ?: com.lifecyclebot.engine.cortex.CrossAssetCortex7931.priceFor(m, nowMs) }
-        val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs) }, nowMs) } catch (_: Throwable) { emptyList() }
+        val priceFor: (String) -> ObservedMark8239? = { m -> priceFor0(m) ?: com.lifecyclebot.engine.cortex.CrossAssetCortex7931.observation8239(m, nowMs) }
+        val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs)?.priceUsd }, nowMs) } catch (_: Throwable) { emptyList() }
         if (pending.isEmpty() && freshUnpriced7737.isEmpty()) return
         val dueUnpriced7737 = ArrayList<Pair<String, Long>>()
         for ((key, o) in pending.entries.toList()) {
             val age = nowMs - o.atMs
-            val px = markFor(o.mint, priceFor, nowMs)
-            if (px == null) {
+            // A numeric value can be unusable. Try independent dated sources, then
+            // send ALL unavailable/contradicted/basis-invalid reads through the same
+            // recovery and deadline path. No invalid source can keep a label immortal.
+            val mark = marksFor8239(o.mint, priceFor, nowMs).firstOrNull { acceptableMark8239(o, it, nowMs) }
+            if (mark == null) {
                 // V5.0.8187 — an unpriced observation inside its re-base window asks the off-watch batch FIRST: its label can
                 // only start from a buyable price if a mark lands inside 60 s (else LATE_FIRST_PRICE: observed only, and its
                 // cohort unresolved — the walk-forward's UNRESOLVED_COHORT). Its due time is its decision, so it sorts first.
@@ -1415,13 +1468,14 @@ object ForwardReturnLabeler7731 {
                 else if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to (if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
                 // V5.0.8013 — a followed coin's due checkpoint asks for an off-watch mark too.
                 else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to (o.atMs + CK_MS_7997[o.ck7997]))
-                if (!o.done60 && age >= H60_MS_7731 + graceFor7946(H60_MS_7731)) {
+                val expiredHorizon8239 = unavailableHorizon8239(age, o.done60, o.done240)
+                if (expiredHorizon8239 == 60) {
                     // V5.0.7944 — nothing priced it at its 60-minute horizon: booked at its
-                    // real last price (or -100% when it died), lost only when there is no read.
+                    // real validated last price, unresolved when there is no usable observation.
                     resolveVanished7944(o, 60, nowMs)
                     pending.remove(key, o)
                 } else if (o.done60 && age >= H240_MS_7731 + graceFor7946(H240_MS_7731)) {
-                    if (!o.done240) { o.done240 = true; resolveVanished7944(o, 240, nowMs); pending.remove(key, o) }
+                    if (expiredHorizon8239 == 240) { o.done240 = true; resolveVanished7944(o, 240, nowMs); pending.remove(key, o) }
                     // V5.0.8013 — a coin still on the progressive schedule is kept while unpriced (it left
                     // the watchlist; its checkpoint fetches an off-watch mark); it used to be dropped here,
                     // so the 5 h / 24 h grades almost never happened.
@@ -1432,25 +1486,18 @@ object ForwardReturnLabeler7731 {
                 }
                 continue
             }
-            // V5.0.8167 — validate before rebasing or deleting the observation. The chain witness: a mark the coin's own active bonding curve contradicts is a basis error, not a
-            // move. Rejecting it must leave the entry basis and rebase eligibility unchanged.
-            if (curveContradicts8165(o.mint, px, nowMs)) {
-                curveRefusedMark8165.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_CONTRADICTED_8165") } catch (_: Throwable) {}
-                continue
-            }
-            // V5.0.8167 — corroborate against the OLD basis; rebasing first hides a phantom jump.
-            if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), px, "FORWARD_LABEL")) continue
+            val px = mark.priceUsd
+            val observationAge8239 = mark.observedAtMs - o.atMs
             // V5.0.8076 — the label starts where a buy could actually land: the first mark 5-60 s after the decision.
             // V5.0.8094 — at the lane's MEASURED live fill latency (8094 SHITCOIN ~40 s), not the first mark 5 s out: a coin
             // that pumps between the decision and the fill was graded from a price live never gets, so setups graded
             // positive lost live (-17..-40% stop-outs within minutes).
-            if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {
-              if (age >= rebaseDelayMs8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) {
+            if (!o.rebased8076 && observationAge8239 >= REBASE_MIN_MS_8076) {
+              if (observationAge8239 >= rebaseDelayMs8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) {
                 o.rebased8076 = true
                 // V5.0.8153 — the FIRST mark ever seen (lastPxAtMs survives a restart), past the window: the entry stays unbuyable.
-                if (o.lastPxAtMs == 0L && com.lifecyclebot.engine.cortex.LearningEntryTruth8153.lateFirstPrice8153(age, REBASE_MAX_MS_8076)) noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)
-                if (age <= REBASE_MAX_MS_8076 && !basisSuspect7738(o.entryPrice, px)) {
+                if (o.lastPxAtMs == 0L && com.lifecyclebot.engine.cortex.LearningEntryTruth8153.lateFirstPrice8153(observationAge8239, REBASE_MAX_MS_8076)) noteLateFirstPrice8153(o.mint, o.lane, o.atMs, mark.observedAtMs)
+                if (observationAge8239 <= REBASE_MAX_MS_8076 && !basisSuspect7738(o.entryPrice, px)) {
                     if (px > o.entryPrice) rebasedUp8076.incrementAndGet() else rebasedDown8076.incrementAndGet()
                     rebaseGapSum8076 += (px / o.entryPrice - 1.0) * 100.0
                     o.entryPrice = px
@@ -1460,17 +1507,6 @@ object ForwardReturnLabeler7731 {
                     synchronized(o.recent8071) { o.recent8071.clear() }
                 }
               }
-            }
-            if (basisSuspect7738(o.entryPrice, px) && !runCorroborated7769(
-                    o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint),
-                    try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
-                )) {
-                // V5.0.7738 — not a price move; the observation is dropped unbooked.
-                basisSuspect7738.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_SUSPECT_7738") } catch (_: Throwable) {}
-                pending.remove(key, o)
-                if (!o.done60) try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "BASIS") } catch (_: Throwable) {}  // V5.0.8187
-                continue
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
             if (gross < o.minPct7962) o.minPct7962 = gross
@@ -1485,35 +1521,38 @@ object ForwardReturnLabeler7731 {
             // V5.0.8017 — every 4x+ runner joined to the bot's own position (held? entry vs start? share banked?).
             // V5.0.8018 — a confirmed run (+100% over the decision price inside the hour) can earn a second entry.
             if (gross >= com.lifecyclebot.engine.RunnerPlay8018.RUN_CONFIRM_PCT_8018) try { com.lifecyclebot.engine.RunnerPlay8018.onRun8018(o.mint, gross, nowMs - o.atMs, nowMs) } catch (_: Throwable) {}
-            if (gross >= RunnerCapture8017.RUNNER_PEAK_PCT_8017 && gross > o.peakPct) try { RunnerCapture8017.onRunnerPeak8017(o.mint, o.symbol, o.lane, o.entryPrice, gross, if (o.admitted) "" else o.reason7967.take(40), nowMs) } catch (_: Throwable) {}
-            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs; o.dipBeforePeak7962 = o.minPct7962 }
+            if (gross >= RunnerCapture8017.RUNNER_PEAK_PCT_8017 && gross > o.peakPct) try { RunnerCapture8017.onRunnerPeak8017(o.mint, o.symbol, o.lane, o.entryPrice, gross, if (o.admitted) "" else o.reason7967.take(40), nowMs, peakObservedAtMs8239 = mark.observedAtMs) } catch (_: Throwable) {}
+            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = mark.observedAtMs; o.dipBeforePeak7962 = o.minPct7962 }
             // V5.0.8071 — the level the price held long enough to sell into.
-            synchronized(o.recent8071) { o.heldPeak8071 = heldPeakStep8071(o.recent8071, nowMs, gross, o.heldPeak8071) }
+            synchronized(o.recent8071) { o.heldPeak8071 = heldPeakStep8071(o.recent8071, mark.observedAtMs, gross, o.heldPeak8071) }
             val priorPx7944 = o.lastPx to o.lastPxAtMs
-            o.lastPx = px; o.lastPxAtMs = nowMs
+            val priorPxValidated8239 = o.lastPxValidated8239
+            o.lastPx = px; o.lastPxAtMs = mark.observedAtMs
+            o.lastPxValidated8239 = true
             val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
             // V5.0.7809 — a horizon label is booked only from a mark inside its own
             // window (Field Manual L357): a 15-minute label first priced at minute 70
             // used to book the 70-minute move into the 15-minute cohort.
-            if (!o.done15 && age >= H15_MS_7731) { o.done15 = true; if (horizonOpen7809(age, H15_MS_7731)) captured7945(o, net, gross).let { (n, g) -> book(o, 15, n, g) } else horizonMissed7809.incrementAndGet() }
+            if (!o.done15 && observationAge8239 >= H15_MS_7731) { o.done15 = true; if (mark.atHorizon(o.atMs, H15_MS_7731, graceFor7946(H15_MS_7731))) captured7945(o, net, gross).let { (n, g) -> book(o, 15, n, g) } else horizonMissed7809.incrementAndGet() }
             if (!o.done60 && age >= H60_MS_7731 && !horizonOpen7809(age, H60_MS_7731)) {
                 // Restored after its 60-minute window closed: priced at the last mark seen before it
                 // (V5.0.7944), lost only when there is none inside the window.
                 o.lastPx = priorPx7944.first; o.lastPxAtMs = priorPx7944.second
+                o.lastPxValidated8239 = priorPxValidated8239
                 resolveVanished7944(o, 60, nowMs)
                 pending.remove(key, o)
                 continue
             }
-            if (!o.done60 && age >= H60_MS_7731) {
+            if (!o.done60 && observationAge8239 >= H60_MS_7731) {
                 o.done60 = true
                 bookSixty7944(o, net, gross, nowMs)
             }
             // V5.0.7997 — progressive grading: 15 m, 30 m, 1 h, 4 h, 8 h, 12 h, 24 h while the coin lives.
-            val stop7997 = if (o.done60) checkpoint7997(o, net, gross, age, nowMs) else false
-            if (!o.done240 && age >= H240_MS_7731) {
+            val stop7997 = if (o.done60) checkpoint7997(o, net, gross, observationAge8239, mark.observedAtMs) else false
+            if (!o.done240 && observationAge8239 >= H240_MS_7731) {
                 o.done240 = true
                 val follow8006 = !stop7997 && keepRunning7997(o, gross)
-                if (horizonOpen7809(age, H240_MS_7731)) bookTwoForty7944(o, net, gross, deferExit8006 = follow8006)
+                if (mark.atHorizon(o.atMs, H240_MS_7731, graceFor7946(H240_MS_7731))) bookTwoForty7944(o, net, gross, deferExit8006 = follow8006)
                 else horizonMissed7809.incrementAndGet()
                 if (!follow8006) pending.remove(key, o) else extended7997.incrementAndGet()
             } else if (o.done240 && stop7997) {

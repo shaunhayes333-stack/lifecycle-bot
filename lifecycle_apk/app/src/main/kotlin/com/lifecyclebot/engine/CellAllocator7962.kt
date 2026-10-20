@@ -46,7 +46,7 @@ import kotlin.math.sqrt
  *     existing 7948 rotation (every other rotation rule unchanged);
  *  b) size: fractional-Kelly multiplier from the posterior (0.5x..2.5x), multiplied with
  *     Cortex7885.convictionMult and capped at the same 2.5x; unproven cells stay at 1x; a live
- *     shrink never goes under the routable minimum (shrinking is not a refusal);
+ *     shrink is preserved and the final loss-budget authority decides route viability;
  *  c) watchlist priority: the highest sampled EV per hold minute is processed first.
  * It never bypasses a hard safety, mark, route, wallet or FDG block: it only runs after them.
  */
@@ -270,7 +270,7 @@ object CellAllocator7962 {
 
     private val nodes = ConcurrentHashMap<String, Stat7962>()
 
-    private data class Ref7962(val cell: String, val band: String, val lane: String, val setup: String)
+    internal data class Ref7962(val cell: String, val band: String, val lane: String, val setup: String)
     private data class Waiting7962(val score: Double, val firstAtMs: Long, val lastAtMs: Long)
     private data class TopDemand7962(val score: Double, val atMs: Long)
 
@@ -366,7 +366,7 @@ object CellAllocator7962 {
 
     private fun refFor(ts: TokenState, lane: String, nowMs: Long, withSetup: Boolean): Ref7962 {
         val l = canonLane(lane)
-        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
+        val ageMs = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs) ?: -1L } catch (_: Throwable) { -1L }
         val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts), ageMs)
         val setup = if (!withSetup) "" else try { ExitProfile7955.entrySetup7955(ts, l, nowMs) } catch (_: Throwable) { "" }
         return Ref7962(cell, bandOf(cell), l, setup)
@@ -417,11 +417,28 @@ object CellAllocator7962 {
         }
         val lane = canonLane(env.lane)
         if (lane == "WALLET_RECOVERED") return
-        val ref = refs.remove("${env.mint}|${if (live) "LIVE" else "PAPER"}")?.first
-            ?: Ref7962("", "", lane, "")
+        // Sizing and rival lanes may have touched the same mint since its fill.
+        // The canonical position's durable entry snapshot is the only cohort identity.
+        val snap = try { com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(env.positionId) } catch (_: Throwable) { null }
+        val ref = entryRef8239(env, snap)
+        if (ref.lane == "WALLET_RECOVERED") return
         val holdMin = if (env.holdingTimeMs > 0L) env.holdingTimeMs / 60_000.0 else Double.NaN
         addAll(if (live) EV_LIVE else EV_PAPER, ref, env.realizedReturnPct, if (live) LIVE_WEIGHT_7962 else 1.0, holdMin)
         (if (live) liveCloses else paperCloses).incrementAndGet()
+    }
+
+    /** Immutable close attribution. Missing provenance keeps only the envelope's own lane/setup. */
+    internal fun entryRef8239(env: CanonicalFinalizedTradeBus6464.Envelope,
+                             snap: com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot?): Ref7962 {
+        if (snap == null || snap.positionId != env.positionId || snap.mint != env.mint ||
+            !snap.mode8090.equals(env.mode, true) || snap.mode8090.uppercase() !in setOf("LIVE", "PAPER")) {
+            return Ref7962("", "", canonLane(env.lane), env.entrySetup)
+        }
+        val lane = canonLane(snap.entryLane)
+        val age = snap.entryTokenAgeMs.takeIf { it > 0L } ?: -1L
+        val cell = if (snap.entrySource.isNotBlank() && snap.entryMarketCapUsd.isFinite() && snap.entryMarketCapUsd > 0.0)
+            ForwardReturnLabeler7731.cellKey(snap.entrySource, lane, snap.entryMarketCapUsd, age) else ""
+        return Ref7962(cell, if (cell.isNotBlank()) bandOf(cell) else "", lane, snap.entrySetup)
     }
 
     // ── a) slot competition + rotation ─────────────────────────────────────
@@ -514,8 +531,8 @@ object CellAllocator7962 {
 
     /**
      * TraderSizingBridge6444: [cortexMult] (Cortex7885.convictionMult) times the cell's Kelly
-     * multiple, capped at the one 2.5x size-up ceiling. A live shrink stops at the routable
-     * minimum. Fails back to [cortexMult].
+     * multiple, capped at the one 2.5x size-up ceiling. A live shrink stays a shrink even below the routable
+     * minimum; the final min-promotion loss-budget authority owns viability. Fails back to [cortexMult].
      */
     fun combinedSizeMult7962(cortexMult: Double, mint: String, lane: String, paperMode: Boolean, requestedSol: Double): Double {
         val base = if (cortexMult.isFinite() && cortexMult > 0.0) cortexMult else 1.0
@@ -528,13 +545,10 @@ object CellAllocator7962 {
             val ref = refFor(ts, lane, now, withSetup = true)
             remember(mint, live, ref, now)
             val alloc = kellySizeMult7962(posteriorFor(ref, live), LiveConcentrationDoctrine7697.share(0.0))
-            var total = combinedMult7962(base, alloc)
-            if (live && total < 1.0 && requestedSol > 0.0) {
-                val solUsd = WalletManager.lastKnownSolPrice
-                val routableMin = if (solUsd.isFinite() && solUsd > 0.0)
-                    com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(0.0, solUsd).routableMinSol else 0.0
-                total = if (requestedSol <= routableMin) 1.0 else maxOf(total, routableMin / requestedSol)
-            }
+            val total = combinedMult7962(base, alloc)
+            // 8239: a routable floor cannot erase negative quality sizing. The
+            // final min-promotion authority must prove that the real ticket fits
+            // its loss budget; otherwise this candidate is unexecutable.
             synchronized(sizeMults) {
                 sizeMults.addLast(total)
                 while (sizeMults.size > 200) sizeMults.removeFirst()

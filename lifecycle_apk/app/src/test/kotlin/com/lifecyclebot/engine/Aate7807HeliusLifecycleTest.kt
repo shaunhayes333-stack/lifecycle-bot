@@ -45,9 +45,9 @@ class Aate7807HeliusLifecycleTest {
         val d = desired(ws)
         assertEquals(8, d.size)
         assertTrue("held position must keep its subscription", d.containsKey("HELD_MINT"))
-        assertTrue(d.containsKey("DISCOVERY_399"))
-        assertFalse(d.containsKey("DISCOVERY_0"))
-        assertTrue(HeliusSubscriptionTelemetry7807.evictions.get() > 0)
+        // 8239 fresh tape residency protects equally-prioritised subscriptions.
+        assertTrue(d.containsKey("DISCOVERY_0"))
+        assertFalse(d.containsKey("DISCOVERY_399"))
     }
 
     @Test fun evictedHeldMintIsReArmedByHousekeeping() {
@@ -56,8 +56,8 @@ class Aate7807HeliusLifecycleTest {
         ws.setPinnedMintsProvider7807 { held.toSet() }
         ws.subscribeToken("LATE_BUY")
         for (i in 0 until 200) ws.subscribeToken("SCAN_$i")
-        assertFalse(desired(ws).containsKey("LATE_BUY"))
-        held.add("LATE_BUY") // bought after its discovery slot rolled off
+        assertTrue(desired(ws).containsKey("LATE_BUY")) // fresh lease still resident
+        held.add("LATE_BUY") // promoted to a pinned held position
         ws.ensurePinnedSubscriptions7807()
         assertTrue(desired(ws).containsKey("LATE_BUY"))
         assertEquals(8, desired(ws).size)

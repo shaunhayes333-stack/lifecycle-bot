@@ -21,8 +21,10 @@ class Aate8081HotPathEfficiencyTest {
         val hunt = src("engine/market/LaneHunter7297.kt")
         val block = hunt.substringAfter("val ranked = profiles.associate")
             .substringBefore("val residentPicks7803")
-        assertTrue(block.contains(".sortedByDescending { it.second }"))
-        assertTrue(block.contains(".map { it.first.mint }"))
+        // Precomputed native evidence sorts by tier, conservative net edge then score.
+        assertTrue(block.contains(".sortedWith(compareByDescending<Ranked8239> { it.priority.tier }"))
+        assertTrue(block.contains(".thenByDescending { it.score.takeIf"))
+        assertTrue(block.contains(".map { it.mint }"))
         assertFalse(block.contains(".sortedByDescending { r ->"))
     }
 

@@ -284,7 +284,7 @@ class Aate8144AdmissionTest {
         val d = c.decide8136(candidate(emptyList(), null).copy(missingInputs = listOf("shape:UNKNOWN"), priceAgeMs = Long.MAX_VALUE))
         assertEquals(Terminal8136.DEFER_DATA, d.terminal)
         assertEquals(listOf("shape:UNKNOWN", "price"), c.missingOf8144(d))
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs, l8059)"))
         val admission = src("engine/truth/CandidateAdmission8136.kt")
         assertTrue(admission.contains("coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) ?: decide8136(candidate)"))
         assertTrue(admission.contains("if (h.candidateVersion != candidateVersion || h.mode != mode) return null"))
@@ -300,6 +300,8 @@ class Aate8144AdmissionTest {
         qualified = "MOONSHOT", setup = "LAUNCH_LADDER_PROVEN", admission = "", fdgLane = "", fdgVerdict = "", handoff = "",
         refusedBy = "", downstream = "", markPx = 1.2e-5, windowAtMs = t0 + 5_000L, windowCostPct = 6.5,
         windowCostMeasured = true, route = "CURVE", held = false,
+        peakAtMs8239 = t0 + 3_000_000L, holdingMode8239 = "LIVE", holdingPositionId8239 = "P8144",
+        holdingEntryAtMs8239 = t0 + 10_000L, holdingCloseAtMs8239 = t0 + 3_600_000L, holdingEntryPx8239 = 1.2e-5,
     )
 
     @Test fun replayClassifiesEachMissWithItsRefusingGate() {
@@ -356,7 +358,7 @@ class Aate8144AdmissionTest {
         assertEquals(listOf(Miss8144.WRONGLY_REFUSED, Miss8144.CAPTURED), back.map { r.classify8144(it).miss })
         // Wiring: the runner capture freezes the trace and prints the replay on its status line.
         val rc = src("engine/truth/RunnerCapture8017.kt")
-        assertTrue(rc.contains("AdmissionRunnerTrace8144.capture8144(mint, symbol, lane, startPx, peakPct, r.refusedBy, downstream8047[mint], r.held, nowMs)"))
+        assertTrue(rc.contains("AdmissionRunnerTrace8144.capture8144(mint, symbol, lane, r.startPx, r.peakPct, r.refusedBy, downstream8047[mint], r.held, nowMs)"))
         assertTrue(rc.contains("AdmissionRunnerTrace8144.statusLine8144()"))
         assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason)"))
     }

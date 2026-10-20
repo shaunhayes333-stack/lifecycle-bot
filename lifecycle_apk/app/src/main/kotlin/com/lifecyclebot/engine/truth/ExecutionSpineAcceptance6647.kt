@@ -89,6 +89,9 @@ object ExecutionSpineAcceptance6647 {
  * one uninterrupted 120-second paper window; current-state invariants are
  * read at the closing boundary. */
 object ExecutionSpineAcceptanceWindow6647 {
+    // Give a mid-commit snapshot a bounded settlement period. After this, true
+    // unreconciled financial evidence still fails; never manufacture zero deltas.
+    internal const val ACCOUNTING_SETTLE_GRACE_MS_8240 = 15_000L
     private data class Baseline(
         val atMs: Long,
         val phaseSafety: Long,
@@ -281,6 +284,11 @@ object ExecutionSpineAcceptanceWindow6647 {
                 desks.sumOf { SpecialistCausalFunnel6625.phantomSizedInWindow7809(it, start.atMs, phantomUpToMs7809) }.toLong()
             } catch (_: Throwable) { (end.phantomSizedOnly - start.phantomSizedOnly).coerceAtLeast(0L) }
             val forensic = try { ForensicReconciliation6635.deltas6647() } catch (_: Throwable) { null }
+            if (forensic?.reconciled != true &&
+                duration < ExecutionSpineAcceptance6647.MIN_WINDOW_MS + ACCOUNTING_SETTLE_GRACE_MS_8240) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_SETTLEMENT_GRACE_8240") } catch (_: Throwable) {}
+                return null // Retry the SAME window after the asynchronous commit settles.
+            }
             // A dispatch begun at the sampling edge may still be legitimately in
             // flight; terminal-cardinality applies after a bounded grace period.
             val cardinality = try {

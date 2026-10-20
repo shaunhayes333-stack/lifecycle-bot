@@ -2736,7 +2736,7 @@ class GoldenTapeRegressionTest {
         assertTrue("valid entry snapshots must be stored into TokenState and TokenMetaCache", exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_STORED") && exec.contains("TokenMetaCache.get(ctx).register") && exec.contains("if (snap.marketCapUsd > 0.0) ts.lastMcap = snap.marketCapUsd") && exec.contains("lastLiquidityUsd = snap.liquidityUsd"))
         assertTrue("liveBuy must rehydrate executable snapshot fields from TokenMetaCache before deferring", exec.contains("hydrateMintEntryMarketSnapshotFromCache") && exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_CACHE_HYDRATED") && exec.contains("cached.lastPriceSource") && exec.contains("TOKEN_META_CACHE"))
         assertTrue("intake cache hydration must restore cached price source as well as price/pool/dex", bot.contains("fresh.lastPriceSource = cached.lastPriceSource") && bot.contains("cachedForIntake.lastPriceSource"))
-        assertTrue("live Position and BUY journal rows must stamp snapshot mcap/liquidity/source/pool", exec.contains("entryMcap    = entryMarketSnapshot.marketCapUsd") && exec.contains("entryLiquidityUsd = entryMarketSnapshot.liquidityUsd") && exec.contains("entryMcapUsd = com.lifecyclebot.engine.truth.EntryMcapReconcile8237.reconciled8237(entryMarketSnapshot.marketCapUsd, entryMarketSnapshot.priceUsd, verifiedEntryPrice)") && exec.contains("entryPriceSource = entryMarketSnapshot.priceSource") && exec.contains("entryPoolAddress = entryMarketSnapshot.poolAddress"))
+        assertTrue("live Position and BUY journal rows must stamp snapshot mcap/liquidity/source/pool", exec.contains("entryMcap    = entryMarketSnapshot.marketCapUsd") && exec.contains("entryLiquidityUsd = entryMarketSnapshot.liquidityUsd") && exec.contains("EntryMcapReconcile8237.reconciled8237(entryMarketSnapshot.marketCapUsd, entryMarketSnapshot.priceUsd, verifiedEntryPrice)") && exec.contains("entryPriceSource = entryMarketSnapshot.priceSource") && exec.contains("entryPoolAddress = entryMarketSnapshot.poolAddress"))
         assertTrue("UI must not repair open-position basis from current refs/journal fallbacks", main.contains("UI is not a price-basis authority") && main.contains("OPEN_POSITION_UI_BASIS_WAIT") && main.contains("action=no_ui_repair"))
         assertFalse("UI recovery must not mutate entryPrice from recoveredEntry anymore", main.contains("ts.position = p0.copy") && main.contains("entryPrice = recoveredEntry"))
         assertFalse("UI must not use ts.ref/current fallback as recovered current price", main.contains("existing?.ref, recoveredEntry"))
@@ -11629,7 +11629,7 @@ class GoldenTapeRegressionTest {
         val m = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
         // 7719: the $10k band is the mature end of a fluid floor that starts at $1,500.
         assertTrue(m.contains("val minMcap7266 = minMarketCapUsdFluid7719()"))
-        assertTrue(m.contains("if (marketCapUsd > MAX_MARKET_CAP_USD) {"))
+        assertTrue(m.contains("if (marketCapUsd > MAX_MARKET_CAP_USD && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, \"MOONSHOT\", \"MCAP_TOO_HIGH\")) {"))
         assertTrue(m.contains("val minLiq = minLiqStatic"))
         val a = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotFreshLaunchAdmission7044.kt").readText()
         assertTrue(a.contains("const val MCAP_FLOOR_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD"))
@@ -14101,14 +14101,15 @@ class GoldenTapeRegressionTest {
         // Labeler: a decision-time price up to ten minutes old may start a label; open observations persist and restore.
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         // V5.0.7946 — the entry-mark window tightened to 90 s and the persisted keys were renamed;
-        // later versions widened the pending row format (17..34 fields).
+        // later versions widened the pending row format (17..35 fields).
         assertTrue(lab.contains("private const val ENTRY_MARK_MAX_AGE_MS_7735 = 90_000L"))
-        assertTrue(lab.contains("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
-        assertTrue(lab.indexOf("fromRegistry != null -> {") < lab.indexOf("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
+        assertTrue(lab.contains("tsPriced && tsAge in 0L..ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
+        assertTrue(lab.indexOf("fromRegistry != null -> {") < lab.indexOf("tsPriced && tsAge in 0L..ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
         assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now))"))
         assertTrue(lab.contains("restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())"))
-        assertTrue(lab.contains("if (f.size !in 17..34) return@forEach"))
+        assertTrue(lab.contains("if (f.size !in 17..35) return@forEach"))
+        assertTrue(lab.contains("if (f.size >= 35) o.lastPxValidated8239 = f[34] == \"1\""))
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
