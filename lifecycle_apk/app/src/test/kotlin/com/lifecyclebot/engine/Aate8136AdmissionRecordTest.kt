@@ -163,8 +163,13 @@ class Aate8136AdmissionRecordTest {
         // bad execution economics (expected move under 2x the round trip) is refused too
         val econ = CandidateAdmission8136.decide8136(best.copy(expectedGrossPct = 8.0, costPct = 6.0))
         assertEquals("EXECUTION_ECONOMICS_8136", econ.reason)
-        // a cell proven losing refuses even with a supported setup
-        val cellLosing = CandidateAdmission8136.decide8136(best.copy(cell = Evidence8136("CELL", "C", 80, -9.0, 2.0)))
+        // V5.0.8240 — a cell proven losing is a lane-wide prior: a SUPPORTED fired setup is the token-specific strategy and
+        // carries it (8241 runner ledger: MONPAD +30584% / KimWhale +2962% MISSED on CELL_PROVEN_LOSING with a supported setup).
+        val cellCarried = CandidateAdmission8136.decide8136(best.copy(cell = Evidence8136("CELL", "C", 80, -9.0, 2.0)))
+        assertEquals(Terminal8136.ADMIT, cellCarried.terminal)
+        assertTrue(cellCarried.trace.any { it.contains("carried by supported setup") })
+        // without a supported setup the cell prior still refuses
+        val cellLosing = CandidateAdmission8136.decide8136(best.copy(setups = emptyList(), cell = Evidence8136("CELL", "C", 80, -9.0, 2.0)))
         assertEquals("CELL_PROVEN_LOSING_8136", cellLosing.reason)
     }
 
