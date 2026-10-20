@@ -469,9 +469,11 @@ object LaneExecutionCoordinator {
 
     /** New evidence may change an unclaimed election, never an execution owner already sealed. */
     fun invalidateUnsealedEvidence8253(mint: String) {
-        // ConcurrentHashMap removes only the matching value; a concurrent sealed replacement survives.
+        // Remove only the matching value; a concurrent sealed replacement survives.
         // Do not acquire the election monitor from provider publication callbacks.
-        elections.entries.removeIf { it.value.key.mint == mint && !it.value.sealed }
+        elections.forEach { (key, election) ->
+            if (election.key.mint == mint && !election.sealed) elections.remove(key, election)
+        }
     }
 
     fun currentElection6600(
