@@ -2,7 +2,17 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8235 (Oct 2026) — last-mile chokepoints to a live buy (8234 CI green; 8235 CI pending at write time)
+## CURRENT: V5.0.8246 (Oct 2026) — one admission path, a council not a veto chain, the runner capture as evidence
+See `memory/audits/v5_0_8241_log_audit.md` (full issue table from the 8241 runtime log). 8236 input truth across every
+trader/lane; 8237 YEARN forensic (entry mcap reconcile, runner peak arithmetic, exit reason preserved, one balance proof);
+8238 live = proven evidence only + Cortex walk-forward/median door; 8239 shadow book observed basis; 8240 supported setup
+carries a losing cell; **8243 StrategyElection8243** (owner = lane whose candidate-specific admission is a proven ADMIT;
+spike rule / learned fresh-launch prior stand down for it); **8244** trunk Field Manual+TradePlan+Council refuse only
+together, CellProof stands down for ADMIT, 429 = 1 min rest; **8245** test alignment; **8246** RunnerGrab7967 grab is
+admission evidence (`runnerGrab8245`). Operator principles recorded in the audit. CI for 8243–8246 pending at write time.
+Operator funded the PumpPortal key wallet (verify PUMP_TRADE_EVENT_7278 rises in the next log).
+
+## V5.0.8235 (Oct 2026) — last-mile chokepoints to a live buy (8234 CI green; 8235 CI pending at write time)
 See `memory/audits/v5_0_8232_8235_last_mile.md`. 8233 runtime: 144 FDG approvals died in `LiveRiskPolicy7807.decide` (71 route-min
 loss budget → 8234; 50 NET_EV_NONPOSITIVE on generic admits with no `Proof8198` → 8235), MOONSHOT refused 5604 natives on
 rugcheck `-1` (unfetched) → 8235, Pump trade stream AUTH_DENIED (PumpPortal key wallet < 0.02 SOL — operator must fund; now in the
