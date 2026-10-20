@@ -69,7 +69,7 @@ class Aate8080TradeFirstTest {
         assertTrue(door > 0)
         assertTrue(door < g.indexOf("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))
         // the proven-losing exact setup is still refused after any admission door
-        assertTrue(g.contains("LanePlaybook7907.provenLosingSetupRefusal8079(ts, l8079, nowMs)"))
+        assertTrue(g.contains("LanePlaybook7907.provenLosingNamedSetupRefusal(l8079, boundSetup)"))
     }
 
     @Test fun tokenMapDataExhaustionIsNamedNotABuyFailure() {

@@ -204,7 +204,7 @@ class Aate8153StrategyTest {
         assertTrue(src("engine/ExitProfile7955.kt").contains("LanePlaybook7907.selectedSetup8094(ts, canon(lane), nowMs)"))
         assertTrue(src("engine/FinalDecisionGate.kt").contains("strategy = (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, System.currentTimeMillis())"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(gate.indexOf("CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion)") in 0 until gate.indexOf("val setup8083 = try {"))
+        assertTrue(gate.indexOf("CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion)") in 0 until gate.indexOf("val setup8083 = admittedSetup(admission8136)"))
     }
 
     // ── P2: false runner refusals ─────────────────────────────────────────────
