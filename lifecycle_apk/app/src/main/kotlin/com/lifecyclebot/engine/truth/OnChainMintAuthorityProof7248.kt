@@ -27,6 +27,22 @@ object OnChainMintAuthorityProof7248 {
         val mutableExtension8136: String? = null,
     )
 
+    /** A missing parsed field is unknown, not a revoked authority. Only mint accounts can prove mint safety. */
+    internal fun parseAccountProof8253(value: JSONObject, provider: String): Proof? {
+        val owner = value.optString("owner")
+        if (owner != "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" &&
+            owner != "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb") return null
+        val parsed = value.optJSONObject("data")?.optJSONObject("parsed") ?: return null
+        if (parsed.optString("type") != "mint") return null
+        val info = parsed.optJSONObject("info") ?: return null
+        if (!info.has("mintAuthority") || !info.has("freezeAuthority")) return null
+        val mintAuth = info.opt("mintAuthority")
+        val freezeAuth = info.opt("freezeAuthority")
+        if (listOf(mintAuth, freezeAuth).any { it != JSONObject.NULL && (it !is String || it.isBlank()) }) return null
+        return Proof(mintAuth == JSONObject.NULL, freezeAuth == JSONObject.NULL, provider,
+            hostileExtension8123(info.optJSONArray("extensions")), mutableExtension8136(info.optJSONArray("extensions")))
+    }
+
     /**
      * V5.0.8136 — extensions whose config a live authority can still change after the proof: a transfer-fee authority
      * can raise the fee, a transfer-hook authority can install a hook. Extensions themselves are fixed at mint init,
@@ -186,18 +202,10 @@ object OnChainMintAuthorityProof7248 {
                     if (!resp.isSuccessful) { miss8094("HTTP_${resp.code}"); return@use }
                     val value = JSONObject(resp.body?.string().orEmpty()).optJSONObject("result")?.optJSONObject("value")
                     if (value == null) { miss8094("ACCOUNT_NOT_FOUND"); return@use }
-                    val info = value.optJSONObject("data")
-                        ?.optJSONObject("parsed")
-                        ?.optJSONObject("info") ?: run { miss8094("NOT_PARSED"); return@use }
-                    val mintAuth = info.opt("mintAuthority")
-                    val freezeAuth = info.opt("freezeAuthority")
-                    val proof = Proof(
-                        mintAuthorityDisabled = mintAuth == null || mintAuth == JSONObject.NULL,
-                        freezeAuthorityDisabled = freezeAuth == null || freezeAuth == JSONObject.NULL,
-                        provider = provider,
-                        hostileExtension8123 = hostileExtension8123(info.optJSONArray("extensions")),
-                        mutableExtension8136 = mutableExtension8136(info.optJSONArray("extensions")),
-                    )
+                    val proof = parseAccountProof8253(value, provider) ?: run {
+                        miss8094("INVALID_OR_INCOMPLETE_MINT_ACCOUNT")
+                        return@use // Keep trying eligible RPC providers; this is not a safety verdict.
+                    }
                     // V5.0.8136 — an answer impossible after an immutable-clean proof is not trusted either way.
                     val state8136 = AuthorityProofState8136.observe8136(
                         mint, proof.freezeAuthorityDisabled, proof.mintAuthorityDisabled,
