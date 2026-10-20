@@ -219,6 +219,9 @@ object SellAmountAuthority {
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=BUY stage=OWNER_DELTA_CACHE_RECORD mint=${mint.take(10)} raw=$rawAmount decimals=$decimals sig=${txSignature.take(12)}") } catch (_: Throwable) {}
     }
 
+    /** A fully observed empty wallet map contributes one zero observation, not sell authority. */
+    internal fun completeEmptyCountsAsAbsent8241(complete: Boolean): Boolean = complete
+
     fun resolve(mint: String, wallet: SolanaWallet?): Resolution {
         if (mint.isBlank()) return Resolution.Unknown
         val w = wallet ?: return Resolution.Unknown
@@ -240,11 +243,19 @@ object SellAmountAuthority {
             return Resolution.Unknown
         }
         if (balances.isEmpty()) {
-            // Both token-program reads succeeded and found no positive balances.
-            // Still UNKNOWN for one-shot sell authority; independent zero finality
-            // is owned by reconciler/two-provider proof.
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_RPC_CONFIRMED_EMPTY mint=${mint.take(10)} walletLoaded=true") } catch (_: Throwable) {}
-            ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=RPC_CONFIRMED_EMPTY mint=${mint.take(8)}…")
+            // V5.0.8241: an empty COMPLETE two-token-program enumeration is an
+            // absence observation, just like a complete nonempty map missing the mint.
+            // This remains UNKNOWN to a one-shot sell. Two separated observations
+            // AND independent provider corroboration own zero finality downstream.
+            val complete8241 = try {
+                !com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial()
+            } catch (_: Throwable) { false }
+            if (completeEmptyCountsAsAbsent8241(complete8241)) {
+                noteAbsentFromComplete7733(mint, System.currentTimeMillis())
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_COMPLETE_EMPTY_EVIDENCE_8241") } catch (_: Throwable) {}
+            } else absentFromComplete7733.remove(mint)
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY",
+                "side=SELL stage=BALANCE_RPC_CONFIRMED_EMPTY mint=${mint.take(10)} complete8241=$complete8241 action=await_independent_zero_proof") } catch (_: Throwable) {}
             return Resolution.Unknown
         }
         val entry = balances[mint]

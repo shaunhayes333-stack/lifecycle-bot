@@ -247,7 +247,9 @@ class Aate8191DataPipelineTest {
 
     @Test fun anEvaluatedCoinJoinsTheKeyedTradeStream() {
         val o = src("engine/DataOrchestrator.kt")
-        assertTrue(o.contains("if (keys.any { it in TRADE_FED_INPUTS_8191 }) try { PumpFunWS.watchForSetup8191(mint) } catch (_: Throwable) {}"))
+        assertTrue(o.contains("if (keys.any { it in TRADE_FED_INPUTS_8191 }) {"))
+        assertTrue(o.contains("try { PumpFunWS.watchForSetup8191(mint) } catch (_: Throwable) {}"))
+        assertTrue(o.contains("heliusWs?.subscribeToken(mint, if (completed) 2 else 1)"))
         assertTrue(o.contains("refreshSources8191(mint, keys)"))
         val w = src("network/PumpFunWS.kt")
         assertTrue(w.contains("val drop = tradeSubscriptions7278 - wanted - lifecycleMints7420.keys - setupMints8191.keys"))

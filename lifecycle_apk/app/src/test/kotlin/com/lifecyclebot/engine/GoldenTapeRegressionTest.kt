@@ -11629,7 +11629,7 @@ class GoldenTapeRegressionTest {
         val m = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
         // 7719: the $10k band is the mature end of a fluid floor that starts at $1,500.
         assertTrue(m.contains("val minMcap7266 = minMarketCapUsdFluid7719()"))
-        assertTrue(m.contains("if (marketCapUsd > MAX_MARKET_CAP_USD) {"))
+        assertTrue(m.contains("if (marketCapUsd > MAX_MARKET_CAP_USD && !com.lifecyclebot.engine.NativeRuleReview8239.retires8239(mint, \"MOONSHOT\", \"MCAP_TOO_HIGH\")) {"))
         assertTrue(m.contains("val minLiq = minLiqStatic"))
         val a = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotFreshLaunchAdmission7044.kt").readText()
         assertTrue(a.contains("const val MCAP_FLOOR_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD"))
@@ -14103,8 +14103,8 @@ class GoldenTapeRegressionTest {
         // V5.0.7946 — the entry-mark window tightened to 90 s and the persisted keys were renamed;
         // later versions widened the pending row format (17..34 fields).
         assertTrue(lab.contains("private const val ENTRY_MARK_MAX_AGE_MS_7735 = 90_000L"))
-        assertTrue(lab.contains("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
-        assertTrue(lab.indexOf("fromRegistry != null -> {") < lab.indexOf("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
+        assertTrue(lab.contains("tsPriced && tsAge in 0L..ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
+        assertTrue(lab.indexOf("fromRegistry != null -> {") < lab.indexOf("tsPriced && tsAge in 0L..ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
         assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now))"))
         assertTrue(lab.contains("restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())"))

@@ -19,6 +19,7 @@ class Aate8216HandoffPoolTest {
     @Test fun windowUsesExtendedPool() {
         val s = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HandoffThroughput8190.kt").readText()
         assertTrue(s.contains("val pool = poolWithLiveTargets8216(targets, all, nowMs)"))
-        assertTrue(s.contains("select8190(targets, pool).also { accountDropped8198(targets, pool, it, nowMs) }"))
+        assertTrue(s.contains("select8190(targets, pool, lastAdmittedAt = lastWorkerAdmissionAt, lastUnavailableAt = lastUnavailableAttemptAt)"))
+        assertTrue(s.contains(".also { accountDropped8198(targets, pool, it, nowMs) }"))
     }
 }

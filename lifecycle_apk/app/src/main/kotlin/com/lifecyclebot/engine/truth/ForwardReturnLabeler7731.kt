@@ -1257,18 +1257,23 @@ object ForwardReturnLabeler7731 {
         if (at > cutoff) at = 0L
         // V5.0.8180 — the same basis rule as the main mark loop: a registry / last mark the entry cannot share a basis with
         // is no read at all (5.0.8175 BAND|*|MC_GT1M +1,500-1,700% with basisSuspect7738=0 came through this path).
+        var basisInvalid8241 = false
         if (px > 0.0 && o.entryPrice > 0.0 && !LabelBasis8180.bookable8180(o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint),
                 try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 })) {
             basisSuspect7738.incrementAndGet()
             try { PipelineHealthCollector.labelInc("FORWARD_LABEL_VANISHED_BASIS_SUSPECT_8180") } catch (_: Throwable) {}
             at = 0L
+            basisInvalid8241 = true
         }
         val gross = if (px > 0.0 && o.entryPrice > 0.0) (px / o.entryPrice - 1.0) * 100.0 else Double.NaN
         when (classifyVanished7944(gross, if (at > o.atMs) at - o.atMs else 0L, horizonMs)) {
             Vanished7944.GAP -> if (horizon == 60) {
                 markLost(o)
                 // V5.0.8187 — the Cortex files the decision unresolved now (it lingered unlabelled until a 90-minute prune).
-                try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "GAP") } catch (_: Throwable) {}
+                try {
+                    if (basisInvalid8241) com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "BASIS")
+                    else com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "GAP")
+                } catch (_: Throwable) {}
             }
             Vanished7944.DEAD -> {
                 vanishedDead7944.incrementAndGet()

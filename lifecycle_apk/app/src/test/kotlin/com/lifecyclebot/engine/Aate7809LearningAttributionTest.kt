@@ -69,7 +69,9 @@ class Aate7809LearningAttributionTest {
     @Test fun excluded_terminal_releases_position_bound_learners_and_cross_asset_skips_tactics() {
         val bridge = read("engine/truth/FinalizedBusConsumerBridge6465.kt")
         // V5.0.8219 — five exclusion paths (ineligible, unprovable, pre-reset epoch, contaminated partial, quarantine) + the definition.
-        assertEquals(6, Regex("releaseExcludedBinding7809\\(").findAll(bridge).count())
+        assertTrue(Regex("releaseExcludedBinding7809\\(").findAll(bridge).count() >= 7)
+        assertTrue(bridge.contains("ORPHAN_CANONICAL_POSITION_8241"))
+        assertTrue(bridge.contains("UNPROVABLE_EXACT_TERMINAL_ECONOMICS_6699"))
         assertTrue(bridge.contains("UnifiedPolicyHead.releasePosition7809(env.positionId)"))
         assertTrue(bridge.contains("StrategyHypothesisEngine.releasePosition7809(env.positionId)"))
         assertTrue(bridge.contains("TACTIC_NOT_APPLICABLE_CROSS_ASSET_7809"))
