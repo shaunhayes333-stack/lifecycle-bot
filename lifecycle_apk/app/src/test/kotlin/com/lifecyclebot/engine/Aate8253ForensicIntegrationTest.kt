@@ -187,7 +187,7 @@ class Aate8253ForensicIntegrationTest {
         val quote = HeldExitQuote8189.Quote8189(0.00004283, 100_000L, before)
         assertTrue(HeldExitQuote8189.matchesQuantity(quote, before, 101_000L))
         assertFalse(HeldExitQuote8189.matchesQuantity(quote, after, 101_000L))
-        assertFalse(HeldExitQuote8189.matchesQuantity(quote, before, 105_000L))
+        assertFalse(HeldExitQuote8189.matchesQuantity(quote, before, 100_000L + HeldExitQuote8189.QUOTE_FRESH_MS_8189 + 1L))   // V5.0.8262: 20 s window
     }
 
     @Test fun runnerIntentSurvivesTheActualEntrySerializationAndPromotion() {

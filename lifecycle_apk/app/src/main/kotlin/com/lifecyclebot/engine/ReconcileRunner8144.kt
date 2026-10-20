@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
 import com.lifecyclebot.engine.truth.CanonicalTokenAmount
+import com.lifecyclebot.engine.truth.GhostCloseFromFinalizedSell8264
 import com.lifecyclebot.engine.truth.ReconcileClassifier8144
 import com.lifecyclebot.engine.truth.ReconcileLineageLedger8144
 import java.math.BigInteger
@@ -104,8 +105,20 @@ object ReconcileRunner8144 {
         val missing = report.exceptions.filter { it.cause == ReconcileClassifier8144.Cause8144.CHAIN_BOT_HOLDING_NOT_CANONICAL }
             .mapTo(HashSet()) { it.mint }
         if (missing.isNotEmpty()) try { LiveCanonicalRecovery6686.requestAdoptionAsync7718(missing) } catch (_: Throwable) {}
+        // V5.0.8264 — a canonical row the complete chain read proves gone AND a finalized journaled sell of its whole
+        // quantity explains: close it with that sell (8261: three such ghosts stayed ARMED protective inventory).
+        try {
+            val failed = inputs.txs.filter { it.state in setOf("FAILED_ON_CHAIN", "EXPIRED_PROVEN", "SUBMIT_REJECTED") && it.signature.isNotBlank() }
+                .mapTo(HashSet()) { it.signature }
+            val closed = GhostCloseFromFinalizedSell8264.closeProven8264(
+                report.exceptions, inputs.lots, inputs.journal.filter { ReconcileClassifier8144.isSellLike8144(it.side) },
+                failed, inputs.chain, inputs.chainComplete)
+            if (closed.isNotEmpty()) ghostClosed8264.addAndGet(closed.size)
+        } catch (_: Throwable) {}
         return report
     }
+
+    private val ghostClosed8264 = java.util.concurrent.atomic.AtomicInteger(0)
 
     private fun gather8144(nowMs: Long): ReconcileClassifier8144.Inputs8144 {
         val parentMints = HashSet<String>()
@@ -223,6 +236,6 @@ object ReconcileRunner8144 {
         ReconcileClassifier8144.statusLine8144(last, if (lastAtMs > 0L) nowMs - lastAtMs else 0L, runs.get(), lastError) +
             " | ${try { ReconcileLineageLedger8144.statusLine8144() } catch (_: Throwable) { "lineage8144 unavailable" }}" +
             " dupSigBlocked=${ReconcileSignatureGuard8144.blockedCount8144()} started=${started.get()}" +
-            " sigRecovered8169=$sigRecovered8169 sigAmbiguous8169=$sigAmbiguous8169" +
+            " sigRecovered8169=$sigRecovered8169 sigAmbiguous8169=$sigAmbiguous8169 ghostClosed8264=${ghostClosed8264.get()}" +
             (try { PositionProof8189.block8189(nowMs) } catch (_: Throwable) { "" })
 }
