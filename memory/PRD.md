@@ -2,7 +2,24 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8250 (Oct 2026) — exit finality on a two-provider absent wallet (8246 runtime: DqPWFV)
+## CURRENT: V5.0.8255 (Oct 2026) — 8252 mandate repairs + integration of ChatGPT's repair/8253-integrated-forensics
+- 8252 (CI green): curve account IS the tape (reserve deltas → side/SOL/tokens prints, deduped vs keyed streams),
+  curve subs near-decision first 32→48, launch-cap proxy stands down on proven curve buyers.
+- 8253 (CI green): runner-entry intent stamped at ADMIT (RunnerPlan keeps RUNNER_SEALED over a sealed scalp style);
+  one 3-state launch-buyer verdict (early gate + door); arrived evidence wakes held defers; unexecuted ticket names
+  the executor stop; NetEdge breakdown thread-local.
+- 8254: ExitReasonInvariant8253 (runner stops/breaks are not failed profit claims → stay in learning); reconciler
+  prints examined-rows vs wallet-inventory coverage separately; RUNNER_FUNNEL_8254_* stage counters.
+- 8255: merged `repair/8253-integrated-forensics` (ChatGPT, 19 commits / 76 files; its Build AATE APK was green on
+  a3f0d301c, its emulator Runtime Smoke failed on a bootstrap stall TRADER_CRYPTO_ALT_INIT 41 s + ANR). Its APK
+  publication lock on runtime evidence was removed (APK publishes on green build; UNVERIFIED name on failed tests);
+  `ci/release_runtime_gate.py` + test deleted. Their doc: `docs/forensics/8253-integrated-repair.md`.
+- Open (honest): no runtime log on ≥8252 yet; live expectancy unproven (8251 PF 0.05, 8253 report PF 0.10);
+  12-lane end-to-end fixtures, Cortex walk-forward, per-position exit latency trace, PROJECT_SNIPER birth
+  witnesses, EXPRESS NO_CONTINUATION (+9.8% refused set) still open. Audits: memory/audits/v5_0_8251_runtime_specialist_trace.md,
+  v5_0_8252_mandate_repairs.md.
+
+## V5.0.8250 (Oct 2026) — exit finality on a two-provider absent wallet (8246 runtime: DqPWFV)
 Operator's 8246 runtime: reset restored live trading (15 sealed, 4 buys, 2 sells, SHITCOIN −4.6% / MOONSHOT −14.5%,
 −0.0056 SOL). Faults: DqPWFV CATASTROPHE latched, 8 redispatches, `SELL_ROUTE_BALANCE_PROBE` CONFIRMED_ABSENT (2
 providers), tracker STALE_RECOVERY_UNPROVEN, canonical still open 48,664,757,393 raw (the "486,647" figure is the UI

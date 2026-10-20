@@ -996,7 +996,17 @@ object LiveEdgeGate7877 {
         ts: TokenState, lane: String, why: String, nowMs: Long, candidateVersion: Long = 0L,
         candidateAdmission: CandidateAdmission8136.Decision8136? = null,
     ): String? {
-        if (why != StrategyWatch8153.THIN_CELL_8153) return null
+        if (why != StrategyWatch8153.THIN_CELL_8153 && why != "WATCH_FIRST_7994_CELL_NEGATIVE") return null
+        // V5.0.8256 — the lane cell measured negative is the same lane-wide prior 8240 ranks below the candidate's own
+        // supported setup inside the admission; it releases on that record only (not on a thin-cell basis).
+        if (why == "WATCH_FIRST_7994_CELL_NEGATIVE") {
+            val admission = candidateAdmission ?: try { CandidateAdmission8136.assess8136(ts, lane, nowMs, candidateVersion) } catch (_: Throwable) { null }
+            if (admission != null && admission.admitted && admission.specific) {
+                try { PipelineHealthCollector.labelInc("WATCH_FIRST_CELL_NEGATIVE_YIELDS_TO_SUPPORTED_SETUP_8256") } catch (_: Throwable) {}
+                return "SUPPORTED_SETUP_8256"
+            }
+            return null
+        }
         val tier = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedTier8153(ts, lane, nowMs) } catch (_: Throwable) { null }
         if (StrategyRank8153.evidenced8153(tier)) return StrategyWatch8153.release8153(why, tier, false, false, false, false)
         val kind = try { ForwardReturnLabeler7731.kindStatsFor8063(ts, lane).any { cellProven8060(it.n60, it.meanNet60Pct, it.stderr60Pct) } } catch (_: Throwable) { false }
@@ -1126,7 +1136,16 @@ object LiveEdgeGate7877 {
         val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) } catch (_: Throwable) { null }
         // Shape is an independently measured loss rule and remains binding even for a positive setup/cell elsewhere.
         if (shape != null && com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, shape)) return null
-        if (shape != null) {
+        // V5.0.8256 — 5.0.8255 (433 s): admission8136 ADMIT=244, FDG allow=0; 116 of those admits died here on
+        // lane-wide shape bins (AGE_MIN_60-240 n107, PEAK_POS_0.70-0.88, AGE_MIN_3-15). A bin keyed on age / peak
+        // position across the whole lane is a generic prior; the admission that reached this line is the candidate's
+        // own supported setup (specific == true, its record positive after one SE). The generic bin does not out-rank
+        // the specific record: it stands down and is counted. Hard safety, economics, sizing and the proven-negative
+        // records (setup / stage / cell) are untouched — they refuse inside the admission itself.
+        if (shape != null && candidateSpecificAdmission8136) {
+            try { PipelineHealthCollector.labelInc("LIVE_EDGE_SHAPE_YIELDS_TO_CANDIDATE_ADMISSION_8256") } catch (_: Throwable) {}
+            notePositive7975(ts.mint, nowMs)
+        } else if (shape != null) {
             TradeShapeLearner7883.noteRefusal(l, shape)
             refused.computeIfAbsent("$l|SHAPE") { AtomicLong(0) }.incrementAndGet()
             return "EDGE_7877_$shape"
