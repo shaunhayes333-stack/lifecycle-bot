@@ -67,9 +67,30 @@ object ProfitExitTruth8163 {
         if (cost == null) return refused(ts, "MISSING_CONFIRMED_SLICE_BASIS", releaseLocks)
         val slip = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
         val quote = try { jupiter.getQuote(inputMint = ts.mint, outputMint = JupiterApi.SOL_MINT, amountRaw = raw, slippageBps = slip) }
-            catch (_: Exception) { return refused(ts, "EXECUTABLE_QUOTE_UNAVAILABLE", releaseLocks) }
-        reconcileMark8237(ts, raw, quote.outAmount)
-        return if (clears(cost, quote.outAmount, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "EXECUTABLE_SOL_BELOW_SLICE_COST", releaseLocks)
+            catch (_: Exception) { null }
+        if (quote != null && !com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.quoteMatchesHolding(quote, ts.mint, BigInteger.valueOf(raw)))
+            return refused(ts, "QUOTE_IDENTITY_MISMATCH", releaseLocks)
+        val outLamports = preflightProceeds(quote, ts.mint, raw) {
+            // This is an estimate only; the selected venue still validates the signed route.
+            val position = CanonicalPositionAuthority6441.getPosition(ts.position.positionId)
+            position?.let { com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.venueReserveSellEstimate(
+                ts.mint, BigInteger.valueOf(raw), it.quantityScale, WalletManager.lastKnownSolPrice) }
+        } ?: return refused(ts, "EXECUTABLE_QUOTE_UNAVAILABLE", releaseLocks)
+        if (quote == null) PipelineHealthCollector.labelInc("PROFIT_EXIT_VENUE_RESERVE_ESTIMATE_8253")
+        reconcileMark8237(ts, raw, outLamports)
+        return if (clears(cost, outLamports, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) true else refused(ts, "EXECUTABLE_SOL_BELOW_SLICE_COST", releaseLocks)
+    }
+
+    internal fun preflightProceeds(quote: SwapQuote?, mint: String, raw: Long,
+        venue: () -> com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.SellEstimate?): Long? {
+        if (raw <= 0L) return null
+        if (quote != null) return quote.outAmount.takeIf {
+            com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.quoteMatchesHolding(quote, mint, BigInteger.valueOf(raw))
+        }
+        val estimate = venue() ?: return null
+        if (!estimate.proceedsSol.isFinite() || estimate.proceedsSol <= 0.0) return null
+        return try { java.math.BigDecimal.valueOf(estimate.proceedsSol).movePointRight(9)
+            .setScale(0, RoundingMode.DOWN).longValueExact().takeIf { it > 0L } } catch (_: ArithmeticException) { null }
     }
 
     /** Recheck the actual route at every retry, so an earlier quote cannot authorize a later losing fill. */

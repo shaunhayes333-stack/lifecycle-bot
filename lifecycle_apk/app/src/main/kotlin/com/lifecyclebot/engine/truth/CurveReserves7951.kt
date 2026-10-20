@@ -128,9 +128,6 @@ object CurveReserves7951 {
         }
     }
 
-    fun activeReserves8198(mint: String, nowMs: Long, maxAgeMs: Long): Pair<Double, Double>? =
-        activeExitObservation(mint, nowMs, maxAgeMs)?.let { it.virtualSol to it.virtualTokens }
-
     fun priceSolFor7951(mint: String, nowMs: Long, maxAgeMs: Long): Double {
         val r = rows[mint.trim()] ?: return 0.0
         if (nowMs - r.atMs !in 0L..maxAgeMs) return 0.0

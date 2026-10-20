@@ -13,12 +13,12 @@ class Aate7545RiskClockCanonicalMarkTest {
 
     private fun code(text: String) = text.lines().filterNot { it.trim().startsWith("//") }.joinToString("\n")
 
-    @Test fun risk_clock_reads_only_canonical_exit_mark() {
+    @Test fun risk_clock_reads_canonical_held_observations_without_requiring_profit_authority() {
         val s = bot()
         val block = s.substringAfter("CanonicalRiskClock6454.start { positionId, mint ->")
             .substringBefore("// V5.0.7222")
         assertTrue(block.contains("riskClockMark7960(mint, ts6882, now7545)"))
-        assertTrue(markHelper(s).contains("CanonicalMarkPurpose6570.EXIT_ECONOMIC"))
+        assertTrue(markHelper(s).contains("CanonicalPriceMarkRegistry6522.heldRiskMark(mint)"))
         assertTrue(block.contains("RISK_CLOCK_CANONICAL_EXIT_MARK_READ_7545"))
         assertTrue(block.contains("preResolvedMark6891 = exitMarkPx7545"))
         assertTrue(block.contains("copy(markAgeMs = exitMarkAge7545)"))

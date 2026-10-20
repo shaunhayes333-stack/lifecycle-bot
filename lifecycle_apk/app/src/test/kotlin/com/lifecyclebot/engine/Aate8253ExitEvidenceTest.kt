@@ -43,6 +43,23 @@ class Aate8253ExitEvidenceTest {
         assertFalse(HeldHotMarkAuthority7419.quoteMatchesHolding(q.copy(outAmount = 0L), mint, qty))
     }
 
+    @Test fun unavailableAggregatorUsesObservedVenueButNeverAnInvalidQuote() {
+        val raw = 94_997_985_906L
+        val estimate = HeldHotMarkAuthority7419.SellEstimate(0.000019, 0.017368608, 1L, "VENUE_RESERVE_POOL")
+        assertEquals(17_368_608L, ProfitExitTruth8163.preflightProceeds(null, mint, raw) { estimate })
+        assertFalse(ProfitExitTruth8163.clears(0.017925, 17_368_608L, 100))
+        assertTrue(ProfitExitTruth8163.clears(0.017925, 21_000_000L, 100))
+        assertNull(ProfitExitTruth8163.preflightProceeds(null, mint, raw) { null })
+        val wrong = SwapQuote(JSONObject(), 99_000_000L, 0.0, inputMint = "another-mint",
+            outputMint = JupiterApi.SOL_MINT, inAmount = raw)
+        assertNull(ProfitExitTruth8163.preflightProceeds(wrong, mint, raw) {
+            fail("An identity mismatch must not silently fall back")
+            estimate
+        })
+        assertFalse(ProfitExitTruth8163.profitTaking("MANUAL_SELL"))
+        assertFalse(ProfitExitTruth8163.profitTaking("STOP_LOSS"))
+    }
+
     @Test fun curveEstimateRetainsObservationTimeAndCannotSpendVirtualSol() {
         val at = System.currentTimeMillis() - 500L
         CurveReserves7951.noteAccount7951(mint, 40.0, 1_000_000.0, 0.000001, at)
