@@ -107,7 +107,7 @@ object CurveTicks7968 {
      * The first snapshot and a rewrite that moved nothing stay price-only. DataOrchestrator decides whether a keyed
      * stream already delivered this mint's trade (then the print stays price-only, nothing is counted twice).
      */
-    data class Reserves8252(val vTok: Double, val vSol: Double)
+    data class Reserves8252(val vTok: Double, val vSol: Double, val realSol: Double = Double.NaN)
     data class CurveTrade8252(val sol: Double, val tokens: Double, val isBuy: Boolean)
 
     /** Pure: the virtual reserves of an active curve account, or null (short, empty or complete). */
@@ -118,8 +118,8 @@ object CurveTicks7968 {
             for (i in 7 downTo 0) v = (v shl 8) or (b[off + i].toLong() and 0xFF)
             return if (v < 0) v.toULong().toDouble() else v.toDouble()
         }
-        val vTok = u64(8); val vSol = u64(16)
-        return if (vTok > 0.0 && vSol > 0.0) Reserves8252(vTok, vSol) else null
+        val vTok = u64(8); val vSol = u64(16); val realSol = u64(32)
+        return if (vTok > 0.0 && vSol > 0.0) Reserves8252(vTok, vSol, realSol) else null
     }
 
     /** Pure: the executed trade between two reserve snapshots (SOL and tokens in UI units), or null when none is stated. */
@@ -266,6 +266,14 @@ object CurveTicks7968 {
         // unless a keyed stream already delivered this mint. Otherwise (first snapshot, no movement, stream covered):
         // V5.0.8169 — the curve's own price reaches the executed-trade tape (price only: change / shape, never buy pressure).
         val cur = decodeReserves8252(bytes)
+        // V5.0.8257 — the tick IS a curve account reading: filed with the reserves authority so liquidity / mcap
+        // hydration (LiquidityTruth8037 via LaunchCohort8173) and the launch-buyer verdict read it without waiting on
+        // the RPC batch. 5.0.8256: SHITCOIN NATIVE_LANE_LIQ_UNHYDRATED_DEFER=745, MOONSHOT MCAP_UNHYDRATED_DEFER=905
+        // on curve coins whose account this socket was streaming.
+        if (cur != null) try {
+            com.lifecyclebot.engine.truth.CurveReserves7951.noteAccount7951(mint, cur.vSol / 1e9, cur.vTok / 1e6, cur.realSol / 1e9)
+            PipelineHealthCollector.labelInc("CURVE_TICK_RESERVES_FILED_8257")
+        } catch (_: Throwable) {}
         val trade = if (cur != null) tradeBetween8252(lastReserves8252.put(mint, cur), cur) else null
         val taped = trade != null && (try { onTrade8252(mint, px, trade.sol, trade.isBuy) } catch (_: Throwable) { false })
         if (taped) {

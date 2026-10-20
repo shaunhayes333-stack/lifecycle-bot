@@ -189,6 +189,19 @@ object CandidateAdmission8136 {
     fun losing8136(e: Evidence8136?): Boolean =
         e != null && e.n >= LOSING_MIN_N_8136 && e.upperPct.isFinite() && e.upperPct < 0.0
 
+    /**
+     * V5.0.8257 §A_THIN_BOOK_MUST_NOT_LOCK_ITSELF — 5.0.8256 (327 s): FDG 0 allow / 1,424 block, of which SETUP_RECORD_LOSING
+     * 296 + TIMING_ADVERSE 177 + CELL/STAGE 235 + PROVEN_SETUP_ONLY 148 were learned-negative records on an 18-trade,
+     * PF 0.10 book; the operator reset learning and the bot bought at once. A record of 12+ labels whose mean sits
+     * one SE below zero refused live as if proven, so a lane that had lost a dozen forward labels could never trade
+     * to earn the next ones. A thin record binds live only when the loss is CLEAR on its own sample — mean two SE
+     * below zero (the n>=30 proven form is unchanged). Inside the one-SE band it is advisory: traced, counted, and the
+     * candidate falls through to the edge test, where without a supported setup it is a generic-prior candidate
+     * (generic floor / exploration slot), never a bypass of economics or safety.
+     */
+    fun clearlyLosing8136(e: Evidence8136?): Boolean =
+        losing8136(e) && e != null && (provenLosing8136(e) || (e.meanPct + 2.0 * e.sePct) < 0.0)
+
     /** Pure: proven losing — [PROVEN_LOSING_MIN_N_8136]+ labels and mean + SE below [PROVEN_LOSING_PCT_8136]. */
     internal fun provenLosing8136(e: Evidence8136?): Boolean =
         e != null && e.n >= PROVEN_LOSING_MIN_N_8136 && e.upperPct.isFinite() && e.upperPct < PROVEN_LOSING_PCT_8136
@@ -298,10 +311,14 @@ object CandidateAdmission8136 {
             //    lets the proven-losing setup trade ("carried by cell" admitted it under SPECIFIC_EDGE_PROVEN).
             if (bestSetup == null) {
                 trace += "setupLosing=${selectedRec?.compact}${if (cellSupported) " cellSupported=${c.cell?.compact} names_no_strategy" else ""}"
-                return done(Terminal8136.REFUSE, "SETUP_RECORD_LOSING_8136", true, c.selectedSetup)
+                // V5.0.8257 — a thin record inside one SE of zero is advisory, not a live refusal (see clearlyLosing8136).
+                if (clearlyLosing8136(selectedRec)) return done(Terminal8136.REFUSE, "SETUP_RECORD_LOSING_8136", true, c.selectedSetup)
+                trace += "setupLosingThin=advisory"
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SETUP_RECORD_LOSING_THIN_ADVISORY_8257") } catch (_: Throwable) {}
+            } else {
+                trace += "altSetup=${bestSetup.compact} over ${selectedRec?.compact}"
+                chooseSetup(bestSetup.id)
             }
-            trace += "altSetup=${bestSetup.compact} over ${selectedRec?.compact}"
-            chooseSetup(bestSetup.id)
         }
         // V5.0.8169 — a loss pattern refuses on the record graded since the epoch; an older one is noted and decays to
         //    neutral (the candidate goes on to the generic prior — never to an ADMIT the stale record cannot support).
@@ -359,7 +376,10 @@ object CandidateAdmission8136 {
         }
         if (chosen == c.selectedSetup && losing8136(c.timing) && !cellSupported) {
             trace += "timing=${c.timing?.compact}"
-            return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
+            // V5.0.8257 — the same thin-record rule as the setup record: a clear loss refuses, a one-SE band is advisory.
+            if (clearlyLosing8136(c.timing)) return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
+            trace += "timingThin=advisory"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TIMING_ADVERSE_THIN_ADVISORY_8257") } catch (_: Throwable) {}
         }
 
         val chosenRec = c.setups.firstOrNull { it.id == chosen }
