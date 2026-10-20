@@ -12027,7 +12027,8 @@ class GoldenTapeRegressionTest {
         val p = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OnChainMintAuthorityProof7248.kt").readText()
         assertTrue(p.contains("val endpoints = (publicEps7365.take(maxProviders.coerceIn(1, 5)) + heliusEps7365.take(1))"))
         assertTrue(p.contains("provenDisabled7365[mint]?.let {"))
-        assertTrue(p.contains("if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled) {"))
+        assertTrue(p.contains("if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled &&"))
+        assertTrue(p.contains("proof.hostileExtension8123 == null && proof.mutableExtension8136 == null"))
         assertTrue(p.contains("unansweredAt7365[mint]?.let { at -> if (now7365 - at < UNANSWERED_RETRY_MS_7365) return null }"))
         // Unknown still blocks: the gate is unchanged.
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FreezeAuthorityHardBlock7238.kt").readText()
@@ -15063,7 +15064,7 @@ class GoldenTapeRegressionTest {
 
     @Test fun V5_0_8079_proven_losing_setup_has_no_side_door_and_is_graded_per_setup() {
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
-        assertTrue(g.indexOf("provenLosingSetupRefusal8079") in 1 until g.indexOf("if (chartAdmits7950(ts, lane, nowMs)) return null"))
+        assertTrue(g.indexOf("provenLosingNamedSetupRefusal(l8079, boundSetup)") in 1 until g.indexOf("if (chartAdmits7950(ts, lane, nowMs)) return null"))
         assertEquals("PLAYBOOK_SETUP_PROVEN_LOSING@EXPRESS_LAUNCH_CONTINUATION",
             com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf("PLAYBOOK_SETUP_PROVEN_LOSING_7907_EXPRESS_LAUNCH_CONTINUATION"))
     }

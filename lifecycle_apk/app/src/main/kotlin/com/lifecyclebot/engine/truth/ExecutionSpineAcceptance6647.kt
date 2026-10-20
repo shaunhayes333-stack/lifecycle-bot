@@ -387,6 +387,7 @@ object ExecutionSpineAcceptanceWindow6647 {
                         (try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "UNAVAILABLE" })
                             .take(520)
                     }")
+                    append(" incompleteReceipts=${CanonicalEconomicEvent6635.incompleteReceipts8253()}")
                     if ("PHANTOM_SIZED_ONLY" in result.failures) {
                         for (desk in desks) {
                             val snap = try { SpecialistCausalFunnel6625.laneSnapshot6647(desk) } catch (_: Throwable) { null }

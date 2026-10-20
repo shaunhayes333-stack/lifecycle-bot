@@ -15,7 +15,7 @@ class Aate7418Remaining7409RegressionTest {
         assertTrue(r.contains("CRYPTO_EVAL_SOFT_LEASE_EXPIRED_7418"))
     }
 
-    @Test fun sane_absurd_mark_repair_preserves_indicative_versus_executable_authority() {
+    @Test fun sane_absurd_mark_repair_is_published_to_exit_authority() {
         val p = src("engine/OpenPnlSanity.kt")
         val m = src("engine/truth/CanonicalPriceMark6522.kt")
         assertTrue(p.contains("publishRepairedExitEconomic7418"))

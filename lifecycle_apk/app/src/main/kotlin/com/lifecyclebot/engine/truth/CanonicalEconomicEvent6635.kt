@@ -330,6 +330,20 @@ object CanonicalEconomicEvent6635 {
         }
     }
 
+    /** Diagnostic only: retain exact identity and real receipts for incomplete
+     * transactions. Numeric parity must never conceal an unfinished commit. */
+    fun incompleteReceipts8253(nowMs: Long = System.currentTimeMillis()): String =
+        events.values.mapNotNull { state ->
+            synchronized(state) {
+                if (state.terminal == Terminal.COMMITTED || state.terminal == Terminal.FAILED) null
+                else state.event.timestampMs to (
+                    "id=${state.event.economicEventId};position=${state.event.positionId};" +
+                    "side=${state.event.side};terminal=${state.terminal};" +
+                    "ageMs=${(nowMs - state.event.timestampMs).coerceAtLeast(0L)};" +
+                    state.snapshotCommittedFlags().replace(' ', ';'))
+            }
+        }.sortedBy { it.first }.take(8).joinToString("|") { it.second }.ifEmpty { "none" }
+
     /** Resolve the OPEN event for a positionId (BUY committed, no matching terminal SELL). */
     fun openEventForPosition(positionId: String): Event? {
         if (positionId.isBlank()) return null

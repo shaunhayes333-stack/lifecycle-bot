@@ -75,4 +75,21 @@ class CanonicalEconomicEvent6635Test {
         assertNotNull(ev)
         assertEquals(id, ev!!.economicEventId)
     }
+    @Test fun incomplete_receipts_name_exact_event_and_do_not_change_commit_authority() {
+        val id = "full-event-identity-longer-than-thirty-characters"
+        val event = buy(id, "full-position-identity-longer-than-twenty-four").copy(timestampMs = 1000L)
+        CanonicalEconomicEvent6635.openEvent(event)
+        CanonicalEconomicEvent6635.markCommitted(id, Store.LEDGER, "test")
+        val detail = CanonicalEconomicEvent6635.incompleteReceipts8253(3000L)
+        assertTrue(detail.contains("id=$id;position=${event.positionId};"))
+        assertTrue(detail.contains("ageMs=2000"))
+        assertTrue(detail.contains("pos=false;led=true;jrn=false;flt=false;term=false"))
+        assertFalse(CanonicalEconomicEvent6635.isCommitted(id))
+        assertTrue(CanonicalEconomicEvent6635.forensicReconciliationLine6635().contains("status=FAILED"))
+        Store.values().filter { it != Store.LEDGER }.forEach {
+            CanonicalEconomicEvent6635.markCommitted(id, it, "test")
+        }
+        assertEquals("none", CanonicalEconomicEvent6635.incompleteReceipts8253(3000L))
+    }
+
 }

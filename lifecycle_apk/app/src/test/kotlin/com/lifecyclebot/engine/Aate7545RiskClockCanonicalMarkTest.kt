@@ -13,7 +13,7 @@ class Aate7545RiskClockCanonicalMarkTest {
 
     private fun code(text: String) = text.lines().filterNot { it.trim().startsWith("//") }.joinToString("\n")
 
-    @Test fun risk_clock_reads_canonical_held_observations_without_requiring_profit_authority() {
+    @Test fun risk_clock_reads_only_canonical_exit_mark() {
         val s = bot()
         val block = s.substringAfter("CanonicalRiskClock6454.start { positionId, mint ->")
             .substringBefore("// V5.0.7222")

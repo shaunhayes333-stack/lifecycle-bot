@@ -24,7 +24,7 @@ class Aate8079SetupSelectionTest {
 
     @Test fun provenLoserIsCheckedBeforeChartReaderAndSpecialistDoors() {
         val g = src("engine/truth/LiveEdgeGate7877.kt")
-        val check = g.indexOf("LanePlaybook7907.provenLosingSetupRefusal8079(ts, l8079, nowMs)")
+        val check = g.indexOf("LanePlaybook7907.provenLosingNamedSetupRefusal(l8079, boundSetup)")
         assertTrue(check > 0)
         assertTrue(check > g.indexOf("cortex7950?.let { return it }"))
         assertTrue(check < g.indexOf("if (chartAdmits7950(ts, lane, nowMs)) return null"))
