@@ -951,9 +951,26 @@ object FinalDecisionGate {
         // let unpredicted buys through. A buy with no measured edge stays paper.
         liveEdgeBlock7877(ts, candidate, admissionLane, paper, mode, candidateVersion, candidateAdmission)?.let { return it }
         if (specialistLane.isNullOrBlank()) {
-            return fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)
-                ?: tradePlanBlock7739(ts, candidate, specialistLane, admissionLane, paper, mode, candidateVersion, candidateAdmission)
-                ?: councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, paper, mode)
+            // V5.0.8244 §A_COUNCIL_NOT_A_VETO_CHAIN — the Field Manual, the trade plan and the council are three brains
+            // reading the same candidate; on the trunk path each alone could abandon it. One dissent is now advisory
+            // (counted, carried in telemetry); the trunk candidate is refused only when all three say no. Hard safety,
+            // the live edge authority above, economics, sizing, risk and the buy door are not council members.
+            val manual = fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)
+            val plan = tradePlanBlock7739(ts, candidate, specialistLane, admissionLane, paper, mode, candidateVersion, candidateAdmission)
+            val council = councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, paper, mode)
+            val dissent = listOfNotNull(manual, plan, council)
+            if (dissent.isEmpty()) return null
+            if (dissent.size == 3) {
+                try { PipelineHealthCollector.labelInc("FDG_COUNCIL_UNANIMOUS_REFUSAL_8244") } catch (_: Throwable) {}
+                return manual
+            }
+            try {
+                PipelineHealthCollector.labelInc("FDG_COUNCIL_DISSENT_ADVISORY_8244")
+                if (manual != null) PipelineHealthCollector.labelInc("FDG_COUNCIL_DISSENT_FIELD_MANUAL_8244")
+                if (plan != null) PipelineHealthCollector.labelInc("FDG_COUNCIL_DISSENT_TRADE_PLAN_8244")
+                if (council != null) PipelineHealthCollector.labelInc("FDG_COUNCIL_DISSENT_COUNCIL_8244")
+            } catch (_: Throwable) {}
+            return null
         }
         try {
             val manual = fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)
@@ -985,9 +1002,19 @@ object FinalDecisionGate {
         laneName: String,
         paper: Boolean,
         mode: TradeMode,
+        candidateAdmission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136? = null,
     ): FinalDecision? = try {
         val lane = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: laneName
-        val reason = com.lifecyclebot.engine.truth.CellProofLadder7731.liveBlockReason(ts, lane, paper)
+        val raw = com.lifecyclebot.engine.truth.CellProofLadder7731.liveBlockReason(ts, lane, paper)
+        // V5.0.8244 — the cell (source|lane|mcap|age) is a lane-wide prior the candidate admission has already weighed
+        // against this coin's SUPPORTED strategy (8240: a supported setup carries a losing cell). A candidate-specific
+        // ADMIT is not re-vetoed by the same prior read a second time here.
+        val admitted8244 = candidateAdmission != null && candidateAdmission.specific &&
+            candidateAdmission.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT
+        val reason = if (raw != null && admitted8244) {
+            try { PipelineHealthCollector.labelInc("CELL_PROOF_STOOD_DOWN_FOR_ADMITTED_STRATEGY_8244_$lane") } catch (_: Throwable) {}
+            null
+        } else raw
         if (reason != null) SpecialistOwnership7951.notePreIntent7951(lane, "FDG_$reason") // V5.0.7951
         if (reason == null) null else FinalDecision(
             shouldTrade = false,
@@ -1817,7 +1844,7 @@ object FinalDecisionGate {
             ts, candidate, specialistLane, laneName, laneScore, config.paperMode, proposedSizeSol, mode,
             candidateVersion7623, floorLane7266, candidateAdmission8136,
         )?.let { return it }
-        cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }
+        cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)?.let { return it }
         freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)?.let { return it }
 
         val overlayLane = laneName

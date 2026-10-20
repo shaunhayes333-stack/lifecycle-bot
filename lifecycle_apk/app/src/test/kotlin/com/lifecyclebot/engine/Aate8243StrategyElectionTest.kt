@@ -66,4 +66,17 @@ class Aate8243StrategyElectionTest {
         assertTrue(fdg.contains("raw == \"FRESH_LAUNCH_SETUP_STOPS_FIRST_7737\" && admitted8243"))
         assertTrue(fdg.contains("freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)"))
     }
+
+    // V5.0.8244 — a council, not a veto chain.
+    @Test fun oneDissentIsAdvisoryOnlyAUnanimousCouncilRefusesAndTheCellPriorIsNotReadTwice() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("val dissent = listOfNotNull(manual, plan, council)"))
+        assertTrue(fdg.contains("if (dissent.size == 3) {"))
+        assertTrue(fdg.contains("FDG_COUNCIL_DISSENT_ADVISORY_8244"))
+        assertTrue(fdg.contains("cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)"))
+        assertTrue(fdg.contains("CELL_PROOF_STOOD_DOWN_FOR_ADMITTED_STRATEGY_8244_"))
+        // a 429 is a per-minute quota: one minute first, doubling, half an hour at most
+        assertEquals(60_000L, com.lifecyclebot.engine.chart.ChartSources7955.backoffMs7955(429, 0, false))
+        assertEquals(240_000L, com.lifecyclebot.engine.chart.ChartSources7955.backoffMs7955(429, 2, false))
+    }
 }

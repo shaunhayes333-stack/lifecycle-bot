@@ -141,7 +141,10 @@ object ChartSources7955 {
         return when {
             challenge || code == 401 || code == 403 -> 6L * 3_600_000L
             code == 402 -> 24L * 3_600_000L
-            code == 429 -> (10L * 60_000L shl s).coerceAtMost(2L * 3_600_000L)
+            // V5.0.8244 — a 429 is a per-minute quota, not an outage: 8241 session rested DexScreener 10 min on its first
+            // strike (backoff 418s), 299 OHLCV seeds skipped on provider cooldown, shape/chg unobserved -> DATA_INCOMPLETE.
+            // One minute first, doubling per strike, half an hour at most; 401/403/402 and 5xx policies unchanged.
+            code == 429 -> (60_000L shl s).coerceAtMost(30L * 60_000L)
             code < 0 || code >= 500 -> (30_000L shl s).coerceAtMost(30L * 60_000L)
             else -> 0L
         }

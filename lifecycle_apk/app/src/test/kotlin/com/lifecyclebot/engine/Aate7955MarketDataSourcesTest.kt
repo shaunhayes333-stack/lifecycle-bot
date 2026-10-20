@@ -90,8 +90,8 @@ class Aate7955MarketDataSourcesTest {
     @Test fun backoffChallengeAndFairness() {
         assertEquals(6L * 3_600_000L, ChartSources7955.backoffMs7955(403, 0, false))
         assertEquals(6L * 3_600_000L, ChartSources7955.backoffMs7955(200, 0, true))
-        assertEquals(10L * 60_000L, ChartSources7955.backoffMs7955(429, 0, false))
-        assertEquals(2L * 3_600_000L, ChartSources7955.backoffMs7955(429, 6, false))
+        assertEquals(60_000L, ChartSources7955.backoffMs7955(429, 0, false))
+        assertEquals(30L * 60_000L, ChartSources7955.backoffMs7955(429, 6, false))
         assertEquals(0L, ChartSources7955.backoffMs7955(404, 0, false))
         assertTrue(ChartSources7955.backoffMs7955(-1, 0, false) in 1L..30L * 60_000L)
         assertTrue(ChartParsers7955.isChallenge7955(403, "<html><title>Just a moment...</title>"))
