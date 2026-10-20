@@ -284,7 +284,7 @@ class Aate8144AdmissionTest {
         val d = c.decide8136(candidate(emptyList(), null).copy(missingInputs = listOf("shape:UNKNOWN"), priceAgeMs = Long.MAX_VALUE))
         assertEquals(Terminal8136.DEFER_DATA, d.terminal)
         assertEquals(listOf("shape:UNKNOWN", "price"), c.missingOf8144(d))
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs, l8059)"))
         val admission = src("engine/truth/CandidateAdmission8136.kt")
         assertTrue(admission.contains("coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) ?: decide8136(candidate)"))
         assertTrue(admission.contains("if (h.candidateVersion != candidateVersion || h.mode != mode) return null"))

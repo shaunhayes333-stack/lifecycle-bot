@@ -476,11 +476,11 @@ object LiveEdgeGate7877 {
                     // V5.0.8180 — first, so the mapped inputs (price / economics / core -> liq / chg / shape / bp) take the per-mint request.
                     try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missing.map { it.replace("liquidity:", "liq:") }, nowMs) } catch (_: Throwable) {}
-                    val budgetOpen8204 = CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)
+                    val budgetOpen8204 = CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs, l8059)
                     // V5.0.8204 — a deferral that exhausts its budget with the SAME inputs still missing was never answered by
                     // the fetch it requested: that is a provider/queue terminal, not the candidate's, and it is named so and
                     // re-requested once at LIVE priority (near-decision coin first) rather than left to expire quietly.
-                    val unanswered8204 = !budgetOpen8204 && CandidateAdmission8136.deferUnanswered8204(ts.mint, missing, nowMs)
+                    val unanswered8204 = !budgetOpen8204 && CandidateAdmission8136.deferUnanswered8204(ts.mint, missing, nowMs, l8059)
                     if (unanswered8204) try {
                         PipelineHealthCollector.labelInc("DATA_DEFER_FETCH_NEVER_COMPLETED_8204")
                         missing.forEach { PipelineHealthCollector.labelInc("DATA_DEFER_FETCH_NEVER_COMPLETED_8204_" + it.substringBefore(':').take(16).uppercase()) }
@@ -650,7 +650,7 @@ object LiveEdgeGate7877 {
      */
     private fun dataDefer8136(ts: TokenState, lane: String, setup: String?, nowMs: Long): String? {
         val missing = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return null
-        if (!CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)) return null  // V5.0.8144 — coalesced per mint + missing feature
+        if (!CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs, lane)) return null  // V5.0.8144 — coalesced per mint + missing feature
         // V5.0.8180 — the deferral asks for what it waits for (it only spent budget: TZERO +1,884% waited, nothing fetched).
         try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
         val r = DATA_DEFER_REASON_8136

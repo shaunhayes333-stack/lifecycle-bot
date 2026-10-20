@@ -473,12 +473,21 @@ object CandidateAdmission8136 {
     fun deferOpen8136(s: Defer8136, nowMs: Long): Boolean =
         s.count <= DEFER_MAX_8136 && nowMs - s.firstMs in 0L..DEFER_WINDOW_MS_8136
 
+    // 8242: one mint can be evaluated by twelve independent specialists.
+    // Budget accounting is per specialist; feature fetches remain single-flight.
+    internal fun deferScope8242(mint: String, laneRaw: String): String {
+        if (laneRaw.isBlank()) return mint
+        val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase()
+            .ifBlank { laneRaw.trim().uppercase() }
+        return "$"+"mint|$"+"lane"
+    }
+
     private val defers8136 = ConcurrentHashMap<String, Defer8136>()
 
     /** Counts one DATA_INCOMPLETE re-evaluation of [mint]; false once its bounded window is spent (the ordinary refusal then stands). */
-    fun deferBudget8136(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun deferBudget8136(mint: String, nowMs: Long = System.currentTimeMillis(), laneRaw: String = ""): Boolean {
         if (mint.isBlank()) return false
-        val s = defers8136.compute(mint) { _, p -> nextDefer8136(p, nowMs) } ?: return false
+        val s = defers8136.compute(deferScope8242(mint, laneRaw)) { _, p -> nextDefer8136(p, nowMs) } ?: return false
         if (defers8136.size > 4_000) defers8136.entries.removeIf { nowMs - it.value.firstMs >= DEFER_RESET_MS_8136 }
         val open = deferOpen8136(s, nowMs)
         if (!open) try { PipelineHealthCollector.labelInc("ADMISSION_DEFER_WINDOW_SPENT_8136") } catch (_: Throwable) {}
@@ -632,21 +641,22 @@ object CandidateAdmission8136 {
      * V5.0.8204 — the inputs this mint was FIRST deferred on (per deferral window). Exhausting the budget while every one
      * of them is still missing means the requested fetch never completed. Pure given the recorded first set.
      */
-    fun deferUnanswered8204(mint: String, missingNow: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun deferUnanswered8204(mint: String, missingNow: List<String>, nowMs: Long = System.currentTimeMillis(), laneRaw: String = ""): Boolean {
         if (mint.isBlank()) return false
-        val first = firstMissing8204[mint] ?: return false
+        val first = firstMissing8204[deferScope8242(mint, laneRaw)] ?: return false
         return first.isNotEmpty() && missingNow.map { it.trim() }.containsAll(first)
     }
 
-    fun deferBudgetFor8144(mint: String, missing: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean {
-        if (mint.isNotBlank()) {
-            val prev = defers8136[mint]
-            if (prev == null || nowMs < prev.firstMs || nowMs - prev.firstMs >= DEFER_RESET_MS_8136) firstMissing8204[mint] = missing.map { it.trim() }.filter { it.isNotBlank() }.toSet()
-            if (firstMissing8204.size > 4096) firstMissing8204.keys.take(1024).forEach { firstMissing8204.remove(it) }
-        }
+    fun deferBudgetFor8144(mint: String, missing: List<String>, nowMs: Long = System.currentTimeMillis(), laneRaw: String = ""): Boolean {
         if (mint.isBlank()) return false
-        if (scheduleDue8144(mint, features8144(missing), nowMs)) return deferBudget8136(mint, nowMs)
-        val s = defers8136[mint] ?: return deferBudget8136(mint, nowMs)
+        val scope8242 = deferScope8242(mint, laneRaw)
+        val prev = defers8136[scope8242]
+        if (prev == null || nowMs < prev.firstMs || nowMs - prev.firstMs >= DEFER_RESET_MS_8136)
+            firstMissing8204[scope8242] = missing.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        if (firstMissing8204.size > 4096) firstMissing8204.keys.take(1024).forEach { firstMissing8204.remove(it) }
+        // Only the retry ledger is lane-scoped; requests still coalesce by mint+feature.
+        if (scheduleDue8144(mint, features8144(missing), nowMs)) return deferBudget8136(mint, nowMs, laneRaw)
+        val s = defers8136[scope8242] ?: return deferBudget8136(mint, nowMs, laneRaw)
         coalesced8144.incrementAndGet()
         try { PipelineHealthCollector.labelInc("ADMISSION_REEVAL_COALESCED_8144") } catch (_: Throwable) {}
         return deferOpen8136(s, nowMs)

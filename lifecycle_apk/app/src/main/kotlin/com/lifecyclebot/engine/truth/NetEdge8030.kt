@@ -171,7 +171,7 @@ object NetEdge8030 {
         // (bounded, coalesced per mint) instead of being refused as slow on two candles (StrategyMove8153).
         val move = executableMove8153(ts, lane, mandate, cost)
         if (StrategyMove8153.needsDefer8153(move, cost) &&
-            CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153))) {
+            CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153), laneRaw = lane)) {
             historyDeferred8153.incrementAndGet()
             // The evidence the deferral waits for is asked for now: the candle seed and a forced poll (1h change, depth).
             try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, listOf("shape:HISTORY_SPARSE", "chg:UNOBSERVED", "liq:REFRESH")) } catch (_: Throwable) {}

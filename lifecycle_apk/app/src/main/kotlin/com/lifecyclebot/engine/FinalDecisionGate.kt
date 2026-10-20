@@ -1312,6 +1312,19 @@ object FinalDecisionGate {
             !admission.chosenSetup.isNullOrBlank() && admission.expectedNetPct.isFinite() && admission.expectedNetPct > 0.0
     }
 
+    /** An elected specialist's measured positive ADMIT survives a generic WAIT
+     * whose legacy base reason was empty; true negative/safety signals never do. */
+    internal fun specificNativeWait8242(
+        candidate: CandidateDecision, specialistLane: String?,
+        admission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
+    ): Boolean {
+        if (specialistLane.isNullOrBlank() || candidate.blockReason.isNotBlank() || candidate.edgeVeto) return false
+        if (candidate.signal.equals("SELL", true) || candidate.signal.equals("HARD_NO_BUY", true)) return false
+        if (!candidate.finalSignal.ifBlank { candidate.signal }.equals("WAIT", true)) return false
+        return admission?.let { it.admitted && it.specific && it.basis.isNotBlank() &&
+            it.expectedNetPct.isFinite() && it.expectedNetPct > 0.0 } == true
+    }
+
     private fun baseSignalVerdict8203(
         candidate: CandidateDecision,
         laneNameForBaseSignal: String?,
@@ -1325,12 +1338,21 @@ object FinalDecisionGate {
         if (blockReason != null) return null to false
         if (candidate.blockReason.isEmpty()) {
             val nativeWait8210 = nativeGenericWait8210(candidate, specialistLane, candidateAdmission8136)
-            checks.add(GateCheck("candidate_block", true, if (nativeWait8210) "qualified native WAIT superseded by positive admission 8210" else null))
+            val specificWait8242 = specificNativeWait8242(candidate, specialistLane, candidateAdmission8136)
+            checks.add(GateCheck("candidate_block", true, when {
+                specificWait8242 -> "measured specific admission supersedes blank-reason WAIT 8242"
+                nativeWait8210 -> "qualified native WAIT superseded by positive admission 8210"
+                else -> null
+            }))
             if (nativeWait8210) {
                 tags.add("native_wait_admitted_8210")
                 try { PipelineHealthCollector.labelInc("FDG_NATIVE_GENERIC_WAIT_ADMITTED_8210") } catch (_: Throwable) {}
             }
-            return null to nativeWait8210
+            if (specificWait8242) {
+                tags.add("specific_wait_admitted_8242")
+                try { PipelineHealthCollector.labelInc("FDG_SPECIFIC_BLANK_WAIT_ADMITTED_8242") } catch (_: Throwable) {}
+            }
+            return null to (nativeWait8210 || specificWait8242)
         }
         // V5.0.8207 — LifecycleStrategy's "Edge veto: <reason>" block is the legacy edge filter's judgement surfaced on the
         // candidate; it is the same judgement as the sticky record and obeys the same class rule (GENERIC_PRIOR yields to a
@@ -6209,7 +6231,12 @@ object FinalDecisionGate {
         } else 0.0
         // V5.0.8209 — the admission's net-of-cost proof was quoted at proposedSizeSol; a materially different sealed size is re-quoted here.
         val sealedCostOk8209 = executableSize7835 <= 0.0 || sealedCostHolds8209(ts, canonicalPrimaryLane6658, candidateAdmission8136, executableSize7835, checks)
-        if (!sealedCostOk8209 && blockReason == null) blockReason = "ADMISSION_COST_REQUOTE_FAILED_8209"
+        // This is a last-stage economic veto: return the reason that the
+        // FinalDecision actually serialises, not an obsolete local copy.
+        if (!sealedCostOk8209) {
+            blockReasonFinal = "ADMISSION_COST_REQUOTE_FAILED_8209"
+            blockLevelFinal = BlockLevel.EDGE
+        }
 
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
             shouldTrade = shouldTradeFinal &&
