@@ -31,7 +31,11 @@ object PairFlow8169 {
         if (mint.length < 32 || f.atMs <= 0L) return
         val prev = flows[mint]
         if (prev != null && prev.atMs > f.atMs) return
-        flows.compute(mint) { _, current -> if (current != null && current.atMs > f.atMs) current else f }
+        var published = false
+        flows.compute(mint) { _, current ->
+            if (current != null && current.atMs > f.atMs) current else { published = true; f }
+        }
+        if (!published) return
         noted.incrementAndGet()
         // Every actual pair producer wakes its consumers, not just DataOrchestrator's poll.
         CandidateAdmission8136.evidenceArrived8252(mint, CandidateAdmission8136.PAIR_FEATURES_8252, f.atMs)

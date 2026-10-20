@@ -29,7 +29,8 @@ Still open: unified provider capability/fallback coverage; all twelve actual exe
 
 - Initial Gradle wrapper attempt failed resolving services.gradle.org. Official Gradle 8.7 and Android SDK 34 installed in the workspace; build now reaches Kotlin compilation.
 - Static comment-balance and authority-contradiction checks passed, including the reserve-delivery and runner serialization edits. Final suite verification remains pending.
-- Full debug unit test run in progress; no test pass recorded.
+- Initial debug Kotlin compilation completed; Java compilation failed because this environment has a JRE without jlink. Installing a full JDK before rerunning. No behavioral test pass recorded.
+- CI commit d68bb492 passed all static gates and reached release compilation; emulator smoke remains in progress. These runs do not cover later working edits.
 - Release compilation, CI, installation/upgrade, startup, shadow parity, transaction replay and route evidence validation: not completed.
 - No signed release APK delivered. No live order sent. No profitability claim. ADB reports no connected devices; /dev/kvm is unavailable.
 
@@ -43,3 +44,10 @@ Still open: unified provider capability/fallback coverage; all twelve actual exe
 - LivePipelineTrace6431 has real writers in LiveEdgeGate7877 and Executor added by 8224, despite its stale source comment. Coverage coherence still needs audit; it is not an entirely unwritten counter in this baseline.
 - CORE and CYCLIC use different runtime scheduling paths. Removing their rescue exclusions alone would consume slots without adding executable receivers; those exclusions have not been blindly removed.
 - LivePendingAttempt7868 stores pending broadcast bindings only in memory. The opened-position runner snapshot is now persisted, but restart between submission and confirmed opening remains an unresolved evidence-persistence path.
+
+## Further confirmed evidence-delivery defects
+
+- Held reserve estimates expire after 20 seconds, but OnChainDepth8038.request8038 previously refused a refresh while its 90-second admission cache remained fresh. The consumer now supplies its required age; valid cached reads and acquisition timestamps share that contract. Regression covers a 25-second read accepted for admission but stale for exit valuation, future timestamps and invalid reserves.
+- A fresh spot mark previously prevented the held hot worker from requesting a quantity-bound quote. Every held Solana position now asks the independent debounced quote service; scheduling does not count as successful data. The global EXIT_ECONOMIC spot authority still requires repair.
+- DexScreener pair-flow timestamps now use request acquisition time, and a concurrently superseded pair response does not announce a successful publication.
+- The 8253 regression classes are now explicit required CI tests. Failed builds no longer upload an unverified APK; full diagnostic/test artifacts remain retained.

@@ -10,6 +10,16 @@ import java.math.BigInteger
 
 /** Regression fixtures from the 19:33 report; these are not on-chain replay evidence. */
 class Aate8253ForensicIntegrationTest {
+    @Test fun heldReserveRefreshUsesExitWindowInsteadOfAdmissionWindow() {
+        val depth = com.lifecyclebot.engine.truth.OnChainDepth8038
+        val read = com.lifecyclebot.engine.truth.OnChainDepth8038.Read("observed-pool", 10.0, 50_000.0, 100_000L)
+        assertTrue(depth.usableRead(read, 90_000L, 125_000L))
+        assertFalse(depth.usableRead(read, 20_000L, 125_000L))
+        assertTrue(depth.usableRead(read, 20_000L, 119_000L))
+        assertFalse(depth.usableRead(read.copy(quoteSol = Double.POSITIVE_INFINITY), 20_000L, 119_000L))
+        assertFalse(depth.usableRead(read, 20_000L, 99_000L))
+    }
+
     private val lanes = listOf("QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE",
         "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN")
 

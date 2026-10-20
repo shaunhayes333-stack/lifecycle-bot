@@ -86,7 +86,7 @@ object OnChainDepth8038 {
         if (a == null || b == null) return null
         val sol = listOf(a, b).firstOrNull { it.first == WSOL } ?: return null
         val coin = listOf(a, b).firstOrNull { it.first == mint } ?: return null
-        if (!(sol.second > 0.0) || !(coin.second > 0.0)) return null
+        if (!sol.second.isFinite() || !coin.second.isFinite() || !(sol.second > 0.0) || !(coin.second > 0.0)) return null
         return sol.second to coin.second
     }
 
@@ -120,7 +120,12 @@ object OnChainDepth8038 {
 
     /** V5.0.8198 — the chain-confirmed vault read of [mint]'s pool when at most [maxAgeMs] old, else null. Never requests. */
     fun freshRead8198(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): Read? =
-        reads[mint]?.takeIf { nowMs - it.atMs in 0L..maxAgeMs && it.quoteSol > 0.0 && it.baseTokens > 0.0 }
+        reads[mint]?.takeIf { usableRead(it, maxAgeMs, nowMs) }
+
+    internal fun usableRead(read: Read, maxAgeMs: Long, nowMs: Long): Boolean =
+        read.pool.isNotBlank() && nowMs - read.atMs in 0L..maxAgeMs &&
+            read.quoteSol.isFinite() && read.quoteSol > 0.0 &&
+            read.baseTokens.isFinite() && read.baseTokens > 0.0
 
     /** LiquidityTruth8037: the fresh on-chain depth (USD, both sides) of [mint]'s pool, or NaN. Never requests. */
     fun chainDepthUsd8038(mint: String, nowMs: Long = System.currentTimeMillis()): Double =
@@ -132,9 +137,9 @@ object OnChainDepth8038 {
             .filter { p -> unsupported[p]?.let { System.currentTimeMillis() - it > UNSUPPORTED_RETRY_MS } ?: true }
 
     /** Ask for a read of [ts]'s pool in the background (LiveEdgeGate, exits). Returns immediately. */
-    fun request8038(ts: TokenState) {
+    fun request8038(ts: TokenState, maxAgeMs: Long = FRESH_MS) {
         val mint = ts.mint
-        if (mint.isBlank() || fresh(mint, System.currentTimeMillis()) != null || !inFlight.add(mint)) return
+        if (mint.isBlank() || freshRead8198(mint, maxAgeMs, System.currentTimeMillis()) != null || !inFlight.add(mint)) return
         val ps = pools(ts)
         if (ps.isEmpty()) { inFlight.remove(mint); return }
         try {
@@ -197,12 +202,13 @@ object OnChainDepth8038 {
     private fun fetch(mint: String, poolAddrs: List<String>): Read? {
         for (p in poolAddrs.take(2)) {
             val (a, b) = vaultsFor(p) ?: continue
+            val observedAt = System.currentTimeMillis()
             val res = rpc("getMultipleAccounts", JSONArray().put(JSONArray().put(a).put(b)).put(JSONObject().put("encoding", "jsonParsed").put("commitment", "confirmed")))
             val arr = res?.optJSONArray("value")
             if (arr == null) { failed.incrementAndGet(); continue }
             val sides = sides8038(mint, parsedSide(arr.optJSONObject(0)), parsedSide(arr.optJSONObject(1)))
             if (sides == null) { unsupported[p] = System.currentTimeMillis(); continue }
-            val read = Read(p, sides.first, sides.second, System.currentTimeMillis())
+            val read = Read(p, sides.first, sides.second, observedAt)
             reads[mint] = read
             CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
             if (reads.size > 3_000) reads.entries.sortedBy { it.value.atMs }.take(300).forEach { reads.remove(it.key) }

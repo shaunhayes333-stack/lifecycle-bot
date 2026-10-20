@@ -132,6 +132,11 @@ object HeldHotMarkAuthority7419 {
         // the risk clock logged NO_MARK thousands of times. Refresh whenever
         // EITHER surface is stale, and always when the canonical exit mark is absent.
         val held8077 = activeOpen()
+        // Quotes refresh on their own quantity/freshness contract even when a
+        // spot feed keeps the risk mark fresh. Scheduling is not quote success.
+        for (p in held8077) if (solanaPriced7960(p)) {
+            HeldExitQuote8189.take8189(p.mint, p.remainingQtyRaw, p.quantityScale, now)
+        }
         execAttempt7876.keys.retainAll(held8077.map { it.mint }.toSet())
         val stale = held8077.filter { p ->
             val runtimeStale7822 = runtimeTokenAgeMs(p.mint, now) > HOT_FRESH_MS
@@ -475,7 +480,7 @@ object HeldHotMarkAuthority7419 {
         if (outSol == null) {
             reserveMisses8198.incrementAndGet()
             try { PipelineHealthCollector.labelInc("HELD_MARK_NO_ROUTE_NO_RESERVE_8198") } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { OnChainDepth8038.request8038(it) } } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { OnChainDepth8038.request8038(it, RESERVE_MARK_MAX_AGE_MS_8198) } } catch (_: Throwable) {}
             return null
         }
         reserveMarks8198.incrementAndGet()
