@@ -594,6 +594,7 @@ object CandidateAdmission8136 {
         // Both readers cache decisions; waking only the defer scheduler leaves stale elections in place.
         memos8153.keys.removeIf { it.substringAfter('|').startsWith("$mint|") }
         StrategyElection8243.invalidateEvidence(mint)
+        com.lifecyclebot.engine.LaneExecutionCoordinator.invalidateUnsealedEvidence8253(mint)
         if (held8144.isEmpty()) return
         var woke = false
         for ((key, h) in held8144) {

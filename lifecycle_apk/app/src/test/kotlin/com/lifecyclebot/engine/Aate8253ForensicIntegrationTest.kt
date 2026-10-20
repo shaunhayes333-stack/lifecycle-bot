@@ -23,6 +23,26 @@ class Aate8253ForensicIntegrationTest {
     private val lanes = listOf("QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE",
         "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN")
 
+    @Test fun evidenceArrivalInvalidatesOnlyThatCandidatesUnsealedElection() {
+        val coordinator = LaneExecutionCoordinator
+        coordinator.resetForTests()
+        try {
+            val other = coordinator.elect("other-evidence-mint", listOf("QUALITY"), "QUALITY", 42L, 1L)
+            for (lane in lanes) {
+                val mint = "arrival-election-$lane"
+                val prior = coordinator.elect(mint, listOf("SHITCOIN"), "SHITCOIN", 42L, 1L)
+                assertEquals(prior, coordinator.currentElection6600(mint, 42L, 1L))
+                Admission.evidenceArrived8252(mint, setOf("liq"))
+                assertNull(coordinator.currentElection6600(mint, 42L, 1L))
+                val refreshed = coordinator.elect(mint, listOf(lane), lane, 42L, 1L)
+                assertEquals(lane, refreshed.primaryLane)
+                assertEquals(42L, refreshed.key.candidateVersion)
+                assertNotEquals(prior.electionId, refreshed.electionId)
+            }
+            assertEquals(other, coordinator.currentElection6600("other-evidence-mint", 42L, 1L))
+        } finally { coordinator.resetForTests() }
+    }
+
     @Test fun supportedOptionalContextAndFallbackLiquidityAcrossEveryLane() {
         for (lane in lanes) {
             val missing = Admission.resolvedMissingInputs(listOf("liq:UNKNOWN", "liquidity:UNKNOWN", "shape:INVALID"), true)
