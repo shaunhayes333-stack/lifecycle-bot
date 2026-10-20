@@ -40,6 +40,14 @@ class Aate8242AdmissionContinuityTest {
         assertTrue(src.contains("return null to (nativeWait8210 || specificWait8242)"))
         assertTrue(src.contains("blockReasonFinal = \"ADMISSION_COST_REQUOTE_FAILED_8209\""))
     }
+    @Test fun finalSizingConsumesTheExactAdmissionGenerationNotANewerScan() {
+        val risk=File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveRiskPolicy7807.kt").readText()
+        val fdg=File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(risk.contains("candidateVersion8198: Long = 0L"))
+        assertTrue(risk.contains("val version = candidateVersion8198.takeIf { it > 0L }"))
+        assertTrue(risk.contains("AdmissionEdge8180.proof8198(\"LIVE\", mint, effectiveLane7811, version)"))
+        assertTrue(fdg.contains("candidateVersion8198 = candidateVersion8198"))
+    }
     @Test fun deferredMintBudgetIsIsolatedByNativeLane() {
         val a=CandidateAdmission8136; val mint="lane-8242-"+System.nanoTime(); val t=1_000_000L
         for(i in 0..39) assertTrue(a.deferBudget8136(mint,t+i,"MOONSHOT"))

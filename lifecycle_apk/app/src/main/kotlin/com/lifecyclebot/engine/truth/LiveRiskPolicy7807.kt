@@ -835,6 +835,8 @@ object LiveRiskPolicy7807 {
         compoundingCeilingSol8094: Double = 0.0,
         /** V5.0.8094 — the proof the FDG computed from ITS token snapshot; null = read it here (non-FDG callers). */
         edgeKellyFracFromFdg8094: Double? = null,
+        // The same immutable generation FinalDecisionGate used for admission.
+        candidateVersion8198: Long = 0L,
     ): Inputs {
         ensureSubscribed()
         // The caller carries the canonical decision lane. Never substitute a
@@ -860,7 +862,8 @@ object LiveRiskPolicy7807 {
         // the lane's proven-record / classified expectation, a second estimator that contradicted the admission on the
         // same coin, same size. Without a proof for this generation the sizer's own read stands as before.
         val admissionProof8241 = try {
-            val version = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint)
+            val version = candidateVersion8198.takeIf { it > 0L }
+                ?: com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint)
             AdmissionEdge8180.proof8198("LIVE", mint, effectiveLane7811, version)
         } catch (_: Throwable) { null }
         val proofGross8232 = admissionProof8241?.expectedGrossPct?.takeIf { it.isFinite() }

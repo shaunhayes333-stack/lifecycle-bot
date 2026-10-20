@@ -6348,6 +6348,7 @@ object FinalDecisionGate {
                 partialProviderEvidence = ts.safety.softPenalties.isNotEmpty(),
                 compoundingCeilingSol8094 = compoundingCeiling8094,
                 edgeKellyFracFromFdg8094 = edgeKelly8094,
+                candidateVersion8198 = candidateVersion8198,
             )
             val risk = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.record("FDG", ts.mint, ts.symbol,
                 inputs, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.decide(inputs))
