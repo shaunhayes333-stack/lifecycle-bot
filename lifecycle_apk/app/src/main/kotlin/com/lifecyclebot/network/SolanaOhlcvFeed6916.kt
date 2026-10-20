@@ -364,6 +364,16 @@ object SolanaOhlcvFeed6916 {
      *
      * @param poolHint pool/pair address if already known (free path)
      */
+    fun cachedCandles8253(mint: String, timeframeLabel: String, limit: Int,
+                           nowMs: Long = System.currentTimeMillis()): List<Candle> {
+        val (unit, aggregate) = tfFor(timeframeLabel) ?: return emptyList()
+        val key = "$mint|$unit|$aggregate|${limit.coerceIn(2, 1000)}"
+        val row = cache[key] ?: return emptyList()
+        if (nowMs - row.atMs !in 0L..CACHE_TTL_MS) return emptyList()
+        cacheHits.incrementAndGet()
+        return row.candles
+    }
+
     fun fetchCandles6916(
         mint: String,
         timeframeLabel: String,
@@ -376,16 +386,7 @@ object SolanaOhlcvFeed6916 {
         val now = System.currentTimeMillis()
         try { sweep(now) } catch (_: Throwable) {}
         val key = "$mint|$unit|$aggregate|$n"
-        cache[key]?.let {
-            if (now - it.atMs <= CACHE_TTL_MS) { cacheHits.incrementAndGet(); return it.candles }
-        }
-        // V5.0.6944 — negative cache. 1990 of 2008 results came back empty, and
-        // without this the same poolless mints are re-requested every scan pass,
-        // which is most of how the request budget was burned.
-        negativeCache[mint]?.let {
-            if (now - it <= NEGATIVE_TTL_MS) { negativeHits.incrementAndGet(); return emptyList() }
-            negativeCache.remove(mint)
-        }
+        cachedCandles8253(mint, timeframeLabel, n, now).takeIf { it.isNotEmpty() }?.let { return it }
 
         // V5.0.7484 — if another lane requested this exact OHLCV key inside
         // the existing 2.5s provider budget window, a second provider request
@@ -459,6 +460,14 @@ object SolanaOhlcvFeed6916 {
                 return paprika7293
             }
         } catch (_: Throwable) {}
+        // Only GeckoTerminal established this absence. Its negative cache cannot veto DexPaprika.
+        // V5.0.6944 — negative cache. 1990 of 2008 results came back empty, and
+        // without this the same poolless mints are re-requested every scan pass,
+        // which is most of how the request budget was burned.
+        negativeCache[mint]?.let {
+            if (now - it <= NEGATIVE_TTL_MS) { negativeHits.incrementAndGet(); return emptyList() }
+            negativeCache.remove(mint)
+        }
         val lookup6982 = resolvePool(mint, poolHint)
         val pool = lookup6982.pool
         if (pool == null) {
