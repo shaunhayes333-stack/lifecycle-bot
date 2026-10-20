@@ -28,7 +28,9 @@ class Aate8201AdmittedTerminalTest {
 
     @Test fun everyAdmittedCandidateTerminalIsNamed() {
         val terminals = Regex("admittedTerminal8201\\(ts, lane, ").findAll(gate).count()
-        assertTrue("setup refusal, spike, watch-first and the core verdict each name the terminal", terminals >= 4)
+        // V5.0.8243 — the spike heuristic no longer ends an admitted candidate (it stands down, counted); setup refusal, watch-first and the core verdict name the terminal.
+        assertTrue("setup refusal, watch-first and the core verdict each name the terminal", terminals >= 3)
+        assertTrue(gate.contains("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_"))
         assertTrue(gate.contains("""if (!paper && candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, why ?: "ALLOW", candidateVersion)"""))
         assertTrue(gate.contains("""PipelineHealthCollector.labelInc("ADMITTED_THEN_${'$'}{terminal.take(48)}_8201_${'$'}l")"""))
     }

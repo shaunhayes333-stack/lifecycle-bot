@@ -30,7 +30,9 @@ class Aate7619LearnedFairFreshElectionTest {
         // V5.0.7803 — primary and secondary are both ranked by electionScore7803.
         val primaryFn=s.substringAfter("private fun pickFreshPrimary(").substringBefore("internal fun preferredReadyOwner7820(")
         val secondaryFn=s.substringAfter("private fun secondaryFresh7803(").substringBefore("fun candidateVersionFor(")
-        assertTrue(primaryFn.contains("maxByOrNull { electionScore7803(mint, candidateVersion, it, qualified, ready, q) }"))
+        // V5.0.8243 — the primary ranks the same electionScore7803 inside StrategyElection8243 tiers (proven ADMIT > unjudged > specific REFUSE).
+        assertTrue(primaryFn.contains("qualified.associateWith { electionScore7803(mint, candidateVersion, it, qualified, ready, q) }"))
+        assertTrue(primaryFn.contains("StrategyElection8243.ownerOrder8243(scores, verdicts) ?: convictionWinner"))
         assertTrue(secondaryFn.contains("maxByOrNull { electionScore7803(mint, candidateVersion, it, qualified, ready, q) }"))
     }
 }

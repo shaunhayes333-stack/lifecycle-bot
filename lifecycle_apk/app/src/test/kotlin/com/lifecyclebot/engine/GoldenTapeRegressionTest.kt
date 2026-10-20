@@ -13385,7 +13385,8 @@ class GoldenTapeRegressionTest {
         // 7720: the whole block sits in a private helper; evaluate() keeps one call and no locals.
         // V5.0.7845: that one call is specialistAdvisoryBlock7845 — binding on trunk calls,
         // advisory (telemetry only) when a specialist owns the BUY.
-        assertTrue(fdg.contains("return fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)"))
+        // V5.0.8244: on trunk calls the Field Manual is one council voice; its verdict is the refusal only when all three refuse.
+        assertTrue(fdg.contains("val manual = fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)"))
         assertTrue(fdg.contains("com.lifecyclebot.engine.truth.FieldManual7715.decide(ts, candidate, lane, paper, proposedSizeSol)"))
         assertTrue(fdg.contains("if (!v.blocks) null else FinalDecision("))
         assertTrue(fdg.contains("blockReason = v.blockReason,"))
@@ -13895,11 +13896,11 @@ class GoldenTapeRegressionTest {
         // runs right after the Field Manual; paper is never refused.
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("private fun cellProofBlock7731("))
-        assertTrue(fdg.contains("cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
+        assertTrue(fdg.contains("cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)?.let { return it }"))
         // V5.0.7845 — the Field Manual runs inside specialistAdvisoryBlock7845, called just before.
         val advisoryAt7845 = fdg.indexOf("\n        specialistAdvisoryBlock7845(\n")
         assertTrue(advisoryAt7845 > 0 && advisoryAt7845 <
-            fdg.indexOf("cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
+            fdg.indexOf("cellProofBlock7731(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)?.let { return it }"))
         assertTrue(fdg.indexOf("private fun cellProofBlock7731(") < fdg.indexOf("fun evaluate("))
         val ladder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CellProofLadder7731.kt").readText()
         assertTrue(ladder.contains("if (paper) return null"))
@@ -14166,7 +14167,7 @@ class GoldenTapeRegressionTest {
         val thin = com.lifecyclebot.engine.truth.FreshLaunchSelector7737.Cell().apply { n = 12; tpFirst = 0; stopFirst = 12 }
         assertFalse(sel.cellRefuses(thin))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue(fdg.contains("        freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode)?.let { return it }"))
+        assertTrue(fdg.contains("        freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)?.let { return it }"))  // V5.0.8243: the admission rides along
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("if (freshLaunchQuickTake7737(ts, wallet, walletSol, pos, actualPrice, gainMultiple, gainPct)) return true"))
         assertTrue(ex.contains("selector.onQuickTakeAttempt(ts.mint, pos.entryTime, banked)"))
@@ -14247,8 +14248,8 @@ class GoldenTapeRegressionTest {
         assertTrue(tp.exitFor(null, -1.0, 0.0, 46L * 60_000L, false, 4.0)!!.reason.startsWith("UNDERWATER_TIME_STOP_7739"))
         assertTrue(tp.exitFor(null, 1.0, 2.0, 46L * 60_000L, false, 4.0) == null)
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        // V5.0.7845 — the plan block runs in specialistAdvisoryBlock7845 (binding on trunk calls).
-        assertTrue(fdg.contains("?: tradePlanBlock7739(ts, candidate, specialistLane, admissionLane, paper, mode, candidateVersion, candidateAdmission)"))
+        // V5.0.7845 — the plan block runs in specialistAdvisoryBlock7845; V5.0.8244 — on trunk calls it is one council voice (unanimity refuses).
+        assertTrue(fdg.contains("val plan = tradePlanBlock7739(ts, candidate, specialistLane, admissionLane, paper, mode, candidateVersion, candidateAdmission)"))
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bs.contains("val planExit7739 = planTickRead7739(ts, pnlPctNow, peakPct, rawTickPnlPctNow, execPxForTickLock != null)"))
         assertTrue(bs.contains("val runnerLockDeferred7277 = planTrailsRemainder7935(ts)"))
@@ -14274,8 +14275,8 @@ class GoldenTapeRegressionTest {
         // No lane record: a hold-through-stop vote is not earned.
         assertFalse(c.holdThroughStopEarned("NO_SUCH_LANE_7740"))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        // V5.0.7845 — the council block runs in specialistAdvisoryBlock7845 (binding on trunk calls).
-        assertTrue(fdg.contains("?: councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, paper, mode)"))
+        // V5.0.7845 — the council block runs in specialistAdvisoryBlock7845; V5.0.8244 — one council voice on trunk calls (unanimity refuses).
+        assertTrue(fdg.contains("val council = councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, paper, mode)"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("if (extendHold6725 && pnlPctNow > -20.0 && com.lifecyclebot.engine.truth.Council7740.holdThroughStopEarned(agiLane)) {"))
         assertTrue(ex.contains("com.lifecyclebot.engine.truth.Council7740.holdThroughStopEarned(\"MOONSHOT\")) {"))
