@@ -4851,13 +4851,8 @@ class Executor(
                 }
             } catch (_: Throwable) {}
             val rawReason6312 = tradeWithMint.reason.uppercase()
-            val claimsProfit6312 = rawReason6312.contains("QUICK_RUNNER") ||
-                rawReason6312.contains("TAKE_PROFIT") ||
-                rawReason6312.contains("BANK") ||
-                rawReason6312.contains("RUNNER") ||
-                rawReason6312.contains("PROFIT_TARGET") ||
-                rawReason6312.contains("10X") ||
-                rawReason6312.contains("6X")
+            // V5.0.8253 — a runner lane's own stop / break / giveback claims no profit (ExitReasonInvariant8253).
+            val claimsProfit6312 = ExitReasonInvariant8253.claimsProfit8253(rawReason6312)
             val realisedPnl6312 = if (tradeWithMint.netPnlSol != 0.0) tradeWithMint.netPnlSol else tradeWithMint.pnlSol
             if (claimsProfit6312 && realisedPnl6312 <= 0.0) {
                 val originalReason6312 = tradeWithMint.reason

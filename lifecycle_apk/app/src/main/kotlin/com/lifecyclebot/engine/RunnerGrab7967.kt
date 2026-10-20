@@ -179,7 +179,10 @@ object RunnerGrab7967 {
         val px = ts.lastPrice
         if (px.isFinite() && px > 0.0 && signals.size < 2_000) signals.putIfAbsent(ts.mint, px to nowMs)
         heldAdmits.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("RUNNER_HOLD_ON_ADMIT_7970") } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("RUNNER_HOLD_ON_ADMIT_7970")
+            PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_DETECTED")
+        } catch (_: Throwable) {}
         return true
     }
     private val heldAdmits = AtomicLong(0)

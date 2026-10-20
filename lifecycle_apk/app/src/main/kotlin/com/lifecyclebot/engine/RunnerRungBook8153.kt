@@ -81,6 +81,7 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         r.ladder = ladder
         r.pending = Pending8153(ladder, tier, reason, Stage8153.REQUESTED, nowMs, nowMs)
         requested++
+        if (ladder == LADDER_RUNNER_8153 && tier == 1) try { PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_FIRST_TAKE_REQUESTED") } catch (_: Throwable) {}
         return true
     }
 
@@ -145,6 +146,11 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         r.proceedsSol += proceedsSol
         r.soldCostSol += soldCostSol
         booked++
+        // V5.0.8254 — runner funnel: a confirmed signature with proceeds; net banked only when proceeds beat the cost sold.
+        if (ladder == LADDER_RUNNER_8153) try {
+            if (tier == 1) PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_FIRST_TAKE_LANDED")
+            if (proceedsSol > soldCostSol) PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_NET_PROFIT_BANKED")
+        } catch (_: Throwable) {}
         return true
     }
 

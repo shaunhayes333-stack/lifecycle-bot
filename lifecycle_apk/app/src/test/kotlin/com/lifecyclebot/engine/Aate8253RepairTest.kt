@@ -79,6 +79,43 @@ class Aate8253RepairTest {
         assertTrue(orch.contains("if (pair != null) try {"))
     }
 
+    @Test fun aRunnerStopClaimsNoProfitSoItIsNotRewrittenOutOfLearning() {
+        // the 6312 invariant still catches a profit claim that lost
+        assertTrue(ExitReasonInvariant8253.claimsProfit8253("QUICK_RUNNER_10X_FULL_EXIT"))
+        assertTrue(ExitReasonInvariant8253.claimsProfit8253("TAKE_PROFIT_T1"))
+        assertTrue(ExitReasonInvariant8253.claimsProfit8253("RUNNER_MILESTONE_8136_T2_400PCT"))
+        assertTrue(ExitReasonInvariant8253.claimsProfit8253("SPIKE_CAPTURE_7943_T1_45PCT_BANK"))
+        // a runner lane's loss exits are stops, not failed profit claims: they keep their reason and teach
+        assertFalse(ExitReasonInvariant8253.claimsProfit8253("RUNNER_HARD_STOP_7967"))
+        assertFalse(ExitReasonInvariant8253.claimsProfit8253("RUNNER_STRUCTURE_BREAK_7967"))
+        assertFalse(ExitReasonInvariant8253.claimsProfit8253("RUNNER_FROM_ENTRY_GIVEBACK"))
+        assertFalse(ExitReasonInvariant8253.claimsProfit8253("RUNNER_FLUID_STOP_HELD_AT_LANE_FLOOR_7696"))
+        assertFalse(ExitReasonInvariant8253.claimsProfit8253("RAPID_CATASTROPHE_STOP"))
+        assertFalse(ExitReasonInvariant8253.claimsProfit8253("STOP_LOSS"))
+        assertTrue(src("engine/Executor.kt").contains("val claimsProfit6312 = ExitReasonInvariant8253.claimsProfit8253(rawReason6312)"))
+    }
+
+    @Test fun examinedRowsReconciledIsNotAllReconciledWhileInventoryIsUncovered() {
+        assertEquals(null, PipelineHealthCollector.inventoryCoverageGapLine8253(emptyList(), emptyList()))
+        assertEquals("unmanagedBotMints=2[BaDjVCpA,gotMd6mp]", PipelineHealthCollector.inventoryCoverageGapLine8253(listOf("BaDjVCpAxxxx", "gotMd6mpyyyy"), emptyList()))
+        assertEquals("fundedQuarantined=1[DqPWFVab]", PipelineHealthCollector.inventoryCoverageGapLine8253(emptyList(), listOf("DqPWFVabcdef")))
+        val phc = src("engine/PipelineHealthCollector.kt")
+        val block = phc.substringAfter("if (report.mismatches.isNotEmpty()) {").substringBefore("} catch (_: Throwable) {}")
+        assertTrue(block.contains("val coverage8253 = inventoryCoverageGap8253()"))
+        assertTrue(block.contains("if (coverage8253 == null) sb.append(\"  ✅ ALL RECONCILED"))
+        assertTrue(block.contains("WALLET INVENTORY NOT FULLY COVERED"))
+    }
+
+    @Test fun theRunnerFunnelCountsEachStageIndependently() {
+        assertTrue(src("engine/RunnerGrab7967.kt").contains("RUNNER_FUNNEL_8254_DETECTED"))
+        assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("RUNNER_FUNNEL_8254_ADMISSION_EDGE"))
+        assertTrue(src("engine/RunnerLive8153.kt").contains("RUNNER_FUNNEL_8254_PLAN_ACTIVE"))
+        val book = src("engine/RunnerRungBook8153.kt")
+        assertTrue(book.contains("RUNNER_FUNNEL_8254_FIRST_TAKE_REQUESTED"))
+        assertTrue(book.contains("RUNNER_FUNNEL_8254_FIRST_TAKE_LANDED"))
+        assertTrue(book.substringAfter("fun confirm8153(").contains("if (proceedsSol > soldCostSol) PipelineHealthCollector.labelInc(\"RUNNER_FUNNEL_8254_NET_PROFIT_BANKED\")"))
+    }
+
     @Test fun theUnexecutedTicketNamesTheExecutorStop() {
         val ex = src("engine/Executor.kt")
         assertTrue(ex.contains("unexecutedTicket7948(layerTag, preflight.attemptId, namedUnexecuted8252(ts.mint, \"LIVE_BUY_NOT_OPENED_7948\"))"))

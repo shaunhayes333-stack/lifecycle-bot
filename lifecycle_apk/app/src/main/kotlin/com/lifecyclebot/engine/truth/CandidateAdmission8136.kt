@@ -361,7 +361,10 @@ object CandidateAdmission8136 {
             .maxByOrNull { it.lowerPct }
         if (edge?.kind == KIND_RUNNER_GRAB_8245) {
             runnerEntry8252[c.mint] = System.currentTimeMillis()
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_EDGE_RUNNER_GRAB_8245") } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_EDGE_RUNNER_GRAB_8245")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_ADMISSION_EDGE")
+            } catch (_: Throwable) {}
         }
         // Resolve the winning strategy before validating its executable economics.
         if (edge?.kind == KIND_SETUP && edge.id != chosen) chooseSetup(edge.id)

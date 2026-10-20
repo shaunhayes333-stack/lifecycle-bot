@@ -2364,7 +2364,11 @@ object PipelineHealthCollector {
                             sb.append("  🛑 ${m.name.padEnd(28)}${m.summary.take(80)}\n")
                         }
                     } else {
-                        sb.append("  ✅ ALL RECONCILED — wallet ↔ journal ↔ reports tie out\n")
+                        // V5.0.8253 — "reconciled" is the examined rows; wallet inventory coverage is a separate truth.
+                        // An unmanaged bot holding or a funded quarantined row is unfinished business, not ALL RECONCILED.
+                        val coverage8253 = inventoryCoverageGap8253()
+                        if (coverage8253 == null) sb.append("  ✅ ALL RECONCILED — wallet ↔ journal ↔ reports tie out\n")
+                        else sb.append("  ✅ examined rows reconciled (ok=${report.okCount}/${report.checks.size}) · ⚠ WALLET INVENTORY NOT FULLY COVERED: $coverage8253\n")
                     }
                 }
             } catch (_: Throwable) {}
@@ -4615,6 +4619,32 @@ object PipelineHealthCollector {
      * by name, in one loud line (Field Manual L407: protective exit paths must
      * be operating — and when they cannot, say so).
      */
+    /**
+     * V5.0.8253 — the wallet inventory gap the reconciler's examined-rows verdict must not paper over: unmanaged bot
+     * holdings (§7718 guard) and funded QUARANTINED canonical rows. Pure read of the two authorities; null when none.
+     */
+    internal fun inventoryCoverageGap8253(): String? {
+        val pk = try { com.lifecyclebot.engine.WalletManager.currentPubkey() } catch (_: Throwable) { "" }
+        val unmanaged = try {
+            (com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.assess(pk) as? com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.Decision.Blocked)
+                ?.takeIf { it.reasonCode == "UNMANAGED_BOT_WALLET_HOLDING" }?.mints ?: emptyList()
+        } catch (_: Throwable) { emptyList() }
+        val quarantined = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807("live")
+                .filter { it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.QUARANTINED }.map { it.mint }
+        } catch (_: Throwable) { emptyList() }
+        return inventoryCoverageGapLine8253(unmanaged, quarantined)
+    }
+
+    /** Pure: the coverage line for [unmanaged] bot mints and funded [quarantined] rows, or null when both are empty. */
+    internal fun inventoryCoverageGapLine8253(unmanaged: List<String>, quarantined: List<String>): String? {
+        if (unmanaged.isEmpty() && quarantined.isEmpty()) return null
+        val parts = mutableListOf<String>()
+        if (unmanaged.isNotEmpty()) parts += "unmanagedBotMints=${unmanaged.size}[${unmanaged.take(4).joinToString(",") { it.take(8) }}]"
+        if (quarantined.isNotEmpty()) parts += "fundedQuarantined=${quarantined.size}[${quarantined.take(4).joinToString(",") { it.take(8) }}]"
+        return parts.joinToString(" ")
+    }
+
     private fun botBuyCoverageSection7819(): String {
         val pk7718 = try { com.lifecyclebot.engine.WalletManager.currentPubkey() } catch (_: Throwable) { "" }
         val d7718 = com.lifecyclebot.engine.sell.LiveExitCoverageGuard7701.assess(pk7718)

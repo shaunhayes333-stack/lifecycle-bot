@@ -84,8 +84,16 @@ object RunnerLive8153 {
 
     fun plan8153(ts: TokenState): RunnerPlan8153.Plan8153 {
         if (!ts.position.isOpen || ts.position.entryTime <= 0L) return RunnerPlan8153.Plan8153.SCALP
-        return RunnerPlan8153.plan8153(evidence8153(ts))
+        val e = evidence8153(ts)
+        val plan = RunnerPlan8153.plan8153(e)
+        // V5.0.8254 — runner funnel: the admitted runner entry became a live runner plan (once per position).
+        if (plan == RunnerPlan8153.Plan8153.RUNNER_SEALED && e.runnerEntryAdmitted && planActive8254.putIfAbsent(key8153(ts), true) == null) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_PLAN_ACTIVE") } catch (_: Throwable) {}
+        }
+        return plan
     }
+
+    private val planActive8254 = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
     fun basis8153(ts: TokenState): RunnerExitContract8136.RunnerBasis8136 = RunnerPlan8153.basis8153(plan8153(ts))
 
