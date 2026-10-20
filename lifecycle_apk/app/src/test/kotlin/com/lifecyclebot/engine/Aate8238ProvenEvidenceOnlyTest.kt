@@ -18,7 +18,7 @@ class Aate8238ProvenEvidenceOnlyTest {
     }
 
     @Test fun aGenericPriorRefusedLiveMoneyGoesToTheShadowBook() {
-        assertEquals("generic_prior_shadow:CANDIDATE_ADMISSION_8136_LIVE_GENERIC_PRIOR_U",
+        assertEquals("generic_prior_shadow:CANDIDATE_ADMISSION_8136_LIVE_GENERIC_PR",
             FdgOutcomeContinuity8197.shadowOpenReason8233(true, false, "CANDIDATE_ADMISSION_8136_LIVE_GENERIC_PRIOR_UNSUPPORTED_8238"))
         assertNull(FdgOutcomeContinuity8197.shadowOpenReason8233(true, false, "CANDIDATE_ADMISSION_8136_EXECUTION_ECONOMICS_8136"))
         assertNull(FdgOutcomeContinuity8197.shadowOpenReason8233(false, false, "CANDIDATE_ADMISSION_8136_LIVE_GENERIC_PRIOR_UNSUPPORTED_8238"))
@@ -31,5 +31,19 @@ class Aate8238ProvenEvidenceOnlyTest {
         val cortex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         assertTrue(cortex.contains("!wf.validated -> nullWhy8201(\"NOT_WALK_FORWARD_VALIDATED_${'$'}{wf.verdict.name}\")"))
         assertTrue(cortex.contains("!(median > 0.0) -> nullWhy8201(\"MEDIAN_NOT_POSITIVE\")"))
+    }
+
+    // V5.0.8239 — the shadow book learns from prices that existed.
+    @Test fun theShadowBookOpensOnlyOnAnObservedBasisAndRebasesAContradictedOne() {
+        val t = com.lifecyclebot.engine.truth.ShadowBasisTruth8239
+        assertTrue(t.observedBasis8239(0.00001, "PUMP_CURVE_RPC", 5_000L))
+        assertTrue(!t.observedBasis8239(0.00001, "", 5_000L))
+        assertTrue(!t.observedBasis8239(0.00001, "TOKEN_MAP_CACHE_6513", 5_000L))
+        assertTrue(!t.observedBasis8239(0.00001, "DEXSCREENER", 120_000L))        // stale
+        assertTrue(!t.observedBasis8239(0.0, "DEXSCREENER", 1_000L))
+        // -30% ten seconds after the open is a basis error; -30% ten minutes later is a move
+        assertTrue(t.basisContradicted8239(1.0, 0.7, 10_000L))
+        assertTrue(!t.basisContradicted8239(1.0, 0.7, 600_000L))
+        assertTrue(!t.basisContradicted8239(1.0, 0.9, 10_000L))
     }
 }
