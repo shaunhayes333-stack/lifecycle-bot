@@ -251,18 +251,34 @@ object OnChainDepth8038 {
         // pump-suffixed (LetsBonk, Meteora, un-suffixed pump.fun) skipped the curve check above. Any coin still at a
         // launch curve's opening cap has no buyers behind it, whichever launchpad minted it.
         val capSol8047 = try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }
-        if (atLaunchCap8047(capSol8047) && curveBuyersProven8252(curveReal8046)) {
-            try { PipelineHealthCollector.labelInc("AT_LAUNCH_CAP_STOOD_DOWN_CURVE_BUYERS_8252") } catch (_: Throwable) {}
-        }
-        if (atLaunchCap8047(capSol8047) && !launchCapStoodDown8094(ts.mint, nowMs) && !curveBuyersProven8252(curveReal8046)) {
-            launchCapRefused8047.incrementAndGet()
-            lastRefusal8047 = "LAUNCH_CAP ${ts.symbol} cap=${"%.1f".format(capSol8047)}SOL"
-            try {
-                PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_AT_LAUNCH_CAP_8047")
-                com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_REFUSED_AT_LAUNCH_CAP_8047",
-                    "mint=${ts.mint.take(10)} sym=${ts.symbol} capSol=${"%.1f".format(capSol8047)} min=$LAUNCH_CAP_SOL_8047")
-            } catch (_: Throwable) {}
-            return "AT_LAUNCH_CAP_8047"
+        if (atLaunchCap8047(capSol8047) && !launchCapStoodDown8094(ts.mint, nowMs)) {
+            // V5.0.8252 — the one three-state launch-buyer verdict (same read as earlyLaunchRefusal8048).
+            when (launchBuyers8252(curveReal8046, pumpLike)) {
+                LaunchBuyers8252.BUYERS_PROVEN -> {
+                    try { PipelineHealthCollector.labelInc("AT_LAUNCH_CAP_STOOD_DOWN_CURVE_BUYERS_8252") } catch (_: Throwable) {}
+                }
+                LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN -> if (unknownDeferAllowed8252(ts.mint)) {
+                    // The curve is readable but unread even after the read above: ask again, bounded, decide on a reading.
+                    try { needCurve8039(ts.mint, nowMs) } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("LAUNCH_BUYERS_UNKNOWN_DEFER_8252") } catch (_: Throwable) {}
+                    return "LAUNCH_BUYERS_UNKNOWN_DEFER_8252"
+                } else {
+                    launchCapRefused8047.incrementAndGet()
+                    lastRefusal8047 = "LAUNCH_CAP ${ts.symbol} cap=${"%.1f".format(capSol8047)}SOL (buyers unknown after $MAX_UNKNOWN_DEFERS_8252 reads)"
+                    try { PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_AT_LAUNCH_CAP_8047") } catch (_: Throwable) {}
+                    return "AT_LAUNCH_CAP_8047"
+                }
+                LaunchBuyers8252.NO_BUYERS_PROVEN -> {
+                    launchCapRefused8047.incrementAndGet()
+                    lastRefusal8047 = "LAUNCH_CAP ${ts.symbol} cap=${"%.1f".format(capSol8047)}SOL"
+                    try {
+                        PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_AT_LAUNCH_CAP_8047")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_REFUSED_AT_LAUNCH_CAP_8047",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} capSol=${"%.1f".format(capSol8047)} min=$LAUNCH_CAP_SOL_8047")
+                    } catch (_: Throwable) {}
+                    return "AT_LAUNCH_CAP_8047"
+                }
+            }
         }
         // V5.0.8045 — 5.0.8043: 13 of 16 sized MOONSHOT buys died TOKEN_MAP_INCOMPLETE (liquidity pending) at this door.
         // An unknown depth is read from the chain now (the coin's pump.fun curve, one call), before the token-map check.
@@ -403,14 +419,52 @@ object OnChainDepth8038 {
                 // (4abd6b13a: AT_LAUNCH_CAP n92 +67.5% run9; VEILDOGE +23,804%, PentAGI +1,605%, WAIT +1,263% missed). Real
                 // buyers must be in the curve (CURVE_NOBODY_BOUGHT above stays binding) and every later gate still runs.
                 if (launchCapStoodDown8094(ts.mint, nowMs)) return null
-                if (curveBuyersProven8252(real)) return null
-                "AT_LAUNCH_CAP_8047"
+                // V5.0.8252 — one three-state verdict with the buy door: proven buyers stand the proxy down; an unread
+                // readable curve is UNKNOWN (the chain is asked, the door decides on the reading), never a refusal here.
+                when (launchBuyers8252(real, curveReadable8252(ts.mint))) {
+                    LaunchBuyers8252.BUYERS_PROVEN -> return null
+                    LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN -> {
+                        try { needCurve8039(ts.mint, nowMs) } catch (_: Throwable) {}
+                        try { PipelineHealthCollector.labelInc("LAUNCH_BUYERS_UNKNOWN_EARLY_READ_REQUESTED_8252") } catch (_: Throwable) {}
+                        return null
+                    }
+                    LaunchBuyers8252.NO_BUYERS_PROVEN -> "AT_LAUNCH_CAP_8047"
+                }
             }
             else -> return null
         }
         earlyRefused8048.incrementAndGet()
         try { PipelineHealthCollector.labelInc("LIVE_EDGE_EARLY_${why}") } catch (_: Throwable) {}
         return why
+    }
+
+    /**
+     * V5.0.8252 §LAUNCH_BUYERS — the one launch-buyer verdict, read identically at the early gate and the buy door.
+     * BUYERS_PROVEN: a current curve reading states [MIN_CURVE_REAL_SOL_8046]+ real SOL from buyers. NO_BUYERS_PROVEN: a
+     * reading states less (CURVE_NOBODY_BOUGHT_8046 territory), or the coin has no readable curve and only the cap proxy
+     * speaks. BUYER_EVIDENCE_UNKNOWN: the curve is readable (pump key known / pump mint) but no reading exists yet.
+     */
+    enum class LaunchBuyers8252 { BUYERS_PROVEN, NO_BUYERS_PROVEN, BUYER_EVIDENCE_UNKNOWN }
+
+    fun launchBuyers8252(curveRealSol: Double?, curveReadable: Boolean): LaunchBuyers8252 = when {
+        curveBuyersProven8252(curveRealSol) -> LaunchBuyers8252.BUYERS_PROVEN
+        curveRealSol != null && curveRealSol.isFinite() -> LaunchBuyers8252.NO_BUYERS_PROVEN
+        curveReadable -> LaunchBuyers8252.BUYER_EVIDENCE_UNKNOWN
+        else -> LaunchBuyers8252.NO_BUYERS_PROVEN
+    }
+
+    /** A curve the bot can read on chain: a pump-suffixed mint or a known pump curve key. */
+    fun curveReadable8252(mint: String): Boolean = mint.endsWith("pump", ignoreCase = true) ||
+        (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) } catch (_: Throwable) { null }) != null
+
+    private val unknownDefers8252 = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private const val MAX_UNKNOWN_DEFERS_8252 = 3
+
+    /** Bounded: the buy door defers an UNKNOWN launch-buyer verdict at most [MAX_UNKNOWN_DEFERS_8252] times per mint. */
+    private fun unknownDeferAllowed8252(mint: String): Boolean {
+        val n = unknownDefers8252.merge(mint, 1, Int::plus) ?: 1
+        if (unknownDefers8252.size > 2_000) unknownDefers8252.clear()
+        return n <= MAX_UNKNOWN_DEFERS_8252
     }
 
     private val launchCapStoodDownAt8094 = java.util.concurrent.ConcurrentHashMap<String, Long>()

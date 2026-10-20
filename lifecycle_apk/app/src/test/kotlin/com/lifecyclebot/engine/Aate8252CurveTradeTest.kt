@@ -75,8 +75,8 @@ class Aate8252CurveTradeTest {
         assertTrue(d.curveBuyersProven8252(3.0))
         assertTrue(d.curveBuyersProven8252(7.4))
         val src = src("engine/truth/OnChainDepth8038.kt")
-        assertTrue(src.contains("if (atLaunchCap8047(capSol8047) && !launchCapStoodDown8094(ts.mint, nowMs) && !curveBuyersProven8252(curveReal8046)) {"))
-        assertTrue(src.contains("if (curveBuyersProven8252(real)) return null"))
+        assertTrue(src.contains("if (atLaunchCap8047(capSol8047) && !launchCapStoodDown8094(ts.mint, nowMs)) {"))
+        assertTrue(src.contains("LaunchBuyers8252.BUYERS_PROVEN -> return null"))
         // the direct measurement stays binding and runs first
         val door = src.substringAfter("fun buyRefusal8038(").substringBefore("AT_LAUNCH_CAP_8047")
         assertTrue(door.contains("return \"CURVE_NOBODY_BOUGHT_8046\""))

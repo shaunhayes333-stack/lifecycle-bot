@@ -359,7 +359,10 @@ object CandidateAdmission8136 {
             c.cortexStrong8200?.takeIf { supported8136(it, c.costPct) && !losing8136(cellLoss) },  // V5.0.8200
             c.runnerGrab8245?.takeIf { grabSupported8245(it) && !losing8136(cellLoss) })   // V5.0.8245
             .maxByOrNull { it.lowerPct }
-        if (edge?.kind == KIND_RUNNER_GRAB_8245) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_EDGE_RUNNER_GRAB_8245") } catch (_: Throwable) {}
+        if (edge?.kind == KIND_RUNNER_GRAB_8245) {
+            runnerEntry8252[c.mint] = System.currentTimeMillis()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_EDGE_RUNNER_GRAB_8245") } catch (_: Throwable) {}
+        }
         // Resolve the winning strategy before validating its executable economics.
         if (edge?.kind == KIND_SETUP && edge.id != chosen) chooseSetup(edge.id)
 
@@ -452,6 +455,23 @@ object CandidateAdmission8136 {
     const val KIND_CELL = "CELL"
     /** V5.0.8245 — RunnerGrab7967's proven runner cell with the chart firming now. */
     const val KIND_RUNNER_GRAB_8245 = "RUNNER_GRAB"
+
+    /**
+     * V5.0.8252 §RUNNER_ENTRY_INTENT — the explicit runner-entry intent: this record ADMITTED the candidate on the
+     * runner-grab edge (RunnerGrab7967 forming run in a proven runner cell). Written once per admission, read by
+     * RunnerPlan8153 for the position that entry opened; a sealed scalp style can no longer demote it to a scalp plan.
+     */
+    private val runnerEntry8252 = ConcurrentHashMap<String, Long>()
+    private const val RUNNER_ENTRY_WINDOW_MS_8252 = 5L * 60_000L
+
+    /** Was the position that opened at [entryTimeMs] admitted on the runner-grab edge (inside the entry window)? */
+    fun runnerEntryAdmitted8252(mint: String, entryTimeMs: Long): Boolean {
+        val at = runnerEntry8252[mint] ?: return false
+        return entryTimeMs > 0L && entryTimeMs >= at && entryTimeMs - at <= RUNNER_ENTRY_WINDOW_MS_8252
+    }
+
+    /** Test seam: the runner-entry admit stamp for [mint] at [atMs]. */
+    internal fun stampRunnerEntryForTest8252(mint: String, atMs: Long) { runnerEntry8252[mint] = atMs }
     internal const val GRAB_MIN_N_8245 = 20
     internal const val GRAB_MARGIN_PCT_8245 = 20.0
 
@@ -550,6 +570,44 @@ object CandidateAdmission8136 {
     private const val PRIOR_CARRY_MS_8223 = 120_000L
     private val held8144 = ConcurrentHashMap<String, Held8144>()
     private val coalesced8144 = AtomicLong(0)
+
+    // ── V5.0.8252 §EVIDENCE_ARRIVAL ──
+    // A held DEFER_DATA waited for its backoff even after the missing input had arrived (5.0.8251: DATA_INCOMPLETE_DEFER
+    // 577 FDG blocks, SETUP_INPUT_REFRESH_REQUESTED 1,676). When a source answers for [mint] with one of the features a
+    // held defer is waiting for, that feature is due NOW: the next decide8136 re-decides the record in full on the new
+    // evidence instead of returning the coalesced defer, and the pipeline marks the mint near a decision. Nothing is
+    // decided here and no feature is assumed present — the record still reads its own inputs.
+    private val arrivalReevals8252 = AtomicLong(0)
+    val TAPE_FEATURES_8252: Set<String> = setOf("tape", "swaps", "bp")
+    val PAIR_FEATURES_8252: Set<String> = setOf("bp", "chg", "liq", "liquidity", "mcap")
+
+    fun evidenceArrived8252(mint: String, features: Set<String>, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || held8144.isEmpty()) return
+        var woke = false
+        for ((key, h) in held8144) {
+            if (!key.startsWith("$mint|")) continue
+            for (f in h.features) {
+                if (f.substringBefore(':') !in features) continue
+                val rk = "$mint|$f"
+                reevals8144[rk] = Reeval8144(nowMs, reevals8144[rk]?.attempts ?: 0)
+                woke = true
+            }
+        }
+        if (!woke) return
+        arrivalReevals8252.incrementAndGet()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EVIDENCE_ARRIVED_REEVAL_DUE_8252") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint, nowMs) } catch (_: Throwable) {}
+    }
+
+    /** Test seam: is the held defer's [feature] for [mint] due right now? */
+    internal fun reevalDueForTest8252(mint: String, feature: String, nowMs: Long): Boolean = reevalDue8144(reevals8144["$mint|$feature"], nowMs)
+
+    /** Test seam: hold a DEFER_DATA for [mint] in [lane] waiting on [features], scheduled with the normal backoff. */
+    internal fun holdDeferForTest8252(mint: String, lane: String, features: List<String>, nowMs: Long) {
+        scheduleDue8144(mint, features, nowMs)
+        val c = Candidate8136(mint, lane, null, missingInputs = features)
+        held8144["$mint|$lane"] = Held8144(c, Decision8136(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, null, Double.NaN, listOf("missing=${features.joinToString(",")}")), features, nowMs, 1L, "LIVE")
+    }
 
     private fun features8144(missing: List<String>): List<String> = missing.ifEmpty { listOf("core:UNKNOWN") }
 
@@ -693,7 +751,7 @@ object CandidateAdmission8136 {
         }
         val top = counts8136.entries.sortedByDescending { it.value.get() }.take(12)
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
-        return "admission8136[$byTerminal reasons{$top}] coalescedReevals8144=${coalesced8144.get()}"
+        return "admission8136[$byTerminal reasons{$top}] coalescedReevals8144=${coalesced8144.get()} arrivalReevals8252=${arrivalReevals8252.get()}"
     }
 
     // ── live adapter: the record from the bot's own stores (read-only peeks; no fetch, no synthetic data) ──

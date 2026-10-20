@@ -57,6 +57,8 @@ object RunnerPlan8153 {
         val grabbedAtEntry: Boolean = false,
         val promotedLatched: Boolean = false,
         val verifiedPeakPct: Double = 0.0,
+        /** V5.0.8252 — CandidateAdmission8136 admitted this entry on the runner-grab edge: the explicit RUNNER_ENTRY intent. */
+        val runnerEntryAdmitted: Boolean = false,
     )
 
     /** Pure: is [style] a style the router knows (not blank, not UNKNOWN)? */
@@ -75,6 +77,8 @@ object RunnerPlan8153 {
     fun plan8153(e: Evidence8153): Plan8153 = when {
         !e.laneHostsRunners -> Plan8153.SCALP
         sealedRunner8153(e.sealedStyle, e.sealedStrategy) -> Plan8153.RUNNER_SEALED
+        // V5.0.8252 — an admission on the runner-grab edge IS the runner intent: a sealed scalp style does not demote it.
+        e.runnerEntryAdmitted -> Plan8153.RUNNER_SEALED
         e.grabbedAtEntry && !styleKnown8153(e.sealedStyle) -> Plan8153.RUNNER_SEALED
         e.promotedLatched || RunnerExitContract8136.provenPromotion8136(e.verifiedPeakPct) -> Plan8153.RUNNER_PROMOTED
         else -> Plan8153.SCALP

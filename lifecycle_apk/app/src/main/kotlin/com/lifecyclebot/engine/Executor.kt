@@ -13914,6 +13914,7 @@ class Executor(
     }
 
     private fun liveBuyDeferred(ts: TokenState, sol: Double, reason: String, detail: String = "") {
+        lastLiveBuyStop8252[ts.mint] = reason
         val taxonomy = try { RejectTaxonomy.classify(reason, null) } catch (_: Throwable) { null }
         ChokeReliefBus.launch("EXECUTOR_DEFERRED_BUY_TAXONOMY_4433", ts.mint) {
             try { if (taxonomy != null) RejectTaxonomyLedger.record(taxonomy, "EXECUTOR_DEFERRED", reason) } catch (_: Throwable) {}
@@ -14121,6 +14122,7 @@ class Executor(
     }
 
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "", attemptId8198: String = "") {
+        lastLiveBuyStop8252[ts.mint] = reason
         // V5.0.8224 — live pipeline trace: every executor refusal is a BUY_FAILED stage with its reason.
         try {
             com.lifecyclebot.engine.truth.LivePipelineTrace6431.bumpStage(com.lifecyclebot.engine.truth.LivePipelineTrace6431.Stage.BUY_FAILED)
@@ -17812,6 +17814,21 @@ class Executor(
      * liveBuy names most refusals itself (emitLiveBuyFail -> EXEC_REFUSED); this only
      * fires when none was recorded on the attempt, so every ticket ends by name.
      */
+    /**
+     * V5.0.8252 — the last concrete executor stop per mint (emitLiveBuyFail / liveBuyDeferred). 5.0.8251: QUALITY reached
+     * FDG allow → sized → ticket → exec=0 and the ticket's terminal read only LIVE_BUY_NOT_OPENED_7948 (a wrapper); the
+     * inner stop (route, door, quote, flat chart) was in the forensic stream but not on the ticket. The wrapper now
+     * names it: "LIVE_BUY_NOT_OPENED_7948:<stop>".
+     */
+    private val lastLiveBuyStop8252 = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** The wrapper reason carrying the inner stop recorded for [mint] during this attempt, when one exists. */
+    private fun namedUnexecuted8252(mint: String, wrapper: String): String {
+        val inner = lastLiveBuyStop8252.remove(mint) ?: return wrapper
+        if (lastLiveBuyStop8252.size > 1_000) lastLiveBuyStop8252.clear()
+        return "$wrapper:${inner.take(60)}"
+    }
+
     private fun unexecutedTicket7948(layerTag: String, attemptId: String, reason: String) {
         val pending8198 = com.lifecyclebot.network.SignedTxLedger8085.unresolvedAttempt8198(attemptId)
         if (pending8198 != null) {
@@ -17896,7 +17913,7 @@ class Executor(
                 layerTagEmoji = layerTagEmoji,
                 finalityPrechecked = true, attemptId = preflight.attemptId,
             )
-            if (!liveOpened) { unexecutedTicket7948(layerTag, preflight.attemptId, "LIVE_BUY_NOT_OPENED_7948"); return false }
+            if (!liveOpened) { unexecutedTicket7948(layerTag, preflight.attemptId, namedUnexecuted8252(ts.mint, "LIVE_BUY_NOT_OPENED_7948")); return false }
         }
         val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
         if (!buyOpened) {

@@ -802,6 +802,8 @@ class DataOrchestrator(
     private val PUMPPORTAL_PRIORITY_MS_7773 = 20_000L
 
     private fun onTapeTrade7773(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) {
+        // V5.0.8252 — a print is tape / swaps / buy-pressure evidence: a held defer waiting for it is due now.
+        try { com.lifecyclebot.engine.truth.CandidateAdmission8136.evidenceArrived8252(mint, com.lifecyclebot.engine.truth.CandidateAdmission8136.TAPE_FEATURES_8252) } catch (_: Throwable) {}
         // V5.0.7921 — the launch tape since birth (crowd, flow, heat, promotion).
         try { com.lifecyclebot.engine.market.LaunchTape7921.onTrade(mint, wallet, solAmount, isBuy) } catch (_: Throwable) {}
         // V5.0.7950 — the chart reader's buy/sell volume split and dev-sold flag.
@@ -1262,8 +1264,13 @@ class DataOrchestrator(
         DataPipeline8191.noteNearDecision8191(mint)
         if (keys.any { it in TRADE_FED_INPUTS_8191 }) try { PumpFunWS.watchForSetup8191(mint) } catch (_: Throwable) {}
         if (keys.any { it in PAIR_FED_INPUTS_8191 } && DataPipeline8191.claimPairFetch8191(mint)) scope.launch {
-            try { DexscreenerApi().getBestPair(mint) } catch (_: Throwable) {}
+            val pair = try { DexscreenerApi().getBestPair(mint) } catch (_: Throwable) { null }
             try { PipelineHealthCollector.labelInc("SETUP_PAIR_FETCH_8191") } catch (_: Throwable) {}
+            // V5.0.8252 — the answer wakes the held defer that asked for it (no backoff wait on arrived evidence).
+            if (pair != null) try {
+                PipelineHealthCollector.labelInc("SETUP_PAIR_FETCH_ANSWERED_8252")
+                com.lifecyclebot.engine.truth.CandidateAdmission8136.evidenceArrived8252(mint, com.lifecyclebot.engine.truth.CandidateAdmission8136.PAIR_FEATURES_8252)
+            } catch (_: Throwable) {}
         }
     }
 

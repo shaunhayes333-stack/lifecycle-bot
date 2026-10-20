@@ -119,11 +119,13 @@ object NetEdge8030 {
     /** V5.0.8204 — the breakdown of the last entry cost (ticket, liquidity, impact, fees) for the refusal that used it. */
     fun lastEntryBreakdown8204(): String = lastEntryBreakdown8169
     @Volatile private var lastComponents8169 = doubleArrayOf(Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN)
+    /** V5.0.8252 — the components THIS thread's quote priced; the breakdown never mixes another candidate's venue/route. */
+    private val tlComponents8252 = ThreadLocal<DoubleArray>()
 
     /** V5.0.8169 — one priced round trip, per side: fees per side, the fixed leg, rent, slippage and impact halves. */
     private fun breakdown8169(lane: String, size: Double, liq: Double, componentModel: Boolean, impactRtPct: Double,
                               measured: Double?, usedPct: Double): String {
-        val c = lastComponents8169
+        val c = tlComponents8252.get() ?: lastComponents8169
         val perSideFees = if (componentModel) c[0] + c[1] + c[2] else Double.NaN
         val fixedLegPct = if (componentModel && size > 0.0) c[3] / size * 100.0 else Double.NaN
         val rentPct = if (componentModel && size > 0.0) c[4] / size * 100.0 else Double.NaN
@@ -154,7 +156,9 @@ object NetEdge8030 {
         val rt = com.lifecyclebot.engine.CostTrim8151.roundTripPct8151(
             venuePct, routePct, com.lifecyclebot.engine.CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, fixedLeg, rentSol, sizeSol,
         )
-        lastComponents8169 = doubleArrayOf(venuePct, routePct, com.lifecyclebot.engine.CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, fixedLeg, rentSol)  // V5.0.8169
+        val components = doubleArrayOf(venuePct, routePct, com.lifecyclebot.engine.CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, fixedLeg, rentSol)
+        lastComponents8169 = components  // V5.0.8169
+        tlComponents8252.set(components)
         if (mint.isNotBlank() && sizeSol >= DEFAULT_TICKET_SOL * 0.5) com.lifecyclebot.engine.CostMeter8151.noteRoundTrip8151(rt)
         return rt
     }

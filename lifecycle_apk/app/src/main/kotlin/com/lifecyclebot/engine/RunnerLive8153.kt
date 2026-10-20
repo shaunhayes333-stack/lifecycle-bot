@@ -73,10 +73,12 @@ object RunnerLive8153 {
         // Paper decides as live will: the lane question ignores the paper flag (paper never sells anything real).
         val hosts = try { TradeExitContract8077.runnerFromEntryLane8104(pos.tradingMode, false) } catch (_: Throwable) { false }
         val grabbed = try { RunnerGrab7967.grabbedAtEntry8153(ts) } catch (_: Throwable) { false }
+        val runnerAdmit = try { com.lifecyclebot.engine.truth.CandidateAdmission8136.runnerEntryAdmitted8252(ts.mint, pos.entryTime) } catch (_: Throwable) { false }
         ensureLoaded8153()
         return RunnerPlan8153.Evidence8153(
             laneHostsRunners = hosts, sealedStyle = style, sealedStrategy = strategy, grabbedAtEntry = grabbed,
             promotedLatched = book.promoted8153(key8153(ts)), verifiedPeakPct = pos.peakGainPct,
+            runnerEntryAdmitted = runnerAdmit,
         )
     }
 
