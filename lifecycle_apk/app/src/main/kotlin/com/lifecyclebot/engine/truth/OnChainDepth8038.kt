@@ -245,6 +245,17 @@ object OnChainDepth8038 {
             }
             curveReal8046 = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
         }
+        // A fresh create frame can still describe the opening curve while another venue is now active.
+        // Re-read the account before binding a negative reserve verdict; unknown is not "nobody bought".
+        if (curveNobodyBought8046(curveReal8046) && CurveReserves7951.accountRealSol8253(ts.mint, nowMs) == null) {
+            try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint)) } catch (_: Throwable) {}
+            val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }
+            curveReal8046 = CurveReserves7951.accountRealSol8253(ts.mint, System.currentTimeMillis())
+            if (!graduated && curveReal8046 == null) {
+                try { needCurve8039(ts.mint, nowMs) } catch (_: Throwable) {}
+                return "CURVE_RESERVES_UNVERIFIED_DEFER_8253"
+            }
+        }
         if (curveNobodyBought8046(curveReal8046)) {
             emptyCurveRefused8046.incrementAndGet()
             try {

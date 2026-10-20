@@ -81,3 +81,14 @@ CI run 39414355215 stopped at the new-dead-code guard: the old `activeReserves81
 ## Android startup verifier blocker
 
 Runtime smoke run 39411616615 installed the earlier repair APK but failed bootstrap: `Executor.paperBuy` at DEX offset 0x34A5 used register v324 as Boolean while ART considered it Undefined. Full evidence: runtime-logcat-6379, artifact 12260158907. Compilation alone did not detect this. The new runner flag expanded snapshot construction inside an already oversized method. Extracted the complete paper-entry snapshot/attribution block into a private method, preserving its position after atomic entry commit, all snapshot values, runner identity, lane checks and telemetry. This reduces register pressure; only a passing emulator run can establish the verifier fix. No startup gate was disabled.
+
+
+### 21:36 device report: intermediate build 001517a25
+
+The supplied report identifies the earlier PR merge APK, not the baseline main commit. That build compiled but its required regression suite failed; the old workflow exposed a failed-test APK. This was a release-handling failure. Failed APK upload was removed earlier in this repair; APK publication is now additionally restricted to successful main-branch builds. No release is accepted yet.
+
+The session records zero landed buys, two freeze-authority-unverified refusals and two empty-curve refusals. These totals do not identify the exact candidate account responses; they cannot establish that any refusal was economically wrong.
+
+Source-confirmed wiring findings: the authority RPC producer published proof to its caches without invalidating candidate/election decisions or marking the candidate near decision. It now notifies those consumers after a noncontradicted observation. This is not an automatic approval or an execution retry of an old sealed ticket.
+
+CurveReserves7951 previously erased the distinction between account-observed real SOL and real SOL inferred from a stream frame. The final buy check could bind an empty-curve refusal to the latter without a fresh account read. Account provenance is retained; a negative frame reading requires account revalidation. A completed curve can proceed to the existing pool checks; an unanswered active curve remains non-executable with a named data defer. Invalid account reserves cannot be filled using inferred values. Regression coverage checks provenance, stale and out-of-order observations, genuine zero reserves and invalid numbers. Validation pending on the final revision; not a claim that the two device cases have been reconstructed.

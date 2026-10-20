@@ -12,7 +12,7 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
-# Owner: every pushed build runs to completion (one group per commit, nothing cancelled) so each APK can be installed.
+# Every revision is validated; only a validated main-branch build publishes an APK.
 concurrency:
   group: aate-build-${{ github.sha }}
   cancel-in-progress: false
@@ -479,6 +479,7 @@ jobs:
       # (including resident meme + Crypto architecture) are green.
       # The integrated repair must not deliver intermediate or failed APKs.
       - uses: actions/upload-artifact@v4
+        if: success() && github.ref == 'refs/heads/main'
         with:
           name: AATE_v${{ steps.aate_build.outputs.version_name }}
           path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk

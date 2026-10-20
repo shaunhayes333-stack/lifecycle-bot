@@ -11,7 +11,7 @@ import java.math.BigInteger
 
 class Aate8253ExitEvidenceTest {
     private val mint = "9o3iDgNPnZTMF8GcXKxzFTxRqme9mJw5WF7RnXtMpump"
-    @After fun clear() { CanonicalPriceMarkRegistry6522.resetForTest() }
+    @After fun clear() { CanonicalPriceMarkRegistry6522.resetForTest(); CurveReserves7951.resetForTest7951() }
 
     @Test fun spotObservationCannotAcquireExecutableProfitAuthority() {
         val registry = CanonicalPriceMarkRegistry6522
@@ -58,6 +58,25 @@ class Aate8253ExitEvidenceTest {
         })
         assertFalse(ProfitExitTruth8163.profitTaking("MANUAL_SELL"))
         assertFalse(ProfitExitTruth8163.profitTaking("STOP_LOSS"))
+    }
+
+    @Test fun inferredCreateFrameCannotBecomeAnObservedEmptyCurveVerdict() {
+        val at = System.currentTimeMillis()
+        CurveReserves7951.noteFrame7951(mint, 30.1, 1_000_000.0, at)
+        assertEquals(0.1, CurveReserves7951.realSolIfActive8046(mint, at)!!, 0.000001)
+        assertNull(CurveReserves7951.accountRealSol8253(mint, at))
+        CurveReserves7951.noteAccount7951(mint, 40.0, 1_000_000.0, 10.0, at + 1)
+        assertEquals(10.0, CurveReserves7951.accountRealSol8253(mint, at + 1)!!, 0.0)
+        // Older create data cannot replace a newer account observation.
+        CurveReserves7951.noteFrame7951(mint, 30.1, 1_000_000.0, at)
+        assertEquals(10.0, CurveReserves7951.accountRealSol8253(mint, at + 1)!!, 0.0)
+        // Invalid account values never acquire account-observed authority by arithmetic fallback.
+        CurveReserves7951.noteAccount7951(mint, 30.1, 1_000_000.0, Double.NaN, at + 2)
+        assertEquals(10.0, CurveReserves7951.accountRealSol8253(mint, at + 2)!!, 0.0)
+        assertNull(CurveReserves7951.accountRealSol8253(mint, at + 3_600_000))
+        CurveReserves7951.noteAccount7951(mint, 30.0, 1_000_000.0, 0.0, at + 3)
+        assertEquals(0.0, CurveReserves7951.accountRealSol8253(mint, at + 3)!!, 0.0)
+        assertTrue(OnChainDepth8038.curveNobodyBought8046(0.0))
     }
 
     @Test fun curveEstimateRetainsObservationTimeAndCannotSpendVirtualSol() {

@@ -218,17 +218,17 @@ object OnChainMintAuthorityProof7248 {
                         )
                     } catch (_: Throwable) {}
                     unansweredAt7365.remove(mint)
-                    if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled) {
-                        // V5.0.8123 — a hostile Token-2022 mint is not "proven clean": never cached permanently.
-                        if (proof.hostileExtension8123 != null) { activeProof7365[mint] = proof to System.currentTimeMillis(); return proof }
-                        // V5.0.8136 — clean now but a live Token-2022 authority can change that: short reuse, never permanent.
-                        if (proof.mutableExtension8136 != null) { activeProof7365[mint] = proof to System.currentTimeMillis(); return proof }
+                    if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled &&
+                        proof.hostileExtension8123 == null && proof.mutableExtension8136 == null) {
                         if (provenDisabled7365.size > 20_000) provenDisabled7365.clear()
                         provenDisabled7365[mint] = proof
                     } else {
                         if (activeProof7365.size > 5_000) activeProof7365.clear()
                         activeProof7365[mint] = proof to System.currentTimeMillis()
                     }
+                    // Publish before waking consumers: a retry must read the answer, not race its cache write.
+                    CandidateAdmission8136.evidenceArrived8252(mint, setOf("safety", "freeze", "authority"))
+                    com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint)
                     return proof
                 }
             } catch (t: Throwable) {
