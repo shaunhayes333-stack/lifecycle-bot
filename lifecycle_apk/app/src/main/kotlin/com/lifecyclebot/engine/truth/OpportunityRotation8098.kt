@@ -52,6 +52,21 @@ object OpportunityRotation8098 {
     fun bookDemand8103(nowMs: Long = System.currentTimeMillis()): Boolean =
         demandByLane[BOOK_8103]?.let { nowMs - it.atMs in 0L..DEMAND_TTL_MS } == true
 
+    /**
+     * V5.0.8262 — FinalDecisionGate (via MemeChokes7951): an APPROVED live entry the wallet cannot fund
+     * (ROUTABLE_CAPACITY / SIZE_NOT_EXECUTABLE). It already cleared admission, hard safety and economics; on an unlearned
+     * book it has no proven edge fraction, so [noteBookDemand8103] never fired (8261: demands=0, 63 starved). The
+     * entry itself is the demand; who may be sold for it is still [victimEligible8098] + [shouldRotate8098].
+     */
+    fun noteCapitalDemand8262(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        val cur = demandByLane[BOOK_8103]
+        if (cur != null && cur.mint == mint && nowMs - cur.atMs in 0L..DEMAND_TTL_MS) return
+        demandByLane[BOOK_8103] = Demand(mint, nowMs)
+        demands.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("OPPORTUNITY_ROTATION_DEMAND_8262_CAPITAL") } catch (_: Throwable) {}
+    }
+
     /** LiveRiskPolicy7807.record: a proven candidate was refused only for its lane's slots. */
     fun noteDemand8098(laneRaw: String, mint: String, edgeKellyFrac: Double, nowMs: Long = System.currentTimeMillis()) {
         if (!(edgeKellyFrac.isFinite() && edgeKellyFrac > 0.0) || mint.isBlank()) return

@@ -150,6 +150,9 @@ object MemeChokes7951 {
     fun noteCapitalStarved7951(mint: String, lane: String, freeSol: Double, minimumSol: Double, paper: Boolean) {
         if (!capitalStarved7951(paper, freeSol, minimumSol)) return
         count("APPROVED_ENTRY_CAPITAL_STARVED")
+        // V5.0.8262 — 8261: 63 approved entries starved, rotation demands=0. The approved live entry IS the demand the
+        // book's poorest eligible position may be rotated for (victim rules unchanged: never a runner, tail or fresh).
+        try { com.lifecyclebot.engine.truth.OpportunityRotation8098.noteCapitalDemand8262(mint) } catch (_: Throwable) {}
         val chartBuy = try { com.lifecyclebot.engine.chart.ChartReader7950.saysBuy(mint) } catch (_: Throwable) { false }
         if (!chartBuy) return
         lastChartDemandAtMs = System.currentTimeMillis()

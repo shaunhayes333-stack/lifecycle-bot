@@ -138,7 +138,8 @@ class Aate8189ExitBankingTest {
         assertNull(q.heldQty8189(BigInteger.ONE.shiftLeft(70), null, true))
         val now = 1_000_000L
         assertTrue(q.usable8189(HeldExitQuote8189.Quote8189(0.001, now - 3_000L, bi(5)), now))
-        assertFalse(q.usable8189(HeldExitQuote8189.Quote8189(0.001, now - 4_001L, bi(5)), now))
+        assertTrue(q.usable8189(HeldExitQuote8189.Quote8189(0.001, now - 16_000L, bi(5)), now))   // V5.0.8262: 8261's 16 s Fartcoin quote is a mark
+        assertFalse(q.usable8189(HeldExitQuote8189.Quote8189(0.001, now - HeldExitQuote8189.QUOTE_FRESH_MS_8189 - 1L, bi(5)), now))
         assertFalse(q.usable8189(HeldExitQuote8189.Quote8189(0.0, now, bi(5)), now))
         assertFalse(q.usable8189(null, now))
         assertTrue(q.due8189(0L, now, false))

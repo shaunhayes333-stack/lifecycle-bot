@@ -33,8 +33,13 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object HeldExitQuote8189 {
     const val SOURCE_8189 = "JUPITER_HELD_SELL_QUOTE_8189"
-    /** A held sell quote is an exit mark for this long after it was requested. */
-    private const val QUOTE_FRESH_MS_8189 = 4_000L
+    /**
+     * A held sell quote is an exit mark for this long after it was REQUESTED. V5.0.8262 — 4 s was shorter than a
+     * Jupiter round trip stamped at request time, so the answer was stale on arrival (8261: Fartcoin quote 16 s old at
+     * +370 %, mark=NONE, no rung requested; 125/232 mark repairs failed). A sale re-quotes at send; this only decides
+     * whether the ladders may compare a price to their thresholds.
+     */
+    internal const val QUOTE_FRESH_MS_8189 = 20_000L
     /** Re-quote a mint at most this often. */
     private const val QUOTE_DEBOUNCE_MS_8189 = 2_500L
     /** A wallet read older than this does not cap the quoted quantity. */
