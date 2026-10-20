@@ -290,6 +290,10 @@ class Executor(
 ) {
     companion object {
 
+        /** V5.0.8259 — capital recovery fires by 3x at the latest; the learned +1000 % default rung no longer raises it. */
+        const val CAPITAL_RECOVERY_MAX_MULTIPLE_8259 = 3.0
+
+
         /**
          * V5.0.7003 — how long the price feed must ACTUALLY be dark before the
          * stale-quote backstop force-exits a position.
@@ -6626,7 +6630,15 @@ class Executor(
         val learnedProfitLock = 1.0 + (learnedRungs.third / 100.0)
         // V5.0.3963 — profit exits follow learned expectancy bands. Never let
         // capital recovery at 1.3x or profit-lock at 2.5x amputate a live runner.
-        capitalRecoveryMultiple = maxOf(capitalRecoveryMultiple, learnedCapitalRecovery).coerceIn(1.5, 50.0)
+        // V5.0.8259 — the learned rung defaulted to +1000 % (Triple(50, 1000, 10000)) when nothing was learned, so
+        // maxOf() pushed capital recovery to 11x on every unlearned lane: the first take never fired and every banked
+        // exit this book has was manual (8257: 2 manual full exits, profitEscalation full=0). Capital recovery is the
+        // base multiple (2x, risk-adjusted), capped at 3x; the recovery tranche sells only enough to return the
+        // unrecovered cost (grossed for fees) and the rest rides free. The learned band still governs the profit lock.
+        capitalRecoveryMultiple = minOf(capitalRecoveryMultiple, CAPITAL_RECOVERY_MAX_MULTIPLE_8259).coerceIn(1.5, CAPITAL_RECOVERY_MAX_MULTIPLE_8259)
+        if (learnedCapitalRecovery > CAPITAL_RECOVERY_MAX_MULTIPLE_8259) {
+            try { PipelineHealthCollector.labelInc("CAPITAL_RECOVERY_LEARNED_RUNG_CAPPED_8259") } catch (_: Throwable) {}
+        }
         profitLockMultiple = maxOf(profitLockMultiple, learnedProfitLock).coerceIn(3.0, 500.0)
         
         return Pair(capitalRecoveryMultiple, profitLockMultiple)
@@ -18673,14 +18685,14 @@ class Executor(
             explicitAttemptId = attemptId,
             contextAttemptId = executionContext?.attemptId,
             canonicalLane = layerTag,
-        ) ?: return false
+        ) ?: run { lastLiveBuyStop8252[ts.mint] = "PREFLIGHT_7948_REFUSED"; return false }
         // V5.0.7807 — LiveRiskPolicy7807 pre-ticket: lane slot cap, net-of-cost
         // move and executable-minimum risk, before any lease (Field Manual L215, L243).
         // V5.0.7850 — FDG already applied LiveRiskPolicy before sealing.
         // The executor cannot ask the same learned/risk policy to decide the
         // trade again. Current route/safety/finality checks below remain hard.
         try { PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_CONSUMED_SEALED_7850") } catch (_: Throwable) {}
-        if (flatChartRefused8027(ts, sol, attemptId8198 = attemptId)) return false
+        if (flatChartRefused8027(ts, sol, attemptId8198 = attemptId)) { lastLiveBuyStop8252[ts.mint] = "FLAT_CHART_8027"; return false }
         // V5.0.7849 — immutable execution intent is the entry verdict.
         // Executor consumes it; learned/history authorities may not re-decide it.
         val gateLaneLive6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "LIVE_STANDARD" }
@@ -19127,6 +19139,12 @@ class Executor(
         var liveBuyLastStage = "LIVE_BUY_ENTRY"
         fun liveStage(stage: String, detail: String = "") {
             liveBuyLastStage = stage
+            // V5.0.8259 — every staged abort / defer names the stop the ticket terminal will carry (8257: QUALITY's five
+            // LIVE_BUY_NOT_OPENED_7948 tickets named nothing because these returns bypass emitLiveBuyFail).
+            if (stage.startsWith("LIVE_BUY_ABORTED") || stage.startsWith("LIVE_BUY_DEFERRED") || stage.startsWith("LIVE_BUY_REFUSED")) {
+                val reason = Regex("reason=([A-Za-z0-9_:.-]+)").find(detail)?.groupValues?.get(1)
+                lastLiveBuyStop8252[ts.mint] = if (reason != null) "$stage:$reason" else stage
+            }
             try {
                 ForensicLogger.lifecycle(stage, "attemptId=${execCtx.attemptId} execMode=${execCtx.execMode} mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag $detail".trim())
                 PipelineHealthCollector.labelInc(stage)
@@ -19403,6 +19421,7 @@ class Executor(
                         "LIVE_ENTRY_SAFETY_HOLD_6312 reason=${assess6312.reason} lane=$layerTag score=${score.toInt()}",
                     )
                 } catch (_: Throwable) {}
+                lastLiveBuyStop8252[ts.mint] = "LIVE_ENTRY_SAFETY_HOLD_6312:${assess6312.reason}"
                 return false
             }
 
@@ -19437,6 +19456,7 @@ class Executor(
                         )
                         PipelineHealthCollector.labelInc("MINT_REENTRY_BLOCKED_6312")
                     } catch (_: Throwable) {}
+                    lastLiveBuyStop8252[ts.mint] = "MINT_REENTRY_BLOCKED_6312"
                     return false
                 }
             } catch (_: Throwable) {}
@@ -19716,6 +19736,7 @@ class Executor(
                     .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint, "LIVE").orEmpty() }
                 ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7356, ts.mint, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
             } catch (_: Throwable) {}
+            lastLiveBuyStop8252[ts.mint] = "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED"
             return false
         }
         stampLiveEntryMark7790(ts, true, "EXECUTOR_ENTRY_SNAPSHOT")
@@ -19770,6 +19791,7 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_ENTRY_OBSERVED_ONLY")
                 PipelineHealthCollector.labelInc(reason)
             } catch (_: Throwable) {}
+            lastLiveBuyStop8252[ts.mint] = "LIVE_ENTRY_OBSERVED_ONLY:$reason"
             return false
         }
         val stylePivotAdvisory = liveEntryDecision.decision == "DEFER"
@@ -20003,7 +20025,7 @@ class Executor(
             }
         }
         if (!prePlanRouteOk) {
-            if (deferPendingTokenMap7371("pre_plan")) return false
+            if (deferPendingTokenMap7371("pre_plan")) { lastLiveBuyStop8252[ts.mint] = "TOKEN_MAP_ROUTE_PENDING_7371"; return false }
             val missing = missingTokenMapFields()
             liveStage("LIVE_BUY_FAILED", "reason=TOKEN_MAP_INCOMPLETE missing=$missing route=${ts.tokenMap.routeStatus}")
             emitLiveBuyFail(ts, sol, "TOKEN_MAP_INCOMPLETE", "missing=$missing route=${ts.tokenMap.routeStatus}", attemptId8198 = attemptId)

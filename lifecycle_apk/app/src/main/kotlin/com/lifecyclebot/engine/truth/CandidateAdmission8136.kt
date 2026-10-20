@@ -240,10 +240,22 @@ object CandidateAdmission8136 {
      * absent/stale executable facts still defer, and known-negative evidence is handled before this helper.
      */
     internal fun optionalNativeContextClears8213(c: Candidate8136, gross: Double): Boolean =
+        nativeQualifiedClears8259(c, gross) &&
+            c.genericScore.isFinite() && c.genericFloor.isFinite() && c.genericScore >= c.genericFloor
+
+    /**
+     * V5.0.8259 §UNLOCK_THE_TWELVE — the specialist's own qualification is candidate-specific evidence: its native mandate
+     * fired a NAMED setup on THIS token with a fresh price, known economics that clear the round trip, every critical
+     * executable fact observed, no safety or structural refusal. 8257: eleven lanes NATIVE_READY in the thousands and
+     * three selected an owner — the generic V3 scanner score (a second floor, 7843) and the 8238 "supported record
+     * only" rule refused the lanes' own judgment on a reset book that has no records yet. Hard safety, structure,
+     * sellability / route / quote (CRITICAL_MISSING_8170), economics, sizing and the proven-negative records all still
+     * bind before and after this line.
+     */
+    internal fun nativeQualifiedClears8259(c: Candidate8136, gross: Double): Boolean =
         c.nativeQualified8213 &&
             !c.nativeSetup8213.isNullOrBlank() &&
             !c.nativeSetup8213.equals("NONE", true) &&
-            c.genericScore.isFinite() && c.genericFloor.isFinite() && c.genericScore >= c.genericFloor &&
             c.costPct.isFinite() && c.costPct > 0.0 &&
             !priceStale8136(c.priceAgeMs, c.hotLaunch) &&
             c.missingInputs.none(::criticalMissing8170) &&
@@ -425,8 +437,9 @@ object CandidateAdmission8136 {
         val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170)
         val nativeOptional8213 = c.missingInputs.isNotEmpty() && edge == null &&
             optionalNativeContextClears8213(c, decisionGross)
+        val nativeLive8259 = edge == null && nativeQualifiedClears8259(c, decisionGross)
         if (stale || !econKnown || criticalMissing8170.isNotEmpty() ||
-            (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213)) {
+            (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213 && !nativeLive8259)) {
             val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + (if (!econKnown) listOf("economics") else emptyList())
             trace += "missing=${missing.joinToString(",")}"
             if (criticalMissing8170.isNotEmpty()) trace += "criticalUnobserved8170=${criticalMissing8170.joinToString(",")}"
@@ -451,6 +464,13 @@ object CandidateAdmission8136 {
         // 7. no supported edge: thin positives are noted, never admitted; the generic prior decides.
         listOfNotNull(chosenRec, c.cell).filter { thinPositive8136(it) }
             .forEach { trace += "thinPositive=${it.compact} needs n>=$SUPPORT_MIN_N_8136" }
+        // V5.0.8259 — the specialist's own qualification admits (see nativeQualifiedClears8259): no second score floor,
+        // no "supported record only" lock on a book that has none yet. Specific: the lane judged THIS token.
+        if (nativeLive8259) {
+            trace += "nativeQualifiedAdmit8259=${c.nativeSetup8213} generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)}"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("NATIVE_QUALIFIED_ADMIT_8259_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return done(Terminal8136.ADMIT, "NATIVE_QUALIFIED_ADMIT_8259", true, chosen ?: c.nativeSetup8213, "NATIVE_QUALIFIED_8259:${c.nativeSetup8213}")
+        }
         if (c.genericScore.isFinite() && c.genericFloor.isFinite()) {
             trace += "generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)}"
             if (c.genericScore < c.genericFloor) return done(Terminal8136.REFUSE, "GENERIC_SCORE_FLOOR_8136", false, chosen)

@@ -36,15 +36,20 @@ class Aate8213AllLaneDataAdmissionTest {
     @Test fun twelveNativeSpecialistsCanTradeThroughOptionalGapsWithSizedPositiveEconomics() {
         assertEquals(12, natives.size)
         for ((lane, setup) in natives) {
+            // V5.0.8259 — the lane's own qualification admits as candidate-specific evidence (no second score floor).
             val d = CandidateAdmission8136.decide8136(candidate(lane, setup))
             assertEquals(lane, CandidateAdmission8136.Terminal8136.ADMIT, d.terminal)
-            assertEquals(lane, "GENERIC_PRIOR_CLEARS_8136", d.reason)
-            assertFalse(lane, d.specific) // A native-qualified, economic ADMIT is not a statistically proven setup.
+            assertEquals(lane, "NATIVE_QUALIFIED_ADMIT_8259", d.reason)
+            assertTrue(lane, d.specific)
             assertEquals(lane, setup, d.chosenSetup)
-            assertTrue(lane, d.basis.startsWith("NATIVE_QUALIFIED_8213:"))
+            assertTrue(lane, d.basis.startsWith("NATIVE_QUALIFIED_8259:"))
             assertEquals(lane, 6.0, d.costPct, 0.0)
-            assertTrue(lane, d.trace.any { it.startsWith("nativeOptionalCleared8213=") })
-            assertTrue(lane, LiveEdgeGate7877.genericNativeClearsProvenOnly8211(d))
+            assertTrue(lane, d.trace.any { it.startsWith("nativeQualifiedAdmit8259=") })
+            // live too: the 8238 "supported record only" lock no longer refuses the lane's own judgment
+            val live = CandidateAdmission8136.decide8136(candidate(lane, setup).copy(live = true))
+            assertEquals(lane, "NATIVE_QUALIFIED_ADMIT_8259", live.reason)
+            // a V3 score under the floor is not a second floor for the specialist
+            assertEquals(lane, "NATIVE_QUALIFIED_ADMIT_8259", CandidateAdmission8136.decide8136(candidate(lane, setup).copy(genericScore = 12.0)).reason)
         }
     }
 
@@ -54,8 +59,12 @@ class Aate8213AllLaneDataAdmissionTest {
             CandidateAdmission8136.decide8136(c.copy(nativeQualified8213 = false)).terminal)
         assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
             CandidateAdmission8136.decide8136(c.copy(nativeSetup8213 = "NONE")).terminal)
+        // economics, safety and critical facts still bind the native admit
+        assertEquals("EXECUTION_ECONOMICS_8136", CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = 7.0)).reason)
         assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
-            CandidateAdmission8136.decide8136(c.copy(genericScore = 12.0)).terminal)
+            CandidateAdmission8136.decide8136(c.copy(missingInputs = c.missingInputs + "sellability:UNKNOWN")).terminal)
+        assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
+            CandidateAdmission8136.decide8136(c.copy(priceAgeMs = 120_000L)).terminal)
     }
 
     @Test fun executionSafetyAndMeasuredNegativesStillBind() {

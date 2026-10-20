@@ -45,9 +45,18 @@ object MinPromotion8188 {
         requestedSol: Double, promotedSol: Double, stopPct: Double,
         costRequestedPct: Double, costPromotedPct: Double, expectedGrossPct: Double, drawdownFrac: Double,
         budgetSol: Double = requestedSol,
+        explorationSlotFree: Boolean = false,
     ): String? {
         if (!promotedSol.isFinite() || promotedSol <= 0.0 || !(requestedSol < promotedSol)) return null
-        if (defensiveDrawdown8188(drawdownFrac)) return REFUSED_DRAWDOWN_8188
+        // V5.0.8259 — the defensive tier (>=30 % drawdown) closed EVERY promotion while 10/12 lane allocations sat
+        // below the routable minimum on a 0.25 SOL wallet (8257: ROUTE_MIN_PROMOTION_REFUSED_DRAWDOWN_8188 = 32): a
+        // drawdown could never be traded out of. Operator's decision: ONE promoted exploration order at a time while
+        // defensive (LaneScoreAdmission7308's slot — no open unproven live position, 5 min apart). The loss budget,
+        // the measured edge at the promoted size and every later gate still bind below.
+        if (defensiveDrawdown8188(drawdownFrac)) {
+            if (!explorationSlotFree) return REFUSED_DRAWDOWN_8188
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ROUTE_MIN_PROMOTION_DEFENSIVE_EXPLORATION_SLOT_8259") } catch (_: Throwable) {}
+        }
         if (!requestedSol.isFinite() || requestedSol <= 0.0 || !stopPct.isFinite() || stopPct <= 0.0) return REFUSED_LOSS_BUDGET_8188
         val cReq = if (costRequestedPct.isFinite()) costRequestedPct else costPromotedPct
         val budget = lossAtStopSol8188(if (budgetSol.isFinite() && budgetSol > requestedSol) budgetSol else requestedSol, stopPct, cReq)  // V5.0.8234
