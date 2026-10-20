@@ -59,6 +59,10 @@ object HeldExitQuote8189 {
     fun usable8189(q: Quote8189?, nowMs: Long): Boolean =
         q != null && q.priceUsd.isFinite() && q.priceUsd > 0.0 && nowMs - q.observedAtMs in 0L..QUOTE_FRESH_MS_8189
 
+    /** An average exit price belongs to one exact remaining quantity. */
+    internal fun matchesQuantity(q: Quote8189?, raw: BigInteger, nowMs: Long): Boolean =
+        usable8189(q, nowMs) && q?.rawQty == raw
+
     /** Pure: is a new quote due ([lastAttemptMs] 0 = never asked)? */
     fun due8189(lastAttemptMs: Long, nowMs: Long, inFlight: Boolean): Boolean =
         !inFlight && (lastAttemptMs <= 0L || nowMs - lastAttemptMs >= QUOTE_DEBOUNCE_MS_8189)
@@ -76,16 +80,15 @@ object HeldExitQuote8189 {
     private val lane8189: ThreadPoolExecutor = ThreadPoolExecutor(
         2, 2, 30L, TimeUnit.SECONDS, LinkedBlockingQueue<Runnable>(32),
         java.util.concurrent.ThreadFactory { r -> Thread(r, "held-exit-quote-8189").apply { isDaemon = true } },
-        ThreadPoolExecutor.DiscardPolicy(),
+        ThreadPoolExecutor.AbortPolicy(),
     )
 
     private fun bare8189(mint: String): String = mint.removePrefix("solana|").trim()
 
     /** The last owner+mint wallet read of [mint] (StopLatencyCore8153 proof), if recent: (raw, decimals). */
     fun walletRead8189(mint: String, nowMs: Long): Pair<BigInteger, Int>? {
-        val p = try { com.lifecyclebot.engine.sell.StopLatencyCore8153.proof8153(mint) ?: com.lifecyclebot.engine.sell.StopLatencyCore8153.proof8153(bare8189(mint)) } catch (_: Throwable) { null }
+        val p = com.lifecyclebot.engine.sell.StopLatencyWiring8153.provenHolding8153(bare8189(mint), nowMs)
             ?: return null
-        if (nowMs - p.atMs !in 0L..WALLET_READ_MAX_AGE_MS_8189) return null
         return p.raw to p.decimals
     }
 
@@ -102,7 +105,7 @@ object HeldExitQuote8189 {
      */
     fun take8189(mint: String, canonicalRaw: BigInteger, scale: Int, nowMs: Long = System.currentTimeMillis()): Quote8189? {
         if (mint.isBlank() || scale !in 0..18) return null
-        val cached = fresh8189(mint, nowMs)
+        val cached = fresh8189(mint, nowMs)?.takeIf { matchesQuantity(it, canonicalRaw, nowMs) }
         if (due8189(attempts[mint] ?: 0L, nowMs, mint in inFlight)) ask8189(mint, canonicalRaw, scale, nowMs)
         if (cached != null) served.incrementAndGet()
         return cached
@@ -143,11 +146,11 @@ object HeldExitQuote8189 {
      * for the open LIVE canonical position of [mint], asked now when none is cached. Null when the bot holds none.
      */
     fun quoteNow8189(mint: String, nowMs: Long = System.currentTimeMillis()): Quote8189? {
-        fresh8189(mint, nowMs)?.let { return it }
         val pos = try {
             (CanonicalPositionAuthority6441.firstOpenForMint(mint) ?: CanonicalPositionAuthority6441.firstOpenForMint(bare8189(mint)))
                 ?.takeIf { it.mode.equals("live", true) }
         } catch (_: Throwable) { null } ?: return null
+        fresh8189(mint, nowMs)?.takeIf { it.rawQty == pos.remainingQtyRaw }?.let { return it }
         val w = walletRead8189(pos.mint, nowMs)
         val qty = heldQty8189(pos.remainingQtyRaw, w?.first, w?.second == pos.quantityScale) ?: return null
         if (!inFlight.add(pos.mint)) return null

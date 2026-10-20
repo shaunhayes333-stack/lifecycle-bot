@@ -31,8 +31,10 @@ object PairFlow8169 {
         if (mint.length < 32 || f.atMs <= 0L) return
         val prev = flows[mint]
         if (prev != null && prev.atMs > f.atMs) return
-        flows[mint] = f
+        flows.compute(mint) { _, current -> if (current != null && current.atMs > f.atMs) current else f }
         noted.incrementAndGet()
+        // Every actual pair producer wakes its consumers, not just DataOrchestrator's poll.
+        CandidateAdmission8136.evidenceArrived8252(mint, CandidateAdmission8136.PAIR_FEATURES_8252, f.atMs)
         if (flows.size > CAP_8169) {
             flows.entries.removeIf { f.atMs - it.value.atMs > KEEP_MS_8169 }
             if (flows.size > CAP_8169) {
@@ -96,6 +98,7 @@ object SetupFeatureResolver8169 {
     const val TAPE = "tape8100"
     const val PAIR = "dexPair"
     const val SWEEP = "sweep"
+    const val CHAIN = "onChainPool"
     internal const val FRESH_MS_8169 = 15L * 60_000L
     /** A mint's shape repair asks Codex at most this often (the key's quota is shared with the chart backfill). */
     const val CODEX_REPAIR_GAP_MS_8169 = 10L * 60_000L
@@ -164,12 +167,29 @@ object SetupFeatureResolver8169 {
      */
     fun observedLiquidity8170(mint: String, ageMin: Double, nowMs: Long): Double? {
         val maxAge = maxEvidenceAge8170(ageMin)
+        cachedChainLiquidity(mint, nowMs, maxAge).value?.let { return it }
         val p = try { PairFlow8169.peek8169(mint) } catch (_: Throwable) { null }
         val pair = pairLiq8169(p, nowMs, maxAge).value
         if (pair != null) return pair
         val row = try { com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(mint, nowMs) } catch (_: Throwable) { null }
         return sweepLiq8169(row, nowMs, maxAge).value
     }
+
+    internal fun chainLiquidity(read: OnChainDepth8038.Read?, solUsd: Double, nowMs: Long, maxAgeMs: Long): Cand8169<Double> = when {
+        read == null -> Cand8169(CHAIN, null, "NOT_OBSERVED")
+        nowMs - read.atMs !in 0L..minOf(maxAgeMs, 90_000L) -> Cand8169(CHAIN, null, "STALE")
+        read.pool.isBlank() || !read.quoteSol.isFinite() || read.quoteSol <= 0.0 ||
+            !read.baseTokens.isFinite() || read.baseTokens <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0 ->
+            Cand8169(CHAIN, null, "INVALID")
+        else -> OnChainDepth8038.depthUsd8038(read.quoteSol, solUsd).let {
+            if (it.isFinite() && it > 0.0) Cand8169(CHAIN, it, "") else Cand8169(CHAIN, null, "INVALID")
+        }
+    }
+
+    private fun cachedChainLiquidity(mint: String, nowMs: Long, maxAgeMs: Long): Cand8169<Double> = try {
+        chainLiquidity(OnChainDepth8038.freshRead8198(mint, minOf(maxAgeMs, 90_000L), nowMs),
+            com.lifecyclebot.engine.WalletManager.lastKnownSolPrice, nowMs, maxAgeMs)
+    } catch (_: Throwable) { Cand8169(CHAIN, null, "NOT_OBSERVED") }
 
     /** The sweep's 1h move is 0.0 when no provider supplied it (Row contract), so only a non-zero 1h move is a reading. */
     fun sweepChg8169(r: com.lifecyclebot.engine.market.MarketSweep7297.Row?, nowMs: Long, maxAgeMs: Long = FRESH_MS_8169): Cand8169<Pair<Double, Double>> = when {
@@ -228,7 +248,7 @@ object SetupFeatureResolver8169 {
             bp = listOf(Cand8169(PRIMARY, bpPrimary, bpObs), Cand8169(TAPE, tapeBp, tapeWhy), pairBp8169(pair, nowMs, maxAge), sweepBp8169(row, nowMs, maxAge)),
             chg = listOf(Cand8169(PRIMARY, chgPrimary, chgObs), Cand8169(TAPE, tapeChg, tapeWhy), pairChg8169(pair, nowMs, maxAge), sweepChg8169(row, nowMs, maxAge)),
             shape = listOf(Cand8169(PRIMARY, if (shapePrimary) true else null, shapeObs), Cand8169(TAPE, if (tapeShape) true else null, tapeWhy)),
-            liq = listOf(Cand8169(PRIMARY, liqPrimary, "UNKNOWN"), pairLiq8169(pair, nowMs, maxAge), sweepLiq8169(row, nowMs, maxAge)),
+            liq = listOf(cachedChainLiquidity(mint, nowMs, maxAge), Cand8169(PRIMARY, liqPrimary, "UNKNOWN"), pairLiq8169(pair, nowMs, maxAge), sweepLiq8169(row, nowMs, maxAge)),
         )
         try { count8169(fill, launchTape, if (launchTape) "" else launchTapeWhy8169(mint, ageMin), swaps, if (swaps) "" else tapeWhy) } catch (_: Throwable) {}
         return fill

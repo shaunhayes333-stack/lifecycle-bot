@@ -204,6 +204,7 @@ object OnChainDepth8038 {
             if (sides == null) { unsupported[p] = System.currentTimeMillis(); continue }
             val read = Read(p, sides.first, sides.second, System.currentTimeMillis())
             reads[mint] = read
+            CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
             if (reads.size > 3_000) reads.entries.sortedBy { it.value.atMs }.take(300).forEach { reads.remove(it.key) }
             fetched.incrementAndGet()
             return read

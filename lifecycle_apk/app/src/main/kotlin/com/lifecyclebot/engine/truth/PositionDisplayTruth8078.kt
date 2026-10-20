@@ -37,9 +37,11 @@ object PositionDisplayTruth8078 {
         val pnlPct: Double,
         val pnlSol: Double,
         val valueSol: Double,
+        val executablePnlPct: Double? = null,
+        val executablePnlSol: Double? = null,
     ) {
         /** Short tag for the mark line: the operator can see which price they are reading. */
-        val markTag: String get() = if (markVerified) "chain" else "est"
+        val markTag: String get() = if (markVerified) "exit estimate" else "indicative"
     }
 
     /**
@@ -128,6 +130,14 @@ object PositionDisplayTruth8078 {
         Thread({ try { com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(mint)) } catch (_: Throwable) {} }, "peak-corroborate-8128").start()
     }
 
+    /** Net value of the actual quoted quantity, never a spot-price percentage applied to SOL basis. */
+    internal fun executableNetPnl(costSol: Double, qty: Double, quoteUsd: Double, solUsd: Double, fixedFeeSol: Double): Double? {
+        if (!costSol.isFinite() || costSol <= 0.0 || !qty.isFinite() || qty <= 0.0 ||
+            !quoteUsd.isFinite() || quoteUsd <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0 ||
+            !fixedFeeSol.isFinite() || fixedFeeSol < 0.0) return null
+        return qty * quoteUsd / solUsd - fixedFeeSol - costSol
+    }
+
     fun view(ts: TokenState, nowMs: Long = System.currentTimeMillis()): View {
         val pos = ts.position
         val mode = if (pos.isPaperPosition) "PAPER" else "LIVE"
@@ -160,9 +170,16 @@ object PositionDisplayTruth8078 {
                 ?.takeIf { nowMs - it.timestampMs in -5_000L..VERIFIED_MARK_MAX_AGE_MS }
                 ?.let { m -> m.priceUsd.value.toDouble().takeIf { it.isFinite() && it > 0.0 }?.let { Triple(it, m.source, nowMs - m.timestampMs) } }
         } catch (_: Throwable) { null }
-        val markUsd = verified?.first ?: ts.ref
-        val markSource = verified?.second ?: ts.lastPriceSource
-        val markAge = verified?.third ?: if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else -1L
+        // A spot/locked-pool mark remains useful context, but only a quantity-bound
+        // sell estimate may be labelled executable or arm a profit peak.
+        val solanaPosition = canon?.let { HeldHotMarkAuthority7419.solanaPricedClass7960(it.assetClass, it.mint) }
+            ?: !ts.mint.contains('|')
+        val exitQuote = canon?.takeIf { solanaPosition }?.let { HeldExitQuote8189.take8189(ts.mint, it.remainingQtyRaw, it.quantityScale, nowMs) }
+        val exitPnl = exitQuote?.let { executableNetPnl(costSol, qty, it.priceUsd,
+            com.lifecyclebot.engine.WalletManager.lastKnownSolPrice, com.lifecyclebot.engine.CostMeter8151.sellLegFixedSol8151()) }
+        val markUsd = exitQuote?.priceUsd ?: verified?.first ?: ts.ref
+        val markSource = if (exitQuote != null) "HELD_QUANTITY_EXIT_ESTIMATE" else verified?.second ?: ts.lastPriceSource
+        val markAge = exitQuote?.let { nowMs - it.observedAtMs } ?: verified?.third ?: if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else -1L
 
         val verdict = try {
             com.lifecyclebot.engine.OpenPnlSanity.inspect(
@@ -181,9 +198,12 @@ object PositionDisplayTruth8078 {
         val pnlSol = if (ok) costSol * pct / 100.0 else 0.0
         return View(
             entryUsd = entryUsd, qty = qty, costSol = costSol,
-            markUsd = markUsd, markSource = markSource, markAgeMs = markAge, markVerified = verified != null,
+            markUsd = markUsd, markSource = markSource, markAgeMs = markAge, markVerified = if (solanaPosition) exitPnl != null else verified != null,
             canonicalBasis = canon != null, basisOk = ok, basisReason = verdict?.reason.orEmpty(),
-            pnlPct = pct, pnlSol = pnlSol, valueSol = if (ok) costSol + pnlSol else costSol,
+            pnlPct = if (ok && exitPnl != null) exitPnl / costSol * 100.0 else pct,
+            pnlSol = if (ok) exitPnl ?: pnlSol else 0.0,
+            valueSol = if (ok) costSol + (exitPnl ?: pnlSol) else costSol,
+            executablePnlPct = exitPnl?.let { it / costSol * 100.0 }, executablePnlSol = exitPnl,
         )
     }
 

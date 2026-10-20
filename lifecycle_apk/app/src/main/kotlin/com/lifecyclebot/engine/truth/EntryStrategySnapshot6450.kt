@@ -81,6 +81,7 @@ object EntryStrategySnapshot6450 {
         val cortexSetupTag8085: String = "",
         val candidateVersion8090: Long = 0L,
         val mode8090: String = "unknown",
+        val runnerEntry: Boolean = false,
     )
 
     private val snapshots = ConcurrentHashMap<String, Snapshot>() // positionId -> Snapshot
@@ -135,9 +136,7 @@ object EntryStrategySnapshot6450 {
     }
 
     internal fun persistenceKey6567(positionId: String) = "entry_strategy_6450_$positionId"
-    private fun persist6567(snap: Snapshot) {
-        try {
-            val j = JSONObject()
+    internal fun encodeSnapshot(snap: Snapshot): JSONObject = JSONObject()
                 .put("positionId", snap.positionId).put("mint", snap.mint)
                 .put("lane", snap.entryLane).put("pid", snap.entryStrategyPid)
                 .put("tactic", snap.entryTactic).put("risk", snap.entryRiskProfile)
@@ -165,6 +164,11 @@ object EntryStrategySnapshot6450 {
                 .put("assetClass", snap.assetClassTag)
                 .put("cortexSetup8085", snap.cortexSetupTag8085)
                 .put("candidateVersion8090", snap.candidateVersion8090).put("mode8090", snap.mode8090)
+                .put("runnerEntry", snap.runnerEntry)
+
+    private fun persist6567(snap: Snapshot) {
+        try {
+            val j = encodeSnapshot(snap)
             // The persisted immutable executed entry is a financial audit record,
             // never resettable learning state. Backward-compatible learning mirror
             // remains for readers of older builds.
@@ -181,8 +185,13 @@ object EntryStrategySnapshot6450 {
         // still exist exclusively in the learning database.
         val raw = LearningPersistence.loadImmutableExecutionEvidence8093(positionId)
             ?: LearningPersistence.load(persistenceKey6567(positionId)) ?: return null
+        decodeSnapshot(raw, positionId).also { snapshots.putIfAbsent(positionId, it) }
+    } catch (_: Throwable) { null }
+    }
+
+    internal fun decodeSnapshot(raw: String, positionId: String): Snapshot {
         val j = JSONObject(raw)
-        Snapshot(
+        return Snapshot(
             positionId = j.optString("positionId", positionId), mint = j.optString("mint", ""),
             entryLane = j.optString("lane", ""), entryStrategyPid = j.optString("pid", ""),
             entryTactic = j.optString("tactic", ""), entryRiskProfile = j.optString("risk", ""),
@@ -207,8 +216,8 @@ object EntryStrategySnapshot6450 {
             assetClassTag = j.optString("assetClass", AssetClass.SOLANA_TOKEN.tag),
             cortexSetupTag8085 = j.optString("cortexSetup8085", ""),
             candidateVersion8090 = j.optLong("candidateVersion8090"), mode8090 = j.optString("mode8090", "unknown"),
-        ).also { snapshots.putIfAbsent(positionId, it) }
-    } catch (_: Throwable) { null }
+            runnerEntry = j.optBoolean("runnerEntry", false),
+        )
     }
 
     fun snapshot(positionId: String): Snapshot? = snapshots[positionId] ?: restore6567(positionId)

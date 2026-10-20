@@ -206,13 +206,17 @@ object LaneExecutionCoordinator {
             .mapValues { it.value.conviction.coerceIn(0.0, 100.0) }
     } catch (_: Throwable) { emptyMap() }
 
-    private fun qualifiedLanesFor(mint: String, candidateVersion: Long, vararg contesting: String): List<String> {
-        // V5.0.7803 — once any specialist is actually READY, only READY desks
-        // arbitrate. WATCHING/QUALIFIED desks remain resident and keep observing;
-        // they do not steal an executable proposal merely through static priority.
-        val ready7803 = readyProposalScores7803(mint, candidateVersion)
-        if (ready7803.isNotEmpty()) return ready7803.keys.toList()
+    private fun strategyReadyContest(mint: String, candidateVersion: Long): Set<String> {
+        val ready = readyProposalScores7803(mint, candidateVersion).keys
+        val qualified = currentQualifiedContest7621(mint, candidateVersion)
+        val ts = HandoffRoute8180.tokenFor8180(mint) ?: return ready
+        val verdicts = com.lifecyclebot.engine.truth.StrategyElection8243.verdictsFor8243(ts, qualified, candidateVersion)
+        return com.lifecyclebot.engine.truth.StrategyElection8243.contestLanes(ready, qualified, verdicts)
+    }
 
+    private fun qualifiedLanesFor(mint: String, candidateVersion: Long, vararg contesting: String): List<String> {
+        val ready = strategyReadyContest(mint, candidateVersion)
+        if (ready.isNotEmpty()) return ready.toList()
         val currentQualified7621 = currentQualifiedContest7621(mint, candidateVersion)
         if (currentQualified7621.isNotEmpty()) return currentQualified7621.toList()
 
@@ -260,7 +264,7 @@ object LaneExecutionCoordinator {
      */
     internal const val PROVEN_CELL_BONUS_8094 = 10.0
     private fun provenCellBonus8094(mint: String, lane: String): Double = try {
-        val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }
+        val ts = HandoffRoute8180.tokenFor8180(mint)
         if (ts != null && com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellOrKindProven8094(ts, lane)) PROVEN_CELL_BONUS_8094 else 0.0
     } catch (_: Throwable) { 0.0 }
 
@@ -273,7 +277,7 @@ object LaneExecutionCoordinator {
         // V5.0.8243 — the lane whose candidate-specific admission (the record it meets again at the FDG) is a proven ADMIT
         // owns the version; conviction breaks ties inside a tier and decides when no lane has judged. 8241: ZFROG
         // +129,601% owned by MOONSHOT (80, DATA_INCOMPLETE_DEFER) while SHITCOIN (37) held ADMIT:SPECIFIC_EDGE_PROVEN.
-        val ts = try { synchronized(BotService.status.tokens) { BotService.status.tokens[mint] } } catch (_: Throwable) { null }
+        val ts = try { HandoffRoute8180.tokenFor8180(mint) } catch (_: Throwable) { null }
             ?: return convictionWinner
         val verdicts = try {
             com.lifecyclebot.engine.truth.StrategyElection8243.verdictsFor8243(ts, qualified, candidateVersion)
@@ -302,9 +306,9 @@ object LaneExecutionCoordinator {
         candidateVersion: Long = candidateVersionFor(mint),
         eligible: (String) -> Boolean = { true },
     ): String? {
-        val ready = readyProposalScores7803(mint, candidateVersion)
+        val ready = strategyReadyContest(mint, candidateVersion)
         if (ready.isEmpty()) return null
-        val contenders = ready.keys
+        val contenders = ready
             .filter(eligible)
             .filter { laneCanOwnExecution6910(it) || unownable8136(mint, it, "TRADER_DISABLED_7815") }
             .filter { lane -> ownExecutorRefusal7807(mint, lane)?.let { why -> unownable8136(mint, lane, "OWN_EXECUTOR_7807:$why") } ?: true }
@@ -584,7 +588,7 @@ object LaneExecutionCoordinator {
     private fun ownExecutorRefusal7807(mint: String, lane: String): String? {
         if (!lane.equals("PROJECT_SNIPER", true)) return null
         if (try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }) return null
-        val ts = try { BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return null
+        val ts = HandoffRoute8180.tokenFor8180(mint) ?: return null
         return try { LaneEntryContract6342.sniperLaunchIdentityRefusal7807(ts) } catch (_: Throwable) { null }
     }
 

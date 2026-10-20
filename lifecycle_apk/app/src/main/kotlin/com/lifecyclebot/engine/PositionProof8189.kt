@@ -26,7 +26,7 @@ object PositionProof8189 {
     enum class Bucket8189 { MATCHED, QTY_MISMATCH, NOT_ON_CHAIN, CHAIN_UNREAD, FROZEN, PENDING_TX }
 
     /** Wallet reads older than this are not used to fill the reconcile chain. */
-    private const val READ_MAX_AGE_MS_8189 = 10L * 60_000L
+    private const val READ_MAX_AGE_MS_8189 = com.lifecyclebot.engine.sell.StopLatencyCore8153.HOT_PROOF_TTL_MS_8153
 
     @Volatile private var lastChain8189: Map<String, BigInteger>? = null
     @Volatile private var lastComplete8189 = false
@@ -68,11 +68,10 @@ object PositionProof8189 {
 
     /** The newest positive owner+mint wallet read of [mint] and its time, from the exit path's caches. */
     private fun walletRead8189(mint: String, nowMs: Long): Pair<BigInteger, Long>? {
-        val proof = try { com.lifecyclebot.engine.sell.StopLatencyCore8153.proof8153(mint) } catch (_: Throwable) { null }
-            ?.takeIf { it.raw.signum() > 0 && nowMs - it.atMs in 0L..READ_MAX_AGE_MS_8189 }?.let { it.raw to it.atMs }
-        val probe = try { com.lifecyclebot.engine.sell.SellRouteProbe8144.cachedBalanceAt8153(mint, nowMs) } catch (_: Throwable) { null }
-            ?.takeIf { com.lifecyclebot.engine.sell.SellRouteProbe8144.held8144(it.first) }?.let { it.first.raw to it.second }
-        return listOfNotNull(proof, probe).maxByOrNull { it.second }
+        // Same post-signature freshness contract as the execution path. A pre-sell
+        // positive proof cannot resurrect inventory in the operator report.
+        return com.lifecyclebot.engine.sell.StopLatencyWiring8153.provenHolding8153(mint, nowMs)
+            ?.let { it.raw to it.atMs }
     }
 
     /**

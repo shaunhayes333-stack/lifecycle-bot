@@ -137,6 +137,8 @@ object CandidateAdmission8136 {
         val costPct: Double = Double.NaN,
         val costSizeSol: Double = Double.NaN,
         val costBreakdown: String = "",
+        /** Lifecycle prior already weighed against this decision's selected strategy. */
+        val evaluatedStage: String = "",
     ) {
         val admitted: Boolean get() = terminal == Terminal8136.ADMIT
         val compact: String get() = "${terminal.name}:$reason${chosenSetup?.let { " setup=$it" } ?: ""} [${trace.joinToString("; ")}]"
@@ -163,6 +165,11 @@ object CandidateAdmission8136 {
 
 
     internal fun fmt8136(v: Double): String = if (v.isFinite()) "%+.1f".format(v) else "-"
+
+    /** Remove only a classifier's absent liquidity claim when a fresh source supplied that fact.
+     * Low-liquidity/sellability refusals remain binding downstream. */
+    internal fun resolvedMissingInputs(missing: List<String>, liquidityObserved: Boolean): List<String> =
+        missing.filterNot { liquidityObserved && it.substringBefore(':').trim().uppercase() in setOf("LIQ", "LIQUIDITY") }
 
     // ── pure evidence tests ──
 
@@ -242,7 +249,8 @@ object CandidateAdmission8136 {
             (if (c.costSizeSol.isFinite()) " costSize=${"%.4f".format(c.costSizeSol)}SOL" else "")
         fun done(t: Terminal8136, reason: String, specific: Boolean, setup: String?, basis: String = ""): Decision8136 =
             Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason },
-                costPct = c.costPct, costSizeSol = c.costSizeSol, costBreakdown = c.costBreakdown)
+                costPct = c.costPct, costSizeSol = c.costSizeSol, costBreakdown = c.costBreakdown,
+                evaluatedStage = c.stage)
 
         // 1. hard safety and structural selling risk: nothing overrides them.
         c.safetyRefusal?.let { trace += "safety=$it"; return done(Terminal8136.REFUSE, "SAFETY_REFUSED_8136", true, c.selectedSetup) }
@@ -360,7 +368,6 @@ object CandidateAdmission8136 {
             c.runnerGrab8245?.takeIf { grabSupported8245(it) && !losing8136(cellLoss) })   // V5.0.8245
             .maxByOrNull { it.lowerPct }
         if (edge?.kind == KIND_RUNNER_GRAB_8245) {
-            runnerEntry8252[c.mint] = System.currentTimeMillis()
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_EDGE_RUNNER_GRAB_8245") } catch (_: Throwable) {}
         }
         // Resolve the winning strategy before validating its executable economics.
@@ -413,6 +420,7 @@ object CandidateAdmission8136 {
 
         // 6. supported candidate-specific edge: the generic score is only a prior.
         if (edge != null) {
+            if (edge.kind == KIND_RUNNER_GRAB_8245) runnerEntry8252[c.mint] = System.currentTimeMillis()
             trace += "edge=${edge.compact}${if (edge.runnerRate.isFinite()) " run=${(edge.runnerRate * 100).toInt()}%" else ""}"
             return done(Terminal8136.ADMIT, "SPECIFIC_EDGE_PROVEN_8136", true, chosen, edge.compact)
         }
@@ -582,7 +590,11 @@ object CandidateAdmission8136 {
     val PAIR_FEATURES_8252: Set<String> = setOf("bp", "chg", "liq", "liquidity", "mcap")
 
     fun evidenceArrived8252(mint: String, features: Set<String>, nowMs: Long = System.currentTimeMillis()) {
-        if (mint.isBlank() || held8144.isEmpty()) return
+        if (mint.isBlank()) return
+        // Both readers cache decisions; waking only the defer scheduler leaves stale elections in place.
+        memos8153.keys.removeIf { it.substringAfter('|').startsWith("$mint|") }
+        StrategyElection8243.invalidateEvidence(mint)
+        if (held8144.isEmpty()) return
         var woke = false
         for ((key, h) in held8144) {
             if (!key.startsWith("$mint|")) continue
@@ -909,7 +921,11 @@ object CandidateAdmission8136 {
             observedLiq8170 == null
         val safety = if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK)
             "HARD_BLOCK:${ts.safety.hardBlockReasons.firstOrNull().orEmpty().take(40)}" else null
-        val priceAge = if (ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
+        val canonicalPrice = CanonicalPriceMarkRegistry6522.getFresh6734(
+            ts.mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, nowMs)
+        val localAt = ts.lastPriceUpdate.takeIf { ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && it in 1L..nowMs } ?: 0L
+        val observedAt = maxOf(localAt, canonicalPrice?.timestampMs?.takeIf { it <= nowMs } ?: 0L)
+        val priceAge = if (observedAt > 0L) nowMs - observedAt else Long.MAX_VALUE
         return Candidate8136(
             mint = ts.mint,
             lane = lane,
@@ -917,7 +933,9 @@ object CandidateAdmission8136 {
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             stage = fit?.stage?.name.orEmpty(),
             priceAgeMs = priceAge,
-            missingInputs = (try { pb.dataIncomplete8136(ts, lane, nowMs).orEmpty() } catch (_: Throwable) { emptyList() }) +
+            missingInputs = resolvedMissingInputs(
+                try { pb.dataIncomplete8136(ts, lane, nowMs).orEmpty() } catch (_: Throwable) { emptyList() },
+                liquidityObserved = curveActive8153 || observedLiq8170 != null) +
                 (if (liquidityMissing8153) listOf("liquidity:UNKNOWN") else emptyList()),
             // V5.0.8153 — the selected strategy's expected executable move (NetEdge8030.executableMove8153), as the gate judges it.
             expectedGrossPct = try { NetEdge8030.expectedGrossFor8153(ts, lane, selected, cost8153) } catch (_: Throwable) { Double.NaN },

@@ -335,7 +335,9 @@ object ReconcileClassifier8144 {
         if (r == null) return "reconcile8144 not run yet runs=$runs" + (if (error.isNotBlank()) " lastError=${error.take(60)}" else "")
         val causes = r.byCause.entries.sortedByDescending { it.value }.joinToString(",") { "${it.key.name}=${it.value}" }.ifBlank { "none" }
         val st = State8144.values().joinToString(",") { "${it.name}=${r.states[it] ?: 0}" }
-        val first = r.exceptions.take(3).joinToString("") { " [${it.cause.name} ${it.mint.take(6)} ${it.detail.take(40)}]" }
+        // Quantities and signatures are forensic evidence. Truncating detail to
+        // 40 characters made equal raw balances look different by five decimals.
+        val first = r.exceptions.take(3).joinToString("") { " [${it.cause.name} ${it.mint} ${it.detail}]" }
         return "reconcile8144 ok=${r.ok} inventory=${r.inventory} exceptions=${r.exceptions.size} causes[$causes] states[$st] " +
             "lineageResolvedSells=${r.lineageResolvedSells} buys=${r.liveBuys} sells=${r.liveSells} lots=${r.lots} chainMints=${r.chainMints} " +
             "ageS=${ageMs / 1000} runs=$runs$first" + (if (error.isNotBlank()) " lastError=${error.take(60)}" else "")

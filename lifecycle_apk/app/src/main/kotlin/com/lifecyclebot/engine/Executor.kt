@@ -13842,6 +13842,7 @@ class Executor(
             entryRugEvidence = "rug=${intent.rugScore};safety=${intent.safetyVerdict}",
             entryPriceUsd = ts?.lastPrice ?: 0.0,
             authorizationReason = "FDG:${intent.fdgVerdict};attempt=${intent.attemptId}",
+            runnerEntry = intent.runnerEntry,
         )
     } catch (_: Throwable) { null }
 
@@ -17107,6 +17108,7 @@ class Executor(
             com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                 com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
                     positionId = pid6450, candidateVersion8090 = tradeId.fdgCandidateVersion, mode8090 = "PAPER",
+                    runnerEntry = sealedIntent6613?.runnerEntry == true,
                     mint = tradeId.mint,
                     entryLane = entryLane6450,
                     entryStrategyPid = "",
@@ -21660,6 +21662,7 @@ class Executor(
                         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
                             positionId = pidLive6486, mint = verifyMint, entryLane = liveEntryLane6568,
                             candidateVersion8090 = requireNotNull(sealedLiveIntent6613).candidateVersion, mode8090 = "LIVE",
+                            runnerEntry = sealedLiveIntent6613.runnerEntry,
                             entryStrategyPid = "", entryTactic = policyField6568(ts.position.entryPolicySnapshot, "entryTactic").ifBlank {
                                 try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, liveEntryLane6568, ts.position.entryScore.toInt()).name } catch (_: Throwable) { "UNKNOWN" }
                             },

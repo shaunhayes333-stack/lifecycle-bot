@@ -55,6 +55,7 @@ object MemePositionPopout {
         val current: Double,
         val basisOk: Boolean,
         val basisReason: String,
+        val executablePnl: Boolean,
         val pnlPct: Double,
         val pnlSol: Double,
         val costSol: Double,
@@ -152,6 +153,7 @@ object MemePositionPopout {
             current = view8078?.markUsd ?: t.ref,
             basisOk = basisOk,
             basisReason = view8078?.basisReason.orEmpty(),
+            executablePnl = view8078?.executablePnlSol != null,
             pnlPct = pnlPct,
             pnlSol = if (basisOk) view8078!!.pnlSol else 0.0,
             costSol = costSol,
@@ -361,7 +363,9 @@ object MemePositionPopout {
         c.price.text = price(r.current)
         c.pnlPct.text = if (r.basisOk) "%+.2f%%".format(r.pnlPct) else if (r.open) "basis wait" else "closed"
         c.pnlPct.setTextColor(col)
-        c.pnlSol.text = if (r.basisOk) "%+.4f◎ unrealised".format(r.pnlSol) else "—"
+        c.pnlSol.text = if (r.basisOk && r.executablePnl) "%+.4f◎ estimated exit".format(r.pnlSol)
+            else if (r.basisOk && !r.paper) "Indicative move · executable PnL unavailable"
+            else if (r.basisOk) "%+.4f◎ paper unrealised".format(r.pnlSol) else "—"
         c.pnlSol.setTextColor(col)
         r.spark?.let { pts ->
             c.spark.lineColor = col

@@ -344,16 +344,12 @@ object SpecialistOwnership7951 {
             else -> SpecialistElection8136.TRIGGER_PRE_FDG
         }
         if (ready && !rescueClaim8136(l, mint, primaryLane, trigger8136, nowMs)) {
-            // V5.0.8221 §P0c — a lost rescue claim is NEVER silent. Operator
-            // 8220 handoff audit: 1437 rescue overflows reported but every
-            // overflow previously returned false with no terminal reason, so
-            // the handoff throughput table could not account for them. Mark
-            // the receiver explicitly ineligible with RESCUE_OVERFLOW_7951 so
-            // SpecialistElection8136.isEligibleReceiver carries the terminal
-            // forward and the audit can match overflow count to receivers.
+            // Record lost scheduling competition without making it a permanent
+            // candidate-version refusal. Real safety/data refusals were already
+            // recorded by the rescue authority and remain intact.
             try {
                 PipelineHealthCollector.labelInc("RESCUE_OVERFLOW_7951_$l")
-                SpecialistElection8136.markIneligible8136(mint, l, "RESCUE_OVERFLOW_7951", nowMs)
+                SpecialistElection8136.noteRescueCompetition(mint, l, nowMs)
             } catch (_: Throwable) {}
             return false
         }

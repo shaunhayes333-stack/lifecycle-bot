@@ -34,7 +34,8 @@ class Aate8253RepairTest {
         assertFalse(CandidateAdmission8136.runnerEntryAdmitted8252("mintR", 1_000_000L - 1L))
         assertFalse(CandidateAdmission8136.runnerEntryAdmitted8252("mintR", 1_000_000L + 6L * 60_000L))
         assertFalse(CandidateAdmission8136.runnerEntryAdmitted8252("other", 1_000_000L + 30_000L))
-        assertTrue(src("engine/RunnerLive8153.kt").contains("CandidateAdmission8136.runnerEntryAdmitted8252(ts.mint, pos.entryTime)"))
+        assertTrue(src("engine/RunnerLive8153.kt").contains("snap?.takeIf { it.mint == ts.mint }?.runnerEntry == true"))
+        assertFalse(src("engine/RunnerLive8153.kt").contains("CandidateAdmission8136.runnerEntryAdmitted8252"))
     }
 
     @Test fun oneLaunchBuyerVerdictProvenRefusedOrUnknown() {

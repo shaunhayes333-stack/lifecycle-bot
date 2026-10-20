@@ -38,7 +38,7 @@ object StopLatencyWiring8153 {
     } catch (_: Throwable) { Long.MAX_VALUE to true }
 
     /** The newest usable proven holding for [mint], or null. Never reads the network. */
-    private fun provenHolding8153(mint: String, nowMs: Long = System.currentTimeMillis()): HeldProof8153? {
+    fun provenHolding8153(mint: String, nowMs: Long = System.currentTimeMillis()): HeldProof8153? {
         if (mint.isBlank()) return null
         val (lastTouch, unresolved) = ledgerState8153(mint)
         if (unresolved) return null

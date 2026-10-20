@@ -37,6 +37,16 @@ import java.util.concurrent.atomic.AtomicLong
  * touched here.
  */
 object LiveEdgeGate7877 {
+    internal fun admittedSetup(admission: CandidateAdmission8136.Decision8136?, classified: () -> String?): String? =
+        if (admission?.admitted == true && admission.specific) admission.chosenSetup else classified()
+
+    /** Only the exact lifecycle prior evaluated by admission is already resolved.
+     * Setup loss, execution costs and a changed lifecycle remain independent checks. */
+    internal fun stagePriorAlreadyResolved(admission: CandidateAdmission8136.Decision8136?, lane: String, prior: String): Boolean =
+        admission?.admitted == true && admission.specific && admission.evaluatedStage.isNotBlank() &&
+            !admission.evaluatedStage.equals("UNKNOWN", true) &&
+            prior == "STAGE_PROVEN_LOSING_7928_${lane}_${admission.evaluatedStage}"
+
     private const val CELL_MIN_N = 30
     private const val LIVE_MARGIN_PCT = 2.0
     /**
@@ -440,6 +450,7 @@ object LiveEdgeGate7877 {
     ): String? {
         var auditedAdmission8076 = false
         var candidateSpecificAdmission8136 = false
+        var resolvedAdmission: CandidateAdmission8136.Decision8136? = null
         var genericNative8211 = false   // 8213: read by liveRefusalCore7970 outside the live block; false in paper
         // V5.0.8037 — every edge read below sees the observed liquidity, not a missing tick's 0.
         try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
@@ -468,6 +479,7 @@ object LiveEdgeGate7877 {
             // terminal here; missing inputs remain a bounded data deferral; only a candidate-specific ADMIT clears a
             // generic edge prior. The measured-negative checks below remain binding.
             val admission8136 = candidateAdmission ?: try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion) } catch (_: Throwable) { null }
+            resolvedAdmission = admission8136
             genericNative8211 = genericNativeClearsProvenOnly8211(admission8136)
             when (admission8136?.terminal) {
                 CandidateAdmission8136.Terminal8136.DEFER_DATA -> {
@@ -513,7 +525,7 @@ object LiveEdgeGate7877 {
             }
             // V5.0.8094 — the setup this candidate trades as (multi-strategy selection), so refusals and assessments are
             // filed under the strategy actually traded.
-            val setup8083 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) } catch (_: Throwable) { null }
+            val setup8083 = admittedSetup(admission8136) { try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) } catch (_: Throwable) { null } }
             (try { LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs) } catch (_: Throwable) { null })?.let { r8083 ->
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8083, 1.0, nowMs)
                 if (candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, r8083, candidateVersion)
@@ -621,7 +633,7 @@ object LiveEdgeGate7877 {
                 observeTail7996(ts, lane, it, nowMs); return it
             }
         }
-        val why = liveRefusalCore7970(ts, lane, paper, nowMs, candidateSpecificAdmission8136, genericNative8211)
+        val why = liveRefusalCore7970(ts, lane, paper, nowMs, candidateSpecificAdmission8136, genericNative8211, resolvedAdmission)
         if (!paper) observeTail7996(ts, lane, why, nowMs)
         if (!paper && candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, why ?: "ALLOW", candidateVersion)
         // V5.0.8083 — one immutable assessment per candidate: the verdict FDG / sizing / trade plan read, and the setup
@@ -629,7 +641,7 @@ object LiveEdgeGate7877 {
         if (!paper) try {
             val l8083 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
             // V5.0.8094 — the strategy the trade is admitted and executed as (selected), so the close files under it.
-            val setupAt = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8083, nowMs) } catch (_: Throwable) { null }
+            val setupAt = admittedSetup(resolvedAdmission) { try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8083, nowMs) } catch (_: Throwable) { null } }
             val factor = if (why == null) (try { LiveTruth8064.lanePrior8083(l8083, nowMs).sizeFactor } catch (_: Throwable) { 1.0 }) else 1.0
             recordAssessment8083(ts, l8083, setupAt, if (why == null) Verdict8083.ADMIT else Verdict8083.REFUSE, why ?: "ADMIT", factor, nowMs)
             if (why == null) LiveTruth8064.noteLiveAdmit8083(ts.mint, l8083, setupAt, nowMs)
@@ -1011,7 +1023,8 @@ object LiveEdgeGate7877 {
     fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} bootRecovery8074[${try { LiveBootRecovery8074.statusLine() } catch (_: Throwable) { "-" }}] chaseRefused8065=${chaseRefused8065.get()} liveTruth8064[${try { LiveTruth8064.statusLine() } catch (_: Throwable) { "-" }}] refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long,
-                                    candidateSpecificAdmission8136: Boolean = false, genericNative8211: Boolean = false): String? {
+                                    candidateSpecificAdmission8136: Boolean = false, genericNative8211: Boolean = false,
+                                    admission: CandidateAdmission8136.Decision8136? = null): String? {
         // V5.0.7885 — the Cortex refuses first, in both modes, once its record has
         // earned that authority (bar V1); until then this returns null.
         val cortex7950 = com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal(ts, lane, paper)
@@ -1034,7 +1047,8 @@ object LiveEdgeGate7877 {
         // EXPRESS -38.0%) still bought. It now yields only to its own setup-scoped veto audit proving the refusal
         // refuses winners, or to full evidence-earned Cortex authority (never partial).
         val l8079 = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
-        (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenLosingSetupRefusal8079(ts, l8079, nowMs) } catch (_: Throwable) { null })?.let { r ->
+        val boundSetup = admittedSetup(admission) { try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8079, nowMs) } catch (_: Throwable) { null } }
+        (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenLosingNamedSetupRefusal(l8079, boundSetup) } catch (_: Throwable) { null })?.let { r ->
             val retired = try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(r, l8079) } catch (_: Throwable) { false }
             val full = !retired && (try { com.lifecyclebot.engine.cortex.Cortex7885.fullAuthorityOverrules8078(ts, l8079, r) } catch (_: Throwable) { false })
             if (!retired && !full) {
@@ -1065,7 +1079,8 @@ object LiveEdgeGate7877 {
         // measured evidence: a cell proven above the live margin, or a proven Cortex
         // STRONG read. A proven-losing setup/stage and rug-prone are never overruled.
         val priors7930 = listOfNotNull(
-            com.lifecyclebot.engine.cortex.LanePlaybook7907.liveRefusal(ts, l, nowMs),   // V5.0.8084 — same decision clock = same classification
+            if (candidateSpecificAdmission8136) com.lifecyclebot.engine.cortex.LanePlaybook7907.liveRefusalForSetup(ts, l, boundSetup)
+            else com.lifecyclebot.engine.cortex.LanePlaybook7907.liveRefusal(ts, l, nowMs),
             com.lifecyclebot.engine.TokenMetricStageRouter.liveStageRefusal7928(ts, l),
             CostLedger7962.liveRefusal7962(ts, l),   // V5.0.7962 — measured all-in cost above the setup's gross
         )
@@ -1073,6 +1088,10 @@ object LiveEdgeGate7877 {
         // to measured evidence, and any measured refusal yields to a proven cohort on more labels.
         val cohort7948 by lazy { provenCohort7948(ts, nowMs) }
         for (prior in priors7930) {
+            if (stagePriorAlreadyResolved(admission, l, prior)) {
+                try { PipelineHealthCollector.labelInc("LIVE_STAGE_PRIOR_RESOLVED_BY_ADMISSION") } catch (_: Throwable) {}
+                continue
+            }
             // A supported setup/cell record beats only a generic or unproven prior. Keep measured negative records and
             // current all-in-cost refusals binding; they are independent evidence, not a second generic score floor.
             if (candidateSpecificAdmission8136 && !provenNegativeRefusal8136(prior) && !prior.contains("COST", true)) {
