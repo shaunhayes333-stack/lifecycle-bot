@@ -500,6 +500,7 @@ jobs:
       # V5.0.8094 — owner: an APK to test as soon as it compiles. The green acceptance APK keeps its name; a build whose
       # tests failed still publishes its compiled APK under an explicit UNVERIFIED name, never mistaken for green.
       - uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: AATE_v${{ steps.aate_build.outputs.version_name }}
           path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
