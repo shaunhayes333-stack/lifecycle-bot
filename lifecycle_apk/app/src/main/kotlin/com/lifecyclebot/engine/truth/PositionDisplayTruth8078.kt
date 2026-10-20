@@ -135,7 +135,8 @@ object PositionDisplayTruth8078 {
         if (!costSol.isFinite() || costSol <= 0.0 || !qty.isFinite() || qty <= 0.0 ||
             !quoteUsd.isFinite() || quoteUsd <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0 ||
             !fixedFeeSol.isFinite() || fixedFeeSol < 0.0) return null
-        return qty * quoteUsd / solUsd - fixedFeeSol - costSol
+        return (EconomicUnitInvariant7061.usdToSol(qty * quoteUsd, solUsd) - fixedFeeSol - costSol)
+            .takeIf { it.isFinite() }
     }
 
     fun view(ts: TokenState, nowMs: Long = System.currentTimeMillis()): View {
