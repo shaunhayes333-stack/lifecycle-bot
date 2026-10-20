@@ -113,6 +113,13 @@ object CandidateAdmission8136 {
         val nativeQualified8213: Boolean = false,
         /** Native's own named setup is retained when optional playbook features prevent classification. */
         val nativeSetup8213: String? = null,
+        /**
+         * V5.0.8245 — RunnerGrab7967: this coin is a grab right now (proven runner cell n >= 20, mean - SE >= +20% net
+         * at 60 m; chart firming / not breaking; hard safety and Mayhem clear; the grab record standing). Candidate-
+         * specific positive evidence at the SUPPORTED margin beside the setup / cell / Cortex records; it never carries
+         * the coin's own losing cell and still answers to economics and the data step's critical inputs.
+         */
+        val runnerGrab8245: Evidence8136? = null,
     )
 
     /** The one authoritative terminal admission and the evidence trace behind it. */
@@ -349,8 +356,10 @@ object CandidateAdmission8136 {
 
         val chosenRec = c.setups.firstOrNull { it.id == chosen }
         val edge = listOfNotNull(bestSetup ?: chosenRec?.takeIf { supported8136(it, c.costPct) }, liveCell8210?.takeIf { cellSupported },
-            c.cortexStrong8200?.takeIf { supported8136(it, c.costPct) && !losing8136(cellLoss) })  // V5.0.8200
+            c.cortexStrong8200?.takeIf { supported8136(it, c.costPct) && !losing8136(cellLoss) },  // V5.0.8200
+            c.runnerGrab8245?.takeIf { grabSupported8245(it) && !losing8136(cellLoss) })   // V5.0.8245
             .maxByOrNull { it.lowerPct }
+        if (edge?.kind == KIND_RUNNER_GRAB_8245) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_EDGE_RUNNER_GRAB_8245") } catch (_: Throwable) {}
         // Resolve the winning strategy before validating its executable economics.
         if (edge?.kind == KIND_SETUP && edge.id != chosen) chooseSetup(edge.id)
 
@@ -441,6 +450,14 @@ object CandidateAdmission8136 {
 
     const val KIND_SETUP = "SETUP"
     const val KIND_CELL = "CELL"
+    /** V5.0.8245 — RunnerGrab7967's proven runner cell with the chart firming now. */
+    const val KIND_RUNNER_GRAB_8245 = "RUNNER_GRAB"
+    internal const val GRAB_MIN_N_8245 = 20
+    internal const val GRAB_MARGIN_PCT_8245 = 20.0
+
+    /** Pure (V5.0.8245): the grab's own proven bar — fewer labels than [SUPPORT_MIN_N_8136], a far higher net lower bound. */
+    fun grabSupported8245(e: Evidence8136?): Boolean =
+        e != null && e.n >= GRAB_MIN_N_8245 && e.lowerPct.isFinite() && e.lowerPct >= GRAB_MARGIN_PCT_8245
     /** V5.0.8200 — the Cortex's STRONG cohort on this candidate's lane (executable-net labels). */
     const val KIND_CORTEX_8200 = "CORTEX"
     const val KIND_TIMING = "TIMING"
@@ -868,6 +885,9 @@ object CandidateAdmission8136 {
             cellLoss8169 = cellLoss8169,
             stageLoss8169 = stageLoss8169,
             cortexStrong8200 = try { com.lifecyclebot.engine.cortex.Cortex7885.strongCohortEvidence8200(ts, lane) } catch (_: Throwable) { null },
+            runnerGrab8245 = try {
+                com.lifecyclebot.engine.RunnerGrab7967.grabEvidence8245(ts, nowMs)?.let { Evidence8136(KIND_RUNNER_GRAB_8245, it.key, it.n, it.meanNetPct, it.sePct) }
+            } catch (_: Throwable) { null },
             nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null,
             nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) } ?: nativeSetupBook8217,
         )

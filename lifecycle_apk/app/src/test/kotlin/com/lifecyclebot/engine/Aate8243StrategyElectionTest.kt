@@ -79,4 +79,28 @@ class Aate8243StrategyElectionTest {
         assertEquals(60_000L, com.lifecyclebot.engine.chart.ChartSources7955.backoffMs7955(429, 0, false))
         assertEquals(240_000L, com.lifecyclebot.engine.chart.ChartSources7955.backoffMs7955(429, 2, false))
     }
+
+    // V5.0.8245 — the runner capture is admission evidence, not a late bypass.
+    private fun grabCandidate(grab: com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136?, cell: com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136? = null, missing: List<String> = listOf("shape:UNKNOWN", "tape:UNKNOWN")) =
+        com.lifecyclebot.engine.truth.CandidateAdmission8136.Candidate8136(
+            mint = "m8245", lane = "MOONSHOT", selectedSetup = null, stage = "FRESH_LAUNCH", priceAgeMs = 2_000L,
+            expectedGrossPct = Double.NaN, costPct = 8.0, setups = emptyList(), cell = cell, missingInputs = missing, runnerGrab8245 = grab,
+        )
+
+    @Test fun aFormingRunnerInAProvenCellIsJudgedOnItNotDeferredOnAnOptionalInput() {
+        val A = com.lifecyclebot.engine.truth.CandidateAdmission8136
+        val grab = A.Evidence8136(A.KIND_RUNNER_GRAB_8245, "PUMP_PORTAL_WS|MOONSHOT|MC_10K_100K|AGE_LT15M", 25, 45.0, 10.0)
+        assertTrue(A.grabSupported8245(grab))
+        assertTrue(!A.grabSupported8245(A.Evidence8136(A.KIND_RUNNER_GRAB_8245, "x", 19, 45.0, 10.0)))
+        assertTrue(!A.grabSupported8245(A.Evidence8136(A.KIND_RUNNER_GRAB_8245, "x", 40, 25.0, 10.0)))
+        // no setup fired, chart shape unobserved: without the grab this is DATA_INCOMPLETE_DEFER (ZFROG); with it, ADMIT on the grab
+        assertEquals("DATA_INCOMPLETE_DEFER_8136", A.decide8136(grabCandidate(null)).reason)
+        val d = A.decide8136(grabCandidate(grab))
+        assertEquals("SPECIFIC_EDGE_PROVEN_8136", d.reason)
+        assertTrue(d.trace.any { it.contains("RUNNER_GRAB:") })
+        // the coin's own losing cell is never carried by the grab; a critical missing input still defers
+        val losingCell = A.Evidence8136(A.KIND_CELL, "PUMP_PORTAL_WS|MOONSHOT|MC_LT10K", 40, -9.0, 2.0)
+        assertTrue(A.decide8136(grabCandidate(grab, losingCell)).reason != "SPECIFIC_EDGE_PROVEN_8136")
+        assertEquals("DATA_INCOMPLETE_DEFER_8136", A.decide8136(grabCandidate(grab, missing = listOf("liquidity:UNKNOWN"))).reason)
+    }
 }

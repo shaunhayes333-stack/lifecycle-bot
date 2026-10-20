@@ -135,6 +135,20 @@ object RunnerGrab7967 {
         stat(l, ts, nowMs)?.takeIf { provenCell7967(it.n60, it.meanNet60Pct, it.stderr60Pct) }?.key
     }
 
+    /**
+     * V5.0.8245 — the grab as admission evidence: the proven runner cell's record (key, n, mean, SE at 60 m) when this
+     * coin is a grab right now ([grab7967]: safety, Mayhem, proven cell, firming / not breaking, record standing).
+     * CandidateAdmission8136 reads it as candidate-specific positive evidence beside the setup / cell records, so a
+     * forming runner is judged on it instead of deferring on an optional input (8241: ZFROG +129,601% DATA_INCOMPLETE).
+     */
+    fun grabEvidence8245(ts: TokenState, nowMs: Long = System.currentTimeMillis()): GrabEvidence8245? {
+        if (!grab7967(ts.mint, nowMs)) return null
+        val st = RUNNER_LANES.firstNotNullOfOrNull { l -> stat(l, ts, nowMs)?.takeIf { provenCell7967(it.n60, it.meanNet60Pct, it.stderr60Pct) } } ?: return null
+        return GrabEvidence8245(st.key, st.n60, st.meanNet60Pct, st.stderr60Pct)
+    }
+
+    data class GrabEvidence8245(val key: String, val n: Int, val meanNetPct: Double, val sePct: Double)
+
     private fun standing7970(mint: String, nowMs: Long): Boolean {
         val (_, r60) = StructureTracker7962.reads7967(mint, nowMs)
         return notBreaking7970(r60)
