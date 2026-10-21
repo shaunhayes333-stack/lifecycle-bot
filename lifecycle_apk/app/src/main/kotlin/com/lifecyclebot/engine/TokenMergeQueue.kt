@@ -284,8 +284,11 @@ object TokenMergeQueue {
             // starved candidate above the pack without ever outranking real proof.
             return ((waited - grace) / MERGE_WINDOW_MS).toInt().coerceAtMost(40)
         }
+        // V5.0.8292 — learned order: the primary source's forward-label record (ScannerSourceQuality8292) and a
+        // penalty for a mint emitted in the last 10 minutes, so new mints are evaluated before re-served ones.
+        val delta8292 = readyEntries6877.associate { it.mint to mergeDelta8292(it, now) }
         val selected6877 = readyEntries6877.sortedWith(
-            compareByDescending<MergeEntry> { it.confidence + agePressure6877(it) }
+            compareByDescending<MergeEntry> { it.confidence + agePressure6877(it) + (delta8292[it.mint] ?: 0) }
                 .thenByDescending { it.scanners.size }
                 .thenByDescending { it.liquidityUsd }
                 .thenBy { it.firstSeenAt }
@@ -320,6 +323,7 @@ object TokenMergeQueue {
 
             readyToEmit.add(merged)
             toRemove.add(mint)
+            lastEmitAt8292[mint] = now
             totalEmitted.incrementAndGet()
 
             val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER BOOST]" else ""
@@ -334,6 +338,15 @@ object TokenMergeQueue {
         }
 
         return readyToEmit
+    }
+
+    // V5.0.8292 — when each mint last left the queue (bounded).
+    private val lastEmitAt8292 = ConcurrentHashMap<String, Long>()
+
+    private fun mergeDelta8292(e: MergeEntry, now: Long): Int {
+        if (lastEmitAt8292.size > 20_000) lastEmitAt8292.entries.removeIf { now - it.value > ScannerSourceQuality8292.REPEAT_WINDOW_MS_8292 }
+        val adj = try { ScannerSourceQuality8292.rankAdj8292(ScannerSourceQuality8292.record8292(e.firstScanner, now)) } catch (_: Throwable) { 0 }
+        return ScannerSourceQuality8292.mergeRankDelta8292(adj, lastEmitAt8292[e.mint]?.let { now - it })
     }
 
     /**

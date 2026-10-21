@@ -8329,29 +8329,12 @@ class BotService : Service() {
                                 ErrorLogger.info("BotService", "🟢 MEME_DIRECT_INTAKE: ${identity.symbol} | src=${source.name} | liq=\$${liquidityUsd.toInt()} | score=$score | watch=${GlobalTradeRegistry.size()}")
                             }
                             
-                            // V5.9.642b — duplicate registry hits hydrate runtime state but
-                            // MUST NOT return early. With MemeMintRegistry pre-hydration, every
-                            // scanner discovery is "already watching" on restart, so the early
-                            // return was silently blocking ALL tokens from reaching TokenMergeQueue
-                            // and botLoop evaluation. Hydrate and fall through.
-                            if (GlobalTradeRegistry.isWatching(identity.mint)) {
-                                admitProtectedMemeIntake(
-                                    mint = identity.mint,
-                                    symbol = identity.symbol,
-                                    name = name.ifBlank { identity.symbol },
-                                    source = source.name,
-                                    marketCapUsd = mcapUsd, // V5.0.7147 — measured by the scanner, not liquidityUsd * 10.0
-                                    liquidityUsd = liquidityUsd,
-                                    volumeH1 = volumeH1,
-                                    confidence = score.toInt().coerceIn(1, 100),
-                                    allSources = setOf(source.name, "REGISTRY_DUPLICATE_HYDRATE"),
-                                    playSound = false,
-                                    operatorLog = false,
-                                    expectedRuntimeGeneration = startBotScannerGen,
-                                )
-                                ErrorLogger.debug("BotService", "Token ${identity.symbol} already in registry — hydrated, continuing to queue")
-                                // fall through to TokenMergeQueue below — do NOT return here
-                            }
+                            // V5.0.8292 — superseded by V5.0.8292: the V5.9.642b REGISTRY_DUPLICATE_HYDRATE second intake call is gone: the
+                            // direct call above already hydrated/refreshed the watched mint (it always lands in the
+                            // dedupe refresh), so the second call was a pure repeat that tagged a pathway as a source
+                            // and, after a veto, re-admitted the vetoed mint. A vetoed mint also stops here instead of
+                            // re-entering through the merge queue below. Unvetoed sightings still fall through.
+                            if (v4132_veto) return@onTokenFound
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // STAGE 2: ELIGIBILITY CHECKS (filter junk before watchlisting)
@@ -13972,7 +13955,7 @@ class BotService : Service() {
 
     /** V5.0.7984 — counts the intake (new vs repeat) and returns this mint's re-intake window. */
     private fun dedupTtl7984(mint: String, prevAt: Long?, nowMs: Long): Long {
-        try { com.lifecyclebot.engine.truth.DiscoveryRate7984.note7984(mint, false, nowMs) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.DiscoveryRate7984.noteRepeat8292(mint, prevAt, nowMs) } catch (_: Throwable) {}  // V5.0.8292
         val watched = try { GlobalTradeRegistry.getEntry(mint) != null } catch (_: Throwable) { false }
         return intakeDedupTtl7984(watched, intakeDedupTtlMs)
     }
@@ -16553,10 +16536,9 @@ class BotService : Service() {
             // downstream size/reporting. This remains soft-shape only: weak learned
             // single-source feeds go probation; strong learned or multi-source feeds
             // can avoid generic pressure quarantine. No source is hard-blocked.
-            val sourceBrainMult = try {
-                (allSources + source).map { ScannerSourceBrain.intakeMultiplier(it) }.maxOrNull() ?: 1.0
-            } catch (_: Throwable) { 1.0 }
-            val multiSourceConfirmed = allSources.size >= 2 || allSources.any { hasNonPumpConfirmationTag(it) }
+            // V5.0.8292 — real sources only (no pathway tag as a source / second source), capped by the forward record.
+            val sourceBrainMult = try { ScannerSourceQuality8292.admissionMultFor8292(source, allSources) } catch (_: Throwable) { 1.0 }
+            val multiSourceConfirmed = ScannerSourceTags8292.independentSourceCount8292(source, allSources) >= 2 || allSources.any { hasNonPumpConfirmationTag(it) }
             val sourceBrainProbationOnly = !lenientIntake && !isUserAdded && !isRestoredVetted && !multiSourceConfirmed &&
                 sourceBrainMult < 0.65 && liquidityUsd < 7_500.0 && volumeH1 <= 0.0
             val sourceBrainHotRescue = sourceBrainMult >= 1.25 && (multiSourceConfirmed || liquidityUsd >= 10_000.0 || volumeH1 > 0.0)
@@ -17626,7 +17608,7 @@ class BotService : Service() {
                             marketCapUsd = result.initialMcap,
                             liquidityUsd = result.initialLiquidity,
                             confidence = 50,
-                            allSources = setOf("PROBATION"),
+                            allSources = ScannerSourceTags8292.probationPromotionSources8292(result.source, result.addedBy),  // V5.0.8292
                             playSound = false,
                             operatorLog = false,
                             expectedRuntimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),

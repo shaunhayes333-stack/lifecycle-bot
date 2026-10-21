@@ -2074,13 +2074,7 @@ class SolanaMarketScanner(
                 if (liq <= 0) {
                     val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     liq = overview?.liquidity ?: 0.0
-                    if (liq <= 0 && pair != null && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
-                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
-                        liq = (mcap * 0.10).takeIf { it > 1000 } ?: 0.0
-                        if (liq > 0) {
-                            ErrorLogger.info("Scanner", "scanPumpFunVolume: ${pair.baseSymbol} estimated liq=\$${liq.toInt()} from mcap")
-                        }
-                    }
+                    // V5.0.8292 — no mcap x 10% liquidity estimate (superseded by V5.0.8292): an unmeasured pool depth stays 0 (unknown), never fabricated.
                 }
 
                 if (liq < 1000) continue
@@ -2153,13 +2147,7 @@ class SolanaMarketScanner(
                 if (liq <= 0) {
                     val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     liq = overview?.liquidity ?: 0.0
-                    if (liq <= 0 && pair != null && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
-                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
-                        liq = (mcap * 0.10).takeIf { it > 500 } ?: 0.0
-                        if (liq > 0) {
-                            ErrorLogger.info("Scanner", "scanFreshLaunches: ${pair.baseSymbol} estimated liq=\$${liq.toInt()} from mcap")
-                        }
-                    }
+                    // V5.0.8292 — no mcap x 10% liquidity estimate (superseded by V5.0.8292): an unmeasured pool depth stays 0 (unknown), never fabricated.
                 }
 
                 val vol = pair?.candle?.volumeH1 ?: 0.0
@@ -2450,10 +2438,7 @@ class SolanaMarketScanner(
                 if (pair.liquidity <= 0) {
                     val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     fallbackLiq = overview?.liquidity ?: 0.0
-                    if (fallbackLiq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
-                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
-                        fallbackLiq = (mcap * 0.10).takeIf { it > 2000 } ?: 0.0
-                    }
+                    // V5.0.8292 — no mcap x 10% liquidity estimate (superseded by V5.0.8292): an unmeasured pool depth stays 0 (unknown), never fabricated.
                 }
 
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING, fallbackLiq) ?: continue
@@ -2513,13 +2498,7 @@ class SolanaMarketScanner(
                 if (liq <= 0) {
                     val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     liq = overview?.liquidity ?: 0.0
-                    if (liq <= 0 && pair != null && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
-                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
-                        liq = (mcap * 0.10).takeIf { it > 1000 } ?: 0.0
-                        if (liq > 0) {
-                            ErrorLogger.info("Scanner", "scanDexGainers: ${pair.baseSymbol} estimated liq=\$${liq.toInt()} from mcap")
-                        }
-                    }
+                    // V5.0.8292 — no mcap x 10% liquidity estimate (superseded by V5.0.8292): an unmeasured pool depth stays 0 (unknown), never fabricated.
                 }
 
                 val vol = pair?.candle?.volumeH1 ?: 0.0
@@ -2613,15 +2592,14 @@ class SolanaMarketScanner(
                 if (pair.liquidity <= 0) {
                     val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     fallbackLiq = overview?.liquidity ?: 0.0
-                    if (fallbackLiq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
-                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
-                        fallbackLiq = (mcap * 0.10).takeIf { it > 1000 } ?: 0.0
-                    }
+                    // V5.0.8292 — no mcap x 10% liquidity estimate (superseded by V5.0.8292): an unmeasured pool depth stays 0 (unknown), never fabricated.
                 }
 
                 val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
                 val token = buildScannedToken(mint, pair, TokenSource.DEX_BOOSTED, fallbackLiq) ?: continue
-                val boostedToken = token.copy(score = (token.score + 15.0).coerceAtMost(100.0))
+                // V5.0.8292 — a paid boost earns its +15 only while DEX_BOOSTED's forward record is not proven losing.
+                val boostBonus8292 = if (ScannerSourceQuality8292.provenLosing8292(ScannerSourceQuality8292.record8292(TokenSource.DEX_BOOSTED.name))) 0.0 else 15.0
+                val boostedToken = token.copy(score = (token.score + boostBonus8292).coerceAtMost(100.0))
 
                 if (passesFilter(boostedToken)) {
                     emit(boostedToken)
@@ -2661,13 +2639,7 @@ class SolanaMarketScanner(
                 if (liq <= 0) {
                     val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     liq = overview?.liquidity ?: 0.0
-                    if (liq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
-                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
-                        liq = (mcap * 0.10).takeIf { it > 1500 } ?: 0.0
-                        if (liq > 0) {
-                            ErrorLogger.info("Scanner", "scanPumpGraduates: ${pair.baseSymbol} estimated liq=\$${liq.toInt()} from mcap")
-                        }
-                    }
+                    // V5.0.8292 — no mcap x 10% liquidity estimate (superseded by V5.0.8292): an unmeasured pool depth stays 0 (unknown), never fabricated.
                 }
 
                 if (liq < 1500) continue
@@ -2748,10 +2720,7 @@ class SolanaMarketScanner(
                 if (pair.liquidity <= 0) {
                     val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     fallbackLiq = overview?.liquidity ?: 0.0
-                    if (fallbackLiq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
-                        val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
-                        fallbackLiq = (mcap * 0.10).takeIf { it > 1000 } ?: 0.0
-                    }
+                    // V5.0.8292 — no mcap x 10% liquidity estimate (superseded by V5.0.8292): an unmeasured pool depth stays 0 (unknown), never fabricated.
                 }
 
                 val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
@@ -2946,7 +2915,9 @@ class SolanaMarketScanner(
                 // floors don't reject these on missing-liq grounds while live
                 // pricing is enriched downstream by the Dexscreener / Jupiter
                 // resolver path that other scanners already use.
-                val estLiq = (t.marketCapUsd * 0.10).coerceAtLeast(50_000.0).coerceAtMost(5_000_000.0)
+                // V5.0.8292 — superseded by V5.0.8292: the "estimate" floored every established coin at $50k of liquidity it was
+                // never measured to have. Unknown depth is 0 here; the DexScreener / Jupiter enrichment reads it.
+                val estLiq = 0.0
                 val pairAgeHours = 24.0 * 30  // safe established-token stamp; downstream re-resolves real age
                 val token = ScannedToken(
                     mint = t.mint,
@@ -3583,8 +3554,7 @@ class SolanaMarketScanner(
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
                     fallbackLiq = if (r.liquidity > 0) r.liquidity
-                                  else if (r.marketCapUsd > 0) (r.marketCapUsd * 0.10).takeIf { it > 1000 } ?: 0.0
-                                  else 0.0
+                                  else 0.0  // V5.0.8292 — no mcap x 10% liquidity estimate (fabricated depth)
                 }
 
                 val token = buildScannedToken(r.mint, pair, TokenSource.NARRATIVE_SCAN, fallbackLiq) ?: continue
@@ -4372,7 +4342,16 @@ class SolanaMarketScanner(
         }
     }
 
+    /** V5.0.8292 — a watched mint re-served by the same source inside 5 min is no new evidence (ScannerReemitGate8292). */
+    private fun watchedReemitSuppressed8292(token: ScannedToken): Boolean {
+        val watched = try { GlobalTradeRegistry.isWatching(token.mint) } catch (_: Throwable) { false }
+        if (!ScannerReemitGate8292.shouldSuppress8292(token.mint, token.source.name, watched)) return false
+        try { PipelineHealthCollector.labelInc("SCANNER_WATCHED_REEMIT_SUPPRESSED_8292") } catch (_: Throwable) {}
+        return true
+    }
+
     private fun emit(token: ScannedToken) {
+        if (watchedReemitSuppressed8292(token)) return
         if (RuntimeConfigOverlay.isScannerSourceDisabled(token.source.name)) {
             val q = QuarantineStore.quarantine(token.mint, token.symbol, "SOURCE_DISABLED_${token.source.name}")
             if (q.telemetryDue) try { ForensicLogger.lifecycle("INTAKE_QUARANTINED", "symbol=${token.symbol} mint=${token.mint.take(10)} src=${token.source.name} reason=RUNTIME_OVERLAY_SOURCE_DISABLED") } catch (_: Throwable) {}
@@ -4478,6 +4457,7 @@ class SolanaMarketScanner(
             holderCount = 0
         )
 
+        ScannerReemitGate8292.note8292(token.mint, token.source.name)  // V5.0.8292
         onTokenFound(
             adjustedToken.mint,
             adjustedToken.symbol,
@@ -4585,6 +4565,7 @@ class SolanaMarketScanner(
     }
 
     private suspend fun emitWithRugcheck(token: ScannedToken) {
+        if (watchedReemitSuppressed8292(token)) return  // V5.0.8292 — before the 2 s RugCheck cost
         // V5.0.7446 — dedupe BEFORE the 2s RugCheck/enrichment boundary.
         // The old queue merge happened after this cost had already been paid.
         // Same mint + same source family within one 5s discovery epoch is one
