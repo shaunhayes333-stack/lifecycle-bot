@@ -1599,6 +1599,41 @@ object PipelineHealthCollector {
             }
     }
 
+    /**
+     * V5.0.8280 §LANE_SCORECARD — per ENTRY lane live WR / PF / expectancy at the top of the report, session then
+     * lifetime, same canonical cohort as CANONICAL LIVE PERFORMANCE (finalised / reconciled sells, no recovery
+     * write-offs). A lane that stops paying is visible within one session: a session lane with n >= 3 whose
+     * expectancy is negative is flagged BLEEDING; a lane with no live closes prints no row.
+     */
+    private fun appendLaneScorecard8280(sb: StringBuilder) {
+        try {
+            val session = LiveEntrySafetyHold.LiveConfidenceStats.byLane8280(LiveEntrySafetyHold.governorWindowStart())
+            val lifetime = LiveEntrySafetyHold.LiveConfidenceStats.byLane8280(0L)
+            sb.append("  LANE SCORECARD (§8280, canonical live closes; S=session L=lifetime): ")
+            if (session.isEmpty() && lifetime.isEmpty()) { sb.append("no live closes yet\n"); return }
+            val lanes = (session.keys + lifetime.keys).sortedWith(
+                compareBy<String> { session[it]?.expectancySol ?: 0.0 }.thenBy { it })
+            sb.append('\n')
+            for (lane in lanes) {
+                val s = session[lane]
+                sb.append("    ").append(lane.padEnd(15))
+                    .append(" S:").append(laneCell8280(s))
+                    .append("  L:").append(laneCell8280(lifetime[lane]))
+                if (laneBleeding8280(s)) sb.append("  ⚠ BLEEDING")
+                sb.append('\n')
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /** Pure: a lane is bleeding this session on 3+ canonical closes with negative expectancy. */
+    fun laneBleeding8280(s: LiveEntrySafetyHold.LiveConfidenceStats?): Boolean =
+        s != null && s.canonicalN >= 3 && s.expectancySol < 0.0
+
+    /** Pure: one scorecard cell — "n=3 wr=0% pf=0.00 exp=-0.0030" or "-" with no closes. */
+    fun laneCell8280(s: LiveEntrySafetyHold.LiveConfidenceStats?): String =
+        if (s == null || s.canonicalN == 0) "-".padEnd(32)
+        else "n=${s.canonicalN} wr=${"%.0f".format(s.winRatePct)}% pf=${"%.2f".format(s.profitFactor)} exp=${"%+.4f".format(s.expectancySol)}".padEnd(32)
+
     private fun appendExecList8174(sb: StringBuilder, df: java.text.DateFormat, title: String, rows: List<ExecRecord>) {
                 sb.append("===== ").append(title).append(" (last ").append(rows.size).append(") =====\n")
                 if (rows.isEmpty()) {
@@ -1678,6 +1713,7 @@ object PipelineHealthCollector {
         sb.append("  Build:                 ${_appVer}  |  Tag: ${getBuildTag()}\n")
         sb.append("  Captured at:           ${df.format(Date(s.nowMs))}\n")
         sb.append("  Uptime since start:    ${uptimeSec}s\n")
+        appendLaneScorecard8280(sb)
         sb.append("  Forensic logging:      ${if (ForensicLogger.enabled) "ON" else "OFF"}\n")
         // V5.9.1082 — operator-spec'd EXECUTION_STATE field. Sources its
         // value from the most recent EXECUTION_STATE_BLOCKED event tracked

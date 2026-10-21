@@ -135,6 +135,24 @@ object RunnerGrab7967 {
         stat(l, ts, nowMs)?.takeIf { provenCell7967(it.n60, it.meanNet60Pct, it.stderr60Pct) }?.key
     }
 
+    /**
+     * V5.0.8280 §RUNNER_BANKING — the proven cell's conservative 60 m target (mean − SE, net %) for a token the bot
+     * HOLDS, or null when no runner cell of this coin is proven. Executor's first profit rung (capital recovery) fires
+     * there instead of the 2x default: the record says what this cell pays; the remainder rides free.
+     */
+    fun provenCellTargetPct8280(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? =
+        RUNNER_LANES.firstNotNullOfOrNull { l ->
+            stat(l, ts, nowMs)?.takeIf { provenCell7967(it.n60, it.meanNet60Pct, it.stderr60Pct) }
+                ?.let { it.meanNet60Pct - it.stderr60Pct }
+        }
+
+    /** Pure (V5.0.8280): the first rung multiple — the proven cell target when it is below the lane default, never under 1.2x. */
+    fun firstRungMultiple8280(defaultMultiple: Double, provenTargetPct: Double?): Double =
+        if (provenTargetPct == null || !provenTargetPct.isFinite()) defaultMultiple
+        else minOf(defaultMultiple, (1.0 + provenTargetPct / 100.0).coerceAtLeast(FIRST_RUNG_MIN_MULTIPLE_8280))
+
+    const val FIRST_RUNG_MIN_MULTIPLE_8280 = 1.2
+
     /** V5.0.8260 — a runner cell this coin sits in whose 60 m record is a proven loss (mean + 2·SE < 0 at n≥10). */
     private fun losingCellFor8260(ts: TokenState, nowMs: Long): String? = RUNNER_LANES.firstNotNullOfOrNull { l ->
         stat(l, ts, nowMs)?.takeIf { it.n60 >= 10 && it.stderr60Pct.isFinite() && it.meanNet60Pct + 2.0 * it.stderr60Pct < 0.0 }?.key

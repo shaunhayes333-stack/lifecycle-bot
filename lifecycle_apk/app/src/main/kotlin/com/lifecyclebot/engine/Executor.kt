@@ -6641,6 +6641,15 @@ class Executor(
         if (learnedCapitalRecovery > CAPITAL_RECOVERY_MAX_MULTIPLE_8259) {
             try { PipelineHealthCollector.labelInc("CAPITAL_RECOVERY_LEARNED_RUNG_CAPPED_8259") } catch (_: Throwable) {}
         }
+        // V5.0.8280 §RUNNER_BANKING — the first rung is the PROVEN CELL's own target (mean − SE of its 60 m net record)
+        // when the record pays less than the 2x default: a +370 % hold with nothing banked was waiting for a multiple
+        // the cell never promised. Only lowers the rung, never under 1.2x; the tranche still recovers cost only.
+        val provenTarget8280 = try { RunnerGrab7967.provenCellTargetPct8280(ts) } catch (_: Throwable) { null }
+        val rung8280 = RunnerGrab7967.firstRungMultiple8280(capitalRecoveryMultiple, provenTarget8280)
+        if (rung8280 < capitalRecoveryMultiple) {
+            try { PipelineHealthCollector.labelInc("CAPITAL_RECOVERY_RUNG_AT_PROVEN_CELL_8280") } catch (_: Throwable) {}
+            capitalRecoveryMultiple = rung8280
+        }
         profitLockMultiple = maxOf(profitLockMultiple, learnedProfitLock).coerceIn(3.0, 500.0)
         
         return Pair(capitalRecoveryMultiple, profitLockMultiple)

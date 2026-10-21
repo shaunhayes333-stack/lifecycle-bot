@@ -716,19 +716,44 @@ object LiveEntrySafetyHold {
              * [resetGovernorWindow]. Only rows with ts >= window start
              * count toward the canonical governor sample.
              */
-            fun load(): LiveConfidenceStats {
-                val trades = try {
-                    TradeHistoryStore.getRecentValidTrades(200)
-                } catch (_: Throwable) { return LiveConfidenceStats(0, 0, 0, 0.0, 0.0, 0.0) }
+            fun load(): LiveConfidenceStats = fold8280(canonicalRows8280(governorWindowStart(), 200))
 
+            /** Pure: WR / PF / expectancy of [pnls] (SOL, net where known). */
+            fun fold8280(pnls: List<Double>): LiveConfidenceStats {
                 var wins = 0
                 var losses = 0
                 var grossWinSol = 0.0
                 var grossLossSol = 0.0
                 var netSol = 0.0
-                var n = 0
+                for (pnl in pnls) {
+                    netSol += pnl
+                    if (pnl > 0.0) { wins += 1; grossWinSol += pnl }
+                    else if (pnl < 0.0) { losses += 1; grossLossSol += -pnl }
+                }
+                val n = pnls.size
+                val wr = if (n > 0) wins.toDouble() * 100.0 / n else 0.0
+                val pf = if (grossLossSol > 0.0) grossWinSol / grossLossSol else if (grossWinSol > 0.0) 999.0 else 0.0
+                val exp = if (n > 0) netSol / n else 0.0
+                return LiveConfidenceStats(n, wins, losses, wr, pf, exp)
+            }
+
+            /**
+             * V5.0.8280 §LANE_SCORECARD — the same canonical cohort (finalised / reconciled live sells, no recovery
+             * write-offs) folded per ENTRY lane (StrategyTruthLedger.strategyLaneFor: the lane that decided the entry).
+             * [windowStart] = governorWindowStart() for this session, 0 for lifetime.
+             */
+            fun byLane8280(windowStart: Long, limit: Int = 500): Map<String, LiveConfidenceStats> =
+                canonicalRows8280(windowStart, limit)
+                    .groupBy({ it.first }, { it.second })
+                    .mapValues { fold8280(it.value) }
+
+            /** The canonical cohort as (entry lane, net pnl SOL) rows. */
+            private fun canonicalRows8280(windowStart: Long, limit: Int): List<Pair<String, Double>> {
+                val trades = try {
+                    TradeHistoryStore.getRecentValidTrades(limit)
+                } catch (_: Throwable) { return emptyList() }
+                val out = ArrayList<Pair<String, Double>>()
                 var preHotfixSkipped = 0
-                val windowStart = governorWindowStart()
 
                 for (t in trades) {
                     if (!t.side.equals("SELL", true) && !t.side.equals("PARTIAL_SELL", true)) continue
@@ -815,20 +840,15 @@ object LiveEntrySafetyHold {
                     }
 
                     val pnl = if (t.netPnlSol != 0.0) t.netPnlSol else t.pnlSol
-                    n += 1
-                    netSol += pnl
-                    if (pnl > 0.0) { wins += 1; grossWinSol += pnl }
-                    else if (pnl < 0.0) { losses += 1; grossLossSol += -pnl }
+                    val lane = try { com.lifecyclebot.engine.StrategyTruthLedger.strategyLaneFor(t) } catch (_: Throwable) { t.tradingMode.ifBlank { "STANDARD" }.uppercase() }
+                    out += lane to pnl
                 }
                 if (preHotfixSkipped > 0) {
                     try {
                         PipelineHealthCollector.labelInc("LIVE_CONFIDENCE_GOVERNOR_PRE_HOTFIX_ROWS_EXCLUDED_6317")
                     } catch (_: Throwable) {}
                 }
-                val wr = if (n > 0) wins.toDouble() * 100.0 / n else 0.0
-                val pf = if (grossLossSol > 0.0) grossWinSol / grossLossSol else if (grossWinSol > 0.0) 999.0 else 0.0
-                val exp = if (n > 0) netSol / n else 0.0
-                return LiveConfidenceStats(n, wins, losses, wr, pf, exp)
+                return out
             }
         }
     }
