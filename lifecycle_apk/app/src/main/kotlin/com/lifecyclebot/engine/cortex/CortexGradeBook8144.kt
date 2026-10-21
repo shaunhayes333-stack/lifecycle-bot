@@ -35,6 +35,11 @@ class CortexGradeRecord8144(
     var observedNetPct: Double = Double.NaN
     var observedGrossPct: Double = Double.NaN
     var executablePct: Double = Double.NaN
+    // V5.0.8272 (R10) — the FIRST executable label is the model's immutable five-minute target; later horizons are
+    // stored apart with when they became knowable, and never rewrite it (a 4 h gain cannot enter an earlier fold).
+    var executableRevisedPct: Double = Double.NaN
+    var revisedAvailableAtMs: Long = 0L
+    var revisions8272: Int = 0
     var lost: Boolean = false
     var realisedPct: Double = Double.NaN
     var ownerLane: String = ""
@@ -139,12 +144,16 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
     }
 
     /** A label for decision [id] (first read or a later horizon). [executableAllowed] gates the executable value. */
-    fun label(id: String, netPct: Double, grossPct: Double, executableValue: Double, executableAllowed: Boolean): Boolean {
+    fun label(id: String, netPct: Double, grossPct: Double, executableValue: Double, executableAllowed: Boolean,
+              availableAtMs: Long = System.currentTimeMillis()): Boolean {
         val r = byId[id] ?: return false
         if (!netPct.isFinite()) return false
         r.observedNetPct = netPct; r.observedGrossPct = grossPct; r.lost = false
         // V5.0.8187 — the executable (authority) value is clamped to the cohort's cap at ingestion; the observed one is kept.
-        if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153 && !r.lateRead8187) r.executablePct = r.capped8187(executableValue)
+        if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153 && !r.lateRead8187) {
+            if (!r.executablePct.isFinite()) r.executablePct = r.capped8187(executableValue)        // the immutable first target
+            else { r.executableRevisedPct = r.capped8187(executableValue); r.revisedAvailableAtMs = availableAtMs; r.revisions8272++ }
+        }
         noteGraded(r)
         revision++
         return true
