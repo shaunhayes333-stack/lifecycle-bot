@@ -196,6 +196,29 @@ object TradeShapeLearner7883 {
         }
     }
 
+    /**
+     * V5.0.8293 — the hunters' read (HunterShape8293): the proven-losing bin [value] falls in on [feature] for [lane]
+     * ("MCAP_USD_<10k"), or null. The same rule [shapeRefusal] enforces at the live gate; read-only, no side effects.
+     */
+    fun provenLosingBin8293(lane: String, feature: Feature, value: Double): String? {
+        ensureLoaded()
+        val b = binOf(feature, value)
+        if (b < 0) return null
+        val l = canon(lane)
+        val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(l) } catch (_: Throwable) { false }
+        return synchronized(this) {
+            val st = stats["$l|${feature.name}|$b"]
+            if (st != null && provenLosing(st, laneAll[l]?.mean() ?: 0.0, runner)) "${feature.name}_${binLabel(feature, b)}" else null
+        }
+    }
+
+    /** V5.0.8293 — test seam: one lane's learned bin and lane-wide record (never called by production code). */
+    internal fun seedForTest8293(lane: String, feature: Feature, bin: Int, binStat: Stat, laneStat: Stat) {
+        loaded = true
+        val l = canon(lane)
+        synchronized(this) { stats["$l|${feature.name}|$bin"] = binStat; laneAll[l] = laneStat }
+    }
+
     /** Counts a refusal (called by the gate after it decides to refuse on the shape). */
     fun noteRefusal(lane: String, reason: String) {
         val key = "${canon(lane)}|${reason.removePrefix("SHAPE_7883_").substringBefore("_n")}"

@@ -25,7 +25,8 @@ class Aate8270DirectiveTest {
         assertFalse(g.formingStructure8270(null, read(2, true, 0.7, 1.1, true)))          // broke structure
         assertFalse(g.formingStructure8270(null, read(2, true, 0.3, 1.1, false)))         // sellers in control
         val src = File("src/main/kotlin/com/lifecyclebot/engine/RunnerGrab7967.kt").readText()
-        assertTrue(src.contains("if (!formingStructure8270(r15, r60)) return null"))
+        // superseded by V5.0.8293: an observed RunTape8293 detection is the other admissible forming read
+        assertTrue(src.contains("if (!formingStructure8270(r15, r60) && !tape8293) return null"))
     }
 
     @Test fun rotationIsConfirmedByTheVictimsFinalizedSellNotByRequestSell() {

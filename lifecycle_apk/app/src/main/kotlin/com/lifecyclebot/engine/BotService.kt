@@ -18773,7 +18773,7 @@ class BotService : Service() {
         val forcedOpenForSupervisor: List<String> = emptyList()
         val mustInclude = mutableListOf<String>()
         mustInclude.addAll(pendingLiveBuyMints8094(otherMints))  // V5.0.8094 — deferred live buys (not opens)
-        mustInclude.addAll(HandoffPriority8190.dueTargets8190(otherMints).filter { it !in mustInclude })  // V5.0.8190 — hand-off receivers evaluate next cycle
+        mustInclude.addAll(HunterWindow8293.dueTargets8293(otherMints).filter { it !in mustInclude })  // V5.0.8190 — hand-off receivers evaluate next cycle; V5.0.8293 + opportunity leaders
         val budget = (PER_CYCLE_CAP - mustInclude.size).coerceAtLeast(0)
         if (budget == 0 || otherMints.isEmpty()) {
             try { emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size) } catch (_: Throwable) {}
@@ -21774,7 +21774,7 @@ val canonicalOpenForPriority6489 = try {
 } catch (_: Throwable) { emptySet() }
 val priorityWindowInput6489 = run {
     val all = effectiveWatchlist.distinct()
-    val opens = (all.filter { it in canonicalOpenForPriority6489 } + HandoffPriority8190.windowTargets8190(all)).distinct()  // V5.0.8190 — live hand-off targets ride the window
+    val opens = (all.filter { it in canonicalOpenForPriority6489 } + HunterWindow8293.windowTargets8293(all)).distinct()  // V5.0.8190 — live hand-off targets ride the window; V5.0.8293 + opportunity leaders
     val candidates = all.filterNot { it in canonicalOpenForPriority6489 || it in opens }
     if (candidates.size <= 128) opens + candidates else {
         val start6489 = Math.floorMod(watchlistPriorityCursor6489.getAndAdd(128), candidates.size)

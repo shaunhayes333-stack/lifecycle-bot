@@ -311,6 +311,14 @@ object TradeTape8100 {
         return sameVenue8285(exec, venueOf8285(exec)).count { nowMs - it.atMs in 0L..windowMs }
     }
 
+    /**
+     * V5.0.8293 — RunTape8293's scan list: mints whose newest EXECUTED print is within [windowMs] of [nowMs] (bounded by
+     * the tape's own [MAX_MINTS]). A copy; the tape is not changed.
+     */
+    fun activeMints8293(nowMs: Long, windowMs: Long): List<String> =
+        tapes.entries.filter { (_, q) -> synchronized(q) { q.lastOrNull { !it.priceOnly }?.let { nowMs - it.atMs in 0L..windowMs } == true } }
+            .map { it.key }
+
     fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()} youngShape15s8220=${youngShapes8220.get()}"
 
     /** V5.0.8169 — why the tape could state nothing for [mint] now: NO_PRINTS (never received) or STALE (newest > 2 min). */

@@ -149,6 +149,7 @@ object RunnerPlay8018 {
     private val tickets = AtomicLong(0)
     private val notFirming = AtomicLong(0)
     private val ticketShadow = AtomicLong(0)
+    private val notWatched8293 = AtomicLong(0)
 
     /** ForwardReturnLabeler7731: a followed coin is [gross]% over its decision price, [runAgeMs] after it. */
     fun onRun8018(mint: String, gross: Double, runAgeMs: Long, nowMs: Long = System.currentTimeMillis()) {
@@ -160,7 +161,13 @@ object RunnerPlay8018 {
         considered[mint] = nowMs
         ensureLoaded()
         gradeDue(nowMs)
-        val ts = try { BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return
+        // V5.0.8293 — a confirmed run whose coin had left the watchlist was dropped silently (8286 runsConfirmed=1): it is
+        // put back through the ordinary intake so the next mark can confirm it on a real TokenState.
+        val ts = try { BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: run {
+            notWatched8293.incrementAndGet()
+            try { RunTape8293.requestWatch8293(mint, "RUN_REENTRY_8018") } catch (_: Throwable) {}
+            return
+        }
         if (ts.safety.tier == SafetyTier.HARD_BLOCK) return
         if (try { MayhemMode7943.liveRefusal(ts, nowMs) } catch (_: Throwable) { null } != null) return
         val firming = RunnerGrab7967.runStandingNow8019(mint, nowMs)  // V5.0.8019 — firming or standing with buyers
@@ -263,7 +270,7 @@ object RunnerPlay8018 {
         }
         return "promoted=${promoted.get()} holding=${promos.size} shadow=${promoteShadow.get()} vsLadder=${rec(promoteRecord)} | " +
             "reentry: runsConfirmed=${runsConfirmed.get()} rearmed8297=${rearmed8297.get()} tickets=${tickets.get()} shadow=${ticketShadow.get()} notFirming=${notFirming.get()} " +
-            "pendingGrades=${signals.size} record30m=${rec(reentryRecord)}"
+            "pendingGrades=${signals.size} record30m=${rec(reentryRecord)} notWatched8293=${notWatched8293.get()}"
     }
 
     internal fun resetForTest8018() {

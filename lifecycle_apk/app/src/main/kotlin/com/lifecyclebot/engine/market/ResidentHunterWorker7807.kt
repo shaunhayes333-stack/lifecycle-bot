@@ -58,6 +58,9 @@ object ResidentHunterWorker7807 {
     )
 
     @Volatile private var job: Job? = null
+    // V5.0.8293 — the run tape hunter (RunTape8293) on its own 10 s cadence: runs start faster than a 45 s sweep.
+    @Volatile private var runTapeJob8293: Job? = null
+    const val RUN_TAPE_CADENCE_MS_8293 = 10_000L
     private val inFlight = AtomicBoolean(false)
     @Volatile private var lastHuntedSnapshotAtMs = 0L
     @Volatile private var lastRunAtMs = 0L
@@ -92,13 +95,21 @@ object ResidentHunterWorker7807 {
                     delay(CADENCE_MS_7807)
                 }
             }
+            runTapeJob8293?.cancel()
+            runTapeJob8293 = scope.launch(Dispatchers.IO + CoroutineName("run-tape-8293")) {
+                delay(FIRST_RUN_DELAY_MS_7807)
+                while (isActive) {
+                    try { com.lifecyclebot.engine.RunTape8293.scan8293() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Throwable) {}
+                    delay(RUN_TAPE_CADENCE_MS_8293)
+                }
+            }
         }
         try { PipelineHealthCollector.labelInc("RESIDENT_HUNTER_WORKER_STARTED_7807") } catch (_: Throwable) {}
         ErrorLogger.info("ResidentHunter7807", "started cadence=${CADENCE_MS_7807}ms sweepBudget=${SWEEP_BUDGET_MS_7807}ms")
     }
 
     fun stop(reason: String) {
-        val j = synchronized(this) { val cur = job; job = null; cur }
+        val j = synchronized(this) { val cur = job; job = null; runTapeJob8293?.cancel(); runTapeJob8293 = null; cur }
         if (j != null) {
             j.cancel()
             try { PipelineHealthCollector.labelInc("RESIDENT_HUNTER_WORKER_STOPPED_7807") } catch (_: Throwable) {}

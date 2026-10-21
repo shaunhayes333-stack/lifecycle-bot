@@ -186,23 +186,15 @@ object LaneHunter7297 {
                 // real liquidity/activity, positive ignition, and no already-consumed
                 // vertical spike. Continuation up to $5M stays eligible; ranking below
                 // strongly prefers the pre-liftoff end of that universe.
-                r.priceChangeH1Pct > 0.0 && r.priceChangeH1Pct <= 120.0 &&
-                    r.liquidityUsd >= 1_500.0 && r.txCountH1 >= 3
+                // V5.0.8293 — at the native liquidity floor (MoonshotTraderAI.minLiquidityUsdNow8180: $2k -> $15k mature);
+                // a $1.5k pool was hunted and then refused natively as liq_too_low.
+                HunterMandates8293.moonshotFits8293(r.priceChangeH1Pct, r.liquidityUsd, r.txCountH1, HunterMandates8293.moonshotMinLiq8293())
             },
             rank = { r ->
-                val earlyCap = when {
-                    r.mcapUsd < 10_000.0 -> 6.0
-                    r.mcapUsd < 25_000.0 -> 5.0
-                    r.mcapUsd < 100_000.0 -> 3.5
-                    r.mcapUsd < 500_000.0 -> 2.0
-                    else -> 0.5
-                }
-                val youth = when {
-                    r.ageHours <= 0.25 -> 3.0
-                    r.ageHours <= 1.0 -> 2.0
-                    r.ageHours <= 6.0 -> 1.0
-                    else -> 0.0
-                }
+                // V5.0.8293 — the sub-$10k / first-3-minute peak (6.0 / 3.0) was the realised losing shape (AGE_MIN<3,
+                // MCAP<10k strongly negative); the priors now peak at $10k-$100k and 3-15 minutes.
+                val earlyCap = HunterMandates8293.moonshotCapPrior8293(r.mcapUsd)
+                val youth = HunterMandates8293.moonshotYouthPrior8293(r.ageHours)
                 val ignition = r.priceChangeH1Pct.coerceIn(0.0, 40.0) / 8.0
                 val exhaustionPenalty = if (r.priceChangeH1Pct > 60.0) 0.55 else 1.0
                 exhaustionPenalty * (earlyCap + youth + ignition +
@@ -229,15 +221,17 @@ object LaneHunter7297 {
             // V5.0.8031 — the native mandate (ShitCoinExpress): known age 5 min+, 1h continuation 1-30% (above 30%
             // it rejects as CHASE_EXTENDED), the last 5 minutes still up but not vertical.
             fits = { r ->
+                // V5.0.8293 — the native terms exactly (ShitCoinExpress.evaluate): no age floor, 5m chase line at 20%
+                // (8031's 5-minute age and 0.5-12% 5m window passed 7 of 118 in-band rows the native would read).
                 r.txCountH1 >= 4 && r.volumeH1Usd > 0.0 && r.liquidityUsd >= 1_000.0 &&
-                    HunterMandates8031.expressFits8031(r.ageHours, r.priceChangeH1Pct, r.priceChange5mPct)
+                    HunterMandates8293.expressFits8293(r.priceChangeH1Pct, r.priceChange5mPct)
             },
             rank = { r ->
                 // Momentum ignition / acceleration: prefer active turnover and
                 // a real positive move, but penalise already-exhausted >80% spikes.
                 val chasePenalty = if (r.priceChangeH1Pct > 80.0) 0.45 else 1.0
                 chasePenalty * (activity(r) + 2.5 * turnover(r).coerceAtMost(4.0) +
-                    r.priceChangeH1Pct.coerceIn(0.0, 40.0) / 8.0)
+                    r.priceChangeH1Pct.coerceIn(0.0, 40.0) / 8.0 + HunterMandates8293.expressM5Rank8293(r.priceChange5mPct))
             },
         ),
         Profile(
@@ -261,8 +255,9 @@ object LaneHunter7297 {
                 // native ManipulatedTraderAI still requires actual manipulation
                 // evidence (bundle/order-flow/etc.) before qualification.
                 // V5.0.8031 — known age within the native 8 minutes; the native gate still wants bundle / one-sided flow.
-                HunterMandates8031.knownAgeWithin8031(r.ageHours, 8.0 / 60.0) && r.txCountH1 >= 6 &&
-                    r.priceChangeH1Pct >= 5.0 && r.liquidityUsd >= 1_500.0
+                // V5.0.8293 — the native FLUID age / liquidity (12 min / $1.5k bootstrap -> 8 min / $3k mature).
+                HunterMandates8293.manipulatedFits8293(r.ageHours, r.txCountH1, r.priceChangeH1Pct, r.liquidityUsd,
+                    HunterMandates8293.manipulatedMaxAgeHours8293(), HunterMandates8293.manipulatedMinLiq8293())
             },
             rank = { r ->
                 3.0 * turnover(r).coerceAtMost(5.0) + activity(r) +
@@ -366,7 +361,7 @@ object LaneHunter7297 {
 
     private fun fluidBandFor(lane: String): Pair<Double, Double>? {
         val p = profiles.firstOrNull { it.lane == lane } ?: return null
-        return fluidBand(p.baseMin, p.baseMax, bucketStatsFor(lane))
+        return fluidBand(HunterMandates8293.baseMin8293(p.lane, p.baseMin), p.baseMax, bucketStatsFor(lane))  // V5.0.8293
     }
 
     /**
@@ -500,8 +495,11 @@ object LaneHunter7297 {
         val nonMeme8169 = snap.rows.mapNotNull { r -> HunterAssetClass8169.of(r).takeIf { it != HunterAssetClass8169.Kind.MEME_TRADEABLE }?.let { r.mint to it } }.toMap()
         val now8169 = System.currentTimeMillis()
         requeuedAt8169.entries.removeIf { !onCooldown8169(it.value, now8169) }
+        val top8293 = snap.rows.mapNotNull { r -> r.mint.takeIf { OpportunityRoute8293.isTop8293(MarketSweep7297.opportunityFor7777(it)) } }.toSet()
+        val tests8293 = ArrayList<OpportunityRoute8293.LaneTest8293>()
         val ranked = profiles.associate { p ->
-            val (lo, hi) = fluidBand(p.baseMin, p.baseMax, bucketStatsFor(p.lane))
+            val (lo, hi) = fluidBand(HunterMandates8293.baseMin8293(p.lane, p.baseMin), p.baseMax, bucketStatsFor(p.lane))  // V5.0.8293 native floor
+            tests8293 += OpportunityRoute8293.LaneTest8293(p.lane, { r -> r.mcapUsd in lo..hi && r.mint !in nonMeme8169 }, p.fits)
             val inBand8168 = snap.rows.filter { it.mcapUsd in lo..hi && it.mint !in nonMeme8169 }
             val eligible8168 = inBand8168.filter { p.fits(it) }
             p.lane to eligible8168
@@ -517,7 +515,9 @@ object LaneHunter7297 {
                 }
                 .sortedByDescending { it.second }
                 .map { it.first.mint }
-                .let { order -> deliverableFirst8169(order) { m -> onCooldown8169(requeuedAt8169[m], now8169) } }
+                // V5.0.8293 — opportunity leaders first, the lane's learned losing shapes last; escalated requeue cooldown last of all.
+                .let { order -> HunterShape8293.orderLive8293(p.lane, order, byMint, top8293) }
+                .let { order -> deliverableFirst8169(order) { m -> onCooldown8169(requeuedAt8169[m], now8169) || HuntDelivery8293.cooling8293(m, now8169) } }
                 .also { ranked8168 -> audit8168 += com.lifecyclebot.engine.BotImprovementReport8168.hunt(
                     p.lane, snap.rows, inBand8168.size, eligible8168.size,
                     ranked8168.take(PICKS_PER_LANE).mapNotNull { byMint[it] }) }
@@ -532,11 +532,14 @@ object LaneHunter7297 {
         // use the remaining slots for fresh mints before repeating watchlist
         // residents. All 12 lanes keep their own ranking and can still select
         // the SAME mint; this is discovery ordering, never execution authority.
-        val residentPicks7803 = ranked.mapValues { (_, mints) ->
-            freshFirst8170(mints, { mint ->
+        val residentPicks7803 = ranked.mapValues { (lane, mints) ->
+            // V5.0.8293 — fresh-first only among deliverable rows outside the lane's learned losing shapes.
+            HunterShape8293.deliveryPicks8293(mints, { mint ->
                 try { BotService.status.tokens.containsKey(mint) } catch (_: Throwable) { false }
-            }, PICKS_PER_LANE)
+            }, { m -> onCooldown8169(requeuedAt8169[m], now8169) || HuntDelivery8293.cooling8293(m, now8169) ||
+                byMint[m]?.let { r -> HunterShape8293.losingShape8293(lane, r, HunterShape8293::live8293) } != null }, PICKS_PER_LANE)
         }
+        OpportunityRoute8293.noteHunt8293(snap.rows, tests8293, residentPicks7803)
         noteHuntAudit8169(snap, nonMeme8169, residentPicks7803, now8169)
         val now = System.currentTimeMillis()
         claims.entries.removeIf { now - it.value.atMs > CLAIM_TTL_MS }
@@ -644,7 +647,7 @@ object LaneHunter7297 {
     }
 
     /** The latest hunt as the 8169 audit reads it (non-meme exclusions, overlap across lanes, cooldown picks). */
-    fun auditLine8169(): String = lastAudit8169 + " · " + statusLine()
+    fun auditLine8169(): String = lastAudit8169 + " · " + OpportunityRoute8293.line8293() + " · " + statusLine()
 
     /** All resident hunter lanes for [mint] that still fit their own fluid band. */
     internal fun claimsFor7803(mint: String, currentMcap: Double): Set<String> {
@@ -662,6 +665,20 @@ object LaneHunter7297 {
             if (inBand) out += c.lane
         }
         return out
+    }
+
+    /**
+     * V5.0.8293 — RunTape8293: a coin its executed tape shows entering a run is claimed for [lane] (MOONSHOT / SHITCOIN /
+     * PROJECT_SNIPER) at [mcapUsd] (0 = not yet read; claimsFor7803 then honours it until a cap is known). An existing
+     * live claim for the lane is never overwritten. Ownership only; the lane's scorer, FDG and safety still decide.
+     */
+    internal fun claimRun8293(lane: String, mint: String, mcapUsd: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (lane.isBlank() || mint.isBlank() || profiles.none { it.lane == lane }) return false
+        val k = claimKey7803(lane, mint)
+        val existing = claims[k]
+        if (existing != null && nowMs - existing.atMs <= CLAIM_TTL_MS) return false
+        claims[k] = Claim(lane, if (mcapUsd.isFinite() && mcapUsd > 0.0) mcapUsd else 0.0, nowMs)
+        return true
     }
 
     /**

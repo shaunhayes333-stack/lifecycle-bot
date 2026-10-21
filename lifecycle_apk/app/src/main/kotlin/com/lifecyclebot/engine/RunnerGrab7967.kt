@@ -179,7 +179,11 @@ object RunnerGrab7967 {
         // V5.0.8270 — missing structure proves nothing: standing7970 treats an ABSENT 60 m read as "not breaking",
         // which is right for a grab in a PROVEN cell but cannot witness an unlearned forming runner. A read must exist.
         val (r15, r60) = StructureTracker7962.reads7967(mint, nowMs)
-        if (!formingStructure8270(r15, r60)) return null
+        // V5.0.8293 — a fresh RunTape8293 detection (10+ executed prints, buyers >= 60% of SOL, +15..150% off the low,
+        // near the high, still rising) is an OBSERVED forming read on the trades themselves; its own record stands it down.
+        val tape8293 = !formingStructure8270(r15, r60) && RunTape8293.fresh8293(mint, nowMs)
+        if (!formingStructure8270(r15, r60) && !tape8293) return null
+        if (tape8293) try { PipelineHealthCollector.labelInc("RUNNER_FORMING_TAPE_8293") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("RUNNER_FORMING_NATIVE_8260") } catch (_: Throwable) {}
         return "RUNNER_FORMING_8260"
     }
@@ -228,6 +232,8 @@ object RunnerGrab7967 {
         grabbed[ts.mint] = nowMs
         val px = ts.lastPrice
         if (px.isFinite() && px > 0.0 && signals.size < 2_000) signals.putIfAbsent(ts.mint, px to nowMs)
+        // V5.0.8293 — held-admit signals were never graded (gradeDue ran only past a successful grab): record30m=none.
+        ensureRecord7989(); gradeDue(nowMs)
         heldAdmits.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("RUNNER_HOLD_ON_ADMIT_7970")
@@ -263,6 +269,7 @@ object RunnerGrab7967 {
      */
     fun grab7967(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (mint.isBlank()) return false
+        gradeSoon8293(nowMs)
         val ts = try { BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return false
         if (ts.position.isOpen) return false
         if (ts.safety.tier == SafetyTier.HARD_BLOCK) return false
@@ -299,7 +306,10 @@ object RunnerGrab7967 {
             val (px, at) = sig
             if (nowMs - at < GRADE_AFTER_MS) continue
             signals.remove(mint)
-            val later = try { StructureTracker7962.markAt7962(mint, at + GRADE_AFTER_MS) } catch (_: Throwable) { null } ?: continue
+            // V5.0.8293 — the same fallback RunnerPlay8018 uses (a fresh mark inside the horizon); a lost grade is counted.
+            val later = try { StructureTracker7962.markAt7962(mint, at + GRADE_AFTER_MS) } catch (_: Throwable) { null }
+                ?: try { BotService.status.tokens[mint]?.takeIf { nowMs - it.lastPriceUpdate in 0L..120_000L && nowMs - at <= GRADE_AFTER_MS + 120_000L }?.lastPrice } catch (_: Throwable) { null }
+                ?: run { gradesLost8293.incrementAndGet(); null } ?: continue
             if (!(later > 0.0) || !(px > 0.0)) continue
             val r = later / px
             if (r < 0.01 || r > 200.0) continue
@@ -307,6 +317,16 @@ object RunnerGrab7967 {
             synchronized(record) { record.add(g, g >= 100.0) }
             saveRecord7989()
         }
+    }
+
+    private val gradesLost8293 = AtomicLong(0)
+    private val lastGradeAt8293 = AtomicLong(0)
+
+    /** V5.0.8293 — grade due signals at most every 30 s from the hot path, whatever this call decides. */
+    private fun gradeSoon8293(nowMs: Long) {
+        val last = lastGradeAt8293.get()
+        if (nowMs - last < 30_000L || !lastGradeAt8293.compareAndSet(last, nowMs)) return
+        try { ensureRecord7989(); gradeDue(nowMs) } catch (_: Throwable) {}
     }
 
     // ── V5.0.7989 — the grab's own record survives restarts ──
@@ -582,7 +602,7 @@ object RunnerGrab7967 {
         val recent = synchronized(missedRecent) { missedRecent.joinToString(" · ") }.ifBlank { "-" }
         return "grabs=${grabs.get()} heldAdmits7970=${heldAdmits.get()} adds7973=${addsSignalled.get()} holding=${grabbed.size} deferredSoftExits=${deferred.get()} runnerExits=${exitsTaken.get()} " +
             "record30m=$st${if (down) " STOOD_DOWN" else ""} pendingGrades=${signals.size} | runners>=+400%: caught=${caught.get()} " +
-            "missed=${missedByReason.values.sumOf { it.get() }} byReason=[$top] recent=[$recent]"
+            "missed=${missedByReason.values.sumOf { it.get() }} byReason=[$top] recent=[$recent] gradesLost8293=${gradesLost8293.get()}"
     }
 
     internal fun resetForTest7967() {
