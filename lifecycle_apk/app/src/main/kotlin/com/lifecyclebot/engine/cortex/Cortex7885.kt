@@ -159,14 +159,14 @@ object Cortex7885 {
 
     // ── V5.0.8291 §CORE_VOTERS — the voters seated in a lane are never abstained by the read budget ──
     private const val CORE_REFRESH_MS_8291 = 30_000L
-    private val coreVoters8291 = ConcurrentHashMap<String, Pair<Long, BooleanArray>>()
+    private val coreCache8291 = ConcurrentHashMap<String, Pair<Long, BooleanArray>>()
 
     /** Index-aligned with CortexVoters7885.ALL: true where the voter holds authority in [lane] (fusion weighs it). */
     private fun coreVoters8291(lane: String, nowMs: Long): BooleanArray? = try {
-        coreVoters8291[lane]?.takeIf { nowMs - it.first in 0L until CORE_REFRESH_MS_8291 }?.second ?: run {
+        coreCache8291[lane]?.takeIf { nowMs - it.first in 0L until CORE_REFRESH_MS_8291 }?.second ?: run {
             val ids = CortexVoters7885.IDS
             val core = synchronized(this) { BooleanArray(ids.size) { i -> (ledger.seats["${ids[i]}|$lane"]?.authority() ?: 0.0) > 0.0 } }
-            coreVoters8291[lane] = nowMs to core
+            coreCache8291[lane] = nowMs to core
             core
         }
     } catch (_: Throwable) { null }
