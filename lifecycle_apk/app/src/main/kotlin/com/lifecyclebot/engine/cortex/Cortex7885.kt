@@ -1685,6 +1685,29 @@ object Cortex7885 {
     } catch (_: Throwable) { false }
 
     /**
+     * V5.0.8269 — return REFUSE power only on tradeable, on-time, first-of-episode
+     * labels that were negative in BOTH the training and later held-out span.
+     * CortexScoreboard7885's old decayed aggregate remains shadow telemetry:
+     * it cannot enforce a live veto from repeat-inflated pre-8146 samples.
+     * Caller holds Cortex's lock.
+     */
+    private fun refusalAuthority8269(lane: String, runnerLane: Boolean, paper: Boolean, relative: Boolean = false): Boolean {
+        val refuse = CortexScoreboard7885.Bucket.REFUSE.ordinal
+        val neutral = CortexScoreboard7885.Bucket.NEUTRAL.ordinal
+        val strong = CortexScoreboard7885.Bucket.STRONG.ordinal
+        val xs = gradeBook8144.executableTimed8196(lane, null, refuse)
+        val rivals = gradeBook8144.executableTimed8196(lane, null, neutral) +
+            gradeBook8144.executableTimed8196(lane, null, strong)
+        val gross = gradeBook8144.executableGrossSeries8198(lane, null, refuse)
+        val runnerRate = if (gross.isEmpty()) 0.0 else
+            gross.count { it >= CortexLedger7885.RUNNER_GROSS_PCT }.toDouble() / gross.size.toDouble()
+        val minN = if (relative) CortexScoreboard7885.RELATIVE_MIN_N_8019
+            else if (paper) CortexScoreboard7885.MIN_N_PAPER else CortexScoreboard7885.MIN_N_LIVE
+        return CortexRefusalTruth8269.proven8269(xs, rivals, gradeBook8144.resolvedShare(lane, refuse),
+            minN, runnerLane, runnerRate, relative)
+    }
+
+    /**
      * Called first by LiveEdgeGate7877.liveRefusal (both modes). Non-null means
      * the Cortex refuses this entry under a named rule.
      */
@@ -1697,10 +1720,14 @@ object Cortex7885 {
                 CortexAudit8169.noteGate(canon(laneRaw), read = false, refuseBucket = false, authority = false, refused = false)
                 return null
             }
-            val proven = synchronized(this) { board.refusalAuthority(a.lane, a.runnerLane, paper) && consistent(a.lane) }
+            val proven = synchronized(this) { refusalAuthority8269(a.lane, a.runnerLane, paper) && consistent(a.lane) }
             // V5.0.8019 — or the relative bar: this lane's REFUSE reads sit measurably below its other reads while
             // its STRONG reads hold authority. Live only (paper already refuses at 20).
-            val relative8019 = !paper && !proven && synchronized(this) { board.relativeRefusalAuthority8019(a.lane, a.runnerLane) && consistent(a.lane) }
+            val relative8019 = !paper && !proven && synchronized(this) {
+                // A shadowed STRONG side cannot authorize an early relative veto.
+                heldFraction8153(a.lane) >= OVERRULE_FRACTION_7955 &&
+                    refusalAuthority8269(a.lane, a.runnerLane, paper = false, relative = true) && consistent(a.lane)
+            }
             val rule = constitutionRefusal(a, ts, paper, proven || relative8019)?.let { if (it == "C3_PROVEN_NEGATIVE_EDGE" && relative8019) "C3_RELATIVE_REFUSE_8019" else it }
                 ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }
             // V5.0.8169 — per-lane gate reach: 8168 showed Rp/Rl on most lanes and did refused=0; this proves which lanes'
@@ -2642,8 +2669,8 @@ object Cortex7885 {
                     val auth7955 = heldFraction8153(lane)
                     val row8153 = LearningEntryTruth8153.verdictRow8153(gradeBook8144, lane)
                     val powers = buildString {
-                        if (board.refusalAuthority(lane, runner, true)) append("Rp ")
-                        if (board.refusalAuthority(lane, runner, false)) append("Rl ")
+                        if (refusalAuthority8269(lane, runner, true)) append("Rp ")
+                        if (refusalAuthority8269(lane, runner, false)) append("Rl ")
                         if (auth7955 >= OVERRULE_FRACTION_7955) append("O ")
                         if (auth7955 > 0.0) append("auth=${"%.2f".format(auth7955)} ")
                         if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("SUSPENDED ")
@@ -2702,8 +2729,8 @@ object Cortex7885 {
                 val runner = isRunner(lane)
                 val auth = heldFraction8153(lane)  // V5.0.8153 — the authority actually held
                 val powers = buildString {
-                    if (board.refusalAuthority(lane, runner, true)) append("refuse-paper ")
-                    if (board.refusalAuthority(lane, runner, false)) append("refuse-live ")
+                    if (refusalAuthority8269(lane, runner, true)) append("refuse-paper ")
+                    if (refusalAuthority8269(lane, runner, false)) append("refuse-live ")
                     if (auth >= OVERRULE_FRACTION_7955) append("overrule ")
                     if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("suspended ")
                     if (board.inverted7948(lane, accountMode8077())) append("inverted")
@@ -2748,7 +2775,7 @@ object Cortex7885 {
                     "strong=${fmtRow8153(v8153.strongN, v8153.strongMean)}${rawExec8187(lane, CortexScoreboard7885.Bucket.STRONG.ordinal, v8153.strongMean)} held=${"%.2f".format(heldFraction8153(lane))}] " +
                     "legacyDecayed[refuse=${fmtStat(b.byBucket[0])} neutral=${fmtStat(b.byBucket[1])} strong=${fmtStat(b.byBucket[2])}] " +
                     "| legacyAdmit=${fmtStat(b.legacyAdmitted)} legacyRefuse=${fmtStat(b.legacyRefused)} missedStrong=${fmtStat(b.missedStrong)} " +
-                    "| authority: paperRefuse=${board.refusalAuthority(lane, runner, true)} liveRefuse=${board.refusalAuthority(lane, runner, false)} liveOverrule=${board.overruleAuthority(lane)} auth=${"%.2f".format(board.fractionFor7955(lane, accountMode8077()))}"
+                    "| authority: paperRefuse=${refusalAuthority8269(lane, runner, true)} liveRefuse=${refusalAuthority8269(lane, runner, false)} liveOverrule=${board.overruleAuthority(lane)} auth=${"%.2f".format(board.fractionFor7955(lane, accountMode8077()))}"
             }
             "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.votersLine8003()} assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
