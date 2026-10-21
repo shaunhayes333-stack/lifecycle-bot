@@ -1319,6 +1319,34 @@ object LanePlaybook7907 {
         }
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.8290 — caller holds the lock. The executable record [st] of ([lane], [setup]) proves live money: the stored record
+     * is not OUTLIER_SUSPECT and mean - SE clears the lane's realised shortfall [extra] (LiveAdmissionProof8290). Counted.
+     */
+    private fun setupSurvives8290(lane: String, setup: String, st: CortexLedger7885.Stat, extra: Double): Boolean {
+        val suspect = statRaw8187(lane, setup)?.suspect8187() == true
+        val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY
+        val ok = com.lifecyclebot.engine.truth.LiveAdmissionProof8290.survives8290(st.n, st.mean(), se, suspect, extra, LOSING_N.toDouble())
+        if (!ok) try { com.lifecyclebot.engine.truth.LiveAdmissionProof8290.noteRefused8290(suspect, lane) } catch (_: Throwable) {}
+        return ok
+    }
+
+    /**
+     * V5.0.8290 — LiveEdgeGate7877 (setup authority 7955): the selected setup's executable record clears [minN] labels and
+     * mean - SE past the lane's realised shortfall, on a record that is not outlier-suspect. False when unrecorded.
+     */
+    fun selectedSetupSurvives8290(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), minN: Double = 15.0): Boolean = try {
+        val lane = canon(laneRaw)
+        val setup = selectedSetup8094(ts, lane, nowMs)
+        val extra = com.lifecyclebot.engine.truth.LiveAdmissionProof8290.laneExtra8290(lane, nowMs)
+        if (setup == null || setup == NO_TRIGGER) false else synchronized(this) {
+            val st = stat(lane, setup)
+            st != null && com.lifecyclebot.engine.truth.LiveAdmissionProof8290.survives8290(st.n, st.mean(),
+                if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY,
+                statRaw8187(lane, setup)?.suspect8187() == true, extra, minN)
+        }
+    } catch (_: Throwable) { false }
+
     /** Pure: a (lane, setup) record proven to pay: 30+ labels and mean minus one standard error above zero. */
     fun setupProvenPositive7948(st: CortexLedger7885.Stat?): Boolean {
         if (st == null || st.n < LOSING_N) return false
@@ -1341,10 +1369,12 @@ object LanePlaybook7907 {
         // setup's tactic, style and exit (TacticSwitcher.tacticForToken8050 / AgenticStyleRouter), so it is traded as the
         // strategy whose record admitted it.
         val candidates = matchedSetups8083(ts, lane, nowMs)
+        // V5.0.8290 — LIVE: proven means proven past the lane's realised shortfall, on a record that is not outlier-suspect.
+        val extra8290 = try { com.lifecyclebot.engine.truth.LiveAdmissionProof8290.laneExtra8290(lane, nowMs) } catch (_: Throwable) { 0.0 }
         if (candidates.isEmpty()) null else synchronized(this) {
             candidates.mapNotNull { setup ->
                 val st = stat(lane, setup)
-                if (st == null || !setupProvenPositive7948(st)) null
+                if (st == null || !setupProvenPositive7948(st) || !setupSurvives8290(lane, setup, st, extra8290)) null
                 else Triple(setup, st.runnerRate() >= TAIL_RATE || st.mean() >= RUNNER_SETUP_MEAN_8056, st.mean() - kotlin.math.sqrt(st.variance() / st.n))
             }.maxByOrNull { it.third }?.let { best ->
                 if (best.first != classify(ts, lane, nowMs)) try {
@@ -1383,9 +1413,12 @@ object LanePlaybook7907 {
         // V5.0.8094 — multi-strategy: each fired setup on its OWN record; a setup whose own record is losing is never the
         // admitting one (setupRecordNegative8094), and the trade then carries the admitting setup's tactic and exit.
         val candidates = matchedSetups8083(ts, lane, nowMs)
+        val extra8290 = try { com.lifecyclebot.engine.truth.LiveAdmissionProof8290.laneExtra8290(lane, nowMs) } catch (_: Throwable) { 0.0 }
         if (candidates.isEmpty()) null else synchronized(this) {
             candidates.firstOrNull { setup -> stat(lane, setup)?.let {
-                coldStartPositive8080(it.n, it.mean(), it.variance()) && !setupRecordNegative8094(it.n, it.mean(), it.variance())
+                // V5.0.8290 — the same margin past the realised shortfall, never on an outlier-suspect record.
+                coldStartPositive8080(it.n, it.mean() - extra8290, it.variance()) && !setupRecordNegative8094(it.n, it.mean(), it.variance()) &&
+                    statRaw8187(lane, setup)?.suspect8187() != true
             } == true }
         }
     } catch (_: Throwable) { null }
@@ -1439,7 +1472,8 @@ object LanePlaybook7907 {
             fired.mapNotNull { id ->
                 stat(lane, id)?.takeIf { it.n >= 1.0 }?.let { st ->
                     val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY
-                    id to doubleArrayOf(st.n, st.mean(), se, st.runnerRate())
+                    // V5.0.8290 — [4]: 1.0 when the stored record is OUTLIER_SUSPECT (the executable copy no longer says so).
+                    id to doubleArrayOf(st.n, st.mean(), se, st.runnerRate(), if (statRaw8187(lane, id)?.suspect8187() == true) 1.0 else 0.0)
                 }
             }
         }

@@ -86,6 +86,17 @@ object LiveEdgeGate7877 {
 
     data class Verdict(val allow: Boolean, val source: Source, val edgePct: Double, val why: String)
 
+    /**
+     * Pure (V5.0.8290): a measured cell whose stored mean is impossible under the plausibility cap (OUTLIER_SUSPECT_8185)
+     * refuses instead of admitting: its 8185 read is the winsorised UPPER bound, which the runner-tail test admitted on its
+     * point estimate, and a record of basis errors is not a prediction that a live buy pays. Never "unmeasured" either
+     * (that would explore it live as NONE).
+     */
+    fun outlierSuspect8290(cell: ForwardReturnLabeler7731.CellStat?): Verdict? =
+        if (cell != null && cell.n60 >= CELL_MIN_N && cell.outlierSuspect8185)
+            Verdict(false, Source.CELL, Double.NaN, "CELL_OUTLIER_SUSPECT_8290")
+        else null
+
     private val allowed = ConcurrentHashMap<String, AtomicLong>()
     private val refused = ConcurrentHashMap<String, AtomicLong>()
 
@@ -95,6 +106,7 @@ object LiveEdgeGate7877 {
      */
     fun judge(cell: ForwardReturnLabeler7731.CellStat?, laneProven: Boolean, marginPct: Double = LIVE_MARGIN_PCT): Verdict {
         mostlyUnpriced8022(cell)?.let { return it }
+        outlierSuspect8290(cell)?.let { return it }
         if (cell != null && cell.n60 >= CELL_MIN_N) {
             val se = if (cell.stderr60Pct.isFinite()) cell.stderr60Pct else Double.POSITIVE_INFINITY
             val lower = cell.meanNet60Pct - se
@@ -131,6 +143,7 @@ object LiveEdgeGate7877 {
      */
     fun judgeRunner(cell: ForwardReturnLabeler7731.CellStat?, cohorts: List<ForwardReturnLabeler7731.CellStat?>, laneProven: Boolean): Verdict {
         mostlyUnpriced8022(cell)?.let { return it }
+        outlierSuspect8290(cell)?.let { return it }
         if (cell != null && cell.n60 >= CELL_MIN_N) {
             val se = if (cell.stderr60Pct.isFinite()) cell.stderr60Pct else 0.0
             val late = cell.n240 >= CELL_MIN_N && cell.meanNet240Pct >= 0.0
@@ -138,7 +151,8 @@ object LiveEdgeGate7877 {
                 return Verdict(false, Source.CELL, cell.meanNet60Pct + se, "RUNNER_CELL_PROVEN_NEGATIVE_${"%.1f".format(cell.meanNet60Pct)}PCT")
             }
         }
-        val measured = (listOf(cell) + cohorts).filterNotNull().filter { it.n60 >= CELL_MIN_N }
+        // V5.0.8290 — an outlier-suspect cohort is not a measurement either way (its point mean is the winsorised upper bound).
+        val measured = (listOf(cell) + cohorts).filterNotNull().filter { it.n60 >= CELL_MIN_N && !it.outlierSuspect8185 }
         if (measured.isEmpty()) return judge(null, laneProven, RUNNER_MARGIN_PCT)
         val verdicts = measured.map { runnerVerdict(it) }
         val best = verdicts.firstOrNull { it.allow } ?: verdicts.maxByOrNull { it.edgePct }!!
@@ -216,7 +230,9 @@ object LiveEdgeGate7877 {
         // V5.0.7955 — the candidate's classified playbook setup holds graduated authority
         // (from 15 labels, LanePlaybook7907.setupFraction7955) on more labels than its own cell.
         val setup7955 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classifiedAuthority7955(ts, l, nowMs) } catch (_: Throwable) { null }
-        if (setupAdmits7955(setup7955, cell?.n60 ?: 0, v.why)) {
+        // V5.0.8290 — graduated label authority admits only on a record that survives the realised shortfall (not suspect).
+        if (setupAdmits7955(setup7955, cell?.n60 ?: 0, v.why) &&
+            (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetupSurvives8290(ts, l, nowMs) } catch (_: Throwable) { false })) {
             try { PipelineHealthCollector.labelInc("LIVE_EDGE_SETUP_AUTHORITY_7955_$l") } catch (_: Throwable) {}
             return Verdict(true, Source.CELL, 0.0, "SETUP_AUTHORITY_7955_${"%.2f".format(setup7955?.getOrNull(0) ?: 0.0)}")
         }
@@ -253,6 +269,7 @@ object LiveEdgeGate7877 {
      */
     fun cohortProvenPositive7948(stat: ForwardReturnLabeler7731.CellStat?): Boolean {
         if (stat == null || stat.n60 < COHORT_MIN_N_7948) return false
+        if (stat.outlierSuspect8185) return false   // V5.0.8290
         if (stat.resolvedShare < MIN_RESOLVED_SHARE_7944) return false
         if (!(stat.meanNet60Pct > 0.0)) return false
         val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else return false
@@ -616,14 +633,16 @@ object LiveEdgeGate7877 {
                 !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) &&
                 !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
                 !cellOrKindProven8094(ts, l8059, nowMs)) {
-                if (candidateSpecificAdmission8136) {
-                    try { PipelineHealthCollector.labelInc("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_$l8059") } catch (_: Throwable) {}
-                } else {
-                    chaseRefused8065.incrementAndGet()
-                    try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
-                    observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
-                    return "CHASING_SPIKE_8065"
-                }
+                // V5.0.8290 — the 8243 stand-down for a candidate-specific ADMIT is reverted: a SUPPORTED record is graded
+                // from the label's re-base mark, averaged over every point of the move, and its timing band needs only to
+                // be "not losing"; it is not evidence that buying 80 %+ off the low at the high pays. The 4/4 live losses
+                // of 5.0.8286 were bought into moves (BREAKOUT_RUNNER -33.8 %). The proven cell / kind, a developing grab
+                // and the rule's own tail-proven replay still stand it down (above).
+                chaseRefused8065.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
+                if (candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, "CHASING_SPIKE_8065", candidateVersion)
+                observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
+                return "CHASING_SPIKE_8065"
             }
             // Keep watch-first on the same immutable admission snapshot as the preceding live checks.
             // 8213: the same qualified native admission also clears an UNMEASURED thin-cell wait.
@@ -723,14 +742,19 @@ object LiveEdgeGate7877 {
         return proven
     }
 
+    // V5.0.8290 — every "proven" read below is LiveAdmissionProof8290's: not OUTLIER_SUSPECT, and the executable mean past
+    // the lane's realised shortfall (0 outside LIVE). The win-rate proof reads the same shifted mean.
     fun cellOrKindProven8094(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
         val st = ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs)
-        (st != null && (cellProven8060(st.n60, st.meanNet60Pct, st.stderr60Pct) ||
-            cellWinsProven8094(st.n60, st.winRate60, st.meanNet60Pct))) || kindProven8063(ts, lane)
+        (st != null && (LiveAdmissionProof8290.cellSurvives8290(st, lane, nowMs) || cellWinsProvenLive8290(st, lane, nowMs))) || kindProven8063(ts, lane)
     } catch (_: Throwable) { false }
 
+    /** V5.0.8290 — [cellWinsProven8094] on a record that is not suspect, its mean read past the lane's realised shortfall. */
+    internal fun cellWinsProvenLive8290(st: ForwardReturnLabeler7731.CellStat, lane: String, nowMs: Long): Boolean =
+        !st.outlierSuspect8185 && cellWinsProven8094(st.n60, st.winRate60, st.meanNet60Pct - LiveAdmissionProof8290.laneExtra8290(lane, nowMs))
+
     private fun kindProven8063(ts: TokenState, lane: String): Boolean {
-        val ok = try { ForwardReturnLabeler7731.kindStatsFor8063(ts, lane).any { cellProven8060(it.n60, it.meanNet60Pct, it.stderr60Pct) } } catch (_: Throwable) { false }
+        val ok = try { ForwardReturnLabeler7731.kindStatsFor8063(ts, lane).any { LiveAdmissionProof8290.cellSurvives8290(it, lane) } } catch (_: Throwable) { false }
         if (ok) kindProven8063.incrementAndGet()
         return ok
     }
@@ -859,7 +883,7 @@ object LiveEdgeGate7877 {
 
     private fun measuredEdge8060(ts: TokenState, lane: String, nowMs: Long): Boolean {
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
-        val ok = (st != null && cellProven8060(st.n60, st.meanNet60Pct, st.stderr60Pct)) ||
+        val ok = LiveAdmissionProof8290.cellSurvives8290(st, lane, nowMs) ||   // V5.0.8290
             // V5.0.8063 — or the coin's kind has proven it pays in this lane (venue x cap band, or narrative).
             kindProven8063(ts, lane) ||
             (try { com.lifecyclebot.engine.RunnerGrab7967.cellBeatsLane7970(ts, lane, nowMs) } catch (_: Throwable) { false }) ||
@@ -913,12 +937,15 @@ object LiveEdgeGate7877 {
             cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs); return null
         }
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
-        if (st != null && cellEarnsLive7994(st.n60, st.meanNet60Pct)) {
+        // V5.0.8290 — watch-first clears on a point estimate: never on an outlier-suspect record (its upper bound), and its
+        // mean is read past the lane's realised shortfall.
+        val watchMean8290 = if (st == null) Double.NaN else st.meanNet60Pct - LiveAdmissionProof8290.laneExtra8290(lane, nowMs)
+        if (st != null && !st.outlierSuspect8185 && cellEarnsLive7994(st.n60, watchMean8290)) {
             cleared7994.incrementAndGet()
             // V5.0.7995 — a cell that pays (+5% or better at 5 minutes) is bought now, not made to wait
             // for a chart setup: NO_PLAN_WAIT_7739 cost the biggest runners (BUM +32,922%, hehe +2,906%,
             // ORA +1,871%, AIA +1,577%) and its refused candidates read +3.9% (n301) / +11.7% (n34).
-            if (cellSkipsPlanWait7995(st.n60, st.meanNet60Pct)) { notePositive7975(ts.mint, nowMs); planSkips7995.incrementAndGet() }
+            if (cellSkipsPlanWait7995(st.n60, watchMean8290)) { notePositive7975(ts.mint, nowMs); planSkips7995.incrementAndGet() }
             return null
         }
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
@@ -1009,7 +1036,7 @@ object LiveEdgeGate7877 {
         }
         val tier = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedTier8153(ts, lane, nowMs) } catch (_: Throwable) { null }
         if (StrategyRank8153.evidenced8153(tier)) return StrategyWatch8153.release8153(why, tier, false, false, false, false)
-        val kind = try { ForwardReturnLabeler7731.kindStatsFor8063(ts, lane).any { cellProven8060(it.n60, it.meanNet60Pct, it.stderr60Pct) } } catch (_: Throwable) { false }
+        val kind = try { ForwardReturnLabeler7731.kindStatsFor8063(ts, lane).any { LiveAdmissionProof8290.cellSurvives8290(it, lane, nowMs) } } catch (_: Throwable) { false }
         val admission = if (kind) null else candidateAdmission ?: try { CandidateAdmission8136.assess8136(ts, lane, nowMs, candidateVersion) } catch (_: Throwable) { null }
         return StrategyWatch8153.release8153(why, tier, kind, !kind && runnerForming8113(ts, nowMs), !kind && shadowAuditAdmits8113(ts, lane),
             admission != null && admission.admitted && admission.specific)
@@ -1142,10 +1169,12 @@ object LiveEdgeGate7877 {
         // own supported setup (specific == true, its record positive after one SE). The generic bin does not out-rank
         // the specific record: it stands down and is counted. Hard safety, economics, sizing and the proven-negative
         // records (setup / stage / cell) are untouched — they refuse inside the admission itself.
-        if (shape != null && candidateSpecificAdmission8136) {
-            try { PipelineHealthCollector.labelInc("LIVE_EDGE_SHAPE_YIELDS_TO_CANDIDATE_ADMISSION_8256") } catch (_: Throwable) {}
-            notePositive7975(ts.mint, nowMs)
-        } else if (shape != null) {
+        // V5.0.8290 — 8256 reverted: a shape bin is a MEASURED loss rule of this lane (provenLosing on its own labels), not
+        // a generic prior, and the "supported setup" it yielded to is a forward-label record that has not met execution.
+        // The bins it stood down (AGE_MIN < 3, LIQ < 3k, MCAP < 10k) read strongly negative per lane in 5.0.8286. The
+        // Cortex overrule above (earned authority) is the one exit. Counted when a specific admission meets it.
+        if (shape != null) {
+            if (candidateSpecificAdmission8136) try { PipelineHealthCollector.labelInc("LIVE_EDGE_SHAPE_BINDS_OVER_ADMISSION_8290") } catch (_: Throwable) {}
             TradeShapeLearner7883.noteRefusal(l, shape)
             refused.computeIfAbsent("$l|SHAPE") { AtomicLong(0) }.incrementAndGet()
             return "EDGE_7877_$shape"
@@ -1189,5 +1218,6 @@ object LiveEdgeGate7877 {
         "bar=cellN>=$CELL_MIN_N&&mean-se>+$LIVE_MARGIN_PCT%|laneProven runner=bestCohort(mean-se>$RUNNER_MARGIN_PCT%) " +
             "admit=[${allowed.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}] " +
             "refuse=[${refused.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]" +
-            " dataDefer8136=${dataDeferred8136.get()} watchReleased8153=${watchReleased8153.get()}"
+            " dataDefer8136=${dataDeferred8136.get()} watchReleased8153=${watchReleased8153.get()}" +
+            " " + (try { LiveAdmissionProof8290.statusLine8290() } catch (_: Throwable) { "proof8290[-]" })
 }

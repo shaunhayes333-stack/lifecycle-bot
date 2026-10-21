@@ -73,7 +73,8 @@ object CellProofLadder7731 {
         }
         return when {
             stat.meanNet60Pct + se < NEGATIVE_MEAN_PCT_7731 && stat.winRate60 < 0.5 -> Tier.NEGATIVE
-            stat.meanNet60Pct - se > POSITIVE_MEAN_PCT_7731 -> Tier.POSITIVE
+            // V5.0.8290 — an OUTLIER_SUSPECT record (read at its winsorised upper bound) is never tagged POSITIVE.
+            stat.meanNet60Pct - se > POSITIVE_MEAN_PCT_7731 && !stat.outlierSuspect8185 -> Tier.POSITIVE
             else -> Tier.UNPROVEN
         }
     }
