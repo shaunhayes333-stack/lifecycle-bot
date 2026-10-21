@@ -574,6 +574,8 @@ object LiveRiskPolicy7807 {
         }
         // V5.0.8094 — the order is never below the executable minimum, so its cost is judged at least at that size.
         val executableFloor8269 = executableFloorWithFixedCost8269(i.execMinSol, i.fixedRoundTripSol8169)
+        val raisedForFixedCost8269 = i.execMinSol > 0.0 && executableFloor8269.isFinite() &&
+            executableFloor8269 > i.execMinSol + 1e-12
         val probeSize = maxOf(if (i.upstreamSol > 0.0) i.upstreamSol else 0.0, executableFloor8269)
         // V5.0.8153 — the round trip at the size is the realistic one when the caller supplies it (never below 7766's).
         val cost0 = costAtSizePct8153(i, probeSize)
@@ -699,8 +701,18 @@ object LiveRiskPolicy7807 {
                     minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac,
                     MinPromotion8188.doctrineBudgetSol8236(size, tradeable8153, i.solUsd),
                     explorationSlotFree = try { LaneScoreAdmission7308.runnerSlotFreeNow(i.lane) } catch (_: Throwable) { false })
-                    ?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
-                val fixedFloorLift8269 = executableFloor8269 > i.execMinSol + 1e-12
+                    ?.let { refusal ->
+                        // An order whose FIXED fees require a larger ticket is
+                        // still rejected when the loss budget cannot fund it.
+                        // Name the binding fixed-cost wall, not an unexplained
+                        // risk-promotion refusal. Other promotion reasons retain
+                        // their exact names (drawdown/negative/unmeasured).
+                        val named = if (raisedForFixedCost8269 && refusal == MinPromotion8188.REFUSED_LOSS_BUDGET_8188)
+                            com.lifecyclebot.engine.CostLanding8169.FIXED_COST_REFUSAL_8169 else refusal
+                        if (named != refusal) labels += "FIXED_COST_FLOOR_EXCEEDS_LOSS_BUDGET_8269"
+                        return Decision(false, 0.0, named, labels, stop, minCost7840, total, sizing8094)
+                    }
+                val fixedFloorLift8269 = raisedForFixedCost8269
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
                 if (fixedFloorLift8269) labels += "FIXED_COST_FLOOR_PROMOTED_8269"
                 fixedCostRefusal8169(i, executableFloor8269)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
@@ -709,7 +721,12 @@ object LiveRiskPolicy7807 {
                     if (fixedFloorLift8269) "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269" else "OPEN_RISK_SAFE_MIN_PROMOTED_7840",
                     labels, stop, minCost7840, total, sizing8094, firstTarget)
             }
-            return Decision(false, 0.0, "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", labels, stop, minCost7840, total, sizing8094)
+            // If the original route min was affordable but the fee-safe one
+            // is not, retain the original 8169 hard cost-refusal contract.
+            val floorRefusal8269 = if (raisedForFixedCost8269)
+                com.lifecyclebot.engine.CostLanding8169.FIXED_COST_REFUSAL_8169
+            else "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835"
+            return Decision(false, 0.0, floorRefusal8269, labels, stop, minCost7840, total, sizing8094)
         }
         // V5.0.8153 — the final size's own round trip (a compounding size pays more impact than the probe).
         val costFinal8153 = costAtSizePct8153(i, size)
