@@ -67,7 +67,11 @@ object SpecialistElection8136 {
 
     /** FDG refusals that hold for every lane (token-wide wall / capital / identity): a rescue meets the same wall. */
     private val FDG_WALLS_8136 = listOf(
-        "LIQUIDITY", "SELLAB", "CIRCUIT_BREAKER", "AUTO_TRADE_DISABLED", "SIZE_NOT_EXECUTABLE", "SIZE_TOO_SMALL",
+        "LIQUIDITY", "SELLAB", "CIRCUIT_BREAKER", "AUTO_TRADE_DISABLED",
+        // V5.0.8278 (P0) — SIZE_NOT_EXECUTABLE / SIZE_TOO_SMALL are the PRIMARY lane's envelope (its allocation, risk cap,
+        // route minimum), not a token fact: 8276 runtime sized 10/12 lane allocations below the routable minimum, so
+        // one lane's envelope ended every receiver. The receiver sizes in its own envelope; wallet-wide CAPITAL/WALLET
+        // walls (no spendable SOL at all) still hold for every lane.
         "CAPITAL", "WALLET", "TOKEN_2022", "HOSTILE", "IDENTITY", "PRICE_UNKNOWN", "REENTRY", "LOCKOUT",
         // V5.0.8217 — bare "DISTRIBUTION" also matched a lane's chart phase (DISTRIBUTION_PHASE / a SHITCOIN shape rule), so
         // one lane's shape read became a token-wide wall and the qualified receiver (8215 Speed: MOONSHOT:Y:95 IGNITION_5M)

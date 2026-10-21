@@ -250,7 +250,9 @@ class Aate8136SpecialistElectionTest {
         val j = SpecialistOwnership7951
         assertTrue(j.refusalIsJudgement8136("HARD_BLOCK_RUGCHECK_FAILED", fdg = true))
         assertTrue(j.refusalIsJudgement8136("LIQUIDITY_BELOW_EXECUTION_FLOOR", fdg = true))
-        assertTrue(j.refusalIsJudgement8136("SIZE_NOT_EXECUTABLE_7835", fdg = true))
+        // V5.0.8278 — a lane's size envelope is lane-specific: the receiver sizes itself; wallet-wide capital still walls.
+        assertFalse(j.refusalIsJudgement8136("SIZE_NOT_EXECUTABLE_7835", fdg = true))
+        assertTrue(j.refusalIsJudgement8136("CAPITAL_BELOW_MIN_EXECUTABLE_6490", fdg = true))
         assertTrue(j.refusalIsJudgement8136("DEV_SELLING", fdg = false))
         assertFalse(j.refusalIsJudgement8136("PLAYBOOK_NO_TRIGGER_7907_SHITCOIN", fdg = true))
         assertFalse(j.refusalIsJudgement8136("C3_PROVEN_NEGATIVE_EDGE", fdg = true))
