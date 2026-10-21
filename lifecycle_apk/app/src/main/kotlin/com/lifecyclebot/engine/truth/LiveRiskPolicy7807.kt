@@ -219,12 +219,18 @@ object LiveRiskPolicy7807 {
 
     /** V5.0.8296 — [frac] after the lane's recent verified live record and the selected setup's realised live closes. */
     private fun recentKellyGate8296(ts: com.lifecyclebot.data.TokenState, lane: String, frac: Double): Double {
-        if (!frac.isFinite() || frac <= 0.0) return 0.0
-        val recent = try { LiveConfidence8296.recentFor8296(lane) } catch (_: Throwable) { null }
         val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
         val rr = if (setup.isNullOrBlank()) null else try { com.lifecyclebot.engine.cortex.Cortex7885.setupRealised8187(lane, setup) } catch (_: Throwable) { null }
-        val gated = LiveConfidence8296.kellyGate8296(frac, recent, rr?.getOrNull(0) ?: 0.0, rr?.getOrNull(1) ?: Double.NaN)
-        LiveConfidence8296.noteKellyRevoked8296(frac, gated)
+        val setupN = rr?.getOrNull(0) ?: 0.0
+        val setupMean = rr?.getOrNull(1) ?: Double.NaN
+        // Growth mandate: a setup paying on its OWN realised live closes inside a lane with a mature realised proof compounds
+        // (half the realised stake) even when its forward labels are thin or lost; labels are not required to grow on real wins.
+        val base = if (frac.isFinite() && frac > 0.0) frac else LiveConfidence8296.realisedOnlyFrac8296(
+            laneRealisedProofFrac8188(lane, System.currentTimeMillis()), setupN, setupMean)
+        if (!base.isFinite() || base <= 0.0) return 0.0
+        val recent = try { LiveConfidence8296.recentFor8296(lane) } catch (_: Throwable) { null }
+        val gated = LiveConfidence8296.kellyGate8296(base, recent, setupN, setupMean)
+        LiveConfidence8296.noteKellyRevoked8296(base, gated)
         return gated
     }
 

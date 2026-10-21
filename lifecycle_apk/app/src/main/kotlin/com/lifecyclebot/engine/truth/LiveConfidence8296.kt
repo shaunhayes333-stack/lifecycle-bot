@@ -30,15 +30,21 @@ object LiveConfidence8296 {
     const val RECENT_FLOOR_8296 = 0.50
     const val RECENT_GROWTH_MAX_8296 = 1.25
     private const val SETUP_MIN_N_8296 = 2.0
+    private const val REALISED_ONLY_MIN_N_8296 = 3.0
     private const val CAP_PCT_8296 = 1_000.0
     private const val PERSIST_KEY_8296 = "LIVE_CONFIDENCE_8296"
     private const val MAX_IDS_8296 = 400
+    /** Live compound pool (AutoCompoundEngine's live authority): share of a net live win reinvested, threshold, cap. */
+    private const val LIVE_COMPOUND_SHARE_8296 = 0.45
+    private const val LIVE_COMPOUND_THRESHOLD_SOL_8296 = 0.15
+    const val LIVE_COMPOUND_MAX_MULT_8296 = 3.0
 
     data class Recent8296(val n: Int, val meanPct: Double, val sePct: Double, val netSol: Double, val lossStreak: Int)
 
     private val lanes8296 = HashMap<String, ArrayDeque<DoubleArray>>()   // lane -> [atMs, netPct, netSol], oldest first
     private val seen8296 = LinkedHashSet<String>()
     @Volatile private var loaded8296 = false
+    @Volatile private var livePool8296 = 0.0
     private val accepted8296 = AtomicLong(0)
     private val rejected8296 = AtomicLong(0)
     private val kellyRevoked8296 = AtomicLong(0)
@@ -94,6 +100,39 @@ object LiveConfidence8296 {
         return frac
     }
 
+    /**
+     * Pure (AutoCompoundEngine live authority): the live compound pool after one verified close of [netSol]. A net win adds
+     * [LIVE_COMPOUND_SHARE_8296] of itself; a net loss drains the pool by its FULL amount (confidence falls faster than it
+     * grows), never below zero.
+     */
+    fun nextPool8296(pool: Double, netSol: Double): Double {
+        val p = if (pool.isFinite()) pool.coerceAtLeast(0.0) else 0.0
+        if (!netSol.isFinite()) return p
+        return if (netSol > 0.0) p + netSol * LIVE_COMPOUND_SHARE_8296 else (p + netSol).coerceAtLeast(0.0)
+    }
+
+    /** Pure: the size multiplier a live compound pool earns (AutoCompoundEngine's curve: +0.45x per threshold, max 3x). */
+    fun compoundMultiplier8296(pool: Double): Double =
+        if (!pool.isFinite() || pool <= 0.0) 1.0
+        else minOf(LIVE_COMPOUND_MAX_MULT_8296, 1.0 + pool / LIVE_COMPOUND_THRESHOLD_SOL_8296 * 0.45)
+
+    /** The live compound multiplier, fed only by verified live closes (never paper). */
+    fun liveCompoundMultiplier8296(): Double = synchronized(this) {
+        ensureLoaded8296()
+        compoundMultiplier8296(livePool8296)
+    }
+
+    /**
+     * Pure: the compounding share a setup earns from realised live closes alone — half the lane's mature realised-proof
+     * stake [laneRealisedProofFrac] when the selected setup has [REALISED_ONLY_MIN_N_8296]+ of its own live closes averaging
+     * a gain; 0 otherwise. Used only where no label-proven share exists.
+     */
+    fun realisedOnlyFrac8296(laneRealisedProofFrac: Double, setupN: Double, setupMeanPct: Double): Double {
+        if (!laneRealisedProofFrac.isFinite() || laneRealisedProofFrac <= 0.0) return 0.0
+        if (!setupN.isFinite() || setupN < REALISED_ONLY_MIN_N_8296 || !setupMeanPct.isFinite() || setupMeanPct <= 0.0) return 0.0
+        return laneRealisedProofFrac * 0.5
+    }
+
     // ── capture (verified live closes only) ──
 
     /** CanonicalTradeFinalizedBus6450 subscriber (LiveRiskPolicy7807.ensureSubscribed). */
@@ -116,6 +155,7 @@ object LiveConfidence8296 {
         val q = lanes8296.getOrPut(lane) { ArrayDeque() }
         q.addLast(doubleArrayOf(atMs.toDouble(), netPct.coerceIn(-100.0, CAP_PCT_8296), netSol))
         while (q.size > WINDOW_8296) q.removeFirst()
+        livePool8296 = nextPool8296(livePool8296, netSol)
         accepted8296.incrementAndGet()
         persist8296()
         return true
@@ -155,7 +195,8 @@ object LiveConfidence8296 {
             }.ifBlank { "no verified live closes yet" }
         }
         return "liveConfidence8296[accepted=${accepted8296.get()} rejected=${rejected8296.get()} " +
-            "kellyRevoked=${kellyRevoked8296.get()} $body]"
+            "kellyRevoked=${kellyRevoked8296.get()} compoundPool=${"%.4f".format(livePool8296)} " +
+            "compoundMult=${"%.2f".format(compoundMultiplier8296(livePool8296))}x $body]"
     }
 
     // ── persistence (never reset) ──
@@ -179,6 +220,8 @@ object LiveConfidence8296 {
                     q.clear(); q.addAll(merged)
                 }
             }
+            // Closes recorded before the load (none normally) were already applied on top of a zero pool.
+            livePool8296 = nextPool8296(o.optDouble("livePool", 0.0), 0.0) + livePool8296
             o.optJSONArray("ids")?.let { a -> for (i in 0 until a.length()) a.optString(i).takeIf { it.isNotBlank() }?.let { seen8296.add(it) } }
         } catch (_: Throwable) {}
     }
@@ -188,7 +231,8 @@ object LiveConfidence8296 {
         try {
             val lanes = org.json.JSONObject()
             lanes8296.forEach { (k, q) -> lanes.put(k, org.json.JSONArray(q.map { r -> org.json.JSONArray(r.toList()) })) }
-            val json = org.json.JSONObject().put("lanes", lanes).put("ids", org.json.JSONArray(seen8296.toList().takeLast(MAX_IDS_8296))).toString()
+            val json = org.json.JSONObject().put("lanes", lanes).put("ids", org.json.JSONArray(seen8296.toList().takeLast(MAX_IDS_8296)))
+                .put("livePool", livePool8296).toString()
             com.lifecyclebot.engine.LearningPersistence.save(PERSIST_KEY_8296, json)
         } catch (_: Throwable) {}
     }
