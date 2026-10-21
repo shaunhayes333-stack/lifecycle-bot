@@ -103,7 +103,12 @@ object MinPromotion8188 {
             // routable-capacity preflight already enforces — when it is larger than the request; the promoted ticket
             // still has to clear it, and a wallet whose doctrine is below the routable minimum still refuses.
             val budgetSol8234 = doctrineBudgetSol8236(requestedSol)
-            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross, liveDrawdownFrac8188(), budgetSol8234)
+            // 8269: match LiveRiskPolicy7807's already-enforced 8259 exploration slot.
+            // Without forwarding this, the upstream sizer always supplied the
+            // default false and refused even the first permitted defensive order.
+            val explorationFree = try { LaneScoreAdmission7308.explorationSlotFreeNow({ false }) } catch (_: Throwable) { false }
+            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross,
+                liveDrawdownFrac8188(), budgetSol8234, explorationSlotFree = explorationFree)
         } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 }
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
         return r
