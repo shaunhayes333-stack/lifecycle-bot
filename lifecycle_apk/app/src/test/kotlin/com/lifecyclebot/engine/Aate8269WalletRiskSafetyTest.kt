@@ -65,6 +65,13 @@ class Aate8269WalletRiskSafetyTest {
         assertTrue(checker.contains("confirmedWalletRiskCluster8269 = confirmedRugCluster8269 != null"))
         assertTrue(pre.contains("if (safety.confirmedWalletRiskCluster8269)"))
         assertTrue(pre.contains("val safetyAt = safety.checkedAt"))
+        val shared = File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt").readText()
+        // Main's later dedicated pretrade call retains its requeue semantics;
+        // the top-up/any additional spend path must run it here before APPROVED.
+        assertTrue(shared.contains("if (callSite != \"liveBuy.main\")"))
+        assertTrue(shared.contains("PreTradeHardGate.requireLiveBuyAllowed("))
+        assertTrue(shared.contains("SAFETY_PROOF_DEFERRED_8269"))
+        assertTrue(shared.indexOf("PreTradeHardGate.requireLiveBuyAllowed(") < shared.indexOf("return Decision.Approved"))
         assertTrue(pre.contains("LIVE_SAFETY_REPORT_NOT_FRESH_8269"))
         assertTrue(pre.contains("HOLDER_DISTRIBUTION_RISK_UNVERIFIED_8269"))
         assertTrue(parity.contains("confirmedWalletRiskCluster8269 = s.confirmedWalletRiskCluster8269"))
