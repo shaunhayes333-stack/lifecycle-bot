@@ -155,14 +155,16 @@ class Aate8290PredictiveAuditTest {
         assertTrue(g.substringAfter("private fun kindProven8063(").substringBefore("return ok").contains("LiveAdmissionProof8290.cellSurvives8290(it, lane)"))
         assertTrue(g.substringAfter("private fun measuredEdge8060(").substringBefore("kindProven8063(ts, lane)").contains("LiveAdmissionProof8290.cellSurvives8290(st, lane, nowMs)"))
         assertTrue(g.contains("if (st != null && !st.outlierSuspect8185 && cellEarnsLive7994(st.n60, watchMean8290))"))
-        // 8243: a specific ADMIT no longer stands the spike-chase rule down
-        assertFalse(g.contains("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_"))
+        // 8243: a specific ADMIT no longer stands the spike-chase rule down — superseded by V5.0.8298: only a lane whose
+        // realised live record earned it (RegressionRestore8298) stands it down; every other admit refuses the chase.
         val chase = g.substringAfter("if (snap8065 != null && chasing8065(").substringBefore("// Keep watch-first")
         assertTrue(chase.contains("return \"CHASING_SPIKE_8065\""))
-        assertFalse(chase.contains("} else {"))
+        assertTrue(g.contains("val admittedJudged8201 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l8059, nowMs)"))
         // 8256: the measured shape bin binds over a specific admission (the earned Cortex overrule stays the one exit)
         val shape = g.substringAfter("val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) }").substringBefore("val v = verdictFor(ts, l, nowMs)")
-        assertFalse(shape.contains("LIVE_EDGE_SHAPE_YIELDS_TO_CANDIDATE_ADMISSION_8256"))
+        // superseded by V5.0.8298: the shape yields only on the lane's earned realised record, else binds (counted 8290)
+        assertTrue(shape.contains("RegressionRestore8298.specificStandDownEarned8298(l, nowMs)"))
+        assertTrue(shape.contains("LIVE_EDGE_SHAPE_BINDS_OVER_ADMISSION_8290"))
         assertTrue(shape.indexOf("Cortex7885.overrulesEdgeRefusal(ts, l, shape)) return null") < shape.indexOf("return \"EDGE_7877_\$shape\""))
         // the 7955 graduated setup authority needs a record that survives
         assertTrue(g.contains("LanePlaybook7907.selectedSetupSurvives8290(ts, l, nowMs)"))

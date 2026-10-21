@@ -18,9 +18,13 @@ class Aate8256GenericPriorYieldsTest {
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         val shape = gate.substringAfter("val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) }").substringBefore("val v = verdictFor(ts, l, nowMs)")
         val overrule = shape.indexOf("Cortex7885.overrulesEdgeRefusal(ts, l, shape)) return null")
+        // V5.0.8298 — the yield is earned by the lane's realised record (RegressionRestore8298), else the shape refuses as in 8114
+        val yields = shape.indexOf("if (shape != null && shapeYields8298) {")
+        assertTrue(shape.contains("val shapeYields8298 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l, nowMs)"))
         val refuse = shape.indexOf("return \"EDGE_7877_\$shape\"")
-        assertTrue(overrule in 0 until refuse)
-        assertTrue(!shape.contains("LIVE_EDGE_SHAPE_YIELDS_TO_CANDIDATE_ADMISSION_8256"))
+        // superseded by V5.0.8298/8290: yields only on the lane's earned realised record; otherwise binds and is counted
+        assertTrue(overrule in 0 until yields)
+        assertTrue(yields < refuse)
         assertTrue(shape.contains("LIVE_EDGE_SHAPE_BINDS_OVER_ADMISSION_8290"))
         assertTrue(shape.contains("TradeShapeLearner7883.noteRefusal(l, shape)"))
         // the supported admission is the record's own specific edge, never a generic native pass

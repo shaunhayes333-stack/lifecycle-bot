@@ -237,14 +237,16 @@ object ExitDoctrine8169 {
     fun rapidHardFloorMag8169(ts: TokenState): Double {
         val ord = ordinaryStopMag(ts)
         // A lifecycle hold's 40% floor is its own exit; its rapid hard floor is the cap (held by LifecycleHold8065).
-        val mag = hardFloorMag8169(ord)
+        // V5.0.8298 — the widened floor only on the lane's earned realised record; else 8114's 15% (RegressionRestore8298).
+        val mag = restored8298(ts, hardFloorMag8169(ord), HARD_FLOOR_BASE_PCT_8169, "RAPID_HARD_FLOOR")
         if (mag > HARD_FLOOR_BASE_PCT_8169) mark(hardFloorWidened, key(ts))
         return mag
     }
 
     /** BotService.evaluateRapidMonitorExit: the catastrophe line (negative %) for [ts], never above its hard floor. */
     fun rapidCatastrophePct8169(ts: TokenState, fluidPct: Double): Double {
-        val mag = catastropheMag8169(fluidPct, hardFloorMag8169(ordinaryStopMag(ts)), lifecycleFloor(ts))
+        val hard8298 = restored8298(ts, hardFloorMag8169(ordinaryStopMag(ts)), HARD_FLOOR_BASE_PCT_8169, "RAPID_CATASTROPHE")
+        val mag = catastropheMag8169(fluidPct, hard8298, lifecycleFloor(ts))
         if (fluidPct.isFinite() && mag > -fluidPct + 1e-9) mark(catastropheDeepened, key(ts))
         return -mag
     }
@@ -252,11 +254,18 @@ object ExitDoctrine8169 {
     /** Executor.riskCheck: the hard floor (positive) — a fresh meme keeps its ordinary stop, not a flat 9%. */
     fun riskHardFloorMag8169(ts: TokenState, freshMeme: Boolean): Double {
         val ord = ordinaryStopMag(ts)
-        if (!freshMeme) return hardFloorMag8169(ord)
-        val mag = if (ord.isFinite() && ord > 0.0) ord.coerceIn(9.0, HARD_FLOOR_MAX_PCT_8169) else 9.0
+        // V5.0.8298 — 8114's 9% (fresh meme) / 15% backstops bind until the lane earned the wider ones (RegressionRestore8298).
+        if (!freshMeme) return restored8298(ts, hardFloorMag8169(ord), HARD_FLOOR_BASE_PCT_8169, "RISK_HARD_FLOOR")
+        val widened = if (ord.isFinite() && ord > 0.0) ord.coerceIn(9.0, HARD_FLOOR_MAX_PCT_8169) else 9.0
+        val mag = restored8298(ts, widened, com.lifecyclebot.engine.truth.RegressionRestore8298.FRESH_MEME_BACKSTOP_PCT_8298, "FRESH_MEME_BACKSTOP")
         if (mag > 9.0) mark(freshMemeFloorWidened, key(ts))
         return mag
     }
+
+    /** V5.0.8298 — [widened] if the position's lane earned it on realised closes, else the 8114 [base8114] (never wider). */
+    private fun restored8298(ts: TokenState, widened: Double, base8114: Double, door: String): Double = try {
+        com.lifecyclebot.engine.truth.RegressionRestore8298.backstopFor8298(ts.position.tradingMode, widened, base8114, door)
+    } catch (_: Throwable) { minOf(widened, base8114) }
 
     /** LosingPatternMemory.recommendedSlPct, never inside the lane's Field Manual invalidation. */
     fun recommendedSlPct8169(tradingMode: String, v3Score: Int): Double? {
@@ -270,7 +279,9 @@ object ExitDoctrine8169 {
     fun earlyRunnerStopMag8169(mint: String): Double {
         val ts = try { BotService.status.tokens[mint] } catch (_: Throwable) { null }
         val ord = if (ts != null && ts.position.isOpen) ordinaryStopMag(ts) else Double.NaN
-        return if (ord.isFinite() && ord > 0.0) ord.coerceIn(15.0, STOP_MAX_PCT_8169) else 15.0
+        val widened = if (ord.isFinite() && ord > 0.0) ord.coerceIn(15.0, STOP_MAX_PCT_8169) else 15.0
+        // V5.0.8298 — 8114 (8030) held MOONSHOT's first 12 minutes at 15%; wider only on the lane's earned realised record.
+        return if (ts == null) widened else restored8298(ts, widened, com.lifecyclebot.engine.truth.RegressionRestore8298.BACKSTOP_PCT_8298, "EARLY_RUNNER_STOP")
     }
 
     /**

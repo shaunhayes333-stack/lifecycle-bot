@@ -1006,7 +1006,8 @@ object FinalDecisionGate {
         // against this coin's SUPPORTED strategy (8240: a supported setup carries a losing cell). A candidate-specific
         // ADMIT is not re-vetoed by the same prior read a second time here.
         val admitted8244 = candidateAdmission != null && candidateAdmission.specific &&
-            candidateAdmission.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT
+            candidateAdmission.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT &&
+            com.lifecyclebot.engine.truth.RegressionRestore8298.restoredDoorStandsDown8298(raw, lane)  // V5.0.8298
         val reason = if (raw != null && admitted8244) {
             try { PipelineHealthCollector.labelInc("CELL_PROOF_STOOD_DOWN_FOR_ADMITTED_STRATEGY_8244_$lane") } catch (_: Throwable) {}
             null
@@ -1052,7 +1053,8 @@ object FinalDecisionGate {
         // strategy against the same forward labels; the learned stops-first prior does not re-veto it (8241: ZFROG
         // +129,601% bound to FRESH_LAUNCH_SETUP_STOPS_FIRST_7737 after ADMIT:SPECIFIC_EDGE_PROVEN). Structural refusals stand.
         val admitted8243 = candidateAdmission != null && candidateAdmission.specific &&
-            candidateAdmission.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT
+            candidateAdmission.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT &&
+            (raw != "FRESH_LAUNCH_SETUP_STOPS_FIRST_7737" || com.lifecyclebot.engine.truth.RegressionRestore8298.restoredDoorStandsDown8298(raw, lane))  // V5.0.8298
         val reason = if (raw == "FRESH_LAUNCH_SETUP_STOPS_FIRST_7737" && admitted8243) {
             try { PipelineHealthCollector.labelInc("FRESH_LAUNCH_LEARNED_STOOD_DOWN_FOR_ADMITTED_STRATEGY_8243_$lane") } catch (_: Throwable) {}
             null
