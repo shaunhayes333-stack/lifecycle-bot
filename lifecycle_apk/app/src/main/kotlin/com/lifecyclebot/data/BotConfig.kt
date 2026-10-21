@@ -406,13 +406,24 @@ object ConfigStore {
         MARKET_DATA_KEY_NAMES_7958.map { s.getString(it, "").orEmpty().trim() }
     } catch (_: Throwable) { MARKET_DATA_KEY_NAMES_7958.map { "" } }
 
-    fun saveMarketDataKeys7958(ctx: Context, keys: List<String>) {
+    fun saveMarketDataKeys7958(ctx: Context, keys: List<String>, allowClear8286: Boolean = false) {
         try {
-            secrets(ctx).edit().apply {
-                MARKET_DATA_KEY_NAMES_7958.forEachIndexed { i, k -> putString(k, keys.getOrNull(i).orEmpty().trim()) }
+            val s = secrets(ctx)
+            s.edit().apply {
+                MARKET_DATA_KEY_NAMES_7958.forEachIndexed { i, k ->
+                    val v = keys.getOrNull(i).orEmpty().trim()
+                    // V5.0.8286 — a blank field (a card not bound or not on screen) never erases a saved key; 8282 lost
+                    // the Codex key this way (codex key=missing). Only a screen that showed the saved key may clear it.
+                    if (keepSavedKey8286(s.getString(k, "").orEmpty(), v, allowClear8286)) return@forEachIndexed
+                    putString(k, v)
+                }
             }.apply()
         } catch (_: Throwable) {}
     }
+
+    /** Pure (V5.0.8286): keep the saved key when the incoming value is blank and clearing wasn't explicitly allowed. */
+    internal fun keepSavedKey8286(saved: String, incoming: String, allowClear: Boolean): Boolean =
+        incoming.isBlank() && saved.isNotBlank() && !allowClear
 
     @Synchronized
     fun save(ctx: Context, cfg: BotConfig) {
