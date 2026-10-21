@@ -6367,14 +6367,16 @@ object FinalDecisionGate {
             val compoundingApproved8094 = compoundingCeiling8094 > 0.0 && "PROVEN_EDGE_COMPOUNDING_SIZE_8057" in risk.labels
             riskSized = if (compoundingApproved8094) {
                 com.lifecyclebot.engine.truth.LiveSizeTarget8094.fdgRiskSized8094(riskSized, risk.sizeSol, risk.reason, true)
-            } else if (risk.reason == "OPEN_RISK_SAFE_MIN_PROMOTED_7840" &&
+            } else if (risk.reason in setOf("OPEN_RISK_SAFE_MIN_PROMOTED_7840", "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269") &&
                 risk.sizeSol > riskSized) {
                 try {
                     PipelineHealthCollector.labelInc("FDG_RISK_SAFE_ROUTE_MIN_SEALED_7841")
+                    if (risk.reason == "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269")
+                        PipelineHealthCollector.labelInc("FDG_COST_VIABLE_SIZE_PROMOTED_8269")
                     ForensicLogger.lifecycle(
                         "FDG_RISK_SAFE_ROUTE_MIN_SEALED_7841",
                         "mint=${ts.mint.take(10)} lane=$lane from=${"%.6f".format(riskSized)} " +
-                            "to=${"%.6f".format(risk.sizeSol)} min=${"%.6f".format(minimum)}",
+                            "to=${"%.6f".format(risk.sizeSol)} min=${"%.6f".format(minimum)} reason=${risk.reason}",
                     )
                 } catch (_: Throwable) {}
                 risk.sizeSol

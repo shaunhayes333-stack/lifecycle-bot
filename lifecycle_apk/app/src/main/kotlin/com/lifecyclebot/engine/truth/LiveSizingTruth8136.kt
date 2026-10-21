@@ -73,6 +73,7 @@ object LiveSizingTruth8136 {
     fun bindingConstraintOf8136(i: LiveRiskPolicy7807.Inputs, d: LiveRiskPolicy7807.Decision): String {
         if (!d.open) return "REFUSED:${d.reason}"
         val sz = d.sizing8094
+        if (d.reason == "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269") return "FIXED_COST_VIABLE_ROUTE_MIN_PROMOTED_8269"
         if (d.reason == "OPEN_RISK_SAFE_MIN_PROMOTED_7840") return if (sz != null) "ROUTE_MIN_PROMOTED_KELLY_BELOW_MIN" else "ROUTE_MIN_PROMOTED"
         val eps = 1e-9
         // V5.0.8153 — the envelope clamps run last in decide, so the last one that acted is the binding one.

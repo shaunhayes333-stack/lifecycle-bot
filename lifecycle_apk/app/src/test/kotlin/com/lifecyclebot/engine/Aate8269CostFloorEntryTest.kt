@@ -61,6 +61,21 @@ class Aate8269CostFloorEntryTest {
         assertTrue(upstream.contains("LaneScoreAdmission7308.runnerSlotFreeNow(l)"))
     }
 
+    @Test fun fdgPreservesCostSafePromotedNotionalInsteadOfClampingBackToDust() {
+        val target = com.lifecyclebot.engine.truth.LiveSizeTarget8094
+        assertEquals(0.0402, target.fdgRiskSized8094(0.02838, 0.0402,
+            "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269", false), 1e-12)
+        assertEquals(0.02838, target.fdgRiskSized8094(0.02838, 0.0402,
+            "OPEN_7807", false), 1e-12)
+        assertEquals(0.0, target.fdgRiskSized8094(0.02838, 0.0,
+            "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269", false), 0.0)
+        val gate = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(gate.contains("risk.reason in setOf(\"OPEN_RISK_SAFE_MIN_PROMOTED_7840\", \"OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269\")"))
+        assertTrue(gate.contains("FDG_COST_VIABLE_SIZE_PROMOTED_8269"))
+        assertTrue(gate.contains("requestedSol = riskSized, laneName = lane"))
+        assertTrue(gate.contains("resolution.finalSizeSol > riskSized + 1e-9) return 0.0"))
+    }
+
     @Test fun negativeEconomicsAndUnaffordableCostFloorRemainRefused() {
         for (lane in listOf("QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE",
                 "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN")) {

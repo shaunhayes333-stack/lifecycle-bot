@@ -54,7 +54,8 @@ object LiveSizeTarget8094 {
      */
     fun fdgRiskSized8094(proposalSol: Double, decisionSol: Double, decisionReason: String, compoundingApproved: Boolean): Double = when {
         compoundingApproved && decisionSol > 0.0 -> decisionSol
-        decisionReason == "OPEN_RISK_SAFE_MIN_PROMOTED_7840" && decisionSol > proposalSol -> decisionSol
+        decisionReason in setOf("OPEN_RISK_SAFE_MIN_PROMOTED_7840", "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269") &&
+            decisionSol > proposalSol -> decisionSol
         else -> minOf(proposalSol, decisionSol)
     }
 
