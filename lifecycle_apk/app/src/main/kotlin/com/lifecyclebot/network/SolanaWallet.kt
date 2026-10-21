@@ -1738,6 +1738,24 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Returns null (caller keeps its indeterminate path) when no mint was answered.
      */
     private fun knownMintsFallbackBounded7374(budgetMs: Long = 6_000L): Map<String, CanonicalTokenAmount>? {
+        // 8268: independent six-worker fallbacks must not defeat the strict-reader
+        // single-flight / 429 backoff. Never turn a deferred read into zero tokens.
+        val defer8268 = WalletTokenReadGate8268.beginFallback(publicKeyB58)
+        if (defer8268 != null) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_KNOWN_MINT_${defer8268}_DEFER_8268") } catch (_: Throwable) {}
+            return null
+        }
+        try {
+            val observed8268 = knownMintsFallbackUncoalesced8268(budgetMs)
+            WalletTokenReadGate8268.finishFallback(publicKeyB58, success = observed8268 != null)
+            return observed8268
+        } catch (t: Throwable) {
+            WalletTokenReadGate8268.finishFallback(publicKeyB58, success = false)
+            throw t
+        }
+    }
+
+    private fun knownMintsFallbackUncoalesced8268(budgetMs: Long): Map<String, CanonicalTokenAmount>? {
         val mints = knownBotMints7374()
         if (mints.isEmpty()) return null
         val fut = try {
