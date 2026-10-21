@@ -83,6 +83,6 @@ class Aate8269HeliusFirstTest {
         assertTrue(orch.contains("socket.releaseTokens7948 { it in held || it in focus }"))
         val promotion = src("engine/truth/MinPromotion8188.kt")
         assertTrue(promotion.contains("explorationSlotFree = explorationFree"))
-        assertTrue(promotion.contains("LaneScoreAdmission7308.explorationSlotFreeNow({ false })"))
+        assertTrue(promotion.contains("LaneScoreAdmission7308.runnerSlotFreeNow(l)"))
     }
 }

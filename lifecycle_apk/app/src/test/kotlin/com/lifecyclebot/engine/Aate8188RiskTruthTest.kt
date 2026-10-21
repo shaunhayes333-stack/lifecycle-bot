@@ -153,7 +153,7 @@ class Aate8188RiskTruthTest {
         assertEquals(MinPromotion8188.REFUSED_DRAWDOWN_8188, MinPromotion8188.refusal8188(0.02478, 0.025, 8.0, 6.0, 6.0, 20.0, 0.608, explorationSlotFree = false))
         // A smaller wallet's risk size (~0.0215 at 0.15 SOL) is too far below the minimum.
         assertEquals(MinPromotion8188.REFUSED_LOSS_BUDGET_8188, LiveRiskPolicy7807.decide(quality(0.15, 0.0, 20.0)).reason)
-        assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains("MinPromotion8188.refusal8188(size, i.execMinSol, stop,"))
+        assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains("MinPromotion8188.refusal8188(size, executableFloor8269, stop,"))
     }
 
     @Test fun everyUpstreamPromotionPathAppliesTheSameRule() {
