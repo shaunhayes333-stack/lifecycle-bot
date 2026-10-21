@@ -348,6 +348,17 @@ class Aate8285TapeProvidersTest {
         assertTrue(SolanaOhlcvFeed6916.statusLine().contains("gecko8285[intervalMs="))
     }
 
+    @Test fun poolTradesTakeOnlyTheirShareOfTheGeckoBudget() {
+        val s = SolanaOhlcvFeed6916
+        assertEquals(6, s.TRADES_PER_MIN_8285)
+        assertTrue(s.tradesSlotFree8285(List(5) { t0 - it * 1_000L }, t0))
+        assertFalse(s.tradesSlotFree8285(List(6) { t0 - it * 1_000L }, t0))
+        assertTrue(s.tradesSlotFree8285(List(6) { t0 - 61_000L - it }, t0))          // older than a minute: free again
+        val f = src("network/SolanaOhlcvFeed6916.kt").substringAfter("fun fetchPoolTrades8285(")
+        assertTrue(f.indexOf("if (nowMs < cooldownUntilMs.get()) {") in 0 until f.indexOf("val f = fetch6982(\"\$BASE/pools/\$p/trades\")"))
+        assertTrue(f.indexOf("if (!claimTradesSlot8285(nowMs)) {") in 0 until f.indexOf("val f = fetch6982(\"\$BASE/pools/\$p/trades\")"))
+    }
+
     // ── P5: per missing feature, the source's attempts / returns / invalid / throttled / repaired ──
 
     @Test fun featureSourceCountersHelperLine() {

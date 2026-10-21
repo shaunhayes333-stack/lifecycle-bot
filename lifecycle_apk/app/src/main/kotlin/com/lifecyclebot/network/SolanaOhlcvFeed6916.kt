@@ -781,6 +781,7 @@ object SolanaOhlcvFeed6916 {
         paprikaLastCode7295 = 0; paprikaCooldownUntilMs7293.set(0L); paprikaLastCallMs7293.set(0L)
         geckoIntervalMs8285.set(MIN_INTERVAL_MS); okStreak8285.set(0L); localServed8285.set(0L)
         tradesAsked8285.set(0L); tradesTaped8285.set(0L); tradesInvalid8285.set(0L); tradesSkipped8285.set(0L); tradesAt8285.clear()
+        synchronized(tradesMinute8285) { tradesMinute8285.clear() }
     }
 
     // ══════ V5.0.8285 — the local alternate and the GeckoTerminal pool-trades fallback ══════
@@ -820,6 +821,18 @@ object SolanaOhlcvFeed6916 {
     private val tradesTaped8285 = AtomicLong(0L)
     private val tradesInvalid8285 = AtomicLong(0L)
     private val tradesSkipped8285 = AtomicLong(0L)
+    /** The pool-trades fallback's share of the GeckoTerminal budget: at most this many asks a minute (OHLCV keeps the rest). */
+    const val TRADES_PER_MIN_8285 = 6
+    private val tradesMinute8285 = java.util.ArrayDeque<Long>()
+
+    /** Pure: may one more ask be made at [nowMs] given the asks [recent] (oldest first) of the last minute? */
+    internal fun tradesSlotFree8285(recent: List<Long>, nowMs: Long, perMin: Int = TRADES_PER_MIN_8285): Boolean =
+        recent.count { nowMs - it in 0L until 60_000L } < perMin
+
+    private fun claimTradesSlot8285(nowMs: Long): Boolean = synchronized(tradesMinute8285) {
+        while (tradesMinute8285.isNotEmpty() && nowMs - tradesMinute8285.peekFirst() >= 60_000L) tradesMinute8285.pollFirst()
+        if (!tradesSlotFree8285(tradesMinute8285.toList(), nowMs)) false else { tradesMinute8285.addLast(nowMs); true }
+    }
 
     /** One GeckoTerminal pool trade with its provenance (SOL side and token side observed; price = SOL / tokens). */
     data class PoolTrade8285(val signature: String, val eventMs: Long, val isBuy: Boolean, val sol: Double, val tokens: Double)
@@ -865,6 +878,11 @@ object SolanaOhlcvFeed6916 {
         val last = tradesAt8285[mint]
         if (last != null && nowMs - last in 0L until TRADES_GAP_MS_8285) { tradesSkipped8285.incrementAndGet(); return 0 }
         if (nowMs < cooldownUntilMs.get()) {
+            tradesSkipped8285.incrementAndGet()
+            FeatureSourceCounters8285.note8285("tape", "geckoTrades", FeatureSourceCounters8285.THROTTLED)
+            return 0
+        }
+        if (!claimTradesSlot8285(nowMs)) {
             tradesSkipped8285.incrementAndGet()
             FeatureSourceCounters8285.note8285("tape", "geckoTrades", FeatureSourceCounters8285.THROTTLED)
             return 0
