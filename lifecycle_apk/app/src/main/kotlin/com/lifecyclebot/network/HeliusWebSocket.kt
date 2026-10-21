@@ -131,6 +131,10 @@ class HeliusWebSocket(
                 Thread(task, "AATE-HeliusWS-Reconnect").apply { isDaemon = true }
             }
     }
+    /** V5.0.8269: reserve held slots and leave headroom for one urgent discovery promotion. */
+    fun focusCapacity8269(pinnedHeldCount: Int): Int =
+        (MAX_TOKEN_SUBSCRIPTIONS_7794 - pinnedHeldCount.coerceAtLeast(0)).coerceIn(0, 6)
+
     // Desired membership and server subscription identity are distinct.
     // null means the mint is desired but the current socket has not ACKed it yet.
     private val subscriptions = java.util.LinkedHashMap<String, Int?>(256, 0.75f, true)
