@@ -149,7 +149,10 @@ object DataPipeline8191 {
             "pairFetches=${pairFetches.get()} seed{" + seedBySource.entries.sortedByDescending { it.value.get() }
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}] " +
             ProviderLanes8285.statusLine8285() + " " + FeatureSourceCounters8285.line8285() + " " +
-            (try { com.lifecyclebot.network.DexPools8285.statusLine8285() } catch (_: Throwable) { "dexPools8285 -" })
+            (try { com.lifecyclebot.network.DexPools8285.statusLine8285() } catch (_: Throwable) { "dexPools8285 -" }) + " " +
+            (try { DexBatchLane8287.statusLine8287() } catch (_: Throwable) { "dexLane8287 -" }) + " " +   // V5.0.8287
+            (try { com.lifecyclebot.network.DexHostBudget8287.statusLine8287() } catch (_: Throwable) { "dexHost8287 -" }) + " " +
+            (try { BirdeyeBudgetGate.statusLine8287() } catch (_: Throwable) { "birdeyeBudget8287 -" })
 
     internal fun resetForTests8191() {
         nearDecisionAt.clear(); pairFetchAt.clear(); synchronized(codexOrdinary) { codexOrdinary.clear() }
@@ -241,6 +244,26 @@ object ProviderLanes8285 {
     }
 
     fun pendingCount8285(provider: String, kind: String): Int = pending.keys.count { it.startsWith("$provider|$kind|") }
+
+    /** V5.0.8287 — how long the oldest pending [provider]/[kind] request has waited (0 when none). */
+    fun oldestPendingAgeMs8287(provider: String, kind: String, nowMs: Long = System.currentTimeMillis()): Long {
+        val prefix = "$provider|$kind|"
+        val oldest = pending.entries.filter { it.key.startsWith(prefix) }.minOfOrNull { it.value.atMs } ?: return 0L
+        return (nowMs - oldest).coerceAtLeast(0L)
+    }
+
+    /** V5.0.8287 — is a held position's request pending for [provider]/[kind]? (it is sent without a collection wait) */
+    fun heldPending8287(provider: String, kind: String): Boolean {
+        val prefix = "$provider|$kind|"
+        return pending.entries.any { it.key.startsWith(prefix) && it.value.prio == Prio8285.HELD }
+    }
+
+    /** V5.0.8287 — ms left of [provider]'s own cooldown (0 = not cooling; Long.MAX_VALUE = disabled for the session). */
+    fun coolingLeftMs8287(provider: String, nowMs: Long = System.currentTimeMillis()): Long {
+        val b = backoff[provider] ?: return 0L
+        if (b.disabledCode != 0) return Long.MAX_VALUE
+        return (b.untilMs - nowMs).coerceAtLeast(0L)
+    }
 
     /** Is [provider] cooling down (or disabled) now? Never consulted for any other provider or for cached evidence. */
     fun cooling8285(provider: String, nowMs: Long = System.currentTimeMillis()): Boolean {

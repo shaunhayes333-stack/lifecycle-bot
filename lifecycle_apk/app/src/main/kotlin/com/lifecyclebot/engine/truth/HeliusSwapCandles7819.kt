@@ -136,14 +136,14 @@ object HeliusSwapCandles7819 {
         val priority = priority8284(mint, nowMs)
         val cov1m = CandleCoverage8284.noteNeed8284(ts, nowMs)
         if (cov1m == CandleCoverage8284.Coverage8284.COVERED) { coveredSkips8284.incrementAndGet(); return }
-        if (cov1m == CandleCoverage8284.Coverage8284.NOT_YET_POSSIBLE) { localTape8284(ts, nowMs, "young"); return }
+        if (cov1m == CandleCoverage8284.Coverage8284.NOT_YET_POSSIBLE) { localTape8284(ts, nowMs, "young"); priceBars8287(ts, nowMs); return }
         val marketAddress = activeMarketAddress8269(ts) ?: run {
             noMarketAddress8269.incrementAndGet()
-            localTape8284(ts, nowMs, "noMarket")
+            localTape8284(ts, nowMs, "noMarket"); priceBars8287(ts, nowMs)
             return
         }
         val next = nextAllowedMs[mint] ?: 0L
-        if (nowMs < next) { localTape8284(ts, nowMs, "retryWait"); return }
+        if (nowMs < next) { localTape8284(ts, nowMs, "retryWait"); priceBars8287(ts, nowMs); return }
         requests.incrementAndGet()
         // V5.0.7881 — up to two 100-credit pages per job (288k credits/day at the old
         // 60/h cap); now also paced on the economy's SWAP_CANDLES share.
@@ -151,7 +151,7 @@ object HeliusSwapCandles7819 {
         if (inFlight.size >= MAX_IN_FLIGHT || !claimBudget(nowMs, priority) ||
             !HeliusCreditEconomy7881.admit(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 200.0, nowMs)) {
             budgetSkips.incrementAndGet()
-            localTape8284(ts, nowMs, "budget")
+            localTape8284(ts, nowMs, "budget"); priceBars8287(ts, nowMs)
             return
         }
         if (!inFlight.add(mint)) return
@@ -240,7 +240,16 @@ object HeliusSwapCandles7819 {
         return r
     }
 
-    private fun solUsd8284(): Double = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+    // V5.0.8287 — the fresh SOL price, else the last observed (8286: a cold start's 0.0 dropped every local bar).
+    private fun solUsd8284(): Double = PriceShapeBars8287.solUsd8287()
+
+    /**
+     * V5.0.8287 — beside the executed-tape bars: the minutes in which the mint's venue was only PRICED (curve snapshots,
+     * pool-state prices) become MARK_ONLY bars (zero volume, zero trades), so shape is resolvable from observed prices.
+     */
+    private fun priceBars8287(ts: TokenState, nowMs: Long) {
+        try { PriceShapeBars8287.mergePriceOnly8287(ts, nowMs, WINDOW_MS) } catch (_: Throwable) {}
+    }
 
     /** V5.0.8284 — repaired candles landed for [ts]: wake the shape feature, time-to-feature, and the integrator's hook. */
     private fun featureArrived8284(ts: TokenState, nowMs: Long) {
@@ -495,7 +504,7 @@ object HeliusSwapCandles7819 {
         "helius8284[returned=${barsDelivered.get()} merged=${barsMerged.get()} replaced=${heliusReplaced8284.get()} kept=${heliusKept8284.get()} " +
             "coveredSkips=${coveredSkips8284.get()}] localTape8284[runs=${localTapeRuns8284.get()} bars=${localTapeBarCount8284.get()} " +
             "changed=${localTapeChanged8284.get()} why{" + localTapeByReason8284.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" } +
-            "}] " + CandleCoverage8284.statusLine8284()
+            "}] " + CandleCoverage8284.statusLine8284() + " " + PriceShapeBars8287.statusLine8287()
 
     internal fun resetForTest() {
         inFlight.clear(); nextAllowedMs.clear(); synchronized(jobStarts) { jobStarts.clear() }

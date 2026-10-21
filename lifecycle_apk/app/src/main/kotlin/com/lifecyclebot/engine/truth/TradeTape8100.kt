@@ -274,7 +274,8 @@ object TradeTape8100 {
 
     /** V5.0.8128 — one executed curve print (SOL per token, SOL size), read by the chart backfill's keyless local rung. */
     data class Print8128(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean,
-                         val source: String = "", val pool: String = "")   // V5.0.8285 — provenance
+                         val source: String = "", val pool: String = "",   // V5.0.8285 — provenance
+                         val priceOnly: Boolean = false)   // V5.0.8287 — a price observation, never a trade (no side, no size)
 
     /** V5.0.8128 — [mint]'s executed prints inside [windowMs] before [nowMs], oldest first (a copy; the tape is not changed). */
     fun prints8128(mint: String, nowMs: Long, windowMs: Long): List<Print8128> {
@@ -284,6 +285,27 @@ object TradeTape8100 {
         val exec = all8285.filter { !it.priceOnly }
         return sameVenue8285(exec, venueOf8285(exec)).filter { nowMs - it.atMs in 0L..windowMs }
             .map { Print8128(it.atMs, it.priceSol, it.sol, it.isBuy, it.source, it.pool) }
+    }
+
+    /**
+     * V5.0.8287 — [mint]'s observed PRICES inside [windowMs] before [nowMs], oldest first, from ONE venue: executed prints
+     * and price-only prints (curve snapshots, pool-state prices) alike, each flagged. They state price and shape only: a
+     * price-only print carries no size and no side (sol = 0), so no reader can count it as volume or buy pressure.
+     * Null when the tape has never seen the mint.
+     */
+    fun observedPrints8287(mint: String, nowMs: Long, windowMs: Long): List<Print8128>? {
+        val q = tapes[mint] ?: return null
+        val all = synchronized(q) { q.toList() }
+        return sameVenue8285(all, venueOf8285(all)).filter { nowMs - it.atMs in 0L..windowMs && it.priceSol.isFinite() && it.priceSol > 0.0 }
+            .map { Print8128(it.atMs, it.priceSol, if (it.priceOnly) 0.0 else it.sol, it.isBuy && !it.priceOnly, it.source, it.pool, it.priceOnly) }
+    }
+
+    /** V5.0.8287 — executed prints of [mint] inside [windowMs] (one venue), or null when the tape has never seen the mint. */
+    fun executedCount8287(mint: String, nowMs: Long, windowMs: Long): Int? {
+        val q = tapes[mint] ?: return null
+        val all = synchronized(q) { q.toList() }
+        val exec = all.filter { !it.priceOnly }
+        return sameVenue8285(exec, venueOf8285(exec)).count { nowMs - it.atMs in 0L..windowMs }
     }
 
     fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()} youngShape15s8220=${youngShapes8220.get()}"

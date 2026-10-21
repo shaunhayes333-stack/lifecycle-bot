@@ -85,6 +85,8 @@ object SharedHttpClient {
         // touching the 36+ callers individually. Short-circuits NXDOMAIN
         // and 5xx/429 storms with a 599 synthetic response — zero TLS,
         // zero TCP, zero DNS during cool-down.
+        // V5.0.8287 — one DexScreener budget for every caller (before the circuit: a local refusal is never a provider failure).
+        .addInterceptor(com.lifecyclebot.network.DexRateInterceptor8287)
         .addInterceptor(com.lifecyclebot.network.HostCircuitInterceptor)
         // V5.0.8191 — one shared per-second token bucket for Helius HTTP (429 / Retry-After aware; execution never waits).
         .addInterceptor(com.lifecyclebot.network.HeliusRateInterceptor8191)

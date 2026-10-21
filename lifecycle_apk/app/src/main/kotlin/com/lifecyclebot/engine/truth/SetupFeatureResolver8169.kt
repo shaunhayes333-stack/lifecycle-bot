@@ -104,6 +104,9 @@ object SetupFeatureResolver8169 {
     const val PAIR = "dexPair"
     const val SWEEP = "sweep"
     const val CHAIN = "onChainPool"
+    const val LAUNCH_8287 = "launchTape"
+    /** V5.0.8287 — the launch tape's buy share is a bp reading only inside the bp window (5 minutes since birth). */
+    internal const val LAUNCH_BP_MAX_AGE_MIN_8287 = 5.0
     internal const val FRESH_MS_8169 = 15L * 60_000L
     /** A mint's shape repair asks Codex at most this often (the key's quota is shared with the chart backfill). */
     const val CODEX_REPAIR_GAP_MS_8169 = 10L * 60_000L
@@ -139,6 +142,19 @@ object SetupFeatureResolver8169 {
     fun maxEvidenceAge8170(ageMin: Double): Long =
         if (ageMin.isFinite() && ageMin in 0.0..15.0) 60_000L else FRESH_MS_8169
 
+
+    /**
+     * V5.0.8287 — bp from the launch's OWN first trades (LaunchTape7921: every trade since its witnessed birth, dev included,
+     * SOL-volume buy share), for a launch inside the 5-minute bp window with at least LifecycleData8283.BP_MIN_TRADES_8287
+     * trades with size. Observed trades only (a curve-snapshot difference never reaches the launch tape).
+     */
+    fun launchBp8287(f: com.lifecyclebot.engine.market.LaunchTape7921.Feat?): Cand8169<Double> = when {
+        f == null -> Cand8169(LAUNCH_8287, null, "NO_LAUNCH_RECORD")
+        !f.ageMin.isFinite() || f.ageMin > LAUNCH_BP_MAX_AGE_MIN_8287 -> Cand8169(LAUNCH_8287, null, "PAST_BP_WINDOW")
+        f.trades8287 < LifecycleData8283.BP_MIN_TRADES_8287 -> Cand8169(LAUNCH_8287, null, "TOO_FEW")
+        !f.bpAll8287.isFinite() -> Cand8169(LAUNCH_8287, null, "NO_SIZE")
+        else -> Cand8169(LAUNCH_8287, f.bpAll8287.coerceIn(0.0, 100.0), "")
+    }
 
     fun pairBp8169(f: PairFlow8169.Flow8169?, nowMs: Long, maxAgeMs: Long = FRESH_MS_8169): Cand8169<Double> = when {
         f == null -> Cand8169(PAIR, null, "NOT_FETCHED")
@@ -249,8 +265,9 @@ object SetupFeatureResolver8169 {
         val pair = try { PairFlow8169.peek8169(mint) } catch (_: Throwable) { null }
         val row = try { com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(mint, nowMs) } catch (_: Throwable) { null }
         val maxAge = maxEvidenceAge8170(ageMin)
+        val launch8287 = try { com.lifecyclebot.engine.market.LaunchTape7921.features(mint, nowMs) } catch (_: Throwable) { null }
         val fill = resolve8169(
-            bp = listOf(Cand8169(PRIMARY, bpPrimary, bpObs), Cand8169(TAPE, tapeBp, tapeWhy), pairBp8169(pair, nowMs, maxAge), sweepBp8169(row, nowMs, maxAge)),
+            bp = listOf(Cand8169(PRIMARY, bpPrimary, bpObs), Cand8169(TAPE, tapeBp, tapeWhy), launchBp8287(launch8287), pairBp8169(pair, nowMs, maxAge), sweepBp8169(row, nowMs, maxAge)),
             chg = listOf(Cand8169(PRIMARY, chgPrimary, chgObs), Cand8169(TAPE, tapeChg, tapeWhy), pairChg8169(pair, nowMs, maxAge), sweepChg8169(row, nowMs, maxAge)),
             shape = listOf(Cand8169(PRIMARY, if (shapePrimary) true else null, shapeObs), Cand8169(TAPE, if (tapeShape) true else null, tapeWhy)),
             liq = listOf(cachedChainLiquidity(mint, nowMs, maxAge), Cand8169(PRIMARY, liqPrimary, "UNKNOWN"), pairLiq8169(pair, nowMs, maxAge), sweepLiq8169(row, nowMs, maxAge)),

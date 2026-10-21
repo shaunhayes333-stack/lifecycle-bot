@@ -1324,50 +1324,14 @@ class DataOrchestrator(
         if (keys.any { it in TRADE_FED_INPUTS_8191 }) geckoTradesFallback8285(mint)
     }
 
-    private val pairLaneRunning8285 = java.util.concurrent.atomic.AtomicBoolean(false)
-
     /**
-     * V5.0.8285 — one drain at a time empties the DexScreener pair lane in batches of 30. A batch the limiter or the
-     * provider's own backoff refused is put back (same priority class) and retried after a short pause, bounded; an
-     * answered mint wakes the held defer that asked for it (V5.0.8252: no backoff wait on arrived evidence).
+     * V5.0.8285 — the DexScreener pair lane, batches of 30.
+     * V5.0.8287 — superseded by DexBatchLane8287: this drained the moment a mint arrived (one-mint "batches"), shared a
+     * 25 ms limiter slot with every caller, re-queued refusals up to 8 times and counted each mint throttled every time.
+     * The lane now collects up to 30 mints per call on a steady cadence (<= 60 calls / min) and waits out the provider's
+     * own cooldown; an answered mint still wakes the held defer that asked for it (V5.0.8252).
      */
-    private fun drainPairLane8285() {
-        if (!pairLaneRunning8285.compareAndSet(false, true)) return
-        scope.launch {
-            try {
-                var refusals = 0
-                while (refusals < 8) {
-                    val batch = ProviderLanes8285.drain8285(ProviderLanes8285.DEX_8285, ProviderLanes8285.KIND_PAIR_8285, com.lifecyclebot.network.DexPools8285.BATCH_MAX_8285)
-                    if (batch.isEmpty()) break
-                    val r = try { DexscreenerApi().batchPairs8285(batch) } catch (_: Throwable) { null }
-                    try { PipelineHealthCollector.labelInc("SETUP_PAIR_FETCH_8191") } catch (_: Throwable) {}
-                    notePairBatch8285(batch, r)
-                    if (r == null || r.cause == DexscreenerApi.BatchCause8087.LIMITER_REFUSED || r.cause == DexscreenerApi.BatchCause8087.PROVIDER_FAILED) {
-                        refusals++
-                        for (m in batch) ProviderLanes8285.enqueue8285(ProviderLanes8285.DEX_8285, ProviderLanes8285.KIND_PAIR_8285, m, ProviderLanes8285.prioFor8285(m))
-                        delay(250L * refusals)
-                    }
-                }
-            } finally { pairLaneRunning8285.set(false) }
-        }
-    }
-
-    private fun notePairBatch8285(batch: List<String>, r: DexscreenerApi.BatchPairs8285?) {
-        val throttled = r == null || r.cause == DexscreenerApi.BatchCause8087.LIMITER_REFUSED
-        repeat(batch.size) {
-            for (f in PAIR_FEATURES_8285) FeatureSourceCounters8285.note8285(f, "dexBatch",
-                if (throttled) FeatureSourceCounters8285.THROTTLED else FeatureSourceCounters8285.ATTEMPT)
-        }
-        for (m in r?.answered.orEmpty()) {
-            for (f in PAIR_FEATURES_8285) FeatureSourceCounters8285.note8285(f, "dexBatch", FeatureSourceCounters8285.RETURNED)
-            try {
-                PipelineHealthCollector.labelInc("SETUP_PAIR_FETCH_ANSWERED_8252")
-                com.lifecyclebot.engine.truth.CandidateAdmission8136.evidenceArrived8252(m, com.lifecyclebot.engine.truth.CandidateAdmission8136.PAIR_FEATURES_8252)
-            } catch (_: Throwable) {}
-        }
-    }
-
-    private val PAIR_FEATURES_8285 = listOf("bp", "chg", "liq")
+    private fun drainPairLane8285() = DexBatchLane8287.kick8287()
 
     /**
      * V5.0.8285 — a held / near-decision coin missing its trade inputs with NO live print on the tape (no stream

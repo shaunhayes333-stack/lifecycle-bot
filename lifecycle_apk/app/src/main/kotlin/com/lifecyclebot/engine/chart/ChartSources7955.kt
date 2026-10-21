@@ -890,6 +890,12 @@ object ChartSources7955 {
      * ChainLaunchFeed8179's new-token poll. The raw body, or null when Codex has no key, is resting, its slot is not free
      * within 3 s, or the call failed.
      */
+    /** V5.0.8287 — is a Codex key configured? (no key: callers report NO_KEY and do not poll) */
+    fun codexKeyed8287(): Boolean = try {
+        refreshKeys()
+        byId[CODEX]?.let { hasKey(it) } ?: false
+    } catch (_: Throwable) { false }
+
     fun codexGraphql8179(query: String): String? {
         refreshKeys()
         val p = byId[CODEX] ?: return null

@@ -57,6 +57,9 @@ object LaunchTape7921 {
         val ageMin: Double, val crowdBuyers: Int, val crowdNetSol: Double, val buyersPerMin: Double,
         val buySharePct: Double, val largestBuyerPct: Double, val top3Pct: Double, val devSold: Boolean,
         val fromFirstPct: Double, val fromPeakPct: Double, val heat: Double,
+        // V5.0.8287 — the token's own trades since its witnessed birth (dev included) and their SOL-volume buy share
+        // (NaN without a trade with size). A flow reading for a launch, from its own first trades.
+        val trades8287: Int = 0, val bpAll8287: Double = Double.NaN,
     )
 
     private class Rec(val birthMs: Long) {
@@ -64,6 +67,7 @@ object LaunchTape7921 {
         var name = ""
         var buys = 0
         var sells = 0
+        var buySolAll8287 = 0.0   // V5.0.8287 — every buy's SOL (dev included), for the launch's own buy pressure
         var crowdBuySol = 0.0
         var sellSol = 0.0
         val buyerSol = HashMap<String, Double>()
@@ -164,6 +168,7 @@ object LaunchTape7921 {
         synchronized(r) {
             if (isBuy) {
                 r.buys++
+                r.buySolAll8287 += sol
                 if (wallet.isNotBlank() && wallet != dev) {
                     r.crowdBuySol += sol
                     if (r.buyerSol.size < WALLET_CAP || r.buyerSol.containsKey(wallet)) r.buyerSol[wallet] = (r.buyerSol[wallet] ?: 0.0) + sol
@@ -237,11 +242,20 @@ object LaunchTape7921 {
                 fromFirstPct = if (r.firstPx > 0.0 && r.lastPx > 0.0) (r.lastPx / r.firstPx - 1.0) * 100.0 else Double.NaN,
                 fromPeakPct = if (r.peakPx > 0.0 && r.lastPx > 0.0) (r.lastPx / r.peakPx - 1.0) * 100.0 else Double.NaN,
                 heat = heatOf(crowd, ageMin, share, largest, r.devSold),
+                trades8287 = r.buys + r.sells,
+                bpAll8287 = if (r.buySolAll8287 + r.sellSol > 0.0) r.buySolAll8287 / (r.buySolAll8287 + r.sellSol) * 100.0 else Double.NaN,
             )
         }
     }
 
     private fun binOf(heat: Double): Int = CortexLedger7885.binOf(HEAT_EDGES, heat)
+
+    /** V5.0.8287 — the trades the launch tape observed for [mint] since its witnessed birth; null = no launch record (unobserved). */
+    fun observedTrades8287(mint: String, nowMs: Long = System.currentTimeMillis()): Int? {
+        val r = recs[mint] ?: return null
+        if (nowMs - r.birthMs > TTL_MS) return null
+        return synchronized(r) { r.buys + r.sells }
+    }
 
     private fun maybePromote(mint: String, r: Rec, nowMs: Long) {
         maybePromoteEarly8165(mint, r, nowMs)

@@ -869,6 +869,17 @@ object ChainLaunchFeed8179 {
     private val codexNew = AtomicLong(0)
     private val codexSkipped = AtomicLong(0)
     private val birthHints = AtomicLong(0)
+    @Volatile private var codexKeyed8287 = true
+    private val codexNoKeySkips8287 = AtomicLong(0)
+
+    /** Pure (V5.0.8287): the Codex poller's state for the report — NO_KEY, RESTING, FAILING (every poll failed), OK or IDLE. */
+    fun codexState8287(keyed: Boolean, resting: Boolean, polls: Long, failed: Long): String = when {
+        !keyed -> "NO_KEY"
+        resting -> "RESTING"
+        polls == 0L -> "IDLE"
+        failed >= polls -> "FAILING"
+        else -> "OK"
+    }
 
     /**
      * The filterTokens query, newest first. [minimal] asks only for fields every Codex token result carries; the full
@@ -945,6 +956,9 @@ object ChainLaunchFeed8179 {
     private fun pollCodex8179() {
         val now = System.currentTimeMillis()
         if (now < codexRestUntilMs) return
+        // V5.0.8287 — no key is an owner action, not a failing provider (8286: polls=8 failed=8): report NO_KEY, never poll.
+        codexKeyed8287 = try { com.lifecyclebot.engine.chart.ChartSources7955.codexKeyed8287() } catch (_: Throwable) { false }
+        if (!codexKeyed8287) { codexNoKeySkips8287.incrementAndGet(); return }
         codexPolls.incrementAndGet()
         val minimal = codexMinimal
         val body = try { com.lifecyclebot.engine.chart.ChartSources7955.codexGraphql8179(codexQuery8179(minimal)) } catch (_: Throwable) { null }
@@ -1085,7 +1099,8 @@ object ChainLaunchFeed8179 {
             "transport8191=${if (shared8191) "shared" else if (ws != null) "dedicated" else "none"} subRequests=${subRequests8191.get()} " +
             "subAcks=${subAcks8191.get()} ackExpired=${ackExpired8191.get()} handshake{$lastHandshake8191 refusals=$handshakeRefusals8191} " +
             "backoffLeftMs=${(reconnectNotBeforeMs8191 - now).coerceAtLeast(0L)}] " +
-            "codex8179[polls=${codexPolls.get()} failed=${codexFailed.get()} seen=${codexSeen.get()} new=${codexNew.get()} skipped=${codexSkipped.get()} " +
+            "codex8179[state=${codexState8287(try { com.lifecyclebot.engine.chart.ChartSources7955.codexKeyed8287() } catch (_: Throwable) { codexKeyed8287 }, now < codexRestUntilMs, codexPolls.get(), codexFailed.get())} " +
+            "noKeySkips=${codexNoKeySkips8287.get()} polls=${codexPolls.get()} failed=${codexFailed.get()} seen=${codexSeen.get()} new=${codexNew.get()} skipped=${codexSkipped.get()} " +
             "birthHints=${birthHints.get()} query=${if (codexMinimal) "minimal" else "full"} lastError=$codexLastError] " +
             "hostCircuit8179[halfOpenProbes=${try { HostCircuitInterceptor.halfOpenProbes8179() } catch (_: Throwable) { 0L }}] " +
             "heliusTradeEvent8179[events=${tradeEvents.get()} newSwaps=${tradeSwapsNew.get()} reserves=${tradeReserves.get()}]"
