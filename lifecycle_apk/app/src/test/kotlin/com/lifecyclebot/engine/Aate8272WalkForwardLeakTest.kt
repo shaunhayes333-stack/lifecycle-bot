@@ -35,3 +35,18 @@ class Aate8272WalkForwardLeakTest {
         assertEquals(foldBefore.map { it.atMs }, foldAfter.map { it.atMs })
     }
 }
+
+/** V5.0.8272 — directive R1: lockouts are considered before the attempt budget; a local decline is not a 90 s provider fact. */
+class Aate8272SupplyLadderTest {
+    @Test fun lockedRungsAreSkippedBeforeTheBudgetAndLocalDeclineRetriesSoon() {
+        val a = com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075
+        val ladder = listOf("https://a.rpc", "https://b.rpc", "https://c.rpc", "https://d.rpc")
+        val locked = setOf("rpc_a.rpc", "rpc_b.rpc", "rpc_c.rpc")
+        assertEquals(listOf("https://d.rpc"), a.eligibleRungs8272(ladder) { it in locked })        // the healthy fourth is reached
+        assertEquals(ladder, a.eligibleRungs8272(ladder) { false })
+        assertTrue(a.eligibleRungs8272(listOf("", "https://a.rpc")) { it in locked }.isEmpty())
+        assertEquals(10_000L, a.retryDelayMs8272(com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.Outcome7116.DECLINED))
+        assertEquals(90_000L, a.retryDelayMs8272(com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.Outcome7116.RATE_LIMITED))
+        assertEquals(90_000L, a.retryDelayMs8272(com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.Outcome7116.TRANSPORT))
+    }
+}

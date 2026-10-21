@@ -180,7 +180,7 @@ object OnChainSupplyAuthority7075 {
      * RATE_LIMITED/TRANSPORT/DECLINED are statements about us and the provider
      * and say nothing about the mint at all.
      */
-    private enum class Outcome7116 {
+    internal enum class Outcome7116 {
         RESOLVED, NO_SUPPLY, MALFORMED, RATE_LIMITED, TRANSPORT, DECLINED,
         /** V5.0.7809 — the node cannot see the account yet (fresh launch); retried soon, not evidence. */
         NOT_FOUND_YET_7809,
@@ -386,8 +386,8 @@ object OnChainSupplyAuthority7075 {
                         Outcome7116.TRANSPORT -> transportError.incrementAndGet()
                         else -> declinedLocally.incrementAndGet()
                     }
-                    retryNotBefore[mint] = System.currentTimeMillis() + COOLDOWN_MS
-                    try { PipelineHealthCollector.labelInc("ONCHAIN_SUPPLY_SKIPPED_NOT_EVIDENCE_7116") } catch (_: Throwable) {}
+                    retryNotBefore[mint] = System.currentTimeMillis() + retryDelayMs8272(outcome)   // V5.0.8272 — local decline: 10 s, not 90 s
+                    try { PipelineHealthCollector.labelInc(if (outcome == Outcome7116.DECLINED) "ONCHAIN_SUPPLY_DECLINED_LOCALLY_8272" else "ONCHAIN_SUPPLY_SKIPPED_NOT_EVIDENCE_7116") } catch (_: Throwable) {}
                 }
             }
         } catch (t: Throwable) {
@@ -413,17 +413,35 @@ object OnChainSupplyAuthority7075 {
         // uses (Helius leads), skipping rungs in backoff, and stop at the first
         // rung that answers about the mint. Field Manual L190 / L404.
         var last: Pair<Outcome7116, Double?> = Outcome7116.DECLINED to null
-        for (rung in supplyRungs7809()) {
+        // V5.0.8272 (R1) — eligible rungs FIRST, then the attempt budget: a locked rung is skipped before it is counted,
+        // so a healthy fourth endpoint is reached when the first three are locked. Network attempts and elapsed time
+        // stay bounded; a locally declined rung (synthetic circuit reply) does not consume a network attempt either.
+        val started = System.currentTimeMillis()
+        var attempts = 0
+        for (rung in eligibleRungs8272(supplyRungs7809()) { label -> ApiBackoff.lockoutRemainingMs(label) > LOCKOUT_PROBE_WINDOW_MS_7345 }) {
+            if (attempts >= SUPPLY_RUNGS_7809 || System.currentTimeMillis() - started > LADDER_BUDGET_MS_8272) break
             val label = rungLabel7809(rung)
-            if (ApiBackoff.lockoutRemainingMs(label) > LOCKOUT_PROBE_WINDOW_MS_7345) continue
             val got = try { fetchSupplyFrom7809(mint, rung, label) } catch (_: Throwable) { Outcome7116.TRANSPORT to null }
             when (got.first) {
                 Outcome7116.RESOLVED, Outcome7116.NO_SUPPLY, Outcome7116.NOT_FOUND_YET_7809, Outcome7116.MALFORMED -> return got
-                Outcome7116.RATE_LIMITED, Outcome7116.TRANSPORT, Outcome7116.DECLINED -> { last = got }
+                Outcome7116.RATE_LIMITED, Outcome7116.TRANSPORT -> { attempts++; last = got }
+                Outcome7116.DECLINED -> { if (last.first == Outcome7116.DECLINED) last = got }
             }
         }
         return last
     }
+
+    /** Pure (V5.0.8272): the ladder in preferred order with locked rungs removed — selection before the budget. */
+    internal fun eligibleRungs8272(rungs: List<String>, locked: (String) -> Boolean): List<String> =
+        rungs.filter { it.isNotBlank() && !locked(rungLabel7809(it)) }
+
+    /** Pure (V5.0.8272): the per-mint retry a non-evidence outcome earns. A LOCAL decline is not a provider fact. */
+    internal fun retryDelayMs8272(outcome: Outcome7116): Long = when (outcome) {
+        Outcome7116.DECLINED -> DECLINED_LOCAL_RETRY_MS_8272
+        else -> COOLDOWN_MS
+    }
+    private const val LADDER_BUDGET_MS_8272 = 6_000L
+    private const val DECLINED_LOCAL_RETRY_MS_8272 = 10_000L
 
     /**
      * V5.0.7809 — pure: what a JSON-RPC error object says about the mint.
@@ -456,7 +474,7 @@ object OnChainSupplyAuthority7075 {
         val url = rpcUrl
         if (url.isBlank()) return emptyList()
         return (try {
-            com.lifecyclebot.engine.RuntimeProviderAuthority6685.rpcCandidates(url).take(SUPPLY_RUNGS_7809)
+            com.lifecyclebot.engine.RuntimeProviderAuthority6685.rpcCandidates(url)   // V5.0.8272 — whole ladder; the budget is applied after lockout selection
         } catch (_: Throwable) { listOf(url) }).ifEmpty { listOf(url) }
     }
 

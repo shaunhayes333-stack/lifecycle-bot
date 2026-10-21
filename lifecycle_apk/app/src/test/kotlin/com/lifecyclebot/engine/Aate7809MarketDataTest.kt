@@ -106,7 +106,7 @@ class Aate7809MarketDataTest {
     @Test fun supplyReadUsesConfirmedCommitmentAndTheRpcLadder() {
         val s = src("engine/truth/OnChainSupplyAuthority7075.kt")
         assertTrue(s.contains("{\"commitment\":\"confirmed\"}"))
-        assertTrue(s.contains("RuntimeProviderAuthority6685.rpcCandidates(url).take(SUPPLY_RUNGS_7809)"))
+        assertTrue(s.contains("RuntimeProviderAuthority6685.rpcCandidates(url)   // V5.0.8272"))   // whole ladder; budget after lockout selection
         assertTrue(s.contains("NOT_FOUND_RETRY_MS_7809 = 20_000L"))
         assertTrue(s.contains("catch (_: Throwable) { return Outcome7116.TRANSPORT to null }"))
     }
