@@ -17,7 +17,9 @@ class Aate8256GenericPriorYieldsTest {
         val shape = gate.substringAfter("val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) }").substringBefore("val v = verdictFor(ts, l, nowMs)")
         // the Cortex overrule stays first, then the supported admission, then (and only then) the refusal
         val overrule = shape.indexOf("Cortex7885.overrulesEdgeRefusal(ts, l, shape)) return null")
-        val yields = shape.indexOf("if (shape != null && candidateSpecificAdmission8136) {")
+        // V5.0.8298 — the yield is earned by the lane's realised record (RegressionRestore8298), else the shape refuses as in 8114
+        val yields = shape.indexOf("if (shape != null && shapeYields8298) {")
+        assertTrue(shape.contains("val shapeYields8298 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l, nowMs)"))
         val refuse = shape.indexOf("return \"EDGE_7877_\$shape\"")
         assertTrue(overrule in 0 until yields)
         assertTrue(yields < refuse)

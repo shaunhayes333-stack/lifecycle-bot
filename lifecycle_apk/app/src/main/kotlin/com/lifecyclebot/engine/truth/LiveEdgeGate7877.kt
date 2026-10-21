@@ -539,8 +539,11 @@ object LiveEdgeGate7877 {
             // 8094 setup / timing / tactic re-reads below are lane-prior tier and must not re-veto that judgement
             // (5.0.8200: 200 ADMITs, 0 FDG allows). Live-close setup refusal, dead launch, spike chase and the buy door
             // still apply. Each stand-down is counted.
-            val admittedJudged8201 = candidateSpecificAdmission8136
-            if (!admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
+            // V5.0.8298 — that stand-down (and the chase / shape / watch-cell ones below) is earned only by the lane's mature,
+            // positive realised live closes (RegressionRestore8298); until then the 8114 doors bind for an admission too.
+            val admittedJudged8201 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l8059, nowMs)
+            if (candidateSpecificAdmission8136 && !admittedJudged8201) RegressionRestore8298.note8298("ADMITTED_8114_DOORS_BIND", l8059)
+            if (!admittedJudged8201 &&!cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
                 val r8094 = "TIMING_RECORD_NEGATIVE_8094"
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$at") } catch (_: Throwable) {}
                 recordAssessment8083(ts, l8059, setup8083, Verdict8083.DEFER, r8094, 1.0, nowMs)
@@ -616,9 +619,10 @@ object LiveEdgeGate7877 {
                 !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) &&
                 !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
                 !cellOrKindProven8094(ts, l8059, nowMs)) {
-                if (candidateSpecificAdmission8136) {
+                if (admittedJudged8201) {
                     try { PipelineHealthCollector.labelInc("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_$l8059") } catch (_: Throwable) {}
                 } else {
+                    if (candidateSpecificAdmission8136) { RegressionRestore8298.note8298("CHASE", l8059); admittedTerminal8201(ts, lane, "CHASING_SPIKE_8065", candidateVersion) }
                     chaseRefused8065.incrementAndGet()
                     try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
                     observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
@@ -1001,6 +1005,11 @@ object LiveEdgeGate7877 {
         // supported setup inside the admission; it releases on that record only (not on a thin-cell basis).
         if (why == "WATCH_FIRST_7994_CELL_NEGATIVE") {
             val admission = candidateAdmission ?: try { CandidateAdmission8136.assess8136(ts, lane, nowMs, candidateVersion) } catch (_: Throwable) { null }
+            // V5.0.8298 — a measured-negative cell yields only once the lane earned it on realised closes (RegressionRestore8298).
+            if (admission != null && admission.admitted && admission.specific && !RegressionRestore8298.specificStandDownEarned8298(lane, nowMs)) {
+                RegressionRestore8298.note8298("WATCH_CELL_NEGATIVE", lane)
+                return null
+            }
             if (admission != null && admission.admitted && admission.specific) {
                 try { PipelineHealthCollector.labelInc("WATCH_FIRST_CELL_NEGATIVE_YIELDS_TO_SUPPORTED_SETUP_8256") } catch (_: Throwable) {}
                 return "SUPPORTED_SETUP_8256"
@@ -1142,7 +1151,10 @@ object LiveEdgeGate7877 {
         // own supported setup (specific == true, its record positive after one SE). The generic bin does not out-rank
         // the specific record: it stands down and is counted. Hard safety, economics, sizing and the proven-negative
         // records (setup / stage / cell) are untouched — they refuse inside the admission itself.
-        if (shape != null && candidateSpecificAdmission8136) {
+        // V5.0.8298 — only on the lane's earned realised record (RegressionRestore8298); 8114 refused on the shape bin.
+        val shapeYields8298 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l, nowMs)
+        if (shape != null && candidateSpecificAdmission8136 && !shapeYields8298) RegressionRestore8298.note8298("SHAPE", l)
+        if (shape != null && shapeYields8298) {
             try { PipelineHealthCollector.labelInc("LIVE_EDGE_SHAPE_YIELDS_TO_CANDIDATE_ADMISSION_8256") } catch (_: Throwable) {}
             notePositive7975(ts.mint, nowMs)
         } else if (shape != null) {
@@ -1189,5 +1201,6 @@ object LiveEdgeGate7877 {
         "bar=cellN>=$CELL_MIN_N&&mean-se>+$LIVE_MARGIN_PCT%|laneProven runner=bestCohort(mean-se>$RUNNER_MARGIN_PCT%) " +
             "admit=[${allowed.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}] " +
             "refuse=[${refused.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]" +
-            " dataDefer8136=${dataDeferred8136.get()} watchReleased8153=${watchReleased8153.get()}"
+            " dataDefer8136=${dataDeferred8136.get()} watchReleased8153=${watchReleased8153.get()} " +
+            RegressionRestore8298.statusLine8298()  // V5.0.8298
 }
