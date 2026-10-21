@@ -495,7 +495,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         com.lifecyclebot.data.ConfigStore.saveMarketDataKeys7958(requireContext(), listOf(
             etCoinMarketCapKey7955, etMoralisKey7955, etBitqueryKey7955,
             etSolanaTrackerKey7955, etCodexKey7955, etCryptoCompareKey7955,
-        ).map { it.text.toString().trim() })
+        ).map { it.text.toString().trim() }, allowClear8286 = true)  // V5.0.8286 — this sheet shows the saved keys, so a cleared field is deliberate
         onSettingsSaved?.invoke(newConfig)
         // V5.9.361 — persist ElevenLabs key (lives in VoiceManager prefs).
         try {
