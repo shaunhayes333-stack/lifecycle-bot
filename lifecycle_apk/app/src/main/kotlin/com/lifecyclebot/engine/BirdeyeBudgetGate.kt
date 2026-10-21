@@ -89,6 +89,8 @@ object BirdeyeBudgetGate {
         lastLockdownLogMs = 0L
         lastScannerLaneTickMs = 0L
         hourlyEmergencyCalls.clear()
+        synchronized(reservations8287) { reservations8287.clear() }   // V5.0.8287
+        attempts8287.set(0L); wireCalls8287.set(0L); refunded8287.set(0L)
     }
 
     fun canAfford(estimatedCalls: Int): Boolean {
@@ -264,12 +266,78 @@ object BirdeyeBudgetGate {
         return true
     }
 
+    /**
+     * A call site's charge, made BEFORE its request (it stays a reservation until the request's fate is known).
+     * V5.0.8287 — 8286 showed 150000/150000 CU after 425 s with birdeye s=3: every site charged before asking, and most of
+     * those asks never left the device (HostCircuitInterceptor cooldown / ApiBackoff lockout / budget refusal answered
+     * them with a synthetic 599, the scanner's getWithRetry skipped a locked host). The charge is now a reservation:
+     * the request that reaches the wire keeps it ([chargeWire8287]); one refused locally gives it back
+     * ([refundUnsent8287]); one whose request never reached the HTTP client at all expires and is given back after
+     * [RESERVATION_TTL_MS_8287]. The daily cap is unchanged and still counts every request that reached Birdeye.
+     */
     fun recordCalls(calls: Int) {
         rolloverIfNeeded()
+        if (calls <= 0) return
         callsToday.addAndGet(calls.toLong())
-        val cu = calls * 25L
+        val cu = calls * CU_PER_CALL_8287
         cuToday.addAndGet(cu)
         cuThisMonth.addAndGet(cu)
+        val now = System.currentTimeMillis()
+        synchronized(reservations8287) { repeat(calls) { reservations8287.addLast(now) } }
+        attempts8287.addAndGet(calls.toLong())
+    }
+
+    // ── V5.0.8287 — charge what reached Birdeye, not what was attempted ──
+    private const val CU_PER_CALL_8287 = 25L
+    internal const val RESERVATION_TTL_MS_8287 = 60_000L
+    private val reservations8287 = java.util.ArrayDeque<Long>()
+    private val attempts8287 = AtomicLong(0L)
+    private val wireCalls8287 = AtomicLong(0L)
+    private val refunded8287 = AtomicLong(0L)
+
+    /** HostCircuitInterceptor: a Birdeye request is going on the wire now. It keeps a site's reservation, or is charged. */
+    fun chargeWire8287(nowMs: Long = System.currentTimeMillis()) {
+        rolloverIfNeeded()
+        wireCalls8287.incrementAndGet()
+        val reserved = synchronized(reservations8287) { expire8287(nowMs); reservations8287.pollFirst() != null }
+        if (!reserved) {
+            // a caller that never charged (or a retry beyond its one charge): charged here, the cap stays real
+            callsToday.incrementAndGet()
+            cuToday.addAndGet(CU_PER_CALL_8287)
+            cuThisMonth.addAndGet(CU_PER_CALL_8287)
+        }
+    }
+
+    /** HostCircuitInterceptor: a Birdeye request was answered locally (synthetic) and never sent: its reservation is returned. */
+    fun refundUnsent8287(nowMs: Long = System.currentTimeMillis()) {
+        rolloverIfNeeded()
+        val had = synchronized(reservations8287) { expire8287(nowMs); reservations8287.pollFirst() != null }
+        if (had) refund8287(1)
+    }
+
+    /** Caller holds the lock: reservations older than the TTL never reached the client (skipped before any request). */
+    private fun expire8287(nowMs: Long) {
+        var n = 0
+        while (reservations8287.isNotEmpty() && nowMs - reservations8287.peekFirst() > RESERVATION_TTL_MS_8287) {
+            reservations8287.pollFirst(); n++
+        }
+        if (n > 0) refund8287(n)
+    }
+
+    private fun refund8287(calls: Int) {
+        val cu = calls * CU_PER_CALL_8287
+        callsToday.updateAndGet { (it - calls).coerceAtLeast(0L) }
+        cuToday.updateAndGet { (it - cu).coerceAtLeast(0L) }
+        cuThisMonth.updateAndGet { (it - cu).coerceAtLeast(0L) }
+        refunded8287.addAndGet(calls.toLong())
+    }
+
+    /** "birdeyeBudget8287[attempted=.. wire=.. refunded=.. reserved=.. cuToday=../cap]" */
+    fun statusLine8287(): String {
+        rolloverIfNeeded()
+        val reserved = synchronized(reservations8287) { expire8287(System.currentTimeMillis()); reservations8287.size }
+        return "birdeyeBudget8287[attempted=${attempts8287.get()} wire=${wireCalls8287.get()} refunded=${refunded8287.get()} " +
+            "reserved=$reserved cuToday=${cuToday.get()}/$dailyCap day=$dayKey]"
     }
 
     private val hourlyEmergencyCalls = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -387,6 +455,7 @@ object BirdeyeBudgetGate {
                 if (nowDay != dayKey) {
                     val prevCalls = callsToday.getAndSet(0L)
                     val prevCu = cuToday.getAndSet(0L)
+                    synchronized(reservations8287) { reservations8287.clear() }   // V5.0.8287 — yesterday's reservations end with it
                     dayKey = nowDay
                     lastThrottleLogMs = 0L
                     ErrorLogger.info(
@@ -410,6 +479,8 @@ object BirdeyeBudgetGate {
                 }
             }
         }
+        // V5.0.8287 — a reservation whose request never reached the HTTP client is given back once it has expired.
+        synchronized(reservations8287) { expire8287(System.currentTimeMillis()) }
     }
 
     private fun currentDayKey(): Long = System.currentTimeMillis() / 86_400_000L

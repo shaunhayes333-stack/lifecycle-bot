@@ -795,14 +795,24 @@ object SolanaOhlcvFeed6916 {
      */
     private fun localTapeCandles8285(mint: String, timeframeLabel: String, n: Int, nowMs: Long): List<Candle>? {
         if (timeframeLabel.trim().lowercase() != "1m") return null
-        val solUsd = try { com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs) } catch (_: Throwable) { 0.0 }
-        val prints = try { com.lifecyclebot.engine.truth.TradeTape8100.prints8128(mint, nowMs, n.coerceIn(2, 65) * 60_000L) } catch (_: Throwable) { emptyList() }
         FeatureSourceCounters8285.note8285("shape", "localTape", FeatureSourceCounters8285.ATTEMPT)
-        val c = candlesFromPrints8285(prints, solUsd) ?: return null
+        // V5.0.8287 — 8286 localTape a=1475 r=0: executed prints only (every curve snapshot is price-only since 8285), >= 10
+        // traded minutes whatever the token's age, and a SOL price seen in the last 5 minutes. Now: the venue's observed
+        // prices (price-only minutes are MARK_ONLY bars, zero volume), the minutes the token's lifecycle needs, and the last
+        // observed SOL price as the USD level. Nothing interpolated: an unobserved minute has no bar.
+        val c = observedCandles8287(mint, n, nowMs) ?: return null
         localServed8285.incrementAndGet()
         FeatureSourceCounters8285.note8285("shape", "localTape", FeatureSourceCounters8285.RETURNED)
         try { PipelineHealthCollector.labelInc("OHLCV_LOCAL_TAPE_ALTERNATE_8285") } catch (_: Throwable) {}
         return c.takeLast(n)
+    }
+
+    /** V5.0.8287 — one-minute candles from the mint's observed prices (PriceShapeBars8287), lifecycle-aware minimum, or null. */
+    private fun observedCandles8287(mint: String, n: Int, nowMs: Long): List<Candle>? {
+        val prints = try { com.lifecyclebot.engine.truth.TradeTape8100.observedPrints8287(mint, nowMs, n.coerceIn(2, 65) * 60_000L) } catch (_: Throwable) { null }
+            ?: return null
+        val shape = com.lifecyclebot.engine.truth.PriceShapeBars8287
+        return try { shape.series8287(prints, shape.solUsd8287(nowMs), shape.minMinutes8287(shape.ageMin8287(mint, nowMs))) } catch (_: Throwable) { null }
     }
 
     /** Pure: executed prints -> one-minute USD candles (LocalTapeBars8128's rule: >= its minimum traded minutes), or null. */

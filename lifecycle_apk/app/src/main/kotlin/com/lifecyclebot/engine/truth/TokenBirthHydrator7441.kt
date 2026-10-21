@@ -1,6 +1,5 @@
 package com.lifecyclebot.engine.truth
 
-import com.lifecyclebot.engine.ChokeReliefBus
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.RuntimeProviderAuthority6685
 import com.lifecyclebot.engine.TokenMetaCache
@@ -74,11 +73,49 @@ object TokenBirthHydrator7441 {
         requests8265.incrementAndGet()
         if ((cooldownUntil[m] ?: 0L) > now) { cooldownSkips8265.incrementAndGet(); return }
         if (!inFlight.add(m)) return
-        val launched = ChokeReliefBus.launch("TOKEN_BIRTH_HYDRATE_7441", m) {
-            try { hydrate(m) } finally { inFlight.remove(m) }
-        }
+        // V5.0.8287 — the birth walk runs on its own small pool, not the report-only ChokeReliefBus (see [pool8287]).
+        val launched = try { pool8287.execute(Walk8287(m)); true } catch (_: Throwable) { false }
         if (!launched) { inFlight.remove(m); busDropped8265.incrementAndGet() } else launched8265.incrementAndGet()
     }
+
+    /**
+     * V5.0.8287 §A_BIRTH_IS_A_DECISION_INPUT_NOT_A_LOG_LINE. 8286: PROJECT_SNIPER candidateN=0 with
+     * NATIVE_BIRTH_METADATA_HYDRATING=470 (+ RECOVERY_BIRTH_UNKNOWN_8168=1325). A witnessed create frame resolves at once
+     * (AdmissionBirth8144.createFrames -> CanonicalTokenBirthTime7440); every other launch waits on this walk, and the walk
+     * ran on ChokeReliefBus — the bounded REPORT-ONLY side-effect bus (8 low-priority threads shared with every FDG stamp,
+     * alert and hook, dropped past 256 in flight). Each walk blocks on up to a dozen seconds of RPC, so a launch's birth
+     * queued behind telemetry, or was dropped, until the sniper's ~3-minute window had passed. It now has three daemon
+     * threads of its own; when its queue is full the OLDEST request goes (a birth asked minutes ago no longer decides a
+     * launch window), the newest launch is walked first.
+     */
+    private const val POOL_THREADS_8287 = 3
+    private const val POOL_QUEUE_8287 = 256
+    private val dropped8287 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** One birth walk; the mint leaves [inFlight] when it ends or when its queued walk is dropped for a newer one. */
+    private class Walk8287(val mint: String) : Runnable {
+        override fun run() {
+            try { TokenBirthHydrator7441.hydrate(mint) } catch (_: Throwable) {
+            } finally { TokenBirthHydrator7441.inFlight.remove(mint) }
+        }
+    }
+
+    /** Queue full: the oldest queued walk is dropped (its mint may be asked again), the new one is queued. */
+    private val dropOldest8287 = java.util.concurrent.RejectedExecutionHandler { r, ex ->
+        if (ex.isShutdown) {
+            (r as? Walk8287)?.let { inFlight.remove(it.mint) }
+            return@RejectedExecutionHandler
+        }
+        (ex.queue.poll() as? Walk8287)?.let { inFlight.remove(it.mint); dropped8287.incrementAndGet() }
+        if (!ex.queue.offer(r)) (r as? Walk8287)?.let { inFlight.remove(it.mint) }
+    }
+
+    private val pool8287 = java.util.concurrent.ThreadPoolExecutor(
+        POOL_THREADS_8287, POOL_THREADS_8287, 30L, TimeUnit.SECONDS,
+        java.util.concurrent.LinkedBlockingQueue<Runnable>(POOL_QUEUE_8287),
+        java.util.concurrent.ThreadFactory { r -> Thread(r, "birth-hydrate-8287").apply { isDaemon = true } },
+        dropOldest8287,
+    ).apply { allowCoreThreadTimeOut(true) }
 
     // V5.0.8265 — 8261: PROJECT_SNIPER refused 1,653 evaluations as BIRTH_METADATA_HYDRATING with no line saying whether
     // this hydrator was asked, launched, dropped by the relief bus, answered by an RPC, or resolved. Now it says.
@@ -91,7 +128,7 @@ object TokenBirthHydrator7441 {
     private val noAnswer8265 = java.util.concurrent.atomic.AtomicLong(0)
     fun statusLine7441(): String =
         "birthHydrator7441[requests=${requests8265.get()} launched=${launched8265.get()} busDropped=${busDropped8265.get()} " +
-            "cooldownSkips=${cooldownSkips8265.get()} resolved=${resolved8265.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
+            "cooldownSkips=${cooldownSkips8265.get()} dropped8287=${dropped8287.get()} resolved=${resolved8265.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
             "inFlight=${inFlight.size} progress=${progress.size} cooling=${cooldownUntil.size}]"
 
     // V5.0.8144 §BIRTH_FROM_EVERY_WITNESS. 5.0.8142: 2,015 PROJECT_SNIPER refusals as BIRTH_METADATA_HYDRATING. Three

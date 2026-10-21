@@ -51,21 +51,42 @@ object CandidateMarkFresh8094 {
         return true
     }
 
+    /**
+     * V5.0.8287 — the stale candidates join the ONE DexScreener pair batch lane (DexBatchLane8287: up to 30 mints per call,
+     * <= 60 calls / min, shared host budget) instead of a second 30-mint reader on the same host (8286: dexReads=573 beside
+     * a starved lane). The lane's answer comes back through [onLaneAnswer8287]; whatever it did not price goes to Jupiter.
+     */
     private fun maybeRun(nowMs: Long) {
-        if (nowMs - lastBatchMs < BATCH_GAP_MS || !inFlight.compareAndSet(false, true)) return
+        if (nowMs - lastBatchMs < BATCH_GAP_MS) return
         lastBatchMs = nowMs
         val batch = wanted.entries.sortedBy { it.value }.take(30).map { it.key }
         batch.forEach { wanted.remove(it) }
-        if (batch.isEmpty()) { inFlight.set(false); return }
+        if (batch.isEmpty()) return
+        batches.incrementAndGet()
+        if (laneAsked8287.size > 2_000) laneAsked8287.entries.removeIf { nowMs - it.value > LANE_TTL_MS_8287 }
+        for (m in batch) {
+            laneAsked8287[m] = nowMs
+            try { com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(m) } catch (_: Throwable) {}
+        }
+    }
+
+    private const val LANE_TTL_MS_8287 = 60_000L
+    private val laneAsked8287 = ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.8287 — DexBatchLane8287: one sent batch's answer. Candidates this refresh asked for are priced from it (the
+     * same best-pair price getBestPair serves); those it did not price are asked of Jupiter, off the lane's thread.
+     */
+    fun onLaneAnswer8287(batch: List<String>, prices: Map<String, Double>) {
+        val mine = batch.filter { laneAsked8287.remove(it) != null }
+        if (mine.isEmpty()) return
+        val priced = prices.filterKeys { it in mine }.filterValues { it.isFinite() && it > 0.0 }
+        if (priced.isNotEmpty()) { dexReads.addAndGet(priced.size.toLong()); apply8094(priced) }
+        val unpriced = mine.filter { it !in priced.keys }
+        if (unpriced.isEmpty() || !inFlight.compareAndSet(false, true)) return
         try {
             pool.execute {
-                try {
-                    batches.incrementAndGet()
-                    val dex = dexBatch8094(batch)
-                    applyDex8094(dex)
-                    val unpriced = batch.filter { it !in dex.keys }
-                    if (unpriced.isNotEmpty()) apply8094(com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(unpriced))
-                } catch (_: Throwable) {
+                try { apply8094(com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(unpriced)) } catch (_: Throwable) {
                 } finally { inFlight.set(false) }
             }
         } catch (_: Throwable) { inFlight.set(false) }
@@ -99,21 +120,7 @@ object CandidateMarkFresh8094 {
     /** One DexScreener pair reading for a mint (the most liquid Solana pair whose base token is the mint). */
     data class DexRead(val priceUsd: Double, val buys5m: Int, val sells5m: Int, val chg5m: Double, val chg1h: Double, val liqUsd: Double)
 
-    private val http by lazy {
-        com.lifecyclebot.network.SharedHttpClient.builder()
-            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-            .callTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-    }
     private val dexReads = AtomicLong(0)
-
-    private fun dexBatch8094(mints: List<String>): Map<String, DexRead> = try {
-        val req = okhttp3.Request.Builder().url("https://api.dexscreener.com/latest/dex/tokens/" + mints.joinToString(",")).build()
-        com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "dexscreener").use { resp ->
-            if (!resp.isSuccessful) emptyMap() else parseDex8094(resp.body?.string().orEmpty(), mints.toSet())
-        }
-    } catch (_: Throwable) { emptyMap() }
 
     /** Pure: DexScreener tokens JSON -> the most liquid Solana pair per requested mint. */
     fun parseDex8094(body: String, mints: Set<String>): Map<String, DexRead> {
@@ -138,17 +145,11 @@ object CandidateMarkFresh8094 {
         return best.mapValues { it.value.second }
     }
 
-    /**
-     * V5.0.8094 entry repair — only the PRICE is taken. DexScreener's 5-minute transaction counts / change are not written
-     * as the classifier's observed inputs: filling them turned thousands of coins the bot had no native tape for from
-     * DATA_INCOMPLETE (refused live) into "classified" setups matched against records proven on the native tape.
-     */
-    private fun applyDex8094(reads: Map<String, DexRead>) {
-        if (reads.isEmpty()) return
-        dexReads.addAndGet(reads.size.toLong())
-        apply8094(reads.mapValues { it.value.priceUsd })
-    }
+    // V5.0.8094 entry repair — only the PRICE is taken (onLaneAnswer8287). DexScreener's 5-minute transaction counts /
+    // change are not written as the classifier's observed inputs: filling them turned thousands of coins the bot had no
+    // native tape for from DATA_INCOMPLETE (refused live) into "classified" setups matched against records proven on the
+    // native tape. (The lane's pair flow goes to PairFlow8169 with its source named, read only where a reading is absent.)
 
     fun statusLine(): String =
-        "CANDIDATE_MARK_FRESH_8094 freshMs=$FRESH_MS_8094 requested=${requested.get()} refreshed=${refreshed.get()} batches=${batches.get()} dexReads=${dexReads.get()} waiting=${wanted.size}"
+        "CANDIDATE_MARK_FRESH_8094 freshMs=$FRESH_MS_8094 requested=${requested.get()} refreshed=${refreshed.get()} batches=${batches.get()} dexReads=${dexReads.get()} waiting=${wanted.size} laneAsked8287=${laneAsked8287.size}"
 }

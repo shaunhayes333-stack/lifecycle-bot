@@ -190,6 +190,11 @@ object HostCircuitInterceptor : Interceptor {
             .body("".toResponseBody(null))
             .build()
 
+    /** V5.0.8287 — a Birdeye request answered locally (synthetic 599) never cost CU: its call site's reservation is returned. */
+    private fun birdeyeUnsent8287(provider: String) {
+        if (provider == "birdeye") try { com.lifecyclebot.engine.BirdeyeBudgetGate.refundUnsent8287() } catch (_: Throwable) {}
+    }
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val req = chain.request()
         val wireHost8144 = req.url.host
@@ -238,6 +243,7 @@ object HostCircuitInterceptor : Interceptor {
                 try {
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_SHARED_BUDGET_BYPASS_6758")
                 } catch (_: Throwable) {}
+                birdeyeUnsent8287(provider)   // V5.0.8287 — never sent: the caller's reservation is returned
                 return synthetic(req, 599, "Birdeye budget exhausted — free-provider fallback")
             }
         }
@@ -253,6 +259,7 @@ object HostCircuitInterceptor : Interceptor {
             state.totalBypassed.incrementAndGet()
             totalServerBypass.incrementAndGet()
             ProofDataLanes8144.noteBypass8144(lane8144)
+            birdeyeUnsent8287(provider)   // V5.0.8287
             return synthetic(
                 req,
                 599,
@@ -269,6 +276,7 @@ object HostCircuitInterceptor : Interceptor {
             val remaining = cooldownUntil - now
             if (remaining > SERVER_FAIL_COOLDOWN_MS) totalNxBypass.incrementAndGet()
             else totalServerBypass.incrementAndGet()
+            birdeyeUnsent8287(provider)   // V5.0.8287
             return synthetic(req, 599, "HostCircuit cool-down active for $host (${remaining}ms remaining)")
         }
 
@@ -279,6 +287,8 @@ object HostCircuitInterceptor : Interceptor {
                 .removeHeader(EXECUTION_HEADER_8169).build()
         } else req
 
+        // V5.0.8287 — Birdeye CU is charged for a request that reaches the wire, not for one this app answered itself.
+        if (provider == "birdeye") try { com.lifecyclebot.engine.BirdeyeBudgetGate.chargeWire8287(now) } catch (_: Throwable) {}
         val response: Response = try {
             chain.proceed(wireReq)
         } catch (uhe: UnknownHostException) {

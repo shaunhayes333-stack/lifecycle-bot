@@ -1427,9 +1427,22 @@ object LanePlaybook7907 {
         if (c == null || c.outcome != Outcome8084.DATA_INCOMPLETE) return null
         val core = c.missing.filter { it.substringBefore(':') in CORE_8084 }.ifEmpty { listOf("core:UNKNOWN") }
         val ageMin = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null } ?: Double.NaN
-        val split = com.lifecyclebot.engine.truth.LifecycleData8283.split8283(core, ageMin, null)
+        // V5.0.8287 — and a NEW launch's flow its own observed trades cannot state yet is recorded, not waited for.
+        val split = com.lifecyclebot.engine.truth.LifecycleData8283.split8287(core, ageMin, null, launchTrades8287(ts.mint, nowMs))
         try { com.lifecyclebot.engine.truth.LifecycleData8283.note8283(split) } catch (_: Throwable) {}
         return split
+    }
+
+    /**
+     * V5.0.8287 — the trades of [mint] the bot observed since its WITNESSED birth (the launch tape follows a launch from
+     * its create; the trade tape's executed prints of the last 5 minutes can only raise that count). Null without a launch
+     * record: trades seen on a tape that did not follow the launch from birth prove nothing about how many happened.
+     */
+    internal fun launchTrades8287(mint: String, nowMs: Long): Int? {
+        val launch = try { com.lifecyclebot.engine.market.LaunchTape7921.observedTrades8287(mint, nowMs) } catch (_: Throwable) { null }
+            ?: return null
+        val tape = try { com.lifecyclebot.engine.truth.TradeTape8100.executedCount8287(mint, nowMs, 5L * 60_000L) } catch (_: Throwable) { null }
+        return maxOf(launch, tape ?: 0)
     }
 
     /** LiveEdgeGate7877: the number of labels behind this candidate's classified setup's record (0 = none). */

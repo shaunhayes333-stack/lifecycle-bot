@@ -95,6 +95,34 @@ object LifecycleData8283 {
         return Split8283(binding, unavailable)
     }
 
+    // ── V5.0.8287 — the launch's own trades decide whether a flow reading can exist yet ──
+
+    /** A flow reading (TradeTape8100.MIN_TRADES_BP / the launch tape's share) needs this many of the token's own trades. */
+    internal const val BP_MIN_TRADES_8287 = 6
+
+    /**
+     * Pure: can a buy-pressure reading exist yet? 8286: lifecycle8283 judgedOnLaunchEvidence=0, otherMissingStillBinding=22
+     * — every launch whose 5 m move was correctly "unavailable" still waited on bp:DEFAULT_UNOBSERVED. For a NEW token
+     * whose own trades ARE observed ([observedTrades] = trades the launch tape / trade tape saw for it, null = its trades
+     * are not observed at all), fewer than [BP_MIN_TRADES_8287] trades means no flow reading can exist yet: that is "not
+     * yet possible", not missing. Unobserved trades, an unknown age or an older token claim nothing (bp stays binding).
+     */
+    fun bpNotYetPossible8287(ageMin: Double, observedTrades: Int?): Boolean =
+        lifecycleOf8283(ageMin) == Lifecycle8283.NEW && observedTrades != null && observedTrades in 0 until BP_MIN_TRADES_8287
+
+    /**
+     * V5.0.8287 — [split8283] plus the launch's flow: for a launch-evidence judgement (no setup reading history fired), a
+     * bp the token's own observed trades cannot state yet ([bpNotYetPossible8287]) is recorded as unavailable instead of
+     * binding. Critical unknowns stay binding at every age; nothing is filled in.
+     */
+    fun split8287(missing: List<String>, ageMin: Double, setup: String?, observedTrades: Int?): Split8283 {
+        val base = split8283(missing, ageMin, setup)
+        if (setupNeedsHistory8283(setup) || !bpNotYetPossible8287(ageMin, observedTrades)) return base
+        val moved = base.binding.filter { it.substringBefore(':').trim().lowercase() == "bp" && !criticalUnknown8283(it) }
+        if (moved.isEmpty()) return base
+        return Split8283(base.binding - moved.toSet(), base.unavailable + moved)
+    }
+
     // ── report: lifecycle8283[...] ──
 
     private val judgedOnLaunch = AtomicLong(0L)

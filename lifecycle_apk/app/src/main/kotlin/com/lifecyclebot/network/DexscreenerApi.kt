@@ -51,6 +51,15 @@ class DexscreenerApi {
     private companion object {
         const val MAX_DEXSCREENER_RESPONSE_CHARS_7771 = 2_000_000
         const val MAX_DEXSCREENER_CONTENT_BYTES_7771 = 4_000_000L
+        /** V5.0.8287 — get8095's code for an answer this app made itself (a local refusal), never a provider reply. */
+        const val SYNTHETIC_CODE_8287 = -8287
+        /** V5.0.8287 — how long the batch lane waits for the shared 25 ms limiter slot. */
+        const val BATCH_SLOT_WAIT_MS_8287 = 400L
+        /**
+         * V5.0.8287 — ONE pair cache for every instance (BotService, the scanner, the orchestrator, the batch lane each built
+         * their own, so a 30-mint batch answer never served the next getBestPair of the same mint).
+         */
+        private val SHARED_PAIR_CACHE_8287 = java.util.concurrent.ConcurrentHashMap<String, CachedPair>()
     }
 
     private val http = SharedHttpClient.builder()
@@ -74,7 +83,7 @@ class DexscreenerApi {
     
     // Simple cache for getBestPair results - avoids repeated API calls
     private data class CachedPair(val pair: PairInfo?, val timestamp: Long)
-    private val pairCache = java.util.concurrent.ConcurrentHashMap<String, CachedPair>()
+    private val pairCache = SHARED_PAIR_CACHE_8287   // V5.0.8287 — shared across instances
     private val CACHE_TTL_MS = 45_000L  // 45 seconds cache (was 15) - reduce API calls
 
     /**
@@ -127,12 +136,26 @@ class DexscreenerApi {
         // has proven itself dead" (>=30 5xx/net with sr<10%) and was wired for
         // birdeye only. Nothing is removed and no key is required anywhere in
         // this path.
+        // V5.0.8287 — a bulk Solana read (not held, not near a decision) with a recent answer joins the 30-mint batch lane
+        // and is served the cached pair meanwhile, instead of spending a single call of the shared host budget.
+        val prio8287 = if (chainId == "solana") prioHeader8287(tokenAddress) else "BULK"
+        if (chainId == "solana" && prio8287 == "BULK" && cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {
+            try { com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(tokenAddress) } catch (_: Throwable) {}
+            return cached.pair
+        }
         if (cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {
             if (!RateLimiter.allowRequest("dexscreener")) return cached.pair
         } else if (!RateLimiter.allowRequest("dexscreener")) return null
 
         val url = "https://api.dexscreener.com/token-pairs/v1/${encode(chainId)}/${encode(tokenAddress)}"
-        val body = get(url)
+        val code8287 = IntArray(1)
+        val body = get8095(url, exit8095 = false, code8285 = code8287, prio8287 = prio8287)
+        if (code8287[0] == SYNTHETIC_CODE_8287) {
+            // V5.0.8287 — the shared host budget refused (or the host is locked): nothing was asked, so nothing is cached as
+            // "no pair"; a Solana mint is answered by the batch lane instead.
+            if (chainId == "solana") try { com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(tokenAddress) } catch (_: Throwable) {}
+            return cached?.pair
+        }
         var best: JSONObject? = null
         if (body != null) {
             val pairs = JSONArray(body)
@@ -497,10 +520,15 @@ class DexscreenerApi {
         val want = mints.map { it.trim() }.filter { it.length in 32..44 }.distinct().take(DexPools8285.BATCH_MAX_8285)
         if (want.isEmpty()) return BatchPairs8285(emptySet(), emptyList(), BatchCause8087.NO_DATA)
         val lanes = com.lifecyclebot.engine.ProviderLanes8285
-        if (lanes.cooling8285(lanes.DEX_8285, nowMs) || !RateLimiter.allowRequest("dexscreener"))
+        // V5.0.8287 — the lane waits briefly for the shared 25 ms limiter slot instead of being refused whenever any other
+        // DexScreener call landed in the same instant (each refusal re-queued and counted every mint "throttled").
+        if (lanes.cooling8285(lanes.DEX_8285, nowMs) || !RateLimiter.waitForSlot("dexscreener", BATCH_SLOT_WAIT_MS_8287))
             return BatchPairs8285(emptySet(), want, BatchCause8087.LIMITER_REFUSED)
         val code = IntArray(1)
-        val body = get8095("https://api.dexscreener.com/tokens/v1/solana/${want.joinToString(",")}", exit8095 = false, code8285 = code)
+        val body = get8095("https://api.dexscreener.com/tokens/v1/solana/${want.joinToString(",")}", exit8095 = false, code8285 = code, prio8287 = "NEAR")
+        // V5.0.8287 — a local refusal (host budget / our own lockout) is not the provider's answer: it never climbs the
+        // provider's backoff ladder (8286: our synthetic 503s escalated dexscreener to level=2, cooldowns=6).
+        if (code[0] == SYNTHETIC_CODE_8287) return BatchPairs8285(emptySet(), want, BatchCause8087.LIMITER_REFUSED)
         try { lanes.noteResult8285(lanes.DEX_8285, code[0], nowMs) } catch (_: Throwable) {}
         if (body == null) return BatchPairs8285(emptySet(), want, BatchCause8087.PROVIDER_FAILED)
         val arr = try { JSONArray(body) } catch (_: Throwable) { return BatchPairs8285(emptySet(), want, BatchCause8087.UNPARSEABLE) }
@@ -513,6 +541,8 @@ class DexscreenerApi {
             rows += r; json[r.pairAddress] = o
         }
         DexPools8285.record8285(rows)
+        val prices8287 = HashMap<String, Double>()
+        cacheBatchPairs8287(rows, json, nowMs, prices8287)
         val answered = HashSet<String>()
         for ((mint, mine) in rows.groupBy { it.mint }) {
             val pick = DexPools8285.choose8285(mine, DexPools8285.chosen8285(mint)) ?: continue
@@ -528,22 +558,51 @@ class DexscreenerApi {
         }
         DexPools8285.batches8285.incrementAndGet()
         val unlisted = want.filter { it !in answered }
-        return BatchPairs8285(answered, unlisted, if (answered.isEmpty()) BatchCause8087.NO_DATA else BatchCause8087.PRICED)
+        return BatchPairs8285(answered, unlisted, if (answered.isEmpty()) BatchCause8087.NO_DATA else BatchCause8087.PRICED, prices8287)
     }
 
-    /** V5.0.8285 — a batch answer: mints whose chosen pool's flow was recorded, mints not listed / not asked, and why. */
-    data class BatchPairs8285(val answered: Set<String>, val notAnswered: List<String>, val cause: BatchCause8087)
+    /**
+     * V5.0.8285 — a batch answer: mints whose chosen pool's flow was recorded, mints not listed / not asked, and why.
+     * V5.0.8287 — [prices8287]: each answered mint's best pair price (the price getBestPair would serve), for the mark refresh.
+     */
+    data class BatchPairs8285(
+        val answered: Set<String>, val notAnswered: List<String>, val cause: BatchCause8087,
+        val prices8287: Map<String, Double> = emptyMap(),
+    )
+
+    /**
+     * V5.0.8287 — the batch answer serves getBestPair too: each mint's best pair (the same score getBestPair ranks by) is
+     * cached in the shared pair cache, so a single-mint lookup of a batched mint is answered without its own call.
+     */
+    private fun cacheBatchPairs8287(rows: List<DexPools8285.PoolRow8285>, json: Map<String, JSONObject>, nowMs: Long, prices: MutableMap<String, Double>) {
+        for ((mint, mine) in rows.groupBy { it.mint }) {
+            val best = mine.mapNotNull { json[it.pairAddress] }.maxByOrNull { scorePair(it) } ?: continue
+            val pair = try { withHolders8128(parsePair(best), mint) } catch (_: Throwable) { null } ?: continue
+            if (pair.candle.priceUsd.isFinite() && pair.candle.priceUsd > 0.0) prices[mint] = pair.candle.priceUsd
+            pairCache["solana|$mint"] = CachedPair(pair, nowMs)
+        }
+    }
+
+    /** V5.0.8287 — the shared host budget's class for a Solana mint's read: HELD / NEAR (decision) / BULK. */
+    private fun prioHeader8287(mint: String): String = try {
+        val p = com.lifecyclebot.engine.ProviderLanes8285.prioFor8285(mint)
+        DexHostBudget8287.headerFor8287(p == com.lifecyclebot.engine.ProviderLanes8285.Prio8285.HELD,
+            p == com.lifecyclebot.engine.ProviderLanes8285.Prio8285.NEAR_DECISION)
+    } catch (_: Throwable) { "BULK" }
 
     /** V5.0.8095 — [get], optionally as exit traffic (never refused by our own ApiBackoff lockout). */
-    private fun get8095(url: String, host: String = "dexscreener", exit8095: Boolean, code8285: IntArray? = null): String? = try {
+    private fun get8095(url: String, host: String = "dexscreener", exit8095: Boolean, code8285: IntArray? = null, prio8287: String = ""): String? = try {
         val req  = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
             .apply { if (exit8095) header(ExitHttpScope7314.HEADER, "held-marks") }
+            .apply { if (prio8287.isNotBlank()) header(DexHostBudget8287.PRIO_HEADER_8287, prio8287) }   // V5.0.8287 — host budget class
             .build()
         // V5.0.6495 — never bypass HealthAwareHttp/ApiBackoff with a raw retry.
         // V5.0.7771 — never materialise an unbounded provider body.
         com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = host).use { resp ->
             if (code8285 != null && code8285.isNotEmpty()) code8285[0] = resp.code   // V5.0.8285 — the provider's own backoff
+            // V5.0.8287 — our own refusal (host budget, ApiBackoff / circuit lockout) is marked so no caller reads it as the provider's
+            if (code8285 != null && code8285.isNotEmpty() && HostCircuitInterceptor.isSyntheticBlock(resp)) code8285[0] = SYNTHETIC_CODE_8287
             if (!resp.isSuccessful) return@use null
             val body = resp.body ?: return@use null
             val contentLength = body.contentLength()
