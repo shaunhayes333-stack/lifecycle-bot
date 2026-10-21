@@ -500,7 +500,7 @@ object LiveEdgeGate7877 {
             genericNative8211 = genericNativeClearsProvenOnly8211(admission8136)
             when (RunnerDefer8297.terminalFor8297(ts, admission8136, nowMs)) {  // V5.0.8297 — a confirmed run passes an optional-only data defer
                 CandidateAdmission8136.Terminal8136.DEFER_DATA -> {
-                    val d = admission8136
+                    val d = admission8136!!  // V5.0.8297 — terminalFor8297 is null when the decision is null
                     val missing = CandidateAdmission8136.missingOf8144(d)
                     // V5.0.8180 — first, so the mapped inputs (price / economics / core -> liq / chg / shape / bp) take the per-mint request.
                     try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
