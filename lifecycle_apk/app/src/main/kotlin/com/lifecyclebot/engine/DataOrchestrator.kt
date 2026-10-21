@@ -397,7 +397,8 @@ class DataOrchestrator(
         // near-decision SOL mints with insufficient bars. It never waits in
         // scanner/FDG; if no verified pool/curve exists, independent OHLCV
         // sources below remain the honest fallback.
-        if (ts.history.size < 6 && DataPipeline8191.seedPriority8191(mint)) try {
+        // V5.0.8284 — no history.size < 6 shortcut: held, near-decision and hand-off mints ask; request7819 decides on 1 m coverage.
+        if (com.lifecyclebot.engine.truth.HeliusSwapCandles7819.priority8284(mint) > 0) try {
             com.lifecyclebot.engine.truth.HeliusSwapCandles7819.request7819(ts)
         } catch (_: Throwable) {}
 
@@ -462,6 +463,8 @@ class DataOrchestrator(
                     }
                 }
             }
+            // V5.0.8284 — a fuller history no longer drops the pool klines: they merge by minute and quality.
+            if (k1mOk7809 && keylessSeeded6916 == 0 && !repairShape8168) keylessSeeded6916 += com.lifecyclebot.engine.truth.HeliusSwapCandles7819.mergeIntoHistory7819(ts, k1m)
             if (repairShape8168 && keylessSeeded6916 > 0) return
             // V5.0.8169 — a cooling or empty keyless feed hands the shape repair to Codex before the budget-gated backup.
             if (repairShape8168 && repairShapeFromCodex8169(ts)) return
