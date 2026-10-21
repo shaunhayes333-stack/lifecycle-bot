@@ -141,6 +141,7 @@ class DexscreenerApi {
                 val row = pairs.getJSONObject(i)
                 val baseAddress = row.optJSONObject("baseToken")?.optString("address", "") ?: ""
                 if (!baseAddress.equals(tokenAddress, ignoreCase = chainId != "solana")) continue
+                if (chainId == "solana") DexPools8285.rowOf8285(row, now)?.let { DexPools8285.record8285(listOf(it)) }  // V5.0.8285 — pool identity kept
                 val score = scorePair(row)
                 if (score > bestScore) { bestScore = score; best = row }
             }
@@ -148,7 +149,10 @@ class DexscreenerApi {
         var result = best?.let { parsePair(it) }
         if (chainId == "solana") result = result?.let { withHolders8128(it, tokenAddress) }  // V5.0.8128
         // V5.0.8169 — every best pair served is a dated flow reading for the setup inputs (SetupFeatureResolver8169).
-        if (chainId == "solana" && best != null) result?.let { p -> try { com.lifecyclebot.engine.truth.PairFlow8169.notePair8169(tokenAddress, p, now) } catch (_: Throwable) {} }
+        if (chainId == "solana" && best != null) result?.let { p ->
+            // V5.0.8285 FEATURE_ARRIVED_POOL_FLOW(mint)
+            try { com.lifecyclebot.engine.truth.PairFlow8169.notePair8169(tokenAddress, p, now) } catch (_: Throwable) {}
+        }
         // Fallback only — and only to a host that is not circuit-broken.
         if (result == null && allowDexPaprika) {
             // V5.0.7809 — also out when DexPaprika is latched terminal (401/402/403).
@@ -459,10 +463,12 @@ class DexscreenerApi {
                 // and only replace when a strictly better one arrives.
                 val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
                 val bestLiq = bestLiqByMint[mint]
+                DexPools8285.rowOf8285(p, batchAtMs8169)?.let { DexPools8285.record8285(listOf(it)) }  // V5.0.8285 — every pool's identity kept
                 if (bestLiq == null || liq > bestLiq) {
                     bestLiqByMint[mint] = liq
                     out[mint] = priceUsd
                     // V5.0.8169 — the same pair's flow (txns / priceChange / liquidity) was dropped after the price.
+                    // V5.0.8285 FEATURE_ARRIVED_POOL_FLOW(mint)
                     try { com.lifecyclebot.engine.truth.PairFlow8169.note8169(mint, com.lifecyclebot.engine.truth.PairFlow8169.fromJson8169(p, batchAtMs8169)) } catch (_: Throwable) {}
                 }
             }
@@ -479,8 +485,57 @@ class DexscreenerApi {
 
     private fun get(url: String, host: String = "dexscreener"): String? = get8095(url, host, exit8095 = false)
 
+    /**
+     * V5.0.8285 — ordinary pair updates in batches: /tokens/v1/solana/{up to 30 mints} (keyless, ~300 req/min, one
+     * limiter slot for 30 coins instead of 30). Every pool returned keeps its identity in [DexPools8285]; each mint's
+     * flow is read from its deliberately chosen data pool ([DexPools8285.choose8285]: the pool already in use, else the
+     * deepest SOL / stable-quoted pool) — never a blend of pools. The HTTP answer feeds the provider's own backoff
+     * (ProviderLanes8285): a DexScreener cooldown never touches another provider. Nothing is inferred for a mint the
+     * answer did not list.
+     */
+    fun batchPairs8285(mints: List<String>, nowMs: Long = System.currentTimeMillis()): BatchPairs8285 {
+        val want = mints.map { it.trim() }.filter { it.length in 32..44 }.distinct().take(DexPools8285.BATCH_MAX_8285)
+        if (want.isEmpty()) return BatchPairs8285(emptySet(), emptyList(), BatchCause8087.NO_DATA)
+        val lanes = com.lifecyclebot.engine.ProviderLanes8285
+        if (lanes.cooling8285(lanes.DEX_8285, nowMs) || !RateLimiter.allowRequest("dexscreener"))
+            return BatchPairs8285(emptySet(), want, BatchCause8087.LIMITER_REFUSED)
+        val code = IntArray(1)
+        val body = get8095("https://api.dexscreener.com/tokens/v1/solana/${want.joinToString(",")}", exit8095 = false, code8285 = code)
+        try { lanes.noteResult8285(lanes.DEX_8285, code[0], nowMs) } catch (_: Throwable) {}
+        if (body == null) return BatchPairs8285(emptySet(), want, BatchCause8087.PROVIDER_FAILED)
+        val arr = try { JSONArray(body) } catch (_: Throwable) { return BatchPairs8285(emptySet(), want, BatchCause8087.UNPARSEABLE) }
+        val rows = ArrayList<DexPools8285.PoolRow8285>()
+        val json = HashMap<String, JSONObject>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val r = DexPools8285.rowOf8285(o, nowMs) ?: continue
+            if (r.mint !in want) continue
+            rows += r; json[r.pairAddress] = o
+        }
+        DexPools8285.record8285(rows)
+        val answered = HashSet<String>()
+        for ((mint, mine) in rows.groupBy { it.mint }) {
+            val pick = DexPools8285.choose8285(mine, DexPools8285.chosen8285(mint)) ?: continue
+            val o = json[pick.pairAddress] ?: continue
+            DexPools8285.markChosen8285(mint, pick.pairAddress)
+            // V5.0.8285 FEATURE_ARRIVED_POOL_FLOW(mint)
+            try { com.lifecyclebot.engine.truth.PairFlow8169.note8169(mint, com.lifecyclebot.engine.truth.PairFlow8169.fromJson8169(o, nowMs)) } catch (_: Throwable) {}
+            if (pick.liquidityUsd.isFinite() && pick.liquidityUsd > 0.0) {
+                // V5.0.8285 FEATURE_ARRIVED_LIQUIDITY(mint)
+                DexPools8285.liquidityRows8285.incrementAndGet()
+            }
+            answered += mint
+        }
+        DexPools8285.batches8285.incrementAndGet()
+        val unlisted = want.filter { it !in answered }
+        return BatchPairs8285(answered, unlisted, if (answered.isEmpty()) BatchCause8087.NO_DATA else BatchCause8087.PRICED)
+    }
+
+    /** V5.0.8285 — a batch answer: mints whose chosen pool's flow was recorded, mints not listed / not asked, and why. */
+    data class BatchPairs8285(val answered: Set<String>, val notAnswered: List<String>, val cause: BatchCause8087)
+
     /** V5.0.8095 — [get], optionally as exit traffic (never refused by our own ApiBackoff lockout). */
-    private fun get8095(url: String, host: String = "dexscreener", exit8095: Boolean): String? = try {
+    private fun get8095(url: String, host: String = "dexscreener", exit8095: Boolean, code8285: IntArray? = null): String? = try {
         val req  = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
             .apply { if (exit8095) header(ExitHttpScope7314.HEADER, "held-marks") }
@@ -488,6 +543,7 @@ class DexscreenerApi {
         // V5.0.6495 — never bypass HealthAwareHttp/ApiBackoff with a raw retry.
         // V5.0.7771 — never materialise an unbounded provider body.
         com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = host).use { resp ->
+            if (code8285 != null && code8285.isNotEmpty()) code8285[0] = resp.code   // V5.0.8285 — the provider's own backoff
             if (!resp.isSuccessful) return@use null
             val body = resp.body ?: return@use null
             val contentLength = body.contentLength()
@@ -521,4 +577,86 @@ class DexscreenerApi {
     } catch (e: Exception) { null }
 
     private fun encode(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
+}
+
+/**
+ * V5.0.8285 — every DexScreener pool of a mint keeps its identity (pair address, dex, quote, liquidity, flow age), and
+ * the pool a mint's flow is read from is chosen deliberately ([choose8285]) and kept stable: the pool already in use
+ * while it is still listed with liquidity, else the deepest SOL / stable-quoted pool, else the deepest pool. Bounded.
+ */
+object DexPools8285 {
+    const val BATCH_MAX_8285 = 30
+    private const val MAX_MINTS_8285 = 2_000
+    private const val WSOL_8285 = "So11111111111111111111111111111111111111112"
+    private val STABLE_QUOTES_8285 = setOf(
+        WSOL_8285,
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",   // USDC
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",   // USDT
+    )
+
+    data class PoolRow8285(
+        val mint: String, val pairAddress: String, val dexId: String, val quote: String,
+        val liquidityUsd: Double, val volumeH24: Double, val priceUsd: Double, val atMs: Long,
+    )
+
+    private val pools = java.util.concurrent.ConcurrentHashMap<String, Map<String, PoolRow8285>>()
+    private val chosen = java.util.concurrent.ConcurrentHashMap<String, String>()
+    val batches8285 = java.util.concurrent.atomic.AtomicLong(0L)
+    val liquidityRows8285 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val switches8285 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Pure: one DexScreener pair object as a pool row (null without a Solana base mint, a pair address or a price). */
+    fun rowOf8285(p: JSONObject, atMs: Long): PoolRow8285? {
+        val chain = p.optString("chainId", "")
+        if (chain.isNotBlank() && !chain.equals("solana", true)) return null
+        val mint = p.optJSONObject("baseToken")?.optString("address", "")?.trim().orEmpty()
+        val pair = p.optString("pairAddress", "").trim()
+        val px = p.optString("priceUsd", "0").toDoubleOrNull() ?: 0.0
+        if (mint.isBlank() || pair.isBlank() || !px.isFinite() || px <= 0.0) return null
+        val liq = p.optJSONObject("liquidity")?.takeIf { it.has("usd") }?.optDouble("usd", Double.NaN) ?: Double.NaN
+        return PoolRow8285(
+            mint, pair, p.optString("dexId", ""), p.optJSONObject("quoteToken")?.optString("address", "")?.trim().orEmpty(),
+            liq, p.optJSONObject("volume")?.optDouble("h24", 0.0) ?: 0.0, px, atMs,
+        )
+    }
+
+    /**
+     * Pure: the data pool among [rows] (one mint's pools). [preferred] — the pool already in use — stays while listed with
+     * liquidity (a stable identity, no flapping between pools); else the deepest SOL / stable-quoted pool (ties by 24 h
+     * volume); else the deepest pool. Null for no rows.
+     */
+    fun choose8285(rows: List<PoolRow8285>, preferred: String?): PoolRow8285? {
+        if (rows.isEmpty()) return null
+        if (!preferred.isNullOrBlank()) rows.firstOrNull { it.pairAddress == preferred && it.liquidityUsd.isFinite() && it.liquidityUsd > 0.0 }?.let { return it }
+        val depth = compareBy<PoolRow8285>({ if (it.liquidityUsd.isFinite()) it.liquidityUsd else -1.0 }, { it.volumeH24 })
+        return rows.filter { it.quote in STABLE_QUOTES_8285 }.maxWithOrNull(depth) ?: rows.maxWithOrNull(depth)
+    }
+
+    fun record8285(rows: List<PoolRow8285>) {
+        for ((mint, mine) in rows.groupBy { it.mint }) {
+            pools.merge(mint, mine.associateBy { it.pairAddress }) { old, new -> old + new }
+        }
+        if (pools.size > MAX_MINTS_8285) {
+            val drop = pools.entries.sortedBy { e -> e.value.values.maxOfOrNull { it.atMs } ?: 0L }.take(MAX_MINTS_8285 / 10)
+            for (e in drop) { pools.remove(e.key); chosen.remove(e.key) }
+        }
+    }
+
+    fun chosen8285(mint: String): String? = chosen[mint]
+
+    fun markChosen8285(mint: String, pair: String) {
+        val prior = chosen.put(mint, pair)
+        if (prior != null && prior != pair) switches8285.incrementAndGet()
+    }
+
+    /** The data pool for [mint] now ([hint] = a pool the caller already trades / reads), or null when none is known. */
+    fun dataPool8285(mint: String, hint: String = ""): PoolRow8285? =
+        choose8285(pools[mint]?.values?.toList().orEmpty(), hint.ifBlank { chosen[mint] })
+
+    fun poolsOf8285(mint: String): List<PoolRow8285> = pools[mint]?.values?.toList().orEmpty()
+
+    fun statusLine8285(): String =
+        "dexPools8285[mints=${pools.size} chosen=${chosen.size} batches=${batches8285.get()} liqRows=${liquidityRows8285.get()} switches=${switches8285.get()}]"
+
+    internal fun resetForTests8285() { pools.clear(); chosen.clear(); batches8285.set(0L); liquidityRows8285.set(0L); switches8285.set(0L) }
 }

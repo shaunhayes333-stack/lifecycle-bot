@@ -265,12 +265,15 @@ object CurveTicks7968 {
         // V5.0.8252 — two snapshots of the same account are the trade (side, SOL, tokens); the orchestrator tapes it
         // unless a keyed stream already delivered this mint. Otherwise (first snapshot, no movement, stream covered):
         // V5.0.8169 — the curve's own price reaches the executed-trade tape (price only: change / shape, never buy pressure).
+        // V5.0.8285 — both curve prints (this snapshot and the 8252 snapshot-difference trade) are price-only on the tape:
+        // neither counts as a buy, a sell or volume (TradeTape8100.note8100 keeps SRC_CURVE_8169 price-only).
         val cur = decodeReserves8252(bytes)
         // V5.0.8257 — the tick IS a curve account reading: filed with the reserves authority so liquidity / mcap
         // hydration (LiquidityTruth8037 via LaunchCohort8173) and the launch-buyer verdict read it without waiting on
         // the RPC batch. 5.0.8256: SHITCOIN NATIVE_LANE_LIQ_UNHYDRATED_DEFER=745, MOONSHOT MCAP_UNHYDRATED_DEFER=905
         // on curve coins whose account this socket was streaming.
         if (cur != null) try {
+            // V5.0.8285 FEATURE_ARRIVED_LIQUIDITY(mint)
             com.lifecyclebot.engine.truth.CurveReserves7951.noteAccount7951(mint, cur.vSol / 1e9, cur.vTok / 1e6, cur.realSol / 1e9)
             PipelineHealthCollector.labelInc("CURVE_TICK_RESERVES_FILED_8257")
         } catch (_: Throwable) {}

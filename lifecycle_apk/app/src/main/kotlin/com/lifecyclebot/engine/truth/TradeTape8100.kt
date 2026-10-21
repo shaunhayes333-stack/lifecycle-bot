@@ -32,7 +32,16 @@ object TradeTape8100 {
 
     // V5.0.8169 — [priceOnly]: a pool-state price (bonding-curve account / PumpSwap vault pair) with no side or size.
     // It states price (change, shape) but never buy pressure and never an executed print for the local bars.
-    internal class Trade(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean, val priceOnly: Boolean = false)
+    // V5.0.8285 — per-trade provenance: [atMs] is the EVENT time (the chain / provider timestamp when the feed states one,
+    // else the receive time), [recvMs] when this process received it, [source] the feed, [pool] the venue it executed on
+    // (a pool address, or [VENUE_CURVE_8285] / [VENUE_AMM_8285]; "" = the feed did not say), [signature] the transaction,
+    // [tokenQty] the token side. [inferred]: a trade stated by two bonding-curve snapshots (CurveTicks7968.tradeBetween8252),
+    // kept price-only — a snapshot difference is not an executed print and never counts as a buy, a sell or volume.
+    internal class Trade(
+        val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean, val priceOnly: Boolean = false,
+        val source: String = "", val pool: String = "", val signature: String = "", val recvMs: Long = atMs,
+        val tokenQty: Double = 0.0, val inferred: Boolean = false,
+    )
     private val tapes = ConcurrentHashMap<String, ArrayDeque<Trade>>()
     private val notes = AtomicLong(0)
     private val reads = AtomicLong(0)
@@ -46,8 +55,90 @@ object TradeTape8100 {
     /** PumpFunWS: one executed curve trade (price = curve reserves after the trade, SOL per token). */
     fun note8100(mint: String, priceSol: Double, sol: Double, isBuy: Boolean, atMs: Long = System.currentTimeMillis(), source: String = "pumpportal") {
         if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
-        add8169(mint, Trade(atMs, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy), atMs, source)
+        // V5.0.8285 — a curve-snapshot trade (DataOrchestrator.onCurveTrade8252) is price-only: never a buy, a sell or volume.
+        val curve8285 = source == SRC_CURVE_8169
+        add8169(mint, Trade(atMs, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy, priceOnly = curve8285,
+            source = source, pool = poolKey8285(source, ""), recvMs = atMs, inferred = curve8285), atMs, source)
     }
+
+    /**
+     * V5.0.8285 — one executed trade with its provenance (PumpFunWS, ProofDataSwapTape8144, the GeckoTerminal pool-trades
+     * fallback). [eventMs] is the feed's own timestamp (0 = the feed states none: the receive time stands in and no
+     * latency is recorded). The same transaction delivered by two feeds is ONE trade: a signature already taped for
+     * [mint] and side is refused here, whichever feed delivered it first; a trade without a signature cannot be matched
+     * and is taped as delivered. Returns true when the print was taped.
+     */
+    fun note8285(
+        mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean, source: String,
+        pool: String = "", signature: String = "", eventMs: Long = 0L, recvMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return false
+        val src = source.ifBlank { "other" }
+        val sig = signature.trim()
+        if (sig.isNotBlank()) {
+            val prior = seenSig8285.put("$mint|$sig|$isBuy", src)
+            if (prior != null) {
+                (if (prior == src) sameFeedDup8285 else crossFeedDup8285).incrementAndGet()
+                return false
+            }
+            lastSigned8285["$src|$mint"] = recvMs
+            if (lastSigned8285.size > 8_000) lastSigned8285.entries.removeIf { recvMs - it.value > 10L * 60_000L }
+        } else unsigned8285.incrementAndGet()
+        val eventKnown = eventMs > 0L && eventMs <= recvMs + 5_000L
+        val at = if (eventKnown) eventMs else recvMs
+        if (eventKnown) noteLatency8285(src, (recvMs - eventMs).coerceAtLeast(0L))
+        else noEventTs8285.computeIfAbsent(src) { AtomicLong(0) }.incrementAndGet()
+        val t = Trade(at, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy, source = src,
+            pool = poolKey8285(src, pool), signature = sig, recvMs = recvMs,
+            tokenQty = if (tokenQty.isFinite() && tokenQty > 0.0) tokenQty else 0.0)
+        add8169(mint, t, at, src)
+        return true
+    }
+
+    /** V5.0.8285 — did [source] deliver a SIGNED print of [mint] inside [windowMs]? (signature dedup is then authoritative) */
+    fun signedFrom8285(mint: String, source: String, nowMs: Long, windowMs: Long): Boolean =
+        lastSigned8285["$source|$mint"]?.let { nowMs - it in 0L..windowMs } == true
+
+    const val VENUE_CURVE_8285 = "pump.curve"
+    const val VENUE_AMM_8285 = "pump.amm"
+    const val SRC_PUMPPORTAL_8285 = "pumpportal"
+    const val SRC_GECKO_8285 = "gecko"
+
+    /** Pure: the venue key of a print — its pool address when known, else the venue its feed implies ("" = unknown). */
+    internal fun poolKey8285(source: String, pool: String): String = when {
+        pool.isNotBlank() -> pool.trim()
+        source == SRC_CURVE_8169 -> VENUE_CURVE_8285
+        source == SRC_PUMPSWAP_8169 -> VENUE_AMM_8285
+        else -> ""
+    }
+
+    /**
+     * Pure: the one venue a mint's tape is read from — the pool of the newest executed print that names one, else of the
+     * newest print that names one ("" = no print names a venue). Two pools of one token never blend into one series.
+     */
+    internal fun venueOf8285(trades: List<Trade>): String =
+        trades.lastOrNull { !it.priceOnly && it.pool.isNotBlank() }?.pool
+            ?: trades.lastOrNull { it.pool.isNotBlank() }?.pool ?: ""
+
+    /** Pure: the prints compatible with [venue]: the venue's own, plus prints whose feed named no venue. */
+    internal fun sameVenue8285(trades: List<Trade>, venue: String): List<Trade> =
+        if (venue.isBlank()) trades else trades.filter { it.pool.isBlank() || it.pool == venue }
+
+    /** Pure: transaction-count buy share (0..100) of executed prints' sides, or null below [MIN_TRADES_BP] trades. */
+    fun buyPressureTx8285(sides: List<Boolean>): Double? {
+        if (sides.size < MIN_TRADES_BP) return null
+        return sides.count { it } * 100.0 / sides.size
+    }
+
+    private fun noteLatency8285(source: String, ms: Long) {
+        val d = latency8285.computeIfAbsent(source) { java.util.ArrayDeque() }
+        synchronized(d) { d.addLast(ms); while (d.size > 200) d.pollFirst() }
+    }
+
+    private fun latencyLine8285(): String = latency8285.entries.sortedBy { it.key }.joinToString(",") { e ->
+        val xs = synchronized(e.value) { e.value.toList() }.sorted()
+        if (xs.isEmpty()) "${e.key}=-" else "${e.key}:n=${xs.size},p50=${xs[xs.size / 2]}ms,max=${xs.last()}ms"
+    }.ifBlank { "-" }
 
     /**
      * V5.0.8169 — a pool-state price for [mint] (SOL per token) from the pool the trades execute on: the bonding-curve
@@ -62,8 +153,22 @@ object TradeTape8100 {
     private fun add8169(mint: String, t: Trade, atMs: Long, source: String) {
         val q = tapes.computeIfAbsent(mint) { ArrayDeque() }
         synchronized(q) {
-            q.addLast(t)
-            while (q.size > MAX_TRADES || (q.isNotEmpty() && atMs - q.first().atMs > KEEP_MS)) q.removeFirst()
+            // V5.0.8285 — event-time order: a print whose event precedes the newest one (a fallback feed's older trade)
+            // is inserted in place, so "newest" and "at/before" read the chain's order, not the arrival order.
+            if (q.isEmpty() || q.last().atMs <= t.atMs) q.addLast(t) else {
+                var i = q.size
+                while (i > 0 && q[i - 1].atMs > t.atMs) i--
+                q.add(i, t)
+            }
+            val newest = maxOf(atMs, q.last().atMs)
+            while (q.size > MAX_TRADES || (q.isNotEmpty() && newest - q.first().atMs > KEEP_MS)) q.removeFirst()
+        }
+        if (t.priceOnly) {
+            // V5.0.8285 FEATURE_ARRIVED_PRICE(mint)
+            (if (t.inferred) inferred8285 else priceOnly8285).incrementAndGet()
+        } else {
+            // V5.0.8285 FEATURE_ARRIVED_TAPE(mint)
+            executed8285.incrementAndGet()
         }
         notes.incrementAndGet()
         bySource8169.computeIfAbsent(source.ifBlank { "other" }) { AtomicLong(0) }.incrementAndGet()
@@ -74,7 +179,13 @@ object TradeTape8100 {
     }
 
     data class Shape(val runupPct: Double, val vsPeak: Double, val ddPct: Double)
-    data class Read(val bp: Double?, val chg: Pair<Double, Double>?, val shape: Shape?)
+    // V5.0.8285 — [bp] stays the SOL-volume buy share; [bpTx8285] the transaction-count buy share, stated separately (a
+    // few large buys and many small sells read differently on each); [buys8285]/[sells8285] the executed prints counted;
+    // [venue8285] the one venue the readings came from ("" = no print named one).
+    data class Read(
+        val bp: Double?, val chg: Pair<Double, Double>?, val shape: Shape?,
+        val bpTx8285: Double? = null, val buys8285: Int = 0, val sells8285: Int = 0, val venue8285: String = "",
+    )
 
     /** Pure: SOL-volume buy share (0..100) of [trades], or null below [MIN_TRADES_BP] trades / no volume. */
     fun buyPressure8100(buys: List<Pair<Boolean, Double>>): Double? {
@@ -121,11 +232,17 @@ object TradeTape8100 {
     /** LanePlaybook7907: the tape's readings for [mint] now, each null when the tape cannot state it. */
     fun read8100(mint: String, nowMs: Long = System.currentTimeMillis()): Read? {
         val q = tapes[mint] ?: return null
-        val trades = synchronized(q) { q.toList() }
+        val all8285 = synchronized(q) { q.toList() }
+        // V5.0.8285 — one venue: prints from another pool of the same token never distort this venue's change, shape or flow.
+        val venue8285 = venueOf8285(all8285)
+        val trades = sameVenue8285(all8285, venue8285)
+        if (trades.size < all8285.size) venueSplitReads8285.incrementAndGet()
         if (trades.isEmpty() || nowMs - trades.last().atMs > FRESH_MS) return null
         reads.incrementAndGet()
         val last = trades.last().priceSol
-        val bp = buyPressure8100(trades.filter { !it.priceOnly && nowMs - it.atMs in 0L..BP_WINDOW_MS }.map { it.isBuy to it.sol })
+        val flow8285 = trades.filter { !it.priceOnly && nowMs - it.atMs in 0L..BP_WINDOW_MS }
+        val bp = buyPressure8100(flow8285.map { it.isBuy to it.sol })
+        val bpTx8285 = buyPressureTx8285(flow8285.map { it.isBuy })
         val chg = run {
             val launchAt = try { com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint) } catch (_: Throwable) { null }
             val launchPx = try { com.lifecyclebot.network.PumpCurveKeys7269.createPriceSol7280(mint) } catch (_: Throwable) { null }
@@ -145,7 +262,7 @@ object TradeTape8100 {
         // never mixes sources, never fills a coin that already has minute bars.
         val shape = shape8100(closes) ?: youngShape8220(trades, nowMs)
         if (bp != null || chg != null || shape != null) filled.incrementAndGet()
-        return Read(bp, chg, shape)
+        return Read(bp, chg, shape, bpTx8285, flow8285.count { it.isBuy }, flow8285.count { !it.isBuy }, venue8285)
     }
 
     /** LanePlaybook7907: an input the usual source left unobserved was filled from the trade tape. */
@@ -154,12 +271,17 @@ object TradeTape8100 {
     }
 
     /** V5.0.8128 — one executed curve print (SOL per token, SOL size), read by the chart backfill's keyless local rung. */
-    data class Print8128(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean)
+    data class Print8128(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean,
+                         val source: String = "", val pool: String = "")   // V5.0.8285 — provenance
 
     /** V5.0.8128 — [mint]'s executed prints inside [windowMs] before [nowMs], oldest first (a copy; the tape is not changed). */
     fun prints8128(mint: String, nowMs: Long, windowMs: Long): List<Print8128> {
         val q = tapes[mint] ?: return emptyList()
-        return synchronized(q) { q.filter { !it.priceOnly && nowMs - it.atMs in 0L..windowMs }.map { Print8128(it.atMs, it.priceSol, it.sol, it.isBuy) } }
+        val all8285 = synchronized(q) { q.toList() }
+        // V5.0.8285 — the bars are built from ONE venue's executed prints (a second pool never blends into its OHLCV).
+        val exec = all8285.filter { !it.priceOnly }
+        return sameVenue8285(exec, venueOf8285(exec)).filter { nowMs - it.atMs in 0L..windowMs }
+            .map { Print8128(it.atMs, it.priceSol, it.sol, it.isBuy, it.source, it.pool) }
     }
 
     fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()} youngShape15s8220=${youngShapes8220.get()}"
@@ -179,7 +301,36 @@ object TradeTape8100 {
     fun statusLine8169(nowMs: Long = System.currentTimeMillis()): String =
         "tape8169[mintsWithTape=${tapes.size} fresh=${freshMints8169(nowMs)} prints=${notes.get()} printsBySource{" +
             bySource8169.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
-            "} reads=${reads.get()} filledReads=${filled.get()}]"
+            "} reads=${reads.get()} filledReads=${filled.get()}] " + statusLine8285()
 
-    internal fun resetForTest8100() { tapes.clear(); notes.set(0); reads.set(0); filled.set(0); bySource8169.clear() }
+    // ── V5.0.8285 provenance bookkeeping ──
+    private const val SEEN_SIG_CAP_8285 = 30_000
+    private val seenSig8285: MutableMap<String, String> = java.util.Collections.synchronizedMap(
+        object : java.util.LinkedHashMap<String, String>(1024, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > SEEN_SIG_CAP_8285
+        })
+    private val lastSigned8285 = ConcurrentHashMap<String, Long>()
+    private val latency8285 = ConcurrentHashMap<String, java.util.ArrayDeque<Long>>()
+    private val noEventTs8285 = ConcurrentHashMap<String, AtomicLong>()
+    private val crossFeedDup8285 = AtomicLong(0)
+    private val sameFeedDup8285 = AtomicLong(0)
+    private val unsigned8285 = AtomicLong(0)
+    private val executed8285 = AtomicLong(0)
+    private val priceOnly8285 = AtomicLong(0)
+    private val inferred8285 = AtomicLong(0)
+    private val venueSplitReads8285 = AtomicLong(0)
+
+    /** V5.0.8285 — tape8285[...]: executed vs price-only prints, signature dedup across feeds, venue splits, feed latency. */
+    fun statusLine8285(): String =
+        "tape8285[executed=${executed8285.get()} priceOnly=${priceOnly8285.get()} curveInferredPriceOnly=${inferred8285.get()} " +
+            "dupCrossFeed=${crossFeedDup8285.get()} dupSameFeed=${sameFeedDup8285.get()} unsigned=${unsigned8285.get()} " +
+            "venueSplitReads=${venueSplitReads8285.get()} latency{${latencyLine8285()}} noEventTs{" +
+            noEventTs8285.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}]"
+
+    internal fun resetForTest8100() {
+        tapes.clear(); notes.set(0); reads.set(0); filled.set(0); bySource8169.clear()
+        seenSig8285.clear(); lastSigned8285.clear(); latency8285.clear(); noEventTs8285.clear()
+        crossFeedDup8285.set(0); sameFeedDup8285.set(0); unsigned8285.set(0); executed8285.set(0)
+        priceOnly8285.set(0); inferred8285.set(0); venueSplitReads8285.set(0)
+    }
 }

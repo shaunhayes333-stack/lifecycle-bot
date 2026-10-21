@@ -269,6 +269,8 @@ class Aate8191DataPipelineTest {
         assertTrue(d.pairFetchDue8191(null, t0 - d.PAIR_FETCH_GAP_MS_8191, t0))
         assertFalse(d.pairFetchDue8191(t0 - 60_000L, null, t0))                    // fresh pair flow: nothing to fetch
         assertTrue(d.pairFetchDue8191(t0 - 16L * 60_000L, null, t0))              // stale
-        assertTrue(src("engine/DataOrchestrator.kt").contains("DataPipeline8191.claimPairFetch8191(mint)) scope.launch {"))
+        // superseded by V5.0.8285 — the claimed (once a minute) pair fetch joins the DexScreener batch lane
+        assertTrue(src("engine/DataOrchestrator.kt").contains("DataPipeline8191.claimPairFetch8191(mint) &&"))
+        assertTrue(src("engine/DataOrchestrator.kt").contains("ProviderLanes8285.prioFor8285(mint))) drainPairLane8285()"))
     }
 }
