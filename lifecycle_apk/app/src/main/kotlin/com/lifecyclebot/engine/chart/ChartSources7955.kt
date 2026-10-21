@@ -119,8 +119,50 @@ object ChartSources7955 {
         val ctx = appCtx ?: return
         try {
             val k = com.lifecyclebot.data.ConfigStore.marketDataKeys7958(ctx)
+            val before = keys
             keys = Keys(k[0], k[1], k[2], k[3], k[4], k[5])
+            releaseOnKeyChange8294(before)
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.8294 — a provider rested on a 401/403 is released the moment its key changes: 8286 kept a brand-new Codex
+     * key locked behind the old key's six-hour auth rest (codex8179 polls=8 failed=8 with the new key saved).
+     */
+    private fun releaseOnKeyChange8294(before: Keys) {
+        for (p in PROVS) {
+            if (!p.keyed) continue
+            val old = when (p.id) {
+                CMC -> before.cmc; MORALIS -> before.moralis; BITQUERY -> before.bitquery
+                SOLTRACKER -> before.solanaTracker; CODEX -> before.codex; CRYPTOCOMPARE -> before.cryptoCompare
+                else -> ""
+            }
+            if (keyChanged8294(old, keyOf(p.id))) synchronized(p) {
+                p.backoffUntilMs = 0L
+                p.strikes = 0
+                p.why = ""
+                try { ForensicLogger.lifecycle("CHART_SOURCE_KEY_CHANGED_8294", "provider=${p.id} released=true") } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    /** Pure: a new, non-blank key that differs from the one the provider was rested under. */
+    fun keyChanged8294(old: String, new: String): Boolean = new.isNotBlank() && new.trim() != old.trim()
+
+    /** Pure: the reason recorded for a failed response — an auth refusal keeps the provider's own message. */
+    fun failWhy8294(code: Int, body: String?, challenge: Boolean): String = when {
+        challenge -> "cloudflare"
+        code < 0 -> "io"
+        code == 401 || code == 403 -> {
+            val msg = try {
+                val j = org.json.JSONObject(body.orEmpty())
+                j.optJSONArray("errors")?.optJSONObject(0)?.optString("message", "")?.takeIf { it.isNotBlank() }
+                    ?: j.optString("message", "").ifBlank { j.optString("error", "") }
+            } catch (_: Throwable) { body.orEmpty().trim() }
+            val clean = msg.replace(Regex("\\s+"), " ").take(60)
+            if (clean.isBlank()) "auth$code" else "auth$code:$clean"
+        }
+        else -> code.toString()
     }
 
     private fun keyOf(id: String): String = keys.let {
@@ -638,7 +680,7 @@ object ChartSources7955 {
             synchronized(p) {
                 p.backoffUntilMs = maxOf(p.backoffUntilMs, System.currentTimeMillis() + rest)
                 p.strikes = (p.strikes + 1).coerceAtMost(6)
-                p.why = if (challenge) "cloudflare" else if (r.code < 0) "io" else r.code.toString()
+                p.why = failWhy8294(r.code, r.body, challenge)
             }
             if (rest >= 6L * 3_600_000L) try {
                 ForensicLogger.lifecycle("CHART_SOURCE_DISABLED_7955", "provider=${p.id} why=${p.why} hours=${rest / 3_600_000L}")
