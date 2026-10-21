@@ -59,6 +59,21 @@ object DataPipeline8191 {
 
     fun nearDecision8191(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = nearDecisionAt8191(nearDecisionAt[mint], nowMs)
 
+    /**
+     * V5.0.8269: the Helius WebSocket is a small, paid subscription set, not a
+     * second watchlist. Select the newest near-decision mints for its rotating
+     * focus slots; the caller adds HELD mints ahead of this list. A TTL-expired
+     * candidate consumes no capacity. Pool/mint validity is checked by the caller.
+     */
+    fun recentNearDecisionMints8269(limit: Int, nowMs: Long = System.currentTimeMillis()): List<String> =
+        if (limit <= 0) emptyList()
+        else nearDecisionAt.entries.asSequence()
+            .filter { nearDecisionAt8191(it.value, nowMs) }
+            .sortedByDescending { it.value }
+            .take(limit.coerceAtMost(16))
+            .map { it.key }
+            .toList()
+
     private fun held8191(mint: String): Boolean = try { HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }
 
     /** Pure: may Birdeye premium enrichment run for a coin? */
