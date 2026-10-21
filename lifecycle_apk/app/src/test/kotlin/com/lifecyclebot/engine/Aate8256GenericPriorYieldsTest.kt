@@ -12,18 +12,17 @@ import org.junit.Test
 class Aate8256GenericPriorYieldsTest {
     private fun src(rel: String) = java.io.File("src/main/kotlin/com/lifecyclebot/$rel").readText()
 
+    // Superseded by V5.0.8290: the measured shape bin binds over a candidate-specific admission again (8256 reverted;
+    // AUDIT_PREDICTIVE_8290.md F5). The Cortex overrule stays the one exit, then the refusal.
     @Test fun aLaneShapeBinStandsDownForTheCandidatesSupportedSetup() {
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         val shape = gate.substringAfter("val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) }").substringBefore("val v = verdictFor(ts, l, nowMs)")
-        // the Cortex overrule stays first, then the supported admission, then (and only then) the refusal
         val overrule = shape.indexOf("Cortex7885.overrulesEdgeRefusal(ts, l, shape)) return null")
-        val yields = shape.indexOf("if (shape != null && candidateSpecificAdmission8136) {")
         val refuse = shape.indexOf("return \"EDGE_7877_\$shape\"")
-        assertTrue(overrule in 0 until yields)
-        assertTrue(yields < refuse)
-        assertTrue(shape.contains("LIVE_EDGE_SHAPE_YIELDS_TO_CANDIDATE_ADMISSION_8256"))
-        // the refusal branch is the else of the yield: no supported admission, the shape still refuses and is counted
-        assertTrue(shape.contains("} else if (shape != null) {\n            TradeShapeLearner7883.noteRefusal(l, shape)"))
+        assertTrue(overrule in 0 until refuse)
+        assertTrue(!shape.contains("LIVE_EDGE_SHAPE_YIELDS_TO_CANDIDATE_ADMISSION_8256"))
+        assertTrue(shape.contains("LIVE_EDGE_SHAPE_BINDS_OVER_ADMISSION_8290"))
+        assertTrue(shape.contains("TradeShapeLearner7883.noteRefusal(l, shape)"))
         // the supported admission is the record's own specific edge, never a generic native pass
         assertTrue(gate.contains("CandidateAdmission8136.Terminal8136.ADMIT -> candidateSpecificAdmission8136 = admission8136?.specific == true"))
     }

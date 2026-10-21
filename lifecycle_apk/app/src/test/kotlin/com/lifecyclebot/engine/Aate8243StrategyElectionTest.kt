@@ -62,7 +62,9 @@ class Aate8243StrategyElectionTest {
         val coord = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt").readText()
         assertTrue(coord.contains("StrategyElection8243.ownerOrder8243(scores, verdicts) ?: convictionWinner"))
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
-        assertTrue(gate.contains("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_"))
+        // Superseded by V5.0.8290: a specific ADMIT no longer stands the spike-chase rule down (8243 stand-down reverted).
+        assertTrue(!gate.contains("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_"))
+        assertTrue(gate.contains("if (candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, \"CHASING_SPIKE_8065\", candidateVersion)"))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("raw == \"FRESH_LAUNCH_SETUP_STOPS_FIRST_7737\" && admitted8243"))
         assertTrue(fdg.contains("freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)"))

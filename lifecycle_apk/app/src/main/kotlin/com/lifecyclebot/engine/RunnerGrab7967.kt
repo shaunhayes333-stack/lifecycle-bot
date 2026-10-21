@@ -132,7 +132,8 @@ object RunnerGrab7967 {
 
     /** The proven runner cell this token sits in now, or null. */
     private fun provenCellFor(ts: TokenState, nowMs: Long): String? = RUNNER_LANES.firstNotNullOfOrNull { l ->
-        stat(l, ts, nowMs)?.takeIf { provenCell7967(it.n60, it.meanNet60Pct, it.stderr60Pct) }?.key
+        // V5.0.8290 — an OUTLIER_SUSPECT cell (RobustLabelRead8185) is not a proven runner cell.
+        stat(l, ts, nowMs)?.takeIf { !it.outlierSuspect8185 && provenCell7967(it.n60, it.meanNet60Pct, it.stderr60Pct) }?.key
     }
 
     /**
@@ -191,7 +192,7 @@ object RunnerGrab7967 {
      */
     fun grabEvidence8245(ts: TokenState, nowMs: Long = System.currentTimeMillis()): GrabEvidence8245? {
         if (!grab7967(ts.mint, nowMs)) return null
-        val st = RUNNER_LANES.firstNotNullOfOrNull { l -> stat(l, ts, nowMs)?.takeIf { provenCell7967(it.n60, it.meanNet60Pct, it.stderr60Pct) } } ?: return null
+        val st = RUNNER_LANES.firstNotNullOfOrNull { l -> stat(l, ts, nowMs)?.takeIf { !it.outlierSuspect8185 && provenCell7967(it.n60, it.meanNet60Pct, it.stderr60Pct) } } ?: return null  // V5.0.8290
         return GrabEvidence8245(st.key, st.n60, st.meanNet60Pct, st.stderr60Pct)
     }
 
@@ -209,6 +210,7 @@ object RunnerGrab7967 {
      */
     fun cellBeatsLane7970(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val st = stat(lane, ts, nowMs) ?: return false
+        if (st.outlierSuspect8185) return false   // V5.0.8290 — a suspect cell beats nothing
         val ok = cellClearsBar7970(st.n60, st.meanNet60Pct, st.stderr60Pct)
         if (ok) try { PipelineHealthCollector.labelInc("CELL_BEATS_LANE_7970_${lane.uppercase()}") } catch (_: Throwable) {}
         return ok
