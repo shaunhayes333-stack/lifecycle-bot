@@ -2711,6 +2711,11 @@ object Cortex7885 {
         val strongGrossMedian8198: Double = Double.NaN, val neutralGrossMedian8198: Double = Double.NaN, val refuseGrossMedian8198: Double = Double.NaN,
         /** 8198 — the lane's executable offset (points subtracted from every net read), shown so the net figures are legible. */
         val execOffset8198: Double = 0.0,
+        /** 8269 — the original AATE provisional TAKE/REFUSE decision, not the Cortex bucket. */
+        val aateTakeN8269: Int = 0, val aateRefuseN8269: Int = 0,
+        val aateTakeGrossMedian8269: Double = Double.NaN, val aateRefuseGrossMedian8269: Double = Double.NaN,
+        val aateTakeNetMedian8269: Double = Double.NaN, val aateRefuseNetMedian8269: Double = Double.NaN,
+        val aateTakeNetMean8269: Double = Double.NaN, val aateRefuseNetMean8269: Double = Double.NaN,
     )
     data class UiSeat8069(val key: String, val authority: Double, val skillPct: Double, val n: Int)
     data class UiVeto8069(val reason: String, val n: Int, val meanPct: Double, val sePct: Double)
@@ -2738,12 +2743,17 @@ object Cortex7885 {
                 // V5.0.8153 — the verdict stats come from the tradeable grade records (executable, first of episode, on time);
                 // the decayed bucket books still carry the pre-8146 repeat-inflated labels and are kept as legacy fields only.
                 val v = LearningEntryTruth8153.verdictRow8153(gradeBook8144, lane)
+                val d8269 = LearningEntryTruth8153.decisionRow8269(gradeBook8144, lane)
                 UiLane8069(lane, b.byBucket.sumOf { it.n }.toInt(), v.strongN, v.strongMean, v.neutralN, v.neutralMean,
                     v.refuseN, v.refuseMean, calibration.slope(lane), auth, powers,
                     legacyStrongMean8153 = b.byBucket[2].mean(), legacyRefuseMean8153 = b.byBucket[0].mean(), source8153 = "TRADEABLE_8153",
                     strongMedian8165 = v.strongMedian, neutralMedian8165 = v.neutralMedian, refuseMedian8165 = v.refuseMedian,
                     strongGrossMedian8198 = v.strongGrossMedian8198, neutralGrossMedian8198 = v.neutralGrossMedian8198, refuseGrossMedian8198 = v.refuseGrossMedian8198,
-                    execOffset8198 = execOffsetByLane8187[lane] ?: 0.0)
+                    execOffset8198 = execOffsetByLane8187[lane] ?: 0.0,
+                    aateTakeN8269 = d8269.takeN, aateRefuseN8269 = d8269.refuseN,
+                    aateTakeGrossMedian8269 = d8269.takeGrossMedian, aateRefuseGrossMedian8269 = d8269.refuseGrossMedian,
+                    aateTakeNetMedian8269 = d8269.takeNetMedian, aateRefuseNetMedian8269 = d8269.refuseNetMedian,
+                    aateTakeNetMean8269 = d8269.takeNetMean, aateRefuseNetMean8269 = d8269.refuseNetMean)
             }
             val vetoes = vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(10).map { (k, st) ->
                 UiVeto8069(k, st.n.toInt(), st.mean(), if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.NaN)
