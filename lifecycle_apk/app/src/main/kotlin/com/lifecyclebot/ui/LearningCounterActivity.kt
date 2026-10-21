@@ -387,22 +387,26 @@ class LearningCounterActivity : Activity() {
         addHeader("🛣️ Cortex · lanes")
         if (ui.lanes.isEmpty()) addText("no graded decisions yet", AateUi.TEXT_MUTED)
         ui.lanes.forEach { l ->
-            // V5.0.8165 — the headline is the TYPICAL coin of each verdict (median): one 1,000x+ label moved every lane's REFUSE
-            // mean by thousands of points and the panel read "backwards". Means stay in the detail line. Grey until STRONG
-            // has 5 graded coins: n0-n4 is no comparison.
-            // 8198 — the headline is the typical coin's GROSS move (price only). The net medians (charged cost, unmeasured-fill
-            // haircut and the lane's executable offset subtracted) sit in the detail line with the offset named: on a flat
-            // typical coin they read the same cost constant in every lane, so the panel was comparing costs, not verdicts.
-            val gap = if (l.strongN >= 5 && l.refuseN >= 5) l.strongGrossMedian8198 - l.refuseGrossMedian8198 else Double.NaN
+            // 8269: the LEFT/RIGHT performance comparison must answer the
+            // operator's actual question, "what AATE would TAKE versus REFUSE?"
+            // The Cortex STRONG/REFUSE model verdict is a separate diagnostic,
+            // NOT the historical decision label and NOT verified live P&L.
+            val gap = if (l.aateTakeN8269 >= 5 && l.aateRefuseN8269 >= 5)
+                l.aateTakeGrossMedian8269 - l.aateRefuseGrossMedian8269 else Double.NaN
             target7023().addView(AateComponents6994.metricRow(this, l.lane,
-                "${pct8069(l.strongGrossMedian8198)} / ${pct8069(l.refuseGrossMedian8198)}",
+                "${pct8069(l.aateTakeGrossMedian8269)} / ${pct8069(l.aateRefuseGrossMedian8269)}",
                 when { !gap.isFinite() -> AateUi.TEXT_MUTED; gap > 0.0 -> AateUi.GREEN; else -> AateUi.RED },
-                "gross median STRONG n${l.strongN} vs REFUSE n${l.refuseN} · neutral gross ${pct8069(l.neutralGrossMedian8198)} n${l.neutralN} · net median ${pct8069(l.strongMedian8165)} / ${pct8069(l.refuseMedian8165)} (neutral ${pct8069(l.neutralMedian8165)}) · net mean ${pct8069(l.strongMean)} / ${pct8069(l.refuseMean)} (neutral ${pct8069(l.neutralMean)}) · exec offset -${"%.1f".format(l.execOffset8198)}pt · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}" +
-                    (if (l.source8153.isNotBlank()) " · tradeable records (legacy decayed book ${pct8069(l.legacyStrongMean8153)} / ${pct8069(l.legacyRefuseMean8153)})" else "")))
+                "AATE would TAKE n${l.aateTakeN8269} vs REFUSE n${l.aateRefuseN8269} · gross median, same executable forward-label population · " +
+                    "net median ${pct8069(l.aateTakeNetMedian8269)} / ${pct8069(l.aateRefuseNetMedian8269)} · net mean ${pct8069(l.aateTakeNetMean8269)} / ${pct8069(l.aateRefuseNetMean8269)} · " +
+                    "Cortex predicted STRONG n${l.strongN} ${pct8069(l.strongGrossMedian8198)} vs REFUSE n${l.refuseN} ${pct8069(l.refuseGrossMedian8198)} · " +
+                    "neutral n${l.neutralN} ${pct8069(l.neutralGrossMedian8198)} · " +
+                    "Cortex net median ${pct8069(l.strongMedian8165)} / ${pct8069(l.refuseMedian8165)} · " +
+                    "exec offset -${"%.1f".format(l.execOffset8198)}pt · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}" +
+                    (if (l.source8153.isNotBlank()) " · executable first-of-episode on-time labels; old decayed cohorts display-only" else "")))
             target7023().addView(AateComponents6994.barRow(this, "authority", (l.auth * 100.0).coerceIn(0.0, 100.0),
                 if (l.auth > 0.0) AateUi.GREEN else AateUi.TEXT_MUTED))
         }
-        addText("left = the gross price move of the typical coin it read STRONG, right = the typical coin it read REFUSE (medians, before costs). Net medians/means after the charged round trip, fill haircut and the lane's executable offset are in the detail line. Green: it tells winners from losers. Grey: under 5 graded STRONG or REFUSE coins.", AateUi.TEXT_MUTED, small = true)
+        addText("Left = typical gross price move of tokens AATE would TAKE; right = ones it would REFUSE. These are decision-time counterfactual labels, not confirmed trading profits. Cortex STRONG/REFUSE predictions remain in each lane's detail. Colour needs 5+ qualified labels on both sides; the authority bar reports STRONG-side power, not refusal power.", AateUi.TEXT_MUTED, small = true)
 
         addHeader("🎯 Cortex · setups")
         val setups = cachedSetups8069
