@@ -1592,7 +1592,11 @@ object ForwardReturnLabeler7731 {
         val k = kindOf8063(ts).split('/')
         if (k.size != 2) return emptyList()
         val l = lane.trim().uppercase()
-        return listOfNotNull(executable8187(cellStat(kindKey8063(l, k[0], mcapBand(TrustedMcap8019.mcap8019(ts)))), l), executable8187(cellStat(narrKey8063(l, k[1])), l))  // V5.0.8187
+        // V5.0.8280 — an UNKNOWN narrative is not a kind: NARR|lane|UNKNOWN is the whole lane minus the classified coins
+        // (8279: NARR|SHITCOIN|UNKNOWN n=1024 +368 % OUTLIER_SUSPECT), and it must not prove live money for any coin.
+        val narr = k[1].trim().uppercase()
+        val narrStat = if (narr.isBlank() || narr == "UNKNOWN") null else executable8187(cellStat(narrKey8063(l, k[1])), l)
+        return listOfNotNull(executable8187(cellStat(kindKey8063(l, k[0], mcapBand(TrustedMcap8019.mcap8019(ts)))), l), narrStat)  // V5.0.8187
     }
 
     private fun laneStat(lane: String): CellStat? = cellStat(laneKey(lane.trim().uppercase()))

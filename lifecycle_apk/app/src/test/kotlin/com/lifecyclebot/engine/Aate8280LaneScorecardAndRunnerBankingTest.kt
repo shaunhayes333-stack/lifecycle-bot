@@ -61,5 +61,9 @@ class Aate8280LaneScorecardAndRunnerBankingTest {
         assertTrue(header.contains("appendLaneScorecard8280(sb)"))
         assertTrue(phc.contains("LiveConfidenceStats.byLane8280(LiveEntrySafetyHold.governorWindowStart())"))
         assertTrue(phc.contains("LiveConfidenceStats.byLane8280(0L)"))
+        // 8281: an UNKNOWN narrative is not a proven kind (NARR|lane|UNKNOWN = the unclassified rest of the lane)
+        val frl = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        val kind = frl.substringAfter("fun kindStatsFor8063(").substringBefore("private fun laneStat(")
+        assertTrue(kind.contains("if (narr.isBlank() || narr == \"UNKNOWN\") null else"))
     }
 }
