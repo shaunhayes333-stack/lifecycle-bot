@@ -277,6 +277,12 @@ object HardRugPreFilter {
         // CHECK 3: No history (can't evaluate)
         // ─────────────────────────────────────────────────────────────────
         if (hist.isEmpty()) {
+            // V5.0.8292 — screening hard-fail superseded by V5.0.8292; same rule as V5.0.7147's grace arm: a token whose candles have not landed yet is not a
+            // rug. Screening keeps it in evaluation; the buy door (spendAuthorization) still hard-fails it.
+            if (!spendAuthorization) {
+                try { PipelineHealthCollector.labelInc("RUG_PREFILTER_NO_HISTORY_SCREENED_8292") } catch (_: Throwable) {}
+                return PreFilterResult(pass = true, reason = "NO_HISTORY_HYDRATING_8292", severity = FilterSeverity.SOFT_FAIL)
+            }
             return PreFilterResult(
                 pass = false,
                 reason = "NO_HISTORY",
@@ -287,8 +293,11 @@ object HardRugPreFilter {
         // ─────────────────────────────────────────────────────────────────
         // CHECK 4: Instant liquidity drain pattern
         // ─────────────────────────────────────────────────────────────────
-        if (hist.size >= 3) {
-            val volumes = hist.takeLast(3).map { it.vol }
+        // V5.0.8292 — real candles only: a tick-appended synthetic candle carries no volume, so a
+        // real -> synthetic step read as a 100% volume collapse and hard-failed the token as a rug.
+        val realVolHist8292 = hist.filter { !it.synthetic }
+        if (realVolHist8292.size >= 3) {
+            val volumes = realVolHist8292.takeLast(3).map { it.vol }
             val isCollapsing = volumes.zipWithNext { a, b -> b < a * 0.5 }.count { it } >= 2
             
             if (isCollapsing && liq < 5000) {
@@ -403,8 +412,9 @@ object HardRugPreFilter {
         }
 
         // CHECK 4 mirror — liquidity collapse pattern
-        if (hist.size >= 3) {
-            val volumes = hist.takeLast(3).map { it.vol }
+        val realVolHist8292 = hist.filter { !it.synthetic }  // V5.0.8292 — mirror of the strict check
+        if (realVolHist8292.size >= 3) {
+            val volumes = realVolHist8292.takeLast(3).map { it.vol }
             val isCollapsing = volumes.zipWithNext { a, b -> b < a * 0.5 }.count { it } >= 2
             if (isCollapsing && liq < 5000) {
                 labels.add("LIQUIDITY_COLLAPSE_PATTERN")

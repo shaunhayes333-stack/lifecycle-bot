@@ -373,6 +373,8 @@ object ForwardReturnLabeler7731 {
     fun laneDecisionStats8094(lane: String): Pair<CellStat?, CellStat?> =
         cellStat(laneDecisionKey8094(lane, true)) to cellStat(laneDecisionKey8094(lane, false))
     private fun sourceKey(src: String) = "SRC|$src"
+    /** V5.0.8292 — read-only: the 60-minute record of a discovery source's family (scanner ranking / probation throttle). */
+    fun sourceStat8292(source: String): CellStat? = cellStat(sourceKey(sourceFamily(source)))
     /** V5.0.7928 — lane x lifecycle stage: does this lane's play pay at this stage? */
     fun stageKey7928(lane: String, stage: String) = "STAGE|${lane.trim().uppercase()}|${stage.trim().uppercase()}"
     /** V5.0.8019 — lane x cap band across every source and age: the record that says "this lane loses under $10k". */

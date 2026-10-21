@@ -168,7 +168,8 @@ object ScannerSourceBrain {
      * asking "how is PUMP_FUN_NEW doing?" means.
      */
     private fun componentKeys6856(source: String): List<String> {
-        val full = source.trim().uppercase()
+        // V5.0.8292 — pathway tags (SCANNER_DIRECT, REGISTRY_DUPLICATE_HYDRATE, ...) are not sources.
+        val full = normalise(source)
         if (full.isBlank()) return emptyList()
         val parts = full.split(',', ';', '|', '/', '+')
             .map { it.trim() }
@@ -399,7 +400,10 @@ object ScannerSourceBrain {
     fun summary(): String {
         if (stats.isEmpty()) return "ScannerSourceBrain: bootstrap (no samples yet)"
         val sb = StringBuilder("ScannerSourceBrain (V5.0.4097): ${stats.size} sources\n")
-        stats.entries.sortedByDescending { it.value.samples() }.take(12).forEach { (src, s) ->
+        // V5.0.8292 — legacy pathway keys (SCANNER_DIRECT, ...REGISTRY_DUPLICATE_HYDRATE) are kept, not shown as sources.
+        val legacy8292 = stats.keys.count { normalise(it) != it }
+        if (legacy8292 > 0) sb.append("  legacyPathwayKeys8292=$legacy8292 (stored, unread)\n")
+        stats.entries.filter { normalise(it.key) == it.key }.sortedByDescending { it.value.samples() }.take(12).forEach { (src, s) ->
             val n = s.samples()
             val tier = authority(src).name
             val wr = (s.winRate() * 100).toInt()
@@ -423,7 +427,10 @@ object ScannerSourceBrain {
     // cohort and then shaped intake for every source that had lost its label —
     // the same placeholder-as-identity defect V5.0.6851 removed from the terminal
     // ledgers. Lookups on a blank now simply miss and fall through to neutral.
-    private fun normalise(s: String): String = s.trim().uppercase()
+    // V5.0.8292 — canonical: pathway tags dropped and "SCANNER_DIRECT_X" read as X, so
+    // "PUMP_FUN_NEW,SCANNER_DIRECT" and "SCANNER_DIRECT_PUMP_FUN_NEW" resolve to the source PUMP_FUN_NEW and a
+    // pure pathway ("SCANNER_DIRECT") resolves to nothing (neutral). Legacy pathway keys stay stored, unread.
+    private fun normalise(s: String): String = ScannerSourceTags8292.canonicalCompound8292(s)
 
     private fun save() {
         val c = ctx ?: return

@@ -990,7 +990,10 @@ object GlobalTradeRegistry {
      */
     fun updateProbationScanner(mint: String, scanner: String): Boolean {
         val entry = probation[mint] ?: return false
-        entry.additionalScanners.add(scanner)
+        // V5.0.8292 — same identity rule as 7475/7819: the row's own scanner (or a pathway tag) is no confirmation.
+        val incoming8292 = normalizeProbationSource7819(scanner)
+        if (incoming8292.isBlank() || incoming8292 in probationSourceKeys7819(entry.source, entry.addedBy)) return false
+        entry.additionalScanners.add(incoming8292)
 
         // Auto-promote if multi-scanner confirmed
         if (entry.additionalScanners.size >= 1 && entry.isSingleSource) {
@@ -1104,8 +1107,10 @@ object GlobalTradeRegistry {
                     }
                     continue
                 }
+                // V5.0.8292 — no evidence + a proven-losing PROBATION pathway: the row stays observable, not promoted.
+                if (ScannerSourceQuality8292.timeoutPromoteWithheld8292(entry)) continue
                 promoteFromProbation(mint, "TIMEOUT_AUTO_PROMOTE")
-                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_AUTO_PROMOTE", entry.initialMcap, entry.initialLiquidity))
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_AUTO_PROMOTE", entry.initialMcap, entry.initialLiquidity).withSource8292(entry))
                 continue
             }
 
@@ -1118,7 +1123,7 @@ object GlobalTradeRegistry {
                 if (priceChange >= 5.0) {
                     // Price up 5%+ = promote
                     promoteFromProbation(mint, "PRICE_UP:${priceChange.toInt()}%")
-                    results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "PRICE_UP", entry.initialMcap, entry.initialLiquidity))
+                    results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "PRICE_UP", entry.initialMcap, entry.initialLiquidity).withSource8292(entry))
                     continue
                 }
                 if (priceChange <= -20.0) {
@@ -1132,14 +1137,14 @@ object GlobalTradeRegistry {
             // Check if multi-scanner confirmed
             if (entry.additionalScanners.isNotEmpty()) {
                 promoteFromProbation(mint, "MULTI_CONFIRM")
-                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "MULTI_CONFIRM", entry.initialMcap, entry.initialLiquidity))
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "MULTI_CONFIRM", entry.initialMcap, entry.initialLiquidity).withSource8292(entry))
                 continue
             }
 
             // V5.2: Check if RC confirmed (RC >= 2 is great for promotion)
             if (entry.rcScore >= 2) {
                 promoteFromProbation(mint, "RC_OK:${entry.rcScore}")
-                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "RC_OK", entry.initialMcap, entry.initialLiquidity))
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "RC_OK", entry.initialMcap, entry.initialLiquidity).withSource8292(entry))
                 continue
             }
         }
@@ -1157,7 +1162,12 @@ object GlobalTradeRegistry {
         // returned null and every promotion reached intake with liquidity 0.
         val initialMcap: Double = 0.0,
         val initialLiquidity: Double = 0.0,
-    )
+        // V5.0.8292 — the scanners that found the row, so a promotion keeps its discovery provenance.
+        val source: String = "",
+        val addedBy: String = "",
+    ) {
+        fun withSource8292(e: ProbationEntry): ProbationResult = copy(source = e.source, addedBy = e.addedBy)
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // V5.0.7819 §DEMOTED_ROW_PING_PONG (Field Manual L337, L384).
@@ -1187,7 +1197,9 @@ object GlobalTradeRegistry {
         if (s.contains(':')) s = s.substringAfterLast(':').trim()
         while (s.startsWith("DEMOTED_")) s = s.removePrefix("DEMOTED_")
         while (s.endsWith("+PROBATION")) s = s.removeSuffix("+PROBATION")
-        return s.trim()
+        // V5.0.8292 — "SCANNER_DIRECT_X" is scanner X; a bare pathway tag is no scanner at all, so the
+        // creating scanner's own direct/duplicate-hydrate echo can never count as a second scanner.
+        return ScannerSourceTags8292.canonicalTag8292(s)
     }
 
     /** V5.0.7819 — every scanner identity a probation row already carries. */

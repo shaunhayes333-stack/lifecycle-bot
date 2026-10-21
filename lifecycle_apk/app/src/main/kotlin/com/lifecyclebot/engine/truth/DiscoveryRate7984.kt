@@ -34,6 +34,24 @@ object DiscoveryRate7984 {
         if (seen.size > MAX_SEEN) seen.entries.removeIf { nowMs - it.value > SEEN_MS }
     }
 
+    /**
+     * V5.0.8292 — one scanner sighting reaches intake two or three times inside seconds (the direct callback, the
+     * merge-queue emit 2-5 s later). Those echoes are one discovery, not repeats: counting them as repeats put
+     * newShare at ~14% (5.0.8286) when the scanner's own re-serving was the real churn. An intake within
+     * [ECHO_MS_8292] of the mint's last accepted intake is counted as an echo instead.
+     */
+    const val ECHO_MS_8292 = 15_000L
+    private val echoTotal8292 = AtomicLong(0)
+
+    /** Pure. */
+    fun isEcho8292(prevAcceptAtMs: Long?, nowMs: Long): Boolean =
+        prevAcceptAtMs != null && nowMs - prevAcceptAtMs in 0L until ECHO_MS_8292
+
+    /** BotService intake: a mint already accepted — an echo of that sighting, or a real repeat. */
+    fun noteRepeat8292(mint: String, prevAcceptAtMs: Long?, nowMs: Long = System.currentTimeMillis()) {
+        if (isEcho8292(prevAcceptAtMs, nowMs)) echoTotal8292.incrementAndGet() else note7984(mint, false, nowMs)
+    }
+
     private fun prune(nowMs: Long) {
         while (newTimes.isNotEmpty() && nowMs - newTimes.peekFirst() > WINDOW_MS) newTimes.removeFirst()
         while (repeatTimes.isNotEmpty() && nowMs - repeatTimes.peekFirst() > WINDOW_MS) repeatTimes.removeFirst()
@@ -45,6 +63,6 @@ object DiscoveryRate7984 {
 
     fun line7984(nowMs: Long = System.currentTimeMillis()): String {
         val (n10, r10) = synchronized(this) { prune(nowMs); newTimes.size.toLong() to repeatTimes.size.toLong() }
-        return "last10m new=$n10 repeat=$r10 newShare=${newSharePct7984(n10, r10)}% · session new=${newTotal.get()} repeat=${repeatTotal.get()} newShare=${newSharePct7984(newTotal.get(), repeatTotal.get())}%"
+        return "last10m new=$n10 repeat=$r10 newShare=${newSharePct7984(n10, r10)}% · session new=${newTotal.get()} repeat=${repeatTotal.get()} newShare=${newSharePct7984(newTotal.get(), repeatTotal.get())}% echo8292=${echoTotal8292.get()}"
     }
 }
