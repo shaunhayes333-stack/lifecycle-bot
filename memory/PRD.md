@@ -2,7 +2,27 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8270–8275 (Oct 2026) — directive repairs on main (PR #64 merged); CI pending on 8271–8275
+## CURRENT: V5.0.8279 (Oct 2026) — SELECT LIKE 8114: the quality filters that chose the 8085–8114 runners bind again
+- Owner: "8114 found huge runners, so did 8085/8086; now it just finds trash." Audit of `379ad2fa0` (8114) vs main:
+  the 8114 live door was LIVE_PROVEN_SETUP_ONLY_8059 (proven setup / cell / kind, measured edge, RunnerGrab on a
+  PROVEN runner cell, RunnerPlay ticket, shadow audit, 3-coin/6 h cold start, RunnerTicket budget) + the V3 floor (7843)
+  + CHASING_SPIKE_8065 (developing-run grab exempt, 8117) + learned setup/timing/tactic negatives + watch-first + Cortex
+  REFUSE-record veto + V3 base signal + cell proof ladder + legacy edge veto. Since then three changes stood all of it
+  down: **8259** made a native rule firing (`NATIVE_QUALIFIED_ADMIT_8259`, incl. 8260 `RUNNER_FORMING_8260` = any firming
+  chart) a `specific=true` admission, which LiveEdgeGate/FDG treat as "already judged" (8201/8203/8207/8243/8244/8256/
+  8161 stand-downs); **8269** replaced the Cortex scoreboard veto with a held-out-only proof (8261: shadow refuse=1557,
+  refusedLive=0); **8244** made trunk Field Manual / plan / council refuse only unanimously. 8261 live: WR 18 %, pf 0.67,
+  MOONSHOT buys at $16k on IGNITION while the playbook read the setup negative (PLAYBOOK_SETUP_EXPECTED_NEGATIVE ×54).
+- 8279 (`1b9ec5bae`, **CI ✅ green on main**, run 39586220124; 8278 `9e75c650d` also ✅): native qualification admits as the lane's OPINION (`specific=false`, behind the V3
+  floor; still clears the 8238 live lock, which 8114 did not have) ⇒ every 8114 door judges it again; Cortex live veto =
+  scoreboard proof (n≥40, mean+SE<0, below rest, no runner tail) OR held-out proof; trunk council: each refusal binds.
+  Tests: Aate8213/8260/8243/8269 updated to the 8279 contract. Infrastructure since 8114 (candidate record, rescue,
+  rotation, finality, learning) untouched. Expect fewer, better-filtered live entries; runner entries need the proven
+  runner cell again (8114 doctrine) — bounded exploration stays via cold start / RunnerTicket.
+- 8276 CI ❌ (rotation test + runtime smoke); 8277 (test fixes) / 8278 (SIZE_NOT_EXECUTABLE not a token-wide wall) CI
+  were still running when 8279 was pushed.
+
+## V5.0.8270–8275 (Oct 2026) — directive repairs on main (PR #64 merged)
 - Main refreshed to 8268 and **PR #64 `repair/helius-first-8269` (32 commits) merged** (`2816605fa`); its one failing
   test (`Aate8057CompoundingSizerTest`) now checks the resolver-never-enlarges + never-below-sealed-minimum shape.
 - 8270: §6/R8 **rotation lifecycle** `OpportunityRotation8098` RESERVED→SELL_PENDING→CAPITAL_CONFIRMED→
