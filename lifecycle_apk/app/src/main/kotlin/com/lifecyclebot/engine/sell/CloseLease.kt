@@ -245,10 +245,12 @@ object CloseLease {
         val now = System.currentTimeMillis()
         l.lastTouchMs = now
         l.inFlight = false
-        l.preRouteEligibleAtMs8288 = 0L   // V5.0.8288 — a real route attempt keeps the 7807 cadence
+        // V5.0.8288 — a real route attempt keeps the 7807 cadence; a pre-route short clock still standing is not a backoff.
+        val preRouteClock8299 = l.preRouteEligibleAtMs8288 > 0L && l.nextEligibleMs == l.preRouteEligibleAtMs8288
+        l.preRouteEligibleAtMs8288 = 0L
         // If the route did not set provider-specific backoff, still prevent an
         // immediate same-tick retry storm while allowing the next cycle through.
-        if (l.nextEligibleMs <= now) l.nextEligibleMs = now + 2_000L
+        if (preRouteClock8299 || l.nextEligibleMs <= now) l.nextEligibleMs = now + 2_000L
         // V5.0.8087 — an emergency queued behind this attempt does not inherit its backoff.
         val waiting8094 = l.emergencyWaiting8087
         waiting8094?.let { r -> l.nextEligibleMs = now; handoff8087(mint, r, l) }

@@ -30,8 +30,9 @@ class Aate8201AdmittedTerminalTest {
         val terminals = Regex("admittedTerminal8201\\(ts, lane, ").findAll(gate).count()
         // V5.0.8243 — the spike heuristic no longer ends an admitted candidate (it stands down, counted); setup refusal, watch-first and the core verdict name the terminal.
         assertTrue("setup refusal, watch-first and the core verdict each name the terminal", terminals >= 3)
-        // Superseded by V5.0.8290: the spike-chase rule names the admitted terminal again (no CHASE stand-down).
-        assertTrue(!gate.contains("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_"))
+        // Superseded by V5.0.8290/8298: the spike-chase rule names the admitted terminal again; the CHASE stand-down holds
+        // only for a lane whose realised live record earned it (RegressionRestore8298).
+        assertTrue(gate.contains("val admittedJudged8201 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l8059, nowMs)"))
         assertTrue(gate.contains("admittedTerminal8201(ts, lane, \"CHASING_SPIKE_8065\", candidateVersion)"))
         assertTrue(gate.contains("""if (!paper && candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, why ?: "ALLOW", candidateVersion)"""))
         assertTrue(gate.contains("""PipelineHealthCollector.labelInc("ADMITTED_THEN_${'$'}{terminal.take(48)}_8201_${'$'}l")"""))
