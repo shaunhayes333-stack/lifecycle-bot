@@ -141,18 +141,19 @@ object CortexOutcomeRoute8144 {
         sealedMode: String?, sealedMint: String?, sealedLane: String?, sealedSetupTag: String?,
         snapshotSetupTag: String?, entryLane: String, entrySetup: String,
     ): Owner8144 {
-        val entry = setupOf8144(entrySetup)
+        val entry = setupOf8144(entrySetup).takeUnless { LaneSetupAttribution8295.deskSetup8295(it) }.orEmpty()
         val sealed = sealedLane?.trim()?.uppercase().orEmpty()
         val sealedOk = sealed.isNotBlank() && sealedMode != null && sealedMode.equals(closeMode, true) && sealedMint == closeMint
         if (sealedOk) {
             val s = setupOf8144(sealedSetupTag)
-            if (s.isNotBlank()) {
+            // V5.0.8295 — a desk toolkit name filled into the seal at close is not a playbook owner: fall through.
+            if (s.isNotBlank() && !LaneSetupAttribution8295.deskSetup8295(s)) {
                 val mismatch = (entry.isNotBlank() && entry != s) || !sealed.equals(entryLane.trim(), true)
                 return Owner8144(sealed, s, Attribution8144.SEALED_IDENTITY, mismatch)
             }
         }
         val lane = if (sealedOk) sealed else entryLane.trim().uppercase()
-        val snap = setupOf8144(snapshotSetupTag)
+        val snap = setupOf8144(snapshotSetupTag).takeUnless { LaneSetupAttribution8295.deskSetup8295(it) }.orEmpty()
         if (snap.isNotBlank()) return Owner8144(lane, snap, Attribution8144.ENTRY_SNAPSHOT, entry.isNotBlank() && entry != snap)
         if (entry.isNotBlank()) return Owner8144(lane, entry, Attribution8144.CORTEX_ENTRY, false)
         return Owner8144(lane, "", Attribution8144.UNVERIFIABLE, false)

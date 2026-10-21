@@ -1614,6 +1614,8 @@ object Cortex7885 {
 
     /** V5.0.8187 — [closes, mean realised %] of (lane, setup) in the account mode, read lock-free; null when none. */
     fun setupRealised8187(laneRaw: String, setup: String): DoubleArray? = realisedBySetup8187["${canon(laneRaw)}|$setup"]
+    /** V5.0.8295 — [closes, mean realised %] of every attributed close of the lane in the account mode (LaneRealisedGovernor8295). */
+    fun laneRealised8295(laneRaw: String): DoubleArray? = LaneRealisedGovernor8295.laneOf8295(realisedBySetup8187, canon(laneRaw))
 
     /** Caller holds the lock. Recompute every lane's offset and the setups' realised records; apply them to the books. */
     private fun refreshExecutable8187(nowMs: Long) {
@@ -1635,7 +1637,9 @@ object Cortex7885 {
             val off = execOffset8187(costGap8187(atTicket, chase, charged), sf[0], sf[1])
             execOffsetByLane8187[lane] = off
             board.books[lane]?.applyOffset8187(off)
-            for (setup in gradeBook8144.realisedBySetup8187(lane, mode).entries) realisedBySetup8187["$lane|${setup.key}"] = setup.value
+            val fresh8295 = gradeBook8144.realisedBySetup8187(lane, mode)  // V5.0.8295 — a setup absent in this mode drops (no paper/live carry-over)
+            realisedBySetup8187.keys.removeIf { it.startsWith("$lane|") && it.substringAfter('|') !in fresh8295 }
+            for (setup in fresh8295.entries) realisedBySetup8187["$lane|${setup.key}"] = setup.value
             // V5.0.8291 — the lane's own recent realised closes in this mode (every setup), for the setup authority cap.
             realisedByLane8291[lane] = laneRealised8291(gradeBook8144.realisedSeries(lane, null, null, mode))
         }

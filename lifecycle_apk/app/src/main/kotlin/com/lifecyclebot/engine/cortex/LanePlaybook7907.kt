@@ -708,10 +708,23 @@ object LanePlaybook7907 {
     private fun stat(lane: String, setup: String): CortexLedger7885.Stat? {
         val raw = statRaw8187(lane, setup) ?: return null
         val rr = try { Cortex7885.setupRealised8187(lane, setup) } catch (_: Throwable) { null }
-        return try {
-            Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane), rr?.getOrNull(0) ?: 0.0, rr?.getOrNull(1) ?: Double.NaN)
+        // V5.0.8295 — losing realised closes are applied by LaneRealisedGovernor8295 (from the first close, with the lane's own
+        // bank); the 8187 blend keeps only its other direction here so a losing close is never counted twice.
+        val rrN = rr?.getOrNull(0) ?: 0.0; val rrM = rr?.getOrNull(1) ?: Double.NaN
+        val exec = try {
+            Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane), if (rrM.isFinite() && rrM > 0.0) rrN else 0.0, rrM)
         } catch (_: Throwable) { raw }
+        return try { LaneRealisedGovernor8295.governedCopy8295(exec, rr, laneRealised8295(lane)) } catch (_: Throwable) { exec }
     }
+
+    /** V5.0.8295 — the lane's live realised record [closes, mean %] (account mode), cached; null with none. */
+    private fun laneRealised8295(lane: String): DoubleArray? =
+        LaneRealisedGovernor8295.laneRealised8295(lane, System.currentTimeMillis()) { l -> Cortex7885.laneRealised8295(l) }
+
+    /** V5.0.8295 — a runner lane's tail exemption holds only while the lane's realised closes are not losing. */
+    private fun runnerTail8295(lane: String): Boolean =
+        (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }) &&
+            !LaneRealisedGovernor8295.tailRefuted8295(try { laneRealised8295(lane) } catch (_: Throwable) { null })
 
     private fun statRaw8187(lane: String, setup: String): CortexLedger7885.Stat? {
         val local = books[lane]?.stats?.get(setup)?.takeIf { it.n == 0.0 ||
@@ -1036,7 +1049,7 @@ object LanePlaybook7907 {
         if (setup == null) return null
         return try {
             val lane = canon(laneRaw)
-            val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+            val runner = runnerTail8295(lane)  // V5.0.8295 — a losing lane bank refutes the label runner tail
             val why: String? = synchronized(this) {
                 val st = stat(lane, setup)
                 when {
@@ -1399,7 +1412,7 @@ object LanePlaybook7907 {
     fun provenLosingNamedSetupRefusal(laneRaw: String, setup: String?): String? = try {
         val lane = canon(laneRaw)
         if (setup == null || setup == NO_TRIGGER) null else {
-            val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+            val runner = runnerTail8295(lane)  // V5.0.8295
             val losing = synchronized(this) { stat(lane, setup)?.let { provenLosing(it, runner) } ?: false }
             if (losing) "PLAYBOOK_SETUP_PROVEN_LOSING_7907_${lane}_$setup" else null
         }
@@ -1983,7 +1996,8 @@ object LanePlaybook7907 {
                 "      $lane tagged{$tags} record: $rec\n        8084 outcomes{$oc} missing{$miss} forward-by-outcome{$fwd}"
             }
             "rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · measured setups expected to lose refused (7948) · setup auth>=0.5 admits over a smaller cell (7955) · paper never refused\n" +
-                "      refusals: ${refusals.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" + lanes
+                "      refusals: ${refusals.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
+                "      ${try { LaneRealisedGovernor8295.statusLine8295(MENU.keys, System.currentTimeMillis()) { l -> Cortex7885.laneRealised8295(l) } } catch (_: Throwable) { "realised8295[unavailable]" }}\n" + lanes
         }
     }
 }
