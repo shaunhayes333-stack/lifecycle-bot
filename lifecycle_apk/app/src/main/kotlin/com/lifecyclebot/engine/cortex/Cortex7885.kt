@@ -1724,13 +1724,20 @@ object Cortex7885 {
                 CortexAudit8169.noteGate(canon(laneRaw), read = false, refuseBucket = false, authority = false, refused = false)
                 return null
             }
-            val proven = synchronized(this) { refusalAuthority8269(a.lane, a.runnerLane, paper) && consistent(a.lane) }
+            // V5.0.8279 §SELECT_LIKE_8114 — the 8085–8114 builds vetoed on the scoreboard's own REFUSE record (n >= 40 live,
+            // mean + SE below zero, below the lane's other reads, no runner tail). 8269 replaced that with the held-out
+            // proof alone and the live veto went silent (8261: shadow refuse=1557, refusedLive=0, live WR 18 %). A
+            // refusal protects capital: EITHER proof now carries it. The held-out proof stays for the scoreboard columns.
+            val proven = synchronized(this) {
+                (board.refusalAuthority(a.lane, a.runnerLane, paper) || refusalAuthority8269(a.lane, a.runnerLane, paper)) && consistent(a.lane)
+            }
             // V5.0.8019 — or the relative bar: this lane's REFUSE reads sit measurably below its other reads while
             // its STRONG reads hold authority. Live only (paper already refuses at 20).
             val relative8019 = !paper && !proven && synchronized(this) {
-                // A shadowed STRONG side cannot authorize an early relative veto.
-                heldFraction8153(a.lane) >= OVERRULE_FRACTION_7955 &&
-                    refusalAuthority8269(a.lane, a.runnerLane, paper = false, relative = true) && consistent(a.lane)
+                (board.relativeRefusalAuthority8019(a.lane, a.runnerLane) ||
+                    // A shadowed STRONG side cannot authorize an early relative veto.
+                    (heldFraction8153(a.lane) >= OVERRULE_FRACTION_7955 &&
+                        refusalAuthority8269(a.lane, a.runnerLane, paper = false, relative = true))) && consistent(a.lane)
             }
             val rule = constitutionRefusal(a, ts, paper, proven || relative8019)?.let { if (it == "C3_PROVEN_NEGATIVE_EDGE" && relative8019) "C3_RELATIVE_REFUSE_8019" else it }
                 ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }

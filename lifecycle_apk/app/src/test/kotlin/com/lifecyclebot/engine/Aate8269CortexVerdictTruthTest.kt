@@ -74,7 +74,9 @@ class Aate8269CortexVerdictTruthTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         val live = src.substringAfter("fun entryRefusal(").substringBefore("fun strongSetupNegative8094(")
         assertTrue(live.contains("refusalAuthority8269(a.lane, a.runnerLane, paper)"))
-        assertFalse(live.contains("board.refusalAuthority(a.lane, a.runnerLane, paper)"))
+        // V5.0.8279 §SELECT_LIKE_8114 — the scoreboard's own REFUSE record (8114 veto) carries the live veto again, beside the held-out proof.
+        assertTrue(live.contains("board.refusalAuthority(a.lane, a.runnerLane, paper) || refusalAuthority8269(a.lane, a.runnerLane, paper)"))
+        assertTrue(live.contains("board.relativeRefusalAuthority8019(a.lane, a.runnerLane) ||"))
         assertTrue(live.contains("heldFraction8153(a.lane) >= OVERRULE_FRACTION_7955"))
         val screen = File("src/main/kotlin/com/lifecyclebot/ui/LearningCounterActivity.kt").readText()
         assertTrue(screen.contains("aateTakeGrossMedian8269"))

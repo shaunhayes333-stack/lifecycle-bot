@@ -244,13 +244,16 @@ object CandidateAdmission8136 {
             c.genericScore.isFinite() && c.genericFloor.isFinite() && c.genericScore >= c.genericFloor
 
     /**
-     * V5.0.8259 §UNLOCK_THE_TWELVE — the specialist's own qualification is candidate-specific evidence: its native mandate
-     * fired a NAMED setup on THIS token with a fresh price, known economics that clear the round trip, every critical
-     * executable fact observed, no safety or structural refusal. 8257: eleven lanes NATIVE_READY in the thousands and
-     * three selected an owner — the generic V3 scanner score (a second floor, 7843) and the 8238 "supported record
-     * only" rule refused the lanes' own judgment on a reset book that has no records yet. Hard safety, structure,
-     * sellability / route / quote (CRITICAL_MISSING_8170), economics, sizing and the proven-negative records all still
-     * bind before and after this line.
+     * V5.0.8259 — the specialist's own qualification: its native mandate fired a NAMED setup on THIS token with a fresh
+     * price, known economics that clear the round trip, every critical executable fact observed, no safety or structural
+     * refusal.
+     *
+     * V5.0.8279 §SELECT_LIKE_8114 — this is the lane's OPINION, not a proven candidate-specific edge. 8259 admitted it as
+     * `specific = true`, which stood down every learned quality filter downstream (LiveEdgeGate: proven-only door, chase
+     * rule, timing / picked-setup / tactic negatives, watch-first; FDG: V3 base signal, legacy edge veto, cell proof
+     * ladder, fresh-launch learned prior) — the filters that selected the 8085–8114 runners. 8261 live book: 18.2 % WR,
+     * pf 0.67, MOONSHOT buys at $16k on a firing IGNITION while the playbook read the setup negative. The native admit
+     * is now a non-specific admit behind the generic V3 floor (7843): every 8114 door decides it again.
      */
     internal fun nativeQualifiedClears8259(c: Candidate8136, gross: Double): Boolean =
         c.nativeQualified8213 &&
@@ -437,7 +440,8 @@ object CandidateAdmission8136 {
         val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170)
         val nativeOptional8213 = c.missingInputs.isNotEmpty() && edge == null &&
             optionalNativeContextClears8213(c, decisionGross)
-        val nativeLive8259 = edge == null && nativeQualifiedClears8259(c, decisionGross)
+        // V5.0.8279 — the native admit sits behind the generic V3 floor again (8114 doctrine, 7843 second floor).
+        val nativeLive8259 = edge == null && optionalNativeContextClears8213(c, decisionGross)
         if (stale || !econKnown || criticalMissing8170.isNotEmpty() ||
             (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213 && !nativeLive8259)) {
             val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + (if (!econKnown) listOf("economics") else emptyList())
@@ -464,20 +468,25 @@ object CandidateAdmission8136 {
         // 7. no supported edge: thin positives are noted, never admitted; the generic prior decides.
         listOfNotNull(chosenRec, c.cell).filter { thinPositive8136(it) }
             .forEach { trace += "thinPositive=${it.compact} needs n>=$SUPPORT_MIN_N_8136" }
-        // V5.0.8259 — the specialist's own qualification admits (see nativeQualifiedClears8259): no second score floor,
-        // no "supported record only" lock on a book that has none yet. Specific: the lane judged THIS token.
+        if (c.genericScore.isFinite() && c.genericFloor.isFinite()) {
+            trace += "generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)}"
+            if (c.genericScore < c.genericFloor) return done(Terminal8136.REFUSE, "GENERIC_SCORE_FLOOR_8136", false, chosen)
+        }
+        // V5.0.8259 / V5.0.8279 §SELECT_LIKE_8114 — the specialist's own qualification admits as a lane OPINION
+        // (specific = false): it clears the 8238 "supported record only" lock (which 8114 did not have) but NOT the 8114
+        // live doors — LIVE_PROVEN_SETUP_ONLY_8059 with its runner / cold-start / measured-edge exemptions, the chase
+        // rule, the learned setup / timing / tactic negatives, watch-first, the V3 base signal and the cell proof ladder
+        // all judge it again. Only a SUPPORTED record (step 6) is candidate-specific evidence.
         if (nativeLive8259) {
-            trace += "nativeQualifiedAdmit8259=${c.nativeSetup8213} generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)}"
+            trace += "nativeQualifiedAdmit8259=${c.nativeSetup8213} generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)} opinion8279"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("NATIVE_QUALIFIED_ADMIT_8259_${c.lane.uppercase()}") } catch (_: Throwable) {}
             if (c.nativeSetup8213 == RUNNER_FORMING_8260) {
                 runnerEntry8252[c.mint] = System.currentTimeMillis()
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_ADMISSION_FORMING_8260") } catch (_: Throwable) {}
             }
-            return done(Terminal8136.ADMIT, "NATIVE_QUALIFIED_ADMIT_8259", true, chosen ?: c.nativeSetup8213, "NATIVE_QUALIFIED_8259:${c.nativeSetup8213}")
+            return done(Terminal8136.ADMIT, "NATIVE_QUALIFIED_ADMIT_8259", false, chosen ?: c.nativeSetup8213, "NATIVE_QUALIFIED_8259:${c.nativeSetup8213}")
         }
         if (c.genericScore.isFinite() && c.genericFloor.isFinite()) {
-            trace += "generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)}"
-            if (c.genericScore < c.genericFloor) return done(Terminal8136.REFUSE, "GENERIC_SCORE_FLOOR_8136", false, chosen)
             // V5.0.8238 §LIVE_IS_PROVEN_EVIDENCE_ONLY — 8237 live book: every recorded live loss (CASHGEN|NO_TRIGGER x3,
             // CASHGEN|NONE, MOONSHOT|NONE, …) was a generic-prior admit: a V3 score over a fluid floor of 15 with no setup
             // record, no supported cell, no validated Cortex read. The 700% wins were proven setups. Live money needs a

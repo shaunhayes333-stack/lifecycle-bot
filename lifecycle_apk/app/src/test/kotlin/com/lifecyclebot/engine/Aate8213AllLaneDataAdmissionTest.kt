@@ -36,20 +36,26 @@ class Aate8213AllLaneDataAdmissionTest {
     @Test fun twelveNativeSpecialistsCanTradeThroughOptionalGapsWithSizedPositiveEconomics() {
         assertEquals(12, natives.size)
         for ((lane, setup) in natives) {
-            // V5.0.8259 — the lane's own qualification admits as candidate-specific evidence (no second score floor).
+            // V5.0.8259 — the lane's own qualification admits. V5.0.8279 §SELECT_LIKE_8114 — as the lane's OPINION
+            // (specific = false): every 8114 live door (proven-only, chase rule, learned negatives, watch-first, V3 base
+            // signal, cell proof ladder) still judges it. Only a SUPPORTED record is candidate-specific evidence.
             val d = CandidateAdmission8136.decide8136(candidate(lane, setup))
             assertEquals(lane, CandidateAdmission8136.Terminal8136.ADMIT, d.terminal)
             assertEquals(lane, "NATIVE_QUALIFIED_ADMIT_8259", d.reason)
-            assertTrue(lane, d.specific)
+            assertFalse(lane, d.specific)
             assertEquals(lane, setup, d.chosenSetup)
             assertTrue(lane, d.basis.startsWith("NATIVE_QUALIFIED_8259:"))
             assertEquals(lane, 6.0, d.costPct, 0.0)
             assertTrue(lane, d.trace.any { it.startsWith("nativeQualifiedAdmit8259=") })
-            // live too: the 8238 "supported record only" lock no longer refuses the lane's own judgment
+            // live too: the 8238 "supported record only" lock does not refuse the lane's own judgment here — the 8114
+            // proven-only door in LiveEdgeGate7877 is the live authority for an opinion admit
             val live = CandidateAdmission8136.decide8136(candidate(lane, setup).copy(live = true))
             assertEquals(lane, "NATIVE_QUALIFIED_ADMIT_8259", live.reason)
-            // a V3 score under the floor is not a second floor for the specialist
-            assertEquals(lane, "NATIVE_QUALIFIED_ADMIT_8259", CandidateAdmission8136.decide8136(candidate(lane, setup).copy(genericScore = 12.0)).reason)
+            assertFalse(lane, live.specific)
+            // 8279: the generic V3 floor (7843) is the second floor again — a native opinion under it is refused by name
+            assertEquals(lane, "GENERIC_SCORE_FLOOR_8136", CandidateAdmission8136.decide8136(candidate(lane, setup).copy(genericScore = 12.0, missingInputs = emptyList())).reason)
+            // and under the floor it no longer carries a candidate through optional gaps either
+            assertEquals(lane, CandidateAdmission8136.Terminal8136.DEFER_DATA, CandidateAdmission8136.decide8136(candidate(lane, setup).copy(genericScore = 12.0)).terminal)
         }
     }
 

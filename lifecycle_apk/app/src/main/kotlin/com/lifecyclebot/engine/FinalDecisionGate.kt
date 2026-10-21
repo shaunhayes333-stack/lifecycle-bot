@@ -951,26 +951,22 @@ object FinalDecisionGate {
         // let unpredicted buys through. A buy with no measured edge stays paper.
         liveEdgeBlock7877(ts, candidate, admissionLane, paper, mode, candidateVersion, candidateAdmission)?.let { return it }
         if (specialistLane.isNullOrBlank()) {
-            // V5.0.8244 §A_COUNCIL_NOT_A_VETO_CHAIN — the Field Manual, the trade plan and the council are three brains
-            // reading the same candidate; on the trunk path each alone could abandon it. One dissent is now advisory
-            // (counted, carried in telemetry); the trunk candidate is refused only when all three say no. Hard safety,
-            // the live edge authority above, economics, sizing, risk and the buy door are not council members.
+            // V5.0.8244 made the Field Manual, the trade plan and the council one "council" on the trunk path (refuse only
+            // when all three dissent). V5.0.8279 §SELECT_LIKE_8114 — each brain's refusal binds again, as it did on the
+            // 8085–8114 builds that selected the runners; the dissent counters stay so the report shows which brain refused.
             val manual = fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)
             val plan = tradePlanBlock7739(ts, candidate, specialistLane, admissionLane, paper, mode, candidateVersion, candidateAdmission)
             val council = councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, paper, mode)
             val dissent = listOfNotNull(manual, plan, council)
             if (dissent.isEmpty()) return null
-            if (dissent.size == 3) {
-                try { PipelineHealthCollector.labelInc("FDG_COUNCIL_UNANIMOUS_REFUSAL_8244") } catch (_: Throwable) {}
-                return manual
-            }
             try {
-                PipelineHealthCollector.labelInc("FDG_COUNCIL_DISSENT_ADVISORY_8244")
+                if (dissent.size == 3) PipelineHealthCollector.labelInc("FDG_COUNCIL_UNANIMOUS_REFUSAL_8244")
+                PipelineHealthCollector.labelInc("FDG_COUNCIL_DISSENT_REFUSES_8279")
                 if (manual != null) PipelineHealthCollector.labelInc("FDG_COUNCIL_DISSENT_FIELD_MANUAL_8244")
                 if (plan != null) PipelineHealthCollector.labelInc("FDG_COUNCIL_DISSENT_TRADE_PLAN_8244")
                 if (council != null) PipelineHealthCollector.labelInc("FDG_COUNCIL_DISSENT_COUNCIL_8244")
             } catch (_: Throwable) {}
-            return null
+            return dissent.first()
         }
         try {
             val manual = fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)

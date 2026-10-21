@@ -9,6 +9,8 @@ import org.junit.Test
 /**
  * V5.0.8260 — a forming runner on an unlearned book admits as the runner lane's own qualification and is stamped as
  * a runner entry; hard safety, structure, stale price, critical facts and negative economics still refuse it.
+ * V5.0.8279 §SELECT_LIKE_8114 — it admits as the lane's OPINION (specific = false): the 8114 proven-only door
+ * (RunnerGrab7967.grab7967 on a proven runner cell, RunnerPlay ticket, cold start, measured edge) decides live money.
  */
 class Aate8260FormingRunnerAdmitTest {
     private fun forming(lane: String) = CandidateAdmission8136.Candidate8136(
@@ -28,6 +30,7 @@ class Aate8260FormingRunnerAdmitTest {
             val d = CandidateAdmission8136.decide8136(c.copy(live = true))
             assertEquals(lane, CandidateAdmission8136.Terminal8136.ADMIT, d.terminal)
             assertEquals(lane, "NATIVE_QUALIFIED_ADMIT_8259", d.reason)
+            assertFalse(lane, d.specific)
             assertEquals(lane, CandidateAdmission8136.RUNNER_FORMING_8260, d.chosenSetup)
             assertTrue(lane, CandidateAdmission8136.runnerEntryAdmitted8252(c.mint, now + 1_000L))
         }
