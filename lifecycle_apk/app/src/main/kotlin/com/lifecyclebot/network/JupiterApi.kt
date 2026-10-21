@@ -185,6 +185,14 @@ class JupiterApi(
 
     private val JSON = "application/json".toMediaType()
 
+    // V5.0.8288 — a trade quote is one short read, not a 12 s call: one stalled host must leave time for the other
+    // (JupiterQuoteHealth8288). Observation lookups keep their own (shorter) clock on [http].
+    private val quoteHttp8288 = if (observationOnly7397) http else http.newBuilder()
+        .connectTimeout(JupiterQuoteHealth8288.QUOTE_CONNECT_MS_8288, TimeUnit.MILLISECONDS)
+        .readTimeout(JupiterQuoteHealth8288.QUOTE_READ_MS_8288, TimeUnit.MILLISECONDS)
+        .callTimeout(JupiterQuoteHealth8288.QUOTE_CALL_MS_8288, TimeUnit.MILLISECONDS)
+        .build()
+
     /**
      * amountRaw:
      * - SOL input => lamports
@@ -513,7 +521,15 @@ class JupiterApi(
                 // endpoint (Ultra binding order) use the time that is left.
                 if (msg.contains("timeout", ignoreCase = true) || msg.contains("budget exhausted", ignoreCase = true)) {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JUPITER_V6_TIMEOUT_YIELDS_NEXT_ENDPOINT_8079") } catch (_: Throwable) {}
+                    // V5.0.8288 — the other host first when the exit budget still affords one hop (keyed <-> lite).
+                    val left8288 = try { ExitQuoteBudget7863.remainingMs() } catch (_: Throwable) { 0L }
+                    if (JupiterQuoteHealth8288.failoverAffordable8288(left8288)) continue@hosts
                     break@hosts
+                }
+                // V5.0.8288 — DNS / network / 401-403 (key) / 5xx: the host is unusable, not the route — next host.
+                if (JupiterQuoteHealth8288.hostFailover8288(msg)) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JUPITER_V6_HOST_FAILOVER_8288") } catch (_: Throwable) {}
+                    continue@hosts
                 }
                 // 4xx from route constraints is often recoverable by changing route params;
                 // keep trying the adaptive ladder. Network/5xx also gets the next attempt.
@@ -1022,7 +1038,7 @@ class JupiterApi(
             .header("User-Agent", "lifecycle-bot-android/6.0")
             .header("Accept", "application/json")
 
-        if (apiKey.isNotBlank() && url.contains("api.jup.ag")) {
+        if (apiKey.isNotBlank() && JupiterQuoteHealth8288.keyedHost8288(url)) {  // V5.0.8288 — never to keyless lite-api
             reqBuilder.header("x-api-key", apiKey)
         }
 
@@ -1047,12 +1063,17 @@ class JupiterApi(
 
         var lastErr: RuntimeException = RuntimeException("Jupiter GET failed")
         for (attempt in 0..(if (ExitQuoteBudget7863.remainingMs() != null) 0 else 1)) {
-            if (attempt > 0) Thread.sleep(300L * attempt.toLong())
+            if (attempt > 0) Thread.sleep(JupiterQuoteHealth8288.retrySleepMs8288(attempt, kotlin.random.Random.nextLong(0L, 200L)))  // V5.0.8288 — jitter
             try {
                 val quoteClient7863 = ExitQuoteBudget7863.remainingMs()?.let { remaining ->
-                    http.newBuilder().callTimeout(remaining, TimeUnit.MILLISECONDS).build()
-                } ?: http
-                com.lifecyclebot.engine.HealthAwareHttp.execute(quoteClient7863, req, host = "jupiter_quote").use { resp ->
+                    quoteHttp8288.newBuilder().callTimeout(remaining, TimeUnit.MILLISECONDS).build()
+                } ?: quoteHttp8288
+                // V5.0.8288 — observation lookups keep their own health row; our own budget / cancel is never the provider's failure.
+                val budgetScoped8288 = observationOnly7397 || quoteClient7863 !== quoteHttp8288
+                com.lifecyclebot.engine.HealthAwareHttp.execute(
+                    quoteClient7863, req, host = if (observationOnly7397) JupiterQuoteHealth8288.OBS_HOST_8288 else "jupiter_quote",
+                    isLocalFailure8288 = { e -> JupiterQuoteHealth8288.localFailure8288(e, budgetScoped8288, Thread.currentThread().isInterrupted) },
+                ).use { resp ->
                     val code = resp.code
                     val body = resp.body?.string()
                     if (code == 429) {
@@ -1096,7 +1117,7 @@ class JupiterApi(
             .header(HostCircuitInterceptor.EXECUTION_HEADER_8169, "1")
             .post(json.toRequestBody(JSON))
 
-        if (apiKey.isNotBlank() && url.contains("api.jup.ag")) {
+        if (apiKey.isNotBlank() && JupiterQuoteHealth8288.keyedHost8288(url)) {  // V5.0.8288
             reqBuilder.header("x-api-key", apiKey)
         }
 

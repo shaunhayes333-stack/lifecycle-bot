@@ -88,27 +88,82 @@ object StopLatencyWiring8153 {
         )
     }
 
-    /** Emergency holding for [mint]: proven, else one bounded parallel read (recorded). Null: no positive answer. */
-    fun emergencyHolding8153(wallet: SolanaWallet, mint: String): HeldProof8153? {
+    /**
+     * Emergency holding for [mint]: proven, else one bounded parallel read (recorded). V5.0.8288 — the read is bounded at
+     * StopFast8288.STOP_READ_BUDGET_MS_8288; unanswered, the canonical held quantity (min the last wallet read) sizes the
+     * stop (StopFast8288.fallbackProof8288). Null: no positive answer, or the account is proven absent ([stopAbsent8288]).
+     */
+    fun emergencyHolding8153(wallet: SolanaWallet, mint: String): HeldProof8153? = stopHolding8288(wallet, mint).proof
+
+    /** V5.0.8288 — the stop's balance answer with its route (ABSENT: two providers prove the token account gone). */
+    fun stopHolding8288(wallet: SolanaWallet, mint: String): StopFast8288.Answer8288 {
         val started = System.currentTimeMillis()
+        val none = StopFast8288.Answer8288(null, StopFast8288.Route8288.NONE, 0L, 0)
         val (lastTouch, unresolved) = ledgerState8153(mint)
         // A signed sell still unresolved: its own confirmation decides (pendingSellSigToReuse8144); no new sizing here.
-        if (unresolved) return null
-        if (try { com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(mint) } catch (_: Throwable) { true }) return null
-        val a = StopLatencyCore8153.holdingForExit8153(true, { provenHolding8153(mint, started) }, readers8153(wallet, mint, started, lastTouch))
+        if (unresolved) return none
+        if (try { com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(mint) } catch (_: Throwable) { true }) return none
+        val a = StopFast8288.holdingForStop8288(
+            proven = { provenHolding8153(mint, started) ?: StopFast8288.cachedFallback8288(mint, started, lastTouch) },
+            readers = readers8153(wallet, mint, started, lastTouch),
+            absentNow = { absentSince8288(mint, started) },
+            fallback = { canonicalFallback8288(mint, started) },
+            onLate = { p -> if (p.atMs > ledgerState8153(mint).first) StopLatencyCore8153.record8153(mint, p) },
+        )
         val proof = a.proof
-        if (proof != null && a.route == StopLatencyCore8153.BalanceRoute8153.PARALLEL_READ) StopLatencyCore8153.record8153(mint, proof)
+        if (proof != null && a.route == StopFast8288.Route8288.PARALLEL_READ) StopLatencyCore8153.record8153(mint, proof)
+        if (proof != null && a.route == StopFast8288.Route8288.CANONICAL_FALLBACK) StopFast8288.rememberFallback8288(mint, proof)
         try {
-            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STOP_LATENCY_BALANCE_${a.route.name}_${if (proof != null) "HELD" else "NONE"}_8153")
-            if (a.route == StopLatencyCore8153.BalanceRoute8153.PARALLEL_READ) {
+            val legacy = when (a.route) {
+                StopFast8288.Route8288.PROVEN_HOLDING -> "PROVEN_HOLDING"
+                StopFast8288.Route8288.PARALLEL_READ, StopFast8288.Route8288.NONE -> "PARALLEL_READ"
+                else -> ""
+            }
+            if (legacy.isNotEmpty()) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STOP_LATENCY_BALANCE_${legacy}_${if (proof != null) "HELD" else "NONE"}_8153")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STOP_FAST_BALANCE_${a.route.name}_8288")
+            if (a.route != StopFast8288.Route8288.PROVEN_HOLDING) {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "STOP_LATENCY_PARALLEL_READ_8153",
-                    "mint=${mint.take(10)} held=${proof?.raw ?: "none"} source=${proof?.source ?: "-"} elapsedMs=${a.elapsedMs} reads=${a.readsIssued}",
+                    "STOP_FAST_BALANCE_8288",
+                    "mint=${mint.take(10)} route=${a.route.name} held=${proof?.raw ?: "none"} source=${proof?.source ?: "-"} elapsedMs=${a.elapsedMs} reads=${a.readsIssued}",
                 )
             }
         } catch (_: Throwable) {}
-        return proof
+        return a
     }
+
+    /** V5.0.8288 — true when two providers proved [mint]'s token account absent in a read started at/after [sinceMs]. */
+    private fun absentSince8288(mint: String, sinceMs: Long): Boolean {
+        val c = try { SellRouteProbe8144.cachedBalanceAt8153(mint) } catch (_: Throwable) { null } ?: return false
+        return c.first.verdict == SellRouteFinality8144.Balance8144.CONFIRMED_ABSENT && c.second >= sinceMs
+    }
+
+    /** V5.0.8288 — the canonical held quantity of [mint] (min the newest wallet read), when safe to size a stop with. */
+    private fun canonicalFallback8288(mint: String, nowMs: Long): HeldProof8153? {
+        val canonical = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mint == mint && it.mode.equals("live", ignoreCase = true) }
+                .maxByOrNull { it.lastMutationMs }
+        } catch (_: Throwable) { null } ?: return null
+        val rows = try { SignedTxLedger8085.historyFor8090(mint).filter { it.side == "SELL" } } catch (_: Throwable) { return null }
+        val lastSellTouch = rows.maxOfOrNull { maxOf(it.createdAtMs, it.updatedAtMs) } ?: 0L
+        val lastConfirmed = rows.filter { it.state == SignedTxLedger8085.State.CONFIRMED }.maxOfOrNull { it.updatedAtMs } ?: 0L
+        val snap = try {
+            val at = com.lifecyclebot.engine.WalletAccountCache.snapshotAtMs8094()
+            com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 10L * 60_000L)?.get(mint)
+                ?.let { HeldProof8153(it.raw, it.decimals, "WALLET_SNAPSHOT", at - SNAPSHOT_READ_SPAN_MS_8153) }
+        } catch (_: Throwable) { null }
+        val observed = listOfNotNull(StopLatencyCore8153.proof8153(mint), snap)
+            .filter { StopLatencyCore8153.positive8153(it) }.maxByOrNull { it.atMs }
+        return StopFast8288.fallbackProof8288(
+            canonicalRaw = canonical.remainingQtyRaw, canonicalScale = canonical.quantityScale,
+            canonicalMutatedAtMs = canonical.lastMutationMs, observed = observed, lastSellTouchMs = lastSellTouch,
+            lastConfirmedSellAtMs = lastConfirmed, signedSellUnresolved = rows.any { it.unresolved }, frozen = false, nowMs = nowMs,
+        )
+    }
+
+    /** V5.0.8288 — Executor.requestSellCore7948: an emergency whose token account two providers prove absent. */
+    fun stopAbsent8288(wallet: SolanaWallet, mint: String): Boolean =
+        mint.isNotBlank() && stopHolding8288(wallet, mint).route == StopFast8288.Route8288.ABSENT
 
     /**
      * liveSell / tryPumpPortalSell: the sold mint's balance map for an EMERGENCY exit (proven or parallel-read), or

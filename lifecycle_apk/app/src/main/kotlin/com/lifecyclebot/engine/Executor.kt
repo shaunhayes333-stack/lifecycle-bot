@@ -23080,6 +23080,31 @@ class Executor(
         security.enforceSignDelay()
     }
 
+    /**
+     * V5.0.8288 — an emergency whose owner+mint token account two providers prove absent: nothing is sold (no route, no
+     * retry ladder). The lease is released, the spine closes ALREADY_CLOSED, and the balance-proof poller owns the zero
+     * finality (its own two zero reads + multi-provider corroboration close the canonical row; a HELD read sells).
+     */
+    private fun stopAbsentHandOff8288(ts: TokenState, reason: String, wallet: SolanaWallet?): SellResult? {
+        if (wallet == null || ts.position.isPaperPosition) return null
+        if (!com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) return null
+        if (!(try { com.lifecyclebot.engine.sell.StopLatencyWiring8153.stopAbsent8288(wallet, ts.mint) } catch (_: Throwable) { false })) return null
+        try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "STOP_ACCOUNT_ABSENT_8288") } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
+                ts.mint, ts.symbol ?: "?", "STOP_ACCOUNT_ABSENT_8288:$reason",
+                runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+            )
+        } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.SellRouteSpine8144.onResult8144(ts.mint, SellResult.ALREADY_CLOSED.name) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.clearTrigger7807(ts.mint) } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("STOP_ACCOUNT_ABSENT_HANDED_TO_POLLER_8288")
+            ForensicLogger.lifecycle("STOP_ACCOUNT_ABSENT_8288", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(60)} action=no_sale_poller_zero_finality")
+        } catch (_: Throwable) {}
+        return SellResult.WAITING_BALANCE_PROOF
+    }
+
     // ═══ V5.0.8144 — SELL ROUTE (P0-E): spine trigger, pending-signature reuse, corroborated balance, route viability ═══
 
     /** The sell spine opens on a live exit request; an emergency also warms the confirmed-venue cache off the sell thread. */
@@ -23790,6 +23815,7 @@ class Executor(
                     return SellResult.ALREADY_CLOSED
                 }
             }
+            stopAbsentHandOff8288(ts, reason, wallet)?.let { return it }  // V5.0.8288 — an emergency on a proven-absent account sells nothing
             // Sell under the lease using the CANONICAL (de-polluted) reason so the
             // forensic phases + any requeue carry a clean, non-nesting reason.
             // V5.0.7807 — B3: an emergency arriving on a lease opened for a softer exit
@@ -23801,7 +23827,8 @@ class Executor(
             noteEmergencyDispatched7807(ts, canonicalReason, emergencyAttempt7807(ts))
             return try {
                 val r = doSell(ts, canonicalReason, wallet, walletSol)
-                noteEmergencyOutcome7807(ts, canonicalReason, r)
+                val preRoute8288 = try { com.lifecyclebot.engine.sell.StopFast8288.preRouteWait8288(ts.mint, canonicalReason, r.name) } catch (_: Throwable) { false }  // V5.0.8288
+                if (!preRoute8288) noteEmergencyOutcome7807(ts, canonicalReason, r)
                 com.lifecyclebot.engine.sell.SellRouteSpine8144.onResult8144(ts.mint, r.name)  // V5.0.8144
                 when (r) {
                     // Terminal outcomes → release the lease.
@@ -23838,7 +23865,8 @@ class Executor(
                         com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "WAITING_BALANCE_PROOF")
                     // Retryable → keep the lease, record the attempt (de-pollutes reason).
                     SellResult.FAILED_RETRYABLE ->
-                        com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "RETRYABLE")
+                        if (preRoute8288) com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint)  // V5.0.8288 — not a route attempt
+                        else com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "RETRYABLE")
                 }
                 r
             } catch (t: Throwable) {
@@ -24806,6 +24834,8 @@ class Executor(
             val pid = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, false)
             val raw = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid)?.remainingQtyRaw
             if (raw == null || raw.signum() <= 0 || raw.bitLength() > 63) null
+            // V5.0.8288 — an emergency is held by this check for at most STOP_QUOTE_CHECK_BUDGET_MS_8288 (no quote = allow).
+            else if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) com.lifecyclebot.engine.sell.StopFast8288.bounded8288(com.lifecyclebot.engine.sell.StopFast8288.STOP_QUOTE_CHECK_BUDGET_MS_8288) { jupiter.getQuote(ts.mint, JupiterApi.SOL_MINT, raw.toLong(), 500).outAmount / 1_000_000_000.0 }
             else jupiter.getQuote(ts.mint, JupiterApi.SOL_MINT, raw.toLong(), 500).outAmount / 1_000_000_000.0
         }
     } catch (_: Throwable) { true }
@@ -24815,6 +24845,7 @@ class Executor(
         // V5.0.7948 — a vetoed exit (cortex hold, missing / untrusted mark, stop the quote
         // does not corroborate) is not waiting to sell: withdraw its non-emergency stamp.
         if (fresh7948 == null) com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
+        if (fresh7948 == null) com.lifecyclebot.engine.sell.StopFast8288.noteVeto8288(ts.mint)  // V5.0.8288 — a veto is not a pre-route wait
         return fresh7948
     }
 
@@ -32109,6 +32140,7 @@ class Executor(
                 "🚀 PUMP-FIRST BUY [$pumpVenue] ${"%.4f".format(buySol)}◎ @ ${slipPct}% | priorityFee=${priorityFeeSol}◎ | tip=${jitoTipLamports}lam",
                 solAmount = buySol, traderTag = traderTag,
             )
+            if (PumpLanding8288.skipPumpPortalBuy8288(ts.mint)) return null  // V5.0.8288 — PumpPortal's recent buys are not landing: Jupiter / Raydium (Sender first)
             if (ExecutionEndpointHealth.isDisabled("PUMP_DIRECT_BUILD", ts.mint) || com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint)) {
                 try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=endpoint_or_mint_route_disabled") } catch (_: Throwable) {}
                 return null
@@ -32128,6 +32160,7 @@ class Executor(
                 traderTag = traderTag,
             )
             if (costPumpBuySimRefused8151(ts, built.txBase64, wallet, tradeKey)) return null  // V5.0.8151 — never pay for a doomed buy
+            val pumpTx8288 = PumpLanding8288.freshen8288(wallet, built.txBase64)  // V5.0.8288 — our fresh blockhash, not PumpPortal's build-time one
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMP_FIRST sol=$buySol slip=$slipPct") } catch (_: Throwable) {}
             // V5.9.602 — Pump-first must NOT treat a submitted signature as
             // a completed buy. sendTransaction/Jito acceptance can still expire
@@ -32142,7 +32175,7 @@ class Executor(
                 com.lifecyclebot.network.HeliusSenderEnvelope7250.build(
                     // V5.0.7980 — a grabbed runner / proven-cell / specialist entry lands next slot (doubled tip).
                     // V5.0.8151 — an ordinary entry pays the SWQOS-only minimum tip with headroom (costSenderTip8151).
-                    built.txBase64, wallet.publicKeyB58, costSenderTip8151(cfg(), urgent = RunnerGrab7967.isGrabbed7980(ts.mint), ordinary = entryOrdinary8151(ts.mint), entry = true),
+                    pumpTx8288, wallet.publicKeyB58, costSenderTip8151(cfg(), urgent = RunnerGrab7967.isGrabbed7980(ts.mint), ordinary = entryOrdinary8151(ts.mint), entry = true),
                 )
             } catch (_: Throwable) { null }
             try {
@@ -32160,7 +32193,7 @@ class Executor(
             // outcome propagates to liveBuy's 7733 pending-wallet-delta path instead of falling through to Jupiter.
             com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", route = "PUMPPORTAL"))
             val sig = wallet.signSendAndConfirm(
-                pumpEnv7311?.txBase64 ?: built.txBase64,
+                pumpEnv7311?.txBase64 ?: pumpTx8288,
                 useJito && pumpEnv7311 == null,
                 maxOf(jitoTipLamports, 200_000L),
                 senderCompatible = pumpEnv7311 != null,

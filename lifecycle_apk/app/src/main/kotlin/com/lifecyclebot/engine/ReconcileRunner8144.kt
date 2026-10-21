@@ -114,11 +114,41 @@ object ReconcileRunner8144 {
                 report.exceptions, inputs.lots, inputs.journal.filter { ReconcileClassifier8144.isSellLike8144(it.side) },
                 failed, inputs.chain, inputs.chainComplete)
             if (closed.isNotEmpty()) ghostClosed8264.addAndGet(closed.size)
+            ghostZeroHandOff8288(report.exceptions, closed.toSet(), inputs.lots)  // V5.0.8288
         } catch (_: Throwable) {}
         return report
     }
 
     private val ghostClosed8264 = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
+     * V5.0.8288 — a canonical lot a COMPLETE chain read proves gone that no finalized sell explains (8286: Cbkg5w, 5zaA3S,
+     * jyBGb2, DKYcjo stayed CANONICAL_NOT_ON_CHAIN with wallet=UNREAD): handed to the balance-proof poller, whose own two
+     * zero reads + multi-provider corroboration close the row (ZERO_BALANCE_CONFIRMED) and whose HELD read sells it.
+     * Nothing is closed here and no balance is assumed.
+     */
+    internal fun ghostZeroHandOff8288(exceptions: List<ReconcileClassifier8144.Exception8144>, closed: Set<String>,
+                                      lots: List<ReconcileClassifier8144.Lot8144>): Int {
+        val ghosts = ghostMintsForPoller8288(exceptions, closed)
+        var n = 0
+        for (m in ghosts) {
+            if (try { com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(m) } catch (_: Throwable) { true }) continue
+            if (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(m, "SELL") != null } catch (_: Throwable) { true }) continue
+            val sym = try { CanonicalPositionAuthority6441.firstOpenForMint(m)?.symbol } catch (_: Throwable) { null } ?: m.take(6)
+            val marked = try { com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(m, sym, "RECONCILE_CANONICAL_NOT_ON_CHAIN_8288") } catch (_: Throwable) { false }
+            if (marked) n++
+        }
+        if (n > 0) try {
+            PipelineHealthCollector.labelInc("RECONCILE_GHOST_HANDED_TO_PROOF_POLLER_8288")
+            ForensicLogger.lifecycle("RECONCILE_GHOST_HANDED_TO_PROOF_POLLER_8288", "n=$n lots=${lots.size} mints=${ghosts.joinToString(",") { it.take(6) }}")
+        } catch (_: Throwable) {}
+        return n
+    }
+
+    /** Pure (V5.0.8288): the CANONICAL_NOT_ON_CHAIN mints no finalized sell closed this pass. */
+    fun ghostMintsForPoller8288(exceptions: List<ReconcileClassifier8144.Exception8144>, closed: Set<String>): Set<String> =
+        exceptions.filter { it.cause == ReconcileClassifier8144.Cause8144.CANONICAL_NOT_ON_CHAIN && it.mint.isNotBlank() && it.mint !in closed }
+            .mapTo(LinkedHashSet()) { it.mint }
 
     private fun gather8144(nowMs: Long): ReconcileClassifier8144.Inputs8144 {
         val parentMints = HashSet<String>()

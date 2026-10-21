@@ -70,6 +70,9 @@ object HealthAwareHttp {
         request: Request,
         host: String,
         allowDuringLockout: Boolean = false,
+        // V5.0.8288 — a caller that can tell its OWN budget / cancel from a provider failure (JupiterQuoteHealth8288):
+        // such an exception is still thrown, but never recorded as the provider's network error.
+        isLocalFailure8288: ((Exception) -> Boolean)? = null,
     ): Response {
         // V5.9.1024 — REACTIVE BACKOFF SHORT-CIRCUIT.
         // If this host is in lockout (last call returned 429/403/4xx/5xx
@@ -148,7 +151,12 @@ object HealthAwareHttp {
             } catch (_: Throwable) {}
             return resp
         } catch (e: Exception) {
-            try { ApiHealthMonitor.recordNetworkError(host, e.message) } catch (_: Throwable) {}
+            val local8288 = try { isLocalFailure8288?.invoke(e) == true } catch (_: Throwable) { false }
+            if (local8288) {
+                try { PipelineHealthCollector.labelInc("HTTP_LOCAL_FAILURE_NOT_RECORDED_8288_$host") } catch (_: Throwable) {}
+            } else {
+                try { ApiHealthMonitor.recordNetworkError(host, e.message) } catch (_: Throwable) {}
+            }
             throw e
         }
     }
