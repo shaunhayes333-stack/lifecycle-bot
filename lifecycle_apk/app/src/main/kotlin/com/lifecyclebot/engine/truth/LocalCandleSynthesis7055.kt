@@ -216,6 +216,9 @@ object LocalCandleSynthesis7055 {
                 lowUsd = b.low,
                 openUsd = b.open,
             )
+            // V5.0.8284 — what this bar is: one or more executed prints (TRADE_AGGREGATED) or polled marks (MARK_ONLY).
+            CandleCoverage8284.tag8284(candle, if (b.trades > 0) CandleCoverage8284.Quality8284.TRADE_AGGREGATED
+                else CandleCoverage8284.Quality8284.MARK_ONLY, SYNTHETIC_SOURCE)
             // V5.0.7215 — this module's producer is now Executor.getActualPrice
             // (~17k observations per session, off several threads), where the
             // raw material actually is; the previous sole producer derived its
@@ -228,7 +231,10 @@ object LocalCandleSynthesis7055 {
             // mutation of a deque from a hot multi-threaded read path is not
             // something to leave to luck once the call rate goes up by four
             // orders of magnitude.
-            synchronized(ts) {
+            val inserted8284 = synchronized(ts) {
+                // V5.0.8284 — a minute already holding an equal or better candle (a Helius trade candle, a pool kline)
+                // does not get a second, worse one.
+                if (minuteHeldAsWell8284(ts.history, candle)) return@synchronized false
                 // V5.0.8169 — a bucket is emitted when the NEXT minute opens, stamped with its own start, so appending it
                 // put it behind the poll snapshots BotService had appended meanwhile (stamped "now"). The history ran
                 // backwards at that point and LanePlaybook7907.shapeObs8084 read shape:INVALID (5.0.8168: the dominant
@@ -237,7 +243,9 @@ object LocalCandleSynthesis7055 {
                 if (at8169 >= ts.history.size) ts.history.addLast(candle)
                 else { ts.history.add(at8169, candle); insertedInOrder8169.incrementAndGet() }
                 while (ts.history.size > MAX_HISTORY) ts.history.removeFirst()
+                true
             }
+            if (!inserted8284) { minuteHeldSkips8284.incrementAndGet(); return }
             val n = candlesEmitted.incrementAndGet()
             PipelineHealthCollector.labelInc("LOCAL_CANDLE_SYNTHESISED_7055")
             // One line per 50 so a hundred watched mints cannot drown the log.
@@ -250,6 +258,15 @@ object LocalCandleSynthesis7055 {
                 )
             }
         } catch (_: Throwable) {}
+    }
+
+    private val minuteHeldSkips8284 = AtomicLong(0L)
+
+    /** Pure-ish (V5.0.8284): does [history] already hold a candle of [candle]'s minute at least as good as it? */
+    fun minuteHeldAsWell8284(history: Collection<Candle>, candle: Candle): Boolean {
+        val m = candle.ts / BUCKET_MS
+        val rank = CandleCoverage8284.qualityOf8284(candle).rank
+        return history.any { it.ts > 0L && it.ts / BUCKET_MS == m && CandleCoverage8284.qualityOf8284(it).rank >= rank }
     }
 
     /** V5.0.8169 — local candles placed at their own minute instead of behind newer history points. */
@@ -291,10 +308,11 @@ object LocalCandleSynthesis7055 {
             "openBuckets=${buckets.size} deferredToFetched=${skippedHasFetched.get()} " +
             "tradePrints7819=${tradePrints7819.get()} tradeCandles7819=${tradeCandles7819.get()} " +
             "| sources7819 local=${candlesEmitted.get()} heliusSwaps[${HeliusSwapCandles7819.statusLine7819()}] ${MarkBars7948.statusLine7948()} " +
-            "read=unlocks_BREAKOUT(>=10)_REVERSAL(>=8)_PULLBACK(>=15)_and_the_lanes_behind_them"
+            "read=unlocks_BREAKOUT(>=10)_REVERSAL(>=8)_PULLBACK(>=15)_and_the_lanes_behind_them " +
+            "minuteHeldSkips8284=${minuteHeldSkips8284.get()} ${HeliusSwapCandles7819.statusLine8284()}"
 
     internal fun resetForTest() {
         buckets.clear(); candlesEmitted.set(0L); ticksBinned.set(0L); skippedHasFetched.set(0L)
-        tradePrints7819.set(0L); tradeCandles7819.set(0L); insertedInOrder8169.set(0L); repeatedSnapshots8169.set(0L)
+        tradePrints7819.set(0L); tradeCandles7819.set(0L); insertedInOrder8169.set(0L); repeatedSnapshots8169.set(0L); minuteHeldSkips8284.set(0L)
     }
 }

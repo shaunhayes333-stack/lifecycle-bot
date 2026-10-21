@@ -30,17 +30,19 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * BOUNDED — the Enhanced API is a paid credit sink:
  *   * only for a mint whose own bars are short (TradePlan7739 asks, on a
- *     TOO_FEW_BARS read), never for a held position (the open-position tick
- *     loop already writes its history at 1 Hz);
+ *     TOO_FEW_BARS read); V5.0.8284: a held position or a token on 4 h bars
+ *     gets its 1 m bars in CandleCoverage8284's compatible store, never in the
+ *     open-position tick tape;
  *   * single-flight per mint, at most [MAX_IN_FLIGHT] jobs at once;
  *   * at most [MAX_JOBS_PER_MIN] jobs per minute and [MAX_JOBS_PER_HOUR] per
  *     hour, each at most [MAX_PAGES] pages of 100 transactions;
  *   * a mint is re-asked no sooner than [MINT_RETRY_MS] (or [EMPTY_RETRY_MS]
  *     after a result with no swaps).
  *
- * PRECEDENCE. Bars are merged only into minutes the history does not already
- * hold, so a fetched kline or a locally binned bar for the same minute is never
- * replaced. SOL is converted at the current SOL/USD; over a 30 minute window
+ * PRECEDENCE (V5.0.8284, superseding "only into empty minutes"). Bars merge
+ * by minute and quality (CandleCoverage8284): TRADE_OHLCV > VALID_POOL_OHLCV >
+ * TRADE_AGGREGATED > MARK_ONLY > INCOMPLETE > UNKNOWN; a better candle replaces
+ * a worse one of a closed minute, an equal or better one is kept. SOL is converted at the current SOL/USD; over a 30 minute window
  * SOL moves a percent or two, while these tokens move tens of percent, and the
  * same mark is what the rest of the book uses (Field Manual L186: one basis).
  */
@@ -128,19 +130,28 @@ object HeliusSwapCandles7819 {
     fun request7819(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
         val mint = ts.mint
         if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint)) return // V5.0.7819 HeliusScope — Solana mints only (Field Manual L186)
-        try { if (ts.position.isOpen || ts.candleTimeframeMinutes > 1) return } catch (_: Throwable) { return }
+        // V5.0.8284 — 1 m coverage (not the bar count, not the active timeframe) decides; a held or 4 h token's bars go to
+        // the compatible 1 m store (CandleCoverage8284.merge8284). Too young for 1 m bars: its own observed trades only.
+        val priority = priority8284(mint, nowMs)
+        val cov1m = CandleCoverage8284.noteNeed8284(ts, nowMs)
+        if (cov1m == CandleCoverage8284.Coverage8284.COVERED && priority < PRIORITY_HELD_8284) { coveredSkips8284.incrementAndGet(); return }
+        if (cov1m == CandleCoverage8284.Coverage8284.NOT_YET_POSSIBLE) { localTape8284(ts, nowMs, "young"); return }
         val marketAddress = activeMarketAddress8269(ts) ?: run {
             noMarketAddress8269.incrementAndGet()
+            localTape8284(ts, nowMs, "noMarket")
             return
         }
+        if (inFlight.contains(mint)) return
         val next = nextAllowedMs[mint] ?: 0L
-        if (nowMs < next || inFlight.contains(mint)) return
+        if (nowMs < next) { localTape8284(ts, nowMs, "retryWait"); return }
         requests.incrementAndGet()
         // V5.0.7881 — up to two 100-credit pages per job (288k credits/day at the old
         // 60/h cap); now also paced on the economy's SWAP_CANDLES share.
-        if (inFlight.size >= MAX_IN_FLIGHT || !claimBudget(nowMs) ||
+        // V5.0.8284 — the per-minute / per-hour job budget is tiered: held > near-decision > hand-off > bulk.
+        if (inFlight.size >= MAX_IN_FLIGHT || !claimBudget(nowMs, priority) ||
             !HeliusCreditEconomy7881.admit(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 200.0, nowMs)) {
             budgetSkips.incrementAndGet()
+            localTape8284(ts, nowMs, "budget")
             return
         }
         if (!inFlight.add(mint)) return
@@ -154,12 +165,89 @@ object HeliusSwapCandles7819 {
         } catch (_: Throwable) { inFlight.remove(mint) }
     }
 
-    private fun claimBudget(nowMs: Long): Boolean = synchronized(jobStarts) {
+    private fun claimBudget(nowMs: Long, priority: Int): Boolean = synchronized(jobStarts) {
         jobStarts.removeAll { nowMs - it > 3_600_000L }
         val lastMinute = jobStarts.count { nowMs - it <= 60_000L }
-        if (lastMinute >= MAX_JOBS_PER_MIN || jobStarts.size >= MAX_JOBS_PER_HOUR) return@synchronized false
+        if (!budgetAdmits8284(priority, lastMinute, jobStarts.size)) return@synchronized false
         jobStarts.add(nowMs)
         true
+    }
+
+    const val PRIORITY_HELD_8284 = 3
+    const val PRIORITY_NEAR_DECISION_8284 = 2
+    const val PRIORITY_HANDOFF_8284 = 1
+
+    /** V5.0.8284 — held 3 > near-decision 2 > open hand-off 1 > bulk 0. */
+    fun priority8284(mint: String, nowMs: Long = System.currentTimeMillis()): Int {
+        val held = try { com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }
+        if (held) return PRIORITY_HELD_8284
+        val near = try { com.lifecyclebot.engine.DataPipeline8191.nearDecision8191(mint, nowMs) } catch (_: Throwable) { false }
+        if (near) return PRIORITY_NEAR_DECISION_8284
+        val handoff = try { AdmissionHandoff8144.handoffOf8144(mint, nowMs)?.open == true } catch (_: Throwable) { false }
+        return if (handoff) PRIORITY_HANDOFF_8284 else 0
+    }
+
+    /**
+     * Pure (V5.0.8284): may a job of [priority] start with [lastMinute] / [lastHour] jobs already started? 8282: 4,704 of
+     * 4,808 requests were skipped on budget, first come first served. Held and near-decision coins keep the whole
+     * 8/min, 180/h; a hand-off 6/min, 140/h; bulk 4/min, 100/h, so bulk can never spend the decision coins' share.
+     */
+    fun budgetAdmits8284(priority: Int, lastMinute: Int, lastHour: Int): Boolean {
+        val perMin = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_MIN; priority == PRIORITY_HANDOFF_8284 -> 6; else -> 4 }
+        val perHour = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_HOUR; priority == PRIORITY_HANDOFF_8284 -> 140; else -> 100 }
+        return lastMinute < perMin && lastHour < perHour
+    }
+
+    /** V5.0.8284 — the integrator's hook (FeatureRevision bump, re-evaluation of waiting candidates): called with the mint after a merge added or replaced candles. */
+    @Volatile var onCandlesMerged8284Listener: (String) -> Unit = {}
+
+    private val localTapeAt8284 = ConcurrentHashMap<String, Long>()
+    private const val LOCAL_TAPE_GAP_MS_8284 = 30_000L
+    private val localTapeRuns8284 = AtomicLong(0L)
+    private val localTapeBarCount8284 = AtomicLong(0L)
+    private val localTapeChanged8284 = AtomicLong(0L)
+    private val localTapeByReason8284 = ConcurrentHashMap<String, AtomicLong>()
+    private val coveredSkips8284 = AtomicLong(0L)
+    private val heliusReplaced8284 = AtomicLong(0L)
+    private val heliusKept8284 = AtomicLong(0L)
+
+    /** Pure (V5.0.8284): 1 m bars from observed executed tape prints only; a minute without a print gets no bar. */
+    fun localTapeBars8284(prints: List<TradeTape8100.Print8128>, solUsd: Double, nowMs: Long): List<Candle> =
+        binPrints7819(prints.map { SwapPrint7819(it.atMs, it.priceSol, it.sol, it.isBuy) }, solUsd, nowMs)
+
+    /**
+     * V5.0.8284 — the cheap path for a request that will not reach Helius (budget, retry wait, no market account, too
+     * young): the mint's own executed prints already on the local tape, binned into 1 m bars (TRADE_AGGREGATED, below a
+     * Helius trade candle), at most once per mint per [LOCAL_TAPE_GAP_MS_8284]. No request, no credits.
+     */
+    internal fun localTape8284(ts: TokenState, nowMs: Long, reason: String, solUsd: Double = solUsd8284()): CandleCoverage8284.Merge8284? {
+        val mint = ts.mint
+        val last = localTapeAt8284[mint] ?: 0L
+        if (nowMs - last in 0L until LOCAL_TAPE_GAP_MS_8284) return null
+        localTapeAt8284[mint] = nowMs
+        if (localTapeAt8284.size > 4_000) localTapeAt8284.entries.removeIf { nowMs - it.value > 600_000L }
+        localTapeRuns8284.incrementAndGet()
+        localTapeByReason8284.computeIfAbsent(reason) { AtomicLong(0L) }.incrementAndGet()
+        val prints = try { TradeTape8100.prints8128(mint, nowMs, WINDOW_MS) } catch (_: Throwable) { emptyList() }
+        val bars = localTapeBars8284(prints, solUsd, nowMs)
+        if (bars.isEmpty()) return null
+        localTapeBarCount8284.addAndGet(bars.size.toLong())
+        val r = CandleCoverage8284.merge8284(ts, bars, CandleCoverage8284.Quality8284.TRADE_AGGREGATED, "local_tape8100", "", nowMs)
+        if (r.changed > 0) {
+            localTapeChanged8284.addAndGet(r.changed.toLong())
+            featureArrived8284(ts, nowMs)
+        }
+        return r
+    }
+
+    private fun solUsd8284(): Double = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+
+    /** V5.0.8284 — repaired candles landed for [ts]: wake the shape feature, time-to-feature, and the integrator's hook. */
+    private fun featureArrived8284(ts: TokenState, nowMs: Long) {
+        try { CandidateAdmission8136.evidenceArrived8252(ts.mint, setOf("shape"), nowMs) } catch (_: Throwable) {}
+        try { CandleCoverage8284.noteArrived8284(ts, nowMs) } catch (_: Throwable) {}
+        // V5.0.8284 FEATURE_ARRIVED_SHAPE(mint)
+        try { onCandlesMerged8284Listener(ts.mint) } catch (_: Throwable) {}
     }
 
     private fun apiKey(nowMs: Long): String {
@@ -203,19 +291,22 @@ object HeliusSwapCandles7819 {
             try { PipelineHealthCollector.labelInc("HELIUS_SWAP_CANDLES_EMPTY_7819") } catch (_: Throwable) {}
             return
         }
-        val merged = mergeIntoHistory7819(ts, bars)
+        // V5.0.8284 — quality-aware: an authentic Helius trade candle replaces a lower-quality candle of its minute.
+        val r8284 = CandleCoverage8284.merge8284(ts, bars, CandleCoverage8284.Quality8284.TRADE_OHLCV, "helius_enhanced_tx", marketAddress, System.currentTimeMillis())
+        val merged = r8284.changed
         served.incrementAndGet()
         barsDelivered.addAndGet(bars.size.toLong())
         barsMerged.addAndGet(merged.toLong())
+        heliusReplaced8284.addAndGet(r8284.replaced.toLong()); heliusKept8284.addAndGet(r8284.kept.toLong())
         if (merged > 0) try {
-            CandidateAdmission8136.evidenceArrived8252(ts.mint, setOf("shape"), System.currentTimeMillis())
+            featureArrived8284(ts, System.currentTimeMillis())
             com.lifecyclebot.engine.DataPipeline8191.noteSeed8191("helius", "merged")
         } catch (_: Throwable) {}
         try {
             PipelineHealthCollector.labelInc("HELIUS_SWAP_CANDLES_SERVED_7819")
             ForensicLogger.lifecycle(
                 "HELIUS_SWAP_CANDLES_SERVED_7819",
-                "mint=${ts.mint.take(10)} sym=${ts.symbol} prints=${prints.size} bars=${bars.size} merged=$merged " +
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} prints=${prints.size} bars=${bars.size} merged=$merged replaced=${r8284.replaced} kept=${r8284.kept} " +
                     "pages=$page histNow=${ts.history.size} source=helius_enhanced_tx",
             )
         } catch (_: Throwable) {}
@@ -373,20 +464,22 @@ object HeliusSwapCandles7819 {
         }
     }
 
-    /** Merge [bars] into minutes ts.history does not already hold; returns the number added. */
-    fun mergeIntoHistory7819(ts: TokenState, bars: List<Candle>): Int = try {
-        synchronized(ts) {
-            if (ts.candleTimeframeMinutes > 1) return@synchronized 0
-            val held = HashSet<Long>()
-            for (c in ts.history) if (c.ts > 0L) held.add(c.ts / BUCKET_MS)
-            val add = bars.filter { it.ts / BUCKET_MS !in held }
-            if (add.isEmpty()) return@synchronized 0
-            val all = (ts.history.toList() + add).sortedBy { it.ts }
-            ts.history.clear()
-            for (c in all.takeLast(MAX_HISTORY)) ts.history.addLast(c)
-            add.size
-        }
-    } catch (_: Throwable) { 0 }
+    /**
+     * Merge fetched [bars] (their quality read from their face: CandleCoverage8284.infer8284) into ts.history by minute;
+     * returns the candles added or replaced. V5.0.8284: a bar replaces only a lower-quality candle of a closed minute; an
+     * equal or better one is kept, and a minute never ends up with two candles from this merge.
+     */
+    fun mergeIntoHistory7819(ts: TokenState, bars: List<Candle>): Int {
+        val nowMs = System.currentTimeMillis()
+        val r: CandleCoverage8284.Merge8284 = (try {
+            synchronized(ts) {
+                if (ts.candleTimeframeMinutes > 1) null else CandleCoverage8284.mergeInto8284(ts.history, bars, nowMs, MAX_HISTORY)
+            }
+        } catch (_: Throwable) { null }) ?: return 0
+        CandleCoverage8284.noteMerge8284("fetched_kline", r)
+        if (r.changed > 0) featureArrived8284(ts, nowMs)
+        return r.changed
+    }
 
     /** Served / bars for the per-source split in the §6916 and §7055 lines. */
     fun servedBars7819(): String = "served=${served.get()} bars=${barsDelivered.get()}"
@@ -397,9 +490,19 @@ object HeliusSwapCandles7819 {
             "empty=${empty.get()} httpErr=${httpErrors.get()} budgetSkips=${budgetSkips.get()} noKey=${noKey.get()} noMarket8269=${noMarketAddress8269.get()} " +
             "inFlight=${inFlight.size} budget=${MAX_JOBS_PER_MIN}/min,${MAX_JOBS_PER_HOUR}/h,x${MAX_PAGES}pages"
 
+    /** V5.0.8284 — Helius candles returned vs merged vs replaced vs kept, the local-tape path and coverage / time-to-feature. */
+    fun statusLine8284(): String =
+        "helius8284[returned=${barsDelivered.get()} merged=${barsMerged.get()} replaced=${heliusReplaced8284.get()} kept=${heliusKept8284.get()} " +
+            "coveredSkips=${coveredSkips8284.get()}] localTape8284[runs=${localTapeRuns8284.get()} bars=${localTapeBarCount8284.get()} " +
+            "changed=${localTapeChanged8284.get()} why{" + localTapeByReason8284.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" } +
+            "}] " + CandleCoverage8284.statusLine8284()
+
     internal fun resetForTest() {
         inFlight.clear(); nextAllowedMs.clear(); synchronized(jobStarts) { jobStarts.clear() }
         requests.set(0L); jobs.set(0L); pages.set(0L); served.set(0L); barsDelivered.set(0L)
         barsMerged.set(0L); printsParsed.set(0L); empty.set(0L); httpErrors.set(0L); budgetSkips.set(0L); noKey.set(0L); noMarketAddress8269.set(0L)
+        localTapeAt8284.clear(); localTapeRuns8284.set(0L); localTapeBarCount8284.set(0L); localTapeChanged8284.set(0L)
+        localTapeByReason8284.clear(); coveredSkips8284.set(0L); heliusReplaced8284.set(0L); heliusKept8284.set(0L)
+        onCandlesMerged8284Listener = {}
     }
 }
