@@ -126,6 +126,7 @@ object RunnerPlay8018 {
 
     /** CanonicalFinalizedTradeBus6464: a promoted position closed — grade the hold against the ladder it replaced. */
     fun onClose8018(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
+        if (env.terminal && env.mint.isNotBlank() && armed.containsKey(env.mint)) closedAt8297[env.mint] = env.atMs  // V5.0.8297
         if (!env.terminal || env.mint.isBlank() || !env.realizedReturnPct.isFinite()) return
         val entryMs = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
         val key = promos.keys.firstOrNull { it.startsWith(env.mint + "|") && kotlin.math.abs((it.substringAfter('|').toLongOrNull() ?: 0L) - entryMs) < 120_000L } ?: return
@@ -152,7 +153,8 @@ object RunnerPlay8018 {
     /** ForwardReturnLabeler7731: a followed coin is [gross]% over its decision price, [runAgeMs] after it. */
     fun onRun8018(mint: String, gross: Double, runAgeMs: Long, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank() || !gross.isFinite() || gross < RUN_CONFIRM_PCT_8018 || runAgeMs > RUN_MAX_AGE_MS) return
-        armed[mint]?.let { if (nowMs - it < SEEN_MS) return }
+        // V5.0.8297 — a lapsed window (not bought, coin not closed since) re-arms while the run still confirms.
+        armed[mint]?.let { prev -> if (nowMs - prev < SEEN_MS && !rearms8297(windows8297[mint] ?: 1, prev, nowMs, (closedAt8297[mint] ?: 0L) >= (firstArmed8297[mint] ?: prev))) return }
         considered[mint]?.let { if (nowMs - it < RECHECK_MS) return }
         if (considered.size > 4_000) considered.entries.removeIf { nowMs - it.value > RUN_MAX_AGE_MS }
         considered[mint] = nowMs
@@ -163,9 +165,11 @@ object RunnerPlay8018 {
         if (try { MayhemMode7943.liveRefusal(ts, nowMs) } catch (_: Throwable) { null } != null) return
         val firming = RunnerGrab7967.runStandingNow8019(mint, nowMs)  // V5.0.8019 — firming or standing with buyers
         if (!confirmsRun8018(gross, runAgeMs, firming, ts.position.isOpen)) { if (!firming) notFirming.incrementAndGet(); return }
-        if (armed.size > 2_000) armed.entries.removeIf { nowMs - it.value > SEEN_MS }
+        if (armed.size > 2_000) { armed.entries.removeIf { nowMs - it.value > SEEN_MS }; windows8297.keys.retainAll(armed.keys); firstArmed8297.keys.retainAll(armed.keys); closedAt8297.keys.retainAll(armed.keys) }
+        val windowsBefore8297 = if (armed.containsKey(mint)) windows8297[mint] ?: 1 else 0
         armed[mint] = nowMs
-        runsConfirmed.incrementAndGet()
+        windows8297[mint] = windowsBefore8297 + 1
+        if (windowsBefore8297 == 0) { firstArmed8297[mint] = nowMs; runsConfirmed.incrementAndGet() } else rearmed8297.incrementAndGet()
         val px = ts.lastPrice
         if (px.isFinite() && px > 0.0 && signals.size < 2_000) signals.putIfAbsent(mint, px to nowMs)
         if (synchronized(reentryRecord) { standsDown8018(reentryRecord) }) { ticketShadow.incrementAndGet(); return }
@@ -178,6 +182,29 @@ object RunnerPlay8018 {
             ForensicLogger.lifecycle("RUN_REENTRY_TICKET_8018", "mint=${mint.take(10)} sym=${ts.symbol} gross=${"%.0f".format(gross)}% runAgeM=${runAgeMs / 60_000} action=admit_and_hold")
         } catch (_: Throwable) {}
     }
+
+    // ── V5.0.8297 §A_TICKET_WINDOW_RE_ARMS ──
+    // A ticket was one 3-minute window per coin per 6 hours: a confirmed run that spent those 3 minutes at its high
+    // (CHASING_SPIKE_8065: wait for the pullback) or waiting on a data deferral was never offered again, though the
+    // labeler kept confirming it. A lapsed window re-arms after [REARM_GAP_MS_8297] while the run still confirms (the same
+    // confirmsRun8018 test: +100..+3,000% inside 4 h, structure standing, not held), at most [MAX_WINDOWS_8297] windows
+    // per coin, never after the bot closed a position in it since the first ticket (a ticket clears the repeat-loser
+    // lock), and every other bound (record stand-down, open re-entries, chase rule, gates) is unchanged.
+    const val MAX_WINDOWS_8297 = 3
+    const val REARM_GAP_MS_8297 = 60_000L
+    private val windows8297 = ConcurrentHashMap<String, Int>()
+    private val firstArmed8297 = ConcurrentHashMap<String, Long>()
+    private val closedAt8297 = ConcurrentHashMap<String, Long>()
+    private val rearmed8297 = AtomicLong(0)
+
+    /** Pure: may a lapsed ticket window armed at [lastArmedAtMs] re-arm now? */
+    fun rearms8297(windowsUsed: Int, lastArmedAtMs: Long, nowMs: Long, closedSinceFirstTicket: Boolean): Boolean =
+        !closedSinceFirstTicket && windowsUsed < MAX_WINDOWS_8297 && nowMs - lastArmedAtMs > TICKET_TTL_MS + REARM_GAP_MS_8297
+
+    /** HandoffPriority8190: every active ticket's mint and deadline — the coin is evaluated inside its window. */
+    fun activeTicketTargets8297(nowMs: Long = System.currentTimeMillis()): List<Pair<String, Long>> =
+        if (synchronized(reentryRecord) { standsDown8018(reentryRecord) }) emptyList()
+        else armed.entries.filter { nowMs - it.value in 0L..TICKET_TTL_MS }.map { it.key to it.value + TICKET_TTL_MS }
 
     /** LiveEdgeGate7877 / ChartReader7950 / FinalDecisionGate: a re-entry ticket issued in the last few minutes. */
     fun ticketActive8018(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
@@ -235,12 +262,13 @@ object RunnerPlay8018 {
             if (st.n < 1.0) "-" else "n${st.n.toInt()}/${"%+.1f".format(st.mean())}%${if (standsDown8018(st)) " STOOD_DOWN" else ""}"
         }
         return "promoted=${promoted.get()} holding=${promos.size} shadow=${promoteShadow.get()} vsLadder=${rec(promoteRecord)} | " +
-            "reentry: runsConfirmed=${runsConfirmed.get()} tickets=${tickets.get()} shadow=${ticketShadow.get()} notFirming=${notFirming.get()} " +
+            "reentry: runsConfirmed=${runsConfirmed.get()} rearmed8297=${rearmed8297.get()} tickets=${tickets.get()} shadow=${ticketShadow.get()} notFirming=${notFirming.get()} " +
             "pendingGrades=${signals.size} record30m=${rec(reentryRecord)}"
     }
 
     internal fun resetForTest8018() {
         promos.clear(); considered.clear(); armed.clear(); signals.clear()
+        windows8297.clear(); firstArmed8297.clear(); closedAt8297.clear()
         synchronized(promoteRecord) { promoteRecord.scale(0.0) }
         synchronized(reentryRecord) { reentryRecord.scale(0.0) }
     }

@@ -41,6 +41,20 @@ object ProfitEscalation8189 {
         return if (economic) Verdict8189.ESCALATE_FULL else Verdict8189.KEEP
     }
 
+    /**
+     * V5.0.8297 — the runner set that keeps its residual: the same set RunnerExitLive8136's share budget protects (a
+     * runner-plan hold — grab, proven-cell admit, confirmed-run ticket, latched promotion, sealed runner setup — a sealed
+     * long-hold style, a lifecycle hold) plus a confirmed continuation. 8189 read only the lifecycle hold and the
+     * continuation, so an uneconomic first slice on a grabbed / ticketed / promoted runner sold the WHOLE position at its
+     * first rung while the share budget was protecting that very residual. A fault keeps the residual (no escalation).
+     */
+    fun runnerProtected8297(ts: com.lifecyclebot.data.TokenState): Boolean = try {
+        com.lifecyclebot.engine.RunnerGrab7967.holdingRunner8018(ts) ||
+            com.lifecyclebot.engine.TradeExitContract8077.longHold(ts) == true ||
+            com.lifecyclebot.engine.LifecycleHold8065.holding8065(ts) ||
+            com.lifecyclebot.engine.RunnerLive8153.continuationConfirmed8153(ts)
+    } catch (_: Throwable) { true }
+
     /** Pure: the full exit's reason (a profit harvest: ProfitExitTruth8163 still checks it on its own quote). */
     fun reason8189(sliceReason: String): String = REASON_PREFIX_8189 + sliceReason.take(60)
 

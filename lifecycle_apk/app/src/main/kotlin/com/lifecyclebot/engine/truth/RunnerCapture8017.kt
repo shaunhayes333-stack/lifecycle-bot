@@ -32,6 +32,9 @@ object RunnerCapture8017 {
         /** V5.0.8237 — when the stored peak was observed, and whether it fell inside the bot's own holding window. */
         @Volatile var peakAtMs = 0L
         @Volatile var peakInHold = true
+        /** V5.0.8297 — the close that ended the bot's position in this runner (0 = none yet) and how long it was held. */
+        @Volatile var closeAtMs = 0L
+        @Volatile var holdMs = 0L
     }
 
     /**
@@ -152,7 +155,9 @@ object RunnerCapture8017 {
 
     /** CanonicalFinalizedTradeBus6464: a position closed — if it was a runner, that is what the bot banked. */
     fun onClose8017(env: CanonicalFinalizedTradeBus6464.Envelope) {
+        try { RunnerFunnel8297.onAnyClose8297(env) } catch (_: Throwable) {}  // V5.0.8297 — runner-admit outcomes / capped wins
         val r = runs[env.mint] ?: return
+        if (env.terminal) { r.closeAtMs = env.atMs; r.holdMs = env.holdingTimeMs }  // V5.0.8297
         r.held = true
         r.live = r.live || env.mode.equals("live", ignoreCase = true)
         if (env.realizedReturnPct.isFinite()) r.bankedPct = env.realizedReturnPct
@@ -161,6 +166,22 @@ object RunnerCapture8017 {
         r.peakInHold = peakInHold8237(r.peakAtMs, env.atMs, env.holdingTimeMs)
         if (!r.peakInHold) try { PipelineHealthCollector.labelInc("RUNNER_PEAK_OUTSIDE_HOLD_8237") } catch (_: Throwable) {}
         try { AdmissionRunnerTrace8144.update8144(env.mint, r.refusedBy, downstream8047[env.mint], true) } catch (_: Throwable) {}  // V5.0.8144
+    }
+
+    /** V5.0.8297 — [r]'s first losing stage, from the run's own record and its frozen decision trace. */
+    private fun attribution8297(r: Run, trace: AdmissionRunnerTrace8144.Trace8144?): RunnerFunnel8297.Attribution8297 {
+        val down = downstream8047[r.mint].orEmpty()
+        val binding = trace?.let { AdmissionRunnerTrace8144.refusingGate8144(it.copy(refusedBy = r.refusedBy)) } ?: r.refusedBy
+        val evaluated = trace != null && (trace.nativeAtMs > 0L || trace.admission.isNotBlank() || trace.fdgVerdict.isNotBlank())
+        return RunnerFunnel8297.attribute8297(r.held, r.bankedPct, r.peakPct, entryVsStart8017(r.entryPx, r.startPx),
+            r.peakAtMs, r.closeAtMs, r.holdMs, evaluated || r.refusedBy.isNotBlank(), binding, down)
+    }
+
+    /** V5.0.8297 — the per-stage attribution of every runner of the window, plus the runner-admit outcome ledger. */
+    private fun funnelLine8297(recent: List<Run>): String {
+        val traces = try { AdmissionRunnerTrace8144.traces8144().associateBy { it.mint } } catch (_: Throwable) { emptyMap() }
+        val list = recent.map { attribution8297(it, traces[it.mint]) }
+        return "${RunnerFunnel8297.summary8297(list)} ${RunnerFunnel8297.outcomesLine8297()} ${RunnerDefer8297.statusLine8297()}"
     }
 
     fun statusLine(): String {
@@ -177,13 +198,14 @@ object RunnerCapture8017 {
             val e = entryVsStart8017(r.entryPx, r.startPx)
             when {
                 !r.held -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% MISSED(${missedWhy8047(r.refusedBy, downstream8047[r.mint]).take(40)})"
-                r.bankedPct.isFinite() && !r.peakInHold -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% PEAK_OUTSIDE_HOLD banked ${"%+.0f".format(r.bankedPct)}%${if (r.live) " LIVE" else " paper"}"
+                r.bankedPct.isFinite() && !r.peakInHold -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% PEAK_OUTSIDE_HOLD(${attribution8297(r, null).stage.name}) banked ${"%+.0f".format(r.bankedPct)}%${if (r.live) " LIVE" else " paper"}"
                 r.bankedPct.isFinite() -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% in@${if (e.isFinite()) "%+.0f%%".format(e) else "?"} banked ${"%+.0f".format(r.bankedPct)}% (${"%.0f".format((bankedShare8017(r.bankedPct, r.peakPct, e).takeIf { it.isFinite() } ?: 0.0) * 100)}% of run)${if (r.live) " LIVE" else " paper"}"
                 else -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% in@${if (e.isFinite()) "%+.0f%%".format(e) else "?"} HOLDING ${if (r.openNowPct.isFinite()) "%+.0f%%".format(r.openNowPct) else ""}${if (r.live) " LIVE" else " paper"}"
             }
         }
         return "runners(4x+,24h)=${recent.size} held=${held.size} (live ${liveHeld}) missed=${recent.size - held.size} restoredRuns8169=$restoredRuns8169 " +
-            "entryVsStart(median)=${med(entries)} bankedShareOfRun(median)=${if (shares.isEmpty()) "-" else "%.0f%%".format(shares[shares.size / 2] * 100)} | $rows" +
+            "entryVsStart(median)=${med(entries)} bankedShareOfRun(median)=${if (shares.isEmpty()) "-" else "%.0f%%".format(shares[shares.size / 2] * 100)} | " +
+            "${try { funnelLine8297(recent) } catch (_: Throwable) { "funnel8297 unavailable" }} | $rows" +
             " | ${try { AdmissionRunnerTrace8144.statusLine8144() } catch (_: Throwable) { "trace8144 unavailable" }}"  // V5.0.8144
     }
 }
