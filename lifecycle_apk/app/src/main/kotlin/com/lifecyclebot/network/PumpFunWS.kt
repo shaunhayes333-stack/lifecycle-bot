@@ -665,7 +665,8 @@ object PumpFunWS {
                                 tok7743 / (tok7743 + left7743) else 0.0
                             onTradeDetailCb7743?.invoke(mint, j.optString("traderPublicKey", ""), sol7743, txType == "buy", soldFrac7743, vSol)
                             // V5.0.8100 — the executed-trade tape (buy pressure / change / shape for a coin no provider covers yet).
-                            com.lifecyclebot.engine.truth.TradeTape8100.note8100(mint, priceSol, sol7743, txType == "buy")
+                            // V5.0.8285 — with its provenance: signature (one trade across PumpPortal / Helius), venue, token size.
+                            tapeFrame8285(j, mint, priceSol, sol7743, tok7743, txType == "buy")
                         } catch (_: Throwable) {}
                     }
                     txType == "create" || j.has("name") && j.has("symbol") && j.has("mint") -> {
@@ -772,5 +773,30 @@ object PumpFunWS {
             try { Thread.sleep(delayMs) } catch (_: InterruptedException) { return@Thread }
             connect()
         }.start()
+    }
+
+    // ── V5.0.8285 — trade-frame provenance (the 8192 frame budget above is untouched) ──
+
+    /** Pure: the venue a PumpPortal trade frame executed on, from its `pool` field (blank / "pump" = the bonding curve). */
+    internal fun venue8285(pool: String): String = when (pool.trim().lowercase()) {
+        "", "pump" -> com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285
+        "pump-amm", "pumpswap" -> com.lifecyclebot.engine.truth.TradeTape8100.VENUE_AMM_8285
+        else -> "pumpportal:" + pool.trim().lowercase().take(24)
+    }
+
+    /** Pure: a frame timestamp as epoch ms (seconds or ms accepted), 0 when the frame states none. */
+    internal fun frameEventMs8285(raw: Long): Long = when {
+        raw <= 0L -> 0L
+        raw < 100_000_000_000L -> raw * 1_000L
+        else -> raw
+    }
+
+    /** One PumpPortal trade frame onto the executed-trade tape with its signature, venue, token size and timestamps. */
+    private fun tapeFrame8285(j: JSONObject, mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean) {
+        com.lifecyclebot.engine.truth.TradeTape8100.note8285(
+            mint, priceSol, sol, tokenQty, isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_PUMPPORTAL_8285,
+            pool = venue8285(j.optString("pool", "")), signature = j.optString("signature", ""),
+            eventMs = frameEventMs8285(j.optLong("timestamp", 0L)), recvMs = System.currentTimeMillis(),
+        )
     }
 }

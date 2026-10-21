@@ -25,11 +25,22 @@ object ProofDataSwapTape8144 {
     private val skippedPumpPortal = AtomicLong(0L)
     private val skippedDuplicate = AtomicLong(0L)
     private val skippedUnpriced = AtomicLong(0L)
+    private val crossFeedDup8285 = AtomicLong(0L)
+    private val admittedBesidePumpPortal8285 = AtomicLong(0L)
 
     /** Pure: may this decoded swap enter the tape? [pumpPortalAgeMs] is the time since PumpPortal last delivered the mint. */
     fun admit8144(sol: Double, tokenAmount: Double, pumpPortalAgeMs: Long): Boolean =
         sol.isFinite() && sol > 0.0 && tokenAmount.isFinite() && tokenAmount > 0.0 &&
             pumpPortalAgeMs >= PUMPPORTAL_PRIORITY_MS_8144
+
+    /**
+     * V5.0.8285 — pure: may this decoded swap enter the tape? As [admit8144], and also while PumpPortal is delivering the
+     * mint when PumpPortal's own prints carry signatures ([pumpPortalSigned]): the tape then matches the same transaction
+     * by signature (one trade), so a distinct swap PumpPortal missed is no longer dropped by the time window.
+     */
+    fun admit8285(sol: Double, tokenAmount: Double, pumpPortalAgeMs: Long, pumpPortalSigned: Boolean): Boolean =
+        sol.isFinite() && sol > 0.0 && tokenAmount.isFinite() && tokenAmount > 0.0 &&
+            (pumpPortalAgeMs >= PUMPPORTAL_PRIORITY_MS_8144 || pumpPortalSigned)
 
     /**
      * DataOrchestrator's Helius swap callback: tape one decoded executed swap. [pumpPortalLastMs] is when PumpPortal last
@@ -41,18 +52,27 @@ object ProofDataSwapTape8144 {
     ): Boolean {
         if (mint.isBlank()) return false
         if (!(sol.isFinite() && sol > 0.0 && tokenAmount.isFinite() && tokenAmount > 0.0)) { skippedUnpriced.incrementAndGet(); return false }
-        if (!admit8144(sol, tokenAmount, nowMs - pumpPortalLastMs)) { skippedPumpPortal.incrementAndGet(); return false }
+        val ppSigned8285 = signature.isNotBlank() &&
+            TradeTape8100.signedFrom8285(mint, TradeTape8100.SRC_PUMPPORTAL_8285, nowMs, PUMPPORTAL_PRIORITY_MS_8144)
+        if (!admit8285(sol, tokenAmount, nowMs - pumpPortalLastMs, ppSigned8285)) { skippedPumpPortal.incrementAndGet(); return false }
         if (signature.isNotBlank() && seen8144.put("$mint|$signature|$isBuy", true) != null) { skippedDuplicate.incrementAndGet(); return false }
-        TradeTape8100.note8100(mint, sol / tokenAmount, sol, isBuy, nowMs, TradeTape8100.SRC_HELIUS_8169)   // V5.0.8169 — per-feed count
+        // V5.0.8169 — per-feed count; V5.0.8285 — with signature (cross-feed dedup), token size and receive time. The
+        // decoded TradeEvent names no pool (curve or PumpSwap): its venue stays unstated, never guessed.
+        if (!TradeTape8100.note8285(mint, sol / tokenAmount, sol, tokenAmount, isBuy, TradeTape8100.SRC_HELIUS_8169, signature = signature, recvMs = nowMs)) {
+            skippedDuplicate.incrementAndGet(); crossFeedDup8285.incrementAndGet(); return false
+        }
         taped.incrementAndGet()
+        if (ppSigned8285) admittedBesidePumpPortal8285.incrementAndGet()
         return true
     }
 
     fun statusLine8144(): String =
         "heliusTape8144 taped=${taped.get()} skippedPumpPortal=${skippedPumpPortal.get()} " +
-            "skippedDuplicate=${skippedDuplicate.get()} skippedUnpriced=${skippedUnpriced.get()}"
+            "skippedDuplicate=${skippedDuplicate.get()} skippedUnpriced=${skippedUnpriced.get()} " +
+            "dupOnTape8285=${crossFeedDup8285.get()} distinctBesidePumpPortal8285=${admittedBesidePumpPortal8285.get()}"
 
     internal fun clearForTest8144() {
         seen8144.clear(); taped.set(0L); skippedPumpPortal.set(0L); skippedDuplicate.set(0L); skippedUnpriced.set(0L)
+        crossFeedDup8285.set(0L); admittedBesidePumpPortal8285.set(0L)
     }
 }

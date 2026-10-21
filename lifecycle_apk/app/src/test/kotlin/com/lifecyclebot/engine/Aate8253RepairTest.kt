@@ -95,7 +95,9 @@ class Aate8253RepairTest {
         assertFalse(CandidateAdmission8136.reevalDueForTest8252("mintE", "tape:NO_PRINTS", now + 1_000L))
         val orch = src("engine/DataOrchestrator.kt")
         assertTrue(orch.substringAfter("private fun onTapeTrade7773(").substringBefore("LaunchTape7921.onTrade").contains("evidenceArrived8252(mint, com.lifecyclebot.engine.truth.CandidateAdmission8136.TAPE_FEATURES_8252)"))
-        assertTrue(orch.contains("if (pair != null) try {"))
+        // superseded by V5.0.8285 — the pair fetch is batched (DexScreener /tokens/v1, 30 mints); every answered mint wakes its defer
+        assertTrue(orch.contains("for (m in r?.answered.orEmpty()) {"))
+        assertTrue(orch.contains("com.lifecyclebot.engine.truth.CandidateAdmission8136.evidenceArrived8252(m, com.lifecyclebot.engine.truth.CandidateAdmission8136.PAIR_FEATURES_8252)"))
     }
 
     @Test fun aRunnerStopClaimsNoProfitSoItIsNotRewrittenOutOfLearning() {

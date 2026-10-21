@@ -147,11 +147,168 @@ object DataPipeline8191 {
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "} premium[allowed=${premiumAllowed.get()} " +
             "skipped=${premiumSkipped.get()} coveredByDex=${premiumSkippedCovered.get()}] nearDecision=${nearDecisionAt.size} " +
             "pairFetches=${pairFetches.get()} seed{" + seedBySource.entries.sortedByDescending { it.value.get() }
-            .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}]"
+            .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}] " +
+            ProviderLanes8285.statusLine8285() + " " + FeatureSourceCounters8285.line8285() + " " +
+            (try { com.lifecyclebot.network.DexPools8285.statusLine8285() } catch (_: Throwable) { "dexPools8285 -" })
 
     internal fun resetForTests8191() {
         nearDecisionAt.clear(); pairFetchAt.clear(); synchronized(codexOrdinary) { codexOrdinary.clear() }
         birdeyeByEndpoint.clear(); seedBySource.clear()
         premiumAllowed.set(0L); premiumSkipped.set(0L); premiumSkippedCovered.set(0L); pairFetches.set(0L)
     }
+}
+
+/**
+ * V5.0.8285 §EVERY_PROVIDER_ITS_OWN_CLOCK — keyless provider lanes (directive 8282 P3).
+ *
+ *  - Priority: a held position's data first, then a coin near a decision, then a lane hand-off, then bulk updates
+ *    ([Prio8285]); a drain takes the highest priority, oldest first.
+ *  - One request per key: the same provider / kind / key asked from several lanes is ONE pending request (its priority
+ *    raised to the highest asker), never several calls.
+ *  - Independent backoff per provider: a 429 / 5xx streak cools only that provider ([cooling8285]); another provider,
+ *    and evidence already cached or streamed, stay usable. A 401 / 402 / 403 disables a provider for the session.
+ */
+object ProviderLanes8285 {
+    enum class Prio8285 { HELD, NEAR_DECISION, HANDOFF, BULK }
+
+    const val DEX_8285 = "dexscreener"
+    const val GECKO_8285 = "geckoterminal"
+    const val KIND_PAIR_8285 = "pair"
+    const val KIND_TRADES_8285 = "trades"
+    private const val BASE_COOLDOWN_MS_8285 = 30_000L
+    private const val MAX_COOLDOWN_MS_8285 = 10L * 60_000L
+    private const val CAP_8285 = 4_000
+
+    private class Pending8285(@Volatile var prio: Prio8285, val atMs: Long)
+    private class Backoff8285 {
+        @Volatile var untilMs = 0L
+        @Volatile var level = 0
+        @Volatile var streak = 0
+        @Volatile var disabledCode = 0
+        val cooldowns = AtomicLong(0L)
+    }
+
+    private val pending = ConcurrentHashMap<String, Pending8285>()
+    private val backoff = ConcurrentHashMap<String, Backoff8285>()
+    private val coalesced = AtomicLong(0L)
+    private val enqueued = AtomicLong(0L)
+
+    /** Pure: the priority of a request for a coin. */
+    fun prioOf8285(held: Boolean, nearDecision: Boolean, handoff: Boolean): Prio8285 = when {
+        held -> Prio8285.HELD
+        nearDecision -> Prio8285.NEAR_DECISION
+        handoff -> Prio8285.HANDOFF
+        else -> Prio8285.BULK
+    }
+
+    /** The priority of a request for [mint] now (held / near a decision read live; [handoff] from the caller). */
+    fun prioFor8285(mint: String, handoff: Boolean = false, nowMs: Long = System.currentTimeMillis()): Prio8285 {
+        val held = try { HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }
+        return prioOf8285(held, DataPipeline8191.nearDecision8191(mint, nowMs), handoff)
+    }
+
+    /** Pure: the cooldown after the [level]-th consecutive provider cooldown (30 s doubling, capped at 10 min). */
+    fun cooldownMs8285(level: Int): Long = (BASE_COOLDOWN_MS_8285 shl level.coerceIn(0, 5)).coerceAtMost(MAX_COOLDOWN_MS_8285)
+
+    /**
+     * Queue [key] for [provider]/[kind] at [prio]. False when the identical request is already pending (its priority is
+     * raised to [prio] when higher): the second asker shares the first request's answer.
+     */
+    fun enqueue8285(provider: String, kind: String, key: String, prio: Prio8285, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (key.isBlank()) return false
+        val k = "$provider|$kind|$key"
+        val prior = pending.putIfAbsent(k, Pending8285(prio, nowMs))
+        if (prior != null) {
+            if (prio.ordinal < prior.prio.ordinal) prior.prio = prio
+            coalesced.incrementAndGet()
+            return false
+        }
+        enqueued.incrementAndGet()
+        if (pending.size > CAP_8285) {
+            // Bounded: the oldest bulk requests leave first; held / near-decision requests are never evicted for space.
+            pending.entries.filter { it.value.prio == Prio8285.BULK }.sortedBy { it.value.atMs }
+                .take(pending.size - CAP_8285).forEach { pending.remove(it.key) }
+        }
+        return true
+    }
+
+    /** Take up to [max] pending keys of [provider]/[kind], highest priority first, oldest first within a priority. */
+    fun drain8285(provider: String, kind: String, max: Int): List<String> {
+        val prefix = "$provider|$kind|"
+        val picked = pending.entries.filter { it.key.startsWith(prefix) }
+            .sortedWith(compareBy({ it.value.prio.ordinal }, { it.value.atMs })).take(max.coerceAtLeast(0))
+        return picked.mapNotNull { e -> if (pending.remove(e.key) != null) e.key.removePrefix(prefix) else null }
+    }
+
+    fun pendingCount8285(provider: String, kind: String): Int = pending.keys.count { it.startsWith("$provider|$kind|") }
+
+    /** Is [provider] cooling down (or disabled) now? Never consulted for any other provider or for cached evidence. */
+    fun cooling8285(provider: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val b = backoff[provider] ?: return false
+        return b.disabledCode != 0 || nowMs < b.untilMs
+    }
+
+    /** Record [provider]'s HTTP answer: 2xx resets its ladder, 429 cools at once, a 5xx streak of 3 cools, 401/402/403 disables. */
+    fun noteResult8285(provider: String, code: Int, nowMs: Long = System.currentTimeMillis()) {
+        val b = backoff.computeIfAbsent(provider) { Backoff8285() }
+        when {
+            code in 200..299 -> { b.streak = 0; b.level = 0 }
+            code == 401 || code == 402 || code == 403 -> b.disabledCode = code
+            code == 429 || code >= 500 || code <= 0 -> {
+                b.streak++
+                if (code == 429 || b.streak >= 3) {
+                    b.untilMs = nowMs + cooldownMs8285(b.level)
+                    b.level = (b.level + 1).coerceAtMost(5)
+                    b.streak = 0
+                    b.cooldowns.incrementAndGet()
+                }
+            }
+        }
+    }
+
+    fun statusLine8285(nowMs: Long = System.currentTimeMillis()): String =
+        "lanes8285[enqueued=${enqueued.get()} coalesced=${coalesced.get()} pending=${pending.size} backoff{" +
+            backoff.entries.sortedBy { it.key }.joinToString(",") { (k, b) ->
+                "$k:" + if (b.disabledCode != 0) "disabled${b.disabledCode}" else "level=${b.level},cooldowns=${b.cooldowns.get()},leftMs=${(b.untilMs - nowMs).coerceAtLeast(0L)}"
+            }.ifBlank { "-" } + "}]"
+
+    internal fun resetForTests8285() { pending.clear(); backoff.clear(); coalesced.set(0L); enqueued.set(0L) }
+}
+
+/**
+ * V5.0.8285 — directive 8282 P5: per missing feature and source, how often a source was asked, returned evidence,
+ * returned something invalid, was throttled (our gate or its cooldown), and repaired the feature. One helper line.
+ */
+object FeatureSourceCounters8285 {
+    const val ATTEMPT = "attempt"
+    const val RETURNED = "returned"
+    const val INVALID = "invalid"
+    const val THROTTLED = "throttled"
+    const val REPAIRED = "repaired"
+    private val OUTCOMES = listOf(ATTEMPT, RETURNED, INVALID, THROTTLED, REPAIRED)
+    private val counts = ConcurrentHashMap<String, AtomicLong>()
+
+    fun note8285(feature: String, source: String, outcome: String) {
+        if (outcome !in OUTCOMES) return
+        val k = "${feature.trim().lowercase().ifBlank { "?" }}|${source.trim().ifBlank { "?" }}|$outcome"
+        if (counts.size >= 512 && !counts.containsKey(k)) return
+        counts.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet()
+    }
+
+    fun count8285(feature: String, source: String, outcome: String): Long = counts["${feature.lowercase()}|$source|$outcome"]?.get() ?: 0L
+
+    /** featureSources8285[bp{dexBatch:a=4,r=3,i=0,t=1,rep=2} ...] */
+    fun line8285(): String {
+        val byFeature = counts.keys.map { it.split('|') }.filter { it.size == 3 }.groupBy { it[0] }
+        val body = byFeature.keys.sorted().joinToString(" ") { f ->
+            val sources = byFeature[f].orEmpty().map { it[1] }.distinct().sorted()
+            f + "{" + sources.joinToString(",") { s ->
+                "$s:a=${count8285(f, s, ATTEMPT)},r=${count8285(f, s, RETURNED)},i=${count8285(f, s, INVALID)}," +
+                    "t=${count8285(f, s, THROTTLED)},rep=${count8285(f, s, REPAIRED)}"
+            } + "}"
+        }
+        return "featureSources8285[" + body.ifBlank { "-" } + "]"
+    }
+
+    internal fun resetForTests8285() { counts.clear() }
 }

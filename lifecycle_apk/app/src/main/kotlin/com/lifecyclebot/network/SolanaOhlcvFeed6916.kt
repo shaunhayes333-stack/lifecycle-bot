@@ -3,6 +3,7 @@ package com.lifecyclebot.network
 import com.lifecyclebot.data.Candle
 import com.lifecyclebot.engine.ApiHealthMonitor
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.FeatureSourceCounters8285
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import okhttp3.Request
@@ -159,8 +160,30 @@ object SolanaOhlcvFeed6916 {
         val now = System.currentTimeMillis()
         if (now < cooldownUntilMs.get()) { cooldownSkips.incrementAndGet(); return false }
         val prev = lastCallAtMs.get()
-        if (now - prev < MIN_INTERVAL_MS) { rateLimited.incrementAndGet(); return false }
+        if (now - prev < geckoIntervalMs8285.get()) { rateLimited.incrementAndGet(); return false }
         return lastCallAtMs.compareAndSet(prev, now)
+    }
+
+    // ══════ V5.0.8285 — adaptive GeckoTerminal pacing (free tier ~10-30 calls/min) ══════
+    // The slot starts at [MIN_INTERVAL_MS] (24/min). A 429 widens it x1.5 up to [MAX_INTERVAL_MS_8285] (10/min); every
+    // [NARROW_AFTER_OK_8285] consecutive 2xx narrow it 250 ms back toward the floor. The 7819 cooldown ladder is unchanged.
+    private const val MAX_INTERVAL_MS_8285 = 6_000L
+    private const val NARROW_AFTER_OK_8285 = 20L
+    private val geckoIntervalMs8285 = AtomicLong(MIN_INTERVAL_MS)
+    private val okStreak8285 = AtomicLong(0L)
+
+    /** Pure: the next pacing interval after an answer [code] at [currentMs] with [okStreak] consecutive 2xx before it. */
+    internal fun nextIntervalMs8285(currentMs: Long, code: Int, okStreak: Long): Long = when {
+        code == 429 -> (currentMs * 3 / 2).coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS_8285)
+        code in 200..299 && (okStreak + 1) % NARROW_AFTER_OK_8285 == 0L -> (currentMs - 250L).coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS_8285)
+        else -> currentMs.coerceIn(MIN_INTERVAL_MS, MAX_INTERVAL_MS_8285)
+    }
+
+    private fun pace8285(code: Int) {
+        val streak = if (code in 200..299) okStreak8285.get() else 0L
+        geckoIntervalMs8285.set(nextIntervalMs8285(geckoIntervalMs8285.get(), code, streak))
+        if (code in 200..299) okStreak8285.incrementAndGet() else okStreak8285.set(0L)
+        try { com.lifecyclebot.engine.ProviderLanes8285.noteResult8285(com.lifecyclebot.engine.ProviderLanes8285.GECKO_8285, code) } catch (_: Throwable) {}
     }
 
     /**
@@ -174,11 +197,12 @@ object SolanaOhlcvFeed6916 {
     fun providerSlotWait7809(nowMs: Long = System.currentTimeMillis()): SlotWait7809 {
         val cd = cooldownUntilMs.get() - nowMs
         if (cd > 0L) return SlotWait7809(cd, cooldown = true)
-        val gap = MIN_INTERVAL_MS - (nowMs - lastCallAtMs.get())
+        val gap = geckoIntervalMs8285.get() - (nowMs - lastCallAtMs.get())
         return SlotWait7809(gap.coerceAtLeast(0L), cooldown = false)
     }
 
     private fun noteResponse6944(code: Int) {
+        pace8285(code)  // V5.0.8285 — adaptive pacing + this provider's own lane backoff
         if (code == 429 || code >= 500) {
             // V5.0.7819 §BACK_OFF_LIKE_YOU_MEAN_IT (Field Manual L404). 5.0.7813:
             // geckoterminal sr=15% 5xx=82 — a flat 60 s cooldown after five
@@ -273,10 +297,10 @@ object SolanaOhlcvFeed6916 {
         while (spins++ < 64) {
             val now = System.currentTimeMillis()
             if (now < cooldownUntilMs.get()) return false
-            val gap = MIN_INTERVAL_MS - (now - lastCallAtMs.get())
+            val gap = geckoIntervalMs8285.get() - (now - lastCallAtMs.get())
             if (gap <= 0L) return true
             if (now + gap > deadline) return false
-            try { Thread.sleep(gap.coerceIn(10L, MIN_INTERVAL_MS)) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
+            try { Thread.sleep(gap.coerceIn(10L, MAX_INTERVAL_MS_8285)) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
         }
         return false
     }
@@ -335,6 +359,13 @@ object SolanaOhlcvFeed6916 {
             if (System.currentTimeMillis() - it.atMs <= POOL_CACHE_TTL_MS) {
                 return PoolLookup6982(it.pool, askedProvider = false)
             }
+        }
+        // V5.0.8285 — the data pool DexScreener already named for this mint (identity kept, chosen deliberately) costs no
+        // GeckoTerminal request; the /tokens/{mint}/pools resolve is spent only for a mint no batch has listed.
+        val dexPool8285 = try { DexPools8285.dataPool8285(mint)?.pairAddress } catch (_: Throwable) { null }
+        if (dexPool8285 != null) {
+            poolCache[mint] = PoolRef(dexPool8285, System.currentTimeMillis())
+            return PoolLookup6982(dexPool8285, askedProvider = false)
         }
         poolResolves.incrementAndGet()
         val fetched = fetch6982("$BASE/tokens/$mint/pools?page=1")
@@ -465,9 +496,16 @@ object SolanaOhlcvFeed6916 {
         // without this the same poolless mints are re-requested every scan pass,
         // which is most of how the request budget was burned.
         negativeCache[mint]?.let {
-            if (now - it <= NEGATIVE_TTL_MS) { negativeHits.incrementAndGet(); return emptyList() }
+            if (now - it <= NEGATIVE_TTL_MS) { negativeHits.incrementAndGet(); return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList() }
             negativeCache.remove(mint)
         }
+        // V5.0.8285 — GeckoTerminal cooling down is THIS provider's state: the coin's own executed prints (one venue) are an
+        // independent local source of one-minute candles and are served instead of nothing.
+        if (now < cooldownUntilMs.get()) {
+            FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.THROTTLED)
+            localTapeCandles8285(mint, timeframeLabel, n, now)?.let { return it }
+        }
+        FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.ATTEMPT)
         val lookup6982 = resolvePool(mint, poolHint)
         val pool = lookup6982.pool
         if (pool == null) {
@@ -479,17 +517,18 @@ object SolanaOhlcvFeed6916 {
             } else {
                 localSkips6982.incrementAndGet()
             }
-            return emptyList()
+            return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList()   // V5.0.8285 — the local alternate
         }
         val url = "$BASE/pools/$pool/ohlcv/$unit?aggregate=$aggregate&limit=$n&currency=usd"
         // V5.0.8191 — the pool was just resolved on the wire: wait for the next slot instead of being declined by it.
         if (lookup6982.askedProvider && awaitSlot8191(MIN_INTERVAL_MS + 500L)) slotWaits8191.incrementAndGet()
         val candles6982 = fetch6982(url)
+        if (!candles6982.askedProvider) FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.THROTTLED)
         val json = candles6982.json ?: run {
             if (candles6982.failed8078) providerErrors8078.incrementAndGet()
             else if (candles6982.askedProvider) emptyResults.incrementAndGet()
             else localSkips6982.incrementAndGet()
-            return emptyList()
+            return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList()   // V5.0.8285 — the local alternate
         }
         val list = try {
             json.optJSONObject("data")?.optJSONObject("attributes")?.optJSONArray("ohlcv_list")
@@ -533,7 +572,11 @@ object SolanaOhlcvFeed6916 {
         // chronologically. Reversing here is not cosmetic — a backwards series
         // inverts every trend, breakout and wick the classifiers look for.
         val chronological = out.sortedBy { it.ts }
-        if (chronological.isEmpty()) { emptyResults.incrementAndGet(); return emptyList() }
+        if (chronological.isEmpty()) {
+            if (list.length() > 0) FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.INVALID)
+            emptyResults.incrementAndGet(); return emptyList()
+        }
+        FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.RETURNED)
         cache[key] = Cached(chronological, now)
         served.incrementAndGet()
         barsDelivered.addAndGet(chronological.size.toLong())
@@ -721,7 +764,10 @@ object SolanaOhlcvFeed6916 {
             "heliusSwaps ${com.lifecyclebot.engine.truth.HeliusSwapCandles7819.servedBars7819()}] " +
             "geckoBackoff7819[level=${cooldownLevel7819.get()} cooldowns=${cooldowns7819.get()} " +
             "cooldownLeftMs=${(cooldownUntilMs.get() - System.currentTimeMillis()).coerceAtLeast(0L)}] " +
-            "note7819=rateLimited6944_is_our_own_slot_gate_not_provider_429"
+            "note7819=rateLimited6944_is_our_own_slot_gate_not_provider_429 " +
+            "gecko8285[intervalMs=${geckoIntervalMs8285.get()} localTapeServed=${localServed8285.get()} " +
+            "trades{asked=${tradesAsked8285.get()} taped=${tradesTaped8285.get()} invalid=${tradesInvalid8285.get()} " +
+            "skipped=${tradesSkipped8285.get()}}]"
 
     internal fun resetForTest() {
         cache.clear(); poolCache.clear()
@@ -733,5 +779,139 @@ object SolanaOhlcvFeed6916 {
         sameKeyLastAttempt7484.clear(); sameKeyCoalesced7484.set(0L)
         paprikaTerminalDisabled7446.set(false); paprikaTerminalCode7446 = 0
         paprikaLastCode7295 = 0; paprikaCooldownUntilMs7293.set(0L); paprikaLastCallMs7293.set(0L)
+        geckoIntervalMs8285.set(MIN_INTERVAL_MS); okStreak8285.set(0L); localServed8285.set(0L)
+        tradesAsked8285.set(0L); tradesTaped8285.set(0L); tradesInvalid8285.set(0L); tradesSkipped8285.set(0L); tradesAt8285.clear()
+        synchronized(tradesMinute8285) { tradesMinute8285.clear() }
+    }
+
+    // ══════ V5.0.8285 — the local alternate and the GeckoTerminal pool-trades fallback ══════
+
+    private val localServed8285 = AtomicLong(0L)
+
+    /**
+     * One-minute candles from the coin's own executed prints (TradeTape8100, one venue, real sizes), when a provider
+     * cannot serve: null for any other timeframe, without a fresh SOL price, or under LocalTapeBars8128's minimum of
+     * traded minutes. Never cached as the provider's answer; never interpolated (a minute nobody traded stays absent).
+     */
+    private fun localTapeCandles8285(mint: String, timeframeLabel: String, n: Int, nowMs: Long): List<Candle>? {
+        if (timeframeLabel.trim().lowercase() != "1m") return null
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs) } catch (_: Throwable) { 0.0 }
+        val prints = try { com.lifecyclebot.engine.truth.TradeTape8100.prints8128(mint, nowMs, n.coerceIn(2, 65) * 60_000L) } catch (_: Throwable) { emptyList() }
+        FeatureSourceCounters8285.note8285("shape", "localTape", FeatureSourceCounters8285.ATTEMPT)
+        val c = candlesFromPrints8285(prints, solUsd) ?: return null
+        localServed8285.incrementAndGet()
+        FeatureSourceCounters8285.note8285("shape", "localTape", FeatureSourceCounters8285.RETURNED)
+        try { PipelineHealthCollector.labelInc("OHLCV_LOCAL_TAPE_ALTERNATE_8285") } catch (_: Throwable) {}
+        return c.takeLast(n)
+    }
+
+    /** Pure: executed prints -> one-minute USD candles (LocalTapeBars8128's rule: >= its minimum traded minutes), or null. */
+    internal fun candlesFromPrints8285(prints: List<com.lifecyclebot.engine.truth.TradeTape8100.Print8128>, solUsd: Double): List<Candle>? {
+        val bars = com.lifecyclebot.engine.chart.LocalTapeBars8128.fromPrints8128(prints, solUsd) ?: return null
+        return bars.map { b ->
+            Candle(ts = b.t, priceUsd = b.c, marketCap = 0.0, volumeH1 = 0.0,
+                volume24h = if (b.v.isFinite() && b.v >= 0.0) b.v else 0.0, highUsd = b.h, lowUsd = b.l, openUsd = b.o)
+        }.takeIf { it.isNotEmpty() }
+    }
+
+    private const val WSOL_8285 = "So11111111111111111111111111111111111111112"
+    private const val TRADES_GAP_MS_8285 = 90_000L
+    private val tradesAt8285 = ConcurrentHashMap<String, Long>()
+    private val tradesAsked8285 = AtomicLong(0L)
+    private val tradesTaped8285 = AtomicLong(0L)
+    private val tradesInvalid8285 = AtomicLong(0L)
+    private val tradesSkipped8285 = AtomicLong(0L)
+    /** The pool-trades fallback's share of the GeckoTerminal budget: at most this many asks a minute (OHLCV keeps the rest). */
+    const val TRADES_PER_MIN_8285 = 6
+    private val tradesMinute8285 = java.util.ArrayDeque<Long>()
+
+    /** Pure: may one more ask be made at [nowMs] given the asks [recent] (oldest first) of the last minute? */
+    internal fun tradesSlotFree8285(recent: List<Long>, nowMs: Long, perMin: Int = TRADES_PER_MIN_8285): Boolean =
+        recent.count { nowMs - it in 0L until 60_000L } < perMin
+
+    private fun claimTradesSlot8285(nowMs: Long): Boolean = synchronized(tradesMinute8285) {
+        while (tradesMinute8285.isNotEmpty() && nowMs - tradesMinute8285.peekFirst() >= 60_000L) tradesMinute8285.pollFirst()
+        if (!tradesSlotFree8285(tradesMinute8285.toList(), nowMs)) false else { tradesMinute8285.addLast(nowMs); true }
+    }
+
+    /** One GeckoTerminal pool trade with its provenance (SOL side and token side observed; price = SOL / tokens). */
+    data class PoolTrade8285(val signature: String, val eventMs: Long, val isBuy: Boolean, val sol: Double, val tokens: Double)
+
+    /**
+     * Pure: GeckoTerminal /pools/{pool}/trades rows for [mint] against WSOL. A row is kept only when its side, its
+     * signature, its block time and BOTH amounts are stated and the swap is mint<->WSOL (a USD-only row has no SOL size).
+     * Returns the trades and the number of rows refused.
+     */
+    internal fun parsePoolTrades8285(json: JSONObject, mint: String): Pair<List<PoolTrade8285>, Int> {
+        val arr = json.optJSONArray("data") ?: return emptyList<PoolTrade8285>() to 0
+        val out = ArrayList<PoolTrade8285>(arr.length())
+        var bad = 0
+        for (i in 0 until arr.length()) {
+            val a = arr.optJSONObject(i)?.optJSONObject("attributes")
+            if (a == null) { bad++; continue }
+            val kind = a.optString("kind", "").lowercase()
+            val sig = a.optString("tx_hash", "").trim()
+            val at = try { java.time.Instant.parse(a.optString("block_timestamp", "")).toEpochMilli() } catch (_: Throwable) { 0L }
+            val from = a.optString("from_token_address", "").trim()
+            val to = a.optString("to_token_address", "").trim()
+            val fromAmt = a.optString("from_token_amount", "").toDoubleOrNull() ?: Double.NaN
+            val toAmt = a.optString("to_token_amount", "").toDoubleOrNull() ?: Double.NaN
+            val buy = kind == "buy" && from == WSOL_8285 && to == mint
+            val sell = kind == "sell" && from == mint && to == WSOL_8285
+            val sol = if (buy) fromAmt else toAmt
+            val tok = if (buy) toAmt else fromAmt
+            if (!(buy || sell) || sig.isBlank() || at <= 0L || !sol.isFinite() || sol <= 0.0 || !tok.isFinite() || tok <= 0.0) { bad++; continue }
+            out += PoolTrade8285(sig, at, buy, sol, tok)
+        }
+        return out.sortedBy { it.eventMs } to bad
+    }
+
+    /**
+     * A bounded fallback for a held / near-decision coin with no live trade stream: the pool's recent trades from
+     * GeckoTerminal onto the executed-trade tape (source gecko, the pool's identity, signature, block time — the tape
+     * refuses a transaction another feed already delivered). One ask per mint per [TRADES_GAP_MS_8285], through the
+     * provider's own adaptive slot; a provider in cooldown is never waited on. Returns the prints taped.
+     */
+    fun fetchPoolTrades8285(mint: String, pool: String, nowMs: Long = System.currentTimeMillis()): Int {
+        val p = pool.trim()
+        if (mint.length < 32 || p.length !in 32..64 || p.contains(':')) return 0
+        val last = tradesAt8285[mint]
+        if (last != null && nowMs - last in 0L until TRADES_GAP_MS_8285) { tradesSkipped8285.incrementAndGet(); return 0 }
+        if (nowMs < cooldownUntilMs.get()) {
+            tradesSkipped8285.incrementAndGet()
+            FeatureSourceCounters8285.note8285("tape", "geckoTrades", FeatureSourceCounters8285.THROTTLED)
+            return 0
+        }
+        if (!claimTradesSlot8285(nowMs)) {
+            tradesSkipped8285.incrementAndGet()
+            FeatureSourceCounters8285.note8285("tape", "geckoTrades", FeatureSourceCounters8285.THROTTLED)
+            return 0
+        }
+        tradesAt8285[mint] = nowMs
+        if (tradesAt8285.size > MAX_CACHE_KEYS) tradesAt8285.entries.removeIf { nowMs - it.value > TRADES_GAP_MS_8285 }
+        FeatureSourceCounters8285.note8285("tape", "geckoTrades", FeatureSourceCounters8285.ATTEMPT)
+        val f = fetch6982("$BASE/pools/$p/trades")
+        if (!f.askedProvider) {
+            tradesAt8285.remove(mint)   // our own slot declined: nothing was asked, the next caller may ask
+            FeatureSourceCounters8285.note8285("tape", "geckoTrades", FeatureSourceCounters8285.THROTTLED)
+            return 0
+        }
+        tradesAsked8285.incrementAndGet()
+        val json = f.json ?: return 0
+        val (trades, bad) = try { parsePoolTrades8285(json, mint) } catch (_: Throwable) { emptyList<PoolTrade8285>() to 1 }
+        tradesInvalid8285.addAndGet(bad.toLong())
+        if (bad > 0 && trades.isEmpty()) FeatureSourceCounters8285.note8285("tape", "geckoTrades", FeatureSourceCounters8285.INVALID)
+        var taped = 0
+        for (t in trades) {
+            val ok = try {
+                com.lifecyclebot.engine.truth.TradeTape8100.note8285(mint, t.sol / t.tokens, t.sol, t.tokens, t.isBuy,
+                    com.lifecyclebot.engine.truth.TradeTape8100.SRC_GECKO_8285, pool = p, signature = t.signature,
+                    eventMs = t.eventMs, recvMs = nowMs)
+            } catch (_: Throwable) { false }
+            if (ok) taped++
+        }
+        tradesTaped8285.addAndGet(taped.toLong())
+        if (taped > 0) FeatureSourceCounters8285.note8285("tape", "geckoTrades", FeatureSourceCounters8285.RETURNED)
+        return taped
     }
 }
