@@ -650,8 +650,12 @@ object CandidateAdmission8136 {
     val TAPE_FEATURES_8252: Set<String> = setOf("tape", "swaps", "bp")
     val PAIR_FEATURES_8252: Set<String> = setOf("bp", "chg", "liq", "liquidity", "mcap")
 
-    fun evidenceArrived8252(mint: String, features: Set<String>, nowMs: Long = System.currentTimeMillis()) {
+    fun evidenceArrived8252(mint: String, features: Set<String>, nowMs: Long = System.currentTimeMillis(),
+                            kinds8283: Set<FeatureKind8283>? = null) {
         if (mint.isBlank()) return
+        // V5.0.8283 — the shared feature revision advances first: it is part of every lane's setup-cache identity
+        // (LanePlaybook7907.inputKey8084), so the next evaluation rebuilds its setup classification on this evidence.
+        FeatureRevision8283.advance8283(mint, kinds8283 ?: FeatureRevision8283.kindsOf8283(features), nowMs)
         // Both readers cache decisions; waking only the defer scheduler leaves stale elections in place.
         memos8153.keys.removeIf { it.substringAfter('|').startsWith("$mint|") }
         StrategyElection8243.invalidateEvidence(mint)
@@ -722,7 +726,8 @@ object CandidateAdmission8136 {
             if (held8144.size > 4_000) held8144.entries.removeIf { nowMs - it.value.atMs > REEVAL_MAX_MS_8144 }
             held8144[key] = Held8144(cacheIdentity8144(candidate), d, f, nowMs, candidateVersion, mode)
         } else {
-            held8144.remove(key)
+            // V5.0.8283 — a held DATA defer decided again to a real terminal; "after evidence" when the revision advanced since.
+            held8144.remove(key)?.let { h -> try { FeatureRevision8283.noteDeferResolved8283(FeatureRevision8283.advancedAt8283(mint) > h.atMs) } catch (_: Throwable) {} }
         }
         if (d.admitted && d.trace.any { it.startsWith("nativeOptionalCleared8213=") }) try {
             PipelineHealthCollector.labelInc("ADMISSION_NATIVE_OPTIONAL_DATA_ADMITTED_8213_${candidate.lane}")

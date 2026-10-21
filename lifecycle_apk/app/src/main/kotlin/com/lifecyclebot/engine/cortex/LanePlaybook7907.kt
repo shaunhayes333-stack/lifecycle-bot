@@ -758,7 +758,10 @@ object LanePlaybook7907 {
      * the features are rebuilt and an unchanged fingerprint keeps the classification. A book revision re-ranks the
      * same matches without a feature rebuild. Calls in one decision (same nowMs) see one classification.
      */
-    private class Cached8084(val inputKey: Long, val revision: Long, val featuresAt: Long, val pinnedAt: Long, val c: Classification8084)
+    private class Cached8084(val inputKey: Long, val revision: Long, val featuresAt: Long, val pinnedAt: Long, val c: Classification8084) {
+        /** V5.0.8283 — the shared feature revision this entry was built / pinned at (report: invalidations after evidence). */
+        var featureRev8283: Long = 0L
+    }
     private val classifyCache = ConcurrentHashMap<String, Cached8084>()
     internal const val EXTERNAL_TTL_MS_8084 = 5_000L
 
@@ -774,8 +777,14 @@ object LanePlaybook7907 {
         l(ts.history.size.toLong()); l(last?.ts ?: 0L); l((last?.holderCount ?: 0).toLong())
         d(ts.holderGrowthRate); l(if (ts.holderDataResolved) 1L else 0L); l(ts.lastExitTs); l(if (ts.position.isOpen) 1L else 0L)
         d(try { com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.volumeAccelerationScore } catch (_: Throwable) { null } ?: Double.NaN)
+        // V5.0.8283 — the shared provider-evidence revision (pair flow, sweep, tape, candles, liquidity): new evidence is a new key.
+        l(featureRevision8283(ts.mint))
         return h
     }
+
+    /** V5.0.8283 — [mint]'s shared feature revision (FeatureRevision8283); 0 when none or unreadable. */
+    private fun featureRevision8283(mint: String): Long =
+        try { com.lifecyclebot.engine.truth.FeatureRevision8283.revision8283(mint) } catch (_: Throwable) { 0L }
 
     /** The setup consumers act on (consumerTag8087): null when the coin could not be classified this tick. */
     fun classify(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? =
@@ -833,13 +842,15 @@ object LanePlaybook7907 {
         val ck = "${ts.mint}|$lane"
         val revision = bookRevision8077.get()
         val key = try { inputKey8084(ts) } catch (_: Throwable) { 0L }
+        val frev8283 = featureRevision8283(ts.mint)
         val cached = classifyCache[ck]
+        noteEvidenceInvalidation8283(cached, key, frev8283, nowMs)
         if (cached != null) {
             if (cached.pinnedAt == nowMs && cached.inputKey == key && cached.revision == revision) return cached.c
             val fresh = cached.inputKey == key && nowMs - cached.featuresAt in 0L..EXTERNAL_TTL_MS_8084
             if (fresh) {
                 val c = if (cached.revision == revision) cached.c else rerank8084(cached.c, nowMs)
-                classifyCache[ck] = Cached8084(key, revision, cached.featuresAt, nowMs, c)
+                classifyCache[ck] = Cached8084(key, revision, cached.featuresAt, nowMs, c).also { it.featureRev8283 = frev8283 }
                 if (c.outcome == Outcome8084.DATA_INCOMPLETE) requestInputs8085(ts.mint, ts.symbol, c.missing, nowMs)
                 com.lifecyclebot.engine.BotImprovementReport8168.noteSetup(ts.mint, lane, c.outcome.name, c.missing, c.reason, nowMs)
                 return c
@@ -861,9 +872,19 @@ object LanePlaybook7907 {
         // per-mint throttled), instead of waiting for the next ordinary poll; the next cycle re-classifies on new stamps.
         if (c.outcome == Outcome8084.DATA_INCOMPLETE) requestInputs8085(ts.mint, ts.symbol, c.missing, nowMs)
         if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.featuresAt > 60_000L }
-        classifyCache[ck] = Cached8084(key, revision, nowMs, nowMs, c)
+        classifyCache[ck] = Cached8084(key, revision, nowMs, nowMs, c).also { it.featureRev8283 = frev8283 }
         com.lifecyclebot.engine.BotImprovementReport8168.noteSetup(ts.mint, lane, c.outcome.name, c.missing, c.reason, nowMs)
         return c
+    }
+
+    /**
+     * V5.0.8283 — a cached classification still inside its 5 s reuse window that new provider evidence (a revision
+     * advance) has just invalidated: counted for the report (cacheInvalidatedAfterEvidence). Diagnostic only.
+     */
+    private fun noteEvidenceInvalidation8283(cached: Cached8084?, key: Long, frev: Long, nowMs: Long) {
+        if (cached == null || cached.inputKey == key || cached.featureRev8283 == frev) return
+        if (nowMs - cached.featuresAt !in 0L..EXTERNAL_TTL_MS_8084) return
+        try { com.lifecyclebot.engine.truth.FeatureRevision8283.noteInvalidation8283() } catch (_: Throwable) {}
     }
 
     /** The matches of [c] ranked again on the current books (same evidence, new grades). */

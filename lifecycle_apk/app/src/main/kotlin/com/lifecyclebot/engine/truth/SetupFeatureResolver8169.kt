@@ -38,7 +38,8 @@ object PairFlow8169 {
         if (!published) return
         noted.incrementAndGet()
         // Every actual pair producer wakes its consumers, not just DataOrchestrator's poll.
-        CandidateAdmission8136.evidenceArrived8252(mint, CandidateAdmission8136.PAIR_FEATURES_8252, f.atMs)
+        // V5.0.8283 — and advances the shared feature revision for the families this accepted answer actually carries.
+        CandidateAdmission8136.evidenceArrived8252(mint, CandidateAdmission8136.PAIR_FEATURES_8252, f.atMs, FeatureRevision8283.pairKinds8283(f))
         if (flows.size > CAP_8169) {
             flows.entries.removeIf { f.atMs - it.value.atMs > KEEP_MS_8169 }
             if (flows.size > CAP_8169) {

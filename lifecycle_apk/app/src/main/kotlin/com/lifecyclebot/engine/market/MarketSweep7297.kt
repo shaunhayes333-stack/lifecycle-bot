@@ -321,6 +321,8 @@ object MarketSweep7297 {
         val snap = Snapshot(enriched, bandStates(enriched), providerRows, System.currentTimeMillis())
         rebuildOpportunitySignals7777(previous7777, snap)
         last = snap
+        // V5.0.8283 — a newly observed row advances its mint's shared feature revision (setup caches rebuild on it).
+        try { com.lifecyclebot.engine.truth.FeatureRevision8283.noteSweepRows8283(previous7777?.rows, snap.rows, snap.atMs) } catch (_: Throwable) {}
         return snap
     }
 
