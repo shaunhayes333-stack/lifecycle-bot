@@ -21,10 +21,18 @@ object WalletTokenReadGate8268 {
     )
 
     private val owners = ConcurrentHashMap<String, State>()
+    private val fallbackOwners = ConcurrentHashMap<String, State>()
 
     /** Returns null only after taking the single-flight lease. */
-    fun begin(owner: String, nowMs: Long = System.currentTimeMillis()): String? {
-        val state = owners.computeIfAbsent(owner) { State() }
+    fun begin(owner: String, nowMs: Long = System.currentTimeMillis()): String? =
+        beginFrom(owners, owner, nowMs)
+
+    /** The bounded known-mint rescue is itself a 6-way RPC fanout. Gate it separately. */
+    fun beginFallback(owner: String, nowMs: Long = System.currentTimeMillis()): String? =
+        beginFrom(fallbackOwners, owner, nowMs)
+
+    private fun beginFrom(states: ConcurrentHashMap<String, State>, owner: String, nowMs: Long): String? {
+        val state = states.computeIfAbsent(owner) { State() }
         return synchronized(state) {
             when {
                 state.inFlight -> "IN_FLIGHT"
@@ -43,12 +51,25 @@ object WalletTokenReadGate8268 {
         success: Boolean,
         nowMs: Long = System.currentTimeMillis(),
         providerFailure: Boolean = true,
+    ) = finishIn(owners, owner, success, nowMs, providerFailure, successCooldownMs = 0L)
+
+    /** Even a successful partial known-mint observation is not a full-wallet proof. */
+    fun finishFallback(owner: String, success: Boolean, nowMs: Long = System.currentTimeMillis()) =
+        finishIn(fallbackOwners, owner, success, nowMs, providerFailure = true, successCooldownMs = 5_000L)
+
+    private fun finishIn(
+        states: ConcurrentHashMap<String, State>,
+        owner: String,
+        success: Boolean,
+        nowMs: Long,
+        providerFailure: Boolean,
+        successCooldownMs: Long,
     ) {
-        val state = owners.computeIfAbsent(owner) { State() }
+        val state = states.computeIfAbsent(owner) { State() }
         synchronized(state) {
             if (success) {
                 state.failures = 0
-                state.retryAtMs = 0L
+                state.retryAtMs = nowMs + successCooldownMs
             } else if (providerFailure) {
                 state.failures = (state.failures + 1).coerceAtMost(10)
                 val delayMs = (2_000L shl (state.failures - 1).coerceAtMost(4)).coerceAtMost(30_000L)
