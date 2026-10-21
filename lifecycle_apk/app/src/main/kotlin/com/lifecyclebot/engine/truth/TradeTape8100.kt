@@ -165,9 +165,11 @@ object TradeTape8100 {
         }
         if (t.priceOnly) {
             // V5.0.8285 FEATURE_ARRIVED_PRICE(mint)
+            try { FeatureRevision8283.bumpThrottled8286(mint, FeatureKind8283.PRICE) } catch (_: Throwable) {}  // V5.0.8286
             (if (t.inferred) inferred8285 else priceOnly8285).incrementAndGet()
         } else {
             // V5.0.8285 FEATURE_ARRIVED_TAPE(mint)
+            try { FeatureRevision8283.bumpThrottled8286(mint, FeatureKind8283.TAPE) } catch (_: Throwable) {}  // V5.0.8286
             executed8285.incrementAndGet()
         }
         notes.incrementAndGet()

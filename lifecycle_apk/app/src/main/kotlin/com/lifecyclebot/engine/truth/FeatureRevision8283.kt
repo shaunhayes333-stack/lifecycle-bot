@@ -43,6 +43,23 @@ object FeatureRevision8283 {
     /** Coordination API: [mint] has ACCEPTED new validated [kind] data now. */
     fun bump(mint: String, kind: FeatureKind8283) { bump8283(mint, kind, System.currentTimeMillis()) }
 
+    // V5.0.8286 — high-rate producers (every tape print, every curve tick) bump at most once per mint + kind per
+    // [THROTTLE_MS_8286]: a busy coin's classification refreshes every 2 s instead of being rebuilt on every print.
+    internal const val THROTTLE_MS_8286 = 2_000L
+    private val throttleAt8286 = ConcurrentHashMap<String, Long>()
+
+    /** Pure: may a throttled bump fire at [nowMs] after the previous one at [lastMs] (null = never)? */
+    internal fun throttleDue8286(lastMs: Long?, nowMs: Long): Boolean = lastMs == null || nowMs - lastMs !in 0L until THROTTLE_MS_8286
+
+    fun bumpThrottled8286(mint: String, kind: FeatureKind8283, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        val k = "$mint|${kind.name}"
+        if (!throttleDue8286(throttleAt8286[k], nowMs)) return
+        throttleAt8286[k] = nowMs
+        if (throttleAt8286.size > CAP_8283) throttleAt8286.entries.removeIf { nowMs - it.value > THROTTLE_MS_8286 }
+        bump8283(mint, kind, nowMs)
+    }
+
     /** [bump] at [nowMs]: wakes held defers waiting on [kind] (coalesced per mint + kind) and advances the revision. */
     fun bump8283(mint: String, kind: FeatureKind8283, nowMs: Long) {
         if (mint.isBlank()) return

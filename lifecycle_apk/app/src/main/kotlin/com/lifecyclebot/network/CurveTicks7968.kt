@@ -275,6 +275,7 @@ object CurveTicks7968 {
         if (cur != null) try {
             // V5.0.8285 FEATURE_ARRIVED_LIQUIDITY(mint)
             com.lifecyclebot.engine.truth.CurveReserves7951.noteAccount7951(mint, cur.vSol / 1e9, cur.vTok / 1e6, cur.realSol / 1e9)
+            com.lifecyclebot.engine.truth.FeatureRevision8283.bumpThrottled8286(mint, com.lifecyclebot.engine.truth.FeatureKind8283.LIQUIDITY)  // V5.0.8286
             PipelineHealthCollector.labelInc("CURVE_TICK_RESERVES_FILED_8257")
         } catch (_: Throwable) {}
         val trade = if (cur != null) tradeBetween8252(lastReserves8252.put(mint, cur), cur) else null
