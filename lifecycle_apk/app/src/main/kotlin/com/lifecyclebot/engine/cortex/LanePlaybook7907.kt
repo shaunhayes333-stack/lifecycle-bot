@@ -721,8 +721,33 @@ object LanePlaybook7907 {
         if (!CortexLedger7885.validHiveBin8076(hive)) return local
         val c = CortexLedger7885.labelStat8187()  // V5.0.8187 — the merged record reads through the same cap
         if (local != null) { c.n = local.n; c.sum = local.sum; c.sumSq = local.sumSq; c.runners = local.runners; c.wins = local.wins }
-        c.n += hive[0]; c.sum += hive[1]; c.sumSq += hive[2]; c.wins += hive[3]; c.runners += hive[4]
+        // V5.0.8291 — the hive's grades ride on the local record at most as [hiveWeight8291] labels (mean, spread, win and runner
+        // rates kept). They arrived as up to 1,000 labels (HiveEdge8000.capWeight8014) graded by other installs on other builds'
+        // label definitions, so a setup with a handful of local grades read n824 auth=1.00 on foreign data.
+        val k = hiveScale8291(local?.n ?: 0.0, hive[0])
+        c.n += hive[0] * k; c.sum += hive[1] * k; c.sumSq += hive[2] * k; c.wins += hive[3] * k; c.runners += hive[4] * k
         return c
+    }
+
+    // ── V5.0.8291 §HIVE_NEVER_OUTWEIGHS_LOCAL ──
+    /** Below this many local grades the hive may lend at most this many labels: under GRAD_MIN_N_7955, so never authority alone. */
+    private const val HIVE_FLOOR_8291 = 10.0
+    /** The hive never lends more than this many labels to one setup record. */
+    private const val HIVE_MAX_8291 = 60.0
+
+    /** Pure (V5.0.8291): how many labels the hive may lend a record holding [localN] local grades: clamp(localN, 10, 60). */
+    fun hiveWeight8291(localN: Double): Double = (if (localN.isFinite()) localN else 0.0).coerceIn(HIVE_FLOOR_8291, HIVE_MAX_8291)
+
+    /** Pure (V5.0.8291): the factor that scales [hiveN] network labels down to [hiveWeight8291] (1 when already under it). */
+    fun hiveScale8291(localN: Double, hiveN: Double): Double =
+        if (!(hiveN > 0.0) || !hiveN.isFinite()) 0.0 else minOf(1.0, hiveWeight8291(localN) / hiveN)
+
+    /** Caller holds the lock. " local=n hive=n" on the screen when the hive lends labels to this record. */
+    private fun hiveNote8291(lane: String, setup: String): String {
+        val hive = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000("PB|$lane|$setup") } catch (_: Throwable) { null } ?: return ""
+        if (!CortexLedger7885.validHiveBin8076(hive)) return ""
+        val localN = books[lane]?.stats?.get(setup)?.n ?: 0.0
+        return " local=${localN.toInt()} hive=${(hive[0] * hiveScale8291(localN, hive[0])).toInt()}/${hive[0].toInt()}"
     }
 
     /** V5.0.8000 — HiveEdge8000: this instance's setup books ([n, sum, sumSq, wins, runners, 0]). */
@@ -1455,13 +1480,21 @@ object LanePlaybook7907 {
         return CortexScoreboard7885.graduatedFraction7955(st.n, st.mean(), se, 0.0, SETUP_SMALL_N_MARGIN_7955, LOSING_N, setupProvenPositive7948(st))
     }
 
+    /** V5.0.8291 — graduated setup authority under the realised cap (Cortex7885.setupRealisedCap8291): only lowers. */
+    private fun setupAuthority8291(lane: String, setup: String, st: CortexLedger7885.Stat?): Double {
+        val f = setupFraction7955(st)
+        if (f <= 0.0) return f
+        val cap = try { Cortex7885.setupRealisedCap8291(lane, setup) } catch (_: Throwable) { 1.0 }
+        return minOf(f, cap)
+    }
+
     /** LiveEdgeGate7877: [graduated authority, label count] of this candidate's classified setup, or null (none / NO_TRIGGER). */
     fun classifiedAuthority7955(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): DoubleArray? = try {
         val lane = canon(laneRaw)
         val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8153 — the admitted strategy
         if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
             val st = stat(lane, setup)
-            if (st == null) null else doubleArrayOf(setupFraction7955(st), st.n)
+            if (st == null) null else doubleArrayOf(setupAuthority8291(lane, setup, st), st.n)
         }
     } catch (_: Throwable) { null }
 
@@ -1475,7 +1508,7 @@ object LanePlaybook7907 {
         val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8153 — conviction sizes the admitted strategy
         if (setup == null || setup == NO_TRIGGER) null else synchronized(this) {
             val st = stat(lane, setup)
-            val f = setupFraction7955(st)
+            val f = setupAuthority8291(lane, setup, st)
             if (st != null && f > 0.0) doubleArrayOf(st.mean(), st.variance(), f) else null
         }
     } catch (_: Throwable) { null }
@@ -1924,8 +1957,9 @@ object LanePlaybook7907 {
                     val ex8187 = stat(lane, id)
                     // V5.0.7955 — a setup holding graduated authority shows it (auth=0.62).
                     // V5.0.8187 — the stored (raw, capped) record is shown; authority and "exec" are the executable read.
-                    val auth = setupFraction7955(ex8187)
-                    "$id[${if (st == null || st.n < 1.0) "prior ${"%+.1f".format(priorOf(lane, id))}" else "n${st.n.toInt()} ${"%+.1f".format(st.mean())}%${if (st.suspect8187()) "~raw${"%+.1f".format(st.rawMean8187())}%" else ""}${if (ex8187 != null && ex8187 !== st) " exec${"%+.1f".format(ex8187.mean())}%" else ""} exp ${"%+.1f".format(expected(lane, id))}"}${if (auth > 0.0) " auth=${"%.2f".format(auth)}" else ""}]"
+                    val auth = setupAuthority8291(lane, id, ex8187)
+                    val labelAuth8291 = setupFraction7955(ex8187)  // V5.0.8291 — shown beside the realised-capped authority
+                    "$id[${if (st == null || st.n < 1.0) "prior ${"%+.1f".format(priorOf(lane, id))}" else "n${st.n.toInt()} ${"%+.1f".format(st.mean())}%${if (st.suspect8187()) "~raw${"%+.1f".format(st.rawMean8187())}%" else ""}${if (ex8187 != null && ex8187 !== st) " exec${"%+.1f".format(ex8187.mean())}%" else ""} exp ${"%+.1f".format(expected(lane, id))}"}${if (auth > 0.0 || labelAuth8291 > 0.0) " auth=${"%.2f".format(auth)}${if (auth < labelAuth8291) "(labels ${"%.2f".format(labelAuth8291)}, realisedCap8291)" else ""}" else ""}${hiveNote8291(lane, id)}]"
                 }
                 val oc = outcomeCounts8084.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }
                     .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" }

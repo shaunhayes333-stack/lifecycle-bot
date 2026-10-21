@@ -1411,10 +1411,13 @@ object ForwardReturnLabeler7731 {
                 // V5.0.8187 — an unpriced observation inside its re-base window asks the off-watch batch FIRST: its label can
                 // only start from a buyable price if a mark lands inside 60 s (else LATE_FIRST_PRICE: observed only, and its
                 // cohort unresolved — the walk-forward's UNRESOLVED_COHORT). Its due time is its decision, so it sorts first.
-                if (firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age)) dueUnpriced7737.add(o.mint to (o.atMs - REBASE_MAX_MS_8076))
-                else if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to (if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
+                // V5.0.8291 — asked in rank order (inside the 5-minute window first), oldest first within a rank (CortexLabelFeed8291).
+                val first8291 = firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age)
+                val rank8291 = com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchRank8291(age, o.done60, first8291, H60_MS_7731, graceFor7946(H60_MS_7731))
+                if (first8291) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, o.atMs - REBASE_MAX_MS_8076))
+                else if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
                 // V5.0.8013 — a followed coin's due checkpoint asks for an off-watch mark too.
-                else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to (o.atMs + CK_MS_7997[o.ck7997]))
+                else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, o.atMs + CK_MS_7997[o.ck7997]))
                 if (!o.done60 && age >= H60_MS_7731 + graceFor7946(H60_MS_7731)) {
                     // V5.0.7944 — nothing priced it at its 60-minute horizon: booked at its
                     // real last price (or -100% when it died), lost only when there is no read.

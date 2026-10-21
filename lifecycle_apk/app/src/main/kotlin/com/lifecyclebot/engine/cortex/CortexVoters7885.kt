@@ -528,14 +528,16 @@ object CortexVoters7885 {
     private const val VOTER_CACHE_MAX_8187 = 30_000
     private class CachedRead8187(val v: Double, val atMs: Long)
     private val voterCache8187 = java.util.concurrent.ConcurrentHashMap<String, CachedRead8187>()
-    private val refreshQueued8187: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     private val cacheServed8187 = java.util.concurrent.atomic.AtomicLong(0)
     private val budgetAbstained8187 = java.util.concurrent.atomic.AtomicLong(0)
     private val refreshDropped8187 = java.util.concurrent.atomic.AtomicLong(0)
     private val refreshPool8187: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
         1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(512),
         { r -> Thread(r, "cortex-voter-refresh-8187").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
-        java.util.concurrent.ThreadPoolExecutor.DiscardPolicy(),
+        // V5.0.8291 — was DiscardPolicy: a discarded refresh never reached its finally, so its key stayed in the queued set
+        // for good and that (voter, coin) was never refreshed again (abstained=79094 vs cacheServed=19418 in 5.0.8286).
+        // A rejected job now releases its coin and is counted exactly.
+        java.util.concurrent.RejectedExecutionHandler { r, _ -> (r as? RefreshTask8291)?.let { refreshJobs8291.remove(it.key) }; refreshDropped8187.incrementAndGet() },
     )
 
     /** Pure (V5.0.8187): is a voter served from its cache on this read (slow on average, or the read is over budget)? */
@@ -560,35 +562,117 @@ object CortexVoters7885 {
     }
 
     private fun scheduleRefresh8187(i: Int, key: String, ts: TokenState, lane: String) {
-        if (!refreshQueued8187.add(key)) return
-        try {
-            refreshPool8187.execute {
-                try {
-                    val wall = System.currentTimeMillis()
-                    val r = timedRead8187(i, ts, lane, wall, null)
-                    if (voterCache8187.size >= VOTER_CACHE_MAX_8187) voterCache8187.entries.removeIf { !cacheFresh8187(it.value.atMs, wall) }
-                    if (voterCache8187.size < VOTER_CACHE_MAX_8187) voterCache8187[key] = CachedRead8187(r, wall)
-                } finally { refreshQueued8187.remove(key) }
-            }
-            if (refreshPool8187.queue.remainingCapacity() == 0) refreshDropped8187.incrementAndGet()
-        } catch (_: Throwable) { refreshQueued8187.remove(key); refreshDropped8187.incrementAndGet() }
+        // V5.0.8291 — one background job per coin x lane reads every voter of that coin the hot path asked for (it was one
+        // job per voter: ~290 jobs a coin against a 512-slot queue, so most refreshes were dropped and the cache never filled).
+        val now = System.currentTimeMillis()
+        if (!refreshClaim8291(refreshQueued8291.putIfAbsent(key, now), now)) return
+        refreshQueued8291[key] = now
+        val jobKey = "${ts.mint}|$lane"
+        var created = false
+        val job = refreshJobs8291.computeIfAbsent(jobKey) { created = true; RefreshJob8291(ts, lane) }
+        job.indices.add(i)
+        if (!created) return
+        try { refreshPool8187.execute(RefreshTask8291(jobKey)) } catch (_: Throwable) { refreshJobs8291.remove(jobKey); refreshDropped8187.incrementAndGet() }
+    }
+
+    // ── V5.0.8291 §REFRESH_FILLS_THE_CACHE ──
+    /** A queued claim older than this is stale (its job was dropped or raced): the voter may be asked for again. */
+    const val REFRESH_STALE_MS_8291 = 30_000L
+
+    /** Pure (V5.0.8291): may a refresh be queued for a voter whose existing claim was made at [prevAtMs] (null: none)? */
+    fun refreshClaim8291(prevAtMs: Long?, nowMs: Long): Boolean = prevAtMs == null || nowMs - prevAtMs !in 0L until REFRESH_STALE_MS_8291
+
+    /** "voter|coin" -> when its refresh was queued. Was a plain set whose dropped entries were never released. */
+    private val refreshQueued8291 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private class RefreshJob8291(val ts: TokenState, val lane: String) {
+        val indices: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    }
+    private class RefreshTask8291(val key: String) : Runnable {
+        override fun run() { CortexVoters7885.runRefresh8291(key) }
+    }
+    private val refreshJobs8291 = java.util.concurrent.ConcurrentHashMap<String, RefreshJob8291>()
+    private val refreshFilled8291 = java.util.concurrent.atomic.AtomicLong(0)
+
+    private fun runRefresh8291(jobKey: String) {
+        val job = refreshJobs8291.remove(jobKey) ?: return
+        if (refreshQueued8291.size > VOTER_CACHE_MAX_8187) { val now = System.currentTimeMillis(); refreshQueued8291.entries.removeIf { now - it.value >= REFRESH_STALE_MS_8291 } }
+        for (i in job.indices.toList()) {
+            val key = cacheKey8187(i, job.ts.mint, job.lane)
+            try {
+                val wall = System.currentTimeMillis()
+                val r = timedRead8187(i, job.ts, job.lane, wall, null)
+                if (voterCache8187.size >= VOTER_CACHE_MAX_8187) voterCache8187.entries.removeIf { !cacheFresh8187(it.value.atMs, wall) }
+                if (voterCache8187.size < VOTER_CACHE_MAX_8187) { voterCache8187[key] = CachedRead8187(r, wall); refreshFilled8291.incrementAndGet() }
+            } catch (_: Throwable) {
+            } finally { refreshQueued8291.remove(key) }
+        }
     }
 
     /** "budget8187[...]" for the compute line: cache-served reads, abstentions, dropped refreshes. */
     fun budgetLine8187(): String = "budget8187[cacheServed=${cacheServed8187.get()} abstained=${budgetAbstained8187.get()} " +
-        "refreshQueued=${refreshPool8187.queue.size} refreshDropped=${refreshDropped8187.get()} cached=${voterCache8187.size} budgetMs=${ASSESS_BUDGET_MS_8187.toInt()}]"
+        "refreshQueued=${refreshPool8187.queue.size} refreshDropped=${refreshDropped8187.get()} cached=${voterCache8187.size} budgetMs=${ASSESS_BUDGET_MS_8187.toInt()}] " +
+        coverageLine8291()
+
+    // ── V5.0.8291 §VOTE_COVERAGE — how much of each assessment the voters actually answered ──
+    //
+    // 5.0.8286: abstained=79094 vs cacheServed=19418 — four in five budget-routed reads abstained, and nothing said how many
+    // voters a single assessment lost. Now (1) the voters seated in the assessing lane (the ones fusion weighs: [core]) are
+    // always read inline — never abstained by the budget; (2) the rest are read cheapest first, so the 35 ms budget is spent
+    // on many fast voters and only the slow tail is routed to the cache; (3) each assessment's coverage is recorded.
+    private val coverageRing8291 = DoubleArray(256)
+    private val coverageN8291 = java.util.concurrent.atomic.AtomicLong(0)
+    private val coreRead8291 = java.util.concurrent.atomic.AtomicLong(0)
+    @Volatile private var readOrderCache8291: IntArray? = null
+    @Volatile private var readOrderAtMs8291 = 0L
+    private const val READ_ORDER_REFRESH_MS_8291 = 10_000L
+
+    private class ReadTally8291 { var abstained = 0; var core = 0 }
+
+    /** Pure (V5.0.8291): voter indices ordered cheapest first by their mean read time (an unmeasured voter counts 0 ms). */
+    fun cheapestFirst8291(avgMs: DoubleArray): IntArray = avgMs.indices.sortedBy { if (avgMs[it].isFinite()) avgMs[it] else 0.0 }.toIntArray()
+
+    /** Pure (V5.0.8291): the share of [total] voters an assessment answered when [abstained] of them abstained on the budget. */
+    fun coverage8291(abstained: Int, total: Int): Double = if (total <= 0) 1.0 else (1.0 - abstained.toDouble() / total).coerceIn(0.0, 1.0)
+
+    private fun readOrder8291(wall: Long): IntArray {
+        val cur = readOrderCache8291
+        if (cur != null && cur.size == ALL.size && wall - readOrderAtMs8291 in 0L until READ_ORDER_REFRESH_MS_8291) return cur
+        val next = cheapestFirst8291(DoubleArray(ALL.size) { readMs[ALL[it].id] ?: 0.0 })
+        readOrderCache8291 = next; readOrderAtMs8291 = wall
+        return next
+    }
+
+    private fun noteCoverage8291(c: Double) {
+        val i = (coverageN8291.getAndIncrement() % coverageRing8291.size).toInt()
+        synchronized(coverageRing8291) { coverageRing8291[i] = c }
+    }
+
+    /** "coverage8291[p10= p50= n= coreInline= refreshFilled=]" — per-assessment share of voters that answered. */
+    fun coverageLine8291(): String {
+        val n = coverageN8291.get().coerceAtMost(coverageRing8291.size.toLong()).toInt()
+        val ring = synchronized(coverageRing8291) { coverageRing8291.copyOf() }
+        val q = { p: Double -> if (n == 0) "-" else "%.2f".format(ring.copyOf(n).sorted()[((n - 1) * p).toInt()]) }
+        return "coverage8291[p10=${q(0.1)} p50=${q(0.5)} n=${coverageN8291.get()} coreInline=${coreRead8291.get()} refreshFilled=${refreshFilled8291.get()}]"
+    }
 
     /** Read every voter for (ts, lane). Index-aligned with [ALL]; NaN = abstained or failed. */
-    fun readAll(ts: TokenState, lane: String, nowMs: Long, failures: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>? = null): DoubleArray {
+    fun readAll(ts: TokenState, lane: String, nowMs: Long, failures: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>? = null,
+                core8291: BooleanArray? = null): DoubleArray {
         // V5.0.8169 — the lane-free voters (248 of 291 never read the lane) are read once per coin per moment and shared
         // by every lane assessing that coin (8168: 164.85 ms per assessment, the same coin assessed by up to 12 lanes).
         val wall = System.currentTimeMillis()
         val memo = memo8169[ts.mint]?.takeIf { memoReusable8169(it.ts === ts, it.priceAt, ts.lastPriceUpdate, it.wallMs, wall, it.nowMs, nowMs) }
         val free = laneFree8169
         val t0 = System.nanoTime()
-        val out = DoubleArray(ALL.size) { i ->
-            if (memo != null && free[i]) memo.vals[i] else readOne8169(i, ts, lane, nowMs, failures, (System.nanoTime() - t0) / 1_000_000.0)
+        // V5.0.8291 — cheapest first; the lane's seated voters inline whatever the budget (see §VOTE_COVERAGE).
+        val tally = ReadTally8291()
+        val out = DoubleArray(ALL.size) { Double.NaN }
+        for (i in readOrder8291(wall)) {
+            out[i] = if (memo != null && free[i]) memo.vals[i]
+                else readOne8169(i, ts, lane, nowMs, failures, (System.nanoTime() - t0) / 1_000_000.0, core8291?.getOrNull(i) == true, tally)
         }
+        noteCoverage8291(coverage8291(tally.abstained, ALL.size))
+        if (tally.core > 0) coreRead8291.addAndGet(tally.core.toLong())
         if (memo != null) memoHits8169.incrementAndGet() else {
             memoMisses8169.incrementAndGet()
             if (memo8169.size >= MEMO_MAX_8169) memo8169.entries.removeIf { wall - it.value.wallMs > MEMO_MS_8169 }
@@ -599,9 +683,11 @@ object CortexVoters7885 {
 
     private fun readOne8169(i: Int, ts: TokenState, lane: String, nowMs: Long,
                             failures: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>?,
-                            elapsedMs8187: Double = 0.0): Double {
+                            elapsedMs8187: Double = 0.0, core8291: Boolean = false, tally8291: ReadTally8291? = null): Double {
         val v = ALL[i]
         val avg = readMs[v.id] ?: 0.0
+        // V5.0.8291 — a voter seated in this lane is never abstained by the budget: fusion weighs it.
+        if (core8291) { tally8291?.let { it.core++ }; return timedRead8187(i, ts, lane, nowMs, failures) }
         // V5.0.8187 — slow (or over-budget) voters are served from their per-coin cache, refreshed in the background.
         if (servedFromCache8187(avg, elapsedMs8187)) {
             val key = cacheKey8187(i, ts.mint, lane)
@@ -610,7 +696,7 @@ object CortexVoters7885 {
             val fresh = c != null && cacheFresh8187(c.atMs, wall)
             if (!fresh || wall - (c?.atMs ?: 0L) > VOTER_CACHE_TTL_MS_8187 / 2) scheduleRefresh8187(i, key, ts, lane)
             slowSkips.computeIfAbsent(v.id) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
-            return if (fresh && c != null) { cacheServed8187.incrementAndGet(); c.v } else { budgetAbstained8187.incrementAndGet(); Double.NaN }
+            return if (fresh && c != null) { cacheServed8187.incrementAndGet(); c.v } else { budgetAbstained8187.incrementAndGet(); tally8291?.let { it.abstained++ }; Double.NaN }
         }
         return timedRead8187(i, ts, lane, nowMs, failures)
     }

@@ -45,6 +45,15 @@ object CortexLabelHygiene8144 {
         "NATIVE_NO_PAIR", "PAIR_HARD_UNAVAILABLE", "PAIR_PENDING_HYDRATION",
     )
 
+    /** V5.0.8291 — markers of a learned (statistical) veto: the price of the coin it refused is still a return. */
+    private val LEARNED_JUDGEMENT_8291 = listOf("LEARNED_", "TOXIC_PATTERN", "TOXIC_BUCKET", "EV_BUCKET", "LOSING_PATTERN")
+    /** Physical / safety words that keep a reason unexecutable even beside a learned marker. */
+    private val PHYSICAL_8291 = listOf("SAFETY", "RUG", "HONEYPOT", "FREEZE", "MINT_AUTH", "ROUTE", "UNSELLABLE", "NO_LIQ", "ZERO_LIQ", "LIQ_ZERO", "SCAM", "HOSTILE", "BLACKLIST")
+
+    /** Pure (V5.0.8291): is the (upper-case) refusal [r] a learned veto with no physical block named in it? */
+    private fun learnedJudgement8291(r: String): Boolean =
+        LEARNED_JUDGEMENT_8291.any { r.contains(it) } && PHYSICAL_8291.none { r.contains(it) }
+
     data class Verdict8144(val executable: Boolean, val repeat: Boolean) {
         /** May this label grade the voters, the bucket / setup / veto books and calibration? */
         val authority: Boolean get() = executable && !repeat
@@ -58,8 +67,25 @@ object CortexLabelHygiene8144 {
         // its refusal is evidence that this was NOT a tradeable lane entry.
         if (nativeEligible == false) return false
         val r = reason?.uppercase() ?: return true
+        // V5.0.8291 — a LEARNED veto is a judgement of a buyable coin, not a physical block, even when its name carries a
+        // hard word (TOXIC_PATTERN, LEARNED_TOXIC_LANE, TOXIC_BUCKET_HARD_VETO_6249, PAPER_EV_BUCKET_HARD_BLOCK_6405):
+        // filed unexecutable, its refusals never reached the veto book, so it could never be shown to refuse winners.
+        if (learnedJudgement8291(r)) return UNEXECUTABLE_NATIVE_8196.none { r.startsWith(it) || r.contains("_$it") }
         return UNEXECUTABLE_8144.none { r.contains(it) } &&
             UNEXECUTABLE_NATIVE_8196.none { r.startsWith(it) || r.contains("_$it") }
+    }
+
+    /**
+     * Pure (V5.0.8291): WHY a decision is unexecutable, as one of a bounded set of classes (null when executable):
+     * NATIVE_INELIGIBLE (the lane's own native specialist refused it), NATIVE_MANDATE (outside the lane's mandate band),
+     * or the hard word its refusal named. 5.0.8286 reported unexec=803 with no breakdown.
+     */
+    fun unexecClass8291(admitted: Boolean, reason: String?, nativeEligible: Boolean? = null): String? {
+        if (executableDecision8144(admitted, reason, nativeEligible)) return null
+        if (nativeEligible == false) return "NATIVE_INELIGIBLE"
+        val r = reason?.uppercase().orEmpty()
+        if (UNEXECUTABLE_NATIVE_8196.any { r.startsWith(it) || r.contains("_$it") }) return "NATIVE_MANDATE"
+        return UNEXECUTABLE_8144.firstOrNull { r.contains(it) } ?: "OTHER"
     }
 
     /** Pure: a refused decision of a coin whose last graded decision in this lane is under [EPISODE_MS_8144] old. */

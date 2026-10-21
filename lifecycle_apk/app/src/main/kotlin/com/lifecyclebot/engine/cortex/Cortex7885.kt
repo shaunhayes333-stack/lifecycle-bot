@@ -124,7 +124,7 @@ object Cortex7885 {
         assessCache[key]?.let { if (nowMs - it.atMs <= ASSESS_TTL_MS) return it }
         ensureLoaded()
         val t0 = System.nanoTime()
-        val staticRaws = CortexVoters7885.readAll(ts, lane, nowMs, voterFailures)
+        val staticRaws = CortexVoters7885.readAll(ts, lane, nowMs, voterFailures, coreVoters8291(lane, nowMs))
         val runner = isRunner(lane)
         val voters: List<CortexVoters7885.Voter> = CortexVoters7885.ALL
         // V5.0.7895 — dynamic voters: every V3 UnifiedScorer module recorded for this mint.
@@ -156,6 +156,20 @@ object Cortex7885 {
         assessCache[key] = a
         return a
     }
+
+    // ── V5.0.8291 §CORE_VOTERS — the voters seated in a lane are never abstained by the read budget ──
+    private const val CORE_REFRESH_MS_8291 = 30_000L
+    private val coreVoters8291 = ConcurrentHashMap<String, Pair<Long, BooleanArray>>()
+
+    /** Index-aligned with CortexVoters7885.ALL: true where the voter holds authority in [lane] (fusion weighs it). */
+    private fun coreVoters8291(lane: String, nowMs: Long): BooleanArray? = try {
+        coreVoters8291[lane]?.takeIf { nowMs - it.first in 0L until CORE_REFRESH_MS_8291 }?.second ?: run {
+            val ids = CortexVoters7885.IDS
+            val core = synchronized(this) { BooleanArray(ids.size) { i -> (ledger.seats["${ids[i]}|$lane"]?.authority() ?: 0.0) > 0.0 } }
+            coreVoters8291[lane] = nowMs to core
+            core
+        }
+    } catch (_: Throwable) { null }
 
     // ── V5.0.8144 — memory: assessments and pending decisions are the heaviest resident Cortex rows ──
     // An Assessment carries ~400 voter slots (raws, ids, edges and the prediction snapshot): ~15-20 KB. The cache kept
@@ -273,7 +287,9 @@ object Cortex7885 {
             "repeat=${counterSum8169("LABEL_HYGIENE_REPEAT")} unexec=${counterSum8169("LABEL_HYGIENE_UNEXECUTABLE")} seen[R/N/S]=" +
             "${counterSum8169("SEEN_REFUSE")}/${counterSum8169("SEEN_NEUTRAL")}/${counterSum8169("SEEN_STRONG")} " +
             "lost8187=${counterSum8169("LABEL_LOST_")} restoredPastLabel8187=${counterSum8169("PENDING_RESTORE_PAST_LABEL_8187")} " +
-            "clamped8187=${counterSum8169("LABEL_CLAMPED_AT_INGESTION_8187")} gradedPerHour8187=${"%.1f".format(gradedPerHour8187())}"
+            "clamped8187=${counterSum8169("LABEL_CLAMPED_AT_INGESTION_8187")} gradedPerHour8187=${"%.1f".format(gradedPerHour8187())} " +
+            "unexecWhy8291=[${counters.entries.filter { it.key.startsWith("LABEL_UNEXEC_CLASS_8291_") }.sortedByDescending { it.value.get() }.take(6)
+                .joinToString(",") { "${it.key.removePrefix("LABEL_UNEXEC_CLASS_8291_")}=${it.value.get()}" }.ifBlank { "-" }}]"
     fun gradeBookLine8169(): String =
         "decisions+trades=${gradeBookSize8169()} unboundFiled=${counterSum8169("REALIZED_UNBOUND_FILED_8153")} " +
             "replayedCloses=${counterSum8169("REALIZED_REPLAYED_8169")} olderThanBook=${counterSum8169("REALIZED_UNBOUND_OLDER_THAN_BOOK_8169")} " +
@@ -874,6 +890,7 @@ object Cortex7885 {
         val nativeEligible8196 = native?.takeIf { it.authoritative }?.let { it.eligible && it.gradeable }
         val executable8196 = CortexLabelHygiene8144.executableDecision8144(admitted, reason, nativeEligible8196)
         com.lifecyclebot.engine.BotImprovementReport8168.noteCortex(lane, admitted, executable8196, reason)
+        if (!executable8196) CortexLabelHygiene8144.unexecClass8291(admitted, reason, nativeEligible8196)?.let { inc("LABEL_UNEXEC_CLASS_8291_$it") }
         if (!admitted && nativeEligible8196 == false) inc("LABEL_NATIVE_INELIGIBLE_OBSERVED_ONLY_8196")
         if (!admitted && nativeEligible8196 == null) inc("LABEL_NATIVE_ELIGIBILITY_UNVERIFIED_8196")
         return DecisionCtx8144(timing, CortexLabelHygiene8144.costBand8144(cost), cohort, latencyMeasured8144(lane), executable8196)
@@ -1551,6 +1568,47 @@ object Cortex7885 {
         }
     }
 
+    // ── V5.0.8291 §SETUP_AUTHORITY_ANSWERS_TO_REALISED ──
+    //
+    // 5.0.8286: LAUNCH_LADDER_PROVEN n824 +83.5% auth=1.00 and COPYCAT_BETA +86% auth=1.00 while every live close lost
+    // (-10..-34%). The 8187 realised blend only reads a setup's OWN closes (n >= 2, opposite sign) and those setups had none;
+    // the paired shortfall needs a labelled admitted decision per trade (labels lost), so the lane offset fell back to its
+    // 3.5-point cost gap. Graduated setup authority (LanePlaybook7907.setupFraction7955) — the power to overrule a live edge
+    // refusal (LiveEdgeGate7877.setupAdmits7955 at >= 0.5) and to size conviction — had no realised cap at all. Now it is
+    // capped by the realised record: the setup's own closes losing, or the lane's recent closes losing, take it away.
+    private const val LANE_REALISED_RECENT_8291 = 10
+    private val realisedByLane8291 = ConcurrentHashMap<String, DoubleArray>()   // LANE -> [n, mean, losses]
+
+    /** Pure (V5.0.8291): [n, mean, losses] of the newest [LANE_REALISED_RECENT_8291] closes of a time-ordered series (each clamped). */
+    fun laneRealised8291(series: List<Double>): DoubleArray {
+        val xs = series.filter { it.isFinite() }.takeLast(LANE_REALISED_RECENT_8291).map { com.lifecyclebot.engine.truth.RobustLabelRead8185.clampLabel8187(it) }
+        return doubleArrayOf(xs.size.toDouble(), if (xs.isEmpty()) 0.0 else xs.average(), xs.count { it < 0.0 }.toDouble())
+    }
+
+    /**
+     * Pure (V5.0.8291): the ceiling realised money puts on a setup's graduated authority (only lowers; 1 = no cap).
+     *   - the setup's own closes: 2+ with mean <= 0 -> 0;
+     *   - the lane's recent closes: 2+ with mean <= 0 and at least two in three losses -> 0; 2+ with mean <= 0 -> 0.25
+     *     (under the 0.5 a setup needs to overrule a live refusal).
+     * Re-read every call: authority returns with the realised record.
+     */
+    fun setupRealisedCap8291(setupN: Double, setupMean: Double, laneN: Double, laneMean: Double, laneLosses: Double): Double {
+        if (setupN >= 2.0 && setupMean.isFinite() && setupMean <= 0.0) return 0.0
+        if (laneN >= 2.0 && laneMean.isFinite() && laneMean <= 0.0) {
+            return if (laneLosses * 3.0 >= laneN * 2.0) 0.0 else LANE_LOSING_CAP_8291
+        }
+        return 1.0
+    }
+    const val LANE_LOSING_CAP_8291 = 0.25
+
+    /** V5.0.8291 — the realised authority cap of ([laneRaw], [setup]) in the account mode, read lock-free. */
+    fun setupRealisedCap8291(laneRaw: String, setup: String): Double {
+        val lane = canon(laneRaw)
+        val s = realisedBySetup8187["$lane|$setup"]
+        val l = realisedByLane8291[lane]
+        return setupRealisedCap8291(s?.getOrNull(0) ?: 0.0, s?.getOrNull(1) ?: Double.NaN, l?.getOrNull(0) ?: 0.0, l?.getOrNull(1) ?: Double.NaN, l?.getOrNull(2) ?: 0.0)
+    }
+
     /** V5.0.8187 — the lane's executable offset (points), read lock-free (0 until measured). */
     fun executableOffset8187(laneRaw: String): Double = execOffsetByLane8187[canon(laneRaw)] ?: 0.0
 
@@ -1578,6 +1636,8 @@ object Cortex7885 {
             execOffsetByLane8187[lane] = off
             board.books[lane]?.applyOffset8187(off)
             for (setup in gradeBook8144.realisedBySetup8187(lane, mode).entries) realisedBySetup8187["$lane|${setup.key}"] = setup.value
+            // V5.0.8291 — the lane's own recent realised closes in this mode (every setup), for the setup authority cap.
+            realisedByLane8291[lane] = laneRealised8291(gradeBook8144.realisedSeries(lane, null, null, mode))
         }
         for ((k, st) in jointBook7961) st.readOffset8187 = execOffsetByLane8187[k.substringBefore('|')] ?: 0.0
         for ((k, st) in vetoBook) st.readOffset8187 = if ('@' in k) execOffsetByLane8187[k.substringAfterLast('@')] ?: 0.0 else 0.0
@@ -2554,6 +2614,8 @@ object Cortex7885 {
         val out = HashMap<String, DoubleArray>()
         for ((id, st) in ledger.seats) {
             if (st.scored < 30) continue
+            // V5.0.8291 — a seat seeded from the hive is not echoed back as this install's own until it has 30 local scores.
+            if (!hiveExportable8291(st.scored, inheritedSeed8291[id])) continue
             out["S|$id"] = doubleArrayOf(st.scored.toDouble(), st.sseModel, st.sseBase, st.brierModel, st.brierBase, st.bins.size.toDouble())
             for (i in st.bins.indices) {
                 val b = st.bins[i]
@@ -2563,6 +2625,19 @@ object Cortex7885 {
         }
         out
     }
+
+    // ── V5.0.8291 §HIVE_SEATS_ARE_A_PRIOR ──
+    /** An inherited seat is seeded with at most this many scores (half of CortexLedger7885.MIN_SCORED). */
+    private const val HIVE_SEAT_SEED_8291 = 30.0
+    /** voterId|lane -> the scores this session seeded from the hive (echo guard). */
+    private val inheritedSeed8291 = ConcurrentHashMap<String, Int>()
+
+    /** Pure (V5.0.8291): the factor that scales [networkN] hive scores down to [HIVE_SEAT_SEED_8291] (1 when under it). */
+    fun hiveSeatScale8291(networkN: Double): Double =
+        if (!(networkN > 0.0) || !networkN.isFinite()) 0.0 else minOf(1.0, HIVE_SEAT_SEED_8291 / networkN)
+
+    /** Pure (V5.0.8291): may a seat of [scored] scores, [seeded] of them inherited this session (null: none), be exported? */
+    fun hiveExportable8291(scored: Int, seeded: Int?): Boolean = seeded == null || scored - seeded >= 30
 
     /**
      * V5.0.8001/8076 — an empty local seat can inherit a valid network snapshot.
@@ -2587,11 +2662,17 @@ object Cortex7885 {
                 val st = ledger.seat(parts[0], parts.drop(1).joinToString("|"), bins)
                 // Seed an empty seat only. Replacing a local book invalidates outstanding label contributions.
                 if (st.scored > 0 || st.bins.any { it.n > 0.0 } || st.bins.size != bins) continue
-                st.scored = net[0].toInt(); st.sseModel = net[1]; st.sseBase = net[2]; st.brierModel = net[3]; st.brierBase = net[4]
+                // V5.0.8291 — the seed is the network's evidence scaled down to [HIVE_SEAT_SEED_8291] scores (its skill ratios, bin
+                // means and rates kept): under MIN_SCORED, so an inherited seat holds no authority until this install has graded
+                // it itself, and local grades outweigh the foreign ones from the first. It used to arrive at full network weight
+                // (5.0.8286: seatsInherited=1354) — instantly "seasoned" on other builds' labels — and was re-exported as local.
+                val ks = hiveSeatScale8291(net[0])
+                val kb = hiveSeatScale8291(importedBins.sumOf { it?.getOrNull(0) ?: 0.0 })
+                st.scored = (net[0] * ks).toInt(); st.sseModel = net[1] * ks; st.sseBase = net[2] * ks; st.brierModel = net[3] * ks; st.brierBase = net[4] * ks
                 for (i in st.bins.indices) importedBins[i]?.let { b ->
-                    val s = CortexLedger7885.Stat(); s.n = b[0]; s.sum = b[1]; s.sumSq = b[2]; s.wins = b[3]; s.runners = b[4]
-                    st.bins[i].n = s.n; st.bins[i].sum = s.sum; st.bins[i].sumSq = s.sumSq; st.bins[i].wins = s.wins; st.bins[i].runners = s.runners
+                    st.bins[i].n = b[0] * kb; st.bins[i].sum = b[1] * kb; st.bins[i].sumSq = b[2] * kb; st.bins[i].wins = b[3] * kb; st.bins[i].runners = b[4] * kb
                 }
+                inheritedSeed8291[id] = st.scored
                 n++
             }
         }

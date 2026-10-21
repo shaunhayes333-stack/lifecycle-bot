@@ -305,7 +305,9 @@ class Aate8187CortexCompleteTest {
         val fl = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(fl.contains("Cortex7885.onLabelLost8187(o.mint, o.lane, \"GAP\")"))
         assertTrue(fl.contains("Cortex7885.onLabelLost8187(o.mint, o.lane, \"BASIS\")"))
-        assertTrue(fl.contains("if (firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age))"))
+        // superseded by V5.0.8291 — the first-mark check is read once and ranked (CortexLabelFeed8291).
+        assertTrue(fl.contains("val first8291 = firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age)"))
+        assertTrue(fl.contains("if (first8291) dueUnpriced7737.add("))
         // Binding: deferred binds, decision-time staleness, and recovery from the decision record before an unbound filing.
         assertTrue(cx.contains("deferBind8187(positionId, mint, normalized, m, laneKey8082, openedAtMs)"))
         assertTrue(cx.contains("retryDeferredBinds8187(key8187, a)"))
