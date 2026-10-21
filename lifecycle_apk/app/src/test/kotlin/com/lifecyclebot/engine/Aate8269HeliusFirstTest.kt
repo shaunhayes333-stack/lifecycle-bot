@@ -57,7 +57,7 @@ class Aate8269HeliusFirstTest {
         assertTrue(h.contains("$" + "BASE/$" + "marketAddress/transactions"))
         assertTrue(h.contains("&before-signature=$" + "before"))
         assertTrue(h.contains("&gte-time="))
-        assertFalse(h.contains("$" + "BASE/${ts.mint}/transactions"))
+        assertFalse(h.contains("$" + "BASE/" + "$" + "{ts.mint}/transactions"))
         assertTrue(h.contains("if (merged > 0) try {"))
         assertTrue(h.contains("evidenceArrived8252(ts.mint, setOf(\"shape\")"))
     }
