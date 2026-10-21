@@ -212,8 +212,21 @@ object LiveRiskPolicy7807 {
         } catch (_: Throwable) { 0.0 }
         // V5.0.8188 — forward setup / cell / kind labels alone never raise size: the share is capped by an independent proof's
         // own Kelly stake (outlier-capped realised whole-position closes, or walk-forward out-of-sample); labels may only lower it.
-        validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l))
+        val validated8296 = validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l))
+        // V5.0.8296 — fresh live losses (lane) or a setup whose own live closes lose revoke the compounding share.
+        recentKellyGate8296(ts, l, validated8296)
     } catch (_: Throwable) { 0.0 }
+
+    /** V5.0.8296 — [frac] after the lane's recent verified live record and the selected setup's realised live closes. */
+    private fun recentKellyGate8296(ts: com.lifecyclebot.data.TokenState, lane: String, frac: Double): Double {
+        if (!frac.isFinite() || frac <= 0.0) return 0.0
+        val recent = try { LiveConfidence8296.recentFor8296(lane) } catch (_: Throwable) { null }
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
+        val rr = if (setup.isNullOrBlank()) null else try { com.lifecyclebot.engine.cortex.Cortex7885.setupRealised8187(lane, setup) } catch (_: Throwable) { null }
+        val gated = LiveConfidence8296.kellyGate8296(frac, recent, rr?.getOrNull(0) ?: 0.0, rr?.getOrNull(1) ?: Double.NaN)
+        LiveConfidence8296.noteKellyRevoked8296(frac, gated)
+        return gated
+    }
 
     // ── V5.0.8188 — an edge-based size-up needs validated after-cost evidence (the Cortex's 8187 rule) ──
     //
@@ -505,6 +518,8 @@ object LiveRiskPolicy7807 {
         val markPriceUsd8153: Double = 0.0,
         /** V5.0.8169 — one round trip's fixed legs (network fee + priority + tips, SOL; CostMeter8151). NaN = unknown. */
         val fixedRoundTripSol8169: Double = Double.NaN,
+        /** V5.0.8296 — the lane's last verified live closes (LiveConfidence8296); null = not measured (pure callers). */
+        val recentLive8296: LiveConfidence8296.Recent8296? = null,
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -590,7 +605,9 @@ object LiveRiskPolicy7807 {
             return Decision(false, 0.0, SizingNetEdge8153.NET_EV_REFUSAL_8153, labels, stop, cost0, 0.0)
         }
 
-        val expMult = expectancyMultiplier(i.liveCloses, i.liveMeanNetPct, i.liveTotalNetSol)
+        // V5.0.8296 — confidence follows the lane's LAST verified live closes, not only its 2,500-close history.
+        val expMult = LiveConfidence8296.recencyAdjusted8296(expectancyMultiplier(i.liveCloses, i.liveMeanNetPct, i.liveTotalNetSol), i.recentLive8296)
+        if (i.recentLive8296 != null && LiveConfidence8296.losing8296(i.recentLive8296)) labels += "RECENT_LIVE_LOSSES_SHRINK_8296"
         val dailyMult = dailyLossMultiplier(i.laneDailyLossSol, i.equitySol * b.dailyLossCapEquityFrac)
         if (dailyMult < 1.0) labels += "LANE_DAILY_LOSS_CAP_SHRINK_7807"
         val gov = if (i.governorLossMult.isFinite()) i.governorLossMult.coerceIn(0.0, 1.0) else 1.0
@@ -766,6 +783,7 @@ object LiveRiskPolicy7807 {
         try {
             CanonicalTradeFinalizedBus6450.subscribe { e ->
                 if (e.mode.equals("live", ignoreCase = true)) onLiveFinalized(e.entryLane, e.netRealizedPnlSol, e.settledAtMs)
+                if (e.mode.equals("live", ignoreCase = true)) try { LiveConfidence8296.onLiveClose8296(e) } catch (_: Throwable) {}  // V5.0.8296
             }
         } catch (_: Throwable) { subscribed.set(false) }
     }
@@ -931,6 +949,7 @@ object LiveRiskPolicy7807 {
             laneDeployedSol8153 = laneDeployedSol8153(effectiveLane7811),
             markPriceUsd8153 = ts8153?.lastPrice?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
             fixedRoundTripSol8169 = try { com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() } catch (_: Throwable) { Double.NaN },
+            recentLive8296 = try { LiveConfidence8296.recentFor8296(effectiveLane7811) } catch (_: Throwable) { null },
         )
     }
 
@@ -1103,5 +1122,6 @@ object LiveRiskPolicy7807 {
             "equityPeak=${"%.4f".format(CapitalDrawdown7948.currentPeak7948().peakSol)} " +
             "binding8136=[${bindings8136.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none yet" }}] " +
             "rotation8098[${OpportunityRotation8098.statusLine8098()}] " +
-            "economics8153[${com.lifecyclebot.engine.SizingQuoteRecheck8153.statusLine8153()}]"
+            "economics8153[${com.lifecyclebot.engine.SizingQuoteRecheck8153.statusLine8153()}] " +
+            LiveConfidence8296.statusLine8296()
 }
