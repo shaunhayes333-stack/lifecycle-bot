@@ -132,16 +132,16 @@ object HeliusSwapCandles7819 {
         if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint)) return // V5.0.7819 HeliusScope — Solana mints only (Field Manual L186)
         // V5.0.8284 — 1 m coverage (not the bar count, not the active timeframe) decides; a held or 4 h token's bars go to
         // the compatible 1 m store (CandleCoverage8284.merge8284). Too young for 1 m bars: its own observed trades only.
+        if (inFlight.contains(mint)) return
         val priority = priority8284(mint, nowMs)
         val cov1m = CandleCoverage8284.noteNeed8284(ts, nowMs)
-        if (cov1m == CandleCoverage8284.Coverage8284.COVERED && priority < PRIORITY_HELD_8284) { coveredSkips8284.incrementAndGet(); return }
+        if (cov1m == CandleCoverage8284.Coverage8284.COVERED) { coveredSkips8284.incrementAndGet(); return }
         if (cov1m == CandleCoverage8284.Coverage8284.NOT_YET_POSSIBLE) { localTape8284(ts, nowMs, "young"); return }
         val marketAddress = activeMarketAddress8269(ts) ?: run {
             noMarketAddress8269.incrementAndGet()
             localTape8284(ts, nowMs, "noMarket")
             return
         }
-        if (inFlight.contains(mint)) return
         val next = nextAllowedMs[mint] ?: 0L
         if (nowMs < next) { localTape8284(ts, nowMs, "retryWait"); return }
         requests.incrementAndGet()
