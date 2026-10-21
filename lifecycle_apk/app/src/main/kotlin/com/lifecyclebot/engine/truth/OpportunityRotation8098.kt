@@ -99,12 +99,77 @@ object OpportunityRotation8098 {
         if (nowMs - d.atMs !in 0L..DEMAND_TTL_MS) { demandByLane.remove(l, d); return false }
         if (d.mint == mint || nowMs - lastRotationMs < COOLDOWN_MS) return false
         if (poorest8098(candidates) != mint) return false
+        if (active8270.values.any { it.victim == mint && it.state.live }) return false   // one rotation per victim
         lastRotationMs = nowMs
         demandByLane.remove(l, d)
-        rotations.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("OPPORTUNITY_ROTATION_8098_$l") } catch (_: Throwable) {}
+        active8270[mint] = Rotation8270(successor = d.mint, victim = mint, lane = l, requestedAtMs = d.atMs, state = State8270.RESERVED, updatedAtMs = nowMs)
+        reservations8270.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("OPPORTUNITY_ROTATION_RESERVED_8270_$l") } catch (_: Throwable) {}
         return true
     }
 
-    fun statusLine8098(): String = "demands=${demands.get()} rotations=${rotations.get()} waiting=${demandByLane.keys.joinToString(",").ifBlank { "-" }}"
+    // ── V5.0.8270 — rotation is a lifecycle, not a requestSell call ──────────────────────────────────────────────────
+    // 8098 counted a rotation and consumed the demand the moment the poorest position was *asked* to sell. A refused or
+    // unbroadcast sell left the successor with no demand and the report with a "rotation" that freed nothing. Now:
+    // REQUESTED (demand) → RESERVED (victim chosen) → SELL_PENDING (sell accepted) → CAPITAL_CONFIRMED (that mint's sell
+    // finalized on chain) → SUCCESSOR_REEVALUATION (the successor is due a fresh look); RETRY restores the demand when
+    // the sell was not accepted; EXPIRED when nothing confirms inside the window. `rotations` counts CAPITAL_CONFIRMED only.
+    enum class State8270(val live: Boolean) { RESERVED(true), SELL_PENDING(true), CAPITAL_CONFIRMED(false), SUCCESSOR_REEVALUATION(false), RETRY(false), EXPIRED(false) }
+    private class Rotation8270(val successor: String, val victim: String, val lane: String, val requestedAtMs: Long, @Volatile var state: State8270, @Volatile var updatedAtMs: Long)
+    private const val RESERVATION_TTL_MS_8270 = 10L * 60_000L
+    private val active8270 = ConcurrentHashMap<String, Rotation8270>()
+    private val reservations8270 = AtomicLong(0)
+    private val retries8270 = AtomicLong(0)
+    private val expired8270 = AtomicLong(0)
+    private val successorDue8270 = ConcurrentHashMap<String, Long>()
+
+    /** Executor: the victim's sell was asked for; [accepted] = a sell is actually pending/confirmed, not refused. */
+    fun sellRequested8270(victim: String, accepted: Boolean, nowMs: Long = System.currentTimeMillis()) {
+        val r = active8270[victim] ?: return
+        if (r.state != State8270.RESERVED) return
+        if (accepted) { r.state = State8270.SELL_PENDING; r.updatedAtMs = nowMs; return }
+        r.state = State8270.RETRY; r.updatedAtMs = nowMs
+        retries8270.incrementAndGet()
+        lastRotationMs = 0L
+        demandByLane.putIfAbsent(r.lane, Demand(r.successor, nowMs))      // the successor's demand is restored
+        active8270.remove(victim, r)
+        try { PipelineHealthCollector.labelInc("OPPORTUNITY_ROTATION_RETRY_8270") } catch (_: Throwable) {}
+    }
+
+    /** SellFinalizationCoordinator: this mint's sell is finalized on chain — the capital is real. */
+    fun capitalConfirmed8270(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        val r = active8270[mint] ?: return
+        if (!r.state.live) return
+        r.state = State8270.CAPITAL_CONFIRMED; r.updatedAtMs = nowMs
+        rotations.incrementAndGet()
+        r.state = State8270.SUCCESSOR_REEVALUATION
+        successorDue8270[r.successor] = nowMs
+        active8270.remove(mint, r)
+        try { com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(r.successor, nowMs) } catch (_: Throwable) {}   // refreshed first
+        try {
+            PipelineHealthCollector.labelInc("OPPORTUNITY_ROTATION_CAPITAL_CONFIRMED_8270_${r.lane}")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("OPPORTUNITY_ROTATION_CAPITAL_CONFIRMED_8270",
+                "victim=${mint.take(10)} successor=${r.successor.take(10)} lane=${r.lane} waitedMs=${nowMs - r.requestedAtMs} action=successor_due_fresh_evaluation")
+        } catch (_: Throwable) {}
+    }
+
+    /** FDG / coordinator: is [mint] a rotation successor whose capital was just confirmed? Consumed on read. */
+    fun successorReevaluationDue8270(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val at = successorDue8270.remove(mint) ?: return false
+        return nowMs - at in 0L..DEMAND_TTL_MS
+    }
+
+    private fun expire8270(nowMs: Long) {
+        for ((k, r) in active8270) if (r.state.live && nowMs - r.updatedAtMs > RESERVATION_TTL_MS_8270) {
+            r.state = State8270.EXPIRED; expired8270.incrementAndGet(); active8270.remove(k, r)
+            try { PipelineHealthCollector.labelInc("OPPORTUNITY_ROTATION_EXPIRED_8270") } catch (_: Throwable) {}
+        }
+    }
+
+    fun statusLine8098(nowMs: Long = System.currentTimeMillis()): String {
+        expire8270(nowMs)
+        return "demands=${demands.get()} reserved=${reservations8270.get()} rotations=${rotations.get()} retries=${retries8270.get()} expired=${expired8270.get()} " +
+            "active=${active8270.values.joinToString(",") { "${it.victim.take(6)}>${it.successor.take(6)}:${it.state}" }.ifBlank { "-" }} " +
+            "waiting=${demandByLane.keys.joinToString(",").ifBlank { "-" }}"
+    }
 }

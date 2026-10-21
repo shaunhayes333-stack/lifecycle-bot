@@ -15073,7 +15073,10 @@ class Executor(
             ForensicLogger.lifecycle("OPPORTUNITY_ROTATION_8098",
                 "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$canon eligible=${held.size} pnl=${"%.2f".format(held.firstOrNull { it.mint == ts.mint }?.pnlPct ?: 0.0)} action=free_lane_slot_for_proven_candidate")
         } catch (_: Throwable) {}
-        requestSell(ts = ts, reason = com.lifecyclebot.engine.truth.OpportunityRotation8098.REASON, wallet = wallet, walletSol = walletSol)
+        val r = requestSell(ts = ts, reason = com.lifecyclebot.engine.truth.OpportunityRotation8098.REASON, wallet = wallet, walletSol = walletSol)
+        // V5.0.8270 — a rotation is confirmed by the victim's finalized sell, not by this call.
+        com.lifecyclebot.engine.truth.OpportunityRotation8098.sellRequested8270(ts.mint,
+            accepted = r == SellResult.CONFIRMED || r == SellResult.PAPER_CONFIRMED || r == SellResult.WAITING_BALANCE_PROOF || r == SellResult.ALREADY_CLOSED)
         return true
     }
 
@@ -15473,6 +15476,8 @@ class Executor(
 
     /** V5.0.7371 — recent pending-route deferrals per mint (bounded retries). */
     private val tokenMapDeferrals7371 = java.util.concurrent.ConcurrentHashMap<String, List<Long>>()
+    /** V5.0.8270 — pending safety-proof deferrals per mint (bounded: three in five minutes, then DEFERRED_DATA). */
+    private val safetyProofDeferrals8270 = java.util.concurrent.ConcurrentHashMap<String, List<Long>>()
 
     /** V5.0.7361 — per-mint cooldown for the entry re-price fan-out. */
     private val entryRepriceLastMs7361 = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -20501,10 +20506,27 @@ class Executor(
                             "attemptId=${ts.tokenMap.buyAttemptId} mint=${ts.mint.take(10)} sol=$sol reason=${if (tokenMapPending) "TOKEN_MAP_HYDRATION" else "SAFETY_PROOF_HYDRATION"} detail=${preTrade.detail.take(80)}",
                         )
                     } catch (_: Throwable) {}
+                    // V5.0.8270 — the line above says "hydrate_then_retry, no_live_buy_fail" and the code below booked a
+                    // TERMINAL buy failure (BUY_TERMINAL_ABORTED:SAFETY_PROOF_INCOMPLETE) on the same attempt. UNKNOWN proof
+                    // is bounded pending hydration: lease + claim released non-terminally, no buy-failure emitted, no buy
+                    // made; after three deferrals in five minutes it ends as the named DEFERRED_DATA outcome. A VERIFIED
+                    // unsafe read never reaches this branch (PreTradeHardGate refuses it with its own reason).
                     val abortReason = if (tokenMapPending) "TOKEN_MAP_INCOMPLETE" else "SAFETY_PROOF_INCOMPLETE"
-                    liveStage("LIVE_BUY_ABORTED", "reason=$abortReason detail=${preTrade.detail.take(120)}")
-                    emitLiveBuyFail(ts, sol, abortReason, preTrade.detail, attemptId8198 = attemptId)
-                    buyTerminalFail("BUY_TERMINAL_ABORTED:$abortReason")
+                    val now8270 = System.currentTimeMillis()
+                    val prior8270 = safetyProofDeferrals8270[ts.mint]?.filter { now8270 - it < 5 * 60_000L }.orEmpty()
+                    val exhausted8270 = prior8270.size >= 3
+                    if (safetyProofDeferrals8270.size > 2_000) safetyProofDeferrals8270.clear()
+                    if (!exhausted8270) safetyProofDeferrals8270[ts.mint] = prior8270 + now8270
+                    val reason8270 = if (exhausted8270) "DEFERRED_DATA_SAFETY_PROOF_8270" else "SAFETY_PROOF_PENDING_DEFERRED_8270"
+                    liveStage("LIVE_BUY_DEFERRED", "reason=$reason8270 cause=$abortReason deferrals=${prior8270.size} detail=${preTrade.detail.take(120)}")
+                    liveBuyDeferred(ts, sol, reason8270, "cause=$abortReason stage=PreTradeHardGate deferrals=${prior8270.size}")
+                    if (!exhausted8270) ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, reason8270)
+                    try {
+                        val deferredAttempt8270 = attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
+                            .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint, "LIVE").orEmpty() }
+                        ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt8270, ts.mint, reason8270)
+                    } catch (_: Throwable) {}
+                    if (exhausted8270) buyTerminalFail(reason8270) else buyTerminalRecorded = true
                     return false
                 }
                 try {

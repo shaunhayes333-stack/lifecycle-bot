@@ -339,6 +339,8 @@ object SellFinalizationCoordinator {
                 )
                 if (fin.finalState == TxMetaSellFinalizer.FinalState.CLEARED) {
                     com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("live", intent.mint)
+                    // V5.0.8270 — a rotation victim's capital is confirmed here, by its finalized sell.
+                    try { com.lifecyclebot.engine.truth.OpportunityRotation8098.capitalConfirmed8270(intent.mint) } catch (_: Throwable) {}
                 }
                 com.lifecyclebot.engine.truth.AuthoritySnapshotVersion6464.bump("sell_finalized_${intent.symbol}")
             } catch (t: Throwable) {

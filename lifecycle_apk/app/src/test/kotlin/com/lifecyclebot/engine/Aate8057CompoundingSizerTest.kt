@@ -69,7 +69,8 @@ class Aate8057CompoundingSizerTest {
         assertTrue(g.contains("val edgeKelly8094 = if (config.paperMode) 0.0 else"))      // paper never sized up
         // Entry repair: live orders keep the adaptive / streak / bridge shrink (a losing run must cut size).
         assertFalse(g.contains("alreadyShaped7925 = !config.paperMode ||"))
-        assertTrue(g.contains("resolution.finalSizeSol > riskSized + 1e-9) return 0.0")) // resolver never enlarges
+        // resolver never enlarges, and (8269) never seals below the risk-approved cost-viable minimum
+        assertTrue(g.contains("if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9 ||\n            resolution.finalSizeSol + 1e-9 < sealedMinimum8269) return 0.0"))
         val x = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(x.contains("LiveSizeTarget8094.walletShareFor8094(ts.mint, sol, liveCfg.maxWalletRiskPerTradePct)"))
     }

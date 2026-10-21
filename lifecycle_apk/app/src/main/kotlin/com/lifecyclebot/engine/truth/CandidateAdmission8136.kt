@@ -536,6 +536,8 @@ object CandidateAdmission8136 {
     /** V5.0.8260 — the native setup name of a forming runner admitted on an unlearned book ([RunnerGrab7967.formingNative8260]). */
     const val RUNNER_FORMING_8260 = "RUNNER_FORMING_8260"
     private val RUNNER_LANES_8260 = setOf("MOONSHOT", "SHITCOIN", "EXPRESS")
+    /** V5.0.8270 — a lane's READY verdict is native readiness for this long; after that only a fresh verdict counts. */
+    internal const val NATIVE_READY_FRESH_MS_8270 = 10L * 60_000L
     /** V5.0.8200 — the Cortex's STRONG cohort on this candidate's lane (executable-net labels). */
     const val KIND_CORTEX_8200 = "CORTEX"
     const val KIND_TIMING = "TIMING"
@@ -897,9 +899,12 @@ object CandidateAdmission8136 {
         // A live QUALIFIED/READY entry in that lane's own candidate book (its hunter+brain qualified THIS mint) is the
         // same native verdict; its setup is the lane's own fired pick. Nothing is qualified that the lane did not qualify.
         val nativeBook8217 = if (nativeOpinion8213 != null) null else try {
+            // V5.0.8270 — only the lane's authoritative READY verdict is native readiness; a QUALIFIED observation is
+            // wider watching, not executable readiness. Stale readiness (older than NATIVE_READY_FRESH_MS_8270) does
+            // not outlive a fresher refusal: the book rewrites the entry on refusal, so a fresh READY is the proof.
             com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.entry(lane, ts.mint)?.takeIf {
-                (it.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.QUALIFIED ||
-                    it.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY) &&
+                it.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY &&
+                    nowMs - it.updatedAtMs in 0L..NATIVE_READY_FRESH_MS_8270 &&
                     com.lifecyclebot.engine.LaneExecutionCoordinator.laneCanOwnExecution6910(lane)
             }
         } catch (_: Throwable) { null }
@@ -910,10 +915,14 @@ object CandidateAdmission8136 {
         // Fix: when the book is QUALIFIED/READY, treat the lane's own hunter+brain verdict as native qualification
         // using a NATIVE_BOOK sentinel when no playbook id is available. The lane still owns the strategy identity;
         // nothing bypasses safety, rug, FDG or sizing downstream.
+        // V5.0.8270 — no invented NATIVE_BOOK sentinel: the setup identity is the playbook pick, else the lane's own
+        // READY verdict reason (its actual native setup text); a READY entry with neither names nothing and is not
+        // native qualification.
         val nativeSetupBook8217 = when {
             nativeBook8217 == null -> null
             pick8153?.id != null && pick8153.id.isNotBlank() && !pick8153.id.equals("NONE", true) -> pick8153.id
-            else -> "NATIVE_BOOK_8221"
+            nativeBook8217.reason.isNotBlank() && !nativeBook8217.reason.equals("NONE", true) -> "NATIVE_READY_8270:${nativeBook8217.reason.take(40)}"
+            else -> null
         }
         // V5.0.8260 — the forming runner on an unlearned book is the runner lanes' own qualification.
         val runnerForming8260 = if (lane.uppercase() in RUNNER_LANES_8260) try {
@@ -921,8 +930,8 @@ object CandidateAdmission8136 {
         } catch (_: Throwable) { null } else null
         if (nativeSetupBook8217 != null) try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_NATIVE_FROM_BOOK_8217_$lane")
-            if (nativeSetupBook8217 == "NATIVE_BOOK_8221") com.lifecyclebot.engine.PipelineHealthCollector
-                .labelInc("ADMISSION_NATIVE_BOOK_WITHOUT_PICK_8221_$lane")
+            if (nativeSetupBook8217.startsWith("NATIVE_READY_8270:")) com.lifecyclebot.engine.PipelineHealthCollector
+                .labelInc("ADMISSION_NATIVE_READY_VERDICT_SETUP_8270_$lane")
         } catch (_: Throwable) {}
         val setups = try {
             pb.firedSetupRecords8136(ts, lane, nowMs).map { (id, r) -> Evidence8136(KIND_SETUP, id, r[0].toInt(), r[1], r[2], r[3]) }

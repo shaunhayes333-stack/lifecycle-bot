@@ -153,6 +153,10 @@ object MemeChokes7951 {
         // V5.0.8262 — 8261: 63 approved entries starved, rotation demands=0. The approved live entry IS the demand the
         // book's poorest eligible position may be rotated for (victim rules unchanged: never a runner, tail or fresh).
         try { com.lifecyclebot.engine.truth.OpportunityRotation8098.noteCapitalDemand8262(mint) } catch (_: Throwable) {}
+        // V5.0.8270 — a rotation successor whose victim's capital was confirmed and is STILL starved: the freed capital
+        // did not cover this entry (plan/required-capital mismatch), named rather than silently re-demanded.
+        if (try { com.lifecyclebot.engine.truth.OpportunityRotation8098.successorReevaluationDue8270(mint) } catch (_: Throwable) { false })
+            count("ROTATION_SUCCESSOR_STILL_STARVED_8270")
         val chartBuy = try { com.lifecyclebot.engine.chart.ChartReader7950.saysBuy(mint) } catch (_: Throwable) { false }
         if (!chartBuy) return
         lastChartDemandAtMs = System.currentTimeMillis()

@@ -146,6 +146,10 @@ object RunnerGrab7967 {
      * no proven-losing runner cell is the runner lanes' own qualification: it is admitted natively (critical facts,
      * fresh price, economics, hard safety still bind in [CandidateAdmission8136]). Never a bypass of a proven loss.
      */
+    /** Pure (V5.0.8270): an unlearned forming runner needs an OBSERVED read that is firming, or an observed 60 m run standing. */
+    fun formingStructure8270(r15: StructureTracker7962.Read7962?, r60: StructureTracker7962.Read7962?): Boolean =
+        firming7967(r15) || firming7967(r60) || (r60 != null && runStanding8019(r60))
+
     fun formingNative8260(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
         val mint = ts.mint
         if (mint.isBlank() || ts.position.isOpen) return null
@@ -153,7 +157,10 @@ object RunnerGrab7967 {
         if (try { MayhemMode7943.liveRefusal(ts, nowMs) } catch (_: Throwable) { null } != null) return null
         if (provenCellFor(ts, nowMs) != null) return null
         if (losingCellFor8260(ts, nowMs) != null) return null
-        if (!firmingNow(mint, nowMs) && !standing7970(mint, nowMs)) return null
+        // V5.0.8270 — missing structure proves nothing: standing7970 treats an ABSENT 60 m read as "not breaking",
+        // which is right for a grab in a PROVEN cell but cannot witness an unlearned forming runner. A read must exist.
+        val (r15, r60) = StructureTracker7962.reads7967(mint, nowMs)
+        if (!formingStructure8270(r15, r60)) return null
         try { PipelineHealthCollector.labelInc("RUNNER_FORMING_NATIVE_8260") } catch (_: Throwable) {}
         return "RUNNER_FORMING_8260"
     }
