@@ -57,7 +57,9 @@ object HolderFetch8185 {
  *    [REHYDRATE_PER_MIN_8185] a minute, only for an open hand-off target, never a desk identity.
  */
 object HandoffRetention8185 {
-    const val REHYDRATE_GAP_MS_8185 = 60_000L
+    // V5.0.8273 (R4) — the retry gap must fit the task's remaining lifetime: 60 s exceeded the 45 s task TTL, so one
+    // failed readmission consumed the whole retry window. 15 s allows two more tries inside the TTL; the per-minute cap stays.
+    const val REHYDRATE_GAP_MS_8185 = 15_000L
     const val REHYDRATE_PER_MIN_8185 = 20
     private const val REHYDRATE_SOURCE_8185 = "HANDOFF_REHYDRATE_8185"
 
@@ -66,6 +68,7 @@ object HandoffRetention8185 {
     private val protectedHits8185 = AtomicLong(0)
     private val rehydrated8185 = AtomicLong(0)
     private val rehydrateRefused8185 = AtomicLong(0)
+    private val rehydratePending8273 = AtomicLong(0)
     private val rehydrateThrottled8185 = AtomicLong(0)
 
     /** Pure: an open hand-off or a pending receiver task protects the mint's row from pruning. */
@@ -114,10 +117,13 @@ object HandoffRetention8185 {
             if (lastAttempt8185.size > 2_000) lastAttempt8185.entries.removeIf { nowMs - it.value > REHYDRATE_GAP_MS_8185 }
         }
         val res = try { GlobalTradeRegistry.addToWatchlist(key, key.take(6), REHYDRATE_SOURCE_8185) } catch (_: Throwable) { null }
-        val ok = res != null && (res.added || res.reason.startsWith("DUPLICATE"))
-        if (ok) rehydrated8185.incrementAndGet() else rehydrateRefused8185.incrementAndGet()
+        // V5.0.8273 (R4) — success means the required state is INSTALLED; a queued/duplicate admission is pending, not hydrated.
+        val installed = HandoffRoute8180.tokenFor8180(key) != null
+        val ok = res != null && (res.added || res.reason.startsWith("DUPLICATE")) && installed
+        val pending = res != null && !ok && (res.added || res.reason.startsWith("DUPLICATE"))
+        if (ok) rehydrated8185.incrementAndGet() else if (pending) rehydratePending8273.incrementAndGet() else rehydrateRefused8185.incrementAndGet()
         try {
-            PipelineHealthCollector.labelInc(if (ok) "HANDOFF_TARGET_REHYDRATED_8185" else "HANDOFF_TARGET_REHYDRATE_REFUSED_8185")
+            PipelineHealthCollector.labelInc(if (ok) "HANDOFF_TARGET_REHYDRATED_8185" else if (pending) "HANDOFF_TARGET_REHYDRATE_PENDING_8273" else "HANDOFF_TARGET_REHYDRATE_REFUSED_8185")
             ForensicLogger.lifecycle("HANDOFF_TARGET_REHYDRATE_8185", "mint=${key.take(10)} ok=$ok reason=${res?.reason?.take(60) ?: "ERROR"}")
         } catch (_: Throwable) {}
         return ok
@@ -125,7 +131,7 @@ object HandoffRetention8185 {
 
     fun counts8185(): Map<String, Long> = mapOf(
         "protected" to protectedHits8185.get(), "rehydrated" to rehydrated8185.get(),
-        "refused" to rehydrateRefused8185.get(), "throttled" to rehydrateThrottled8185.get(),
+        "refused" to rehydrateRefused8185.get(), "pending" to rehydratePending8273.get(), "throttled" to rehydrateThrottled8185.get(),
     )
 
     internal fun resetForTests8185() {

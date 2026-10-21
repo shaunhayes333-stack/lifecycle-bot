@@ -425,7 +425,11 @@ object Cortex7885 {
             val ctxCold8178 = try { decisionCtx8144(ts, canon(labelLane), admitted, reason) } catch (_: Throwable) { null }
             val sourceCold8178 = ts.source
             val decisionMode8196 = accountMode8077()
-            submitCaptureKeyed8187("${ts.mint}|${labelLane.trim().uppercase()}", admitted) { captureCold8178(ts, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178, decisionMode8196) }
+            // V5.0.8273 (R9) — freeze the decision-time features NOW: the cold voter read runs later on the capture pool
+            // and must not reconstruct a past prediction from the live, mutating TokenState. The voters read this copy.
+            val frozen8273 = try { ts.copy() } catch (_: Throwable) { ts }
+            inc("CAPTURE_COLD_FEATURES_FROZEN_8273")
+            submitCaptureKeyed8187("${ts.mint}|${labelLane.trim().uppercase()}", admitted) { captureCold8178(frozen8273, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178, decisionMode8196) }
             return
         }
         val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason) } catch (_: Throwable) { null }

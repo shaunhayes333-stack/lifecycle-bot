@@ -50,3 +50,18 @@ class Aate8272SupplyLadderTest {
         assertEquals(90_000L, a.retryDelayMs8272(com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.Outcome7116.TRANSPORT))
     }
 }
+
+/** V5.0.8273 — directive R4: the rehydration retry gap fits the receiver task's lifetime; queued admission is not hydration. */
+class Aate8273HandoffRetentionTest {
+    @Test fun retryGapFitsTheTaskLifetimeAndQueuedAdmissionIsPending() {
+        assertTrue(HandoffRetention8185.REHYDRATE_GAP_MS_8185 * 2 < HandoffReceiverTasks8153.TASK_TTL_MS_8153)
+        val s = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RemainingGaps8185.kt").readText()
+        assertTrue(s.contains("val installed = HandoffRoute8180.tokenFor8180(key) != null"))
+        assertTrue(s.contains("&& installed"))
+        assertTrue(s.contains("HANDOFF_TARGET_REHYDRATE_PENDING_8273"))
+        // R9: a cold capture freezes decision-time features before the asynchronous voter read
+        val c = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
+        assertTrue(c.contains("val frozen8273 = try { ts.copy() } catch (_: Throwable) { ts }"))
+        assertTrue(c.contains("captureCold8178(frozen8273, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178,"))
+    }
+}
