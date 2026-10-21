@@ -2,6 +2,8 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.EconomicEventSchema6464
 import com.lifecyclebot.engine.truth.LiveBootRecovery8074
+import com.lifecyclebot.network.WalletTokenReadGate8268
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -28,4 +30,39 @@ class Aate8074LiveRestartRecoveryTest {
         assertFalse(LiveBootRecovery8074.blindPure8074(lastOkMs = 300_000L, lastFailMs = 350_000L, nowMs = 400_000L)) // < 3 min
         assertTrue(File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText().contains("LiveBootRecovery8074.noteTokenRead8074(false)"))
     }
+    @Test fun coldStartWalletBlindnessUsesFailureStreakRatherThanUnixEpoch() {
+        assertFalse(LiveBootRecovery8074.blindPure8074(0L, 40_000L, 100_000L, firstFailMs = 40_000L))
+        assertTrue(LiveBootRecovery8074.blindPure8074(0L, 200_000L, 220_000L, firstFailMs = 40_000L))
+        // A successful strict read makes an older failure irrelevant.
+        assertFalse(LiveBootRecovery8074.blindPure8074(300_000L, 200_000L, 600_000L, firstFailMs = 40_000L))
+        // With a prior success, the last valid proof is the freshness anchor.
+        assertTrue(LiveBootRecovery8074.blindPure8074(100_000L, 300_000L, 300_001L))
+    }
+
+    @Test fun walletReadsShareOneLeaseAndBoundedFailureBackoff() {
+        val owner = "wallet-8268-test-" + System.nanoTime()
+        assertNull(WalletTokenReadGate8268.begin(owner, 1_000L))
+        assertEquals("IN_FLIGHT", WalletTokenReadGate8268.begin(owner, 1_001L))
+        WalletTokenReadGate8268.finish(owner, success = false, nowMs = 1_000L)
+        assertEquals("BACKOFF", WalletTokenReadGate8268.begin(owner, 2_999L))
+        assertNull(WalletTokenReadGate8268.begin(owner, 3_000L))
+        WalletTokenReadGate8268.finish(owner, success = false, nowMs = 3_000L)
+        assertEquals("BACKOFF", WalletTokenReadGate8268.begin(owner, 6_999L))
+        assertNull(WalletTokenReadGate8268.begin(owner, 7_000L))
+        WalletTokenReadGate8268.finish(owner, success = true, nowMs = 7_000L)
+        assertNull(WalletTokenReadGate8268.begin(owner, 7_001L))
+        WalletTokenReadGate8268.finish(owner, success = true, nowMs = 7_001L)
+    }
+
+    @Test fun confirmedTransactionInvalidationDoesNotPunishTheRpcLadder() {
+        val owner = "wallet-8268-generation-" + System.nanoTime()
+        assertNull(WalletTokenReadGate8268.begin(owner, 1_000L))
+        WalletTokenReadGate8268.finish(owner, success = false, nowMs = 1_100L, providerFailure = false)
+        assertNull(WalletTokenReadGate8268.begin(owner, 1_101L))
+        WalletTokenReadGate8268.finish(owner, success = true, nowMs = 1_101L)
+        val source = File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        assertTrue(source.contains("WalletTokenReadGate8268.begin(publicKeyB58)"))
+        assertTrue(source.contains("WalletTokenReadGate8268.finish(publicKeyB58"))
+    }
+
 }
