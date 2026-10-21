@@ -184,7 +184,13 @@ object AutoCompoundEngine {
     /**
      * Get current position size multiplier.
      */
-    fun getSizeMultiplier(): Double = state.currentSizeMultiplier
+    // V5.0.8296 — one state was shared by paper and live: PAPER wins grew the pool that every LIVE lane multiplied its
+    // size by (up to 3x), and no loss ever shrank it. In LIVE the multiplier is now the live compound pool fed only by
+    // on-chain-verified live closes (wins add 45%, losses drain in full; LiveConfidence8296). Paper keeps this state.
+    fun getSizeMultiplier(): Double =
+        if (liveRuntime8296()) com.lifecyclebot.engine.truth.LiveConfidence8296.liveCompoundMultiplier8296() else state.currentSizeMultiplier
+
+    private fun liveRuntime8296(): Boolean = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
 
     /**
      * Withdraw from compound pool (resets multiplier proportionally).
@@ -239,7 +245,8 @@ object AutoCompoundEngine {
         appendLine("━━━━━━━━━━━━━━━━━━━━━")
         appendLine("Status: ${if (config.enabled) "✅ Enabled" else "❌ Disabled"}")
         appendLine("Compound Pool: ${state.compoundPoolSol.fmt(4)} SOL")
-        appendLine("Size Multiplier: ${state.currentSizeMultiplier.fmt(2)}x")
+        appendLine("Size Multiplier: ${state.currentSizeMultiplier.fmt(2)}x (paper)")
+        appendLine("Live Size Multiplier: ${(try { com.lifecyclebot.engine.truth.LiveConfidence8296.liveCompoundMultiplier8296() } catch (_: Throwable) { 1.0 }).fmt(2)}x (verified live closes, V5.0.8296)")
         appendLine("Win Streak: ${state.consecutiveWins}")
         appendLine("Total Compounded: ${state.totalCompounded.fmt(4)} SOL")
         appendLine("Total to Treasury: ${state.totalToTreasury.fmt(4)} SOL")

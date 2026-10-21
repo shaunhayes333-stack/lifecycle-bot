@@ -486,13 +486,15 @@ object SmartSizer {
                 ErrorLogger.debug("SmartSizer",
                     "🧬 LIVE perfMult using paper-trained fallback: liveTrades=${perf.totalTrades} " +
                     "paperWR=${fluidWinRate.toInt()}% paperTrades=$fluidTrades")
-                when {
+                // V5.0.8296 — a paper win rate never sizes a LIVE order up (no paper results into live sizing);
+                // a weak paper record may still only shrink it until live has its own 10 trades.
+                LiveConfidenceSizing8296.paperFallbackLiveMult8296(when {
                     fluidWinRate >= 70 && fluidTrades >= 10 -> 1.30
                     fluidWinRate >= 60 && fluidTrades >= 10 -> 1.15
                     fluidWinRate < 40 && fluidTrades >= 10  -> 0.70
                     fluidWinRate < 50 && fluidTrades >= 10  -> 0.85
                     else -> 1.0
-                }
+                })
             } else {
                 when {
                     perf.lossStreak >= 4                       -> 0.50
@@ -1015,13 +1017,10 @@ object SmartSizer {
             // must be live-anchored). SEED win/streak trackers from paper so
             // the bot doesn't forget what it learned.
             _sessionPeakLive = 0.0
-            if (recentTradesLive.isEmpty() && recentTradesPaper.isNotEmpty()) {
-                recentTradesLive.addAll(recentTradesPaper)
-                winStreakLive = winStreakPaper
-                lossStreakLive = lossStreakPaper
-                ErrorLogger.info("SmartSizer",
-                    "🧬 PAPER→LIVE INHERITANCE: seeded recentTrades=${recentTradesLive.size} " +
-                    "winStreak=$winStreakLive lossStreak=$lossStreakLive (paper-trained memory carries over)")
+            // V5.0.8296 — live win-rate / streak memory is LIVE closes only. Seeding it from paper made paper wins
+            // read as a live hot streak (1.20x-1.30x). Paper memory is kept intact; it simply never becomes live's.
+            if (LiveConfidenceSizing8296.paperSeedRefused8296(recentTradesLive.isEmpty(), recentTradesPaper.isNotEmpty())) {
+                ErrorLogger.info("SmartSizer", "🧬 LIVE perf memory starts from live closes only (paper ${recentTradesPaper.size} kept separate)")
             }
         }
     }
