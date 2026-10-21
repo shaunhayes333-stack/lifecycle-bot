@@ -295,6 +295,8 @@ object SpikeCapture7943 {
             "\n  Cell allocator (§7962):      " + (try { CellAllocator7962.statusLine() } catch (_: Throwable) { "unavailable" }) +
             // V5.0.7967 — runner grab / hold and the missed-runner audit.
             "\n  Runner grab (§7967):         " + (try { RunnerGrab7967.statusLine7967() } catch (_: Throwable) { "unavailable" }) +
+            // V5.0.8293 — runs detected on the executed-trade tape and handed to MOONSHOT / SHITCOIN.
+            "\n  Run tape (§8293):            " + (try { RunTape8293.statusLine8293() } catch (_: Throwable) { "unavailable" }) +
             // V5.0.8136 — the runner exit contract: capture loss, share budget, recovery tranches, unfunded tails.
             "\n  Runner exits (§8136):        " + (try { RunnerExitLive8136.statusLine8136() } catch (_: Throwable) { "unavailable" }) +
             "\n  Curve ticks (§7968):         " + (try { com.lifecyclebot.network.CurveTicks7968.statusLine7968() } catch (_: Throwable) { "unavailable" })

@@ -244,6 +244,24 @@ object MarketSweep7297 {
 
     fun opportunityFor7777(mint: String): OpportunitySignal? = opportunity7777[mint]
 
+    // V5.0.8293 — the rebuild's leaders, kept in rank order so the cycle window reads them without re-sorting the map.
+    @Volatile private var top8293: List<String> = emptyList()
+
+    /** V5.0.8293 — the current opportunity leaders (best rank first, at most 16), for HunterWindow8293. */
+    fun topOpportunities8293(): List<OpportunitySignal> = top8293.mapNotNull { opportunity7777[it] }
+
+    /**
+     * Pure (V5.0.8293): every row's age advanced to [nowMs] from the moment its provider answered. A list served from its
+     * refresh window (up to 3 min, 8124) or carried on a failure (up to 20 min) kept the age it had when fetched, so a
+     * "0.3-minute-old" launch could be minutes past the sniper / MANIPULATED / EXPRESS windows, and merge() took the
+     * youngest (stalest) of a mint's ages. A row with no provider time or no known age is unchanged.
+     */
+    fun agedForward8293(rows: List<Row>, nowMs: Long): List<Row> = rows.map { r ->
+        if (r.ageHours > 0.0 && r.ageHours.isFinite() && r.observedAtMs8169 > 0L && nowMs > r.observedAtMs8169)
+            r.copy(ageHours = r.ageHours + (nowMs - r.observedAtMs8169) / 3_600_000.0)
+        else r
+    }
+
     /**
      * Soft attention/ordering multiplier only. This cannot remove a candidate.
      * Weak signals still remain available to lane scorers and forward learning.
@@ -314,7 +332,7 @@ object MarketSweep7297 {
             try { PipelineHealthCollector.labelInc("MARKET_SWEEP_7297_${name}_${if (rows.isEmpty()) "EMPTY" else "SERVED"}") } catch (_: Throwable) {}
         }
 
-        val merged = merge(results.flatMap { it.second })
+        val merged = merge(agedForward8293(results.flatMap { it.second }, System.currentTimeMillis()))  // V5.0.8293
         val enriched = enrichMissingCaps(merged)
         if (enriched.isEmpty()) return last
         val previous7777 = last
@@ -557,6 +575,7 @@ object MarketSweep7297 {
             val percentile = if (n <= 1) 1.0 else (1.0 - idx.toDouble() / (n - 1).toDouble()).coerceIn(0.0, 1.0)
             opportunity7777[s.mint] = s.copy(rank = rank, universe = n, percentile = percentile)
         }
+        top8293 = sorted.take(16).map { it.mint }  // V5.0.8293
         opportunityRebuilds7777.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("OPPORTUNITY_INTELLIGENCE_REBUILT_7777")

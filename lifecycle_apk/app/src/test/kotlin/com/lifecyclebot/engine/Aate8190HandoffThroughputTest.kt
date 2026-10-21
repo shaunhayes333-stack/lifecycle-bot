@@ -169,8 +169,11 @@ class Aate8190HandoffThroughputTest {
         assertEquals(listOf("mint-prio8190" to t0 + tk.TASK_TTL_MS_8153), tk.pendingTargets8190(t0 + 1L))
         assertTrue(tk.pendingTargets8190(t0 + tk.TASK_TTL_MS_8153 + 1L).isEmpty())
         val bot = src("engine/BotService.kt")
-        assertTrue(bot.contains("HandoffPriority8190.windowTargets8190(all)"))
-        assertTrue(bot.contains("mustInclude.addAll(HandoffPriority8190.dueTargets8190(otherMints).filter { it !in mustInclude })"))
+        // superseded by V5.0.8293: HunterWindow8293 wraps the hand-off targets (still HandoffPriority8190) plus opportunity leaders
+        assertTrue(bot.contains("HunterWindow8293.windowTargets8293(all)"))
+        assertTrue(bot.contains("mustInclude.addAll(HunterWindow8293.dueTargets8293(otherMints).filter { it !in mustInclude })"))
+        assertTrue(src("engine/HunterWindow8293.kt").contains("HandoffPriority8190.windowTargets8190(all, nowMs)"))
+        assertTrue(src("engine/HunterWindow8293.kt").contains("HandoffPriority8190.dueTargets8190(otherMints, nowMs)"))
         assertTrue(bot.contains("mustInclude.addAll(pendingLiveBuyMints8094(otherMints))"))
         assertTrue(src("engine/SpecialistElection8136.kt").contains("fun openYieldMints8190("))
     }

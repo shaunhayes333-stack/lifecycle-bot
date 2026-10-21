@@ -2230,6 +2230,8 @@ class SolanaMarketScanner(
         val emittedCount7807 = java.util.concurrent.atomic.AtomicInteger(0)
         val pending7807 = ArrayList<kotlinx.coroutines.Deferred<Unit>>()
         val queuedThisHunt7807 = HashSet<String>()
+        // V5.0.8293 — every lane that picked a mint this hunt; the first lane hands it off once, carrying them all.
+        val lanesByMint8293 = com.lifecyclebot.engine.market.HuntDelivery8293.lanesByMint8293(picks.mapValues { (_, rs) -> rs.map { it.mint } })
         for ((lane, rows) in picks) {
             val source = try {
                 TokenSource.valueOf(com.lifecyclebot.engine.market.LaneHunter7297.SOURCE_PREFIX + lane)
@@ -2238,6 +2240,11 @@ class SolanaMarketScanner(
                 continue
             }
             for (r in rows) {
+                // V5.0.8293 — one hand-off per mint per hunt, seen or not (8286: one requeue then a "cooldown" per extra lane).
+                if (!queuedThisHunt7807.add(r.mint)) {
+                    try { PipelineHealthCollector.labelInc("MARKET_HUNT_7807_MULTI_LANE_CLAIM_$lane") } catch (_: Throwable) {}
+                    continue
+                }
                 // Claimed either way: a mint another source already surfaced
                 // still belongs to this lane while it stays in band.
                 if (isSeen(r.mint)) {
@@ -2249,8 +2256,10 @@ class SolanaMarketScanner(
                     // pick that is not being watched is re-queued with its lane.
                     val watching = try { GlobalTradeRegistry.isWatching(r.mint) } catch (_: Throwable) { true }
                     val now7301 = System.currentTimeMillis()
-                    if (!watching && now7301 - (huntRequeuedAt7301[r.mint] ?: 0L) >= 10L * 60 * 1000) {
+                    // V5.0.8293 — the cooldown escalates 10/20/40/60 min while the intake keeps bouncing the requeue.
+                    if (!watching && com.lifecyclebot.engine.market.HuntDelivery8293.requeueDue8293(r.mint, now7301)) {
                         huntRequeuedAt7301[r.mint] = now7301
+                        com.lifecyclebot.engine.market.HuntDelivery8293.noteRequeued8293(r.mint, now7301)
                         try { com.lifecyclebot.engine.market.LaneHunter7297.noteRequeued8169(r.mint, now7301) } catch (_: Throwable) {}  // V5.0.8169
                         try {
                             TokenMergeQueue.enqueue(
@@ -2260,11 +2269,12 @@ class SolanaMarketScanner(
                                 marketCapUsd = r.mcapUsd,
                                 liquidityUsd = r.liquidityUsd,
                                 volumeH1 = r.volumeH1Usd,
-                                laneAffinity = setOf(lane),
+                                laneAffinity = lanesByMint8293[r.mint] ?: setOf(lane),  // V5.0.8293
                             )
                             PipelineHealthCollector.labelInc("MARKET_HUNT_7301_REQUEUED_$lane")
                         } catch (_: Throwable) {}
                     } else {
+                        if (watching) com.lifecyclebot.engine.market.HuntDelivery8293.noteWatched8293(r.mint)
                         try { PipelineHealthCollector.labelInc(if (watching) "MARKET_HUNT_7301_ALREADY_WATCHED_$lane" else "MARKET_HUNT_7301_REQUEUE_COOLDOWN_$lane") } catch (_: Throwable) {}
                     }
                     continue
@@ -2272,10 +2282,7 @@ class SolanaMarketScanner(
                 // V5.0.7807 — 7803 lets several lanes hunt the same mint; emission
                 // is now concurrent, so one emit (one rugcheck) per mint per hunt.
                 // The other lanes keep their LaneHunter7297 claims and books.
-                if (!queuedThisHunt7807.add(r.mint)) {
-                    try { PipelineHealthCollector.labelInc("MARKET_HUNT_7807_MULTI_LANE_CLAIM_$lane") } catch (_: Throwable) {}
-                    continue
-                }
+                // (V5.0.8293: the once-per-hunt check now runs before the seen branch above.)
                 val token = ScannedToken(
                     mint = r.mint,
                     symbol = r.symbol.ifBlank { r.mint.take(6) },
