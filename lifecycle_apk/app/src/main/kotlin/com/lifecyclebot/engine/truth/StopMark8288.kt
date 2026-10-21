@@ -55,6 +55,33 @@ object StopMark8288 {
     /** Pure: does a print at [printPnlPct] confirm a stop? */
     fun confirms8288(printPnlPct: Double): Boolean = printPnlPct.isFinite() && printPnlPct <= CONFIRM_LOSS_PCT_8288
 
+    /** The risk clock may read a print at most this old as the held mark (no trade on the venue = its price has not moved). */
+    const val RISK_PRINT_MAX_AGE_MS_8288 = 10L * 60_000L
+
+    /**
+     * Pure: the risk-clock mark (USD) from the newest executed print — [printSol] SOL per token at [printAtMs] — or null:
+     * older than [RISK_PRINT_MAX_AGE_MS_8288], before the position opened, no SOL price, or off the entry's unit basis
+     * (outside 0.02x..50x of [entryPriceUsd], the same guard RiskClockMark7960 uses).
+     */
+    fun tapeMarkUsd8288(printSol: Double, printAtMs: Long, solUsd: Double, entryPriceUsd: Double, entryTimeMs: Long, nowMs: Long): Double? {
+        if (!printSol.isFinite() || printSol <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0) return null
+        if (!entryPriceUsd.isFinite() || entryPriceUsd <= 0.0) return null
+        if (printAtMs <= 0L || nowMs - printAtMs !in 0L..RISK_PRINT_MAX_AGE_MS_8288 || printAtMs < entryTimeMs) return null
+        val usd = printSol * solUsd
+        return if ((usd / entryPriceUsd) in 0.02..50.0) usd else null
+    }
+
+    /**
+     * BotService.riskClockMark7960 (after the canonical and runtime marks): the trade tape's newest executed print as the
+     * held mark, with its age. 8286: riskClockStale=87 / riskClockNoMark=59 while the trade stream had the prints.
+     */
+    fun tapeRiskMark8288(mint: String, entryPriceUsd: Double, entryTimeMs: Long, nowMs: Long): Pair<Double, Long>? = try {
+        val p = TradeTape8100.prints8128(mint, nowMs, RISK_PRINT_MAX_AGE_MS_8288).maxByOrNull { it.atMs }
+        val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+        val usd = p?.let { tapeMarkUsd8288(it.priceSol, it.atMs, solUsd, entryPriceUsd, entryTimeMs, nowMs) }
+        if (p != null && usd != null) usd to (nowMs - p.atMs).coerceAtLeast(0L) else null
+    } catch (_: Throwable) { null }
+
     /** MissingMarkExitVeto6835: may the stale-mark hold of [exitReason] on [mint] be released on the tape's newest print? */
     fun tapeConfirmsStop8288(mint: String, exitReason: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (mint.isBlank() || !stopFamily8288(exitReason.uppercase())) return false

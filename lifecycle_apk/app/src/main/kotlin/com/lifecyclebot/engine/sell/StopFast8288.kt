@@ -118,11 +118,14 @@ object StopFast8288 {
         var submitted = 0
         for (r in readers) {
             try {
-                lane.execute {
+                lane.execute(Runnable {
                     val v = try { r() } catch (_: Throwable) { null }
-                    if (!done.get()) q.offer(Box8288(v))
-                    else if (v != null && StopLatencyCore8153.positive8153(v)) try { onLate(v) } catch (_: Throwable) {}
-                }
+                    // Offered under the lock before done flips, or delivered late after it: never lost.
+                    val queued = synchronized(done) { if (!done.get()) { q.offer(Box8288(v)); true } else false }
+                    if (!queued && v != null && StopLatencyCore8153.positive8153(v)) {
+                        try { onLate(v) } catch (_: Throwable) {}
+                    }
+                })
                 submitted++
             } catch (_: Throwable) {}
         }
@@ -142,7 +145,7 @@ object StopFast8288 {
                 deadline = minOf(deadline, System.nanoTime() + graceMs.coerceAtLeast(0L) * 1_000_000L)
             }
         }
-        done.set(true)
+        synchronized(done) { done.set(true) }
         // Answers that arrived between the deadline and done=true are late answers, not lost ones.
         while (true) {
             val b = q.poll() ?: break

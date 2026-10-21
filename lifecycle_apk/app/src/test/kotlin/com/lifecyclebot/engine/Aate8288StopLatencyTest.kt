@@ -221,6 +221,23 @@ class Aate8288StopLatencyTest {
         assertTrue(src("engine/truth/MissingMarkExitVeto6835.kt").contains("StopMark8288.tapeConfirmsStop8288(mintKey, exitReason, nowMs)"))
     }
 
+    @Test fun risk_clock_reads_the_last_trade_print_when_the_feed_is_dark() {
+        val now = 10_000_000L
+        // entry $0.00002; print 1e-7 SOL at $150 = $0.000015 (-25%): a usable mark 5 minutes after the last trade
+        val m = StopMark8288.tapeMarkUsd8288(1e-7, now - 300_000L, 150.0, 0.00002, now - 900_000L, now)
+        assertEquals(0.000015, m!!, 1e-12)
+        assertNull("older than the window", StopMark8288.tapeMarkUsd8288(1e-7, now - StopMark8288.RISK_PRINT_MAX_AGE_MS_8288 - 1L, 150.0, 0.00002, 0L, now))
+        assertNull("a print from before this position opened", StopMark8288.tapeMarkUsd8288(1e-7, now - 1_000L, 150.0, 0.00002, now - 500L, now))
+        assertNull("no SOL price", StopMark8288.tapeMarkUsd8288(1e-7, now - 1_000L, 0.0, 0.00002, 0L, now))
+        assertNull("off the entry's unit basis", StopMark8288.tapeMarkUsd8288(1e-1, now - 1_000L, 150.0, 0.00002, 0L, now))
+        val bot = src("engine/BotService.kt")
+        val helper = bot.substringAfter("private fun riskClockMark7960(").substringBefore("fun startBot()")
+        assertTrue(helper.contains("StopMark8288.tapeRiskMark8288(mint, t.position.entryPrice, t.position.entryTime, now)"))
+        // the canonical 60 s mark and the 15 s runtime mark still come first
+        assertTrue(helper.indexOf("age <= 60_000L") < helper.indexOf("tapeRiskMark8288"))
+        assertTrue(helper.indexOf("runtimeRiskMark7960") < helper.indexOf("tapeRiskMark8288"))
+    }
+
     // ── 1d. a ghost canonical row reaches the zero-proof poller ──
 
     @Test fun canonical_not_on_chain_ghosts_not_closed_by_a_sell_go_to_the_poller() {
