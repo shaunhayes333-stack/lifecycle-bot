@@ -35,6 +35,7 @@ object PaperUniverseParity8223 {
         val topHolderPct: Double,
         val blacklisted: Boolean,
         val quarantined: Boolean,
+        val confirmedWalletRiskCluster8269: Boolean = false,
     )
 
     /** Pure: the live wall this coin would hit at the buy door, or null when live could buy it (or would only defer). */
@@ -42,6 +43,7 @@ object PaperUniverseParity8223 {
         w.blacklisted -> "EXACT_MINT_BLACKLISTED"
         w.quarantined -> "EXACT_MINT_QUARANTINED"
         w.safetyHardBlocked -> "SAFETY_HARD_BLOCK"
+        w.confirmedWalletRiskCluster8269 -> "CONFIRMED_WALLET_RUG_CLUSTER_8269"
         w.rugcheckScore == 0 -> "RUGCHECK_CONFIRMED_RUG"
         w.mintAuthorityDisabled == false -> "MINT_AUTHORITY_ACTIVE"
         w.freezeAuthorityDisabled == false -> "FREEZE_AUTHORITY_ACTIVE"
@@ -66,6 +68,7 @@ object PaperUniverseParity8223 {
             topHolderPct = topHolder,
             blacklisted = try { com.lifecyclebot.engine.TokenBlacklist.isBlocked(ts.mint) } catch (_: Throwable) { false },
             quarantined = try { com.lifecyclebot.engine.QuarantineStore.isQuarantined(ts.mint) } catch (_: Throwable) { false },
+            confirmedWalletRiskCluster8269 = s.confirmedWalletRiskCluster8269,
         ))
         if (wall == null) { passed8223.incrementAndGet(); return null }
         refused8223.computeIfAbsent(wall) { AtomicLong() }.incrementAndGet()

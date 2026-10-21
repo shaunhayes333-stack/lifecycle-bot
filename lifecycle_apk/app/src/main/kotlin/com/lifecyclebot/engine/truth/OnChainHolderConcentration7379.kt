@@ -93,6 +93,10 @@ object OnChainHolderConcentration7379 {
             if (!isOnCurve(owner)) { excludedPda++; continue }
             byOwner[owner] = (byOwner[owner] ?: BigInteger.ZERO).add(accounts[i].second)
         }
+        // No verified on-curve holders is UNKNOWN, not a trustworthy 0%
+        // concentration: all source accounts may be excluded vaults or
+        // missing RPC owner data. Never convert missing proof into safe.
+        if (byOwner.isEmpty()) return null
         val top10 = byOwner.values.sortedDescending().take(10).fold(BigInteger.ZERO) { a, b -> a.add(b) }
         val pct = top10.toBigDecimal().multiply(java.math.BigDecimal(100))
             .divide(supplyRaw.toBigDecimal(), 4, java.math.RoundingMode.HALF_UP).toDouble().coerceIn(0.0, 100.0)
