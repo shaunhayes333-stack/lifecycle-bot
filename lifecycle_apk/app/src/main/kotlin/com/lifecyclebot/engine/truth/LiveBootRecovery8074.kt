@@ -30,22 +30,42 @@ object LiveBootRecovery8074 {
     @Volatile private var lastTickMs = 0L
     @Volatile private var lastReadOkMs = 0L
     @Volatile private var lastReadFailMs = 0L
+    @Volatile private var firstConsecutiveFailMs8268 = 0L
     private val kicks = AtomicLong(0)
     private val refusedBlind = AtomicLong(0)
     @Volatile private var lastCandidates = 0
 
     /** SolanaWallet: a full wallet token read succeeded / failed. */
     fun noteTokenRead8074(ok: Boolean, nowMs: Long = System.currentTimeMillis()) {
-        if (ok) lastReadOkMs = nowMs else lastReadFailMs = nowMs
+        if (ok) {
+            lastReadOkMs = nowMs
+            lastReadFailMs = 0L
+            firstConsecutiveFailMs8268 = 0L
+        } else {
+            // 8268: zero means NEVER read, not Unix epoch. Repeated 429s must not
+            // extend the grace window forever or make it expire immediately.
+            if (lastReadFailMs <= lastReadOkMs || firstConsecutiveFailMs8268 == 0L) {
+                firstConsecutiveFailMs8268 = nowMs
+            }
+            lastReadFailMs = nowMs
+        }
     }
 
-    /** Pure: is the wallet unreadable — a failure after the last success, and no success for [BLIND_AFTER_MS]? */
-    fun blindPure8074(lastOkMs: Long, lastFailMs: Long, nowMs: Long): Boolean =
-        lastFailMs > lastOkMs && nowMs - lastOkMs >= BLIND_AFTER_MS
+    /** Pure: a failed-read streak becomes blind only after 3 minutes without an SPL proof. */
+    fun blindPure8074(
+        lastOkMs: Long,
+        lastFailMs: Long,
+        nowMs: Long,
+        firstFailMs: Long = lastFailMs,
+    ): Boolean {
+        if (lastFailMs <= lastOkMs) return false
+        val proofOrFirstFailureMs = if (lastOkMs > 0L) lastOkMs else firstFailMs
+        return proofOrFirstFailureMs > 0L && nowMs - proofOrFirstFailureMs >= BLIND_AFTER_MS
+    }
 
     /** LiveEdgeGate7877: the refusal for a live buy while the wallet cannot be read, else null. */
     fun blind8074(nowMs: Long = System.currentTimeMillis()): String? {
-        if (!blindPure8074(lastReadOkMs, lastReadFailMs, nowMs)) return null
+        if (!blindPure8074(lastReadOkMs, lastReadFailMs, nowMs, firstConsecutiveFailMs8268)) return null
         refusedBlind.incrementAndGet()
         try { PipelineHealthCollector.labelInc("WALLET_BLIND_8074") } catch (_: Throwable) {}
         return "WALLET_BLIND_8074"
@@ -90,5 +110,5 @@ object LiveBootRecovery8074 {
 
     fun statusLine(nowMs: Long = System.currentTimeMillis()): String =
         "unmanagedLiveBuys=$lastCandidates kicks=${kicks.get()} walletRead[ok=${if (lastReadOkMs > 0) "${(nowMs - lastReadOkMs) / 1000}s ago" else "never"} " +
-            "fail=${if (lastReadFailMs > 0) "${(nowMs - lastReadFailMs) / 1000}s ago" else "never"}] blind=${blindPure8074(lastReadOkMs, lastReadFailMs, nowMs)} refusedBlind=${refusedBlind.get()}"
+            "fail=${if (lastReadFailMs > 0) "${(nowMs - lastReadFailMs) / 1000}s ago" else "never"}] blind=${blindPure8074(lastReadOkMs, lastReadFailMs, nowMs, firstConsecutiveFailMs8268)} refusedBlind=${refusedBlind.get()}"
 }
