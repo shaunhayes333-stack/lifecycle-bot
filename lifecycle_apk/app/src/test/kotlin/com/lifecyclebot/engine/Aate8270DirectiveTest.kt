@@ -35,12 +35,14 @@ class Aate8270DirectiveTest {
         val held = listOf(OpportunityRotation8098.Held("VICT8270", -6.0), OpportunityRotation8098.Held("OK8270", 3.0))
         assertTrue(r.shouldRotate8098("VICT8270", r.BOOK_8103, held, now + 1_000L))
         assertFalse(r.shouldRotate8098("VICT8270", r.BOOK_8103, held, now + 1_500L))      // one live rotation per victim
+        fun rotations(l: String) = Regex("rotations=(\\d+)").find(l)!!.groupValues[1].toInt()
         var line = r.statusLine8098(now + 1_500L)
-        assertTrue(line, line.contains("VICT82>SUCC82:RESERVED") && line.contains("rotations=0"))
+        val rot0 = rotations(line)                                                          // shared counter: relative
+        assertTrue(line, line.contains("VICT82>SUCC82:RESERVED"))
         // the sell was refused: demand restored, nothing counted as a rotation
         r.sellRequested8270("VICT8270", accepted = false, nowMs = now + 2_000L)
         line = r.statusLine8098(now + 2_000L)
-        assertTrue(line, line.contains("retries=1") && line.contains("rotations=0") && r.bookDemand8103(now + 2_000L))
+        assertTrue(line, line.contains("retries=") && rotations(line) == rot0 && r.bookDemand8103(now + 2_000L))
         // second try: accepted, pending; capital confirmed only by the finalized sell
         assertTrue(r.shouldRotate8098("VICT8270", r.BOOK_8103, held, now + 3_000L))
         r.sellRequested8270("VICT8270", accepted = true, nowMs = now + 3_500L)
@@ -48,11 +50,11 @@ class Aate8270DirectiveTest {
         assertFalse(r.successorReevaluationDue8270("SUCC8270", now + 3_600L))
         r.capitalConfirmed8270("VICT8270", now + 9_000L)
         line = r.statusLine8098(now + 9_000L)
-        assertTrue(line, line.contains("rotations=1") && !line.contains("VICT82>"))
+        assertTrue(line, rotations(line) == rot0 + 1 && !line.contains("VICT82>"))
         assertTrue(r.successorReevaluationDue8270("SUCC8270", now + 9_500L))
         assertFalse(r.successorReevaluationDue8270("SUCC8270", now + 9_600L))              // consumed on read
         r.capitalConfirmed8270("VICT8270", now + 10_000L)                                  // duplicate delivery: no second count
-        assertTrue(r.statusLine8098(now + 10_000L).contains("rotations=1"))
+        assertEquals(rot0 + 1, rotations(r.statusLine8098(now + 10_000L)))
         val ex = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("OpportunityRotation8098.sellRequested8270(ts.mint,"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt").readText()

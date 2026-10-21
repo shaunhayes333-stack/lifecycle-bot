@@ -79,7 +79,8 @@ class Repair6517StartStopFunctionTest {
         val loopReady = smoke.indexOf("wait_log_marker \"BOT_LOOP_TICK\"")
         val platformPrompt = smoke.indexOf("ui_post_start_system.xml", loopReady)
         val allow = smoke.indexOf("ui_tap text \"Allow\"", platformPrompt)
-        val stop = smoke.indexOf("ui_tap id btnToggle ui_stop_button.xml", allow)
+        // 8269: Stop is tapped only once the UI reports the bot RUNNING (id-running), never a blind btnToggle tap.
+        val stop = smoke.indexOf("ui_tap id-running btnToggle ui_stop_button.xml", allow)
         assertTrue(loopReady > 0 && platformPrompt > loopReady && allow > platformPrompt && stop > allow)
         assertTrue(smoke.contains("package=\"com.android.settings\""))
         assertTrue(smoke.contains("Let app always run in background?"))
