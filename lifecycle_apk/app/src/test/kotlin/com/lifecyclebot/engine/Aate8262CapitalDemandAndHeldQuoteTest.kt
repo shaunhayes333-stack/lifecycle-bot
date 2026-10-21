@@ -21,10 +21,12 @@ class Aate8262CapitalDemandAndHeldQuoteTest {
         r.noteCapitalDemand8262("STARVED8262", now)
         assertTrue(r.bookDemand8103(now))
         r.noteCapitalDemand8262("STARVED8262", now + 1_000L)      // same entry re-evaluated: one demand
-        val held = listOf(OpportunityRotation8098.Held("A", -4.0), OpportunityRotation8098.Held("B", -9.0))
-        assertFalse(r.shouldRotate8098("A", r.BOOK_8103, held, now + 2_000L))
-        assertTrue(r.shouldRotate8098("B", r.BOOK_8103, held, now + 2_000L))
+        val held = listOf(OpportunityRotation8098.Held("A8262", -4.0), OpportunityRotation8098.Held("B8262", -9.0))
+        assertFalse(r.shouldRotate8098("A8262", r.BOOK_8103, held, now + 2_000L))
+        assertTrue(r.shouldRotate8098("B8262", r.BOOK_8103, held, now + 2_000L))
         assertFalse(r.bookDemand8103(now + 2_000L))
+        r.sellRequested8270("B8262", accepted = true, nowMs = now + 2_500L)
+        r.capitalConfirmed8270("B8262", now + 3_000L)                          // the lifecycle completes; nothing live is left behind
         // victims are still never a runner, a tail, or a fresh position
         assertFalse(r.victimEligible8098(5.0, 370.0, 10 * 60_000L, isTail = false, markFresh = true))
         assertFalse(r.victimEligible8098(-8.0, 2.0, 60_000L, isTail = false, markFresh = true))

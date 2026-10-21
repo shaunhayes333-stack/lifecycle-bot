@@ -97,9 +97,10 @@ object OpportunityRotation8098 {
         val l = if (laneRaw == BOOK_8103) BOOK_8103 else lane(laneRaw)
         val d = demandByLane[l] ?: return false
         if (nowMs - d.atMs !in 0L..DEMAND_TTL_MS) { demandByLane.remove(l, d); return false }
-        if (d.mint == mint || nowMs - lastRotationMs < COOLDOWN_MS) return false
+        if (d.mint == mint || nowMs - lastRotationMs in 0L until COOLDOWN_MS) return false
         if (poorest8098(candidates) != mint) return false
-        if (active8270.values.any { it.victim == mint && it.state.live }) return false   // one rotation per victim
+        expire8270(nowMs)
+        if (active8270.values.any { it.victim == mint && it.state.live }) return false   // one live rotation per victim
         lastRotationMs = nowMs
         demandByLane.remove(l, d)
         active8270[mint] = Rotation8270(successor = d.mint, victim = mint, lane = l, requestedAtMs = d.atMs, state = State8270.RESERVED, updatedAtMs = nowMs)
