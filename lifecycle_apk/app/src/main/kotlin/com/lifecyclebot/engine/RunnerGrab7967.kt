@@ -502,7 +502,9 @@ object RunnerGrab7967 {
         val confirmed8144 = if (pos.peakGainPct.isFinite()) minOf(g, pos.peakGainPct) else g
         val peak = peaks7980.merge(pk, confirmed8144) { a, b -> maxOf(a, b) } ?: confirmed8144
         if (peaks7980.size > 2_000) peaks7980.clear()
-        if (nowMs - pos.entryTime < 60_000L && !peakGiveback7980(peak, g)) return
+        // V5.0.8271 — hard-risk evaluation precedes the discretionary first-minute grace (R6): a fresh hard loss in the
+        // first 60 s is sold like any other; only the soft structure/giveback reads wait for the minute.
+        if (nowMs - pos.entryTime < 60_000L && !peakGiveback7980(peak, g) && g > HARD_STOP_PCT) return
         val (r15, r60) = StructureTracker7962.reads7967(ts.mint, nowMs)
         val why = when {
             g <= HARD_STOP_PCT -> "RUNNER_HARD_STOP_7967_${g.toInt()}PCT"

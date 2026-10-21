@@ -7352,7 +7352,8 @@ class Executor(
         val full = proceedsSol7029(pos.qtyToken, getActualPrice(ts)) ?: return false
         val canon = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pos.positionId)?.takeIf { it.mint == ts.mint } } catch (_: Throwable) { null }
         val remainingCost = canon?.let { it.entryCostSol - it.soldCostBasisSol }?.takeIf { it.isFinite() && it > 0.0 } ?: pos.costSol
-        val exitCostPct = try { com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(pos.tradingMode, full, ts.lastLiquidityUsd) / 2.0 }
+        // V5.0.8271 — variable exit cost only; the fixed sell fee is the separate argument below (charged once each).
+        val exitCostPct = try { com.lifecyclebot.engine.truth.NetEdge8030.exitVariablePct8271(pos.tradingMode, full, ts.lastLiquidityUsd, ts.mint) }
             catch (_: Throwable) { com.lifecyclebot.engine.truth.FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 / 2.0 }
         val runner = try { LifecycleHold8065.holding8065(ts) || RunnerLive8153.continuationConfirmed8153(ts) } catch (_: Throwable) { true }
         val v = com.lifecyclebot.engine.sell.ProfitEscalation8189.verdict8189(true, full, remainingCost, exitCostPct, CostMeter8151.sellLegFixedSol8151(), runner)

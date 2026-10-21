@@ -122,6 +122,28 @@ object NetEdge8030 {
     /** V5.0.8252 — the components THIS thread's quote priced; the breakdown never mixes another candidate's venue/route. */
     private val tlComponents8252 = ThreadLocal<DoubleArray>()
 
+    /**
+     * V5.0.8271 — the SELL leg's VARIABLE cost only (venue + route + app fee per side, half the slippage allowance and
+     * half the depth impact), percent of [sizeSol]. [costPct8030] is an all-in round trip that already carries the fixed
+     * legs and rent as a share of size; Executor passed half of it PLUS the fixed sell fee to ProfitEscalation8189, so
+     * every fixed lamport was charged twice (0.030 proceeds / 0.0289 basis / 1 % / 0.000205 fixed: 0.000390 instead of
+     * 0.000595, keeping an economic full take). Each component is charged once: this here, the fixed fee by the caller.
+     */
+    fun exitVariablePct8271(lane: String, sizeSol: Double, liquidityUsd: Double, mint: String = "", mcapUsd: Double = 0.0): Double {
+        val rt = costPct8030(lane, sizeSol, liquidityUsd, mint, mcapUsd)
+        val size = if (sizeSol.isFinite() && sizeSol > 0.0) sizeSol else DEFAULT_TICKET_SOL
+        val comps = tlComponents8252.get()
+        val fixedShare = if (comps != null && comps.size >= 5) com.lifecyclebot.engine.CostTrim8151.fixedCostSharePct8151(comps[3], comps[4], size) else 0.0
+        return exitVariableFromRoundTrip8271(rt, fixedShare)
+    }
+
+    /** Pure: one leg's variable share of an all-in round trip whose fixed share of size is [fixedSharePct]. */
+    fun exitVariableFromRoundTrip8271(roundTripPct: Double, fixedSharePct: Double): Double {
+        if (!roundTripPct.isFinite()) return Double.NaN
+        val fixed = if (fixedSharePct.isFinite() && fixedSharePct > 0.0) fixedSharePct else 0.0
+        return maxOf(0.0, (roundTripPct - fixed) / 2.0)
+    }
+
     /** V5.0.8169 — one priced round trip, per side: fees per side, the fixed leg, rent, slippage and impact halves. */
     private fun breakdown8169(lane: String, size: Double, liq: Double, componentModel: Boolean, impactRtPct: Double,
                               measured: Double?, usedPct: Double): String {

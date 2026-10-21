@@ -151,7 +151,10 @@ internal object SpecialistCandidateBooks7803 {
 
     internal fun markLost(lane: String, mint: String, candidateVersion: Long, reason: String) {
         val current = entry(lane, mint) ?: return
-        if (candidateVersion > 0L && current.candidateVersion > 0L && current.candidateVersion != candidateVersion) return
+        // V5.0.8271 (R2) — a FRESH refusal (same or newer candidate generation) supersedes older readiness; a STALE
+        // asynchronous refusal (older generation) must not erase a newer approval. Pre-8271 any version difference was
+        // ignored, so a generation-101 refusal left a generation-100 READY row that readyFor() still accepted.
+        if (!refusalSupersedes8271(current.candidateVersion, candidateVersion)) return
         upsert(
             lane, mint, current.symbol, current.candidateVersion, State.LOST,
             current.conviction, current.score, current.confidence, current.source, reason,
@@ -188,6 +191,10 @@ internal object SpecialistCandidateBooks7803 {
      * previous 30 s bucket (a READY written at :29 must not vanish from the election at :30 while still inside its TTL).
      * 8094: specialists READY thousands of times, owner-selected 0 — the election saw none after every bucket roll.
      */
+    /** Pure (V5.0.8271): does a refusal at [refusalVersion] invalidate a row at [entryVersion]? Unversioned sides always do. */
+    internal fun refusalSupersedes8271(entryVersion: Long, refusalVersion: Long): Boolean =
+        entryVersion <= 0L || refusalVersion <= 0L || refusalVersion >= entryVersion
+
     internal fun versionCurrent8094(entryVersion: Long, candidateVersion: Long): Boolean =
         entryVersion == candidateVersion || (candidateVersion > 0L && entryVersion == candidateVersion - 1L)
 

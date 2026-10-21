@@ -3227,6 +3227,16 @@ object FinalDecisionGate {
             blockLevel = BlockLevel.HARD
             checks.add(GateCheck("freeze_auth", false, "freezeAuth=enabled (live mode — rug vector)"))
             tags.add("freeze_auth")
+        } else if (blockReason == null && !config.paperMode && ts.safety.freezeAuthorityDisabled == null) {
+            // V5.0.8271 — UNKNOWN is not a pass. 8269: FDG marked freeze_auth passed on null, presented the candidate as
+            // executable, and the executor refused it terminally (FREEZE_AUTHORITY_UNVERIFIED ×3). Unknown critical
+            // proof is bounded pending hydration BEFORE the candidate is executable (nonterminal by the 7868 rule).
+            try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_FREEZE_PROOF_PENDING_DEFER_8271") } catch (_: Throwable) {}
+            blockReason = "SAFETY_FREEZE_PROOF_PENDING_DEFER_8271"
+            blockLevel = BlockLevel.HARD
+            checks.add(GateCheck("freeze_auth", false, "freezeAuth=UNKNOWN (live mode — hydrating, not a pass)"))
+            tags.add("freeze_auth_pending")
         } else if (blockReason == null) {
             checks.add(GateCheck("freeze_auth", true, null))
         }
