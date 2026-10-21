@@ -316,8 +316,15 @@ object SetupFeatureResolver8169 {
         return "features8169[core=bp,chg,shape,liq complete=${complete.get()}/${evals.get()} bySource{$src} missing{$miss} " +
             "launchTape{${top(bySource, "launchTape:", 1)} missing=${top(missing, "launchTape|", 3)}} " +
             "swaps{${top(bySource, "swaps:", 1)} missing=${top(missing, "swaps|", 3)}} " +
-            "shapeRepair{${top(repairs, "", 6)}} pairFlows=${try { PairFlow8169.line8169() } catch (_: Throwable) { "-" }}]"
+            "shapeRepair{${top(repairs, "", 6)}} pairFlows=${try { PairFlow8169.line8169() } catch (_: Throwable) { "-" }}]" +
+            report8283()
     }
+
+    /** V5.0.8283 — cache invalidations after evidence, deferrals recovered, lifecycle splits and the unique-candidate funnel. */
+    private fun report8283(): String =
+        " " + (try { FeatureRevision8283.statusLine8283() } catch (_: Throwable) { "featureRev8283 -" }) +
+            " " + (try { LifecycleData8283.statusLine8283() } catch (_: Throwable) { "lifecycle8283 -" }) +
+            " " + (try { FeatureFunnel8283.line8283() } catch (_: Throwable) { "funnel8283 -" })
 
     internal fun clearForTest8169() {
         evals.set(0L); complete.set(0L); bySource.clear(); missing.clear(); repairs.clear(); codexAskedAt.clear()

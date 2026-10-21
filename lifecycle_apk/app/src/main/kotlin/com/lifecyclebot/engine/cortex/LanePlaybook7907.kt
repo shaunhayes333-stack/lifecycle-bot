@@ -871,10 +871,18 @@ object LanePlaybook7907 {
         // V5.0.8085 — a DATA_INCOMPLETE classification asks the data layer to re-fetch the missing inputs now (async,
         // per-mint throttled), instead of waiting for the next ordinary poll; the next cycle re-classifies on new stamps.
         if (c.outcome == Outcome8084.DATA_INCOMPLETE) requestInputs8085(ts.mint, ts.symbol, c.missing, nowMs)
+        noteFunnel8283(lane, ts.mint, c)
         if (classifyCache.size > 4_000) classifyCache.entries.removeIf { nowMs - it.value.featuresAt > 60_000L }
         classifyCache[ck] = Cached8084(key, revision, nowMs, nowMs, c).also { it.featureRev8283 = frev8283 }
         com.lifecyclebot.engine.BotImprovementReport8168.noteSetup(ts.mint, lane, c.outcome.name, c.missing, c.reason, nowMs)
         return c
+    }
+
+    /** V5.0.8283 — the unique-candidate feature funnel of this lane (FeatureFunnel8283): evaluated, required / present / repaired. */
+    private fun noteFunnel8283(lane: String, mint: String, c: Classification8084) {
+        try {
+            com.lifecyclebot.engine.truth.FeatureFunnel8283.noteClassified8283(lane, mint, c.missing.any { it.substringBefore(':') in CORE_8084 })
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -1405,10 +1413,24 @@ object LanePlaybook7907 {
      * the NO_TRIGGER cohort and not a verdict on the token.
      */
     fun dataIncomplete8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): List<String>? = try {
-        val c = classify8084(ts, canon(laneRaw), nowMs)
-        if (c == null || c.outcome != Outcome8084.DATA_INCOMPLETE) null
-        else c.missing.filter { it.substringBefore(':') in CORE_8084 }.ifEmpty { listOf("core:UNKNOWN") }
+        // V5.0.8283 — lifecycle-aware: history the token is too young to have is recorded, not waited for (null when
+        // nothing else is missing); critical unknowns and every other gap stay binding (LifecycleData8283.split8283).
+        lifecycleSplit8283(ts, laneRaw, nowMs)?.binding?.ifEmpty { null }
     } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.8283 — the DATA_INCOMPLETE core inputs of this candidate split by what can exist at the token's age (nothing
+     * fired, so no setup reads them); null when the classification is not DATA_INCOMPLETE. Counted per split.
+     */
+    fun lifecycleSplit8283(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): com.lifecyclebot.engine.truth.LifecycleData8283.Split8283? {
+        val c = classify8084(ts, canon(laneRaw), nowMs)
+        if (c == null || c.outcome != Outcome8084.DATA_INCOMPLETE) return null
+        val core = c.missing.filter { it.substringBefore(':') in CORE_8084 }.ifEmpty { listOf("core:UNKNOWN") }
+        val ageMin = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null } ?: Double.NaN
+        val split = com.lifecyclebot.engine.truth.LifecycleData8283.split8283(core, ageMin, null)
+        try { com.lifecyclebot.engine.truth.LifecycleData8283.note8283(split) } catch (_: Throwable) {}
+        return split
+    }
 
     /** LiveEdgeGate7877: the number of labels behind this candidate's classified setup's record (0 = none). */
     fun classifiedSampleN7948(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Int = try {

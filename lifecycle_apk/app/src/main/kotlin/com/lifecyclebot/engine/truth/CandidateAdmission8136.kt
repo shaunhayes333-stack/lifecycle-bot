@@ -120,6 +120,11 @@ object CandidateAdmission8136 {
          * the coin's own losing cell and still answers to economics and the data step's critical inputs.
          */
         val runnerGrab8245: Evidence8136? = null,
+        /**
+         * V5.0.8283 — core history inputs this token is too young to have (LifecycleData8283: a 5 m move at 15 s, shape
+         * before 30 s). Recorded in the trace and NOT waited for; they are never in [missingInputs] and never filled in.
+         */
+        val historyUnavailable8283: List<String> = emptyList(),
     )
 
     /** The one authoritative terminal admission and the evidence trace behind it. */
@@ -159,6 +164,8 @@ object CandidateAdmission8136 {
     private val CRITICAL_MISSING_8170 = setOf(
         "LIQ", "LIQUIDITY", "PRICE", "ECONOMICS", "ROUTE", "SELLABILITY",
         "TOKEN_MAP", "MINT", "IDENTITY", "DECIMALS", "SUPPLY", "DEPTH", "QUOTE",
+        // V5.0.8283 — wallet balance, sellability and economic cost by their other names: binding at every lifecycle stage.
+        "WALLET", "BALANCE", "WALLET_BALANCE", "SELLABLE", "COST", "EXECUTABLE_PRICE",
     )
     fun criticalMissing8170(missing: String): Boolean =
         missing.substringBefore(':').trim().uppercase() in CRITICAL_MISSING_8170
@@ -436,6 +443,8 @@ object CandidateAdmission8136 {
 
         // 5. data: a stale price or unknown economics defers every candidate; missing classifier inputs defer a candidate
         //    with no supported evidence of its own (its setup cannot be judged yet).
+        // V5.0.8283 — history the token is too young to have is recorded here, never waited for (LifecycleData8283).
+        if (c.historyUnavailable8283.isNotEmpty()) trace += "historyUnavailable8283=${c.historyUnavailable8283.joinToString(",")} judgedOnLaunchEvidence"
         val stale = priceStale8136(c.priceAgeMs, c.hotLaunch)
         val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170)
         val nativeOptional8213 = c.missingInputs.isNotEmpty() && edge == null &&
@@ -733,6 +742,7 @@ object CandidateAdmission8136 {
             PipelineHealthCollector.labelInc("ADMISSION_NATIVE_OPTIONAL_DATA_ADMITTED_8213_${candidate.lane}")
         } catch (_: Throwable) {}
         try { AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason) } catch (_: Throwable) {}
+        try { noteFunnel8283(candidate, d) } catch (_: Throwable) {}  // V5.0.8283 — unique-candidate feature funnel
         try { AdmissionEdge8180.note8180(mode, mint, laneRaw, candidateVersion, d, nowMs) } catch (_: Throwable) {}  // V5.0.8180 / 8198 — this lane's own proof, sizers read it
         // V5.0.8169 — a loss refusal that decayed to neutral on its epoch, counted once per fresh decision.
         try {
@@ -748,6 +758,12 @@ object CandidateAdmission8136 {
         } catch (_: Throwable) {}
         if (memos8153.size > 4_000) memos8153.entries.removeIf { nowMs - it.value.atMs > MEMO_MS_8153 }
         memos8153["$mode|$mint|${candidate.lane}|$candidateVersion"] = Memo8153(nowMs, cacheIdentity8144(candidate), d)
+    }
+
+    /** V5.0.8283 — FeatureFunnel8283: this lane's natively qualified and admitted unique candidates. */
+    private fun noteFunnel8283(c: Candidate8136, d: Decision8136) {
+        if (c.nativeQualified8213) FeatureFunnel8283.note8283(c.lane, c.mint, FeatureFunnel8283.Stage8283.NATIVE_QUALIFIED)
+        if (d.admitted) FeatureFunnel8283.note8283(c.lane, c.mint, FeatureFunnel8283.Stage8283.ADMISSION)
     }
 
     /** Candidate price age affects admission only at the stale/fresh boundary. */
@@ -1004,6 +1020,7 @@ object CandidateAdmission8136 {
         val localAt = ts.lastPriceUpdate.takeIf { ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && it in 1L..nowMs } ?: 0L
         val observedAt = maxOf(localAt, canonicalPrice?.timestampMs?.takeIf { it <= nowMs } ?: 0L)
         val priceAge = if (observedAt > 0L) nowMs - observedAt else Long.MAX_VALUE
+        val lifecycle8283 = try { pb.lifecycleSplit8283(ts, lane, nowMs) } catch (_: Throwable) { null }
         return Candidate8136(
             mint = ts.mint,
             lane = lane,
@@ -1011,10 +1028,12 @@ object CandidateAdmission8136 {
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             stage = fit?.stage?.name.orEmpty(),
             priceAgeMs = priceAge,
+            // V5.0.8283 — the lifecycle split (dataIncomplete8136's binding inputs; the too-young history recorded apart).
             missingInputs = resolvedMissingInputs(
-                try { pb.dataIncomplete8136(ts, lane, nowMs).orEmpty() } catch (_: Throwable) { emptyList() },
+                lifecycle8283?.binding.orEmpty(),
                 liquidityObserved = curveActive8153 || observedLiq8170 != null) +
                 (if (liquidityMissing8153) listOf("liquidity:UNKNOWN") else emptyList()),
+            historyUnavailable8283 = lifecycle8283?.unavailable.orEmpty(),
             // V5.0.8153 — the selected strategy's expected executable move (NetEdge8030.executableMove8153), as the gate judges it.
             expectedGrossPct = try { NetEdge8030.expectedGrossFor8153(ts, lane, selected, cost8153) } catch (_: Throwable) { Double.NaN },
             costPct = cost8153,
