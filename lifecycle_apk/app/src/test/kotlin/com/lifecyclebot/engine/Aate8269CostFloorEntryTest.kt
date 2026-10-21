@@ -72,8 +72,15 @@ class Aate8269CostFloorEntryTest {
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(gate.contains("risk.reason in setOf(\"OPEN_RISK_SAFE_MIN_PROMOTED_7840\", \"OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269\")"))
         assertTrue(gate.contains("FDG_COST_VIABLE_SIZE_PROMOTED_8269"))
+        val costSafeMinimum = target.sealedCostViableMinimum8269(0.02838,
+            "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269", 0.0402)
+        assertEquals(0.0402, costSafeMinimum, 0.0)
+        assertEquals(0.02838, target.sealedCostViableMinimum8269(0.02838, "OPEN_7807", 0.0402), 0.0)
+        assertEquals(0.02838, target.sealedCostViableMinimum8269(0.02838,
+            "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269", Double.NaN), 0.0)
         assertTrue(gate.contains("requestedSol = riskSized, laneName = lane"))
-        assertTrue(gate.contains("resolution.finalSizeSol > riskSized + 1e-9) return 0.0"))
+        assertTrue(gate.contains("laneMinExecutableSol = sealedMinimum8269"))
+        assertTrue(gate.contains("resolution.finalSizeSol + 1e-9 < sealedMinimum8269"))
     }
 
     @Test fun negativeEconomicsAndUnaffordableCostFloorRemainRefused() {

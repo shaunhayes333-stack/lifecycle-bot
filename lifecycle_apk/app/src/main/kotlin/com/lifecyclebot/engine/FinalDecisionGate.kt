@@ -6400,9 +6400,16 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
             spendCap7842.maxSpendableSol
         }
+        // 8269: an order promoted by the risk authority to satisfy the measured
+        // FIXED-cost ceiling must not be shrunk by the final resolver back to
+        // the old route minimum (0.02838 SOL was already ~7.36% fixed fees).
+        // Resolver either preserves the entire cost-safe notional after its
+        // convexity and funding checks, or refuses; never seal unsafe dust.
+        val sealedMinimum8269 = com.lifecyclebot.engine.truth.LiveSizeTarget8094.sealedCostViableMinimum8269(
+            minimum, risk8094?.reason, risk8094?.sizeSol ?: 0.0)
         val resolution = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
             requestedSol = riskSized, laneName = lane, walletSol = cash, paperMode = config.paperMode,
-            laneRiskCapSol = minOf(configuredCap, riskSized), laneMinExecutableSol = minimum,
+            laneRiskCapSol = minOf(configuredCap, riskSized), laneMinExecutableSol = sealedMinimum8269,
             mint = ts.mint, causalEventId = "",
             // V5.0.7925 — every path into the FDG already applied the streak reflex
             // (SmartSizer on the generic path, the trader's own resolve on specialist
@@ -6414,7 +6421,8 @@ object FinalDecisionGate {
             // they were "promoted" back to it).
             alreadyShaped7925 = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.shapedRecently7925(ts.mint),
         )
-        if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9) return 0.0
+        if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9 ||
+            resolution.finalSizeSol + 1e-9 < sealedMinimum8269) return 0.0
         com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, resolution, lane)
         if (!config.paperMode) WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd, candidateVersion = candidateVersion8198, lane = lane)
         if (!config.paperMode) try {
