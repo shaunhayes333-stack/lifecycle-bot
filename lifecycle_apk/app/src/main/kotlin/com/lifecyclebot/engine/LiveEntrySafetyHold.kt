@@ -716,7 +716,7 @@ object LiveEntrySafetyHold {
              * [resetGovernorWindow]. Only rows with ts >= window start
              * count toward the canonical governor sample.
              */
-            fun load(): LiveConfidenceStats = fold8280(canonicalRows8280(governorWindowStart(), 200))
+            fun load(): LiveConfidenceStats = fold8280(canonicalRows8280(governorWindowStart(), 200).map { it.second })
 
             /** Pure: WR / PF / expectancy of [pnls] (SOL, net where known). */
             fun fold8280(pnls: List<Double>): LiveConfidenceStats {
