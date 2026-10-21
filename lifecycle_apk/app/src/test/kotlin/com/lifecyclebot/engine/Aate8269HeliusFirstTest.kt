@@ -62,6 +62,19 @@ class Aate8269HeliusFirstTest {
         assertTrue(h.contains("evidenceArrived8252(ts.mint, setOf(\"shape\")"))
     }
 
+    @Test fun persisted8192EventReplayDoesNotScanWholeJournalForEverySell() {
+        val journal = src("engine/TradeHistoryStore.kt")
+        assertFalse(journal.contains("trades.asReversed().firstOrNull"))
+        assertTrue(journal.contains("lastBuyByModeAndMint8269[buyLookupKey8269(t)]"))
+        assertTrue(journal.contains("lastNamedBuyByMint8269[trade.mint]?.tradingMode"))
+        assertTrue(journal.contains("trades.addAll(enrichedLoaded)\\n                rebuildBuyIndex8269()"))
+        assertTrue(journal.contains("rememberBuy8269(tradeToStore)"))
+        assertTrue(journal.contains("discardTrimmedBuys8269(evicted8269)"))
+        val smoke = File("../ci/runtime-test.sh").readText()
+        assertTrue(smoke.contains("Android background-run permission prompt overlay"))
+        assertTrue(smoke.contains("ui_find_target_7168 \\"$WS/$dump\\" text \\"Allow\\""))
+    }
+
     @Test fun websocketFocusReplacesFirehoseChurnAndRiskUsesSameExplorationSlot() {
         val orch = src("engine/DataOrchestrator.kt")
         assertTrue(orch.contains("if (DataPipeline8191.seedPriority8191(mint)) heliusWs?.subscribeToken(mint)"))
