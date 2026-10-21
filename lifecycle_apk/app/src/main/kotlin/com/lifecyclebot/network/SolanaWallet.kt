@@ -1490,6 +1490,33 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * failure must not poison an otherwise successful SPL wallet snapshot.
      */
     fun getTokenAccountsWithDecimalsStrict(): Map<String, CanonicalTokenAmount> {
+        // 8268: a verified, same-owner cache hit needs no new provider call.
+        // Only the strict reader publishes this cache in production. No synthetic zero balance.
+        com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L, owner = publicKeyB58)?.let {
+            try { com.lifecyclebot.engine.truth.LiveBootRecovery8074.noteTokenRead8074(true) } catch (_: Throwable) {}
+            return it
+        }
+        // 8268: every caller of this wallet shares one network request and a bounded
+        // retry budget. IN_FLIGHT/BACKOFF are UNKNOWN, not zero tokens.
+        val defer8268 = WalletTokenReadGate8268.begin(publicKeyB58)
+        if (defer8268 != null) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_TOKEN_READ_${defer8268}_DEFER_8268") } catch (_: Throwable) {}
+            throw IllegalStateException("WALLET_TOKEN_READ_${defer8268}_8268")
+        }
+        try {
+            val observed8268 = readTokenAccountsOnWire8268()
+            WalletTokenReadGate8268.finish(publicKeyB58, success = true)
+            return observed8268
+        } catch (t: Throwable) {
+            // A transaction that invalidates a pending observation is not provider failure.
+            val superseded8268 = t is IllegalStateException &&
+                t.message.orEmpty().contains("observation superseded", ignoreCase = true)
+            WalletTokenReadGate8268.finish(publicKeyB58, success = false, providerFailure = !superseded8268)
+            throw t
+        }
+    }
+
+    private fun readTokenAccountsOnWire8268(): Map<String, CanonicalTokenAmount> {
         // V5.0.4173 — WALLET CACHE 5s. Operator dump: 281 GB / 29 days.
         // This RPC fires every cycle (~6s) returning the full wallet SPL
         // state (5–100 KB payload) — across a day that's ~14,400 calls
