@@ -18,9 +18,13 @@ class Aate7796SpecialistHuntersTest {
 
     @Test fun moonshotHunterTargetsEarlyAsymmetryNotAnythingGreen() {
         val s = src("engine/market/LaneHunter7297.kt")
-        assertTrue(s.contains("r.mcapUsd < 10_000.0 -> 6.0"))
-        assertTrue(s.contains("r.ageHours <= 0.25 -> 3.0"))
-        assertTrue(s.contains("r.priceChangeH1Pct > 0.0 && r.priceChangeH1Pct <= 120.0"))
+        // superseded by V5.0.8293: priors peak at $10k-$100k / 3-15 min (the sub-$10k / first-3-min peak was the realised
+        // losing shape) and the asymmetry mandate lives in HunterMandates8293 at the native liquidity floor.
+        assertTrue(s.contains("HunterMandates8293.moonshotCapPrior8293(r.mcapUsd)"))
+        assertTrue(s.contains("HunterMandates8293.moonshotYouthPrior8293(r.ageHours)"))
+        val m = src("engine/market/HunterRepair8293.kt")
+        assertTrue(m.contains("ageHours <= 0.25 -> 3.0"))
+        assertTrue(m.contains("h1.isFinite() && h1 > 0.0 && h1 <= 120.0 && liqUsd >= minLiq && tx1h >= 3"))
         assertTrue(s.contains("exhaustionPenalty"))
     }
 
