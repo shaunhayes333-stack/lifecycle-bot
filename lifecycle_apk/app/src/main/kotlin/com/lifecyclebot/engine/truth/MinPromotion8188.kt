@@ -103,7 +103,14 @@ object MinPromotion8188 {
             // routable-capacity preflight already enforces — when it is larger than the request; the promoted ticket
             // still has to clear it, and a wallet whose doctrine is below the routable minimum still refuses.
             val budgetSol8234 = doctrineBudgetSol8236(requestedSol)
-            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross, liveDrawdownFrac8188(), budgetSol8234)
+            // 8269: match LiveRiskPolicy7807's already-enforced 8259 exploration slot.
+            // Without forwarding this, the upstream sizer always supplied the
+            // default false and refused even the first permitted defensive order.
+            // The 8259 permit is per specialist, not a global lock: a qualifying
+            // MOONSHOT probe must not consume BLUECHIP/CASHGEN's own slot.
+            val explorationFree = try { LaneScoreAdmission7308.runnerSlotFreeNow(l) } catch (_: Throwable) { false }
+            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross,
+                liveDrawdownFrac8188(), budgetSol8234, explorationSlotFree = explorationFree)
         } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 }
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
         return r
@@ -116,10 +123,19 @@ object MinPromotion8188 {
      * second still judged the same promotion against the sub-minimum lane ticket (8235 forensic: 100
      * ROUTE_MIN_PROMOTION_REFUSED_LOSS_BUDGET_8188, all from the risk policy). NaN when the wallet cannot be read.
      */
-    fun doctrineBudgetSol8236(requestedSol: Double): Double {
+    fun doctrineBudgetSol8236(
+        requestedSol: Double,
+        tradeableSol8269: Double = Double.NaN,
+        solUsd8269: Double = Double.NaN,
+    ): Double {
         val budget = try {
-            val tradeable = (com.lifecyclebot.engine.BotService.status.walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0)
-            val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            // The final risk decision already has reservation-adjusted live cash
+            // and the current SOL quote. Never discard that evidence to read a
+            // different global wallet snapshot during cost-floor promotion.
+            val tradeable = if (tradeableSol8269.isFinite() && tradeableSol8269 >= 0.0) tradeableSol8269
+                else (com.lifecyclebot.engine.BotService.status.walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0)
+            val solUsd = if (solUsd8269.isFinite() && solUsd8269 > 0.0) solUsd8269
+                else try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
             com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd).safeShareCapSol
         } catch (_: Throwable) { Double.NaN }
         if (budget.isFinite() && budget > requestedSol)

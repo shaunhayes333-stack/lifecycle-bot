@@ -240,6 +240,21 @@ ui_tap() {
         adb pull "/sdcard/$dump" "$WS/$dump" >/dev/null 2>&1 || true
         coords=$(ui_find_target_7168 "$WS/$dump" "$mode" "$value") || coords=""
         [ -n "$coords" ] && break
+        # V5.0.8269 — Android can surface the battery background-run dialog
+        # AFTER the post-start snapshot (8269 smoke: com.android.settings
+        # covered Stop bot for all 9 polls). Dismiss ONLY this known OS
+        # permission dialog through its actual UI control, then re-observe
+        # the requested app action. This must never fabricate a UI receipt.
+        if grep -q 'text="Let app always run in background?"' "$WS/$dump" 2>/dev/null; then
+            local allowCoords=""
+            allowCoords=$(ui_find_target_7168 "$WS/$dump" text "Allow") || allowCoords=""
+            if [ -n "$allowCoords" ]; then
+                echo "Android background-run permission prompt overlay; accepting real platform UI"
+                adb shell input tap $allowCoords
+                sleep 2
+                continue
+            fi
+        fi
         [ "$SECONDS" -ge "$deadline" ] && break
         sleep 2
     done
@@ -267,8 +282,13 @@ try:
 except Exception:
     raise SystemExit(1)
 for node in root.iter("node"):
-    attr = node.attrib.get("resource-id", "") if mode == "id" else node.attrib.get("text", "")
-    match = attr.endswith(value) if mode == "id" else attr.lower() == value.lower()
+    attr = node.attrib.get("resource-id", "") if mode in ("id", "id-running") else node.attrib.get("text", "")
+    match = attr.endswith(value) if mode in ("id", "id-running") else attr.lower() == value.lower()
+    if mode == "id-running":
+        # 8269: the button exists while Start is QUEUED ("Cancel Start").
+        # Never tap that state and accidentally cancel the runtime; require
+        # the actually rendered "Stop Bot" state from MainActivity.
+        match = match and node.attrib.get("text", "").strip().lower() == "stop bot"
     if not match or node.attrib.get("enabled", "true") != "true":
         continue
     nums = [int(x) for x in re.findall(r"\d+", node.attrib.get("bounds", ""))]
@@ -377,8 +397,14 @@ if grep -q 'package="com.android.settings"' "$WS/ui_post_start_system.xml" 2>/de
     sleep 2
 fi
 
-sleep 3
-ui_tap id btnToggle ui_stop_button.xml
+# 8269: first BOT_LOOP_TICK can be observed while queued START is still
+# draining persisted stores. A blind btnToggle tap then opens the legitimate
+# "Cancel bot startup?" dialog; CI incorrectly expects "Stop bot" and
+# marks a healthy bootstrap red. Ask the actual UI to show Stop Bot first.
+# This changes only CI; it never invents a stop/start receipt or grants trade.
+UI_TAP_TIMEOUT_S_7168=150
+ui_tap id-running btnToggle ui_stop_button.xml
+UI_TAP_TIMEOUT_S_7168=30
 sleep 1
 ui_tap text "Stop bot" ui_stop_confirm.xml
 wait_log_marker "LIFECYCLE_STOP_COMPLETE" 90 "confirmed UI stop"

@@ -90,6 +90,10 @@ class Aate8057CompoundingSizerTest {
         val sizer = File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
         assertTrue(sizer.contains("if (isPaperMode) v = LiveSizingProfile.laneCompoundFloor("))  // paper floor only
         val p = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveRiskPolicy7807.kt").readText()
-        assertTrue(p.contains("val probeSize = maxOf(if (i.upstreamSol > 0.0) i.upstreamSol else 0.0, i.execMinSol)"))
+        // No legacy blanket size lift: only a proven fee-safe minimum at the
+        // same candidate's real cost/risk envelope can be considered.
+        assertTrue(p.contains("val probeSize = maxOf(if (i.upstreamSol > 0.0) i.upstreamSol else 0.0, executableFloor8269)"))
+        assertTrue(p.contains("val executableFloor8269 = executableFloorWithFixedCost8269("))
+        assertTrue(p.contains("SizingNetEdge8153.promotionRefusal8153("))
     }
 }

@@ -42,6 +42,8 @@ class DataOrchestrator(
 
     private var pumpWs: PumpFunWebSocket? = null
     private var heliusWs: HeliusWebSocket? = null
+    @Volatile private var heliusFocus8269: Set<String> = emptySet()
+    @Volatile private var heliusFocusRotateAt8269: Long = 0L
     private var dexWs: DexScreenerWebSocket? = null  // V5.6: Real-time price feed
     private var creatorChecker: HeliusCreatorHistory? = null
 
@@ -157,7 +159,12 @@ class DataOrchestrator(
             // dev/bundle/buyer-acceleration signal; missing them turns an early
             // detector into a post-pump chart follower.
             pumpWs?.subscribeToken(mint)
-            heliusWs?.subscribeToken(mint)
+            // V5.0.8269: Helius logsSubscribe costs credits on every busy mint. Do NOT
+            // subscribe the entire firehose (8268: 634 evictions / 407s). Reserve the
+            // bounded Helius slots for held and near-decision mints; PumpPortal remains
+            // responsible for the bulk launch stream.
+            if (DataPipeline8191.seedPriority8191(mint)) heliusWs?.subscribeToken(mint)
+            else try { PipelineHealthCollector.labelInc("HELIUS_WS_COLD_DISCOVERY_NOT_SUBSCRIBED_8269") } catch (_: Throwable) {}
 
             val ts = status.tokens[mint]
             if (ts != null && ts.pairAddress.isNotBlank()) {
@@ -225,10 +232,39 @@ class DataOrchestrator(
         scope.launch {
             while (isActive) {
                 delay(10_000L)
+                val now = System.currentTimeMillis()
+                try { rotateHeliusFocus8269(now) } catch (_: Throwable) {}
                 try { heliusWs?.ensurePinnedSubscriptions7807() } catch (_: Throwable) {}
-                try { pruneLocalMintCaches7807(System.currentTimeMillis()) } catch (_: Throwable) {}
+                try { pruneLocalMintCaches7807(now) } catch (_: Throwable) {}
             }
         }
+    }
+
+    /**
+     * V5.0.8269 — reserve scarce Helius logs subscriptions for canonical holdings
+     * and recently evaluated, near-executable candidates. Keep the same focus for
+     * 90 seconds rather than replacing it with every scanner arrival. Every new
+     * focus cycle explicitly releases old desired subscriptions; the socket
+     * handles late ACKs and unsubscribes without resurrecting stale mints.
+     */
+    private fun rotateHeliusFocus8269(nowMs: Long) {
+        val socket = heliusWs ?: return
+        val held = heldMintsForSubscriptions7807()
+        val capacity = socket.focusCapacity8269(held.size)
+        val activeOld = heliusFocus8269.filter {
+            it in status.tokens && it !in held && heliusMintEligible7819(it) &&
+                DataPipeline8191.nearDecision8191(it, nowMs)
+        }.take(capacity)
+        if (nowMs < heliusFocusRotateAt8269 && activeOld.isNotEmpty()) return
+        val focus = DataPipeline8191.recentNearDecisionMints8269(capacity * 3, nowMs)
+            .asSequence()
+            .filter { it in status.tokens && it !in held && heliusMintEligible7819(it) }
+            .take(capacity).toSet()
+        socket.releaseTokens7948 { it in held || it in focus }
+        for (mint in focus) socket.subscribeToken(mint)
+        heliusFocus8269 = focus
+        heliusFocusRotateAt8269 = nowMs + 90_000L
+        try { PipelineHealthCollector.labelInc("HELIUS_WS_FOCUS_ROTATED_8269") } catch (_: Throwable) {}
     }
 
     /**
@@ -357,6 +393,13 @@ class DataOrchestrator(
     private suspend fun seedCandleHistory(mint: String, symbol: String, repairShape8168: Boolean = false) {
         val ts = status.tokens[mint] ?: return
         var seeded = 0
+        // Helius-first on-chain trade history is requested asynchronously for
+        // near-decision SOL mints with insufficient bars. It never waits in
+        // scanner/FDG; if no verified pool/curve exists, independent OHLCV
+        // sources below remain the honest fallback.
+        if (ts.history.size < 6 && DataPipeline8191.seedPriority8191(mint)) try {
+            com.lifecyclebot.engine.truth.HeliusSwapCandles7819.request7819(ts)
+        } catch (_: Throwable) {}
 
         // V5.0.4186 — BIRDEYE = BACKUP, not primary. Operator P0 mandate:
         // "we can get the data birdeye provides free. its meant to be

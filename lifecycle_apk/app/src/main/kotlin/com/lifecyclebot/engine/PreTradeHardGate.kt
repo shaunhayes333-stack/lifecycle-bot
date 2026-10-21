@@ -113,14 +113,22 @@ object PreTradeHardGate {
         // (chart BUY, specialist hand-off, runner ticket, top-up) re-buys a coin that just lost or is dumping.
         (try { RebuyLockout8019.refusal8019(mint, now) } catch (_: Throwable) { null })?.let { return block(ts, it, "site=$callSite") }
 
-        val safetyAt = maxOf(ts.lastSafetyCheck, safety.checkedAt)
+        // 8269: lastSafetyCheck is a scheduler timestamp, not proof that
+        // the exact report used at broadcast is current. Never let an
+        // unrelated scanner refresh reset a stale safety report's age.
+        val safetyAt = safety.checkedAt
         val safetyAge = now - safetyAt
-        if (safetyAt <= 0L || safetyAge > SAFETY_FRESH_MS) {
-            pendingProofs.add("SAFETY_PROOF_STALE_OR_MISSING:checkedAt=$safetyAt ageMs=$safetyAge")
-        }
         if (safety.tier == SafetyTier.HARD_BLOCK || safety.isBlocked) {
             val detail = safety.hardBlockReasons.joinToString("|").ifBlank { safety.summary.ifBlank { "safety_hard_block" } }
             return block(ts, "SAFETY_HARD_BLOCK", detail)
+        }
+        if (safety.confirmedWalletRiskCluster8269) {
+            return block(ts, "CONFIRMED_WALLET_RUG_CLUSTER_8269", "RugCheck high-risk ownership/liquidity findings; site=$callSite")
+        }
+        if (safetyAt <= 0L || safetyAge !in 0L..SAFETY_FRESH_MS) {
+            try { SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
+            return deferSafetyProof(ts, "LIVE_SAFETY_REPORT_NOT_FRESH_8269",
+                listOf("SAFETY_PROOF_STALE_OR_MISSING:checkedAt=$safetyAt ageMs=$safetyAge"), callSite)
         }
 
         val rcStatus = safety.rugcheckStatus.uppercase()
@@ -201,6 +209,15 @@ object PreTradeHardGate {
         if (criticalProofUnknown) pendingProofs.add("CRITICAL_SAFETY_PROOF_UNKNOWN")
         if (topHolder >= TOP_HOLDER_FATAL_PCT) {
             return block(ts, "TOP_HOLDER_CONCENTRATION", "topHolderPct=$topHolder max=$TOP_HOLDER_FATAL_PCT")
+        }
+        // If BOTH critical holder ownership and the provider report are blind,
+        // or the pool is already thin, no new money is spent on unverified
+        // distribution. Keep the candidate in refresh rather than blacklist it.
+        if (topHolder < 0.0 &&
+            (rcStatus in setOf("UNKNOWN", "TIMEOUT", "PENDING", "PENDING_REVIEW", "ERROR", "") ||
+                ts.lastLiquidityUsd in 0.000001..MIN_LIVE_LIQ_USD)) {
+            try { SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
+            return deferSafetyProof(ts, "HOLDER_DISTRIBUTION_RISK_UNVERIFIED_8269", pendingProofs.distinct(), callSite)
         }
 
         val text = buildString {

@@ -81,7 +81,10 @@ object HeliusCreditEconomy7881 {
     /** Pure: credits one JSON-RPC method costs. */
     private fun creditsForMethod(method: String): Double = when (method) {
         in ENHANCED_DAS_METHODS -> 10.0
-        "getTransactionsForAddress" -> 10.0
+        // Helius historical full-transaction RPC is 100 credits/call. Mispricing
+        // it as 10 silently oversubscribes the paid enrichment budget.
+        "getTransactionsForAddress" -> 100.0
+        "getTransfersByAddress" -> 10.0
         "sendBundle" -> 10.0
         else -> 1.0
     }

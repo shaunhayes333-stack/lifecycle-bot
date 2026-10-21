@@ -539,6 +539,21 @@ object LiveRiskPolicy7807 {
         return if (real.isFinite() && real > 0.0) real else model
     }
 
+    /**
+     * 5.0.8269 repair: the route minimum is not executable when the measured
+     * round-trip FIXED legs exceed CostLanding8169's 5% ticket ceiling there.
+     * Promote only as far as needed to pass the SAME fixed-cost ceiling; decide()
+     * still checks candidate net edge, depth, live cash, stop-risk and defensive
+     * exploration before permitting the order. Unknown costs never invent a floor.
+     */
+    fun executableFloorWithFixedCost8269(routeMinSol: Double, fixedRoundTripSol: Double): Double {
+        if (!routeMinSol.isFinite() || routeMinSol <= 0.0) return routeMinSol
+        val fixedFloor = com.lifecyclebot.engine.CostLanding8169.fixedCostFloorSol8169(fixedRoundTripSol)
+        // Numerical headroom avoids an exactly-at-5% comparison rounding up.
+        return if (fixedFloor.isFinite() && fixedFloor > routeMinSol)
+            fixedFloor * (1.0 + 1e-9) else routeMinSol
+    }
+
     fun isRunnerLane(lane: String?): Boolean = canonicalLane(lane) in setOf("MOONSHOT", "PROJECT_SNIPER")
 
     private fun planR(stopPct: Double?, targetPct: Double?): Double =
@@ -558,7 +573,10 @@ object LiveRiskPolicy7807 {
             return Decision(false, 0.0, "LANE_SLOT_CAP_7807", labels, stop, 0.0, 0.0)
         }
         // V5.0.8094 — the order is never below the executable minimum, so its cost is judged at least at that size.
-        val probeSize = maxOf(if (i.upstreamSol > 0.0) i.upstreamSol else 0.0, i.execMinSol)
+        val executableFloor8269 = executableFloorWithFixedCost8269(i.execMinSol, i.fixedRoundTripSol8169)
+        val raisedForFixedCost8269 = i.execMinSol > 0.0 && executableFloor8269.isFinite() &&
+            executableFloor8269 > i.execMinSol + 1e-12
+        val probeSize = maxOf(if (i.upstreamSol > 0.0) i.upstreamSol else 0.0, executableFloor8269)
         // V5.0.8153 — the round trip at the size is the realistic one when the caller supplies it (never below 7766's).
         val cost0 = costAtSizePct8153(i, probeSize)
         val costMult = when (costVerdict(firstTarget, cost0)) {
@@ -653,25 +671,25 @@ object LiveRiskPolicy7807 {
         val envelope8153 = SizingNetEdge8153.envelopeCapSol8153(laneCap, liqCap, hardLossFinal8153, tradeable8153, laneRoom8153)
         if (size > envelope8153 + 1e-12) { size = envelope8153; labels += "ENVELOPE_CLAMP_8153" }
 
-        if (i.execMinSol > 0.0 && size < i.execMinSol) {
+        if (executableFloor8269.isFinite() && executableFloor8269 > 0.0 && size < executableFloor8269) {
             // V5.0.7840 — prove the venue minimum against the REAL hard-risk
             // envelope instead of rejecting merely because adaptive sizing
             // landed below it. This is the last-mile counterpart to the shared
             // resolver's capacity promotion: no safety/EV veto is bypassed.
-            val minCost7840 = costAtSizePct8153(i, i.execMinSol)
+            val minCost7840 = costAtSizePct8153(i, executableFloor8269)
             // V5.0.7987 — on a sub-1-SOL wallet the venue minimum is a large share of equity: a meme
             // lane's 20% position cap refused EVERY meme order below 0.137 SOL equity (5.0.7985: equity
             // 0.1215, cap 0.0243 < min 0.0273, 177 refusals, runner grabs included). The minimum may use
             // up to [smallAccountMinShare7987] of equity; the hard per-trade loss cap below still binds.
             val minCap7987 = maxOf(laneCap, i.equitySol * smallAccountMinShare7987(i.equitySol))
-            val minFundable7840 = i.execMinSol <= minCap7987 + 1e-12 && i.execMinSol <= liqCap + 1e-12
+            val minFundable7840 = executableFloor8269 <= minCap7987 + 1e-12 && executableFloor8269 <= liqCap + 1e-12
             val minRiskSafe7840 = minFundable7840 &&
-                executableMinRiskOk(i.execMinSol, stop, minCost7840, i.equitySol)
+                executableMinRiskOk(executableFloor8269, stop, minCost7840, i.equitySol)
             if (minRiskSafe7840) {
                 // V5.0.8153 — risk-safe is not enough: the minimum must be payable from tradeable SOL, fit the lane's
                 // book envelope and still clear the cost (and the setup's expected return) at THAT size, or it is refused.
                 val envelopeRefusal8153 = SizingNetEdge8153.promotionRefusal8153(
-                    i.execMinSol, tradeable8153, laneRoom8153, firstTarget, minCost7840, i.setupExpectedGrossPct8153)
+                    executableFloor8269, tradeable8153, laneRoom8153, firstTarget, minCost7840, i.setupExpectedGrossPct8153)
                 if (envelopeRefusal8153 != null) {
                     return Decision(false, 0.0, envelopeRefusal8153, labels, stop, minCost7840, total, sizing8094)
                 }
@@ -679,15 +697,36 @@ object LiveRiskPolicy7807 {
                 // at the minimum, and no defensive drawdown.
                 // V5.0.8236 — ONE loss budget with the upstream sizers: the account's per-position doctrine (safe share cap)
                 // when it exceeds the sub-minimum risk size (MinPromotion8188.doctrineBudgetSol8236), not the lane ticket alone.
-                MinPromotion8188.refusal8188(size, i.execMinSol, stop, if (size > 0.0) costAtSizePct8153(i, size) else Double.NaN,
-                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac, MinPromotion8188.doctrineBudgetSol8236(size),
-                    explorationSlotFree = try { LaneScoreAdmission7308.explorationSlotFreeNow({ false }) } catch (_: Throwable) { false })
-                    ?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
+                MinPromotion8188.refusal8188(size, executableFloor8269, stop, if (size > 0.0) costAtSizePct8153(i, size) else Double.NaN,
+                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac,
+                    MinPromotion8188.doctrineBudgetSol8236(size, tradeable8153, i.solUsd),
+                    explorationSlotFree = try { LaneScoreAdmission7308.runnerSlotFreeNow(i.lane) } catch (_: Throwable) { false })
+                    ?.let { refusal ->
+                        // An order whose FIXED fees require a larger ticket is
+                        // still rejected when the loss budget cannot fund it.
+                        // Name the binding fixed-cost wall, not an unexplained
+                        // risk-promotion refusal. Other promotion reasons retain
+                        // their exact names (drawdown/negative/unmeasured).
+                        val named = if (raisedForFixedCost8269 && refusal == MinPromotion8188.REFUSED_LOSS_BUDGET_8188)
+                            com.lifecyclebot.engine.CostLanding8169.FIXED_COST_REFUSAL_8169 else refusal
+                        if (named != refusal) labels += "FIXED_COST_FLOOR_EXCEEDS_LOSS_BUDGET_8269"
+                        return Decision(false, 0.0, named, labels, stop, minCost7840, total, sizing8094)
+                    }
+                val fixedFloorLift8269 = raisedForFixedCost8269
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
-                fixedCostRefusal8169(i, i.execMinSol)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
-                return Decision(true, i.execMinSol, "OPEN_RISK_SAFE_MIN_PROMOTED_7840", labels, stop, minCost7840, total, sizing8094, firstTarget)
+                if (fixedFloorLift8269) labels += "FIXED_COST_FLOOR_PROMOTED_8269"
+                fixedCostRefusal8169(i, executableFloor8269)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
+                if (fixedFloorLift8269) try { PipelineHealthCollector.labelInc("FIXED_COST_FLOOR_PROMOTED_8269") } catch (_: Throwable) {}
+                return Decision(true, executableFloor8269,
+                    if (fixedFloorLift8269) "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269" else "OPEN_RISK_SAFE_MIN_PROMOTED_7840",
+                    labels, stop, minCost7840, total, sizing8094, firstTarget)
             }
-            return Decision(false, 0.0, "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835", labels, stop, minCost7840, total, sizing8094)
+            // If the original route min was affordable but the fee-safe one
+            // is not, retain the original 8169 hard cost-refusal contract.
+            val floorRefusal8269 = if (raisedForFixedCost8269)
+                com.lifecyclebot.engine.CostLanding8169.FIXED_COST_REFUSAL_8169
+            else "RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835"
+            return Decision(false, 0.0, floorRefusal8269, labels, stop, minCost7840, total, sizing8094)
         }
         // V5.0.8153 — the final size's own round trip (a compounding size pays more impact than the probe).
         val costFinal8153 = costAtSizePct8153(i, size)

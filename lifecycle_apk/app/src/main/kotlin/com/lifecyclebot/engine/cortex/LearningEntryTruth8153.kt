@@ -98,6 +98,25 @@ object LearningEntryTruth8153 {
             median8165(book.executableGrossSeries8198(lane, null, r)))
     }
 
+    /** V5.0.8269 — how the proposals AATE would TAKE / REFUSE actually moved. */
+    data class DecisionRow8269(
+        val takeN: Int, val refuseN: Int,
+        val takeGrossMedian: Double, val refuseGrossMedian: Double,
+        val takeNetMedian: Double, val refuseNetMedian: Double,
+        val takeNetMean: Double, val refuseNetMean: Double,
+    )
+
+    fun decisionRow8269(book: CortexGradeBook8144, lane: String): DecisionRow8269 {
+        val yes = book.executableDecisionSeries8269(lane, admitted = true)
+        val no = book.executableDecisionSeries8269(lane, admitted = false)
+        val y = CortexWalkForward8144.stat8144(yes)
+        val n = CortexWalkForward8144.stat8144(no)
+        return DecisionRow8269(y.n, n.n,
+            median8165(book.executableDecisionGrossSeries8269(lane, admitted = true)),
+            median8165(book.executableDecisionGrossSeries8269(lane, admitted = false)),
+            median8165(yes), median8165(no), y.mean, n.mean)
+    }
+
     /**
      * Pure: the ceiling the owner-routed realised closes [xs] (one cohort, one account mode) put on authority: the
      * CortexRealisedAuthority8136 cap, and 0 once [CortexRealisedAuthority8136.MIN_REALISED_N_8136]+ closes shrink a

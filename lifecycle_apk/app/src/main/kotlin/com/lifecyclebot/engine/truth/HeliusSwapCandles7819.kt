@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicLong
  * planned read waited TOO_FEW_BARS. Helius is configured and healthy (sr=92%).
  *
  * This derives real one-minute OHLCV for a mint from Helius' Enhanced
- * Transactions history (GET /v0/addresses/{mint}/transactions): every swap in
+ * Transactions history for the actual pool/bonding-curve ACCOUNT (not the mint): each executed swap in
  * the window gives an executed price (SOL leg / token leg of the trader) and
  * its block timestamp; the prints are binned into 1m bars. No bar is made
  * where no trade happened, and nothing is interpolated (Field Manual L190:
@@ -92,6 +92,34 @@ object HeliusSwapCandles7819 {
     private val httpErrors = AtomicLong(0L)
     private val budgetSkips = AtomicLong(0L)
     private val noKey = AtomicLong(0L)
+    private val noMarketAddress8269 = AtomicLong(0L)
+
+    /**
+     * A Solana mint is an asset identifier, not the account touched by every market trade.
+     * The old /v0/addresses/{mint}/transactions read returned almost no usable swaps.
+     * Never spend 100 Helius credits on that mistaken address; require a real venue account.
+     * A completed pump curve is not an active market, so its old PDA is never used after migration.
+     */
+    internal fun historyAddress8269(mint: String, pool: String, curve: String, graduated: Boolean): String? {
+        fun valid(a: String): String? = a.trim().takeIf {
+            it != mint && com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(it)
+        }
+        return if (graduated) valid(pool) else valid(curve) ?: valid(pool)
+    }
+
+    private fun activeMarketAddress8269(ts: TokenState): String? {
+        val mint = ts.mint
+        val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }
+        val pool = listOf(ts.pairAddress, ts.lastPricePoolAddr).firstOrNull {
+            it != mint && com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(it)
+        }.orEmpty()
+        val remembered = try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) } catch (_: Throwable) { null }
+        val pumpCurve = if (!graduated && (mint.endsWith("pump", ignoreCase = true) || remembered != null)) {
+            try { com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(mint) } catch (_: Throwable) { null }
+                ?: remembered
+        } else null
+        return historyAddress8269(mint, pool, pumpCurve.orEmpty(), graduated)
+    }
 
     /**
      * Ask for a Helius-derived backfill of [ts]'s last 30 minutes. Never blocks:
@@ -101,6 +129,10 @@ object HeliusSwapCandles7819 {
         val mint = ts.mint
         if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint)) return // V5.0.7819 HeliusScope — Solana mints only (Field Manual L186)
         try { if (ts.position.isOpen || ts.candleTimeframeMinutes > 1) return } catch (_: Throwable) { return }
+        val marketAddress = activeMarketAddress8269(ts) ?: run {
+            noMarketAddress8269.incrementAndGet()
+            return
+        }
         val next = nextAllowedMs[mint] ?: 0L
         if (nowMs < next || inFlight.contains(mint)) return
         requests.incrementAndGet()
@@ -116,7 +148,7 @@ object HeliusSwapCandles7819 {
         if (nextAllowedMs.size > 4_000) nextAllowedMs.entries.removeIf { it.value < nowMs }
         try {
             Thread({
-                try { runJob(ts) } catch (_: Throwable) {
+                try { runJob(ts, marketAddress) } catch (_: Throwable) {
                 } finally { inFlight.remove(mint) }
             }, "helius-candles-7819").apply { isDaemon = true }.start()
         } catch (_: Throwable) { inFlight.remove(mint) }
@@ -138,7 +170,7 @@ object HeliusSwapCandles7819 {
         return cachedKey
     }
 
-    private fun runJob(ts: TokenState) {
+    private fun runJob(ts: TokenState, marketAddress: String) {
         val startedAt = System.currentTimeMillis()
         val key = apiKey(startedAt)
         if (key.isBlank()) { noKey.incrementAndGet(); return }
@@ -148,8 +180,10 @@ object HeliusSwapCandles7819 {
         var page = 0
         while (page < MAX_PAGES) {
             page++
-            val url = "$BASE/${ts.mint}/transactions?api-key=$key&limit=$PAGE_LIMIT" +
-                if (before.isNotBlank()) "&before=$before" else ""
+            // Correct Helius Enhanced History pagination is before-signature, NOT before.
+            // A time floor excludes ancient transfers on very busy market accounts.
+            val url = "$BASE/$marketAddress/transactions?api-key=$key&limit=$PAGE_LIMIT&gte-time=${(startedAt - WINDOW_MS) / 1000L}" +
+                if (before.isNotBlank()) "&before-signature=$before" else ""
             val body = get(url) ?: break
             pages.incrementAndGet()
             val arr = try { JSONArray(body.trim()) } catch (_: Throwable) { null } ?: break
@@ -173,6 +207,10 @@ object HeliusSwapCandles7819 {
         served.incrementAndGet()
         barsDelivered.addAndGet(bars.size.toLong())
         barsMerged.addAndGet(merged.toLong())
+        if (merged > 0) try {
+            CandidateAdmission8136.evidenceArrived8252(ts.mint, setOf("shape"), System.currentTimeMillis())
+            com.lifecyclebot.engine.DataPipeline8191.noteSeed8191("helius", "merged")
+        } catch (_: Throwable) {}
         try {
             PipelineHealthCollector.labelInc("HELIUS_SWAP_CANDLES_SERVED_7819")
             ForensicLogger.lifecycle(
@@ -356,12 +394,12 @@ object HeliusSwapCandles7819 {
     fun statusLine7819(): String =
         "requests=${requests.get()} jobs=${jobs.get()} pages=${pages.get()} prints=${printsParsed.get()} " +
             "served=${served.get()} barsDelivered=${barsDelivered.get()} merged=${barsMerged.get()} " +
-            "empty=${empty.get()} httpErr=${httpErrors.get()} budgetSkips=${budgetSkips.get()} noKey=${noKey.get()} " +
+            "empty=${empty.get()} httpErr=${httpErrors.get()} budgetSkips=${budgetSkips.get()} noKey=${noKey.get()} noMarket8269=${noMarketAddress8269.get()} " +
             "inFlight=${inFlight.size} budget=${MAX_JOBS_PER_MIN}/min,${MAX_JOBS_PER_HOUR}/h,x${MAX_PAGES}pages"
 
     internal fun resetForTest() {
         inFlight.clear(); nextAllowedMs.clear(); synchronized(jobStarts) { jobStarts.clear() }
         requests.set(0L); jobs.set(0L); pages.set(0L); served.set(0L); barsDelivered.set(0L)
-        barsMerged.set(0L); printsParsed.set(0L); empty.set(0L); httpErrors.set(0L); budgetSkips.set(0L); noKey.set(0L)
+        barsMerged.set(0L); printsParsed.set(0L); empty.set(0L); httpErrors.set(0L); budgetSkips.set(0L); noKey.set(0L); noMarketAddress8269.set(0L)
     }
 }

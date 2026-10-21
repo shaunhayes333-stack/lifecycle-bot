@@ -58,7 +58,10 @@ class Aate7832LiveEntryQualityRepairTest {
         assertTrue(resolver.contains("LIVE_ROUTABLE_MIN_CAPACITY_PROMOTED_7840"))
         assertTrue(resolver.contains("refuseMinPromotion6909 -> 0L"))
         assertTrue(risk.contains("RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"))
-        assertTrue(risk.contains("executableMinRiskOk(i.execMinSol"))
+        // 8269: fixed costs may raise the executable floor, but the real
+        // risk loss check must use the RAISED notional (never a phantom min).
+        assertTrue(risk.contains("executableMinRiskOk(executableFloor8269"))
+        assertTrue(risk.contains("MinPromotion8188.refusal8188(size, executableFloor8269, stop,"))
         assertTrue(guard.contains("ROUTABLE_MIN_LIFT_DISABLED_7831"))
         assertFalse(guard.contains("return Decision(Verdict.ALLOW_LIFT"))
     }

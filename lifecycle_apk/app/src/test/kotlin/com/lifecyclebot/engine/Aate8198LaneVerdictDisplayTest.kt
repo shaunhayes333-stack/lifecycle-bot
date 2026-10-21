@@ -28,13 +28,17 @@ class Aate8198LaneVerdictDisplayTest {
         assertTrue(v.refuseGrossMedian8198.isNaN())
     }
 
-    @Test fun panelHeadlineUsesGrossMediansAndNamesTheOffset() {
+    @Test fun panelHeadlineUsesAateAdmissionDecisionsAndKeepsCortexPredictionsSeparate() {
         val ui = File("src/main/kotlin/com/lifecyclebot/ui/LearningCounterActivity.kt").readText()
-        assertTrue(ui.contains("\"${'$'}{pct8069(l.strongGrossMedian8198)} / ${'$'}{pct8069(l.refuseGrossMedian8198)}\""))
-        assertTrue(ui.contains("l.strongGrossMedian8198 - l.refuseGrossMedian8198"))
+        assertTrue(ui.contains("aateTakeGrossMedian8269"))
+        assertTrue(ui.contains("aateRefuseGrossMedian8269"))
+        assertTrue(ui.contains("l.aateTakeGrossMedian8269 - l.aateRefuseGrossMedian8269"))
+        assertTrue(ui.contains("Cortex predicted STRONG"))
         assertTrue(ui.contains("exec offset -"))
-        assertTrue(ui.contains("net median ${'$'}{pct8069(l.strongMedian8165)}"))
+        assertTrue(ui.contains("aateTakeNetMedian8269"))
         val cx = File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         assertTrue(cx.contains("execOffset8198 = execOffsetByLane8187[lane] ?: 0.0"))
+        assertTrue(cx.contains("aateTakeGrossMedian8269 = d8269.takeGrossMedian"))
     }
+
 }

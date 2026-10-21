@@ -224,6 +224,25 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             .sortedBy { it.atMs }.map { it.capped8187(it.executablePct) - offset8187(lane) }  // V5.0.8187 — capped, executable-net
 
     /**
+     * 8269 — decision-time AATE TAKE vs REFUSE, distinct from Cortex's
+     * STRONG/NEUTRAL/REFUSE prediction. Both are retained for the SAME
+     * executable, on-time, first-in-episode population, so there is no
+     * apples-to-oranges performance comparison or relabelling after a win.
+     * "TAKE" is a recorded proposal, not proof that a live fill occurred.
+     */
+    fun executableDecisionSeries8269(lane: String, admitted: Boolean): List<Double> =
+        decisions.filter {
+            it.graded && !it.lost && it.lane == lane && it.admitted == admitted &&
+                it.executablePct.isFinite()
+        }.sortedBy { it.atMs }.map { it.capped8187(it.executablePct) - offset8187(lane) }
+
+    fun executableDecisionGrossSeries8269(lane: String, admitted: Boolean): List<Double> =
+        decisions.filter {
+            it.graded && !it.lost && it.lane == lane && it.admitted == admitted &&
+                it.executablePct.isFinite() && it.observedGrossPct.isFinite()
+        }.sortedBy { it.atMs }.map { it.capped8187(it.observedGrossPct) }
+
+    /**
      * 8198 — the GROSS forward move (price only, before any cost, haircut or executable offset) of the same tradeable
      * records [executableSeries] grades, oldest first: what the coin actually did after the verdict.
      */

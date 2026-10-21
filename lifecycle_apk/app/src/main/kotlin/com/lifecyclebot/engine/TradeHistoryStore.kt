@@ -80,7 +80,38 @@ object TradeHistoryStore {
 
     // In-memory cache — loaded once at init, mutated synchronously under `lock`
     private val lock   = Any()
+
     private val trades = mutableListOf<Trade>()
+
+    // V5.0.8269: 8,192 seeded economic events made every projected terminal
+    // repeat a reverse scan of the full journal (O(N^2) during bootstrap).
+    // Both indexes are views of trades, updated under the SAME lock only.
+    // No learning or accounting authority is changed by these accelerators.
+    private val lastBuyByModeAndMint8269 = HashMap<Pair<String, String>, Trade>()
+    private val lastNamedBuyByMint8269 = HashMap<String, Trade>()
+    private fun buyLookupKey8269(t: Trade): Pair<String, String> =
+        t.mint to t.mode.lowercase(java.util.Locale.ROOT)
+
+    private fun rememberBuy8269(t: Trade) {
+        if (t.mint.isBlank() || !isBuyLike(t.side)) return
+        lastBuyByModeAndMint8269[buyLookupKey8269(t)] = t
+        if (t.side.equals("BUY", true) && t.tradingMode.isNotBlank()) lastNamedBuyByMint8269[t.mint] = t
+    }
+
+    /** Rebuild from the retained journal, never from lifetime counters or paper projections. Caller holds lock. */
+    private fun rebuildBuyIndex8269() {
+        lastBuyByModeAndMint8269.clear()
+        lastNamedBuyByMint8269.clear()
+        for (trade in trades) rememberBuy8269(trade)
+    }
+
+    private fun discardTrimmedBuys8269(removed: List<Trade>) {
+        // Most trims remove old sells or superseded buys, and need no scan.
+        // If the latest retained BUY was removed, rebuild once from retained trades.
+        if (removed.any { r -> isBuyLike(r.side) && r.mint.isNotBlank() &&
+                (lastBuyByModeAndMint8269[buyLookupKey8269(r)] === r ||
+                    lastNamedBuyByMint8269[r.mint] === r) }) rebuildBuyIndex8269()
+    }
 
     // V5.0.7343 — bumped on every in-memory journal mutation, so a consumer that
     // derives a whole-journal result (JournalEconomicReplay6619) can keep it until
@@ -799,11 +830,7 @@ object TradeHistoryStore {
 
     private fun enrichJournalLinkage(t: Trade): Trade {
         val priorBuy: Trade? = if (isBuyLike(t.side) || t.mint.isBlank()) null else try {
-            synchronized(lock) {
-                trades.asReversed().firstOrNull { prev ->
-                    isBuyLike(prev.side) && prev.mint == t.mint && prev.mode.equals(t.mode, true)
-                }
-            }
+            synchronized(lock) { lastBuyByModeAndMint8269[buyLookupKey8269(t)] }
         } catch (_: Throwable) { null }
         val source: Trade? = if (isBuyLike(t.side)) t else priorBuy
         val entryTs = when {
@@ -988,13 +1015,7 @@ object TradeHistoryStore {
         // gap that was entirely unbinned fallback exits.
         if (normalizedMode.isBlank() && isJournalSellLike(trade.side) && trade.mint.isNotBlank()) {
             val inheritedMode = try {
-                synchronized(lock) {
-                    trades.asReversed().firstOrNull { prev ->
-                        prev.side.equals("BUY", ignoreCase = true) &&
-                            prev.mint == trade.mint &&
-                            prev.tradingMode.isNotBlank()
-                    }?.tradingMode
-                }
+                synchronized(lock) { lastNamedBuyByMint8269[trade.mint]?.tradingMode }
             } catch (_: Throwable) { null }
             if (!inheritedMode.isNullOrBlank()) {
                 normalizedMode = normalizeTradeModeName(inheritedMode)
@@ -1050,10 +1071,13 @@ object TradeHistoryStore {
 
         synchronized(lock) {
             trades.add(tradeToStore)
+            rememberBuy8269(tradeToStore)
             journalRevision7343.incrementAndGet()
             // V5.9.330: Trim in-memory list to avoid OOM. SQLite retains everything.
             if (trades.size > MAX_IN_MEMORY_TRADES) {
+                val evicted8269 = trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).toList()
                 trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).clear()
+                discardTrimmedBuys8269(evicted8269)
                 journalRevision7343.incrementAndGet()
             }
         }
@@ -1214,7 +1238,7 @@ object TradeHistoryStore {
                     if (enriched.mode.equals("paper", true)) PipelineHealthCollector.labelInc("PAPER_COUNTER_SKIPPED_QUARANTINED_ROW")
                 } catch (_: Throwable) {}
                 if (ok) {
-                    synchronized(lock) { trades.add(enriched); journalRevision7343.incrementAndGet() }
+                    synchronized(lock) { trades.add(enriched); rememberBuy8269(enriched); journalRevision7343.incrementAndGet() }
                     toAdd += enriched
                 }
             }
@@ -1855,7 +1879,7 @@ object TradeHistoryStore {
      *  trust, FluidLearningAI progress, and the active 30-Day Proof Run
      *  timeline are PRESERVED — only the visible scoreboard resets. */
     fun clearAllTrades() {
-        synchronized(lock) { trades.clear(); journalRevision7343.incrementAndGet() }
+        synchronized(lock) { trades.clear(); rebuildBuyIndex8269(); journalRevision7343.incrementAndGet() }
         latestBuyByMintCache = emptyMap()
         latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
         latestBuyByMintCacheMs = 0L
@@ -1916,7 +1940,7 @@ object TradeHistoryStore {
 
     /** FULL RESET — wipe journal AND lifetime counters. Only from BehaviorActivity / FluidLearningAI. */
     fun fullResetIncludingLifetime() {
-        synchronized(lock) { trades.clear(); journalRevision7343.incrementAndGet() }
+        synchronized(lock) { trades.clear(); rebuildBuyIndex8269(); journalRevision7343.incrementAndGet() }
         lifetimeSells          = 0
         lifetimeWins           = 0
         lifetimeLosses         = 0
@@ -2883,6 +2907,7 @@ object TradeHistoryStore {
                 latestBuyByMintCacheMs = 0L
                 latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
                 trades.addAll(enrichedLoaded)
+                rebuildBuyIndex8269()
                 journalRevision7343.incrementAndGet()
             }
             ErrorLogger.debug("TradeHistoryStore", "SQLite: loaded ${loaded.size} trades")
@@ -2935,7 +2960,7 @@ object TradeHistoryStore {
                             tradeToContentValues(trade),
                             SQLiteDatabase.CONFLICT_IGNORE
                         )
-                        synchronized(lock) { trades.add(trade); journalRevision7343.incrementAndGet() }
+                        synchronized(lock) { trades.add(trade); rememberBuy8269(trade); journalRevision7343.incrementAndGet() }
                     } else {
                         try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_PREFS_MIGRATION_FILTERED mint=${trade.mint.take(8)} side=${trade.side} pnlPct=${trade.pnlPct} pnl=${trade.pnlSol} reason=${trade.reason}") } catch (_: Throwable) {}
                     }

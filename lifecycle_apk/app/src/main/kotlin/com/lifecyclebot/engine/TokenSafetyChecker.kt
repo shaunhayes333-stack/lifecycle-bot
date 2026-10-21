@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.network.SharedHttpClient
+import com.lifecyclebot.engine.truth.LiveRugCluster8269
 
 import com.lifecyclebot.data.BotConfig
 import okhttp3.MediaType.Companion.toMediaType
@@ -51,6 +52,8 @@ data class SafetyReport(
     val dataConflictFlag: Boolean = false,
     val dataConflictReason: String = "",
     val rugcheckTimeoutPenalty: Int = 0,
+    /** Confirmed RugCheck danger cluster (paper wall and final live buy guard). */
+    val confirmedWalletRiskCluster8269: Boolean = false,
 ) {
     val isBlocked get() = tier == SafetyTier.HARD_BLOCK
     val ageMinutes get() = (System.currentTimeMillis() - checkedAt) / 60_000.0
@@ -393,6 +396,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         var dataConflictFlag = false
         var dataConflictReason = ""
         var rugcheckTimeoutPenalty = 0
+        var confirmedRugCluster8269: String? = null
 
         if (currentLiquidityUsd >= 0) {
             val (hasConflict, conflictReason) = checkLiquidityConflict(mint, currentLiquidityUsd)
@@ -451,11 +455,15 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             var singleHolderOwnershipRisk = false
             var unverifiedTokenRisk = false
             var highHolderConcentrationRisk = false
+            val providerFlags8269 = ArrayList<LiveRugCluster8269.Flag>()
             if (risks != null) {
                 for (i in 0 until risks.length()) {
                     val risk = risks.optJSONObject(i) ?: continue
                     val rName = risk.optString("name", "").lowercase()
                     val rLevel = risk.optString("level", "").lowercase()
+                    providerFlags8269 += LiveRugCluster8269.Flag(
+                        risk.optString("name", ""), risk.optString("level", ""),
+                        risk.optString("description", risk.optString("message", "")))
 
                     when {
                         rName.contains("mint") && rName.contains("enabled") -> mintDisabled = false
@@ -472,6 +480,18 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     if (rName.contains("holder") && rName.contains("concentration")) highHolderConcentrationRisk = true
                     // Count DANGER-level flags (red icons in the UI)
                     if (rLevel == "danger" || rLevel == "high") redFlagCount++
+                }
+                // 8269: on-token, confirmed named danger findings outrank a
+                // positive liquidity quote or an otherwise permissive lane.
+                // Paper reports the same blocked universe through 8223.
+                confirmedRugCluster8269 = LiveRugCluster8269.refusal(providerFlags8269)
+                if (confirmedRugCluster8269 != null) {
+                    try {
+                        PipelineHealthCollector.labelInc("RUGCHECK_DANGER_CLUSTER_SEEN_8269")
+                        ForensicLogger.lifecycle("RUGCHECK_DANGER_CLUSTER_8269",
+                            "mint=${mint.take(10)} symbol=$symbol result=$confirmedRugCluster8269 redFlags=$redFlagCount live=${!isPaperMode}")
+                    } catch (_: Throwable) {}
+                    if (!isPaperMode) hard.add(confirmedRugCluster8269!!)
                 }
                 // V5.0.4199 — wallet/Dex risk-overlay hardening. The runtime was
                 // still buying tokens matching the exact red-sheet class shown by
@@ -553,17 +573,11 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                         penalty += 35
                         ErrorLogger.info(TAG, "⚠️ RED_FLAG_SOFT (paper): $symbol — $redFlagCount danger flags → +35 penalty, routing upstream for qualification")
                     } else {
-                        // V5.9.1561 — red flags alone are risk, not proof the route is
-                        // impossible. Hard-block only when route/liquidity danger is also
-                        // confirmed; otherwise apply a heavy penalty and let preflight/FDG decide.
-                        if (currentLiquidityUsd <= 0.0) {
-                            hard.add("$redFlagCount critical risk flags with no valid liquidity/route")
-                            ErrorLogger.error(TAG, "🚫 RED_FLAG_ROUTE_GATE: $symbol — $redFlagCount danger flags + no route/liquidity → HARD BLOCK")
-                        } else {
-                            soft.add("$redFlagCount critical risk flags (live penalty; route/liquidity still available)" to 45)
-                            penalty += 45
-                            ErrorLogger.warn(TAG, "⚠️ RED_FLAG_RISK_PENALTY: $symbol — $redFlagCount danger flags → +45 penalty, no hard block")
-                        }
+                        // 8269: five or more independently confirmed danger
+                        // findings are NOT made safe by a positive route quote.
+                        // Live always refuses; paper is mirrored by 8223.
+                        if (confirmedRugCluster8269 == null) hard.add(LiveRugCluster8269.FIVE_DANGER_REFUSAL)
+                        ErrorLogger.error(TAG, "🚫 RED_FLAG_LIVE_HARD_BLOCK_8269: $symbol — $redFlagCount high/danger findings")
                     }
                 }
             }
@@ -1028,6 +1042,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             dataConflictFlag = dataConflictFlag,
             dataConflictReason = dataConflictReason,
             rugcheckTimeoutPenalty = rugcheckTimeoutPenalty,
+            confirmedWalletRiskCluster8269 = confirmedRugCluster8269 != null,
         )
 
         cache[mint] = report

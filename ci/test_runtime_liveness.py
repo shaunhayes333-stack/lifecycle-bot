@@ -1,5 +1,6 @@
 """Regression tests for the real second-start log-label loss."""
 import unittest
+from pathlib import Path
 from runtime_liveness import has_marker, loop_count, since_epoch
 from datetime import datetime, timezone
 
@@ -33,6 +34,15 @@ class RuntimeLivenessTest(unittest.TestCase):
 
     def test_multiple_real_events_are_counted(self):
         self.assertEqual(2, loop_count("[BOT_LOOP_TICK] n=2 watch=5\n[LOOP_TOP] #7 loop=6 running=true loopJob=true"))
+
+    def test_stop_ui_waits_for_running_not_queued_start(self):
+        script = Path(__file__).with_name("runtime-test.sh").read_text()
+        self.assertIn('if mode in ("id", "id-running")', script)
+        self.assertIn('match = match and node.attrib.get("text", "").strip().lower() == "stop bot"', script)
+        self.assertIn('ui_tap id-running btnToggle ui_stop_button.xml', script)
+        self.assertIn('UI_TAP_TIMEOUT_S_7168=150', script)
+        self.assertIn('ui_tap text "Stop bot" ui_stop_confirm.xml', script)
+        self.assertIn('wait_log_marker "LIFECYCLE_STOP_COMPLETE"', script)
 
     def test_restart_cannot_reuse_first_session_loop(self):
         cutoff = datetime(2026, 10, 12, 7, 52, 30, tzinfo=timezone.utc).timestamp()

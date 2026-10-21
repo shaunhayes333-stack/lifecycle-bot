@@ -54,7 +54,8 @@ object LiveSizeTarget8094 {
      */
     fun fdgRiskSized8094(proposalSol: Double, decisionSol: Double, decisionReason: String, compoundingApproved: Boolean): Double = when {
         compoundingApproved && decisionSol > 0.0 -> decisionSol
-        decisionReason == "OPEN_RISK_SAFE_MIN_PROMOTED_7840" && decisionSol > proposalSol -> decisionSol
+        decisionReason in setOf("OPEN_RISK_SAFE_MIN_PROMOTED_7840", "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269") &&
+            decisionSol > proposalSol -> decisionSol
         else -> minOf(proposalSol, decisionSol)
     }
 
@@ -77,6 +78,16 @@ object LiveSizeTarget8094 {
         ).filter { it.second.isFinite() && it.second >= 0.0 }
         return caps.minByOrNull { it.second }?.first ?: "KELLY"
     }
+
+    /** The resolver's enforced minimum for a just-approved cost-safe lift.
+     * A later soft shrink may not restore the old route minimum and create an
+     * order which violates the same hard 5% fixed-fee rule. This is not a
+     * second admission/size-up decision: a larger minimum is possible ONLY
+     * after LiveRiskPolicy7807 has already approved precisely that notional.
+     */
+    fun sealedCostViableMinimum8269(routeMinSol: Double, reason: String?, approvedSol: Double): Double =
+        if (reason == "OPEN_RISK_SAFE_COST_FLOOR_PROMOTED_8269" && approvedSol.isFinite() &&
+            approvedSol > 0.0 && approvedSol > routeMinSol) approvedSol else routeMinSol
 
     // ── the one ceiling, shared by FDG and the executor ──
 

@@ -192,6 +192,25 @@ object LiveBuyAdmissionGate {
                 "deferring live buy on $thisMint — its own close is in flight")
         }
 
+        // 8269: every live spending path except Executor.liveBuy.main (which
+        // already runs this exact pre-broadcast check at its deferred/retry
+        // boundary) MUST use PreTradeHardGate here. In particular, top-ups
+        // previously called only this admission wrapper and could buy through
+        // a hard holder/liquidity risk or missing safety report.
+        // A future buy caller is protected by default, not a new exemption.
+        if (callSite != "liveBuy.main") {
+            val finalSafety = com.lifecyclebot.engine.PreTradeHardGate.requireLiveBuyAllowed(
+                ts, "LiveBuyAdmissionGate.$callSite")
+            if (!finalSafety.allowed) {
+                if (finalSafety.reason == "DEFER_SAFETY_PROOF") {
+                    try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+                }
+                val code = if (finalSafety.reason == "DEFER_SAFETY_PROOF") "SAFETY_PROOF_DEFERRED_8269" else finalSafety.reason
+                block(ts, code, finalSafety.detail, callSite, onLog, onNotify)
+                return Decision.Blocked(code, finalSafety.detail)
+            }
+        }
+
         val safety: SafetyReport = ts.safety
         val now = System.currentTimeMillis()
         val safetyAgeMs = now - ts.lastSafetyCheck

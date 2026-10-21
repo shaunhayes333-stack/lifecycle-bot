@@ -65,10 +65,24 @@ try:
             (output / "verdict.txt").write_text("PASS: published-APK upgrade, release version identity, ART verification, service bootstrap, UI Start, first bot-loop tick\n")
             break
         if not start_tapped:
-            adb("shell", "uiautomator", "dump", "/sdcard/release_ui.xml")
-            xml = adb("shell", "cat", "/sdcard/release_ui.xml")
-            (output / "ui.xml").write_text(xml)
-            nodes = list(ET.fromstring(xml).iter("node"))
+            # 8269 emulator upgrade run: the first UiAutomator dump returned
+            # "ERROR: null root node" and no XML. A transient empty tree
+            # must NOT turn a compiled, upgrade-installable APK into a false
+            # application failure; retry within the existing 240s deadline.
+            # A persistent empty tree still fails and never earns PASS.
+            try:
+                dump = adb("shell", "uiautomator", "dump", "/sdcard/release_ui.xml")
+                if "ERROR:" in dump or "null root node" in dump.lower():
+                    print("UI tree not ready, retrying:", dump.strip(), flush=True)
+                    time.sleep(2)
+                    continue
+                xml = adb("shell", "cat", "/sdcard/release_ui.xml")
+                nodes = list(ET.fromstring(xml).iter("node"))
+                (output / "ui.xml").write_text(xml)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError) as exc:
+                print("UI tree unavailable, retrying:", type(exc).__name__, flush=True)
+                time.sleep(2)
+                continue
             # Fresh Android images show an immersive-mode tutorial over the app.
             # Dismiss observed first-run dialogs before trying the actual Start control.
             overlay = next((n for n in nodes if n.get("resource-id") == "android:id/ok"
