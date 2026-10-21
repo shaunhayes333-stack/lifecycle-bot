@@ -240,6 +240,10 @@ object SignedTxLedger8085 {
         com.lifecyclebot.engine.CostLanding8169.LandRow8169(it.side, it.route, it.state.name, it.submittedAtMs8087 > 0L, it.acceptedBy)
     }
 
+    /** V5.0.8288 — rows created at/after [sinceMs] as (side, route, state, createdAt), for PumpLanding8288's land rate. */
+    fun rows8288(sinceMs: Long): List<com.lifecyclebot.engine.PumpLanding8288.Row8288> =
+        rows.values.filter { it.createdAtMs >= sinceMs }.map { com.lifecyclebot.engine.PumpLanding8288.Row8288(it.side, it.route, it.state.name, it.createdAtMs) }
+
     fun expiryLine8087(): String = expiryByRoute8087.entries.sortedByDescending { it.value.get() }
         .joinToString(" ") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
 

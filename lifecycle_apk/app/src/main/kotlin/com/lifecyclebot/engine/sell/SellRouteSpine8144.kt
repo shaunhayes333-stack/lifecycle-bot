@@ -55,6 +55,12 @@ object SellRouteSpine8144 {
             private set
         @Volatile var broadcastAtMs: Long = 0L
             private set
+        /** V5.0.8288 — when the latest CLOSE_LEASE was marked (the current attempt's start; StopFast8288.preRouteWait8288). */
+        @Volatile var leaseMarkAtMs8288: Long = 0L
+            private set
+        /** V5.0.8288 — a failure was recorded since the latest CLOSE_LEASE mark (that attempt failed somewhere). */
+        @Volatile var failedSinceLease8288: Boolean = false
+            private set
         @Volatile var failedStage: Stage8144? = null
             private set
         @Volatile var failureCause: String = ""
@@ -77,6 +83,7 @@ object SellRouteSpine8144 {
             lastMarkAtMs = at
             lastStage = stage
             if (stage == Stage8144.BROADCAST && broadcastAtMs == 0L) broadcastAtMs = at
+            if (stage == Stage8144.CLOSE_LEASE) { leaseMarkAtMs8288 = at; failedSinceLease8288 = false }   // V5.0.8288
             return true
         }
 
@@ -90,6 +97,7 @@ object SellRouteSpine8144 {
             val at = nowMs.coerceAtLeast(lastMarkAtMs)
             ms[s.ordinal] += at - lastMarkAtMs
             lastMarkAtMs = at
+            failedSinceLease8288 = true   // V5.0.8288
             lastFailureFresh = marksSinceFailure > 0
             marksSinceFailure = 0
             if (lastFailureFresh) {

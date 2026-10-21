@@ -63,6 +63,10 @@ object CloseLease {
         // V5.0.7807 — B1/B3: an emergency reason that arrived on a lease opened for
         // a softer exit. The sell runs under it (ProtectiveExitClass7807.effectiveReason).
         @Volatile var emergencyReason7807: String? = null,
+        // V5.0.8288 — pre-route waits (an attempt that ended before any balance / quote stage and signed nothing): how
+        // many, and when the emergency may re-enter (StopFast8288). They are not route attempts.
+        @Volatile var preRouteWaits8288: Int = 0,
+        @Volatile var preRouteEligibleAtMs8288: Long = 0L,
     )
 
     private val leases = ConcurrentHashMap<String, Lease>()
@@ -184,7 +188,8 @@ object CloseLease {
             // failed hard-floor lease's backoff, and the tier re-arms ran out. Never doubled in flight.
             val emergency7807 = ProtectiveExitClass7807.isEmergency(rawReason) || urgentProfitCapture7965(rawReason)
             val emergencyEligible7807 = emergency7807 && !existing.inFlight &&
-                now - existing.lastTouchMs >= ProtectiveExitClass7807.emergencyRetryDelayMs(existing.closeAttemptCount - 1)
+                (now - existing.lastTouchMs >= ProtectiveExitClass7807.emergencyRetryDelayMs(existing.closeAttemptCount - 1) ||
+                    StopFast8288.preRouteEligible8288(existing.preRouteEligibleAtMs8288, now))  // V5.0.8288 — a pre-route wait re-enters on its short clock
             if (emergency7807) {
                 val prior7807 = existing.emergencyReason7807 ?: existing.originalExitReason
                 existing.emergencyReason7807 = ProtectiveExitClass7807.effectiveReason(prior7807, canonicalReason(rawReason))
@@ -240,6 +245,7 @@ object CloseLease {
         val now = System.currentTimeMillis()
         l.lastTouchMs = now
         l.inFlight = false
+        l.preRouteEligibleAtMs8288 = 0L   // V5.0.8288 — a real route attempt keeps the 7807 cadence
         // If the route did not set provider-specific backoff, still prevent an
         // immediate same-tick retry storm while allowing the next cycle through.
         if (l.nextEligibleMs <= now) l.nextEligibleMs = now + 2_000L
@@ -257,6 +263,39 @@ object CloseLease {
                 "nextEligibleMs=${l.nextEligibleMs} originalExitReason=${l.originalExitReason}")
         } catch (_: Throwable) {}
         return l.closeAttemptCount
+    }
+
+    /**
+     * V5.0.8288 — the attempt ended before any balance / quote stage ran and signed nothing (a running slice held the
+     * sell lock, a stale in-flight marker): not a route attempt — no attempt count (no slippage / route escalation), and
+     * the emergency re-dispatches itself on StopFast8288's short clock instead of 2 / 3 / 5 / 8 s. Single-flight is
+     * unchanged: acquire() still refuses while an attempt is in flight.
+     */
+    @Synchronized
+    fun recordPreRouteWait8288(mint: String): Long {
+        val l = current(mint) ?: return 0L
+        val now = System.currentTimeMillis()
+        l.preRouteWaits8288 += 1
+        val delay = StopFast8288.preRouteDelayMs8288(l.preRouteWaits8288)
+        l.inFlight = false
+        l.lastTouchMs = now
+        l.nextEligibleMs = now + delay
+        l.preRouteEligibleAtMs8288 = now + delay
+        val waiting = l.emergencyWaiting8087
+        if (waiting != null) {
+            l.nextEligibleMs = now
+            l.preRouteEligibleAtMs8288 = now
+            handoff8087(mint, waiting, l)
+        } else {
+            val reason = l.emergencyReason7807 ?: l.originalExitReason
+            if (ProtectiveExitClass7807.isEmergency(reason)) scheduleEmergencyRetry8094(mint, reason, l.nextEligibleMs)
+        }
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SELL_PRE_ROUTE_WAIT_8288")
+            ForensicLogger.lifecycle("SELL_PRE_ROUTE_WAIT_8288",
+                "mint=${mint.take(10)} waits=${l.preRouteWaits8288} delayMs=$delay attempts=${l.closeAttemptCount} originalExitReason=${l.originalExitReason}")
+        } catch (_: Throwable) {}
+        return delay
     }
 
     /**

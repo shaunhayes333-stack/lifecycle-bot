@@ -6394,6 +6394,12 @@ class BotService : Service() {
             try { PipelineHealthCollector.labelInc("RISK_CLOCK_RUNTIME_MARK_FALLBACK_7960") } catch (_: Throwable) {}
             return RiskMark7960(true, rt, (now - (ts?.lastPriceUpdate ?: now)).coerceAtLeast(0L), true)
         }
+        // V5.0.8288 — no fresh feed: the trade stream's newest executed print is the held price (StopMark8288).
+        val tape8288 = ts?.let { t -> com.lifecyclebot.engine.truth.StopMark8288.tapeRiskMark8288(mint, t.position.entryPrice, t.position.entryTime, now) }
+        if (tape8288 != null) {
+            try { PipelineHealthCollector.labelInc("RISK_CLOCK_TAPE_PRINT_MARK_8288") } catch (_: Throwable) {}
+            return RiskMark7960(true, tape8288.first, tape8288.second, true)
+        }
         return RiskMark7960(m != null, px, age, false)
     }
 

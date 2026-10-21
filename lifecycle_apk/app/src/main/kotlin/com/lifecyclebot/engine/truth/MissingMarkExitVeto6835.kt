@@ -248,6 +248,12 @@ object MissingMarkExitVeto6835 {
         detail: String,
         verdictReason: String,
     ): Verdict {
+        // V5.0.8288 — the trade tape's newest executed print proves the stop: no hold for a feed that will not refresh.
+        if (StopMark8288.tapeConfirmsStop8288(mintKey, exitReason, nowMs)) {
+            deferrals.remove(mintKey)
+            allowCount.incrementAndGet()
+            return Verdict(true, "TAPE_PRINT_CONFIRMS_STOP_8288_$verdictReason")
+        }
         val d = deferrals.computeIfAbsent(mintKey) { Deferral(nowMs) }
         val attempts = d.attempts.incrementAndGet()
         val heldMs = (nowMs - d.firstAtMs).coerceAtLeast(0L)
