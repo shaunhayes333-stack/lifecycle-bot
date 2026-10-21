@@ -240,6 +240,21 @@ ui_tap() {
         adb pull "/sdcard/$dump" "$WS/$dump" >/dev/null 2>&1 || true
         coords=$(ui_find_target_7168 "$WS/$dump" "$mode" "$value") || coords=""
         [ -n "$coords" ] && break
+        # V5.0.8269 — Android can surface the battery background-run dialog
+        # AFTER the post-start snapshot (8269 smoke: com.android.settings
+        # covered Stop bot for all 9 polls). Dismiss ONLY this known OS
+        # permission dialog through its actual UI control, then re-observe
+        # the requested app action. This must never fabricate a UI receipt.
+        if grep -q 'text="Let app always run in background?"' "$WS/$dump" 2>/dev/null; then
+            local allowCoords=""
+            allowCoords=$(ui_find_target_7168 "$WS/$dump" text "Allow") || allowCoords=""
+            if [ -n "$allowCoords" ]; then
+                echo "Android background-run permission prompt overlay; accepting real platform UI"
+                adb shell input tap $allowCoords
+                sleep 2
+                continue
+            fi
+        fi
         [ "$SECONDS" -ge "$deadline" ] && break
         sleep 2
     done
