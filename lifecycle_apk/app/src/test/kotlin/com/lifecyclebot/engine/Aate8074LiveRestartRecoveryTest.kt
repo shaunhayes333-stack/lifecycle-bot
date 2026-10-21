@@ -65,4 +65,19 @@ class Aate8074LiveRestartRecoveryTest {
         assertTrue(source.contains("WalletTokenReadGate8268.finish(publicKeyB58"))
     }
 
+    @Test fun knownMintFallbackCannotStartSixWorkersPerFailingCaller() {
+        val owner = "fallback-8268-test-" + System.nanoTime()
+        assertNull(WalletTokenReadGate8268.beginFallback(owner, 100L))
+        assertEquals("IN_FLIGHT", WalletTokenReadGate8268.beginFallback(owner, 101L))
+        WalletTokenReadGate8268.finishFallback(owner, success = false, nowMs = 100L)
+        assertEquals("BACKOFF", WalletTokenReadGate8268.beginFallback(owner, 2_099L))
+        assertNull(WalletTokenReadGate8268.beginFallback(owner, 2_100L))
+        WalletTokenReadGate8268.finishFallback(owner, success = true, nowMs = 2_100L)
+        assertEquals("BACKOFF", WalletTokenReadGate8268.beginFallback(owner, 7_099L))
+        assertNull(WalletTokenReadGate8268.beginFallback(owner, 7_100L))
+        WalletTokenReadGate8268.finishFallback(owner, success = true, nowMs = 7_100L)
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+            .contains("WalletTokenReadGate8268.beginFallback(publicKeyB58)"))
+    }
+
 }
