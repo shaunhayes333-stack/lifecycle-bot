@@ -2,7 +2,32 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8259–8266 (Oct 2026) — unlock the twelve; 8261 runtime repairs (ghost rows, capital demand, phantom catastrophe)
+## CURRENT: V5.0.8270–8275 (Oct 2026) — directive repairs on main (PR #64 merged); CI pending on 8271–8275
+- Main refreshed to 8268 and **PR #64 `repair/helius-first-8269` (32 commits) merged** (`2816605fa`); its one failing
+  test (`Aate8057CompoundingSizerTest`) now checks the resolver-never-enlarges + never-below-sealed-minimum shape.
+- 8270: §6/R8 **rotation lifecycle** `OpportunityRotation8098` RESERVED→SELL_PENDING→CAPITAL_CONFIRMED→
+  SUCCESSOR_REEVALUATION (+RETRY restores demand, EXPIRED); `rotations` counts confirmed capital only; Executor
+  reports the requestSell result; SellFinalizationCoordinator confirms capital on CLEARED. §4/R5 Executor
+  DEFER_SAFETY_PROOF is nonterminal bounded hydration (lease+claim released; DEFERRED_DATA after 3/5 min). §2/R2 no
+  `NATIVE_BOOK_8221` sentinel — only a fresh (≤10 min) READY verdict with a real setup identity
+  (`NATIVE_READY_8270:<reason>`). §5/R6 `formingStructure8270`: missing structure cannot witness a forming runner.
+- 8271: R2 `refusalSupersedes8271` (fresh refusal invalidates older READY; stale refusal cannot erase newer approval);
+  R5 FDG freeze UNKNOWN → `SAFETY_FREEZE_PROOF_PENDING_DEFER_8271` (not a pass); R6 hard stop precedes first-minute
+  grace; **R7 exit costs charged once** (`NetEdge8030.exitVariablePct8271`; fixture 0.000595 vs 0.000390); R13
+  behavioural ceiling/floor test.
+- 8272: R10 immutable five-minute executable target; revisions stored apart (`executableRevisedPct`,
+  `revisedAvailableAtMs`); decisive leak test. 8273: R1 supply ladder selects unlocked rungs before the 3-attempt
+  budget, bounded elapsed, local decline retries in 10 s. 8274: R4 rehydrate gap 15 s (< 45 s TTL), queued admission =
+  PENDING; R9 Cortex cold capture freezes `ts.copy()` before the async voter read. 8275: rotation cooldown/expiry fix
+  after 8270 CI failure (Aate8094 leftover reservation).
+- **Not done** (stated, not hidden): R1 typed outcomes + demand priority, R3 DIP/EXPRESS/mandate parity, R4 removal-path
+  centralisation, R7 held-quote worker priority, R8 demand payload (version/capital/economics) and victim ranking by
+  plan, R9 three-state eligibility, R11 atomic model commits/migration, R12 RewardPurity export, §9/17 twelve-lane
+  production-orchestration fixtures, ANR/bootstrap, APK SHA256 witness. Candle/tape holes: the uploaded snapshot
+  (842 lines) lacks the `PumpPortal WS (§7280)`, `features8169[...]`, `shapeRepair{}` lines — only 26 keyed trade
+  subscriptions all session; need the full snapshot to trace.
+
+## V5.0.8259–8266 (Oct 2026) — unlock the twelve; 8261 runtime repairs (ghost rows, capital demand, phantom catastrophe)
 - **8261 runtime (1639 s, `runtime 69.txt`): six lanes now select owners** (QUALITY, BLUECHIP, SHITCOIN, EXPRESS,
   MOONSHOT, MANIPULATED); 26 exec-gate allows, 6 open, 9 session closes (most MANUAL by the operator); wallet 0.0263 SOL
   → ROUTABLE_CAPACITY=REFUSE between buys. Live labels n=22 E=−1.4 % wr 18 %: entries die in 40–60 s (GOMO catastrophic
