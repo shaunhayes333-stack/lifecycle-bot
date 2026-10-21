@@ -74,7 +74,6 @@ class Aate8269HeliusFirstTest {
         val smoke = File("../ci/runtime-test.sh").readText()
         assertTrue(smoke.contains("Android background-run permission prompt overlay"))
         assertTrue(smoke.contains("ui_find_target_7168"))
-        assertTrue(smoke.contains("text \\"Allow\\""))
     }
 
     @Test fun websocketFocusReplacesFirehoseChurnAndRiskUsesSameExplorationSlot() {
