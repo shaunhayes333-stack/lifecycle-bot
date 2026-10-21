@@ -498,7 +498,7 @@ object LiveEdgeGate7877 {
             val admission8136 = candidateAdmission ?: try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion) } catch (_: Throwable) { null }
             resolvedAdmission = admission8136
             genericNative8211 = genericNativeClearsProvenOnly8211(admission8136)
-            when (admission8136?.terminal) {
+            when (RunnerDefer8297.terminalFor8297(ts, admission8136, nowMs)) {  // V5.0.8297 — a confirmed run passes an optional-only data defer
                 CandidateAdmission8136.Terminal8136.DEFER_DATA -> {
                     val d = admission8136
                     val missing = CandidateAdmission8136.missingOf8144(d)

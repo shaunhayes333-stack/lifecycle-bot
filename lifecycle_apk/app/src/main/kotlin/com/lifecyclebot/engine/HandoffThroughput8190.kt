@@ -211,7 +211,8 @@ object HandoffPriority8190 {
     private fun targets8190(nowMs: Long): List<Pair<String, Long>> {
         val tasks = try { HandoffReceiverTasks8153.pendingTargets8190(nowMs) } catch (_: Throwable) { emptyList() }
         val yields = try { SpecialistElection8136.openYieldMints8190().map { it to nowMs + 120_000L } } catch (_: Throwable) { emptyList() }
-        return tasks + yields
+        val tickets8297 = try { RunnerPlay8018.activeTicketTargets8297(nowMs) } catch (_: Throwable) { emptyList() }  // V5.0.8297 — a 3-min run ticket rides the next cycle
+        return tasks + yields + tickets8297
     }
 
     /**
