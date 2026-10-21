@@ -72,7 +72,8 @@ class EntryIdentityStore8136(private val maxEntries: Int = 800) {
     fun fillBlanks(positionId: String, setup: String, variant: String, entryStyle: String, exitPolicy: String) {
         val p = byPosition[positionId] ?: return
         val filled = p.copy(
-            exactSetup = p.exactSetup.ifBlank { setup },
+            // V5.0.8295 — a desk toolkit setup name is not the playbook setup the seal names (LaneSetupAttribution8295).
+            exactSetup = p.exactSetup.ifBlank { if (com.lifecyclebot.engine.cortex.LaneSetupAttribution8295.deskSetup8295(setup)) "" else setup },
             strategyVariant = p.strategyVariant.ifBlank { variant },
             entryStyle = p.entryStyle.ifBlank { entryStyle },
             exitPolicy = p.exitPolicy.ifBlank { exitPolicy },
