@@ -179,8 +179,8 @@ outlier-driven means, not as evidence that those lanes win.
   releases and the size actually steps up (12-25% tiers). This audit could not observe that path live.
 
 ## Validation
-- `bash /tmp/claude-0/val2.sh` prints only "validated". `pins.py` reports broken 0 except the two pins intentionally superseded
-  (marked "superseded by V5.0.8293" in `Aate8190HandoffThroughputTest` and `Aate8270DirectiveTest`, rewritten to hold against current
+- `bash /tmp/claude-0/val2.sh` prints only "validated". `pins.py` reports broken 0 after the three pins intentionally superseded
+  (marked "superseded by V5.0.8293" in `Aate8190HandoffThroughputTest`, `Aate8270DirectiveTest` and `Aate7796SpecialistHuntersTest`, rewritten to hold against current
   source).
 - New tests are in `Aate8293HunterAuditTest`, covering:
   - native mandates (EXPRESS, MOONSHOT, MANIPULATED);
