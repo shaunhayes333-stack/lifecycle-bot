@@ -39,6 +39,28 @@ class CortexCalibration7901 {
             val s = cov / varD
             return if (s.isFinite()) s.coerceIn(0.0, MAX_SLOPE) else 1.0
         }
+
+        /**
+         * V5.0.8291 — 5.0.8286 read slope=1.00 on every lane at n=26..84: calibration WAS learning, but [centredSlope8169]
+         * returns identity below [MIN_N] (100 decayed grades; the 0.995 decay caps a lane near 200), so an over-confident
+         * Cortex was read at face value for its first hundred grades — and 1.00 passed every "slope >= 0.5" consistency check.
+         * From [EARLY_MIN_N_8291] grades the measured slope is phased in linearly to full weight at [MIN_N], and before
+         * [MIN_N] it may only SHRINK (an early stretch above 1 is not trusted). Unchanged at and above [MIN_N].
+         */
+        const val EARLY_MIN_N_8291 = 20.0
+
+        /** Pure (V5.0.8291): the slope of decayed sums with the early, shrink-only phase-in. */
+        fun earlySlope8291(n: Double, sd: Double, sdd: Double, sy: Double, sdy: Double): Double {
+            if (!n.isFinite() || n < EARLY_MIN_N_8291) return 1.0
+            if (n >= MIN_N) return centredSlope8169(n, sd, sdd, sy, sdy)
+            if (!sd.isFinite() || !sdd.isFinite() || !sy.isFinite() || !sdy.isFinite()) return 1.0
+            val varD = sdd - sd * sd / n
+            if (!(varD > 1e-9 * kotlin.math.max(1.0, sdd))) return 1.0
+            val raw = (sdy - sd * sy / n) / varD
+            if (!raw.isFinite()) return 1.0
+            val w = ((n - EARLY_MIN_N_8291) / (MIN_N - EARLY_MIN_N_8291)).coerceIn(0.0, 1.0)
+            return (1.0 + w * (raw.coerceIn(0.0, 1.0) - 1.0)).coerceIn(0.0, 1.0)
+        }
     }
 
     private class Reg { var n = 0.0; var sd = 0.0; var sdd = 0.0; var sy = 0.0; var sdy = 0.0 }
@@ -47,8 +69,11 @@ class CortexCalibration7901 {
 
     fun slope(lane: String): Double {
         val r = lanes[lane] ?: return 1.0
-        return centredSlope8169(r.n, r.sd, r.sdd, r.sy, r.sdy)
+        return earlySlope8291(r.n, r.sd, r.sdd, r.sy, r.sdy)
     }
+
+    /** V5.0.8291 — "id" while a lane reads identity for want of grades, so 1.00 is never mistaken for a measured slope. */
+    fun measured8291(lane: String): Boolean = (lanes[lane]?.n ?: 0.0) >= EARLY_MIN_N_8291
 
     /** The calibrated edge for a raw fused edge around [laneMean]. */
     fun calibrate(lane: String, rawEdge: Double, laneMean: Double): Double =
@@ -79,5 +104,5 @@ class CortexCalibration7901 {
     }
 
     fun line(): String = lanes.entries.filter { it.value.n >= 1.0 }.sortedByDescending { it.value.n }.take(8)
-        .joinToString(",") { "${it.key}:${"%.2f".format(slope(it.key))}(n${it.value.n.toInt()})" }.ifBlank { "-" }
+        .joinToString(",") { "${it.key}:${"%.2f".format(slope(it.key))}${if (measured8291(it.key)) "" else "id"}(n${it.value.n.toInt()})" }.ifBlank { "-" }
 }
