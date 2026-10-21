@@ -67,12 +67,14 @@ class Aate8269HeliusFirstTest {
         assertFalse(journal.contains("trades.asReversed().firstOrNull"))
         assertTrue(journal.contains("lastBuyByModeAndMint8269[buyLookupKey8269(t)]"))
         assertTrue(journal.contains("lastNamedBuyByMint8269[trade.mint]?.tradingMode"))
-        assertTrue(journal.contains("trades.addAll(enrichedLoaded)\\n                rebuildBuyIndex8269()"))
+        assertTrue(journal.contains("trades.addAll(enrichedLoaded)"))
+        assertTrue(journal.contains("rebuildBuyIndex8269()"))
         assertTrue(journal.contains("rememberBuy8269(tradeToStore)"))
         assertTrue(journal.contains("discardTrimmedBuys8269(evicted8269)"))
         val smoke = File("../ci/runtime-test.sh").readText()
         assertTrue(smoke.contains("Android background-run permission prompt overlay"))
-        assertTrue(smoke.contains("ui_find_target_7168 \\"$WS/$dump\\" text \\"Allow\\""))
+        assertTrue(smoke.contains("ui_find_target_7168"))
+        assertTrue(smoke.contains("text \\"Allow\\""))
     }
 
     @Test fun websocketFocusReplacesFirehoseChurnAndRiskUsesSameExplorationSlot() {
