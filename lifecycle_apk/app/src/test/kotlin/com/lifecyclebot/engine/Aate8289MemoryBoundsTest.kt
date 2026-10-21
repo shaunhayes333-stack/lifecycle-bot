@@ -203,7 +203,9 @@ class Aate8289MemoryBoundsTest {
                 "LIVE|MintAbc|", "|MintAbc|L|2", "LIVE|Other|MintAbc|2", "")) {
             assertEquals(k, k.substringAfter('|').startsWith("$m|"), CandidateAdmission8136.memoForMint8289(k, m))
         }
-        assertFalse(src("engine/truth/CandidateAdmission8136.kt").contains("memos8153.keys.removeIf { it.substringAfter('|')"))
+        val admission = src("engine/truth/CandidateAdmission8136.kt")
+        assertFalse(admission.contains("memos8153.keys.removeIf { it.substringAfter('|')"))
+        assertTrue(admission.contains("memos8153.keys.removeIf { memoForMint8289(it, mint) }"))
         assertTrue(src("engine/truth/StrategyElection8243.kt").contains("memos8243.keys.removeIf { it.startsWith(prefix8289) }"))
     }
 
