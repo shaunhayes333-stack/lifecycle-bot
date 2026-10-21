@@ -111,6 +111,8 @@ object WhaleDetector {
     fun recordTrade(mint: String, wallet: String, solAmount: Double, isBuy: Boolean) {
         val now = System.currentTimeMillis()
         if (mint.isNotBlank() && solAmount.isFinite() && solAmount > 0.0) {
+            // V5.0.8289 — clearToken is never called: without this every mint ever traded kept its last 90 s queue.
+            if (!launchTrades7401.containsKey(mint) && launchTrades7401.size >= LAUNCH_TAPE_CAP_8289) boundLaunchTapes8289(now, LAUNCH_TAPE_CAP_8289)
             val q = launchTrades7401.getOrPut(mint) { java.util.ArrayDeque() }
             synchronized(q) {
                 q.addLast(LaunchTrade(now, wallet, solAmount, isBuy))
@@ -121,6 +123,7 @@ object WhaleDetector {
         if (!isBuy || solAmount < MIN_SIGNIFICANT_SOL) return
 
         // Track wallet buy frequency
+        if (!walletBuyCount.containsKey(mint) && walletBuyCount.size >= WHALE_BOOK_MINTS_8289) pruneWhaleBooks8289(now)  // V5.0.8289
         val walletMap = walletBuyCount.getOrPut(mint) { mutableMapOf() }
         walletMap[wallet] = (walletMap[wallet] ?: 0) + 1
 
@@ -267,6 +270,53 @@ object WhaleDetector {
             top3BuyerSharePct60s = top3BuyerShare7450,
             repeatBuyerWallets60s = repeatBuyerWallets7450,
         )
+    }
+
+    // ── V5.0.8289 — bounds, memory census and pressure trim (MemoryGuard7977 registry) ──
+    const val LAUNCH_TAPE_CAP_8289 = 8_192
+    const val WHALE_BOOK_MINTS_8289 = 2_000
+    /** One retained [LaunchTrade] (row + its parsed wallet string + deque slot). */
+    const val LAUNCH_TRADE_BYTES_8289 = 136L
+
+    /**
+     * Launch queues past the 90 s window are unreadable (launchFlow7401 drops those rows first): they go; if the map is
+     * still over [cap], the queues whose newest trade is oldest go down to 90% of it. Returns queues removed.
+     */
+    fun boundLaunchTapes8289(nowMs: Long, cap: Int): Int {
+        val before = launchTrades7401.size
+        try { launchTrades7401.entries.removeIf { e -> synchronized(e.value) { (e.value.peekLast()?.ts ?: 0L) < nowMs - 90_000L } } } catch (_: Throwable) {}
+        if (launchTrades7401.size >= cap) {
+            val rows = launchTrades7401.entries.map { e -> e.key to synchronized(e.value) { e.value.peekLast()?.ts ?: 0L } }
+            for ((m, _) in rows.sortedBy { it.second }.take((launchTrades7401.size - cap * 9 / 10).coerceAtLeast(0))) launchTrades7401.remove(m)
+        }
+        return (before - launchTrades7401.size).coerceAtLeast(0)
+    }
+
+    /** Writer path only (the whale books are plain maps): mints with no significant buy in 30 min leave both books. */
+    private fun pruneWhaleBooks8289(nowMs: Long) {
+        try {
+            val cutoff = nowMs - 30L * 60_000L
+            val idle = recentLargeBuys.entries.filter { e -> e.value.none { it.ts >= cutoff } }.map { it.key }.toHashSet()
+            val drop = walletBuyCount.keys.filter { it in idle || !recentLargeBuys.containsKey(it) }
+            for (m in drop) { walletBuyCount.remove(m); recentLargeBuys.remove(m) }
+            for (m in idle) recentLargeBuys.remove(m)
+            // A burst of fresh mints: the ones whose newest significant buy is oldest go, down to 90% of the cap.
+            if (walletBuyCount.size >= WHALE_BOOK_MINTS_8289) {
+                val newest = walletBuyCount.keys.map { m -> m to (recentLargeBuys[m]?.maxOfOrNull { it.ts } ?: 0L) }
+                for ((m, _) in newest.sortedBy { it.second }.take(walletBuyCount.size - WHALE_BOOK_MINTS_8289 * 9 / 10)) {
+                    walletBuyCount.remove(m); recentLargeBuys.remove(m)
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    internal fun whaleBookMints8289(): Int = walletBuyCount.size
+
+    fun launchTapeMints8289(): Int = launchTrades7401.size
+    fun estBytes8289(): Long {
+        var rows = 0L
+        for (q in launchTrades7401.values) rows += synchronized(q) { q.size }
+        return rows * LAUNCH_TRADE_BYTES_8289 + launchTrades7401.size * 96L
     }
 
     fun clearToken(mint: String) {

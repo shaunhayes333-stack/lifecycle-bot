@@ -225,7 +225,7 @@ object HeliusSwapCandles7819 {
         val last = localTapeAt8284[mint] ?: 0L
         if (nowMs - last in 0L until LOCAL_TAPE_GAP_MS_8284) return null
         localTapeAt8284[mint] = nowMs
-        if (localTapeAt8284.size > 4_000) localTapeAt8284.entries.removeIf { nowMs - it.value > 600_000L }
+        if (localTapeAt8284.size > 4_000) MemoryBounds8289.capByAge8289(localTapeAt8284, 4_000, 600_000L, nowMs) { it }  // V5.0.8289 — hard cap
         localTapeRuns8284.incrementAndGet()
         localTapeByReason8284.computeIfAbsent(reason) { AtomicLong(0L) }.incrementAndGet()
         val prints = try { TradeTape8100.prints8128(mint, nowMs, WINDOW_MS) } catch (_: Throwable) { emptyList() }

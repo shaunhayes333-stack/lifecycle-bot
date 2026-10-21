@@ -61,5 +61,21 @@ object FeatureFunnel8283 {
         return "funnel8283[$body overflow=${overflow.get()}]"
     }
 
+    // ── V5.0.8289 — memory census and pressure trim (MemoryGuard7977 registry) ──
+    fun seenCount8289(): Int = seen.size
+    /** One remembered "LANE|STAGE|mint" key (~70 chars) and its set node. */
+    fun estBytes8289(): Long = seen.size * 190L
+
+    /**
+     * CRITICAL pressure only: the remembered triples go (diagnostic: nothing decides on them). The per-stage counts stay;
+     * a mint seen again afterwards is counted again, so after a critical trim the unique counts are an upper bound.
+     */
+    fun trim8289(critical: Boolean): Int {
+        if (!critical) return 0
+        val n = seen.size
+        seen.clear()
+        return n
+    }
+
     internal fun clearForTest8283() { seen.clear(); counts.clear(); overflow.set(0L) }
 }

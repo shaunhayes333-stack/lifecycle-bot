@@ -219,7 +219,8 @@ object CandleCoverage8284 {
         val c = coverage8284(ts, nowMs, ageMs)[1]
         if (c == Coverage8284.MISSING || c == Coverage8284.PARTIAL) {
             needAt.putIfAbsent(ts.mint, nowMs)
-            if (needAt.size > MAX_TRACKED) needAt.entries.removeIf { nowMs - it.value > 3_600_000L }
+            // V5.0.8289 — hard cap: the 1 h TTL alone never held with more than 2,000 mints needing bars inside an hour.
+            if (needAt.size > MAX_TRACKED) MemoryBounds8289.capByAge8289(needAt, MAX_TRACKED, 3_600_000L, nowMs) { it }
         }
         return c
     }
@@ -248,6 +249,39 @@ object CandleCoverage8284 {
         val med = synchronized(ttfRecent) { ttfRecent.sorted().let { if (it.isEmpty()) 0L else it[it.size / 2] } }
         return "candles8284[merge{$src} store1m=${store1m.size}mints/${storeBars.get()}bars cov{$cov} " +
             "ttf1m{n=$n avgS=${if (n > 0) ttfSumMs.get() / n / 1000L else 0L} medS=${med / 1000L} maxS=${ttfMaxMs.get() / 1000L} waiting=${needAt.size}}]"
+    }
+
+    // ── V5.0.8289 — memory census and pressure trim (MemoryGuard7977 registry) ──
+    /** One [tags] entry (weak-reference node + its [Tag8284]); one stored 1 m [Candle] (as the token-row census counts it). */
+    private const val TAG_BYTES_8289 = 88L
+    const val BAR_BYTES_8289 = 108L
+
+    fun tagCount8289(): Int = tags.size
+    fun storeMints8289(): Int = store1m.size
+    internal fun needCount8289(): Int = needAt.size
+    fun storeBarCount8289(): Int {
+        var n = 0
+        for (q in store1m.values) n += synchronized(q) { q.size }
+        return n
+    }
+    fun estBytes8289(): Long = tagCount8289() * TAG_BYTES_8289 + storeBarCount8289() * BAR_BYTES_8289 +
+        (latest.size + needAt.size) * 120L
+
+    /**
+     * Pressure trim of the compatible 1 m store (coverage reads only its last 30 minutes): a store whose newest bar is
+     * older than 2 h always goes; under HARD an unprotected store quiet for 30 min, under CRITICAL every unprotected
+     * store. [tags] is weak (it empties with the candles that hold it) and is never trimmed here. Returns bars freed.
+     */
+    fun trim8289(hard: Boolean, critical: Boolean, nowMs: Long, protect: (String) -> Boolean): Int {
+        var freed = 0
+        for ((mint, q) in store1m.entries.toList()) {
+            val newest = synchronized(q) { q.lastOrNull()?.ts ?: 0L }
+            val stale = nowMs - newest > 2L * 3_600_000L
+            val drop = stale || (hard && (critical || nowMs - newest > 30L * 60_000L) && !(try { protect(mint) } catch (_: Throwable) { true }))
+            if (drop && store1m.remove(mint, q)) freed += synchronized(q) { q.size }
+        }
+        MemoryBounds8289.capByAge8289(needAt, if (hard) MAX_TRACKED / 4 else MAX_TRACKED, 3_600_000L, nowMs) { it }
+        return freed
     }
 
     internal fun resetForTest8284() {

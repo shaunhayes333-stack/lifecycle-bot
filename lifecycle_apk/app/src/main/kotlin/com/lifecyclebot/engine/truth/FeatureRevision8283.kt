@@ -56,7 +56,8 @@ object FeatureRevision8283 {
         val k = "$mint|${kind.name}"
         if (!throttleDue8286(throttleAt8286[k], nowMs)) return
         throttleAt8286[k] = nowMs
-        if (throttleAt8286.size > CAP_8283) throttleAt8286.entries.removeIf { nowMs - it.value > THROTTLE_MS_8286 }
+        // V5.0.8289 — hard cap (the 2 s TTL alone never held while every print kept its key fresh).
+        if (throttleAt8286.size > CAP_8283) MemoryBounds8289.capByAge8289(throttleAt8286, CAP_8283, THROTTLE_MS_8286, nowMs) { it }
         bump8283(mint, kind, nowMs)
     }
 
@@ -71,7 +72,7 @@ object FeatureRevision8283 {
             return
         }
         wakeAt[wk] = nowMs
-        if (wakeAt.size > CAP_8283) wakeAt.entries.removeIf { nowMs - it.value > WAKE_COALESCE_MS_8283 }
+        if (wakeAt.size > CAP_8283) MemoryBounds8289.capByAge8289(wakeAt, CAP_8283, WAKE_COALESCE_MS_8283, nowMs) { it }  // V5.0.8289 — hard cap
         // One path for every producer: evidenceArrived8252 advances this revision and wakes the held defers.
         CandidateAdmission8136.evidenceArrived8252(mint, featuresOf8283(kind), nowMs, setOf(kind))
     }
@@ -183,6 +184,23 @@ object FeatureRevision8283 {
         return "featureRev8283[mints=${revs.size} advanced=${advanced.get()} byKind{$kinds} coalesced=${coalesced.get()} " +
             "sweepRows=${sweepRows.get()} cacheInvalidatedAfterEvidence=${invalidations.get()} " +
             "defersResolved=${deferResolved.get()} recoveredAfterEvidence=${deferRecovered.get()}]"
+    }
+
+    // ── V5.0.8289 — memory census and pressure trim (MemoryGuard7977 registry) ──
+    fun storeCount8289(): Int = revs.size + wakeAt.size + throttleAt8286.size
+    /** A revision row (mint key, [Rev8283], its per-kind array, map node) ~200 B; a "mint|KIND" stamp ~150 B. */
+    fun estBytes8289(): Long = revs.size * 200L + (wakeAt.size + throttleAt8286.size) * 150L
+
+    /**
+     * Pressure trim, expired entries only: a wake stamp past its coalesce window and a throttle stamp past its throttle
+     * window decide nothing any more; under HARD a revision untouched for [KEEP_MS_8283] goes (the cap's own rule).
+     */
+    fun trim8289(hard: Boolean, nowMs: Long): Int {
+        val before = storeCount8289()
+        wakeAt.entries.removeIf { nowMs - it.value > WAKE_COALESCE_MS_8283 }
+        throttleAt8286.entries.removeIf { nowMs - it.value > THROTTLE_MS_8286 }
+        if (hard) revs.entries.removeIf { nowMs - it.value.atMs > KEEP_MS_8283 }
+        return (before - storeCount8289()).coerceAtLeast(0)
     }
 
     internal fun clearForTest8283() {

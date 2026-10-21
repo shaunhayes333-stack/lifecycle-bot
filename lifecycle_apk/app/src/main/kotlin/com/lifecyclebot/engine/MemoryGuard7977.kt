@@ -339,6 +339,48 @@ object MemoryGuard7977 {
         r.register8144("nativeSnapshots", 3_072L, { SpecialistBrainBridge7542.snapshotCount8169() }, { _ -> SpecialistBrainBridge7542.pruneUnreadable8169() })
         r.register8144("deskSheets", 4_096L, { ToolkitSignalSheet.sheetCount8169() }, { _ -> ToolkitSignalSheet.pruneIdleSheets8169() })
         r.register8144("bundleAnalyses", 768L, { BundleDetector.cacheCount8169() }, { _ -> BundleDetector.pruneStale8169() })
+        registerStores8289(r)  // V5.0.8289
+    }
+
+    /**
+     * V5.0.8289 — the 8283-8286 data stores the census did not know (8286: censusMb=63 unattributedMb=448 at 511/512 MB):
+     * the provenance trade tape and its signature window, the candle-quality tags and compatible 1 m store, the feature
+     * revision / funnel books, the admission decision caches, the provider lane queue, the DexScreener pool book, the
+     * launch-flow tapes and the voter caches. Each counts, estimates its retained bytes, and trims under pressure what no
+     * reader can be served (open positions, active admissions and wallet-tracked mints keep their tapes).
+     */
+    private fun registerStores8289(r: MemoryRegistry8144) {
+        val hard = { p: RetentionPolicy8136.Pressure -> p == RetentionPolicy8136.Pressure.HARD || p == RetentionPolicy8136.Pressure.CRITICAL }
+        val critical = { p: RetentionPolicy8136.Pressure -> p == RetentionPolicy8136.Pressure.CRITICAL }
+        r.register8144("tradeTape8289", com.lifecyclebot.engine.truth.TradeTape8100.TRADE_BYTES_8289, { com.lifecyclebot.engine.truth.TradeTape8100.tradeCount8289() }, { p ->
+            val now = System.currentTimeMillis()
+            com.lifecyclebot.engine.truth.TradeTape8100.trim8289(hard(p), critical(p), now) { m -> tapeProtected8144(m, now) }
+        }) { com.lifecyclebot.engine.truth.TradeTape8100.estBytes8289() }
+        r.register8144("candleCoverage8289", com.lifecyclebot.engine.truth.CandleCoverage8284.BAR_BYTES_8289, { com.lifecyclebot.engine.truth.CandleCoverage8284.storeBarCount8289() }, { p ->
+            val now = System.currentTimeMillis()
+            com.lifecyclebot.engine.truth.CandleCoverage8284.trim8289(hard(p), critical(p), now) { m -> tapeProtected8144(m, now) }
+        }) { com.lifecyclebot.engine.truth.CandleCoverage8284.estBytes8289() }
+        r.register8144("featureRevision8289", 170L, { com.lifecyclebot.engine.truth.FeatureRevision8283.storeCount8289() }, { p ->
+            com.lifecyclebot.engine.truth.FeatureRevision8283.trim8289(hard(p), System.currentTimeMillis())
+        }) { com.lifecyclebot.engine.truth.FeatureRevision8283.estBytes8289() }
+        r.register8144("featureFunnel8289", 190L, { com.lifecyclebot.engine.truth.FeatureFunnel8283.seenCount8289() }, { p ->
+            com.lifecyclebot.engine.truth.FeatureFunnel8283.trim8289(critical(p))
+        }) { com.lifecyclebot.engine.truth.FeatureFunnel8283.estBytes8289() }
+        r.register8144("admissionDecisions8289", com.lifecyclebot.engine.truth.CandidateAdmission8136.DECISION_BYTES_8289,
+            { com.lifecyclebot.engine.truth.CandidateAdmission8136.decisionCacheCount8289() },
+            { _ -> com.lifecyclebot.engine.truth.CandidateAdmission8136.trim8289(System.currentTimeMillis()) }) {
+            com.lifecyclebot.engine.truth.CandidateAdmission8136.estBytes8289()
+        }
+        r.register8144("providerLanes8289", 160L, { ProviderLanes8285.pendingTotal8289() }, { _ -> ProviderLanes8285.trim8289(System.currentTimeMillis()) })
+        r.register8144("dexPools8289", 420L, { com.lifecyclebot.network.DexPools8285.mintCount8289() }, { p ->
+            com.lifecyclebot.network.DexPools8285.trim8289(if (hard(p)) 30L * 60_000L else 2L * 3_600_000L, System.currentTimeMillis())
+        }) { com.lifecyclebot.network.DexPools8285.estBytes8289() }
+        r.register8144("launchTapes8289", WhaleDetector.LAUNCH_TRADE_BYTES_8289, { WhaleDetector.launchTapeMints8289() }, { p ->
+            WhaleDetector.boundLaunchTapes8289(System.currentTimeMillis(), if (hard(p)) WhaleDetector.LAUNCH_TAPE_CAP_8289 / 4 else WhaleDetector.LAUNCH_TAPE_CAP_8289)
+        }) { WhaleDetector.estBytes8289() }
+        r.register8144("voterCaches8289", 150L, { com.lifecyclebot.engine.cortex.CortexVoters7885.cacheCount8289() }, { _ ->
+            com.lifecyclebot.engine.cortex.CortexVoters7885.trim8289(System.currentTimeMillis())
+        }) { com.lifecyclebot.engine.cortex.CortexVoters7885.estBytes8289() }
     }
 
     /**

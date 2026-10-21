@@ -228,8 +228,23 @@ object ProviderLanes8285 {
             // Bounded: the oldest bulk requests leave first; held / near-decision requests are never evicted for space.
             pending.entries.filter { it.value.prio == Prio8285.BULK }.sortedBy { it.value.atMs }
                 .take(pending.size - CAP_8285).forEach { pending.remove(it.key) }
+            // V5.0.8289 — hard cap: a request nobody drained for [PENDING_TTL_MS_8289] (any priority) is stale, and past
+            // twice the cap the oldest go whatever their priority (a lane whose drain never runs cannot grow without bound).
+            com.lifecyclebot.engine.truth.MemoryBounds8289.capByAge8289(pending, CAP_8285 * 2, PENDING_TTL_MS_8289, nowMs) { it.atMs }
         }
         return true
+    }
+
+    private const val PENDING_TTL_MS_8289 = 10L * 60_000L
+
+    /** V5.0.8289 — memory census: pending requests (key ~90 chars + [Pending8285] + node). */
+    fun pendingTotal8289(): Int = pending.size
+
+    /** V5.0.8289 — pressure trim: pending requests older than [PENDING_TTL_MS_8289] (any priority). Returns removed. */
+    fun trim8289(nowMs: Long = System.currentTimeMillis()): Int {
+        val before = pending.size
+        pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS_8289 }
+        return (before - pending.size).coerceAtLeast(0)
     }
 
     /** Take up to [max] pending keys of [provider]/[kind], highest priority first, oldest first within a priority. */

@@ -82,14 +82,17 @@ object TradeTape8100 {
                 return false
             }
             lastSigned8285["$src|$mint"] = recvMs
-            if (lastSigned8285.size > 8_000) lastSigned8285.entries.removeIf { recvMs - it.value > 10L * 60_000L }
+            // V5.0.8289 — hard cap: the 10 min TTL alone never held while every key was fresh.
+            if (lastSigned8285.size > 8_000) MemoryBounds8289.capByAge8289(lastSigned8285, 8_000, 10L * 60_000L, recvMs) { it }
         } else unsigned8285.incrementAndGet()
         val eventKnown = eventMs > 0L && eventMs <= recvMs + 5_000L
         val at = if (eventKnown) eventMs else recvMs
         if (eventKnown) noteLatency8285(src, (recvMs - eventMs).coerceAtLeast(0L))
         else noEventTs8285.computeIfAbsent(src) { AtomicLong(0) }.incrementAndGet()
-        val t = Trade(at, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy, source = src,
-            pool = poolKey8285(src, pool), signature = sig, recvMs = recvMs,
+        // V5.0.8289 — the signature's work is done by [seenSig8285] (nothing reads Trade.signature): the tape keeps no
+        // per-trade copy of it, and the venue / feed strings are shared instances instead of one parsed copy per print.
+        val t = Trade(at, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy, source = MemoryBounds8289.intern8289(src),
+            pool = MemoryBounds8289.intern8289(poolKey8285(src, pool)), signature = "", recvMs = recvMs,
             tokenQty = if (tokenQty.isFinite() && tokenQty > 0.0) tokenQty else 0.0)
         add8169(mint, t, at, src)
         return true
@@ -328,6 +331,51 @@ object TradeTape8100 {
             "dupCrossFeed=${crossFeedDup8285.get()} dupSameFeed=${sameFeedDup8285.get()} unsigned=${unsigned8285.get()} " +
             "venueSplitReads=${venueSplitReads8285.get()} latency{${latencyLine8285()}} noEventTs{" +
             noEventTs8285.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}]"
+
+    // ── V5.0.8289 — memory census and pressure trim (MemoryGuard7977 registry) ──
+    /** ART bytes of one retained [Trade] (header, 5 longs/doubles, 3 flags, 3 shared refs, the deque slot). */
+    const val TRADE_BYTES_8289 = 72L
+    /** One [seenSig8285] entry: the "mint|signature|side" key (~140 chars) and its LinkedHashMap node. */
+    private const val SEEN_SIG_BYTES_8289 = 230L
+
+    fun tapeMints8289(): Int = tapes.size
+    fun tradeCount8289(): Int {
+        var n = 0
+        for (q in tapes.values) n += synchronized(q) { q.size }
+        return n
+    }
+    fun seenSigCount8289(): Int = seenSig8285.size
+    internal fun lastSignedCount8289(): Int = lastSigned8285.size
+
+    /** Census estimate: retained trades, the signature dedup window, the per-feed signed stamps and the tape headers. */
+    fun estBytes8289(): Long = tradeCount8289() * TRADE_BYTES_8289 + seenSigCount8289() * SEEN_SIG_BYTES_8289 +
+        lastSigned8285.size * 140L + tapes.size * 120L
+
+    /**
+     * Pressure trim. Always: a tape whose newest print is older than [KEEP_MS] (nothing reads it). HARD: unprotected
+     * tapes quiet for 10 min go, every other unprotected tape keeps its newest 400 prints, the signature window keeps
+     * its newest 10,000. CRITICAL: at most 150 unprotected tapes (most recent first) of 200 prints, 5,000 signatures.
+     * [protect] (an open position, an active admission, a wallet-tracked mint) keeps its tape whole. Returns prints freed.
+     */
+    fun trim8289(hard: Boolean, critical: Boolean, nowMs: Long, protect: (String) -> Boolean): Int {
+        var freed = 0
+        val keepPrints = if (critical) 200 else 400
+        val quietMs = 10L * 60_000L
+        val rows = tapes.entries.map { e -> Triple(e.key, e.value, synchronized(e.value) { e.value.lastOrNull()?.atMs ?: 0L }) }
+        var unprotectedKept = 0
+        for ((mint, q, newest) in rows.sortedByDescending { it.third }) {
+            val stale = nowMs - newest > KEEP_MS
+            val isProtected = !stale && (try { protect(mint) } catch (_: Throwable) { true })
+            val drop = stale || (!isProtected && hard && (nowMs - newest > quietMs || (critical && unprotectedKept >= 150)))
+            if (drop) { if (tapes.remove(mint, q)) freed += synchronized(q) { q.size }; continue }
+            if (isProtected || !hard) continue
+            unprotectedKept++
+            synchronized(q) { while (q.size > keepPrints) { q.removeFirst(); freed++ } }
+        }
+        if (hard) MemoryBounds8289.trimEldest8289(seenSig8285, if (critical) 5_000 else 10_000)
+        MemoryBounds8289.capByAge8289(lastSigned8285, if (hard) 2_000 else 8_000, 10L * 60_000L, nowMs) { it }
+        return freed
+    }
 
     internal fun resetForTest8100() {
         tapes.clear(); notes.set(0); reads.set(0); filled.set(0); bySource8169.clear()

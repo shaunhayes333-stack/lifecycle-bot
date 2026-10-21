@@ -42,7 +42,8 @@ object StrategyElection8243 {
     private val memos8243 = ConcurrentHashMap<String, Memo8243>()
 
     fun invalidateEvidence(mint: String) {
-        memos8243.keys.removeIf { it.startsWith("$mint|") }
+        val prefix8289 = "$mint|"  // V5.0.8289 — one prefix per call (the template allocated a string per memo key)
+        memos8243.keys.removeIf { it.startsWith(prefix8289) }
     }
 
     /** Pure: the election tier of [v] (null = no read = unjudged). */

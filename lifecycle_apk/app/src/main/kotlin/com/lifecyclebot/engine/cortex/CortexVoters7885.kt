@@ -574,6 +574,19 @@ object CortexVoters7885 {
         } catch (_: Throwable) { refreshQueued8187.remove(key); refreshDropped8187.incrementAndGet() }
     }
 
+    // ── V5.0.8289 — memory census and pressure trim (MemoryGuard7977 registry) ──
+    /** Cached voter reads (key "i|mint|lane" ~60 chars + [CachedRead8187] + node) and per-coin memos (each pins a TokenState). */
+    fun cacheCount8289(): Int = voterCache8187.size + memo8169.size
+    fun estBytes8289(): Long = voterCache8187.size * 150L + memo8169.size * (64L + ALL.size * 8L)
+
+    /** Pressure trim: cached reads no longer fresh (never served) and per-coin memos past [MEMO_MS_8169] (never reused). */
+    fun trim8289(nowMs: Long = System.currentTimeMillis()): Int {
+        val before = cacheCount8289()
+        voterCache8187.entries.removeIf { !cacheFresh8187(it.value.atMs, nowMs) }
+        memo8169.entries.removeIf { nowMs - it.value.wallMs > MEMO_MS_8169 }
+        return (before - cacheCount8289()).coerceAtLeast(0)
+    }
+
     /** "budget8187[...]" for the compute line: cache-served reads, abstentions, dropped refreshes. */
     fun budgetLine8187(): String = "budget8187[cacheServed=${cacheServed8187.get()} abstained=${budgetAbstained8187.get()} " +
         "refreshQueued=${refreshPool8187.queue.size} refreshDropped=${refreshDropped8187.get()} cached=${voterCache8187.size} budgetMs=${ASSESS_BUDGET_MS_8187.toInt()}]"

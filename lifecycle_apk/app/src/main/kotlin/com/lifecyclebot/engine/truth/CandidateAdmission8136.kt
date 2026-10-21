@@ -666,13 +666,16 @@ object CandidateAdmission8136 {
         // (LanePlaybook7907.inputKey8084), so the next evaluation rebuilds its setup classification on this evidence.
         FeatureRevision8283.advance8283(mint, kinds8283 ?: FeatureRevision8283.kindsOf8283(features), nowMs)
         // Both readers cache decisions; waking only the defer scheduler leaves stale elections in place.
-        memos8153.keys.removeIf { it.substringAfter('|').startsWith("$mint|") }
+        // V5.0.8289 — allocation-free match: substringAfter copied every memo key on every evidence bump (a few hundred a
+        // second since 8286's per-print bumps), a GC storm of its own.
+        memos8153.keys.removeIf { memoForMint8289(it, mint) }
         StrategyElection8243.invalidateEvidence(mint)
         com.lifecyclebot.engine.LaneExecutionCoordinator.invalidateUnsealedEvidence8253(mint)
         if (held8144.isEmpty()) return
         var woke = false
+        val prefix8289 = "$mint|"  // V5.0.8289 — one prefix per call, not one string per held entry
         for ((key, h) in held8144) {
-            if (!key.startsWith("$mint|")) continue
+            if (!key.startsWith(prefix8289)) continue
             for (f in h.features) {
                 if (f.substringBefore(':') !in features) continue
                 val rk = "$mint|$f"
@@ -684,6 +687,39 @@ object CandidateAdmission8136 {
         arrivalReevals8252.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EVIDENCE_ARRIVED_REEVAL_DUE_8252") } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint, nowMs) } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.8289 — pure, allocation-free: is memo key "mode|mint|lane|version" one of [mint]'s? Same rule as
+     * `key.substringAfter('|').startsWith("$mint|")` (a key without '|' is matched from its start).
+     */
+    internal fun memoForMint8289(key: String, mint: String): Boolean {
+        val i = key.indexOf('|')
+        val from = if (i < 0) 0 else i + 1
+        val end = from + mint.length
+        return key.length > end && key[end] == '|' && key.startsWith(mint, from)
+    }
+
+    // ── V5.0.8289 — memory census and pressure trim (MemoryGuard7977 registry) ──
+    /** A memo / held defer carries a whole [Candidate8136] (setups, timings, evidence) and its [Decision8136] trace. */
+    const val DECISION_BYTES_8289 = 3_072L
+
+    fun decisionCacheCount8289(): Int = memos8153.size + held8144.size
+    fun estBytes8289(): Long = decisionCacheCount8289() * DECISION_BYTES_8289 + snapshotPriors8223.size * 160L +
+        (reevals8144.size + defers8136.size + firstMissing8204.size) * 140L
+
+    /**
+     * Pressure trim, unservable entries only: a memo past [MEMO_MS_8153], a held defer past [REEVAL_MAX_MS_8144]
+     * (coalescedDefer8144 ignores it), a snapshot prior past [PRIOR_CARRY_MS_8223], a reevaluation schedule past the
+     * deferral reset. Nothing a reader can still be served is removed.
+     */
+    fun trim8289(nowMs: Long = System.currentTimeMillis()): Int {
+        val before = decisionCacheCount8289()
+        memos8153.entries.removeIf { nowMs - it.value.atMs > MEMO_MS_8153 }
+        held8144.entries.removeIf { nowMs - it.value.atMs > REEVAL_MAX_MS_8144 }
+        snapshotPriors8223.entries.removeIf { nowMs - it.value.atMs > PRIOR_CARRY_MS_8223 }
+        reevals8144.entries.removeIf { nowMs - it.value.dueMs > DEFER_RESET_MS_8136 }
+        return (before - decisionCacheCount8289()).coerceAtLeast(0)
     }
 
     /** Test seam: is the held defer's [feature] for [mint] due right now? */

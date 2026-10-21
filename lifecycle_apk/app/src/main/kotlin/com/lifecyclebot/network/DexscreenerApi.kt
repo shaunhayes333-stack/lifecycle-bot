@@ -647,6 +647,20 @@ object DexPools8285 {
     fun markChosen8285(mint: String, pair: String) {
         val prior = chosen.put(mint, pair)
         if (prior != null && prior != pair) switches8285.incrementAndGet()
+        if (chosen.size > MAX_MINTS_8285) chosen.keys.retainAll(pools.keys)  // V5.0.8289 — a chosen pool only for a mint still held
+    }
+
+    /** V5.0.8289 — memory census: mints, pool rows (~420 B each: pair / quote / mint / dex strings + row), chosen keys. */
+    fun mintCount8289(): Int = pools.size
+    internal fun chosenCount8289(): Int = chosen.size
+    fun estBytes8289(): Long = pools.values.sumOf { it.size } * 420L + chosen.size * 200L + pools.size * 96L
+
+    /** V5.0.8289 — pressure trim: rows not refreshed for [staleMs] (and mints left with none) go; chosen follows pools. */
+    fun trim8289(staleMs: Long, nowMs: Long = System.currentTimeMillis()): Int {
+        val before = pools.size
+        pools.entries.removeIf { e -> e.value.values.all { nowMs - it.atMs > staleMs } }
+        chosen.keys.retainAll(pools.keys)
+        return (before - pools.size).coerceAtLeast(0)
     }
 
     /** The data pool for [mint] now ([hint] = a pool the caller already trades / reads), or null when none is known. */
