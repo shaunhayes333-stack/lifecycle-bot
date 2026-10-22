@@ -267,7 +267,10 @@ object EntryEconomics8329 {
         val ts = if (mint.isNotBlank()) try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } else null
         val rec = if (ts != null) try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedRecord8153(ts, lane, null, nowMs) } catch (_: Throwable) { null } else null
         val early = ts != null && earlyRunner8329(ts, nowMs)
+        // The 8316 exploration slot (owner directive) is itself an explicit reason: a lane with no record yet earns its first
+        // labels through that one bounded order, so the promotion is not refused while the slot is free.
         val reason = promotionReason8329(requestedSol, promotedSol, rec?.getOrNull(0) ?: 0.0, rec?.getOrNull(1) ?: Double.NaN, early)
+            ?: (if (MinPromotion8188.explorationSlotFree8316(lane)) "EXPLORATION_SLOT_8316" else null)
         promoReasons8329.computeIfAbsent(reason ?: "UNSUPPORTED") { AtomicLong(0) }.incrementAndGet()
         if (reason != null) {
             labelInc("ROUTE_MIN_PROMOTION_REASON_8329_$reason")
