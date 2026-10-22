@@ -47,8 +47,11 @@ class Aate8253ForensicIntegrationTest {
         for (lane in lanes) {
             val missing = Admission.resolvedMissingInputs(listOf("liq:UNKNOWN", "liquidity:UNKNOWN", "shape:INVALID"), true)
             assertEquals(listOf("shape:INVALID"), missing)
+            // superseded by V5.0.8325 — a LIVE admit needs the chosen setup's own positive record too (liveLocalGuard8325); the
+            // optional-gap behaviour under test is unchanged.
             val c = Admission.Candidate8136("fixture-$lane", lane, "supported", live = true,
                 missingInputs = missing, priceAgeMs = 1_000L, expectedGrossPct = 30.0, costPct = 3.0,
+                setups = listOf(Admission.Evidence8136(Admission.KIND_SETUP, "supported", 60, 20.0, 2.0)),
                 cell = Admission.Evidence8136("CELL", "fixture", 60, 20.0, 2.0))
             assertEquals(lane, Admission.Terminal8136.ADMIT, Admission.decide8136(c).terminal)
             for (essential in listOf("route:UNKNOWN", "sellability:UNKNOWN", "decimals:UNKNOWN")) {
@@ -91,6 +94,7 @@ class Aate8253ForensicIntegrationTest {
             val decision = Admission.decide8136(Admission.Candidate8136("receiver-$lane", lane, "supported",
                 live = true, missingInputs = listOf("shape:UNKNOWN"), priceAgeMs = 1_000L,
                 expectedGrossPct = 30.0, costPct = 3.0,
+                setups = listOf(Admission.Evidence8136(Admission.KIND_SETUP, "supported", 60, 20.0, 2.0)),  // superseded by V5.0.8325 (liveLocalGuard8325)
                 cell = Admission.Evidence8136("CELL", "fixture", 60, 20.0, 2.0)))
             assertTrue(lane, ReceiverRecord8190.supportedAdmission8253(decision))
             assertNull(ReceiverRecord8190.verdict8190(true, ReceiverRecord8190.supportedAdmission8253(decision),

@@ -195,7 +195,8 @@ class Aate8153StrategyTest {
         val pb = src("engine/cortex/LanePlaybook7907.kt")
         val sel = pb.substringAfter("fun selectedSetup8094(").substringBefore("fun validAlternative8144(")
         assertTrue(sel.indexOf("admittedSetup8153(ts, laneRaw, nowMs)") in 0 until sel.indexOf("rankedSetup8153(ts, laneRaw, nowMs)"))
-        assertTrue(sel.indexOf("rankedSetup8153(ts, laneRaw, nowMs)") < sel.indexOf("provenSetup8056(ts, laneRaw, nowMs)"))
+        // superseded by V5.0.8326 — the 8114 legacy branch reads provenSetup8056 first; the current branch keeps admitted < ranked < proven
+        assertTrue(sel.indexOf("rankedSetup8153(ts, laneRaw, nowMs)") < sel.lastIndexOf("provenSetup8056(ts, laneRaw, nowMs)"))
         assertTrue(pb.contains("primaryTag8153(c, try { selectedSetup8094(ts, c.lane, nowMs) } catch (_: Throwable) { null })"))
         // superseded by V5.0.8326 — outside Entry8114Mode8326's legacy scope the strategy the coin trades as is still strategyFor8153
         assertTrue(pb.contains("c8084.tag else strategyFor8153(ts, lane, c8084, nowMs)) ?: return null"))
