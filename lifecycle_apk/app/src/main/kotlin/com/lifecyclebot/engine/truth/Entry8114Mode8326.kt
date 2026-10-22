@@ -119,9 +119,11 @@ object Entry8114Mode8326 {
         // V5.0.8336 — a lane with no paper proof does not trade live (EvidenceHold8336; null in PAPER).
         // In PAPER (rehearsal) the live-losing shut does not bind: a lane shut by its live closes re-earns live by its
         // paper record, so paper must keep trading it (8329's shut could otherwise never reopen).
+        // V5.0.8337 — the hold is consulted with the candidate: an exceptional runner opportunity (EvidenceHold8336.exceptional8336,
+        // every leg provable now) is taken live through the hold; hard safety / economics / sizing still bind downstream.
         val paper8336 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val realised = (if (paper8336) null else try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { null })
-            ?: try { EvidenceHold8336.refusal8336(l, paper8336, nowMs) } catch (_: Throwable) { null }
+            ?: try { EvidenceHold8336.refusal8336(ts, l, paper8336, nowMs) } catch (_: Throwable) { null }
         val final = finalVerdict8326(old.reason, now, realised)
         if (now != null && final == null) noteBypass8326(gateKey8326(now), l)
         if (old.reason != null && final == now && now != null && now != old.reason) try { PipelineHealthCollector.labelInc("ENTRY8114_CURRENT_HARD_REFUSAL_BINDS_8326_$l") } catch (_: Throwable) {}
