@@ -74,6 +74,26 @@ object LiveAdmissionProof8290 {
         return meanPct - seMult * sePct - extra > 0.0
     }
 
+    /**
+     * Pure (V5.0.8316): the LABEL side of the shortfall — the lane's admitted forward-label book read at its pessimistic
+     * winsorised mean under the 8185 cap, bounded by its median's sign. 8314: the robust mean (+215.6 % MOONSHOT, +45.4 %
+     * SHITCOIN) is a handful of runner labels; read against live closes cut by catastrophe stops within minutes it charged
+     * the exit doctrine to entry selection (MOONSHOT 55.9, SHITCOIN 42.8 pt). Only aggregates are kept (n, sum, sumSq,
+     * wins), so the median itself is not recoverable: [RobustLabelRead8185.lowerMean8185] is the smallest winsorised mean the
+     * aggregates allow, and a book with fewer than half its labels positive has a non-positive median, so its label side is
+     * at most 0. NaN without a record; the 60-pt cap ([MAX_SHORTFALL_PCT_8290]) is unchanged.
+     */
+    fun labelSide8316(n: Int, meanPct: Double, sePct: Double, winRate: Double, cap: Double = RobustLabelRead8185.CAP_LABEL_PCT_8185): Double {
+        if (n < 1 || !meanPct.isFinite()) return Double.NaN
+        val nd = n.toDouble()
+        val variance = if (sePct.isFinite() && n > 1) sePct * sePct * nd else 0.0
+        val sum = meanPct * nd
+        val sumSq = (variance + meanPct * meanPct) * nd
+        var side = minOf(meanPct, RobustLabelRead8185.lowerMean8185(nd, sum, sumSq, cap))
+        if (winRate.isFinite() && winRate < 0.5) side = minOf(side, 0.0)   // the median label is not positive
+        return side
+    }
+
     /** Pure: [e] read [extraPct] points lower (mean and late mean); the record itself when there is nothing to take off. */
     fun shift8290(e: CandidateAdmission8136.Evidence8136?, extraPct: Double): CandidateAdmission8136.Evidence8136? {
         if (e == null || !extraPct.isFinite() || extraPct <= 0.0) return e
@@ -119,11 +139,13 @@ object LiveAdmissionProof8290 {
             .map { it.coerceIn(-100.0, RobustLabelRead8185.CAP_LABEL_PCT_8185) }
         val realisedMean = if (closes.isNotEmpty()) closes.average() else Double.NaN
         val label = try { ForwardReturnLabeler7731.laneDecisionStats8094(lane).first } catch (_: Throwable) { null }
-        val sf = unpairedShortfall8290(label?.n60 ?: 0, label?.meanNet60Pct ?: Double.NaN, closes.size, realisedMean)
+        // V5.0.8316 — the label side is the admitted book's pessimistic winsorised mean bounded by its median's sign, not the robust mean.
+        val labelSide = if (label == null) Double.NaN else labelSide8316(label.n60, label.meanNet60Pct, label.stderr60Pct, label.winRate60, RobustLabelRead8185.capForKey8185(label.key))
+        val sf = unpairedShortfall8290(label?.n60 ?: 0, labelSide, closes.size, realisedMean)
         val off = try { com.lifecyclebot.engine.cortex.Cortex7885.executableOffset8187(lane) } catch (_: Throwable) { 0.0 }
         val extra = extraBeyondOffset8290(sf, off)
         return doubleArrayOf(nowMs.toDouble(), extra, sf, closes.size.toDouble(), realisedMean,
-            (label?.n60 ?: 0).toDouble(), label?.meanNet60Pct ?: Double.NaN, off)
+            (label?.n60 ?: 0).toDouble(), labelSide, off)
     }
 
     fun statusLine8290(): String {

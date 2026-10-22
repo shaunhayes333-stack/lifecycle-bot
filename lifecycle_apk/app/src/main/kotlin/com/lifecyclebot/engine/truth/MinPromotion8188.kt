@@ -62,10 +62,33 @@ object MinPromotion8188 {
         val budget = lossAtStopSol8188(if (budgetSol.isFinite() && budgetSol > requestedSol) budgetSol else requestedSol, stopPct, cReq)  // V5.0.8234
         val promotedLoss = lossAtStopSol8188(promotedSol, stopPct, costPromotedPct)
         if (!(promotedLoss <= budget * (1.0 + LOSS_TOLERANCE_8188) + 1e-12)) return REFUSED_LOSS_BUDGET_8188
-        if (!expectedGrossPct.isFinite() || !costPromotedPct.isFinite()) return REFUSED_UNMEASURED_EDGE_8188
+        if (!costPromotedPct.isFinite()) return REFUSED_UNMEASURED_EDGE_8188
+        // V5.0.8316 §AN_UNMEASURED_EDGE_IS_THE_EXPLORATION_ORDER — the expected gross is NaN whenever the setup reads
+        // DATA_INCOMPLETE / NO_TRIGGER (LanePlaybook7907.classifiedExpected7962): on a cold lane nothing is ever measured,
+        // so the lane could never place the order that measures it (8314: REFUSED_UNMEASURED_EDGE 784, QUALITY / BLUECHIP /
+        // CORE / CYCLIC / TREASURY ownerSelected 0). The lane's ONE exploration slot (LaneScoreAdmission7308: no open
+        // unproven live position in the lane, 5 min apart) takes the promoted order; a busy slot still refuses by name. The
+        // loss budget above and a MEASURED negative edge below still bind.
+        if (!expectedGrossPct.isFinite()) {
+            if (!explorationSlotFree) return REFUSED_UNMEASURED_EDGE_8188
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(UNMEASURED_EXPLORATION_SLOT_8316) } catch (_: Throwable) {}
+            return null
+        }
         if (expectedGrossPct - costPromotedPct <= 0.0) return REFUSED_NEGATIVE_EDGE_8188
         return null
     }
+
+    /** V5.0.8316 — counted when an unmeasured edge was promoted on the lane's free exploration slot. */
+    const val UNMEASURED_EXPLORATION_SLOT_8316 = "ROUTE_MIN_PROMOTION_UNMEASURED_EXPLORATION_SLOT_8316"
+
+    /**
+     * V5.0.8316 — the lane's exploration slot is free (LaneScoreAdmission7308.runnerSlotFreeNow: one unproven promoted live
+     * order per lane at a time). The upstream sizers (OrderSizeResolver6441 / SmartSizerV3) ask it beside their proven-edge
+     * tests; [runtimeRefusal8188] then re-asks it inside the promotion. Any fault reads as busy.
+     */
+    fun explorationSlotFree8316(lane: String): Boolean = try {
+        LaneScoreAdmission7308.runnerSlotFreeNow(LiveRiskPolicy7807.canonicalLane(lane))
+    } catch (_: Throwable) { false }
 
     /**
      * Runtime (the upstream sizers): the same test with the inputs LiveRiskPolicy7807.runtimeInputs would read — the
@@ -113,6 +136,8 @@ object MinPromotion8188 {
                 liveDrawdownFrac8188(), budgetSol8234, explorationSlotFree = explorationFree)
         } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 }
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
+        // V5.0.8316 — a promotion refusal is a refusal AT SIZE: the funnel shows "owner selected, refused at size" (SpecialistOwnership7951).
+        if (r != null) try { com.lifecyclebot.engine.SpecialistOwnership7951.onCapitalRefusal7951(lane, mint, r, postIntent = false) } catch (_: Throwable) {}
         return r
     }
 

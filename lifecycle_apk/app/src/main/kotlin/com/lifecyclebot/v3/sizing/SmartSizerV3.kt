@@ -522,7 +522,11 @@ class SmartSizerV3(
         // V5.0.8180 — a candidate CandidateAdmission8136 admitted on a specific proven edge has justified the routable
         // notional: it is promoted to the floor when the floor fits the concentration cap (LiveRiskPolicy7807 re-proves).
         // V5.0.8188 — and only when the promotion holds AT the floor (MinPromotion8188: loss budget, edge after cost, drawdown).
-        val admitted8180 = isLive && com.lifecyclebot.engine.truth.AdmissionEdge8180.admittedNow8198(false, candidate.mint, candidate.extraString("lane")) &&
+        // V5.0.8316 — or the lane's free exploration slot (MinPromotion8188.explorationSlotFree8316): the same exception as
+        // OrderSizeResolver6441 / MinPromotion8188, so a cold lane's one unproven order can reach the floor; runtimeRefusal8188
+        // still re-proves the loss budget AT the floor and LiveRiskPolicy7807 re-proves the open.
+        val admitted8180 = isLive && (com.lifecyclebot.engine.truth.AdmissionEdge8180.admittedNow8198(false, candidate.mint, candidate.extraString("lane")) ||
+            com.lifecyclebot.engine.truth.MinPromotion8188.explorationSlotFree8316(candidate.extraString("lane"))) &&
             (cappedSize >= liveFloorEff7697 || com.lifecyclebot.engine.truth.MinPromotion8188.runtimeRefusal8188(
                 candidate.mint, candidate.extraString("lane"), cappedSize, liveFloorEff7697, candidate.liquidityUsd) == null)
         val promoted8180 = com.lifecyclebot.engine.truth.AdmissionEdge8180.promote8180(admitted8180, cappedSize, liveFloorEff7697, minOf(safeShareCap7142, tradeable))
