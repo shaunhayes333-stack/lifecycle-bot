@@ -3197,6 +3197,7 @@ class BotService : Service() {
         serviceForegroundActive6487 = true
         android.util.Log.i("AATE_BOOTSTRAP", "SERVICE_ONCREATE_PHASE_7438 phase=FOREGROUND_READY")
         ensureRuntimeWakeLock6031("onCreate_after_startForeground")
+        try { com.lifecyclebot.engine.truth.EvidenceHold8336.init8336(applicationContext) } catch (_: Throwable) {}  // V5.0.8336
         ensureRuntimeWifiLock6032("onCreate_after_startForeground")
 
         try {
