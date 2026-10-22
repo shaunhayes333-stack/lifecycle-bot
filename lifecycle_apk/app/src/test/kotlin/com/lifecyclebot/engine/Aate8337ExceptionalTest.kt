@@ -107,6 +107,7 @@ class Aate8337ExceptionalTest {
         assertTrue("the legs are read now, not from labels or paper", hold.contains("RunnerGrab7967.grab7967(ts.mint, nowMs)") &&
             hold.contains("LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(mint, nowMs)") &&
             hold.contains("Cortex7885.assess(ts, lane, nowMs)") && hold.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
-        assertTrue("TradePlan keeps the mint-less call unchanged", src("engine/truth/TradePlan7739.kt").contains("EvidenceHold8336.refusal8336(lane, paper, nowMs)"))
+        // superseded by V5.0.8338 — TradePlan passes the TokenState, so the exception pass is read per mint, not per lane
+        assertTrue("TradePlan reads the hold per mint", src("engine/truth/TradePlan7739.kt").contains("EvidenceHold8336.refusal8336(ts, lane, paper, nowMs)"))
     }
 }
