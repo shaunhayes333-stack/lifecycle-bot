@@ -102,7 +102,7 @@ object ProtectiveBasisProof8308 {
         noted.incrementAndGet()
         try { PipelineHealthCollector.labelInc("PROTECTIVE_BUY_PROOF_RETRY_SCHEDULED_8308") } catch (_: Throwable) {}
         for (d in RETRY_DELAYS_MS_8308) try {
-            scheduler.schedule({ try { attempt8308(mint, BACKGROUND_VERIFY_MS_8308, "RETRY") } catch (_: Throwable) {} }, d, TimeUnit.MILLISECONDS)
+            scheduler.schedule(Runnable { try { attempt8308(mint, BACKGROUND_VERIFY_MS_8308, "RETRY") } catch (_: Throwable) {} }, d, TimeUnit.MILLISECONDS)
         } catch (_: Throwable) {}
     }
 
