@@ -242,8 +242,12 @@ object CanonicalPositionAuthority6441 {
 
     // ─── Position mutation gate ────────────────────────────────────────────
 
+    // V5.0.8336 — the ledger backstop follows the 8184 switch: while paper books trade beside LIVE (the default, as at
+    // 8114) the Markets / Crypto / mirror desks open their paper rows again. The meme executor's own paperBuy is still
+    // refused in LIVE by Executor (8216) and ExecutionRouteGuard (3725), exactly as at 8114.
     internal fun paperRefusedWhileLive8216(mode: String): Boolean =
-        mode == "paper" && try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+        mode == "paper" && com.lifecyclebot.engine.LiveNoPaper8184.enforced8184 &&
+            try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
 
     fun openPosition(
         idempotencyKey: String,

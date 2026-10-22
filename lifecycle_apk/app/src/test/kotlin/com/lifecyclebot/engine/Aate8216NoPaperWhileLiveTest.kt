@@ -8,9 +8,19 @@ import java.io.File
 
 /** 8216 — a LIVE runtime never opens a PAPER position (executor choke + ledger backstop). */
 class Aate8216NoPaperWhileLiveTest {
-    @After fun back() = RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = false)
+    @After fun back() {
+        RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = false)
+        LiveNoPaper8184.enforced8184 = false
+    }
+
+    @Test fun ledgerOpensPaperBesideLiveWhileFreezeOff8336() {
+        LiveNoPaper8184.enforced8184 = false
+        RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
+        assertFalse(CanonicalPositionAuthority6441.paperRefusedWhileLive8216("paper"))
+    }
 
     @Test fun ledgerRefusesPaperOpenOnlyWhileLive() {
+        LiveNoPaper8184.enforced8184 = true   // V5.0.8336 — the backstop binds only while the 8184 freeze is on
         RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
         assertTrue(RuntimeModeAuthority.isLive())
         assertTrue(CanonicalPositionAuthority6441.paperRefusedWhileLive8216("paper"))

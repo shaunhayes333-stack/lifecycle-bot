@@ -1431,6 +1431,7 @@ object PipelineHealthCollector {
                 .append("\n")
             // V5.0.8184 — paper refused while LIVE, by source; frozen / quietly closed paper positions.
             sb.append("  Live no-paper (§8184):        ").append(LiveNoPaper8184.statusLine8184()).append("\n")
+            try { sb.append("  Evidence hold (§8336):        ").append(com.lifecyclebot.engine.truth.EvidenceHold8336.statusLine8336()).append("\n") } catch (_: Throwable) {}
             val unprotected7213 = drainedOpen7213 + q7809.fundedOutsideExitScope
             if (unprotected7213 > 0) {
                 labelInc("PROTECTIVE_EXIT_HOLDINGS_OUTSIDE_EXIT_SCOPE_7213")

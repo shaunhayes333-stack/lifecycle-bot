@@ -52,7 +52,10 @@ object Entry8114Mode8326 {
     private fun laneCovered8326(lane: String?): Boolean = canon8326(lane) in LANES_8326
 
     /** Pure over the setting: is the 8114 entry decision authoritative for a [paper] = false entry in [lane]? */
-    fun liveActive8326(lane: String?, paper: Boolean): Boolean = enabled8326 && !paper && laneCovered8326(lane)
+    // V5.0.8336 — while EvidenceHold8336 rehearses, PAPER meme entries are decided the same way as LIVE ones, so the paper
+    // record the hold reads is a record of the live entry policy (before 8336 paper skipped the live doors entirely).
+    fun liveActive8326(lane: String?, paper: Boolean): Boolean =
+        enabled8326 && laneCovered8326(lane) && (!paper || (EvidenceHold8336.enabled8336 && EvidenceHold8336.rehearsal8336))
 
     fun liveActiveNow8326(lane: String?): Boolean =
         liveActive8326(lane, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true })
@@ -113,7 +116,12 @@ object Entry8114Mode8326 {
             Entry8114Gate8326.Verdict8326(EVAL_FAILED_8326, LiveEdgeGate7877.Verdict8083.REFUSE, null)
         }
         // V5.0.8329 — the lane's OWN live closes (3+, mean < 0) are realised money, not a label: they bind in mode.
-        val realised = try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { null }
+        // V5.0.8336 — a lane with no paper proof does not trade live (EvidenceHold8336; null in PAPER).
+        // In PAPER (rehearsal) the live-losing shut does not bind: a lane shut by its live closes re-earns live by its
+        // paper record, so paper must keep trading it (8329's shut could otherwise never reopen).
+        val paper8336 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val realised = (if (paper8336) null else try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { null })
+            ?: try { EvidenceHold8336.refusal8336(l, paper8336, nowMs) } catch (_: Throwable) { null }
         val final = finalVerdict8326(old.reason, now, realised)
         if (now != null && final == null) noteBypass8326(gateKey8326(now), l)
         if (old.reason != null && final == now && now != null && now != old.reason) try { PipelineHealthCollector.labelInc("ENTRY8114_CURRENT_HARD_REFUSAL_BINDS_8326_$l") } catch (_: Throwable) {}
@@ -135,7 +143,8 @@ object Entry8114Mode8326 {
             if (final == null) {
                 val factor = try { LiveTruth8064.lanePrior8083(lane, nowMs).sizeFactor } catch (_: Throwable) { 1.0 }
                 LiveEdgeGate7877.recordAssessment8083(ts, lane, old.setup, LiveEdgeGate7877.Verdict8083.ADMIT, "ADMIT_8114_8326", factor, nowMs)
-                try { LiveTruth8064.noteLiveAdmit8083(ts.mint, lane, old.setup, nowMs) } catch (_: Throwable) {}
+                if (!(try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }))  // V5.0.8336 — rehearsal admits are not live admits
+                    try { LiveTruth8064.noteLiveAdmit8083(ts.mint, lane, old.setup, nowMs) } catch (_: Throwable) {}
                 try { if (com.lifecyclebot.engine.RunnerGrab7967.noteAdmit7970(ts, nowMs)) LiveEdgeGate7877.notePositive7975(ts.mint, nowMs) } catch (_: Throwable) {}
                 admits8326[key] = nowMs
                 if (admits8326.size > 3_000) admits8326.entries.removeIf { nowMs - it.value > ADMIT_TTL_MS_8326 }
