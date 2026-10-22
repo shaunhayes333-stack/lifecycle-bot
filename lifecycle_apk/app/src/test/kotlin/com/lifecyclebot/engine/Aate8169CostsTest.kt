@@ -204,7 +204,8 @@ class Aate8169CostsTest {
         assertFalse(LandingMeter8169.buyUnlandedRecently8169("MINT", 1_000L + 3 * 60_000L + 1))
         assertTrue(LandingMeter8169.statusLine8169(emptyList(), 5_000L, 50_000L, 0L).contains("escalatedAfterUnlanded=1"))
         LandingMeter8169.resetForTest8169()
-        assertTrue(src("engine/Executor.kt").contains("!RunnerGrab7967.isGrabbed7980(mint) && !LandingMeter8169.buyUnlandedRecently8169(mint)"))
+        // superseded by V5.0.8337 — entryOrdinary8151 is false for every entry (entries pay to land, as at 8114); the 8169 urgent-after-unlanded exemption is moot
+        assertTrue(src("engine/Executor.kt").contains("private fun entryOrdinary8151(mint: String): Boolean = false"))
         assertTrue(src("network/SignedTxLedger8085.kt").contains("LandingMeter8169.noteBuyUnlanded8169(e.mint, nowMs)"))
     }
 

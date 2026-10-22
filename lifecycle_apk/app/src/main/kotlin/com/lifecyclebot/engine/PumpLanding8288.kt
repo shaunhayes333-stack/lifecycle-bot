@@ -21,10 +21,12 @@ import java.util.concurrent.TimeUnit
  */
 object PumpLanding8288 {
 
-    const val WINDOW_MS_8288 = 20L * 60_000L
-    const val MIN_RESOLVED_8288 = 6
+    const val WINDOW_MS_8288 = 120L * 60_000L   // V5.0.8337: was 20 min — a 20 min window forgot the unlanded buys before the next one
+    const val MIN_RESOLVED_8288 = 3             // V5.0.8337: was 6 — three resolved PumpPortal buys are enough to judge the route
     const val MIN_LAND_RATE_PCT_8288 = 50
     private const val BLOCKHASH_BUDGET_MS_8288 = 800L
+    /** V5.0.8337 — a blockhash read inside this window is reused (a blockhash lives 60–90 s; 2 s costs nothing). */
+    const val BLOCKHASH_CACHE_MS_8337 = 2_000L
 
     data class Rate8288(val resolved: Int, val landed: Int) {
         val pct: Int get() = if (resolved > 0) landed * 100 / resolved else -1
@@ -107,11 +109,7 @@ object PumpLanding8288 {
      */
     fun freshen8288(wallet: com.lifecyclebot.network.SolanaWallet, txBase64: String, side: String = "BUY"): String {
         return try {
-            val f = pool8288.submit(java.util.concurrent.Callable {
-                wallet.rpcCall("getLatestBlockhash", org.json.JSONArray().put(org.json.JSONObject().put("commitment", "confirmed")))
-                    .optJSONObject("result")?.optJSONObject("value")?.optString("blockhash").orEmpty()
-            })
-            val hash = try { f.get(BLOCKHASH_BUDGET_MS_8288, TimeUnit.MILLISECONDS) } catch (_: Throwable) { f.cancel(true); "" }
+            val hash = freshHash8337(wallet)  // V5.0.8337 — the 2 s cache / the read started by prefetchBlockhash8337, else a read now
             if (hash.isBlank()) { label("PUMP_${side}_BLOCKHASH_KEPT_NO_READ_8288"); return txBase64 }
             val hashBytes = io.github.novacrypto.base58.Base58.base58Decode(hash)
             val tx = java.util.Base64.getDecoder().decode(txBase64)
@@ -122,4 +120,64 @@ object PumpLanding8288 {
     }
 
     private fun label(l: String) { try { PipelineHealthCollector.labelInc(l) } catch (_: Throwable) {} }
+
+    // ── V5.0.8337 — blockhash cache (2 s) and the read that runs in parallel with the PumpPortal build ──
+
+    @Volatile private var cachedHash8337: String = ""
+    @Volatile private var cachedAtMs8337: Long = 0L
+    @Volatile private var inflight8337: java.util.concurrent.Future<String>? = null
+
+    /** Pure: the blockhash noted within [cacheMs] of [nowMs], or "" when there is none / it is older. */
+    fun cachedBlockhash8337(nowMs: Long, cacheMs: Long = BLOCKHASH_CACHE_MS_8337): String {
+        val h = cachedHash8337
+        return if (h.isNotBlank() && nowMs - cachedAtMs8337 in 0L..cacheMs) h else ""
+    }
+
+    /** A blockhash just read from the chain; a blank read notes nothing. */
+    fun noteBlockhash8337(hash: String, nowMs: Long) {
+        if (hash.isBlank()) return
+        cachedHash8337 = hash
+        cachedAtMs8337 = nowMs
+    }
+
+    /** Tests only. */
+    fun resetBlockhashCacheForTest8337() {
+        cachedHash8337 = ""
+        cachedAtMs8337 = 0L
+        inflight8337 = null
+    }
+
+    private fun readBlockhash8288(wallet: com.lifecyclebot.network.SolanaWallet): String {
+        val h = wallet.rpcCall("getLatestBlockhash", org.json.JSONArray().put(org.json.JSONObject().put("commitment", "confirmed")))
+            .optJSONObject("result")?.optJSONObject("value")?.optString("blockhash").orEmpty()
+        noteBlockhash8337(h, System.currentTimeMillis())
+        return h
+    }
+
+    private fun submitRead8337(wallet: com.lifecyclebot.network.SolanaWallet): java.util.concurrent.Future<String> =
+        pool8288.submit(java.util.concurrent.Callable { readBlockhash8288(wallet) })
+
+    /**
+     * Executor.tryPumpPortalBuy: start the "confirmed" blockhash read NOW, before the PumpPortal build, so the two
+     * round trips overlap; [freshen8288] then takes the cached value or waits on this read. A hash cached within
+     * [BLOCKHASH_CACHE_MS_8337] needs no read. Never throws.
+     */
+    fun prefetchBlockhash8337(wallet: com.lifecyclebot.network.SolanaWallet) {
+        try {
+            if (cachedBlockhash8337(System.currentTimeMillis()).isNotBlank()) return
+            val f = inflight8337
+            if (f != null && !f.isDone && !f.isCancelled) return
+            inflight8337 = submitRead8337(wallet)
+            label("PUMP_BUY_BLOCKHASH_PREFETCHED_8337")
+        } catch (_: Throwable) {}
+    }
+
+    /** The fresh blockhash for [freshen8288]: the 2 s cache, else the in-flight prefetch, else a read now; "" on a miss. */
+    private fun freshHash8337(wallet: com.lifecyclebot.network.SolanaWallet): String {
+        val cached = cachedBlockhash8337(System.currentTimeMillis())
+        if (cached.isNotBlank()) { label("PUMP_BLOCKHASH_CACHED_8337"); return cached }
+        val f = inflight8337?.takeIf { !it.isCancelled } ?: submitRead8337(wallet)
+        inflight8337 = null
+        return try { f.get(BLOCKHASH_BUDGET_MS_8288, TimeUnit.MILLISECONDS) } catch (_: Throwable) { f.cancel(true); "" }
+    }
 }

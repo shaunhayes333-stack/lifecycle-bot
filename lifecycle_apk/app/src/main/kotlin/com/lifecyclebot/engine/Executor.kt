@@ -2708,7 +2708,7 @@ class Executor(
     }
 
     /** V5.0.8151 — an entry is ORDINARY unless the runner grab marked it to land next slot (RunnerGrab7967). */
-    private fun entryOrdinary8151(mint: String): Boolean = try { !RunnerGrab7967.isGrabbed7980(mint) && !LandingMeter8169.buyUnlandedRecently8169(mint) && !com.lifecyclebot.engine.truth.LaunchCohort8173.latencyCriticalBuy8173(mint) } catch (_: Throwable) { false }  // V5.0.8169 — a buy that expired unseen retries urgent; V5.0.8173 — a fresh-curve launch buy is latency-critical
+    private fun entryOrdinary8151(mint: String): Boolean = false   // V5.0.8337 — entries pay to land, as at 8114 (PumpPortal landed 3/18 vs Jupiter 25/25 after the 8151 trim); the 8169/8173 urgent exemptions are moot while every entry is URGENT
 
     /** V5.0.8151 — a PumpPortal sell label that is a non-urgent profit slice (not its rescue). */
     private fun ordinarySliceLabel8151(labelTag: String): Boolean = labelTag.startsWith("PARTIAL-") && !labelTag.contains("RESCUE")
@@ -32250,6 +32250,7 @@ class Executor(
                 try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=endpoint_or_mint_route_disabled") } catch (_: Throwable) {}
                 return null
             }
+            PumpLanding8288.prefetchBlockhash8337(wallet)  // V5.0.8337 — our fresh blockhash is read in parallel with the PumpPortal build (2 s cache; freshen8288 below uses it)
             val built = com.lifecyclebot.network.PumpFunDirectApi.buildBuyTx(
                 publicKeyB58    = wallet.publicKeyB58,
                 mint            = ts.mint,
@@ -32264,7 +32265,7 @@ class Executor(
                 "Tx built | router=PUMP_DIRECT | slip=${slipPct}% | bytes=${built.txBase64.length}",
                 traderTag = traderTag,
             )
-            if (costPumpBuySimRefused8151(ts, built.txBase64, wallet, tradeKey)) return null  // V5.0.8151 — never pay for a doomed buy
+            if (entryOrdinary8151(ts.mint) && costPumpBuySimRefused8151(ts, built.txBase64, wallet, tradeKey)) return null  // V5.0.8151 — never pay for a doomed buy; V5.0.8337 — no 900 ms preflight in front of an entry that pays to land
             val pumpTx8288 = PumpLanding8288.freshen8288(wallet, built.txBase64)  // V5.0.8288 — our fresh blockhash, not PumpPortal's build-time one
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMP_FIRST sol=$buySol slip=$slipPct") } catch (_: Throwable) {}
             // V5.9.602 — Pump-first must NOT treat a submitted signature as
