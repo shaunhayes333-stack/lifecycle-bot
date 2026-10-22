@@ -131,9 +131,18 @@ object LaneCheatSheet8323 {
         val hiveN: Double = 0.0,
         val hiveMeanPct: Double = Double.NaN,
         val hiveSePct: Double = Double.NaN,
-        val localN: Double = 0.0,
+        val localN: Double = Double.NaN,
         val localMeanPct: Double = Double.NaN,
+        /**
+         * V5.0.8325 §FAVOUR_IS_LOCAL — the standard error of this install's own executable record. FAVOUR reads ONLY the local
+         * record ([localN] / [localMeanPct] / [localSePct]); the hive may rank and prior, never favour. [localN] NaN = the
+         * record was built from local labels only (pure fixtures): [n] / [meanPct] / [sePct] are then the local record.
+         */
+        val localSePct: Double = Double.NaN,
     ) {
+        /** V5.0.8325 — the local record [n, mean, SE] FAVOUR is judged on. */
+        val local8325: DoubleArray get() =
+            if (localN.isNaN()) doubleArrayOf(n, meanPct, sePct) else doubleArrayOf(localN, localMeanPct, localSePct)
         /** What the non-runners average (the "median side" of a tail-dependent setup), NaN when not derivable. */
         val nonRunnerAvgPct: Double get() =
             if (runnerAvgPct.isFinite() && runnerRate in 0.0..0.999 && meanPct.isFinite()) (meanPct - runnerRate * runnerAvgPct) / (1.0 - runnerRate) else Double.NaN
@@ -391,10 +400,31 @@ object LaneCheatSheet8323 {
     private fun liveLosing8323(r: Record8323): Boolean =
         r.liveN >= LIVE_MIN_CLOSES_8323 && r.liveMeanPct.isFinite() && r.liveMeanPct < 0.0
 
-    /** Pure: the record cleared its prior with evidence (n, mean - SE above max(prior, 0) + cost) and the bank agrees. */
-    private fun favourEarned8323(r: Record8323, costPct: Double = 0.0): Boolean =
-        !r.suspect && r.n >= FAVOUR_MIN_N_8323 && r.meanPct.isFinite() && r.sePct.isFinite() &&
-            r.meanPct - r.sePct > maxOf(r.prior, 0.0) + costPct && !liveLosing8323(r)
+    /**
+     * Pure: the record cleared its prior with evidence (n, mean - SE above max(prior, 0) + cost) and the bank agrees.
+     * V5.0.8325 §FAVOUR_IS_LOCAL — on this install's OWN executable record only (n >= [FAVOUR_MIN_N_8323], mean - SE above
+     * max(prior, 0) + cost), and no live close of the setup losing ([liveAnyLosing8325]: 1+ close with a negative mean).
+     * 5.0.8323 live favoured CROWD_FORMING n2 -10.1 (live1 -17.3) and RS_LEADER n30 -1.2 (live1 -3.9) on SHITCOIN through the
+     * 8324 hive path and a tail-credited hysteresis; both lost live.
+     */
+    private fun favourEarned8323(r: Record8323, costPct: Double = 0.0): Boolean = localFavour8325(r, costPct)
+
+    /** Pure (V5.0.8325): one live close (or more) of the setup and its mean below zero — never favoured. */
+    fun liveAnyLosing8325(r: Record8323): Boolean = r.liveN >= 1.0 && r.liveMeanPct.isFinite() && r.liveMeanPct < 0.0
+
+    /** Pure (V5.0.8325): the local executable record clears max(prior, 0) + cost by one SE on 20+ labels; live not losing. */
+    fun localFavour8325(r: Record8323, costPct: Double = 0.0): Boolean {
+        if (r.suspect || liveAnyLosing8325(r)) return false
+        val (n, mean, se) = r.local8325.let { Triple(it[0], it[1], it[2]) }
+        return n >= FAVOUR_MIN_N_8323 && mean.isFinite() && se.isFinite() && mean - se > maxOf(r.prior, 0.0) + costPct
+    }
+
+    /** Pure (V5.0.8325): a favoured setup KEEPS favour while its local record (20+) stays above cost and live is not losing. */
+    private fun keepsFavour8325(r: Record8323, costPct: Double): Boolean {
+        if (r.suspect || liveAnyLosing8325(r)) return false
+        val l = r.local8325
+        return l[0] >= FAVOUR_MIN_N_8323 && l[1].isFinite() && l[1] - costPct > 0.0
+    }
 
     /** V5.0.8324 — network labels a hive prior needs, and local labels that must confirm it. */
     const val HIVE_FAVOUR_MIN_N_8324 = 100.0
@@ -408,6 +438,7 @@ object LaneCheatSheet8323 {
      * above cost; never on a suspect local record or losing live closes. 5.0.8321: every lane favour=[] while the strong setup
      * records were hive-only (LAUNCH_LADDER_PROVEN local=0 hive=10/824): the 20-label bar counts the hive at 10 labels at most.
      */
+    // V5.0.8325 — no longer a FAVOUR path (judge8323 does not read it): a hive record may rank and prior, never favour.
     fun hiveFavour8324(r: Record8323, costPct: Double = 0.0): Boolean =
         !r.suspect && !liveLosing8323(r) &&
             r.hiveN >= HIVE_FAVOUR_MIN_N_8324 && r.hiveMeanPct.isFinite() && r.hiveSePct.isFinite() &&
@@ -425,7 +456,10 @@ object LaneCheatSheet8323 {
     private fun clearLoss8323(r: Record8323, costPct: Double = 0.0, laneRate8324: Double = Double.NaN, premium8324: Double = Double.NaN): Boolean {
         if (liveLosing8323(r)) return true
         if (!r.meanPct.isFinite() || !r.sePct.isFinite()) return false
-        val net = r.meanPct - costPct + CortexTailEv8324.missedRunnerPts8324(r.n, r.runnerRate, laneRate8324, premium8324)
+        // V5.0.8325 — the record losing on its own labels is AVOID again (the 8324 missed-runner credit is withdrawn from the
+        // verdict; an avoided setup still re-probes on the lane's exploration slot, reprobe8323). [laneRate8324] / [premium8324]
+        // are accepted for call compatibility and ignored.
+        val net = r.meanPct - costPct
         if (r.n >= AVOID_MIN_N_8323 && net + 2.0 * r.sePct < 0.0) return true
         return r.n >= PROVEN_N_8323 && net + r.sePct < 0.0
     }
@@ -440,11 +474,12 @@ object LaneCheatSheet8323 {
     fun judge8323(r: Record8323, prev: Verdict8323, costPct: Double = 0.0,
                   laneRate8324: Double = Double.NaN, premium8324: Double = Double.NaN): Verdict8323 {
         if (clearLoss8323(r, costPct, laneRate8324, premium8324)) return Verdict8323.AVOID
-        // V5.0.8324 — the hysteresis exit reads the same tail-aware net (an avoided runner-lane setup returns once it is not a clear loss).
-        val net = if (r.meanPct.isFinite()) r.meanPct - costPct + CortexTailEv8324.missedRunnerPts8324(r.n, r.runnerRate, laneRate8324, premium8324) else Double.NaN
+        // V5.0.8325 — the hysteresis exit reads the record's own net (no missed-runner credit).
+        val net = if (r.meanPct.isFinite()) r.meanPct - costPct else Double.NaN
         if (prev == Verdict8323.AVOID && !(r.n >= AVOID_MIN_N_8323 && net > 0.0)) return Verdict8323.AVOID
-        if (favourEarned8323(r, costPct) || hiveFavour8324(r, costPct)) return Verdict8323.FAVOUR  // V5.0.8324 — hive prior, locally confirmed
-        if (prev == Verdict8323.FAVOUR && net > 0.0 && !r.suspect && !liveLosing8323(r)) return Verdict8323.FAVOUR
+        // V5.0.8325 §FAVOUR_IS_LOCAL — favour earned and kept on the local record only (the 8324 hive path is withdrawn).
+        if (favourEarned8323(r, costPct)) return Verdict8323.FAVOUR
+        if (prev == Verdict8323.FAVOUR && keepsFavour8325(r, costPct)) return Verdict8323.FAVOUR
         return Verdict8323.NEUTRAL
     }
 
@@ -750,7 +785,7 @@ object LaneCheatSheet8323 {
                 " ${if (m.runner) "runner" else "scalp"}${if (ex != null && ex.stopPct.isFinite()) " stop-${ex.stopPct.toInt()}%" else ""}" +
                 " favour=[${setupList(s?.favour.orEmpty())}] avoid=[${setupList(s?.avoid.orEmpty())}]" +
                 " rotated=${s?.rotated ?: 0}${s?.lastRotation?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""}]").take(LINE_CHARS_8323)
-        } + "\n      cheatSheet8323 rules: favour n>=${FAVOUR_MIN_N_8323.toInt()} mean-SE>prior+cost (tail-aware mean, live closes not losing) · " +
+        } + "\n      cheatSheet8323 rules: favour LOCAL n>=${FAVOUR_MIN_N_8323.toInt()} mean-SE>prior+cost (no hive favour, no live close losing; 8325) · " +
             "avoid mean+2SE<0 (n>=${AVOID_MIN_N_8323.toInt()}) / mean+SE<0 (n>=${PROVEN_N_8323.toInt()}) / live closes losing · hysteresis · reprobes=${reprobeCount.get()}"
     }
 }

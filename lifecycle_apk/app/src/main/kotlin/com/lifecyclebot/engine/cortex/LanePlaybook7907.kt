@@ -746,6 +746,19 @@ object LanePlaybook7907 {
         return try { LaneRealisedGovernor8295.governedCopy8295(exec, rr, laneRealised8295(lane)) } catch (_: Throwable) { exec }
     }
 
+    /**
+     * V5.0.8325 §FAVOUR_IS_LOCAL — caller holds the lock. This install's OWN record of ([lane], [setup]) ([local]: no hive
+     * labels) read executable like [stat]: the lane's label-to-bank offset off its mean, and governed by the live closes.
+     */
+    private fun localExecutable8325(lane: String, setup: String, local: CortexLedger7885.Stat): CortexLedger7885.Stat {
+        val rr = try { Cortex7885.setupRealised8187(lane, setup) } catch (_: Throwable) { null }
+        val rrN = rr?.getOrNull(0) ?: 0.0; val rrM = rr?.getOrNull(1) ?: Double.NaN
+        val exec = try {
+            Cortex7885.executableCopy8187(local, Cortex7885.executableOffset8187(lane), if (rrM.isFinite() && rrM > 0.0) rrN else 0.0, rrM)
+        } catch (_: Throwable) { local }
+        return try { LaneRealisedGovernor8295.governedCopy8295(exec, rr, laneRealised8295(lane)) } catch (_: Throwable) { exec }
+    }
+
     /** V5.0.8295 — the lane's live realised record [closes, mean %] (account mode), cached; null with none. */
     private fun laneRealised8295(lane: String): DoubleArray? =
         LaneRealisedGovernor8295.laneRealised8295(lane, System.currentTimeMillis()) { l -> Cortex7885.laneRealised8295(l) }
@@ -1175,7 +1188,7 @@ object LanePlaybook7907 {
         val band = timingBandOf8094(ts)
         if (setup == null || band == TIMING_UNKNOWN_8094) null else synchronized(this) {
             val st = timingBooks8094[lane]?.get("$setup|$band")
-            if (st != null && setupRecordNegative8094(st.n, st.mean() + tailCredit8324(lane, st), st.variance())) "$setup@$band" else null
+            if (st != null && setupRecordNegative8094(st.n, st.mean(), st.variance())) "$setup@$band" else null  // V5.0.8325 — no tail credit on a live loss door
         }
     } catch (_: Throwable) { null }
 
@@ -1361,7 +1374,7 @@ object LanePlaybook7907 {
             ?: (try { selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null })?.takeIf { it != setup && it != NO_TRIGGER }  // V5.0.8153
         if (setup == null || alt8144 != null) null else synchronized(this) {
             val st = stat(lane, setup)
-            if (st != null && setupRecordNegative8094(st.n, st.mean() + tailCredit8324(lane, st), st.variance())) setup else null
+            if (st != null && setupRecordNegative8094(st.n, st.mean(), st.variance())) setup else null  // V5.0.8325 — no tail credit on a live loss door
         }
     } catch (_: Throwable) { null }
 
@@ -1371,6 +1384,7 @@ object LanePlaybook7907 {
      * refusals PICKED_SETUP_RECORD_NEGATIVE_8094 / TIMING_RECORD_NEGATIVE_8094 read "12 labels, mean + SE < 0", which on a
      * 5%-runner pond is true of a runnerless sample 54% of the time.
      */
+    // V5.0.8325 — no longer read by the live PICKED_SETUP / TIMING doors: a record losing on its own labels refuses live again.
     fun tailCredit8324(lane: String, st: CortexLedger7885.Stat): Double {
         if (!(try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false })) return 0.0
         val pond = try { Cortex7885.tailPond8324(lane) } catch (_: Throwable) { null } ?: return 0.0
@@ -1726,6 +1740,7 @@ object LanePlaybook7907 {
                     com.lifecyclebot.engine.truth.RobustLabelRead8185.robust8187(it[0], it[1], it[2], it[3], it[4], CortexLedger7885.LABEL_CAP_8187, CortexLedger7885.RUNNER_GROSS_PCT)
                 }
                 val local8324 = books[lane]?.stats?.get(s.id)
+                val localExec8325 = local8324?.takeIf { it.n > 0.0 }?.let { localExecutable8325(lane, s.id, it) }
                 LaneCheatSheet8323.Record8323(
                     setup = s.id, prior = s.prior, n = n,
                     meanPct = if (st != null && n > 0.0) st.mean() else 0.0,
@@ -1736,8 +1751,10 @@ object LanePlaybook7907 {
                     hiveN = hive8324?.get(0) ?: 0.0,
                     hiveMeanPct = hiveRead8324?.mean ?: Double.NaN,
                     hiveSePct = hiveRead8324?.stderr ?: Double.NaN,
-                    localN = local8324?.n ?: 0.0,
-                    localMeanPct = local8324?.takeIf { it.n > 0.0 }?.mean() ?: Double.NaN,
+                    // V5.0.8325 §FAVOUR_IS_LOCAL — the local record read like every authority read (executable, 8295-governed).
+                    localN = localExec8325?.n ?: 0.0,
+                    localMeanPct = localExec8325?.takeIf { it.n > 0.0 }?.mean() ?: Double.NaN,
+                    localSePct = localExec8325?.takeIf { it.n > 1.0 }?.let { kotlin.math.sqrt(it.variance() / it.n) } ?: Double.POSITIVE_INFINITY,
                 )
             }
         }

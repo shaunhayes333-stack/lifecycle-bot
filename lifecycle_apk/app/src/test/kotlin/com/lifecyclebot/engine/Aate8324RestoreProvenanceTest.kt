@@ -95,7 +95,8 @@ class Aate8324RestoreProvenanceTest {
         }
         assertEquals(led.lanes["SHITCOIN"]!!.runnerRate(), fused.laneRunnerRate8324, 1e-12)
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertTrue(cx.contains("ledger.fuseWithSnapshot8324(lane, votes, regime)"))
+        // superseded by V5.0.8325: the one critical section fuses the base votes plus the cross votes
+        assertTrue(cx.contains("ledger.fuseWithSnapshot8324(lane, baseVotes8325 + cross, regime)"))
         assertTrue(cx.contains("assessLockWait8324["))
     }
 
@@ -168,7 +169,8 @@ class Aate8324RestoreProvenanceTest {
         val witnessed = CortexTailEv8324.pond8324(xs, caps, witnessed = List(95) { false } + List(5) { true })!!
         assertTrue(witnessed.plausible)
         assertEquals(8_000.0, witnessed.eRun, 1e-9)
-        assertTrue(src("engine/cortex/Cortex7885.kt").contains("CortexTailEv8324.pond8324(values, caps, witnessed = gradeBook8144.pondWitness8324(lane))"))
+        // superseded by V5.0.8325: the pond rows are copied in one pass and the pond computed outside the lock
+        assertTrue(src("engine/cortex/Cortex7885.kt").contains("CortexTailEv8324.pond8324(r.values, r.caps, witnessed = r.witnessed)"))
     }
 
     @Test fun theVetoAuditRetiresOnARealTailButNotOnBasisErrors() {
@@ -177,8 +179,9 @@ class Aate8324RestoreProvenanceTest {
         repeat(44) { st.add(-15.0, false) }
         repeat(6) { st.add(2_500.0, true, witnessed = true) }
         assertTrue(st.tailReal8322())
-        assertTrue(Cortex7885.vetoRobustProof8185(st))
-        assertTrue(Cortex7885.vetoProvenWinners8006(st))
+        // superseded by V5.0.8325: a veto no longer retires on its raw tail read alone (tail evidence never admits by itself)
+        assertFalse(Cortex7885.vetoRobustProof8185(st))
+        assertFalse(Cortex7885.vetoProvenWinners8006(st))
         // the same shape at +60,000% without a witness stays bounded
         val bad = CortexLedger7885.labelStat8187()
         repeat(44) { bad.add(-15.0, false) }
@@ -193,7 +196,8 @@ class Aate8324RestoreProvenanceTest {
         val base = Record8323("LAUNCH_LADDER_PROVEN", 0.5, 15.0, 30.0, 25.0, 0.1,
             hiveN = 824.0, hiveMeanPct = 40.0, hiveSePct = 6.0, localN = 5.0, localMeanPct = 12.0)
         assertTrue(LaneCheatSheet8323.hiveFavour8324(base))
-        assertEquals(Verdict8323.FAVOUR, LaneCheatSheet8323.judge8323(base, Verdict8323.NEUTRAL))
+        // superseded by V5.0.8325: the hive never puts a setup into favour (5 local labels are not the 20-label local record)
+        assertEquals(Verdict8323.NEUTRAL, LaneCheatSheet8323.judge8323(base, Verdict8323.NEUTRAL))
         assertFalse("no local confirmation", LaneCheatSheet8323.hiveFavour8324(base.copy(localN = 4.0)))
         assertFalse("local labels contradict", LaneCheatSheet8323.hiveFavour8324(base.copy(localMeanPct = -3.0)))
         assertFalse("a thin network record", LaneCheatSheet8323.hiveFavour8324(base.copy(hiveN = 60.0)))
@@ -203,6 +207,7 @@ class Aate8324RestoreProvenanceTest {
         assertEquals(5.0, LaneCheatSheet8323.LOCAL_CONFIRM_N_8324, 0.0)
         assertEquals(10, LaneCheatSheet8323.FAVOUR_ADMIT_MIN_N_8324)
         assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("hiveMeanPct = hiveRead8324?.mean ?: Double.NaN,"))
-        assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("e.n >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.FAVOUR_ADMIT_MIN_N_8324 &&"))
+        // superseded by V5.0.8325: admission reads FAVOUR on 20+ labels again
+        assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("e.n >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.FAVOUR_MIN_N_8323 &&"))
     }
 }

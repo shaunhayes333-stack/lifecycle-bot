@@ -450,7 +450,8 @@ class Aate8187CortexCompleteTest {
         book.execOffset8187 = { l -> if (l == "SHITCOIN") 10.0 else 0.0 }
         assertEquals(listOf(40.0), book.executableSeries("SHITCOIN", null, strong))
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertTrue(cx.contains("calibration.calibrate(lane, fused.edgePct, fused.laneMean) } - executableOffset8187(lane)"))
+        // superseded by V5.0.8325: the calibrated read moved into calibratedRead8325 (same offset subtracted once)
+        assertTrue(cx.contains("val calibrated = calibratedRead8325(runner, fused, locked8325.slope) - executableOffset8187(lane)"))
         assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane)"))
         assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("fun laneStatFor7737(lane: String): CellStat? = executable8187(laneStat(lane), lane)"))
     }

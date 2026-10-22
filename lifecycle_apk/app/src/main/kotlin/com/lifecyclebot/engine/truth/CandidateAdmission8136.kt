@@ -149,6 +149,13 @@ object CandidateAdmission8136 {
          */
         val tailLaneRate8324: Double = Double.NaN,
         val tailPremium8324: Double = Double.NaN,
+        /**
+         * V5.0.8325 §LIVE_NEEDS_LOCAL_LANE_AND_SETUP — live adapter, LIVE account only: the lane's own live closes
+         * [closes, mean %] (Cortex7885.laneRealised8295) and the lane's own graded label pond (executable-net, Cortex7885
+         * tailPond8324) as a record. Null (pure fixtures, paper) = not judged here. See [liveLocalGuard8325].
+         */
+        val laneRealised8325: DoubleArray? = null,
+        val laneLabel8325: Evidence8136? = null,
     ) {
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
         val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
@@ -237,6 +244,32 @@ object CandidateAdmission8136 {
         if (e == null || !e.runnerRate.isFinite() || !e.meanPct.isFinite()) return e
         val pts = com.lifecyclebot.engine.cortex.CortexTailEv8324.missedRunnerPts8324(e.n.toDouble(), e.runnerRate, laneRate, premium)
         return if (pts > 0.0) e.copy(meanPct = e.meanPct + pts) else e
+    }
+
+    const val LIVE_LANE_LOSING_8325 = "LIVE_LANE_REALISED_LOSING_8325"
+    const val LIVE_LANE_LABELS_8325 = "LIVE_LANE_LABELS_NOT_POSITIVE_8325"
+    const val LIVE_TAIL_ALONE_8325 = "LIVE_TAIL_EVIDENCE_ALONE_8325"
+    /** V5.0.8325 — a lane label pond judges the lane on this many graded records. */
+    internal const val LANE_LABEL_MIN_N_8325 = 20
+
+    /**
+     * Pure (V5.0.8325 §LIVE_NEEDS_LOCAL_LANE_AND_SETUP): why a LIVE candidate about to be admitted may not be, else null.
+     *  - the lane's own live closes are losing (3+, mean < 0: LaneRealisedGovernor8295) — the governors already deny a setup
+     *    record full proof there, so a cohort / cell / runner-grab / favour read was the door that let losers in;
+     *  - the lane's own graded labels (20+, executable-net) are not positive;
+     *  - the admitting [edge] is not the chosen setup's own supported record (Cortex STRONG cohort, runner grab, cell — tail /
+     *    lane-wide reads) and the chosen setup's own record past the shortfall ([own]) is not positive on 12+ labels.
+     * Paper and pure fixtures (null lane fields) are unchanged. Hard safety, economics and data refusals came first.
+     */
+    internal fun liveLocalGuard8325(c: Candidate8136, edge: Evidence8136?, own: Evidence8136?): String? {
+        if (!c.live) return null
+        if (com.lifecyclebot.engine.cortex.LaneRealisedGovernor8295.tailRefuted8295(c.laneRealised8325)) return LIVE_LANE_LOSING_8325
+        val lane = c.laneLabel8325
+        if (lane != null && lane.n >= LANE_LABEL_MIN_N_8325 && !(lane.meanPct > 0.0)) return LIVE_LANE_LABELS_8325
+        if (edge != null && edge.kind != KIND_SETUP) {
+            if (own == null || own.n < LOSING_MIN_N_8136 || !(own.meanPct > 0.0)) return LIVE_TAIL_ALONE_8325
+        }
+        return null
     }
 
     /** Pure: losing on its own evidence — [LOSING_MIN_N_8136]+ labels and mean + SE below zero (LanePlaybook7907.setupRecordNegative8094). */
@@ -366,8 +399,10 @@ object CandidateAdmission8136 {
         //    losing at this point of the move is not the strategy; ties of the conservative net go to the runner rate.
         val bestSetup = bestSetup8153(c)
         // V5.0.8324 — the loss tests read the tail-credited record on a runner lane (support tests keep the raw / shifted ones).
-        val selectedRec = tailCredited8324(c.setups.firstOrNull { it.id == c.selectedSetup }, c.tailLaneRate8324, c.tailPremium8324)
-        val timingLoss8324 = tailCredited8324(c.timing, c.tailLaneRate8324, c.tailPremium8324)
+        // V5.0.8325 — the loss tests read every record on its own labels again (the 8324 missed-runner credit let thin losing
+        //    records trade live: 8323 SHITCOIN 1/7). [tailCredited8324] is no longer read by a live admission test.
+        val selectedRec = c.setups.firstOrNull { it.id == c.selectedSetup }
+        val timingLoss8324 = c.timing
         var chosen = c.selectedSetup ?: c.nativeSetup8213?.takeIf {
             c.nativeQualified8213 && it.isNotBlank() && !it.equals("NONE", true)
         }
@@ -411,12 +446,12 @@ object CandidateAdmission8136 {
         }
         // V5.0.8169 — a loss pattern refuses on the record graded since the epoch; an older one is noted and decays to
         //    neutral (the candidate goes on to the generic prior — never to an ADMIT the stale record cannot support).
-        val cellLoss = tailCredited8324(if (c.lossEpochAware8169) c.cellLoss8169 else c.cell, c.tailLaneRate8324, c.tailPremium8324)  // V5.0.8324
+        val cellLoss = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell  // V5.0.8325 — own labels (no tail credit)
         // V5.0.8212: UNKNOWN is not a lifecycle stage and carries no loss authority.
         // TokenMetricStageRouter.judgeStage7928 explicitly ignores UNKNOWN; 8136 had
         // independently been blocking the same unclassified tokens on STAGE|LANE|UNKNOWN.
-        val stageLoss = tailCredited8324(if (c.stage.equals("UNKNOWN", ignoreCase = true)) null
-            else if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord, c.tailLaneRate8324, c.tailPremium8324)  // V5.0.8324
+        val stageLoss = if (c.stage.equals("UNKNOWN", ignoreCase = true)) null
+            else if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord  // V5.0.8325 — own labels (no tail credit)
         if (provenLosing8136(cellLoss)) {
             // V5.0.8240 — the cell (source|lane|mcap|age) is a lane-wide prior over every coin of that shape, exactly like
             //    the stage record below: it names no strategy. 8241 runner ledger: MONPAD +30584% and KimWhale +2962% were
@@ -535,6 +570,13 @@ object CandidateAdmission8136 {
         if (c.missingInputs.isNotEmpty()) trace += "optionalUnobserved8170=${c.missingInputs.joinToString(",")}"
         if (nativeOptional8213) trace += "nativeOptionalCleared8213=${c.nativeSetup8213} score=${fmt8136(c.genericScore)}"
 
+        // V5.0.8325 — a LIVE admit needs the lane's and the setup's own evidence positive after cost (tail / cohort reads support only).
+        val own8325 = c.setupsProof8290.firstOrNull { it.id == chosen }
+        liveLocalGuard8325(c, edge, own8325)?.let { why ->
+            trace += "liveLocal8325=$why edge=${edge?.compact ?: "-"} setup=${own8325?.compact ?: "-"}"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${why}_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return done(Terminal8136.REFUSE, why, true, chosen)
+        }
         // 6. supported candidate-specific edge: the generic score is only a prior.
         if (edge != null) {
             if (edge.kind == KIND_RUNNER_GRAB_8245) {
@@ -612,8 +654,8 @@ object CandidateAdmission8136 {
         if (c.sheet8323.isEmpty()) return null
         val fav = setups.filter { e ->
             c.sheet8323[e.id] == SHEET_FAVOUR_8323 && !e.suspect8290 &&
-                // V5.0.8324 — a FAVOUR earned on a locally confirmed hive prior is read on its merged record (local + lent hive labels).
-                e.n >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.FAVOUR_ADMIT_MIN_N_8324 &&
+                // V5.0.8325 — FAVOUR is earned on the local record only; admission reads it on 20+ labels again (8323 bar).
+                e.n >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.FAVOUR_MIN_N_8323 &&
                 e.lowerPct.isFinite() && e.lowerPct > 0.0 && !losing8136(timings[e.id])
         }.maxByOrNull { it.lowerPct } ?: return null
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHEET_FAVOUR_SUPPORTS_8323_${c.lane.uppercase()}") } catch (_: Throwable) {}
@@ -1042,6 +1084,13 @@ object CandidateAdmission8136 {
         }
     } catch (_: Throwable) { null }
 
+    /** V5.0.8325 — the lane's own graded label pond (executable-net, Cortex7885.lanePond8325) as an admission record; null without one. */
+    private fun laneLabel8325(lane: String): Evidence8136? = try {
+        com.lifecyclebot.engine.cortex.Cortex7885.lanePond8325(lane)?.takeIf { it.n > 0 && it.mean.isFinite() }?.let { p ->
+            Evidence8136("LANE", lane, p.n, p.mean, if (p.se.isFinite()) p.se else Double.POSITIVE_INFINITY)
+        }
+    } catch (_: Throwable) { null }
+
     /** Builds the candidate record from the playbook, forward labels, net-edge cost model and safety report. */
     internal fun candidateFor8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), proposedSizeSol: Double = Double.NaN): Candidate8136 {
         val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
@@ -1213,6 +1262,8 @@ object CandidateAdmission8136 {
             sheet8323 = try { com.lifecyclebot.engine.cortex.LaneCheatSheet8323.admissionVerdicts8323(lane, setups.map { it.id }, selected, ts.mint, nowMs) } catch (_: Throwable) { emptyMap() },
             tailLaneRate8324 = pond8324?.pBook ?: Double.NaN,
             tailPremium8324 = pond8324?.premium ?: Double.NaN,
+            laneRealised8325 = if (live8290) (try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(lane) } catch (_: Throwable) { null }) else null,
+            laneLabel8325 = if (live8290) laneLabel8325(lane) else null,
         )
     }
 }

@@ -361,6 +361,33 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         return rs.map { objectivePct8322(it) - off } to rs.map { it.labelCap8187() }
     }
 
+    /**
+     * V5.0.8325 §COPY_ON_READ — every lane's ranking rows in ONE pass (the Cortex copies them under its lock and ranks them
+     * outside it, cached). Same rows and order as [rankRows8324].
+     */
+    fun rankRowsByLane8325(): Map<String, List<RankRow8324>> {
+        val by = HashMap<String, ArrayList<CortexGradeRecord8144>>()
+        for (d in decisions) if (d.graded && !d.lost && d.executablePct.isFinite()) by.getOrPut(d.lane) { ArrayList() }.add(d)
+        return by.mapValues { (lane, rs) ->
+            val off = offset8187(lane)
+            rs.sortedBy { it.atMs }.map { RankRow8324(it.predictedEdgePct, it.tailEv8324, objectivePct8322(it) - off, it.bucket, it.admitted) }
+        }
+    }
+
+    /** V5.0.8325 — one lane's pond inputs copied for a computation outside the owner's lock: values, caps, witness flags. */
+    internal class PondRows8325(val values: List<Double>, val caps: List<Double>, val witnessed: List<Boolean>)
+
+    /** V5.0.8325 — every lane's [pondRows8324] / [pondWitness8324] in ONE pass (same rows and order). */
+    internal fun pondRowsByLane8325(): Map<String, PondRows8325> {
+        val by = HashMap<String, ArrayList<CortexGradeRecord8144>>()
+        for (d in decisions) if (d.graded && !d.lost && d.executablePct.isFinite()) by.getOrPut(d.lane) { ArrayList() }.add(d)
+        return by.mapValues { (lane, rs0) ->
+            val rs = rs0.sortedBy { it.atMs }
+            val off = offset8187(lane)
+            PondRows8325(rs.map { objectivePct8322(it) - off }, rs.map { it.labelCap8187() }, rs.map { it.witnessed8324 })
+        }
+    }
+
     /** V5.0.8324 — the provenance flags of [pondRows8324]'s rows (same order). */
     fun pondWitness8324(lane: String): List<Boolean> =
         decisions.filter { it.graded && !it.lost && it.lane == lane && it.executablePct.isFinite() }.sortedBy { it.atMs }.map { it.witnessed8324 }

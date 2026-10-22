@@ -157,7 +157,8 @@ class Aate8324InversionTest {
         val cx = src("engine/cortex/Cortex7885.kt")
         assertTrue(cx.contains("val bucket = if (runner) runnerBucketNow8324(lane, calibrated, ev8324) else CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)"))
         assertTrue(cx.contains("try { refreshPonds8324(lanes) }"))
-        assertTrue(cx.contains("ranking (§8324 does the Cortex rank-order forward returns?): \${inversionLine8324()}"))
+        // superseded by V5.0.8325: the ranking line is read before the lock (cached)
+        assertTrue(cx.contains("ranking (§8324 does the Cortex rank-order forward returns?): \${inversion8325}"))
         assertTrue(cx.contains("inversion8324["))
         assertTrue(cx.contains("it.tailEv8324 = p.a.tailEv8324"))
         // a revision whose voter trace aged out still revises its grade record; past-horizon traces go first
@@ -227,10 +228,10 @@ class Aate8324InversionTest {
         val thin = ev("LAUNCH", 14, -20.0, 2.0, run = 0.0)
         val before = CandidateAdmission8136.decide8136(cand(thin, Double.NaN, Double.NaN))
         assertEquals("SETUP_RECORD_LOSING_8136", before.reason)
-        // on the tail pond its missing runners are worth +39 points: no longer a clear loss (the generic prior decides)
+        // superseded by V5.0.8325: the missed-runner credit no longer bypasses a live loss test (8323: SHITCOIN 1/7)
         val after = CandidateAdmission8136.decide8136(cand(thin, 0.05, 780.0))
-        assertNotEquals("SETUP_RECORD_LOSING_8136", after.reason)
-        assertEquals(Terminal8136.ADMIT, after.terminal)
+        assertEquals("SETUP_RECORD_LOSING_8136", after.reason)
+        assertEquals(Terminal8136.REFUSE, after.terminal)
         // a large runnerless record is still a proven loss
         val big = ev("LAUNCH", 400, -20.0, 1.0, run = 0.0)
         assertEquals("SETUP_RECORD_LOSING_8136", CandidateAdmission8136.decide8136(cand(big, 0.05, 780.0)).reason)
@@ -242,9 +243,9 @@ class Aate8324InversionTest {
     @Test fun theCheatSheetAvoidsOnlyAClearTailAwareLoss() {
         val r = Record8323("LAUNCH", 0.5, 14.0, -20.0, 2.0, 0.0)
         assertEquals(Verdict8323.AVOID, LaneCheatSheet8323.judge8323(r, Verdict8323.NEUTRAL))
-        assertEquals(Verdict8323.NEUTRAL, LaneCheatSheet8323.judge8323(r, Verdict8323.NEUTRAL, 0.0, 0.05, 780.0))
-        // and an avoided setup leaves AVOID on the same tail-aware net
-        assertEquals(Verdict8323.NEUTRAL, LaneCheatSheet8323.judge8323(r, Verdict8323.AVOID, 0.0, 0.05, 780.0))
+        // superseded by V5.0.8325: the verdict reads the record's own labels (the avoided setup re-probes on the exploration slot)
+        assertEquals(Verdict8323.AVOID, LaneCheatSheet8323.judge8323(r, Verdict8323.NEUTRAL, 0.0, 0.05, 780.0))
+        assertEquals(Verdict8323.AVOID, LaneCheatSheet8323.judge8323(r, Verdict8323.AVOID, 0.0, 0.05, 780.0))
         val big = Record8323("LAUNCH", 0.5, 300.0, -20.0, 1.0, 0.0)
         assertEquals(Verdict8323.AVOID, LaneCheatSheet8323.judge8323(big, Verdict8323.NEUTRAL, 0.0, 0.05, 780.0))
         val sheet = src("engine/cortex/LaneCheatSheet8323.kt")
@@ -259,7 +260,8 @@ class Aate8324InversionTest {
         assertEquals(0.0, LanePlaybook7907.tailCredit8324("TREASURY", st), 0.0)
         assertEquals(0.0, LanePlaybook7907.tailCredit8324("UNPONDED_RUNNER_MOONSHOT_8324", st), 0.0)
         val pb = src("engine/cortex/LanePlaybook7907.kt")
-        assertTrue(pb.contains("setupRecordNegative8094(st.n, st.mean() + tailCredit8324(lane, st), st.variance())) setup else null"))
-        assertTrue(pb.contains("setupRecordNegative8094(st.n, st.mean() + tailCredit8324(lane, st), st.variance())) \"\$setup@\$band\" else null"))
+        // superseded by V5.0.8325: the live doors read the record on its own labels again (no tail credit)
+        assertFalse(pb.contains("st.mean() + tailCredit8324(lane, st)"))
+        assertTrue(pb.contains("setupRecordNegative8094(st.n, st.mean(), st.variance())) setup else null"))
     }
 }

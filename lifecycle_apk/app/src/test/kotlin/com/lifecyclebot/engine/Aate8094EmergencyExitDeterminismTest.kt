@@ -86,7 +86,7 @@ class Aate8094EmergencyExitDeterminismTest {
     // Memory / main thread: Cortex saves are queued on one background thread; onDestroy waits a bounded time.
     @Test fun cortexPersistenceNeverEncodesOnTheCallerThread() {
         val c = src("engine/cortex/Cortex7885.kt")
-        val persist = c.substringAfter("    private fun persist() {").substringBefore("@Synchronized private fun persistBlocking8094()")
+        val persist = c.substringAfter("    private fun persist() {").substringBefore("private val persistLock8325 = Any()")  // superseded by V5.0.8325: saves no longer hold the Cortex monitor
         assertTrue(persist.contains("persistQueued8094.compareAndSet(false, true)"))          // coalesced
         assertTrue(persist.contains("persistPool8094.execute { persistQueued8094.set(false); persistBlocking8094() }"))
         val now = c.substringAfter("fun persistNow7930() {").substringBefore("private const val FLUSH_WAIT_MS_8094")

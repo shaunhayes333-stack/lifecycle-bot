@@ -612,6 +612,12 @@ class CortexLedger7885(
         val pWin: Double = 0.5,
         /** V5.0.8324 — the lane's runner-rate baseline the fused [runnerRate] deviates from (the tail EV reads the deviation). */
         val laneRunnerRate8324: Double = Double.NaN,
+        /** V5.0.8325 — the lane's ALL-regime prior (the scalp lanes' regime-neutral ordering reads around it); NaN unknown. */
+        val laneMeanAll8325: Double = Double.NaN,
+        /** V5.0.8325 — runner lanes: the coin's run probability from its voters' bins (CortexRunOdds8325); NaN otherwise. */
+        val pRun8325: Double = Double.NaN,
+        /** V5.0.8325 — seats with run skill that read the coin. */
+        val runVoters8325: Int = 0,
     )
 
     /**
@@ -675,7 +681,30 @@ class CortexLedger7885(
         val top = weights.sortedByDescending { kotlin.math.abs(it.second * it.first.d) }.take(3)
             .map { (w, x) -> "${w.id}${if (w.d >= 0) "+" else ""}${"%.1f".format(w.d)}@${"%.2f".format(x)}" }
         val pWin = ((l?.winRate() ?: 0.5) + swp / (1.0 + sw)).coerceIn(0.0, 1.0)
-        return Fused(edge, runner, m, l?.n ?: 0.0, sw, if (sw2 > 0.0) sw * sw / sw2 else 0.0, dissent, top, pWin, lr)
+        val mAll8325 = l?.predictMean8322() ?: Double.NaN
+        val runOdds = if (runnerLaneSafe8324(lane)) runOdds8325(lane, votes) else null
+        return Fused(edge, runner, m, l?.n ?: 0.0, sw, if (sw2 > 0.0) sw * sw / sw2 else 0.0, dissent, top, pWin, lr,
+            laneMeanAll8325 = mAll8325, pRun8325 = runOdds?.first ?: Double.NaN, runVoters8325 = runOdds?.second ?: 0)
+    }
+
+    /**
+     * V5.0.8325 §RUN_ODDS — [lane]'s run probability for a coin with [votes] (CortexRunOdds8325.pRun8325) and how many
+     * run-skilled seats read it; null without a lane runner share. Reads the seats' run counts only (no shrunk return means).
+     */
+    fun runOdds8325(lane: String, votes: List<Vote>): Pair<Double, Int>? {
+        val lr = lanes[lane]?.runnerRate() ?: return null
+        if (!(lr > 0.0 && lr < 1.0)) return null
+        val reads = ArrayList<CortexRunOdds8325.RunVote8325>()
+        for (v in votes) {
+            if (!v.raw.isFinite()) continue
+            val st = seats["${v.voterId}|$lane"] ?: continue
+            val skill = CortexRunOdds8325.runSkill8325(DoubleArray(st.bins.size) { st.bins[it].n }, DoubleArray(st.bins.size) { st.bins[it].runners }, lr)
+            if (!(skill > 0.0)) continue
+            val b = st.bins.getOrNull(binOf(v.edges, v.raw)) ?: continue
+            reads.add(CortexRunOdds8325.RunVote8325(skill, b.n, b.runners))
+        }
+        val p = CortexRunOdds8325.pRun8325(lr, reads)
+        return if (p.isFinite()) p to minOf(reads.size, CortexRunOdds8325.TOP_K_8325) else null
     }
 
     /** V5.0.8007 — what vote cleaning does to the seasoned seats (lane seats only). */
