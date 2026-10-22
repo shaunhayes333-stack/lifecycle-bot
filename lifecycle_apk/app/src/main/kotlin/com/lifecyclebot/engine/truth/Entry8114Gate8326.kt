@@ -69,8 +69,9 @@ object Entry8114Gate8326 {
         }
         // 8114: the spike rule stood down for a forming run (8113), a tail-proven rule (8097) or a proven cell / kind (8094).
         val snap = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts) } catch (_: Throwable) { null }
+        // V5.0.8337 (6b) — only an EARLY run (8117) that is also a grab is exempt from the chase rule: a coin that already ran is not bought.
         if (snap != null && LiveEdgeGate7877.chasing8065(snap.runupFromLocalLowPct, snap.currentVsPeak, ts.lastPriceChange5m) &&
-            !runnerForming8114(ts, nowMs) &&
+            !(LiveEdgeGate7877.earlyRun8117(snap.runupFromLocalLowPct, ts.lastPriceChange5m) && (try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Throwable) { false })) &&
             !LiveEdgeGate7877.spikeRuleRefusesRunners8097(ts, l, nowMs) &&
             !cellOrKindProven8114(ts, l, nowMs)) {
             chase8326.incrementAndGet()
@@ -95,9 +96,8 @@ object Entry8114Gate8326 {
     private fun kindProven8114(ts: TokenState, lane: String): Boolean =
         try { ForwardReturnLabeler7731.kindStatsFor8063(ts, lane).any { LiveEdgeGate7877.cellProven8060(it.n60, it.meanNet60Pct, it.stderr60Pct) } } catch (_: Throwable) { false }
 
-    private fun runnerForming8114(ts: TokenState, nowMs: Long): Boolean =
-        (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false }) ||
-            (try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Throwable) { false })
+    /** V5.0.8337 (6a) — only a grab counts as a forming run (8115/8117 narrowed this); runner tickets never exempt. */
+    private fun runnerForming8114(ts: TokenState, nowMs: Long) = try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Throwable) { false }
 
     private fun shadowAuditAdmits8114(ts: TokenState, lane: String): Boolean = try {
         com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.entry(lane, ts.mint)?.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY &&
@@ -134,9 +134,7 @@ object Entry8114Gate8326 {
 
     /** 8114 watch first (no 8153 release, no 8290 shortfall: the cell is read raw inside the legacy scope). */
     private fun watchFirst8114(ts: TokenState, lane: String, nowMs: Long, auditedAdmission8076: Boolean): String? {
-        if (try { com.lifecyclebot.engine.RunnerTicket8073.isTicket8073(ts.mint, nowMs) } catch (_: Throwable) { false }) {
-            LiveEdgeGate7877.notePositive7975(ts.mint, nowMs); return null
-        }
+        // V5.0.8337 (6c) — a RunnerTicket8073 / RunnerPlay8018 ticket is no admit evidence here: a coin that already ran is watched.
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
         if (st != null && LiveEdgeGate7877.cellEarnsLive7994(st.n60, st.meanNet60Pct)) {
             if (LiveEdgeGate7877.cellSkipsPlanWait7995(st.n60, st.meanNet60Pct)) LiveEdgeGate7877.notePositive7975(ts.mint, nowMs)
@@ -149,9 +147,6 @@ object Entry8114Gate8326 {
             LiveEdgeGate7877.notePositive7975(ts.mint, nowMs)
             if (proven8056.second) try { com.lifecyclebot.engine.RunnerGrab7967.holdAsRunner7972(ts, nowMs) } catch (_: Throwable) {}
             return null
-        }
-        if (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false }) {
-            LiveEdgeGate7877.notePositive7975(ts.mint, nowMs); return null
         }
         if (try { TailHunter7996.ticket7996(ts, l, nowMs) } catch (_: Throwable) { false }) {
             LiveEdgeGate7877.notePositive7975(ts.mint, nowMs); return null

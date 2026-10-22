@@ -144,13 +144,37 @@ object ForwardReturnLabeler7731 {
     private val curveRefusedEntry8165 = AtomicLong(0)
     private val curveRefusedMark8165 = AtomicLong(0)
 
-    private fun curveContradicts8165(mint: String, markUsd: Double, nowMs: Long): Boolean {
-        val curveSol = try { CurveReserves7951.priceSolFor7951(mint, nowMs, CURVE_WITNESS_MAX_AGE_MS_8165) } catch (_: Throwable) { 0.0 }
-        if (!(curveSol > 0.0)) return false
-        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        if (!(solUsd > 0.0)) return false
-        return curveDisagrees8165(markUsd, curveSol * solUsd)
+    /** V5.0.8337 (10d) — a mark and a curve read are compared only when they were read within this of each other. */
+    const val CURVE_WITNESS_SYNC_MS_8337 = 5_000L
+    private val curveHeldMark8337 = AtomicLong(0)
+
+    /**
+     * Pure (V5.0.8337, 10d): the curve witness verdict on a mark. 0 = the mark stands (no disagreement), 1 = CONTRADICTED
+     * (a curve read within [CURVE_WITNESS_SYNC_MS_8337] of the mark disagrees by 2x: a basis error), 2 = HELD (a curve read
+     * further than 5 s from the mark disagrees: the two may describe different moments on a fast curve, so the mark waits
+     * for a newer curve read that agrees — it is never dropped on that read).
+     */
+    fun curveWitness8337(markUsd: Double, curveUsd: Double, markAtMs: Long, curveAtMs: Long): Int {
+        if (!curveDisagrees8165(markUsd, curveUsd)) return 0
+        return if (kotlin.math.abs(markAtMs - curveAtMs) <= CURVE_WITNESS_SYNC_MS_8337) 1 else 2
     }
+
+    private fun curveWitnessAt8337(mint: String, markUsd: Double, markAtMs: Long, nowMs: Long): Int {
+        val curveSol = try { CurveReserves7951.priceSolFor7951(mint, nowMs, CURVE_WITNESS_MAX_AGE_MS_8165) } catch (_: Throwable) { 0.0 }
+        if (!(curveSol > 0.0)) return 0
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!(solUsd > 0.0)) return 0
+        val curveAt = (try { CurveReserves7951.readingAtMs8173(mint) } catch (_: Throwable) { null }) ?: return 0
+        return curveWitness8337(markUsd, curveSol * solUsd, markAtMs, curveAt)
+    }
+
+    /** V5.0.8337 (10d) — contradicted only by a curve read within 5 s of the mark ([markAtMs], the read time when unknown). */
+    private fun curveContradicts8165(mint: String, markUsd: Double, nowMs: Long, markAtMs: Long = nowMs): Boolean =
+        curveWitnessAt8337(mint, markUsd, markAtMs, nowMs) == 1
+
+    /** V5.0.8337 (10d) — held: an out-of-sync curve read disagrees; the mark waits for a newer read (never dropped). */
+    private fun curveHolds8337(mint: String, markUsd: Double, nowMs: Long, markAtMs: Long = nowMs): Boolean =
+        curveWitnessAt8337(mint, markUsd, markAtMs, nowMs) == 2
 
     /**
      * Pure (V5.0.8324 §PROVENANCE): is a label's mark witnessed on the chain basis? Either the coin's own bonding-curve spot
@@ -752,7 +776,8 @@ object ForwardReturnLabeler7731 {
             return
         }
         // V5.0.8165 — an entry price the coin's own bonding curve contradicts is not a buyable price.
-        if (curveContradicts8165(ts.mint, px, nowMs)) {
+        // V5.0.8337 (10d) — compared on the mark's own time: a curve read out of sync with it is no witness against it.
+        if (curveContradicts8165(ts.mint, px, nowMs, if (tsFresh) ts.lastPriceUpdate else nowMs)) {
             curveRefusedEntry8165.incrementAndGet()
             return
         }
@@ -1067,9 +1092,18 @@ object ForwardReturnLabeler7731 {
         val (net, gross) = captured7945(o, net0, gross0)
         // V5.0.8324 §PROVENANCE — a runner label whose marks the chain witnessed (curve reserves / launch-scale cap) is real at any size.
         val w8324 = gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs)
-        book(o, 60, net, gross, w8324)
-        o.bookedNet7997 = net; o.bookedGross7997 = gross; o.bookedWitness8324 = w8324
-        try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
+        // V5.0.8337 (FIX 2) — a flat mark (no price other than the entry ever seen) is a LOST mark, never a -cost label:
+        // 8322 booked it first and flagged it after, so every lane / cell / shape / specialist book read "lost the round trip".
+        val flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)
+        if (flat8322) {
+            flatMarks8322.incrementAndGet()
+            o.bookedNet7997 = Double.NaN
+            markLost(o)                       // counted as lost mark, never as a -cost label
+        } else {
+            book(o, 60, net, gross, w8324)
+            o.bookedNet7997 = net; o.bookedGross7997 = gross; o.bookedWitness8324 = w8324
+            try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
+        }
         // V5.0.8080 §ONE_PATH_TWO_EXIT_FAMILIES. The setup books graded every setup that fired on one value, so a
         // momentum scalp and a breakout runner on the same coin were credited the same return. The same observed path is
         // now played under the scalp exits and under the long-hold exits; each setup is graded on its own family.
@@ -1078,9 +1112,10 @@ object ForwardReturnLabeler7731 {
         o.bookedLongNet8080 = long8080.first; o.bookedLongGross8080 = long8080.second
         val fam8080 = doubleArrayOf(scalp8080.first, scalp8080.second, long8080.first, long8080.second)
         // V5.0.8322 — a flat mark (no price other than the entry ever seen) reaches the Cortex flagged: observed only there.
-        val flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)
-        if (flat8322) flatMarks8322.incrementAndGet()
+        // V5.0.8337 (FIX 2) — the flat test now runs before the 60 slot is booked (above); the Cortex still receives the flag
+        // (it resolves its pending decision as observed-only), every other learner hook is skipped on a flat mark.
         try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324) } catch (_: Throwable) {}
+        if (flat8322) return
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
         try { com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}
         // V5.0.7972 — the same label grades every pair/triple of the decision's facts (specialist miner).
@@ -1241,8 +1276,39 @@ object ForwardReturnLabeler7731 {
         // run instead of "peaked at minute 60" (which taught every runner key to sell early).
         if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)
         val (net, gross) = captured7945(o, net0, gross0)
+        if (runnerSlot8337(o.lane)) reviseToHour8337(o, net0, gross0, net, gross)  // V5.0.8337 (10e) — runner lanes grade on the hour slot
         book(o, 240, net, gross)
         try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 240, net, gross) } catch (_: Throwable) {}
+    }
+
+    // ── V5.0.8337 (10e) — runner lanes grade on the 60-minute slot or the last 7997 checkpoint, not the 5-minute slot ──
+    //
+    // A runner lane (MOONSHOT / SHITCOIN / EXPRESS / PROJECT_SNIPER) holds through the hour, so its 5-minute label is not its
+    // return. The 1 h / 4 h checkpoints already revise the 5-minute slot for a coin still priced at the hour; a coin that
+    // vanished or died before its first checkpoint (resolveVanished7944 -> DEAD, -100%) only booked the n240/sum240 slot and
+    // kept its 5-minute grade (often positive) in every book. The hour's label now revises the 5-minute slot for a runner lane
+    // wherever it went (cell tallies, specialist miner, cell bandit, Cortex, long-hold setup books); a checkpoint that already
+    // moved it to the same value is not revised twice (bookedNet7997 carries the last revision).
+    private val revisedToHour8337 = AtomicLong(0)
+
+    /** Pure (V5.0.8337): is [lane] graded on its hour slot — a runner-from-entry lane or a runner lane? */
+    fun runnerSlot8337(lane: String): Boolean =
+        (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false }) ||
+            (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false })
+
+    private fun reviseToHour8337(o: Obs, net0: Double, gross0: Double, net: Double, gross: Double) {
+        val oldNet = o.bookedNet7997
+        if (!oldNet.isFinite() || !net.isFinite() || kotlin.math.abs(net - oldNet) < 0.5) return
+        val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
+        val oldLong8080 = o.bookedLongNet8080
+        if (oldLong8080.isFinite() && long8080.first.isFinite() && kotlin.math.abs(long8080.first - oldLong8080) >= 0.5) {
+            try { com.lifecyclebot.engine.cortex.LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second) } catch (_: Throwable) {}
+            o.bookedLongNet8080 = long8080.first; o.bookedLongGross8080 = long8080.second
+        }
+        revise7997(o, oldNet, net, o.bookedGross7997, gross, gross >= RUNNER_PCT_7731 && o.witnessed8324)
+        o.bookedNet7997 = net; o.bookedGross7997 = gross
+        revisedToHour8337.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("FORWARD_LABEL_RUNNER_HOUR_SLOT_8337") } catch (_: Throwable) {}
     }
 
     private val exitRunSamples8006 = AtomicLong(0)
@@ -1495,6 +1561,13 @@ object ForwardReturnLabeler7731 {
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_CONTRADICTED_8165") } catch (_: Throwable) {}
                 continue
             }
+            // V5.0.8337 (10d) — a curve read more than 5 s from the mark that disagrees HOLDS the mark (the observation and its
+            // basis untouched) until a newer curve read agrees or the read leaves the witness window; it is never dropped.
+            if (curveHolds8337(o.mint, px, nowMs)) {
+                curveHeldMark8337.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_HELD_8337") } catch (_: Throwable) {}
+                continue
+            }
             // V5.0.8167 — corroborate against the OLD basis; rebasing first hides a phantom jump.
             if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), px, "FORWARD_LABEL")) continue
             // V5.0.8076 — the label starts where a buy could actually land: the first mark 5-60 s after the decision.
@@ -1663,7 +1736,9 @@ object ForwardReturnLabeler7731 {
     }
 
     fun cellStatFor(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): CellStat? {
-        val ageMs = cellAgeMs8208(ts, nowMs)
+        // V5.0.8337 (FIX 7a) — inside the 8114 legacy scope the cell is keyed on the 8114 age (time since discovery), so the
+        // 8114 decision reads the cells 8114 wrote; the 8208 birth-witness age keys everything else.
+        val ageMs = if (Entry8114Mode8326.legacyScope8326()) (if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L) else cellAgeMs8208(ts, nowMs)
         return executable8187(cellStat(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs)), lane)  // V5.0.8019 / V5.0.8187
     }
 
@@ -1776,7 +1851,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()}] witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLabels8322=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLabels8322=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      tail8303: ${best.joinToString(" · ") { CellTail8303.line8303(it.key, it.meanNet60Pct, it.winRate60, it.runnerRate60) }.ifBlank { "-" }}\n" +  // V5.0.8303

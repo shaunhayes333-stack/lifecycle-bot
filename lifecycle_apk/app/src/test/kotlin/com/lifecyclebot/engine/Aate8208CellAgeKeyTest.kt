@@ -20,7 +20,9 @@ class Aate8208CellAgeKeyTest {
 
     @Test fun oneRuleKeysWriterAndBothReaders() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertEquals(3, Regex("""val ageMs = cellAgeMs8208\(ts, nowMs\)""").findAll(src).count())
+        // superseded by V5.0.8337 — FIX 7a: cellStatFor keys on discovery age inside the 8114 legacy scope only (one rule otherwise)
+        assertEquals(2, Regex("""val ageMs = cellAgeMs8208\(ts, nowMs\)""").findAll(src).count())
+        assertTrue(src.contains("else cellAgeMs8208(ts, nowMs)"))
         assertFalse("no cell key may be built from discovery age directly", src.contains("val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L"))
         assertTrue(src.contains("LaunchBirth8169.launchBirth8169(ts.mint, nowMs)"))
     }

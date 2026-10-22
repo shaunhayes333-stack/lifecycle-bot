@@ -156,7 +156,8 @@ class Aate8326Entry8114ModeTest {
         assertTrue(labeler.contains("else if (Entry8114Mode8326.legacyScope8326()) legacyCell8326(key, n, sum, sumSq, wins, runners, t.lost, t.n240, t.sum240)"))
         val playbook = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(playbook.contains("(try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null }) ?: classify(ts, canon(laneRaw), nowMs)"))
-        assertTrue(playbook.contains("if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return raw"))
+        // superseded by V5.0.8337 — FIX 7b: the legacy read is the 8114 record (uncapped, whole hive), not the 8187-capped raw one
+        assertTrue(playbook.contains("if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return legacyStat8326(lane, setup)"))
         val cortex = src("engine/cortex/Cortex7885.kt")
         val old = cortex.substringAfter("fun entryRefusal8114(").substringBefore("fun overrulesEdgeRefusal(")
         assertTrue(old.contains("board.refusalAuthority(a.lane, a.runnerLane, false) && consistent(a.lane)"))
@@ -171,7 +172,8 @@ class Aate8326Entry8114ModeTest {
         assertTrue(fdg.split("Entry8114Mode8326.admission8326(").size - 1 >= 4)
         assertTrue(fdg.contains("if (!com.lifecyclebot.engine.truth.Entry8114Mode8326.liveActiveNow8326(lane)) floorFromAdmission8136("))
         val plan = src("engine/truth/TradePlan7739.kt")
-        assertTrue(plan.contains("if (Entry8114Mode8326.liveActive8326(lane, paper)) return null"))
+        // superseded by V5.0.8337 — FIX 8: a chart BUY in 8114 mode goes through the 8114 decision, not straight to the plan
+        assertTrue(plan.contains("if (Entry8114Mode8326.liveActive8326(lane, paper)) return LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)"))
         assertTrue(plan.contains("val specific8171 = if (Entry8114Mode8326.liveActive8326(lane, paper)) null"))
         // in mode no admission reaches the helpers; off, the same decision object passes through
         Entry8114Mode8326.noteConfig8326(false)
