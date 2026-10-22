@@ -80,6 +80,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         private const val TOKEN_PROGRAM_7927 = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         private const val TOKEN_2022_PROGRAM_7927 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         private const val WSOL_MINT_7927 = "So11111111111111111111111111111111111111112"
+        // V5.0.8307 — the strict reader's shared snapshot age (unchanged from 8268) and how long a caller waits to join the
+        // read in flight before reporting IN_FLIGHT (indeterminate) as before.
+        const val WALLET_TOKEN_TTL_MS_8307 = 5_000L
+        const val WALLET_TOKEN_JOIN_WAIT_MS_8307 = 4_500L
         // V5.0.4595 — WALLET RPC ROUND-ROBIN + PER-ENDPOINT COOLDOWN
         // (operator P0 "harden api and rpc connections").
         // Prior behavior: walletRpcEndpointsForTokenSnapshot() returned the
@@ -1489,19 +1493,46 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * meme holdings live there. Token-2022 is additive only: a Token-2022 read
      * failure must not poison an otherwise successful SPL wallet snapshot.
      */
-    fun getTokenAccountsWithDecimalsStrict(): Map<String, CanonicalTokenAmount> {
+    fun getTokenAccountsWithDecimalsStrict(): Map<String, CanonicalTokenAmount> =
         // 8268: a verified, same-owner cache hit needs no new provider call.
         // Only the strict reader publishes this cache in production. No synthetic zero balance.
-        com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L, owner = publicKeyB58)?.let {
+        sharedTokenRead8307(System.currentTimeMillis() - WALLET_TOKEN_TTL_MS_8307)
+
+    /**
+     * V5.0.8307 — a wallet snapshot observed at or after [notBeforeMs] (e.g. a sell's own broadcast time): a fresher cached
+     * snapshot serves it, a read that started after it is joined, otherwise one new read runs — concurrent forced callers
+     * coalesce into that one read. Same indeterminate semantics as the strict reader (never an invented empty wallet).
+     */
+    fun getTokenAccountsWithDecimalsFresh8307(notBeforeMs: Long): Map<String, CanonicalTokenAmount> = sharedTokenRead8307(notBeforeMs)
+
+    private fun cachedAtLeast8307(notBeforeMs: Long): Map<String, CanonicalTokenAmount>? {
+        val ev = com.lifecyclebot.engine.WalletAccountCache.evidence() ?: return null
+        if (ev.owner != publicKeyB58) return null
+        return if (WalletTokenReadGate8268.serves8307(ev.observedAtMs, System.currentTimeMillis(), notBeforeMs)) ev.tokens else null
+    }
+
+    private fun sharedTokenRead8307(notBeforeMs: Long): Map<String, CanonicalTokenAmount> {
+        cachedAtLeast8307(notBeforeMs)?.let {
             try { com.lifecyclebot.engine.truth.LiveBootRecovery8074.noteTokenRead8074(true) } catch (_: Throwable) {}
             return it
         }
         // 8268: every caller of this wallet shares one network request and a bounded
         // retry budget. IN_FLIGHT/BACKOFF are UNKNOWN, not zero tokens.
-        val defer8268 = WalletTokenReadGate8268.begin(publicKeyB58)
-        if (defer8268 != null) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_TOKEN_READ_${defer8268}_DEFER_8268") } catch (_: Throwable) {}
-            throw IllegalStateException("WALLET_TOKEN_READ_${defer8268}_8268")
+        // V5.0.8307 — IN_FLIGHT is joined (bounded wait for the one read, then its published snapshot), not thrown.
+        val joinDeadline8307 = System.currentTimeMillis() + WALLET_TOKEN_JOIN_WAIT_MS_8307
+        while (true) {
+            val defer8268 = WalletTokenReadGate8268.begin(publicKeyB58)
+            if (defer8268 == null) break
+            if (defer8268 != "IN_FLIGHT" || System.currentTimeMillis() >= joinDeadline8307) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_TOKEN_READ_${defer8268}_DEFER_8268") } catch (_: Throwable) {}
+                throw IllegalStateException("WALLET_TOKEN_READ_${defer8268}_8268")
+            }
+            WalletTokenReadGate8268.awaitIdle8307(publicKeyB58, joinDeadline8307 - System.currentTimeMillis())
+            cachedAtLeast8307(notBeforeMs)?.let {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_TOKEN_READ_JOINED_8307") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.truth.LiveBootRecovery8074.noteTokenRead8074(true) } catch (_: Throwable) {}
+                return it
+            }
         }
         try {
             val observed8268 = readTokenAccountsOnWire8268()

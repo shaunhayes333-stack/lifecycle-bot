@@ -135,8 +135,22 @@ object HostCircuitInterceptor : Interceptor {
         host.contains("geckoterminal", ignoreCase = true) -> "geckoterminal"
         host.endsWith("jup.ag", ignoreCase = true) -> "jupiter"
         host.contains("groq.com", ignoreCase = true) -> "groq"
-        host.contains("pump.fun", ignoreCase = true) -> "pumpfun"
+        host.contains("pump.fun", ignoreCase = true) -> pumpFunLabel8307(host)
         else -> ""
+    }
+
+    /**
+     * V5.0.8307 — pump.fun's hosts cool down one at a time: a 530 storm on one (5.0.8306: pumpfun 530s) used to lock the
+     * shared "pumpfun" label, so the coin-data host's outage also refused the swap-api candles and advanced-api reads (and
+     * counted as the pumpfun execution label in SellOnlySafeMode). The coin-data host keeps "pumpfun"; every other pump.fun
+     * host answers to its own label.
+     */
+    internal fun pumpFunLabel8307(host: String): String {
+        val h = host.lowercase()
+        return when {
+            h == "pump.fun" || h.startsWith("frontend-api") -> "pumpfun"
+            else -> "pumpfun_" + h.substringBefore('.').filter { it.isLetterOrDigit() }.take(16).ifBlank { "host" }
+        }
     }
 
     /**

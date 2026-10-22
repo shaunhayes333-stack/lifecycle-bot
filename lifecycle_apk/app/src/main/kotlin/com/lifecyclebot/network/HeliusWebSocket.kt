@@ -735,6 +735,7 @@ class HeliusWebSocket(
             val ev = PumpSwapEvents8191.decode8191(b) ?: continue
             noteDecoded8096(mint)
             HeliusSubscriptionTelemetry7807.pumpSwapDecoded8191.incrementAndGet()
+            PumpSwapTape8307.noteDecoded8307(sig, mint, ev.pool, ev.tsSec)   // V5.0.8307 — the print keeps its pool and block time
             dispatchCallback7863(mint) { onSwap(mint, ev.isBuy, ev.sol, ev.tokens, ev.user, sig) }
             return
         }
@@ -997,7 +998,11 @@ internal fun heliusStreamLowYield8191(frames: Int, decoded: Int, bytes: Long): B
     (frames >= 200 || (bytes >= 2L * 1_048_576L && frames >= 40)) && decoded.toLong() * 50L < frames.toLong()
 
 /** V5.0.8191 — one decoded PumpSwap swap: SOL (quote) and tokens (base, 6 decimals) moved, side and signer. */
-internal class PumpSwapEvent8191(val isBuy: Boolean, val sol: Double, val tokens: Double, val user: String)
+internal class PumpSwapEvent8191(
+    val isBuy: Boolean, val sol: Double, val tokens: Double, val user: String,
+    /** V5.0.8307 — the pool the swap executed on and the event's own block timestamp (seconds; 0 = unstated). */
+    val pool: String = "", val tsSec: Long = 0L,
+)
 
 internal object PumpSwapEvents8191 {
     private val PUMPSWAP_BUY_DISC_8191 = byteArrayOf(103, 244.toByte(), 82, 31, 44, 245.toByte(), 119, 119)
@@ -1029,7 +1034,10 @@ internal object PumpSwapEvents8191 {
         val poolPx = poolQuote / poolBase
         if (!(px.isFinite() && poolPx.isFinite()) || px <= 0.0 || kotlin.math.abs(px / poolPx - 1.0) > 0.25) return null
         val user = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(152, 184)) } catch (_: Throwable) { "" }
-        return PumpSwapEvent8191(buy, quoteRaw / 1e9, baseRaw / 1e6, user)
+        val pool = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(120, 152)) } catch (_: Throwable) { "" }   // V5.0.8307
+        var ts = 0L
+        for (k in 7 downTo 0) ts = (ts shl 8) or (b[8 + k].toLong() and 0xFF)
+        return PumpSwapEvent8191(buy, quoteRaw / 1e9, baseRaw / 1e6, user, pool, if (ts > 0L) ts else 0L)
     }
 }
 

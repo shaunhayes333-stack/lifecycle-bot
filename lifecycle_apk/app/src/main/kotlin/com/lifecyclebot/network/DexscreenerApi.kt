@@ -692,6 +692,8 @@ object DexPools8285 {
     }
 
     fun record8285(rows: List<PoolRow8285>) {
+        // V5.0.8307 — a PumpSwap pool's base mint, observed: its swaps on the chain stream can reach that mint's tape.
+        for (r in rows) if (r.dexId.equals("pumpswap", ignoreCase = true)) try { PumpSwapTape8307.notePoolMint8307(r.pairAddress, r.mint) } catch (_: Throwable) {}
         for ((mint, mine) in rows.groupBy { it.mint }) {
             pools.merge(mint, mine.associateBy { it.pairAddress }) { old, new -> old + new }
         }

@@ -161,12 +161,154 @@ object PumpFunWS {
      * empty swap window an observed zero. AUTH_DENIED, no key, a dropped socket or an unsubscribed mint = unknown.
      */
     fun tradeStreamCoversMint8136(mint: String): Boolean =
-        mint.isNotBlank() && tokenTradeStreamActive7432() && tradeSubscriptions7278.contains(mint)
+        mint.isNotBlank() && tokenTradeStreamActive7432() && tradeSubscriptions7278.contains(mint) &&
+            mint !in coverageSuspect8307 && !pumpSwapParkedNow8307(mint)   // V5.0.8307 — a refused PumpSwap mint is unknown, never zero
     internal fun isTradeAuthRefusal7432(message: String): Boolean {
         val e = message.lowercase()
         return ((e.contains("subscribetokentrade") || e.contains("subscribeaccounttrade")) &&
             (e.contains("api key") || e.contains("funded") || e.contains("only available"))) ||
-            e.contains("minimum balance not met")  // V5.0.8181 — the PumpSwap data refusal is the same funding check
+            // V5.0.8307 — "Minimum balance not met for PumpSwap websocket data" gates PumpSwap (post-migration) data only;
+            // 8181 read it as the whole keyed stream's refusal, so one migrated mint cost every bonding-curve coin its tape.
+            (e.contains("minimum balance not met") && !e.contains("pumpswap"))
+    }
+
+    // ── V5.0.8307 §THE_PUMPSWAP_REFUSAL_IS_SCOPED ──
+    //
+    // PumpPortal meters PumpSwap (post-migration) trade data behind its own balance requirement. Its refusal now marks only
+    // migrated mints (a migrate frame, or a completed curve: PumpCurveKeys7269.isGraduated7392) as PumpSwap-unavailable: they
+    // leave the subscription set, are not re-sent every tick, are not "covered" (an empty window is unknown, not zero), and
+    // are retried on a slow ladder (15 min doubling to 4 h). The keyed bonding-curve stream, its socket and its auth state
+    // are untouched: no reconnect, no AUTH_DENIED. A bonding-curve mint is never parked by it (no migration evidence = not
+    // PumpSwap); one sent in the refused frame without a print yet is only not claimed as covered until its first print.
+    // Post-migration tape comes from Helius (HeliusWebSocket's PumpSwap decode, PumpSwapTape8307).
+    internal const val PUMPSWAP_RETRY_BASE_MS_8307 = 15L * 60_000L
+    internal const val PUMPSWAP_RETRY_MAX_MS_8307 = 4L * 60L * 60_000L
+    private const val PUMPSWAP_BURST_MS_8307 = 5_000L
+    private const val SUSPECT_FRAME_MS_8307 = 10_000L
+    private val pumpSwapRefusals8307 = AtomicLong(0L)
+    @Volatile private var pumpSwapRefusedAtMs8307 = 0L
+    @Volatile private var pumpSwapObserved8307 = false
+    private val pumpSwapSkipped8307 = AtomicLong(0L)
+    private val pumpSwapFrames8307 = AtomicLong(0L)
+    private val pumpSwapParked8307 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val migratedSeen8307 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val coverageSuspect8307 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    @Volatile private var lastSubscribeKeys8307: List<String> = emptyList()
+    @Volatile private var lastSubscribeAtMs8307 = 0L
+
+    /** Pure: is [message] PumpPortal's PumpSwap-data balance refusal (scoped to post-migration mints)? */
+    internal fun isPumpSwapRefusal8307(message: String): Boolean {
+        val e = message.lowercase()
+        return e.contains("pumpswap") && (e.contains("minimum balance") || e.contains("not met") || e.contains("funded"))
+    }
+
+    /** Pure: the wait before PumpSwap data is asked for again after the [refusals]th refusal (15 min doubling, max 4 h). */
+    internal fun pumpSwapRetryDelayMs8307(refusals: Long): Long =
+        (PUMPSWAP_RETRY_BASE_MS_8307 shl (refusals - 1).coerceIn(0L, 4L).toInt()).coerceAtMost(PUMPSWAP_RETRY_MAX_MS_8307)
+
+    /** Pure: is PumpSwap data still refused at [nowMs] after [refusals] refusals, the last at [refusedAtMs]? */
+    internal fun pumpSwapBlocked8307(refusals: Long, refusedAtMs: Long, nowMs: Long): Boolean =
+        refusals > 0L && refusedAtMs > 0L && nowMs - refusedAtMs < pumpSwapRetryDelayMs8307(refusals)
+
+    /** Pure: the report state of PumpSwap data on the keyed socket. */
+    internal fun pumpSwapStateOf8307(refusals: Long, blocked: Boolean, observed: Boolean): String = when {
+        refusals == 0L -> if (observed) "OBSERVED" else "UNPROBED"
+        blocked -> "REFUSED_MIN_BALANCE"
+        else -> "RETRY_DUE"
+    }
+
+    /** Pure: of [mints], the ones PumpPortal may be asked for now (a migrated mint waits out the PumpSwap ladder). */
+    internal fun pumpSwapAdmit8307(mints: Collection<String>, blocked: Boolean, migrated: (String) -> Boolean): List<String> =
+        if (!blocked) mints.toList() else mints.filter { !migrated(it) }
+
+    /** Migration evidence only: a migrate frame on this socket, or a completed curve. Never a guess from a pool. */
+    fun pumpSwapMint8307(mint: String): Boolean =
+        mint.isNotBlank() && (mint in migratedSeen8307 || (try { PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }))
+
+    private fun pumpSwapBlockedNow8307(nowMs: Long = System.currentTimeMillis()): Boolean =
+        pumpSwapBlocked8307(pumpSwapRefusals8307.get(), pumpSwapRefusedAtMs8307, nowMs)
+
+    /** True while [mint] is a migrated mint PumpPortal refuses PumpSwap data for (Helius carries its tape). */
+    fun pumpSwapParkedNow8307(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        pumpSwapBlockedNow8307(nowMs) && pumpSwapMint8307(mint)
+
+    private fun pumpSwapState8307(nowMs: Long = System.currentTimeMillis()): String =
+        pumpSwapStateOf8307(pumpSwapRefusals8307.get(), pumpSwapBlockedNow8307(nowMs), pumpSwapObserved8307)
+
+    /** Filter a subscribe request; parked mints are counted once each (never re-sent every tick). */
+    private fun admitForSubscribe8307(mints: Collection<String>, nowMs: Long = System.currentTimeMillis()): List<String> {
+        val blocked = pumpSwapBlockedNow8307(nowMs)
+        if (!blocked) { if (pumpSwapParked8307.isNotEmpty()) pumpSwapParked8307.clear(); return mints.toList() }
+        val ok = pumpSwapAdmit8307(mints, true) { pumpSwapMint8307(it) }
+        if (ok.size < mints.size) for (m in mints) if (m !in ok && pumpSwapParked8307.add(m)) {
+            pumpSwapSkipped8307.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMPSWAP_SUB_PARKED_8307") } catch (_: Throwable) {}
+        }
+        if (pumpSwapParked8307.size > 2_000) pumpSwapParked8307.clear()
+        return ok
+    }
+
+    private fun noteSubscribeFrame8307(keys: Collection<String>) {
+        lastSubscribeKeys8307 = keys.take(64)
+        lastSubscribeAtMs8307 = System.currentTimeMillis()
+    }
+
+    /** The socket said PumpSwap data is refused: park migrated mints, keep the bonding-curve stream exactly as it is. */
+    private fun notePumpSwapRefusal8307(nowMs: Long) {
+        if (pumpSwapRefusals8307.get() > 0L && nowMs - pumpSwapRefusedAtMs8307 in 0L until PUMPSWAP_BURST_MS_8307) return
+        pumpSwapRefusals8307.incrementAndGet()
+        pumpSwapRefusedAtMs8307 = nowMs
+        val migrated = tradeSubscriptions7278.filter { pumpSwapMint8307(it) }
+        if (migrated.isNotEmpty()) { tradeSubscriptions7278.removeAll(migrated.toSet()); pumpSwapParked8307.addAll(migrated) }
+        // A mint of the refused frame with no migration evidence keeps its subscription; until its first print it is not
+        // claimed as covered (the refusal names no mint, so an empty window there is unknown, not an observed zero).
+        if (nowMs - lastSubscribeAtMs8307 in 0L..SUSPECT_FRAME_MS_8307) {
+            for (m in lastSubscribeKeys8307) if (!pumpSwapMint8307(m) && (framesByMint8192[m]?.get() ?: 0L) == 0L) coverageSuspect8307.add(m)
+            if (coverageSuspect8307.size > 512) coverageSuspect8307.clear()
+        }
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMPSWAP_REFUSED_MIN_BALANCE_8307")
+            ErrorLogger.warn(TAG, "PumpSwap data refused (minimum balance): ${migrated.size} migrated mint(s) parked; bonding-curve trade stream unchanged")
+        } catch (_: Throwable) {}
+    }
+
+    /** A PumpSwap trade frame arrived: PumpSwap data is served on this key. */
+    private fun notePumpSwapFrame8307() {
+        pumpSwapFrames8307.incrementAndGet()
+        pumpSwapObserved8307 = true
+        if (pumpSwapRefusals8307.get() > 0L) { pumpSwapRefusals8307.set(0L); pumpSwapRefusedAtMs8307 = 0L; pumpSwapParked8307.clear() }
+    }
+
+    /** Pure: the execution price (SOL per token) of a PumpSwap frame, from the trade's own SOL and token sizes. */
+    internal fun ammFramePrice8307(sol: Double, tokens: Double): Double =
+        if (sol.isFinite() && tokens.isFinite() && sol > 0.0 && tokens > 0.0) sol / tokens else Double.NaN
+
+    /** A PumpSwap frame onto the executed-trade tape only (no curve reserves, no curve mark: it is not the curve). */
+    private fun ammFrame8307(j: JSONObject, mint: String, isBuy: Boolean) {
+        val sol = j.optDouble("solAmount", 0.0)
+        val tok = j.optDouble("tokenAmount", 0.0)
+        val px = ammFramePrice8307(sol, tok)
+        if (!px.isFinite()) return
+        coverageSuspect8307.remove(mint)
+        val key = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(
+            mint, j.optString("signature", ""), j.optString("traderPublicKey", ""), isBuy, sol, 0.0, 0.0,
+        )
+        if (!com.lifecyclebot.engine.truth.LaunchEvidence8136.noteSwap8136(mint, key)) return
+        tapeFrame8285(j, mint, px, sol, tok, isBuy)
+    }
+
+    fun noteMigrationFrame8307(mint: String) {
+        if (mint.isBlank()) return
+        if (migratedSeen8307.size > 4_000) migratedSeen8307.clear()
+        migratedSeen8307.add(mint)
+    }
+
+    private fun pumpSwapLine8307(nowMs: Long = System.currentTimeMillis()): String {
+        val left = if (pumpSwapBlockedNow8307(nowMs))
+            ((pumpSwapRefusedAtMs8307 + pumpSwapRetryDelayMs8307(pumpSwapRefusals8307.get()) - nowMs) / 1000L).coerceAtLeast(0L) else 0L
+        return "pumpswap=${pumpSwapState8307(nowMs)} pumpSwap8307[refusals=${pumpSwapRefusals8307.get()} nextRetryS=$left " +
+            "parked=${pumpSwapParked8307.size} skippedSubs=${pumpSwapSkipped8307.get()} frames=${pumpSwapFrames8307.get()} " +
+            "coverageSuspect=${coverageSuspect8307.size} migratedSeen=${migratedSeen8307.size}]"
     }
     // V5.0.8192 — PumpPortal meters trade data (0.01 SOL / 10k messages). 96 launches x 15 min streamed ~450-500k
     // messages a day (~$50). Fewer, shorter launch subscriptions, a per-launch frame cap and a daily budget below.
@@ -222,7 +364,9 @@ object PumpFunWS {
         if (unsub.isNotEmpty() && tradeStreamKeyed7284()) ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray(unsub)).toString())
         setupMints8191[mint] = nowMs
         if (!tradeStreamKeyed7284()) { setupNoKey8191.incrementAndGet(); return false }
+        if (admitForSubscribe8307(listOf(mint), nowMs).isEmpty()) return false   // V5.0.8307 — PumpSwap refused: Helius carries it
         if (!tradeSubscriptions7278.add(mint)) return false
+        noteSubscribeFrame8307(listOf(mint))
         val sent = ws?.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray().put(mint)).toString()) == true
         if (sent) setupSubscribed8191.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (sent) "PUMP_TRADE_SETUP_SUBSCRIBED_8191" else "PUMP_TRADE_SETUP_QUEUED_NO_SOCKET_8191") } catch (_: Throwable) {}
@@ -261,6 +405,7 @@ object PumpFunWS {
             "tradeFramesThisConnection8182=${tradeFramesSinceConnect8182.get()} tradeConfirmed8182=${if (tradeConfirmedAtMs8182 > 0L) "YES" else "NO"} " +
             "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
             "tradeStream=${if (tradeAuthDenied7432.get()) "AUTH_DENIED" else if (tokenTradeStreamActive7432()) "OBSERVED" else if (tradeStreamKeyed7284()) "KEYED_UNVERIFIED" else "NO_KEY_LAUNCHES_ONLY"} " +
+            "${pumpSwapLine8307()} " +
             "PUMP_LIFECYCLE_STREAM_CAPABLE=${lifecycleStreamCapable7420()} " +
             "CREATE_STREAM_AVAILABLE=${running.get() && ws != null && createStreamObserved7432.get()} " +
             "MIGRATION_STREAM_AVAILABLE=${running.get() && ws != null && migrationStreamObserved7432.get()} " +
@@ -418,7 +563,8 @@ object PumpFunWS {
             tradeSubscribeSkippedNoKey7284.incrementAndGet()
             return
         }
-        if (tradeSubscriptions7278.add(mint)) {
+        if (admitForSubscribe8307(listOf(mint), now).isNotEmpty() && tradeSubscriptions7278.add(mint)) {
+            noteSubscribeFrame8307(listOf(mint))
             val sent = ws?.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray().put(mint)).toString()) == true
             if (sent) {
                 subOk7420.incrementAndGet()
@@ -465,7 +611,7 @@ object PumpFunWS {
 
         // Capability became available: the real subscription set takes over.
         unsupportedTradeDemand7485.clear()
-        val add = wanted - tradeSubscriptions7278
+        val add = admitForSubscribe8307(wanted - tradeSubscriptions7278).toSet()   // V5.0.8307 — parked PumpSwap mints wait their ladder
         // V5.0.7743 — fresh-launch subscriptions (registerFreshLifecycle7420) are
         // not the held set and expire on their own 15-minute TTL. This diff used
         // to drop them on the next tick of the open-position loop (it passes held
@@ -476,6 +622,7 @@ object PumpFunWS {
         val sock = ws
         if (add.isNotEmpty()) {
             tradeSubscriptions7278.addAll(add)
+            noteSubscribeFrame8307(add)
             val sent7279 = sock?.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray(add.toList())).toString()) == true
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUBSCRIBED_7278")
@@ -564,6 +711,7 @@ object PumpFunWS {
             // V5.0.7278 — re-arm the held-mint trade stream after a reconnect.
             val held7278 = tradeSubscriptions7278.toList()
             if (held7278.isNotEmpty() && tradeStreamKeyed7284()) {
+                noteSubscribeFrame8307(held7278)
                 webSocket.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray(held7278)).toString())
             }
         }
@@ -580,7 +728,8 @@ object PumpFunWS {
                 // free create/migration and the independent RPC curve ladder remain.
                 val error7432 = listOf(j.optString("message"), j.optString("error"),
                     j.optString("errors")).joinToString(" ").lowercase()
-                if (!tradeAuthDenied7432.get() && isTradeAuthRefusal7432(error7432)) {
+                if (isPumpSwapRefusal8307(error7432)) notePumpSwapRefusal8307(System.currentTimeMillis())  // V5.0.8307 — scoped
+                else if (!tradeAuthDenied7432.get() && isTradeAuthRefusal7432(error7432)) {
                     tradeAuthDenied7432.set(true)
                     tradeAuthDeniedAtMs8094 = System.currentTimeMillis()
                     authDenials8182.incrementAndGet()
@@ -620,6 +769,10 @@ object PumpFunWS {
                         val mint = j.optString("mint", "")
                         if (mint.isBlank()) return
                         noteTradeFrame8192(mint)  // V5.0.8192 — metered: per-launch cap and daily budget
+                        // V5.0.8307 — a PumpSwap frame carries no curve reserves: its own sizes price it, onto the tape only.
+                        if (venue8285(j.optString("pool", "")) == com.lifecyclebot.engine.truth.TradeTape8100.VENUE_AMM_8285) {
+                            notePumpSwapFrame8307(); ammFrame8307(j, mint, txType == "buy"); return
+                        }
                         try { PumpCurveKeys7269.remember(mint, j.optString("bondingCurveKey", "")) } catch (_: Throwable) {}
                         val vSol = j.optDouble("vSolInBondingCurve", 0.0)
                         val vTok = j.optDouble("vTokensInBondingCurve", 0.0)
@@ -630,6 +783,7 @@ object PumpFunWS {
                         val priceSol = vSol / vTok
                         if (!priceSol.isFinite() || priceSol <= 0.0) return
                         if (!tradeAuthDenied7432.get()) tokenTradeStreamObserved7432.set(true)
+                        coverageSuspect8307.remove(mint)   // V5.0.8307 — its first print: the stream does carry it
                         // V5.0.8182 — an actual trade frame is the only proof the paid stream works.
                         tradeFramesSinceConnect8182.incrementAndGet()
                         if (tradeConfirmedAtMs8182 == 0L) tradeConfirmedAtMs8182 = System.currentTimeMillis()
@@ -734,6 +888,7 @@ object PumpFunWS {
                         if (mint.isBlank()) return
                         com.lifecyclebot.engine.PumpPortalThrottle.allowMigrate()
                         migrationStreamObserved7432.set(true)
+                        noteMigrationFrame8307(mint)   // V5.0.8307 — migration evidence for the PumpSwap scope
                         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_MIGRATION_STREAM_ACTIVE_7432") } catch (_: Throwable) {}
                         onMigrationCb?.invoke(mint)
                     }

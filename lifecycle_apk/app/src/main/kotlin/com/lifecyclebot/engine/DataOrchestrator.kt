@@ -250,13 +250,15 @@ class DataOrchestrator(
     private fun rotateHeliusFocus8269(nowMs: Long) {
         val socket = heliusWs ?: return
         val held = heldMintsForSubscriptions7807()
+        syncHeliusTape8307(held, nowMs)   // V5.0.8307 — the parsed trade tape for held + near-decision mints
         val capacity = socket.focusCapacity8269(held.size)
         val activeOld = heliusFocus8269.filter {
             it in status.tokens && it !in held && heliusMintEligible7819(it) &&
                 DataPipeline8191.nearDecision8191(it, nowMs)
         }.take(capacity)
         if (nowMs < heliusFocusRotateAt8269 && activeOld.isNotEmpty()) return
-        val focus = DataPipeline8191.recentNearDecisionMints8269(capacity * 3, nowMs)
+        // V5.0.8307 — a migrated coin PumpPortal refuses PumpSwap data for takes a Helius slot first.
+        val focus = com.lifecyclebot.network.PumpSwapTape8307.migratedFirst8307(DataPipeline8191.recentNearDecisionMints8269(capacity * 3, nowMs))
             .asSequence()
             .filter { it in status.tokens && it !in held && heliusMintEligible7819(it) }
             .take(capacity).toSet()
@@ -265,6 +267,24 @@ class DataOrchestrator(
         heliusFocus8269 = focus
         heliusFocusRotateAt8269 = nowMs + 90_000L
         try { PipelineHealthCollector.labelInc("HELIUS_WS_FOCUS_ROTATED_8269") } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.8307 — the Enhanced socket's parsed-transaction subscription follows held coins (always) and near-decision coins
+     * (migrated first, bounded by the byte governor's width; held only past the day's Helius pace).
+     */
+    private fun syncHeliusTape8307(held: Set<String>, nowMs: Long) {
+        try {
+            val tape = com.lifecyclebot.network.PumpSwapTape8307
+            val near = DataPipeline8191.recentNearDecisionMints8269(tape.TAPE_MAX_8307, nowMs)
+                .filter { it in status.tokens && it !in held && heliusMintEligible7819(it) }
+            val over = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066(nowMs) } catch (_: Throwable) { false }
+            val set = tape.tapeSet8307(held, tape.migratedFirst8307(near), tape.tapeWidth8307(), over)
+            com.lifecyclebot.network.HeliusEnhancedWS.updateTapeAccounts8307(set, nowMs)
+            tape.noteTapeSet8307(set)
+            // The same coins' DAS authority facts, batched and cached (one getAssetBatch for every new mint, none while fresh).
+            if (!over) com.lifecyclebot.network.HeliusDasAuthority8307.request8307(*set.toTypedArray())
+        } catch (_: Throwable) {}
     }
 
     /**

@@ -50,6 +50,9 @@ object ChartSources7955 {
         @Volatile var backoffUntilMs = 0L
         @Volatile var strikes = 0
         @Volatile var why = ""
+        /** V5.0.8307 — adaptive slot gap after 429s (0 = the provider's base gap). */
+        @Volatile var paceMs8307 = 0L
+        val okStreak8307 = AtomicLong(0)
     }
 
     private const val BINANCE = "binance"
@@ -624,13 +627,76 @@ object ChartSources7955 {
     private val http by lazy { com.lifecyclebot.network.SharedHttpClient.base }
     private const val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
-    private class Res(val code: Int, val body: String?)
+    private class Res(val code: Int, val body: String?, val retryAfterSec: Long? = null, val resetHeader: String? = null)
+
+    // ── V5.0.8307 §A_SPENT_QUOTA_WAITS_FOR_ITS_RESET ──
+    //
+    // 5.0.8306: Codex answered "usage limit" all session and was asked again every rest window; GeckoTerminal 429s were
+    // rested on a fixed ladder that ignored Retry-After. A provider's spent quota now rests it until the quota resets (the
+    // provider's reset / Retry-After header, else the next UTC day) with no calls in between; a 429 honours Retry-After and
+    // widens that provider's own slot gap (narrowed again by successes). Each rest is the provider's own: no other source
+    // is touched (pump.fun hosts cool down per host in HostCircuitInterceptor).
+    private const val QUOTA_WHY_8307 = "QUOTA_EXHAUSTED"
+    private const val PACE_MAX_MULT_8307 = 6L
+    private const val PACE_NARROW_AFTER_OK_8307 = 10L
+
+    /** Pure: does this answer say the plan's usage quota (not a per-minute rate) is spent? */
+    fun quotaExhausted8307(code: Int, body: String?): Boolean {
+        if (code != 200 && code != 402 && code != 403 && code != 429) return false
+        val b = body.orEmpty().lowercase()
+        if (b.isBlank()) return code == 402
+        return b.contains("usage limit") || b.contains("quota") ||
+            (b.contains("exceeded") && (b.contains("monthly") || b.contains("credits")))
+    }
+
+    /** Pure: when a spent quota resets — the provider's own reset (epoch seconds/ms, or seconds from now), else the next UTC day. */
+    fun quotaResetMs8307(nowMs: Long, retryAfterSec: Long?, resetHeader: String?): Long {
+        val nextUtcDay = (nowMs / 86_400_000L + 1L) * 86_400_000L
+        val r = resetHeader?.trim()?.toLongOrNull()
+        val fromHeader = when {
+            r == null || r <= 0L -> null
+            r > 100_000_000_000L -> r                      // epoch ms
+            r > 1_000_000_000L -> r * 1000L                // epoch seconds
+            else -> nowMs + r * 1000L                      // seconds from now
+        }
+        val fromRetry = retryAfterSec?.takeIf { it > 0L }?.let { nowMs + it * 1000L }
+        val candidate = fromHeader ?: fromRetry ?: return nextUtcDay
+        // A stated reset in the past or more than 31 days out is not believable: the next UTC day stands.
+        return if (candidate <= nowMs || candidate - nowMs > 31L * 86_400_000L) nextUtcDay else candidate
+    }
+
+    /** Pure: the rest after a 429 — the provider's Retry-After when stated (5 s .. 1 h), else the strike ladder. */
+    fun rateLimitRestMs8307(strikes: Int, retryAfterSec: Long?): Long =
+        if (retryAfterSec != null && retryAfterSec > 0L) (retryAfterSec * 1000L).coerceIn(5_000L, 3_600_000L)
+        else backoffMs7955(429, strikes, false)
+
+    /** Pure: the provider's slot gap after an answer: a 429 doubles it (max [PACE_MAX_MULT_8307]x base); every 10 successes halve the excess. */
+    fun nextPaceMs8307(baseGapMs: Long, currentPaceMs: Long, code: Int, okStreak: Long): Long {
+        val cur = maxOf(baseGapMs, currentPaceMs)
+        return when {
+            code == 429 -> (cur * 2).coerceAtMost(baseGapMs * PACE_MAX_MULT_8307)
+            code in 200..299 && (okStreak + 1) % PACE_NARROW_AFTER_OK_8307 == 0L -> maxOf(baseGapMs, baseGapMs + (cur - baseGapMs) / 2)
+            else -> cur
+        }
+    }
+
+    private fun pace8307(p: Prov, code: Int) {
+        val streak = if (code in 200..299) p.okStreak8307.get() else 0L
+        p.paceMs8307 = nextPaceMs8307(p.gapMs, p.paceMs8307, code, streak)
+        if (code in 200..299) p.okStreak8307.incrementAndGet() else p.okStreak8307.set(0L)
+    }
+
+    /** V5.0.8307 — Codex's plan quota is spent: no Codex call until its reset (the new-token poll and shape repair skip). */
+    fun codexQuotaExhausted8307(nowMs: Long = System.currentTimeMillis()): Boolean =
+        byId[CODEX]?.let { it.why == QUOTA_WHY_8307 && it.backoffUntilMs > nowMs } ?: false
+
+    fun codexQuotaResetsAtMs8307(): Long = byId[CODEX]?.takeIf { it.why == QUOTA_WHY_8307 }?.backoffUntilMs ?: 0L
 
     /** Claim [p]'s next slot now (true) or not (false); shared by the build and backfill threads. */
     private fun tryClaim(p: Prov, now: Long): Boolean {
         synchronized(p) {
             if (!hasKey(p) || now < p.backoffUntilMs || now < p.nextAtMs) return false
-            p.nextAtMs = now + p.gapMs
+            p.nextAtMs = now + maxOf(p.gapMs, p.paceMs8307)   // V5.0.8307 — adaptive after 429s
             return true
         }
     }
@@ -655,7 +721,9 @@ object ChartSources7955 {
             for ((k, v) in headers) b.header(k, v)
             if (post != null) b.post(post.toRequestBody(JSON_MT))
             http.newCall(b.build()).execute().use { resp ->
-                if (com.lifecyclebot.network.HostCircuitInterceptor.isSyntheticBlock(resp)) Res(LOCAL_CIRCUIT_8144, null) else Res(resp.code, resp.body?.string())
+                if (com.lifecyclebot.network.HostCircuitInterceptor.isSyntheticBlock(resp)) Res(LOCAL_CIRCUIT_8144, null)
+                else Res(resp.code, resp.body?.string(), resp.header("Retry-After")?.trim()?.toLongOrNull(),
+                    resp.header("X-RateLimit-Reset") ?: resp.header("RateLimit-Reset"))   // V5.0.8307
             }
         } catch (e: InterruptedException) {
             throw e
@@ -669,13 +737,25 @@ object ChartSources7955 {
             return r
         }
         val challenge = ChartParsers7955.isChallenge7955(r.code, r.body)
+        // V5.0.8307 — a spent plan quota (Codex answers it even inside a 200 GraphQL body) rests the provider until it resets.
+        if (p.keyed && !challenge && quotaExhausted8307(r.code, r.body)) {
+            p.fail.incrementAndGet()
+            val until = quotaResetMs8307(System.currentTimeMillis(), r.retryAfterSec, r.resetHeader)
+            synchronized(p) { p.backoffUntilMs = maxOf(p.backoffUntilMs, until); p.why = QUOTA_WHY_8307 }
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CHART_SOURCE_QUOTA_EXHAUSTED_8307_${p.id.uppercase()}")
+                ForensicLogger.lifecycle("CHART_SOURCE_QUOTA_EXHAUSTED_8307", "provider=${p.id} restsUntilMs=$until")
+            } catch (_: Throwable) {}
+            return Res(429, null)
+        }
+        pace8307(p, r.code)
         if (r.code in 200..299 && !challenge && r.body != null) {
             p.ok.incrementAndGet()
             p.strikes = 0
             return r
         }
         p.fail.incrementAndGet()
-        val rest = backoffMs7955(r.code, p.strikes, challenge)
+        val rest = if (r.code == 429 && !challenge) rateLimitRestMs8307(p.strikes, r.retryAfterSec) else backoffMs7955(r.code, p.strikes, challenge)
         if (rest > 0L) {
             synchronized(p) {
                 p.backoffUntilMs = maxOf(p.backoffUntilMs, System.currentTimeMillis() + rest)
@@ -979,6 +1059,7 @@ object ChartSources7955 {
         out += "  " + (try { com.lifecyclebot.network.HeliusRateGate8191.statusLine8191(nowMs) } catch (_: Throwable) { "heliusRps8191 -" })
         out += "  " + (try { com.lifecyclebot.engine.DataPipeline8191.statusLine8191() } catch (_: Throwable) { "pipeline8191 -" })
         out += "  " + (try { com.lifecyclebot.engine.truth.ProofDataSwapTape8144.statusLine8144() } catch (_: Throwable) { "heliusTape8144 -" })
+        out += "  " + (try { com.lifecyclebot.network.PumpSwapTape8307.statusLine8307() } catch (_: Throwable) { "pumpSwapTape8307 -" })
         out += "  " + (try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.statusLine8144(nowMs) } catch (_: Throwable) { "features8144 -" })
         // V5.0.8169 — which source filled each setup input (or why none could), and which feeds reached the trade tape.
         out += "  " + (try { com.lifecyclebot.engine.truth.SetupFeatureResolver8169.statusLine8169() } catch (_: Throwable) { "features8169 -" })
