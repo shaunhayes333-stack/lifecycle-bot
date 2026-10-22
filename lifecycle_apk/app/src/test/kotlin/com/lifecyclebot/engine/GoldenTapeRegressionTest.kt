@@ -10399,7 +10399,9 @@ class GoldenTapeRegressionTest {
         assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut("SHITCOIN", -21.0, 60_000L))
         assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut("SHITCOIN", -21.0, 180_000L))
         assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut("QUALITY", -21.0, 60_000L))
-        assertFalse(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "MOONSHOT"))
+        // superseded by V5.0.8337 — the runner give-back lock arms at a +25% peak (owner's fix block 3b; was 50): +20 still defers, +30 locks.
+        assertFalse(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(20.0, 5.0, "MOONSHOT"))
+        assertTrue(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "MOONSHOT"))
         assertTrue(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "BLUECHIP"))
         assertTrue(peak.contains("if (peakPnlPct < RunnerExitProfile7277.armThresholdPct(lane, ARM_THRESHOLD_PCT)) return false"))
         assertTrue(tuner.contains("st.tpMult = shrunkTp7186.coerceIn(tpFloor7277, TP_MAX)"))
@@ -11404,8 +11406,9 @@ class GoldenTapeRegressionTest {
         val m = MoonbagRunner7322
         // runner lane, give-back exit, peak >= 100 -> bank a partial
         assertTrue(m.decide("MOONSHOT", "RAPID_TRAILING_STOP", 120.0, 150.0, null) == MoonbagRunner7322.Action.BANK_PARTIAL)
-        // under +100% peak -> normal exit
-        assertTrue(m.decide("MOONSHOT", "RAPID_TRAILING_STOP", 30.0, 45.0, null) == MoonbagRunner7322.Action.PASS)
+        // superseded by V5.0.8337 — the moonbag bank bar is MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 25 (was 50): +45 banks, +20 is a normal exit
+        assertTrue(m.decide("MOONSHOT", "RAPID_TRAILING_STOP", 30.0, 45.0, null) == MoonbagRunner7322.Action.BANK_PARTIAL)
+        assertTrue(m.decide("MOONSHOT", "RAPID_TRAILING_STOP", 15.0, 20.0, null) == MoonbagRunner7322.Action.PASS)
         // banked: hold while above half the peak gain, release below it
         assertTrue(m.decide("MOONSHOT", "TICK_PROFIT_LOCK_peak400_now300", 300.0, 400.0, 400.0) == MoonbagRunner7322.Action.HOLD_MOONBAG)
         assertTrue(m.decide("MOONSHOT", "TICK_PROFIT_LOCK_peak400_now150", 150.0, 400.0, 400.0) == MoonbagRunner7322.Action.PASS)

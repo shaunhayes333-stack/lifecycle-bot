@@ -119,7 +119,7 @@ class Aate8337LabelsGateTest {
         val held = tick.indexOf("if (curveHolds8337(o.mint, px, nowMs)) {")
         assertTrue(held in 0 until mutation)
         assertTrue(held > tick.indexOf("if (curveContradicts8165(o.mint, px, nowMs)) {"))
-        val heldBlock = tick.substring(held, tick.indexOf("}", held))
+        val heldBlock = tick.substring(held, tick.indexOf("\n            }", held))   // the if-block's own closing brace, past the inline try/catch
         assertTrue(heldBlock.contains("continue"))
         assertFalse(heldBlock.contains("pending.remove"))                            // never dropped
         // the entry mark is compared on its own time
