@@ -342,8 +342,8 @@ object ProjectSniperAI {
         // ═══════════════════════════════════════════════════════════════════
         
         // Liquidity check — V5.0.8140: an unread pool defers (never "low"); a real one below the floor refuses, naming PROJECT_SNIPER.
-        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("PROJECT_SNIPER", ts.lastLiquidityUsd, MIN_LIQUIDITY_USD)?.let { return noEngage(it, tokenAgeSecs) }
-        if (ts.lastLiquidityUsd < MIN_LIQUIDITY_USD) {
+        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("PROJECT_SNIPER", ts.lastLiquidityUsd, MIN_LIQUIDITY_USD, ts.mint)?.let { return noEngage(it, tokenAgeSecs) }
+        if (ts.lastLiquidityUsd < MIN_LIQUIDITY_USD && !com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(ts.mint)) {   // V5.0.8319: an exit-safe active curve passed above
             return noEngage("LOW_LIQ: \$${ts.lastLiquidityUsd.toInt()} < \$${MIN_LIQUIDITY_USD.toInt()}", tokenAgeSecs)
         }
         if (ts.lastLiquidityUsd > MAX_LIQUIDITY_USD) {

@@ -293,8 +293,8 @@ object ManipulatedTraderAI {
         // V5.6.8: Fluid liquidity filter
         val minLiq = getFluidMinLiquidity()
         // V5.0.8140 — an unread pool defers (never "low"); a real one below the floor refuses, naming MANIPULATED.
-        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("MANIPULATED", liquidityUsd, minLiq)?.let { return noEnter(it) }
-        if (liquidityUsd < minLiq) return noEnter("LOW_LIQUIDITY_${liquidityUsd.toInt()}<${minLiq.toInt()}")
+        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("MANIPULATED", liquidityUsd, minLiq, mint)?.let { return noEnter(it) }
+        if (liquidityUsd < minLiq && !com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(mint)) return noEnter("LOW_LIQUIDITY_${liquidityUsd.toInt()}<${minLiq.toInt()}")
 
         // V5.6.8: Fluid age filter — entry is everything on manipulation plays
         val maxAge = getFluidMaxAge()
