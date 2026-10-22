@@ -33,7 +33,7 @@ object RunnerExitProfile7277 {
     )
 
     /** Peak the position must have reached before a give-back lock may arm on a runner lane. */
-    const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 50.0
+    const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 25.0   // V5.0.8337: was 50
 
     /** First-strike cut for a runner-lane position this far under water inside the early window. */
     private const val EARLY_CUT_PCT = -20.0

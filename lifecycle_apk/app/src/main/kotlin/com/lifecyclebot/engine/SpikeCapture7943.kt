@@ -247,7 +247,8 @@ object SpikeCapture7943 {
         // V5.0.8153 — the rung lifecycle (RunnerRungBook8153): one pending tranche per position; while it is pending (a
         // sale in flight, or handed off inside its grace) no other request is made — no duplicate sell. A pending tranche
         // that never became a sale expires and is retryable; the CONFIRMED tier moves only on the chain-confirmed fill.
-        val ladder8153 = RunnerLive8153.ladderFor8153(runnerTiers8153 != null)
+        // V5.0.8337 — the scalp tiers a not-yet-confirmed runner sells on belong to the SCALP ladder (ladder identity).
+        val ladder8153 = RunnerLive8153.ladderFor8153(runnerTiers8153 != null && runnerTiers8153 !== TIERS)
         val inFlight8153 = com.lifecyclebot.engine.sell.SellExecutionLocks.isLocked(ts.mint) ||
             com.lifecyclebot.engine.sell.CloseLease.sellInFlight7948(ts.mint)
         if (!RunnerLive8153.settlePending8153(ts, inFlight8153, now7955)) return 0

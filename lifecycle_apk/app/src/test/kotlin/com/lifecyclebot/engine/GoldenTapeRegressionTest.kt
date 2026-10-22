@@ -10406,7 +10406,8 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("} else if (!storedFloor7392.isNaN() && storedFloor7392 > 0.0 && !runnerLockDeferred7277) {"))
         assertTrue(bot.contains("moonshotLaneStop7389 || runnerEarlyCut7277 || (pnlPctNow <= tickFloor7887(ts) && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerFloor7330 || genericTwoStrike7369))"))
         assertTrue(bot.contains("else if (runnerEarlyCut7277) \"RUNNER_EARLY_CUT_\${laneName4588}_\${pnlPctNow.toInt()}PCT_7277\""))
-        assertTrue(runner.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 50.0"))
+        // superseded by V5.0.8337 — the give-back lock arms at a +25% peak (owner's fix block 3b; was 50).
+        assertTrue(runner.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 25.0"))
 
         // Fast lane: same cycle, on the event, bounded.
         assertTrue(bot.contains("private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {"))
@@ -12366,7 +12367,10 @@ class GoldenTapeRegressionTest {
         val floor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
         assertTrue(floor.contains("const val LIVE_BAND_COST_MARGIN_PCT_7385 = 10.0"))
         assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 40.0, 60.0, null) == MoonbagRunner7322.Action.BANK_PARTIAL)
-        assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 30.0, 45.0, null) == MoonbagRunner7322.Action.PASS)
+        // superseded by V5.0.8337 — the bank bar follows MIN_PEAK_FOR_GIVEBACK_LOCK_PCT, now +25 (owner's fix block 3b):
+        // a +45% peak banks; the bar still holds under it.
+        assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 30.0, 45.0, null) == MoonbagRunner7322.Action.BANK_PARTIAL)
+        assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 20.0, 24.0, null) == MoonbagRunner7322.Action.PASS)
     }
 
 
@@ -13001,8 +13005,8 @@ class GoldenTapeRegressionTest {
         assertTrue(rp.contains("fun giveBackArmPct7791(lane:String?):Double=if(lane?.uppercase()?.contains(\"MOONSHOT\")==true)MIN_PEAK_FOR_GIVEBACK_LOCK_PCT else RUNNER_LOCK_ARM_PEAK_PCT_7695"))
         assertTrue(deferFn.contains("peakPnlPct < giveBackArmPct7791(lane)"))
         assertTrue(rp.contains("if (isRunnerLane(lane)) maxOf(defaultPct, giveBackArmPct7791(lane)) else defaultPct"))
-        // The moonbag bar is untouched.
-        assertTrue(rp.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 50.0"))
+        // The moonbag bar is untouched. superseded by V5.0.8337 — the bar is +25% (owner's fix block 3b; was 50).
+        assertTrue(rp.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 25.0"))
 
         // Every give-back path still reads the one function (no caller was
         // rewritten to bypass it).

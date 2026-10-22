@@ -23999,36 +23999,49 @@ class Executor(
         return receipt
     }
 
+    /** V5.0.8337 — a spike-capture rung refused at an exit door is counted by the door (SPIKE_REFUSED_8337_<DOOR>). */
+    private fun spikeRefused8337(reason: String, door: String) {
+        if (reason.contains("SPIKE_CAPTURE_7943")) try { PipelineHealthCollector.labelInc("SPIKE_REFUSED_8337_$door") } catch (_: Throwable) {}
+    }
+
     fun requestPartialSell(
-        ts: TokenState, 
-        sellPercentage: Double, 
+        ts: TokenState,
+        sellPercentage: Double,
         reason: String, 
         wallet: SolanaWallet?, 
         walletBalance: Double,
         receipt6566: ((PartialSellReceipt6566) -> Unit)? = null,
     ) {
-        val pct = RunnerExitLive8136.budget8136(ts, sellPercentage.coerceIn(0.0, 1.0), reason)  // V5.0.8136 — one residual share budget
-        if (pct <= 0) return
+        // V5.0.8337 — the net-profit and uneconomic doors run BEFORE the share budget (which takes the arbiter ticket), so a
+        // refused tranche never holds the position's ticket; they read the requested fraction.
+        val requested8337 = sellPercentage.coerceIn(0.0, 1.0)
         // V5.0.8030 — a partial take-profit is profit-taking too: none below the round trip + 1%.
         if (try { com.lifecyclebot.engine.truth.NetEdge8030.exitRefusal8030(ts, reason, getActualPrice(ts), partial = true) } catch (_: Throwable) { false }) {
             try { DecisionReasons8031.hold8031(ts, "NET_PROFIT_PARTIAL_8030", reason) } catch (_: Throwable) {}
+            spikeRefused8337(reason, "NET_PROFIT")
             receipt6566?.invoke(PartialSellReceipt6566(false))
             return
         }
         // V5.0.8094 — a discretionary profit slice whose net its own exit costs consume is not sent.
-        if (partialUneconomic8094(ts, pct, reason)) {
-            if (profitEscalated8189(ts, reason, wallet, walletBalance)) { receipt6566?.invoke(PartialSellReceipt6566(false)); return }  // V5.0.8189
+        if (partialUneconomic8094(ts, requested8337, reason)) {
+            // V5.0.8189 — escalated to a full exit. V5.0.8337: the receipt says so (applied, not terminal), so the rung is not re-armed.
+            if (profitEscalated8189(ts, reason, wallet, walletBalance)) { receipt6566?.invoke(PartialSellReceipt6566(applied = true, terminal = false, authorityResult = "ESCALATED_FULL_8189")); return }
             try { DecisionReasons8031.hold8031(ts, "PARTIAL_EXIT_NET_UNECONOMIC", reason) } catch (_: Throwable) {}
+            spikeRefused8337(reason, "UNECONOMIC")
             receipt6566?.invoke(PartialSellReceipt6566(false))
             return
         }
+        val pct = RunnerExitLive8136.budget8136(ts, sellPercentage.coerceIn(0.0, 1.0), reason)  // V5.0.8136 — one residual share budget
+        if (pct <= 0) return
         // V5.0.8034 — a moonbag tail sells no ordinary slice (only its own TAIL_ milestones or a structural exit).
         if (try { TailBag8034.partialHeld8034(ts, reason) } catch (_: Throwable) { false }) {
+            spikeRefused8337(reason, "TAILBAG")
             receipt6566?.invoke(PartialSellReceipt6566(false))
             return
         }
         // V5.0.8065 — nor does a lifecycle hold (only its own takes / stops or an integrity exit).
         if (try { LifecycleHold8065.partialHeld8065(ts, reason) } catch (_: Throwable) { false }) {
+            spikeRefused8337(reason, "LIFECYCLE_HOLD")
             receipt6566?.invoke(PartialSellReceipt6566(false))
             return
         }
@@ -24377,7 +24390,8 @@ class Executor(
             // remaining 3.6% is the strategy's runner tail. The old 90%
             // shortcut silently turned it into a full liquidation.
             if (pct >= 1.0 - 1e-9) {
-                val fullResult6566 = doSell(ts, "[PARTIAL→FULL] $reason", activeWallet, walletBalance)
+                // V5.0.8337 — a full-size "partial" goes through requestSell (not doSell), so requestSellCore7948's basis check runs.
+                val fullResult6566 = requestSell(ts, reason, activeWallet, walletBalance)
                 receipt6566?.invoke(PartialSellReceipt6566(
                     applied = fullResult6566 in setOf(SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED, SellResult.ALREADY_CLOSED),
                     terminal = fullResult6566 in setOf(SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED, SellResult.ALREADY_CLOSED),

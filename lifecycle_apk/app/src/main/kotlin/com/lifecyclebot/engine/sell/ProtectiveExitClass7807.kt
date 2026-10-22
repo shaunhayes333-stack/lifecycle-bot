@@ -129,11 +129,10 @@ object ProtectiveExitClass7807 {
             // got the normal retry spacing, no emergency slippage, and could not
             // pre-empt a sell already in flight.
             r.contains("FLUID_FLOOR") || r.contains("EARLY_CUT") || r.contains("STALE_PRICE_FORCED") ||
-            r.contains("COLLAPSED_RISK_EXIT") || r.contains("CIRCUIT_BREAKER") ||
-            // V5.0.8327 — RAPID_FLUID_STOP is the rapid monitor's LOSS-side stop (rapidStopKind7928: stop % < 0; the
-            // profit side is RAPID_TRAILING_STOP, caught by TRAIL above). It read NONE: PumpPortal-first, the fixed sign
-            // pause, normal retry spacing — the 8323 SHITCOIN stop that filled 20+ points past its trigger.
-            r.contains("FLUID_STOP")
+            r.contains("COLLAPSED_RISK_EXIT") || r.contains("CIRCUIT_BREAKER")
+            // V5.0.8327 made RAPID_FLUID_STOP (the rapid monitor's LOSS-side stop) a hard stop (emergency slippage ladder,
+            // sell-sweep pre-emption). V5.0.8337 — back to the normal (non-emergency) loss path: the owner's fix block; a
+            // fluid stop is a discretionary tick exit, not a catastrophe, and the emergency ladder paid 25-50% slippage on it.
 
     /** B3 — the one shared emergency bypass class (ranks 1-3). */
     fun isEmergency(reason: String?): Boolean = of(reason).rank <= Priority.HARD_SL.rank

@@ -279,6 +279,8 @@ object FieldManual7715 {
         if (!runnerDeferred) return costArmedStop7928(rawStop, peakPnlPct, costPct, preTrail)
         val breakEven = (if (costPct.isFinite() && costPct > 0.0) costPct else 0.0) + 0.5
         if (peakPnlPct.isFinite() && peakPnlPct >= breakEven + RUNNER_BREAKEVEN_MARGIN_PCT_7935) return breakEven
+        // V5.0.8337 — a +20% peak keeps at least 40% of the peak, whatever the cost model reads
+        if (peakPnlPct.isFinite() && peakPnlPct >= 20.0) return maxOf(breakEven.coerceAtMost(peakPnlPct * 0.5), peakPnlPct * 0.4)
         return preTrail().coerceAtMost(0.0)
     }
 
