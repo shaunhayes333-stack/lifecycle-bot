@@ -87,6 +87,7 @@ object TicketExec8304 {
         b.drops.computeIfAbsent(r) { AtomicLong(0L) }.incrementAndGet()
         if (attemptId.isNotBlank() && ticketed8304.remove("$mode|$l|$attemptId") != null) b.dropped.incrementAndGet()
         if (attemptId.isNotBlank()) try { TicketRetry8327.onTerminal8327(attemptId) } catch (_: Throwable) {}  // V5.0.8327
+        try { TicketCause8330.onDrop8330(l, reason) } catch (_: Throwable) {}  // V5.0.8330 — LIVE_BUY_NOT_OPENED cause split per lane
         try { PipelineHealthCollector.labelInc("TICKET_DROPPED_8304_$l") } catch (_: Throwable) {}
     }
 
@@ -104,6 +105,7 @@ object TicketExec8304 {
         val b = books8304["${mode8304()}|${lane8304(lane)}"] ?: return null
         return formatLine8304(lane8304(lane), b.tickets.get(), b.exec.get(), b.dropped.get(), b.drops.mapValues { it.value.get() })
             ?.plus(TicketRetry8327.suffix8327(lane8304(lane)))  // V5.0.8327 — held / retried / expired transient defers
+            ?.plus(TicketCause8330.suffix8330(lane8304(lane)))  // V5.0.8330 — LIVE_BUY_NOT_OPENED causes
     }
 
     // ── 1. one coin, one owner ──

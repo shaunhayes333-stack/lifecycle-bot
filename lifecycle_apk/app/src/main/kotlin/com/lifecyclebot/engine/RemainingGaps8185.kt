@@ -122,6 +122,7 @@ object HandoffRetention8185 {
         val ok = res != null && (res.added || res.reason.startsWith("DUPLICATE")) && installed
         val pending = res != null && !ok && (res.added || res.reason.startsWith("DUPLICATE"))
         if (ok) rehydrated8185.incrementAndGet() else if (pending) rehydratePending8273.incrementAndGet() else rehydrateRefused8185.incrementAndGet()
+        if (ok) try { HandoffReceiverTasks8153.onStateInstalled8330(key, nowMs) } catch (_: Throwable) {}  // V5.0.8330 — the receiver's task resumes on the installed state
         try {
             PipelineHealthCollector.labelInc(if (ok) "HANDOFF_TARGET_REHYDRATED_8185" else if (pending) "HANDOFF_TARGET_REHYDRATE_PENDING_8273" else "HANDOFF_TARGET_REHYDRATE_REFUSED_8185")
             ForensicLogger.lifecycle("HANDOFF_TARGET_REHYDRATE_8185", "mint=${key.take(10)} ok=$ok reason=${res?.reason?.take(60) ?: "ERROR"}")

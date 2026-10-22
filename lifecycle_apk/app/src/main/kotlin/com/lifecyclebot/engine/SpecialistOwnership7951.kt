@@ -276,6 +276,28 @@ object SpecialistOwnership7951 {
             .joinToString(",") { "${it.key.removePrefix(prefix)}=${it.value.get()}" }
     }
 
+    /**
+     * V5.0.8330 — every refusal between QUALIFIED (the lane's own READY proposal) and OWNER_SELECTED (TradeAuthorizer's
+     * election after an FDG allow), by name, for the lane's report block: "LANE ownerWhy8330[reason=count,...]".
+     * The names are the pre-intent book's ([notePreIntent7951]): READY_NOT_EVALUATED_PRIMARY_<p> (another lane was the
+     * cycle primary and no rescue opened), READY_PRIMARY_GATED (its own pre-FDG gate), FDG_<reason> (its FDG refused),
+     * CAPITAL_ONLY_<reason>, RESCUE_* (the one-rescue election) — the whole book, not the top four.
+     */
+    fun ownerWhyLine8330(lane: String): String? = formatOwnerWhy8330(lane7951(lane), ownerWhyCounts8330(lane))
+
+    /** The lane's pre-intent book as a map (reason -> count). */
+    fun ownerWhyCounts8330(lane: String): Map<String, Long> {
+        val prefix = lane7951(lane) + "|"
+        return preIntent7951.entries.filter { it.key.startsWith(prefix) }.associate { it.key.removePrefix(prefix) to it.value.get() }
+    }
+
+    /** Pure: the report line (null when the lane recorded no pre-intent refusal). Sorted by count, at most 10 names. */
+    fun formatOwnerWhy8330(lane: String, counts: Map<String, Long>): String? {
+        if (counts.isEmpty()) return null
+        val body = counts.entries.sortedByDescending { it.value }.take(10).joinToString(",") { "${it.key}=${it.value}" }
+        return "$lane ownerWhy8330[$body] total=${counts.values.sum()}"
+    }
+
     /** Pure: the status the liveness row shows. */
     fun shownStatus7951(baseStatus: String, buyerEnabled: Boolean, intent: Long, residentReady: Int, preIntentRefusals: String): String = when {
         !buyerEnabled -> "BUYER_DISABLED"

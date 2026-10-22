@@ -84,6 +84,7 @@ object TicketRetry8327 {
         val holds = (prior?.holds ?: 0) + 1
         held8327[attemptId] = Hold8327(lane, attemptId, cause, prior?.firstMs ?: nowMs, holds)
         count8327(lane, "held")
+        arm8330(attemptId, holds)  // V5.0.8330 — this hold resumes once when its cause clears (or on the late-event guard)
         try {
             ForensicLogger.lifecycle("TICKET_RETRY_HELD_8327",
                 "attemptId=${attemptId.take(28)} lane=$lane cause=$cause holds=$holds/$MAX_HOLDS_8327 " +
@@ -94,13 +95,195 @@ object TicketRetry8327 {
 
     /** TicketExec8304.onStage8304 EXEC: a held ticket executed. */
     fun onExec8327(attemptId: String) {
+        resumes8330.remove(attemptId); armed8330.remove(attemptId)  // V5.0.8330
         val h = held8327.remove(attemptId) ?: return
         count8327(h.lane, "exec")
         try { PipelineHealthCollector.labelInc("RETRY_EXECUTED_8327_${h.cause}") } catch (_: Throwable) {}
     }
 
     /** TicketExec8304.onDrop8304: a held ticket ended by another name (reseal, a non-transient stop, the sweep). */
-    fun onTerminal8327(attemptId: String) { held8327.remove(attemptId) }
+    fun onTerminal8327(attemptId: String) { held8327.remove(attemptId); resumes8330.remove(attemptId); armed8330.remove(attemptId) }
+
+    // ── V5.0.8330 — event-driven dispatcher: a held ticket resumes the moment its cause clears ──
+    //
+    // 5.0.8326 live: held 7, retried-then-executed 0, expired 4. A hold waited for a LATER fresh FDG BUY to reach the
+    // same ticket; none did inside 90 s. Now the three causes have events: the wallet-spend mutex release
+    // (Executor.releaseBuyMutex8330), a safety proof landing (TokenSafetyChecker cache write) and a route resolving
+    // (TokenMapAuthority commit). Each resumes the held ticket through the SAME lane wrapper call with the SAME
+    // attemptId (registered by the wrapper before its liveBuy, [registerResume8330]), so the sealed ticket, pending
+    // intent and SOL reservation are reused — never a new seal, never a new reservation. Before the wrapper runs,
+    // [resumeRefusal8330] re-checks: the mint is not held and no buy is in flight (never a second purchase), the sealed
+    // ticket is still live and still the version's live intent, hard safety is not blocked, and the current price has
+    // not run past the decision mark; the wrapper's liveBuy then re-runs its own route / wallet / mutex / PreTradeHardGate
+    // checks. A resume that does not open goes back through unexecutedTicket7948 -> retryOrTerminal8327: the same
+    // 4-hold / 90 s budget and the same named terminals apply. One resume per hold per event (armed per hold).
+
+    const val TRIGGER_MUTEX_8330 = "mutex"
+    const val TRIGGER_PROOF_8330 = "proof"
+    const val TRIGGER_ROUTE_8330 = "route"
+    const val TRIGGER_GUARD_8330 = "guard"
+    /** The current price may stand at most this far above the sealed decision mark for a resume. */
+    const val MAX_RESUME_PRICE_DRIFT_8330 = 0.05
+    private const val LATE_EVENT_GUARD_MS_8330 = 2_500L
+    private const val RESUME_MEMORY_MS_8330 = 10L * 60_000L
+
+    class Resume8330(val lane: String, val attemptId: String, val mint: String, val registeredMs: Long, val run: () -> Boolean)
+
+    private val resumes8330 = ConcurrentHashMap<String, Resume8330>()
+    private val armed8330 = ConcurrentHashMap<String, Int>()
+    private val resuming8330: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val resumeCounts8330 = ConcurrentHashMap<String, AtomicLong>()   // "LANE|resumed|<trigger>" / "LANE|executed" / "LANE|refused|<why>"
+    @Volatile private var poolRef8330: java.util.concurrent.ScheduledExecutorService? = null
+
+    private fun pool8330(): java.util.concurrent.ScheduledExecutorService {
+        poolRef8330?.let { return it }
+        synchronized(this) {
+            poolRef8330?.let { return it }
+            val p = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "AATE-ticket-resume-8330").apply { isDaemon = true } }
+            poolRef8330 = p
+            return p
+        }
+    }
+
+    /** Pure: does [trigger] clear a hold of [cause]? The late-event guard re-checks any cause. */
+    fun triggerMatches8330(cause: String, trigger: String): Boolean = when (trigger) {
+        TRIGGER_GUARD_8330 -> true
+        TRIGGER_MUTEX_8330 -> cause == "MUTEX_BUSY_DEFERRED"
+        TRIGGER_PROOF_8330 -> cause == "SAFETY_PROOF_PENDING_DEFERRED_8270"
+        TRIGGER_ROUTE_8330 -> cause == "TOKEN_MAP_ROUTE_PENDING_7371" || cause == "TOKEN_MAP_PENDING_DEFERRED_7371"
+        else -> false
+    }
+
+    /** Pure: a token-map commit with this route status has RESOLVED (blank / PENDING are still resolving). */
+    fun routeResolved8330(routeStatus: String): Boolean =
+        routeStatus.isNotBlank() && !routeStatus.contains("PENDING", ignoreCase = true)
+
+    /**
+     * Pure: why the held ticket may NOT resume now (null = it may). Order matters: a held / in-flight mint is the
+     * one-purchase rule, then the seal, then safety, then the price.
+     */
+    fun resumeRefusal8330(
+        mintHeld: Boolean, buyInFlight: Boolean, ticketLive: Boolean, versionIntentIsTicket: Boolean,
+        safetyBlocked: Boolean, decisionPriceUsd: Double, priceNowUsd: Double,
+    ): String? = when {
+        mintHeld -> "ALREADY_HELD"
+        buyInFlight -> "BUY_IN_FLIGHT"
+        !ticketLive -> "TICKET_GONE"
+        !versionIntentIsTicket -> "VERSION_RESEALED"
+        safetyBlocked -> "SAFETY_BLOCKED"
+        decisionPriceUsd > 0.0 && priceNowUsd > 0.0 && priceNowUsd > decisionPriceUsd * (1.0 + MAX_RESUME_PRICE_DRIFT_8330) -> "PRICE_ABOVE_DECISION"
+        else -> null
+    }
+
+    /** Pure: a refusal that ends the ticket (the hold cannot become executable); PRICE_ABOVE_DECISION keeps the hold. */
+    fun refusalIsTerminal8330(why: String): Boolean = why != "PRICE_ABOVE_DECISION" && why != "TOKEN_STATE_MISSING"
+
+    /** Pure: may this hold be dispatched for [trigger]? Consumes nothing. */
+    fun shouldDispatch8330(hold: Hold8327?, resume: Resume8330?, armedHolds: Int?, trigger: String, mint: String?): Boolean =
+        hold != null && resume != null && armedHolds == hold.holds && triggerMatches8330(hold.cause, trigger) &&
+            (mint == null || resume.mint == mint)
+
+    /** The lane wrapper, before its liveBuy: how to re-run THIS attempt (same wrapper, same attemptId). */
+    fun registerResume8330(lane: String, attemptId: String, mint: String, run: () -> Boolean) {
+        if (attemptId.isBlank() || mint.isBlank()) return
+        val now = System.currentTimeMillis()
+        if (resumes8330.size > 256) resumes8330.entries.removeIf { now - it.value.registeredMs > RESUME_MEMORY_MS_8330 && !held8327.containsKey(it.key) }
+        resumes8330[attemptId] = Resume8330(lane, attemptId, mint, now, run)
+    }
+
+    private fun arm8330(attemptId: String, holds: Int) {
+        armed8330[attemptId] = holds
+        if (!resumes8330.containsKey(attemptId)) return
+        try { pool8330().schedule(Runnable { dispatchOne8330(attemptId, TRIGGER_GUARD_8330) }, LATE_EVENT_GUARD_MS_8330, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (_: Throwable) {}
+    }
+
+    /** Executor.releaseBuyMutex8330: the wallet-spend mutex is free. */
+    fun onMutexReleased8330() = dispatch8330(TRIGGER_MUTEX_8330, null)
+
+    /** TokenSafetyChecker: a safety report for [mint] landed in the cache. */
+    fun onProofLanded8330(mint: String) = dispatch8330(TRIGGER_PROOF_8330, mint)
+
+    /** TokenMapAuthority: the token map for [mint] committed with [routeStatus]. */
+    fun onRouteResolved8330(mint: String, routeStatus: String) { if (routeResolved8330(routeStatus)) dispatch8330(TRIGGER_ROUTE_8330, mint) }
+
+    private fun dispatch8330(trigger: String, mint: String?) {
+        if (held8327.isEmpty() || resumes8330.isEmpty()) return
+        for (h in held8327.values.toList()) {
+            if (mint != null && resumes8330[h.attemptId]?.mint != mint) continue
+            dispatchOne8330(h.attemptId, trigger)
+        }
+    }
+
+    private fun dispatchOne8330(attemptId: String, trigger: String) {
+        val h = held8327[attemptId] ?: return
+        val r = resumes8330[attemptId] ?: return
+        if (!shouldDispatch8330(h, r, armed8330[attemptId], trigger, null)) return
+        if (!armed8330.remove(attemptId, h.holds)) return
+        try { pool8330().execute(Runnable { resume8330(h, r, trigger) }) } catch (_: Throwable) { armed8330[attemptId] = h.holds }
+    }
+
+    private fun count8330(lane: String, k: String) { resumeCounts8330.computeIfAbsent("$lane|$k") { AtomicLong(0L) }.incrementAndGet() }
+
+    private fun runtimeRefusal8330(h: Hold8327, r: Resume8330): String? {
+        val ticket = try { ExecutableOpenGate.ticketForAttempt(h.attemptId) } catch (_: Throwable) { null }
+        val ts = try { HandoffRoute8180.tokenFor8180(r.mint) } catch (_: Throwable) { null } ?: return "TOKEN_STATE_MISSING"
+        val held = (try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(r.mint) } catch (_: Throwable) { true }) ||
+            ts.position.isOpen || ts.position.pendingVerify || ts.position.qtyToken > 0.0
+        val inFlight = (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(r.mint, "BUY") } catch (_: Throwable) { null }) != null ||
+            (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedAttempt8198(h.attemptId) } catch (_: Throwable) { null }) != null
+        val versionIntent = if (ticket == null) false else try {
+            ExecutableOpenGate.activeExecutionIntent6519(ticket.mode, ticket.mint, ticket.candidateVersion)?.attemptId == ticket.attemptId
+        } catch (_: Throwable) { false }
+        val safetyBlocked = try { ts.safety.isBlocked || ts.safety.hardBlockReasons.isNotEmpty() } catch (_: Throwable) { false }
+        return resumeRefusal8330(held, inFlight, ticket != null && ticket.mode == "LIVE", versionIntent, safetyBlocked,
+            ticket?.executableMarkPriceUsd6613 ?: 0.0, ts.lastPrice)
+    }
+
+    private fun resume8330(h: Hold8327, r: Resume8330, trigger: String) {
+        if (!held8327.containsKey(h.attemptId)) return
+        if (!resuming8330.add(h.attemptId)) return
+        try {
+            count8330(r.lane, "resumed|$trigger")
+            try { PipelineHealthCollector.labelInc("TICKET_RESUMED_8330_${trigger.uppercase()}_${r.lane}") } catch (_: Throwable) {}
+            val why = runtimeRefusal8330(h, r)
+            if (why != null) {
+                count8330(r.lane, "refused|$why")
+                try { ForensicLogger.lifecycle("TICKET_RESUME_REFUSED_8330", "attemptId=${h.attemptId.take(28)} lane=${r.lane} mint=${r.mint.take(10)} cause=${h.cause} trigger=$trigger why=$why terminal=${refusalIsTerminal8330(why)}") } catch (_: Throwable) {}
+                if (refusalIsTerminal8330(why)) {
+                    if (held8327.remove(h.attemptId) != null) terminal8327(r.lane, h.attemptId, "${h.cause}_RESUME_REFUSED_${why}_8330")
+                } else armed8330[h.attemptId] = h.holds   // re-armed: the next event re-checks
+                return
+            }
+            try { ForensicLogger.lifecycle("TICKET_RESUMED_8330", "attemptId=${h.attemptId.take(28)} lane=${r.lane} mint=${r.mint.take(10)} cause=${h.cause} trigger=$trigger holds=${h.holds}/$MAX_HOLDS_8327 action=rerun_same_wrapper_same_attempt") } catch (_: Throwable) {}
+            val opened = try { r.run() } catch (_: Throwable) { false }
+            if (opened) count8330(r.lane, "executed")
+            // not opened: the wrapper's unexecutedTicket7948 re-held (re-armed) or ended the ticket by name.
+        } finally { resuming8330.remove(h.attemptId) }
+    }
+
+    /** Pure: " resumed=N(mutex=a/proof=b/route=c/guard=d) resumedExecuted=E resumedRefused=[WHY=n,...]" ("" when nothing resumed). */
+    fun formatResumeSuffix8330(byTrigger: Map<String, Long>, executed: Long, refused: Map<String, Long>): String {
+        val total = byTrigger.values.sum()
+        if (total <= 0L && executed <= 0L && refused.isEmpty()) return ""
+        val t = listOf(TRIGGER_MUTEX_8330, TRIGGER_PROOF_8330, TRIGGER_ROUTE_8330, TRIGGER_GUARD_8330).joinToString("/") { "$it=${byTrigger[it] ?: 0L}" }
+        val r = refused.entries.sortedByDescending { it.value }.take(6).joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "NONE" }
+        return " resumed=$total($t) resumedExecuted=$executed resumedRefused=[$r]"
+    }
+
+    private fun resumeSuffix8330(lane: String): String {
+        val prefix = "$lane|"
+        val byTrigger = HashMap<String, Long>(); val refused = HashMap<String, Long>(); var executed = 0L
+        for ((k, v) in resumeCounts8330) {
+            if (!k.startsWith(prefix)) continue
+            val rest = k.removePrefix(prefix)
+            when {
+                rest.startsWith("resumed|") -> byTrigger[rest.removePrefix("resumed|")] = v.get()
+                rest.startsWith("refused|") -> refused[rest.removePrefix("refused|")] = v.get()
+                rest == "executed" -> executed = v.get()
+            }
+        }
+        return formatResumeSuffix8330(byTrigger, executed, refused)
+    }
 
     fun heldCount8327(): Int = held8327.size
 
@@ -148,7 +331,8 @@ object TicketRetry8327 {
     fun suffix8327(lane: String): String {
         sweepAsync8327()
         fun c(k: String) = counts8327["$lane|$k"]?.get() ?: 0L
-        return formatSuffix8327(c("held"), c("exec"), c("expired"), c("budget"), held8327.values.count { it.lane == lane })
+        return formatSuffix8327(c("held"), c("exec"), c("expired"), c("budget"), held8327.values.count { it.lane == lane }) +
+            resumeSuffix8330(lane)  // V5.0.8330 — event-driven resumes
     }
 
     // ── MINT_REENTRY_COOLDOWN_6312 before the seal ──
@@ -168,5 +352,9 @@ object TicketRetry8327 {
         return "PRESEAL_MINT_REENTRY_COOLDOWN_6312_8327"
     }
 
-    internal fun resetForTests8327() { held8327.clear(); counts8327.clear(); lastSweepMs8327 = 0L }
+    internal fun resetForTests8327() { held8327.clear(); counts8327.clear(); lastSweepMs8327 = 0L; resumes8330.clear(); armed8330.clear(); resumeCounts8330.clear() }
+
+    /** Tests (V5.0.8330): the hold's armed count and whether a resume closure is registered. */
+    internal fun armedHolds8330(attemptId: String): Int? = armed8330[attemptId]
+    internal fun hasResume8330(attemptId: String): Boolean = resumes8330.containsKey(attemptId)
 }
