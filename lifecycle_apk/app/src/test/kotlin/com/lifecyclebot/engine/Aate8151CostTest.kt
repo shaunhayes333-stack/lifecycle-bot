@@ -186,7 +186,8 @@ class Aate8151CostTest {
     @Test fun costCutsAreWiredWhereTheTradesAreBuilt() {
         val e = src("engine/Executor.kt")
         assertTrue(e.contains("val freshPumpRoute = pumpPortalAutoEligible4559 && !costAggregatorFirst8151(ts, wallet)"))
-        assertTrue(e.contains("if (costPumpBuySimRefused8151(ts, built.txBase64, wallet, tradeKey)) return null"))
+        // superseded by V5.0.8337 — the preflight simulation is skipped at the call site when the entry is not ordinary (every entry pays to land)
+        assertTrue(e.contains("if (entryOrdinary8151(ts.mint) && costPumpBuySimRefused8151(ts, built.txBase64, wallet, tradeKey)) return null"))
         assertTrue(e.contains("if (costPartialFixedRefused8151(ts, proceeds, reason, f)) return true"))
         assertTrue(e.contains("slipPct = costPumpBuySlip8151(ts, pumpBuyPlan.solAmount)"))
         assertTrue(e.contains("ordinary8151    = entryOrdinary8151(ts.mint)"))
