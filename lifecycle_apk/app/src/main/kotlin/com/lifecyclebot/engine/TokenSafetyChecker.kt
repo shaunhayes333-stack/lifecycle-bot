@@ -1134,7 +1134,8 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
     private fun checkMintFreezeViaRpc(mint: String): Pair<Boolean?, Boolean?> {
         // V5.0.8310 — a live prospect / proof-deferred buy reads its mint Helius-first (one getAccountInfo jsonParsed: mint +
         // freeze authority, token program, Token-2022 extensions, supply) instead of the public-first scan ladder.
-        val proof = com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = SafetyProofPriority8310.heliusFirst8310(mint))
+        val proof = (if (SafetyProofPriority8310.heliusFirst8310(mint)) com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true)
+            else com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248.resolve(mint))
             ?: return Pair(null, null)
         return Pair(proof.mintAuthorityDisabled, proof.freezeAuthorityDisabled)
     }

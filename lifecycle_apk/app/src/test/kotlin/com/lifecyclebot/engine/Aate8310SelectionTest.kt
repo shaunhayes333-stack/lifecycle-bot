@@ -113,7 +113,7 @@ class Aate8310SelectionTest {
         val checker = src("engine/TokenSafetyChecker.kt")
         assertTrue(checker.contains("maxCacheAgeMs: Long = Long.MAX_VALUE"))
         assertTrue(checker.contains("SafetyProofPriority8310.cacheUsable8310(it.checkedAt, maxCacheAgeMs"))
-        assertTrue(checker.contains("OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = SafetyProofPriority8310.heliusFirst8310(mint))"))
+        assertTrue(checker.contains("if (SafetyProofPriority8310.heliusFirst8310(mint)) com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true)"))
         assertFalse(SafetyProofPriority8310.heliusFirst8310(""))
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("SafetyProofPriority8310.forceFresh8310(canonicalMint, explicitSafetyRefresh, ts.safety.checkedAt)"))
