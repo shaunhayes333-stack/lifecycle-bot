@@ -125,11 +125,13 @@ object PumpSwapTape8307 {
     // whale wallets. A second, bounded subscription on that same socket includes the MINTS of held and near-decision coins
     // ([tapeSet8307]): every swap of those coins — bonding curve or PumpSwap, any router — arrives parsed, and its pump.fun
     // TradeEvent / PumpSwap Buy/SellEvent lines are decoded here onto TradeTape8100 (source helius, pool, signature, side,
-    // SOL, token size, event time). The width follows a byte governor ([tapeWidth8307]): over ~1 MB/min it halves, under
+    // SOL, token size, event time). The width follows a byte governor ([tapeWidth8307]): over ~3 MB/min it halves, under
     // ~0.4 MB/min it grows back to [TAPE_MAX_8307]; past the day's Helius pace only held coins stay. Nothing is inferred.
+    // V5.0.8317 — 8314: any minute over 1 MB halved the width down to 2, so the tape covered two coins (swaps missing
+    // tape8100:STALE 2,491). Floor 6, halve only past 3 MB/min; overBudget8066 still keeps held coins only.
     const val TAPE_MAX_8307 = 12
-    private const val TAPE_MIN_8307 = 2
-    private const val TAPE_HIGH_BYTES_PER_MIN_8307 = 1_048_576L
+    private const val TAPE_MIN_8307 = 6
+    private const val TAPE_HIGH_BYTES_PER_MIN_8307 = 3_145_728L
     private const val TAPE_LOW_BYTES_PER_MIN_8307 = 400_000L
 
     private val tapeBytesMinute = AtomicLong(0)

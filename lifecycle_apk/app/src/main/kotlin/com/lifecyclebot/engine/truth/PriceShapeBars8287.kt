@@ -46,6 +46,16 @@ object PriceShapeBars8287 {
         Lifecycle8283.ESTABLISHED, Lifecycle8283.UNKNOWN -> MIN_MINUTES_ESTABLISHED_8287
     }
 
+    /**
+     * Pure (V5.0.8317): the bars a gate needs at [ageMin] when its own rule asks for [today]. A NEW coin (inside the
+     * 15-minute launch window, LifecycleData8283) is asked for the minutes it CAN have ([minMinutes8287]: three), never
+     * more than [today]; every older or unknown-age coin keeps today's number. 5.0.8314: CandleCoverage8284 (6),
+     * TradePlan7739 (5 / 6) and LocalTapeBars8128 (10) each waited for one-minute bars a launch could not have yet
+     * (ttf1m avg 644 s; 7 of 18 live runner admits LOSS_BOUGHT_TOP). Unknown age claims nothing, as in [minMinutes8287].
+     */
+    fun ageAwareMin8317(ageMin: Double, today: Int): Int =
+        if (LifecycleData8283.lifecycleOf8283(ageMin) == Lifecycle8283.NEW) minOf(minMinutes8287(ageMin), today) else today
+
     /** Pure: one-minute bars (SOL prices) from observed prints, oldest first; a minute nobody observed has no bar. */
     fun bars8287(prints: List<TradeTape8100.Print8128>): List<Bar8287> {
         val byMinute = prints.filter { it.atMs > 0L && it.priceSol.isFinite() && it.priceSol > 0.0 }

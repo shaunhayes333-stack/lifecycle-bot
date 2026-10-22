@@ -292,8 +292,9 @@ class Aate8307DataTest {
     }
 
     @Test fun theParsedStreamIsBoundedByABudgetedWidthAndHeldCoinsNeverDrop() {
-        assertEquals(6, PumpSwapTape8307.nextTapeWidth8307(12, 2_000_000L))
-        assertEquals(2, PumpSwapTape8307.nextTapeWidth8307(3, 2_000_000L))
+        // superseded by V5.0.8317: the width halves only past 3 MB/min and never under 6.
+        assertEquals(6, PumpSwapTape8307.nextTapeWidth8307(12, 4_000_000L))
+        assertEquals(6, PumpSwapTape8307.nextTapeWidth8307(3, 4_000_000L))
         assertEquals(12, PumpSwapTape8307.nextTapeWidth8307(11, 100_000L))
         assertEquals(8, PumpSwapTape8307.nextTapeWidth8307(8, 700_000L))
         val held = listOf(b58(1), b58(2))

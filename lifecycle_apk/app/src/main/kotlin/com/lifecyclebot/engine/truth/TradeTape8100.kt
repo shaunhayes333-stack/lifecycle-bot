@@ -27,7 +27,9 @@ object TradeTape8100 {
     private const val MAX_TRADES = 800
     private const val MAX_MINTS = 400
     private const val MIN_TRADES_BP = 6
-    private const val FRESH_MS = 120_000L
+    // V5.0.8317 — 120 s → 300 s, matching [BP_WINDOW_MS]: a read two minutes after the last print returned null (STALE)
+    // while its own buy-pressure window still held five minutes of prints (8314: swaps missing tape8100:STALE 2,491).
+    private const val FRESH_MS = 300_000L
     private const val BP_WINDOW_MS = 5L * 60_000L
 
     // V5.0.8169 — [priceOnly]: a pool-state price (bonding-curve account / PumpSwap vault pair) with no side or size.
@@ -321,7 +323,7 @@ object TradeTape8100 {
 
     fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()} youngShape15s8220=${youngShapes8220.get()}"
 
-    /** V5.0.8169 — why the tape could state nothing for [mint] now: NO_PRINTS (never received) or STALE (newest > 2 min). */
+    /** V5.0.8169 — why the tape could state nothing for [mint] now: NO_PRINTS (never received) or STALE (newest > [FRESH_MS]: 5 min since 8317). */
     fun absentWhy8169(mint: String, nowMs: Long = System.currentTimeMillis()): String {
         val q = tapes[mint] ?: return "NO_PRINTS"
         val last = synchronized(q) { q.lastOrNull()?.atMs } ?: return "NO_PRINTS"

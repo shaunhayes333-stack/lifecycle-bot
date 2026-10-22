@@ -84,8 +84,25 @@ object LiquidityTruth8037 {
         if (!(try { com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) } catch (_: Throwable) { false })) return null
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        val capUsd = try { TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { Double.NaN }
+        val trusted = try { TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { Double.NaN }
+        val capUsd = curveCapUsd8317(mint, trusted, ts.lastPrice)
+        if (!(trusted > 0.0) && capUsd.isFinite()) capFromPrice8317.incrementAndGet()
         return curveDepthUsd8164(capUsd, solUsd)
+    }
+
+    private val capFromPrice8317 = AtomicLong(0)
+
+    /**
+     * Pure (V5.0.8317): the cap an active curve's depth is derived from — the trusted cap when it is priced; else, for a
+     * *pump mint with an observed price, price x the curve's fixed 1e9 supply (TrustedMcap8019.PUMP_SUPPLY_8019). 8314:
+     * TrustedMcap8019.mcap8019 returned the row cap (0) when the price source was not independent, so a brand-new curve
+     * priced only by its own snapshot read $0 of depth — under the $500 live floor — just as it started running. Any other
+     * mint, or no price: NaN (nothing is derived). The depth itself still follows the curve invariant ([curveDepthUsd8164]).
+     */
+    fun curveCapUsd8317(mint: String, trustedCapUsd: Double, lastPriceUsd: Double): Double = when {
+        trustedCapUsd.isFinite() && trustedCapUsd > 0.0 -> trustedCapUsd
+        mint.endsWith("pump", ignoreCase = true) && lastPriceUsd.isFinite() && lastPriceUsd > 0.0 -> lastPriceUsd * TrustedMcap8019.PUMP_SUPPLY_8019
+        else -> Double.NaN
     }
 
     /**
@@ -107,5 +124,5 @@ object LiquidityTruth8037 {
         if (capSol.isFinite() && capSol > 0.0) (kotlin.math.sqrt(capSol * 30.0 * 1.073) - 30.0).coerceAtLeast(0.0) else 0.0
 
     fun statusLine(): String =
-        "curveReal=${curveRealApplied8046.get()} curveCap8164=${curveCapDerived8164.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} rule=chain vaults first (§8038), then tick liquidity 0 -> observed (token map, curve reserves); never lowered, never invented"
+        "curveReal=${curveRealApplied8046.get()} curveCap8164=${curveCapDerived8164.get()} capFromPrice8317=${capFromPrice8317.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} rule=chain vaults first (§8038), then tick liquidity 0 -> observed (token map, curve reserves); never lowered, never invented"
 }

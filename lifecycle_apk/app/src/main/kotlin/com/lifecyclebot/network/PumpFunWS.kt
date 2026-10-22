@@ -357,7 +357,7 @@ object PumpFunWS {
         if (!HeliusSolanaScope7819.isSolanaMint7819(mint)) return false
         setupRequested8191.incrementAndGet()
         // V5.0.8193 — the metered stream's budget governs setup watches too (one budget, one per-coin cap).
-        if (!meteredSubAllowed8193(mint)) return false
+        if (!meteredSubAllowed8193(mint, setup8317 = true)) return false   // V5.0.8317 — a setup watch is exempt from the per-coin cap
         val drop = setupEvictions8191(setupMints8191, mint, nowMs, SETUP_MAX_8191, SETUP_TTL_MS_8191) { m -> lifecycleMints7420.containsKey(m) }
         for (m in drop) setupMints8191.remove(m)
         val unsub = drop.filter { tradeSubscriptions7278.remove(it) }
@@ -466,6 +466,18 @@ object PumpFunWS {
     internal fun dropLaunch8192(held: Boolean, mintFrames: Long, framesToday: Long, budget: Long = DAILY_FRAME_BUDGET_8192): Boolean =
         !held && (mintFrames >= LAUNCH_FRAME_CAP_8192 || framesToday >= budget)
 
+    /**
+     * Pure (V5.0.8317): [dropLaunch8192] with a setup-watched coin exempt from the per-coin frame cap — the setup
+     * refresher asked for its tape (watchForSetup8191), and 8314's busiest coins passed 250 frames and went STALE first.
+     * The day's budget still binds every non-held coin.
+     */
+    internal fun dropLaunch8317(held: Boolean, setupWatched: Boolean, mintFrames: Long, framesToday: Long, budget: Long = DAILY_FRAME_BUDGET_8192): Boolean =
+        !held && (framesToday >= budget || (!setupWatched && mintFrames >= LAUNCH_FRAME_CAP_8192))
+
+    /** Pure (V5.0.8317): does the per-coin cap refuse a (re)subscription after [mintFrames] today? Never a held or setup-watched coin. */
+    internal fun capBlocks8317(mintFrames: Long, held: Boolean, setupWatched: Boolean): Boolean =
+        mintFrames >= LAUNCH_FRAME_CAP_8192 && !held && !setupWatched
+
     /** Pure: estimated SOL cost of [frames] metered messages. */
     internal fun frameCostSol8192(frames: Long): Double = frames / 10_000.0 * 0.01
 
@@ -481,7 +493,7 @@ object PumpFunWS {
         if (framesByMint8192.size > 2_000) framesByMint8192.keys.retainAll(tradeSubscriptions7278 + heldMints8192)
         val mintFrames = framesByMint8192.computeIfAbsent(mint) { AtomicLong(0L) }.incrementAndGet()
         val held = mint in heldMints8192
-        if (!dropLaunch8192(held, mintFrames, today)) return
+        if (!dropLaunch8317(held, setupWatched8191(mint, now), mintFrames, today)) return   // V5.0.8317 — setup watch exempt from the cap
         if (today >= DAILY_FRAME_BUDGET_8192) {
             // Budget spent: everything but held positions leaves the stream until the UTC day rolls.
             val drop = (tradeSubscriptions7278 - heldMints8192).toList()
@@ -518,10 +530,15 @@ object PumpFunWS {
         registerFreshLifecycle7420(mint)
     }
 
-    /** V5.0.8193 — budget left today, and [mint] has not already used its frame cap today (never re-subscribed after it). */
-    private fun meteredSubAllowed8193(mint: String): Boolean {
-        rollDay8192(System.currentTimeMillis())
-        if ((framesByMint8192[mint]?.get() ?: 0L) >= LAUNCH_FRAME_CAP_8192 && mint !in heldMints8192) return false
+    /**
+     * V5.0.8193 — budget left today, and [mint] has not already used its frame cap today (never re-subscribed after it).
+     * V5.0.8317 — a setup watch ([setup8317]: the refresher's own request, or a coin already setup-watched) is exempt from
+     * the per-coin cap; the day's budget still governs it.
+     */
+    private fun meteredSubAllowed8193(mint: String, setup8317: Boolean = false): Boolean {
+        val now = System.currentTimeMillis()
+        rollDay8192(now)
+        if (capBlocks8317(framesByMint8192[mint]?.get() ?: 0L, mint in heldMints8192, setup8317 || setupWatched8191(mint, now))) return false
         if (!launchSubAllowed8192(framesToday8192.get())) { launchSubsSkippedBudget8192.incrementAndGet(); return false }
         return true
     }

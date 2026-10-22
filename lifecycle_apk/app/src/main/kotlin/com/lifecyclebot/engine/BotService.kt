@@ -17033,8 +17033,7 @@ class BotService : Service() {
                         source = joinedSources.ifBlank { hiveForIntake?.source ?: "" },
                         logoUrl = cached?.logoUrl?.takeIf { it.isNotBlank() } ?: hiveForIntake?.logoUrl ?: "",
                     ).also { fresh ->
-                        fresh.laneAffinity.addAll(laneAffinity)
-                        fresh.toolAffinity.addAll(toolAffinity)
+                        IntakeFirstSight8317.firstSight8317(fresh, laneAffinity, toolAffinity)  // V5.0.8317 — affinities + chain depth read + near-decision
                         if (cached != null) {
                             // Warm slow-moving snapshot fields. These are SAFE
                             // to seed because every fresh tick will overwrite
