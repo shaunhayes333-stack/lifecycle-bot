@@ -32,7 +32,9 @@ class Aate8198LaneVerdictDisplayTest {
         val ui = File("src/main/kotlin/com/lifecyclebot/ui/LearningCounterActivity.kt").readText()
         assertTrue(ui.contains("aateTakeGrossMedian8269"))
         assertTrue(ui.contains("aateRefuseGrossMedian8269"))
-        assertTrue(ui.contains("l.aateTakeGrossMedian8269 - l.aateRefuseGrossMedian8269"))
+        // superseded by V5.0.8322: the lane row leads with the net mean (same statistic as the report and authority);
+        // gross medians are shown beside it, labelled.
+        assertTrue(ui.contains("l.aateTakeNetMean8269 - l.aateRefuseNetMean8269"))
         assertTrue(ui.contains("Cortex predicted STRONG"))
         assertTrue(ui.contains("exec offset -"))
         assertTrue(ui.contains("aateTakeNetMedian8269"))

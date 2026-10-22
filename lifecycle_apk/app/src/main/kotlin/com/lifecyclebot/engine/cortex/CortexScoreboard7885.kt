@@ -225,7 +225,7 @@ class CortexScoreboard7885 {
 
     fun record(lane: String, bucket: Bucket, legacyAdmitted: Boolean, netPct: Double, grossPct: Double): DoubleArray? {
         if (!netPct.isFinite()) return null
-        val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)  // V5.0.8187 — clamped at ingestion
+        val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // V5.0.8322 — stored raw (8187 clamped at ingestion)
         val runner = grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT
         val b = books.getOrPut(lane) { Book() }
         // Decayed memory (~100 own grades per book, V5.0.8082): authority earned in an old regime fades
@@ -248,7 +248,7 @@ class CortexScoreboard7885 {
         if (scales == null) return
         val b = books[lane] ?: return
         val yo = oldNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // as booked
-        val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)  // V5.0.8187 — clamped like any new label
+        val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // V5.0.8322 — stored raw like any new label
         val ro = oldGross.isFinite() && oldGross >= CortexLedger7885.RUNNER_GROSS_PCT
         val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
         fun revise(st: CortexLedger7885.Stat, index: Int) =

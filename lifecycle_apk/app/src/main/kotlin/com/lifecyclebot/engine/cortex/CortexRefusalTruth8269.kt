@@ -37,7 +37,10 @@ object CortexRefusalTruth8269 {
         val minHoldout = if (relative) 4 else 8
         val cut = maxOf(minTrain, (xs.size * 0.6).toInt())
         if (xs.size - cut < minHoldout) return false
-        val training = CortexWalkForward8144.stat8144(xs.take(cut).map { it.netPct })
+        // V5.0.8322 — the training window sees a runner lane's hold-window revision only once it was booked before the
+        // holdout starts; before that, its first label (identical to 8269 for every record without a revision).
+        val holdoutStart8322 = xs[cut].atMs
+        val training = CortexWalkForward8144.stat8144(xs.take(cut).map { if (it.availableAtMs <= holdoutStart8322) it.netPct else it.firstPct })
         val heldOut = CortexWalkForward8144.stat8144(xs.drop(cut).map { it.netPct })
         if (!training.se.isFinite() || !heldOut.se.isFinite() ||
             training.mean + training.se >= -ABSOLUTE_MARGIN_PCT ||

@@ -54,8 +54,8 @@ class Aate8006ClosedLoopTest {
         assertTrue(frl.contains("if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)"))
         assertTrue(frl.contains("endRun8006(o, gross)"))
         val cx = src("engine/cortex/Cortex7885.kt")
-        // superseded by V5.0.8187: the retained label is the one booked (clamped to its cohort's cap at ingestion).
-        assertTrue(cx.contains("if (trace8006 != null) retain8006(key, p, trace8006, net8187, gross8187, bookScales, auxScales)"))
+        // superseded by V5.0.8322: the retained label is the one booked (raw), with its calibration stamp.
+        assertTrue(cx.contains("if (trace8006 != null) retain8006(key, p, trace8006, net8187, gross8187, bookScales, auxScales, calStamp8322)"))
         assertTrue(cx.contains("vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane))"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("Cortex7885.vetoRefusesWinners8006(why, l)"))

@@ -100,11 +100,12 @@ class Aate8187CortexCompleteTest {
     }
 
     @Test fun everyNewLabelIsClampedAtIngestion() {
+        // superseded by V5.0.8322: labels are stored RAW at ingestion (owner directive 8072, no win caps); the 8187 bound is a read.
         val ids = listOf("V"); val edges = listOf(doubleArrayOf(0.5))
         val ledger = CortexLedger7885()
         ledger.grade("SHITCOIN", ids, edges, doubleArrayOf(1.0), 60_000.0, 60_000.0)
-        assertEquals(1_000.0, ledger.lanes["SHITCOIN"]!!.sum, 1e-9)
-        assertEquals(1_000.0, ledger.seats["V|SHITCOIN"]!!.bins[1].sum, 1e-9)
+        assertEquals(60_000.0, ledger.lanes["SHITCOIN"]!!.sum, 1e-9)
+        assertEquals(60_000.0, ledger.seats["V|SHITCOIN"]!!.bins[1].sum, 1e-9)
         assertEquals(1.0, ledger.lanes["SHITCOIN"]!!.runners, 0.0)
         // A realised-close ledger keeps the money it was given.
         val real = CortexLedger7885(Double.POSITIVE_INFINITY)
@@ -112,7 +113,8 @@ class Aate8187CortexCompleteTest {
         assertEquals(60_000.0, real.lanes["SHITCOIN"]!!.sum, 1e-9)
         val board = CortexScoreboard7885()
         board.record("MOONSHOT", CortexScoreboard7885.Bucket.NEUTRAL, false, 60_000.0, 60_000.0)
-        assertEquals(1_000.0, board.books["MOONSHOT"]!!.byBucket[neutral].sum, 1e-9)
+        assertEquals(60_000.0, board.books["MOONSHOT"]!!.byBucket[neutral].sum, 1e-9)
+        assertEquals(1_000.0, board.books["MOONSHOT"]!!.byBucket[neutral].mean(), 1e-9)   // one runner: read at its bound
         board.recordRealized("LIVE", "MOONSHOT", CortexScoreboard7885.Bucket.STRONG, 5_000.0)
         assertEquals(5_000.0, board.realized["LIVE|MOONSHOT"]!![strong].mean(), 1e-9)
     }
@@ -125,14 +127,14 @@ class Aate8187CortexCompleteTest {
         st.sum = 5_000.0; st.sumSq = 25_000_000.0
         board.revise8006("EXPRESS", CortexScoreboard7885.Bucket.STRONG, false, 5_000.0, 20.0, 5_000.0, 20.0, stamps)
         assertEquals(20.0, st.sum, 1e-7)
-        // A revision upward is a new label: clamped.
+        // A revision upward is a new label: superseded by V5.0.8322 — stored raw.
         board.revise8006("EXPRESS", CortexScoreboard7885.Bucket.STRONG, false, 20.0, 9_000.0, 20.0, 9_000.0, stamps)
-        assertEquals(1_000.0, st.sum, 1e-7)
+        assertEquals(9_000.0, st.sum, 1e-7)
         val ledger = CortexLedger7885()
         val ids = listOf("V"); val edges = listOf(doubleArrayOf(0.5))
         val trace = ledger.grade("CORE", ids, edges, doubleArrayOf(1.0), 40.0, 40.0)!!
         ledger.revise8006("CORE", ids, edges, doubleArrayOf(1.0), trace, 40.0, 9_000.0, 40.0, 9_000.0)
-        assertEquals(1_000.0, ledger.lanes["CORE"]!!.sum, 1e-7)
+        assertEquals(9_000.0, ledger.lanes["CORE"]!!.sum, 1e-7)  // superseded by V5.0.8322: raw
     }
 
     @Test fun thePoisonedRestBookCountsItsWinners() {
@@ -172,8 +174,9 @@ class Aate8187CortexCompleteTest {
         val fresh = DoubleArray(3)
         LanePlaybook7907.addOutcome8187(fresh, 60_000.0)
         LanePlaybook7907.addOutcome8187(fresh, -10.0)
-        assertEquals(2.0, fresh[0], 0.0); assertEquals(990.0, fresh[1], 1e-9); assertEquals(1.0, fresh[2], 0.0)
-        assertEquals("+495.0%", LanePlaybook7907.outcomeMean8187(fresh))
+        // superseded by V5.0.8322: stored raw at ingestion; the screen still shows the bound with the raw beside.
+        assertEquals(2.0, fresh[0], 0.0); assertEquals(59_990.0, fresh[1], 1e-9); assertEquals(1.0, fresh[2], 0.0)
+        assertEquals("+500.0%~raw+29995.0%", LanePlaybook7907.outcomeMean8187(fresh))
         val old = doubleArrayOf(1.0, 5.0, -1.0)
         LanePlaybook7907.addOutcome8187(old, 5.0)
         assertEquals(-1.0, old[2], 0.0)  // unknown winners stay unknown
@@ -199,12 +202,14 @@ class Aate8187CortexCompleteTest {
         val big = decide(book, "BIG", "MOONSHOT", t0, strong, true, null, 2_000.0, cohort = "MC_GT1M")
         decide(book, "SMALL", "MOONSHOT", t0 + 1, strong, true, null, 5_000.0)
         assertEquals(2_000.0, big.observedNetPct, 0.0)  // the observed record is kept as booked
-        assertEquals(300.0, big.executablePct, 0.0)     // the authority value clamped at ingestion (4x for $1M+)
-        assertEquals(listOf(300.0, 1_000.0), book.executableSeries("MOONSHOT", null, strong))
+        // superseded by V5.0.8322: the authority value is stored and read RAW (no ingestion clamp); the observed display
+        // series keeps its cohort cap beside the raw one.
+        assertEquals(2_000.0, big.executablePct, 0.0)
+        assertEquals(listOf(2_000.0, 5_000.0), book.executableSeries("MOONSHOT", null, strong))
         assertEquals(listOf(300.0, 1_000.0), book.observedSeries("MOONSHOT", strong))
         assertEquals(listOf(2_000.0, 5_000.0), book.observedSeriesRaw8187("MOONSHOT", strong))
         val one = CortexWalkForward8144.stat8144(book.executableSeries("MOONSHOT", null, strong))
-        assertEquals(650.0, one.mean, 1e-9)
+        assertEquals(3_500.0, one.mean, 1e-9)
     }
 
     @Test fun aPoisonedStrongSeriesCannotValidate() {
@@ -293,9 +298,9 @@ class Aate8187CortexCompleteTest {
 
     @Test fun theCapturePathFilesEveryDecisionAndTheCloseFindsItsVerdict() {
         val cx = src("engine/cortex/Cortex7885.kt")
-        // Ingestion: every book in onLabel takes the clamped label of the decision's cohort.
+        // Ingestion: superseded by V5.0.8322 — every book in onLabel takes the RAW label (no win caps).
         val on = cx.substringAfter("fun onLabel(mint: String, labelLane: String").substringBefore("// ── V5.0.8144 — grade records")
-        assertTrue(on.contains("RobustLabelRead8185.clampLabel8187(netPct, cap8187)"))
+        assertTrue(on.contains("val net8187 = netPct"))
         assertTrue(on.contains("ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, net8187, gross8187"))
         assertTrue(on.contains("board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187)"))
         assertTrue(on.contains("gradeBook8144.markLateRead8187("))

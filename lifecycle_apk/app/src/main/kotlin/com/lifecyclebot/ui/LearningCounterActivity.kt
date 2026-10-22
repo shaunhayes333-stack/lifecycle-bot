@@ -391,22 +391,26 @@ class LearningCounterActivity : Activity() {
             // operator's actual question, "what AATE would TAKE versus REFUSE?"
             // The Cortex STRONG/REFUSE model verdict is a separate diagnostic,
             // NOT the historical decision label and NOT verified live P&L.
+            // V5.0.8322 — the panel reads the SAME statistic as the report and the authority: the net mean of the lane's
+            // graded objective (a runner lane's hold-window label). 8198/8269 led with GROSS MEDIANS: on a tail-dependent pond
+            // the typical coin is flat at five minutes, so every cohort printed "+0.0%" (TREASURY STRONG n56 +0.0% vs REFUSE
+            // n99 +0.0%) while the report read the same cohorts at -13.8% / -20.9% net mean. Medians stay beside, labelled.
             val gap = if (l.aateTakeN8269 >= 5 && l.aateRefuseN8269 >= 5)
-                l.aateTakeGrossMedian8269 - l.aateRefuseGrossMedian8269 else Double.NaN
+                l.aateTakeNetMean8269 - l.aateRefuseNetMean8269 else Double.NaN
             target7023().addView(AateComponents6994.metricRow(this, l.lane,
-                "${pct8069(l.aateTakeGrossMedian8269)} / ${pct8069(l.aateRefuseGrossMedian8269)}",
+                "${pct8069(l.aateTakeNetMean8269)} / ${pct8069(l.aateRefuseNetMean8269)}",
                 when { !gap.isFinite() -> AateUi.TEXT_MUTED; gap > 0.0 -> AateUi.GREEN; else -> AateUi.RED },
-                "AATE would TAKE n${l.aateTakeN8269} vs REFUSE n${l.aateRefuseN8269} · gross median, same executable forward-label population · " +
-                    "net median ${pct8069(l.aateTakeNetMedian8269)} / ${pct8069(l.aateRefuseNetMedian8269)} · net mean ${pct8069(l.aateTakeNetMean8269)} / ${pct8069(l.aateRefuseNetMean8269)} · " +
-                    "Cortex predicted STRONG n${l.strongN} ${pct8069(l.strongGrossMedian8198)} vs REFUSE n${l.refuseN} ${pct8069(l.refuseGrossMedian8198)} · " +
-                    "neutral n${l.neutralN} ${pct8069(l.neutralGrossMedian8198)} · " +
-                    "Cortex net median ${pct8069(l.strongMedian8165)} / ${pct8069(l.refuseMedian8165)} · " +
+                "AATE would TAKE n${l.aateTakeN8269} vs REFUSE n${l.aateRefuseN8269} · net mean, same executable forward-label population · " +
+                    "net median ${pct8069(l.aateTakeNetMedian8269)} / ${pct8069(l.aateRefuseNetMedian8269)} · gross median ${pct8069(l.aateTakeGrossMedian8269)} / ${pct8069(l.aateRefuseGrossMedian8269)} · " +
+                    "Cortex predicted STRONG n${l.strongN} net mean ${pct8069(l.strongMean)} vs REFUSE n${l.refuseN} ${pct8069(l.refuseMean)} · " +
+                    "neutral n${l.neutralN} ${pct8069(l.neutralMean)} · " +
+                    "Cortex net median ${pct8069(l.strongMedian8165)} / ${pct8069(l.refuseMedian8165)} · gross median ${pct8069(l.strongGrossMedian8198)} / ${pct8069(l.refuseGrossMedian8198)} · " +
                     "exec offset -${"%.1f".format(l.execOffset8198)}pt · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}" +
                     (if (l.source8153.isNotBlank()) " · executable first-of-episode on-time labels; old decayed cohorts display-only" else "")))
             target7023().addView(AateComponents6994.barRow(this, "authority", (l.auth * 100.0).coerceIn(0.0, 100.0),
                 if (l.auth > 0.0) AateUi.GREEN else AateUi.TEXT_MUTED))
         }
-        addText("Left = typical gross price move of tokens AATE would TAKE; right = ones it would REFUSE. These are decision-time counterfactual labels, not confirmed trading profits. Cortex STRONG/REFUSE predictions remain in each lane's detail. Colour needs 5+ qualified labels on both sides; the authority bar reports STRONG-side power, not refusal power.", AateUi.TEXT_MUTED, small = true)
+        addText("Left = net mean forward return (runner lanes: their hold-window label) of tokens AATE would TAKE; right = ones it would REFUSE. These are decision-time counterfactual labels, not confirmed trading profits. Cortex STRONG/REFUSE predictions remain in each lane's detail. Colour needs 5+ qualified labels on both sides; the authority bar reports STRONG-side power, not refusal power.", AateUi.TEXT_MUTED, small = true)
 
         addHeader("🎯 Cortex · setups")
         val setups = cachedSetups8069

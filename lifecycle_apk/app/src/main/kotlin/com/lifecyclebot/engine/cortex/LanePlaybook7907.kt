@@ -1753,7 +1753,7 @@ object LanePlaybook7907 {
      */
     internal fun addOutcome8187(a: DoubleArray, netPct: Double) {
         if (!netPct.isFinite() || a.size < 2) return
-        val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)
+        val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // V5.0.8322 — stored raw (no win cap)
         a[0] += 1.0; a[1] += y
         if (a.size >= 3 && a[2] >= 0.0 && y > 0.0) a[2] += 1.0
     }
@@ -1808,16 +1808,16 @@ object LanePlaybook7907 {
                 val (y, g) = familyLabel8080(lane, setup, netPct, grossPct, fam)
                 // V5.0.8187 — label books read through the cap; new labels clamped at ingestion.
                 val stamp = books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.labelStat8187() }
-                    .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
+                    .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8322 — raw
                 if (timing8094 != null && timing8094 != TIMING_UNKNOWN_8094) timingBooks8094.getOrPut(lane) { HashMap() }
                     .getOrPut("$setup|$timing8094") { CortexLedger7885.labelStat8187() }
-                    .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)
+                    .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8322 — raw
                 stamp
             }
             if (graded7997.size >= 8_000) graded7997.entries.minByOrNull { it.value.atMs }?.key?.let { graded7997.remove(it) }
             // Revisions only ever move long-hold setups, so the grade keeps the long-hold family's value.
             graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps,
-                (fam?.get(2) ?: netPct).coerceAtMost(CortexLedger7885.LABEL_CAP_8187), fam?.get(3) ?: grossPct, System.currentTimeMillis())  // V5.0.8187 — as booked
+                (fam?.get(2) ?: netPct), fam?.get(3) ?: grossPct, System.currentTimeMillis())  // V5.0.8322 — as booked (raw)
             bookRevision8077.incrementAndGet()
         }
         if (sincePersist.incrementAndGet() >= 25) { sincePersist.set(0); persist() }
@@ -1872,7 +1872,7 @@ object LanePlaybook7907 {
                 return
             }
             val yo = g.net.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
-            val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)  // V5.0.8187 — clamped like any new label
+            val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // V5.0.8322 — stored raw like any new label
             val ro = g.gross.isFinite() && g.gross >= CortexLedger7885.RUNNER_GROSS_PCT
             val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
             // V5.0.8080 — a scalp setup keeps its first-read grade: the later path is not a scalp's return.

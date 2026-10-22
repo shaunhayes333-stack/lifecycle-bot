@@ -49,6 +49,18 @@ class CortexCalibration7901 {
          */
         const val EARLY_MIN_N_8291 = 20.0
 
+        /** V5.0.8322 — decayed grades below which no slope may suspend a lane (8291 could from ~60). */
+        const val SUSPEND_MIN_N_8322 = 100.0
+        /** V5.0.8322 — the smallest standard deviation (points) of the fused deviations a suspending fit must have. */
+        const val MIN_D_SD_PCT_8322 = 0.5
+
+        /** Pure (V5.0.8322): enough grades and enough spread in the deviations for a slope to switch a lane off. */
+        fun suspendable8322(n: Double, sd: Double, sdd: Double): Boolean {
+            if (!n.isFinite() || n < SUSPEND_MIN_N_8322 || !sd.isFinite() || !sdd.isFinite()) return false
+            val varD = sdd / n - (sd / n) * (sd / n)
+            return varD.isFinite() && varD >= MIN_D_SD_PCT_8322 * MIN_D_SD_PCT_8322
+        }
+
         /** Pure (V5.0.8291): the slope of decayed sums with the early, shrink-only phase-in. */
         fun earlySlope8291(n: Double, sd: Double, sdd: Double, sy: Double, sdy: Double): Double {
             if (!n.isFinite() || n < EARLY_MIN_N_8291) return 1.0
@@ -63,7 +75,7 @@ class CortexCalibration7901 {
         }
     }
 
-    private class Reg { var n = 0.0; var sd = 0.0; var sdd = 0.0; var sy = 0.0; var sdy = 0.0 }
+    private class Reg { var n = 0.0; var sd = 0.0; var sdd = 0.0; var sy = 0.0; var sdy = 0.0; var logScale8322 = 0.0 }
 
     private val lanes = HashMap<String, Reg>()
 
@@ -79,19 +91,60 @@ class CortexCalibration7901 {
     fun calibrate(lane: String, rawEdge: Double, laneMean: Double): Double =
         laneMean + slope(lane) * (rawEdge - laneMean)
 
-    /** Learn from one graded decision: [rawEdge] and [laneMean] as read at decision time. */
-    fun learn(lane: String, rawEdge: Double, laneMean: Double, outcome: Double) {
+    /**
+     * Learn from one graded decision: [rawEdge] and [laneMean] as read at decision time. V5.0.8322 — returns the lane's decay
+     * stamp at the time of learning (NaN when nothing was learned), so a later horizon can revise exactly this grade.
+     */
+    fun learn(lane: String, rawEdge: Double, laneMean: Double, outcome: Double): Double {
         val d = rawEdge - laneMean
-        if (!d.isFinite() || !outcome.isFinite() || kotlin.math.abs(d) < 1e-9) return
+        if (!d.isFinite() || !outcome.isFinite() || kotlin.math.abs(d) < 1e-9) return Double.NaN
         val y = (outcome - laneMean).coerceIn(-RESIDUAL_CLIP_PCT, RESIDUAL_CLIP_PCT)
-        if (!y.isFinite()) return
+        if (!y.isFinite()) return Double.NaN
         val r = lanes.getOrPut(lane) { Reg() }
         r.n = r.n * DECAY + 1.0
         r.sd = r.sd * DECAY + d
         r.sdd = r.sdd * DECAY + d * d
         r.sy = r.sy * DECAY + y
         r.sdy = r.sdy * DECAY + d * y
+        r.logScale8322 += kotlin.math.ln(DECAY)
+        return r.logScale8322
     }
+
+    /**
+     * V5.0.8322 §LANE_OBJECTIVE — a runner lane is calibrated on the horizon its exits hold to, not on the first five
+     * minutes. The grade learned at [stamp] (from [learn]) has its outcome replaced by [newOutcome] at the weight that grade
+     * still owns under the decay (n and the edge sums are unchanged: a decision is never counted twice). 8291's MOONSHOT
+     * slope 0.00 was fitted on five-minute reads of a lane whose runners pay at 15-60 minutes and beyond.
+     */
+    fun revise8322(lane: String, rawEdge: Double, laneMean: Double, oldOutcome: Double, newOutcome: Double, stamp: Double): Boolean {
+        val r = lanes[lane] ?: return false
+        val d = rawEdge - laneMean
+        if (!d.isFinite() || kotlin.math.abs(d) < 1e-9 || !oldOutcome.isFinite() || !newOutcome.isFinite() || !stamp.isFinite()) return false
+        if (r.logScale8322 > stamp + 1e-9) return false
+        val w = kotlin.math.exp(r.logScale8322 - stamp).coerceIn(0.0, 1.0)
+        if (!(w > 0.0)) return false
+        val yo = (oldOutcome - laneMean).coerceIn(-RESIDUAL_CLIP_PCT, RESIDUAL_CLIP_PCT)
+        val yn = (newOutcome - laneMean).coerceIn(-RESIDUAL_CLIP_PCT, RESIDUAL_CLIP_PCT)
+        if (!yo.isFinite() || !yn.isFinite()) return false
+        r.sy += w * (yn - yo)
+        r.sdy += w * d * (yn - yo)
+        return true
+    }
+
+    /**
+     * V5.0.8322 §NO_SUSPENSION_ON_NOISE — may this lane's slope SUSPEND it (refuse power, overrule, size-up, STRONG door)?
+     * Only on [SUSPEND_MIN_N_8322]+ decayed grades AND a real spread in the Cortex's deviations (their standard deviation at
+     * least [MIN_D_SD_PCT_8322] points): 8291's early shrink-only phase-in could read a slope below 0.5 from ~60 grades, and
+     * a fit over near-identical deviations is a ratio of two noises. Below the floor the slope still SHRINKS the calibrated
+     * edge ([calibrate]); it just cannot switch the lane off.
+     */
+    fun suspendable8322(lane: String): Boolean {
+        val r = lanes[lane] ?: return false
+        return suspendable8322(r.n, r.sd, r.sdd)
+    }
+
+    /** V5.0.8322 — is [lane] suspended: slope below [minSlope] on a fit [suspendable8322] allows to switch the lane off. */
+    fun suspends8322(lane: String, minSlope: Double): Boolean = slope(lane) < minSlope && suspendable8322(lane)
 
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o -> lanes.forEach { (k, r) -> o.put(k, "${r.n},${r.sd},${r.sdd},${r.sy},${r.sdy}") } }
 
@@ -104,5 +157,5 @@ class CortexCalibration7901 {
     }
 
     fun line(): String = lanes.entries.filter { it.value.n >= 1.0 }.sortedByDescending { it.value.n }.take(8)
-        .joinToString(",") { "${it.key}:${"%.2f".format(slope(it.key))}${if (measured8291(it.key)) "" else "id"}(n${it.value.n.toInt()})" }.ifBlank { "-" }
+        .joinToString(",") { "${it.key}:${"%.2f".format(slope(it.key))}${if (measured8291(it.key)) "" else "id"}(n${it.value.n.toInt()}${if (suspendable8322(it.key)) "" else ",noSuspend8322"})" }.ifBlank { "-" }
 }

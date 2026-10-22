@@ -332,10 +332,10 @@ object CortexExit7897 {
         run {
             synchronized(this) {
                 ledger.grade(r.lane, r.ids, r.edges, r.raws, fwd, fwd, r.regime)
-                calibration.learn(r.lane, r.fused.edgePct, r.fused.laneMean, fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187))
+                calibration.learn(r.lane, r.fused.edgePct, r.fused.laneMean, fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))  // V5.0.8322 — raw
                 val b = books.getOrPut(r.lane) { Book() }
                 for (st in b.byBucket) st.scale(BOOK_DECAY)
-                b.byBucket[r.bucket.ordinal].add(fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187), fwd >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8187
+                b.byBucket[r.bucket.ordinal].add(fwd.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), fwd >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8322 — raw
                 val set = b.positions[r.bucket.ordinal]
                 set.add(r.positionId)
                 if (set.size > 400) set.remove(set.first())
@@ -372,7 +372,7 @@ object CortexExit7897 {
             val b = books[lane] ?: return false
             val s = b.byBucket[bucket.ordinal]
             val p = b.positions[bucket.ordinal].size
-            if (calibration.slope(lane) < 0.5) { inc("SUSPENDED_INCONSISTENT_$lane"); return false }
+            if (calibration.suspends8322(lane, 0.5)) { inc("SUSPENDED_INCONSISTENT_$lane"); return false }  // V5.0.8322 — grade floor
             return if (bucket == Bucket.HOLD_STRONG) holdProven(s, p) else sellProven(s, p)
         }
     }

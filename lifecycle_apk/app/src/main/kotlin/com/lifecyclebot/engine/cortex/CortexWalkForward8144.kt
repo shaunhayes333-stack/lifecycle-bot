@@ -55,7 +55,24 @@ object CortexWalkForward8144 {
      * This let old market regimes validate or invert a newer STRONG cohort.
      * Only prior labels matured before a fold's first decision may train it.
      */
-    data class Timed8144(val atMs: Long, val netPct: Double)
+    data class Timed8144(
+        val atMs: Long,
+        val netPct: Double,
+        /**
+         * V5.0.8322 — when [netPct] became knowable: a runner lane is graded on its hold-window revision (1 h / 4 h), which
+         * a fold starting before that time must not see. Default: the first label, five minutes after the decision.
+         */
+        val availableAtMs: Long = atMs + 5L * 60_000L,
+        /** V5.0.8322 — the immutable first (five-minute) executable value, what a fold sees before [availableAtMs]. */
+        val firstPct: Double = netPct,
+    ) {
+        /** Pure (V5.0.8322): the value of this record knowable at [nowMs] (the objective, else the first label, else none). */
+        fun knownAt8322(nowMs: Long): Double? = when {
+            availableAtMs <= nowMs && netPct.isFinite() -> netPct
+            atMs <= nowMs - 5L * 60_000L && firstPct.isFinite() -> firstPct
+            else -> null
+        }
+    }
 
     fun promoteTimed8196(
         strong: List<Timed8144>,
@@ -82,8 +99,9 @@ object CortexWalkForward8144 {
             val end = foldStart(i + 1, xs.size, k)
             if (first < MIN_TRAIN_N_8144 || end <= first) continue
             val from = xs[first].atMs
-            // These labels first become knowable five minutes after entry.
-            val past = xs.subList(0, first).filter { it.atMs <= from - 5L * 60_000L }.map { it.netPct }
+            // These labels first become knowable five minutes after entry; V5.0.8322 — a runner lane's hold-window revision
+            // only once it was booked (8272 R10: a 4 h gain never enters an earlier fold).
+            val past = xs.subList(0, first).mapNotNull { it.knownAt8322(from) }
             if (past.size < MIN_TRAIN_N_8144 || !(stat8144(past).lower > marginPct)) continue
             val sample = xs.subList(first, end).map { it.netPct }
             tested++

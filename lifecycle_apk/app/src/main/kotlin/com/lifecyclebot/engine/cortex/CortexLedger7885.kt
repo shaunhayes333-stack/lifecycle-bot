@@ -36,6 +36,8 @@ class CortexLedger7885(
         // +72%, so the Cortex, the playbooks and the scoreboard all under-rated the runner setups). Owner, 2026-10-12: "remove caps on blockchain provable data ... no win caps. the whole data set is blockchain verifiable".
         const val Y_MAX = Double.POSITIVE_INFINITY
         const val RUNNER_GROSS_PCT = 50.0
+        /** V5.0.8322 — runners a label book needs before a raw mean above the plausibility bound is read as a real tail. */
+        const val MIN_TAIL_RUNNERS_8322 = 3.0
         const val STAT_WINDOW_8014 = 500.0
         /**
          * V5.0.8187 — the per-label plausibility cap every Cortex label book is read through and every NEW label is clamped
@@ -53,9 +55,12 @@ class CortexLedger7885(
         /** Pure (V5.0.8187): a book's "n/mean" for a screen — robust mean, with the raw mean beside it when they differ. */
         fun fmt8187(s: Stat, suffix: String = ""): String {
             if (s.n < 1.0) return "-"
+            // V5.0.8322 — the screen shows the mean the decisions read; the other read (raw or bounded) is a flag beside it.
             val r = s.robust8187()
-            return "n${s.n.toInt()}/${"%+.1f".format(r.mean)}%$suffix" + (if (r.suspect) "~raw${"%+.1f".format(r.rawMean)}%" else "") +
-                (if (s.readOffset8187 > 0.05) "/exec${"%+.1f".format(r.mean - s.readOffset8187)}%" else "")
+            val shown = if (r.suspect && s.tailReal8322()) r.rawMean else r.mean
+            return "n${s.n.toInt()}/${"%+.1f".format(shown)}%$suffix" +
+                (if (r.suspect) (if (s.tailReal8322()) "~bound${"%+.1f".format(r.mean)}%" else "~raw${"%+.1f".format(r.rawMean)}%") else "") +
+                (if (s.readOffset8187 > 0.05) "/exec${"%+.1f".format(shown - s.readOffset8187)}%" else "")
         }
 
         /**
@@ -155,7 +160,35 @@ class CortexLedger7885(
             com.lifecyclebot.engine.truth.RobustLabelRead8185.upperMeanRunner8187(n, sum, wins, runners, cap8187, runnerFloor8187)
         /** V5.0.8187 — the raw mean is ruled out by the cap: the book reads at its bound (display shows both). */
         fun suspect8187(): Boolean = n > 0.0 && cap8187.isFinite() && sum.isFinite() && sum / n > upper8187() + 1e-9
+        /**
+         * V5.0.8322 §NO_WIN_CAPS (owner directive 8072: "remove caps on blockchain provable data ... no win caps") — labels
+         * are stored raw, and a book whose raw mean exceeds the 8187 plausibility bound is no longer vetoed when its tail is
+         * REAL: [MIN_TAIL_RUNNERS_8322]+ runners carry it (the paying pond: runners +744..+1342%). Such a book reads its raw
+         * mean with the sample (n-1) variance — one outlier X then moves mean - SE by ~0, not by X/(2n^2). A suspect book
+         * resting on fewer runners (one implausible label: the 8175 +60,000% case) keeps the 8187 bound read. In both cases
+         * [suspect8187] is a flag on the screen; nothing stored is changed.
+         */
+        fun tailReal8322(): Boolean = runners >= MIN_TAIL_RUNNERS_8322
         fun mean(): Double {
+            if (!(n > 0.0)) return 0.0
+            val off = readOffset8187.takeIf { it.isFinite() } ?: 0.0
+            val raw = sum / n
+            if (!cap8187.isFinite() || !raw.isFinite() || tailReal8322()) return raw - off
+            val hi = upper8187()
+            return (if (raw > hi + 1e-9) hi else raw) - off
+        }
+        fun variance(): Double {
+            if (!(n > 1.0)) return 0.0
+            if (!suspect8187()) return rawVariance8187()
+            if (tailReal8322()) return rawVariance8187() * n / (n - 1.0)  // V5.0.8322 — raw, Bessel-corrected
+            val r = robust8187()
+            return if (r.stderr.isFinite()) r.stderr * r.stderr * n else rawVariance8187()
+        }
+        /**
+         * V5.0.8322 — the mean a SHRUNK PREDICTION may use (voter bins, lane priors in fusion): the 8187 runner-aware bound
+         * still regularises a point forecast, so one bin's few labels cannot swing a whole prediction. Not an authority read.
+         */
+        fun predictMean8322(): Double {
             if (!(n > 0.0)) return 0.0
             val off = readOffset8187.takeIf { it.isFinite() } ?: 0.0
             val raw = sum / n
@@ -163,14 +196,8 @@ class CortexLedger7885(
             val hi = upper8187()
             return (if (raw > hi + 1e-9) hi else raw) - off
         }
-        fun variance(): Double {
-            if (!(n > 1.0)) return 0.0
-            if (!suspect8187()) return rawVariance8187()
-            val r = robust8187()
-            return if (r.stderr.isFinite()) r.stderr * r.stderr * n else rawVariance8187()
-        }
-        /** V5.0.8187 — the sum a shrunk prediction may use: the robust mean's worth of n labels. */
-        fun readSum8187(): Double = if (n > 0.0) mean() * n else 0.0
+        /** V5.0.8187 — the sum a shrunk prediction may use: the bounded mean's worth of n labels (V5.0.8322: [predictMean8322]). */
+        fun readSum8187(): Double = if (n > 0.0) predictMean8322() * n else 0.0
         fun runnerRate(): Double = if (n > 0.0) runners / n else 0.0
         fun winRate(): Double = if (n > 0.0) wins / n else 0.5
         fun add(y: Double, runner: Boolean): Double {
@@ -281,7 +308,7 @@ class CortexLedger7885(
      */
     private fun laneMean(lane: String, regime: String): Pair<Double, Double> {
         val l = lanes[lane]
-        val m = l?.mean() ?: 0.0
+        val m = l?.predictMean8322() ?: 0.0  // V5.0.8322 — the prediction prior keeps the bounded read
         val lr = l?.runnerRate() ?: 0.0
         if (regime.isBlank()) return m to lr
         val r = lanes["$lane@$regime"] ?: return m to lr
@@ -362,8 +389,8 @@ class CortexLedger7885(
     fun grade(lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, netPct: Double, grossPct: Double, regime: String = "",
         prediction8076: PredictionSnapshot8076? = null): GradeTrace8006? {
         if (!netPct.isFinite()) return null
-        // V5.0.8187 — clamped at ingestion to this ledger's label cap (realised-close ledgers: no cap).
-        val y = netPct.coerceIn(Y_MIN, labelCap8187)
+        // V5.0.8322 — stored RAW (owner directive 8072: no win caps); 8187 clamped every label at ingestion to the cap.
+        val y = netPct.coerceAtLeast(Y_MIN)
         val runner = grossPct.isFinite() && grossPct >= RUNNER_GROSS_PCT
         val l = lane(lane)
         val predicted = prediction8076 ?: predictionSnapshot8076(lane, voterIds, edges, raws, regime)
@@ -455,12 +482,12 @@ class CortexLedger7885(
         val scoreAt = trace.scoreAt ?: return
         fun revise(st: Stat?, at: Int) {
             val stamp = scales.getOrNull(at) ?: return
-            // V5.0.8187 — the old value leaves exactly as it was booked; the new one is clamped like any new label.
-            st?.revise(oldNet.coerceIn(Y_MIN, Y_MAX), newNet.coerceIn(Y_MIN, labelCap8187),
+            // V5.0.8187 — the old value leaves exactly as it was booked; V5.0.8322 — the new one is stored raw too.
+            st?.revise(oldNet.coerceIn(Y_MIN, Y_MAX), newNet.coerceIn(Y_MIN, Y_MAX),
                 oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT,
                 newGross.isFinite() && newGross >= RUNNER_GROSS_PCT, st.revisionWeight(stamp))
         }
-        val yo = oldNet.coerceIn(Y_MIN, Y_MAX); val yn = newNet.coerceIn(Y_MIN, labelCap8187)
+        val yo = oldNet.coerceIn(Y_MIN, Y_MAX); val yn = newNet.coerceIn(Y_MIN, Y_MAX)  // V5.0.8322 — raw
         val ro = oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT
         val rn = newGross.isFinite() && newGross >= RUNNER_GROSS_PCT
         if (yo == yn && ro == rn) return

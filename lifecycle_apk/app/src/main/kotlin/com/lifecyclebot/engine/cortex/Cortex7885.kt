@@ -739,7 +739,8 @@ object Cortex7885 {
     }
 
     /** ForwardReturnLabeler7731.tick: a horizon label booked for (mint, labelLane). */
-    fun onLabel(mint: String, labelLane: String, horizonMin: Int, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null) {
+    fun onLabel(mint: String, labelLane: String, horizonMin: Int, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null,
+                flat8322: Boolean = false) {
         ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
         val p = pending[key] ?: return
@@ -758,18 +759,25 @@ object Cortex7885 {
         val lateRead8169 = p.lateRead8169 && hyg8144.authority && !late8153
         // V5.0.8187 — a late voter read is observed only but not "unresolved" (its label came): own flag, episode reopened.
         if (lateRead8169) synchronized(this) { gradeBook8144.markLateRead8187("$key|${p.atMs}") }
-        if (!hyg8144.authority || late8153 || lateRead8169) {
+        // V5.0.8322 — a flat five-minute mark (no price other than the entry ever seen) is observed only: it taught every
+        // voter and cohort "lost the round trip" on a frozen / repeated mark (the 8319 rebase down=859 vs up=99 split).
+        val flat = CortexFlatMark8322.observedOnly8322(flat8322, hyg8144.authority, late8153, lateRead8169)
+        if (flat) synchronized(this) { gradeBook8144.markFlat8322("$key|${p.atMs}") }
+        if (!hyg8144.authority || late8153 || lateRead8169 || flat) {
             try { LanePlaybook7907.dropPending8144(mint, labelLane) } catch (_: Throwable) {}
-            if (lateRead8169) inc("LABEL_HYGIENE_LATE_VOTER_READ_8169")
+            if (flat) inc("LABEL_HYGIENE_FLAT_MARK_8322")
+            else if (lateRead8169) inc("LABEL_HYGIENE_LATE_VOTER_READ_8169")
             else if (late8153 && hyg8144.authority) inc("LABEL_HYGIENE_LATE_FIRST_PRICE_8153") else inc("LABEL_HYGIENE_${hyg8144.tag}_8144")
             synchronized(this) { noteObservedOnly8153(key, p.atMs) }
             return
         }
-        // V5.0.8187 — every book below takes the label clamped to the per-label cap of its cohort (RobustLabelRead8185).
-        val net8187 = com.lifecyclebot.engine.truth.RobustLabelRead8185.clampLabel8187(netPct, cap8187)
-        val gross8187 = com.lifecyclebot.engine.truth.RobustLabelRead8185.clampLabel8187(grossPct, cap8187)
-        val fam8187 = fam8080?.let { f -> DoubleArray(f.size) { i -> com.lifecyclebot.engine.truth.RobustLabelRead8185.clampLabel8187(f[i], cap8187) } }
-        if (net8187 < netPct) inc("LABEL_CLAMPED_AT_INGESTION_8187")
+        // V5.0.8322 — every book below takes the RAW label (owner directive 8072: no win caps). 8187 clamped it to the cohort's
+        // per-label cap here, so the runner tail the pond pays on (+744..+1342% runners) never reached a book. A label above
+        // the plausibility cap is only flagged (LABEL_ABOVE_CAP_8322); the robust reads remain as diagnostics.
+        val net8187 = netPct
+        val gross8187 = grossPct
+        val fam8187 = fam8080
+        if (netPct > cap8187) inc("LABEL_ABOVE_CAP_8322")
         try { LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961) } catch (_: Throwable) {}
         // V5.0.7908 — discovery quality: the scanner source brain orders and weights
         // intake by each source's record, but learned only from closed trades (a
@@ -785,7 +793,7 @@ object Cortex7885 {
             val trace8006 = ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, net8187, gross8187, p.a.regime, predictionForGrade8076(p.a))
             val bookScales = board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187)
             val auxScales = DoubleArray(3) { Double.NaN }
-            calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
+            val calStamp8322 = calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
             if (p.setup7961.isNotBlank()) {
                 val jk = jointKey7961(p.a.lane, p.a.bucket, p.setup7961)
                 if (!jointBook7961.containsKey(jk) && jointBook7961.size >= 600) jointBook7961.entries.minByOrNull { it.value.n }?.key?.let { evicted ->
@@ -812,7 +820,7 @@ object Cortex7885 {
                 auxScales[2] = vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane)) { CortexLedger7885.labelStat8187() }
                     .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT)
             }
-            if (trace8006 != null) retain8006(key, p, trace8006, net8187, gross8187, bookScales, auxScales)
+            if (trace8006 != null) retain8006(key, p, trace8006, net8187, gross8187, bookScales, auxScales, calStamp8322)
             refreshExecutable8187(System.currentTimeMillis())  // V5.0.8187
         }
         graded.incrementAndGet()
@@ -874,7 +882,10 @@ object Cortex7885 {
     }
     private const val WF_REFRESH_MS_8144 = 30_000L
     private const val LOST_SWEEP_EVERY_MS_8144 = 120_000L
-    private val gradeBook8144 = CortexGradeBook8144().also { b -> b.execOffset8187 = { l -> execOffsetByLane8187[l] ?: 0.0 } }  // V5.0.8187
+    private val gradeBook8144 = CortexGradeBook8144().also { b ->
+        b.execOffset8187 = { l -> execOffsetByLane8187[l] ?: 0.0 }  // V5.0.8187
+        b.runnerLane8322 = { l -> runnerHorizon8144(l) }             // V5.0.8322 — runner lanes graded on their hold
+    }
     private val wfCache8144 = HashMap<String, Pair<Long, CortexWalkForward8144.Result8144>>()
     private val pendingCtx8144 = ConcurrentHashMap<String, DecisionCtx8144>()
     @Volatile private var lastLostSweepMs8144 = 0L
@@ -1034,7 +1045,7 @@ object Cortex7885 {
      */
     private fun heldFraction8153(lane: String): Double {
         val f = board.fractionFor7955(lane, accountMode8077())
-        if (!(f > 0.0) || calibration.slope(lane) < MIN_CONSISTENT_SLOPE) return 0.0
+        if (!(f > 0.0) || calibration.suspends8322(lane, MIN_CONSISTENT_SLOPE)) return 0.0  // V5.0.8322 — grade floor
         val s = board.realized["${accountMode8077()}|$lane"]?.getOrNull(CortexScoreboard7885.Bucket.STRONG.ordinal)
         val rc = CortexRealisedAuthority8136.cappedFraction8136(f, s?.n ?: 0.0, s?.mean() ?: 0.0,
             if (s != null && s.n > 1.0) kotlin.math.sqrt(s.variance() / s.n) else Double.POSITIVE_INFINITY)
@@ -1069,7 +1080,7 @@ object Cortex7885 {
             if (com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts) != null) return nullWhy8201("MAYHEM")
             val st = synchronized(this) {
                 when {
-                    calibration.slope(a.lane) < MIN_CONSISTENT_SLOPE -> nullWhy8201("UNCALIBRATED")
+                    calibration.suspends8322(a.lane, MIN_CONSISTENT_SLOPE) -> nullWhy8201("UNCALIBRATED")  // V5.0.8322
                     board.inverted7948(a.lane, accountMode8077()) -> nullWhy8201("INVERTED")
                     firstSightBarred8144(a.lane) -> nullWhy8201("BARRED")
                     else -> {
@@ -1080,8 +1091,13 @@ object Cortex7885 {
                         val series = gradeBook8144.executableSeries(a.lane, null, CortexScoreboard7885.Bucket.STRONG.ordinal)
                         val wf = walkForward8144(a.lane, null)
                         val median = CortexWalkForward8144.median8238(series)
+                        // V5.0.8322 — a runner lane (its edge is the tail: median <= 0 by construction) is admitted on the
+                        // tail-aware read (expectancy, not one coin, a real runner count); other lanes keep the median door.
+                        val tail8322 = if (runnerHorizon8144(a.lane)) CortexTailDoor8322.read8322(series) else null
                         when {
                             !wf.validated -> nullWhy8201("NOT_WALK_FORWARD_VALIDATED_${wf.verdict.name}")
+                            tail8322 != null -> if (tail8322.open) CortexWalkForward8144.stat8144(series)
+                                else nullWhy8201<CortexWalkForward8144.Stat8144>("TAIL_${tail8322.why}_8322")
                             !(median > 0.0) -> nullWhy8201("MEDIAN_NOT_POSITIVE")
                             else -> CortexWalkForward8144.stat8144(series)
                         }
@@ -1181,7 +1197,9 @@ object Cortex7885 {
         val s = CortexScoreboard7885.Bucket.STRONG.ordinal; val r = CortexScoreboard7885.Bucket.REFUSE.ordinal
         fun f(xs: List<Double>): String = CortexWalkForward8144.stat8144(xs).let { if (it.n == 0) "-" else "n${it.n}/${"%+.1f".format(it.mean)}%" }
         val lanes = board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(5).map { it.key }
-        return "decisions=${gradeBook8144.size()} trades=${gradeBook8144.tradeCount()} " + lanes.joinToString(" · ") { lane ->
+        return "decisions=${gradeBook8144.size()} trades=${gradeBook8144.tradeCount()} " +
+            "objective8322[runner lanes graded on hold-window revision, raw] clampedLegacy8322=${gradeBook8144.clampedLegacy8322()} flat8322=${gradeBook8144.flat8322()} " +
+            lanes.joinToString(" · ") { lane ->
             "$lane obs[S=${fObs8187(lane, s)} R=${fObs8187(lane, r)}] " +
                 "exec[S=${f(gradeBook8144.executableSeries(lane, null, s))} R=${f(gradeBook8144.executableSeries(lane, null, r))}] " +
                 "resolved[S=${"%.2f".format(gradeBook8144.resolvedShare(lane, s))} R=${"%.2f".format(gradeBook8144.resolvedShare(lane, r))}] " +
@@ -1343,6 +1361,8 @@ object Cortex7885 {
     private class Graded8006(
         val p: Pending, val trace: CortexLedger7885.GradeTrace8006, var net: Double, var gross: Double, val atMs: Long,
         val bookScales: DoubleArray? = null, val auxScales: DoubleArray? = null,
+        /** V5.0.8322 — the calibration grade's decay stamp, so a runner lane's hold-window revision re-calibrates it. */
+        val calStamp8322: Double = Double.NaN,
     )
     private val graded8006 = HashMap<String, Graded8006>()
     private const val MAX_GRADED_8006 = 600
@@ -1351,13 +1371,14 @@ object Cortex7885 {
     private val revised8006 = java.util.concurrent.atomic.AtomicLong(0)
     private val revisedUp8006 = java.util.concurrent.atomic.AtomicLong(0)
 
-    private fun retain8006(key: String, p: Pending, trace: CortexLedger7885.GradeTrace8006, net: Double, gross: Double, bookScales: DoubleArray?, auxScales: DoubleArray?) {
+    private fun retain8006(key: String, p: Pending, trace: CortexLedger7885.GradeTrace8006, net: Double, gross: Double, bookScales: DoubleArray?, auxScales: DoubleArray?,
+                           calStamp8322: Double = Double.NaN) {
         if (graded8006.size >= MAX_GRADED_8006) {
             val cutoff = System.currentTimeMillis() - GRADED_KEEP_MS_8013
             graded8006.entries.removeIf { it.value.atMs < cutoff }
             if (graded8006.size >= MAX_GRADED_8006) graded8006.entries.minByOrNull { it.value.atMs }?.key?.let { graded8006.remove(it) }
         }
-        graded8006[key] = Graded8006(p, trace, net, gross, p.atMs, bookScales, auxScales)
+        graded8006[key] = Graded8006(p, trace, net, gross, p.atMs, bookScales, auxScales, calStamp8322)
     }
 
     /** ForwardReturnLabeler7731.revise7997: a decision's label moved; re-grade it everywhere it was booked. */
@@ -1379,11 +1400,12 @@ object Cortex7885 {
             val yo = g.net; val go = g.gross
             if (!yo.isFinite()) return
             val a = g.p.a
-            // V5.0.8187 — the revised value is a new label: clamped to its cohort's cap (the booked one leaves as booked).
-            val cap8187 = labelCapFor8187(key, g.p)
-            val newNet8187 = com.lifecyclebot.engine.truth.RobustLabelRead8185.clampLabel8187(newNet, cap8187)
-            val newGross8187 = com.lifecyclebot.engine.truth.RobustLabelRead8185.clampLabel8187(newGross, cap8187)
+            // V5.0.8322 — the revised value is a new label, stored RAW like every label (8187 clamped it to the cohort's cap).
+            val newNet8187 = newNet
+            val newGross8187 = newGross
             ledger.revise8006(a.lane, a.ids, a.edges, a.raws, g.trace, yo, newNet8187, go, newGross8187, a.regime)
+            // V5.0.8322 §LANE_OBJECTIVE — calibration follows the hold-window horizon too (8291 fitted MOONSHOT on 5-minute reads).
+            if (calibration.revise8322(a.lane, a.fused.edgePct, a.fused.laneMean, yo, newNet8187, g.calStamp8322)) inc("CALIBRATION_REVISED_8322")
             board.revise8006(a.lane, a.bucket, g.p.legacyAdmitted, yo, newNet8187, go, newGross8187, g.bookScales)
             val cy = { v: Double -> v.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX) }
             val ro = go >= CortexLedger7885.RUNNER_GROSS_PCT; val rn = newGross8187 >= CortexLedger7885.RUNNER_GROSS_PCT
@@ -1470,7 +1492,7 @@ object Cortex7885 {
     private const val MIN_CONSISTENT_SLOPE = 0.5
 
     private fun consistent(lane: String): Boolean {
-        val ok = calibration.slope(lane) >= MIN_CONSISTENT_SLOPE
+        val ok = !calibration.suspends8322(lane, MIN_CONSISTENT_SLOPE)  // V5.0.8322 — no suspension under the grade floor
         if (!ok) inc("SUSPENDED_INCONSISTENT_$lane")
         return ok
     }
@@ -1678,7 +1700,7 @@ object Cortex7885 {
         if (!(board.evidenceFor8025(lane, mode) > 0.0)) {
             return if (b.byBucket[CortexScoreboard7885.Bucket.STRONG.ordinal].n < CortexScoreboard7885.GRAD_MIN_N_7955) "LABEL_N" else "LABEL_EDGE"
         }
-        if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) return "CALIBRATION"
+        if (calibration.suspends8322(lane, MIN_CONSISTENT_SLOPE)) return "CALIBRATION"  // V5.0.8322
         val s = board.realized["$mode|$lane"]?.getOrNull(CortexScoreboard7885.Bucket.STRONG.ordinal)
         if (s != null && CortexRealisedAuthority8136.verdict8136(s.n, s.mean(),
                 if (s.n > 1.0) kotlin.math.sqrt(s.variance() / s.n) else Double.POSITIVE_INFINITY) == CortexRealisedAuthority8136.Verdict8136.DENIED_REALISED_NEGATIVE) return "REALISED_NEGATIVE"
@@ -2809,7 +2831,7 @@ object Cortex7885 {
                         if (refusalAuthority8269(lane, runner, false)) append("Rl ")
                         if (auth7955 >= OVERRULE_FRACTION_7955) append("O ")
                         if (auth7955 > 0.0) append("auth=${"%.2f".format(auth7955)} ")
-                        if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("SUSPENDED ")
+                        if (calibration.suspends8322(lane, MIN_CONSISTENT_SLOPE)) append("SUSPENDED ")
                         if (board.inverted7948(lane, accountMode8077())) append("INVERTED")
                     }.trim().ifBlank { "shadow" }
                     sb.append("  ${lane.take(9).padEnd(9)} ${b.byBucket.sumOf { it.n }.toInt().toString().padStart(6)}  " +
@@ -2874,7 +2896,7 @@ object Cortex7885 {
                     if (refusalAuthority8269(lane, runner, true)) append("refuse-paper ")
                     if (refusalAuthority8269(lane, runner, false)) append("refuse-live ")
                     if (auth >= OVERRULE_FRACTION_7955) append("overrule ")
-                    if (calibration.slope(lane) < MIN_CONSISTENT_SLOPE) append("suspended ")
+                    if (calibration.suspends8322(lane, MIN_CONSISTENT_SLOPE)) append("suspended ")
                     if (board.inverted7948(lane, accountMode8077())) append("inverted")
                 }.trim().ifBlank { "shadow" }
                 // V5.0.8153 — the verdict stats come from the tradeable grade records (executable, first of episode, on time);

@@ -54,6 +54,12 @@ class CortexGradeRecord8144(
     var lateEntry8153: Boolean = false
     /** V5.0.8187 — the decision's voters were read after its label started (CortexAudit8169): observed only. */
     var lateRead8187: Boolean = false
+    /**
+     * V5.0.8322 — the five-minute label was a FLAT mark: no price different from the entry was ever observed (gross exactly
+     * 0, no peak, no dip). A frozen / repeated mark carries nothing about the verdict, yet it booked as "lost the round trip"
+     * into every voter and cohort. Observed only: no executable value, and it neither resolves nor un-resolves its cohort.
+     */
+    var flat8322: Boolean = false
 
     /** May this decision's label grade authority (executable, first of its episode)? */
     val graded: Boolean get() = kind == 'D' && executable && !repeat
@@ -63,8 +69,16 @@ class CortexGradeRecord8144(
     /** V5.0.8187 — the per-label cap of this record's cohort (RobustLabelRead8185: 4x for the $1M+ band, else 11x). */
     fun labelCap8187(): Double = com.lifecyclebot.engine.truth.RobustLabelRead8185.capForKey8185(cohort)
 
-    /** V5.0.8187 — a label of this record read through its cap (the stored value is never changed). */
+    /** V5.0.8187 — a label of this record read through its cap (the stored value is never changed). Display/diagnostics only. */
     internal fun capped8187(v: Double): Double = com.lifecyclebot.engine.truth.RobustLabelRead8185.clampLabel8187(v, labelCap8187())
+
+    /**
+     * V5.0.8322 — an executable value stored by 8187-8321 sits exactly at the cohort's cap while the observed label is above
+     * it: the ingestion clamp destroyed the real value and it cannot be recovered (the observed record may already be a
+     * later horizon). Counted and shown; such records age out and new labels rebuild the series raw.
+     */
+    internal val clampedLegacy8322: Boolean get() =
+        executablePct.isFinite() && kotlin.math.abs(executablePct - labelCap8187()) < 1e-9 && observedNetPct.isFinite() && observedNetPct > labelCap8187()
 
     /** V5.0.8187 — may this record carry authority evidence (an executable, first-of-episode decision)? Evicted last. */
     internal val evidence8187: Boolean get() = kind == 'D' && executable && !repeat
@@ -83,6 +97,35 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
      * the measured cost gap and the realised-vs-label shortfall). 0 by default: a bare book reads its labels as stored.
      */
     @Volatile var execOffset8187: (String) -> Double = { 0.0 }
+
+    /**
+     * V5.0.8322 §LANE_OBJECTIVE — which lanes are graded on their runner hold rather than the first five minutes (Cortex7885
+     * sets it from the lane's exit doctrine: runner-from-entry lanes and runner lanes). false by default: a bare book grades
+     * every lane on its first executable label, exactly as 8272.
+     */
+    @Volatile var runnerLane8322: (String) -> Boolean = { false }
+
+    private fun runner8322(lane: String): Boolean = try { runnerLane8322(lane) } catch (_: Throwable) { false }
+
+    /**
+     * V5.0.8322 — the value a decision is GRADED on (authority, walk-forward, verdict rows, inversion): a runner lane's latest
+     * executable revision inside its hold window (the 1 h / 4 h checkpoints the labeler already books, credited on the
+     * lane's runner ladder and give-back exit, net of cost), else the immutable first (five-minute) label. RAW: no cap.
+     * The first label is never rewritten (8272); the objective only chooses which stored value answers.
+     */
+    fun objectivePct8322(r: CortexGradeRecord8144): Double =
+        if (r.executableRevisedPct.isFinite() && runner8322(r.lane)) r.executableRevisedPct else r.executablePct
+
+    /** V5.0.8322 — when [objectivePct8322] became knowable (the revision's time, else five minutes after the decision). */
+    fun objectiveAvailableAt8322(r: CortexGradeRecord8144): Long =
+        if (r.executableRevisedPct.isFinite() && runner8322(r.lane) && r.revisedAvailableAtMs > 0L) r.revisedAvailableAtMs
+        else r.atMs + FIRST_LABEL_MS_8322
+
+    /** V5.0.8322 — records whose executable value the 8187 ingestion clamp destroyed (diagnostic). */
+    fun clampedLegacy8322(): Int = decisions.count { it.clampedLegacy8322 }
+
+    /** V5.0.8322 — decisions whose five-minute label was a flat mark (diagnostic). */
+    fun flat8322(): Int = decisions.count { it.flat8322 }
 
     private fun offset8187(lane: String): Double = try { execOffset8187(lane).takeIf { it.isFinite() && it > 0.0 } ?: 0.0 } catch (_: Throwable) { 0.0 }
 
@@ -138,7 +181,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
     private fun noteGraded(r: CortexGradeRecord8144) {
         // V5.0.8187 — a label kept out of the books (late first price / late voter read) does not open the coin's episode:
         // the next decision of that coin is the first one graded, not a REPEAT of an excluded label.
-        if (!r.graded || r.lost || r.lateEntry8153 || r.lateRead8187 || !r.observedNetPct.isFinite()) return
+        if (!r.graded || r.lost || r.lateEntry8153 || r.lateRead8187 || r.flat8322 || !r.observedNetPct.isFinite()) return
         val prior = lastGraded[r.episode]
         if (prior == null || r.atMs > prior) lastGraded[r.episode] = r.atMs
     }
@@ -149,10 +192,12 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         val r = byId[id] ?: return false
         if (!netPct.isFinite()) return false
         r.observedNetPct = netPct; r.observedGrossPct = grossPct; r.lost = false
-        // V5.0.8187 — the executable (authority) value is clamped to the cohort's cap at ingestion; the observed one is kept.
-        if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153 && !r.lateRead8187) {
-            if (!r.executablePct.isFinite()) r.executablePct = r.capped8187(executableValue)        // the immutable first target
-            else { r.executableRevisedPct = r.capped8187(executableValue); r.revisedAvailableAtMs = availableAtMs; r.revisions8272++ }
+        // V5.0.8322 — the executable (authority) value is stored RAW (8187 clamped it to the cohort's cap at ingestion,
+        // destroying the runner tail; owner directive 8072: no win caps). The first stays immutable (8272); later horizons
+        // are stored apart with when they became knowable.
+        if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153 && !r.lateRead8187 && !r.flat8322) {
+            if (!r.executablePct.isFinite()) r.executablePct = executableValue        // the immutable first target
+            else { r.executableRevisedPct = executableValue; r.revisedAvailableAtMs = availableAtMs; r.revisions8272++ }
         }
         noteGraded(r)
         revision++
@@ -175,9 +220,19 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
      */
     internal fun reopenEpisode8187(r: CortexGradeRecord8144) {
         if (lastGraded[r.episode] != r.atMs) return
-        val prior = decisions.filter { it !== r && it.episode == r.episode && it.graded && !it.lost && !it.lateEntry8153 && !it.lateRead8187 && it.observedNetPct.isFinite() }
+        val prior = decisions.filter { it !== r && it.episode == r.episode && it.graded && !it.lost && !it.lateEntry8153 && !it.lateRead8187 && !it.flat8322 && it.observedNetPct.isFinite() }
             .maxOfOrNull { it.atMs }
         if (prior == null) lastGraded.remove(r.episode) else lastGraded[r.episode] = prior
+    }
+
+    /** V5.0.8322 — decision [id]'s five-minute label was a flat mark: observed only, its executable value withdrawn, episode open. */
+    fun markFlat8322(id: String): Boolean {
+        val r = byId[id] ?: return false
+        if (r.kind != 'D') return false
+        r.flat8322 = true; r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN
+        reopenEpisode8187(r)
+        revision++
+        return true
     }
 
     /** V5.0.8187 — the voters of decision [id] were read after its label started: observed only, the episode stays open. */
@@ -230,7 +285,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
     /** Executable values of graded decisions in [lane] (and [setup] / [bucket] when given), oldest first. */
     fun executableSeries(lane: String, setup: String?, bucket: Int?): List<Double> =
         decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() }
-            .sortedBy { it.atMs }.map { it.capped8187(it.executablePct) - offset8187(lane) }  // V5.0.8187 — capped, executable-net
+            .sortedBy { it.atMs }.map { objectivePct8322(it) - offset8187(lane) }  // V5.0.8322 — lane objective, raw, executable-net
 
     /**
      * 8269 — decision-time AATE TAKE vs REFUSE, distinct from Cortex's
@@ -243,13 +298,13 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         decisions.filter {
             it.graded && !it.lost && it.lane == lane && it.admitted == admitted &&
                 it.executablePct.isFinite()
-        }.sortedBy { it.atMs }.map { it.capped8187(it.executablePct) - offset8187(lane) }
+        }.sortedBy { it.atMs }.map { objectivePct8322(it) - offset8187(lane) }  // V5.0.8322 — lane objective, raw
 
     fun executableDecisionGrossSeries8269(lane: String, admitted: Boolean): List<Double> =
         decisions.filter {
             it.graded && !it.lost && it.lane == lane && it.admitted == admitted &&
                 it.executablePct.isFinite() && it.observedGrossPct.isFinite()
-        }.sortedBy { it.atMs }.map { it.capped8187(it.observedGrossPct) }
+        }.sortedBy { it.atMs }.map { it.observedGrossPct }  // V5.0.8322 — raw
 
     /**
      * 8198 — the GROSS forward move (price only, before any cost, haircut or executable offset) of the same tradeable
@@ -257,7 +312,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
      */
     fun executableGrossSeries8198(lane: String, setup: String?, bucket: Int?): List<Double> =
         decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() && it.observedGrossPct.isFinite() }
-            .sortedBy { it.atMs }.map { it.capped8187(it.observedGrossPct) }
+            .sortedBy { it.atMs }.map { it.observedGrossPct }  // V5.0.8322 — raw
 
     /** 8196: timestamps are essential to compare competing cohorts on the same OOS market span. */
     fun executableTimed8196(lane: String, setup: String?, bucket: Int?): List<CortexWalkForward8144.Timed8144> =
@@ -265,7 +320,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) &&
             it.executablePct.isFinite() }
             .sortedBy { it.atMs }
-            .map { CortexWalkForward8144.Timed8144(it.atMs, it.capped8187(it.executablePct) - offset8187(lane)) }
+            .map { CortexWalkForward8144.Timed8144(it.atMs, objectivePct8322(it) - offset8187(lane), objectiveAvailableAt8322(it), it.executablePct - offset8187(lane)) }  // V5.0.8322
 
     /** Observed values of every labelled decision in [lane] for [bucket], hygiene ignored (the raw cohort). */
     fun observedSeries(lane: String, bucket: Int): List<Double> =
@@ -345,6 +400,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             // V5.0.8187 — a late voter read is neither resolved nor lost: its label came, its verdict was read too late to
             // count (the lag is queue timing, not outcome), so it leaves the cohort instead of dragging the share down.
             if (r.lateRead8187 && !r.lost && !r.lateEntry8153) continue
+            if (r.flat8322 && !r.lost && !r.lateEntry8153) continue  // V5.0.8322 — a flat mark resolves nothing and loses nothing
             if (r.lost || r.lateEntry8153) lost++ else if (r.observedNetPct.isFinite()) ok++  // V5.0.8153 — a late-priced label resolves nothing
         }
         return if (ok + lost == 0) 1.0 else ok.toDouble() / (ok + lost)
@@ -369,7 +425,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         return decisions.filter { it.graded && !it.lost && it.executablePct.isFinite() }.groupBy { it.key() + "#" + it.bucket }
             .mapNotNull { (k, rs) ->
                 if (rs.size < minN) null else {
-                    val s = CortexWalkForward8144.stat8144(rs.map { it.capped8187(it.executablePct) - offset8187(it.lane) })  // V5.0.8187
+                    val s = CortexWalkForward8144.stat8144(rs.map { objectivePct8322(it) - offset8187(it.lane) })  // V5.0.8322 — objective, raw
                     val rr = CortexWalkForward8144.stat8144(realised[k].orEmpty().map { it.realisedPct })
                     Cell8144(k.substringBefore('#'), rs.first().bucket, s.n, s.mean, s.se, rr.n, rr.mean)
                 }
@@ -389,6 +445,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         num(r.realisedPct), clean(r.ownerLane), clean(r.ownerSetup), clean(r.attribution), clean(r.mode),
         if (r.lateEntry8153) "1" else "0",
         if (r.lateRead8187) "1" else "0",
+        // V5.0.8322 — the later-horizon executable value and when it became knowable survive a restart; the flat-mark flag.
+        num(r.executableRevisedPct), r.revisedAvailableAtMs.toString(), if (r.flat8322) "1" else "0",
     ).joinToString(FS.toString())
 
     fun encode(): String = (decisions + trades.values).joinToString(RS.toString()) { encodeOne(it) }
@@ -401,7 +459,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             val f = row.split(FS)
             // V5.0.8153 — 25 fields (late-entry flag); a 24-field row from 8146 reads as on time.
             // V5.0.8187 — 26 fields (late voter read); a 25-field row reads as on time.
-            if (f.size !in 24..26 || f[0].length != 1 || f[1].isBlank()) continue
+            // V5.0.8322 — 29 fields (revised executable, its availability, flat mark); 24..26-field rows read as before.
+            if (f.size !in 24..29 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
@@ -409,7 +468,9 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             r.realisedPct = dbl(f[19]); r.ownerLane = f[20]; r.ownerSetup = f[21]; r.attribution = f[22]; r.mode = f[23]
             r.lateEntry8153 = f.getOrNull(24) == "1"
             r.lateRead8187 = f.getOrNull(25) == "1"
-            if (r.lateEntry8153 || r.lateRead8187) r.executablePct = Double.NaN
+            r.executableRevisedPct = dbl(f.getOrNull(26)); r.revisedAvailableAtMs = f.getOrNull(27)?.toLongOrNull() ?: 0L
+            r.flat8322 = f.getOrNull(28) == "1"
+            if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
             when (r.kind) {
                 'D' -> if (!byId.containsKey(r.id)) { decisions.add(r); byId[r.id] = r; noteGraded(r) }
                 'T' -> trades[r.id] = r
@@ -422,5 +483,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
     private companion object {
         const val FS = '\u001F'
         const val RS = '\u001E'
+        /** V5.0.8322 — the first executable label is booked five minutes after the decision. */
+        const val FIRST_LABEL_MS_8322 = 5L * 60_000L
     }
 }

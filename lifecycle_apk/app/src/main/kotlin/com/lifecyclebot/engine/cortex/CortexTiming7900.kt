@@ -160,7 +160,7 @@ object CortexTiming7900 {
                 if (s.dip) {
                     val b = dipBook.getOrPut(s.lane) { CortexLedger7885.Stat() }
                     b.scale(BOOK_DECAY)
-                    b.add(move.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187), false)  // V5.0.8187 — clamped at ingestion
+                    b.add(move.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), false)  // V5.0.8322 — stored raw (8187 clamped at ingestion)
                 }
             }
             graded.incrementAndGet()
