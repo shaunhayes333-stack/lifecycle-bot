@@ -92,8 +92,10 @@ class Aate7955FluidExitsTest {
         assertTrue(w < 170.0 && w >= 4.5)
         // Prior plan changes nothing.
         assertEquals(10.0, ExitProfile7955.applyTrail7955(ExitProfile7955.planFrom7955(null), 10.0, 40.0, 4.0), 1e-9)
-        // Deferral: runner holds under +50 in any lane, pop-fade never waits.
-        assertTrue(ExitProfile7955.deferGiveBack7955(run, laneDeferred = false, peakPct = 30.0))
+        // Deferral: runner holds under the give-back lock bar in any lane, pop-fade never waits.
+        // superseded by V5.0.8337 — the bar is MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 25 (was 50): +20 still holds, +30 no longer does.
+        assertTrue(ExitProfile7955.deferGiveBack7955(run, laneDeferred = false, peakPct = 20.0))
+        assertFalse(ExitProfile7955.deferGiveBack7955(run, laneDeferred = false, peakPct = 30.0))
         // Review: pop-fade never overrides a runner lane's deferral; outside one it never waits.
         assertTrue(ExitProfile7955.deferGiveBack7955(pop, laneDeferred = true, peakPct = 30.0))
         assertFalse(ExitProfile7955.deferGiveBack7955(pop, laneDeferred = false, peakPct = 30.0))
