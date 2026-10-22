@@ -34,7 +34,8 @@ class Aate8325RunOddsTest {
         val rnd = java.util.Random(seed)
         return List(n) {
             val sig = if (rnd.nextDouble() < 0.3) 1.0 else 0.0
-            val run = rnd.nextDouble() < (if (sig > 0.0) 0.25 else 0.01)
+            val runOdds = if (sig > 0.0) 0.25 else 0.01
+            val run = rnd.nextDouble() < runOdds
             Coin(sig, if (rnd.nextDouble() < 0.5) 1.0 else 0.0, run)
         }
     }
