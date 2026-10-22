@@ -623,6 +623,7 @@ object LiveEdgeGate7877 {
             if (candidateSpecificAdmission8136) try { PipelineHealthCollector.labelInc("LIVE_CANDIDATE_ADMISSION_CLEARED_PROVEN_ONLY_8161_$l8059") } catch (_: Throwable) {}
             if (genericNative8211) try { PipelineHealthCollector.labelInc("LIVE_GENERIC_NATIVE_ECONOMIC_ADMIT_8211_$l8059") } catch (_: Throwable) {}
             provenOnlyAdmitted8059.incrementAndGet()
+            SelectionDoors8310.admitRefusal8310(ts, l8059, setup8083, nowMs)?.let { r8310 -> recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8310, 1.0, nowMs); observeTail7996(ts, lane, r8310, nowMs); return r8310 }  // V5.0.8310
             // V5.0.8065 — no buying the top of a spike: 5.0.8063 filled at $300-700k caps right after the rip and was
             // stopped out within a minute (FdZRSo -22% in 11 s). A coin up 80%+ off its recent low and still within
             // 12% of its high, or up 100%+ in 5 minutes, waits for its pullback / base.
@@ -635,7 +636,7 @@ object LiveEdgeGate7877 {
             if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
                 !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) &&
                 !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
-                !cellOrKindProven8094(ts, l8059, nowMs)) {
+                !(cellOrKindProven8094(ts, l8059, nowMs) && SelectionDoors8310.labelStandsDownChase8310(l8059))) {  // V5.0.8310 D4
                 if (admittedJudged8201) {
                     try { PipelineHealthCollector.labelInc("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_$l8059") } catch (_: Throwable) {}
                 } else {
@@ -1229,5 +1230,7 @@ object LiveEdgeGate7877 {
             "refuse=[${refused.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]" +
             " dataDefer8136=${dataDeferred8136.get()} watchReleased8153=${watchReleased8153.get()} " +
             RegressionRestore8298.statusLine8298() +  // V5.0.8298
-            " " + (try { LiveAdmissionProof8290.statusLine8290() } catch (_: Throwable) { "proof8290[-]" })
+            " " + (try { LiveAdmissionProof8290.statusLine8290() } catch (_: Throwable) { "proof8290[-]" }) +
+            " " + (try { SelectionDoors8310.statusLine8310() } catch (_: Throwable) { "selection8310[-]" }) +  // V5.0.8310
+            " " + (try { com.lifecyclebot.engine.SafetyProofPriority8310.statusLine8310() } catch (_: Throwable) { "safetyProof8310[-]" })
 }

@@ -212,7 +212,8 @@ object HandoffPriority8190 {
         val tasks = try { HandoffReceiverTasks8153.pendingTargets8190(nowMs) } catch (_: Throwable) { emptyList() }
         val yields = try { SpecialistElection8136.openYieldMints8190().map { it to nowMs + 120_000L } } catch (_: Throwable) { emptyList() }
         val tickets8297 = try { RunnerPlay8018.activeTicketTargets8297(nowMs) } catch (_: Throwable) { emptyList() }  // V5.0.8297 — a 3-min run ticket rides the next cycle
-        return tasks + yields + tickets8297
+        val proof8310 = try { SafetyProofPriority8310.targets8310(nowMs) } catch (_: Throwable) { emptyList() }  // V5.0.8310 — a proof-deferred buy rides the next cycle
+        return tasks + yields + tickets8297 + proof8310
     }
 
     /**

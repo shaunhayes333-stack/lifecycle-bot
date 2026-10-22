@@ -50,6 +50,7 @@ object PreTradeHardGate {
 
     private fun deferSafetyProof(ts: TokenState, reason: String, pending: List<String>, callSite: String): Verdict {
         val detail = pending.joinToString("|").take(220)
+        SafetyProofPriority8310.noteDeferred8310(ts.mint, reason)  // V5.0.8310 — current proof + cycle slot next
         try {
             ForensicLogger.lifecycle(
                 "PRETRADE_SAFETY_PROOF_DEFER",
