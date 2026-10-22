@@ -41,7 +41,7 @@ class Aate8309MemoryResidueTest {
         m[keep] = 0
         for (i in 0 until 5_000) { m[mint(i, "w")] = i; MintResidue8309.capMap8309(m, 500) { it == keep } }
         assertTrue("size ${m.size}", m.size <= 500)
-        assertTrue(keep in m)
+        assertTrue(m.containsKey(keep))
         assertEquals(0, MintResidue8309.capMap8309(ConcurrentHashMap<String, Int>().apply { put("x", 1) }, 500))
     }
 
