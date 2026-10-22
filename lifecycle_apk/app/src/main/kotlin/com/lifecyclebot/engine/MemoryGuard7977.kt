@@ -71,7 +71,7 @@ object MemoryGuard7977 {
         val lvl = level7977(frac)
         pressure8136 = RetentionPolicy8136.pressure8136(frac, escalation8136)
         try { refreshCensus8144() } catch (_: Throwable) {}
-        if (lvl == 0) { escalation8136 = 0; return }
+        if (lvl == 0) { escalation8136 = 0; try { periodicResidue8309() } catch (_: Throwable) {}; return }  // V5.0.8309
         trimAll(lvl >= 2)
         if (lvl >= 2) { hardTrims.incrementAndGet(); System.gc() } else softTrims.incrementAndGet()
         if (lvl >= 2) pendingHardTrimFrac8144 = frac
@@ -145,6 +145,7 @@ object MemoryGuard7977 {
     private fun trimAll(hard: Boolean) = synchronized(trimLock8305) { trimAllLocked8305(hard) }
 
     private fun trimAllLocked8305(hard: Boolean) {
+        val guardBefore8309 = try { guardPassSnapshot8309() } catch (_: Throwable) { null }  // V5.0.8309
         try { pruneTokens8025() } catch (_: Throwable) {}
         try { prunePressure8136() } catch (_: Throwable) {}
         try { trimBoundedCaches8136(hard) } catch (_: Throwable) {}
@@ -157,6 +158,8 @@ object MemoryGuard7977 {
         // V5.0.8119 — eviction skips unflushed rows; 8117 held 5192 rows with 4732 dirty, so the cap never bit.
         // Flush the backlog here (guard thread, not UI) so the rows become evictable.
         try { TokenMetaCache.instanceOrNull7979()?.let { c -> c.flushNow(); c.evictToMemoryCap7979(if (hard) 600 else 1_000) } } catch (_: Throwable) {}
+        // V5.0.8309 — the guard's own passes (token rows, cold candles, archive) ran outside the registry: book what they freed.
+        if (guardBefore8309 != null) try { lastTrim8144 = lastTrim8144 + guardPassResults8309(guardBefore8309) } catch (_: Throwable) {}
     }
 
     // ── V5.0.8305 — emergency trim after an OutOfMemoryError was caught on an expendable parse ──
@@ -362,9 +365,14 @@ object MemoryGuard7977 {
             (com.lifecyclebot.engine.cortex.Cortex7885.assessCacheCount8144() + com.lifecyclebot.engine.cortex.Cortex7885.pendingCount() +
                 com.lifecyclebot.engine.cortex.Cortex7885.gradedCount8144() + com.lifecyclebot.engine.cortex.Cortex7885.entryReadCount8144()) * per
         }
+        // V5.0.8309 — under HARD the network book goes to its CRITICAL cap (own keys kept; evicted keys page back in at the next
+        // boot): at the HARD cap it sat under the cap and every hard trim freed nothing. Estimated at ~290 B a key (key string,
+        // map node, DoubleArray(6)) for both the network book and this install's uploaded baseline.
         r.register8144("hiveBook", com.lifecyclebot.engine.truth.HiveEdge8000.AGGREGATE_KEY_BYTES_8144, {
             com.lifecyclebot.engine.truth.HiveEdge8000.aggregateCount8144() + com.lifecyclebot.engine.truth.HiveEdge8000.uploadedCount8144()
-        }, { p -> com.lifecyclebot.engine.truth.HiveEdge8000.trim8144(p) })
+        }, { p -> com.lifecyclebot.engine.truth.HiveEdge8000.trim8144(if (hard(p)) RetentionPolicy8136.Pressure.CRITICAL else p) }) {
+            (com.lifecyclebot.engine.truth.HiveEdge8000.aggregateCount8144() + com.lifecyclebot.engine.truth.HiveEdge8000.uploadedCount8144()).toLong() * 290L
+        }
         // Evidence with its own insert-time caps (6,000 observations / 1,000 cells; 3,000 / 4,000 policy stamps).
         r.register8144("labeler", 1_536L, { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.pendingCount8144() }, null) {
             com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.pendingCount8144() * 1_536L +
@@ -385,6 +393,7 @@ object MemoryGuard7977 {
         r.register8144("bundleAnalyses", 768L, { BundleDetector.cacheCount8169() }, { _ -> BundleDetector.pruneStale8169() })
         registerStores8289(r)  // V5.0.8289
         registerStores8305(r)  // V5.0.8305
+        registerStores8309(r)  // V5.0.8309
     }
 
     /**
@@ -393,7 +402,10 @@ object MemoryGuard7977 {
      * ever qualified) and the response bodies being read right now through the shared client.
      */
     private fun registerStores8305(r: MemoryRegistry8144) {
-        r.register8144("insiderTracker8305", 160L, { com.lifecyclebot.perps.InsiderWalletTracker.memCount8305() }, null)
+        // V5.0.8309 — trimmed: expired holdings / tx caches always, price and symbol caches under HARD (snapshot kept).
+        r.register8144("insiderTracker8305", 160L, { com.lifecyclebot.perps.InsiderWalletTracker.memCount8305() }, { p ->
+            com.lifecyclebot.perps.InsiderWalletTracker.trim8309(p == RetentionPolicy8136.Pressure.HARD || p == RetentionPolicy8136.Pressure.CRITICAL)
+        }) { com.lifecyclebot.perps.InsiderWalletTracker.estBytes8309() }
         r.register8144("dynAltRegistry8305", 760L, { com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenCount() }, null)
         r.register8144("contribMerge8305", 360L, { com.lifecyclebot.engine.truth.SpecialistContributorMerge6612.trackedMints() }, { _ ->
             com.lifecyclebot.engine.truth.SpecialistContributorMerge6612.boundMints8305(System.currentTimeMillis())
@@ -405,6 +417,142 @@ object MemoryGuard7977 {
             com.lifecyclebot.network.HttpBodyCap8305.inFlightBytes8305()
         }
     }
+
+    /**
+     * V5.0.8309 — 5.0.8306 sat at 473/512 MB with 406 MB unattributed and hard trims freeing nothing. What the census never
+     * saw: the per-mint residue a token leaves after its row is pruned (MintResidue8309: a 200-candle chart copy, flow /
+     * volatility / smart-money / regime histories, classification and hydration rows — each written for every evaluated
+     * mint and removed by nothing), and the learning books (Cortex seat ledgers, lane playbook, cell allocator, trade-shape
+     * and behaviour learners), the launch tape's buyer maps and the SharedPreferences mirrors. Residue is swept (non-live
+     * mints only); the learning books are counted, never trimmed (memory pressure never resets learning).
+     */
+    private fun registerStores8309(r: MemoryRegistry8144) {
+        val res = MintResidue8309
+        res.register8309("smartChartCandles", 14_000L, { SmartChartScanner.residueMap8309() }) { SmartChartScanner.residueBytes8309() }
+        res.register8309("regimeHistory", 3_000L, { com.lifecyclebot.v3.scoring.RegimeTransitionAI.residueHistory8309() })
+        res.register8309("regimeTransitions", 220L, { com.lifecyclebot.v3.scoring.RegimeTransitionAI.residueTransitions8309() })
+        res.register8309("volatilityRegime", 1_100L, { com.lifecyclebot.v3.scoring.VolatilityRegimeAI.residueMap8309() })
+        res.register8309("orderFlow", 5_500L, { com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.residueMap8309() })
+        res.register8309("smartMoneyDivergence", 1_800L, { com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.residueMap8309() })
+        res.register8309("exitScoreHistory", 700L, { DistributionDetector.residueMap8309() })
+        res.register8309("structureClass", 260L, { com.lifecyclebot.v3.modes.MarketStructureRouter.residueMap8309() })
+        res.register8309("commonSense", 420L, { CommonSenseTradePlaybook.residueMap8309() })
+        res.register8309("alphaCache", 120L, { DataPipeline.residueAlpha8309() })
+        res.register8309("candleSynthBuckets", 160L, { com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.residueMap8309() })
+        res.register8309("pairHydration", 320L, { com.lifecyclebot.engine.truth.PairHydrationState6398.residueMap8309() })
+        for (name in res.names8309()) {
+            r.register8144("res8309:$name", 0L, { res.countOf8309(name) }, { _ -> sweepResidue8309(name) }) { res.bytesOf8309(name).coerceAtLeast(0L) }
+        }
+        // Learning books: counted, never trimmed.
+        r.register8144("cortexLedgers8309", 0L, { -1 }, null) {
+            com.lifecyclebot.engine.cortex.Cortex7885.ledgerBytes8309() + com.lifecyclebot.engine.cortex.CortexExit7897.ledgerBytes8309() +
+                com.lifecyclebot.engine.cortex.CortexTiming7900.ledgerBytes8309()
+        }
+        r.register8144("lanePlaybook8309", 0L, { com.lifecyclebot.engine.cortex.LanePlaybook7907.memCount8309() }, null) {
+            com.lifecyclebot.engine.cortex.LanePlaybook7907.estBytes8309()
+        }
+        r.register8144("cellAllocator8309", 0L, { CellAllocator7962.memCount8309() }, null) { CellAllocator7962.estBytes8309() }
+        r.register8144("tradeShape8309", 0L, { com.lifecyclebot.engine.truth.TradeShapeLearner7883.memCount8309() }, null) {
+            com.lifecyclebot.engine.truth.TradeShapeLearner7883.estBytes8309()
+        }
+        r.register8144("behaviorLearning8309", 0L, { BehaviorLearning.memCount8309() }, null) { BehaviorLearning.estBytes8309() }
+        // Capped at write by their owners (counted here).
+        r.register8144("playbookCache8309", 0L, { -1 }, null) { com.lifecyclebot.engine.cortex.LanePlaybook7907.cacheBytes8309() }
+        r.register8144("launchTape8309", 0L, { com.lifecyclebot.engine.market.LaunchTape7921.memCount8309() }, null) {
+            com.lifecyclebot.engine.market.LaunchTape7921.estBytes8309()
+        }
+        r.register8144("pairFlow8309", 170L, { com.lifecyclebot.engine.truth.PairFlow8169.count8309() }, null)
+        // The service executors' unbounded queues: each queued launch holds its continuation and captured state (~1 KB+).
+        r.register8144("serviceQueues8309", 1_024L, { executorQueued8309() }, null)
+        // Android holds every opened SharedPreferences file as a parsed map of Strings (UTF-16: ~2x the XML on disk).
+        r.register8144("prefsMirror8309", 0L, { -1 }, null) { prefsBytes8309 * 2L }
+        for ((name, kind) in listOf(
+            "tokenRows" to "guardPass", "tokenArchive" to "guardPass", "fdgSeals" to "guardPass", "chartLibrary" to "fixed",
+            "labeler" to "ledger", "policyHeadStamps" to "ledger", "metaPolicyStamps" to "ledger", "pipelineLabels" to "capped",
+            "sideEffectQueue" to "queue", "cortexQueue" to "queue", "dynAltRegistry8305" to "universe", "httpBodiesInFlight8305" to "transient",
+            "cortexLedgers8309" to "ledger", "lanePlaybook8309" to "ledger", "cellAllocator8309" to "ledger", "tradeShape8309" to "ledger",
+            "behaviorLearning8309" to "ledger", "playbookCache8309" to "capped", "launchTape8309" to "capped", "pairFlow8309" to "capped",
+            "prefsMirror8309" to "prefs", "serviceQueues8309" to "queue",
+        )) r.markKind8309(name, kind)
+    }
+
+    /** V5.0.8309 — queued tasks across the bot service's executors (0 when the service is not running). */
+    private fun executorQueued8309(): Int = (BotService.instance?.executorQueues8309() ?: IntArray(0)).filter { it > 0 }.sum()
+
+    /** V5.0.8309 — stores with no trim and no exempt kind (should be empty), and the exempt stores as "name(kind)". */
+    fun untrimmedStores8309(): List<String> = registry8144.untrimmed8144()
+    fun exemptStores8309(): List<String> = registry8144.exempt8309()
+
+    /** V5.0.8309 — bytes of SharedPreferences XML on disk (census8031, every 60 s). */
+    @Volatile private var prefsBytes8309 = 0L
+    @Volatile private var residueFirstTickMs8309 = 0L
+
+    /**
+     * V5.0.8309 — is [m] live: a token row, watched, open (runtime or canonical live), ticketed, sealed by the FDG, an active
+     * admission / hand-off, a balance-proof wait or a wallet-tracked mint. A key shorter than a Solana mint (a crypto-lane
+     * symbol shares some of these trackers) is always live. Null when the watchlist or the live projection
+     * cannot be read (then nothing is swept).
+     */
+    private fun liveMints8309(now: Long): ((String) -> Boolean)? {
+        val tokens = BotService.status.tokens
+        val watch = try { GlobalTradeRegistry.getWatchlist().toHashSet() } catch (_: Throwable) { return null }
+        val liveOpen = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.activeMintProjections6490("live").map { it.mint }.toHashSet() } catch (_: Throwable) { return null }
+        val sealed = try { FdgReEvalThrottle.sealedMints8136(now) } catch (_: Throwable) { return null }
+        return { m ->
+            m.length < 32 || tokens.containsKey(m) || m in watch || m in liveOpen || m in sealed || critical8136(m, now) ||
+                (try { com.lifecyclebot.engine.truth.AdmissionProspect8136.isActive8136(m, now) } catch (_: Throwable) { true }) ||
+                (try { HandoffRetention8185.protects8185(m, now) } catch (_: Throwable) { true })
+        }
+    }
+
+    /** Registry trim of one residue cache: drop the keys of mints that are no longer live. */
+    private fun sweepResidue8309(name: String) {
+        val live = liveMints8309(System.currentTimeMillis()) ?: return
+        MintResidue8309.sweepOne8309(name, live)
+    }
+
+    /** Time-based cleanups their owners define but nothing ever called (per-mint trackers past 30 min / their TTL). */
+    private fun staleCleanups8309() {
+        try { com.lifecyclebot.v3.scoring.VolatilityRegimeAI.cleanup() } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.cleanup() } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.cleanup() } catch (_: Throwable) {}
+        try { DistributionFadeAvoider.cleanup() } catch (_: Throwable) {}
+        try { DataPipeline.cleanup() } catch (_: Throwable) {}
+    }
+
+    /** Guard tick at NORMAL pressure: the residue is swept every 2 min (not only once the heap reaches 75%). */
+    private fun periodicResidue8309() {
+        val now = System.currentTimeMillis()
+        if (residueFirstTickMs8309 <= 0L) { residueFirstTickMs8309 = now; return }
+        if (!MintResidue8309.sweepDue8309(maxOf(MintResidue8309.lastSweepMs8309(), residueFirstTickMs8309), now)) return
+        staleCleanups8309()
+        val live = liveMints8309(now) ?: return
+        synchronized(trimLock8305) { MintResidue8309.sweep8309(live, now) }
+    }
+
+    /** What the guard's own passes see before a trim: token rows, their estimated bytes, resident archive rows. */
+    private class GuardPass8309(val rows: Int, val rowBytes: Long, val archive: Int)
+
+    private fun guardPassSnapshot8309(): GuardPass8309 =
+        GuardPass8309(BotService.status.tokens.size, tokenRowBytes8144(), TokenMetaCache.snapshotIfPresent()?.liveRows ?: -1)
+
+    private fun guardPassResults8309(b: GuardPass8309): List<MemoryRegistry8144.TrimResult8144> {
+        staleCleanups8309()
+        val rows = BotService.status.tokens.size
+        val archive = TokenMetaCache.snapshotIfPresent()?.liveRows ?: -1
+        return listOf(
+            MemoryRegistry8144.TrimResult8144("tokenRows(guard)", b.rows, rows, true, b.rowBytes, tokenRowBytes8144()),
+            MemoryRegistry8144.TrimResult8144("tokenArchive(guard)", b.archive, archive, true,
+                if (b.archive >= 0) b.archive * 2_048L else -1L, if (archive >= 0) archive * 2_048L else -1L),
+        )
+    }
+
+    /** V5.0.8309 — the residue sweep, what the last trim released per store (KB before -> after) and the exempt stores. */
+    fun memLine8309(): String =
+        "mem8309[${try { MintResidue8309.line8309() } catch (_: Throwable) { "residue8309[-]" }} " +
+            "lastTrimMb8309=[${MemoryRegistry8144.trimMbLine8309(lastTrim8144)}] prefsMirrorKB=${prefsBytes8309 * 2L / 1024L} " +
+            "execQ8309=[${try { BotService.instance?.executorQueues8309()?.joinToString(",") ?: "-" } catch (_: Throwable) { "-" }}] " +
+            "exempt8309=[${registry8144.exempt8309().joinToString(",")}]]"
 
     /**
      * V5.0.8289 — the 8283-8286 data stores the census did not know (8286: censusMb=63 unattributedMb=448 at 511/512 MB):
@@ -455,6 +603,7 @@ object MemoryGuard7977 {
 
     /** Guard thread: the census for the status line (counts O(1); tape / token estimates walk at most a few thousand rows). */
     private fun refreshCensus8144() {
+        try { census8031() } catch (_: Throwable) {}   // V5.0.8309 — keeps prefsBytes8309 current (cached 60 s)
         bookInsertEvictions8144()
         val rows = registry8144.census8144()
         censusRows8144 = rows
@@ -517,6 +666,7 @@ object MemoryGuard7977 {
             val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: return "-"
             val prefsDir = java.io.File(ctx.applicationInfo.dataDir, "shared_prefs")
             val prefs = prefsDir.listFiles()?.associate { it.name.removeSuffix(".xml") to it.length() }.orEmpty()
+            prefsBytes8309 = prefs.values.sum()   // V5.0.8309
             val files = ctx.filesDir.walkTopDown().maxDepth(2).filter { it.isFile }.associate { it.name to it.length() }
             "prefsTotal=${prefs.values.sum() / 1024}KB prefsTop=[${topSizes8031(prefs)}] filesTotal=${files.values.sum() / 1024}KB filesTop=[${topSizes8031(files)}] " +
                 "labelLoad=${"%.2f".format(try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.pendingLoad8031() } catch (_: Throwable) { -1.0 })}"
@@ -554,5 +704,5 @@ object MemoryGuard7977 {
             "${try { com.lifecyclebot.network.NetParseGuard8305.line8305() } catch (_: Throwable) { "frames8305[-]" }} " +
             "${try { com.lifecyclebot.perps.InsiderWalletTracker.scanLine8305() } catch (_: Throwable) { "insiderScan8305[-]" }} " +
             "emergencyTrims8305=${emergencyTrims8305.get()} coalesced=${emergencyCoalesced8305.get()} last=$emergencyLastReason8305] " +
-            "stores8305=[$storesLine8305]"
+            "stores8305=[$storesLine8305] " + memLine8309()
 }

@@ -98,6 +98,8 @@ object DataPipeline {
 
     private data class CachedAlpha6486(val value: AlphaSignals?, val atMs: Long)
     private val alphaCache6486 = java.util.concurrent.ConcurrentHashMap<String, CachedAlpha6486>()
+    /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
+    internal fun residueAlpha8309(): java.util.concurrent.ConcurrentHashMap<String, *> = alphaCache6486
     private val alphaRefreshInFlight6486 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     fun cachedAlphaSignals6486(mint: String, maxAgeMs: Long = 300_000L): AlphaSignals? {

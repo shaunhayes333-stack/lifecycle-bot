@@ -116,6 +116,9 @@ object TradeShapeLearner7883 {
     private val pending = ConcurrentHashMap<String, Pending>()               // mint|lane
     private val stats = ConcurrentHashMap<String, Stat>()                    // lane|feature|bin
     private val laneAll = ConcurrentHashMap<String, Stat>()                  // lane
+    /** V5.0.8309 — census: pending shapes (~320 B with their bins), feature / lane Stats (~180 B). */
+    fun memCount8309(): Int = pending.size + stats.size + laneAll.size
+    fun estBytes8309(): Long = pending.size * 320L + (stats.size + laneAll.size) * 180L
     private val captured = AtomicLong(0)
     private val graded = AtomicLong(0)
     private val refusals = ConcurrentHashMap<String, AtomicLong>()

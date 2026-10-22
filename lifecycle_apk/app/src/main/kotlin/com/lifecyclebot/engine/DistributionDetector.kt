@@ -20,6 +20,8 @@ object DistributionDetector {
 
     // Track exit score history per token for rate-of-change detection
     private val exitScoreHistory = java.util.concurrent.ConcurrentHashMap<String, MutableList<Pair<Long, Double>>>()
+    /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
+    internal fun residueMap8309(): java.util.concurrent.ConcurrentHashMap<String, *> = exitScoreHistory
     private const val HISTORY_SIZE = 10
     
     data class DistributionSignal(

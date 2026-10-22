@@ -535,6 +535,26 @@ object InsiderWalletTracker {
     fun memCount8305(): Int = holdingsCache.values.sumOf { it.holdings.size } + tokenPriceCache.size + tokenSymbolCache.size +
         prevHoldingsSnapshot.values.sumOf { it.size }
 
+    /**
+     * V5.0.8309 — MemoryGuard7977 (registry trim). Holdings and transaction caches past their 60 s TTL are dead weight
+     * between scans (a scan refetches them; a whale's holdings list is thousands of rows), so they go at any pressure.
+     * Under HARD / CRITICAL the per-mint price and symbol caches go too (re-read on demand). The previous-holdings
+     * snapshot is never touched: it is the baseline the next scan's delta is measured against.
+     */
+    fun trim8309(hard: Boolean, nowMs: Long = System.currentTimeMillis()): Int {
+        val before = memCount8305() + recentTxCache.values.sumOf { it.transactions.size }
+        holdingsCache.entries.removeIf { nowMs - it.value.fetchedAt > CACHE_TTL_MS }
+        recentTxCache.entries.removeIf { nowMs - it.value.fetchedAt > CACHE_TTL_MS }
+        if (hard) { tokenPriceCache.clear(); tokenSymbolCache.clear() }
+        else if (tokenSymbolCache.size > TOKEN_PRICE_CACHE_MAX_8305) tokenSymbolCache.clear()
+        return (before - memCount8305() - recentTxCache.values.sumOf { it.transactions.size }).coerceAtLeast(0)
+    }
+
+    /** V5.0.8309 — census estimate: holdings rows ~120 B, snapshot rows ~90 B, price / symbol rows ~110 B, tx rows ~110 B. */
+    fun estBytes8309(): Long =
+        holdingsCache.values.sumOf { it.holdings.size.toLong() } * 120L + prevHoldingsSnapshot.values.sumOf { it.size.toLong() } * 90L +
+            (tokenPriceCache.size + tokenSymbolCache.size).toLong() * 110L + recentTxCache.values.sumOf { it.transactions.size.toLong() } * 110L
+
     fun scanLine8305(): String = "insiderScan8305[run=${scansRun8305.get()} coalesced=${scansCoalesced8305.get()} inFlight=${scanInFlight8305.get()}]"
 
     private suspend fun scanForSignalsInner8305(): List<InsiderSignal> = withContext(Dispatchers.IO) {

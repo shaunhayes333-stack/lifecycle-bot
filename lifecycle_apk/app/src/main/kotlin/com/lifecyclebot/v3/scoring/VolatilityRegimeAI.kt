@@ -92,6 +92,8 @@ object VolatilityRegimeAI {
         var lastUpdate: Long = 0
     )
     private val tokenVolatility = ConcurrentHashMap<String, VolHistory>()
+    /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
+    internal fun residueMap8309(): java.util.concurrent.ConcurrentHashMap<String, *> = tokenVolatility
     
     // Stats
     private var totalAnalyses = 0

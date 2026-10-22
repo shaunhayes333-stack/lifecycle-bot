@@ -150,6 +150,12 @@ object SmartChartScanner {
     
     private val priceCache = ConcurrentHashMap<String, MutableList<PriceCandle>>()
     private const val MAX_CANDLES = 200
+    // V5.0.8309 — one 200-candle copy per mint ever full-scanned, never removed (clearCache had no caller; the only reader
+    // is getScanSummary): ~14 KB a mint, the largest per-mint residue. Capped on write and swept by MintResidue8309.
+    const val PRICE_CACHE_MINTS_8309 = 400
+    internal fun residueMap8309(): java.util.concurrent.ConcurrentHashMap<String, *> = priceCache
+    /** Census: ~64 B a candle (5 doubles + a long) plus the list and map entry. */
+    internal fun residueBytes8309(): Long = priceCache.values.sumOf { it.size.toLong() } * 64L + priceCache.size * 240L
     
     // ═══════════════════════════════════════════════════════════════════
     // MAIN SCAN FUNCTION
@@ -173,6 +179,7 @@ object SmartChartScanner {
             
             // Cache for later analysis
             priceCache[ts.mint] = candles.toMutableList()
+            MintResidue8309.capMap8309(priceCache, PRICE_CACHE_MINTS_8309)   // V5.0.8309
             
             // Analyze each timeframe we have data for
             Timeframe.values().forEach { tf ->

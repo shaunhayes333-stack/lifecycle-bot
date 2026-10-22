@@ -355,6 +355,8 @@ object MarketStructureRouter {
     private const val MAJOR_MIN_LIQ_BASE = 5_000_000.0
 
     private val classificationCache = ConcurrentHashMap<String, Pair<StructureClassification, Long>>()
+    /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
+    internal fun residueMap8309(): java.util.concurrent.ConcurrentHashMap<String, *> = classificationCache
     private const val CACHE_TTL_MS = 30_000L
 
     fun classify(ts: TokenState): StructureClassification {

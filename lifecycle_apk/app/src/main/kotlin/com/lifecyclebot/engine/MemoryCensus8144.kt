@@ -30,9 +30,18 @@ class MemoryRegistry8144 {
     /** A census row: entries (-1 = unknown), estimated retained bytes, evictions recorded so far. */
     data class Row8144(val name: String, val count: Int, val estBytes: Long, val evictions: Long)
 
-    /** What one trim did to one store. [reached] false = its trim threw (or it has none). */
-    data class TrimResult8144(val name: String, val before: Int, val after: Int, val reached: Boolean) {
+    /**
+     * What one trim did to one store. [reached] false = its trim threw (or it has none).
+     * V5.0.8309 — [beforeBytes] / [afterBytes]: the store's estimated retained bytes around the trim (-1 = unknown), so a
+     * hard trim that "freed nothing" names, per store, the MB it actually released; [exempt] = a store marked fixed /
+     * ledger / queue / transient (by design never shrunk by a pressure trim) is not reported as unfreed.
+     */
+    data class TrimResult8144(
+        val name: String, val before: Int, val after: Int, val reached: Boolean,
+        val beforeBytes: Long = -1L, val afterBytes: Long = -1L, val exempt: Boolean = false,
+    ) {
         val freed: Int get() = if (before >= 0 && after >= 0) (before - after).coerceAtLeast(0) else 0
+        val freedBytes: Long get() = if (beforeBytes >= 0L && afterBytes >= 0L) (beforeBytes - afterBytes).coerceAtLeast(0L) else 0L
     }
 
     private val structures = CopyOnWriteArrayList<Structure8144>()
@@ -53,8 +62,24 @@ class MemoryRegistry8144 {
 
     fun names8144(): List<String> = structures.map { it.name }
 
-    /** Stores with no trim of their own here. */
-    fun untrimmed8144(): List<String> = structures.filter { it.trim == null }.map { it.name }
+    /** Stores with no trim of their own here (V5.0.8309: a store marked with a kind is exempt by design, not untrimmed). */
+    fun untrimmed8144(): List<String> = structures.filter { it.trim == null && !kinds8309.containsKey(it.name) }.map { it.name }
+
+    // ── V5.0.8309 — stores a pressure trim must not shrink, by design ──
+    // "fixed" (preallocated at capacity), "ledger" (learning evidence / outcome stamps: never reset by memory pressure),
+    // "queue" (queued work: dropping it drops a save or a side effect), "transient" (bytes in flight right now).
+    private val kinds8309 = ConcurrentHashMap<String, String>()
+
+    /** Mark [name] as exempt from pressure trims with [kind] (fixed / ledger / queue / transient / capped). */
+    fun markKind8309(name: String, kind: String) { kinds8309[name] = kind }
+
+    /** "name(kind)" for every exempt store, in registration order. */
+    fun exempt8309(): List<String> = structures.mapNotNull { s -> kinds8309[s.name]?.let { "${s.name}($it)" } }
+
+    private fun bytesOf8309(s: Structure8144, n: Int): Long {
+        val est = s.estBytes?.let { f -> try { f().coerceAtLeast(0L) } catch (_: Throwable) { -1L } } ?: -1L
+        return if (est >= 0L) est else if (n > 0) n.toLong() * s.bytesPerEntry else if (n == 0) 0L else -1L
+    }
 
     /** A store evicted [n] entries on its own (insert-time caps). */
     fun noteEvictions8144(name: String, n: Long) {
@@ -83,16 +108,32 @@ class MemoryRegistry8144 {
         trimsRun.incrementAndGet()
         return structures.map { s ->
             val before = countOf(s)
+            val beforeBytes = bytesOf8309(s, before)   // V5.0.8309
             val t = s.trim
             val reached = if (t == null) false else try { t(p); true } catch (_: Throwable) { false }
             val after = countOf(s)
-            val r = TrimResult8144(s.name, before, after, reached)
+            val r = TrimResult8144(s.name, before, after, reached, beforeBytes, bytesOf8309(s, after), kinds8309.containsKey(s.name))
             noteEvictions8144(s.name, r.freed.toLong())
             r
         }
     }
 
     companion object {
+        /**
+         * Pure (V5.0.8309): what the last trim released, per store, as "total=xMB [name:beforeKB->afterKB,...]" for the
+         * [top] stores that released the most (then the largest that released nothing), so the report says which stores a
+         * hard trim actually shrank and by how much.
+         */
+        fun trimMbLine8309(results: List<TrimResult8144>, top: Int = 8): String {
+            if (results.isEmpty()) return "-"
+            val total = results.sumOf { it.freedBytes }
+            val shown = results.filter { it.beforeBytes > 0L }
+                .sortedWith(compareByDescending<TrimResult8144> { it.freedBytes }.thenByDescending { it.beforeBytes }.thenBy { it.name })
+                .take(top.coerceAtLeast(0))
+                .joinToString(",") { "${it.name}:${it.beforeBytes / 1024}->${(if (it.afterBytes >= 0L) it.afterBytes else it.beforeBytes) / 1024}KB" }
+            return "total=${mb(total)} [$shown]"
+        }
+
         /** Pure: total estimated bytes of a census. */
         fun totalBytes8144(rows: List<Row8144>): Long = rows.sumOf { it.estBytes.coerceAtLeast(0L) }
 
@@ -114,7 +155,7 @@ class MemoryRegistry8144 {
          */
         fun unfreed8144(results: List<TrimResult8144>, rows: List<Row8144>, top: Int = 5): List<String> {
             val bytes = rows.associate { it.name to it.estBytes }
-            return results.filter { !it.reached || it.freed == 0 }
+            return results.filter { !it.exempt && (!it.reached || it.freed == 0) }
                 .sortedWith(compareByDescending<TrimResult8144> { bytes[it.name] ?: 0L }.thenBy { it.name })
                 .take(top.coerceAtLeast(0))
                 .map { if (it.reached) it.name else "${it.name}(unreached)" }

@@ -202,6 +202,9 @@ object BehaviorLearning {
 
     private val goodStats = ConcurrentHashMap<String, PatternStats>()
     private val badStats = ConcurrentHashMap<String, PatternStats>()
+    /** V5.0.8309 — census: recorded patterns (~420 B each: ~20 fields, several strings) and pattern stats (~160 B). */
+    fun memCount8309(): Int = goodPatterns.values.sumOf { it.size } + badPatterns.values.sumOf { it.size } + goodStats.size + badStats.size
+    fun estBytes8309(): Long = (goodPatterns.values.sumOf { it.size } + badPatterns.values.sumOf { it.size }).toLong() * 420L + (goodStats.size + badStats.size) * 160L
 
     /**
      * Record a trade outcome.

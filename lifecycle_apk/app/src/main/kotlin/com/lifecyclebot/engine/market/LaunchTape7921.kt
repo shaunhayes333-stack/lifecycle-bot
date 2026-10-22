@@ -89,6 +89,9 @@ object LaunchTape7921 {
     }
 
     private val recs = ConcurrentHashMap<String, Rec>()
+    /** V5.0.8309 — census: launch recs (~260 B) and their per-buyer SOL maps (~150 B a buyer: wallet key, node, boxed SOL). */
+    fun memCount8309(): Int = recs.size
+    fun estBytes8309(): Long = recs.size * 260L + (try { recs.values.sumOf { it.buyerSol.size.toLong() } } catch (_: Throwable) { 0L }) * 150L
     private val checkpoints = ConcurrentHashMap<String, Checkpoint>()
     private val binBook = HashMap<Int, CortexLedger7885.Stat>()
     private val priorBook = tapeStat8187()

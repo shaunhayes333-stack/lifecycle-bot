@@ -695,6 +695,10 @@ object LanePlaybook7907 {
 
     private val books = HashMap<String, Book>()          // lane
     private val pending = ConcurrentHashMap<String, Pair<String, String>>()   // mint|labelLane -> (lane, setup)
+    /** V5.0.8309 — census: pending labels / timing stamps (~220 B), lane books (~200 B a Stat), timing books. */
+    fun estBytes8309(): Long = (pending.size + pendingTiming8094.size).toLong() * 220L +
+        (try { books.values.toList().sumOf { it.stats.size } + timingBooks8094.values.toList().sumOf { it.size } } catch (_: Throwable) { 0 }).toLong() * 200L
+    fun memCount8309(): Int = pending.size + pendingTiming8094.size + (try { books.size + timingBooks8094.size } catch (_: Throwable) { 0 })
     private val refusals = ConcurrentHashMap<String, AtomicLong>()
     private val tagged = ConcurrentHashMap<String, AtomicLong>()
     @Volatile private var loaded = false
@@ -801,6 +805,8 @@ object LanePlaybook7907 {
         var featureRev8283: Long = 0L
     }
     private val classifyCache = ConcurrentHashMap<String, Cached8084>()
+    /** V5.0.8309 — census: classification cache (~600 B an entry) and per-mint input request stamps (~140 B). */
+    fun cacheBytes8309(): Long = classifyCache.size * 600L + inputRequestedAt8085.size * 140L
     internal const val EXTERNAL_TTL_MS_8084 = 5_000L
 
     /** Pure-ish: the token-local setup inputs, hashed (no provider call, no feature build). */

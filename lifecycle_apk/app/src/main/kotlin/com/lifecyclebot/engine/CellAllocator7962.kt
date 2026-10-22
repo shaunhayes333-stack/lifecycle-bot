@@ -279,6 +279,9 @@ object CellAllocator7962 {
     private val waiting = ConcurrentHashMap<String, Waiting7962>()            // live candidates at the gate
     private val topDemand = ConcurrentHashMap<String, TopDemand7962>()        // top cells refused for capital
     private val priorityCache = ConcurrentHashMap<String, Pair<Long, Double>>()
+    /** V5.0.8309 — census: cell nodes (~260 B), per-mint refs / lanes / waits / priority rows (~160-300 B). */
+    fun memCount8309(): Int = nodes.size + refs.size + lastLane.size + waiting.size + topDemand.size + priorityCache.size
+    fun estBytes8309(): Long = nodes.size * 260L + refs.size * 300L + lastLane.size * 150L + (waiting.size + topDemand.size) * 260L + priorityCache.size * 140L
     private val sizeMults = java.util.ArrayDeque<Double>()
 
     @Volatile private var liveMode7962 = false

@@ -40,6 +40,8 @@ object CortexTiming7900 {
 
     private val ledger = CortexLedger7885()
     private val dipBook = HashMap<String, CortexLedger7885.Stat>()
+    /** V5.0.8309 — census: timing seat ledger + dip book (learning: counted, never trimmed). */
+    fun ledgerBytes8309(): Long = ledger.estBytes8309().coerceAtLeast(0L) + (try { dipBook.size } catch (_: Throwable) { 0 }) * 200L
     private val pending = ConcurrentHashMap<String, Sample>()
     private val counters = ConcurrentHashMap<String, AtomicLong>()
     private val graded = AtomicLong(0)

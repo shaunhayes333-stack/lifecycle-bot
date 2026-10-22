@@ -65,6 +65,8 @@ object CommonSenseTradePlaybook {
     )
 
     private val cache = ConcurrentHashMap<String, Snapshot>()
+    /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
+    internal fun residueMap8309(): java.util.concurrent.ConcurrentHashMap<String, *> = cache
     private const val CACHE_TTL_MS = 8_000L
     private const val PLAN_MIN_RR_7783 = 1.5
 

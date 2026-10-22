@@ -88,10 +88,14 @@ object RegimeTransitionAI {
     
     // Token → Recent regime snapshots (for transition detection)
     private val regimeHistory = ConcurrentHashMap<String, MutableList<RegimeSnapshot>>()
+    /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
+    internal fun residueHistory8309(): java.util.concurrent.ConcurrentHashMap<String, *> = regimeHistory
     private const val MAX_HISTORY_PER_TOKEN = 50
     
     // Detected transitions cache
     private val transitionCache = ConcurrentHashMap<String, TransitionSignal>()
+    /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
+    internal fun residueTransitions8309(): java.util.concurrent.ConcurrentHashMap<String, *> = transitionCache
     private const val CACHE_TTL_MS = 60_000L  // 1 minute
     
     // ═══════════════════════════════════════════════════════════════════════════

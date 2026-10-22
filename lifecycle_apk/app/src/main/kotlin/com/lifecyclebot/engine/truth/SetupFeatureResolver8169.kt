@@ -24,6 +24,8 @@ object PairFlow8169 {
     )
 
     private val flows = ConcurrentHashMap<String, Flow8169>()
+    /** V5.0.8309 — census: one ~170 B flow row per mint (capped at write). */
+    fun count8309(): Int = flows.size
     private val noted = AtomicLong(0L)
 
     /** Keep [f] as [mint]'s latest flow unless a newer answer is already held. */

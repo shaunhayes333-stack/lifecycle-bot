@@ -82,6 +82,8 @@ object LocalCandleSynthesis7055 {
     )
 
     private val buckets = java.util.concurrent.ConcurrentHashMap<String, Bucket>()
+    /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
+    internal fun residueMap8309(): java.util.concurrent.ConcurrentHashMap<String, *> = buckets
     private val candlesEmitted = AtomicLong(0L)
     private val ticksBinned = AtomicLong(0L)
     private val skippedHasFetched = AtomicLong(0L)

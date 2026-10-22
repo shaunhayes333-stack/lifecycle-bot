@@ -691,6 +691,19 @@ class BotService : Service() {
     private val exitWorkerDispatcher6647 = exitWorkerExecutor6647.asCoroutineDispatcher()
     private val scope = CoroutineScope(serviceJob6647 + serviceDispatcher6647 + exceptionHandler)
 
+    /**
+     * V5.0.8309 — queued tasks per service executor (service, entry, exit coordinator, exit policy). The fixed pools sit on
+     * unbounded queues, so a backlog keeps every queued launch's closure (and the token rows it captured) alive after the
+     * guard pruned those rows; MemoryGuard7977 counts it in the census. -1 = not a ThreadPoolExecutor.
+     */
+    fun executorQueues8309(): IntArray = intArrayOf(
+        queueDepth8309(serviceExecutor6647), queueDepth8309(supervisorExecutor6647),
+        queueDepth8309(exitExecutor6647), queueDepth8309(exitWorkerExecutor6647),
+    )
+
+    private fun queueDepth8309(e: java.util.concurrent.ExecutorService): Int =
+        (e as? java.util.concurrent.ThreadPoolExecutor)?.queue?.size ?: -1
+
     /** V5.0.6943 — one hive supervisor per service instance. */
     private val hiveSupervisorStarted6943 = java.util.concurrent.atomic.AtomicBoolean(false)
     private val exitScope6647 = CoroutineScope(serviceJob6647 + exitDispatcher6647 + exceptionHandler + CoroutineName("exit-coordinator-6647"))

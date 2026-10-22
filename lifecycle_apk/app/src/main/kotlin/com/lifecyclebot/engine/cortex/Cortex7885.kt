@@ -88,6 +88,9 @@ object Cortex7885 {
     private val board = CortexScoreboard7885()
     private val calibration = CortexCalibration7901()
     private val realLedgers = HashMap<String, CortexLedger7885>()   // mode -> outcome-truth ledger
+    /** V5.0.8309 — census: the voter seat ledger plus the per-mode outcome-truth ledgers (learning: counted, never trimmed). */
+    fun ledgerBytes8309(): Long = ledger.estBytes8309().coerceAtLeast(0L) +
+        (try { realLedgers.values.toList() } catch (_: Throwable) { emptyList() }).sumOf { it.estBytes8309().coerceAtLeast(0L) }
     private val assessCache = ConcurrentHashMap<String, Assessment>()
     private val pending = ConcurrentHashMap<String, Pending>()
     private val voterFailures = ConcurrentHashMap<String, AtomicLong>()

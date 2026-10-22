@@ -114,6 +114,8 @@ object CortexExit7897 {
     }
 
     private val ledger = CortexLedger7885()
+    /** V5.0.8309 — census: exit seat ledger + lane books (learning: counted, never trimmed). */
+    fun ledgerBytes8309(): Long = ledger.estBytes8309().coerceAtLeast(0L) + (try { books.size + truthBooks8153.size } catch (_: Throwable) { 0 }) * 1_200L
     private val calibration = CortexCalibration7901()
     private val books = HashMap<String, Book>()
     private val latest = ConcurrentHashMap<String, Read>()        // positionId

@@ -503,6 +503,16 @@ class CortexLedger7885(
     /** voterA|voterB (sorted) -> decayed sum(ra*rb), sum(ra^2), sum(rb^2). */
     val pairs = HashMap<String, DoubleArray>()
 
+    /**
+     * V5.0.8309 — census estimate of this ledger: seats x (bins + above/below Stats, ~88 B each, plus the seat and its
+     * "voter|lane" key), lane Stats and voter-pair arrays. Read without the owner's lock (sizes only; a racing write
+     * returns -1 for this tick).
+     */
+    fun estBytes8309(): Long = try {
+        val bins = seats.values.firstOrNull()?.bins?.size ?: 6
+        seats.size.toLong() * ((bins + 2) * 88L + 200L) + lanes.size.toLong() * 200L + pairs.size.toLong() * 180L
+    } catch (_: Throwable) { -1L }
+
     /** Pure read: error correlation of two voters, 0 when unknown. */
     private fun errorCorr(a: String, b: String): Double {
         val c = pairs[if (a < b) "$a|$b" else "$b|$a"] ?: return 0.0
