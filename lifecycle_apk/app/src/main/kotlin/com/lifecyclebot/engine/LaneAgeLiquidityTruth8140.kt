@@ -162,4 +162,28 @@ object LaneAgeLiquidityTruth8140 {
             v, liquidityUsd, LaneAgeLiquidityScope8140.effectiveLiquidityFloor8140(laneFloorUsd, live),
         )
     }
+
+    /**
+     * V5.0.8319 §AN_ACTIVE_CURVE_IS_EXIT_SAFE_ON_ITS_OWN_RESERVES — the $500 real-SOL floor was written for AMM pools.
+     * 8316: PUMP +2,140% missed on NATIVE_LANE_LIQ_BELOW_FLOOR while the curve waited for ~2.9 SOL of real SOL, though a
+     * ~0.03 SOL exit trades against the curve's 30+ SOL of virtual reserves. An ACTIVE (not graduated) pump.fun curve
+     * whose reserves were observed inside the curve TTL (CurveReserves7951.realSolIfActive8046) and holding at least
+     * [CURVE_EXIT_MIN_REAL_SOL_8319] real SOL is exit-safe for the launch lanes. Unknown, stale or graduated reserves are
+     * not (false). Non-curve pools, graduated curves and established lanes keep their floors;
+     * LaneAgeLiquidityScope8140.EXIT_SAFE_HARD_FLOOR_USD_8140 stays 500.0.
+     */
+    const val CURVE_EXIT_MIN_REAL_SOL_8319 = 0.5
+    private val CURVE_FLOOR_LANES_8319 = setOf("SHITCOIN", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "MOONSHOT")
+
+    fun activeCurveExitSafe8319(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        val real = if (mint.isBlank()) null else com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(mint, nowMs)
+        real != null && real.isFinite() && real >= CURVE_EXIT_MIN_REAL_SOL_8319
+    } catch (_: Throwable) { false }
+
+    /** V5.0.8319 — [laneLiquidityRefusal8140] for a launch lane that knows the mint: an exit-safe active curve passes. */
+    fun laneLiquidityRefusal8140(lane: String, liquidityUsd: Double, laneFloorUsd: Double, mint: String): String? {
+        val l = LaneAgeLiquidityScope8140.canonical8140(lane)
+        if (l in CURVE_FLOOR_LANES_8319 && activeCurveExitSafe8319(mint)) { count8140("LANE_LIQ_CURVE_EXIT_SAFE_8319_$l"); return null }
+        return laneLiquidityRefusal8140(lane, liquidityUsd, laneFloorUsd)
+    }
 }

@@ -36,6 +36,8 @@ object PaperUniverseParity8223 {
         val blacklisted: Boolean,
         val quarantined: Boolean,
         val confirmedWalletRiskCluster8269: Boolean = false,
+        /** V5.0.8319 — mirrors PreTradeHardGate: an exit-safe active curve is not under the $500 real-SOL wall. */
+        val curveExitSafe8319: Boolean = false,
     )
 
     /** Pure: the live wall this coin would hit at the buy door, or null when live could buy it (or would only defer). */
@@ -47,7 +49,7 @@ object PaperUniverseParity8223 {
         w.rugcheckScore == 0 -> "RUGCHECK_CONFIRMED_RUG"
         w.mintAuthorityDisabled == false -> "MINT_AUTHORITY_ACTIVE"
         w.freezeAuthorityDisabled == false -> "FREEZE_AUTHORITY_ACTIVE"
-        w.liquidityUsd.isFinite() && w.liquidityUsd > 0.0 && w.liquidityUsd < LIVE_LIQ_HARD_FLOOR_USD_8223 -> "LIQUIDITY_BELOW_EXIT_SAFE_FLOOR"
+        w.liquidityUsd.isFinite() && w.liquidityUsd > 0.0 && w.liquidityUsd < LIVE_LIQ_HARD_FLOOR_USD_8223 && !w.curveExitSafe8319 -> "LIQUIDITY_BELOW_EXIT_SAFE_FLOOR"
         w.topHolderPct.isFinite() && w.topHolderPct >= TOP_HOLDER_FATAL_PCT_8223 -> "TOP_HOLDER_CONCENTRATION"
         else -> null
     }
@@ -69,6 +71,7 @@ object PaperUniverseParity8223 {
             blacklisted = try { com.lifecyclebot.engine.TokenBlacklist.isBlocked(ts.mint) } catch (_: Throwable) { false },
             quarantined = try { com.lifecyclebot.engine.QuarantineStore.isQuarantined(ts.mint) } catch (_: Throwable) { false },
             confirmedWalletRiskCluster8269 = s.confirmedWalletRiskCluster8269,
+            curveExitSafe8319 = try { com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(ts.mint) } catch (_: Throwable) { false },
         ))
         if (wall == null) { passed8223.incrementAndGet(); return null }
         refused8223.computeIfAbsent(wall) { AtomicLong() }.incrementAndGet()

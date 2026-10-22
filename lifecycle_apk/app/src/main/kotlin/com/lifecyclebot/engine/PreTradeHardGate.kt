@@ -180,7 +180,10 @@ object PreTradeHardGate {
             tokenMapLiquidity.executable -> Unit
         }
         if (!safety.liqConfirmed && !tokenMapLiquidity.executable) pendingProofs.add("LIQUIDITY_PROOF_PENDING")
-        if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < MIN_LIVE_LIQ_HARD_FLOOR_USD) {
+        // V5.0.8319 — an ACTIVE pump.fun curve with >= 0.5 real SOL observed inside the curve TTL is exit-safe on its own
+        // reserves (LaneAgeLiquidityTruth8140.activeCurveExitSafe8319); graduated / non-curve pools keep the $500 floor.
+        val curveExitSafe8319 = try { LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(ts.mint) } catch (_: Throwable) { false }
+        if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < MIN_LIVE_LIQ_HARD_FLOOR_USD && !curveExitSafe8319) {
             // V5.0.4090 — UN-TRADEABLE THIN-POOL HARD BLOCK. Any sell into a sub-$500
             // pool will catastrophically slip past its stop loss (operator data point:
             // STANDARD entry at $192 liq → STRICT_SL_-10 fired → realized -47% =
@@ -216,7 +219,7 @@ object PreTradeHardGate {
         // distribution. Keep the candidate in refresh rather than blacklist it.
         if (topHolder < 0.0 &&
             (rcStatus in setOf("UNKNOWN", "TIMEOUT", "PENDING", "PENDING_REVIEW", "ERROR", "") ||
-                ts.lastLiquidityUsd in 0.000001..MIN_LIVE_LIQ_USD)) {
+                (ts.lastLiquidityUsd in 0.000001..MIN_LIVE_LIQ_USD && !curveExitSafe8319))) {   // V5.0.8319: a blind rugcheck still defers
             try { SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
             return deferSafetyProof(ts, "HOLDER_DISTRIBUTION_RISK_UNVERIFIED_8269", pendingProofs.distinct(), callSite)
         }

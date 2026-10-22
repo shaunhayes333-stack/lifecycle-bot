@@ -852,8 +852,8 @@ object ShitCoinTraderAI {
         // 2. LIQUIDITY FILTER - Must have minimum liquidity
         val minLiq = getFluidMinLiquidity()
         // V5.0.8140 — an unread pool defers (never "low"); a real one below the floor refuses, naming SHITCOIN.
-        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("SHITCOIN", liquidityUsd, minLiq)?.let { return rejectSignal(it, mode, launchPlatform) }
-        if (liquidityUsd < minLiq) {
+        com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("SHITCOIN", liquidityUsd, minLiq, mint)?.let { return rejectSignal(it, mode, launchPlatform) }
+        if (liquidityUsd < minLiq && !com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(mint)) {   // V5.0.8319: an exit-safe active curve passed above
             return rejectSignal("LIQ_TOO_LOW: \$${liquidityUsd.toInt()} < \$${minLiq.toInt()}", mode, launchPlatform)
         }
         
