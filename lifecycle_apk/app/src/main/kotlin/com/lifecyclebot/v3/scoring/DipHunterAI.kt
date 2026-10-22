@@ -59,11 +59,11 @@ object DipHunterAI {
     const val MAX_MCAP_USD = 5_000_000.0  // Max $5M mcap
     
     // Liquidity requirements
-    private const val MIN_LIQUIDITY_USD = 10_000.0  // Strong liquidity required
+    internal const val MIN_LIQUIDITY_USD = 10_000.0  // Strong liquidity required
     const val MIN_LIQUIDITY_RATIO = 0.10    // Liq must be >10% of mcap
     
     // Age requirements
-    private const val MIN_TOKEN_AGE_HOURS = 2.0     // At least 2 hours old
+    internal const val MIN_TOKEN_AGE_HOURS = 2.0     // At least 2 hours old
     
     // Position sizing - BOOTSTRAP TIGHT (start conservative, fluid learning will loosen)
     private const val BASE_POSITION_SOL = 0.05      // Conservative base for bootstrap

@@ -6,11 +6,6 @@ import com.lifecyclebot.engine.BotService
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.TreasuryScannerFeed
 import com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450
-import com.lifecyclebot.v3.scoring.BlueChipTraderAI
-import com.lifecyclebot.v3.scoring.DipHunterAI
-import com.lifecyclebot.v3.scoring.MoonshotTraderAI
-import com.lifecyclebot.v3.scoring.QualityTraderAI
-import com.lifecyclebot.v3.scoring.ShitCoinTraderAI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.floor
@@ -138,10 +133,8 @@ object LaneHunter7297 {
         val runner = lane in setOf("MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "SHITCOIN")
         var m = exitability7797(r) * participation7797(r) * chasePenalty7797(r, runner)
         m *= when (lane) {
-            "PROJECT_SNIPER" -> freshnessFit7797(r, 0.05)
-            "EXPRESS", "MANIPULATED" -> freshnessFit7797(r, 0.20)
-            "MOONSHOT" -> freshnessFit7797(r, 1.0)
-            "SHITCOIN" -> freshnessFit7797(r, 6.0)
+            // V5.0.8323 — the ideal freshness lives on each lane's cheat sheet.
+            "PROJECT_SNIPER", "EXPRESS", "MANIPULATED", "MOONSHOT", "SHITCOIN" -> freshnessFit7797(r, com.lifecyclebot.engine.cortex.LaneCheatSheet8323.idealMaxAgeHours8323(lane))
             "QUALITY" -> if (r.verified) 1.08 else 0.97
             "BLUECHIP" -> if (r.verified && r.liquidityUsd >= 25_000.0) 1.10 else 0.92
             "DIP_HUNTER" -> if (r.priceChangeH1Pct in -25.0..-3.0) 1.10 else 0.90
@@ -155,24 +148,24 @@ object LaneHunter7297 {
 
     val profiles: List<Profile> = listOf(
         Profile(
-            "SHITCOIN", ShitCoinTraderAI.MIN_MARKET_CAP_USD, ShitCoinTraderAI.MAX_MARKET_CAP_USD,
+            "SHITCOIN", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("SHITCOIN"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("SHITCOIN"),  // V5.0.8323 — the lane's sheet (ShitCoinTraderAI's band)
             fits = { true },
             rank = { r -> activity(r) + 2.0 * turnover(r).coerceAtMost(5.0) + r.organicScore / 50.0 },
         ),
         Profile(
-            "QUALITY", QualityTraderAI.MIN_MARKET_CAP_USD, QualityTraderAI.MAX_MARKET_CAP_USD,
+            "QUALITY", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("QUALITY"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("QUALITY"),  // V5.0.8323
             fits = { r -> r.liquidityUsd > 0.0 },
             rank = { r -> r.organicScore / 20.0 + turnover(r).coerceAtMost(3.0) + log10(1.0 + r.holders) + (if (r.verified) 1.0 else 0.0) },
         ),
         Profile(
-            "BLUECHIP", BlueChipTraderAI.MIN_MARKET_CAP_USD, Double.MAX_VALUE,
+            "BLUECHIP", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("BLUECHIP"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("BLUECHIP"),  // V5.0.8323
             // 8168: mint suffix is provenance, not a native BLUECHIP veto. The cap band above and
             // native liquidity/quality checks still decide whether a graduated token fits this desk.
             fits = { r -> r.liquidityUsd.isFinite() && r.liquidityUsd > 0.0 },
             rank = { r -> log10(1.0 + r.liquidityUsd) + log10(1.0 + r.volumeH1Usd) + (if (r.verified) 1.0 else 0.0) },
         ),
         Profile(
-            "DIP_HUNTER", DipHunterAI.MIN_MCAP_USD, DipHunterAI.MAX_MCAP_USD,
+            "DIP_HUNTER", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("DIP_HUNTER"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("DIP_HUNTER"),  // V5.0.8323
             // V5.0.8031 — the native mandate (DipHunterAI): 2h+ old, $10k+ liquidity and 10% of cap, a real pullback
             // (15-55% over the day, or 5-35% in the hour) and not still falling in the last 5 minutes. Ranked on the
             // pullback sweet spot (~25%), not the deepest knife.
@@ -180,7 +173,7 @@ object LaneHunter7297 {
             rank = { r -> HunterMandates8031.dipRank8031(r.priceChangeH1Pct, r.priceChangeH24Pct) + log10(1.0 + r.volumeH1Usd) },
         ),
         Profile(
-            "MOONSHOT", MoonshotTraderAI.MIN_MARKET_CAP_BOOTSTRAP_USD_7719, MoonshotTraderAI.MAX_MARKET_CAP_USD,
+            "MOONSHOT", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("MOONSHOT"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("MOONSHOT"),  // V5.0.8323
             fits = { r ->
                 // V5.0.7796 — not "anything green". Moonshot hunts asymmetry:
                 // real liquidity/activity, positive ignition, and no already-consumed
@@ -202,12 +195,12 @@ object LaneHunter7297 {
             },
         ),
         Profile(
-            "TREASURY", TreasuryScannerFeed.MIN_TREASURY_MCAP, Double.MAX_VALUE,
+            "TREASURY", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("TREASURY"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("TREASURY"),  // V5.0.8323
             fits = { r -> r.liquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY },
             rank = { r -> turnover(r).coerceAtMost(3.0) * 2.0 + log10(1.0 + r.liquidityUsd) },
         ),
         Profile(
-            "CASHGEN", TreasuryScannerFeed.MIN_TREASURY_MCAP, Double.MAX_VALUE,
+            "CASHGEN", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("CASHGEN"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("CASHGEN"),  // V5.0.8323
             fits = { r -> r.liquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY },
             rank = { r -> turnover(r).coerceAtMost(3.0) * 2.0 + log10(1.0 + r.volumeH1Usd) },
         ),
@@ -217,13 +210,13 @@ object LaneHunter7297 {
         // These profiles only DISCOVER + CLAIM. Native specialist brains still have
         // to qualify the token before ownership can change.
         Profile(
-            "EXPRESS", 1_000.0, 300_000.0,
+            "EXPRESS", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("EXPRESS"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("EXPRESS"),  // V5.0.8323 — ShitCoinExpress's band, via the sheet
             // V5.0.8031 — the native mandate (ShitCoinExpress): known age 5 min+, 1h continuation 1-30% (above 30%
             // it rejects as CHASE_EXTENDED), the last 5 minutes still up but not vertical.
             fits = { r ->
                 // V5.0.8293 — the native terms exactly (ShitCoinExpress.evaluate): no age floor, 5m chase line at 20%
                 // (8031's 5-minute age and 0.5-12% 5m window passed 7 of 118 in-band rows the native would read).
-                r.txCountH1 >= 4 && r.volumeH1Usd > 0.0 && r.liquidityUsd >= 1_000.0 &&
+                r.txCountH1 >= 4 && r.volumeH1Usd > 0.0 && r.liquidityUsd >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.EXPRESS_MIN_LIQ_8323 &&
                     HunterMandates8293.expressFits8293(r.priceChangeH1Pct, r.priceChange5mPct)
             },
             rank = { r ->
@@ -235,7 +228,7 @@ object LaneHunter7297 {
             },
         ),
         Profile(
-            "PROJECT_SNIPER", 3_000.0, 500_000.0,
+            "PROJECT_SNIPER", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("PROJECT_SNIPER"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("PROJECT_SNIPER"),  // V5.0.8323 — ProjectSniperAI's band
             fits = { r ->
                 // ProjectSniperAI is explicitly a pre-ignition / first-minutes desk.
                 // V5.0.8031 — age must be KNOWN (0 meant unknown and let old coins in) and liquidity at the native $2k.
@@ -249,7 +242,7 @@ object LaneHunter7297 {
             },
         ),
         Profile(
-            "MANIPULATED", 5_000.0, 300_000.0,
+            "MANIPULATED", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("MANIPULATED"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("MANIPULATED"),  // V5.0.8323 — ManipulatedTraderAI's band
             fits = { r ->
                 // The hunter finds young, violently one-sided candidates; the
                 // native ManipulatedTraderAI still requires actual manipulation
@@ -265,12 +258,12 @@ object LaneHunter7297 {
             },
         ),
         Profile(
-            "CYCLIC", 10_000.0, 5_000_000.0,
+            "CYCLIC", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("CYCLIC"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("CYCLIC"),  // V5.0.8323 — the sheet owns CYCLIC's mandate
             fits = { r ->
                 // Cyclic is not a first-minute sniper. Hunt sellable, active,
                 // established-enough names with turnover but without a one-way
                 // exhaustion move; its own engine decides whether the cycle exists.
-                r.ageHours >= 0.20 && r.liquidityUsd >= 5_000.0 &&
+                r.ageHours >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.CYCLIC_MIN_AGE_HOURS_8323 && r.liquidityUsd >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.CYCLIC_MIN_LIQ_8323 &&
                     r.volumeH1Usd > 0.0 && r.priceChangeH1Pct in -15.0..20.0
             },
             rank = { r ->
@@ -279,7 +272,7 @@ object LaneHunter7297 {
             },
         ),
         Profile(
-            "CORE", 1_500.0, 5_000_000.0,
+            "CORE", com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323("CORE"), com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMax8323("CORE"),  // V5.0.8323
             fits = { r -> r.liquidityUsd > 0.0 && r.txCountH1 >= 3 },
             rank = { r ->
                 // CORE is the ensemble/generalist desk: broad opportunity hunt,
@@ -501,7 +494,7 @@ object LaneHunter7297 {
             val (lo, hi) = fluidBand(HunterMandates8293.baseMin8293(p.lane, p.baseMin), p.baseMax, bucketStatsFor(p.lane))  // V5.0.8293 native floor
             tests8293 += OpportunityRoute8293.LaneTest8293(p.lane, { r -> r.mcapUsd in lo..hi && r.mint !in nonMeme8169 }, p.fits)
             val inBand8168 = snap.rows.filter { it.mcapUsd in lo..hi && it.mint !in nonMeme8169 }
-            val eligible8168 = inBand8168.filter { p.fits(it) }
+            val eligible8168 = inBand8168.filter { p.fits(it) && com.lifecyclebot.engine.cortex.LaneCheatSheet8323.hunterFits8323(p.lane, it.ageHours, it.liquidityUsd) }  // V5.0.8323 — the lane's mandate (age band, liquidity floor now)
             p.lane to eligible8168
                 // Compute each expensive evidence/ranking multiplier exactly
                 // once per candidate, not O(n log n) times inside TimSort's

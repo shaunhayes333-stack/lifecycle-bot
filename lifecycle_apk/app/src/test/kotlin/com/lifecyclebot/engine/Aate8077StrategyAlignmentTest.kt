@@ -91,7 +91,9 @@ class Aate8077StrategyAlignmentTest {
         val p = File("src/main/kotlin/com/lifecyclebot/engine/cortex/LanePlaybook7907.kt").readText()
         // V5.0.8084 — the same evidence chooser ranks the fired setups; the one cache keys on every token-local input
         // (price stamp included) instead of price/mcap/liquidity only.
-        assertTrue(p.contains("LaneEvidence8077.choose(fired.map { setupEvidence8077(lane, it) })"))
+        // superseded by V5.0.8323: the same evidence chooser, applied through the lane's cheat sheet (favour first, avoid dropped).
+        assertTrue(p.contains("LaneCheatSheet8323.choose8323(lane, fired.map { setupEvidence8077(lane, it) })"))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/cortex/LaneCheatSheet8323.kt").readText().contains("{ LaneEvidence8077.choose(it) }"))
         assertTrue(p.contains("cached.inputKey == key"))
         assertTrue(p.contains("l(ts.lastPriceUpdate)"))
         assertTrue(p.contains("cached.revision == revision"))   // V5.0.8084 — book revision still invalidates (re-ranks) the one cache

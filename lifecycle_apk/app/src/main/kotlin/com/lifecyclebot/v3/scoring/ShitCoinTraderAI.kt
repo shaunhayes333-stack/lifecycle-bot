@@ -66,7 +66,7 @@ object ShitCoinTraderAI {
     const val MIN_MARKET_CAP_USD = 500.0     // V5.9.615: $500 floor — pre-graduation pump.fun tokens are the ShitCoin lane's designed prey
     
     // Liquidity requirements — V5.5: Hard $5K minimum across all phases
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 300.0     // V5.9.615: pump.fun bonding curves at $500 mcap have ~$425 estimated liq; this lets fresh memes through
+    internal const val MIN_LIQUIDITY_USD_BOOTSTRAP = 300.0     // V5.9.615: pump.fun bonding curves at $500 mcap have ~$425 estimated liq; this lets fresh memes through
     private const val MIN_LIQUIDITY_USD_MATURE = 2_000.0      // V5.9.615: still tightens as the bot learns, but the floor is realistic for sub-graduation tokens
     
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
@@ -119,7 +119,7 @@ object ShitCoinTraderAI {
     // every single token discovered in the first hour is silently TOO_OLD'd —
     // a massive hidden volume throttle that grows worse the longer you run.
     // Bootstrap: lift the ceiling to 3 days so the learner gets full flow.
-    private const val MAX_TOKEN_AGE_HOURS_BOOTSTRAP = 72.0
+    internal const val MAX_TOKEN_AGE_HOURS_BOOTSTRAP = 72.0
     private fun effectiveMaxTokenAgeHours(): Double = try {
         if (FluidLearningAI.getLearningProgress() < 0.70) MAX_TOKEN_AGE_HOURS_BOOTSTRAP  // V5.9.325: 0.40→0.70
         else MAX_TOKEN_AGE_HOURS

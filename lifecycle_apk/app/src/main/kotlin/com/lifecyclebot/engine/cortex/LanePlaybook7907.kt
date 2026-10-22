@@ -968,7 +968,7 @@ object LanePlaybook7907 {
     private fun rerank8084(c: Classification8084, nowMs: Long): Classification8084 {
         if (c.matched.isEmpty()) return c
         ensureLoaded()
-        val best = synchronized(this) { LaneEvidence8077.choose(c.matched.map { setupEvidence8077(c.lane, it) })?.id }
+        val best = synchronized(this) { LaneCheatSheet8323.choose8323(c.lane, c.matched.map { setupEvidence8077(c.lane, it) })?.id }  // V5.0.8323 — favour first, avoid dropped
         val out = if (best == null) Outcome8084.MATCHES_UNRANKABLE else Outcome8084.MATCHED
         return if (best == c.chosen && out == c.outcome) c
         else Classification8084(c.lane, out, best, c.matched, c.missing, c.errors, c.featureVersion, c.atMs, c.reason + " (re-ranked)")
@@ -980,7 +980,7 @@ object LanePlaybook7907 {
             ?: return Classification8084(lane, Outcome8084.NO_PLAYBOOK, null, emptyList(), emptyList(), emptyList(), fp, nowMs, "no playbook")
         val (fired, errs) = det
         val missing = f.obs8084.filterValues { it != Obs8084.OBSERVED }.map { (k, v) -> "$k:${v.name}" }
-        val best = if (fired.isEmpty()) null else { ensureLoaded(); synchronized(this) { LaneEvidence8077.choose(fired.map { setupEvidence8077(lane, it) })?.id } }
+        val best = if (fired.isEmpty()) null else { ensureLoaded(); synchronized(this) { LaneCheatSheet8323.choose8323(lane, fired.map { setupEvidence8077(lane, it) })?.id } }  // V5.0.8323
         val coreMissing = CORE_8084.filter { (f.obs8084[it] ?: Obs8084.UNKNOWN) != Obs8084.OBSERVED }
             .map { "$it:${f.obs8084[it]?.name ?: Obs8084.UNKNOWN.name}" }
         return decide8084(lane, fired, errs, best, missing, coreMissing, fp, nowMs)
@@ -1252,13 +1252,19 @@ object LanePlaybook7907 {
     /** V5.0.8153 — the ranked strategy pick over this coin's fired setups (default = the classifier's consumer tag). */
     fun strategyPick8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): com.lifecyclebot.engine.truth.StrategyRank8153.Pick8153? = try {
         val lane = canon(laneRaw)
-        com.lifecyclebot.engine.truth.StrategyRank8153.select8153(classify(ts, lane, nowMs), strategyOptions8153(ts, lane, nowMs), Double.NaN)
+        val default8323 = classify(ts, lane, nowMs)
+        val opts8323 = strategyOptions8153(ts, lane, nowMs)
+        // V5.0.8323 — the lane's cheat sheet: a favoured fired setup first, an avoided one only on its re-probe slot.
+        LaneCheatSheet8323.refresh8323(nowMs)
+        val memo8323 = HashMap<String, LaneCheatSheet8323.Verdict8323>()
+        LaneCheatSheet8323.pickWith8323(com.lifecyclebot.engine.truth.StrategyRank8153.select8153(default8323, opts8323, Double.NaN),
+            default8323, opts8323) { id -> memo8323.getOrPut(id) { LaneCheatSheet8323.effectiveVerdict8323(lane, id, ts.mint, nowMs) } }
     } catch (_: Throwable) { null }
 
     /** V5.0.8153 — the best SUPPORTED / VALID fired setup on its own record and timing band, else null (the default decides). */
     fun rankedSetup8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
         val p = strategyPick8153(ts, laneRaw, nowMs) ?: return null
-        if (!com.lifecyclebot.engine.truth.StrategyRank8153.evidenced8153(p.tier)) return null
+        if (!com.lifecyclebot.engine.truth.StrategyRank8153.evidenced8153(p.tier) && !LaneCheatSheet8323.favourBasis8323(p.basis)) return null  // V5.0.8323
         if (p.overDefault) try { PipelineHealthCollector.labelInc("SETUP_RANKED_OVER_DEFAULT_8153_${canon(laneRaw)}") } catch (_: Throwable) {}
         return p.id
     }
@@ -1686,10 +1692,38 @@ object LanePlaybook7907 {
         // 5.0.8051 seeded nearly every lane from TURNOVER_SPIKE on 1-4 labels (+45%, +118%) — noise, not a style.
         synchronized(this) {
             menuOf7962(lane)?.filter { val n = stat(lane, it.id)?.n ?: 0.0; n <= 0.0 || n >= SEED_MIN_N_8052 }
-                ?.map { setupEvidence8077(lane, it.id) }?.let { LaneEvidence8077.choose(it) }
+                ?.map { setupEvidence8077(lane, it.id) }?.let { LaneCheatSheet8323.choose8323(lane, it) }  // V5.0.8323 — the lane's sheet: favour first
                 ?.let { it.id to it.expected }
         }
     } catch (_: Throwable) { null }
+
+    // ── V5.0.8323 — LaneCheatSheet8323 reads (the same executable, 8295-governed record every authority reads) ──
+
+    /** V5.0.8323 — every menu setup of [laneRaw]: its cheat-sheet prior, executable record, runner rate and shrunk expectancy. */
+    fun sheetRecords8323(laneRaw: String): List<LaneCheatSheet8323.Record8323> = try {
+        ensureLoaded()
+        val lane = canon(laneRaw)
+        synchronized(this) {
+            menuOf7962(lane).orEmpty().map { s ->
+                val st = stat(lane, s.id)
+                val n = st?.n ?: 0.0
+                LaneCheatSheet8323.Record8323(
+                    setup = s.id, prior = s.prior, n = n,
+                    meanPct = if (st != null && n > 0.0) st.mean() else 0.0,
+                    sePct = if (st != null && n > 1.0) kotlin.math.sqrt(st.variance() / n) else Double.POSITIVE_INFINITY,
+                    runnerRate = st?.runnerRate() ?: 0.0,
+                    suspect = statRaw8187(lane, s.id)?.suspect8187() == true,
+                    expectedPct = expected(lane, s.id),
+                )
+            }
+        }
+    } catch (_: Throwable) { emptyList() }
+
+    /** V5.0.8323 — the cached classification of [mint] in [laneRaw] (fired setups, chosen tag), never computed here; null when none. */
+    fun peekMatched8323(mint: String, laneRaw: String): Pair<List<String>, String?>? {
+        val c = classifyCache["$mint|${canon(laneRaw)}"]?.c ?: return null
+        return c.matched to c.chosen
+    }
 
     /** Cortex7885.capture: tag the decision with its setup for its forward label. */
     /**
@@ -1809,6 +1843,7 @@ object LanePlaybook7907 {
                 // V5.0.8187 — label books read through the cap; new labels clamped at ingestion.
                 val stamp = books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.labelStat8187() }
                     .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8322 — raw
+                LaneCheatSheet8323.noteLabel8323(lane, setup, y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8323 — runner average (raw, 8322)
                 if (timing8094 != null && timing8094 != TIMING_UNKNOWN_8094) timingBooks8094.getOrPut(lane) { HashMap() }
                     .getOrPut("$setup|$timing8094") { CortexLedger7885.labelStat8187() }
                     .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8322 — raw
@@ -2046,6 +2081,7 @@ object LanePlaybook7907 {
 
     fun statusLine(): String {
         ensureLoaded()
+        val sheet8323 = try { LaneCheatSheet8323.statusLines8323() } catch (_: Throwable) { "cheatSheet8323[unavailable]" }  // V5.0.8323 — outside the lock
         return synchronized(this) {
             val lanes = MENU.keys.joinToString("\n") { lane ->
                 val tags = tagged.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }
@@ -2071,7 +2107,8 @@ object LanePlaybook7907 {
             }
             "rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · measured setups expected to lose refused (7948) · setup auth>=0.5 admits over a smaller cell (7955) · paper never refused\n" +
                 "      refusals: ${refusals.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
-                "      ${try { LaneRealisedGovernor8295.statusLine8295(MENU.keys, System.currentTimeMillis()) { l -> Cortex7885.laneRealised8295(l) } } catch (_: Throwable) { "realised8295[unavailable]" }}\n" + lanes
+                "      ${try { LaneRealisedGovernor8295.statusLine8295(MENU.keys, System.currentTimeMillis()) { l -> Cortex7885.laneRealised8295(l) } } catch (_: Throwable) { "realised8295[unavailable]" }}\n" +
+                sheet8323.lines().joinToString("\n") { "      $it" } + "\n" + lanes
         }
     }
 }

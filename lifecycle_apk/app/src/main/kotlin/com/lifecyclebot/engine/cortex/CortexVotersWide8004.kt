@@ -28,6 +28,7 @@ internal object CortexVotersWide8004 {
     private val FLAG = e(0.5)
     private val ADJ = e(-10.0, -3.0, 0.0, 3.0, 10.0)
     private val COUNT = e(0.5, 1.5, 3.5, 7.5)
+    private val SHEET_8323 = e(-0.5, 0.5)
     private val UNIT = e(0.2, 0.4, 0.6, 0.8)
 
     private fun fin(v: Double?): Double? = v?.takeIf { it.isFinite() }
@@ -464,5 +465,18 @@ internal object CortexVotersWide8004 {
         v("WALLET_CONCENTRATION", "SOCIAL", e(20.0, 40.0, 60.0, 80.0), "sent_concentration") { ts, _, _ -> pos(ts.sentiment.walletConcentration) },
         v("SENTIMENT_DIVERGENCE", "SOCIAL", FLAG, "sent_divergence") { ts, _, _ -> flag(ts.sentiment.divergenceSignal) },
         v("SENTIMENT_DECAYED", "SOCIAL", e(-0.3, -0.05, 0.05, 0.3), "sentiment") { ts, _, _ -> fin(ts.sentiment.decayedScore)?.takeIf { it != 0.0 } },
+        // ── V5.0.8323 — each lane's cheat sheet verdict on the coin (+1 favoured setup fired, -1 avoided, 0 neutral): an input, not authority ──
+        v("SHEET_FAVOUR_SHITCOIN", "SHEET", SHEET_8323, "sheet8323_SHITCOIN") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "SHITCOIN", now) },
+        v("SHEET_FAVOUR_MOONSHOT", "SHEET", SHEET_8323, "sheet8323_MOONSHOT") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "MOONSHOT", now) },
+        v("SHEET_FAVOUR_EXPRESS", "SHEET", SHEET_8323, "sheet8323_EXPRESS") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "EXPRESS", now) },
+        v("SHEET_FAVOUR_PROJECT_SNIPER", "SHEET", SHEET_8323, "sheet8323_PROJECT_SNIPER") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "PROJECT_SNIPER", now) },
+        v("SHEET_FAVOUR_MANIPULATED", "SHEET", SHEET_8323, "sheet8323_MANIPULATED") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "MANIPULATED", now) },
+        v("SHEET_FAVOUR_QUALITY", "SHEET", SHEET_8323, "sheet8323_QUALITY") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "QUALITY", now) },
+        v("SHEET_FAVOUR_BLUECHIP", "SHEET", SHEET_8323, "sheet8323_BLUECHIP") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "BLUECHIP", now) },
+        v("SHEET_FAVOUR_DIP_HUNTER", "SHEET", SHEET_8323, "sheet8323_DIP_HUNTER") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "DIP_HUNTER", now) },
+        v("SHEET_FAVOUR_TREASURY", "SHEET", SHEET_8323, "sheet8323_TREASURY") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "TREASURY", now) },
+        v("SHEET_FAVOUR_CASHGEN", "SHEET", SHEET_8323, "sheet8323_CASHGEN") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "CASHGEN", now) },
+        v("SHEET_FAVOUR_CYCLIC", "SHEET", SHEET_8323, "sheet8323_CYCLIC") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "CYCLIC", now) },
+        v("SHEET_FAVOUR_CORE", "SHEET", SHEET_8323, "sheet8323_CORE") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "CORE", now) },
     )
 }

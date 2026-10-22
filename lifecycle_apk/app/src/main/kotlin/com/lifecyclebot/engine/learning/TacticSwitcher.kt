@@ -677,7 +677,8 @@ object TacticSwitcher {
         val k = key(lane, scoreBand)
         synchronized(mutex) {
             val current = cell.tactic.get()
-            val next = (current + 1) % Tactic.values().size
+            // V5.0.8323 — the lane's cheat sheet: rotate toward a FAVOURED setup's shape, past shapes only AVOIDED setups trade as.
+            val next = try { com.lifecyclebot.engine.cortex.LaneCheatSheet8323.rotationTarget8323(lane, current, Tactic.values().size) { s -> seedTactic8049(lane, s).ordinal } } catch (_: Throwable) { (current + 1) % Tactic.values().size }
             cell.tactic.set(next)
             cell.tradesSinceRotation.set(0)
             cell.pnlSumSinceRotation.set(0L)
