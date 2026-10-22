@@ -67,6 +67,19 @@ class Aate8309MemoryResidueTest {
         assertTrue(MintResidue8309.sweepDue8309(1_000L, 121_000L))
     }
 
+    @Test fun scannerQueueRowsArePrunedButRejectTtlsAndLiveMintsStay() {
+        val before = ScannerHydrationQueues6347.rowCount8309()
+        for (i in 0 until 500) ScannerHydrationQueues6347.enqueue(mint(i, "q"), ScannerHydrationQueues6347.Bucket.values().first())
+        ScannerHydrationQueues6347.rejectWithTtl(mint(0, "ttl"), 24L * 3_600_000L, "test")
+        assertEquals(before + 501, ScannerHydrationQueues6347.rowCount8309())
+        val later = System.currentTimeMillis() + 3_600_000L
+        val removed = ScannerHydrationQueues6347.pruneStale8309(later, 30L * 60_000L) { it == mint(3, "q") }
+        assertTrue("removed $removed", removed >= 499)
+        val left = ScannerHydrationQueues6347.rowCount8309()   // the live mint and the unexpired reject TTL (plus other suites' TTLs)
+        assertTrue("left $left", left in 2..(before + 2))
+        assertTrue("scannerQueueRows8309" in MemoryGuard7977.registeredStores8144())
+    }
+
     // ── the largest residue: one 200-candle chart copy per mint ever full-scanned ──
 
     @Test fun theSmartChartCandleCacheHoldsItsCapAcrossManyMints() {
@@ -145,7 +158,7 @@ class Aate8309MemoryResidueTest {
         assertTrue(body.contains("catch (_: Throwable) { return null }"))
         // The guard sweeps at NORMAL pressure too, under the trim lock.
         assertTrue(g.contains("if (lvl == 0) { escalation8136 = 0; try { periodicResidue8309() } catch (_: Throwable) {}; return }"))
-        assertTrue(g.contains("synchronized(trimLock8305) { MintResidue8309.sweep8309(live, now) }"))
+        assertTrue(g.contains("synchronized(trimLock8305) { MintResidue8309.sweep8309(live, now); ScannerHydrationQueues6347.pruneStale8309(now, 30L * 60_000L, live) }"))
     }
 
     @Test fun insiderTrimDropsExpiredCachesButKeepsTheDeltaBaseline() {

@@ -63,6 +63,22 @@ object ScannerHydrationQueues6347 {
     )
 
     private val rowsByMint = ConcurrentHashMap<String, Row>()
+
+    /**
+     * V5.0.8309 — rows are consumed only by the emergency drain, so one row per mint ever enqueued stayed for the process.
+     * Rows older than [maxAgeMs] go unless they hold an unexpired reject TTL or their mint is still live. Returns rows removed.
+     */
+    internal fun pruneStale8309(nowMs: Long, maxAgeMs: Long, isLive: (String) -> Boolean): Int {
+        val before = rowsByMint.size
+        rowsByMint.entries.removeIf { e ->
+            val r = e.value
+            nowMs - r.enqueuedAtMs > maxAgeMs && !(r.bucket == Bucket.REJECTED_WITH_TTL && nowMs < r.ttlUntilMs) &&
+                !(try { isLive(r.mint) } catch (_: Throwable) { true })
+        }
+        return (before - rowsByMint.size).coerceAtLeast(0)
+    }
+
+    internal fun rowCount8309(): Int = rowsByMint.size
     private val counters = ConcurrentHashMap<Bucket, AtomicLong>().apply {
         Bucket.values().forEach { put(it, AtomicLong(0L)) }
     }

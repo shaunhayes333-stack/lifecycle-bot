@@ -427,6 +427,7 @@ object MemoryGuard7977 {
      * mints only); the learning books are counted, never trimmed (memory pressure never resets learning).
      */
     private fun registerStores8309(r: MemoryRegistry8144) {
+        val hard = { p: RetentionPolicy8136.Pressure -> p == RetentionPolicy8136.Pressure.HARD || p == RetentionPolicy8136.Pressure.CRITICAL }
         val res = MintResidue8309
         res.register8309("smartChartCandles", 14_000L, { SmartChartScanner.residueMap8309() }) { SmartChartScanner.residueBytes8309() }
         res.register8309("regimeHistory", 3_000L, { com.lifecyclebot.v3.scoring.RegimeTransitionAI.residueHistory8309() })
@@ -443,6 +444,12 @@ object MemoryGuard7977 {
         for (name in res.names8309()) {
             r.register8144("res8309:$name", 0L, { res.countOf8309(name) }, { _ -> sweepResidue8309(name) }) { res.bytesOf8309(name).coerceAtLeast(0L) }
         }
+        // Scanner queue rows: consumed only by the emergency drain; stale rows of non-live mints go (reject TTLs kept).
+        r.register8144("scannerQueueRows8309", 200L, { ScannerHydrationQueues6347.rowCount8309() }, { p ->
+            val now = System.currentTimeMillis()
+            val live = liveMints8309(now)
+            if (live != null) ScannerHydrationQueues6347.pruneStale8309(now, if (hard(p)) 10L * 60_000L else 30L * 60_000L, live)
+        })
         // Learning books: counted, never trimmed.
         r.register8144("cortexLedgers8309", 0L, { -1 }, null) {
             com.lifecyclebot.engine.cortex.Cortex7885.ledgerBytes8309() + com.lifecyclebot.engine.cortex.CortexExit7897.ledgerBytes8309() +
@@ -527,7 +534,7 @@ object MemoryGuard7977 {
         if (!MintResidue8309.sweepDue8309(maxOf(MintResidue8309.lastSweepMs8309(), residueFirstTickMs8309), now)) return
         staleCleanups8309()
         val live = liveMints8309(now) ?: return
-        synchronized(trimLock8305) { MintResidue8309.sweep8309(live, now) }
+        synchronized(trimLock8305) { MintResidue8309.sweep8309(live, now); ScannerHydrationQueues6347.pruneStale8309(now, 30L * 60_000L, live) }
     }
 
     /** What the guard's own passes see before a trim: token rows, their estimated bytes, resident archive rows. */
