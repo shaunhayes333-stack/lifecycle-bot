@@ -1694,6 +1694,7 @@ object ToolkitSignalSheet {
             // (EXEC_REFUSED on the same attempt); ticket - exec - execRefused = in flight.
             deskCount6599(lane, "EXEC_REFUSED").takeIf { it > 0L }?.let { appendLine("$lane execRefused7868=$it") }
             TicketExec8304.line8304(lane)?.let { appendLine(it) }  // V5.0.8304 — ticket -> exec per lane, every drop named
+            SpecialistOwnership7951.ownerWhyLine8330(lane)?.let { appendLine(it) }  // V5.0.8330 — qualified -> owner selected: every refusal by name
             val raw7214 = s.rawCounts7086
             fun rawOf7214(stage: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage) =
                 raw7214[stage] ?: 0

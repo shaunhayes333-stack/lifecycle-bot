@@ -264,6 +264,7 @@ object TokenMapAuthority {
             tm.hydrationFailureReasons.addOnce("SOURCE_IDENTITY_BAD:source_label_as_identity")
         } else classifyRoute(tm, ts)
         tm.updatedAtMs = now
+        try { TicketRetry8327.onRouteResolved8330(target, tm.routeStatus) } catch (_: Throwable) {}  // V5.0.8330 — a route-held ticket resumes when the route resolves
         val versionAccepted7460 = com.lifecyclebot.engine.truth.TokenMapVersionGuard6411.guardMetricWrite(
             mint = target,
             stage = "TOKEN_MAP_COMMIT_7460",

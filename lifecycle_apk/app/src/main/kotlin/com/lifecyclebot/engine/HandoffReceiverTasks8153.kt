@@ -240,6 +240,13 @@ object HandoffReceiverTasks8153 {
      */
     fun expire8153(t: Task8153, nowMs: Long): Task8153 {
         if (!t.pending || nowMs <= t.validUntilMs) return t
+        // V5.0.8330 — a task deferred for a missing TokenState is not terminalised before asking whether the state arrived.
+        if (awaitsState8330(t) && stateSeen8330.containsKey(t.mint)) {
+            expiredAfterState8330.incrementAndGet()
+            val resumed = resumeOnState8330(t, true, nowMs)
+            if (resumed != null) { resumed8330.incrementAndGet(); return resumed }
+            return t.copy(outcome = Outcome8153.DEFERRED_DATA, verdict = t.lastBlock.removePrefix(DEFERRED_PREFIX_8153) + "_STATE_ARRIVED_LATE_8330", settledAtMs = nowMs)
+        }
         return when {
             t.lastBlock.startsWith(DEFERRED_PREFIX_8153) ->
                 t.copy(outcome = Outcome8153.DEFERRED_DATA, verdict = t.lastBlock.removePrefix(DEFERRED_PREFIX_8153), settledAtMs = nowMs)
@@ -251,6 +258,54 @@ object HandoffReceiverTasks8153 {
             else -> t.copy(outcome = Outcome8153.REFUSED, verdict = "STALE_NOT_SCHEDULED", settledAtMs = nowMs)
         }
     }
+
+    // ── V5.0.8330 — resume on evidence arrival ──
+    //
+    // 5.0.8326: 22 tasks ended "missing receiver TokenState", 23 expired unevaluated, 0 immediate recoveries. The
+    // deferral asked for watchlist intake and checked for the installed state in the same breath; when the state did
+    // arrive (a later poll), nothing told the task. Now the arrival (HandoffRetention8185.rehydrate8185 installed,
+    // HandoffPriority8190.poolWithLiveTargets8216 finding the state) resumes the SAME task: same mint / lane / from /
+    // reason / version / evidence, the deferral block cleared, validity extended to TASK_TTL from now and never past
+    // TASK_MAX_AGE from creation. A resumed task rides the next cycle's priority window (pending tasks are always in it).
+
+    private val stateSeen8330 = ConcurrentHashMap<String, Long>()
+    private val resumed8330 = AtomicLong(0L)
+    private val expiredAfterState8330 = AtomicLong(0L)
+
+    /** Pure: the task's remembered block is the missing-state deferral. */
+    fun awaitsState8330(t: Task8153): Boolean =
+        t.pending && t.lastBlock.startsWith(DEFERRED_PREFIX_8153) && t.lastBlock.contains("NO_TOKEN_STATE")
+
+    /**
+     * Pure: the same task, resumed — block cleared, validity extended within the max age. Null when there is nothing
+     * to resume (no task, not pending, not awaiting the state, state not installed, or max age reached).
+     */
+    fun resumeOnState8330(t: Task8153?, installed: Boolean, nowMs: Long): Task8153? {
+        if (t == null || !installed || !awaitsState8330(t)) return null
+        val until = minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)
+        if (until <= nowMs) return null
+        return t.copy(lastBlock = "", validUntilMs = maxOf(t.validUntilMs, until))
+    }
+
+    /** The receiver's TokenState for [mint] is installed now: resume its awaiting task at once (idempotent, cheap when none). */
+    fun onStateInstalled8330(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        val m = HandoffRoute8180.memeKey8180(mint.trim())
+        val t = tasks8153[m] ?: tasks8153[mint] ?: return
+        if (!awaitsState8330(t)) return
+        if (stateSeen8330.size > 2_048) stateSeen8330.entries.removeIf { nowMs - it.value > TASK_MAX_AGE_MS_8153 }
+        stateSeen8330[t.mint] = nowMs
+        val after = update8153(t.mint, nowMs) { prior -> resumeOnState8330(prior, true, nowMs) ?: prior }
+        if (after != null && after.pending && after.lastBlock.isEmpty()) {
+            resumed8330.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("HANDOFF_TASK_RESUMED_ON_STATE_8330_${after.lane}")
+                ForensicLogger.lifecycle("HANDOFF_TASK_RESUMED_8330", "mint=${t.mint.take(10)} lane=${after.lane} from=${after.from} version=${after.version} validUntilMs=${after.validUntilMs} action=same_task_next_cycle")
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /** " handoffResumed8330=N expiredAfterState=M" */
+    fun resumeLine8330(): String = " handoffResumed8330=${resumed8330.get()} expiredAfterState=${expiredAfterState8330.get()}"
 
     // ── bounded runtime table (one task per mint) ──
 
@@ -429,7 +484,7 @@ object HandoffReceiverTasks8153 {
         return "handoffTask8153[opened=${c("OPENED")} scheduled=${c("SCHEDULED")} transferred=${c("TRANSFERRED")} " +
             "evaluated=${c(Outcome8153.EVALUATED.name)} deferredData=${c(Outcome8153.DEFERRED_DATA.name)} " +
             "refused=${c(Outcome8153.REFUSED.name)} pending=${tasks8153.values.count { it.pending }} " +
-            verdictLine8169() + "]" + HandoffTrace8190.statusLine8190()  // V5.0.8190
+            verdictLine8169() + "]" + resumeLine8330() + HandoffTrace8190.statusLine8190()  // V5.0.8190 / V5.0.8330
     }
 
     /** V5.0.8169 — "refusedBy8169{..} deferredBy8169{..} evaluatedBy8169{..}": every settled task's verdict by name. */
@@ -440,7 +495,7 @@ object HandoffReceiverTasks8153 {
             "evaluatedBy8169{${topTallies8169(v, "${Outcome8153.EVALUATED.name}|", 4)}}"
     }
 
-    internal fun resetForTests8153() { tasks8153.clear(); counts8153.clear(); verdicts8169.clear() }
+    internal fun resetForTests8153() { tasks8153.clear(); counts8153.clear(); verdicts8169.clear(); stateSeen8330.clear(); resumed8330.set(0L); expiredAfterState8330.set(0L) }
 }
 
 /**

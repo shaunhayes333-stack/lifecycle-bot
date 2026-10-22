@@ -17945,7 +17945,15 @@ class Executor(
         return "$wrapper:${inner.take(60)}"
     }
 
+    /** V5.0.8330 — the wallet-spend mutex release is the resume event for mutex-held tickets (TicketRetry8327 dispatcher). */
+    private fun releaseBuyMutex8330(acquired: Boolean) {
+        if (!acquired) return
+        try { MEME_LIVE_BUY_MUTEX.release() } catch (_: Throwable) {}
+        try { TicketRetry8327.onMutexReleased8330() } catch (_: Throwable) {}
+    }
+
     private fun unexecutedTicket7948(layerTag: String, attemptId: String, reason: String) {
+        @Suppress("NAME_SHADOWING") val reason = TicketCause8330.refineLive8330(attemptId, reason)  // V5.0.8330 — LIVE_BUY_NOT_OPENED: held / vanished / refused / unnamed
         val pending8198 = com.lifecyclebot.network.SignedTxLedger8085.unresolvedAttempt8198(attemptId)
         if (pending8198 != null) {
             // The wrapper still returns false: neither OPEN nor failure is proven.
@@ -18017,6 +18025,7 @@ class Executor(
                 unexecutedTicket7948(layerTag, preflight.attemptId, "LIVE_BUY_NO_WALLET_7948")
                 return false
             }
+            TicketRetry8327.registerResume8330(layerTag, preflight.attemptId, ts.mint) { blueChipBuy(ts, sizeSol, walletSol, takeProfitPct, stopLossPct, wallet, isPaper, layerTag, layerTagEmoji, true, preflight.attemptId) }  // V5.0.8330 — a held ticket resumes through this same call
             val liveOpened = liveBuy(
                 ts = ts,
                 sol = sizeSol,
@@ -18156,6 +18165,7 @@ class Executor(
                 unexecutedTicket7948(executionLane, preflight.attemptId, "LIVE_BUY_NO_WALLET_7948")  // V5.0.8304
                 return false
             }
+            TicketRetry8327.registerResume8330(executionLane, preflight.attemptId, ts.mint) { shitCoinBuy(ts, sizeSol, walletSol, takeProfitPct, stopLossPct, wallet, isPaper, launchPlatform, riskLevel, true, preflight.attemptId, entryScore, entryConfidence, executionLane) }  // V5.0.8330
             val liveOpened = liveBuy(
                 ts = ts,
                 sol = sizeSol,
@@ -18247,6 +18257,7 @@ class Executor(
                 unexecutedTicket7948("MOONSHOT", preflight.attemptId, "LIVE_BUY_NO_WALLET_7948")  // V5.0.8304
                 return false
             }
+            TicketRetry8327.registerResume8330("MOONSHOT", preflight.attemptId, ts.mint) { moonshotBuy(ts, sizeSol, walletSol, wallet, isPaper, score, spaceModeEmoji, spaceModeName, true, preflight.attemptId) }  // V5.0.8330
             val liveOpened = liveBuy(ts = ts, sol = sizeSol, score = score, wallet = wallet,
                 walletSol = walletSol, identity = identity, quality = spaceModeName, skipGraduated = true,
                 layerTag = "MOONSHOT", layerTagEmoji = spaceModeEmoji.ifBlank { "🚀" },
@@ -22293,7 +22304,7 @@ class Executor(
             }
             // V5.9.778/V5.0.3910 — release MEME_LIVE_BUY_MUTEX only if this
             // invocation actually acquired it at the wallet-spend boundary.
-            try { if (liveBuyMutexAcquired) MEME_LIVE_BUY_MUTEX.release() } catch (_: Throwable) {}
+            releaseBuyMutex8330(liveBuyMutexAcquired)  // V5.0.8330 — release, then resume mutex-held tickets
         }
     }
 

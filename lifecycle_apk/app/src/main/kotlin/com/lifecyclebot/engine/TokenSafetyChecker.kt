@@ -1049,6 +1049,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         )
 
         cache[mint] = report
+        try { TicketRetry8327.onProofLanded8330(mint) } catch (_: Throwable) {}  // V5.0.8330 — a proof-held ticket resumes now
         // V5.9.651 — forensic gate result for SafetyChecker. Operator can grep
         // "🧬[SAFETY]" to see every safety verdict in one place: which symbol,
         // allow/deny, hard reasons, soft reasons, total penalty.

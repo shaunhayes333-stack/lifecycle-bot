@@ -252,7 +252,7 @@ object HandoffPriority8190 {
         var joined = 0
         for ((m, _) in targets.distinctBy { it.first }) {
             if (m in set) continue
-            if (tokenFor(m)) { set.add(m); joined++ } else rehydrate(m)
+            if (tokenFor(m)) { set.add(m); joined++; try { HandoffReceiverTasks8153.onStateInstalled8330(m, nowMs) } catch (_: Throwable) {} } else rehydrate(m)  // V5.0.8330 — the state arrived: resume the task
         }
         if (joined > 0) try { PipelineHealthCollector.labelAdd("HANDOFF_TARGET_JOINED_POOL_8216", joined.toLong()) } catch (_: Throwable) {}
         return set
