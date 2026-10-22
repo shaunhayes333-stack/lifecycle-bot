@@ -447,13 +447,18 @@ object AutoPipelineAdvisor6462 {
         return BrainReadings(meta, superBr, capital, sentience, provenDead, riskPressure)
     }
 
+    private val TIGHTEN_ON_INCREASE_8319 = setOf("minLiquidityUsd", "minDiscoveryScore", "walletReserveSol", "entryCooldownSec")
+
     private fun fuseWithBrains(c: Candidate, b: BrainReadings): Candidate {
         // Each brain votes agree/disagree with the delta SIGN based on its stance.
         // Delta > 0 = "loosen/widen"; delta < 0 = "tighten/shrink". A defensive
         // brain (mult < 1.0, provenDead, high risk pressure) agrees with
         // TIGHTENING (delta < 0) and disagrees with LOOSENING. An aggressive
         // brain (mult > 1.0, positive sentience) agrees with LOOSENING.
-        val loosening = c.delta > 0.0
+        // V5.0.8319 — for keys where an INCREASE tightens (a higher floor /
+        // score bar / reserve / cooldown), a positive delta is not loosening;
+        // the old sign test cast every brain's vote backwards on those keys.
+        val loosening = if (c.key in TIGHTEN_ON_INCREASE_8319) c.delta < 0.0 else c.delta > 0.0
         val votes = mutableListOf<BrainVote>()
         // V5.0.6898 §ABSTENTION_WAS_COUNTED_AS_OPPOSITION.
         //
@@ -521,12 +526,15 @@ object AutoPipelineAdvisor6462 {
     // ─── Optional LLM enrichment ───────────────────────────────────────────
 
     private fun enrichWithLlm(ctx: Context, base: List<Candidate>): List<Candidate> {
-        if (base.isEmpty()) return base
         val allow = try { LlmParameterTuner.allowedKeys().joinToString(", ") } catch (_: Throwable) { "" }
         if (allow.isBlank()) return base
         val report = try { PipelineHealthCollector.dumpText().take(12_000) } catch (_: Throwable) { "" }
         if (report.isBlank()) return base
-        val ruleSummary = base.joinToString("\n") { "- ${it.key} Δ${it.delta} (${it.severity}): ${it.reason}" }
+        // V5.0.8319 — the LLM is asked even when the rules engine found nothing
+        // (8316: autoApplied=0 because an empty base returned before asking).
+        // parseLlmCandidates still drops any key outside the tuner allowlist.
+        val ruleSummary = if (base.isEmpty()) "(none — the rules engine found nothing; propose up to 3 adjustments from the report yourself)"
+            else base.joinToString("\n") { "- ${it.key} Δ${it.delta} (${it.severity}): ${it.reason}" }
         val user = """
 The trading bot's rules engine derived these candidate adjustments:
 $ruleSummary

@@ -154,6 +154,14 @@ object SelfHealingAdvisor {
                         // as "applied" so the inbox UI does not offer it
                         // again as a pending action.
                         for (s in parsed) if (s.key == c.key) AdvisorInbox.markApplied(s.id)
+                        // V5.0.8319 — self-heal changes are audited and auto-reverted
+                        // (WR/PnL regression within 20 min) like advisor applies.
+                        try {
+                            com.lifecyclebot.engine.truth.AdvisorRegressionMonitor6463.registerApply(
+                                id = parsed.firstOrNull { it.key == c.key }?.id ?: c.key, key = c.key,
+                                deltaApplied = c.newValue - c.oldValue, reason = "selfheal8319:${c.reason.take(120)}",
+                            )
+                        } catch (_: Throwable) {}
                         ForensicLogger.lifecycle(
                             "SELF_HEALING_TUNE_APPLIED_6571",
                             "key=${c.key} old=${c.oldValue} new=${c.newValue} reason=${c.reason.take(120)}",

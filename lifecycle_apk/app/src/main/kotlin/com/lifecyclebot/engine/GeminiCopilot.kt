@@ -768,15 +768,13 @@ the very end of your reply:
 
 - "delta" is RELATIVE (e.g. +1.0 raises by 1, -0.5 lowers by 0.5). Keep
   deltas small — soft nudges, not rewrites. Max 3 adjustments per reply.
-- PHASE GATE: TUNE blocks are phase-locked by trade count.
-  • Bootstrap (0-999 trades): TUNE is LOCKED. Do NOT emit TUNE blocks — they will
-    be silently discarded. The bot is still in pure learning mode.
-  • Learning (1000-2999 trades): Max 1 adjustment per reply, half-sized steps only.
-    Gentle nudges only — the bot is self-calibrating.
-  • Mature/Expert (3000+ trades): Full autonomy. Up to 3 adjustments, full steps.
-  The current trade count is visible in your INNER STATE context.
+- AUTHORITY: TUNE is LIVE from the first settled trade. Up to 3 adjustments per reply,
+  each bounded by the key's own step and min/max. Every change is audited and is
+  auto-reverted if WR or PnL regresses within 20 minutes, so propose real fixes
+  grounded in the INNER STATE numbers rather than waiting for more trades.
+  Trade 0 (no settled trade yet) is the only locked state.
 - Allowed keys: stopLossPct, trailingStopBasePct, exitScoreThreshold,
-  entryCooldownSec, pollSeconds, slippageBps, perPositionSizePct,
+  entryCooldownSec, pollSeconds, slippageBps,
   minHoldMins, maxHoldMinsHard, sentimentEntryBoost, sentimentExitBoost,
   sentimentBlockThreshold, behaviorAggressionLevel, defensiveLossThreshold,
   aggressiveWhaleThreshold, convictionMult1, convictionMult2,

@@ -81,10 +81,8 @@ object LlmParameterTuner {
             { c, v -> c.copy(slippageBps = v.toInt()) },
             min = 50.0, max = 500.0, maxStep = 100.0
         ),
-        "perPositionSizePct" to ParamSpec(
-            { it.perPositionSizePct }, { c, v -> c.copy(perPositionSizePct = v) },
-            min = 0.02, max = 0.25, maxStep = 0.03
-        ),
+        // V5.0.8319 — perPositionSizePct removed: it has no readers outside
+        // config/UI, so a tune moved nothing. Not wired into sizing.
         "minHoldMins" to ParamSpec(
             { it.minHoldMins }, { c, v -> c.copy(minHoldMins = v) },
             min = 0.5, max = 15.0, maxStep = 3.0
@@ -176,7 +174,7 @@ object LlmParameterTuner {
     // step; authority ramps with FreeRangeMode.adjustmentStrength().
     // Mature/Expert (3000+ trades): up to 3 adjustments, full bounded step.
     private const val TUNE_BOOTSTRAP_END = 1
-    private const val TUNE_LEARNING_END  = 3000
+    private const val TUNE_LEARNING_END  = 1     // V5.0.8319: 3 changes, full maxStep from trade 1 (was 3000)
 
     fun extractAndApply(ctx: Context?, llmReply: String): Applied {
         if (llmReply.isBlank()) {
