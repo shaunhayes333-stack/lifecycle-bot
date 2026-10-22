@@ -188,7 +188,8 @@ class Aate8136AdmissionRecordTest {
         assertTrue(gate.indexOf("dataDefer8136(ts, l8059, setup8083, nowMs)") in 1 until gate.indexOf("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))
         assertTrue(gate.contains("CandidateAdmission8136.noteVerdict8136(\"LIVE\", verdict.name, reason)"))
         val plan = src("engine/truth/TradePlan7739.kt")
-        assertTrue(plan.contains("if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return chartPlanRefusal8136(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)"))
+        // superseded by V5.0.8326 — Entry8114Mode8326 plans a chart BUY at once in mode; otherwise the 8136 chart plan refusal
+        assertTrue(plan.contains("if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) {") && plan.contains("return chartPlanRefusal8136(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)"))
         // superseded by V5.0.8317: the local-tape minimum follows the coin's age (LocalTapeBars8128.minMinutes8317).
         assertTrue(plan.contains("LocalTapeBars8128.fromPrints8128(TradeTape8100.prints8128(mint, nowMs, WINDOW_MS_7739), solUsd,"))
         assertTrue(plan.contains("com.lifecyclebot.engine.chart.LocalTapeBars8128.minMinutes8317(ageMin))"))
