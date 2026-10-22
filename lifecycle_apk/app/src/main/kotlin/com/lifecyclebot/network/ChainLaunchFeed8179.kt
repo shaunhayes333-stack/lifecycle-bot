@@ -707,7 +707,7 @@ object ChainLaunchFeed8179 {
     }
 
     private fun handle8179(text: String) {
-        val o = JSONObject(text)
+        val o = NetParseGuard8305.parseObject8305("CHAIN_LAUNCH", text, NetParseGuard8305.FRAME_CAP_TX_8305) ?: return  // V5.0.8305
         if (o.has("id") && !o.has("method")) {
             val id = o.optInt("id", -1)
             pendingSentAt8191.remove(id)

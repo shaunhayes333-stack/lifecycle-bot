@@ -504,7 +504,40 @@ object InsiderWalletTracker {
     // V5.9: previous holdings snapshot for delta-based signal detection
     private val prevHoldingsSnapshot = ConcurrentHashMap<String, Map<String, Double>>()
 
-    suspend fun scanForSignals(): List<InsiderSignal> = withContext(Dispatchers.IO) {
+    // ── V5.0.8305 §SINGLE_FLIGHT_SCAN ──
+    // Every Helius smart-money push (HeliusEnhancedWS, processed commitment: one frame per tracked-wallet transaction)
+    // launched a full scan of every insider wallet: getTokenAccountsByOwner (jsonParsed, both token programs — MBs for a
+    // whale) plus a price lookup per holding. Holdings are cached only after a scan completes, so a burst of pushes ran
+    // dozens of identical scans at once, each holding its account dumps and JSON trees (the 5.0.8302 OOM came on the push
+    // socket's reader thread). One scan runs at a time and not again within the holdings TTL (a scan inside the TTL reads
+    // the cached holdings and can find no delta, so nothing is lost); the rest are counted as coalesced.
+    private val scanInFlight8305 = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var lastScanStartMs8305 = 0L
+    private val scansRun8305 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val scansCoalesced8305 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Pure: may a scan start now? Not while one runs, and not within [CACHE_TTL_MS] of the last start. */
+    fun scanAdmit8305(inFlight: Boolean, lastStartMs: Long, nowMs: Long): Boolean =
+        !inFlight && (lastStartMs <= 0L || nowMs - lastStartMs >= CACHE_TTL_MS)
+
+    suspend fun scanForSignals(): List<InsiderSignal> {
+        val now = System.currentTimeMillis()
+        if (!scanAdmit8305(scanInFlight8305.get(), lastScanStartMs8305, now) || !scanInFlight8305.compareAndSet(false, true)) {
+            scansCoalesced8305.incrementAndGet()
+            return emptyList()
+        }
+        lastScanStartMs8305 = now
+        scansRun8305.incrementAndGet()
+        return try { scanForSignalsInner8305() } finally { scanInFlight8305.set(false) }
+    }
+
+    /** V5.0.8305 — resident entries for the memory census: cached holdings rows + cached prices / symbols. */
+    fun memCount8305(): Int = holdingsCache.values.sumOf { it.holdings.size } + tokenPriceCache.size + tokenSymbolCache.size +
+        prevHoldingsSnapshot.values.sumOf { it.size }
+
+    fun scanLine8305(): String = "insiderScan8305[run=${scansRun8305.get()} coalesced=${scansCoalesced8305.get()} inFlight=${scanInFlight8305.get()}]"
+
+    private suspend fun scanForSignalsInner8305(): List<InsiderSignal> = withContext(Dispatchers.IO) {
         val signals = mutableListOf<InsiderSignal>()
 
         getActiveWallets().forEach { wallet ->
@@ -679,20 +712,29 @@ object InsiderWalletTracker {
         "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu" to "COINx",
     )
 
+    // V5.0.8305 — prices are cached per mint for the process (never refreshed); a whale's dust and spam tokens grew it
+    // without bound. Past the cap it starts over (a cleared price is simply fetched again).
+    private const val TOKEN_PRICE_CACHE_MAX_8305 = 3_000
+
+    private fun putPrice8305(mint: String, price: Double) {
+        if (tokenPriceCache.size >= TOKEN_PRICE_CACHE_MAX_8305) tokenPriceCache.clear()
+        tokenPriceCache[mint] = price
+    }
+
     private suspend fun fetchTokenPrice(mint: String): Double {
         tokenPriceCache[mint]?.let { return it }
 
         // Try Birdeye
         val birdeyePrice = BirdeyeOracle.getPriceByAddress(mint)
         if (birdeyePrice != null && birdeyePrice > 0) {
-            tokenPriceCache[mint] = birdeyePrice
+            putPrice8305(mint, birdeyePrice)
             return birdeyePrice
         }
 
         // Try DexScreener
         val dexPrice = DexScreenerOracle.getPriceByAddress(mint)
         if (dexPrice != null && dexPrice > 0) {
-            tokenPriceCache[mint] = dexPrice
+            putPrice8305(mint, dexPrice)
             return dexPrice
         }
 

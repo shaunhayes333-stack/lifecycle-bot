@@ -573,7 +573,7 @@ object PumpFunWS {
             // $10k-$100k band on an executed-trade mark or the curve's reserves is admitted even with no trade stream.
             try { com.lifecyclebot.engine.truth.PumpBandEntry8118.maybeSweep8136() } catch (_: Throwable) {}
             try {
-                val j = JSONObject(text)
+                val j = NetParseGuard8305.parseObject8305("PUMP_PORTAL", text) ?: return  // V5.0.8305
                 val txType = j.optString("txType", "")
                 // A socket write is not a subscription acceptance. An auth/funding
                 // refusal disables keyed methods for this credential state, while
@@ -738,6 +738,7 @@ object PumpFunWS {
                         onMigrationCb?.invoke(mint)
                     }
                 }
+            } catch (_: OutOfMemoryError) { NetParseGuard8305.dropOom8305("PUMP_PORTAL")  // V5.0.8305 — never fatal on the reader thread
             } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "parse error: ${e.message?.take(80)}")
             }

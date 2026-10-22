@@ -115,7 +115,7 @@ class PumpFunWebSocket(
 
     private fun parseMessage(text: String) {
         try {
-            val msg    = JSONObject(text)
+            val msg    = NetParseGuard8305.parseObject8305("PUMP_FUN_LEGACY", text) ?: return  // V5.0.8305
             val txType = msg.optString("txType", "")
 
             when (txType) {
@@ -161,6 +161,7 @@ class PumpFunWebSocket(
                     }
                 }
             }
+        } catch (_: OutOfMemoryError) { NetParseGuard8305.dropOom8305("PUMP_FUN_LEGACY")  // V5.0.8305 — never fatal on the reader thread
         } catch (_: Exception) {}
     }
 

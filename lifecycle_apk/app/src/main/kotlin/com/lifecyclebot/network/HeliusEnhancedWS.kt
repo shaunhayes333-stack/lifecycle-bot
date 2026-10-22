@@ -165,7 +165,8 @@ object HeliusEnhancedWS {
                 try { if (affordable7881(requestedAccounts) != watchedAccounts) updateWatchlist(requestedAccounts) } catch (_: Throwable) {}
             }
             try {
-                val msg = JSONObject(text)
+                // V5.0.8305 — oversize / out-of-heap frames are dropped (NetParseGuard8305), never fatal on the reader thread.
+                val msg = NetParseGuard8305.parseObject8305("SMART_MONEY_STREAM", text, NetParseGuard8305.FRAME_CAP_TX_8305) ?: return
                 // Subscription confirmation
                 if (msg.has("result") && msg.opt("result") is Number) {
                     subscriptionId = msg.getLong("result")
@@ -190,6 +191,7 @@ object HeliusEnhancedWS {
                     }
                 }
                 if (sig.isNotBlank()) onTxCb?.invoke(sig, keys.filter { it.isNotBlank() }, result)
+            } catch (_: OutOfMemoryError) { NetParseGuard8305.dropOom8305("SMART_MONEY_STREAM")  // V5.0.8305 — never fatal on the reader thread
             } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "parse error: ${e.message?.take(80)}")
             }

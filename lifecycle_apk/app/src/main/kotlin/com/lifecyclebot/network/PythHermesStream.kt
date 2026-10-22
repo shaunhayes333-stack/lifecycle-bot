@@ -110,7 +110,7 @@ object PythHermesStream {
 
         override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
             try {
-                val j = JSONObject(data)
+                val j = NetParseGuard8305.parseObject8305("PYTH_SSE", data) ?: return  // V5.0.8305
                 val parsed: JSONArray = j.optJSONArray("parsed") ?: return
                 for (i in 0 until parsed.length()) {
                     val item = parsed.optJSONObject(i) ?: continue
@@ -129,6 +129,7 @@ object PythHermesStream {
                         onPriceCb?.invoke(feedId, priceUsd, confUsd, publishTime)
                     }
                 }
+            } catch (_: OutOfMemoryError) { NetParseGuard8305.dropOom8305("PYTH_SSE")  // V5.0.8305 — never fatal on the reader thread
             } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "parse error: ${e.message?.take(80)}")
             }

@@ -85,6 +85,8 @@ object SharedHttpClient {
         // touching the 36+ callers individually. Short-circuits NXDOMAIN
         // and 5xx/429 storms with a 599 synthetic response — zero TLS,
         // zero TCP, zero DNS during cool-down.
+        // V5.0.8305 — outermost: every (decompressed) body is read through its endpoint's byte cap (HttpBodyCap8305).
+        .addInterceptor(com.lifecyclebot.network.HttpBodyCap8305)
         // V5.0.8287 — one DexScreener budget for every caller (before the circuit: a local refusal is never a provider failure).
         .addInterceptor(com.lifecyclebot.network.DexRateInterceptor8287)
         .addInterceptor(com.lifecyclebot.network.HostCircuitInterceptor)
@@ -151,6 +153,12 @@ object SharedHttpClient {
     fun cancelAllRequests() {
         try { sharedDispatcher.cancelAll() } catch (_: Throwable) {}
     }
+
+    /** V5.0.8305 — shared dispatcher load for the memory line: async calls queued / running, sync calls running. */
+    fun dispatcherLine8305(): String = try {
+        "dispatcher8305[queued=${sharedDispatcher.queuedCallsCount()} running=${sharedDispatcher.runningCallsCount()} " +
+            "max=${sharedDispatcher.maxRequests}/${sharedDispatcher.maxRequestsPerHost}]"
+    } catch (_: Throwable) { "dispatcher8305[-]" }
 
     /** Returns a new builder backed by the shared connection pool/dispatcher. */
     fun builder(): OkHttpClient.Builder = base.newBuilder()

@@ -177,7 +177,7 @@ class DexScreenerWebSocket(
 
     private fun parseMessage(text: String) {
         try {
-            val msg = JSONObject(text)
+            val msg = NetParseGuard8305.parseObject8305("DEXSCREENER_WS", text, NetParseGuard8305.FRAME_CAP_WIDE_8305) ?: return  // V5.0.8305
             
             // Handle different message types
             when (msg.optString("type", "")) {
@@ -193,6 +193,7 @@ class DexScreenerWebSocket(
                     parsePairData(pair)
                 }
             }
+        } catch (_: OutOfMemoryError) { NetParseGuard8305.dropOom8305("DEXSCREENER_WS")  // V5.0.8305 — never fatal on the reader thread
         } catch (e: Exception) {
             // Silent fail — WS messages can be malformed
         }

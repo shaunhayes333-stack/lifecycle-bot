@@ -227,7 +227,7 @@ object CurveTicks7968 {
     }
 
     private fun handle(text: String) {
-        val o = JSONObject(text)
+        val o = NetParseGuard8305.parseObject8305("CURVE_TICKS", text) ?: return  // V5.0.8305
         // V5.0.8095 — a refused subscribe was dropped silently; it is now counted and named, and re-sent on the next sync.
         if (o.has("id") && o.has("error")) {
             val id = o.optInt("id")

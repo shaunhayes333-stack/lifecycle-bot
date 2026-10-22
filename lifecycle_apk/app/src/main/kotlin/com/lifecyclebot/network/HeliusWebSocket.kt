@@ -603,7 +603,7 @@ class HeliusWebSocket(
 
     private fun parseMessage(text: String) {
         try {
-            val msg    = JSONObject(text)
+            val msg    = NetParseGuard8305.parseObject8305("HELIUS_LOGS", text, NetParseGuard8305.FRAME_CAP_TX_8305) ?: return  // V5.0.8305
             val method = msg.optString("method", "")
             // V5.0.7803 — request id -> server subscription id. Late ACKs for
             // evicted members are immediately unsubscribed instead of resurrected.
@@ -691,6 +691,7 @@ class HeliusWebSocket(
                     )
                 }
             }
+        } catch (_: OutOfMemoryError) { NetParseGuard8305.dropOom8305("HELIUS_LOGS")  // V5.0.8305 — never fatal on the reader thread
         } catch (_: Exception) {}
     }
 
@@ -793,6 +794,8 @@ class HeliusWebSocket(
     /** Count one frame for [mint]; true when the stream proved undecodable and was released (frame dropped). */
     private fun undecodedStreamSpent8096(mint: String): Boolean {
         HeliusSubscriptionTelemetry7807.logFrames8096.incrementAndGet()
+        // V5.0.8305 — one row per mint ever subscribed was kept; past 4,096 only currently subscribed mints keep theirs.
+        if (logStats8096.size > 4_096) try { val live8305 = synchronized(subscriptions) { subscriptions.keys.toHashSet() }; logStats8096.keys.retainAll(live8305) } catch (_: Throwable) {}
         val st = logStats8096.getOrPut(mint) { IntArray(3) }
         st[0]++
         if (st.size > 2) st[2] = (st[2].toLong() + lastFrameBytes8096).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()

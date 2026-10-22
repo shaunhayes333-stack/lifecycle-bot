@@ -81,6 +81,20 @@ object SpecialistContributorMerge6612 {
             list.removeAll { now - it.recordedAtMs > CONTRIB_TTL_MS }
         }
         try { PipelineHealthCollector.labelInc("CONTRIB_MERGE_RECORDED_6612_$laneUp") } catch (_: Throwable) {}
+        boundMints8305(System.currentTimeMillis())   // V5.0.8305
+    }
+
+    // V5.0.8305 — one list per mint ever qualified was kept for the process, though a contribution is readable for only
+    // CONTRIB_TTL_MS. Past the cap, every mint with no readable contribution goes (nothing a reader could be served).
+    internal const val MINTS_CAP_8305 = 2_000
+
+    internal fun boundMints8305(nowMs: Long): Int {
+        if (byMint.size <= MINTS_CAP_8305) return 0
+        val before = byMint.size
+        try {
+            byMint.entries.removeIf { e -> synchronized(e.value) { e.value.none { nowMs - it.recordedAtMs <= CONTRIB_TTL_MS } } }
+        } catch (_: Throwable) {}
+        return (before - byMint.size).coerceAtLeast(0)
     }
 
     /**

@@ -139,7 +139,12 @@ object MemoryGuard7977 {
         return dropped
     }
 
-    private fun trimAll(hard: Boolean) {
+    // V5.0.8305 — the guard tick and an emergency trim (NetParseGuard8305, from a network thread) never trim at once.
+    private val trimLock8305 = Any()
+
+    private fun trimAll(hard: Boolean) = synchronized(trimLock8305) { trimAllLocked8305(hard) }
+
+    private fun trimAllLocked8305(hard: Boolean) {
         try { pruneTokens8025() } catch (_: Throwable) {}
         try { prunePressure8136() } catch (_: Throwable) {}
         try { trimBoundedCaches8136(hard) } catch (_: Throwable) {}
@@ -153,6 +158,45 @@ object MemoryGuard7977 {
         // Flush the backlog here (guard thread, not UI) so the rows become evictable.
         try { TokenMetaCache.instanceOrNull7979()?.let { c -> c.flushNow(); c.evictToMemoryCap7979(if (hard) 600 else 1_000) } } catch (_: Throwable) {}
     }
+
+    // ── V5.0.8305 — emergency trim after an OutOfMemoryError was caught on an expendable parse ──
+    private const val EMERGENCY_MIN_GAP_MS_8305 = 10_000L
+    private val emergencyAt8305 = AtomicLong(0L)
+    private val emergencyTrims8305 = AtomicLong(0L)
+    private val emergencyCoalesced8305 = AtomicLong(0L)
+    @Volatile private var emergencyLastReason8305 = "-"
+
+    /** Pure: may an emergency trim run at [nowMs] when the last ran at [lastMs]? */
+    fun emergencyDue8305(lastMs: Long, nowMs: Long): Boolean = lastMs <= 0L || nowMs - lastMs >= EMERGENCY_MIN_GAP_MS_8305
+
+    /**
+     * V5.0.8305 — a network thread dropped a frame / body because the heap was exhausted: run a hard trim now (at CRITICAL
+     * retention) instead of waiting up to 15 s for the next tick, then request a GC. At most once per 10 s (a burst of
+     * failing frames coalesces); the next tick judges whether it recovered headroom. Returns true when it ran.
+     */
+    fun emergencyTrim8305(reason: String): Boolean {
+        val now = System.currentTimeMillis()
+        val last = emergencyAt8305.get()
+        if (!emergencyDue8305(last, now) || !emergencyAt8305.compareAndSet(last, now)) { emergencyCoalesced8305.incrementAndGet(); return false }
+        emergencyTrims8305.incrementAndGet()
+        emergencyLastReason8305 = reason.take(48)
+        val prior8305 = pressure8136
+        try {
+            pressure8136 = RetentionPolicy8136.Pressure.CRITICAL
+            try { trimAll(true) } finally { pressure8136 = prior8305 }   // the next tick re-reads the heap
+            hardTrims.incrementAndGet()
+            System.gc()
+            val rt = Runtime.getRuntime()
+            if (rt.maxMemory() > 0L) pendingHardTrimFrac8144 = (rt.totalMemory() - rt.freeMemory()).toDouble() / rt.maxMemory()
+        } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("MEMORY_GUARD_EMERGENCY_TRIM_8305")
+            ForensicLogger.lifecycle("MEMORY_GUARD_EMERGENCY_TRIM_8305", "reason=$emergencyLastReason8305 ${sizes()}")
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    fun emergencyTrims8305(): Long = emergencyTrims8305.get()
 
     // ── V5.0.8136 — pressure-aware retention (RetentionPolicy8136) ──
     private const val ESCALATED_PERIOD_MS_8136 = 5_000L
@@ -340,6 +384,23 @@ object MemoryGuard7977 {
         r.register8144("deskSheets", 4_096L, { ToolkitSignalSheet.sheetCount8169() }, { _ -> ToolkitSignalSheet.pruneIdleSheets8169() })
         r.register8144("bundleAnalyses", 768L, { BundleDetector.cacheCount8169() }, { _ -> BundleDetector.pruneStale8169() })
         registerStores8289(r)  // V5.0.8289
+        registerStores8305(r)  // V5.0.8305
+    }
+
+    /**
+     * V5.0.8305 — stores the census did not know: the insider tracker's holdings / price caches (a whale's dust tokens),
+     * the crypto universe registry (fed by the Jupiter verified list), the specialist contributor lists (one per mint
+     * ever qualified) and the response bodies being read right now through the shared client.
+     */
+    private fun registerStores8305(r: MemoryRegistry8144) {
+        r.register8144("insiderTracker8305", 160L, { com.lifecyclebot.perps.InsiderWalletTracker.memCount8305() }, null)
+        r.register8144("dynAltRegistry8305", 760L, { com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenCount() }, null)
+        r.register8144("contribMerge8305", 360L, { com.lifecyclebot.engine.truth.SpecialistContributorMerge6612.trackedMints() }, { _ ->
+            com.lifecyclebot.engine.truth.SpecialistContributorMerge6612.boundMints8305(System.currentTimeMillis())
+        })
+        r.register8144("httpBodiesInFlight8305", 1_024L, { (com.lifecyclebot.network.HttpBodyCap8305.inFlightBytes8305() / 1024L).toInt() }, null) {
+            com.lifecyclebot.network.HttpBodyCap8305.inFlightBytes8305()
+        }
     }
 
     /**
@@ -396,7 +457,17 @@ object MemoryGuard7977 {
         censusRows8144 = rows
         censusLine8144 = MemoryRegistry8144.line8144(rows)
         censusStatus8144 = buildCensusStatus8144()
+        storesLine8305 = storesLine8305(rows)
     }
+
+    /** V5.0.8305 — every registered store (not only the top 8), largest first: "name:count/KB". Built on the guard thread. */
+    @Volatile private var storesLine8305 = "-"
+
+    /** Pure: all census rows as "name:count/KB", largest estimate first. */
+    fun storesLine8305(rows: List<MemoryRegistry8144.Row8144>): String =
+        rows.sortedWith(compareByDescending<MemoryRegistry8144.Row8144> { it.estBytes }.thenBy { it.name })
+            .joinToString(",") { "${it.name}:${if (it.count >= 0) it.count.toString() else "?"}/${it.estBytes.coerceAtLeast(0L) / 1024}KB" }
+            .ifEmpty { "-" }
 
     /** Stores that evict at insert time book their evictions into the census. */
     private fun bookInsertEvictions8144() {
@@ -467,5 +538,18 @@ object MemoryGuard7977 {
             "ineffectiveHardTrims8136=${ineffectiveHardTrims8136.get()} lastRecoveredMb8136=$lastRecoveredMb8136 tapesFreed8136=${tapesFreed8136.get()} " +
             "attributed8169=[censusMb=${MemoryRegistry8144.totalBytes8144(censusRows8144) / (1L shl 20)} unattributedMb=${unattributedMb8169(lastUsedMb, MemoryRegistry8144.totalBytes8144(censusRows8144))} " +
             "bundleRestored=${try { BundleDetector.restoredCount8169() } catch (_: Throwable) { -1L }}] ${sizes()} " +
-            censusStatus8144
+            censusStatus8144 + " " + netLine8305()
+
+    /**
+     * V5.0.8305 — the network side of the heap: the shared OkHttp dispatcher's queued / running calls, body-cap refusals and
+     * the largest bodies read per endpoint, bytes of bodies being read right now, frames dropped (oversize / parse OOM)
+     * and emergency trims. Every store's size is already in census8144 (MemoryRegistry8144.line8144, per store).
+     */
+    fun netLine8305(): String =
+        "net8305[${try { com.lifecyclebot.network.SharedHttpClient.dispatcherLine8305() } catch (_: Throwable) { "dispatcher8305[-]" }} " +
+            "${try { com.lifecyclebot.network.HttpBodyCap8305.line8305() } catch (_: Throwable) { "bodyCap8305[-]" }} " +
+            "${try { com.lifecyclebot.network.NetParseGuard8305.line8305() } catch (_: Throwable) { "frames8305[-]" }} " +
+            "${try { com.lifecyclebot.perps.InsiderWalletTracker.scanLine8305() } catch (_: Throwable) { "insiderScan8305[-]" }} " +
+            "emergencyTrims8305=${emergencyTrims8305.get()} coalesced=${emergencyCoalesced8305.get()} last=$emergencyLastReason8305] " +
+            "stores8305=[$storesLine8305]"
 }

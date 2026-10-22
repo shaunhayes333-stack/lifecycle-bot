@@ -1890,7 +1890,17 @@ object DynamicAltTokenRegistry {
      * Adds real mint addresses + logos for thousands of tokens.
      * Only adds NEW tokens (never overwrites richer data from other sources).
      */
+    // V5.0.8305 — the verified list is thousands of tokens (a multi-MB body and a JSON tree several times that) and it
+    // only adds identities / logos that change rarely; it was re-fetched with every 5-minute established pass. Once per
+    // [JUPITER_LIST_EVERY_MS_8305] after a successful read (a failed read retries on the next pass).
+    internal const val JUPITER_LIST_EVERY_MS_8305 = 6L * 60L * 60_000L
+    @Volatile private var jupiterListReadAtMs8305 = 0L
+
+    /** Pure: is the Jupiter list due, last read at [lastMs]? */
+    internal fun jupiterListDue8305(lastMs: Long, nowMs: Long): Boolean = lastMs <= 0L || nowMs - lastMs >= JUPITER_LIST_EVERY_MS_8305
+
     private fun fetchJupiterTokenList() {
+        if (!jupiterListDue8305(jupiterListReadAtMs8305, System.currentTimeMillis())) return
         // V5.0.6894 — token.jup.ag is DNS-dead. The operator 5.0.6892 snapshot
         // carries the exact error against it:
         //   jupiter sr=59% last_err: Unable to resolve host "token.jup.ag":
@@ -1948,6 +1958,7 @@ object DynamicAltTokenRegistry {
                 indexSymbol6493(symbol, canonicalKey6544)
                 added++
             }
+            jupiterListReadAtMs8305 = System.currentTimeMillis()   // V5.0.8305
             ErrorLogger.info(TAG, "Jupiter strict: +$added new tokens (total ${registry.size})")
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "fetchJupiterTokenList: ${e.message}")

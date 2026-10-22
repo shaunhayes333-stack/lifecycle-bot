@@ -328,7 +328,7 @@ object GradTicks8018 {
     }
 
     private fun handle(text: String) {
-        val o = JSONObject(text)
+        val o = NetParseGuard8305.parseObject8305("GRAD_TICKS", text) ?: return  // V5.0.8305
         // V5.0.8144 — a refused vault subscribe was dropped silently (pending forever, pools>0 subs=0): counted, named,
         // re-sent on the next sync; an endpoint without accountSubscribe is dropped so the next connect rotates.
         if (o.has("id") && o.has("error")) {

@@ -88,6 +88,7 @@ object LoadTelemetry8169 {
     private val HELIUS_PLUMBING = listOf(
         "com.lifecyclebot.network.HeliusCreditMeterInterceptor7881", "com.lifecyclebot.network.SharedHttpClient",
         "com.lifecyclebot.engine.HealthAwareHttp", "com.lifecyclebot.network.HostCircuit", "com.lifecyclebot.engine.LoadTelemetry8169",
+        "com.lifecyclebot.network.HttpBodyCap8305",   // V5.0.8305 — the body-cap interceptor is plumbing, never a caller
     )
 
     /**
