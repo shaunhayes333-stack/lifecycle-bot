@@ -21,7 +21,7 @@ PumpPortal launches that came back in through the launch-tape or probation pathw
 
 | step | where | what happens |
 |---|---|---|
-| frame arrives | `network/PumpFunWS.kt:671` (`txType == "create"`) | operator, curve key, create price |
+| frame arrives | `network/PumpFunWS.kt:672` (`txType == "create"`) | operator, curve key, create price |
 | birth witnessed | `PumpFunWS.kt:709` `AdmissionBirth8144.noteCreateFrame8144(mint)` | before the throttle, so every frame. Also `PumpCurveKeys7269.rememberCreate7280` (frames with reserves) and `PumpBandEntry8118.noteCreate8118` (`:719`) |
 | throttle | `PumpFunWS.kt:720` `PumpPortalThrottle.allowCreate` | floor 10 SOL (25 SOL with the watchlist ≥200). 868/874 passed (`PUMP_CREATE_MARK_EMITTED_7279=868` is counted at `:726`, after `onNewTokenCb` at `:724`) |
 | intake callback | `engine/BotService.kt:11171ff` | `PoolCreationTime7385.record`, generation guard, `ScannerFanoutDedupe6374`, `LaunchTape7921.onCreate` (`:11253`), then `admitProtectedMemeIntake(source="PUMP_PORTAL_WS", liquidityUsd=estLiq)` (`:11258`) |
