@@ -5,6 +5,7 @@ import com.lifecyclebot.engine.truth.Entry8114Mode8326
 import com.lifecyclebot.engine.truth.Entry8114Shadow8326
 import com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
 import com.lifecyclebot.engine.truth.LiveAdmissionProof8290
+import com.lifecyclebot.engine.truth.LiveConfidence8296
 import com.lifecyclebot.engine.truth.MinPromotion8188
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -209,5 +210,28 @@ class Aate8326Entry8114ModeTest {
         Entry8114Mode8326.noteConfig8326(true)
         assertNull(Entry8114Mode8326.admission8326("SHITCOIN", false, d))
         assertSame(d, Entry8114Mode8326.admission8326("SHITCOIN", true, d))
+    }
+    @Test fun admittedTradesAreSizedThe8114Way() {
+        // the 8114 expectancy multiplier carries no 8296 recency shrink; a non-admitted candidate keeps it
+        val losing = LiveConfidence8296.Recent8296(8, -20.0, 4.0, -0.05, 5)
+        assertEquals(1.2, Entry8114Mode8326.sizeExpMult8326(true, 1.2, losing), 1e-12)
+        assertEquals(LiveConfidence8296.recencyAdjusted8296(1.2, losing), Entry8114Mode8326.sizeExpMult8326(false, 1.2, losing), 1e-12)
+        // not admitted: the caller's own Kelly read stands
+        assertNull(Entry8114Mode8326.kelly8114Or8326("mint-never-admitted", "SHITCOIN") { 0.25 })
+        Entry8114Mode8326.noteSize8326("SHITCOIN", true, 0.05, 0.12)
+        val line = Entry8114Mode8326.sizeLine8326()
+        assertTrue(line, line.contains("SHITCOIN n") && line.contains("kelly") && line.contains("compound="))
+        val risk = src("engine/truth/LiveRiskPolicy7807.kt")
+        // 8114 quarter-Kelly in the legacy scope (no 8188 proof cap, no 8296 revoke), 8094 drawdown waiver, no lane envelope
+        assertTrue(risk.contains("if (Entry8114Mode8326.legacyScope8326()) maxOf(setupFrac, cellFrac, kindFrac) else {"))
+        assertTrue(risk.contains("val ddWaived8094 = if (i.entry8114Admitted8326) drawdownWaivedForProvenEdge8094(i.edgeKellyFrac8057, i.drawdownFrac)"))
+        assertTrue(risk.contains("val laneRoom8153 = if (i.entry8114Admitted8326) Double.POSITIVE_INFINITY"))
+        assertTrue(risk.contains("edgeKellyFrac8057 = Entry8114Mode8326.kelly8114Or8326(mint, effectiveLane7811)"))
+        // caps that always bind: tradeable cash (wallet reserve), lane position share, pool depth, hard loss at the stop, NET_EV at size
+        for (c in listOf("TRADEABLE_CASH_CAP_8153", "LANE_MAX_POSITION_CAP_7807", "LIQUIDITY_IMPACT_CAP_7807", "ENVELOPE_CLAMP_8153",
+            "SizingNetEdge8153.NET_EV_REFUSAL_8153", "LANE_SLOT_CAP_7807")) assertTrue(c, risk.contains(c))
+        // paper results never size live: the live compound pool (verified live closes) stays the live multiplier
+        assertTrue(src("engine/AutoCompoundEngine.kt").contains("LiveConfidence8296.liveCompoundMultiplier8296() else state.currentSizeMultiplier"))
+        assertTrue(src("engine/truth/Entry8114Mode8326.kt").contains("LiveRiskPolicy7807.dailyScoreLine8057()"))
     }
 }

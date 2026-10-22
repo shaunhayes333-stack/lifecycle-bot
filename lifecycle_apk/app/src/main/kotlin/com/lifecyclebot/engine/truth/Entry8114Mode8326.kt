@@ -172,6 +172,46 @@ object Entry8114Mode8326 {
         return null
     }
 
+    // ── sizing (8114 size path for 8114-admitted live trades) ──
+
+    /**
+     * The 8114 quarter-Kelly share for an 8114-admitted [mint] (computed by [compute] inside the legacy scope: best proven
+     * setup / cell / kind on the raw records, no 8188 realised / walk-forward cap, no 8296 recent-loss revoke), or null
+     * when the candidate is not 8114-admitted (the caller's current read stands).
+     */
+    fun kelly8114Or8326(mint: String, lane: String, compute: (TokenState) -> Double): Double? {
+        if (!admittedNow8326(mint, lane)) return null
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return null
+        val f = try { inLegacy8326 { compute(ts) } } catch (_: Throwable) { 0.0 }
+        return if (f.isFinite() && f >= 0.0) f else 0.0
+    }
+
+    /** 8114: the live expectancy multiplier without the 8296 recency shrink, for an 8114-admitted candidate. */
+    fun sizeExpMult8326(admitted: Boolean, expectancyMult: Double, recent: LiveConfidence8296.Recent8296?): Double =
+        if (admitted) expectancyMult else LiveConfidence8296.recencyAdjusted8296(expectancyMult, recent)
+
+    private val sizes8326 = ConcurrentHashMap<String, DoubleArray>()   // lane -> [opens, sumSol, lastSol, lastKelly, refused]
+
+    fun noteSize8326(lane: String, open: Boolean, sizeSol: Double, kellyFrac: Double) {
+        val row = sizes8326.computeIfAbsent(canon8326(lane)) { DoubleArray(5) }
+        synchronized(row) {
+            if (open && sizeSol.isFinite() && sizeSol > 0.0) { row[0] += 1.0; row[1] += sizeSol; row[2] = sizeSol } else row[4] += 1.0
+            row[3] = if (kellyFrac.isFinite()) kellyFrac else 0.0
+        }
+    }
+
+    fun sizeLine8326(): String {
+        val lanes = sizes8326.entries.sortedBy { it.key }.joinToString(",") { (l, r) ->
+            synchronized(r) {
+                val avg = if (r[0] > 0.0) r[1] / r[0] else 0.0
+                "$l n${r[0].toInt()} avg${"%.4f".format(avg)} last${"%.4f".format(r[2])}SOL kelly${"%.3f".format(r[3])} refused${r[4].toInt()}"
+            }
+        }.ifBlank { "-" }
+        val compound = try { LiveConfidence8296.liveCompoundMultiplier8296() } catch (_: Throwable) { Double.NaN }
+        val day = try { LiveRiskPolicy7807.dailyScoreLine8057() } catch (_: Throwable) { "day=-" }
+        return "size8114[$lanes] compound=${"%.2f".format(compound)}x $day"
+    }
+
     // ── what always binds ──
 
     private val HARD_MARKERS_8326 = listOf(
@@ -225,5 +265,6 @@ object Entry8114Mode8326 {
         "entry8114[on=$enabled8326 bypassed=" +
             bypassed8326.entries.sortedByDescending { it.value.get() }.take(12).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
             " fdg=" + fdgNotes8326.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+            " " + (try { sizeLine8326() } catch (_: Throwable) { "size8114[-]" }) +
             " " + (try { Entry8114Shadow8326.statusLine8326() } catch (_: Throwable) { "shadow[-]" }) + "]"
 }
