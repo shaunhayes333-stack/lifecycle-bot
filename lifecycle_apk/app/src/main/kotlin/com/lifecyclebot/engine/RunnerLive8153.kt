@@ -90,6 +90,11 @@ object RunnerLive8153 {
         if (plan == RunnerPlan8153.Plan8153.RUNNER_SEALED && e.runnerEntryAdmitted && planActive8254.putIfAbsent(key8153(ts), true) == null) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_PLAN_ACTIVE") } catch (_: Throwable) {}
         }
+        // V5.0.8331 — the runner funnel (once per live position): held in a lane that can host a runner; its plan sealed.
+        if (!ts.position.isPaperPosition && e.laneHostsRunners) {
+            RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.HELD, key8153(ts))
+            if (plan != RunnerPlan8153.Plan8153.SCALP) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.PLAN_SEALED, key8153(ts))
+        }
         return plan
     }
 
@@ -177,7 +182,16 @@ object RunnerLive8153 {
         return book.request8153(key8153(ts), ladder, tier, reason, nowMs)
     }
 
-    fun advance8153(ts: TokenState, stage: RunnerRungBook8153.Stage8153, nowMs: Long): Boolean = book.advance8153(key8153(ts), stage, nowMs)
+    fun advance8153(ts: TokenState, stage: RunnerRungBook8153.Stage8153, nowMs: Long): Boolean {
+        val key = key8153(ts)
+        val advanced = book.advance8153(key, stage, nowMs)
+        // V5.0.8331 — the runner funnel: a runner rung's tranche reached the sell door (once per position and tier).
+        if (advanced && stage == RunnerRungBook8153.Stage8153.TICKET_ACCEPTED && !ts.position.isPaperPosition) {
+            val p = book.pending8153(key)
+            if (p != null && p.ladder == RunnerRungBook8153.LADDER_RUNNER_8153) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_SENT, "$key|T${p.tier}")
+        }
+        return advanced
+    }
 
     fun revert8153(ts: TokenState, why: RunnerRungBook8153.Revert8153, nowMs: Long, slowAfter: Int = 16) {
         if (book.revert8153(key8153(ts), why, nowMs, slowAfter) != null) count8153("SPIKE_TRANCHE_${why.name}_NOT_CONSUMED_8153")
@@ -203,9 +217,15 @@ object RunnerLive8153 {
         if (consumedRaw.signum() <= 0) return
         ensureLoaded8153()
         val tier = rungOf8153(reason)
-        if (book.confirm8153(key8153(ts), ladderOf8153(plan8153(ts)), tier, signature, proceedsSol, soldCostSol)) {
+        // V5.0.8331 — the fill confirms the ladder its tranche was REQUESTED on (the pending tranche's), else the plan's:
+        // the request ladder and the plan ladder could differ (RunnerGrab7967.tiersFor7967 vs RunnerPlan8153).
+        val pending8331 = book.pending8153(key8153(ts))
+        val ladder8331 = if (pending8331 != null && pending8331.tier == tier) pending8331.ladder else ladderOf8153(plan8153(ts))
+        if (book.confirm8153(key8153(ts), ladder8331, tier, signature, proceedsSol, soldCostSol)) {
             count8153("SLICE_PROCEEDS_BOOKED_8153")
+            if (ladder8331 == RunnerRungBook8153.LADDER_RUNNER_8153 && tier > 0) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.PROCEEDS_BOOKED, "${key8153(ts)}|T$tier")
         }
+        if (ladder8331 == RunnerRungBook8153.LADDER_RUNNER_8153 && tier > 0) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_LANDED, "${key8153(ts)}|T$tier")
         save8153()
     }
 
@@ -224,6 +244,7 @@ object RunnerLive8153 {
     fun statusLine8153(): String {
         ensureLoaded8153()
         val top = counts.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        return book.statusLine8153() + " continuing=${continuation.values.count { RunnerPlan8153.continuationConfirmed8153(it) }} · [$top]"
+        return book.statusLine8153() + " continuing=${continuation.values.count { RunnerPlan8153.continuationConfirmed8153(it) }} · [$top] · " +
+            RunnerFunnel8331.statusLine8331()  // V5.0.8331 — where a held runner stops
     }
 }

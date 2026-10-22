@@ -43,6 +43,7 @@ object SpikeCapture7943 {
         rearms.merge(key, 1, Int::plus)
         if (!ts.position.isOpen) return false
         try { RunnerLive8153.revert8153(ts, RunnerRungBook8153.Revert8153.REJECTED, System.currentTimeMillis(), MAX_REARMS_7944) } catch (_: Throwable) {}
+        RunnerFunnel8331.blocked8331("SELL_NOT_APPLIED", "$key|T$tier|${rearms[key] ?: 0}")  // V5.0.8331 — every refused dispatch counts
         // V5.0.8144 — the rung's sale did not land: it gives back the arbitration ticket it held.
         try { ExitTruthArbiterLive8144.releaseTranche8144(ts.mint, "SPIKE_CAPTURE_7943_T$tier") } catch (_: Throwable) {}
         rearmed.incrementAndGet()
@@ -117,7 +118,9 @@ object SpikeCapture7943 {
             return px
         }
         if (px != null && px > 0.0 && ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate <= FRESH_MARK_MS_7944) {
-            try { onMark(ts, px, sell) } catch (_: Throwable) {}
+            // V5.0.8331 — an un-graduated curve coin's rung reads its own curve print (the lifecycle's mark), never an
+            // off-chain poll that happened to be the row's freshest tick (RunnerFunnel8331.rungMarkAuthoritative8331).
+            if (rungMarkAuthoritative8331(ts)) try { onMark(ts, px, sell) } catch (_: Throwable) {}
         }
         try { chartExit7950(ts, px, nowMs, sell) } catch (_: Throwable) {}
         // V5.0.7967 — a grabbed runner's own exits (1m structure break, -35%).
@@ -125,6 +128,18 @@ object SpikeCapture7943 {
         // V5.0.7962 — structure break (first lower low after a run): shadow until its own record proves it.
         try { com.lifecyclebot.engine.chart.StructureTracker7962.heldExit7962(ts, px, nowMs, sell) } catch (_: Throwable) {}
         return px
+    }
+
+    /** V5.0.8331 — is the row's mark a price the rung may sell on? (A curve coin: only its own curve / chain print.) */
+    private fun rungMarkAuthoritative8331(ts: TokenState): Boolean {
+        val curve = try {
+            !ts.tokenMap.migratedOrGraduated &&
+                !com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) &&
+                com.lifecyclebot.network.PumpCurveKeys7269.keyFor(ts.mint) != null
+        } catch (_: Throwable) { false }
+        val ok = RunnerFunnel8331.rungMarkAuthoritative8331(curve, ts.lastPriceSource)
+        if (!ok) RunnerFunnel8331.blocked8331("OFFCHAIN_MARK", "${ts.mint}|${ts.position.entryTime}|${ts.lastPriceSource}")
+        return ok
     }
 
     private val chartExitAt7950 = ConcurrentHashMap<String, Long>()
@@ -154,6 +169,7 @@ object SpikeCapture7943 {
     fun restoreTier8144(ts: TokenState) {
         // V5.0.8153 — the pending tranche is SUPERSEDED (no backoff: it may ask again on the next print).
         try { RunnerLive8153.revert8153(ts, RunnerRungBook8153.Revert8153.SUPERSEDED, System.currentTimeMillis()) } catch (_: Throwable) {}
+        RunnerFunnel8331.blocked8331("ARBITER_SUPERSEDED")  // V5.0.8331
         try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_TIER_RESTORED_8144") } catch (_: Throwable) {}
     }
 
@@ -237,21 +253,31 @@ object SpikeCapture7943 {
         if (!RunnerLive8153.settlePending8153(ts, inFlight8153, now7955)) return 0
         val done = RunnerLive8153.confirmedTier8153(ts, ladder8153)
         if (reached <= done) return 0
+        // V5.0.8331 — the runner funnel: a runner rung the authoritative mark reached (once per position and tier).
+        val funnelKey8331 = "${ts.mint}|${pos.entryTime}"
+        val runnerRung8331 = runnerTiers8153 != null
+        if (runnerRung8331) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.RUNG_TRIGGERED, "$funnelKey8331|T$reached")
         // V5.0.8144 — another chosen exit (a structure break, an in-flight tranche) holds this position's arbitration
         // ticket: the rung waits for the next print — not consumed, no re-arm spent.
         if (ExitTruthArbiterLive8144.ticketHeldByOther8144(ts, "SPIKE_CAPTURE_7943_T${reached}_${gross.toInt()}PCT", now7955)) {
             try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_WAITS_FOR_TICKET_8144") } catch (_: Throwable) {}
+            if (runnerRung8331) RunnerFunnel8331.blocked8331("TICKET_HELD", "$funnelKey8331|T$reached")
             return 0
         }
         val reason8153 = "SPIKE_CAPTURE_7943_T${reached}_${gross.toInt()}PCT"
         // REQUESTED (refused inside a rejection's backoff: the tier waits, it is not consumed).
-        if (!RunnerLive8153.request8153(ts, ladder8153, reached, reason8153, now7955)) return 0
+        if (!RunnerLive8153.request8153(ts, ladder8153, reached, reason8153, now7955)) {
+            if (runnerRung8331) RunnerFunnel8331.blocked8331("PENDING_OR_BACKOFF", "$funnelKey8331|T$reached")
+            return 0
+        }
+        if (runnerRung8331) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.RUNG_ARMED, "$funnelKey8331|T$reached")
         // V5.0.8136 — one residual share budget across the spike, runner, tail and lock ladders (RunnerExitLive8136):
         // a runner's residual is not sold by a ladder that overlaps another.
         // V5.0.8153 — a tier the budget refuses is REJECTED (backoff, retryable), never consumed.
         val frac = RunnerExitLive8136.budget8136(ts, crossedTierFraction8079(tiers, done, reached), reason8153)
         if (frac <= 0.0) {
             RunnerLive8153.revert8153(ts, RunnerRungBook8153.Revert8153.REJECTED, now7955, MAX_REARMS_7944)
+            if (runnerRung8331) RunnerFunnel8331.blocked8331("BUDGET_REFUSED", "$funnelKey8331|T$reached")
             return 0
         }
         fired.incrementAndGet()

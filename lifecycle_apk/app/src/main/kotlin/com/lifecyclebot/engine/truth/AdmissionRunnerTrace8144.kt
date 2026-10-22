@@ -73,6 +73,11 @@ object AdmissionRunnerTrace8144 {
         val bindingEvidence: String = "",
         /** V5.0.8153 — the strategy identity CandidateAdmission8136 last decided, with its evidence basis. */
         val identity: String = "",
+        /** V5.0.8331 — decision-time evidence at the first executable window: exit depth (USD, NaN = unread), the expected
+         * net move after the window's round trip (pct, NaN = none), and whether hard safety had passed there. */
+        val exitDepthUsd: Double = Double.NaN,
+        val expectedNetPct: Double = Double.NaN,
+        val hardSafetyPassed: Boolean = false,
     )
 
     // ── (b) replay: pure ──
@@ -193,6 +198,7 @@ object AdmissionRunnerTrace8144 {
         .put("markPx", fin8144(t.markPx)).put("windowAtMs", t.windowAtMs).put("windowCostPct", fin8144(t.windowCostPct))
         .put("windowCostMeasured", t.windowCostMeasured).put("route", t.route).put("held", t.held)
         .put("binding", t.binding).put("bindingEvidence", t.bindingEvidence).put("identity", t.identity)
+        .put("exitDepthUsd", fin8144(t.exitDepthUsd)).put("expectedNetPct", fin8144(t.expectedNetPct)).put("hardSafetyPassed", t.hardSafetyPassed)  // V5.0.8331
 
     private fun fin8144(v: Double): Any = if (v.isFinite()) v else JSONObject.NULL
 
@@ -208,6 +214,8 @@ object AdmissionRunnerTrace8144 {
         windowAtMs = o.optLong("windowAtMs", 0L), windowCostPct = o.optDouble("windowCostPct", Double.NaN),
         windowCostMeasured = o.optBoolean("windowCostMeasured", false), route = o.optString("route", ""), held = o.optBoolean("held", false),
         binding = o.optString("binding", ""), bindingEvidence = o.optString("bindingEvidence", ""), identity = o.optString("identity", ""),
+        exitDepthUsd = o.optDouble("exitDepthUsd", Double.NaN), expectedNetPct = o.optDouble("expectedNetPct", Double.NaN),
+        hardSafetyPassed = o.optBoolean("hardSafetyPassed", false),  // V5.0.8331
     )
 
     /** Pure: an exported JSONL file's traces (malformed lines skipped). */
@@ -240,6 +248,10 @@ object AdmissionRunnerTrace8144 {
         @Volatile var binding = ""
         @Volatile var bindingEvidence = ""
         @Volatile var identity = ""
+        // V5.0.8331 — decision-time evidence at the window (RunnerTraceReclass8331 reads these).
+        @Volatile var exitDepthUsd = Double.NaN
+        @Volatile var expectedNetPct = Double.NaN
+        @Volatile var hardSafetyPassed = false
     }
 
     private val early = ConcurrentHashMap<String, Early8144>()
@@ -301,6 +313,14 @@ object AdmissionRunnerTrace8144 {
         e.route = route
         e.windowCostPct = try { NetEdge8030.entryCostPct8136(ts, lane) } catch (_: Throwable) { Double.NaN }
         e.windowCostMeasured = try { CostLedger7962.measuredCostPct7962(lane, NetEdge8030.DEFAULT_TICKET_SOL) != null } catch (_: Throwable) { false }
+        // V5.0.8331 — the evidence a WRONG_REFUSAL verdict needs at the window: exit depth (the curve's own SOL for a curve
+        // coin), the expected net move after that round trip, and hard safety at that moment.
+        e.exitDepthUsd = try { LiquidityTruth8037.hydrate8037(ts).takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN } catch (_: Throwable) { Double.NaN }
+        e.expectedNetPct = try {
+            val cost = e.windowCostPct
+            if (cost.isFinite()) NetEdge8030.expectedGrossFor8153(ts, lane, e.setup.ifBlank { null }, cost) - cost else Double.NaN
+        } catch (_: Throwable) { Double.NaN }
+        e.hardSafetyPassed = try { ts.safety.tier != com.lifecyclebot.engine.SafetyTier.HARD_BLOCK } catch (_: Throwable) { false }
     }
 
     /** CandidateAdmission8136.assess8136: the first terminal admission (a later one replaces only a data deferral). */
@@ -402,6 +422,8 @@ object AdmissionRunnerTrace8144 {
             windowAtMs = e?.windowAtMs ?: 0L, windowCostPct = e?.windowCostPct ?: Double.NaN,
             windowCostMeasured = e?.windowCostMeasured ?: false, route = e?.route.orEmpty(), held = held,
             binding = e?.binding.orEmpty(), bindingEvidence = e?.bindingEvidence.orEmpty(), identity = e?.identity.orEmpty(),
+            exitDepthUsd = e?.exitDepthUsd ?: Double.NaN, expectedNetPct = e?.expectedNetPct ?: Double.NaN,
+            hardSafetyPassed = e?.hardSafetyPassed ?: false,  // V5.0.8331
         )
         if (traces.size >= MAX_TRACES_8144) traces.entries.minByOrNull { it.value.detectedAtMs }?.key?.let { traces.remove(it) }
         traces[mint] = t
@@ -441,7 +463,7 @@ object AdmissionRunnerTrace8144 {
             val v = classify8144(t)
             "${t.symbol.take(10)} observedPeak=+${t.peakPct.toInt()}% ${if (v.miss == Miss8144.CAPTURED) "HELD_ENTRY" else v.miss.name}${if (v.gate.isNotBlank()) "(${v.gate.take(48)})" else ""}"
         }
-        return "trace8144[${summary8144(list)} file=$FILE_8144 restored8169=$restored8169]${if (rows.isNotBlank()) " | $rows" else ""} | " +
+        return "trace8144[${summary8144(list)} ${RunnerTraceReclass8331.summary8331(list)} file=$FILE_8144 restored8169=$restored8169]${if (rows.isNotBlank()) " | $rows" else ""} | " +  // V5.0.8331
             "${AdmissionHandoff8144.statusLine8144()} | ${AdmissionBirth8144.statusLine8144()}"
     }
 }

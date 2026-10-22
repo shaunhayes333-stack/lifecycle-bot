@@ -657,9 +657,35 @@ object TradePlan7739 {
 
     /** The plan recorded at the gate for this position, when it predates the entry by under ten minutes. */
     fun planFor(mint: String, entryTimeMs: Long): Plan? {
-        val p = plans[mint] ?: return null
         if (entryTimeMs <= 0L) return null
-        return if (entryTimeMs >= p.atMs && entryTimeMs - p.atMs <= PLAN_ENTRY_WINDOW_MS_7739) p else null
+        // V5.0.8331 — the plan is SEALED to the position the first time it is read for it. [plans] is keyed by mint, so a
+        // later gate pass for the same mint while the position was open (a re-evaluation, a top-up) replaced the plan
+        // with a newer atMs and planFor returned null for the open position: its stop / first target / target (and the
+        // firstTargetTaken state) vanished mid-position — a LAUNCH_EARLY ladder admitted 32 times and never reported.
+        val sealKey = "$mint|$entryTimeMs"
+        sealed8331[sealKey]?.let { return it }
+        val p = plans[mint] ?: return null
+        if (entryTimeMs >= p.atMs && entryTimeMs - p.atMs <= PLAN_ENTRY_WINDOW_MS_7739) {
+            if (sealed8331.size > 2_000) sealed8331.entries.removeIf { entryTimeMs - it.value.atMs > PLAN_TTL_MS_7739 }
+            if (sealed8331.putIfAbsent(sealKey, p) == null && p.setup == Setup.LAUNCH_EARLY) {
+                com.lifecyclebot.engine.RunnerFunnel8331.launch8331("armed", sealKey)
+            }
+            return p
+        }
+        return null
+    }
+
+    /** V5.0.8331 — the plan sealed to each position (mint|entryTime), immune to a later re-plan of the mint. */
+    private val sealed8331 = ConcurrentHashMap<String, Plan>()
+
+    /** V5.0.8331 — the launch ladder's stage of [exit] for the position [key] (firstHit / targetHit). */
+    internal fun launchStage8331(plan: Plan?, exit: Exit): String? {
+        if (plan == null || plan.setup != Setup.LAUNCH_EARLY) return null
+        return when {
+            exit.kind == ExitKind.HALF && exit.reason.startsWith("PLAN_FIRST_TARGET_7739") -> "firstHit"
+            exit.kind == ExitKind.FULL && exit.reason.startsWith("PLAN_TARGET_7739") -> "targetHit"
+            else -> null
+        }
     }
 
     // ── exit (pure decision + the trail read) ──
@@ -719,6 +745,7 @@ object TradePlan7739 {
     fun onExit(plan: Plan?, exit: Exit) {
         if (plan != null) {
             if (exit.kind == ExitKind.HALF) { plan.firstTargetTaken = true; plan.trailArmed = true }
+            launchStage8331(plan, exit)?.let { com.lifecyclebot.engine.RunnerFunnel8331.launch8331(it, "${plan.atMs}|${plan.setup.name}") }  // V5.0.8331
         }
         val key = exit.reason.substringBefore("_7739") + "_7739"
         exits.computeIfAbsent(key) { AtomicLong(0) }.incrementAndGet()
@@ -732,7 +759,8 @@ object TradePlan7739 {
 
     fun statusLine(): String =
         "admitted[${admitted.entries.joinToString(",") { "${it.key.name}=${it.value.get()}" }.ifBlank { "none" }}] " +
-            "launchLadder7742[${launchAdmits7742.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] waited=${waited.get()} plans=${plans.size} " +
+            "launchLadder7742[${launchAdmits7742.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] " +
+            "${com.lifecyclebot.engine.RunnerFunnel8331.launchLine8331()} sealed8331=${sealed8331.size} waited=${waited.get()} plans=${plans.size} " +  // V5.0.8331
             "exits[${exits.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] " +
             "waitWhy=${waitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "executorRefused7751=${chokeWhy7751.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +

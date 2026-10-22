@@ -188,7 +188,8 @@ object RunnerCapture8017 {
         val now = System.currentTimeMillis()
         try { AdmissionRunnerTrace8144.restore8169(now) } catch (_: Throwable) {}  // V5.0.8169 — survive the restart
         val recent = runs.values.filter { now - it.atMs <= KEEP_MS }.sortedByDescending { it.peakPct }
-        if (recent.isEmpty()) return "runners(4x+,24h)=0 restoredRuns8169=$restoredRuns8169 | ${try { AdmissionRunnerTrace8144.statusLine8144() } catch (_: Throwable) { "trace8144 unavailable" }}"
+        val funnel8331 = try { com.lifecyclebot.engine.RunnerFunnel8331.statusLine8331() } catch (_: Throwable) { "runnerFunnel8331 unavailable" }  // V5.0.8331
+        if (recent.isEmpty()) return "runners(4x+,24h)=0 restoredRuns8169=$restoredRuns8169 | $funnel8331 | ${try { AdmissionRunnerTrace8144.statusLine8144() } catch (_: Throwable) { "trace8144 unavailable" }}"
         val held = recent.filter { it.held }
         val liveHeld = held.count { it.live }
         val entries = held.mapNotNull { entryVsStart8017(it.entryPx, it.startPx).takeIf { v -> v.isFinite() } }.sorted()
@@ -205,7 +206,7 @@ object RunnerCapture8017 {
         }
         return "runners(4x+,24h)=${recent.size} held=${held.size} (live ${liveHeld}) missed=${recent.size - held.size} restoredRuns8169=$restoredRuns8169 " +
             "entryVsStart(median)=${med(entries)} bankedShareOfRun(median)=${if (shares.isEmpty()) "-" else "%.0f%%".format(shares[shares.size / 2] * 100)} | " +
-            "${try { funnelLine8297(recent) } catch (_: Throwable) { "funnel8297 unavailable" }} | $rows" +
+            "${try { funnelLine8297(recent) } catch (_: Throwable) { "funnel8297 unavailable" }} | $funnel8331 | $rows" +
             " | ${try { AdmissionRunnerTrace8144.statusLine8144() } catch (_: Throwable) { "trace8144 unavailable" }}"  // V5.0.8144
     }
 }

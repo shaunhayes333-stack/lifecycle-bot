@@ -456,7 +456,12 @@ object RunnerGrab7967 {
     }
 
     /** SpikeCapture7943.onMark: the runner ladder for a grabbed position, else null. */
-    fun tiersFor7967(ts: TokenState): List<Pair<Double, Double>>? = if (holding7967(ts)) TIERS_7967 else null
+    fun tiersFor7967(ts: TokenState): List<Pair<Double, Double>>? =
+        if (holding7967(ts)) TIERS_7967
+        // V5.0.8331 — the ladder follows the one plan for the position's life: a sealed / promoted runner past the 6 h hold
+        // window kept its plan (RunnerPlan8153) but fell back to the scalp ladder here, and bookSlice8153 then confirmed
+        // the fill on the RUNNER ladder the request never used (ladder identity lost mid-position).
+        else RunnerFunnel8331.ladderForPlan8331(try { RunnerLive8153.plan8153(ts) } catch (_: Throwable) { RunnerPlan8153.Plan8153.SCALP })
 
     /** Executor.requestSellCore7948: the deferral label when a held runner should not take this exit. */
     fun deferSell7967(ts: TokenState, reason: String, nowMs: Long = System.currentTimeMillis()): String? {
