@@ -25,7 +25,9 @@ class Aate7791MoonshotAuthorityRestorationTest {
 
     @Test fun scannerAndOwnershipRespectSpecialistAuthority(){
         val h=src("engine/market/LaneHunter7297.kt")
-        assertTrue(h.contains("MIN_MARKET_CAP_BOOTSTRAP_USD_7719"))
+        // superseded by V5.0.8323: the hunter reads MOONSHOT's band from its cheat sheet, which reads the trader's constant.
+        assertTrue(h.contains("LaneCheatSheet8323.mcapMin8323(\"MOONSHOT\")"))
+        assertTrue(src("engine/cortex/LaneCheatSheet8323.kt").contains("MIN_MARKET_CAP_BOOTSTRAP_USD_7719"))
         val t=src("engine/ToolkitSignalSheet.kt")
         // V5.0.7803 — hunt-claim arbitration was replaced by resident hunters that may only
         // nudge their OWN existing hypothesis; no hunter can evict another lane's candidate.
