@@ -221,5 +221,6 @@ object AdmissionBirth8144 {
             // V5.0.8169 — the pair witnesses, the distinct birthless mints by feed, and the sniper's cheap age pre-filter.
             "curvePairs8169=${curvePairs8169.size} poolFloors8169=${poolFloors8169.size} chainMintInits8179=${chainMintInits8179.size} " +
             "unknownMints8169{${LaunchBirth8169.histogram8169(unknownMints8169.values, 5)}} ${LaunchBirth8169.sniperScopeLine8169()}] " +
-            TokenBirthHydrator7441.statusLine7441()
+            TokenBirthHydrator7441.statusLine7441() +
+            " " + (try { com.lifecyclebot.engine.FreshLaunchIntake8303.statusLine8303() } catch (_: Throwable) { "freshLaunch8303[unavailable]" })  // V5.0.8303
 }
