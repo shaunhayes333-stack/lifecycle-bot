@@ -129,7 +129,7 @@ class Aate8310SelectionTest {
         assertTrue(ticket.contains("SelectionDoors8310.noteTicketClose8310(e.positionId, e.mode, e.economicFinality"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("SelectionDoors8310.admitRefusal8310(ts, l8059, setup8083, nowMs)"))
-        assertTrue(gate.contains("cellOrKindProven8094(ts, l8059, nowMs) && SelectionDoors8310.labelStandsDownChase8310(l8059)"))
+        assertTrue(gate.contains("cellOrKindProven8094(ts, l8059, nowMs) && !SelectionDoors8310.labelStandsDownChase8310(l8059)) {"))
         // the admit refusal sits after the proven-only door and before the chase rule
         assertTrue(gate.indexOf("SelectionDoors8310.admitRefusal8310") > gate.indexOf("provenOnlyAdmitted8059.incrementAndGet()"))
         assertTrue(gate.indexOf("SelectionDoors8310.admitRefusal8310") < gate.indexOf("chaseRefused8065.incrementAndGet()"))

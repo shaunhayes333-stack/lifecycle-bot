@@ -633,10 +633,20 @@ object LiveEdgeGate7877 {
             // V5.0.8243 — a candidate-specific ADMIT rests on a SUPPORTED record graded from the fill latency (the chase is
             // in the record), exactly the cell / kind case above: the spike heuristic stands down for it too (8241: CUyZ
             // +1774% refused CHASING_SPIKE after ADMIT:SPECIFIC_EDGE_PROVEN). The admitted-terminal count is kept.
+            // V5.0.8310 D4 — in a lane whose verified live closes lose, a label-only cell / kind proof no longer stands the
+            // spike rule down (SelectionDoors8310); a developing runner grab and the rule's own tail audit still do.
+            if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
+                !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) && !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
+                cellOrKindProven8094(ts, l8059, nowMs) && !SelectionDoors8310.labelStandsDownChase8310(l8059)) {
+                chaseRefused8065.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
+                observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
+                return "CHASING_SPIKE_8065"
+            }
             if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
                 !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) &&
                 !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
-                !(cellOrKindProven8094(ts, l8059, nowMs) && SelectionDoors8310.labelStandsDownChase8310(l8059))) {  // V5.0.8310 D4
+                !cellOrKindProven8094(ts, l8059, nowMs)) {
                 if (admittedJudged8201) {
                     try { PipelineHealthCollector.labelInc("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_$l8059") } catch (_: Throwable) {}
                 } else {
