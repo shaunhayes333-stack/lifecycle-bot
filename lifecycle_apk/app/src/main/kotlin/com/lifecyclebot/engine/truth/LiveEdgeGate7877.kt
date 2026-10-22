@@ -384,7 +384,7 @@ object LiveEdgeGate7877 {
      */
     private val positive7975 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
-    private fun notePositive7975(mint: String, nowMs: Long) {
+    internal fun notePositive7975(mint: String, nowMs: Long) {
         positive7975[mint] = nowMs
         if (positive7975.size > 2_000) positive7975.entries.removeIf { nowMs - it.value > POSITIVE_TTL_MS_7975 }
     }
@@ -408,7 +408,7 @@ object LiveEdgeGate7877 {
     private val verdictCounts8083 = ConcurrentHashMap<String, AtomicLong>()
     private const val ASSESSMENT_TTL_MS_8083 = 120_000L
 
-    private fun recordAssessment8083(ts: TokenState, lane: String, setup: String?, verdict: Verdict8083, reason: String, sizeFactor: Double, nowMs: Long) {
+    internal fun recordAssessment8083(ts: TokenState, lane: String, setup: String?, verdict: Verdict8083, reason: String, sizeFactor: Double, nowMs: Long) {
         val losing = sizeFactor < 1.0
         val a = Assessment8083(ts.mint, lane, setup ?: "UNCLASSIFIED", verdict, reason, sizeFactor.coerceIn(LiveTruth8064.LOSING_LANE_SIZE_FACTOR_8083, 1.0), losing, nowMs)
         assessments8083["${ts.mint}|$lane"] = a
@@ -465,6 +465,8 @@ object LiveEdgeGate7877 {
         ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis(), candidateVersion: Long = 0L,
         candidateAdmission: CandidateAdmission8136.Decision8136? = null,
     ): String? {
+        // V5.0.8326 — Entry8114Mode8326 (owner: "Make 8114 live now"): a live meme entry is decided the 8114 way.
+        if (Entry8114Mode8326.routes8326(lane, paper)) return Entry8114Mode8326.decide8326(ts, lane, nowMs, candidateVersion, candidateAdmission)
         var auditedAdmission8076 = false
         var candidateSpecificAdmission8136 = false
         var resolvedAdmission: CandidateAdmission8136.Decision8136? = null

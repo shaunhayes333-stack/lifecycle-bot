@@ -72,7 +72,8 @@ object RunnerTicket8073 {
         val ticketSol = try { com.lifecyclebot.engine.truth.NetEdge8030.DEFAULT_TICKET_SOL } catch (_: Throwable) { 0.03 }
         if (!fits8073(openTicketSol(), ticketSol, equity)) { refusedBudget.incrementAndGet(); return false }
         // V5.0.8310 — the ticket door reads its own verified live record (SelectionDoors8310 D1): suspended while it loses.
-        if (!com.lifecyclebot.engine.truth.SelectionDoors8310.ticketMayIssue8310(nowMs)) { refusedRecord8310.incrementAndGet(); return false }
+        if (!com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326() &&  // V5.0.8326 — no 8310 suspension at 8114
+            !com.lifecyclebot.engine.truth.SelectionDoors8310.ticketMayIssue8310(nowMs)) { refusedRecord8310.incrementAndGet(); return false }
         tickets[ts.mint] = nowMs
         lastIssuedMs = nowMs
         issued.incrementAndGet()

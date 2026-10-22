@@ -549,6 +549,8 @@ object LiveRiskPolicy7807 {
         val recentLive8296: LiveConfidence8296.Recent8296? = null,
         /** V5.0.8319 — this candidate holds the current generation's admission proof (AdmissionEdge8180.proof8198). */
         val admissionProven8319: Boolean = false,
+        /** V5.0.8326 — Entry8114Mode8326 admitted this candidate (8114 decision): route-minimum promotion as at 8114. */
+        val entry8114Admitted8326: Boolean = false,
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -749,6 +751,7 @@ object LiveRiskPolicy7807 {
                     minCost7840, i.setupExpectedGrossPct8153, if (i.admissionProven8319) 0.0 else i.drawdownFrac,
                     MinPromotion8188.doctrineBudgetSol8236(size, tradeable8153, i.solUsd),
                     explorationSlotFree = i.admissionProven8319 || (try { LaneScoreAdmission7308.runnerSlotFreeNow(i.lane) } catch (_: Throwable) { false }))
+                    ?.let { Entry8114Mode8326.promotionInputFilter8326(i.entry8114Admitted8326, i.lane, it) }  // V5.0.8326
                     ?.let { refusal ->
                         // An order whose FIXED fees require a larger ticket is
                         // still rejected when the loss budget cannot fund it.
@@ -983,6 +986,7 @@ object LiveRiskPolicy7807 {
             fixedRoundTripSol8169 = try { com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() } catch (_: Throwable) { Double.NaN },
             recentLive8296 = try { LiveConfidence8296.recentFor8296(effectiveLane7811) } catch (_: Throwable) { null },
             admissionProven8319 = proofGross8232 != null,
+            entry8114Admitted8326 = try { Entry8114Mode8326.admittedNow8326(mint, effectiveLane7811) } catch (_: Throwable) { false },
         )
     }
 
