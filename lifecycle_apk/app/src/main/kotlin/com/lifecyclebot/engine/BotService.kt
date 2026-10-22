@@ -20215,6 +20215,7 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
             }
 
+            PeakReanchorOnce8319.maybeRun8319(applicationContext, loopCount)  // V5.0.8319 — one-shot: drop the peak inflated by pre-8319 inflow rebases
             // V5.0.6463 §P1 — SYNC PERPS SANDBOX ENABLE STATE FROM CONFIG.
             // Only takes effect in paper mode; PerpsSandbox6463.setEnabled
             // refuses live-mode enable requests unconditionally.

@@ -78,6 +78,23 @@ object MinPromotion8188 {
         return null
     }
 
+    /** V5.0.8319 — the refusals an upstream sizer defers to the last mile while no admission proof exists. */
+    private val EDGE_TIER_REFUSALS_8319 = setOf(REFUSED_NEGATIVE_EDGE_8188, REFUSED_UNMEASURED_EDGE_8188, REFUSED_DRAWDOWN_8188)
+    const val EDGE_DEFERRED_8319 = "ROUTE_MIN_PROMOTION_EDGE_DEFERRED_TO_LAST_MILE_8319"
+
+    /**
+     * Pure (V5.0.8319): the upstream sizer's verdict. Without an admission proof ([admissionProven] false) an edge-tier
+     * refusal is deferred (null, counted) to LiveRiskPolicy7807.decide; the loss budget / unevaluated refusals still bind.
+     * With a proof the verdict stands.
+     */
+    fun deferredEdge8319(refusal: String?, admissionProven: Boolean): String? {
+        if (!admissionProven && refusal != null && refusal in EDGE_TIER_REFUSALS_8319) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(EDGE_DEFERRED_8319) } catch (_: Throwable) {}
+            return null
+        }
+        return refusal
+    }
+
     /** V5.0.8316 — counted when an unmeasured edge was promoted on the lane's free exploration slot. */
     const val UNMEASURED_EXPLORATION_SLOT_8316 = "ROUTE_MIN_PROMOTION_UNMEASURED_EXPLORATION_SLOT_8316"
 
@@ -132,8 +149,12 @@ object MinPromotion8188 {
             // The 8259 permit is per specialist, not a global lock: a qualifying
             // MOONSHOT probe must not consume BLUECHIP/CASHGEN's own slot.
             val explorationFree = try { LaneScoreAdmission7308.runnerSlotFreeNow(l) } catch (_: Throwable) { false }
-            refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross,
+            val r8188 = refusal8188(requestedSol, promotedSol, stop, cost(requestedSol), cost(promotedSol), gross,
                 liveDrawdownFrac8188(), budgetSol8234, explorationSlotFree = explorationFree)
+            // V5.0.8319 — no admission proof yet: the edge is this candidate's to prove at admission, not the lane record's to
+            // refuse here (8316: NEGATIVE_EDGE_8188 = 106, ADMISSION_BASIS_8224 = 0). The loss budget still binds;
+            // LiveRiskPolicy7807.decide re-runs every test at the last mile on the admission's own gross.
+            deferredEdge8319(r8188, admissionGross8224 != null)
         } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 }
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
         // V5.0.8316 — a promotion refusal is a refusal AT SIZE: the funnel shows "owner selected, refused at size" (SpecialistOwnership7951).

@@ -129,6 +129,11 @@ object CapitalDrawdown7948 {
     @Volatile private var realCache7981: Pair<Long, Double>? = null
     private val externalFlows7981 = java.util.concurrent.atomic.AtomicLong(0)
     @Volatile private var netExternal7981 = 0.0
+    /** V5.0.8319 — confirmed inflows that did NOT rebase the peak (only outflows rebase; a deposit sets a NEW_HIGH by itself). */
+    private val inflowNotRebased8319 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Pure (V5.0.8319): may a confirmed external [flowSol] rebase the peak? Only a withdrawal (flow < 0) does. */
+    fun flowRebasesPeak8319(flowSol: Double, equitySol: Double): Boolean = isExternal7981(flowSol, equitySol) && flowSol < 0.0
 
     private fun realisedLiveSol7981(nowMs: Long): Double {
         realCache7981?.let { (at, v) -> if (nowMs - at in 0L..20_000L) return v }
@@ -176,6 +181,18 @@ object CapitalDrawdown7948 {
                         if (isExternal7981(flow, equitySol) && PeakLedger8188.settlementExplains8223(flow, netLegs8223)) {
                             cancelled7986.incrementAndGet()
                             PeakLedger8188.refuseSettlement8223(residual8188, liq8188 - p.liq, netLegs8223, peak7948.peakSol, nowMs)
+                        } else if (isExternal7981(flow, equitySol) && flow > 0.0) {
+                            // V5.0.8319 §AN_INFLOW_NEVER_RAISES_THE_PEAK — 8316: six "deposits" (+0.1671 SOL) lifted the peak from the
+                            // recorded NEW_HIGH 0.3217 to 0.4888 and read a 33% drawdown on a flat book. A sell whose proceeds the
+                            // clean-close leaderboard never booked (quarantined / emergency / unjournaled) reads dRealised=0,
+                            // dUpnl=-mark, so residual=+mark. A real deposit needs no rebase: equity above the peak sets a NEW_HIGH
+                            // by itself. Withdrawals (flow < 0) still rebase below.
+                            cancelled7986.incrementAndGet()
+                            inflowNotRebased8319.incrementAndGet()
+                            try {
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DRAWDOWN_INFLOW_NOT_REBASED_8319")
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle("DRAWDOWN_INFLOW_NOT_REBASED_8319", "flow=${"%.4f".format(flow)} equity=${"%.4f".format(equitySol)} peak=${"%.4f".format(peak7948.peakSol)}")
+                            } catch (_: Throwable) {}
                         } else if (isExternal7981(flow, equitySol)) {
                             val before8188 = peak7948
                             peak7948 = rebasedPeak7981(peak7948, flow, equitySol, nowMs)
@@ -287,7 +304,7 @@ object CapitalDrawdown7948 {
         val p = rollPeak7948(peak7948, equitySol, nowMs)
         return "liveDD=${"%.1f".format(peekPct7948(equitySol, nowMs))}% equity=${"%.4f".format(equitySol)} " +
             "peak24h=${"%.4f".format(p.peakSol)} peakAgeMin8169=${if (p.atMs > 0L) ((nowMs - p.atMs) / 60_000L).toString() else "-"} " +
-            "peakRiseFrozen8169=${peakFrozen8169.get()} pendingFlow8169=${pending7986 != null} externalFlows7981=${externalFlows7981.get()} tradeLagCancelled7986=${cancelled7986.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]" +
+            "peakRiseFrozen8169=${peakFrozen8169.get()} pendingFlow8169=${pending7986 != null} externalFlows7981=${externalFlows7981.get()} tradeLagCancelled7986=${cancelled7986.get()} inflowNotRebased8319=${inflowNotRebased8319.get()} netExternal=${"%+.4f".format(netExternal7981)} basis=[$BASIS_7948]" +
             " ${try { CashEquityBook8136.line8136(cashEquity8136(com.lifecyclebot.engine.BotService.status.walletSol, nowMs)) } catch (_: Throwable) { "equity8136=-" }}" +
             " ${try { PeakLedger8188.line8188(peak7948, nowMs) } catch (_: Throwable) { "peakEvent8188=-" }}"
     }
