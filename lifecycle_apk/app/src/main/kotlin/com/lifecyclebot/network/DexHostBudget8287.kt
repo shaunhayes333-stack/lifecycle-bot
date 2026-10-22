@@ -30,7 +30,8 @@ object DexHostBudget8287 {
     const val PRIO_HEADER_8287 = "X-AATE-Dex-Prio-8287"
     const val PER_MIN_8287 = 180
     const val BURST_8287 = 12.0
-    const val BULK_RESERVE_8287 = 4.0
+    /** V5.0.8317 — 4.0 → 2.0: with launches marked near-decision at intake (IntakeFirstSight8317) bulk needs less headroom held back. */
+    const val BULK_RESERVE_8287 = 2.0
     const val PRIORITY_WAIT_MS_8287 = 1_500L
     private const val DEFAULT_PAUSE_MS_8287 = 15_000L
     private const val MAX_PAUSE_MS_8287 = 120_000L

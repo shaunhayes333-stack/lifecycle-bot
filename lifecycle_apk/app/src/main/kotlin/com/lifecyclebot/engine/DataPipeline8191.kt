@@ -152,7 +152,8 @@ object DataPipeline8191 {
             (try { com.lifecyclebot.network.DexPools8285.statusLine8285() } catch (_: Throwable) { "dexPools8285 -" }) + " " +
             (try { DexBatchLane8287.statusLine8287() } catch (_: Throwable) { "dexLane8287 -" }) + " " +   // V5.0.8287
             (try { com.lifecyclebot.network.DexHostBudget8287.statusLine8287() } catch (_: Throwable) { "dexHost8287 -" }) + " " +
-            (try { BirdeyeBudgetGate.statusLine8287() } catch (_: Throwable) { "birdeyeBudget8287 -" })
+            (try { BirdeyeBudgetGate.statusLine8287() } catch (_: Throwable) { "birdeyeBudget8287 -" }) + " " +
+            (try { IntakeFirstSight8317.statusLine8317() } catch (_: Throwable) { "intake8317 -" })   // V5.0.8317
 
     internal fun resetForTests8191() {
         nearDecisionAt.clear(); pairFetchAt.clear(); synchronized(codexOrdinary) { codexOrdinary.clear() }

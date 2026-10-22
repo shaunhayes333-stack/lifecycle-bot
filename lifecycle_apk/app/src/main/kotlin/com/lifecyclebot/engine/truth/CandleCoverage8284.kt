@@ -198,7 +198,7 @@ object CandleCoverage8284 {
         val p15 = try { TradeTape8100.prints8128(ts.mint, nowMs, 3L * 60_000L) } catch (_: Throwable) { emptyList() }
         val c15 = coverageOf8284(ageMs, p15.map { it.atMs / 15_000L }.toSet().size, 15_000L, MIN_TF_BARS_8284)
         val c1 = coverageOf8284(ageMs, distinctBuckets(bars1m8284(ts), BUCKET_MS, nowMs - 30L * 60_000L, Quality8284.MARK_ONLY.rank),
-            BUCKET_MS, MIN_1M_BARS_8284)
+            BUCKET_MS, min1mBars8317(ageMs))
         val h5 = try { synchronized(ts.history5m) { ts.history5m.toList() } } catch (_: Throwable) { emptyList() }
         val c5 = coverageOf8284(ageMs, distinctBuckets(h5, 5L * BUCKET_MS, nowMs - 2L * 3_600_000L, Quality8284.UNKNOWN.rank),
             5L * BUCKET_MS, MIN_TF_BARS_8284)
@@ -213,6 +213,14 @@ object CandleCoverage8284 {
 
     private fun ageOf(ts: TokenState, nowMs: Long): Long? =
         try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.8317 — the distinct 1 m bars coverage needs for a token [ageMs] old: three inside the launch window
+     * (PriceShapeBars8287.ageAwareMin8317), else [MIN_1M_BARS_8284]. 8314: a launch read NOT_YET_POSSIBLE until it was
+     * six minutes old, and the setups waited on it.
+     */
+    fun min1mBars8317(ageMs: Long?): Int =
+        PriceShapeBars8287.ageAwareMin8317(if (ageMs != null && ageMs >= 0L) ageMs / 60_000.0 else Double.NaN, MIN_1M_BARS_8284)
 
     /** A request saw [ts]'s 1 m coverage: start the time-to-feature clock when it is missing. Returns the 1 m state. */
     fun noteNeed8284(ts: TokenState, nowMs: Long, ageMs: Long? = ageOf(ts, nowMs)): Coverage8284 {

@@ -156,7 +156,7 @@ object TradePlan7739 {
      * mark bars fill the rest, so a fresh launch is not refused for missing
      * third-party candles. A 4H-seeded history no longer reads as zero bars.
      */
-    private fun barsFrom(ts: TokenState, nowMs: Long): List<Bar> {
+    private fun barsFrom(ts: TokenState, nowMs: Long, entry8317: Boolean = false): List<Bar> {
         val hist = if (ts.candleTimeframeMinutes > 1) emptyList() else historyBars7739(ts, nowMs)
         // V5.0.7951 — the token's one-minute history seeds its mark tape at first sight, so
         // the bars outlive a provider re-seed clearing ts.history and (MarkBarsStore7951) a restart.
@@ -164,19 +164,68 @@ object TradePlan7739 {
         if (hist.size > MIN_BARS_7739) return hist
         val merged = MarkBars7948.merge7948(hist, MarkBars7948.bars7948(ts.mint, nowMs, WINDOW_MS_7739), MIN_BARS_7739 + 1)
         if (merged.size > hist.size) MarkBars7948.noteLent7948(merged.size - hist.size)
-        // V5.0.8136 — still short: the coin's own executed prints (LocalTapeBars8128, one source, 10+ traded minutes,
-        // no gap fill, no synthetic candle) when they read more minutes than history + marks.
-        if (merged.size <= MIN_BARS_7739) localTapeBars8136(ts.mint, nowMs)?.takeIf { it.size > merged.size }?.let { return it }
+        if (merged.size <= MIN_BARS_7739) {
+            val age8317 = ageMin8317(ts, nowMs)
+            // V5.0.8317 — an ENTRY read of a launch-window coin: its own executed prints in 15-second bars (six bars ≈ 90 s)
+            // when they outnumber the one-minute series. Entry only: the exit trail keeps reading one-minute bars.
+            if (entry8317) youngBars8317(ts.mint, nowMs, age8317)?.takeIf { it.size > merged.size }?.let { return it }
+            // V5.0.8136 — still short: the coin's own executed prints (LocalTapeBars8128, one source, traded minutes only —
+            // V5.0.8317: as many as its age allows — no gap fill, no synthetic candle) when they read more minutes than history + marks.
+            localTapeBars8136(ts.mint, nowMs, age8317)?.takeIf { it.size > merged.size }?.let { return it }
+        }
         return merged
     }
 
     /** V5.0.8136 — one-minute plan bars from the executed-trade tape (TradeTape8100) via LocalTapeBars8128, or null. */
-    private fun localTapeBars8136(mint: String, nowMs: Long): List<Bar>? = try {
+    private fun localTapeBars8136(mint: String, nowMs: Long, ageMin: Double): List<Bar>? = try {
         val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-        val bars = com.lifecyclebot.engine.chart.LocalTapeBars8128.fromPrints8128(TradeTape8100.prints8128(mint, nowMs, WINDOW_MS_7739), solUsd)
+        val bars = com.lifecyclebot.engine.chart.LocalTapeBars8128.fromPrints8128(TradeTape8100.prints8128(mint, nowMs, WINDOW_MS_7739), solUsd,
+            com.lifecyclebot.engine.chart.LocalTapeBars8128.minMinutes8317(ageMin))   // V5.0.8317 — age-aware minimum
             ?.map { Bar(it.t, it.o, it.h, it.l, it.c) }
         if (!bars.isNullOrEmpty()) try { PipelineHealthCollector.labelInc("PLAN_BARS_FROM_LOCAL_TAPE_8136") } catch (_: Throwable) {}
         bars
+    } catch (_: Throwable) { null }
+
+    // ── V5.0.8317 §A_LAUNCH_IS_READ_ON_THE_BARS_IT_CAN_HAVE (owner directive 8314, P3) ──
+    //
+    // 5.0.8314: the plan's setups needed five / six one-minute bars (traded minutes only), so a launch could not
+    // qualify before it was ~6–11 minutes old (ttf1m avg 644 s) and 7 of 18 live runner admits were LOSS_BOUGHT_TOP:
+    // the bot arrived after the move. The age-aware rule already existed (PriceShapeBars8287.minMinutes8287: three
+    // minutes for a NEW coin) and these gates did not read it. Now: the setups' minimum follows the coin's age
+    // ([minBars8317]), and an entry read of a launch-window coin counts 15-second bars built from its own EXECUTED prints
+    // (TradeTape8100.prints8128, [bars15s8317]) when they outnumber its one-minute series. Only observed prints: a 15 s
+    // bucket nobody traded has no bar, a price-only print is never a bar, no SOL price means no USD bars.
+    internal const val YOUNG_BAR_MS_8317 = 15_000L
+
+    /** The age (minutes) of [ts] from its canonical launch age; NaN when unresolved (unknown age keeps today's numbers). */
+    private fun ageMin8317(ts: TokenState, nowMs: Long): Double =
+        (try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null })?.let { it / 60_000.0 } ?: Double.NaN
+
+    /** Pure: the bars the setups need for a coin [ageMin] old — three inside the launch window, else [MIN_BARS_7739]. */
+    fun minBars8317(ageMin: Double): Int = PriceShapeBars8287.ageAwareMin8317(ageMin, MIN_BARS_7739)
+
+    /** Pure: 15-second plan bars (USD at [solUsd]) from executed prints only, oldest first; an untraded bucket has no bar. */
+    fun bars15s8317(prints: List<TradeTape8100.Print8128>, solUsd: Double): List<Bar> {
+        if (!solUsd.isFinite() || solUsd <= 0.0) return emptyList()
+        return prints.filter { !it.priceOnly && it.atMs > 0L && it.priceSol.isFinite() && it.priceSol > 0.0 }
+            .sortedBy { it.atMs }
+            .groupBy { it.atMs / YOUNG_BAR_MS_8317 }
+            .toSortedMap()
+            .map { (b, ps) ->
+                val px = ps.map { it.priceSol * solUsd }
+                Bar(b * YOUNG_BAR_MS_8317, px.first(), px.maxOrNull() ?: px.first(), px.minOrNull() ?: px.first(), px.last())
+            }
+    }
+
+    /** A launch-window coin's 15 s bars from its own tape when at least MIN_BARS_7739 + 1 buckets traded; else null. */
+    private fun youngBars8317(mint: String, nowMs: Long, ageMin: Double): List<Bar>? = try {
+        if (LifecycleData8283.lifecycleOf8283(ageMin) != Lifecycle8283.NEW) null else {
+            val bars = bars15s8317(TradeTape8100.prints8128(mint, nowMs, WINDOW_MS_7739), PriceShapeBars8287.solUsd8287(nowMs))
+            if (bars.size < MIN_BARS_7739 + 1) null else {
+                try { PipelineHealthCollector.labelInc("PLAN_BARS_15S_FROM_PRINTS_8317") } catch (_: Throwable) {}
+                bars
+            }
+        }
     } catch (_: Throwable) { null }
 
     /** One-minute bars rebuilt from a history that may mix ticks, synthetic and fetched candles. */
@@ -259,10 +308,10 @@ object TradePlan7739 {
         return Read(setup, setup.name, stopPct, firstPct, targetPct)
     }
 
-    /** A/F: impulse, held pullback, reclaim, room under the high. */
-    fun pullbackReclaim(bars: List<Bar>, tier: Tier): Read {
+    /** A/F: impulse, held pullback, reclaim, room under the high. [minBars]: V5.0.8317 age-aware ([minBars8317]). */
+    fun pullbackReclaim(bars: List<Bar>, tier: Tier, minBars: Int = MIN_BARS_7739): Read {
         val n = bars.size
-        if (n < MIN_BARS_7739) return Read(null, "TOO_FEW_BARS")
+        if (n < minBars) return Read(null, "TOO_FEW_BARS")
         var iH = 0
         for (i in 0 until n - 1) if (bars[i].high > bars[iH].high) iH = i
         if (iH < 1 || iH > n - 3) return Read(null, "NO_PULLBACK_YET")
@@ -285,9 +334,9 @@ object TradePlan7739 {
     }
 
     /** B: a tight base, two closes above it, not extended; a retest is required in CHOP. */
-    fun baseBreakout(bars: List<Bar>, tier: Tier, chop: Boolean): Read {
+    fun baseBreakout(bars: List<Bar>, tier: Tier, chop: Boolean, minBars: Int = MIN_BARS_7739): Read {
         val n = bars.size
-        if (n < MIN_BARS_7739 + 1) return Read(null, "TOO_FEW_BARS")
+        if (n < minBars + 1) return Read(null, "TOO_FEW_BARS")
         val baseBars = bars.subList(maxOf(0, n - 12), n - 2)
         if (baseBars.size < 4) return Read(null, "NO_BASE")
         val rh = baseBars.maxOf { it.high }
@@ -306,9 +355,9 @@ object TradePlan7739 {
     }
 
     /** D: a prior low swept and reclaimed, turning up. */
-    fun sweepReclaim(bars: List<Bar>, tier: Tier): Read {
+    fun sweepReclaim(bars: List<Bar>, tier: Tier, minBars: Int = MIN_BARS_7739): Read {
         val n = bars.size
-        if (n < MIN_BARS_7739 + 1) return Read(null, "TOO_FEW_BARS")
+        if (n < minBars + 1) return Read(null, "TOO_FEW_BARS")
         val prior = bars.subList(0, n - 3)
         val support = prior.minOf { it.low }
         val rangeHigh = prior.maxOf { it.high }
@@ -323,9 +372,9 @@ object TradePlan7739 {
     }
 
     /** Pure: the best-paying setup the bars show, or the reason none is present. */
-    fun analyze(bars: List<Bar>, tier: Tier, chop: Boolean, buyTx: Int, sellTx: Int): Read {
+    fun analyze(bars: List<Bar>, tier: Tier, chop: Boolean, buyTx: Int, sellTx: Int, minBars: Int = MIN_BARS_7739): Read {
         if (sellTx >= 3 && sellTx > buyTx) return Read(null, "SELL_DOMINANT_TAPE")
-        val reads = listOf(pullbackReclaim(bars, tier), baseBreakout(bars, tier, chop), sweepReclaim(bars, tier))
+        val reads = listOf(pullbackReclaim(bars, tier, minBars), baseBreakout(bars, tier, chop, minBars), sweepReclaim(bars, tier, minBars))
         val best = reads.filter { it.setup != null }.maxByOrNull { it.r }
         if (best != null) return best
         // Report the most advanced miss, so the wait reason says how close the tape came.
@@ -337,7 +386,9 @@ object TradePlan7739 {
     fun readForEntry7837(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Read {
         val lp = try { LaunchPhaseAuthority7401.snapshot(ts, nowMs) } catch (_: Throwable) { null }
         val chop = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name == "CHOP" } catch (_: Throwable) { false }
-        return analyze(barsFrom(ts, nowMs), tierFor(ts.lastMcap), chop, lp?.buyTx60s ?: 0, lp?.sellTx60s ?: 0)
+        // V5.0.8317 — a launch-window coin is read on the bars it can have: three, and 15 s bars from its own prints.
+        val age8317 = ageMin8317(ts, nowMs)
+        return analyze(barsFrom(ts, nowMs, entry8317 = true), tierFor(ts.lastMcap), chop, lp?.buyTx60s ?: 0, lp?.sellTx60s ?: 0, minBars8317(age8317))
     }
 
     // ── entry ──

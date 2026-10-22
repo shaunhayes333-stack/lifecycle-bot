@@ -217,6 +217,8 @@ object TokenMergeQueue {
                 entry.laneAffinity.addAll(inferredLaneAffinity)
                 entry.toolAffinity.addAll(inferredToolAffinity)
             }
+            // V5.0.8317 — a launch inside its window (or of unresolved age) is near a decision from its first sighting.
+            try { IntakeFirstSight8317.noteIntake8317(mint, now) } catch (_: Throwable) {}
 
             ErrorLogger.debug(
                 TAG,

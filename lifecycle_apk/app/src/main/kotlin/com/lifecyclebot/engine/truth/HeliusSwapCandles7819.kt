@@ -210,6 +210,15 @@ object HeliusSwapCandles7819 {
 
     private val localTapeAt8284 = ConcurrentHashMap<String, Long>()
     private const val LOCAL_TAPE_GAP_MS_8284 = 30_000L
+    /** V5.0.8317 — a launch-window coin's tape is re-binned every 10 s (its first minutes are the trade). */
+    private const val LOCAL_TAPE_GAP_YOUNG_MS_8317 = 10_000L
+
+    /** Pure (V5.0.8317): the local-tape pace for a coin [ageMin] old — 10 s inside the launch window, else 30 s. */
+    fun localTapeGapMs8317(ageMin: Double): Long =
+        if (LifecycleData8283.lifecycleOf8283(ageMin) == Lifecycle8283.NEW) LOCAL_TAPE_GAP_YOUNG_MS_8317 else LOCAL_TAPE_GAP_MS_8284
+
+    private fun ageMin8317(ts: TokenState, nowMs: Long): Double =
+        (try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null })?.let { it / 60_000.0 } ?: Double.NaN
     private val localTapeRuns8284 = AtomicLong(0L)
     private val localTapeBarCount8284 = AtomicLong(0L)
     private val localTapeChanged8284 = AtomicLong(0L)
@@ -225,12 +234,13 @@ object HeliusSwapCandles7819 {
     /**
      * V5.0.8284 — the cheap path for a request that will not reach Helius (budget, retry wait, no market account, too
      * young): the mint's own executed prints already on the local tape, binned into 1 m bars (TRADE_AGGREGATED, below a
-     * Helius trade candle), at most once per mint per [LOCAL_TAPE_GAP_MS_8284]. No request, no credits.
+     * Helius trade candle), at most once per mint per [LOCAL_TAPE_GAP_MS_8284] ([localTapeGapMs8317]: 10 s inside the
+     * launch window). No request, no credits.
      */
     internal fun localTape8284(ts: TokenState, nowMs: Long, reason: String, solUsd: Double = solUsd8284()): CandleCoverage8284.Merge8284? {
         val mint = ts.mint
         val last = localTapeAt8284[mint] ?: 0L
-        if (nowMs - last in 0L until LOCAL_TAPE_GAP_MS_8284) return null
+        if (nowMs - last in 0L until localTapeGapMs8317(ageMin8317(ts, nowMs))) return null   // V5.0.8317 — 10 s for a launch
         localTapeAt8284[mint] = nowMs
         if (localTapeAt8284.size > 4_000) MemoryBounds8289.capByAge8289(localTapeAt8284, 4_000, 600_000L, nowMs) { it }  // V5.0.8289 — hard cap
         localTapeRuns8284.incrementAndGet()

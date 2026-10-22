@@ -189,7 +189,9 @@ class Aate8136AdmissionRecordTest {
         assertTrue(gate.contains("CandidateAdmission8136.noteVerdict8136(\"LIVE\", verdict.name, reason)"))
         val plan = src("engine/truth/TradePlan7739.kt")
         assertTrue(plan.contains("if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return chartPlanRefusal8136(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)"))
-        assertTrue(plan.contains("LocalTapeBars8128.fromPrints8128(TradeTape8100.prints8128(mint, nowMs, WINDOW_MS_7739), solUsd)"))
+        // superseded by V5.0.8317: the local-tape minimum follows the coin's age (LocalTapeBars8128.minMinutes8317).
+        assertTrue(plan.contains("LocalTapeBars8128.fromPrints8128(TradeTape8100.prints8128(mint, nowMs, WINDOW_MS_7739), solUsd,"))
+        assertTrue(plan.contains("com.lifecyclebot.engine.chart.LocalTapeBars8128.minMinutes8317(ageMin))"))
         assertTrue(src("engine/truth/CanonicalEntryFloor7266.kt").contains("CandidateAdmission8136.statusLine8136()"))
         assertTrue(CandidateAdmission8136.statusLine8136().startsWith("admission8136[ADMIT="))
     }

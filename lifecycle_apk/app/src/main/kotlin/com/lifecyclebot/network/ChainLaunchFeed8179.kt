@@ -810,6 +810,7 @@ object ChainLaunchFeed8179 {
     }
 
     private fun deliver8179(l: Launch8179, rate: RateWindow8179 = discoveryRate) {
+        notePumpSwapPool8317(l)
         if (seenMints.contains8179(l.mint)) { dupMints.incrementAndGet(); return }
         if (!rate.tryAcquire8179(System.currentTimeMillis())) { rateLimited.incrementAndGet(); label("CHAIN_LAUNCH_RATE_LIMITED_8179"); return }
         seenMints.firstSeen8179(l.mint)
@@ -818,6 +819,17 @@ object ChainLaunchFeed8179 {
         lastLaunchMs = System.currentTimeMillis()
         label("CHAIN_LAUNCH_DISCOVERED_8179_${l.target}")
         try { onLaunch(l) } catch (_: Throwable) { label("CHAIN_LAUNCH_INTAKE_FAILED_8179") }
+    }
+
+    /**
+     * V5.0.8317 — a PumpSwap pool created on chain names its base mint: the program stream's swaps on that pool reach
+     * the trade tape (PumpSwapTape8307.onProgramLogs8307) instead of being counted unknownPool (8314: programTaped=0,
+     * the map was filled only from DexScreener rows / per-mint decodes). Before the dup / rate gates: the fact is cheap
+     * and stands whether or not the launch itself is delivered.
+     */
+    private fun notePumpSwapPool8317(l: Launch8179) {
+        if (l.venue != Venue8179.PUMPSWAP || l.pool.isBlank() || l.mint.isBlank()) return
+        try { PumpSwapTape8307.notePoolMint8307(l.pool, l.mint) } catch (_: Throwable) {}
     }
 
     /** The chain's own witness of the launch: a direct birth only when this transaction created the mint, else a floor. */
