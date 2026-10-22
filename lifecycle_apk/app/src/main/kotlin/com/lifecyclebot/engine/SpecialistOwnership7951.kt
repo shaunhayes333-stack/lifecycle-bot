@@ -46,7 +46,15 @@ object SpecialistOwnership7951 {
     private val CAPITAL_REASONS_7951 = setOf(
         "CAPITAL_BELOW_MIN_EXECUTABLE_6490", "NO_WALLET", "PAPER_CASH_EMPTY_7819",
         "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490",
+        // V5.0.8316 — a route-minimum promotion refused AT SIZE on a 0.29 SOL wallet (8314: QUALITY / BLUECHIP / CORE /
+        // CYCLIC / TREASURY qualified hundreds, opened none — refused as SIZE_NOT_EXECUTABLE_7835 with no funnel stamp).
+        // The candidate passed every policy gate; the funnel shows "owner selected, refused at size".
+        "ROUTE_MIN_PROMOTION_REFUSED_UNMEASURED_EDGE_8188", "ROUTE_MIN_PROMOTION_REFUSED_LOSS_BUDGET_8188",
+        "ORDER_SIZE_CONVICTION_REFUSED_MIN_PROMOTION_6909", "SMART_SIZER_V3_SUB_ROUTABLE_REFUSED_7831",
     )
+
+    /** V5.0.8316 — the capital / size-only refusal reasons (read-only, for the funnel report and tests). */
+    fun capitalReasons8316(): Set<String> = CAPITAL_REASONS_7951
 
     private val eligibleRaw7951 = ConcurrentHashMap<String, ArrayDeque<Double>>()
     private data class CapitalNote7951(val reason: String, val atMs: Long)

@@ -126,6 +126,11 @@ object TokenMetricStageRouter {
             ageMin <= 3.0 && lifecycleEarly7401 &&
             (hist.size < 5 || currentVsPeak >= 0.88) &&
             liq >= 800.0 && sp <= 65.0 && acute5m7425 > -12.0
+        // V5.0.8316 — no clean metric stage (bp / chg / shape never arrived): a young coin's OWN executed prints name the
+        // stage (TapeStage8316: dumping / exhausted on a sell-dominated tape off its peak, a build on early buying), so the
+        // sheet's reclaim rule can stop a buy into a dump and the launch lanes buy builds. No prints: UNKNOWN as before.
+        val tape8316 = if (rugProne || lifecycleFade7401 || peakExhaustion || dumping || baseStart || midAccum || markup || freshLaunch) null
+            else com.lifecyclebot.engine.truth.TapeStage8316.stageFromTape8316(ts.mint, ageMin, now)
         val stage = when {
             rugProne -> Stage.RUG_PRONE
             lifecycleFade7401 && dd >= 18.0 -> Stage.DUMPING
@@ -136,9 +141,10 @@ object TokenMetricStageRouter {
             midAccum -> Stage.MID_ACCUMULATION
             markup -> Stage.CONTROLLED_MARKUP
             freshLaunch -> Stage.FRESH_LAUNCH
-            else -> Stage.UNKNOWN
+            else -> tape8316?.stage ?: Stage.UNKNOWN
         }
-        Snapshot(stage, ageMin, currentVsPeak, dd, runup, bp, sp, liq, mcap, mcapToLiq, top, reasonFor(stage, rugProne, peakExhaustion, dumping, baseStart, midAccum, markup, freshLaunch))
+        Snapshot(stage, ageMin, currentVsPeak, if (tape8316 != null) maxOf(dd, tape8316.offPeakPct) else dd, runup, bp, sp, liq, mcap, mcapToLiq, top,
+            reasonFor(stage, rugProne, peakExhaustion, dumping, baseStart, midAccum, markup, freshLaunch) + (tape8316?.let { " ${it.compact}" } ?: ""))
     } catch (t: Throwable) {
         Snapshot(Stage.UNKNOWN, 999.0, 0.0, 0.0, 0.0, 50.0, 50.0, 0.0, 0.0, 9999.0, -1.0, "stage_error=${t.javaClass.simpleName}")
     }

@@ -553,9 +553,12 @@ object OrderSizeResolver6441 {
         // measurably predicts the trade pays (LiveEdgeGate7877); otherwise it is
         // refused, not inflated. 5.0.7876 promoted 2,730 sub-minimum requests
         // at conviction 0.54 into 3-4x their risk-sized bet with no edge behind them.
+        // V5.0.8316 — or the lane's exploration slot is free (MinPromotion8188.explorationSlotFree8316): a cold lane's one
+        // unproven order is how its edge gets measured; MinPromotion8188.runtimeRefusal8188 below still re-proves the
+        // loss budget at the minimum, and every later gate (FDG, LiveRiskPolicy7807) still decides.
         val edgeRefusesPromotion7877 = !paperMode &&
             requestedLamports6491 < minExecLamports6491 &&
-            !liveEdgeAllows7877(mint, laneName)
+            !liveEdgeAllows7877(mint, laneName) && !MinPromotion8188.explorationSlotFree8316(laneName)
         val refuseMinPromotion6909 = (convictionCollapsed6909 || edgeRefusesPromotion7877) &&
             requestedLamports6491 < minExecLamports6491 &&
             !(!paperMode && AdmissionEdge8180.admittedNow8198(paperMode, mint, laneName))  // V5.0.8180 / 8198 — THIS lane's specific proven-edge ADMIT, current generation

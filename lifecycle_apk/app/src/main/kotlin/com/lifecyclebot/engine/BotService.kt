@@ -1037,6 +1037,26 @@ class BotService : Service() {
         ts.lastMcap in com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()..com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD
     } catch (_: Throwable) { false }
 
+    /**
+     * V5.0.8316 — MOONSHOT owns a cycle only inside the zone its own lane body accepts (the same three reads:
+     * [moonshotMcapInZone7792] || [moonshotUnknownMcapLiquid7792] || a runner-shaped 7044 launch). 8314: 180
+     * MOONSHOT_ZONE_DROPPED_AFTER_ADMISSION_7265 — hunt claims / ready-owner paths elected MOONSHOT past its $5M ceiling
+     * (MoonshotTraderAI.MAX_MARKET_CAP_USD) and the lane dropped the coin after spending the cycle. Out of zone, the first
+     * non-MOONSHOT [fallbacks] lane the election ranked owns instead; an operator-forced lane is never rewritten.
+     */
+    private fun moonshotElectionZone8316(ts: com.lifecyclebot.data.TokenState, classification: ModeRouter.Classification, elected: String, forced: String?, fallbacks: List<String>): String {
+        if (forced != null || !elected.equals("MOONSHOT", ignoreCase = true)) return elected
+        val runnerShaped = try { com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.isRunnerShaped(ts, classification.tradeType) } catch (_: Throwable) { false }
+        if (moonshotMcapInZone7792(ts) || moonshotUnknownMcapLiquid7792(ts) || runnerShaped) return elected
+        val fallback = fallbacks.firstOrNull { !it.equals("MOONSHOT", ignoreCase = true) } ?: "SHITCOIN"
+        try {
+            PipelineHealthCollector.labelInc("MOONSHOT_ELECTION_OUT_OF_ZONE_8316")
+            ForensicLogger.lifecycle("MOONSHOT_ELECTION_OUT_OF_ZONE_8316",
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} fallback=$fallback action=elect_in_zone_lane")
+        } catch (_: Throwable) {}
+        return RuntimeConfigOverlay.normalizeLane(fallback)
+    }
+
     /** V5.0.7792 — 7791's unknown-mcap path: observed liquidity at the bootstrap floor. */
     private fun moonshotUnknownMcapLiquid7792(ts: com.lifecyclebot.data.TokenState): Boolean {
         if (ts.lastMcap > 0.0) return false
@@ -15078,8 +15098,8 @@ class BotService : Service() {
             // 8081: use the candidate's own READY specialist contest before
             // sealing, rather than leaving that desk shadow-only after routing.
             // Existing coordinator enforces the same owner downstream.
-            val readyAligned8081 = LaneExecutionCoordinator.readyOwnerForCycle8081(
-                ts, identityEligiblePrimary7252, executableLanes7863, forced != null)
+            val readyAligned8081 = moonshotElectionZone8316(ts, classification, LaneExecutionCoordinator.readyOwnerForCycle8081(
+                ts, identityEligiblePrimary7252, executableLanes7863, forced != null), forced, listOfNotNull(strongestRole6614?.lane, eligibleStyleLanes7252.firstOrNull(), eligibleAffinity7252, metricPrimary))
             try {
                 val snap = TokenMetricStageRouter.snapshot(ts)
                 ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_PRIMARY", "symbol=${ts.symbol} mint=${ts.mint.take(10)} stylePrimary=$stylePrimary metricPrimary=$metricPrimary finalPrimary=$readyAligned8081 ${snap.compact}")
@@ -29497,7 +29517,7 @@ if (hotExitHandledSweep) {
                 )
                 // V5.7.8: Moonshot runs independently — Treasury positions don't block it
                 try {
-                    // V5.2.12: Check if mcap is in moonshot zone ($10K-$100M)
+                    // V5.2.12: Check if mcap is in moonshot zone (now MoonshotTraderAI.minMarketCapUsdFluid7719()..MAX_MARKET_CAP_USD $5M)
                     // V5.9.160: fresh pump.fun / DexScreener trending tokens often
                     // arrive with lastMcap == 0 before the first mcap fetch lands;
                     // treating "no data" as "out of range" was silently killing
@@ -29525,7 +29545,7 @@ if (hotExitHandledSweep) {
                             ForensicLogger.lifecycle(
                                 "MOONSHOT_ZONE_DROPPED_AFTER_ADMISSION_7265",
                                 "mint=${ts.mint.take(10)} sym=${ts.symbol} mcap=${ts.lastMcap.toInt()} " +
-                                    "liq=${ts.lastLiquidityUsd.toInt()} zone=10k..100M_or_unknownMcapLiq>=3k " +
+                                    "liq=${ts.lastLiquidityUsd.toInt()} zone=fluidMin7719..5M_or_unknownMcapLiq>=2k_or_runnerShaped7266 " +   // V5.0.8316 — text matched the 7792 reads
                                     "admissionWindow=mcap>=500_liq>=800 action=lane_skipped_silently_before_7265",
                             )
                         } catch (_: Throwable) {}

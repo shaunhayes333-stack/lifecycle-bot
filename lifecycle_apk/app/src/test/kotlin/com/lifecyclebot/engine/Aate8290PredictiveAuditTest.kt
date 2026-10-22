@@ -116,10 +116,13 @@ class Aate8290PredictiveAuditTest {
         val cellOk = Evidence8136(CandidateAdmission8136.KIND_CELL, "cell", 60, 20.0, 2.0)
         val paper = CandidateAdmission8136.decide8136(cand(listOf(thin), "BREAKOUT_RUNNER", live = false, cellEv = cellOk))
         assertTrue(paper.trace.any { it == "setupLosingThin=advisory" })
+        // superseded by V5.0.8316: the live "liveThinLossBinds8290" refusal is withdrawn (8314: SETUP_RECORD_LOSING 407 on
+        // records the shortfall had shifted below zero) — 8257's rule holds live too: only a CLEAR loss refuses, a thin
+        // one-SE loser is advisory and the supported cell is the strategy.
         val live = CandidateAdmission8136.decide8136(cand(listOf(thin), "BREAKOUT_RUNNER", live = true, cellEv = cellOk))
-        assertEquals(live.compact, Terminal8136.REFUSE, live.terminal)
-        assertEquals("SETUP_RECORD_LOSING_8136", live.reason)
-        assertTrue(live.trace.any { it == "liveThinLossBinds8290" })
+        assertTrue(live.compact, live.reason != "SETUP_RECORD_LOSING_8136")
+        assertTrue(live.trace.any { it == "setupLosingThin=advisory" })
+        assertFalse(live.trace.any { it == "liveThinLossBinds8290" })
         // a supported alternative strategy still replaces the losing one live
         val alt = Evidence8136(CandidateAdmission8136.KIND_SETUP, "RS_LEADER", 60, 25.0, 3.0)
         assertEquals("RS_LEADER", CandidateAdmission8136.decide8136(cand(listOf(thin, alt), "BREAKOUT_RUNNER", live = true)).chosenSetup)

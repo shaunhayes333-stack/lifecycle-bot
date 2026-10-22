@@ -147,7 +147,11 @@ class Aate8188RiskTruthTest {
         // The same trade with no measured edge is refused by name. V5.0.8259: in a 30%+ drawdown ONE promoted
         // exploration order passes the drawdown lock when LaneScoreAdmission7308's slot is free (the doctrine loss budget
         // then decides, by name); a busy slot still refuses REFUSED_DRAWDOWN_8188. Either way it is refused here.
-        assertEquals(MinPromotion8188.REFUSED_UNMEASURED_EDGE_8188, LiveRiskPolicy7807.decide(quality(0.17, 0.0, Double.NaN)).reason)
+        // superseded by V5.0.8316: an unmeasured edge takes the lane's ONE free exploration slot (one unproven promoted
+        // order per lane at a time); a busy slot still refuses by name.
+        val unmeasured8316 = LiveRiskPolicy7807.decide(quality(0.17, 0.0, Double.NaN))
+        if (com.lifecyclebot.engine.truth.LaneScoreAdmission7308.runnerSlotFreeNow("QUALITY")) assertTrue(unmeasured8316.reason, unmeasured8316.open)
+        else assertEquals(MinPromotion8188.REFUSED_UNMEASURED_EDGE_8188, unmeasured8316.reason)
         val dd = LiveRiskPolicy7807.decide(quality(0.17, 0.608, 20.0))
         assertTrue(dd.reason, !dd.open && dd.reason in setOf(MinPromotion8188.REFUSED_DRAWDOWN_8188, MinPromotion8188.REFUSED_LOSS_BUDGET_8188))
         assertEquals(MinPromotion8188.REFUSED_DRAWDOWN_8188, MinPromotion8188.refusal8188(0.02478, 0.025, 8.0, 6.0, 6.0, 20.0, 0.608, explorationSlotFree = false))

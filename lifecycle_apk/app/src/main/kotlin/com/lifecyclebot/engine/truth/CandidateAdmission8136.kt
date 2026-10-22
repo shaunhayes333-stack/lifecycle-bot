@@ -127,9 +127,27 @@ object CandidateAdmission8136 {
          * before 30 s). Recorded in the trace and NOT waited for; they are never in [missingInputs] and never filled in.
          */
         val historyUnavailable8283: List<String> = emptyList(),
-        /** V5.0.8290 — the lane's realised label-to-bank shortfall already taken off every label record above (LIVE only). */
+        /**
+         * V5.0.8290 — the lane's realised label-to-bank shortfall (points, LIVE only).
+         * V5.0.8316 §THE_SHORTFALL_IS_ONE_WAY — the records above are RAW: the loss tests ([losing8136], [clearlyLosing8136],
+         * [provenLosing8136]) read them as graded. 8290 took the shortfall off every record at build, so a +20 % SHITCOIN
+         * setup read -23 % and refused as SETUP_RECORD_LOSING (8314: 48 ADMIT / 3,626 REFUSE). The shortfall now lives
+         * only in the shifted twins below, which the SUPPORT tests read ([supported8136], [bestSetup8153], edge assembly):
+         * it can still deny a positive proof, never manufacture a loss.
+         */
         val liveShortfall8290: Double = 0.0,
-    )
+    ) {
+        /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
+        val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
+        /** V5.0.8316 — each setup's timing-band record past the shortfall (StrategyRank8153's support ranking only). */
+        val setupTimingsProof8290: Map<String, Evidence8136> get() = setupTimings.mapValues { LiveAdmissionProof8290.shift8290(it.value, liveShortfall8290) ?: it.value }
+        /** V5.0.8316 — the selected setup's timing record past the shortfall. */
+        val timingProof8290: Evidence8136? get() = LiveAdmissionProof8290.shift8290(timing, liveShortfall8290)
+        /** V5.0.8316 — the coin's cell past the shortfall (the live positive cell record). */
+        val cellProof8290: Evidence8136? get() = LiveAdmissionProof8290.shift8290(cell, liveShortfall8290)
+        /** V5.0.8316 — the post-epoch cell past the shortfall (liveCell8210's support read). */
+        val cellLossProof8290: Evidence8136? get() = LiveAdmissionProof8290.shift8290(cellLoss8169, liveShortfall8290)
+    }
 
     /** The one authoritative terminal admission and the evidence trace behind it. */
     data class Decision8136(
@@ -287,7 +305,7 @@ object CandidateAdmission8136 {
         var net = if (decisionGross.isFinite() && c.costPct.isFinite()) decisionGross - c.costPct else Double.NaN
         trace += "gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} net=${fmt8136(net)} downside=${fmt8136(c.downsidePct)}" +
             (if (c.costSizeSol.isFinite()) " costSize=${"%.4f".format(c.costSizeSol)}SOL" else "")
-        if (c.liveShortfall8290 > 0.0) trace += "liveShortfall8290=${fmt8136(-c.liveShortfall8290)} off every label record"
+        if (c.liveShortfall8290 > 0.0) trace += "liveShortfall8290=${fmt8136(-c.liveShortfall8290)} off every label record at the support tests (loss tests read raw, 8316)"
         fun done(t: Terminal8136, reason: String, specific: Boolean, setup: String?, basis: String = ""): Decision8136 =
             Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason },
                 costPct = c.costPct, costSizeSol = c.costSizeSol, costBreakdown = c.costBreakdown,
@@ -317,7 +335,9 @@ object CandidateAdmission8136 {
         //    own record, is the strategy instead (LiveEdgeGate7877: cellOrKindProven8094 / provenSetup8056 multi-strategy).
         // Pre-8210 all-mode cells are audit history, not candidate-specific live approval evidence.
         val liveCell8210 = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell
-        val cellSupported = supported8136(liveCell8210, c.costPct)
+        // V5.0.8316 — support is read on the cell past the realised shortfall; the loss tests below read the raw cell.
+        val liveCellProof8290 = if (c.lossEpochAware8169) c.cellLossProof8290 else c.cellProof8290
+        val cellSupported = supported8136(liveCellProof8290, c.costPct)
         // V5.0.8153 — every fired setup ranked on its own record AND its timing band (StrategyRank8153): a supported setup
         //    losing at this point of the move is not the strategy; ties of the conservative net go to the runner rate.
         val bestSetup = bestSetup8153(c)
@@ -341,9 +361,9 @@ object CandidateAdmission8136 {
                 trace += "setupLosing=${selectedRec?.compact}${if (cellSupported) " cellSupported=${c.cell?.compact} names_no_strategy" else ""}"
                 // V5.0.8257 — a thin record inside one SE of zero is advisory, not a live refusal (see clearlyLosing8136).
                 if (clearlyLosing8136(selectedRec)) return done(Terminal8136.REFUSE, "SETUP_RECORD_LOSING_8136", true, c.selectedSetup)
-                // V5.0.8290 — live money: the selected strategy's own losing record (12+, mean + SE < 0) binds. The 8257
-                //    one-SE advisory stays for paper / the shadow book, where a thin book earns its next labels.
-                if (c.live) { trace += "liveThinLossBinds8290"; return done(Terminal8136.REFUSE, "SETUP_RECORD_LOSING_8136", true, c.selectedSetup) }
+                // V5.0.8316 — the 8290 "liveThinLossBinds" live refusal is withdrawn (8314: SETUP_RECORD_LOSING 407 on
+                //    records the shortfall had shifted below zero): 8257's rule holds live too — only a CLEAR loss refuses;
+                //    a thin one-SE loser falls to the generic prior, where economics, safety and the V3 floor decide.
                 trace += "setupLosingThin=advisory"
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SETUP_RECORD_LOSING_THIN_ADVISORY_8257") } catch (_: Throwable) {}
             } else {
@@ -409,16 +429,18 @@ object CandidateAdmission8136 {
             trace += "timing=${c.timing?.compact}"
             // V5.0.8257 — the same thin-record rule as the setup record: a clear loss refuses, a one-SE band is advisory.
             if (clearlyLosing8136(c.timing)) return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
-            if (c.live) { trace += "liveThinLossBinds8290"; return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen) }  // V5.0.8290
+            // V5.0.8316 — the 8290 live thin-loss refusal is withdrawn here too (8314: TIMING_ADVERSE 118); see the setup record above.
             trace += "timingThin=advisory"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TIMING_ADVERSE_THIN_ADVISORY_8257") } catch (_: Throwable) {}
         }
 
         val chosenRec = c.setups.firstOrNull { it.id == chosen }
-        val edge = listOfNotNull(bestSetup ?: chosenRec?.takeIf { supported8136(it, c.costPct) }, liveCell8210?.takeIf { cellSupported },
+        // V5.0.8316 — edge assembly (the SUPPORT tests) reads every record past the realised shortfall: the shifted twins.
+        val chosenProof8316 = c.setupsProof8290.firstOrNull { it.id == chosen }
+        val edge = listOfNotNull(bestSetup ?: chosenProof8316?.takeIf { supported8136(it, c.costPct) }, liveCellProof8290?.takeIf { cellSupported },
             // V5.0.8290 — the Cortex cohort is read past the same realised shortfall as every other label record.
             LiveAdmissionProof8290.shift8290(c.cortexStrong8200, c.liveShortfall8290)?.takeIf { supported8136(it, c.costPct) && !losing8136(cellLoss) },  // V5.0.8200
-            c.runnerGrab8245?.takeIf { grabSupported8245(it) && !losing8136(cellLoss) })   // V5.0.8245
+            LiveAdmissionProof8290.shift8290(c.runnerGrab8245, c.liveShortfall8290)?.takeIf { grabSupported8245(it) && !losing8136(cellLoss) })   // V5.0.8245 / 8316
             .maxByOrNull { it.lowerPct }
         if (edge?.kind == KIND_RUNNER_GRAB_8245) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_EDGE_RUNNER_GRAB_8245") } catch (_: Throwable) {}
@@ -526,13 +548,16 @@ object CandidateAdmission8136 {
      * ranked by StrategyRank8153 (tier, conservative net capped by the setup's own timing band, runner rate, sample).
      */
     internal fun bestSetup8153(c: Candidate8136): Evidence8136? {
-        val options = c.setups.filter { !it.suspect8290 }.map { e ->  // V5.0.8290 — a suspect record is never the strategy
-            val t = c.setupTimings[e.id]
+        // V5.0.8316 — a SUPPORT test: ranked on the records past the realised shortfall (Candidate8136.setupsProof8290).
+        val setups8316 = c.setupsProof8290
+        val timings8316 = c.setupTimingsProof8290
+        val options = setups8316.filter { !it.suspect8290 }.map { e ->  // V5.0.8290 — a suspect record is never the strategy
+            val t = timings8316[e.id]
             StrategyRank8153.Option8153(e.id, e.n, e.meanPct, e.sePct, e.runnerRate, e.netOfCost,
                 t?.n ?: 0, t?.meanPct ?: Double.NaN, t?.sePct ?: Double.NaN)
         }
         val best = StrategyRank8153.bestSupported8153(options, c.costPct) ?: return null
-        return c.setups.firstOrNull { it.id == best.id }
+        return setups8316.firstOrNull { it.id == best.id }
     }
 
     const val KIND_SETUP = "SETUP"
@@ -960,7 +985,9 @@ object CandidateAdmission8136 {
     /** Builds the candidate record from the playbook, forward labels, net-edge cost model and safety report. */
     internal fun candidateFor8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), proposedSizeSol: Double = Double.NaN): Candidate8136 {
         val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
-        // V5.0.8290 — LIVE: every forward-label record below is read past the lane's realised shortfall (LiveAdmissionProof8290).
+        // V5.0.8290 — LIVE: the lane's realised shortfall (LiveAdmissionProof8290) travels on the record as liveShortfall8290.
+        // V5.0.8316 — the records below are built RAW; Candidate8136's shifted twins (setupsProof8290 ...) carry the shortfall
+        //    to the support tests only. 8290 shifted them here, so the loss tests read manufactured losses (SETUP_RECORD_LOSING 407).
         val live8290 = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val extra8290 = if (live8290) (try { LiveAdmissionProof8290.laneExtra8290(lane, nowMs) } catch (_: Throwable) { 0.0 }) else 0.0
         val nativeOpinion8213 = try {
@@ -1015,21 +1042,21 @@ object CandidateAdmission8136 {
         } catch (_: Throwable) {}
         val setups = try {
             pb.firedSetupRecords8136(ts, lane, nowMs).map { (id, r) ->
-                LiveAdmissionProof8290.shift8290(Evidence8136(KIND_SETUP, id, r[0].toInt(), r[1], r[2], r[3], suspect8290 = r.getOrNull(4) == 1.0), extra8290)!!
+                Evidence8136(KIND_SETUP, id, r[0].toInt(), r[1], r[2], r[3], suspect8290 = r.getOrNull(4) == 1.0)   // raw (8316)
             }
         } catch (_: Throwable) { emptyList() }
         val band8153 = try { pb.timingBandOf8094(ts) } catch (_: Throwable) { pb.TIMING_UNKNOWN_8094 }
         val setupTimings = options8153.filter { it.timingN > 0 }.associate { o ->
-            o.id to LiveAdmissionProof8290.shift8290(Evidence8136(KIND_TIMING, "${o.id}@$band8153", o.timingN, o.timingMeanPct, o.timingSePct), extra8290)!!
+            o.id to Evidence8136(KIND_TIMING, "${o.id}@$band8153", o.timingN, o.timingMeanPct, o.timingSePct)   // raw (8316)
         }
         val cellStat = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
         // A cell whose observations mostly lost their mark is not a measurement of its coins (LiveEdgeGate7877.mostlyUnpriced8022).
         val cell = cellStat?.takeIf { it.resolvedShare >= LiveEdgeGate7877.MIN_RESOLVED_SHARE_7944 }
-            ?.let { LiveAdmissionProof8290.shift8290(Evidence8136(KIND_CELL, it.key.take(40), it.n60, it.meanNet60Pct, it.stderr60Pct, it.runnerRate60, suspect8290 = it.outlierSuspect8185), extra8290) }
+            ?.let { Evidence8136(KIND_CELL, it.key.take(40), it.n60, it.meanNet60Pct, it.stderr60Pct, it.runnerRate60, suspect8290 = it.outlierSuspect8185) }   // raw (8316)
         // V5.0.8153 — the timing record of the strategy selected here (not of whatever selectedSetup8094 held).
         val timing = if (selected != null && options8153.any { it.id == selected }) setupTimings[selected] else try {
             pb.timingStat8094(ts, lane, nowMs)?.let { a ->
-                LiveAdmissionProof8290.shift8290(Evidence8136(KIND_TIMING, "${selected ?: "-"}@${pb.timingBandOf8094(ts)}", a[2].toInt(), a[0], stdErr8136(a[1], a[2])), extra8290)
+                Evidence8136(KIND_TIMING, "${selected ?: "-"}@${pb.timingBandOf8094(ts)}", a[2].toInt(), a[0], stdErr8136(a[1], a[2]))   // raw (8316)
             }
         } catch (_: Throwable) { null }
         val fit = try { com.lifecyclebot.engine.TokenMetricStageRouter.laneFit(ts, lane) } catch (_: Throwable) { null }
@@ -1039,11 +1066,12 @@ object CandidateAdmission8136 {
         } catch (_: Throwable) { null }
         // V5.0.8169 — the same cell and stage, booked since the grading epoch: the only records a loss pattern refuses on.
         val cellLoss8169 = try {
-            // V5.0.8290 — LIVE reads the post-epoch cell executable (the 8187 lane offset, as cellStatFor does) and past the
-            //    realised shortfall: it is the live POSITIVE cell record too (liveCell8210), not only the loss record.
+            // V5.0.8290 — LIVE reads the post-epoch cell executable (the 8187 lane offset, as cellStatFor does): it is the live
+            //    POSITIVE cell record too (liveCell8210), not only the loss record. V5.0.8316 — the shortfall is read on its
+            //    shifted twin (cellLossProof8290) at the support test only; the loss test reads this raw record.
             ForwardReturnLabeler7731.freshCellStatFor8169(ts, lane, nowMs)
                 ?.let { if (live8290) ForwardReturnLabeler7731.executable8187(it, lane) ?: it else it }
-                ?.let { LiveAdmissionProof8290.shift8290(Evidence8136(KIND_CELL, it.key.take(40), it.n60, it.meanNet60Pct, it.stderr60Pct, it.runnerRate60, suspect8290 = it.outlierSuspect8185), extra8290) }
+                ?.let { Evidence8136(KIND_CELL, it.key.take(40), it.n60, it.meanNet60Pct, it.stderr60Pct, it.runnerRate60, suspect8290 = it.outlierSuspect8185) }
         } catch (_: Throwable) { null }
         val stageLoss8169 = try {
             if (fit == null) null else ForwardReturnLabeler7731.freshStageStatFor8169(fit.lane, fit.stage.name)
@@ -1115,7 +1143,7 @@ object CandidateAdmission8136 {
             stageLoss8169 = stageLoss8169,
             cortexStrong8200 = try { com.lifecyclebot.engine.cortex.Cortex7885.strongCohortEvidence8200(ts, lane) } catch (_: Throwable) { null },  // V5.0.8290 — shifted in decide8136
             runnerGrab8245 = try {
-                com.lifecyclebot.engine.RunnerGrab7967.grabEvidence8245(ts, nowMs)?.let { LiveAdmissionProof8290.shift8290(Evidence8136(KIND_RUNNER_GRAB_8245, it.key, it.n, it.meanNetPct, it.sePct), extra8290) }
+                com.lifecyclebot.engine.RunnerGrab7967.grabEvidence8245(ts, nowMs)?.let { Evidence8136(KIND_RUNNER_GRAB_8245, it.key, it.n, it.meanNetPct, it.sePct) }  // V5.0.8316 — shifted in decide8136
             } catch (_: Throwable) { null },
             nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,
             nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) } ?: nativeSetupBook8217 ?: runnerForming8260,
