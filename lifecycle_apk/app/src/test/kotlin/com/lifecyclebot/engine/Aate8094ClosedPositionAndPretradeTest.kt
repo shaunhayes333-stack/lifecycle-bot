@@ -210,7 +210,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(e.discretionary8094("RUG_DETECTED", 0.5))
         assertFalse("a full exit is never a slice", e.discretionary8094("PARTIAL_TAKE_PROFIT", 1.0))
         val x = src("engine/Executor.kt")
-        assertTrue(x.contains("if (partialUneconomic8094(ts, pct, reason)) {"))                       // shared partial door
+        // superseded by V5.0.8337 — the door now runs BEFORE the share budget on the requested fraction (owner's fix block 9a).
+        assertTrue(x.contains("if (partialUneconomic8094(ts, requested8337, reason)) {"))             // shared partial door
         assertTrue(x.contains("if (partialUneconomic8094(ts, sellFraction, \"PARTIAL_TAKE_PROFIT\")) return false")) // ladder
         assertTrue(x.contains("if (partialUneconomic8094(ts, sellFraction, reason)) return  // V5.0.8094"))       // profit lock
         // The slice is a share of the REMAINING quantity and its remaining cost basis (costSol shrinks on every partial).

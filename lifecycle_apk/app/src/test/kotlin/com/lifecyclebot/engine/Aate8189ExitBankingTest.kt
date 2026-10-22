@@ -119,7 +119,9 @@ class Aate8189ExitBankingTest {
         val reason = p.reason8189("SPIKE_CAPTURE_7943_T1_45PCT")
         assertTrue(reason.startsWith(ProfitEscalation8189.REASON_PREFIX_8189))
         assertTrue("the full exit is still checked on its own executable quote", ProfitExitTruth8163.profitTaking(reason))
-        assertTrue(src("engine/Executor.kt").contains("if (profitEscalated8189(ts, reason, wallet, walletBalance)) { receipt6566?.invoke(PartialSellReceipt6566(false)); return }"))
+        // superseded by V5.0.8337 — the escalated full exit reports applied=true / terminal=false under ESCALATED_FULL_8189
+        // (owner's fix block 9b) so the spike rung is not re-armed; the escalation door itself is unchanged.
+        assertTrue(src("engine/Executor.kt").contains("if (profitEscalated8189(ts, reason, wallet, walletBalance)) { receipt6566?.invoke(PartialSellReceipt6566(applied = true, terminal = false, authorityResult = \"ESCALATED_FULL_8189\")); return }"))
     }
 
     @Test fun profitLockBanksOnAHeldSellQuoteRepair() {

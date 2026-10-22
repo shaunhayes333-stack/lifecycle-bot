@@ -144,6 +144,7 @@ class Aate8337ExitsTest {
         assertEquals(ProtectiveExitClass7807.Priority.HARD_SL, ProtectiveExitClass7807.of("RUNNER_HARD_STOP_7967_-36PCT"))
         assertEquals(ProtectiveExitClass7807.Priority.HARD_SL, ProtectiveExitClass7807.of("FLUID_FLOOR_-12PCT"))
         assertEquals(ProtectiveExitClass7807.Priority.CAPITAL_PRESERVATION, ProtectiveExitClass7807.of("CATASTROPHIC_-60PCT"))
-        assertFalse(src("engine/sell/ProtectiveExitClass7807.kt").contains("r.contains(\"FLUID_STOP\")"))
+        val pec = src("engine/sell/ProtectiveExitClass7807.kt")
+        assertFalse(pec.contains("r.contains(\"FLUID_STOP\")"))
     }
 }
