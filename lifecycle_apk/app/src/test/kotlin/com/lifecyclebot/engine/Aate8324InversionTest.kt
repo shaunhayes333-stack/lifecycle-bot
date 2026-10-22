@@ -8,6 +8,7 @@ import com.lifecyclebot.engine.cortex.CortexTailEv8324
 import com.lifecyclebot.engine.cortex.LaneCheatSheet8323
 import com.lifecyclebot.engine.cortex.LaneCheatSheet8323.Record8323
 import com.lifecyclebot.engine.cortex.LaneCheatSheet8323.Verdict8323
+import com.lifecyclebot.engine.cortex.LanePlaybook7907
 import com.lifecyclebot.engine.cortex.LearningEntryTruth8153
 import com.lifecyclebot.engine.truth.CandidateAdmission8136
 import com.lifecyclebot.engine.truth.CandidateAdmission8136.Candidate8136
@@ -250,5 +251,15 @@ class Aate8324InversionTest {
         assertTrue(sheet.contains("applyRecords8323(lane, recordsFor8323(lane, live), nowMs, pond8324 = pond8324)"))
         val adm = src("engine/truth/CandidateAdmission8136.kt")
         assertTrue(adm.contains("tailPremium8324 = pond8324?.premium ?: Double.NaN,"))
+    }
+
+    @Test fun theLiveSetupAndTimingLossDoorsReadTheTailCredit() {
+        val st = CortexLedger7885.labelStat8187().also { x -> repeat(14) { x.add(-20.0, false) } }
+        // a scalp lane never gets tail credit; a runner lane without a measured pond neither
+        assertEquals(0.0, LanePlaybook7907.tailCredit8324("TREASURY", st), 0.0)
+        assertEquals(0.0, LanePlaybook7907.tailCredit8324("UNPONDED_RUNNER_MOONSHOT_8324", st), 0.0)
+        val pb = src("engine/cortex/LanePlaybook7907.kt")
+        assertTrue(pb.contains("setupRecordNegative8094(st.n, st.mean() + tailCredit8324(lane, st), st.variance())) setup else null"))
+        assertTrue(pb.contains("setupRecordNegative8094(st.n, st.mean() + tailCredit8324(lane, st), st.variance())) \"\$setup@\$band\" else null"))
     }
 }

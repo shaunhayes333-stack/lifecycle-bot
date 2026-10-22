@@ -1175,7 +1175,7 @@ object LanePlaybook7907 {
         val band = timingBandOf8094(ts)
         if (setup == null || band == TIMING_UNKNOWN_8094) null else synchronized(this) {
             val st = timingBooks8094[lane]?.get("$setup|$band")
-            if (st != null && setupRecordNegative8094(st.n, st.mean(), st.variance())) "$setup@$band" else null
+            if (st != null && setupRecordNegative8094(st.n, st.mean() + tailCredit8324(lane, st), st.variance())) "$setup@$band" else null
         }
     } catch (_: Throwable) { null }
 
@@ -1361,9 +1361,21 @@ object LanePlaybook7907 {
             ?: (try { selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null })?.takeIf { it != setup && it != NO_TRIGGER }  // V5.0.8153
         if (setup == null || alt8144 != null) null else synchronized(this) {
             val st = stat(lane, setup)
-            if (st != null && setupRecordNegative8094(st.n, st.mean(), st.variance())) setup else null
+            if (st != null && setupRecordNegative8094(st.n, st.mean() + tailCredit8324(lane, st), st.variance())) setup else null
         }
     } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.8324 §TAIL_AWARE_LOSS — on a runner lane, the points a record of [st] may be missing because its sample has not yet
+     * met the runners the lane pays on (CortexTailEv8324.missedRunnerPts8324 on the Cortex tail pond); 0 elsewhere. The live
+     * refusals PICKED_SETUP_RECORD_NEGATIVE_8094 / TIMING_RECORD_NEGATIVE_8094 read "12 labels, mean + SE < 0", which on a
+     * 5%-runner pond is true of a runnerless sample 54% of the time.
+     */
+    fun tailCredit8324(lane: String, st: CortexLedger7885.Stat): Double {
+        if (!(try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false })) return 0.0
+        val pond = try { Cortex7885.tailPond8324(lane) } catch (_: Throwable) { null } ?: return 0.0
+        return CortexTailEv8324.missedRunnerPts8324(st.n, st.runnerRate(), pond.pBook, pond.premium)
+    }
 
     /**
      * V5.0.8290 — caller holds the lock. The executable record [st] of ([lane], [setup]) proves live money: the stored record
