@@ -95,7 +95,9 @@ object StopRoute8189 {
         try { PipelineHealthCollector.labelInc("SELL_STOP_JUPITER_FIRST_8189") } catch (_: Throwable) {}
     }
 
-    fun statusLine8189(): String = "stopRoute8189[jupiterFirst=${jupiterFirst.get()} raydiumSkipped=${skipped.get()} venueFailures=${failures.size}]"
+    fun statusLine8189(): String = "stopRoute8189[jupiterFirst=${jupiterFirst.get()} raydiumSkipped=${skipped.get()} venueFailures=${failures.size}]" +
+        " " + (try { EmergencySellRoute8308.statusLine8308() } catch (_: Throwable) { "emergencyRoute8308[-]" }) +  // V5.0.8308
+        " " + (try { com.lifecyclebot.engine.truth.RuntimeBasisSync8308.statusLine8308() } catch (_: Throwable) { "runtimeBasisSync8308[-]" })
 
     internal fun resetForTest8189() { failures.clear(); skipped.set(0); jupiterFirst.set(0) }
 }

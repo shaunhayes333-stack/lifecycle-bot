@@ -287,6 +287,8 @@ object LiveRiskPolicy7807 {
     }
 
     // ── V5.0.8057 — the daily doubling scoreboard (report only) ──
+    /** V5.0.8308 — new key: a day start stored on the old free-cash basis is not divided into a marked-equity "now". */
+    private const val DAY_START_KEY_8308 = "day_start_equity_8308"
     @Volatile private var dayKey8057 = ""
     @Volatile private var dayStartEquity8057 = 0.0
     @Volatile private var dayLastEquity8057 = 0.0
@@ -295,16 +297,35 @@ object LiveRiskPolicy7807 {
         if (!equitySol.isFinite() || equitySol <= 0.0) return
         val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(nowMs))
         if (dayKey8057.isEmpty()) try {
-            com.lifecyclebot.engine.LearningPersistence.load("day_start_equity_8057")?.split(',')?.let { f ->
+            com.lifecyclebot.engine.LearningPersistence.load(DAY_START_KEY_8308)?.split(',')?.let { f ->
                 if (f.size == 2 && f[0] == day) { dayKey8057 = day; dayStartEquity8057 = f[1].toDoubleOrNull() ?: 0.0 }
             }
         } catch (_: Throwable) {}
         if (day != dayKey8057 || dayStartEquity8057 <= 0.0) {
             dayKey8057 = day; dayStartEquity8057 = equitySol
-            try { com.lifecyclebot.engine.LearningPersistence.save("day_start_equity_8057", "$day,$equitySol") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.LearningPersistence.save(DAY_START_KEY_8308, "$day,$equitySol") } catch (_: Throwable) {}
         }
         dayLastEquity8057 = equitySol
     }
+
+    /**
+     * V5.0.8308 — the capital creed's "today" line read the SIZING equity: this candidate's free cash (wallet minus every
+     * other candidate's sealed reservation, WalletCapacitySeal7868.freeCashFor) plus held cost. 5.0.8306 printed
+     * now=0.1493 (0.66x) while the wallet's marked equity was 0.3481. The scoreboard now reads the one equity authority
+     * (CapitalDrawdown7948.liveMarkedEquitySol7948: whole wallet SOL + held cost + unrealised, the number KillSwitch and
+     * the drawdown line report); sizing still uses [liveEquitySol] of free cash, unchanged. [sizingEquity] is the
+     * fallback when the marked read is unavailable.
+     */
+    internal fun scoreboardEquity8308(sizingEquity: Double): Double {
+        val marked = try {
+            CapitalDrawdown7948.liveMarkedEquitySol7948(com.lifecyclebot.engine.BotService.status.walletSol)
+        } catch (_: Throwable) { Double.NaN }
+        return pickScoreboardEquity8308(marked, sizingEquity)
+    }
+
+    /** Pure: the marked whole-wallet equity when it is a real reading, else the sizing equity. */
+    fun pickScoreboardEquity8308(markedEquitySol: Double, sizingEquitySol: Double): Double =
+        if (markedEquitySol.isFinite() && markedEquitySol > 0.0) markedEquitySol else sizingEquitySol
 
     /** V5.0.8057 — today's equity multiple against the 2x floor / 5x stretch (CapitalPreservationCreed6439). */
     fun dailyScoreLine8057(): String {
@@ -893,7 +914,7 @@ object LiveRiskPolicy7807 {
         val effectiveLane7811 = canonicalLane(lane)
 
         val equity = liveEquitySol(walletSol)
-        noteEquity8057(equity, nowMs)
+        noteEquity8057(scoreboardEquity8308(equity), nowMs)  // V5.0.8308 — the scoreboard reads whole-wallet marked equity
         // V5.0.7948 — one drawdown authority (CapitalDrawdown7948): marked live equity of
         // the whole wallet vs its rolling-24h peak, the same number KillSwitch reports.
         // The free cash passed here is sizing input; a sealed in-flight buy is not a loss.

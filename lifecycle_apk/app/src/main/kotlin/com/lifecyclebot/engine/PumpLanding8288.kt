@@ -100,19 +100,23 @@ object PumpLanding8288 {
         java.util.concurrent.Executors.newCachedThreadPool { r -> Thread(r, "AATE-PumpBlockhash-8288").apply { isDaemon = true } }
     }
 
-    /** Executor.tryPumpPortalBuy: [txBase64] with our fresh "confirmed" blockhash, or [txBase64] unchanged on any miss. */
-    fun freshen8288(wallet: com.lifecyclebot.network.SolanaWallet, txBase64: String): String {
+    /**
+     * Executor.tryPumpPortalBuy: [txBase64] with our fresh "confirmed" blockhash, or [txBase64] unchanged on any miss.
+     * V5.0.8308 — Executor.tryPumpPortalSell uses it too ([side] = "SELL"): a PumpPortal sell carried PumpPortal's
+     * build-time blockhash and 2bNrYy's catastrophic sell expired unseen.
+     */
+    fun freshen8288(wallet: com.lifecyclebot.network.SolanaWallet, txBase64: String, side: String = "BUY"): String {
         return try {
             val f = pool8288.submit(java.util.concurrent.Callable {
                 wallet.rpcCall("getLatestBlockhash", org.json.JSONArray().put(org.json.JSONObject().put("commitment", "confirmed")))
                     .optJSONObject("result")?.optJSONObject("value")?.optString("blockhash").orEmpty()
             })
             val hash = try { f.get(BLOCKHASH_BUDGET_MS_8288, TimeUnit.MILLISECONDS) } catch (_: Throwable) { f.cancel(true); "" }
-            if (hash.isBlank()) { label("PUMP_BUY_BLOCKHASH_KEPT_NO_READ_8288"); return txBase64 }
+            if (hash.isBlank()) { label("PUMP_${side}_BLOCKHASH_KEPT_NO_READ_8288"); return txBase64 }
             val hashBytes = io.github.novacrypto.base58.Base58.base58Decode(hash)
             val tx = java.util.Base64.getDecoder().decode(txBase64)
-            val out = replaceBlockhash8288(tx, hashBytes) ?: run { label("PUMP_BUY_BLOCKHASH_KEPT_UNPARSED_8288"); return txBase64 }
-            label("PUMP_BUY_BLOCKHASH_REFRESHED_8288")
+            val out = replaceBlockhash8288(tx, hashBytes) ?: run { label("PUMP_${side}_BLOCKHASH_KEPT_UNPARSED_8288"); return txBase64 }
+            label("PUMP_${side}_BLOCKHASH_REFRESHED_8288")
             java.util.Base64.getEncoder().encodeToString(out)
         } catch (_: Throwable) { txBase64 }
     }

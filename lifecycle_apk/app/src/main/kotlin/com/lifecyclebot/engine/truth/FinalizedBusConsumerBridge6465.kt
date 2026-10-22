@@ -256,6 +256,8 @@ object FinalizedBusConsumerBridge6465 {
             )
             excluded.incrementAndGet()
             refusalStreak7169.remove(key)
+            // V5.0.8308 — a retirement is never silent: counted per consumer and cause, printed in statusLine.
+            retiredBy8308.computeIfAbsent("$consumer:${retireCause8308(env)}") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
             PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_RETIRED_AFTER_REFUSALS_7169")
             PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_RETIRED_7169_$consumer")
             ForensicLogger.lifecycle(
@@ -264,6 +266,21 @@ object FinalizedBusConsumerBridge6465 {
                     "lane=${env.lane} refusals=$n action=stop_redelivering",
             )
         } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8308 — retired (consumer:cause) -> count; printed in [statusLine]. */
+    private val retiredBy8308 =
+        java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    /** V5.0.8308 — why a position-bound learner could never take this close (the retire branch requires no entry snapshot). */
+    internal fun retireCause8308(env: CanonicalFinalizedTradeBus6464.Envelope): String {
+        val elsewhere = try { EntryStrategySnapshot6450.mintHasAnySnapshot7164(env.mint) } catch (_: Throwable) { null }
+        val recovered = env.lane.uppercase().contains("RECOVER") || env.entrySource.uppercase().contains("RECOVER")
+        return when {
+            recovered -> "NO_ENTRY_SNAPSHOT_RECOVERED_INVENTORY"
+            elsewhere != null -> "NO_ENTRY_SNAPSHOT_KEYED_ELSEWHERE"
+            else -> "NO_ENTRY_SNAPSHOT"
+        }
     }
 
     private val deliveredBy7154 =
@@ -624,8 +641,11 @@ object FinalizedBusConsumerBridge6465 {
             .take(6)
             .joinToString(",") { "${it.key}=${it.value.get()}" }
             .ifBlank { "none" }
+        val retired8308 = retiredBy8308.entries.sortedByDescending { it.value.get() }.take(6)
+            .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
         return "delivered=${delivered.get()} refused=${refused.get()} excluded=${excluded.get()} " +
-            "refusedBy7154=[$worst7154]"
+            "refusedBy7154=[$worst7154] retired8308=[$retired8308] exactRefusals8308=[${try { ExactStrategyPerformance7429.refusalLine8308() } catch (_: Throwable) { "-" }}] " +
+            (try { ProtectiveBasisProof8308.statusLine8308() } catch (_: Throwable) { "protectiveProof8308[-]" })
     }
 
     internal fun resetForTest() {

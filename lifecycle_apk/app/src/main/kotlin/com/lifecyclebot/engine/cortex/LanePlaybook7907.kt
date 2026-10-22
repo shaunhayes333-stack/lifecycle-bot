@@ -86,6 +86,8 @@ object LanePlaybook7907 {
         val colourBuy7978: Boolean = false,          // a proven candle-colour sequence
         /** Lane-specific: a promoted specialist of the lane matches (set by classifyNow). */
         var specialistEdge7978: Boolean = false,
+        /** V5.0.8308 — the token's route truth says the bonding curve completed (migrated / graduated to an AMM pool). */
+        val migrated8308: Boolean = false,
     ) {
         /** V5.0.8084 — provenance of the core inputs (bp / chg / shape / age / liq ...): OBSERVED, STALE, UNKNOWN, INVALID, DEFAULT_UNOBSERVED. */
         var obs8084: Map<String, Obs8084> = emptyMap()
@@ -103,6 +105,7 @@ object LanePlaybook7907 {
             d(boost); d(socials); b(cto); d(devTokens); d(devRugRate); b(devKnownRugger); d(holders); d(insider); d(narrativeHeat); d(narrativeExhaustion)
             d(bundleLargest); d(lpLock); d(txVelocity); d(volatility); t(regime); b(launchLadderProven); b(expertEntry7962); b(structureHlReclaim)
             b(secondWave7974); d(holderVel7978); d(turnover7978); d(curve7978); b(live7978); b(beta7978); b(colourBuy7978); b(specialistEdge7978)
+            b(migrated8308)
             return h
         }
     }
@@ -358,8 +361,29 @@ object LanePlaybook7907 {
         ge(f.insider, 30.0) && ge(f.bp, 55.0) && leOrUnknown(f.runup, 100.0)
     }
     private val POST_MIGRATION_HOLD = Setup("POST_MIGRATION_HOLD", FLOW) { f ->
-        le(f.age, 60.0) && ge(f.liq, 15_000.0) && ge(f.chg5m, 0.0) && ge(f.bp, 55.0) && (f.mcap / f.liq).let { it.isFinite() && it <= 6.0 }
+        le(f.age, 60.0) && ge(f.liq, 15_000.0) && ge(f.chg5m, 0.0) && ge(f.bp, 55.0) && (f.mcap / f.liq).let { it.isFinite() && it <= 6.0 } &&
+            postMigrationProven8308(f)
     }
+
+    /**
+     * V5.0.8308 — POST_MIGRATION_HOLD needs proof that the migration happened and that the pool can take our sell.
+     * 5.0.8306 live: 2bNrYy (MOONSHOT) was bought on this setup at a $23k cap right after migrating and went -85.7 % in
+     * 95 s. The setup read only age / liquidity / 5-minute change / buy pressure / cap-to-liquidity: it never asked whether
+     * the curve had completed, whether the coin was already far under its peak (a migration completes near the top of the
+     * curve, so a $23k cap minutes later is a collapse in progress), who holds the supply, or whether the dev was selling.
+     * Every check reads an OBSERVED value; unknown fails closed (no proof, no setup). Nothing here loosens another rule.
+     *  - migrated: route truth says the bonding curve completed (TokenMap.migratedOrGraduated);
+     *  - not collapsing: price within 30 % of its observed peak (pxPeak >= 0.70) and drawdown known <= 30 %;
+     *  - holder concentration: largest holder known and <= 30 % (the AMM pool's own ~21 % share passes);
+     *  - sell-side safety: the launch tape shows the dev has NOT sold, no single buyer above 35 % of the crowd, and the
+     *    creator is not a known rugger (rug rate, when known, under 30 %).
+     */
+    fun postMigrationProven8308(f: F): Boolean =
+        f.migrated8308 &&
+            ge(f.pxPeak, 0.70) && le(f.dd, 30.0) &&
+            le(f.top, 30.0) &&
+            le(f.tapeDevSold, 0.0) && le(f.tapeLargest, 35.0) &&
+            !f.devKnownRugger && leOrUnknown(f.devRugRate, 0.30)
     // ── market-wide opportunity ranking (MarketSweep7297) ──
     private val OPP_EARLY_IGNITION = Setup("OPP_EARLY_IGNITION", FLOW) { f -> f.oppSetup == "EARLY_MOMENTUM_IGNITION" && ge(f.oppPercentile, 0.5) }
     private val OPP_BREAKOUT_EXPANSION = Setup("OPP_BREAKOUT_EXPANSION", FLOW) { f -> f.oppSetup == "BREAKOUT_EXPANSION" && ge(f.oppPercentile, 0.6) }
@@ -670,6 +694,7 @@ object LanePlaybook7907 {
             } catch (_: Throwable) { false },
             beta7978 = try { com.lifecyclebot.engine.market.MemeMeta7973.beta7973(ts.mint, ts.symbol, ts.name, nowMs) } catch (_: Throwable) { false },
             colourBuy7978 = try { com.lifecyclebot.engine.chart.ChartReader7950.cachedRead7955(ts.mint)?.colorBuy7968 == true } catch (_: Throwable) { false },
+            migrated8308 = try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false },
         ).also { f ->
             f.obs8084 = mapOf("bp" to (if (tapeBp8100 != null || altBp8169 != null) Obs8084.OBSERVED else bpObs),
                 "chg" to (if (tapeChg8100 != null || altChg8169 != null) Obs8084.OBSERVED else chgObs),
