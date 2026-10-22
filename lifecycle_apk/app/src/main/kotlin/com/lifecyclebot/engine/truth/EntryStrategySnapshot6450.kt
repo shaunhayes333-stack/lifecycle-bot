@@ -100,9 +100,12 @@ object EntryStrategySnapshot6450 {
                 snapIn.positionId, snapIn.mint, snapIn.entryLane, snapIn.candidateVersion8090))
         // A missing Cortex tag stays unknown. Looking up the current mint classification
         // here could attach a later decision to an already executed position.
-        val restoredPrior6567 = snapshot(snap.positionId)
+        flushPending8332()   // V5.0.8332 — a seal the store could not take earlier goes first
+        val restoredPrior6567 = lookup8332(snap.positionId)
         val prior = restoredPrior6567 ?: snapshots.putIfAbsent(snap.positionId, snap)
         if (prior != null) {
+            // V5.0.8332 — the same entry sealed twice (a retried commit, a replayed fill) is idempotent: durable copy re-checked, no reject.
+            if (prior == snap) { persist6567(snap); return false }
             rejects.incrementAndGet()
             val laneChanged = prior.entryLane != snap.entryLane
             if (laneChanged) {
@@ -173,12 +176,36 @@ object EntryStrategySnapshot6450 {
             // never resettable learning state. Backward-compatible learning mirror
             // remains for readers of older builds.
             val evidence8093 = j.toString()
-            if (!LearningPersistence.saveImmutableExecutionEvidence8093(snap.positionId, evidence8093)) {
+            // V5.0.8332 — idempotent: an identical durable copy is not rewritten (a re-seal of the same entry is a no-op).
+            val stored8332 = try { LearningPersistence.loadImmutableExecutionEvidence8093(snap.positionId) } catch (_: Throwable) { null }
+            if (!EntrySnapPersist8332.needsWrite8332(stored8332, evidence8093)) { EntrySnapPersist8332.noteWritten(); return }
+            if (!durableWrite8332(snap.positionId, evidence8093)) {
                 try { PipelineHealthCollector.labelInc("ENTRY_EVIDENCE_DURABLE_WRITE_FAILED_8093") } catch (_: Throwable) {}
+                // V5.0.8332 — neither store could take the seal (no context yet / store not open): queued, retried on the next
+                // seal or the next miss, so a boot in between never turns a live entry into NO_ENTRY_SNAPSHOT.
+                EntrySnapPersist8332.queue8332(snap.positionId, evidence8093)
+            } else {
+                EntrySnapPersist8332.noteWritten()
             }
-            LearningPersistence.save(persistenceKey6567(snap.positionId), evidence8093)
         } catch (_: Throwable) {}
     }
+
+    /** V5.0.8332 — both durable copies; true when at least one store took the seal (the reset-proof copy or the open learning store). */
+    private fun durableWrite8332(positionId: String, raw: String): Boolean {
+        val prefsOk = try { LearningPersistence.saveImmutableExecutionEvidence8093(positionId, raw) } catch (_: Throwable) { false }
+        val kvReady = try { LearningPersistence.ready() } catch (_: Throwable) { false }
+        try { LearningPersistence.save(persistenceKey6567(positionId), raw) } catch (_: Throwable) {}
+        return EntrySnapPersist8332.durable8332(prefsOk, kvReady)
+    }
+
+    /** V5.0.8332 — retry the seals the store could not take earlier; each leaves the queue once it is durable. */
+    private fun flushPending8332() {
+        if (EntrySnapPersist8332.pendingCount8332() == 0) return
+        try { EntrySnapPersist8332.flush8332 { pid, raw -> durableWrite8332(pid, raw) } } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8332 — the uncounted lookup (memory, then both durable copies). */
+    private fun lookup8332(positionId: String): Snapshot? = snapshots[positionId] ?: restore6567(positionId)
     private fun restore6567(positionId: String): Snapshot? {
         return try {
         // Read the reset-proof canonical copy first; only legacy positions may
@@ -220,7 +247,15 @@ object EntryStrategySnapshot6450 {
         )
     }
 
-    fun snapshot(positionId: String): Snapshot? = snapshots[positionId] ?: restore6567(positionId)
+    fun snapshot(positionId: String): Snapshot? {
+        // V5.0.8332 — every read is counted (entrySnap8332[readOk, missing]); a miss first retries any seal still queued.
+        val s = lookup8332(positionId)
+        if (s != null) { EntrySnapPersist8332.noteReadOk(); return s }
+        flushPending8332()
+        val retried = lookup8332(positionId)
+        if (retried != null) EntrySnapPersist8332.noteReadOk() else EntrySnapPersist8332.noteMissing()
+        return retried
+    }
 
     /** V5.0.8085 — the newest in-memory entry snapshot for a mint+lane (realised-label identity check). */
     fun latestFor8085(mint: String, lane: String): Snapshot? = snapshots.values
@@ -283,7 +318,8 @@ object EntryStrategySnapshot6450 {
     }
 
     fun statusLine(): String = "positions=${snapshots.size} writes=${writes.get()} " +
-        "rejects=${rejects.get()} laneReassignAttempts=${laneChangeAttempts.get()} migrations=${migrations.get()}"
+        "rejects=${rejects.get()} laneReassignAttempts=${laneChangeAttempts.get()} migrations=${migrations.get()} " +
+        EntrySnapPersist8332.statusLine8332() + " " + SpecialistDelivery8332.statusLine8332()
 }
 
 /** V5.0.6568 — eligible canonical MEME closes joined to immutable entry snapshots. */

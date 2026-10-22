@@ -1742,7 +1742,7 @@ object ToolkitSignalSheet {
         appendLine("crossLaneExecutionRewrite=${causalIssue6600("crossLaneExecutionRewrite")}")
         appendLine("telemetryOnlySuppression=${causalIssue6600("telemetryOnlySuppression")}")
         appendLine("missingExecutableMarkWithValidSource=${causalIssue6600("missingExecutableMarkWithValidSource")}")
-        appendLine("specialistLearningMissing=${causalIssue6600("specialistLearningMissing")}")
+        appendLine("specialistLearningMissing=${causalIssue6600("specialistLearningMissing")} ${com.lifecyclebot.engine.truth.SpecialistDelivery8332.statusLine8332()}")
         appendLine("sellCanonicalLookupFailure=${causalIssue6600("sellCanonicalLookupFailure")}")
         appendLine("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT=${causalIssue6600("LANE_EXEC_WITHOUT_SAME_LANE_CANONICAL_INTENT")}")
         appendLine("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE=${causalIssue6600("LANE_EXEC_WITHOUT_SEALED_FDG_PROVENANCE")}")

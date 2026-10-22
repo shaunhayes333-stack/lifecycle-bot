@@ -197,6 +197,9 @@ object SolanaOhlcvFeed6916 {
     fun providerSlotWait7809(nowMs: Long = System.currentTimeMillis()): SlotWait7809 {
         val cd = cooldownUntilMs.get() - nowMs
         if (cd > 0L) return SlotWait7809(cd, cooldown = true)
+        // V5.0.8332 — a dead source is a cooldown to its callers: one routed read (local candles), no waiting on its probe.
+        val probe8332 = OhlcvRoute8332.probeWaitMs8332(OhlcvRoute8332.GECKO_8332, nowMs)
+        if (probe8332 > 0L) return SlotWait7809(probe8332, cooldown = true)
         val gap = geckoIntervalMs8285.get() - (nowMs - lastCallAtMs.get())
         return SlotWait7809(gap.coerceAtLeast(0L), cooldown = false)
     }
@@ -487,6 +490,7 @@ object SolanaOhlcvFeed6916 {
         try {
             val paprika7293 = fetchDexPaprika7293(mint, poolHint, timeframeLabel, n)
             if (paprika7293.isNotEmpty()) {
+                OhlcvRoute8332.served8332(OhlcvRoute8332.PAPRIKA_8332, mint, paprika7293, now)   // V5.0.8332 — source + newest-bar stamp
                 cache[key] = Cached(paprika7293, now)
                 served.incrementAndGet()
                 paprikaServed7293.incrementAndGet()
@@ -513,6 +517,14 @@ object SolanaOhlcvFeed6916 {
             FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.THROTTLED)
             localTapeCandles8285(mint, timeframeLabel, n, now)?.let { return it }
         }
+        // V5.0.8332 — a DEAD source (OhlcvRoute8332: consecutive zero-bar answers; 5.0.8326 gecko 0 bars / 1,615 attempts) is
+        // not asked on every read: the coin's own local candles (Helius swap backfill + venue prints on the tape) are served
+        // and the source is probed once per back-off interval. Nothing is cached as the provider's answer.
+        if (OhlcvRoute8332.dead8332(OhlcvRoute8332.GECKO_8332) && !OhlcvRoute8332.probeDue8332(OhlcvRoute8332.GECKO_8332, now)) {
+            OhlcvRoute8332.noteRoutedAroundDead8332(OhlcvRoute8332.GECKO_8332)
+            FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.THROTTLED)
+            return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList()
+        }
         FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.ATTEMPT)
         val lookup6982 = resolvePool(mint, poolHint)
         val pool = lookup6982.pool
@@ -522,6 +534,7 @@ object SolanaOhlcvFeed6916 {
             } else if (lookup6982.askedProvider) {
                 emptyResults.incrementAndGet()
                 negativeCache[mint] = now
+                OhlcvRoute8332.noteAnswer8332(OhlcvRoute8332.GECKO_8332, 0, now)   // V5.0.8332 — answered, no bars
             } else {
                 localSkips6982.incrementAndGet()
             }
@@ -582,9 +595,12 @@ object SolanaOhlcvFeed6916 {
         val chronological = out.sortedBy { it.ts }
         if (chronological.isEmpty()) {
             if (list.length() > 0) FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.INVALID)
-            emptyResults.incrementAndGet(); return emptyList()
+            OhlcvRoute8332.noteAnswer8332(OhlcvRoute8332.GECKO_8332, 0, now)   // V5.0.8332 — answered, no sane bar
+            emptyResults.incrementAndGet(); return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList()
         }
         FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.RETURNED)
+        OhlcvRoute8332.noteAnswer8332(OhlcvRoute8332.GECKO_8332, chronological.size, now)   // V5.0.8332 — a served answer revives the source
+        OhlcvRoute8332.served8332(OhlcvRoute8332.GECKO_8332, mint, chronological, now)
         cache[key] = Cached(chronological, now)
         served.incrementAndGet()
         barsDelivered.addAndGet(chronological.size.toLong())
@@ -775,9 +791,10 @@ object SolanaOhlcvFeed6916 {
             "note7819=rateLimited6944_is_our_own_slot_gate_not_provider_429 " +
             "gecko8285[intervalMs=${geckoIntervalMs8285.get()} localTapeServed=${localServed8285.get()} " +
             "trades{asked=${tradesAsked8285.get()} taped=${tradesTaped8285.get()} invalid=${tradesInvalid8285.get()} " +
-            "skipped=${tradesSkipped8285.get()}}]"
+            "skipped=${tradesSkipped8285.get()}}] " + OhlcvRoute8332.statusLine8332()
 
     internal fun resetForTest() {
+        OhlcvRoute8332.resetForTest8332()
         cache.clear(); poolCache.clear()
         fetches.set(0L); served.set(0L); cacheHits.set(0L); emptyResults.set(0L)
         poolResolves.set(0L); barsDelivered.set(0L); rowsRejected.set(0L)
@@ -812,7 +829,9 @@ object SolanaOhlcvFeed6916 {
         localServed8285.incrementAndGet()
         FeatureSourceCounters8285.note8285("shape", "localTape", FeatureSourceCounters8285.RETURNED)
         try { PipelineHealthCollector.labelInc("OHLCV_LOCAL_TAPE_ALTERNATE_8285") } catch (_: Throwable) {}
-        return c.takeLast(n)
+        val served8332 = c.takeLast(n)
+        OhlcvRoute8332.served8332(OhlcvRoute8332.LOCAL_8332, mint, served8332, nowMs)   // V5.0.8332 — source + newest-bar stamp
+        return served8332
     }
 
     /** V5.0.8287 — one-minute candles from the mint's observed prices (PriceShapeBars8287), lifecycle-aware minimum, or null. */
