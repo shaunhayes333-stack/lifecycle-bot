@@ -17955,12 +17955,13 @@ class Executor(
                     "reason=SIGNED_TRANSACTION_PENDING signature=${pending8198.signature} state=${pending8198.state}") } catch (_: Throwable) {}
             return
         }
+        val reason8327 = TicketRetry8327.retryOrTerminal8327(normalizeExecutionLane(layerTag), attemptId, reason) ?: return  // V5.0.8327 — a transient defer is held for retry
         val exact8198 = ExecutableOpenGate.ticketForAttempt(attemptId)
-        try { ToolkitSignalSheet.terminalizeUnexecutedTicket7948(normalizeExecutionLane(layerTag), attemptId, reason) } catch (_: Throwable) {}
+        try { ToolkitSignalSheet.terminalizeUnexecutedTicket7948(normalizeExecutionLane(layerTag), attemptId, reason8327) } catch (_: Throwable) {}
         if (exact8198 != null && exact8198.mode == "LIVE") {
             WalletCapacitySeal7868.release(exact8198.mint, attemptId = exact8198.attemptId)
             val pending = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.findPending(exact8198.mint, "LIVE", exact8198.candidateVersion)
-            if (pending?.attemptId == exact8198.attemptId) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(pending, reason)
+            if (pending?.attemptId == exact8198.attemptId) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(pending, reason8327)
         }
     }
 
@@ -23195,6 +23196,7 @@ class Executor(
         if (ts.position.isPaperPosition) return
         try {
             com.lifecyclebot.engine.sell.SellRouteSpine8144.trigger8144(ts.mint, reason, ts.position.positionId)
+            com.lifecyclebot.engine.sell.StopSlip8327.noteTrigger8327(ts.mint, reason, ts.lastPrice, ts.position.entryPrice, ts.lastPriceUpdate, ts.lastPriceSource)  // V5.0.8327
             if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) {
                 com.lifecyclebot.engine.sell.SellRouteVenueProbe8144.prewarm8144(wallet, ts.mint)
             }

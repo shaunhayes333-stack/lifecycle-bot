@@ -143,7 +143,8 @@ object StopRoute8189 {
 
     fun statusLine8189(): String = "stopRoute8189[jupiterFirst=${jupiterFirst.get()} raydiumSkipped=${skipped.get()} venueFailures=${failures.size}]" +
         " " + (try { EmergencySellRoute8308.statusLine8308() } catch (_: Throwable) { "emergencyRoute8308[-]" }) +  // V5.0.8308
-        " " + (try { com.lifecyclebot.engine.truth.RuntimeBasisSync8308.statusLine8308() } catch (_: Throwable) { "runtimeBasisSync8308[-]" })
+        " " + (try { com.lifecyclebot.engine.truth.RuntimeBasisSync8308.statusLine8308() } catch (_: Throwable) { "runtimeBasisSync8308[-]" }) +
+        " " + (try { StopSlip8327.statusLine8327() } catch (_: Throwable) { "stopSlip8327[-]" })  // V5.0.8327 — trigger -> fill points / ms / mark age
 
     internal fun resetForTest8189() { failures.clear(); skipped.set(0); jupiterFirst.set(0) }
 }

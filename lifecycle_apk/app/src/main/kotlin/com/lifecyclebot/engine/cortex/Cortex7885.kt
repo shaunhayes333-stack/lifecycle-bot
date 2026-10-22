@@ -2863,8 +2863,14 @@ object Cortex7885 {
         }
     }
 
-    /** 8198 — after a durable close commit, refresh the ordinary checkpoint cadence the old direct path used. */
-    private fun postCloseCheckpoint8198() { submit("CLOSE_CHECKPOINT") { persist() } }
+    /**
+     * 8198 — after a durable close commit, refresh the ordinary checkpoint cadence the old direct path used.
+     * V5.0.8327 — no second save: the close commit (durableCloseCommitLocked8325) has just written the same three rows
+     * (ledger books, pending reads, grade book) in one transaction, so the queued persist() re-encoded the whole graph a
+     * second time per close (two multi-MB encodes per close: heap and the persistence thread). The periodic and entry
+     * checkpoints still save; this counts the save the commit made redundant.
+     */
+    private fun postCloseCheckpoint8198() { inc("CLOSE_CHECKPOINT_WRITTEN_BY_COMMIT_8327") }
 
     // ── persistence ──
 
@@ -3100,7 +3106,9 @@ object Cortex7885 {
         } else work.run()
     }
 
-    private const val FLUSH_WAIT_MS_8094 = 1_500L
+    // V5.0.8327 — 1.5 s -> 250 ms: 8323 stack samples waited 1.0-1.7 s here on the main thread (BotService.onDestroy). The save
+    // itself runs to completion on the persistence thread either way.
+    private const val FLUSH_WAIT_MS_8094 = 250L
     private fun onMainThread8094(): Boolean = Thread.currentThread().name == "main"
     private val persistPool8094 = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
         Thread(r, "cortex-persist-8094").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }

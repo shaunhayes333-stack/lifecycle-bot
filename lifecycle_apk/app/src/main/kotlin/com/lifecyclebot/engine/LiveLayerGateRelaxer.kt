@@ -75,6 +75,8 @@ object LiveLayerGateRelaxer {
     @Volatile private var laneLiveCountCache: Map<String, Int> = emptyMap()
     @Volatile private var laneToxicCache: Map<String, Boolean> = emptyMap()
     @Volatile private var lanePositiveCache: Map<String, Boolean> = emptyMap()
+    /** V5.0.8327 — lane -> [live closes, mean realised %, WR %] (the larger of the bus and the clean leaderboard). */
+    @Volatile private var laneLiveRecord8327: Map<String, DoubleArray> = emptyMap()
     @Volatile private var laneCacheStampMs: Long = 0L
     private const val LANE_CACHE_TTL_MS = 30_000L
     private val refreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -94,6 +96,7 @@ object LiveLayerGateRelaxer {
                     .toMutableMap()
                 val toxic = mutableMapOf<String, Boolean>()
                 val positive = mutableMapOf<String, Boolean>()
+                val record8327 = LiveRecord8327.fromBus8327(CanonicalOutcomeBus.recentSnapshot()) { canonicalLaneKey(it) }.toMutableMap()
                 // V5.0.4051 mux fix retained, but offloaded: reports/journal proved
                 // MOONSHOT/SHITCOIN had hundreds of LIVE closes while the relaxer printed
                 // n=0/1. StrategyTelemetry is journal-backed, so only this background
@@ -103,7 +106,9 @@ object LiveLayerGateRelaxer {
                     busCounts[k] = maxOf(busCounts[k] ?: 0, m.trades)
                     toxic[k] = m.trades >= 5 && (m.winRatePct < 35.0 || m.totalSolPnl < 0.0 || m.meanPnlPct < -3.0)
                     positive[k] = m.trades >= 8 && m.winRatePct >= 45.0 && m.totalSolPnl >= 0.0 && m.meanPnlPct > 0.0
+                    LiveRecord8327.merge8327(record8327, k, m.trades, m.meanPnlPct, m.winRatePct, m.totalSolPnl)
                 }
+                laneLiveRecord8327 = record8327
                 laneLiveCountCache = busCounts
                 laneToxicCache = toxic
                 lanePositiveCache = positive
@@ -156,8 +161,21 @@ object LiveLayerGateRelaxer {
         return perLaneMultiplier[canonicalLaneKey(traderTag)] ?: perLaneMultiplier[traderTag.uppercase()] ?: 1.0
     }
 
-    /** EFFECTIVE multiplier after the maturity fade and WR-gate. */
-    private fun effectiveMultiplier(traderTag: String): Double {
+    /** EFFECTIVE multiplier input (V5.0.8327): the lane's live record [closes, mean %, WR %], null before the cache warms or with no close. */
+    private fun liveRecord8327(traderTag: String): DoubleArray? {
+        refreshLaneCacheIfStale()
+        return laneLiveRecord8327[canonicalLaneKey(traderTag)]
+    }
+
+    /**
+     * V5.0.8327 — EFFECTIVE multiplier: the soft-start / fade below, then the lane's own live record. A relaxer never loosens
+     * a lane whose live closes lose: it fades out (WR < 35%) or reverses (mean < 0) — [LiveRecord8327.governed8327].
+     */
+    private fun effectiveMultiplier(traderTag: String): Double =
+        LiveRecord8327.governed8327(softStartMultiplier8327(traderTag), relaxedBaseForLane(traderTag), liveRecord8327(traderTag))
+
+    /** EFFECTIVE soft-start multiplier after the maturity fade and WR-gate (before the lane's live record). */
+    private fun softStartMultiplier8327(traderTag: String): Double {
         if (!enabled) return 1.0
         // V5.0.4081 — NO BOOTSTRAP IN LIVE (operator P0). Live trading uses
         // real money: sample-count handholding is a paper-mode concept that
@@ -221,9 +239,9 @@ object LiveLayerGateRelaxer {
         if (verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ||
             verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER) {
             val base = relaxedBaseForLane(traderTag)
-            if (base >= 1.0) return 1.0
+            if (base >= 1.0) return LiveRecord8327.governed8327(1.0, base, liveRecord8327(traderTag))
             val liveN = liveCountForLane(traderTag)
-            return when {
+            val faded = when {
                 liveN < WARM_MIN   -> base
                 liveN >= WARM_FULL -> 1.0
                 else -> {
@@ -231,6 +249,7 @@ object LiveLayerGateRelaxer {
                     base + (1.0 - base) * t
                 }
             }
+            return LiveRecord8327.governed8327(faded, base, liveRecord8327(traderTag))
         }
         return effectiveMultiplier(traderTag)
     }
@@ -262,9 +281,9 @@ object LiveLayerGateRelaxer {
         }
         val parts = perLaneMultiplier.keys
             .map { it to effectiveMultiplier(it) }
-            .filter { it.second < 1.0 }
+            .filter { it.second != 1.0 }
             .joinToString(" · ") { (tag, m) ->
-                "$tag ×${"%.2f".format(m)}(n=${liveCountForLane(tag)})"
+                "$tag ×${"%.2f".format(m)}(n=${liveCountForLane(tag)}${LiveRecord8327.tag8327(liveRecord8327(tag))})"
             }
         // V5.0.6428 §P — WR with n=0 is UNKNOWN, not 100%. Render N/A
         // instead of a mathematically-invalid rate so operators (and
@@ -338,5 +357,69 @@ object LiveLayerGateRelaxer {
     fun currentLiveTerminalCount(): Int {
         refreshLiveWrCache()
         return cachedLiveTerminalCount
+    }
+}
+
+/**
+ * V5.0.8327 §RELAXER_NEVER_LOOSENS_A_LOSING_LANE — 5.0.8323 printed "SHITCOIN ×0.85(n=7) · MOONSHOT ×0.85(n=4)" while those
+ * lanes' live closes were 1/7 (mean < 0) and 1/4. The soft-start relaxed every lane under 15 live closes whatever those closes
+ * did; the lane's toxic flag was read only in a DUMP regime.
+ *
+ * Now the lane's own live record governs the soft-start multiplier (pure, [governed8327]):
+ *   fewer than [MIN_N_8327] closes    unchanged (cold start: nothing to read)
+ *   mean realised % < 0               REVERSED: the floor rises above 1.00, by up to half the configured relaxation
+ *                                     ((1 - base) / 2, full at [FULL_N_8327] closes; base 0.85 -> up to ×1.075)
+ *   WR < [FADE_WR_8327]% (mean >= 0)  FADED: 1.00 (no loosening)
+ *   otherwise                         unchanged
+ * A multiplier already above 1.00 is never lowered. No threshold of the lane's own table is edited.
+ */
+object LiveRecord8327 {
+    private const val MIN_N_8327 = 3
+    private const val FULL_N_8327 = 7
+    private const val FADE_WR_8327 = 35.0
+
+    fun governed8327(softStart: Double, base: Double, rec: DoubleArray?): Double {
+        if (rec == null || rec.size < 3) return softStart
+        val n = rec[0]; val mean = rec[1]; val wr = rec[2]
+        if (!n.isFinite() || n < MIN_N_8327) return softStart
+        if (mean.isFinite() && mean < 0.0) {
+            val w = ((n - (MIN_N_8327 - 1)) / (FULL_N_8327 - (MIN_N_8327 - 1)).toDouble()).coerceIn(0.0, 1.0)
+            val reversal = 1.0 + (1.0 - base.coerceIn(0.5, 1.0)) * 0.5 * w
+            return maxOf(softStart, 1.0, reversal)
+        }
+        if (wr.isFinite() && wr < FADE_WR_8327) return maxOf(softStart, 1.0)
+        return softStart
+    }
+
+    /** Pure: per-lane [closes, mean %, WR %] of the LIVE closes with a realised % on the bus. */
+    fun fromBus8327(events: List<CanonicalTradeOutcome>, lane: (String) -> String): Map<String, DoubleArray> {
+        val acc = HashMap<String, DoubleArray>()   // [n, sum %, wins]
+        for (e in events) {
+            if (e.environment != TradeEnvironment.LIVE) continue
+            val p = e.realizedPnlPct ?: continue
+            if (!p.isFinite()) continue
+            val a = acc.getOrPut(lane(e.mode.name)) { DoubleArray(3) }
+            a[0] += 1.0; a[1] += p; if (p > 0.0) a[2] += 1.0
+        }
+        return acc.mapValues { (_, a) -> doubleArrayOf(a[0], a[1] / a[0], 100.0 * a[2] / a[0]) }
+    }
+
+    /** Keeps the larger record of [lane]: the clean leaderboard's when it has at least as many closes. A SOL-losing
+     *  leaderboard record reads losing even when its mean % rounds positive. */
+    fun merge8327(into: MutableMap<String, DoubleArray>, lane: String, trades: Int, meanPct: Double, wrPct: Double, totalSol: Double) {
+        if (trades <= 0) return
+        val cur = into[lane]
+        if (cur != null && cur[0] > trades) return
+        val mean = if (totalSol < 0.0 && meanPct >= 0.0) -0.0001 else meanPct
+        into[lane] = doubleArrayOf(trades.toDouble(), mean, wrPct)
+    }
+
+    fun tag8327(rec: DoubleArray?): String {
+        if (rec == null || rec.size < 3 || rec[0] < MIN_N_8327) return ""
+        return when {
+            rec[1] < 0.0 -> " LIVE_LOSING_REVERSED_8327 wr${rec[2].toInt()}%"
+            rec[2] < FADE_WR_8327 -> " LIVE_WR_LOW_FADED_8327 wr${rec[2].toInt()}%"
+            else -> ""
+        }
     }
 }
