@@ -281,6 +281,12 @@ object ExecutionSpineAcceptanceWindow6647 {
                 desks.sumOf { SpecialistCausalFunnel6625.phantomSizedInWindow7809(it, start.atMs, phantomUpToMs7809) }.toLong()
             } catch (_: Throwable) { (end.phantomSizedOnly - start.phantomSizedOnly).coerceAtLeast(0L) }
             val forensic = try { ForensicReconciliation6635.deltas6647() } catch (_: Throwable) { null }
+            // V5.0.8322 — the same 10 s in-flight grace the dispatch cardinality uses: a receipt landing at the sampling
+            // edge is waited for (the window closes on a later tick), never healed and never counted reconciled.
+            if (forensic?.reconciled != true && (try { CanonicalEconomicEvent6635.onlyYoungOpen8322(nowMs, 10_000L) } catch (_: Throwable) { false })) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_CLOSE_WAITS_IN_FLIGHT_RECEIPT_8322") } catch (_: Throwable) {}
+                return null
+            }
             // A dispatch begun at the sampling edge may still be legitimately in
             // flight; terminal-cardinality applies after a bounded grace period.
             val cardinality = try {

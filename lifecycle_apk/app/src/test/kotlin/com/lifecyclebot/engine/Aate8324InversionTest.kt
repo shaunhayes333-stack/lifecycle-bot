@@ -161,7 +161,7 @@ class Aate8324InversionTest {
         assertTrue(cx.contains("inversion8324["))
         assertTrue(cx.contains("it.tailEv8324 = p.a.tailEv8324"))
         // a revision whose voter trace aged out still revises its grade record; past-horizon traces go first
-        assertTrue(cx.contains("val g = graded8006[key] ?: run { reviseGradeOnly8324(key, newNet, newGross, lat8144); return }"))
+        assertTrue(cx.contains("val g = graded8006[key] ?: run { reviseGradeOnly8324(key, newNet, newGross, lat8144, witness8324); return }"))
         assertTrue(cx.contains("if (graded8006.size >= MAX_GRADED_8006) evictPastHorizon8324(System.currentTimeMillis())"))
     }
 

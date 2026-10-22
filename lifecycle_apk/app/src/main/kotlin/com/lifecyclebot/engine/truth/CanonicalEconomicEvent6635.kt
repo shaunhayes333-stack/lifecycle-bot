@@ -330,6 +330,24 @@ object CanonicalEconomicEvent6635 {
         }
     }
 
+    /**
+     * V5.0.8322 — pure read for the acceptance window: true when the ONLY unfinished commits are OPEN receipts younger
+     * than [graceMs] (no PENDING_RECONCILIATION, none stuck). Such a receipt is a fill landing at the sampling edge (CI
+     * 8299 / 8322: one paper buy 1.3 s old, every delta 0.000000); the window waits for it instead of failing. An older
+     * OPEN receipt, a pending or a stuck one still fails the window — nothing unfinished is ever reported reconciled.
+     */
+    fun onlyYoungOpen8322(nowMs: Long, graceMs: Long): Boolean {
+        var young = 0
+        for ((_, s) in events) {
+            when (s.terminal) {
+                Terminal.COMMITTED, Terminal.FAILED -> {}
+                Terminal.PENDING_RECONCILIATION -> return false
+                Terminal.OPEN -> if (nowMs - s.event.timestampMs in 0L until graceMs) young++ else return false
+            }
+        }
+        return young > 0
+    }
+
     /** Diagnostic only: retain exact identity and real receipts for incomplete
      * transactions. Numeric parity must never conceal an unfinished commit. */
     fun incompleteReceipts8253(nowMs: Long = System.currentTimeMillis()): String =
