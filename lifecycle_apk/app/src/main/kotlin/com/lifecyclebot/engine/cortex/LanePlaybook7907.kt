@@ -736,6 +736,7 @@ object LanePlaybook7907 {
      */
     private fun stat(lane: String, setup: String): CortexLedger7885.Stat? {
         val raw = statRaw8187(lane, setup) ?: return null
+        if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return raw  // V5.0.8326 — the 8114 read: the stored record (no 8187 offset, no 8295 governor)
         val rr = try { Cortex7885.setupRealised8187(lane, setup) } catch (_: Throwable) { null }
         // V5.0.8295 — losing realised closes are applied by LaneRealisedGovernor8295 (from the first close, with the lane's own
         // bank); the 8187 blend keeps only its other direction here so a losing close is never counted twice.
@@ -766,7 +767,8 @@ object LanePlaybook7907 {
     /** V5.0.8295 — a runner lane's tail exemption holds only while the lane's realised closes are not losing. */
     private fun runnerTail8295(lane: String): Boolean =
         (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }) &&
-            !LaneRealisedGovernor8295.tailRefuted8295(try { laneRealised8295(lane) } catch (_: Throwable) { null })
+            (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326() ||  // V5.0.8326 — 8114: a runner lane keeps its tail exemption
+                !LaneRealisedGovernor8295.tailRefuted8295(try { laneRealised8295(lane) } catch (_: Throwable) { null }))
 
     private fun statRaw8187(lane: String, setup: String): CortexLedger7885.Stat? {
         val local = books[lane]?.stats?.get(setup)?.takeIf { it.n == 0.0 ||
@@ -1089,7 +1091,7 @@ object LanePlaybook7907 {
             val lane = canon(laneRaw)
             val c8084 = classify8084(ts, lane, nowMs) ?: return null
             // V5.0.8153 — the strategy the coin trades as (a proven-losing default no longer refuses a supported fired one).
-            val setup = strategyFor8153(ts, lane, c8084, nowMs) ?: return null
+            val setup = (if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) c8084.tag else strategyFor8153(ts, lane, c8084, nowMs)) ?: return null  // V5.0.8326 — 8114: the classified tag
             // V5.0.8084 — DATA_INCOMPLETE / CLASSIFIER_ERROR are not the NO_TRIGGER cohort: no economic refusal is drawn
             // from them (the proven-only live step still needs the candidate's own positive evidence to carry money).
             if (c8084.outcome != Outcome8084.MATCHED && c8084.outcome != Outcome8084.NO_MATCH) return null
@@ -1198,7 +1200,9 @@ object LanePlaybook7907 {
      * still fired), else the best SUPPORTED / VALID fired setup on its own record and timing band (StrategyRank8153).
      */
     fun selectedSetup8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? =
-        (try { admittedSetup8153(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8153 — the admission's one identity
+        if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326())  // V5.0.8326 — the 8114 selection: the best proven fired setup, else the classified one
+            (try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null }) ?: classify(ts, canon(laneRaw), nowMs)
+        else (try { admittedSetup8153(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8153 — the admission's one identity
             ?: (try { rankedSetup8153(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8153 — best evidenced fired setup
             ?: (try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null })
             ?: (try { validAlternative8144(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8144
@@ -1370,7 +1374,7 @@ object LanePlaybook7907 {
         val lane = canon(laneRaw)
         val setup = classify(ts, lane, nowMs)
         // V5.0.8144 — a negative default does not refuse the coin when another fired setup is valid on its own record.
-        val alt8144 = if (setup == null) null else (try { validAlternative8144(ts, lane, nowMs) } catch (_: Throwable) { null })
+        val alt8144 = if (setup == null || com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) null else (try { validAlternative8144(ts, lane, nowMs) } catch (_: Throwable) { null })  // V5.0.8326 — none at 8114
             ?: (try { selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null })?.takeIf { it != setup && it != NO_TRIGGER }  // V5.0.8153
         if (setup == null || alt8144 != null) null else synchronized(this) {
             val st = stat(lane, setup)

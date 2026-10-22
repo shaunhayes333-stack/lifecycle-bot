@@ -1598,7 +1598,9 @@ object ForwardReturnLabeler7731 {
             val sumSq = t.sumSq60 + (hive?.get(2) ?: 0.0)
             val wins = t.win60 + (hive?.get(3)?.toInt() ?: 0)
             val runners = t.runner60 + (hive?.get(4)?.toInt() ?: 0)
-            if (n <= 0 && t.lost <= 0) null else {
+            if (n <= 0 && t.lost <= 0) null
+            else if (Entry8114Mode8326.legacyScope8326()) legacyCell8326(key, n, sum, sumSq, wins, runners, t.lost, t.n240, t.sum240)  // V5.0.8326
+            else {
                 // V5.0.8185 — robust read: a record impossible under the per-label plausibility cap proves nothing either way.
                 // V5.0.8322 — unless its tail is real: 3+ local runners on chain-observed (basis-checked) marks read raw.
                 val robust = tailRead8322(key, n, sum, sumSq, wins, t.runner60, t.sum60, t.witness60)  // V5.0.8324 — local sum, provenance
@@ -1670,8 +1672,23 @@ object ForwardReturnLabeler7731 {
      * read executable: the lane's measured label-to-bank gap (Cortex7885.executableOffset8187) comes off the mean. The stored
      * tallies and every display line stay raw.
      */
+    /** V5.0.8326 — the 8114 read of a cell (raw mean, population SE, never suspect): Entry8114Mode8326's legacy scope. */
+    internal fun legacyCell8326(key: String, n: Int, sum: Double, sumSq: Double, wins: Int, runners: Int, lost: Int, n240: Int, sum240: Double): CellStat {
+        val mean = if (n > 0) sum / n else 0.0
+        val variance = if (n > 1) ((sumSq / n) - mean * mean).coerceAtLeast(0.0) else 0.0
+        val se = if (n > 1) kotlin.math.sqrt(variance / n) else Double.POSITIVE_INFINITY
+        return CellStat(
+            key = key, n60 = n, meanNet60Pct = mean,
+            winRate60 = if (n > 0) wins.toDouble() / n else 0.0,
+            runnerRate60 = if (n > 0) runners.toDouble() / n else 0.0,
+            stderr60Pct = se, lost = lost,
+            n240 = n240, meanNet240Pct = if (n240 > 0) sum240 / n240 else 0.0,
+        )
+    }
+
     fun executable8187(c: CellStat?, lane: String): CellStat? {
         if (c == null) return null
+        if (Entry8114Mode8326.legacyScope8326()) return c  // V5.0.8326 — the 8114 read carries no executable offset
         val off = try { com.lifecyclebot.engine.cortex.Cortex7885.executableOffset8187(lane) } catch (_: Throwable) { 0.0 }
         return execShift8187(c, off)
     }

@@ -68,6 +68,8 @@ object LiveAdmissionProof8290 {
      */
     fun survives8290(n: Double, meanPct: Double, sePct: Double, suspect: Boolean, extraPct: Double,
                      minN: Double = 30.0, seMult: Double = 1.0): Boolean {
+        // V5.0.8326 — Entry8114Mode8326's 8114 verdict: proven means mean - SE past zero on the record (no suspect flag, no shortfall).
+        if (Entry8114Mode8326.legacyScope8326()) return n >= minN && meanPct.isFinite() && sePct.isFinite() && meanPct - seMult * sePct > 0.0
         if (suspect) return false
         if (!(n >= minN) || !meanPct.isFinite() || !sePct.isFinite()) return false
         val extra = if (extraPct.isFinite()) extraPct.coerceAtLeast(0.0) else 0.0
@@ -120,6 +122,7 @@ object LiveAdmissionProof8290 {
 
     /** The realised shortfall (points) a forward-label proof in [laneRaw] must clear beyond the 8187 offset; 0 outside LIVE. */
     fun laneExtra8290(laneRaw: String, nowMs: Long = System.currentTimeMillis()): Double {
+        if (Entry8114Mode8326.legacyScope8326()) return 0.0  // V5.0.8326 — 8114 had no realised-shortfall offset
         val live = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
         if (!live) return 0.0
         val lane = canonLane8290(laneRaw)

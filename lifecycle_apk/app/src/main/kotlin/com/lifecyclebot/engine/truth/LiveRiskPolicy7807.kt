@@ -212,9 +212,12 @@ object LiveRiskPolicy7807 {
         } catch (_: Throwable) { 0.0 }
         // V5.0.8188 — forward setup / cell / kind labels alone never raise size: the share is capped by an independent proof's
         // own Kelly stake (outlier-capped realised whole-position closes, or walk-forward out-of-sample); labels may only lower it.
-        val validated8296 = validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l))
-        // V5.0.8296 — fresh live losses (lane) or a setup whose own live closes lose revoke the compounding share.
-        recentKellyGate8296(ts, l, validated8296)
+        // V5.0.8326 — Entry8114Mode8326's legacy scope: the 8114 quarter-Kelly share (best proven setup / cell / kind).
+        if (Entry8114Mode8326.legacyScope8326()) maxOf(setupFrac, cellFrac, kindFrac) else {
+            val validated8296 = validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l))
+            // V5.0.8296 — fresh live losses (lane) or a setup whose own live closes lose revoke the compounding share.
+            recentKellyGate8296(ts, l, validated8296)
+        }
     } catch (_: Throwable) { 0.0 }
 
     /** V5.0.8296 — [frac] after the lane's recent verified live record and the selected setup's realised live closes. */
@@ -549,6 +552,8 @@ object LiveRiskPolicy7807 {
         val recentLive8296: LiveConfidence8296.Recent8296? = null,
         /** V5.0.8319 — this candidate holds the current generation's admission proof (AdmissionEdge8180.proof8198). */
         val admissionProven8319: Boolean = false,
+        /** V5.0.8326 — Entry8114Mode8326 admitted this candidate (8114 decision): route-minimum promotion as at 8114. */
+        val entry8114Admitted8326: Boolean = false,
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -635,8 +640,8 @@ object LiveRiskPolicy7807 {
         }
 
         // V5.0.8296 — confidence follows the lane's LAST verified live closes, not only its 2,500-close history.
-        val expMult = LiveConfidence8296.recencyAdjusted8296(expectancyMultiplier(i.liveCloses, i.liveMeanNetPct, i.liveTotalNetSol), i.recentLive8296)
-        if (i.recentLive8296 != null && LiveConfidence8296.losing8296(i.recentLive8296)) labels += "RECENT_LIVE_LOSSES_SHRINK_8296"
+        val expMult = Entry8114Mode8326.sizeExpMult8326(i.entry8114Admitted8326, expectancyMultiplier(i.liveCloses, i.liveMeanNetPct, i.liveTotalNetSol), i.recentLive8296)  // V5.0.8326
+        if (!i.entry8114Admitted8326 && i.recentLive8296 != null && LiveConfidence8296.losing8296(i.recentLive8296)) labels += "RECENT_LIVE_LOSSES_SHRINK_8296"
         val dailyMult = dailyLossMultiplier(i.laneDailyLossSol, i.equitySol * b.dailyLossCapEquityFrac)
         if (dailyMult < 1.0) labels += "LANE_DAILY_LOSS_CAP_SHRINK_7807"
         val gov = if (i.governorLossMult.isFinite()) i.governorLossMult.coerceIn(0.0, 1.0) else 1.0
@@ -657,7 +662,8 @@ object LiveRiskPolicy7807 {
         // to the route minimum at a 59% drawdown (4abd6b13a) and the balance could never compound back. Unproven candidates
         // keep the drawdown shrink; daily-loss, governor, lane, depth and the hard loss at the stop bind everyone.
         // V5.0.8136 — a label-proven Kelly share waives the drawdown shrink only on a MATURE realised record.
-        val ddWaived8094 = LiveSizingTruth8136.drawdownWaiver8136(i.edgeKellyFrac8057, i.drawdownFrac, i.edgeMaturity8136)
+        val ddWaived8094 = if (i.entry8114Admitted8326) drawdownWaivedForProvenEdge8094(i.edgeKellyFrac8057, i.drawdownFrac)  // V5.0.8326 — the 8094 waiver
+            else LiveSizingTruth8136.drawdownWaiver8136(i.edgeKellyFrac8057, i.drawdownFrac, i.edgeMaturity8136)
         val ddMult = if (ddWaived8094) 1.0 else drawdownMultiplier(i.drawdownFrac)
         if (ddMult < 1.0) labels += "WALLET_DRAWDOWN_SHRINK_7807"
         if (ddWaived8094) labels += "DRAWDOWN_SHRINK_WAIVED_PROVEN_EDGE_8094"
@@ -705,7 +711,8 @@ object LiveRiskPolicy7807 {
         // V5.0.8153 — the binding envelope. Tradeable SOL (wallet - reserve - other sealed reservations) and the lane's
         // slot share of the live book: idle cash in other lanes never lets one lane's principal grow past it.
         val tradeable8153 = if (i.tradeableSol8153.isFinite()) i.tradeableSol8153.coerceAtLeast(0.0) else Double.POSITIVE_INFINITY
-        val laneRoom8153 = SizingNetEdge8153.laneEnvelopeRoomSol8153(i.equitySol, b.maxConcurrentLive, TOTAL_LIVE_SLOTS_7807, i.laneDeployedSol8153)
+        val laneRoom8153 = if (i.entry8114Admitted8326) Double.POSITIVE_INFINITY  // V5.0.8326 — no lane envelope at 8114 (lane / depth / hard-loss / cash caps bind)
+            else SizingNetEdge8153.laneEnvelopeRoomSol8153(i.equitySol, b.maxConcurrentLive, TOTAL_LIVE_SLOTS_7807, i.laneDeployedSol8153)
         if (size > tradeable8153) { size = tradeable8153; labels += "TRADEABLE_CASH_CAP_8153" }
         if (size > laneRoom8153) { size = laneRoom8153; labels += "LANE_PORTFOLIO_ENVELOPE_CAP_8153" }
         // V5.0.8153 — and the sealed amount is re-proven inside every hard cap at once (equity share, depth, hard loss
@@ -749,6 +756,7 @@ object LiveRiskPolicy7807 {
                     minCost7840, i.setupExpectedGrossPct8153, if (i.admissionProven8319) 0.0 else i.drawdownFrac,
                     MinPromotion8188.doctrineBudgetSol8236(size, tradeable8153, i.solUsd),
                     explorationSlotFree = i.admissionProven8319 || (try { LaneScoreAdmission7308.runnerSlotFreeNow(i.lane) } catch (_: Throwable) { false }))
+                    ?.let { Entry8114Mode8326.promotionInputFilter8326(i.entry8114Admitted8326, i.lane, it) }  // V5.0.8326
                     ?.let { refusal ->
                         // An order whose FIXED fees require a larger ticket is
                         // still rejected when the loss budget cannot fund it.
@@ -968,7 +976,8 @@ object LiveRiskPolicy7807 {
             oracleUnproven = ll.closes < MIN_LIVE_SAMPLE_DEEP_SHRINK_7807 && plan == null,
             laneOpenLive = laneOpenLive(effectiveLane7811),
             // V5.0.8094 — one proof per decision: the FDG's own Kelly read is used as-is (no second token snapshot).
-            edgeKellyFrac8057 = edgeKellyFracFromFdg8094?.takeIf { it.isFinite() && it >= 0.0 }
+            edgeKellyFrac8057 = Entry8114Mode8326.kelly8114Or8326(mint, effectiveLane7811) { ts -> edgeKellyFracFor8057(ts, effectiveLane7811) }  // V5.0.8326
+                ?: edgeKellyFracFromFdg8094?.takeIf { it.isFinite() && it >= 0.0 }
                 ?: try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { edgeKellyFracFor8057(it, effectiveLane7811) } ?: 0.0 } catch (_: Throwable) { 0.0 },
             compoundingCeilingSol8094 = compoundingCeilingSol8094,
             edgeMaturity8136 = laneMaturity8136(effectiveLane7811, nowMs),
@@ -983,6 +992,7 @@ object LiveRiskPolicy7807 {
             fixedRoundTripSol8169 = try { com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() } catch (_: Throwable) { Double.NaN },
             recentLive8296 = try { LiveConfidence8296.recentFor8296(effectiveLane7811) } catch (_: Throwable) { null },
             admissionProven8319 = proofGross8232 != null,
+            entry8114Admitted8326 = try { Entry8114Mode8326.admittedNow8326(mint, effectiveLane7811) } catch (_: Throwable) { false },
         )
     }
 
@@ -1071,6 +1081,7 @@ object LiveRiskPolicy7807 {
 
     /** Records the verdict (labels + one forensic line); returns the decision unchanged. */
     fun record(stage: String, mint: String, symbol: String, i: Inputs, d: Decision): Decision {
+        if (i.entry8114Admitted8326) Entry8114Mode8326.noteSize8326(i.lane, d.open, d.sizeSol, i.edgeKellyFrac8057)  // V5.0.8326
         try {
             if (d.open) {
                 opens.incrementAndGet()

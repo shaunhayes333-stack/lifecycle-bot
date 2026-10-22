@@ -120,7 +120,7 @@ object MinPromotion8188 {
      */
     fun runtimeRefusal8188(mint: String, lane: String, requestedSol: Double, promotedSol: Double, liquidityUsd: Double): String? {
         if (!(requestedSol < promotedSol)) return null
-        val r = try {
+        val r = Entry8114Mode8326.promotionFilter8326(mint, lane, try {  // V5.0.8326 — an 8114-admitted candidate is promoted as at 8114
             val l = LiveRiskPolicy7807.canonicalLane(lane)
             val plan = if (mint.isNotBlank()) try { TradePlan7739.freshPlan7783(mint) } catch (_: Throwable) { null } else null
             val stop = plan?.stopPnlPct?.let { -it }?.takeIf { it > 0.0 }
@@ -155,7 +155,7 @@ object MinPromotion8188 {
             // refuse here (8316: NEGATIVE_EDGE_8188 = 106, ADMISSION_BASIS_8224 = 0). The loss budget still binds;
             // LiveRiskPolicy7807.decide re-runs every test at the last mile on the admission's own gross.
             deferredEdge8319(r8188, admissionGross8224 != null)
-        } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 }
+        } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 })
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
         // V5.0.8316 — a promotion refusal is a refusal AT SIZE: the funnel shows "owner selected, refused at size" (SpecialistOwnership7951).
         if (r != null) try { com.lifecyclebot.engine.SpecialistOwnership7951.onCapitalRefusal7951(lane, mint, r, postIntent = false) } catch (_: Throwable) {}

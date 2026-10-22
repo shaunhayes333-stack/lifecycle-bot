@@ -932,7 +932,8 @@ object OrderSizeResolver6441 {
         // a runner re-entry ticket, a tail ticket, a Cortex STRONG read, a cell paying +5%). Re-asking only the
         // coarse cell verdict here refused those buys at the minimum size: 5.0.8046 ORDER_SIZE_CONVICTION_REFUSED=708,
         // with three 4x+ runners admitted and never bought. Collapsed conviction still refuses.
-        if (mint.isNotBlank() && (LiveEdgeGate7877.positiveAdmit7975(mint) || AdmissionEdge8180.admittedNow8198(false, mint, laneName))) {
+        if (mint.isNotBlank() && (LiveEdgeGate7877.positiveAdmit7975(mint) || AdmissionEdge8180.admittedNow8198(false, mint, laneName) ||
+                Entry8114Mode8326.admittedNow8326(mint, laneName))) {  // V5.0.8326 — the 8114 decision admitted it
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ORDER_SIZE_POSITIVE_ADMIT_PROMOTED_8047") } catch (_: Throwable) {}
             true
         } else if (ts != null) {

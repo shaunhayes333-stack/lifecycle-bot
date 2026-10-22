@@ -2114,6 +2114,25 @@ object Cortex7885 {
     }
 
     /**
+     * V5.0.8326 — Entry8114Mode8326: the 8114 (379ad2fa0) LIVE entry refusal. The scoreboard's own refusal authority or
+     * the 8019 relative bar, then the constitution / timing rules; no 8269 held-out proof, no 8310 inverted-column
+     * stand-down. Read only by Entry8114Gate8326 (live meme lanes while the mode is ON). Counted, never logged twice.
+     */
+    fun entryRefusal8114(ts: TokenState, laneRaw: String): String? {
+        return try {
+            val a = cachedOrSchedule(ts, laneRaw) ?: assess(ts, laneRaw) ?: return null
+            val proven = synchronized(this) { board.refusalAuthority(a.lane, a.runnerLane, false) && consistent(a.lane) }
+            val relative8019 = !proven && synchronized(this) { board.relativeRefusalAuthority8019(a.lane, a.runnerLane) && consistent(a.lane) }
+            val rule = constitutionRefusal(a, ts, false, proven || relative8019)?.let { if (it == "C3_PROVEN_NEGATIVE_EDGE" && relative8019) "C3_RELATIVE_REFUSE_8019" else it }
+                ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }
+            if (rule == null) null else {
+                try { PipelineHealthCollector.labelInc("CORTEX_7885_REFUSED_8114_MODE_8326_$rule") } catch (_: Throwable) {}
+                "CORTEX_7885_${rule}_${a.lane}"
+            }
+        } catch (_: Throwable) { null }
+    }
+
+    /**
      * Called by LiveEdgeGate7877 when it would refuse a LIVE entry. True means the
      * Cortex's proven STRONG record overrules that edge refusal for this candidate.
      */

@@ -405,7 +405,11 @@ object TradePlan7739 {
         // this plan (liveEdgeBlock7877), but the executor chokepoint (sniper / native paths) asks only this function, so a
         // chart BUY there skipped the rebuy lockout, the 2x-cost net edge, the proven-losing setup and the proven-only door
         // the FDG path enforces. The same edge verdict now answers here; a chart BUY it admits is planned as before.
-        if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return chartPlanRefusal8136(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)
+        if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) {
+            // V5.0.8326 — Entry8114Mode8326: at 8114 a chart BUY was planned at once (the edge gate already decided it).
+            if (Entry8114Mode8326.liveActive8326(lane, paper)) return null
+            return chartPlanRefusal8136(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)
+        }
         // V5.0.7878 — a runner lane is judged per cohort by the edge gate below,
         // not by its lane-wide record: MOONSHOT's 10-close live record held every
         // MOONSHOT token to paper (5.0.7876 PIVOT_7876_NEGATIVE_MOONSHOT=1924),
@@ -420,7 +424,8 @@ object TradePlan7739 {
         // missing plan bars must not create a contradictory SECOND refusal.
         // Safety, structural risk, quote economics and the live edge gate have
         // already been checked. Plan the same graded early exit as 7975.
-        val specific8171 = candidateAdmission ?: try {
+        val specific8171 = if (Entry8114Mode8326.liveActive8326(lane, paper)) null  // V5.0.8326 — 8114: no admission plan
+        else candidateAdmission ?: try {
             CandidateAdmission8136.assess8136(ts, lane, nowMs, candidateVersion)
         } catch (_: Throwable) { null }
         if (specific8171?.admitted == true && specific8171.specific) {
@@ -732,6 +737,7 @@ object TradePlan7739 {
             "waitWhy=${waitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "executorRefused7751=${chokeWhy7751.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "waitProof7757=${waitProofLine7757()} shaping7871=${LaunchEntryShaping7871.statusLine()} pivot7876=${LivePivotAuthority7876.statusLine()} edge7877=${LiveEdgeGate7877.statusLine()} " +
+            "${try { Entry8114Mode8326.statusLine8326() } catch (_: Throwable) { "entry8114[-]" }} " +  // V5.0.8326
             // V5.0.7951 — restored/seeded bars and the meme-choke repairs.
             "${MarkBarsStore7951.statusLine7951()} ${com.lifecyclebot.engine.MemeChokes7951.statusLine7951()}"
 }
