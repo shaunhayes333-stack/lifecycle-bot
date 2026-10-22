@@ -75,7 +75,8 @@ object HeliusSwapCandles7819 {
         .build()
 
     /** One executed swap: block time, price in SOL per token, SOL size, side. */
-    data class SwapPrint7819(val tsMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean)
+    data class SwapPrint7819(val tsMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean,
+                             val signature: String = "")   // V5.0.8307 — the transaction (one trade across feeds)
 
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val nextAllowedMs = ConcurrentHashMap<String, Long>()
@@ -298,6 +299,7 @@ object HeliusSwapCandles7819 {
             if (before.isBlank() || arr.length() < PAGE_LIMIT || oldestMs <= 0L || startedAt - oldestMs >= WINDOW_MS) break
         }
         printsParsed.addAndGet(prints.size.toLong())
+        tapeBackfill8307(ts.mint, prints, marketAddress)   // V5.0.8307 — the same paid page also fills the trade tape
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val bars = binPrints7819(prints, solUsd, System.currentTimeMillis())
         if (bars.isEmpty()) {
@@ -324,6 +326,31 @@ object HeliusSwapCandles7819 {
                 "mint=${ts.mint.take(10)} sym=${ts.symbol} prints=${prints.size} bars=${bars.size} merged=$merged replaced=${r8284.replaced} kept=${r8284.kept} " +
                     "pages=$page histNow=${ts.history.size} source=helius_enhanced_tx",
             )
+        } catch (_: Throwable) {}
+    }
+
+    private val backfillTaped8307 = AtomicLong(0L)
+
+    /** Pure: the tape venue of a backfilled print — the curve venue for the mint's bonding curve, else the pool address. */
+    internal fun backfillVenue8307(marketAddress: String, curveKey: String?): String =
+        if (!curveKey.isNullOrBlank() && marketAddress == curveKey) TradeTape8100.VENUE_CURVE_8285 else marketAddress
+
+    /**
+     * V5.0.8307 — the executed swaps of the one Enhanced-history page reach TradeTape8100 (source helius, venue, signature,
+     * side, SOL, token size, block time) instead of being dropped after the bars: a newly evaluated coin has 30 minutes of
+     * tape (bp / change / shape) at once. Signature dedup keeps a swap another feed already taped as one trade.
+     */
+    private fun tapeBackfill8307(mint: String, prints: List<SwapPrint7819>, marketAddress: String) {
+        if (prints.isEmpty()) return
+        val curve = try {
+            com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) ?: com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(mint)
+        } catch (_: Throwable) { null }
+        val venue = backfillVenue8307(marketAddress, curve)
+        val now = System.currentTimeMillis()
+        for (p in prints) try {
+            if (!(p.priceSol > 0.0 && p.sol > 0.0)) continue
+            if (TradeTape8100.note8285(mint, p.priceSol, p.sol, p.sol / p.priceSol, p.isBuy, TradeTape8100.SRC_HELIUS_8169,
+                    pool = venue, signature = p.signature, eventMs = p.tsMs, recvMs = now)) backfillTaped8307.incrementAndGet()
         } catch (_: Throwable) {}
     }
 
@@ -442,7 +469,7 @@ object HeliusSwapCandles7819 {
             if (tok <= 0.0 || solLeg < MIN_TRADE_SOL) continue
             val px = solLeg / tok
             if (!px.isFinite() || px <= 0.0) continue
-            out.add(SwapPrint7819(tsMs, px, solLeg, tokenNet > 0.0))
+            out.add(SwapPrint7819(tsMs, px, solLeg, tokenNet > 0.0, tx.optString("signature", "")))
         }
         return out
     }
@@ -503,7 +530,7 @@ object HeliusSwapCandles7819 {
         "requests=${requests.get()} jobs=${jobs.get()} pages=${pages.get()} prints=${printsParsed.get()} " +
             "served=${served.get()} barsDelivered=${barsDelivered.get()} merged=${barsMerged.get()} " +
             "empty=${empty.get()} httpErr=${httpErrors.get()} budgetSkips=${budgetSkips.get()} noKey=${noKey.get()} noMarket8269=${noMarketAddress8269.get()} " +
-            "inFlight=${inFlight.size} budget=${MAX_JOBS_PER_MIN}/min,${MAX_JOBS_PER_HOUR}/h,x${MAX_PAGES}pages"
+            "inFlight=${inFlight.size} budget=${MAX_JOBS_PER_MIN}/min,${MAX_JOBS_PER_HOUR}/h,x${MAX_PAGES}pages backfillTaped8307=${backfillTaped8307.get()}"
 
     /** V5.0.8284 — Helius candles returned vs merged vs replaced vs kept, the local-tape path and coverage / time-to-feature. */
     fun statusLine8284(): String =

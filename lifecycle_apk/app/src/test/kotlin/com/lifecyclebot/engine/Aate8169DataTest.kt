@@ -164,7 +164,7 @@ class Aate8169DataTest {
         assertTrue(src("network/PumpFunWS.kt").contains("tapeFrame8285(j, mint, priceSol, sol7743, tok7743, txType == \"buy\")"))
         assertTrue(src("network/PumpFunWS.kt").contains("com.lifecyclebot.engine.truth.TradeTape8100.note8285("))
         // superseded by V5.0.8285 — the Helius swap reaches the tape with its signature (one trade across feeds) and token size
-        assertTrue(src("engine/truth/ProofDataSwapTape8144.kt").contains("TradeTape8100.note8285(mint, sol / tokenAmount, sol, tokenAmount, isBuy, TradeTape8100.SRC_HELIUS_8169, signature = signature, recvMs = nowMs)"))
+        assertTrue(src("engine/truth/ProofDataSwapTape8144.kt").contains("TradeTape8100.note8285(mint, sol / tokenAmount, sol, tokenAmount, isBuy, TradeTape8100.SRC_HELIUS_8169,\n                pool = amm8307?.pool.orEmpty(), signature = signature, eventMs = amm8307?.eventMs ?: 0L, recvMs = nowMs)"))
         assertTrue(src("network/GradTicks8018.kt").contains("TradeTape8100.notePrice8169(mint, px, com.lifecyclebot.engine.truth.TradeTape8100.SRC_PUMPSWAP_8169)"))
         assertTrue(src("network/CurveTicks7968.kt").contains("TradeTape8100.notePrice8169(mint, px, com.lifecyclebot.engine.truth.TradeTape8100.SRC_CURVE_8169)"))
     }

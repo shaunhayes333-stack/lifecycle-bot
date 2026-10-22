@@ -245,4 +245,106 @@ class Aate8307DataTest {
         assertEquals("pumpfun_swapapi", HostCircuitInterceptor.pumpFunLabel8307("swap-api.pump.fun"))
         assertEquals("pumpfun_advancedapiv2", HostCircuitInterceptor.pumpFunLabel8307("advanced-api-v2.pump.fun"))
     }
+
+    // ── owner directive: Helius as the primary real-time and history source, efficiently ──
+
+    private fun b58(seed: Int): String = io.github.novacrypto.base58.Base58.base58Encode(ByteArray(32) { (it + seed).toByte() })
+
+    private fun curveTradeEvent(mintBytes: ByteArray, solLamports: Long, tokRaw: Long, buy: Boolean, tsSec: Long): ByteArray {
+        val b = ByteArray(129)
+        byteArrayOf(189.toByte(), 219.toByte(), 127, 211.toByte(), 78, 230.toByte(), 97, 238.toByte()).copyInto(b, 0)
+        mintBytes.copyInto(b, 8); le(solLamports).copyInto(b, 40); le(tokRaw).copyInto(b, 48)
+        b[56] = if (buy) 1 else 0
+        le(tsSec).copyInto(b, 89); le(30_000_000_000L).copyInto(b, 97); le(1_000_000_000_000_000L).copyInto(b, 105)
+        return b
+    }
+
+    @Test fun theParsedStreamDecodesCurveAndPumpSwapSwapsOfIncludedMintsOntoTheTape() {
+        TradeTape8100.resetForTest8100(); PumpSwapTape8307.clearForTest8307()
+        val curveBytes = ByteArray(32) { (it + 11).toByte() }
+        val curveMint = io.github.novacrypto.base58.Base58.base58Encode(curveBytes)
+        val ammMint = b58(40)
+        val now = 1_760_000_100_000L
+        val enc = java.util.Base64.getEncoder()
+        val logs = org.json.JSONArray()
+            .put("Program log: Instruction: Buy")
+            .put("Program data: " + enc.encodeToString(curveTradeEvent(curveBytes, 200_000_000L, 5_000_000_000L, true, 1_760_000_090L)))
+            .put("Program data: " + enc.encodeToString(pumpSwapEvent(true, 2_000_000_000L, 500_000_000L, 1_760_000_095L)))
+        val result = org.json.JSONObject().put("signature", "sigE").put("transaction", org.json.JSONObject()
+            .put("transaction", org.json.JSONObject().put("message", org.json.JSONObject()
+                .put("accountKeys", org.json.JSONArray().put(org.json.JSONObject().put("pubkey", ammMint)))))
+            .put("meta", org.json.JSONObject().put("err", org.json.JSONObject.NULL).put("logMessages", logs)))
+        assertEquals(2, PumpSwapTape8307.onEnhancedTx8307(result, setOf(curveMint, ammMint), now))
+        val c = TradeTape8100.prints8128(curveMint, now, 120_000L)
+        assertEquals(1, c.size)
+        assertEquals(TradeTape8100.VENUE_CURVE_8285, c[0].pool)
+        assertEquals(0.2 / 5_000.0, c[0].priceSol, 1e-15)
+        val a = TradeTape8100.prints8128(ammMint, now, 120_000L)
+        assertEquals(1, a.size)
+        assertEquals(poolB58, a[0].pool)
+        assertEquals(ammMint, PumpSwapTape8307.mintForPool8307(poolB58))
+        // A failed transaction, or a mint not included, never becomes a print.
+        val failed = org.json.JSONObject(result.toString())
+        failed.getJSONObject("transaction").getJSONObject("meta").put("err", org.json.JSONObject().put("InstructionError", 1))
+        assertEquals(0, PumpSwapTape8307.onEnhancedTx8307(failed, setOf(curveMint, ammMint), now))
+        TradeTape8100.resetForTest8100()
+        assertEquals(0, PumpSwapTape8307.onEnhancedTx8307(org.json.JSONObject(result.toString()).put("signature", "sigF"), setOf(b58(90)), now))
+    }
+
+    @Test fun theParsedStreamIsBoundedByABudgetedWidthAndHeldCoinsNeverDrop() {
+        assertEquals(6, PumpSwapTape8307.nextTapeWidth8307(12, 2_000_000L))
+        assertEquals(2, PumpSwapTape8307.nextTapeWidth8307(3, 2_000_000L))
+        assertEquals(12, PumpSwapTape8307.nextTapeWidth8307(11, 100_000L))
+        assertEquals(8, PumpSwapTape8307.nextTapeWidth8307(8, 700_000L))
+        val held = listOf(b58(1), b58(2))
+        val near = (3..20).map { b58(it) }
+        assertEquals(4, PumpSwapTape8307.tapeSet8307(held, near, 4, false).size)
+        assertEquals(held, PumpSwapTape8307.tapeSet8307(held, near, 4, true))
+        assertEquals(held, PumpSwapTape8307.tapeSet8307(held, near, 1, false))
+        assertNull(PumpSwapTape8307.attributeMint8307(listOf("a", "b"), setOf("a", "b")))
+        assertEquals("a", PumpSwapTape8307.attributeMint8307(listOf("a", "x"), setOf("a", "b")))
+        assertTrue(com.lifecyclebot.network.HeliusEnhancedWS.tapeResubDue8307(true, 1_000L, 1_001L))
+        assertFalse(com.lifecyclebot.network.HeliusEnhancedWS.tapeResubDue8307(false, 1_000L, 30_000L))
+        assertTrue(com.lifecyclebot.network.HeliusEnhancedWS.tapeResubDue8307(false, 1_000L, 61_000L))
+        assertEquals("UNSUPPORTED_PLAN", com.lifecyclebot.network.HeliusEnhancedWS.capabilityFromError8307(-32601, "Method not found"))
+        assertEquals("UNSUPPORTED_PLAN", com.lifecyclebot.network.HeliusEnhancedWS.capabilityFromError8307(-32603, "transactionSubscribe is not available on your plan"))
+        assertEquals("ERROR", com.lifecyclebot.network.HeliusEnhancedWS.capabilityFromError8307(-32602, "invalid params"))
+        val ws = src("network/HeliusEnhancedWS.kt")
+        assertTrue(ws.contains("meterWs(\"HELIUS_TAPE_8307\", text.length)"))
+        assertTrue(ws.contains("PumpSwapTape8307.onEnhancedTx8307(result, tapeIncluded8307)"))
+        assertTrue(src("engine/DataOrchestrator.kt").contains("syncHeliusTape8307(held, nowMs)"))
+    }
+
+    @Test fun theOnePaidHistoryPageAlsoFillsTheTape() {
+        val h = com.lifecyclebot.engine.truth.HeliusSwapCandles7819
+        assertEquals(TradeTape8100.VENUE_CURVE_8285, h.backfillVenue8307("CurveKey", "CurveKey"))
+        assertEquals("PoolAddr", h.backfillVenue8307("PoolAddr", "CurveKey"))
+        assertEquals("PoolAddr", h.backfillVenue8307("PoolAddr", null))
+        val arr = org.json.JSONArray().put(org.json.JSONObject().put("signature", "sigH").put("timestamp", 1_760_000_000L)
+            .put("feePayer", "Trader").put("events", org.json.JSONObject().put("swap", org.json.JSONObject()
+                .put("nativeInput", org.json.JSONObject().put("amount", "500000000"))
+                .put("tokenOutputs", org.json.JSONArray().put(org.json.JSONObject().put("mint", "MintH")
+                    .put("rawTokenAmount", org.json.JSONObject().put("tokenAmount", "2000000000").put("decimals", 6)))))))
+        val p = h.parseSwapPrints7819(arr, "MintH")
+        assertEquals(1, p.size)
+        assertEquals("sigH", p[0].signature)
+        assertTrue(src("engine/truth/HeliusSwapCandles7819.kt").contains("tapeBackfill8307(ts.mint, prints, marketAddress)"))
+    }
+
+    @Test fun dasAuthorityFactsAreParsedWithoutInventingAnything() {
+        val o = org.json.JSONObject().put("id", "MintD").put("token_info", org.json.JSONObject()
+            .put("mint_authority", org.json.JSONObject.NULL).put("freeze_authority", "FreezeAuth").put("decimals", 6)
+            .put("supply", 1.0e15).put("token_program", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"))
+            .put("mint_extensions", org.json.JSONObject().put("transfer_hook", org.json.JSONObject()))
+        val a = com.lifecyclebot.network.HeliusDasAuthority8307.parseAsset8307(o, 1_000L)!!
+        assertEquals("", a.mintAuthority)          // stated: renounced
+        assertEquals("FreezeAuth", a.freezeAuthority)
+        assertEquals(6, a.decimals)
+        assertEquals(setOf("transfer_hook"), a.extensions)
+        val bare = com.lifecyclebot.network.HeliusDasAuthority8307.parseAsset8307(org.json.JSONObject().put("id", "MintE"), 1_000L)!!
+        assertNull(bare.mintAuthority)            // not stated = unknown, never "renounced"
+        assertNull(bare.freezeAuthority)
+        assertNull(bare.decimals)
+        assertNull(com.lifecyclebot.network.HeliusDasAuthority8307.parseAsset8307(org.json.JSONObject(), 1_000L))
+    }
 }
