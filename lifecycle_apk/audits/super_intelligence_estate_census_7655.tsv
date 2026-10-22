@@ -131,6 +131,8 @@ UnifiedNarrativeAI	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/Unif
 UnifiedPolicyHead	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/UnifiedPolicyHead.kt	False
 WatchlistTtlPolicy	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/WatchlistTtlPolicy.kt	False
 WhaleTrackerAI	PROVIDER_BACKED_REVIEW	com/lifecyclebot/engine/WhaleTrackerAI.kt	False
+CortexTailDoor8322	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/cortex/CortexTailDoor8322.kt	False
+CortexTailEv8324	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/cortex/CortexTailEv8324.kt	False
 LearningEntryTruth8153	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/cortex/LearningEntryTruth8153.kt	False
 LearningExitTruth8153	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/cortex/LearningExitTruth8153.kt	False
 LearningObjective8153	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/cortex/LearningObjective8153.kt	False
