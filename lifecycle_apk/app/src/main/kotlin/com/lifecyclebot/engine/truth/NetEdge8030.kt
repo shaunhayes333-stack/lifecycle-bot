@@ -185,13 +185,32 @@ object NetEdge8030 {
         return rt
     }
 
+    private val measuredLifts8329 = AtomicLong(0)
+
+    /**
+     * V5.0.8329 §COST_TRUTH — the PRE-TRADE round trip: [costPct8030] (model, or the 8-trade measured cost) lifted to the
+     * lane's measured median once 2+ live round trips exist (CostLedger7962.measuredMedianPct8329). 8326 live: MOONSHOT
+     * measured 14.8 % (n=2) while entries were judged on a 3.7 % model. Exits and labels keep [costPct8030]; wins are never
+     * capped — a dearer round trip only raises the move an ENTRY must clear.
+     */
+    fun preTradeCostPct8329(lane: String, sizeSol: Double, liquidityUsd: Double, mint: String = "", mcapUsd: Double = 0.0): Double {
+        val model = costPct8030(lane, sizeSol, liquidityUsd, mint, mcapUsd)
+        val measured = (try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }) ?: return model
+        if (measured > model) {
+            measuredLifts8329.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("COST_TRUTH_MEASURED_LIFTS_MODEL_8329_${lane.uppercase().take(16)}") } catch (_: Throwable) {}
+        }
+        return maxOf(model, measured)
+    }
+
     /** LiveEdgeGate7877 (live): the refusal when [lane]'s expected move is under 2x the round trip, else null. */
     fun entryRefusal8030(ts: TokenState, lane: String): String? {
         val mandate = try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { return null }
         // V5.0.8035 — owner: "why is it buying bonk ... wouldn't this be common sense everywhere". The lane's textbook
         // move (20% for quality / bluechip) let BLUECHIP buy BONK ($300M cap) whose hour moves 1-3%. Every lane now
         // expects no more than the coin itself is actually moving: its last hour's range (or 1h change).
-        val cost = costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
+        // V5.0.8329 — at the lane's measured round trip once 2+ live trips exist (preTradeCostPct8329), never under the model.
+        val cost = preTradeCostPct8329(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
         // V5.0.8153 — the move judged is the SELECTED strategy's own executable move when its record supports one, else the
         // mandate capped by a dense range / the 1h change; a fresh launch with only a sparse range defers for evidence
         // (bounded, coalesced per mint) instead of being refused as slow on two candles (StrategyMove8153).

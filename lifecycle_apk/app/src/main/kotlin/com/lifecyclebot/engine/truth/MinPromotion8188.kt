@@ -128,7 +128,7 @@ object MinPromotion8188 {
             val ts = if (mint.isNotBlank()) try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } else null
             val liq = if (liquidityUsd.isFinite() && liquidityUsd > 0.0) liquidityUsd else (ts?.lastLiquidityUsd ?: 0.0)
             val mcap = ts?.lastMcap ?: 0.0
-            fun cost(s: Double): Double = NetEdge8030.costPct8030(l, s, liq, mint, mcap)
+            fun cost(s: Double): Double = NetEdge8030.preTradeCostPct8329(l, s, liq, mint, mcap)  // V5.0.8329 — measured lane median lifts the model
             val proof8224 = if (mint.isNotBlank()) try {
                 val version = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint)
                 AdmissionEdge8180.proof8198("LIVE", mint, l, version)
@@ -156,6 +156,9 @@ object MinPromotion8188 {
             // LiveRiskPolicy7807.decide re-runs every test at the last mile on the admission's own gross.
             deferredEdge8319(r8188, admissionGross8224 != null)
         } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 })
+            // V5.0.8329 — a sub-minimum stake is promoted only for one named candidate-level reason (setup record positive on
+            // 12+ labels, early runner, Kelly >= 25 % of the minimum); binds in 8114 mode too (ROUTE_MIN_PROMOTED_KELLY_BELOW_MIN = 34 on Kelly ~0).
+            ?: EntryEconomics8329.promotionReasonRefusal8329(mint, lane, requestedSol, promotedSol)
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
         // V5.0.8316 — a promotion refusal is a refusal AT SIZE: the funnel shows "owner selected, refused at size" (SpecialistOwnership7951).
         if (r != null) try { com.lifecyclebot.engine.SpecialistOwnership7951.onCapitalRefusal7951(lane, mint, r, postIntent = false) } catch (_: Throwable) {}

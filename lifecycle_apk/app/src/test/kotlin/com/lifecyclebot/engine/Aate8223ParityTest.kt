@@ -146,7 +146,10 @@ class Aate8223ParityTest {
         assertEquals(16.5, p.expectedGrossPct, 1e-9)
         assertTrue(com.lifecyclebot.engine.truth.AdmissionEdge8180.Proof8198("LIVE", "m", "MOONSHOT", 7L, "b", null, 0L).expectedGrossPct.isNaN())
         val s = src("engine/truth/MinPromotion8188.kt")
-        assertTrue(s.contains("fun cost(s: Double): Double = NetEdge8030.costPct8030(l, s, liq, mint, mcap)"))
+        // superseded by V5.0.8329 — the same component model (NetEdge8030.costPct8030) lifted to the lane's measured
+        // round-trip median once 2+ live trips exist (preTradeCostPct8329); one basis, never under the model.
+        assertTrue(s.contains("fun cost(s: Double): Double = NetEdge8030.preTradeCostPct8329(l, s, liq, mint, mcap)"))
+        assertTrue(src("engine/truth/NetEdge8030.kt").contains("val model = costPct8030(lane, sizeSol, liquidityUsd, mint, mcapUsd)"))
         assertFalse(s.contains("LiveRiskPolicy7807.roundTripCostPct(s, solUsd, liq)"))
         assertTrue(s.contains("AdmissionEdge8180.proof8198(\"LIVE\", mint, l, version)"))
         // V5.0.8232 — the sizer nets the admission's own gross at the size and costs it with the same component model.
