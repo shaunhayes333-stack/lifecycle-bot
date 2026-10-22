@@ -3197,7 +3197,6 @@ class BotService : Service() {
         serviceForegroundActive6487 = true
         android.util.Log.i("AATE_BOOTSTRAP", "SERVICE_ONCREATE_PHASE_7438 phase=FOREGROUND_READY")
         ensureRuntimeWakeLock6031("onCreate_after_startForeground")
-        try { com.lifecyclebot.engine.truth.EvidenceHold8336.init8336(applicationContext) } catch (_: Throwable) {}  // V5.0.8336
         ensureRuntimeWifiLock6032("onCreate_after_startForeground")
 
         try {
@@ -35457,6 +35456,8 @@ if (hotExitHandledSweep) {
     // ── notifications ──────────────────────────────────────
 
     private fun createChannels() {
+        // V5.0.8337 — the evidence-hold clock starts with the service (onCreate is an ART-budgeted method; hooked here).
+        try { com.lifecyclebot.engine.truth.EvidenceHold8336.init8336(applicationContext) } catch (_: Throwable) {}
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Bot Running",
