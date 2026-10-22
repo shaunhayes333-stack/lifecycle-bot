@@ -32,7 +32,10 @@ import java.util.concurrent.atomic.AtomicLong
  * Nothing here sizes a trade. Every entry point fails open (null / false).
  */
 object Cortex7885 {
-    private const val ASSESS_TTL_MS = 20_000L
+    // V5.0.8318 — 20 s made most decision-time captures cold (5.0.8314: capture meanLagMs 111,764; each queued capture re-ran
+    // a full assessment, damaging labels, not entry timing). A 60 s assessment still carries its own stale mark
+    // (priceAge > MARK_STALE_MS) and the cache stays bounded by MAX_ASSESS_CACHE / ASSESS_PRUNE_AT_8144.
+    private const val ASSESS_TTL_MS = 60_000L
     private const val PENDING_TTL_MS = 5L * 60L * 60_000L
     private const val MAX_PENDING = 8_000
     private const val MAX_ASSESS_CACHE = 4_000
@@ -306,8 +309,10 @@ object Cortex7885 {
     // small bounded worker pool and the gate proceeds without a Cortex opinion
     // this cycle (the candidate is re-evaluated next cycle). Capture runs on the
     // pool too; its label still starts at the observation time.
+    // V5.0.8318 — assessment workers 2 → 4 (core 2): with the queue bounded at 256 the two extra workers only start when
+    // the queue is full; the voter time budget (CortexVoters7885.ASSESS_BUDGET_MS_8187) still bounds each assessment.
     private val pool: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
-        1, 2, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(256),
+        2, 4, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(256),
         { r -> Thread(r, "cortex-7909").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
         // V5.0.7930 — a dropped job is counted (ASYNC_DROPPED), never silent.
         java.util.concurrent.RejectedExecutionHandler { r, ex ->
@@ -327,9 +332,13 @@ object Cortex7885 {
     // V5.0.8187 — the queue is admitted to by submitCaptureKeyed8187's own accounting (coalesced per mint|lane, bounded,
     // every refusal counted by reason), so the executor never evicts a queued decision: 8186 lost 86 captures to the
     // oldest-job poll. Its own last resort runs the job on the caller (the decision stays, immutable) and is counted.
+    // V5.0.8318 — capture workers 1 → 2: 5.0.8314 measured capture meanLagMs 111,764 with the single worker behind a queue
+    // of up to 416 cold captures. The queue hard cap (CAPTURE_QUEUE_HARD_8187, declared first: the executor's queue is sized
+    // from it) and submitCaptureKeyed8187's per-key accounting still bound memory; a capture's label still starts at the
+    // observation time, never at the run time.
     private const val CAPTURE_QUEUE_HARD_8187 = 416
     private val capturePool8171: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
-        1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(CAPTURE_QUEUE_HARD_8187 + 32),
+        2, 2, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(CAPTURE_QUEUE_HARD_8187 + 32),
         { r -> Thread(r, "cortex-capture-8171").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
         java.util.concurrent.RejectedExecutionHandler { r, ex ->
             if (!ex.isShutdown) {

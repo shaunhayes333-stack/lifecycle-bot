@@ -11,7 +11,9 @@ import java.util.concurrent.atomic.AtomicLong
  *
  *   BUY_PRESSURE     no stamped buy/sell split (DexScreener row or executed-trade tape).
  *   PRICE_CHANGE     no stamped 5m / 1h move.
- *   TAPE             no launch tape (crowd, flow, peak) for the mint.
+ *   LAUNCH_TAPE      no 45-minute launch tape (LaunchTape7921: crowd, flow, peak) for the mint. V5.0.8318: was named
+ *                    "tape", which read as the local trade tape (TradeTape8100, counted as tape8100) and hid the real
+ *                    gaps (bp, chg, shape); mostly PAST_LAUNCH_WINDOW, and not a core setup input.
  *   STRUCTURE        no time-ordered price shape (run-up, distance from peak, drawdown).
  *   CONTEXT          no plan setup, launch phase or market-sweep opportunity read.
  *   LIQUIDITY        no observed pool depth.
@@ -24,7 +26,7 @@ import java.util.concurrent.atomic.AtomicLong
 object ProofDataFeatureCoverage8144 {
 
     enum class Feature8144(val short: String) {
-        BUY_PRESSURE("bp"), PRICE_CHANGE("chg"), TAPE("tape"), STRUCTURE("structure"),
+        BUY_PRESSURE("bp"), PRICE_CHANGE("chg"), LAUNCH_TAPE("launchTape"), STRUCTURE("structure"),
         CONTEXT("context"), LIQUIDITY("liq"), BIRTH_TIME("birth"), SWAP_PROVENANCE("swaps"),
     }
 
@@ -38,13 +40,13 @@ object ProofDataFeatureCoverage8144 {
 
     /** Pure: the features absent from one read, in declaration order. */
     fun missing8144(
-        bp: Boolean, chg: Boolean, tape: Boolean, structure: Boolean,
+        bp: Boolean, chg: Boolean, launchTape: Boolean, structure: Boolean,
         context: Boolean, liquidity: Boolean, birth: Boolean, swaps: Boolean,
     ): List<Feature8144> {
         val out = ArrayList<Feature8144>(8)
         if (!bp) out += Feature8144.BUY_PRESSURE
         if (!chg) out += Feature8144.PRICE_CHANGE
-        if (!tape) out += Feature8144.TAPE
+        if (!launchTape) out += Feature8144.LAUNCH_TAPE
         if (!structure) out += Feature8144.STRUCTURE
         if (!context) out += Feature8144.CONTEXT
         if (!liquidity) out += Feature8144.LIQUIDITY
@@ -56,10 +58,10 @@ object ProofDataFeatureCoverage8144 {
     /** One evaluation's coverage for [mint]; returns what was missing. */
     fun observe8144(
         mint: String, nowMs: Long,
-        bp: Boolean, chg: Boolean, tape: Boolean, structure: Boolean,
+        bp: Boolean, chg: Boolean, launchTape: Boolean, structure: Boolean,
         context: Boolean, liquidity: Boolean, birth: Boolean, swaps: Boolean,
     ): List<Feature8144> {
-        val gaps = missing8144(bp, chg, tape, structure, context, liquidity, birth, swaps)
+        val gaps = missing8144(bp, chg, launchTape, structure, context, liquidity, birth, swaps)
         evaluations.incrementAndGet()
         if (gaps.isEmpty()) { complete.incrementAndGet(); return gaps }
         for (f in gaps) {

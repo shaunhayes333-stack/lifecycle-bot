@@ -291,14 +291,15 @@ class Aate8144ProofDataTest {
 
         val F = ProofDataFeatureCoverage8144
         F.clearForTest8144()
+        // superseded by V5.0.8318: the launch-tape input is named launchTape (it was "tape", read as the local trade tape)
         assertEquals(
             listOf(Feature8144.BUY_PRESSURE, Feature8144.LIQUIDITY, Feature8144.SWAP_PROVENANCE),
-            F.missing8144(bp = false, chg = true, tape = true, structure = true, context = true, liquidity = false, birth = true, swaps = false),
+            F.missing8144(bp = false, chg = true, launchTape = true, structure = true, context = true, liquidity = false, birth = true, swaps = false),
         )
         assertTrue(F.missing8144(true, true, true, true, true, true, true, true).isEmpty())
-        F.observe8144("f1", t0, bp = false, chg = true, tape = true, structure = true, context = true, liquidity = false, birth = true, swaps = true)
-        F.observe8144("f1", t0 + 1L, bp = false, chg = true, tape = true, structure = true, context = true, liquidity = true, birth = false, swaps = true)
-        F.observe8144("f2", t0 + 2L, bp = true, chg = true, tape = true, structure = true, context = true, liquidity = true, birth = true, swaps = true)
+        F.observe8144("f1", t0, bp = false, chg = true, launchTape = true, structure = true, context = true, liquidity = false, birth = true, swaps = true)
+        F.observe8144("f1", t0 + 1L, bp = false, chg = true, launchTape = true, structure = true, context = true, liquidity = true, birth = false, swaps = true)
+        F.observe8144("f2", t0 + 2L, bp = true, chg = true, launchTape = true, structure = true, context = true, liquidity = true, birth = true, swaps = true)
         assertEquals(2L, F.missingCount8144(Feature8144.BUY_PRESSURE))
         assertEquals(1L, F.missingCount8144(Feature8144.LIQUIDITY))
         assertEquals(1L, F.missingCount8144(Feature8144.BIRTH_TIME))

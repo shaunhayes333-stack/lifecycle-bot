@@ -608,7 +608,7 @@ object LanePlaybook7907 {
         val altChg8169 = if (!chgKnown && tapeChg8100 == null) fill8169?.chg?.value else null
         val altLiq8169 = if (liqObs != Obs8084.OBSERVED) fill8169?.liq?.value else null
         // V5.0.8144 — name each missing input separately (per-feature counters), not one DATA_INCOMPLETE.
-        try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.observe8144(ts.mint, nowMs, bp = bpKnown || tapeBp8100 != null || altBp8169 != null, chg = chgKnown || tapeChg8100 != null || altChg8169 != null, tape = tape != null, structure = shapeKnown || tapeShape8100 != null, context = !plan.isNullOrBlank() || !phase.isNullOrBlank() || opp != null, liquidity = liqObs == Obs8084.OBSERVED || altLiq8169 != null, birth = nn(s?.ageMin).isFinite(), swaps = swaps8169) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.observe8144(ts.mint, nowMs, bp = bpKnown || tapeBp8100 != null || altBp8169 != null, chg = chgKnown || tapeChg8100 != null || altChg8169 != null, launchTape = tape != null, structure = shapeKnown || tapeShape8100 != null, context = !plan.isNullOrBlank() || !phase.isNullOrBlank() || opp != null, liquidity = liqObs == Obs8084.OBSERVED || altLiq8169 != null, birth = nn(s?.ageMin).isFinite(), swaps = swaps8169) } catch (_: Throwable) {}
         return F(
             age = nn(s?.ageMin),
             runup = if (shapeKnown) nn(s?.runupFromLocalLowPct) else tapeShape8100?.runupPct ?: Double.NaN,
@@ -1001,6 +1001,15 @@ object LanePlaybook7907 {
         else -> Classification8084(lane, Outcome8084.NO_MATCH, null, emptyList(), missing, errs, fp, nowMs, "core inputs observed; no registered setup fired")
     }
 
+    /**
+     * Pure (V5.0.8318): the counter name of a missing input. The "tape" observation in [F.obs8084] is the 45-minute launch
+     * tape (LaunchTape7921, [features] line "val tape"), not the coin's local trade tape (TradeTape8100, counted as tape8100);
+     * 5.0.8314 reported SETUP_FEATURE_MISSING_8084_tape 18,569 (mostly PAST_LAUNCH_WINDOW, not a core input) and it hid the
+     * real gaps (bp, chg, shape). The missing-input string itself keeps its "tape" key: the admission re-fetch schedulers key
+     * on it.
+     */
+    fun counterFeature8318(feat: String): String = if (feat == "tape") "launchTape" else feat
+
     // Bounded diagnostics: fixed outcome x lane, fixed feature x lane.
     private val outcomeCounts8084 = ConcurrentHashMap<String, AtomicLong>()
     private val missingCounts8084 = ConcurrentHashMap<String, AtomicLong>()
@@ -1014,7 +1023,7 @@ object LanePlaybook7907 {
             PipelineHealthCollector.labelInc(name); PipelineHealthCollector.labelInc("${name}_${c.lane}")
             outcomeCounts8084.computeIfAbsent("${c.lane}|${c.outcome.name}") { AtomicLong(0) }.incrementAndGet()
             if (c.outcome != Outcome8084.MATCHED) for (m in c.missing) {
-                val feat = m.substringBefore(':')
+                val feat = counterFeature8318(m.substringBefore(':'))
                 PipelineHealthCollector.labelInc("SETUP_FEATURE_MISSING_8084_$feat")
                 missingCounts8084.computeIfAbsent("${c.lane}|$feat") { AtomicLong(0) }.incrementAndGet()
             }
