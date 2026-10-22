@@ -1594,6 +1594,8 @@ object ForwardReturnLabeler7731 {
     fun tailRead8322(key: String, n: Int, sum: Double, sumSq: Double, wins: Int, localRunners: Int): RobustLabelRead8185.Read8185 {
         val r = RobustLabelRead8185.read8185(key, n, sum, sumSq, wins)
         if (!r.suspect || localRunners < TAIL_RUNNERS_8322 || n < 2) return r
+        // V5.0.8320 — the local runners must be physically plausible for this cell (the 8175 basis-error shape keeps the bound).
+        if (!com.lifecyclebot.engine.cortex.CortexLedger7885.tailPlausible8320(sum, localRunners.toDouble(), RobustLabelRead8185.capForKey8185(key))) return r
         val nd = n.toDouble()
         val mean = sum / nd
         val variance = ((sumSq / nd) - mean * mean).coerceAtLeast(0.0) * nd / (nd - 1.0)

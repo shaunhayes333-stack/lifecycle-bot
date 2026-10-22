@@ -38,6 +38,18 @@ class CortexLedger7885(
         const val RUNNER_GROSS_PCT = 50.0
         /** V5.0.8322 — runners a label book needs before a raw mean above the plausibility bound is read as a real tail. */
         const val MIN_TAIL_RUNNERS_8322 = 3.0
+        /**
+         * V5.0.8320 — a tail is real only while its runners are physically plausible: the book's sum per runner (an
+         * under-estimate of the runner average, losers included) stays within this multiple of the per-label plausibility
+         * cap. The paying pond reads ~+744..+1342% per runner (well inside 3 x 1,000%); the 8175 basis-error book (15% of
+         * labels at +5,000%) reads ~+4,900% per runner and keeps the bound read. Nothing stored is changed.
+         */
+        const val TAIL_PLAUSIBLE_MULT_8320 = 3.0
+
+        /** Pure (V5.0.8320): [runners] (>= [MIN_TAIL_RUNNERS_8322]) carry a plausible tail for a book read through [cap]. */
+        fun tailPlausible8320(sum: Double, runners: Double, cap: Double): Boolean =
+            runners >= MIN_TAIL_RUNNERS_8322 && sum.isFinite() &&
+                (!cap.isFinite() || sum / runners <= TAIL_PLAUSIBLE_MULT_8320 * cap)
         const val STAT_WINDOW_8014 = 500.0
         /**
          * V5.0.8187 — the per-label plausibility cap every Cortex label book is read through and every NEW label is clamped
@@ -168,7 +180,7 @@ class CortexLedger7885(
          * resting on fewer runners (one implausible label: the 8175 +60,000% case) keeps the 8187 bound read. In both cases
          * [suspect8187] is a flag on the screen; nothing stored is changed.
          */
-        fun tailReal8322(): Boolean = runners >= MIN_TAIL_RUNNERS_8322
+        fun tailReal8322(): Boolean = tailPlausible8320(sum, runners, cap8187)  // V5.0.8320 — runners must be plausible
         fun mean(): Double {
             if (!(n > 0.0)) return 0.0
             val off = readOffset8187.takeIf { it.isFinite() } ?: 0.0
