@@ -46,7 +46,9 @@ class Aate8198CortexCloseDeliveryTest {
         val close = c.substringAfter("fun onCanonicalClose(").substringBefore("// ── persistence ──")
         fun at(lit: String) = close.indexOf(lit).also { assertTrue("missing: $lit", it >= 0) }
         val receipts = at("tradeId in closeReceipts8198")
-        val durable = at("LearningPersistence.load(closeReceipt8198(tradeId))")
+        // superseded by V5.0.8325 — the durable receipt is read before the lock (storedReceipt8325); the gate inside reads it
+        assertTrue(close.indexOf("LearningPersistence.load(closeReceipt8198(env.tradeId)) != null") in 0 until receipts)
+        val durable = at("if (storedReceipt8325) {")
         val gate = at("tradeId !in uncommittedCloseGrades8198")
         val gateAdd = at("uncommittedCloseGrades8198.add(tradeId)")
         val peek = at("positionReads8076.peek(env.positionId, closeKey7931, mode)")

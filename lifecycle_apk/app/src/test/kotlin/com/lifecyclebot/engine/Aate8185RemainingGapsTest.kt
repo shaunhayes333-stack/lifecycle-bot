@@ -58,7 +58,7 @@ class Aate8185RemainingGapsTest {
         val witnessed = poisoned().also { it.witnessed8324 = it.runners }
         assertTrue(witnessed.tailReal8322())
         assertEquals(witnessed.rawMean8187(), witnessed.mean(), 1e-9)
-        assertTrue(Cortex7885.vetoRobustProof8185(witnessed))
+        assertFalse("superseded by V5.0.8325: the raw tail supports nothing live by itself", Cortex7885.vetoRobustProof8185(witnessed))
         val mixed = poisoned().also { it.witnessed8324 = it.runners * 0.5 }
         assertFalse("a mixed-basis tail keeps the size rule", mixed.tailReal8322())
     }

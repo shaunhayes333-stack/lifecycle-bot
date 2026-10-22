@@ -222,7 +222,7 @@ class Aate8317DataHolesTest {
         ts.lastLiquidityUsd = 2_500.0
         IntakeFirstSight8317.firstSight8317(ts, setOf("SHITCOIN"), setOf("SNIPE"))
         assertTrue(ts.laneAffinity.contains("SHITCOIN") && ts.toolAffinity.contains("SNIPE"))
-        assertTrue(DataPipeline8191.nearDecision8191(ts.mint, now))                // one minute old: near a decision
+        assertTrue(DataPipeline8191.nearDecision8191(ts.mint, System.currentTimeMillis()))   // one minute old: near a decision (read at or after the mark)
         val line = IntakeFirstSight8317.statusLine8317()
         val asked = line.substringAfter("depthAsked=").substringBefore("]").toLong()
         val ts2 = TokenState(mint = "Depth8317eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")

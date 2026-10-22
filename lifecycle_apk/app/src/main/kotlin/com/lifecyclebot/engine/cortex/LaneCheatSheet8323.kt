@@ -419,13 +419,6 @@ object LaneCheatSheet8323 {
         return n >= FAVOUR_MIN_N_8323 && mean.isFinite() && se.isFinite() && mean - se > maxOf(r.prior, 0.0) + costPct
     }
 
-    /** Pure (V5.0.8325): a favoured setup KEEPS favour while its local record (20+) stays above cost and live is not losing. */
-    private fun keepsFavour8325(r: Record8323, costPct: Double): Boolean {
-        if (r.suspect || liveAnyLosing8325(r)) return false
-        val l = r.local8325
-        return l[0] >= FAVOUR_MIN_N_8323 && l[1].isFinite() && l[1] - costPct > 0.0
-    }
-
     /** V5.0.8324 — network labels a hive prior needs, and local labels that must confirm it. */
     const val HIVE_FAVOUR_MIN_N_8324 = 100.0
     const val LOCAL_CONFIRM_N_8324 = 5.0
@@ -478,8 +471,8 @@ object LaneCheatSheet8323 {
         val net = if (r.meanPct.isFinite()) r.meanPct - costPct else Double.NaN
         if (prev == Verdict8323.AVOID && !(r.n >= AVOID_MIN_N_8323 && net > 0.0)) return Verdict8323.AVOID
         // V5.0.8325 §FAVOUR_IS_LOCAL — favour earned and kept on the local record only (the 8324 hive path is withdrawn).
+        // V5.0.8328 — no keep-favour hysteresis: favour is earned on each read (a record one SE under prior + cost is never favoured).
         if (favourEarned8323(r, costPct)) return Verdict8323.FAVOUR
-        if (prev == Verdict8323.FAVOUR && keepsFavour8325(r, costPct)) return Verdict8323.FAVOUR
         return Verdict8323.NEUTRAL
     }
 

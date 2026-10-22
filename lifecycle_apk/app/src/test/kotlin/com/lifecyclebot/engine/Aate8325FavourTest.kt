@@ -55,7 +55,7 @@ class Aate8325FavourTest {
         assertNotEquals(Verdict8323.FAVOUR, LaneCheatSheet8323.judge8323(hiveHeavy("H", 5.0, 12.0, 4.0), Verdict8323.NEUTRAL))
         assertNotEquals(Verdict8323.FAVOUR, LaneCheatSheet8323.judge8323(hiveHeavy("H", 19.0, 30.0, 3.0), Verdict8323.NEUTRAL))
         assertNotEquals(Verdict8323.FAVOUR, LaneCheatSheet8323.judge8323(hiveHeavy("H", 60.0, -4.0, 1.0), Verdict8323.NEUTRAL))
-        // the hysteresis keeps favour only on the LOCAL record above cost
+        // no keep-favour hysteresis (V5.0.8328): a record under cost is not favoured whatever the previous verdict
         assertNotEquals(Verdict8323.FAVOUR, LaneCheatSheet8323.judge8323(hiveHeavy("H", 60.0, -0.5, 1.0), Verdict8323.FAVOUR))
         // the local record earns it: 20+ labels, mean - SE above max(prior, 0) + cost, live not losing
         val good = hiveHeavy("H", 40.0, 9.0, 2.0)

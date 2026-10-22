@@ -257,8 +257,7 @@ object CandidateAdmission8136 {
      *  - the lane's own live closes are losing (3+, mean < 0: LaneRealisedGovernor8295) — the governors already deny a setup
      *    record full proof there, so a cohort / cell / runner-grab / favour read was the door that let losers in;
      *  - the lane's own graded labels (20+, executable-net) are not positive;
-     *  - the admitting [edge] is not the chosen setup's own supported record (Cortex STRONG cohort, runner grab, cell — tail /
-     *    lane-wide reads) and the chosen setup's own record past the shortfall ([own]) is not positive on 12+ labels.
+     *  - (withdrawn V5.0.8328, see the body) the admitting [edge] is a lane-wide read and [own] is not positive on 12+ labels.
      * Paper and pure fixtures (null lane fields) are unchanged. Hard safety, economics and data refusals came first.
      */
     internal fun liveLocalGuard8325(c: Candidate8136, edge: Evidence8136?, own: Evidence8136?): String? {
@@ -266,9 +265,10 @@ object CandidateAdmission8136 {
         if (com.lifecyclebot.engine.cortex.LaneRealisedGovernor8295.tailRefuted8295(c.laneRealised8325)) return LIVE_LANE_LOSING_8325
         val lane = c.laneLabel8325
         if (lane != null && lane.n >= LANE_LABEL_MIN_N_8325 && !(lane.meanPct > 0.0)) return LIVE_LANE_LABELS_8325
-        if (edge != null && edge.kind != KIND_SETUP) {
-            if (own == null || own.n < LOSING_MIN_N_8136 || !(own.meanPct > 0.0)) return LIVE_TAIL_ALONE_8325
-        }
+        // V5.0.8328 — the third read (LIVE_TAIL_ALONE_8325: a lane-wide edge with the setup's own record absent, thin or
+        // not positive) is withdrawn: it bound the thin one-SE live loss the 8316 directive made advisory (8257 band) and
+        // refused a setup with no record at all. The setup's own clear loss still refuses upstream (clearlyLosing8136);
+        // [own] stays in the signature for the trace line.
         return null
     }
 

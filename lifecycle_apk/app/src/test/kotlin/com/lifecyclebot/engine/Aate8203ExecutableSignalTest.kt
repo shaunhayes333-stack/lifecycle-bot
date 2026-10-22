@@ -14,7 +14,8 @@ class Aate8203ExecutableSignalTest {
         val block = fdg.substringAfter("private fun baseSignalVerdict8203(").substringBefore("private fun unnamedBaseSignalTerminal8203(")
         // the supersession needs ALL of: stale generic WAIT, an elected specialist owner, a candidate-SPECIFIC ADMIT with a basis
         assertTrue(block.contains("val specificAdmitSupersedes8203 = staleBaseSignalBlock && specialistLane?.isNotBlank() == true &&"))
-        assertTrue(block.contains("candidateAdmission8136?.let { it.specific && it.admitted && it.basis.isNotBlank() } == true"))
+        // superseded by V5.0.8326 — the helper reads the admission through Entry8114Mode8326.admission8326 (null in 8114 mode)
+        assertTrue(block.contains("adm8326?.let { it.specific && it.admitted && it.basis.isNotBlank() } == true"))
         assertTrue(block.contains("return null to true"))
         assertTrue(block.contains("FDG_BASE_SIGNAL_SUPERSEDED_BY_SPECIFIC_ADMIT_8203_"))
         // the generic-prior ADMIT path is unchanged and still hard-blocks, counted

@@ -66,16 +66,15 @@ class Aate8325LiveLossTest {
         assertFalse(clear.contains("missedRunnerPts8324"))
     }
 
-    @Test fun aCortexStrongCohortCannotAloneAdmitALiveBuyOnAnyLane() {
+    @Test fun aCortexStrongCohortAdmitsALiveBuyOnlyWithThePositiveSetupRecordOrTheAdvisoryBand() {
         val cortex = ev("STRONG@X", 60, 30.0, 4.0, kind = CandidateAdmission8136.KIND_CORTEX_8200)
         val losingSetup = ev("S", 14, -1.0, 4.0)       // a thin one-SE loser: advisory on its own, not a clear loss
         val positiveSetup = ev("S", 14, 4.0, 4.0)
         for (lane in lanes) {
             // paper: unchanged (the cohort read supports)
             assertTrue(lane, CandidateAdmission8136.decide8136(cand(lane, losingSetup, cortex = cortex)).admitted)
-            // live: the chosen setup's own record must be positive past cost
-            val refused = CandidateAdmission8136.decide8136(cand(lane, losingSetup, live = true, cortex = cortex))
-            assertEquals(lane, CandidateAdmission8136.LIVE_TAIL_ALONE_8325, refused.reason)
+            // superseded by V5.0.8328 — the thin one-SE live loss stays advisory under the 8316 directive; the cohort read supports it
+            assertTrue(lane, CandidateAdmission8136.decide8136(cand(lane, losingSetup, live = true, cortex = cortex)).admitted)
             assertTrue(lane, CandidateAdmission8136.decide8136(cand(lane, positiveSetup, live = true, cortex = cortex)).admitted)
         }
     }
@@ -98,7 +97,7 @@ class Aate8325LiveLossTest {
         }
         val c = cand("SHITCOIN", proven, live = true)
         assertNull(CandidateAdmission8136.liveLocalGuard8325(c, proven, proven))
-        assertNotEquals(null, CandidateAdmission8136.liveLocalGuard8325(c, ev("cell", 60, 20.0, 2.0, kind = CandidateAdmission8136.KIND_CELL), null))
+        assertNull(CandidateAdmission8136.liveLocalGuard8325(c, ev("cell", 60, 20.0, 2.0, kind = CandidateAdmission8136.KIND_CELL), null))  // superseded by V5.0.8328
         val adm = src("engine/truth/CandidateAdmission8136.kt")
         assertTrue(adm.contains("laneRealised8325 = if (live8290) (try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(lane) }"))
         assertTrue(adm.contains("laneLabel8325 = if (live8290) laneLabel8325(lane) else null,"))
