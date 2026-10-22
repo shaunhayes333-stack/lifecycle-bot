@@ -74,6 +74,16 @@ object SafetyProofPriority8310 {
         return true
     }
 
+    /**
+     * TokenSafetyChecker's mint read: Helius-first (the paid plan's single getAccountInfo jsonParsed on the mint) for a live
+     * mint whose current proof was just forced or whose buy deferred on proof; the public-first scan ladder otherwise.
+     */
+    fun heliusFirst8310(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (mint.isBlank() || !live8310()) return false
+        return forcedAt8310[mint]?.let { nowMs - it in 0L..FORCE_MEMO_MS_8310 } == true ||
+            deferredAt8310[mint]?.let { nowMs - it in 0L..DEFER_PRIORITY_MS_8310 } == true
+    }
+
     /** The checker's cache cap for this cycle's run. */
     fun maxCacheAge8310(forced: Boolean): Long = if (forced) LIVE_PROOF_MAX_AGE_MS_8310 else Long.MAX_VALUE
 
