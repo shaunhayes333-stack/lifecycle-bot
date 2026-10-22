@@ -74,8 +74,7 @@ object FreeRangeMode {
 
     // LLM tuner ramp
     private const val TUNER_RAMP_START = 1  // V5.0.7814: self-healing may act from first settled trade
-    private const val TUNER_RAMP_END   = 1000  // V5.9.716: reach full tuner power at 1000 (was 3000)
-                                                 // Earlier quality feedback = earlier WR repair
+    private const val TUNER_RAMP_END   = 1     // V5.0.8319: full bounded authority from the first settled trade (was 1000)
 
     // Emergency-graduate kept for backwards-compat callers
     private const val EMERGENCY_MIN_TRADES = 500
@@ -233,7 +232,8 @@ object FreeRangeMode {
     // ── Backwards-compat helpers ─────────────────────────────────────
     /**
      * adjustmentStrength: LLM/Sentience tuner ramp. Trade 0 = no tuning;
-     * trade 1 begins at 5% authority and ramps to full authority at 1000 trades.
+     * V5.0.8319: TUNER_RAMP_END = 1, so trade 1+ has full bounded authority (the
+     * `trades >= TUNER_RAMP_END` branch runs before the ramp; no division by zero).
      * V5.0.7814 removes the old 50-trade dead zone while preserving tiny early steps.
      */
     fun adjustmentStrength(

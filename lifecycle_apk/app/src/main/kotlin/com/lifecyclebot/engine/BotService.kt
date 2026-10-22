@@ -20235,6 +20235,7 @@ class BotService : Service() {
                 try {
                     com.lifecyclebot.engine.truth.AutoPipelineAdvisor6462.maybeTick(applicationContext)
                 } catch (_: Throwable) {}
+                try { SelfHealingAdvisor.maybeAutoAdvise(applicationContext, "loop8319") } catch (_: Throwable) {} // V5.0.8319 A3
             }
 
             // V5.0.6463 §P1 — ADVISOR REGRESSION MONITOR.

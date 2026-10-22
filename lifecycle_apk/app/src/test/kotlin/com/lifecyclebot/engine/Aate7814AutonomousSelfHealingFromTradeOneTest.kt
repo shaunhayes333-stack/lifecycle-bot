@@ -20,7 +20,8 @@ class Aate7814AutonomousSelfHealingFromTradeOneTest {
     @Test fun freeRangeTunerStrengthStartsAtFirstTrade() {
         val s = src("engine/FreeRangeMode.kt")
         assertTrue(s.contains("TUNER_RAMP_START = 1"))
-        assertTrue(s.contains("trade 1 begins at 5% authority"))
+        // superseded by V5.0.8321 — TUNER_RAMP_END = 1: full bounded authority from trade 1 (no 5% ramp).
+        assertTrue(s.contains("TUNER_RAMP_END   = 1 "))
     }
 
     @Test fun autonomousAdvisorAppliesInLiveWithoutOperatorApproval() {
