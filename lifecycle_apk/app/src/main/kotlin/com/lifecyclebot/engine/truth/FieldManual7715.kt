@@ -331,6 +331,13 @@ object FieldManual7715 {
         return (oneWay * 2.0).coerceIn(0.0, 100.0)
     }
 
+    /** V5.0.8337 — two-sided USD depth for impact on any mint: an ACTIVE pump.fun curve trades against its VIRTUAL
+     *  reserve (30 + real SOL), never the real SOL alone. Everything else: [liqUsd] unchanged. */
+    fun depthUsdForImpact8337(mint: String, liqUsd: Double, solUsd: Double, nowMs: Long = System.currentTimeMillis()): Double {
+        val real = if (mint.isBlank()) null else try { CurveReserves7951.realSolIfActive8046(mint, nowMs) } catch (_: Throwable) { null }
+        return if (real != null && solUsd.isFinite() && solUsd > 0.0) 2.0 * (30.0 + real.coerceAtLeast(0.0)) * solUsd else liqUsd
+    }
+
     /**
      * §8.1 position size from the stop:
      *   risk_budget = equity × risk_fraction

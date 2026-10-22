@@ -964,8 +964,9 @@ class BotService : Service() {
         // V5.0.8048 — the sell door's own floor (NetEdge8030: the measured-or-model round trip + 1%). The plan and the
         // profit locks priced the model cost alone (lock at cost+0.5), always under the door's floor, so a lock could
         // never sell green. A lock at this break-even clears the door.
+        // V5.0.8337 — passes ts.mint so the curve's virtual depth prices the impact (depthUsdForImpact8337 inside costPct8030).
         com.lifecyclebot.engine.truth.NetEdge8030.exitFloorPct8030(com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(
-            ts.position.tradingMode.ifBlank { "UNKNOWN" }, ts.position.costSol, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts)))
+            ts.position.tradingMode.ifBlank { "UNKNOWN" }, ts.position.costSol, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts), ts.mint, ts.lastMcap))
     } catch (_: Throwable) { PLAN_COST_PCT_7739 }
 
     /**

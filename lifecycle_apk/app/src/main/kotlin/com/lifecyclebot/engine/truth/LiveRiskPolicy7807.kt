@@ -678,8 +678,10 @@ object LiveRiskPolicy7807 {
         val cost1 = if (size > 0.0) costAtSizePct8153(i, size) else cost0
         size = sizeFromInvalidation(i.equitySol, b.baseRiskFrac, total, stop, cost1)
         val laneCap = i.equitySol * b.maxPositionEquityFrac
-        val liqCap = if (i.liquidityUsd.isFinite() && i.liquidityUsd > 0.0 && i.solUsd.isFinite() && i.solUsd > 0.0)
-            (i.liquidityUsd * 0.5 * LIQ_MAX_ONE_WAY_IMPACT_PCT_7807 / 100.0) / i.solUsd else Double.POSITIVE_INFINITY
+        // V5.0.8337 — the impact cap is sized on the depth the trade moves (an active curve's virtual reserve), not real SOL.
+        val impactLiq8337 = FieldManual7715.depthUsdForImpact8337(i.mint8329, i.liquidityUsd, i.solUsd)
+        val liqCap = if (impactLiq8337.isFinite() && impactLiq8337 > 0.0 && i.solUsd.isFinite() && i.solUsd > 0.0)
+            (impactLiq8337 * 0.5 * LIQ_MAX_ONE_WAY_IMPACT_PCT_7807 / 100.0) / i.solUsd else Double.POSITIVE_INFINITY
         if (size > laneCap) { size = laneCap; labels += "LANE_MAX_POSITION_CAP_7807" }
         if (size > liqCap) { size = liqCap; labels += "LIQUIDITY_IMPACT_CAP_7807" }
         // V5.0.8057 — compounding on proven edge: the bet is a quarter-Kelly share of CURRENT equity, so it grows as

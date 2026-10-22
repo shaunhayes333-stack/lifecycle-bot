@@ -80,9 +80,10 @@ object RunnerExitLive8136 {
     fun sellCostPct8136(ts: TokenState): Double = try {
         val sizeSol = ts.position.costSol
         val solUsd = WalletManager.lastKnownSolPrice
+        // V5.0.8337 — impact on the depth the sell moves (an active curve's virtual reserve), not the real SOL alone.
         val roundTrip = com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(
             sizeSol, if (solUsd.isFinite() && solUsd > 0.0) sizeSol * solUsd else 0.0,
-            com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts),
+            com.lifecyclebot.engine.truth.FieldManual7715.depthUsdForImpact8337(ts.mint, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts), solUsd),
         )
         if (roundTrip.isFinite()) (roundTrip / 2.0).coerceIn(1.0, 25.0) else DEFAULT_SELL_COST_PCT_8136
     } catch (_: Throwable) { DEFAULT_SELL_COST_PCT_8136 }

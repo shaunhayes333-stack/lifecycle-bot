@@ -100,16 +100,19 @@ object NetEdge8030 {
         // liquidity"); this rule charges fees, tips and slippage and the impact only of depth it can see.
         val depthKnown = liquidityUsd.isFinite() && liquidityUsd > 0.0
         if (!depthKnown) unpricedDepth8037.incrementAndGet()
+        // V5.0.8337 — impact is priced on the depth a trade actually moves: an active curve's VIRTUAL reserve (30 + real
+        // SOL), not its $3 of real SOL (which read as 50%/side). Fees/venue keep the real figure.
+        val impactLiq8337 = FieldManual7715.depthUsdForImpact8337(mint, if (depthKnown) liquidityUsd else 0.0, solUsd)
         val components8151 = try { componentsPct8151(size, mint, if (depthKnown) liquidityUsd else 0.0, mcapUsd) } catch (_: Throwable) { Double.NaN }
         val model = if (components8151.isFinite()) components8151 + FieldManual7715.SLIPPAGE_ALLOWANCE_PCT_7715 +
-            FieldManual7715.impactRoundTripPct(if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0)
-        else try { FieldManual7715.roundTripCostPct7766(size, if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0) } catch (_: Throwable) { 5.0 }
+            FieldManual7715.impactRoundTripPct(if (impactLiq8337 > 0.0) sizeUsd else 0.0, impactLiq8337)
+        else try { FieldManual7715.roundTripCostPct7766(size, if (impactLiq8337 > 0.0) sizeUsd else 0.0, impactLiq8337) } catch (_: Throwable) { 5.0 }
         val measured = try { CostLedger7962.measuredCostPct7962(lane, size) } catch (_: Throwable) { null }
         return maxOf(model, measured ?: 0.0).also {
             lastCostPct = it
             // V5.0.8169 — what the figure is made of (5.0.8168 printed lastCost=58.64% with no lane, size or depth).
-            lastBreakdown8169 = breakdown8169(lane, size, if (depthKnown) liquidityUsd else 0.0, components8151.isFinite(),
-                FieldManual7715.impactRoundTripPct(if (depthKnown) sizeUsd else 0.0, if (depthKnown) liquidityUsd else 0.0), measured, it)
+            lastBreakdown8169 = breakdown8169(lane, size, impactLiq8337, components8151.isFinite(),
+                FieldManual7715.impactRoundTripPct(if (impactLiq8337 > 0.0) sizeUsd else 0.0, impactLiq8337), measured, it)
             tlBreakdown8209.set(lastBreakdown8169)   // V5.0.8209 — the same thread reads its own quote's breakdown, not a racing one
         }
     }
@@ -169,9 +172,9 @@ object NetEdge8030 {
      * reclaimer could not take back. Slippage allowance and impact are added by [costPct8030].
      */
     private fun componentsPct8151(sizeSol: Double, mint: String, liquidityUsd: Double, mcapUsd: Double): Double {
-        val curve = mint.isNotBlank() && PaperVenueCost7287.venue(mint, liquidityUsd) == PaperVenueCost7287.Venue.BONDING_CURVE
         val venuePct = if (mint.isBlank()) 0.25 else PaperVenueCost7287.venueFeePct(mint, liquidityUsd, mcapUsd)
-        val routePct = com.lifecyclebot.engine.CostTrim8151.routeFeePctPerSide8151(if (curve) "PUMPPORTAL" else "JUPITER")
+        // V5.0.8337 — the route fee follows the ROUTE a pump mint takes (PumpPortal), not the venue the depth classifies.
+        val routePct = com.lifecyclebot.engine.CostTrim8151.routeFeePctPerSide8151(if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint)) "PUMPPORTAL" else "JUPITER")
         val rentLoss = try { com.lifecyclebot.engine.RentReclaimer7927.rentLossRate8151() } catch (_: Throwable) { 0.0 }
         val fixedLeg = com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() / 2.0
         val rentSol = com.lifecyclebot.engine.CostTrim8151.ATA_RENT_SOL_8151 * rentLoss

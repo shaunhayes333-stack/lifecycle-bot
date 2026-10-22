@@ -7373,7 +7373,7 @@ class Executor(
         val sliceCost = pos.costSol * f
         if (costPartialFixedRefused8151(ts, proceeds, reason, f)) return true  // V5.0.8151 — fixed fees vs slice proceeds
         val exitCostPct = try {
-            com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(pos.tradingMode, proceeds, ts.lastLiquidityUsd) / 2.0
+            com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(pos.tradingMode, proceeds, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts), ts.mint, ts.lastMcap) / 2.0  // V5.0.8337
         } catch (_: Throwable) { com.lifecyclebot.engine.truth.FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 / 2.0 }
         if (!com.lifecyclebot.engine.sell.PartialNetEconomics8094.uneconomic8094(proceeds, sliceCost, exitCostPct)) return false
         try {
@@ -7397,7 +7397,7 @@ class Executor(
         val canon = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pos.positionId)?.takeIf { it.mint == ts.mint } } catch (_: Throwable) { null }
         val remainingCost = canon?.let { it.entryCostSol - it.soldCostBasisSol }?.takeIf { it.isFinite() && it > 0.0 } ?: pos.costSol
         // V5.0.8271 — variable exit cost only; the fixed sell fee is the separate argument below (charged once each).
-        val exitCostPct = try { com.lifecyclebot.engine.truth.NetEdge8030.exitVariablePct8271(pos.tradingMode, full, ts.lastLiquidityUsd, ts.mint) }
+        val exitCostPct = try { com.lifecyclebot.engine.truth.NetEdge8030.exitVariablePct8271(pos.tradingMode, full, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts), ts.mint, ts.lastMcap) }  // V5.0.8337
             catch (_: Throwable) { com.lifecyclebot.engine.truth.FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 / 2.0 }
         val runner = com.lifecyclebot.engine.sell.ProfitEscalation8189.runnerProtected8297(ts)  // V5.0.8297 — the residual budget's runner set
         val v = com.lifecyclebot.engine.sell.ProfitEscalation8189.verdict8189(true, full, remainingCost, exitCostPct, CostMeter8151.sellLegFixedSol8151(), runner)

@@ -28,7 +28,8 @@ class Aate8271DirectiveTest {
         assertTrue(Double.NaN.let { NetEdge8030.exitVariableFromRoundTrip8271(it, 0.0).isNaN() })
         assertEquals(0.0, NetEdge8030.exitVariableFromRoundTrip8271(1.0, 5.0), 1e-12)
         val ex = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("NetEdge8030.exitVariablePct8271(pos.tradingMode, full, ts.lastLiquidityUsd, ts.mint)"))
+        // superseded by V5.0.8337 — the escalation prices the 8037 liquidity (curve virtual depth) for ts.mint, not the raw tick field
+        assertTrue(ex.contains("NetEdge8030.exitVariablePct8271(pos.tradingMode, full, com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts), ts.mint, ts.lastMcap)"))
         assertFalse(ex.contains("NetEdge8030.costPct8030(pos.tradingMode, full, ts.lastLiquidityUsd) / 2.0"))
     }
 

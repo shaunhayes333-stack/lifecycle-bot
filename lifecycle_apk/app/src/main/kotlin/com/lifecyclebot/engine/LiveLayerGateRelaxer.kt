@@ -261,7 +261,7 @@ object LiveLayerGateRelaxer {
 
     fun relaxFloor(originalFloor: Int, traderTag: String, isLiveMode: Boolean): Int {
         if (!isLiveMode) return originalFloor
-        return (originalFloor * floorMultiplier(traderTag)).toInt()
+        return kotlin.math.ceil(originalFloor * floorMultiplier(traderTag)).toInt()  // V5.0.8337 — a relaxed floor never rounds down past its multiplier
     }
 
     fun setMultiplier(traderTag: String, multiplier: Double) {
