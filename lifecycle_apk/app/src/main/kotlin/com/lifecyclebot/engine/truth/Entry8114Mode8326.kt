@@ -109,8 +109,11 @@ object Entry8114Mode8326 {
         candidateAdmission: CandidateAdmission8136.Decision8136?,
     ): String? {
         val l = canon8326(lane)
+        // V5.0.8339 — the shadow is computed for the runtime's own book: in a PAPER runtime (8336 rehearsal) paper = true,
+        // as the paper runtime decided before 8336; the live chain / wallet doors do not run or bind for a paper entry.
+        val paper8336 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val now = try {
-            inCurrent8326 { LiveEdgeGate7877.liveRefusal(ts, lane, false, nowMs, candidateVersion, candidateAdmission) }
+            inCurrent8326 { LiveEdgeGate7877.liveRefusal(ts, lane, Rehearsal8339.shadowPaper8339(paper8336), nowMs, candidateVersion, candidateAdmission) }
         } catch (_: Throwable) { null }
         val old = try { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } } catch (_: Throwable) {
             Entry8114Gate8326.Verdict8326(EVAL_FAILED_8326, LiveEdgeGate7877.Verdict8083.REFUSE, null)
@@ -121,7 +124,6 @@ object Entry8114Mode8326 {
         // paper record, so paper must keep trading it (8329's shut could otherwise never reopen).
         // V5.0.8337 — the hold is consulted with the candidate: an exceptional runner opportunity (EvidenceHold8336.exceptional8336,
         // every leg provable now) is taken live through the hold; hard safety / economics / sizing still bind downstream.
-        val paper8336 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val realised = (if (paper8336) null else try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { null })
             ?: try { EvidenceHold8336.refusal8336(ts, l, paper8336, nowMs) } catch (_: Throwable) { null }
         val final = finalVerdict8326(old.reason, now, realised)

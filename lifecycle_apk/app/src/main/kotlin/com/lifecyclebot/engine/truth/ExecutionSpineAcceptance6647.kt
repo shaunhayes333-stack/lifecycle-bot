@@ -111,6 +111,51 @@ object ExecutionSpineAcceptanceWindow6647 {
     @Volatile private var baseline: Baseline? = null
     @Volatile private var completedResult6735: ExecutionSpineAcceptance6647.Result? = null
 
+    // V5.0.8339 — the 8322 in-flight wait is BOUNDED and RE-TICKED. BotService.scheduleExecutionSpineAcceptance6666 fires
+    // the closer exactly once (MIN_WINDOW_MS + 2 s); a `return null` from the 8322 wait on that one tick left the window
+    // with no later tick, so a receipt still OPEN at the sampling edge produced neither OK nor FAIL for the whole smoke
+    // (5.0.8336: ACCEPTANCE_WINDOW_NO_COMPLETED_RESULT_8081 after 300 s). The wait is now remembered from its first tick,
+    // re-tried every IN_FLIGHT_RETRY_MS_8339 on the window's own thread, and after IN_FLIGHT_WAIT_GRACE_MS_8339 the window
+    // is evaluated honestly (an unreconciled receipt still FAILS; nothing is healed).
+    const val IN_FLIGHT_WAIT_GRACE_MS_8339 = 30_000L
+    const val IN_FLIGHT_RETRY_MS_8339 = 5_000L
+    private val inFlightWaitSinceMs8339 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val retryPending8339 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val retryExecutor8339: java.util.concurrent.ScheduledExecutorService by lazy {
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+            Thread(r, "AATE-Acceptance-Retry-8339").apply { isDaemon = true }
+        }
+    }
+
+    /**
+     * Pure (V5.0.8339): [waitSinceMs] is when the in-flight wait first began (0 = not waiting yet). Returns the wait's
+     * start (begun now when it had not) and whether the closer should still wait: true while less than [graceMs] has
+     * elapsed since the wait began, false once the grace is spent (evaluate now, honestly).
+     */
+    fun inFlightWaitDecision8339(waitSinceMs: Long, nowMs: Long, graceMs: Long = IN_FLIGHT_WAIT_GRACE_MS_8339): Pair<Long, Boolean> {
+        val since = if (waitSinceMs <= 0L || waitSinceMs > nowMs) nowMs else waitSinceMs
+        return since to (nowMs - since < graceMs)
+    }
+
+    /** The window's own later tick: the single-shot 6668 closer has none. Same window (baseline identity) and same runtime generation only. */
+    private fun scheduleRetry8339(start: Baseline) {
+        if (!retryPending8339.compareAndSet(false, true)) return
+        val generation = try { com.lifecyclebot.engine.BotRuntimeController.currentGeneration() } catch (_: Throwable) { -1L }
+        try {
+            retryExecutor8339.schedule({
+                retryPending8339.set(false)
+                val sameGeneration = generation < 0L ||
+                    (try { com.lifecyclebot.engine.BotRuntimeController.currentGeneration() } catch (_: Throwable) { generation }) == generation
+                if (baseline === start && sameGeneration) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_CLOSE_RETICKED_8339") } catch (_: Throwable) {}
+                    try { closeCompletedWindow() } catch (_: Throwable) {}
+                }
+            }, IN_FLIGHT_RETRY_MS_8339, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: Throwable) {
+            retryPending8339.set(false)
+        }
+    }
+
     /** Read-only: a dashboard/audit must not close or restart the witness window. */
     fun lastCompletedResult6735(): ExecutionSpineAcceptance6647.Result? = completedResult6735
 
@@ -233,6 +278,7 @@ object ExecutionSpineAcceptanceWindow6647 {
         baseline = capture(nowMs)
         requestedCycle.set(-1L)
         maxStartDelayCycles.set(0L)
+        inFlightWaitSinceMs8339.set(0L)  // V5.0.8339 — a new window starts with no in-flight wait
     }
 
     private fun activeModeOpenCount7809(open: List<CanonicalPositionAuthority6441.Position>): Long {
@@ -284,8 +330,16 @@ object ExecutionSpineAcceptanceWindow6647 {
             // V5.0.8322 — the same 10 s in-flight grace the dispatch cardinality uses: a receipt landing at the sampling
             // edge is waited for (the window closes on a later tick), never healed and never counted reconciled.
             if (forensic?.reconciled != true && (try { CanonicalEconomicEvent6635.onlyYoungOpen8322(nowMs, 10_000L) } catch (_: Throwable) { false })) {
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_CLOSE_WAITS_IN_FLIGHT_RECEIPT_8322") } catch (_: Throwable) {}
-                return null
+                // V5.0.8339 — bounded: the first waiting tick is remembered; the window re-ticks itself; after the grace
+                // it is evaluated as it stands (the unreconciled receipt fails as before — never healed).
+                val wait8339 = inFlightWaitDecision8339(inFlightWaitSinceMs8339.get(), nowMs)
+                inFlightWaitSinceMs8339.set(wait8339.first)
+                if (wait8339.second) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_CLOSE_WAITS_IN_FLIGHT_RECEIPT_8322") } catch (_: Throwable) {}
+                    scheduleRetry8339(start)
+                    return null
+                }
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_IN_FLIGHT_WAIT_BOUNDED_8339") } catch (_: Throwable) {}
             }
             // A dispatch begun at the sampling edge may still be legitimately in
             // flight; terminal-cardinality applies after a bounded grace period.
@@ -356,6 +410,7 @@ object ExecutionSpineAcceptanceWindow6647 {
             completedResult6735 = result
             baseline = end
             maxStartDelayCycles.set(0L)
+            inFlightWaitSinceMs8339.set(0L)  // V5.0.8339
             if (result.passed) {
                 emitResult6735(
                     "EXECUTION_SPINE_ACCEPTANCE_6647_OK",
@@ -414,6 +469,7 @@ object ExecutionSpineAcceptanceWindow6647 {
             emitFailure6689(duration, result.failures, t, windowStartMs = start.atMs)
             baseline = try { capture(nowMs) } catch (_: Throwable) { null }
             maxStartDelayCycles.set(0L)
+            inFlightWaitSinceMs8339.set(0L)  // V5.0.8339
             result
         } finally {
             closing6735.set(false)
