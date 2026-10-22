@@ -5169,7 +5169,7 @@ class BotService : Service() {
         // V5.0.6431 §K — stop the independent reconciler scheduler.
         try { com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.stop() } catch (_: Throwable) {}
         // V5.0.7731 — the forward-label table survives the restart.
-        try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.persistNow7731() } catch (_: Throwable) {}
+        ShutdownFlush8327.bounded8327("FWD_LABELS") { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.persistNow7731() }  // V5.0.8327 — main waits <= 250 ms
         // V5.0.7930 — and the Cortex, playbook, exit and timing books (were lost between periodic saves).
         try { com.lifecyclebot.engine.cortex.Cortex7885.persistNow7930() } catch (_: Throwable) {}
         ErrorLogger.warn("BotService", "onDestroy() called - service being destroyed")
@@ -12517,12 +12517,7 @@ class BotService : Service() {
                                 PipelineHealthCollector.labelInc("PEAK_CAPTURE_EXIT_REQUESTED_7358")
                                 ForensicLogger.lifecycle("PEAK_CAPTURE_EXIT_REQUESTED_7358", "mint=${ts.mint.take(10)} symbol=${ts.symbol} verdict=${peakExit7358.verdict} peak=${"%.1f".format(peakPnlPct)} now=${"%.1f".format(pnlPct)} lane=${ts.position.tradingMode} reason=${peakExit7358.reason}")
                             } catch (_: Throwable) {}
-                            executor.requestSell(
-                                ts = ts,
-                                reason = "${tag7358}_peak${peakPnlPct.toInt()}_now${pnlPct.toInt()}",
-                                wallet = wallet,
-                                walletSol = effectiveBalance
-                            )
+                            requestSellOffLoop7288(ts, "${tag7358}_peak${peakPnlPct.toInt()}_now${pnlPct.toInt()}", wallet, effectiveBalance)  // V5.0.8327
                             TradeStateMachine.startCooldown(ts.mint)
                             continue
                         }
@@ -12546,12 +12541,7 @@ class BotService : Service() {
                             addLog("🛑 PEAK LOCK BREACH: ${ts.symbol} peak +${peakPnlPct.toInt()}% → now ${pnlPct.toInt()}%", ts.mint)
                             try { PipelineHealthCollector.labelInc("RAPID_PEAK_LOCK_BREACH_4301") } catch (_: Throwable) {}
                             try { ForensicLogger.lifecycle("RAPID_PEAK_LOCK_BREACH_4301", "mint=${ts.mint.take(10)} symbol=${ts.symbol} peak=${"%.1f".format(peakPnlPct)} lock=${"%.1f".format(explicitPeakLockFloor4301)} now=${"%.1f".format(pnlPct)} action=force_sell_before_generic_dynamic_stop") } catch (_: Throwable) {}
-                            executor.requestSell(
-                                ts = ts,
-                                reason = "RAPID_PEAK_LOCK_BREACH_4301_peak${peakPnlPct.toInt()}_now${pnlPct.toInt()}",
-                                wallet = wallet,
-                                walletSol = effectiveBalance
-                            )
+                            requestSellOffLoop7288(ts, "RAPID_PEAK_LOCK_BREACH_4301_peak${peakPnlPct.toInt()}_now${pnlPct.toInt()}", wallet, effectiveBalance)  // V5.0.8327
                             TradeStateMachine.startCooldown(ts.mint)
                             continue
                         }
@@ -12584,12 +12574,7 @@ class BotService : Service() {
                             ErrorLogger.warn("BotService", "⚠️ RAPID $stopType STOP: ${ts.symbol} at ${pnlPct.toInt()}% (limit=${dynamicStopPct7696.toInt()}%)")
                             addLog("🛑 RAPID $stopType STOP: ${ts.symbol} ${pnlPct.toInt()}%")
                             
-                            executor.requestSell(
-                                ts = ts,
-                                reason = "RAPID_${stopType}_STOP",
-                                wallet = wallet,
-                                walletSol = effectiveBalance
-                            )
+                            requestSellOffLoop7288(ts, "RAPID_${stopType}_STOP", wallet, effectiveBalance)  // V5.0.8327 — off the sweep: one sell never holds the other positions' stops
                             
                             TradeStateMachine.startCooldown(ts.mint)
                             continue
@@ -34487,7 +34472,9 @@ if (hotExitHandledSweep) {
         val repaired = try {
             com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(ts.mint)
         } catch (_: Throwable) { null }
-        val fanout = try {
+        // V5.0.8327 — a mark from the coin's own chain state (curve account / PumpPortal trade / PumpSwap vault stream)
+        // skips the blocking provider fan-out (up to 4 s before a catastrophe sell); the cached repair read still applies.
+        val fanout = if (StopFeed8327.chainMark8327(src)) null else try {
             com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]
         } catch (_: Throwable) { null }
         val fanoutPx = fanout?.takeIf { !(it.sourceCount >= 2 && !it.corroborated) }?.priceUsd

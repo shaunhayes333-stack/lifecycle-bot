@@ -177,6 +177,7 @@ object EmergencySellRoute8308 {
             val fam = family8308(route)
             val (t2b, b2c) = legs8308(t?.triggerAtMs ?: 0L, createdAtMs, submittedAtMs, nowMs)
             outcomes.computeIfAbsent("$cls|$fam|$state") { AtomicLong(0) }.incrementAndGet()
+            if (state == "CONFIRMED") StopSlip8327.noteConfirmedRoute8327(mint, fam)  // V5.0.8327 — the route of the fill
             if (state == "CONFIRMED") {
                 timing.computeIfAbsent("$cls|$fam|t2b") { Agg8308() }.add(t2b)
                 timing.computeIfAbsent("$cls|$fam|b2c") { Agg8308() }.add(b2c)

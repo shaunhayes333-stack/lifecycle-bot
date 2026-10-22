@@ -69,6 +69,7 @@ object TicketExec8304 {
             if (ticketed8304.putIfAbsent(key, nowMs) == null) book8304(mode, l).tickets.incrementAndGet()
         } else if (ticketed8304.remove(key) != null) {
             book8304(mode, l).exec.incrementAndGet()
+            try { TicketRetry8327.onExec8327(attemptId) } catch (_: Throwable) {}  // V5.0.8327
             try { PipelineHealthCollector.labelInc("TICKET_EXECUTED_8304_$l") } catch (_: Throwable) {}
         } else {
             try { PipelineHealthCollector.labelInc("EXEC_WITHOUT_TRACKED_TICKET_8304_$l") } catch (_: Throwable) {}
@@ -85,6 +86,7 @@ object TicketExec8304 {
         if (b.drops.size > 64) b.drops.clear()
         b.drops.computeIfAbsent(r) { AtomicLong(0L) }.incrementAndGet()
         if (attemptId.isNotBlank() && ticketed8304.remove("$mode|$l|$attemptId") != null) b.dropped.incrementAndGet()
+        if (attemptId.isNotBlank()) try { TicketRetry8327.onTerminal8327(attemptId) } catch (_: Throwable) {}  // V5.0.8327
         try { PipelineHealthCollector.labelInc("TICKET_DROPPED_8304_$l") } catch (_: Throwable) {}
     }
 
@@ -101,6 +103,7 @@ object TicketExec8304 {
     fun line8304(lane: String): String? {
         val b = books8304["${mode8304()}|${lane8304(lane)}"] ?: return null
         return formatLine8304(lane8304(lane), b.tickets.get(), b.exec.get(), b.dropped.get(), b.drops.mapValues { it.value.get() })
+            ?.plus(TicketRetry8327.suffix8327(lane8304(lane)))  // V5.0.8327 — held / retried / expired transient defers
     }
 
     // ── 1. one coin, one owner ──

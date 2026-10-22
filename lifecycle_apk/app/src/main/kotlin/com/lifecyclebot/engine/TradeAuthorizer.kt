@@ -453,6 +453,11 @@ object TradeAuthorizer {
             releasePrimaryAfterAuthFailure(why8304)
             return rejectAuth4424(why8304, BlockLevel.SOFT, canRetry = true, stampCausal7858 = false)
         }
+        // V5.0.8327 — the executor's mint re-entry cooldown is a deterministic read too: refuse before the seal.
+        TicketRetry8327.preSealCooldownRefusal8327(mint, isPaperMode)?.let { why8327 ->
+            releasePrimaryAfterAuthFailure(why8327)
+            return rejectAuth4424(why8327, BlockLevel.SOFT, canRetry = true, stampCausal7858 = false)
+        }
 
         // V5.0.7803 — this is the first cross-lane arbitration boundary.
         // Reaching TradeAuthorizer means this specialist has independently
