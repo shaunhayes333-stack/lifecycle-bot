@@ -20880,6 +20880,8 @@ class Executor(
                     PipelineHealthCollector.labelInc("LIVE_BUY_SUBMITTED")
                 } catch (_: Throwable) {}
             }
+            // V5.0.8329 — the curve mark against the decision price before the PumpPortal send (this route has no quote): a consumed edge is not bought.
+            if (pumpBuyPlan != null) com.lifecyclebot.engine.truth.EntryEconomics8329.markRefusal8329(ts, layerTag, pumpBuyPlan.solAmount)?.let { buyTerminalFail(it); return false }
             val pumpFirstResult: Pair<String, Double>? = if (pumpBuyPlan == null) null else tryPumpPortalBuy(
                 ts = ts,
                 wallet = wallet,
@@ -31127,6 +31129,8 @@ class Executor(
             buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:QUOTE_REJECTED_${qGuard.reason.take(40)}")
             return null
         }
+        // V5.0.8329 — the fresh executable quote against the decision price: a consumed edge is not bought (EntryEconomics8329).
+        com.lifecyclebot.engine.truth.EntryEconomics8329.jupiterQuoteRefusal8329(ts, intent8198.canonicalLane, effectiveSol, jq7325)?.let { buyTerminalFail(it); return null }
 
         // V5.0.4187 — REAL PRICE LOCK on BUY (Fix B1). Operator V5.0.4186
         // dump: bought BCLiquFq, lost -96.1% on the way out. The quote

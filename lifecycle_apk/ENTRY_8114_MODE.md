@@ -38,6 +38,21 @@ These are safety and correctness checks, not selection:
 - **Economics at the owner's 1.5x:** `NetEdge8030.entryRefusal8030` runs inside the 8114 core; `EXECUTION_ECONOMICS_8136`; `ADMISSION_COST_REQUOTE_FAILED_8209`; `NET_EV_NONPOSITIVE_AT_SIZE_8153`; `ROUTE_MIN_PROMOTION_REFUSED_NEGATIVE_EDGE_8188`.
 - If the 8114 verdict cannot be computed, the entry fails closed (`ENTRY8114_EVAL_FAILED_8326`).
 
+### What binds in mode since V5.0.8329 (provable economics, not labels)
+
+8326 ran live in mode: 1W/7L, PF 0.08; MOONSHOT four consecutive losing live closes while "lane realised losing" was bypassed 20 times; decision-to-fill chase MOONSHOT +13.5 % / EXPRESS +10.7 % / CASHGEN +6.1 %; measured round trips 14.8 % / 19.1 % / 8.4 % against a 3.7 % model; 34 promotions of a ~0 Kelly stake to the route minimum. The mode stays ON. These four reads are candidate-specific and provable from the chain or the executable quote, so they now bind inside it (`EntryEconomics8329`):
+
+| Read | Where | Rule | Refusal / count |
+|---|---|---|---|
+| Lane realised losing | `decide8326` → `finalVerdict8326(old, now, realised)` | the lane's OWN live closes, 3+, mean < 0 (`LaneRealisedGovernor8295.tailRefuted8295` on `Cortex7885.laneRealised8295`). Re-opens when its next live close after the shut is a win or the mean of its last 5 closes is ≥ 0; after a re-open it re-arms only on a NEW losing close. | `ENTRY8114_LANE_REALISED_LOSING_BINDS_8329_<lane>`, `ENTRY8114_LANE_REOPENED_8329_<lane>`; report `laneShut8329[lane: since, closes, mean, binds]` |
+| Pre-broadcast re-quote / chase | `Executor.prepareJupiterBuy8090` (the Jupiter quote the buy is built from, after the SecurityGuard quote check, before the swap is built) and `liveBuy` before the PumpPortal send (curve mark; that route has no quote) | move % = quote-implied price vs the admitted decision price (`ForwardReturnLabeler7731.decisionPx8094`, ≤ 10 min old), net of the quote's own impact. Cap by tactic: LAUNCH_EARLY / BASE_BREAKOUT / BREAKOUT 8 %, PULLBACK_RECLAIM / SWEEP_RECLAIM / PULLBACK / REACCUMULATION 2.5 %, MOMENTUM 5 %, else 4 %, an exhausted rally (`chasing8065` at fill) none. The move left (expected gross − move) must still clear 1.5× the round trip at this size (`preTradeCostPct8329`). | `ENTRY_CHASE_CONSUMED_8329_<lane>[_OVER_CAP/_EDGE_CONSUMED/_EXHAUSTED_RALLY]`; a refused forward label under `CHASEMISS_<lane>` grades it against what happened next; `ENTRY_CHASE_REARMED_HL_RECLAIM_8329_<lane>` when a higher-low reclaim re-arms the coin; report `chase8329[lane: checked/consumed/medianMove]`. EntryChase7961's 8-fill learned penalty is unchanged. |
+| Route-minimum promotion reason | `MinPromotion8188.runtimeRefusal8188` (upstream sizers) and `LiveRiskPolicy7807.decide` (last mile), after the 8188/8326 filters | one named reason: the selected setup's own record positive on 12+ labels (`LanePlaybook7907.selectedRecord8153`), an early runner (LAUNCH_EARLY plan inside the launch window; the 8320 curve rule still binds in PreTradeHardGate), or Kelly ≥ 25 % of the minimum. The viable route minimum itself is unchanged. | `ROUTE_MIN_PROMOTION_UNSUPPORTED_8329_<lane>`, `ROUTE_MIN_PROMOTION_REASON_8329_<reason>`; report `promo8329[reason=count]` |
+| Cost truth | `NetEdge8030.preTradeCostPct8329`: `entryRefusal8030` (the 8114 core), both promotion costings, `LiveRiskPolicy7807` cost at size | max(model, the lane's measured round-trip median once 2+ live trips exist — `CostLedger7962.measuredMedianPct8329`). Exits, labels and plan cards keep the 8-trade rule; wins are never capped. | `COST_TRUTH_MEASURED_LIFTS_MODEL_8329_<lane>` |
+
+Still bypassed in mode, per the owner's choice: the label reads (`LIVE_LANE_LABELS_NOT_POSITIVE_8325`, proven-setup-only, cheat-sheet avoid, cell / stage / setup / tactic label records, data defers, selection doors).
+
+The report line now ends `… shadow8114[…] chase8329[…] promo8329[…] laneShut8329[…]]`. Tests: `Aate8329EntryEconomicsTest`.
+
 ## Entry gate inventory (live meme buy, today)
 
 Classes:

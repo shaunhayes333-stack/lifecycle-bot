@@ -112,7 +112,9 @@ object Entry8114Mode8326 {
         val old = try { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } } catch (_: Throwable) {
             Entry8114Gate8326.Verdict8326(EVAL_FAILED_8326, LiveEdgeGate7877.Verdict8083.REFUSE, null)
         }
-        val final = finalVerdict8326(old.reason, now)
+        // V5.0.8329 — the lane's OWN live closes (3+, mean < 0) are realised money, not a label: they bind in mode.
+        val realised = try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { null }
+        val final = finalVerdict8326(old.reason, now, realised)
         if (now != null && final == null) noteBypass8326(gateKey8326(now), l)
         if (old.reason != null && final == now && now != null && now != old.reason) try { PipelineHealthCollector.labelInc("ENTRY8114_CURRENT_HARD_REFUSAL_BINDS_8326_$l") } catch (_: Throwable) {}
         fileFinal8326(ts, l, old, final, nowMs)
@@ -120,9 +122,12 @@ object Entry8114Mode8326 {
         return final
     }
 
-    /** Pure: the 8114 verdict [old] decides, unless the current verdict [now] is a hard-safety / economic refusal. */
-    fun finalVerdict8326(old: String?, now: String?): String? =
-        if (now != null && hardSafety8326(now)) now else old
+    /**
+     * Pure: the 8114 verdict [old] decides, unless the current verdict [now] is a hard-safety / economic refusal, or
+     * (V5.0.8329) the lane's realised closes refuse ([realised]: EntryEconomics8329.laneRealisedRefusal8329 — provable, not a label).
+     */
+    fun finalVerdict8326(old: String?, now: String?, realised: String? = null): String? =
+        if (now != null && hardSafety8326(now)) now else (realised ?: old)
 
     private fun fileFinal8326(ts: TokenState, lane: String, old: Entry8114Gate8326.Verdict8326, final: String?, nowMs: Long) {
         try {
@@ -266,5 +271,6 @@ object Entry8114Mode8326 {
             bypassed8326.entries.sortedByDescending { it.value.get() }.take(12).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
             " fdg=" + fdgNotes8326.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
             " " + (try { sizeLine8326() } catch (_: Throwable) { "size8114[-]" }) +
-            " " + (try { Entry8114Shadow8326.statusLine8326() } catch (_: Throwable) { "shadow[-]" }) + "]"
+            " " + (try { Entry8114Shadow8326.statusLine8326() } catch (_: Throwable) { "shadow[-]" }) +
+            " " + (try { EntryEconomics8329.statusLine8329() } catch (_: Throwable) { "chase8329[-] promo8329[-] laneShut8329[-]" }) + "]"  // V5.0.8329
 }

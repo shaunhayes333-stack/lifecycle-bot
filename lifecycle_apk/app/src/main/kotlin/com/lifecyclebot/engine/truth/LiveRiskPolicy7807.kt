@@ -554,6 +554,8 @@ object LiveRiskPolicy7807 {
         val admissionProven8319: Boolean = false,
         /** V5.0.8326 — Entry8114Mode8326 admitted this candidate (8114 decision): route-minimum promotion as at 8114. */
         val entry8114Admitted8326: Boolean = false,
+        /** V5.0.8329 — the candidate's mint (EntryEconomics8329.promotionReasonRefusal8329 reads its setup record / plan); "" for pure callers. */
+        val mint8329: String = "",
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -768,6 +770,11 @@ object LiveRiskPolicy7807 {
                         if (named != refusal) labels += "FIXED_COST_FLOOR_EXCEEDS_LOSS_BUDGET_8269"
                         return Decision(false, 0.0, named, labels, stop, minCost7840, total, sizing8094)
                     }
+                // V5.0.8329 — the promotion needs one named candidate-level reason (setup record positive on 12+ labels, early
+                // runner, Kelly >= 25 % of the minimum); binds in 8114 mode too.
+                EntryEconomics8329.promotionReasonRefusal8329(i.mint8329, i.lane, size, executableFloor8269)?.let {
+                    return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094)
+                }
                 val fixedFloorLift8269 = raisedForFixedCost8269
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
                 if (i.admissionProven8319) labels += "ADMITTED_MIN_PROMOTED_8319"
@@ -954,7 +961,7 @@ object LiveRiskPolicy7807 {
         if (proofGross8232 != null) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SIZING_GROSS_FROM_ADMISSION_PROOF_8232") } catch (_: Throwable) {}
         val gross8153 = proofGross8232 ?: ts8153?.let { setupExpectedGrossPct8153(it, effectiveLane7811, rec8153) } ?: Double.NaN
         val mcap8153 = ts8153?.lastMcap ?: 0.0
-        val cost8153: (Double) -> Double = { s -> NetEdge8030.costPct8030(effectiveLane7811, s, liquidityUsd, mint, mcap8153) }
+        val cost8153: (Double) -> Double = { s -> NetEdge8030.preTradeCostPct8329(effectiveLane7811, s, liquidityUsd, mint, mcap8153) }  // V5.0.8329 — measured lane median lifts the model
         return Inputs(
             lane = effectiveLane7811,
             equitySol = equity,
@@ -993,6 +1000,7 @@ object LiveRiskPolicy7807 {
             recentLive8296 = try { LiveConfidence8296.recentFor8296(effectiveLane7811) } catch (_: Throwable) { null },
             admissionProven8319 = proofGross8232 != null,
             entry8114Admitted8326 = try { Entry8114Mode8326.admittedNow8326(mint, effectiveLane7811) } catch (_: Throwable) { false },
+            mint8329 = mint,  // V5.0.8329
         )
     }
 

@@ -113,6 +113,20 @@ object CostLedger7962 {
         return median7962(use.map { it[0] }).takeIf { it.isFinite() }?.coerceAtLeast(0.0)
     }
 
+    /** Pure (V5.0.8329): the median measured round trip of [rows] once [minN]+ live trips exist, else null (never negative). */
+    fun measuredMedianFrom8329(rows: List<DoubleArray>, minN: Int): Double? =
+        if (rows.size < minN || minN < 1) null else median7962(rows.map { it[0] }).takeIf { it.isFinite() }?.coerceAtLeast(0.0)
+
+    /**
+     * V5.0.8329 §COST_TRUTH — the lane's measured round-trip median (%) once [minN] (default 2) live trips exist, size-blind.
+     * NetEdge8030.preTradeCostPct8329 takes the larger of this and the model so a lane measured at 14.8 % is not sized on a
+     * 3.7 % model. Labels, plan cards and exits keep [measuredCostPct7962]'s 8-trade rule.
+     */
+    fun measuredMedianPct8329(laneRaw: String?, minN: Int = 2): Double? {
+        ensureLoaded()
+        return measuredMedianFrom8329(rowsOf(lane(laneRaw)), minN)
+    }
+
     /** Pure: refuse when the measured cost exceeds the expected gross move (never on an unmeasured cost). */
     /**
      * Pure (8094 entry repair): before [MIN_LIVE_N], the CHEAPEST of [EARLY_LIVE_N]+ measured round trips. 8094 measured
