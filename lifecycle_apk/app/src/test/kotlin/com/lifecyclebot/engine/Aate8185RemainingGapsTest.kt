@@ -114,7 +114,8 @@ class Aate8185RemainingGapsTest {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(f.contains("RobustLabelRead8185.read8185(key, n, sum, sumSq, wins)"))
         // superseded by V5.0.8322: the fresh read goes through tailRead8322 (8185 robust read unless the tail is real).
-        assertTrue(f.contains("tailRead8322(key, n, t.sum60, t.sumSq60, t.win60, t.runner60)"))
+        // superseded by V5.0.8324: the local tail is judged on its local sum and chain-witness count.
+        assertTrue(f.contains("tailRead8322(key, n, t.sum60, t.sumSq60, t.win60, t.runner60, t.sum60, t.witness60)"))
         assertTrue(f.contains("suspectReads=\${RobustLabelRead8185.suspectReads8185()}"))
     }
 

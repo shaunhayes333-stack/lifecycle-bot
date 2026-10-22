@@ -182,7 +182,8 @@ class Aate8169ExitsTest {
         assertTrue(adm.contains("ForwardReturnLabeler7731.freshCellStatFor8169(ts, lane, nowMs)"))
         assertTrue(adm.contains("ForwardReturnLabeler7731.freshStageStatFor8169(fit.lane, fit.stage.name)"))
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(lab.contains("if (horizon == 60) bookFresh8169(o, keys, net, gross)"))
+        // superseded by V5.0.8324: the fresh tally also counts chain-witnessed runners.
+        assertTrue(lab.contains("if (horizon == 60) bookFresh8169(o, keys, net, gross, witnessed8324)"))
         assertTrue(lab.contains("ExitDoctrine8169.noteGraded8169(o.lane, stop8029, o.peakPct, dipFirst8029)"))
         assertTrue(src("engine/truth/LearningResetSweep7781.kt").contains("\"stop_learner_8042.txt\""))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("Exit doctrine (§8169): "))
