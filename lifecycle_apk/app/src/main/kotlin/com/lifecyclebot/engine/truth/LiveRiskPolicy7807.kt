@@ -547,6 +547,8 @@ object LiveRiskPolicy7807 {
         val fixedRoundTripSol8169: Double = Double.NaN,
         /** V5.0.8296 — the lane's last verified live closes (LiveConfidence8296); null = not measured (pure callers). */
         val recentLive8296: LiveConfidence8296.Recent8296? = null,
+        /** V5.0.8319 — this candidate holds the current generation's admission proof (AdmissionEdge8180.proof8198). */
+        val admissionProven8319: Boolean = false,
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -742,9 +744,11 @@ object LiveRiskPolicy7807 {
                 // V5.0.8236 — ONE loss budget with the upstream sizers: the account's per-position doctrine (safe share cap)
                 // when it exceeds the sub-minimum risk size (MinPromotion8188.doctrineBudgetSol8236), not the lane ticket alone.
                 MinPromotion8188.refusal8188(size, executableFloor8269, stop, if (size > 0.0) costAtSizePct8153(i, size) else Double.NaN,
-                    minCost7840, i.setupExpectedGrossPct8153, i.drawdownFrac,
+                    // V5.0.8319 — an ADMITTED candidate is not refused for drawdown or a busy exploration slot; the loss budget,
+                    // the 8153 envelope and NEGATIVE_EDGE on the admission's own gross (8232) at the promoted size still bind.
+                    minCost7840, i.setupExpectedGrossPct8153, if (i.admissionProven8319) 0.0 else i.drawdownFrac,
                     MinPromotion8188.doctrineBudgetSol8236(size, tradeable8153, i.solUsd),
-                    explorationSlotFree = try { LaneScoreAdmission7308.runnerSlotFreeNow(i.lane) } catch (_: Throwable) { false })
+                    explorationSlotFree = i.admissionProven8319 || (try { LaneScoreAdmission7308.runnerSlotFreeNow(i.lane) } catch (_: Throwable) { false }))
                     ?.let { refusal ->
                         // An order whose FIXED fees require a larger ticket is
                         // still rejected when the loss budget cannot fund it.
@@ -758,6 +762,7 @@ object LiveRiskPolicy7807 {
                     }
                 val fixedFloorLift8269 = raisedForFixedCost8269
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
+                if (i.admissionProven8319) labels += "ADMITTED_MIN_PROMOTED_8319"
                 if (fixedFloorLift8269) labels += "FIXED_COST_FLOOR_PROMOTED_8269"
                 fixedCostRefusal8169(i, executableFloor8269)?.let { return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094) }
                 if (fixedFloorLift8269) try { PipelineHealthCollector.labelInc("FIXED_COST_FLOOR_PROMOTED_8269") } catch (_: Throwable) {}
@@ -977,6 +982,7 @@ object LiveRiskPolicy7807 {
             markPriceUsd8153 = ts8153?.lastPrice?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
             fixedRoundTripSol8169 = try { com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() } catch (_: Throwable) { Double.NaN },
             recentLive8296 = try { LiveConfidence8296.recentFor8296(effectiveLane7811) } catch (_: Throwable) { null },
+            admissionProven8319 = proofGross8232 != null,
         )
     }
 
