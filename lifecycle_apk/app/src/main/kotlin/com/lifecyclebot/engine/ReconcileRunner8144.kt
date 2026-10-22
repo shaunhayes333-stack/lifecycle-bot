@@ -49,10 +49,14 @@ object ReconcileRunner8144 {
 
     /** WalletReconciler: the wallet token snapshot it just read (and whether both token programs answered). */
     fun noteWalletSnapshot8144(walletMints: Map<String, CanonicalTokenAmount>) {
-        if (walletMints.isEmpty()) return
+        // V5.0.8304 — an EMPTY read is kept only when the wallet cache proves THIS read complete (both token programs,
+        // same owner, fresh): a wallet whose bot tokens were all sold holds nothing, and dropping that read left fully
+        // sold LIVE_FINALIZED lots CHAIN_UNREAD / fundedQuarantined forever (8302: FIRSTJET, CC). A failed read is still nothing.
+        val provenEmpty8304 = walletMints.isEmpty() && TicketExec8304.completeEmptyWalletRead8304(walletMints)
+        if (walletMints.isEmpty() && !provenEmpty8304) return
         walletSnap8144 = walletMints
         walletSnapAtMs8144 = System.currentTimeMillis()
-        walletSnapComplete8144 = try { !com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { false }
+        walletSnapComplete8144 = provenEmpty8304 || try { !com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { false }
     }
 
     fun ensureStarted8144() {

@@ -1070,6 +1070,7 @@ object ToolkitSignalSheet {
             return
         }
         deskStageCounts6599.computeIfAbsent("$l|$st") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        try { TicketExec8304.onStage8304(l, st, eventId) } catch (_: Throwable) {}  // V5.0.8304 — ticket -> exec conversion
         // V5.0.8144 — a rescue's sealed TICKET / confirmed EXEC lands in its election funnel (EXECUTED / CONFIRMED).
         if (st == "TICKET" || st == "EXEC") try { SpecialistElection8136.noteExecutionStage8144(l, st, eventId) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.SpecialistRuntimeRegistry6647.offer(l, st, eventId) } catch (_: Throwable) {}
@@ -1613,6 +1614,7 @@ object ToolkitSignalSheet {
             ?: attemptTicketLineage7809(attemptId)?.mode
         if (nameRefusal) recordPreSizeRefusal7809(l, reason, eventMode8198)
         recordDeskStage(l, "EXEC_REFUSED", attemptId)
+        try { TicketExec8304.onDrop8304(l, attemptId, reason) } catch (_: Throwable) {}  // V5.0.8304
         try { PipelineHealthCollector.labelInc("TICKET_UNEXECUTED_TERMINALIZED_7948_$l") } catch (_: Throwable) {}
         return true
     }
@@ -1691,6 +1693,7 @@ object ToolkitSignalSheet {
             // V5.0.7868 — a ticket that does not execute ends in ONE named terminal
             // (EXEC_REFUSED on the same attempt); ticket - exec - execRefused = in flight.
             deskCount6599(lane, "EXEC_REFUSED").takeIf { it > 0L }?.let { appendLine("$lane execRefused7868=$it") }
+            TicketExec8304.line8304(lane)?.let { appendLine(it) }  // V5.0.8304 — ticket -> exec per lane, every drop named
             val raw7214 = s.rawCounts7086
             fun rawOf7214(stage: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage) =
                 raw7214[stage] ?: 0

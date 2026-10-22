@@ -92,6 +92,7 @@ object WalletReconciler {
         if (walletMints.isEmpty()) {
             // A failed/partial read still proves nothing. Two distinct complete
             // observations can retire protective inventory even when truly empty.
+            try { ReconcileRunner8144.noteWalletSnapshot8144(walletMints) } catch (_: Throwable) {}  // V5.0.8304 — proven-complete only
             return try { LiveCanonicalRecovery6686.retireProtectiveQuarantinesOnWalletZero7807(walletMints) }
                 catch (_: Throwable) { 0 }
         }

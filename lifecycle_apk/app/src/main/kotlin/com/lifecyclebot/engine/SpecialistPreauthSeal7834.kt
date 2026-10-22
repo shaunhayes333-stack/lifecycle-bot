@@ -57,7 +57,7 @@ internal object SpecialistPreauthSeal7834 {
         // goes through the seal, which revokes the same-version ticket.
         if (ts.safety.hardBlockReasons.isEmpty()) ExecutableOpenGate.reuseSealedIntent7871(
             if (paper) "PAPER" else "LIVE", ts.mint, decision.candidateVersion7835, canonicalLane, size,
-        )?.let { return it }
+        )?.let { return it.also { TicketExec8304.ensureCausalStamp8304(it, decision.effectiveEntryScore7687) } }  // V5.0.8304
         fun sealOnce7840(): ExecutableOpenGate.ExecutionIntent? =
             ExecutableOpenGate.recordFdgAndGetIntent6533(
                 mint = ts.mint, symbol = ts.symbol, lane = canonicalLane,
@@ -83,7 +83,7 @@ internal object SpecialistPreauthSeal7834 {
             }
 
         val first7840 = sealOnce7840()
-        if (first7840 != null) return first7840
+        if (first7840 != null) return first7840.also { TicketExec8304.ensureCausalStamp8304(it, decision.effectiveEntryScore7687) }  // V5.0.8304
 
         // V5.0.7840 — a same-decision retry closes the measured seal race
         // without borrowing another lane/version and without fabricating an
@@ -104,6 +104,7 @@ internal object SpecialistPreauthSeal7834 {
                 else "SPECIALIST_FDG_SEAL_RETRY_FAILED_7840"
             )
         } catch (_: Throwable) {}
+        retry7840?.let { TicketExec8304.ensureCausalStamp8304(it, decision.effectiveEntryScore7687) }  // V5.0.8304
         return retry7840
     }
 

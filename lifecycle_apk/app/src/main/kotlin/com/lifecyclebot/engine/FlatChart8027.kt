@@ -80,6 +80,23 @@ object FlatChart8027 {
         return why
     }
 
+    /**
+     * V5.0.8304 — the same DEAD_RUNNER / FLATLINE verdict as [refusal8027], pure (no counters, no log), so TradeAuthorizer
+     * can refuse a dead or flat chart before it seals a ticket the executor would refuse a moment later.
+     */
+    fun preSealRefusal8304(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
+        val now = ts.lastPrice
+        if (!(now > 0.0)) return null
+        val bars = try { synchronized(ts.history) { ts.history.filter { !it.synthetic }.toList() } } catch (_: Throwable) { return null }
+        if (bars.isEmpty()) return null
+        val peak = bars.map { maxOf(it.highUsd, it.priceUsd) }.sortedDescending().let { if (it.size >= 2) it[1] else it[0] }
+        return when {
+            deadRunner8027(peak, now) -> "DEAD_RUNNER_8027"
+            flatCandles8076(bars, now, nowMs) -> "FLATLINE_8027"
+            else -> null
+        }
+    }
+
     // ── V5.0.8036 — fake charts ──
     private const val CLIMB_WINDOW_MS_8036 = 60L * 60_000L
     const val CLIMB_MIN_BARS_8036 = 20

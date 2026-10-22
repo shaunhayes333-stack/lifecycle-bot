@@ -18074,6 +18074,7 @@ class Executor(
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "💩 [SHITCOIN] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
+                unexecutedTicket7948(executionLane, preflight.attemptId, "LIVE_BUY_NO_WALLET_7948")  // V5.0.8304
                 return false
             }
             val liveOpened = liveBuy(
@@ -18089,11 +18090,13 @@ class Executor(
                 layerTagEmoji = if (executionLane == "SHITCOIN") "💩" else "🎯",
                 finalityPrechecked = true, attemptId = preflight.attemptId,
             )
-            if (!liveOpened) return false
+            // V5.0.8304 — a sealed SHITCOIN/EXPRESS/MANIPULATED/SNIPER ticket that does not open ends by name (8302: 13 -> 0, no terminal).
+            if (!liveOpened) { unexecutedTicket7948(executionLane, preflight.attemptId, namedUnexecuted8252(ts.mint, "LIVE_BUY_NOT_OPENED_7948")); return false }
         }
         val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
         if (!buyOpened) {
             ErrorLogger.warn("Executor", "💩 [SHITCOIN] ${ts.symbol} | BUY_NOT_OPENED | attemptId=${preflight.attemptId} | finality/route blocked")
+            if (!isPaper) unexecutedTicket7948(executionLane, preflight.attemptId, "BUY_NOT_OPENED_7948")  // V5.0.8304
             return false
         }
         
@@ -18162,17 +18165,19 @@ class Executor(
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "🚀 [MOONSHOT] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
+                unexecutedTicket7948("MOONSHOT", preflight.attemptId, "LIVE_BUY_NO_WALLET_7948")  // V5.0.8304
                 return false
             }
             val liveOpened = liveBuy(ts = ts, sol = sizeSol, score = score, wallet = wallet,
                 walletSol = walletSol, identity = identity, quality = spaceModeName, skipGraduated = true,
                 layerTag = "MOONSHOT", layerTagEmoji = spaceModeEmoji.ifBlank { "🚀" },
                 finalityPrechecked = true, attemptId = preflight.attemptId)  // V5.9.386
-            if (!liveOpened) return false
+            if (!liveOpened) { unexecutedTicket7948("MOONSHOT", preflight.attemptId, namedUnexecuted8252(ts.mint, "LIVE_BUY_NOT_OPENED_7948")); return false }  // V5.0.8304
         }
         val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
         if (!buyOpened) {
             ErrorLogger.warn("Executor", "🚀 [MOONSHOT] ${ts.symbol} | BUY_NOT_OPENED | attemptId=${preflight.attemptId} | finality/route blocked")
+            if (!isPaper) unexecutedTicket7948("MOONSHOT", preflight.attemptId, "BUY_NOT_OPENED_7948")  // V5.0.8304
             return false
         }
 

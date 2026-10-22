@@ -125,7 +125,7 @@ object CanonicalSizingBridge6532 {
         // correctly); when none does, no stage stamp is emitted regardless of
         // what the caller claimed. Telemetry only — sizing resolves exactly as
         // before and no lane, trader or probe is disabled.
-        val intentOwnedCausalId6893 = if (
+        val activeIntent8304 = if (
             assetClass == AssetClass.SOLANA_TOKEN &&
             canonicalAssetId.isNotBlank() &&
             resolvedCandidateVersion6620 > 0L
@@ -134,11 +134,13 @@ object CanonicalSizingBridge6532 {
             try {
                 com.lifecyclebot.engine.ExecutableOpenGate
                     .activeExecutionIntent6519(mode6674, canonicalAssetId, resolvedCandidateVersion6620)
-                    ?.attemptId
-                    ?.takeIf { it.isNotBlank() }
-                    .orEmpty()
-            } catch (_: Throwable) { "" }
-        } else ""
+            } catch (_: Throwable) { null }
+        } else null
+        // V5.0.8304 — a SEALED ticket (positive FDG size) is not this advisory re-size's record: 8302 counted SHITCOIN's
+        // pre-FDG ROUTE_MIN_PROMOTION refusals (22) as post-seal sizing drops of tickets they never touched.
+        val sealedTicket8304 = activeIntent8304?.takeIf { it.resolvedSize.isFinite() && it.resolvedSize > 0.0 }
+        val intentOwnedCausalId6893 = if (sealedTicket8304 != null) "" else
+            activeIntent8304?.attemptId?.takeIf { it.isNotBlank() }.orEmpty()
         val resolvedCausalEventId6674 = intentOwnedCausalId6893
         if (causalEventId.isNotBlank() && intentOwnedCausalId6893.isBlank()) {
             try {
@@ -216,6 +218,8 @@ object CanonicalSizingBridge6532 {
             // min-promotion refusal therefore never fired once.
             mint = canonicalAssetId,
         )
+        if (sealedTicket8304 != null) com.lifecyclebot.engine.TicketExec8304.advisorySizeOnSealedTicket8304(
+            laneName, sealedTicket8304.canonicalLane, res.executable, res.reason)
         // V5.0.7925 — FinalDecisionGate re-resolves this proposal; it must not shape it twice.
         if (canonicalAssetId.isNotBlank()) noteShaped7925(canonicalAssetId)
         // V5.0.7458 — bind the specialist capital proposal to the same

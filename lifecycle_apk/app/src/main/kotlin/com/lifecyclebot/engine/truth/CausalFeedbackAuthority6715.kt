@@ -142,6 +142,9 @@ object CausalFeedbackAuthority6715 {
         }
     }
 
+    /** V5.0.8304 — does [attemptId] carry a decision stamp (read-only). */
+    fun hasStamp8304(attemptId: String): Boolean = synchronized(lock) { ticketStamps.containsKey(attemptId) }
+
     /** Preserve the original decision epoch when an immutable ticket id is re-keyed. */
     fun transferStamp(oldAttemptId: String, newAttemptId: String) {
         if (oldAttemptId.isBlank() || newAttemptId.isBlank() || oldAttemptId == newAttemptId) return

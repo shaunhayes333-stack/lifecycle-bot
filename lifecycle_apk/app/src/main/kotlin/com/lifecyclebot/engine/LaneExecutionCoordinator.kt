@@ -559,12 +559,17 @@ object LaneExecutionCoordinator {
 
     private fun sealedFdgOwnerLane6679(mint: String, candidateVersion: Long): String? = try {
         val mode6679 = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
-        com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
-            .currentForMint(mint, candidateVersion, mode6679)
-            ?.executionLane
-            ?.trim()
-            ?.uppercase()
-            ?.takeIf { laneCanOwnExecution6910(it) }
+        // V5.0.8304 — the lane holding the version's ONE live sealed intent owns it; the newest FDG snapshot of any lane
+        // (another lane's earlier allow) no longer refuses the ticket just sealed (PREAUTH_LANE_TELEMETRY_ONLY_PRIMARY_*).
+        TicketExec8304.sealedOwner8304(
+            TicketExec8304.liveIntentLane8304(mint, candidateVersion)?.takeIf { laneCanOwnExecution6910(it) },
+            com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
+                .currentForMint(mint, candidateVersion, mode6679)
+                ?.executionLane
+                ?.trim()
+                ?.uppercase()
+                ?.takeIf { laneCanOwnExecution6910(it) },
+        )
     } catch (_: Throwable) { null }
 
     /**

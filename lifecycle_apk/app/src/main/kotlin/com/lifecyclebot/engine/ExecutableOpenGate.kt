@@ -618,6 +618,7 @@ object ExecutableOpenGate {
 
     private fun retireSupersededIntent7819(old: ExecutionIntent, owner: ExecutionIntent) {
         executionTickets.remove(old.attemptId, old)
+        TicketExec8304.onSupersededTicket8304(old.canonicalLane, old.attemptId, owner.canonicalLane)  // V5.0.8304 — ends by name
         try {
             PipelineHealthCollector.labelInc("SPECIALIST_INTENT_RESEALED_TO_PRIMARY_7819")
             PipelineHealthCollector.labelInc("SPECIALIST_INTENT_RESEALED_TO_PRIMARY_7819_" + canonicalLane(owner.canonicalLane))
