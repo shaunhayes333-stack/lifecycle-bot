@@ -38,10 +38,14 @@ class Aate8325FavourTest {
         val bbf = Record8323("BASE_BREAKOUT_FLOW", 0.5, 20.0, 0.9, 2.0, localN = 20.0, localMeanPct = 0.9, localSePct = 2.0)
         for (prev in Verdict8323.values()) {
             for (r in listOf(crowd, rs, ign, bbf)) {
+                // superseded by V5.0.8329 — a thin positive record never EARNS favour; from FAVOUR it may hold while its mean
+                // beats prior + cost (the 8323 no-flap pin). Losing live closes drop it from any previous verdict.
+                if (prev == Verdict8323.FAVOUR && r.liveN < 1.0) continue
                 assertNotEquals("${r.setup} from $prev", Verdict8323.FAVOUR, LaneCheatSheet8323.judge8323(r, prev))
                 assertFalse(LaneCheatSheet8323.localFavour8325(r))
             }
         }
+        assertFalse(LaneCheatSheet8323.localFavour8325(ign)); assertFalse(LaneCheatSheet8323.localFavour8325(bbf))
         // every lane's sheet applies the same rule (the sheet is lane-generic)
         for (lane in LaneCheatSheet8323.LANES_8323) {
             val id = "TEST_FAVOUR_8325_$lane"
@@ -55,7 +59,7 @@ class Aate8325FavourTest {
         assertNotEquals(Verdict8323.FAVOUR, LaneCheatSheet8323.judge8323(hiveHeavy("H", 5.0, 12.0, 4.0), Verdict8323.NEUTRAL))
         assertNotEquals(Verdict8323.FAVOUR, LaneCheatSheet8323.judge8323(hiveHeavy("H", 19.0, 30.0, 3.0), Verdict8323.NEUTRAL))
         assertNotEquals(Verdict8323.FAVOUR, LaneCheatSheet8323.judge8323(hiveHeavy("H", 60.0, -4.0, 1.0), Verdict8323.NEUTRAL))
-        // no keep-favour hysteresis (V5.0.8328): a record under cost is not favoured whatever the previous verdict
+        // the hold keeps favour only on the LOCAL record with a mean above prior + cost (V5.0.8329)
         assertNotEquals(Verdict8323.FAVOUR, LaneCheatSheet8323.judge8323(hiveHeavy("H", 60.0, -0.5, 1.0), Verdict8323.FAVOUR))
         // the local record earns it: 20+ labels, mean - SE above max(prior, 0) + cost, live not losing
         val good = hiveHeavy("H", 40.0, 9.0, 2.0)
