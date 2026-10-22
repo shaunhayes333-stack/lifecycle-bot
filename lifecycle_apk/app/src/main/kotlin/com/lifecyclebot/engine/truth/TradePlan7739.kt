@@ -409,7 +409,9 @@ object TradePlan7739 {
         // the FDG path enforces. The same edge verdict now answers here; a chart BUY it admits is planned as before.
         if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) {
             // V5.0.8326 — Entry8114Mode8326: at 8114 a chart BUY was planned at once (the edge gate already decided it).
-            if (Entry8114Mode8326.liveActive8326(lane, paper)) return null
+            // V5.0.8337 (FIX 8) — superseded by V5.0.8337: the executor chokepoint (sniper / native paths) asks only this function,
+            // so in 8114 mode a chart BUY here goes through the 8114 decision (LiveEdgeGate7877.liveRefusal routes to it).
+            if (Entry8114Mode8326.liveActive8326(lane, paper)) return LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)
             return chartPlanRefusal8136(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)
         }
         // V5.0.7878 — a runner lane is judged per cohort by the edge gate below,

@@ -882,8 +882,8 @@ object LiveEdgeGate7877 {
     private const val EARLY_RUNUP_MAX_PCT_8117 = 150.0
     private const val EARLY_CHG5M_MAX_PCT_8117 = 100.0
 
-    /** Pure (V5.0.8117): is a forming run still early enough to buy (not at its peak)? */
-    fun earlyRun8117(runupFromLowPct: Double, chg5mPct: Double): Boolean =
+    /** Pure (V5.0.8117): is a forming run still early enough to buy (not at its peak)? V5.0.8337 — internal: Entry8114Gate8326 reads it. */
+    internal fun earlyRun8117(runupFromLowPct: Double, chg5mPct: Double): Boolean =
         runupFromLowPct.isFinite() && runupFromLowPct < EARLY_RUNUP_MAX_PCT_8117 &&
             (!chg5mPct.isFinite() || chg5mPct < EARLY_CHG5M_MAX_PCT_8117)
 

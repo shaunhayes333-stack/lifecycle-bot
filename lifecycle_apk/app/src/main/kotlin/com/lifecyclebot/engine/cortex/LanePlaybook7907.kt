@@ -735,8 +735,10 @@ object LanePlaybook7907 {
      * realised closes where they contradict it (Cortex7885.executableCopy8187). [statRaw8187] is the stored record (display).
      */
     private fun stat(lane: String, setup: String): CortexLedger7885.Stat? {
+        // V5.0.8337 (FIX 7b) — the 8114 read is the 8114 record: local + the hive at full weight, uncapped (superseded by
+        // V5.0.8337 — 8326 returned the 8187-capped, 8291 hive-limited record, so inLegacy8326 never read 8114's evidence).
+        if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return legacyStat8326(lane, setup)
         val raw = statRaw8187(lane, setup) ?: return null
-        if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return raw  // V5.0.8326 — the 8114 read: the stored record (no 8187 offset, no 8295 governor)
         val rr = try { Cortex7885.setupRealised8187(lane, setup) } catch (_: Throwable) { null }
         // V5.0.8295 — losing realised closes are applied by LaneRealisedGovernor8295 (from the first close, with the lane's own
         // bank); the 8187 blend keeps only its other direction here so a losing close is never counted twice.
@@ -769,6 +771,31 @@ object LanePlaybook7907 {
         (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }) &&
             (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326() ||  // V5.0.8326 — 8114: a runner lane keeps its tail exemption
                 !LaneRealisedGovernor8295.tailRefuted8295(try { laneRealised8295(lane) } catch (_: Throwable) { null }))
+
+    /**
+     * V5.0.8337 (FIX 7b) — the 8114 Stat of ([lane], [setup]) (379ad2fa0 LanePlaybook7907.stat): the local record plus the
+     * hive's labels at FULL weight (up to the 1,000 HiveEdge8000.net8000 lends; no 8291 10–60 limit), on an uncapped Stat
+     * (cap8187 = +inf: Stat.mean() is sum / n — no 8187 +1000% plausibility cap, no executable offset, no 8295 governor).
+     */
+    private fun legacyStat8326(lane: String, setup: String): CortexLedger7885.Stat? {
+        val local = books[lane]?.stats?.get(setup)?.takeIf { it.n == 0.0 ||
+            LaneEvidence8077.coherent(it.n, it.sum, it.sumSq, it.wins, it.runners) }
+        val hive = (try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000("PB|$lane|$setup") } catch (_: Throwable) { null })
+            ?.takeIf { CortexLedger7885.validHiveBin8076(it) }
+        if (local == null && hive == null) return null
+        return uncappedStat8337(local, hive)
+    }
+
+    /** Pure (V5.0.8337): [local] plus every hive label in [hive] ([n, sum, sumSq, wins, runners]) on an uncapped Stat. */
+    internal fun uncappedStat8337(local: CortexLedger7885.Stat?, hive: DoubleArray?): CortexLedger7885.Stat {
+        val c = CortexLedger7885.Stat(Double.POSITIVE_INFINITY)
+        if (local != null) {
+            c.n = local.n; c.sum = local.sum; c.sumSq = local.sumSq; c.runners = local.runners; c.wins = local.wins
+            c.witnessed8324 = local.witnessed8324; c.logScale = local.logScale
+        }
+        if (hive != null && hive.size >= 5) { c.n += hive[0]; c.sum += hive[1]; c.sumSq += hive[2]; c.wins += hive[3]; c.runners += hive[4] }
+        return c
+    }
 
     private fun statRaw8187(lane: String, setup: String): CortexLedger7885.Stat? {
         val local = books[lane]?.stats?.get(setup)?.takeIf { it.n == 0.0 ||
