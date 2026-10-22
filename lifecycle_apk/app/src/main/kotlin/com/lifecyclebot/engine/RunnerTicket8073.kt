@@ -38,6 +38,7 @@ object RunnerTicket8073 {
     internal val confirmed8092 = AtomicLong(0)
     private val refusedBudget = AtomicLong(0)
     private val refusedKind = AtomicLong(0)
+    private val refusedRecord8310 = AtomicLong(0)
     private val paid = AtomicLong(0)
     private val died = AtomicLong(0)
 
@@ -70,6 +71,8 @@ object RunnerTicket8073 {
         val equity = try { com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(walletSol) } catch (_: Throwable) { walletSol }
         val ticketSol = try { com.lifecyclebot.engine.truth.NetEdge8030.DEFAULT_TICKET_SOL } catch (_: Throwable) { 0.03 }
         if (!fits8073(openTicketSol(), ticketSol, equity)) { refusedBudget.incrementAndGet(); return false }
+        // V5.0.8310 — the ticket door reads its own verified live record (SelectionDoors8310 D1): suspended while it loses.
+        if (!com.lifecyclebot.engine.truth.SelectionDoors8310.ticketMayIssue8310(nowMs)) { refusedRecord8310.incrementAndGet(); return false }
         tickets[ts.mint] = nowMs
         lastIssuedMs = nowMs
         issued.incrementAndGet()
@@ -117,18 +120,20 @@ object RunnerTicket8073 {
         subscribed = true
         try {
             com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.subscribe { e ->
-                if (e.mode.equals("live", true)) onClose8073(e.mint, e.netRealizedPnlSol)
+                if (e.mode.equals("live", true) && onClose8073(e.mint, e.netRealizedPnlSol))
+                    com.lifecyclebot.engine.truth.SelectionDoors8310.noteTicketClose8310(e.positionId, e.mode, e.economicFinality, e.netRealizedPnlSol, e.settledAtMs)  // V5.0.8310
             }
         } catch (_: Throwable) { subscribed = false }
     }
 
     /** A ticket's live position closed: was it paid or did it die? */
-    private fun onClose8073(mint: String, realizedPnlSol: Double) {
-        if (tickets.remove(mint) == null) return
+    private fun onClose8073(mint: String, realizedPnlSol: Double): Boolean {
+        if (tickets.remove(mint) == null) return false
         if (realizedPnlSol.isFinite() && realizedPnlSol > 0.0) paid.incrementAndGet() else died.incrementAndGet()
+        return true
     }
 
     fun statusLine(): String =
-        "issued=${issued.get()} confirmed=${confirmed8092.get()} open=${tickets.size} record[paid=${paid.get()} died=${died.get()}] refused[kind=${refusedKind.get()} budget=${refusedBudget.get()}] " +
+        "issued=${issued.get()} confirmed=${confirmed8092.get()} open=${tickets.size} record[paid=${paid.get()} died=${died.get()}] refused[kind=${refusedKind.get()} budget=${refusedBudget.get()} record8310=${refusedRecord8310.get()}] " +
             "rule=PumpSwap \$10k-\$100k, <= ${(BUDGET_FRAC * 100).toInt()}% of equity, 1 per 2 min, held on lifecycle rules"
 }

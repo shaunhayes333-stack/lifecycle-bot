@@ -623,6 +623,7 @@ object LiveEdgeGate7877 {
             if (candidateSpecificAdmission8136) try { PipelineHealthCollector.labelInc("LIVE_CANDIDATE_ADMISSION_CLEARED_PROVEN_ONLY_8161_$l8059") } catch (_: Throwable) {}
             if (genericNative8211) try { PipelineHealthCollector.labelInc("LIVE_GENERIC_NATIVE_ECONOMIC_ADMIT_8211_$l8059") } catch (_: Throwable) {}
             provenOnlyAdmitted8059.incrementAndGet()
+            SelectionDoors8310.admitRefusal8310(ts, l8059, setup8083, nowMs)?.let { r8310 -> recordAssessment8083(ts, l8059, setup8083, Verdict8083.REFUSE, r8310, 1.0, nowMs); observeTail7996(ts, lane, r8310, nowMs); return r8310 }  // V5.0.8310
             // V5.0.8065 — no buying the top of a spike: 5.0.8063 filled at $300-700k caps right after the rip and was
             // stopped out within a minute (FdZRSo -22% in 11 s). A coin up 80%+ off its recent low and still within
             // 12% of its high, or up 100%+ in 5 minutes, waits for its pullback / base.
@@ -632,6 +633,16 @@ object LiveEdgeGate7877 {
             // V5.0.8243 — a candidate-specific ADMIT rests on a SUPPORTED record graded from the fill latency (the chase is
             // in the record), exactly the cell / kind case above: the spike heuristic stands down for it too (8241: CUyZ
             // +1774% refused CHASING_SPIKE after ADMIT:SPECIFIC_EDGE_PROVEN). The admitted-terminal count is kept.
+            // V5.0.8310 D4 — in a lane whose verified live closes lose, a label-only cell / kind proof no longer stands the
+            // spike rule down (SelectionDoors8310); a developing runner grab and the rule's own tail audit still do.
+            if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
+                !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) && !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
+                cellOrKindProven8094(ts, l8059, nowMs) && !SelectionDoors8310.labelStandsDownChase8310(l8059)) {
+                chaseRefused8065.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
+                observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
+                return "CHASING_SPIKE_8065"
+            }
             if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
                 !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) &&
                 !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
@@ -1229,5 +1240,7 @@ object LiveEdgeGate7877 {
             "refuse=[${refused.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]" +
             " dataDefer8136=${dataDeferred8136.get()} watchReleased8153=${watchReleased8153.get()} " +
             RegressionRestore8298.statusLine8298() +  // V5.0.8298
-            " " + (try { LiveAdmissionProof8290.statusLine8290() } catch (_: Throwable) { "proof8290[-]" })
+            " " + (try { LiveAdmissionProof8290.statusLine8290() } catch (_: Throwable) { "proof8290[-]" }) +
+            " " + (try { SelectionDoors8310.statusLine8310() } catch (_: Throwable) { "selection8310[-]" }) +  // V5.0.8310
+            " " + (try { com.lifecyclebot.engine.SafetyProofPriority8310.statusLine8310() } catch (_: Throwable) { "safetyProof8310[-]" })
 }

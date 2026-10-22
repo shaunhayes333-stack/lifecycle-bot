@@ -1779,6 +1779,32 @@ object Cortex7885 {
     }
 
     /**
+     * V5.0.8310 — why this lane's REFUSE power is kept in shadow (CortexInversion8310): its STRONG reads are proven
+     * inverted, or its REFUSE column (lane, or the [setup]'s joint cells) reads above its STRONG column. Null: it binds.
+     * Caller holds the lock.
+     */
+    private fun refuseShadow8310(lane: String, setup: String?): String? {
+        val b = board.books[lane] ?: return null
+        val r = b.byBucket[CortexScoreboard7885.Bucket.REFUSE.ordinal]
+        val s = b.byBucket[CortexScoreboard7885.Bucket.STRONG.ordinal]
+        val rs = if (setup.isNullOrBlank()) null else jointBook7961[jointKey7961(lane, CortexScoreboard7885.Bucket.REFUSE, setup)]
+        val ss = if (setup.isNullOrBlank()) null else jointBook7961[jointKey7961(lane, CortexScoreboard7885.Bucket.STRONG, setup)]
+        return CortexInversion8310.shadowWhy8310(
+            board.inverted7948(lane, accountMode8077()),
+            r.n, r.mean(), s.n, s.mean(),
+            rs?.n ?: 0.0, rs?.mean() ?: Double.NaN, ss?.n ?: 0.0, ss?.mean() ?: Double.NaN,
+        )
+    }
+
+    /** V5.0.8310 — LIVE: a REFUSE-column refusal on an inverted lane / setup is counted and kept in shadow (true). */
+    private fun shadowInvertedRefusal8310(ts: TokenState, a: Assessment): Boolean = try {
+        val setup = try { LanePlaybook7907.selectedSetup8094(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }
+        val why = synchronized(this) { refuseShadow8310(a.lane, setup) }
+        if (why != null) { inc("SHADOW_REFUSE_INVERTED_8310"); CortexInversion8310.noteShadowed8310(a.lane, why) }
+        why != null
+    } catch (_: Throwable) { false }
+
+    /**
      * Called first by LiveEdgeGate7877.liveRefusal (both modes). Non-null means
      * the Cortex refuses this entry under a named rule.
      */
@@ -1806,8 +1832,9 @@ object Cortex7885 {
                     (heldFraction8153(a.lane) >= OVERRULE_FRACTION_7955 &&
                         refusalAuthority8269(a.lane, a.runnerLane, paper = false, relative = true))) && consistent(a.lane)
             }
-            val rule = constitutionRefusal(a, ts, paper, proven || relative8019)?.let { if (it == "C3_PROVEN_NEGATIVE_EDGE" && relative8019) "C3_RELATIVE_REFUSE_8019" else it }
+            val rule0 = constitutionRefusal(a, ts, paper, proven || relative8019)?.let { if (it == "C3_PROVEN_NEGATIVE_EDGE" && relative8019) "C3_RELATIVE_REFUSE_8019" else it }
                 ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }
+            val rule = if (!paper && CortexInversion8310.refuseColumnRule8310(rule0) && shadowInvertedRefusal8310(ts, a)) null else rule0  // V5.0.8310
             // V5.0.8169 — per-lane gate reach: 8168 showed Rp/Rl on most lanes and did refused=0; this proves which lanes'
             // REFUSE reads ever meet the gate and whether the power held there.
             CortexAudit8169.noteGate(a.lane, true, a.bucket == CortexScoreboard7885.Bucket.REFUSE, proven || relative8019, rule != null)
@@ -2108,6 +2135,7 @@ object Cortex7885 {
             if (f <= 0.0) {
                 inc(if (board.inverted7948(a.lane, accountMode8077())) "SUSPENDED_INVERTED_SIZE_UP_7948" else "SHADOW_SIZE_UP"); return none
             }
+            if (refuseShadow8310(a.lane, null) != null) { inc("SUSPENDED_REFUSE_BEATS_STRONG_SIZE_UP_8310"); CortexInversion8310.noteSizeUpSuspended8310(a.lane); return none }  // V5.0.8310
             if (f < 1.0) inc("PARTIAL_AUTHORITY_SIZE_7955")
             // V5.0.8187 — never sized past the validated (out-of-sample / realised) evidence's own Kelly stake.
             val proof8187 = validatedEvidence8187(a.lane, null) ?: run { inc("SIZE_UP_REFUSED_UNVALIDATED_8187_${a.lane}"); return none }
@@ -2229,7 +2257,7 @@ object Cortex7885 {
             val (strongProven, noSkill) = synchronized(this) {
                 val seat = ledger.seats["$LEGACY_SIZE_SHAPE|${a.lane}"]
                 // V5.0.7955 — the same graduated threshold as the live overrule.
-                (laneFraction7955(a.lane) >= OVERRULE_FRACTION_7955) to
+                (laneFraction7955(a.lane) >= OVERRULE_FRACTION_7955 && refuseShadow8310(a.lane, null) == null) to  // V5.0.8310
                     ((seat?.scored ?: 0) >= STACK_MEASURED && (seat?.authority() ?: 0.0) <= 0.0)
             }
             val out = shapeAfterAuthority(bounded, strongProven, noSkill)
@@ -2791,6 +2819,7 @@ object Cortex7885 {
                     " · labels repeat=${sum("LABEL_HYGIENE_REPEAT")} unexec=${sum("LABEL_HYGIENE_UNEXECUTABLE")} unresolved=${sum("LABEL_UNRESOLVED_8144")} (authority needs walk-forward OOS mean-SE>2% on executable records)\n")
                 sb.append("  truth8153: lateFirstPrice=${sum("LABEL_HYGIENE_LATE_FIRST_PRICE_8153")} observedOnlyRevisions=${sum("REVISION_OBSERVED_ONLY_8153")} " +
                     "unboundFiled=${sum("REALIZED_UNBOUND_FILED_8153")} (strong/refuse columns: executable first-of-episode on-time labels; legacy decayed books in the status line)\n")
+                sb.append("  ${CortexInversion8310.statusLine8310()}\n")  // V5.0.8310
                 sb.append("  key: Rp/Rl refuse paper/live · O overrule (auth>=0.5) · auth graduated strong authority, scales size-up · SUSPENDED calibration < 0.5 · INVERTED strong < neutral/refuse")
                 sb.toString().take(1_900)
             }

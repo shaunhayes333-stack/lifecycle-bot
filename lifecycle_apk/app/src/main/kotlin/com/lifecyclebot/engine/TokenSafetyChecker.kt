@@ -298,6 +298,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         pairCreatedAtMs: Long = 0L,
         currentLiquidityUsd: Double = -1.0,
         score: Int = 0,
+        // V5.0.8310 — a caller that needs a CURRENT proof (a deferred live buy's explicit refresh, a live prospect whose
+        // report is older than the pre-trade freshness window) gets a fresh run instead of a cached report this old.
+        maxCacheAgeMs: Long = Long.MAX_VALUE,
     ): SafetyReport {
         if (mint in WHITELISTED_MINTS) {
             val safeReport = SafetyReport(
@@ -311,7 +314,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             return safeReport
         }
 
-        val cached = cache[mint]
+        val cached = cache[mint]?.takeIf { SafetyProofPriority8310.cacheUsable8310(it.checkedAt, maxCacheAgeMs, System.currentTimeMillis()) }  // V5.0.8310
         if (cached != null && !cached.isStale) {
             // V5.9.605 — don't let a transient false-zero liquidity block
             // suppress a fresh launch for the full 10-minute cache window.
@@ -1129,7 +1132,10 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
     }
 
     private fun checkMintFreezeViaRpc(mint: String): Pair<Boolean?, Boolean?> {
-        val proof = com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248.resolve(mint)
+        // V5.0.8310 — a live prospect / proof-deferred buy reads its mint Helius-first (one getAccountInfo jsonParsed: mint +
+        // freeze authority, token program, Token-2022 extensions, supply) instead of the public-first scan ladder.
+        val proof = (if (SafetyProofPriority8310.heliusFirst8310(mint)) com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true)
+            else com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248.resolve(mint))
             ?: return Pair(null, null)
         return Pair(proof.mintAuthorityDisabled, proof.freezeAuthorityDisabled)
     }

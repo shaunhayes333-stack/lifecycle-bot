@@ -26725,6 +26725,7 @@ if (hotExitHandledSweep) {
             com.lifecyclebot.engine.SafetyRefreshQueue.consume(canonicalMint) ||
                 com.lifecyclebot.engine.SafetyRefreshQueue.consume(mint)
         )
+        val forceFresh8310 = !needsFirstCheck && SafetyProofPriority8310.forceFresh8310(canonicalMint, explicitSafetyRefresh, ts.safety.checkedAt)  // V5.0.8310
         if (explicitSafetyRefresh) {
             try { ForensicLogger.lifecycle("SAFETY_REFRESH_SYNC_REQUEST", "key=${canonicalMint.take(10)} symbol=${ts.symbol} ageSec=${safetyAge / 1000}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("SAFETY_REFRESH_SYNC_REQUEST") } catch (_: Throwable) {}
@@ -26758,6 +26759,7 @@ if (hotExitHandledSweep) {
                     pairCreatedAtMs = pairCreatedAt,
                     currentLiquidityUsd = resolvedLiquidityUsd,
                     score = ts.entryScore.toInt().coerceIn(0, 100),
+                    maxCacheAgeMs = SafetyProofPriority8310.maxCacheAge8310(forceFresh8310),
                 )
                 synchronized(ts) {
                     ts.safety       = r
@@ -26861,7 +26863,7 @@ if (hotExitHandledSweep) {
             }
         }
 
-        if (needsFirstCheck || explicitSafetyRefresh) {
+        if (needsFirstCheck || explicitSafetyRefresh || forceFresh8310) {
             // SYNCHRONOUS first-ever / explicit-defer safety check so the very next
             // pipeline phase (FDG) sees a populated ts.lastSafetyCheck. SafetyChecker's
             // per-mint in-flight dedupe keeps concurrent callers cheap (6s wait cap).
