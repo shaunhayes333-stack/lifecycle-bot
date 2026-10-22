@@ -175,8 +175,10 @@ class Aate8285TapeProvidersTest {
         assertTrue(ws.contains("tapeFrame8285(j, mint, priceSol, sol7743, tok7743, txType == \"buy\")"))
         assertTrue(ws.contains("pool = venue8285(j.optString(\"pool\", \"\")), signature = j.optString(\"signature\", \"\")"))
         assertTrue(ws.contains("noteTradeFrame8192(mint)  // V5.0.8192 — metered: per-launch cap and daily budget"))
-        assertTrue(src("engine/truth/ProofDataSwapTape8144.kt").contains(
-            "TradeTape8100.note8285(mint, sol / tokenAmount, sol, tokenAmount, isBuy, TradeTape8100.SRC_HELIUS_8169, signature = signature, recvMs = nowMs)"))
+        // superseded by V5.0.8307: the decoded PumpSwap swap also states its pool and block time
+        val pd = src("engine/truth/ProofDataSwapTape8144.kt")
+        assertTrue(pd.contains("TradeTape8100.note8285(mint, sol / tokenAmount, sol, tokenAmount, isBuy, TradeTape8100.SRC_HELIUS_8169,"))
+        assertTrue(pd.contains("pool = amm8307?.pool.orEmpty(), signature = signature, eventMs = amm8307?.eventMs ?: 0L, recvMs = nowMs)"))
         assertTrue(src("engine/truth/TradeTape8100.kt").contains("val curve8285 = source == SRC_CURVE_8169"))
     }
 

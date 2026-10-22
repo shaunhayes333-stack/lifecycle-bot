@@ -11,7 +11,9 @@ class Aate7432ExactStrategyLegacyIsolationTest {
         val record = src.substringAfter("fun record(").substringBefore("ensureRestored7431()")
         assertTrue(record.contains("listOf(e.entryTradeType, e.entrySetup, e.entryStyle, e.entryTactic).any { it.isBlank() }"))
         assertTrue(record.contains("EXACT_STRATEGY_ATTRIBUTION_INCOMPLETE_7429"))
-        assertTrue(record.contains("return false"))
+        // superseded by V5.0.8308: the refusal is counted by cause (refuse8308) and still returns false
+        assertTrue(record.contains("return refuse8308("))
+        assertTrue(src.substringAfter("private fun refuse8308(").substringBefore("fun refusalLine8308").contains("return false"))
         assertFalse(record.contains("commitOnce8090"))
     }
 

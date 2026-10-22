@@ -13,13 +13,14 @@ class Aate7485PumpUnsupportedDemandCoalescingTest {
         assertTrue(fn.contains("unsupportedTradeDemand7485.add(mint)"))
         assertTrue(fn.contains("unsupportedTradeDemand7485.removeIf"))
         assertTrue(fn.contains("return"))
-        assertTrue(fn.indexOf("if (!tradeStreamKeyed7284())") < fn.indexOf("val add = wanted - tradeSubscriptions7278"))
+        // superseded by V5.0.8307: parked PumpSwap mints are filtered out of the diff before the frame is built
+        assertTrue(fn.indexOf("if (!tradeStreamKeyed7284())") < fn.indexOf("val add = admitForSubscribe8307(wanted - tradeSubscriptions7278).toSet()"))
     }
 
     @Test fun capability_recovery_restores_normal_subscription_path() {
         val s = src()
         assertTrue(s.contains("unsupportedTradeDemand7485.clear()"))
-        assertTrue(s.contains("val add = wanted - tradeSubscriptions7278"))
+        assertTrue(s.contains("val add = admitForSubscribe8307(wanted - tradeSubscriptions7278).toSet()"))  // superseded by V5.0.8307
         assertTrue(s.contains("subscribeTokenTrade"))
     }
 
