@@ -63,7 +63,7 @@ object CortexTailEv8324 {
      * Pure: the pond of [values] (executable-net objective labels, %) each with its per-label plausibility cap [caps] (same
      * size; a missing cap reads +inf). Null when there is nothing to read.
      */
-    fun pond8324(values: List<Double>, caps: List<Double>, runnerPct: Double = RUNNER_PCT_8324): Pond8324? {
+    fun pond8324(values: List<Double>, caps: List<Double>, runnerPct: Double = RUNNER_PCT_8324, witnessed: List<Boolean> = emptyList()): Pond8324? {
         val rows = values.indices.mapNotNull { i ->
             val v = values[i]
             if (!v.isFinite()) null else v to (caps.getOrNull(i)?.takeIf { !it.isNaN() } ?: Double.POSITIVE_INFINITY)
@@ -71,6 +71,8 @@ object CortexTailEv8324 {
         if (rows.isEmpty()) return null
         var sum = 0.0; var runSum = 0.0; var runCapSum = 0.0; var runners = 0; var nonSum = 0.0; var non = 0
         var minCap = Double.POSITIVE_INFINITY
+        // V5.0.8324 §PROVENANCE — chain-witnessed runner rows (a finite-value row keeps its index in [witnessed]).
+        val wRunners = values.indices.count { i -> values[i].isFinite() && values[i] >= runnerPct && witnessed.getOrNull(i) == true }
         for ((v, cap) in rows) {
             sum += v
             if (v >= runnerPct) {
@@ -81,7 +83,7 @@ object CortexTailEv8324 {
         val n = rows.size
         // The book's plausibility rule (8320): sum per runner within 3 x the cap of the runners' cohorts.
         val plausible = runners > 0 && CortexLedger7885.tailPlausible8320(sum, runners.toDouble(),
-            if (minCap.isFinite()) minCap else CortexLedger7885.LABEL_CAP_8187)
+            if (minCap.isFinite()) minCap else CortexLedger7885.LABEL_CAP_8187, wRunners.toDouble())
         val eRun = if (runners == 0) Double.NaN else if (plausible) runSum / runners else runCapSum / runners
         val eNon = if (non == 0) Double.NaN else nonSum / non
         // Adjusted values: implausible runner labels enter at their cap (the tail is not fabricated, nor dropped).

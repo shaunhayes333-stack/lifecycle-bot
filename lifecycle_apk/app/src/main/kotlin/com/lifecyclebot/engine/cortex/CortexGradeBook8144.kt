@@ -69,6 +69,8 @@ class CortexGradeRecord8144(
     var revisedGross8324: Double = Double.NaN
     /** V5.0.8324 — the Cortex's runner-lane tail EV at the decision (CortexTailEv8324), NaN off runner lanes / legacy rows. */
     var tailEv8324: Double = Double.NaN
+    /** V5.0.8324 — the label the objective answers with was chain-witnessed (provenance: its runner tail is real at any size). */
+    var witnessed8324: Boolean = false
 
     /** May this decision's label grade authority (executable, first of its episode)? */
     val graded: Boolean get() = kind == 'D' && executable && !repeat
@@ -359,6 +361,17 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         return rs.map { objectivePct8322(it) - off } to rs.map { it.labelCap8187() }
     }
 
+    /** V5.0.8324 — the provenance flags of [pondRows8324]'s rows (same order). */
+    fun pondWitness8324(lane: String): List<Boolean> =
+        decisions.filter { it.graded && !it.lost && it.lane == lane && it.executablePct.isFinite() }.sortedBy { it.atMs }.map { it.witnessed8324 }
+
+    /** V5.0.8324 — record [id]'s current label provenance. */
+    fun markWitness8324(id: String, witnessed: Boolean): Boolean {
+        val r = byId[id] ?: return false
+        r.witnessed8324 = witnessed
+        return true
+    }
+
     /** V5.0.8324 — the newest labelled decision of [episode] ("mint|LANE"): the one a labeler revision belongs to. */
     fun latestLabelled8324(episode: String): CortexGradeRecord8144? =
         decisions.asReversed().firstOrNull { it.kind == 'D' && it.episode == episode && it.observedNetPct.isFinite() }
@@ -489,7 +502,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         // V5.0.8322 — the later-horizon executable value and when it became knowable survive a restart; the flat-mark flag.
         num(r.executableRevisedPct), r.revisedAvailableAtMs.toString(), if (r.flat8322) "1" else "0",
         // V5.0.8324 — the objective's gross (first / revised) and the decision-time tail EV.
-        num(r.firstGross8324), num(r.revisedGross8324), num(r.tailEv8324),
+        num(r.firstGross8324), num(r.revisedGross8324), num(r.tailEv8324), if (r.witnessed8324) "1" else "0",
     ).joinToString(FS.toString())
 
     fun encode(): String = (decisions + trades.values).joinToString(RS.toString()) { encodeOne(it) }
@@ -504,7 +517,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             // V5.0.8187 — 26 fields (late voter read); a 25-field row reads as on time.
             // V5.0.8322 — 29 fields (revised executable, its availability, flat mark); 24..26-field rows read as before.
             // V5.0.8324 — 32 fields (objective gross first / revised, tail EV); 24..29-field rows read as before.
-            if (f.size !in 24..32 || f[0].length != 1 || f[1].isBlank()) continue
+            if (f.size !in 24..33 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
@@ -515,6 +528,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             r.executableRevisedPct = dbl(f.getOrNull(26)); r.revisedAvailableAtMs = f.getOrNull(27)?.toLongOrNull() ?: 0L
             r.flat8322 = f.getOrNull(28) == "1"
             r.firstGross8324 = dbl(f.getOrNull(29)); r.revisedGross8324 = dbl(f.getOrNull(30)); r.tailEv8324 = dbl(f.getOrNull(31))
+            r.witnessed8324 = f.getOrNull(32) == "1"
             if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
             when (r.kind) {
                 'D' -> if (!byId.containsKey(r.id)) { decisions.add(r); byId[r.id] = r; noteGraded(r) }

@@ -134,7 +134,8 @@ class Aate8322CortexSignalTest {
         val back = CortexGradeBook8144().also { it.decode(book.encode()) }
         assertTrue(back.decision(flat)!!.flat8322)
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(frl.contains("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322)"))
+        // superseded by V5.0.8324: the five-minute label carries its chain-witness provenance.
+        assertTrue(frl.contains("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324)"))
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("gradeBook8144.markFlat8322(\"\$key|\${p.atMs}\")"))
     }
 

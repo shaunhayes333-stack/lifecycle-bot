@@ -1707,6 +1707,13 @@ object LanePlaybook7907 {
             menuOf7962(lane).orEmpty().map { s ->
                 val st = stat(lane, s.id)
                 val n = st?.n ?: 0.0
+                // V5.0.8324 — the network record read bounded, and the local record alone, for the hive-prior FAVOUR rule.
+                val hive8324 = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000("PB|$lane|${s.id}") } catch (_: Throwable) { null }
+                    ?.takeIf { CortexLedger7885.validHiveBin8076(it) }
+                val hiveRead8324 = hive8324?.let {
+                    com.lifecyclebot.engine.truth.RobustLabelRead8185.robust8187(it[0], it[1], it[2], it[3], it[4], CortexLedger7885.LABEL_CAP_8187, CortexLedger7885.RUNNER_GROSS_PCT)
+                }
+                val local8324 = books[lane]?.stats?.get(s.id)
                 LaneCheatSheet8323.Record8323(
                     setup = s.id, prior = s.prior, n = n,
                     meanPct = if (st != null && n > 0.0) st.mean() else 0.0,
@@ -1714,6 +1721,11 @@ object LanePlaybook7907 {
                     runnerRate = st?.runnerRate() ?: 0.0,
                     suspect = statRaw8187(lane, s.id)?.suspect8187() == true,
                     expectedPct = expected(lane, s.id),
+                    hiveN = hive8324?.get(0) ?: 0.0,
+                    hiveMeanPct = hiveRead8324?.mean ?: Double.NaN,
+                    hiveSePct = hiveRead8324?.stderr ?: Double.NaN,
+                    localN = local8324?.n ?: 0.0,
+                    localMeanPct = local8324?.takeIf { it.n > 0.0 }?.mean() ?: Double.NaN,
                 )
             }
         }

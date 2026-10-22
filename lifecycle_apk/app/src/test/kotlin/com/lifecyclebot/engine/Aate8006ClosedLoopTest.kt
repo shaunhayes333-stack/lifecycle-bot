@@ -50,7 +50,8 @@ class Aate8006ClosedLoopTest {
 
     @Test fun theLoopsAreWired() {
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(frl.contains("Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross)"))
+        // superseded by V5.0.8324: the revision carries its chain-witness provenance.
+        assertTrue(frl.contains("Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324)"))
         assertTrue(frl.contains("if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)"))
         assertTrue(frl.contains("endRun8006(o, gross)"))
         val cx = src("engine/cortex/Cortex7885.kt")

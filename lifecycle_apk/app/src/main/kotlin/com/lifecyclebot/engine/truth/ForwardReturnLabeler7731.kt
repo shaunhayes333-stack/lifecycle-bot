@@ -152,6 +152,31 @@ object ForwardReturnLabeler7731 {
         return curveDisagrees8165(markUsd, curveSol * solUsd)
     }
 
+    /**
+     * Pure (V5.0.8324 §PROVENANCE): is a label's mark witnessed on the chain basis? Either the coin's own bonding-curve spot
+     * ([curveUsd], USD, read inside the witness window) agrees with the mark within 2x, or the move is corroborated by the
+     * market cap moving the same multiple from launch scale ([capCorroborated], runCorroborated7769). A mark with neither is
+     * unverified: its tail keeps the 8320 size rule.
+     */
+    fun witnessed8324(markUsd: Double, curveUsd: Double, capCorroborated: Boolean): Boolean =
+        (markUsd > 0.0 && curveUsd > 0.0 && markUsd.isFinite() && curveUsd.isFinite() && !curveDisagrees8165(markUsd, curveUsd)) || capCorroborated
+
+    private val witnessedLabels8324 = AtomicLong(0)
+
+    /** V5.0.8324 — [o]'s current mark is chain-witnessed (sticky once true for the observation). */
+    private fun witnessNow8324(o: Obs, nowMs: Long): Boolean {
+        if (o.witnessed8324) return true
+        val px = o.lastPx
+        if (!(px > 0.0) || !(o.entryPrice > 0.0)) return false
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val curveSol = try { CurveReserves7951.priceSolFor7951(o.mint, nowMs, CURVE_WITNESS_MAX_AGE_MS_8165) } catch (_: Throwable) { 0.0 }
+        val curveUsd = if (curveSol > 0.0 && solUsd > 0.0) curveSol * solUsd else 0.0
+        val cap = try { runCorroborated7769(o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint), solUsd) } catch (_: Throwable) { false }
+        val w = witnessed8324(px, curveUsd, cap)
+        if (w) { o.witnessed8324 = true; witnessedLabels8324.incrementAndGet() }
+        return w
+    }
+
     /** Pure (V5.0.8165): a USD mark more than 2x away (either way) from the curve's own USD spot price. */
     fun curveDisagrees8165(markUsd: Double, curveUsd: Double): Boolean {
         if (!(markUsd > 0.0) || !(curveUsd > 0.0) || !markUsd.isFinite() || !curveUsd.isFinite()) return false
@@ -257,12 +282,17 @@ object ForwardReturnLabeler7731 {
         /** V5.0.8080 — the label on the LONG-HOLD exit family (the setup books grade each setup on its own family). */
         @Volatile var bookedLongNet8080 = Double.NaN
         @Volatile var bookedLongGross8080 = Double.NaN
+        /** V5.0.8324 — a mark of this label was chain-witnessed (sticky); and the provenance of the value last booked. */
+        @Volatile var witnessed8324 = false
+        @Volatile var bookedWitness8324 = false
     }
 
     /** Per-horizon tallies for one cell (or one aggregate key). */
     class Tally {
         var n15 = 0; var sum15 = 0.0; var win15 = 0
         var n60 = 0; var sum60 = 0.0; var sumSq60 = 0.0; var win60 = 0; var runner60 = 0
+        /** V5.0.8324 — local runner labels whose marks were chain-witnessed (provenance). */
+        var witness60 = 0
         var n240 = 0; var sum240 = 0.0; var win240 = 0
         var lost = 0
         /**
@@ -274,18 +304,20 @@ object ForwardReturnLabeler7731 {
             if (n60 > w) {
                 val k = w.toDouble() / n60; n60 = w; sum60 *= k; sumSq60 *= k
                 win60 = (win60 * k).roundToIntSafe8014().coerceIn(0, n60); runner60 = (runner60 * k).roundToIntSafe8014().coerceIn(0, n60)
+                witness60 = (witness60 * k).roundToIntSafe8014().coerceIn(0, runner60)
             }
             if (n240 > w) { val k = w.toDouble() / n240; n240 = w; sum240 *= k; win240 = (win240 * k).roundToIntSafe8014().coerceIn(0, n240) }
         }
-        fun encode(): String = "$n15,$sum15,$win15,$n60,$sum60,$sumSq60,$win60,$runner60,$n240,$sum240,$win240,$lost"
+        fun encode(): String = "$n15,$sum15,$win15,$n60,$sum60,$sumSq60,$win60,$runner60,$n240,$sum240,$win240,$lost,$witness60"  // V5.0.8324 — 13th
         fun decode(s: String): Boolean {
             val f = s.split(',')
-            if (f.size != 12) return false
+            if (f.size != 12 && f.size != 13) return false
             n15 = f[0].toIntOrNull() ?: 0; sum15 = f[1].toDoubleOrNull() ?: 0.0; win15 = f[2].toIntOrNull() ?: 0
             n60 = f[3].toIntOrNull() ?: 0; sum60 = f[4].toDoubleOrNull() ?: 0.0; sumSq60 = f[5].toDoubleOrNull() ?: 0.0
             win60 = f[6].toIntOrNull() ?: 0; runner60 = f[7].toIntOrNull() ?: 0
             n240 = f[8].toIntOrNull() ?: 0; sum240 = f[9].toDoubleOrNull() ?: 0.0; win240 = f[10].toIntOrNull() ?: 0
             lost = f[11].toIntOrNull() ?: 0
+            witness60 = (f.getOrNull(12)?.toIntOrNull() ?: 0).coerceIn(0, maxOf(runner60, 0))
             return true
         }
     }
@@ -816,35 +848,36 @@ object ForwardReturnLabeler7731 {
         try { PipelineHealthCollector.labelInc("FORWARD_LABELER_CELLS_PRUNED_7731") } catch (_: Throwable) {}
     }
 
-    private fun book(o: Obs, horizon: Int, net: Double, gross: Double) {
+    private fun book(o: Obs, horizon: Int, net: Double, gross: Double, witnessed8324: Boolean = false) {
         val keys = keysOf7928(o)
         for (k in keys) {
             val t = tallyFor(k)
             synchronized(t) {
                 when (horizon) {
                     15 -> { t.n15 += 1; t.sum15 += net; if (net > 0.0) t.win15 += 1 }
-                    60 -> { t.n60 += 1; t.sum60 += net; t.sumSq60 += net * net; if (net > 0.0) t.win60 += 1; if (gross >= RUNNER_PCT_7731) t.runner60 += 1 }
+                    60 -> { t.n60 += 1; t.sum60 += net; t.sumSq60 += net * net; if (net > 0.0) t.win60 += 1; if (gross >= RUNNER_PCT_7731) { t.runner60 += 1; if (witnessed8324) t.witness60 += 1 } }
                     else -> { t.n240 += 1; t.sum240 += net; if (net > 0.0) t.win240 += 1 }
                 }
                 t.window8014(CELL_WINDOW_8014)
             }
         }
         when (horizon) { 15 -> booked15.incrementAndGet(); 60 -> booked60.incrementAndGet(); else -> booked240.incrementAndGet() }
-        if (horizon == 60) bookFresh8169(o, keys, net, gross)
+        if (horizon == 60) bookFresh8169(o, keys, net, gross, witnessed8324)
         // V5.0.8198 — the late (60-minute) read books into the fresh tally too: the stage rule spares a stage that pays late.
         if (horizon == 240) bookFreshLate8198(o, keys, net)
         if (bookingsSincePersist.incrementAndGet() >= PERSIST_EVERY_BOOKINGS_7731) persist()
     }
 
     /** V5.0.8169 — the 5-minute label also books into the fresh (post-epoch) tally when its decision is after the epoch. */
-    private fun bookFresh8169(o: Obs, keys: List<String>, net: Double, gross: Double) {
+    private fun bookFresh8169(o: Obs, keys: List<String>, net: Double, gross: Double, witnessed8324: Boolean = false) {
         syncEpoch8169()
         if (!freshObservation8169(o.atMs, freshEpochMs8169)) { freshSkippedPreEpoch8169.incrementAndGet(); return }
         for (k in keys) {
             if (!fresh8169.containsKey(k) && fresh8169.size >= MAX_CELLS_7731) continue
             val t = fresh8169.getOrPut(k) { Tally() }
             synchronized(t) {
-                t.n60 += 1; t.sum60 += net; t.sumSq60 += net * net; if (net > 0.0) t.win60 += 1; if (gross >= RUNNER_PCT_7731) t.runner60 += 1
+                t.n60 += 1; t.sum60 += net; t.sumSq60 += net * net; if (net > 0.0) t.win60 += 1
+                if (gross >= RUNNER_PCT_7731) { t.runner60 += 1; if (witnessed8324) t.witness60 += 1 }
                 t.window8014(CELL_WINDOW_8014)
             }
         }
@@ -1032,8 +1065,10 @@ object ForwardReturnLabeler7731 {
         // V5.0.7955 — the give-back from the peak to the 5-minute read rides on the observation to its 60-minute sample.
         o.giveback5_7955 = com.lifecyclebot.engine.ExitProfile7955.giveback7955(o.peakPct, gross0)
         val (net, gross) = captured7945(o, net0, gross0)
-        book(o, 60, net, gross)
-        o.bookedNet7997 = net; o.bookedGross7997 = gross
+        // V5.0.8324 §PROVENANCE — a runner label whose marks the chain witnessed (curve reserves / launch-scale cap) is real at any size.
+        val w8324 = gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs)
+        book(o, 60, net, gross, w8324)
+        o.bookedNet7997 = net; o.bookedGross7997 = gross; o.bookedWitness8324 = w8324
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
         // V5.0.8080 §ONE_PATH_TWO_EXIT_FAMILIES. The setup books graded every setup that fired on one value, so a
         // momentum scalp and a breakout runner on the same coin were credited the same return. The same observed path is
@@ -1045,7 +1080,7 @@ object ForwardReturnLabeler7731 {
         // V5.0.8322 — a flat mark (no price other than the entry ever seen) reaches the Cortex flagged: observed only there.
         val flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)
         if (flat8322) flatMarks8322.incrementAndGet()
-        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324) } catch (_: Throwable) {}
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
         try { com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}
         // V5.0.7972 — the same label grades every pair/triple of the decision's facts (specialist miner).
@@ -1156,7 +1191,7 @@ object ForwardReturnLabeler7731 {
         val oldNet = o.bookedNet7997
         val oldGross = o.bookedGross7997
         if (oldNet.isFinite() && net.isFinite() && kotlin.math.abs(net - oldNet) >= 0.5) {
-            revise7997(o, oldNet, net, oldGross, gross)
+            revise7997(o, oldNet, net, oldGross, gross, gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs))
             o.bookedNet7997 = net; o.bookedGross7997 = gross
             revisions7997.incrementAndGet()
             if (net > oldNet) upgraded7997.incrementAndGet()
@@ -1167,7 +1202,9 @@ object ForwardReturnLabeler7731 {
         return !alive || o.ck7997 >= CK_MS_7997.size
     }
 
-    private fun revise7997(o: Obs, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+    private fun revise7997(o: Obs, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double, witnessNew8324: Boolean = false) {
+        val witnessOld8324 = o.bookedWitness8324
+        o.bookedWitness8324 = witnessNew8324
         for (k in keysOf7928(o)) {
             val t = tallyFor(k)
             synchronized(t) {
@@ -1178,13 +1215,16 @@ object ForwardReturnLabeler7731 {
                 val ro = oldGross.isFinite() && oldGross >= RUNNER_PCT_7731
                 val rn = newGross.isFinite() && newGross >= RUNNER_PCT_7731
                 if (ro != rn) t.runner60 = (t.runner60 + if (rn) 1 else -1).coerceIn(0, t.n60)
+                // V5.0.8324 — the witnessed-runner count follows the revision.
+                val wo = ro && witnessOld8324; val wn = rn && witnessNew8324
+                if (wo != wn) t.witness60 = (t.witness60 + if (wn) 1 else -1).coerceIn(0, t.runner60)
             }
         }
         // V5.0.8080 — the setup books are revised on the long-hold family in checkpoint7997, not on this decision value.
         try { SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet) } catch (_: Throwable) {}
         // V5.0.8006 — the Cortex (every voter seat, scoreboard bucket, veto audit, setup x verdict book) too.
-        try { com.lifecyclebot.engine.cortex.Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324) } catch (_: Throwable) {}
     }
 
     fun progressiveLine7997(): String =
@@ -1561,7 +1601,7 @@ object ForwardReturnLabeler7731 {
             if (n <= 0 && t.lost <= 0) null else {
                 // V5.0.8185 — robust read: a record impossible under the per-label plausibility cap proves nothing either way.
                 // V5.0.8322 — unless its tail is real: 3+ local runners on chain-observed (basis-checked) marks read raw.
-                val robust = tailRead8322(key, n, sum, sumSq, wins, t.runner60)
+                val robust = tailRead8322(key, n, sum, sumSq, wins, t.runner60, t.sum60, t.witness60)  // V5.0.8324 — local sum, provenance
                 val mean = robust.mean
                 val se = robust.stderr
                 CellStat(
@@ -1591,11 +1631,15 @@ object ForwardReturnLabeler7731 {
     private val tailReadRaw8322 = AtomicLong(0)
 
     /** Pure (V5.0.8322): the cell read — 8185's robust read, or the raw read when the suspect cell's tail is real. */
-    fun tailRead8322(key: String, n: Int, sum: Double, sumSq: Double, wins: Int, localRunners: Int): RobustLabelRead8185.Read8185 {
+    fun tailRead8322(key: String, n: Int, sum: Double, sumSq: Double, wins: Int, localRunners: Int,
+                     localSum: Double = Double.NaN, localWitnessed: Int = 0): RobustLabelRead8185.Read8185 {
         val r = RobustLabelRead8185.read8185(key, n, sum, sumSq, wins)
         if (!r.suspect || localRunners < TAIL_RUNNERS_8322 || n < 2) return r
         // V5.0.8320 — the local runners must be physically plausible for this cell (the 8175 basis-error shape keeps the bound).
-        if (!com.lifecyclebot.engine.cortex.CortexLedger7885.tailPlausible8320(sum, localRunners.toDouble(), RobustLabelRead8185.capForKey8185(key))) return r
+        // V5.0.8324 — judged on the LOCAL sum the local runners carry (8320 divided the hive-inflated sum by the local runner
+        // count, so a hive-heavy cell was never plausible), and real at any size when the runners were chain-witnessed.
+        val plausSum = if (localSum.isFinite()) localSum else sum
+        if (!com.lifecyclebot.engine.cortex.CortexLedger7885.tailPlausible8320(plausSum, localRunners.toDouble(), RobustLabelRead8185.capForKey8185(key), localWitnessed.toDouble())) return r
         val nd = n.toDouble()
         val mean = sum / nd
         val variance = ((sumSq / nd) - mean * mean).coerceAtLeast(0.0) * nd / (nd - 1.0)
@@ -1665,7 +1709,7 @@ object ForwardReturnLabeler7731 {
         return synchronized(t) {
             val n = t.n60
             if (n <= 0) null else {
-                val robust = tailRead8322(key, n, t.sum60, t.sumSq60, t.win60, t.runner60)  // V5.0.8185 / V5.0.8322 — a real tail reads raw
+                val robust = tailRead8322(key, n, t.sum60, t.sumSq60, t.win60, t.runner60, t.sum60, t.witness60)  // V5.0.8185 / V5.0.8322 / V5.0.8324 — a real tail reads raw
                 CellStat(
                     key = key, n60 = n, meanNet60Pct = robust.mean,
                     winRate60 = t.win60.toDouble() / n, runnerRate60 = t.runner60.toDouble() / n,
@@ -1715,7 +1759,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()}] purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLabels8322=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()}] witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLabels8322=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      tail8303: ${best.joinToString(" · ") { CellTail8303.line8303(it.key, it.meanNet60Pct, it.winRate60, it.runnerRate60) }.ifBlank { "-" }}\n" +  // V5.0.8303

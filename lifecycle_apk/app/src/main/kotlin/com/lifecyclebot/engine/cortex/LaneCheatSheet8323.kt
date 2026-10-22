@@ -124,6 +124,15 @@ object LaneCheatSheet8323 {
         val suspect: Boolean = false,
         /** The playbook's shrunk expectancy (record moved off its prior by n/(n+20)); NaN = use the mean. */
         val expectedPct: Double = Double.NaN,
+        /**
+         * V5.0.8324 §HIVE_PRIOR_WITH_LOCAL_CONFIRMATION — the network's record of this setup read BOUNDED (RobustLabelRead8185:
+         * its tail capped, other installs' labels), and this install's own local record (tail-aware read).
+         */
+        val hiveN: Double = 0.0,
+        val hiveMeanPct: Double = Double.NaN,
+        val hiveSePct: Double = Double.NaN,
+        val localN: Double = 0.0,
+        val localMeanPct: Double = Double.NaN,
     ) {
         /** What the non-runners average (the "median side" of a tail-dependent setup), NaN when not derivable. */
         val nonRunnerAvgPct: Double get() =
@@ -387,6 +396,24 @@ object LaneCheatSheet8323 {
         !r.suspect && r.n >= FAVOUR_MIN_N_8323 && r.meanPct.isFinite() && r.sePct.isFinite() &&
             r.meanPct - r.sePct > maxOf(r.prior, 0.0) + costPct && !liveLosing8323(r)
 
+    /** V5.0.8324 — network labels a hive prior needs, and local labels that must confirm it. */
+    const val HIVE_FAVOUR_MIN_N_8324 = 100.0
+    const val LOCAL_CONFIRM_N_8324 = 5.0
+    /** V5.0.8324 — the merged record (local + the hive's lent labels) a FAVOUR verdict needs before admission may read it. */
+    const val FAVOUR_ADMIT_MIN_N_8324 = 10
+
+    /**
+     * Pure (V5.0.8324): FAVOUR on a hive prior confirmed locally — the network record ([HIVE_FAVOUR_MIN_N_8324]+ labels) read
+     * at its BOUNDED mean clears the prior plus cost by one SE, and this install's own labels ([LOCAL_CONFIRM_N_8324]+) are
+     * above cost; never on a suspect local record or losing live closes. 5.0.8321: every lane favour=[] while the strong setup
+     * records were hive-only (LAUNCH_LADDER_PROVEN local=0 hive=10/824): the 20-label bar counts the hive at 10 labels at most.
+     */
+    fun hiveFavour8324(r: Record8323, costPct: Double = 0.0): Boolean =
+        !r.suspect && !liveLosing8323(r) &&
+            r.hiveN >= HIVE_FAVOUR_MIN_N_8324 && r.hiveMeanPct.isFinite() && r.hiveSePct.isFinite() &&
+            r.hiveMeanPct - r.hiveSePct > maxOf(r.prior, 0.0) + costPct &&
+            r.localN >= LOCAL_CONFIRM_N_8324 && r.localMeanPct.isFinite() && r.localMeanPct > costPct
+
     /**
      * Pure: a clear loss — mean + 2 SE below cost on 12+, or mean + SE below cost on 30+, or the live closes losing.
      * V5.0.8324 §TAIL_AWARE_LOSS — on a runner lane ([laneRate8324] / [premium8324] from the lane's tail pond,
@@ -416,7 +443,7 @@ object LaneCheatSheet8323 {
         // V5.0.8324 — the hysteresis exit reads the same tail-aware net (an avoided runner-lane setup returns once it is not a clear loss).
         val net = if (r.meanPct.isFinite()) r.meanPct - costPct + CortexTailEv8324.missedRunnerPts8324(r.n, r.runnerRate, laneRate8324, premium8324) else Double.NaN
         if (prev == Verdict8323.AVOID && !(r.n >= AVOID_MIN_N_8323 && net > 0.0)) return Verdict8323.AVOID
-        if (favourEarned8323(r, costPct)) return Verdict8323.FAVOUR
+        if (favourEarned8323(r, costPct) || hiveFavour8324(r, costPct)) return Verdict8323.FAVOUR  // V5.0.8324 — hive prior, locally confirmed
         if (prev == Verdict8323.FAVOUR && net > 0.0 && !r.suspect && !liveLosing8323(r)) return Verdict8323.FAVOUR
         return Verdict8323.NEUTRAL
     }

@@ -612,7 +612,8 @@ object CandidateAdmission8136 {
         if (c.sheet8323.isEmpty()) return null
         val fav = setups.filter { e ->
             c.sheet8323[e.id] == SHEET_FAVOUR_8323 && !e.suspect8290 &&
-                e.n >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.FAVOUR_MIN_N_8323 &&
+                // V5.0.8324 — a FAVOUR earned on a locally confirmed hive prior is read on its merged record (local + lent hive labels).
+                e.n >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.FAVOUR_ADMIT_MIN_N_8324 &&
                 e.lowerPct.isFinite() && e.lowerPct > 0.0 && !losing8136(timings[e.id])
         }.maxByOrNull { it.lowerPct } ?: return null
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHEET_FAVOUR_SUPPORTS_8323_${c.lane.uppercase()}") } catch (_: Throwable) {}

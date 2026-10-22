@@ -146,6 +146,22 @@ class CortexCalibration7901 {
     /** V5.0.8322 — is [lane] suspended: slope below [minSlope] on a fit [suspendable8322] allows to switch the lane off. */
     fun suspends8322(lane: String, minSlope: Double): Boolean = slope(lane) < minSlope && suspendable8322(lane)
 
+    /**
+     * V5.0.8324 §RESTORE_WITHOUT_RESET — take every lane [other] knows from more decayed grades than this one (a stored book
+     * the boot lost). Returns the lanes taken.
+     */
+    fun mergeFrom8324(other: CortexCalibration7901): Int {
+        var n = 0
+        for ((k, r) in other.lanes) {
+            val cur = lanes[k]
+            if (cur == null || cur.n < r.n) { lanes[k] = r; n++ }
+        }
+        return n
+    }
+
+    /** V5.0.8324 — lanes with a fit (diagnostic). */
+    fun laneCount8324(): Int = lanes.size
+
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o -> lanes.forEach { (k, r) -> o.put(k, "${r.n},${r.sd},${r.sdd},${r.sy},${r.sdy}") } }
 
     fun decode(o: org.json.JSONObject) {

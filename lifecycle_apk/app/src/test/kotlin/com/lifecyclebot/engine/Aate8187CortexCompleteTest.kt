@@ -302,7 +302,8 @@ class Aate8187CortexCompleteTest {
         val on = cx.substringAfter("fun onLabel(mint: String, labelLane: String").substringBefore("// ── V5.0.8144 — grade records")
         assertTrue(on.contains("val net8187 = netPct"))
         assertTrue(on.contains("ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, net8187, gross8187"))
-        assertTrue(on.contains("board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187)"))
+        // superseded by V5.0.8324: the label's chain-witness provenance rides with it into the bucket books.
+        assertTrue(on.contains("board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187, witness8324)"))
         assertTrue(on.contains("gradeBook8144.markLateRead8187("))
         // Lost labels are filed at once; restores past the labeler's reach are not "pending".
         assertTrue(cx.contains("fun onLabelLost8187(mint: String, labelLane: String, reason: String)"))

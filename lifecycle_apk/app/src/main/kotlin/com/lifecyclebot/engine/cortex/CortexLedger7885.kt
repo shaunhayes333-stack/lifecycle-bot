@@ -46,10 +46,24 @@ class CortexLedger7885(
          */
         const val TAIL_PLAUSIBLE_MULT_8320 = 3.0
 
-        /** Pure (V5.0.8320): [runners] (>= [MIN_TAIL_RUNNERS_8322]) carry a plausible tail for a book read through [cap]. */
-        fun tailPlausible8320(sum: Double, runners: Double, cap: Double): Boolean =
+        /**
+         * Pure (V5.0.8320): [runners] (>= [MIN_TAIL_RUNNERS_8322]) carry a plausible tail for a book read through [cap].
+         * V5.0.8324 §PROVENANCE — magnitude alone cannot tell a basis error from a pump runner (pump launches do +2,000 ..
+         * +16,000%; 5.0.8321 read tailReadRaw8322=2 against suspectReads=3053). A tail whose runners were WITNESSED on the chain
+         * basis ([witnessed]: the label's mark agreed with the coin's own bonding-curve reserves, or its market cap moved by
+         * the same multiple from launch scale — ForwardReturnLabeler7731.witness8324) is real at any size; an unwitnessed
+         * or mixed one keeps the 8320 size rule (the 8175 basis-error book: 15% of labels at +5,000%, none witnessed).
+         */
+        fun tailPlausible8320(sum: Double, runners: Double, cap: Double, witnessed: Double = 0.0): Boolean =
             runners >= MIN_TAIL_RUNNERS_8322 && sum.isFinite() &&
-                (!cap.isFinite() || sum / runners <= TAIL_PLAUSIBLE_MULT_8320 * cap)
+                (!cap.isFinite() || sum / runners <= TAIL_PLAUSIBLE_MULT_8320 * cap || provenanceWitnessed8324(runners, witnessed))
+
+        /** V5.0.8324 — the share of a book's runners that must be chain-witnessed for its tail to read raw at any size. */
+        const val WITNESS_SHARE_8324 = 0.8
+
+        /** Pure (V5.0.8324): [witnessed] of [runners] (3+, and at least [WITNESS_SHARE_8324] of them) were chain-witnessed. */
+        fun provenanceWitnessed8324(runners: Double, witnessed: Double): Boolean =
+            witnessed.isFinite() && witnessed >= MIN_TAIL_RUNNERS_8322 && witnessed >= WITNESS_SHARE_8324 * runners
         const val STAT_WINDOW_8014 = 500.0
         /**
          * V5.0.8187 — the per-label plausibility cap every Cortex label book is read through and every NEW label is clamped
@@ -153,6 +167,8 @@ class CortexLedger7885(
      */
     class Stat(val cap8187: Double = LABEL_CAP_8187, val runnerFloor8187: Double = Double.POSITIVE_INFINITY) {
         var n = 0.0; var sum = 0.0; var sumSq = 0.0; var runners = 0.0; var wins = 0.0
+        /** V5.0.8324 — runners whose label was chain-witnessed (provenance), decayed with the book. */
+        var witnessed8324 = 0.0
         // Cumulative decay, persisted with the book. A delayed correction must
         // replace only the weight that its original observation still owns.
         var logScale = 0.0
@@ -180,7 +196,7 @@ class CortexLedger7885(
          * resting on fewer runners (one implausible label: the 8175 +60,000% case) keeps the 8187 bound read. In both cases
          * [suspect8187] is a flag on the screen; nothing stored is changed.
          */
-        fun tailReal8322(): Boolean = tailPlausible8320(sum, runners, cap8187)  // V5.0.8320 — runners must be plausible
+        fun tailReal8322(): Boolean = tailPlausible8320(sum, runners, cap8187, witnessed8324)  // V5.0.8320 plausible / V5.0.8324 witnessed
         fun mean(): Double {
             if (!(n > 0.0)) return 0.0
             val off = readOffset8187.takeIf { it.isFinite() } ?: 0.0
@@ -212,34 +228,40 @@ class CortexLedger7885(
         fun readSum8187(): Double = if (n > 0.0) predictMean8322() * n else 0.0
         fun runnerRate(): Double = if (n > 0.0) runners / n else 0.0
         fun winRate(): Double = if (n > 0.0) wins / n else 0.5
-        fun add(y: Double, runner: Boolean): Double {
+        fun add(y: Double, runner: Boolean, witnessed: Boolean = false): Double {
             if (!y.isFinite() || !(y * y).isFinite()) return Double.NaN
             val stamp = logScale
             n += 1.0; sum += y; sumSq += y * y; if (runner) runners += 1.0; if (y > 0.0) wins += 1.0
+            if (runner && witnessed) witnessed8324 += 1.0  // V5.0.8324
             // V5.0.8014 — fresh edge: past [STAT_WINDOW_8014] outcomes the oldest evidence fades, so a busy
             // cell's record is its most recent ~500 outcomes and turns when the market turns.
             if (n > STAT_WINDOW_8014) scale(STAT_WINDOW_8014 / n)
             return stamp
         }
-        fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k; wins *= k; logScale += kotlin.math.ln(k) }
+        fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k; wins *= k; witnessed8324 *= k; logScale += kotlin.math.ln(k) }
         fun revisionWeight(stamp: Double): Double =
             if (stamp.isFinite() && logScale.isFinite() && logScale <= stamp + 1e-9)
                 kotlin.math.exp(logScale - stamp).coerceIn(0.0, 1.0) else 0.0
         /** V5.0.7997 — a label revised on a later checkpoint replaces its earlier value (n unchanged). */
-        fun revise(yOld: Double, yNew: Double, runnerOld: Boolean, runnerNew: Boolean, weight: Double = 1.0) {
+        fun revise(yOld: Double, yNew: Double, runnerOld: Boolean, runnerNew: Boolean, weight: Double = 1.0,
+                   witnessedOld: Boolean = false, witnessedNew: Boolean = false) {
             if (n <= 0.0 || !yOld.isFinite() || !yNew.isFinite() || !weight.isFinite() || weight <= 0.0 || weight > 1.0) return
             sum += weight * (yNew - yOld); sumSq = (sumSq + weight * (yNew * yNew - yOld * yOld)).coerceAtLeast(0.0)
             if (runnerNew != runnerOld) runners = (runners + weight * (if (runnerNew) 1.0 else -1.0)).coerceIn(0.0, n)
+            // V5.0.8324 — the witnessed-runner count follows the revision (old contribution out, new one in).
+            val wo = if (runnerOld && witnessedOld) 1.0 else 0.0; val wn = if (runnerNew && witnessedNew) 1.0 else 0.0
+            if (wo != wn) witnessed8324 = (witnessed8324 + weight * (wn - wo)).coerceIn(0.0, runners)
             val dw = (if (yNew > 0.0) 1.0 else 0.0) - (if (yOld > 0.0) 1.0 else 0.0)
             if (dw != 0.0) wins = (wins + weight * dw).coerceIn(0.0, n)
         }
-        fun encode(): String = "$n,$sum,$sumSq,$runners,$wins,$logScale"
+        fun encode(): String = "$n,$sum,$sumSq,$runners,$wins,$logScale,$witnessed8324"  // V5.0.8324 — 7th: witnessed runners
         fun decode(s: String) {
-            val f = s.split(','); if (f.size !in 4..6) return
+            val f = s.split(','); if (f.size !in 4..7) return
             n = f[0].toDoubleOrNull() ?: 0.0; sum = f[1].toDoubleOrNull() ?: 0.0
             sumSq = f[2].toDoubleOrNull() ?: 0.0; runners = f[3].toDoubleOrNull() ?: 0.0
             wins = if (f.size >= 5) f[4].toDoubleOrNull() ?: 0.0 else 0.0
             logScale = f.getOrNull(5)?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
+            witnessed8324 = (f.getOrNull(6)?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0).coerceIn(0.0, maxOf(runners, 0.0))
         }
     }
 
@@ -414,7 +436,7 @@ class CortexLedger7885(
      * outcome before learning it, then learns it.
      */
     fun grade(lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, netPct: Double, grossPct: Double, regime: String = "",
-        prediction8076: PredictionSnapshot8076? = null): GradeTrace8006? {
+        prediction8076: PredictionSnapshot8076? = null, witnessed8324: Boolean = false): GradeTrace8006? {
         if (!netPct.isFinite()) return null
         // V5.0.8322 — stored RAW (owner directive 8072: no win caps); 8187 clamped every label at ingestion to the cap.
         val y = netPct.coerceAtLeast(Y_MIN)
@@ -452,17 +474,17 @@ class CortexLedger7885(
                 st.sseBase = st.sseBase * DECAY + (y - base) * (y - base)
                 st.scored++
                 scoreAt[i] = st.scored
-                scales[i * 4 + 1] = (if (p >= base) st.above else st.below).add(y, runner)
+                scales[i * 4 + 1] = (if (p >= base) st.above else st.below).add(y, runner, witnessed8324)
             }
-            scales[i * 4] = st.bins[binOf(edges[i], raw)].add(y, runner)
+            scales[i * 4] = st.bins[binOf(edges[i], raw)].add(y, runner, witnessed8324)
             // Regime cells only for seasoned voters (bounds the store).
             if (regime.isNotBlank() && st.scored >= MIN_SCORED / 2) {
-                scales[i * 4 + 2] = seat(voterIds[i], "$lane@$regime", edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner)
+                scales[i * 4 + 2] = seat(voterIds[i], "$lane@$regime", edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner, witnessed8324)
             }
         }
         val laneOffset = voterIds.size * 4
-        scales[laneOffset] = l.add(y, runner)
-        if (regime.isNotBlank()) scales[laneOffset + 1] = lane("$lane@$regime").add(y, runner)
+        scales[laneOffset] = l.add(y, runner, witnessed8324)
+        if (regime.isNotBlank()) scales[laneOffset + 1] = lane("$lane@$regime").add(y, runner, witnessed8324)
         // V5.0.7905 — the all-lane cell every voter's bins also feed.
         // V5.0.7931 — cross-asset lanes (crypto universe, Markets) learn in their own
         // lanes only: their outcomes must not move the memecoin all-lane prior.
@@ -470,9 +492,9 @@ class CortexLedger7885(
             for (i in voterIds.indices) {
                 val raw = raws.getOrNull(i) ?: continue
                 if (!raw.isFinite()) continue
-                scales[i * 4 + 3] = seat(voterIds[i], GLOBAL, edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner)
+                scales[i * 4 + 3] = seat(voterIds[i], GLOBAL, edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner, witnessed8324)
             }
-            scales[laneOffset + 2] = lane(GLOBAL).add(y, runner)
+            scales[laneOffset + 2] = lane(GLOBAL).add(y, runner, witnessed8324)
         }
         // Error co-movement between seasoned voters (v1 §2.4): voters that are
         // wrong together are one opinion, not two.
@@ -501,6 +523,7 @@ class CortexLedger7885(
     fun revise8006(
         lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, trace: GradeTrace8006,
         oldNet: Double, newNet: Double, oldGross: Double, newGross: Double, regime: String = "",
+        witnessedOld8324: Boolean = false, witnessedNew8324: Boolean = false,
     ) {
         if (!oldNet.isFinite() || !newNet.isFinite()) return
         // Legacy traces have no contribution weights; preserving their booked
@@ -512,7 +535,7 @@ class CortexLedger7885(
             // V5.0.8187 — the old value leaves exactly as it was booked; V5.0.8322 — the new one is stored raw too.
             st?.revise(oldNet.coerceIn(Y_MIN, Y_MAX), newNet.coerceIn(Y_MIN, Y_MAX),
                 oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT,
-                newGross.isFinite() && newGross >= RUNNER_GROSS_PCT, st.revisionWeight(stamp))
+                newGross.isFinite() && newGross >= RUNNER_GROSS_PCT, st.revisionWeight(stamp), witnessedOld8324, witnessedNew8324)
         }
         val yo = oldNet.coerceIn(Y_MIN, Y_MAX); val yn = newNet.coerceIn(Y_MIN, Y_MAX)  // V5.0.8322 — raw
         val ro = oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT
@@ -598,15 +621,36 @@ class CortexLedger7885(
      * the error correlation it has with them. The lane mean itself carries
      * weight 1, so with no earned authority the fused edge IS the lane prior.
      */
-    fun fuse(lane: String, votes: List<Vote>, regime: String = ""): Fused {
+    fun fuse(lane: String, votes: List<Vote>, regime: String = ""): Fused = fuseFrom8324(lane, votes, regime, null)
+
+    /**
+     * V5.0.8324 — one fusion and the decision's prediction snapshot from ONE prediction per voter. The assess path predicted
+     * every voter twice (fuse, then predictionSnapshot8076: two cross-lane global-deviation scans per voter under the Cortex
+     * lock), while 5.0.8321 read assessMs8187 p50 440 ms / p90 19.2 s with the capture pool queued 173 deep.
+     * Identical outputs to fuse + predictionSnapshot8076 for the same votes (votes[i] is voter i of the snapshot).
+     */
+    fun fuseWithSnapshot8324(lane: String, votes: List<Vote>, regime: String = ""): Pair<Fused, PredictionSnapshot8076> {
+        val preds = DoubleArray(votes.size) { Double.NaN }
+        val wins = DoubleArray(votes.size) { Double.NaN }
+        val cache = arrayOfNulls<Prediction>(votes.size)
+        for (i in votes.indices) {
+            val v = votes[i]
+            if (!v.raw.isFinite()) continue
+            val p = predict(v.voterId, lane, v.edges, v.raw, regime)
+            cache[i] = p; preds[i] = p.netPct; wins[i] = p.pWin
+        }
+        return fuseFrom8324(lane, votes, regime, cache) to PredictionSnapshot8076(preds, wins, laneMean(lane, regime).first, lanes[lane]?.winRate() ?: 0.5)
+    }
+
+    private fun fuseFrom8324(lane: String, votes: List<Vote>, regime: String, cache: Array<Prediction?>?): Fused {
         val l = lanes[lane]
         val (m, lr) = laneMean(lane, regime)
         class W(val id: String, val ev: Set<String>, val a: Double, val d: Double, val rr: Double, val dw: Double = 0.0)
         val laneSd8007 = kotlin.math.sqrt(l?.variance() ?: 0.0)
         val seated = ArrayList<W>()
-        for (v in votes) {
+        for ((vi, v) in votes.withIndex()) {
             if (!v.raw.isFinite()) continue
-            val p = predict(v.voterId, lane, v.edges, v.raw, regime)
+            val p = cache?.getOrNull(vi) ?: predict(v.voterId, lane, v.edges, v.raw, regime)
             if (p.authority <= 0.0) continue
             // V5.0.8007 — outlier pulls clamped (net and runner-rate deviations).
             seated.add(W(v.voterId, v.evidence, p.authority, clampPull8007(p.netPct - m, laneSd8007), (p.runnerRate - lr).coerceIn(-0.5, 0.5), p.pWin - (l?.winRate() ?: 0.5)))

@@ -547,6 +547,23 @@ object LearningPersistence {
         }
     }
 
+    /**
+     * V5.0.8324 — the quarantined copy of [name] that [decodeFailed8086] kept (`name#corrupt_8086`, its parts
+     * `name#p<i>#corrupt_8086`): a learner restores from it instead of starting over. Null when there is none.
+     */
+    fun loadQuarantined8324(name: String): String? {
+        val d = db ?: return null
+        return try {
+            val head = readSliced8086(d, "BLOB", "$name#corrupt_8086") ?: return null
+            if (!head.startsWith(PART_PREFIX_8086)) head else {
+                val n = head.removePrefix(PART_PREFIX_8086).toInt()
+                val sb = StringBuilder()
+                for (i in 0 until n) sb.append(readSliced8086(d, "BLOBPART", "$name#p$i#corrupt_8086") ?: return null)
+                sb.toString()
+            }
+        } catch (_: Throwable) { null }
+    }
+
     /** One logical row. Large payloads go to BLOBPART rows `name#p<i>`; the BLOB row holds the part count. */
     private fun writeRow8086(d: SQLiteDatabase, name: String, json: String, now: Long) {
         val pieces = if (json.length <= ROW_CHARS_8086) emptyList() else splitRow8086(json)

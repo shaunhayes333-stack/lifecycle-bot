@@ -42,8 +42,9 @@ class Aate8322TailCapsTest {
         assertFalse(LiveAdmissionProof8290.survives8290(40.0, r.mean, r.stderr, r.suspect, 0.0))
         // Hive runners do not make a tail real: the cell read passes the LOCAL runner count.
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(frl.contains("val robust = tailRead8322(key, n, sum, sumSq, wins, t.runner60)"))
-        assertTrue(frl.contains("tailRead8322(key, n, t.sum60, t.sumSq60, t.win60, t.runner60)"))
+        // superseded by V5.0.8324: the local runners are judged on the LOCAL sum they carry, with their chain-witness count.
+        assertTrue(frl.contains("val robust = tailRead8322(key, n, sum, sumSq, wins, t.runner60, t.sum60, t.witness60)"))
+        assertTrue(frl.contains("tailRead8322(key, n, t.sum60, t.sumSq60, t.win60, t.runner60, t.sum60, t.witness60)"))
     }
 
     @Test fun launchTapeAndSourceBrainStoreRaw() {

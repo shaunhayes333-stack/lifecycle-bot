@@ -50,6 +50,17 @@ class Aate8185RemainingGapsTest {
         assertFalse(Cortex7885.vetoRobustProof8185(st))
         assertFalse(Cortex7885.vetoProvenWinners8006(st))
         assertTrue(RobustLabelRead8185.outlierSuspect8185(st.n, st.sum, st.wins, RobustLabelRead8185.CAP_VETO_PCT_8185))
+        // superseded by V5.0.8324 (provenance, not size): the poisoned book's runners were never chain-witnessed, so its tail
+        // stays bounded whatever its size; the SAME shape whose runners the chain witnessed (curve reserves / launch-scale cap)
+        // is a real tail and reads raw.
+        assertEquals(0.0, st.witnessed8324, 0.0)
+        assertFalse(st.tailReal8322())
+        val witnessed = poisoned().also { it.witnessed8324 = it.runners }
+        assertTrue(witnessed.tailReal8322())
+        assertEquals(witnessed.rawMean8187(), witnessed.mean(), 1e-9)
+        assertTrue(Cortex7885.vetoRobustProof8185(witnessed))
+        val mixed = poisoned().also { it.witnessed8324 = it.runners * 0.5 }
+        assertFalse("a mixed-basis tail keeps the size rule", mixed.tailReal8322())
     }
 
     @Test fun genuineRefusedWinnersStillRetireTheVeto() {
