@@ -37,7 +37,8 @@ object Entry8114Gate8326 {
         }
         val l = canon(lane)
         try { LiveBootRecovery8074.tick8074(nowMs) } catch (_: Throwable) {}
-        (try { LiveBootRecovery8074.blind8074(nowMs) } catch (_: Throwable) { null })?.let {
+        // V5.0.8339 — the wallet door binds a LIVE runtime only: a paper (rehearsal) book has no wallet to be blind about.
+        if (Rehearsal8339.walletDoorBindsNow8339()) (try { LiveBootRecovery8074.blind8074(nowMs) } catch (_: Throwable) { null })?.let {
             return Verdict8326(it, LiveEdgeGate7877.Verdict8083.REFUSE, null)
         }
         val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l, nowMs) } catch (_: Throwable) { null }

@@ -1155,7 +1155,8 @@ object TradeHistoryStore {
                 originatingLane = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(tradeToStore.positionId)?.entryLane.orEmpty(),
             )
         } catch (_: Throwable) { /* never let logging break the record path */ }
-        try { uploadCollectiveJournalRow(tradeToStore) } catch (_: Throwable) {}
+        // V5.0.8339 — a bootstrap history-repair row's hive upload runs after bootstrap, not on the service-init path.
+        try { if (!HistoryRepairHive8339.deferIfRepairRow8339(tradeToStore) { uploadCollectiveJournalRow(it) }) uploadCollectiveJournalRow(tradeToStore) } catch (_: Throwable) {}
         // V5.9.353: Per-mint loss-streak guard (block re-entry after 3 losses in a row).
         // Only emits on close events (SELL side). Buy events ignored.
         try {
