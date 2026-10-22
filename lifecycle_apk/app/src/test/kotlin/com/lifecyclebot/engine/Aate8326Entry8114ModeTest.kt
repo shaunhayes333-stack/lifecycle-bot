@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.engine.truth.Entry8114Mode8326
+import com.lifecyclebot.engine.truth.EvidenceHold8336
 import com.lifecyclebot.engine.truth.Entry8114Shadow8326
 import com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
 import com.lifecyclebot.engine.truth.LiveAdmissionProof8290
@@ -120,7 +121,14 @@ class Aate8326Entry8114ModeTest {
         assertTrue(Entry8114Mode8326.liveActive8326("SHITCOIN", false))
         for (l in listOf("MOONSHOT", "EXPRESS", "MANIPULATED", "PROJECT_SNIPER", "QUALITY", "BLUECHIP", "DIP_HUNTER", "TREASURY", "CASHGEN", "CYCLIC", "CORE"))
             assertTrue(l, Entry8114Mode8326.liveActive8326(l, false))
-        assertFalse(Entry8114Mode8326.liveActive8326("SHITCOIN", true))
+        // superseded by V5.0.8336 — paper meme entries route to the 8114 decision while the hold rehearses (never for PERPS)
+        val reh = EvidenceHold8336.rehearsal8336
+        try {
+            EvidenceHold8336.rehearsal8336 = true
+            assertEquals(EvidenceHold8336.enabled8336, Entry8114Mode8326.liveActive8326("SHITCOIN", true))
+            EvidenceHold8336.rehearsal8336 = false
+            assertFalse(Entry8114Mode8326.liveActive8326("SHITCOIN", true))
+        } finally { EvidenceHold8336.rehearsal8336 = reh }
         assertFalse(Entry8114Mode8326.liveActive8326("PERPS", false))
         assertEquals(13, Entry8114Mode8326.LANES_8326.size)
         // not while the shadow (current) verdict or the 8114 verdict is being computed (no recursion)
@@ -211,7 +219,15 @@ class Aate8326Entry8114ModeTest {
         assertSame(d, Entry8114Mode8326.admission8326("SHITCOIN", false, d))
         Entry8114Mode8326.noteConfig8326(true)
         assertNull(Entry8114Mode8326.admission8326("SHITCOIN", false, d))
-        assertSame(d, Entry8114Mode8326.admission8326("SHITCOIN", true, d))
+        // superseded by V5.0.8336 — while the evidence hold rehearses, PAPER meme entries are decided the live (8114) way,
+        // so the admission is not consulted in paper either; with rehearsal off paper passes it through as before.
+        val reh = EvidenceHold8336.rehearsal8336
+        try {
+            EvidenceHold8336.rehearsal8336 = true
+            assertNull(Entry8114Mode8326.admission8326("SHITCOIN", true, d))
+            EvidenceHold8336.rehearsal8336 = false
+            assertSame(d, Entry8114Mode8326.admission8326("SHITCOIN", true, d))
+        } finally { EvidenceHold8336.rehearsal8336 = reh }
     }
     @Test fun admittedTradesAreSizedThe8114Way() {
         // the 8114 expectancy multiplier carries no 8296 recency shrink; a non-admitted candidate keeps it

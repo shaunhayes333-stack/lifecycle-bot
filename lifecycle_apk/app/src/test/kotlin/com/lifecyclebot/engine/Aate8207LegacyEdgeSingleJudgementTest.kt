@@ -29,7 +29,14 @@ class Aate8207LegacyEdgeSingleJudgementTest {
 
     @Test fun genericPriorYieldsToSpecificAdmissionWithProvenance() {
         val checks = mutableListOf<FinalDecisionGate.GateCheck>(); val tags = mutableListOf<String>()
-        val verdict = FinalDecisionGate.legacyEdgeVetoVerdict8207("M", veto("Volume too low (12 < 30)"), "MOONSHOT", 7L, specificAdmit, checks, tags, nowMs = 13_000L)
+        // superseded by V5.0.8336 — while the evidence hold rehearses, the FDG helpers read no admission for a meme lane
+        // (paper decides the 8114 way, which had none) and the legacy veto stands; the 8207 supersession is pinned with
+        // rehearsal off.
+        val reh = com.lifecyclebot.engine.truth.EvidenceHold8336.rehearsal8336
+        val verdict = try {
+            com.lifecyclebot.engine.truth.EvidenceHold8336.rehearsal8336 = false
+            FinalDecisionGate.legacyEdgeVetoVerdict8207("M", veto("Volume too low (12 < 30)"), "MOONSHOT", 7L, specificAdmit, checks, tags, nowMs = 13_000L)
+        } finally { com.lifecyclebot.engine.truth.EvidenceHold8336.rehearsal8336 = reh }
         assertNull(verdict)
         assertTrue(tags.contains("edge_veto_superseded_8207"))
         val c = checks.single { it.name == "edge_veto_sticky" }
