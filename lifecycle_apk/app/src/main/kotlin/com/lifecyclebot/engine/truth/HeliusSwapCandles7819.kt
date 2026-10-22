@@ -148,8 +148,9 @@ object HeliusSwapCandles7819 {
         // V5.0.7881 — up to two 100-credit pages per job (288k credits/day at the old
         // 60/h cap); now also paced on the economy's SWAP_CANDLES share.
         // V5.0.8284 — the per-minute / per-hour job budget is tiered: held > near-decision > hand-off > bulk.
+        // V5.0.8307 — held / near-decision coins may use the day's on-pace headroom beyond the candles' own share.
         if (inFlight.size >= MAX_IN_FLIGHT || !claimBudget(nowMs, priority) ||
-            !HeliusCreditEconomy7881.admit(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 200.0, nowMs)) {
+            !admitCredits8307(priority, nowMs)) {
             budgetSkips.incrementAndGet()
             localTape8284(ts, nowMs, "budget"); priceBars8287(ts, nowMs)
             return
@@ -164,6 +165,11 @@ object HeliusSwapCandles7819 {
             }, "helius-candles-7819").apply { isDaemon = true }.start()
         } catch (_: Throwable) { inFlight.remove(mint) }
     }
+
+    /** V5.0.8307 — the credit admission for a job of [priority]: decision coins first (HeliusCreditEconomy7881.admitPriority8307). */
+    private fun admitCredits8307(priority: Int, nowMs: Long): Boolean =
+        if (priority >= PRIORITY_NEAR_DECISION_8284) HeliusCreditEconomy7881.admitPriority8307(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 200.0, nowMs)
+        else HeliusCreditEconomy7881.admit(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 200.0, nowMs)
 
     private fun claimBudget(nowMs: Long, priority: Int): Boolean = synchronized(jobStarts) {
         jobStarts.removeAll { nowMs - it > 3_600_000L }

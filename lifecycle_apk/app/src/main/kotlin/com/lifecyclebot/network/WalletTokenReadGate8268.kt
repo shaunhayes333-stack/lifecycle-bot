@@ -18,6 +18,7 @@ object WalletTokenReadGate8268 {
         var inFlight: Boolean = false,
         var failures: Int = 0,
         var retryAtMs: Long = 0L,
+        var inFlightSinceMs: Long = 0L,   // V5.0.8307 — when the outstanding read started (0 = none)
     )
 
     private val owners = ConcurrentHashMap<String, State>()
@@ -39,6 +40,7 @@ object WalletTokenReadGate8268 {
                 nowMs < state.retryAtMs -> "BACKOFF"
                 else -> {
                     state.inFlight = true
+                    state.inFlightSinceMs = nowMs
                     null
                 }
             }
@@ -80,6 +82,35 @@ object WalletTokenReadGate8268 {
                 state.retryAtMs = 0L
             }
             state.inFlight = false
+            state.inFlightSinceMs = 0L
         }
+    }
+
+    // ── V5.0.8307 §EVERY_CALLER_JOINS_THE_ONE_READ ──
+    //
+    // 5.0.8306: getTokenAccountsByOwner was 38.5k of 65.5k Helius credits and 1,416 of 1,871 reads were duplicates within
+    // 10 s. A caller that met IN_FLIGHT threw and walked its own fallback (the six-way known-mint fan-out, a retry, a
+    // per-mint read) instead of using the snapshot one second away. Callers now wait, bounded, for the read in flight and
+    // take its published snapshot; a caller needing a snapshot newer than a moment (a sell after its own broadcast) joins
+    // only a read that STARTED after that moment, so concurrent forced reads coalesce into one as well.
+
+    /** When the read in flight for [owner] started (0 = none in flight). */
+    fun inFlightSince8307(owner: String): Long = owners[owner]?.let { synchronized(it) { if (it.inFlight) it.inFlightSinceMs else 0L } } ?: 0L
+
+    /** Pure: may a caller needing a snapshot observed at or after [notBeforeMs] wait for a read that started at [startedAtMs]? */
+    fun joinable8307(startedAtMs: Long, notBeforeMs: Long): Boolean = startedAtMs > 0L && startedAtMs >= notBeforeMs
+
+    /** Pure: may a published snapshot observed at [observedAtMs] serve a caller at [nowMs] that needs one at/after [notBeforeMs]? */
+    fun serves8307(observedAtMs: Long, nowMs: Long, notBeforeMs: Long): Boolean =
+        observedAtMs > 0L && observedAtMs <= nowMs && observedAtMs >= notBeforeMs
+
+    /** Wait (bounded) until no read is in flight for [owner]. True when idle before [maxWaitMs] ran out. */
+    fun awaitIdle8307(owner: String, maxWaitMs: Long): Boolean {
+        val until = System.currentTimeMillis() + maxWaitMs.coerceAtLeast(0L)
+        while (inFlightSince8307(owner) > 0L) {
+            if (System.currentTimeMillis() >= until) return false
+            try { Thread.sleep(40L) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
+        }
+        return true
     }
 }

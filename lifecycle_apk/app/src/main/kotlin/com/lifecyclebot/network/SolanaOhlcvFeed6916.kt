@@ -201,7 +201,15 @@ object SolanaOhlcvFeed6916 {
         return SlotWait7809(gap.coerceAtLeast(0L), cooldown = false)
     }
 
-    private fun noteResponse6944(code: Int) {
+    /**
+     * V5.0.8307 — pure: the cooldown after a GeckoTerminal 429 / 5xx streak: the provider's own Retry-After when it states
+     * one (5 s .. 15 min), else the 7819 escalation ladder for [level].
+     */
+    internal fun cooldownMs8307(level: Long, retryAfterSec: Long?): Long =
+        if (retryAfterSec != null && retryAfterSec > 0L) (retryAfterSec * 1000L).coerceIn(5_000L, MAX_COOLDOWN_MS_7819)
+        else escalatedCooldownMs7819(level)
+
+    private fun noteResponse6944(code: Int, retryAfterSec8307: Long? = null) {
         pace8285(code)  // V5.0.8285 — adaptive pacing + this provider's own lane backoff
         if (code == 429 || code >= 500) {
             // V5.0.7819 §BACK_OFF_LIKE_YOU_MEAN_IT (Field Manual L404). 5.0.7813:
@@ -212,7 +220,7 @@ object SolanaOhlcvFeed6916 {
             // (60 s -> 15 min); one 2xx resets the ladder.
             if (code == 429 || consecutiveRejects.incrementAndGet() >= 3L) {
                 val level = cooldownLevel7819.getAndIncrement()
-                cooldownUntilMs.set(System.currentTimeMillis() + escalatedCooldownMs7819(level))
+                cooldownUntilMs.set(System.currentTimeMillis() + cooldownMs8307(level, if (code == 429) retryAfterSec8307 else null))  // V5.0.8307 — Retry-After honoured
                 consecutiveRejects.set(0L)
                 cooldowns7819.incrementAndGet()
             }
@@ -329,7 +337,7 @@ object SolanaOhlcvFeed6916 {
                 try {
                     ApiHealthMonitor.record(HOST, resp.code, System.currentTimeMillis() - started)
                 } catch (_: Throwable) {}
-                noteResponse6944(resp.code)
+                noteResponse6944(resp.code, resp.header("Retry-After")?.trim()?.toLongOrNull())
                 if (!resp.isSuccessful) return Fetched6982(null, askedProvider = true, failed8078 = true)
                 val body = resp.body?.string()
                 if (body.isNullOrBlank()) return Fetched6982(null, askedProvider = true, failed8078 = true)

@@ -504,6 +504,7 @@ object ChainLaunchFeed8179 {
 
     private val notifications = AtomicLong(0)
     private val swapsFiltered = AtomicLong(0)
+    private val swapsTaped8307 = AtomicLong(0)
     private val matches = AtomicLong(0)
     private val fetches = AtomicLong(0)
     private val fetchFailed = AtomicLong(0)
@@ -747,7 +748,12 @@ object ChainLaunchFeed8179 {
         val logs = ArrayList<String>(arr.length())
         for (i in 0 until arr.length()) logs.add(arr.optString(i, ""))
         val ix = creationInstruction8179(t, logs)
-        if (ix == null) { swapsFiltered.incrementAndGet(); return }
+        if (ix == null) {
+            swapsFiltered.incrementAndGet()
+            // V5.0.8307 — a PumpSwap swap on a pool whose mint is known reaches the trade tape instead of being thrown away.
+            if (t.venue == Venue8179.PUMPSWAP && sig.isNotBlank()) swapsTaped8307.addAndGet(PumpSwapTape8307.onProgramLogs8307(sig, logs).toLong())
+            return
+        }
         if (sig.isBlank() || !seenSigs.firstSeen8179(sig)) return
         matches.incrementAndGet()
         enqueueFetch8179(t, ix, sig, 0)
@@ -871,6 +877,11 @@ object ChainLaunchFeed8179 {
     private val birthHints = AtomicLong(0)
     @Volatile private var codexKeyed8287 = true
     private val codexNoKeySkips8287 = AtomicLong(0)
+    private val codexQuotaSkips8307 = AtomicLong(0)
+
+    /** Pure (V5.0.8307): the poller's report state — QUOTA_EXHAUSTED (resting until its reset) before the 8287 states. */
+    fun codexState8307(quotaExhausted: Boolean, keyed: Boolean, resting: Boolean, polls: Long, failed: Long): String =
+        if (keyed && quotaExhausted) "QUOTA_EXHAUSTED" else codexState8287(keyed, resting, polls, failed)
 
     /** Pure (V5.0.8287): the Codex poller's state for the report — NO_KEY, RESTING, FAILING (every poll failed), OK or IDLE. */
     fun codexState8287(keyed: Boolean, resting: Boolean, polls: Long, failed: Long): String = when {
@@ -959,6 +970,10 @@ object ChainLaunchFeed8179 {
         // V5.0.8287 — no key is an owner action, not a failing provider (8286: polls=8 failed=8): report NO_KEY, never poll.
         codexKeyed8287 = try { com.lifecyclebot.engine.chart.ChartSources7955.codexKeyed8287() } catch (_: Throwable) { false }
         if (!codexKeyed8287) { codexNoKeySkips8287.incrementAndGet(); return }
+        // V5.0.8307 — a spent Codex quota is not polled again (not even to fail) until it resets.
+        if (try { com.lifecyclebot.engine.chart.ChartSources7955.codexQuotaExhausted8307(now) } catch (_: Throwable) { false }) {
+            codexQuotaSkips8307.incrementAndGet(); return
+        }
         codexPolls.incrementAndGet()
         val minimal = codexMinimal
         val body = try { com.lifecyclebot.engine.chart.ChartSources7955.codexGraphql8179(codexQuery8179(minimal)) } catch (_: Throwable) { null }
@@ -1092,14 +1107,16 @@ object ChainLaunchFeed8179 {
         val found = launchesByVenue.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
         val age = if (lastLaunchMs > 0L) "${(now - lastLaunchMs) / 1000}s" else "-"
         return "chainLaunch8179[state=$state subs=${subByTarget.size}/${TARGETS_8179.size} parked{$parked} notes{$notes} " +
-            "swapsFiltered=${swapsFiltered.get()} matches=${matches.get()} fetches=${fetches.get()} fetchFailed=${fetchFailed.get()} " +
+            "swapsFiltered=${swapsFiltered.get()} swapsTaped8307=${swapsTaped8307.get()} matches=${matches.get()} fetches=${fetches.get()} fetchFailed=${fetchFailed.get()} " +
             "unreadable=${unreadable.get()} queueDropped=${queueDropped.get()} backoffSkipped=${backoffSkipped.get()} budgetSkipped=${budgetSkipped.get()} " +
             "dupMints=${dupMints.get()} rateLimited=${rateLimited.get()} launches{$found} lastLaunch=$age births=${births.get()} floors=${floors.get()} " +
             "parks=${parks.get()} connects=${connects.get()} lastError=$lastError " +
             "transport8191=${if (shared8191) "shared" else if (ws != null) "dedicated" else "none"} subRequests=${subRequests8191.get()} " +
             "subAcks=${subAcks8191.get()} ackExpired=${ackExpired8191.get()} handshake{$lastHandshake8191 refusals=$handshakeRefusals8191} " +
             "backoffLeftMs=${(reconnectNotBeforeMs8191 - now).coerceAtLeast(0L)}] " +
-            "codex8179[state=${codexState8287(try { com.lifecyclebot.engine.chart.ChartSources7955.codexKeyed8287() } catch (_: Throwable) { codexKeyed8287 }, now < codexRestUntilMs, codexPolls.get(), codexFailed.get())} " +
+            "codex8179[state=${codexState8307(try { com.lifecyclebot.engine.chart.ChartSources7955.codexQuotaExhausted8307(now) } catch (_: Throwable) { false },
+                try { com.lifecyclebot.engine.chart.ChartSources7955.codexKeyed8287() } catch (_: Throwable) { codexKeyed8287 }, now < codexRestUntilMs, codexPolls.get(), codexFailed.get())} " +
+            "quotaSkips8307=${codexQuotaSkips8307.get()} resetsInMin8307=${((try { com.lifecyclebot.engine.chart.ChartSources7955.codexQuotaResetsAtMs8307() } catch (_: Throwable) { 0L }) - now).coerceAtLeast(0L) / 60_000L} " +
             "noKeySkips=${codexNoKeySkips8287.get()} polls=${codexPolls.get()} failed=${codexFailed.get()} seen=${codexSeen.get()} new=${codexNew.get()} skipped=${codexSkipped.get()} " +
             "birthHints=${birthHints.get()} query=${if (codexMinimal) "minimal" else "full"} lastError=$codexLastError] " +
             "hostCircuit8179[halfOpenProbes=${try { HostCircuitInterceptor.halfOpenProbes8179() } catch (_: Throwable) { 0L }}] " +

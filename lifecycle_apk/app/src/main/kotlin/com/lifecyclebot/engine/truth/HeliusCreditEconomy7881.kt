@@ -351,6 +351,43 @@ object HeliusCreditEconomy7881 {
         return admitWithinBudget8094(consumer, estCredits, nowMs)
     }
 
+    /**
+     * V5.0.8307 — pure: may a DECISION-priority job (a held or near-decision coin) spend [estCredits] beyond its consumer's
+     * own share? Only while the whole day stays on pace (total + est within the paced budget): the credits the shared
+     * wallet-read cache frees go to the coins being decided, never past the day's budget.
+     */
+    fun priorityAdmits8307(budget: Double, dayFraction: Double, totalSpent: Double, estCredits: Double): Boolean {
+        val pace = (dayFraction + 1.0 / 24.0).coerceIn(0.0, 1.0)
+        return totalSpent + estCredits <= budget * pace
+    }
+
+    private val priorityAdmittedN8307 = AtomicLong(0)
+
+    /**
+     * V5.0.8307 — [admit] for a held / near-decision job: its own share first; then any on-pace headroom of the day
+     * (5.0.8306: swap candles budget-skipped 835 of 836 while getTokenAccountsByOwner duplicates spent the pace).
+     */
+    fun admitPriority8307(consumer: Consumer, estCredits: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (admit(consumer, estCredits, nowMs)) return true
+        if (exhaustedLatched8094(nowMs)) return false
+        return try {
+            rollIfNewDay(nowMs)
+            val ok = synchronized(this) {
+                val allowed = priorityAdmits8307(DAILY_BUDGET_CREDITS, dayFraction(nowMs), total, estCredits)
+                if (allowed) {
+                    val row = byConsumer.getOrPut(consumer.name) { DoubleArray(3) }
+                    row[0] += 1.0; row[1] += estCredits; enrichmentAdmitted += estCredits
+                }
+                allowed
+            }
+            if (ok) {
+                priorityAdmittedN8307.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("HELIUS_ECONOMY_PRIORITY_ADMIT_8307_${consumer.name}") } catch (_: Throwable) {}
+            }
+            ok
+        } catch (_: Throwable) { false }
+    }
+
     private fun admitWithinBudget8094(consumer: Consumer, estCredits: Double, nowMs: Long): Boolean = try {
         rollIfNewDay(nowMs)
         val value = valueOf(consumer)
@@ -434,7 +471,7 @@ object HeliusCreditEconomy7881 {
         fun k(v: Double) = if (v >= 1_000_000) "%.2fM".format(v / 1_000_000) else if (v >= 1_000) "%.1fk".format(v / 1_000) else "%.0f".format(v)
         return synchronized(this) {
             "  exhausted8094=${if (exhaustedLatched8094(nowMs)) "LATCHED" else "no"}(latches=${exhaustedLatches8094.get()} unconfirmed8191=${exhaustUnconfirmed8191.get()})" +
-            "  today=${k(total)} credits  pace→${k(projected)}/day  budget=${k(DAILY_BUDGET_CREDITS)}/day (${"%.0f".format(total / DAILY_BUDGET_CREDITS * 100)}%) hardGate8066[refused=${refused8066.get()}]\n" +
+            "  today=${k(total)} credits  pace→${k(projected)}/day  budget=${k(DAILY_BUDGET_CREDITS)}/day (${"%.0f".format(total / DAILY_BUDGET_CREDITS * 100)}%) hardGate8066[refused=${refused8066.get()}] priorityAdmit8307=${priorityAdmittedN8307.get()}\n" +
                 "  tiers: " + Tier.values().joinToString(" · ") { t -> byTier[t]?.let { "${t.name}=${k(it[1])}(${it[0].toLong()} calls)" } ?: "${t.name}=0" } + "\n" +
                 "  top methods: " + byMethod.entries.sortedByDescending { it.value[1] }.take(8)
                     .joinToString(" · ") { "${it.key}=${k(it.value[1])}(${it.value[0].toLong()})" }.ifBlank { "-" } + "\n" +

@@ -256,7 +256,8 @@ class DataOrchestrator(
                 DataPipeline8191.nearDecision8191(it, nowMs)
         }.take(capacity)
         if (nowMs < heliusFocusRotateAt8269 && activeOld.isNotEmpty()) return
-        val focus = DataPipeline8191.recentNearDecisionMints8269(capacity * 3, nowMs)
+        // V5.0.8307 — a migrated coin PumpPortal refuses PumpSwap data for takes a Helius slot first.
+        val focus = com.lifecyclebot.network.PumpSwapTape8307.migratedFirst8307(DataPipeline8191.recentNearDecisionMints8269(capacity * 3, nowMs))
             .asSequence()
             .filter { it in status.tokens && it !in held && heliusMintEligible7819(it) }
             .take(capacity).toSet()

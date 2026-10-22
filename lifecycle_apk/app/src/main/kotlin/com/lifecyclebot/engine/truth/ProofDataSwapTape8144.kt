@@ -58,7 +58,10 @@ object ProofDataSwapTape8144 {
         if (signature.isNotBlank() && seen8144.put("$mint|$signature|$isBuy", true) != null) { skippedDuplicate.incrementAndGet(); return false }
         // V5.0.8169 — per-feed count; V5.0.8285 — with signature (cross-feed dedup), token size and receive time. The
         // decoded TradeEvent names no pool (curve or PumpSwap): its venue stays unstated, never guessed.
-        if (!TradeTape8100.note8285(mint, sol / tokenAmount, sol, tokenAmount, isBuy, TradeTape8100.SRC_HELIUS_8169, signature = signature, recvMs = nowMs)) {
+        // V5.0.8307 — a decoded PumpSwap swap states its pool and block time (PumpSwapTape8307): the print keeps both.
+        val amm8307: com.lifecyclebot.network.PumpSwapTape8307.AmmPrint8307? = try { com.lifecyclebot.network.PumpSwapTape8307.takePool8307(signature, mint) } catch (_: Throwable) { null }
+        if (!TradeTape8100.note8285(mint, sol / tokenAmount, sol, tokenAmount, isBuy, TradeTape8100.SRC_HELIUS_8169,
+                pool = amm8307?.pool.orEmpty(), signature = signature, eventMs = amm8307?.eventMs ?: 0L, recvMs = nowMs)) {
             skippedDuplicate.incrementAndGet(); crossFeedDup8285.incrementAndGet(); return false
         }
         taped.incrementAndGet()

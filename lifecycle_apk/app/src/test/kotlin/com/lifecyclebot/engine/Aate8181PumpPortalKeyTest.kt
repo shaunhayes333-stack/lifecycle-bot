@@ -11,7 +11,9 @@ class Aate8181PumpPortalKeyTest {
     private fun src(path: String) = File("src/main/kotlin/com/lifecyclebot/$path").readText()
 
     @Test fun pumpSwapBalanceRefusalIsTheSameFundingDenial() {
-        assertTrue(PumpFunWS.isTradeAuthRefusal7432("{\"errors\":\"Minimum balance not met for PumpSwap websocket data.\"}"))
+        // V5.0.8307 — the PumpSwap balance refusal is scoped to post-migration data (Aate8307DataTest), never the whole stream.
+        assertFalse(PumpFunWS.isTradeAuthRefusal7432("{\"errors\":\"Minimum balance not met for PumpSwap websocket data.\"}"))
+        assertTrue(PumpFunWS.isPumpSwapRefusal8307("{\"errors\":\"Minimum balance not met for PumpSwap websocket data.\"}"))
         assertTrue(PumpFunWS.isTradeAuthRefusal7432(
             "'subscribeTokenTrade' and 'subscribeAccountTrade' methods are only available when connecting with an API key funded with at least 0.02 SOL."))
         assertFalse(PumpFunWS.isTradeAuthRefusal7432("Successfully subscribed to keys."))
