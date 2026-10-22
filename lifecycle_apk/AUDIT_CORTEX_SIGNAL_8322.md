@@ -110,10 +110,11 @@ So the model learns that volatile early coins pay later, and is then scored on t
   - realised-money robust reads.
 - Cortex authority is still composed by minimum of four factors: label fraction, realised cap, walk-forward, and owner-routed realised evidence. It is still bounded by the 8298 RegressionRestore doors for live entry, and it never overrides safety.
 - Veto retirement still requires the 8185 robust proof, so a refusal stays until its winners are robustly real.
-- Out of scope, flagged for their owners:
-  - `ScannerSourceBrain.recordOutcome` still caps at +200% (`Cortex7885.onLabel`).
-  - `LaunchTape7921` still clamps at ingestion.
-  - Labeler cell reads (`read8185`) still treat OUTLIER_SUSPECT as no proof for live doors.
+- The three caps first flagged here were fixed in a follow-up commit, at the coordinator's request:
+  - **Scanner source brain.** `ScannerSourceBrain` outcomes are raw. The +200% cap sat at the `Cortex7885.onLabel` call site.
+  - **Launch tape.** `LaunchTape7921` stores raw at ingestion. Bounded memory is unchanged, and its `tapeStat8187` reads follow the same 3+ runner rule.
+  - **Labeler cells.** Labeler cell reads go through `ForwardReturnLabeler7731.tailRead8322`. A cell with 3+ **local** runners on basis-checked marks reads raw, with the sample standard error, and is not OUTLIER_SUSPECT. Hive labels do not count towards the 3 runners. A cell resting on one implausible label keeps the 8185 bound and the 8290 veto. The display flag is `OUTLIER_FLAG_TAIL_8322` and the counter is `tailReadRaw8322`.
+  - **Effect on live doors.** The change is made where the cell is read, so every 8290 door now follows it without its own code changing: judge, runner tail, cohort, cell-wins, watch-first, RunnerGrab, CellProofLadder, and the CandidateAdmission evidence `suspect8290` flag. `LiveAdmissionProof8290`'s realised shortfall is unchanged. Tests: `Aate8322TailCapsTest`.
 
 ## 5. What to watch in the next live report
 
