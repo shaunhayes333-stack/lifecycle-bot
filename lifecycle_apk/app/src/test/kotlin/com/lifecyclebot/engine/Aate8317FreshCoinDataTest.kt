@@ -191,7 +191,7 @@ class Aate8317DataHolesTest {
         DataPipeline8191.resetForTests8191()
         val now = System.currentTimeMillis()
         val young = "Young8317bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-        val old = "Old8317cccccccccccccccccccccccccccccccccccccc"
+        val old = "Old8317ccccccccccccccccccccccccccccccccccccc"   // 44 chars: a valid mint length
         AdmissionBirth8144.noteChainMintInit8179(young, now - 5L * 60_000L)       // born five minutes ago on chain
         AdmissionBirth8144.noteChainMintInit8179(old, now - 3L * 3_600_000L)      // born three hours ago
         assertTrue(i.noteIntake8317(young, now))

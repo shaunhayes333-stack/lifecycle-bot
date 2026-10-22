@@ -51,8 +51,10 @@ class Aate8269CostFloorEntryTest {
         assertNull(MinPromotion8188.refusal8188(0.020, floor, 10.0, 10.0, 8.0, 24.0, 0.33, 0.075, true))
         assertEquals(MinPromotion8188.REFUSED_NEGATIVE_EDGE_8188,
             MinPromotion8188.refusal8188(0.020, floor, 10.0, 10.0, 8.0, 7.0, 0.33, 0.075, true))
-        assertEquals(MinPromotion8188.REFUSED_UNMEASURED_EDGE_8188,
-            MinPromotion8188.refusal8188(0.020, floor, 10.0, 10.0, 8.0, Double.NaN, 0.33, 0.075, true))
+        // superseded by V5.0.8316 (owner directive P2): an unmeasured edge promotes on the lane's free exploration slot,
+        // and is still refused when the slot is taken
+        assertNull(MinPromotion8188.refusal8188(0.020, floor, 10.0, 10.0, 8.0, Double.NaN, 0.33, 0.075, true))
+        assertNotNull(MinPromotion8188.refusal8188(0.020, floor, 10.0, 10.0, 8.0, Double.NaN, 0.33, 0.075, false))
         assertEquals(MinPromotion8188.REFUSED_LOSS_BUDGET_8188,
             MinPromotion8188.refusal8188(0.020, floor, 10.0, 10.0, 8.0, 24.0, 0.33, 0.020, true))
         val policy = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveRiskPolicy7807.kt").readText()
