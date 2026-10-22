@@ -35,11 +35,21 @@ class Aate8184LiveNoPaperTest {
 
     @Before fun setUp() {
         LiveNoPaper8184.resetForTest8184()
+        LiveNoPaper8184.enforced8184 = true   // V5.0.8336 — these tests pin the freeze itself; it is off by default
     }
 
     @After fun tearDown() {
         RuntimeModeAuthority.publishRuntimeStart(paperMode = true, autoTrade = false)
         LiveNoPaper8184.resetForTest8184()
+        LiveNoPaper8184.enforced8184 = false
+    }
+
+    @Test fun freeze_off_by_default_lets_paper_trade_beside_live_8336() {
+        LiveNoPaper8184.enforced8184 = false
+        RuntimeModeAuthority.publishRuntimeStart(paperMode = false, autoTrade = true)
+        assertTrue(LiveNoPaper8184.paperEntryAllowed8184("LLM_LAB_PAPER_OPEN"))
+        assertTrue(LiveNoPaper8184.paperManageAllowed8184("LLM_LAB"))
+        assertEquals(0L, LiveNoPaper8184.totalRefusals8184())
     }
 
     @Test fun gate_is_false_in_live_and_counts_each_refusal_by_source() {

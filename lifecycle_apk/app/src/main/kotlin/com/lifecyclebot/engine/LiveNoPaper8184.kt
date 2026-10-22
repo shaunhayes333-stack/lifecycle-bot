@@ -37,12 +37,22 @@ object LiveNoPaper8184 {
     private val quietClosed8184 = ConcurrentHashMap<String, AtomicLong>()
     private val frozenManageSkips8184 = AtomicLong(0L)
 
-    /** True when the runtime authority is LIVE. */
-    private fun isLive8184(): Boolean = RuntimeModeAuthority.isLive()
+    /**
+     * V5.0.8336 §PAPER_RUNS_BESIDE_LIVE — owner: "turn back on the paper trading". 8184 (10-17) froze every paper
+     * book while LIVE: the LLM Lab (189 refusals in a 4-minute 8316 session), the crypto LLM desk, the multi-chain lane
+     * and the canonical cross-asset paper rows. Builds 8065 / 8086 / 8114, the ones that made money, ran with those books
+     * trading. While this is false (the default) the gate is open in LIVE exactly as before 8184; set it true to restore
+     * the 8184 freeze. The meme executor's own paperBuy stays blocked in LIVE by ExecutionRouteGuard (V5.0.3725, also in
+     * 8114) — meme lanes learn in LIVE through the shadow path, unchanged.
+     */
+    @Volatile var enforced8184: Boolean = false
+
+    /** True when the runtime authority is LIVE and the 8184 freeze is enforced. */
+    private fun isLive8184(): Boolean = enforced8184 && RuntimeModeAuthority.isLive()
 
     /**
-     * V5.0.8184 — the one entry gate. False in LIVE (refusal counted under
-     * [source]); true in PAPER.
+     * V5.0.8184 — the one entry gate. False in LIVE while [enforced8184] (refusal counted under
+     * [source]); true in PAPER, and true in LIVE while the freeze is off (V5.0.8336).
      */
     fun paperEntryAllowed8184(source: String): Boolean {
         if (!isLive8184()) return true
@@ -85,6 +95,8 @@ object LiveNoPaper8184 {
 
     /** Report line (PipelineHealthCollector exit-coverage helper). */
     fun statusLine8184(): String {
+        if (!enforced8184) return "mode=${if (RuntimeModeAuthority.isLive()) "LIVE" else "PAPER"} freeze=OFF_8336 " +
+            "rule=paper books (LLM Lab, crypto LLM desk, multi-chain, cross-asset) trade beside LIVE as at 8114; meme paperBuy stays shadow-only in LIVE"
         val live = isLive8184()
         val frozenCanonical = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
