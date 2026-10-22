@@ -232,7 +232,10 @@ object AateDecisionFabric6512 {
         // V5.0.8136 — classify the close: exact envelope, restored sealed identity, owner-ledger only, unverifiable.
         val attribution8136 = AateEntryIdentityBook8136.attribution8136(
             hasEnvelope = e != null && hadLink8136, hasSealedIdentity = e != null && !hadLink8136,
-            ledgerOwner = if (e != null) null else try { LaneAttributionLedger6427.getEntryLane(env.positionId) } catch (_: Throwable) { null },
+            // V5.0.8332 — the owner lane sealed in the entry snapshot (same mint) delivers the close when the BUY-pending
+            // ledger stamp is gone too (5.0.8326: specialist learning 3 missing); an entry-time stamp, never a later inference.
+            ledgerOwner = if (e != null) null else (try { LaneAttributionLedger6427.getEntryLane(env.positionId) } catch (_: Throwable) { null })
+                .takeUnless { it.isNullOrBlank() } ?: SpecialistDelivery8332.sealedEntryLane8332(env.positionId, env.mint),
         )
         AateEntryIdentityBook8136.noteAttribution8136(attribution8136)
         if (e == null && env.lane.uppercase() in setOf("QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE","MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN")) {
@@ -257,7 +260,9 @@ object AateDecisionFabric6512 {
             // pWin/rug; those stay null so the fallback bind path
             // uses safe defaults.
             try {
-                val ledgerLane6747 = LaneAttributionLedger6427.getEntryLane(env.positionId)
+                // V5.0.8332 — the entry snapshot's sealed owner lane stands in for a missing ledger stamp (same mint only).
+                val ledgerLane6747 = LaneAttributionLedger6427.getEntryLane(env.positionId).takeUnless { it.isNullOrBlank() }
+                    ?: SpecialistDelivery8332.sealedEntryLane8332(env.positionId, env.mint)
                 if (!ledgerLane6747.isNullOrBlank()) {
                     // V5.0.6752 §CAUSAL_OWNER_LEDGER_TRUTH — operator
                     // 6750 diagnostic: UNRESOLVED_OWNER_6741=85 and

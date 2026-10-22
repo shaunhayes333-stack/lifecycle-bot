@@ -218,6 +218,8 @@ object TokenMetricsAuthority7069 {
     private val lastPriceSeen7268 = ConcurrentHashMap<String, Seen7268>()
     private val capStaleClassified7268 = AtomicLong(0L)
     private val corroboratedDisagree7268 = AtomicLong(0L)
+    /** V5.0.8332 — price and cap written at different times, disagreeing within a market move: unverifiable, not broken. */
+    private val writeSkewClassified8332 = AtomicLong(0L)
 
     private fun noteSeen7268(map: ConcurrentHashMap<String, Seen7268>, mint: String, value: Double, nowMs: Long) {
         if (!value.isFinite() || value <= 0.0) return
@@ -387,6 +389,30 @@ object TokenMetricsAuthority7069 {
         // through, and do not feed the execution gate a "broken" verdict.
         val capStale7268 = capStale7268(mint, now7268)
         val corroborated7268 = sourceCorroborated7268(source)
+        // V5.0.8332 §IDENTITY_AT_MATCHING_TIMESTAMPS — price and cap are an identity only inside ONE write. Separate feeds
+        // write them at different times (AUDIT_RUNTIME_8327 §5: METRICS_IDENTITY_BROKEN_7069 = 2,973, mostly time skew inside
+        // the 20 s before CAP_STALE), so two values that changed more than SAME_WRITE_MS apart and disagree within a market
+        // move are WRITE_SKEW: unverifiable, the provider's price passes through untouched, nothing substituted, and the
+        // execution gate is NOT fed a verdict either way. A unit break (outside 0.5x..2x) stays BROKEN whatever the timing,
+        // and so does any disagreement inside one write. IDENTITY_EPSILON itself is unchanged.
+        if (!capStale7268 && !corroborated7268) {
+            val priceAt8332 = lastPriceSeen7268[mint]?.changedAtMs ?: now7268
+            val capAt8332 = lastCapSeen7268[mint]?.changedAtMs ?: now7268
+            if (IdentitySkew8332.classify8332(ratio, IDENTITY_EPSILON, priceAt8332, capAt8332) == IdentitySkew8332.Verdict8332.SKEW) {
+                unverifiable.incrementAndGet()
+                writeSkewClassified8332.incrementAndGet()
+                try {
+                    PipelineHealthCollector.labelInc("TOKEN_METRICS_UNVERIFIABLE_WRITE_SKEW_8332")
+                    if (writeSkewClassified8332.get() % 50L == 1L) ForensicLogger.lifecycle(
+                        "TOKEN_METRICS_WRITE_SKEW_8332",
+                        "mint=${mint.take(10)} sym=$symbol src=$source reportedPrice=$price impliedPrice=$impliedPrice " +
+                            "ratio=${"%.6g".format(ratio)} priceChangedAgoMs=${now7268 - priceAt8332} capChangedAgoMs=${now7268 - capAt8332} " +
+                            "action=price_passes_through_no_substitution_no_gate_feed",
+                    )
+                } catch (_: Throwable) {}
+                return Metrics7069(price, mcap, storedSupply, repaired = false, verifiable = false)
+            }
+        }
         if (capStale7268 || corroborated7268) {
             unverifiable.incrementAndGet()
             if (capStale7268) capStaleClassified7268.incrementAndGet() else corroboratedDisagree7268.incrementAndGet()

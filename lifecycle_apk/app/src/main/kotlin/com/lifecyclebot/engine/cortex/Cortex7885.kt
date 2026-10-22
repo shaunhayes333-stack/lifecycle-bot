@@ -1967,7 +1967,7 @@ object Cortex7885 {
         return "binding8187[rate=${if (rate.isFinite()) "%.0f%%".format(rate * 100.0) else "-"} bound=$bound unmatched=$miss " +
             "fromDecisionRecord=${counterSum8169("REALIZED_BOUND_FROM_DECISION_RECORD_8187")} deferredRead=${counterSum8169("REALIZED_BOUND_DEFERRED_READ_8187")} " +
             "lateReadBound=${counterSum8169("ENTRY_BOUND_LATE_READ_8187")} replays[filed=${counterSum8169("REALIZED_REPLAY_ALREADY_FILED_8187")} " +
-            "unmatched=${counterSum8169("REALIZED_REPLAY_UNMATCHED_8187")}]]"
+            "unmatched=${counterSum8169("REALIZED_REPLAY_UNMATCHED_8187")}]] " + com.lifecyclebot.engine.truth.GradeBind8332.line8332()
     }
 
     /** V5.0.8187 — the scoreboard card's one-line pulse: graded per hour and this session's realised binding rate. */
@@ -2708,7 +2708,8 @@ object Cortex7885 {
      * else the admitted decision record (bucket only, no voter raws) — after its trade record opens, so it is filed once.
      */
     private fun recoverRead8187(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope, closeKey: String, mode: String,
-                                sealed: com.lifecyclebot.engine.truth.AateEntryIdentity8136?): Assessment? {
+                                sealed: com.lifecyclebot.engine.truth.AateEntryIdentity8136?,
+                                snap8332: com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot? = null): Assessment? {
         // 8198 — observe, do not consume: a failed/retried delivery must not destroy the deferred bind, and a later
         // arriving read still binds through retryDeferredBinds8187. The entry is cleaned by its own TTL/size bound.
         deferredBinds8187[env.positionId]?.let { d ->
@@ -2717,8 +2718,13 @@ object Cortex7885 {
         }
         if (gradeBook8144.trade(env.positionId) != null) return null
         val openedAt = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
-        val lanes = listOfNotNull(sealed?.takeIf { it.mode.equals(mode, true) && it.mint == env.mint }?.ownerLane, canon(env.lane), env.lane.trim().uppercase())
+        // V5.0.8332 — ONE canonical key: the lane the entry snapshot sealed at the fill (same mint) leads, and the sealed entry
+        // time is a second open time to look the admitted decision up under (the close's holding time can disagree with it).
+        val snapLane8332 = snap8332?.takeIf { it.mint == env.mint && it.mode8090.equals(mode, true) }?.entryLane
+        val lanes = listOfNotNull(snapLane8332, sealed?.takeIf { it.mode.equals(mode, true) && it.mint == env.mint }?.ownerLane, canon(env.lane), env.lane.trim().uppercase())
             .map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
+        val openedAtSnap8332 = com.lifecyclebot.engine.truth.GradeBind8332.openedAt8332(
+            snap8332?.takeIf { it.mint == env.mint }?.entryTimestampMs, env.atMs, env.holdingTimeMs)
         val sealedAt = sealed?.takeIf { it.mode.equals(mode, true) && it.mint == env.mint }?.decisionTimestampMs ?: 0L
         // 8196: a fast on-chain close can arrive before the five-minute forward
         // label books its original entry read. The immutable pending decision
@@ -2739,6 +2745,7 @@ object Cortex7885 {
             .mapNotNull { (m, l) ->
                 (if (sealedAt > 0L) gradeBook8144.admittedDecision8187(m, l, mode, sealedAt + 60_000L, 120_000L) else null)
                     ?: gradeBook8144.admittedDecision8187(m, l, mode, openedAt, ENTRY_READ_MATCH_MS)
+                    ?: (if (openedAtSnap8332 != openedAt) gradeBook8144.admittedDecision8187(m, l, mode, openedAtSnap8332, ENTRY_READ_MATCH_MS) else null)   // V5.0.8332
             }.firstOrNull() ?: return null
         val bucket = CortexScoreboard7885.Bucket.values().getOrNull(d.bucket) ?: return null
         val fused = CortexLedger7885.Fused(d.predictedEdgePct.takeIf { it.isFinite() } ?: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, emptyList())
@@ -2780,7 +2787,9 @@ object Cortex7885 {
         val eligible = env.learningEligible && env.realizedReturnPct.isFinite() && verified8082
         // V5.0.8144 — the owner of the trade, read outside the lock: the sealed entry identity, else the entry snapshot.
         val sealed8144 = if (!eligible) null else try { com.lifecyclebot.engine.truth.AateEntryIdentityBook8136.identity8136(env.positionId) } catch (_: Throwable) { null }
-        val snapTag8144 = if (!eligible) null else try { com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(env.positionId)?.cortexSetupTag8085 } catch (_: Throwable) { null }
+        // V5.0.8332 — the whole sealed entry snapshot is read here, outside the lock (its lane and entry time are the canonical bind key).
+        val snap8332 = if (!eligible) null else try { com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(env.positionId) } catch (_: Throwable) { null }
+        val snapTag8144 = snap8332?.cortexSetupTag8085
         var gradeMutationsBegun8198 = false
         // V5.0.8325 §NO_IO_UNDER_THE_CORTEX_LOCK — the receipt row is read BEFORE the lock (boot replays ~1,345 closes, each read
         // the store while holding the Cortex monitor). Receipts are only ever added, so a stale "absent" re-checks harmlessly.
@@ -2813,13 +2822,18 @@ object Cortex7885 {
                     // 8198 — PEEK, never take: the entry assessment survives a failed grade or a failed delivery,
                     // and recovery paths can still see it.
                     val a: Assessment? = positionReads8076.peek(env.positionId, closeKey7931, mode)
-                        ?: recoverRead8187(env, closeKey7931, mode, sealed8144)
+                        ?: recoverRead8187(env, closeKey7931, mode, sealed8144, snap8332)
                     if (a == null) {
                         // V5.0.8187 — a boot replay of a close the book already filed is not a missed binding.
                         val replay8187 = env.atMs in 1 until loadedAtMs8169
-                        if (replay8187 && gradeBook8144.trade(env.positionId) != null) inc("REALIZED_REPLAY_ALREADY_FILED_8187")
+                        val filed8332 = gradeBook8144.trade(env.positionId) != null
+                        if (replay8187 && filed8332) inc("REALIZED_REPLAY_ALREADY_FILED_8187")
                         else if (replay8187) inc("REALIZED_REPLAY_UNMATCHED_8187")
                         else inc("REALIZED_UNMATCHED")
+                        // V5.0.8332 — every unbound close names why (gradeBind8332[unbound=why]); counters only, no IO under the lock.
+                        com.lifecyclebot.engine.truth.GradeBind8332.noteUnbound8332(com.lifecyclebot.engine.truth.GradeBind8332.unboundWhy8332(
+                            replay8187, filed8332, snap8332 != null,
+                            snap8332 != null && !snap8332.entryLane.equals(env.lane, true), sealed8144 != null))
                         // 8153 — absent entry evidence is explicit: the sealed owner (no voter raws) takes the outcome.
                         if (!fileUnboundClose8153(env, mode, sealed8144, snapTag8144)) {
                             uncommittedCloseGrades8198.remove(tradeId)   // nothing mutated; a redelivery would be the same no-op
@@ -2846,6 +2860,7 @@ object Cortex7885 {
                         routeRealised8144(env, mode, a, sealed8144, snapTag8144)
                         lastExecRefresh8187 = 0L; execRefresh8325 = true  // V5.0.8187 — a close re-measures the gap (V5.0.8325: after the lock)
                         inc("REALIZED_${mode}")
+                        com.lifecyclebot.engine.truth.GradeBind8332.noteBound8332()   // V5.0.8332 — gradeBind8332[bound]
                     }
                 } catch (t: Throwable) {
                     // A failure BEFORE the first mutation is a clean retry: the unread gate is released and the next

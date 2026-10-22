@@ -159,6 +159,8 @@ object MarkIdentityRepairAuthority7236 {
                             )
                         }
                     } catch (_: Throwable) {}
+                } else if (curveRepair8332(mint, solUsd)) {
+                    // V5.0.8332 — no off-chain feed lists an un-graduated pump coin: its own curve reserves are the mark.
                 } else if (heldQuoteRepair8189(mint)) {
                     // V5.0.8189 — no feed answered: a held position is repaired from a Jupiter sell quote for its held quantity.
                 } else {
@@ -169,6 +171,22 @@ object MarkIdentityRepairAuthority7236 {
                 noteFail8169(AccountingIntegrity8169.repairFailureReason8169(true, true, false, false))
             }
         }
+    }
+
+    /**
+     * V5.0.8332 — the repair for an UN-GRADUATED pump coin whose price no off-chain feed lists (5.0.8326: NO_FEED_ANSWERED
+     * 342/1,312; AUDIT_RUNTIME_8327 §5 "the coin's own curve account is never asked"): its own curve reserves
+     * (CurveReserves7951, observed from the venue's frames / account reads within [CurveMark8332.CURVE_MARK_MAX_AGE_MS_8332])
+     * priced in SOL and converted at the known SOL price. Cached at the reading's OWN observed time, so a stale reading ages
+     * out of [getRepairedPriceIfFresh] exactly like any other repair. Nothing is invented: no reading, no repair.
+     */
+    private fun curveRepair8332(mint: String, solUsd: Double): Boolean {
+        val m = try { CurveMark8332.read8332(mint, solUsd, System.currentTimeMillis()) } catch (_: Throwable) { null } ?: return false
+        cache[mint] = Repaired(m.priceUsd, CurveMark8332.SOURCE_8332, m.observedAtMs)
+        try { MarkIdentityExecutionGate7230.markRepairedUsable7243(mint) } catch (_: Throwable) {}
+        repairSucceeded.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("MARK_REPAIR_SUCCEEDED_7236_PUMP_CURVE_8332") } catch (_: Throwable) {}
+        return true
     }
 
     /**
