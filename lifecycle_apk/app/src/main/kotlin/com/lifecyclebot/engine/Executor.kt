@@ -23391,7 +23391,7 @@ class Executor(
         if (com.lifecyclebot.engine.sell.EmergencySellRoute8308.keepAggregator8308(ts.mint, reason)) return false
         // V5.0.8144 — with PumpPortal hard-failed / out of budget (or no pump curve) an escalated emergency that skipped
         // Jupiter had only Raydium left: NO_SIGNATURE on every attempt. The aggregator stays in the ladder then.
-        if (!directRouteViable8144(ts.mint)) {
+        if (!directRouteViable8144(ts.mint) || com.lifecyclebot.engine.sell.StopRoute8189.raydiumDirectSkipped8315(ts.mint, reason)) {  // V5.0.8315 — a skipped Raydium build is no direct route
             try { PipelineHealthCollector.labelInc("SELL_QUOTE_LADDER_KEPT_NO_DIRECT_ROUTE_8144") } catch (_: Throwable) {}
             return false
         }
@@ -23921,7 +23921,7 @@ class Executor(
                     SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED,
                     SellResult.ALREADY_CLOSED, SellResult.FAILED_FATAL,
                     SellResult.ROUTE_FAILED_NO_SIGNATURE -> {
-                        com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, r.name)
+                        val kept8315 = com.lifecyclebot.engine.sell.NoSignatureLease8315.settle8315(ts.mint, canonicalReason, r.name)  // V5.0.8315 — an emergency NO_SIGNATURE keeps its lease + 7807 cadence; everything else releases
                         // V5.0.7807 — a position that ended without (another) broadcast must not
                         // leave its trigger stamp for the next position on this mint.
                         if (r == SellResult.ALREADY_CLOSED || r == SellResult.FAILED_FATAL) {
@@ -23934,7 +23934,7 @@ class Executor(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 kind = com.lifecyclebot.engine.sell.SellFailureHistory.Kind.ROUTE_FAILED_NO_SIGNATURE,
-                                reason = "requestSell released CloseLease; no blocking retry queue",
+                                reason = if (kept8315) "requestSell kept the emergency CloseLease (V5.0.8315 cadence retry)" else "requestSell released CloseLease; no blocking retry queue",
                                 sig = null,
                             ) } catch (_: Throwable) {}
                         }

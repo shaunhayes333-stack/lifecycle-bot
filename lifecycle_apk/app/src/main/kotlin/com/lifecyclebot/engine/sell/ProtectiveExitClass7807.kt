@@ -223,7 +223,8 @@ object ProtectiveExitClass7807 {
 
     // ── Attempt memory that survives a released lease ──────────────────────
     // ROUTE_FAILED_NO_SIGNATURE deliberately releases the CloseLease (a held
-    // lease blocked buys in 3795), which reset closeAttemptCount to 1 on every
+    // lease blocked buys in 3795; V5.0.8315: an EMERGENCY NO_SIGNATURE now keeps
+    // its lease out of flight — NoSignatureLease8315), which reset closeAttemptCount to 1 on every
     // re-acquire: an emergency that failed on every route kept retrying at its
     // first slippage rung on its first route forever. Failed emergency attempts
     // are remembered here per mint (10 min horizon) so B4 escalation advances.

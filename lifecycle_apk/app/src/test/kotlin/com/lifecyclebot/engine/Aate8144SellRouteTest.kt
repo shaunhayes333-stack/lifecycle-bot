@@ -443,7 +443,8 @@ class Aate8144SellRouteTest {
         assertTrue(exec.contains("ACTIVE_SELL_SIG_IN_FLIGHT"))
         assertTrue(exec.contains("tokenData = corroboratedHolding8144(ts, wallet) ?: tokenData"))
         assertTrue(exec.contains("LIVESELL_ABSENT_HANDED_TO_PROOF_POLLER_7736"))
-        assertTrue(exec.contains("if (!directRouteViable8144(ts.mint))"))
+        // superseded by V5.0.8315: a Raydium build the attempt skips is no direct route either
+        assertTrue(exec.contains("if (!directRouteViable8144(ts.mint) || com.lifecyclebot.engine.sell.StopRoute8189.raydiumDirectSkipped8315(ts.mint, reason)) {"))
         assertTrue(exec.contains("if (!pumpPortalAdmitted8144(ts, venue8144, labelTag, sellTradeKey, traderTag)) return null"))
         assertTrue(exec.contains("SellRouteSpine8144.onResult8144(ts.mint, r.name)"))
         assertTrue(exec.contains("sellRouteTrigger8144(ts, reason, wallet)"))

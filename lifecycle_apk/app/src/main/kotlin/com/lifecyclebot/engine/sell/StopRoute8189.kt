@@ -25,6 +25,16 @@ import java.util.concurrent.atomic.AtomicLong
  * optional Raydium build is skipped and the attempt goes straight to the remaining route. Every attempt still builds
  * its own transaction (Jupiter / PumpPortal build per attempt; a Raydium prebuild is reused only while fresh), so each
  * carries a current blockhash. Nothing here raises slippage, widens a stop or skips a safety check.
+ *
+ * V5.0.8315 — two rules disagreed on the route and a live position could not exit. 5.0.8314: Au (6mYfg1, confirmed
+ * Raydium venue) made ~334 emergency attempts, none reached a venue after the first: the 7807 escalation skipped the
+ * Jupiter ladder expecting Raydium to sell (Executor.directRouteViable8144 reads the endpoint policy, which never
+ * records a Raydium outcome), [skipRaydium8189] skipped Raydium because the stop was past its 10 s budget (an emergency
+ * spine keeps its first trigger time, so it stayed past budget for the whole loop; raydiumSkipped=565), PumpPortal was
+ * hard-blocked. Now a confirmed RAYDIUM venue is never budget-skipped — past its budget, its own route is the one that
+ * answers ([raydiumSkipWhy8315]); and [raydiumDirectSkipped8315] lets skipQuoteLadder8009 keep the aggregator whenever
+ * the Raydium build it would fall to is skipped on this attempt, so the escalation can never skip Jupiter while
+ * Raydium is also off the table. [raydiumSkipWhy8189] answers without counting a skip.
  */
 object StopRoute8189 {
     private const val STOP_BROADCAST_BUDGET_MS_8189 = 10_000L
@@ -57,6 +67,20 @@ object StopRoute8189 {
     fun pastBudget8189(stop: Boolean, triggerAtMs: Long, broadcastAtMs: Long, nowMs: Long): Boolean =
         stop && triggerAtMs > 0L && broadcastAtMs <= 0L && nowMs - triggerAtMs > STOP_BROADCAST_BUDGET_MS_8189
 
+    /**
+     * V5.0.8315 — pure: why the Raydium build is skipped on this attempt (FAILED_RECENTLY / PUMP_CURVE / STOP_BUDGET),
+     * or null. [triggerAtMs] null = no open spine. A confirmed RAYDIUM [venue] is never budget-skipped: with the
+     * aggregator skipped by the escalation and PumpPortal blocked, its own route was the only one left (5.0.8314 Au).
+     */
+    fun raydiumSkipWhy8315(venue: SellRouteEndpoint8144.Venue8144, failedRecently: Boolean, stop: Boolean,
+                           triggerAtMs: Long?, broadcastAtMs: Long, nowMs: Long): String? = when {
+        failedRecently -> "FAILED_RECENTLY"
+        !raydiumViable8189(venue) -> "PUMP_CURVE"
+        triggerAtMs != null && venue != SellRouteEndpoint8144.Venue8144.RAYDIUM &&
+            pastBudget8189(stop, triggerAtMs, broadcastAtMs, nowMs) -> "STOP_BUDGET"
+        else -> null
+    }
+
     // ── live ──
 
     private fun key(mint: String, route: SellRouteEndpoint8144.Route8144) = "$mint|${route.name}"
@@ -76,16 +100,38 @@ object StopRoute8189 {
      * the mint inside the TTL, the mint is a confirmed pump curve, or a stop is past its broadcast budget.
      */
     fun skipRaydium8189(mint: String, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean {
-        val venue = try { SellRouteVenueProbe8144.cached8144(mint, nowMs) } catch (_: Throwable) { SellRouteEndpoint8144.Venue8144.UNKNOWN }
-        val t = try { SellRouteSpine8144.timer8144(mint) } catch (_: Throwable) { null }
-        val why = when {
-            venueBlocked8189(mint, SellRouteEndpoint8144.Route8144.RAYDIUM, nowMs) -> "FAILED_RECENTLY"
-            !raydiumViable8189(venue) -> "PUMP_CURVE"
-            t != null && pastBudget8189(stopExit8189(reason), t.triggerAtMs, t.broadcastAtMs, nowMs) -> "STOP_BUDGET"
-            else -> null
-        } ?: return false
+        val why = raydiumSkipWhy8189(mint, reason, nowMs) ?: return false  // V5.0.8315 — the decision, then the count
         skipped.incrementAndGet()
         try { PipelineHealthCollector.labelInc("SELL_RAYDIUM_SKIPPED_8189_$why") } catch (_: Throwable) {}
+        return true
+    }
+
+    private fun cachedVenue8315(mint: String, nowMs: Long): SellRouteEndpoint8144.Venue8144 =
+        try { SellRouteVenueProbe8144.cached8144(mint, nowMs) } catch (_: Throwable) { SellRouteEndpoint8144.Venue8144.UNKNOWN }
+
+    /**
+     * V5.0.8315 — the skip reason for [mint] on this attempt, or null, WITHOUT counting a skip (asked by
+     * [skipRaydium8189] and by Executor.skipQuoteLadder8009 through [raydiumDirectSkipped8315]).
+     */
+    fun raydiumSkipWhy8189(mint: String, reason: String, nowMs: Long = System.currentTimeMillis()): String? {
+        val t = try { SellRouteSpine8144.timer8144(mint) } catch (_: Throwable) { null }
+        return raydiumSkipWhy8315(
+            cachedVenue8315(mint, nowMs), venueBlocked8189(mint, SellRouteEndpoint8144.Route8144.RAYDIUM, nowMs),
+            stopExit8189(reason), t?.triggerAtMs, t?.broadcastAtMs ?: 0L, nowMs,
+        )
+    }
+
+    /**
+     * V5.0.8315 — Executor.skipQuoteLadder8009: is the direct route an escalated emergency would fall to a confirmed
+     * Raydium venue whose build this attempt skips? directRouteViable8144 answers from the endpoint policy alone, which
+     * never records a Raydium outcome, so it said "viable" while [skipRaydium8189] refused the build: with the
+     * aggregator skipped too, nothing was left (ROUTE_FAILED_NO_SIGNATURE x334). A pump venue is unaffected: there the
+     * direct route is PumpPortal and the 8009 direct-first skip keeps its first-attempt latency.
+     */
+    fun raydiumDirectSkipped8315(mint: String, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (cachedVenue8315(mint, nowMs) != SellRouteEndpoint8144.Venue8144.RAYDIUM) return false
+        val why = raydiumSkipWhy8189(mint, reason, nowMs) ?: return false
+        try { PipelineHealthCollector.labelInc("SELL_QUOTE_LADDER_KEPT_RAYDIUM_SKIPPED_8315_$why") } catch (_: Throwable) {}
         return true
     }
 

@@ -2141,6 +2141,9 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("ROUTE_FAILED_NO_SIGNATURE_NO_BLOCKING_RETRY"))
         assertTrue(exec.contains("return SellResult.ROUTE_FAILED_NO_SIGNATURE"))
         assertFalse("no-signature route failure must not be auto-queued as FAILED_RETRYABLE", exec.contains("ROUTE_FAILED_NO_SIGNATURE -> {\n                        com.lifecyclebot.engine.sell.CloseLease.recordRetry"))
+        // superseded by V5.0.8315: the lease is settled by NoSignatureLease8315 — a non-emergency NO_SIGNATURE still
+        // releases; an EMERGENCY NO_SIGNATURE keeps its lease out of flight on the 7807 cadence (400 ms re-fire loop).
+        assertTrue(exec.contains("NoSignatureLease8315.settle8315(ts.mint, canonicalReason, r.name)"))
     }
 
 
