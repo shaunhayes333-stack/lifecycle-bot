@@ -93,6 +93,7 @@ object SignedTxLedger8085 {
         if (detail.isNotBlank()) e.detail = detail.take(160)
         if (acceptedBy.isNotBlank()) e.acceptedBy = (if (e.acceptedBy.isBlank()) acceptedBy else "${e.acceptedBy},$acceptedBy").take(80)
         if (e.side == "SELL") routeLanding8164(e, to)
+        if (e.side == "SELL") try { com.lifecyclebot.engine.sell.EmergencySellRoute8308.onSellState8308(e.mint, e.route, to.name, e.createdAtMs, e.submittedAtMs8087, nowMs) } catch (_: Throwable) {}  // V5.0.8308 — per-route timing
         when (to) {
             State.ACCEPTED -> count("TX_RPC_ACCEPTED_8085")
             State.OUTCOME_UNKNOWN -> count("TX_SUBMIT_OUTCOME_UNKNOWN_8085")

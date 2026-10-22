@@ -104,6 +104,9 @@ object FinalizedLearningReconciler7423 {
                         "mint=" + p.mint.take(12) + " lane=" + p.lane +
                             " src=" + p.entryPriceSource.take(48) +
                             " quarantine=" + p.quarantineReason.take(48) +
+                            // V5.0.8308 — a protective BASIS_UNCERTAIN row closed by applyProtectiveSellFill7807 (no economics booked);
+                            // ProtectiveBasisProof8308 now promotes such rows on the buy's chain proof before they close.
+                            " protectiveCloseNoEconomics8308=" + q.startsWith("BASIS_UNCERTAIN_7807") +
                             " durableFullSell=" + (p.positionId in fullTerminalByPosition7432) +
                             " repairable=" + repairable7544 +
                             " usableBasis=" + hasUsableBasis7544 +
@@ -340,6 +343,7 @@ object FinalizedLearningReconciler7423 {
         val s = snapshot()
         val by = s.missing.groupingBy { it.reason }.eachCount().entries.sortedBy { it.key.name }.joinToString(",") { "${it.key.name}=${it.value}" }
         val ids = s.missing.take(5).joinToString("|") { "${it.positionId.take(36)}:${it.reason.name}" }
-        return "closed=${s.canonicalClosed} published=${s.finalizedPublished} missing=${s.missing.size} explicit=${s.explicitExcluded} unknown=${s.unexplained} by=[$by] ids=[$ids] ${repairCursorStatus7684()}"
+        return "closed=${s.canonicalClosed} published=${s.finalizedPublished} missing=${s.missing.size} explicit=${s.explicitExcluded} unknown=${s.unexplained} by=[$by] ids=[$ids] ${repairCursorStatus7684()} " +
+            (try { ProtectiveBasisProof8308.statusLine8308() } catch (_: Throwable) { "protectiveProof8308[-]" })
     }
 }

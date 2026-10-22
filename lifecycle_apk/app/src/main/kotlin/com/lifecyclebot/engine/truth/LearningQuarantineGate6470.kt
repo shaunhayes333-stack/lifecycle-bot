@@ -70,6 +70,23 @@ object LearningQuarantineGate6470 {
         }
     }
 
+    /**
+     * V5.0.8308 — the ONE release: a position quarantined only because its basis was uncertain at buy time
+     * (BASIS_UNCERTAIN_7807) whose bot buy was later proven on chain (ProtectiveBasisProof8308 promoted it on the tx-meta
+     * quantity / cost / fee). Any other reason (corruption, divergence, duplication) stays permanent, as designed.
+     */
+    fun releaseProvenBasis8308(positionId: String): Boolean {
+        if (positionId.isBlank()) return false
+        val r = quarantinedPositionIds[positionId] ?: return false
+        if (!r.startsWith("BASIS_UNCERTAIN_7807")) return false
+        val removed = quarantinedPositionIds.remove(positionId, r)
+        if (removed) try {
+            PipelineHealthCollector.labelInc("LEARNING_QUARANTINE_RELEASED_PROVEN_BASIS_8308")
+            ForensicLogger.lifecycle("LEARNING_QUARANTINE_RELEASED_PROVEN_BASIS_8308", "positionId=${positionId.take(24)} was=${r.take(60)}")
+        } catch (_: Throwable) {}
+        return removed
+    }
+
     fun isQuarantined(positionId: String?, mint: String?): Boolean {
         val byPid = positionId?.let { quarantinedPositionIds.containsKey(it) } ?: false
         val byMint = mint?.let { quarantinedMints.containsKey(it) } ?: false

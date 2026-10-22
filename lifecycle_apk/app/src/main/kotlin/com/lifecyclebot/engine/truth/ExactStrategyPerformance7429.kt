@@ -199,14 +199,26 @@ object ExactStrategyPerformance7429 {
         else mode.equals("PAPER", true) && proof.equals("PAPER_SIMULATED", true)
 
     private const val SEEN_KEY_8082 = "exact_strategy_seen_positions_8082"
+    /** V5.0.8308 — every refusal is counted by cause (5.0.8306: "failed 6/6 deliveries" with no reason anywhere). */
+    private val refusals8308 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    private fun refuse8308(cause: String): Boolean {
+        refusals8308.computeIfAbsent(cause) { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_REFUSED_8308_$cause") } catch (_: Throwable) {}
+        return false
+    }
+
+    fun refusalLine8308(): String = refusals8308.entries.sortedByDescending { it.value.get() }
+        .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
+
     /** Incomplete identity stays retryable; only the terminal transaction consumes economic credit. */
     @Synchronized fun record(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
-        if (!env.terminal || !env.learningEligible || env.positionId.isBlank()) return false
+        if (!env.terminal || !env.learningEligible || env.positionId.isBlank()) return refuse8308("NOT_TERMINAL_OR_INELIGIBLE")
         if (!terminalEconomicsEligible8081(env.mode, env.proofState)) {
             CanonicalFinalizedTradeBus6464.exclude("ExactStrategyPerformance7429", env.tradeId, "UNVERIFIED_ECONOMICS")
             return true
         }
-        if (!env.realizedReturnPct.isFinite() || !env.realizedPnlSol.isFinite()) return false
+        if (!env.realizedReturnPct.isFinite() || !env.realizedPnlSol.isFinite()) return refuse8308("NONFINITE_ECONOMICS")
         // Recovery may only use the immutable snapshot of THIS position, never today's mint evaluation.
         val entry = EntryStrategySnapshot6450.snapshot(env.positionId)
         val e = if (entry != null && entry.mint == env.mint && entry.entryLane.equals(env.lane, true)) env.copy(
@@ -223,20 +235,20 @@ object ExactStrategyPerformance7429 {
                 CanonicalFinalizedTradeBus6464.exclude("ExactStrategyPerformance7429", e.tradeId, "HISTORICAL_ENTRY_IDENTITY_UNOBSERVED_8091")
                 return true
             }
-            return false
+            return refuse8308(if (EntryStrategySnapshot6450.snapshot(env.positionId) == null) "NO_ENTRY_SNAPSHOT" else "ATTRIBUTION_INCOMPLETE")
         }
         ensureRestored7431()
-        if (!restored7431.get()) return false
+        if (!restored7431.get()) return refuse8308("PERSISTENCE_NOT_RESTORED")
         val k = key(e)
         val pk = playbookKey7431(e.mode, e.lane, e.entryTradeType, e.entrySetup, e.entryStyle, e.entryTactic)
-        if (!cells.containsKey(k) && cells.size >= MAX_KEYS) return false
+        if (!cells.containsKey(k) && cells.size >= MAX_KEYS) return refuse8308("CELL_CAP")
         val cell = decodeCell8090(k, JSONObject(cells[k]?.let(::encodeCell8090) ?: "{}"))
         val playbook = decodeCell8090(pk, JSONObject(playbookCells7431[pk]?.let(::encodeCell8090) ?: "{}"))
         val receipt = "exact_strategy_terminal_8090_${e.mode.uppercase()}_${e.positionId}"
         // The 8082 receipt alone cannot prove that a reward happened: it was consumed before validation.
         // Preserve old aggregates and explicitly exclude ambiguous legacy credit instead of doubling them.
         val oldSeen = JSONArray(LearningPersistence.load(SEEN_KEY_8082) ?: "[]")
-        if (LearningPersistence.readFailed8086(SEEN_KEY_8082)) return false
+        if (LearningPersistence.readFailed8086(SEEN_KEY_8082)) return refuse8308("SEEN_READ_FAILED")
         if ((0 until oldSeen.length()).any { oldSeen.optString(it) == e.positionId }) {
             CanonicalFinalizedTradeBus6464.exclude("ExactStrategyPerformance7429", e.tradeId, "LEGACY_8082_CREDIT_UNPROVABLE")
             return true
@@ -253,7 +265,7 @@ object ExactStrategyPerformance7429 {
                 .put("netSol", e.realizedPnlSol).put("netReturnPct", e.realizedReturnPct).toString(),
         )
         when (LearningPersistence.commitOnce8090(receipt, writes)) {
-            LearningPersistence.Commit8090.RETRY -> return false
+            LearningPersistence.Commit8090.RETRY -> return refuse8308("COMMIT_RETRY")
             LearningPersistence.Commit8090.ALREADY_COMMITTED -> return true
             LearningPersistence.Commit8090.COMMITTED -> { cells[k] = cell; playbookCells7431[pk] = playbook }
         }

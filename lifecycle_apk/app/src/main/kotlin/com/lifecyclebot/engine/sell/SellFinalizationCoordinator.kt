@@ -219,6 +219,9 @@ object SellFinalizationCoordinator {
                 // protective quarantine row reduces/closes that row (no PnL, no
                 // learning) so it leaves protective inventory exactly when the
                 // wallet quantity does (Field Manual L39).
+                // V5.0.8308 — first, one bounded chain proof of the bot's own buy: a proven protective row is promoted (same
+                // positionId) and this sell then books real economics below instead of closing it with none.
+                try { com.lifecyclebot.engine.truth.ProtectiveBasisProof8308.beforeProtectiveSell8308(intent.mint) } catch (_: Throwable) {}
                 if (com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.applyProtectiveSellFill7807(intent.mint, actualConsumedRaw, fin.finalState == TxMetaSellFinalizer.FinalState.CLEARED, "SellFinalizationCoordinator", confirmedRemainingRaw = remainingRaw)) return@run
                 // No canonical row at all is not an OPEN canonical row: unchanged.
                 val canonicalPosition6522 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return@run
