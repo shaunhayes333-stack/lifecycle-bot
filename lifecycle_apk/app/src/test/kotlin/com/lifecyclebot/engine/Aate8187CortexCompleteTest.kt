@@ -318,7 +318,8 @@ class Aate8187CortexCompleteTest {
         assertTrue(cx.contains("deferBind8187(positionId, mint, normalized, m, laneKey8082, openedAtMs)"))
         assertTrue(cx.contains("retryDeferredBinds8187(key8187, a)"))
         val close = cx.substringAfter("fun onCanonicalClose(").substringBefore("// ── persistence ──")
-        assertTrue(close.indexOf("recoverRead8187(env, closeKey7931, mode, sealed8144)") in 0 until close.indexOf("fileUnboundClose8153(env, mode, sealed8144, snapTag8144)"))
+        // superseded by V5.0.8332 — the recovery read also takes the sealed entry snapshot read before the lock (snap8332)
+        assertTrue(close.indexOf("recoverRead8187(env, closeKey7931, mode, sealed8144, snap8332)") in 0 until close.indexOf("fileUnboundClose8153(env, mode, sealed8144, snapTag8144)"))
         assertTrue(close.contains("REALIZED_REPLAY_ALREADY_FILED_8187"))
         assertTrue(cx.contains("if (admitted && !late8169) noteEntryRead("))
         // Timing samples survive a restart; the exit cortex prices registry-priced positions.

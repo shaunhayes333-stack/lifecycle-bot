@@ -135,7 +135,7 @@ class Aate8331RunnerTest {
         // longer makes planFor return null for the open position.
         val tp = src("engine/truth/TradePlan7739.kt")
         assertTrue(tp.contains("sealed8331[sealKey]?.let { return it }"))
-        assertTrue(tp.indexOf("sealed8331[sealKey]?.let { return it }") in 1 until tp.indexOf("val p = plans[mint] ?: return null"))
+        assertTrue(tp.indexOf("sealed8331[sealKey]?.let { return it }") in 1 until tp.indexOf("val p = plans[mint] ?: return null", tp.indexOf("fun planFor(")))
         assertTrue(tp.contains("if (sealed8331.putIfAbsent(sealKey, p) == null && p.setup == Setup.LAUNCH_EARLY) {"))
         assertTrue(tp.contains("com.lifecyclebot.engine.RunnerFunnel8331.launchLine8331()"))
         // The plan tick still banks the half through the partial path and the rest through the full sell door.
