@@ -29,8 +29,10 @@ class Aate8321AdvisorTunerAuthorityTest {
 
     @Test fun perPositionSizePctRemovedFromTunerAndPrompt() {
         assertFalse(LlmParameterTuner.isAllowedKey("perPositionSizePct"))
-        assertFalse(src("engine/LlmParameterTuner.kt").contains("\"perPositionSizePct\" to ParamSpec"))
-        assertFalse(src("engine/GeminiCopilot.kt").contains("slippageBps, perPositionSizePct"))
+        val tuner = src("engine/LlmParameterTuner.kt")
+        val gemini = src("engine/GeminiCopilot.kt")
+        assertFalse(tuner.contains("\"perPositionSizePct\" to ParamSpec"))
+        assertFalse(gemini.contains("slippageBps, perPositionSizePct"))
     }
 
     @Test fun authorityFromFirstSettledTradeWithGuardrails() {
