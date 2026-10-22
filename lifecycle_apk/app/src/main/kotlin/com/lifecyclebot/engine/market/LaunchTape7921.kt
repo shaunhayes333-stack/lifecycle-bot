@@ -354,7 +354,7 @@ object LaunchTape7921 {
             if (r.earlyAtMs > 0L && !r.earlyGraded && nowMs - r.earlyAtMs >= GRADE_AFTER_MS) {
                 val (px0, last, peak) = synchronized(r) { r.earlyGraded = true; Triple(r.earlyPx, r.lastPx, r.earlyPeakPx) }
                 if (px0 > 0.0 && last > 0.0) {
-                    val ret = ((last / px0 - 1.0) * 100.0).coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)  // V5.0.8187
+                    val ret = ((last / px0 - 1.0) * 100.0).coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // V5.0.8322 — stored raw (no win cap)
                     synchronized(this) { earlyBook.add(ret, peak / px0 >= 2.0) }
                     inc("EARLY_GRADED")
                     if (sinceGraded.incrementAndGet() >= 20) { sinceGraded.set(0); persist() }
@@ -373,7 +373,7 @@ object LaunchTape7921 {
             checkpoints.remove(mint)
             val px = recs[mint]?.lastPx ?: continue
             if (px <= 0.0 || c.px <= 0.0) continue
-            val ret = ((px / c.px - 1.0) * 100.0).coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)  // V5.0.8187 — clamped at ingestion
+            val ret = ((px / c.px - 1.0) * 100.0).coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // V5.0.8322 — stored raw (8187 clamped at ingestion)
             val runner = c.peakPx / c.px >= 2.0
             val wasPromoted = promoted(mint)
             synchronized(this) {

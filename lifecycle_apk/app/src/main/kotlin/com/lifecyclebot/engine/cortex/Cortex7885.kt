@@ -786,7 +786,7 @@ object Cortex7885 {
         // V5.0.7925 — once per mint (several lanes label the same token), and only
         // for decisions not traded: a traded token's close already teaches the brain.
         if (p.source.isNotBlank() && !p.legacyAdmitted && sourceGraded.putIfAbsent(mint, p.atMs) == null) {
-            try { com.lifecyclebot.engine.ScannerSourceBrain.recordOutcome(p.source, netPct.coerceIn(-100.0, 200.0)) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.ScannerSourceBrain.recordOutcome(p.source, netPct.coerceAtLeast(-100.0)) } catch (_: Throwable) {}  // V5.0.8322 — raw (was capped at +200%)
             if (sourceGraded.size > 6_000) sourceGraded.entries.removeIf { p.atMs - it.value > PENDING_TTL_MS }
         }
         synchronized(this) {

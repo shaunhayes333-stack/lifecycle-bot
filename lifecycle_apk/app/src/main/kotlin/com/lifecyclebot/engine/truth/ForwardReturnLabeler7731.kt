@@ -302,8 +302,13 @@ object ForwardReturnLabeler7731 {
         /** V5.0.7769 — the 4-hour record, where a launch cell's runners pay. */
         val n240: Int = 0,
         val meanNet240Pct: Double = 0.0,
-        /** V5.0.8185 — the stored mean is impossible under the per-label plausibility cap (RobustLabelRead8185). */
+        /**
+         * V5.0.8185 — the stored mean is impossible under the per-label plausibility cap (RobustLabelRead8185).
+         * V5.0.8322 — and its tail is NOT real (fewer than [TAIL_RUNNERS_8322] local runners): only then does it veto.
+         */
         val outlierSuspect8185: Boolean = false,
+        /** V5.0.8322 — the raw mean exceeds the plausibility bound (a flag for the screen; with a real tail it vetoes nothing). */
+        val outlierFlag8322: Boolean = false,
     ) {
         /** Share of observations that reached a label at the read rather than losing their mark. */
         val resolvedShare: Double get() = if (n60 + lost > 0) n60.toDouble() / (n60 + lost) else 0.0
@@ -1555,7 +1560,8 @@ object ForwardReturnLabeler7731 {
             val runners = t.runner60 + (hive?.get(4)?.toInt() ?: 0)
             if (n <= 0 && t.lost <= 0) null else {
                 // V5.0.8185 — robust read: a record impossible under the per-label plausibility cap proves nothing either way.
-                val robust = RobustLabelRead8185.read8185(key, n, sum, sumSq, wins)
+                // V5.0.8322 — unless its tail is real: 3+ local runners on chain-observed (basis-checked) marks read raw.
+                val robust = tailRead8322(key, n, sum, sumSq, wins, t.runner60)
                 val mean = robust.mean
                 val se = robust.stderr
                 CellStat(
@@ -1565,10 +1571,39 @@ object ForwardReturnLabeler7731 {
                     stderr60Pct = se, lost = t.lost,
                     n240 = t.n240, meanNet240Pct = if (t.n240 > 0) t.sum240 / t.n240 else 0.0,
                     outlierSuspect8185 = robust.suspect,
+                    outlierFlag8322 = robust.suspect || flagged8322(key, n, sum, wins),
                 )
             }
         }
     }
+
+    // ── V5.0.8322 §NO_WIN_CAPS on labeler cells (owner directive 8072) ──
+    //
+    // 8185/8290 read every cell whose raw mean exceeds the per-label plausibility bound at that bound with the winsorised
+    // range as its error, and 8290 made OUTLIER_SUSPECT "proves nothing" at every live door (judge, runner tail, cohort,
+    // cell-wins, watch-first, RunnerGrab, CellProofLadder). On the runner-tail pond (runners +744..+1342 %) that vetoed
+    // exactly the cells whose edge is the tail. The Cortex rule (CortexLedger7885.Stat.tailReal8322) now applies here too:
+    // a cell with [TAIL_RUNNERS_8322]+ LOCAL runners (hive labels do not count) on basis-checked marks reads its raw mean
+    // with the sample (n-1) standard error and is not suspect — one huge label then moves mean - SE by ~0. A cell resting on
+    // fewer runners (one implausible label) keeps the 8185 bound and the 8290 veto. LiveAdmissionProof8290's realised
+    // shortfall is unchanged.
+    const val TAIL_RUNNERS_8322 = 3
+    private val tailReadRaw8322 = AtomicLong(0)
+
+    /** Pure (V5.0.8322): the cell read — 8185's robust read, or the raw read when the suspect cell's tail is real. */
+    fun tailRead8322(key: String, n: Int, sum: Double, sumSq: Double, wins: Int, localRunners: Int): RobustLabelRead8185.Read8185 {
+        val r = RobustLabelRead8185.read8185(key, n, sum, sumSq, wins)
+        if (!r.suspect || localRunners < TAIL_RUNNERS_8322 || n < 2) return r
+        val nd = n.toDouble()
+        val mean = sum / nd
+        val variance = ((sumSq / nd) - mean * mean).coerceAtLeast(0.0) * nd / (nd - 1.0)
+        tailReadRaw8322.incrementAndGet()
+        return RobustLabelRead8185.Read8185(mean, kotlin.math.sqrt(variance / nd), false)
+    }
+
+    /** Pure (V5.0.8322): the raw mean is above the plausibility bound (display flag only). */
+    private fun flagged8322(key: String, n: Int, sum: Double, wins: Int): Boolean =
+        n > 0 && RobustLabelRead8185.outlierSuspect8185(n.toDouble(), sum, wins.toDouble(), RobustLabelRead8185.capForKey8185(key))
 
     /** V5.0.8000 — HiveEdge8000: this instance's own 5-minute tallies ([n, sum, sumSq, wins, runners, 0]). */
     fun hiveSnapshot8000(): Map<String, DoubleArray> {
@@ -1628,11 +1663,12 @@ object ForwardReturnLabeler7731 {
         return synchronized(t) {
             val n = t.n60
             if (n <= 0) null else {
-                val robust = RobustLabelRead8185.read8185(key, n, t.sum60, t.sumSq60, t.win60)  // V5.0.8185
+                val robust = tailRead8322(key, n, t.sum60, t.sumSq60, t.win60, t.runner60)  // V5.0.8185 / V5.0.8322 — a real tail reads raw
                 CellStat(
                     key = key, n60 = n, meanNet60Pct = robust.mean,
                     winRate60 = t.win60.toDouble() / n, runnerRate60 = t.runner60.toDouble() / n,
                     stderr60Pct = robust.stderr, lost = 0, outlierSuspect8185 = robust.suspect,
+                    outlierFlag8322 = robust.suspect || flagged8322(key, n, t.sum60, t.win60),
                     n240 = t.n240, meanNet240Pct = if (t.n240 > 0) t.sum240 / t.n240 else 0.0,  // V5.0.8198
                 )
             }
@@ -1661,7 +1697,7 @@ object ForwardReturnLabeler7731 {
 
     private fun fmtStat(s: CellStat?): String =
         if (s == null) "n=0" else "n=${s.n60} net=${"%+.1f".format(s.meanNet60Pct)}% wr=${"%.0f".format(s.winRate60 * 100)}% run=${"%.0f".format(s.runnerRate60 * 100)}% lost=${s.lost}" +
-            (if (s.outlierSuspect8185) " OUTLIER_SUSPECT_8185" else "")
+            (if (s.outlierSuspect8185) " OUTLIER_SUSPECT_8185" else if (s.outlierFlag8322) " OUTLIER_FLAG_TAIL_8322" else "")
 
     fun statusLine(): String {
         val cellStats = cells.keys
@@ -1684,7 +1720,7 @@ object ForwardReturnLabeler7731 {
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      kinds8063 best: ${kindBest.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }} | worst: ${kindWorst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none" }}\n" +
             "      lanes60: ${lanes.joinToString(" · ").ifBlank { "no labels yet" }}" +
-            " | robust8185[cap=${RobustLabelRead8185.CAP_LABEL_PCT_8185.toInt()}% capGT1M=${RobustLabelRead8185.CAP_LARGE_CAP_PCT_8185.toInt()}% suspectReads=${RobustLabelRead8185.suspectReads8185()}]"
+            " | robust8185[cap=${RobustLabelRead8185.CAP_LABEL_PCT_8185.toInt()}% capGT1M=${RobustLabelRead8185.CAP_LARGE_CAP_PCT_8185.toInt()}% suspectReads=${RobustLabelRead8185.suspectReads8185()} tailReadRaw8322=${tailReadRaw8322.get()}]"
     }
 
     /** Called when the service stops: the table survives the restart. */
