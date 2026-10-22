@@ -16552,7 +16552,7 @@ class BotService : Service() {
             // so the $5k cut parked nearly every live launch in probation while paper
             // (lenient) took them straight in. Only dust launches wait now.
             val coldPumpBase = !lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 1_500.0
-            val coldPump = coldPumpBase || sourceBrainProbationOnly || (pressureDecision.probationOnly && !sourceBrainHotRescue)
+            val coldPump = FreshLaunchIntake8303.park8303(coldPumpBase || sourceBrainProbationOnly, pressureDecision.probationOnly && !sourceBrainHotRescue, source, mint)  // V5.0.8303
             if (sourceBrainProbationOnly || sourceBrainHotRescue) {
                 try {
                     ForensicLogger.lifecycle(
@@ -25755,7 +25755,7 @@ if (hotExitHandledSweep) {
                     marketCapUsd = capUsd8165,
                     liquidityUsd = liqUsd8165,
                     confidence = 45,
-                    allSources = setOf("LAUNCH_HEAT_7921", "PUMP_PORTAL_WS"),
+                    allSources = FreshLaunchIntake8303.heatSourcesFor8303(mint),  // V5.0.8303 — a witnessed PumpPortal create is filed under its feed
                     expectedRuntimeGeneration = streamGeneration,
                 )
             }
@@ -25834,11 +25834,11 @@ if (hotExitHandledSweep) {
 
     /** V5.0.8118 — a PumpPortal launch with no token row entering the proven $10k-$100k band is admitted (PumpBandEntry8118). */
     private fun bandEntry8118(mint: String, priceSol: Double, mcapSol: Double, cfg: BotConfig, generation: Long) {
-        if (mint.isBlank() || status.tokens.containsKey(mint)) return
+        if (mint.isBlank() || FreshLaunchIntake8303.rowWatched8303(status.tokens.containsKey(mint), mint)) return  // V5.0.8303 — an evicted row no longer blocks
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!(solUsd.isFinite() && solUsd > 0.0)) return
         val capSol = if (mcapSol.isFinite() && mcapSol > 0.0) mcapSol else priceSol * 1e9
-        val bornAt = try { com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint) } catch (_: Throwable) { null } ?: return
+        val bornAt = FreshLaunchIntake8303.createBirthMs8303(mint) ?: return  // V5.0.8303 — any witnessed create frame, not only one with reserves
         val meta = com.lifecyclebot.engine.truth.PumpBandEntry8118.claim8118(mint, capSol * solUsd, System.currentTimeMillis() - bornAt) ?: return
         val liqUsd = com.lifecyclebot.engine.truth.LiquidityTruth8037.curveRealSolFromCap8048(capSol) * solUsd
         try { PipelineHealthCollector.labelInc("PUMP_BAND_ENTRY_8118") } catch (_: Throwable) {}

@@ -69,6 +69,14 @@ object ScannerSourceTags8292 {
                 if (n.isNotBlank() && n != "PROBATION") out.add(n)
             }
         }
+        // V5.0.8303 — a PumpPortal launch parked in probation (cold-pump / budget / over-cap / demoted) is still a
+        // PumpPortal launch: its feed leads, so at $10k-$100k under 15 minutes it reads the PUMP_PORTAL_WS cell its
+        // population is graded in, not PROBATION|... Every other promotion keeps PROBATION first (unchanged).
+        if (FreshLaunchIntake8303.SOURCE_8303 in out) {
+            val lead8303 = linkedSetOf(FreshLaunchIntake8303.SOURCE_8303)
+            lead8303.addAll(out)
+            return lead8303
+        }
         return out
     }
 }
