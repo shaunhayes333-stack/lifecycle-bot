@@ -60,6 +60,15 @@ class CortexGradeRecord8144(
      * into every voter and cohort. Observed only: no executable value, and it neither resolves nor un-resolves its cohort.
      */
     var flat8322: Boolean = false
+    /**
+     * V5.0.8324 — the GROSS move of the same label the executable value was taken from (first, and the latest in-hold
+     * revision). 8198/8269 read [observedGrossPct], which follows EVERY horizon (to 7 days, past the hold window), so the
+     * panel's gross median described a different horizon from the net mean beside it.
+     */
+    var firstGross8324: Double = Double.NaN
+    var revisedGross8324: Double = Double.NaN
+    /** V5.0.8324 — the Cortex's runner-lane tail EV at the decision (CortexTailEv8324), NaN off runner lanes / legacy rows. */
+    var tailEv8324: Double = Double.NaN
 
     /** May this decision's label grade authority (executable, first of its episode)? */
     val graded: Boolean get() = kind == 'D' && executable && !repeat
@@ -115,6 +124,15 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
      */
     fun objectivePct8322(r: CortexGradeRecord8144): Double =
         if (r.executableRevisedPct.isFinite() && runner8322(r.lane)) r.executableRevisedPct else r.executablePct
+
+    /**
+     * V5.0.8324 — the gross move of the label [objectivePct8322] answers with (same horizon); legacy rows without it read the
+     * observed gross as before.
+     */
+    fun objectiveGross8324(r: CortexGradeRecord8144): Double {
+        val g = if (r.executableRevisedPct.isFinite() && runner8322(r.lane)) r.revisedGross8324 else r.firstGross8324
+        return if (g.isFinite()) g else r.observedGrossPct
+    }
 
     /** V5.0.8322 — when [objectivePct8322] became knowable (the revision's time, else five minutes after the decision). */
     fun objectiveAvailableAt8322(r: CortexGradeRecord8144): Long =
@@ -196,8 +214,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         // destroying the runner tail; owner directive 8072: no win caps). The first stays immutable (8272); later horizons
         // are stored apart with when they became knowable.
         if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153 && !r.lateRead8187 && !r.flat8322) {
-            if (!r.executablePct.isFinite()) r.executablePct = executableValue        // the immutable first target
-            else { r.executableRevisedPct = executableValue; r.revisedAvailableAtMs = availableAtMs; r.revisions8272++ }
+            if (!r.executablePct.isFinite()) { r.executablePct = executableValue; r.firstGross8324 = grossPct }       // the immutable first target
+            else { r.executableRevisedPct = executableValue; r.revisedAvailableAtMs = availableAtMs; r.revisions8272++; r.revisedGross8324 = grossPct }
         }
         noteGraded(r)
         revision++
@@ -303,16 +321,16 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
     fun executableDecisionGrossSeries8269(lane: String, admitted: Boolean): List<Double> =
         decisions.filter {
             it.graded && !it.lost && it.lane == lane && it.admitted == admitted &&
-                it.executablePct.isFinite() && it.observedGrossPct.isFinite()
-        }.sortedBy { it.atMs }.map { it.observedGrossPct }  // V5.0.8322 — raw
+                it.executablePct.isFinite() && objectiveGross8324(it).isFinite()
+        }.sortedBy { it.atMs }.map { objectiveGross8324(it) }  // V5.0.8324 — the objective's own horizon
 
     /**
      * 8198 — the GROSS forward move (price only, before any cost, haircut or executable offset) of the same tradeable
      * records [executableSeries] grades, oldest first: what the coin actually did after the verdict.
      */
     fun executableGrossSeries8198(lane: String, setup: String?, bucket: Int?): List<Double> =
-        decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() && it.observedGrossPct.isFinite() }
-            .sortedBy { it.atMs }.map { it.observedGrossPct }  // V5.0.8322 — raw
+        decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() && objectiveGross8324(it).isFinite() }
+            .sortedBy { it.atMs }.map { objectiveGross8324(it) }  // V5.0.8324 — the objective's own horizon
 
     /** 8196: timestamps are essential to compare competing cohorts on the same OOS market span. */
     fun executableTimed8196(lane: String, setup: String?, bucket: Int?): List<CortexWalkForward8144.Timed8144> =
@@ -321,6 +339,29 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             it.executablePct.isFinite() }
             .sortedBy { it.atMs }
             .map { CortexWalkForward8144.Timed8144(it.atMs, objectivePct8322(it) - offset8187(lane), objectiveAvailableAt8322(it), it.executablePct - offset8187(lane)) }  // V5.0.8322
+
+    /** V5.0.8324 — one graded decision's ranking row: what the Cortex predicted and what the lane objective then paid. */
+    class RankRow8324(val predicted: Double, val tailEv: Double, val objective: Double, val bucket: Int, val admitted: Boolean)
+
+    /** V5.0.8324 — the graded (executable, first-of-episode, on-time) decisions of [lane] as ranking rows, oldest first. */
+    fun rankRows8324(lane: String): List<RankRow8324> =
+        decisions.filter { it.graded && !it.lost && it.lane == lane && it.executablePct.isFinite() }
+            .sortedBy { it.atMs }
+            .map { RankRow8324(it.predictedEdgePct, it.tailEv8324, objectivePct8322(it) - offset8187(lane), it.bucket, it.admitted) }
+
+    /**
+     * V5.0.8324 — the pond of [lane] for CortexTailEv8324: every graded decision's executable-net objective (raw) and its
+     * cohort's per-label plausibility cap, oldest first.
+     */
+    fun pondRows8324(lane: String): Pair<List<Double>, List<Double>> {
+        val rs = decisions.filter { it.graded && !it.lost && it.lane == lane && it.executablePct.isFinite() }.sortedBy { it.atMs }
+        val off = offset8187(lane)
+        return rs.map { objectivePct8322(it) - off } to rs.map { it.labelCap8187() }
+    }
+
+    /** V5.0.8324 — the newest labelled decision of [episode] ("mint|LANE"): the one a labeler revision belongs to. */
+    fun latestLabelled8324(episode: String): CortexGradeRecord8144? =
+        decisions.asReversed().firstOrNull { it.kind == 'D' && it.episode == episode && it.observedNetPct.isFinite() }
 
     /** Observed values of every labelled decision in [lane] for [bucket], hygiene ignored (the raw cohort). */
     fun observedSeries(lane: String, bucket: Int): List<Double> =
@@ -447,6 +488,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         if (r.lateRead8187) "1" else "0",
         // V5.0.8322 — the later-horizon executable value and when it became knowable survive a restart; the flat-mark flag.
         num(r.executableRevisedPct), r.revisedAvailableAtMs.toString(), if (r.flat8322) "1" else "0",
+        // V5.0.8324 — the objective's gross (first / revised) and the decision-time tail EV.
+        num(r.firstGross8324), num(r.revisedGross8324), num(r.tailEv8324),
     ).joinToString(FS.toString())
 
     fun encode(): String = (decisions + trades.values).joinToString(RS.toString()) { encodeOne(it) }
@@ -460,7 +503,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             // V5.0.8153 — 25 fields (late-entry flag); a 24-field row from 8146 reads as on time.
             // V5.0.8187 — 26 fields (late voter read); a 25-field row reads as on time.
             // V5.0.8322 — 29 fields (revised executable, its availability, flat mark); 24..26-field rows read as before.
-            if (f.size !in 24..29 || f[0].length != 1 || f[1].isBlank()) continue
+            // V5.0.8324 — 32 fields (objective gross first / revised, tail EV); 24..29-field rows read as before.
+            if (f.size !in 24..32 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
@@ -470,6 +514,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             r.lateRead8187 = f.getOrNull(25) == "1"
             r.executableRevisedPct = dbl(f.getOrNull(26)); r.revisedAvailableAtMs = f.getOrNull(27)?.toLongOrNull() ?: 0L
             r.flat8322 = f.getOrNull(28) == "1"
+            r.firstGross8324 = dbl(f.getOrNull(29)); r.revisedGross8324 = dbl(f.getOrNull(30)); r.tailEv8324 = dbl(f.getOrNull(31))
             if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
             when (r.kind) {
                 'D' -> if (!byId.containsKey(r.id)) { decisions.add(r); byId[r.id] = r; noteGraded(r) }

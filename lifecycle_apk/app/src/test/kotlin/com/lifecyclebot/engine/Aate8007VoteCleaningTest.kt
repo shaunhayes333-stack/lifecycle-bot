@@ -55,7 +55,8 @@ class Aate8007VoteCleaningTest {
     @Test fun cleaningIsInTheFusionPathAndTheDiag() {
         val l = File("src/main/kotlin/com/lifecyclebot/engine/cortex/CortexLedger7885.kt").readText()
         assertTrue(l.contains("fun authority(): Double = cleanAuthority8007(this, 0)"))
-        assertTrue(l.contains("st?.let { cleanAuthority8007(it, seats.size) }"))
+        // superseded by V5.0.8324: the cleaned authority is scaled by the seat's runner direction on runner lanes.
+        assertTrue(l.contains("st?.let { cleanAuthority8007(it, seats.size) * runnerFactor8324(it, lane) }"))
         assertTrue(l.contains("clampPull8007(p.netPct - m, laneSd8007)"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText().contains("ledger.cleanLine8007()"))
     }

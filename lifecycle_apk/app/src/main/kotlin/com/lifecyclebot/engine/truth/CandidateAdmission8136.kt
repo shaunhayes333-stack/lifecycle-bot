@@ -142,6 +142,13 @@ object CandidateAdmission8136 {
          * closes, not on its re-probe slot). Setups absent are NEUTRAL: the existing rules decide.
          */
         val sheet8323: Map<String, String> = emptyMap(),
+        /**
+         * V5.0.8324 §TAIL_AWARE_LOSS — runner lanes only (live adapter): the lane's measured runner share and runner premium
+         * (E[run] - E[non-run], points) from the Cortex tail pond (CortexTailEv8324). The LOSS tests read each record credited
+         * the runners its sample could still be missing ([tailCredited8324]); NaN (pure fixtures, scalp lanes) = as before.
+         */
+        val tailLaneRate8324: Double = Double.NaN,
+        val tailPremium8324: Double = Double.NaN,
     ) {
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
         val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
@@ -219,6 +226,17 @@ object CandidateAdmission8136 {
         val bar = if (e.netOfCost) 0.0 else if (costPct.isFinite() && costPct > 0.0) costPct else return false
         if (e.lowerPct > bar) return true
         return e.n >= TAIL_MIN_N_8136 && e.meanPct > bar && e.runnerRate.isFinite() && e.runnerRate >= TAIL_MIN_RATE_8136
+    }
+
+    /**
+     * Pure (V5.0.8324): [e] read for a LOSS test on a runner lane — its mean credited the runners its sample could plausibly
+     * still be missing (CortexTailEv8324.missedRunnerPts8324). A record whose runner share is unknown, or no measured lane
+     * premium, is returned unchanged. Never used by a support test.
+     */
+    internal fun tailCredited8324(e: Evidence8136?, laneRate: Double, premium: Double): Evidence8136? {
+        if (e == null || !e.runnerRate.isFinite() || !e.meanPct.isFinite()) return e
+        val pts = com.lifecyclebot.engine.cortex.CortexTailEv8324.missedRunnerPts8324(e.n.toDouble(), e.runnerRate, laneRate, premium)
+        return if (pts > 0.0) e.copy(meanPct = e.meanPct + pts) else e
     }
 
     /** Pure: losing on its own evidence — [LOSING_MIN_N_8136]+ labels and mean + SE below zero (LanePlaybook7907.setupRecordNegative8094). */
@@ -347,7 +365,9 @@ object CandidateAdmission8136 {
         // V5.0.8153 — every fired setup ranked on its own record AND its timing band (StrategyRank8153): a supported setup
         //    losing at this point of the move is not the strategy; ties of the conservative net go to the runner rate.
         val bestSetup = bestSetup8153(c)
-        val selectedRec = c.setups.firstOrNull { it.id == c.selectedSetup }
+        // V5.0.8324 — the loss tests read the tail-credited record on a runner lane (support tests keep the raw / shifted ones).
+        val selectedRec = tailCredited8324(c.setups.firstOrNull { it.id == c.selectedSetup }, c.tailLaneRate8324, c.tailPremium8324)
+        val timingLoss8324 = tailCredited8324(c.timing, c.tailLaneRate8324, c.tailPremium8324)
         var chosen = c.selectedSetup ?: c.nativeSetup8213?.takeIf {
             c.nativeQualified8213 && it.isNotBlank() && !it.equals("NONE", true)
         }
@@ -391,12 +411,12 @@ object CandidateAdmission8136 {
         }
         // V5.0.8169 — a loss pattern refuses on the record graded since the epoch; an older one is noted and decays to
         //    neutral (the candidate goes on to the generic prior — never to an ADMIT the stale record cannot support).
-        val cellLoss = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell
+        val cellLoss = tailCredited8324(if (c.lossEpochAware8169) c.cellLoss8169 else c.cell, c.tailLaneRate8324, c.tailPremium8324)  // V5.0.8324
         // V5.0.8212: UNKNOWN is not a lifecycle stage and carries no loss authority.
         // TokenMetricStageRouter.judgeStage7928 explicitly ignores UNKNOWN; 8136 had
         // independently been blocking the same unclassified tokens on STAGE|LANE|UNKNOWN.
-        val stageLoss = if (c.stage.equals("UNKNOWN", ignoreCase = true)) null
-            else if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord
+        val stageLoss = tailCredited8324(if (c.stage.equals("UNKNOWN", ignoreCase = true)) null
+            else if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord, c.tailLaneRate8324, c.tailPremium8324)  // V5.0.8324
         if (provenLosing8136(cellLoss)) {
             // V5.0.8240 — the cell (source|lane|mcap|age) is a lane-wide prior over every coin of that shape, exactly like
             //    the stage record below: it names no strategy. 8241 runner ledger: MONPAD +30584% and KimWhale +2962% were
@@ -439,14 +459,14 @@ object CandidateAdmission8136 {
         // V5.0.8144 — the default (selected) setup's adverse timing no longer vetoes before the token's own proven
         //    alternatives are weighed: another fired setup supported on its own record is the strategy instead (the
         //    timing book belongs to the selected setup, not to the alternative).
-        if (chosen == c.selectedSetup && losing8136(c.timing) && !cellSupported && bestSetup != null && bestSetup.id != c.selectedSetup) {
+        if (chosen == c.selectedSetup && losing8136(timingLoss8324) && !cellSupported && bestSetup != null && bestSetup.id != c.selectedSetup) {
             trace += "altSetup=${bestSetup.compact} over timing ${c.timing?.compact}"
             chooseSetup(bestSetup.id)
         }
-        if (chosen == c.selectedSetup && losing8136(c.timing) && !cellSupported) {
+        if (chosen == c.selectedSetup && losing8136(timingLoss8324) && !cellSupported) {
             trace += "timing=${c.timing?.compact}"
             // V5.0.8257 — the same thin-record rule as the setup record: a clear loss refuses, a one-SE band is advisory.
-            if (clearlyLosing8136(c.timing)) return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
+            if (clearlyLosing8136(timingLoss8324)) return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
             // V5.0.8316 — the 8290 live thin-loss refusal is withdrawn here too (8314: TIMING_ADVERSE 118); see the setup record above.
             trace += "timingThin=advisory"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TIMING_ADVERSE_THIN_ADVISORY_8257") } catch (_: Throwable) {}
@@ -1143,6 +1163,9 @@ object CandidateAdmission8136 {
         val observedAt = maxOf(localAt, canonicalPrice?.timestampMs?.takeIf { it <= nowMs } ?: 0L)
         val priceAge = if (observedAt > 0L) nowMs - observedAt else Long.MAX_VALUE
         val lifecycle8283 = try { pb.lifecycleSplit8283(ts, lane, nowMs) } catch (_: Throwable) { null }
+        // V5.0.8324 — a runner lane's loss tests read its tail pond (the Cortex grade book: hold-window objective, raw while plausible).
+        val pond8324 = if (com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane))
+            (try { com.lifecyclebot.engine.cortex.Cortex7885.tailPond8324(lane) } catch (_: Throwable) { null }) else null
         return Candidate8136(
             mint = ts.mint,
             lane = lane,
@@ -1187,6 +1210,8 @@ object CandidateAdmission8136 {
             nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,
             nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) } ?: nativeSetupBook8217 ?: runnerForming8260,
             sheet8323 = try { com.lifecyclebot.engine.cortex.LaneCheatSheet8323.admissionVerdicts8323(lane, setups.map { it.id }, selected, ts.mint, nowMs) } catch (_: Throwable) { emptyMap() },
+            tailLaneRate8324 = pond8324?.pBook ?: Double.NaN,
+            tailPremium8324 = pond8324?.premium ?: Double.NaN,
         )
     }
 }

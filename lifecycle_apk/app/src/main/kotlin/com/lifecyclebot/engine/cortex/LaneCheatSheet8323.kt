@@ -387,11 +387,18 @@ object LaneCheatSheet8323 {
         !r.suspect && r.n >= FAVOUR_MIN_N_8323 && r.meanPct.isFinite() && r.sePct.isFinite() &&
             r.meanPct - r.sePct > maxOf(r.prior, 0.0) + costPct && !liveLosing8323(r)
 
-    /** Pure: a clear loss — mean + 2 SE below cost on 12+, or mean + SE below cost on 30+, or the live closes losing. */
-    private fun clearLoss8323(r: Record8323, costPct: Double = 0.0): Boolean {
+    /**
+     * Pure: a clear loss — mean + 2 SE below cost on 12+, or mean + SE below cost on 30+, or the live closes losing.
+     * V5.0.8324 §TAIL_AWARE_LOSS — on a runner lane ([laneRate8324] / [premium8324] from the lane's tail pond,
+     * CortexTailEv8324) the label mean is first credited the runners its sample could plausibly still be missing
+     * ([CortexTailEv8324.missedRunnerPts8324]): on a 5%-runner pond 12 labels hold no runner 54% of the time, so a setup was
+     * AVOIDED on a coin flip before its first runner arrived (SHEET_AVOID_8323 refused the coins that run). The live-close
+     * rule (8291 / 8295) is unchanged.
+     */
+    private fun clearLoss8323(r: Record8323, costPct: Double = 0.0, laneRate8324: Double = Double.NaN, premium8324: Double = Double.NaN): Boolean {
         if (liveLosing8323(r)) return true
         if (!r.meanPct.isFinite() || !r.sePct.isFinite()) return false
-        val net = r.meanPct - costPct
+        val net = r.meanPct - costPct + CortexTailEv8324.missedRunnerPts8324(r.n, r.runnerRate, laneRate8324, premium8324)
         if (r.n >= AVOID_MIN_N_8323 && net + 2.0 * r.sePct < 0.0) return true
         return r.n >= PROVEN_N_8323 && net + r.sePct < 0.0
     }
@@ -403,9 +410,11 @@ object LaneCheatSheet8323 {
      *           the live closes are not losing;
      *   NEUTRAL otherwise (the lane's existing rules decide).
      */
-    fun judge8323(r: Record8323, prev: Verdict8323, costPct: Double = 0.0): Verdict8323 {
-        if (clearLoss8323(r, costPct)) return Verdict8323.AVOID
-        val net = if (r.meanPct.isFinite()) r.meanPct - costPct else Double.NaN
+    fun judge8323(r: Record8323, prev: Verdict8323, costPct: Double = 0.0,
+                  laneRate8324: Double = Double.NaN, premium8324: Double = Double.NaN): Verdict8323 {
+        if (clearLoss8323(r, costPct, laneRate8324, premium8324)) return Verdict8323.AVOID
+        // V5.0.8324 — the hysteresis exit reads the same tail-aware net (an avoided runner-lane setup returns once it is not a clear loss).
+        val net = if (r.meanPct.isFinite()) r.meanPct - costPct + CortexTailEv8324.missedRunnerPts8324(r.n, r.runnerRate, laneRate8324, premium8324) else Double.NaN
         if (prev == Verdict8323.AVOID && !(r.n >= AVOID_MIN_N_8323 && net > 0.0)) return Verdict8323.AVOID
         if (favourEarned8323(r, costPct)) return Verdict8323.FAVOUR
         if (prev == Verdict8323.FAVOUR && net > 0.0 && !r.suspect && !liveLosing8323(r)) return Verdict8323.FAVOUR
@@ -423,9 +432,10 @@ object LaneCheatSheet8323 {
     }
 
     /** Pure: one lane's ranked rows from its records and previous verdicts. */
-    fun rows8323(records: List<Record8323>, prev: Map<String, Verdict8323>, costPct: Double = 0.0): List<Row8323> =
+    fun rows8323(records: List<Record8323>, prev: Map<String, Verdict8323>, costPct: Double = 0.0,
+                 laneRate8324: Double = Double.NaN, premium8324: Double = Double.NaN): List<Row8323> =
         records.map { r ->
-            val v = judge8323(r, prev[r.setup] ?: Verdict8323.NEUTRAL, costPct)
+            val v = judge8323(r, prev[r.setup] ?: Verdict8323.NEUTRAL, costPct, laneRate8324, premium8324)
             Row8323(r, v, expectancy8323(r, costPct), why8323(r, v, costPct))
         }.sortedWith(compareBy<Row8323>({ it.verdict.ordinal }, { if (it.expectancyPct.isFinite()) -it.expectancyPct else Double.MAX_VALUE }, { -it.record.n }))
 
@@ -504,10 +514,11 @@ object LaneCheatSheet8323 {
      * Apply [records] to [lane]'s sheet: verdicts judged against the stored previous ones (hysteresis), rotations counted,
      * the sheet published. Lock-free for readers.
      */
-    fun applyRecords8323(laneRaw: String, records: List<Record8323>, nowMs: Long = System.currentTimeMillis(), costPct: Double = 0.0): Sheet8323 {
+    fun applyRecords8323(laneRaw: String, records: List<Record8323>, nowMs: Long = System.currentTimeMillis(), costPct: Double = 0.0,
+                         pond8324: CortexTailEv8324.Pond8324? = null): Sheet8323 {
         val lane = key8323(laneRaw)
         val prev = records.associate { it.setup to (verdicts["$lane|${it.setup}"] ?: Verdict8323.NEUTRAL) }
-        val rows = rows8323(records, prev, costPct)
+        val rows = rows8323(records, prev, costPct, pond8324?.pBook ?: Double.NaN, pond8324?.premium ?: Double.NaN)
         var changed = false
         for (row in rows) {
             val k = "$lane|${row.record.setup}"
@@ -528,6 +539,9 @@ object LaneCheatSheet8323 {
         if (changed) persist8323()
         return sheet
     }
+
+    private fun sheetRunner8324(lane: String): Boolean =
+        try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
 
     /** The lane's records from the playbook (labels) with the runner average and, on a LIVE account only, the live closes. */
     private fun recordsFor8323(lane: String, live: Boolean): List<Record8323> =
@@ -550,7 +564,9 @@ object LaneCheatSheet8323 {
             load8323()
             val live = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
             for (lane in LANES_8323) {
-                try { applyRecords8323(lane, recordsFor8323(lane, live), nowMs) } catch (_: Throwable) {}
+                // V5.0.8324 — a runner lane's loss test reads its tail pond (the runners a thin record may still be missing).
+                val pond8324 = if (sheetRunner8324(lane)) (try { Cortex7885.tailPond8324(lane) } catch (_: Throwable) { null }) else null
+                try { applyRecords8323(lane, recordsFor8323(lane, live), nowMs, pond8324 = pond8324) } catch (_: Throwable) {}
             }
         } finally { building.set(false) }
     }

@@ -68,6 +68,8 @@ object Cortex7885 {
         val staleMark: Boolean,
         val atMs: Long,
         val prediction8076: CortexLedger7885.PredictionSnapshot8076? = null,
+        /** V5.0.8324 — runner lanes: the coin's tail EV (CortexTailEv8324) the bucket was read on; NaN otherwise. */
+        val tailEv8324: Double = Double.NaN,
     )
 
     private fun predictionForGrade8076(a: Assessment): CortexLedger7885.PredictionSnapshot8076 =
@@ -87,7 +89,7 @@ object Cortex7885 {
         @Volatile var decisionReason8196: String? = null
     }
 
-    private val ledger = CortexLedger7885()
+    private val ledger = CortexLedger7885().also { it.runnerLane8324 = { l -> isRunner(l) } }  // V5.0.8324 — anti-runner seats demoted
     private val board = CortexScoreboard7885()
     private val calibration = CortexCalibration7901()
     private val realLedgers = HashMap<String, CortexLedger7885>()   // mode -> outcome-truth ledger
@@ -148,11 +150,14 @@ object Cortex7885 {
         // V5.0.7901 — Cortex v7: buckets read the calibrated edge, not the raw one.
         // V5.0.8187 — and executable: the lane's label-to-bank gap comes off the edge the bucket is read on.
         val calibrated = synchronized(this) { calibration.calibrate(lane, fused.edgePct, fused.laneMean) } - executableOffset8187(lane)
-        val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)
+        // V5.0.8324 §TAIL_EV — a runner lane's bucket reads the coin's tail EV (p x E[run] + (1 - p) x E[non-run]) on the lane's own
+        // graded hold-window records; the bounded shrunk edge alone filed nearly every coin REFUSE and could never reach STRONG.
+        val ev8324 = if (runner) tailEvNow8324(lane, fused) else Double.NaN
+        val bucket = if (runner) runnerBucketNow8324(lane, calibrated, ev8324) else CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)
         val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
         val freshestAt = maxOf(ts.lastPriceUpdate, registryAt)
         val priceAge = if (freshestAt > 0L) nowMs - freshestAt else Long.MAX_VALUE
-        val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs, prediction8076)
+        val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge > MARK_STALE_MS, nowMs, prediction8076, ev8324)
         try { CortexInvariants7911.recordProvenance(ts, nowMs) } catch (_: Throwable) {}
         assessNanos.addAndGet(System.nanoTime() - t0)
         noteAssessMs8187((System.nanoTime() - t0) / 1_000_000.0)
@@ -161,6 +166,88 @@ object Cortex7885 {
         if (assessCache.size >= ASSESS_PRUNE_AT_8144) pruneAssess8144(nowMs)
         assessCache[key] = a
         return a
+    }
+
+    // ── V5.0.8324 §TAIL_EV — runner lanes are bucketed on p x E[run] + (1 - p) x E[non-run] (CortexTailEv8324) ──
+    /** Lane -> its pond (graded hold-window objective, raw while plausible), refreshed with the executable offsets. Lock-free reads. */
+    private val tailPonds8324 = ConcurrentHashMap<String, CortexTailEv8324.Pond8324>()
+    private const val EV_WINDOW_8324 = 256
+    /** Lane -> ring of recent decision-time tail EVs (the lane's own distribution the STRONG bar follows). */
+    private val evWindows8324 = ConcurrentHashMap<String, DoubleArray>()
+    private val evWindowAt8324 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** V5.0.8324 — [lane]'s tail pond (null until graded records exist): admission and the cheat sheets read the same pond. */
+    fun tailPond8324(laneRaw: String): CortexTailEv8324.Pond8324? = tailPonds8324[canon(laneRaw)]
+
+    private fun noteEv8324(lane: String, ev: Double) {
+        if (!ev.isFinite()) return
+        val w = evWindows8324.computeIfAbsent(lane) { DoubleArray(EV_WINDOW_8324) { Double.NaN } }
+        val i = evWindowAt8324.computeIfAbsent(lane) { AtomicLong(0) }.getAndIncrement()
+        w[(i % EV_WINDOW_8324).toInt()] = ev
+    }
+
+    private fun recentEvs8324(lane: String): List<Double> = evWindows8324[lane]?.filter { it.isFinite() }.orEmpty()
+
+    /** The coin's tail EV on its lane's pond (NaN without one). */
+    private fun tailEvNow8324(lane: String, fused: CortexLedger7885.Fused): Double = try {
+        CortexTailEv8324.ev8324(tailPonds8324[lane], fused.runnerRate, fused.laneRunnerRate8324)
+    } catch (_: Throwable) { Double.NaN }
+
+    /** A runner lane's bucket: tail EV against the lane's own STRONG bar; REFUSE only on a clearly negative EV with evidence. */
+    private fun runnerBucketNow8324(lane: String, calibrated: Double, ev: Double): CortexScoreboard7885.Bucket = try {
+        val pond = tailPonds8324[lane]
+        val bar = CortexTailEv8324.strongBar8324(recentEvs8324(lane), pond?.mean ?: Double.NaN)
+        noteEv8324(lane, ev)
+        val b = CortexTailEv8324.runnerBucket8324(calibrated, ev, pond, bar)
+        if (b != CortexScoreboard7885.bucketOf(calibrated, 0.0, true)) inc("TAIL_EV_REBUCKET_8324_${lane}_${b.name}")
+        b
+    } catch (_: Throwable) { CortexScoreboard7885.Bucket.NEUTRAL }
+
+    /** Caller holds the lock. Rebuild every runner lane's pond from its graded records. */
+    private fun refreshPonds8324(lanes: Collection<String>) {
+        for (lane in lanes) {
+            if (!isRunner(lane)) continue
+            val (values, caps) = gradeBook8144.pondRows8324(lane)
+            val pond = CortexTailEv8324.pond8324(values, caps)
+            if (pond == null) tailPonds8324.remove(lane) else tailPonds8324[lane] = pond
+        }
+    }
+
+    /**
+     * V5.0.8324 — does the Cortex's ranking order forward returns? Per lane with 10+ graded records: Spearman rank IC of the
+     * decision-time fused edge (and of the tail EV where recorded) against the lane objective (runner lanes: hold-window
+     * revision, raw, executable-net), the top / bottom quintile means, the Cortex buckets and AATE's own take / refuse counts.
+     */
+    private fun inversionLine8324(): String {
+        val lanes = gradeBook8144.lanes8187().sorted()
+        val parts = lanes.mapNotNull { lane ->
+            val rows = gradeBook8144.rankRows8324(lane)
+            if (rows.size < 10) return@mapNotNull null
+            val y = rows.map { it.objective }
+            val pred = rows.map { it.predicted }
+            val ic = CortexTailEv8324.rankIc8324(pred, y)
+            val q = CortexTailEv8324.quintiles8324(pred, y)
+            val tailRows = rows.filter { it.tailEv.isFinite() }
+            val tailIc = CortexTailEv8324.rankIc8324(tailRows.map { it.tailEv }, tailRows.map { it.objective })
+            val sN = rows.count { it.bucket == CortexScoreboard7885.Bucket.STRONG.ordinal }
+            val rN = rows.count { it.bucket == CortexScoreboard7885.Bucket.REFUSE.ordinal }
+            val tN = rows.count { it.admitted }
+            fun f(v: Double) = if (v.isFinite()) "%+.2f".format(v) else "-"
+            "$lane: ic=${f(ic)} n${rows.size} topQ/botQ=${CortexTailEv8324.fmt(q[0])}/${CortexTailEv8324.fmt(q[1])} " +
+                "tailIc=${f(tailIc)}(n${tailRows.size}) strong/refuse=$sN/$rN take/refuse=$tN/${rows.size - tN} " +
+                "${CortexTailEv8324.verdict8324(ic, q[0], q[1])}${tailPonds8324[lane]?.let { " pond[${it.compact}]" } ?: ""}"
+        }
+        return "inversion8324[${parts.joinToString(" · ").ifBlank { "no lane with 10+ graded records" }}]"
+    }
+
+    /** V5.0.8324 — one lane's ranking verdict for the Cortex panel ("" under 10 graded records). Caller holds the lock. */
+    private fun inversionShort8324(lane: String): String {
+        val rows = gradeBook8144.rankRows8324(lane)
+        if (rows.size < 10) return ""
+        val y = rows.map { it.objective }; val pred = rows.map { it.predicted }
+        val ic = CortexTailEv8324.rankIc8324(pred, y); val q = CortexTailEv8324.quintiles8324(pred, y)
+        return "rank IC ${if (ic.isFinite()) "%+.2f".format(ic) else "-"} top/bottom fifth ${CortexTailEv8324.fmt(q[0])}/${CortexTailEv8324.fmt(q[1])} " +
+            CortexTailEv8324.verdict8324(ic, q[0], q[1])
     }
 
     // ── V5.0.8291 §CORE_VOTERS — the voters seated in a lane are never abstained by the read budget ──
@@ -932,7 +1019,7 @@ object Cortex7885 {
         CortexGradeRecord8144('D', id, key, p.atMs, p.a.lane, p.selected8153.ifBlank { p.setup7961 }.ifBlank { "-" }, p.a.regime.ifBlank { "-" },
             ctx?.timing ?: LanePlaybook7907.TIMING_UNKNOWN_8094, ctx?.costBand ?: "CUNK", ctx?.cohort ?: "UNK",
             p.a.bucket.ordinal, p.a.calibratedEdge, p.legacyAdmitted, v.executable, v.repeat)
-            .also { it.mode = p.decisionMode8196; it.lateRead8187 = p.lateRead8169 }  // V5.0.8196 — mode from the decision
+            .also { it.mode = p.decisionMode8196; it.lateRead8187 = p.lateRead8169; it.tailEv8324 = p.a.tailEv8324 }  // V5.0.8196 — mode from the decision; V5.0.8324 — tail EV
 
     /** Caller holds the lock. The 5-minute label of [p] as a grade record; returns the hygiene verdict. */
     private fun recordLabel8144(key: String, p: Pending, netPct: Double, grossPct: Double, latencyMeasured: Boolean): CortexLabelHygiene8144.Verdict8144 {
@@ -1376,9 +1463,33 @@ object Cortex7885 {
         if (graded8006.size >= MAX_GRADED_8006) {
             val cutoff = System.currentTimeMillis() - GRADED_KEEP_MS_8013
             graded8006.entries.removeIf { it.value.atMs < cutoff }
+            if (graded8006.size >= MAX_GRADED_8006) evictPastHorizon8324(System.currentTimeMillis())
             if (graded8006.size >= MAX_GRADED_8006) graded8006.entries.minByOrNull { it.value.atMs }?.key?.let { graded8006.remove(it) }
         }
         graded8006[key] = Graded8006(p, trace, net, gross, p.atMs, bookScales, auxScales, calStamp8322)
+    }
+
+    /**
+     * Caller holds the lock. V5.0.8324 — a full trace store drops first the traces past their lane's executable hold (a
+     * revision there no longer reaches any book): 8006 dropped the OLDEST, which at 8321 grade rates was every runner-lane
+     * decision before its 4 h checkpoint, so the long horizon never reached the voters, the buckets or the runner rate.
+     */
+    private fun evictPastHorizon8324(nowMs: Long): Int {
+        val before = graded8006.size
+        graded8006.entries.removeIf { e ->
+            !CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(e.value.p.a.lane), nowMs - e.value.atMs)
+        }
+        val n = before - graded8006.size
+        if (n > 0) counters.computeIfAbsent("GRADED_TRACE_PAST_HORIZON_EVICTED_8324") { AtomicLong(0) }.addAndGet(n.toLong())
+        return n
+    }
+
+    /** Caller holds the lock. V5.0.8324 — revise only the grade record of [key]'s newest labelled decision (its trace is gone). */
+    private fun reviseGradeOnly8324(key: String, newNet: Double, newGross: Double, latencyMeasured: Boolean) {
+        val r = gradeBook8144.latestLabelled8324(key) ?: return
+        val exec = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(r.lane), System.currentTimeMillis() - r.atMs)
+        gradeBook8144.label(r.id, newNet, newGross, CortexLabelHygiene8144.executablePct8144(newNet, latencyMeasured), exec)
+        inc(if (exec) "REVISION_GRADE_ONLY_8324" else "REVISION_GRADE_ONLY_PAST_HORIZON_8324")
     }
 
     /** ForwardReturnLabeler7731.revise7997: a decision's label moved; re-grade it everywhere it was booked. */
@@ -1388,7 +1499,9 @@ object Cortex7885 {
         val lat8144 = latencyMeasured8144(canon(labelLane))
         synchronized(this) {
             if (observedOnlyNewer8153(key)) { reviseObservedOnly8153(key, newNet, newGross); return }  // V5.0.8153
-            val g = graded8006[key] ?: return
+            // V5.0.8324 — a decision whose voter trace aged out of [graded8006] (600 traces: ~1 h of grades at 8321 rates, so most
+            // 4 h runner checkpoints) still revises its GRADE RECORD: the lane objective, the tail EV pond and the walk-forward.
+            val g = graded8006[key] ?: run { reviseGradeOnly8324(key, newNet, newGross, lat8144); return }
             // V5.0.8144 — the observed record follows every horizon; the books only revise inside the lane's executable hold.
             val exec8144 = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(g.p.a.lane), System.currentTimeMillis() - g.p.atMs)
             gradeBook8144.label("$key|${g.p.atMs}", newNet, newGross, CortexLabelHygiene8144.executablePct8144(newNet, lat8144), exec8144)
@@ -1677,6 +1790,7 @@ object Cortex7885 {
             // V5.0.8291 — the lane's own recent realised closes in this mode (every setup), for the setup authority cap.
             realisedByLane8291[lane] = laneRealised8291(gradeBook8144.realisedSeries(lane, null, null, mode))
         }
+        try { refreshPonds8324(lanes) } catch (_: Throwable) { inc("TAIL_POND_REFRESH_FAILED_8324") }  // V5.0.8324
         for ((k, st) in jointBook7961) st.readOffset8187 = execOffsetByLane8187[k.substringBefore('|')] ?: 0.0
         for ((k, st) in vetoBook) st.readOffset8187 = if ('@' in k) execOffsetByLane8187[k.substringAfterLast('@')] ?: 0.0 else 0.0
         inc("EXEC_OFFSETS_REFRESHED_8187")
@@ -2875,6 +2989,8 @@ object Cortex7885 {
         val aateTakeGrossMedian8269: Double = Double.NaN, val aateRefuseGrossMedian8269: Double = Double.NaN,
         val aateTakeNetMedian8269: Double = Double.NaN, val aateRefuseNetMedian8269: Double = Double.NaN,
         val aateTakeNetMean8269: Double = Double.NaN, val aateRefuseNetMean8269: Double = Double.NaN,
+        /** V5.0.8324 — the lane's ranking check (rank IC, top/bottom fifth, verdict); blank under 10 graded records. */
+        val inversion8324: String = "",
     )
     data class UiSeat8069(val key: String, val authority: Double, val skillPct: Double, val n: Int)
     data class UiVeto8069(val reason: String, val n: Int, val meanPct: Double, val sePct: Double)
@@ -2912,7 +3028,8 @@ object Cortex7885 {
                     aateTakeN8269 = d8269.takeN, aateRefuseN8269 = d8269.refuseN,
                     aateTakeGrossMedian8269 = d8269.takeGrossMedian, aateRefuseGrossMedian8269 = d8269.refuseGrossMedian,
                     aateTakeNetMedian8269 = d8269.takeNetMedian, aateRefuseNetMedian8269 = d8269.refuseNetMedian,
-                    aateTakeNetMean8269 = d8269.takeNetMean, aateRefuseNetMean8269 = d8269.refuseNetMean)
+                    aateTakeNetMean8269 = d8269.takeNetMean, aateRefuseNetMean8269 = d8269.refuseNetMean,
+                    inversion8324 = inversionShort8324(lane))
             }
             val vetoes = vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(10).map { (k, st) ->
                 UiVeto8069(k, st.n.toInt(), st.mean(), if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.NaN)
@@ -2977,6 +3094,7 @@ object Cortex7885 {
                 laneLines.ifBlank { "      lanes: no graded decisions yet" } + "\n" +
                 "      verdict x setup (§7961): ${jointLine7961()}\n" +
                 "      grade records (§8144 observed vs executable, walk-forward): ${gradeLine8144()}\n" +
+                "      ranking (§8324 does the Cortex rank-order forward returns?): ${inversionLine8324()}\n" +
                 "      veto audit (refused candidates' forward return): " +
                 vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(12).joinToString(" · ") { (r, st) ->
                     val se = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY

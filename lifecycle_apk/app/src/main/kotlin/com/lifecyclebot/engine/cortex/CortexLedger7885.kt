@@ -302,6 +302,20 @@ class CortexLedger7885(
     val lanes = HashMap<String, Stat>()
     val seats = HashMap<String, Seat>()      // voterId|lane
 
+    /**
+     * V5.0.8324 — which lanes are runner lanes (Cortex7885 sets it from RunnerExitProfile7277). On a runner lane a seat that
+     * measurably places the runners BELOW the lane mean (CortexTailEv8324.runnerDirection8324) is demoted: its pull is the
+     * one that files the coins that run under REFUSE. false by default: a bare ledger seats exactly as 8007.
+     */
+    @Volatile var runnerLane8324: (String) -> Boolean = { false }
+
+    private fun runnerLaneSafe8324(lane: String): Boolean = try { runnerLane8324(lane) } catch (_: Throwable) { false }
+
+    /** V5.0.8324 — the runner-direction factor of [seat] in [lane] (1 off runner lanes). */
+    fun runnerFactor8324(seat: Seat, lane: String): Double =
+        if (!runnerLaneSafe8324(lane)) 1.0
+        else CortexTailEv8324.runnerDirection8324(seat.above.n, seat.above.runners, seat.below.n, seat.below.runners)
+
     // V5.0.8187 — this ledger's books read through its label cap; every label above the runner threshold is a runner.
     private fun newStat8187(): Stat = Stat(labelCap8187, RUNNER_GROSS_PCT)
     private fun newSeat8187(binCount: Int): Seat = Seat(binCount, labelCap8187, RUNNER_GROSS_PCT)
@@ -349,7 +363,8 @@ class CortexLedger7885(
         }
         val laneWin = lanes[lane]?.winRate() ?: 0.5
         val pWin = ((b?.wins ?: 0.0) + SHRINK_K * laneWin) / (n + SHRINK_K)
-        return Prediction(pred, runner, st?.let { cleanAuthority8007(it, seats.size) } ?: 0.0, n, pWin)
+        // V5.0.8324 — an anti-runner seat on a runner lane holds no (or half) authority.
+        return Prediction(pred, runner, st?.let { cleanAuthority8007(it, seats.size) * runnerFactor8324(it, lane) } ?: 0.0, n, pWin)
     }
 
     /**
@@ -572,6 +587,8 @@ class CortexLedger7885(
         val dissentPct: Double,
         val top: List<String>,
         val pWin: Double = 0.5,
+        /** V5.0.8324 — the lane's runner-rate baseline the fused [runnerRate] deviates from (the tail EV reads the deviation). */
+        val laneRunnerRate8324: Double = Double.NaN,
     )
 
     /**
@@ -614,12 +631,12 @@ class CortexLedger7885(
         val top = weights.sortedByDescending { kotlin.math.abs(it.second * it.first.d) }.take(3)
             .map { (w, x) -> "${w.id}${if (w.d >= 0) "+" else ""}${"%.1f".format(w.d)}@${"%.2f".format(x)}" }
         val pWin = ((l?.winRate() ?: 0.5) + swp / (1.0 + sw)).coerceIn(0.0, 1.0)
-        return Fused(edge, runner, m, l?.n ?: 0.0, sw, if (sw2 > 0.0) sw * sw / sw2 else 0.0, dissent, top, pWin)
+        return Fused(edge, runner, m, l?.n ?: 0.0, sw, if (sw2 > 0.0) sw * sw / sw2 else 0.0, dissent, top, pWin, lr)
     }
 
     /** V5.0.8007 — what vote cleaning does to the seasoned seats (lane seats only). */
     fun cleanLine8007(): String {
-        var seasoned = 0; var noise = 0; var flat = 0; var inverted = 0; var half = 0; var seated = 0
+        var seasoned = 0; var noise = 0; var flat = 0; var inverted = 0; var half = 0; var seated = 0; var antiRunner8324 = 0
         val n = seats.size
         for ((k, st) in seats) {
             if (k.contains('@') || k.endsWith("|$GLOBAL") || st.scored < MIN_SCORED) continue
@@ -629,10 +646,13 @@ class CortexLedger7885(
                 s <= MIN_SKILL + 4.0 * fdrFactor8007(n) / st.scored -> noise++
                 !discriminates8007(st) -> flat++
                 direction8007(st) <= 0.0 -> inverted++
-                else -> { seated++; if (direction8007(st) < 1.0) half++ }
+                else -> {
+                    seated++; if (direction8007(st) < 1.0) half++
+                    if (runnerFactor8324(st, k.substringAfter('|')) <= 0.0) antiRunner8324++
+                }
             }
         }
-        return "seats=$n seasoned=$seasoned seated=$seated (half-weight=$half) filtered: noise=$noise flat=$flat inverted=$inverted fdr=${"%.2f".format(fdrFactor8007(n))}"
+        return "seats=$n seasoned=$seasoned seated=$seated (half-weight=$half) filtered: noise=$noise flat=$flat inverted=$inverted fdr=${"%.2f".format(fdrFactor8007(n))} antiRunnerDemoted8324=$antiRunner8324"
     }
 
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->

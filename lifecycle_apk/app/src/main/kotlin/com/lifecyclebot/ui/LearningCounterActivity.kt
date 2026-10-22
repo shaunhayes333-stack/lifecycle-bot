@@ -406,7 +406,8 @@ class LearningCounterActivity : Activity() {
                     "neutral n${l.neutralN} ${pct8069(l.neutralMean)} · " +
                     "Cortex net median ${pct8069(l.strongMedian8165)} / ${pct8069(l.refuseMedian8165)} · gross median ${pct8069(l.strongGrossMedian8198)} / ${pct8069(l.refuseGrossMedian8198)} · " +
                     "exec offset -${"%.1f".format(l.execOffset8198)}pt · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}" +
-                    (if (l.source8153.isNotBlank()) " · executable first-of-episode on-time labels; old decayed cohorts display-only" else "")))
+                    (if (l.source8153.isNotBlank()) " · executable first-of-episode on-time labels; old decayed cohorts display-only" else "") +
+                    (if (l.inversion8324.isNotBlank()) " · ranking (§8324): ${l.inversion8324}" else "")))
             target7023().addView(AateComponents6994.barRow(this, "authority", (l.auth * 100.0).coerceIn(0.0, 100.0),
                 if (l.auth > 0.0) AateUi.GREEN else AateUi.TEXT_MUTED))
         }
