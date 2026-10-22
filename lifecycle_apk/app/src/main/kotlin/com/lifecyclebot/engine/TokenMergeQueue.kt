@@ -483,6 +483,17 @@ object TokenMergeQueue {
 
     fun getPendingCount(): Int = pendingDiscoveries.size
 
+    /**
+     * V5.0.8305 — an entry leaves only when emitted (at most maxEmit per pass, from the first maxScan walked in hash
+     * order), so under a firehose entries no pass ever reaches stayed for the process. MemoryGuard7977 drops entries not
+     * re-discovered for [maxAgeMs] (a re-discovery re-enqueues them like any new mint). Returns the entries removed.
+     */
+    fun pruneStale8305(nowMs: Long, maxAgeMs: Long): Int {
+        val before = pendingDiscoveries.size
+        try { pendingDiscoveries.entries.removeIf { nowMs - it.value.lastSeenAt > maxAgeMs } } catch (_: Throwable) {}
+        return (before - pendingDiscoveries.size).coerceAtLeast(0)
+    }
+
     fun getStats(): String {
         return "MergeQ: pending=${pendingDiscoveries.size} " +
             "discoveries=${totalDiscoveries.get()} " +

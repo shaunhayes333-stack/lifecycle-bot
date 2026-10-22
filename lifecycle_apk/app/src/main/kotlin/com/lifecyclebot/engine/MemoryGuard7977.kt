@@ -398,6 +398,9 @@ object MemoryGuard7977 {
         r.register8144("contribMerge8305", 360L, { com.lifecyclebot.engine.truth.SpecialistContributorMerge6612.trackedMints() }, { _ ->
             com.lifecyclebot.engine.truth.SpecialistContributorMerge6612.boundMints8305(System.currentTimeMillis())
         })
+        r.register8144("mergeQueue8305", 640L, { TokenMergeQueue.size() }, { p ->
+            TokenMergeQueue.pruneStale8305(System.currentTimeMillis(), if (p == RetentionPolicy8136.Pressure.SOFT) 30L * 60_000L else 10L * 60_000L)
+        })
         r.register8144("httpBodiesInFlight8305", 1_024L, { (com.lifecyclebot.network.HttpBodyCap8305.inFlightBytes8305() / 1024L).toInt() }, null) {
             com.lifecyclebot.network.HttpBodyCap8305.inFlightBytes8305()
         }

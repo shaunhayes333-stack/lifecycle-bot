@@ -216,9 +216,19 @@ class Aate8305MemoryNetTest {
         } finally { m.resetForTest() }
     }
 
+    @Test fun mergeQueueEntriesNoPassReachesArePrunedOnceStale() {
+        val now = System.currentTimeMillis()
+        for (i in 0 until 20) TokenMergeQueue.enqueue("Q8305$i".padEnd(44, 'M'), "Q$i", "PUMP_PORTAL_WS")
+        val n = TokenMergeQueue.size()
+        assertTrue(n >= 20)
+        assertEquals("fresh entries stay", 0, TokenMergeQueue.pruneStale8305(now, 10L * 60_000L))
+        assertTrue(TokenMergeQueue.pruneStale8305(now + 60L * 60_000L, 10L * 60_000L) >= 20)
+        assertFalse(TokenMergeQueue.isPending("Q83050".padEnd(44, 'M')))
+    }
+
     @Test fun theMemoryLineShowsDispatcherLoadBodiesFramesAndEveryStore() {
         val stores = MemoryGuard7977.registeredStores8144()
-        for (s in listOf("insiderTracker8305", "dynAltRegistry8305", "contribMerge8305", "httpBodiesInFlight8305")) assertTrue(s, s in stores)
+        for (s in listOf("insiderTracker8305", "dynAltRegistry8305", "contribMerge8305", "mergeQueue8305", "httpBodiesInFlight8305")) assertTrue(s, s in stores)
         val line = MemoryGuard7977.netLine8305()
         for (k in listOf("dispatcher8305[queued=", "running=", "insiderScan8305[run=", "bodyCap8305[refused=", "frames8305[oversizeDropped=", "emergencyTrims8305=", "stores8305=["))
             assertTrue("$k in $line", line.contains(k))
