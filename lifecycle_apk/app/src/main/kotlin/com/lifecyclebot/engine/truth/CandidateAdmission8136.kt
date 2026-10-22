@@ -136,6 +136,12 @@ object CandidateAdmission8136 {
          * it can still deny a positive proof, never manufacture a loss.
          */
         val liveShortfall8290: Double = 0.0,
+        /**
+         * V5.0.8323 — the lane's cheat sheet (LaneCheatSheet8323) per fired setup: [SHEET_FAVOUR_8323] supports (its record
+         * cleared its prior with evidence and the bank agrees), [SHEET_AVOID_8323] refuses (a clear loss on its labels or live
+         * closes, not on its re-probe slot). Setups absent are NEUTRAL: the existing rules decide.
+         */
+        val sheet8323: Map<String, String> = emptyMap(),
     ) {
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
         val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
@@ -371,6 +377,18 @@ object CandidateAdmission8136 {
                 chooseSetup(bestSetup.id)
             }
         }
+        // V5.0.8323 — the lane's cheat sheet: an AVOIDED strategy (a clear loss on its labels or live closes, and not on its
+        //    re-probe slot) trades only as a supported / favoured alternative; with none it refuses. NEUTRAL falls through.
+        if (chosen?.let { c.sheet8323[it] } == SHEET_AVOID_8323) {
+            if (bestSetup != null && bestSetup.id != chosen) {
+                trace += "sheetAvoid8323=$chosen altSetup=${bestSetup.compact}"
+                chooseSetup(bestSetup.id)
+            } else {
+                trace += "sheetAvoid8323=$chosen"
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHEET_AVOID_REFUSED_8323_${c.lane.uppercase()}") } catch (_: Throwable) {}
+                return done(Terminal8136.REFUSE, "SHEET_AVOID_8323", true, chosen)
+            }
+        }
         // V5.0.8169 — a loss pattern refuses on the record graded since the epoch; an older one is noted and decays to
         //    neutral (the candidate goes on to the generic prior — never to an ADMIT the stale record cannot support).
         val cellLoss = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell
@@ -551,13 +569,34 @@ object CandidateAdmission8136 {
         // V5.0.8316 — a SUPPORT test: ranked on the records past the realised shortfall (Candidate8136.setupsProof8290).
         val setups8316 = c.setupsProof8290
         val timings8316 = c.setupTimingsProof8290
-        val options = setups8316.filter { !it.suspect8290 }.map { e ->  // V5.0.8290 — a suspect record is never the strategy
+        // V5.0.8323 — an AVOIDED setup (LaneCheatSheet8323) is never the supported strategy.
+        val options = setups8316.filter { !it.suspect8290 && c.sheet8323[it.id] != SHEET_AVOID_8323 }.map { e ->  // V5.0.8290 — a suspect record is never the strategy
             val t = timings8316[e.id]
             StrategyRank8153.Option8153(e.id, e.n, e.meanPct, e.sePct, e.runnerRate, e.netOfCost,
                 t?.n ?: 0, t?.meanPct ?: Double.NaN, t?.sePct ?: Double.NaN)
         }
-        val best = StrategyRank8153.bestSupported8153(options, c.costPct) ?: return null
+        val best = StrategyRank8153.bestSupported8153(options, c.costPct) ?: return sheetFavour8323(c, setups8316, timings8316)
         return setups8316.firstOrNull { it.id == best.id }
+    }
+
+    const val SHEET_FAVOUR_8323 = "FAVOUR"
+    const val SHEET_AVOID_8323 = "AVOID"
+
+    /**
+     * Pure (V5.0.8323): the lane's FAVOURED fired setup (LaneCheatSheet8323: n >= its favour bar, mean - SE above its prior,
+     * live closes not losing) supports when no setup clears the 30-label SUPPORTED bar — on its record past the realised
+     * shortfall (still above zero), not outlier-suspect, not losing at the coin's timing band. Best lower bound first.
+     * Economics, data and every hard gate still decide after it.
+     */
+    internal fun sheetFavour8323(c: Candidate8136, setups: List<Evidence8136>, timings: Map<String, Evidence8136>): Evidence8136? {
+        if (c.sheet8323.isEmpty()) return null
+        val fav = setups.filter { e ->
+            c.sheet8323[e.id] == SHEET_FAVOUR_8323 && !e.suspect8290 &&
+                e.n >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.FAVOUR_MIN_N_8323 &&
+                e.lowerPct.isFinite() && e.lowerPct > 0.0 && !losing8136(timings[e.id])
+        }.maxByOrNull { it.lowerPct } ?: return null
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHEET_FAVOUR_SUPPORTS_8323_${c.lane.uppercase()}") } catch (_: Throwable) {}
+        return fav
     }
 
     const val KIND_SETUP = "SETUP"
@@ -1147,6 +1186,7 @@ object CandidateAdmission8136 {
             } catch (_: Throwable) { null },
             nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,
             nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) } ?: nativeSetupBook8217 ?: runnerForming8260,
+            sheet8323 = try { com.lifecyclebot.engine.cortex.LaneCheatSheet8323.admissionVerdicts8323(lane, setups.map { it.id }, selected, ts.mint, nowMs) } catch (_: Throwable) { emptyMap() },
         )
     }
 }

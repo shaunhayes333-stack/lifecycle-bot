@@ -57,15 +57,15 @@ object ManipulatedTraderAI {
     
     // Market cap range
     const val MCAP_UNHYDRATED_DEFER_8190 = "MCAP_UNHYDRATED_DEFER_8190"
-    private const val MIN_MARKET_CAP_USD = 5_000.0          // $5K minimum
-    private const val MAX_MARKET_CAP_USD = 300_000.0        // $300K maximum
+    internal const val MIN_MARKET_CAP_USD = 5_000.0          // $5K minimum
+    internal const val MAX_MARKET_CAP_USD = 300_000.0        // $300K maximum
     
     // Liquidity thresholds (fluid) - LOW for manipulation plays
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 1_500.0     // V5.6.8: $1.5K during bootstrap
+    internal const val MIN_LIQUIDITY_BOOTSTRAP = 1_500.0     // V5.6.8: $1.5K during bootstrap
     private const val MIN_LIQUIDITY_MATURE = 3_000.0        // V5.6.8: $3K when mature
     
     // Token age (fluid - tighter when experienced)
-    private const val MAX_AGE_MINUTES_BOOTSTRAP = 12.0      // V5.6.8: 12 min during bootstrap
+    internal const val MAX_AGE_MINUTES_BOOTSTRAP = 12.0      // V5.6.8: 12 min during bootstrap
     private const val MAX_AGE_MINUTES_MATURE = 8.0          // V5.6.8: 8 min when mature
 
     // Position sizing — bootstrap→mature via FluidLearningAI

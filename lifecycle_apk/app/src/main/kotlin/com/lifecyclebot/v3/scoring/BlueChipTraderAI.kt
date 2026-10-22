@@ -1099,7 +1099,7 @@ object BlueChipTraderAI {
     private const val BC_CONF_BOOST_MAX = 8.0       // Softer bootstrap boost
 
     // V5.9.83: Liq floor at bootstrap raised to filter out the thinnest rugs.
-    private const val BC_LIQ_BOOTSTRAP = 7_000.0    // V5.9.343: walk-back to V5.9.335
+    internal const val BC_LIQ_BOOTSTRAP = 7_000.0    // V5.9.343: walk-back to V5.9.335
     private const val BC_LIQ_MATURE = 15_000.0      // V5.9.343: walk-back to V5.9.335
     
     private fun lerp(bootstrap: Double, mature: Double): Double {

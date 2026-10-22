@@ -437,19 +437,18 @@ object TokenMergeQueue {
                 out += l
             }
         }
-        if (src.contains("PUMP") || src.contains("PORTAL")) addAll("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER")
-        if (src.contains("RAYDIUM") || src.contains("NEW_POOL")) addAll("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER")
-        if (src.contains("METEORA") || src.contains("ORCA") || src.contains("PUMPSWAP") || src.contains("JUPITER") || src.contains("HELIUS") || src.contains("SOLANA_RPC")) addAll("MOONSHOT", "PROJECT_SNIPER", "QUALITY", "BLUECHIP", "STANDARD", "CORE", "V3")
-        if (src.contains("DEX_BOOSTED") || src.contains("DEX_TRENDING") || src.contains("COINGECKO") || src.contains("BIRDEYE")) addAll("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3")
-        if (src.contains("INSIDER") || src.contains("SHARK")) addAll("INSIDER_SHARK", "WHALE_FOLLOW", "COPY_TRADE", "MOONSHOT", "QUALITY")
-        if (src.contains("WHALE")) addAll("QUALITY", "BLUECHIP", "TREASURY")
+        // V5.0.8323 — the source -> lane map lives on the lanes' cheat sheets (LaneCheatSheet8323.SOURCE_LANES_8323).
+        for ((keys8323, lanes8323) in com.lifecyclebot.engine.cortex.LaneCheatSheet8323.SOURCE_LANES_8323) {
+            if (keys8323.any { src.contains(it) }) addAll(*lanes8323.toTypedArray())
+        }
         if (marketCapUsd in 75_000.0..1_000_000.0) out += "QUALITY"
         // V5.0.6596 — legacy micro-cap→BLUECHIP shortcut removed. The $1M-mcap
         // or $75k-liq bar was well below any credible bluechip identity and
         // let fresh $170k launches inherit BLUECHIP execution/exits.
         if (meetsBluechipFloor6596) out += "BLUECHIP"
         if (out.isEmpty()) out += listOf("SHITCOIN", "MOONSHOT")
-        return out
+        // V5.0.8323 — offered only to lanes whose cheat-sheet mandate fits the coin (a sub-$10k launch is not QUALITY prey).
+        return try { com.lifecyclebot.engine.cortex.LaneCheatSheet8323.routeLanes8323(out, marketCapUsd, liquidityUsd) } catch (_: Throwable) { out }
     }
 
     private fun inferToolAffinity(scanner: String, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
