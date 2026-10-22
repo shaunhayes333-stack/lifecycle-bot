@@ -12,6 +12,8 @@ object ProfitExitTruth8163 {
     private val refusals = java.util.concurrent.atomic.AtomicLong(0)
     fun statusLine(): String = "profitQuoteRefused8163=${refusals.get()} basis=exact_slice_SOL"
     fun profitTaking(reason: String): Boolean {
+        // V5.0.8337 — a protective exit (ranks 1-3) is never profit-taking, whatever words its name carries.
+        if (try { ExitTruthArbiter8144.protective8144(reason) } catch (_: Throwable) { false }) return false
         val r = reason.uppercase()
         if (listOf("STOP_LOSS", "STRICT_SL", "CATASTROPH", "BACKSTOP", "RUG", "MANUAL", "EMERGENCY", "ORPHAN", "RECONCIL").any { r.contains(it) }) return false
         return RecoveredHoldGuard.isProfitTakingExit7931(reason) ||

@@ -59,7 +59,9 @@ class Aate8327RuntimeTest {
     }
 
     @Test fun fluidLossStopIsAHardStopAndRapidSellsLeaveTheSweep() {
-        assertTrue(ProtectiveExitClass7807.isEmergency("RAPID_FLUID_STOP"))
+        // superseded by V5.0.8337 — RAPID_FLUID_STOP is back on the normal (non-emergency) loss path (owner's fix block 10b);
+        // the 8327 pin `assertTrue(ProtectiveExitClass7807.isEmergency("RAPID_FLUID_STOP"))` is replaced by its opposite.
+        assertFalse(ProtectiveExitClass7807.isEmergency("RAPID_FLUID_STOP"))
         assertEquals(ProtectiveExitClass7807.Priority.PROFIT_PROTECTION, ProtectiveExitClass7807.of("RAPID_TRAILING_STOP"))
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("requestSellOffLoop7288(ts, \"RAPID_\${stopType}_STOP\", wallet, effectiveBalance)"))

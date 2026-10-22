@@ -434,6 +434,8 @@ object NetEdge8030 {
         if (!pos.isOpen || pos.isPaperPosition || !(pos.entryPrice > 0.0) || !(markPrice > 0.0)) return false
         val pnl = (markPrice / pos.entryPrice - 1.0) * 100.0
         if (!(pnl > 0.0)) return false
+        // V5.0.8337 — a protective exit (ranks 1-3) is never held by the cost model.
+        if (try { com.lifecyclebot.engine.ExitTruthArbiter8144.protective8144(reason) } catch (_: Throwable) { false }) return false
         val structural = structural8030(reason)
         if (structural) return false
         try { OnChainDepth8038.request8038(ts) } catch (_: Throwable) {}

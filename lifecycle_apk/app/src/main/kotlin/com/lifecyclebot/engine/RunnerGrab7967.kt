@@ -455,9 +455,34 @@ object RunnerGrab7967 {
         return true
     }
 
+    /**
+     * V5.0.8337 — pure: does the runner hard stop wait for confirmation? Inside the first minute a hard-stop read above
+     * -80% waits until an executable quote confirms it; past -80%, or past the minute, it sells as before.
+     */
+    fun hardStopWaits8337(grossPct: Double, ageMs: Long, confirmed: Boolean): Boolean =
+        grossPct.isFinite() && grossPct <= HARD_STOP_PCT && grossPct > -80.0 && ageMs < 60_000L && !confirmed
+
+    /** V5.0.8337 — the fresh executable held-exit quote (HeldExitQuote8189, never blocks) reads at or under the hard stop. */
+    private fun hardStopConfirmed8337(ts: TokenState, nowMs: Long): Boolean = try {
+        val q = com.lifecyclebot.engine.truth.HeldExitQuote8189.fresh8189(ts.mint, nowMs)
+        q != null && gross(ts, q.priceUsd) <= HARD_STOP_PCT
+    } catch (_: Throwable) { false }
+
+    /**
+     * V5.0.8337 — pure: a runner-from-entry position sells on the scalp ladder (SpikeCapture7943.TIERS, +40% sells 60%)
+     * until its plan is sealed AND its continuation is confirmed; only then does the runner ladder (first rung +100%) apply.
+     */
+    fun scalpTiersUntilConfirmed8337(runnerFromEntry: Boolean, planSealed: Boolean, continuationConfirmed: Boolean): Boolean =
+        runnerFromEntry && !(planSealed && continuationConfirmed)
+
+    private fun scalpTierHolds8337(ts: TokenState): Boolean = try {
+        scalpTiersUntilConfirmed8337(TradeExitContract8077.runnerFromEntry8104(ts),
+            RunnerLive8153.plan8153(ts) != RunnerPlan8153.Plan8153.SCALP, RunnerLive8153.continuationConfirmed8153(ts))
+    } catch (_: Throwable) { false }
+
     /** SpikeCapture7943.onMark: the runner ladder for a grabbed position, else null. */
     fun tiersFor7967(ts: TokenState): List<Pair<Double, Double>>? =
-        if (holding7967(ts)) TIERS_7967
+        if (holding7967(ts)) (if (scalpTierHolds8337(ts)) SpikeCapture7943.TIERS else TIERS_7967)  // V5.0.8337
         // V5.0.8331 — the ladder follows the one plan for the position's life: a sealed / promoted runner past the 6 h hold
         // window kept its plan (RunnerPlan8153) but fell back to the scalp ladder here, and bookSlice8153 then confirmed
         // the fill on the RUNNER ladder the request never used (ladder identity lost mid-position).
@@ -550,6 +575,13 @@ object RunnerGrab7967 {
         // V5.0.8271 — hard-risk evaluation precedes the discretionary first-minute grace (R6): a fresh hard loss in the
         // first 60 s is sold like any other; only the soft structure/giveback reads wait for the minute.
         if (nowMs - pos.entryTime < 60_000L && !peakGiveback7980(peak, g) && g > HARD_STOP_PCT) return
+        // V5.0.8337 — the RUNNER hard stop keeps its 60 s grace (8114 had it): inside the first minute a -35% read sells
+        // only when a fresh executable quote confirms it or it is past -80%. Rug / catastrophic / sellability exits are
+        // not this door and stay binding.
+        if (hardStopWaits8337(g, nowMs - pos.entryTime, hardStopConfirmed8337(ts, nowMs))) {
+            try { PipelineHealthCollector.labelInc("RUNNER_HARD_STOP_UNCONFIRMED_8337") } catch (_: Throwable) {}
+            return
+        }
         val (r15, r60) = StructureTracker7962.reads7967(ts.mint, nowMs)
         val why = when {
             g <= HARD_STOP_PCT -> "RUNNER_HARD_STOP_7967_${g.toInt()}PCT"

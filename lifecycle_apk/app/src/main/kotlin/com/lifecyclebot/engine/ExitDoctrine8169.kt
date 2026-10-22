@@ -126,6 +126,8 @@ object ExitDoctrine8169 {
         val be = (if (costPct.isFinite() && costPct > 0.0) costPct else 0.0) + 0.5
         if (peakPct >= RUNNER_PROTECT_PEAK_PCT_8169) return maxOf(be, peakPct * RUNNER_KEEP_FRACTION_8169)
         if (peakPct >= be + RUNNER_BREAKEVEN_MARGIN_PCT_8169) return be
+        // V5.0.8337 — a +20% peak keeps at least 40% of the peak, whatever the cost model reads
+        if (peakPct >= 20.0) return maxOf(be.coerceAtMost(peakPct * 0.5), peakPct * 0.4)
         return Double.NaN
     }
 
