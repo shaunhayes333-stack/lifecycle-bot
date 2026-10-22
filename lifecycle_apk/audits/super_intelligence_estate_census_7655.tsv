@@ -92,6 +92,7 @@ ScannerDiversityBandit	SOURCE_SELECTION_UPSTREAM	com/lifecyclebot/engine/Scanner
 ScannerFanoutDedupe6374	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/ScannerFanoutDedupe6374.kt	False
 ScannerHardRejectStore	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/ScannerHardRejectStore.kt	False
 ScannerHydrationQueues6347	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/ScannerHydrationQueues6347.kt	False
+ScannerSourceTags8292	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/ScannerIntake8292.kt	False
 ScannerLaneBridge	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/ScannerLaneBridge.kt	False
 ScannerSourceBrain	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/ScannerSourceBrain.kt	False
 ScannerSourceCircuitBreaker6363	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/ScannerSourceCircuitBreaker6363.kt	False
@@ -137,6 +138,7 @@ Side	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/execution/Executio
 StrategyTrainingGate	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/execution/StrategyTrainingGate.kt	False
 LabAssetClass	BACKGROUND_RESEARCH_REVIEW	com/lifecyclebot/engine/lab/LlmLabModels.kt	False
 LanePolicy	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/learning/LanePolicy.kt	False
+HunterMandates8293	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/market/HunterRepair8293.kt	False
 ScoutPairVerdict8169	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/market/ScoutPairVerdict8169.kt	False
 BalanceProofWaitState	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/sell/BalanceProofWaitState.kt	False
 SellFailureHistory	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/sell/SellFailureHistory.kt	False

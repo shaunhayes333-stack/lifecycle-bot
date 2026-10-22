@@ -418,7 +418,7 @@ object LiveCanonicalRecovery6686 {
         // Completeness and observation time must describe THIS map, including a
         // legitimately empty complete read. A process-global flag cannot prove it.
         val evidence = WalletAccountCache.evidence()?.takeIf {
-            it.complete && it.tokens == walletMints && it.owner == WalletManager.currentPubkey() &&
+            it.complete && TicketExec8304.sameWalletTokens8304(it.tokens, walletMints) && it.owner == WalletManager.currentPubkey() &&  // V5.0.8304 — USDC collateral is not a position on either side
                 now7807 - it.observedAtMs in 0L..60_000L
         } ?: return 0
         val rows7807 = try {

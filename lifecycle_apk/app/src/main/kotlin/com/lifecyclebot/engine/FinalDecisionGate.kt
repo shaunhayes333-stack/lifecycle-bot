@@ -6331,7 +6331,9 @@ object FinalDecisionGate {
         // V5.0.7951 — an approved live entry the wallet cannot fund (SIZE_NOT_EXECUTABLE_7835):
         // when the chart reader says BUY it is real demand that capital rotation may serve.
         MemeChokes7951.noteCapitalStarved7951(ts.mint, lane, cash - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL, minimum, config.paperMode)
-        val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        // V5.0.8304 — the depth the executor's entry snapshot accepts (observed curve reserves / token map) when the
+        // tick carries none: a fresh curve runner read depth 0 here and died SIZE_NOT_EXECUTABLE_7835 (8302: WILLOW).
+        val liq = TicketExec8304.sizingDepthUsd8304(ts)
         // A market-depth cap can reduce or refuse a proposal; an executable floor
         // must never erase it. There is no wallet-share substitute for unknown depth.
         val depthCap = if (solUsd.isFinite() && solUsd > 0.0 && liq > 0.0)
@@ -6370,7 +6372,7 @@ object FinalDecisionGate {
             )
             val risk = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.record("FDG", ts.mint, ts.symbol,
                 inputs, com.lifecyclebot.engine.truth.LiveRiskPolicy7807.decide(inputs))
-            if (!risk.open) return 0.0
+            if (!risk.open) return TicketExec8304.fdgSizeZero8304(lane, "RISK_" + risk.reason)
             risk8094 = risk
             val compoundingApproved8094 = compoundingCeiling8094 > 0.0 && "PROVEN_EDGE_COMPOUNDING_SIZE_8057" in risk.labels
             riskSized = if (compoundingApproved8094) {
@@ -6390,7 +6392,7 @@ object FinalDecisionGate {
                 risk.sizeSol
             } else minOf(riskSized, risk.sizeSol)
         }
-        if (!riskSized.isFinite() || riskSized <= 0.0) return 0.0
+        if (!riskSized.isFinite() || riskSized <= 0.0) return TicketExec8304.fdgSizeZero8304(lane, if (depthCap <= 0.0) "DEPTH_UNKNOWN" else "RISK_SIZED_ZERO")
         val configuredCap = if (config.paperMode) maxOf(cash * 0.12, minimum) else {
             val spendCap7842 = com.lifecyclebot.engine.truth.LiveRiskPolicy7807.routeAwareSpendCap7842(
                 walletSol = cash,
@@ -6429,6 +6431,7 @@ object FinalDecisionGate {
             // they were "promoted" back to it).
             alreadyShaped7925 = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.shapedRecently7925(ts.mint),
         )
+        if (!resolution.executable) TicketExec8304.fdgSizeZero8304(lane, "RESOLVER_" + resolution.reason)
         if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9 ||
             resolution.finalSizeSol + 1e-9 < sealedMinimum8269) return 0.0
         com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, resolution, lane)
