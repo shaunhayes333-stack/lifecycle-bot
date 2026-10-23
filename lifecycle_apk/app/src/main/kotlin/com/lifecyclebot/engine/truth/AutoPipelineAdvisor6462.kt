@@ -4,6 +4,7 @@ import android.content.Context
 import com.lifecyclebot.data.ConfigStore
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.engine.AdvisorInbox
+import com.lifecyclebot.engine.AdvisorKeyAuthority8353
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.GeminiCopilot
@@ -177,13 +178,15 @@ object AutoPipelineAdvisor6462 {
 
     fun statusLine(): String {
         return "ticks=${ticks.get()} runsOk=${runsOk.get()} failed=${runsFailed.get()} " +
-            "autoApplied=${autoApplied.get()} lastRunMs=${lastRunMs.get()}"
+            "autoApplied=${autoApplied.get()} lastRunMs=${lastRunMs.get()} " +
+            AdvisorKeyAuthority8353.statusSuffix8353()  // V5.0.8353
     }
 
     // ─── Internal: one tick ────────────────────────────────────────────────
 
     private fun runTick(ctx: Context) {
         repairReplayDrivenStrategyMutation6569(ctx)
+        try { AdvisorKeyAuthority8353.restoreOnce8353(ctx) } catch (_: Throwable) {}  // V5.0.8353 — one-shot owner-key restore (IO thread, after ErrorLogger.init)
         // V5.0.6505 — HOLDS DISABLED, ADVISOR ALWAYS RUNS.
         // Operator mandate: "quit strangling the bot — just fix the
         // fucking thing properly." Data integrity is now enforced at
@@ -267,6 +270,10 @@ object AutoPipelineAdvisor6462 {
                         oldValue = oldValue, newValue = newValue,
                     )
                 )
+            }
+            // V5.0.8353 — owner-only keys are advisory rows in the timeline/inbox and never reach applyOne.
+            if (AdvisorKeyAuthority8353.isAdvisoryOnly8353(c.key)) {
+                histAction(AdvisorDecisionHistory6463.Action.QUEUED_INBOX); emitted += c; continue
             }
             if (!causalDomainAllowsAutoApply6569(c)) {
                 try { PipelineHealthCollector.labelInc("ADVISOR_CROSS_DOMAIN_MUTATION_BLOCKED_6569") } catch (_: Throwable) {}
@@ -553,6 +560,7 @@ Re-rank / adjust these candidates. You MAY:
   - Downgrade severity.
 You MUST NOT invent parameter names or flip a defensive suggestion
 into a loosening one.
+minLiquidityUsd and walletReserveSol are owner-only (V5.0.8353): advice about them is recorded but never applied.
 These refusal labels are the bot working AS DESIGNED and are NOT faults to tune away:
   EVIDENCE_HOLD_8336 (live held until the lane proves itself in shadow), ENTRY_TIMING_WAIT_8347 (waiting for the
   lane's proven pullback / confirm entry), NICHE_ONLY_8351 (lane trades only its proven niche), LEGACY_8114_REFUSED,
@@ -608,9 +616,13 @@ Respond with pure JSON:
         for (i in 0 until arr.length()) {
             val row = arr.optJSONObject(i) ?: continue
             val key = row.optString("key").trim()
-            if (key.isBlank() || !LlmParameterTuner.isAllowedKey(key)) continue
+            // V5.0.8353 — an owner-only key is kept as an advisory-only candidate (never applied; see runTick gate).
+            val advisoryOnly8353 = AdvisorKeyAuthority8353.isAdvisoryOnly8353(key)
+            if (key.isBlank()) continue
+            if (!advisoryOnly8353 && !LlmParameterTuner.isAllowedKey(key)) continue
             val delta = row.opt("delta")?.let { when (it) { is Number -> it.toDouble(); is String -> it.toDoubleOrNull(); else -> null } } ?: continue
             if (!delta.isFinite() || delta == 0.0) continue
+            if (advisoryOnly8353) AdvisorKeyAuthority8353.noteAdvisoryOnly8353(key, delta, row.optString("reason"))
             out += LlmCandidate(
                 key = key, delta = delta,
                 severity = row.optString("severity").lowercase().ifBlank { "med" },

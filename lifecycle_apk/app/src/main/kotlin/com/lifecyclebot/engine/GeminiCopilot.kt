@@ -779,7 +779,8 @@ the very end of your reply:
   sentimentBlockThreshold, behaviorAggressionLevel, defensiveLossThreshold,
   aggressiveWhaleThreshold, convictionMult1, convictionMult2,
   partialSellTriggerPct, topUpSizeMultiplier, topUpMaxCount,
-  minLiquidityUsd, walletReserveSol, scanIntervalSecs, minDiscoveryScore.
+  scanIntervalSecs, minDiscoveryScore.
+- minLiquidityUsd and walletReserveSol are owner-only (V5.0.8353): never put them in a TUNE block.
 - Do not wrap the block in backticks; put it on its own line at the end.
 
 ━━━ TIER-3 PAPER-ONLY TRADE EXECUTION (V5.9.135) ━━━

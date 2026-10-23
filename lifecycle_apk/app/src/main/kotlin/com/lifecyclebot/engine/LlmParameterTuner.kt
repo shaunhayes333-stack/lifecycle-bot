@@ -140,14 +140,9 @@ object LlmParameterTuner {
             { c, v -> c.copy(topUpMaxCount = v.toInt()) },
             min = 0.0, max = 10.0, maxStep = 2.0
         ),
-        "minLiquidityUsd" to ParamSpec(
-            { it.minLiquidityUsd }, { c, v -> c.copy(minLiquidityUsd = v) },
-            min = 100.0, max = 10_000.0, maxStep = 2_000.0
-        ),
-        "walletReserveSol" to ParamSpec(
-            { it.walletReserveSol }, { c, v -> c.copy(walletReserveSol = v) },
-            min = 0.01, max = 2.0, maxStep = 0.25
-        ),
+        // V5.0.8353 — minLiquidityUsd and walletReserveSol removed: owner-only keys the LLM was never
+        // granted (8351 auto-applied minLiquidityUsd 8000→10000 "because liquidity blocks prevent
+        // trades"). Advisory-only now: see AdvisorKeyAuthority8353.ADVISORY_ONLY_KEYS_8353.
         "scanIntervalSecs" to ParamSpec(
             { it.scanIntervalSecs.toDouble() },
             { c, v -> c.copy(scanIntervalSecs = v.toInt()) },

@@ -195,6 +195,7 @@ object SelfHealingAdvisor {
         }
         val adjustmentsArr = JSONArray()
         for (s in suggestions) {
+            if (AdvisorKeyAuthority8353.isAdvisoryOnly8353(s.key)) continue  // V5.0.8353 — advisory-only, never written
             adjustmentsArr.put(
                 JSONObject()
                     .put("key", s.key)
@@ -268,7 +269,10 @@ If nothing needs tuning, return {"suggestions": []}.
         for (i in 0 until arr.length()) {
             val row = arr.optJSONObject(i) ?: continue
             val key = row.optString("key").trim()
-            if (key.isBlank() || !LlmParameterTuner.isAllowedKey(key)) continue
+            // V5.0.8353 — an owner-only key stays in the proposal as an advisory-only row; it is never applied.
+            val advisoryOnly8353 = AdvisorKeyAuthority8353.isAdvisoryOnly8353(key)
+            if (key.isBlank()) continue
+            if (!advisoryOnly8353 && !LlmParameterTuner.isAllowedKey(key)) continue
             val delta = row.opt("delta")?.let {
                 when (it) {
                     is Number -> it.toDouble()
@@ -280,6 +284,7 @@ If nothing needs tuning, return {"suggestions": []}.
             val reason = row.optString("reason").trim().take(240)
             val impact = row.optString("expected_impact").trim().take(160)
             val severity = row.optString("severity").trim().lowercase().ifBlank { "med" }
+            if (advisoryOnly8353) AdvisorKeyAuthority8353.noteAdvisoryOnly8353(key, delta, reason)
             out.add(
                 Suggestion(
                     id = UUID.randomUUID().toString().take(8),
@@ -369,6 +374,8 @@ allowlisted parameter tuner. No operator approval is required for an eligible
 change; the tuner still enforces per-key bounds, step caps and persistence.
 Never invent parameter names. Only these keys may be adjusted:
 {ALLOW}
+minLiquidityUsd and walletReserveSol are owner-only (V5.0.8353): you may name them in a suggestion as advice, but
+they are never applied automatically. Never argue that a liquidity block is a fault to tune away.
 
 These refusal labels are the bot working AS DESIGNED and are NOT faults to tune away:
   EVIDENCE_HOLD_8336 (live held until the lane proves itself in shadow), ENTRY_TIMING_WAIT_8347 (waiting for the
