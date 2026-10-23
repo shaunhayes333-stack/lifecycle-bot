@@ -158,7 +158,8 @@ class Aate7807OperatorAndEntryTest {
         assertNotEquals(LiquidityDepthAI.SignalType.LIQUIDITY_COLLAPSE, sig.signal)
         assertFalse(sig.shouldBlock)
         LiquidityDepthAI.clearEntryLiquidity(mint)
-        assertTrue(src("engine/DataOrchestrator.kt").contains("if (LiquidityDepthAI.isLiquidityEvidence7807(liquidity)) ts.lastLiquidityUsd = liquidity"))
+        // superseded by V5.0.8345 — the same 7807 evidence guard; the write goes through HydrationReeval8343.writeTick8345 so a first fill resumes the mint's deferred hand-off task
+        assertTrue(src("engine/DataOrchestrator.kt").contains("if (LiquidityDepthAI.isLiquidityEvidence7807(liquidity)) HydrationReeval8343.writeTick8345(ts, liquidity, \"DEXSCREENER_WS\")"))
     }
 
     // ── Entry late failures 52-55 ───────────────────────────────────────────

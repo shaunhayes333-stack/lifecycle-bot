@@ -16691,10 +16691,8 @@ class BotService : Service() {
             try {
                 synchronized(status.tokens) {
                     status.tokens[mint]?.let { existing ->
-                        if (liquidityUsd > existing.lastLiquidityUsd) {
-                            existing.lastLiquidityUsd = liquidityUsd
-                            tokenEvidenceImproved7475 = true
-                        }
+                        // V5.0.8345 — the max-take write goes through the hydration hook (a first fill resumes the deferred task).
+                        if (HydrationReeval8343.intakeLiquidity8345(existing, liquidityUsd)) tokenEvidenceImproved7475 = true
                         if (trustedMarketCapUsd6492 > existing.lastMcap) {
                             existing.lastMcap = trustedMarketCapUsd6492
                             tokenEvidenceImproved7475 = true
@@ -17128,13 +17126,12 @@ class BotService : Service() {
                 ts.toolAffinity.addAll(toolAffinity)
                 try { GlobalTradeRegistry.mergeAffinity(mint, laneAffinity, toolAffinity) } catch (_: Throwable) {}
 
-                if (liquidityUsd > ts.lastLiquidityUsd) {
-                    // V5.9.769 — max-take semantics (was `<= 0.0` guard, which
-                    // froze stale low-liq seeds and starved FDG). Fresh higher
-                    // liquidity from any source (DexScreener/Raydium) always
-                    // wins over older Pump-portal/WS seeds.
-                    ts.lastLiquidityUsd = liquidityUsd
-                }
+                // V5.9.769 — max-take semantics (was `<= 0.0` guard, which
+                // froze stale low-liq seeds and starved FDG). Fresh higher
+                // liquidity from any source (DexScreener/Raydium) always
+                // wins over older Pump-portal/WS seeds.
+                // V5.0.8345 — written through the hydration hook: a first fill resumes the mint's deferred hand-off task.
+                HydrationReeval8343.intakeLiquidity8345(ts, liquidityUsd)
                 if (trustedMarketCapUsd6492 > ts.lastMcap) {
                     // V5.9.769 — max-take (was `<= 0.0`).
                     ts.lastMcap = trustedMarketCapUsd6492
@@ -26500,11 +26497,8 @@ if (hotExitHandledSweep) {
             val curveKeep7323 = pair.liquidity <= 0.0 && ts.lastLiquidityUsd > 0.0 &&
                 ts.mint.endsWith("pump", ignoreCase = true) &&
                 try { com.lifecyclebot.network.PumpCurveKeys7269.createPriceSol7280(ts.mint) != null } catch (_: Throwable) { false }
-            if (curveKeep7323) {
-                try { PipelineHealthCollector.labelInc("CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323") } catch (_: Throwable) {}
-            } else {
-                ts.lastLiquidityUsd = pair.liquidity
-            }
+            // V5.0.8345 — the poll's figure is written through the hydration hook (a first fill resumes the deferred hand-off task).
+            HydrationReeval8343.pollLiquidity8345(ts, pair.liquidity, curveKeep7323, "CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323")
             ts.lastFdv          = pair.fdv
 
             // V5.9: Populate lastBuyPressurePct from polling candle data.
@@ -35101,7 +35095,7 @@ if (hotExitHandledSweep) {
                     ts.lastPriceSource = "BIRDEYE_OVERVIEW"  // V5.9.744
                     // V5.0.7807 — an overview without liquidity is DATA UNKNOWN,
                     // never a 0.0 drain reading (Field Manual L190).
-                    if (ov.liquidity.isFinite() && ov.liquidity > 0.0) ts.lastLiquidityUsd = ov.liquidity
+                    if (ov.liquidity.isFinite() && ov.liquidity > 0.0) HydrationReeval8343.writeTick8345(ts, ov.liquidity, "BIRDEYE_OVERVIEW")  // V5.0.8345
                     ts.lastMcap = ov.marketCap
                     ts.lastFdv = ov.marketCap
                     val syntheticCandle = com.lifecyclebot.data.Candle(

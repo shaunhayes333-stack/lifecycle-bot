@@ -324,7 +324,7 @@ object OnChainDepth8038 {
             "chainPx=${"%.3g".format(chainPx)} buyPx=${"%.3g".format(ts.lastPrice)} chainLiq=${"%.0f".format(chainUsd)} apiLiq=${"%.0f".format(apiUsd)}"
         if (why == null) {
             verified.incrementAndGet()
-            if (chainUsd.isFinite() && chainUsd > 0.0) ts.lastLiquidityUsd = chainUsd
+            if (chainUsd.isFinite() && chainUsd > 0.0) com.lifecyclebot.engine.HydrationReeval8343.writeTick8345(ts, chainUsd, "CHAIN_VERIFIED_8038")  // V5.0.8345
         }
         try {
             PipelineHealthCollector.labelInc(why?.let { "LIVE_BUY_REFUSED_$it" } ?: "ONCHAIN_POOL_VERIFIED_8038")

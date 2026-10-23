@@ -1036,7 +1036,7 @@ class DataOrchestrator(
                 // that is DATA UNKNOWN, not a drained pool. Overwriting a real
                 // reading with it fed HARD_BLOCK_ZERO_LIQUIDITY and the
                 // liquidity-distress exit evidence (Field Manual L190).
-                if (LiquidityDepthAI.isLiquidityEvidence7807(liquidity)) ts.lastLiquidityUsd = liquidity
+                if (LiquidityDepthAI.isLiquidityEvidence7807(liquidity)) HydrationReeval8343.writeTick8345(ts, liquidity, "DEXSCREENER_WS")  // V5.0.8345 — a first fill resumes the deferred hand-off task
                 // Keep the token-map observation coherent with the same stamped mark.
                 ts.tokenMap.priceUsd = priceUsd.takeIf { it.isFinite() && it > 0.0 }
                 ts.tokenMap.priceObservedAtMs7858 = ts.lastPriceUpdate

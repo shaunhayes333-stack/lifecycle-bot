@@ -134,6 +134,9 @@ object Entry8114Mode8326 {
         if (now != null && final == null) noteBypass8326(gateKey8326(now), l)
         if (old.reason != null && final == now && now != null && now != old.reason) try { PipelineHealthCollector.labelInc("ENTRY8114_CURRENT_HARD_REFUSAL_BINDS_8326_$l") } catch (_: Throwable) {}
         fileFinal8326(ts, l, old, final, nowMs)
+        // V5.0.8345 — every hold refusal is accounted against the shadow book (opened, or skipped by name): 8344's 288 -> 7 gap.
+        if (!paper8336 && realised != null && realised.startsWith("EVIDENCE_HOLD_8336_"))
+            try { EvidenceShadow8344.noteHoldRefusal8345(l, old.reason != null, now != null && hardSafety8326(now)) } catch (_: Throwable) {}
         // V5.0.8344 — the live decision admitted and only the hold / the live-loss shut refused: the shadow trader takes it.
         if (!paper8336 && final != null && final == realised && old.reason == null && !(now != null && hardSafety8326(now)))
             try { EvidenceShadow8344.open8344(ts, l, nowMs) } catch (_: Throwable) {}

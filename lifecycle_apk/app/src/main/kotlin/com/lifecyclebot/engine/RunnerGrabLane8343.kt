@@ -155,6 +155,10 @@ object RunnerGrabLane8343 {
     /** Pure: the native reason a grab lane carries once admitted. */
     fun grabReason8343(evidence: String, venue: String): String = "$REASON_PREFIX_8343$evidence venue=$venue"
 
+    /** Pure (V5.0.8345): the grab lane's legs as the evidence hold's exception reads them (null when the forming-run leg is missing). */
+    fun grabLegs8345(evidence: String?, venue: String?): String? =
+        if (evidence.isNullOrBlank()) null else "$evidence venue=${venue?.ifBlank { null } ?: "-"} safety=FULL economics=1.5x chase=CAP_LAUNCH"
+
     // ── runtime legs ──
 
     private fun canon(lane: String?): String = try { com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(lane) } catch (_: Throwable) { lane.orEmpty().trim().uppercase() }
@@ -255,8 +259,15 @@ object RunnerGrabLane8343 {
         var why = refusal8343(legs)
         val live = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
         if (why == null && live) {
-            val hold = try { com.lifecyclebot.engine.truth.EvidenceHold8336.refusal8336(ts, l, false, nowMs) } catch (_: Throwable) { "EVIDENCE_HOLD_ERROR" }
+            // V5.0.8345 — every grab leg passed: the hold is asked WITH the grab lane's own forming-run evidence, which satisfies
+            // the exception door's legs (a)+(c) (EvidenceHold8336.exceptionalViaGrab8345; venue, lane-open and the rate bounds
+            // still bind inside the hold). superseded: refusal8336(ts, l, false, nowMs) — the door only knew a proven grab cell.
+            val hold = try { com.lifecyclebot.engine.truth.EvidenceHold8336.refusal8336(ts, l, false, nowMs, grabLegs8345 = grabLegs8345(evidence, venue)) } catch (_: Throwable) { "EVIDENCE_HOLD_ERROR" }
             why = refusal8343(legs.copy(liveHoldRefusal = hold))
+            // V5.0.8345 — refused by the hold alone: the evidence shadow trades it on the HOST lane so the hold can unlock on it.
+            if (hold != null && hold.startsWith("EVIDENCE_HOLD_8336_")) {
+                try { com.lifecyclebot.engine.truth.EvidenceShadow8344.open8344(ts, l, nowMs, com.lifecyclebot.engine.truth.EvidenceShadow8344.SOURCE_GRAB_8345) } catch (_: Throwable) {}
+            }
         }
         if (why != null) {
             count(why)

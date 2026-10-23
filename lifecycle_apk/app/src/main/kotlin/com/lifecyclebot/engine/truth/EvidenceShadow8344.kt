@@ -59,6 +59,73 @@ object EvidenceShadow8344 {
     private val skippedFull = AtomicLong(0)
     @Volatile private var prefs: android.content.SharedPreferences? = null
 
+    // ── V5.0.8345 §THE_HOLD_TO_SHADOW_GAP_IS_EXPLAINED — 5.0.8344 audit (9 min LIVE): 288 hold refusals, 7 shadow opens, and
+    // nothing said where the other 281 went. Every hold refusal is counted per lane against this book, and every candidate
+    // the book did not open is counted by the reason it was skipped ([SKIP_*]), so the next report reads the gap off one line.
+    const val SOURCE_DECISION_8345 = "DECISION"
+    const val SOURCE_GRAB_8345 = "GRAB"
+    const val SKIP_LEGACY_REFUSED_8345 = "LEGACY_8114_REFUSED"     // the 8114 verdict refused too: not an admitted candidate
+    const val SKIP_HARD_SAFETY_8345 = "HARD_SAFETY_BINDS"
+    const val SKIP_ALREADY_OPEN_8345 = "ALREADY_OPEN"
+    const val SKIP_REOPEN_GAP_8345 = "REOPEN_GAP_15M"
+    const val SKIP_FULL_8345 = "FULL"
+    const val SKIP_NO_PRICE_8345 = "NO_PRICE"
+    const val SKIP_STALE_PRICE_8345 = "STALE_PRICE_NO_TAPE_MARK"
+    const val OPEN_FROM_TAPE_MARK_8345 = "OPENED_ON_TAPE_MARK"
+    const val PRICE_FRESH_MS_8345 = 45_000L
+    private const val MAX_SKIP_KEYS_8345 = 128
+
+    private val holdRefused8345 = ConcurrentHashMap<String, AtomicLong>()     // lane -> hold refusals seen by the decision
+    private val skipped8345 = ConcurrentHashMap<String, AtomicLong>()         // lane:why -> count
+    private val openedBySource8345 = ConcurrentHashMap<String, AtomicLong>()  // source -> opens
+
+    /** Entry8114Mode8326.decide8326: the hold refused [lane]'s candidate; the decision's other verdicts say whether the book may take it. */
+    fun noteHoldRefusal8345(lane: String, legacyRefused: Boolean, hardSafetyBinds: Boolean) {
+        holdRefused8345.computeIfAbsent(lane) { AtomicLong(0) }.incrementAndGet()
+        if (hardSafetyBinds) skip8345(lane, SKIP_HARD_SAFETY_8345) else if (legacyRefused) skip8345(lane, SKIP_LEGACY_REFUSED_8345)
+    }
+
+    private fun skip8345(lane: String, why: String) {
+        val key = "$lane:$why"
+        if (skipped8345.size >= MAX_SKIP_KEYS_8345 && !skipped8345.containsKey(key)) return
+        skipped8345.computeIfAbsent(key) { AtomicLong(0) }.incrementAndGet()
+    }
+
+    /** Pure: the entry mark — the tick price when fresh ([freshMs]), else the tape / curve mark [tapeMark] (null = no entry). */
+    fun entryMark8345(lastPrice: Double, lastPriceUpdateMs: Long, nowMs: Long, tapeMark: Double?, freshMs: Long = PRICE_FRESH_MS_8345): Pair<Double, Boolean>? {
+        val tickFresh = lastPriceUpdateMs > 0L && nowMs - lastPriceUpdateMs in 0L..freshMs
+        if (tickFresh && lastPrice.isFinite() && lastPrice > 0.0) return lastPrice to false
+        if (tapeMark != null && tapeMark.isFinite() && tapeMark > 0.0) return tapeMark to true
+        return null
+    }
+
+    /** Pure: shadow closes per hour over the hold's age ([ageMs]); 0 when nothing closed or no age. */
+    fun closesPerHour8345(closes: Int, ageMs: Long): Double =
+        if (closes <= 0 || ageMs <= 0L) 0.0 else closes.toDouble() * 3_600_000.0 / ageMs.toDouble()
+
+    /** Pure: minutes until the lane reaches the bar ([bar] closes) at [closesPerHour]; null (printed "-") at a zero rate; 0 when at the bar. */
+    fun etaToBarMin8345(closes: Int, closesPerHour: Double, bar: Int = EvidenceHold8336.MIN_N_8336): Long? {
+        if (closes >= bar) return 0L
+        if (!(closesPerHour > 0.0) || !closesPerHour.isFinite()) return null
+        return kotlin.math.ceil((bar - closes).toDouble() / closesPerHour * 60.0).toLong()
+    }
+
+    /** Pure: "KEY=n,..." sorted by count (desc) then key, "-" when empty. */
+    fun countLine8345(m: Map<String, Long>): String =
+        m.entries.sortedWith(compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key }).joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
+
+    /** " recovery8345{LANE n/30 closesPerHour=x.xx etaToBarMin=N · ...}" — the bounded path to the bar, per lane with any closes or hold refusals. */
+    fun recoveryLine8345(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): String {
+        val lanes = (closes.keys + holdRefused8345.keys).toSortedSet()
+        if (lanes.isEmpty()) return " recovery8345{-}"
+        val age = if (sinceMs > 0L) nowMs - sinceMs else 0L
+        return " recovery8345{" + lanes.joinToString(" · ") { l ->
+            val n = proof8344(l, sinceMs).n
+            val cph = closesPerHour8345(n, age)
+            "$l n$n/${EvidenceHold8336.MIN_N_8336} closesPerHour=${"%.2f".format(cph)} etaToBarMin=${etaToBarMin8345(n, cph)?.toString() ?: "-"}"
+        } + "}"
+    }
+
     fun init8344(ctx: Context) {
         try {
             val p = ctx.getSharedPreferences(PREFS_8344, Context.MODE_PRIVATE)
@@ -89,16 +156,30 @@ object EvidenceShadow8344 {
 
     // ── open ──
 
-    /** Entry8114Mode8326.decide8326: the live decision admitted [ts] in [lane], the hold (or the live-loss shut) refused. */
-    fun open8344(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()) {
+    /**
+     * Entry8114Mode8326.decide8326: the live decision admitted [ts] in [lane], the hold (or the live-loss shut) refused.
+     * V5.0.8345 — also RunnerGrabLane8343 ([source] = [SOURCE_GRAB_8345]): the grab lane's candidate refused in LIVE by the
+     * hold alone is traded here on its HOST lane, so the hold can unlock that lane on it. Every skip is counted by reason;
+     * a tick price older than [PRICE_FRESH_MS_8345] falls back to the mark the tick reads (ForwardReturnLabeler7731.markFor7948:
+     * the curve / tape mark of coins whose price never reaches ts.lastPriceUpdate) instead of refusing the entry.
+     */
+    fun open8344(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis(), source: String = SOURCE_DECISION_8345) {
         try {
             val mint = ts.mint
-            if (mint.isBlank() || open.containsKey(mint)) return
+            if (mint.isBlank()) return
+            if (open.containsKey(mint)) { skip8345(lane, SKIP_ALREADY_OPEN_8345); return }
             val key = "$mint|$lane"
-            lastOpenAt[key]?.let { if (nowMs - it in 0L until REOPEN_GAP_MS_8344) return }
-            if (open.size >= MAX_OPEN_8344) { skippedFull.incrementAndGet(); return }
-            val px = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: return
-            if (ts.lastPriceUpdate <= 0L || nowMs - ts.lastPriceUpdate > 45_000L) return      // a stale price is not an entry
+            val lastAt = lastOpenAt[key]
+            if (lastAt != null && nowMs - lastAt in 0L until REOPEN_GAP_MS_8344) { skip8345(lane, SKIP_REOPEN_GAP_8345); return }
+            if (open.size >= MAX_OPEN_8344) { skippedFull.incrementAndGet(); skip8345(lane, SKIP_FULL_8345); return }
+            val tape = try { ForwardReturnLabeler7731.markFor7948(mint, { null }, nowMs) } catch (_: Throwable) { null }
+            val mark = entryMark8345(ts.lastPrice, ts.lastPriceUpdate, nowMs, tape)
+            if (mark == null) {
+                skip8345(lane, if (ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L) SKIP_STALE_PRICE_8345 else SKIP_NO_PRICE_8345)
+                return
+            }
+            val px = mark.first
+            if (mark.second) try { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_${OPEN_FROM_TAPE_MARK_8345}_8345") } catch (_: Throwable) {}
             val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
             val cost = try { NetEdge8030.costPct8030(lane, TICKET_SOL_8344, liq, mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
             val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
@@ -109,8 +190,20 @@ object EvidenceShadow8344 {
             lastOpenAt[key] = nowMs
             if (lastOpenAt.size > 5_000) lastOpenAt.entries.removeIf { nowMs - it.value > REOPEN_GAP_MS_8344 }
             opened.incrementAndGet()
+            openedBySource8345.computeIfAbsent(source) { AtomicLong(0) }.incrementAndGet()
             PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_OPEN_8344_$lane")
+            if (source == SOURCE_GRAB_8345) PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_OPEN_8345_GRAB_$lane")  // V5.0.8345
         } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8345 — the per-lane hold-refusal / open / skip counters (tests and the status line). */
+    fun gapCounts8345(): Triple<Map<String, Long>, Map<String, Long>, Map<String, Long>> = Triple(
+        holdRefused8345.mapValues { it.value.get() }, skipped8345.mapValues { it.value.get() }, openedBySource8345.mapValues { it.value.get() },
+    )
+
+    internal fun resetForTests8345() {
+        open.clear(); lastOpenAt.clear(); closes.clear(); opened.set(0); closedN.set(0); skippedFull.set(0)
+        holdRefused8345.clear(); skipped8345.clear(); openedBySource8345.clear()
     }
 
     // ── tick ──
@@ -173,13 +266,22 @@ object EvidenceShadow8344 {
         return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 })
     }
 
-    fun statusLine8344(sinceMs: Long): String {
+    /** Tests only: a booked close for [lane] at [atMs] (no position, no prefs). */
+    internal fun noteCloseForTests8345(lane: String, netPct: Double, atMs: Long) {
+        val q = closes.computeIfAbsent(lane) { ArrayDeque() }
+        synchronized(q) { q.addLast(doubleArrayOf(atMs.toDouble(), netPct)) }
+        closedN.incrementAndGet()
+    }
+
+    fun statusLine8344(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): String {
         val lanes = closes.keys.sorted().joinToString(" · ") { l ->
             val p = proof8344(l, sinceMs)
             "$l n${p.n} mean${"%+.1f".format(p.meanPct)}% pf${"%.2f".format(p.pf)}${if (p.proven) " PROVEN" else ""}"
         }.ifBlank { "no shadow closes yet" }
         val openByLane = open.values.groupingBy { it.lane }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
+        val (held, skipped, bySource) = gapCounts8345()  // V5.0.8345
         return "evidenceShadow8344[open=${open.size}/$MAX_OPEN_8344 ($openByLane) opened=${opened.get()} closed=${closedN.get()} full=${skippedFull.get()} " +
-            "exits=lane stop+spike tiers+give-back floor+timeout cost=NetEdge8030 @${TICKET_SOL_8344}SOL | $lanes]"
+            "exits=lane stop+spike tiers+give-back floor+timeout cost=NetEdge8030 @${TICKET_SOL_8344}SOL | $lanes" +
+            " holdRefused{${countLine8345(held)}} openedBy{${countLine8345(bySource)}} skipped{${countLine8345(skipped)}}" + recoveryLine8345(sinceMs, nowMs) + "]"
     }
 }
