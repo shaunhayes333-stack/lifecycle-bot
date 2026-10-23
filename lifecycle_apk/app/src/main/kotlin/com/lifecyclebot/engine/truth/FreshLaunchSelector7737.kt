@@ -444,7 +444,7 @@ object FreshLaunchSelector7737 {
      * measure a different trade (no ladder exit).
      */
     fun ladderProven7932(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean = try {
-        launchRead7742(ts, FieldManual7715.allInCostPct(StrategyMove8153.probeSizeUsd8153(ts.lastLiquidityUsd), ts.lastLiquidityUsd), nowMs).verdict == LaunchVerdict.PROVEN  // V5.0.8153 — unread depth is not low
+        launchRead7742(ts, FieldManual7715.allInCostPct8350(StrategyMove8153.probeSizeUsd8153(ts.lastLiquidityUsd), ts.lastLiquidityUsd, ts.mint), nowMs).verdict == LaunchVerdict.PROVEN  // V5.0.8153 — unread depth is not low
     } catch (_: Throwable) { false }
 
     fun launchRead7742(ts: TokenState, costPct: Double, nowMs: Long = System.currentTimeMillis()): LaunchRead {

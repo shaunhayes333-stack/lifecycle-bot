@@ -106,7 +106,7 @@ object LaneShadowProof7307 {
             try { PipelineHealthCollector.labelInc("LANE_SHADOW_PROOF_LANE_FULL_7307_$l") } catch (_: Throwable) {}
             return
         }
-        open[key] = Open(l, price, roundTripCostPct(liquidityUsd, sizeSol.coerceAtLeast(0.01)), nowMs)
+        open[key] = Open(l, price, roundTripCostPct(FieldManual7715.depthUsdForImpact8337(mint, liquidityUsd, try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }), sizeSol.coerceAtLeast(0.01)), nowMs)  // V5.0.8350
         try { PipelineHealthCollector.labelInc("LANE_SHADOW_PROOF_OPENED_7307_$l") } catch (_: Throwable) {}
     }
 

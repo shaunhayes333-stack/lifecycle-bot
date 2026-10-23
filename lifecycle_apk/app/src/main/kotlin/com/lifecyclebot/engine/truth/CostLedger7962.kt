@@ -39,7 +39,7 @@ object CostLedger7962 {
     private const val RING = 120
     private const val ENTRY_MARK_LAG_MS = 3_000L
     private const val MAX_SANE_COST_PCT = 60.0
-    private const val PERSIST_KEY = "COST_LEDGER_7962"
+    private const val PERSIST_KEY = "COST_LEDGER_8350"   // V5.0.8350 — trips before 8338 measured the broken pipeline; the 7962 key is left on disk, unread
     internal fun recoveryExpired8091(eventAtMs: Long, nowMs: Long, evidenceReady: Boolean = true): Boolean =
         evidenceReady && eventAtMs > 0L && nowMs - eventAtMs > 180_000L
 
@@ -294,7 +294,7 @@ object CostLedger7962 {
     }
 
     // V5.0.8223 — sell sides measured on round trips whose entry mark contradicted the fill (CostSides8169.SELL_SIDE_ONLY).
-    private const val SELL_ONLY_KEY_8223 = "COST_LEDGER_SELL_ONLY_8223"
+    private const val SELL_ONLY_KEY_8223 = "COST_LEDGER_SELL_ONLY_8350"   // V5.0.8350
     private val sellOnlyByLane8223 = HashMap<String, ArrayDeque<Double>>()
     @Volatile private var sellOnlyLoaded8223 = false
 

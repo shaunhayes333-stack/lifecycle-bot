@@ -1188,7 +1188,7 @@ object CandidateAdmission8136 {
         } catch (_: Throwable) { null }
         // V5.0.8153 — unread depth is UNKNOWN, never LOW: the launch probe is costed without impact nobody measured.
         val launch = try {
-            FreshLaunchSelector7737.launchRead7742(ts, FieldManual7715.allInCostPct(StrategyMove8153.probeSizeUsd8153(ts.lastLiquidityUsd), ts.lastLiquidityUsd), nowMs)
+            FreshLaunchSelector7737.launchRead7742(ts, FieldManual7715.allInCostPct8350(StrategyMove8153.probeSizeUsd8153(ts.lastLiquidityUsd), ts.lastLiquidityUsd, ts.mint), nowMs)
         } catch (_: Throwable) { null }
         val costRec8209 = try { NetEdge8030.entryCost8209(ts, lane, proposedSizeSol) } catch (_: Throwable) { null }
         val cost8153 = costRec8209?.costPct ?: Double.NaN

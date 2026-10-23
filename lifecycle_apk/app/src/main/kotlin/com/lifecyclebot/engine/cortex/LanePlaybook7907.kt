@@ -664,7 +664,7 @@ object LanePlaybook7907 {
             volatility = ts.volatility ?: Double.NaN,
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             launchLadderProven = try {
-                val cost = com.lifecyclebot.engine.truth.FieldManual7715.allInCostPct(10.0, ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0)
+                val cost = com.lifecyclebot.engine.truth.FieldManual7715.allInCostPct8350(10.0, ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0, ts.mint)
                 com.lifecyclebot.engine.truth.FreshLaunchSelector7737.launchRead7742(ts, cost, nowMs).verdict ==
                     com.lifecyclebot.engine.truth.FreshLaunchSelector7737.LaunchVerdict.PROVEN
             } catch (_: Throwable) { false },

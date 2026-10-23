@@ -261,6 +261,14 @@ object FieldManual7715 {
      * ways against the quote side of the pool, slippage both ways.
      * Unknown liquidity is a conservative range, never zero.
      */
+    /** V5.0.8350 — allInCostPct on the depth a pump curve actually trades against (depthUsdForImpact8337). Labels, the
+     *  Cortex, playbooks, cards and shadow proofs price with this: 8338 fixed the trade path only, and every grade on a
+     *  fresh curve kept paying 20-100 % impact on its real SOL. */
+    fun allInCostPct8350(sizeUsd: Double, liquidityUsd: Double, mint: String): Double {
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        return allInCostPct(sizeUsd, depthUsdForImpact8337(mint, liquidityUsd, solUsd))
+    }
+
     fun allInCostPct(sizeUsd: Double, liquidityUsd: Double): Double {
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!solUsd.isFinite() || solUsd <= 0.0 || !sizeUsd.isFinite() || sizeUsd <= 0.0) {
@@ -330,6 +338,8 @@ object FieldManual7715 {
         if (!liquidityUsd.isFinite() || liquidityUsd <= 0.0) return MAX_IMPACT_ROUND_TRIP_PCT_7715
         val quoteSide = liquidityUsd * 0.5
         val oneWay = (sizeUsd / quoteSide) * 100.0
+        // V5.0.8350 — a >10 % impact on sub-$1k depth is almost always a pump curve read on its real SOL: name the caller.
+        if (liquidityUsd < 1_000.0 && oneWay * 2.0 > 10.0) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("IMPACT_ON_THIN_DEPTH_8350") } catch (_: Throwable) {}
         return (oneWay * 2.0).coerceIn(0.0, 100.0)
     }
 
@@ -576,8 +586,8 @@ object FieldManual7715 {
         // not by an AMM curve; the pool-impact model does not apply to them.
         val ammPriced = isAmmPriced(mandate.setup)
         // V5.0.7962 — the lane's measured all-in cost at this ticket size once learned (CostLedger7962).
-        val cost = if (ammPriced) CostLedger7962.costOr7962(lane, size, allInCostPct(sizeUsd, liq)) else BASE_ROUND_TRIP_COST_PCT_7715
-        val impact = if (ammPriced) impactRoundTripPct(sizeUsd, liq) else 0.0
+        val cost = if (ammPriced) CostLedger7962.costOr7962(lane, size, allInCostPct8350(sizeUsd, liq, ts.mint)) else BASE_ROUND_TRIP_COST_PCT_7715
+        val impact = if (ammPriced) impactRoundTripPct(sizeUsd, depthUsdForImpact8337(ts.mint, liq, solUsd)) else 0.0
         val (trig, note) = if (observedSetup) true to "candle plan ${planRead.setup}: ${planRead.why}"
             else triggerFor(mandate.setup, ts, candidate, regime)
         val gross = mandate.expectedGrossPct

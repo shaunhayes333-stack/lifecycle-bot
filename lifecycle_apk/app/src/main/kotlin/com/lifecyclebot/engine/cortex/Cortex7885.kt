@@ -1067,7 +1067,7 @@ object Cortex7885 {
         val timing = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
         val liq = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
         val cost = try {
-            com.lifecyclebot.engine.truth.CostLedger7962.costOr7962(lane, Double.NaN, com.lifecyclebot.engine.truth.FieldManual7715.allInCostPct(5.0, liq)) +
+            com.lifecyclebot.engine.truth.CostLedger7962.costOr7962(lane, Double.NaN, com.lifecyclebot.engine.truth.FieldManual7715.allInCostPct8350(5.0, liq, ts.mint)) +
                 com.lifecyclebot.engine.truth.EntryChase7961.lanePenaltyPct7961(lane)
         } catch (_: Throwable) { Double.NaN }
         val cohort = try {

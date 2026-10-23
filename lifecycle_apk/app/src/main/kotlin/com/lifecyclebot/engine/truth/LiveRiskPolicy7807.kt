@@ -585,7 +585,7 @@ object LiveRiskPolicy7807 {
      * same component model had admitted (NET_EV_NONPOSITIVE_AT_SIZE on 15 of 18 sized candidates, 8231 forensic).
      */
     fun costAtSizePct8153(i: Inputs, sizeSol: Double): Double {
-        val model = roundTripCostPct(sizeSol, i.solUsd, i.liquidityUsd)
+        val model = roundTripCostPct(sizeSol, i.solUsd, FieldManual7715.depthUsdForImpact8337(i.mint8329, i.liquidityUsd, i.solUsd))  // V5.0.8350
         val real = i.costAtSizePct8153?.let { f -> try { f(sizeSol) } catch (_: Throwable) { Double.NaN } } ?: Double.NaN
         return if (real.isFinite() && real > 0.0) real else model
     }

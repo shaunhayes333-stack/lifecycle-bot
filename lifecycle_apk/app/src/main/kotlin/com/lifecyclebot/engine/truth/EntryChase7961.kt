@@ -26,7 +26,7 @@ object EntryChase7961 {
     private const val RING = 120
     private const val MAX_PENALTY_PCT = 30.0
     private const val MAX_DECISION_AGE_MS = 10L * 60_000L
-    private const val PERSIST_KEY = "ENTRY_CHASE_7961"
+    private const val PERSIST_KEY = "ENTRY_CHASE_8350"   // V5.0.8350 — chase re-measured on the repaired buy path
 
     private val live = HashMap<String, ArrayDeque<Double>>()
     private val paper = HashMap<String, ArrayDeque<Double>>()

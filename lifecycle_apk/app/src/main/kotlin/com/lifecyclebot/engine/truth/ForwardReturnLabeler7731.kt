@@ -69,8 +69,8 @@ object ForwardReturnLabeler7731 {
     /** V5.0.7946 — one observation per mint and lane per 15 minutes (the read is 5). */
     private const val REOBSERVE_MS_7731 = 15L * 60_000L
     // V5.0.8064 — a fresh book: every cell before it was graded with spike credit live never banks (see captured7945).
-    private const val CELLS_KEY_7946 = "cells_8076"
-    private const val PENDING_KEY_7946 = "pending_7946"
+    private const val CELLS_KEY_7946 = "cells_8350"   // V5.0.8350 — cells_8076 was netted with the real-SOL curve cost; kept on disk, unread
+    private const val PENDING_KEY_7946 = "pending_8350"   // V5.0.8350 — pending rows carried the old cost
 
     /** V5.0.7946 — Pure: how late a horizon may still be read: half the horizon, between 1 and 10 minutes. */
     fun graceFor7946(horizonMs: Long): Long = (horizonMs / 2).coerceIn(60_000L, LOST_GRACE_MS_7731)
@@ -811,7 +811,7 @@ object ForwardReturnLabeler7731 {
         // V5.0.7962 — the lane's measured live round trip once it has 8+ trades (CostLedger7962; excludes the chase).
         // V5.0.7961 — what the lane's fills cost above the decision price (EntryChase7961).
         val chase8094 = (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
-        val cost = CostLedger7962.costOr7962(l, Double.NaN, (try { FieldManual7715.allInCostPct(COST_SIZE_USD_7731, liq) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 })) +
+        val cost = CostLedger7962.costOr7962(l, Double.NaN, (try { FieldManual7715.allInCostPct8350(COST_SIZE_USD_7731, liq, ts.mint) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 })) +
             chase8094
         val cell = cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)  // V5.0.8019 — the cap the price agrees with
         // V5.0.7734 — the regime is read now, at decision time, as the forecast
