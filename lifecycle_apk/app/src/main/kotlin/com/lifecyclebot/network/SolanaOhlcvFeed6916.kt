@@ -534,7 +534,11 @@ object SolanaOhlcvFeed6916 {
             } else if (lookup6982.askedProvider) {
                 emptyResults.incrementAndGet()
                 negativeCache[mint] = now
-                OhlcvRoute8332.noteAnswer8332(OhlcvRoute8332.GECKO_8332, 0, now)   // V5.0.8332 — answered, no bars
+                // superseded by V5.0.8359 — a mint GeckoTerminal lists no pool for (most fresh curve coins) is that mint's
+                // absence (negative cache above), not the source going dead: it no longer lengthens the 8332 zero-bar streak,
+                // so a run of pool-less launches cannot leave GeckoTerminal routed around for the day. Only a resolved pool
+                // that answers with no bar counts (below). (was noteAnswer8332(GECKO_8332, 0, now) here)
+                OhlcvRoute8332.notePoolMiss8359(OhlcvRoute8332.GECKO_8332)
             } else {
                 localSkips6982.incrementAndGet()
             }
@@ -825,13 +829,25 @@ object SolanaOhlcvFeed6916 {
         // traded minutes whatever the token's age, and a SOL price seen in the last 5 minutes. Now: the venue's observed
         // prices (price-only minutes are MARK_ONLY bars, zero volume), the minutes the token's lifecycle needs, and the last
         // observed SOL price as the USD level. Nothing interpolated: an unobserved minute has no bar.
-        val c = observedCandles8287(mint, n, nowMs) ?: return null
+        val c = observedCandles8287(mint, n, nowMs) ?: return pumpFunStep8359(mint, n, nowMs)   // V5.0.8359 — pump.fun behind the tape
         localServed8285.incrementAndGet()
         FeatureSourceCounters8285.note8285("shape", "localTape", FeatureSourceCounters8285.RETURNED)
         try { PipelineHealthCollector.labelInc("OHLCV_LOCAL_TAPE_ALTERNATE_8285") } catch (_: Throwable) {}
         val served8332 = c.takeLast(n)
         OhlcvRoute8332.served8332(OhlcvRoute8332.LOCAL_8332, mint, served8332, nowMs)   // V5.0.8332 — source + newest-bar stamp
         return served8332
+    }
+
+    /**
+     * V5.0.8359 — a curve coin whose own tape has no series: pump.fun's keyless one-minute candles (PumpFunCandles8359,
+     * own back-off, off-thread, units checked against the observed price), stamped as their own source. Null = none.
+     */
+    private fun pumpFunStep8359(mint: String, n: Int, nowMs: Long): List<Candle>? {
+        val bars = try { PumpFunCandleStep8359.forCurveCoin8359(mint, n, nowMs) } catch (_: Throwable) { null } ?: return null
+        FeatureSourceCounters8285.note8285("shape", "pumpfun8359", FeatureSourceCounters8285.RETURNED)
+        val served = bars.takeLast(n)
+        OhlcvRoute8332.served8332("pumpfun", mint, served, nowMs)
+        return served
     }
 
     /** V5.0.8287 — one-minute candles from the mint's observed prices (PriceShapeBars8287), lifecycle-aware minimum, or null. */

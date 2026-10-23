@@ -715,6 +715,9 @@ object ParallelMarkFanout7088 {
     internal fun curvePrices7392(mints: List<String>): Map<String, Double> =
         pumpCurveRpcFanout7269(mints, explicitCurve7392 = true)
 
+    /** V5.0.8359 — one keyless-first getMultipleAccounts pass for the shadow books' wanted curve mints (KeylessMarks8359). */
+    internal fun wantedCurvePass8359(): Map<String, Double> = pumpCurveRpcFanout7269(emptyList())
+
     private fun pumpCurveRpcFanout7269(mints: List<String>, explicitCurve7392: Boolean = false): Map<String, Double> {
         val url = rpcUrl
         if (url.isBlank()) return emptyMap()
@@ -742,7 +745,10 @@ object ParallelMarkFanout7088 {
         // so a mint the WS never announced, or whose remembered key was lost on
         // restart, is still read. Graduated mints are skipped (their curve is done).
         // V5.0.7819 — Helius RPC curve reads are for base58 Solana mints only.
-        val targets = HeliusSolanaScope7819.solanaMintsOnly7819(mints).mapNotNull { m ->
+        // V5.0.8359 — the mints the shadow books want marked (KeylessMarks8359) ride the same getMultipleAccounts call,
+        // after the caller's own (held) mints, up to the call's cap.
+        val mints8359 = try { com.lifecyclebot.engine.truth.KeylessMarks8359.withWantedCurves8359(mints, CURVE_MAX_MINTS_7269) } catch (_: Throwable) { mints }
+        val targets = HeliusSolanaScope7819.solanaMintsOnly7819(mints8359).mapNotNull { m ->
             val pumpLike7392 = explicitCurve7392 || PumpCurveKeys7269.keyFor(m) != null ||
                 m.endsWith("pump", ignoreCase = true)
             if (!pumpLike7392 || PumpCurveKeys7269.isGraduated7392(m)) null
@@ -750,7 +756,8 @@ object ParallelMarkFanout7088 {
         }.take(CURVE_MAX_MINTS_7269)
         if (targets.isEmpty()) return emptyMap()
         val rungs7279 = (try {
-            com.lifecyclebot.engine.RuntimeProviderAuthority6685.rpcCandidates(url).take(CURVE_LADDER_RUNGS_7279)
+            // superseded by V5.0.8359 — curve reserves are a market read: keyless public nodes first, Helius behind them (was rpcCandidates(url))
+            com.lifecyclebot.engine.RuntimeProviderAuthority6685.marketReadCandidates8359(url, "getMultipleAccounts").take(CURVE_LADDER_RUNGS_7279)
         } catch (_: Throwable) { listOf(url) }).ifEmpty { listOf(url) }
         val keysJson7279 = JSONArray(targets.map { it.second })
         val payload =
@@ -776,6 +783,7 @@ object ParallelMarkFanout7088 {
                 try { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_RUNG_SKIPPED_LOCKED_7281") } catch (_: Throwable) {}
                 continue
             }
+            if (!KeylessRpc8359.beforeCall8359(rung)) continue   // V5.0.8359 — keyless host governor (requests / 10 s, 429 back-off)
             try {
                 PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_ATTEMPT_7278")
                 val req = Request.Builder()
@@ -791,6 +799,7 @@ object ParallelMarkFanout7088 {
                         return@use
                     }
                     if (!resp.isSuccessful) {
+                        KeylessRpc8359.afterCall8359(rung, resp.code)   // V5.0.8359
                         val snippet7278 = try { resp.peekBody(300L).string().replace('\n', ' ') } catch (_: Throwable) { "" }
                         PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_HTTP_FAIL_7278")
                         try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", resp.code, 0L, snippet7278) } catch (_: Throwable) {}
@@ -800,10 +809,14 @@ object ParallelMarkFanout7088 {
                     val root7278 = JSONObject(body)
                     val err7278 = root7278.optJSONObject("error")
                     if (err7278 != null) {
+                        KeylessRpc8359.afterCall8359(rung, 0, err7278.optInt("code", -1))   // V5.0.8359
                         PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_JSONRPC_ERROR_7278")
                         try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", 0, 0L, err7278.toString().take(140)) } catch (_: Throwable) {}
                         return@use
                     }
+                    KeylessRpc8359.afterCall8359(rung, resp.code)   // V5.0.8359
+                    // V5.0.8359 — a node far behind the newest slot seen never serves an old curve as the present: next rung.
+                    if (KeylessRpc8359.staleAnswer8359(rung, root7278)) return@use
                     val values = root7278.optJSONObject("result")?.optJSONArray("value") ?: return@use
                     answered7279 = true
                     if (rungIdx > 0) PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_LADDER_FALLBACK_7279")
@@ -883,6 +896,7 @@ object ParallelMarkFanout7088 {
         if (!answered7279) {
             try { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_RUNG_ANSWERED_7279") } catch (_: Throwable) {}
         }
+        if (out.isNotEmpty()) try { com.lifecyclebot.engine.truth.KeylessMarks8359.onCurveMarks8359(out) } catch (_: Throwable) {}   // V5.0.8359
         if (out.isNotEmpty()) {
             try { PipelineHealthCollector.labelInc("KEYLESS_MARK_PUMP_CURVE_RPC_7269") } catch (_: Throwable) {}
             if (PumpFunWS.tokenTradeAuthDenied7432()) try {

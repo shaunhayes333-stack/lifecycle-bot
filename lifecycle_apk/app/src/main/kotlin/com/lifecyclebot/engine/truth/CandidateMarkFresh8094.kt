@@ -74,6 +74,25 @@ object CandidateMarkFresh8094 {
     private val laneAsked8287 = ConcurrentHashMap<String, Long>()
 
     /**
+     * V5.0.8359 — KeylessMarks8359: the shadow books' wanted mints go straight onto the DexScreener pair batch lane (30 per
+     * call, its own cadence and the shared host budget); the answer is applied by [onLaneAnswer8287] like any candidate's.
+     */
+    fun requestLane8359(mints: List<String>, nowMs: Long = System.currentTimeMillis()): Int {
+        var n = 0
+        if (laneAsked8287.size > 2_000) laneAsked8287.entries.removeIf { nowMs - it.value > LANE_TTL_MS_8287 }
+        for (m in mints) {
+            if (m.length !in 32..44) continue
+            laneAsked8287[m] = nowMs
+            try { if (com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(m)) n++ } catch (_: Throwable) {}
+        }
+        if (n > 0) requested.addAndGet(n.toLong())
+        return n
+    }
+
+    /** V5.0.8359 — chain-read marks (the bonding curve's own reserves) for wanted, not-held candidates. */
+    fun applyMarks8359(prices: Map<String, Double>, source: String) = apply8094(prices.filterValues { it.isFinite() && it > 0.0 }, source)
+
+    /**
      * V5.0.8287 — DexBatchLane8287: one sent batch's answer. Candidates this refresh asked for are priced from it (the
      * same best-pair price getBestPair serves); those it did not price are asked of Jupiter, off the lane's thread.
      */
@@ -92,7 +111,7 @@ object CandidateMarkFresh8094 {
         } catch (_: Throwable) { inFlight.set(false) }
     }
 
-    private fun apply8094(prices: Map<String, Double>) {
+    private fun apply8094(prices: Map<String, Double>, source8359: String = "JUPITER_CANDIDATE_REFRESH_8094") {
         if (prices.isEmpty()) return
         val tokens = com.lifecyclebot.engine.BotService.status.tokens
         val at = System.currentTimeMillis()
@@ -105,7 +124,7 @@ object CandidateMarkFresh8094 {
                     ts.lastMcap = rescaledMcap8094(ts.lastMcap, ts.lastPrice, px)
                     ts.lastPrice = px
                     ts.lastPriceUpdate = at
-                    ts.lastPriceSource = "JUPITER_CANDIDATE_REFRESH_8094"
+                    ts.lastPriceSource = source8359
                     true
                 }
             }

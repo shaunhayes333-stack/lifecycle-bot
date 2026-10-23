@@ -178,6 +178,19 @@ object RuntimeProviderAuthority6685 {
         return (extra + urls).mapNotNull(::websocketFromRpc8079).distinct()
     }
 
+    /**
+     * V5.0.8359 — the ladder for a MARKET-DATA read of [method] (curve reserves, pool depth, supply, holders, birth walk):
+     * the keyless public nodes first, the paid endpoints only behind them (KeylessRpc8359). Execution reads and the owner's
+     * wallet keep [rpcCandidates] (Helius leads); a method that is not a market read keeps it unchanged too.
+     */
+    fun marketReadCandidates8359(primary: String? = null, method: String = "getAccountInfo", explicit: Context? = null): List<String> {
+        val ladder = LinkedHashSet<String>().apply {
+            addAll(rpcCandidates(primary, explicit))
+            PUBLIC_SOLANA_RPCS.forEach { val c = sanitizeRpc(it); if (c.isNotBlank()) add(c) }
+        }.toList()
+        return com.lifecyclebot.network.KeylessRpc8359.marketLadder8359(ladder, method)
+    }
+
     fun preferredRpc(primary: String? = null, explicit: Context? = null): String =
         rpcCandidates(primary, explicit).firstOrNull().orEmpty()
 

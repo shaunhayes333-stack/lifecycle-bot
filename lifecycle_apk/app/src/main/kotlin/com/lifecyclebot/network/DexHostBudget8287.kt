@@ -29,6 +29,13 @@ object DexHostBudget8287 {
     const val HOST_8287 = "api.dexscreener.com"
     const val PRIO_HEADER_8287 = "X-AATE-Dex-Prio-8287"
     const val PER_MIN_8287 = 180
+    /**
+     * V5.0.8359 — the documented pairs limit is 300 / min. After [CLEAN_AFTER_MS_8359] of session with no provider 429
+     * the bucket refills at [PER_MIN_CLEAN_8359] (still under 300 with the burst); the first 429 drops it back to
+     * [PER_MIN_8287] for the rest of the session.
+     */
+    const val PER_MIN_CLEAN_8359 = 270
+    const val CLEAN_AFTER_MS_8359 = 10L * 60_000L
     const val BURST_8287 = 12.0
     /** V5.0.8317 — 4.0 → 2.0: with launches marked near-decision at intake (IntakeFirstSight8317) bulk needs less headroom held back. */
     const val BULK_RESERVE_8287 = 2.0
@@ -46,11 +53,19 @@ object DexHostBudget8287 {
         private val perMin: Int = PER_MIN_8287,
         private val burst: Double = BURST_8287,
         private val reserve: Double = BULK_RESERVE_8287,
+        private val cleanPerMin: Int = PER_MIN_CLEAN_8359,
+        private val cleanAfterMs: Long = CLEAN_AFTER_MS_8359,
     ) {
         private var tokens = burst
         private var atMs = -1L
         private var pausedUntilMs = 0L
-        private val ratePerMs: Double = perMin.coerceAtLeast(1) / 60_000.0
+        private val baseRatePerMs: Double = perMin.coerceAtLeast(1) / 60_000.0
+        private var ratePerMs: Double = baseRatePerMs
+        private var firstMs8359 = -1L
+        private var everLimited8359 = false
+
+        /** V5.0.8359 — the refill rate now (per minute). */
+        @Synchronized fun perMin8359(nowMs: Long): Int { refill(nowMs); return Math.round(ratePerMs * 60_000.0).toInt() }
 
         @Synchronized
         fun take8287(nowMs: Long, prio: Prio8287, maxWaitMs: Long = PRIORITY_WAIT_MS_8287): Long {
@@ -76,6 +91,8 @@ object DexHostBudget8287 {
         fun noteLimited8287(nowMs: Long, retryAfterMs: Long) {
             refill(nowMs)
             pausedUntilMs = maxOf(pausedUntilMs, nowMs + retryAfterMs.coerceIn(1_000L, MAX_PAUSE_MS_8287))
+            everLimited8359 = true          // V5.0.8359 — back to the base rate for the session
+            ratePerMs = baseRatePerMs
             if (tokens > 0.0) tokens = 0.0
         }
 
@@ -84,6 +101,10 @@ object DexHostBudget8287 {
         @Synchronized fun pausedLeftMs8287(nowMs: Long): Long = (pausedUntilMs - nowMs).coerceAtLeast(0L)
 
         private fun refill(nowMs: Long) {
+            if (firstMs8359 < 0L) firstMs8359 = nowMs
+            // V5.0.8359 — clean session long enough: the documented limit's headroom is used (never after a 429).
+            ratePerMs = if (!everLimited8359 && cleanPerMin > 0 && nowMs - firstMs8359 >= cleanAfterMs)
+                maxOf(baseRatePerMs, cleanPerMin / 60_000.0) else baseRatePerMs
             if (atMs < 0L) { atMs = nowMs; return }
             if (nowMs > atMs) {
                 tokens = minOf(burst, tokens + (nowMs - atMs) * ratePerMs)
@@ -135,7 +156,7 @@ object DexHostBudget8287 {
     fun statusLine8287(nowMs: Long = System.currentTimeMillis()): String {
         fun m(x: ConcurrentHashMap<Prio8287, AtomicLong>) =
             Prio8287.values().joinToString(",") { "${it.name.lowercase()}=${x[it]?.get() ?: 0L}" }
-        return "dexHost8287[perMin=$PER_MIN_8287 tokens=${"%.1f".format(bucket.tokens8287(nowMs))} taken{${m(taken)}} " +
+        return "dexHost8287[perMin=$PER_MIN_8287 effPerMin8359=${bucket.perMin8359(nowMs)} tokens=${"%.1f".format(bucket.tokens8287(nowMs))} taken{${m(taken)}} " +
             "refused{${m(refused)}} waits=${waits.get()} provider429=${limited.get()} pausedLeftMs=${bucket.pausedLeftMs8287(nowMs)}]"
     }
 }

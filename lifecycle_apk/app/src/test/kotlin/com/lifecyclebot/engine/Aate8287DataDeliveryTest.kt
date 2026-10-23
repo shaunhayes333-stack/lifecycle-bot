@@ -215,7 +215,8 @@ class Aate8287DataDeliveryTest {
         assertNull(PriceShapeBars8287.series8287(p, 0.0, 3))           // no SOL price at all: no USD bars
         // the provider alternate reads the venue's observed prices with the lifecycle's minimum (8286: a=1475 r=0)
         val feed = src("network/SolanaOhlcvFeed6916.kt")
-        assertTrue(feed.contains("val c = observedCandles8287(mint, n, nowMs) ?: return null"))
+        // superseded by V5.0.8359 — a curve coin with no local series falls through to pump.fun's keyless candles (else null)
+        assertTrue(feed.contains("val c = observedCandles8287(mint, n, nowMs) ?: return pumpFunStep8359(mint, n, nowMs)"))
         assertTrue(feed.contains("shape.series8287(prints, shape.solUsd8287(nowMs), shape.minMinutes8287(shape.ageMin8287(mint, nowMs)))"))
     }
 
