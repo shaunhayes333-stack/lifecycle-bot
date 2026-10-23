@@ -80,33 +80,89 @@ object HydrationReeval8343 {
 
     private fun window(): Double = try { com.lifecyclebot.v3.V3EngineManager.launchAgeWindowMinutes8140() } catch (_: Throwable) { 360.0 }
 
-    /** LiquidityTruth8037: the tick liquidity of [ts] was just written from 0 to [liquidityUsd]. */
-    fun onHydrated8343(ts: TokenState, liquidityUsd: Double, nowMs: Long = System.currentTimeMillis(), source: String = "HYDRATE_8037") {
-        val d = deferred[ts.mint] ?: return
-        enqueue(d, ts, liquidityUsd, nowMs, source)
+    // ── V5.0.8345 §EVERY_LIQUIDITY_WRITE_IS_A_HYDRATION — 5.0.8344 audit: 57 tasks deferred for missing data, 51 without
+    // TokenState, 0 resumed. Traced from the write sites: only LiquidityTruth8037.write8343, CurveReserves7951.put and
+    // OnChainDepth8038.fetch called here, and the hand-off task was resumed ONLY when a native UNHYDRATED deferral had been
+    // remembered and queued. The tick writes that actually fill a coin's liquidity in practice were unhooked: the watchlist
+    // intake (admitProtectedMemeIntake, both the fresh and the existing TokenState), the DexScreener pair poll
+    // (processTokenCycle), the DexScreener WS frame (DataOrchestrator), the Birdeye overview fallback, the Raydium TVL fill
+    // (LaneAgeLiquidityTruth8140) and the verified chain depth (OnChainDepth8038.verifyBeforeBuy). They now write through
+    // [writeTick8345], and every arrival asks the task directly ([arrival8345]) whether or not the native desk remembered a
+    // deferral. Nothing is invented: a 0 / NaN write hydrates nothing.
+    private val whyNotQueued8345 = ConcurrentHashMap<String, AtomicLong>()
+    private val tickWrites8345 = ConcurrentHashMap<String, AtomicLong>()   // source -> first-fill writes
+
+    private fun whyNot(why: String) {
+        if (whyNotQueued8345.size >= 32 && !whyNotQueued8345.containsKey(why)) return
+        whyNotQueued8345.computeIfAbsent(why) { AtomicLong(0) }.incrementAndGet()
     }
 
-    /** CurveReserves7951: the curve of [mint] was read ([realSol] real SOL). O(1) when nothing was deferred. */
+    /** Pure: is [usd] a liquidity READING (finite, above 0) that fills an unread tick ([before] <= 0)? */
+    fun firstFill8345(before: Double, usd: Double): Boolean = !(before > 0.0) && usd.isFinite() && usd > 0.0
+
+    /**
+     * THE tick write for every site that sets ts.lastLiquidityUsd outside LiquidityTruth8037: writes [usd] as the caller
+     * decided, and when it fills an unread tick, treats it as the hydration it is. Returns true when the field changed.
+     */
+    fun writeTick8345(ts: TokenState, usd: Double, source: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val before = ts.lastLiquidityUsd
+        ts.lastLiquidityUsd = usd
+        if (!firstFill8345(before, usd)) return before != usd
+        tickWrites8345.computeIfAbsent(source) { AtomicLong(0) }.incrementAndGet()
+        try { arrival8345(ts.mint, ts, usd, nowMs, source) } catch (_: Throwable) {}
+        return true
+    }
+
+    /** BotService.admitProtectedMemeIntake (max-take semantics, V5.9.769): a higher intake figure writes; returns whether it did. */
+    fun intakeLiquidity8345(ts: TokenState, liquidityUsd: Double): Boolean =
+        if (liquidityUsd.isFinite() && liquidityUsd > ts.lastLiquidityUsd) writeTick8345(ts, liquidityUsd, "INTAKE") else false
+
+    /** BotService.processTokenCycle: the DexScreener pair poll's figure, unless the 7323 curve-keep rule holds the last positive one. */
+    fun pollLiquidity8345(ts: TokenState, pairLiquidityUsd: Double, curveKeep7323: Boolean) {
+        if (curveKeep7323) { try { PipelineHealthCollector.labelInc("CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323") } catch (_: Throwable) {}; return }
+        writeTick8345(ts, pairLiquidityUsd, "DEX_PAIR_POLL")
+    }
+
+    /** LiquidityTruth8037: the tick liquidity of [ts] was just written from 0 to [liquidityUsd]. */
+    fun onHydrated8343(ts: TokenState, liquidityUsd: Double, nowMs: Long = System.currentTimeMillis(), source: String = "HYDRATE_8037") {
+        arrival8345(ts.mint, ts, liquidityUsd, nowMs, source)
+    }
+
+    /** CurveReserves7951: the curve of [mint] was read ([realSol] real SOL). Two map reads when nothing waits on it. */
     fun onCurveRead8343(mint: String, realSol: Double, nowMs: Long = System.currentTimeMillis()) {
-        val d = deferred[mint] ?: return
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val usd = if (realSol.isFinite() && realSol > 0.0 && solUsd > 0.0) realSol * solUsd else 0.0
-        enqueue(d, try { BotService.status.tokens[mint] } catch (_: Throwable) { null }, usd, nowMs, "CURVE_READ_7951")
+        arrival8345(mint, null, usd, nowMs, "CURVE_READ_7951")
     }
 
     /** OnChainDepth8038: the pool vaults of [mint] answered with [depthUsd]. */
     fun onDepthRead8343(mint: String, depthUsd: Double, nowMs: Long = System.currentTimeMillis()) {
-        val d = deferred[mint] ?: return
-        enqueue(d, try { BotService.status.tokens[mint] } catch (_: Throwable) { null }, depthUsd, nowMs, "DEPTH_READ_8038")
+        arrival8345(mint, null, depthUsd, nowMs, "DEPTH_READ_8038")
     }
 
-    private fun enqueue(d: Deferred8343, ts: TokenState?, liquidityUsd: Double, nowMs: Long, source: String) {
-        if (queued[d.mint]?.let { nowMs <= it.deadlineMs } == true) return
+    /**
+     * V5.0.8345 — one arrival path: the remembered native deferral (if any) is queued for re-evaluation, and the hand-off
+     * task awaiting hydration on this mint is resumed whether or not a native deferral was remembered (the task can be
+     * deferred for liquidity by the rescue claim / a pre-FDG gate, which the native desk never saw).
+     */
+    private fun arrival8345(mint: String, ts0: TokenState?, liquidityUsd: Double, nowMs: Long, source: String) {
+        if (mint.isBlank()) return
+        val d = deferred[mint]
+        val queuedNow = if (d != null) enqueue(d, ts0 ?: (try { BotService.status.tokens[mint] } catch (_: Throwable) { null }), liquidityUsd, nowMs, source) else false
+        if (!queuedNow && liquidityUsd.isFinite() && liquidityUsd > 0.0) {
+            try { HandoffReceiverTasks8153.onHydrated8343(mint, nowMs) } catch (_: Throwable) {}
+        }
+    }
+
+    private fun enqueue(d: Deferred8343, ts: TokenState?, liquidityUsd: Double, nowMs: Long, source: String): Boolean {
+        if (queued[d.mint]?.let { nowMs <= it.deadlineMs } == true) { whyNot("ALREADY_QUEUED"); return false }
         val age = ageMinutes(ts, nowMs)
         val row = queue8343(d, liquidityUsd, age, window(), nowMs, source)
         if (row == null) {
-            if (age != null && age.isFinite() && age > window()) { outsideWindow.incrementAndGet(); deferred.remove(d.mint) }
-            return
+            if (age != null && age.isFinite() && age > window()) { outsideWindow.incrementAndGet(); deferred.remove(d.mint); whyNot("OUTSIDE_LAUNCH_WINDOW") }
+            else if (!(liquidityUsd.isFinite() && liquidityUsd > 0.0)) whyNot("LIQUIDITY_STILL_UNREAD")
+            else whyNot("DEFERRAL_OLDER_THAN_MEMORY")
+            return false
         }
         deferred.remove(d.mint)
         if (queued.size > MAX_8343) queued.entries.removeIf { nowMs > it.value.deadlineMs }
@@ -118,7 +174,12 @@ object HydrationReeval8343 {
             ForensicLogger.lifecycle("HYDRATION_REEVAL_QUEUED_8343", "mint=${d.mint.take(10)} lanes=${d.lanes.joinToString(",")} version=${d.version} " +
                 "liqUsd=${liquidityUsd.toInt()} ageMin=${age?.let { "%.1f".format(it) } ?: "?"} source=$source deferredFor=${d.reason.take(48)} action=reevaluate_next_cycle_priority_window")
         } catch (_: Throwable) {}
+        return true
     }
+
+    /** V5.0.8345 — the first-fill tick writes by source and the queue refusals by reason (tests and the status line). */
+    fun hydrationCounts8345(): Pair<Map<String, Long>, Map<String, Long>> =
+        tickWrites8345.mapValues { it.value.get() } to whyNotQueued8345.mapValues { it.value.get() }
 
     /** HandoffPriority8190: the queued mints (mint -> deadline) that ride the next cycle's priority window. */
     fun targets8343(nowMs: Long = System.currentTimeMillis()): List<Pair<String, Long>> {
@@ -146,11 +207,15 @@ object HydrationReeval8343 {
         } catch (_: Throwable) {}
     }
 
-    fun statusLine8343(nowMs: Long = System.currentTimeMillis()): String =
-        "hydrationReeval8343[queued=${queuedN.get()} evaluated=${evaluatedN.get()} admitted=${admittedN.get()} pending=${queued.count { nowMs <= it.value.deadlineMs }} " +
-            "deferredRemembered=${deferred.size} outsideWindow=${outsideWindow.get()} expired=${expired.get()}]"
+    fun statusLine8343(nowMs: Long = System.currentTimeMillis()): String {
+        val (writes, notQueued) = hydrationCounts8345()  // V5.0.8345
+        return "hydrationReeval8343[queued=${queuedN.get()} evaluated=${evaluatedN.get()} admitted=${admittedN.get()} pending=${queued.count { nowMs <= it.value.deadlineMs }} " +
+            "deferredRemembered=${deferred.size} outsideWindow=${outsideWindow.get()} expired=${expired.get()} " +
+            "tickWrites8345{${com.lifecyclebot.engine.truth.EvidenceShadow8344.countLine8345(writes)}} whyNotQueued8345{${com.lifecyclebot.engine.truth.EvidenceShadow8344.countLine8345(notQueued)}}]"
+    }
 
     internal fun resetForTests8343() {
         deferred.clear(); queued.clear(); queuedN.set(0); evaluatedN.set(0); admittedN.set(0); outsideWindow.set(0); expired.set(0)
+        whyNotQueued8345.clear(); tickWrites8345.clear()
     }
 }

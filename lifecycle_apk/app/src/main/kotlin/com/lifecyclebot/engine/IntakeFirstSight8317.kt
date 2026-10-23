@@ -60,6 +60,9 @@ object IntakeFirstSight8317 {
             try { com.lifecyclebot.engine.truth.OnChainDepth8038.needDepth8047(fresh); depthAsked.incrementAndGet() } catch (_: Throwable) {}
         }
         noteIntake8317(fresh.mint)
+        // V5.0.8345 — THE install site of a receiver's TokenState (admitProtectedMemeIntake's getOrPut): a hand-off task deferred
+        // DEFERRED_NO_TOKEN_STATE resumes here, at the arrival, not when a later priority window happens to notice (8344: 0 resumes).
+        try { HandoffReceiverTasks8153.onStateInstalled8330(fresh.mint) } catch (_: Throwable) {}
     }
 
     fun statusLine8317(): String =

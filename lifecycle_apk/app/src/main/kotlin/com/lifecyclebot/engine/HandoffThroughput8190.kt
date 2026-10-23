@@ -252,7 +252,9 @@ object HandoffPriority8190 {
         val set = present.toHashSet()
         var joined = 0
         for ((m, _) in targets.distinctBy { it.first }) {
-            if (m in set) continue
+            // V5.0.8345 — a target ALREADY in the pool holds its state too: 8330 resumed only on the join, so a state installed by
+            // the watchlist intake (the pool holds it by the next cycle) never resumed its DEFERRED_NO_TOKEN_STATE task (8344: 0 resumes).
+            if (m in set) { if (tokenFor(m)) try { HandoffReceiverTasks8153.onStateInstalled8330(m, nowMs) } catch (_: Throwable) {}; continue }
             if (tokenFor(m)) { set.add(m); joined++; try { HandoffReceiverTasks8153.onStateInstalled8330(m, nowMs) } catch (_: Throwable) {} } else rehydrate(m)  // V5.0.8330 — the state arrived: resume the task
         }
         if (joined > 0) try { PipelineHealthCollector.labelAdd("HANDOFF_TARGET_JOINED_POOL_8216", joined.toLong()) } catch (_: Throwable) {}

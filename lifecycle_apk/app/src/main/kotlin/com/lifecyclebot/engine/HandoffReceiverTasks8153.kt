@@ -247,6 +247,12 @@ object HandoffReceiverTasks8153 {
             if (resumed != null) { resumed8330.incrementAndGet(); return resumed }
             return t.copy(outcome = Outcome8153.DEFERRED_DATA, verdict = t.lastBlock.removePrefix(DEFERRED_PREFIX_8153) + "_STATE_ARRIVED_LATE_8330", settledAtMs = nowMs)
         }
+        // V5.0.8345 — the same for a liquidity deferral whose reading arrived (the 8343 twin of the 8330 branch).
+        if (awaitsHydration8343(t) && hydrationSeen8345.containsKey(t.mint)) {
+            val resumed = resumeOnHydration8343(t, nowMs)
+            if (resumed != null) { resumedHydration8343.incrementAndGet(); return resumed }
+            return t.copy(outcome = Outcome8153.DEFERRED_DATA, verdict = t.lastBlock.removePrefix(DEFERRED_PREFIX_8153) + "_LIQUIDITY_ARRIVED_LATE_8345", settledAtMs = nowMs)
+        }
         return when {
             t.lastBlock.startsWith(DEFERRED_PREFIX_8153) ->
                 t.copy(outcome = Outcome8153.DEFERRED_DATA, verdict = t.lastBlock.removePrefix(DEFERRED_PREFIX_8153), settledAtMs = nowMs)
@@ -304,16 +310,45 @@ object HandoffReceiverTasks8153 {
         }
     }
 
-    /** " handoffResumed8330=N expiredAfterState=M" */
-    fun resumeLine8330(): String = " handoffResumed8330=${resumed8330.get()} expiredAfterState=${expiredAfterState8330.get()} hydrationResumed8343=${resumedHydration8343.get()}"
+    /** " handoffResumed8330=N expiredAfterState=M hydrationResumed8343=K whyNotResumed8345{...}" */
+    fun resumeLine8330(): String = " handoffResumed8330=${resumed8330.get()} expiredAfterState=${expiredAfterState8330.get()} hydrationResumed8343=${resumedHydration8343.get()}" +
+        " whyNotResumed8345{${com.lifecyclebot.engine.truth.EvidenceShadow8344.countLine8345(whyNotResumedCounts8345())}}"  // V5.0.8345
 
     // ── V5.0.8343 — resume on liquidity arrival (the 8330 hook for an UNHYDRATED deferral) ──
 
     private val resumedHydration8343 = AtomicLong(0L)
 
-    /** Pure: the task's remembered block is a liquidity / mcap not-yet-read deferral. */
+    /**
+     * Pure: the task's remembered block is a liquidity / mcap not-yet-read deferral.
+     * V5.0.8345 — or a data deferral a liquidity reading answers ([hydrationAnswers8345]): a LIQ-named gap, DATA_INCOMPLETE /
+     * UNKNOWN_ECONOMICS / DATA_MISSING (liquidity is a core input of each). A missing TokenState, a stale price, metadata
+     * or bar history are not answered by liquidity and keep waiting for their own arrival.
+     */
     fun awaitsHydration8343(t: Task8153): Boolean =
-        t.pending && t.lastBlock.startsWith(DEFERRED_PREFIX_8153) && HydrationReeval8343.unhydratedDefer8343(t.lastBlock)
+        t.pending && t.lastBlock.startsWith(DEFERRED_PREFIX_8153) && hydrationAnswers8345(t.lastBlock)
+
+    /** Pure (V5.0.8345): does a liquidity reading answer the deferral named in [block]? */
+    fun hydrationAnswers8345(block: String): Boolean {
+        val b = block.uppercase().replace(' ', '_')
+        if (b.contains("NO_TOKEN_STATE")) return false
+        return HydrationReeval8343.unhydratedDefer8343(b) || b.contains("LIQ") || b.contains("DATA_INCOMPLETE") ||
+            b.contains("UNKNOWN_ECONOMICS") || b.contains("DATA_MISSING") || b.contains("MISSING_DATA")
+    }
+
+    // V5.0.8345 — why a hydration write that FOUND this mint's task did not resume it (the 8344 audit: 0 resumes, no reason).
+    private val whyNotResumed8345 = ConcurrentHashMap<String, AtomicLong>()
+    private val hydrationSeen8345 = ConcurrentHashMap<String, Long>()
+
+    private fun whyNotResumed(why: String) {
+        if (whyNotResumed8345.size >= 48 && !whyNotResumed8345.containsKey(why)) return
+        whyNotResumed8345.computeIfAbsent(why) { AtomicLong(0) }.incrementAndGet()
+    }
+
+    /** Pure (V5.0.8345): the stable name of a block for the whyNotResumed tally ("DEFERRED:" dropped, digits folded). */
+    fun blockKey8345(block: String): String =
+        if (block.isEmpty()) "NOT_BLOCKED" else "BLOCK_" + verdictKey8169(block.removePrefix(DEFERRED_PREFIX_8153))
+
+    fun whyNotResumedCounts8345(): Map<String, Long> = whyNotResumed8345.mapValues { it.value.get() }
 
     /** Pure: the same task resumed on hydration — block cleared, validity extended within the max age, version carried. */
     fun resumeOnHydration8343(t: Task8153?, nowMs: Long): Task8153? {
@@ -324,10 +359,14 @@ object HandoffReceiverTasks8153 {
     }
 
     /** HydrationReeval8343: the liquidity of [mint] was just read: resume its task awaiting it at once. */
-    fun onHydrated8343(mint: String, nowMs: Long = System.currentTimeMillis()) {
+    fun onHydrated8343(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val m = HandoffRoute8180.memeKey8180(mint.trim())
-        val t = tasks8153[m] ?: tasks8153[mint] ?: return
-        if (!awaitsHydration8343(t)) return
+        val t = tasks8153[m] ?: tasks8153[mint] ?: return false
+        // V5.0.8345 — a found task that is not resumed says why.
+        if (!t.pending) { whyNotResumed("SETTLED_${t.outcome.name}"); return false }
+        if (!awaitsHydration8343(t)) { whyNotResumed(blockKey8345(t.lastBlock)); return false }
+        if (hydrationSeen8345.size > 2_048) hydrationSeen8345.entries.removeIf { nowMs - it.value > TASK_MAX_AGE_MS_8153 }
+        hydrationSeen8345[t.mint] = nowMs
         val after = update8153(t.mint, nowMs) { prior -> resumeOnHydration8343(prior, nowMs) ?: prior }
         if (after != null && after.pending && after.lastBlock.isEmpty()) {
             resumedHydration8343.incrementAndGet()
@@ -335,7 +374,10 @@ object HandoffReceiverTasks8153 {
                 PipelineHealthCollector.labelInc("HANDOFF_TASK_RESUMED_ON_HYDRATION_8343_${after.lane}")
                 ForensicLogger.lifecycle("HANDOFF_TASK_RESUMED_8343", "mint=${t.mint.take(10)} lane=${after.lane} from=${after.from} version=${after.version} validUntilMs=${after.validUntilMs} action=same_task_next_cycle_liquidity_read")
             } catch (_: Throwable) {}
+            return true
         }
+        whyNotResumed(if (after == null || !after.pending) "LAPSED_BEFORE_WRITE" else "MAX_AGE_REACHED")
+        return false
     }
 
     // ── bounded runtime table (one task per mint) ──
@@ -526,7 +568,10 @@ object HandoffReceiverTasks8153 {
             "evaluatedBy8169{${topTallies8169(v, "${Outcome8153.EVALUATED.name}|", 4)}}"
     }
 
-    internal fun resetForTests8153() { tasks8153.clear(); counts8153.clear(); verdicts8169.clear(); stateSeen8330.clear(); resumed8330.set(0L); expiredAfterState8330.set(0L) }
+    internal fun resetForTests8153() {
+        tasks8153.clear(); counts8153.clear(); verdicts8169.clear(); stateSeen8330.clear(); resumed8330.set(0L); expiredAfterState8330.set(0L)
+        resumedHydration8343.set(0L); whyNotResumed8345.clear(); hydrationSeen8345.clear()  // V5.0.8345
+    }
 }
 
 /**
