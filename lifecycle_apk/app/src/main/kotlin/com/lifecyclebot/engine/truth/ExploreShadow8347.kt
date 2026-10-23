@@ -69,6 +69,10 @@ object ExploreShadow8347 {
     ) {
         var lastPx = signalPx
         var lastPxAtMs = atMs
+        // V5.0.8355 — persistence state: a leg's tier / peak / trough moved (coalesced write); a leg armed or closed (forced write)
+        var dirty8355 = false
+        var force8355 = false
+        var lastWriteMs8355 = 0L
     }
 
     private val tickets = ConcurrentHashMap<String, Ticket8347>()                // mint|lane -> ticket
@@ -80,7 +84,104 @@ object ExploreShadow8347 {
     private val waits = ConcurrentHashMap<String, LongArray>()                   // mint|lane -> [firstAtMs, signalPx bits]
     @Volatile private var prefs: android.content.SharedPreferences? = null
 
-    fun init8347(ctx: Context) {
+    // ── V5.0.8355 §SHADOW_EVIDENCE_SURVIVES_RESTARTS — open tickets (every leg's state) and the liveEntryWait8347 waits are
+    // persisted in their own prefs (the close books untouched): a ticket is written on open, when a leg arms or closes, and
+    // coalesced (at most once per 10 s) when a leg's tier / peak / trough moves; removed once every leg is dead. init8347
+    // restores them with their real entry marks and clocks, never re-priced; a leg still waiting re-arms on the real signal. ──
+    private const val PREFS_OPEN_8355 = "aate_explore_shadow_open_8355"
+    private const val TICKET_KEY_PREFIX_8355 = "T:"
+    private const val WAITS_KEY_8355 = "W"
+    @Volatile private var openPrefs8355: android.content.SharedPreferences? = null
+    @Volatile private var waitsDirty8355 = false
+    @Volatile private var waitsWrittenAtMs8355 = 0L
+    private val restored8355 = AtomicLong(0)
+    private val expiredOnRestore8355 = AtomicLong(0)
+    private val waitsRestored8355 = AtomicLong(0)
+
+    private fun ticketRec8355(t: Ticket8347): ShadowPersist8355.TicketRec8355 = ShadowPersist8355.TicketRec8355(
+        t.mint, t.symbol, t.lane, t.setup, t.tactic, t.scoreBand, t.band, t.signalPx, t.atMs, t.costPct, t.stopPct, t.armPct,
+        t.runner, t.nativeEligible, t.lastPx, t.lastPxAtMs,
+        t.legs.map { l -> ShadowPersist8355.LegRec8355(l.entry.name, l.exit.name, l.active, l.dead, l.entryPx, l.entryAtMs, l.held, l.banked, l.tiers, l.peak, l.trough) },
+    )
+
+    private fun persistTicket8355(key: String, t: Ticket8347, nowMs: Long) {
+        t.dirty8355 = false; t.force8355 = false; t.lastWriteMs8355 = nowMs
+        val enc = ShadowPersist8355.encodeTicket8355(ticketRec8355(t))
+        try { openPrefs8355?.edit()?.putString(TICKET_KEY_PREFIX_8355 + key, enc)?.apply() } catch (_: Throwable) {}
+    }
+
+    private fun forgetTicket8355(key: String) {
+        try { openPrefs8355?.edit()?.remove(TICKET_KEY_PREFIX_8355 + key)?.apply() } catch (_: Throwable) {}
+    }
+
+    /** The waits map, whole (it is small), at most once per 10 s and only after a change. */
+    private fun flushWaits8355(nowMs: Long) {
+        if (!ShadowPersist8355.writeDue8355(waitsDirty8355, waitsWrittenAtMs8355, nowMs)) return
+        waitsDirty8355 = false; waitsWrittenAtMs8355 = nowMs
+        val ws = waits.entries.map { (k, w) -> ShadowPersist8355.WaitRec8355(k, w[0], java.lang.Double.longBitsToDouble(w[1])) }
+        try { openPrefs8355?.edit()?.putString(WAITS_KEY_8355, ShadowPersist8355.encodeWaits8355(ws))?.apply() } catch (_: Throwable) {}
+    }
+
+    private fun ticketFromRec8355(r: ShadowPersist8355.TicketRec8355): Ticket8347? {
+        val legs = ArrayList<Leg8347>()
+        for (l in r.legs) {
+            val e = Entry8347.values().firstOrNull { it.name == l.entry } ?: return null
+            val x = Exit8347.values().firstOrNull { it.name == l.exit } ?: return null
+            val leg = Leg8347(e, x)
+            leg.active = l.active; leg.dead = l.dead; leg.entryPx = l.entryPx; leg.entryAtMs = l.entryAtMs
+            leg.held = l.held; leg.banked = l.banked; leg.tiers = l.tiers; leg.peak = l.peak; leg.trough = l.trough
+            legs += leg
+        }
+        if (legs.isEmpty() || legs.all { it.dead }) return null
+        val t = Ticket8347(r.mint, r.symbol, r.lane, r.setup, r.tactic, r.scoreBand, r.signalPx, r.atMs, r.costPct, r.stopPct, r.armPct,
+            r.runner, r.nativeEligible, legs, r.band)
+        t.lastPx = r.lastPx; t.lastPxAtMs = r.lastPxAtMs
+        return t
+    }
+
+    private fun restoreOpen8355(ctx: Context, nowMs: Long) {
+        try {
+            val p = ctx.getSharedPreferences(PREFS_OPEN_8355, Context.MODE_PRIVATE)
+            openPrefs8355 = p
+            val drop = ArrayList<String>()
+            val perLane = HashMap<String, Int>()
+            var n = 0L
+            for ((k, v) in p.all) {
+                val s = v as? String
+                if (k == WAITS_KEY_8355) {
+                    for (w in ShadowPersist8355.decodeWaits8355(s)) {
+                        if (nowMs - w.firstAtMs !in 0L until PULLBACK_WAIT_MS_8347) continue
+                        waits[w.key] = longArrayOf(w.firstAtMs, java.lang.Double.doubleToRawLongBits(w.signalPx))
+                        waitsRestored8355.incrementAndGet()
+                    }
+                    continue
+                }
+                if (!k.startsWith(TICKET_KEY_PREFIX_8355)) { drop += k; continue }
+                val key = k.substring(TICKET_KEY_PREFIX_8355.length)
+                val r = ShadowPersist8355.decodeTicket8355(s)
+                if (r == null) { drop += k; continue }
+                // the ticket's own window: the longest leg timeout plus the longest entry wait, then the lost-mark grace
+                val window = (if (r.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347) + PULLBACK_WAIT_MS_8347
+                if (ShadowPersist8355.expiredOnRestore8355(r.atMs, window, nowMs, LOST_MARK_MS_8347)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
+                val t = ticketFromRec8355(r)
+                if (t == null || tickets.containsKey(key) || tickets.size >= MAX_TICKETS_8347 ||
+                    (perLane[t.lane] ?: 0) >= MAX_TICKETS_PER_LANE_8351) { drop += k; continue }
+                t.lastWriteMs8355 = nowMs
+                tickets[key] = t
+                perLane[t.lane] = (perLane[t.lane] ?: 0) + 1
+                lastOpenAt[key] = r.atMs
+                n++
+            }
+            if (drop.isNotEmpty()) { val e = p.edit(); for (k in drop) e.remove(k); e.apply() }
+            restored8355.addAndGet(n)
+        } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8355 — restored tickets / expired-on-restore / restored waits (tests and the status line). */
+    fun restoreCounts8355(): Triple<Long, Long, Long> = Triple(restored8355.get(), expiredOnRestore8355.get(), waitsRestored8355.get())
+
+    fun init8347(ctx: Context, nowMs: Long = System.currentTimeMillis()) {
+        restoreOpen8355(ctx, nowMs)   // V5.0.8355
         try {
             val p = ctx.getSharedPreferences(PREFS_8347, Context.MODE_PRIVATE)
             prefs = p
@@ -149,6 +250,7 @@ object ExploreShadow8347 {
             if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm, runner, o.eligible, legs, mcapBand8351)
         t.legs.filter { it.entry == Entry8347.NOW }.forEach { it.active = true; it.entryPx = px; it.entryAtMs = nowMs }
         tickets[key] = t
+        persistTicket8355(key, t, nowMs)   // V5.0.8355 — written on open
         lastOpenAt[key] = nowMs
         if (lastOpenAt.size > 10_000) lastOpenAt.entries.removeIf { nowMs - it.value > REOPEN_GAP_MS_8347 }
         opened.incrementAndGet()
@@ -158,6 +260,7 @@ object ExploreShadow8347 {
     // ── tick (BotService shadow loop) ──
 
     fun tick8347(tokens: Map<String, TokenState>, nowMs: Long = System.currentTimeMillis()) {
+        flushWaits8355(nowMs)   // V5.0.8355 — the waits map, when it changed (independent of the tickets)
         if (tickets.isEmpty()) return
         val done = ArrayList<String>()
         for ((key, t) in tickets) {
@@ -172,38 +275,42 @@ object ExploreShadow8347 {
                     if (!leg.active) { arm8347(t, leg, fresh, nowMs); continue }
                     step8347(t, leg, fresh, lost, nowMs)
                 }
-                if (t.legs.all { it.dead }) done += key
+                if (t.legs.all { it.dead }) {
+                    done += key
+                } else if (ShadowPersist8355.writeDue8355(t.dirty8355, t.lastWriteMs8355, nowMs, t.force8355)) {
+                    persistTicket8355(key, t, nowMs)   // V5.0.8355 — a leg armed / closed writes now; a tier / peak move waits for the 10 s coalesce; nothing else writes
+                }
             } catch (_: Throwable) { done += key }
         }
-        done.forEach { tickets.remove(it) }
+        done.forEach { tickets.remove(it); forgetTicket8355(it) }   // V5.0.8355 — every leg dead: the ticket leaves the open prefs
     }
 
     private fun arm8347(t: Ticket8347, leg: Leg8347, px: Double?, nowMs: Long) {
         val age = nowMs - t.atMs
         when (leg.entry) {
             Entry8347.PULLBACK -> {
-                if (px != null && px <= t.signalPx * (1.0 - pullbackPct8347(t.stopPct) / 100.0)) { leg.active = true; leg.entryPx = px; leg.entryAtMs = nowMs }
-                else if (age >= PULLBACK_WAIT_MS_8347) leg.dead = true   // never filled: no trade, nothing booked
+                if (px != null && px <= t.signalPx * (1.0 - pullbackPct8347(t.stopPct) / 100.0)) { leg.active = true; leg.entryPx = px; leg.entryAtMs = nowMs; t.force8355 = true }
+                else if (age >= PULLBACK_WAIT_MS_8347) { leg.dead = true; t.force8355 = true }   // never filled: no trade, nothing booked
             }
             Entry8347.CONFIRM -> {
-                if (px != null && age >= CONFIRM_AFTER_MS_8347 && px >= t.signalPx * (1.0 + CONFIRM_RISE_PCT_8347 / 100.0)) { leg.active = true; leg.entryPx = px; leg.entryAtMs = nowMs }
-                else if (age >= CONFIRM_WAIT_MS_8347) leg.dead = true
+                if (px != null && age >= CONFIRM_AFTER_MS_8347 && px >= t.signalPx * (1.0 + CONFIRM_RISE_PCT_8347 / 100.0)) { leg.active = true; leg.entryPx = px; leg.entryAtMs = nowMs; t.force8355 = true }
+                else if (age >= CONFIRM_WAIT_MS_8347) { leg.dead = true; t.force8355 = true }
             }
-            Entry8347.NOW -> { leg.active = true; leg.entryPx = t.signalPx; leg.entryAtMs = t.atMs }
+            Entry8347.NOW -> { leg.active = true; leg.entryPx = t.signalPx; leg.entryAtMs = t.atMs; t.force8355 = true }
         }
     }
 
     private fun step8347(t: Ticket8347, leg: Leg8347, px: Double?, lost: Boolean, nowMs: Long) {
         val g = (t.lastPx / leg.entryPx - 1.0) * 100.0
-        if (!g.isFinite()) { leg.dead = true; return }
-        if (g > leg.peak) leg.peak = g
-        if (g < leg.trough) leg.trough = g
+        if (!g.isFinite()) { leg.dead = true; t.force8355 = true; return }
+        if (g > leg.peak) { leg.peak = g; t.dirty8355 = true }       // V5.0.8355 — peak / trough / tier moves are persisted changes
+        if (g < leg.trough) { leg.trough = g; t.dirty8355 = true }
         val why: String? = when (leg.exit) {
             Exit8347.RUNNER -> {
                 if (px != null) while (leg.tiers < com.lifecyclebot.engine.SpikeCapture7943.TIERS.size) {
                     val (at, frac) = com.lifecyclebot.engine.SpikeCapture7943.TIERS[leg.tiers]
                     if (g < at) break
-                    val sold = leg.held * frac; leg.banked += sold * g; leg.held -= sold; leg.tiers++
+                    val sold = leg.held * frac; leg.banked += sold * g; leg.held -= sold; leg.tiers++; t.dirty8355 = true
                 }
                 val floor = EvidenceShadow8344.giveBackFloor8344(leg.peak, t.armPct, t.costPct)
                 when {
@@ -216,8 +323,8 @@ object ExploreShadow8347 {
                 }
             }
             Exit8347.SCALP -> {
-                if (px != null && leg.tiers == 0 && g >= 15.0) { val s = leg.held * 0.5; leg.banked += s * g; leg.held -= s; leg.tiers = 1 }
-                if (px != null && leg.tiers == 1 && g >= 30.0) { leg.banked += leg.held * g; leg.held = 0.0; leg.tiers = 2 }
+                if (px != null && leg.tiers == 0 && g >= 15.0) { val s = leg.held * 0.5; leg.banked += s * g; leg.held -= s; leg.tiers = 1; t.dirty8355 = true }
+                if (px != null && leg.tiers == 1 && g >= 30.0) { leg.banked += leg.held * g; leg.held = 0.0; leg.tiers = 2; t.dirty8355 = true }
                 val floor = if (leg.peak >= 10.0) maxOf(t.costPct.coerceAtMost(leg.peak * 0.5), leg.peak * 0.5) else null
                 when {
                     leg.held <= 0.0001 -> "SOLD_OUT"
@@ -234,6 +341,7 @@ object ExploreShadow8347 {
 
     private fun close8347(t: Ticket8347, leg: Leg8347, net: Double, why: String, nowMs: Long) {
         leg.dead = true
+        t.force8355 = true   // V5.0.8355 — a leg close is written now (the ticket itself leaves the prefs once every leg is dead)
         val v = "${t.lane}|${leg.entry}|${leg.exit}"
         // V5.0.8351 — the variant book, plus three cohort books (setup, market-cap band, native yes / sampled no).
         bookKey8351(v, net, nowMs)
@@ -385,7 +493,7 @@ object ExploreShadow8347 {
         if (entry == Entry8347.NOW) return null
         val px = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: return "ENTRY_TIMING_NO_MARK_8347"
         val key = "${ts.mint}|${canon(lane)}"
-        val w = waits.computeIfAbsent(key) { longArrayOf(nowMs, java.lang.Double.doubleToRawLongBits(px)) }
+        val w = waits[key] ?: longArrayOf(nowMs, java.lang.Double.doubleToRawLongBits(px)).also { waits[key] = it; waitsDirty8355 = true }   // V5.0.8355 — a new wait is a change
         val signal = java.lang.Double.longBitsToDouble(w[1])
         val age = nowMs - w[0]
         val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
@@ -395,9 +503,9 @@ object ExploreShadow8347 {
             Entry8347.NOW -> true
         }
         val limit = if (entry == Entry8347.PULLBACK) PULLBACK_WAIT_MS_8347 else CONFIRM_WAIT_MS_8347
-        if (ready) { waits.remove(key); return null }
-        if (age >= limit) { waits.remove(key); return "ENTRY_TIMING_EXPIRED_8347_$entry" }
-        if (waits.size > 2_000) waits.entries.removeIf { nowMs - it.value[0] > PULLBACK_WAIT_MS_8347 }
+        if (ready) { waits.remove(key); waitsDirty8355 = true; return null }
+        if (age >= limit) { waits.remove(key); waitsDirty8355 = true; return "ENTRY_TIMING_EXPIRED_8347_$entry" }
+        if (waits.size > 2_000) { waits.entries.removeIf { nowMs - it.value[0] > PULLBACK_WAIT_MS_8347 }; waitsDirty8355 = true }
         try { PipelineHealthCollector.labelInc("ENTRY_TIMING_WAIT_8347_${canon(lane)}_$entry") } catch (_: Throwable) {}
         return "ENTRY_TIMING_WAIT_8347_$entry"
     }
@@ -412,6 +520,7 @@ object ExploreShadow8347 {
             "$l adopt=$best$inv [$cells]"
         }.ifBlank { "no exploration closes yet" }
         return "exploreShadow8347[tickets=${tickets.size}/$MAX_TICKETS_8347 opened=${opened.get()} legsClosed=${closed.get()} full=${full.get()} " +
+            "restored8355=${restored8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} waitsRestored8355=${waitsRestored8355.get()} " +
             "rejectSample=$REJECT_SAMPLE_PCT_8347% bar=n>=$MIN_N_8347,mean-1.5se>$MARGIN_PCT_8347%,pf>=$MIN_PF_8347 (* = proven) | $lanes]"
     }
 }
