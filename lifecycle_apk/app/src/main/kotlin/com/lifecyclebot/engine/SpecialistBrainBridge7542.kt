@@ -272,15 +272,17 @@ object SpecialistBrainBridge7542 {
             val last = prices.last()
             if (first > 0.0 && last.isFinite()) ((last - first) / first) * 100.0 else 0.0
         } else 0.0
+        // V5.0.8348 — ONE continuation read with provenance (ContinuationRead8348): the tape over the coin's own age inside the
+        // launch hour, else the 1 h change, the history move, the move since the create price, a 5 m change; else UNOBSERVED.
+        val cont8348 = ContinuationRead8348.read8348(ts, histMomentumPct7551, prices.size, ageMin,
+            if (prices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null, now)
         val mom = ts.lastPriceChange5m.takeIf { it.isFinite() && kotlin.math.abs(it) > 0.000001 }
-            ?: histMomentumPct7551
+            ?: (if (prices.size < 2 && cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE) cont8348.pct else histMomentumPct7551)   // V5.0.8348 — a young coin's tape, not a flat 0.0 on no history
         // V5.0.7555 — Express has two directional inputs by design:
         // broad momentum + acute 5m change. Feed the authoritative 1h drift
         // into momentum so the same 5m print is not scored twice.
-        val expressMomentum7555 = ts.lastPriceChange1h
-            .takeIf { it.isFinite() && kotlin.math.abs(it) > 0.000001 }
-            ?: ExpressMomentum8190.momentum8190(ts.lastPriceChange1h, histMomentumPct7551, prices.size,
-                if (prices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null)  // V5.0.8190 — not a flat 0.0% on no history
+        // V5.0.8348 — the same order as 7555/8190 (1 h, history, launch price), with the tape first inside the launch hour.
+        val expressMomentum7555 = cont8348.pct
         // volatility intentionally stays on its existing 0..100 score scale:
         // DataOrchestrator and these native lanes already use score-like bands.
         val vol=ts.volatility?.takeIf{it.isFinite()}?:abs(ts.meta.avgAtr)
@@ -349,6 +351,9 @@ object SpecialistBrainBridge7542 {
             val defer8236 = LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236) ?: continue
             out[lane] = o.copy(reason = defer8236, gradeable = false)
         }
+        // V5.0.8348 — a momentum mandate that fired on an UNOBSERVED continuation defers (whatever buy pressure says); an
+        // observed read below the bar refuses. Before the grab-lane review so the deferral is remembered for hydration.
+        ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, ContinuationRead8348.momentumObserved8348(ts.lastPriceChange5m, ts.priceChangeObservedAtMs8084, prices.size, cont8348))
         // V5.0.8343 — the grab lane: a forming runner refused only on a lane MANDATE is re-asked on its own legs (hard safety,
         // exit-safe venue, forming-run evidence, economics at the route minimum, chase cap; live: the evidence hold's door);
         // UNHYDRATED_DEFER refusals are remembered for the hydration re-evaluation. Safety / rug / dev refusals are never re-asked.

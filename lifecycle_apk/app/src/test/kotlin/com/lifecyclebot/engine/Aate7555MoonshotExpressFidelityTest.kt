@@ -29,7 +29,9 @@ class Aate7555MoonshotExpressFidelityTest {
 
     @Test fun express_uses_distinct_hourly_and_five_minute_direction() {
         val b=src("engine/SpecialistBrainBridge7542.kt")
-        assertTrue(b.contains("val expressMomentum7555 = ts.lastPriceChange1h"))
+        // superseded by V5.0.8348 — the 1 h drift still leads Express momentum (ContinuationRead8348 FROM_1H), read once with provenance
+        assertTrue(b.contains("val expressMomentum7555 = cont8348.pct"))
+        assertTrue(src("engine/ContinuationRead8348.kt").contains("Continuation8348(lastChange1h, Source8348.FROM_1H)"))
         val line=b.lineSequence().first { it.contains("out[\"EXPRESS\"]=") }
         assertTrue(line.contains("expressMomentum7555"))
         assertTrue(line.contains("ts.lastPriceChange5m"))
