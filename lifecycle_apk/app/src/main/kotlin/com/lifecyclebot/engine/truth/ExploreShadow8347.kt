@@ -25,15 +25,34 @@ import java.util.concurrent.atomic.AtomicLong
  *  - EvidenceHold8336 unlocks the lane on it;
  *  - Entry8114Mode8326 makes the LIVE entry wait for that variant's entry condition ([liveEntryWait8347]).
  * Spends nothing, opens no position, takes no slot or ledger row. Model limits: every fill lands, marks are the fill.
+ *
+ * V5.0.8360 §EVERY_LANE_EVERY_TOKEN_EVERY_SETUP — owner: "we cant block every trade, especially on the shadow trader. its
+ * meant to be trying to name as many profitable trades as possible across as many specialist lanes and traders across
+ * their full strategy and trading stacks." Only hard safety ([shadowSafety8360], or the token's HARD_BLOCK tier) and "no
+ * observed mark" ([ShadowMark8360], any observed mark under 60 s) stop a ticket now:
+ *  - every NON-safety native reject opens ([REJECT_SAMPLE_PCT_8347] = 100; legs NOW/RUNNER + NOW/SCALP), booked R:REJECT;
+ *  - every OTHER setup the lane's playbook fired on the coin (LanePlaybook7907.matchedSetups8083, up to
+ *    [MAX_SETUP_TICKETS_8360]) opens its own SETUP ticket (six legs), keyed mint|lane|setup, booked S:<setup>
+ *    (SR:<setup> when the lane itself refused);
+ *  - the NOW/RUNNER close of a native ticket is also booked T:<tactic> (the tactic TacticSwitcher picked at open);
+ *  - live adoption still reads only native evidence: the variant book and S:/M: niches; R:, SR: and T: are diagnostics.
+ * Capacity [MAX_TICKETS_8347] / [MAX_TICKETS_PER_LANE_8351]; when full the OLDEST ticket with no active leg is evicted
+ * ([evictKey8360]); the tick marks at most [TICK_PER_LOOP_8360] tickets per loop, round-robin ([rrSlice8360]).
  */
 object ExploreShadow8347 {
     enum class Entry8347 { NOW, PULLBACK, CONFIRM }
     enum class Exit8347 { RUNNER, SCALP }
 
-    const val MAX_TICKETS_8347 = 1_000   // V5.0.8351 — 250 filled in 4 min and skipped ~29,500 (8350)
-    const val MAX_TICKETS_PER_LANE_8351 = 120   // V5.0.8351 — one busy lane cannot starve the rest
+    const val MAX_TICKETS_8347 = 3_000   // V5.0.8360 — 1,000 (8351); every lane x token x setup now opens
+    const val MAX_TICKETS_PER_LANE_8351 = 300   // V5.0.8360 — 120 (8351); one busy lane still cannot starve the rest
     const val TICKET_SOL_8347 = 0.03
-    const val REJECT_SAMPLE_PCT_8347 = 10
+    const val REJECT_SAMPLE_PCT_8347 = 100   // V5.0.8360 — 10 % (8347); every non-safety reject with an observed mark opens
+    const val TICK_PER_LOOP_8360 = 600   // V5.0.8360 — tickets marked per shadow loop, round-robin (bounded CPU at 3,000 tickets)
+    private const val MAX_SETUP_TICKETS_8360 = 3   // V5.0.8360 — extra fired-setup tickets per lane per coin
+    private const val WANTED_EVERY_MS_8360 = 30_000L
+    private const val SETUP_SCAN_MS_8360 = 60_000L
+    private const val NO_EVICT_RETRY_MS_8360 = 5_000L
+    private const val MIN_COHORT_SHOW_N_8360 = 10
     const val MIN_N_8347 = 40
     const val MARGIN_PCT_8347 = 2.0
     const val MIN_PF_8347 = 1.3
@@ -66,6 +85,8 @@ object ExploreShadow8347 {
         val signalPx: Double, val atMs: Long, val costPct: Double, val stopPct: Double, val armPct: Double,
         val runner: Boolean, val nativeEligible: Boolean, val legs: List<Leg8347>,
         val band: String = "UNK",   // V5.0.8351 — market-cap band at open, a cohort dimension
+        val kind8360: String = KIND_NATIVE_8360,   // V5.0.8360 — NATIVE / REJECT / SETUP
+        val markSrc8360: String = "",              // V5.0.8360 — the observed source that priced the entry
     ) {
         var lastPx = signalPx
         var lastPxAtMs = atMs
@@ -75,7 +96,7 @@ object ExploreShadow8347 {
         var lastWriteMs8355 = 0L
     }
 
-    private val tickets = ConcurrentHashMap<String, Ticket8347>()                // mint|lane -> ticket
+    private val tickets = ConcurrentHashMap<String, Ticket8347>()                // mint|lane|setup -> ticket (V5.0.8360; pre-8360: mint|lane)
     private val lastOpenAt = ConcurrentHashMap<String, Long>()
     private val books = ConcurrentHashMap<String, ArrayDeque<DoubleArray>>()     // lane|ENTRY|EXIT -> [atMs, net%]
     private val opened = AtomicLong(0)
@@ -102,6 +123,7 @@ object ExploreShadow8347 {
         t.mint, t.symbol, t.lane, t.setup, t.tactic, t.scoreBand, t.band, t.signalPx, t.atMs, t.costPct, t.stopPct, t.armPct,
         t.runner, t.nativeEligible, t.lastPx, t.lastPxAtMs,
         t.legs.map { l -> ShadowPersist8355.LegRec8355(l.entry.name, l.exit.name, l.active, l.dead, l.entryPx, l.entryAtMs, l.held, l.banked, l.tiers, l.peak, l.trough) },
+        kind8360 = t.kind8360, markSrc8360 = t.markSrc8360,   // V5.0.8360
     )
 
     private fun persistTicket8355(key: String, t: Ticket8347, nowMs: Long) {
@@ -133,8 +155,9 @@ object ExploreShadow8347 {
             legs += leg
         }
         if (legs.isEmpty() || legs.all { it.dead }) return null
+        val kind8360 = r.kind8360.ifBlank { if (r.nativeEligible) KIND_NATIVE_8360 else KIND_REJECT_8360 }   // V5.0.8360 — pre-8360 records
         val t = Ticket8347(r.mint, r.symbol, r.lane, r.setup, r.tactic, r.scoreBand, r.signalPx, r.atMs, r.costPct, r.stopPct, r.armPct,
-            r.runner, r.nativeEligible, legs, r.band)
+            r.runner, r.nativeEligible, legs, r.band, kind8360 = kind8360, markSrc8360 = r.markSrc8360)
         t.lastPx = r.lastPx; t.lastPxAtMs = r.lastPxAtMs
         return t
     }
@@ -175,6 +198,7 @@ object ExploreShadow8347 {
             if (drop.isNotEmpty()) { val e = p.edit(); for (k in drop) e.remove(k); e.apply() }
             restored8355.addAndGet(n)
         } catch (_: Throwable) {}
+        recountLanes8360()   // V5.0.8360
     }
 
     /** V5.0.8355 — restored tickets / expired-on-restore / restored waits (tests and the status line). */
@@ -215,27 +239,189 @@ object ExploreShadow8347 {
 
     // ── open (SpecialistBrainBridge7542.evaluate) ──
 
-    /** Every native opinion for [ts]: eligible ones open a ticket in their lane, a sample of non-safety rejects too. */
+    // ── V5.0.8360 §EVERY_LANE_EVERY_TOKEN_EVERY_SETUP — kinds, skips, capacity ──
+
+    const val KIND_NATIVE_8360 = "NATIVE"
+    const val KIND_REJECT_8360 = "REJECT"
+    const val KIND_SETUP_8360 = "SETUP"
+    const val SKIP_SAFETY_TOKEN_8360 = "HARD_SAFETY_TOKEN"
+    const val SKIP_SAFETY_REASON_8360 = "HARD_SAFETY_REASON"
+    const val SKIP_LANE_ERROR_8360 = "LANE_ERROR_NO_OPINION"
+    const val SKIP_NOT_SAMPLED_8360 = "NOT_SAMPLED"
+    const val SKIP_NO_MARK_8360 = "NO_OBSERVED_MARK"
+    private const val SKIP_ALREADY_OPEN_8360 = "ALREADY_OPEN"
+    private const val SKIP_REOPEN_GAP_8360 = "REOPEN_GAP_15M"
+    private const val SKIP_FULL_8360 = "FULL_NO_EVICTABLE"
+    private const val SKIP_LANE_FULL_8360 = "LANE_FULL_NO_EVICTABLE"
+
+    /** The refusals that stop a shadow ticket: the token cannot be traded or priced honestly (not selection, not economics). */
+    private val SAFETY_MARKERS_8360 = listOf(
+        "SAFETY_REFUSED", "STRUCTURAL_RISK", "RUG", "FREEZE", "MINT_AUTH", "AUTHORITY", "TOKEN_2022", "TOKEN2022", "T22_",
+        "HOSTILE", "HONEYPOT", "SELLAB", "UNSELLABLE", "MAYHEM", "BLACKLIST", "HARD_BLOCK", "LIQUIDITY_COLLAPSE", "EXIT_SAFE",
+        "IDENTITY", "PRICE_BASIS", "BASIS_PROOF", "DEAD_LAUNCH",
+    )
+
+    private val skips8360 = ConcurrentHashMap<String, AtomicLong>()
+    private val openedByKind8360 = ConcurrentHashMap<String, AtomicLong>()
+    private val openedBySrc8360 = ConcurrentHashMap<String, AtomicLong>()
+    private val evicted8360 = AtomicLong(0)
+    private val wantedCalls8360 = AtomicLong(0)
+    private val laneCounts8360 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+    private val wantedAt8360 = ConcurrentHashMap<String, Long>()
+    private val setupScanAt8360 = ConcurrentHashMap<String, Long>()
+    private val noEvictUntil8360 = ConcurrentHashMap<String, Long>()
+    @Volatile private var rrCursor8360 = 0
+    @Volatile private var lastTicked8360 = 0
+
+    /** Pure: a refusal that stops a shadow ticket — rug, honeypot, freeze / mint authority, hostile Token-2022, unsellable, identity / price basis. */
+    private fun shadowSafety8360(reason: String?): Boolean {
+        if (reason.isNullOrBlank()) return false
+        val r = reason.uppercase()
+        return SAFETY_MARKERS_8360.any { r.contains(it) }
+    }
+
+    /**
+     * Pure: what a lane's native opinion opens — [KIND_NATIVE_8360] (eligible), [KIND_REJECT_8360] (a mandate / fit /
+     * threshold / momentum / data-class refusal), or the skip reason: the token's hard-safety tier, a hard-safety refusal,
+     * a lane that errored (no opinion at all), or a reject outside the sample.
+     */
+    fun openKind8360(eligible: Boolean, reason: String?, tokenHardBlocked: Boolean, sampled: Boolean = true): String = when {
+        tokenHardBlocked -> SKIP_SAFETY_TOKEN_8360
+        eligible -> KIND_NATIVE_8360
+        reason != null && reason.startsWith("BRAIN_ERROR_") -> SKIP_LANE_ERROR_8360
+        shadowSafety8360(reason) -> SKIP_SAFETY_REASON_8360
+        !sampled -> SKIP_NOT_SAMPLED_8360
+        else -> KIND_REJECT_8360
+    }
+
+    /** Pure: is [s] a ticket kind (rather than a skip reason)? */
+    fun opens8360(s: String): Boolean = s == KIND_NATIVE_8360 || s == KIND_REJECT_8360 || s == KIND_SETUP_8360
+
+    /** Pure: the lane's extra SETUP tickets — every other fired setup (not the opinion's own, not NO_TRIGGER / NONE), distinct, at most [max]. */
+    fun setupTickets8360(primary: String?, fired: List<String>, max: Int = MAX_SETUP_TICKETS_8360): List<String> {
+        val out = ArrayList<String>()
+        val own = primary?.trim() ?: ""
+        for (raw in fired) {
+            if (out.size >= max) break
+            val id = raw.trim()
+            if (id.isEmpty() || id.equals("NO_TRIGGER", ignoreCase = true) || id.equals("NONE", ignoreCase = true)) continue
+            if (own.isNotEmpty() && id.equals(own, ignoreCase = true)) continue
+            if (out.any { it.equals(id, ignoreCase = true) }) continue
+            out += id
+        }
+        return out
+    }
+
+    /** Pure: the ticket (and reopen-gap) key — a different setup on the same coin and lane is a different ticket. */
+    fun ticketKey8360(mint: String, lane: String, setup: String): String = "$mint|$lane|$setup"
+
+    /** Pure: the legs a kind runs — six Entry x Exit variants, or NOW/RUNNER + NOW/SCALP for a reject. */
+    fun legsFor8360(kind: String): List<Pair<Entry8347, Exit8347>> =
+        if (kind == KIND_REJECT_8360) listOf(Entry8347.NOW to Exit8347.RUNNER, Entry8347.NOW to Exit8347.SCALP)
+        else Entry8347.values().flatMap { e -> Exit8347.values().map { x -> e to x } }
+
+    /** Pure: the ticket to evict when full — the OLDEST (key, openedAtMs, anyActiveLeg) with no active leg; null = none. */
+    fun evictKey8360(cands: List<Triple<String, Long, Boolean>>): String? =
+        cands.filter { !it.third }.minByOrNull { it.second }?.first
+
+    /** Pure: this loop's round-robin slice — the ticket indexes to mark (at most [budget]) and the next cursor. */
+    fun rrSlice8360(size: Int, cursor: Int, budget: Int = TICK_PER_LOOP_8360): Pair<List<Int>, Int> {
+        if (size <= 0 || budget <= 0) return Pair(emptyList<Int>(), 0)
+        val start = Math.floorMod(cursor, size)
+        val n = minOf(size, budget)
+        val idx = ArrayList<Int>(n)
+        for (i in 0 until n) idx += (start + i) % size
+        return Pair(idx, (start + n) % size)
+    }
+
+    private fun skip8360(why: String, n: Long = 1L) {
+        skips8360.computeIfAbsent(why) { AtomicLong(0) }.addAndGet(n)
+    }
+
+    private fun laneCount8360(lane: String): Int = laneCounts8360[lane]?.get() ?: 0
+
+    private fun recountLanes8360() {
+        val m = HashMap<String, Int>()
+        for (t in tickets.values) m[t.lane] = (m[t.lane] ?: 0) + 1
+        for (l in laneCounts8360.keys) if (!m.containsKey(l)) laneCounts8360[l]?.set(0)
+        for ((l, n) in m) laneCounts8360.computeIfAbsent(l) { java.util.concurrent.atomic.AtomicInteger(0) }.set(n)
+    }
+
+    /** When full: evict the oldest ticket (in [lane], or anywhere when null) with no active leg; false = none evictable. */
+    private fun evict8360(lane: String?, nowMs: Long): Boolean {
+        val scope = lane ?: "*"
+        val until = noEvictUntil8360[scope]
+        if (until != null && nowMs < until) return false
+        val cands = ArrayList<Triple<String, Long, Boolean>>()
+        for ((k, t) in tickets) {
+            if (lane != null && t.lane != lane) continue
+            cands += Triple(k, t.atMs, t.legs.any { it.active && !it.dead })
+        }
+        val k = evictKey8360(cands)
+        if (k == null) { noEvictUntil8360[scope] = nowMs + NO_EVICT_RETRY_MS_8360; return false }
+        val t = tickets.remove(k) ?: return false
+        forgetTicket8355(k)
+        laneCounts8360[t.lane]?.decrementAndGet()
+        evicted8360.incrementAndGet()
+        return true
+    }
+
+    // V5.0.8360 — after 8359 merges: KeylessMarks8359.noteWanted8359(mint, untilMs)
+    private fun wanted8360(mint: String, untilMs: Long) { try { com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint, System.currentTimeMillis()) } catch (_: Throwable) {} }
+
+    /** Ask the data side to keep pricing [mint] (once per mint per 30 s at most), for the lost-mark window. */
+    private fun want8360(mint: String, nowMs: Long) {
+        val last = wantedAt8360[mint]
+        if (last != null && nowMs - last in 0L until WANTED_EVERY_MS_8360) return
+        wantedAt8360[mint] = nowMs
+        if (wantedAt8360.size > 10_000) wantedAt8360.entries.removeIf { nowMs - it.value > WANTED_EVERY_MS_8360 }
+        wanted8360(mint, nowMs + LOST_MARK_MS_8347)
+        wantedCalls8360.incrementAndGet()
+    }
+
+    /** The lane's other fired setups for [ts] (read at most once per mint|lane per minute). */
+    private fun firedSetups8360(ts: TokenState, lane: String, primary: String, nowMs: Long): List<String> {
+        val k = "${ts.mint}|$lane"
+        val last = setupScanAt8360[k]
+        if (last != null && nowMs - last in 0L until SETUP_SCAN_MS_8360) return emptyList()
+        setupScanAt8360[k] = nowMs
+        if (setupScanAt8360.size > 20_000) setupScanAt8360.entries.removeIf { nowMs - it.value > SETUP_SCAN_MS_8360 }
+        val fired = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.matchedSetups8083(ts, lane, nowMs) } catch (_: Throwable) { emptyList<String>() }
+        return setupTickets8360(primary, fired)
+    }
+
+    /**
+     * Every native opinion for [ts]. V5.0.8360: every lane that is eligible OR refused for a non-safety reason opens a ticket,
+     * plus one SETUP ticket per other setup its playbook fired (up to 3); only the token's hard-safety tier, a hard-safety
+     * refusal, a lane error, or no observed mark under 60 s stop it — each counted by reason.
+     */
     fun onOpinions8347(ts: TokenState, opinions: Map<String, com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion>, nowMs: Long = System.currentTimeMillis()) {
         try {
-            val px = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: return
-            if (ts.lastPriceUpdate <= 0L || nowMs - ts.lastPriceUpdate > 45_000L) return
+            if (opinions.isEmpty()) return
+            val mark = ShadowMark8360.observed8360(ts, ts.mint, nowMs)   // V5.0.8360 — tick, labeler, curve or tape, observed < 60 s
+            if (mark == null) { skip8360(SKIP_NO_MARK_8360, opinions.size.toLong()); return }
+            val blocked = try { ts.safety.isBlocked } catch (_: Throwable) { false }
             for ((laneRaw, o) in opinions) {
                 val lane = canon(laneRaw)
-                if (!o.eligible) {
-                    if (Entry8114Mode8326.hardSafety8326(o.reason) || !o.gradeable || !sampled8347(ts.mint, lane)) continue
-                }
-                open8347(ts, lane, o, px, nowMs)
+                val kind = openKind8360(o.eligible, o.reason, blocked, o.eligible || sampled8347(ts.mint, lane))
+                if (!opens8360(kind)) { skip8360(kind); continue }
+                val primary = o.setup.ifBlank { "NONE" }
+                open8347(ts, lane, o, mark.first, nowMs, kind, primary, mark.second)
+                for (setup in firedSetups8360(ts, lane, primary, nowMs)) open8347(ts, lane, o, mark.first, nowMs, KIND_SETUP_8360, setup, mark.second)
             }
         } catch (_: Throwable) {}
     }
 
-    private fun open8347(ts: TokenState, lane: String, o: com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion, px: Double, nowMs: Long) {
-        val key = "${ts.mint}|$lane"
-        if (tickets.containsKey(key)) return
-        lastOpenAt[key]?.let { if (nowMs - it in 0L until REOPEN_GAP_MS_8347) return }
-        if (tickets.size >= MAX_TICKETS_8347) { full.incrementAndGet(); return }
-        if (tickets.values.count { it.lane == lane } >= MAX_TICKETS_PER_LANE_8351) { full.incrementAndGet(); return }
+    private fun open8347(
+        ts: TokenState, lane: String, o: com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion, px: Double, nowMs: Long,
+        kind: String, setup: String, markSrc: String,
+    ) {
+        val key = ticketKey8360(ts.mint, lane, setup)
+        if (tickets.containsKey(key)) { skip8360(SKIP_ALREADY_OPEN_8360); return }
+        val lastAt = lastOpenAt[key]
+        if (lastAt != null && nowMs - lastAt in 0L until REOPEN_GAP_MS_8347) { skip8360(SKIP_REOPEN_GAP_8360); return }
+        if (tickets.size >= MAX_TICKETS_8347 && !evict8360(null, nowMs)) { full.incrementAndGet(); skip8360(SKIP_FULL_8360); return }
+        if (laneCount8360(lane) >= MAX_TICKETS_PER_LANE_8351 && !evict8360(lane, nowMs)) { full.incrementAndGet(); skip8360(SKIP_LANE_FULL_8360); return }
         val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
         val cost = try { NetEdge8030.costPct8030(lane, TICKET_SOL_8347, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
         val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
@@ -243,32 +429,49 @@ object ExploreShadow8347 {
         val arm = try { com.lifecyclebot.engine.RunnerExitProfile7277.giveBackArmPct7791(lane) } catch (_: Throwable) { 20.0 }
         val tactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, lane, o.score).name } catch (_: Throwable) { "MOMENTUM" }
         val band = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(o.score) } catch (_: Throwable) { "" }
-        val legs = if (o.eligible) Entry8347.values().flatMap { e -> Exit8347.values().map { x -> Leg8347(e, x) } }
-            else listOf(Leg8347(Entry8347.NOW, Exit8347.RUNNER))
+        val legs = legsFor8360(kind).map { (e, x) -> Leg8347(e, x) }
         val mcapBand8351 = try { ForwardReturnLabeler7731.mcapBand(TrustedMcap8019.mcap8019(ts)) } catch (_: Throwable) { "UNK" }
-        val t = Ticket8347(ts.mint, ts.symbol, lane, o.setup.ifBlank { "NONE" }, tactic, band, px, nowMs,
-            if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm, runner, o.eligible, legs, mcapBand8351)
+        val t = Ticket8347(ts.mint, ts.symbol, lane, setup, tactic, band, px, nowMs,
+            if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm, runner, o.eligible, legs, mcapBand8351,
+            kind8360 = kind, markSrc8360 = markSrc)
         t.legs.filter { it.entry == Entry8347.NOW }.forEach { it.active = true; it.entryPx = px; it.entryAtMs = nowMs }
         tickets[key] = t
+        laneCounts8360.computeIfAbsent(lane) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
         persistTicket8355(key, t, nowMs)   // V5.0.8355 — written on open
         lastOpenAt[key] = nowMs
-        if (lastOpenAt.size > 10_000) lastOpenAt.entries.removeIf { nowMs - it.value > REOPEN_GAP_MS_8347 }
+        if (lastOpenAt.size > 30_000) lastOpenAt.entries.removeIf { nowMs - it.value > REOPEN_GAP_MS_8347 }
         opened.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("EXPLORE_SHADOW_OPEN_8347_${lane}_${if (o.eligible) "NATIVE" else "REJECT_SAMPLE"}") } catch (_: Throwable) {}
+        openedByKind8360.computeIfAbsent(kind) { AtomicLong(0) }.incrementAndGet()
+        openedBySrc8360.computeIfAbsent(markSrc.ifBlank { "?" }) { AtomicLong(0) }.incrementAndGet()
+        want8360(ts.mint, nowMs)   // V5.0.8360 — the data side keeps pricing what the shadow holds
+        try { PipelineHealthCollector.labelInc("EXPLORE_SHADOW_OPEN_8347_${lane}_$kind") } catch (_: Throwable) {}
     }
+
+    /** V5.0.8360 — opened by kind / skipped by reason / opened by mark source (tests and the status line). */
+    private fun counts8360(): Triple<Map<String, Long>, Map<String, Long>, Map<String, Long>> = Triple(
+        openedByKind8360.mapValues { it.value.get() }, skips8360.mapValues { it.value.get() }, openedBySrc8360.mapValues { it.value.get() },
+    )
 
     // ── tick (BotService shadow loop) ──
 
     fun tick8347(tokens: Map<String, TokenState>, nowMs: Long = System.currentTimeMillis()) {
         flushWaits8355(nowMs)   // V5.0.8355 — the waits map, when it changed (independent of the tickets)
-        if (tickets.isEmpty()) return
+        if (tickets.isEmpty()) { lastTicked8360 = 0; return }
         val done = ArrayList<String>()
-        for ((key, t) in tickets) {
+        // V5.0.8360 — at most TICK_PER_LOOP_8360 tickets per loop, round-robin; one observed-mark read per mint per loop
+        val keys = ArrayList<String>(tickets.keys)
+        val slice = rrSlice8360(keys.size, rrCursor8360)
+        rrCursor8360 = slice.second
+        lastTicked8360 = slice.first.size
+        val marks = HashMap<String, Double?>()
+        for (i in slice.first) {
+            val key = keys[i]
+            val t = tickets[key] ?: continue
             try {
-                val ts = tokens[t.mint]
-                val fresh = ts?.takeIf { it.lastPriceUpdate > 0L && nowMs - it.lastPriceUpdate <= 45_000L }?.lastPrice?.takeIf { it > 0.0 }
-                    ?: ForwardReturnLabeler7731.markFor7948(t.mint, { null }, nowMs)?.takeIf { it > 0.0 }
+                if (!marks.containsKey(t.mint)) marks[t.mint] = ShadowMark8360.observed8360(tokens[t.mint], t.mint, nowMs)?.first
+                val fresh: Double? = marks[t.mint]
                 if (fresh != null) { t.lastPx = fresh; t.lastPxAtMs = nowMs }
+                want8360(t.mint, nowMs)   // V5.0.8360 — keep the data side pricing an open ticket
                 val lost = nowMs - t.lastPxAtMs >= LOST_MARK_MS_8347
                 for (leg in t.legs) {
                     if (leg.dead) continue
@@ -283,6 +486,7 @@ object ExploreShadow8347 {
             } catch (_: Throwable) { done += key }
         }
         done.forEach { tickets.remove(it); forgetTicket8355(it) }   // V5.0.8355 — every leg dead: the ticket leaves the open prefs
+        recountLanes8360()   // V5.0.8360 — the per-lane counts the open path reads, exact once per loop
     }
 
     private fun arm8347(t: Ticket8347, leg: Leg8347, px: Double?, nowMs: Long) {
@@ -344,14 +548,25 @@ object ExploreShadow8347 {
         t.force8355 = true   // V5.0.8355 — a leg close is written now (the ticket itself leaves the prefs once every leg is dead)
         val v = "${t.lane}|${leg.entry}|${leg.exit}"
         // V5.0.8351 — the variant book, plus three cohort books (setup, market-cap band, native yes / sampled no).
-        bookKey8351(v, net, nowMs)
-        bookKey8351("C|$v|S:${t.setup}", net, nowMs)
-        bookKey8351("C|$v|M:${t.band}", net, nowMs)
-        bookKey8351("C|$v|R:${if (t.nativeEligible) "NATIVE" else "REJECT"}", net, nowMs)
+        // V5.0.8360 — by kind: a NATIVE ticket feeds the variant book (live adoption) and S: / M: / R:NATIVE, plus T:<tactic> on
+        // NOW/RUNNER; a REJECT ticket only R:REJECT (the FILTER_INVERTED comparison; now every reject, so it stays out of the
+        // live proof); a SETUP ticket only its own S:<setup> (SR:<setup> when the lane refused) — it shares the coin's price
+        // path with the native ticket, so it never re-enters the variant book as a second sample.
+        when (t.kind8360) {
+            KIND_SETUP_8360 -> bookKey8351("C|$v|${if (t.nativeEligible) "S" else "SR"}:${t.setup}", net, nowMs)
+            KIND_REJECT_8360 -> bookKey8351("C|$v|R:REJECT", net, nowMs)
+            else -> {
+                bookKey8351(v, net, nowMs)
+                bookKey8351("C|$v|S:${t.setup}", net, nowMs)
+                bookKey8351("C|$v|M:${t.band}", net, nowMs)
+                bookKey8351("C|$v|R:${if (t.nativeEligible) "NATIVE" else "REJECT"}", net, nowMs)
+                if (leg.entry == Entry8347.NOW && leg.exit == Exit8347.RUNNER) bookKey8351("C|$v|T:${t.tactic}", net, nowMs)
+            }
+        }
         closed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EXPLORE_SHADOW_CLOSE_8347_${leg.exit}_$why") } catch (_: Throwable) {}
         // Tactics learn from the variant closest to how live enters and exits; native rejects do not attribute a tactic.
-        if (t.nativeEligible && leg.entry == Entry8347.NOW && leg.exit == Exit8347.RUNNER && t.scoreBand.isNotBlank()) try {
+        if (t.kind8360 == KIND_NATIVE_8360 && t.nativeEligible && leg.entry == Entry8347.NOW && leg.exit == Exit8347.RUNNER && t.scoreBand.isNotBlank()) try {
             com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486(t.lane, t.scoreBand, t.tactic, net)
         } catch (_: Throwable) {}
     }
@@ -419,7 +634,7 @@ object ExploreShadow8347 {
                 if (!k.startsWith(prefix)) continue
                 val tail = k.removePrefix(prefix)
                 val dim = tail.substringBefore(':'); val value = tail.substringAfter(':')
-                if (dim == "R") continue                      // native yes / sampled no is a diagnostic, never a live niche
+                if (dim != "S" && dim != "M") continue        // V5.0.8360 — R: (yes / no), SR: (setup on a refusal) and T: (tactic) are diagnostics, never a live niche
                 if (value == "NONE" || value == "UNK" || value == "DATA_INCOMPLETE" || value == "NO_TRIGGER") continue
                 cohortProof8351(netsSince(k, sinceMs)).takeIf { it.proven }?.let { out += Choice8351(e, x, dim, value, it) }
             }
@@ -447,6 +662,11 @@ object ExploreShadow8347 {
             .firstOrNull { canon(it.key) == canon(lane) }?.value?.setup } catch (_: Throwable) { null }
         val band = try { ForwardReturnLabeler7731.mcapBand(TrustedMcap8019.mcap8019(ts)) } catch (_: Throwable) { null }
         if (inNiche8351(c, setup, band)) return null
+        // V5.0.8360 — a setup niche proven on SETUP tickets names a playbook setup: a coin whose playbook fired it is inside.
+        if (c.dim == "S") {
+            val fired = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.matchedSetups8083(ts, lane) } catch (_: Throwable) { emptyList<String>() }
+            if (fired.any { inNiche8351(c, it, band) }) return null
+        }
         try { PipelineHealthCollector.labelInc("NICHE_ONLY_8351_${canon(lane)}") } catch (_: Throwable) {}
         return "NICHE_ONLY_8351_${canon(lane)}_${c.dim}:${c.value}"
     }
@@ -510,17 +730,49 @@ object ExploreShadow8347 {
         return "ENTRY_TIMING_WAIT_8347_$entry"
     }
 
+    /** Pure: "KEY=n,..." sorted by count (desc) then key, "-" when empty. */
+    fun countLine8360(m: Map<String, Long>): String =
+        m.entries.sortedWith(compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key }).joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
+
+    /** V5.0.8360 — the lane's best [dim] cohort (highest mean, n >= MIN_COHORT_SHOW_N_8360) as "S:x@NOW/RUNN n12 +3.4%", or null. */
+    private fun bestCohort8360(lane: String, dim: String, sinceMs: Long): String? {
+        val prefix = "C|$lane|"
+        var best: String? = null
+        var bestMean = Double.NEGATIVE_INFINITY
+        for (k in books.keys) {
+            if (!k.startsWith(prefix)) continue
+            val rest = k.removePrefix(prefix)                 // ENTRY|EXIT|DIM:VALUE
+            val parts = rest.split('|')
+            if (parts.size < 3 || parts[2].substringBefore(':') != dim) continue
+            val nets = netsSince(k, sinceMs)
+            if (nets.size < MIN_COHORT_SHOW_N_8360) continue
+            val mean = nets.average()
+            if (mean.isFinite() && mean > bestMean) {
+                bestMean = mean
+                best = "${parts[2]}@${parts[0].take(4)}/${parts[1].take(4)} n${nets.size} ${"%+.1f".format(mean)}%"
+            }
+        }
+        return best
+    }
+
     fun statusLine8347(sinceMs: Long): String {
-        val lanes = books.keys.filter { !it.startsWith("C|") }.map { it.substringBefore('|') }.toSortedSet().joinToString(" · ") { l ->
+        // V5.0.8360 — every lane with any book (native variant or a cohort), so a lane trading only rejects / setups shows too
+        val laneSet = books.keys.map { if (it.startsWith("C|")) it.removePrefix("C|").substringBefore('|') else it.substringBefore('|') }.toSortedSet()
+        val lanes = laneSet.joinToString(" · ") { l ->
             val cells = Entry8347.values().flatMap { e -> Exit8347.values().map { x -> Triple(e, x, variantRecord8347(l, e, x, sinceMs)) } }
                 .filter { it.third.n > 0 }
                 .joinToString(",") { (e, x, p) -> "${e.name.take(4)}/${x.name.take(4)} n${p.n} ${"%+.1f".format(p.meanPct)}%${if (p.proven) "*" else ""}" }
             val best = bestFor8351(l, sinceMs)?.label ?: "-"
             val inv = if (inverted8351(l, sinceMs)) " FILTER_INVERTED" else ""
-            "$l adopt=$best$inv [$cells]"
+            val cohorts = listOf("S", "T", "M").mapNotNull { bestCohort8360(l, it, sinceMs) }.joinToString(" ; ").ifBlank { "-" }
+            "$l adopt=$best$inv [$cells] best{$cohorts}"
         }.ifBlank { "no exploration closes yet" }
-        return "exploreShadow8347[tickets=${tickets.size}/$MAX_TICKETS_8347 opened=${opened.get()} legsClosed=${closed.get()} full=${full.get()} " +
+        val (byKind, skipped, bySrc) = counts8360()
+        return "exploreShadow8347[tickets=${tickets.size}/$MAX_TICKETS_8347 opened=${opened.get()} " +
+            "byKind{native=${byKind[KIND_NATIVE_8360] ?: 0},reject=${byKind[KIND_REJECT_8360] ?: 0},setup=${byKind[KIND_SETUP_8360] ?: 0}} " +
+            "skipped{${countLine8360(skipped)}} evicted=${evicted8360.get()} ticked/loop=$lastTicked8360/$TICK_PER_LOOP_8360 " +
+            "markSrc{${countLine8360(bySrc)}} wanted8360=${wantedCalls8360.get()} legsClosed=${closed.get()} full=${full.get()} " +
             "restored8355=${restored8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} waitsRestored8355=${waitsRestored8355.get()} " +
-            "rejectSample=$REJECT_SAMPLE_PCT_8347% bar=n>=$MIN_N_8347,mean-1.5se>$MARGIN_PCT_8347%,pf>=$MIN_PF_8347 (* = proven) | $lanes]"
+            "rejectSample=$REJECT_SAMPLE_PCT_8347% perLane<=$MAX_TICKETS_PER_LANE_8351 bar=n>=$MIN_N_8347,mean-1.5se>$MARGIN_PCT_8347%,pf>=$MIN_PF_8347 (* = proven) | $lanes]"
     }
 }
