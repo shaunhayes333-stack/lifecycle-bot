@@ -175,7 +175,8 @@ class Aate8342RehearsalTest {
         assertTrue(hold.contains("&& heldLane8342(it.tradingMode.ifBlank { \"STANDARD\" }) }"))
         assertTrue(hold.contains("Rehearsal8339.tagPaperClose8342(\"${'$'}{it.ts}|${'$'}{it.mint}|${'$'}{it.positionId}\", it.mint, lane, it.ts)"))
         assertTrue("the bar stays on ALL closes", hold.contains("val m = recs.mapValues { it.value.all }"))
-        assertTrue(hold.contains("if (proofFor8336(l, nowMs).proven) return null"))
+        // superseded by V5.0.8344 — the shadow record behind the live trader (EvidenceShadow8344) unlocks a lane on the same bar
+        assertTrue(hold.contains("if (proofFor8336(l, nowMs).proven || shadowProven8344(l)) return null"))
         assertTrue(src("engine/BotService.kt").contains("com.lifecyclebot.engine.truth.Rehearsal8339.init8342(applicationContext)"))
         assertEquals("REHEARSAL_EVIDENCE_DOOR_ADVISORY_8342", Rehearsal8339.ADVISORY_LABEL_8342)
         assertEquals("REHEARSAL_PAPER_CLOSE_8342", Rehearsal8339.CLOSE_LABEL_8342)

@@ -33,6 +33,7 @@ FdgBrainChain	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/FdgBrainChain.kt	
 FluidLearning	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/FluidLearning.kt	False
 ForwardOutcomeModel	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/ForwardOutcomeModel.kt	False
 HistoricalChartScanner	PROVIDER_BACKED_REVIEW	com/lifecyclebot/engine/HistoricalChartScanner.kt	False
+HistoryRepairHive8339	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/HistoryRepairHive8339.kt	False
 LayerBrain	LAYER_BRAIN_LEARNED_UPSTREAM	com/lifecyclebot/engine/LayerBrain.kt	True
 LearningEligibility	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/LearningEligibility.kt	False
 LearningEnvironment7835	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/LearningEnvironment7835.kt	False
