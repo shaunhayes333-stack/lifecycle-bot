@@ -45,6 +45,20 @@ object EvidenceHold8336 {
     private val refused = ConcurrentHashMap<String, AtomicLong>()
     @Volatile private var cache: Pair<Long, Map<String, Proof8336>>? = null
 
+    // ── V5.0.8342 — two records per lane: ALL paper closes (the bar) and the closes whose entry the live policy would have admitted ──
+    data class LaneRecord8342(val all: Proof8336, val liveAdmit: Proof8336, val liveRefuse: Int, val untagged: Int)
+    @Volatile private var records8342: Map<String, LaneRecord8342> = emptyMap()
+
+    /** Pure: the hold covers the meme lanes Entry8114Mode8326 decides (CRYPTO_ALT and the LLM desks are not held). */
+    fun heldLane8342(lane: String): Boolean = canon(lane) in Entry8114Mode8326.LANES_8326
+
+    /** Pure: the lane's status fragment — both records; the bar is read on ALL closes. */
+    fun laneLine8342(lane: String, r: LaneRecord8342): String =
+        "$lane all ${proofText8342(r.all)}${if (r.all.proven) " LIVE" else " held"} · liveAdmit ${proofText8342(r.liveAdmit)} liveRefuse${r.liveRefuse} untagged${r.untagged}"
+
+    private fun proofText8342(p: Proof8336): String =
+        "n${p.n}/$MIN_N_8336 mean${"%+.1f".format(p.meanPct)}% se${"%.1f".format(p.sePct)} pf${"%.2f".format(p.pf)}"
+
     /** BotService.onCreate: the hold's start (first install of 8336) is persisted so a restart keeps counting. */
     fun init8336(ctx: Context) {
         try {
@@ -78,10 +92,22 @@ object EvidenceHold8336 {
         val rows: List<Trade> = try {
             com.lifecyclebot.engine.TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 5_000, includePartials = false)
         } catch (_: Throwable) { emptyList() }
-        val paper = rows.filter { it.mode.equals("paper", true) && it.side.equals("SELL", true) && it.ts >= since }
-        val m = paper.groupBy { canon(it.tradingMode.ifBlank { "STANDARD" }) }.mapValues { (_, t) ->
-            proof8336(t.map { it.pnlPct }, t.map { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol })
+        // V5.0.8342 — meme lanes only (Entry8114Mode8326.LANES_8326): CRYPTO_ALT is an LLM desk, not a lane this hold decides.
+        val paper = rows.filter { it.mode.equals("paper", true) && it.side.equals("SELL", true) && it.ts >= since && heldLane8342(it.tradingMode.ifBlank { "STANDARD" }) }
+        val recs = paper.groupBy { canon(it.tradingMode.ifBlank { "STANDARD" }) }.mapValues { (lane, t) ->
+            // V5.0.8342 — every paper close is tagged with the live policy's verdict on its entry (Rehearsal8339); the bar
+            // stays on ALL closes (paper results never admit live on their own, and a liveAdmit-only bar is zero again).
+            val tagged = t.map { it to Rehearsal8339.tagPaperClose8342("${it.ts}|${it.mint}|${it.positionId}", it.mint, lane, it.ts) }
+            val admit = tagged.filter { it.second == Rehearsal8339.LIVE_ADMIT_8342 }.map { it.first }
+            LaneRecord8342(
+                all = proof8336(t.map { it.pnlPct }, t.map { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }),
+                liveAdmit = proof8336(admit.map { it.pnlPct }, admit.map { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }),
+                liveRefuse = tagged.count { it.second == Rehearsal8339.LIVE_REFUSE_8342 },
+                untagged = tagged.count { it.second == Rehearsal8339.UNTAGGED_8342 },
+            )
         }
+        records8342 = recs
+        val m = recs.mapValues { it.value.all }
         cache = nowMs to m
         return m
     }
@@ -255,11 +281,12 @@ object EvidenceHold8336 {
     }
 
     fun statusLine8336(nowMs: Long = System.currentTimeMillis()): String {
-        val lanes = proofs8336(nowMs).entries.sortedByDescending { it.value.n }.joinToString(" · ") { (l, p) ->
-            "$l n${p.n}/${MIN_N_8336} mean${"%+.1f".format(p.meanPct)}% se${"%.1f".format(p.sePct)} pf${"%.2f".format(p.pf)}${if (p.proven) " LIVE" else " held"}"
-        }.ifBlank { "no paper closes since start" }
+        proofs8336(nowMs)
+        // V5.0.8342 — both records per meme lane; the bar is read on ALL paper closes (bar=all).
+        val lanes = records8342.entries.sortedByDescending { it.value.all.n }.joinToString(" · ") { (l, r) -> laneLine8342(l, r) }
+            .ifBlank { "no meme-lane paper closes since start" }
         return "evidenceHold8336[on=$enabled8336 rehearsal=$rehearsal8336 sinceMin=${if (startMs8336 > 0) (nowMs - startMs8336) / 60_000 else -1} " +
-            "bar=n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
+            "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 lanes=${Entry8114Mode8326.LANES_8326.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "exceptions=${exceptions8337.get()} last=$lastException8337 $lanes]"  // V5.0.8337
     }
 }

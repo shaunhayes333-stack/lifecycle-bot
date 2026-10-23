@@ -115,8 +115,10 @@ object Entry8114Mode8326 {
         val now = try {
             inCurrent8326 { LiveEdgeGate7877.liveRefusal(ts, lane, Rehearsal8339.shadowPaper8339(paper8336), nowMs, candidateVersion, candidateAdmission) }
         } catch (_: Throwable) { null }
-        val old = try { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } } catch (_: Throwable) {
-            Entry8114Gate8326.Verdict8326(EVAL_FAILED_8326, LiveEdgeGate7877.Verdict8083.REFUSE, null)
+        // V5.0.8342 — in PAPER under rehearsal the gate's label / record doors are advisory (Rehearsal8339.doorBindsNow8342): the
+        // doors it passed on advice are collected here and recorded on the paper entry (liveWouldRefuse) for its close.
+        val (old, advisories8342) = try { Rehearsal8339.collecting8342 { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } } } catch (_: Throwable) {
+            Entry8114Gate8326.Verdict8326(EVAL_FAILED_8326, LiveEdgeGate7877.Verdict8083.REFUSE, null) to emptyList<String>()
         }
         // V5.0.8329 — the lane's OWN live closes (3+, mean < 0) are realised money, not a label: they bind in mode.
         // V5.0.8336 — a lane with no paper proof does not trade live (EvidenceHold8336; null in PAPER).
@@ -130,6 +132,7 @@ object Entry8114Mode8326 {
         if (now != null && final == null) noteBypass8326(gateKey8326(now), l)
         if (old.reason != null && final == now && now != null && now != old.reason) try { PipelineHealthCollector.labelInc("ENTRY8114_CURRENT_HARD_REFUSAL_BINDS_8326_$l") } catch (_: Throwable) {}
         fileFinal8326(ts, l, old, final, nowMs)
+        if (paper8336 && final == null) try { Rehearsal8339.notePaperAdmit8342(ts, l, advisories8342, nowMs) } catch (_: Throwable) {}   // V5.0.8342
         try { Entry8114Shadow8326.record8326(ts, l, old.reason, now, final, nowMs) } catch (_: Throwable) {}
         return final
     }

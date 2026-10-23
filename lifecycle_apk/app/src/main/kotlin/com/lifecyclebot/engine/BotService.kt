@@ -35459,6 +35459,7 @@ if (hotExitHandledSweep) {
     private fun createChannels() {
         // V5.0.8337 — the evidence-hold clock starts with the service (onCreate is an ART-budgeted method; hooked here).
         try { com.lifecyclebot.engine.truth.EvidenceHold8336.init8336(applicationContext) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.Rehearsal8339.init8342(applicationContext) } catch (_: Throwable) {}   // V5.0.8342 — paper entry tags survive a restart
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Bot Running",

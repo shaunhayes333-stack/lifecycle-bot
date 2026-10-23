@@ -416,7 +416,9 @@ object LiveEdgeGate7877 {
         verdictCounts8083.computeIfAbsent(verdict.name) { AtomicLong(0) }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("LIVE_ENTRY_ASSESSMENT_8083_${verdict.name}_$lane") } catch (_: Throwable) {}
         // V5.0.8136 — the same terminal, filed in the one admission ledger (ADMIT / REFUSE(reason) / DEFER_DATA).
-        CandidateAdmission8136.noteVerdict8136("LIVE", verdict.name, reason)
+        // V5.0.8342 — a PAPER (rehearsal) assessment is filed as PAPER_REHEARSAL, never as LIVE: paper rows are not live evidence.
+        val paper8342 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        CandidateAdmission8136.noteVerdict8136(Rehearsal8339.assessmentSource8342(paper8342), verdict.name, reason)
     }
 
     /** V5.0.8083 — the fresh live assessment of [mint] in [lane], or null. */

@@ -45,14 +45,19 @@ object Entry8114Gate8326 {
         (try { LiveTruth8064.setupRefusal8083(l, setup, nowMs) } catch (_: Throwable) { null })?.let {
             return Verdict8326(it, LiveEdgeGate7877.Verdict8083.REFUSE, setup)
         }
-        if (!cellOrKindProven8114(ts, l, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l, nowMs) } catch (_: Throwable) { null })?.let {
+        // V5.0.8342 — the label / record doors below are ADVISORY for a PAPER entry under rehearsal (Rehearsal8339.doorBindsNow8342:
+        // recorded as the live verdict, the decision continues); they bind LIVE as before. Hard safety, chase and economics bind in both.
+        val timing8342 = if (!cellOrKindProven8114(ts, l, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l, nowMs) } catch (_: Throwable) { null }) else null
+        if (timing8342 != null && Rehearsal8339.doorBindsNow8342("TIMING_RECORD_NEGATIVE_8094", l)) {
             return Verdict8326("TIMING_RECORD_NEGATIVE_8094", LiveEdgeGate7877.Verdict8083.DEFER, setup)
         }
         val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l, nowMs) } catch (_: Throwable) { null }
-        if (proven8059 == null && !cellOrKindProven8114(ts, l, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l, nowMs) } catch (_: Throwable) { null })?.let {
+        val picked8342 = if (proven8059 == null && !cellOrKindProven8114(ts, l, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l, nowMs) } catch (_: Throwable) { null }) else null
+        if (picked8342 != null && Rehearsal8339.doorBindsNow8342("PICKED_SETUP_RECORD_NEGATIVE_8094", l)) {
             return Verdict8326("PICKED_SETUP_RECORD_NEGATIVE_8094", LiveEdgeGate7877.Verdict8083.REFUSE, setup)
         }
-        if (proven8059 == null && !cellOrKindProven8114(ts, l, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l) } catch (_: Throwable) { null })?.let {
+        val tactic8342 = if (proven8059 == null && !cellOrKindProven8114(ts, l, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l) } catch (_: Throwable) { null }) else null
+        if (tactic8342 != null && Rehearsal8339.doorBindsNow8342("TACTIC_RECORD_LOSING_8094", l)) {
             return Verdict8326("TACTIC_RECORD_LOSING_8094", LiveEdgeGate7877.Verdict8083.REFUSE, setup)
         }
         if (proven8059 == null && !measuredEdge8114(ts, l, nowMs) &&
@@ -63,7 +68,7 @@ object Entry8114Gate8326 {
                 com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076("LIVE_PROVEN_SETUP_ONLY_8059", l) ||
                     com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, "LIVE_PROVEN_SETUP_ONLY_8059")
             } catch (_: Throwable) { false }
-            if (!auditedAdmission8076) {
+            if (!auditedAdmission8076 && Rehearsal8339.doorBindsNow8342("LIVE_PROVEN_SETUP_ONLY_8059", l)) {
                 provenOnlyRefused8326.incrementAndGet()
                 return Verdict8326("LIVE_PROVEN_SETUP_ONLY_8059", LiveEdgeGate7877.Verdict8083.DEFER, setup)
             }
@@ -78,9 +83,10 @@ object Entry8114Gate8326 {
             chase8326.incrementAndGet()
             return Verdict8326("CHASING_SPIKE_8065", LiveEdgeGate7877.Verdict8083.REFUSE, setup)
         }
-        watchFirst8114(ts, lane, nowMs, auditedAdmission8076)?.let {
+        val watch8342 = watchFirst8114(ts, lane, nowMs, auditedAdmission8076)
+        if (watch8342 != null && Rehearsal8339.doorBindsNow8342(watch8342, l)) {   // V5.0.8342 — WATCH_FIRST_* advisory in paper
             watched8326.incrementAndGet()
-            return Verdict8326(it, LiveEdgeGate7877.Verdict8083.REFUSE, setup)
+            return Verdict8326(watch8342, LiveEdgeGate7877.Verdict8083.REFUSE, setup)
         }
         val why = core8114(ts, lane, nowMs)
         if (why == null) admitted8326.incrementAndGet()
@@ -171,19 +177,23 @@ object Entry8114Gate8326 {
 
     /** 8114 liveRefusalCore7970 (paper never reaches here). */
     private fun core8114(ts: TokenState, lane: String, nowMs: Long): String? {
+        val l = canon(lane)
         val cortex = try { com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal8114(ts, lane) } catch (_: Throwable) { null }
-        com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)?.let { return it }
+        // V5.0.8342 — REPEAT_LOSER_8022 (a label-book door) is advisory for a paper entry under rehearsal; the lockouts bind.
+        val lockout8342 = com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)
+        if (lockout8342 != null && Rehearsal8339.doorBindsNow8342(lockout8342, l)) return lockout8342
         // Economics bind in every mode (owner's 1.5x). A sparse-history DEFER (8153) did not exist at 8114: not a refusal.
         NetEdge8030.entryRefusal8030(ts, lane)?.let { r ->
             if (r == StrategyMove8153.DEFER_REASON_8153) Entry8114Mode8326.noteBypass8326("NET_EDGE_MOVE_HISTORY_DEFER_8153", lane) else return r
         }
         NetEdge8030.laneFitRefusal8054(ts, CanonicalLaneIdentity6506.canonical(lane).ifBlank { lane })?.let { return it }
-        cortex?.let { return it }
-        val l = canon(lane)
-        (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenLosingSetupRefusal8079(ts, l, nowMs) } catch (_: Throwable) { null })?.let { r ->
-            val retired = try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(r, l) } catch (_: Throwable) { false }
-            val full = !retired && (try { com.lifecyclebot.engine.cortex.Cortex7885.fullAuthorityOverrules8078(ts, l, r) } catch (_: Throwable) { false })
-            if (!retired && !full) return r
+        // V5.0.8342 — the Cortex C6 setup-dead door is advisory in paper under rehearsal; an earned Cortex refusal binds.
+        if (cortex != null && Rehearsal8339.doorBindsNow8342(cortex, l)) return cortex
+        val losing8342 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenLosingSetupRefusal8079(ts, l, nowMs) } catch (_: Throwable) { null }
+        if (losing8342 != null) {
+            val retired = try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(losing8342, l) } catch (_: Throwable) { false }
+            val full = !retired && (try { com.lifecyclebot.engine.cortex.Cortex7885.fullAuthorityOverrules8078(ts, l, losing8342) } catch (_: Throwable) { false })
+            if (!retired && !full && Rehearsal8339.doorBindsNow8342(losing8342, l)) return losing8342   // V5.0.8342 — advisory in paper
         }
         if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) return null
         com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts, nowMs)?.let { return it }
@@ -208,6 +218,7 @@ object Entry8114Gate8326 {
             if (com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, prior)) { LiveEdgeGate7877.notePositive7975(ts.mint, nowMs); continue }
             val sampleN = refusalSampleN8114(ts, l, prior, nowMs)
             if (sampleN != null && LiveEdgeGate7877.cohortOverrulesSmaller7948(cohort, sampleN)) continue
+            if (!Rehearsal8339.doorBindsNow8342(prior, l)) continue   // V5.0.8342 — PLAYBOOK_* / STAGE_PROVEN_LOSING advisory in paper; cost priors bind
             return prior
         }
         val shape = try { TradeShapeLearner7883.shapeRefusal(ts, l) } catch (_: Throwable) { null }
