@@ -39,6 +39,8 @@ class Aate8192PumpStreamCostTest {
 }
 
 /** V5.0.8193 — setup watches (8191) and sniper launch watches (8190) share the 8192 budget and per-coin cap. */
+// superseded by V5.0.8354 — these budget paths apply only while BotConfig.pumpPortalTradeStreamEnabled is ON (default OFF:
+// no subscribeTokenTrade is sent at all; the curve tape comes from HeliusCurveTape8354). The pins hold for the ON path.
 class Aate8193PumpStreamBudgetSharedTest {
     @Test fun everyMeteredSubscriptionPathChecksTheBudget() {
         val s = File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()

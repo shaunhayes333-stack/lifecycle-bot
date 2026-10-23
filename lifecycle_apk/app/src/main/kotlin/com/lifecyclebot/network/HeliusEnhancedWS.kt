@@ -74,7 +74,65 @@ object HeliusEnhancedWS {
 
     fun capabilityLine8307(): String =
         "enhancedWs=$capability8307 whaleSub=${if (subscriptionId >= 0) "ACK" else "NONE"} whaleAccounts=${watchedAccounts.size} " +
-            "tapeSub=${if (tapeSubId8307 >= 0) "ACK" else "NONE"} tapeMints=${tapeAccounts8307.size} tapeResubs=${tapeResubs8307.get()} lastError=$lastError8307"
+            "tapeSub=${if (tapeSubId8307 >= 0) "ACK" else "NONE"} tapeMints=${tapeAccounts8307.size} tapeResubs=${tapeResubs8307.get()} lastError=$lastError8307 " +
+            "curveSub8354=${curveSubState8354()}"
+
+    // ── V5.0.8354 — ONE program-wide subscription on the pump.fun bonding-curve program (HeliusCurveTape8354) ──
+    @Volatile private var curveWanted8354 = false
+    @Volatile private var curveReqId8354 = -1L
+    @Volatile private var curveSubId8354 = -1L
+    @Volatile private var curveRefused8354 = "-"
+
+    /** The plan accepts Enhanced subscriptions on an open socket, and the program subscription was not refused. */
+    fun enhancedOk8354(): Boolean = running.get() && ws != null && capability8307 == "OK" && curveRefused8354 == "-"
+
+    fun curveSubState8354(): String = when {
+        curveSubId8354 >= 0L -> "ACK"
+        curveReqId8354 >= 0L -> "PENDING"
+        curveRefused8354 != "-" -> "REFUSED_$curveRefused8354"
+        else -> "NONE"
+    }
+
+    /** HeliusCurveTape8354: the program subscription on (sent once, re-sent on every new socket) or off. */
+    fun setCurveProgram8354(on: Boolean) {
+        val was = curveWanted8354
+        curveWanted8354 = on
+        val sock = ws ?: return
+        try {
+            if (on && curveSubId8354 < 0L && curveReqId8354 < 0L) sendCurveSubscribe8354(sock)
+            else if (!on && was) sendCurveUnsubscribe8354(sock)
+        } catch (_: Throwable) {}
+    }
+
+    private fun sendCurveSubscribe8354(socket: WebSocket) {
+        if (capability8307 == "UNSUPPORTED_PLAN" || curveRefused8354 != "-") return
+        val id = nextRpcId.getAndIncrement()
+        curveReqId8354 = id
+        socket.send(JSONObject().apply {
+            put("jsonrpc", "2.0")
+            put("id", id)
+            put("method", "transactionSubscribe")
+            put("params", JSONArray().apply {
+                put(JSONObject().put("accountInclude", JSONArray().put(HeliusCurveTape8354.PUMP_PROGRAM_8354)).put("vote", false).put("failed", false))
+                put(JSONObject().apply {
+                    put("commitment", "processed")
+                    put("encoding", "jsonParsed")
+                    put("transactionDetails", "full")
+                    put("showRewards", false)
+                    put("maxSupportedTransactionVersion", 0)
+                })
+            })
+        }.toString())
+    }
+
+    private fun sendCurveUnsubscribe8354(socket: WebSocket) {
+        val sub = curveSubId8354
+        curveSubId8354 = -1L
+        curveReqId8354 = -1L
+        if (sub < 0L) return
+        socket.send(JSONObject().put("jsonrpc", "2.0").put("id", nextRpcId.getAndIncrement())
+            .put("method", "transactionUnsubscribe").put("params", JSONArray().put(sub)).toString())
+    }
 
     /**
      * DataOrchestrator (every 10 s): the mints whose every swap should arrive parsed. Re-subscribes at most once a minute
@@ -229,12 +287,20 @@ object HeliusEnhancedWS {
             sendSubscribe(webSocket)
             tapeSubId8307 = -1L   // V5.0.8307 — a new socket: the tape subscription is sent again
             try { sendTapeSubscribe8307(webSocket) } catch (_: Throwable) {}
+            curveSubId8354 = -1L; curveReqId8354 = -1L   // V5.0.8354 — and the program subscription, when wanted
+            if (curveWanted8354) try { sendCurveSubscribe8354(webSocket) } catch (_: Throwable) {}
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             // V5.0.8307 — the tape subscription's bytes are metered on their own stream (never the whale stream's share).
-            val tape8307 = tapeSubId8307 >= 0 && HeliusSocketShare8191.subscriptionId8191(text) == tapeSubId8307
-            if (tape8307) {
+            val subId8354 = HeliusSocketShare8191.subscriptionId8191(text)
+            val tape8307 = tapeSubId8307 >= 0 && subId8354 == tapeSubId8307
+            // V5.0.8354 — the program subscription's bytes are metered on their own stream (its governor's clock).
+            val curve8354 = curveSubId8354 >= 0L && subId8354 == curveSubId8354
+            if (curve8354) {
+                try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.meterWs("HELIUS_CURVE_8354", text.length) } catch (_: Throwable) {}
+                HeliusCurveTape8354.noteBytes8354(text.length)
+            } else if (tape8307) {
                 try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.meterWs("HELIUS_TAPE_8307", text.length) } catch (_: Throwable) {}
                 PumpSwapTape8307.noteTapeBytes8307(text.length)
             } else try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.meterWs("SMART_MONEY_STREAM", text.length) } catch (_: Throwable) {}
@@ -249,8 +315,11 @@ object HeliusEnhancedWS {
                 // Subscription confirmation
                 if (msg.has("result") && msg.opt("result") is Number) {
                     // V5.0.8307 — the tape subscription's ack is told apart by its request id.
-                    if (tapeReqId8307 >= 0 && msg.optLong("id", -1L) == tapeReqId8307) tapeSubId8307 = msg.getLong("result")
-                    else if (msg.optLong("id", -1L) != tapeReqId8307) subscriptionId = msg.getLong("result")
+                    // V5.0.8354 — and the program subscription's by its own.
+                    val ackId8354 = msg.optLong("id", -1L)
+                    if (curveReqId8354 >= 0L && ackId8354 == curveReqId8354) { curveSubId8354 = msg.getLong("result"); curveReqId8354 = -1L }
+                    else if (tapeReqId8307 >= 0 && ackId8354 == tapeReqId8307) tapeSubId8307 = msg.getLong("result")
+                    else if (ackId8354 != tapeReqId8307 && ackId8354 != curveReqId8354) subscriptionId = msg.getLong("result")
                     capability8307 = "OK"
                     return
                 }
@@ -260,6 +329,13 @@ object HeliusEnhancedWS {
                     val code8307 = e8307?.optInt("code", 0) ?: 0
                     val m8307 = e8307?.optString("message", "").orEmpty()
                     lastError8307 = "$code8307:${m8307.take(48).replace(' ', '_')}"
+                    // V5.0.8354 — a refused program subscription parks only itself (the whale and tape streams stand).
+                    if (curveReqId8354 >= 0L && msg.optLong("id", -1L) == curveReqId8354) {
+                        curveRefused8354 = "$code8307:${m8307.take(32).replace(' ', '_')}"
+                        curveReqId8354 = -1L
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CURVE_TAPE_ENHANCED_SUB_REFUSED_8354") } catch (_: Throwable) {}
+                        return
+                    }
                     if (msg.optLong("id", -1L) == tapeReqId8307 || msg.optLong("id", -1L) == whaleReqId8307) capability8307 = capabilityFromError8307(code8307, m8307)
                     return
                 }
@@ -269,6 +345,10 @@ object HeliusEnhancedWS {
                 val result = params.optJSONObject("result") ?: return
                 if (tapeSubId8307 >= 0 && params.optLong("subscription", -2L) == tapeSubId8307) {
                     PumpSwapTape8307.onEnhancedTx8307(result, tapeIncluded8307)   // V5.0.8307 — onto the trade tape, never the whale callback
+                    return
+                }
+                if (curveSubId8354 >= 0L && params.optLong("subscription", -2L) == curveSubId8354) {
+                    HeliusCurveTape8354.onEnhancedTx8354(result)   // V5.0.8354 — the program tape: filtered, then the curve tape
                     return
                 }
                 val sig = result.optString("signature", "")

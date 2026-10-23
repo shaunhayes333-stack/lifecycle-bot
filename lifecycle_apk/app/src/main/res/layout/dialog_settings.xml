@@ -955,6 +955,38 @@
                 android:paddingStart="12dp"
                 android:layout_marginBottom="10dp"/>
 
+            <!-- V5.0.8354 — the per-frame-metered PumpPortal trade stream is opt-in; the curve tape comes from Helius -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="10dp">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PumpPortal token trade stream (paid per frame)"
+                        android:textColor="@color/aate_text"
+                        android:textSize="12sp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Off: no subscribeTokenTrade is sent; the curve tape comes from Helius. Create and migration streams stay on."
+                        android:textColor="@color/aate_text_muted"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchPumpPortalTradeStream8354"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="false"/>
+            </LinearLayout>
+
             <!-- V5.0.7955 — free-tier chart-source keys (engine/chart/ChartSources7955) -->
             <TextView
                 android:id="@+id/tvCoinMarketCapHelp7955"
