@@ -93,6 +93,8 @@ object JournalEconomicReplay6619 {
         val sellFeeByPosition6980: Map<String, Double> = emptyMap(),
         val sellCountByPosition6980: Map<String, Int> = emptyMap(),
         val openBasisByPosition: Map<String, Double> = emptyMap(),
+        /** V5.0.8358 — TradeHistoryStore.journalRevision7343() this replay was computed at (-1 = unknown). */
+        val journalRevision8358: Long = -1L,
     )
 
     private val replays = AtomicLong(0L)
@@ -704,6 +706,7 @@ object JournalEconomicReplay6619 {
             sellBasisByPosition6980 = sellBasis6980.toMap(),
             sellFeeByPosition6980 = sellFee6980.toMap(),
             sellCountByPosition6980 = sellCount6980.toMap(),
+            journalRevision8358 = memoKey7343.substringBefore('|').toLongOrNull() ?: -1L,  // V5.0.8358
         )
         lastResult.set(result)
         lastReplayKey7343.set(memoKey7343)

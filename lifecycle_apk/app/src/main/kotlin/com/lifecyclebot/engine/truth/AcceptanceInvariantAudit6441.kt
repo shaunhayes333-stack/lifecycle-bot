@@ -334,6 +334,8 @@ object AcceptanceInvariantAudit6441 {
         val lastStat = if (last == null) "none" else
             "passed=${last.passed.size} failed=${last.failed.size} ok=${last.ok} " +
                 "failedInvariants=${last.failed.joinToString("|") { it.take(100) }.ifBlank { "none" }}"
-        return "runs=$runs failures=$fails last=[$lastStat]"
+        // V5.0.8358 — a J_*_DELTA failure names its source (leg, window cap or stale replay).
+        val from8358 = if (last != null && last.failed.any { it.startsWith("J_") && it.endsWith("_DELTA") }) " deltaFrom8358=${ReconLag8358.lastSource8358()}" else ""
+        return "runs=$runs failures=$fails last=[$lastStat]$from8358"
     }
 }

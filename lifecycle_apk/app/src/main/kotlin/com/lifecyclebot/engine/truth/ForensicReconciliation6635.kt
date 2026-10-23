@@ -102,7 +102,9 @@ object ForensicReconciliation6635 {
         val cashLedger = try {
             PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294()
         } catch (_: Throwable) { Double.NaN }
-        val replay6647 = precomputedReplay6699 ?: try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
+        val replayFirst8358 = precomputedReplay6699 ?: try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
+        // V5.0.8358 — a replay from another journal revision is not evidence for this key (see ReconLag8358).
+        val replay6647 = ReconLag8358.currentReplay8358(replayFirst8358, key7387?.substringBefore('|')?.toLongOrNull() ?: -1L, { JournalEconomicReplay6619.replay() }, { lastKey7387.set(null) })
         // V5.0.6750 §ACCOUNTING_ERROR_UI_ROOT_CAUSE — operator screenshot
         //   Feb 2026: "ACCOUNTING ERROR" / "ACCOUNT UNAVAILABLE"
         //   painted across every hero surface even during otherwise
@@ -288,6 +290,7 @@ object ForensicReconciliation6635 {
         lastRealizedLedger.set(realizedLedger); lastRealizedJournal.set(realizedJournal); lastRealizedDelta.set(realizedDelta)
         lastOpenCostLedger.set(openCostLedger); lastOpenCostJournal.set(openCostJournal); lastOpenCostDelta.set(openCostDelta)
         lastQuantityDeltaRaw.set(quantityDeltaRaw6647)
+        try { ReconLag8358.recordAttribution8358(cashDelta, openCostDelta, quantityDeltaRaw6647, replay6647) } catch (_: Throwable) {}  // V5.0.8358
 
         if (cashDelta > DELTA_TOLERANCE_SOL) {
             failedChecks.incrementAndGet()

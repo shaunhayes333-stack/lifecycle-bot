@@ -521,6 +521,7 @@ object TradeHistoryStore {
         // SQLite retains the full history — Journal pages from it on export.
         synchronized(lock) {
             if (trades.size > MAX_IN_MEMORY_TRADES) {
+                com.lifecyclebot.engine.truth.ReconLag8358.noteWindowTrimmed8358(trades.size - MAX_IN_MEMORY_TRADES)  // V5.0.8358
                 trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).clear()
                 journalRevision7343.incrementAndGet()
             }
@@ -1076,6 +1077,7 @@ object TradeHistoryStore {
             // V5.9.330: Trim in-memory list to avoid OOM. SQLite retains everything.
             if (trades.size > MAX_IN_MEMORY_TRADES) {
                 val evicted8269 = trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).toList()
+                com.lifecyclebot.engine.truth.ReconLag8358.noteWindowTrimmed8358(evicted8269.size)  // V5.0.8358
                 trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).clear()
                 discardTrimmedBuys8269(evicted8269)
                 journalRevision7343.incrementAndGet()
