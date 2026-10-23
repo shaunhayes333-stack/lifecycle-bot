@@ -49,7 +49,62 @@ object EvidenceShadow8344 {
         var peakPct = 0.0
         var lastPx = entryPx
         var lastPxAtMs = atMs
+        // V5.0.8355 — persistence state: changed since the last write, when that write was, and (restored) no mark seen yet
+        var dirty8355 = false
+        var lastWriteMs8355 = 0L
+        var noMarkSinceRestore8355 = false
     }
+
+    // ── V5.0.8355 §SHADOW_EVIDENCE_SURVIVES_RESTARTS — the open book is persisted (its own prefs, the close book untouched):
+    // written on open, coalesced on tier / peak change (ShadowPersist8355.writeDue8355: at most one write per position per
+    // 10 s), removed on close; restored in init8344 with its real entry mark and clock, never re-priced. A restored position
+    // resumes on the next tick; with no mark within LOST_MARK of its last one it closes LOST_MARK at its last mark, as it would have. ──
+    private const val PREFS_OPEN_8355 = "aate_evidence_shadow_open_8355"
+    @Volatile private var openPrefs8355: android.content.SharedPreferences? = null
+    private val restored8355 = AtomicLong(0)
+    private val lostOnRestore8355 = AtomicLong(0)
+    private val expiredOnRestore8355 = AtomicLong(0)
+
+    private fun persistOpen8355(p: Pos8344, nowMs: Long) {
+        p.dirty8355 = false
+        p.lastWriteMs8355 = nowMs
+        val enc = ShadowPersist8355.encodePos8355(ShadowPersist8355.PosRec8355(
+            p.mint, p.lane, p.entryPx, p.atMs, p.costPct, p.stopPct, p.armPct, p.timeoutMs,
+            p.held, p.bankedGrossPct, p.tiersHit, p.peakPct, p.lastPx, p.lastPxAtMs,
+        ))
+        try { openPrefs8355?.edit()?.putString(p.mint, enc)?.apply() } catch (_: Throwable) {}
+    }
+
+    private fun forgetOpen8355(mint: String) {
+        try { openPrefs8355?.edit()?.remove(mint)?.apply() } catch (_: Throwable) {}
+    }
+
+    private fun restoreOpen8355(ctx: Context, nowMs: Long) {
+        try {
+            val p = ctx.getSharedPreferences(PREFS_OPEN_8355, Context.MODE_PRIVATE)
+            openPrefs8355 = p
+            val drop = ArrayList<String>()
+            var n = 0L
+            for ((k, v) in p.all) {
+                val r = ShadowPersist8355.decodePos8355(v as? String)
+                if (r == null) { drop += k; continue }
+                if (ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
+                if (open.size >= MAX_OPEN_8344 || open.containsKey(r.mint)) { drop += k; continue }
+                val pos = Pos8344(r.mint, r.lane, r.entryPx, r.atMs, r.costPct, r.stopPct, r.armPct, r.timeoutMs)
+                pos.held = r.held; pos.bankedGrossPct = r.bankedGrossPct; pos.tiersHit = r.tiersHit; pos.peakPct = r.peakPct
+                pos.lastPx = r.lastPx; pos.lastPxAtMs = r.lastPxAtMs
+                pos.noMarkSinceRestore8355 = true; pos.lastWriteMs8355 = nowMs
+                open[r.mint] = pos
+                lastOpenAt["${r.mint}|${r.lane}"] = r.atMs
+                n++
+            }
+            if (drop.isNotEmpty()) { val e = p.edit(); for (k in drop) e.remove(k); e.apply() }
+            restored8355.addAndGet(n)
+        } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8355 — restored / lost-on-restore / expired-on-restore counts (tests and the status line). */
+    fun restoreCounts8355(): Triple<Long, Long, Long> = Triple(restored8355.get(), lostOnRestore8355.get(), expiredOnRestore8355.get())
 
     private val open = ConcurrentHashMap<String, Pos8344>()                 // mint -> position
     private val lastOpenAt = ConcurrentHashMap<String, Long>()              // mint|lane -> last open
@@ -129,7 +184,8 @@ object EvidenceShadow8344 {
         } + "}"
     }
 
-    fun init8344(ctx: Context) {
+    fun init8344(ctx: Context, nowMs: Long = System.currentTimeMillis()) {
+        restoreOpen8355(ctx, nowMs)   // V5.0.8355 — the open book first, so a restored position is ticking before the first open
         try {
             val p = ctx.getSharedPreferences(PREFS_8344, Context.MODE_PRIVATE)
             prefs = p
@@ -188,8 +244,10 @@ object EvidenceShadow8344 {
             val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
             val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
             val arm = try { com.lifecyclebot.engine.RunnerExitProfile7277.giveBackArmPct7791(lane) } catch (_: Throwable) { 20.0 }
-            open[mint] = Pos8344(mint, lane, px, nowMs, if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm,
+            val pos8355 = Pos8344(mint, lane, px, nowMs, if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm,
                 if (runner) RUNNER_TIMEOUT_MS_8344 else OTHER_TIMEOUT_MS_8344)
+            open[mint] = pos8355
+            persistOpen8355(pos8355, nowMs)   // V5.0.8355 — written on open
             lastOpenAt[key] = nowMs
             if (lastOpenAt.size > 5_000) lastOpenAt.entries.removeIf { nowMs - it.value > REOPEN_GAP_MS_8344 }
             opened.incrementAndGet()
@@ -207,6 +265,7 @@ object EvidenceShadow8344 {
     internal fun resetForTests8345() {
         open.clear(); lastOpenAt.clear(); closes.clear(); opened.set(0); closedN.set(0); skippedFull.set(0)
         holdRefused8345.clear(); skipped8345.clear(); openedBySource8345.clear()
+        restored8355.set(0); lostOnRestore8355.set(0); expiredOnRestore8355.set(0)   // V5.0.8355
     }
 
     // ── tick ──
@@ -220,10 +279,10 @@ object EvidenceShadow8344 {
                 val ts = tokens[mint]
                 val fresh = ts?.takeIf { it.lastPriceUpdate > 0L && nowMs - it.lastPriceUpdate <= 45_000L }?.lastPrice?.takeIf { it > 0.0 }
                     ?: ForwardReturnLabeler7731.markFor7948(mint, { null }, nowMs)?.takeIf { it > 0.0 }
-                if (fresh != null) { p.lastPx = fresh; p.lastPxAtMs = nowMs }
+                if (fresh != null) { p.lastPx = fresh; p.lastPxAtMs = nowMs; p.noMarkSinceRestore8355 = false }
                 val g = (p.lastPx / p.entryPx - 1.0) * 100.0
                 if (!g.isFinite()) { done += mint; continue }
-                if (g > p.peakPct) p.peakPct = g
+                if (g > p.peakPct) { p.peakPct = g; p.dirty8355 = true }   // V5.0.8355 — a peak change is a persisted change
                 // spike tiers, in order, each sells its share of what is held
                 while (p.tiersHit < com.lifecyclebot.engine.SpikeCapture7943.TIERS.size && fresh != null) {
                     val (at, frac) = com.lifecyclebot.engine.SpikeCapture7943.TIERS[p.tiersHit]
@@ -232,6 +291,7 @@ object EvidenceShadow8344 {
                     p.bankedGrossPct += sold * g
                     p.held -= sold
                     p.tiersHit++
+                    p.dirty8355 = true   // V5.0.8355 — a tier change is a persisted change
                 }
                 val floor = giveBackFloor8344(p.peakPct, p.armPct, p.costPct)
                 val why = when {
@@ -241,12 +301,18 @@ object EvidenceShadow8344 {
                     nowMs - p.atMs >= p.timeoutMs -> "TIMEOUT"
                     nowMs - p.lastPxAtMs >= LOST_MARK_MS_8344 -> "LOST_MARK"
                     else -> null
-                } ?: continue
+                }
+                if (why == null) {
+                    // V5.0.8355 — coalesced: a changed position is written at most once per 10 s; an unchanged one never
+                    if (ShadowPersist8355.writeDue8355(p.dirty8355, p.lastWriteMs8355, nowMs)) persistOpen8355(p, nowMs)
+                    continue
+                }
                 book8344(p, netPct8344(p.bankedGrossPct, p.held, g, p.costPct), why, nowMs)
+                if (why == "LOST_MARK" && p.noMarkSinceRestore8355) lostOnRestore8355.incrementAndGet()   // V5.0.8355
                 done += mint
             } catch (_: Throwable) { done += mint }
         }
-        done.forEach { open.remove(it) }
+        done.forEach { open.remove(it); forgetOpen8355(it) }   // V5.0.8355 — a closed (or dropped) position leaves the open prefs
     }
 
     private fun book8344(p: Pos8344, net: Double, why: String, nowMs: Long) {
@@ -284,6 +350,7 @@ object EvidenceShadow8344 {
         val openByLane = open.values.groupingBy { it.lane }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
         val (held, skipped, bySource) = gapCounts8345()  // V5.0.8345
         return "evidenceShadow8344[open=${open.size}/$MAX_OPEN_8344 ($openByLane) opened=${opened.get()} closed=${closedN.get()} full=${skippedFull.get()} " +
+            "restored8355=${restored8355.get()} lostOnRestore8355=${lostOnRestore8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} " +
             "exits=lane stop+spike tiers+give-back floor+timeout cost=NetEdge8030 @${TICKET_SOL_8344}SOL | $lanes" +
             " holdRefused{${countLine8345(held)}} openedBy{${countLine8345(bySource)}} skipped{${countLine8345(skipped)}}" + recoveryLine8345(sinceMs, nowMs) + "]"
     }
