@@ -634,6 +634,34 @@ object InsiderWalletTracker {
     }
 
     /**
+     * V5.0.8361 — owner: "the trump wallet etc only need a big buy or big sell signal". HeliusCadence8361 calls this only
+     * for a move that cleared its size threshold (the wallet's own SOL leg / fresh-priced notional, read from the push);
+     * smaller moves never reach here. The signal goes to the existing consumer (notification + InsiderCopyEngine).
+     * [usd] 0 = notional unknown (no fresh SOL price) — never estimated.
+     */
+    fun emitBigMove8361(walletAddress: String, mint: String, isBuy: Boolean, sol: Double, usd: Double) {
+        val w = insiderWallets[walletAddress] ?: return
+        if (mint.length < 30) return
+        val confidence = when (w.category) {
+            InsiderCategory.POLITICAL -> 85
+            InsiderCategory.SMART_MONEY -> 75
+            InsiderCategory.CUSTOM -> 60
+        }
+        val action = if (isBuy) "WHALE_BIG_BUY_8361" else "WHALE_BIG_SELL_8361"
+        val signal = InsiderSignal(
+            walletLabel = w.label, walletAddress = w.address, category = w.category,
+            tokenSymbol = resolveTokenSymbol(mint), tokenMint = mint, action = action,
+            usdValue = if (usd.isFinite() && usd > 0.0) usd else 0.0, timestamp = System.currentTimeMillis(),
+            confidence = confidence,
+        )
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc(action)
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(action, "wallet=${w.label} mint=${mint.take(10)} sol=${"%.2f".format(sol)} usd=${usd.toLong()}")
+        } catch (_: Throwable) {}
+        try { onInsiderSignalCallback?.invoke(signal) } catch (_: Throwable) {}
+    }
+
+    /**
      * Get the insider signal score for a given token mint.
      * Returns 0-100 based on how many tracked insiders hold it.
      */

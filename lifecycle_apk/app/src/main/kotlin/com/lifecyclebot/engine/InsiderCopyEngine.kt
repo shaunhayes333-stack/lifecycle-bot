@@ -92,7 +92,7 @@ object InsiderCopyEngine {
         val isAlpha = signal.category ==
             com.lifecyclebot.perps.InsiderWalletTracker.InsiderCategory.SMART_MONEY
         when (signal.action.uppercase()) {
-            "BUY", "NEW_POSITION", "ACCUMULATION" -> {
+            "BUY", "NEW_POSITION", "ACCUMULATION", "WHALE_BIG_BUY_8361" -> {   // V5.0.8361 — a big whale buy
                 copyBuyMemeMint(
                     mint        = signal.tokenMint,
                     symbol      = signal.tokenSymbol,
@@ -101,7 +101,7 @@ object InsiderCopyEngine {
                 )
                 copyBuyCryptoAlt6096(signal.tokenSymbol, signal.confidence, signal.walletLabel)
             }
-            "SELL", "DISTRIBUTION" -> {
+            "SELL", "DISTRIBUTION", "WHALE_BIG_SELL_8361" -> {   // V5.0.8361 — a big whale sell
                 if (isAlpha || signal.confidence >= 70) {
                     copyExitAcrossTraders(
                         mintOpt     = signal.tokenMint,

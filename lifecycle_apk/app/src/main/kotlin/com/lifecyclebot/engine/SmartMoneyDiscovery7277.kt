@@ -65,6 +65,8 @@ object SmartMoneyDiscovery7277 {
     private val minedRunners = ConcurrentHashMap.newKeySet<String>()
     private val walletHits = ConcurrentHashMap<String, MutableSet<String>>()   // wallet -> runner mints
     private val cycles = AtomicLong(0L)
+    // V5.0.8361 — runner mining (Helius Enhanced parse) runs once a day with the alpha rebuild, not every 15 minutes.
+    @Volatile private var lastMineMs8361 = 0L
     private val promoted = AtomicLong(0L)
 
     private val http by lazy {
@@ -116,7 +118,11 @@ object SmartMoneyDiscovery7277 {
             if (added > 0) PipelineHealthCollector.labelInc("SMART_MONEY_LEADERBOARD_SEEDED_7277")
         } catch (_: Throwable) {}
 
-        // 2. Runners the bot itself observed.
+        // 2. Runners the bot itself observed — V5.0.8361: once a day (owner: discovery compiles a daily alpha list).
+        val now8361 = System.currentTimeMillis()
+        if (!HeliusCadence8361.alphaRebuildDue8361(lastMineMs8361, now8361)) return
+        lastMineMs8361 = now8361
+        try { prefs?.edit()?.putLong("last_mine_8361", now8361)?.apply() } catch (_: Throwable) {}
         val runners = observedRunners().filter { it !in minedRunners }.take(MAX_RUNNERS_PER_CYCLE)
         if (runners.isEmpty() || key.isBlank() || !KeyValidator.isUsableEnhancedHeliusKey(key)) {
             if (runners.isNotEmpty()) PipelineHealthCollector.labelInc("SMART_MONEY_RUNNERS_UNMINED_NO_HELIUS_7277")
@@ -127,6 +133,7 @@ object SmartMoneyDiscovery7277 {
             if (!com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.admit(
                     com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.Consumer.SMART_MONEY_DISCOVERY,
                     SIGNATURE_PAGES_MAX + 100.0)) break
+            HeliusCadence8361.noteAlphaCredits8361(100L)   // the Enhanced parse; signature pages read keyless-first (V5.0.8361)
             val buyers = try { earliestBuyers(key, mint) } catch (t: Throwable) { emptyList() }
             minedRunners.add(mint)
             PipelineHealthCollector.labelInc("SMART_MONEY_RUNNER_MINED_7277")
@@ -203,30 +210,10 @@ object SmartMoneyDiscovery7277 {
         return parsedBuyers(key, mint, earliest)
     }
 
-    private fun signaturesPage(key: String, mint: String, before: String?): List<String> {
-        val params = JSONObject().put("limit", 1000).put("commitment", "confirmed")
-        if (!before.isNullOrBlank()) params.put("before", before)
-        val payload = JSONObject()
-            .put("jsonrpc", "2.0").put("id", "sm7277")
-            .put("method", "getSignaturesForAddress")
-            .put("params", JSONArray().put(mint).put(params))
-        val req = Request.Builder().url("https://mainnet.helius-rpc.com/?api-key=$key")
-            .header("Content-Type", "application/json")
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-        HealthAwareHttp.execute(http, req, host = "helius").use { resp ->
-            if (!resp.isSuccessful) return emptyList()
-            val arr = JSONObject(resp.body?.string() ?: return emptyList()).optJSONArray("result") ?: return emptyList()
-            val out = ArrayList<String>(arr.length())
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                if (!o.isNull("err")) continue
-                val s = o.optString("signature", "")
-                if (s.isNotBlank()) out.add(s)
-            }
-            return out
-        }
-    }
+    @Suppress("UNUSED_PARAMETER")
+    private fun signaturesPage(key: String, mint: String, before: String?): List<String> =
+        // V5.0.8361 — keyless-first (KeylessRpc8359 public nodes; Helius only when every keyless rung declined).
+        HeliusCadence8361.signatures8361(http, mint, 1000, before, keylessOnly = false, caller = HeliusCadence8361.CALLER_ALPHA_8361)
 
     private fun parsedBuyers(key: String, mint: String, signatures: List<String>): List<String> {
         if (signatures.isEmpty()) return emptyList()
@@ -261,6 +248,7 @@ object SmartMoneyDiscovery7277 {
         val p = prefs ?: return
         try {
             p.getStringSet("mined_runners", emptySet())?.let { minedRunners.addAll(it) }
+            lastMineMs8361 = p.getLong("last_mine_8361", 0L)
             val hits = JSONObject(p.getString("wallet_hits", "{}") ?: "{}")
             for (w in hits.keys()) {
                 val arr = hits.optJSONArray(w) ?: continue

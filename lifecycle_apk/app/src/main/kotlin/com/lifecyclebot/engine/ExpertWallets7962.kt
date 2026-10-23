@@ -381,6 +381,12 @@ object ExpertWallets7962 {
     private val liveBuys = AtomicLong(0)
     private val untrackedTape = AtomicLong(0)
     @Volatile private var leaderboard = "-"
+    // V5.0.8361 — the daily alpha list (HeliusCadence8361) and the stream's swaps waiting for the cycle thread.
+    @Volatile private var alphaWallets8361: List<String> = emptyList()
+    @Volatile private var alphaAtMs8361 = 0L
+    @Volatile private var alphaPushed8361 = false
+    private val streamLegs8361 = java.util.concurrent.ConcurrentLinkedQueue<Pair<String, Leg7962>>()
+    private val keylessBackfilled8361 = AtomicLong(0)
     @Volatile private var ownerCopyListed = false
     private const val GECKO_CALLS_PER_CYCLE = 6
 
@@ -495,6 +501,14 @@ object ExpertWallets7962 {
         cycles.incrementAndGet()
         refreshExperts(engine, onWatchlistChanged)
         if (key.isNotBlank() && KeyValidator.isUsableEnhancedHeliusKey(key)) fetchHistories(key)
+        drainStreamLegs8361()
+        val now8361 = System.currentTimeMillis()
+        if (HeliusCadence8361.alphaRebuildDue8361(alphaAtMs8361, now8361)) rebuildAlpha8361(engine, onWatchlistChanged, now8361)
+        else if (!alphaPushed8361 && alphaWallets8361.isNotEmpty() && engine != null) {
+            // A stored list younger than a day: put it on the subscription once after boot.
+            alphaPushed8361 = true
+            try { onWatchlistChanged(engine.getWallets().filter { it.isActive && !it.isPaused }.map { it.address }.distinct()) } catch (_: Throwable) {}
+        }
         learnPending()
         persistIndex()
     }
@@ -542,7 +556,8 @@ object ExpertWallets7962 {
         }
     }
 
-    private fun fetchHistories(key: String) {
+    /** V5.0.8361 — [ownerOnly8361]: Enhanced pages only for the owner's own backfill; listed wallets extend from the stream. */
+    private fun fetchHistories(key: String, ownerOnly8361: Boolean = true) {
         val now = System.currentTimeMillis()
         val order = experts.values.sortedWith(compareBy<Expert>(
             { if (it.tier == Tier7962.OWNER && hists[it.address]?.backfillDone != true) 0 else 1 },
@@ -553,6 +568,7 @@ object ExpertWallets7962 {
         for (e in order) {
             if (done >= WALLETS_PER_CYCLE) break
             val h = hist(e.address)
+            if (ownerOnly8361 && (e.tier != Tier7962.OWNER || h.backfillDone)) continue
             if (h.backfillDone && now - h.lastFetchMs < TAIL_REFRESH_MS) continue
             done++
             val newLegs = fetchWallet(key, h)
@@ -575,6 +591,7 @@ object ExpertWallets7962 {
                 creditDeferred.incrementAndGet()
                 return if (added > 0) added else -1
             }
+            HeliusCadence8361.noteAlphaCredits8361(PAGE_CREDITS.toLong())
             val url = "https://api.helius.xyz/v0/addresses/${h.addr}/transactions?api-key=$key&limit=$PAGE_LIMIT" +
                 if (before.isNotBlank()) "&before=$before" else ""
             val body = try {
@@ -804,6 +821,8 @@ object ExpertWallets7962 {
                 motifsAdded.set(o.optLong("motifs", 0L))
                 tripsLearned.set(o.optLong("learned", 0L))
                 ownerCopyListed = o.optBoolean("ownerCopy", false)
+                o.optJSONArray("alpha8361")?.let { arr -> alphaWallets8361 = (0 until arr.length()).map { arr.optString(it, "") }.filter { isAddress(it) } }
+                alphaAtMs8361 = o.optLong("alphaAt8361", 0L)
             } catch (_: Throwable) {}
             loaded = true
         }
@@ -826,6 +845,7 @@ object ExpertWallets7962 {
             o.put("motifs", motifsAdded.get())
             o.put("learned", tripsLearned.get())
             o.put("ownerCopy", ownerCopyListed)
+            o.put("alpha8361", JSONArray(alphaWallets8361)).put("alphaAt8361", alphaAtMs8361)
             LearningPersistence.save(INDEX_KEY, o.toString())
         } catch (_: Throwable) {}
     }
@@ -860,6 +880,93 @@ object ExpertWallets7962 {
                 .put("legs", h.legs.joinToString(";") { "${it.sig},${it.tsMs},${it.mint},${if (it.isBuy) "b" else "s"},${it.tokens},${it.sol}" })
                 .put("learned", JSONArray(h.learned.toList()))
             LearningPersistence.save(HIST_KEY_PREFIX + h.addr, o.toString())
+        } catch (_: Throwable) {}
+    }
+
+    // ── V5.0.8361 — the daily alpha list ──
+
+    /** The ranked alpha list (at most 25), as stored. */
+    fun alphaList8361(): List<String> = alphaWallets8361
+
+    /** When the alpha list was last rebuilt (0 = never). */
+    fun alphaRebuiltAt8361(): Long = alphaAtMs8361
+
+    /** HeliusCadence8361: a listed / expert wallet's swap seen on the smart-money stream (applied on the cycle thread). */
+    fun noteStreamLeg8361(wallet: String, leg: Leg7962) {
+        if (wallet != OWNER_WALLET_7962 && !experts.containsKey(wallet)) return
+        if (streamLegs8361.size < 5_000) streamLegs8361.add(wallet to leg)
+    }
+
+    private fun drainStreamLegs8361() {
+        val touched = HashSet<String>()
+        while (true) {
+            val (w, leg) = streamLegs8361.poll() ?: break
+            val h = hist(w)
+            if (h.legs.none { it.sig == leg.sig && it.mint == leg.mint }) { h.legs += leg; touched += w }
+        }
+        for (w in touched) {
+            val h = hists[w] ?: continue
+            if (h.legs.size > MAX_LEGS) { val keep = h.legs.sortedByDescending { it.tsMs }.take(MAX_LEGS); h.legs.clear(); h.legs.addAll(keep) }
+            val tier = if (w == OWNER_WALLET_7962) Tier7962.OWNER else experts[w]?.tier ?: Tier7962.SMART
+            enqueueTrips(h, tier)
+            saveHist(h)
+        }
+    }
+
+    /** Experts never fetched get one bounded keyless page (newest signatures + their parsed transactions). */
+    private fun backfillKeyless8361(nowMs: Long) {
+        val fresh = experts.values.filter { it.address != OWNER_WALLET_7962 && !isBotOwnWallet(it.address) }
+            .map { hist(it.address) to it.tier }
+            .filter { (h, _) -> h.legs.isEmpty() && h.lastFetchMs <= 0L }
+            .take(HeliusCadence8361.ALPHA_BACKFILL_WALLETS_8361)
+        for ((h, tier) in fresh) {
+            val sigs = try { HeliusCadence8361.signatures8361(http, h.addr, HeliusCadence8361.ALPHA_BACKFILL_SIGS_8361, null, keylessOnly = true, caller = HeliusCadence8361.CALLER_ALPHA_8361) } catch (_: Throwable) { emptyList() }
+            h.lastFetchMs = nowMs
+            if (sigs.isEmpty()) { saveHist(h); continue }
+            val known = HashSet<String>()
+            for (sig in sigs) {
+                Thread.sleep(400L)   // paced under the keyless governors (KeylessRpc8359)
+                val tx = try { HeliusCadence8361.transaction8361(http, sig, keylessOnly = true, caller = HeliusCadence8361.CALLER_ALPHA_8361) } catch (_: Throwable) { null } ?: continue
+                for (s in HeliusCadence8361.swapsOf8361(tx, setOf(h.addr), 0L)) {
+                    if (s.tsMs <= 0L || s.sol < MIN_LEG_SOL || !(s.tokens > 0.0) || !known.add("${s.sig}|${s.mint}")) continue
+                    h.legs += Leg7962(s.sig, s.tsMs, s.mint, s.isBuy, s.tokens, s.sol)
+                }
+            }
+            if (h.newestSig.isBlank()) h.newestSig = sigs.first()
+            h.pages++
+            keylessBackfilled8361.incrementAndGet()
+            enqueueTrips(h, tier)
+            saveHist(h)
+        }
+    }
+
+    /** Pure-ish: every non-owner expert's candidate row from its recorded closed round trips. */
+    private fun alphaCandidates8361(): List<HeliusCadence8361.AlphaCandidate8361> =
+        experts.keys.filter { it != OWNER_WALLET_7962 && !isBotOwnWallet(it) }.mapNotNull { a ->
+            val h = hists[a] ?: return@mapNotNull null
+            val closed = reconstructRoundTrips7962(h.legs.toList()).filter { it.closed }
+            if (closed.isEmpty()) null
+            else HeliusCadence8361.candidateOf8361(a, closed.map { it.realizedPct }, closed.count { it.mint.endsWith("pump") || it.mint.endsWith("bonk") })
+        }
+
+    /** Daily: backfill new members keyless, rank the top 25, keep them on the copy list, refresh the one subscription. */
+    private fun rebuildAlpha8361(engine: CopyTradeEngine?, onWatchlistChanged: (List<String>) -> Unit, nowMs: Long) {
+        try { backfillKeyless8361(nowMs) } catch (e: InterruptedException) { throw e } catch (_: Throwable) {}
+        val ranked = HeliusCadence8361.rankAlpha8361(alphaCandidates8361())
+        alphaWallets8361 = ranked
+        alphaAtMs8361 = nowMs
+        if (engine != null) {
+            try {
+                // Copy-list membership only lets the copy path see their buys; COPY stays behind its own proof bar.
+                val have = engine.getWallets().map { it.address }.toSet()
+                for (w in ranked) if (w !in have) engine.addWallet(w, "ALPHA_8361")
+                onWatchlistChanged(engine.getWallets().filter { it.isActive && !it.isPaused }.map { it.address }.distinct())
+            } catch (_: Throwable) {}
+        }
+        persistIndex()
+        try {
+            PipelineHealthCollector.labelInc("ALPHA_LIST_REBUILT_8361")
+            ForensicLogger.lifecycle("ALPHA_LIST_REBUILT_8361", "listed=${ranked.size} candidates=${experts.size} backfilled=${keylessBackfilled8361.get()}")
         } catch (_: Throwable) {}
     }
 

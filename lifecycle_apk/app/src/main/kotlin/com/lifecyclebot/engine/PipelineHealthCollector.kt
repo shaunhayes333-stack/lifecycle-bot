@@ -1476,6 +1476,9 @@ object PipelineHealthCollector {
         sb.append("  Expert wallets (§7962): ").append(
             try { ExpertWallets7962.statusLine7962() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Helius cadence (§8361): ").append(   // V5.0.8361 — sweep hourly, alpha 25 daily, whales big moves only
+            try { HeliusCadence8361.statusLine8361() + " " + HeliusCadence8361.creditsLine8361() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Chain launches (§8179): ").append(
             try { com.lifecyclebot.network.ChainLaunchFeed8179.statusLine8179() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

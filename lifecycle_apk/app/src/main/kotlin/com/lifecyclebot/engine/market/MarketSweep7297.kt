@@ -10,9 +10,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
@@ -154,7 +152,9 @@ object MarketSweep7297 {
         "https://api-v3.raydium.io/pools/info/list?poolType=all&poolSortField=volume24h&sortType=desc&pageSize=100&page=1"
     private const val PUMPSWAP_AMM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
     private const val MIN_SWEEP_INTERVAL_MS = 45_000L
-    private const val HELIUS_INTERVAL_MS = 120_000L
+    // superseded by V5.0.8361 — owner: market data "hourly or daily depending on urgency"; the RPC-costed source runs
+    // at most hourly (HeliusCadence8361.SWEEP_HELIUS_EVERY_MS_8361), the keyless lists keep their own clocks.
+    private const val HELIUS_INTERVAL_MS = com.lifecyclebot.engine.HeliusCadence8361.SWEEP_HELIUS_EVERY_MS_8361
     private const val HELIUS_SIGNATURES = 15
     private const val PROVIDER_TIMEOUT_MS = 26_000L
     // V5.0.7807 — hard ceiling for the cap-enrichment pass (see enrichMissingCaps).
@@ -284,8 +284,9 @@ object MarketSweep7297 {
         jupiterKey7301 = jupiterKey.trim()
         val now = System.currentTimeMillis()
         last?.let { if (now - it.atMs < MIN_SWEEP_INTERVAL_MS) return it }
-        val runHelius = heliusKey.isNotBlank() && now - lastHeliusAtMs >= HELIUS_INTERVAL_MS
-        if (runHelius) lastHeliusAtMs = now
+        // V5.0.8361 — keyless-first reads (KeylessRpc8359), so no key is needed; at most once an hour.
+        val runHelius = com.lifecyclebot.engine.HeliusCadence8361.sweepHeliusDue8361(lastHeliusAtMs, now)
+        if (runHelius) { lastHeliusAtMs = now; com.lifecyclebot.engine.HeliusCadence8361.noteSweepHelius8361(now) } else com.lifecyclebot.engine.HeliusCadence8361.noteSweepNotDue8361()
 
         val tasks = mutableListOf<Pair<String, suspend () -> List<Row>>>(
             "JUP_TRENDING" to { jupiterList("/toptrending/1h?limit=50", "JUP_TRENDING") },
@@ -300,7 +301,7 @@ object MarketSweep7297 {
             "JUP_ORGANIC_24H" to { jupiterList("/toporganicscore/24h?limit=50", "JUP_ORGANIC_24H") },
             "RAYDIUM_VOLUME" to { raydiumPools() },
         )
-        if (runHelius) tasks += "HELIUS_SWAPS" to { heliusSwaps(heliusKey) }
+        if (runHelius) tasks += "HELIUS_SWAPS" to { heliusSwaps() }
         // V5.0.7300 — the external hive: GMGN smart-money rows kept by
         // ExternalAlphaFeeds' own 90 s poll (no request made here).
         tasks += "GMGN_SMART_MONEY" to {
@@ -807,47 +808,20 @@ object MarketSweep7297 {
         return out
     }
 
-    private val JSON = "application/json".toMediaType()
-
-    private fun rpc(key: String, payload: String): String? = try {
-        http.newCall(
-            Request.Builder().url("https://mainnet.helius-rpc.com/?api-key=$key")
-                .post(payload.toRequestBody(JSON)).build()
-        ).execute().use { resp ->
-            if (!resp.isSuccessful || HostCircuitInterceptor.isSyntheticBlock(resp)) null else resp.body?.string()
-        }
-    } catch (e: Exception) { null }
-
-    /** Mints traded in the latest PumpSwap AMM swaps, read from Helius RPC. */
-    private fun heliusSwaps(key: String): List<Row> {
-        // V5.0.7881 — one signature page plus a getTransaction per swap, paced.
+    /**
+     * Mints traded in the latest PumpSwap AMM swaps. V5.0.8361 — read keyless-first through KeylessRpc8359 (public nodes,
+     * Helius only when every keyless rung declined), at most hourly, inside a hard deadline.
+     */
+    private fun heliusSwaps(): List<Row> {
         if (!com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.admit(
                 com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.Consumer.MARKET_SWEEP, 1.0 + HELIUS_SIGNATURES)) return emptyList()
-        val sigBody = rpc(
-            key,
-            """{"jsonrpc":"2.0","id":1,"method":"getSignaturesForAddress","params":["$PUMPSWAP_AMM",{"limit":$HELIUS_SIGNATURES}]}""",
-        ) ?: return emptyList()
-        val sigs = JSONObject(sigBody).optJSONArray("result") ?: return emptyList()
-        val batch = JSONArray()
-        for (i in 0 until sigs.length()) {
-            val s = sigs.optJSONObject(i) ?: continue
-            if (!s.isNull("err")) continue
-            batch.put(JSONObject().apply {
-                put("jsonrpc", "2.0"); put("id", i); put("method", "getTransaction")
-                put("params", JSONArray().apply {
-                    put(s.optString("signature"))
-                    put(JSONObject().apply { put("encoding", "jsonParsed"); put("maxSupportedTransactionVersion", 0) })
-                })
-            })
-        }
-        if (batch.length() == 0) return emptyList()
-        val txBody = rpc(key, batch.toString())?.trim() ?: return emptyList()
-        if (!txBody.startsWith("[")) return emptyList()
-        val txs = JSONArray(txBody)
+        val start8361 = System.currentTimeMillis()
+        val sigs8361 = com.lifecyclebot.engine.HeliusCadence8361.signatures8361(http, PUMPSWAP_AMM, HELIUS_SIGNATURES, null, keylessOnly = false, caller = com.lifecyclebot.engine.HeliusCadence8361.CALLER_SWEEP_8361)
         val mints = linkedSetOf<String>()
-        for (i in 0 until txs.length()) {
-            val bals = txs.optJSONObject(i)?.optJSONObject("result")?.optJSONObject("meta")
-                ?.optJSONArray("postTokenBalances") ?: continue
+        for (sig in sigs8361) {
+            if (System.currentTimeMillis() - start8361 > 20_000L) break
+            val tx = com.lifecyclebot.engine.HeliusCadence8361.transaction8361(http, sig, keylessOnly = false, caller = com.lifecyclebot.engine.HeliusCadence8361.CALLER_SWEEP_8361) ?: continue
+            val bals = tx.optJSONObject("meta")?.optJSONArray("postTokenBalances") ?: continue
             for (j in 0 until bals.length()) {
                 val m = bals.optJSONObject(j)?.optString("mint").orEmpty()
                 if (m.length >= 32 && m !in QUOTE_MINTS) mints += m

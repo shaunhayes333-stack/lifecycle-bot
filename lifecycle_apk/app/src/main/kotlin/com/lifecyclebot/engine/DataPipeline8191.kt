@@ -155,6 +155,7 @@ object DataPipeline8191 {
             (try { BirdeyeBudgetGate.statusLine8287() } catch (_: Throwable) { "birdeyeBudget8287 -" }) + " " +
             (try { IntakeFirstSight8317.statusLine8317() } catch (_: Throwable) { "intake8317 -" }) + " " +   // V5.0.8317
             (try { com.lifecyclebot.network.KeylessRpc8359.statusLine8359() } catch (_: Throwable) { "rpcRoute8359 -" }) + " " +   // V5.0.8359
+            (try { HeliusCadence8361.creditsLine8361() } catch (_: Throwable) { "creditsByCaller8361 -" }) + " " +   // V5.0.8361
             (try { com.lifecyclebot.engine.truth.KeylessMarks8359.statusLine8359() } catch (_: Throwable) { "keylessMarks8359 -" }) + " " +
             (try { com.lifecyclebot.network.PumpFunCandles8359.statusLine8359() } catch (_: Throwable) { "pumpCandles8359 -" })
 

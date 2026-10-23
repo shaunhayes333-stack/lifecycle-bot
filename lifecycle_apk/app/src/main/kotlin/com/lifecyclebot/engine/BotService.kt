@@ -11364,11 +11364,9 @@ class BotService : Service() {
         try {
             if (cfg.heliusApiKey.isNotBlank()) {
                 val whaleAddrs = try {
-                    (com.lifecyclebot.perps.InsiderWalletTracker.streamPriorityAddresses7881() +
-                        // V5.0.7277 — the copy list rides the same subscription.
+                    // V5.0.8361 — one subscription: the whales (big moves only) + the daily alpha list (25).
+                    HeliusCadence8361.watchList8361(com.lifecyclebot.perps.InsiderWalletTracker.streamPriorityAddresses7881(),
                         try { copyTradeEngine.getWallets().filter { it.isActive && !it.isPaused }.map { it.address } } catch (_: Throwable) { emptyList() })
-                        .filter { it.isNotBlank() }
-                        .distinct()
                 } catch (_: Exception) { emptyList() }
                 // V5.0.7277 — start even with an empty list: SmartMoneyDiscovery7277
                 // fills the subscription as it promotes wallets (updateWatchlist
@@ -11381,7 +11379,7 @@ class BotService : Service() {
                         // V5.0.7277 — a tracked wallet's BUY becomes a copy signal
                         // straight from the push payload, without a polling scan.
                         try {
-                            val watched7277 = com.lifecyclebot.network.HeliusEnhancedWS.watchedAccounts7277()
+                            val watched7277 = HeliusCadence8361.copyWatched8361(raw7277, com.lifecyclebot.network.HeliusEnhancedWS.watchedAccounts7277())   // V5.0.8361
                             val buys7277 = com.lifecyclebot.network.HeliusPushSwapParser7277.detectBuys(raw7277, watched7277)
                             for (b in buys7277) {
                                 PipelineHealthCollector.labelInc("SMART_MONEY_PUSH_BUY_DETECTED_7277")
@@ -11390,28 +11388,8 @@ class BotService : Service() {
                             // V5.0.7745 — a tracked wallet dumping a mint we hold is an exit signal.
                             smartMoneySellExit7745(com.lifecyclebot.network.HeliusPushSwapParser7277.detectSells(raw7277, watched7277))
                         } catch (_: Throwable) {}
-                        // V5.9.1022 — CRITICAL COST FIX.
-                        // Operator V5.9.1021 snapshot showed 200+ "🐳 PUSH: whale tx X… (0 accounts)"
-                        // events in 4 seconds. Every event was logged AND triggered a
-                        // scanForSignals() call — even with ZERO matching whale accounts.
-                        // The Helius subscription is firing on ALL mainnet txns (filter
-                        // probably mis-attached at WS layer or the parser stopped finding
-                        // accountKeys after key rotation). Each spurious scanForSignals()
-                        // call hits Birdeye+DexScreener+Helius → direct paid-tier credit
-                        // burn (operator just lost $300 AUD this way).
-                        //
-                        // Fix: early-return on empty accounts. The scan ONLY fires when
-                        // at least one of our tracked whale wallets is actually in the
-                        // tx payload. Log is silenced too so logcat is readable.
-                        if (accounts.isEmpty()) return@start
-                        try {
-                            ErrorLogger.info("BotService",
-                                "🐳 PUSH: whale tx ${sig.take(10)}… (${accounts.size} accounts)")
-                            scope.launch {
-                                try { com.lifecyclebot.perps.InsiderWalletTracker.scanForSignals() }
-                                catch (_: Exception) {}
-                            }
-                        } catch (_: Exception) {}
+                        // V5.0.8361 — no holdings scan per push: a whale's big move is read from the push itself
+                        // (HeliusCadence8361 -> WHALE_BIG_*); a small one is dropped without a follow-up read.
                     }
                 }
                 // V5.0.7277 — grow the copy list from the runners this bot has
@@ -11427,7 +11405,7 @@ class BotService : Service() {
                             val insider7277 = try {
                                 com.lifecyclebot.perps.InsiderWalletTracker.streamPriorityAddresses7881()
                             } catch (_: Throwable) { emptyList() }
-                            com.lifecyclebot.network.HeliusEnhancedWS.updateWatchlist((insider7277 + copyWallets7277).filter { it.isNotBlank() }.distinct())
+                            com.lifecyclebot.network.HeliusEnhancedWS.updateWatchlist(HeliusCadence8361.watchList8361(insider7277, copyWallets7277))   // V5.0.8361
                         },
                     )
                 } catch (t: Throwable) {
@@ -21169,6 +21147,8 @@ class BotService : Service() {
                 // tracked Trump/whale wallets and forwards them to the signal
                 // callback wired in onCreate (notifications + log).
                 scope.launch {
+                    // V5.0.8361 — while the push subscription is live, whale moves arrive from it (big ones only).
+                    if (com.lifecyclebot.network.HeliusEnhancedWS.whaleSubLive8361()) { HeliusCadence8361.noteWhaleScanSkipped8361(); return@launch }
                     try {
                         val signals = com.lifecyclebot.perps.InsiderWalletTracker.scanForSignals()
                         if (signals.isNotEmpty()) {

@@ -201,6 +201,9 @@ object HeliusEnhancedWS {
         connect()
     }
 
+    /** V5.0.8361 — the smart-money subscription (whales + alpha list) is acknowledged on an open socket. */
+    fun whaleSubLive8361(): Boolean = running.get() && ws != null && subscriptionId >= 0L
+
     /** V5.0.7277 — so a later discovery can tell whether to start or to update. */
     fun isRunning(): Boolean = running.get()
     fun watchedAccounts7277(): List<String> = watchedAccounts
@@ -373,6 +376,7 @@ object HeliusEnhancedWS {
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            subscriptionId = -1L   // V5.0.8361 — a dead socket holds no subscription (whaleSubLive8361 reads false)
             val msg = t.message ?: ""
             // V5.9.953 — auth-fatal detection. 403 Forbidden means the API
             // key is wrong/restricted; reconnecting every 30s for hours
@@ -415,6 +419,7 @@ object HeliusEnhancedWS {
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            subscriptionId = -1L   // V5.0.8361
             if (running.get()) scheduleReconnect()
         }
     }
