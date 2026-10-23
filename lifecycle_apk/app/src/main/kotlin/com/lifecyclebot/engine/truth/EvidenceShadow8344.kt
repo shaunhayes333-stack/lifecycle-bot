@@ -118,9 +118,12 @@ object EvidenceShadow8344 {
     fun recoveryLine8345(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): String {
         val lanes = (closes.keys + holdRefused8345.keys).toSortedSet()
         if (lanes.isEmpty()) return " recovery8345{-}"
-        val age = if (sinceMs > 0L) nowMs - sinceMs else 0L
         return " recovery8345{" + lanes.joinToString(" · ") { l ->
             val n = proof8344(l, sinceMs).n
+            // V5.0.8351 — the rate is read over the lane's own shadow activity (its first close in the window to now), not
+            // the hold's whole age: 8345 divided 13 shadow closes in 11 min by 511 min and printed a 767-minute ETA.
+            val first = closes[l]?.let { q -> synchronized(q) { q.firstOrNull { it[0] >= sinceMs }?.get(0)?.toLong() } }
+            val age = if (first != null && first > 0L) (nowMs - first).coerceAtLeast(60_000L) else if (sinceMs > 0L) nowMs - sinceMs else 0L
             val cph = closesPerHour8345(n, age)
             "$l n$n/${EvidenceHold8336.MIN_N_8336} closesPerHour=${"%.2f".format(cph)} etaToBarMin=${etaToBarMin8345(n, cph)?.toString() ?: "-"}"
         } + "}"

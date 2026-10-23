@@ -117,6 +117,9 @@ object SpikeCapture7943 {
             try { chartExit7950(ts, px, nowMs, tick8144.tier1Only8144) } catch (_: Throwable) {}
             return px
         }
+        // V5.0.8351 — a lane whose proven choice is a SCALP exits its live positions the scalp way (offered, arbitrated).
+        if (px != null && px > 0.0 && ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate <= FRESH_MARK_MS_7944)
+            try { com.lifecyclebot.engine.truth.ScalpExit8351.offer8351(ts, px, nowMs, sell) } catch (_: Throwable) {}
         if (px != null && px > 0.0 && ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate <= FRESH_MARK_MS_7944) {
             // V5.0.8331 — an un-graduated curve coin's rung reads its own curve print (the lifecycle's mark), never an
             // off-chain poll that happened to be the row's freshest tick (RunnerFunnel8331.rungMarkAuthoritative8331).

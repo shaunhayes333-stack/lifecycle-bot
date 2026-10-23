@@ -86,7 +86,7 @@ object EvidenceHold8336 {
     /** V5.0.8344 — the lane's shadow record behind the live trader (EvidenceShadow8344) unlocks it on the same bar as paper. */
     /** V5.0.8347 — a lane whose best exploration variant (ExploreShadow8347) has proven unlocks too; live then enters that way. */
     fun explorationProven8347(lane: String): Boolean =
-        try { ExploreShadow8347.bestVariant8347(canon(lane), startMs8336) != null } catch (_: Throwable) { false }
+        try { ExploreShadow8347.bestFor8351(canon(lane), startMs8336) != null } catch (_: Throwable) { false }
 
     fun shadowProven8344(lane: String): Boolean = explorationProven8347(lane) ||
         try { EvidenceShadow8344.proof8344(canon(lane), startMs8336).proven } catch (_: Throwable) { false }

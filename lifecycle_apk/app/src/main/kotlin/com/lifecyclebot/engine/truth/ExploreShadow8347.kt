@@ -30,7 +30,8 @@ object ExploreShadow8347 {
     enum class Entry8347 { NOW, PULLBACK, CONFIRM }
     enum class Exit8347 { RUNNER, SCALP }
 
-    const val MAX_TICKETS_8347 = 250
+    const val MAX_TICKETS_8347 = 1_000   // V5.0.8351 — 250 filled in 4 min and skipped ~29,500 (8350)
+    const val MAX_TICKETS_PER_LANE_8351 = 120   // V5.0.8351 — one busy lane cannot starve the rest
     const val TICKET_SOL_8347 = 0.03
     const val REJECT_SAMPLE_PCT_8347 = 10
     const val MIN_N_8347 = 40
@@ -64,6 +65,7 @@ object ExploreShadow8347 {
         val mint: String, val symbol: String, val lane: String, val setup: String, val tactic: String, val scoreBand: String,
         val signalPx: Double, val atMs: Long, val costPct: Double, val stopPct: Double, val armPct: Double,
         val runner: Boolean, val nativeEligible: Boolean, val legs: List<Leg8347>,
+        val band: String = "UNK",   // V5.0.8351 — market-cap band at open, a cohort dimension
     ) {
         var lastPx = signalPx
         var lastPxAtMs = atMs
@@ -132,6 +134,7 @@ object ExploreShadow8347 {
         if (tickets.containsKey(key)) return
         lastOpenAt[key]?.let { if (nowMs - it in 0L until REOPEN_GAP_MS_8347) return }
         if (tickets.size >= MAX_TICKETS_8347) { full.incrementAndGet(); return }
+        if (tickets.values.count { it.lane == lane } >= MAX_TICKETS_PER_LANE_8351) { full.incrementAndGet(); return }
         val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
         val cost = try { NetEdge8030.costPct8030(lane, TICKET_SOL_8347, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
         val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
@@ -141,8 +144,9 @@ object ExploreShadow8347 {
         val band = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(o.score) } catch (_: Throwable) { "" }
         val legs = if (o.eligible) Entry8347.values().flatMap { e -> Exit8347.values().map { x -> Leg8347(e, x) } }
             else listOf(Leg8347(Entry8347.NOW, Exit8347.RUNNER))
+        val mcapBand8351 = try { ForwardReturnLabeler7731.mcapBand(TrustedMcap8019.mcap8019(ts)) } catch (_: Throwable) { "UNK" }
         val t = Ticket8347(ts.mint, ts.symbol, lane, o.setup.ifBlank { "NONE" }, tactic, band, px, nowMs,
-            if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm, runner, o.eligible, legs)
+            if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm, runner, o.eligible, legs, mcapBand8351)
         t.legs.filter { it.entry == Entry8347.NOW }.forEach { it.active = true; it.entryPx = px; it.entryAtMs = nowMs }
         tickets[key] = t
         lastOpenAt[key] = nowMs
@@ -231,18 +235,127 @@ object ExploreShadow8347 {
     private fun close8347(t: Ticket8347, leg: Leg8347, net: Double, why: String, nowMs: Long) {
         leg.dead = true
         val v = "${t.lane}|${leg.entry}|${leg.exit}"
-        val q = books.computeIfAbsent(v) { ArrayDeque() }
-        synchronized(q) {
-            q.addLast(doubleArrayOf(nowMs.toDouble(), net.coerceIn(-100.0, 1_000.0)))
-            while (q.size > MAX_CLOSES_8347) q.removeFirst()
-            try { prefs?.edit()?.putString(v, q.joinToString(";") { "${it[0].toLong()},${"%.3f".format(it[1])}" })?.apply() } catch (_: Throwable) {}
-        }
+        // V5.0.8351 — the variant book, plus three cohort books (setup, market-cap band, native yes / sampled no).
+        bookKey8351(v, net, nowMs)
+        bookKey8351("C|$v|S:${t.setup}", net, nowMs)
+        bookKey8351("C|$v|M:${t.band}", net, nowMs)
+        bookKey8351("C|$v|R:${if (t.nativeEligible) "NATIVE" else "REJECT"}", net, nowMs)
         closed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EXPLORE_SHADOW_CLOSE_8347_${leg.exit}_$why") } catch (_: Throwable) {}
         // Tactics learn from the variant closest to how live enters and exits; native rejects do not attribute a tactic.
         if (t.nativeEligible && leg.entry == Entry8347.NOW && leg.exit == Exit8347.RUNNER && t.scoreBand.isNotBlank()) try {
             com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486(t.lane, t.scoreBand, t.tactic, net)
         } catch (_: Throwable) {}
+    }
+
+    private fun bookKey8351(key: String, net: Double, nowMs: Long) {
+        val q = books.computeIfAbsent(key) { ArrayDeque() }
+        synchronized(q) {
+            q.addLast(doubleArrayOf(nowMs.toDouble(), net.coerceIn(-100.0, 1_000.0)))
+            while (q.size > MAX_CLOSES_8347) q.removeFirst()
+            try { prefs?.edit()?.putString(key, q.joinToString(";") { "${it[0].toLong()},${"%.3f".format(it[1])}" })?.apply() } catch (_: Throwable) {}
+        }
+    }
+
+    // ── V5.0.8351 §TUNE_THE_FAILING_SPECIALISTS_INTO_GREEN — a red lane is usually green somewhere: in one setup, one
+    // market-cap band, one entry / exit. The cohort books find that niche; live then trades the lane ONLY there, with that
+    // niche's entry and exit, while the shadow keeps exploring everything. A cohort needs more proof than a whole variant:
+    // n >= MIN_N_8347, mean - 2 SE above the margin, PF >= 1.4, and BOTH halves of its record (older / newer) positive,
+    // so a burst of luck in one hour cannot open a lane. ──
+
+    const val COHORT_SE_MULT_8351 = 2.0
+    const val COHORT_MIN_PF_8351 = 1.4
+
+    /** Pure: a cohort's proof — the variant bar made stricter, plus older-half and newer-half means both above zero. */
+    fun cohortProof8351(netsInOrder: List<Double>): EvidenceHold8336.Proof8336 {
+        val base = EvidenceHold8336.proof8336(netsInOrder, netsInOrder.map { it * TICKET_SOL_8347 / 100.0 })
+        val half = netsInOrder.size / 2
+        val older = netsInOrder.take(half).filter { it.isFinite() }
+        val newer = netsInOrder.drop(half).filter { it.isFinite() }
+        val consistent = older.isNotEmpty() && newer.isNotEmpty() && older.average() > 0.0 && newer.average() > 0.0
+        val proven = base.n >= MIN_N_8347 && base.meanPct - COHORT_SE_MULT_8351 * base.sePct > MARGIN_PCT_8347 &&
+            base.pf >= COHORT_MIN_PF_8351 && consistent
+        return base.copy(proven = proven)
+    }
+
+    /** A lane's adopted way to trade: entry, exit and (when the proof is a cohort) the niche it is limited to. */
+    data class Choice8351(val entry: Entry8347, val exit: Exit8347, val dim: String?, val value: String?, val proof: EvidenceHold8336.Proof8336) {
+        val label: String get() = "$entry/$exit" + (if (dim != null) " $dim:$value" else "")
+    }
+
+    private fun netsSince(key: String, sinceMs: Long): List<Double> {
+        val q = books[key] ?: return emptyList()
+        return synchronized(q) { q.filter { it[0] >= sinceMs }.map { it[1] } }
+    }
+
+    private val choiceCache8351 = ConcurrentHashMap<String, Pair<Long, Choice8351?>>()
+    private const val CHOICE_CACHE_MS_8351 = 30_000L
+
+    /** The lane's best proven way to trade (a whole variant, or a setup / market-cap-band cohort of one), or null. Cached 30 s. */
+    fun bestFor8351(lane: String, sinceMs: Long): Choice8351? {
+        val l = canon(lane)
+        val now = System.currentTimeMillis()
+        choiceCache8351[l]?.let { (at, c) -> if (now - at in 0L until CHOICE_CACHE_MS_8351) return c }
+        val c = computeBest8351(l, sinceMs)
+        choiceCache8351[l] = now to c
+        return c
+    }
+
+    private fun computeBest8351(l: String, sinceMs: Long): Choice8351? {
+        val out = ArrayList<Choice8351>()
+        for (e in Entry8347.values()) for (x in Exit8347.values()) {
+            val v = "$l|$e|$x"
+            variantProof8347(netsSince(v, sinceMs)).takeIf { it.proven }?.let { out += Choice8351(e, x, null, null, it) }
+            val prefix = "C|$v|"
+            for (k in books.keys) {
+                if (!k.startsWith(prefix)) continue
+                val tail = k.removePrefix(prefix)
+                val dim = tail.substringBefore(':'); val value = tail.substringAfter(':')
+                if (dim == "R") continue                      // native yes / sampled no is a diagnostic, never a live niche
+                if (value == "NONE" || value == "UNK" || value == "DATA_INCOMPLETE" || value == "NO_TRIGGER") continue
+                cohortProof8351(netsSince(k, sinceMs)).takeIf { it.proven }?.let { out += Choice8351(e, x, dim, value, it) }
+            }
+        }
+        // A whole-variant proof beats a niche of equal strength (it trades more); otherwise the strongest lower bound wins.
+        return out.maxByOrNull { (it.proof.meanPct - COHORT_SE_MULT_8351 * it.proof.sePct) + (if (it.dim == null) 0.5 else 0.0) }
+    }
+
+    /** Pure: does a candidate (its setup, its market-cap band) sit inside [c]'s niche? A whole-variant choice admits all. */
+    fun inNiche8351(c: Choice8351, setup: String?, band: String?): Boolean = when (c.dim) {
+        null -> true
+        "S" -> setup != null && setup.equals(c.value, ignoreCase = true)
+        "M" -> band != null && band.equals(c.value, ignoreCase = true)
+        else -> true
+    }
+
+    /**
+     * Entry8114Mode8326.decide8326, after a LIVE admit: when the lane is unlocked by a NICHE, a candidate outside it is
+     * refused (NICHE_ONLY_8351_<lane>). The shadow keeps exploring every candidate either way.
+     */
+    fun nicheRefusal8351(ts: TokenState, lane: String, sinceMs: Long): String? {
+        val c = bestFor8351(lane, sinceMs) ?: return null
+        if (c.dim == null) return null
+        val setup = try { com.lifecyclebot.engine.SpecialistBrainBridge7542.evaluate(ts).opinions.entries
+            .firstOrNull { canon(it.key) == canon(lane) }?.value?.setup } catch (_: Throwable) { null }
+        val band = try { ForwardReturnLabeler7731.mcapBand(TrustedMcap8019.mcap8019(ts)) } catch (_: Throwable) { null }
+        if (inNiche8351(c, setup, band)) return null
+        try { PipelineHealthCollector.labelInc("NICHE_ONLY_8351_${canon(lane)}") } catch (_: Throwable) {}
+        return "NICHE_ONLY_8351_${canon(lane)}_${c.dim}:${c.value}"
+    }
+
+    /** The exit style live adopts for [lane] (SCALP only when a SCALP choice has proven), else null = the lane doctrine. */
+    fun liveExitStyle8351(lane: String, sinceMs: Long): Exit8347? = bestFor8351(lane, sinceMs)?.exit?.takeIf { it == Exit8347.SCALP }
+
+    /**
+     * Pure: is the lane's own native filter inverted? Its sampled NOs (R:REJECT) beat its YESes (R:NATIVE) on the
+     * NOW / RUNNER variant by more than [gapPct] with at least [minN] closes each.
+     */
+    fun filterInverted8351(nativeNets: List<Double>, rejectNets: List<Double>, minN: Int = 20, gapPct: Double = 5.0): Boolean =
+        nativeNets.size >= minN && rejectNets.size >= minN && rejectNets.average() - nativeNets.average() > gapPct
+
+    fun inverted8351(lane: String, sinceMs: Long): Boolean {
+        val v = "${canon(lane)}|${Entry8347.NOW}|${Exit8347.RUNNER}"
+        return filterInverted8351(netsSince("C|$v|R:NATIVE", sinceMs), netsSince("C|$v|R:REJECT", sinceMs))
     }
 
     // ── self-correction ──
@@ -267,8 +380,8 @@ object ExploreShadow8347 {
      * CONFIRM, the live entry waits for that condition (the first admit's mark is the signal). Null = buy now.
      */
     fun liveEntryWait8347(ts: TokenState, lane: String, sinceMs: Long, nowMs: Long = System.currentTimeMillis()): String? {
-        val best = bestVariant8347(lane, sinceMs) ?: return null
-        val entry = best.first.first
+        // V5.0.8351 — the adopted choice (a variant or a niche) sets the entry; outside a niche nicheRefusal8351 already refused.
+        val entry = bestFor8351(lane, sinceMs)?.entry ?: return null
         if (entry == Entry8347.NOW) return null
         val px = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: return "ENTRY_TIMING_NO_MARK_8347"
         val key = "${ts.mint}|${canon(lane)}"
@@ -290,12 +403,13 @@ object ExploreShadow8347 {
     }
 
     fun statusLine8347(sinceMs: Long): String {
-        val lanes = books.keys.map { it.substringBefore('|') }.toSortedSet().joinToString(" · ") { l ->
+        val lanes = books.keys.filter { !it.startsWith("C|") }.map { it.substringBefore('|') }.toSortedSet().joinToString(" · ") { l ->
             val cells = Entry8347.values().flatMap { e -> Exit8347.values().map { x -> Triple(e, x, variantRecord8347(l, e, x, sinceMs)) } }
                 .filter { it.third.n > 0 }
                 .joinToString(",") { (e, x, p) -> "${e.name.take(4)}/${x.name.take(4)} n${p.n} ${"%+.1f".format(p.meanPct)}%${if (p.proven) "*" else ""}" }
-            val best = bestVariant8347(l, sinceMs)?.first?.let { "${it.first}/${it.second}" } ?: "-"
-            "$l best=$best [$cells]"
+            val best = bestFor8351(l, sinceMs)?.label ?: "-"
+            val inv = if (inverted8351(l, sinceMs)) " FILTER_INVERTED" else ""
+            "$l adopt=$best$inv [$cells]"
         }.ifBlank { "no exploration closes yet" }
         return "exploreShadow8347[tickets=${tickets.size}/$MAX_TICKETS_8347 opened=${opened.get()} legsClosed=${closed.get()} full=${full.get()} " +
             "rejectSample=$REJECT_SAMPLE_PCT_8347% bar=n>=$MIN_N_8347,mean-1.5se>$MARGIN_PCT_8347%,pf>=$MIN_PF_8347 (* = proven) | $lanes]"

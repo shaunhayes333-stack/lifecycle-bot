@@ -132,7 +132,10 @@ object Entry8114Mode8326 {
             ?: try { EvidenceHold8336.refusal8336(ts, l, paper8336, nowMs) } catch (_: Throwable) { null }
         val final0_8347 = finalVerdict8326(old.reason, now, realised)
         // V5.0.8347 — a LIVE admit enters the way the lane's best proven exploration variant does (pullback / confirm wait).
-        val final = final0_8347 ?: (if (paper8336) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null })
+        // V5.0.8351 — a lane unlocked by a niche trades only inside it; then it enters the niche's proven way.
+        val final = final0_8347
+            ?: (if (paper8336) null else try { ExploreShadow8347.nicheRefusal8351(ts, l, EvidenceHold8336.startMs8336) } catch (_: Throwable) { null })
+            ?: (if (paper8336) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null })
         if (now != null && final == null) noteBypass8326(gateKey8326(now), l)
         if (old.reason != null && final == now && now != null && now != old.reason) try { PipelineHealthCollector.labelInc("ENTRY8114_CURRENT_HARD_REFUSAL_BINDS_8326_$l") } catch (_: Throwable) {}
         fileFinal8326(ts, l, old, final, nowMs)

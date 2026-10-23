@@ -1,0 +1,63 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * V5.0.8351 §LIVE_SCALP_WHERE_SCALPS_PROVED — a lane whose adopted choice (ExploreShadow8347.bestFor8351) proved on the
+ * SCALP exit trades its LIVE positions the same way the shadow did: +15 % sells half, +30 % sells the rest, a stop at
+ * 60 % of the lane stop (never under 4 %), a give-back floor once the peak passes +10 % (half the peak, never under the
+ * round trip), and a 10-minute clock. Every other lane keeps the lane doctrine. The decision is fixed per position at its
+ * first mark (a lane that changes its choice mid-hold does not change this position's exit).
+ * Offered through the per-tick arbitration (ExitTruthArbiterLive8144.Tick8144), so protective exits still outrank it.
+ */
+object ScalpExit8351 {
+    const val TP1_PCT_8351 = 15.0
+    const val TP2_PCT_8351 = 30.0
+    const val FLOOR_ARM_PCT_8351 = 10.0
+    const val CLOCK_MS_8351 = 10 * 60_000L
+
+    private class State8351(val scalp: Boolean, val costPct: Double, val stopPct: Double) { var tier = 0 }
+    private val states = ConcurrentHashMap<String, State8351>()
+
+    /** Pure: the scalp exit for gross [g] at peak [peak] and position age [ageMs]: (fraction of the holding, reason) or null. */
+    fun decide8351(g: Double, peak: Double, ageMs: Long, tier: Int, stopPct: Double, costPct: Double): Pair<Double, String>? {
+        if (!g.isFinite()) return null
+        val stop = (stopPct * 0.6).coerceAtLeast(4.0)
+        if (g <= -stop) return 1.0 to "SCALP_HARD_STOP_8351"
+        if (tier == 0 && g >= TP1_PCT_8351) return 0.5 to "SCALP_TAKE_PROFIT_8351_T1"
+        if (tier <= 1 && g >= TP2_PCT_8351) return 1.0 to "SCALP_TAKE_PROFIT_8351_T2"
+        if (peak >= FLOOR_ARM_PCT_8351) {
+            val floor = maxOf((if (costPct.isFinite()) costPct else 0.0).coerceAtMost(peak * 0.5), peak * 0.5)
+            if (g <= floor) return 1.0 to "SCALP_PROFIT_LOCK_8351"
+        }
+        if (ageMs >= CLOCK_MS_8351) return 1.0 to "SCALP_TIME_8351"
+        return null
+    }
+
+    /** SpikeCapture7943's per-tick offers: a live position in a SCALP lane offers its scalp exit. */
+    fun offer8351(ts: TokenState, px: Double?, nowMs: Long, offer: (TokenState, Double, String) -> Unit) {
+        val pos = ts.position
+        if (!pos.isOpen || pos.isPaperPosition || pos.entryTime <= 0L || !(pos.entryPrice > 0.0)) return
+        if (px == null || !(px > 0.0)) return
+        val key = "${ts.mint}|${pos.entryTime}"
+        val st = states.getOrPut(key) {
+            val lane = pos.tradingMode.ifBlank { "UNKNOWN" }
+            val scalp = try { ExploreShadow8347.liveExitStyle8351(lane, EvidenceHold8336.startMs8336) == ExploreShadow8347.Exit8347.SCALP } catch (_: Throwable) { false }
+            val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
+            val cost = try { NetEdge8030.costPct8030(lane, pos.costSol, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { 7.0 }
+            val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
+            if (scalp) try { PipelineHealthCollector.labelInc("SCALP_EXIT_ADOPTED_8351_${lane.uppercase()}") } catch (_: Throwable) {}
+            State8351(scalp, cost, stop)
+        }
+        if (states.size > 2_000) states.clear()   // positions are few; a cleared state re-reads its lane choice next tick
+        if (!st.scalp) return
+        val g = (px / pos.entryPrice - 1.0) * 100.0
+        val peak = if (pos.highestPrice > 0.0) (pos.highestPrice / pos.entryPrice - 1.0) * 100.0 else g
+        val d = decide8351(g, maxOf(peak, g), nowMs - pos.entryTime, st.tier, st.stopPct, st.costPct) ?: return
+        if (d.second.endsWith("_T1")) st.tier = 1
+        if (d.second.endsWith("_T2")) st.tier = 2
+        offer(ts, d.first, d.second)
+    }
+}

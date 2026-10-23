@@ -508,8 +508,13 @@ object AutoPipelineAdvisor6462 {
             abstains = neutral6898(b.sentienceMult))
         // These two are genuine booleans, not multipliers — they always have a
         // position, so neither can abstain.
-        voteFor("BrainConsensusGate",         defensive = b.provenDead, weight = 1.4)
-        voteFor("RiskExitPriorityDomain6461", defensive = b.riskLatencyPressure > 0.5, weight = 1.0)
+        // V5.0.8351 — an alarm votes; its absence is no opinion. 8350's timeline: every row carried the same four votes
+        // (MetaCo +1.0, Sentie -0.6, BrainC -1.4, RiskEx -1.0) because provenDead is a text scan that stays true and the
+        // risk boolean always "has a position", so agreement was only the delta's direction (every tightening 0.75, every
+        // loosening 0.25) and the advisor applied a standing tightening bias. BrainConsensusGate's dump scan abstains;
+        // RiskExit votes only while latency pressure is actually high.
+        voteFor("BrainConsensusGate",         defensive = b.provenDead, weight = 1.4, abstains = true)
+        voteFor("RiskExitPriorityDomain6461", defensive = true, weight = 1.0, abstains = b.riskLatencyPressure <= 0.5)
 
         // Special: if the rule is inherently defensive-only (severity=high +
         // negative delta on size/latency keys), force an agreement bonus.
@@ -547,7 +552,13 @@ Re-rank / adjust these candidates. You MAY:
   - Add a new candidate from the report (must use one of: $allow).
   - Downgrade severity.
 You MUST NOT invent parameter names or flip a defensive suggestion
-into a loosening one. Respond with pure JSON:
+into a loosening one.
+These refusal labels are the bot working AS DESIGNED and are NOT faults to tune away:
+  EVIDENCE_HOLD_8336 (live held until the lane proves itself in shadow), ENTRY_TIMING_WAIT_8347 (waiting for the
+  lane's proven pullback / confirm entry), NICHE_ONLY_8351 (lane trades only its proven niche), LEGACY_8114_REFUSED,
+  HARD_SAFETY, EXPLORE_SHADOW_* and EVIDENCE_SHADOW_*. Never propose a change whose purpose is to let more candidates
+  past these. Ground every change in realised live closes or the shadow books (Evidence shadow / Explore shadow lines).
+Respond with pure JSON:
 {"candidates":[{"key":"...","delta":<num>,"severity":"high|med|low","reason":"..."}]}
         """.trimIndent()
         val reply = try {
