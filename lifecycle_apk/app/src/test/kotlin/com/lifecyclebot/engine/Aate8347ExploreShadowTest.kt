@@ -13,7 +13,11 @@ class Aate8347ExploreShadowTest {
     }
 
     @Test fun rejectSampleIsDeterministicAndRoughlyTenPercent() {
-        val hits = (0 until 2_000).count { ExploreShadow8347.sampled8347("mint$it", "SHITCOIN") }
+        // superseded by V5.0.8360 — every non-safety reject opens (REJECT_SAMPLE_PCT_8347 = 100); the sampler itself is
+        // unchanged and still deterministic at any percentage, so the 10 % behaviour is pinned with an explicit pct.
+        assertEquals(100, ExploreShadow8347.REJECT_SAMPLE_PCT_8347)
+        assertTrue((0 until 2_000).all { ExploreShadow8347.sampled8347("mint$it", "SHITCOIN") })
+        val hits = (0 until 2_000).count { ExploreShadow8347.sampled8347("mint$it", "SHITCOIN", 10) }
         assertTrue("$hits", hits in 120..280)
         assertEquals(ExploreShadow8347.sampled8347("abc", "MOONSHOT"), ExploreShadow8347.sampled8347("abc", "MOONSHOT"))
     }

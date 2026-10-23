@@ -133,6 +133,7 @@ object EvidenceShadow8344 {
     private val holdRefused8345 = ConcurrentHashMap<String, AtomicLong>()     // lane -> hold refusals seen by the decision
     private val skipped8345 = ConcurrentHashMap<String, AtomicLong>()         // lane:why -> count
     private val openedBySource8345 = ConcurrentHashMap<String, AtomicLong>()  // source -> opens
+    private val markSrc8360 = ConcurrentHashMap<String, AtomicLong>()         // V5.0.8360 — entry-mark source -> opens
 
     /** Entry8114Mode8326.decide8326: the hold refused [lane]'s candidate; the decision's other verdicts say whether the book may take it. */
     fun noteHoldRefusal8345(lane: String, legacyRefused: Boolean, hardSafetyBinds: Boolean) {
@@ -231,7 +232,12 @@ object EvidenceShadow8344 {
             val lastAt = lastOpenAt[key]
             if (lastAt != null && nowMs - lastAt in 0L until REOPEN_GAP_MS_8344) { skip8345(lane, SKIP_REOPEN_GAP_8345); return }
             if (open.size >= MAX_OPEN_8344) { skippedFull.incrementAndGet(); skip8345(lane, SKIP_FULL_8345); return }
-            val tape = try { ForwardReturnLabeler7731.markFor7948(mint, { null }, nowMs) } catch (_: Throwable) { null }
+            // V5.0.8360 — the fallback reads every observed mark the tick can (ShadowMark8360: the tick price under 60 s, the
+            // labeler's registry / off-watch / curve mark, an active curve's reserves, the tape's last print), recording which
+            val lab8360 = try { ForwardReturnLabeler7731.markFor7948(mint, { null }, nowMs) } catch (_: Throwable) { null }
+            val obs8360 = if (lab8360 != null && lab8360.isFinite() && lab8360 > 0.0) Pair(lab8360, ShadowMark8360.SRC_LABELER_8360)
+                else (try { ShadowMark8360.observed8360(ts, mint, nowMs) } catch (_: Throwable) { null })
+            val tape = obs8360?.first
             val mark = entryMark8345(ts.lastPrice, ts.lastPriceUpdate, nowMs, tape)
             if (mark == null) {
                 skip8345(lane, if (ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && ts.lastPriceUpdate > 0L) SKIP_STALE_PRICE_8345 else SKIP_NO_PRICE_8345)
@@ -239,6 +245,7 @@ object EvidenceShadow8344 {
             }
             val px = mark.first
             if (mark.second) try { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_${OPEN_FROM_TAPE_MARK_8345}_8345") } catch (_: Throwable) {}
+            markSrc8360.computeIfAbsent(if (mark.second) (obs8360?.second ?: "?") else ShadowMark8360.SRC_TICK_8360) { AtomicLong(0) }.incrementAndGet()   // V5.0.8360
             val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
             val cost = try { NetEdge8030.costPct8030(lane, TICKET_SOL_8344, liq, mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
             val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
@@ -264,7 +271,7 @@ object EvidenceShadow8344 {
 
     internal fun resetForTests8345() {
         open.clear(); lastOpenAt.clear(); closes.clear(); opened.set(0); closedN.set(0); skippedFull.set(0)
-        holdRefused8345.clear(); skipped8345.clear(); openedBySource8345.clear()
+        holdRefused8345.clear(); skipped8345.clear(); openedBySource8345.clear(); markSrc8360.clear()   // V5.0.8360
         restored8355.set(0); lostOnRestore8355.set(0); expiredOnRestore8355.set(0)   // V5.0.8355
     }
 
@@ -279,6 +286,7 @@ object EvidenceShadow8344 {
                 val ts = tokens[mint]
                 val fresh = ts?.takeIf { it.lastPriceUpdate > 0L && nowMs - it.lastPriceUpdate <= 45_000L }?.lastPrice?.takeIf { it > 0.0 }
                     ?: ForwardReturnLabeler7731.markFor7948(mint, { null }, nowMs)?.takeIf { it > 0.0 }
+                    ?: (try { ShadowMark8360.observed8360(ts, mint, nowMs)?.first } catch (_: Throwable) { null })   // V5.0.8360 — the same observed marks the open may price on
                 if (fresh != null) { p.lastPx = fresh; p.lastPxAtMs = nowMs; p.noMarkSinceRestore8355 = false }
                 val g = (p.lastPx / p.entryPx - 1.0) * 100.0
                 if (!g.isFinite()) { done += mint; continue }
@@ -352,6 +360,7 @@ object EvidenceShadow8344 {
         return "evidenceShadow8344[open=${open.size}/$MAX_OPEN_8344 ($openByLane) opened=${opened.get()} closed=${closedN.get()} full=${skippedFull.get()} " +
             "restored8355=${restored8355.get()} lostOnRestore8355=${lostOnRestore8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} " +
             "exits=lane stop+spike tiers+give-back floor+timeout cost=NetEdge8030 @${TICKET_SOL_8344}SOL | $lanes" +
-            " holdRefused{${countLine8345(held)}} openedBy{${countLine8345(bySource)}} skipped{${countLine8345(skipped)}}" + recoveryLine8345(sinceMs, nowMs) + "]"
+            " holdRefused{${countLine8345(held)}} openedBy{${countLine8345(bySource)}} skipped{${countLine8345(skipped)}}" +
+            " entryMark8360{${countLine8345(markSrc8360.mapValues { it.value.get() })}}" + recoveryLine8345(sinceMs, nowMs) + "]"
     }
 }

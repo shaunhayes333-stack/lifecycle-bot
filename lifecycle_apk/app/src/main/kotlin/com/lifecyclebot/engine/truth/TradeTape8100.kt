@@ -409,6 +409,14 @@ object TradeTape8100 {
         return freed
     }
 
+    /** V5.0.8360 — the newest observed price on [mint]'s tape (SOL per token, its event time): an executed print or a
+     *  pool-state price, never synthesised; null when the tape holds none. ShadowMark8360 ages it. */
+    fun lastPrint8360(mint: String): Pair<Double, Long>? {
+        val q = tapes[mint] ?: return null
+        val t = synchronized(q) { q.lastOrNull() } ?: return null
+        return if (t.priceSol.isFinite() && t.priceSol > 0.0 && t.atMs > 0L) t.priceSol to t.atMs else null
+    }
+
     internal fun resetForTest8100() {
         tapes.clear(); notes.set(0); reads.set(0); filled.set(0); bySource8169.clear()
         seenSig8285.clear(); lastSigned8285.clear(); latency8285.clear(); noEventTs8285.clear()

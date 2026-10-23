@@ -40,6 +40,9 @@ object ShadowPersist8355 {
         val mint: String, val symbol: String, val lane: String, val setup: String, val tactic: String, val scoreBand: String,
         val band: String, val signalPx: Double, val atMs: Long, val costPct: Double, val stopPct: Double, val armPct: Double,
         val runner: Boolean, val nativeEligible: Boolean, val lastPx: Double, val lastPxAtMs: Long, val legs: List<LegRec8355>,
+        // V5.0.8360 — the ticket's kind (NATIVE / REJECT / SETUP) and the source that priced its entry; appended fields, so a
+        // pre-8360 record (19 fields) still decodes ("" = derive the kind from nativeEligible).
+        val kind8360: String = "", val markSrc8360: String = "",
     )
 
     /** One liveEntryWait8347 wait: the first admit's time and mark for mint|lane. */
@@ -111,6 +114,7 @@ object ShadowPersist8355 {
         VERSION_8355, "T", clean(r.mint), clean(r.symbol), clean(r.lane), clean(r.setup), clean(r.tactic), clean(r.scoreBand), clean(r.band),
         d(r.signalPx), r.atMs.toString(), d(r.costPct), d(r.stopPct), d(r.armPct), b(r.runner), b(r.nativeEligible),
         d(r.lastPx), r.lastPxAtMs.toString(), r.legs.joinToString(LEG_SEP.toString()) { encodeLeg(it) },
+        clean(r.kind8360), clean(r.markSrc8360),   // V5.0.8360
     ).joinToString(F.toString())
 
     fun decodeTicket8355(s: String?): TicketRec8355? {
@@ -131,6 +135,7 @@ object ShadowPersist8355 {
             signalPx = signalPx, atMs = atMs, costPct = pd(p[11]) ?: return null, stopPct = pd(p[12]) ?: return null,
             armPct = pd(p[13]) ?: return null, runner = pb(p[14]) ?: return null, nativeEligible = pb(p[15]) ?: return null,
             lastPx = pd(p[16]) ?: return null, lastPxAtMs = pl(p[17]) ?: return null, legs = legs,
+            kind8360 = p.getOrNull(19) ?: "", markSrc8360 = p.getOrNull(20) ?: "",   // V5.0.8360
         )
     }
 
