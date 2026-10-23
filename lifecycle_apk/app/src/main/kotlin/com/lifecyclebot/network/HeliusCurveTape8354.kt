@@ -281,13 +281,13 @@ object HeliusCurveTape8354 {
             malformed.incrementAndGet(); return false
         }
         if (!cares8354(mint, nowMs)) { dropped.incrementAndGet(); return false }
-        kept.incrementAndGet()
         // What the PumpPortal frame wrote: the curve's reserves (price, real SOL, the 8346 liquidity tick).
         try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, ev.virtualSol, ev.virtualTokens) } catch (_: Throwable) {}
         val priceSol = ev.virtualSol / ev.virtualTokens
         if (!priceSol.isFinite() || priceSol <= 0.0) { malformed.incrementAndGet(); return false }
         val key = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(mint, sig, ev.user, ev.isBuy, ev.sol, ev.virtualSol, ev.virtualTokens)
         if (!com.lifecyclebot.engine.truth.LaunchEvidence8136.noteSwap8136(mint, key)) { duplicates.incrementAndGet(); return false }
+        kept.incrementAndGet()   // V5.0.8356 — a kept print is one that passed the dedup, not one that merely passed the filter
         // The mark (band entry, position mark, candles) and the detail (launch tape, candles) PumpFunWS's frame fires.
         val mcapSol = priceSol * com.lifecyclebot.engine.truth.PumpBandEntry8118.PUMP_CURVE_SUPPLY_8136
         try { PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, ev.virtualSol) } catch (_: Throwable) {}
