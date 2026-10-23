@@ -229,7 +229,8 @@ class Aate8153StrategyTest {
             bindingEvidence = AdmissionRunnerTrace8144.evidenceLine8153("MOONSHOT", 0.0, "", "", "")))
         assertEquals(Miss8144.WRONGLY_REFUSED, r.miss)
         assertEquals("LIQ_UNREAD_REFUSED_AS_LOW:LOW_LIQ_7300", r.gate)
-        assertTrue(src("engine/truth/FreshLaunchSelector7737.kt").contains("allInCostPct(StrategyMove8153.probeSizeUsd8153(ts.lastLiquidityUsd), ts.lastLiquidityUsd)"))
+        // superseded by V5.0.8350 — grades price on the depth a curve trades against (allInCostPct8350); fresh books cells_8350
+        assertTrue(src("engine/truth/FreshLaunchSelector7737.kt").contains("allInCostPct8350(StrategyMove8153.probeSizeUsd8153(ts.lastLiquidityUsd), ts.lastLiquidityUsd, ts.mint)"))
         assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("listOf(\"liquidity:UNKNOWN\")"))
     }
 

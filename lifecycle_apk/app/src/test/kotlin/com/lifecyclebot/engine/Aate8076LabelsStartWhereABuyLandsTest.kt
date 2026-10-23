@@ -12,7 +12,8 @@ class Aate8076LabelsStartWhereABuyLandsTest {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(f.contains("REBASE_MIN_MS_8076 = 5_000L"))
         assertTrue(f.contains("if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {"))
-        assertTrue(f.contains("CELLS_KEY_7946 = \"cells_8076\""))
+        // superseded by V5.0.8350 — grades price on the depth a curve trades against (allInCostPct8350); fresh books cells_8350
+        assertTrue(f.contains("CELLS_KEY_7946 = \"cells_8350\""))
         assertTrue(src("engine/truth/HiveEdge8000.kt").contains("\"hive_edge_8076\""))
     }
 

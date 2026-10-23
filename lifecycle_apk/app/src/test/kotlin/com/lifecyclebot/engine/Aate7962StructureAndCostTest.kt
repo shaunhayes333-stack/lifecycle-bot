@@ -125,6 +125,7 @@ class Aate7962StructureAndCostTest {
         // Labels: measured cost replaces the estimate; the chase is still added once.
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(lab.contains("CostLedger7962.costOr7962(l, Double.NaN,") && lab.contains("EntryChase7961.lanePenaltyPct7961(l)"))
-        assertTrue(src("engine/truth/FieldManual7715.kt").contains("CostLedger7962.costOr7962(lane, size, allInCostPct(sizeUsd, liq))"))
+        // superseded by V5.0.8350 — grades price on the depth a curve trades against (allInCostPct8350); fresh books cells_8350
+        assertTrue(src("engine/truth/FieldManual7715.kt").contains("CostLedger7962.costOr7962(lane, size, allInCostPct8350(sizeUsd, liq, ts.mint))"))
     }
 }
