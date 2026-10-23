@@ -109,30 +109,13 @@ object OnChainHolderConcentration7379 {
         return pct
     }
 
+    /**
+     * V5.0.8359 — holder share is a market read: keyless public nodes first, Helius only behind them, and getTokenSupply /
+     * getTokenLargestAccounts come from the shared per-mint cache (10 min / 60 s) every caller reads (KeylessRpc8359).
+     */
     private fun rpc(method: String, params: JSONArray): JSONObject? {
-        val helius = RuntimeProviderAuthority6685.configuredHeliusRpc()
-        val endpoints = LinkedHashSet<String>().apply {
-            if (helius.isNotBlank()) add(helius)
-            addAll(RuntimeProviderAuthority6685.rpcCandidates())
-        }.take(4)
-        val body = JSONObject().put("jsonrpc", "2.0").put("id", "holders-7379")
-            .put("method", method).put("params", params).toString()
-        for (rpc in endpoints) {
-            val key = if (rpc.contains("helius", true)) "helius" else
-                "solana_rpc:" + (try { java.net.URI(rpc).host } catch (_: Throwable) { null } ?: rpc)
-            if (ApiBackoff.isLockedOut(key)) continue
-            try {
-                val req = Request.Builder().url(rpc)
-                    .post(body.toRequestBody("application/json".toMediaType())).build()
-                HealthAwareHttp.execute(http, req, host = key).use { resp ->
-                    if (!resp.isSuccessful) return@use
-                    val json = JSONObject(resp.body?.string().orEmpty())
-                    if (json.has("error")) return@use
-                    json.optJSONObject("result")?.let { return it }
-                }
-            } catch (_: Throwable) { /* next endpoint */ }
-        }
-        return null
+        val mintKey8359 = if (method == "getTokenSupply" || method == "getTokenLargestAccounts") params.optString(0, "").ifBlank { null } else null
+        return com.lifecyclebot.network.KeylessRpc8359.post8359(http, method, params, "holders-7379", maxRungs = 4, cacheKey = mintKey8359)
     }
 
     // ── ed25519: is this 32-byte public key a point on the curve? ──────────────

@@ -161,25 +161,9 @@ object OnChainDepth8038 {
             .callTimeout(BLOCKING_TIMEOUT_S, TimeUnit.SECONDS).build()
     }
 
-    private fun rungs(): List<String> = try {
-        com.lifecyclebot.engine.RuntimeProviderAuthority6685.rpcCandidates().take(2)
-    } catch (_: Throwable) { emptyList() }
-
-    private fun rpc(method: String, params: JSONArray): JSONObject? {
-        val body = JSONObject().put("jsonrpc", "2.0").put("id", 8038).put("method", method).put("params", params).toString()
-        for (url in rungs()) {
-            val label = if (url.contains("helius", true)) "helius" else "solana_rpc"
-            try {
-                val req = Request.Builder().url(url).post(body.toRequestBody("application/json".toMediaType())).build()
-                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, label).use { r ->
-                    if (r.header(com.lifecyclebot.network.HostCircuitInterceptor.SYNTHETIC_HEADER_6969) != null || !r.isSuccessful) return@use null
-                    val j = try { JSONObject(r.body?.string().orEmpty()) } catch (_: Throwable) { null }
-                    if (j == null || j.has("error")) null else j.optJSONObject("result")
-                }?.let { return it }
-            } catch (_: Throwable) {}
-        }
-        return null
-    }
+    // V5.0.8359 — pool vault depth is a market read: keyless public nodes first, Helius only behind them (KeylessRpc8359).
+    private fun rpc(method: String, params: JSONArray): JSONObject? =
+        com.lifecyclebot.network.KeylessRpc8359.post8359(http, method, params, "8038", maxRungs = 3)
 
     private fun vaultsFor(poolAddr: String): Pair<String, String>? {
         vaultsOf[poolAddr]?.let { return it }

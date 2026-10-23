@@ -74,6 +74,12 @@ object OhlcvRoute8332 {
         }
     }
 
+    /** V5.0.8359 — a per-mint "no pool listed" answer: counted, never a zero-bar answer of the source. */
+    fun notePoolMiss8359(source: String) {
+        poolMisses8359.computeIfAbsent(source) { AtomicLong(0L) }.incrementAndGet()
+    }
+    private val poolMisses8359 = ConcurrentHashMap<String, AtomicLong>()
+
     fun dead8332(source: String): Boolean = (sources[source]?.deadSinceMs ?: 0L) > 0L
 
     /** Milliseconds until a dead source may be probed (0 = not dead, or a probe is due now). Does not claim the probe. */
@@ -126,10 +132,11 @@ object OhlcvRoute8332 {
             "${it.key}=${(nowMs - it.value.deadSinceMs) / 1000L}s(probes=${it.value.probes},nextProbeS=${((it.value.nextProbeMs - nowMs) / 1000L).coerceAtLeast(0L)})"
         }.ifBlank { "none" }
         val streaks = sources.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.zeroStreak}/${it.value.answers.get()}" }.ifBlank { "none" }
-        return "ohlcvRoute8332[source=$lastSource, bars{$bars}, deadSince{$dead}, zeroStreak{$streaks}, routedAroundDead=${routedAroundDead.get()}]"
+        val misses = poolMisses8359.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
+        return "ohlcvRoute8332[source=$lastSource, bars{$bars}, deadSince{$dead}, zeroStreak{$streaks}, routedAroundDead=${routedAroundDead.get()}, poolMiss8359{$misses}]"
     }
 
     internal fun resetForTest8332() {
-        sources.clear(); routedBars.clear(); stamps.clear(); routedAroundDead.set(0L); lastSource = "-"
+        sources.clear(); routedBars.clear(); stamps.clear(); routedAroundDead.set(0L); lastSource = "-"; poolMisses8359.clear()
     }
 }

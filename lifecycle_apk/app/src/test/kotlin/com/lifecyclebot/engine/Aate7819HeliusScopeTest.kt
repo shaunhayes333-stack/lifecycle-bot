@@ -105,6 +105,7 @@ class Aate7819HeliusScopeTest {
         assertTrue(o.contains("p.assetClass == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN"))
         val f = src("network/ParallelMarkFanout7088.kt")
         assertTrue(f.contains("solMints7819.chunked(100)"))
-        assertTrue(f.contains("HeliusSolanaScope7819.solanaMintsOnly7819(mints).mapNotNull"))
+        // superseded by V5.0.8359 — the same Solana-only scope, applied to the held mints plus the shadow books' wanted curves
+        assertTrue(f.contains("HeliusSolanaScope7819.solanaMintsOnly7819(mints8359).mapNotNull"))
     }
 }

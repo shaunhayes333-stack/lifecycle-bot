@@ -474,7 +474,8 @@ object OnChainSupplyAuthority7075 {
         val url = rpcUrl
         if (url.isBlank()) return emptyList()
         return (try {
-            com.lifecyclebot.engine.RuntimeProviderAuthority6685.rpcCandidates(url)   // V5.0.8272 — whole ladder; the budget is applied after lockout selection
+            // superseded by V5.0.8359 — supply is a market read: the whole ladder, keyless public nodes first (was rpcCandidates(url), Helius first)
+            com.lifecyclebot.engine.RuntimeProviderAuthority6685.marketReadCandidates8359(url, "getTokenSupply")   // V5.0.8272 — whole ladder; the budget is applied after lockout selection
         } catch (_: Throwable) { listOf(url) }).ifEmpty { listOf(url) }
     }
 
@@ -487,6 +488,13 @@ object OnChainSupplyAuthority7075 {
 
     private fun fetchSupplyFrom7809(mint: String, url: String, label: String): Pair<Outcome7116, Double?> {
         if (url.isBlank()) return Outcome7116.DECLINED to null
+        // V5.0.8359 — the shared per-mint supply answer (KeylessRpc8359, 10 min) is read before any rung is asked, and a
+        // keyless rung whose host governor is closed is declined locally (nothing on the wire, not a provider fact).
+        com.lifecyclebot.network.KeylessRpc8359.supplyCache8359.get8359(mint, System.currentTimeMillis())?.let { cached8359 ->
+            com.lifecyclebot.network.KeylessRpc8359.noteCacheHit8359()
+            return supplyFromValue8359(cached8359.optJSONObject("value"))
+        }
+        if (!com.lifecyclebot.network.KeylessRpc8359.beforeCall8359(url)) return Outcome7116.DECLINED to null
         // V5.0.7809 — `confirmed`, not the node default `finalized`: a launch
         // seen on the create tape is ~13 s from finality, and asking at the
         // default answered "could not find account" for it — which this class
@@ -509,6 +517,7 @@ object OnChainSupplyAuthority7075 {
             } catch (_: Throwable) { false }
             if (synthetic) return Outcome7116.DECLINED to null
             if (!r.isSuccessful) {
+                com.lifecyclebot.network.KeylessRpc8359.afterCall8359(url, r.code)   // V5.0.8359 — keyless governor (429 closes the host)
                 return when {
                     r.code == 429 || r.code == 403 || r.code >= 500 -> Outcome7116.RATE_LIMITED to null
                     else -> Outcome7116.TRANSPORT to null
@@ -521,22 +530,36 @@ object OnChainSupplyAuthority7075 {
             // A JSON-RPC error object is the provider declining, not a statement
             // that the mint has no supply. -32429/-32005 are rate limits.
             json.optJSONObject("error")?.let { err ->
+                com.lifecyclebot.network.KeylessRpc8359.afterCall8359(url, 0, err.optInt("code", 0))
                 return classifyRpcError7809(err.optInt("code", 0), err.optString("message", ""))
             }
+            com.lifecyclebot.network.KeylessRpc8359.afterCall8359(url, r.code)
+            // V5.0.8359 — a keyless node lagging far behind the newest slot seen is not the present supply: next rung.
+            if (com.lifecyclebot.network.KeylessRpc8359.staleAnswer8359(url, json)) return Outcome7116.TRANSPORT to null
             // V5.0.7809 — a null value is an account the node cannot see yet.
             val value = json.optJSONObject("result")?.optJSONObject("value")
                 ?: return Outcome7116.NOT_FOUND_YET_7809 to null
-            val decimals = value.optInt("decimals", -1)
-            if (decimals !in 0..18) return Outcome7116.MALFORMED to null
-            val raw = value.optString("amount", "")
-            if (raw.isBlank()) return Outcome7116.MALFORMED to null
-            val big = try { java.math.BigDecimal(raw) } catch (_: Throwable) {
-                return Outcome7116.MALFORMED to null
+            val parsed8359 = supplyFromValue8359(value)
+            if (parsed8359.first == Outcome7116.RESOLVED) json.optJSONObject("result")?.let {
+                com.lifecyclebot.network.KeylessRpc8359.supplyCache8359.put8359(mint, it, System.currentTimeMillis())
             }
-            val whole = big.movePointLeft(decimals).toDouble()
-            return if (whole.isFinite() && whole > 0.0) Outcome7116.RESOLVED to whole
-            else Outcome7116.NO_SUPPLY to null
+            return parsed8359
         }
+    }
+
+    /** V5.0.8359 — pure: a getTokenSupply `value` object (string amount + decimals) as whole tokens. */
+    internal fun supplyFromValue8359(value: JSONObject?): Pair<Outcome7116, Double?> {
+        if (value == null) return Outcome7116.NOT_FOUND_YET_7809 to null
+        val decimals = value.optInt("decimals", -1)
+        if (decimals !in 0..18) return Outcome7116.MALFORMED to null
+        val raw = value.optString("amount", "")
+        if (raw.isBlank()) return Outcome7116.MALFORMED to null
+        val big = try { java.math.BigDecimal(raw) } catch (_: Throwable) {
+            return Outcome7116.MALFORMED to null
+        }
+        val whole = big.movePointLeft(decimals).toDouble()
+        return if (whole.isFinite() && whole > 0.0) Outcome7116.RESOLVED to whole
+        else Outcome7116.NO_SUPPLY to null
     }
 
     /**

@@ -153,7 +153,10 @@ object DataPipeline8191 {
             (try { DexBatchLane8287.statusLine8287() } catch (_: Throwable) { "dexLane8287 -" }) + " " +   // V5.0.8287
             (try { com.lifecyclebot.network.DexHostBudget8287.statusLine8287() } catch (_: Throwable) { "dexHost8287 -" }) + " " +
             (try { BirdeyeBudgetGate.statusLine8287() } catch (_: Throwable) { "birdeyeBudget8287 -" }) + " " +
-            (try { IntakeFirstSight8317.statusLine8317() } catch (_: Throwable) { "intake8317 -" })   // V5.0.8317
+            (try { IntakeFirstSight8317.statusLine8317() } catch (_: Throwable) { "intake8317 -" }) + " " +   // V5.0.8317
+            (try { com.lifecyclebot.network.KeylessRpc8359.statusLine8359() } catch (_: Throwable) { "rpcRoute8359 -" }) + " " +   // V5.0.8359
+            (try { com.lifecyclebot.engine.truth.KeylessMarks8359.statusLine8359() } catch (_: Throwable) { "keylessMarks8359 -" }) + " " +
+            (try { com.lifecyclebot.network.PumpFunCandles8359.statusLine8359() } catch (_: Throwable) { "pumpCandles8359 -" })
 
     internal fun resetForTests8191() {
         nearDecisionAt.clear(); pairFetchAt.clear(); synchronized(codexOrdinary) { codexOrdinary.clear() }
@@ -208,7 +211,9 @@ object ProviderLanes8285 {
     /** The priority of a request for [mint] now (held / near a decision read live; [handoff] from the caller). */
     fun prioFor8285(mint: String, handoff: Boolean = false, nowMs: Long = System.currentTimeMillis()): Prio8285 {
         val held = try { HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }
-        return prioOf8285(held, DataPipeline8191.nearDecision8191(mint, nowMs), handoff)
+        // V5.0.8359 — a mint a shadow book wants marked (KeylessMarks8359) is served right after held positions.
+        val wanted8359 = try { com.lifecyclebot.engine.truth.KeylessMarks8359.isWanted8359(mint, nowMs) } catch (_: Throwable) { false }
+        return prioOf8285(held, DataPipeline8191.nearDecision8191(mint, nowMs) || wanted8359, handoff)
     }
 
     /** Pure: the cooldown after the [level]-th consecutive provider cooldown (30 s doubling, capped at 10 min). */

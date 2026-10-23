@@ -237,7 +237,7 @@ object TokenBirthHydrator7441 {
             return
         }
         if (pumpRecord8144(mint)) return
-        val rpcCandidates = RuntimeProviderAuthority6685.rpcCandidates()
+        val rpcCandidates = RuntimeProviderAuthority6685.marketReadCandidates8359(null, "getSignaturesForAddress")   // V5.0.8359 — the birth walk is a market read: keyless first
         if (rpcCandidates.isEmpty()) {
             cooldownUntil[mint] = System.currentTimeMillis() + NO_RPC_COOLDOWN_MS
             noRpc8265.incrementAndGet()
@@ -318,12 +318,15 @@ object TokenBirthHydrator7441 {
             .header("Content-Type", "application/json")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
+        if (!com.lifecyclebot.network.KeylessRpc8359.beforeCall8359(rpc)) return null   // V5.0.8359 — keyless host governor
         return try {
             HealthAwareHttp.execute(http, req, host = "solana_rpc").use { resp ->
-                if (!resp.isSuccessful) return null
-                JSONObject(resp.body?.string() ?: return null).optJSONArray("result")
+                if (!resp.isSuccessful) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code); return null }
+                val root8359 = JSONObject(resp.body?.string() ?: return null)
+                com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code, root8359.optJSONObject("error")?.optInt("code", -1) ?: 0)
+                root8359.optJSONArray("result")
             }
-        } catch (_: Throwable) { null }
+        } catch (_: Throwable) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, 0); null }
     }
 
     private fun publishIfComplete(mint: String, state: Progress) {

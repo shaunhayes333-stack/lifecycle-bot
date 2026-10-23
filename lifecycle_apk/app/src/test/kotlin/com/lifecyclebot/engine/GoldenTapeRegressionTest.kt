@@ -10520,7 +10520,8 @@ class GoldenTapeRegressionTest {
 
         // Curve read: one batched call, ladder, synthetic block named.
         assertTrue(fan.contains(".put(\"method\", \"getMultipleAccounts\")"))
-        assertTrue(fan.contains("RuntimeProviderAuthority6685.rpcCandidates(url).take(CURVE_LADDER_RUNGS_7279)"))
+        // superseded by V5.0.8359 — curve reserves are a market read: the same whole ladder, keyless public nodes first
+        assertTrue(fan.contains("RuntimeProviderAuthority6685.marketReadCandidates8359(url, \"getMultipleAccounts\").take(CURVE_LADDER_RUNGS_7279)"))
         assertTrue(fan.contains("if (HostCircuitInterceptor.isSyntheticBlock(resp)) {"))
         assertTrue(fan.contains("PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279"))
         assertFalse(fan.contains("\"method\":\"getAccountInfo\""))
