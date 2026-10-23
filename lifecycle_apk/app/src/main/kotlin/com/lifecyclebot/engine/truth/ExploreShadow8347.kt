@@ -366,8 +366,11 @@ object ExploreShadow8347 {
         return true
     }
 
-    // V5.0.8360 — after 8359 merges: KeylessMarks8359.noteWanted8359(mint, untilMs)
-    private fun wanted8360(mint: String, untilMs: Long) { try { com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint, System.currentTimeMillis()) } catch (_: Throwable) {} }
+    private fun wanted8360(mint: String, untilMs: Long) {
+        // V5.0.8360 — the keyless mark feed (8359) prices shadow-wanted mints right after held positions; near-decision keeps the Helius focus.
+        try { KeylessMarks8359.noteWanted8359(mint, untilMs) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint, System.currentTimeMillis()) } catch (_: Throwable) {}
+    }
 
     /** Ask the data side to keep pricing [mint] (once per mint per 30 s at most), for the lost-mark window. */
     private fun want8360(mint: String, nowMs: Long) {

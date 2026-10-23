@@ -118,7 +118,7 @@ class Aate8360ExploreStackTest {
         assertTrue("round-robin tick", s.contains("val slice = rrSlice8360(keys.size, rrCursor8360)"))
         assertTrue("the tick reads the same observed mark", s.contains("ShadowMark8360.observed8360(tokens[t.mint], t.mint, nowMs)?.first"))
         assertTrue("marks kept flowing", s.contains("want8360(t.mint, nowMs)") && s.contains("want8360(ts.mint, nowMs)") &&
-            s.contains("// V5.0.8360 — after 8359 merges: KeylessMarks8359.noteWanted8359(mint, untilMs)") &&
+            s.contains("try { KeylessMarks8359.noteWanted8359(mint, untilMs) } catch (_: Throwable) {}") &&   // 8359 merged: the keyless feed is asked
             s.contains("com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint, System.currentTimeMillis())"))
         assertTrue("tactic cohort", s.contains("bookKey8351(\"C|\$v|T:\${t.tactic}\", net, nowMs)"))
         assertTrue("reject cohort kept for FILTER_INVERTED", s.contains("KIND_REJECT_8360 -> bookKey8351(\"C|\$v|R:REJECT\", net, nowMs)"))
