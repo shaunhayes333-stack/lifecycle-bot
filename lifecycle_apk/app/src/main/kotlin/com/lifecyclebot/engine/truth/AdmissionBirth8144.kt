@@ -124,16 +124,25 @@ object AdmissionBirth8144 {
     }
 
     /** PumpFunWS: a create frame arrived for [mint] (recorded before the create throttle, with or without reserves). */
-    fun noteCreateFrame8144(mint: String, atMs: Long = System.currentTimeMillis()) = putEarliest8144(createFrames, mint, atMs)
+    fun noteCreateFrame8144(mint: String, atMs: Long = System.currentTimeMillis()) {
+        if (!createFrames.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthPumpCreate8346() } catch (_: Throwable) {}   // V5.0.8346
+        putEarliest8144(createFrames, mint, atMs)
+    }
 
     /** pump.fun coin record (mark fan-out, new-coin scan, birth hydrator): its created_timestamp is the create event. */
     fun notePumpCoinRecord8144(mint: String, createdTimestampRaw: Long) {
         val ms = epochMs8144(createdTimestampRaw)
-        if (ms > 0L) putEarliest8144(pumpRecords, mint, ms)
+        if (ms > 0L) {
+            if (!pumpRecords.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthPumpCreate8346() } catch (_: Throwable) {}   // V5.0.8346
+            putEarliest8144(pumpRecords, mint, ms)
+        }
     }
 
     /** TokenBirthHydrator7441: the mint's history was read to its end; its oldest successful signature is the birth. */
-    fun noteOldestSignature8144(mint: String, ms: Long) = putEarliest8144(oldestSigs, mint, ms)
+    fun noteOldestSignature8144(mint: String, ms: Long) {
+        if (!oldestSigs.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthSignatureWalk8346() } catch (_: Throwable) {}   // V5.0.8346
+        putEarliest8144(oldestSigs, mint, ms)
+    }
 
     /** TokenBirthHydrator7441: a successful signature seen while paging back (history not yet complete): a lower bound. */
     fun noteHistoryFloor8144(mint: String, ms: Long) = putEarliest8144(historyFloors, mint, ms)
@@ -145,7 +154,10 @@ object AdmissionBirth8144 {
      */
     fun notePairCreated8169(mint: String, dexId: String?, createdMs: Long) {
         when (LaunchBirth8169.pairProof8169(mint, dexId.orEmpty(), createdMs, System.currentTimeMillis())) {
-            LaunchBirth8169.PairProof8169.BIRTH -> putEarliest8144(curvePairs8169, mint, createdMs)
+            LaunchBirth8169.PairProof8169.BIRTH -> {
+                if (!curvePairs8169.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthPairCreated8346() } catch (_: Throwable) {}   // V5.0.8346
+                putEarliest8144(curvePairs8169, mint, createdMs)
+            }
             LaunchBirth8169.PairProof8169.FLOOR -> putEarliest8144(poolFloors8169, mint, createdMs)
             LaunchBirth8169.PairProof8169.NONE -> {}
         }
@@ -156,7 +168,10 @@ object AdmissionBirth8144 {
      * token-2022 initializeMint in the same transaction that created its pool). A direct witness of the creation; a pool
      * created for an already existing mint is never recorded here (that is a floor, [notePairCreated8169]).
      */
-    fun noteChainMintInit8179(mint: String, blockTimeMs: Long) = putEarliest8144(chainMintInits8179, mint, blockTimeMs)
+    fun noteChainMintInit8179(mint: String, blockTimeMs: Long) {
+        if (!chainMintInits8179.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthChainLaunch8346() } catch (_: Throwable) {}   // V5.0.8346
+        putEarliest8144(chainMintInits8179, mint, blockTimeMs)
+    }
 
     internal fun chainMintInitMs8179(mint: String): Long? = chainMintInits8179[mint.trim()]
 
@@ -197,7 +212,11 @@ object AdmissionBirth8144 {
     fun provenAgeMs8144(ts: TokenState, windowMs: Long, nowMs: Long = System.currentTimeMillis()): Long? {
         val r = readFor8144(ts, nowMs)
         return when (window8144(r, windowMs)) {
-            Window8144.IN_WINDOW -> { count8144("BIRTH_8144_KNOWN_${r.source}"); r.minAgeMs }
+            Window8144.IN_WINDOW -> {
+                count8144("BIRTH_8144_KNOWN_${r.source}")
+                try { MarketEvidence8346.noteSniperReleased8346() } catch (_: Throwable) {}   // V5.0.8346 — released by a witness, not left hydrating
+                r.minAgeMs
+            }
             Window8144.PAST_WINDOW -> { count8144("BIRTH_8144_PROVEN_PAST_WINDOW_${r.source}"); r.minAgeMs }
             Window8144.UNKNOWN_DEFER -> { count8144("BIRTH_8144_UNKNOWN_DEFER"); noteUnknown8169(ts); null }
         }
@@ -221,6 +240,6 @@ object AdmissionBirth8144 {
             // V5.0.8169 — the pair witnesses, the distinct birthless mints by feed, and the sniper's cheap age pre-filter.
             "curvePairs8169=${curvePairs8169.size} poolFloors8169=${poolFloors8169.size} chainMintInits8179=${chainMintInits8179.size} " +
             "unknownMints8169{${LaunchBirth8169.histogram8169(unknownMints8169.values, 5)}} ${LaunchBirth8169.sniperScopeLine8169()}] " +
-            TokenBirthHydrator7441.statusLine7441() +
+            TokenBirthHydrator7441.statusLine7441() + " " + (try { MarketEvidence8346.birthLine8346() } catch (_: Throwable) { "birth8346[unavailable]" }) +   // V5.0.8346
             " " + (try { com.lifecyclebot.engine.FreshLaunchIntake8303.statusLine8303() } catch (_: Throwable) { "freshLaunch8303[unavailable]" })  // V5.0.8303
 }

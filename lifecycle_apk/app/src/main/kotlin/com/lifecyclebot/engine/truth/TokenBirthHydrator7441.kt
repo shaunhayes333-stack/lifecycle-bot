@@ -218,7 +218,24 @@ object TokenBirthHydrator7441 {
         } catch (_: Throwable) { null }
     }
 
+    /**
+     * Pure (V5.0.8346): a queued walk is spent only when no direct witness has arrived since it was asked. The cheapest
+     * certain source wins: a PumpPortal create frame, a chain launch note, pump.fun's coin record or the mint's own
+     * bonding-curve pair creation (DexScreener, already fetched for liquidity) IS the birth — no RPC page is paid for it.
+     */
+    fun walkNeeded8346(directWitnessMs: Long?): Boolean = directWitnessMs == null
+
     private fun hydrate(mint: String) {
+        // V5.0.8346 — 8344: launched 109 / resolved 4. A birth answered by a frame, a launch note or a pair while this walk
+        // waited in the queue still cost its pages; now the walk ends here and the witness is the answer.
+        val known8346 = try { LaunchBirth8169.launchBirth8169(mint, System.currentTimeMillis())?.birthMs } catch (_: Throwable) { null }
+        if (!walkNeeded8346(known8346)) {
+            progress.remove(mint)
+            cooldownUntil.remove(mint)
+            try { MarketEvidence8346.noteWalkSkippedKnown8346() } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_WALK_SKIPPED_KNOWN_8346") } catch (_: Throwable) {}
+            return
+        }
         if (pumpRecord8144(mint)) return
         val rpcCandidates = RuntimeProviderAuthority6685.rpcCandidates()
         if (rpcCandidates.isEmpty()) {

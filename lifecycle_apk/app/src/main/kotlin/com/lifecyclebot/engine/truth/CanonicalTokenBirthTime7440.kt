@@ -55,6 +55,7 @@ object CanonicalTokenBirthTime7440 {
         if (resolved == null) {
             try { TokenBirthHydrator7441.request(m) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_HYDRATION_PENDING_7440") } catch (_: Throwable) {}
+            try { MarketEvidence8346.noteBirthUnresolved8346() } catch (_: Throwable) {}   // V5.0.8346
             return null
         }
         try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_RESOLVED_7440_${resolved.source.name}") } catch (_: Throwable) {}

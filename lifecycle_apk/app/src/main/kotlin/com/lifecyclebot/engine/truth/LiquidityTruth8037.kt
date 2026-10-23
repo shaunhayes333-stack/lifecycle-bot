@@ -35,6 +35,26 @@ object LiquidityTruth8037 {
         if (first && usd.isFinite() && usd > 0.0) try { com.lifecyclebot.engine.HydrationReeval8343.onHydrated8343(ts, usd) } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8346 — CurveReserves7951.noteFrame7951 / noteAccount7951: a curve observation ([realSol] real SOL, an active
+     * curve only) lands in the tick liquidity THE MOMENT it arrives, through [write8343] so the 8343 resume hook fires on
+     * the frame, not on the next lane read (8344: liquidity still unknown 1,003 while PumpPortal streamed 19,912 prints).
+     * Up or down — the curve's own account, as [hydrate8037] writes it. Nothing without a token row, a SOL price or a
+     * positive reading (a 0 real SOL curve is "nobody bought": the lanes' floors judge it from the tick they hold).
+     */
+    fun onCurveObserved8346(mint: String, realSol: Double, fromAccount: Boolean) {
+        if (!(realSol.isFinite() && realSol > 0.0)) return
+        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint.trim()] } catch (_: Throwable) { null } ?: return
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!(solUsd.isFinite() && solUsd > 0.0)) return
+        val usd = realSol * solUsd
+        if (ts.lastLiquidityUsd == usd) return
+        write8343(ts, usd)
+        try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
+        try { MarketEvidence8346.noteCurveWrite8346(fromAccount) } catch (_: Throwable) {}
+    }
+
     /** Pure: the value to write when the tick has no liquidity but an observation does, else null. */
     fun fill8037(tickUsd: Double, observedUsd: Double): Double? =
         if (!(tickUsd > 0.0) && observedUsd.isFinite() && observedUsd > 0.0) observedUsd else null

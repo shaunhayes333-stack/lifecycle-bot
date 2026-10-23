@@ -332,6 +332,7 @@ object TokenMetricsAuthority7069 {
         val ratio = price / impliedPrice
         if (ratio in (1.0 - IDENTITY_EPSILON)..(1.0 + IDENTITY_EPSILON)) {
             identityHeld.incrementAndGet()
+            try { MarketEvidence8346.noteIdentityHeld8346() } catch (_: Throwable) {}   // V5.0.8346
             return Metrics7069(price, mcap, storedSupply, repaired = false, verifiable = true)
         }
 
@@ -401,6 +402,7 @@ object TokenMetricsAuthority7069 {
             if (IdentitySkew8332.classify8332(ratio, IDENTITY_EPSILON, priceAt8332, capAt8332) == IdentitySkew8332.Verdict8332.SKEW) {
                 unverifiable.incrementAndGet()
                 writeSkewClassified8332.incrementAndGet()
+                try { MarketEvidence8346.noteIdentitySkew8346() } catch (_: Throwable) {}   // V5.0.8346
                 try {
                     PipelineHealthCollector.labelInc("TOKEN_METRICS_UNVERIFIABLE_WRITE_SKEW_8332")
                     if (writeSkewClassified8332.get() % 50L == 1L) ForensicLogger.lifecycle(
@@ -450,6 +452,11 @@ object TokenMetricsAuthority7069 {
 
         identityBroken.incrementAndGet()
         noteWorst(ratio)
+        // V5.0.8346 — the break is classified by UNIT per price source (SOL where USD was expected, a decimals factor on the
+        // supply, or other), so the next report names the feed to fix at its source; nothing is substituted here.
+        val unit8346 = try {
+            MarketEvidence8346.noteIdentityBreak8346(source, ratio, try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }).name
+        } catch (_: Throwable) { "?" }
         try {
             PipelineHealthCollector.labelInc("METRICS_IDENTITY_BROKEN_7069")
             PipelineHealthCollector.labelInc("METRICS_IDENTITY_BROKEN_NO_SUBSTITUTION_7087")
@@ -459,7 +466,7 @@ object TokenMetricsAuthority7069 {
                     "mint=${mint.take(10)} sym=$symbol src=$source " +
                         "reportedPrice=$price impliedPrice=$impliedPrice " +
                         "mcap=${mcap.toLong()} supply=${storedSupply.toLong()} " +
-                        "ratio=${"%.6g".format(ratio)} " +
+                        "ratio=${"%.6g".format(ratio)} unit8346=$unit8346 " +
                         "action=unverifiable_price_passes_through_untouched_no_substitution_7087",
                 )
             }
@@ -538,5 +545,6 @@ object TokenMetricsAuthority7069 {
             // than deleting the field and losing the comparison.
             "priceRepaired=${priceRepaired.get()}(retired_7087) unverifiable=${unverifiable.get()} " +
             "supplyConflicts=${supplyConflicts.get()} " +
-            "worstBreak=${"%.3f".format(worstBreakMilli.get() / 1000.0)}x"
+            "worstBreak=${"%.3f".format(worstBreakMilli.get() / 1000.0)}x " +
+            (try { MarketEvidence8346.identityLine8346() } catch (_: Throwable) { "identity8346[unavailable]" })   // V5.0.8346
 }

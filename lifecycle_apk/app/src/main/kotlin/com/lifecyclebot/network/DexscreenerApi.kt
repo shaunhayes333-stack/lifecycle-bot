@@ -539,6 +539,15 @@ class DexscreenerApi {
             val r = DexPools8285.rowOf8285(o, nowMs) ?: continue
             if (r.mint !in want) continue
             rows += r; json[r.pairAddress] = o
+            // V5.0.8346 — every pair's creation time is a birth witness (a pump mint's own curve pair: the create event;
+            // any other pool: a floor). This lane is the one pair read since 8285 and dropped it (MarketEvidence8346).
+            try {
+                val created8346 = o.optLong("pairCreatedAt", 0L)
+                if (created8346 > 0L) {
+                    com.lifecyclebot.engine.truth.AdmissionBirth8144.notePairCreated8169(r.mint, r.dexId, created8346)
+                    com.lifecyclebot.engine.truth.MarketEvidence8346.notePairRowDated8346()
+                }
+            } catch (_: Throwable) {}
         }
         DexPools8285.record8285(rows)
         val prices8287 = HashMap<String, Double>()

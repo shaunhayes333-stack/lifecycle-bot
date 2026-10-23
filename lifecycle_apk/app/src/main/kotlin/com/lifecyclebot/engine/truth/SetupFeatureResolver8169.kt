@@ -268,13 +268,26 @@ object SetupFeatureResolver8169 {
         val row = try { com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(mint, nowMs) } catch (_: Throwable) { null }
         val maxAge = maxEvidenceAge8170(ageMin)
         val launch8287 = try { com.lifecyclebot.engine.market.LaunchTape7921.features(mint, nowMs) } catch (_: Throwable) { null }
+        // V5.0.8346 — an un-graduated pump coin's liquidity is its curve's real SOL (every PumpPortal frame / curve read):
+        // a candidate after the stamped primary and before the DEX pair, so dexPair:NO_LIQUIDITY on a known curve is a
+        // reading, not "unknown" (8344: liq[onChainPool:NOT_OBSERVED|primary:UNKNOWN|dexPair:NO_LIQUIDITY|sweep:NOT_LISTED]).
+        val curve8346 = MarketEvidence8346.curveLiq8346(
+            try { CurveReserves7951.realSolIfActive8046(mint, nowMs) } catch (_: Throwable) { null },
+            try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
+        )
         val fill = resolve8169(
             bp = listOf(Cand8169(PRIMARY, bpPrimary, bpObs), Cand8169(TAPE, tapeBp, tapeWhy), launchBp8287(launch8287), pairBp8169(pair, nowMs, maxAge), sweepBp8169(row, nowMs, maxAge)),
             chg = listOf(Cand8169(PRIMARY, chgPrimary, chgObs), Cand8169(TAPE, tapeChg, tapeWhy), pairChg8169(pair, nowMs, maxAge), sweepChg8169(row, nowMs, maxAge)),
             shape = listOf(Cand8169(PRIMARY, if (shapePrimary) true else null, shapeObs), Cand8169(TAPE, if (tapeShape) true else null, tapeWhy)),
-            liq = listOf(cachedChainLiquidity(mint, nowMs, maxAge), Cand8169(PRIMARY, liqPrimary, "UNKNOWN"), pairLiq8169(pair, nowMs, maxAge), sweepLiq8169(row, nowMs, maxAge)),
+            liq = listOf(cachedChainLiquidity(mint, nowMs, maxAge), Cand8169(PRIMARY, liqPrimary, "UNKNOWN"), curve8346, pairLiq8169(pair, nowMs, maxAge), sweepLiq8169(row, nowMs, maxAge)),
         )
         try { count8169(fill, launchTape, if (launchTape) "" else launchTapeWhy8169(mint, ageMin), swaps, if (swaps) "" else tapeWhy) } catch (_: Throwable) {}
+        // V5.0.8346 — counted per source; a pump coin with no tape at all asks for its PumpPortal trade stream now.
+        try {
+            MarketEvidence8346.noteLiqPick8346(fill.liq.source)
+            MarketEvidence8346.noteShape8346(fill.shape.source, fill.shape.why)
+            if (fill.shape.value == null || !swaps) MarketEvidence8346.requestTape8346(mint, tapeWhy, nowMs)
+        } catch (_: Throwable) {}
         return fill
     }
 
@@ -336,7 +349,8 @@ object SetupFeatureResolver8169 {
             "launchTape{${top(bySource, "launchTape:", 1)} missing=${top(missing, "launchTape|", 3)}} " +
             "swaps{${top(bySource, "swaps:", 1)} missing=${top(missing, "swaps|", 3)}} " +
             "shapeRepair{${top(repairs, "", 6)}} pairFlows=${try { PairFlow8169.line8169() } catch (_: Throwable) { "-" }}]" +
-            report8283()
+            report8283() +
+            " " + (try { MarketEvidence8346.liqLine8346() + " " + MarketEvidence8346.shapeLine8346() } catch (_: Throwable) { "evidence8346 -" })   // V5.0.8346
     }
 
     /** V5.0.8283 — cache invalidations after evidence, deferrals recovered, lifecycle splits and the unique-candidate funnel. */

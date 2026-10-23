@@ -60,7 +60,9 @@ object CurveReserves7951 {
     /** A PumpPortal create/trade frame: virtual SOL and virtual tokens (whole units). */
     fun noteFrame7951(mint: String, virtualSol: Double, virtualTokens: Double, atMs: Long = System.currentTimeMillis()) {
         if (!virtualSol.isFinite() || virtualSol <= 0.0) return
-        put(mint, virtualSol, virtualTokens, realSolFromVirtual7951(virtualSol), atMs, false)
+        val real8346 = realSolFromVirtual7951(virtualSol)
+        put(mint, virtualSol, virtualTokens, real8346, atMs, false)
+        try { LiquidityTruth8037.onCurveObserved8346(mint, real8346, fromAccount = false) } catch (_: Throwable) {}   // V5.0.8346 — the frame writes the tick
     }
 
     /** The RPC curve read: virtual and real reserves, in SOL and whole tokens. */
@@ -68,6 +70,7 @@ object CurveReserves7951 {
         if (!virtualSol.isFinite() || virtualSol <= 0.0) return
         if (!realSol.isFinite() || realSol < 0.0) return
         put(mint, virtualSol, virtualTokens, realSol, atMs, true)
+        try { LiquidityTruth8037.onCurveObserved8346(mint, realSol, fromAccount = true) } catch (_: Throwable) {}   // V5.0.8346 — the curve read writes the tick
     }
 
     private fun put(mint: String, vSol: Double, vTok: Double, real: Double, atMs: Long, accountObserved: Boolean) {
