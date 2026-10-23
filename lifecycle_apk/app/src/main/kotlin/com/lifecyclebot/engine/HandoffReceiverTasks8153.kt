@@ -346,7 +346,8 @@ object HandoffReceiverTasks8153 {
 
     /** Pure (V5.0.8345): the stable name of a block for the whyNotResumed tally ("DEFERRED:" dropped, digits folded). */
     fun blockKey8345(block: String): String =
-        if (block.isEmpty()) "NOT_BLOCKED" else "BLOCK_" + verdictKey8169(block.removePrefix(DEFERRED_PREFIX_8153))
+        if (block.isEmpty()) "NOT_BLOCKED"
+        else "BLOCK_" + verdictKey8169(block.removePrefix(DEFERRED_PREFIX_8153).replace(Regex("_\\d{4}(?=$|[^A-Za-z0-9])"), ""))   // V5.0.8346 — a build-number suffix is not part of the why
 
     fun whyNotResumedCounts8345(): Map<String, Long> = whyNotResumed8345.mapValues { it.value.get() }
 
