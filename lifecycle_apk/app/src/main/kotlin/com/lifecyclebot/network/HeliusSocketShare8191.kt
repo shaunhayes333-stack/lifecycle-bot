@@ -19,16 +19,22 @@ object HeliusSocketShare8191 {
     @Volatile var router: ((String) -> Boolean)? = null
     /** Called when a new shared socket opens or the shared socket dies (the feed's subscriptions died with it). */
     @Volatile var onChange: ((attached: Boolean) -> Unit)? = null
+    // V5.0.8354 — the program-wide curve tape (HeliusCurveTape8354) rides the same socket: its own router (asked first:
+    // it claims only its own request ids and subscription id) and its own open / died notice.
+    @Volatile var router8354: ((String) -> Boolean)? = null
+    @Volatile var onChange8354: ((attached: Boolean) -> Unit)? = null
 
     fun attach8191(ws: WebSocket) {
         socket = ws
         try { onChange?.invoke(true) } catch (_: Throwable) {}
+        try { onChange8354?.invoke(true) } catch (_: Throwable) {}
     }
 
     fun detach8191(ws: WebSocket?) {
         if (ws == null || socket !== ws) return
         socket = null
         try { onChange?.invoke(false) } catch (_: Throwable) {}
+        try { onChange8354?.invoke(false) } catch (_: Throwable) {}
     }
 
     fun attached8191(): Boolean = socket != null
@@ -36,7 +42,9 @@ object HeliusSocketShare8191 {
     fun send8191(text: String): Boolean = try { socket?.send(text) == true } catch (_: Throwable) { false }
 
     /** HeliusWebSocket.onMessage: true when the feed claimed [text]. Never throws. */
-    fun offer8191(text: String): Boolean = try { router?.invoke(text) == true } catch (_: Throwable) { false }
+    fun offer8191(text: String): Boolean = try {
+        (router8354?.invoke(text) == true) || (router?.invoke(text) == true)   // V5.0.8354 — the curve tape's frames first
+    } catch (_: Throwable) { false }
 
     private val ID_RE_8191 = Regex("\"id\"\\s*:\\s*(\\d{1,10})")
     private val SUB_RE_8191 = Regex("\"subscription\"\\s*:\\s*(\\d{1,10})")

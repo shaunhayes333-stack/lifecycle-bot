@@ -156,6 +156,9 @@ data class BotConfig(
     // SOL." Create and migration frames are free; the per-trade stream that
     // marks a held curve every second is not. Blank means no trade stream.
     val pumpPortalApiKey: String = "",
+    // V5.0.8354 — PumpPortal meters `subscribeTokenTrade` per frame (it drained the owner's data wallet): OFF by default.
+    // The create / migration streams stay on; the curve trade tape comes from Helius (HeliusCurveTape8354).
+    val pumpPortalTradeStreamEnabled: Boolean = false,
     // V5.0.7958 — the free-tier market-data keys (5.0.7955) live outside this class in
     // ConfigStore.marketDataKeys7958: six more constructor params pushed BotConfig's
     // synthetic default constructor past the JVM's 255-slot limit (ClassFormatError).
@@ -507,6 +510,7 @@ object ConfigStore {
             putInt("circuit_breaker_pause_min",       cfg.circuitBreakerPauseMin)
             putBoolean("loss_streak_cooldown_enabled_8117", cfg.lossStreakCooldownEnabled)
             putBoolean(com.lifecyclebot.engine.truth.Entry8114Mode8326.SETTING_KEY_8326, cfg.entry8114ModeEnabled)  // V5.0.8326
+            putBoolean(com.lifecyclebot.network.PumpFunWS.TRADE_STREAM_SETTING_KEY_8354, cfg.pumpPortalTradeStreamEnabled)  // V5.0.8354
             putFloat("max_price_impact_pct",          cfg.maxPriceImpactPct.toFloat())
             putBoolean("close_positions_on_stop",     cfg.closePositionsOnStop)
             putBoolean("auto_add_new_tokens",         cfg.autoAddNewTokens)
@@ -681,6 +685,7 @@ object ConfigStore {
             circuitBreakerPauseMin      = p.getInt("circuit_breaker_pause_min", 15),
             lossStreakCooldownEnabled   = p.getBoolean("loss_streak_cooldown_enabled_8117", false),
             entry8114ModeEnabled        = p.getBoolean(com.lifecyclebot.engine.truth.Entry8114Mode8326.SETTING_KEY_8326, com.lifecyclebot.engine.truth.Entry8114Mode8326.DEFAULT_ON_8326),
+            pumpPortalTradeStreamEnabled = p.getBoolean(com.lifecyclebot.network.PumpFunWS.TRADE_STREAM_SETTING_KEY_8354, com.lifecyclebot.network.PumpFunWS.TRADE_STREAM_DEFAULT_8354),  // V5.0.8354
             maxPriceImpactPct           = p.getFloat("max_price_impact_pct", 3.0f).toDouble(),
             closePositionsOnStop        = p.getBoolean("close_positions_on_stop", true),
             // Missing credentials remain blank. Provider health must expose
@@ -816,6 +821,8 @@ object ConfigStore {
             )
             // V5.0.8326 — the persisted Entry 8114 mode reaches the live entry decision.
             com.lifecyclebot.engine.truth.Entry8114Mode8326.noteConfig8326(it.entry8114ModeEnabled)
+            // V5.0.8354 — the persisted PumpPortal trade-stream switch reaches the socket (default OFF: paid per frame).
+            try { com.lifecyclebot.network.PumpFunWS.noteTradeStreamConfig8354(it.pumpPortalTradeStreamEnabled) } catch (_: Throwable) {}
             // V5.9.706 — cache for 2s to avoid repeated AES-GCM decryption on main thread
             cachedConfig = it
             cachedConfigMs = System.currentTimeMillis()

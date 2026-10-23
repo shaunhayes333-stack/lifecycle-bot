@@ -91,6 +91,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var switchCryptoAltsTrader: SwitchCompat
     private lateinit var switchLossStreakCooldown: SwitchCompat
     private lateinit var switchEntry8114Mode: SwitchCompat  // V5.0.8326
+    private lateinit var switchPumpPortalTradeStream8354: SwitchCompat  // V5.0.8354
     // V5.7.7: Individual Markets sub-trader switches
     private lateinit var switchPerpsEnabled: SwitchCompat
     private lateinit var switchStocksEnabled: SwitchCompat
@@ -195,6 +196,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchCryptoAltsTrader = view.findViewById(R.id.switchCryptoAltsTrader)
         switchLossStreakCooldown = view.findViewById(R.id.switchLossStreakCooldown)
         switchEntry8114Mode = view.findViewById(R.id.switchEntry8114Mode)
+        switchPumpPortalTradeStream8354 = view.findViewById(R.id.switchPumpPortalTradeStream8354)
         // V5.7.7: Individual Markets sub-trader switches
         switchPerpsEnabled = view.findViewById(R.id.switchPerpsEnabled)
         switchStocksEnabled = view.findViewById(R.id.switchStocksEnabled)
@@ -374,6 +376,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchCryptoAltsTrader.isChecked = cfg.cryptoAltsEnabled
         switchLossStreakCooldown.isChecked = cfg.lossStreakCooldownEnabled
         switchEntry8114Mode.isChecked = cfg.entry8114ModeEnabled
+        switchPumpPortalTradeStream8354.isChecked = cfg.pumpPortalTradeStreamEnabled
         // V5.7.7: Sub-trader switches
         switchPerpsEnabled.isChecked = cfg.perpsEnabled
         switchStocksEnabled.isChecked = cfg.stocksEnabled
@@ -453,6 +456,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             cryptoAltsEnabled = switchCryptoAltsTrader.isChecked,
             lossStreakCooldownEnabled = switchLossStreakCooldown.isChecked,
             entry8114ModeEnabled = switchEntry8114Mode.isChecked,
+            pumpPortalTradeStreamEnabled = switchPumpPortalTradeStream8354.isChecked,  // V5.0.8354
             // V5.7.7: Individual Markets sub-trader toggles
             perpsEnabled = switchPerpsEnabled.isChecked,
             stocksEnabled = switchStocksEnabled.isChecked,

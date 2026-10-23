@@ -245,6 +245,8 @@ class Aate8191DataPipelineTest {
 
     // ── 5. setup features: trade frames reach the evaluated coin, a missing pair is fetched ──
 
+    // superseded by V5.0.8354 — the call path stands, but PumpPortal's metered trade stream is OFF by default: while off,
+    // watchForSetup8191 routes the ask to the Helius program tape (HeliusCurveTape8354.ask8354); these are the ON-path pins.
     @Test fun anEvaluatedCoinJoinsTheKeyedTradeStream() {
         val o = src("engine/DataOrchestrator.kt")
         assertTrue(o.contains("if (keys.any { it in TRADE_FED_INPUTS_8191 }) try { PumpFunWS.watchForSetup8191(mint) } catch (_: Throwable) {}"))

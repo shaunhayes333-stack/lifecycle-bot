@@ -96,6 +96,7 @@ object PumpFunWS {
         (60_000L shl (denials - 1).coerceIn(0L, 4L).toInt()).coerceAtMost(AUTH_REPROBE_MS_8094)
 
     private fun maybeReprobeAuth8094(nowMs: Long = System.currentTimeMillis()) {
+        if (!tradeStreamEnabled8354) return   // V5.0.8354 — the metered stream is off: its denial is never re-probed
         refreshKey8181(nowMs)
         if (apiKey7284.isBlank() || !authReprobeDue8094(tradeAuthDenied7432.get(), tradeAuthDeniedAtMs8094, nowMs,
                 reprobeDelayMs8182(authDenials8182.get()))) return
@@ -322,7 +323,55 @@ object PumpFunWS {
     private val eventSell7420 = AtomicLong(0L)
     private val unsub7420 = AtomicLong(0L)
 
-    private fun tradeStreamKeyed7284(): Boolean = apiKey7284.isNotBlank() && !tradeAuthDenied7432.get()
+    // ── V5.0.8354 §THE_METERED_STREAM_IS_OPT_IN ──
+    //
+    // PumpPortal charges per trade frame; 5.0.8352's per-mint subscriptions drained the owner's data wallet (~$40 in a
+    // day). The token trade stream is OFF unless BotConfig.pumpPortalTradeStreamEnabled (Settings: "PumpPortal token trade
+    // stream (paid per frame)") is on: no `subscribeTokenTrade` is ever sent, the 8182 denial is never re-probed, and the
+    // setup refresher's ask (watchForSetup8191) goes to the Helius program tape (HeliusCurveTape8354). The create and
+    // migration streams stay on: they are the launch tape and the birth witness. ON = today's behaviour.
+    const val TRADE_STREAM_SETTING_KEY_8354 = "pump_portal_trade_stream_enabled_8354"
+    const val TRADE_STREAM_DEFAULT_8354 = false
+    @Volatile private var tradeStreamEnabled8354: Boolean = TRADE_STREAM_DEFAULT_8354
+    private val lifecycleSkippedOff8354 = AtomicLong(0L)
+    private val setupRoutedHelius8354 = AtomicLong(0L)
+    private val markSource8354 = ThreadLocal<String>()
+
+    /** ConfigStore load / save publish the persisted switch here. */
+    fun noteTradeStreamConfig8354(on: Boolean) {
+        if (tradeStreamEnabled8354 != on) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (on) "PUMP_TRADE_STREAM_ON_8354" else "PUMP_TRADE_STREAM_OFF_8354") } catch (_: Throwable) {}
+            ErrorLogger.info(TAG, "PumpPortal token trade stream ${if (on) "ON (paid per frame)" else "OFF — curve tape from Helius"}")
+        }
+        tradeStreamEnabled8354 = on
+    }
+
+    fun tradeStreamEnabled8354(): Boolean = tradeStreamEnabled8354
+
+    /** HeliusCurveTape8354's keep filter: a mint this socket's bookkeeping cares about (held, launch, setup watch, subscribed). */
+    fun caresAbout8354(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        mint in heldMints8192 || tradeSubscriptions7278.contains(mint) || setupWatched8191(mint, nowMs) ||
+            (lifecycleMints7420[mint]?.let { nowMs - it <= LIFECYCLE_TTL_MS_7420 } ?: false)
+
+    /** BotService's mark callback: the source of the print being emitted on this thread (PumpPortal unless a Helius curve print). */
+    fun currentMarkSource8354(): String = markSource8354.get() ?: "PUMP_PORTAL_TRADE_WS_7278"
+
+    /**
+     * HeliusCurveTape8354: a decoded, kept bonding-curve trade fires the same callbacks a PumpPortal trade frame does —
+     * the mark (band entry, position mark, candles) and the detail (launch tape, candles). The seller's remaining balance
+     * is not in the TradeEvent, so soldFractionOfHolding is 0 (unknown), never estimated.
+     */
+    fun emitHeliusCurve8354(mint: String, priceSol: Double, marketCapSol: Double, isBuy: Boolean, wallet: String, solAmount: Double, vSolInCurve: Double) {
+        if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
+        markSource8354.set(HeliusCurveTape8354.SRC_HELIUS_CURVE_8354)
+        try {
+            onTradeCb?.invoke(mint, priceSol, marketCapSol, isBuy)
+            onTradeDetailCb7743?.invoke(mint, wallet, if (solAmount.isFinite() && solAmount > 0.0) solAmount else 0.0, isBuy, 0.0, vSolInCurve)
+        } catch (_: Throwable) {
+        } finally { markSource8354.remove() }
+    }
+
+    private fun tradeStreamKeyed7284(): Boolean = tradeStreamEnabled8354 && apiKey7284.isNotBlank() && !tradeAuthDenied7432.get()   // V5.0.8354 — opt-in
 
     // ── V5.0.8191 §THE_EVALUATED_COIN_GETS_THE_TAPE ──
     //
@@ -355,6 +404,8 @@ object PumpFunWS {
     /** DataOrchestrator.refreshMissingInputs8087: put [mint] on the keyed trade stream for a while. True when subscribed now. */
     fun watchForSetup8191(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (!HeliusSolanaScope7819.isSolanaMint7819(mint)) return false
+        // V5.0.8354 — PumpPortal's metered stream is off: the ask goes to the Helius program tape (or its per-mint fallback).
+        if (!tradeStreamEnabled8354) { setupRoutedHelius8354.incrementAndGet(); return HeliusCurveTape8354.ask8354(mint, nowMs) }
         setupRequested8191.incrementAndGet()
         // V5.0.8193 — the metered stream's budget governs setup watches too (one budget, one per-coin cap).
         if (!meteredSubAllowed8193(mint, setup8317 = true)) return false   // V5.0.8317 — a setup watch is exempt from the per-coin cap
@@ -404,7 +455,9 @@ object PumpFunWS {
             "denials8182=${authDenials8182.get()} nextRecheckS8182=${if (tradeAuthDenied7432.get()) ((tradeAuthDeniedAtMs8094 + reprobeDelayMs8182(authDenials8182.get()) - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L) else 0L} " +
             "tradeFramesThisConnection8182=${tradeFramesSinceConnect8182.get()} tradeConfirmed8182=${if (tradeConfirmedAtMs8182 > 0L) "YES" else "NO"} " +
             "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
-            "tradeStream=${if (tradeAuthDenied7432.get()) "AUTH_DENIED" else if (tokenTradeStreamActive7432()) "OBSERVED" else if (tradeStreamKeyed7284()) "KEYED_UNVERIFIED" else "NO_KEY_LAUNCHES_ONLY"} " +
+            "tradeStream=${if (!tradeStreamEnabled8354) "OFF_8354" else if (tradeAuthDenied7432.get()) "AUTH_DENIED" else if (tokenTradeStreamActive7432()) "OBSERVED" else if (tradeStreamKeyed7284()) "KEYED_UNVERIFIED" else "NO_KEY_LAUNCHES_ONLY"} " +
+            "off8354[lifecycleSkipped=${lifecycleSkippedOff8354.get()} setupRoutedHelius=${setupRoutedHelius8354.get()}] " +
+            "${try { HeliusCurveTape8354.statusLine8354() } catch (_: Throwable) { "curveTape8354[unavailable]" }} " +
             "${pumpSwapLine8307()} " +
             "PUMP_LIFECYCLE_STREAM_CAPABLE=${lifecycleStreamCapable7420()} " +
             "CREATE_STREAM_AVAILABLE=${running.get() && ws != null && createStreamObserved7432.get()} " +
@@ -576,6 +629,7 @@ object PumpFunWS {
         lifecycleMints7420[mint] = now
         subRequested7420.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUB_REQUESTED") } catch (_: Throwable) {}
+        if (!tradeStreamEnabled8354) { lifecycleSkippedOff8354.incrementAndGet(); return }   // V5.0.8354 — the launch is remembered (keep filter), never subscribed
         if (!tradeStreamKeyed7284()) {
             tradeSubscribeSkippedNoKey7284.incrementAndGet()
             return
@@ -602,6 +656,8 @@ object PumpFunWS {
         maybeReprobeAuth8094()
         // V5.0.8192 — held positions are exempt from the launch cap and the daily budget.
         heldMints8192.retainAll(wanted); heldMints8192.addAll(wanted)
+        // V5.0.8354 — the metered stream is off: held mints are remembered (HeliusCurveTape8354's keep filter), no frame is built.
+        if (!tradeStreamEnabled8354) { unsupportedTradeDemand7485.clear(); return }
 
         // V5.0.7485 — when token-trade capability is unavailable there is no
         // executable subscription set to diff against. Maintain the desired
@@ -966,6 +1022,7 @@ object PumpFunWS {
 
     /** One PumpPortal trade frame onto the executed-trade tape with its signature, venue, token size and timestamps. */
     private fun tapeFrame8285(j: JSONObject, mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean) {
+        HeliusCurveTape8354.notePumpPortalPrint8354()   // V5.0.8354 — prints{pumpportal=} on the curve-tape line
         com.lifecyclebot.engine.truth.TradeTape8100.note8285(
             mint, priceSol, sol, tokenQty, isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_PUMPPORTAL_8285,
             pool = venue8285(j.optString("pool", "")), signature = j.optString("signature", ""),

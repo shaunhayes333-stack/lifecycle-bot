@@ -11147,7 +11147,7 @@ class BotService : Service() {
             // applyPumpTradeMark7278 and the subscription sync in the hot loop.
             com.lifecyclebot.network.PumpFunWS.setOnTrade7278 { mint, priceSol, mcapSol, _ ->
                 try { bandEntry8118(mint, priceSol, mcapSol, cfg, streamGeneration) } catch (_: Throwable) {}  // V5.0.8118
-                try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
+                try { applyPumpTradeMark7278(mint, priceSol, mcapSol, com.lifecyclebot.network.PumpFunWS.currentMarkSource8354()) } catch (_: Throwable) {}  // V5.0.8354 — a Helius curve print names its source
                 // V5.0.7819 — the curve's post-trade price is also a candle print.
                 try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
             }
