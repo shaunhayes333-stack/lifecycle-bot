@@ -331,7 +331,7 @@ object HandoffReceiverTasks8153 {
     fun hydrationAnswers8345(block: String): Boolean {
         val b = block.uppercase().replace(' ', '_')
         if (b.contains("NO_TOKEN_STATE")) return false
-        return HydrationReeval8343.unhydratedDefer8343(b) || b.contains("LIQ") || b.contains("DATA_INCOMPLETE") ||
+        return ContinuationRead8348.dataDefer8348(b) || b.contains("LIQ") || b.contains("DATA_INCOMPLETE") ||   // V5.0.8348 — the momentum deferral too
             b.contains("UNKNOWN_ECONOMICS") || b.contains("DATA_MISSING") || b.contains("MISSING_DATA")
     }
 

@@ -307,7 +307,7 @@ object RunnerGrabLane8343 {
     fun reviewNative8343(ts: TokenState, out: MutableMap<String, SpecialistBrainBridge7542.Opinion>, nowMs: Long) {
         var version: Long? = null
         for ((lane, o) in out) {
-            if (!o.eligible && o.authoritative && HydrationReeval8343.unhydratedDefer8343(o.reason)) {
+            if (!o.eligible && o.authoritative && ContinuationRead8348.dataDefer8348(o.reason)) {   // V5.0.8348 — the momentum deferral too
                 val v: Long = version ?: (try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { -1L }).also { version = it }
                 HydrationReeval8343.noteDeferred8343(ts.mint, lane, o.reason, v, nowMs)
             }
@@ -360,7 +360,8 @@ object RunnerGrabLane8343 {
         val rows = synchronized(closes) { closes.toList() }
         return "runnerGrab8343[detected=${detected.get()} admitted=${admitted.get()} refused=[$refused] open=${openGrabs8343(nowMs)}/$MAX_OPEN_8343 " +
             "paper=${paperAdmits.get()} live=${liveAdmits.get()} closes=${closesLine8343(rows)} notForming=${notForming.get()} " +
-            "coreYieldFallback8343=${coreYieldFallback.get()} lane=$LANE_8343@${GRAB_LANES_8343.joinToString("|")}] ${HydrationReeval8343.statusLine8343(nowMs)}"
+            "coreYieldFallback8343=${coreYieldFallback.get()} lane=$LANE_8343@${GRAB_LANES_8343.joinToString("|")}] ${HydrationReeval8343.statusLine8343(nowMs)}" +
+            ContinuationRead8348.statusLine8348()   // V5.0.8348
     }
 
     internal fun resetForTests8343() {

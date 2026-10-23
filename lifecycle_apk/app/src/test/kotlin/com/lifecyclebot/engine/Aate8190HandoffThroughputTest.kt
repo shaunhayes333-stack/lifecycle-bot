@@ -231,7 +231,8 @@ class Aate8190HandoffThroughputTest {
         assertEquals(3.0, x.momentum8190(0.0, 3.0, 5, 40.0), 1e-9)
         assertEquals(40.0, x.momentum8190(0.0, 0.0, 1, 40.0), 1e-9)
         assertEquals(0.0, x.momentum8190(0.0, 0.0, 0, null), 1e-9)
-        assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("val expressMomentum7555 = ts.lastPriceChange1h"))
+        // superseded by V5.0.8348 — the chain (1 h, history, launch price) now lives in ContinuationRead8348 with the tape first inside the launch hour
+        assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("val expressMomentum7555 = cont8348.pct"))
         assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin)"))
     }
 
