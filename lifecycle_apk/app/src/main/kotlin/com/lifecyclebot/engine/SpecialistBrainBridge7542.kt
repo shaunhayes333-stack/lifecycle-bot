@@ -375,6 +375,8 @@ object SpecialistBrainBridge7542 {
         }
         // V5.0.8031 — every lane's verdict is named, and a refusal is labelled for the veto audit (DecisionReasons8031).
         try { DecisionReasons8031.nativeVerdicts8031(ts, out.values) } catch (_: Throwable) {}
+        // V5.0.8347 — every specialist explores in shadow on its own opinion, whatever the downstream gates decide.
+        try { com.lifecyclebot.engine.truth.ExploreShadow8347.onOpinions8347(ts, out.toMap(), now) } catch (_: Throwable) {}
         // V5.0.7951 — every eligible lane's ownership conviction on ONE common scale (+ chart BUY evidence).
         return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it);pruneOnInsert8169(now);registerElection8136(it);primeDecisionData8196(ts,it)}
     }

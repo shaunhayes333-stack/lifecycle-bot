@@ -130,7 +130,9 @@ object Entry8114Mode8326 {
         val shadowProven8344 = !paper8336 && EvidenceHold8336.shadowProven8344(l)
         val realised = (if (paper8336 || shadowProven8344) null else try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { null })
             ?: try { EvidenceHold8336.refusal8336(ts, l, paper8336, nowMs) } catch (_: Throwable) { null }
-        val final = finalVerdict8326(old.reason, now, realised)
+        val final0_8347 = finalVerdict8326(old.reason, now, realised)
+        // V5.0.8347 — a LIVE admit enters the way the lane's best proven exploration variant does (pullback / confirm wait).
+        val final = final0_8347 ?: (if (paper8336) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null })
         if (now != null && final == null) noteBypass8326(gateKey8326(now), l)
         if (old.reason != null && final == now && now != null && now != old.reason) try { PipelineHealthCollector.labelInc("ENTRY8114_CURRENT_HARD_REFUSAL_BINDS_8326_$l") } catch (_: Throwable) {}
         fileFinal8326(ts, l, old, final, nowMs)
