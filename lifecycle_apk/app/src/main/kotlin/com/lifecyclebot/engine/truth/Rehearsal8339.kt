@@ -190,7 +190,7 @@ object Rehearsal8339 {
 
     /** The paper entry's tag for [mint] in [lane] made at or before [closeMs]; null when the entry predates 8342 / was not decided here. */
     fun entryTag8342(mint: String, lane: String, closeMs: Long): EntryTag8342? =
-        tags8342[key8342(mint, lane)]?.takeIf { it.atMs <= closeMs + 60_000L }
+        tags8342[key8342(mint, lane)]?.takeIf { it.atMs <= closeMs }   // V5.0.8343 — a close before the entry is not that entry's close
 
     /** Pure: the close tag — LIVE_ADMIT / LIVE_REFUSE / UNTAGGED. */
     fun closeTag8342(tag: EntryTag8342?): String = when {
