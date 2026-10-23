@@ -186,7 +186,9 @@ class Aate8136AdmissionRecordTest {
         assertTrue(fdg.contains("recordLaneAdmission7932(ts, lane, waitFloor.coerceIn(0.0, 100.0), false, candidateVersion)"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.indexOf("dataDefer8136(ts, l8059, setup8083, nowMs)") in 1 until gate.indexOf("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))
-        assertTrue(gate.contains("CandidateAdmission8136.noteVerdict8136(\"LIVE\", verdict.name, reason)"))
+        // superseded by V5.0.8342 — the assessment's ledger source names the book: LIVE in a live runtime, PAPER_REHEARSAL in a paper
+        // one (8336 rehearsal files paper assessments too, and they must never read as live evidence).
+        assertTrue(gate.contains("CandidateAdmission8136.noteVerdict8136(Rehearsal8339.assessmentSource8342(paper8342), verdict.name, reason)"))
         val plan = src("engine/truth/TradePlan7739.kt")
         // superseded by V5.0.8326 — Entry8114Mode8326 plans a chart BUY at once in mode; otherwise the 8136 chart plan refusal
         assertTrue(plan.contains("if (LiveEdgeGate7877.chartAdmits7950(ts, lane, nowMs)) {") && plan.contains("return chartPlanRefusal8136(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)"))
