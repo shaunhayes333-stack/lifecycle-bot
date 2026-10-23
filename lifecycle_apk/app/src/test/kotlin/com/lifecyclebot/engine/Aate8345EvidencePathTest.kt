@@ -214,7 +214,7 @@ class Aate8345EvidencePathTest {
         val bot = src("engine/BotService.kt")
         assertTrue("intake, fresh state (max-take)", bot.contains("HydrationReeval8343.intakeLiquidity8345(ts, liquidityUsd)"))
         assertTrue("intake, existing state", bot.contains("if (HydrationReeval8343.intakeLiquidity8345(existing, liquidityUsd)) tokenEvidenceImproved7475 = true"))
-        assertTrue("DexScreener pair poll", bot.contains("HydrationReeval8343.pollLiquidity8345(ts, pair.liquidity, curveKeep7323)"))
+        assertTrue("DexScreener pair poll", bot.contains("HydrationReeval8343.pollLiquidity8345(ts, pair.liquidity, curveKeep7323, \"CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323\")"))
         assertFalse(bot.contains("ts.lastLiquidityUsd = pair.liquidity"))
         assertTrue("Birdeye overview fallback", bot.contains("HydrationReeval8343.writeTick8345(ts, ov.liquidity, \"BIRDEYE_OVERVIEW\")"))
         assertTrue("DexScreener WS frame", src("engine/DataOrchestrator.kt").contains("HydrationReeval8343.writeTick8345(ts, liquidity, \"DEXSCREENER_WS\")"))

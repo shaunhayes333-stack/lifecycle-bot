@@ -26498,7 +26498,7 @@ if (hotExitHandledSweep) {
                 ts.mint.endsWith("pump", ignoreCase = true) &&
                 try { com.lifecyclebot.network.PumpCurveKeys7269.createPriceSol7280(ts.mint) != null } catch (_: Throwable) { false }
             // V5.0.8345 — the poll's figure is written through the hydration hook (a first fill resumes the deferred hand-off task).
-            HydrationReeval8343.pollLiquidity8345(ts, pair.liquidity, curveKeep7323)
+            HydrationReeval8343.pollLiquidity8345(ts, pair.liquidity, curveKeep7323, "CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323")
             ts.lastFdv          = pair.fdv
 
             // V5.9: Populate lastBuyPressurePct from polling candle data.

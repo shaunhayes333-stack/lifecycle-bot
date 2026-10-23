@@ -118,8 +118,8 @@ object HydrationReeval8343 {
         if (liquidityUsd.isFinite() && liquidityUsd > ts.lastLiquidityUsd) writeTick8345(ts, liquidityUsd, "INTAKE") else false
 
     /** BotService.processTokenCycle: the DexScreener pair poll's figure, unless the 7323 curve-keep rule holds the last positive one. */
-    fun pollLiquidity8345(ts: TokenState, pairLiquidityUsd: Double, curveKeep7323: Boolean) {
-        if (curveKeep7323) { try { PipelineHealthCollector.labelInc("CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323") } catch (_: Throwable) {}; return }
+    fun pollLiquidity8345(ts: TokenState, pairLiquidityUsd: Double, curveKeep7323: Boolean, keptLabel7323: String = "CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323") {
+        if (curveKeep7323) { try { PipelineHealthCollector.labelInc(keptLabel7323) } catch (_: Throwable) {}; return }
         writeTick8345(ts, pairLiquidityUsd, "DEX_PAIR_POLL")
     }
 
