@@ -22283,6 +22283,7 @@ if (hotExitHandledSweep) {
                     try { markProgress("POST_SUPERVISOR/SHADOW_POSITIONS") } catch (_: Throwable) {}
                     // V5.0.7809 — moved after the label ticks: a shadow-position exception no longer skips label bookout.
                     executor.checkShadowPositions(tokenStatesCopy)
+                    try { com.lifecyclebot.engine.truth.EvidenceShadow8344.tick8344(tokenStatesCopy, nowShadow7307) } catch (_: Throwable) {}  // V5.0.8344
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}")
                 }
@@ -35461,6 +35462,7 @@ if (hotExitHandledSweep) {
     private fun createChannels() {
         // V5.0.8337 — the evidence-hold clock starts with the service (onCreate is an ART-budgeted method; hooked here).
         try { com.lifecyclebot.engine.truth.EvidenceHold8336.init8336(applicationContext) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.EvidenceShadow8344.init8344(applicationContext) } catch (_: Throwable) {}  // V5.0.8344
         try { com.lifecyclebot.engine.truth.Rehearsal8339.init8342(applicationContext) } catch (_: Throwable) {}   // V5.0.8342 — paper entry tags survive a restart
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(

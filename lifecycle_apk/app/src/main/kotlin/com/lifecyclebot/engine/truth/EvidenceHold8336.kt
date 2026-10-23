@@ -83,6 +83,10 @@ object EvidenceHold8336 {
         return Proof8336(n, mean, se, pf, proven)
     }
 
+    /** V5.0.8344 — the lane's shadow record behind the live trader (EvidenceShadow8344) unlocks it on the same bar as paper. */
+    fun shadowProven8344(lane: String): Boolean =
+        try { EvidenceShadow8344.proof8344(canon(lane), startMs8336).proven } catch (_: Throwable) { false }
+
     private fun canon(lane: String): String =
         (try { CanonicalLaneIdentity6506.canonical(lane) } catch (_: Throwable) { "" }).uppercase().ifBlank { lane.trim().uppercase() }
 
@@ -125,7 +129,7 @@ object EvidenceHold8336 {
         val live = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
         if (!live) return null
         val l = canon(lane)
-        if (proofFor8336(l, nowMs).proven) return null
+        if (proofFor8336(l, nowMs).proven || shadowProven8344(l)) return null
         if (laneAdmitted8337(l, nowMs)) { try { PipelineHealthCollector.labelInc("EVIDENCE_HOLD_EXCEPTION_PASS_8337_$l") } catch (_: Throwable) {}; return null }
         return refuse8336(l)
     }
@@ -140,7 +144,7 @@ object EvidenceHold8336 {
         val live = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
         if (!live) return null
         val l = canon(lane)
-        if (proofFor8336(l, nowMs).proven) return null
+        if (proofFor8336(l, nowMs).proven || shadowProven8344(l)) return null
         val ex = try { exceptional8336(ts, l, nowMs) } catch (_: Throwable) { null }
         if (ex != null) return null
         return refuse8336(l)

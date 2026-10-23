@@ -126,12 +126,17 @@ object Entry8114Mode8326 {
         // paper record, so paper must keep trading it (8329's shut could otherwise never reopen).
         // V5.0.8337 — the hold is consulted with the candidate: an exceptional runner opportunity (EvidenceHold8336.exceptional8336,
         // every leg provable now) is taken live through the hold; hard safety / economics / sizing still bind downstream.
-        val realised = (if (paper8336) null else try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { null })
+        // V5.0.8344 — a lane shut by its live losses re-earns live on its shadow record behind the live trader.
+        val shadowProven8344 = !paper8336 && EvidenceHold8336.shadowProven8344(l)
+        val realised = (if (paper8336 || shadowProven8344) null else try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { null })
             ?: try { EvidenceHold8336.refusal8336(ts, l, paper8336, nowMs) } catch (_: Throwable) { null }
         val final = finalVerdict8326(old.reason, now, realised)
         if (now != null && final == null) noteBypass8326(gateKey8326(now), l)
         if (old.reason != null && final == now && now != null && now != old.reason) try { PipelineHealthCollector.labelInc("ENTRY8114_CURRENT_HARD_REFUSAL_BINDS_8326_$l") } catch (_: Throwable) {}
         fileFinal8326(ts, l, old, final, nowMs)
+        // V5.0.8344 — the live decision admitted and only the hold / the live-loss shut refused: the shadow trader takes it.
+        if (!paper8336 && final != null && final == realised && old.reason == null && !(now != null && hardSafety8326(now)))
+            try { EvidenceShadow8344.open8344(ts, l, nowMs) } catch (_: Throwable) {}
         if (paper8336 && final == null) try { Rehearsal8339.notePaperAdmit8342(ts, l, advisories8342, nowMs) } catch (_: Throwable) {}   // V5.0.8342
         try { Entry8114Shadow8326.record8326(ts, l, old.reason, now, final, nowMs) } catch (_: Throwable) {}
         return final
