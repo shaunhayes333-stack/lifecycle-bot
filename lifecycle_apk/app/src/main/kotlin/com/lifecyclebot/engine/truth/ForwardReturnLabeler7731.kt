@@ -563,7 +563,7 @@ object ForwardReturnLabeler7731 {
         o.done240 && o.bookedNet7997.isFinite() && scheduleOpen8013(o.ck7997, nowMs - o.atMs)
 
     private fun checkpointDue8013(o: Obs, age: Long): Boolean =
-        o.done240 && o.ck7997 in CK_MS_7997.indices && age >= CK_MS_7997[o.ck7997]
+        (o.done240 || o.done60) && o.ck7997 in CK_MS_7997.indices && age >= CK_MS_7997[o.ck7997]   // V5.0.8357 — the 15 m checkpoint asks for an off-watch mark before the hour too
 
     /** Pure. V5.0.8013 — checkpoint [ck] of the schedule is still ahead (within its grace) at [ageMs]. */
     fun scheduleOpen8013(ck: Int, ageMs: Long): Boolean =
@@ -1147,7 +1147,10 @@ object ForwardReturnLabeler7731 {
     // its price alone (was: up 20%+).
     // Owner: "it should still extend beyond 24 hours if the token is surviving or the token recovers ... not every coin
     // has to be followed" — 48 h, 72 h and 7 d checkpoints for coins that pass the same tokenomics gate.
-    private val CK_MS_7997 = longArrayOf(60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L,
+    // V5.0.8357 — owner: "we were grading at 1 min 5 min 15 min 1 hour 4 hours then 24 hours, to establish a wide data range
+    // and establish data faster". The 15-minute checkpoint is back: between the 5-minute label and the hour every coin's
+    // grade is revised once more (alive rule), so a coin that runs (or dies) inside the first hour teaches its learners at 15 m.
+    private val CK_MS_7997 = longArrayOf(15L * 60_000L, 60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L,
         48L * 3_600_000L, 72L * 3_600_000L, 7L * 24L * 3_600_000L)
     private const val RUNNING_GROSS_7997 = 20.0
     private const val DEAD_GROSS_7997 = -60.0
@@ -1263,7 +1266,7 @@ object ForwardReturnLabeler7731 {
     }
 
     fun progressiveLine7997(): String =
-        "checkpoints=1m,5m,1h,4h,24h,48h,72h,7d (past 1h on tokenomics: kept=${tokenomicsKept8040.get()} dropped=${tokenomicsDropped8040.get()}) revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
+        "checkpoints=1m,5m,15m,1h,4h,24h,48h,72h,7d (past 1h on tokenomics: kept=${tokenomicsKept8040.get()} dropped=${tokenomicsDropped8040.get()}) revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
             "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()} runExitSamples8006=${exitRunSamples8006.get()}"
 
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false) {
