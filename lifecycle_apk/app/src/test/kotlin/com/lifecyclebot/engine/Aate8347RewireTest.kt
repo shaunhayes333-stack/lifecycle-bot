@@ -36,10 +36,10 @@ class Aate8347RewireTest {
     // ── 1. high-EV runner: sizing clause and route-minimum promotion are live without isHighEvRunner ──
 
     @Test fun highEvRunnerKeepsTheHigherAdmissionFloor() {
-        // liveCloses 0 (x0.85), partial provider evidence (x0.85), oracle unproven (x0.90) = 0.65.
+        // liveCloses 0 (x0.85), partial provider evidence (x0.85), oracle unproven (x0.90) = 0.65025.
         val plain = LiveRiskPolicy7807Access.admission(highEvRunner = false)
         val runner = LiveRiskPolicy7807Access.admission(highEvRunner = true)
-        assertEquals(0.65, plain.first, 1e-9)
+        assertEquals(0.85 * 0.90 * 0.85, plain.first, 1e-9)
         assertFalse(plain.second.contains("HIGH_EV_RUNNER_ADMIT_REDUCED_7807"))
         assertEquals("a >= 3R runner is floored at 0.70 of the sealed size", 0.70, runner.first, 1e-9)
         assertTrue(runner.second.contains("HIGH_EV_RUNNER_ADMIT_REDUCED_7807"))
