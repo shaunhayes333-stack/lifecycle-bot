@@ -24,6 +24,17 @@ object LiquidityTruth8037 {
     private val chainApplied = AtomicLong(0)
     private val curveRealApplied8046 = AtomicLong(0)
 
+    /**
+     * V5.0.8343 — THE hydration write: a tick liquidity going from unread (<= 0) to a real reading ends every
+     * UNHYDRATED_DEFER on the mint — the lanes (and the grab lane) are re-queued at once with the original candidate
+     * version (HydrationReeval8343), not left to the next scanner cycle. Nothing is invented: a 0 write queues nothing.
+     */
+    private fun write8343(ts: TokenState, usd: Double) {
+        val first = !(ts.lastLiquidityUsd > 0.0)
+        ts.lastLiquidityUsd = usd
+        if (first && usd.isFinite() && usd > 0.0) try { com.lifecyclebot.engine.HydrationReeval8343.onHydrated8343(ts, usd) } catch (_: Throwable) {}
+    }
+
     /** Pure: the value to write when the tick has no liquidity but an observation does, else null. */
     fun fill8037(tickUsd: Double, observedUsd: Double): Double? =
         if (!(tickUsd > 0.0) && observedUsd.isFinite() && observedUsd > 0.0) observedUsd else null
@@ -39,7 +50,7 @@ object LiquidityTruth8037 {
             val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
             if (solUsd.isFinite() && solUsd > 0.0) {
                 val usd = curveReal * solUsd
-                if (ts.lastLiquidityUsd != usd) { ts.lastLiquidityUsd = usd; curveRealApplied8046.incrementAndGet() }
+                if (ts.lastLiquidityUsd != usd) { write8343(ts, usd); curveRealApplied8046.incrementAndGet() }
                 // V5.0.8048 — the token map keeps the same truth (it held the intake estimate, mcap x 0.85: BOWNARROW $2,608
                 // in the map while V3 read $0), so every reader of the map agrees with the curve's own account.
                 try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
@@ -51,17 +62,17 @@ object LiquidityTruth8037 {
         if (chain.isFinite() && chain > 0.0) {
             if (ts.lastLiquidityUsd != chain) {
                 try { OnChainDepth8038.noteApi8038(ts.mint, ts.lastLiquidityUsd) } catch (_: Throwable) {}
-                ts.lastLiquidityUsd = chain; chainApplied.incrementAndGet()
+                write8343(ts, chain); chainApplied.incrementAndGet()
             }
             return chain
         }
         val obs = try { com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 }
-        fill8037(ts.lastLiquidityUsd, obs)?.let { ts.lastLiquidityUsd = it; hydrated.incrementAndGet() }
+        fill8037(ts.lastLiquidityUsd, obs)?.let { write8343(ts, it); hydrated.incrementAndGet() }
         // V5.0.8164 — an ACTIVE pump.fun curve with a priced cap but no reserve frame inside the curve TTL: its real SOL
         // follows from the cap by the curve's own invariant ([curveRealSolFromCap8048]), so it is derived, not invented.
         // 5.0.8162 fresh run: SHITCOIN NATIVE_LANE_LIQ_UNHYDRATED_DEFER=1,633 and EXPRESS 1,606 on curve coins whose
         // cap every scorer already used, and forward labels on the same coins costed at the 20% unknown-depth impact.
-        if (!(ts.lastLiquidityUsd > 0.0)) curveDepthFromCap8164(ts)?.let { ts.lastLiquidityUsd = it; curveCapDerived8164.incrementAndGet() }
+        if (!(ts.lastLiquidityUsd > 0.0)) curveDepthFromCap8164(ts)?.let { write8343(ts, it); curveCapDerived8164.incrementAndGet() }
         val v = ts.lastLiquidityUsd
         if (!(v > 0.0)) {
             stillUnknown.incrementAndGet()

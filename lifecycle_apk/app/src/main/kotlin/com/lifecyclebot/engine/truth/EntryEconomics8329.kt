@@ -266,7 +266,8 @@ object EntryEconomics8329 {
         val lane = Entry8114Mode8326.canon8326(laneRaw)
         val ts = if (mint.isNotBlank()) try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } else null
         val rec = if (ts != null) try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedRecord8153(ts, lane, null, nowMs) } catch (_: Throwable) { null } else null
-        val early = ts != null && earlyRunner8329(ts, nowMs)
+        // V5.0.8343 — a grab-lane admit (RunnerGrabLane8343: forming runner on its own evidence) is the early runner at the route minimum.
+        val early = ts != null && (earlyRunner8329(ts, nowMs) || com.lifecyclebot.engine.RunnerGrabLane8343.admitted8343(mint, lane, nowMs))
         // The 8316 exploration slot (owner directive) is itself an explicit reason: a lane with no record yet earns its first
         // labels through that one bounded order, so the promotion is not refused while the slot is free.
         val reason = promotionReason8329(requestedSol, promotedSol, rec?.getOrNull(0) ?: 0.0, rec?.getOrNull(1) ?: Double.NaN, early)

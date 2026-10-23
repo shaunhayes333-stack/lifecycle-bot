@@ -87,6 +87,7 @@ object CurveReserves7951 {
             }
         }
         notes.incrementAndGet()
+        try { com.lifecyclebot.engine.HydrationReeval8343.onCurveRead8343(m, real, atMs) } catch (_: Throwable) {}  // V5.0.8343 — the curve read ends a liquidity deferral
     }
 
     private fun trim(nowMs: Long) {

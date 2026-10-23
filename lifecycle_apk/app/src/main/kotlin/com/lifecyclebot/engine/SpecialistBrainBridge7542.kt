@@ -62,14 +62,17 @@ object SpecialistBrainBridge7542 {
      * the coin belongs to a refused population proven to win in this lane (40+ graded, mean - SE > +2% net).
      */
     fun nativeRetiredFor8112(mint: String, lane: String): Boolean = try {
-        cachedSnapshot7650(mint)?.opinions?.get(lane.uppercase())?.reason?.startsWith("NATIVE_VETO_RETIRED_8048") == true
+        val r = cachedSnapshot7650(mint)?.opinions?.get(lane.uppercase())?.reason
+        // V5.0.8343 — a grab-lane admit (forming runner on its own evidence) is not held back by the generic score floor either.
+        r != null && (r.startsWith("NATIVE_VETO_RETIRED_8048") || r.startsWith(RunnerGrabLane8343.REASON_PREFIX_8343))
     } catch (_: Throwable) { false }
 
     fun nativeRuleRetirable8048(reason:String):Boolean{val r=reason.uppercase();return listOf("RUG","SAFETY","HONEYPOT","BLOCK","DEV","BUNDLE","LIQ","SCAM","FREEZE","MINT_AUTH","BLACKLIST","ERROR").none{r.contains(it)}}
     /** CORE is formed after the specialist veto review; only its own measured refusal can rescue it. */
     internal fun reviewCoreYield8077(o: Opinion, ownLaneProof: (String, String) -> Boolean): Opinion {
+        // V5.0.8343 — CORE's own-ensemble refusal (no specialist took the coin) is audited the same way.
         if (o.lane != "CORE" || o.eligible || !o.authoritative || !o.gradeable ||
-            o.reason != "CORE_YIELD_CLEAR_SPECIALIST_OWNER" || o.score <= 0) return o
+            (o.reason != "CORE_YIELD_CLEAR_SPECIALIST_OWNER" && o.reason != RunnerGrabLane8343.CORE_OWN_BAR_8343) || o.score <= 0) return o
         val rule = "NATIVE_${DecisionReasons8031.rule8031(o.reason)}"
         if (!ownLaneProof(rule, o.lane)) return o
         return o.copy(eligible = true, reason = "NATIVE_VETO_RETIRED_8048:${o.reason}")
@@ -346,10 +349,14 @@ object SpecialistBrainBridge7542 {
             val defer8236 = LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236) ?: continue
             out[lane] = o.copy(reason = defer8236, gradeable = false)
         }
+        // V5.0.8343 — the grab lane: a forming runner refused only on a lane MANDATE is re-asked on its own legs (hard safety,
+        // exit-safe venue, forming-run evidence, economics at the route minimum, chase cap; live: the evidence hold's door);
+        // UNHYDRATED_DEFER refusals are remembered for the hydration re-evaluation. Safety / rug / dev refusals are never re-asked.
+        try { RunnerGrabLane8343.reviewNative8343(ts, out, now) } catch (_: Throwable) {}
         val s=out.values.filter{it.authoritative&&it.eligible}.sortedByDescending{maxOf(it.score,it.confidence)};val a=s.getOrNull(0);val b=s.getOrNull(1);val av=a?.let{maxOf(it.score,it.confidence)}?:0;val bv=b?.let{maxOf(it.score,it.confidence)}?:0
         val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65);val fallback=s.isEmpty()&&v3>=40&&v3c>=45&&bp>=50&&ts.lastLiquidityUsd>0&&!ts.safety.isBlocked;val coreOk=ensemble||fallback
         val coreScore=(if(s.isNotEmpty())s.take(4).map{maxOf(it.score,it.confidence)}.average().toInt()else v3).coerceIn(0,100)
-        if (owns7828("CORE")) out["CORE"]=op("CORE",coreOk,coreScore,coreScore,0.0,when{ensemble->"CORE_ENSEMBLE_${s.take(4).joinToString("+"){it.lane}}";fallback->"CORE_GENERALIST_NO_SPECIALIST_FIT";else->"CORE_YIELD_CLEAR_SPECIALIST_OWNER"},a?.setup?:"MAINSTREAM_CRYPTO_SWING","core_native_ensemble","core_inherit_ensemble_exit",1.0,0.8,1.0,s.take(4).flatMap{it.tools}.toSet()+"CORE_ENSEMBLE")
+        if (owns7828("CORE")) out["CORE"]=op("CORE",coreOk,coreScore,coreScore,0.0,when{ensemble->"CORE_ENSEMBLE_${s.take(4).joinToString("+"){it.lane}}";fallback->"CORE_GENERALIST_NO_SPECIALIST_FIT";else->RunnerGrabLane8343.coreYieldReason8343(s.isEmpty(),out.values)},a?.setup?:"MAINSTREAM_CRYPTO_SWING","core_native_ensemble","core_inherit_ensemble_exit",1.0,0.8,1.0,s.take(4).flatMap{it.tools}.toSet()+"CORE_ENSEMBLE")
         out["CORE"]?.let { original ->
             val reviewed = reviewCoreYield8077(original) { rule, lane ->
                 try { com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(rule, lane) }

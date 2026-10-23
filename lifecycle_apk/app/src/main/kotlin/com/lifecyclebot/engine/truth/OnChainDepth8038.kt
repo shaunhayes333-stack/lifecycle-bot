@@ -211,6 +211,7 @@ object OnChainDepth8038 {
             val read = Read(p, sides.first, sides.second, observedAt)
             reads[mint] = read
             CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
+            try { com.lifecyclebot.engine.HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs) } catch (_: Throwable) {}  // V5.0.8343 — the vault answer ends a liquidity deferral
             if (reads.size > 3_000) reads.entries.sortedBy { it.value.atMs }.take(300).forEach { reads.remove(it.key) }
             fetched.incrementAndGet()
             return read
