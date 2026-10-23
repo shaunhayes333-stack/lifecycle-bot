@@ -155,8 +155,9 @@ class Aate8329EntryEconomicsTest {
         assertTrue(rp.contains("EntryEconomics8329.promotionReasonRefusal8329(i.mint8329, i.lane, size, executableFloor8269)"))
         assertTrue(rp.contains("NetEdge8030.preTradeCostPct8329(effectiveLane7811, s, liquidityUsd, mint, mcap8153)"))
         val econ = src("engine/truth/EntryEconomics8329.kt")
+        // superseded by V5.0.8343 — a grab-lane admit (RunnerGrabLane8343) is the early runner too; the LAUNCH_EARLY plan test is unchanged
         assertTrue("an early runner is a LAUNCH_EARLY plan inside the launch window", econ.contains("plan.setup != TradePlan7739.Setup.LAUNCH_EARLY") &&
-            econ.contains("StrategyMove8153.fresh8153(age)") && econ.contains("val early = ts != null && earlyRunner8329(ts, nowMs)"))
+            econ.contains("StrategyMove8153.fresh8153(age)") && econ.contains("val early = ts != null && (earlyRunner8329(ts, nowMs) || com.lifecyclebot.engine.RunnerGrabLane8343.admitted8343(mint, lane, nowMs))"))
         assertTrue("a pure caller with no mint still gets the Kelly test", econ.contains("if (!(promotedSol > 0.0) || !(requestedSol < promotedSol)) return null"))
     }
 

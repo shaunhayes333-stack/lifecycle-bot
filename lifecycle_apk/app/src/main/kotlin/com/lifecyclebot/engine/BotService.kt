@@ -1011,7 +1011,9 @@ class BotService : Service() {
         // V5.0.8113 — or a run the bot confirms live (re-entry ticket / runner grab) — the same lane-fit refusals only.
         val runner8113 = mint.isNotBlank() && SpecialistBrainBridge7542.nativeRuleRetirable8048(reason) &&
             (try { RunnerPlay8018.ticketActive8018(mint) } catch (_: Throwable) { false })
-        val retired = runner8113 || SpecialistBrainBridge7542.doorRetires8105(lane, false, reason) { rule, l ->
+        // V5.0.8343 — or the grab lane admitted this mint for this lane on its own evidence (mandate refusals only, never safety).
+        val grab8343 = mint.isNotBlank() && RunnerGrabLane8343.mandateRefusal8343(reason) && RunnerGrabLane8343.admitted8343(mint, lane)
+        val retired = runner8113 || grab8343 || SpecialistBrainBridge7542.doorRetires8105(lane, false, reason) { rule, l ->
             com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(rule, l)
         }
         try {

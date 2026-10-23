@@ -305,7 +305,38 @@ object HandoffReceiverTasks8153 {
     }
 
     /** " handoffResumed8330=N expiredAfterState=M" */
-    fun resumeLine8330(): String = " handoffResumed8330=${resumed8330.get()} expiredAfterState=${expiredAfterState8330.get()}"
+    fun resumeLine8330(): String = " handoffResumed8330=${resumed8330.get()} expiredAfterState=${expiredAfterState8330.get()} hydrationResumed8343=${resumedHydration8343.get()}"
+
+    // ── V5.0.8343 — resume on liquidity arrival (the 8330 hook for an UNHYDRATED deferral) ──
+
+    private val resumedHydration8343 = AtomicLong(0L)
+
+    /** Pure: the task's remembered block is a liquidity / mcap not-yet-read deferral. */
+    fun awaitsHydration8343(t: Task8153): Boolean =
+        t.pending && t.lastBlock.startsWith(DEFERRED_PREFIX_8153) && HydrationReeval8343.unhydratedDefer8343(t.lastBlock)
+
+    /** Pure: the same task resumed on hydration — block cleared, validity extended within the max age, version carried. */
+    fun resumeOnHydration8343(t: Task8153?, nowMs: Long): Task8153? {
+        if (t == null || !awaitsHydration8343(t)) return null
+        val until = minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)
+        if (until <= nowMs) return null
+        return t.copy(lastBlock = "", validUntilMs = maxOf(t.validUntilMs, until))
+    }
+
+    /** HydrationReeval8343: the liquidity of [mint] was just read: resume its task awaiting it at once. */
+    fun onHydrated8343(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        val m = HandoffRoute8180.memeKey8180(mint.trim())
+        val t = tasks8153[m] ?: tasks8153[mint] ?: return
+        if (!awaitsHydration8343(t)) return
+        val after = update8153(t.mint, nowMs) { prior -> resumeOnHydration8343(prior, nowMs) ?: prior }
+        if (after != null && after.pending && after.lastBlock.isEmpty()) {
+            resumedHydration8343.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("HANDOFF_TASK_RESUMED_ON_HYDRATION_8343_${after.lane}")
+                ForensicLogger.lifecycle("HANDOFF_TASK_RESUMED_8343", "mint=${t.mint.take(10)} lane=${after.lane} from=${after.from} version=${after.version} validUntilMs=${after.validUntilMs} action=same_task_next_cycle_liquidity_read")
+            } catch (_: Throwable) {}
+        }
+    }
 
     // ── bounded runtime table (one task per mint) ──
 

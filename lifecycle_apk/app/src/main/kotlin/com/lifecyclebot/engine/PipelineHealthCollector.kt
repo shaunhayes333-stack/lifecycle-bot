@@ -1513,6 +1513,10 @@ object PipelineHealthCollector {
         sb.append("  Runner capture (§8017): ").append(
             try { com.lifecyclebot.engine.truth.RunnerCapture8017.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        // V5.0.8343 — the grab lane (a forming runner admitted on its own evidence) and the hydration re-evaluation.
+        sb.append("  Runner grab lane (§8343): ").append(
+            try { com.lifecyclebot.engine.RunnerGrabLane8343.statusLine8343() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Runner play (§8018): ").append(
             try { com.lifecyclebot.engine.RunnerPlay8018.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append(" | pumpswap ticks ").append(
