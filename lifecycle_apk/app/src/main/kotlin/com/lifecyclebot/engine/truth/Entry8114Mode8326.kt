@@ -47,7 +47,15 @@ object Entry8114Mode8326 {
     fun enabled8326(): Boolean = enabled8326
 
     fun canon8326(lane: String?): String =
-        (try { CanonicalLaneIdentity6506.canonical(lane) } catch (_: Throwable) { "" }).uppercase().ifBlank { lane.orEmpty().trim().uppercase() }
+        expressAlias8365((try { CanonicalLaneIdentity6506.canonical(lane) } catch (_: Throwable) { "" }).uppercase().ifBlank { lane.orEmpty().trim().uppercase() })
+
+    /**
+     * V5.0.8365 — pure: the specialist side (SpecialistOwnership7951, ToolkitSignalSheet, RuntimeConfigOverlay) files the
+     * SHITCOIN_EXPRESS lane as EXPRESS, CanonicalLaneIdentity6506 does not; a candidate arriving as SHITCOIN_EXPRESS read
+     * an empty SHITCOIN_EXPRESS hold / realised / memo book beside the EXPRESS one. The 8114 stack keys both as EXPRESS.
+     */
+    fun expressAlias8365(canonical: String): String =
+        if (canonical == "SHITCOIN_EXPRESS" || canonical == "SHITCOINEXPRESS") "EXPRESS" else canonical
 
     private fun laneCovered8326(lane: String?): Boolean = canon8326(lane) in LANES_8326
 

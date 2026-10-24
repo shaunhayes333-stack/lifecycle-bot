@@ -91,8 +91,7 @@ object EvidenceHold8336 {
     fun shadowProven8344(lane: String): Boolean = explorationProven8347(lane) ||
         try { EvidenceShadow8344.proof8344(canon(lane), startMs8336).proven } catch (_: Throwable) { false }
 
-    private fun canon(lane: String): String =
-        (try { CanonicalLaneIdentity6506.canonical(lane) } catch (_: Throwable) { "" }).uppercase().ifBlank { lane.trim().uppercase() }
+    private fun canon(lane: String): String = Entry8114Mode8326.canon8326(lane)   // V5.0.8365 — SHITCOIN_EXPRESS files as EXPRESS
 
     private fun proofs8336(nowMs: Long): Map<String, Proof8336> {
         cache?.let { (at, m) -> if (nowMs - at in 0L until CACHE_MS_8336) return m }

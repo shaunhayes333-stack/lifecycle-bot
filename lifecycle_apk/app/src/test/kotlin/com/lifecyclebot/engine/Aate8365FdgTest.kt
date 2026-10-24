@@ -149,7 +149,17 @@ class Aate8365FdgTest {
             line.contains("duplicatesDemoted=[") && line.contains("LIVE_PROVEN_SETUP_ONLY_8059>EVIDENCE_HOLD_PAPER_ALL_8336="))
     }
 
-    // ── 7. source pins ──
+    // ── 7. lane identity: SHITCOIN_EXPRESS is EXPRESS across the 8114 stack (hold, realised, memo) ──
+
+    @Test fun shitcoinExpressFilesAsExpress() {
+        assertEquals("EXPRESS", com.lifecyclebot.engine.truth.Entry8114Mode8326.expressAlias8365("SHITCOIN_EXPRESS"))
+        assertEquals("EXPRESS", com.lifecyclebot.engine.truth.Entry8114Mode8326.expressAlias8365("SHITCOINEXPRESS"))
+        assertEquals("MOONSHOT", com.lifecyclebot.engine.truth.Entry8114Mode8326.expressAlias8365("MOONSHOT"))
+        assertEquals("SHITCOIN", com.lifecyclebot.engine.truth.Entry8114Mode8326.expressAlias8365("SHITCOIN"))
+        assertTrue(src("engine/truth/EvidenceHold8336.kt").contains("private fun canon(lane: String): String = Entry8114Mode8326.canon8326(lane)"))
+    }
+
+    // ── 8. source pins ──
 
     @Test fun wiringIsPinned() {
         val mode = src("engine/truth/Entry8114Mode8326.kt")

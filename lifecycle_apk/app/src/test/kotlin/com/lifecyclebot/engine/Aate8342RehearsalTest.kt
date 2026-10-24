@@ -168,7 +168,9 @@ class Aate8342RehearsalTest {
         assertTrue(gate.contains("if (r == StrategyMove8153.DEFER_REASON_8153) Entry8114Mode8326.noteBypass8326(\"NET_EDGE_MOVE_HISTORY_DEFER_8153\", lane) else return r"))
         assertTrue(gate.contains("NetEdge8030.laneFitRefusal8054(ts, CanonicalLaneIdentity6506.canonical(lane).ifBlank { lane })?.let { return it }"))
         val mode = src("engine/truth/Entry8114Mode8326.kt")
-        assertTrue(mode.contains("val (old, advisories8342) = try { Rehearsal8339.collecting8342 { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } } } catch (_: Throwable) {"))
+        // superseded by V5.0.8365 — the 8114 verdict is still collected for the paper entry, now inside the FdgGate8365 decision
+        // context (hold basis for the live evidence-door demotion); the collecting scope and the legacy scope are unchanged.
+        assertTrue(mode.contains("val (old, advisories8342) = try { Rehearsal8339.collecting8342 { FdgGate8365.inContext8365(ts, l, basis8365) { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } } } } catch (_: Throwable) {"))
         assertTrue(mode.contains("if (paper8336 && final == null) try { Rehearsal8339.notePaperAdmit8342(ts, l, advisories8342, nowMs) } catch (_: Throwable) {}"))
         assertTrue(mode.contains("if (now != null && hardSafety8326(now)) now else (realised ?: old)"))
         val hold = src("engine/truth/EvidenceHold8336.kt")
