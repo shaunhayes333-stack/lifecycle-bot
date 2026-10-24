@@ -31,6 +31,9 @@ class Aate8364EntriesTest {
     @Test fun liveAdmitWithoutAFiredNamedSetupIsRefused() {
         val lane = "MOONSHOT"
         val why = "LIVE_NO_FIRED_SETUP_8364_MOONSHOT"
+        // superseded by V5.0.8370 — owner restored 8114 behaviour ("No fired-setup rule"): the classification below is
+        // telemetry (counted as LIVE_NO_FIRED_SETUP_8364_<lane>), never a binding live refusal.
+        assertFalse(src("engine/truth/Entry8114Mode8326.kt").contains("Entry8114Gate8326.liveFiredSetup" + "Refusal8364("))
         assertEquals(why, Entry8114Gate8326.noFiredSetupRefusal8364(lane, false, null, emptyList()))
         assertEquals(why, Entry8114Gate8326.noFiredSetupRefusal8364(lane, false, "NO_TRIGGER", listOf("NO_TRIGGER")))
         assertEquals(why, Entry8114Gate8326.noFiredSetupRefusal8364(lane, false, "DATA_INCOMPLETE", emptyList()))
@@ -60,12 +63,15 @@ class Aate8364EntriesTest {
         val m = ExploreShadow8347.Choice8351(E, R, "M", "MC_10K_100K", p)
         assertFalse("setup=null never enters an S: niche", ExploreShadow8347.inNiche8351(s, null, "MC_10K_100K"))
         assertTrue(ExploreShadow8347.inNiche8351(s, "ignition_5m", null))
-        assertFalse("a band alone is not a setup", ExploreShadow8347.inNiche8351(m, null, "MC_10K_100K"))
-        assertFalse(ExploreShadow8347.inNiche8351(m, "NO_TRIGGER", "MC_10K_100K"))
+        // superseded by V5.0.8370 — owner restored 8114 behaviour: an M: band niche is the band alone (no named setup needed).
+        assertTrue("a band niche admits its band", ExploreShadow8347.inNiche8351(m, null, "MC_10K_100K"))
+        assertTrue(ExploreShadow8347.inNiche8351(m, "NO_TRIGGER", "MC_10K_100K"))
+        assertFalse("wrong band", ExploreShadow8347.inNiche8351(m, "BREAKOUT_RETEST", "MC_LT10K"))
         assertTrue(ExploreShadow8347.inNiche8351(m, "BREAKOUT_RETEST", "MC_10K_100K"))
         // against the coin's fired setups
-        assertFalse(ExploreShadow8347.inNiche8364(m, null, "MC_10K_100K", emptyList()))
-        assertFalse(ExploreShadow8347.inNiche8364(m, "BREAKOUT_RETEST", "MC_10K_100K", listOf("NO_TRIGGER")))
+        // superseded by V5.0.8370 — owner restored 8114 behaviour: the band decides an M: niche, fired setups or not.
+        assertTrue(ExploreShadow8347.inNiche8364(m, null, "MC_10K_100K", emptyList()))
+        assertTrue(ExploreShadow8347.inNiche8364(m, "BREAKOUT_RETEST", "MC_10K_100K", listOf("NO_TRIGGER")))
         assertTrue(ExploreShadow8347.inNiche8364(m, null, "MC_10K_100K", listOf("NO_TRIGGER", "BREAKOUT_RETEST")))
         assertFalse("wrong band", ExploreShadow8347.inNiche8364(m, null, "MC_LT10K", listOf("BREAKOUT_RETEST")))
         assertTrue(ExploreShadow8347.inNiche8364(s, null, null, listOf("IGNITION_5M")))
@@ -150,8 +156,11 @@ class Aate8364EntriesTest {
 
     @Test fun hookSitesArePinned() {
         val mode = src("engine/truth/Entry8114Mode8326.kt")
-        val hook = "(if (paper8336) null else try { Entry8114Gate8326.liveFiredSetupRefusal8364(ts, l, old.setup, nowMs) } catch (_: Throwable) { null })"
-        assertTrue("live only, after the 8114 admit", mode.contains(hook))
+        // superseded by V5.0.8370 — owner restored 8114 behaviour ("No fired-setup rule"): the hook counts, it never refuses
+        // (was "(if (paper8336) null else try { Entry8114Gate8326.liveFiredSetupRefusal8364(...) } ...)" in the verdict chain).
+        val hook = "if (!paper8336) try { Entry8114Gate8326.noteFiredSetup8370(ts, l, old.setup, nowMs) } catch (_: Throwable) {}"
+        assertTrue("live only, counted", mode.contains(hook))
+        assertFalse("not in the verdict chain", mode.contains("Entry8114Gate8326.liveFiredSetup" + "Refusal8364("))
         assertTrue("before the niche and the timing wait", mode.indexOf(hook) < mode.indexOf("ExploreShadow8347.nicheRefusal8351(ts, l,") &&
             mode.indexOf("val final0_8347 = finalVerdict8326(old.reason, now, realised)") < mode.indexOf(hook))
         val gate = src("engine/truth/Entry8114Gate8326.kt")

@@ -149,7 +149,8 @@ class Aate8329EntryEconomicsTest {
 
     @Test fun promotionReasonIsAskedOnBothPromotionPaths() {
         val mp = src("engine/truth/MinPromotion8188.kt")
-        assertTrue(mp.contains("?: EntryEconomics8329.promotionReasonRefusal8329(mint, lane, requestedSol, promotedSol)"))
+        // superseded by V5.0.8370 — owner restored 8114 behaviour ("Small stakes trade"): asked on both paths, as a label only.
+        assertTrue(mp.contains("if (r == null) SmallStake8370.telemetry8370(EntryEconomics8329.promotionReasonRefusal8329(mint, lane, requestedSol, promotedSol))"))
         assertTrue("the promotion is costed at the pre-trade cost truth", mp.contains("NetEdge8030.preTradeCostPct8329(l, s, liq, mint, mcap)"))
         val rp = src("engine/truth/LiveRiskPolicy7807.kt")
         assertTrue(rp.contains("EntryEconomics8329.promotionReasonRefusal8329(i.mint8329, i.lane, size, executableFloor8269)"))

@@ -846,7 +846,8 @@ object ExploreShadow8347 {
     fun inNiche8351(c: Choice8351, setup: String?, band: String?): Boolean = when (c.dim) {
         null -> true
         "S" -> setup != null && Entry8114Gate8326.namedSetup8364(setup) && setup.trim().equals(c.value, ignoreCase = true)
-        "M" -> band != null && band.equals(c.value, ignoreCase = true) && Entry8114Gate8326.namedSetup8364(setup)
+        // V5.0.8370 — owner chose "No fired-setup rule" (as 8114): an M: band niche is the band; it needs no named setup.
+        "M" -> band != null && band.equals(c.value, ignoreCase = true)
         else -> true
     }
 
@@ -854,10 +855,7 @@ object ExploreShadow8347 {
     fun inNiche8364(c: Choice8351, setup: String?, band: String?, fired: List<String>): Boolean = when (c.dim) {
         null -> true
         "S" -> inNiche8351(c, setup, band) || fired.any { inNiche8351(c, it, band) }
-        "M" -> {
-            val named = Entry8114Gate8326.firedSetup8364(setup, fired)
-            named != null && inNiche8351(c, named, band)
-        }
+        "M" -> inNiche8351(c, setup, band)   // V5.0.8370 — the band alone (an S: niche still needs that setup)
         else -> false
     }
 

@@ -52,8 +52,12 @@ class Aate8365FdgTest {
     // ── 2. the 8364 fired-setup rule is the one check of "did a named setup fire" ──
 
     @Test fun noTriggerPlaybookDoorYieldsToTheFiredSetupRule() {
-        assertEquals(FdgGate8365.BY_FIRED_SETUP_8365,
-            FdgGate8365.demotedBy8365("PLAYBOOK_NO_TRIGGER_PROVEN_LOSING_7907_SHITCOIN", true, null, null, false))
+        // superseded by V5.0.8370 — owner restored 8114 behaviour ("No fired-setup rule"): the 8364 rule is telemetry, so the
+        // NO_TRIGGER playbook door is no longer its duplicate; it is as at 8114 (binds on a PROVEN losing NO_TRIGGER record,
+        // with the 8114 overrides, the hold-basis and veto-audit demotions). It never refuses for "no named setup" alone.
+        assertNull(FdgGate8365.demotedBy8365("PLAYBOOK_NO_TRIGGER_PROVEN_LOSING_7907_SHITCOIN", true, null, null, false))
+        assertEquals("EVIDENCE_HOLD_" + FdgGate8365.BASIS_PAPER_ALL_8365,
+            FdgGate8365.demotedBy8365("PLAYBOOK_NO_TRIGGER_PROVEN_LOSING_7907_SHITCOIN", true, FdgGate8365.BASIS_PAPER_ALL_8365, null, false))
         // a NAMED setup proven losing on labels is not the fired-setup question
         assertNull(FdgGate8365.demotedBy8365("PLAYBOOK_SETUP_PROVEN_LOSING_7907_SHITCOIN_IGNITION", true, null, null, false))
     }

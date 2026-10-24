@@ -80,8 +80,10 @@ class Aate8363ExitsTest {
 
     @Test fun floorsArmOncePeakClearsBreakEvenAndKeepHalfThePeak() {
         assertTrue("not armed under net break-even + margin", GreenFloor8363.floor8363(5.0, 3.0).isNaN())
-        assertEquals(7.5, GreenFloor8363.floor8363(15.0, 3.0), 1e-9)          // max(BE 3.5, 50 % of 15)
-        assertEquals(90.0, GreenFloor8363.floor8363(180.0, 3.0), 1e-9)        // +180 % peak keeps +90 %
+        // superseded by V5.0.8370 — owner restored 8114 behaviour: max(8337 rule, 8114 trail at 65 % of the peak price).
+        // Under +20 % the 8169 break-even floor (3.5); +180 % -> max(3a 72, trail 0.65 x 2.8 = 1.82 -> +82) = +82 %.
+        assertEquals(3.5, GreenFloor8363.floor8363(15.0, 3.0), 1e-9)
+        assertEquals(82.0, GreenFloor8363.floor8363(180.0, 3.0), 1e-9)
         assertEquals(0.5, GreenFloor8363.KEEP_FRACTION_8363, 0.0)
         assertTrue(GreenFloor8363.floor8363(Double.NaN, 3.0).isNaN())
         assertTrue("the +180 % peak at -13 % has long fired", GreenFloor8363.breached8363(-13.0, 180.0, 3.0))

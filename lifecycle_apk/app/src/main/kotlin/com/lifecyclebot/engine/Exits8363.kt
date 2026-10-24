@@ -49,19 +49,45 @@ object ProfitLock8363 {
 
 object GreenFloor8363 {
     /** The floor keeps at least this share of the peak gain once armed. */
+    // superseded by V5.0.8370 — owner restored 8114 behaviour: the runner hold floor is the 8114 trail (35 % under the
+    // peak price) with the owner's 8337 3a rule beneath it; this 50 % share no longer sets the floor (kept for reference).
     const val KEEP_FRACTION_8363 = 0.5
+    /** V5.0.8370 — the 8114 runner trail: exit at 65 % of the peak PRICE (RunnerGrab7967.peakGiveback7980, 379ad2fa0 :416). */
+    const val TRAIL_KEEP_PRICE_FRACTION_8370 = 0.65
+    /** V5.0.8370 — the owner's 8337 fix-block 3a: from a +20 % peak at least 40 % of the peak is kept. */
+    const val RULE_3A_PEAK_PCT_8370 = 20.0
+    const val RULE_3A_KEEP_FRACTION_8370 = 0.4
     private val fired = AtomicLong(0)
 
+    /** Pure (V5.0.8370): the 8114 trail as a gross %: price at 65 % of the peak price, (0.65 x (1 + peak) - 1) x 100. */
+    fun trail8370(peakPct: Double): Double =
+        if (!peakPct.isFinite()) Double.NaN else (TRAIL_KEEP_PRICE_FRACTION_8370 * (1.0 + peakPct / 100.0) - 1.0) * 100.0
+
     /**
-     * Pure: the floor (gross %) of a green hold at confirmed peak [peakPct] with round trip [costPct], or NaN while the
-     * peak has not cleared net break-even. ExitDoctrine8169.runnerProtectFloor8169 decides when it arms (the 8337 rule);
-     * once armed the remainder exits at max(that floor, 50 % of the peak gain).
+     * Pure (V5.0.8370): the owner's 8337 rule for a held runner — from a +20 % peak max(min(net BE, half the peak), 40 % of
+     * the peak); under +20 % net break-even once the peak cleared it by the 8169 margin (ExitDoctrine8169); else NaN.
      */
-    fun floor8363(peakPct: Double, costPct: Double): Double {
+    fun rule8337Floor8370(peakPct: Double, costPct: Double): Double {
         if (!peakPct.isFinite() || peakPct <= 0.0) return Double.NaN
-        val base = ExitDoctrine8169.runnerProtectFloor8169(peakPct, costPct)
+        val be = (if (costPct.isFinite() && costPct > 0.0) costPct else 0.0) + 0.5
+        if (peakPct >= RULE_3A_PEAK_PCT_8370) return maxOf(minOf(be, peakPct * 0.5), peakPct * RULE_3A_KEEP_FRACTION_8370)
+        return ExitDoctrine8169.runnerProtectFloor8169(peakPct, costPct)
+    }
+
+    /**
+     * Pure: the floor (gross %) of a green hold at confirmed peak [peakPct] with round trip [costPct], or NaN while it is
+     * not armed. V5.0.8370 (owner: "Runner trail 35% from peak", as 8114): max(the 8337 rule, the 8114 trail at 65 % of
+     * the peak price). Peak +100 % -> max(+40, +30) = +40 %; peak +300 % -> max(+120, +160) = +160 %.
+     * superseded by V5.0.8370 — owner restored 8114 behaviour (was max(8169 floor, 50 % of the peak gain)).
+     */
+    fun floor8363(peakPct: Double, costPct: Double): Double = floor8370(peakPct, costPct)
+
+    /** Pure (V5.0.8370): see [floor8363]. The trail never arms a floor alone; the 8337 rule arms it. */
+    fun floor8370(peakPct: Double, costPct: Double): Double {
+        val base = rule8337Floor8370(peakPct, costPct)
         if (!base.isFinite()) return Double.NaN
-        return maxOf(base, peakPct * KEEP_FRACTION_8363)
+        val trail = trail8370(peakPct)
+        return if (trail.isFinite()) maxOf(base, trail) else base
     }
 
     /** Pure: has gross [grossPct] fallen to the armed floor? */
@@ -109,7 +135,7 @@ object GreenFloor8363 {
         try { PipelineHealthCollector.labelInc("GREEN_FLOOR_8363_$site") } catch (_: Throwable) {}
     }
 
-    fun statusLine8363(): String = "greenFloor8363=${fired.get()} rule=max(netBE,${(KEEP_FRACTION_8363 * 100).toInt()}%peak)"
+    fun statusLine8363(): String = "greenFloor8363=${fired.get()} rule8370=max(8337_3a,trail${((1.0 - TRAIL_KEEP_PRICE_FRACTION_8370) * 100).toInt()}%underPeakPrice)"
 }
 
 object ScalpStop8363 {

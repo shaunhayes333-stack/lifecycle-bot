@@ -83,6 +83,7 @@ class Aate8091PolicyInteractionTest {
         // at -15 % it is far under that floor, so the exit that asked is released, not held down toward the -40 % floor.
         assertNull(LifecycleHold8065.defer8065(ts, "CORTEX_EXIT_7897_MOONSHOT_FWD-7PCT"))
         assertNull(LifecycleHold8065.defer8065(ts, "STRICT_SL_-15"))
+        // V5.0.8370 — the floor is now max(8337 3a, 8114 trail) = +24 % at a +60 % peak: -15 % is still under it.
         assertTrue(GreenFloor8363.breached8363(-15.0, 60.0, 6.0))
         assertFalse(GreenFloor8363.breached8363(40.0, 60.0, 6.0))
         assertEquals(LifecycleHold8065.FLOOR_PCT, StopAuthority7887.stopMagFor(ts), 0.0)
