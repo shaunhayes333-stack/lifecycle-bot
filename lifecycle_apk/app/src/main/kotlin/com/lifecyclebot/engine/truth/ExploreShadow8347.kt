@@ -257,6 +257,24 @@ object ExploreShadow8347 {
     const val KIND_NATIVE_8360 = "NATIVE"
     const val KIND_REJECT_8360 = "REJECT"
     const val KIND_SETUP_8360 = "SETUP"
+    // V5.0.8368: the decision made by Cortex itself, not the independent native brain opinion.
+    // Separate kinds and keys keep a rejected Cortex trade from being counted as a native winner.
+    const val KIND_CORTEX_YES_8368 = "CORTEX_YES"
+    const val KIND_CORTEX_NO_8368 = "CORTEX_NO"
+    const val KIND_CORTEX_HOLD_8368 = "CORTEX_HOLD"
+    private val cortexSeen8368 = AtomicLong(0)
+    private val cortexSeenByKind8368 = ConcurrentHashMap<String, AtomicLong>()
+    private val cortexClosesByKind8368 = ConcurrentHashMap<String, AtomicLong>()
+    fun cortexKind8368(bucket: String): String = when (bucket.uppercase()) {
+        "STRONG" -> KIND_CORTEX_YES_8368
+        "REFUSE" -> KIND_CORTEX_NO_8368
+        else -> KIND_CORTEX_HOLD_8368
+    }
+    private fun isCortexKind8368(kind: String): Boolean =
+        kind == KIND_CORTEX_YES_8368 || kind == KIND_CORTEX_NO_8368 || kind == KIND_CORTEX_HOLD_8368
+    /** A native and a Cortex assessment of the same mint/lane/setup are different experiments. */
+    fun cortexTicketKey8368(nativeKey: String, kind: String): String =
+        if (isCortexKind8368(kind)) "$nativeKey|$kind" else nativeKey
     const val SKIP_SAFETY_TOKEN_8360 = "HARD_SAFETY_TOKEN"
     const val SKIP_SAFETY_REASON_8360 = "HARD_SAFETY_REASON"
     const val SKIP_LANE_ERROR_8360 = "LANE_ERROR_NO_OPINION"
@@ -308,7 +326,7 @@ object ExploreShadow8347 {
     }
 
     /** Pure: is [s] a ticket kind (rather than a skip reason)? */
-    fun opens8360(s: String): Boolean = s == KIND_NATIVE_8360 || s == KIND_REJECT_8360 || s == KIND_SETUP_8360
+    fun opens8360(s: String): Boolean = s == KIND_NATIVE_8360 || s == KIND_REJECT_8360 || s == KIND_SETUP_8360 || isCortexKind8368(s)
 
     /** Pure: the lane's extra SETUP tickets — every other fired setup (not the opinion's own, not NO_TRIGGER / NONE), distinct, at most [max]. */
     fun setupTickets8360(primary: String?, fired: List<String>, max: Int = MAX_SETUP_TICKETS_8360): List<String> {
@@ -330,7 +348,7 @@ object ExploreShadow8347 {
 
     /** Pure: the legs a kind runs — six Entry x Exit variants, or NOW/RUNNER + NOW/SCALP for a reject. */
     fun legsFor8360(kind: String): List<Pair<Entry8347, Exit8347>> =
-        if (kind == KIND_REJECT_8360) listOf(Entry8347.NOW to Exit8347.RUNNER, Entry8347.NOW to Exit8347.SCALP)
+        if (kind == KIND_REJECT_8360 || isCortexKind8368(kind)) listOf(Entry8347.NOW to Exit8347.RUNNER, Entry8347.NOW to Exit8347.SCALP)
         else Entry8347.values().flatMap { e -> Exit8347.values().map { x -> e to x } }
 
     /** Pure: the ticket to evict when full — the OLDEST (key, openedAtMs, anyActiveLeg) with no active leg; null = none. */
@@ -428,13 +446,55 @@ object ExploreShadow8347 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8368: a Cortex prediction attempts its OWN executable-shadow episode for this exact
+     * mint/lane/setup. All STRONG (YES), REFUSE (NO) and NEUTRAL (HOLD) assessments arrive here,
+     * independently of native lane eligibility, FDG/admission verdict and live wallet slots.
+     * Each is model-filled and marked through the same live-aligned shadow exits; invalid safety
+     * or unpriced candidates are counted, NEVER assigned a fabricated win or loss.
+     */
+    fun onCortexAssessment8368(
+        ts: TokenState, laneRaw: String, bucket: String, pWin: Double,
+        nowMs: Long = System.currentTimeMillis(),
+    ) {
+        val kind = cortexKind8368(bucket)
+        cortexSeen8368.incrementAndGet()
+        cortexSeenByKind8368.computeIfAbsent(kind) { AtomicLong(0) }.incrementAndGet()
+        try {
+            if (ts.mint.isBlank() || laneRaw.isBlank()) { skip8360("CORTEX_BAD_IDENTITY_8368"); return }
+            // Cross-asset traders use different venues and costs: do not invent SOL transactions for them.
+            // Their Cortex forward-label training remains active; this is the Solana execution shadow.
+            if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint)) {
+                skip8360("CORTEX_NON_SOLANA_SHADOW_UNROUTABLE_8368"); return
+            }
+            if (ts.safety.isBlocked) { skip8360("CORTEX_HARD_SAFETY_8368"); return }
+            val mark = ShadowMark8360.observed8360(ts, ts.mint, nowMs)
+            if (mark == null) { skip8360("CORTEX_NO_OBSERVED_MARK_8368"); want8360(ts.mint, nowMs); return }
+            val lane = canon(laneRaw)
+            val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) }
+                catch (_: Exception) { null }
+            val primary = setup?.takeIf { it.isNotBlank() } ?: "NO_TRIGGER"
+            val score = ts.entryScore.toInt().coerceIn(0, 100)
+            val confidence = if (pWin.isFinite()) (pWin * 100.0).toInt().coerceIn(0, 100) else 0
+            val o = com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion(
+                lane = lane, eligible = kind == KIND_CORTEX_YES_8368, score = score,
+                confidence = confidence, requestedSizeSol = TICKET_SOL_8347,
+                reason = "CORTEX_${bucket.uppercase()}_SHADOW_ONLY_8368", setup = primary,
+                entryStyle = "NOW", exitStyle = if (com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane)) "RUNNER" else "SCALP",
+                authoritative = false, tools = setOf("CORTEX_SHADOW_8368"),
+            )
+            open8347(ts, lane, o, mark.first, nowMs, kind, primary, mark.second)
+        } catch (_: Exception) { skip8360("CORTEX_SHADOW_ERROR_8368") }
+    }
+
     private fun open8347(
         ts: TokenState, lane: String, o: com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion, px: Double, nowMs: Long,
         kind: String, setup: String, markSrc: String,
     ) {
         val key = ticketKey8360(ts.mint, lane, setup)
-        if (tickets.containsKey(key)) { skip8360(SKIP_ALREADY_OPEN_8360); return }
-        val lastAt = lastOpenAt[key]
+        val ticketKey8368 = cortexTicketKey8368(key, kind)
+        if (tickets.containsKey(ticketKey8368)) { skip8360(SKIP_ALREADY_OPEN_8360); return }
+        val lastAt = lastOpenAt[ticketKey8368]
         if (lastAt != null && nowMs - lastAt in 0L until REOPEN_GAP_MS_8347) { skip8360(SKIP_REOPEN_GAP_8360); return }
         if (tickets.size >= MAX_TICKETS_8347 && !evict8360(null, nowMs)) { full.incrementAndGet(); skip8360(SKIP_FULL_8360); return }
         if (laneCount8360(lane) >= MAX_TICKETS_PER_LANE_8351 && !evict8360(lane, nowMs)) { full.incrementAndGet(); skip8360(SKIP_LANE_FULL_8360); return }
@@ -455,10 +515,10 @@ object ExploreShadow8347 {
         val fillPx8364 = ShadowFill8364.laneEntryPx8364(px, lane)
         t.legs.filter { it.entry == Entry8347.NOW }.forEach { it.active = true; it.entryPx = fillPx8364; it.entryAtMs = nowMs }
         t.legs.filter { it.entry == Entry8347.NOW && it.active }.forEach { landed8366(t, it, nowMs) }   // V5.0.8366 — the buy lands at the route's measured rate
-        tickets[key] = t
+        tickets[ticketKey8368] = t
         laneCounts8360.computeIfAbsent(lane) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
-        persistTicket8355(key, t, nowMs)   // V5.0.8355 — written on open
-        lastOpenAt[key] = nowMs
+        persistTicket8355(ticketKey8368, t, nowMs)   // V5.0.8355 — written on open
+        lastOpenAt[ticketKey8368] = nowMs
         if (lastOpenAt.size > 30_000) lastOpenAt.entries.removeIf { nowMs - it.value > REOPEN_GAP_MS_8347 }
         opened.incrementAndGet()
         openedByKind8360.computeIfAbsent(kind) { AtomicLong(0) }.incrementAndGet()
@@ -647,6 +707,17 @@ object ExploreShadow8347 {
         // live proof); a SETUP ticket only its own S:<setup> (SR:<setup> when the lane refused) — it shares the coin's price
         // path with the native ticket, so it never re-enters the variant book as a second sample.
         when (t.kind8360) {
+            KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368 -> {
+                // Shadow-only realised result for the Cortex's own verdict in its own lane.
+                // Do NOT mingle with native winner evidence, live fills or the canonical Cortex close bus.
+                val verdict = t.kind8360.removePrefix("CORTEX_")
+                bookKey8351("C|$v|CX:$verdict", net, nowMs)
+                // Outcomes also teach the exact setup and tactic within this lane/verdict.
+                // Kept in Cortex-only books so a rejected trade never earns native LIVE authority.
+                bookKey8351("C|$v|CXS:$verdict:${t.setup.take(48)}", net, nowMs)
+                bookKey8351("C|$v|CXT:$verdict:${t.tactic}", net, nowMs)
+                cortexClosesByKind8368.computeIfAbsent(t.kind8360) { AtomicLong(0) }.incrementAndGet()
+            }
             KIND_SETUP_8360 -> bookKey8351("C|$v|${if (t.nativeEligible) "S" else "SR"}:${t.setup}", net, nowMs)
             KIND_REJECT_8360 -> bookKey8351("C|$v|R:REJECT", net, nowMs)
             else -> {
@@ -972,12 +1043,22 @@ object ExploreShadow8347 {
                     (if (e != Entry8347.NOW) " fill${"%.0f".format(variantFillRate8364(l, e, x, sinceMs) * 100.0)}%" else "") }   // V5.0.8364
             val best = bestFor8351(l, sinceMs)?.let { c -> c.label + " fill${"%.0f".format(c.fillRate * 100.0)}% perSignal${"%+.1f".format(perSignal8364(c))}" } ?: "-"
             val inv = if (inverted8351(l, sinceMs)) " FILTER_INVERTED" else ""
-            val cohorts = listOf("S", "T", "M").mapNotNull { bestCohort8360(l, it, sinceMs) }.joinToString(" ; ").ifBlank { "-" }
-            "$l adopt=$best$inv [$cells] best{$cohorts} chase8364=${"%.1f".format(ShadowFill8364.laneChasePct8364(l))}%"
+            val cohorts = listOf("S", "T", "M", "CX", "CXS", "CXT").mapNotNull { bestCohort8360(l, it, sinceMs) }.joinToString(" ; ").ifBlank { "-" }
+            val cortex8368 = listOf("YES", "NO", "HOLD").mapNotNull { side ->
+                val ns = listOf(Exit8347.RUNNER, Exit8347.SCALP).map { x ->
+                    netsSince("C|$l|NOW|$x|CX:$side", sinceMs)
+                }
+                val primary = ns.first()
+                if (primary.isEmpty()) null else "$side:n${primary.size}/${"%+.1f".format(primary.average())}%"
+            }.joinToString(",").ifBlank { "-" }
+            "$l cortex{$cortex8368} adopt=$best$inv [$cells] best{$cohorts} chase8364=${"%.1f".format(ShadowFill8364.laneChasePct8364(l))}%"
         }.ifBlank { "no exploration closes yet" }
         val (byKind, skipped, bySrc) = counts8360()
         return "exploreShadow8347[tickets=${tickets.size}/$MAX_TICKETS_8347 opened=${opened.get()} " +
             "byKind{native=${byKind[KIND_NATIVE_8360] ?: 0},reject=${byKind[KIND_REJECT_8360] ?: 0},setup=${byKind[KIND_SETUP_8360] ?: 0}} " +
+            "cortex8368[seen=${cortexSeen8368.get()} yes=${cortexSeenByKind8368[KIND_CORTEX_YES_8368]?.get() ?: 0} no=${cortexSeenByKind8368[KIND_CORTEX_NO_8368]?.get() ?: 0} hold=${cortexSeenByKind8368[KIND_CORTEX_HOLD_8368]?.get() ?: 0} " +
+            "opened=${listOf(KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368).sumOf { byKind[it] ?: 0 }} " +
+            "legsClosed=${listOf(KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368).sumOf { cortexClosesByKind8368[it]?.get() ?: 0 }}] " +
             "skipped{${countLine8360(skipped)}} evicted=${evicted8360.get()} ticked/loop=$lastTicked8360/$TICK_PER_LOOP_8360 " +
             "markSrc{${countLine8360(bySrc)}} wanted8360=${wantedCalls8360.get()} legsClosed=${closed.get()} legsUnfilled8364=${unfilledN8364.get()} full=${full.get()} " +
             "restored8355=${restored8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} waitsRestored8355=${waitsRestored8355.get()} " +
