@@ -63,7 +63,7 @@ class Aate8321AdvisorTunerAuthorityTest {
         val enrich = a.substringAfter("private fun enrichWithLlm(").substringBefore("private data class LlmCandidate")
         assertFalse(enrich.contains("if (base.isEmpty()) return base"))
         assertTrue(enrich.contains("(none — the rules engine found nothing; propose up to 3 adjustments from the report yourself)"))
-        assertTrue(a.contains("TIGHTEN_ON_INCREASE_8319 = setOf(\"minLiquidityUsd\", \"minDiscoveryScore\", \"walletReserveSol\", \"entryCooldownSec\")"))
+        assertTrue(a.contains("TIGHTEN_ON_INCREASE_8319 = setOf(\"minLiquidityUsd\", \"walletReserveSol\", \"entryCooldownSec\")"))
         assertTrue(a.contains("val loosening = if (c.key in TIGHTEN_ON_INCREASE_8319) c.delta < 0.0 else c.delta > 0.0"))
         assertTrue(a.contains("AUTO_APPLY_MIN_AGREEMENT = 0.55"))
         assertTrue(a.contains("MAX_APPLY_PER_TICK = 2"))
