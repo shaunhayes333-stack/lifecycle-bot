@@ -119,7 +119,8 @@ class Aate8353AdvisorKeysTest {
         assertTrue(tick.contains("repairReplayDrivenStrategyMutation6569(ctx)"))
         assertTrue(tick.contains("try { AdvisorKeyAuthority8353.restoreOnce8353(ctx) } catch (_: Throwable) {}"))
         assertTrue(auto.contains("AdvisorKeyAuthority8353.statusSuffix8353()  // V5.0.8353"))
-        assertTrue(AdvisorKeyAuthority8353.statusSuffix8353().startsWith("advisoryOnly=[minLiquidityUsd,walletReserveSol] restored8353="))
+        // superseded by V5.0.8363 — slippageBps joined the owner-only keys
+        assertTrue(AdvisorKeyAuthority8353.statusSuffix8353().startsWith("advisoryOnly=[minLiquidityUsd,walletReserveSol,slippageBps] restored8353="))
         // the restore reads the persisted tuner lines (ErrorLogger.init runs after createChannels, so the hook is the advisor's own init)
         val a = src("engine/AdvisorKeyAuthority8353.kt")
         assertTrue(a.contains("ErrorLogger.getLogsByComponent(TUNER_COMPONENT_8353, TUNE_LOG_SCAN_8353)"))

@@ -70,18 +70,19 @@ class Aate8189ExitBankingTest {
         val peaked = live("peaked8363", "DIAMOND_HANDS_RUNNER", price = 0.85, peak = 120.0)
         assertTrue(LifecycleHold8065.holding8065(peaked))
         assertNull(LifecycleHold8065.defer8065(peaked, "STRICT_SL_-15"))
-        // The evidence hold itself is unchanged: a sealed runner with a proven setup (no armed floor) is still held.
-        val ts = live("proven8189", "DIAMOND_HANDS_RUNNER", price = 0.85, peak = 0.0)
-        LifecycleEvidence8189.noteSetupProven8189(ts, true)
+        // superseded by V5.0.8363 — with the green floor, the evidence hold defers only exits ABOVE the armed floor (a peak
+        // under +25 % is an unproven loser and released by 8109; any peak at or above +20 % arms the floor). So the hold is
+        // exercised at +70 % after a +120 % peak (floor +60 %): an ordinary exit there is still held and named.
+        val ts = live("proven8189", "DIAMOND_HANDS_RUNNER", price = 1.70, peak = 120.0)
         assertTrue(LifecycleHold8065.holding8065(ts))
-        val named = LifecycleHold8065.defer8065(ts, "STRICT_SL_-15")
+        val named = LifecycleHold8065.defer8065(ts, "CORTEX_EXIT_7897_MOONSHOT_FWD-7PCT")
         assertNotNull(named)
-        assertTrue(named!!, named.startsWith("LIFECYCLE_HOLD_8189_SEALED_RUNNER_PROVEN_SETUP_"))
+        assertTrue(named!!, named.startsWith("LIFECYCLE_HOLD_8189_PROVEN_PEAK_"))
         assertEquals(LifecycleHold8065.FLOOR_PCT, StopAuthority7887.stopMagFor(ts), 0.0)
         for (r in listOf("RUG_DETECTED", "LIQUIDITY_DRAIN_EXIT", "RAPID_CATASTROPHE_STOP", "MANUAL_SELL", "FREEZE_AUTHORITY_FROZEN_EXIT"))
             assertNull(r, LifecycleHold8065.defer8065(ts, r))
-        // the tier-1 passes above settled the episode at -15% (no regret); defer again, then release at the -40% floor
-        assertNotNull(LifecycleHold8065.defer8065(ts, "STRICT_SL_-15"))
+        // the tier-1 passes above settled the episode (no regret); defer again, then release once price falls through the floor
+        assertNotNull(LifecycleHold8065.defer8065(ts, "CORTEX_EXIT_7897_MOONSHOT_FWD-7PCT"))
         assertEquals(1, LifecycleEvidence8189.deferralOf8189("proven8189|1")?.first)
         ts.lastPrice = 0.55
         assertNull(LifecycleHold8065.defer8065(ts, "STRICT_SL_-45"))
