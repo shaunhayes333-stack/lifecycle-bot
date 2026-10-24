@@ -1164,7 +1164,7 @@ object ForwardReturnLabeler7731 {
         // V5.0.8322 — a flat mark (no price other than the entry ever seen) reaches the Cortex flagged: observed only there.
         // V5.0.8337 (FIX 2) — the flat test now runs before the 60 slot is booked (above); the Cortex still receives the flag
         // (it resolves its pending decision as observed-only), every other learner hook is skipped on a flat mark.
-        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324, decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
         if (flat8322) return
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
         try { com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}
@@ -1312,7 +1312,7 @@ object ForwardReturnLabeler7731 {
         try { SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet) } catch (_: Throwable) {}
         // V5.0.8006 — the Cortex (every voter seat, scoreboard bucket, veto audit, setup x verdict book) too.
-        try { com.lifecyclebot.engine.cortex.Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324, decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
     }
 
     fun progressiveLine7997(): String =
@@ -1334,7 +1334,7 @@ object ForwardReturnLabeler7731 {
         val (net, gross) = captured7945(o, net0, gross0)
         if (runnerSlot8337(o.lane)) reviseToHour8337(o, net0, gross0, net, gross)  // V5.0.8337 (10e) — runner lanes grade on the hour slot
         book(o, 240, net, gross)
-        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 240, net, gross) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 240, net, gross, decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
     }
 
     /** V5.0.8342 — the observation's mark at [grossPct] has never left its entry (8322's flat test, on the live peak / dip). */
@@ -1444,7 +1444,7 @@ object ForwardReturnLabeler7731 {
             Vanished7944.GAP -> if (horizon == 60) {
                 markLost(o)
                 // V5.0.8187 — the Cortex files the decision unresolved now (it lingered unlabelled until a 90-minute prune).
-                try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "GAP") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "GAP", decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
             }
             Vanished7944.DEAD -> {
                 vanishedDead7944.incrementAndGet()
@@ -1663,7 +1663,7 @@ object ForwardReturnLabeler7731 {
                 basisSuspect7738.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_SUSPECT_7738") } catch (_: Throwable) {}
                 pending.remove(key, o)
-                if (!o.done60) try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "BASIS") } catch (_: Throwable) {}  // V5.0.8187
+                if (!o.done60) try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "BASIS", decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}  // V5.0.8187
                 continue
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
