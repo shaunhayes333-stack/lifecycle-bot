@@ -922,7 +922,7 @@ object EducationSubLayerAI {
                 pnlPct = outcome.pnlPct,
                 setupQuality = outcome.setupQuality
             )
-            markLayerOutcome("HoldTimeOptimizerAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("HoldTimeOptimizerAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("HoldTimeAI: ${e.message}") }
         
@@ -935,7 +935,7 @@ object EducationSubLayerAI {
                 holdTimeMs = outcome.holdTimeMinutes.toLong() * 60_000,
                 exitReason = outcome.exitReason
             )
-            markLayerOutcome("MetaCognitionAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("MetaCognitionAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("MetaCognitionAI: ${e.message}") }
         
@@ -947,7 +947,7 @@ object EducationSubLayerAI {
         // trade count 2x and corrupting the learning phase/maturity signal.
         // We still track Education's own layer record for FluidLearning accuracy.
         try {
-            markLayerOutcome("FluidLearningAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("FluidLearningAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("FluidLearningAI: ${e.message}") }
         
@@ -994,14 +994,14 @@ object EducationSubLayerAI {
         // MomentumPredictorAI
         try {
             MomentumPredictorAI.recordOutcome(outcome.mint, outcome.pnlPct, outcome.maxGainPct)
-            markLayerOutcome("MomentumPredictorAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("MomentumPredictorAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("MomentumAI: ${e.message}") }
         
         // NarrativeDetectorAI
         try {
             NarrativeDetectorAI.recordOutcome(outcome.symbol, outcome.tokenName, outcome.pnlPct)
-            markLayerOutcome("NarrativeDetectorAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("NarrativeDetectorAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("NarrativeAI: ${e.message}") }
         
@@ -1010,21 +1010,21 @@ object EducationSubLayerAI {
             if (outcome.entryTimeMs > 0L) {
                 TimeOptimizationAI.recordOutcome(outcome.pnlPct, outcome.entryTimeMs)
             }
-            markLayerOutcome("TimeOptimizationAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("TimeOptimizationAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("TimeOptAI: ${e.message}") }
         
         // LiquidityDepthAI
         try {
             LiquidityDepthAI.recordOutcome(outcome.mint, outcome.pnlPct, outcome.isWin)
-            markLayerOutcome("LiquidityDepthAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("LiquidityDepthAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("LiquidityAI: ${e.message}") }
         
         // WhaleTrackerAI
         try {
             WhaleTrackerAI.recordSignalOutcome(outcome.mint, outcome.isWin, outcome.pnlPct)
-            markLayerOutcome("WhaleTrackerAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("WhaleTrackerAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("WhaleAI: ${e.message}") }
         
@@ -1032,7 +1032,7 @@ object EducationSubLayerAI {
         try {
             val entryRegime7403 = pendingEntryMarketRegime7403.remove(outcome.mint)
             MarketRegimeAI.recordTradeOutcome(outcome.pnlPct, entryRegime7403)
-            markLayerOutcome("MarketRegimeAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("MarketRegimeAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("RegimeAI: ${e.message}") }
         
@@ -1058,7 +1058,7 @@ object EducationSubLayerAI {
                 mode = outcome.executionMode,
                 proofState = outcome.proofState,
             )
-            markLayerOutcome("TokenWinMemory", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("TokenWinMemory", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("TokenMemory: ${e.message}") }
         
@@ -1066,7 +1066,7 @@ object EducationSubLayerAI {
         try {
             // EdgeLearning uses learnFromOutcome with a snapshot
             // For now, skip direct integration - it learns via different pathway
-            markLayerOutcome("EdgeLearning", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("EdgeLearning", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("EdgeLearning: ${e.message}") }
         
@@ -1074,7 +1074,7 @@ object EducationSubLayerAI {
         try {
             // BehaviorLearning uses recordTrade with a pattern
             // For now, skip direct integration - it learns via different pathway
-            markLayerOutcome("BehaviorLearning", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("BehaviorLearning", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("BehaviorAI: ${e.message}") }
         
@@ -1085,25 +1085,25 @@ object EducationSubLayerAI {
         // MoonshotTraderAI
         try {
             // MoonshotTraderAI tracks via its own position management
-            markLayerOutcome("MoonshotTraderAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("MoonshotTraderAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("MoonshotAI: ${e.message}") }
         
         // ShitCoinTraderAI
         try {
-            markLayerOutcome("ShitCoinTraderAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("ShitCoinTraderAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("ShitCoinAI: ${e.message}") }
         
         // CashGenerationAI (Treasury)
         try {
-            markLayerOutcome("CashGenerationAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("CashGenerationAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("CashGenAI: ${e.message}") }
         
         // BlueChipTraderAI
         try {
-            markLayerOutcome("BlueChipTraderAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("BlueChipTraderAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("BlueChipAI: ${e.message}") }
         
@@ -1113,49 +1113,49 @@ object EducationSubLayerAI {
         
         // VolatilityRegimeAI
         try {
-            markLayerOutcome("VolatilityRegimeAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("VolatilityRegimeAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("VolatilityAI: ${e.message}") }
         
         // OrderFlowImbalanceAI
         try {
-            markLayerOutcome("OrderFlowImbalanceAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("OrderFlowImbalanceAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("OrderFlowAI: ${e.message}") }
         
         // SmartMoneyDivergenceAI
         try {
-            markLayerOutcome("SmartMoneyDivergenceAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("SmartMoneyDivergenceAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("SmartMoneyAI: ${e.message}") }
         
         // LiquidityCycleAI
         try {
-            markLayerOutcome("LiquidityCycleAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("LiquidityCycleAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("LiqCycleAI: ${e.message}") }
         
         // FearGreedAI
         try {
-            markLayerOutcome("FearGreedAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("FearGreedAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("FearGreedAI: ${e.message}") }
         
         // DipHunterAI
         try {
-            markLayerOutcome("DipHunterAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("DipHunterAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("DipHunterAI: ${e.message}") }
         
         // SellOptimizationAI
         try {
-            markLayerOutcome("SellOptimizationAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("SellOptimizationAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("SellOptAI: ${e.message}") }
         
         // CollectiveIntelligenceAI
         try {
-            markLayerOutcome("CollectiveIntelligenceAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
+            markLayerOutcome("CollectiveIntelligenceAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("CollectiveAI: ${e.message}") }
 
