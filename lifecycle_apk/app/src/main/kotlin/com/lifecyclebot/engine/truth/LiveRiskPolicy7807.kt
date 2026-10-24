@@ -165,17 +165,17 @@ object LiveRiskPolicy7807 {
     // (LanePlaybook7907: 30+ graded labels, mean - SE > 0 net of cost) is sized at a quarter of the Kelly fraction of
     // its record — f = 0.25 x (mean - SE) / variance — times current equity. The daily 2x-5x target is a scoreboard
     // (dailyScoreLine8057), never a size input: chasing a target with size is how a small wallet is ruined.
-    private const val KELLY_FRACTION_8057 = 0.25
+    // superseded by V5.0.8365 — the fraction (0.25) now lives in Kelly8365.KELLY_FRACTION_8365.
     private const val KELLY_MAX_EQUITY_FRAC_8057 = 0.30
 
-    /** Pure: the quarter-Kelly notional share of equity for a setup record ([meanPct], [variancePct2], [n]). */
-    fun kellyFrac8057(meanPct: Double, variancePct2: Double, n: Double): Double {
-        if (!meanPct.isFinite() || !variancePct2.isFinite() || variancePct2 <= 0.0 || !n.isFinite() || n < 2.0) return 0.0
-        val se = kotlin.math.sqrt(variancePct2 / n)
-        val edge = (meanPct - se) / 100.0
-        if (edge <= 0.0) return 0.0
-        return (KELLY_FRACTION_8057 * edge / (variancePct2 / 10_000.0)).coerceIn(0.0, KELLY_MAX_EQUITY_FRAC_8057)
-    }
+    /**
+     * Pure: the quarter-Kelly notional share of equity for a moments-only record ([meanPct], [variancePct2], [n]).
+     * superseded by V5.0.8365 — 0.25 x (mean - SE) / variance gave a runner book (95 x -10 %, 5 x +500 %, true Kelly ~0.31)
+     * ~0.9 % of equity and 0 at n=30. Now Kelly8365: the log-optimal Kelly of the record's two-point distribution x 0.25 x
+     * n/(n+30), still 0 unless mean - SE > 0, still capped at [KELLY_MAX_EQUITY_FRAC_8057].
+     */
+    fun kellyFrac8057(meanPct: Double, variancePct2: Double, n: Double): Double =
+        Kelly8365.shareFromMoments8365(meanPct, variancePct2, n).frac.coerceIn(0.0, KELLY_MAX_EQUITY_FRAC_8057)
 
     /** Pure: the compounding size (SOL) for [frac] of [equitySol], inside the lane cap, depth cap and hard loss at the stop. */
     fun edgeKellySizeSol8057(equitySol: Double, frac: Double, laneCapSol: Double, liqCapSol: Double, stopPct: Double, costPct: Double): Double {
@@ -194,11 +194,13 @@ object LiveRiskPolicy7807 {
     fun edgeKellyFracFor8057(ts: com.lifecyclebot.data.TokenState, lane: String): Double = try {
         val l = canonicalLane(lane)
         val st = com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetupStat8057(ts, l)
-        val setupFrac0 = if (st == null) 0.0 else kellyFrac8057(st[0], st[1], st[2])
+        // V5.0.8365 — the setup's LIVE realised closes (8+) or its label record, read as a log-optimal Kelly (Kelly8365).
+        val share8365 = Kelly8365.setupShare8365(ts, l, st)
+        val setupFrac0 = share8365.frac
         // V5.0.8094 — confidence at THIS point of the move: once the setup's record in the coin's current timing band has
         // 12+ labels, the size is the smaller of the two quarter-Kelly shares (timing can only lower it).
         val tim8094 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingStat8094(ts, l) } catch (_: Throwable) { null }
-        val setupFrac = timingCappedFrac8094(setupFrac0, tim8094)
+        val setupFrac = if (share8365.src == "live") setupFrac0 else timingCappedFrac8094(setupFrac0, tim8094)
         // V5.0.8062 — or the coin's own proven cell (5.0.8059: PUMP_PORTAL_WS|SHITCOIN|MC_10K_100K|AGE_LT15M live book
         // n19 +124.7%, label book n33 +474%): the best measured edge the bot has gets the compounding size too.
         val c = try { ForwardReturnLabeler7731.cellStatFor(ts, l) } catch (_: Throwable) { null }
@@ -214,7 +216,9 @@ object LiveRiskPolicy7807 {
         // own Kelly stake (outlier-capped realised whole-position closes, or walk-forward out-of-sample); labels may only lower it.
         // V5.0.8326 — Entry8114Mode8326's legacy scope: the 8114 quarter-Kelly share (best proven setup / cell / kind).
         if (Entry8114Mode8326.legacyScope8326()) maxOf(setupFrac, cellFrac, kindFrac) else {
-            val validated8296 = validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l))
+            // V5.0.8365 — a share read from the setup's own LIVE realised closes is itself the independent proof.
+            val validated8296 = maxOf(validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l)),
+                if (share8365.src == "live") setupFrac else 0.0)
             // V5.0.8296 — fresh live losses (lane) or a setup whose own live closes lose revoke the compounding share.
             recentKellyGate8296(ts, l, validated8296)
         }
@@ -271,7 +275,8 @@ object LiveRiskPolicy7807 {
         val capped = returnsPct.filter { it.isFinite() }.map { it.coerceIn(-100.0, RobustLabelRead8185.CAP_LABEL_PCT_8185) }
         val m = LiveSizingTruth8136.maturityOf8136(capped, netSol)
         if (!LiveSizingTruth8136.edgeMature8136(m)) return 0.0
-        return kellyFrac8057(m.realisedMeanPct, m.realisedSePct * m.realisedSePct * m.realisedN, m.realisedN.toDouble())
+        // V5.0.8365 — the log-optimal Kelly over the realised closes themselves (not their mean and variance).
+        return Kelly8365.shareFromReturnsPct8365(capped, "live").frac
     }
 
     private val realisedProof8188 = ConcurrentHashMap<String, Pair<Long, Double>>()
@@ -384,6 +389,22 @@ object LiveRiskPolicy7807 {
         val floor = if (a.highEvRunner) 0.70 else 0.50
         if (a.highEvRunner && m < floor) reasons += "HIGH_EV_RUNNER_ADMIT_REDUCED_7807"
         return m.coerceIn(floor, 1.0) to reasons
+    }
+
+    /**
+     * V5.0.8365 — [admissionMultiplier]'s named reasons with ONE shrink: the deepest named reduction, not their product
+     * (0.85 x 0.90 x 0.85 = 0.65 for three soft unknowns becomes 0.85). Same floors.
+     */
+    fun admissionOne8365(a: Admission): Pair<Double, List<String>> {
+        val reasons = admissionMultiplier(a).second
+        var m = 1.0
+        if ("NEW_SPECIALIST_NO_LIVE_SAMPLE_7807" in reasons) m = Kelly8365.oneShrink8365(m, 0.85)
+        if ("UNPROVEN_LANE_7807" in reasons) m = Kelly8365.oneShrink8365(m, 0.90)
+        if ("LIVE_WR_BELOW_FLOOR_7807" in reasons) m = Kelly8365.oneShrink8365(m, 0.80)
+        if ("ORACLE_ADVISORY_UNPROVEN_7807" in reasons) m = Kelly8365.oneShrink8365(m, 0.90)
+        if ("PARTIAL_PROVIDER_EVIDENCE_7807" in reasons) m = Kelly8365.oneShrink8365(m, 0.85)
+        val floor = if (a.highEvRunner) 0.70 else 0.50
+        return m.coerceIn(floor, 1.0) to reasons.filter { it != "HIGH_EV_RUNNER_ADMIT_REDUCED_7807" || m < floor }
     }
 
     enum class CostVerdict { OK, REDUCE, PASS }
@@ -647,7 +668,7 @@ object LiveRiskPolicy7807 {
         val dailyMult = dailyLossMultiplier(i.laneDailyLossSol, i.equitySol * b.dailyLossCapEquityFrac)
         if (dailyMult < 1.0) labels += "LANE_DAILY_LOSS_CAP_SHRINK_7807"
         val gov = if (i.governorLossMult.isFinite()) i.governorLossMult.coerceIn(0.0, 1.0) else 1.0
-        val shrinkRaw = minOf(1.0, expMult) * dailyMult * gov
+        val shrinkRaw = Kelly8365.oneShrink8365(minOf(1.0, expMult), dailyMult, gov)  // V5.0.8365 — one shrink, not their product
         val shrinkFloor = lossShrinkFloor(i.liveCloses)
         val shrink = shrinkRaw.coerceIn(shrinkFloor, 1.0)
         if (shrinkRaw < shrinkFloor) labels += "LOSS_SHRINK_FLOORED_SAMPLE_${i.liveCloses}_7807"
@@ -655,7 +676,7 @@ object LiveRiskPolicy7807 {
         val growth = maxOf(1.0, expMult)
         if (growth > 1.0) labels += "LIVE_EXPECTANCY_GROWTH_PROVEN_7807"
         val highEvRunner = isRunnerLane(i.lane) && planR(i.planStopPct, i.planTargetPct) >= HIGH_EV_RUNNER_MIN_R_7807
-        val (admMult, admReasons) = admissionMultiplier(
+        val (admMult, admReasons) = admissionOne8365(
             Admission(i.liveCloses, i.liveWrPct, i.partialProviderEvidence, i.oracleUnproven, highEvRunner),
         )
         labels += admReasons
@@ -672,7 +693,7 @@ object LiveRiskPolicy7807 {
         if (!ddWaived8094 && drawdownWaivedForProvenEdge8094(i.edgeKellyFrac8057, i.drawdownFrac)) labels += "DRAWDOWN_WAIVER_DENIED_IMMATURE_EDGE_8136"
         val moonMult = if (planless && canonicalLane(i.lane) == "MOONSHOT") MOONSHOT_NO_PLAN_MULT_7807 else 1.0
         if (moonMult < 1.0) labels += "MOONSHOT_NO_PLAN_SIZE_7807"
-        val total = (shrink * growth * admMult * ddMult * moonMult * costMult).coerceIn(TOTAL_FLOOR_7807, MAX_GROWTH_MULT_7807)
+        val total = (Kelly8365.oneShrink8365(shrink, admMult, ddMult, moonMult, costMult) * growth).coerceIn(TOTAL_FLOOR_7807, MAX_GROWTH_MULT_7807)  // V5.0.8365
 
         var size = sizeFromInvalidation(i.equitySol, b.baseRiskFrac, total, stop, cost0)
         val cost1 = if (size > 0.0) costAtSizePct8153(i, size) else cost0
@@ -687,7 +708,7 @@ object LiveRiskPolicy7807 {
         // V5.0.8057 — compounding on proven edge: the bet is a quarter-Kelly share of CURRENT equity, so it grows as
         // the wallet grows and shrinks as it falls, still bounded by drawdown / daily loss / governor shrink, the lane's
         // position cap, the pool depth and the hard per-trade loss at the stop.
-        val dampMult8094 = (ddMult * dailyMult * gov).coerceIn(0.0, 1.0)
+        val dampMult8094 = Kelly8365.oneShrink8365(ddMult, dailyMult, gov).coerceIn(0.0, 1.0)  // V5.0.8365 — one shrink
         // V5.0.8153 — the Kelly share is re-netted at the round trip of the size it buys (labels are net of the cost
         // they were charged, not of the impact at a compounding size); a second pass uses the cost at the Kelly size.
         val netFrac0 = SizingNetEdge8153.netKellyFrac8153(i.edgeKellyFrac8057, i.edgeRecord8153, cost1)
@@ -774,7 +795,8 @@ object LiveRiskPolicy7807 {
                     }
                 // V5.0.8329 — the promotion needs one named candidate-level reason (setup record positive on 12+ labels, early
                 // runner, Kelly >= 25 % of the minimum); binds in 8114 mode too.
-                EntryEconomics8329.promotionReasonRefusal8329(i.mint8329, i.lane, size, executableFloor8269)?.let {
+                // V5.0.8365 — a stake below 25 % of the minimum with no named reason: KELLY_TOO_SMALL_FOR_ROUTE_8365.
+                EntryEconomics8329.kellyRefusal8365(size, executableFloor8269, EntryEconomics8329.promotionReasonRefusal8329(i.mint8329, i.lane, size, executableFloor8269))?.let {
                     return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094)
                 }
                 val fixedFloorLift8269 = raisedForFixedCost8269
@@ -1092,6 +1114,7 @@ object LiveRiskPolicy7807 {
     /** Records the verdict (labels + one forensic line); returns the decision unchanged. */
     fun record(stage: String, mint: String, symbol: String, i: Inputs, d: Decision): Decision {
         if (i.entry8114Admitted8326) Entry8114Mode8326.noteSize8326(i.lane, d.open, d.sizeSol, i.edgeKellyFrac8057)  // V5.0.8326
+        try { Kelly8365.noteDecision8365(i.lane, d.sizeSol, i.execMinSol, d.totalMult, d.reason) } catch (_: Throwable) {}  // V5.0.8365
         try {
             if (d.open) {
                 opens.incrementAndGet()
@@ -1177,5 +1200,5 @@ object LiveRiskPolicy7807 {
             "binding8136=[${bindings8136.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none yet" }}] " +
             "rotation8098[${OpportunityRotation8098.statusLine8098()}] " +
             "economics8153[${com.lifecyclebot.engine.SizingQuoteRecheck8153.statusLine8153()}] " +
-            LiveConfidence8296.statusLine8296()
+            LiveConfidence8296.statusLine8296() + " " + Kelly8365.statusLine8365()
 }

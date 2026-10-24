@@ -540,6 +540,10 @@ object SmartSizer {
             ErrorLogger.warn("SmartSizer", "⚠ DRAWNDOWN_SHAPE_FAILSAFE: drawdownMult<=0 corrected to 0.30 | paper=$isPaperMode | wallet=$walletSol | peak=${perf.sessionPeakSol}")
         }
         size *= drawdownMult.coerceAtLeast(if (isPaperMode) 0.0 else 0.30)
+        // V5.0.8365 — LIVE: the stacked soft multipliers above count as ONE uncertainty shrink (the deepest) plus their boosts,
+        // not their product; the hard limits below are unchanged. Paper sizing is untouched.
+        if (!isPaperMode) size *= com.lifecyclebot.engine.truth.Kelly8365.undoStackedShrink8365(aiScoreMult, brainMult, qualityMult, memoryMult,
+            liquidityMult, confidenceMult, treasuryMult, houseMoneyBonus, perfMult, drawdownMult.coerceAtLeast(0.30))
 
         // ── Concurrent position scaling ────────────────────────────────
         val concMult = 1.0  // no penalty

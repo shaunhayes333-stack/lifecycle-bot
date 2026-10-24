@@ -333,7 +333,9 @@ class SmartSizerV3(
         }
         
         // Final size calculation (includes probe multiplier)
-        val rawSize = tradeable * basePct * confMult * probeMult * liqMult * ddMult * learningMult * v3ConfigMult
+        // V5.0.8365 — ONE uncertainty shrink: the deepest of confidence / probe / liquidity / drawdown / learning / config
+        // (boosts kept), not their product (0.40 x 0.50 x 0.40 x 0.50 = 0.04 of base). The caps below still bind.
+        val rawSize = tradeable * basePct * com.lifecyclebot.engine.truth.Kelly8365.shrinkThenBoost8365(confMult, probeMult, liqMult, ddMult, learningMult, v3ConfigMult)
         val cappedSize = rawSize.coerceAtLeast(0.0).coerceAtMost(tradeable * config.maxAggressiveSizePct)
 
         // V5.0.6269 — HARD NO-DUST FLOOR (operator directive:
