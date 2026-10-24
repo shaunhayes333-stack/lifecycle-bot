@@ -340,7 +340,8 @@ object SellRouteSpine8144 {
                 "failStage={$fails} outcomes={$outs}]"
         }
         val recent = synchronized(recent8144) { recent8144.joinToString(" | ") }
-        return "open=${open8144.size} ${section("EMRG")} ${section("NORM")} recent=[${recent.ifBlank { "-" }}]"
+        return "open=${open8144.size} ${section("EMRG")} ${section("NORM")} recent=[${recent.ifBlank { "-" }}]" +
+            " " + (try { com.lifecyclebot.engine.SellLanding8368.statusLine8368() } catch (_: Throwable) { "sellLanding8368=-" })  // V5.0.8368
     }
 
     internal fun resetForTest8144() {

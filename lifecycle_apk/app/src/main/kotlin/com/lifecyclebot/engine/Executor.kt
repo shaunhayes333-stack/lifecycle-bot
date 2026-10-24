@@ -10664,7 +10664,7 @@ class Executor(
                         return false
                     }
                 }
-                val sellSlippage = (c.slippageBps * 2).coerceAtMost(500)
+                val sellSlippage = SellLanding8368.partialSellSlipBps8368(c.slippageBps, "PARTIAL_TAKE_PROFIT")  // V5.0.8368 — never under the policy floor (was c.slippageBps x 2)
 
                 // V5.9.495 — PUMP-FIRST routing for partial TPs.
                 // Try PumpPortal direct FIRST. If it lands, we use the pre-trade
@@ -10722,7 +10722,7 @@ class Executor(
                     // 8168: the ladder's mark is a trigger, not executable proceeds.
                     if (!ProfitExitTruth8163.acceptQuote(ts, "PARTIAL_TAKE_PROFIT", quote, sellSlippage)) return false
                     val txResult  = buildTxWithRetry(
-                        quote, wallet.publicKeyB58, dynamicSlippageMaxBps = sellSlippage,
+                        quote, wallet.publicKeyB58, dynamicSlippageMaxBps = SellLanding8368.sellDynCapBps8368(sellSlippage),  // V5.0.8368 — the policy's dynamic headroom (was a zero-width band)
                         senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = true),
                         ordinary8151 = true,  // V5.0.8151 — PARTIAL_TAKE_PROFIT (tier 5): a non-urgent slice
                     )
@@ -24492,7 +24492,7 @@ class Executor(
                     for (currentSlip in broadcastSlipLadder) {
                         broadcastAttempts++
                         try {
-                            if (broadcastAttempts > 1) {
+                            if (broadcastAttempts > 1 || SellLanding8368.staleQuote8368(quote)) {  // V5.0.8368 — a stale quote is re-quoted
                                 LiveTradeLogStore.log(
                                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                                     LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
@@ -28633,7 +28633,7 @@ class Executor(
                     // Re-quote at the new slippage tier on attempts 2+. The
                     // first attempt re-uses the quote obtained by the quote
                     // loop above (no extra Jupiter roundtrip).
-                    if (broadcastAttempts > 1) {
+                    if (broadcastAttempts > 1 || SellLanding8368.staleQuote8368(quote)) {
                         onLog("⚡ SLIPPAGE ESCALATION: re-quoting ${ts.symbol} @ ${currentSlip}bps (attempt $broadcastAttempts)…", tradeId.mint)
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -30994,7 +30994,7 @@ class Executor(
                     if (!sellTaker.isNullOrBlank()) jupiter.getQuoteWithTaker(inMint, outMint, amount, slippageBps, sellTaker)
                     else jupiter.getQuote(inMint, outMint, amount, slippageBps)
                 }
-            }
+            }.also { SellLanding8368.noteQuoted8368(it) }  // V5.0.8368 — the quote's age decides a re-quote before its first build
         }
         // V5.0.7241 — SOURCE FIX for the exact sibling of the V5.9.468 sell
         // bug on the BUY side. Runtime 7240 showed quoteOk=3/swapBuilt=0:
@@ -31466,7 +31466,7 @@ class Executor(
             }
             
             val sellUnits = resolveSellUnitsForMint(mint, qty, wallet = wallet)
-            val sellSlippage = (c.slippageBps * 3).coerceAtMost(500)   // V5.9.103: hard cap 5%
+            val sellSlippage = SellLanding8368.partialSellSlipBps8368(c.slippageBps, "ORPHAN_SELL", 3)   // V5.9.103: hard cap 5%; V5.0.8368 — policy floor
 
             // V5.0.6099 — ORPHAN ROUTE DATA RECOVERY. Prefer the live token
             // storage record so sell routing can use the same source/pool used at
