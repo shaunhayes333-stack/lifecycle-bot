@@ -13,12 +13,12 @@ class Aate8368V3ShadowTrainingTruthTest {
 
     @Test fun avoidanceAndShortOutcomesAreConvertedBackToTheMarketLongOutcome() {
         val v3 = ShadowLearningEngine
-        assertEquals(20.0, v3.directionalLongReturn8368(v3.ShadowType.SHADOW_LONG, 20.0)!!, 1e-9)
-        assertEquals(-20.0, v3.directionalLongReturn8368(v3.ShadowType.SHADOW_AVOID, 20.0)!!, 1e-9)
-        assertEquals(20.0, v3.directionalLongReturn8368(v3.ShadowType.SHADOW_AVOID, -20.0)!!, 1e-9)
-        assertEquals(-15.0, v3.directionalLongReturn8368(v3.ShadowType.SHADOW_SHORT, 15.0)!!, 1e-9)
-        assertNull(v3.directionalLongReturn8368(v3.ShadowType.SHADOW_STRANGLE, 50.0))
-        assertNull(v3.directionalLongReturn8368(v3.ShadowType.SHADOW_STRADDLE, 50.0))
+        assertEquals(20.0, v3.directionalLongReturn8368(ShadowLearningEngine.ShadowType.SHADOW_LONG, 20.0)!!, 1e-9)
+        assertEquals(-20.0, v3.directionalLongReturn8368(ShadowLearningEngine.ShadowType.SHADOW_AVOID, 20.0)!!, 1e-9)
+        assertEquals(20.0, v3.directionalLongReturn8368(ShadowLearningEngine.ShadowType.SHADOW_AVOID, -20.0)!!, 1e-9)
+        assertEquals(-15.0, v3.directionalLongReturn8368(ShadowLearningEngine.ShadowType.SHADOW_SHORT, 15.0)!!, 1e-9)
+        assertNull(v3.directionalLongReturn8368(ShadowLearningEngine.ShadowType.SHADOW_STRANGLE, 50.0))
+        assertNull(v3.directionalLongReturn8368(ShadowLearningEngine.ShadowType.SHADOW_STRADDLE, 50.0))
     }
 
     @Test fun v3ShadowUsesActualDirectionalCounterfactualForEveryTrainingSink() {
