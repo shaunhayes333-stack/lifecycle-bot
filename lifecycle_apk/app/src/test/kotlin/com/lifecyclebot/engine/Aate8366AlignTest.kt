@@ -32,8 +32,10 @@ class Aate8366AlignTest {
         assertEquals(7.5, ShadowAlign8366.liveStopLevel8366(true, 15.0, 15.0, cost), 1e-9)
         // under the arm nothing is floored: the lane stop
         assertEquals(-15.0, ShadowAlign8366.liveStopLevel8366(true, 15.0, 10.0, cost), 1e-9)
-        // +80 % peak: the green floor keeps half the peak
-        assertEquals(40.0, ShadowAlign8366.liveStopLevel8366(true, 15.0, 80.0, cost), 1e-9)
+        // V5.0.8370's 8114 3a runner rule banks 40% of the peak's profit;
+        // the old 50%-of-peak expectation would contradict the production exit.
+        assertEquals(32.0, ShadowAlign8366.liveStopLevel8366(true, 15.0, 80.0, cost), 1e-9)
+        assertEquals(40.0, ShadowAlign8366.liveStopLevel8366(true, 15.0, 100.0, cost), 1e-9)
         // another lane: the cost-armed stop locks net break-even once the peak cleared it by 1.5
         assertEquals(FieldManual7715.costArmedStop7928(-15.0, 9.5, cost) { -15.0 }, ShadowAlign8366.liveStopLevel8366(false, 15.0, 9.5, cost), 1e-9)
         assertEquals(7.5, ShadowAlign8366.liveStopLevel8366(false, 15.0, 9.5, cost), 1e-9)

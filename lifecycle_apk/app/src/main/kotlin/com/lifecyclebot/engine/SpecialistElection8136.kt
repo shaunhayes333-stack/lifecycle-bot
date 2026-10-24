@@ -485,8 +485,12 @@ object SpecialistElection8136 {
             val r = recordFor8136(mint, version, nowMs) ?: return owner
             when {
                 r.primary.isEmpty() -> { setPrimary8136(r, o, nowMs); owner }
-                o == r.primary || o == r.rescue -> owner
+                o == r.primary -> owner
+                // A sealed/forced coordinator owner is authoritative even if this lane held the
+                // rescue slot earlier. Previously o == r.rescue returned before this branch,
+                // leaving primaryOf8136 on the rejected original owner (8364 regression).
                 authoritative -> { authoritativeOverrides8136++; setPrimary8136(r, o, nowMs); owner }
+                o == r.rescue -> owner
                 r.primaryRefusal.isEmpty() -> {
                     r.slots[r.primary]?.let { end8136(r, it, Terminal8136.CONTRIBUTOR_SHADOW, "PRIMARY_REELECTED_TO_$o") }
                     setPrimary8136(r, o, nowMs, keepSilence = true)

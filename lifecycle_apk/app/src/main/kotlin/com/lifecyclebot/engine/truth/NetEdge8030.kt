@@ -255,13 +255,14 @@ object NetEdge8030 {
         val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
         val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
         val spanMs = if (bars.size >= 2) bars.maxOf { it.ts } - bars.minOf { it.ts } else 0L
-        val h1 = kotlin.math.abs(ts.lastPriceChange1h).takeIf { it.isFinite() && it > 0.0 }
+        val h1 = StrategyMove8153.positiveHour8153(ts.lastPriceChange1h)
         val rec = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedRecord8153(ts, lane, setup, nowMs) } catch (_: Throwable) { null }
         val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null }
         val m = StrategyMove8153.expected8153(
             mandatePct = mandatePct, rangePct = range, rangeDense = StrategyMove8153.dense8153(bars.size, spanMs), h1Pct = h1,
             strategyN = rec?.get(0)?.toInt() ?: 0, strategyMeanPct = rec?.get(1) ?: Double.NaN, strategySePct = rec?.get(2) ?: Double.NaN,
             costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
+            signedHourPct = ts.lastPriceChange1h, momentumEntry = StrategyMove8153.momentumLane8153(lane),
         )
         if (ts.mint.isNotBlank()) {
             if (moves8153.size > 4_000) moves8153.clear()
@@ -427,7 +428,7 @@ object NetEdge8030 {
     private fun realizedMovePct8035(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? {
         val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
         val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
-        val h1 = kotlin.math.abs(ts.lastPriceChange1h).takeIf { it.isFinite() && it > 0.0 }
+        val h1 = StrategyMove8153.positiveHour8153(ts.lastPriceChange1h)
         return when {
             range != null && h1 != null -> maxOf(range, h1)
             else -> range ?: h1

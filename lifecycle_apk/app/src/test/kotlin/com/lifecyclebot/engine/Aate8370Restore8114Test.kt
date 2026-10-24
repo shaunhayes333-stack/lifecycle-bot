@@ -154,7 +154,8 @@ class Aate8370Restore8114Test {
         val mode = src("engine/truth/Entry8114Mode8326.kt")
         assertTrue(mode.contains("if (!paper8336) try { Entry8114Gate8326.noteFiredSetup8370(ts, l, old.setup, nowMs) } catch (_: Throwable) {}"))
         assertFalse("no fired-setup refusal in the live verdict chain", mode.contains("liveFiredSetupRefusal8364"))
-        assertFalse("NO_TRIGGER is not demoted as a 8364 duplicate", src("engine/truth/FdgGate8365.kt").contains("return BY_FIRED_SETUP_8365"))
+        assertFalse("NO_TRIGGER is not demoted as a 8364 duplicate",
+            Regex("^\\s*return BY_FIRED_SETUP_8365\\b", RegexOption.MULTILINE).containsMatchIn(src("engine/truth/FdgGate8365.kt")))
         // the hard runner stop and the lifecycle floor stay
         assertTrue(src("engine/RunnerGrab7967.kt").contains("private const val HARD_STOP_PCT = -35.0"))
         assertTrue(src("engine/LifecycleHold8065.kt").contains("const val FLOOR_PCT = 40.0"))

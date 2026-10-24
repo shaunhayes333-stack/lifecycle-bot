@@ -26,6 +26,13 @@ object StrategyMove8153 {
     const val DEFER_REASON_8153 = "DATA_INCOMPLETE_MOVE_HISTORY_8153"
     const val DEFER_FEATURE_8153 = "move:HISTORY_SPARSE"
 
+    /** A DOWN move is never evidence of positive upside (the old abs(1hChange) inverted it). */
+    fun positiveHour8153(changePct: Double): Double? = changePct.takeIf { it.isFinite() && it > 0.0 }
+
+    /** Momentum-entry lanes need a proven strategy before treating a falling hour as an upside opportunity. */
+    fun momentumLane8153(lane: String): Boolean =
+        lane.trim().uppercase() in setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER")
+
     /** Pure: is the last hour's history dense enough for its range to say how far the coin moves? */
     fun dense8153(bars: Int, spanMs: Long): Boolean = bars >= DENSE_MIN_BARS_8153 && spanMs >= DENSE_MIN_SPAN_MS_8153
 
@@ -50,9 +57,17 @@ object StrategyMove8153 {
         strategySePct: Double,
         costPct: Double,
         freshLaunch: Boolean,
+        signedHourPct: Double? = null,
+        momentumEntry: Boolean = false,
     ): Move8153 {
         if (strategySupported8153(strategyN, strategyMeanPct, strategySePct) && costPct.isFinite() && costPct >= 0.0) {
             return Move8153(strategyMeanPct + costPct, "STRATEGY", false)
+        }
+        // A falling hour cannot become a +30% runner prediction just because its
+        // absolute change or high-low range is large. Re-observe until a bounce/setup
+        // has its own supported edge; DIP_HUNTER and other non-momentum lanes are exempt.
+        if (momentumEntry && signedHourPct != null && signedHourPct.isFinite() && signedHourPct < 0.0) {
+            return Move8153(0.0, "FALLING_HOUR_UNPROVEN", true)
         }
         val range = rangePct?.takeIf { it.isFinite() && it >= 0.0 }
         val h1 = h1Pct?.takeIf { it.isFinite() && it > 0.0 }
