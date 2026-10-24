@@ -132,7 +132,8 @@ class Aate8363ExitsTest {
         val ka = src("engine/AdvisorKeyAuthority8353.kt")
         assertTrue(ka.contains("KEY_SLIPPAGE_8363 -> cfg.copy(slippageBps = Math.round(v).toInt())"))
         assertTrue(ka.contains("val current = currentValue8363(cfg, key)"))
-        assertFalse(src("engine/LlmParameterTuner.kt").contains("\"slippageBps\" to ParamSpec"))
+        val tuner = src("engine/LlmParameterTuner.kt")
+        assertFalse(tuner.contains("\"slippageBps\" to ParamSpec"))
     }
 
     // ── 4. stops broadcast ──

@@ -1926,7 +1926,10 @@ class GoldenTapeRegressionTest {
     fun wallet_read_exception_does_not_become_rpc_empty_sell_rescue() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(exec.contains("SELL_WALLET_READ_INDETERMINATE_NO_RESCUE"))
-        assertTrue(exec.contains("SELL_RPC_EMPTY_RESCUE_BLOCKED_INDETERMINATE"))
+        // superseded by V5.0.8363 — the indeterminate-read refusal moved into StopBroadcast8363.rescue8363 (same forensic for
+        // every non-stop exit); only a stop-class sell broadcasts on the confirmed canonical quantity, never a stale tracker.
+        assertTrue(java.io.File("src/main/kotlin/com/lifecyclebot/engine/Exits8363.kt").readText().contains("SELL_RPC_EMPTY_RESCUE_BLOCKED_INDETERMINATE"))
+        assertTrue(exec.contains("StopBroadcast8363.rescue8363(ts, reason, recovered, walletReadIndeterminate)"))
         assertTrue(exec.contains("walletReadIndeterminate = true"))
         assertFalse("wallet timeout must not be described as proceeding via RPC-empty rescue",
             exec.contains("SELL RPC EMPTY/TIMEOUT: getTokenAccountsWithDecimals — proceeding via RPC-EMPTY rescue"))
