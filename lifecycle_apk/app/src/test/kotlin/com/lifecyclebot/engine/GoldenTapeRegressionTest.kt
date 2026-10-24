@@ -2286,8 +2286,8 @@ class GoldenTapeRegressionTest {
         val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
 
         assertTrue("TradeJournal must treat PARTIAL_SELL as sell-like", journal.contains("side.equals(\"SELL\", ignoreCase = true) || side.equals(\"PARTIAL_SELL\", ignoreCase = true)"))
-        assertTrue("partial exits must drive journal WR", journal.contains("partial exits are real realized outcomes and must drive WR") && journal.contains("val decisiveTrades = sells.filter { isDecisive(it.pnlPct) }"))
-        assertTrue("partial exits must drive exported WR/count/avg", journal.contains("partial exits are real realized exits") && journal.contains("val decisiveSells = sells.filter { isDecisive(it.entry.pnlPct) }"))
+        assertTrue("partial exits must drive journal WR from net receipts", journal.contains("partial exits are real realized outcomes and must drive WR") && journal.contains("val decisiveTrades = accounted.filter { isDecisive(it.second) }") && journal.contains("JournalReceiptAccounting6663.netReturnPct(amt.costBasisSol, amt.netGainSol)"))
+        assertTrue("partial exits must drive exported WR/count/avg from net receipts", journal.contains("partial exits are real realized exits") && journal.contains("val decisiveSells = accountedSells.filter { isDecisive(it.second) }") && journal.contains("JournalReceiptAccounting6663.netReturnPct(row.acct.costBasisSol, row.acct.netGainSol)"))
         assertTrue("V5.0.7205/8015: JournalActivity TRADES tile counts terminal SELLs while the visible list stays full lifecycle", journalActivity.contains("tvJournalCount.text = terminal8015.size.toString()") && journalActivity.contains("val sellEntries = entries.filter") && journalActivity.contains("stats only; visible list is full lifecycle"))
         assertFalse("partials must not be demoted to terminal-only stats", journal.contains("terminalSells") || journalActivity.contains("isTerminalSell"))
 
