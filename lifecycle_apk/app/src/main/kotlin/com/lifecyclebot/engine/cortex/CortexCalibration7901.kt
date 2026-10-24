@@ -50,7 +50,9 @@ class CortexCalibration7901 {
         const val EARLY_MIN_N_8291 = 20.0
 
         /** V5.0.8366 — graded (score, outcome) pairs kept per lane for the rank calibration. */
-        const val ISO_RING_8366 = 256
+        // 5.0.8366's 256-pair ring expires in ~80 minutes on hot lanes; their 4h runner outcome cannot revise rank.
+        // 2048 covers > 6h at the observed per-lane label rate, without retaining every 300-voter trace.
+        const val ISO_RING_8366 = 2048
         /** V5.0.8366 — pairs before the rank fit replaces the slope (and may declare a lane UNCALIBRATED). */
         const val ISO_MIN_N_8366 = 60
         /** V5.0.8366 — the return clip used inside the FIT only (fraction: -99 % .. +300 %). Stored pairs stay raw. */
