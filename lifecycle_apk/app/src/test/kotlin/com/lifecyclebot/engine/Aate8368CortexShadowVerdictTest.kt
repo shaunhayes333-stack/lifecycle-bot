@@ -62,6 +62,20 @@ class Aate8368CortexShadowVerdictTest {
             .contains("CanonicalFinalizedTradeBus6464.publish"))
     }
 
+    @Test fun cortexShadowScoreboardCountsOneSpecialistExitPerTradeAndBothSidesOfPerformance() {
+        val stats = ExploreShadow8347.cortexStats8368(listOf(+10.0, -5.0, 0.0, Double.NaN))
+        assertEquals(3, stats.n)
+        assertEquals(1, stats.wins)
+        assertEquals(1, stats.losses)
+        assertEquals(2.0, stats.profitFactor, 0.0001)
+        assertEquals(5.0 / 3.0, stats.meanPct, 0.0001)
+        val s = src("engine/truth/ExploreShadow8347.kt")
+        assertTrue("runner/scalp lanes report their OWN main exit, not always RUNNER", s.contains("RunnerExitProfile7277.isRunnerLane(l)"))
+        assertTrue("one main-exit result per assessed trade", s.contains("cortexStats8368(netsSince("))
+        assertTrue("Cortex books never count an alternate exit leg as another independent win",
+            s.contains("A second modelled exit style is a counterfactual"))
+    }
+
     @Test fun nativeHardSellabilityStopsShadowButStrategyRefusalsStillLearn() {
         assertTrue(ExploreShadow8347.cortexNativeHardStop8368("NATIVE_SELLABILITY_REJECT"))
         assertTrue(ExploreShadow8347.cortexNativeHardStop8368("HARD_BLOCK_HONEYPOT"))
