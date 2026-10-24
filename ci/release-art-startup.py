@@ -57,6 +57,7 @@ try:
     deadline = time.monotonic() + 240
     start_tapped = False
     pin_stages = set()
+    launcher_anr_dismissals = 0
     while time.monotonic() < deadline:
         text = (output / "logcat.txt").read_text(errors="replace")
         if re.search(r"Verifier rejected class com\.lifecyclebot|java\.lang\.VerifyError|SERVICE_BOOTSTRAP_FAILED_6516|FATAL EXCEPTION", text):
@@ -91,10 +92,36 @@ try:
             # V5.0.8231 — a system "<app> isn't responding" dialog (the launcher ANRs on fresh images) hides the app's
             # UI; "Wait" dismisses it. Observed on the 8230 run: the app bootstrapped, the Start control was never reachable.
             anr_wait = next((n for n in nodes if n.get("resource-id") == "android:id/aerr_wait"), None)
+            anr_target = None
+            if anr_wait is not None:
+                # On GitHub's Android 16 image, Pixel Launcher itself can ANR while AATE's
+                # SecurityActivity is already displayed. Blindly clicking "Wait" in that
+                # unrelated launcher dialog forever caused a false-red release (8365 main,
+                # run 40082621484). Keep an actual AATE ANR under the original timeout.
+                title_node = next((n for n in nodes if n.get("resource-id") == "android:id/alertTitle"), None)
+                title = (title_node.get("text", "") if title_node is not None else "").strip()
+                low = title.lower()
+                if not title:
+                    print("ANR title not yet available; retrying UI", flush=True)
+                    time.sleep(2)
+                    continue
+                if "pixel launcher" in low or "nexuslauncher" in low:
+                    launcher_anr_dismissals += 1
+                    if launcher_anr_dismissals > 5:
+                        raise RuntimeError("Emulator Pixel Launcher repeatedly ANR; release app verdict unavailable")
+                    anr_target = next((n for n in nodes if n.get("resource-id") == "android:id/aerr_close"), None)
+                    if anr_target is None:
+                        raise RuntimeError("Emulator Pixel Launcher ANR has no Close app control")
+                    print("Closing unrelated emulator Pixel Launcher ANR; AATE process is not the ANR", flush=True)
+                elif "aate" in low or "lifecycle" in low:
+                    anr_target = anr_wait
+                    print("AATE ANR observed; waiting only within the existing 240s bootstrap deadline", flush=True)
+                else:
+                    raise RuntimeError("Unrelated emulator system ANR blocks release verdict: " + title)
             disclaimer = next((n for n in nodes if n.get("text", "").upper() == "I AGREE"), None)
             start = next((n for n in nodes if n.get("resource-id", "").endswith("/btnToggle")
                           and n.get("enabled") == "true" and "start" in n.get("text", "").lower()), None)
-            target = next((n for n in (overlay, permission, anr_wait, disclaimer, start) if n is not None), None)
+            target = next((n for n in (anr_target, overlay, permission, disclaimer, start) if n is not None), None)
             if target is not None:
                 tap(target)
                 start_tapped = target is start
