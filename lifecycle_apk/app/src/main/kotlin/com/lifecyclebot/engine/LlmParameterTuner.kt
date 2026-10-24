@@ -229,6 +229,12 @@ object LlmParameterTuner {
 
         val applied = mutableListOf<Change>()
         val rejected = mutableListOf<String>()
+        // A single advisor/LLM reply must not stack several deltas on the
+        // same exit, stop or polling parameter. Count ALL proposed keys,
+        // including those beyond the per-call cap, before any write.
+        val proposalCounts8373 = (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.optString("key")?.trim()?.takeIf { it.isNotBlank() }
+        }.groupingBy { it }.eachCount()
 
         val limit = minOf(arr.length(), maxAdjustments)
         for (i in 0 until limit) {
@@ -239,6 +245,10 @@ object LlmParameterTuner {
 
             if (key.isBlank()) {
                 rejected.add("missing key")
+                continue
+            }
+            if ((proposalCounts8373[key] ?: 0) > 1) {
+                rejected.add("$key: repeated/conflicting proposal; no change applied")
                 continue
             }
             val spec = ALLOWED_SPECS[key]
@@ -279,6 +289,10 @@ object LlmParameterTuner {
 
             working = spec.set(working, newValue)
             applied.add(Change(key = key, oldValue = oldValue, newValue = newValue, reason = reason))
+        }
+        for (i in limit until arr.length()) {
+            val extraKey = arr.optJSONObject(i)?.optString("key")?.trim().orEmpty()
+            rejected.add("${extraKey.ifBlank { "unnamed" }}: per-call adjustment limit $maxAdjustments reached")
         }
 
         if (applied.isEmpty()) {

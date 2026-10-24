@@ -65,16 +65,28 @@ object PreTradeHardGate {
         return Verdict(false, "DEFER_SAFETY_PROOF", "$reason|$detail")
     }
 
+    /** Essential proof is a live spending prerequisite, not a tunable quality score. */
+    internal fun criticalProofPending8373(pending: Collection<String>): List<String> = pending.filter { reason ->
+        reason.startsWith("RUGCHECK_PENDING_OR_UNKNOWN:") ||
+            reason == "MINT_AUTHORITY_UNKNOWN" ||
+            reason == "HOLDER_DATA_UNKNOWN" ||
+            reason == "HOLDER_DISTRIBUTION_PENDING" ||
+            reason == "HOLDER_DATA_PENDING" ||
+            reason.startsWith("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP:") ||
+            reason == "LIQUIDITY_PROOF_PENDING"
+    }.distinct()
+
     private fun allowWithPendingProof(ts: TokenState, pending: List<String>, callSite: String): Verdict {
-        // V5.0.4019 — taxonomy/source fix: pending proof is a penalty/telemetry
-        // condition, not a live-buy terminal failure. 4018 runtime showed
-        // BUY ok=0 / SAFETY_PROOF_INCOMPLETE=505 while confirmed hard-safety was
-        // already protected above (SAFETY_HARD_BLOCK, active mint/freeze,
-        // TRUE_ZERO_LIQUIDITY, fatal holder concentration, fatal wallet text).
-        // Keep only route/liquidity unknown as hydrate-defer because there may be
-        // no executable market. Unknown holder/mint/freeze/rugcheck proof now
-        // soft-allows with explicit telemetry so sizing/advisors can penalize
-        // without choking 500-1000/day live throughput.
+        val essentialPending = criticalProofPending8373(pending)
+        if (essentialPending.isNotEmpty()) {
+            try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+            return deferSafetyProof(ts, "LIVE_CRITICAL_PROOF_PENDING_8373", essentialPending, callSite)
+        }
+        // V5.0.8373 — exact-mint rug, mint authority, holder distribution and
+        // executable liquidity proofs must be observed before LIVE spending.
+        // A missing result is retryable DEFER, not a token blacklist and not
+        // an approval from an advisor or a positive quote. Only non-essential
+        // quality penalties may pass through to bounded sizing below.
         val routeOrLiquidityPending = pending.firstOrNull {
             it.contains("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", true) ||
             it.contains("TOKEN_MAP_PENDING", true)
@@ -207,10 +219,8 @@ object PreTradeHardGate {
         if (topHolder < 0.0) {
             pendingProofs.add("HOLDER_DISTRIBUTION_PENDING")
         }
-        val criticalProofUnknown = pendingProofs.contains("MINT_AUTHORITY_UNKNOWN") &&
-            pendingProofs.contains("FREEZE_AUTHORITY_UNKNOWN") &&
-            pendingProofs.contains("HOLDER_DATA_UNKNOWN")
-        if (criticalProofUnknown) pendingProofs.add("CRITICAL_SAFETY_PROOF_UNKNOWN")
+        // Freeze is already fail-closed above; do not wait for an impossible
+        // FREEZE_AUTHORITY_UNKNOWN marker before deferring other missing proofs.
         if (topHolder >= TOP_HOLDER_FATAL_PCT) {
             return block(ts, "TOP_HOLDER_CONCENTRATION", "topHolderPct=$topHolder max=$TOP_HOLDER_FATAL_PCT")
         }

@@ -13,7 +13,7 @@ import java.io.File
 
 /**
  * V5.0.8337 — owner fix block, labels and the 8114 gate: FIX 2 (a flat mark is a lost mark, never a -cost label), FIX 6
- * (8114 mode buys no coin that already ran: grab-only exemption, no ticket admits), FIX 7 (inLegacy8326 reads 8114's
+ * (historical 8114 runner tickets are honoured, subject to current downstream live safety), FIX 7 (inLegacy8326 reads 8114's
  * evidence: discovery-age cells, uncapped full-hive setup records), FIX 8 (chart BUY in 8114 mode goes through the 8114
  * decision), 10d (curve witness only within 5 s, else the mark is held, never dropped), 10e (runner lanes grade on the hour).
  */
@@ -41,21 +41,23 @@ class Aate8337LabelsGateTest {
         assertTrue(skip < sixty.indexOf("SpecialistMiner7972.onLabel7972(o.lane, o.mint, o.feats7972, net, gross, o.atMs)"))
     }
 
-    @Test fun eightOneOneFourGateExemptsOnlyAnEarlyGrab() {
-        // the early-run rule the chase exemption now requires (8117): developing, not at its peak, not a vertical spike
+    @Test fun eightOneOneFourGatePreservesHistoricalRunnerTicketEvidence() {
+        // The newer 8117 early-run predicate remains available to the CURRENT
+        // strategy; it must not replace the original 8113/8114 runner tickets.
         assertTrue(LiveEdgeGate7877.earlyRun8117(runupFromLowPct = 85.0, chg5mPct = 40.0))
         assertFalse(LiveEdgeGate7877.earlyRun8117(runupFromLowPct = 1_238.0, chg5mPct = 30.0))
         assertFalse(LiveEdgeGate7877.earlyRun8117(runupFromLowPct = 90.0, chg5mPct = 140.0))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("internal fun earlyRun8117(runupFromLowPct: Double, chg5mPct: Double): Boolean ="))
         val gate = src("engine/truth/Entry8114Gate8326.kt")
-        // 6a: only a grab is a forming run
-        assertTrue(gate.contains("private fun runnerForming8114(ts: TokenState, nowMs: Long) = try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Throwable) { false }"))
-        // 6b: the chase rule exempts an early run only when it is also a grab
-        assertTrue(gate.contains("!(LiveEdgeGate7877.earlyRun8117(snap.runupFromLocalLowPct, ts.lastPriceChange5m) && (try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Throwable) { false }))"))
-        // 6c: runner tickets are no admit evidence anywhere in the 8114 gate
-        assertFalse(gate.contains("RunnerPlay8018.ticketActive8018"))
-        assertFalse(gate.contains("RunnerTicket8073.isTicket8073"))
+        // 8113's liveRefusal used BOTH an active RunnerPlay ticket and a
+        // lane-proven RunnerGrab; the chase veto used that same condition.
+        assertTrue(gate.contains("RunnerPlay8018.ticketActive8018(ts.mint, nowMs)"))
+        assertTrue(gate.contains("RunnerGrab7967.grab7967(ts.mint, nowMs)"))
+        assertTrue(gate.contains("!runnerForming8114(ts, nowMs) &&"))
+        // 8114 watch-first explicitly cleared a verified RunnerTicket8073.
+        assertTrue(gate.contains("RunnerTicket8073.isTicket8073(ts.mint, nowMs)"))
         val watch = gate.substringAfter("private fun watchFirst8114(").substringBefore("private fun core8114(")
+        assertTrue(watch.contains("RunnerTicket8073.isTicket8073(ts.mint, nowMs)"))
         assertTrue(watch.contains("TailHunter7996.ticket7996(ts, l, nowMs)"))      // the tail ticket (8114) stays
     }
 
