@@ -94,7 +94,15 @@ class Aate8169LoadTest {
         assertTrue(SpecialistBrainBridge7542.pruneUnreadable8169(System.currentTimeMillis()) >= 0)
         val b = src("engine/SpecialistBrainBridge7542.kt")
         assertTrue(b.contains("if(snapshotReadable8169(c.evaluatedAtMs,System.currentTimeMillis()))c else null"))
-        assertTrue(b.contains("cache[ts.mint]=Cached(it);pruneOnInsert8169(now)"))
+        assertTrue(b.contains("cache.entries.removeIf{!snapshotReadable8169(it.value.snapshot.evaluatedAtMs,nowMs)}"))
+        // 8372 moved insertion out of the return expression so all observers see the same complete decision.
+        // Keep pruning immediately after publication, before either learning or shadow reads that snapshot.
+        val publish = b.indexOf("cache[ts.mint] = Cached(snapshot8372)")
+        val prune = b.indexOf("pruneOnInsert8169(now)", publish.coerceAtLeast(0))
+        val enroll = b.indexOf("DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.opinions.values)")
+        val shadow = b.indexOf("ExploreShadow8347.onOpinions8347(ts, snapshot8372.opinions, now)")
+        assertTrue("The complete snapshot must be published before pruning", publish >= 0 && prune > publish)
+        assertTrue("Pruning stays ahead of every observer", prune < enroll && prune < shadow)
     }
 
     @Test fun deskSheetsOfResidentCoinsAreNeverDropped() {

@@ -132,7 +132,36 @@ class Aate8082CausalPipelineTest {
         assertFalse(C.jointProvenDead8082(s))                  // it starts paying: the refusal lifts
         val src = src("engine/cortex/Cortex7885.kt")
         assertTrue(src.contains("return \"C6_SETUP_DEAD_8082\""))
-        // superseded by V5.0.8187: the verdict x setup cell is a robust label book.
-        assertTrue(src.contains("jointBook7961.getOrPut(jk) { CortexLedger7885.labelStat8187() }.also { it.scale(CortexScoreboard7885.BOOK_DECAY) }"))
+        // 8372: the same dead-setup bar reads actual frozen current-version lane x setup outcomes. The legacy
+        // decayed book remains historical telemetry, not a second predictor's authority over today's verdict.
+        val constitution = src.substringAfter("private fun constitutionRefusal(").substringBefore("// ── Cortex v9")
+        assertTrue(constitution.contains("cohort8372(a.lane, it)[a.bucket.ordinal]"))
+        assertTrue(constitution.contains("if (jointProvenDead8082(st8082)) return \"C6_SETUP_DEAD_8082\""))
+        assertFalse(constitution.contains("jointBook7961["))
+    }
+
+    @Test fun deadSetupUsesItsCurrentFrozenCohortAndRecoversOnNewOutcomes() {
+        val book = com.lifecyclebot.engine.cortex.CortexGradeBook8144()
+        var next = 0
+        fun add(net: Double, lane: String = "EXPRESS", setup: String = "BREAKOUT", version: Int = 1) {
+            val id = "dead-setup-8082-${next++}"
+            val at = 1_000_000L + next * 60_000L
+            val r = com.lifecyclebot.engine.cortex.CortexGradeRecord8144('D', id, "$id|$lane", at,
+                lane, setup, "R", "T", "C", "COH", 2, 8.0, false, true, false)
+                .also { it.scoreVersion8372 = version }
+            assertTrue(book.addDecision(r))
+            book.label(id, net, net + 2.0, net, true, at + 300_000L)
+        }
+        repeat(12) { add(-10.0) }
+        repeat(20) { add(100.0, version = 0); add(100.0, lane = "MOONSHOT"); add(100.0, setup = "OTHER_SETUP") }
+        val dead = book.bucketStats8372("EXPRESS", "BREAKOUT")[2]
+        assertEquals(12.0, dead.n, 0.0)
+        assertEquals(-10.0, dead.mean(), 1e-12)
+        assertTrue(com.lifecyclebot.engine.cortex.Cortex7885.jointProvenDead8082(dead))
+        repeat(150) { add(8.0) }
+        val recovered = book.bucketStats8372("EXPRESS", "BREAKOUT")[2]
+        assertEquals(162.0, recovered.n, 0.0)
+        assertTrue(recovered.mean() > 0.0)
+        assertFalse(com.lifecyclebot.engine.cortex.Cortex7885.jointProvenDead8082(recovered))
     }
 }

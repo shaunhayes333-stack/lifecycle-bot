@@ -368,7 +368,13 @@ class Aate8094ClosedPositionAndPretradeTest {
         // V5.0.8175 — superseded by V5.0.8174: the source is frozen at the decision (ts.source read before enqueue).
         assertTrue(cx.contains("Pending(a, admitted, nowMs, veto, frozenSource8174, setup7961, fired8094)"))
         assertTrue(cx.contains("val source8174 = ts.source"))
-        assertTrue(cx.contains("for (f in p.fired8094) {"))
+        // Primary and alternatives now share one deduplicated grading loop. Each original contribution retains
+        // its own cell generation and decay stamp, so progressive labels revise all of them without double-counting.
+        val grade = cx.substringAfter("private fun gradeModelsLocked8372(").substringBefore("// ── V5.0.8144")
+        assertTrue(grade.contains("for (setup in (listOf(p.setup7961) + p.fired8094).filter { it.isNotBlank() }.distinct()) {"))
+        assertTrue(grade.contains("jointKey7961(p.a.lane, p.a.bucket, setup)"))
+        assertTrue(grade.contains("jointTrace.add(JointContribution8372(jk, jointGenerations8372.getValue(jk), stamp))"))
+        assertTrue(grade.contains("?.jointTrace8372 = jointTrace"))
         assertTrue(cx.contains("LanePlaybook7907.selectedSetup8094(ts, a.lane, System.currentTimeMillis())"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("val setup8083 = admittedSetup(admission8136) { try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, l8059, nowMs) }"))
     }

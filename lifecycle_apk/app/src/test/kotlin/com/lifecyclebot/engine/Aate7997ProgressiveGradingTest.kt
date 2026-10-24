@@ -27,7 +27,10 @@ class Aate7997ProgressiveGradingTest {
     @Test fun checkpointsAreWiredIntoEveryBook() {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(f.contains("val stop7997 = if (o.done60) checkpoint7997(o, net, gross, age, nowMs) else false"))
-        assertTrue(f.contains("LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second)"))  // V5.0.8080: long-hold family only
+        // Long-hold family only, now addressed to the original observation rather than the latest mint/lane.
+        val playbookRevision = "LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second, decisionAtMs8372 = o.atMs)"
+        assertTrue(f.substringAfter("private fun checkpoint7997(").substringBefore("private fun revise7997(").contains(playbookRevision))
+        assertTrue(f.substringAfter("private fun reviseToHour8337(").substringBefore("private val exitRunSamples8006").contains(playbookRevision))
         assertTrue(f.contains("SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross)"))
         assertTrue(f.contains("CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet)"))
     }

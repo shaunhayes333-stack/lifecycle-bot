@@ -124,11 +124,12 @@ class Aate8084SetupClassificationTest {
         assertTrue(cap.contains("val a8174 = assessCache["))
         val queued = c.substringAfter("private fun captureNow(").substringBefore("// ── V5.0.7920")
         assertFalse(queued.contains("assess(ts, labelLane, nowMs)"))
-        // superseded by V5.0.8187: the playbook takes the label clamped to its cohort's cap.
-        assertTrue(c.contains("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961)"))
+        // Raw family labels retain the frozen setup AND original observation identity across asynchronous delivery.
+        assertTrue(c.contains("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs)"))
         val p = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(p.contains("\"#O=\${c.outcome.name}#V=\${c.featureVersion}\""))
         val on = p.substringAfter("fun onLabel(mint: String, labelLane: String").substringBefore("fun setupHoldsLong8080(")
+        assertTrue(on.contains("episodes8372.take(mint, labelLane, decisionAtMs8372) ?: return")) // never consume a newer episode on an exact miss
         assertTrue(on.contains("val tag = full.substringBefore('#')"))     // a pre-8084 persisted tag grades as before
         assertTrue(on.contains("SETUP_DECISION_IDENTITY_MISMATCH_8084"))
         assertTrue(on.contains("Outcome8084.DATA_INCOMPLETE.name"))         // incomplete data never grades the no-match cohort

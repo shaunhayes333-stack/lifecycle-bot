@@ -54,6 +54,26 @@ class Aate8034MoonbagAndFirstSightTest {
         assertFalse(FirstSight8026.smallSampleClears8034(10.0, 51.8, 20.0, 0.1))    // win rate
         assertEquals(5.0, FirstSight8026.SMALL_SAMPLE_MIN_N_8034, 0.0)
         assertEquals(2.0, FirstSight8026.SMALL_SAMPLE_MARGIN_8034, 0.0)
-        assertTrue(src("engine/cortex/Cortex7885.kt").contains("!board.inverted7948(a.lane, accountMode8077())) board.evidenceFor8025(a.lane, accountMode8077()) else -1.0"))
+        // 8372 preserves the small-sample probe, but its evidence must be the current frozen predictor's cohort,
+        // not an older scorer's profitable aggregate. Inconsistency / inversion still send the revocation sentinel.
+        val cortex = src("engine/cortex/Cortex7885.kt")
+        val firstSight = cortex.substringAfter("private fun firstSight8026(").substringBefore("// ── Cortex v13")
+        assertTrue(firstSight.contains("cohort8372(a.lane)[CortexScoreboard7885.Bucket.STRONG.ordinal]"))
+        assertTrue(firstSight.contains("consistent(a.lane) && !invertedCurrent8372(a.lane)"))
+        assertTrue(firstSight.contains("evidenceCurrent8372(a.lane) else -1.0"))
+        assertTrue(firstSight.contains("if (barred8144) -1.0 else evidence"))
+        assertFalse(firstSight.contains("board.books"))
+        assertFalse(firstSight.contains("board.evidenceFor8025"))
+    }
+
+    @Test fun aSmallPositiveRecordCannotOverrideRevokedEvidence() {
+        val strong = com.lifecyclebot.engine.cortex.CortexLedger7885.realisedStat8187().also { s ->
+            repeat(10) { s.add(12.0, false) }
+        }
+        assertTrue(FirstSight8026.smallSampleClears8034(strong.n, strong.mean(), 0.0, strong.winRate()))
+        val token = com.lifecyclebot.data.TokenState(mint = "FIRST_SIGHT_8034_REVOKED", symbol = "TEST")
+        // This must refuse before reading wallet/route state: a small positive sample never cancels the sentinel.
+        assertFalse(FirstSight8026.grant8026(token, "EXPRESS", "SOFT_EDGE", -1.0, strong, 0.0, now))
+        assertFalse(FirstSight8026.grant8026(token, "EXPRESS", "SETUP_PROVEN_LOSING", 1.0, strong, 0.0, now))
     }
 }

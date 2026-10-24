@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.cortex.CortexScoreboard7885
+import com.lifecyclebot.engine.cortex.CortexAuthority8366
 import com.lifecyclebot.engine.truth.LiveTruth8064
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -48,12 +49,43 @@ class Aate8083CortexLiveEntryTest {
         val c = src("engine/cortex/Cortex7885.kt")
         val cell = c.substringAfter("private fun setupCellAuthority8083(").substringBefore("\n    }\n")
         assertTrue(cell.contains("coerceAtMost(CortexScoreboard7885.GRAD_PARTIAL_CAP_7955)"))
-        assertTrue(cell.contains("board.inverted7948(lane, accountMode8077()) || !consistent(lane)"))
+        // 8372: setup exceptions use the same current STRONG-vs-rest proof as lane authority. Historical bucket
+        // inversion / means cannot become an alternative proof; current calibration and realised revocation still bind.
+        assertTrue(cell.contains("authorityTest8366(lane, setup)"))
+        assertTrue(cell.contains("CortexAuthority8366.authority8366(proof,"))
+        assertTrue(cell.contains("calibration.uncalibrated8372(lane, executableOffset8187(lane)), n, mean)"))
+        assertFalse(cell.contains("jointBook7961["))
+        assertFalse(cell.contains("board.inverted7948"))
         val ov = c.substringAfter("fun overrulesEdgeRefusal(").substringBefore("fun fullAuthorityOverrules8078(")
         assertTrue(ov.contains("if (!softBlock(refusal, false)) return false"))           // hard safety intact
         assertTrue(ov.contains("(provenRefusal && fraction < 1.0)"))                         // own proven loser needs full
         assertTrue(ov.contains("CORTEX_OVERRIDE_EXPLAINED_8083"))
         assertTrue(ov.contains("superseded=${'$'}{refusal.take(80)}"))
+    }
+
+    @Test fun currentSetupProofRetainsPartialCapAndRejectsInversionOrRevocation() {
+        fun rows(scale: Double) = (0 until 500).map { i ->
+            val score = (((i * 37) % 100) - 50.0) / 5.0
+            val at = 1_000_000L + i * 60_000L
+            CortexAuthority8366.Row8366(at, score, score * scale + 1.0,
+                CortexScoreboard7885.bucketOf(score, 0.0, false).ordinal, at + 300_000L)
+        }
+        fun proof(scale: Double): CortexAuthority8366.Result8366 {
+            val sample = rows(scale)
+            return CortexAuthority8366.test8372(sample, 1.5, sample.maxOf { it.outcomeAvailableAtMs } + 1L)
+        }
+        val partial = proof(0.2)
+        assertTrue(partial.granted)
+        assertTrue(partial.fraction > 0.0 && partial.fraction < 1.0)
+        val full = proof(2.0)
+        assertEquals(1.0, CortexAuthority8366.authority8366(full, false, 0.0, Double.NaN), 0.0)
+        assertEquals(CortexScoreboard7885.GRAD_PARTIAL_CAP_7955,
+            CortexAuthority8366.authority8366(full, false, 0.0, Double.NaN)
+                .coerceAtMost(CortexScoreboard7885.GRAD_PARTIAL_CAP_7955), 0.0)
+        assertFalse(proof(-2.0).granted)
+        assertEquals(0.0, CortexAuthority8366.authority8366(proof(-2.0), false, 0.0, Double.NaN), 0.0)
+        assertEquals(0.0, CortexAuthority8366.authority8366(full, true, 0.0, Double.NaN), 0.0)
+        assertEquals(0.0, CortexAuthority8366.authority8366(full, false, 20.0, -1.0), 0.0)
     }
 
     @Test fun multipleSetupsPerLaneAndNoTriggerIsNotNegative() {
