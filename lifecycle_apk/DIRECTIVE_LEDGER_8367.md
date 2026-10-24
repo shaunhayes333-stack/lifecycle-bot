@@ -53,11 +53,21 @@ Status: **IN FORCE** = HEAD behaves as directed. **WEAKENED** = still there but 
 | 31 | Rehearsal never relaxes LIVE (wallet door, evidence doors) | 8339 / 8342 | IN FORCE | — | d17 |
 | 32 | Max-take liquidity semantics (V5.9.769) | V5.9.769 | IN FORCE through `intakeLiquidity8345` | — | — |
 
+## Restored 8114 behaviours (V5.0.8370, owner choice)
+
+Status **RESTORED 8370** = the owner chose the 8114 behaviour back over a later deliberate change. Guards: `Aate8370Restore8114Test` and `Aate8367DirectiveRegressionTest` d19–d21.
+
+| # | Directive (owner, verbatim) | 8114 source (379ad2fa0) | Status | What changed in 8370 | Guard |
+|---|---|---|---|---|---|
+| 33 | "Small stakes trade" | `truth/LiveRiskPolicy7807.kt:530–548` (`RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840`: minimum fundable under max(lane cap, `smallAccountMinShare7987` :314) and the depth cap, loss at the stop within `executableMinRiskOk` :320) | RESTORED 8370, owner choice | `KELLY_TOO_SMALL_FOR_ROUTE_8365` and `ROUTE_MIN_PROMOTION_UNSUPPORTED_8329` are labels (`SmallStake8370.telemetry8370`, `SMALL_STAKE_PROMOTED_8370_<gate>`), not refusals, on both promotion paths (LiveRiskPolicy7807.decide, MinPromotion8188.runtimeRefusal8188). Hard caps still bind at the minimum: tradeable cash / reserve and lane envelope (8153), lane cap / small-account share, depth, hard loss at the stop, fixed-cost wall, 8188 negative edge, exposure preflight. The log-optimal Kelly sizes everything above the minimum. | d19 |
+| 34 | "Runner trail 35% from peak" | `RunnerGrab7967.kt:414–416` (`peakGiveback7980`: `(1 + g) <= 0.65 x (1 + peak)`) | RESTORED 8370, owner choice | `GreenFloor8363.floor8363` (RunnerGrab7967 held runners / runner-from-entry, LifecycleHold8065, TailBag8034 tails) = max(owner 8337 3a rule: from +20 % max(min(BE, half peak), 40 % of peak), the 8114 trail at 65 % of the peak price). Replaces 8363's max(BE, 50 % of peak). Peak +100 % -> +40 %; +300 % -> +160 %. Scalp exits keep their own rules; −35 % runner hard stop, −40 % lifecycle floor, rug / catastrophic unchanged. Supersedes #23's WEAKENED note. | d20 |
+| 35 | "No fired-setup rule" | `truth/LiveEdgeGate7877.kt:846` (8114 admitted on `chartAdmits7950` / the 8114 verdict with no named setup) | RESTORED 8370, owner choice | `LIVE_NO_FIRED_SETUP_8364_<lane>` is counted, never binding (`Entry8114Gate8326.FIRED_SETUP_BINDS_8370=false`). An M: band niche is the band alone (`ExploreShadow8347.inNiche8351/8364`); an S: niche still needs that setup. FDG 8365's `BY_FIRED_SETUP` demotion of `PLAYBOOK_NO_TRIGGER_*` applies only while the 8364 rule binds, so that door is as at 8114 (binds only on a PROVEN losing NO_TRIGGER record, with the 8114 overrides and the 8365 hold-basis / veto demotions). No door refuses for "no named setup" alone. Supersedes #3's narrowing. | d21 |
+
 ## Where HEAD trades differently from 8114, and why
 
-1. **Entry:** live needs a named fired setup (8364, deliberate). The evidence hold keeps unproven lanes out of LIVE (8336, owner). An explore-variant entry wait and niche limit apply (8347/8351, owner branches). 8114 had none of these.
-2. **Sizing:** log-optimal Kelly with one shrink (min of the brakes, not their product), deliberate in 8365. 8365 also refuses a stake below 25 % of the route minimum unless a named reason applies (`KELLY_TOO_SMALL_FOR_ROUTE_8365`, `EntryEconomics8329.promotionReasonRefusal8329`). At 8114 a small stake was promoted to the route minimum. This is a deliberate new refusal in the FDG agent's file. Handed off for a parity decision.
-3. **Exits:** green floor at 50 % of the peak (8363); give-back lock at +25 (8337); scalp tiers until the run is confirmed (8337); ScalpExit8351 on SCALP-proven lanes; RAPID_FLUID_STOP normal (same as 8114). All deliberate.
+1. **Entry:** ~~live needs a named fired setup (8364, deliberate)~~ restored to 8114 in 8370 (#35). The evidence hold keeps unproven lanes out of LIVE (8336, owner). An explore-variant entry wait and niche limit apply (8347/8351, owner branches). 8114 had none of these.
+2. **Sizing:** log-optimal Kelly with one shrink (min of the brakes, not their product), deliberate in 8365. 8365 also refuses a stake below 25 % of the route minimum unless a named reason applies (`KELLY_TOO_SMALL_FOR_ROUTE_8365`, `EntryEconomics8329.promotionReasonRefusal8329`). At 8114 a small stake was promoted to the route minimum. Restored to 8114 in 8370 (#33): both are labels now.
+3. **Exits:** green floor ~~at 50 % of the peak (8363)~~ = max(8337 3a, 8114 trail at 65 % of the peak price) in 8370 (#34); give-back lock at +25 (8337); scalp tiers until the run is confirmed (8337); ScalpExit8351 on SCALP-proven lanes; RAPID_FLUID_STOP normal (same as 8114). All deliberate.
 4. **Paper beside live:** 8114 traded paper beside live. 8184/8216 forbade it; 8336 restored it (owner branch).
 
 ## Accidental reversals

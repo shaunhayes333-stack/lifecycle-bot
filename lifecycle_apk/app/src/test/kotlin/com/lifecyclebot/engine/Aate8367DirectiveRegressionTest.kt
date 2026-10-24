@@ -67,9 +67,11 @@ class Aate8367DirectiveRegressionTest {
         assertTrue("stop=$stop", stop >= 22.0 * 0.4 - 1e-9)
         val floor = ExitDoctrine8169.runnerProtectFloor8169(22.0, 50.0)
         assertTrue("floor=$floor", floor >= 22.0 * 0.4 - 1e-9)
-        // 8363 green floor: a +60 % hold is released at no less than +30 %.
-        assertTrue(GreenFloor8363.floor8363(60.0, 6.0) >= 30.0 - 1e-9)
-        assertTrue(GreenFloor8363.breached8363(29.0, 60.0, 6.0))
+        // superseded by V5.0.8370 — owner restored 8114 behaviour ("Runner trail 35% from peak"): the runner hold floor is
+        // max(8337 3a, 65 % of the peak price). A +60 % hold keeps the 3a floor, 40 % of the peak = +24 % (trail +4 %).
+        assertEquals(24.0, GreenFloor8363.floor8363(60.0, 6.0), 1e-9)
+        assertTrue(GreenFloor8363.breached8363(23.9, 60.0, 6.0))
+        assertFalse(GreenFloor8363.breached8363(25.0, 60.0, 6.0))
         assertFalse(GreenFloor8363.breached8363(45.0, 60.0, 6.0))
     }
 
@@ -208,5 +210,35 @@ class Aate8367DirectiveRegressionTest {
     @Test fun d18_ticketRetryAndResume() {
         assertTrue(TicketRetry8327.mayHold8327(null, System.currentTimeMillis()))
         assertEquals("ALREADY_HELD", TicketRetry8327.resumeRefusal8330(true, false, true, true, false, 1.0, 1.0))
+    }
+
+    // ── V5.0.8370 — RESTORED 8114 (owner choice): small stakes trade; runner trail 35 % from peak; no fired-setup rule ──
+
+    @Test fun d19_smallStakesTradeAtTheRouteMinimum() {
+        // A stake under 25 % of the minimum with no named reason is labelled, never refused; hard caps bind (Aate8370).
+        val why = com.lifecyclebot.engine.truth.EntryEconomics8329.kellyRefusal8365(0.002, 0.025,
+            com.lifecyclebot.engine.truth.EntryEconomics8329.PROMOTION_UNSUPPORTED_8329 + "_QUALITY")
+        assertEquals(Kelly8365.KELLY_TOO_SMALL_8365, why)
+        com.lifecyclebot.engine.truth.SmallStake8370.telemetry8370(why)
+        assertTrue(com.lifecyclebot.engine.truth.SmallStake8370.count8370(Kelly8365.KELLY_TOO_SMALL_8365) >= 1L)
+        assertEquals(0.025, com.lifecyclebot.engine.truth.SmallStake8370.promoted8370(0.002, 0.025, 0.03, 0.05, 1.0, 0.003, 0.0136), 1e-12)
+        assertEquals(0.0, com.lifecyclebot.engine.truth.SmallStake8370.promoted8370(0.002, 0.025, 0.03, 0.05, 1.0, 0.02, 0.0136), 0.0)
+    }
+
+    @Test fun d20_runnerTrailThirtyFivePercentFromPeakOverThe3aRule() {
+        assertEquals(40.0, GreenFloor8363.floor8363(100.0, 3.0), 1e-9)    // max(3a +40, trail +30)
+        assertEquals(160.0, GreenFloor8363.floor8363(300.0, 3.0), 1e-9)   // max(3a +120, trail 0.65 x 4.0 -> +160)
+        assertTrue(GreenFloor8363.floor8363(22.0, 50.0) >= 22.0 * 0.4 - 1e-9)   // the owner's 3a rule stays
+    }
+
+    @Test fun d21_noFiredSetupRule() {
+        // the 8364 classification is counted only; the NO_TRIGGER playbook door is as at 8114 (not demoted as a 8364 duplicate)
+        assertEquals("LIVE_NO_FIRED_SETUP_8364_MOONSHOT",
+            com.lifecyclebot.engine.truth.Entry8114Gate8326.noFiredSetupRefusal8364("MOONSHOT", false, null, emptyList()))
+        assertNull(com.lifecyclebot.engine.truth.FdgGate8365.demotedBy8365("PLAYBOOK_NO_TRIGGER_PROVEN_LOSING_7907_MOONSHOT", true, null, null, false))
+        val niche = com.lifecyclebot.engine.truth.ExploreShadow8347.Choice8351(com.lifecyclebot.engine.truth.ExploreShadow8347.Entry8347.NOW,
+            com.lifecyclebot.engine.truth.ExploreShadow8347.Exit8347.RUNNER, "M", "MC_10K_100K",
+            com.lifecyclebot.engine.truth.EvidenceHold8336.Proof8336(60, 10.0, 2.0, 2.0, true))
+        assertTrue(com.lifecyclebot.engine.truth.ExploreShadow8347.inNiche8364(niche, null, "MC_10K_100K", emptyList()))
     }
 }

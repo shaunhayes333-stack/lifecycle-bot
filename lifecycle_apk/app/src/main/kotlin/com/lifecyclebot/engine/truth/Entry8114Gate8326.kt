@@ -286,8 +286,17 @@ object Entry8114Gate8326 {
     fun noFiredSetupRefusal8364(lane: String, paper: Boolean, selected: String?, fired: List<String>): String? =
         if (paper || firedSetup8364(selected, fired) != null) null else NO_FIRED_SETUP_PREFIX_8364 + lane
 
-    /** Entry8114Mode8326.decide8326, after a LIVE 8114 admit: [selected] is the setup the 8114 verdict carried. */
-    fun liveFiredSetupRefusal8364(ts: TokenState, lane: String, selected: String?, nowMs: Long): String? {
+    // V5.0.8370 — owner chose "No fired-setup rule" (as 8114): the 8364 classification is telemetry, counted, never a
+    // refusal. 8114 admitted on chartAdmits7950 / the 8114 verdict without a named setup; the NO_TRIGGER playbook door keeps
+    // its 8114 form (binds only on a PROVEN losing NO_TRIGGER record).
+    // superseded by V5.0.8370 — owner restored 8114 behaviour: liveFiredSetupRefusal8364 (a binding LIVE refusal) is now
+    // noteFiredSetup8370, which only counts.
+
+    /**
+     * Entry8114Mode8326.decide8326, after a LIVE 8114 decision: [selected] is the setup the 8114 verdict carried. Counts and
+     * labels LIVE_NO_FIRED_SETUP_8364_<lane> when no named setup fired; returns the label (telemetry), never refuses.
+     */
+    fun noteFiredSetup8370(ts: TokenState, lane: String, selected: String?, nowMs: Long): String? {
         val fired = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.matchedSetups8083(ts, lane, nowMs) } catch (_: Throwable) { emptyList<String>() }
         val why = noFiredSetupRefusal8364(lane, false, selected, fired) ?: return null
         noFiredSetup8364.incrementAndGet()
@@ -296,5 +305,5 @@ object Entry8114Gate8326 {
     }
 
     fun statusLine8326(): String =
-        "gate8114[admitted=${admitted8326.get()} provenOnlyRefused=${provenOnlyRefused8326.get()} chase=${chase8326.get()} watched=${watched8326.get()} noFiredSetup8364=${noFiredSetup8364.get()}]"
+        "gate8114[admitted=${admitted8326.get()} provenOnlyRefused=${provenOnlyRefused8326.get()} chase=${chase8326.get()} watched=${watched8326.get()} noFiredSetup8364=${noFiredSetup8364.get()} labelOnly8370]"
 }

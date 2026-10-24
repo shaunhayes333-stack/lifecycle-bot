@@ -794,11 +794,10 @@ object LiveRiskPolicy7807 {
                         return Decision(false, 0.0, named, labels, stop, minCost7840, total, sizing8094)
                     }
                 // V5.0.8329 — the promotion needs one named candidate-level reason (setup record positive on 12+ labels, early
-                // runner, Kelly >= 25 % of the minimum); binds in 8114 mode too.
+                // runner, Kelly >= 25 % of the minimum); binds in 8114 mode too. superseded by V5.0.8370 — owner restored 8114 behaviour.
                 // V5.0.8365 — a stake below 25 % of the minimum with no named reason: KELLY_TOO_SMALL_FOR_ROUTE_8365.
-                EntryEconomics8329.kellyRefusal8365(size, executableFloor8269, EntryEconomics8329.promotionReasonRefusal8329(i.mint8329, i.lane, size, executableFloor8269))?.let {
-                    return Decision(false, 0.0, it, labels, stop, minCost7840, total, sizing8094)
-                }
+                // V5.0.8370 — owner chose "Small stakes trade" (as 8114): both are labels now (SmallStake8370), never binding.
+                SmallStake8370.telemetry8370(EntryEconomics8329.kellyRefusal8365(size, executableFloor8269, EntryEconomics8329.promotionReasonRefusal8329(i.mint8329, i.lane, size, executableFloor8269)))
                 val fixedFloorLift8269 = raisedForFixedCost8269
                 labels += "RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840"
                 if (i.admissionProven8319) labels += "ADMITTED_MIN_PROMOTED_8319"
@@ -1200,5 +1199,5 @@ object LiveRiskPolicy7807 {
             "binding8136=[${bindings8136.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none yet" }}] " +
             "rotation8098[${OpportunityRotation8098.statusLine8098()}] " +
             "economics8153[${com.lifecyclebot.engine.SizingQuoteRecheck8153.statusLine8153()}] " +
-            LiveConfidence8296.statusLine8296() + " " + Kelly8365.statusLine8365()
+            LiveConfidence8296.statusLine8296() + " " + Kelly8365.statusLine8365() + " " + SmallStake8370.statusLine8370()  // V5.0.8370
 }

@@ -150,8 +150,9 @@ object Entry8114Mode8326 {
         // V5.0.8365 — a label / record refusal of the 8114 verdict yields the attribution to the structural checks (fired setup,
         // niche): the same candidate is refused either way, but under the one authoritative name.
         val yields8365 = FdgGate8365.oldYields8365(old.reason, final0_8347, realised)
+        // V5.0.8370 — owner chose "No fired-setup rule" (as 8114): the 8364 check is counted, never a refusal.
+        if (!paper8336) try { Entry8114Gate8326.noteFiredSetup8370(ts, l, old.setup, nowMs) } catch (_: Throwable) {}
         val final = (if (yields8365) null else final0_8347)
-            ?: (if (paper8336) null else try { Entry8114Gate8326.liveFiredSetupRefusal8364(ts, l, old.setup, nowMs) } catch (_: Throwable) { null })
             ?: (if (paper8336) null else try { ExploreShadow8347.nicheRefusal8351(ts, l, EvidenceHold8336.startMs8336) } catch (_: Throwable) { null })
             ?: (if (yields8365) final0_8347 else null)
             ?: (if (paper8336) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null })

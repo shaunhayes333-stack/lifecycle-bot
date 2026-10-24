@@ -87,7 +87,10 @@ class Aate8365KellyTest {
     }
 
     @Test fun promotionStopsFlatteningEdges() {
-        // Below 25 % of the minimum with no named reason: refused by name.
+        // superseded by V5.0.8370 — owner restored 8114 behaviour ("Small stakes trade"): the classification below is a
+        // label (SmallStake8370.telemetry8370), never binding; the stake is promoted to the route minimum inside the caps.
+        assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains("SmallStake8370.telemetry8370(EntryEconomics8329.kellyRefusal8365("))
+        // Below 25 % of the minimum with no named reason: labelled by name.
         assertEquals("KELLY_TOO_SMALL_FOR_ROUTE_8365",
             EntryEconomics8329.kellyRefusal8365(0.005, 0.0293, EntryEconomics8329.PROMOTION_UNSUPPORTED_8329 + "_QUALITY"))
         // A named 8329 reason (record positive / early runner / exploration slot): promoted.

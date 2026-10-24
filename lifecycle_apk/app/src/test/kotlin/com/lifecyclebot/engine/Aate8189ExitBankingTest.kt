@@ -73,6 +73,7 @@ class Aate8189ExitBankingTest {
         // superseded by V5.0.8363 — with the green floor, the evidence hold defers only exits ABOVE the armed floor (a peak
         // under +25 % is an unproven loser and released by 8109; any peak at or above +20 % arms the floor). So the hold is
         // exercised at +70 % after a +120 % peak (floor +60 %): an ordinary exit there is still held and named.
+        // V5.0.8370 — owner restored the 8114 trail: the floor at a +120 % peak is max(3a +48, trail +43) = +48 %; +70 % is held.
         val ts = live("proven8189", "DIAMOND_HANDS_RUNNER", price = 1.70, peak = 120.0)
         assertTrue(LifecycleHold8065.holding8065(ts))
         val named = LifecycleHold8065.defer8065(ts, "CORTEX_EXIT_7897_MOONSHOT_FWD-7PCT")

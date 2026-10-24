@@ -591,7 +591,7 @@ object RunnerGrab7967 {
             // goes when price is 35% below its peak, without waiting for a bar to close.
             peakGiveback7980(peak, g) -> "RUNNER_PEAK_CAPTURE_7980_${peak.toInt()}PK_${g.toInt()}PCT"
             TradeExitContract8077.runnerFromEntry8104(ts) && fromEntryGiveback8104(peak, g) -> "RUNNER_FROM_ENTRY_GIVEBACK_8104_${peak.toInt()}PK_${g.toInt()}PCT"
-            // V5.0.8363 — the held runner's floor: once the peak cleared net break-even, max(net BE, 50 % of the peak).
+            // V5.0.8363 — the held runner's floor. V5.0.8370: max(owner 8337 3a rule, 8114 trail at 65 % of the peak price).
             GreenFloor8363.breachedFor8363(ts, g) -> "RUNNER_GREEN_FLOOR_8363_${peak.toInt()}PK_${g.toInt()}PCT"
             r60 != null && r60.brokeStructure -> "RUNNER_STRUCTURE_BREAK_7967_1M_${g.toInt()}PCT"
             g >= 50.0 && r15 != null && r15.brokeStructure -> "RUNNER_STRUCTURE_BREAK_7967_15S_${g.toInt()}PCT"

@@ -158,7 +158,9 @@ object MinPromotion8188 {
         } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 })
             // V5.0.8329 — a sub-minimum stake is promoted only for one named candidate-level reason (setup record positive on
             // 12+ labels, early runner, Kelly >= 25 % of the minimum); binds in 8114 mode too (ROUTE_MIN_PROMOTED_KELLY_BELOW_MIN = 34 on Kelly ~0).
-            ?: EntryEconomics8329.promotionReasonRefusal8329(mint, lane, requestedSol, promotedSol)
+            // superseded by V5.0.8370 — owner restored 8114 behaviour: asked below as a label, never a refusal.
+        // V5.0.8370 — owner chose "Small stakes trade" (as 8114): the 8329 reason test is a label (SmallStake8370), not a refusal.
+        if (r == null) SmallStake8370.telemetry8370(EntryEconomics8329.promotionReasonRefusal8329(mint, lane, requestedSol, promotedSol))
         if (r != null) note8188(r, lane, requestedSol, promotedSol)
         // V5.0.8316 — a promotion refusal is a refusal AT SIZE: the funnel shows "owner selected, refused at size" (SpecialistOwnership7951).
         if (r != null) try { com.lifecyclebot.engine.SpecialistOwnership7951.onCapitalRefusal7951(lane, mint, r, postIntent = false) } catch (_: Throwable) {}

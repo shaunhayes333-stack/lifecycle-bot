@@ -19,7 +19,8 @@ import java.util.concurrent.atomic.AtomicLong
  *     advisory: the hold is the authoritative answer. (A lane unlocked only by EvidenceShadow8344 — which mirrors the live
  *     decision, doors binding — keeps its doors; so does the 8337 exception.)
  *  2. PLAYBOOK_NO_TRIGGER_* -> advisory: the 8364 fired-setup rule is the one check of "did a named setup fire" (it
- *     refuses LIVE_NO_FIRED_SETUP_8364_<lane> when none did).
+ *     refuses LIVE_NO_FIRED_SETUP_8364_<lane> when none did). superseded by V5.0.8370 — owner restored 8114 behaviour
+ *     ("No fired-setup rule"): 8364 is telemetry and the NO_TRIGGER door is as at 8114.
  *  3. a "setup losing on labels" door (picked-setup / timing record, PLAYBOOK_SETUP_*) -> advisory when the same setup's
  *     REALISED live closes (LiveTruth8064, the record LIVE_SETUP_LOSING_8083 judges) number 5+ with mean >= 0.
  *  4. the veto audit: the door's own lane record of refused candidates holds 100+ graded refusals proven to win
@@ -82,7 +83,9 @@ object FdgGate8365 {
         if (!Rehearsal8339.evidenceDoor8342(reason)) return null
         val r = reason.uppercase()
         if (holdBasis != null) return "EVIDENCE_HOLD_$holdBasis"
-        if (r.startsWith("PLAYBOOK_NO_TRIGGER")) return BY_FIRED_SETUP_8365
+        // superseded by V5.0.8370 — owner restored 8114 behaviour: the 8364 fired-setup rule is telemetry, so PLAYBOOK_NO_TRIGGER_*
+        // is no longer its duplicate (was: return BY_FIRED_SETUP_8365). The door is as at 8114: it binds only on a PROVEN losing
+        // NO_TRIGGER record, with the 8114 overrides and the hold-basis / realised / veto demotions here.
         if (setupLossDoor8365(r) && realisedContradicts8365(realisedForDoor)) return BY_REALISED_8365
         if (vetoRetired) return BY_VETO_AUDIT_8365
         return null
@@ -161,7 +164,7 @@ object FdgGate8365 {
                     (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(c.ts, l) } catch (_: Throwable) { null }) else null)
             try { LiveTruth8064.setupRealised8365(l, setup) } catch (_: Throwable) { null }
         } else null
-        val veto = c.holdBasis == null && !reason.uppercase().startsWith("PLAYBOOK_NO_TRIGGER") && !realisedContradicts8365(realised) &&
+        val veto = c.holdBasis == null && !realisedContradicts8365(realised) &&  // V5.0.8370 — NO_TRIGGER takes the veto audit like every door
             (try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRetiresAt100_8365(reason, l) } catch (_: Throwable) { false })
         val by = demotedBy8365(reason, true, c.holdBasis, realised, veto) ?: return false
         noteDemoted8365(reason, by, l)
