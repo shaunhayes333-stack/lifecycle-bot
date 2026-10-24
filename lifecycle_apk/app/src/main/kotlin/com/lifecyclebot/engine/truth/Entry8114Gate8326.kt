@@ -255,6 +255,46 @@ object Entry8114Gate8326 {
         }
     }
 
+    // ── V5.0.8364 §A_LIVE_ENTRY_NEEDS_A_FIRED_SETUP — audit 8360 item 2: the 8114 path admitted setup=null / NO_TRIGGER /
+    // DATA_INCOMPLETE coins (chartAdmits7950 returns before any setup is required), so live bought a market-cap band, not a
+    // chart shape. A LIVE admit now needs a named playbook setup that actually fired on the coin in that lane. Paper and the
+    // shadow books are untouched (they keep exploring every yes / non-safety no). ──
+
+    const val NO_FIRED_SETUP_PREFIX_8364 = "LIVE_NO_FIRED_SETUP_8364_"
+    private val UNNAMED_SETUPS_8364 = setOf(
+        "NO_TRIGGER", "NONE", "UNK", "UNKNOWN", "NULL", "DATA_INCOMPLETE", "MATCHES_UNRANKABLE", "CLASSIFIER_ERROR",
+    )
+    private val noFiredSetup8364 = AtomicLong(0)
+
+    /** Pure: is [setup] a named chart setup (not null / blank / NO_TRIGGER / NONE / UNK / an unclassified cohort)? */
+    fun namedSetup8364(setup: String?): Boolean {
+        val s = setup?.trim() ?: return false
+        return s.isNotEmpty() && s.uppercase() !in UNNAMED_SETUPS_8364
+    }
+
+    /**
+     * Pure: the named setup that fired — [selected] (LanePlaybook7907.selectedSetup8094) when it is named and among the
+     * coin's fired setups [fired] (matchedSetups8083), else the first named fired setup; null when nothing named fired.
+     */
+    fun firedSetup8364(selected: String?, fired: List<String>): String? {
+        val sel = selected?.trim() ?: ""
+        if (namedSetup8364(sel) && fired.any { it.trim().equals(sel, ignoreCase = true) }) return sel
+        return fired.firstOrNull { namedSetup8364(it) }?.trim()
+    }
+
+    /** Pure: the LIVE refusal when no named setup fired ([paper] entries are never refused here). */
+    fun noFiredSetupRefusal8364(lane: String, paper: Boolean, selected: String?, fired: List<String>): String? =
+        if (paper || firedSetup8364(selected, fired) != null) null else NO_FIRED_SETUP_PREFIX_8364 + lane
+
+    /** Entry8114Mode8326.decide8326, after a LIVE 8114 admit: [selected] is the setup the 8114 verdict carried. */
+    fun liveFiredSetupRefusal8364(ts: TokenState, lane: String, selected: String?, nowMs: Long): String? {
+        val fired = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.matchedSetups8083(ts, lane, nowMs) } catch (_: Throwable) { emptyList<String>() }
+        val why = noFiredSetupRefusal8364(lane, false, selected, fired) ?: return null
+        noFiredSetup8364.incrementAndGet()
+        try { PipelineHealthCollector.labelInc(why) } catch (_: Throwable) {}
+        return why
+    }
+
     fun statusLine8326(): String =
-        "gate8114[admitted=${admitted8326.get()} provenOnlyRefused=${provenOnlyRefused8326.get()} chase=${chase8326.get()} watched=${watched8326.get()}]"
+        "gate8114[admitted=${admitted8326.get()} provenOnlyRefused=${provenOnlyRefused8326.get()} chase=${chase8326.get()} watched=${watched8326.get()} noFiredSetup8364=${noFiredSetup8364.get()}]"
 }

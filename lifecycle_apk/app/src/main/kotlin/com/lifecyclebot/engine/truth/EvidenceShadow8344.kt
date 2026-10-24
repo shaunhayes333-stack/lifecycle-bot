@@ -28,6 +28,8 @@ import java.util.concurrent.atomic.AtomicLong
  * with the same bar it applies to paper (n >= 30, mean - SE > 2 %, PF >= 1.3). Spends nothing, opens no position, takes
  * no slot; paper and the live ledger never see it.
  * Known gaps (it is a model, not a fill): no landing failures, no sell latency, fills at the mark plus the modelled cost.
+ * V5.0.8364 — the entry is booked at the mark plus the lane's decision-to-fill chase (ShadowFill8364: EntryChase7961's live
+ * median once measured, the model chase before); the sell-side slippage is already inside the NetEdge8030 round trip.
  */
 object EvidenceShadow8344 {
     const val MAX_OPEN_8344 = 120
@@ -251,7 +253,9 @@ object EvidenceShadow8344 {
             val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
             val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
             val arm = try { com.lifecyclebot.engine.RunnerExitProfile7277.giveBackArmPct7791(lane) } catch (_: Throwable) { 20.0 }
-            val pos8355 = Pos8344(mint, lane, px, nowMs, if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm,
+            // V5.0.8364 — booked at the decision mark plus the lane's decision-to-fill chase (ShadowFill8364), as a live buy fills
+            val fillPx8364 = ShadowFill8364.laneEntryPx8364(px, lane)
+            val pos8355 = Pos8344(mint, lane, fillPx8364, nowMs, if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm,
                 if (runner) RUNNER_TIMEOUT_MS_8344 else OTHER_TIMEOUT_MS_8344)
             open[mint] = pos8355
             persistOpen8355(pos8355, nowMs)   // V5.0.8355 — written on open
@@ -296,7 +300,7 @@ object EvidenceShadow8344 {
                     val (at, frac) = com.lifecyclebot.engine.SpikeCapture7943.TIERS[p.tiersHit]
                     if (g < at) break
                     val sold = p.held * frac
-                    p.bankedGrossPct += sold * g
+                    p.bankedGrossPct += sold * ShadowFill8364.exitGrossPct8364(g)   // V5.0.8364 — exit slippage not in costPct8030 (none today)
                     p.held -= sold
                     p.tiersHit++
                     p.dirty8355 = true   // V5.0.8355 — a tier change is a persisted change
@@ -315,7 +319,7 @@ object EvidenceShadow8344 {
                     if (ShadowPersist8355.writeDue8355(p.dirty8355, p.lastWriteMs8355, nowMs)) persistOpen8355(p, nowMs)
                     continue
                 }
-                book8344(p, netPct8344(p.bankedGrossPct, p.held, g, p.costPct), why, nowMs)
+                book8344(p, netPct8344(p.bankedGrossPct, p.held, ShadowFill8364.exitGrossPct8364(g), p.costPct), why, nowMs)
                 if (why == "LOST_MARK" && p.noMarkSinceRestore8355) lostOnRestore8355.incrementAndGet()   // V5.0.8355
                 done += mint
             } catch (_: Throwable) { done += mint }
