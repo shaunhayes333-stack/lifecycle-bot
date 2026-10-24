@@ -786,6 +786,8 @@ object Cortex7885 {
                 garr.put(org.json.JSONObject().put("k", k).put("l", a.lane).put("g", a.regime).put("b", a.bucket.ordinal)
                     .put("adm", g.p.legacyAdmitted).put("at", g.atMs).put("v", g.p.vetoRule.orEmpty()).put("su", g.p.setup7961)
                     .put("base", jsonNumber(g.trace.base)).put("bw", jsonNumber(g.trace.baseWin)).put("n", jsonNumber(g.net)).put("gr", jsonNumber(g.gross))
+                    .put("r", a.runnerLane).put("e", jsonNumber(a.fused.edgePct)).put("m", jsonNumber(a.fused.laneMean))
+                    .put("cal", jsonNumber(g.calStamp8322)).put("w", g.witnessed8324)
                     .put("i", ids).put("x", xs).put("pr", pr).put("pw", pw)
                     .put("rs", rs).put("sc", sc).put("bs", jsonNumbers(g.bookScales)).put("aux", jsonNumbers(g.auxScales)))
             }
@@ -891,14 +893,18 @@ object Cortex7885 {
                 repeat(4) { scales.add(rs?.optDouble(j * 4 + it, Double.NaN) ?: Double.NaN) }
             }
             val b = buckets.getOrNull(o.optInt("b", 1)) ?: CortexScoreboard7885.Bucket.NEUTRAL
-            val fused = CortexLedger7885.Fused(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, emptyList())
-            val a = Assessment(o.optString("l"), false, raws.toDoubleArray(), ids, edges, o.optString("g"), fused, 0.0, b, 0, false, at)
+            val fused = CortexLedger7885.Fused(o.optDouble("e", 0.0), o.optDouble("m", 0.0), 0.0, 0.0, 0.0, 0.0, 0.0, emptyList())
+            val a = Assessment(o.optString("l"), o.optBoolean("r", false), raws.toDoubleArray(), ids, edges, o.optString("g"), fused, 0.0, b, 0, false, at)
             val p = Pending(a, o.optBoolean("adm"), at, o.optString("v").ifBlank { null }, "", o.optString("su"))
             repeat(3) { scales.add(rs?.optDouble(ji.length() * 4 + it, Double.NaN) ?: Double.NaN) }
             val trace = CortexLedger7885.GradeTrace8006(preds.toDoubleArray(), pws.toDoubleArray(), o.optDouble("base", 0.0), o.optDouble("bw", 0.5),
                 if (rs != null) scales.toDoubleArray() else null, if (sc != null) counts.toIntArray() else null)
-            graded8006[k] = Graded8006(p, trace, o.optDouble("n", Double.NaN), o.optDouble("gr", Double.NaN), at,
-                readNumbers(o, "bs"), readNumbers(o, "aux"))
+            // Pre-8371 snapshots used a mint|lane key. Migrate the restored trace to the exact decision identity.
+            val decisionId8371 = if (k.endsWith("|$at")) k else "$k|$at"
+            graded8006[decisionId8371] = Graded8006(p, trace, o.optDouble("n", Double.NaN), o.optDouble("gr", Double.NaN), at,
+                readNumbers(o, "bs"), readNumbers(o, "aux"), o.optDouble("cal", Double.NaN)).also {
+                it.witnessed8324 = o.optBoolean("w", false)
+            }
             inc("GRADED_RESTORED_8013")
         }
     }
@@ -910,10 +916,15 @@ object Cortex7885 {
      * or the observation was dropped as a basis error). The decision is filed unresolved in its cohort NOW and leaves the
      * pending set (it used to linger unlabelled until the 90-minute prune, invisible to every counter).
      */
-    fun onLabelLost8187(mint: String, labelLane: String, reason: String) {
+    fun onLabelLost8187(mint: String, labelLane: String, reason: String, decisionAtMs8371: Long = 0L) {
         ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
-        val p = pending.remove(key) ?: return
+        val p = pending[key] ?: return
+        if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371) {
+            inc("LABEL_LOST_EPISODE_MISMATCH_8371")
+            return
+        }
+        if (!pending.remove(key, p)) return
         synchronized(this) {
             val id = "$key|${p.atMs}"
             val ctx = pendingCtx8144.remove(key)
@@ -926,10 +937,14 @@ object Cortex7885 {
 
     /** ForwardReturnLabeler7731.tick: a horizon label booked for (mint, labelLane). */
     fun onLabel(mint: String, labelLane: String, horizonMin: Int, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null,
-                flat8322: Boolean = false, witness8324: Boolean = false) {
+                flat8322: Boolean = false, witness8324: Boolean = false, decisionAtMs8371: Long = 0L) {
         ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
         val p = pending[key] ?: return
+        if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371) {
+            inc("LABEL_EPISODE_MISMATCH_8371")
+            return
+        }
         // V5.0.7946 — every lane is graded at THE read (slot 60 = 5 minutes). Runner lanes
         // used to wait for the 4-hour label; with the spike tiers credited in the label,
         // a runner's first minutes carry its capture, and the Cortex learns 48x sooner.
@@ -985,6 +1000,11 @@ object Cortex7885 {
             val bookScales = board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187, witness8324)
             val auxScales = DoubleArray(3) { Double.NaN }
             val calStamp8322 = calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), calibratedRead8325(p.a.runnerLane, p.a.fused, 1.0))  // V5.0.8366 — rank pair
+            gradeBook8144.decision("$key|${p.atMs}")?.let { r ->
+                r.rawEdge8371 = p.a.fused.edgePct
+                r.laneMean8371 = p.a.fused.laneMean
+                r.calStamp8371 = calStamp8322
+            }
             if (p.setup7961.isNotBlank()) {
                 val jk = jointKey7961(p.a.lane, p.a.bucket, p.setup7961)
                 if (!jointBook7961.containsKey(jk) && jointBook7961.size >= 600) jointBook7961.entries.minByOrNull { it.value.n }?.key?.let { evicted ->
@@ -1011,8 +1031,8 @@ object Cortex7885 {
                 auxScales[2] = vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane)) { CortexLedger7885.labelStat8187() }
                     .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324)
             }
-            if (trace8006 != null) retain8006(key, p, trace8006, net8187, gross8187, bookScales, auxScales, calStamp8322)
-            graded8006[key]?.witnessed8324 = witness8324  // V5.0.8324
+            if (trace8006 != null) retain8006("$key|${p.atMs}", p, trace8006, net8187, gross8187, bookScales, auxScales, calStamp8322)
+            graded8006["$key|${p.atMs}"]?.witnessed8324 = witness8324  // V5.0.8324
         }
         refreshExecutable8187(System.currentTimeMillis())  // V5.0.8187 / V5.0.8325 — outside the lock (it takes it only for the books)
         graded.incrementAndGet()
@@ -1623,30 +1643,54 @@ object Cortex7885 {
         return n
     }
 
-    /** Caller holds the lock. V5.0.8324 — revise only the grade record of [key]'s newest labelled decision (its trace is gone). */
-    private fun reviseGradeOnly8324(key: String, newNet: Double, newGross: Double, latencyMeasured: Boolean, witness: Boolean = false) {
-        val r = gradeBook8144.latestLabelled8324(key) ?: return
+    /**
+     * V5.0.8371 — revise exactly the observation that produced this grade. Reobservations
+     * of the same token/lane are different decisions: an older runner must never rewrite
+     * a newer trade verdict. The compact grade record survives full trace eviction.
+     */
+    private fun reviseGradeOnly8324(key: String, decisionAtMs8371: Long, newNet: Double, newGross: Double,
+                                    latencyMeasured: Boolean, witness: Boolean = false) {
+        val id = "$key|$decisionAtMs8371"
+        val r = gradeBook8144.decision(id) ?: run { inc("REVISION_DECISION_MISSING_8371"); return }
         val exec = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(r.lane), System.currentTimeMillis() - r.atMs)
-        gradeBook8144.label(r.id, newNet, newGross, CortexLabelHygiene8144.executablePct8144(newNet, latencyMeasured), exec)
-        if (exec) gradeBook8144.markWitness8324(r.id, witness)
+        val oldNet = r.observedNetPct
+        val mayReviseCalibration = exec && r.graded && r.executablePct.isFinite() && oldNet.isFinite()
+        gradeBook8144.label(id, newNet, newGross, CortexLabelHygiene8144.executablePct8144(newNet, latencyMeasured), exec)
+        if (exec) gradeBook8144.markWitness8324(id, witness)
+        if (mayReviseCalibration) {
+            if (calibration.revise8322(r.lane, r.rawEdge8371, r.laneMean8371, oldNet, newNet, r.calStamp8371))
+                inc("CALIBRATION_GRADE_ONLY_REVISED_8371")
+            // The 600-trace hot store cannot reconstruct every original voter/scoreboard
+            // contribution. Count this gap rather than claim the model was fully retrained.
+            inc("REVISION_VOTER_TRACE_MISSING_8371")
+        }
         inc(if (exec) "REVISION_GRADE_ONLY_8324" else "REVISION_GRADE_ONLY_PAST_HORIZON_8324")
     }
 
-    /** ForwardReturnLabeler7731.revise7997: a decision's label moved; re-grade it everywhere it was booked. */
+    /** ForwardReturnLabeler7731.revise7997: use the original observation timestamp, never just mint + lane. */
     fun reviseLabel8006(mint: String, labelLane: String, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double,
-                        witness8324: Boolean = false) {
+                        witness8324: Boolean = false, decisionAtMs8371: Long = 0L) {
         if (!newNet.isFinite()) return
+        if (decisionAtMs8371 <= 0L) { inc("REVISION_MISSING_EPISODE_ID_8371"); return }
         val key = "$mint|${labelLane.trim().uppercase()}"
+        val id = "$key|$decisionAtMs8371"
         val lat8144 = latencyMeasured8144(canon(labelLane))
         synchronized(this) {
-            if (observedOnlyNewer8153(key)) { reviseObservedOnly8153(key, newNet, newGross); return }  // V5.0.8153
-            // V5.0.8324 — a decision whose voter trace aged out of [graded8006] (600 traces: ~1 h of grades at 8321 rates, so most
-            // 4 h runner checkpoints) still revises its GRADE RECORD: the lane objective, the tail EV pond and the walk-forward.
-            val g = graded8006[key] ?: run { reviseGradeOnly8324(key, newNet, newGross, lat8144, witness8324); return }
+            val record = gradeBook8144.decision(id)
+            if (record?.lateEntry8153 == true || record?.lateRead8187 == true ||
+                record?.flat8322 == true || record?.graded == false || (record != null && !record.executablePct.isFinite())) {
+                if (gradeBook8144.label(id, newNet, newGross, Double.NaN, false))
+                    inc("REVISION_OBSERVED_ONLY_8153")
+                return
+            }
+            val g = graded8006[id] ?: run {
+                reviseGradeOnly8324(key, decisionAtMs8371, newNet, newGross, lat8144, witness8324)
+                return
+            }
             // V5.0.8144 — the observed record follows every horizon; the books only revise inside the lane's executable hold.
             val exec8144 = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(g.p.a.lane), System.currentTimeMillis() - g.p.atMs)
-            gradeBook8144.label("$key|${g.p.atMs}", newNet, newGross, CortexLabelHygiene8144.executablePct8144(newNet, lat8144), exec8144)
-            if (exec8144) gradeBook8144.markWitness8324("$key|${g.p.atMs}", witness8324)  // V5.0.8324
+            gradeBook8144.label(id, newNet, newGross, CortexLabelHygiene8144.executablePct8144(newNet, lat8144), exec8144)
+            if (exec8144) gradeBook8144.markWitness8324(id, witness8324)
             if (!exec8144) { inc("REVISION_PAST_EXEC_HORIZON_8144"); return }
             if (g.trace.scales == null || g.trace.scoreAt == null || g.bookScales == null || g.auxScales == null) {
                 inc("REVISION_LEGACY_WEIGHT_UNKNOWN")
@@ -1655,13 +1699,12 @@ object Cortex7885 {
             val yo = g.net; val go = g.gross
             if (!yo.isFinite()) return
             val a = g.p.a
-            // V5.0.8322 — the revised value is a new label, stored RAW like every label (8187 clamped it to the cohort's cap).
             val newNet8187 = newNet
             val newGross8187 = newGross
             val wo8324 = g.witnessed8324
             ledger.revise8006(a.lane, a.ids, a.edges, a.raws, g.trace, yo, newNet8187, go, newGross8187, a.regime, wo8324, witness8324)
-            // V5.0.8322 §LANE_OBJECTIVE — calibration follows the hold-window horizon too (8291 fitted MOONSHOT on 5-minute reads).
-            if (calibration.revise8322(a.lane, a.fused.edgePct, a.fused.laneMean, yo, newNet8187, g.calStamp8322)) inc("CALIBRATION_REVISED_8322")
+            if (calibration.revise8322(a.lane, a.fused.edgePct, a.fused.laneMean, yo, newNet8187, g.calStamp8322))
+                inc("CALIBRATION_REVISED_8322")
             board.revise8006(a.lane, a.bucket, g.p.legacyAdmitted, yo, newNet8187, go, newGross8187, g.bookScales, wo8324, witness8324)
             val cy = { v: Double -> v.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX) }
             val ro = go >= CortexLedger7885.RUNNER_GROSS_PCT; val rn = newGross8187 >= CortexLedger7885.RUNNER_GROSS_PCT
