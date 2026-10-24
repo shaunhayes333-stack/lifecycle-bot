@@ -62,6 +62,18 @@ class Aate8368CortexShadowVerdictTest {
             .contains("CanonicalFinalizedTradeBus6464.publish"))
     }
 
+    @Test fun nativeHardSellabilityStopsShadowButStrategyRefusalsStillLearn() {
+        assertTrue(ExploreShadow8347.cortexNativeHardStop8368("NATIVE_SELLABILITY_REJECT"))
+        assertTrue(ExploreShadow8347.cortexNativeHardStop8368("HARD_BLOCK_HONEYPOT"))
+        assertTrue(ExploreShadow8347.cortexNativeHardStop8368("TOKEN2022_FREEZE"))
+        assertFalse(ExploreShadow8347.cortexNativeHardStop8368("NATIVE_THRESHOLD_FAIL_SCORE"))
+        assertFalse(ExploreShadow8347.cortexNativeHardStop8368("NATIVE_NO_CONTINUATION"))
+        assertFalse(ExploreShadow8347.cortexNativeHardStop8368(null))
+        val e = src("engine/truth/ExploreShadow8347.kt")
+        assertTrue(e.contains("CORTEX_NATIVE_HARD_UNROUTABLE_8368"))
+        assertTrue(e.contains("cachedSnapshot7650(ts.mint)"))
+    }
+
     @Test fun auditsRevealCortexCoverageIncludingUnpricedAndResourceLimitedEpisodes() {
         val e = src("engine/truth/ExploreShadow8347.kt")
         assertTrue(e.contains("cortexSeen8368.incrementAndGet()"))
