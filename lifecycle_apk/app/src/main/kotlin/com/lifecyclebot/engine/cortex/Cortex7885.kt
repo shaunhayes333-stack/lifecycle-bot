@@ -177,6 +177,14 @@ object Cortex7885 {
         if (assessCache.size >= MAX_ASSESS_CACHE) assessCache.entries.removeIf { nowMs - it.value.atMs > ASSESS_TTL_MS }
         if (assessCache.size >= ASSESS_PRUNE_AT_8144) pruneAssess8144(nowMs)
         assessCache[key] = a
+        // V5.0.8368: every NEW Cortex lane assessment attempts an independent shadow decision episode.
+        // The native-opinion shadow hook is not a Cortex verdict; this keeps YES/NO/HOLD outcomes
+        // distinct even when FDG blocks the candidate. Never changes LIVE/PAPER authority or fills.
+        try {
+            com.lifecyclebot.engine.truth.ExploreShadow8347.onCortexAssessment8368(
+                ts, a.lane, a.bucket.name, a.fused.pWin, nowMs,
+            )
+        } catch (_: Exception) { inc("CORTEX_SHADOW_DELIVERY_ERROR_8368") }
         return a
     }
 
