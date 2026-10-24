@@ -204,7 +204,7 @@ object ChartSources7955 {
     const val LOCAL_CIRCUIT_8144 = -599
     /** A provider's excessive response is not a usable chart, nor evidence the mint is illiquid. */
     const val BODY_TOO_LARGE_8375 = -598
-    const val MAX_CHART_BODY_BYTES_8375 = 2 * 1024 * 1024
+    private const val MAX_CHART_BODY_BYTES_8375 = 2 * 1024 * 1024
     private val oversizedResponses8375 = AtomicLong(0)
 
     /** Never materialise an unbounded provider body before parsing it as JSON. */
