@@ -79,8 +79,12 @@ class Aate8091PolicyInteractionTest {
         // setup (or a corroborated +100% peak, LifecycleEvidence8189). Unproven, the ordinary exit is not held.
         assertNull(LifecycleHold8065.defer8065(ts, "CORTEX_EXIT_7897_MOONSHOT_FWD-7PCT"))
         LifecycleEvidence8189.noteSetupProven8189(ts, true)
-        assertNotNull(LifecycleHold8065.defer8065(ts, "CORTEX_EXIT_7897_MOONSHOT_FWD-7PCT"))
-        assertNotNull(LifecycleHold8065.defer8065(ts, "STRICT_SL_-15"))
+        // superseded by V5.0.8363 — a hold that ran to +60 % carries the green floor (max(break-even, half the peak) = +30 %):
+        // at -15 % it is far under that floor, so the exit that asked is released, not held down toward the -40 % floor.
+        assertNull(LifecycleHold8065.defer8065(ts, "CORTEX_EXIT_7897_MOONSHOT_FWD-7PCT"))
+        assertNull(LifecycleHold8065.defer8065(ts, "STRICT_SL_-15"))
+        assertTrue(GreenFloor8363.breached8363(-15.0, 60.0, 6.0))
+        assertFalse(GreenFloor8363.breached8363(40.0, 60.0, 6.0))
         assertEquals(LifecycleHold8065.FLOOR_PCT, StopAuthority7887.stopMagFor(ts), 0.0)
         assertEquals(StopAuthority7887.laneStopMag8029("MOONSHOT", true), StopAuthority7887.stopMagFor(ts), 0.0)
         for (reason in listOf("RUG_DETECTED", "RAPID_CATASTROPHE_STOP", "MANUAL_SELL", "KILL_SWITCH"))
