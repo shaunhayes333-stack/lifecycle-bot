@@ -270,6 +270,21 @@ object ExploreShadow8347 {
         "REFUSE" -> KIND_CORTEX_NO_8368
         else -> KIND_CORTEX_HOLD_8368
     }
+    /** Modelled, post-cost shadow outcomes. Exactly one selected exit leg per decision is counted in the report. */
+    data class CortexVerdictStats8368(
+        val n: Int, val wins: Int, val losses: Int, val meanPct: Double, val profitFactor: Double,
+    )
+
+    fun cortexStats8368(nets: List<Double>): CortexVerdictStats8368 {
+        val xs = nets.filter { it.isFinite() }
+        val wins = xs.count { it > 0.0 }
+        val losses = xs.count { it < 0.0 }
+        val gain = xs.filter { it > 0.0 }.sum()
+        val loss = -xs.filter { it < 0.0 }.sum()
+        val pf = if (loss > 0.0) gain / loss else if (gain > 0.0) Double.POSITIVE_INFINITY else 0.0
+        return CortexVerdictStats8368(xs.size, wins, losses, if (xs.isEmpty()) 0.0 else xs.average(), pf)
+    }
+
     private fun isCortexKind8368(kind: String): Boolean =
         kind == KIND_CORTEX_YES_8368 || kind == KIND_CORTEX_NO_8368 || kind == KIND_CORTEX_HOLD_8368
     /** A native and a Cortex assessment of the same mint/lane/setup are different experiments. */
@@ -1055,12 +1070,15 @@ object ExploreShadow8347 {
             val best = bestFor8351(l, sinceMs)?.let { c -> c.label + " fill${"%.0f".format(c.fillRate * 100.0)}% perSignal${"%+.1f".format(perSignal8364(c))}" } ?: "-"
             val inv = if (inverted8351(l, sinceMs)) " FILTER_INVERTED" else ""
             val cohorts = listOf("S", "T", "M", "CX", "CXS", "CXT").mapNotNull { bestCohort8360(l, it, sinceMs) }.joinToString(" ; ").ifBlank { "-" }
+            // Use this specialist's live exit doctrine for one outcome per decision.
+            // A second modelled exit style is a counterfactual, NOT an independent trade.
+            val cortexLiveExit8368 = try {
+                if (com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(l)) Exit8347.RUNNER else Exit8347.SCALP
+            } catch (_: Throwable) { Exit8347.SCALP }
             val cortex8368 = listOf("YES", "NO", "HOLD").mapNotNull { side ->
-                val ns = listOf(Exit8347.RUNNER, Exit8347.SCALP).map { x ->
-                    netsSince("C|$l|NOW|$x|CX:$side", sinceMs)
-                }
-                val primary = ns.first()
-                if (primary.isEmpty()) null else "$side:n${primary.size}/${"%+.1f".format(primary.average())}%"
+                val stat = cortexStats8368(netsSince("C|$l|NOW|$cortexLiveExit8368|CX:$side", sinceMs))
+                if (stat.n == 0) null else
+                    "$side:n${stat.n} wins${stat.wins}/losses${stat.losses} mean${"%+.1f".format(stat.meanPct)}% pf${"%.2f".format(stat.profitFactor)}"
             }.joinToString(",").ifBlank { "-" }
             "$l cortex{$cortex8368} adopt=$best$inv [$cells] best{$cohorts} chase8364=${"%.1f".format(ShadowFill8364.laneChasePct8364(l))}%"
         }.ifBlank { "no exploration closes yet" }
