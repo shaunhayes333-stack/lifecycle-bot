@@ -145,7 +145,9 @@ object StopLatencyWiring8153 {
                 .maxByOrNull { it.lastMutationMs }
         } catch (_: Throwable) { null } ?: return null
         val rows = try { SignedTxLedger8085.historyFor8090(mint).filter { it.side == "SELL" } } catch (_: Throwable) { return null }
-        val lastSellTouch = rows.maxOfOrNull { maxOf(it.createdAtMs, it.updatedAtMs) } ?: 0L
+        // superseded by V5.0.8368 — only a sell that could have moved tokens (CONFIRMED; unresolved already refuses) voids an
+        // older wallet read; an expired / failed sell no longer discards it and leaves the stop on the bare canonical qty.
+        val lastSellTouch = com.lifecyclebot.engine.SellLanding8368.lastMovingSellAt8368(rows)
         val lastConfirmed = rows.filter { it.state == SignedTxLedger8085.State.CONFIRMED }.maxOfOrNull { it.updatedAtMs } ?: 0L
         val snap = try {
             val at = com.lifecyclebot.engine.WalletAccountCache.snapshotAtMs8094()

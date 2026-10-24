@@ -217,7 +217,8 @@ object StopBroadcast8363 {
     fun rescue8363(ts: TokenState, reason: String, recovered: Boolean, indeterminate: Boolean,
                    nowMs: Long = System.currentTimeMillis()): com.lifecyclebot.engine.truth.CanonicalTokenAmount? {
         if (recovered) return null
-        val amt = eligible8363(ts, reason, nowMs)
+        // V5.0.8368 — never more than the wallet holds: min(canonical, the last wallet read after the last landed sell).
+        val amt = eligible8363(ts, reason, nowMs)?.let { SellLanding8368.clampToWallet8368(ts.mint, it, mutatedAt8368(ts)) }
         if (amt == null) {
             if (indeterminate) try { ForensicLogger.lifecycle("SELL_RPC_EMPTY_RESCUE_BLOCKED_INDETERMINATE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason action=no_stale_tracker_sell") } catch (_: Throwable) {}
             return null
@@ -231,6 +232,11 @@ object StopBroadcast8363 {
         } catch (_: Throwable) {}
         return amt
     }
+
+    /** V5.0.8368 — when the canonical row of [ts]'s position last changed (0 = unknown: a landed sell then blocks the rescue). */
+    private fun mutatedAt8368(ts: TokenState): Long = try {
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(ts.position.positionId)?.lastMutationMs ?: 0L
+    } catch (_: Throwable) { 0L }
 
     fun statusLine8363(): String = "stopBroadcastWithoutProofWait8363[released=${released.get()} canonical=${rescued.get()}]"
 }
