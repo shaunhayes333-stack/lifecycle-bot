@@ -46,6 +46,12 @@ object RentReclaimer7927 {
     fun activeTrackerStatus(priority: Int, dustIgnored: Boolean): Boolean = !dustIgnored && priority < 8
 
     private fun protectedMint(mint: String, nowMs: Long): Boolean {
+        // V5.0.8369 — a signed buy / sell of the mint that is still unresolved owns the account (never close under it).
+        val unresolved8369 = try {
+            com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(mint, "BUY") != null ||
+                com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(mint, "SELL") != null
+        } catch (_: Throwable) { true }
+        if (unresolved8369) return true
         try {
             val ts = BotService.status.tokens[mint]
             if (ts != null && ts.position.isOpen) return true
@@ -76,11 +82,37 @@ object RentReclaimer7927 {
         if (targetedDue8151.size > 200) targetedDue8151.entries.removeIf { nowMs - it.value > 30L * 60_000L }
     }
 
-    /** Share of empty accounts the reclaimer could not close (Token-2022 withheld fees): rent that is really spent. */
+    /**
+     * Share of empty accounts the reclaimer could not close (Token-2022 withheld fees): rent that is really spent.
+     * V5.0.8369 — also the accounts a pass left stuck, and ALL of it while a live reclaimer has never completed a listing
+     * past its first interval: 5.0.8363 printed rent=0.00% with closed=0 lastRunAgoSec=-1, every exit's 0.00204 SOL locked.
+     */
     fun rentLossRate8151(): Double {
-        val lost = unclosable8102.size.toDouble()
-        val total = lost + closed.get().toDouble()
-        return if (total <= 0.0) 0.0 else (lost / total).coerceIn(0.0, 1.0)
+        val live = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+        val overdue = live && System.currentTimeMillis() - startedAt > FIRST_RUN_DELAY_MS + INTERVAL_MS
+        return Costs8369.rentLossRate8369(unclosable8102.size, closed.get(), stuck8369, lastListedMs8369 > 0L, overdue)
+    }
+
+    // ── V5.0.8369 — the always-on clock, the boot sweep and the rent still locked ──
+    @Volatile private var lastListedMs8369 = 0L
+    @Volatile private var lockedLamports8369 = -1L
+    @Volatile private var lockedAccounts8369 = 0
+    @Volatile private var stuck8369 = 0
+    @Volatile private var bootSweepDone8369 = false
+    private val bootClosed8369 = AtomicLong(0)
+    private val bootLamports8369 = AtomicLong(0)
+    @Volatile private var lastTickMs8369 = 0L
+
+    /** Total SOL the reclaimer has returned to the wallet (sweeps + after-exit closes). */
+    fun reclaimedSol8369(): Double = reclaimedLamports.get() / 1e9
+
+    /** SOL sitting in empty token accounts at the last listing (NaN before the first listing). */
+    fun lockedSol8369(): Double = if (lockedLamports8369 < 0L) Double.NaN else lockedLamports8369 / 1e9
+
+    private fun noteListing8369(empties: List<com.lifecyclebot.network.SolanaWallet.EmptyTokenAccount7927>, closedLamports: Long, nowMs: Long) {
+        lastListedMs8369 = nowMs
+        lockedLamports8369 = (empties.sumOf { it.lamports } - closedLamports).coerceAtLeast(0L)
+        lockedAccounts8369 = empties.size
     }
 
     private fun maybeRunTargeted8151(nowMs: Long) {
@@ -97,6 +129,7 @@ object RentReclaimer7927 {
         if (due.isEmpty()) return
         val empties = try { wallet.emptyTokenAccounts7927() } catch (t: Throwable) { lastError = "targeted:${t.javaClass.simpleName}"; return }
         val byMint = empties.filter { it.mint in due && it.address !in unclosable8102 }.groupBy { it.mint }
+        var closedLamports8369 = 0L
         for (mint in due) {
             val accounts = byMint[mint]
             if (accounts.isNullOrEmpty()) { targetedDue8151.remove(mint); continue }   // nothing empty (closed in-tx, or not zero)
@@ -108,11 +141,13 @@ object RentReclaimer7927 {
             }
             targetedDue8151.remove(mint)
             if (closeBatch(wallet, accounts)) {
+                closedLamports8369 += accounts.sumOf { it.lamports }
                 targetedClosed8151.addAndGet(accounts.size.toLong())
                 targetedLamports8151.addAndGet(accounts.sumOf { it.lamports })
                 try { PipelineHealthCollector.labelInc("RENT_RECLAIM_TARGETED_8151") } catch (_: Throwable) {}
             }
         }
+        noteListing8369(empties, closedLamports8369, now)   // V5.0.8369
     }
 
     /** The live facts [CostTrim8151.targetedCloseEligible8151] needs for [mint] (the account is already empty + initialized). */
@@ -131,12 +166,17 @@ object RentReclaimer7927 {
         return CostTrim8151.targetedCloseEligible8151("0", "initialized", open || rebought, unresolved, entry?.status?.priority, dust, dueAtMs, nowMs)
     }
 
-    /** ExitRegret7752.tick clock: schedule a pass when due (never blocks the caller). */
+    /**
+     * Schedule a pass when due (never blocks the caller). V5.0.8369 — called from BotService.reconcileWalletOffLoop8094,
+     * which runs every live loop: the old ExitRegret7752.tick clock sat behind the learning ticks and 5.0.8363 showed
+     * lastRunAgoSec=-1 (never ran). The first pass is the boot sweep.
+     */
     fun maybeRun(nowMs: Long = System.currentTimeMillis()) {
+        lastTickMs8369 = nowMs
         maybeRunTargeted8151(nowMs)  // V5.0.8151
-        if (nowMs - startedAt < FIRST_RUN_DELAY_MS || nowMs - lastRunMs < INTERVAL_MS) return
         val live = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
-        if (!live || !running.compareAndSet(false, true)) return
+        if (!Costs8369.reclaimPassDue8369(nowMs, startedAt, lastRunMs, live, FIRST_RUN_DELAY_MS, INTERVAL_MS)) return
+        if (!running.compareAndSet(false, true)) return
         lastRunMs = nowMs
         try { worker.execute { try { runPass() } finally { running.set(false) } } } catch (_: Throwable) { running.set(false) }
     }
@@ -147,18 +187,36 @@ object RentReclaimer7927 {
         val empties = try { wallet.emptyTokenAccounts7927() } catch (t: Throwable) {
             lastError = "list:${t.javaClass.simpleName}"; failed.incrementAndGet(); return
         }
+        val boot8369 = !bootSweepDone8369
         val eligible = empties.filter { a ->
-            if (a.address in unclosable8102) return@filter false
             val p = protectedMint(a.mint, now)
-            if (p) skippedProtected.incrementAndGet()
-            !p
+            if (p && a.address !in unclosable8102) skippedProtected.incrementAndGet()
+            Costs8369.sweepEligible8369(p, a.address in unclosable8102)
         }
-        if (eligible.isEmpty()) return
+        var closedLamports8369 = 0L
+        var stuck = 0
         for (batch in eligible.groupBy { it.programId }.values.flatMap { it.chunked(BATCH) }) {
-            if (!closeBatch(wallet, batch)) {
+            if (closeBatch(wallet, batch)) {
+                closedLamports8369 += batch.sumOf { it.lamports }
+                if (boot8369) { bootClosed8369.addAndGet(batch.size.toLong()); bootLamports8369.addAndGet(batch.sumOf { it.lamports }) }
+            } else {
                 // One bad account (e.g. Token-2022 withheld fees) fails the whole batch: go one by one.
-                for (one in batch) closeBatch(wallet, listOf(one))
+                for (one in batch) {
+                    if (closeBatch(wallet, listOf(one))) {
+                        closedLamports8369 += one.lamports
+                        if (boot8369) { bootClosed8369.incrementAndGet(); bootLamports8369.addAndGet(one.lamports) }
+                    } else if (one.address !in unclosable8102) stuck++
+                }
             }
+        }
+        stuck8369 = stuck
+        noteListing8369(empties, closedLamports8369, now)   // V5.0.8369
+        if (boot8369) {
+            bootSweepDone8369 = true
+            try {
+                ForensicLogger.lifecycle("RENT_RECLAIM_BOOT_SWEEP_8369",
+                    "empty=${empties.size} eligible=${eligible.size} closed=${bootClosed8369.get()} reclaimedSol=${"%.6f".format(bootLamports8369.get() / 1e9)} stuck=$stuck")
+            } catch (_: Throwable) {}
         }
     }
 
@@ -190,5 +248,8 @@ object RentReclaimer7927 {
             "protectedSkips=${skippedProtected.get()} lastRunAgoSec=${if (lastRunMs > 0) (System.currentTimeMillis() - lastRunMs) / 1000 else -1} " +
             "lastError=${lastError.ifBlank { "-" }} withheldFeeSkips8102=${unclosable8102.size} " +
             "afterExit8151=${targetedClosed8151.get()} afterExitSol8151=${"%.5f".format(targetedLamports8151.get() / 1e9)} " +
-            "afterExitWaiting8151=${targetedSkipped8151.get()} queued8151=${targetedDue8151.size}"
+            "afterExitWaiting8151=${targetedSkipped8151.get()} queued8151=${targetedDue8151.size} " +
+            "rentLocked8369=${if (lockedLamports8369 < 0L) "-" else "%.5f".format(lockedLamports8369 / 1e9)}SOL/${lockedAccounts8369}acct " +
+            "bootSweep8369=${if (bootSweepDone8369) "done" else "pending"} bootClosed8369=${bootClosed8369.get()} bootSol8369=${"%.5f".format(bootLamports8369.get() / 1e9)} " +
+            "stuck8369=$stuck8369 tickAgoSec8369=${if (lastTickMs8369 > 0L) (System.currentTimeMillis() - lastTickMs8369) / 1000 else -1}"
 }

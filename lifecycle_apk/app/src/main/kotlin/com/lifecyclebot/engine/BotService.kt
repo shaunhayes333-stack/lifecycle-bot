@@ -1579,6 +1579,8 @@ class BotService : Service() {
     private val walletReconcileInFlight8094 = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private fun reconcileWalletOffLoop8094(w: com.lifecyclebot.network.SolanaWallet) {
+        // V5.0.8369 — the rent reclaimer's always-on clock (every live loop; never blocks: it schedules on its own worker).
+        try { RentReclaimer7927.maybeRun() } catch (_: Throwable) {}
         if (!walletReconcileInFlight8094.compareAndSet(false, true)) {
             try { PipelineHealthCollector.labelInc("WALLET_RECONCILE_SKIPPED_IN_FLIGHT_8094") } catch (_: Throwable) {}
             return
