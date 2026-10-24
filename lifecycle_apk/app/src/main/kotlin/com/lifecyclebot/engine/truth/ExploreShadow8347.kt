@@ -311,6 +311,9 @@ object ExploreShadow8347 {
         return SAFETY_MARKERS_8360.any { r.contains(it) }
     }
 
+    /** Native soft strategy NOs are learnable; physical hard-safety/sellability NOs are not hypothetical fills. */
+    fun cortexNativeHardStop8368(reason: String?): Boolean = shadowSafety8360(reason)
+
     /**
      * Pure: what a lane's native opinion opens — [KIND_NATIVE_8360] (eligible), [KIND_REJECT_8360] (a mandate / fit /
      * threshold / momentum / data-class refusal), or the skip reason: the token's hard-safety tier, a hard-safety refusal,
@@ -468,9 +471,17 @@ object ExploreShadow8347 {
                 skip8360("CORTEX_NON_SOLANA_SHADOW_UNROUTABLE_8368"); return
             }
             if (ts.safety.isBlocked) { skip8360("CORTEX_HARD_SAFETY_8368"); return }
+            val lane = canon(laneRaw)
+            // Native strategy refusals belong in the Cortex NO counterfactual, except physical
+            // impossibility: never teach a simulated profit on a known unsellable/unsafe mint.
+            // Use the existing short-lived verdict cache; no extra trader/provider call on Cortex's hot path.
+            val native = com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)
+                ?.opinions?.get(lane)
+            if (native != null && !native.eligible && cortexNativeHardStop8368(native.reason)) {
+                skip8360("CORTEX_NATIVE_HARD_UNROUTABLE_8368"); return
+            }
             val mark = ShadowMark8360.observed8360(ts, ts.mint, nowMs)
             if (mark == null) { skip8360("CORTEX_NO_OBSERVED_MARK_8368"); want8360(ts.mint, nowMs); return }
-            val lane = canon(laneRaw)
             val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) }
                 catch (_: Exception) { null }
             val primary = setup?.takeIf { it.isNotBlank() } ?: "NO_TRIGGER"
