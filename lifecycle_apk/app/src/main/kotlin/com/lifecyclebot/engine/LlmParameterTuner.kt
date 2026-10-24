@@ -76,11 +76,8 @@ object LlmParameterTuner {
             { c, v -> c.copy(pollSeconds = v.toInt()) },
             min = 3.0, max = 30.0, maxStep = 5.0
         ),
-        "slippageBps" to ParamSpec(
-            { it.slippageBps.toDouble() },
-            { c, v -> c.copy(slippageBps = v.toInt()) },
-            min = 50.0, max = 500.0, maxStep = 100.0
-        ),
+        // V5.0.8363 — slippageBps removed: it feeds partial-TP and orphan sells, and the advisor tightened it with a
+        // forced agreement. Advisory-only now (AdvisorKeyAuthority8353.ADVISORY_ONLY_KEYS_8353), like 8353's keys.
         // V5.0.8319 — perPositionSizePct removed: it has no readers outside
         // config/UI, so a tune moved nothing. Not wired into sizing.
         "minHoldMins" to ParamSpec(

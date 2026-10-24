@@ -29,19 +29,21 @@ class Aate8353AdvisorKeysTest {
             assertFalse("$k must not be tunable", LlmParameterTuner.isAllowedKey(k))
             assertFalse("$k must not be offered to the LLM", LlmParameterTuner.allowedKeys().contains(k))
         }
-        assertEquals(listOf("minLiquidityUsd", "walletReserveSol"), AdvisorKeyAuthority8353.ADVISORY_ONLY_KEYS_8353)
+        // superseded by V5.0.8363 — slippageBps is advisory-only too (it fed partial-TP / orphan sells with a forced 0.75 agreement)
+        assertEquals(listOf("minLiquidityUsd", "walletReserveSol", "slippageBps"), AdvisorKeyAuthority8353.ADVISORY_ONLY_KEYS_8353)
         val tuner = src("engine/LlmParameterTuner.kt")
         assertFalse(tuner.contains("\"minLiquidityUsd\" to ParamSpec"))
         assertFalse(tuner.contains("\"walletReserveSol\" to ParamSpec"))
         // every other key stays
+        // superseded by V5.0.8363 — slippageBps left the allowlist (advisory-only); every other key stays.
         for (k in listOf("stopLossPct", "trailingStopBasePct", "exitScoreThreshold", "entryCooldownSec", "pollSeconds",
-            "slippageBps", "minHoldMins", "maxHoldMinsHard", "sentimentEntryBoost", "sentimentExitBoost",
+            "minHoldMins", "maxHoldMinsHard", "sentimentEntryBoost", "sentimentExitBoost",
             "sentimentBlockThreshold", "behaviorAggressionLevel", "defensiveLossThreshold", "aggressiveWhaleThreshold",
             "convictionMult1", "convictionMult2", "partialSellTriggerPct", "topUpSizeMultiplier", "topUpMaxCount",
             "scanIntervalSecs", "minDiscoveryScore")) {
             assertTrue("$k must stay tunable", LlmParameterTuner.isAllowedKey(k))
         }
-        assertEquals(21, LlmParameterTuner.allowedKeys().size)
+        assertEquals(20, LlmParameterTuner.allowedKeys().size)  // superseded by V5.0.8363 — 21 less slippageBps
         val gemini = src("engine/GeminiCopilot.kt")
         assertFalse(gemini.contains("minLiquidityUsd, walletReserveSol, scanIntervalSecs"))
         assertTrue(gemini.contains("minLiquidityUsd and walletReserveSol are owner-only (V5.0.8353): never put them in a TUNE block."))

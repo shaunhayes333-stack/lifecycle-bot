@@ -7,7 +7,7 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * V5.0.8351 §LIVE_SCALP_WHERE_SCALPS_PROVED — a lane whose adopted choice (ExploreShadow8347.bestFor8351) proved on the
  * SCALP exit trades its LIVE positions the same way the shadow did: +15 % sells half, +30 % sells the rest, a stop at
- * 60 % of the lane stop (never under 4 %), a give-back floor once the peak passes +10 % (half the peak, never under the
+ * 60 % of the lane stop (V5.0.8363: never under 2 x the 1-minute range + entry chase, nor 6 %, and not in the first 60 s), a give-back floor once the peak passes +10 % (half the peak, never under the
  * round trip), and a 10-minute clock. Every other lane keeps the lane doctrine. The decision is fixed per position at its
  * first mark (a lane that changes its choice mid-hold does not change this position's exit).
  * Offered through the per-tick arbitration (ExitTruthArbiterLive8144.Tick8144), so protective exits still outrank it.
@@ -18,7 +18,8 @@ object ScalpExit8351 {
     const val FLOOR_ARM_PCT_8351 = 10.0
     const val CLOCK_MS_8351 = 10 * 60_000L
 
-    private class State8351(val scalp: Boolean, val costPct: Double, val stopPct: Double) { var tier = 0 }
+    private class State8351(val scalp: Boolean, val costPct: Double, val stopPct: Double,
+                            val noise1mPct8363: Double = Double.NaN, val chasePct8363: Double = 0.0) { var tier = 0 }
     private val states = ConcurrentHashMap<String, State8351>()
 
     /** Pure: the scalp exit for gross [g] at peak [peak] and position age [ageMs]: (fraction of the holding, reason) or null. */
@@ -49,13 +50,19 @@ object ScalpExit8351 {
             val cost = try { NetEdge8030.costPct8030(lane, pos.costSol, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { 7.0 }
             val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
             if (scalp) try { PipelineHealthCollector.labelInc("SCALP_EXIT_ADOPTED_8351_${lane.uppercase()}") } catch (_: Throwable) {}
-            State8351(scalp, cost, stop)
+            // V5.0.8363 — the coin's measured 1-minute range and the lane's measured entry chase, fixed at the first mark.
+            val noise8363 = if (scalp) com.lifecyclebot.engine.ScalpStop8363.noise1mPct8363(ts) else Double.NaN
+            val chase8363 = if (scalp) com.lifecyclebot.engine.ScalpStop8363.chasePct8363(lane) else 0.0
+            State8351(scalp, cost, stop, noise8363, chase8363)
         }
         if (states.size > 2_000) states.clear()   // positions are few; a cleared state re-reads its lane choice next tick
         if (!st.scalp) return
         val g = (px / pos.entryPrice - 1.0) * 100.0
         val peak = if (pos.highestPrice > 0.0) (pos.highestPrice / pos.entryPrice - 1.0) * 100.0 else g
-        val d = decide8351(g, maxOf(peak, g), nowMs - pos.entryTime, st.tier, st.stopPct, st.costPct) ?: return
+        // superseded by V5.0.8363 — decide8351's stop (0.6 x lane stop from the first tick) sat inside entry noise: the stop is
+        // max(0.6 x lane stop, 2 x 1m range + chase, 6 %) with a 60 s warmup (ScalpStop8363); the ladder is decide8351's.
+        val d = com.lifecyclebot.engine.ScalpStop8363.decide8363(g, maxOf(peak, g), nowMs - pos.entryTime, st.tier, st.stopPct, st.costPct,
+            st.noise1mPct8363, st.chasePct8363) ?: return
         if (d.second.endsWith("_T1")) st.tier = 1
         if (d.second.endsWith("_T2")) st.tier = 2
         offer(ts, d.first, d.second)

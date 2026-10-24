@@ -65,11 +65,18 @@ class Aate8189ExitBankingTest {
 
     @Test fun provenRunnerKeepsItsHoldTierOneIsNeverHeldAndRegretIsCounted() {
         LifecycleEvidence8189.resetForTest8189()
-        val ts = live("proven8189", "DIAMOND_HANDS_RUNNER", price = 0.85, peak = 120.0)
+        // superseded by V5.0.8363 — a +120 % peak now arms the green floor (max(net BE, 50 % of the peak) = +60 %): the
+        // hold no longer defers a -15 % stop after it (the 8360 audit: +180 % peaks realised at -13 %).
+        val peaked = live("peaked8363", "DIAMOND_HANDS_RUNNER", price = 0.85, peak = 120.0)
+        assertTrue(LifecycleHold8065.holding8065(peaked))
+        assertNull(LifecycleHold8065.defer8065(peaked, "STRICT_SL_-15"))
+        // The evidence hold itself is unchanged: a sealed runner with a proven setup (no armed floor) is still held.
+        val ts = live("proven8189", "DIAMOND_HANDS_RUNNER", price = 0.85, peak = 0.0)
+        LifecycleEvidence8189.noteSetupProven8189(ts, true)
         assertTrue(LifecycleHold8065.holding8065(ts))
         val named = LifecycleHold8065.defer8065(ts, "STRICT_SL_-15")
         assertNotNull(named)
-        assertTrue(named!!, named.startsWith("LIFECYCLE_HOLD_8189_PROVEN_PEAK_"))
+        assertTrue(named!!, named.startsWith("LIFECYCLE_HOLD_8189_SEALED_RUNNER_PROVEN_SETUP_"))
         assertEquals(LifecycleHold8065.FLOOR_PCT, StopAuthority7887.stopMagFor(ts), 0.0)
         for (r in listOf("RUG_DETECTED", "LIQUIDITY_DRAIN_EXIT", "RAPID_CATASTROPHE_STOP", "MANUAL_SELL", "FREEZE_AUTHORITY_FROZEN_EXIT"))
             assertNull(r, LifecycleHold8065.defer8065(ts, r))

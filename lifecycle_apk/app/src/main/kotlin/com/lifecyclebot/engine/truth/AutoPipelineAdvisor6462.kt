@@ -526,7 +526,7 @@ object AutoPipelineAdvisor6462 {
         // Special: if the rule is inherently defensive-only (severity=high +
         // negative delta on size/latency keys), force an agreement bonus.
         val forcedAgreement = (c.severity == "high" && c.delta < 0.0 &&
-            c.key in setOf("perPositionSizePct", "slippageBps", "trailingStopBasePct"))
+            c.key in setOf("perPositionSizePct", "trailingStopBasePct"))  // V5.0.8363 — slippageBps: no forced agreement (advisory-only)
 
         val totalWeight = votes.sumOf { it.weight }
         val agreeWeight = votes.filter { it.agreesWithDeltaSign }.sumOf { it.weight }
@@ -561,6 +561,7 @@ Re-rank / adjust these candidates. You MAY:
 You MUST NOT invent parameter names or flip a defensive suggestion
 into a loosening one.
 minLiquidityUsd and walletReserveSol are owner-only (V5.0.8353): advice about them is recorded but never applied.
+slippageBps is owner-only too (V5.0.8363): advice about it is recorded but never applied.
 These refusal labels are the bot working AS DESIGNED and are NOT faults to tune away:
   EVIDENCE_HOLD_8336 (live held until the lane proves itself in shadow), ENTRY_TIMING_WAIT_8347 (waiting for the
   lane's proven pullback / confirm entry), NICHE_ONLY_8351 (lane trades only its proven niche), LEGACY_8114_REFUSED,

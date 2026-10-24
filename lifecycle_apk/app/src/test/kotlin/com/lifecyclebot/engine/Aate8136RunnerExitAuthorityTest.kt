@@ -193,7 +193,8 @@ class Aate8136RunnerExitAuthorityTest {
         assertEquals(TailFilter8136.KEEP, RunnerExitContract8136.tailFilter8136(false, true, -5.0, true, 3.0, f))
         // The legacy pure decision still sets aside (owner pin, Aate8034); the live door applies the contract on top.
         assertEquals(TailBag8034.Decision.SetAside, TailBag8034.decidePure8034("MOONSHOT", "STRICT_SL_-15", -15.0, null, 1000L))
-        assertTrue(src("engine/TailBag8034.kt").contains("val d = funded8136(decidePure8034(lane, reason, pnlOf(ts), tail, nowMs, capitalRecovered), ts, capitalRecovered)"))
+        // superseded by V5.0.8363 — the funding filter still wraps the decision; the retained tail also carries the green floor.
+        assertTrue(src("engine/TailBag8034.kt").contains("val d = funded8136(decidePure8034(lane, reason, pnlOf(ts), tail, nowMs, capitalRecovered, floor8363), ts, capitalRecovered)"))
     }
 
     // ── 6. capture loss on the fill, fresh marks ──

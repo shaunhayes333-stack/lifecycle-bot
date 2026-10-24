@@ -500,6 +500,8 @@ object RunnerGrab7967 {
         if (!holding7967(ts, nowMs)) return null
         val g = gross(ts, null)
         if (!deferrable7967(reason, g)) return null
+        // V5.0.8363 — the green lock carries a floor: at or under max(net break-even, half the peak) nothing is deferred.
+        if (GreenFloor8363.breachedFor8363(ts, g)) { GreenFloor8363.noteFired8363("RUNNER_DEFER_RELEASED"); return null }
         // V5.0.7991 — the hold is for runners, not for losers: a red position gets shakeout room
         // only for its first 3 minutes and only above -15%; after that its own stops run.
         if (!holdsThrough7991(g, nowMs - ts.position.entryTime)) {
@@ -589,6 +591,8 @@ object RunnerGrab7967 {
             // goes when price is 35% below its peak, without waiting for a bar to close.
             peakGiveback7980(peak, g) -> "RUNNER_PEAK_CAPTURE_7980_${peak.toInt()}PK_${g.toInt()}PCT"
             TradeExitContract8077.runnerFromEntry8104(ts) && fromEntryGiveback8104(peak, g) -> "RUNNER_FROM_ENTRY_GIVEBACK_8104_${peak.toInt()}PK_${g.toInt()}PCT"
+            // V5.0.8363 — the held runner's floor: once the peak cleared net break-even, max(net BE, 50 % of the peak).
+            GreenFloor8363.breachedFor8363(ts, g) -> "RUNNER_GREEN_FLOOR_8363_${peak.toInt()}PK_${g.toInt()}PCT"
             r60 != null && r60.brokeStructure -> "RUNNER_STRUCTURE_BREAK_7967_1M_${g.toInt()}PCT"
             g >= 50.0 && r15 != null && r15.brokeStructure -> "RUNNER_STRUCTURE_BREAK_7967_15S_${g.toInt()}PCT"
             else -> return

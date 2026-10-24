@@ -17,6 +17,8 @@ object PartialNetEconomics8094 {
         // V5.0.8094 — the moonbag set-aside REPLACES a full exit (sell 75%, keep 25%): it costs no more than the exit it
         // replaces, so it is never skipped as uneconomic (8094: refused -> fell through to a full exit, setAside=0).
         if (reason.startsWith("TAIL_SET_ASIDE_8034")) return false
+        // V5.0.8363 — a profit-lock / give-back slice protects a shrinking gain (ProfitLock8363): never held as uneconomic.
+        if (try { com.lifecyclebot.engine.ProfitLock8363.profitLock8363(reason) } catch (_: Throwable) { false }) return false
         val structural = try { com.lifecyclebot.engine.truth.NetEdge8030.structural8030(reason) } catch (_: Throwable) { true }
         val emergency = try { ProtectiveExitClass7807.isEmergency(reason) } catch (_: Throwable) { true }
         val rug = try { SellSafetyPolicy.isHardRug(reason) || SellSafetyPolicy.isEmergencyExit(reason) } catch (_: Throwable) { true }
