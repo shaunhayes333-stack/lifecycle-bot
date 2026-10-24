@@ -75,9 +75,10 @@ object LoadTelemetry8169 {
             laneGateCalls.incrementAndGet()
             laneGateNanos.addAndGet(nanos.coerceAtLeast(0L))
             if (allowed) { laneGateAllowed.incrementAndGet(); return }
-            val reason = laneSkipReason8169(
+            // V5.0.8364 — NON_OWNER_NOT_RESCUE split: a lane that never qualified the token vs a qualified one with no slot.
+            val reason = OwnershipChain8364.skipKey8364(laneSkipReason8169(
                 try { SpecialistElection8136.gateReasonOf8153(mint, lane) } catch (_: Throwable) { null }, lane, primaryLane,
-            )
+            ), mint, lane)
             bump(laneSkips, reason)
             bump(laneSkipsByLane, lane.trim().uppercase().take(24))
         } catch (_: Throwable) {}

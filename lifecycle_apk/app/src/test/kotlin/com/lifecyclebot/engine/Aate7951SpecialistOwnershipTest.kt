@@ -43,8 +43,9 @@ class Aate7951SpecialistOwnershipTest {
             SpecialistOwnership7951.commonScale7951(40.0, moon),
             SpecialistOwnership7951.commonScale7951(80.0, cash), 1e-9,
         )
-        // Before maturity the weakest value a lane has passed is its revealed bar.
-        assertEquals(50.0, SpecialistOwnership7951.commonScale7951(33.0, listOf(33.0)), 1e-9)
+        // superseded by V5.0.8364 — before maturity a lone value reads the centre of the mature scale (75), not the
+        // bar (50): the revealed-bar read made every young lane lose to a mature lane's median.
+        assertEquals(75.0, SpecialistOwnership7951.commonScale7951(33.0, listOf(33.0)), 1e-9)
     }
 
     @Test fun chartBuyIsStrongOwnershipEvidence() {
@@ -63,9 +64,10 @@ class Aate7951SpecialistOwnershipTest {
                 "QUALITY" to opinion("QUALITY", false, 90, 90),
             ),
         )
-        // First observation of each lane sits exactly on its own revealed bar.
-        assertEquals(50.0, out.getValue("MOONSHOT").ownershipConviction7948!!, 1e-9)
-        assertEquals(50.0, out.getValue("CASHGEN").ownershipConviction7948!!, 1e-9)
+        // superseded by V5.0.8364 — the first observation of each lane reads the same neutral centre (75) on the common
+        // scale, so neither a young nor a mature lane is favoured by sample count.
+        assertEquals(75.0, out.getValue("MOONSHOT").ownershipConviction7948!!, 1e-9)
+        assertEquals(75.0, out.getValue("CASHGEN").ownershipConviction7948!!, 1e-9)
         assertNull(out.getValue("QUALITY").ownershipConviction7948)
     }
 

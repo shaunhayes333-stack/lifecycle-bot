@@ -942,7 +942,7 @@ object ToolkitSignalSheet {
             try {
                 com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.markLost(
                     lane, ts.mint, candidateVersion7622, "NATIVE_SPECIALIST_REFUSED_7803",
-                )
+                ); OwnershipChain8364.onNativeLost8364(lane, ts.mint)  // V5.0.8364 — a qualified candidate its own brain refused ends by name
             } catch (_: Throwable) {}
         }
 
@@ -1070,6 +1070,7 @@ object ToolkitSignalSheet {
             return
         }
         deskStageCounts6599.computeIfAbsent("$l|$st") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        try { OwnershipChain8364.onDeskStage8364(l, st, eventId) } catch (_: Throwable) {}  // V5.0.8364 — one chain per candidate (lane, mint, version)
         try { TicketExec8304.onStage8304(l, st, eventId) } catch (_: Throwable) {}  // V5.0.8304 — ticket -> exec conversion
         // V5.0.8144 — a rescue's sealed TICKET / confirmed EXEC lands in its election funnel (EXECUTED / CONFIRMED).
         if (st == "TICKET" || st == "EXEC") try { SpecialistElection8136.noteExecutionStage8144(l, st, eventId) } catch (_: Throwable) {}
@@ -1695,6 +1696,8 @@ object ToolkitSignalSheet {
             deskCount6599(lane, "EXEC_REFUSED").takeIf { it > 0L }?.let { appendLine("$lane execRefused7868=$it") }
             TicketExec8304.line8304(lane)?.let { appendLine(it) }  // V5.0.8304 — ticket -> exec per lane, every drop named
             SpecialistOwnership7951.ownerWhyLine8330(lane)?.let { appendLine(it) }  // V5.0.8330 — qualified -> owner selected: every refusal by name
+            SpecialistOwnership7951.nativeWhyLine8364(lane)?.let { appendLine(it) }  // V5.0.8364 — native verdicts before qualification (not owner refusals)
+            OwnershipChain8364.reportLine8364(lane)?.let { appendLine(it) }  // V5.0.8364 — the same candidates, qualified -> FDG -> owner -> ticket
             val raw7214 = s.rawCounts7086
             fun rawOf7214(stage: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage) =
                 raw7214[stage] ?: 0

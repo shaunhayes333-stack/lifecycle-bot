@@ -168,6 +168,12 @@ object SpecialistElection8136 {
         var handoffRescue8153 = ""
         // V5.0.8180 — when the rescue slot was claimed (an unconsumed holder past RescueIdle8180's window is idle).
         var rescueClaimedAtMs8180 = 0L
+        // V5.0.8364 — the rescue's own FDG refused on a non-judgement reason (its strategy / envelope, not the token):
+        // the version may open ONE more rescue (secondRescueUsed8364 marks it spent).
+        var rescueRefusedOpen8364 = false
+        var secondRescueUsed8364 = false
+        // V5.0.8364 — the yield found no eligible receiver at the time (others were deferred on data); a later snapshot may name one.
+        var yieldNoReceiver8364 = false
     }
 
     private val lock8136 = Any()
@@ -379,6 +385,37 @@ object SpecialistElection8136 {
         return true
     }
 
+    private var secondRescues8364 = 0L
+    private var allowPreempted8364 = 0L
+    private var lateYieldNamed8364 = 0L
+    private val nativeSlotReassigned8364 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /**
+     * V5.0.8364 — a SECOND rescue. heldDenied counted every lane the coordinator re-elected after the version's one rescue
+     * had already been evaluated and refused — on its own strategy (PLAYBOOK_NO_TRIGGER, SCORE_FLOOR, its size envelope),
+     * never a token verdict. That spent slot denied every other qualified specialist for the rest of the version. When the
+     * primary's refusal and the rescue's refusal are both non-judgement, the slot opens once more (pure rule:
+     * [secondRescueOpen8364]); a judgement refusal, an allowed rescue, or a used second rescue keep it shut.
+     */
+    private fun openSecondRescue8364(r: Record8136): Boolean {
+        if (!secondRescueOpen8364(r.rescue.isNotEmpty(), r.rescueConsumed, r.rescueRefusedOpen8364, r.primaryJudgement,
+                r.secondRescueUsed8364)) return false
+        r.secondRescueUsed8364 = true
+        r.rescueRefusedOpen8364 = false
+        r.rescue = ""
+        r.rescueConsumed = false
+        r.rescueViaLottery = false
+        r.rescueClaimedAtMs8180 = 0L
+        r.offerTo = ""
+        secondRescues8364++
+        return true
+    }
+
+    /** Pure (V5.0.8364): the version's spent rescue may be followed by one more. */
+    fun secondRescueOpen8364(held: Boolean, consumed: Boolean, rescueRefusedNonJudgement: Boolean, primaryJudgement: Boolean,
+                             secondUsed: Boolean): Boolean =
+        held && consumed && rescueRefusedNonJudgement && !primaryJudgement && !secondUsed
+
     private fun markIneligible8136(r: Record8136, s: Slot8136, why: String) {
         if (why.startsWith("DEFERRED_")) { end8136(r, s, Terminal8136.DEFERRED_DATA, why); return }
         end8136(r, s, Terminal8136.INELIGIBLE, why)
@@ -460,7 +497,7 @@ object SpecialistElection8136 {
                     r.slots[o]?.let { end8136(r, it, Terminal8136.INELIGIBLE, "PRIMARY_JUDGEMENT:" + r.primaryRefusal) }
                     r.primary
                 }
-                r.rescue.isNotEmpty() && !releaseIdle8180(r, o, nowMs) -> {
+                r.rescue.isNotEmpty() && !releaseIdle8180(r, o, nowMs) && !openSecondRescue8364(r) -> {
                     rescueHeldDenied8136++
                     r.slots[o]?.let { end8136(r, it, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_SLOT_HELD_BY_${r.rescue}") }
                     r.rescue
@@ -511,10 +548,25 @@ object SpecialistElection8136 {
         val f = canon8136(from)
         return synchronized(lock8136) {
             val r = recordFor8136(mint, -1L, nowMs) ?: return to
-            if (r.yieldFrom.isNotEmpty()) return if (r.yieldFrom == f) r.yieldTo.ifEmpty { null } else to
+            if (r.yieldFrom.isNotEmpty()) {
+                // V5.0.8364 — NO_ELIGIBLE_RECEIVER was final for the version: a yield decided while every other lane was
+                // still deferred on unhydrated data (LANE_LIQ_UNHYDRATED_DEFER) could never name the lane that turned
+                // eligible after hydration. The same sender's later yield now names it once.
+                val late = canon8136(to)
+                if (r.yieldFrom == f && r.yieldTo.isEmpty() && r.yieldNoReceiver8364 && late.isNotBlank()) {
+                    r.yieldNoReceiver8364 = false
+                    r.yieldTo = late
+                    r.yieldResolved = false
+                    yieldNamed8136++
+                    lateYieldNamed8364++
+                    r.slots[late]?.let { s -> s.terminal?.let { end8136(r, s, it, s.reason) } }
+                    return late
+                }
+                return if (r.yieldFrom == f) r.yieldTo.ifEmpty { null } else to
+            }
             r.yieldFrom = f
             val t = canon8136(to)
-            if (t.isBlank()) { yieldRefused8136(r, "NO_ELIGIBLE_RECEIVER"); return null }
+            if (t.isBlank()) { r.yieldNoReceiver8364 = true; yieldRefused8136(r, "NO_ELIGIBLE_RECEIVER"); return null }
             r.yieldTo = t
             yieldNamed8136++
             r.slots[t]?.let { s -> s.terminal?.let { end8136(r, s, it, s.reason) } }
@@ -559,6 +611,8 @@ object SpecialistElection8136 {
                     r.rescue = ""
                 } else if (releaseIdle8180(r, l, nowMs)) {
                     // V5.0.8180 — the holder never reached its FDG inside the idle window: the slot is open again.
+                } else if (openSecondRescue8364(r)) {
+                    // V5.0.8364 — the spent rescue refused on its own strategy: one more rescue may compete.
                 } else {
                     rescueHeldDenied8136++
                     return ElectionRescueContract8144.ClaimOutcome8144.DENIED_HELD_BY_OTHER
@@ -766,12 +820,14 @@ object SpecialistElection8136 {
                     if (shouldTrade) Terminal8136.ELECTED_EVALUATED else Terminal8136.FDG_REFUSED, if (shouldTrade) "FDG_ALLOW_FORMER_PRIMARY" else why)
                 l == r.rescue -> {
                     r.rescueConsumed = true
+                    r.rescueRefusedOpen8364 = !shouldTrade && !refusalJudgement  // V5.0.8364
                     end8136(r, s, Terminal8136.RESCUE_EVALUATED, if (shouldTrade) "FDG_ALLOW" else "FDG_REFUSED:$why")
                     rescueEvaluated8144(r, l, shouldTrade, nowMs)
                 }
                 r.rescue.isEmpty() -> {
                     r.rescue = l
                     r.rescueConsumed = true
+                    r.rescueRefusedOpen8364 = !shouldTrade && !refusalJudgement  // V5.0.8364
                     // Adoption = an FDG verdict with no prior claim; claims are counted separately (rescueClaims8136 /
                     // the funnel's CLAIMED), so `adopted` never reads as "claimed rescues that executed".
                     rescueAdopted8136++
@@ -784,11 +840,37 @@ object SpecialistElection8136 {
                 shouldTrade && !r.primaryJudgement && rescueRefused8214(r) && r.slots[l]?.terminal != Terminal8136.INELIGIBLE -> {
                     r.rescue = l
                     r.rescueConsumed = true
+                    r.secondRescueUsed8364 = true  // V5.0.8364 — an allowing replacement spends the second rescue too
+                    r.rescueRefusedOpen8364 = false
                     rescueReplaced8214++
                     end8136(r, s, Terminal8136.RESCUE_EVALUATED, "ADOPTED_FDG_ALLOW_AFTER_RESCUE_REFUSED_8214")
                     ElectionRescueFunnel8144.bind8144(r.mint, l, r.version, adopted = true, nowMs = nowMs)
                     rescueEvaluated8144(r, l, true, nowMs)
                     try { PipelineHealthCollector.labelInc("ELECTION_RESCUE_REPLACED_BY_ALLOW_8214_$l") } catch (_: Throwable) {}
+                }
+                // V5.0.8364 — a qualified specialist whose FDG ALLOWED while the slot is only CLAIMED (its holder has produced no
+                // verdict yet) takes the slot: an evaluated allow outranks an unevaluated claim. One owner per version still
+                // holds (the coordinator honours one executable rescue; a sealed election is immutable).
+                shouldTrade && !r.primaryJudgement && !r.rescueConsumed && r.slots[l]?.terminal != Terminal8136.INELIGIBLE -> {
+                    r.slots[r.rescue]?.let { end8136(r, it, Terminal8136.CONTRIBUTOR_SHADOW, "RESCUE_PREEMPTED_BY_FDG_ALLOW_8364_$l") }
+                    r.rescue = l
+                    r.rescueConsumed = true
+                    r.rescueViaLottery = false
+                    r.rescueRefusedOpen8364 = false
+                    allowPreempted8364++
+                    end8136(r, s, Terminal8136.RESCUE_EVALUATED, "ADOPTED_FDG_ALLOW_OVER_UNEVALUATED_CLAIM_8364")
+                    ElectionRescueFunnel8144.bind8144(r.mint, l, r.version, adopted = true, nowMs = nowMs)
+                    rescueEvaluated8144(r, l, true, nowMs)
+                }
+                // V5.0.8364 — the spent rescue refused on its own strategy: this evaluated specialist is the version's second
+                // rescue (adopted with its verdict) instead of an overflow.
+                r.slots[l]?.terminal != Terminal8136.INELIGIBLE && openSecondRescue8364(r) -> {
+                    r.rescue = l
+                    r.rescueConsumed = true
+                    r.rescueRefusedOpen8364 = false
+                    end8136(r, s, Terminal8136.RESCUE_EVALUATED, if (shouldTrade) "ADOPTED_SECOND_RESCUE_8364_ALLOW" else "ADOPTED_SECOND_RESCUE_8364:$why")
+                    ElectionRescueFunnel8144.bind8144(r.mint, l, r.version, adopted = true, nowMs = nowMs)
+                    rescueEvaluated8144(r, l, shouldTrade, nowMs)
                 }
                 else -> {
                     rescueOverflow8136++
@@ -827,9 +909,27 @@ object SpecialistElection8136 {
         if (l.isBlank() || l == canon8136(primary)) return false
         if (nativeEval8214.size > 4_000) nativeEval8214.clear()
         val set = nativeEval8214.computeIfAbsent("$mint|$version") { java.util.Collections.synchronizedSet(LinkedHashSet()) }
-        val ok = synchronized(set) { l in set || (set.size < NATIVE_EVAL_CAP_8214 && set.add(l)) }
+        val ok = synchronized(set) {
+            l in set || (set.size < NATIVE_EVAL_CAP_8214 && set.add(l)) || reassignNativeSlot8364(set, mint, l)
+        }
         try { PipelineHealthCollector.labelInc(if (ok) "NATIVE_SPECIALIST_EVAL_8214_$l" else "NATIVE_SPECIALIST_EVAL_CAPPED_8214") } catch (_: Throwable) {}
         return ok
+    }
+
+    /**
+     * V5.0.8364 — the 8214 slots went to the first three lanes in BotService's lane order that had a desk hypothesis or a
+     * hunter claim, including lanes whose OWN native brain had already refused the coin, so a natively eligible specialist
+     * later in the order found the cap full (NON_OWNER_NOT_RESCUE). A natively eligible asker now takes the slot of a
+     * holder whose own brain refused this coin; with no such holder the cap holds. Unknown native state never evicts.
+     */
+    private fun reassignNativeSlot8364(set: MutableSet<String>, mint: String, lane: String): Boolean {
+        if (OwnershipChain8364.nativeEligible8364(mint, lane) != true) return false
+        val victim = set.firstOrNull { OwnershipChain8364.nativeEligible8364(mint, it) == false } ?: return false
+        set.remove(victim)
+        set.add(lane)
+        nativeSlotReassigned8364.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("NATIVE_SPECIALIST_EVAL_REASSIGNED_8364_$lane") } catch (_: Throwable) {}
+        return true
     }
 
     fun noteScheduled8144(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()) {
@@ -990,6 +1090,8 @@ object SpecialistElection8136 {
                     r.rescue = ""
                 } else if (releaseIdle8180(r, l, nowMs)) {
                     // V5.0.8180 — an idle holder (no FDG verdict inside the window) no longer blocks the named receiver.
+                } else if (openSecondRescue8364(r)) {
+                    // V5.0.8364 — the spent rescue refused on its own strategy: the named receiver is the second rescue.
                 } else {
                     rescueHeldDenied8136++
                     handoffDenied8153++
@@ -1123,7 +1225,10 @@ object SpecialistElection8136 {
             "lineageCarried=$lineageCarried8144 arbitrationErrors=$arbitrationErrors8144 idleReleased8180=$idleReleased8180)" +
             // V5.0.8153 — qualified hand-off receivers as tasks the cycle consumes.
             " | handoff8153(named=$handoffNamed8153 claims=$handoffClaims8153 preemptedLottery=$handoffPreempted8153 " +
-            "denied=$handoffDenied8153 retargeted=$handoffRetargeted8153) strategyProven8243=$strategyProven8243 "
+            "denied=$handoffDenied8153 retargeted=$handoffRetargeted8153) strategyProven8243=$strategyProven8243 " +
+            // V5.0.8364 — slots reopened instead of denied / overflowed / refused.
+            "| owner8364(secondRescue=$secondRescues8364 allowPreempted=$allowPreempted8364 lateYieldNamed=$lateYieldNamed8364 " +
+            "nativeSlotReassigned=${nativeSlotReassigned8364.get()}) "
     } + (try { HandoffReceiverTasks8153.statusLine8153() } catch (_: Throwable) { "handoffTask8153[unavailable]" })  // read outside the election lock
 
     internal fun resetForTests8136() {
@@ -1136,6 +1241,7 @@ object SpecialistElection8136 {
             lotteryFilled8141 = 0L; lotteryRefused8141 = 0L
             lineageCarried8144 = 0L; lotteryBarred8144 = 0L; namedWins8144 = 0L; preempted8144 = 0L; arbitrationErrors8144 = 0L
             idleReleased8180 = 0L
+            secondRescues8364 = 0L; allowPreempted8364 = 0L; lateYieldNamed8364 = 0L; nativeSlotReassigned8364.set(0L)
             gateReasons8144.clear()
             handoffNamed8153 = 0L; handoffClaims8153 = 0L; handoffPreempted8153 = 0L; handoffDenied8153 = 0L; handoffRetargeted8153 = 0L
         }

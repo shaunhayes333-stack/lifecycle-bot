@@ -84,13 +84,26 @@ object SpecialistOwnership7951 {
      */
     fun commonScale7951(raw: Double, population: List<Double>): Double {
         val v = raw.takeIf { it.isFinite() }?.coerceIn(0.0, 100.0) ?: 0.0
-        if (population.size < MIN_SAMPLES_7951) {
-            val bar = minOf(population.filter { it.isFinite() }.minOrNull() ?: v, v)
-            return barRelative7951(v, bar).coerceIn(0.0, 100.0)
-        }
+        // superseded by V5.0.8364 — the revealed-bar read put a young lane's FIRST eligible value at 50 while a mature lane's
+        // median reads 75, so rarely-eligible lanes (QUALITY / BLUECHIP) lost every cross-lane comparison until they had
+        // 8 samples. Before maturity the value is ranked inside the lane's own observed range (a lone value = the median).
+        if (population.size < MIN_SAMPLES_7951) return immatureScale8364(v, population)
         val below = population.count { it < v }
         val equal = population.count { it == v }
         val rank = (below + 0.5 * equal) / population.size
+        return (50.0 + 50.0 * rank).coerceIn(50.0, 100.0)
+    }
+
+    /**
+     * Pure (V5.0.8364): the common scale before a lane's eligible population matures — 50 + 50 x the value's position in
+     * the lane's own observed [min, max] (a lone value, or no spread, reads 75: the centre of the mature 50..100 scale).
+     */
+    fun immatureScale8364(value: Double, population: List<Double>): Double {
+        val v = value.takeIf { it.isFinite() }?.coerceIn(0.0, 100.0) ?: 0.0
+        val finite = population.filter { it.isFinite() }
+        val lo = minOf(finite.minOrNull() ?: v, v)
+        val hi = maxOf(finite.maxOrNull() ?: v, v)
+        val rank = if (hi - lo < 1e-9) 0.5 else (v - lo) / (hi - lo)
         return (50.0 + 50.0 * rank).coerceIn(50.0, 100.0)
     }
 
@@ -98,7 +111,21 @@ object SpecialistOwnership7951 {
     fun chartLifted7951(conviction: Double, chartBuy: Boolean): Double =
         if (!chartBuy) conviction else maxOf(CHART_BUY_FLOOR_7951, conviction + CHART_BUY_LIFT_7951).coerceAtMost(100.0)
 
-    private fun observe7951(lane: String, raw: Double): List<Double> {
+    // V5.0.8364 — one sample per distinct mint. observe ran once per native snapshot (every ~2.5 s per mint), so a lane
+    // re-reading one hot mint filled its 64-slot ring with copies of it and every other candidate's percentile was ranked
+    // against that one coin. Insertion order = recency; a mint re-observed replaces its own sample.
+    private val eligibleByMint8364 = ConcurrentHashMap<String, LinkedHashMap<String, Double>>()
+
+    private fun observe7951(lane: String, raw: Double, mint: String): List<Double> {
+        if (mint.isNotBlank()) {
+            val m = eligibleByMint8364.computeIfAbsent(lane) { LinkedHashMap() }
+            synchronized(m) {
+                m.remove(mint)
+                m[mint] = raw
+                while (m.size > RING_7951) m.remove(m.keys.first())
+                return m.values.toList()
+            }
+        }
         val ring = eligibleRaw7951.computeIfAbsent(lane) { ArrayDeque() }
         synchronized(ring) {
             ring.addLast(raw)
@@ -108,6 +135,7 @@ object SpecialistOwnership7951 {
     }
 
     private fun population7951(lane: String): List<Double> {
+        eligibleByMint8364[lane]?.let { m -> synchronized(m) { if (m.isNotEmpty()) return m.values.toList() } }
         val ring = eligibleRaw7951[lane] ?: return emptyList()
         synchronized(ring) { return ring.toList() }
     }
@@ -131,7 +159,7 @@ object SpecialistOwnership7951 {
             if (!o.eligible || !o.authoritative) o else {
                 val raw = o.ownershipConviction7948?.takeIf { it.isFinite() }
                     ?: rawBlend7951(o.score, o.confidence.toDouble())
-                val scaled = commonScale7951(raw, observe7951(lane7951(lane), raw))
+                val scaled = commonScale7951(raw, observe7951(lane7951(lane), raw, mint))
                 o.copy(ownershipConviction7948 = chartLifted7951(scaled, chart))
             }
         }
@@ -198,6 +226,7 @@ object SpecialistOwnership7951 {
         noteFdgVerdict8136(mint, lane, candidateVersion, shouldTrade, blockReason, nowMs)
         try { HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs, candidateVersion) } catch (_: Throwable) {}  // V5.0.8153 — the receiver's task is evaluated only on its candidate generation
         try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.onFdgVerdict8144(mint, lane, shouldTrade, blockReason, nowMs) } catch (_: Throwable) {}  // V5.0.8144 — hand-off arrival
+        OwnershipChain8364.onFdgVerdict8364(lane, mint, candidateVersion, shouldTrade, blockReason, nowMs)  // V5.0.8364 — the candidate's FDG verdict on its chain
         if (shouldTrade || mint.isBlank()) return
         val l = lane7951(lane)
         if (l !in SpecialistCandidateBooks7803.LANES) return
@@ -206,6 +235,7 @@ object SpecialistOwnership7951 {
         val capital = capitalOnlyReason7951(reason, capitalNotes7951[mint]?.takeIf { nowMs - it.atMs <= CAPITAL_NOTE_TTL_MS_7951 }?.reason)
         if (capital == null) {
             notePreIntent7951(l, "FDG_$reason")
+            stampFdgBlockContinuity8364(l, mint)
             return
         }
         recordCapitalDemand7951(l, mint, nowMs)
@@ -213,6 +243,21 @@ object SpecialistOwnership7951 {
         val key = "$l|$mint|$candidateVersion"
         if (stampedCapital7951.size > 4_096) stampedCapital7951.entries.removeIf { nowMs - it.value > DEMAND_WINDOW_MS_7951 }
         if (stampedCapital7951.putIfAbsent(key, nowMs) == null) stampCapitalOwnership7951(l, mint, candidateVersion, capital)
+    }
+
+    /**
+     * V5.0.8364 — an ordinary FDG refusal stamped nothing in the causal funnel (only the capital-only path did), so a
+     * qualified candidate's record read QUALIFY and then nothing: "qualified -> FDG refusal" never showed for the same
+     * candidate. The refusal is now stamped as FDG_BLOCK on the SAME record QUALIFIED wrote ("mint:version" of the lane's
+     * qualified candidate). Only a candidate the lane actually qualified is stamped — no predecessor is invented, and
+     * OWNER / BUY_INTENT stay absent (they follow an FDG allow).
+     */
+    private fun stampFdgBlockContinuity8364(lane: String, mint: String) {
+        try {
+            val v = OwnershipChain8364.qualifiedVersion8364(lane, mint) ?: return
+            ToolkitSignalSheet.recordDeskStage(lane, "FDG_BLOCK", "$mint:$v")
+            PipelineHealthCollector.labelInc("FDG_BLOCK_CAUSAL_CONTINUITY_8364_$lane")
+        } catch (_: Throwable) {}
     }
 
     /** Pure: the capital reason when an FDG block was refused only for capital. */
@@ -252,6 +297,12 @@ object SpecialistOwnership7951 {
         // V5.0.8153 — a lane holding a live hand-off task that the gate refused: the task records why (binding, fit -> next
         // receiver, data, or waiting) before the election consumes the gate reason.
         HandoffTaskRuntime8153.onNotScheduled8153(mint, l)
+        // V5.0.8364 — the qualified candidate's chain records why it was not evaluated (read before the election consumes the gate).
+        try {
+            val p8364 = lane7951(primaryLane)
+            OwnershipChain8364.onNotEvaluated8364(l, mint,
+                SpecialistElection8136.gateReasonOf8153(mint, l) ?: if (p8364 == l) "PRIMARY_GATED" else "NOT_PRIMARY_$p8364")
+        } catch (_: Throwable) {}
         val ready = try { SpecialistCandidateBooks7803.entry(l, mint)?.state == SpecialistCandidateBooks7803.State.READY } catch (_: Throwable) { false }
         // V5.0.8136 — the proposal ends by name in the candidate's election: a gated primary opens the rescue, a gated
         // rescue releases the slot, every other READY lane is a CONTRIBUTOR_SHADOW (it no longer vanishes as a label).
@@ -283,7 +334,28 @@ object SpecialistOwnership7951 {
      * cycle primary and no rescue opened), READY_PRIMARY_GATED (its own pre-FDG gate), FDG_<reason> (its FDG refused),
      * CAPITAL_ONLY_<reason>, RESCUE_* (the one-rescue election) — the whole book, not the top four.
      */
-    fun ownerWhyLine8330(lane: String): String? = formatOwnerWhy8330(lane7951(lane), ownerWhyCounts8330(lane))
+    // V5.0.8364 — the line shows refusals only. The pre-intent book also holds every lane's native verdict on every token
+    // (DecisionReasons8031: NATIVE_READY on an eligible opinion, NATIVE_<rule> on a refusal of a coin the lane never
+    // qualified) and progress markers (READY_HANDED_OFF_*, RESCUE_ELECTED_*, ...). 5.0.8341 read "QUALITY NATIVE_READY=1916"
+    // as the top owner refusal — a qualification, not a refusal. Those move to nativeWhyLine8364.
+    fun ownerWhyLine8330(lane: String): String? = formatOwnerWhy8330(lane7951(lane), ownerWhyCounts8330(lane).filterKeys { ownerRefusalKey8364(it) })
+
+    /** Pure (V5.0.8364): a pre-intent book key that is a refusal between QUALIFIED and OWNER_SELECTED. */
+    fun ownerRefusalKey8364(key: String): Boolean =
+        !key.startsWith("NATIVE_") && PROGRESS_PREFIXES_8364.none { key.startsWith(it) }
+
+    private val PROGRESS_PREFIXES_8364 = listOf("READY_HANDED_OFF_", "READY_CELL_PROVEN_EVALUATES", "READY_SHADOW_AUDIT_EVALUATES",
+        "RESCUE_ELECTED_", "RUNNER_GRAB_ADMIT")
+
+    /** V5.0.8364 — "LANE nativeWhy8364[ready=n refused{rule=n,...}]": native verdicts on tokens, before any qualification. */
+    fun nativeWhyLine8364(lane: String): String? {
+        val counts = ownerWhyCounts8330(lane).filterKeys { it.startsWith("NATIVE_") }
+        if (counts.isEmpty()) return null
+        val ready = counts["NATIVE_READY"] ?: 0L
+        val refused = counts.filterKeys { it != "NATIVE_READY" }.entries.sortedByDescending { it.value }.take(6)
+            .joinToString(",") { "${it.key.removePrefix("NATIVE_")}=${it.value}" }.ifBlank { "-" }
+        return "${lane7951(lane)} nativeWhy8364[ready=$ready refused{$refused}] (native verdicts, not owner refusals)"
+    }
 
     /** The lane's pre-intent book as a map (reason -> count). */
     fun ownerWhyCounts8330(lane: String): Map<String, Long> {
@@ -307,7 +379,7 @@ object SpecialistOwnership7951 {
     }
 
     internal fun resetForTests7951() {
-        eligibleRaw7951.clear(); capitalNotes7951.clear(); demand7951.clear()
+        eligibleRaw7951.clear(); eligibleByMint8364.clear(); capitalNotes7951.clear(); demand7951.clear()
         stampedCapital7951.clear(); preIntent7951.clear(); refusedAt7960.clear()
     }
 

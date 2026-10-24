@@ -82,9 +82,13 @@ class Aate8136SpecialistElectionTest {
         assertEquals("CASHGEN", e.primaryOf8136(m))                                                  // one executable primary
         e.onFdgVerdict8136(m, "MOONSHOT", 20L, false, "PLAYBOOK_NO_TRIGGER_7907_MOONSHOT", false, true, 80.0, t0 + 110)
         assertEquals(Terminal8136.RESCUE_EVALUATED, e.terminalOf8136(m, "MOONSHOT")?.first)
-        // Primary and rescue both refused: the version is concluded; SHITCOIN does not become a second rescue.
-        assertEquals("MOONSHOT", e.cyclePrimary8136(m, 20L, "SHITCOIN", false, null, t0 + 200))
-        assertEquals(Terminal8136.CONTRIBUTOR_SHADOW to "RESCUE_SLOT_HELD_BY_MOONSHOT", e.terminalOf8136(m, "SHITCOIN"))
+        // superseded by V5.0.8364 — primary and rescue both refused on their OWN strategy (non-judgement): SHITCOIN is the
+        // version's one SECOND rescue (it used to end RESCUE_SLOT_HELD_BY_MOONSHOT and count as heldDenied); a third never.
+        assertEquals("SHITCOIN", e.cyclePrimary8136(m, 20L, "SHITCOIN", false, null, t0 + 200))
+        assertEquals("SHITCOIN", e.rescueOf8136(m))
+        e.onFdgVerdict8136(m, "SHITCOIN", 20L, false, "PLAYBOOK_NO_TRIGGER_7907_SHITCOIN", false, true, 65.0, t0 + 210)
+        assertEquals("SHITCOIN", e.cyclePrimary8136(m, 20L, "EXPRESS", false, null, t0 + 220))
+        assertTrue(e.statusLine8136().contains("secondRescue=1"))
         // A sealed / forced owner is authoritative and immutable.
         assertEquals("SHITCOIN", e.cyclePrimary8136(m, 20L, "SHITCOIN", true, null, t0 + 300))
         assertEquals("SHITCOIN", e.primaryOf8136(m))

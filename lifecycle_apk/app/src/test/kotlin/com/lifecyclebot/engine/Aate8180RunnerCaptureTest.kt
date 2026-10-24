@@ -144,10 +144,15 @@ class Aate8180RunnerCaptureTest {
         assertEquals("MOONSHOT", e.rescueOf8136(m))
         assertEquals(Terminal8136.CONTRIBUTOR_SHADOW to "RESCUE_IDLE_RELEASED_8180", e.terminalOf8136(m, "QUALITY"))
         assertTrue(e.statusLine8136().contains("idleReleased8180=1"))
-        // A consumed rescue is never released: one executable rescue per version.
+        // superseded by V5.0.8364 — a consumed rescue is never idle-released, but one that REFUSED on its own strategy
+        // (non-judgement) opens ONE second rescue; after that the slot stays shut.
         e.onFdgVerdict8136(m, "MOONSHOT", 900L, false, "FDG_SCORE_FLOOR", false, true, 80.0, late + 1)
-        assertEquals(ClaimOutcome8144.DENIED_HELD_BY_OTHER, e.claimRescueOutcome8144(m, "QUALITY", "CASHGEN", fdg, "x", false,
-            listOf(c("QUALITY", 70.0)), null, late + RescueIdle8180.RESCUE_IDLE_MS_8180 + 1_000L))
+        val later = late + RescueIdle8180.RESCUE_IDLE_MS_8180 + 1_000L
+        assertEquals(ClaimOutcome8144.GRANTED, e.claimRescueOutcome8144(m, "QUALITY", "CASHGEN", fdg, "x", false,
+            listOf(c("QUALITY", 70.0)), null, later))
+        e.onFdgVerdict8136(m, "QUALITY", 900L, false, "FDG_SCORE_FLOOR", false, true, 70.0, later + 1)
+        assertEquals(ClaimOutcome8144.DENIED_HELD_BY_OTHER, e.claimRescueOutcome8144(m, "EXPRESS", "CASHGEN", fdg, "x", false,
+            listOf(c("EXPRESS", 90.0)), null, later + 2))
     }
 
     @Test fun anIdleHolderNoLongerBlocksTheNamedHandoffReceiver() {
