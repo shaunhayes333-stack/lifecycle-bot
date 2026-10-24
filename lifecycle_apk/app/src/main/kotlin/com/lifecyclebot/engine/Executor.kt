@@ -23858,6 +23858,7 @@ class Executor(
                 return SellResult.WAITING_BALANCE_PROOF
             }
         }
+        if (isLivePositionEarly) StopBroadcast8363.releaseWait8363(ts, requestReason)  // V5.0.8363 — a stop is never merged into a proof wait
         if (isLivePositionEarly && com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(ts.mint)) {
             val waitProof = try { wallet?.let { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, it, requestReason) } } catch (_: Throwable) { null }
             val waitConfirmed = waitProof as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
@@ -27988,9 +27989,8 @@ class Executor(
                         }
                     }
                 }
-                if (!recovered && walletReadIndeterminate) {
-                    try { ForensicLogger.lifecycle("SELL_RPC_EMPTY_RESCUE_BLOCKED_INDETERMINATE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason action=no_stale_tracker_sell") } catch (_: Throwable) {}
-                }
+                val stop8363 = StopBroadcast8363.rescue8363(ts, reason, recovered, walletReadIndeterminate)  // V5.0.8363 — a stop broadcasts on the canonical qty
+                if (stop8363 != null) { tokenData = stop8363; mapEmpty = false; recovered = true }
                 if (!recovered) {
                     // V5.0.3762 — strict live balance authority. Wallet-token read
                     // indeterminate + no owner-filtered/buy-tied proof means BALANCE_UNKNOWN.

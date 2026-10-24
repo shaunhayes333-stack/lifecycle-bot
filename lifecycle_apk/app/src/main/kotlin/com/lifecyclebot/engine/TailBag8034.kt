@@ -68,7 +68,8 @@ object TailBag8034 {
     }
 
     /** Pure decision for an exit request [reason] at [pnlPct] on a position of [lane]. */
-    fun decidePure8034(lane: String, reason: String, pnlPct: Double, tail: Tail?, nowMs: Long, capitalRecovered: Boolean = false): Decision {
+    fun decidePure8034(lane: String, reason: String, pnlPct: Double, tail: Tail?, nowMs: Long, capitalRecovered: Boolean = false,
+                       floorPct8363: Double = Double.NaN): Decision {
         val l = lane.uppercase()
         if (l !in TAIL_LANES_8034) return Decision.Pass
         if (reason.uppercase().startsWith("TAIL_") || reason.uppercase().startsWith("LIFECYCLE_") ||
@@ -78,6 +79,8 @@ object TailBag8034 {
         // The first sale may itself recover capital. A retained tail is not necessarily a free ride.
         if (tail == null) return Decision.SetAside
         if (nowMs - tail.setAt > TAIL_MAX_AGE_MS) return Decision.Pass
+        // V5.0.8363 — the retained tail carries the green floor once armed (GreenFloor8363): at or under it, it is released.
+        if (floorPct8363.isFinite() && pnlPct.isFinite() && pnlPct <= floorPct8363) return Decision.Pass
         milestoneAt8034(pnlPct, tail.taken)?.let { (i, f) -> return Decision.Milestone(i, f) }
         return Decision.Hold
     }
@@ -128,7 +131,9 @@ object TailBag8034 {
         val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(pos.tradingMode) } catch (_: Throwable) { "" }
             .ifBlank { pos.tradingMode }
         val capitalRecovered = capitalRecovered8090(pos.positionId, ts.mint)
-        val d = funded8136(decidePure8034(lane, reason, pnlOf(ts), tail, nowMs, capitalRecovered), ts, capitalRecovered)
+        val floor8363 = if (tail != null) { try { GreenFloor8363.floorFor8363(ts) } catch (_: Throwable) { Double.NaN } } else Double.NaN
+        val d = funded8136(decidePure8034(lane, reason, pnlOf(ts), tail, nowMs, capitalRecovered, floor8363), ts, capitalRecovered)
+        if (d == Decision.Pass && tail != null && floor8363.isFinite() && pnlOf(ts) <= floor8363) GreenFloor8363.noteFired8363("TAIL_RELEASED")
         if (d == Decision.Hold) held.incrementAndGet()
         if (d == Decision.Pass && tail != null) {
             released.incrementAndGet()
@@ -251,6 +256,6 @@ object TailBag8034 {
         load()
         return "tails=${tails.size} setAside=${setAside.get()} held=${held.get()} milestones=${milestones.get()} released=${released.get()} " +
             "closed[paid=${closedWin.get()} died=${closedLoss.get()}] bestX=${"%.1f".format(bestMultiple)} " +
-            "rule=keep ${(TAIL_FRACTION * 100).toInt()}% of ${TAIL_LANES_8034.size} meme lanes; sell on rug or at +400/+1900/+4900%, release at 7d"
+            "rule=keep ${(TAIL_FRACTION * 100).toInt()}% of ${TAIL_LANES_8034.size} meme lanes; sell on rug or at +400/+1900/+4900%, release at 7d or under the armed green floor (8363) " + GreenFloor8363.statusLine8363()
     }
 }

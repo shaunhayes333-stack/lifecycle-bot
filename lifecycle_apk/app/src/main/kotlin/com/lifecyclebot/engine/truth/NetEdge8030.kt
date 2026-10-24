@@ -439,6 +439,8 @@ object NetEdge8030 {
         if (!(pnl > 0.0)) return false
         // V5.0.8337 — a protective exit (ranks 1-3) is never held by the cost model.
         if (try { com.lifecyclebot.engine.ExitTruthArbiter8144.protective8144(reason) } catch (_: Throwable) { false }) return false
+        // V5.0.8363 — a profit lock / give-back / trail is protective (ProfitLock8363, the one classification): never held.
+        if (try { com.lifecyclebot.engine.ProfitLock8363.profitLock8363(reason) } catch (_: Throwable) { false }) return false
         val structural = structural8030(reason)
         if (structural) return false
         try { OnChainDepth8038.request8038(ts) } catch (_: Throwable) {}

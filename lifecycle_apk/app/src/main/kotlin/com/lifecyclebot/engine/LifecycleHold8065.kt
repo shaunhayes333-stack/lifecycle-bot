@@ -270,6 +270,8 @@ object LifecycleHold8065 {
             try { PipelineHealthCollector.labelInc("LIFECYCLE_GIVEBACK_RELEASED_8080") } catch (_: Throwable) {}
             return release8189(ts, reason)
         }
+        // V5.0.8363 — a green hold carries the floor (GreenFloor8363): at or under it the exit that asked is not held.
+        if (GreenFloor8363.breachedFor8363(ts, g)) { GreenFloor8363.noteFired8363("LIFECYCLE_RELEASED"); return release8189(ts, reason) }
         held.incrementAndGet()
         try { PipelineHealthCollector.labelInc("LIFECYCLE_HELD_8065") } catch (_: Throwable) {}
         // V5.0.8189 — every deferral is named (evidence + exit tier) and its episode is kept for the regret count.
@@ -336,6 +338,8 @@ object LifecycleHold8065 {
             profitablePeakReversal8079(st.peak, g, ts.lastPrice > 0.0 && px == ts.lastPrice &&
                 ts.lastPriceUpdate > 0L && nowMs - ts.lastPriceUpdate in 0L..5_000L) ->
                 "LIFECYCLE_PROFIT_GIVEBACK_8065_${st.peak.toInt()}PK_${g.toInt()}PCT" to 1.0
+            // V5.0.8363 — the hold's floor: max(net break-even, 50 % of the confirmed peak) once the peak cleared break-even.
+            GreenFloor8363.breachedFor8363(ts, g) -> "LIFECYCLE_GREEN_FLOOR_8363_${st.peak.toInt()}PK_${g.toInt()}PCT" to 1.0
             fresh8136 && cumulativeTakeDue8079(g, st.taken) != null -> cumulativeTakeDue8079(g, st.taken)!!.let { (i, f) -> "LIFECYCLE_PROFIT_TAKE${i + 1}_8065_${g.toInt()}PCT" to f }
             st.taken == 0 && age >= SETTLE_MS && g < BASE_BROKE_RED_PCT && closedBarBroke(b, 16) ->
                 "LIFECYCLE_STOP_BASE_BROKE_8065_${g.toInt()}PCT" to 1.0

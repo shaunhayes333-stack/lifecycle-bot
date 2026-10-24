@@ -774,13 +774,14 @@ the very end of your reply:
   grounded in the INNER STATE numbers rather than waiting for more trades.
   Trade 0 (no settled trade yet) is the only locked state.
 - Allowed keys: stopLossPct, trailingStopBasePct, exitScoreThreshold,
-  entryCooldownSec, pollSeconds, slippageBps,
+  entryCooldownSec, pollSeconds,
   minHoldMins, maxHoldMinsHard, sentimentEntryBoost, sentimentExitBoost,
   sentimentBlockThreshold, behaviorAggressionLevel, defensiveLossThreshold,
   aggressiveWhaleThreshold, convictionMult1, convictionMult2,
   partialSellTriggerPct, topUpSizeMultiplier, topUpMaxCount,
   scanIntervalSecs, minDiscoveryScore.
 - minLiquidityUsd and walletReserveSol are owner-only (V5.0.8353): never put them in a TUNE block.
+- slippageBps is owner-only (V5.0.8363): never put it in a TUNE block.
 - Do not wrap the block in backticks; put it on its own line at the end.
 
 ━━━ TIER-3 PAPER-ONLY TRADE EXECUTION (V5.9.135) ━━━

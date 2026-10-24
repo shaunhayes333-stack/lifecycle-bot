@@ -217,11 +217,43 @@ object SellRouteSpine8144 {
         if (mint.isBlank() || open8144.isEmpty()) return
         stageForPhase8144(phase)?.let { mark8144(mint, it, nowMs); return }
         val f = failureForPhase8144(phase) ?: return
+        if (f == Stage8144.TRIGGER && refusedRecently8363(mint, nowMs)) return   // V5.0.8363 — booked as a refusal, not a stage failure
         fail8144(mint, phase, if (f == Stage8144.TRIGGER) null else f, nowMs)
+    }
+
+    // ── V5.0.8363 — a policy refusal (ProfitExitTruth8163) is not a sign / send failure ──
+    // A refusal after the quote returned FAILED_RETRYABLE; fail8144 charged it to the stage after QUOTE_BUILD — SIGN —
+    // so the 8360 report read 80 "SIGN" failures that were 8163 refusals. The refusal is counted under its own label.
+    const val REFUSAL_WINDOW_MS_8363 = 10_000L
+    private val refused8363 = ConcurrentHashMap<String, Pair<String, Long>>()
+
+    /** ProfitExitTruth8163.refused: [mint]'s current attempt was refused by policy with [label]. */
+    fun noteRefused8363(mint: String, label: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        if (refused8363.size > 500) refused8363.clear()
+        refused8363[mint] = label.take(60) to nowMs
+    }
+
+    private fun refusedRecently8363(mint: String, nowMs: Long): Boolean {
+        val r = refused8363[mint] ?: return false
+        return nowMs - r.second in 0L..REFUSAL_WINDOW_MS_8363
+    }
+
+    /** A FAILED_RETRYABLE / no-signature result right after a policy refusal is the refusal: counted as an outcome. */
+    private fun bookRefusal8363(mint: String, result: String, nowMs: Long): Boolean {
+        if (result != "FAILED_RETRYABLE" && result != "ROUTE_FAILED_NO_SIGNATURE") return false
+        val r = refused8363[mint] ?: return false
+        if (nowMs - r.second !in 0L..REFUSAL_WINDOW_MS_8363) { refused8363.remove(mint, r); return false }
+        refused8363.remove(mint, r)
+        val t = live8144(mint, nowMs)
+        val c = if (t != null) cls(t) else "NORM"
+        outcomes8144.computeIfAbsent("$c|${r.first}") { AtomicLong() }.incrementAndGet()
+        return true
     }
 
     /** requestSell's result for this attempt (SellResult name). */
     fun onResult8144(mint: String, result: String, nowMs: Long = System.currentTimeMillis()) {
+        if (bookRefusal8363(mint, result, nowMs)) return
         when (result) {
             "CONFIRMED" -> finish8144(mint, "CONFIRMED", nowMs)
             "ALREADY_CLOSED", "FAILED_FATAL" -> finish8144(mint, result, nowMs)
@@ -312,7 +344,7 @@ object SellRouteSpine8144 {
     }
 
     internal fun resetForTest8144() {
-        open8144.clear(); latency8144.clear(); failures8144.clear(); outcomes8144.clear()
+        open8144.clear(); latency8144.clear(); failures8144.clear(); outcomes8144.clear(); refused8363.clear()
         synchronized(recent8144) { recent8144.clear() }
     }
 }

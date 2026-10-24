@@ -10,10 +10,12 @@ import java.math.RoundingMode
 /** Profit is executable SOL over the confirmed cost of the exact sold slice, never a USD mark or peak. */
 object ProfitExitTruth8163 {
     private val refusals = java.util.concurrent.atomic.AtomicLong(0)
-    fun statusLine(): String = "profitQuoteRefused8163=${refusals.get()} basis=exact_slice_SOL"
+    fun statusLine(): String = "profitQuoteRefused8163=${refusals.get()} basis=exact_slice_SOL " + ProfitLock8363.statusLine8363()
     fun profitTaking(reason: String): Boolean {
         // V5.0.8337 — a protective exit (ranks 1-3) is never profit-taking, whatever words its name carries.
         if (try { ExitTruthArbiter8144.protective8144(reason) } catch (_: Throwable) { false }) return false
+        // V5.0.8363 — a profit lock / give-back / trail / floor protects a shrinking gain: never refused by the requote test.
+        if (try { ProfitLock8363.profitLock8363(reason) } catch (_: Throwable) { false }) return false
         val r = reason.uppercase()
         if (listOf("STOP_LOSS", "STRICT_SL", "CATASTROPH", "BACKSTOP", "RUG", "MANUAL", "EMERGENCY", "ORPHAN", "RECONCIL").any { r.contains(it) }) return false
         return RecoveredHoldGuard.isProfitTakingExit7931(reason) ||
@@ -63,6 +65,7 @@ object ProfitExitTruth8163 {
     }
 
     fun preflight(ts: TokenState, reason: String, raw: Long, jupiter: JupiterApi, releaseLocks: Boolean = true): Boolean {
+        if (!ts.position.isPaperPosition && ProfitLock8363.profitLock8363(reason) && !ExitTruthArbiter8144.protective8144(reason)) ProfitLock8363.notePassed8363()  // V5.0.8363
         if (ts.position.isPaperPosition || !profitTaking(reason)) return true
         PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_CHECK_DIRECT_8168")
         val cost = basis(ts, raw)
@@ -159,6 +162,9 @@ object ProfitExitTruth8163 {
         }
         refusals.incrementAndGet()
         PipelineHealthCollector.labelInc("PROFIT_EXIT_TRUTH_REFUSED_8163_$why")
+        PipelineHealthCollector.labelInc("PROFIT_EXIT_REFUSED_8163_$why")  // V5.0.8363
+        // V5.0.8363 — a refusal is not a sign / send failure: the spine books it as PROFIT_EXIT_REFUSED_8163_<why>.
+        try { com.lifecyclebot.engine.sell.SellRouteSpine8144.noteRefused8363(ts.mint, "PROFIT_EXIT_REFUSED_8163_$why") } catch (_: Throwable) {}
         if (ForensicEmitRateLimiter6356.shouldEmit("PROFIT_EXIT_TRUTH_8163", ts.mint))
             ForensicLogger.lifecycle("PROFIT_EXIT_TRUTH_REFUSED_8163", "mint=${ts.mint} reason=$why action=refresh_profit_evidence_structural_exits_remain_available")
         return false

@@ -27,9 +27,11 @@ object AdvisorKeyAuthority8353 {
 
     private const val KEY_MIN_LIQ_8353 = "minLiquidityUsd"
     private const val KEY_RESERVE_8353 = "walletReserveSol"
+    /** V5.0.8363 — slippage is out of the advisor's hands (it fed partial-TP / orphan sells; a tightening got 0.75 forced). */
+    private const val KEY_SLIPPAGE_8363 = "slippageBps"
 
     /** Keys the advisor may discuss but never write. */
-    val ADVISORY_ONLY_KEYS_8353: List<String> = listOf(KEY_MIN_LIQ_8353, KEY_RESERVE_8353)
+    val ADVISORY_ONLY_KEYS_8353: List<String> = listOf(KEY_MIN_LIQ_8353, KEY_RESERVE_8353, KEY_SLIPPAGE_8363)
 
     private const val PREFS_8353 = "aate_8353_advisor_restore"
     private const val PREF_COUNT_8353 = "restored_count"
@@ -144,7 +146,7 @@ object AdvisorKeyAuthority8353 {
             var cfg = ConfigStore.load(ctx)
             for (key in ADVISORY_ONLY_KEYS_8353) {
                 val done = prefs.getBoolean("restored_" + key, false)
-                val current = if (key == KEY_MIN_LIQ_8353) cfg.minLiquidityUsd else cfg.walletReserveSol
+                val current = currentValue8363(cfg, key)
                 val rec = if (done) null else priorFor8353(key, timeline, tuneLines)
                 val decision = decideRestore8353(key, current, rec?.oldValue, rec?.newValue, done)
                 when (decision.kind) {
@@ -163,8 +165,7 @@ object AdvisorKeyAuthority8353 {
                         prefs.edit().putBoolean("restored_" + key, true).apply()
                     }
                     RestoreKind8353.RESTORE -> {
-                        cfg = if (key == KEY_MIN_LIQ_8353) cfg.copy(minLiquidityUsd = decision.to)
-                              else cfg.copy(walletReserveSol = decision.to)
+                        cfg = withValue8363(cfg, key, decision.to)
                         ConfigStore.save(ctx, cfg)
                         val n = restored8353.incrementAndGet()
                         prefs.edit().putBoolean("restored_" + key, true).putInt(PREF_COUNT_8353, n.toInt()).apply()
@@ -193,6 +194,20 @@ object AdvisorKeyAuthority8353 {
         } catch (t: Throwable) {
             try { ErrorLogger.warn(TAG_8353, "restore check failed: ${t.message}") } catch (_: Throwable) {}
         }
+    }
+
+    /** V5.0.8363 — the live value of an advisory-only key. */
+    private fun currentValue8363(cfg: com.lifecyclebot.data.BotConfig, key: String): Double = when (key) {
+        KEY_MIN_LIQ_8353 -> cfg.minLiquidityUsd
+        KEY_SLIPPAGE_8363 -> cfg.slippageBps.toDouble()
+        else -> cfg.walletReserveSol
+    }
+
+    /** V5.0.8363 — [cfg] with an advisory-only key restored to [v]. */
+    private fun withValue8363(cfg: com.lifecyclebot.data.BotConfig, key: String, v: Double): com.lifecyclebot.data.BotConfig = when (key) {
+        KEY_MIN_LIQ_8353 -> cfg.copy(minLiquidityUsd = v)
+        KEY_SLIPPAGE_8363 -> cfg.copy(slippageBps = Math.round(v).toInt())
+        else -> cfg.copy(walletReserveSol = v)
     }
 
     /** Appended to the advisor status line. */
