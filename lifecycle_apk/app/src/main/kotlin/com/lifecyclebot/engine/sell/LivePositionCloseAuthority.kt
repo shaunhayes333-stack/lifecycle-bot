@@ -206,6 +206,10 @@ object LivePositionCloseAuthority {
         if (mint.isBlank()) return ""
         val existing = PositionCloseLedger.closeIdOf(mint, mode = "LIVE")
         if (existing != null) {
+            // V5.0.8369 — a close the ledger already holds (SellReconciler / balance poller got there first) is still a full
+            // exit: 5.0.8363 afterExit8151=0 queued8151=0 — this early return skipped the targeted rent close on every trade.
+            // The close itself re-proves the account empty + initialized and the tracker terminal (targetedCloseEligible8151).
+            if (remainingQtyRaw <= 0L) try { com.lifecyclebot.engine.RentReclaimer7927.noteFullExit8151(mint) } catch (_: Throwable) {}
             setClosedState(mint, symbol, signature, reason)
             purgeSellResidue(mint, "FINALIZE_ALREADY_LEDGER_CLOSED")
             emit("SELL_FINALIZED_ONCE", mint, symbol, "duplicate=false existingCloseId=$existing source=$source reason=$reason")
@@ -246,7 +250,9 @@ object LivePositionCloseAuthority {
         }
         setClosedState(mint, symbol, signature, reason)
         // V5.0.8151 — a confirmed full exit: reclaim its token account's rent within a minute (RentReclaimer7927).
-        if (!signature.isNullOrBlank() && remainingQtyRaw <= 0L) try { com.lifecyclebot.engine.RentReclaimer7927.noteFullExit8151(mint) } catch (_: Throwable) {}
+        // superseded by V5.0.8369 — a zero-balance close without a sell signature (reconciler / poller proof) queues it too;
+        // the close only happens on an on-chain amount of exactly "0" with no unresolved signed buy/sell.
+        if (remainingQtyRaw <= 0L) try { com.lifecyclebot.engine.RentReclaimer7927.noteFullExit8151(mint) } catch (_: Throwable) {}
         try {
             HostWalletTokenTracker.recordIndependentZeroBalanceProof(
                 mint = mint,

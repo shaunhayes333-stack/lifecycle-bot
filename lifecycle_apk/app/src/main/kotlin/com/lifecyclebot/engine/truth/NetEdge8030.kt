@@ -108,6 +108,7 @@ object NetEdge8030 {
             FieldManual7715.impactRoundTripPct(if (impactLiq8337 > 0.0) sizeUsd else 0.0, impactLiq8337)
         else try { FieldManual7715.roundTripCostPct7766(size, if (impactLiq8337 > 0.0) sizeUsd else 0.0, impactLiq8337) } catch (_: Throwable) { 5.0 }
         val measured = try { CostLedger7962.measuredCostPct7962(lane, size) } catch (_: Throwable) { null }
+        try { com.lifecyclebot.engine.Costs8369.noteModel8369(lane, model) } catch (_: Throwable) {}  // V5.0.8369 — model vs measured
         return maxOf(model, measured ?: 0.0).also {
             lastCostPct = it
             // V5.0.8169 — what the figure is made of (5.0.8168 printed lastCost=58.64% with no lane, size or depth).
@@ -174,7 +175,9 @@ object NetEdge8030 {
     private fun componentsPct8151(sizeSol: Double, mint: String, liquidityUsd: Double, mcapUsd: Double): Double {
         val venuePct = if (mint.isBlank()) 0.25 else PaperVenueCost7287.venueFeePct(mint, liquidityUsd, mcapUsd)
         // V5.0.8337 — the route fee follows the ROUTE a pump mint takes (PumpPortal), not the venue the depth classifies.
-        val routePct = com.lifecyclebot.engine.CostTrim8151.routeFeePctPerSide8151(if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint)) "PUMPPORTAL" else "JUPITER")
+        // superseded by V5.0.8369 — "is a pump mint" is not the route: a curve buy goes Jupiter when Jupiter quotes it, and the
+        // exit's first route follows the venue (Costs8369.modelRouteFeePctPerSide8369: buy route + sell route, per side).
+        val routePct = com.lifecyclebot.engine.Costs8369.modelRouteFeePctPerSide8369(mint)
         val rentLoss = try { com.lifecyclebot.engine.RentReclaimer7927.rentLossRate8151() } catch (_: Throwable) { 0.0 }
         val fixedLeg = com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() / 2.0
         val rentSol = com.lifecyclebot.engine.CostTrim8151.ATA_RENT_SOL_8151 * rentLoss

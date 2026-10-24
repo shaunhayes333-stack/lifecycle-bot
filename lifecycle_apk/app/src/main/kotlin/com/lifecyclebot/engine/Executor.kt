@@ -2700,9 +2700,14 @@ class Executor(
      * before; an ORDINARY one (discretionary entry, top-up, non-urgent slice) pays the SWQOS-only minimum with headroom
      * (HeliusSender posts to `/fast?swqos_only=true`; CostTrim8151).
      */
-    private fun costSenderTip8151(c: com.lifecyclebot.data.BotConfig, urgent: Boolean, ordinary: Boolean, entry: Boolean = false): Long {
+    private fun costSenderTip8151(c: com.lifecyclebot.data.BotConfig, urgent: Boolean, ordinary: Boolean, entry: Boolean = false,
+                                  ticketSol8369: Double = 0.0, pump8369: Boolean = false, mint8369: String = ""): Long {
         val legacy = effectiveSenderTipLamports(c, urgent)
-        val tip = CostTrim8151.senderTipLamports8151(if (ordinary) CostTrim8151.Urgency8151.ORDINARY else CostTrim8151.Urgency8151.URGENT, legacy)
+        val tip8151 = CostTrim8151.senderTipLamports8151(if (ordinary) CostTrim8151.Urgency8151.ORDINARY else CostTrim8151.Urgency8151.URGENT, legacy)
+        // V5.0.8369 — an ordinary (not grabbed) BUY keeps tip + priority within 0.5 % of its ticket (Costs8369); 0 = the
+        // standard RPC / Jupiter path when Sender's minimum does not fit. Sells never take this branch (entry = false).
+        val grabbed8369 = mint8369.isNotBlank() && (try { RunnerGrab7967.isGrabbed7980(mint8369) } catch (_: Throwable) { false })
+        val tip = if (entry && !urgent && !grabbed8369) Costs8369.entryTip8369(tip8151, ticketSol8369, pump8369) else tip8151
         try { CostMeter8151.noteTip8151(tip, legacy, entry) } catch (_: Throwable) {}
         return tip
     }
@@ -2752,14 +2757,39 @@ class Executor(
         val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }
         val venue = if (cached == "UNKNOWN" && graduated) "PUMPSWAP" else cached
         if (cached == "UNKNOWN") try { com.lifecyclebot.engine.sell.SellRouteVenueProbe8144.prewarm8144(wallet, ts.mint) } catch (_: Throwable) {}
-        val urgency = if (entryOrdinary8151(ts.mint)) CostTrim8151.Urgency8151.ORDINARY else CostTrim8151.Urgency8151.URGENT
-        if (!CostTrim8151.aggregatorFirstForCost8151(urgency, venue, true, CostMeter8151.aggregatorTriedRecently8151(ts.mint))) return false
+        // superseded by V5.0.8369 — the ORDINARY-only, graduated-only rule (aggregatorFirstForCost8151) kept every curve buy on
+        // PumpPortal (0.5 %/side, landed 3/17) while Jupiter routes the pump.fun curve fee-free and landed 18/18: a curve buy
+        // goes Jupiter first whenever Jupiter quotes the mint; PumpPortal only when it has no route (Costs8369).
+        val graduatedPool8369 = venue == "PUMPSWAP" || venue == "RAYDIUM"
+        val quotes8369 = if (graduatedPool8369) null else costJupiterQuotes8369(ts)
+        val jupiterFirst8369 = Costs8369.jupiterFirstForBuy8369(venue, quotes8369, CostMeter8151.aggregatorTriedRecently8151(ts.mint), Costs8369.jupiterBuysFailing8369())
+        try { Costs8369.noteBuyRoute8369(ts.mint, if (jupiterFirst8369) "JUPITER" else "PUMPPORTAL") } catch (_: Throwable) {}
+        if (!jupiterFirst8369) return false
         try {
             CostMeter8151.noteAggregatorFirst8151(ts.mint)
             PipelineHealthCollector.labelInc("COST_BUY_AGGREGATOR_FIRST_8151")
-            ForensicLogger.lifecycle("COST_BUY_AGGREGATOR_FIRST_8151", "mint=${ts.mint.take(10)} symbol=${ts.symbol} venue=$venue saves=${CostTrim8151.PUMPPORTAL_FEE_PCT_PER_SIDE_8151}%/side")
+            ForensicLogger.lifecycle("COST_BUY_AGGREGATOR_FIRST_8151", "mint=${ts.mint.take(10)} symbol=${ts.symbol} venue=$venue jupiterQuotes8369=$quotes8369 saves=${CostTrim8151.PUMPPORTAL_FEE_PCT_PER_SIDE_8151}%/side")
         } catch (_: Throwable) {}
         return true
+    }
+
+    /**
+     * V5.0.8369 — does Jupiter quote a buy of [ts] (SOL -> mint at the ticket)? Cached per mint (60 s yes / 30 s no); a
+     * probe that does not answer within Costs8369.JUP_PROBE_BUDGET_MS_8369 proves nothing (null: PumpPortal stays first).
+     */
+    private fun costJupiterQuotes8369(ts: TokenState): Boolean? {
+        Costs8369.cachedJupiterQuotes8369(ts.mint)?.let { return it }
+        val probeLamports8369 = (CostMeter8151.ticketSol8151(Costs8369.DEFAULT_TICKET_SOL_8369) * 1e9).toLong().coerceAtLeast(1_000_000L)
+        val answer = CostMeter8151.runBounded8151(Costs8369.JUP_PROBE_BUDGET_MS_8369) {
+            try {
+                val q = jupiter.getQuote(JupiterApi.SOL_MINT, ts.mint, probeLamports8369, 500)
+                if (q.outAmount > 0L) "OK" else "NO"
+            } catch (_: Exception) { "NO" }
+        } ?: return null
+        val ok = answer == "OK"
+        Costs8369.noteJupiterQuote8369(ts.mint, ok)
+        try { PipelineHealthCollector.labelInc(if (ok) "COST_BUY_JUPITER_QUOTES_CURVE_8369" else "COST_BUY_JUPITER_NO_ROUTE_8369") } catch (_: Throwable) {}
+        return ok
     }
 
     /**
@@ -13676,7 +13706,7 @@ class Executor(
                 }
                 val txResult = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
-                        senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true),
+                        senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true, ticketSol8369 = jupiterTopUpPlan.solAmount, mint8369 = ts.mint),
                         ordinary8151 = entryOrdinary8151(ts.mint),  // V5.0.8151 — a top-up is a discretionary entry
                     )
                 security.enforceSignDelay()
@@ -31261,7 +31291,7 @@ class Executor(
             if (guard7688 is GuardResult.Block) throw Exception("SLIPPAGE_REFRESH_QUOTE_REJECTED_7688:${guard7688.reason}")
             executionQuote7688 = fresh7688
             txResultLocal = buildTxWithRetry(fresh7688, wallet.publicKeyB58,
-                senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true), ordinary8151 = entryOrdinary8151(ts.mint))
+                senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true, ticketSol8369 = effectiveSol, mint8369 = ts.mint), ordinary8151 = entryOrdinary8151(ts.mint))
             txResult = txResultLocal
             simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
         }
@@ -31344,7 +31374,7 @@ class Executor(
         onRaydiumFill: (Pair<String, Double>) -> Unit,
     ): com.lifecyclebot.network.SwapTxResult? {
         return try {
-            buildTxWithRetry(quote, wallet.publicKeyB58, senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true),
+            buildTxWithRetry(quote, wallet.publicKeyB58, senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true, ticketSol8369 = sol, mint8369 = ts.mint),
                 ordinary8151 = entryOrdinary8151(ts.mint))  // V5.0.8151 — an ordinary entry is not an emergency
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
@@ -32271,7 +32301,7 @@ class Executor(
                 solAmount       = buySol,
                 slippagePercent = slipPct,
                 priorityFeeSol  = priorityFeeSol,
-                ordinary8151    = entryOrdinary8151(ts.mint),  // V5.0.8151 — medium priority for a discretionary entry
+                ordinary8151    = entryOrdinary8151(ts.mint) || Costs8369.entryCapActive8369(true, RunnerGrab7967.isGrabbed7980(ts.mint)),  // V5.0.8151 — medium priority for a discretionary entry; V5.0.8369 — capped to the ticket unless capped buys stop landing
             )
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
@@ -32295,7 +32325,7 @@ class Executor(
                 com.lifecyclebot.network.HeliusSenderEnvelope7250.build(
                     // V5.0.7980 — a grabbed runner / proven-cell / specialist entry lands next slot (doubled tip).
                     // V5.0.8151 — an ordinary entry pays the SWQOS-only minimum tip with headroom (costSenderTip8151).
-                    pumpTx8288, wallet.publicKeyB58, costSenderTip8151(cfg(), urgent = RunnerGrab7967.isGrabbed7980(ts.mint), ordinary = entryOrdinary8151(ts.mint), entry = true),
+                    pumpTx8288, wallet.publicKeyB58, costSenderTip8151(cfg(), urgent = RunnerGrab7967.isGrabbed7980(ts.mint), ordinary = entryOrdinary8151(ts.mint), entry = true, ticketSol8369 = buySol, pump8369 = true),
                 )
             } catch (_: Throwable) { null }
             try {

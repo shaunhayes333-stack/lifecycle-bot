@@ -117,7 +117,8 @@ class Aate8337CostTruthTest {
         assertTrue(CostTrim8151.routeFeePctPerSide8151("PUMPPORTAL") > 0.0)
         assertEquals(0.0, CostTrim8151.routeFeePctPerSide8151("UNKNOWN_ROUTE"), 0.0)
         val n = src("engine/truth/NetEdge8030.kt")
-        assertTrue(n.contains("CostTrim8151.routeFeePctPerSide8151(if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint)) \"PUMPPORTAL\" else \"JUPITER\")"))
+        // superseded by V5.0.8369 — the route fee reads the route actually chosen (buy route + exit route), not "is a pump mint"
+        assertTrue(n.contains("val routePct = com.lifecyclebot.engine.Costs8369.modelRouteFeePctPerSide8369(mint)"))
         assertFalse(n.contains("routeFeePctPerSide8151(if (curve) \"PUMPPORTAL\" else \"JUPITER\")"))
     }
 

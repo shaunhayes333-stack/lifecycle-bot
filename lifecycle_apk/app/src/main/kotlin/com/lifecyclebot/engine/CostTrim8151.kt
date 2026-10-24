@@ -344,7 +344,8 @@ object CostMeter8151 {
             CostTrim8151.ORDINARY_SENDER_TIP_LAMPORTS_8151,
             com.lifecyclebot.network.PriorityFee8009.mediumMicro8169(),
         ) + " fixedFloor8169=${"%.4f".format(CostLanding8169.fixedCostFloorSol8169(roundTripFixedSol8151()))}SOL@${CostLanding8169.MAX_FIXED_SHARE_PCT_8169}%" +
-            " " + com.lifecyclebot.engine.truth.LaunchCohort8173.statusLine8173()   // V5.0.8173 — launch-cohort landing per route
+            " " + com.lifecyclebot.engine.truth.LaunchCohort8173.statusLine8173() +  // V5.0.8173 — launch-cohort landing per route
+            " " + (try { Costs8369.statusLine8369() } catch (_: Throwable) { "costs8369=-" })   // V5.0.8369
     } catch (_: Throwable) { "landing8169=-" }
 
     internal fun resetForTest8151() {
