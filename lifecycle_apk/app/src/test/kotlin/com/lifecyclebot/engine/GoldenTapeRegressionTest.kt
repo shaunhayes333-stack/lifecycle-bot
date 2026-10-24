@@ -738,8 +738,8 @@ class GoldenTapeRegressionTest {
         assertTrue(gate.contains("RUGCHECK_PENDING_OR_UNKNOWN"))
         assertTrue(gate.contains("PRETRADE_HARD_BLOCK"))
         assertTrue(gate.contains("PRETRADE_PENDING_PROOF_PENALTY_ALLOW"))
-        assertTrue("Pending proof must be penalty-only telemetry, while route/liquidity unknown still hydrate-defers", gate.contains("PRETRADE_PENDING_PROOF_PENALTY_ALLOW") && gate.contains("decision=PENALTY_ONLY reason=PENDING_PROOF") && gate.contains("LIVE_ROUTE_LIQUIDITY_PROOF_PENDING") && gate.contains("DEFER_SAFETY_PROOF"))
-        assertTrue("Pending holder data must not terminal-choke live buys when confirmed fatal holder/rug checks are absent", gate.contains("HOLDER_DISTRIBUTION_PENDING") && gate.contains("taxonomy=pending_penalty") && !gate.contains("LIVE_CRITICAL_PROOF_PENDING"))
+        assertTrue("Unknown critical evidence must hydrate-defer while proven soft quality penalties may shape sizing", gate.contains("PRETRADE_PENDING_PROOF_PENALTY_ALLOW") && gate.contains("decision=PENALTY_ONLY reason=PENDING_PROOF") && gate.contains("LIVE_CRITICAL_PROOF_PENDING_8373") && gate.contains("DEFER_SAFETY_PROOF"))
+        assertTrue("Pending holder evidence must defer spending without permanent blacklisting", gate.contains("HOLDER_DISTRIBUTION_PENDING") && gate.contains("criticalProofPending8373(pending)") && gate.contains("SafetyRefreshQueue.request(ts.mint)"))
         assertFalse("Critical pending proof must not emit PRETRADE_HARD_BLOCK anymore", gate.contains("return block(ts, \"CRITICAL_SAFETY_PROOF_UNKNOWN\""))
         assertFalse("RugCheck pending alone must not recreate RC=1 live choke", gate.contains("return block(ts, \"RUGCHECK_PENDING_OR_UNKNOWN\""))
         assertTrue("Holder warning text must be a pre-submit hard block", gate.contains("SINGLE HOLDER") && gate.contains("FATAL_WALLET_RISK_TEXT"))
@@ -3188,7 +3188,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Low but nonzero liquidity must be quote/size penalty, not static hard block", safety.contains("LOW_LIQUIDITY_SIZE_REDUCED") && preTrade.contains("LOW_LIQUIDITY_SIZE_REDUCED"))
         assertFalse("Static liquidity min must not hard-block live buys", preTrade.contains("return block(ts, \"LIQUIDITY_BELOW_LIVE_MIN"))
         assertFalse("Missing/stale safety must not hard-block by itself", preTrade.contains("return block(ts, \"SAFETY_PROOF_STALE_OR_MISSING"))
-        assertTrue("Unknown mint/freeze/holder proof is a pending-penalty allow, not a terminal live block", preTrade.contains("PRETRADE_PENDING_PROOF_PENALTY_ALLOW") && preTrade.contains("pending_penalty") && !preTrade.contains("LIVE_CRITICAL_PROOF_PENDING"))
+        assertTrue("Unknown mint/holder/rug evidence is a retryable safety defer, while nonessential penalties remain tunable", preTrade.contains("LIVE_CRITICAL_PROOF_PENDING_8373") && preTrade.contains("DEFER_SAFETY_PROOF") && preTrade.contains("PRETRADE_PENDING_PROOF_PENALTY_ALLOW"))
         assertTrue("LiveBuyAdmissionGate must convert safety shadow to penalty-only unless true hard", liveGate.contains("SAFETY_SHADOW_PENALTY_ONLY") && liveGate.contains("BUY_GATE_PENALTY_ONLY_SAFETY_SHADOW"))
         assertTrue("BotService SAFETY_SHADOW must continue only for true hard reasons", bot.contains("!TokenBlacklist.isSoftPenaltyOnlyReason(reason)") && bot.contains("source=BotService.SAFETY_SHADOW"))
         assertTrue("Price-only collapse must not become a true hard blacklist", tokenBlacklist.contains("RUG DETECTED") && tokenBlacklist.contains("!r.contains(\"CONFIRMED_RUG_COLLAPSE\")") && bot.contains("RUG_PRICE_COLLAPSE_UNCONFIRMED") && bot.contains("SafetyRefreshQueue.request(mint)"))
@@ -3313,7 +3313,7 @@ class GoldenTapeRegressionTest {
         val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
 
-        assertTrue("Live holder distribution uncertainty must penalty-allow, not terminal-choke real SOL attempts", pre.contains("HOLDER_DISTRIBUTION_PENDING") && pre.contains("PRETRADE_PENDING_PROOF_PENALTY_ALLOW") && !pre.contains("LIVE_CRITICAL_PROOF_PENDING"))
+        assertTrue("Live holder distribution uncertainty must hydrate-defer real SOL, without a terminal blacklist", pre.contains("HOLDER_DISTRIBUTION_PENDING") && pre.contains("LIVE_CRITICAL_PROOF_PENDING_8373") && pre.contains("SafetyRefreshQueue.request(ts.mint)"))
         assertTrue("Wallet/Phantom holder warning text must be fatal pre-submit", pre.contains("FATAL_WALLET_RISK_TEXT") && listOf("SINGLE HOLDER", "UNVERIFIED TOKEN", "TOP 10").all { pre.contains(it) })
         assertTrue("Ultra live runners must bank before normal partial cadence", exec.contains("ULTRA-RUNNER PANIC BANK") && exec.contains("ULTRA_RUNNER_BANK_TRIGGERED") && exec.contains("gainMultiple >= 50.0") && exec.contains("peakGainPct >= 5_000.0") && exec.contains("executeProfitLockSell(ts, wallet, sellFraction, \"ultra_runner_bank_"))
         assertTrue("Catastrophic stop overruns must not be hidden as normal STRICT_SL in alerts/reports", exec.contains("STOP_LOSS_OVERRUN_CATASTROPHIC") && exec.contains("CATASTROPHIC_STOP_LOSS_OVERRUN_") && exec.contains("TradeAlerts.onSell(cfg(), ts.symbol, pnl, pnlP, finalSellReason") && exec.contains("${'$'}finalSellReason  PnL"))
@@ -3844,7 +3844,7 @@ class GoldenTapeRegressionTest {
         assertTrue("executor phase counters must represent proof-first tx progress", listOf("EXEC_SELECTED", "EXEC_TICKET_CREATED", "QUOTE_REQUESTED", "QUOTE_OK", "SWAP_BUILT", "TX_SIGNED", "TX_SUBMITTED", "TX_CONFIRMED", "BUY_PENDING_BALANCE_PROOF", "BUY_JOURNALED").all { (gate + exec).contains(it) })
         assertTrue("only a verified BUY without a journal may fail the regression guard", pipe.contains("VERIFIED_BUY_WITHOUT_JOURNAL") && pipe.contains("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637") && pipe.contains("REGRESSION_GUARDS_FAIL"))
         assertTrue("confirmed live BUY must defer side effects until authoritative proof", exec.contains("LIVE_BUY_SIDE_EFFECTS_DEFERRED_6637") && exec.contains("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637") && exec.indexOf("BUY_PENDING_BALANCE_PROOF") < exec.indexOf("BUY_JOURNALED"))
-        assertTrue("live hard-safety residues must keep confirmed fatal terminal while pending proof is penalty-only", pre.contains("MINT_AUTHORITY_ACTIVE") && pre.contains("TOP_HOLDER_CONCENTRATION") && pre.contains("FATAL_WALLET_RISK_TEXT") && pre.contains("PRETRADE_PENDING_PROOF_PENALTY_ALLOW") && pre.contains("LIVE_ROUTE_LIQUIDITY_PROOF_PENDING"))
+        assertTrue("live hard-safety residues must keep confirmed fatal terminal while missing essential proof defers", pre.contains("MINT_AUTHORITY_ACTIVE") && pre.contains("TOP_HOLDER_CONCENTRATION") && pre.contains("FATAL_WALLET_RISK_TEXT") && pre.contains("PRETRADE_PENDING_PROOF_PENALTY_ALLOW") && pre.contains("LIVE_CRITICAL_PROOF_PENDING_8373"))
         assertFalse("active authority/high-holder live risks must not remain size-clamp penalty-only", pre.contains("MINT_AUTHORITY_ACTIVE_SIZE_CLAMP") || pre.contains("TOP_HOLDER_SIZE_CLAMP"))
         // V5.0.6665 — both close paths now read immutable pre-close `pos`.
         // Requiring the cleared mutable ts.position was itself stale patch rot.

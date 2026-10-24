@@ -8,6 +8,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -200,11 +202,32 @@ object ChartSources7955 {
      * this app declining to ask, not the provider failing: it neither strikes the provider nor spends a job's try.
      */
     const val LOCAL_CIRCUIT_8144 = -599
+    /** A provider's excessive response is not a usable chart, nor evidence the mint is illiquid. */
+    const val BODY_TOO_LARGE_8375 = -598
+    private const val MAX_CHART_BODY_BYTES_8375 = 2 * 1024 * 1024
+    private val oversizedResponses8375 = AtomicLong(0)
+
+    /** Never materialise an unbounded provider body before parsing it as JSON. */
+    fun boundedBody8375(input: InputStream, limitBytes: Int = MAX_CHART_BODY_BYTES_8375): String? {
+        require(limitBytes > 0)
+        val out = ByteArrayOutputStream(minOf(limitBytes, 32 * 1024))
+        val buf = ByteArray(8192)
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            if (n == 0) continue
+            if (n > limitBytes - out.size()) return null
+            out.write(buf, 0, n)
+        }
+        return out.toString(Charsets.UTF_8.name())
+    }
     private const val LOCAL_CIRCUIT_REST_MS_8144 = 15_000L
     private const val LOCAL_CIRCUIT_REQUEUES_8144 = 20
 
     /** Pure: what one failed job does next — requeue on the same provider, try its fallback, or drop. */
     fun jobRetry8144(code: Int, tries: Int, localBlocks: Int): String = when {
+        // Re-requesting an oversized body just repeats the allocation. Try the job's existing fallback.
+        code == BODY_TOO_LARGE_8375 -> "fallback"
         code == LOCAL_CIRCUIT_8144 && localBlocks <= LOCAL_CIRCUIT_REQUEUES_8144 -> "requeue_local"
         code != LOCAL_CIRCUIT_8144 && (code < 0 || code == 429 || code >= 500 || code == 401 || code == 403) && tries < 3 -> "requeue"
         else -> "fallback"
@@ -722,8 +745,14 @@ object ChartSources7955 {
             if (post != null) b.post(post.toRequestBody(JSON_MT))
             http.newCall(b.build()).execute().use { resp ->
                 if (com.lifecyclebot.network.HostCircuitInterceptor.isSyntheticBlock(resp)) Res(LOCAL_CIRCUIT_8144, null)
-                else Res(resp.code, resp.body?.string(), resp.header("Retry-After")?.trim()?.toLongOrNull(),
-                    resp.header("X-RateLimit-Reset") ?: resp.header("RateLimit-Reset"))   // V5.0.8307
+                else {
+                    val body = resp.body
+                    val tooLarge = body != null && body.contentLength() > MAX_CHART_BODY_BYTES_8375
+                    val read = if (tooLarge) null else body?.byteStream()?.use { boundedBody8375(it) }
+                    if (body != null && (tooLarge || read == null)) Res(BODY_TOO_LARGE_8375, null)
+                    else Res(resp.code, read, resp.header("Retry-After")?.trim()?.toLongOrNull(),
+                        resp.header("X-RateLimit-Reset") ?: resp.header("RateLimit-Reset"))   // V5.0.8307
+                }
             }
         } catch (e: InterruptedException) {
             throw e
@@ -734,6 +763,11 @@ object ChartSources7955 {
             // V5.0.8144 — the local circuit is resting this lane: wait out a short slot, no strike, no backoff climb.
             p.localBlocks8144.incrementAndGet()
             synchronized(p) { p.nextAtMs = maxOf(p.nextAtMs, System.currentTimeMillis() + LOCAL_CIRCUIT_REST_MS_8144) }
+            return r
+        }
+        if (r.code == BODY_TOO_LARGE_8375) {
+            oversizedResponses8375.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("CHART_SOURCE_OVERSIZE_REFUSED_8375_${p.id.uppercase()}") } catch (_: Throwable) {}
             return r
         }
         val challenge = ChartParsers7955.isChallenge7955(r.code, r.body)
@@ -1039,7 +1073,8 @@ object ChartSources7955 {
     fun diagLines7955(nowMs: Long = System.currentTimeMillis()): List<String> {
         val out = ArrayList<String>(PROVS.size + 2)
         out += "chart sources (§7955): jobsDone=${jobsDone.get()} queued=${jobsQueued.get()} skippedDone=${jobsSkippedDone.get()} " +
-            "pending=${queues.values.sumOf { it.size() }} motifs[crypto=${cryptoMotifs.get()} meme=${memeMotifs.get()}]"
+            "pending=${queues.values.sumOf { it.size() }} motifs[crypto=${cryptoMotifs.get()} meme=${memeMotifs.get()}] " +
+            "oversizeRefused8375=${oversizedResponses8375.get()} maxBodyBytes8375=$MAX_CHART_BODY_BYTES_8375"
         for (p in PROVS) {
             val state = when {
                 p.keyed && !hasKey(p) -> "no key"
@@ -1071,5 +1106,6 @@ object ChartSources7955 {
     /** Short summary for the builder's status line. */
     fun summary7955(): String =
         "jobsDone=${jobsDone.get()} pending=${queues.values.sumOf { it.size() }} skippedDone=${jobsSkippedDone.get()} " +
-            "geckoFeedBusy=${byId[GECKO]?.skips?.get() ?: 0} live=${PROVS.count { it.calls.get() > 0 && it.ok.get() > 0 }}/${PROVS.size}"
+            "geckoFeedBusy=${byId[GECKO]?.skips?.get() ?: 0} oversize=${oversizedResponses8375.get()} " +
+            "live=${PROVS.count { it.calls.get() > 0 && it.ok.get() > 0 }}/${PROVS.size}"
 }

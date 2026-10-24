@@ -312,6 +312,57 @@ If nothing needs tuning, return {"suggestions": []}.
      * and handing it to LlmParameterTuner.extractAndApply. Returns
      * (ok, message).
      */
+    internal fun batchPlan8373(keys: List<String>, maxChanges: Int = 3): List<String?> {
+        val counts = keys.groupingBy { it }.eachCount()
+        var accepted = 0
+        return keys.map { key ->
+            when {
+                counts[key] != 1 -> "conflicting or repeated proposals for $key; review individually"
+                accepted >= maxChanges -> "batch limit $maxChanges reached; proposal remains pending"
+                else -> { accepted++; null }
+            }
+        }
+    }
+
+    /** Apply a reviewed set as ONE bounded config transaction, never N independent calls of the tuner. */
+    fun applyBatch8373(ctx: Context, suggestions: List<Suggestion>): List<Pair<Boolean, String>> {
+        if (suggestions.isEmpty()) return emptyList()
+        val plan = batchPlan8373(suggestions.map { it.key })
+        val selected = suggestions.indices.filter { plan[it] == null }
+        if (selected.isEmpty()) return plan.map { false to (it ?: "no selection") }
+        val payload = JSONObject().apply {
+            put("adjustments", JSONArray().apply {
+                for (i in selected) put(JSONObject().apply {
+                    put("key", suggestions[i].key)
+                    put("delta", suggestions[i].delta)
+                    put("reason", "advisor:${suggestions[i].reason.take(160)}")
+                })
+            })
+        }
+        val outcome = try {
+            LlmParameterTuner.extractAndApply(ctx, "<<TUNE>>$payload<<ENDTUNE>>")
+        } catch (t: Throwable) {
+            return plan.map { false to (it ?: "transaction failed: ${t.message ?: t.javaClass.simpleName}") }
+        }
+        val applied = outcome.changes.associateBy { it.key }
+        return suggestions.mapIndexed { index, suggestion ->
+            val ignored = plan[index]
+            val change = if (ignored == null) applied[suggestion.key] else null
+            if (change != null) {
+                AdvisorInbox.markApplied(suggestion.id)
+                try {
+                    PipelineHealthCollector.labelInc("SELF_HEALING_ADVISOR_BATCH_APPLIED_8373")
+                    ForensicLogger.lifecycle("SELF_HEALING_ADVISOR_BATCH_APPLIED_8373",
+                        "id=${suggestion.id} key=${change.key} old=${change.oldValue} new=${change.newValue} committed=true")
+                } catch (_: Throwable) {}
+                true to "${change.oldValue} → ${change.newValue} (single committed batch)"
+            } else {
+                false to (ignored ?: outcome.rejected.firstOrNull { it.startsWith("${suggestion.key}:") }
+                    ?: outcome.rejected.joinToString(", ").ifBlank { "no persisted change" })
+            }
+        }
+    }
+
     fun applySuggestion(ctx: Context, suggestion: Suggestion): Pair<Boolean, String> {
         val jsonBlock = JSONObject().apply {
             put("adjustments", JSONArray().apply {

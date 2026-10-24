@@ -44,7 +44,12 @@ class CortexScoreboard7885 {
         /** Pure: where a fused verdict falls. */
         fun bucketOf(edgePct: Double, runnerRate: Double, runnerLane: Boolean): Bucket = when {
             !edgePct.isFinite() -> Bucket.NEUTRAL
-            edgePct < REFUSE_EDGE_PCT && !(runnerLane && runnerRate >= TAIL_RUNNER_RATE) -> Bucket.REFUSE
+            // V5.0.8373: an observed spike probability cannot convert a
+            // negative *executable net* forecast into an apparently neutral
+            // take. A runner ticket has its own verified strategy path; it
+            // must not contaminate the Cortex verdict/label cohort. This is
+            // classification only; live refuses still require OOS proof.
+            edgePct < REFUSE_EDGE_PCT -> Bucket.REFUSE
             edgePct > STRONG_EDGE_PCT -> Bucket.STRONG
             else -> Bucket.NEUTRAL
         }

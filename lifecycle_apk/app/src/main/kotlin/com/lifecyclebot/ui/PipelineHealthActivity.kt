@@ -635,12 +635,12 @@ class PipelineHealthActivity : AppCompatActivity() {
     ) {
         val okLines = mutableListOf<String>()
         val failLines = mutableListOf<String>()
-        for (s in suggestions) {
-            val (ok, msg) = try {
-                com.lifecyclebot.engine.SelfHealingAdvisor.applySuggestion(applicationContext, s)
-            } catch (t: Throwable) {
-                false to ("apply failed: " + (t.message ?: t.javaClass.simpleName))
-            }
+        // One ConfigStore commit and one evidence/step cap for this click.
+        // Repeated keys are kept pending for review instead of being applied
+        // several times in order, silently defeating the tuner's per-call cap.
+        val results = com.lifecyclebot.engine.SelfHealingAdvisor.applyBatch8373(applicationContext, suggestions)
+        for ((s, result) in suggestions.zip(results)) {
+            val (ok, msg) = result
             if (ok) okLines.add("✅ ${s.key}: $msg") else failLines.add("⚠️ ${s.key}: $msg")
         }
         val body = buildString {
