@@ -2062,10 +2062,6 @@ object LanePlaybook7907 {
         return loaded && episodes8372.observe(mint, lane, decisionAtMs)
     }
 
-    fun shadowDisposition8372(mint: String, lane: String, decisionAtMs: Long): String? =
-        episodes8372.disposition(mint, lane, decisionAtMs)
-            ?: if (episodes8372.grade(mint, lane, decisionAtMs)?.terminal == true) "LEARNED_SELECTED_EXIT_8372" else null
-
     private fun shadowObservedOnly8372(mint: String, lane: String, decisionAtMs: Long, reason: String): Boolean {
         val previous = episodes8372.disposition(mint, lane, decisionAtMs)
         val accepted = if (reason == "NO_SETUP_CAPTURE_8372") episodes8372.disposeUncaptured(mint, lane, decisionAtMs, reason)
