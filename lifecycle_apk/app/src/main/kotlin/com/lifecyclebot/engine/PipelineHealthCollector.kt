@@ -1434,6 +1434,7 @@ object PipelineHealthCollector {
             try { sb.append("  Evidence hold (§8336):        ").append(com.lifecyclebot.engine.truth.EvidenceHold8336.statusLine8336()).append("\n") } catch (_: Throwable) {}
             try { sb.append("  Evidence shadow (§8344):      ").append(com.lifecyclebot.engine.truth.EvidenceShadow8344.statusLine8344(com.lifecyclebot.engine.truth.EvidenceHold8336.startMs8336)).append("\n") } catch (_: Throwable) {}
             try { sb.append("  Explore shadow (§8347):       ").append(com.lifecyclebot.engine.truth.ExploreShadow8347.statusLine8347(com.lifecyclebot.engine.truth.EvidenceHold8336.startMs8336)).append("\n") } catch (_: Throwable) {}
+            try { sb.append("  Live vs shadow (§8366):       ").append(com.lifecyclebot.engine.truth.ShadowAlign8366.statusLine8366()).append("\n") } catch (_: Throwable) {}
             val unprotected7213 = drainedOpen7213 + q7809.fundedOutsideExitScope
             if (unprotected7213 > 0) {
                 labelInc("PROTECTIVE_EXIT_HOLDINGS_OUTSIDE_EXIT_SCOPE_7213")

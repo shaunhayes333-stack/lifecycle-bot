@@ -182,6 +182,8 @@ object CostLedger7962 {
             return true
         }
         if (!e.learningEligible || !ExactStrategyPerformance7429.terminalEconomicsEligible8081(e.mode, e.proofState)) return false
+        // V5.0.8366 — the realised live net of this close, paired with the shadow leg that traded the same mint (once per trade id)
+        if (e.holdingTimeMs > 0L) try { ShadowAlign8366.noteLive8366(e.tradeId, e.lane, e.mint, e.atMs - e.holdingTimeMs, e.realizedReturnPct) } catch (_: Throwable) {}
         val em = entryMarks[e.positionId] ?: run {
             noEntryMark.incrementAndGet()
             CanonicalFinalizedTradeBus6464.exclude("CostLedger7962", e.tradeId, "ENTRY_MARK_UNOBSERVED")

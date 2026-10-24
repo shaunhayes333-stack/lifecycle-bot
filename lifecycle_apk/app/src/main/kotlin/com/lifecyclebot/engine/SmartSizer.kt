@@ -475,26 +475,11 @@ object SmartSizer {
                 else -> 1.0
             }
         } else {
-            // Live path. If we have ≥10 live trades, use live's own context.
-            // Otherwise fall back to FluidLearning paper-trained stats so the
-            // bot's hard-earned recognition transfers.
-            val useFluidFallback = cfg.fluidLearningEnabled && perf.totalTrades < 10 &&
-                                   FluidLearning.getTradeCount() >= 10
-            if (useFluidFallback) {
-                val fluidWinRate = FluidLearning.getWinRate()
-                val fluidTrades = FluidLearning.getTradeCount()
-                ErrorLogger.debug("SmartSizer",
-                    "🧬 LIVE perfMult using paper-trained fallback: liveTrades=${perf.totalTrades} " +
-                    "paperWR=${fluidWinRate.toInt()}% paperTrades=$fluidTrades")
-                // V5.0.8296 — a paper win rate never sizes a LIVE order up (no paper results into live sizing);
-                // a weak paper record may still only shrink it until live has its own 10 trades.
-                LiveConfidenceSizing8296.paperFallbackLiveMult8296(when {
-                    fluidWinRate >= 70 && fluidTrades >= 10 -> 1.30
-                    fluidWinRate >= 60 && fluidTrades >= 10 -> 1.15
-                    fluidWinRate < 40 && fluidTrades >= 10  -> 0.70
-                    fluidWinRate < 50 && fluidTrades >= 10  -> 0.85
-                    else -> 1.0
-                })
+            // superseded by V5.0.8366 — under 10 live trades the live multiplier read FluidLearning's PAPER-trained win rate
+            // (through LiveConfidenceSizing8296's shrink-only cap): paper results still sized live orders down. Paper never sizes
+            // live: until LivePerf8366.MIN_LIVE_CLOSES_8366 live closes the multiplier is neutral 1.0; live's own context after.
+            if (LivePerf8366.thinLive8366(perf.totalTrades)) {
+                LivePerf8366.thinLiveMult8366(perf.totalTrades)
             } else {
                 when {
                     perf.lossStreak >= 4                       -> 0.50

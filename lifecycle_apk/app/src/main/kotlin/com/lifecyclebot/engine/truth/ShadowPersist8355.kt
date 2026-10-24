@@ -27,12 +27,16 @@ object ShadowPersist8355 {
         val mint: String, val lane: String, val entryPx: Double, val atMs: Long, val costPct: Double, val stopPct: Double,
         val armPct: Double, val timeoutMs: Long, val held: Double, val bankedGrossPct: Double, val tiersHit: Int,
         val peakPct: Double, val lastPx: Double, val lastPxAtMs: Long,
+        // V5.0.8366 — the lifecycle hold a +100 % position is promoted into (ShadowAlign8366): appended, so a pre-8366 record decodes
+        val hold8366: Boolean = false, val taken8366: Int = 0, val peakAt8366: Long = 0L,
     )
 
     /** One ExploreShadow8347 leg (entry / exit variant) with its full state, dead legs included. */
     data class LegRec8355(
         val entry: String, val exit: String, val active: Boolean, val dead: Boolean, val entryPx: Double, val entryAtMs: Long,
         val held: Double, val banked: Double, val tiers: Int, val peak: Double, val trough: Double,
+        // V5.0.8366 — the lifecycle hold (ShadowAlign8366): appended leg fields, so a pre-8366 leg (11 fields) decodes
+        val hold8366: Boolean = false, val taken8366: Int = 0, val peakAt8366: Long = 0L,
     )
 
     /** An open ExploreShadow8347 ticket with its legs. */
@@ -76,6 +80,7 @@ object ShadowPersist8355 {
     fun encodePos8355(r: PosRec8355): String = listOf(
         VERSION_8355, "P", clean(r.mint), clean(r.lane), d(r.entryPx), r.atMs.toString(), d(r.costPct), d(r.stopPct), d(r.armPct),
         r.timeoutMs.toString(), d(r.held), d(r.bankedGrossPct), r.tiersHit.toString(), d(r.peakPct), d(r.lastPx), r.lastPxAtMs.toString(),
+        b(r.hold8366), r.taken8366.toString(), r.peakAt8366.toString(),   // V5.0.8366
     ).joinToString(F.toString())
 
     fun decodePos8355(s: String?): PosRec8355? {
@@ -91,12 +96,14 @@ object ShadowPersist8355 {
             timeoutMs = pl(p[9]) ?: return null, held = pd(p[10]) ?: return null, bankedGrossPct = pd(p[11]) ?: return null,
             tiersHit = pi(p[12]) ?: return null, peakPct = pd(p[13]) ?: return null, lastPx = pd(p[14]) ?: return null,
             lastPxAtMs = pl(p[15]) ?: return null,
+            hold8366 = pb(p.getOrNull(16)) ?: false, taken8366 = pi(p.getOrNull(17)) ?: 0, peakAt8366 = pl(p.getOrNull(18)) ?: 0L,   // V5.0.8366
         )
     }
 
     private fun encodeLeg(l: LegRec8355): String = listOf(
         clean(l.entry), clean(l.exit), b(l.active), b(l.dead), d(l.entryPx), l.entryAtMs.toString(), d(l.held), d(l.banked),
         l.tiers.toString(), d(l.peak), d(l.trough),
+        b(l.hold8366), l.taken8366.toString(), l.peakAt8366.toString(),   // V5.0.8366
     ).joinToString(LEG_F.toString())
 
     private fun decodeLeg(s: String): LegRec8355? {
@@ -107,6 +114,7 @@ object ShadowPersist8355 {
             entryPx = pd(p[4]) ?: return null, entryAtMs = pl(p[5]) ?: return null, held = pd(p[6]) ?: return null,
             banked = pd(p[7]) ?: return null, tiers = pi(p[8]) ?: return null, peak = pd(p[9]) ?: return null,
             trough = pd(p[10]) ?: return null,
+            hold8366 = pb(p.getOrNull(11)) ?: false, taken8366 = pi(p.getOrNull(12)) ?: 0, peakAt8366 = pl(p.getOrNull(13)) ?: 0L,   // V5.0.8366
         )
     }
 
