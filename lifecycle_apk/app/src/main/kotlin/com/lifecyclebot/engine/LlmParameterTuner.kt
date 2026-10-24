@@ -145,10 +145,10 @@ object LlmParameterTuner {
             { c, v -> c.copy(scanIntervalSecs = v.toInt()) },
             min = 3.0, max = 60.0, maxStep = 10.0
         ),
-        "minDiscoveryScore" to ParamSpec(
-            { it.minDiscoveryScore }, { c, v -> c.copy(minDiscoveryScore = v) },
-            min = 0.0, max = 40.0, maxStep = 8.0
-        ),
+        // 8365: minDiscoveryScore deliberately excluded. Its config value has no
+        // decision-path consumer: changing it looks like learning in the advisor
+        // timeline but cannot alter discovered tokens. Reinstate ONLY with a
+        // tested, live reader and evidence-calibrated semantics.
     )
 
     fun isAllowedKey(key: String): Boolean = ALLOWED_SPECS.containsKey(key)
