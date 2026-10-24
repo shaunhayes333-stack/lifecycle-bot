@@ -202,10 +202,15 @@ class CortexCalibration7901 {
         isoFits8366.remove(lane)
     }
 
-    private fun reviseIso8366(lane: String, stamp: Double, newOutcomePct: Double) {
-        if (!stamp.isFinite() || !newOutcomePct.isFinite()) return
-        val ring = iso8366[lane] ?: return
-        for (row in ring) if (row[2].isFinite() && kotlin.math.abs(row[2] - stamp) < 1e-12) { row[1] = newOutcomePct; isoFits8366.remove(lane); return }
+    private fun reviseIso8366(lane: String, stamp: Double, newOutcomePct: Double): Boolean {
+        if (!stamp.isFinite() || !newOutcomePct.isFinite()) return false
+        val ring = iso8366[lane] ?: return false
+        for (row in ring) if (row[2].isFinite() && kotlin.math.abs(row[2] - stamp) < 1e-12) {
+            row[1] = newOutcomePct
+            isoFits8366.remove(lane)
+            return true
+        }
+        return false
     }
 
     /** V5.0.8366 — per lane: the rank fit's pairs, Spearman and blocks (diagnostic). */
@@ -237,7 +242,10 @@ class CortexCalibration7901 {
 
     private fun learnSlope7901(lane: String, rawEdge: Double, laneMean: Double, outcome: Double): Double {
         val d = rawEdge - laneMean
-        if (!d.isFinite() || !outcome.isFinite() || kotlin.math.abs(d) < 1e-9) return Double.NaN
+        // V5.0.8371: a zero-deviation cold-start prediction is still a real graded decision.
+        // It must earn a revision stamp so its early mark can be replaced by the later runner outcome.
+        // A zero deviation does not manufacture slope covariance (d*d and d*y both stay zero).
+        if (!d.isFinite() || !outcome.isFinite()) return Double.NaN
         val y = (outcome - laneMean).coerceIn(-RESIDUAL_CLIP_PCT, RESIDUAL_CLIP_PCT)
         if (!y.isFinite()) return Double.NaN
         val r = lanes.getOrPut(lane) { Reg() }
@@ -257,13 +265,15 @@ class CortexCalibration7901 {
      * slope 0.00 was fitted on five-minute reads of a lane whose runners pay at 15-60 minutes and beyond.
      */
     fun revise8322(lane: String, rawEdge: Double, laneMean: Double, oldOutcome: Double, newOutcome: Double, stamp: Double): Boolean {
-        reviseIso8366(lane, stamp, newOutcome)  // V5.0.8366 — the rank calibration follows the lane objective too
-        val r = lanes[lane] ?: return false
+        val isoRevised8371 = reviseIso8366(lane, stamp, newOutcome)
+        val r = lanes[lane] ?: return isoRevised8371
         val d = rawEdge - laneMean
-        if (!d.isFinite() || kotlin.math.abs(d) < 1e-9 || !oldOutcome.isFinite() || !newOutcome.isFinite() || !stamp.isFinite()) return false
-        if (r.logScale8322 > stamp + 1e-9) return false
+        // A zero-deviation label has no slope coefficient to revise, but its
+        // isotonic score/outcome pair still must follow the later lane objective.
+        if (!d.isFinite() || kotlin.math.abs(d) < 1e-9 || !oldOutcome.isFinite() || !newOutcome.isFinite() || !stamp.isFinite()) return isoRevised8371
+        if (r.logScale8322 > stamp + 1e-9) return isoRevised8371
         val w = kotlin.math.exp(r.logScale8322 - stamp).coerceIn(0.0, 1.0)
-        if (!(w > 0.0)) return false
+        if (!(w > 0.0)) return isoRevised8371
         val yo = (oldOutcome - laneMean).coerceIn(-RESIDUAL_CLIP_PCT, RESIDUAL_CLIP_PCT)
         val yn = (newOutcome - laneMean).coerceIn(-RESIDUAL_CLIP_PCT, RESIDUAL_CLIP_PCT)
         if (!yo.isFinite() || !yn.isFinite()) return false
@@ -309,7 +319,10 @@ class CortexCalibration7901 {
     fun laneCount8324(): Int = lanes.size
 
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->
-        lanes.forEach { (k, r) -> o.put(k, "${r.n},${r.sd},${r.sdd},${r.sy},${r.sdy}") }
+        // V5.0.8371: the sixth field preserves the decay-coordinate used by
+        // revise8322. Without it every in-flight runner revision after restart
+        // has a stamp older than the restored (zero) coordinate and is discarded.
+        lanes.forEach { (k, r) -> o.put(k, "${r.n},${r.sd},${r.sdd},${r.sy},${r.sdy},${r.logScale8322}") }
         // V5.0.8366 — the rank-calibration rings: "score:outcome:stamp;..." (no commas: a pre-8366 decoder skips the row).
         iso8366.forEach { (k, ring) -> o.put(ISO_KEY_PREFIX_8366 + k, ring.joinToString(";") { "${num8366(it[0])}:${num8366(it[1])}:${if (it[2].isFinite()) it[2].toString() else "x"}" }) }
     }
@@ -331,8 +344,13 @@ class CortexCalibration7901 {
                 continue
             }
             val f = o.optString(k).split(',').mapNotNull { it.toDoubleOrNull() }
-            // V5.0.8169 — only centred rows (5 fields); a 7901 through-origin row (3 fields) re-learns from identity.
-            if (f.size == 5) lanes[k] = Reg().also { it.n = f[0]; it.sd = f[1]; it.sdd = f[2]; it.sy = f[3]; it.sdy = f[4] }
+            // V5.0.8371: six-field rows preserve the old grade's decay
+            // coordinate. Historical centred five-field rows still load intact;
+            // their pre-upgrade stamps cannot be reconstructed retroactively.
+            if (f.size == 5 || f.size == 6) lanes[k] = Reg().also {
+                it.n = f[0]; it.sd = f[1]; it.sdd = f[2]; it.sy = f[3]; it.sdy = f[4]
+                it.logScale8322 = f.getOrNull(5) ?: 0.0
+            }
         }
     }
 
