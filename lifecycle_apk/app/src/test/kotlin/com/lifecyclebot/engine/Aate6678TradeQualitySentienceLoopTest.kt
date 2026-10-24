@@ -69,7 +69,7 @@ class Aate6678TradeQualitySentienceLoopTest {
         val context = sentience
             .substringAfter("val qualityKeys = listOf(")
             .substringBefore(").filter")
-        assertTrue(context.contains("minDiscoveryScore"))
+        assertFalse(context.contains("minDiscoveryScore"))
         assertTrue(context.contains("minLiquidityUsd"))
         assertTrue(context.contains("sentimentBlockThreshold"))
         assertTrue(context.contains("behaviorAggressionLevel"))

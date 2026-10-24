@@ -41,7 +41,9 @@ class Aate8329EntryEconomicsTest {
             Entry8114Mode8326.finalVerdict8326(null, "CANDIDATE_ADMISSION_8136_LIVE_LANE_LABELS_NOT_POSITIVE_8325", realised))
         assertEquals("hard safety comes first", "CANDIDATE_ADMISSION_8136_SAFETY_REFUSED_8136",
             Entry8114Mode8326.finalVerdict8326(null, "CANDIDATE_ADMISSION_8136_SAFETY_REFUSED_8136", realised))
-        assertNull("no realised refusal: the 8114 admit stands", Entry8114Mode8326.finalVerdict8326(null, "CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136", null))
+        assertEquals("a candidate's clearly losing timing still binds without a realised lane shut",
+            "CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136",
+            Entry8114Mode8326.finalVerdict8326(null, "CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136", null))
         assertEquals("the two-argument form is unchanged", "CHASING_SPIKE_8065", Entry8114Mode8326.finalVerdict8326("CHASING_SPIKE_8065", null))
     }
 

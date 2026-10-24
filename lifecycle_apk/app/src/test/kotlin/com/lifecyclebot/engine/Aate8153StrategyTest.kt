@@ -147,6 +147,31 @@ class Aate8153StrategyTest {
         assertTrue(CandidateAdmission8136.missingOf8144(unmeasuredAlternative).contains("economics"))
     }
 
+    @Test fun negativeHourIsNotPositiveMomentumOrAProjectedRunner() {
+        assertNull(StrategyMove8153.positiveHour8153(-31.0))
+        assertNull(StrategyMove8153.positiveHour8153(0.0))
+        assertNull(StrategyMove8153.positiveHour8153(Double.NaN))
+        assertEquals(25.0, StrategyMove8153.positiveHour8153(25.0)!!, 1e-9)
+        assertTrue(StrategyMove8153.momentumLane8153("MOONSHOT"))
+        assertFalse(StrategyMove8153.momentumLane8153("DIP_HUNTER"))
+        val falling = StrategyMove8153.expected8153(45.0, 36.0, true, null,
+            0, Double.NaN, Double.NaN, 8.0, false,
+            signedHourPct = -31.0, momentumEntry = true)
+        assertEquals("FALLING_HOUR_UNPROVEN", falling.basis)
+        assertEquals(0.0, falling.expectedGrossPct, 1e-9)
+        assertTrue(StrategyMove8153.needsDefer8153(falling, 8.0))
+        // A supported, executable setup remains eligible even during a pullback.
+        val supported = StrategyMove8153.expected8153(45.0, 36.0, true, null,
+            45, 24.0, 4.0, 8.0, false,
+            signedHourPct = -31.0, momentumEntry = true)
+        assertEquals("STRATEGY", supported.basis)
+        assertEquals(32.0, supported.expectedGrossPct, 1e-9)
+        val dip = StrategyMove8153.expected8153(45.0, 36.0, true, null,
+            0, Double.NaN, Double.NaN, 8.0, false,
+            signedHourPct = -31.0, momentumEntry = false)
+        assertEquals("RANGE", dip.basis)
+    }
+
     @Test fun missingDataDefersInsteadOfRefusing() {
         val d = CandidateAdmission8136.decide8136(cand(null, emptyList()).copy(missingInputs = listOf("liquidity:UNKNOWN")))
         assertEquals(Terminal8136.DEFER_DATA, d.terminal)

@@ -541,7 +541,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         // V5.0.8322 — the later-horizon executable value and when it became knowable survive a restart; the flat-mark flag.
         num(r.executableRevisedPct), r.revisedAvailableAtMs.toString(), if (r.flat8322) "1" else "0",
         // V5.0.8324 — the objective's gross (first / revised) and the decision-time tail EV.
-        num(r.firstGross8324), num(r.revisedGross8324), num(r.tailEv8324), if (r.witnessed8324) "1" else "0",
+        num(r.firstGross8324), num(r.revisedGross8324), num(r.tailEv8324), if (r.witnessed8324) "1" else "0", "INDEPENDENT_CURVE_8365",
     ).joinToString(FS.toString())
 
     fun encode(): String = (decisions + trades.values).joinToString(RS.toString()) { encodeOne(it) }
@@ -556,7 +556,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             // V5.0.8187 — 26 fields (late voter read); a 25-field row reads as on time.
             // V5.0.8322 — 29 fields (revised executable, its availability, flat mark); 24..26-field rows read as before.
             // V5.0.8324 — 32 fields (objective gross first / revised, tail EV); 24..29-field rows read as before.
-            if (f.size !in 24..33 || f[0].length != 1 || f[1].isBlank()) continue
+            if (f.size !in 24..34 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
@@ -567,7 +567,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             r.executableRevisedPct = dbl(f.getOrNull(26)); r.revisedAvailableAtMs = f.getOrNull(27)?.toLongOrNull() ?: 0L
             r.flat8322 = f.getOrNull(28) == "1"
             r.firstGross8324 = dbl(f.getOrNull(29)); r.revisedGross8324 = dbl(f.getOrNull(30)); r.tailEv8324 = dbl(f.getOrNull(31))
-            r.witnessed8324 = f.getOrNull(32) == "1"
+            r.witnessed8324 = f.getOrNull(32) == "1" && f.getOrNull(33) == "INDEPENDENT_CURVE_8365" // Old cap-only proof does not carry forward
             if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
             when (r.kind) {
                 'D' -> if (!byId.containsKey(r.id)) { decisions.add(r); byId[r.id] = r; noteGraded(r) }

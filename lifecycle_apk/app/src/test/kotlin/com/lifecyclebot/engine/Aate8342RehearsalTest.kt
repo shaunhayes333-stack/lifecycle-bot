@@ -172,7 +172,7 @@ class Aate8342RehearsalTest {
         // context (hold basis for the live evidence-door demotion); the collecting scope and the legacy scope are unchanged.
         assertTrue(mode.contains("val (old, advisories8342) = try { Rehearsal8339.collecting8342 { FdgGate8365.inContext8365(ts, l, basis8365) { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } } } } catch (_: Throwable) {"))
         assertTrue(mode.contains("if (paper8336 && final == null) try { Rehearsal8339.notePaperAdmit8342(ts, l, advisories8342, nowMs) } catch (_: Throwable) {}"))
-        assertTrue(mode.contains("if (now != null && hardSafety8326(now)) now else (realised ?: old)"))
+        assertTrue(mode.contains("if (now != null && (hardSafety8326(now) || clearlyLosingCandidate8326(now))) now else (realised ?: old)"))
         val hold = src("engine/truth/EvidenceHold8336.kt")
         assertTrue(hold.contains("&& heldLane8342(it.tradingMode.ifBlank { \"STANDARD\" }) }"))
         assertTrue(hold.contains("Rehearsal8339.tagPaperClose8342(\"${'$'}{it.ts}|${'$'}{it.mint}|${'$'}{it.positionId}\", it.mint, lane, it.ts)"))

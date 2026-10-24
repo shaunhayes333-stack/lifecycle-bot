@@ -57,6 +57,13 @@ internal object JournalReceiptAccounting6663 {
         val gain = gross - cost
         return SolAmounts(cost, gross, gain, fee, gain - fee)
     }
+
+    /** Realised return on the SOLD cost basis; quoted mark percentages are not economic P&L. */
+    fun netReturnPct(costBasis: Double, netGain: Double): Double? {
+        if (!costBasis.isFinite() || costBasis <= 0.0 || !netGain.isFinite()) return null
+        val pct = 100.0 * (netGain / costBasis)
+        return pct.takeIf { it.isFinite() }
+    }
 }
 
 /**
@@ -67,10 +74,11 @@ internal object JournalReceiptAccounting6663 {
  * - PDF
  * - IRS Form 8949 compatible CSV
  *
- * Decisive-trade rules used everywhere in this class:
- * - WIN    = pnlPct >= 0.5
- * - LOSS   = pnlPct <= -2.0
- * - SCRATCH = between those thresholds
+ * Decisive-trade rules apply to net realised SOL return on sold cost basis,
+ * NEVER a separate price-based / phantom-peak percentage:
+ * - WIN    = realised >= +0.5%
+ * - LOSS   = realised <= -2.0%
+ * - SCRATCH = between those thresholds; unknown cost basis stays unclassified.
  */
 class TradeJournal(private val ctx: Context) {
 
@@ -542,7 +550,9 @@ class TradeJournal(private val ctx: Context) {
                     "%.2f".format(acct.proceedsUsd),
                     "%.6f".format(acct.gainLossSol),
                     "%.2f".format(acct.gainLossUsd),
-                    "%.2f".format(e.pnlPct),
+                    (if (isSellLike(e.side)) {
+                        JournalReceiptAccounting6663.netReturnPct(acct.costBasisSol, acct.netGainSol)
+                    } else null)?.let { "%.2f".format(it) } ?: "",
                     "%.6f".format(acct.feeSol),
                     "%.2f".format(acct.feeUsd),
                     "%.6f".format(acct.netGainSol),
@@ -581,10 +591,14 @@ class TradeJournal(private val ctx: Context) {
         val sells = emitted.filter { isSellLike(it.entry.side) }
         // V5.0.3809 — partial exits are real realized exits. Count them in WR,
         // trade count, avg win/loss, and realized P&L; fix their source math instead.
-        val decisiveSells = sells.filter { isDecisive(it.entry.pnlPct) }
-        val wins = decisiveSells.count { isWin(it.entry.pnlPct) }
-        val losses = decisiveSells.count { isLoss(it.entry.pnlPct) }
-        val scratches = sells.count { isScratch(it.entry.pnlPct) }
+        val accountedSells = sells.mapNotNull { row ->
+            JournalReceiptAccounting6663.netReturnPct(row.acct.costBasisSol, row.acct.netGainSol)
+                ?.let { pct -> row to pct }
+        }
+        val decisiveSells = accountedSells.filter { isDecisive(it.second) }
+        val wins = decisiveSells.count { isWin(it.second) }
+        val losses = decisiveSells.count { isLoss(it.second) }
+        val scratches = accountedSells.count { isScratch(it.second) }
 
         val totalGainSol   = sells.sumOf { it.acct.gainLossSol }
         val totalGainUsd   = sells.sumOf { it.acct.gainLossUsd }
@@ -614,6 +628,7 @@ class TradeJournal(private val ctx: Context) {
         summary("Sell Transactions", sells.size.toString())
         summary("Decisive Sells", decisiveSells.size.toString())
         summary("Scratch Sells", scratches.toString())
+        summary("Unclassified Sells (No Economic Basis)", (sells.size - accountedSells.size).toString())
         summary("Wins", wins.toString())
         summary("Losses", losses.toString())
         summary("Win Rate", "${"%.1f".format(winRate)}%")
@@ -673,13 +688,19 @@ class TradeJournal(private val ctx: Context) {
     fun getStatsFiltered(entries: List<JournalEntry>): JournalStats {
         val sells = entries.filter { isSellLike(it.side) && !isInvalidAccounting(it) }
         // V5.0.3809 — partial exits are real realized outcomes and must drive WR.
-        val decisiveTrades = sells.filter { isDecisive(it.pnlPct) }
-        val scratchTrades = sells.filter { isScratch(it.pnlPct) }
-        val wins = decisiveTrades.filter { isWin(it.pnlPct) }
-        val losses = decisiveTrades.filter { isLoss(it.pnlPct) }
+        val accounted = sells.mapNotNull { entry ->
+            val amt = deriveRowAccounting(entry, 1.0)
+            if (amt.invariantViolations.isNotEmpty()) null
+            else JournalReceiptAccounting6663.netReturnPct(amt.costBasisSol, amt.netGainSol)
+                ?.let { pct -> entry to pct }
+        }
+        val decisiveTrades = accounted.filter { isDecisive(it.second) }
+        val scratchTrades = accounted.filter { isScratch(it.second) }
+        val wins = decisiveTrades.filter { isWin(it.second) }
+        val losses = decisiveTrades.filter { isLoss(it.second) }
 
-        val cappedWinsPct = wins.map { it.pnlPct }
-        val cappedLossPct = losses.map { it.pnlPct }
+        val cappedWinsPct = wins.map { it.second }
+        val cappedLossPct = losses.map { it.second }
 
         return JournalStats(
             totalTrades = decisiveTrades.size,
@@ -690,9 +711,9 @@ class TradeJournal(private val ctx: Context) {
             } else {
                 0.0
             },
-            totalPnlSol = sells.sumOf { it.pnlSol },
-            bestTrade = sells.maxByOrNull { it.pnlPct },
-            worstTrade = sells.minByOrNull { it.pnlPct },
+            totalPnlSol = sells.sumOf { deriveRowAccounting(it, 1.0).netGainSol },
+            bestTrade = accounted.maxByOrNull { it.second }?.first,
+            worstTrade = accounted.minByOrNull { it.second }?.first,
             avgWinPct = if (cappedWinsPct.isNotEmpty()) cappedWinsPct.average() else 0.0,
             avgLossPct = if (cappedLossPct.isNotEmpty()) cappedLossPct.average() else 0.0,
             totalVolumeSol = sells.sumOf { it.solAmount },

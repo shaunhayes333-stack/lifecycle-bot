@@ -328,7 +328,8 @@ If nothing needs tuning, return {"suggestions": []}.
         } catch (t: Throwable) {
             return false to "apply failed: ${t.message}"
         }
-        AdvisorInbox.markApplied(suggestion.id)
+        // An attempted apply is not an applied change. Keep rejected/no-op
+        // suggestions pending and observable instead of erasing the failure.
         try {
             ForensicLogger.lifecycle(
                 "SELF_HEALING_ADVISOR_ACCEPTED_6281",
@@ -337,6 +338,7 @@ If nothing needs tuning, return {"suggestions": []}.
             PipelineHealthCollector.labelInc("SELF_HEALING_ADVISOR_ACCEPTED_6281")
         } catch (_: Throwable) {}
         return if (res.changes.isNotEmpty()) {
+            AdvisorInbox.markApplied(suggestion.id)
             val c = res.changes.first()
             try {
                 ForensicLogger.lifecycle(

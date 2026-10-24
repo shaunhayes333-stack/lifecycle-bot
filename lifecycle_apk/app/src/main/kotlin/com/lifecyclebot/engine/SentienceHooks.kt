@@ -479,7 +479,6 @@ object SentienceHooks {
 
         val contextBlock = autoTunePerformanceContext6678(context)
         val qualityKeys = listOf(
-            "minDiscoveryScore",
             "minLiquidityUsd",
             "sentimentBlockThreshold",
             "behaviorAggressionLevel",

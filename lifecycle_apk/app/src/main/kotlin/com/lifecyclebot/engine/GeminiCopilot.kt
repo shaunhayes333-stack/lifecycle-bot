@@ -779,7 +779,8 @@ the very end of your reply:
   sentimentBlockThreshold, behaviorAggressionLevel, defensiveLossThreshold,
   aggressiveWhaleThreshold, convictionMult1, convictionMult2,
   partialSellTriggerPct, topUpSizeMultiplier, topUpMaxCount,
-  scanIntervalSecs, minDiscoveryScore.
+  scanIntervalSecs.
+- minDiscoveryScore is NOT a live-wired strategy control (V5.0.8365). Do not propose it or claim it improved discovery.
 - minLiquidityUsd and walletReserveSol are owner-only (V5.0.8353): never put them in a TUNE block.
 - slippageBps is owner-only (V5.0.8363): never put it in a TUNE block.
 - Do not wrap the block in backticks; put it on its own line at the end.

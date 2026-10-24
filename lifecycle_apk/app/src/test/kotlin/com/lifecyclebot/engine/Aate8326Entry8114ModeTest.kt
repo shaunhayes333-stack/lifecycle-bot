@@ -30,10 +30,6 @@ class Aate8326Entry8114ModeTest {
     @Test fun modeOnACandidateRefusedOnlyByAPostEntry8114GateIsAdmitted() {
         Entry8114Mode8326.noteConfig8326(true)
         val post8114 = listOf(
-            "CANDIDATE_ADMISSION_8136_CELL_PROVEN_LOSING_8136",
-            "CANDIDATE_ADMISSION_8136_STAGE_PROVEN_LOSING_8136",
-            "CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136",
-            "CANDIDATE_ADMISSION_8136_SETUP_RECORD_LOSING_8136",
             "CANDIDATE_ADMISSION_8136_SHEET_AVOID_8323",
             "CANDIDATE_ADMISSION_8136_LIVE_GENERIC_PRIOR_UNSUPPORTED_8238",
             "DATA_INCOMPLETE_DEFER_8136",
@@ -46,6 +42,14 @@ class Aate8326Entry8114ModeTest {
             // the 8114 decision admitted (null): the current refusal does not refuse
             assertNull(r, Entry8114Mode8326.finalVerdict8326(null, r))
         }
+        // Clearly losing candidate-specific evidence binds; thin losses and lane priors do not.
+        for (r in listOf("CELL_PROVEN_LOSING_8136", "STAGE_PROVEN_LOSING_8136", "TIMING_ADVERSE_8136", "SETUP_RECORD_LOSING_8136")) {
+            val reason = "CANDIDATE_ADMISSION_8136_$r"
+            assertTrue(reason, Entry8114Mode8326.clearlyLosingCandidate8326(reason))
+            assertEquals(reason, Entry8114Mode8326.finalVerdict8326(null, reason))
+        }
+        assertFalse(Entry8114Mode8326.clearlyLosingCandidate8326("CANDIDATE_ADMISSION_8136_TACTIC_RECORD_LOSING_8136"))
+        assertFalse(Entry8114Mode8326.clearlyLosingCandidate8326("SETUP_RECORD_LOSING_THIN_ADVISORY_8257"))
         assertEquals("ADMISSION8136_CELL_PROVEN_LOSING_8136", Entry8114Mode8326.gateKey8326("CANDIDATE_ADMISSION_8136_CELL_PROVEN_LOSING_8136"))
         assertEquals("SETUP_LIVE_RECORD_NEGATIVE_8310", Entry8114Mode8326.gateKey8326("SETUP_LIVE_RECORD_NEGATIVE_8310"))
         assertEquals("EDGE_7877", Entry8114Mode8326.gateKey8326("EDGE_7877_CELL_NEGATIVE_SHITCOIN"))
@@ -55,7 +59,7 @@ class Aate8326Entry8114ModeTest {
         assertEquals(before + 1, Entry8114Mode8326.bypassCount8326("ADMISSION8136_TIMING_ADVERSE_8136"))
         // the 8114 decision's own refusal still refuses, whatever the current verdict says
         assertEquals("LIVE_PROVEN_SETUP_ONLY_8059", Entry8114Mode8326.finalVerdict8326("LIVE_PROVEN_SETUP_ONLY_8059", null))
-        assertEquals("CHASING_SPIKE_8065", Entry8114Mode8326.finalVerdict8326("CHASING_SPIKE_8065", "CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136"))
+        assertEquals("CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136", Entry8114Mode8326.finalVerdict8326("CHASING_SPIKE_8065", "CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136"))
     }
 
     @Test fun hardSafetyAndEconomicRefusalsStillRefuse() {
@@ -164,8 +168,13 @@ class Aate8326Entry8114ModeTest {
         assertTrue(labeler.contains("else if (Entry8114Mode8326.legacyScope8326()) legacyCell8326(key, n, sum, sumSq, wins, runners, t.lost, t.n240, t.sum240)"))
         val playbook = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(playbook.contains("(try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null }) ?: classify(ts, canon(laneRaw), nowMs)"))
-        // superseded by V5.0.8337 — FIX 7b: the legacy read is the 8114 record (uncapped, whole hive), not the 8187-capped raw one
-        assertTrue(playbook.contains("if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return legacyStat8326(lane, setup)"))
+        // V5.0.8365: read the full uncapped 8114 historical hive, then apply decision-time
+        // executable shortfall and same-lane realised-close evidence before granting authority.
+        // Never return the legacy stat directly: that used to restore losing entries.
+        assertTrue(playbook.contains("val raw = (if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) legacyStat8326(lane, setup)"))
+        assertTrue(playbook.contains("Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane)"))
+        assertTrue(playbook.contains("LaneRealisedGovernor8295.governedCopy8295(exec, rr, laneRealised8295(lane))"))
+        assertFalse(playbook.contains("if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return legacyStat8326(lane, setup)"))
         val cortex = src("engine/cortex/Cortex7885.kt")
         val old = cortex.substringAfter("fun entryRefusal8114(").substringBefore("fun overrulesEdgeRefusal(")
         assertTrue(old.contains("board.refusalAuthority(a.lane, a.runnerLane, false) && consistent(a.lane)"))

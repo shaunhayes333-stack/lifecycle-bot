@@ -40,10 +40,10 @@ class Aate8353AdvisorKeysTest {
             "minHoldMins", "maxHoldMinsHard", "sentimentEntryBoost", "sentimentExitBoost",
             "sentimentBlockThreshold", "behaviorAggressionLevel", "defensiveLossThreshold", "aggressiveWhaleThreshold",
             "convictionMult1", "convictionMult2", "partialSellTriggerPct", "topUpSizeMultiplier", "topUpMaxCount",
-            "scanIntervalSecs", "minDiscoveryScore")) {
+            "scanIntervalSecs")) {
             assertTrue("$k must stay tunable", LlmParameterTuner.isAllowedKey(k))
         }
-        assertEquals(20, LlmParameterTuner.allowedKeys().size)  // superseded by V5.0.8363 — 21 less slippageBps
+        assertEquals(19, LlmParameterTuner.allowedKeys().size)  // superseded by V5.0.8363 — 21 less slippageBps
         val gemini = src("engine/GeminiCopilot.kt")
         assertFalse(gemini.contains("minLiquidityUsd, walletReserveSol, scanIntervalSecs"))
         assertTrue(gemini.contains("minLiquidityUsd and walletReserveSol are owner-only (V5.0.8353): never put them in a TUNE block."))
@@ -55,6 +55,7 @@ class Aate8353AdvisorKeysTest {
         assertNull(AdvisorKeyAuthority8353.advisoryOnlyLabel8353("exitScoreThreshold"))
         assertTrue(AdvisorKeyAuthority8353.isAdvisoryOnly8353("minLiquidityUsd"))
         assertFalse(AdvisorKeyAuthority8353.isAdvisoryOnly8353("minDiscoveryScore"))
+        assertFalse("non-functional discovery score must not be auto-tunable", LlmParameterTuner.isAllowedKey("minDiscoveryScore"))
         // both advisors keep the row but never hand it to the tuner
         val self = src("engine/SelfHealingAdvisor.kt")
         assertTrue(self.contains("val advisoryOnly8353 = AdvisorKeyAuthority8353.isAdvisoryOnly8353(key)"))

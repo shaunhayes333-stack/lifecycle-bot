@@ -176,7 +176,22 @@ object Entry8114Mode8326 {
      * (V5.0.8329) the lane's realised closes refuse ([realised]: EntryEconomics8329.laneRealisedRefusal8329 — provable, not a label).
      */
     fun finalVerdict8326(old: String?, now: String?, realised: String? = null): String? =
-        if (now != null && hardSafety8326(now)) now else (realised ?: old)
+        if (now != null && (hardSafety8326(now) || clearlyLosingCandidate8326(now))) now else (realised ?: old)
+
+    /**
+     * The 8114 compatibility mode must not turn the candidate's own CLEAR losing evidence
+     * into a live admit. CandidateAdmission8136 emits these only after its thin-sample
+     * confidence rule AND its alternative supported-setup / late-runner exemptions.
+     * Broad lane priors, thin losses and observational runner misses remain advisory.
+     */
+    fun clearlyLosingCandidate8326(reason: String?): Boolean {
+        val r = reason?.uppercase() ?: return false
+        if (!r.startsWith("CANDIDATE_ADMISSION_8136_")) return false
+        return r.removePrefix("CANDIDATE_ADMISSION_8136_") in setOf(
+            "SETUP_RECORD_LOSING_8136", "TIMING_ADVERSE_8136",
+            "CELL_PROVEN_LOSING_8136", "STAGE_PROVEN_LOSING_8136",
+        )
+    }
 
     private fun fileFinal8326(ts: TokenState, lane: String, old: Entry8114Gate8326.Verdict8326, final: String?, nowMs: Long) {
         try {

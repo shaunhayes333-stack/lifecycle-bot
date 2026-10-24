@@ -96,8 +96,16 @@ class Aate8337LabelsGateTest {
         val hiveOnly = LanePlaybook7907.uncappedStat8337(null, hive)
         assertEquals(800.0, hiveOnly.n, 1e-12)
         assertEquals(10.0, hiveOnly.mean(), 1e-9)
+        // Raw tail remains unmodified, but a negative live setup has less executable authority.
+        val rec = com.lifecyclebot.engine.cortex.Cortex7885.executableCopy8187(merged, 7.0, 0.0, Double.NaN)
+        val governed = com.lifecyclebot.engine.cortex.LaneRealisedGovernor8295.governedCopy8295(
+            rec, doubleArrayOf(2.0, -15.0), doubleArrayOf(4.0, -11.0))
+        assertTrue(governed.n < merged.n)
+        assertTrue(governed.mean() < merged.mean())
+        assertEquals(sum + 8_000.0, merged.sum, 1e-9) // absolutely no label value rewritten
         val pb = src("engine/cortex/LanePlaybook7907.kt")
-        assertTrue(pb.contains("if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return legacyStat8326(lane, setup)"))
+        assertTrue("legacy raw evidence must feed executable/realised feedback", pb.contains("val raw = (if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) legacyStat8326(lane, setup)") &&
+            pb.contains("LaneRealisedGovernor8295.governedCopy8295(exec, rr, laneRealised8295(lane))"))
         assertFalse(pb.contains("if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return raw"))
         val legacyFn = pb.substringAfter("private fun legacyStat8326(").substringBefore("internal fun uncappedStat8337(")
         assertFalse(legacyFn.contains("hiveScale8291"))

@@ -336,7 +336,7 @@ object AutoPipelineAdvisor6462 {
         } catch (_: Throwable) {}
     }
 
-    private val strategyKeys6569 = setOf("entryCooldownSec", "minHoldMins", "perPositionSizePct", "minDiscoveryScore", "exitScoreThreshold", "defensiveLossThreshold", "trailingStopBasePct")
+    private val strategyKeys6569 = setOf("entryCooldownSec", "minHoldMins", "perPositionSizePct", "exitScoreThreshold", "defensiveLossThreshold", "trailingStopBasePct")
     private val integrityTerms6569 = listOf("REPLAY", "LEDGER", "INTEGRITY", "CONSERVATION", "DECIMAL", "UNIT_MISMATCH", "PENDING_ENTRY", "DUPLICATE", "STALE_FEED", "ZERO_LIQUIDITY", "API_LAYER", "PROVIDER", "LATENCY")
 
     private fun causalDomainAllowsAutoApply6569(c: Candidate): Boolean {
@@ -454,7 +454,7 @@ object AutoPipelineAdvisor6462 {
         return BrainReadings(meta, superBr, capital, sentience, provenDead, riskPressure)
     }
 
-    private val TIGHTEN_ON_INCREASE_8319 = setOf("minLiquidityUsd", "minDiscoveryScore", "walletReserveSol", "entryCooldownSec")
+    private val TIGHTEN_ON_INCREASE_8319 = setOf("minLiquidityUsd", "walletReserveSol", "entryCooldownSec")
 
     private fun fuseWithBrains(c: Candidate, b: BrainReadings): Candidate {
         // Each brain votes agree/disagree with the delta SIGN based on its stance.
