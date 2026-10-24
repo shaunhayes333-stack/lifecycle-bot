@@ -133,7 +133,9 @@ object Entry8114Mode8326 {
         val final0_8347 = finalVerdict8326(old.reason, now, realised)
         // V5.0.8347 — a LIVE admit enters the way the lane's best proven exploration variant does (pullback / confirm wait).
         // V5.0.8351 — a lane unlocked by a niche trades only inside it; then it enters the niche's proven way.
+        // V5.0.8364 — a LIVE admit needs a named setup that fired on the coin in this lane (paper / shadow unaffected).
         val final = final0_8347
+            ?: (if (paper8336) null else try { Entry8114Gate8326.liveFiredSetupRefusal8364(ts, l, old.setup, nowMs) } catch (_: Throwable) { null })
             ?: (if (paper8336) null else try { ExploreShadow8347.nicheRefusal8351(ts, l, EvidenceHold8336.startMs8336) } catch (_: Throwable) { null })
             ?: (if (paper8336) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null })
         if (now != null && final == null) noteBypass8326(gateKey8326(now), l)

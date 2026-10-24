@@ -121,7 +121,8 @@ class Aate8355ShadowPersistTest {
         val s = src("engine/truth/ExploreShadow8347.kt")
         assertTrue(s.contains("private const val PREFS_OPEN_8355 = \"aate_explore_shadow_open_8355\""))
         assertTrue("written on open", s.contains("persistTicket8355(key, t, nowMs)   // V5.0.8355 — written on open"))
-        assertTrue("arm forces a write", s.contains("leg.active = true; leg.entryPx = px; leg.entryAtMs = nowMs; t.force8355 = true"))
+        // superseded by V5.0.8364 — the armed fill is booked at the trigger mark plus the lane's chase (ShadowFill8364); the arm still forces a write
+        assertTrue("arm forces a write", s.contains("leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true"))
         assertTrue("a leg close forces a write", s.contains("leg.dead = true\n        t.force8355 = true"))
         assertTrue("tier moves are coalesced", s.contains("leg.held -= sold; leg.tiers++; t.dirty8355 = true") && s.contains("leg.tiers = 2; t.dirty8355 = true"))
         assertTrue("peak moves are coalesced", s.contains("if (g > leg.peak) { leg.peak = g; t.dirty8355 = true }"))
