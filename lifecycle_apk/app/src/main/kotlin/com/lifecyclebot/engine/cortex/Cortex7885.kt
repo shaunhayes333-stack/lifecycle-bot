@@ -1512,6 +1512,18 @@ object Cortex7885 {
         return vetoRefusesWinners7953(reason)
     }
 
+    /**
+     * V5.0.8365 — FdgGate8365: an 8114 evidence door is demoted to advisory when its own lane record of refused candidates
+     * holds 100+ graded refusals that proved winners (vetoProvenWinners8006: mean - SE above +2 % net, robust read).
+     */
+    fun vetoRetiresAt100_8365(reason: String, lane: String): Boolean {
+        ensureLoaded()
+        return synchronized(this) {
+            val st = vetoBook[vetoLaneKey8006(vetoRuleOf(reason), canon(lane))] ?: return@synchronized false
+            com.lifecyclebot.engine.truth.FdgGate8365.vetoDemotes8365(st.n, vetoProvenWinners8006(st))
+        }
+    }
+
     /** A lane-specific refusal can retire only on that lane's own consistent outcome book. */
     fun ownLaneVetoRefusesWinners8076(reason: String, lane: String): Boolean {
         ensureLoaded()

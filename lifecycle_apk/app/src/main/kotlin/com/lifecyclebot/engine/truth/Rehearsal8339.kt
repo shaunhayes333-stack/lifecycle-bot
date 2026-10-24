@@ -107,7 +107,8 @@ object Rehearsal8339 {
     fun doorBindsNow8342(reason: String, lane: String): Boolean {
         val paper = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val rehearsal = EvidenceHold8336.enabled8336 && EvidenceHold8336.rehearsal8336
-        if (evidenceDoorBinds8342(paper, rehearsal, reason)) return true
+        // V5.0.8365 — LIVE: an evidence door whose question an authoritative check already answered is advisory (FdgGate8365).
+        if (evidenceDoorBinds8342(paper, rehearsal, reason)) return !(try { FdgGate8365.demoteNow8365(reason, lane) } catch (_: Throwable) { false })
         advisories8342.get()?.add(reason)
         try {
             PipelineHealthCollector.labelInc("${ADVISORY_LABEL_8342}_${Entry8114Mode8326.gateKey8326(reason)}")
