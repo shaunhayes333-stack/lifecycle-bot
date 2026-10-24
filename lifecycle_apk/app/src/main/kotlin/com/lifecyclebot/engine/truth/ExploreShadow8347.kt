@@ -25,6 +25,8 @@ import java.util.concurrent.atomic.AtomicLong
  *  - EvidenceHold8336 unlocks the lane on it;
  *  - Entry8114Mode8326 makes the LIVE entry wait for that variant's entry condition ([liveEntryWait8347]).
  * Spends nothing, opens no position, takes no slot or ledger row. Model limits: every fill lands, marks are the fill.
+ * (superseded by V5.0.8366 — a fill lands at the route's measured rate, an exit fills after the live sell latency, the
+ * charged cost is the lane's measured round trip once measured, and the exits are live's own (ShadowAlign8366).)
  *
  * V5.0.8360 §EVERY_LANE_EVERY_TOKEN_EVERY_SETUP — owner: "we cant block every trade, especially on the shadow trader. its
  * meant to be trying to name as many profitable trades as possible across as many specialist lanes and traders across
@@ -78,6 +80,13 @@ object ExploreShadow8347 {
         var tiers = 0
         var peak = 0.0
         var trough = 0.0
+        // V5.0.8366 — the lifecycle hold a +100 % runner leg is promoted into (persisted), and a triggered full exit waiting
+        // out the live sell latency (not persisted: after a restart the rule that triggered it triggers again)
+        var hold8366 = false
+        var taken8366 = 0
+        var peakAt8366 = 0L
+        var exitAt8366 = 0L
+        var exitWhy8366: String? = null
     }
 
     private class Ticket8347(
@@ -122,7 +131,8 @@ object ExploreShadow8347 {
     private fun ticketRec8355(t: Ticket8347): ShadowPersist8355.TicketRec8355 = ShadowPersist8355.TicketRec8355(
         t.mint, t.symbol, t.lane, t.setup, t.tactic, t.scoreBand, t.band, t.signalPx, t.atMs, t.costPct, t.stopPct, t.armPct,
         t.runner, t.nativeEligible, t.lastPx, t.lastPxAtMs,
-        t.legs.map { l -> ShadowPersist8355.LegRec8355(l.entry.name, l.exit.name, l.active, l.dead, l.entryPx, l.entryAtMs, l.held, l.banked, l.tiers, l.peak, l.trough) },
+        t.legs.map { l -> ShadowPersist8355.LegRec8355(l.entry.name, l.exit.name, l.active, l.dead, l.entryPx, l.entryAtMs, l.held, l.banked, l.tiers, l.peak, l.trough,
+            hold8366 = l.hold8366, taken8366 = l.taken8366, peakAt8366 = l.peakAt8366) },   // V5.0.8366
         kind8360 = t.kind8360, markSrc8360 = t.markSrc8360,   // V5.0.8360
     )
 
@@ -152,6 +162,7 @@ object ExploreShadow8347 {
             val leg = Leg8347(e, x)
             leg.active = l.active; leg.dead = l.dead; leg.entryPx = l.entryPx; leg.entryAtMs = l.entryAtMs
             leg.held = l.held; leg.banked = l.banked; leg.tiers = l.tiers; leg.peak = l.peak; leg.trough = l.trough
+            leg.hold8366 = l.hold8366; leg.taken8366 = l.taken8366; leg.peakAt8366 = l.peakAt8366   // V5.0.8366
             legs += leg
         }
         if (legs.isEmpty() || legs.all { it.dead }) return null
@@ -184,7 +195,9 @@ object ExploreShadow8347 {
                 val r = ShadowPersist8355.decodeTicket8355(s)
                 if (r == null) { drop += k; continue }
                 // the ticket's own window: the longest leg timeout plus the longest entry wait, then the lost-mark grace
-                val window = (if (r.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347) + PULLBACK_WAIT_MS_8347
+                // V5.0.8366 — a leg in the lifecycle hold has no clock (LifecycleHold8065): its ticket keeps the hold's window
+                val window = if (r.legs.any { it.hold8366 && !it.dead }) ShadowAlign8366.holdWindowMs8366()
+                    else (if (r.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347) + PULLBACK_WAIT_MS_8347
                 if (ShadowPersist8355.expiredOnRestore8355(r.atMs, window, nowMs, LOST_MARK_MS_8347)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
                 val t = ticketFromRec8355(r)
                 if (t == null || tickets.containsKey(key) || tickets.size >= MAX_TICKETS_8347 ||
@@ -426,7 +439,8 @@ object ExploreShadow8347 {
         if (tickets.size >= MAX_TICKETS_8347 && !evict8360(null, nowMs)) { full.incrementAndGet(); skip8360(SKIP_FULL_8360); return }
         if (laneCount8360(lane) >= MAX_TICKETS_PER_LANE_8351 && !evict8360(lane, nowMs)) { full.incrementAndGet(); skip8360(SKIP_LANE_FULL_8360); return }
         val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
-        val cost = try { NetEdge8030.costPct8030(lane, TICKET_SOL_8347, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
+        // V5.0.8366 — the lane's measured round trip (CostLedger7962, n >= 8) once measured, the NetEdge8030 model before (ShadowAlign8366)
+        val cost = try { ShadowAlign8366.laneCostPct8366(lane, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
         val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
         val arm = try { com.lifecyclebot.engine.RunnerExitProfile7277.giveBackArmPct7791(lane) } catch (_: Throwable) { 20.0 }
@@ -440,6 +454,7 @@ object ExploreShadow8347 {
         // V5.0.8364 — the fill is booked at the signal mark plus the lane's decision-to-fill chase (ShadowFill8364), as live pays it
         val fillPx8364 = ShadowFill8364.laneEntryPx8364(px, lane)
         t.legs.filter { it.entry == Entry8347.NOW }.forEach { it.active = true; it.entryPx = fillPx8364; it.entryAtMs = nowMs }
+        t.legs.filter { it.entry == Entry8347.NOW && it.active }.forEach { landed8366(t, it, nowMs) }   // V5.0.8366 — the buy lands at the route's measured rate
         tickets[key] = t
         laneCounts8360.computeIfAbsent(lane) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
         persistTicket8355(key, t, nowMs)   // V5.0.8355 — written on open
@@ -481,7 +496,7 @@ object ExploreShadow8347 {
                 for (leg in t.legs) {
                     if (leg.dead) continue
                     if (!leg.active) { arm8347(t, leg, fresh, nowMs); continue }
-                    step8347(t, leg, fresh, lost, nowMs)
+                    step8347(t, leg, fresh, lost, nowMs, if (leg.exit == Exit8347.SCALP) scalpIn8366(key, t, tokens[t.mint]) else null)
                 }
                 if (t.legs.all { it.dead }) {
                     done += key
@@ -491,6 +506,7 @@ object ExploreShadow8347 {
             } catch (_: Throwable) { done += key }
         }
         done.forEach { tickets.remove(it); forgetTicket8355(it) }   // V5.0.8355 — every leg dead: the ticket leaves the open prefs
+        done.forEach { scalpInMap8366.remove(it) }   // V5.0.8366 — its scalp inputs go with it
         recountLanes8360()   // V5.0.8360 — the per-lane counts the open path reads, exact once per loop
     }
 
@@ -500,54 +516,125 @@ object ExploreShadow8347 {
             // V5.0.8364 — a fill is booked at the trigger mark plus the lane's chase (ShadowFill8364); an expired leg is a
             // "no trade" signal (net 0, never a loss) counted in the arm's fill rate (unfilled8364), so arms compare per signal.
             Entry8347.PULLBACK -> {
-                if (px != null && px <= t.signalPx * (1.0 - pullbackPct8347(t.stopPct) / 100.0)) { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true }
+                if (px != null && px <= t.signalPx * (1.0 - pullbackPct8347(t.stopPct) / 100.0)) { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true; landed8366(t, leg, nowMs) }
                 else if (age >= PULLBACK_WAIT_MS_8347) { leg.dead = true; t.force8355 = true; unfilled8364(t, leg, nowMs) }   // never filled: no trade, counted unfilled
             }
             Entry8347.CONFIRM -> {
-                if (px != null && age >= CONFIRM_AFTER_MS_8347 && px >= t.signalPx * (1.0 + CONFIRM_RISE_PCT_8347 / 100.0)) { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true }
+                if (px != null && age >= CONFIRM_AFTER_MS_8347 && px >= t.signalPx * (1.0 + CONFIRM_RISE_PCT_8347 / 100.0)) { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true; landed8366(t, leg, nowMs) }
                 else if (age >= CONFIRM_WAIT_MS_8347) { leg.dead = true; t.force8355 = true; unfilled8364(t, leg, nowMs) }
             }
-            Entry8347.NOW -> { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(t.signalPx, t.lane); leg.entryAtMs = t.atMs; t.force8355 = true }
+            Entry8347.NOW -> { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(t.signalPx, t.lane); leg.entryAtMs = t.atMs; t.force8355 = true; landed8366(t, leg, nowMs) }
         }
     }
 
-    private fun step8347(t: Ticket8347, leg: Leg8347, px: Double?, lost: Boolean, nowMs: Long) {
+    private fun step8347(t: Ticket8347, leg: Leg8347, px: Double?, lost: Boolean, nowMs: Long, scalp8366: DoubleArray? = null) {
         val g = (t.lastPx / leg.entryPx - 1.0) * 100.0
         if (!g.isFinite()) { leg.dead = true; t.force8355 = true; return }
+        if (g > leg.peak) leg.peakAt8366 = nowMs   // V5.0.8366 — when the peak was set (the hold's dead-money clock)
         if (g > leg.peak) { leg.peak = g; t.dirty8355 = true }       // V5.0.8355 — peak / trough / tier moves are persisted changes
         if (g < leg.trough) { leg.trough = g; t.dirty8355 = true }
+        // V5.0.8366 — a triggered full exit fills at the first observed mark once the live sell latency (PaperExitLatency8223)
+        // has passed since its trigger, not at the trigger tick; a mark lost meanwhile closes at the last mark.
+        val pending8366 = leg.exitWhy8366
+        if (pending8366 != null) {
+            if (lost || (px != null && ShadowAlign8366.latencyElapsed8366(leg.exitAt8366, ShadowAlign8366.sellLatencyMs8366(false), nowMs))) closeAt8366(t, leg, g, pending8366, nowMs)
+            return
+        }
         val why: String? = when (leg.exit) {
-            Exit8347.RUNNER -> {
-                if (px != null) while (leg.tiers < com.lifecyclebot.engine.SpikeCapture7943.TIERS.size) {
-                    val (at, frac) = com.lifecyclebot.engine.SpikeCapture7943.TIERS[leg.tiers]
-                    if (g < at) break
-                    val sold = leg.held * frac; leg.banked += sold * ShadowFill8364.exitGrossPct8364(g); leg.held -= sold; leg.tiers++; t.dirty8355 = true
-                }
-                val floor = EvidenceShadow8344.giveBackFloor8344(leg.peak, t.armPct, t.costPct)
-                when {
-                    leg.held <= 0.0001 -> "SOLD_OUT"
-                    px != null && g <= -t.stopPct -> "STOP"
-                    px != null && floor != null && g <= floor -> "GIVEBACK_FLOOR"
-                    nowMs - leg.entryAtMs >= (if (t.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347) -> "TIMEOUT"
-                    lost -> "LOST_MARK"
-                    else -> null
-                }
+            Exit8347.RUNNER -> runnerWhy8366(t, leg, g, px, lost, nowMs)
+            Exit8347.SCALP -> scalpWhy8366(t, leg, g, px, lost, nowMs, scalp8366)
+        }
+        if (why == null) return
+        // nothing left to sell, or no observed mark to wait for: booked now at the last mark
+        if (why == "SOLD_OUT" || why == "LOST_MARK" || px == null) { closeAt8366(t, leg, g, why, nowMs); return }
+        leg.exitWhy8366 = why; leg.exitAt8366 = nowMs
+    }
+
+    /** V5.0.8366 — the leg's close at gross [g] (banked slices + the remainder, less the round trip). */
+    private fun closeAt8366(t: Ticket8347, leg: Leg8347, g: Double, why: String, nowMs: Long) =
+        close8347(t, leg, EvidenceShadow8344.netPct8344(leg.banked, leg.held, ShadowFill8364.exitGrossPct8364(g), t.costPct), why, nowMs)   // V5.0.8364 — exit slippage not in costPct8030 (none today)
+
+    /**
+     * V5.0.8366 — the RUNNER leg on live's levers: SpikeCapture7943 tiers, the lane stop, the 8338 give-back floor, the level
+     * live's fluid stop holds (ShadowAlign8366.liveStopLevel8366: net break-even once cleared, the green floor on a runner
+     * lane), the clock; and once at +100 % (LifecycleHold8065's promotion) the lifecycle hold's own exits, no clock.
+     */
+    private fun runnerWhy8366(t: Ticket8347, leg: Leg8347, g: Double, px: Double?, lost: Boolean, nowMs: Long): String? {
+        if (!leg.hold8366 && px != null && ShadowAlign8366.holdPromotes8366(g, leg.peak)) { leg.hold8366 = true; t.force8355 = true }
+        if (leg.hold8366) {
+            val d = if (px != null) ShadowAlign8366.holdExit8366(g, leg.peak, leg.taken8366, nowMs - leg.entryAtMs, nowMs - leg.peakAt8366, t.costPct) else null
+            if (d != null) {
+                val n = ShadowAlign8366.takeOf8366(d.first)
+                if (n < 0) return d.first
+                val sold = leg.held * d.second; leg.banked += sold * ShadowFill8364.exitGrossPct8364(g); leg.held -= sold; leg.taken8366 = n; t.dirty8355 = true
             }
-            Exit8347.SCALP -> {
-                if (px != null && leg.tiers == 0 && g >= 15.0) { val s = leg.held * 0.5; leg.banked += s * ShadowFill8364.exitGrossPct8364(g); leg.held -= s; leg.tiers = 1; t.dirty8355 = true }
-                if (px != null && leg.tiers == 1 && g >= 30.0) { leg.banked += leg.held * ShadowFill8364.exitGrossPct8364(g); leg.held = 0.0; leg.tiers = 2; t.dirty8355 = true }
-                val floor = if (leg.peak >= 10.0) maxOf(t.costPct.coerceAtMost(leg.peak * 0.5), leg.peak * 0.5) else null
-                when {
-                    leg.held <= 0.0001 -> "SOLD_OUT"
-                    px != null && g <= -(t.stopPct * 0.6).coerceAtLeast(4.0) -> "STOP"
-                    px != null && floor != null && g <= floor -> "GIVEBACK_FLOOR"
-                    nowMs - leg.entryAtMs >= SCALP_TIMEOUT_MS_8347 -> "TIMEOUT"
-                    lost -> "LOST_MARK"
-                    else -> null
-                }
+            return when {
+                leg.held <= 0.0001 -> "SOLD_OUT"
+                lost -> "LOST_MARK"
+                else -> null
             }
         }
-        if (why != null) close8347(t, leg, EvidenceShadow8344.netPct8344(leg.banked, leg.held, ShadowFill8364.exitGrossPct8364(g), t.costPct), why, nowMs)   // V5.0.8364 — exit slippage not in costPct8030 (none today)
+        if (px != null) while (leg.tiers < com.lifecyclebot.engine.SpikeCapture7943.TIERS.size) {
+            val (at, frac) = com.lifecyclebot.engine.SpikeCapture7943.TIERS[leg.tiers]
+            if (g < at) break
+            val sold = leg.held * frac; leg.banked += sold * ShadowFill8364.exitGrossPct8364(g); leg.held -= sold; leg.tiers++; t.dirty8355 = true
+        }
+        val floor = EvidenceShadow8344.giveBackFloor8344(leg.peak, t.armPct, t.costPct)
+        val level = ShadowAlign8366.liveStopLevel8366(t.runner, t.stopPct, leg.peak, t.costPct)
+        return when {
+            leg.held <= 0.0001 -> "SOLD_OUT"
+            px != null && g <= -t.stopPct -> "STOP"
+            px != null && floor != null && g <= floor -> "GIVEBACK_FLOOR"
+            px != null && level > -t.stopPct && g <= level -> "LIVE_FLOOR_8366"
+            nowMs - leg.entryAtMs >= (if (t.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347) -> "TIMEOUT"
+            lost -> "LOST_MARK"
+            else -> null
+        }
+    }
+
+    /**
+     * V5.0.8366 — the SCALP leg on the live scalp exit itself (ScalpStop8363.decide8363 over ScalpExit8351.decide8351's
+     * ladder): +15 % sells half, +30 % the rest, the 8363 stop max(0.6 x lane stop, 2 x 1-minute range + chase, 6 %) with
+     * no stop in the first 60 s, the give-back floor, the 10-minute clock.
+     */
+    private fun scalpWhy8366(t: Ticket8347, leg: Leg8347, g: Double, px: Double?, lost: Boolean, nowMs: Long, scalpIn: DoubleArray?): String? {
+        if (px != null) {
+            val noise = scalpIn?.getOrNull(0) ?: Double.NaN
+            val chase = scalpIn?.getOrNull(1) ?: 0.0
+            var guard = 0
+            while (guard++ < 3 && leg.held > 0.0001) {
+                val d = com.lifecyclebot.engine.ScalpStop8363.decide8363(g, maxOf(leg.peak, g), nowMs - leg.entryAtMs, leg.tiers, t.stopPct, t.costPct, noise, chase) ?: break
+                if (d.second.endsWith("_T1")) { val s = leg.held * d.first; leg.banked += s * ShadowFill8364.exitGrossPct8364(g); leg.held -= s; leg.tiers = 1; t.dirty8355 = true }
+                else if (d.second.endsWith("_T2")) { leg.banked += leg.held * ShadowFill8364.exitGrossPct8364(g); leg.held = 0.0; leg.tiers = 2; t.dirty8355 = true }
+                else return d.second
+            }
+        }
+        return when {
+            leg.held <= 0.0001 -> "SOLD_OUT"
+            nowMs - leg.entryAtMs >= SCALP_TIMEOUT_MS_8347 -> "TIMEOUT"
+            lost -> "LOST_MARK"
+            else -> null
+        }
+    }
+
+    // V5.0.8366 — per ticket: the coin's 1-minute range and the lane's entry chase, read once at its first scalp mark (as live does)
+    private val scalpInMap8366 = ConcurrentHashMap<String, DoubleArray>()
+
+    private fun scalpIn8366(key: String, t: Ticket8347, ts: TokenState?): DoubleArray {
+        scalpInMap8366[key]?.let { return it }
+        val noise = if (ts == null) Double.NaN else (try { com.lifecyclebot.engine.ScalpStop8363.noise1mPct8363(ts) } catch (_: Throwable) { Double.NaN })
+        val chase = try { com.lifecyclebot.engine.ScalpStop8363.chasePct8363(t.lane) } catch (_: Throwable) { 0.0 }
+        val v = doubleArrayOf(noise, chase)
+        if (scalpInMap8366.size > MAX_TICKETS_8347 * 2) scalpInMap8366.clear()
+        scalpInMap8366[key] = v
+        return v
+    }
+
+    /** V5.0.8366 — does this leg's buy land (the route's measured rate, deterministic per ticket x entry)? Unlanded: closed on the failed-tx fee. */
+    private fun landed8366(t: Ticket8347, leg: Leg8347, nowMs: Long): Boolean {
+        val fee = (try { ShadowAlign8366.unlandedEntryFeePct8366("${t.mint}|${t.lane}|${t.setup}|${t.atMs}|${leg.entry}", t.mint, nowMs) } catch (_: Throwable) { null }) ?: return true
+        close8347(t, leg, -fee, ShadowAlign8366.UNLANDED_WHY_8366, nowMs)
+        return false
     }
 
     private fun close8347(t: Ticket8347, leg: Leg8347, net: Double, why: String, nowMs: Long) {
@@ -572,8 +659,14 @@ object ExploreShadow8347 {
         }
         closed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EXPLORE_SHADOW_CLOSE_8347_${leg.exit}_$why") } catch (_: Throwable) {}
+        // V5.0.8366 — the leg that models a live position (native, entered NOW, on the lane's live exit style) feeds the alignment pairs
+        if (t.kind8360 == KIND_NATIVE_8360 && leg.entry == Entry8347.NOW && why != ShadowAlign8366.UNLANDED_WHY_8366) try {
+            val liveExit = liveExitStyle8351(t.lane, EvidenceHold8336.startMs8336) ?: Exit8347.RUNNER
+            if (leg.exit == liveExit) ShadowAlign8366.noteShadow8366("EXPLORE", t.lane, t.mint, leg.entryAtMs, net, nowMs)
+        } catch (_: Throwable) {}
         // Tactics learn from the variant closest to how live enters and exits; native rejects do not attribute a tactic.
-        if (t.kind8360 == KIND_NATIVE_8360 && t.nativeEligible && leg.entry == Entry8347.NOW && leg.exit == Exit8347.RUNNER && t.scoreBand.isNotBlank()) try {
+        if (t.kind8360 == KIND_NATIVE_8360 && t.nativeEligible && leg.entry == Entry8347.NOW && leg.exit == Exit8347.RUNNER && t.scoreBand.isNotBlank() &&
+            why != ShadowAlign8366.UNLANDED_WHY_8366) try {   // V5.0.8366 — an unlanded buy is no trade for the tactic
             com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486(t.lane, t.scoreBand, t.tactic, net)
         } catch (_: Throwable) {}
     }

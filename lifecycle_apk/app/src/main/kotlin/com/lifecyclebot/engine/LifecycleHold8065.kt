@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicLong
 object LifecycleHold8065 {
     private val LANES_8065 = setOf("MOONSHOT", "QUALITY", "BLUECHIP", "CORE")
     const val FLOOR_PCT = 40.0
-    private const val PROMOTE_PCT = 100.0
+    const val PROMOTE_PCT = 100.0   // V5.0.8366 — public: ShadowAlign8366.holdPromotes8366 reads the same bar
     private const val SETTLE_MS = 2L * 3_600_000L
     private const val BASE_BROKE_RED_PCT = -15.0
     private const val BAR_MS = 15L * 60_000L

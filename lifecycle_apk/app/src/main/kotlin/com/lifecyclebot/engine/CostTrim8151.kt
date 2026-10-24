@@ -255,6 +255,13 @@ object CostMeter8151 {
         if (feeLamports > 0L) failedFeeLamports.addAndGet(feeLamports)
     }
 
+    /** V5.0.8366 — the average fee (SOL) a failed leg paid (ShadowAlign8366's unlanded entry); the fixed-leg fallback before one failed. */
+    fun failedLegFeeSol8366(): Double {
+        val n = failedLegs.get()
+        val sum = failedFeeLamports.get()
+        return if (n > 0L && sum > 0L) sum.toDouble() / n.toDouble() / 1e9 else CostTrim8151.FALLBACK_FIXED_LEG_SOL_8151
+    }
+
     /** The Sender tip a send carries ([legacy] = what the old policy would have paid); [entry] = a buy leg. */
     fun noteTip8151(tipLamports: Long, legacy: Long, entry: Boolean) {
         if (entry && tipLamports > 0L) tipLamportsEwma = CostTrim8151.ewma8151(tipLamportsEwma, tipLamports.toDouble(), ALPHA)

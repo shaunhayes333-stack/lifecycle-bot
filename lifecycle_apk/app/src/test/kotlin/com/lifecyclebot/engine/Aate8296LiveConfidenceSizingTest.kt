@@ -121,7 +121,9 @@ class Aate8296LiveConfidenceSizingTest {
         assertTrue(LiveConfidenceSizing8296.paperSeedRefused8296(liveEmpty = true, paperAvailable = true))
         assertFalse(LiveConfidenceSizing8296.paperSeedRefused8296(liveEmpty = false, paperAvailable = true))
         val sizer = File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
-        assertTrue(sizer.contains("LiveConfidenceSizing8296.paperFallbackLiveMult8296(when {"))
+        // superseded by V5.0.8366 — paper never sizes live, not even down: under 10 live closes the multiplier is neutral (LivePerf8366)
+        assertTrue(sizer.contains("if (LivePerf8366.thinLive8366(perf.totalTrades)) {") && sizer.contains("LivePerf8366.thinLiveMult8366(perf.totalTrades)"))
+        assertFalse(sizer.contains("LiveConfidenceSizing8296.paperFallbackLiveMult8296(when {"))
         assertFalse(sizer.contains("recentTradesLive.addAll(recentTradesPaper)"))
         assertFalse(sizer.contains("winStreakLive = winStreakPaper"))
     }

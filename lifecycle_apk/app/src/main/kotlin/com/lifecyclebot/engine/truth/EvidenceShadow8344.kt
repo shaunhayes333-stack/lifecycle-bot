@@ -28,6 +28,8 @@ import java.util.concurrent.atomic.AtomicLong
  * with the same bar it applies to paper (n >= 30, mean - SE > 2 %, PF >= 1.3). Spends nothing, opens no position, takes
  * no slot; paper and the live ledger never see it.
  * Known gaps (it is a model, not a fill): no landing failures, no sell latency, fills at the mark plus the modelled cost.
+ * (superseded by V5.0.8366 — entries land at the route's measured rate, exits fill after the live sell latency, the cost is
+ * the lane's measured round trip once measured, and the exits add live's fluid-stop level and the lifecycle hold: ShadowAlign8366.)
  * V5.0.8364 — the entry is booked at the mark plus the lane's decision-to-fill chase (ShadowFill8364: EntryChase7961's live
  * median once measured, the model chase before); the sell-side slippage is already inside the NetEdge8030 round trip.
  */
@@ -55,6 +57,12 @@ object EvidenceShadow8344 {
         var dirty8355 = false
         var lastWriteMs8355 = 0L
         var noMarkSinceRestore8355 = false
+        // V5.0.8366 — the lifecycle hold (persisted) and a triggered exit waiting out the live sell latency (not persisted)
+        var hold8366 = false
+        var taken8366 = 0
+        var peakAt8366 = 0L
+        var exitAt8366 = 0L
+        var exitWhy8366: String? = null
     }
 
     // ── V5.0.8355 §SHADOW_EVIDENCE_SURVIVES_RESTARTS — the open book is persisted (its own prefs, the close book untouched):
@@ -73,6 +81,7 @@ object EvidenceShadow8344 {
         val enc = ShadowPersist8355.encodePos8355(ShadowPersist8355.PosRec8355(
             p.mint, p.lane, p.entryPx, p.atMs, p.costPct, p.stopPct, p.armPct, p.timeoutMs,
             p.held, p.bankedGrossPct, p.tiersHit, p.peakPct, p.lastPx, p.lastPxAtMs,
+            hold8366 = p.hold8366, taken8366 = p.taken8366, peakAt8366 = p.peakAt8366,   // V5.0.8366
         ))
         try { openPrefs8355?.edit()?.putString(p.mint, enc)?.apply() } catch (_: Throwable) {}
     }
@@ -90,11 +99,14 @@ object EvidenceShadow8344 {
             for ((k, v) in p.all) {
                 val r = ShadowPersist8355.decodePos8355(v as? String)
                 if (r == null) { drop += k; continue }
-                if (ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
+                // V5.0.8366 — a position in the lifecycle hold has no clock: it keeps the hold's window
+                if (r.hold8366 && ShadowPersist8355.expiredOnRestore8355(r.atMs, ShadowAlign8366.holdWindowMs8366(), nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
+                if (!r.hold8366 && ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
                 if (open.size >= MAX_OPEN_8344 || open.containsKey(r.mint)) { drop += k; continue }
                 val pos = Pos8344(r.mint, r.lane, r.entryPx, r.atMs, r.costPct, r.stopPct, r.armPct, r.timeoutMs)
                 pos.held = r.held; pos.bankedGrossPct = r.bankedGrossPct; pos.tiersHit = r.tiersHit; pos.peakPct = r.peakPct
                 pos.lastPx = r.lastPx; pos.lastPxAtMs = r.lastPxAtMs
+                pos.hold8366 = r.hold8366; pos.taken8366 = r.taken8366; pos.peakAt8366 = r.peakAt8366   // V5.0.8366
                 pos.noMarkSinceRestore8355 = true; pos.lastWriteMs8355 = nowMs
                 open[r.mint] = pos
                 lastOpenAt["${r.mint}|${r.lane}"] = r.atMs
@@ -249,7 +261,8 @@ object EvidenceShadow8344 {
             if (mark.second) try { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_${OPEN_FROM_TAPE_MARK_8345}_8345") } catch (_: Throwable) {}
             markSrc8360.computeIfAbsent(if (mark.second) (obs8360?.second ?: "?") else ShadowMark8360.SRC_TICK_8360) { AtomicLong(0) }.incrementAndGet()   // V5.0.8360
             val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
-            val cost = try { NetEdge8030.costPct8030(lane, TICKET_SOL_8344, liq, mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
+            // V5.0.8366 — the lane's measured round trip (CostLedger7962, n >= 8) once measured, the NetEdge8030 model before
+            val cost = try { ShadowAlign8366.laneCostPct8366(lane, liq, mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
             val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
             val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
             val arm = try { com.lifecyclebot.engine.RunnerExitProfile7277.giveBackArmPct7791(lane) } catch (_: Throwable) { 20.0 }
@@ -257,6 +270,14 @@ object EvidenceShadow8344 {
             val fillPx8364 = ShadowFill8364.laneEntryPx8364(px, lane)
             val pos8355 = Pos8344(mint, lane, fillPx8364, nowMs, if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm,
                 if (runner) RUNNER_TIMEOUT_MS_8344 else OTHER_TIMEOUT_MS_8344)
+            // V5.0.8366 — the live buy lands at its route's measured rate (deterministic per mint x lane x decision time); an
+            // unlanded entry is no trade, booked as the failed-tx fee alone
+            val unlanded8366 = try { ShadowAlign8366.unlandedEntryFeePct8366("$mint|$lane|$nowMs|EVIDENCE", mint, nowMs) } catch (_: Throwable) { null }
+            if (unlanded8366 != null) {
+                book8344(pos8355, -unlanded8366, ShadowAlign8366.UNLANDED_WHY_8366, nowMs)
+                lastOpenAt[key] = nowMs
+                return
+            }
             open[mint] = pos8355
             persistOpen8355(pos8355, nowMs)   // V5.0.8355 — written on open
             lastOpenAt[key] = nowMs
@@ -294,37 +315,79 @@ object EvidenceShadow8344 {
                 if (fresh != null) { p.lastPx = fresh; p.lastPxAtMs = nowMs; p.noMarkSinceRestore8355 = false }
                 val g = (p.lastPx / p.entryPx - 1.0) * 100.0
                 if (!g.isFinite()) { done += mint; continue }
+                if (g > p.peakPct) p.peakAt8366 = nowMs   // V5.0.8366 — when the peak was set (the hold's dead-money clock)
                 if (g > p.peakPct) { p.peakPct = g; p.dirty8355 = true }   // V5.0.8355 — a peak change is a persisted change
-                // spike tiers, in order, each sells its share of what is held
-                while (p.tiersHit < com.lifecyclebot.engine.SpikeCapture7943.TIERS.size && fresh != null) {
-                    val (at, frac) = com.lifecyclebot.engine.SpikeCapture7943.TIERS[p.tiersHit]
-                    if (g < at) break
-                    val sold = p.held * frac
-                    p.bankedGrossPct += sold * ShadowFill8364.exitGrossPct8364(g)   // V5.0.8364 — exit slippage not in costPct8030 (none today)
-                    p.held -= sold
-                    p.tiersHit++
-                    p.dirty8355 = true   // V5.0.8355 — a tier change is a persisted change
-                }
-                val floor = giveBackFloor8344(p.peakPct, p.armPct, p.costPct)
-                val why = when {
-                    p.held <= 0.0001 -> "SOLD_OUT"
-                    fresh != null && g <= -p.stopPct -> "STOP"
-                    fresh != null && floor != null && g <= floor -> "GIVEBACK_FLOOR"
-                    nowMs - p.atMs >= p.timeoutMs -> "TIMEOUT"
-                    nowMs - p.lastPxAtMs >= LOST_MARK_MS_8344 -> "LOST_MARK"
-                    else -> null
-                }
+                val why = why8366(p, g, fresh, nowMs)
                 if (why == null) {
                     // V5.0.8355 — coalesced: a changed position is written at most once per 10 s; an unchanged one never
                     if (ShadowPersist8355.writeDue8355(p.dirty8355, p.lastWriteMs8355, nowMs)) persistOpen8355(p, nowMs)
                     continue
                 }
+                if (why == WAIT_8366) { if (ShadowPersist8355.writeDue8355(p.dirty8355, p.lastWriteMs8355, nowMs)) persistOpen8355(p, nowMs); continue }   // V5.0.8366 — waiting out the live sell latency
                 book8344(p, netPct8344(p.bankedGrossPct, p.held, ShadowFill8364.exitGrossPct8364(g), p.costPct), why, nowMs)
                 if (why == "LOST_MARK" && p.noMarkSinceRestore8355) lostOnRestore8355.incrementAndGet()   // V5.0.8355
                 done += mint
             } catch (_: Throwable) { done += mint }
         }
         done.forEach { open.remove(it); forgetOpen8355(it) }   // V5.0.8355 — a closed (or dropped) position leaves the open prefs
+    }
+
+    private const val WAIT_8366 = "WAIT_8366"
+
+    /**
+     * V5.0.8366 — the position's exit on live's levers (null = hold, [WAIT_8366] = triggered, waiting out the live sell
+     * latency): SpikeCapture7943 tiers, the lane stop, the 8338 give-back floor, the level live's fluid stop holds
+     * (ShadowAlign8366.liveStopLevel8366), the clock; at +100 % the lifecycle hold's own exits and no clock. A triggered full
+     * exit fills at the first observed mark once PaperExitLatency8223's latency has passed since the trigger.
+     */
+    private fun why8366(p: Pos8344, g: Double, fresh: Double?, nowMs: Long): String? {
+        val lost = nowMs - p.lastPxAtMs >= LOST_MARK_MS_8344
+        val pending = p.exitWhy8366
+        if (pending != null) {
+            return if (lost || (fresh != null && ShadowAlign8366.latencyElapsed8366(p.exitAt8366, ShadowAlign8366.sellLatencyMs8366(false), nowMs))) pending else WAIT_8366
+        }
+        val runner = p.timeoutMs >= RUNNER_TIMEOUT_MS_8344
+        if (!p.hold8366 && fresh != null && ShadowAlign8366.holdPromotes8366(g, p.peakPct)) { p.hold8366 = true; p.dirty8355 = true }
+        val why: String? = if (p.hold8366) {
+            val d = if (fresh != null) ShadowAlign8366.holdExit8366(g, p.peakPct, p.taken8366, nowMs - p.atMs, nowMs - p.peakAt8366, p.costPct) else null
+            var full: String? = null
+            if (d != null) {
+                val n = ShadowAlign8366.takeOf8366(d.first)
+                if (n < 0) full = d.first
+                else { val sold = p.held * d.second; p.bankedGrossPct += sold * ShadowFill8364.exitGrossPct8364(g); p.held -= sold; p.taken8366 = n; p.dirty8355 = true }
+            }
+            when {
+                full != null -> full
+                p.held <= 0.0001 -> "SOLD_OUT"
+                lost -> "LOST_MARK"
+                else -> null
+            }
+        } else {
+            // spike tiers, in order, each sells its share of what is held
+            while (p.tiersHit < com.lifecyclebot.engine.SpikeCapture7943.TIERS.size && fresh != null) {
+                val (at, frac) = com.lifecyclebot.engine.SpikeCapture7943.TIERS[p.tiersHit]
+                if (g < at) break
+                val sold = p.held * frac
+                p.bankedGrossPct += sold * ShadowFill8364.exitGrossPct8364(g)   // V5.0.8364 — exit slippage not in costPct8030 (none today)
+                p.held -= sold
+                p.tiersHit++
+                p.dirty8355 = true   // V5.0.8355 — a tier change is a persisted change
+            }
+            val floor = giveBackFloor8344(p.peakPct, p.armPct, p.costPct)
+            val level = ShadowAlign8366.liveStopLevel8366(runner, p.stopPct, p.peakPct, p.costPct)
+            when {
+                p.held <= 0.0001 -> "SOLD_OUT"
+                fresh != null && g <= -p.stopPct -> "STOP"
+                fresh != null && floor != null && g <= floor -> "GIVEBACK_FLOOR"
+                fresh != null && level > -p.stopPct && g <= level -> "LIVE_FLOOR_8366"
+                nowMs - p.atMs >= p.timeoutMs -> "TIMEOUT"
+                lost -> "LOST_MARK"
+                else -> null
+            }
+        }
+        if (why == null || why == "SOLD_OUT" || why == "LOST_MARK" || fresh == null) return why
+        p.exitWhy8366 = why; p.exitAt8366 = nowMs
+        return WAIT_8366
     }
 
     private fun book8344(p: Pos8344, net: Double, why: String, nowMs: Long) {
@@ -336,6 +399,8 @@ object EvidenceShadow8344 {
         }
         closedN.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_CLOSE_8344_${why}") } catch (_: Throwable) {}
+        // V5.0.8366 — every landed close models the live position on this mint: the alignment pairs read it
+        if (why != ShadowAlign8366.UNLANDED_WHY_8366) try { ShadowAlign8366.noteShadow8366("EVIDENCE", p.lane, p.mint, p.atMs, net, nowMs) } catch (_: Throwable) {}
     }
 
     // ── proof ──
