@@ -268,9 +268,11 @@ object InsiderWalletTracker {
         // exchanges, market makers, token mints and treasuries: every swap through
         // them streamed as a "smart money buy". Kept for the UI, inactive; the
         // operator's trader watchlist is what is watched.
-        defaults.forEach { wallet ->
+        val kept8362 = cleanSeeds8362(defaults)   // V5.0.8362 — mints / treasuries removed (persisted), never replaced
+        kept8362.forEach { wallet ->
             insiderWallets.putIfAbsent(wallet.address, wallet.copy(isActive = false))
         }
+        checkSeedAccounts8362(kept8362.map { it.address })
         com.lifecyclebot.engine.truth.OperatorWatchlist7881.TRADERS.forEachIndexed { i, a ->
             insiderWallets[a] = InsiderWallet(
                 address = a,
@@ -279,6 +281,72 @@ object InsiderWalletTracker {
                 description = "Operator watchlist (V5.0.7881)",
             )
         }
+    }
+
+    // ── V5.0.8362 — the seeded list keeps trading wallets only (WhaleListClean8362) ──
+    private const val REMOVED_KEY_8362 = "removed_8362"
+    private const val CHECKED_KEY_8362 = "checked_8362"
+    private val removed8362 = ConcurrentHashMap<String, String>()
+    private val accountCheckStarted8362 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Entries removed from the seeded list (persisted), for whales8361[removed=n]. */
+    fun removedCount8362(): Int = removed8362.size
+
+    private fun persistRemoved8362() {
+        try { prefs?.edit()?.putString(REMOVED_KEY_8362, WhaleListClean8362.encodeRemoved8362(HashMap(removed8362)))?.apply() } catch (_: Throwable) {}
+    }
+
+    /** Records one removal (logged once: only when the address was not already removed) and drops it from the live map. */
+    private fun markRemoved8362(address: String, label: String, reason: String) {
+        val fresh = removed8362.putIfAbsent(address, reason) == null
+        insiderWallets.remove(address)
+        holdingsCache.remove(address)
+        recentTxCache.remove(address)
+        if (!fresh) return
+        persistRemoved8362()
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WHALE_LIST_REMOVED_8362_$reason")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("WHALE_LIST_REMOVED_8362_$reason", "label=$label addr=${address.take(10)}")
+        } catch (_: Throwable) {}
+    }
+
+    /** The seeds left after the persisted removals and the label rule (treasury / vesting / multisig / mint labels). */
+    private fun cleanSeeds8362(defaults: List<InsiderWallet>): List<InsiderWallet> {
+        removed8362.putAll(WhaleListClean8362.decodeRemoved8362(prefs?.getString(REMOVED_KEY_8362, null)))
+        val out = ArrayList<InsiderWallet>()
+        for (w in defaults) {
+            if (removed8362.containsKey(w.address)) { insiderWallets.remove(w.address); continue }
+            val reason = WhaleListClean8362.classifyByLabel8362(w.label, w.description)
+            if (reason != null) { markRemoved8362(w.address, w.label, reason); continue }
+            out.add(w)
+        }
+        return out
+    }
+
+    /**
+     * Once per address (cached in prefs): getAccountInfo keyless-first; an account owned by the SPL Token / Token-2022
+     * program with a mint layout is removed as MINT. An address whose read was not served stays unchecked (next init).
+     */
+    private fun checkSeedAccounts8362(addresses: List<String>) {
+        val sp = prefs ?: return
+        if (!accountCheckStarted8362.compareAndSet(false, true)) return
+        val checked = HashSet(WhaleListClean8362.decodeRemoved8362(sp.getString(CHECKED_KEY_8362, null)).keys)
+        val todo = addresses.filter { it !in checked && !removed8362.containsKey(it) }
+        if (todo.isEmpty()) return
+        val t = Thread({
+            for (a in todo) {
+                try {
+                    val params = JSONArray().put(a).put(JSONObject().put("encoding", "jsonParsed"))
+                    val result = com.lifecyclebot.network.KeylessRpc8359.post8359(client, "getAccountInfo", params, "w8362", 2) ?: continue
+                    checked.add(a)
+                    val reason = WhaleListClean8362.classifyAccountResult8362(result)
+                    if (reason != null) markRemoved8362(a, insiderWallets[a]?.label ?: "seed", reason)
+                } catch (_: Throwable) {}
+            }
+            try { sp.edit().putString(CHECKED_KEY_8362, WhaleListClean8362.encodeRemoved8362(checked.associateWith { "1" })).apply() } catch (_: Throwable) {}
+        }, "whaleClean8362")
+        t.isDaemon = true
+        t.start()
     }
 
     /**

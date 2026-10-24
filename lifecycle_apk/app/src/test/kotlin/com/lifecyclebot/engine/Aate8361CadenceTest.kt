@@ -44,21 +44,25 @@ class Aate8361CadenceTest {
 
     private fun c(w: String, closed: Int, wins: Int, mean: Double) = AlphaCandidate8361(w, closed, wins, mean, 0)
 
+    // superseded by V5.0.8362 — owner chose ranking by a lower confidence bound (mean − 1.0 × SE on the clipped per-trip
+    // net) instead of win rate first; rankAlpha8361 is replaced by rankAlpha8362 (see Aate8362AlphaWhaleTest). With sd = 0
+    // the bound is the mean, so the top 25 are the 25 highest means.
     @Test fun alphaRankingTopTwentyFiveByWinRateThenMeanThenCount() {
         val cands = (1..40).map { i -> c("W%02d".format(i), 10, i % 10 + 1, 5.0 + i) }
-        val ranked = HeliusCadence8361.rankAlpha8361(cands)
+        val ranked = HeliusCadence8361.rankAlpha8362(cands).map { it.wallet }
         assertEquals(25, ranked.size)
-        // win rate 10/10 first (i % 10 == 9: 9, 19, 29, 39), the higher mean first among them
-        assertEquals(listOf("W39", "W29", "W19", "W09"), ranked.take(4))
+        assertEquals(listOf("W40", "W39", "W38", "W37"), ranked.take(4))
+        assertFalse(ranked.contains("W15"))
     }
 
+    // superseded by V5.0.8362 — same tie / minimum-trip rules on rankAlpha8362 (bound, then trips, then mean, then address).
     @Test fun alphaRankingTiesAndMinimumRoundTrips() {
-        val ranked = HeliusCadence8361.rankAlpha8361(listOf(
+        val ranked = HeliusCadence8361.rankAlpha8362(listOf(
             c("B", 10, 7, 20.0), c("A", 10, 7, 20.0),     // full tie -> address order
-            c("C", 20, 14, 20.0),                         // same rate + mean, more trips -> first
+            c("C", 20, 14, 20.0),                         // same bound + mean, more trips -> first
             c("D", 4, 4, 90.0),                           // under 5 closed trips -> out
             c("E", 10, 9, -3.0),                          // negative mean -> out
-        ))
+        )).map { it.wallet }
         assertEquals(listOf("C", "A", "B"), ranked)
     }
 

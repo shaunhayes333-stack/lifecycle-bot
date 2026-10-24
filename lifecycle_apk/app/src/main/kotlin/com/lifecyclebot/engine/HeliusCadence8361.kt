@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * V5.0.8361 §HELIUS_CONSUMERS_ON_THE_OWNER_CADENCE — owner: "the market sweep should be maybe hourly or daily depending
@@ -20,8 +21,9 @@ import kotlin.math.abs
  *          RPC-costed source (HELIUS_SWAPS: a PumpSwap signature page + its transactions) runs at most once an hour and
  *          reads keyless-first through [KeylessRpc8359] (Helius only when every public rung declined).
  *  ALPHA   Once a day (and on boot when the stored list is older than 24 h) the top [ALPHA_MAX_8361] wallets are ranked
- *          from the closed round trips already recorded in ExpertWallets7962 (win rate, then mean net, then count; at
- *          least [ALPHA_MIN_TRIPS_8361] closed trips and a positive mean). They ride the existing smart-money
+ *          from the closed round trips already recorded in ExpertWallets7962 (V5.0.8362: by the lower confidence bound
+ *          mean − 1.0 × SE on the clipped per-trip net, then count, then mean; at least [ALPHA_MIN_TRIPS_8361] closed
+ *          trips and a bound above 0 — see [rankAlpha8362]). They ride the existing smart-money
  *          transactionSubscribe (one socket, one accountInclude with the whales); their swaps on that stream extend
  *          their histories and their buys go to the existing copy path unchanged (copy stays behind its proof bar).
  *  WHALES  The tracked big-name wallets (InsiderWalletTracker) ride the same subscription, but only a move of at least
@@ -48,33 +50,62 @@ object HeliusCadence8361 {
     const val ALPHA_BACKFILL_WALLETS_8361 = 10
     const val ALPHA_BACKFILL_SIGS_8361 = 20
 
-    /** One wallet's record from its recorded closed round trips. */
-    data class AlphaCandidate8361(val wallet: String, val closed: Int, val wins: Int, val meanNetPct: Double, val pumpTrips: Int) {
+    /**
+     * One wallet's record from its recorded closed round trips. V5.0.8362: [sdNetPct] = the sample standard deviation of
+     * the clipped per-trip net (0 when fewer than two trips), so the ranking can use a lower confidence bound.
+     */
+    data class AlphaCandidate8361(val wallet: String, val closed: Int, val wins: Int, val meanNetPct: Double, val pumpTrips: Int, val sdNetPct: Double = 0.0) {
         val winRate: Double get() = if (closed > 0) wins.toDouble() / closed else 0.0
+        /** V5.0.8362 — mean − [LCB_Z_8362] × SE (SE = sd / √n); NaN when there are no trips. */
+        val lcbNetPct: Double get() = HeliusCadence8361.lcbOf8362(meanNetPct, sdNetPct, closed)
     }
 
     /** Pure: a wallet's candidate row from its closed trips' realized % (each clipped to -100..+300 so one outlier cannot carry it). */
     fun candidateOf8361(wallet: String, realizedPcts: List<Double>, pumpTrips: Int): AlphaCandidate8361 {
         val ok = realizedPcts.filter { it.isFinite() }
-        val mean = if (ok.isEmpty()) 0.0 else ok.sumOf { it.coerceIn(-100.0, 300.0) } / ok.size
-        return AlphaCandidate8361(wallet, ok.size, ok.count { it > 0.0 }, mean, pumpTrips)
+        val clipped = ok.map { it.coerceIn(-100.0, 300.0) }
+        val mean = if (clipped.isEmpty()) 0.0 else clipped.sum() / clipped.size
+        // V5.0.8362 — sample sd of the clipped per-trip net (n − 1), for the confidence-bound ranking.
+        val sd = if (clipped.size < 2) 0.0 else sqrt(clipped.sumOf { (it - mean) * (it - mean) } / (clipped.size - 1))
+        return AlphaCandidate8361(wallet, ok.size, ok.count { it > 0.0 }, mean, pumpTrips, sd)
+    }
+
+    // ── V5.0.8362 §ALPHA_RANKED_BY_CONFIDENCE — owner chose: rank by a lower confidence bound on mean net per closed trip ──
+    const val LCB_Z_8362 = 1.0
+
+    /** Pure: mean − z × sd / √n (NaN when n ≤ 0 or an input is not finite). */
+    fun lcbOf8362(mean: Double, sd: Double, n: Int, z: Double = LCB_Z_8362): Double {
+        if (n <= 0 || !mean.isFinite() || !sd.isFinite()) return Double.NaN
+        return mean - z * (sd.coerceAtLeast(0.0) / sqrt(n.toDouble()))
+    }
+
+    /** Pure: does a candidate qualify for the alpha list? At least [minTrips] closed trips and a confidence bound above 0. */
+    fun qualifies8362(c: AlphaCandidate8361, minTrips: Int = ALPHA_MIN_TRIPS_8361): Boolean {
+        val lcb = c.lcbNetPct
+        return c.wallet.isNotBlank() && c.closed >= minTrips && c.meanNetPct.isFinite() && lcb.isFinite() && lcb > 0.0
     }
 
     /**
-     * Pure: the alpha list — wallets with at least [minTrips] closed round trips and a positive mean net, ranked by win
-     * rate, then mean net, then trip count, then address (a stable tie-break), at most [max].
+     * Pure: the alpha list (V5.0.8362, replaces the 8361 win-rate-first order) — qualifiers ranked by the lower confidence
+     * bound on mean net per closed round trip, then more trips, then higher mean, then address (a stable tie-break), at
+     * most [max]. A 5-for-5 small sample no longer outranks a long record with a positive mean.
      */
-    fun rankAlpha8361(cands: List<AlphaCandidate8361>, max: Int = ALPHA_MAX_8361, minTrips: Int = ALPHA_MIN_TRIPS_8361): List<String> =
+    fun rankAlpha8362(cands: List<AlphaCandidate8361>, max: Int = ALPHA_MAX_8361, minTrips: Int = ALPHA_MIN_TRIPS_8361): List<AlphaCandidate8361> =
         cands.asSequence()
-            .filter { it.wallet.isNotBlank() && it.closed >= minTrips && it.meanNetPct.isFinite() && it.meanNetPct > 0.0 }
+            .filter { qualifies8362(it, minTrips) }
             .distinctBy { it.wallet }
-            .sortedWith(compareByDescending<AlphaCandidate8361> { it.winRate }
-                .thenByDescending { it.meanNetPct }
+            .sortedWith(compareByDescending<AlphaCandidate8361> { it.lcbNetPct }
                 .thenByDescending { it.closed }
+                .thenByDescending { it.meanNetPct }
                 .thenBy { it.wallet })
             .take(max.coerceAtLeast(0))
-            .map { it.wallet }
             .toList()
+
+    /** Pure: the status fragment for the top [k] listed wallets — `addr6:n12/m+14.2/lcb+6.1`, comma separated, "-" when none. */
+    fun topLine8362(rows: List<AlphaCandidate8361>, k: Int = 5): String =
+        rows.take(k.coerceAtLeast(0)).joinToString(",") {
+            "${it.wallet.take(6)}:n${it.closed}/m${"%+.1f".format(it.meanNetPct)}/lcb${"%+.1f".format(it.lcbNetPct)}"
+        }.ifBlank { "-" }
 
     /** Pure: is the daily alpha rebuild due ([lastMs] = previous rebuild, 0 = never / not stored)? */
     fun alphaRebuildDue8361(lastMs: Long, nowMs: Long): Boolean = lastMs <= 0L || nowMs - lastMs >= ALPHA_REBUILD_MS_8361
@@ -314,9 +345,11 @@ object HeliusCadence8361 {
         val rebuilt = try { ExpertWallets7962.alphaRebuiltAt8361() } catch (_: Throwable) { 0L }
         val rebuiltAgo = if (rebuilt > 0L) "${(nowMs - rebuilt) / 3_600_000L}h" else "never"
         val listed = try { ExpertWallets7962.alphaList8361().size } catch (_: Throwable) { 0 }
+        val top = try { topLine8362(ExpertWallets7962.alphaRows8362(), 5) } catch (_: Throwable) { "-" }   // V5.0.8362
+        val removed = try { com.lifecyclebot.perps.InsiderWalletTracker.removedCount8362() } catch (_: Throwable) { 0 }
         return "sweep8361[keylessEvery=45s heliusEvery=60m lastHelius=$ago runs=${sweepHeliusRuns.get()} notDue=${sweepSkippedNotDue.get()}] " +
-            "alpha8361[list=$listed/$ALPHA_MAX_8361 rebuiltAgo=$rebuiltAgo watching=$watching buysSeen=${buysSeen.get()} sellsSeen=${sellsSeen.get()} copyFed=${copyFed.get()}] " +
-            "whales8361[watched=${whales.size} bigBuys=${bigBuys.get()} bigSells=${bigSells.get()} droppedSmall=${droppedSmall.get()} scansSkipped=${scansSkipped.get()}]"
+            "alpha8361[list=$listed/$ALPHA_MAX_8361 rank=lcb rebuiltAgo=$rebuiltAgo watching=$watching buysSeen=${buysSeen.get()} sellsSeen=${sellsSeen.get()} copyFed=${copyFed.get()} top=$top] " +
+            "whales8361[watched=${whales.size} removed=$removed bigBuys=${bigBuys.get()} bigSells=${bigSells.get()} droppedSmall=${droppedSmall.get()} scansSkipped=${scansSkipped.get()}]"
     }
 
     /** creditsByCaller8361 — Helius credits these three spent since start (paid fallbacks + Enhanced pages), per hour, against the pre-8361 ceilings. */

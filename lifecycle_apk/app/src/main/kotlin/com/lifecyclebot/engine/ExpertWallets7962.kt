@@ -385,6 +385,7 @@ object ExpertWallets7962 {
     @Volatile private var alphaWallets8361: List<String> = emptyList()
     @Volatile private var alphaAtMs8361 = 0L
     @Volatile private var alphaPushed8361 = false
+    @Volatile private var alphaRows8362: List<HeliusCadence8361.AlphaCandidate8361> = emptyList()   // V5.0.8362 — listed rows (n / mean / sd)
     private val streamLegs8361 = java.util.concurrent.ConcurrentLinkedQueue<Pair<String, Leg7962>>()
     private val keylessBackfilled8361 = AtomicLong(0)
     @Volatile private var ownerCopyListed = false
@@ -823,6 +824,7 @@ object ExpertWallets7962 {
                 ownerCopyListed = o.optBoolean("ownerCopy", false)
                 o.optJSONArray("alpha8361")?.let { arr -> alphaWallets8361 = (0 until arr.length()).map { arr.optString(it, "") }.filter { isAddress(it) } }
                 alphaAtMs8361 = o.optLong("alphaAt8361", 0L)
+                alphaRows8362 = decodeAlphaRows8362(o.optJSONArray("alphaRows8362"))
             } catch (_: Throwable) {}
             loaded = true
         }
@@ -846,6 +848,7 @@ object ExpertWallets7962 {
             o.put("learned", tripsLearned.get())
             o.put("ownerCopy", ownerCopyListed)
             o.put("alpha8361", JSONArray(alphaWallets8361)).put("alphaAt8361", alphaAtMs8361)
+            o.put("alphaRows8362", encodeAlphaRows8362(alphaRows8362))
             LearningPersistence.save(INDEX_KEY, o.toString())
         } catch (_: Throwable) {}
     }
@@ -887,6 +890,33 @@ object ExpertWallets7962 {
 
     /** The ranked alpha list (at most 25), as stored. */
     fun alphaList8361(): List<String> = alphaWallets8361
+
+    /** V5.0.8362 — the listed wallets' rows (n / mean / sd → lcb) in rank order, as stored at the last rebuild. */
+    fun alphaRows8362(): List<HeliusCadence8361.AlphaCandidate8361> = alphaRows8362
+
+    /** Pure: the listed rows as stored ({w, n, k, m, sd, p}). */
+    fun encodeAlphaRows8362(rows: List<HeliusCadence8361.AlphaCandidate8361>): JSONArray {
+        val arr = JSONArray()
+        for (r in rows) {
+            if (!r.meanNetPct.isFinite() || !r.sdNetPct.isFinite()) continue
+            arr.put(JSONObject().put("w", r.wallet).put("n", r.closed).put("k", r.wins).put("m", r.meanNetPct).put("sd", r.sdNetPct).put("p", r.pumpTrips))
+        }
+        return arr
+    }
+
+    /** Pure: the stored rows back (rows with a blank wallet or no trips are dropped). */
+    fun decodeAlphaRows8362(arr: JSONArray?): List<HeliusCadence8361.AlphaCandidate8361> {
+        if (arr == null) return emptyList()
+        val out = ArrayList<HeliusCadence8361.AlphaCandidate8361>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val w = o.optString("w", "")
+            val n = o.optInt("n", 0)
+            if (w.isBlank() || n <= 0) continue
+            out.add(HeliusCadence8361.AlphaCandidate8361(w, n, o.optInt("k", 0), o.optDouble("m", 0.0), o.optInt("p", 0), o.optDouble("sd", 0.0)))
+        }
+        return out
+    }
 
     /** When the alpha list was last rebuilt (0 = never). */
     fun alphaRebuiltAt8361(): Long = alphaAtMs8361
@@ -952,7 +982,9 @@ object ExpertWallets7962 {
     /** Daily: backfill new members keyless, rank the top 25, keep them on the copy list, refresh the one subscription. */
     private fun rebuildAlpha8361(engine: CopyTradeEngine?, onWatchlistChanged: (List<String>) -> Unit, nowMs: Long) {
         try { backfillKeyless8361(nowMs) } catch (e: InterruptedException) { throw e } catch (_: Throwable) {}
-        val ranked = HeliusCadence8361.rankAlpha8361(alphaCandidates8361())
+        val rows8362 = HeliusCadence8361.rankAlpha8362(alphaCandidates8361())   // V5.0.8362 — ranked by confidence bound
+        val ranked = rows8362.map { it.wallet }
+        alphaRows8362 = rows8362
         alphaWallets8361 = ranked
         alphaAtMs8361 = nowMs
         if (engine != null) {
@@ -966,7 +998,7 @@ object ExpertWallets7962 {
         persistIndex()
         try {
             PipelineHealthCollector.labelInc("ALPHA_LIST_REBUILT_8361")
-            ForensicLogger.lifecycle("ALPHA_LIST_REBUILT_8361", "listed=${ranked.size} candidates=${experts.size} backfilled=${keylessBackfilled8361.get()}")
+            ForensicLogger.lifecycle("ALPHA_LIST_REBUILT_8361", "listed=${ranked.size} rank=lcb candidates=${experts.size} backfilled=${keylessBackfilled8361.get()} top=${HeliusCadence8361.topLine8362(rows8362, 5)}")
         } catch (_: Throwable) {}
     }
 
