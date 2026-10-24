@@ -159,6 +159,11 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
     companion object {
 
+        /** A numerical score alone does not prove the provider delivered the mint's risk inventory. */
+        internal fun rugcheckReportComplete8374(requestMint: String, echoedMint: String?, risksPresent: Boolean): Boolean =
+            requestMint.isNotBlank() && risksPresent &&
+                (echoedMint.isNullOrBlank() || echoedMint == requestMint)
+
         // V5.9.736 — defer-queue tuning. RC_DEFER_TTL is the total wall-
         // time a token can stay in the deferred pool before we accept
         // the hard block. RC_DEFER_RECHECK is the per-attempt delay
@@ -440,7 +445,21 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 ErrorLogger.warn(TAG, "Rugcheck TIMEOUT for $symbol: applying -$RUGCHECK_TIMEOUT_PENALTY penalty + PENDING_REVIEW (live mode, no hard block)")
             }
         } else {
-            rugcheckStatus = "CONFIRMED"
+            // V5.0.8374: a score-only response (or a report echo for another
+            // mint) cannot certify ABSENCE of holder/LP red flags. Earlier we
+            // marked any numeric score CONFIRMED even if `risks` was missing;
+            // an otherwise verified RPC mint could then pass the buy gate.
+            // Missing inventory stays retryable, while an observed empty []
+            // is legitimately complete. PreTradeHardGate defers live spend.
+            val risksPresent8374 = rugcheck?.optJSONArray("risks") != null
+            val reportMint8374 = rugcheck?.optString("mint", "")
+            val confirmed8374 = rugcheckReportComplete8374(mint, reportMint8374, risksPresent8374)
+            rugcheckStatus = if (confirmed8374) "CONFIRMED" else "PENDING_REVIEW"
+            if (!confirmed8374) try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUGCHECK_INCOMPLETE_RISK_INVENTORY_8374")
+                ForensicLogger.lifecycle("RUGCHECK_INCOMPLETE_RISK_INVENTORY_8374",
+                    "mint=${mint.take(10)} risksPresent=$risksPresent8374 echoMatches=${reportMint8374.isNullOrBlank() || reportMint8374 == mint} action=DEFER_LIVE_PROOF")
+            } catch (_: Throwable) {}
         }
 
         if (rugcheck != null) {
