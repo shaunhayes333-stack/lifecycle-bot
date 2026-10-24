@@ -134,6 +134,60 @@ class Aate8366CortexTest {
         assertTrue(c.learn("QUALITY", 3.0, 0.0, 2.0, 3.0).isFinite())
     }
 
+    @Test fun aHotLaneRetainsRankPairsUntilItsRunnerHoldWindow() {
+        val c = CortexCalibration7901()
+        val firstStamp = c.learn("MOONSHOT", 0.0, 0.0, -15.0, 0.0)
+        repeat(1_500) { i ->
+            c.learn("MOONSHOT", (i % 100).toDouble(), 0.0, -10.0 + i % 20, (i % 100).toDouble())
+        }
+        val before = c.encode().getString(CortexCalibration7901.ISO_KEY_PREFIX_8366 + "MOONSHOT")
+        assertTrue(before.startsWith("0.0:-15.0:"))
+        assertTrue(c.revise8322("MOONSHOT", 0.0, 0.0, -15.0, 87.0, firstStamp))
+        val after = c.encode().getString(CortexCalibration7901.ISO_KEY_PREFIX_8366 + "MOONSHOT")
+        assertTrue(after.startsWith("0.0:87.0:"))
+        assertEquals(1_501, c.isoFit8366("MOONSHOT")!!.n)
+    }
+
+    @Test fun twoDecisionsForOneMintKeepSeparateLabelsAndPreciseCalibrationProvenance() {
+        val b = com.lifecyclebot.engine.cortex.CortexGradeBook8144()
+        fun row(at: Long) = com.lifecyclebot.engine.cortex.CortexGradeRecord8144(
+            'D', "mint|MOONSHOT|$at", "mint|MOONSHOT", at, "MOONSHOT", "IGNITION_5M",
+            "LAUNCH", "EARLY", "LOW", "MC_LT10K", 1, -4.0, false, true, false,
+        )
+        val older = row(1_000_000L)
+        val newer = row(2_000_000L)
+        older.rawEdge8371 = 0.12345678901234567
+        older.laneMean8371 = -11.987654321098765
+        older.calStamp8371 = -1.2345678901234567
+        assertTrue(b.addDecision(older))
+        assertTrue(b.addDecision(newer))
+        assertTrue(b.label(older.id, -15.0, -12.0, -15.0, true))
+        assertTrue(b.label(newer.id, 40.0, 43.0, 40.0, true))
+        val restored = com.lifecyclebot.engine.cortex.CortexGradeBook8144()
+        restored.decode(b.encode())
+        assertEquals(-15.0, restored.decision(older.id)!!.observedNetPct, 0.0)
+        assertEquals(40.0, restored.decision(newer.id)!!.observedNetPct, 0.0)
+        assertEquals(older.rawEdge8371, restored.decision(older.id)!!.rawEdge8371, 0.0)
+        assertEquals(older.laneMean8371, restored.decision(older.id)!!.laneMean8371, 0.0)
+        assertEquals(older.calStamp8371, restored.decision(older.id)!!.calStamp8371, 0.0)
+        // A revision of the old observation changes only the old id.
+        assertTrue(restored.label(older.id, 87.0, 100.0, 87.0, true))
+        assertEquals(87.0, restored.decision(older.id)!!.observedNetPct, 0.0)
+        assertEquals(40.0, restored.decision(newer.id)!!.observedNetPct, 0.0)
+    }
+
+    @Test fun theForwardLabelerBindsEveryCortexCallbackToTheOriginalObservation() {
+        val cx = src("engine/cortex/Cortex7885.kt")
+        val lab = src("engine/truth/ForwardReturnLabeler7731.kt")
+        assertTrue(lab.contains("decisionAtMs8371 = o.atMs"))
+        assertTrue(cx.contains("if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371)"))
+        assertTrue(cx.contains("val id = \"\$key|\$decisionAtMs8371\""))
+        assertTrue(cx.contains("val g = graded8006[id]"))
+        assertTrue(cx.contains("r.calStamp8371"))
+        assertFalse(cx.contains("val g = graded8006[key] ?: run"))
+        assertFalse(cx.contains("gradeBook8144.latestLabelled8324(key) ?: return"))
+    }
+
     // ── 2. honest labels ──
 
     @Test fun aStopIsGradedAtTheFirstMarkBelowItWithExitSlippage() {
