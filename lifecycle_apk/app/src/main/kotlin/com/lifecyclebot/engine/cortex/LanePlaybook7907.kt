@@ -737,8 +737,10 @@ object LanePlaybook7907 {
     private fun stat(lane: String, setup: String): CortexLedger7885.Stat? {
         // V5.0.8337 (FIX 7b) — the 8114 read is the 8114 record: local + the hive at full weight, uncapped (superseded by
         // V5.0.8337 — 8326 returned the 8187-capped, 8291 hive-limited record, so inLegacy8326 never read 8114's evidence).
-        if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return legacyStat8326(lane, setup)
-        val raw = statRaw8187(lane, setup) ?: return null
+        // V5.0.8365: keep the 8114 raw hive, but subject authority reads to the same
+        // executable SOL shortfall and live-close feedback as every current setup.
+        val raw = (if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) legacyStat8326(lane, setup)
+                   else statRaw8187(lane, setup)) ?: return null
         val rr = try { Cortex7885.setupRealised8187(lane, setup) } catch (_: Throwable) { null }
         // V5.0.8295 — losing realised closes are applied by LaneRealisedGovernor8295 (from the first close, with the lane's own
         // bank); the 8187 blend keeps only its other direction here so a losing close is never counted twice.

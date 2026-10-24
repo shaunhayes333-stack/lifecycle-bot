@@ -254,14 +254,15 @@ class CortexLedger7885(
             val dw = (if (yNew > 0.0) 1.0 else 0.0) - (if (yOld > 0.0) 1.0 else 0.0)
             if (dw != 0.0) wins = (wins + weight * dw).coerceIn(0.0, n)
         }
-        fun encode(): String = "$n,$sum,$sumSq,$runners,$wins,$logScale,$witnessed8324"  // V5.0.8324 — 7th: witnessed runners
+        fun encode(): String = "$n,$sum,$sumSq,$runners,$wins,$logScale,$witnessed8324,INDEPENDENT_CURVE_8365"  // V5.0.8365 independent proof epoch
         fun decode(s: String) {
-            val f = s.split(','); if (f.size !in 4..7) return
+            val f = s.split(','); if (f.size !in 4..8) return
             n = f[0].toDoubleOrNull() ?: 0.0; sum = f[1].toDoubleOrNull() ?: 0.0
             sumSq = f[2].toDoubleOrNull() ?: 0.0; runners = f[3].toDoubleOrNull() ?: 0.0
             wins = if (f.size >= 5) f[4].toDoubleOrNull() ?: 0.0 else 0.0
             logScale = f.getOrNull(5)?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
-            witnessed8324 = (f.getOrNull(6)?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0).coerceIn(0.0, maxOf(runners, 0.0))
+            witnessed8324 = if (f.getOrNull(7) == "INDEPENDENT_CURVE_8365")
+                (f.getOrNull(6)?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0).coerceIn(0.0, maxOf(runners, 0.0)) else 0.0 // Older cap-based proof is not independent
         }
     }
 

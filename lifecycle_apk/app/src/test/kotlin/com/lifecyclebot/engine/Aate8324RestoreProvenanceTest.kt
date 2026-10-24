@@ -113,10 +113,10 @@ class Aate8324RestoreProvenanceTest {
         assertFalse("never on fewer than 3 runners", CortexLedger7885.tailPlausible8320(2 * 8_000.0, 2.0, cap, witnessed = 2.0))
         assertEquals(0.8, CortexLedger7885.WITNESS_SHARE_8324, 0.0)
         assertTrue(CortexLedger7885.provenanceWitnessed8324(5.0, 4.0))
-        // the label witness: the coin's own curve agrees with the mark, or the cap moved with it from launch scale
+        // the independent label witness: the coin's own fresh curve agrees (cap follows price and is not independent)
         assertTrue(ForwardReturnLabeler7731.witnessed8324(0.0012, 0.0010, false))
         assertFalse("a mark 3x off the curve is not witnessed", ForwardReturnLabeler7731.witnessed8324(0.0030, 0.0010, false))
-        assertTrue(ForwardReturnLabeler7731.witnessed8324(0.0030, 0.0, true))
+        assertFalse("market cap co-move cannot witness its own source mark", ForwardReturnLabeler7731.witnessed8324(0.0030, 0.0, true))
         assertFalse(ForwardReturnLabeler7731.witnessed8324(0.0030, 0.0, false))
     }
 
@@ -155,8 +155,11 @@ class Aate8324RestoreProvenanceTest {
         assertTrue(frl.contains("val w8324 = gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs)"))
         assertTrue(frl.contains("if (gross >= RUNNER_PCT_7731) { t.runner60 += 1; if (witnessed8324) t.witness60 += 1 }"))
         val t = ForwardReturnLabeler7731.Tally().also { it.decode("0,0,0,10,100.0,5000.0,3,2,0,0,0,0,2") }
-        assertEquals(2, t.witness60)
-        assertTrue(t.encode().endsWith(",2"))
+        assertEquals("pre-8365 cap-only witnesses are not independently proven", 0, t.witness60)
+        t.witness60 = 2
+        assertTrue(t.encode().endsWith("INDEPENDENT_CURVE_8365"))
+        val restored = ForwardReturnLabeler7731.Tally().also { it.decode(t.encode()) }
+        assertEquals(2, restored.witness60)
         assertTrue(ForwardReturnLabeler7731.Tally().decode("0,0,0,10,100.0,5000.0,3,2,0,0,0,0"))
     }
 

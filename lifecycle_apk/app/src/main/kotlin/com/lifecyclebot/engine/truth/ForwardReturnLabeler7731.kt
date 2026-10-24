@@ -177,27 +177,29 @@ object ForwardReturnLabeler7731 {
         curveWitnessAt8337(mint, markUsd, markAtMs, nowMs) == 2
 
     /**
-     * Pure (V5.0.8324 §PROVENANCE): is a label's mark witnessed on the chain basis? Either the coin's own bonding-curve spot
-     * ([curveUsd], USD, read inside the witness window) agrees with the mark within 2x, or the move is corroborated by the
-     * market cap moving the same multiple from launch scale ([capCorroborated], runCorroborated7769). A mark with neither is
-     * unverified: its tail keeps the 8320 size rule.
+     * V5.0.8365: cap is commonly derived from the very same price being checked, so
+     * cap co-movement is not independent proof. Only a fresh, synchronized curve spot
+     * can witness a label. Raw price and cap observations remain unchanged.
      */
-    fun witnessed8324(markUsd: Double, curveUsd: Double, capCorroborated: Boolean): Boolean =
-        (markUsd > 0.0 && curveUsd > 0.0 && markUsd.isFinite() && curveUsd.isFinite() && !curveDisagrees8165(markUsd, curveUsd)) || capCorroborated
+    fun witnessed8324(markUsd: Double, curveUsd: Double, @Suppress("UNUSED_PARAMETER") capCorroborated: Boolean): Boolean =
+        markUsd > 0.0 && curveUsd > 0.0 && markUsd.isFinite() && curveUsd.isFinite() && !curveDisagrees8165(markUsd, curveUsd)
 
     private val witnessedLabels8324 = AtomicLong(0)
 
     /** V5.0.8324 — [o]'s current mark is chain-witnessed (sticky once true for the observation). */
     private fun witnessNow8324(o: Obs, nowMs: Long): Boolean {
-        if (o.witnessed8324) return true
         val px = o.lastPx
-        if (!(px > 0.0) || !(o.entryPrice > 0.0)) return false
+        if (!(px > 0.0) || !(o.entryPrice > 0.0)) { o.witnessed8324 = false; return false }
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val curveSol = try { CurveReserves7951.priceSolFor7951(o.mint, nowMs, CURVE_WITNESS_MAX_AGE_MS_8165) } catch (_: Throwable) { 0.0 }
-        val curveUsd = if (curveSol > 0.0 && solUsd > 0.0) curveSol * solUsd else 0.0
-        val cap = try { runCorroborated7769(o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint), solUsd) } catch (_: Throwable) { false }
-        val w = witnessed8324(px, curveUsd, cap)
-        if (w) { o.witnessed8324 = true; witnessedLabels8324.incrementAndGet() }
+        val curveAt = try { CurveReserves7951.readingAtMs8173(o.mint) } catch (_: Throwable) { null }
+        // Witness THIS mark, not an older, unrelated price before a claimed runner peak.
+        val synchronous = curveAt != null && o.lastPxAtMs > 0L &&
+            kotlin.math.abs(curveAt - o.lastPxAtMs) <= CURVE_WITNESS_SYNC_MS_8337
+        val curveUsd = if (synchronous && curveSol > 0.0 && solUsd > 0.0) curveSol * solUsd else 0.0
+        val w = witnessed8324(px, curveUsd, false)
+        if (w && !o.witnessed8324) witnessedLabels8324.incrementAndGet()
+        o.witnessed8324 = w
         return w
     }
 
@@ -343,16 +345,17 @@ object ForwardReturnLabeler7731 {
             }
             if (n240 > w) { val k = w.toDouble() / n240; n240 = w; sum240 *= k; win240 = (win240 * k).roundToIntSafe8014().coerceIn(0, n240) }
         }
-        fun encode(): String = "$n15,$sum15,$win15,$n60,$sum60,$sumSq60,$win60,$runner60,$n240,$sum240,$win240,$lost,$witness60"  // V5.0.8324 — 13th
+        fun encode(): String = "$n15,$sum15,$win15,$n60,$sum60,$sumSq60,$win60,$runner60,$n240,$sum240,$win240,$lost,$witness60,INDEPENDENT_CURVE_8365"  // Proof epoch
         fun decode(s: String): Boolean {
             val f = s.split(',')
-            if (f.size != 12 && f.size != 13) return false
+            if (f.size !in 12..14) return false
             n15 = f[0].toIntOrNull() ?: 0; sum15 = f[1].toDoubleOrNull() ?: 0.0; win15 = f[2].toIntOrNull() ?: 0
             n60 = f[3].toIntOrNull() ?: 0; sum60 = f[4].toDoubleOrNull() ?: 0.0; sumSq60 = f[5].toDoubleOrNull() ?: 0.0
             win60 = f[6].toIntOrNull() ?: 0; runner60 = f[7].toIntOrNull() ?: 0
             n240 = f[8].toIntOrNull() ?: 0; sum240 = f[9].toDoubleOrNull() ?: 0.0; win240 = f[10].toIntOrNull() ?: 0
             lost = f[11].toIntOrNull() ?: 0
-            witness60 = (f.getOrNull(12)?.toIntOrNull() ?: 0).coerceIn(0, maxOf(runner60, 0))
+            witness60 = if (f.getOrNull(13) == "INDEPENDENT_CURVE_8365")
+                (f.getOrNull(12)?.toIntOrNull() ?: 0).coerceIn(0, maxOf(runner60, 0)) else 0  // Prior cap-only witnesses must re-qualify
             return true
         }
     }
@@ -1362,7 +1365,7 @@ object ForwardReturnLabeler7731 {
             try { com.lifecyclebot.engine.cortex.LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second) } catch (_: Throwable) {}
             o.bookedLongNet8080 = long8080.first; o.bookedLongGross8080 = long8080.second
         }
-        revise7997(o, oldNet, net, o.bookedGross7997, gross, gross >= RUNNER_PCT_7731 && o.witnessed8324)
+        revise7997(o, oldNet, net, o.bookedGross7997, gross, gross >= RUNNER_PCT_7731 && witnessNow8324(o, System.currentTimeMillis()))
         o.bookedNet7997 = net; o.bookedGross7997 = gross
         revisedToHour8337.incrementAndGet()
         try { PipelineHealthCollector.labelInc("FORWARD_LABEL_RUNNER_HOUR_SLOT_8337") } catch (_: Throwable) {}
