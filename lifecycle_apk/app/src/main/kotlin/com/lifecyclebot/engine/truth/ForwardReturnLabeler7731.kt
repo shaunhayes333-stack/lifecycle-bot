@@ -292,6 +292,17 @@ object ForwardReturnLabeler7731 {
         /** V5.0.8094 — the chase share of [costPct]; credited back when the entry rebases at the lane's fill latency. */
         @Volatile var chase8094 = 0.0
         val recent8071 = ArrayDeque<DoubleArray>()   // [atMs, gross], the last ~30 s of marks
+        /**
+         * V5.0.8366 §HONEST_LABELS — true for an observation opened by this build (its path is recorded from the first mark):
+         * its stop grades at the first mark at or below the stop and its ladder at a peak held for the sell latency
+         * (HonestExit8366). A restored observation keeps the previous grading.
+         */
+        @Volatile var honest8366 = false
+        /** V5.0.8366 — the level held for the measured sell latency (HonestExit8366.heldPeakStep8366), and its window. */
+        @Volatile var heldPeak8366 = 0.0
+        val recent8366 = ArrayDeque<DoubleArray>()
+        /** V5.0.8366 — the path's new lows in order: [atMs, gross, prevAtMs, prevGross] (HonestExit8366.noteLow8366). */
+        val lows8366 = ArrayList<DoubleArray>()
         /** V5.0.8006 — the exit-profile sample waits for the end of a followed run. */
         @Volatile var exitDeferred8006: Boolean = false
         /** V5.0.7972 — the decision's discrete facts (SpecialistMiner7972). */
@@ -825,6 +836,7 @@ object ForwardReturnLabeler7731 {
         val score8051 = if (score >= 0) score else ts.entryScore.toInt()
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score8051, sig8051.first, regime, sig8051.second, px, cost.coerceIn(0.0, 60.0), nowMs)
             .also {
+                it.honest8366 = true  // V5.0.8366
                 it.chase8094 = chase8094.coerceAtLeast(0.0)
                 it.entryStyle8077 = try {
                     com.lifecyclebot.engine.AgenticStyleRouter.decide(ts, com.lifecyclebot.engine.ModeRouter.classify(ts), l).style.name
@@ -984,15 +996,18 @@ object ForwardReturnLabeler7731 {
         // not on the scalp tiers it no longer sells into. Its stop is unchanged: live still takes the lane stop.
         val runner8106 = try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(o.lane, false) } catch (_: Throwable) { false }
         val tiers8071 = try { if (longHold8077 ?: com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071() else if (runner8106) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
+        // V5.0.8366 §HONEST_LABELS — the ladder credits a level held for the measured sell latency (not a free 20 s window),
+        // and a stop fills at the first observed mark at or below it, after the exit slippage (HonestExit8366).
+        val held8366 = if (o.honest8366) o.heldPeak8366 else o.heldPeak8071
         val ladder8040: (Double, Double) -> Double = { pk, rest ->
-            if (runner8106) heldCredit8071(minOf(pk, o.heldPeak8071), runnerRest8106(true, minOf(pk, o.heldPeak8071), rest), tiers8071)
-            else heldCredit8071(minOf(pk, o.heldPeak8071), rest, tiers8071)
+            if (runner8106) heldCredit8071(minOf(pk, held8366), runnerRest8106(true, minOf(pk, held8366), rest), tiers8071)
+            else heldCredit8071(minOf(pk, held8366), rest, tiers8071)
         }
-        val g = com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stop8029, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
+        val g = playGross8366(o, stop8029, gross, ladder8040)
         // V5.0.8040 — the same path under every candidate stop: the lane learns its own stop (StopLearner8040).
         if (stop8029 > 0.0 && longFamily8080 == null) try {
             com.lifecyclebot.engine.cortex.StopLearner8040.onPath8040(o.lane, "${o.mint}|${o.atMs}", stop8029, System.currentTimeMillis() - o.atMs) { s ->
-                com.lifecyclebot.engine.LaneParticipation8029.playGross8029(s, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder8040)
+                playGross8366(o, s, gross, ladder8040)  // V5.0.8366 — candidate stops graded on the same honest fill
             }
         } catch (_: Throwable) {}
         if (!g.isFinite() || g == gross) return net to gross
@@ -1007,6 +1022,38 @@ object ForwardReturnLabeler7731 {
     }
 
     private val capturedLabels7945 = AtomicLong(0)
+
+    // ── V5.0.8366 §HONEST_LABELS (HonestExit8366) ──
+    private val honestStops8366 = AtomicLong(0)
+
+    /** The lane play on [o]'s path with a stop of [stopMag]: an honest observation fills at its first mark past the stop. */
+    private fun playGross8366(o: Obs, stopMag: Double, gross: Double, ladder: (Double, Double) -> Double): Double {
+        if (!o.honest8366) return com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stopMag, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder)
+        val fill = synchronized(o.recent8071) { HonestExit8366.stopFill8366(o.lows8366, stopMag, HonestExit8366.sellLatencyMs8366()) }
+        // Lows past the record cap: the deepest stops fall back to the lowest mark seen (never better than the path).
+        val fill2 = if (fill.isFinite() || !(stopMag > 0.0) || o.minPct7962 > -stopMag) fill else o.minPct7962
+        if (fill2.isFinite() && fill2 < -stopMag) honestStops8366.incrementAndGet()
+        return HonestExit8366.playGross8366(stopMag, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, fill2, ladder)
+    }
+
+    private fun notePathLow8366(o: Obs, nowMs: Long, gross: Double) {
+        if (!o.honest8366) return
+        val prevGross = if (o.lastPx > 0.0 && o.entryPrice > 0.0 && o.lastPxAtMs > 0L) (o.lastPx / o.entryPrice - 1.0) * 100.0 else 0.0
+        val prevAt = if (o.lastPxAtMs > 0L) o.lastPxAtMs else o.atMs
+        synchronized(o.recent8071) { HonestExit8366.noteLow8366(o.lows8366, nowMs, gross, prevAt, prevGross) }
+    }
+
+    /** Caller holds o.recent8071. */
+    private fun notePathHeld8366(o: Obs, nowMs: Long, gross: Double) {
+        if (o.honest8366) o.heldPeak8366 = HonestExit8366.heldPeakStep8366(o.recent8366, nowMs, gross, o.heldPeak8366, HonestExit8366.sellLatencyMs8366())
+    }
+
+    /** Caller holds o.recent8071: a re-based entry restarts the recorded path. */
+    private fun resetPath8366(o: Obs) {
+        o.heldPeak8366 = 0.0; o.recent8366.clear(); o.lows8366.clear()
+    }
+
+    fun honestLine8366(): String = "honestStops8366=${honestStops8366.get()} sellLatency=${HonestExit8366.sellLatencyMs8366() / 1000}s"
 
     /**
      * V5.0.8076 — the label's entry is the first mark 5-60 s after the decision, not the decision price. 5.0.8075:
@@ -1601,7 +1648,7 @@ object ForwardReturnLabeler7731 {
                     // V5.0.8094 — the rebased entry already holds the decision-to-fill move: the chase is not charged twice.
                     if (rebaseClearsChase8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) { o.costPct = (o.costPct - o.chase8094).coerceAtLeast(0.0); o.chase8094 = 0.0 }
                     o.peakPct = 0.0; o.minPct7962 = 0.0; o.heldPeak8071 = 0.0; o.dipBeforePeak7962 = Double.NaN
-                    synchronized(o.recent8071) { o.recent8071.clear() }
+                    synchronized(o.recent8071) { o.recent8071.clear(); resetPath8366(o) }
                 }
               }
             }
@@ -1617,7 +1664,7 @@ object ForwardReturnLabeler7731 {
                 continue
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
-            if (gross < o.minPct7962) o.minPct7962 = gross
+            if (gross < o.minPct7962) { notePathLow8366(o, nowMs, gross); o.minPct7962 = gross }  // V5.0.8366 — first mark past a stop
             // V5.0.8000 — a runner inside its first 30 minutes is broadcast to every installed instance.
             if (gross >= 100.0 && age <= 30L * 60_000L) try { HiveEdge8000.noteRunner8000(o.mint, o.symbol, gross, o.atMs) } catch (_: Throwable) {}
             if (gross >= 400.0 && o.peakPct < 400.0) try {
@@ -1632,7 +1679,7 @@ object ForwardReturnLabeler7731 {
             if (gross >= RunnerCapture8017.RUNNER_PEAK_PCT_8017 && gross > o.peakPct) try { RunnerCapture8017.onRunnerPeak8017(o.mint, o.symbol, o.lane, o.entryPrice, gross, if (o.admitted) "" else o.reason7967.take(40), nowMs) } catch (_: Throwable) {}
             if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs; o.dipBeforePeak7962 = o.minPct7962 }
             // V5.0.8071 — the level the price held long enough to sell into.
-            synchronized(o.recent8071) { o.heldPeak8071 = heldPeakStep8071(o.recent8071, nowMs, gross, o.heldPeak8071) }
+            synchronized(o.recent8071) { o.heldPeak8071 = heldPeakStep8071(o.recent8071, nowMs, gross, o.heldPeak8071); notePathHeld8366(o, nowMs, gross) }
             val priorPx7944 = o.lastPx to o.lastPxAtMs
             o.lastPx = px; o.lastPxAtMs = nowMs
             val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
@@ -1862,7 +1909,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLostMarks8342=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} ${honestLine8366()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLostMarks8342=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      tail8303: ${best.joinToString(" · ") { CellTail8303.line8303(it.key, it.meanNet60Pct, it.winRate60, it.runnerRate60) }.ifBlank { "-" }}\n" +  // V5.0.8303

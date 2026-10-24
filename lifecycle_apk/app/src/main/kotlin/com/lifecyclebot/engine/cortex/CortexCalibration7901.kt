@@ -49,6 +49,52 @@ class CortexCalibration7901 {
          */
         const val EARLY_MIN_N_8291 = 20.0
 
+        /** V5.0.8366 — graded (score, outcome) pairs kept per lane for the rank calibration. */
+        const val ISO_RING_8366 = 256
+        /** V5.0.8366 — pairs before the rank fit replaces the slope (and may declare a lane UNCALIBRATED). */
+        const val ISO_MIN_N_8366 = 60
+        /** V5.0.8366 — the return clip used inside the FIT only (fraction: -99 % .. +300 %). Stored pairs stay raw. */
+        const val WINSOR_LO_8366 = -0.99
+        const val WINSOR_HI_8366 = 3.0
+        /** V5.0.8366 — a fit whose expected log returns span less than this has no discrimination (flat). */
+        const val FLAT_EPS_8366 = 0.005
+        /** V5.0.8366 — persisted ring rows ride the same JSON under this key prefix (never a 5-field row: old decoders skip it). */
+        const val ISO_KEY_PREFIX_8366 = "ISO8366|"
+
+        /** Pure (V5.0.8366): the winsorised log return of an outcome in percent — ln(1 + clip(r, -0.99, 3.0)). NaN when not finite. */
+        fun winsorLog8366(outcomePct: Double): Double {
+            if (!outcomePct.isFinite()) return Double.NaN
+            val r = (outcomePct / 100.0).coerceIn(WINSOR_LO_8366, WINSOR_HI_8366)
+            return kotlin.math.ln(1.0 + r)
+        }
+
+        /**
+         * Pure (V5.0.8366): the isotonic (non-decreasing) fit of winsorised log outcome on score by pool-adjacent-violators,
+         * with the Spearman rank correlation of the raw pairs. Each block is (weighted mean score, mean expected log return).
+         */
+        fun fitIso8366(scores: List<Double>, outcomesPct: List<Double>): IsoFit8366 {
+            val idx = scores.indices.filter { it < outcomesPct.size && scores[it].isFinite() && outcomesPct[it].isFinite() }
+                .sortedBy { scores[it] }
+            val n = idx.size
+            if (n == 0) return IsoFit8366(DoubleArray(0), DoubleArray(0), 0, Double.NaN)
+            val bx = DoubleArray(n); val by = DoubleArray(n); val bw = DoubleArray(n)
+            var m = 0
+            for (i in idx) {
+                bx[m] = scores[i]; by[m] = winsorLog8366(outcomesPct[i]); bw[m] = 1.0; m++
+                while (m >= 2 && by[m - 2] > by[m - 1]) {
+                    val w = bw[m - 2] + bw[m - 1]
+                    by[m - 2] = (by[m - 2] * bw[m - 2] + by[m - 1] * bw[m - 1]) / w
+                    bx[m - 2] = (bx[m - 2] * bw[m - 2] + bx[m - 1] * bw[m - 1]) / w
+                    bw[m - 2] = w
+                    m--
+                }
+            }
+            val sp = CortexTailEv8324.rankIc8324(idx.map { scores[it] }, idx.map { winsorLog8366(outcomesPct[it]) })
+            return IsoFit8366(bx.copyOf(m), by.copyOf(m), n, sp)
+        }
+
+        private fun num8366(v: Double): String = if (v.isFinite()) (kotlin.math.round(v * 1e4) / 1e4).toString() else "x"
+
         /** V5.0.8322 — decayed grades below which no slope may suspend a lane (8291 could from ~60). */
         const val SUSPEND_MIN_N_8322 = 100.0
         /** V5.0.8322 — the smallest standard deviation (points) of the fused deviations a suspending fit must have. */
@@ -75,9 +121,97 @@ class CortexCalibration7901 {
         }
     }
 
+    // ── V5.0.8366 §RANK_CALIBRATION ──
+    //
+    // The 7901/8169 slope regressed a tiny shrunk vote deviation on raw outcomes clipped at ±200 points: on fat-tailed
+    // labels the ratio pinned at the 1.5 clamp on every lane and a slope >= 0.5 passed as "calibrated". Per lane the Cortex
+    // now keeps its last [ISO_RING_8366] graded (score, outcome) pairs and fits an ISOTONIC map (pool-adjacent-violators)
+    // from the fused score to the expected winsorised log return ln(1 + r), r clipped to [WINSOR_LO_8366, WINSOR_HI_8366]
+    // for the FIT only (the pairs, every label and every book stay raw). The bucket reads the calibrated expected value.
+    // A lane whose fit is flat or whose score does not rank the outcomes (Spearman <= 0) is UNCALIBRATED: no authority,
+    // NEUTRAL buckets. Below [ISO_MIN_N_8366] pairs the stored slope keeps its role (learning is never reset; the rank fit
+    // takes over as new grades arrive). The slope is still learned and shown.
+    class IsoFit8366(val xs: DoubleArray, val ys: DoubleArray, val n: Int, val spearman: Double) {
+        /** No discrimination: the fitted expected log returns span less than [FLAT_EPS_8366]. */
+        val flat: Boolean get() = ys.isEmpty() || !(ys[ys.size - 1] - ys[0] >= FLAT_EPS_8366)
+        /** Enough pairs for the fit to decide anything. */
+        val measured: Boolean get() = n >= ISO_MIN_N_8366
+        /** Measured, ranks the outcomes (Spearman > 0) and not flat. */
+        val calibrated: Boolean get() = measured && spearman.isFinite() && spearman > 0.0 && !flat
+
+        /** The expected winsorised log return at [score] (linear between block centres, flat beyond the ends; NaN without a fit). */
+        fun expectedLog8366(score: Double): Double {
+            if (ys.isEmpty() || !score.isFinite()) return Double.NaN
+            if (score <= xs[0]) return ys[0]
+            val last = xs.size - 1
+            if (score >= xs[last]) return ys[last]
+            var j = 1
+            while (j <= last && xs[j] < score) j++
+            val lo = j - 1
+            val dx = xs[j] - xs[lo]
+            if (!(dx > 0.0)) return ys[j]
+            return ys[lo] + (ys[j] - ys[lo]) * ((score - xs[lo]) / dx)
+        }
+
+        /** The calibrated expected return (%) at [score]: exp(E[log]) - 1. */
+        fun expectedPct8366(score: Double): Double {
+            val e = expectedLog8366(score)
+            return if (e.isFinite()) (kotlin.math.exp(e) - 1.0) * 100.0 else Double.NaN
+        }
+
+        fun compact8366(): String = "n$n sp=${if (spearman.isFinite()) (kotlin.math.round(spearman * 100.0) / 100.0).toString() else "-"} " +
+            "blocks=${xs.size}${if (calibrated) "" else if (measured) " UNCALIBRATED" else " thin"}"
+    }
+
     private class Reg { var n = 0.0; var sd = 0.0; var sdd = 0.0; var sy = 0.0; var sdy = 0.0; var logScale8322 = 0.0 }
 
     private val lanes = HashMap<String, Reg>()
+    /** V5.0.8366 — lane -> its last graded [score, outcome %, decay stamp] rows (oldest first), and the cached fit. */
+    private val iso8366 = HashMap<String, ArrayDeque<DoubleArray>>()
+    private val isoFits8366 = HashMap<String, IsoFit8366>()
+
+    /** V5.0.8366 — [lane]'s rank calibration (null before its first scored grade). Cached until the lane learns again. */
+    fun isoFit8366(lane: String): IsoFit8366? {
+        val ring = iso8366[lane] ?: return null
+        isoFits8366[lane]?.let { return it }
+        val f = fitIso8366(ring.map { it[0] }, ring.map { it[1] })
+        isoFits8366[lane] = f
+        return f
+    }
+
+    /** V5.0.8366 — the rank fit is measured and the lane's score does not rank its outcomes (flat / Spearman <= 0). */
+    fun uncalibrated8366(lane: String): Boolean {
+        val f = isoFit8366(lane) ?: return false
+        return f.measured && !f.calibrated
+    }
+
+    /**
+     * V5.0.8366 — is [lane] suspended for want of calibration? A measured rank fit decides (UNCALIBRATED = suspended);
+     * before it is measured the stored slope rule ([suspends8322]) still applies, so nothing learned is thrown away.
+     */
+    fun suspends8366(lane: String, minSlope: Double): Boolean {
+        val f = isoFit8366(lane)
+        return if (f != null && f.measured) !f.calibrated else suspends8322(lane, minSlope)
+    }
+
+    private fun noteIso8366(lane: String, score: Double, outcomePct: Double, stamp: Double) {
+        if (!score.isFinite() || !outcomePct.isFinite()) return
+        val ring = iso8366.getOrPut(lane) { ArrayDeque() }
+        ring.addLast(doubleArrayOf(score, outcomePct, stamp))
+        while (ring.size > ISO_RING_8366) ring.removeFirst()
+        isoFits8366.remove(lane)
+    }
+
+    private fun reviseIso8366(lane: String, stamp: Double, newOutcomePct: Double) {
+        if (!stamp.isFinite() || !newOutcomePct.isFinite()) return
+        val ring = iso8366[lane] ?: return
+        for (row in ring) if (row[2].isFinite() && kotlin.math.abs(row[2] - stamp) < 1e-12) { row[1] = newOutcomePct; isoFits8366.remove(lane); return }
+    }
+
+    /** V5.0.8366 — per lane: the rank fit's pairs, Spearman and blocks (diagnostic). */
+    fun isoLine8366(): String = "rank8366[" + iso8366.keys.sorted().take(10).joinToString(",") { k ->
+        "$k:${isoFit8366(k)?.compact8366() ?: "-"}"
+    }.ifBlank { "-" } + "]"
 
     fun slope(lane: String): Double {
         val r = lanes[lane] ?: return 1.0
@@ -95,7 +229,13 @@ class CortexCalibration7901 {
      * Learn from one graded decision: [rawEdge] and [laneMean] as read at decision time. V5.0.8322 — returns the lane's decay
      * stamp at the time of learning (NaN when nothing was learned), so a later horizon can revise exactly this grade.
      */
-    fun learn(lane: String, rawEdge: Double, laneMean: Double, outcome: Double): Double {
+    fun learn(lane: String, rawEdge: Double, laneMean: Double, outcome: Double, score8366: Double = Double.NaN): Double {
+        val stamp = learnSlope7901(lane, rawEdge, laneMean, outcome)
+        noteIso8366(lane, score8366, outcome, stamp)  // V5.0.8366 — the rank calibration's pair (raw outcome)
+        return stamp
+    }
+
+    private fun learnSlope7901(lane: String, rawEdge: Double, laneMean: Double, outcome: Double): Double {
         val d = rawEdge - laneMean
         if (!d.isFinite() || !outcome.isFinite() || kotlin.math.abs(d) < 1e-9) return Double.NaN
         val y = (outcome - laneMean).coerceIn(-RESIDUAL_CLIP_PCT, RESIDUAL_CLIP_PCT)
@@ -117,6 +257,7 @@ class CortexCalibration7901 {
      * slope 0.00 was fitted on five-minute reads of a lane whose runners pay at 15-60 minutes and beyond.
      */
     fun revise8322(lane: String, rawEdge: Double, laneMean: Double, oldOutcome: Double, newOutcome: Double, stamp: Double): Boolean {
+        reviseIso8366(lane, stamp, newOutcome)  // V5.0.8366 — the rank calibration follows the lane objective too
         val r = lanes[lane] ?: return false
         val d = rawEdge - laneMean
         if (!d.isFinite() || kotlin.math.abs(d) < 1e-9 || !oldOutcome.isFinite() || !newOutcome.isFinite() || !stamp.isFinite()) return false
@@ -156,16 +297,39 @@ class CortexCalibration7901 {
             val cur = lanes[k]
             if (cur == null || cur.n < r.n) { lanes[k] = r; n++ }
         }
+        // V5.0.8366 — and every rank-calibration ring the other book holds more pairs of.
+        for ((k, ring) in other.iso8366) {
+            val cur = iso8366[k]
+            if (cur == null || cur.size < ring.size) { iso8366[k] = ArrayDeque(ring.map { it.copyOf() }); isoFits8366.remove(k) }
+        }
         return n
     }
 
     /** V5.0.8324 — lanes with a fit (diagnostic). */
     fun laneCount8324(): Int = lanes.size
 
-    fun encode(): org.json.JSONObject = org.json.JSONObject().also { o -> lanes.forEach { (k, r) -> o.put(k, "${r.n},${r.sd},${r.sdd},${r.sy},${r.sdy}") } }
+    fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->
+        lanes.forEach { (k, r) -> o.put(k, "${r.n},${r.sd},${r.sdd},${r.sy},${r.sdy}") }
+        // V5.0.8366 — the rank-calibration rings: "score:outcome:stamp;..." (no commas: a pre-8366 decoder skips the row).
+        iso8366.forEach { (k, ring) -> o.put(ISO_KEY_PREFIX_8366 + k, ring.joinToString(";") { "${num8366(it[0])}:${num8366(it[1])}:${if (it[2].isFinite()) it[2].toString() else "x"}" }) }
+    }
 
     fun decode(o: org.json.JSONObject) {
         for (k in o.keys()) {
+            if (k.startsWith(ISO_KEY_PREFIX_8366)) {
+                val lane = k.removePrefix(ISO_KEY_PREFIX_8366)
+                val ring = ArrayDeque<DoubleArray>()
+                for (row in o.optString(k).split(';')) {
+                    val f = row.split(':')
+                    if (f.size != 3) continue
+                    val x = f[0].toDoubleOrNull() ?: continue
+                    val y = f[1].toDoubleOrNull() ?: continue
+                    ring.addLast(doubleArrayOf(x, y, f[2].toDoubleOrNull() ?: Double.NaN))
+                }
+                while (ring.size > ISO_RING_8366) ring.removeFirst()
+                if (lane.isNotBlank() && ring.isNotEmpty()) { iso8366[lane] = ring; isoFits8366.remove(lane) }
+                continue
+            }
             val f = o.optString(k).split(',').mapNotNull { it.toDoubleOrNull() }
             // V5.0.8169 — only centred rows (5 fields); a 7901 through-origin row (3 fields) re-learns from identity.
             if (f.size == 5) lanes[k] = Reg().also { it.n = f[0]; it.sd = f[1]; it.sdd = f[2]; it.sy = f[3]; it.sdy = f[4] }

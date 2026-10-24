@@ -342,6 +342,18 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             .sortedBy { it.atMs }
             .map { CortexWalkForward8144.Timed8144(it.atMs, objectivePct8322(it) - offset8187(lane), objectiveAvailableAt8322(it), it.executablePct - offset8187(lane)) }  // V5.0.8322
 
+    /**
+     * V5.0.8366 §ONE_AUTHORITY_TEST — the graded executable decisions of [lane] as (decision time, decision-time score,
+     * executable-net lane objective), oldest first: what CortexAuthority8366's walk-forward reads. The score is the tail EV
+     * the bucket was read on for a runner lane (when recorded), else the calibrated edge.
+     */
+    fun scoredRows8366(lane: String, runner: Boolean): List<CortexAuthority8366.Row8366> {
+        val off = offset8187(lane)
+        return decisions.filter { it.graded && !it.lost && it.lane == lane && it.executablePct.isFinite() }
+            .sortedBy { it.atMs }
+            .map { CortexAuthority8366.Row8366(it.atMs, if (runner && it.tailEv8324.isFinite()) it.tailEv8324 else it.predictedEdgePct, objectivePct8322(it) - off) }
+    }
+
     /** V5.0.8324 — one graded decision's ranking row: what the Cortex predicted and what the lane objective then paid. */
     class RankRow8324(val predicted: Double, val tailEv: Double, val objective: Double, val bucket: Int, val admitted: Boolean)
 

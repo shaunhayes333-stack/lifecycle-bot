@@ -60,7 +60,10 @@ class Aate8322CortexSignalTest {
         assertEquals("EMPTY", CortexTailDoor8322.read8322(emptyList()).why)
         val cx = src("engine/cortex/Cortex7885.kt")
         assertTrue(cx.contains("val tail8322 = if (runnerHorizon8144(a.lane)) CortexTailDoor8322.read8322(series) else null"))
-        assertTrue(cx.contains("!(median > 0.0) -> nullWhy8201(\"MEDIAN_NOT_POSITIVE\")"))   // non-runner lanes keep the median door
+        // superseded by V5.0.8366 — the STRONG door is the one walk-forward test (OOS top-bucket record); the tail / median doors are
+        // still read and counted for display (STRONG_COHORT_LEGACY_8366_<why>).
+        assertTrue(cx.contains("return if (!(CortexWalkForward8144.median8238(series) > 0.0)) \"MEDIAN_NOT_POSITIVE\" else null"))
+        assertTrue(cx.contains("strongDoorLegacy8366(a)?.let { inc(\"STRONG_COHORT_LEGACY_8366_\$it\") }"))
     }
 
     // ── no clamp at ingestion; OUTLIER_SUSPECT flags, never vetoes ──
@@ -159,7 +162,10 @@ class Aate8322CortexSignalTest {
         assertTrue(CortexCalibration7901.suspendable8322(150.0, 0.0, 150.0))
         val cx = src("engine/cortex/Cortex7885.kt")
         assertFalse(cx.contains("calibration.slope(lane) < MIN_CONSISTENT_SLOPE"))
-        assertTrue(cx.contains("calibration.suspends8322(a.lane, MIN_CONSISTENT_SLOPE) -> nullWhy8201(\"UNCALIBRATED\")"))
+        // superseded by V5.0.8366 — a measured rank fit decides calibration (suspends8366: UNCALIBRATED on a flat / non-ranking fit);
+        // the 8322 slope rule still applies before the fit is measured and is shown as the legacy door.
+        assertTrue(cx.contains("if (calibration.suspends8322(a.lane, MIN_CONSISTENT_SLOPE)) return \"UNCALIBRATED\""))
+        assertTrue(cx.contains("val ok = !calibration.suspends8366(lane, MIN_CONSISTENT_SLOPE)"))
     }
 
     @Test fun aRunnerLaneRecalibratesOnItsHoldWindowLabel() {

@@ -17,7 +17,11 @@ class Aate8064HonestLabelsTest {
         assertEquals(0.0, ForwardReturnLabeler7731.spikeCredit8064(276.0, 0.0), 1e-9)
         assertEquals(-12.0, ForwardReturnLabeler7731.spikeCredit8064(40.0, -12.0), 1e-9)
         // V5.0.8071 — the ladder now credits the level the price HELD for 20 s, never the raw one-print peak.
-        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("heldCredit8071(minOf(pk, o.heldPeak8071), rest, tiers8071)"))
+        // superseded by V5.0.8366 — the held level is the one held for the measured sell latency (o.heldPeak8366) on observations
+        // opened by this build; restored ones keep the 8071 20 s level. Still never the raw one-print peak.
+        val lab8366 = src("engine/truth/ForwardReturnLabeler7731.kt")
+        assertTrue(lab8366.contains("heldCredit8071(minOf(pk, held8366), rest, tiers8071)"))
+        assertTrue(lab8366.contains("val held8366 = if (o.honest8366) o.heldPeak8366 else o.heldPeak8071"))
     }
 
     @Test fun freshBooks() {

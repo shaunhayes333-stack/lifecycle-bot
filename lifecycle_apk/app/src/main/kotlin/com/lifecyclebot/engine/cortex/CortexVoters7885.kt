@@ -425,7 +425,8 @@ object CortexVoters7885 {
      * the scorer records. Absent snapshot = no votes.
      */
     fun dynamicVotes(ts: TokenState): List<CortexLedger7885.Vote> {
-        val lanes = laneBrainVotes8003(ts)
+        // V5.0.8366 — live votes when the snapshot is readable, else the coin's stamped votes inside the TTL (LaneBrainVotes8366).
+        val lanes = LaneBrainVotes8366.resolve8366(ts.mint, laneBrainVotes8003(ts), System.currentTimeMillis())
         val comps = com.lifecyclebot.v3.scoring.EducationSubLayerAI.peekEntryScores7895(ts.mint)
         val v3m = comps?.entries?.sortedBy { it.key }?.take(80)?.map { (name, v) ->
             val id = "V3M_" + name.uppercase().filter { it.isLetterOrDigit() || it == '_' }.take(32)
@@ -465,7 +466,12 @@ object CortexVoters7885 {
 
     /** Voter census for the diag: static + lane brains + V3 modules (last read). */
     fun votersLine8003(): String =
-        "${ALL.size}static+${lastLaneVotes8003}laneBrain+${lastV3Votes8003}V3modules+crosses"
+        "${ALL.size}static+${lastLaneVotes8003}laneBrain+${lastV3Votes8003}V3modules+crosses ${LaneBrainVotes8366.line8366()}"
+
+    /** V5.0.8366 — stamp the lane brains' current votes on [ts] at [nowMs] (decision time) so a queued assessment can use them. */
+    fun stampLaneBrains8366(ts: TokenState, nowMs: Long) {
+        try { LaneBrainVotes8366.stamp8366(ts.mint, laneBrainVotes8003(ts), nowMs) } catch (_: Throwable) {}
+    }
 
     val IDS: List<String> = ALL.map { it.id }
     val EDGES: List<DoubleArray> = ALL.map { it.edges }

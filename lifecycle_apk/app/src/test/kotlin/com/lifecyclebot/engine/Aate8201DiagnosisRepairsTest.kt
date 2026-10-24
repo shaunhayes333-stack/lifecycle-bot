@@ -8,8 +8,12 @@ class Aate8201DiagnosisRepairsTest {
     @Test fun everyStrongCohortNullNamesItsDoor() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         val body = src.substringAfter("fun strongCohortEvidence8200(").substringBefore("private fun <T> nullWhy8201")
-        for (why in listOf("NO_ASSESSMENT", "NOT_STRONG", "STALE_MARK", "HARD_BLOCK", "MAYHEM", "UNCALIBRATED", "INVERTED", "BARRED", "NO_EXECUTABLE_COHORT", "EXCEPTION"))
+        // superseded by V5.0.8366 — UNCALIBRATED / INVERTED / BARRED are no longer separate live doors: the one walk-forward test
+        // names its own refusal (AUTHORITY_8366_<code>, UNCALIBRATED among them) and the old doors are counted for display.
+        for (why in listOf("NO_ASSESSMENT", "NOT_STRONG", "STALE_MARK", "HARD_BLOCK", "MAYHEM", "NO_EXECUTABLE_COHORT", "EXCEPTION"))
             assertTrue(why, body.contains("nullWhy8201(\"$why\")"))
+        assertTrue(body.contains("nullWhy8201<CortexWalkForward8144.Stat8144>(\"AUTHORITY_8366_\${authorityCode8366(a.lane)}\")"))
+        for (legacy in listOf("UNCALIBRATED", "INVERTED", "BARRED")) assertTrue(legacy, body.contains("return \"$legacy\""))
         assertFalse("no anonymous null exit remains", Regex("return null\\b").containsMatchIn(body.replace("} ?: return null", "")))
         assertTrue(src.contains("inc(\"STRONG_COHORT_NULL_8201_\$why\")"))
         assertTrue(body.contains("inc(\"STRONG_COHORT_OFFERED_8200\")"))   // the offered path is unchanged

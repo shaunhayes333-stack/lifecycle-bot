@@ -29,8 +29,11 @@ class Aate8238ProvenEvidenceOnlyTest {
         assertTrue(adm.contains("if (c.live && !cellSupported) {"))
         assertTrue(adm.contains("live = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() }"))
         val cortex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
-        assertTrue(cortex.contains("!wf.validated -> nullWhy8201(\"NOT_WALK_FORWARD_VALIDATED_${'$'}{wf.verdict.name}\")"))
-        assertTrue(cortex.contains("!(median > 0.0) -> nullWhy8201(\"MEDIAN_NOT_POSITIVE\")"))
+        // superseded by V5.0.8366 — the door is the one walk-forward test on executable labels (out-of-sample, cost-margined); the
+        // 8238 walk-forward / median doors are still read for display. The evidence stays proven-only (OOS top bucket, net of cost).
+        assertTrue(cortex.contains("if (!wf.validated) return \"NOT_WALK_FORWARD_VALIDATED_${'$'}{wf.verdict.name}\""))
+        assertTrue(cortex.contains("return if (!(CortexWalkForward8144.median8238(series) > 0.0)) \"MEDIAN_NOT_POSITIVE\" else null"))
+        assertTrue(cortex.contains("if (!(authorityFraction8366(a.lane) > 0.0)) nullWhy8201<CortexWalkForward8144.Stat8144>(\"AUTHORITY_8366_"))
     }
 
     // V5.0.8239 — the shadow book learns from prices that existed.

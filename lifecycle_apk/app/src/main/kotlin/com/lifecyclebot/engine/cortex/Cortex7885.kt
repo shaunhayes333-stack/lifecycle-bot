@@ -147,7 +147,7 @@ object Cortex7885 {
             noteAssessWait8324(System.nanoTime() - wait8324)
             val cross = try { crossVotes(lane, staticRaws) } catch (_: Throwable) { emptyList() }
             val fp = ledger.fuseWithSnapshot8324(lane, baseVotes8325 + cross, regime)  // V5.0.8324 — one prediction per voter (was two)
-            Locked8325(cross, fp.first, fp.second, calibration.slope(lane))
+            Locked8325(cross, fp.first, fp.second, calibration.slope(lane), calibration.isoFit8366(lane))
         }
         val dyn = dynamic8325 + locked8325.cross
         val ids = CortexVoters7885.IDS + dyn.map { it.voterId }
@@ -160,12 +160,12 @@ object Cortex7885 {
         // V5.0.8325 §REGIME_NEUTRAL_SCALP_ORDER — a scalp lane reads the voters' deviation around the lane's ALL-regime prior: the
         // regime-conditioned prior made every coin of a regime share one edge, so the lane's ordering was a bet on the regime's
         // past mean (TREASURY ic -0.33 INVERTED, QUALITY / BLUECHIP / CYCLIC FLAT on lanes with few seated voters).
-        val calibrated = calibratedRead8325(runner, fused, locked8325.slope) - executableOffset8187(lane)
+        val calibrated = calibratedRead8366(runner, fused, locked8325.slope, locked8325.iso8366) - executableOffset8187(lane)  // V5.0.8366 — rank calibration
         // V5.0.8324 §TAIL_EV — a runner lane's bucket reads the coin's tail EV (p x E[run] + (1 - p) x E[non-run]) on the lane's own
         // graded hold-window records; the bounded shrunk edge alone filed nearly every coin REFUSE and could never reach STRONG.
         val ev8324 = if (runner) tailEvNow8324(lane, fused) else Double.NaN
         val bucket = if (runner) runnerBucketNow8324(lane, calibrated, ev8324) else CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)
-        val bucket8325 = rankConsistentBucket8325(lane, runner, bucket, calibrated)  // V5.0.8325 — bucket = rank; inverted order silenced
+        val bucket8325 = uncalibratedNeutral8366(lane, locked8325.iso8366, rankConsistentBucket8325(lane, runner, bucket, calibrated))  // V5.0.8325 / V5.0.8366
         val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
         val freshestAt = maxOf(ts.lastPriceUpdate, registryAt)
         val priceAge = if (freshestAt > 0L) nowMs - freshestAt else Long.MAX_VALUE
@@ -182,7 +182,29 @@ object Cortex7885 {
 
     /** V5.0.8325 — what the assessment's one critical section returns. */
     private class Locked8325(val cross: List<CortexLedger7885.Vote>, val fused: CortexLedger7885.Fused,
-                             val prediction: CortexLedger7885.PredictionSnapshot8076, val slope: Double)
+                             val prediction: CortexLedger7885.PredictionSnapshot8076, val slope: Double,
+                             /** V5.0.8366 — the lane's rank calibration, read in the same critical section. */
+                             val iso8366: CortexCalibration7901.IsoFit8366? = null)
+
+    /**
+     * Pure (V5.0.8366 §RANK_CALIBRATION): the calibrated (pre-offset) edge. A lane whose rank fit is calibrated reads the
+     * isotonic expected return at its slope-free score ([calibratedRead8325] at slope 1, the same score the fit learned on);
+     * otherwise the stored slope read stands (thin fit) — an UNCALIBRATED lane keeps that finite value but buckets NEUTRAL.
+     */
+    internal fun calibratedRead8366(runner: Boolean, fused: CortexLedger7885.Fused, slope: Double, iso: CortexCalibration7901.IsoFit8366?): Double {
+        if (iso != null && iso.calibrated) {
+            val e = iso.expectedPct8366(calibratedRead8325(runner, fused, 1.0))
+            if (e.isFinite()) return e
+        }
+        return calibratedRead8325(runner, fused, slope)
+    }
+
+    /** V5.0.8366 — a lane whose measured rank fit is flat or does not rank its outcomes holds no verdict: NEUTRAL. */
+    private fun uncalibratedNeutral8366(lane: String, iso: CortexCalibration7901.IsoFit8366?, b: CortexScoreboard7885.Bucket): CortexScoreboard7885.Bucket {
+        if (iso == null || !iso.measured || iso.calibrated || b == CortexScoreboard7885.Bucket.NEUTRAL) return b
+        inc("UNCALIBRATED_NEUTRAL_8366_${lane}_${b.name}")
+        return CortexScoreboard7885.Bucket.NEUTRAL
+    }
 
     /**
      * Pure (V5.0.8325): the calibrated (pre-offset) edge an assessment is bucketed and ranked on. Runner lanes: the 7901 read
@@ -307,6 +329,7 @@ object Cortex7885 {
     private fun noteAssessWait8324(nanos: Long) {
         if (nanos < 0L) return
         assessWaitNanos8324.addAndGet(nanos); assessWaitN8324.incrementAndGet()
+        LaneBrainVotes8366.noteWaitMs8366(nanos / 1_000_000L)  // V5.0.8366 — the lane-brain vote TTL covers the lock wait
         while (true) { val m = assessWaitMaxNanos8324.get(); if (nanos <= m || assessWaitMaxNanos8324.compareAndSet(m, nanos)) break }
     }
 
@@ -415,6 +438,7 @@ object Cortex7885 {
 
     private fun noteAssessMs8187(ms: Double) {
         if (!ms.isFinite()) return
+        LaneBrainVotes8366.noteComputeMs8366(ms.toLong())  // V5.0.8366
         val i = (assessMsN8187.getAndIncrement() % assessMsRing8187.size).toInt()
         synchronized(assessMsRing8187) { assessMsRing8187[i] = ms }
     }
@@ -562,6 +586,7 @@ object Cortex7885 {
         val prev = scheduled[key]
         if (prev == null || nowMs - prev > 30_000L) {
             scheduled[key] = nowMs
+            CortexVoters7885.stampLaneBrains8366(ts, nowMs)  // V5.0.8366 — the queued assessment keeps the brains' votes
             submit("ASSESS") { try { assess(ts, laneRaw) } finally { scheduled.remove(key) } }
         } else inc("ASYNC_ALREADY_SCHEDULED")
         if (scheduled.size > 4_000) scheduled.entries.removeIf { nowMs - it.value > 30_000L }
@@ -586,6 +611,7 @@ object Cortex7885 {
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
     fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
+        CortexVoters7885.stampLaneBrains8366(ts, nowMs)  // V5.0.8366 — decision-time lane-brain votes for the capture read
         // V5.0.8084 — the setup classification is frozen NOW (decision time); the async job used to classify the
         // TokenState as it was whenever the queue reached it, crediting setups the decision never saw.
         val snap8084 = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
@@ -950,7 +976,7 @@ object Cortex7885 {
             val trace8006 = ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, net8187, gross8187, p.a.regime, predictionForGrade8076(p.a), witness8324)
             val bookScales = board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187, witness8324)
             val auxScales = DoubleArray(3) { Double.NaN }
-            val calStamp8322 = calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX))
+            val calStamp8322 = calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), calibratedRead8325(p.a.runnerLane, p.a.fused, 1.0))  // V5.0.8366 — rank pair
             if (p.setup7961.isNotBlank()) {
                 val jk = jointKey7961(p.a.lane, p.a.bucket, p.setup7961)
                 if (!jointBook7961.containsKey(jk) && jointBook7961.size >= 600) jointBook7961.entries.minByOrNull { it.value.n }?.key?.let { evicted ->
@@ -1207,9 +1233,12 @@ object Cortex7885 {
      * Caller holds the lock. V5.0.8153 — the STRONG-side authority this lane actually holds (label fraction x realised cap x
      * walk-forward x owner-routed realised evidence), computed without touching the action counters: what the screens show.
      */
-    private fun heldFraction8153(lane: String): Double {
+    private fun heldFraction8153(lane: String): Double = authorityFraction8366(lane)  // V5.0.8366 — the one walk-forward test
+
+    /** Caller holds the lock. The pre-8366 held fraction (label x realised x walk-forward x owner-realised): display only. */
+    private fun heldFractionLegacy8366(lane: String): Double {
         val f = board.fractionFor7955(lane, accountMode8077())
-        if (!(f > 0.0) || calibration.suspends8322(lane, MIN_CONSISTENT_SLOPE)) return 0.0  // V5.0.8322 — grade floor
+        if (!(f > 0.0) || calibration.suspends8366(lane, MIN_CONSISTENT_SLOPE)) return 0.0  // V5.0.8322 — grade floor
         val s = board.realized["${accountMode8077()}|$lane"]?.getOrNull(CortexScoreboard7885.Bucket.STRONG.ordinal)
         val rc = CortexRealisedAuthority8136.cappedFraction8136(f, s?.n ?: 0.0, s?.mean() ?: 0.0,
             if (s != null && s.n > 1.0) kotlin.math.sqrt(s.variance() / s.n) else Double.POSITIVE_INFINITY)
@@ -1219,6 +1248,15 @@ object Cortex7885 {
 
     /** Caller holds the lock. First sight never fires on a lane whose STRONG closes lost, or whose STRONG reads trail a rival. */
     private fun firstSightBarred8144(lane: String): Boolean {
+        // V5.0.8366 — barred on the one test only: 20+ realised STRONG closes losing (revocation), or the lane's score measured
+        // ranking its outcomes BACKWARDS out of sample (IC < 0 on 100+ OOS rows). The 8136 / 8144 bar below is display.
+        val (rn, rm) = realisedStrong8366(lane)
+        val r = authorityTest8366(lane)
+        return CortexAuthority8366.revokes8366(rn, rm) || (r.oosN >= CortexAuthority8366.MIN_OOS_N_8366 && r.ic.isFinite() && r.ic < 0.0)
+    }
+
+    /** Caller holds the lock. The pre-8366 first-sight bar (8136 realised denial or 8144 INVERTED_OOS): display only. */
+    private fun firstSightBarredLegacy8366(lane: String): Boolean {
         val s = board.realized["${accountMode8077()}|$lane"]?.getOrNull(CortexScoreboard7885.Bucket.STRONG.ordinal)
         val denied = s != null && CortexRealisedAuthority8136.verdict8136(s.n, s.mean(),
             if (s.n > 1.0) kotlin.math.sqrt(s.variance() / s.n) else Double.POSITIVE_INFINITY) == CortexRealisedAuthority8136.Verdict8136.DENIED_REALISED_NEGATIVE
@@ -1242,31 +1280,13 @@ object Cortex7885 {
             if (a.staleMark) return nullWhy8201("STALE_MARK")
             if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return nullWhy8201("HARD_BLOCK")
             if (com.lifecyclebot.engine.MayhemMode7943.liveRefusal(ts) != null) return nullWhy8201("MAYHEM")
+            // V5.0.8366 §ONE_AUTHORITY_TEST — the door opens on the one walk-forward test (calibrated, OOS rank IC > 0, OOS top
+            // minus bottom > cost, top > 0, 100+ OOS rows, not revoked by 20+ losing realised closes); the evidence offered is
+            // the OOS TOP-bucket record (net executable, out of sample). The pre-8366 doors are counted for display.
             val st = synchronized(this) {
-                when {
-                    calibration.suspends8322(a.lane, MIN_CONSISTENT_SLOPE) -> nullWhy8201("UNCALIBRATED")  // V5.0.8322
-                    board.inverted7948(a.lane, accountMode8077()) -> nullWhy8201("INVERTED")
-                    firstSightBarred8144(a.lane) -> nullWhy8201("BARRED")
-                    else -> {
-                        // V5.0.8238 — the in-sample STRONG mean is not evidence: 8237 screens showed CORE STRONG net mean +30%
-                        // with a net MEDIAN of -18% (a few outliers carried the mean; the typical STRONG coin lost), MOONSHOT
-                        // STRONG -24% median vs REFUSE -8.6% — and those cohorts had traded. The door opens only on a
-                        // walk-forward VALIDATED lane whose STRONG executable series has a positive median.
-                        val series = gradeBook8144.executableSeries(a.lane, null, CortexScoreboard7885.Bucket.STRONG.ordinal)
-                        val wf = walkForward8144(a.lane, null)
-                        val median = CortexWalkForward8144.median8238(series)
-                        // V5.0.8322 — a runner lane (its edge is the tail: median <= 0 by construction) is admitted on the
-                        // tail-aware read (expectancy, not one coin, a real runner count); other lanes keep the median door.
-                        val tail8322 = if (runnerHorizon8144(a.lane)) CortexTailDoor8322.read8322(series) else null
-                        when {
-                            !wf.validated -> nullWhy8201("NOT_WALK_FORWARD_VALIDATED_${wf.verdict.name}")
-                            tail8322 != null -> if (tail8322.open) CortexWalkForward8144.stat8144(series)
-                                else nullWhy8201<CortexWalkForward8144.Stat8144>("TAIL_${tail8322.why}_8322")
-                            !(median > 0.0) -> nullWhy8201("MEDIAN_NOT_POSITIVE")
-                            else -> CortexWalkForward8144.stat8144(series)
-                        }
-                    }
-                }
+                strongDoorLegacy8366(a)?.let { inc("STRONG_COHORT_LEGACY_8366_$it") }
+                if (!(authorityFraction8366(a.lane) > 0.0)) nullWhy8201<CortexWalkForward8144.Stat8144>("AUTHORITY_8366_${authorityCode8366(a.lane)}")
+                else authorityTest8366(a.lane).let { r -> CortexWalkForward8144.Stat8144(r.topN, r.topMean, r.topSe) }
             } ?: return null
             if (st.n <= 0 || !st.mean.isFinite()) return nullWhy8201("NO_EXECUTABLE_COHORT")
             inc("STRONG_COHORT_OFFERED_8200")
@@ -1274,6 +1294,19 @@ object Cortex7885 {
                 com.lifecyclebot.engine.truth.CandidateAdmission8136.KIND_CORTEX_8200, "STRONG@${a.lane}", st.n, st.mean, st.se, netOfCost = true,
             )
         } catch (_: Throwable) { return nullWhy8201("EXCEPTION") }
+    }
+
+    /** Caller holds the lock. V5.0.8366 — which pre-8366 door would have shut [a]'s STRONG cohort (null = open): display only. */
+    private fun strongDoorLegacy8366(a: Assessment): String? {
+        if (calibration.suspends8322(a.lane, MIN_CONSISTENT_SLOPE)) return "UNCALIBRATED"
+        if (board.inverted7948(a.lane, accountMode8077())) return "INVERTED"
+        if (firstSightBarredLegacy8366(a.lane)) return "BARRED"
+        val series = gradeBook8144.executableSeries(a.lane, null, CortexScoreboard7885.Bucket.STRONG.ordinal)
+        val wf = walkForward8144(a.lane, null)
+        if (!wf.validated) return "NOT_WALK_FORWARD_VALIDATED_${wf.verdict.name}"
+        val tail8322 = if (runnerHorizon8144(a.lane)) CortexTailDoor8322.read8322(series) else null
+        if (tail8322 != null) return if (tail8322.open) null else "TAIL_${tail8322.why}_8322"
+        return if (!(CortexWalkForward8144.median8238(series) > 0.0)) "MEDIAN_NOT_POSITIVE" else null
     }
 
     /**
@@ -1695,7 +1728,7 @@ object Cortex7885 {
     private const val MIN_CONSISTENT_SLOPE = 0.5
 
     private fun consistent(lane: String): Boolean {
-        val ok = !calibration.suspends8322(lane, MIN_CONSISTENT_SLOPE)  // V5.0.8322 — no suspension under the grade floor
+        val ok = !calibration.suspends8366(lane, MIN_CONSISTENT_SLOPE)  // V5.0.8322 — no suspension under the grade floor
         if (!ok) inc("SUSPENDED_INCONSISTENT_$lane")
         return ok
     }
@@ -1710,14 +1743,58 @@ object Cortex7885 {
 
     /** Caller holds the lock. */
     private fun laneFraction7955(lane: String): Double =
-        laneFractionHeld8187(lane).also { if (!(it > 0.0)) inc("AUTHORITY_BLOCKED_8187_${lane}_${blockCode8187(lane)}") }  // V5.0.8187
+        laneFractionHeld8187(lane).also { if (!(it > 0.0)) { inc("AUTHORITY_BLOCKED_8187_${lane}_${blockCode8187(lane)}"); inc("AUTHORITY_8366_${lane}_${authorityCode8366(lane)}") } }  // V5.0.8187 / V5.0.8366
 
-    /** Caller holds the lock. The graduated authority [laneFraction7955] returns (7955 x 8136 x 8144 caps). */
-    private fun laneFractionHeld8187(lane: String): Double {
+    /**
+     * Caller holds the lock. The graduated authority [laneFraction7955] returns. V5.0.8366 §ONE_AUTHORITY_TEST — the one
+     * walk-forward test ([authorityFraction8366]); the 7955 x 8136 x 8144 x 8153 stack it replaces is still computed for the
+     * screens ([legacyFraction8366], [blockCode8187]).
+     */
+    private fun laneFractionHeld8187(lane: String): Double = authorityFraction8366(lane)
+
+    /** Caller holds the lock. The pre-8366 stacked authority (label fraction x calibration x realised x walk-forward): display only. */
+    private fun legacyFraction8366(lane: String): Double {
         val f = board.fractionFor7955(lane, accountMode8077())
-        // V5.0.8144 — and promoted only on walk-forward (out-of-sample) evidence of its executable records.
         return if (f > 0.0 && consistent(lane)) walkForwardCapped8144(lane, null, f, realisedCapped8136(lane, f)) else 0.0
     }
+
+    // ── V5.0.8366 §ONE_AUTHORITY_TEST (CortexAuthority8366) ──
+    private val auth8366Cache = HashMap<String, Pair<Long, CortexAuthority8366.Result8366>>()
+
+    /** Caller holds the lock. [lane]'s one walk-forward test on its graded executable records, refreshed every 30 s. */
+    private fun authorityTest8366(lane: String): CortexAuthority8366.Result8366 {
+        val now = System.currentTimeMillis()
+        auth8366Cache[lane]?.let { (at, cached) -> if (now - at in 0L until WF_REFRESH_MS_8144) return cached }
+        val cost = try { com.lifecyclebot.engine.truth.CostLedger7962.laneCostPct7962(lane) } catch (_: Throwable) { CortexAuthority8366.MIN_FULL_MARGIN_PCT_8366 }
+        val r = CortexAuthority8366.test8366(gradeBook8144.scoredRows8366(lane, runnerHorizon8144(lane)), cost)
+        if (auth8366Cache.size > 200) auth8366Cache.clear()
+        auth8366Cache[lane] = now to r
+        return r
+    }
+
+    /** Caller holds the lock. [lane]'s STRONG-side realised closes in the account mode: (n, mean %). */
+    private fun realisedStrong8366(lane: String): Pair<Double, Double> {
+        val s = board.realized["${accountMode8077()}|$lane"]?.getOrNull(CortexScoreboard7885.Bucket.STRONG.ordinal)
+        return (s?.n ?: 0.0) to (if (s != null && s.n > 0.0) s.mean() else Double.NaN)
+    }
+
+    /** Caller holds the lock. The authority [lane] holds: the granted walk-forward fraction unless UNCALIBRATED or revoked. */
+    private fun authorityFraction8366(lane: String): Double {
+        val (n, mean) = realisedStrong8366(lane)
+        return CortexAuthority8366.authority8366(authorityTest8366(lane), calibration.uncalibrated8366(lane), n, mean)
+    }
+
+    /** Caller holds the lock. What keeps [lane]'s authority at 0 (or OPEN). */
+    private fun authorityCode8366(lane: String): String {
+        val (n, mean) = realisedStrong8366(lane)
+        return CortexAuthority8366.code8366(authorityTest8366(lane), calibration.uncalibrated8366(lane), n, mean)
+    }
+
+    /** Caller holds the lock. "LANE code[test]" for the top lanes, with the legacy stack's fraction beside it. */
+    private fun authorityLine8366(): String = "one-test8366[" + board.books.entries.sortedByDescending { it.value.byBucket.sumOf { b -> b.n } }.take(8)
+        .joinToString(" · ") { (lane, _) ->
+            "$lane ${authorityCode8366(lane)}[${authorityTest8366(lane).compact()} legacy=${"%.2f".format(legacyFraction8366(lane))}/${"%.2f".format(heldFractionLegacy8366(lane))}${if (firstSightBarredLegacy8366(lane)) " legacyBarred" else ""}]"
+        }.ifBlank { "-" } + "]"
 
     /**
      * V5.0.8136 — caller holds the lock. [labelFraction] capped by this lane's realised STRONG closes in the account
@@ -1923,7 +2000,7 @@ object Cortex7885 {
         if (!(board.evidenceFor8025(lane, mode) > 0.0)) {
             return if (b.byBucket[CortexScoreboard7885.Bucket.STRONG.ordinal].n < CortexScoreboard7885.GRAD_MIN_N_7955) "LABEL_N" else "LABEL_EDGE"
         }
-        if (calibration.suspends8322(lane, MIN_CONSISTENT_SLOPE)) return "CALIBRATION"  // V5.0.8322
+        if (calibration.suspends8366(lane, MIN_CONSISTENT_SLOPE)) return "CALIBRATION"  // V5.0.8322
         val s = board.realized["$mode|$lane"]?.getOrNull(CortexScoreboard7885.Bucket.STRONG.ordinal)
         if (s != null && CortexRealisedAuthority8136.verdict8136(s.n, s.mean(),
                 if (s.n > 1.0) kotlin.math.sqrt(s.variance() / s.n) else Double.POSITIVE_INFINITY) == CortexRealisedAuthority8136.Verdict8136.DENIED_REALISED_NEGATIVE) return "REALISED_NEGATIVE"
@@ -3231,7 +3308,7 @@ object Cortex7885 {
                         if (refusalAuthority8269(lane, runner, false)) append("Rl ")
                         if (auth7955 >= OVERRULE_FRACTION_7955) append("O ")
                         if (auth7955 > 0.0) append("auth=${"%.2f".format(auth7955)} ")
-                        if (calibration.suspends8322(lane, MIN_CONSISTENT_SLOPE)) append("SUSPENDED ")
+                        if (calibration.suspends8366(lane, MIN_CONSISTENT_SLOPE)) append("SUSPENDED ")
                         if (board.inverted7948(lane, accountMode8077())) append("INVERTED")
                     }.trim().ifBlank { "shadow" }
                     sb.append("  ${lane.take(9).padEnd(9)} ${b.byBucket.sumOf { it.n }.toInt().toString().padStart(6)}  " +
@@ -3299,7 +3376,7 @@ object Cortex7885 {
                     if (refusalAuthority8269(lane, runner, true)) append("refuse-paper ")
                     if (refusalAuthority8269(lane, runner, false)) append("refuse-live ")
                     if (auth >= OVERRULE_FRACTION_7955) append("overrule ")
-                    if (calibration.suspends8322(lane, MIN_CONSISTENT_SLOPE)) append("suspended ")
+                    if (calibration.suspends8366(lane, MIN_CONSISTENT_SLOPE)) append("suspended ")
                     if (board.inverted7948(lane, accountMode8077())) append("inverted")
                 }.trim().ifBlank { "shadow" }
                 // V5.0.8153 — the verdict stats come from the tradeable grade records (executable, first of episode, on time);
@@ -3363,7 +3440,7 @@ object Cortex7885 {
                 "${CortexVoters7885.memoLine8169()} ${CortexAudit8169.captureLine()} ${assessLatencyLine8187()} ${CortexVoters7885.budgetLine8187()}\n" +
                 "      data economy (§B.6): creditsToday=${"%.0f".format(credits)} perAssessedDecision=${if (n > 0) "%.1f".format(credits / n) else "-"} perGradedDecision=${if (graded.get() > 0) "%.1f".format(credits / graded.get()) else "-"} " +
                 "(day credits / session decisions) ${economyLine8187()}\n" +
-                "      graduation (§8187): ${bindingLine8187()} authority=${blockLine8187()}\n" +
+                "      graduation (§8187): ${bindingLine8187()} authority=${blockLine8187()} ${synchronized(this) { authorityLine8366() }}\n" +
                 "      executable labels (§8187, authority reads label - lane gap): ${execLine8187()}\n" +
                 "      outcome truth v12 (§7912, whole-position closes): ${realLedgers.entries.joinToString(" · ") { (mode, l) ->
                     val seated = l.seats.entries.filter { !it.key.contains('@') && !it.key.endsWith("|${CortexLedger7885.GLOBAL}") && it.value.scored > 0 }
@@ -3372,7 +3449,7 @@ object Cortex7885 {
                 }.ifBlank { "no closes yet" }}\n" +
                 "      launch tape v16 (§7921): ${ext8325["tape"]}\n" +
                 "      lane playbooks (§7907): ${ext8325["playbook"]}\n" +
-                "      calibration v7 (§7901): slope=${calibration.line()}\n" +
+                "      calibration v7 (§7901): slope=${calibration.line()} ${calibration.isoLine8366()}\n" +
                 "      timing cortex v6 (§7900): ${ext8325["timing"]}\n" +
                 "      exit cortex v3 (§7897): ${ext8325["exit"]}\n" +
                 "      stop authority (§7887): ${ext8325["stop"]}\n" +
