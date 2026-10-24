@@ -137,8 +137,8 @@ class Aate8322CortexSignalTest {
         val back = CortexGradeBook8144().also { it.decode(book.encode()) }
         assertTrue(back.decision(flat)!!.flat8322)
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
-        // superseded by V5.0.8324: the five-minute label carries its chain-witness provenance.
-        assertTrue(frl.contains("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324)"))
+        // The five-minute label carries chain-witness provenance and the original token-episode identity (8371).
+        assertTrue(frl.contains("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324, decisionAtMs8371 = o.atMs)"))
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("gradeBook8144.markFlat8322(\"\$key|\${p.atMs}\")"))
     }
 
@@ -209,7 +209,15 @@ class Aate8322CortexSignalTest {
         assertEquals(t0 + 240 * minute, back.decision(run)!!.revisedAvailableAtMs)
         val cx = src("engine/cortex/Cortex7885.kt")
         assertTrue(cx.contains("b.runnerLane8322 = { l -> runnerHorizon8144(l) }"))
-        assertTrue(cx.contains("calibration.revise8322(a.lane, a.fused.edgePct, a.fused.laneMean, yo, newNet8187, g.calStamp8322)"))
+        // The shared revision path replaces the exact original calibration contribution at its original weight.
+        val revision = cx.substringAfter("private fun reviseModelsLocked8372(").substringBefore("fun progressiveLine8006()")
+        assertTrue(revision.contains("val a = g.p.a; val oldNet = g.net; val oldGross = g.gross; val wasWitnessed = g.witnessed8324"))
+        assertTrue(revision.contains("calibration.revise8322(a.lane, a.fused.edgePct, a.fused.laneMean, oldNet, newNet, g.calStamp8322,"))
+        assertTrue(revision.contains("targetBasis8372 = if (shadowExit8372) CortexCalibration7901.TARGET_SHADOW_NET_8372 else null"))
+        val forward = cx.substringAfter("fun reviseLabel8006(").substringBefore("private fun reviseModelsLocked8372(")
+        assertTrue(forward.contains("val id = \"\$key|\$decisionAtMs8371\""))
+        assertTrue(forward.contains("val g = gradedTrace8372(id) ?: run {"))
+        assertTrue(forward.contains("reviseModelsLocked8372(id, g, newNet, newGross, witness8324)"))
     }
 
     @Test fun aLegacyClampedRecordIsMarkedNotRewritten() {

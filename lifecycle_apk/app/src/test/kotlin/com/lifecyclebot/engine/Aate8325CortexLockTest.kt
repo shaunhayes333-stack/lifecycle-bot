@@ -74,7 +74,14 @@ class Aate8325CortexLockTest {
         // the save is serialised on its own lock, not on the Cortex monitor
         assertFalse(cx.contains("@Synchronized private fun persistBlocking8094()"))
         assertTrue(cx.contains("private fun persistBlocking8094() { synchronized(persistLock8325) {"))
-        assertTrue(cx.contains("private fun durableCloseCommit8198(receipt: String): Boolean = synchronized(persistLock8325) { durableCloseCommitLocked8325(receipt) }"))
+        // 8372 adds exact shadow receipts to the same ordered transaction; the Cortex monitor still covers only snapshots.
+        val durable = fn("private fun durableCloseCommit8198(", "/** V5.0.8325 — [durableCloseCommit8198]")
+        assertTrue(durable.contains("additionalBlobs8372: Map<String, String> = emptyMap()"))
+        assertTrue(durable.contains("synchronized(persistLock8325) { durableCloseCommitLocked8325(receipt, additionalBlobs8372) }"))
+        val commit = fn("private fun durableCloseCommitLocked8325(", "private const val WF_REFRESH_MS_8144")
+        assertTrue(commit.indexOf("blobs.putAll(additionalBlobs8372)") in 0 until commit.indexOf("LearningPersistence.commitOnce8090(receipt, blobs)"))
+        assertTrue(commit.contains("LearningPersistence.Commit8090.COMMITTED, LearningPersistence.Commit8090.ALREADY_COMMITTED -> true"))
+        assertTrue(commit.contains("LearningPersistence.Commit8090.RETRY -> { inc(\"CORTEX_CLOSE_DURABLE_RETRY_8198\"); false }"))
         // the close receipt is read before the lock; the executable refresh runs after it
         val close = fn("fun onCanonicalClose(", "// ── persistence ──")
         assertTrue(close.indexOf("val storedReceipt8325 =") in 0 until close.indexOf("synchronized(this) {"))

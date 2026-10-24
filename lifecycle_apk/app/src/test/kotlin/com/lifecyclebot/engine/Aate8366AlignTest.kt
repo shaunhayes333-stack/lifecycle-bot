@@ -140,6 +140,14 @@ class Aate8366AlignTest {
         val marks = listOf(0L to -15.0, 5_000L to -19.0, 16_500L to -25.0, 30_000L to -30.0)
         val fill = marks.first { ShadowAlign8366.latencyElapsed8366(1L, 16_000L, it.first + 1L) }.second
         assertEquals(-25.0, fill, 0.0)
+        // V5.0.8372 additionally requires the mark itself to have been observed after the latency.
+        // Elapsed wall time cannot turn a cached trigger price into an executable exit.
+        assertFalse(ShadowPersist8355.exitFillObserved8372(1_000L, 1_000L, 16_000L, 99_000L))
+        assertFalse(ShadowPersist8355.exitFillObserved8372(16_999L, 1_000L, 16_000L, 99_000L))
+        assertTrue(ShadowPersist8355.exitFillObserved8372(17_000L, 1_000L, 16_000L, 17_000L))
+        assertFalse("a future observation cannot fill", ShadowPersist8355.exitFillObserved8372(17_001L, 1_000L, 16_000L, 17_000L))
+        assertFalse("no observed mark, no fill", ShadowPersist8355.exitFillObserved8372(0L, 1_000L, 16_000L, 99_000L))
+        assertFalse("no trigger, no fill", ShadowPersist8355.exitFillObserved8372(17_000L, 0L, 16_000L, 99_000L))
     }
 
     @Test fun measuredLaneCostOnceMeasuredElseModelNeverUnderTheFixedLegs() {
@@ -229,7 +237,9 @@ class Aate8366AlignTest {
         assertTrue(ex.contains("ShadowAlign8366.holdExit8366(g, leg.peak, leg.taken8366, nowMs - leg.entryAtMs, nowMs - leg.peakAt8366, t.costPct)"))
         assertTrue(ex.contains("t.legs.filter { it.entry == Entry8347.NOW && it.active }.forEach { landed8366(t, it, nowMs) }"))
         assertTrue(ex.contains("val cost = try { ShadowAlign8366.laneCostPct8366(lane, liq, ts.mint, ts.lastMcap) }"))
-        assertTrue(ex.contains("ShadowAlign8366.latencyElapsed8366(leg.exitAt8366, ShadowAlign8366.sellLatencyMs8366(false), nowMs)"))
+        assertTrue(ex.replace(Regex("\\s+"), "").contains(
+            "ShadowPersist8355.exitFillObserved8372(observedAtMs8372,leg.exitAt8366,ShadowAlign8366.sellLatencyMs8366(false),nowMs)"))
+        assertTrue("lost or missing marks cannot become executable exits", ex.contains("executable = !lost && px != null"))
         assertTrue(ex.contains("ShadowAlign8366.noteShadow8366(\"EXPLORE\", t.lane, t.mint, leg.entryAtMs, net, nowMs)"))
         assertFalse("the old inline scalp stop is gone", ex.contains("g <= -(t.stopPct * 0.6).coerceAtLeast(4.0)"))
         val ev = src("engine/truth/EvidenceShadow8344.kt")

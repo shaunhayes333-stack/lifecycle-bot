@@ -52,7 +52,13 @@ class Aate8322TailCapsTest {
         assertFalse(tape.contains("coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.LABEL_CAP_8187)"))
         assertTrue(tape.contains("coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // V5.0.8322"))
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertTrue(cx.contains("ScannerSourceBrain.recordOutcome(p.source, netPct.coerceAtLeast(-100.0))"))
+        // 8372 preserves the uncapped winner while giving discovery one exact token-episode owner and revisions.
+        val source = cx.substringAfter("private fun sourceOutcome8372(").substringBefore("private fun gradeDecision8372(")
+        assertTrue(source.contains("val decisionId = \"\$key|\${p.atMs}\""))
+        assertTrue(source.contains("ScannerSourceBrain.recordDecisionOutcome8372(\n                p.source, tokenEpisode, decisionId, p.decisionMode8196, netPct.coerceAtLeast(-100.0), p.atMs)"))
+        assertTrue(source.contains("ScannerSourceBrain.reviseDecisionOutcome8372(\n                p.source, tokenEpisode, decisionId, p.decisionMode8196, netPct.coerceAtLeast(-100.0), p.atMs)"))
+        assertTrue(source.contains("ScannerSourceBrain.decisionDeliveryAcknowledged8372(\n                p.source, tokenEpisode, decisionId, p.decisionMode8196, netPct.coerceAtLeast(-100.0), p.atMs)"))
+        assertFalse(source.contains("coerceIn(-100.0, 200.0)"))
         assertFalse(cx.contains("recordOutcome(p.source, netPct.coerceIn(-100.0, 200.0))"))
     }
 }

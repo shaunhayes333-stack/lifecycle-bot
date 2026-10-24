@@ -234,7 +234,13 @@ class Aate8136LearningEquityTest {
         assertEquals(0.0, CortexRealisedAuthority8136.cappedFraction8136(0.0, 25.0, 8.0, 2.0), 0.0)
         val cx = src("engine/cortex/Cortex7885.kt")
         assertTrue(cx.contains("realisedCapped8136(lane, f)"))
-        assertTrue(cx.contains("realisedCapped8136(a.lane, cell8083?.fraction ?: 0.0)"))
+        // The legacy 8136 contract above remains available for diagnostics. Current setup authority uses the same
+        // frozen-cohort proof as lane authority, with calibration and realised-loss revocation still applied.
+        val cell = cx.substringAfter("private fun setupCellAuthority8083(").substringBefore("\n    }\n")
+        assertTrue(cell.contains("val proof = authorityTest8366(lane, setup)"))
+        assertTrue(cell.contains("val (n, mean) = realisedStrong8366(lane)"))
+        assertTrue(cell.contains("CortexAuthority8366.authority8366(proof,"))
+        assertTrue(cell.contains("calibration.uncalibrated8372(lane, executableOffset8187(lane)), n, mean)"))
     }
 
     @Test fun missingAttributionIsNeverANegativeStrategySample() {

@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.CandidateAdmission8136
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -54,16 +55,25 @@ class Aate8200CortexCarryTest {
         val adm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         assertTrue(adm.contains("cortexStrong8200 = try { com.lifecyclebot.engine.cortex.Cortex7885.strongCohortEvidence8200(ts, lane) }"))
         val cx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
-        val fn = cx.substringAfter("fun strongCohortEvidence8200(").substringBefore("/** Async (pool)")
+        val fn = cx.substringAfter("fun strongCohortEvidence8200(").substringBefore("private fun strongDoorLegacy8366(")
         // V5.0.8201 — the two doors are named separately (NOT_STRONG / STALE_MARK); both still return null.
         assertTrue(fn.contains("if (a.bucket != CortexScoreboard7885.Bucket.STRONG) return nullWhy8201(\"NOT_STRONG\")"))
         assertTrue(fn.contains("if (a.staleMark) return nullWhy8201(\"STALE_MARK\")"))
         assertTrue(fn.contains("SafetyTier.HARD_BLOCK"))
         assertTrue(fn.contains("MayhemMode7943.liveRefusal(ts)"))
-        assertTrue(fn.contains("board.inverted7948(a.lane, accountMode8077())"))
-        // superseded by V5.0.8366 — the door reads the one walk-forward test; the 8144 bar is read as the legacy display door.
-        assertTrue(fn.contains("firstSightBarredLegacy8366(a.lane)"))
+        // 8372: guard and returned economics share the current frozen STRONG OOS proof. The old inversion / series
+        // readers are in the separate historical diagnostic helper, not an alternate admission authority.
         assertTrue(fn.contains("authorityFraction8366(a.lane)"))
-        assertTrue(fn.contains("gradeBook8144.executableSeries(a.lane, null, CortexScoreboard7885.Bucket.STRONG.ordinal)"))
+        assertTrue(fn.contains("authorityTest8366(a.lane).let { r -> CortexWalkForward8144.Stat8144(r.topN, r.topMean, r.topSe) }"))
+        assertTrue(fn.contains("if (st.n <= 0 || !st.mean.isFinite())"))
+        assertTrue(fn.contains("netOfCost = true"))
+        assertFalse(fn.contains("board.inverted7948"))
+        assertFalse(fn.contains("gradeBook8144.executableSeries("))
+        val proof = cx.substringAfter("private fun authorityTest8366(").substringBefore("private fun realisedStrong8366(")
+        assertTrue(proof.contains("CortexAuthority8366.test8372("))
+        assertTrue(proof.contains("gradeBook8144.scoredRows8366(lane, runnerHorizon8144(lane), scoreVersion = 1, setup = setup)"))
+        val held = cx.substringAfter("private fun authorityFraction8366(").substringBefore("private fun authorityCode8366(")
+        assertTrue(held.contains("val (n, mean) = realisedStrong8366(lane)"))
+        assertTrue(held.contains("CortexAuthority8366.authority8366(authorityTest8366(lane), calibration.uncalibrated8372(lane, executableOffset8187(lane)), n, mean)"))
     }
 }

@@ -177,7 +177,12 @@ class Aate8326Entry8114ModeTest {
         assertFalse(playbook.contains("if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return legacyStat8326(lane, setup)"))
         val cortex = src("engine/cortex/Cortex7885.kt")
         val old = cortex.substringAfter("fun entryRefusal8114(").substringBefore("fun overrulesEdgeRefusal(")
-        assertTrue(old.contains("board.refusalAuthority(a.lane, a.runnerLane, false) && consistent(a.lane)"))
+        // 8114's absolute/relative refusal rules remain, but historical scorer buckets cannot govern a current token.
+        assertTrue(old.contains("refusalCurrent8372(a.lane, a.runnerLane, false) && consistent(a.lane)"))
+        assertTrue(old.contains("relativeRefusalCurrent8372(a.lane, a.runnerLane) && consistent(a.lane)"))
+        val absolute = cortex.substringAfter("private fun refusalCurrent8372(").substringBefore("private fun relativeRefusalCurrent8372(")
+        assertTrue(absolute.contains("CortexScoreboard7885.refuseProven(cohort8372(lane)[0], restCurrent8372(lane), runner,"))
+        assertTrue(absolute.contains("CortexScoreboard7885.MIN_N_PAPER else CortexScoreboard7885.MIN_N_LIVE"))
         assertFalse(old.contains("refusalAuthority8269"))
         assertFalse(old.contains("CortexInversion8310"))
     }

@@ -192,13 +192,15 @@ class Aate8153LearningTest {
         // Wiring: the Learning panel, the scoreboard card and the status line read the row; the authority shown is the held one.
         val cx = src("engine/cortex/Cortex7885.kt")
         val ui = cx.substringAfter("fun ui8069(): Ui8069?").substringBefore("fun statusLine(): String")
-        assertTrue(ui.contains("LearningEntryTruth8153.verdictRow8153(gradeBook8144, lane)"))
+        // Current UI uses only frozen v1 verdicts; the default helper above still reads preserved historical data.
+        assertTrue(ui.contains("LearningEntryTruth8153.verdictRow8153(gradeBook8144, lane, scoreVersion = 1)"))
         assertTrue(ui.contains("val auth = heldFraction8153(lane)"))
         assertFalse(ui.contains("s.n.toInt(), s.mean(), nu.n.toInt(), nu.mean()"))
         val card = cx.substringAfter("fun scoreboardCard(): String").substringBefore("data class UiLane8069(")
+        assertTrue(card.contains("LearningEntryTruth8153.verdictRow8153(gradeBook8144, lane, scoreVersion = 1)"))
         assertTrue(card.contains("fmtRow8153(row8153.strongN, row8153.strongMean)"))
         assertFalse(card.contains("\${fmtStat(b.byBucket[2]).padEnd(9)}"))
-        assertTrue(cx.contains("tradeable8153[refuse=\${fmtRow8153(v8153.refuseN, v8153.refuseMean)}"))
+        assertTrue(cx.contains("currentFrozenV1_8372[refuse=\${fmtRow8153(v8153.refuseN, v8153.refuseMean)}"))
 
         // Authority: no owner-routed realised closes -> partial at most; losing or wallet-shrinking closes -> none.
         assertEquals(CortexScoreboard7885.GRAD_PARTIAL_CAP_7955, LearningEntryTruth8153.realisedEvidenceCap8153(emptyList()), 1e-12)

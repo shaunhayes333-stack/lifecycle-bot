@@ -306,11 +306,16 @@ class Aate8187CortexCompleteTest {
         assertTrue(on.contains("board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187, witness8324)"))
         assertTrue(on.contains("gradeBook8144.markLateRead8187("))
         // Lost labels are filed at once; restores past the labeler's reach are not "pending".
-        assertTrue(cx.contains("fun onLabelLost8187(mint: String, labelLane: String, reason: String)"))
-        assertTrue(cx.contains("if (!persistablePending8144(at, nowMs)) { inc(\"PENDING_RESTORE_PAST_LABEL_8187\"); continue }"))
+        // 8371/8372: a lost label addresses its original token episode, never a newer pending observation.
+        val lost = cx.substringAfter("fun onLabelLost8187(").substringBefore("/** ForwardReturnLabeler7731.tick:")
+        assertTrue(lost.contains("decisionAtMs8371: Long = 0L"))
+        assertTrue(lost.indexOf("if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371)") in 0 until lost.indexOf("pending.remove(key, p)"))
+        // Forward pending still expires with the labeler; a separately bound shadow exit keeps its original prediction.
+        assertTrue(cx.contains("if (!shadow8372 && !persistablePending8144(at, nowMs)) { inc(\"PENDING_RESTORE_PAST_LABEL_8187\"); continue }"))
+        assertTrue(cx.contains("nowMs - at > (if (shadow8372) GRADED_KEEP_MS_8013 else PENDING_TTL_MS) || at > nowMs"))
         val fl = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(fl.contains("Cortex7885.onLabelLost8187(o.mint, o.lane, \"GAP\")"))
-        assertTrue(fl.contains("Cortex7885.onLabelLost8187(o.mint, o.lane, \"BASIS\")"))
+        assertTrue(fl.contains("Cortex7885.onLabelLost8187(o.mint, o.lane, \"GAP\", decisionAtMs8371 = o.atMs)"))
+        assertTrue(fl.contains("Cortex7885.onLabelLost8187(o.mint, o.lane, \"BASIS\", decisionAtMs8371 = o.atMs)"))
         // superseded by V5.0.8291 — the first-mark check is read once and ranked (CortexLabelFeed8291).
         assertTrue(fl.contains("val first8291 = firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age)"))
         assertTrue(fl.contains("if (first8291) dueUnpriced7737.add("))
@@ -321,7 +326,11 @@ class Aate8187CortexCompleteTest {
         // superseded by V5.0.8332 — the recovery read also takes the sealed entry snapshot read before the lock (snap8332)
         assertTrue(close.indexOf("recoverRead8187(env, closeKey7931, mode, sealed8144, snap8332)") in 0 until close.indexOf("fileUnboundClose8153(env, mode, sealed8144, snapTag8144)"))
         assertTrue(close.contains("REALIZED_REPLAY_ALREADY_FILED_8187"))
-        assertTrue(cx.contains("if (admitted && !late8169) noteEntryRead("))
+        // Native YES/NO enrollment is learning, not execution admission; a real admission binds its own exact read.
+        assertTrue(cx.contains("if (admitted && !late8169 && reason?.startsWith(\"NATIVE_\") != true) noteEntryRead(mint, decisionMode8196 == \"PAPER\", a, nowMs)"))
+        assertTrue(fl.contains("Cortex7885.noteExecutionAdmission8372(ts, l, nowMs)"))
+        val admission = cx.substringAfter("fun noteExecutionAdmission8372(").substringBefore("/**")
+        assertTrue(admission.contains("noteEntryRead(ts.mint, accountMode8077() == \"PAPER\", a, nowMs)"))
         // Timing samples survive a restart; the exit cortex prices registry-priced positions.
         val tm = src("engine/cortex/CortexTiming7900.kt")
         assertTrue(tm.contains(".put(\"pending8187\", encodePending8187(System.currentTimeMillis()))"))
@@ -383,7 +392,13 @@ class Aate8187CortexCompleteTest {
         assertTrue(stake.contains("?: run { inc(\"SIZE_UP_REFUSED_UNVALIDATED_8187_\$lane\"); return emptyList() }"))
         assertTrue(stake.contains("minOf(setupStake, proofStake) to minOf(setupFraction, proof.fraction)"))
         val conviction = cx.substringAfter("private fun cortexStake7893(").substringBefore("private fun provenEvidenceStake7948(")
-        assertTrue(conviction.contains("validatedEvidence8187(a.lane, null) ?: run {"))
+        // 8372: sizing uses the same current STRONG cohort as its OOS authority, never a legacy lane-wide proof.
+        assertTrue(conviction.contains("val strong = gradeBook8144.bucketStats8372(a.lane)[CortexScoreboard7885.Bucket.STRONG.ordinal]"))
+        assertTrue(conviction.contains("val proof = authorityTest8366(a.lane)"))
+        assertTrue(conviction.contains("if (!proof.granted || proof.topN < 20 || !proof.topSe.isFinite())"))
+        assertTrue(conviction.contains("inc(\"SIZE_UP_REFUSED_UNVALIDATED_8187_\${a.lane}\"); return none"))
+        assertTrue(conviction.contains("minOf(kellyStakeSol(strong.mean(), strong.variance(), equitySol),"))
+        assertTrue(conviction.contains("kellyStakeSol(proof.topMean, variance, equitySol)) to f"))
     }
 
     // ── 8186b: a voter time budget, and authority on executable labels ──
