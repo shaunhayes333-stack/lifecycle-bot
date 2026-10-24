@@ -71,6 +71,10 @@ class CortexGradeRecord8144(
     var tailEv8324: Double = Double.NaN
     /** V5.0.8324 — the label the objective answers with was chain-witnessed (provenance: its runner tail is real at any size). */
     var witnessed8324: Boolean = false
+    /** V5.0.8371 — exact, decision-time calibration provenance for runner regrades after the large voter trace ages out. */
+    var rawEdge8371: Double = Double.NaN
+    var laneMean8371: Double = Double.NaN
+    var calStamp8371: Double = Double.NaN
 
     /** May this decision's label grade authority (executable, first of its episode)? */
     val graded: Boolean get() = kind == 'D' && executable && !repeat
@@ -95,7 +99,7 @@ class CortexGradeRecord8144(
     internal val evidence8187: Boolean get() = kind == 'D' && executable && !repeat
 }
 
-class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val maxTrades: Int = 600) {
+class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val maxTrades: Int = 600) {
     private val decisions = ArrayList<CortexGradeRecord8144>()
     private val byId = HashMap<String, CortexGradeRecord8144>()
     private val lastGraded = HashMap<String, Long>()
@@ -542,6 +546,10 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
         num(r.executableRevisedPct), r.revisedAvailableAtMs.toString(), if (r.flat8322) "1" else "0",
         // V5.0.8324 — the objective's gross (first / revised) and the decision-time tail EV.
         num(r.firstGross8324), num(r.revisedGross8324), num(r.tailEv8324), if (r.witnessed8324) "1" else "0", "INDEPENDENT_CURVE_8365",
+        // Exact double precision: a rounded decay stamp does not match its isotonic pair after restart.
+        r.rawEdge8371.takeIf { it.isFinite() }?.toString().orEmpty(),
+        r.laneMean8371.takeIf { it.isFinite() }?.toString().orEmpty(),
+        r.calStamp8371.takeIf { it.isFinite() }?.toString().orEmpty(),
     ).joinToString(FS.toString())
 
     fun encode(): String = (decisions + trades.values).joinToString(RS.toString()) { encodeOne(it) }
@@ -556,7 +564,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             // V5.0.8187 — 26 fields (late voter read); a 25-field row reads as on time.
             // V5.0.8322 — 29 fields (revised executable, its availability, flat mark); 24..26-field rows read as before.
             // V5.0.8324 — 32 fields (objective gross first / revised, tail EV); 24..29-field rows read as before.
-            if (f.size !in 24..34 || f[0].length != 1 || f[1].isBlank()) continue
+            if (f.size !in 24..37 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
@@ -568,6 +576,9 @@ class CortexGradeBook8144(private val maxDecisions: Int = 3_000, private val max
             r.flat8322 = f.getOrNull(28) == "1"
             r.firstGross8324 = dbl(f.getOrNull(29)); r.revisedGross8324 = dbl(f.getOrNull(30)); r.tailEv8324 = dbl(f.getOrNull(31))
             r.witnessed8324 = f.getOrNull(32) == "1" && f.getOrNull(33) == "INDEPENDENT_CURVE_8365" // Old cap-only proof does not carry forward
+            r.rawEdge8371 = dbl(f.getOrNull(34))
+            r.laneMean8371 = dbl(f.getOrNull(35))
+            r.calStamp8371 = dbl(f.getOrNull(36))
             if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
             when (r.kind) {
                 'D' -> if (!byId.containsKey(r.id)) { decisions.add(r); byId[r.id] = r; noteGraded(r) }
