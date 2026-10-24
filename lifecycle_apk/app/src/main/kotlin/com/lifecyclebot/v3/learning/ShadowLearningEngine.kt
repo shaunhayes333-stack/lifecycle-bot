@@ -106,6 +106,7 @@ object ShadowLearningEngine {
     private val shadowWins = AtomicLong(0)
     private val shadowLosses = AtomicLong(0)
     private val totalShadowPnl = AtomicLong(0)  // Stored as basis points
+    private val unpricedTimeouts8368 = AtomicLong(0) // unresolved; not learner labels
     
     // Engine state
     private val isRunning = AtomicBoolean(false)
@@ -359,6 +360,7 @@ object ShadowLearningEngine {
      * Update price for a token and check if any shadow trades should close.
      */
     fun updatePrice(mint: String, currentPrice: Double) {
+        if (!currentPrice.isFinite() || currentPrice <= 0.0) return // invalid mark cannot be a fill
         openShadowTrades.values
             .filter { it.mint == mint && it.isOpen }
             .forEach { trade ->
@@ -372,7 +374,7 @@ object ShadowLearningEngine {
         
         when (trade.type) {
             ShadowType.SHADOW_LONG -> {
-                val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(trade.entryPrice, currentPrice, context = "V3ShadowLearningEngine_update_6038/${trade.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
+                val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(trade.entryPrice, currentPrice, context = "V3ShadowLearningEngine_update_6038/${trade.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: return
                 
                 // Exit conditions for shadow long
                 val shouldExit = when {
@@ -432,7 +434,7 @@ object ShadowLearningEngine {
             
             ShadowType.SHADOW_AVOID -> {
                 // For avoids, we track what would have happened
-                val wouldHavePnl = com.lifecyclebot.engine.OpenPnlSanity.inspect(trade.entryPrice, currentPrice, context = "V3ShadowLearningEngine_counterfactual_6038/${trade.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
+                val wouldHavePnl = com.lifecyclebot.engine.OpenPnlSanity.inspect(trade.entryPrice, currentPrice, context = "V3ShadowLearningEngine_counterfactual_6038/${trade.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: return
                 
                 val shouldClose = when {
                     holdTimeMins >= 30 -> true  // Check after 30 mins
@@ -482,13 +484,33 @@ object ShadowLearningEngine {
             "pnl=${pnlPct.toInt()}% | entry=${trade.entryPrice} exit=$exitPrice")
     }
     
+    /**
+     * V5.0.8368: directional learners grade the market's hypothetical LONG return,
+     * not the profit from avoiding it or from a conceptual short. A volatility-only
+     * payoff cannot be used as a bullish/bearish label.
+     */
+    internal fun directionalLongReturn8368(type: ShadowType, shadowPnlPct: Double): Double? = when (type) {
+        ShadowType.SHADOW_LONG -> shadowPnlPct
+        ShadowType.SHADOW_AVOID, ShadowType.SHADOW_SHORT -> -shadowPnlPct
+        ShadowType.SHADOW_STRANGLE, ShadowType.SHADOW_STRADDLE -> null
+    }
+
     private fun feedToMetaCognition(trade: ShadowTrade) {
+        val longPnl8368 = directionalLongReturn8368(trade.type, trade.pnlPct)
+        if (longPnl8368 == null || !longPnl8368.isFinite()) {
+            try {
+                com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordGeneralSignal(
+                    "SHADOW_NON_DIRECTIONAL_8368", trade.mint, trade.type.name
+                )
+            } catch (_: Exception) {}
+            return
+        }
         // ── MetaCognitionAI (unchanged) ───────────────────────────────────
         try {
             com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(
                 mint = trade.mint,
                 symbol = trade.symbol,
-                pnlPct = trade.pnlPct,
+                pnlPct = longPnl8368,
                 holdTimeMs = trade.exitTime - trade.entryTime,
                 exitReason = "shadow_${trade.type.name.lowercase()}"
             )
@@ -518,7 +540,7 @@ object ShadowLearningEngine {
                 traderSource  = "ShadowEngine",
                 mintOrSymbol  = trade.symbol.ifBlank { trade.mint.take(12) },
                 missedReason  = blockReason,
-                laterPnlPct   = trade.pnlPct
+                laterPnlPct   = longPnl8368
             )
 
             // 2. Feed full outcome to all 41 layers
@@ -526,7 +548,7 @@ object ShadowLearningEngine {
                 mint                 = trade.mint,
                 symbol               = trade.symbol,
                 tokenName            = trade.symbol,
-                pnlPct               = trade.pnlPct,
+                pnlPct               = longPnl8368,
                 holdTimeMinutes      = holdMins,
                 exitReason           = "shadow_${trade.type.name.lowercase()}",
                 entryPhase           = trade.regime,
@@ -548,8 +570,8 @@ object ShadowLearningEngine {
                 emaFanState          = "UNKNOWN",
                 entryScore           = trade.aiConfidence.toDouble(),
                 priceFromAth         = 0.0,
-                maxGainPct           = if (trade.pnlPct > 0) trade.pnlPct else 0.0,
-                maxDrawdownPct       = if (trade.pnlPct < 0) trade.pnlPct else 0.0,
+                maxGainPct           = if (longPnl8368 > 0) longPnl8368 else 0.0,
+                maxDrawdownPct       = if (longPnl8368 < 0) longPnl8368 else 0.0,
                 timeToPeakMins       = holdMins,
                 entryReason          = blockReason,
                 // V5.9.224: Shadow/rejected trades get 0.4x weight so real trade signal dominates
@@ -568,10 +590,12 @@ object ShadowLearningEngine {
         openShadowTrades.values
             .filter { it.isOpen && (now - it.entryTime) > 3600_000 }  // 1 hour max
             .forEach { trade ->
-                // Force close with estimated exit
-                val estimatedExit = trade.entryPrice  // Assume flat if no price update
-                val pnlPct = 0.0
-                closeShadowTrade(trade, estimatedExit, pnlPct)
+                // No observed exit since entry: keep this episode UNRESOLVED, never a fake flat fill.
+                if (openShadowTrades.remove(trade.id, trade)) {
+                    trade.isOpen = false
+                    unpricedTimeouts8368.incrementAndGet()
+                    Log.w(TAG, "Unpriced shadow expired without learner label: ${trade.symbol} ${trade.type}")
+                }
             }
     }
     
