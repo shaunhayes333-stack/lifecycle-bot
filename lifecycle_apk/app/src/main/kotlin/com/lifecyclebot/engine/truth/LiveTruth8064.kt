@@ -166,6 +166,22 @@ object LiveTruth8064 {
         return "LIVE_SETUP_LOSING_8083"
     }
 
+    /**
+     * V5.0.8365 — [n, mean %] of the realised live closes bought on [lane] + [setup] inside the window (the record
+     * [setupRefusal8083] judges); null when there are none or the setup is unattributed. FdgGate8365 reads it so a label
+     * "setup losing" door does not outrank the setup's own realised money.
+     */
+    fun setupRealised8365(lane: String, setup: String?, nowMs: Long = System.currentTimeMillis()): DoubleArray? {
+        ensure()
+        if (setup.isNullOrBlank()) return null
+        val key = setupKey8083(lane, setup)
+        if (key.endsWith("|$UNATTRIBUTED_SETUP_8083")) return null
+        val xs = synchronized(this) { bySetup8083[key]?.filter { nowMs - it[0].toLong() in 0L..WINDOW_MS }?.map { it[1] }.orEmpty() }
+            .filter { it.isFinite() }
+        if (xs.isEmpty()) return null
+        return doubleArrayOf(xs.size.toDouble(), xs.average())
+    }
+
     /** V5.0.8083 — LiveEdgeGate7877 at a LIVE admit: file this mint's eventual close under its exact lane + setup. */
     fun noteLiveAdmit8083(mint: String, lane: String, setup: String?, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank()) return

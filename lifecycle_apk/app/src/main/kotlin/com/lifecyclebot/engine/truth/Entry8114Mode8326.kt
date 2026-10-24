@@ -47,7 +47,15 @@ object Entry8114Mode8326 {
     fun enabled8326(): Boolean = enabled8326
 
     fun canon8326(lane: String?): String =
-        (try { CanonicalLaneIdentity6506.canonical(lane) } catch (_: Throwable) { "" }).uppercase().ifBlank { lane.orEmpty().trim().uppercase() }
+        expressAlias8365((try { CanonicalLaneIdentity6506.canonical(lane) } catch (_: Throwable) { "" }).uppercase().ifBlank { lane.orEmpty().trim().uppercase() })
+
+    /**
+     * V5.0.8365 — pure: the specialist side (SpecialistOwnership7951, ToolkitSignalSheet, RuntimeConfigOverlay) files the
+     * SHITCOIN_EXPRESS lane as EXPRESS, CanonicalLaneIdentity6506 does not; a candidate arriving as SHITCOIN_EXPRESS read
+     * an empty SHITCOIN_EXPRESS hold / realised / memo book beside the EXPRESS one. The 8114 stack keys both as EXPRESS.
+     */
+    fun expressAlias8365(canonical: String): String =
+        if (canonical == "SHITCOIN_EXPRESS" || canonical == "SHITCOINEXPRESS") "EXPRESS" else canonical
 
     private fun laneCovered8326(lane: String?): Boolean = canon8326(lane) in LANES_8326
 
@@ -112,12 +120,17 @@ object Entry8114Mode8326 {
         // V5.0.8339 — the shadow is computed for the runtime's own book: in a PAPER runtime (8336 rehearsal) paper = true,
         // as the paper runtime decided before 8336; the live chain / wallet doors do not run or bind for a paper entry.
         val paper8336 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        // V5.0.8365 — one decision per candidate per pass: FDG's live edge block and TradePlan7739's chokepoint both ask.
+        val memoKey8365 = FdgGate8365.memoKey8365(ts.mint, l, candidateVersion, paper8336)
+        FdgGate8365.memoGet8365(memoKey8365, nowMs)?.let { return it.second }
+        // V5.0.8365 — the hold's unlock basis, read first: a proof built without the 8114 evidence doors makes them advisory.
+        val basis8365 = if (paper8336) null else try { FdgGate8365.holdBasis8365(l, nowMs) } catch (_: Throwable) { null }
         val now = try {
             inCurrent8326 { LiveEdgeGate7877.liveRefusal(ts, lane, Rehearsal8339.shadowPaper8339(paper8336), nowMs, candidateVersion, candidateAdmission) }
         } catch (_: Throwable) { null }
         // V5.0.8342 — in PAPER under rehearsal the gate's label / record doors are advisory (Rehearsal8339.doorBindsNow8342): the
         // doors it passed on advice are collected here and recorded on the paper entry (liveWouldRefuse) for its close.
-        val (old, advisories8342) = try { Rehearsal8339.collecting8342 { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } } } catch (_: Throwable) {
+        val (old, advisories8342) = try { Rehearsal8339.collecting8342 { FdgGate8365.inContext8365(ts, l, basis8365) { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } } } } catch (_: Throwable) {
             Entry8114Gate8326.Verdict8326(EVAL_FAILED_8326, LiveEdgeGate7877.Verdict8083.REFUSE, null) to emptyList<String>()
         }
         // V5.0.8329 — the lane's OWN live closes (3+, mean < 0) are realised money, not a label: they bind in mode.
@@ -134,10 +147,15 @@ object Entry8114Mode8326 {
         // V5.0.8347 — a LIVE admit enters the way the lane's best proven exploration variant does (pullback / confirm wait).
         // V5.0.8351 — a lane unlocked by a niche trades only inside it; then it enters the niche's proven way.
         // V5.0.8364 — a LIVE admit needs a named setup that fired on the coin in this lane (paper / shadow unaffected).
-        val final = final0_8347
+        // V5.0.8365 — a label / record refusal of the 8114 verdict yields the attribution to the structural checks (fired setup,
+        // niche): the same candidate is refused either way, but under the one authoritative name.
+        val yields8365 = FdgGate8365.oldYields8365(old.reason, final0_8347, realised)
+        val final = (if (yields8365) null else final0_8347)
             ?: (if (paper8336) null else try { Entry8114Gate8326.liveFiredSetupRefusal8364(ts, l, old.setup, nowMs) } catch (_: Throwable) { null })
             ?: (if (paper8336) null else try { ExploreShadow8347.nicheRefusal8351(ts, l, EvidenceHold8336.startMs8336) } catch (_: Throwable) { null })
+            ?: (if (yields8365) final0_8347 else null)
             ?: (if (paper8336) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null })
+        try { FdgGate8365.noteFinal8365(final, l); FdgGate8365.memoPut8365(memoKey8365, final, nowMs) } catch (_: Throwable) {}
         if (now != null && final == null) noteBypass8326(gateKey8326(now), l)
         if (old.reason != null && final == now && now != null && now != old.reason) try { PipelineHealthCollector.labelInc("ENTRY8114_CURRENT_HARD_REFUSAL_BINDS_8326_$l") } catch (_: Throwable) {}
         fileFinal8326(ts, l, old, final, nowMs)
@@ -303,5 +321,6 @@ object Entry8114Mode8326 {
             " fdg=" + fdgNotes8326.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
             " " + (try { sizeLine8326() } catch (_: Throwable) { "size8114[-]" }) +
             " " + (try { Entry8114Shadow8326.statusLine8326() } catch (_: Throwable) { "shadow[-]" }) +
-            " " + (try { EntryEconomics8329.statusLine8329() } catch (_: Throwable) { "chase8329[-] promo8329[-] laneShut8329[-]" }) + "]"  // V5.0.8329
+            " " + (try { EntryEconomics8329.statusLine8329() } catch (_: Throwable) { "chase8329[-] promo8329[-] laneShut8329[-]" }) +  // V5.0.8329
+            " " + (try { FdgGate8365.statusLine8365() } catch (_: Throwable) { "fdg8365[-]" }) + "]"  // V5.0.8365
 }
