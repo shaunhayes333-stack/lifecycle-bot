@@ -4,6 +4,7 @@ import android.content.Context
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -80,8 +81,8 @@ object ExploreShadow8347 {
         var tiers = 0
         var peak = 0.0
         var trough = 0.0
-        // V5.0.8366 — the lifecycle hold a +100 % runner leg is promoted into (persisted), and a triggered full exit waiting
-        // out the live sell latency (not persisted: after a restart the rule that triggered it triggers again)
+        // V5.0.8366 — the lifecycle hold a +100 % runner leg is promoted into, and a triggered full exit waiting
+        // out the live sell latency. V5.0.8372 persists both: restart cannot forget an already-triggered sell.
         var hold8366 = false
         var taken8366 = 0
         var peakAt8366 = 0L
@@ -96,6 +97,7 @@ object ExploreShadow8347 {
         val band: String = "UNK",   // V5.0.8351 — market-cap band at open, a cohort dimension
         val kind8360: String = KIND_NATIVE_8360,   // V5.0.8360 — NATIVE / REJECT / SETUP
         val markSrc8360: String = "",              // V5.0.8360 — the observed source that priced the entry
+        var cortex8372: ShadowPersist8355.CortexShadowOutcome8372 = ShadowPersist8355.CortexShadowOutcome8372(),
     ) {
         var lastPx = signalPx
         var lastPxAtMs = atMs
@@ -103,14 +105,23 @@ object ExploreShadow8347 {
         var dirty8355 = false
         var force8355 = false
         var lastWriteMs8355 = 0L
+        var receiptDurable8372 = false
+        // The assessment caller registers its immutable prediction before opening. Do not tick a partially-built ticket.
+        @Volatile var ready8372 = false
+        @Volatile var ticking8372 = false
     }
 
     private val tickets = ConcurrentHashMap<String, Ticket8347>()                // mint|lane|setup -> ticket (V5.0.8360; pre-8360: mint|lane)
+    private val ticketReservation8372 = Any()   // capacity reservation/retirement only; no learner/provider calls
     private val lastOpenAt = ConcurrentHashMap<String, Long>()
     private val books = ConcurrentHashMap<String, ArrayDeque<DoubleArray>>()     // lane|ENTRY|EXIT -> [atMs, net%]
     private val opened = AtomicLong(0)
     private val closed = AtomicLong(0)
     private val full = AtomicLong(0)
+    private val tickActive8372 = AtomicBoolean(false)
+    private val cortexOutcomeAck8372 = AtomicLong(0)
+    private val cortexUnavailable8372 = AtomicLong(0)
+    private val cortexRetry8372 = AtomicLong(0)
     private val waits = ConcurrentHashMap<String, LongArray>()                   // mint|lane -> [firstAtMs, signalPx bits]
     @Volatile private var prefs: android.content.SharedPreferences? = null
 
@@ -122,6 +133,9 @@ object ExploreShadow8347 {
     private const val TICKET_KEY_PREFIX_8355 = "T:"
     private const val WAITS_KEY_8355 = "W"
     @Volatile private var openPrefs8355: android.content.SharedPreferences? = null
+    private val initLock8372 = Any()
+    @Volatile private var openRestored8372 = false
+    @Volatile private var booksRestored8372 = false
     @Volatile private var waitsDirty8355 = false
     @Volatile private var waitsWrittenAtMs8355 = 0L
     private val restored8355 = AtomicLong(0)
@@ -132,14 +146,26 @@ object ExploreShadow8347 {
         t.mint, t.symbol, t.lane, t.setup, t.tactic, t.scoreBand, t.band, t.signalPx, t.atMs, t.costPct, t.stopPct, t.armPct,
         t.runner, t.nativeEligible, t.lastPx, t.lastPxAtMs,
         t.legs.map { l -> ShadowPersist8355.LegRec8355(l.entry.name, l.exit.name, l.active, l.dead, l.entryPx, l.entryAtMs, l.held, l.banked, l.tiers, l.peak, l.trough,
-            hold8366 = l.hold8366, taken8366 = l.taken8366, peakAt8366 = l.peakAt8366) },   // V5.0.8366
+            hold8366 = l.hold8366, taken8366 = l.taken8366, peakAt8366 = l.peakAt8366,
+            exitAt8366 = l.exitAt8366, exitWhy8366 = l.exitWhy8366 ?: "") },   // V5.0.8372
         kind8360 = t.kind8360, markSrc8360 = t.markSrc8360,   // V5.0.8360
+        cortex8372 = t.cortex8372,
     )
 
-    private fun persistTicket8355(key: String, t: Ticket8347, nowMs: Long) {
-        t.dirty8355 = false; t.force8355 = false; t.lastWriteMs8355 = nowMs
-        val enc = ShadowPersist8355.encodeTicket8355(ticketRec8355(t))
-        try { openPrefs8355?.edit()?.putString(TICKET_KEY_PREFIX_8355 + key, enc)?.apply() } catch (_: Throwable) {}
+    private fun persistTicket8355(key: String, t: Ticket8347, nowMs: Long, durable8372: Boolean = false): Boolean {
+        val p = openPrefs8355 ?: run { t.force8355 = true; return false }
+        val written = try {
+            val enc = ShadowPersist8355.encodeTicket8355(ticketRec8355(t))
+            val edit = p.edit().putString(TICKET_KEY_PREFIX_8355 + key, enc)
+            // The one terminal receipt must survive a process death before Cortex ACKs it.
+            // Only the off-loop delivery path asks for durability, never an assessment.
+            if (durable8372) edit.commit() else { edit.apply(); true }
+        } catch (_: Throwable) { false }
+        if (written) {
+            t.dirty8355 = false; t.force8355 = false; t.lastWriteMs8355 = nowMs
+            if (durable8372) t.receiptDurable8372 = true
+        } else t.force8355 = true
+        return written
     }
 
     private fun forgetTicket8355(key: String) {
@@ -163,63 +189,96 @@ object ExploreShadow8347 {
             leg.active = l.active; leg.dead = l.dead; leg.entryPx = l.entryPx; leg.entryAtMs = l.entryAtMs
             leg.held = l.held; leg.banked = l.banked; leg.tiers = l.tiers; leg.peak = l.peak; leg.trough = l.trough
             leg.hold8366 = l.hold8366; leg.taken8366 = l.taken8366; leg.peakAt8366 = l.peakAt8366   // V5.0.8366
+            leg.exitAt8366 = l.exitAt8366; leg.exitWhy8366 = l.exitWhy8366.takeIf { it.isNotBlank() }
             legs += leg
         }
-        if (legs.isEmpty() || legs.all { it.dead }) return null
+        if (legs.isEmpty() || (legs.all { it.dead } && !r.cortex8372.awaiting8372())) return null
         val kind8360 = r.kind8360.ifBlank { if (r.nativeEligible) KIND_NATIVE_8360 else KIND_REJECT_8360 }   // V5.0.8360 — pre-8360 records
         val t = Ticket8347(r.mint, r.symbol, r.lane, r.setup, r.tactic, r.scoreBand, r.signalPx, r.atMs, r.costPct, r.stopPct, r.armPct,
-            r.runner, r.nativeEligible, legs, r.band, kind8360 = kind8360, markSrc8360 = r.markSrc8360)
+            r.runner, r.nativeEligible, legs, r.band, kind8360 = kind8360, markSrc8360 = r.markSrc8360,
+            cortex8372 = r.cortex8372)
         t.lastPx = r.lastPx; t.lastPxAtMs = r.lastPxAtMs
+        t.ready8372 = true
         return t
     }
 
-    private fun restoreOpen8355(ctx: Context, nowMs: Long) {
-        try {
+    private fun restoreOpen8355(ctx: Context, nowMs: Long): Boolean {
+        val restored = try {
             val p = ctx.getSharedPreferences(PREFS_OPEN_8355, Context.MODE_PRIVATE)
             openPrefs8355 = p
             val drop = ArrayList<String>()
-            val perLane = HashMap<String, Int>()
             var n = 0L
             for ((k, v) in p.all) {
                 val s = v as? String
                 if (k == WAITS_KEY_8355) {
                     for (w in ShadowPersist8355.decodeWaits8355(s)) {
                         if (nowMs - w.firstAtMs !in 0L until PULLBACK_WAIT_MS_8347) continue
-                        waits[w.key] = longArrayOf(w.firstAtMs, java.lang.Double.doubleToRawLongBits(w.signalPx))
-                        waitsRestored8355.incrementAndGet()
+                        if (waits.putIfAbsent(w.key, longArrayOf(w.firstAtMs, java.lang.Double.doubleToRawLongBits(w.signalPx))) == null)
+                            waitsRestored8355.incrementAndGet()
                     }
                     continue
                 }
                 if (!k.startsWith(TICKET_KEY_PREFIX_8355)) { drop += k; continue }
                 val key = k.substring(TICKET_KEY_PREFIX_8355.length)
-                val r = ShadowPersist8355.decodeTicket8355(s)
+                if (tickets.containsKey(key)) continue   // partial-init retry must not delete a newer in-memory receipt
+                var r = ShadowPersist8355.decodeTicket8355(s)
                 if (r == null) { drop += k; continue }
                 // the ticket's own window: the longest leg timeout plus the longest entry wait, then the lost-mark grace
                 // V5.0.8366 — a leg in the lifecycle hold has no clock (LifecycleHold8065): its ticket keeps the hold's window
                 val window = if (r.legs.any { it.hold8366 && !it.dead }) ShadowAlign8366.holdWindowMs8366()
                     else (if (r.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347) + PULLBACK_WAIT_MS_8347
-                if (ShadowPersist8355.expiredOnRestore8355(r.atMs, window, nowMs, LOST_MARK_MS_8347)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
+                if (ShadowPersist8355.expiredOnRestore8355(r.atMs, window, nowMs, LOST_MARK_MS_8347)) {
+                    expiredOnRestore8355.incrementAndGet()
+                    if (!r.cortex8372.awaiting8372()) { drop += k; continue }
+                    // Keep a known terminal receipt for redelivery, or release an unpriced expired prediction. Never
+                    // reconstruct a fill at restart time or leak an enrolled Cortex trace when a ticket expires.
+                    r = r.copy(legs = r.legs.map { it.copy(dead = true) },
+                        cortex8372 = r.cortex8372.unavailable8372("EXPIRED_ON_RESTORE_8372", nowMs))
+                }
                 val t = ticketFromRec8355(r)
-                if (t == null || tickets.containsKey(key) || tickets.size >= MAX_TICKETS_8347 ||
-                    (perLane[t.lane] ?: 0) >= MAX_TICKETS_PER_LANE_8351) { drop += k; continue }
-                t.lastWriteMs8355 = nowMs
-                tickets[key] = t
-                perLane[t.lane] = (perLane[t.lane] ?: 0) + 1
-                lastOpenAt[key] = r.atMs
-                n++
+                if (t == null) { drop += k; continue }
+                val added = synchronized(ticketReservation8372) {
+                    if (tickets.containsKey(key)) return@synchronized false
+                    if (!t.cortex8372.pending8372()) {
+                        if (!t.cortex8372.awaiting8372()) {
+                            if (tickets.size >= MAX_TICKETS_8347 ||
+                                laneCount8360(t.lane) >= MAX_TICKETS_PER_LANE_8351) { drop += k; return@synchronized false }
+                        } else if (tickets.size >= MAX_TICKETS_8347 || laneCount8360(t.lane) >= MAX_TICKETS_PER_LANE_8351) {
+                            // Capacity may change across builds. Release an enrolled decision explicitly before pruning it.
+                            t.cortex8372 = t.cortex8372.unavailable8372("RESTORE_CAPACITY_8372", nowMs)
+                            t.legs.forEach { it.dead = true }
+                        }
+                    }
+                    t.force8355 = t.cortex8372.pending8372()
+                    t.lastWriteMs8355 = nowMs
+                    tickets[key] = t
+                    laneCounts8360.computeIfAbsent(t.lane) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
+                    lastOpenAt[key] = r.atMs
+                    true
+                }
+                if (added) n++
             }
-            if (drop.isNotEmpty()) { val e = p.edit(); for (k in drop) e.remove(k); e.apply() }
+            if (drop.isNotEmpty()) synchronized(ticketReservation8372) {
+                val e = p.edit()
+                for (k in drop) if (!k.startsWith(TICKET_KEY_PREFIX_8355) ||
+                    !tickets.containsKey(k.substring(TICKET_KEY_PREFIX_8355.length))) e.remove(k)
+                e.apply()
+            }
             restored8355.addAndGet(n)
-        } catch (_: Throwable) {}
+            true
+        } catch (_: Throwable) { false }
         recountLanes8360()   // V5.0.8360
+        return restored
     }
 
     /** V5.0.8355 — restored tickets / expired-on-restore / restored waits (tests and the status line). */
     fun restoreCounts8355(): Triple<Long, Long, Long> = Triple(restored8355.get(), expiredOnRestore8355.get(), waitsRestored8355.get())
 
-    fun init8347(ctx: Context, nowMs: Long = System.currentTimeMillis()) {
-        restoreOpen8355(ctx, nowMs)   // V5.0.8355
-        try {
+    fun initReady8372(): Boolean = openRestored8372 && booksRestored8372
+
+    fun init8347(ctx: Context, nowMs: Long = System.currentTimeMillis()): Boolean = synchronized(initLock8372) {
+        if (!openRestored8372) openRestored8372 = restoreOpen8355(ctx, nowMs)
+        if (!booksRestored8372) booksRestored8372 = try {
             val p = ctx.getSharedPreferences(PREFS_8347, Context.MODE_PRIVATE)
             prefs = p
             for ((k, v) in p.all) {
@@ -229,9 +288,11 @@ object ExploreShadow8347 {
                     val at = parts.getOrNull(0)?.toLongOrNull(); val net = parts.getOrNull(1)?.toDoubleOrNull()
                     if (at != null && net != null && net.isFinite()) q.addLast(doubleArrayOf(at.toDouble(), net))
                 }
-                if (q.isNotEmpty()) books[k] = q
+                if (q.isNotEmpty()) books.putIfAbsent(k, q)
             }
-        } catch (_: Throwable) {}
+            true
+        } catch (_: Throwable) { false }
+        initReady8372()
     }
 
     // ── pure ──
@@ -389,7 +450,7 @@ object ExploreShadow8347 {
 
     private fun laneCount8360(lane: String): Int = laneCounts8360[lane]?.get() ?: 0
 
-    private fun recountLanes8360() {
+    private fun recountLanes8360() = synchronized(ticketReservation8372) {
         val m = HashMap<String, Int>()
         for (t in tickets.values) m[t.lane] = (m[t.lane] ?: 0) + 1
         for (l in laneCounts8360.keys) if (!m.containsKey(l)) laneCounts8360[l]?.set(0)
@@ -397,22 +458,34 @@ object ExploreShadow8347 {
     }
 
     /** When full: evict the oldest ticket (in [lane], or anywhere when null) with no active leg; false = none evictable. */
-    private fun evict8360(lane: String?, nowMs: Long): Boolean {
+    private fun evict8360(lane: String?, nowMs: Long): Boolean = synchronized(ticketReservation8372) {
         val scope = lane ?: "*"
         val until = noEvictUntil8360[scope]
-        if (until != null && nowMs < until) return false
+        if (until != null && nowMs < until) return@synchronized false
         val cands = ArrayList<Triple<String, Long, Boolean>>()
         for ((k, t) in tickets) {
             if (lane != null && t.lane != lane) continue
-            cands += Triple(k, t.atMs, t.legs.any { it.active && !it.dead })
+            // An undelivered Cortex receipt is learning still owed, never an evictable inactive ticket.
+            cands += Triple(k, t.atMs, !t.ready8372 || t.ticking8372 || t.cortex8372.awaiting8372() || t.legs.any { it.active && !it.dead })
         }
         val k = evictKey8360(cands)
-        if (k == null) { noEvictUntil8360[scope] = nowMs + NO_EVICT_RETRY_MS_8360; return false }
-        val t = tickets.remove(k) ?: return false
-        forgetTicket8355(k)
+        if (k == null) { noEvictUntil8360[scope] = nowMs + NO_EVICT_RETRY_MS_8360; return@synchronized false }
+        var removed: Ticket8347? = null
+        // Reserve/remove and preference cleanup share this key's CHM lock. A
+        // concurrent re-open cannot persist a new ticket just before we erase it.
+        tickets.computeIfPresent(k) { _, current ->
+            if (!current.ready8372 || current.ticking8372 || current.cortex8372.awaiting8372() || current.legs.any { it.active && !it.dead }) current
+            else {
+                forgetTicket8355(k)
+                scalpInMap8366.remove(k)
+                removed = current
+                null
+            }
+        }
+        val t = removed ?: return@synchronized false
         laneCounts8360[t.lane]?.decrementAndGet()
         evicted8360.incrementAndGet()
-        return true
+        true
     }
 
     private fun wanted8360(mint: String, untilMs: Long) {
@@ -450,6 +523,10 @@ object ExploreShadow8347 {
     fun onOpinions8347(ts: TokenState, opinions: Map<String, com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion>, nowMs: Long = System.currentTimeMillis()) {
         try {
             if (opinions.isEmpty()) return
+            if (com.lifecyclebot.engine.NativeDecisionEnrollment8372.isCryptoDesk(ts.lastPriceSource) ||
+                !com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint)) {
+                skip8360("NATIVE_CROSS_ASSET_SHADOW_UNSUPPORTED_8372", opinions.size.toLong()); return
+            }
             val mark = ShadowMark8360.observed8360(ts, ts.mint, nowMs)   // V5.0.8360 — tick, labeler, curve or tape, observed < 60 s
             if (mark == null) { skip8360(SKIP_NO_MARK_8360, opinions.size.toLong()); return }
             val blocked = try { ts.safety.isBlocked } catch (_: Throwable) { false }
@@ -474,18 +551,22 @@ object ExploreShadow8347 {
     fun onCortexAssessment8368(
         ts: TokenState, laneRaw: String, bucket: String, pWin: Double,
         nowMs: Long = System.currentTimeMillis(),
-    ) {
+    ): Long? {
         val kind = cortexKind8368(bucket)
         cortexSeen8368.incrementAndGet()
         cortexSeenByKind8368.computeIfAbsent(kind) { AtomicLong(0) }.incrementAndGet()
         try {
-            if (ts.mint.isBlank() || laneRaw.isBlank()) { skip8360("CORTEX_BAD_IDENTITY_8368"); return }
+            if (ts.mint.isBlank() || laneRaw.isBlank() || nowMs <= 0L) { skip8360("CORTEX_BAD_IDENTITY_8368"); return null }
             // Cross-asset traders use different venues and costs: do not invent SOL transactions for them.
             // Their Cortex forward-label training remains active; this is the Solana execution shadow.
-            if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint)) {
-                skip8360("CORTEX_NON_SOLANA_SHADOW_UNROUTABLE_8368"); return
+            if (com.lifecyclebot.engine.cortex.CrossAssetCortex7931.isCrossAssetLane(laneRaw) ||
+                ShadowPersist8355.crossAssetShadowLane8372(laneRaw)) {
+                skip8360("CORTEX_UNSUPPORTED_VENUE_SHADOW_8372"); return null
             }
-            if (ts.safety.isBlocked) { skip8360("CORTEX_HARD_SAFETY_8368"); return }
+            if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint)) {
+                skip8360("CORTEX_NON_SOLANA_SHADOW_UNROUTABLE_8368"); return null
+            }
+            if (ts.safety.isBlocked) { skip8360("CORTEX_HARD_SAFETY_8368"); return null }
             val lane = canon(laneRaw)
             // Native strategy refusals belong in the Cortex NO counterfactual, except physical
             // impossibility: never teach a simulated profit on a known unsellable/unsafe mint.
@@ -493,10 +574,10 @@ object ExploreShadow8347 {
             val native = com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)
                 ?.opinions?.get(lane)
             if (native != null && !native.eligible && cortexNativeHardStop8368(native.reason)) {
-                skip8360("CORTEX_NATIVE_HARD_UNROUTABLE_8368"); return
+                skip8360("CORTEX_NATIVE_HARD_UNROUTABLE_8368"); return null
             }
             val mark = ShadowMark8360.observed8360(ts, ts.mint, nowMs)
-            if (mark == null) { skip8360("CORTEX_NO_OBSERVED_MARK_8368"); want8360(ts.mint, nowMs); return }
+            if (mark == null) { skip8360("CORTEX_NO_OBSERVED_MARK_8368"); want8360(ts.mint, nowMs); return null }
             val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) }
                 catch (_: Exception) { null }
             val primary = setup?.takeIf { it.isNotBlank() } ?: "NO_TRIGGER"
@@ -509,21 +590,20 @@ object ExploreShadow8347 {
                 entryStyle = "NOW", exitStyle = if (com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane)) "RUNNER" else "SCALP",
                 authoritative = false, tools = setOf("CORTEX_SHADOW_8368"),
             )
-            open8347(ts, lane, o, mark.first, nowMs, kind, primary, mark.second)
+            return open8347(ts, lane, o, mark.first, nowMs, kind, primary, mark.second)
         } catch (_: Exception) { skip8360("CORTEX_SHADOW_ERROR_8368") }
+        return null
     }
 
     private fun open8347(
         ts: TokenState, lane: String, o: com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion, px: Double, nowMs: Long,
         kind: String, setup: String, markSrc: String,
-    ) {
+    ): Long? {
         val key = ticketKey8360(ts.mint, lane, setup)
         val ticketKey8368 = cortexTicketKey8368(key, kind)
-        if (tickets.containsKey(ticketKey8368)) { skip8360(SKIP_ALREADY_OPEN_8360); return }
+        if (tickets.containsKey(ticketKey8368)) { skip8360(SKIP_ALREADY_OPEN_8360); return null }
         val lastAt = lastOpenAt[ticketKey8368]
-        if (lastAt != null && nowMs - lastAt in 0L until REOPEN_GAP_MS_8347) { skip8360(SKIP_REOPEN_GAP_8360); return }
-        if (tickets.size >= MAX_TICKETS_8347 && !evict8360(null, nowMs)) { full.incrementAndGet(); skip8360(SKIP_FULL_8360); return }
-        if (laneCount8360(lane) >= MAX_TICKETS_PER_LANE_8351 && !evict8360(lane, nowMs)) { full.incrementAndGet(); skip8360(SKIP_LANE_FULL_8360); return }
+        if (lastAt != null && nowMs - lastAt in 0L until REOPEN_GAP_MS_8347) { skip8360(SKIP_REOPEN_GAP_8360); return null }
         val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
         // V5.0.8366 — the lane's measured round trip (CostLedger7962, n >= 8) once measured, the NetEdge8030 model before (ShadowAlign8366)
         val cost = try { ShadowAlign8366.laneCostPct8366(lane, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
@@ -537,20 +617,46 @@ object ExploreShadow8347 {
         val t = Ticket8347(ts.mint, ts.symbol, lane, setup, tactic, band, px, nowMs,
             if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm, runner, o.eligible, legs, mcapBand8351,
             kind8360 = kind, markSrc8360 = markSrc)
+        if (isCortexKind8368(kind)) {
+            val selectedExit = (try { liveExitStyle8351(lane, EvidenceHold8336.startMs8336) } catch (_: Throwable) { null })
+                ?: if (runner) Exit8347.RUNNER else Exit8347.SCALP
+            t.cortex8372 = ShadowPersist8355.CortexShadowOutcome8372(exit = selectedExit.name)
+        }
         // V5.0.8364 — the fill is booked at the signal mark plus the lane's decision-to-fill chase (ShadowFill8364), as live pays it
         val fillPx8364 = ShadowFill8364.laneEntryPx8364(px, lane)
         t.legs.filter { it.entry == Entry8347.NOW }.forEach { it.active = true; it.entryPx = fillPx8364; it.entryAtMs = nowMs }
-        t.legs.filter { it.entry == Entry8347.NOW && it.active }.forEach { landed8366(t, it, nowMs) }   // V5.0.8366 — the buy lands at the route's measured rate
-        tickets[ticketKey8368] = t
-        laneCounts8360.computeIfAbsent(lane) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
-        persistTicket8355(ticketKey8368, t, nowMs)   // V5.0.8355 — written on open
-        lastOpenAt[ticketKey8368] = nowMs
-        if (lastOpenAt.size > 30_000) lastOpenAt.entries.removeIf { nowMs - it.value > REOPEN_GAP_MS_8347 }
-        opened.incrementAndGet()
-        openedByKind8360.computeIfAbsent(kind) { AtomicLong(0) }.incrementAndGet()
-        openedBySrc8360.computeIfAbsent(markSrc.ifBlank { "?" }) { AtomicLong(0) }.incrementAndGet()
-        want8360(ts.mint, nowMs)   // V5.0.8360 — the data side keeps pricing what the shadow holds
-        try { PipelineHealthCollector.labelInc("EXPLORE_SHADOW_OPEN_8347_${lane}_$kind") } catch (_: Throwable) {}
+        // Same-key deduplication and distinct-key capacity reservation are atomic.
+        // No pricing, learning or book serialization runs under this lock.
+        synchronized(ticketReservation8372) {
+            if (tickets.containsKey(ticketKey8368)) { skip8360(SKIP_ALREADY_OPEN_8360); return null }
+            val recent = lastOpenAt[ticketKey8368]
+            if (recent != null && nowMs - recent in 0L until REOPEN_GAP_MS_8347) { skip8360(SKIP_REOPEN_GAP_8360); return null }
+            if (tickets.size >= MAX_TICKETS_8347 && !evict8360(null, nowMs)) { full.incrementAndGet(); skip8360(SKIP_FULL_8360); return null }
+            if (laneCount8360(lane) >= MAX_TICKETS_PER_LANE_8351 && !evict8360(lane, nowMs)) { full.incrementAndGet(); skip8360(SKIP_LANE_FULL_8360); return null }
+            if (tickets.putIfAbsent(ticketKey8368, t) != null) { skip8360(SKIP_ALREADY_OPEN_8360); return null }
+            laneCounts8360.computeIfAbsent(lane) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
+            lastOpenAt[ticketKey8368] = nowMs
+        }
+        try {
+            t.legs.filter { it.entry == Entry8347.NOW && it.active }.forEach { landed8366(t, it, nowMs) }   // V5.0.8366 — the buy lands at the route's measured rate
+            persistTicket8355(ticketKey8368, t, nowMs)   // V5.0.8355 — written on open
+            lastOpenAt[ticketKey8368] = nowMs
+            if (lastOpenAt.size > 30_000) lastOpenAt.entries.removeIf { nowMs - it.value > REOPEN_GAP_MS_8347 }
+            opened.incrementAndGet()
+            openedByKind8360.computeIfAbsent(kind) { AtomicLong(0) }.incrementAndGet()
+            openedBySrc8360.computeIfAbsent(markSrc.ifBlank { "?" }) { AtomicLong(0) }.incrementAndGet()
+            want8360(ts.mint, nowMs)   // V5.0.8360 — the data side keeps pricing what the shadow holds
+            try { PipelineHealthCollector.labelInc("EXPLORE_SHADOW_OPEN_8347_${lane}_$kind") } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+            // The reservation already succeeded, so report its timestamp and subsequently release its prediction.
+            // Returning null here would leave a real shadow ticket whose original assessment had been discarded.
+            t.cortex8372 = t.cortex8372.unavailable8372("SHADOW_OPEN_ERROR_8372", nowMs)
+            t.legs.forEach { it.dead = true }
+            t.force8355 = true
+            persistTicket8355(ticketKey8368, t, nowMs)
+            skip8360("SHADOW_OPEN_ERROR_8372")
+        } finally { t.ready8372 = true }
+        return t.atMs
     }
 
     /** V5.0.8360 — opened by kind / skipped by reason / opened by mark source (tests and the status line). */
@@ -561,39 +667,106 @@ object ExploreShadow8347 {
     // ── tick (BotService shadow loop) ──
 
     fun tick8347(tokens: Map<String, TokenState>, nowMs: Long = System.currentTimeMillis()) {
+        if (!tickActive8372.compareAndSet(false, true)) return
+        try { tickSingle8372(tokens, nowMs) } finally {
+            // One checkpoint for all ready terminal receipts, not one full Cortex snapshot per ticket.
+            // A false/failed flush keeps every unacknowledged ticket; the next tick sees durable receipts and ACKs.
+            try { com.lifecyclebot.engine.cortex.Cortex7885.flushShadowOutcomes8372() } catch (_: Throwable) {
+                skip8360("SHADOW_CHECKPOINT_RETRY_8372")
+            }
+            tickActive8372.set(false)
+        }
+    }
+
+    private fun tickSingle8372(tokens: Map<String, TokenState>, nowMs: Long) {
         flushWaits8355(nowMs)   // V5.0.8355 — the waits map, when it changed (independent of the tickets)
         if (tickets.isEmpty()) { lastTicked8360 = 0; return }
-        val done = ArrayList<String>()
+        val done = ArrayList<Pair<String, Ticket8347>>()
         // V5.0.8360 — at most TICK_PER_LOOP_8360 tickets per loop, round-robin; one observed-mark read per mint per loop
         val keys = ArrayList<String>(tickets.keys)
         val slice = rrSlice8360(keys.size, rrCursor8360)
         rrCursor8360 = slice.second
         lastTicked8360 = slice.first.size
-        val marks = HashMap<String, Double?>()
+        val marks = HashMap<String, ShadowMark8360.Observation8372?>()
         for (i in slice.first) {
             val key = keys[i]
-            val t = tickets[key] ?: continue
+            val t = synchronized(ticketReservation8372) {
+                tickets[key]?.takeIf { it.ready8372 }?.also { it.ticking8372 = true }
+            } ?: continue
             try {
-                if (!marks.containsKey(t.mint)) marks[t.mint] = ShadowMark8360.observed8360(tokens[t.mint], t.mint, nowMs)?.first
-                val fresh: Double? = marks[t.mint]
-                if (fresh != null) { t.lastPx = fresh; t.lastPxAtMs = nowMs }
-                want8360(t.mint, nowMs)   // V5.0.8360 — keep the data side pricing an open ticket
-                val lost = nowMs - t.lastPxAtMs >= LOST_MARK_MS_8347
-                for (leg in t.legs) {
-                    if (leg.dead) continue
-                    if (!leg.active) { arm8347(t, leg, fresh, nowMs); continue }
-                    step8347(t, leg, fresh, lost, nowMs, if (leg.exit == Exit8347.SCALP) scalpIn8366(key, t, tokens[t.mint]) else null)
+                try {
+                    if (!marks.containsKey(t.mint)) marks[t.mint] = ShadowMark8360.observedTimed8372(tokens[t.mint], t.mint, nowMs)
+                    // A cache/source handoff must not move this episode's price path backwards in time.
+                    val observation = marks[t.mint]?.takeIf { it.observedAtMs >= t.lastPxAtMs }
+                    val fresh: Double? = observation?.priceUsd
+                    if (observation != null) { t.lastPx = observation.priceUsd; t.lastPxAtMs = observation.observedAtMs }
+                    want8360(t.mint, nowMs)   // V5.0.8360 — keep the data side pricing an open ticket
+                    val lost = nowMs - t.lastPxAtMs >= LOST_MARK_MS_8347
+                    for (leg in t.legs) {
+                        if (leg.dead) continue
+                        if (!leg.active) { arm8347(t, leg, fresh, nowMs); continue }
+                        step8347(t, leg, fresh, lost, nowMs, if (leg.exit == Exit8347.SCALP) scalpIn8366(key, t, tokens[t.mint]) else null,
+                            observation?.observedAtMs ?: 0L)
+                    }
+                } catch (_: Throwable) {
+                    // A simulator error is missing evidence, not a token loss and not a silently discarded prediction.
+                    t.cortex8372 = t.cortex8372.unavailable8372("SHADOW_TICK_ERROR_8372", nowMs)
+                    t.legs.forEach { it.dead = true }
+                    t.force8355 = true
+                    skip8360("SHADOW_TICK_ERROR_8372")
                 }
-                if (t.legs.all { it.dead }) {
-                    done += key
+                if (t.legs.all { it.dead } && t.cortex8372.awaiting8372() && !t.cortex8372.pending8372()) {
+                    t.cortex8372 = t.cortex8372.unavailable8372("NO_SELECTED_EXIT_OUTCOME_8372", nowMs)
+                    t.force8355 = true
+                }
+                // Persist a completed learning receipt before delivery. A restart may replay it; the learner owns the
+                // exact decision-id receipt and acknowledges only after handling it. No Cortex call holds a ticket lock.
+                if (t.cortex8372.pending8372()) {
+                    if (!t.receiptDurable8372 && !persistTicket8355(key, t, nowMs, durable8372 = true)) {
+                        cortexRetry8372.incrementAndGet()
+                        continue
+                    }
+                    deliverCortex8372(t)
+                }
+                if (t.legs.all { it.dead } && !t.cortex8372.awaiting8372()) {
+                    done += key to t
                 } else if (ShadowPersist8355.writeDue8355(t.dirty8355, t.lastWriteMs8355, nowMs, t.force8355)) {
                     persistTicket8355(key, t, nowMs)   // V5.0.8355 — a leg armed / closed writes now; a tier / peak move waits for the 10 s coalesce; nothing else writes
                 }
-            } catch (_: Throwable) { done += key }
+            } finally { t.ticking8372 = false }
         }
-        done.forEach { tickets.remove(it); forgetTicket8355(it) }   // V5.0.8355 — every leg dead: the ticket leaves the open prefs
-        done.forEach { scalpInMap8366.remove(it) }   // V5.0.8366 — its scalp inputs go with it
-        recountLanes8360()   // V5.0.8360 — the per-lane counts the open path reads, exact once per loop
+        synchronized(ticketReservation8372) {
+            for ((key, completed) in done) tickets.computeIfPresent(key) { _, current ->
+                // Entry-side eviction/re-open can replace a completed ticket between
+                // stepping and cleanup. Delete only this exact episode, with its
+                // preferences removed before a new reservation may take this key.
+                if (current !== completed || !current.legs.all { it.dead } || current.cortex8372.awaiting8372()) current
+                else {
+                    forgetTicket8355(key)
+                    scalpInMap8366.remove(key)
+                    null
+                }
+            }
+            recountLanes8360()   // exact snapshot while distinct-key reservations cannot change the counts
+        }
+    }
+
+    /** Only this tick-side delivery crosses into the learner; an assessment/open never performs training or price I/O. */
+    private fun deliverCortex8372(t: Ticket8347) {
+        val outcome = t.cortex8372
+        if (!outcome.pending8372()) return
+        val learned = outcome.unavailable.isBlank() && outcome.netPct.isFinite() && outcome.grossPct.isFinite()
+        val acknowledged = try {
+            if (learned) com.lifecyclebot.engine.cortex.Cortex7885.onShadowOutcome8372(
+                t.mint, t.lane, t.atMs, outcome.netPct, outcome.grossPct, t.setup, outcome.atMs, executable = true,
+            ) else com.lifecyclebot.engine.cortex.Cortex7885.onShadowUnavailable8372(
+                t.mint, t.lane, t.atMs, outcome.unavailable.ifBlank { "INVALID_TERMINAL_MARK_8372" },
+            )
+        } catch (_: Throwable) { false }
+        if (!acknowledged) { cortexRetry8372.incrementAndGet(); return }
+        t.cortex8372 = outcome.acknowledged8372()
+        t.force8355 = true
+        if (learned) cortexOutcomeAck8372.incrementAndGet() else cortexUnavailable8372.incrementAndGet()
     }
 
     private fun arm8347(t: Ticket8347, leg: Leg8347, px: Double?, nowMs: Long) {
@@ -613,17 +786,25 @@ object ExploreShadow8347 {
         }
     }
 
-    private fun step8347(t: Ticket8347, leg: Leg8347, px: Double?, lost: Boolean, nowMs: Long, scalp8366: DoubleArray? = null) {
+    private fun step8347(t: Ticket8347, leg: Leg8347, px: Double?, lost: Boolean, nowMs: Long,
+                         scalp8366: DoubleArray? = null, observedAtMs8372: Long = 0L) {
         val g = (t.lastPx / leg.entryPx - 1.0) * 100.0
-        if (!g.isFinite()) { leg.dead = true; t.force8355 = true; return }
+        if (!g.isFinite()) {
+            leg.dead = true; t.force8355 = true
+            t.cortex8372 = t.cortex8372.closed8372(leg.entry.name, leg.exit.name, Double.NaN, Double.NaN,
+                "INVALID_EXIT_MARK_8372", nowMs, executable = false)
+            return
+        }
         if (g > leg.peak) leg.peakAt8366 = nowMs   // V5.0.8366 — when the peak was set (the hold's dead-money clock)
         if (g > leg.peak) { leg.peak = g; t.dirty8355 = true }       // V5.0.8355 — peak / trough / tier moves are persisted changes
         if (g < leg.trough) { leg.trough = g; t.dirty8355 = true }
-        // V5.0.8366 — a triggered full exit fills at the first observed mark once the live sell latency (PaperExitLatency8223)
-        // has passed since its trigger, not at the trigger tick; a mark lost meanwhile closes at the last mark.
+        // V5.0.8372 — a triggered full exit needs a NEW observation after the live sell latency. Rereading the same
+        // still-fresh cached mark does not make a fill. A lost mark ends the experiment as unavailable to Cortex.
         val pending8366 = leg.exitWhy8366
         if (pending8366 != null) {
-            if (lost || (px != null && ShadowAlign8366.latencyElapsed8366(leg.exitAt8366, ShadowAlign8366.sellLatencyMs8366(false), nowMs))) closeAt8366(t, leg, g, pending8366, nowMs)
+            if (lost || (px != null && ShadowPersist8355.exitFillObserved8372(observedAtMs8372, leg.exitAt8366,
+                    ShadowAlign8366.sellLatencyMs8366(false), nowMs)))
+                closeAt8366(t, leg, g, if (lost) "LOST_MARK" else pending8366, nowMs, executable = !lost && px != null)
             return
         }
         val why: String? = when (leg.exit) {
@@ -632,13 +813,16 @@ object ExploreShadow8347 {
         }
         if (why == null) return
         // nothing left to sell, or no observed mark to wait for: booked now at the last mark
-        if (why == "SOLD_OUT" || why == "LOST_MARK" || px == null) { closeAt8366(t, leg, g, why, nowMs); return }
-        leg.exitWhy8366 = why; leg.exitAt8366 = nowMs
+        if (why == "SOLD_OUT" || why == "LOST_MARK" || px == null) {
+            closeAt8366(t, leg, g, why, nowMs, executable = why == "SOLD_OUT" || (!lost && px != null))
+            return
+        }
+        leg.exitWhy8366 = why; leg.exitAt8366 = nowMs; t.force8355 = true
     }
 
     /** V5.0.8366 — the leg's close at gross [g] (banked slices + the remainder, less the round trip). */
-    private fun closeAt8366(t: Ticket8347, leg: Leg8347, g: Double, why: String, nowMs: Long) =
-        close8347(t, leg, EvidenceShadow8344.netPct8344(leg.banked, leg.held, ShadowFill8364.exitGrossPct8364(g), t.costPct), why, nowMs)   // V5.0.8364 — exit slippage not in costPct8030 (none today)
+    private fun closeAt8366(t: Ticket8347, leg: Leg8347, g: Double, why: String, nowMs: Long, executable: Boolean = true) =
+        close8347(t, leg, EvidenceShadow8344.netPct8344(leg.banked, leg.held, ShadowFill8364.exitGrossPct8364(g), t.costPct), why, nowMs, executable)   // V5.0.8364 — exit slippage not in costPct8030 (none today)
 
     /**
      * V5.0.8366 — the RUNNER leg on live's levers: SpikeCapture7943 tiers, the lane stop, the 8338 give-back floor, the level
@@ -719,11 +903,12 @@ object ExploreShadow8347 {
     /** V5.0.8366 — does this leg's buy land (the route's measured rate, deterministic per ticket x entry)? Unlanded: closed on the failed-tx fee. */
     private fun landed8366(t: Ticket8347, leg: Leg8347, nowMs: Long): Boolean {
         val fee = (try { ShadowAlign8366.unlandedEntryFeePct8366("${t.mint}|${t.lane}|${t.setup}|${t.atMs}|${leg.entry}", t.mint, nowMs) } catch (_: Throwable) { null }) ?: return true
-        close8347(t, leg, -fee, ShadowAlign8366.UNLANDED_WHY_8366, nowMs)
+        close8347(t, leg, -fee, ShadowAlign8366.UNLANDED_WHY_8366, nowMs, executable = false)
         return false
     }
 
-    private fun close8347(t: Ticket8347, leg: Leg8347, net: Double, why: String, nowMs: Long) {
+    private fun close8347(t: Ticket8347, leg: Leg8347, net: Double, why: String, nowMs: Long, executable: Boolean = true) {
+        if (leg.dead) return
         leg.dead = true
         t.force8355 = true   // V5.0.8355 — a leg close is written now (the ticket itself leaves the prefs once every leg is dead)
         val v = "${t.lane}|${leg.entry}|${leg.exit}"
@@ -736,13 +921,15 @@ object ExploreShadow8347 {
             KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368 -> {
                 // Shadow-only realised result for the Cortex's own verdict in its own lane.
                 // Do NOT mingle with native winner evidence, live fills or the canonical Cortex close bus.
-                val verdict = t.kind8360.removePrefix("CORTEX_")
-                bookKey8351("C|$v|CX:$verdict", net, nowMs)
                 // Outcomes also teach the exact setup and tactic within this lane/verdict.
                 // Kept in Cortex-only books so a rejected trade never earns native LIVE authority.
-                bookKey8351("C|$v|CXS:$verdict:${t.setup.take(48)}", net, nowMs)
-                bookKey8351("C|$v|CXT:$verdict:${t.tactic}", net, nowMs)
+                for (k in ShadowPersist8355.cortexPopulationKeys8372(t.lane, leg.entry.name, leg.exit.name,
+                    t.kind8360, t.setup, t.tactic)) bookKey8351(k, net, nowMs)
                 cortexClosesByKind8368.computeIfAbsent(t.kind8360) { AtomicLong(0) }.incrementAndGet()
+                // The prediction learns the actual modelled position return (banked partials plus its final exit),
+                // never raw token mark return, the best of two exits, or two samples for one assessment.
+                t.cortex8372 = t.cortex8372.closed8372(leg.entry.name, leg.exit.name, net, net + t.costPct,
+                    why, nowMs, executable)
             }
             KIND_SETUP_8360 -> bookKey8351("C|$v|${if (t.nativeEligible) "S" else "SR"}:${t.setup}", net, nowMs)
             KIND_REJECT_8360 -> bookKey8351("C|$v|R:REJECT", net, nowMs)
@@ -905,6 +1092,9 @@ object ExploreShadow8347 {
     private fun unfilledKeys8364(t: Ticket8347, leg: Leg8347): List<String> {
         val v = "${t.lane}|${leg.entry}|${leg.exit}"
         return when (t.kind8360) {
+            KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368 ->
+                ShadowPersist8355.cortexPopulationKeys8372(t.lane, leg.entry.name, leg.exit.name,
+                    t.kind8360, t.setup, t.tactic)
             KIND_SETUP_8360 -> listOf("C|$v|${if (t.nativeEligible) "S" else "SR"}:${t.setup}")
             KIND_REJECT_8360 -> emptyList()
             else -> listOf(v, "C|$v|S:${t.setup}", "C|$v|M:${t.band}")
@@ -1088,6 +1278,8 @@ object ExploreShadow8347 {
             "cortex8368[seen=${cortexSeen8368.get()} yes=${cortexSeenByKind8368[KIND_CORTEX_YES_8368]?.get() ?: 0} no=${cortexSeenByKind8368[KIND_CORTEX_NO_8368]?.get() ?: 0} hold=${cortexSeenByKind8368[KIND_CORTEX_HOLD_8368]?.get() ?: 0} " +
             "opened=${listOf(KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368).sumOf { byKind[it] ?: 0 }} " +
             "legsClosed=${listOf(KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368).sumOf { cortexClosesByKind8368[it]?.get() ?: 0 }}] " +
+            "learning8372[outcomesAck=${cortexOutcomeAck8372.get()} unavailableAck=${cortexUnavailable8372.get()} " +
+            "retry=${cortexRetry8372.get()} pending=${tickets.values.count { it.cortex8372.pending8372() }}] " +
             "skipped{${countLine8360(skipped)}} evicted=${evicted8360.get()} ticked/loop=$lastTicked8360/$TICK_PER_LOOP_8360 " +
             "markSrc{${countLine8360(bySrc)}} wanted8360=${wantedCalls8360.get()} legsClosed=${closed.get()} legsUnfilled8364=${unfilledN8364.get()} full=${full.get()} " +
             "restored8355=${restored8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} waitsRestored8355=${waitsRestored8355.get()} " +

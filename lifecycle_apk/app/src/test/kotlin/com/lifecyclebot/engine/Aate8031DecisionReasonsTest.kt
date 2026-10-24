@@ -18,7 +18,7 @@ class Aate8031DecisionReasonsTest {
             DecisionReasons8031.key8031(true, "HOLD", "NET_PROFIT_8030", "TICK_PROFIT_LOCK_peak6_now3", "shitcoin"))
         assertTrue(DecisionReasons8031.gradeFor8031("nothing") == null)
         assertTrue(DecisionReasons8031.statusLine().contains("native["))
-        assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("DecisionReasons8031.nativeVerdicts8031(ts, out.values)"))
+        assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.opinions.values)"))
         val e = src("engine/Executor.kt")
         for (g in listOf("RUNNER_HOLD_7967", "BASIS_BREAK_8019", "NET_PROFIT_8030", "NET_PROFIT_PARTIAL_8030"))
             assertTrue(g, e.contains("DecisionReasons8031.hold8031(ts, \"$g\", reason)"))

@@ -373,12 +373,18 @@ object SpecialistBrainBridge7542 {
                 try { PipelineHealthCollector.labelInc("CORE_YIELD_RESCUED_8077") } catch (_: Throwable) {}
             }
         }
-        // V5.0.8031 — every lane's verdict is named, and a refusal is labelled for the veto audit (DecisionReasons8031).
-        try { DecisionReasons8031.nativeVerdicts8031(ts, out.values) } catch (_: Throwable) {}
+        // V5.0.8372 — publish the FULL immutable native snapshot before any observer can ask cachedSnapshot7650.
+        // Previously enrollment/Explore could capture the preceding decision (or no native context), because this
+        // assignment happened only in the return expression after both callbacks. No new assessment/compute lock.
+        val snapshot8372 = Snapshot(ts.mint, f, now, SpecialistOwnership7951.onCommonScale7951(ts.mint, out.toMap()))
+        cache[ts.mint] = Cached(snapshot8372)
+        pruneOnInsert8169(now)
+        // Every gradeable native YES and NO is offered from this same published decision.
+        try { DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.opinions.values) } catch (_: Throwable) {}
         // V5.0.8347 — every specialist explores in shadow on its own opinion, whatever the downstream gates decide.
-        try { com.lifecyclebot.engine.truth.ExploreShadow8347.onOpinions8347(ts, out.toMap(), now) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.ExploreShadow8347.onOpinions8347(ts, snapshot8372.opinions, now) } catch (_: Throwable) {}
         // V5.0.7951 — every eligible lane's ownership conviction on ONE common scale (+ chart BUY evidence).
-        return Snapshot(ts.mint,f,now,SpecialistOwnership7951.onCommonScale7951(ts.mint,out.toMap())).also{cache[ts.mint]=Cached(it);pruneOnInsert8169(now);registerElection8136(it);primeDecisionData8196(ts,it)}
+        return snapshot8372.also { registerElection8136(it);primeDecisionData8196(ts,it) }
     }
 
     /**

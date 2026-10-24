@@ -533,8 +533,14 @@ object CanonicalPositionAuthority6441 {
         val lane = p.lane
         val canonicalMode6490 = p.mode
         try {
-            val cortexLane8076 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.laneFor(p.assetClass) ?: lane
-            com.lifecyclebot.engine.cortex.Cortex7885.bindPosition8076(positionId, mint, cortexLane8076, canonicalMode6490, p.openedAtMs)
+            val cortexLane8076 = if (p.assetClass == AssetClass.SOLANA_TOKEN) lane
+                else CanonicalEntryAuthority6551.learningLaneForOpen8372(mint, canonicalMode6490,
+                    p.assetClass, candidateVersion7863, p.openedAtMs)
+            // A rejected/missing cross-asset seal is not permission to guess a generic lane or bind a LONG read to a
+            // SHORT. markConfirmed's exact immutable-intent callback can bind later; Solana's owner path is unchanged.
+            if (cortexLane8076 != null) com.lifecyclebot.engine.cortex.Cortex7885.bindPosition8076(
+                positionId, mint, cortexLane8076, canonicalMode6490, p.openedAtMs)
+            else try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_CORTEX_BIND_UNSEALED_8372") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
         try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane, candidateVersion7863) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.SuperIntelligenceCalibration7636.bindPosition(positionId, mint, lane) } catch (_: Throwable) {}

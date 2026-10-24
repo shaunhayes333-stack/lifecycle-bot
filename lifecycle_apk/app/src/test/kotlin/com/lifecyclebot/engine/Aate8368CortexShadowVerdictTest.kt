@@ -53,11 +53,19 @@ class Aate8368CortexShadowVerdictTest {
         assertTrue("hard-safety candidates never become fake executable trades", e.contains("if (ts.safety.isBlocked)"))
         assertTrue("wrong venue cannot become a synthetic Solana PnL", e.contains("HeliusSolanaScope7819.isSolanaMint7819(ts.mint)"))
         assertTrue("Cortex tickets have separate identities", e.contains("cortexTicketKey8368(key, kind)"))
-        assertTrue("Cortex verdicts are a separate learned result population", e.contains("bookKey8351(\"C|\$v|CX:\$verdict\", net, nowMs)"))
-        assertTrue("Cortex results train setup cohorts", e.contains("CXS:\$verdict:"))
-        assertTrue("Cortex results train tactic cohorts", e.contains("CXT:\$verdict:"))
+        assertTrue("Cortex filled results and unfilled denominators use the same isolated populations",
+            e.contains("ShadowPersist8355.cortexPopulationKeys8372(t.lane, leg.entry.name, leg.exit.name,"))
+        val p = src("engine/truth/ShadowPersist8355.kt")
+        assertTrue("Cortex results train setup cohorts", p.contains("CXS:\$verdict:"))
+        assertTrue("Cortex results train tactic cohorts", p.contains("CXT:\$verdict:"))
         assertTrue("Cortex results don't enter native variant/evidence books", e.contains("KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368 -> {"))
         assertTrue("results tracked after entry and exit, not at vote-time", e.contains("cortexClosesByKind8368.computeIfAbsent(t.kind8360)"))
+        assertTrue("8372 also delivers one frozen selected exit to the original Cortex prediction",
+            e.contains("t.cortex8372.closed8372(leg.entry.name, leg.exit.name, net, net + t.costPct") &&
+                e.contains("Cortex7885.onShadowOutcome8372("))
+        assertTrue("model outcomes wait for a durable exact-decision ACK before being retired",
+            e.contains("if (!acknowledged) { cortexRetry8372.incrementAndGet(); return }") &&
+                e.contains("durable8372 = true"))
         assertTrue("live simulator cannot invent a real wallet/journal row", !e.substringAfter("fun onCortexAssessment8368(").substringBefore("private fun open8347(")
             .contains("CanonicalFinalizedTradeBus6464.publish"))
     }
@@ -92,6 +100,7 @@ class Aate8368CortexShadowVerdictTest {
         val e = src("engine/truth/ExploreShadow8347.kt")
         assertTrue(e.contains("cortexSeen8368.incrementAndGet()"))
         assertTrue(e.contains("CORTEX_NON_SOLANA_SHADOW_UNROUTABLE_8368"))
+        assertTrue(e.contains("CORTEX_UNSUPPORTED_VENUE_SHADOW_8372"))
         assertTrue(e.contains("CORTEX_HARD_SAFETY_8368"))
         assertTrue(e.contains("SKIP_FULL_8360") && e.contains("SKIP_LANE_FULL_8360"))
         assertTrue(e.contains("cortex8368[seen="))

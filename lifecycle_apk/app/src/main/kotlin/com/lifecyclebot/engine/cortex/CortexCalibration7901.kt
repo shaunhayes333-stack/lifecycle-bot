@@ -95,7 +95,59 @@ class CortexCalibration7901 {
             return IsoFit8366(bx.copyOf(m), by.copyOf(m), n, sp)
         }
 
-        private fun num8366(v: Double): String = if (v.isFinite()) (kotlin.math.round(v * 1e4) / 1e4).toString() else "x"
+        /** V5.0.8372 — a flat net-return fit is diagnostic, not a different prediction target or a veto. */
+        const val FLAT_NET_PCT_8372 = 0.5
+        const val TARGET_FORWARD_NET_8372 = "FORWARD_NET"
+        const val TARGET_SHADOW_NET_8372 = "EXECUTABLE_SHADOW"
+
+        /**
+         * V5.0.8372 — fit the arithmetic expected NET return in percentage points. The persisted pairs already contain
+         * net outcomes: neither a logarithm, a win cap nor another round-trip fee belongs here. The 8366 geometric
+         * utility fit remains available separately, but exp(E[clipped log return]) is not expected trading profit.
+         *
+         * Equal predictor scores are pooled BEFORE PAVA. A deterministic outcome order within each tie also makes
+         * the floating-point fit independent of the order in which the labels arrived. One score must have one
+         * prediction; letting equal-x rows form separate blocks made the answer depend on which label arrived first.
+         */
+        fun fitNet8372(scores: List<Double>, netOutcomesPct: List<Double>): NetFit8372 {
+            val idx = scores.indices.filter { it < netOutcomesPct.size && scores[it].isFinite() && netOutcomesPct[it].isFinite() }
+                .sortedWith(compareBy<Int> { scores[it] }.thenBy { netOutcomesPct[it] })
+            val n = idx.size
+            if (n == 0) return NetFit8372(DoubleArray(0), DoubleArray(0), 0, Double.NaN)
+            val bx = DoubleArray(n); val by = DoubleArray(n); val bw = DoubleArray(n)
+            var m = 0
+            var at = 0
+            while (at < n) {
+                val x = scores[idx[at]]
+                var y = netOutcomesPct[idx[at]]
+                var w = 1.0
+                at++
+                while (at < n && scores[idx[at]] == x) {
+                    y = weightedMean8372(y, w, netOutcomesPct[idx[at]], 1.0)
+                    w++
+                    at++
+                }
+                bx[m] = x; by[m] = y; bw[m] = w; m++
+                while (m >= 2 && by[m - 2] > by[m - 1]) {
+                    val leftW = bw[m - 2]; val rightW = bw[m - 1]
+                    by[m - 2] = weightedMean8372(by[m - 2], leftW, by[m - 1], rightW)
+                    bx[m - 2] = weightedMean8372(bx[m - 2], leftW, bx[m - 1], rightW)
+                    bw[m - 2] = leftW + rightW
+                    m--
+                }
+            }
+            val sp = CortexTailEv8324.rankIc8324(idx.map { scores[it] }, idx.map { netOutcomesPct[it] })
+            return NetFit8372(bx.copyOf(m), by.copyOf(m), n, sp)
+        }
+
+        // Weight before adding rather than summing raw returns: finite large labels stay finite without a win cap.
+        private fun weightedMean8372(a: Double, aw: Double, b: Double, bw: Double): Double {
+            val total = aw + bw
+            return a * (aw / total) + b * (bw / total)
+        }
+
+        // Keep the existing wire format, but do not round away the raw score/outcome used when rebuilding either fit.
+        private fun num8366(v: Double): String = if (v.isFinite()) v.toString() else "x"
 
         /** V5.0.8322 — decayed grades below which no slope may suspend a lane (8291 could from ~60). */
         const val SUSPEND_MIN_N_8322 = 100.0
@@ -129,10 +181,11 @@ class CortexCalibration7901 {
     // labels the ratio pinned at the 1.5 clamp on every lane and a slope >= 0.5 passed as "calibrated". Per lane the Cortex
     // now keeps its last [ISO_RING_8366] graded (score, outcome) pairs and fits an ISOTONIC map (pool-adjacent-violators)
     // from the fused score to the expected winsorised log return ln(1 + r), r clipped to [WINSOR_LO_8366, WINSOR_HI_8366]
-    // for the FIT only (the pairs, every label and every book stay raw). The bucket reads the calibrated expected value.
-    // A lane whose fit is flat or whose score does not rank the outcomes (Spearman <= 0) is UNCALIBRATED: no authority,
-    // NEUTRAL buckets. Below [ISO_MIN_N_8366] pairs the stored slope keeps its role (learning is never reset; the rank fit
-    // takes over as new grades arrive). The slope is still learned and shown.
+    // for the FIT only (the pairs, every label and every book stay raw). V5.0.8372 retains this as a log-utility diagnostic;
+    // the per-token profit forecast uses the arithmetic [NetFit8372] from the SAME learned pairs instead.
+    // 8366 used a flat/non-ranking log fit to force NEUTRAL buckets. Its historical status helpers remain for callers
+    // and diagnostics; 8372 separates a token's expected-net forecast from permission to exercise live authority.
+    // Below [ISO_MIN_N_8366] pairs the stored slope remains available. The slope is still learned and shown.
     class IsoFit8366(val xs: DoubleArray, val ys: DoubleArray, val n: Int, val spearman: Double) {
         /** No discrimination: the fitted expected log returns span less than [FLAT_EPS_8366]. */
         val flat: Boolean get() = ys.isEmpty() || !(ys[ys.size - 1] - ys[0] >= FLAT_EPS_8366)
@@ -155,7 +208,7 @@ class CortexCalibration7901 {
             return ys[lo] + (ys[j] - ys[lo]) * ((score - xs[lo]) / dx)
         }
 
-        /** The calibrated expected return (%) at [score]: exp(E[log]) - 1. */
+        /** Geometric utility (%) at [score]: exp(E[clipped log return]) - 1, NOT arithmetic expected net profit. */
         fun expectedPct8366(score: Double): Double {
             val e = expectedLog8366(score)
             return if (e.isFinite()) (kotlin.math.exp(e) - 1.0) * 100.0 else Double.NaN
@@ -165,12 +218,47 @@ class CortexCalibration7901 {
             "blocks=${xs.size}${if (calibrated) "" else if (measured) " UNCALIBRATED" else " thin"}"
     }
 
+    /**
+     * V5.0.8372 — a per-token arithmetic net-return map. [valid] is numerical validity, [measured] is sample maturity,
+     * and [flat]/[spearman] describe discrimination. These are deliberately separate: a constant positive/negative
+     * cohort still has an expected return, although it does not prove that the score ranks individual tokens.
+     */
+    class NetFit8372(val xs: DoubleArray, val ys: DoubleArray, val n: Int, val spearman: Double) {
+        val valid: Boolean = n > 0 && xs.isNotEmpty() && xs.size == ys.size && xs.all { it.isFinite() } &&
+            ys.all { it.isFinite() } && (1 until xs.size).all { xs[it] > xs[it - 1] && ys[it] >= ys[it - 1] }
+        val measured: Boolean get() = n >= ISO_MIN_N_8366
+        val flat: Boolean get() = !valid || !(ys.last() - ys.first() >= FLAT_NET_PCT_8372)
+        /** Rank evidence for the EXISTING authority check; it must not rewrite an individual token's verdict. */
+        val calibrated: Boolean get() = valid && measured && spearman.isFinite() && spearman > 0.0 && !flat
+
+        /** Expected NET return (%) at [score], interpolated between block centres and constant outside their range. */
+        fun expectedNetPct8372(score: Double): Double {
+            if (!valid || !score.isFinite()) return Double.NaN
+            if (score <= xs[0]) return ys[0]
+            val last = xs.size - 1
+            if (score >= xs[last]) return ys[last]
+            var j = 1
+            while (j <= last && xs[j] < score) j++
+            val lo = j - 1
+            // Normalise only the interpolation coordinates if their difference overflows; labels remain raw.
+            val dx = xs[j] - xs[lo]
+            val w = if (dx.isFinite()) (score - xs[lo]) / dx else {
+                val scale = maxOf(kotlin.math.abs(xs[lo]), kotlin.math.abs(xs[j]))
+                (score / scale - xs[lo] / scale) / (xs[j] / scale - xs[lo] / scale)
+            }
+            return ys[lo] * (1.0 - w) + ys[j] * w
+        }
+
+        fun compact8372(): String = "n$n netPct blocks=${xs.size}${if (!valid) " INVALID" else if (!measured) " thin" else if (flat) " flat" else ""}"
+    }
+
     private class Reg { var n = 0.0; var sd = 0.0; var sdd = 0.0; var sy = 0.0; var sdy = 0.0; var logScale8322 = 0.0 }
 
     private val lanes = HashMap<String, Reg>()
-    /** V5.0.8366 — lane -> its last graded [score, outcome %, decay stamp] rows (oldest first), and the cached fit. */
+    /** Lane -> raw [score, outcome %, decay stamp, shadow-executable flag] rows, oldest first. */
     private val iso8366 = HashMap<String, ArrayDeque<DoubleArray>>()
     private val isoFits8366 = HashMap<String, IsoFit8366>()
+    private val netFits8372 = HashMap<String, Pair<Double, NetFit8372>>()
 
     /** V5.0.8366 — [lane]'s rank calibration (null before its first scored grade). Cached until the lane learns again. */
     fun isoFit8366(lane: String): IsoFit8366? {
@@ -179,6 +267,33 @@ class CortexCalibration7901 {
         val f = fitIso8366(ring.map { it[0] }, ring.map { it[1] })
         isoFits8366[lane] = f
         return f
+    }
+
+    /**
+     * Lazily rebuild the fully executable NET forecast from preserved raw outcomes. Forward labels still owe the
+     * measured execution gap; a selected simulated exit has already paid it. Charge that gap once, at this read,
+     * without adding fictional profit to a losing shadow result or changing its win label anywhere else.
+     * The caller must not subtract [executionOffset] again from this fit's prediction.
+     */
+    fun netFit8372(lane: String, executionOffset: Double = 0.0): NetFit8372? {
+        val ring = iso8366[lane] ?: return null
+        val offset = executionOffset.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        netFits8372[lane]?.let { (cachedOffset, fit) -> if (cachedOffset == offset) return fit }
+        return fitNet8372(ring.map { it[0] }, ring.map { row ->
+            row[1] - if (row.getOrElse(3) { 0.0 } == 1.0) 0.0 else offset
+        }).also { netFits8372[lane] = offset to it }
+    }
+
+    /** V5.0.8372 — the existing authority consistency check, now against the same NET target as token predictions. */
+    fun uncalibrated8372(lane: String, executionOffset: Double = 0.0): Boolean {
+        val f = netFit8372(lane, executionOffset) ?: return false
+        return f.measured && !f.calibrated
+    }
+
+    /** V5.0.8372 — identical maturity/slope fallback to [suspends8366], without using log utility as profit evidence. */
+    fun suspends8372(lane: String, minSlope: Double, executionOffset: Double = 0.0): Boolean {
+        val f = netFit8372(lane, executionOffset)
+        return if (f != null && f.measured) !f.calibrated else suspends8322(lane, minSlope)
     }
 
     /** V5.0.8366 — the rank fit is measured and the lane's score does not rank its outcomes (flat / Spearman <= 0). */
@@ -196,20 +311,23 @@ class CortexCalibration7901 {
         return if (f != null && f.measured) !f.calibrated else suspends8322(lane, minSlope)
     }
 
-    private fun noteIso8366(lane: String, score: Double, outcomePct: Double, stamp: Double) {
+    private fun noteIso8366(lane: String, score: Double, outcomePct: Double, stamp: Double, targetBasis8372: String) {
         if (!score.isFinite() || !outcomePct.isFinite()) return
         val ring = iso8366.getOrPut(lane) { ArrayDeque() }
-        ring.addLast(doubleArrayOf(score, outcomePct, stamp))
+        ring.addLast(doubleArrayOf(score, outcomePct, stamp, if (targetBasis8372 == TARGET_SHADOW_NET_8372) 1.0 else 0.0))
         while (ring.size > ISO_RING_8366) ring.removeFirst()
         isoFits8366.remove(lane)
+        netFits8372.remove(lane)
     }
 
-    private fun reviseIso8366(lane: String, stamp: Double, newOutcomePct: Double): Boolean {
+    private fun reviseIso8366(lane: String, stamp: Double, newOutcomePct: Double, targetBasis8372: String?): Boolean {
         if (!stamp.isFinite() || !newOutcomePct.isFinite()) return false
         val ring = iso8366[lane] ?: return false
         for (row in ring) if (row[2].isFinite() && kotlin.math.abs(row[2] - stamp) < 1e-12) {
             row[1] = newOutcomePct
+            if (targetBasis8372 != null) row[3] = if (targetBasis8372 == TARGET_SHADOW_NET_8372) 1.0 else 0.0
             isoFits8366.remove(lane)
+            netFits8372.remove(lane)
             return true
         }
         return false
@@ -236,9 +354,11 @@ class CortexCalibration7901 {
      * Learn from one graded decision: [rawEdge] and [laneMean] as read at decision time. V5.0.8322 — returns the lane's decay
      * stamp at the time of learning (NaN when nothing was learned), so a later horizon can revise exactly this grade.
      */
-    fun learn(lane: String, rawEdge: Double, laneMean: Double, outcome: Double, score8366: Double = Double.NaN): Double {
+    fun learn(lane: String, rawEdge: Double, laneMean: Double, outcome: Double, score8366: Double = Double.NaN,
+              targetBasis8372: String = TARGET_FORWARD_NET_8372): Double {
+        if (targetBasis8372 != TARGET_FORWARD_NET_8372 && targetBasis8372 != TARGET_SHADOW_NET_8372) return Double.NaN
         val stamp = learnSlope7901(lane, rawEdge, laneMean, outcome)
-        noteIso8366(lane, score8366, outcome, stamp)  // V5.0.8366 — the rank calibration's pair (raw outcome)
+        noteIso8366(lane, score8366, outcome, stamp, targetBasis8372)  // raw outcome and its cost basis stay separate
         return stamp
     }
 
@@ -266,13 +386,15 @@ class CortexCalibration7901 {
      * still owns under the decay (n and the edge sums are unchanged: a decision is never counted twice). 8291's MOONSHOT
      * slope 0.00 was fitted on five-minute reads of a lane whose runners pay at 15-60 minutes and beyond.
      */
-    fun revise8322(lane: String, rawEdge: Double, laneMean: Double, oldOutcome: Double, newOutcome: Double, stamp: Double): Boolean {
-        val isoRevised8371 = reviseIso8366(lane, stamp, newOutcome)
+    fun revise8322(lane: String, rawEdge: Double, laneMean: Double, oldOutcome: Double, newOutcome: Double, stamp: Double,
+                   targetBasis8372: String? = null): Boolean {
+        if (targetBasis8372 != null && targetBasis8372 != TARGET_FORWARD_NET_8372 && targetBasis8372 != TARGET_SHADOW_NET_8372) return false
+        val isoRevised8371 = reviseIso8366(lane, stamp, newOutcome, targetBasis8372)
         val r = lanes[lane] ?: return isoRevised8371
         val d = rawEdge - laneMean
-        // A zero-deviation label has no slope coefficient to revise, but its
-        // isotonic score/outcome pair still must follow the later lane objective.
-        if (!d.isFinite() || kotlin.math.abs(d) < 1e-9 || !oldOutcome.isFinite() || !newOutcome.isFinite() || !stamp.isFinite()) return isoRevised8371
+        // V5.0.8372: zero deviation means the d*y update is zero, NOT that the centred fit is unchanged.
+        // The grade still contributes to sum(y), so its later outcome must revise sy as well as the raw pair.
+        if (!d.isFinite() || !oldOutcome.isFinite() || !newOutcome.isFinite() || !stamp.isFinite()) return isoRevised8371
         if (r.logScale8322 > stamp + 1e-9) return isoRevised8371
         val w = kotlin.math.exp(r.logScale8322 - stamp).coerceIn(0.0, 1.0)
         if (!(w > 0.0)) return isoRevised8371
@@ -312,7 +434,11 @@ class CortexCalibration7901 {
         // V5.0.8366 — and every rank-calibration ring the other book holds more pairs of.
         for ((k, ring) in other.iso8366) {
             val cur = iso8366[k]
-            if (cur == null || cur.size < ring.size) { iso8366[k] = ArrayDeque(ring.map { it.copyOf() }); isoFits8366.remove(k) }
+            if (cur == null || cur.size < ring.size) {
+                iso8366[k] = ArrayDeque(ring.map { it.copyOf() })
+                isoFits8366.remove(k)
+                netFits8372.remove(k)
+            }
         }
         return n
     }
@@ -325,8 +451,12 @@ class CortexCalibration7901 {
         // revise8322. Without it every in-flight runner revision after restart
         // has a stamp older than the restored (zero) coordinate and is discarded.
         lanes.forEach { (k, r) -> o.put(k, "${r.n},${r.sd},${r.sdd},${r.sy},${r.sdy},${r.logScale8322}") }
-        // V5.0.8366 — the rank-calibration rings: "score:outcome:stamp;..." (no commas: a pre-8366 decoder skips the row).
-        iso8366.forEach { (k, ring) -> o.put(ISO_KEY_PREFIX_8366 + k, ring.joinToString(";") { "${num8366(it[0])}:${num8366(it[1])}:${if (it[2].isFinite()) it[2].toString() else "x"}" }) }
+        // Existing forward rows keep their exact three-field format. A selected exit appends an explicit cost basis;
+        // its raw return is never translated to a different sign to accommodate the legacy forward-label offset.
+        iso8366.forEach { (k, ring) -> o.put(ISO_KEY_PREFIX_8366 + k, ring.joinToString(";") {
+            "${num8366(it[0])}:${num8366(it[1])}:${if (it[2].isFinite()) it[2].toString() else "x"}" +
+                if (it.getOrElse(3) { 0.0 } == 1.0) ":$TARGET_SHADOW_NET_8372" else ""
+        }) }
     }
 
     fun decode(o: org.json.JSONObject) {
@@ -336,13 +466,19 @@ class CortexCalibration7901 {
                 val ring = ArrayDeque<DoubleArray>()
                 for (row in o.optString(k).split(';')) {
                     val f = row.split(':')
-                    if (f.size != 3) continue
+                    if (f.size !in 3..4) continue
+                    val basis = f.getOrElse(3) { TARGET_FORWARD_NET_8372 }
+                    if (basis != TARGET_FORWARD_NET_8372 && basis != TARGET_SHADOW_NET_8372) continue
                     val x = f[0].toDoubleOrNull() ?: continue
                     val y = f[1].toDoubleOrNull() ?: continue
-                    ring.addLast(doubleArrayOf(x, y, f[2].toDoubleOrNull() ?: Double.NaN))
+                    ring.addLast(doubleArrayOf(x, y, f[2].toDoubleOrNull() ?: Double.NaN, if (basis == TARGET_SHADOW_NET_8372) 1.0 else 0.0))
                 }
                 while (ring.size > ISO_RING_8366) ring.removeFirst()
-                if (lane.isNotBlank() && ring.isNotEmpty()) { iso8366[lane] = ring; isoFits8366.remove(lane) }
+                if (lane.isNotBlank() && ring.isNotEmpty()) {
+                    iso8366[lane] = ring
+                    isoFits8366.remove(lane)
+                    netFits8372.remove(lane)
+                }
                 continue
             }
             val f = o.optString(k).split(',').mapNotNull { it.toDoubleOrNull() }

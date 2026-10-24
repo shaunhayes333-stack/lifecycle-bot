@@ -5,6 +5,8 @@ import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.LearningPersistence
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -720,6 +722,15 @@ object LanePlaybook7907 {
 
     private val books = HashMap<String, Book>()          // lane
     private val pending = ConcurrentHashMap<String, Pair<String, String>>()   // mint|labelLane -> (lane, setup)
+    // Additive 8372 sidecar. Legacy maps, aggregates and their codecs are retained unchanged;
+    // only callers supplying an exact decision timestamp use the new revision path.
+    private val episodes8372 = LaneSetupEpisodes8372()
+    private val checkpoints8372 = LanePlaybookCheckpoint8372()
+    private val checkpointRequested8372 = AtomicBoolean(false)
+    private val checkpointRunning8372 = AtomicBoolean(false)
+    private val checkpointWorker8372 = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "AatePlaybookCheckpoint8372").apply { isDaemon = true }
+    }
     /** V5.0.8309 — census: pending labels / timing stamps (~220 B), lane books (~200 B a Stat), timing books. */
     fun estBytes8309(): Long = (pending.size + pendingTiming8094.size).toLong() * 220L +
         (try { books.values.toList().sumOf { it.stats.size } + timingBooks8094.values.toList().sumOf { it.size } } catch (_: Throwable) { 0 }).toLong() * 200L
@@ -1825,6 +1836,8 @@ object LanePlaybook7907 {
         pending["${ts.mint}|${labelLane.trim().uppercase()}"] = lane to requireNotNull(primaryTag8153(c, primary8153) ?: decisionTag8091(c))
         if (pendingTiming8094.size > 8_000) pendingTiming8094.keys.take(pendingTiming8094.size / 2).forEach { pendingTiming8094.remove(it) }
         pendingTiming8094["${ts.mint}|${labelLane.trim().uppercase()}"] = timingAtDecision8174 ?: timingBandOf8094(ts)
+        episodes8372.capture(ts.mint, labelLane, nowMs, lane,
+            requireNotNull(primaryTag8153(c, primary8153) ?: decisionTag8091(c)), timingAtDecision8174 ?: timingBandOf8094(ts))
         tagged.computeIfAbsent("$lane|$setup") { AtomicLong(0) }.incrementAndGet()
         for (id in fired) firedCount.computeIfAbsent("$lane|$id") { AtomicLong(0) }.incrementAndGet()
     }
@@ -1880,12 +1893,15 @@ object LanePlaybook7907 {
     }
 
     /** Cortex7885.onLabel (graded horizon only): learn (lane, setup) from the forward label. */
-    fun onLabel(mint: String, labelLane: String, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null, expectedSetup8084: String? = null) {
+    fun onLabel(mint: String, labelLane: String, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null,
+                expectedSetup8084: String? = null, decisionAtMs8372: Long = 0L, selectedOnly8372: Boolean = false) {
         ensureLoaded()
         if (!netPct.isFinite()) return
         val fam = fam8080?.takeIf { it.size == 4 && it.all { v -> v.isFinite() } }
-        val (lane, full) = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
-        val timing8094 = pendingTiming8094.remove("$mint|${labelLane.trim().uppercase()}")
+        val exact8372 = if (decisionAtMs8372 > 0L) episodes8372.take(mint, labelLane, decisionAtMs8372) ?: return else null
+        val (lane, full) = exact8372?.let { it.lane to it.tag }
+            ?: (pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return)
+        val timing8094 = if (exact8372 != null) exact8372.timing else pendingTiming8094.remove("$mint|${labelLane.trim().uppercase()}")
         // V5.0.8085 — the label must grade the decision the entry snapshot recorded (same setup, same feature version).
         try {
             val entryTag = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.latestFor8085(mint, labelLane)?.cortexSetupTag8085.orEmpty()
@@ -1901,16 +1917,21 @@ object LanePlaybook7907 {
         // DATA_INCOMPLETE / CLASSIFIER_ERROR decisions do not grade the NO_TRIGGER (no-match) cohort they are not part of.
         val primaryGraded = !(primary == NO_TRIGGER && (outcome8084 == Outcome8084.DATA_INCOMPLETE.name || outcome8084 == Outcome8084.CLASSIFIER_ERROR.name))
         // V5.0.7924 — the tagged setup and every other setup that fired are each graded.
-        val graded = (if (primaryGraded) listOf(primary) else emptyList()) + tag.substringAfter(';', "").split(',').filter { it.isNotBlank() }
+        val graded = (if (primaryGraded) listOf(primary) else emptyList()) +
+            (if (selectedOnly8372) emptyList() else tag.substringAfter(';', "").split(',').filter { it.isNotBlank() })
         try {
             PipelineHealthCollector.labelInc("SETUP_FORWARD_GRADED_8084")
             val ok = outcome8084 ?: "LEGACY"
             // V5.0.8187 — [n, sum, wins]: clamped at ingestion, winners counted so the read can be bounded.
             outcomeForward8084.computeIfAbsent("$lane|$ok") { DoubleArray(3) }.let { a -> synchronized(a) { addOutcome8187(a, netPct) } }
         } catch (_: Throwable) {}
-        if (graded.isEmpty()) return
+        if (graded.isEmpty()) {
+            if (exact8372 != null) episodes8372.dispose(mint, labelLane, decisionAtMs8372, "NO_SELECTED_SETUP_8372")
+            return
+        }
         // V5.0.7997 — kept so later checkpoints can revise this label (ForwardReturnLabeler7731).
         synchronized(this) {
+            val exactContributions8372 = LinkedHashMap<String, LaneSetupEpisodes8372.Contribution>()
             val stamps = graded.distinct().associateWith { setup ->
                 // V5.0.8080 — each setup is graded on its own exit family (scalp vs long hold) of the same path.
                 val (y, g) = familyLabel8080(lane, setup, netPct, grossPct, fam)
@@ -1918,15 +1939,21 @@ object LanePlaybook7907 {
                 val stamp = books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.labelStat8187() }
                     .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8322 — raw
                 LaneCheatSheet8323.noteLabel8323(lane, setup, y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8323 — runner average (raw, 8322)
-                if (timing8094 != null && timing8094 != TIMING_UNKNOWN_8094) timingBooks8094.getOrPut(lane) { HashMap() }
+                val timingStamp8372 = if (timing8094 != null && timing8094 != TIMING_UNKNOWN_8094) timingBooks8094.getOrPut(lane) { HashMap() }
                     .getOrPut("$setup|$timing8094") { CortexLedger7885.labelStat8187() }
                     .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8322 — raw
+                    else Double.NaN
+                exactContributions8372[setup] = LaneSetupEpisodes8372.Contribution(stamp,
+                    y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g, timingStamp8372)
                 stamp
             }
-            if (graded7997.size >= 8_000) graded7997.entries.minByOrNull { it.value.atMs }?.key?.let { graded7997.remove(it) }
-            // Revisions only ever move long-hold setups, so the grade keeps the long-hold family's value.
-            graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps,
-                (fam?.get(2) ?: netPct), fam?.get(3) ?: grossPct, System.currentTimeMillis())  // V5.0.8322 — as booked (raw)
+            if (exact8372 != null) episodes8372.record(exact8372, exactContributions8372)
+            else {
+                if (graded7997.size >= 8_000) graded7997.entries.minByOrNull { it.value.atMs }?.key?.let { graded7997.remove(it) }
+                // Legacy callbacks retain their original stored trace and semantics.
+                graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps,
+                    (fam?.get(2) ?: netPct), fam?.get(3) ?: grossPct, System.currentTimeMillis())
+            }
             bookRevision8077.incrementAndGet()
         }
         if (sincePersist.incrementAndGet() >= 25) { sincePersist.set(0); persist() }
@@ -1957,7 +1984,14 @@ object LanePlaybook7907 {
      * V5.0.8144 — Cortex7885.onLabel: a label the hygiene keeps out of the books (unexecutable decision, or a repeat of
      * the coin's graded episode) releases its pending setup tag without grading any setup.
      */
-    fun dropPending8144(mint: String, labelLane: String) {
+    fun dropPending8144(mint: String, labelLane: String, decisionAtMs8372: Long = 0L) {
+        if (decisionAtMs8372 > 0L) {
+            if (episodes8372.take(mint, labelLane, decisionAtMs8372) != null) {
+                episodes8372.dispose(mint, labelLane, decisionAtMs8372, "HYGIENE_EXCLUDED_8372")
+                try { PipelineHealthCollector.labelInc("SETUP_EXACT_LABEL_HYGIENE_DROPPED_8372") } catch (_: Throwable) {}
+            }
+            return
+        }
         pending.remove("$mint|${labelLane.trim().uppercase()}")
         pendingTiming8094.remove("$mint|${labelLane.trim().uppercase()}")
         try { PipelineHealthCollector.labelInc("SETUP_LABEL_HYGIENE_DROPPED_8144") } catch (_: Throwable) {}
@@ -1971,8 +2005,13 @@ object LanePlaybook7907 {
     private val graded7997 = ConcurrentHashMap<String, Grade8076>()
 
     /** V5.0.7997 — ForwardReturnLabeler7731: a later checkpoint revises a graded label in every setup book it went to. */
-    fun reviseLabel7997(mint: String, labelLane: String, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+    fun reviseLabel7997(mint: String, labelLane: String, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double,
+                        decisionAtMs8372: Long = 0L) {
         if (!newNet.isFinite()) return
+        if (decisionAtMs8372 > 0L) {
+            reviseEpisode8372(mint, labelLane, decisionAtMs8372, newNet, newGross, false, System.currentTimeMillis())
+            return
+        }
         synchronized(this) {
             val g = graded7997["$mint|${labelLane.trim().uppercase()}"] ?: return
             // V5.0.8144 — a revision past the lane's executable hold horizon is not a return the strategy can bank.
@@ -1990,6 +2029,105 @@ object LanePlaybook7907 {
             }
             g.net = yn; g.gross = newGross  // V5.0.8187 — the booked value is the clamped one
             bookRevision8077.incrementAndGet()
+        }
+    }
+
+    private fun reviseEpisode8372(mint: String, lane: String, atMs: Long, net: Double, gross: Double,
+                                   terminal: Boolean, nowMs: Long): Boolean {
+        ensureLoaded()
+        if (!loaded || !net.isFinite()) return false
+        return synchronized(this) {
+            val g = episodes8372.grade(mint, lane, atMs) ?: return@synchronized false
+            if (episodes8372.disposition(mint, lane, atMs) != null) return@synchronized terminal
+            if (g.terminal) {
+                if (!terminal) PipelineHealthCollector.labelInc("SETUP_FORWARD_AFTER_SHADOW_OBSERVED_ONLY_8372")
+                return@synchronized terminal
+            }
+            if (!CortexLabelHygiene8144.revisionCounts8144(runnerHorizonLane8144(g.decision.lane), nowMs - g.decision.atMs)) {
+                PipelineHealthCollector.labelInc("SETUP_EXACT_REVISION_PAST_HORIZON_8372")
+                return@synchronized false
+            }
+            episodes8372.revise(mint, lane, atMs, net, gross, terminal,
+                { setup -> setupHoldsLong8080(g.decision.lane, setup) },
+                { owner, setup -> books[owner]?.stats?.get(setup) },
+                { owner, setup, timing -> timingBooks8094[owner]?.get("$setup|$timing") }).also {
+                if (it) bookRevision8077.incrementAndGet()
+            }
+        }
+    }
+
+    /** Register every Cortex experiment, including the explicit case where it captured no setup. No setup is invented. */
+    fun onShadowObserved8372(mint: String, lane: String, decisionAtMs: Long): Boolean {
+        ensureLoaded()
+        return loaded && episodes8372.observe(mint, lane, decisionAtMs)
+    }
+
+    fun shadowDisposition8372(mint: String, lane: String, decisionAtMs: Long): String? =
+        episodes8372.disposition(mint, lane, decisionAtMs)
+            ?: if (episodes8372.grade(mint, lane, decisionAtMs)?.terminal == true) "LEARNED_SELECTED_EXIT_8372" else null
+
+    private fun shadowObservedOnly8372(mint: String, lane: String, decisionAtMs: Long, reason: String): Boolean {
+        val previous = episodes8372.disposition(mint, lane, decisionAtMs)
+        val accepted = if (reason == "NO_SETUP_CAPTURE_8372") episodes8372.disposeUncaptured(mint, lane, decisionAtMs, reason)
+            else episodes8372.dispose(mint, lane, decisionAtMs, reason)
+        if (accepted && previous == null) PipelineHealthCollector.labelInc("SETUP_SHADOW_UNTRACKED_8372_$reason")
+        return accepted
+    }
+
+    /**
+     * An actual selected shadow exit replaces only its original selected setup. ACK follows its OWN durable receipt,
+     * not an in-memory terminal flag or an asynchronously queued checkpoint. Cortex never owns the playbook's blobs.
+     */
+    fun onShadowTerminal8372(mint: String, lane: String, decisionAtMs: Long, net: Double, gross: Double, nowMs: Long): Boolean {
+        // commitOnce8090 cannot ACK on Main. Do not build a deferred snapshot there either.
+        if (android.os.Looper.getMainLooper()?.thread == Thread.currentThread()) return false
+        ensureLoaded()
+        if (!loaded || !net.isFinite() || decisionAtMs <= 0L || nowMs < decisionAtMs) return false
+        val identity = LaneSetupEpisodes8372.key(mint, lane, decisionAtMs) ?: return false
+        val receipt = "LANE_PLAYBOOK_SHADOW_RECEIPT_8372|$identity"
+        return checkpoints8372.terminal(receipt,
+            readReceipt = { key ->
+                val saved = LearningPersistence.load(key)
+                when {
+                    LearningPersistence.readFailed8086(key) -> LanePlaybookCheckpoint8372.Receipt.RETRY
+                    saved != null -> LanePlaybookCheckpoint8372.Receipt.COMMITTED
+                    else -> LanePlaybookCheckpoint8372.Receipt.MISSING
+                }
+            },
+            applyOnce = { applyShadowTerminal8372(mint, lane, decisionAtMs, net, gross, nowMs) },
+            snapshot = { checkpoint8372() },
+            commit = { key, blobs ->
+                when (LearningPersistence.commitOnce8090(key, blobs)) {
+                    LearningPersistence.Commit8090.COMMITTED, LearningPersistence.Commit8090.ALREADY_COMMITTED -> true
+                    LearningPersistence.Commit8090.RETRY -> false
+                }
+            }).also { durable ->
+                if (!durable) PipelineHealthCollector.labelInc("SETUP_SHADOW_DURABILITY_RETRY_8372")
+            }
+    }
+
+    /** Invoked only inside the checkpoint ordering boundary; retries reuse, rather than regrade, terminal episodes. */
+    private fun applyShadowTerminal8372(mint: String, lane: String, decisionAtMs: Long, net: Double, gross: Double, nowMs: Long): Boolean {
+        if (episodes8372.disposition(mint, lane, decisionAtMs) != null) return true
+        if (episodes8372.grade(mint, lane, decisionAtMs) == null) {
+            if (episodes8372.inFlight(mint, lane, decisionAtMs)) return false
+            val p = episodes8372.pending(mint, lane, decisionAtMs)
+                ?: return shadowObservedOnly8372(mint, lane, decisionAtMs, "NO_SETUP_CAPTURE_8372")
+            if (!CortexLabelHygiene8144.revisionCounts8144(runnerHorizonLane8144(p.lane), nowMs - p.atMs))
+                return shadowObservedOnly8372(mint, lane, decisionAtMs, "OUTSIDE_HORIZON_8372")
+            onLabel(mint, lane, net, gross, decisionAtMs8372 = decisionAtMs, selectedOnly8372 = true)
+        }
+        if (episodes8372.disposition(mint, lane, decisionAtMs) != null) return true
+        val grade = episodes8372.grade(mint, lane, decisionAtMs) ?: return false
+        if (grade.terminal) return true
+        if (grade.primary !in grade.contributions)
+            return shadowObservedOnly8372(mint, lane, decisionAtMs, "NO_SELECTED_SETUP_8372")
+        if (!CortexLabelHygiene8144.revisionCounts8144(runnerHorizonLane8144(grade.decision.lane), nowMs - decisionAtMs))
+            return shadowObservedOnly8372(mint, lane, decisionAtMs, "OUTSIDE_HORIZON_8372")
+        return reviseEpisode8372(mint, lane, decisionAtMs, net, gross, true, nowMs).also { accepted ->
+            if (accepted) {
+                PipelineHealthCollector.labelInc("SETUP_SHADOW_TERMINAL_LEARNED_8372")
+            }
         }
     }
 
@@ -2090,6 +2228,14 @@ object LanePlaybook7907 {
                         if (stamps.isNotEmpty()) graded7997[key] = Grade8076(lane, stamps, net, gross, at)
                     }
                 }
+                // Separate key: old pending/grade rows and learned aggregates are not migrated or discarded.
+                LearningPersistence.load(EPISODES_KEY_8372)?.let { saved8372 ->
+                    val e = org.json.JSONObject(saved8372)
+                    val now8372 = System.currentTimeMillis()
+                    episodes8372.restoreGrades(e.optJSONArray("grades"), now8372)
+                    e.optJSONObject("pending")?.let { episodes8372.restorePending(it, now8372) }
+                    episodes8372.restoreObservations(e.optJSONArray("observations"), now8372)
+                }
                 bookRevision8077.incrementAndGet()
             } catch (e: Throwable) { LearningPersistence.decodeFailed8086(BOOKS_KEY_7947, e) } finally {
                 // V5.0.8086 — the row is on disk but would not read: stay unloaded (persist() is gated) and retry.
@@ -2099,6 +2245,7 @@ object LanePlaybook7907 {
     }
 
     private const val PENDING_KEY_7920 = "LANE_PLAYBOOK_PENDING_7920"
+    private const val EPISODES_KEY_8372 = "LANE_PLAYBOOK_EPISODES_8372"
     /** V5.0.7947 — setup records graded on the 5-minute, spike-credited read (old key "LANE_PLAYBOOK_7907" left untouched). */
     // V5.0.8064 — setup records restart on labels without spike credit (the 7947 books promised exits live never banked).
     private const val BOOKS_KEY_7947 = "LANE_PLAYBOOK_8076"
@@ -2111,11 +2258,9 @@ object LanePlaybook7907 {
         if (!loaded) return
         if (nowMs - lastPendingPersistMs < 120_000L) return
         lastPendingPersistMs = nowMs
-        try {
-            val o = org.json.JSONObject()
-            pending.entries.take(3_000).forEach { (k, v) -> o.put(k, "${v.first}|${v.second}") }
-            LearningPersistence.save(PENDING_KEY_7920, o.toString())
-        } catch (_: Throwable) {}
+        // All three keys use the same ordered save. An independent async pending write could otherwise land after
+        // the terminal transaction and restore stale pending identities. Their existing payload formats are unchanged.
+        persist()
     }
 
     /** V5.0.7930 — BotService.onDestroy: save now (graded state between periodic saves was lost on restart). */
@@ -2128,7 +2273,37 @@ object LanePlaybook7907 {
 
     private fun persist() {
         if (!loaded) return
+        checkpointRequested8372.set(true)
+        startCheckpointWorker8372()
+    }
+
+    private fun startCheckpointWorker8372() {
+        if (!checkpointRunning8372.compareAndSet(false, true)) return
         try {
+            checkpointWorker8372.execute {
+                try {
+                    while (checkpointRequested8372.getAndSet(false)) {
+                        // Never Main: saveTogether8076 cannot silently defer our ordered snapshot.
+                        try { checkpoints8372.save({ checkpoint8372() }) { LearningPersistence.saveTogether8076(it) } }
+                        catch (_: Exception) { PipelineHealthCollector.labelInc("SETUP_CHECKPOINT_FAILED_8372") }
+                    }
+                } finally {
+                    checkpointRunning8372.set(false)
+                    // A request between the final check and clearing running must not be lost.
+                    if (checkpointRequested8372.get()) startCheckpointWorker8372()
+                }
+            }
+        } catch (_: Exception) {
+            checkpointRunning8372.set(false)
+            PipelineHealthCollector.labelInc("SETUP_CHECKPOINT_SCHEDULE_FAILED_8372")
+        }
+    }
+
+    /** Called only inside our checkpoint ordering boundary; no live/canonical state or Cortex lock is owned. */
+    @Synchronized
+    private fun checkpoint8372(): Map<String, String> {
+        if (!loaded) return emptyMap()
+        return try {
             val json = synchronized(this) {
                 org.json.JSONObject().also { o ->
                     books.forEach { (lane, b) -> o.put(lane, org.json.JSONObject().also { j -> b.stats.forEach { (k, v) -> j.put(k, v.encode()) } }) }
@@ -2149,8 +2324,13 @@ object LanePlaybook7907 {
                     })
                 }.toString()
             }
-            LearningPersistence.save(BOOKS_KEY_7947, json)
-        } catch (_: Throwable) {}
+            val sidecar = org.json.JSONObject().put("pending", episodes8372.pendingSnapshot())
+                .put("grades", episodes8372.gradesSnapshot()).put("observations", episodes8372.observationsSnapshot()).toString()
+            val legacyPending = org.json.JSONObject().also { o ->
+                pending.entries.take(3_000).forEach { (k, v) -> o.put(k, "${v.first}|${v.second}") }
+            }.toString()
+            mapOf(BOOKS_KEY_7947 to json, PENDING_KEY_7920 to legacyPending, EPISODES_KEY_8372 to sidecar)
+        } catch (_: Throwable) { emptyMap() }
     }
 
     fun statusLine(): String {

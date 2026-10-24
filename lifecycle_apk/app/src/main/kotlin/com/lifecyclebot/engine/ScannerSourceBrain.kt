@@ -2,7 +2,10 @@ package com.lifecyclebot.engine
 
 import android.content.Context
 import org.json.JSONObject
+import org.json.JSONArray
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.exp
 import kotlin.math.ln
@@ -46,6 +49,7 @@ object ScannerSourceBrain {
     private const val TAG = "ScannerSourceBrain"
     private const val PREFS = "scanner_source_brain"
     private const val KEY = "state_v1"
+    private const val DECISIONS_KEY_8372 = "decision_episodes_8372"
 
     private const val BOOT_THRESHOLD = 20L
     private const val LEARNED_THRESHOLD = 60L
@@ -71,12 +75,27 @@ object ScannerSourceBrain {
     }
 
     private val stats = ConcurrentHashMap<String, SourceStats>()
+    // Historical stats mixed Executor closes with pre-8372 refused labels. Preserve them, but never pool their
+    // sample counts with the new once-per-token observation cohort or call a shadow return realised money.
+    private val decisionEpisodes8372 = ScannerSourceEpisodes8372()
+    @Volatile private var committedDecisions8372 = ScannerSourceEpisodes8372()
+    private val decisionAdds8372 = AtomicLong(0)
+    private val decisionRevisions8372 = AtomicLong(0)
+    private val decisionNoops8372 = AtomicLong(0)
+    private val saveQueued8372 = AtomicBoolean(false)
+    private val saveOk8372 = AtomicLong(0)
+    private val saveFailed8372 = AtomicLong(0)
+    private val saveExecutor8372 = Executors.newSingleThreadExecutor { work ->
+        Thread(work, "scanner-source-persist").apply { isDaemon = true }
+    }
     private val starvationBoostUntilMs = ConcurrentHashMap<String, AtomicLong>()
     @Volatile private var ctx: Context? = null
     @Volatile private var loaded = false
 
     fun init(context: Context) {
+        loaded = false
         ctx = context.applicationContext
+        committedDecisions8372 = ScannerSourceEpisodes8372()
         load()
         loaded = true
         ErrorLogger.info(TAG, "🧠 brain init: ${stats.size} sources tracked")
@@ -113,16 +132,16 @@ object ScannerSourceBrain {
                 try { PipelineHealthCollector.labelInc("LEADING_SOURCE_BLACKOUT_BYPASSED_7403") } catch (_: Throwable) {}
                 return false
             }
-            val s = stats[key] ?: return false
-            val n = s.samples()
+            val s = read8372(key) ?: return false
+            val n = s.n
             if (n < 30) return false
-            val wr = s.winRate()
+            val wr = s.wr
             // V5.0.6284 — NET-EV OVERRIDE. Previously blackout fired on WR
             // alone, tossing 24/25 tokens from sources like PUMP_FUN_NEW
             // (WR=14% n=309) even when the rare winners paid for the crowd
             // of small losses. Now: if the source's avg PnL is net-positive,
             // do NOT blackout — the memecoin distribution needs those wins.
-            val avgPnl = s.avgPnlPct()
+            val avgPnl = s.mean
             if (avgPnl > 0.0) {
                 try { PipelineHealthCollector.labelInc("SCANNER_INTAKE_NET_EV_POSITIVE_ALLOW_6284_${key.take(30)}") } catch (_: Throwable) {}
                 return false
@@ -180,7 +199,7 @@ object ScannerSourceBrain {
 
     /** Called by Executor at journal close. Mirrors ScannerLearning.recordTrade. */
     fun recordOutcome(source: String, pnlPct: Double) {
-        if (!loaded) return
+        if (!loaded || !pnlPct.isFinite()) return
         // A blank provenance is not a source. Recording it would found a cohort
         // named after a placeholder, which is the exact class of defect V5.0.6851
         // removed from the terminal ledgers — count it and drop it instead.
@@ -198,23 +217,82 @@ object ScannerSourceBrain {
                 s.lastUpdated = now
             }
         }
-        // V5.0.7913 — every graded Cortex decision now lands here too; persist at
-        // most every 30 s instead of re-serialising all stats per outcome.
+        // Keep the legacy/Executor cohort's existing checkpoint cadence. New Cortex observations use the separate
+        // episode API below, not an extra sample in this historically mixed book.
+        requestSave8372(now)
+    }
+
+    /**
+     * All valid YES/NO observations teach discovery once per token episode, independent of FDG admission. The
+     * caller supplies a lane-independent tokenEpisodeId and an exact lane/decisionId; the first contributing lane
+     * owns corrections. Mode is the ORIGINAL decision context, not the eventual shadow execution kind.
+     */
+    fun recordDecisionOutcome8372(source: String, tokenEpisodeId: String, decisionId: String, mode: String,
+                                  pnlPct: Double, decisionAtMs: Long): Boolean {
+        if (!loaded) return false
+        val row = ScannerSourceEpisodes8372.Outcome(tokenEpisodeId, decisionId, mode.trim().uppercase(),
+            componentKeys6856(source), pnlPct, decisionAtMs)
+        val added = decisionEpisodes8372.record(row)
+        if (added) { decisionAdds8372.incrementAndGet(); requestSave8372(System.currentTimeMillis()) }
+        else decisionNoops8372.incrementAndGet()
+        return added
+    }
+
+    /** A later witnessed label or exact shadow terminal replaces its owner's earlier contribution (N does not rise). */
+    fun reviseDecisionOutcome8372(source: String, tokenEpisodeId: String, decisionId: String, mode: String,
+                                  pnlPct: Double, decisionAtMs: Long): Boolean {
+        if (!loaded) return false
+        val row = ScannerSourceEpisodes8372.Outcome(tokenEpisodeId, decisionId, mode.trim().uppercase(),
+            componentKeys6856(source), pnlPct, decisionAtMs)
+        val revised = decisionEpisodes8372.revise(row)
+        if (revised) { decisionRevisions8372.incrementAndGet(); requestSave8372(System.currentTimeMillis()) }
+        else decisionNoops8372.incrementAndGet()
+        return revised
+    }
+
+    /**
+     * ACK only after the source book's exact contribution (or legitimate dedupe) survived a successful preferences
+     * commit. Call after record/revise; this method never creates a sample. A false return schedules a coalesced
+     * background checkpoint so a shadow delivery can retain/retry its receipt without blocking a trader loop on disk.
+     */
+    fun decisionDeliveryAcknowledged8372(source: String, tokenEpisodeId: String, decisionId: String, mode: String,
+                                         pnlPct: Double, decisionAtMs: Long): Boolean {
+        if (!loaded || ctx == null) return false
+        val row = ScannerSourceEpisodes8372.Outcome(tokenEpisodeId, decisionId, mode.trim().uppercase(),
+            componentKeys6856(source), pnlPct, decisionAtMs)
+        if (committedDecisions8372.acknowledges(row)) return true
+        save()
+        return false
+    }
+
+    private fun requestSave8372(now: Long) {
         if (now - lastSaveMs7913 >= 30_000L) { lastSaveMs7913 = now; save() }
     }
 
     @Volatile private var lastSaveMs7913 = 0L
 
-    fun authority(source: String): AuthorityTier {
-        val s = stats[normalise(source)] ?: return AuthorityTier.BOOTSTRAP
-        val n = s.samples()
-        return when {
+    private fun tier8372(n: Long): AuthorityTier = when {
             n >= AUTH_THRESHOLD     -> AuthorityTier.AUTHORITATIVE
             n >= LEARNED_THRESHOLD  -> AuthorityTier.LEARNED
             n >= BOOT_THRESHOLD     -> AuthorityTier.ADVISORY
             else                    -> AuthorityTier.BOOTSTRAP
         }
+
+    private data class Read8372(val n: Long, val wr: Double, val mean: Double, val centred: Double, val evidence: String)
+
+    private fun read8372(key: String): Read8372? {
+        val decision = decisionEpisodes8372.snapshot(key)
+        // Existing n>=20 maturity, plus an uncertainty check. A handful of outliers must not seize source authority.
+        if (decision != null && decision.supported(BOOT_THRESHOLD)) {
+            return Read8372(decision.samples, decision.winRate, decision.mean, decision.netAwareCentred(), "DECISION_EPISODES")
+        }
+        val legacy = stats[key] ?: return null
+        return synchronized(legacy) {
+            Read8372(legacy.samples(), legacy.winRate(), legacy.avgPnlPct(), (legacy.winRate() - 0.5) * 2.0, "LEGACY_MIXED")
+        }
     }
+
+    fun authority(source: String): AuthorityTier = tier8372(read8372(normalise(source))?.n ?: 0L)
 
     data class SourceSnapshot7658(
         val source: String,
@@ -222,6 +300,8 @@ object ScannerSourceBrain {
         val winRate: Double,
         val avgPnlPct: Double,
         val authority: AuthorityTier,
+        val evidence8372: String = "LEGACY_MIXED",
+        val decisionSamples8372: Long = 0L,
     )
 
     /**
@@ -231,28 +311,27 @@ object ScannerSourceBrain {
     fun sourceSnapshot7658(source: String): SourceSnapshot7658? {
         val key = normalise(source)
         if (key.isBlank()) return null
-        val s = stats[key] ?: return null
-        return synchronized(s) {
-            SourceSnapshot7658(
+        val s = read8372(key) ?: return null
+        return SourceSnapshot7658(
                 source = key,
-                samples = s.samples(),
-                winRate = s.winRate(),
-                avgPnlPct = s.avgPnlPct(),
-                authority = authority(key),
+                samples = s.n,
+                winRate = s.wr,
+                avgPnlPct = s.mean,
+                authority = tier8372(s.n),
+                evidence8372 = s.evidence,
+                decisionSamples8372 = decisionEpisodes8372.snapshot(key)?.samples ?: 0L,
             )
-        }
     }
 
     /** Multiplier in [0.40, 1.80] depending on tier + winRate.
      *  Caller multiplies its baseline priority by this. */
     fun intakeMultiplier(source: String): Double {
         val key = normalise(source)
-        val s = stats[key] ?: return checkStarvationBoost(key, 1.0)
-        val n = s.samples()
+        val s = read8372(key) ?: return checkStarvationBoost(key, 1.0)
+        val n = s.n
         if (n < BOOT_THRESHOLD) return checkStarvationBoost(key, 1.0)
-        val wr = s.winRate()
         // Smooth s-curve around 0.5 (random) ‒ wr=0.7 yields ~+0.3 above 1.0
-        val centred = (wr - 0.5) * 2.0  // [-1, +1]
+        val centred = s.centred  // [-1, +1]; decision cohorts preserve the supported net-EV sign
         val (floor, cap) = when (authority(key)) {
             AuthorityTier.AUTHORITATIVE -> 0.40 to 1.80
             AuthorityTier.LEARNED       -> 0.60 to 1.40
@@ -283,6 +362,16 @@ object ScannerSourceBrain {
         return try {
             val needles = tokens.map { it.trim().uppercase() }.filter { it.isNotBlank() }
             if (needles.isEmpty()) return 1.0
+            val decision8372 = decisionEpisodes8372.familySnapshot(needles)
+            if (decision8372 != null && decision8372.supported(BOOT_THRESHOLD)) {
+                val (floor, cap) = when (tier8372(decision8372.samples)) {
+                    AuthorityTier.AUTHORITATIVE -> 0.40 to 1.80
+                    AuthorityTier.LEARNED -> 0.60 to 1.40
+                    AuthorityTier.ADVISORY -> 0.40 to 1.20
+                    AuthorityTier.BOOTSTRAP -> 1.00 to 1.00
+                }
+                return (1.0 + decision8372.netAwareCentred() * 0.6).coerceIn(floor, cap)
+            }
             var wins = 0L
             var losses = 0L
             stats.forEach { (key, s) ->
@@ -398,17 +487,20 @@ object ScannerSourceBrain {
 
     /** Brain telemetry summary for the unified report. */
     fun summary(): String {
-        if (stats.isEmpty()) return "ScannerSourceBrain: bootstrap (no samples yet)"
-        val sb = StringBuilder("ScannerSourceBrain (V5.0.4097): ${stats.size} sources\n")
+        val sources8372 = stats.keys + decisionEpisodes8372.sources()
+        if (sources8372.isEmpty()) return "ScannerSourceBrain: bootstrap (no samples yet)"
+        val sb = StringBuilder("ScannerSourceBrain (V5.0.8372): ${sources8372.size} sources\n")
+        sb.append("  decisions8372[episodes=${decisionEpisodes8372.size()} added=${decisionAdds8372.get()} revised=${decisionRevisions8372.get()} duplicateOrInvalid=${decisionNoops8372.get()} persistOk=${saveOk8372.get()} persistFailed=${saveFailed8372.get()}] separateFromLegacy=true\n")
         // V5.0.8292 — legacy pathway keys (SCANNER_DIRECT, ...REGISTRY_DUPLICATE_HYDRATE) are kept, not shown as sources.
         val legacy8292 = stats.keys.count { normalise(it) != it }
         if (legacy8292 > 0) sb.append("  legacyPathwayKeys8292=$legacy8292 (stored, unread)\n")
-        stats.entries.filter { normalise(it.key) == it.key }.sortedByDescending { it.value.samples() }.take(12).forEach { (src, s) ->
-            val n = s.samples()
+        sources8372.filter { normalise(it) == it }.mapNotNull { src -> read8372(src)?.let { src to it } }
+            .sortedByDescending { it.second.n }.take(12).forEach { (src, s) ->
+            val n = s.n
             val tier = authority(src).name
-            val wr = (s.winRate() * 100).toInt()
+            val wr = (s.wr * 100).toInt()
             val mult = intakeMultiplier(src)
-            sb.append("  $src n=$n WR=${wr}% mult=${"%.2f".format(mult)} tier=$tier\n")
+            sb.append("  $src n=$n WR=${wr}% net=${"%+.2f".format(s.mean)}% mult=${"%.2f".format(mult)} tier=$tier evidence=${s.evidence} decisionN=${decisionEpisodes8372.snapshot(src)?.samples ?: 0}\n")
         }
         return sb.toString().trimEnd()
     }
@@ -417,7 +509,7 @@ object ScannerSourceBrain {
     fun tierCounts(): Map<AuthorityTier, Int> {
         val out = mutableMapOf<AuthorityTier, Int>()
         AuthorityTier.values().forEach { out[it] = 0 }
-        stats.keys.forEach { out[authority(it)] = (out[authority(it)] ?: 0) + 1 }
+        (stats.keys + decisionEpisodes8372.sources()).forEach { out[authority(it)] = (out[authority(it)] ?: 0) + 1 }
         return out
     }
 
@@ -434,7 +526,9 @@ object ScannerSourceBrain {
 
     private fun save() {
         val c = ctx ?: return
-        try {
+        if (!saveQueued8372.compareAndSet(false, true)) return
+        // A bounded episode book is larger than the old handful of source counters. Never serialize it on a trader loop.
+        saveExecutor8372.execute { try {
             val obj = JSONObject()
             stats.forEach { (k, v) ->
                 synchronized(v) {
@@ -446,18 +540,31 @@ object ScannerSourceBrain {
                     })
                 }
             }
-            c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val state = decisionEpisodes8372.export()
+            val episodes = JSONObject().put("retiredThrough", state.retiredThroughMs)
+                .put("rows", JSONArray().apply {
+                    state.outcomes.forEach { o -> put(JSONObject().put("episode", o.tokenEpisodeId)
+                        .put("decision", o.decisionId).put("mode", o.mode).put("sources", JSONArray(o.sourceKeys))
+                        .put("pnl", o.pnlPct).put("at", o.decisionAtMs)) }
+                })
+            val committed = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .putString(KEY, obj.toString())
-                .apply()
-        } catch (_: Throwable) { }
+                .putString(DECISIONS_KEY_8372, episodes.toString())
+                .commit()
+            if (committed) {
+                // Publish exactly the snapshot written, not the mutable book which may have been revised during IO.
+                if (ctx === c) committedDecisions8372 = ScannerSourceEpisodes8372().also { it.restore(state) }
+                saveOk8372.incrementAndGet()
+            } else saveFailed8372.incrementAndGet()
+        } catch (_: Throwable) { saveFailed8372.incrementAndGet() } finally { saveQueued8372.set(false) } }
     }
 
     private fun load() {
         val c = ctx ?: return
         try {
             val raw = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY, null) ?: return
+                .getString(KEY, null) ?: "{}"
             val obj = JSONObject(raw)
             obj.keys().forEach { k ->
                 val o = obj.optJSONObject(k) ?: return@forEach
@@ -468,6 +575,22 @@ object ScannerSourceBrain {
                     lastUpdated = o.optLong("t", 0L),
                 )
             }
+        } catch (_: Throwable) { }
+        try {
+            val raw = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(DECISIONS_KEY_8372, null) ?: return
+            val obj = JSONObject(raw)
+            val rows = obj.optJSONArray("rows") ?: return
+            val outcomes = ArrayList<ScannerSourceEpisodes8372.Outcome>()
+            for (i in 0 until rows.length()) {
+                val o = rows.optJSONObject(i) ?: continue
+                val sources = o.optJSONArray("sources") ?: continue
+                outcomes.add(ScannerSourceEpisodes8372.Outcome(o.optString("episode"), o.optString("decision"),
+                    o.optString("mode"), (0 until sources.length()).map { sources.optString(it) },
+                    o.optDouble("pnl", Double.NaN), o.optLong("at")))
+            }
+            val state = ScannerSourceEpisodes8372.State(obj.optLong("retiredThrough"), outcomes)
+            decisionEpisodes8372.restore(state)
+            committedDecisions8372 = ScannerSourceEpisodes8372().also { it.restore(state) }
         } catch (_: Throwable) { }
     }
 

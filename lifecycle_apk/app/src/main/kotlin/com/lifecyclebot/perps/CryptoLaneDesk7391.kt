@@ -90,10 +90,13 @@ object CryptoLaneDesk7391 {
         identity: String, symbol: String, name: String, priceUsd: Double, marketCapUsd: Double,
         liquidityUsd: Double, buyPressurePct: Double, source: String, ageHours: Double,
         brainScore: Int, brainConfidence: Int,
+        priceObservedAtMs8372: Long = 0L,
     ): TokenState {
         val ts = TokenState(mint = identity, symbol = symbol, name = name)
         ts.lastPrice = priceUsd
-        ts.lastPriceSource = "CRYPTO_ALT_DESK_7391"
+        ts.lastPriceSource = com.lifecyclebot.engine.NativeDecisionEnrollment8372.CRYPTO_DESK_PRICE_SOURCE
+        ts.lastPriceUpdate = com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
+            priceUsd, priceUsd, priceObservedAtMs8372, System.currentTimeMillis())
         ts.lastMcap = marketCapUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         ts.lastLiquidityUsd = liquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         ts.lastBuyPressurePct = buyPressurePct.takeIf { it.isFinite() } ?: 50.0

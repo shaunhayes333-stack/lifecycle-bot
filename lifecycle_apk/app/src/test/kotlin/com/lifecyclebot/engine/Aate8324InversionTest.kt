@@ -155,14 +155,17 @@ class Aate8324InversionTest {
 
     @Test fun theCortexWiresTheTailBucketAndTheRankingLine() {
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertTrue(cx.contains("val bucket = if (runner) runnerBucketNow8324(lane, calibrated, ev8324) else CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)"))
+        assertTrue(cx.contains("val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)"))
+        assertTrue(cx.contains("val ev8324 = if (runner) tailEvNow8324(lane, fused) else Double.NaN"))
         assertTrue(cx.contains("try { refreshPonds8324(lanes) }"))
         // superseded by V5.0.8325: the ranking line is read before the lock (cached)
         assertTrue(cx.contains("ranking (§8324 does the Cortex rank-order forward returns?): \${inversion8325}"))
         assertTrue(cx.contains("inversion8324["))
         assertTrue(cx.contains("it.tailEv8324 = p.a.tailEv8324"))
-        // a revision whose voter trace aged out still revises its grade record; past-horizon traces go first
-        assertTrue(cx.contains("val g = graded8006[key] ?: run { reviseGradeOnly8324(key, newNet, newGross, lat8144, witness8324); return }"))
+        // Revisions use the exact episode, including compressed traces, never the newest same-mint decision.
+        assertTrue(cx.contains("val id = \"\$key|\$decisionAtMs8371\""))
+        assertTrue(cx.contains("val g = gradedTrace8372(id)"))
+        assertFalse(cx.contains("val g = graded8006[key] ?: run"))
         assertTrue(cx.contains("if (graded8006.size >= MAX_GRADED_8006) evictPastHorizon8324(System.currentTimeMillis())"))
     }
 

@@ -75,6 +75,11 @@ class CortexGradeRecord8144(
     var rawEdge8371: Double = Double.NaN
     var laneMean8371: Double = Double.NaN
     var calStamp8371: Double = Double.NaN
+    /** 0 = preserved historical score; 1 = the single per-token arithmetic forecast/verdict introduced in 8372. */
+    var scoreVersion8372: Int = 0
+    /** A banked simulated exit is labelled explicitly, never a canonical or realised trade. */
+    var outcomeSource8372: String = "FORWARD"
+    var firstAvailableAtMs8372: Long = 0L
 
     /** May this decision's label grade authority (executable, first of its episode)? */
     val graded: Boolean get() = kind == 'D' && executable && !repeat
@@ -129,21 +134,21 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
      * The first label is never rewritten (8272); the objective only chooses which stored value answers.
      */
     fun objectivePct8322(r: CortexGradeRecord8144): Double =
-        if (r.executableRevisedPct.isFinite() && runner8322(r.lane)) r.executableRevisedPct else r.executablePct
+        if (r.executableRevisedPct.isFinite() && (runner8322(r.lane) || r.outcomeSource8372 == "SHADOW_EXIT")) r.executableRevisedPct else r.executablePct
 
     /**
      * V5.0.8324 — the gross move of the label [objectivePct8322] answers with (same horizon); legacy rows without it read the
      * observed gross as before.
      */
     fun objectiveGross8324(r: CortexGradeRecord8144): Double {
-        val g = if (r.executableRevisedPct.isFinite() && runner8322(r.lane)) r.revisedGross8324 else r.firstGross8324
+        val g = if (r.executableRevisedPct.isFinite() && (runner8322(r.lane) || r.outcomeSource8372 == "SHADOW_EXIT")) r.revisedGross8324 else r.firstGross8324
         return if (g.isFinite()) g else r.observedGrossPct
     }
 
     /** V5.0.8322 — when [objectivePct8322] became knowable (the revision's time, else five minutes after the decision). */
     fun objectiveAvailableAt8322(r: CortexGradeRecord8144): Long =
-        if (r.executableRevisedPct.isFinite() && runner8322(r.lane) && r.revisedAvailableAtMs > 0L) r.revisedAvailableAtMs
-        else r.atMs + FIRST_LABEL_MS_8322
+        if (r.executableRevisedPct.isFinite() && (runner8322(r.lane) || r.outcomeSource8372 == "SHADOW_EXIT") && r.revisedAvailableAtMs > 0L) r.revisedAvailableAtMs
+        else r.firstAvailableAtMs8372.takeIf { it > 0L } ?: (r.atMs + FIRST_LABEL_MS_8322)
 
     /** V5.0.8322 — records whose executable value the 8187 ingestion clamp destroyed (diagnostic). */
     fun clampedLegacy8322(): Int = decisions.count { it.clampedLegacy8322 }
@@ -152,6 +157,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
     fun flat8322(): Int = decisions.count { it.flat8322 }
 
     private fun offset8187(lane: String): Double = try { execOffset8187(lane).takeIf { it.isFinite() && it > 0.0 } ?: 0.0 } catch (_: Throwable) { 0.0 }
+    /** The selected shadow exit already pays its lane's modelled fill latency and round-trip costs once. */
+    private fun offsetFor8372(r: CortexGradeRecord8144): Double = if (r.outcomeSource8372 == "SHADOW_EXIT") 0.0 else offset8187(r.lane)
 
     fun size(): Int = decisions.size
     fun tradeCount(): Int = trades.size
@@ -220,12 +227,23 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         // destroying the runner tail; owner directive 8072: no win caps). The first stays immutable (8272); later horizons
         // are stored apart with when they became knowable.
         if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153 && !r.lateRead8187 && !r.flat8322) {
-            if (!r.executablePct.isFinite()) { r.executablePct = executableValue; r.firstGross8324 = grossPct }       // the immutable first target
+            if (!r.executablePct.isFinite()) {
+                r.executablePct = executableValue; r.firstGross8324 = grossPct
+                r.firstAvailableAtMs8372 = availableAtMs
+            }       // the immutable first target
             else { r.executableRevisedPct = executableValue; r.revisedAvailableAtMs = availableAtMs; r.revisions8272++; r.revisedGross8324 = grossPct }
         }
         noteGraded(r)
         revision++
         return true
+    }
+
+    /** The already costed, selected simulated exit replaces this experiment's contribution, not its prediction. */
+    fun shadowOutcome8372(id: String, netPct: Double, grossPct: Double, availableAtMs: Long): Boolean {
+        val r = byId[id] ?: return false
+        if (!netPct.isFinite() || !grossPct.isFinite() || availableAtMs < r.atMs) return false
+        r.outcomeSource8372 = "SHADOW_EXIT"
+        return label(id, netPct, grossPct, netPct, true, availableAtMs)
     }
 
     /** V5.0.8153 — decision [id]'s label started from a late first price: its executable value is withdrawn for good. */
@@ -307,9 +325,10 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
     }
 
     /** Executable values of graded decisions in [lane] (and [setup] / [bucket] when given), oldest first. */
-    fun executableSeries(lane: String, setup: String?, bucket: Int?): List<Double> =
-        decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() }
-            .sortedBy { it.atMs }.map { objectivePct8322(it) - offset8187(lane) }  // V5.0.8322 — lane objective, raw, executable-net
+    fun executableSeries(lane: String, setup: String?, bucket: Int?, scoreVersion: Int? = null): List<Double> =
+        decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() &&
+            (scoreVersion == null || it.scoreVersion8372 == scoreVersion) }
+            .sortedBy { it.atMs }.map { objectivePct8322(it) - offsetFor8372(it) }
 
     /**
      * 8269 — decision-time AATE TAKE vs REFUSE, distinct from Cortex's
@@ -322,7 +341,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         decisions.filter {
             it.graded && !it.lost && it.lane == lane && it.admitted == admitted &&
                 it.executablePct.isFinite()
-        }.sortedBy { it.atMs }.map { objectivePct8322(it) - offset8187(lane) }  // V5.0.8322 — lane objective, raw
+        }.sortedBy { it.atMs }.map { objectivePct8322(it) - offsetFor8372(it) }
 
     fun executableDecisionGrossSeries8269(lane: String, admitted: Boolean): List<Double> =
         decisions.filter {
@@ -334,28 +353,48 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
      * 8198 — the GROSS forward move (price only, before any cost, haircut or executable offset) of the same tradeable
      * records [executableSeries] grades, oldest first: what the coin actually did after the verdict.
      */
-    fun executableGrossSeries8198(lane: String, setup: String?, bucket: Int?): List<Double> =
-        decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() && objectiveGross8324(it).isFinite() }
+    fun executableGrossSeries8198(lane: String, setup: String?, bucket: Int?, scoreVersion: Int? = null): List<Double> =
+        decisions.filter { it.graded && !it.lost && it.lane == lane && (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) && it.executablePct.isFinite() && objectiveGross8324(it).isFinite() &&
+            (scoreVersion == null || it.scoreVersion8372 == scoreVersion) }
             .sortedBy { it.atMs }.map { objectiveGross8324(it) }  // V5.0.8324 — the objective's own horizon
 
     /** 8196: timestamps are essential to compare competing cohorts on the same OOS market span. */
-    fun executableTimed8196(lane: String, setup: String?, bucket: Int?): List<CortexWalkForward8144.Timed8144> =
+    fun executableTimed8196(lane: String, setup: String?, bucket: Int?, scoreVersion: Int? = null): List<CortexWalkForward8144.Timed8144> =
         decisions.filter { it.graded && !it.lost && it.lane == lane &&
             (bucket == null || it.bucket == bucket) && (setup == null || it.setup == setup) &&
+            (scoreVersion == null || it.scoreVersion8372 == scoreVersion) &&
             it.executablePct.isFinite() }
             .sortedBy { it.atMs }
-            .map { CortexWalkForward8144.Timed8144(it.atMs, objectivePct8322(it) - offset8187(lane), objectiveAvailableAt8322(it), it.executablePct - offset8187(lane)) }  // V5.0.8322
+            .map { CortexWalkForward8144.Timed8144(it.atMs, objectivePct8322(it) - offsetFor8372(it), objectiveAvailableAt8322(it), it.executablePct - offsetFor8372(it)) }
 
     /**
      * V5.0.8366 §ONE_AUTHORITY_TEST — the graded executable decisions of [lane] as (decision time, decision-time score,
      * executable-net lane objective), oldest first: what CortexAuthority8366's walk-forward reads. The score is the tail EV
      * the bucket was read on for a runner lane (when recorded), else the calibrated edge.
      */
-    fun scoredRows8366(lane: String, runner: Boolean): List<CortexAuthority8366.Row8366> {
-        val off = offset8187(lane)
-        return decisions.filter { it.graded && !it.lost && it.lane == lane && it.executablePct.isFinite() }
+    fun scoredRows8366(lane: String, runner: Boolean, scoreVersion: Int? = null, setup: String? = null): List<CortexAuthority8366.Row8366> {
+        return decisions.filter { it.graded && !it.lost && it.lane == lane && it.executablePct.isFinite() &&
+            (scoreVersion == null || it.scoreVersion8372 == scoreVersion) && (setup == null || it.setup == setup) }
             .sortedBy { it.atMs }
-            .map { CortexAuthority8366.Row8366(it.atMs, if (runner && it.tailEv8324.isFinite()) it.tailEv8324 else it.predictedEdgePct, objectivePct8322(it) - off) }
+            .map { CortexAuthority8366.Row8366(it.atMs,
+                if (it.scoreVersion8372 == 0 && runner && it.tailEv8324.isFinite()) it.tailEv8324 else it.predictedEdgePct,
+                objectivePct8322(it) - offsetFor8372(it), it.bucket, objectiveAvailableAt8322(it)) }
+    }
+
+    /** The same frozen, executable current-predictor cohorts used by the visible verdict row and authority.
+     * Historical observations remain in the book; they are not reclassified as predictions made by a new scorer. */
+    fun bucketStats8372(lane: String, setup: String? = null, scoreVersion: Int = 1): Array<CortexLedger7885.Stat> {
+        val out = Array(CortexScoreboard7885.Bucket.values().size) {
+            CortexLedger7885.Stat(Double.POSITIVE_INFINITY, CortexLedger7885.RUNNER_GROSS_PCT)
+        }
+        for (r in decisions) {
+            if (!r.graded || r.lost || r.lane != lane || r.scoreVersion8372 != scoreVersion ||
+                !r.executablePct.isFinite() || (setup != null && r.setup != setup)) continue
+            val st = out.getOrNull(r.bucket) ?: continue
+            val net = objectivePct8322(r) - offsetFor8372(r)
+            if (net.isFinite()) st.add(net, objectiveGross8324(r) >= CortexLedger7885.RUNNER_GROSS_PCT, r.witnessed8324)
+        }
+        return out
     }
 
     /** V5.0.8324 — one graded decision's ranking row: what the Cortex predicted and what the lane objective then paid. */
@@ -365,7 +404,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
     fun rankRows8324(lane: String): List<RankRow8324> =
         decisions.filter { it.graded && !it.lost && it.lane == lane && it.executablePct.isFinite() }
             .sortedBy { it.atMs }
-            .map { RankRow8324(it.predictedEdgePct, it.tailEv8324, objectivePct8322(it) - offset8187(lane), it.bucket, it.admitted) }
+            .map { RankRow8324(it.predictedEdgePct, it.tailEv8324, objectivePct8322(it) - offsetFor8372(it), it.bucket, it.admitted) }
 
     /**
      * V5.0.8324 — the pond of [lane] for CortexTailEv8324: every graded decision's executable-net objective (raw) and its
@@ -373,8 +412,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
      */
     fun pondRows8324(lane: String): Pair<List<Double>, List<Double>> {
         val rs = decisions.filter { it.graded && !it.lost && it.lane == lane && it.executablePct.isFinite() }.sortedBy { it.atMs }
-        val off = offset8187(lane)
-        return rs.map { objectivePct8322(it) - off } to rs.map { it.labelCap8187() }
+        return rs.map { objectivePct8322(it) - offsetFor8372(it) } to rs.map { it.labelCap8187() }
     }
 
     /**
@@ -385,8 +423,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         val by = HashMap<String, ArrayList<CortexGradeRecord8144>>()
         for (d in decisions) if (d.graded && !d.lost && d.executablePct.isFinite()) by.getOrPut(d.lane) { ArrayList() }.add(d)
         return by.mapValues { (lane, rs) ->
-            val off = offset8187(lane)
-            rs.sortedBy { it.atMs }.map { RankRow8324(it.predictedEdgePct, it.tailEv8324, objectivePct8322(it) - off, it.bucket, it.admitted) }
+            rs.sortedBy { it.atMs }.map { RankRow8324(it.predictedEdgePct, it.tailEv8324, objectivePct8322(it) - offsetFor8372(it), it.bucket, it.admitted) }
         }
     }
 
@@ -399,8 +436,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         for (d in decisions) if (d.graded && !d.lost && d.executablePct.isFinite()) by.getOrPut(d.lane) { ArrayList() }.add(d)
         return by.mapValues { (lane, rs0) ->
             val rs = rs0.sortedBy { it.atMs }
-            val off = offset8187(lane)
-            PondRows8325(rs.map { objectivePct8322(it) - off }, rs.map { it.labelCap8187() }, rs.map { it.witnessed8324 })
+            PondRows8325(rs.map { objectivePct8322(it) - offsetFor8372(it) }, rs.map { it.labelCap8187() }, rs.map { it.witnessed8324 })
         }
     }
 
@@ -490,10 +526,11 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         }
 
     /** Labelled / (labelled + lost) over the executable first-of-episode decisions of [lane] x [bucket]; 1 when none. */
-    fun resolvedShare(lane: String, bucket: Int, setup: String? = null): Double {
+    fun resolvedShare(lane: String, bucket: Int, setup: String? = null, scoreVersion: Int? = null): Double {
         var ok = 0; var lost = 0
         for (r in decisions) {
-            if (r.kind != 'D' || !r.executable || r.repeat || r.lane != lane || r.bucket != bucket || (setup != null && r.setup != setup)) continue
+            if (r.kind != 'D' || !r.executable || r.repeat || r.lane != lane || r.bucket != bucket || (setup != null && r.setup != setup) ||
+                (scoreVersion != null && r.scoreVersion8372 != scoreVersion)) continue
             // V5.0.8187 — a late voter read is neither resolved nor lost: its label came, its verdict was read too late to
             // count (the lag is queue timing, not outcome), so it leaves the cohort instead of dragging the share down.
             if (r.lateRead8187 && !r.lost && !r.lateEntry8153) continue
@@ -522,7 +559,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         return decisions.filter { it.graded && !it.lost && it.executablePct.isFinite() }.groupBy { it.key() + "#" + it.bucket }
             .mapNotNull { (k, rs) ->
                 if (rs.size < minN) null else {
-                    val s = CortexWalkForward8144.stat8144(rs.map { objectivePct8322(it) - offset8187(it.lane) })  // V5.0.8322 — objective, raw
+                    val s = CortexWalkForward8144.stat8144(rs.map { objectivePct8322(it) - offsetFor8372(it) })
                     val rr = CortexWalkForward8144.stat8144(realised[k].orEmpty().map { it.realisedPct })
                     Cell8144(k.substringBefore('#'), rs.first().bucket, s.n, s.mean, s.se, rr.n, rr.mean)
                 }
@@ -550,6 +587,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         r.rawEdge8371.takeIf { it.isFinite() }?.toString().orEmpty(),
         r.laneMean8371.takeIf { it.isFinite() }?.toString().orEmpty(),
         r.calStamp8371.takeIf { it.isFinite() }?.toString().orEmpty(),
+        r.scoreVersion8372.toString(), clean(r.outcomeSource8372), r.firstAvailableAtMs8372.toString(),
     ).joinToString(FS.toString())
 
     fun encode(): String = (decisions + trades.values).joinToString(RS.toString()) { encodeOne(it) }
@@ -564,7 +602,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             // V5.0.8187 — 26 fields (late voter read); a 25-field row reads as on time.
             // V5.0.8322 — 29 fields (revised executable, its availability, flat mark); 24..26-field rows read as before.
             // V5.0.8324 — 32 fields (objective gross first / revised, tail EV); 24..29-field rows read as before.
-            if (f.size !in 24..37 || f[0].length != 1 || f[1].isBlank()) continue
+            if (f.size !in 24..40 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
@@ -579,6 +617,9 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             r.rawEdge8371 = dbl(f.getOrNull(34))
             r.laneMean8371 = dbl(f.getOrNull(35))
             r.calStamp8371 = dbl(f.getOrNull(36))
+            r.scoreVersion8372 = f.getOrNull(37)?.toIntOrNull() ?: 0
+            r.outcomeSource8372 = f.getOrNull(38)?.takeIf { it == "SHADOW_EXIT" } ?: "FORWARD"
+            r.firstAvailableAtMs8372 = f.getOrNull(39)?.toLongOrNull() ?: 0L
             if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
             when (r.kind) {
                 'D' -> if (!byId.containsKey(r.id)) { decisions.add(r); byId[r.id] = r; noteGraded(r) }

@@ -1482,6 +1482,8 @@ object CryptoAltTrader {
                     buyPressurePct = buyPct, source = refreshed.source,
                     ageHours = refreshed.discoveryAgeHours6544,
                     brainScore = cryptoDecision7244.score, brainConfidence = cryptoDecision7244.confidence,
+                    priceObservedAtMs8372 = com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
+                        price, refreshed.price, refreshed.priceObservedAtMs8372, System.currentTimeMillis()),
                 )
                 val deskCandidates7803 = CryptoLaneDesk7391.qualifyAll7803(cryptoDeskTs7803)
                 val desk7391 = deskCandidates7803.maxByOrNull { it.conviction }

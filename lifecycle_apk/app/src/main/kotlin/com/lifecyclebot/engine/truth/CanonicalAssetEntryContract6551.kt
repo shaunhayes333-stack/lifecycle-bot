@@ -259,7 +259,7 @@ object CanonicalEntryAuthority6551 {
         // out-earns its admitted cohort, that refusal is not evidence and does not bind. Hard safety still does.
         val evRefusalInverted8094 = try {
             val (adm, ref) = ForwardReturnLabeler7731.laneDecisionStats8094(
-                com.lifecyclebot.engine.cortex.CrossAssetCortex7931.laneFor(candidate.assetClass) ?: "")
+                com.lifecyclebot.engine.cortex.CrossAssetCortex7931.laneFor8107(candidate.assetClass, candidate.evidence["deskLane7391"]) ?: "")
             com.lifecyclebot.engine.refusalInverted8094(ref?.n60 ?: 0, ref?.meanNet60Pct ?: 0.0, ref?.stderr60Pct ?: 0.0,
                 adm?.n60 ?: 0, adm?.meanNet60Pct ?: 0.0)
         } catch (_: Throwable) { false }
@@ -476,6 +476,9 @@ object CanonicalEntryAuthority6551 {
             fdgDecisionId6613 = "${candidate.mode.uppercase()}:${candidate.assetId}:${candidate.candidateVersion}:${candidate.specialist.ifBlank { candidate.assetClass.tag }}",
             fdgEvidence6613 = "assetClass=${candidate.assetClass.tag};score=${candidate.score};confidence=${candidate.confidence};hardNo=0",
             expiresAtMs6613 = System.currentTimeMillis() + if (candidate.mode.equals("PAPER", true)) 180_000L else 45_000L,
+            cortexLearningLane8372 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.laneFor8107(
+                candidate.assetClass, candidate.evidence["deskLane7391"]).orEmpty(),
+            cortexLearningIdentity8372 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.learningIdentity8372(candidate),
         )
         val registered = ExecutableOpenGate.registerCanonicalIntent6554(intent)
             ?: return deferred(candidate, venue, "EXEC_INTENT_REGISTRATION_FAILED")
@@ -567,6 +570,40 @@ object CanonicalEntryAuthority6551 {
         return pending.entries.firstOrNull { it.key.startsWith(prefix) && (candidateVersion == null || it.value.candidateVersion == candidateVersion) }?.value
     }
 
+    private fun learningSeal8372(intent: ExecutableOpenGate.ExecutionIntent) =
+        com.lifecyclebot.engine.cortex.CrossAssetLearningSeal8372.Seal(intent.mint, intent.mode, intent.candidateVersion,
+            intent.assetClassTag, intent.cortexLearningLane8372, intent.createdAt, intent.direction,
+            intent.cortexLearningIdentity8372, intent.attemptId, intent.symbol)
+
+    /** Called only by the executor that holds this immutable pending intent and its same-order confirmed fill. */
+    internal fun bindConfirmedMarketLearning8372(intent: ExecutableOpenGate.ExecutionIntent,
+                                                 fill: com.lifecyclebot.perps.MarketsLiveExecutor.MarketsFill6486,
+                                                 executedSymbol: String): Boolean {
+        if (!fill.confirmed || pending["${intent.mode}:${intent.mint}:${intent.candidateVersion}"] != intent) return false
+        val p = CanonicalPositionAuthority6441.getPosition(fill.positionId) ?: return false
+        val binding = com.lifecyclebot.engine.cortex.CrossAssetLearningSeal8372.confirmedMarketBinding(
+            learningSeal8372(intent),
+            com.lifecyclebot.engine.cortex.CrossAssetLearningSeal8372.ConfirmedFill(fill.positionId, fill.targetMint,
+                fill.signature.orEmpty(), fill.route, fill.proofState, fill.filledQtyRaw.signum() > 0,
+                fill.principalSol.isFinite() && fill.principalSol > 0.0, fill.flashPositionKey.orEmpty(),
+                intent.attemptId, intent.candidateVersion, executedSymbol),
+            com.lifecyclebot.engine.cortex.CrossAssetLearningSeal8372.ConfirmedPosition(p.positionId, p.mint, p.runId,
+                p.mode, p.assetClass.tag, p.symbol, p.openedAtMs))
+        if (binding == null) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKET_CORTEX_ALIAS_UNPROVED_8372") } catch (_: Throwable) {}
+            return false
+        }
+        com.lifecyclebot.engine.cortex.Cortex7885.bindPosition8076(p.positionId, binding.canonicalMint, binding.lane,
+            p.mode, p.openedAtMs, learningIdentity8372 = binding.learningIdentity)
+        return true
+    }
+
+    /** Exact already-sealed learning metadata, read without expiring/mutating execution state under the position lock. */
+    internal fun learningLaneForOpen8372(mint: String, mode: String, assetClass: AssetClass,
+                                         candidateVersion: Long, openedAtMs: Long): String? =
+        com.lifecyclebot.engine.cortex.CrossAssetLearningSeal8372.resolve(mint, mode, assetClass.tag,
+            candidateVersion, openedAtMs, pending.values.map(::learningSeal8372))
+
     fun markDispatch(intent: ExecutableOpenGate.ExecutionIntent) {
         if (terminalByAttempt6647.containsKey(intent.attemptId)) return
         if (dispatchedAttempts6569.add(intent.attemptId)) {
@@ -587,6 +624,19 @@ object CanonicalEntryAuthority6551 {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_DUPLICATE_TERMINAL_SUPPRESSED_6647") } catch (_: Throwable) {}
             return
         }
+        // The old generic CRYPTO_ALT canonical lane lost the desk owner's CRYPTO_EXPRESS/QUALITY/... assessment.
+        // Use this EXACT confirmed intent's frozen learning lane; never rewrite execution ownership or infer a symbol.
+        try {
+            val p8372 = CanonicalPositionAuthority6441.getPosition(positionId)
+            if (p8372 != null) {
+                val learningLane8372 = com.lifecyclebot.engine.cortex.CrossAssetLearningSeal8372.resolve(
+                    p8372.mint, p8372.mode, p8372.assetClass.tag, intent.candidateVersion, p8372.openedAtMs,
+                    listOf(learningSeal8372(intent)))
+                if (learningLane8372 != null) com.lifecyclebot.engine.cortex.Cortex7885.bindPosition8076(
+                    positionId, p8372.mint, learningLane8372, p8372.mode, p8372.openedAtMs,
+                    learningIdentity8372 = intent.cortexLearningIdentity8372.takeIf { it.isNotBlank() })
+            }
+        } catch (_: Throwable) {}
         pending.remove("${intent.mode}:${intent.mint}:${intent.candidateVersion}")
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_CONFIRMED_RELEASE") } catch (_: Throwable) {}
         dispatchedAttempts6569.remove(intent.attemptId)

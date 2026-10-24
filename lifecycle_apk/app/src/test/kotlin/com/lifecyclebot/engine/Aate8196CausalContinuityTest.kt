@@ -82,12 +82,15 @@ class Aate8196CausalContinuityTest {
         assertTrue(code.indexOf("val stillPending8196 =") < code.indexOf("val d = lanes.asSequence()"))
     }
 
-    @Test fun rejectedNativeLaneDoesNotGenerateExecutableCortexTrainingProof() {
+    @Test fun physicalOrOutOfMandateNativeNoDoesNotGenerateExecutableCortexTrainingProof() {
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_MCAP_TOO_LOW"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "OUTSIDE_NATIVE_AGE"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_SELLABILITY_REJECT"))
-        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", false))
+        // 8372: a specialist's scored NO is the counterfactual being measured, not a safety failure.
+        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", false))
         assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", true))
+        assertFalse(CortexLabelHygiene8144.counterfactualExecutable8372(false, "SCORE_TOO_LOW", false, false, "PRICE_NOT_FRESH"))
+        assertFalse(CortexLabelHygiene8144.counterfactualExecutable8372(false, "SCORE_TOO_LOW", false, true, "MCAP_TOO_LOW"))
         // A landed authorised buy is economic truth, even if a diagnostic reason was later applied.
         assertTrue(CortexLabelHygiene8144.executableDecision8144(true, "NATIVE_MCAP_TOO_LOW"))
     }
@@ -119,7 +122,8 @@ class Aate8196CausalContinuityTest {
         assertTrue(native.contains("LanePlaybook7907.requestEvidence8153(ts, missingByFeature.values.toList(), nowMs)"))
         assertTrue(cortex.contains("fun prewarmNative8196(ts: TokenState, lane: String)"))
         assertTrue(cortex.contains("val nativeEligible8196 ="))
-        assertTrue(cortex.contains("executableDecision8144(admitted, reason, nativeEligible8196)"))
+        assertTrue(cortex.contains("CortexLabelHygiene8144.counterfactualExecutable8372("))
+        assertTrue(cortex.contains("admitted, reason, nativeEligible8196, opinion8372?.gradeable, opinion8372?.reason"))
         assertFalse(native.contains("PipelineHealthCollector.labelInc(\"SPECIALIST_UPSTREAM_EVIDENCE_FAKE_OBSERVED"))
     }
 

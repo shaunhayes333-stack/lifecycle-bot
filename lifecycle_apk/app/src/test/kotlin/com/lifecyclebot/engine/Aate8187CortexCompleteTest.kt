@@ -453,8 +453,9 @@ class Aate8187CortexCompleteTest {
         assertEquals(listOf(40.0), book.executableSeries("SHITCOIN", null, strong))
         val cx = src("engine/cortex/Cortex7885.kt")
         // superseded by V5.0.8325: the calibrated read moved into calibratedRead8325 (same offset subtracted once)
-        // superseded by V5.0.8366 — a calibrated lane reads its isotonic rank fit at the slope-free 8325 score; a thin fit keeps the 8325 slope read.
-        assertTrue(cx.contains("val calibrated = calibratedRead8366(runner, fused, locked8325.slope, locked8325.iso8366) - executableOffset8187(lane)"))
+        // 8372 retains the one-offset contract while restoring arithmetic per-token calibration.
+        assertTrue(cx.contains("val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane))"))
+        assertFalse(cx.contains("calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372) - executableOffset8187(lane)"))
         assertTrue(cx.contains("return calibratedRead8325(runner, fused, slope)"))
         assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane)"))
         assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("fun laneStatFor7737(lane: String): CellStat? = executable8187(laneStat(lane), lane)"))

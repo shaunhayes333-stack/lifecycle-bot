@@ -182,7 +182,7 @@ class Aate8366CortexTest {
         assertTrue(lab.contains("decisionAtMs8371 = o.atMs"))
         assertTrue(cx.contains("if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371)"))
         assertTrue(cx.contains("val id = \"\$key|\$decisionAtMs8371\""))
-        assertTrue(cx.contains("val g = graded8006[id]"))
+        assertTrue(cx.contains("val g = gradedTrace8372(id)"))
         assertTrue(cx.contains("r.calStamp8371"))
         assertFalse(cx.contains("val g = graded8006[key] ?: run"))
         assertFalse(cx.contains("gradeBook8144.latestLabelled8324(key) ?: return"))
@@ -311,9 +311,16 @@ class Aate8366CortexTest {
         val cx = src("engine/cortex/Cortex7885.kt")
         assertTrue(cx.contains("private fun laneFractionHeld8187(lane: String): Double = authorityFraction8366(lane)"))
         assertTrue(cx.contains("private fun heldFraction8153(lane: String): Double = authorityFraction8366(lane)"))
-        assertTrue(cx.contains("calibratedRead8366(runner, fused, locked8325.slope, locked8325.iso8366)"))
-        assertTrue(cx.contains("uncalibratedNeutral8366(lane, locked8325.iso8366,"))
-        assertTrue(cx.contains("calibratedRead8325(p.a.runnerLane, p.a.fused, 1.0))  // V5.0.8366 — rank pair"))
+        // 8372 restores one arithmetic token forecast. The old log fit remains a diagnostic API,
+        // not the decision path; an uncalibrated lane must not rewrite every token to NEUTRAL.
+        assertTrue(cx.contains("calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane))"))
+        assertTrue(cx.contains("calibration.netFit8372(lane, executableOffset8187(lane))"))
+        assertFalse(cx.contains("uncalibratedNeutral8366(lane, locked8325.iso8366,"))
+        assertTrue(cx.contains("CortexAuthority8366.test8372("))
+        assertTrue(cx.contains("scoreVersion = 1"))
+        assertTrue(cx.contains("calibrationScore8372(p.a),"))
+        assertTrue(cx.contains("targetBasis8372 = if (shadowExit8372) CortexCalibration7901.TARGET_SHADOW_NET_8372 else CortexCalibration7901.TARGET_FORWARD_NET_8372"))
+        assertTrue(cx.contains("CortexAssessmentProvenance8372.decode("))
         assertTrue(cx.contains("CortexVoters7885.stampLaneBrains8366(ts, nowMs)"))
         assertTrue(cx.contains("LaneBrainVotes8366.noteWaitMs8366("))
         assertTrue(cx.contains("nullWhy8201<CortexWalkForward8144.Stat8144>(\"AUTHORITY_8366_"))
@@ -329,6 +336,6 @@ class Aate8366CortexTest {
         val cal = src("engine/cortex/CortexCalibration7901.kt")
         assertTrue(cal.contains("const val MAX_SLOPE = 1.5"))   // the old slope is still learned and shown
         assertTrue(cal.contains("fun fitIso8366("))
-        assertTrue(src("engine/cortex/CortexGradeBook8144.kt").contains("fun scoredRows8366(lane: String, runner: Boolean)"))
+        assertTrue(src("engine/cortex/CortexGradeBook8144.kt").contains("fun scoredRows8366(lane: String, runner: Boolean, scoreVersion: Int? = null, setup: String? = null)"))
     }
 }

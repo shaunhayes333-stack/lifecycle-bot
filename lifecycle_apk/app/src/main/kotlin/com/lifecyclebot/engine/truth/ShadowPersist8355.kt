@@ -37,7 +37,47 @@ object ShadowPersist8355 {
         val held: Double, val banked: Double, val tiers: Int, val peak: Double, val trough: Double,
         // V5.0.8366 — the lifecycle hold (ShadowAlign8366): appended leg fields, so a pre-8366 leg (11 fields) decodes
         val hold8366: Boolean = false, val taken8366: Int = 0, val peakAt8366: Long = 0L,
+        // V5.0.8372 — a triggered exit retains its original cause and latency clock across restart.
+        val exitAt8366: Long = 0L, val exitWhy8366: String = "",
     )
+
+    /**
+     * V5.0.8372 — one decision, one learning outcome. The exit is chosen BEFORE the trade; the other modelled exit is
+     * still a useful counterfactual, but never a second vote-training example. A terminal value is retained until the
+     * Cortex acknowledges its exact (mint, lane, assessment time) receipt. Missing/failed fills are explicit unavailable
+     * outcomes, not zero returns or fee-only token losses. Empty exit denotes a pre-8372 ticket: no historical prediction
+     * is reconstructed for it.
+     */
+    data class CortexShadowOutcome8372(
+        val exit: String = "",
+        val atMs: Long = 0L,
+        val netPct: Double = Double.NaN,
+        val grossPct: Double = Double.NaN,
+        val unavailable: String = "",
+        val delivered: Boolean = false,
+    ) {
+        fun owns8372(entry: String, legExit: String): Boolean =
+            exit in setOf("RUNNER", "SCALP") && entry == "NOW" && legExit == exit
+
+        fun pending8372(): Boolean = exit.isNotBlank() && atMs > 0L && !delivered
+
+        fun awaiting8372(): Boolean = exit.isNotBlank() && !delivered
+
+        fun closed8372(entry: String, legExit: String, net: Double, gross: Double, why: String, nowMs: Long,
+                       executable: Boolean): CortexShadowOutcome8372 {
+            if (!owns8372(entry, legExit) || atMs > 0L || delivered) return this
+            if (!executable || !net.isFinite() || !gross.isFinite())
+                return unavailable8372(why.ifBlank { "INVALID_TERMINAL_MARK_8372" }, nowMs)
+            return copy(atMs = nowMs, netPct = net, grossPct = gross)
+        }
+
+        fun unavailable8372(why: String, nowMs: Long): CortexShadowOutcome8372 {
+            if (!awaiting8372() || atMs > 0L) return this
+            return copy(atMs = nowMs, unavailable = why.ifBlank { "SHADOW_UNAVAILABLE_8372" })
+        }
+
+        fun acknowledged8372(): CortexShadowOutcome8372 = if (pending8372()) copy(delivered = true) else this
+    }
 
     /** An open ExploreShadow8347 ticket with its legs. */
     data class TicketRec8355(
@@ -47,6 +87,8 @@ object ShadowPersist8355 {
         // V5.0.8360 — the ticket's kind (NATIVE / REJECT / SETUP) and the source that priced its entry; appended fields, so a
         // pre-8360 record (19 fields) still decodes ("" = derive the kind from nativeEligible).
         val kind8360: String = "", val markSrc8360: String = "",
+        // V5.0.8372 — appended: old books stay intact; old tickets carry no invented prediction receipt.
+        val cortex8372: CortexShadowOutcome8372 = CortexShadowOutcome8372(),
     )
 
     /** One liveEntryWait8347 wait: the first admit's time and mark for mint|lane. */
@@ -61,6 +103,28 @@ object ShadowPersist8355 {
     /** The coalescing rule: a forced write (open, arm, close) always goes; a changed record waits [coalesceMs] since its last write. */
     fun writeDue8355(dirty: Boolean, lastWriteMs: Long, nowMs: Long, force: Boolean = false, coalesceMs: Long = COALESCE_MS_8355): Boolean =
         force || (dirty && (lastWriteMs <= 0L || nowMs - lastWriteMs >= coalesceMs || nowMs < lastWriteMs))
+
+    /** A delayed sell needs an actual observation after its trigger + latency, not a reread of the trigger mark. */
+    fun exitFillObserved8372(observedAtMs: Long, triggerAtMs: Long, latencyMs: Long, nowMs: Long): Boolean =
+        observedAtMs > 0L && triggerAtMs > 0L && latencyMs >= 0L && observedAtMs <= nowMs &&
+            observedAtMs >= triggerAtMs && observedAtMs - triggerAtMs >= latencyMs
+
+    /** A routed SPL address does not turn a stock/FX/crypto/short trader into the Solana long-only fill model. */
+    fun crossAssetShadowLane8372(laneRaw: String): Boolean {
+        val lane = laneRaw.trim().substringBefore('@').uppercase()
+        return lane in setOf("CRYPTO", "FOREX", "EVM", "PERP", "PERPS", "SHORT") ||
+            listOf("MKT_", "CRYPTO_", "EVM_", "FOREX_", "PERP_", "PERPS_", "SHORT_").any { lane.startsWith(it) } ||
+            lane.endsWith("_SHORT")
+    }
+
+    /** The filled numerator and unfilled denominator always use the same isolated Cortex populations. */
+    fun cortexPopulationKeys8372(lane: String, entry: String, exit: String, kind: String,
+                                setup: String, tactic: String): List<String> {
+        if (kind !in setOf("CORTEX_YES", "CORTEX_NO", "CORTEX_HOLD")) return emptyList()
+        val v = "$lane|$entry|$exit"
+        val verdict = kind.removePrefix("CORTEX_")
+        return listOf("C|$v|CX:$verdict", "C|$v|CXS:$verdict:${setup.take(48)}", "C|$v|CXT:$verdict:$tactic")
+    }
 
     // ── encoding ──
 
@@ -104,6 +168,7 @@ object ShadowPersist8355 {
         clean(l.entry), clean(l.exit), b(l.active), b(l.dead), d(l.entryPx), l.entryAtMs.toString(), d(l.held), d(l.banked),
         l.tiers.toString(), d(l.peak), d(l.trough),
         b(l.hold8366), l.taken8366.toString(), l.peakAt8366.toString(),   // V5.0.8366
+        l.exitAt8366.toString(), clean(l.exitWhy8366),   // V5.0.8372
     ).joinToString(LEG_F.toString())
 
     private fun decodeLeg(s: String): LegRec8355? {
@@ -115,6 +180,7 @@ object ShadowPersist8355 {
             banked = pd(p[7]) ?: return null, tiers = pi(p[8]) ?: return null, peak = pd(p[9]) ?: return null,
             trough = pd(p[10]) ?: return null,
             hold8366 = pb(p.getOrNull(11)) ?: false, taken8366 = pi(p.getOrNull(12)) ?: 0, peakAt8366 = pl(p.getOrNull(13)) ?: 0L,   // V5.0.8366
+            exitAt8366 = pl(p.getOrNull(14)) ?: 0L, exitWhy8366 = p.getOrNull(15) ?: "",   // V5.0.8372
         )
     }
 
@@ -123,6 +189,8 @@ object ShadowPersist8355 {
         d(r.signalPx), r.atMs.toString(), d(r.costPct), d(r.stopPct), d(r.armPct), b(r.runner), b(r.nativeEligible),
         d(r.lastPx), r.lastPxAtMs.toString(), r.legs.joinToString(LEG_SEP.toString()) { encodeLeg(it) },
         clean(r.kind8360), clean(r.markSrc8360),   // V5.0.8360
+        clean(r.cortex8372.exit), r.cortex8372.atMs.toString(), d(r.cortex8372.netPct), d(r.cortex8372.grossPct),
+        clean(r.cortex8372.unavailable), b(r.cortex8372.delivered),   // V5.0.8372
     ).joinToString(F.toString())
 
     fun decodeTicket8355(s: String?): TicketRec8355? {
@@ -144,6 +212,12 @@ object ShadowPersist8355 {
             armPct = pd(p[13]) ?: return null, runner = pb(p[14]) ?: return null, nativeEligible = pb(p[15]) ?: return null,
             lastPx = pd(p[16]) ?: return null, lastPxAtMs = pl(p[17]) ?: return null, legs = legs,
             kind8360 = p.getOrNull(19) ?: "", markSrc8360 = p.getOrNull(20) ?: "",   // V5.0.8360
+            cortex8372 = CortexShadowOutcome8372(
+                exit = p.getOrNull(21)?.takeIf { it == "RUNNER" || it == "SCALP" } ?: "",
+                atMs = pl(p.getOrNull(22)) ?: 0L, netPct = pd(p.getOrNull(23)) ?: Double.NaN,
+                grossPct = pd(p.getOrNull(24)) ?: Double.NaN, unavailable = p.getOrNull(25) ?: "",
+                delivered = pb(p.getOrNull(26)) ?: false,
+            ),
         )
     }
 

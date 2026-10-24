@@ -371,7 +371,12 @@ object MarketsLiveExecutor {
                 mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE
             return@withContext MarketsFill6486(if (accepted) FillState6486.CONFIRMED else FillState6486.FAILED,
                 positionId, sig, "SPOT", targetMint, qty, decimals, principal, fee,
-                proof.ifBlank { "TARGET_DELTA_UNPROVED" }, reason = if (accepted) "" else "Canonical live open rejected: $mutation")
+                proof.ifBlank { "TARGET_DELTA_UNPROVED" }, reason = if (accepted) "" else "Canonical live open rejected: $mutation").also { fill ->
+                    if (accepted && sealedIntent7914 != null) try {
+                        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.bindConfirmedMarketLearning8372(
+                            sealedIntent7914, fill, market.symbol)
+                    } catch (_: Throwable) {}
+                }
         }
 
         if (market.isCrypto && leverage > 1.0 && walletAddress.isNotBlank()) {
@@ -398,7 +403,12 @@ object MarketsLiveExecutor {
                     return@withContext MarketsFill6486(if (accepted) FillState6486.CONFIRMED else FillState6486.FAILED,
                         positionId, sig, "FLASH_PERPS", syntheticMint, syntheticQty, 9, principal, fee,
                         "FLASH_POSITION_ACCOUNT_CONFIRMED", flashPositionKey = key,
-                        reason = if (accepted) "" else "Canonical Flash open rejected: $mutation")
+                        reason = if (accepted) "" else "Canonical Flash open rejected: $mutation").also { fill ->
+                            if (accepted && sealedIntent7914 != null) try {
+                                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.bindConfirmedMarketLearning8372(
+                                    sealedIntent7914, fill, market.symbol)
+                            } catch (_: Throwable) {}
+                        }
                 }
             }
         }

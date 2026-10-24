@@ -24,6 +24,42 @@ object ShadowMark8360 {
 
     private fun ok(px: Double?): Boolean = px != null && px.isFinite() && px > 0.0
 
+    /** Cached observation, not a newly invented mark at the time of this read. */
+    data class Observation8372(val priceUsd: Double, val observedAtMs: Long, val source: String)
+
+    /**
+     * V5.0.8372 — timestamped version for executable shadow fills. The freshest
+     * qualifying observation wins so an old TICK cannot hide a post-trigger tape
+     * or registry mark. All inputs are existing caches; no network work occurs.
+     * The legacy pair-returning API remains unchanged for its existing readers.
+     */
+    fun observedTimed8372(ts: TokenState?, mint: String, nowMs: Long = System.currentTimeMillis()): Observation8372? {
+        if (mint.isBlank()) return null
+        val candidates = ArrayList<Observation8372>(4)
+        if (ts != null) candidates += Observation8372(ts.lastPrice, ts.lastPriceUpdate, SRC_TICK_8360)
+        try {
+            ForwardReturnLabeler7731.observedMark8372(mint, nowMs)?.let {
+                candidates += Observation8372(it.first, it.second, SRC_LABELER_8360)
+            }
+        } catch (_: Throwable) {}
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs) } catch (_: Throwable) { 0.0 }
+        if (solUsd.isFinite() && solUsd > 0.0) {
+            try {
+                CurveReserves7951.activeExitObservation(mint, nowMs, MAX_AGE_MS_8360)?.let {
+                    val px = CurveReserves7951.priceSol7951(it.virtualSol, it.virtualTokens) * solUsd
+                    candidates += Observation8372(px, it.observedAtMs, SRC_CURVE_8360)
+                }
+            } catch (_: Throwable) {}
+            try {
+                TradeTape8100.lastPrint8360(mint)?.let {
+                    candidates += Observation8372(it.first * solUsd, it.second, SRC_TAPE_8360)
+                }
+            } catch (_: Throwable) {}
+        }
+        return candidates.filter { ok(it.priceUsd) && it.observedAtMs > 0L &&
+            nowMs - it.observedAtMs in 0L..MAX_AGE_MS_8360 }.maxByOrNull { it.observedAtMs }
+    }
+
     /**
      * Pure: the first observed mark in the order tick, labeler, curve, tape. [tickAtMs] / [tapeAtMs] are the observation
      * times (accepted only inside [maxAgeMs], never in the future); [labelerPx] and [curvePx] were already read inside their

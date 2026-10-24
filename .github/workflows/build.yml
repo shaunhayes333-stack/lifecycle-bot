@@ -230,6 +230,7 @@ jobs:
       - name: Required lane and history regression tests
         run: |
           ./gradlew testReleaseUnitTest \
+            --tests '*Aate8372*' \
             --tests '*Aate8253*' \
             --tests '*Aate8136AdmissionRecordTest*' \
             --tests '*Aate8144AdmissionTest*' \

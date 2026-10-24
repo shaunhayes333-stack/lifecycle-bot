@@ -82,6 +82,8 @@ object DynamicAltTokenRegistry {
         val isStatic: Boolean = false,
         val sector: String = "",
         val lastUpdatedMs: Long = System.currentTimeMillis(),
+        // Price provenance for learning only: metadata/logo refreshes must never refresh this clock.
+        val priceObservedAtMs8372: Long = 0L,
     ) {
         val canonicalIdentity6544: String get() = canonicalIdentity6544(chainId, tokenAddress)
         val discoveryUrgency6544: String get() = when {
@@ -584,6 +586,7 @@ object DynamicAltTokenRegistry {
                     put("isStatic", tok.isStatic)
                     if (tok.sector.isNotBlank()) put("sector", tok.sector)
                     put("lastUpdatedMs", tok.lastUpdatedMs)
+                    put("priceObservedAtMs8372", tok.priceObservedAtMs8372)
                 }
                 if (n > 0) w.write(",")
                 w.write(o.toString())
@@ -666,6 +669,7 @@ object DynamicAltTokenRegistry {
                     isStatic       = o.optBoolean("isStatic", false),
                     sector         = o.optString("sector", ""),
                     lastUpdatedMs  = o.optLong("lastUpdatedMs", System.currentTimeMillis()),
+                    priceObservedAtMs8372 = o.optLong("priceObservedAtMs8372", 0L),
                 )
                 // V5.0.7490 — restore under the same canonical chain+token
                 // identity used by discovery/upsert. Bare mint keys created a
@@ -1290,7 +1294,8 @@ object DynamicAltTokenRegistry {
     }
 
     /** Update live price for a static token (called from PerpsMarketDataFetcher callback) */
-    fun updateStaticPrice(symbol: String, price: Double, change24h: Double, mcap: Double, vol24h: Double) {
+    fun updateStaticPrice(symbol: String, price: Double, change24h: Double, mcap: Double, vol24h: Double,
+                          priceObservedAtMs8372: Long = 0L) {
         val key = "static:$symbol"
         val existingEntry = registry.entries.firstOrNull { it.value.isStatic && it.value.symbol.equals(symbol, true) } ?: return
         val existing = existingEntry.value
@@ -1299,6 +1304,7 @@ object DynamicAltTokenRegistry {
             mcap = mcap.takeIf { it.isFinite() && it > 0.0 } ?: existing.mcap,
             mcapSource = if (mcap.isFinite() && mcap > 0.0) "STATIC_TRUSTED_MARKET_CAP" else existing.mcapSource,
             volume24h = vol24h, lastUpdatedMs = System.currentTimeMillis(),
+            priceObservedAtMs8372 = priceObservedAtMs8372,
         )
     }
 
@@ -1378,7 +1384,7 @@ object DynamicAltTokenRegistry {
             if (ids.isEmpty()) return already.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
             val url = "https://api.coingecko.com/api/v3/simple/price" +
                 "?ids=${ids.joinToString(",")}" +
-                "&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true"
+                "&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_last_updated_at=true"
             val body = httpGet(url)
             if (body.isNullOrBlank()) {
                 try {
@@ -1397,6 +1403,7 @@ object DynamicAltTokenRegistry {
                     val tok = registry[key] ?: continue
                     registry[key] = tok.copy(
                         price = px,
+                        priceObservedAtMs8372 = row.optLong("last_updated_at", 0L).takeIf { it in 1L..Long.MAX_VALUE / 1000L }?.times(1000L) ?: 0L,
                         priceChange24h = row.optDouble("usd_24h_change", tok.priceChange24h)
                             .takeIf { it.isFinite() } ?: tok.priceChange24h,
                         volume24h = row.optDouble("usd_24h_vol", 0.0)
@@ -1526,6 +1533,8 @@ object DynamicAltTokenRegistry {
                     val tok = byAddress7167[mint] ?: continue
                     registry[tok.canonicalIdentity6544] = tok.copy(
                         price = px,
+                        // Fan-out currently supplies no source observation timestamp. Do not invent one for learning.
+                        priceObservedAtMs8372 = 0L,
                         lastUpdatedMs = System.currentTimeMillis(),
                     )
                     repaired++
@@ -1612,6 +1621,7 @@ object DynamicAltTokenRegistry {
         val key = existing.canonicalIdentity6544
         registry[key] = existing.copy(
             price = price,
+            priceObservedAtMs8372 = pair.candle.ts,
             mcap = pair.candle.marketCap.takeIf { it.isFinite() && it > 0.0 } ?: existing.mcap,
             fdv = pair.fdv.takeIf { it.isFinite() && it > 0.0 } ?: existing.fdv,
             mcapSource = if (pair.candle.marketCap.isFinite() && pair.candle.marketCap > 0.0)
@@ -1644,6 +1654,16 @@ object DynamicAltTokenRegistry {
         )
     }
 
+    /** Cached learning mark only. Unknown legacy/metadata clocks are not price observations; exits remain unchanged. */
+    internal fun learningMark8372(identity: String, nowMs: Long): HeldMarkRefresh7251? {
+        val token = (registry[identity] ?: if (identity.startsWith("solana|")) null
+            else registry["solana|$identity"]) ?: return null
+        val observedAt = com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
+            token.price, token.price, token.priceObservedAtMs8372, nowMs, PRICE_TTL_MS)
+        if (observedAt <= 0L) return null
+        return HeldMarkRefresh7251(token.price, token.canonicalIdentity6544, observedAt, true)
+    }
+
     fun refreshHeldMark7251(identityOrAddress: String): HeldMarkRefresh7251 {
         refreshPriceForMintBlocking(identityOrAddress, forceRefresh = true)
         return heldMarkSnapshot7251(identityOrAddress)
@@ -1661,6 +1681,7 @@ object DynamicAltTokenRegistry {
         val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return false
         registry[existing.canonicalIdentity6544] = existing.copy(
             price = priceUsd,
+            priceObservedAtMs8372 = 0L,
             lastUpdatedMs = System.currentTimeMillis(),
         )
         return true
@@ -1686,6 +1707,7 @@ object DynamicAltTokenRegistry {
             pairAddress = pair.pairAddress, quoteAddress = pair.quoteAddress,
             pairCreatedAtMs = createdAt,
             price = pair.candle.priceUsd, mcap = pair.candle.marketCap, fdv = pair.fdv,
+            priceObservedAtMs8372 = pair.candle.ts,
             liquidityUsd = pair.liquidity, volume24h = pair.candle.volume24h,
             buys24h = pair.candle.buys24h, sells24h = pair.candle.sells24h,
             ageHours = if (createdAt > 0L) ((System.currentTimeMillis() - createdAt).coerceAtLeast(0L) / 3_600_000.0) else 999.0,
@@ -1842,6 +1864,7 @@ object DynamicAltTokenRegistry {
                         name          = name,
                         logoUrl       = logo,
                         price         = price,
+                        priceObservedAtMs8372 = try { java.time.Instant.parse(obj.optString("last_updated", "")).toEpochMilli() } catch (_: Throwable) { 0L },
                         priceChange24h= chg24h,
                         mcap          = mcap,
                         volume24h     = vol,
@@ -2046,6 +2069,7 @@ object DynamicAltTokenRegistry {
             // Direct mint match — enrich static token
             registry[canonicalKey6544] = existing.copy(
                 price         = tok.price.takeIf { it > 0 } ?: existing.price,
+                priceObservedAtMs8372 = if (tok.price > 0.0) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
                 priceChange24h= tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
                 mcap          = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcap,
                 fdv           = tok.fdv.takeIf { it > 0 } ?: existing.fdv,
@@ -2070,6 +2094,7 @@ object DynamicAltTokenRegistry {
                 pairCreatedAtMs = tok.pairCreatedAtMs.takeIf { it > 0L } ?: existing.pairCreatedAtMs,
                 firstSeenMs = minOf(existing.firstSeenMs, tok.firstSeenMs),
                 price = tok.price.takeIf { it > 0.0 } ?: existing.price,
+                priceObservedAtMs8372 = if (tok.price > 0.0) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
                 priceChange24h = tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
                 mcap = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcap,
                 fdv = tok.fdv.takeIf { it > 0.0 } ?: existing.fdv,

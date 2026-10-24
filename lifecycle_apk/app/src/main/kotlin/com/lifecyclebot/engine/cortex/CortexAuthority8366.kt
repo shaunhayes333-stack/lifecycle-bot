@@ -2,6 +2,8 @@ package com.lifecyclebot.engine.cortex
 
 /**
  * V5.0.8366 §ONE_AUTHORITY_TEST — a lane's STRONG-side authority is earned on ONE walk-forward test of its executable labels.
+ * V5.0.8372 — [test8372] is that runtime test: the actual frozen STRONG verdicts versus disjoint non-STRONG verdicts,
+ * with explicit outcome availability. The 8366 quantile selector described below remains [test8366] for diagnostics only.
  *
  * Before: nine stacked gates (label fraction n / mean - SE bars, the calibration slope floor, realised STRONG closes needed
  * before any authority (CortexRealisedAuthority8136), the STRONG-cohort walk-forward's INSUFFICIENT_DATA / rival /
@@ -32,8 +34,18 @@ object CortexAuthority8366 {
 
     enum class Verdict8366 { INSUFFICIENT_OOS, NO_RANK, SPREAD_BELOW_COST, TOP_NOT_POSITIVE, GRANTED }
 
-    /** One graded executable decision: when it was made, the score it was read on, the executable-net objective (%). */
-    data class Row8366(val atMs: Long, val score: Double, val netPct: Double)
+    /**
+     * One graded executable decision: its immutable decision-time score/verdict and executable-net objective (%).
+     * 8372's runtime path requires the frozen verdict and when this exact outcome (including a runner revision) became
+     * available. Defaults keep historical three-field rows readable by the legacy diagnostic test, not current proof.
+     */
+    data class Row8366(
+        val atMs: Long,
+        val score: Double,
+        val netPct: Double,
+        val frozenBucket: Int? = null,
+        val outcomeAvailableAtMs: Long = 0L,
+    )
 
     data class Result8366(
         val verdict: Verdict8366,
@@ -47,11 +59,16 @@ object CortexAuthority8366 {
         val topSe: Double,
         val costPct: Double,
         val fraction: Double,
+        /** The legacy quantile test and current actual-verdict test are explicitly distinguished in telemetry. */
+        val cohort: String = "RANK_QUANTILES_8366",
+        /** Current rows not usable yet, or lacking valid frozen prediction/outcome provenance. */
+        val excludedRows8372: Int = 0,
     ) {
         val spread: Double get() = if (topMean.isFinite() && bottomMean.isFinite()) topMean - bottomMean else Double.NaN
         val granted: Boolean get() = verdict == Verdict8366.GRANTED && fraction > 0.0
         fun compact(): String = "${verdict.name} oos=n$oosN ic=${f(ic)} top=${f(topMean)}(n$topN) bot=${f(bottomMean)}(n$bottomN) " +
-            "spread=${f(spread)} cost=${f(costPct)} auth=${(kotlin.math.round(fraction * 100.0) / 100.0)}"
+            "spread=${f(spread)} cost=${f(costPct)} auth=${(kotlin.math.round(fraction * 100.0) / 100.0)}" +
+            if (cohort == "RANK_QUANTILES_8366") "" else " cohort=$cohort excluded=$excludedRows8372"
         private fun f(v: Double) = if (v.isFinite()) (kotlin.math.round(v * 100.0) / 100.0).toString() else "-"
     }
 
@@ -83,13 +100,59 @@ object CortexAuthority8366 {
                 if (lo.isFinite() && r.score <= lo) bottom.add(r.netPct)
             }
         }
+        return evaluate8366(oosScore, oosNet, top, bottom, cost)
+    }
+
+    /**
+     * V5.0.8372 — the ONE runtime authority test, on the actual predictions that exercise that authority.
+     *
+     * A profitable top score quintile did not prove that the STRONG verdicts were profitable: percentile cutoffs and
+     * the displayed per-token bucket could select different coins. Ties could even enter both quantile cohorts.
+     * Use immutable STRONG decisions versus the disjoint NEUTRAL/REFUSE baseline instead. Requiring REFUSE alone would
+     * wrongly strand runner lanes whose tail protection legitimately maps weak predictions to NEUTRAL.
+     *
+     * Keep the same chronological five-fold warmup, sample floors, rank requirement, economic comparison and authority
+     * graduation. The score and verdict were fixed before the outcome; neither is fitted or relabelled in this test.
+     * Only outcomes actually knowable at [asOfMs] may enter. In particular a later four-hour runner label is evaluated
+     * once available, never presented as a five-minute result in an earlier replay. Unknown availability is not invented.
+     * The legacy [test8366] remains available as a clearly separate diagnostic, not another runtime gate.
+     */
+    fun test8372(rows: List<Row8366>, costPct: Double, asOfMs: Long, folds: Int = FOLDS_8366): Result8366 {
+        val cost = if (costPct.isFinite() && costPct > 0.0) costPct else 0.0
+        val buckets = CortexScoreboard7885.Bucket.values().indices
+        val xs = rows.filter {
+            it.atMs > 0L && it.atMs <= asOfMs && it.score.isFinite() && it.netPct.isFinite() &&
+                it.frozenBucket != null && it.frozenBucket in buckets &&
+                it.outcomeAvailableAtMs > it.atMs && it.outcomeAvailableAtMs <= asOfMs
+        }.sortedBy { it.atMs }
+        val k = folds.coerceIn(2, 10)
+        val oosScore = ArrayList<Double>(); val oosNet = ArrayList<Double>()
+        val strong = ArrayList<Double>(); val nonStrong = ArrayList<Double>()
+        for (i in 1 until k) {
+            val first = (i.toLong() * xs.size / k).toInt()
+            val end = ((i + 1).toLong() * xs.size / k).toInt()
+            if (first <= 0 || end <= first) continue
+            for (r in xs.subList(first, end)) {
+                oosScore.add(r.score); oosNet.add(r.netPct)
+                if (r.frozenBucket == CortexScoreboard7885.Bucket.STRONG.ordinal) strong.add(r.netPct)
+                else nonStrong.add(r.netPct)
+            }
+        }
+        return evaluate8366(oosScore, oosNet, strong, nonStrong, cost, "STRONG_VS_NON_STRONG_8372", rows.size - xs.size)
+    }
+
+    /** Same evidence test for both cohort selectors; 8372 replaces the cohort semantics, not the proof bar. */
+    private fun evaluate8366(
+        oosScore: List<Double>, oosNet: List<Double>, top: List<Double>, bottom: List<Double>, cost: Double,
+        cohort: String = "RANK_QUANTILES_8366", excludedRows8372: Int = 0,
+    ): Result8366 {
         val n = oosNet.size
         val ic = CortexTailEv8324.rankIc8324(oosScore, oosNet)
         val tm = if (top.isEmpty()) Double.NaN else top.average()
         val bm = if (bottom.isEmpty()) Double.NaN else bottom.average()
         val tse = if (top.size < 2) Double.POSITIVE_INFINITY else
             kotlin.math.sqrt(top.sumOf { (it - tm) * (it - tm) } / (top.size - 1) / top.size)
-        fun out(v: Verdict8366, fr: Double) = Result8366(v, n, ic, tm, bm, top.size, bottom.size, tse, cost, fr)
+        fun out(v: Verdict8366, fr: Double) = Result8366(v, n, ic, tm, bm, top.size, bottom.size, tse, cost, fr, cohort, excludedRows8372)
         if (n < MIN_OOS_N_8366 || top.size < MIN_BUCKET_N_8366 || bottom.size < MIN_BUCKET_N_8366) return out(Verdict8366.INSUFFICIENT_OOS, 0.0)
         if (!ic.isFinite() || ic <= 0.0) return out(Verdict8366.NO_RANK, 0.0)
         val spread = tm - bm

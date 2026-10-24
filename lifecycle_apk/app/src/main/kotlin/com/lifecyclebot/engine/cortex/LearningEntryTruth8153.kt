@@ -81,21 +81,26 @@ object LearningEntryTruth8153 {
         return if (v.size % 2 == 1) v[m] else (v[m - 1] + v[m]) / 2.0
     }
 
-    /** Pure: the verdict stats of [lane] read from the tradeable grade records (executable, first of episode, on time). */
-    fun verdictRow8153(book: CortexGradeBook8144, lane: String): VerdictRow8153 {
+    /**
+     * Pure: the verdict stats of [lane] from tradeable records (executable, first of episode, on time).
+     * A supplied [scoreVersion] keeps the displayed YES/NO cohort on the same frozen prediction semantics as authority.
+     * Null preserves the complete historical display; no stored decision or verdict is rewritten.
+     */
+    fun verdictRow8153(book: CortexGradeBook8144, lane: String, scoreVersion: Int? = null): VerdictRow8153 {
         val s = CortexScoreboard7885.Bucket.STRONG.ordinal
         val nu = CortexScoreboard7885.Bucket.NEUTRAL.ordinal
         val r = CortexScoreboard7885.Bucket.REFUSE.ordinal
-        val ss = book.executableSeries(lane, null, s)
-        val ns = book.executableSeries(lane, null, nu)
-        val rs = book.executableSeries(lane, null, r)
+        val ss = book.executableSeries(lane, null, s, scoreVersion)
+        val ns = book.executableSeries(lane, null, nu, scoreVersion)
+        val rs = book.executableSeries(lane, null, r, scoreVersion)
         val st = CortexWalkForward8144.stat8144(ss)
         val nt = CortexWalkForward8144.stat8144(ns)
         val rt = CortexWalkForward8144.stat8144(rs)
-        return VerdictRow8153(st.n, st.mean, nt.n, nt.mean, rt.n, rt.mean, book.resolvedShare(lane, s), book.resolvedShare(lane, r),
+        return VerdictRow8153(st.n, st.mean, nt.n, nt.mean, rt.n, rt.mean,
+            book.resolvedShare(lane, s, scoreVersion = scoreVersion), book.resolvedShare(lane, r, scoreVersion = scoreVersion),
             median8165(ss), median8165(ns), median8165(rs),
-            median8165(book.executableGrossSeries8198(lane, null, s)), median8165(book.executableGrossSeries8198(lane, null, nu)),
-            median8165(book.executableGrossSeries8198(lane, null, r)))
+            median8165(book.executableGrossSeries8198(lane, null, s, scoreVersion)), median8165(book.executableGrossSeries8198(lane, null, nu, scoreVersion)),
+            median8165(book.executableGrossSeries8198(lane, null, r, scoreVersion)))
     }
 
     /** V5.0.8269 — how the proposals AATE would TAKE / REFUSE actually moved. */

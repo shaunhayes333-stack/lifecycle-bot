@@ -63,9 +63,9 @@ object CortexLabelHygiene8144 {
     /** Pure: could the decision have been executed? An admit was; a refusal is unless its reason names a hard block. */
     fun executableDecision8144(admitted: Boolean, reason: String?, nativeEligible: Boolean? = null): Boolean {
         if (admitted) return true
-        // Where the contemporaneous native specialist evaluated this coin,
-        // its refusal is evidence that this was NOT a tradeable lane entry.
-        if (nativeEligible == false) return false
+        // 8372: eligible is the specialist's YES/NO, not physical executability. A scored NO
+        // must still teach both winners and losers; only an unidentified NO is unverified.
+        if (nativeEligible == false && reason.isNullOrBlank()) return false
         val r = reason?.uppercase() ?: return true
         // V5.0.8291 — a LEARNED veto is a judgement of a buyable coin, not a physical block, even when its name carries a
         // hard word (TOXIC_PATTERN, LEARNED_TOXIC_LANE, TOXIC_BUCKET_HARD_VETO_6249, PAPER_EV_BUCKET_HARD_BLOCK_6405):
@@ -75,6 +75,19 @@ object CortexLabelHygiene8144 {
             UNEXECUTABLE_NATIVE_8196.none { r.startsWith(it) || r.contains("_$it") }
     }
 
+    /** The native snapshot distinguishes a score/setup judgement from absent data or an impossible trade. */
+    fun counterfactualExecutable8372(admitted: Boolean, reason: String?, nativeEligible: Boolean?,
+                                     nativeGradeable: Boolean?, nativeReason: String?): Boolean {
+        if (admitted) return true
+        if (nativeGradeable == false) return false
+        if (!executableDecision8144(false, reason, nativeEligible)) return false
+        if (!nativeReason.isNullOrBlank()) {
+            val native = if (nativeReason.startsWith("NATIVE_", true)) nativeReason else "NATIVE_$nativeReason"
+            if (!executableDecision8144(false, native)) return false
+        }
+        return nativeEligible != false || nativeGradeable == true || !reason.isNullOrBlank()
+    }
+
     /**
      * Pure (V5.0.8291): WHY a decision is unexecutable, as one of a bounded set of classes (null when executable):
      * NATIVE_INELIGIBLE (the lane's own native specialist refused it), NATIVE_MANDATE (outside the lane's mandate band),
@@ -82,8 +95,8 @@ object CortexLabelHygiene8144 {
      */
     fun unexecClass8291(admitted: Boolean, reason: String?, nativeEligible: Boolean? = null): String? {
         if (executableDecision8144(admitted, reason, nativeEligible)) return null
-        if (nativeEligible == false) return "NATIVE_INELIGIBLE"
         val r = reason?.uppercase().orEmpty()
+        if (nativeEligible == false && r.isBlank()) return "NATIVE_UNVERIFIED"
         if (UNEXECUTABLE_NATIVE_8196.any { r.startsWith(it) || r.contains("_$it") }) return "NATIVE_MANDATE"
         return UNEXECUTABLE_8144.firstOrNull { r.contains(it) } ?: "OTHER"
     }

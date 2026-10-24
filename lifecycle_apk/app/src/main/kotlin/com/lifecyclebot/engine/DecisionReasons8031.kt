@@ -13,7 +13,8 @@ import java.util.concurrent.atomic.AtomicLong
  *   low", "NO_CONFIRMED_SCALP_SETUP", "PRICE_NOT_FRESH", ...) was a counter and was gone: no learner could ever ask
  *   whether that refusal turned away winners. It is now a forward label in the lane's own book with reason
  *   NATIVE_<reason>, so the Cortex veto audit grades it like every FDG refusal, and the lane's pre-intent row names
- *   it. READY verdicts are named too (the FDG labels the admit). Labels back off when the labeller is half full.
+ *   it. READY and REFUSE verdicts both enrol before owner selection; losing the live election must not hide a
+ *   specialist's prediction. The labeler's per-token/lane episode deduplication and bounded capacity own admission.
  * HOLD / SELL — every exit the bot holds back (net-profit floor, broken basis, runner hold, missing mark ...) and every
  *   close is booked here ([hold8031], [sell8031]) at the mark of the decision and graded 15 minutes later (60 for a
  *   runner lane): after a HOLD, up = holding paid; after a SELL, up = the sale left money behind. Per gate and reason,
@@ -24,7 +25,6 @@ object DecisionReasons8031 {
     private const val GRADE_RUNNER_MS = 60L * 60_000L
     private const val HOLD_DEDUP_MS = 3L * 60_000L
     private const val MAX_PENDING = 3_000
-    private const val LABEL_LOAD_CAP = 0.3  // V5.0.8033 — 0.5 held ~3,000 pending labels in a 1.5 MB prefs file; native labels yield sooner
 
     data class Pending(val mint: String, val key: String, val px: Double, val dueMs: Long)
     class Agg { var n = 0; var sum = 0.0; var up = 0
@@ -63,14 +63,14 @@ object DecisionReasons8031 {
     private val lastHold = ConcurrentHashMap<String, Long>()
     private val nativeLabelled = AtomicLong(0)
     private val nativeNamed = AtomicLong(0)
-    private val nativeBackedOff = AtomicLong(0)
+    private val nativeReadyOffered8372 = AtomicLong(0)
+    private val nativeRefusedOffered8372 = AtomicLong(0)
+    private val nativeUngradeable8372 = AtomicLong(0)
 
     // ── pure ──
 
     /** The reason's rule: its leading upper-case words (MCAP_TOO_LOW_$2670 -> MCAP_TOO_LOW). */
-    fun rule8031(reason: String): String =
-        reason.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").split('_')
-            .takeWhile { w -> w.isNotEmpty() && w.none { it.isDigit() } }.take(4).joinToString("_").ifBlank { "UNKNOWN" }
+    fun rule8031(reason: String): String = NativeDecisionEnrollment8372.rule(reason)
 
     /** The book key of a decision: KIND:GATE:RULE@LANE (mode prefixed). */
     fun key8031(live: Boolean, kind: String, gate: String, reason: String, lane: String): String =
@@ -78,18 +78,27 @@ object DecisionReasons8031 {
 
     // ── entry ──
 
-    /** SpecialistBrainBridge7542: every lane's native verdict on [ts] gets a name, and a refusal gets a forward label. */
+    /** Every gradeable native YES and NO is offered to the same bounded, episode-deduplicated labeler. */
     fun nativeVerdicts8031(ts: com.lifecyclebot.data.TokenState, verdicts: Collection<SpecialistBrainBridge7542.Opinion>) {
-        val load = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.pendingLoad8031() } catch (_: Throwable) { 1.0 }
+        // One token observation time for all lanes; neither ownership nor final live admission is required to learn.
+        val nowMs = System.currentTimeMillis()
         for (o in verdicts) {
             val reason = "NATIVE_${if (o.eligible) "READY" else rule8031(o.reason)}"
             try { SpecialistOwnership7951.notePreIntent7951(o.lane, reason) } catch (_: Throwable) {}
             nativeNamed.incrementAndGet()
-            if (o.eligible || !o.gradeable) continue
-            if (load >= LABEL_LOAD_CAP) { nativeBackedOff.incrementAndGet(); continue }
+            val observation = NativeDecisionEnrollment8372.observation(o.lane, o.eligible, o.gradeable, o.score, o.reason)
+            if (observation == null) { nativeUngradeable8372.incrementAndGet(); continue }
             try {
-                com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(ts, o.lane, false, reason)
+                // V5.0.8372: the 30%-full gate silently removed ALL native observations after warmup. The existing
+                // labeler still rejects duplicate episodes, unpriced observations and genuine capacity exhaustion.
+                // This is an observation only: no FDG allow, live intent, execution fanout or wallet mutation.
+                if (NativeDecisionEnrollment8372.isCryptoDesk(ts.lastPriceSource)) {
+                    if (!com.lifecyclebot.engine.cortex.CrossAssetCortex7931.observeNativeLong8372(ts,
+                            observation.lane, observation.admitted, observation.reason, nowMs, observation.score)) continue
+                } else com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(ts, observation.lane,
+                    observation.admitted, observation.reason, nowMs, observation.score)
                 nativeLabelled.incrementAndGet()
+                (if (observation.admitted) nativeReadyOffered8372 else nativeRefusedOffered8372).incrementAndGet()
             } catch (_: Throwable) {}
         }
     }
@@ -146,7 +155,7 @@ object DecisionReasons8031 {
 
     fun statusLine(): String {
         val top = synchronized(book) { book.entries.sortedByDescending { it.value.n }.take(10).joinToString(" · ") { it.value.line(it.key) } }
-        return "native[named=${nativeNamed.get()} labelled=${nativeLabelled.get()} backedOff=${nativeBackedOff.get()}] decisions[pending=${pending.size} graded=${book.values.sumOf { it.n }}] " +
+        return "native[named=${nativeNamed.get()} labelsOffered=${nativeLabelled.get()} readyOffered=${nativeReadyOffered8372.get()} refusedOffered=${nativeRefusedOffered8372.get()} ungradeable=${nativeUngradeable8372.get()} capacity=LABELER_OWNED] decisions[pending=${pending.size} graded=${book.values.sumOf { it.n }}] " +
             "read=after HOLD up=holding paid, after SELL up=left money | ${top.ifBlank { "-" }}"
     }
 }

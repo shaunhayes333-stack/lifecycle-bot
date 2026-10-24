@@ -499,6 +499,13 @@ class BotService : Service() {
         @Volatile
         var stopInProgress = false
 
+        // V5.0.8372 — both shadow books are process singletons. A stopping Service
+        // retains this lease until its worker actually completes, so a replacement
+        // Service cannot tick their mutable legs concurrently during cancellation.
+        private val shadowEvidenceTickInFlight8372 = AtomicBoolean(false)
+        private val shadowEvidenceInitLock8372 = Any()
+        @Volatile private var shadowEvidenceInitialized8372 = false
+
         // V5.0.3789 — STOP PERSISTENCE FINALIZATION LATCH (operator fault #1).
         // A manual stop runs PositionPersistence.clear() as the canonical final
         // state. After that, NO code may re-save stale pre-clear status.tokens
@@ -1384,6 +1391,92 @@ class BotService : Service() {
                 }
             }
         } else try { PipelineHealthCollector.labelInc("LEARNING_TICK_SKIPPED_IN_FLIGHT_8020") } catch (_: Throwable) {}
+    }
+
+    private val shadowEvidenceTickJob8372 = java.util.concurrent.atomic.AtomicReference<Job?>(null)
+    private val shadowEvidenceTickEpoch8372 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    private fun initializeShadowEvidence8372() = synchronized(shadowEvidenceInitLock8372) {
+        // Both books survive an Android Service recreation within this process.
+        // Re-restoring over a draining worker would replace queues/delete active
+        // receipts. The first initialization finishes before dispatch is enabled.
+        if (!shadowEvidenceInitialized8372) {
+            try { com.lifecyclebot.engine.truth.EvidenceShadow8344.init8344(applicationContext) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.ExploreShadow8347.init8347(applicationContext) } catch (_: Throwable) {}
+            shadowEvidenceInitialized8372 = com.lifecyclebot.engine.truth.EvidenceShadow8344.initReady8372() &&
+                com.lifecyclebot.engine.truth.ExploreShadow8347.initReady8372()
+            if (!shadowEvidenceInitialized8372) try { PipelineHealthCollector.labelInc("SHADOW_EVIDENCE_INIT_RETRY_8372") } catch (_: Throwable) {}
+        }
+    }
+
+    /**
+     * V5.0.8372 — EvidenceShadow then ExploreShadow keep their existing order, but
+     * book serialization and outcome-learning delivery cannot hold the trading
+     * loop. There is at most one worker process-wide, no pending snapshot queue.
+     * The generic Executor shadow book stays on its existing serialized path.
+     */
+    private fun dispatchShadowEvidenceTicks8372(tokenStatesCopy: Map<String, com.lifecyclebot.data.TokenState>) {
+        val epoch = shadowEvidenceTickEpoch8372.get()
+        if (!status.running || stopInProgress || !scope.isActive) return
+        if (!shadowEvidenceTickInFlight8372.compareAndSet(false, true)) {
+            try { PipelineHealthCollector.labelInc("SHADOW_EVIDENCE_TICK_COALESCED_8372") } catch (_: Throwable) {}
+            return
+        }
+        try {
+            // LAZY installs the completion handler before execution. A worker
+            // cancelled before its body starts must release the lease too.
+            val job = scope.launch(Dispatchers.Default + CoroutineName("shadow-evidence-ticks-8372"), start = CoroutineStart.LAZY) {
+                val t0 = System.currentTimeMillis()
+                try {
+                    ensureActive()
+                    if (!status.running || stopInProgress || shadowEvidenceTickEpoch8372.get() != epoch) return@launch
+                    // Retry only missing restore components, off-loop and under the process worker lease. A failed
+                    // preferences read must not permanently strand durable outcome receipts until process restart.
+                    if (!shadowEvidenceInitialized8372) initializeShadowEvidence8372()
+                    if (!shadowEvidenceInitialized8372) return@launch
+                    val nowShadow7307 = System.currentTimeMillis()
+                    try { PipelineHealthCollector.labelInc("SHADOW_EVIDENCE_TICK_STARTED_8372") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.truth.EvidenceShadow8344.tick8344(tokenStatesCopy, nowShadow7307) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (e: Throwable) {
+                        try { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_TICK_ERROR_8372") } catch (_: Throwable) {}
+                        ErrorLogger.debug("BotService", "Evidence shadow tick error: ${e.message}")
+                    }
+                    ensureActive()
+                    if (!status.running || stopInProgress || shadowEvidenceTickEpoch8372.get() != epoch) return@launch
+                    try { com.lifecyclebot.engine.truth.ExploreShadow8347.tick8347(tokenStatesCopy, nowShadow7307) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (e: Throwable) {
+                        try { PipelineHealthCollector.labelInc("EXPLORE_SHADOW_TICK_ERROR_8372") } catch (_: Throwable) {}
+                        ErrorLogger.debug("BotService", "Explore shadow tick error: ${e.message}")
+                    }
+                } finally {
+                    try { PipelineHealthCollector.labelInc("SHADOW_EVIDENCE_TICK_FINISHED_8372") } catch (_: Throwable) {}
+                    if (System.currentTimeMillis() - t0 > 10_000L) {
+                        try { PipelineHealthCollector.labelInc("SHADOW_EVIDENCE_TICK_SLOW_8372") } catch (_: Throwable) {}
+                    }
+                }
+            }
+            shadowEvidenceTickJob8372.set(job)
+            job.invokeOnCompletion {
+                shadowEvidenceTickJob8372.compareAndSet(job, null)
+                shadowEvidenceTickInFlight8372.set(false)
+            }
+            job.start()
+        } catch (e: Throwable) {
+            shadowEvidenceTickJob8372.set(null)
+            shadowEvidenceTickInFlight8372.set(false)
+            if (e is CancellationException) throw e
+            try { PipelineHealthCollector.labelInc("SHADOW_EVIDENCE_DISPATCH_ERROR_8372") } catch (_: Throwable) {}
+        }
+    }
+
+    private fun cancelShadowEvidenceTicks8372(reason: String) {
+        // Invalidates even a dispatch between taking its lease and publishing its
+        // Job. Do not clear the process lease early: synchronous work may still
+        // be draining despite cancellation and must not race a new Service.
+        shadowEvidenceTickEpoch8372.incrementAndGet()
+        shadowEvidenceTickJob8372.get()?.cancel(CancellationException("shadow-evidence:$reason"))
     }
 
     private fun requestSellOffLoop7288(
@@ -5171,6 +5264,7 @@ class BotService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        cancelShadowEvidenceTicks8372("onDestroy")
         // V5.0.6431 §K — stop the independent reconciler scheduler.
         try { com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.stop() } catch (_: Throwable) {}
         // V5.0.7731 — the forward-label table survives the restart.
@@ -10025,6 +10119,7 @@ class BotService : Service() {
         // the tail of this method. Cleared in the `finally` block below.
         stopInProgress = true
         status.running = false  // visible immediately; stopInProgress remains the cleanup truth
+        cancelShadowEvidenceTicks8372("stopBot:$source")
         try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(false, "BotService.stopBot.$source.6487") } catch (_: Throwable) {}
 
         // V5.9.1033 — HARD-CANCEL ESCAPE HATCH.
@@ -22262,8 +22357,8 @@ if (hotExitHandledSweep) {
                     try { markProgress("POST_SUPERVISOR/SHADOW_POSITIONS") } catch (_: Throwable) {}
                     // V5.0.7809 — moved after the label ticks: a shadow-position exception no longer skips label bookout.
                     executor.checkShadowPositions(tokenStatesCopy)
-                    try { com.lifecyclebot.engine.truth.EvidenceShadow8344.tick8344(tokenStatesCopy, nowShadow7307) } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.truth.ExploreShadow8347.tick8347(tokenStatesCopy, nowShadow7307) } catch (_: Throwable) {}  // V5.0.8347  // V5.0.8344
+                    try { markProgress("POST_SUPERVISOR/SHADOW_EVIDENCE_DISPATCH") } catch (_: Throwable) {}
+                    dispatchShadowEvidenceTicks8372(tokenStatesCopy)
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}")
                 }
@@ -35439,8 +35534,7 @@ if (hotExitHandledSweep) {
     private fun createChannels() {
         // V5.0.8337 — the evidence-hold clock starts with the service (onCreate is an ART-budgeted method; hooked here).
         try { com.lifecyclebot.engine.truth.EvidenceHold8336.init8336(applicationContext) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.truth.EvidenceShadow8344.init8344(applicationContext) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.truth.ExploreShadow8347.init8347(applicationContext) } catch (_: Throwable) {}  // V5.0.8347  // V5.0.8344
+        initializeShadowEvidence8372()
         try { com.lifecyclebot.engine.truth.Rehearsal8339.init8342(applicationContext) } catch (_: Throwable) {}   // V5.0.8342 — paper entry tags survive a restart
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(

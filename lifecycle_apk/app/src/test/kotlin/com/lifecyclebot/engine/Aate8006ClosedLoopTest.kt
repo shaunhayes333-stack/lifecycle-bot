@@ -50,13 +50,14 @@ class Aate8006ClosedLoopTest {
 
     @Test fun theLoopsAreWired() {
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
-        // superseded by V5.0.8324: the revision carries its chain-witness provenance.
-        assertTrue(frl.contains("Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324)"))
+        // V5.0.8372: keep the chain witness AND the exact token/lane episode timestamp.
+        // A later observation of the same mint must never receive an earlier episode's correction.
+        assertTrue(frl.contains("Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324, decisionAtMs8371 = o.atMs)"))
         assertTrue(frl.contains("if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)"))
         assertTrue(frl.contains("endRun8006(o, gross)"))
         val cx = src("engine/cortex/Cortex7885.kt")
-        // superseded by V5.0.8322: the retained label is the one booked (raw), with its calibration stamp.
-        assertTrue(cx.contains("if (trace8006 != null) retain8006(key, p, trace8006, net8187, gross8187, bookScales, auxScales, calStamp8322)"))
+        // The retained raw contribution has its original calibration stamp and exact episode key.
+        assertTrue(cx.contains("if (trace8006 != null) retain8006(\"\$key|\${p.atMs}\", p, trace8006, net8187, gross8187, bookScales, auxScales, calStamp8322)"))
         assertTrue(cx.contains("vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane))"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("Cortex7885.vetoRefusesWinners8006(why, l)"))

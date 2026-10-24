@@ -27,7 +27,8 @@ object CrossAssetCortex7931 {
         com.lifecyclebot.perps.PerpsMarket.values().associateBy { it.symbol.uppercase() }
     }
 
-    private data class Asset(val assetClass: AssetClass, val symbol: String, val dynKey: String, val atMs: Long)
+    private data class Asset(val assetClass: AssetClass, val symbol: String, val dynKey: String, val atMs: Long,
+                             val nativePriceProvenance8372: Boolean = false)
     private val assets = ConcurrentHashMap<String, Asset>()
 
     /** Pure: the Cortex lane of an asset class (null = not cross-asset). */
@@ -71,17 +72,15 @@ object CrossAssetCortex7931 {
      * symbol has a route, else the ticker.
      */
     fun keyOf(assetId: String, symbol: String, routedMint: String?): String {
-        val raw = if (assetId.startsWith("solana|", true)) assetId.substringAfter('|') else assetId
-        return when {
-            !routedMint.isNullOrBlank() -> routedMint
-            raw.contains('|') -> raw.substringAfterLast('|')
-            raw.isNotBlank() -> raw
-            else -> symbol.uppercase()
-        }
+        return com.lifecyclebot.engine.NativeDecisionEnrollment8372.learningIdentity(assetId, symbol, routedMint)
     }
 
     private fun routedMint(c: AssetClass, symbol: String): String? =
         if (c.isOffChainMarket) try { com.lifecyclebot.perps.TokenizedAssetRegistry.mintFor(symbol) } catch (_: Throwable) { null } else null
+
+    /** Freeze this at entry sealing; later confirmed fills must not re-infer an alias from a ticker. */
+    internal fun learningIdentity8372(c: CanonicalAssetEntryCandidate6551): String =
+        keyOf(c.assetId, c.symbol, routedMint(c.assetClass, c.symbol))
 
     /** The close side: map a canonical row's mint onto the captured identity. */
     fun normalizeCloseKey(mint: String): String {
@@ -98,7 +97,7 @@ object CrossAssetCortex7931 {
         // The labeler grades longs; a short would be learned upside down.
         if (!(c.direction.isBlank() || c.direction.equals("LONG", true) || c.direction.equals("BUY", true))) return null
         if (!c.price.isFinite() || c.price <= 0.0) return null
-        val key = keyOf(c.assetId, c.symbol, routedMint(c.assetClass, c.symbol))
+        val key = learningIdentity8372(c)
         if (key.isBlank()) return null
         // V5.0.8063 — owner: "crypto has meme coins, stable coins, utility coins the works". Every CRYPTO_ALT label fell
         // in ONE cell (XASSET_CRYPTO_ALT_CRYPTO|CRYPTO_ALT|MC_UNKNOWN|AGE_UNKNOWN, n343): no type, cap or age. The
@@ -114,7 +113,9 @@ object CrossAssetCortex7931 {
         if (assets.size > 4_000) {
             assets.entries.sortedBy { it.value.atMs }.take(assets.size - 3_000).forEach { assets.remove(it.key, it.value) }
         }
-        assets[key] = Asset(c.assetClass, c.symbol, c.assetId, nowMs)
+        // An actual admission may follow a native observation; it must not weaken that episode's mark provenance.
+        assets[key] = Asset(c.assetClass, c.symbol, c.assetId, nowMs,
+            nativePriceProvenance8372 = assets[key]?.nativePriceProvenance8372 == true)
         val ts = TokenState(mint = key, symbol = c.symbol, name = c.symbol).apply {
             lastPrice = c.price
             lastPriceUpdate = nowMs
@@ -166,6 +167,8 @@ object CrossAssetCortex7931 {
         // V5.0.7962 — multi-chain meme labels are marked from that lane's own pair prices.
         val a = assets[key] ?: return com.lifecyclebot.perps.crypto.MultiChainMemeLane7962.freshMark7962(key, nowMs)
         return try {
+            if (a.nativePriceProvenance8372) return com.lifecyclebot.perps.DynamicAltTokenRegistry
+                .learningMark8372(a.dynKey, nowMs)?.price
             if (a.assetClass == AssetClass.CRYPTO_ALT || a.assetClass == AssetClass.SOLANA_TOKEN) {
                 val m = com.lifecyclebot.perps.DynamicAltTokenRegistry.heldMarkSnapshot7251(a.dynKey.ifBlank { key })
                     .takeIf { it.freshObservation && it.price > 0.0 }
@@ -188,6 +191,27 @@ object CrossAssetCortex7931 {
     fun observe(c: CanonicalAssetEntryCandidate6551, admitted: Boolean, reason: String?) {
         val (ts, lane) = tokenStateFor(c) ?: return
         try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(ts, lane, admitted, reason) } catch (_: Throwable) {}
+    }
+
+    /** Native crypto desk YES/NO before owner selection, in its exact crypto lane; observation only, never a fill. */
+    internal fun observeNativeLong8372(ts: TokenState, deskLane: String, admitted: Boolean, reason: String,
+                                       nowMs: Long, score: Int): Boolean {
+        val rules = com.lifecyclebot.engine.NativeDecisionEnrollment8372
+        if (!rules.isCryptoDesk(ts.lastPriceSource)) return false
+        val lane = rules.cryptoLearningLane(deskLane) ?: return false
+        if (rules.observedPriceAt(ts.lastPrice, ts.lastPrice, ts.lastPriceUpdate, nowMs) <= 0L) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_NATIVE_PRICE_PROVENANCE_MISSING_8372") } catch (_: Throwable) {}
+            return false
+        }
+        val key = keyOf(ts.mint, ts.symbol, null)
+        if (key.isBlank()) return false
+        if (com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap, key)) return false
+        if (assets.size > 4_000) assets.entries.sortedBy { it.value.atMs }.take(assets.size - 3_000)
+            .forEach { assets.remove(it.key, it.value) }
+        assets[key] = Asset(AssetClass.CRYPTO_ALT, ts.symbol, ts.mint, nowMs, nativePriceProvenance8372 = true)
+        com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(
+            if (key == ts.mint) ts else ts.copy(mint = key), lane, admitted, reason, nowMs, score)
+        return true
     }
 
     /** CanonicalEntryAuthority6551.submit: the live edge gate for a cross-asset entry (null = admit). */

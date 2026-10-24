@@ -116,14 +116,18 @@ class Aate8360ExploreStackTest {
         assertTrue("evict before refusing", s.contains("tickets.size >= MAX_TICKETS_8347 && !evict8360(null, nowMs)") &&
             s.contains("laneCount8360(lane) >= MAX_TICKETS_PER_LANE_8351 && !evict8360(lane, nowMs)"))
         assertTrue("round-robin tick", s.contains("val slice = rrSlice8360(keys.size, rrCursor8360)"))
-        assertTrue("the tick reads the same observed mark", s.contains("ShadowMark8360.observed8360(tokens[t.mint], t.mint, nowMs)?.first"))
+        assertTrue("the tick retains the source observation clock for executable exits",
+            s.contains("ShadowMark8360.observedTimed8372(tokens[t.mint], t.mint, nowMs)") &&
+                s.contains("t.lastPxAtMs = observation.observedAtMs"))
         assertTrue("marks kept flowing", s.contains("want8360(t.mint, nowMs)") && s.contains("want8360(ts.mint, nowMs)") &&
             s.contains("try { KeylessMarks8359.noteWanted8359(mint, untilMs) } catch (_: Throwable) {}") &&   // 8359 merged: the keyless feed is asked
             s.contains("com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint, System.currentTimeMillis())"))
         assertTrue("tactic cohort", s.contains("bookKey8351(\"C|\$v|T:\${t.tactic}\", net, nowMs)"))
         assertTrue("reject cohort kept for FILTER_INVERTED", s.contains("KIND_REJECT_8360 -> bookKey8351(\"C|\$v|R:REJECT\", net, nowMs)"))
         assertTrue("setup cohort", s.contains("KIND_SETUP_8360 -> bookKey8351(\"C|\$v|\${if (t.nativeEligible) \"S\" else \"SR\"}:\${t.setup}\", net, nowMs)"))
-        assertTrue("tactics learn from native tickets only", s.contains("if (t.kind8360 == KIND_NATIVE_8360 && t.nativeEligible && leg.entry == Entry8347.NOW"))
+        assertTrue("the legacy guarded canonical tactic hook stays native-only; shadow verdicts use isolated cohorts",
+            s.contains("if (t.kind8360 == KIND_NATIVE_8360 && t.nativeEligible && leg.entry == Entry8347.NOW") &&
+                !s.contains("withMode(\"LIVE\", canonical = true)"))
         assertTrue("diagnostic cohorts never become a live niche", s.contains("if (dim != \"S\" && dim != \"M\") continue"))
         assertTrue("the status line", s.contains("byKind{native=") && s.contains("skipped{\${countLine8360(skipped)}} evicted=") &&
             s.contains("ticked/loop=\$lastTicked8360/\$TICK_PER_LOOP_8360") && s.contains("best{\$cohorts}"))
@@ -131,6 +135,7 @@ class Aate8360ExploreStackTest {
         assertTrue("the live mirror falls back to every observed mark", e.contains("ShadowMark8360.observed8360(ts, mint, nowMs)") &&
             e.contains("entryMark8360{"))
         assertTrue(src("engine/truth/TradeTape8100.kt").contains("fun lastPrint8360(mint: String): Pair<Double, Long>?"))
-        assertTrue("the bridge hook is unchanged", src("engine/SpecialistBrainBridge7542.kt").contains("ExploreShadow8347.onOpinions8347(ts, out.toMap(), now)"))
+        assertTrue("the bridge passes the same published immutable native decision to shadow",
+            src("engine/SpecialistBrainBridge7542.kt").contains("ExploreShadow8347.onOpinions8347(ts, snapshot8372.opinions, now)"))
     }
 }

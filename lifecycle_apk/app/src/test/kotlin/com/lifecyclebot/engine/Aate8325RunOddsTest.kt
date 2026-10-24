@@ -115,11 +115,13 @@ class Aate8325RunOddsTest {
         assertEquals(-1.0 + 0.8 * 2.0, Cortex7885.calibratedRead8325(false, f, 0.8), 1e-12)
         assertEquals(3.0 + 0.8 * 2.0, Cortex7885.calibratedRead8325(false, f.copy(laneMeanAll8325 = Double.NaN), 0.8), 1e-12)
         val cx = src("engine/cortex/Cortex7885.kt")
-        // superseded by V5.0.8366 — a calibrated lane reads its isotonic rank fit at the slope-free 8325 score; a thin fit keeps the 8325 slope read.
-        assertTrue(cx.contains("val calibrated = calibratedRead8366(runner, fused, locked8325.slope, locked8325.iso8366) - executableOffset8187(lane)"))
+        // 8372 uses the arithmetic fit at the same frozen token score; an unmeasured fit retains the token read.
+        assertTrue(cx.contains("val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane))"))
+        assertFalse(cx.contains("calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372) - executableOffset8187(lane)"))
         assertTrue(cx.contains("return calibratedRead8325(runner, fused, slope)"))
         assertTrue(cx.contains("CortexRunOdds8325.ev8325(pond, fused.pRun8325)"))
-        // superseded by V5.0.8366 — the rank-consistent bucket still decides, and an UNCALIBRATED lane (flat / non-ranking fit) reads NEUTRAL.
-        assertTrue(cx.contains("val bucket8325 = uncalibratedNeutral8366(lane, locked8325.iso8366, rankConsistentBucket8325(lane, runner, bucket, calibrated))"))
+        // The displayed token forecast, not a separate tail/rank diagnostic, assigns its frozen verdict.
+        assertTrue(cx.contains("val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)"))
+        assertFalse(cx.contains("val bucket8325 = uncalibratedNeutral8366("))
     }
 }

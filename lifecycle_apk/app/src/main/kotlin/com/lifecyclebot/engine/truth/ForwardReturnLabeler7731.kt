@@ -721,8 +721,11 @@ object ForwardReturnLabeler7731 {
         // V5.0.8094 — the latest admit of this (mint, lane), else of the mint in any lane.
         (lastAdmit8094["$mint|${lane.trim().uppercase()}"]
             ?: lastAdmit8094.entries.filter { it.key.startsWith("$mint|") }.maxByOrNull { it.value.second }?.value)?.let { return it }
-        val o = pending["$mint|${lane.trim().uppercase()}"]?.takeIf { it.admitted }
-            ?: pending.values.filter { it.mint == mint && it.admitted }.maxByOrNull { it.atMs }
+        val o = pending["$mint|${lane.trim().uppercase()}"]?.takeIf {
+            com.lifecyclebot.engine.NativeDecisionEnrollment8372.executionAdmission(it.admitted, it.reason7967)
+        } ?: pending.values.filter { it.mint == mint &&
+            com.lifecyclebot.engine.NativeDecisionEnrollment8372.executionAdmission(it.admitted, it.reason7967)
+        }.maxByOrNull { it.atMs }
             ?: return null
         return o.entryPrice to o.atMs
     }
@@ -730,7 +733,9 @@ object ForwardReturnLabeler7731 {
     /** V5.0.8094 — the un-rebased price and time of the latest admitted decision on [mint] (any lane); null when none. */
     fun decisionPx8094(mint: String): Pair<Double, Long>? =
         lastAdmit8094.entries.filter { it.key.startsWith("$mint|") }.maxByOrNull { it.value.second }?.value
-            ?: pending.values.filter { it.mint == mint && it.admitted }.maxByOrNull { it.atMs }?.let { it.decisionPx8094 to it.atMs }
+            ?: pending.values.filter { it.mint == mint &&
+                com.lifecyclebot.engine.NativeDecisionEnrollment8372.executionAdmission(it.admitted, it.reason7967)
+            }.maxByOrNull { it.atMs }?.let { it.decisionPx8094 to it.atMs }
 
     /**
      * V5.0.8051 — the (quality, phase) of a forecast signature for [ts] in [lane]: the token's setup shape (PUL / REA /
@@ -800,12 +805,25 @@ object ForwardReturnLabeler7731 {
         // and graded as "refused" for up to four hours.
         // V5.0.8094 — every admit stamps its own price and time (the label keeps the first; the chase / latency of a fill is
         // measured from the admit that actually led to it, not one up to 15 minutes older).
-        if (admitted) {
+        if (com.lifecyclebot.engine.NativeDecisionEnrollment8372.executionAdmission(admitted, reason)) {
             if (lastAdmit8094.size > 4_000) lastAdmit8094.entries.removeIf { nowMs - it.value.second > 10L * 60_000L }
             lastAdmit8094[key] = px to nowMs
         }
         val prior7930 = pending[key]
-        val upgrade7930 = admitted && prior7930 != null && !prior7930.admitted
+        val nativePrior8372 = prior7930?.reason7967?.startsWith("NATIVE_", ignoreCase = true) == true
+        if (com.lifecyclebot.engine.NativeDecisionEnrollment8372.bindExecutionWithoutReplacingObservation(
+                admitted, reason, prior7930?.reason7967)) {
+            // The initial YES/NO observation keeps its original price, time and verdict. A later actual FDG allow
+            // gets a separate exact entry read for its real position instead of erasing the earlier prediction.
+            try {
+                val bound8372 = com.lifecyclebot.engine.cortex.Cortex7885.noteExecutionAdmission8372(ts, l, nowMs)
+                PipelineHealthCollector.labelInc(if (bound8372) "NATIVE_LABEL_EXECUTION_READ_BOUND_8372"
+                    else "NATIVE_LABEL_EXECUTION_READ_PENDING_8372")
+            } catch (_: Throwable) {}
+            skippedRecent.incrementAndGet()
+            return
+        }
+        val upgrade7930 = admitted && prior7930 != null && !prior7930.admitted && !nativePrior8372
         if (upgrade7930) {
             pending.remove(key, prior7930)
             try { PipelineHealthCollector.labelInc("FORWARD_LABEL_REFUSAL_SUPERSEDED_BY_ADMIT_7930") } catch (_: Throwable) {}
@@ -1273,7 +1291,7 @@ object ForwardReturnLabeler7731 {
         val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
         val oldLong8080 = o.bookedLongNet8080
         if (oldLong8080.isFinite() && long8080.first.isFinite() && kotlin.math.abs(long8080.first - oldLong8080) >= 0.5) {
-            try { com.lifecyclebot.engine.cortex.LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.cortex.LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second, decisionAtMs8372 = o.atMs) } catch (_: Throwable) {}
             o.bookedLongNet8080 = long8080.first; o.bookedLongGross8080 = long8080.second
         }
         val oldNet = o.bookedNet7997
@@ -1362,7 +1380,7 @@ object ForwardReturnLabeler7731 {
         val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
         val oldLong8080 = o.bookedLongNet8080
         if (oldLong8080.isFinite() && long8080.first.isFinite() && kotlin.math.abs(long8080.first - oldLong8080) >= 0.5) {
-            try { com.lifecyclebot.engine.cortex.LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.cortex.LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second, decisionAtMs8372 = o.atMs) } catch (_: Throwable) {}
             o.bookedLongNet8080 = long8080.first; o.bookedLongGross8080 = long8080.second
         }
         revise7997(o, oldNet, net, o.bookedGross7997, gross, gross >= RUNNER_PCT_7731 && witnessNow8324(o, System.currentTimeMillis()))
@@ -1470,6 +1488,34 @@ object ForwardReturnLabeler7731 {
      */
     fun markFor7948(mint: String, priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()): Double? =
         try { markFor(mint, priceFor, nowMs) } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.8372 — cached fallback with the real observation clock. A shadow sell
+     * cannot use the time it READ a still-cached mark as evidence of a new fill.
+     * The freshest valid registry/off-watch/curve observation; no provider call or fetch.
+     */
+    fun observedMark8372(mint: String, nowMs: Long = System.currentTimeMillis()): Pair<Double, Long>? {
+        if (mint.isBlank()) return null
+        val registry = try {
+            CanonicalMarkPurpose6570.values().mapNotNull { CanonicalPriceMarkRegistry6522.get(mint, it) }
+                .filter { it.timestampMs > 0L && nowMs - it.timestampMs in 0L..MARK_MAX_AGE_MS_7731 &&
+                    it.priceUsd.value.toDouble().let { px -> px.isFinite() && px > 0.0 } }
+                .maxByOrNull { it.timestampMs }
+        } catch (_: Throwable) { null }
+        var freshest = registry?.let { it.priceUsd.value.toDouble() to it.timestampMs }
+        val off = offWatchMarks7737[mint]
+        if (off != null && off.first.isFinite() && off.first > 0.0 && off.second > 0L &&
+            nowMs - off.second in 0L..MARK_MAX_AGE_MS_7731 && off.second > (freshest?.second ?: 0L)) freshest = off
+        try {
+            val reserves = CurveReserves7951.activeExitObservation(mint, nowMs, MARK_MAX_AGE_MS_7731)
+            val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+            if (reserves != null && reserves.observedAtMs > (freshest?.second ?: 0L)) {
+                val px = CurveReserves7951.priceSol7951(reserves.virtualSol, reserves.virtualTokens) * solUsd
+                if (solUsd.isFinite() && solUsd > 0.0 && px.isFinite() && px > 0.0) freshest = px to reserves.observedAtMs
+            }
+        } catch (_: Throwable) {}
+        return freshest
+    }
 
     private fun markFor(mint: String, priceFor: (String) -> Double?, nowMs: Long): Double? {
         val fromLoop = try { priceFor(mint) } catch (_: Throwable) { null }

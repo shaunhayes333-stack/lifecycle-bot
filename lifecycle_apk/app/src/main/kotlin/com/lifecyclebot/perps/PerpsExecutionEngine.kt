@@ -657,6 +657,7 @@ object PerpsExecutionEngine {
                             leverage   = effectiveLeverage,
                             priceUsd   = entryPrice,
                             traderType = "PerpsEngine",
+                            sealedIntent7914 = sealedPerpIntent6570,
                         )
                     } catch (ex: Exception) {
                         ErrorLogger.warn(TAG, "Live exec exception for ${signal.market.symbol}: ${ex.message}")

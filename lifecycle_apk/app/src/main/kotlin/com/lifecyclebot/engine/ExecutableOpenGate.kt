@@ -148,6 +148,10 @@ object ExecutableOpenGate {
         // non-canonical shadow book. Blank preserves legacy callers.
         val approvalClass7525: String = "",
         val runnerEntry: Boolean = false,
+        /** V5.0.8372 — immutable learning lane; never substitutes for canonicalLane or grants execution. */
+        val cortexLearningLane8372: String = "",
+        /** Original decision lookup key, distinct from the eventual confirmed venue position identity. */
+        val cortexLearningIdentity8372: String = "",
     ) {
         val lane: String get() = canonicalLane
         val signal: String get() = authoritativeSignal

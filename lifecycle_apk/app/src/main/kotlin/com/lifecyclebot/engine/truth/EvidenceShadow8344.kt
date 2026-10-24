@@ -71,6 +71,9 @@ object EvidenceShadow8344 {
     // resumes on the next tick; with no mark within LOST_MARK of its last one it closes LOST_MARK at its last mark, as it would have. ──
     private const val PREFS_OPEN_8355 = "aate_evidence_shadow_open_8355"
     @Volatile private var openPrefs8355: android.content.SharedPreferences? = null
+    private val initLock8372 = Any()
+    @Volatile private var openRestored8372 = false
+    @Volatile private var booksRestored8372 = false
     private val restored8355 = AtomicLong(0)
     private val lostOnRestore8355 = AtomicLong(0)
     private val expiredOnRestore8355 = AtomicLong(0)
@@ -90,8 +93,7 @@ object EvidenceShadow8344 {
         try { openPrefs8355?.edit()?.remove(mint)?.apply() } catch (_: Throwable) {}
     }
 
-    private fun restoreOpen8355(ctx: Context, nowMs: Long) {
-        try {
+    private fun restoreOpen8355(ctx: Context, nowMs: Long): Boolean = try {
             val p = ctx.getSharedPreferences(PREFS_OPEN_8355, Context.MODE_PRIVATE)
             openPrefs8355 = p
             val drop = ArrayList<String>()
@@ -99,23 +101,25 @@ object EvidenceShadow8344 {
             for ((k, v) in p.all) {
                 val r = ShadowPersist8355.decodePos8355(v as? String)
                 if (r == null) { drop += k; continue }
+                if (open.containsKey(r.mint)) continue   // partial-init retry never erases the live in-memory episode
                 // V5.0.8366 — a position in the lifecycle hold has no clock: it keeps the hold's window
                 if (r.hold8366 && ShadowPersist8355.expiredOnRestore8355(r.atMs, ShadowAlign8366.holdWindowMs8366(), nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
                 if (!r.hold8366 && ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
-                if (open.size >= MAX_OPEN_8344 || open.containsKey(r.mint)) { drop += k; continue }
+                if (open.size >= MAX_OPEN_8344) { drop += k; continue }
                 val pos = Pos8344(r.mint, r.lane, r.entryPx, r.atMs, r.costPct, r.stopPct, r.armPct, r.timeoutMs)
                 pos.held = r.held; pos.bankedGrossPct = r.bankedGrossPct; pos.tiersHit = r.tiersHit; pos.peakPct = r.peakPct
                 pos.lastPx = r.lastPx; pos.lastPxAtMs = r.lastPxAtMs
                 pos.hold8366 = r.hold8366; pos.taken8366 = r.taken8366; pos.peakAt8366 = r.peakAt8366   // V5.0.8366
                 pos.noMarkSinceRestore8355 = true; pos.lastWriteMs8355 = nowMs
-                open[r.mint] = pos
-                lastOpenAt["${r.mint}|${r.lane}"] = r.atMs
-                n++
+                if (open.putIfAbsent(r.mint, pos) == null) {
+                    lastOpenAt["${r.mint}|${r.lane}"] = r.atMs
+                    n++
+                }
             }
-            if (drop.isNotEmpty()) { val e = p.edit(); for (k in drop) e.remove(k); e.apply() }
+            if (drop.isNotEmpty()) { val e = p.edit(); for (k in drop) if (!open.containsKey(k)) e.remove(k); e.apply() }
             restored8355.addAndGet(n)
-        } catch (_: Throwable) {}
-    }
+            true
+        } catch (_: Throwable) { false }
 
     /** V5.0.8355 — restored / lost-on-restore / expired-on-restore counts (tests and the status line). */
     fun restoreCounts8355(): Triple<Long, Long, Long> = Triple(restored8355.get(), lostOnRestore8355.get(), expiredOnRestore8355.get())
@@ -199,9 +203,11 @@ object EvidenceShadow8344 {
         } + "}"
     }
 
-    fun init8344(ctx: Context, nowMs: Long = System.currentTimeMillis()) {
-        restoreOpen8355(ctx, nowMs)   // V5.0.8355 — the open book first, so a restored position is ticking before the first open
-        try {
+    fun initReady8372(): Boolean = openRestored8372 && booksRestored8372
+
+    fun init8344(ctx: Context, nowMs: Long = System.currentTimeMillis()): Boolean = synchronized(initLock8372) {
+        if (!openRestored8372) openRestored8372 = restoreOpen8355(ctx, nowMs)
+        if (!booksRestored8372) booksRestored8372 = try {
             val p = ctx.getSharedPreferences(PREFS_8344, Context.MODE_PRIVATE)
             prefs = p
             for ((lane, v) in p.all) {
@@ -211,9 +217,11 @@ object EvidenceShadow8344 {
                     val at = parts.getOrNull(0)?.toLongOrNull(); val net = parts.getOrNull(1)?.toDoubleOrNull()
                     if (at != null && net != null && net.isFinite()) q.addLast(doubleArrayOf(at.toDouble(), net))
                 }
-                if (q.isNotEmpty()) closes[lane] = q
+                if (q.isNotEmpty()) closes.putIfAbsent(lane, q)
             }
-        } catch (_: Throwable) {}
+            true
+        } catch (_: Throwable) { false }
+        initReady8372()
     }
 
     // ── pure ──

@@ -162,10 +162,9 @@ class Aate8322CortexSignalTest {
         assertTrue(CortexCalibration7901.suspendable8322(150.0, 0.0, 150.0))
         val cx = src("engine/cortex/Cortex7885.kt")
         assertFalse(cx.contains("calibration.slope(lane) < MIN_CONSISTENT_SLOPE"))
-        // superseded by V5.0.8366 — a measured rank fit decides calibration (suspends8366: UNCALIBRATED on a flat / non-ranking fit);
-        // the 8322 slope rule still applies before the fit is measured and is shown as the legacy door.
-        assertTrue(cx.contains("if (calibration.suspends8322(a.lane, MIN_CONSISTENT_SLOPE)) return \"UNCALIBRATED\""))
-        assertTrue(cx.contains("val ok = !calibration.suspends8366(lane, MIN_CONSISTENT_SLOPE)"))
+        // 8372 uses arithmetic calibration for authority, with the historical slope retained for thin fits.
+        assertTrue(cx.contains("val ok = !calibration.suspends8372(lane, MIN_CONSISTENT_SLOPE, executableOffset8187(lane))"))
+        assertTrue(cx.contains("calibration.uncalibrated8372(lane, executableOffset8187(lane))"))
     }
 
     @Test fun aRunnerLaneRecalibratesOnItsHoldWindowLabel() {
@@ -177,7 +176,9 @@ class Aate8322CortexSignalTest {
         // ... the hold-window labels say it was right: each grade is revised at the weight it still owns.
         stamps.forEachIndexed { i, s -> val d = if (i % 2 == 0) 10.0 else -10.0; assertTrue(c.revise8322("MOONSHOT", d, 0.0, -d, d, s)) }
         assertEquals(1.0, c.slope("MOONSHOT"), 1e-6)
-        assertFalse(c.revise8322("MOONSHOT", 0.0, 0.0, 1.0, 2.0, stamps.last()))   // no deviation, nothing to revise
+        // A zero-deviation observation still owns its outcome mean and exact raw pair (8371/8372).
+        val zeroStamp = c.learn("MOONSHOT", 0.0, 0.0, 1.0, 0.0)
+        assertTrue(c.revise8322("MOONSHOT", 0.0, 0.0, 1.0, 2.0, zeroStamp))
     }
 
     // ── runner lanes grade on the long horizon ──

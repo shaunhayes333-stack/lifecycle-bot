@@ -85,7 +85,10 @@ object FirstSight8026 {
 
     // ── state ──
 
-    private val tickets = ConcurrentHashMap<String, Long>()        // mint -> granted at
+    /** A probe's permission belongs to the token AND the specialist that earned it. */
+    internal data class TicketKey8372(val mint: String, val lane: String)
+    internal fun ticketKey8372(mint: String, lane: String) = TicketKey8372(mint, lane.trim().uppercase())
+    private val tickets = ConcurrentHashMap<TicketKey8372, Long>()  // token + lane -> granted at
     private val granted = ConcurrentHashMap<String, Long>()        // mint -> granted at (until close)
     private val record = CortexLedger7885.realisedStat8187()  // V5.0.8187 — realised closes: read raw
     @Volatile private var day = -1L
@@ -120,7 +123,7 @@ object FirstSight8026 {
      */
     fun grant8026(ts: TokenState, lane: String, refusal: String, evidence: Double, strong: CortexLedger7885.Stat, maturity: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (coinProvenLoser8026(refusal)) return false
-        tickets[ts.mint]?.let { if (nowMs - it in 0L..TICKET_MS) return true }
+        val ticketKey = ticketKey8372(ts.mint, lane)
         val se = if (strong.n > 1.0) kotlin.math.sqrt(strong.variance() / strong.n) else Double.POSITIVE_INFINITY
         // evidence < 0 = the Cortex is inconsistent or the lane is inverted: no first sight at all.
         val clears = edgeClears8026(evidence, strong.mean(), se, strong.winRate()) ||
@@ -143,7 +146,10 @@ object FirstSight8026 {
             try { PipelineHealthCollector.labelInc(if (down) "FIRST_SIGHT_STOOD_DOWN_8026" else "FIRST_SIGHT_REFUSED_CASH_8026") } catch (_: Throwable) {}
             return false
         }
-        tickets[ts.mint] = nowMs
+        // Reuse is idempotence, not a second authority. A changed verdict, revoked evidence, stale price,
+        // or exhausted cash must take effect even while the old three-minute ticket is still cached.
+        tickets[ticketKey]?.let { if (nowMs - it in 0L..TICKET_MS) return true }
+        tickets[ticketKey] = nowMs
         granted[ts.mint] = nowMs
         if (tickets.size > 2_000) tickets.entries.removeIf { nowMs - it.value > TICKET_MS }
         if (granted.size > 2_000) granted.entries.removeIf { nowMs - it.value > 24L * 3_600_000L }
@@ -163,8 +169,10 @@ object FirstSight8026 {
     /** TraderSizingBridge6444: a probe opens at the route minimum; conviction sizing (equity x authority) grows it. */
     fun sizeMult8026(mint: String, mult: Double): Double {
         val m = if (mult.isFinite() && mult > 0.0) mult else 1.0
-        val at = tickets[mint] ?: return m
-        return if (System.currentTimeMillis() - at in 0L..TICKET_MS) m.coerceAtMost(1.0) else m
+        val now = System.currentTimeMillis()
+        // This legacy API has no lane: any current probe for the asset may only LIMIT its size.
+        // Buy permission itself is always checked against the exact token/lane key in grant8026.
+        return if (tickets.any { (key, at) -> key.mint == mint && now - at in 0L..TICKET_MS }) m.coerceAtMost(1.0) else m
     }
 
     /** CanonicalFinalizedTradeBus6464: a live close of a probe feeds its own record and the day's loss. */
