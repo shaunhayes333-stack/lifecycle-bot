@@ -249,7 +249,7 @@ object TradeHistoryStore {
     private fun scheduleStatsRefresh() {
         if (statsRefreshInFlight) return
         statsRefreshInFlight = true
-        val r = Runnable {
+        val r = JournalIo8368.statsJob8368(Runnable {  // V5.0.8368 — counted stats job; stays on TradeHistoryIO
             try {
                 val fresh = getStats()
                 cachedStatsSnapshot = fresh
@@ -258,7 +258,7 @@ object TradeHistoryStore {
             } finally {
                 statsRefreshInFlight = false
             }
-        }
+        })
         try {
             // Do not call ensureInitialized() from a main-thread cache miss;
             // lazy init may open SQLite/load rows. If the IO handler is not ready,
@@ -278,6 +278,58 @@ object TradeHistoryStore {
     private var db:        SQLiteDatabase? = null
     private var ioThread:  HandlerThread?  = null
     private var ioHandler: Handler?        = null
+    // V5.0.8368 — durable journal row writes (and every other SQLite mutation, so
+    // their relative order is unchanged) run on their own normal-priority single
+    // thread. Its queue is a priority queue: journal writes are LANE_JOURNAL and
+    // FIFO by sequence; nothing bulk ever runs ahead of them. Stats refresh and the
+    // cache-rebuild jobs stay on the background-priority TradeHistoryIO thread.
+    @Volatile private var journalWriteExecutor8368: java.util.concurrent.ThreadPoolExecutor? = null
+    @Volatile private var journalWriteThread8368: Thread? = null
+
+    private fun startJournalWriter8368() {
+        if (journalWriteExecutor8368 != null) return
+        val factory = java.util.concurrent.ThreadFactory { r ->
+            val t = Thread(Runnable {
+                try { Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT) } catch (_: Throwable) {}
+                r.run()
+            }, "TradeJournalWrite8368")
+            journalWriteThread8368 = t
+            t
+        }
+        journalWriteExecutor8368 = java.util.concurrent.ThreadPoolExecutor(
+            1, 1, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+            java.util.concurrent.PriorityBlockingQueue<Runnable>(), factory,
+        )
+    }
+
+    /** V5.0.8368 — enqueue on the journal write thread; false when unavailable/rejected. */
+    private fun postJournalWrite8368(body: Runnable): Boolean {
+        val ex = journalWriteExecutor8368 ?: return false
+        JournalIo8368.onEnqueued8368()
+        val task = JournalIo8368.task8368(JournalIo8368.LANE_JOURNAL, System.currentTimeMillis(), Runnable {
+            try { body.run() } finally { JournalIo8368.onDequeued8368() }
+        })
+        return try {
+            ex.execute(task)
+            true
+        } catch (_: Throwable) {
+            JournalIo8368.onDequeued8368()
+            false
+        }
+    }
+
+    /** V5.0.8368 — enqueue→commit latency of one durable journal insert. */
+    private fun noteJournalCommitLatency8368(enqueuedMs: Long, trade: Trade) {
+        val latencyMs = System.currentTimeMillis() - enqueuedMs
+        if (!JournalIo8368.onJournalCommitted8368(latencyMs)) return
+        try {
+            PipelineHealthCollector.labelInc(JournalIo8368.SLOW_LABEL)
+            ForensicLogger.lifecycle(
+                JournalIo8368.SLOW_LABEL,
+                "latencyMs=$latencyMs mint=${trade.mint.take(10)} side=${trade.side} depth=${JournalIo8368.depth8368()}",
+            )
+        } catch (_: Throwable) {}
+    }
     private val durableEconomicEventIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val economicEventWritesInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
@@ -468,6 +520,7 @@ object TradeHistoryStore {
             ioThread  = t
             ioHandler = Handler(t.looper)
         }
+        startJournalWriter8368()  // V5.0.8368
 
         // Open SQLite
         val helper = TradeDbHelper(ctx)
@@ -547,7 +600,7 @@ object TradeHistoryStore {
      * AATEApp.appContextOrNull() if nothing else did yet.
      */
     private fun ensureInitialized() {
-        if (db != null && ioHandler != null) return
+        if (db != null && ioHandler != null && journalWriteExecutor8368 != null) return
         try {
             val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: return
             init(ctx)
@@ -1359,7 +1412,7 @@ object TradeHistoryStore {
     /** V5.0.7346 — builds vs reuses of the shared validated journal list. */
     fun validRowsStatus7346(): String =
         "validRowsBuilds7346=${validRowsBuilds7346.get()} validRowsReuse7346=${validRowsReuse7346.get()} " +
-            "rows=${validRowsMemo7346?.newestFirst?.size ?: 0}"
+            "rows=${validRowsMemo7346?.newestFirst?.size ?: 0} ${JournalIo8368.status8368()}"  // V5.0.8368
 
     /** V5.0.4497 — bounded full lifecycle valid-trade snapshot for Journal UI.
      * Includes BUY, SELL, and PARTIAL_SELL rows newest-first. Do not use closed-row
@@ -1420,7 +1473,7 @@ object TradeHistoryStore {
     private fun scheduleRawClosedTradesRefresh(cap: Int, includePartials: Boolean) {
         if (rawClosedTradesRefreshInFlight) return
         rawClosedTradesRefreshInFlight = true
-        val r = Runnable {
+        val r = JournalIo8368.statsJob8368(Runnable {  // V5.0.8368 — counted stats job; stays on TradeHistoryIO
             try {
                 val fresh = computeRecentValidClosedTradesRaw(cap, includePartials)
                 rawClosedTradesCache = fresh
@@ -1431,7 +1484,7 @@ object TradeHistoryStore {
             } finally {
                 rawClosedTradesRefreshInFlight = false
             }
-        }
+        })
         try {
             ioHandler?.post(r) ?: Thread(r, "TradeRawClosedRefresh").start()
         } catch (_: Throwable) {
@@ -1533,7 +1586,7 @@ object TradeHistoryStore {
     private fun scheduleLatestBuyRefresh(cap: Int) {
         if (latestBuyRefreshInFlight) return
         latestBuyRefreshInFlight = true
-        val r = Runnable {
+        val r = JournalIo8368.statsJob8368(Runnable {  // V5.0.8368 — counted stats job; stays on TradeHistoryIO
             try {
                 val fresh = computeLatestBuyByMintSnapshot(cap)
                 latestBuyByMintCache = fresh
@@ -1543,7 +1596,7 @@ object TradeHistoryStore {
             } finally {
                 latestBuyRefreshInFlight = false
             }
-        }
+        })
         try {
             ioHandler?.post(r) ?: Thread(r, "TradeLatestBuyRefresh").start()
         } catch (_: Throwable) {
@@ -1606,7 +1659,7 @@ object TradeHistoryStore {
         // would duplicate the row under CONFLICT_IGNORE + fresh dedup_key).
         if (touched > 0 && updatedTradeTs > 0L) {
             val tsForUpdate = updatedTradeTs
-            ioHandler?.post {
+            postJournalWrite8368(Runnable {  // V5.0.8368 — FIFO behind the INSERT it updates
                 try {
                     val cv = ContentValues().apply {
                         put("entry_qty_token", walletVerifiedQty)
@@ -1621,7 +1674,7 @@ object TradeHistoryStore {
                 } catch (e: Exception) {
                     ErrorLogger.error("TradeHistoryStore", "backfill6311 SQLite update failed: ${e.message}")
                 }
-            }
+            })
         }
         return touched
     }
@@ -1903,13 +1956,13 @@ object TradeHistoryStore {
                 "cohortRunId=$cohortId startMs=${com.lifecyclebot.engine.truth.JournalCohort6389.currentStartMs()}",
             )
         } catch (_: Throwable) {}
-        ioHandler?.post {
+        postJournalWrite8368(Runnable {  // V5.0.8368 — FIFO with journal inserts
             try {
                 db?.delete(TradeDbHelper.TABLE, null, null)
             } catch (e: Exception) {
                 ErrorLogger.error("TradeHistoryStore", "SQLite clear failed: ${e.message}")
             }
-        }
+        })
         // V5.9.635 — also reset the lifetime counters that fed
         // getStats().totalWins / totalLosses / totalPnlSol — these used to
         // persist across Clear and made the "All Traders" line out-of-sync
@@ -1953,9 +2006,9 @@ object TradeHistoryStore {
         // V5.0.8015 — the per-position counters behind the Journal tiles reset with the rest.
         lifetimeTerminalCloses7205 = 0; lifetimeTerminalWins7205 = 0; lifetimeTerminalLosses7205 = 0
         lifetimeTerminalScratches7205 = 0; lifetimeTerminalWinPnlSum7205 = 0.0
-        ioHandler?.post {
+        postJournalWrite8368(Runnable {  // V5.0.8368 — FIFO with journal inserts
             try { db?.delete(TradeDbHelper.TABLE, null, null) } catch (_: Exception) {}
-        }
+        })
         saveLifetimeStats()
         ErrorLogger.warn("TradeHistoryStore", "🔄 FULL RESET: Trades + lifetime counters wiped (learned AI reset)")
     }
@@ -2183,7 +2236,7 @@ object TradeHistoryStore {
     private fun scheduleAllSellsRefresh() {
         if (allSellsRefreshInFlight) return
         allSellsRefreshInFlight = true
-        val r = Runnable {
+        val r = JournalIo8368.statsJob8368(Runnable {  // V5.0.8368 — counted stats job; stays on TradeHistoryIO
             try {
                 val fresh = computeAllSells()
                 allSellsCache = fresh
@@ -2192,7 +2245,7 @@ object TradeHistoryStore {
             } finally {
                 allSellsRefreshInFlight = false
             }
-        }
+        })
         try {
             ioHandler?.post(r) ?: Thread(r, "TradeAllSellsRefresh").start()
         } catch (_: Throwable) {
@@ -2399,7 +2452,7 @@ object TradeHistoryStore {
     private fun scheduleRollingSliceRefresh(width: Int) {
         if (rollingSliceRefreshInFlight) return
         rollingSliceRefreshInFlight = true
-        val r = Runnable {
+        val r = JournalIo8368.statsJob8368(Runnable {  // V5.0.8368 — counted stats job; stays on TradeHistoryIO
             try {
                 val fresh = HashMap<String, Double>(8)
                 for (i in 0 until 5) {
@@ -2412,7 +2465,7 @@ object TradeHistoryStore {
             } finally {
                 rollingSliceRefreshInFlight = false
             }
-        }
+        })
         try { ioHandler?.post(r) ?: Thread(r, "TradeRollingSliceRefresh").start() } catch (_: Throwable) {
             try { Thread(r, "TradeRollingSliceRefresh").start() } catch (_: Throwable) { rollingSliceRefreshInFlight = false }
         }
@@ -2670,13 +2723,14 @@ object TradeHistoryStore {
 
     /** Insert a single trade row asynchronously (off main thread). */
     private fun insertTradeAsync(trade: Trade) {
-        val handler6653 = ioHandler
-        if (handler6653 == null) {
+        // V5.0.8368 — own normal-priority FIFO writer, not TradeHistoryIO (stats).
+        if (journalWriteExecutor8368 == null) {
             if (trade.economicEventId.isNotBlank()) economicEventWritesInFlight.remove(trade.economicEventId)
             try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_HANDLER_UNAVAILABLE_6653") } catch (_: Throwable) {}
             return
         }
-        val posted6653 = handler6653.post {
+        val enqueuedMs8368 = System.currentTimeMillis()
+        val posted6653 = postJournalWrite8368(Runnable {
             try {
                 // V5.0.7407 — fail closed BEFORE SQLite durability. The old
                 // witness stamped JOURNAL only after the row was durable, so a
@@ -2696,7 +2750,7 @@ object TradeHistoryStore {
                             "key=${atomicKey7407.take(48)} mint=${trade.mint.take(10)} side=${trade.side} action=prevent_journal_only_half_commit",
                         )
                     } catch (_: Throwable) {}
-                    return@post
+                    return@Runnable
                 }
                 val cv = tradeToContentValues(trade)
                 val rowId = db?.insertWithOnConflict(
@@ -2704,6 +2758,7 @@ object TradeHistoryStore {
                 if (rowId > 0L) {
                     if (trade.economicEventId.isNotBlank()) durableEconomicEventIds.add(trade.economicEventId)
                     stampDurableJournalCommit6641(trade)
+                    noteJournalCommitLatency8368(enqueuedMs8368, trade)
                 }
                 else try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_DURABLE_INSERT_FAILED_6641") } catch (_: Throwable) {}
             } catch (e: Exception) {
@@ -2711,7 +2766,7 @@ object TradeHistoryStore {
             } finally {
                 if (trade.economicEventId.isNotBlank()) economicEventWritesInFlight.remove(trade.economicEventId)
             }
-        }
+        })
         if (!posted6653 && trade.economicEventId.isNotBlank()) {
             economicEventWritesInFlight.remove(trade.economicEventId)
             try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_POST_REJECTED_6653") } catch (_: Throwable) {}
@@ -2726,10 +2781,12 @@ object TradeHistoryStore {
      */
     fun awaitDurableJournalBoundary6669(timeoutMs: Long = 30_000L): Boolean {
         ensureInitialized()
-        val handler = ioHandler ?: return false
-        if (android.os.Looper.myLooper() == handler.looper) return true
+        // V5.0.8368 — the boundary lives on the journal write thread, FIFO behind
+        // every journal write accepted before this call.
+        if (journalWriteExecutor8368 == null) return false
+        if (Thread.currentThread() === journalWriteThread8368) return true
         val reached = java.util.concurrent.CountDownLatch(1)
-        if (!handler.post { reached.countDown() }) return false
+        if (!postJournalWrite8368(Runnable { reached.countDown() })) return false
         return try {
             reached.await(timeoutMs.coerceAtLeast(1L), java.util.concurrent.TimeUnit.MILLISECONDS)
         } catch (_: InterruptedException) {
