@@ -10,9 +10,11 @@ import java.io.File
 /** V5.0.8057 — proven edge is sized as a quarter-Kelly share of CURRENT equity: it compounds with the wallet. */
 class Aate8057CompoundingSizerTest {
     @Test fun quarterKelly() {
-        // ACCELERATING_TAPE-like record: n61, mean +23%, sd 60% -> mean-SE ~15.3% -> f = 0.25 * 0.153 / 0.36 ~ 0.106.
+        // ACCELERATING_TAPE-like record: n61, mean +23%, sd 60%.
+        // superseded by V5.0.8365 — was 0.25 * (mean - SE) / variance ~ 0.106; now the log-optimal Kelly of the record's
+        // two-point read (+83% / -37%: f* ~ 0.749) x 0.25 x n/(n+30) (61/91) ~ 0.1255 (Aate8365KellyTest).
         val f = LiveRiskPolicy7807.kellyFrac8057(23.0, 3600.0, 61.0)
-        assertEquals(0.106, f, 0.01)
+        assertEquals(0.1255, f, 0.01)
         // No proven edge (mean - SE <= 0): no compounding size.
         assertEquals(0.0, LiveRiskPolicy7807.kellyFrac8057(2.0, 3600.0, 61.0), 1e-9)
         // Never more than 30% of equity on one coin.

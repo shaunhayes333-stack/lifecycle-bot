@@ -68,7 +68,9 @@ class Aate8153SizingTest {
         val rec = SizingNetEdge8153.EdgeRecord8153(meanNetPct = 8.0, variancePct2 = 400.0, n = 100.0, labelCostPct = 1.5)
         assertEquals(0.20, SizingNetEdge8153.netKellyFrac8153(0.20, rec, 1.5), 1e-12)       // never above the proof
         assertEquals(0.20, SizingNetEdge8153.netKellyFrac8153(0.20, rec, 1.0), 1e-12)       // a cheaper fill is not credited
-        assertEquals(0.1875, SizingNetEdge8153.netKellyFrac8153(0.20, rec, 4.5), 1e-12)     // 3 points dearer: edge 3%
+        // superseded by V5.0.8365 — the share is scaled by the record's own net ratio (Kelly8365.netRatio8365), not min'd
+        // against the old linear form (0.1875): at +8% / +5% on sd 20% both full Kelly reads sit at the no-leverage cap (1.0).
+        assertEquals(0.20, SizingNetEdge8153.netKellyFrac8153(0.20, rec, 4.5), 1e-12)       // 3 points dearer: edge 3%, still capped
         assertEquals(0.0, SizingNetEdge8153.netKellyFrac8153(0.20, rec, 7.5), 0.0)          // 6 points dearer: no edge
         assertEquals(0.20, SizingNetEdge8153.netKellyFrac8153(0.20, null, 7.5), 1e-12)      // only the share known
         assertEquals(0.0, SizingNetEdge8153.netKellyFrac8153(0.0, rec, 1.5), 0.0)

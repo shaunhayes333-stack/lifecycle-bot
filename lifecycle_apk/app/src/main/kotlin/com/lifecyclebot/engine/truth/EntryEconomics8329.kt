@@ -287,6 +287,20 @@ object EntryEconomics8329 {
         return r
     }
 
+    /**
+     * V5.0.8365 — LiveRiskPolicy7807.decide's promotion verdict on the Kelly stake. [refusal8329] is
+     * [promotionReasonRefusal8329] for the same stake: a stake below [Kelly8365.ROUTE_SHARE_8365] of the route minimum with
+     * no named candidate-level reason (setup record positive, early runner, exploration slot) is refused as
+     * [Kelly8365.KELLY_TOO_SMALL_8365] — the minimum no longer replaces a Kelly stake far below it. A stake at or above that
+     * share is promoted (the route minimum still binds); a stake above the minimum is never promoted (decide uses it).
+     */
+    fun kellyRefusal8365(stakeSol: Double, routeMinSol: Double, refusal8329: String?): String? {
+        if (refusal8329 == null) return null
+        if (Kelly8365.stakeNearRoute8365(stakeSol, routeMinSol)) return null
+        labelInc(Kelly8365.KELLY_TOO_SMALL_8365)
+        return Kelly8365.KELLY_TOO_SMALL_8365
+    }
+
     // ── report ──
 
     fun statusLine8329(nowMs: Long = System.currentTimeMillis()): String {

@@ -324,7 +324,8 @@ object OrderSizeResolver6441 {
         val laneRedistMult6833 = try {
             com.lifecyclebot.engine.truth.RuntimeTune6833.laneCapacityMultiplier(laneName)
         } catch (_: Throwable) { 1.0 }
-        val adaptiveMult6684 = if (alreadyShaped7925) 1.0 else (ssiMult6684 * labMult6684 * pressureMult6830 * laneRedistMult6833).coerceIn(0.20, 2.50)
+        // V5.0.8365 — one shrink (the deepest of SSI / lab / inventory pressure / lane redistribution), boosts kept.
+        val adaptiveMult6684 = if (alreadyShaped7925) 1.0 else Kelly8365.shrinkThenBoost8365(ssiMult6684, labMult6684, pressureMult6830, laneRedistMult6833).coerceIn(0.20, 2.50)
         // V5.0.6833 §EXPRESS_ADMISSION_BLEED — operator directive Feb 2026:
         //   "liveP<0.30 => PROBE_ONLY; expectedPnl<0 AND liveP<0.30 => NO_BUY;
         //    raw score MUST NOT override strongly negative learned edge."
@@ -711,7 +712,7 @@ object OrderSizeResolver6441 {
                     } catch (_: Throwable) { Double.NaN },
                 )
             } catch (_: Throwable) { 1.0 }
-            val combined6992 = (streakMult6992 * bridgeMult6992).coerceIn(0.20, 1.10)
+            val combined6992 = Kelly8365.shrinkThenBoost8365(streakMult6992, bridgeMult6992).coerceIn(0.20, 1.10)  // V5.0.8365 — one shrink
             if (combined6992 < 0.999 || combined6992 > 1.001) {
                 liveAwareLamports6992 =
                     (shapedOrMinimumLamports6600.toDouble() * combined6992).toLong().coerceAtLeast(0L)

@@ -55,7 +55,10 @@ object SizingNetEdge8153 {
         if (!provenFrac.isFinite() || provenFrac <= 0.0) return 0.0
         if (rec == null) return provenFrac
         val extra = if (costAtSizePct.isFinite() && rec.labelCostPct.isFinite()) (costAtSizePct - rec.labelCostPct).coerceAtLeast(0.0) else 0.0
-        val net = LiveRiskPolicy7807.kellyFrac8057(rec.meanNetPct - extra, rec.variancePct2, rec.n)
+        // superseded by V5.0.8365 — min(proven, kelly(mean - extra)) re-read a runner-aware (live / runner-rate) share on the
+        // symmetric moments read and flattened it; the share is now scaled by the record's own net-of-extra-cost ratio
+        // (Kelly8365.netRatio8365, in [0, 1]): never above [provenFrac], 0 once the extra cost consumes mean - SE.
+        val net = provenFrac * Kelly8365.netRatio8365(rec.meanNetPct, rec.variancePct2, rec.n, extra)
         return minOf(provenFrac, net).coerceAtLeast(0.0)
     }
 
