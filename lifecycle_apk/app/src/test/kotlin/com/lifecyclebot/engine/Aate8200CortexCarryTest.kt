@@ -61,7 +61,9 @@ class Aate8200CortexCarryTest {
         assertTrue(fn.contains("SafetyTier.HARD_BLOCK"))
         assertTrue(fn.contains("MayhemMode7943.liveRefusal(ts)"))
         assertTrue(fn.contains("board.inverted7948(a.lane, accountMode8077())"))
-        assertTrue(fn.contains("firstSightBarred8144(a.lane)"))
+        // superseded by V5.0.8366 — the door reads the one walk-forward test; the 8144 bar is read as the legacy display door.
+        assertTrue(fn.contains("firstSightBarredLegacy8366(a.lane)"))
+        assertTrue(fn.contains("authorityFraction8366(a.lane)"))
         assertTrue(fn.contains("gradeBook8144.executableSeries(a.lane, null, CortexScoreboard7885.Bucket.STRONG.ordinal)"))
     }
 }

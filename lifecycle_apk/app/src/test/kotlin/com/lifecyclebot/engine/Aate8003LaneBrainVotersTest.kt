@@ -22,7 +22,8 @@ class Aate8003LaneBrainVotersTest {
 
     @Test fun everyLaneBrainVotesInEveryLane() {
         val v = src("engine/cortex/CortexVoters7885.kt")
-        assertTrue(v.contains("val lanes = laneBrainVotes8003(ts)"))
+        // superseded by V5.0.8366 — the lane brains still vote via laneBrainVotes8003; a queued assessment uses the stamped votes inside the TTL.
+        assertTrue(v.contains("val lanes = LaneBrainVotes8366.resolve8366(ts.mint, laneBrainVotes8003(ts), System.currentTimeMillis())"))
         assertTrue(v.contains("return lanes + v3m"))
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("voters=\${CortexVoters7885.votersLine8003()}"))
     }
