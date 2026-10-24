@@ -168,8 +168,13 @@ class Aate8326Entry8114ModeTest {
         assertTrue(labeler.contains("else if (Entry8114Mode8326.legacyScope8326()) legacyCell8326(key, n, sum, sumSq, wins, runners, t.lost, t.n240, t.sum240)"))
         val playbook = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(playbook.contains("(try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null }) ?: classify(ts, canon(laneRaw), nowMs)"))
-        // superseded by V5.0.8337 — FIX 7b: the legacy read is the 8114 record (uncapped, whole hive), not the 8187-capped raw one
-        assertTrue(playbook.contains("if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return legacyStat8326(lane, setup)"))
+        // V5.0.8365: read the full uncapped 8114 historical hive, then apply decision-time
+        // executable shortfall and same-lane realised-close evidence before granting authority.
+        // Never return the legacy stat directly: that used to restore losing entries.
+        assertTrue(playbook.contains("val raw = (if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) legacyStat8326(lane, setup)"))
+        assertTrue(playbook.contains("Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane)"))
+        assertTrue(playbook.contains("LaneRealisedGovernor8295.governedCopy8295(exec, rr, laneRealised8295(lane))"))
+        assertFalse(playbook.contains("if (com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()) return legacyStat8326(lane, setup)"))
         val cortex = src("engine/cortex/Cortex7885.kt")
         val old = cortex.substringAfter("fun entryRefusal8114(").substringBefore("fun overrulesEdgeRefusal(")
         assertTrue(old.contains("board.refusalAuthority(a.lane, a.runnerLane, false) && consistent(a.lane)"))
