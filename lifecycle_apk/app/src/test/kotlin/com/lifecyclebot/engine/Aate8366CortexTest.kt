@@ -89,6 +89,51 @@ class Aate8366CortexTest {
         assertTrue(thin.slope("CORE").isFinite())
     }
 
+    // ── 8371 — calibration must learn on every graded decision, including cold-start
+    // zero-deviation reads, and preserve runner revision weights over a restart. ──
+
+    @Test fun aColdStartBaselinePredictionRetainsItsRunnerRevisionKey() {
+        val c = CortexCalibration7901()
+        // With no seated voters, edge == lane prior. Before 8371 this returned
+        // NaN and stored an isotonic record that could never receive its later label.
+        val stamp = c.learn("MOONSHOT", -10.0, -10.0, -12.0, -10.0)
+        assertTrue(stamp.isFinite())
+        assertEquals(1, c.isoFit8366("MOONSHOT")!!.n)
+        assertTrue(c.revise8322("MOONSHOT", -10.0, -10.0, -12.0, 120.0, stamp))
+        assertEquals(120.0, c.isoFit8366("MOONSHOT")!!.expectedPct8366(-10.0), 1e-8)
+    }
+
+    @Test fun theCalibrationDecayCoordinateSurvivesRestartAndRevisesTheSlope() {
+        val c = CortexCalibration7901()
+        var lastStamp = Double.NaN
+        repeat(40) { i ->
+            val score = if (i % 2 == 0) 2.0 else -2.0
+            lastStamp = c.learn("SHITCOIN", score, 0.0, score * 0.5, score)
+        }
+        assertTrue(lastStamp.isFinite())
+        val saved = c.encode()
+        assertEquals(6, saved.getString("SHITCOIN").split(',').size)
+        val restored = CortexCalibration7901()
+        restored.decode(saved)
+        // Last grade was -2 -> -1. The late runner label is +50; both the
+        // isotonic pair and the weighted slope sums must be revised.
+        assertTrue(restored.revise8322("SHITCOIN", -2.0, 0.0, -1.0, 50.0, lastStamp))
+        assertEquals(40, restored.isoFit8366("SHITCOIN")!!.n)
+        val after = restored.encode().getString("SHITCOIN").split(',').map { it.toDouble() }
+        val before = saved.getString("SHITCOIN").split(',').map { it.toDouble() }
+        assertTrue(after[3] > before[3])
+        assertTrue(after[4] < before[4])
+    }
+
+    @Test fun theHistoricalFiveFieldCalibrationStillLoadsWithoutInventedGrades() {
+        val c = CortexCalibration7901()
+        val old = org.json.JSONObject().put("QUALITY", "5.0,1.0,2.0,1.0,2.0")
+        c.decode(old)
+        assertTrue(c.slope("QUALITY").isFinite())
+        assertEquals(5.0, c.encode().getString("QUALITY").split(',')[0].toDouble(), 0.0)
+        assertTrue(c.learn("QUALITY", 3.0, 0.0, 2.0, 3.0).isFinite())
+    }
+
     // ── 2. honest labels ──
 
     @Test fun aStopIsGradedAtTheFirstMarkBelowItWithExitSlippage() {
