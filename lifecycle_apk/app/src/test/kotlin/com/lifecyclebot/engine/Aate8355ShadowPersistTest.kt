@@ -108,10 +108,20 @@ class Aate8355ShadowPersistTest {
         assertTrue("a tier change is a persisted change", s.contains("p.tiersHit++") && s.contains("p.dirty8355 = true   // V5.0.8355 — a tier change is a persisted change"))
         assertTrue("coalesced on the tick", s.contains("if (ShadowPersist8355.writeDue8355(p.dirty8355, p.lastWriteMs8355, nowMs)) persistOpen8355(p, nowMs)"))
         assertTrue("removed on close", s.contains("done.forEach { open.remove(it); forgetOpen8355(it) }"))
-        assertTrue("restored in init", s.contains("fun init8344(ctx: Context, nowMs: Long = System.currentTimeMillis()) {") && s.contains("restoreOpen8355(ctx, nowMs)"))
+        val init = s.substringAfter("fun init8344(").substringBefore("\n    }")
+        assertTrue("restored in retryable serialized init", init.contains("synchronized(initLock8372)") &&
+            init.contains("if (!openRestored8372) openRestored8372 = restoreOpen8355(ctx, nowMs)") &&
+            init.contains("initReady8372()"))
         assertTrue("a restored position keeps its real marks and clock", s.contains("Pos8344(r.mint, r.lane, r.entryPx, r.atMs, r.costPct, r.stopPct, r.armPct, r.timeoutMs)") &&
             s.contains("pos.lastPx = r.lastPx; pos.lastPxAtMs = r.lastPxAtMs"))
-        assertTrue("the restore honours the cap and the age rule", s.contains("ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)") && s.contains("open.size >= MAX_OPEN_8344 || open.containsKey(r.mint)"))
+        val restore = s.substringAfter("private fun restoreOpen8355(").substringBefore("fun restoreCounts8355()")
+        assertTrue("the restore honours the cap and the age rule", restore.contains("ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)") &&
+            restore.contains("if (open.size >= MAX_OPEN_8344) { drop += k; continue }"))
+        assertTrue("partial-init retry preserves an existing episode before testing old persisted expiry",
+            restore.indexOf("if (open.containsKey(r.mint)) continue") in 0 until restore.indexOf("ShadowPersist8355.expiredOnRestore8355("))
+        assertTrue("a concurrent or newer in-memory episode is neither overwritten nor deleted",
+            restore.contains("if (open.putIfAbsent(r.mint, pos) == null)") &&
+                restore.contains("for (k in drop) if (!open.containsKey(k)) e.remove(k)"))
         assertTrue("lost-on-restore is counted", s.contains("if (why == \"LOST_MARK\" && p.noMarkSinceRestore8355) lostOnRestore8355.incrementAndGet()"))
         assertTrue(s.contains("restored8355=\${restored8355.get()} lostOnRestore8355=\${lostOnRestore8355.get()}"))
         assertTrue("apply(), never commit()", !s.contains("commit()"))
@@ -129,14 +139,35 @@ class Aate8355ShadowPersistTest {
         assertTrue("tier moves are coalesced", s.contains("leg.held -= sold; leg.tiers++; t.dirty8355 = true") && s.contains("leg.tiers = 2; t.dirty8355 = true"))
         assertTrue("peak moves are coalesced", s.contains("if (g > leg.peak) { leg.peak = g; t.dirty8355 = true }"))
         assertTrue("coalesced on the tick", s.contains("else if (ShadowPersist8355.writeDue8355(t.dirty8355, t.lastWriteMs8355, nowMs, t.force8355)) {"))
-        assertTrue("removed once every leg is dead", s.contains("done.forEach { tickets.remove(it); forgetTicket8355(it) }"))
+        // V5.0.8372 retains a dead ticket until its learner receipt is ACKed, and cleanup may remove
+        // only that exact episode: a replacement under the same lane/mint key must survive.
+        assertTrue("terminal tickets wait for their learning receipt", s.contains("if (t.legs.all { it.dead } && !t.cortex8372.awaiting8372()) {"))
+        val cleanup = s.substringAfter("for ((key, completed) in done) tickets.computeIfPresent(key)")
+            .substringBefore("recountLanes8360()")
+        assertTrue(cleanup.contains("if (current !== completed || !current.legs.all { it.dead } || current.cortex8372.awaiting8372()) current"))
+        assertTrue("persisted ticket removed before the map entry", cleanup.indexOf("forgetTicket8355(key)") in
+            0 until cleanup.indexOf("\n                    null"))
         assertTrue("the waits map is flushed from the tick", s.contains("flushWaits8355(nowMs)") && s.contains("waits.remove(key); waitsDirty8355 = true"))
-        assertTrue("restored in init", s.contains("fun init8347(ctx: Context, nowMs: Long = System.currentTimeMillis()) {") && s.contains("restoreOpen8355(ctx, nowMs)"))
+        val init = s.substringAfter("fun init8347(").substringBefore("\n    }")
+        assertTrue("restored in retryable serialized init", init.contains("synchronized(initLock8372)") &&
+            init.contains("if (!openRestored8372) openRestored8372 = restoreOpen8355(ctx, nowMs)") &&
+            init.contains("initReady8372()"))
         assertTrue("a restored leg keeps its real entry", s.contains("leg.active = l.active; leg.dead = l.dead; leg.entryPx = l.entryPx; leg.entryAtMs = l.entryAtMs"))
-        assertTrue("the restore honours both caps and the age rule", s.contains("tickets.size >= MAX_TICKETS_8347") && s.contains(">= MAX_TICKETS_PER_LANE_8351) { drop += k; continue }") &&
-            s.contains("ShadowPersist8355.expiredOnRestore8355(r.atMs, window, nowMs, LOST_MARK_MS_8347)"))
+        val restore = s.substringAfter("private fun restoreOpen8355(").substringBefore("fun restoreCounts8355()")
+        assertTrue("the restore honours both caps and the age rule", restore.replace(Regex("\\s+"), "").contains(
+            "if(tickets.size>=MAX_TICKETS_8347||laneCount8360(t.lane)>=MAX_TICKETS_PER_LANE_8351){drop+=k;return@synchronizedfalse}") &&
+            restore.contains("ShadowPersist8355.expiredOnRestore8355(r.atMs, window, nowMs, LOST_MARK_MS_8347)"))
+        assertTrue("capacity never silently drops an enrolled decision", restore.contains("if (!t.cortex8372.pending8372()) {") &&
+            restore.contains("t.cortex8372.unavailable8372(\"RESTORE_CAPACITY_8372\", nowMs)"))
         assertTrue(s.contains("restored8355=\${restored8355.get()} expiredOnRestore8355=\${expiredOnRestore8355.get()}"))
-        assertTrue("apply(), never commit()", !s.contains("commit()"))
+        val writer = s.substringAfter("private fun persistTicket8355(").substringBefore("private fun forgetTicket8355(")
+        assertTrue("ordinary open/tier/peak writes stay asynchronous", writer.contains("durable8372: Boolean = false") &&
+            writer.contains("if (durable8372) edit.commit() else { edit.apply(); true }"))
+        assertEquals("the terminal receipt is the only synchronous preference commit", 1, Regex("\\.commit\\(\\)").findAll(s).count())
+        val pendingReceipt = s.substringAfter("if (t.cortex8372.pending8372()) {")
+            .substringBefore("if (t.legs.all { it.dead } && !t.cortex8372.awaiting8372())")
+        assertTrue("durable receipt precedes learner delivery", pendingReceipt.contains("!persistTicket8355(key, t, nowMs, durable8372 = true)") &&
+            pendingReceipt.indexOf("continue") in 0 until pendingReceipt.indexOf("deliverCortex8372(t)"))
         // the close books are untouched: their prefs names and writers are what 8344 / 8351 left
         assertTrue(s.contains("private const val PREFS_8347 = \"aate_explore_shadow_8347\""))
         assertTrue(src("engine/truth/EvidenceShadow8344.kt").contains("private const val PREFS_8344 = \"aate_evidence_shadow_8344\""))

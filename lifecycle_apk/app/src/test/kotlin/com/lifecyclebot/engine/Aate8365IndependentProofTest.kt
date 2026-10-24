@@ -48,8 +48,16 @@ class Aate8365IndependentProofTest {
         val current = CortexGradeBook8144().also { it.decode(wire) }
         assertTrue(current.decision("first")!!.witnessed8324)
         assertEquals(6_000.0, current.decision("first")!!.executablePct, 0.0)
-        val legacy = CortexGradeBook8144().also { it.decode(wire.substringBeforeLast('\u001F')) }
+        // Pre-8365 rows ended at the witness flag (field 32), without field 33's independent-proof marker.
+        // New append-only metadata means removing only the current last field no longer makes a legacy row.
+        val legacyFields = wire.split('\u001F').take(33)
+        assertEquals(33, legacyFields.size)
+        assertEquals("the obsolete witness flag is still present in the fixture", "1", legacyFields.last())
+        val legacy = CortexGradeBook8144().also { it.decode(legacyFields.joinToString("\u001F")) }
         assertFalse(legacy.decision("first")!!.witnessed8324)
         assertEquals(6_000.0, legacy.decision("first")!!.executablePct, 0.0)
+        val currentWithoutLastAppend = CortexGradeBook8144().also { it.decode(wire.substringBeforeLast('\u001F')) }
+        assertTrue("an absent newer optional field cannot erase independent proof", currentWithoutLastAppend.decision("first")!!.witnessed8324)
+        assertEquals(6_000.0, currentWithoutLastAppend.decision("first")!!.executablePct, 0.0)
     }
 }

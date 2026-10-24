@@ -107,10 +107,19 @@ class Aate8153LearningTest {
         val on = cx.substringAfter("fun onLabel(mint: String, labelLane: String").substringBefore("// ── V5.0.8144 — grade records")
         // superseded by V5.0.8187: the playbook takes the label clamped to its cohort's cap (net8187 / gross8187 / fam8187).
         // superseded by V5.0.8322: a flat five-minute mark is observed only too.
-        assertTrue(on.indexOf("if (!hyg8144.authority || late8153 || lateRead8169 || flat) {") in 0 until on.indexOf("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961)"))
+        assertTrue(on.indexOf("if (!hyg8144.authority || late8153 || lateRead8169 || flat) {") in 0 until on.indexOf(
+            "LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs)"))
         // A hygiene-excluded decision's revisions move its own observed record, not the older graded decision's books.
-        val rv = cx.substringAfter("fun reviseLabel8006(").substringBefore("fun progressiveLine8006(")
-        assertTrue(rv.indexOf("if (observedOnlyNewer8153(key)) { reviseObservedOnly8153(key, newNet, newGross); return }") in 0 until rv.indexOf("ledger.revise8006("))
+        // V5.0.8372 resolves the immutable episode directly; it no longer relies on a lane's latest observed-only marker.
+        val rv = cx.substringAfter("fun reviseLabel8006(").substringBefore("private fun reviseModelsLocked8372(")
+        assertTrue(rv.contains("val id = \"\$key|\$decisionAtMs8371\""))
+        val lookup = rv.indexOf("val record = gradeBook8144.decision(id)")
+        val guard = rv.indexOf("if (record?.lateEntry8153 == true || record?.lateRead8187 == true ||")
+        val observed = rv.indexOf("gradeBook8144.label(id, newNet, newGross, Double.NaN, false)")
+        val stop = rv.indexOf("return", observed.coerceAtLeast(0))
+        val trace = rv.indexOf("val g = gradedTrace8372(id)")
+        val mutate = rv.indexOf("reviseModelsLocked8372(id, g, newNet, newGross, witness8324)")
+        assertTrue(lookup >= 0 && lookup < guard && guard < observed && observed < stop && stop < trace && trace < mutate)
     }
 
     // ── 3. exit learning from actual partial proceeds ──

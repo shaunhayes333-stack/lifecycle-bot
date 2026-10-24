@@ -106,10 +106,13 @@ class Aate8291CortexAuditTest {
         assertFalse(h.executableDecision8144(false, "LEARNED_RUG_SIGNATURE"))       // a physical word beside the marker
         assertFalse(h.executableDecision8144(false, "TOXIC_CONCENTRATION"))
         assertFalse(h.executableDecision8144(false, "C1_HARD_SAFETY"))
-        assertFalse(h.executableDecision8144(false, "TOXIC_PATTERN_X", false))      // the native refusal still rules
+        // 8372: a native judgement NO is still a buyable counterfactual, not a physical block.
+        assertTrue(h.executableDecision8144(false, "TOXIC_PATTERN_X", false))
         assertFalse(h.executableDecision8144(false, "LEARNED_X_NATIVE_MCAP_TOO_HIGH"))
         assertNull(h.unexecClass8291(false, "EDGE_GATE_SOFT_SCORE"))
-        assertEquals("NATIVE_INELIGIBLE", h.unexecClass8291(false, "SCORE_TOO_LOW", false))
+        assertNull(h.unexecClass8291(false, "SCORE_TOO_LOW", false))
+        assertFalse(h.executableDecision8144(false, null, false))
+        assertEquals("NATIVE_UNVERIFIED", h.unexecClass8291(false, null, false))
         assertEquals("NATIVE_MANDATE", h.unexecClass8291(false, "OUTSIDE_NATIVE_CAP"))
         assertEquals("RUG", h.unexecClass8291(false, "HARD_BLOCK_RUGCHECK_FAILED".replace("HARD_BLOCK_", "")))
         assertEquals("ROUTE", h.unexecClass8291(false, "WATCH_PROBATION_ROUTE_UNKNOWN"))

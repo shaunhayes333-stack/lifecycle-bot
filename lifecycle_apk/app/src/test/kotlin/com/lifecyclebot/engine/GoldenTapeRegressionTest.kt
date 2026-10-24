@@ -15103,7 +15103,8 @@ class GoldenTapeRegressionTest {
         val fl = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         // superseded by V5.0.8322: the five-minute label carries its flat-mark flag.
         // superseded by V5.0.8324: the five-minute label carries its chain-witness provenance.
-        assertTrue(fl.contains("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324)"))
+        // 8372 also binds the label to the original token/lane episode, not whichever one is newest.
+        assertTrue(fl.contains("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324, decisionAtMs8371 = o.atMs)"))
         assertEquals(3, com.lifecyclebot.engine.truth.LiveEdgeGate7877.COLD_BUDGET_8080)
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("DEFERRED_DATA_TOKEN_MAP_8080"))

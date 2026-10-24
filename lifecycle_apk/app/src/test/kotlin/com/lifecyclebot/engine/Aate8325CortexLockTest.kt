@@ -50,9 +50,17 @@ class Aate8325CortexLockTest {
         val assess = fn("fun assess(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Assessment? {",
             "// ── V5.0.8324 §TAIL_EV")
         val blocks = lockedBlocks(assess)
-        assertEquals("one critical section per assessment", 1, blocks.size)
-        val b = blocks.single()
-        for (k in slow) assertFalse("assess holds the lock through $k", b.contains(k))
+        // V5.0.8372 still fuses exactly once. Its distinct state-only ownership barrier publishes the
+        // assessment only after reservation; the two alternative failure paths cancel an unopened ticket.
+        // Those locks must never enclose a voter, playbook, simulator, store, or refresh call.
+        assertEquals("one fusion, one reservation, two alternative cancellation blocks", 4, blocks.size)
+        assertEquals(1, blocks.count { it.contains("ledger.fuseWithSnapshot8324(") })
+        val ownership = blocks.single { it.contains("outcomeBook8372.reserve(shadowId8372, a.atMs)") }
+        assertTrue(ownership.indexOf("outcomeBook8372.reserve(shadowId8372, a.atMs)") in
+            0 until ownership.indexOf("assessCache[key] = a"))
+        assertEquals(2, blocks.count { it.contains("outcomeBook8372.cancelUnopened(shadowId8372)") })
+        for (b in blocks) for (k in slow + "ExploreShadow8347")
+            assertFalse("assess holds the lock through $k", b.contains(k))
         // the voters are read before the lock, the ranking verdict is only peeked (never computed) on the hot path
         assertTrue(assess.indexOf("CortexVoters7885.readAll(") in 0 until assess.indexOf("synchronized(this) {"))
         assertTrue(assess.indexOf("CortexVoters7885.dynamicVotes(ts)") in 0 until assess.indexOf("synchronized(this) {"))
@@ -106,7 +114,17 @@ class Aate8325CortexLockTest {
         // onLabel refreshes after its lock
         val label = fn("    fun onLabel(mint: String, labelLane: String, horizonMin: Int", "// ── V5.0.8144 — grade records")
         for (b in lockedBlocks(label)) assertFalse(b.contains("refreshExecutable8187("))
-        assertTrue(label.contains("refreshExecutable8187(System.currentTimeMillis())  // V5.0.8187 / V5.0.8325"))
+        // V5.0.8372 shares grading with shadow exits; the shared mutation returns from its lock before
+        // afterGrade refreshes external economics. Following the delegate preserves the original lock rule.
+        assertTrue(label.contains("gradeDecision8372(key, p, net8187, gross8187, witness8324)"))
+        val grade = fn("private fun gradeDecision8372(", "private fun afterGrade8372(")
+        val gradeLock = lockedBlocks(grade).single()
+        assertTrue(gradeLock.contains("gradeModelsLocked8372(key, p, net8187, gross8187, witness8324)"))
+        assertFalse(gradeLock.contains("refreshExecutable8187("))
+        assertTrue(grade.indexOf("afterGrade8372()") >= grade.indexOf(gradeLock) + gradeLock.length)
+        val after = fn("private fun afterGrade8372(", "/** A real admission may share a native-learning observation")
+        assertTrue(after.contains("refreshExecutable8187(System.currentTimeMillis())"))
+        assertTrue("external refresh is outside every Cortex monitor block", lockedBlocks(after).isEmpty())
     }
 
     @Test fun rankingAndPondsAreCachedAndComputedOnce() {

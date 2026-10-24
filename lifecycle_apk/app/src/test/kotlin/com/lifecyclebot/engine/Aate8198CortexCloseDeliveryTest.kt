@@ -56,7 +56,7 @@ class Aate8198CortexCloseDeliveryTest {
         // the grade-path consume (the ineligible earlier release is a different, legitimate branch)
         val take = close.indexOf("positionReads8076.take(env.positionId, closeKey7931, mode)", peek)
             .also { assertTrue("no grade-path take after the peek", it > peek) }
-        val commit = c.indexOf("private fun durableCloseCommit8198(receipt: String): Boolean")
+        val commit = c.indexOf("private fun durableCloseCommit8198(receipt: String,")
         assertTrue(commit > 0)
         // ordering: committed-receipt gate, durably-committed-grade gate, then the first-delivery gate BEFORE mutations;
         // the read is only consumed inside the mutation block (peek left it intact on any earlier failure).
@@ -65,13 +65,20 @@ class Aate8198CortexCloseDeliveryTest {
 
     @Test fun theDurableOutcomeCommitsGradeStateAndReceiptInOneTransaction() {
         val c = src("engine/cortex/Cortex7885.kt")
-        val commitFn = c.substringAfter("private fun durableCloseCommit8198(receipt: String): Boolean")
-            .substringBefore("\n    }\n")
+        // V5.0.8372 adds optional shadow receipts, but canonical close state still crosses the same
+        // serialized transaction. Inspect the delegated body rather than the wrapper's old signature.
+        val wrapper = c.substringAfter("private fun durableCloseCommit8198(")
+            .substringBefore("private fun durableCloseCommitLocked8325(")
+        assertTrue(wrapper.contains("synchronized(persistLock8325) { durableCloseCommitLocked8325(receipt, additionalBlobs8372) }"))
+        val commitFn = c.substringAfter("private fun durableCloseCommitLocked8325(")
+            .substringBefore("\n    private const val WF_REFRESH_MS_8144")
         assertTrue(commitFn.contains("LearningPersistence.commitOnce8090(receipt, blobs)"))
         // the receipt binds the exact graded state: the same three snapshots the periodic write takes
         assertTrue(commitFn.contains("PERSIST_KEY]"))
         assertTrue(commitFn.contains("PENDING_PERSIST_KEY]"))
         assertTrue(commitFn.contains("GRADES_KEY_8144]"))
+        assertTrue(commitFn.indexOf("blobs.putAll(additionalBlobs8372)") in
+            0 until commitFn.indexOf("LearningPersistence.commitOnce8090(receipt, blobs)"))
         assertTrue(commitFn.contains("CORTEX_CLOSE_DURABLE_RETRY_8198"))
         assertFalse(commitFn.contains("GlobalScope"))
         // the periodic writer never splits graded state from its receipt while a close grade is uncommitted
