@@ -151,7 +151,10 @@ class Aate8367InFlightTest {
         val audit = src("engine/truth/AcceptanceInvariantAudit6441.kt")
         assertTrue(audit.contains("filterNot { it in paperEconomic7399 || ExecutionSpineAcceptance6647.isOpenInFlightFailure8367(it) }"))
         val fr = src("engine/truth/ForensicReconciliation6635.kt")
-        assertTrue(fr.contains("fun cashSideReconciled8367(): Boolean = lastReconciledStatus.get() == \"RECONCILED\""))
+        val cashSide = fr.substringAfter("fun cashSideReconciled8367(): Boolean {").substringBefore("internal fun resetForTest()")
+        assertTrue(cashSide.contains("val completed8372 = completedAccounting8372.get()"))
+        assertTrue(cashSide.contains("completed8372.cashStatus == \"RECONCILED\" && completedCurrent8372(completed8372)"))
+        assertFalse(cashSide.contains("lastReconciledStatus.get()"))
         val ev = src("engine/truth/CanonicalEconomicEvent6635.kt")
         assertTrue(ev.contains("if (t != Terminal.OPEN) return null"))
     }

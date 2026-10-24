@@ -98,7 +98,7 @@ object JournalEconomicReplay6619 {
     )
 
     private val replays = AtomicLong(0L)
-    private val lastResult = AtomicReference<ReplayResult?>(null)
+    private val replayMemo8372 = RevisionedReplayMemo8372<ReplayResult> { it.journalRevision8358 }
     private val ledgerDivergenceLast = AtomicReference<Double>(0.0)
     private val reportedInvariantFailures6653 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val reportedEmbeddedEntryRecoveries6664 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -110,7 +110,6 @@ object JournalEconomicReplay6619 {
     private val terminalResidualSummarySig7482 = AtomicReference("")
     private val skippedEconomicsSummarySig7482 = AtomicReference("")
     private val quarantineScopeSignature7251 = AtomicReference("")
-    private val lastReplayKey7343 = AtomicReference("")
     private val replayMemoHits7343 = java.util.concurrent.atomic.AtomicLong(0L)
 
     fun replay(): ReplayResult {
@@ -127,9 +126,12 @@ object JournalEconomicReplay6619 {
         } catch (_: Throwable) { false }
         if (onMainThread) {
             try { PipelineHealthCollector.labelInc("JOURNAL_REPLAY_MAIN_THREAD_DEFERRED_6619") } catch (_: Throwable) {}
-            val prior = lastResult.get()
+            val prior = replayMemo8372.latest()
             val fast = if (prior != null) {
-                prior.copy(startingCashSol = startingSol, emittedAtMs = System.currentTimeMillis())
+                prior.copy(
+                    startingCashSol = startingSol, emittedAtMs = System.currentTimeMillis(),
+                    invariantFailures = (prior.invariantFailures + "MAIN_THREAD_REPLAY_DEFERRED").distinct(),
+                )
             } else {
                 ReplayResult(
                     cashSol = startingSol,
@@ -144,8 +146,7 @@ object JournalEconomicReplay6619 {
                     invariantFailures = listOf("MAIN_THREAD_REPLAY_DEFERRED"),
                 )
             }
-            lastResult.set(fast)
-            lastReplayKey7343.set("")
+            // A display fallback is not a new background replay. Never replace a newer completed memo with it.
             return fast
         }
 
@@ -196,8 +197,9 @@ object JournalEconomicReplay6619 {
         // none of those has changed, the stored result IS the answer.
         val memoKey7343 = "${TradeHistoryStore.journalRevision7343()}|$startingSol|" +
             "${quarantinedPositionIds7251.size}:${quarantinedPositionIds7251.hashCode()}"
-        val memo7343 = lastResult.get()
-        if (memo7343 != null && memoKey7343 == lastReplayKey7343.get()) {
+        val memoRevision8372 = memoKey7343.substringBefore('|').toLongOrNull() ?: -1L
+        val memo7343 = replayMemo8372.get(memoKey7343, memoRevision8372)
+        if (memo7343 != null) {
             replayMemoHits7343.incrementAndGet()
             try { PipelineHealthCollector.labelInc("JOURNAL_REPLAY_REUSED_UNCHANGED_7343") } catch (_: Throwable) {}
             publishLedgerDivergence7343(memo7343.cashSol, memo7343.paperRows, memo7343.paperBuys, memo7343.paperSells, memo7343.paperPartialSells)
@@ -708,8 +710,10 @@ object JournalEconomicReplay6619 {
             sellCountByPosition6980 = sellCount6980.toMap(),
             journalRevision8358 = memoKey7343.substringBefore('|').toLongOrNull() ?: -1L,  // V5.0.8358
         )
-        lastResult.set(result)
-        lastReplayKey7343.set(memoKey7343)
+        // A journal mutation during the walk requires another pass; do not install that walk as a reusable memo.
+        if (TradeHistoryStore.journalRevision7343() == memoRevision8372) {
+            replayMemo8372.publish(memoKey7343, memoRevision8372, result)
+        }
 
         publishLedgerDivergence7343(cash, totalRows, buys, sells, partials)
 
@@ -1006,12 +1010,12 @@ object JournalEconomicReplay6619 {
         return true
     }
 
-    fun latest(): ReplayResult? = lastResult.get()
+    fun latest(): ReplayResult? = replayMemo8372.latest()
 
     fun latestLedgerDivergenceSol(): Double = ledgerDivergenceLast.get() ?: 0.0
 
     fun statusLine(): String {
-        val r = lastResult.get()
+        val r = replayMemo8372.latest()
         val div = ledgerDivergenceLast.get() ?: 0.0
         return "replays=${replays.get()} reused7343=${replayMemoHits7343.get()} " +
             (if (r != null)
@@ -1023,8 +1027,8 @@ object JournalEconomicReplay6619 {
     }
 
     internal fun resetForTest() {
-        replays.set(0L); lastResult.set(null); ledgerDivergenceLast.set(0.0)
-        lastReplayKey7343.set(""); replayMemoHits7343.set(0L)
+        replays.set(0L); replayMemo8372.clear(); ledgerDivergenceLast.set(0.0)
+        replayMemoHits7343.set(0L)
         reportedInvariantFailures6653.clear()
         reportedEmbeddedEntryRecoveries6664.clear()
         reportedReplaySupersessions6699.clear()

@@ -11704,8 +11704,13 @@ class GoldenTapeRegressionTest {
         val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").readText()
         assertTrue(r.contains("TradeHistoryStore.journalRevision7343()}|"))
         assertTrue(r.contains("val memoKey7343 = "))
-        assertTrue(r.contains("if (memo7343 != null && memoKey7343 == lastReplayKey7343.get()) {"))
-        assertTrue(r.contains("lastReplayKey7343.set(memoKey7343)"))
+        // The unchanged-input optimization remains, but identity/result are one revision-validated publication.
+        // The former two independently written references could cache revision R's result under R+1's key.
+        assertTrue(r.contains("private val replayMemo8372 = RevisionedReplayMemo8372<ReplayResult> { it.journalRevision8358 }"))
+        assertTrue(r.contains("val memo7343 = replayMemo8372.get(memoKey7343, memoRevision8372)"))
+        assertTrue(r.contains("if (memo7343 != null) {"))
+        assertTrue(r.contains("replayMemo8372.publish(memoKey7343, memoRevision8372, result)"))
+        assertFalse(r.contains("lastReplayKey7343"))
         assertTrue(r.contains("publishLedgerDivergence7343(memo7343.cashSol, memo7343.paperRows, memo7343.paperBuys, memo7343.paperSells, memo7343.paperPartialSells)"))
         val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
         assertTrue(h.contains("fun journalRevision7343(): Long = journalRevision7343.get()"))

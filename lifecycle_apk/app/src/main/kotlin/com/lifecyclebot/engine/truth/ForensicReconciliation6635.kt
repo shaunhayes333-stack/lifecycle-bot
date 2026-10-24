@@ -68,6 +68,23 @@ object ForensicReconciliation6635 {
     private val checks = AtomicLong(0L)
     private val failedChecks = AtomicLong(0L)
 
+    /** Readers observe one completed pass, never a mixture of independent scalar publications. */
+    private data class CompletedAccounting8372(
+        val key: String? = null,
+        val cashLedger: Double = 0.0,
+        val cashJournal: Double = 0.0,
+        val cashDelta: Double = 0.0,
+        val realizedLedger: Double = 0.0,
+        val realizedJournal: Double = 0.0,
+        val realizedDelta: Double = 0.0,
+        val openCostLedger: Double = 0.0,
+        val openCostJournal: Double = 0.0,
+        val openCostDelta: Double = 0.0,
+        val quantityDeltaRaw: java.math.BigInteger = java.math.BigInteger.ZERO,
+        val cashStatus: String = "UNKNOWN",
+    )
+    private val completedAccounting8372 = AtomicReference(CompletedAccounting8372())
+
     /**
      * Run one reconciliation cadence. Every non-zero delta emits a forensic
      * counter + line. When the caller has already replayed the journal for the
@@ -75,19 +92,25 @@ object ForensicReconciliation6635 {
      */
     /** V5.0.7387 — state key of the last full reconcile (journal revision, canonical mutations, cash). */
     private val lastKey7387 = java.util.concurrent.atomic.AtomicReference<String?>(null)
+    private val publication8372 = ReconciliationPublication8372(lastKey7387)
+
+    private fun stateKey8372(): String? = try {
+        "${com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343()}|" +
+            "${CanonicalPositionAuthority6441.mutationCount7387()}|" +
+            "${CanonicalEconomicEvent6635.receiptRevision8077()}|" +
+            "${"%.9f".format(PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294())}"
+    } catch (_: Throwable) { null }
+
+    private fun completedCurrent8372(snapshot: CompletedAccounting8372): Boolean =
+        snapshot.key != null && snapshot.key == lastKey7387.get() && snapshot.key == stateKey8372()
 
     fun reconcile6635(precomputedReplay6699: JournalEconomicReplay6619.ReplayResult? = null) {
         // V5.0.7501 — the unchanged-state guard applies regardless of whether
         // the caller supplied a precomputed journal replay. Precomputed replay
         // avoids replay cost, but previously still repeated the full canonical
         // quantity/set diff and identical forensic emission for the same state.
-        val key7387 = try {
-            "${com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343()}|" +
-                "${CanonicalPositionAuthority6441.mutationCount7387()}|" +
-                "${CanonicalEconomicEvent6635.receiptRevision8077()}|" +
-                "${"%.9f".format(PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294())}"
-        } catch (_: Throwable) { null }
-        if (key7387 != null && key7387 == lastKey7387.getAndSet(key7387)) {
+        val key7387 = stateKey8372()
+        if (key7387 != null && key7387 == lastKey7387.get()) {
             try {
                 PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_SKIPPED_UNCHANGED_7387")
                 if (precomputedReplay6699 != null) {
@@ -96,6 +119,32 @@ object ForensicReconciliation6635 {
             } catch (_: Throwable) {}
             return
         }
+        // A competing caller does not wait while another pass reads the ledger/journal. Only its owner may publish.
+        val lease8372 = publication8372.claim(key7387) ?: run {
+            try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_COALESCED_8372") } catch (_: Throwable) {}
+            return
+        }
+        var coherent8372 = false
+        try {
+            coherent8372 = reconcileClaimed8372(key7387, precomputedReplay6699)
+        } finally {
+            val published8372 = publication8372.finish(lease8372, stateKey8372(), coherent8372) {
+                completedAccounting8372.set(CompletedAccounting8372(
+                    key = key7387,
+                    cashLedger = lastCashLedger.get(), cashJournal = lastCashJournal.get(), cashDelta = lastCashDelta.get(),
+                    realizedLedger = lastRealizedLedger.get(), realizedJournal = lastRealizedJournal.get(), realizedDelta = lastRealizedDelta.get(),
+                    openCostLedger = lastOpenCostLedger.get(), openCostJournal = lastOpenCostJournal.get(), openCostDelta = lastOpenCostDelta.get(),
+                    quantityDeltaRaw = lastQuantityDeltaRaw.get(), cashStatus = lastReconciledStatus.get(),
+                ))
+            }
+            if (!published8372) try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_REVISION_MOVED_8372") } catch (_: Throwable) {}
+        }
+    }
+
+    private fun reconcileClaimed8372(
+        key7387: String?,
+        precomputedReplay6699: JournalEconomicReplay6619.ReplayResult?,
+    ): Boolean {
         checks.incrementAndGet()
         // V5.0.7294 — the journal has no treasury transfers, so its cash is
         // trading cash + paper treasury; compare like with like.
@@ -125,17 +174,15 @@ object ForensicReconciliation6635 {
         // status normally. Deltas from the deferred sample are still
         // recorded diagnostically but do NOT drive the failure flag.
         val replayDeferredOnMainThread6750 = replay6647?.invariantFailures?.contains("MAIN_THREAD_REPLAY_DEFERRED") == true
-        // V5.0.6750 §BOOT_TRIVIAL_RECONCILED — before any trade has
-        // been recorded the ledger and journal are trivially in sync
-        // (both hold only the starting balance). Boot-time WARMUP
-        // must not paint ACCOUNTING ERROR on a hero that has never
-        // seen a trade.
+        val coherent8372 = !replayDeferredOnMainThread6750 && key7387 != null && replay6647 != null &&
+            replay6647.journalRevision8358 >= 0L && replay6647.journalRevision8358 == key7387.substringBefore('|').toLongOrNull()
+        // V5.0.6750 §BOOT_TRIVIAL_RECONCILED — a fresh account has no history to walk. Still build this pass's
+        // figures below: a reset/repair must not republish a previous pass's deltas under a new empty-journal key.
+        // The unchanged comparisons also verify that the ledger really contains only its starting balance.
         val ledgerInitialized6750 = try { PaperCapitalAuthority6577.isAuthorityInitialized6489() } catch (_: Throwable) { false }
         val noJournalActivity6750 = (replay6647?.paperRows ?: 0) == 0
         if (ledgerInitialized6750 && noJournalActivity6750 && !replayDeferredOnMainThread6750) {
-            lastReconciledStatus.set("RECONCILED")
             try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_BOOT_TRIVIAL_6750") } catch (_: Throwable) {}
-            return
         }
         val cashJournal = replay6647?.cashSol ?: Double.NaN
         val realizedLedger = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
@@ -375,27 +422,29 @@ object ForensicReconciliation6635 {
         // status when the current sample was not authoritative.
         if (replayDeferredOnMainThread6750) {
             try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_MAIN_THREAD_DEFERRED_PRESERVED_6750") } catch (_: Throwable) {}
-            return
+            return false
         }
         lastReconciledStatus.set(if (allZero) "RECONCILED" else "FAILED")
+        return coherent8372
     }
 
     /** Operator-facing forensic reconciliation line — item §10 mandated. */
     fun healthLine6635(): String {
+        val completed8372 = completedAccounting8372.get()
         val eventLine = try { CanonicalEconomicEvent6635.forensicReconciliationLine6635() } catch (_: Throwable) { "" }
-        val cashLedger = lastCashLedger.get()
-        val cashJournal = lastCashJournal.get()
-        val cashDelta = lastCashDelta.get()
-        val realizedLedger = lastRealizedLedger.get()
-        val realizedJournal = lastRealizedJournal.get()
-        val realizedDelta = lastRealizedDelta.get()
-        val openCostLedger = lastOpenCostLedger.get()
-        val openCostJournal = lastOpenCostJournal.get()
-        val openCostDelta = lastOpenCostDelta.get()
-        val quantityDeltaRaw = lastQuantityDeltaRaw.get()
+        val cashLedger = completed8372.cashLedger
+        val cashJournal = completed8372.cashJournal
+        val cashDelta = completed8372.cashDelta
+        val realizedLedger = completed8372.realizedLedger
+        val realizedJournal = completed8372.realizedJournal
+        val realizedDelta = completed8372.realizedDelta
+        val openCostLedger = completed8372.openCostLedger
+        val openCostJournal = completed8372.openCostJournal
+        val openCostDelta = completed8372.openCostDelta
+        val quantityDeltaRaw = completed8372.quantityDeltaRaw
         val eventStatus = if (eventLine.contains("status=RECONCILED")) "RECONCILED" else "FAILED"
-        val cashStatus = lastReconciledStatus.get()
-        val overallStatus = if (eventStatus == "RECONCILED" && cashStatus == "RECONCILED") "RECONCILED" else "FAILED"
+        val cashStatus = completed8372.cashStatus
+        val overallStatus = if (eventStatus == "RECONCILED" && cashStatus == "RECONCILED" && completedCurrent8372(completed8372)) "RECONCILED" else "FAILED"
         return buildString {
             append("FORENSIC_ACCOUNTING_RECONCILIATION ")
             append("cashLedger=${"%.6f".format(cashLedger)} ")
@@ -421,21 +470,27 @@ object ForensicReconciliation6635 {
         val reconciled: Boolean,
     )
 
-    fun deltas6647(): Deltas6647 = Deltas6647(
-        cashSol = lastCashDelta.get(),
-        basisSol = lastOpenCostDelta.get(),
-        realizedSol = lastRealizedDelta.get(),
-        quantityRaw = lastQuantityDeltaRaw.get(),
-        reconciled = lastReconciledStatus.get() == "RECONCILED" &&
-            (try { CanonicalEconomicEvent6635.forensicReconciliationLine6635().contains("status=RECONCILED") } catch (_: Throwable) { false }),
-    )
+    fun deltas6647(): Deltas6647 {
+        val completed8372 = completedAccounting8372.get()
+        return Deltas6647(
+            cashSol = completed8372.cashDelta,
+            basisSol = completed8372.openCostDelta,
+            realizedSol = completed8372.realizedDelta,
+            quantityRaw = completed8372.quantityDeltaRaw,
+            reconciled = completed8372.cashStatus == "RECONCILED" && completedCurrent8372(completed8372) &&
+                (try { CanonicalEconomicEvent6635.forensicReconciliationLine6635().contains("status=RECONCILED") } catch (_: Throwable) { false }),
+        )
+    }
 
     /**
      * V5.0.8367 — the cash/journal side of the verdict alone (ledger vs journal replay totals all agree), without the
      * receipt-ring half. Used only to NAME an unreconciled window honestly (open in-flight receipts vs a real delta);
      * the window still fails either way.
      */
-    fun cashSideReconciled8367(): Boolean = lastReconciledStatus.get() == "RECONCILED"
+    fun cashSideReconciled8367(): Boolean {
+        val completed8372 = completedAccounting8372.get()
+        return completed8372.cashStatus == "RECONCILED" && completedCurrent8372(completed8372)
+    }
 
     internal fun resetForTest() {
         lastCashLedger.set(0.0); lastCashJournal.set(0.0); lastCashDelta.set(0.0)
@@ -444,5 +499,6 @@ object ForensicReconciliation6635 {
         lastQuantityDeltaRaw.set(java.math.BigInteger.ZERO)
         checks.set(0L); failedChecks.set(0L)
         lastReconciledStatus.set("UNKNOWN"); lastKey7387.set(null)
+        completedAccounting8372.set(CompletedAccounting8372())
     }
 }

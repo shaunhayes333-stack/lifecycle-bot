@@ -78,6 +78,7 @@ production=(
   "$sources/cortex/LearningEntryTruth8153.kt"
   "$sources/cortex/LearningObjective8153.kt"
   "$sources/cortex/CortexRealisedAuthority8136.kt"
+  "$sources/truth/RevisionedReplayMemo8372.kt"
 )
 printf 'Compiling %s production files; outputs: %s\n' "${#production[@]}" "$output_dir"
 java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
@@ -99,7 +100,7 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   "$tests/Aate8372CortexAuthorityTest.kt" "$tests/Aate8372CortexTraceArchiveTest.kt" \
   "$tests/Aate8372CrossAssetLearningSealTest.kt" "$tests/Aate8372CortexAssessmentProvenanceTest.kt" \
   "$tests/Aate8372LanePlaybookEpisodeTest.kt" "$tests/Aate8372FirstSightTicketTest.kt" \
-  "$tests/Aate8372CortexVerdictVersionTest.kt"
+  "$tests/Aate8372CortexVerdictVersionTest.kt" "$tests/Aate8372ReplayMemoTest.kt"
 printf 'Running pure-model behavior tests (not Android/service integration).\n'
 cd -- "$apk_dir/app"
 java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit.runner.JUnitCore \
@@ -117,4 +118,5 @@ java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit
   com.lifecyclebot.engine.Aate8372LanePlaybookEpisodeTest \
   com.lifecyclebot.engine.Aate8372FirstSightTicketTest \
   com.lifecyclebot.engine.Aate8372CortexVerdictVersionTest \
+  com.lifecyclebot.engine.Aate8372ReplayMemoTest \
   com.lifecyclebot.engine.ScannerSourceBrainIntegrationTest

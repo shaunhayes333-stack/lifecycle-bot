@@ -9,11 +9,21 @@ class Aate7501ForensicPrecomputedReuseTest {
 
     @Test fun unchanged_guard_is_not_conditional_on_missing_precomputed_replay() {
         val s = src()
-        val fn = s.substringAfter("fun reconcile6635").substringBefore("checks.incrementAndGet()")
+        val fn = s.substringAfter("fun reconcile6635").substringBefore("private fun reconcileClaimed8372")
+        val stateKey = s.substringAfter("private fun stateKey8372()").substringBefore("private fun completedCurrent8372")
         assertFalse(fn.contains("if (precomputedReplay6699 == null)"))
-        assertTrue(fn.contains("TradeHistoryStore.journalRevision7343()"))
-        assertTrue(fn.contains("CanonicalPositionAuthority6441.mutationCount7387()"))
+        assertTrue(fn.contains("val key7387 = stateKey8372()"))
+        assertTrue(stateKey.contains("TradeHistoryStore.journalRevision7343()"))
+        assertTrue(stateKey.contains("CanonicalPositionAuthority6441.mutationCount7387()"))
+        assertTrue(stateKey.contains("CanonicalEconomicEvent6635.receiptRevision8077()"))
+        assertTrue(stateKey.contains("PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294()"))
         assertTrue(fn.contains("FORENSIC_PRECOMPUTED_RECONCILE_REUSED_7501"))
+        val unchanged = fn.indexOf("key7387 == lastKey7387.get()")
+        val claim = fn.indexOf("publication8372.claim(key7387)")
+        val work = fn.indexOf("coherent8372 = reconcileClaimed8372(key7387, precomputedReplay6699)")
+        val finish = fn.indexOf("publication8372.finish(lease8372, stateKey8372(), coherent8372)")
+        assertTrue(unchanged >= 0 && claim > unchanged && work > claim && finish > work)
+        assertFalse(fn.contains("lastKey7387.getAndSet"))
     }
 
     @Test fun actual_reconciliation_logic_is_preserved() {
