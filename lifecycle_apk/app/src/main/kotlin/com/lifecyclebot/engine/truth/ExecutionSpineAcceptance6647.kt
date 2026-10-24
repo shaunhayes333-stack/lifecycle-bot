@@ -36,7 +36,60 @@ object ExecutionSpineAcceptance6647 {
         val quantityDeltaRaw: java.math.BigInteger,
         val heroJournalParityFail: Long,
         val invalidGrowthOrLearningUpdates: Long,
+        // V5.0.8367 — set only when the reconciler's verdict is false and the receipt ring holds nothing but OPEN
+        // receipts; carries the raw deltas so the naming rule can prove every one of them is zero.
+        val inFlightOnly8367: InFlightOnly8367? = null,
     )
+
+    // ── V5.0.8367 §OPEN_IN_FLIGHT_RECEIPTS — name the real reason, still FAIL ──
+    // 5.0.8360 smoke: every delta 0.000000, journal == ledger, but two STOCK paper BUY receipts were still OPEN waiting
+    // for their durable journal row, and the window printed CASH_DELTA|BASIS_DELTA|REALIZED_DELTA|QUANTITY_DELTA. The
+    // unreconciled sentinel (NaN / ONE) stays and the window still fails; only its name now says what is unfinished.
+    const val OPEN_IN_FLIGHT_RECEIPTS_8367 = "OPEN_IN_FLIGHT_RECEIPTS_8367"
+
+    data class InFlightOnly8367(
+        val n: Int,
+        val kinds: String,
+        val oldestMs: Long,
+        val cashSideReconciled: Boolean,
+        val rawCashDeltaSol: Double,
+        val rawBasisDeltaSol: Double,
+        val rawRealizedDeltaSol: Double,
+        val rawQuantityDeltaRaw: java.math.BigInteger,
+    )
+
+    fun isOpenInFlightFailure8367(name: String): Boolean = name.startsWith(OPEN_IN_FLIGHT_RECEIPTS_8367)
+
+    private fun openInFlightName8367(n: Int, kinds: String, oldestMs: Long): String =
+        "$OPEN_IN_FLIGHT_RECEIPTS_8367 n=$n kinds=${kinds.ifBlank { "-" }.replace(' ', '_')} oldestMs=$oldestMs"
+
+    /**
+     * Pure (V5.0.8367): the conservation failures. Each delta is named exactly as before; when ALL the names come only
+     * from the unreconciled sentinel — the cash side reconciled, every raw delta within tolerance, quantity 0, and the
+     * only unfinished receipts OPEN — the four names are replaced by one OPEN_IN_FLIGHT_RECEIPTS_8367 failure. A real
+     * delta keeps its own delta names. Never empty when [named] is not: this renames a failure, it never passes one.
+     */
+    fun conservationFailures8367(
+        cashDeltaSol: Double,
+        basisDeltaSol: Double,
+        realizedDeltaSol: Double,
+        quantityDeltaRaw: java.math.BigInteger,
+        inFlight: InFlightOnly8367?,
+    ): List<String> {
+        val tol = ForensicReconciliation6635.DELTA_TOLERANCE_SOL
+        val named = ArrayList<String>(4)
+        if (!cashDeltaSol.isFinite() || kotlin.math.abs(cashDeltaSol) > tol) named.add("CASH_DELTA")
+        if (!basisDeltaSol.isFinite() || kotlin.math.abs(basisDeltaSol) > tol) named.add("BASIS_DELTA")
+        if (!realizedDeltaSol.isFinite() || kotlin.math.abs(realizedDeltaSol) > tol) named.add("REALIZED_DELTA")
+        if (quantityDeltaRaw != java.math.BigInteger.ZERO) named.add("QUANTITY_DELTA")
+        if (named.isEmpty() || inFlight == null || inFlight.n <= 0 || !inFlight.cashSideReconciled) return named
+        val rawZero = inFlight.rawCashDeltaSol.isFinite() && kotlin.math.abs(inFlight.rawCashDeltaSol) <= tol &&
+            inFlight.rawBasisDeltaSol.isFinite() && kotlin.math.abs(inFlight.rawBasisDeltaSol) <= tol &&
+            inFlight.rawRealizedDeltaSol.isFinite() && kotlin.math.abs(inFlight.rawRealizedDeltaSol) <= tol &&
+            inFlight.rawQuantityDeltaRaw.signum() == 0
+        if (!rawZero) return named
+        return listOf(openInFlightName8367(inFlight.n, inFlight.kinds, inFlight.oldestMs))
+    }
 
     data class Result(val failures: List<String>) { val passed: Boolean get() = failures.isEmpty() }
 
@@ -70,10 +123,9 @@ object ExecutionSpineAcceptance6647 {
         if (o.exitDone > o.exitStart || o.exitStart - o.exitDone > 1L) f += "EXIT_START_DONE_GAP"
         if (o.canonicalOpen > 0L && o.exitEvaluations <= 0L) f += "OPEN_WITHOUT_EXIT_EVALUATION"
         if (o.supervisorForcedLeaseReleases != 0L) f += "SUPERVISOR_FORCED_LEASE_RELEASE"
-        if (!o.cashDeltaSol.isFinite() || kotlin.math.abs(o.cashDeltaSol) > ForensicReconciliation6635.DELTA_TOLERANCE_SOL) f += "CASH_DELTA"
-        if (!o.basisDeltaSol.isFinite() || kotlin.math.abs(o.basisDeltaSol) > ForensicReconciliation6635.DELTA_TOLERANCE_SOL) f += "BASIS_DELTA"
-        if (!o.realizedDeltaSol.isFinite() || kotlin.math.abs(o.realizedDeltaSol) > ForensicReconciliation6635.DELTA_TOLERANCE_SOL) f += "REALIZED_DELTA"
-        if (o.quantityDeltaRaw != java.math.BigInteger.ZERO) f += "QUANTITY_DELTA"
+        // superseded by V5.0.8367 — the four delta checks moved verbatim into conservationFailures8367 (same tolerance,
+        // same names); zero deltas with only OPEN receipts are named OPEN_IN_FLIGHT_RECEIPTS_8367 and still FAIL.
+        f += conservationFailures8367(o.cashDeltaSol, o.basisDeltaSol, o.realizedDeltaSol, o.quantityDeltaRaw, o.inFlightOnly8367)
         if (o.heroJournalParityFail != 0L) f += "HERO_JOURNAL_PARITY_FAIL"
         if (o.invalidGrowthOrLearningUpdates != 0L) f += "INVALID_GROWTH_OR_LEARNING_UPDATE"
         return Result(f)
@@ -251,7 +303,8 @@ object ExecutionSpineAcceptanceWindow6647 {
     ) {
         emitResult6735(
             "EXECUTION_SPINE_ACCEPTANCE_6647_FAIL",
-            "windowStartMs=$windowStartMs durationMs=$durationMs failures=${failures.joinToString("|")}" +
+            // V5.0.8367 — one token for ci/runtime_evidence.py (OPEN_IN_FLIGHT_RECEIPTS_8367 carries n= kinds= oldestMs=).
+            "windowStartMs=$windowStartMs durationMs=$durationMs failures=${failures.joinToString("|").replace(' ', ',')}" +
                 (error?.let { " err=${it.javaClass.simpleName}:${it.message?.take(120)}" } ?: "") +
                 // V5.0.6883 — observed values for the failing window. Kept after
                 // `failures=` so ci/runtime_evidence.py's FIELD regex still reads
@@ -279,6 +332,18 @@ object ExecutionSpineAcceptanceWindow6647 {
         requestedCycle.set(-1L)
         maxStartDelayCycles.set(0L)
         inFlightWaitSinceMs8339.set(0L)  // V5.0.8339 — a new window starts with no in-flight wait
+    }
+
+    /** V5.0.8367 — the naming input: only when the verdict is false and every unfinished receipt is OPEN. */
+    private fun captureInFlightOnly8367(forensic: ForensicReconciliation6635.Deltas6647?, nowMs: Long): ExecutionSpineAcceptance6647.InFlightOnly8367? {
+        if (forensic == null || forensic.reconciled) return null
+        val open = (try { CanonicalEconomicEvent6635.openInFlightOnly8367(nowMs) } catch (_: Throwable) { null }) ?: return null
+        val cashSide = try { ForensicReconciliation6635.cashSideReconciled8367() } catch (_: Throwable) { false }
+        return ExecutionSpineAcceptance6647.InFlightOnly8367(
+            n = open.n, kinds = open.kinds, oldestMs = open.oldestMs, cashSideReconciled = cashSide,
+            rawCashDeltaSol = forensic.cashSol, rawBasisDeltaSol = forensic.basisSol,
+            rawRealizedDeltaSol = forensic.realizedSol, rawQuantityDeltaRaw = forensic.quantityRaw,
+        )
     }
 
     private fun activeModeOpenCount7809(open: List<CanonicalPositionAuthority6441.Position>): Long {
@@ -404,6 +469,7 @@ object ExecutionSpineAcceptanceWindow6647 {
                 heroJournalParityFail = delta("HERO_JOURNAL_PARITY_FAIL_6616"),
                 invalidGrowthOrLearningUpdates = delta("GROWTH_RING_INVALID_ACCOUNT_UPDATE_6647") +
                     delta("LEARNING_INVALID_ACCOUNT_UPDATE_6647"),
+                inFlightOnly8367 = captureInFlightOnly8367(forensic, nowMs),   // V5.0.8367
             )
             val result = ExecutionSpineAcceptance6647.evaluate(observation)
             if (baseline !== start) return null // A later start owns the current window.

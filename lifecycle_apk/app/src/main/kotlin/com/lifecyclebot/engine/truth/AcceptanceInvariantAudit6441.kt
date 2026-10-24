@@ -254,8 +254,9 @@ object AcceptanceInvariantAudit6441 {
                 "CASH_DELTA", "BASIS_DELTA", "REALIZED_DELTA", "QUANTITY_DELTA",
                 "HERO_JOURNAL_PARITY_FAIL",
             )
-            val structural7399 = spine6647.failures.filterNot { it in paperEconomic7399 }
-            val paperOnly7399 = spine6647.failures.filter { it in paperEconomic7399 }
+            // V5.0.8367 — the renamed zero-delta unreconciled window stays in the same paper-economics class.
+            val structural7399 = spine6647.failures.filterNot { it in paperEconomic7399 || ExecutionSpineAcceptance6647.isOpenInFlightFailure8367(it) }
+            val paperOnly7399 = spine6647.failures.filter { it in paperEconomic7399 || ExecutionSpineAcceptance6647.isOpenInFlightFailure8367(it) }
             if (paperOnly7399.isNotEmpty()) {
                 passed.add("J_paper_economics_diagnostic_in_live:${paperOnly7399.joinToString(",")}".take(180))
                 try {

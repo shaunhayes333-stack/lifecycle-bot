@@ -430,6 +430,13 @@ object ForensicReconciliation6635 {
             (try { CanonicalEconomicEvent6635.forensicReconciliationLine6635().contains("status=RECONCILED") } catch (_: Throwable) { false }),
     )
 
+    /**
+     * V5.0.8367 — the cash/journal side of the verdict alone (ledger vs journal replay totals all agree), without the
+     * receipt-ring half. Used only to NAME an unreconciled window honestly (open in-flight receipts vs a real delta);
+     * the window still fails either way.
+     */
+    fun cashSideReconciled8367(): Boolean = lastReconciledStatus.get() == "RECONCILED"
+
     internal fun resetForTest() {
         lastCashLedger.set(0.0); lastCashJournal.set(0.0); lastCashDelta.set(0.0)
         lastRealizedLedger.set(0.0); lastRealizedJournal.set(0.0); lastRealizedDelta.set(0.0)
