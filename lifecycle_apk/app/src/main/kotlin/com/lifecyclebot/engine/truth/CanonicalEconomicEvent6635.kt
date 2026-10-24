@@ -348,6 +348,48 @@ object CanonicalEconomicEvent6635 {
         return young > 0
     }
 
+    /**
+     * V5.0.8367 — the unfinished receipts when EVERY one of them is still OPEN (none PENDING_RECONCILIATION): how many,
+     * which kinds ("<position prefix>:<side>:missing=<stores>") and the oldest age. Null when nothing is open or when any
+     * receipt is pending. Read-only: it names the reason an acceptance window is unreconciled, it never finalizes,
+     * heals or counts anything as committed.
+     */
+    data class OpenInFlight8367(val n: Int, val kinds: String, val oldestMs: Long)
+
+    fun openInFlightOnly8367(nowMs: Long = System.currentTimeMillis()): OpenInFlight8367? {
+        var n = 0
+        var oldest = 0L
+        val kinds = java.util.TreeSet<String>()
+        for ((_, s) in events) {
+            val t = s.terminal
+            if (t == Terminal.COMMITTED || t == Terminal.FAILED) continue
+            if (t != Terminal.OPEN) return null
+            n++
+            val age = (nowMs - s.event.timestampMs).coerceAtLeast(0L)
+            if (age > oldest) oldest = age
+            kinds.add(inFlightKind8367(s.event.positionId, s.event.side.name,
+                missingStores8367(s.positionCommitted, s.ledgerCommitted, s.journalCommitted, s.fillLotCommitted, s.terminalExecCommitted)))
+        }
+        return if (n > 0) OpenInFlight8367(n, kinds.joinToString(";"), oldest) else null
+    }
+
+    /** Pure (V5.0.8367): the stores a receipt still waits for, e.g. "jrn" or "led+jrn"; "none" when all five landed. */
+    fun missingStores8367(pos: Boolean, led: Boolean, jrn: Boolean, flt: Boolean, term: Boolean): String {
+        val out = ArrayList<String>(5)
+        if (!pos) out.add("pos")
+        if (!led) out.add("led")
+        if (!jrn) out.add("jrn")
+        if (!flt) out.add("flt")
+        if (!term) out.add("term")
+        return if (out.isEmpty()) "none" else out.joinToString("+")
+    }
+
+    /** Pure (V5.0.8367): "STOCK:BUY:missing=jrn" from positionId "STOCK_1792775241487". */
+    fun inFlightKind8367(positionId: String, side: String, missing: String): String {
+        val prefix = positionId.substringBefore('_').substringBefore(':').take(16).ifBlank { "?" }
+        return "$prefix:$side:missing=$missing"
+    }
+
     /** Diagnostic only: retain exact identity and real receipts for incomplete
      * transactions. Numeric parity must never conceal an unfinished commit. */
     fun incompleteReceipts8253(nowMs: Long = System.currentTimeMillis()): String =
