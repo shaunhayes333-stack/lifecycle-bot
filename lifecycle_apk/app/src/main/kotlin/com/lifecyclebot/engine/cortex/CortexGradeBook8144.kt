@@ -255,7 +255,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         // V5.0.8322 — the executable (authority) value is stored RAW (8187 clamped it to the cohort's cap at ingestion,
         // destroying the runner tail; owner directive 8072: no win caps). The first stays immutable (8272); later horizons
         // are stored apart with when they became knowable.
-        if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153 && !r.lateRead8187 && !r.flat8322) {
+        if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153 && !r.lateRead8187 && !r.flat8322 &&
+            !implausible8388(executableValue, r.labelCap8187(), r.witnessed8324).also { if (it) noteImplausible8388(r, executableValue, "LABEL") }) {
             if (!r.executablePct.isFinite()) {
                 r.executablePct = executableValue; r.firstGross8324 = grossPct
                 r.firstAvailableAtMs8372 = availableAtMs
@@ -656,6 +657,9 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             r.outcomeSource8372 = f.getOrNull(38)?.takeIf { it == "SHADOW_EXIT" } ?: "FORWARD"
             r.firstAvailableAtMs8372 = f.getOrNull(39)?.toLongOrNull() ?: 0L
             if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
+            // V5.0.8388 — historical rows whose unwitnessed executable value is physically implausible (8385 SHITCOIN strong
+            // cohort mean +3.3e10 %) are read as observed-only: they stay in the book, never in a graded cohort or authority.
+            if (r.kind == 'D') sanitize8388(r, "RESTORE")
             when (r.kind) {
                 'D' -> if (!byId.containsKey(r.id)) { decisions.add(r); byId[r.id] = r; noteGraded(r) }
                 'T' -> trades[r.id] = r
@@ -665,7 +669,36 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         revision++
     }
 
+    /**
+     * V5.0.8388 — pure: an executable label value no independent curve witnessed that exceeds [IMPLAUSIBLE_CAP_MULT_8388] x
+     * its cohort's plausibility cap (RobustLabelRead8185: 1000 % / 300 % large caps) is a basis / decimals / venue defect,
+     * not a return. Witnessed values are never refused (owner directive 8072: no win caps on real runners).
+     */
+    fun implausible8388(valuePct: Double, capPct: Double, witnessed: Boolean): Boolean =
+        valuePct.isFinite() && !witnessed && capPct.isFinite() && capPct > 0.0 && valuePct > capPct * IMPLAUSIBLE_CAP_MULT_8388
+
+    private fun sanitize8388(r: CortexGradeRecord8144, stage: String) {
+        val cap = r.labelCap8187()
+        if (implausible8388(r.executablePct, cap, r.witnessed8324)) { noteImplausible8388(r, r.executablePct, stage); r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
+        else if (implausible8388(r.executableRevisedPct, cap, r.witnessed8324)) { noteImplausible8388(r, r.executableRevisedPct, stage); r.executableRevisedPct = Double.NaN }
+    }
+
+    private fun noteImplausible8388(r: CortexGradeRecord8144, v: Double, stage: String) {
+        implausibleRefused8388++
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CORTEX_LABEL_IMPLAUSIBLE_REFUSED_8388_$stage")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("CORTEX_LABEL_IMPLAUSIBLE_REFUSED_8388",
+                "stage=$stage lane=${r.lane} cohort=${r.cohort.take(40)} id=${r.id.take(40)} value=${"%.1f".format(java.util.Locale.US, v)} cap=${r.labelCap8187()} witnessed=${r.witnessed8324} action=observed_only_not_graded")
+        } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8388 — implausible executable values refused (restore + live labels) since boot. */
+    @Volatile var implausibleRefused8388: Long = 0L
+        private set
+
     private companion object {
+        /** V5.0.8388 — an unwitnessed executable label above this multiple of its cohort cap is a defect, not a return. */
+        const val IMPLAUSIBLE_CAP_MULT_8388 = 10.0
         const val FS = '\u001F'
         const val RS = '\u001E'
         /** V5.0.8322 — the first executable label is booked five minutes after the decision. */

@@ -30,14 +30,14 @@ class Aate8386PersistenceTest {
         val record = CortexGradeRecord8144('D', "mint|CORE|1000", "mint|CORE", 1000, "CORE", "PULLBACK", "NEUTRAL",
             "EARLY", "LOW", "SMALL", 2, 20.0, true, true, false)
         live.addDecision(record)
-        live.label(record.id, 100_000.0, 100_001.0, 100_000.0, true, 2000)
+        live.label(record.id, 900.0, 901.0, 900.0, true, 2000)   // 8388: values past 10x the label cap are refused, so the marker is plausible
         val frozen = live.detached8386()
         val encoded = frozen.encode()
         live.label(record.id, -15.0, -12.0, -15.0, true, 3000)
         assertEquals(encoded, frozen.encode())
         val restored = CortexGradeBook8144().also { it.decode(encoded) }
         assertEquals(20.0, restored.decision(record.id)!!.predictedEdgePct, 0.0)
-        assertEquals(100_000.0, restored.decision(record.id)!!.executablePct, 0.0)
+        assertEquals(900.0, restored.decision(record.id)!!.executablePct, 0.0)
     }
     @Test fun coldTraceSnapshotSharesOnlyPrivateImmutableBytes() {
         val archive = CortexTraceArchive8372(10, 100_000)

@@ -4064,7 +4064,7 @@ object Cortex7885 {
                     "| legacyAdmit=${fmtStat(b.legacyAdmitted)} legacyRefuse=${fmtStat(b.legacyRefused)} missedStrong=${fmtStat(b.missedStrong)} " +
                     "| authority: paperRefuse=${refusalPowerCurrent8372(lane, runner, true)} liveRefuse=${refusalPowerCurrent8372(lane, runner, false)} liveOverrule=${heldFraction8153(lane) >= OVERRULE_FRACTION_7955} auth=${"%.2f".format(heldFraction8153(lane))}"
             }
-            "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.votersLine8003()} assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} " +
+            "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.votersLine8003()} assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} implausibleRefused8388=${gradeBook8144.implausibleRefused8388} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
                 "      vote cleaning (§8007): ${synchronized(this) { ledger.cleanLine8007() }}\n" +
                 "      store (§8324 restore without reset): bootSeasoned=$bootSeasoned8324 calibrationLanes=${calibration.laneCount8324()} $restoreNote8324 ${assessWaitLine8324()}\n" +
