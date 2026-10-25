@@ -302,6 +302,18 @@ class HeliusWebSocket(
         return released.size
     }
 
+    fun subscribeTokenState8386(mint: String): HeliusCurveTape8354.TapeState8386 {
+        if (ws == null) return HeliusCurveTape8354.TapeState8386.Unavailable("socket_unavailable")
+        subscribeToken(mint)
+        return synchronized(subscriptions) {
+            when {
+                subscriptions[mint] != null -> HeliusCurveTape8354.TapeState8386.Acknowledged
+                requestToMint7765.containsValue(mint) -> HeliusCurveTape8354.TapeState8386.Queued
+                else -> HeliusCurveTape8354.TapeState8386.Unavailable("not_admitted_or_send_refused")
+            }
+        }
+    }
+
     /** Subscribe to all swaps for a specific token mint. */
     fun subscribeToken(mint: String) {
         if (mint.isBlank()) return

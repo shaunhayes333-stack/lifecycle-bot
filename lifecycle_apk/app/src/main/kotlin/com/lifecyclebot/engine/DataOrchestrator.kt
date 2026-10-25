@@ -283,7 +283,7 @@ class DataOrchestrator(
             com.lifecyclebot.network.HeliusEnhancedWS.updateTapeAccounts8307(set, nowMs)
             tape.noteTapeSet8307(set)
             // V5.0.8354 — the program-wide bonding-curve tape: who the bot cares about, and the per-mint fallback.
-            com.lifecyclebot.network.HeliusCurveTape8354.sync8354(held, near, nowMs, { m -> status.tokens.containsKey(m) }) { m -> heliusWs?.subscribeToken(m) }
+            com.lifecyclebot.network.HeliusCurveTape8354.sync8354(held, near, nowMs, { m -> status.tokens.containsKey(m) }) { m -> heliusWs?.subscribeTokenState8386(m) ?: com.lifecyclebot.network.HeliusCurveTape8354.TapeState8386.Unavailable("socket_unavailable") }
             // The same coins' DAS authority facts, batched and cached (one getAssetBatch for every new mint, none while fresh).
             if (!over) com.lifecyclebot.network.HeliusDasAuthority8307.request8307(*set.toTypedArray())
         } catch (_: Throwable) {}

@@ -217,6 +217,11 @@ class CortexScoreboard7885 {
         /** V5.0.8025 — every STRONG read this lane has ever had graded (never decayed, never windowed): its maturity. */
         var strongLifetime8025 = 0.0
 
+        internal fun detached8386(): Book = Book().also { out ->
+            byBucket.forEachIndexed { i, v -> v.copyInto8386(out.byBucket[i]) }
+            legacyAdmitted.copyInto8386(out.legacyAdmitted); legacyRefused.copyInto8386(out.legacyRefused)
+            missedStrong.copyInto8386(out.missedStrong); out.strongLifetime8025 = strongLifetime8025
+        }
         fun encode(): String = (byBucket.map { it.encode() } + listOf(legacyAdmitted.encode(), legacyRefused.encode(), missedStrong.encode(), strongLifetime8025.toString())).joinToString("|")
         fun decode(s: String) {
             val f = s.split('|'); if (f.size != byBucket.size + 3 && f.size != byBucket.size + 4) return
@@ -345,6 +350,11 @@ class CortexScoreboard7885 {
         val strong = b.byBucket[Bucket.STRONG.ordinal]
         val neutral = b.byBucket[Bucket.NEUTRAL.ordinal]
         return overruleProven(strong) && neutral.n >= MIN_N_LIVE && strong.mean() - neutral.mean() > PROOF_MARGIN_PCT
+    }
+
+    internal fun detached8386(): CortexScoreboard7885 = CortexScoreboard7885().also { out ->
+        books.forEach { (k, v) -> out.books[k] = v.detached8386() }
+        realized.forEach { (k, v) -> out.realized[k] = v.map { it.detached8386() }.toTypedArray() }
     }
 
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->

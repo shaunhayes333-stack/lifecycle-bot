@@ -158,9 +158,9 @@ class Aate8354CurveTapeTest {
 
     @Test fun thePerMintFallbackCarriesTheAskWhenNoProgramStreamIsUp() {
         val asked = ArrayList<String>()
-        HeliusCurveTape8354.sync8354(emptySet(), emptyList(), t0, { false }) { m -> asked.add(m) }
+        HeliusCurveTape8354.sync8354(emptySet(), emptyList(), t0, { false }) { m -> asked.add(m); HeliusCurveTape8354.TapeState8386.Queued }
         assertEquals(Source8354.HELIUS_PER_MINT, HeliusCurveTape8354.source8354())   // no socket in a unit test
-        assertTrue(HeliusCurveTape8354.ask8354(MINT, t0))
+        assertEquals(HeliusCurveTape8354.TapeState8386.Queued, HeliusCurveTape8354.askState8386(MINT, t0))
         assertEquals(listOf(MINT), asked)
         assertTrue(HeliusCurveTape8354.statusLine8354(t0).contains("source=HELIUS_PER_MINT"))
     }
@@ -222,7 +222,7 @@ class Aate8354CurveTapeTest {
         assertTrue(src("network/HeliusSocketShare8191.kt").contains("(router8354?.invoke(text) == true) || (router?.invoke(text) == true)"))
         // PumpSwap stays PumpSwapTape8307's: the AMM program is not subscribed again here
         assertFalse(c.contains("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"))
-        assertTrue(src("engine/DataOrchestrator.kt").contains("HeliusCurveTape8354.sync8354(held, near, nowMs, { m -> status.tokens.containsKey(m) }) { m -> heliusWs?.subscribeToken(m) }"))
+        assertTrue(src("engine/DataOrchestrator.kt").contains("HeliusCurveTape8354.sync8354(held, near, nowMs, { m -> status.tokens.containsKey(m) }) { m -> heliusWs?.subscribeTokenState8386(m)"))
     }
 
     @Test fun aKeptTradeWritesWhatAPumpPortalFrameWroteAndThe8346HookStillFires() {

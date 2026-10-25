@@ -162,16 +162,18 @@ class Aate8355ShadowPersistTest {
         assertTrue(s.contains("restored8355=\${restored8355.get()} expiredOnRestore8355=\${expiredOnRestore8355.get()}"))
         val writer = s.substringAfter("private fun persistTicket8355(").substringBefore("private fun forgetTicket8355(")
         // V5.0.8377 — ordinary writes stay asynchronous; durable receipts commit once per tick slice, never once per ticket.
-        val ordinary = writer.substringBefore("// V5.0.8377 — 8376 died OOM")
-        assertTrue("ordinary open/tier/peak writes stay asynchronous", ordinary.contains(".apply(); true") && !ordinary.contains("commit()"))
-        assertEquals("the slice's receipt batch is the only synchronous preference commit", 1, Regex("\\.commit\\(\\)").findAll(s).count())
+        // V5.0.8386 — ordinary writes are only staged (coalesced, bounded); one ordered writer commits per flush.
+        val ordinary = writer.substringBefore("private fun flushOpen8386(")
+        assertTrue("ordinary open/tier/peak writes are staged, never written inline", ordinary.contains("openWrites8386.stage(") &&
+            !ordinary.contains("commit()") && !ordinary.contains(".apply()"))
+        assertEquals("the ordered flush is the only preference commit", 1, Regex("\\.commit\\(\\)").findAll(s).count())
         val pendingReceipt = s.substringAfter("if (t.cortex8372.pending8372()) {")
             .substringBefore("if (t.legs.all { it.dead } && !t.cortex8372.awaiting8372())")
         assertTrue("an undurable receipt is staged, never delivered in the same pass", pendingReceipt.contains("if (!t.receiptDurable8372) {") &&
             pendingReceipt.contains("receipts8377 += key to t") &&
             pendingReceipt.indexOf("continue") in 0 until pendingReceipt.indexOf("deliverCortex8372(t)"))
         val batch = s.substringAfter("if (batch8377 != null && (staged8377.isNotEmpty() || receipts8377.isNotEmpty())) {").substringBefore("flushBooks8377(nowMs)")
-        assertTrue("the batch commits before any staged receipt is delivered", batch.indexOf("batch8377.commit()") in 0 until batch.indexOf("deliverCortex8372(t)") &&
+        assertTrue("the batch commits before any staged receipt is delivered", batch.indexOf("val written = flushOpen8386(nowMs, durable = receipts8377.isNotEmpty())") in 0 until batch.indexOf("deliverCortex8372(t)") &&
             batch.contains("if (!written) { t.force8355 = true; cortexRetry8372.incrementAndGet(); continue }"))
         // the close books are untouched: their prefs names and writers are what 8344 / 8351 left
         assertTrue(s.contains("private const val PREFS_8347 = \"aate_explore_shadow_8347\""))

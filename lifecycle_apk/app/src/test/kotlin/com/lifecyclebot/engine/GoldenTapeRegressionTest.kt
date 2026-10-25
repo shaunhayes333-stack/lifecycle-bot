@@ -9885,7 +9885,8 @@ class GoldenTapeRegressionTest {
         assertTrue(fan.contains(".put(\"method\", \"getMultipleAccounts\")"))
         assertTrue(fan.contains("val vTok = readU64Le7269(bytes, 8)"))
         assertTrue(fan.contains("val vSol = readU64Le7269(bytes, 16)"))
-        assertTrue(fan.contains("if (complete) { skippedComplete++; PumpCurveKeys7269.markGraduated7392(mint); continue }"))
+        assertTrue(fan.contains("skippedComplete++; PumpCurveKeys7269.markGraduated7392(mint)"))
+        assertTrue(fan.indexOf("PumpCurveKeys7269.markGraduated7392(mint)") < fan.indexOf("TicketRetry8327.onVerifiedMigration8385(mint"))
         // Both go through HealthAwareHttp / the health-aware Jupiter client, never a raw call.
         assertTrue(fan.contains("HealthAwareHttp.execute(http, req, host = \"helius\")"))
 
@@ -14131,7 +14132,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
         assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now))"))
         assertTrue(lab.contains("restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())"))
-        assertTrue(lab.contains("if (f.size !in 17..34) return@forEach"))
+        assertTrue(lab.contains("if (f.size !in 17..35) return@forEach"))
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))

@@ -32,7 +32,7 @@ class Aate8013GradingScheduleTest {
         assertTrue(f.contains("else if (!followed8013(o, nowMs)) {"))
         assertTrue(f.contains("o.feats7972 = f[30].split('\\u0002').filter { it.isNotBlank() }"))
         val c = src("engine/cortex/Cortex7885.kt")
-        assertTrue(c.contains(".put(\"g8013\", garr)"))
+        assertTrue(c.contains("append(\",\\\"g8013\\\":\").append(garr.append(']'))"))
         assertTrue(c.contains("restoreGraded8013(root, dict, nowMs)"))
     }
 }

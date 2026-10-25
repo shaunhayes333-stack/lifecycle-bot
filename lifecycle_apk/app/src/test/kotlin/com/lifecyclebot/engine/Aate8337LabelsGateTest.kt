@@ -126,9 +126,9 @@ class Aate8337LabelsGateTest {
         val labeler = src("engine/truth/ForwardReturnLabeler7731.kt")
         val tick = labeler.substring(labeler.indexOf("fun tick(priceFor0:"))
         val mutation = tick.indexOf("o.rebased8076 = true")
-        val held = tick.indexOf("if (curveHolds8337(o.mint, px, nowMs)) {")
+        val held = tick.indexOf("if (curveHolds8337(o.mint, px, nowMs, mark8386.observedAtMs)) {")
         assertTrue(held in 0 until mutation)
-        assertTrue(held > tick.indexOf("if (curveContradicts8165(o.mint, px, nowMs)) {"))
+        assertTrue(held > tick.indexOf("if (curveContradicts8165(o.mint, px, nowMs, mark8386.observedAtMs)) {"))
         val heldBlock = tick.substring(held, tick.indexOf("\n            }", held))   // the if-block's own closing brace, past the inline try/catch
         assertTrue(heldBlock.contains("continue"))
         assertFalse(heldBlock.contains("pending.remove"))                            // never dropped

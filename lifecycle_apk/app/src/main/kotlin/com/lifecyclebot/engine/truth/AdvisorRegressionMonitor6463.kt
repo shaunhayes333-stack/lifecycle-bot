@@ -139,6 +139,7 @@ object AdvisorRegressionMonitor6463 {
                     put("key", audit.key)
                     put("delta", negatedDelta)
                     put("reason", reason)
+                    LlmParameterTuner.addContract8386(this, audit.key, negatedDelta)
                 })
             })
         }

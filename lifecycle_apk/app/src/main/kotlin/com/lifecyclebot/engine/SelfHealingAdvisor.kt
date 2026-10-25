@@ -112,7 +112,7 @@ object SelfHealingAdvisor {
             return@withContext RunResult(false, "report unavailable", emptyList(), null)
         }
         val allowlist = LlmParameterTuner.allowedKeys().joinToString(", ")
-        val systemPrompt = SYSTEM_PROMPT_TEMPLATE.replace("{ALLOW}", allowlist)
+        val systemPrompt = SYSTEM_PROMPT_TEMPLATE.replace("{ALLOW}", allowlist) + "\nRequired proposal fields unit, scope, semantics=additive, effect must match:\n" + LlmParameterTuner.contractSummary8386()
         val userPrompt = buildUserPrompt(report)
 
         val reply = try {
@@ -200,7 +200,8 @@ object SelfHealingAdvisor {
                 JSONObject()
                     .put("key", s.key)
                     .put("delta", s.delta)
-                    .put("reason", "self-healing:${s.severity}:${s.reason.take(120)}"),
+                    .put("reason", "self-healing:${s.severity}:${s.reason.take(120)}")
+                    .also { LlmParameterTuner.addContract8386(it, s.key, s.delta) },
             )
         }
         val body = JSONObject().put("adjustments", adjustmentsArr).toString()
@@ -281,6 +282,7 @@ If nothing needs tuning, return {"suggestions": []}.
                 }
             } ?: continue
             if (!delta.isFinite() || delta == 0.0) continue
+            if (!advisoryOnly8353 && LlmParameterTuner.proposalError8386(key, delta, row.optString("unit"), row.optString("scope"), row.optString("semantics"), row.optString("effect")) != null) continue
             val reason = row.optString("reason").trim().take(240)
             val impact = row.optString("expected_impact").trim().take(160)
             val severity = row.optString("severity").trim().lowercase().ifBlank { "med" }
@@ -336,6 +338,7 @@ If nothing needs tuning, return {"suggestions": []}.
                     put("key", suggestions[i].key)
                     put("delta", suggestions[i].delta)
                     put("reason", "advisor:${suggestions[i].reason.take(160)}")
+                    LlmParameterTuner.addContract8386(this, suggestions[i].key, suggestions[i].delta)
                 })
             })
         }

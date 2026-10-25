@@ -418,6 +418,22 @@ object LearningPersistence {
     }
 
     /** Paired learning books and revision receipts must survive or roll back together. */
+    /** Synchronous all-or-nothing checkpoint for ordered writers. Never queues a stale snapshot behind a newer one. */
+    fun saveTogetherVerified8386(blobs: Map<String, String>): Boolean {
+        val d = db ?: return false
+        if (Looper.getMainLooper().thread == Thread.currentThread() || d.inTransaction()) return false
+        return try {
+            d.beginTransaction()
+            try {
+                if (blobs.keys.any { writeRefused8086(it) }) false else {
+                    val now = System.currentTimeMillis()
+                    blobs.forEach { (name, json) -> writeRow8086(d, name, json, now) }
+                    d.setTransactionSuccessful(); true
+                }
+            } finally { d.endTransaction() }
+        } catch (e: Exception) { ErrorLogger.warn(TAG, "ordered checkpoint retry: ${e.message}"); false }
+    }
+
     fun saveTogether8076(blobs: Map<String, String>) {
         val d = db ?: return
         if (Looper.getMainLooper().thread == Thread.currentThread()) {

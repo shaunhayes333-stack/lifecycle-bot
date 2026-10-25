@@ -14054,7 +14054,7 @@ class Executor(
             TicketRetry8327.noteReserveWait8385(attemptId8198, result8385)
             liveBuyDeferred(ts, sol, result8385.reason, "attemptId=$attemptId8198 preSubmission=true")
             com.lifecyclebot.engine.truth.OnChainDepth8038.needCurve8039(ts.mint, approved8385 = true)
-        } else emitLiveBuyFail(ts, sol, why, attemptId8198 = attemptId8198)
+        } else { lastLiveBuyStop8252[ts.mint] = why; emitLiveBuyFail(ts, sol, why, attemptId8198 = attemptId8198) }
         return true
     }
 
@@ -18850,7 +18850,7 @@ class Executor(
         // The executor cannot ask the same learned/risk policy to decide the
         // trade again. Current route/safety/finality checks below remain hard.
         try { PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_CONSUMED_SEALED_7850") } catch (_: Throwable) {}
-        if (flatChartRefused8027(ts, sol, attemptId8198 = attemptId)) { lastLiveBuyStop8252[ts.mint] = "FLAT_CHART_8027"; return false }
+        if (flatChartRefused8027(ts, sol, attemptId8198 = attemptId)) return false
         // V5.0.7849 — immutable execution intent is the entry verdict.
         // Executor consumes it; learned/history authorities may not re-decide it.
         val gateLaneLive6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "LIVE_STANDARD" }

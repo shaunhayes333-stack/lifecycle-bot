@@ -491,8 +491,9 @@ object SentienceHooks {
                 val q = "Improve ENTRY QUALITY / WIN RATE only. Do not optimize throughput. " +
                     "Use the canonical outcomes and existing brain state below. Choose exactly ONE small bounded adjustment. " +
                     "Allowed quality keys=${qualityKeys.joinToString()}. Delta is a signed CHANGE, not an absolute value. " +
+                    "Required parameter contracts: " + LlmParameterTuner.contractSummary8386() + "\n" +
                     "Return ONLY this exact wrapper with valid JSON: " +
-                    "<<TUNE>>{\"adjustments\":[{\"key\":\"minDiscoveryScore\",\"delta\":1.0,\"reason\":\"brief evidence\"}]}<<ENDTUNE>>\n" +
+                    "<<TUNE>>{\"adjustments\":[{\"key\":\"behaviorAggressionLevel\",\"delta\":-1.0,\"unit\":\"level\",\"scope\":\"entry\",\"semantics\":\"additive\",\"effect\":\"less_aggressive\",\"reason\":\"brief evidence\"}]}<<ENDTUNE>>\n" +
                     contextBlock
                 val reply = ask(
                     q,

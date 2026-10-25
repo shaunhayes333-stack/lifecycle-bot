@@ -84,6 +84,35 @@ class CortexGradeRecord8144(
     /** May this decision's label grade authority (executable, first of its episode)? */
     val graded: Boolean get() = kind == 'D' && executable && !repeat
 
+    internal fun detached8386(): CortexGradeRecord8144 = CortexGradeRecord8144(kind, id, episode, atMs, lane, setup,
+        regime, timing, costBand, cohort, bucket, predictedEdgePct, admitted, executable, repeat).also { out ->
+        out.observedNetPct = observedNetPct
+        out.observedGrossPct = observedGrossPct
+        out.executablePct = executablePct
+        out.executableRevisedPct = executableRevisedPct
+        out.revisedAvailableAtMs = revisedAvailableAtMs
+        out.revisions8272 = revisions8272
+        out.lost = lost
+        out.realisedPct = realisedPct
+        out.ownerLane = ownerLane
+        out.ownerSetup = ownerSetup
+        out.attribution = attribution
+        out.mode = mode
+        out.lateEntry8153 = lateEntry8153
+        out.lateRead8187 = lateRead8187
+        out.flat8322 = flat8322
+        out.firstGross8324 = firstGross8324
+        out.revisedGross8324 = revisedGross8324
+        out.tailEv8324 = tailEv8324
+        out.witnessed8324 = witnessed8324
+        out.rawEdge8371 = rawEdge8371
+        out.laneMean8371 = laneMean8371
+        out.calStamp8371 = calStamp8371
+        out.scoreVersion8372 = scoreVersion8372
+        out.outcomeSource8372 = outcomeSource8372
+        out.firstAvailableAtMs8372 = firstAvailableAtMs8372
+    }
+
     fun key(): String = "$lane|$setup|$regime|$timing|$costBand|$cohort"
 
     /** V5.0.8187 — the per-label cap of this record's cohort (RobustLabelRead8185: 4x for the $1M+ band, else 11x). */
@@ -589,6 +618,12 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         r.calStamp8371.takeIf { it.isFinite() }?.toString().orEmpty(),
         r.scoreVersion8372.toString(), clean(r.outcomeSource8372), r.firstAvailableAtMs8372.toString(),
     ).joinToString(FS.toString())
+
+    internal fun detached8386(): CortexGradeBook8144 = CortexGradeBook8144(maxDecisions, maxTrades).also { out ->
+        decisions.forEach { r -> val v = r.detached8386(); out.decisions.add(v); out.byId[v.id] = v }
+        trades.forEach { (k, v) -> out.trades[k] = v.detached8386() }
+        out.lastGraded.putAll(lastGraded)
+    }
 
     fun encode(): String = (decisions + trades.values).joinToString(RS.toString()) { encodeOne(it) }
 

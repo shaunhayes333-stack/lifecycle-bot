@@ -540,7 +540,7 @@ object AutoPipelineAdvisor6462 {
     private fun enrichWithLlm(ctx: Context, base: List<Candidate>): List<Candidate> {
         val allow = try { LlmParameterTuner.allowedKeys().joinToString(", ") } catch (_: Throwable) { "" }
         if (allow.isBlank()) return base
-        val report = try { PipelineHealthCollector.dumpText().take(12_000) } catch (_: Throwable) { "" }
+        val report = try { evidenceSnapshot8386() } catch (_: Throwable) { "" }
         if (report.isBlank()) return base
         // V5.0.8319 — the LLM is asked even when the rules engine found nothing
         // (8316: autoApplied=0 because an empty base returned before asking).
@@ -551,7 +551,7 @@ object AutoPipelineAdvisor6462 {
 The trading bot's rules engine derived these candidate adjustments:
 $ruleSummary
 
-REPORT (truncated):
+STRUCTURED EVIDENCE (live and shadow remain separate):
 $report
 
 Re-rank / adjust these candidates. You MAY:
@@ -567,8 +567,10 @@ These refusal labels are the bot working AS DESIGNED and are NOT faults to tune 
   lane's proven pullback / confirm entry), NICHE_ONLY_8351 (lane trades only its proven niche), LEGACY_8114_REFUSED,
   HARD_SAFETY, EXPLORE_SHADOW_* and EVIDENCE_SHADOW_*. Never propose a change whose purpose is to let more candidates
   past these. Ground every change in realised live closes or the shadow books (Evidence shadow / Explore shadow lines).
-Respond with pure JSON:
-{"candidates":[{"key":"...","delta":<num>,"severity":"high|med|low","reason":"..."}]}
+Parameter contracts (deltas are ADDITIVE, not relative percentages):
+${LlmParameterTuner.contractSummary8386()}
+Respond with pure JSON, including the exact contract fields. Missing relevant outcome evidence means defer, not fabricate.
+{"candidates":[{"key":"...","delta":<num>,"unit":"...","scope":"entry|exit|data","semantics":"additive","effect":"...","severity":"high|med|low","reason":"..."}]}
         """.trimIndent()
         val reply = try {
             GeminiCopilot.rawText(userPrompt = user, systemPrompt = "You are the AATE parameter tuner co-pilot.",
@@ -605,6 +607,22 @@ Respond with pure JSON:
         return (merged + newOnes.map { fuseWithBrains(it, readings) })
     }
 
+    internal fun evidenceSections8386(report: String): String {
+        val keys = listOf("LANE SCORECARD", "MOONSHOT", "EXPRESS", "Explore shadow", "Evidence shadow",
+            "evidenceHold8336", "exploreShadow8347", "realised:", "LANE PERFORMANCE", "Config", "mode=", "cfg=")
+        return JSONObject().put("schema", 8386).put("scope", "matched sections, not prefix; forward returns are not realised")
+            .put("sections", JSONArray(report.lineSequence().filter { line -> keys.any { line.contains(it, ignoreCase = true) } }
+                .take(100).map { it.take(1200) }.toList())).toString()
+    }
+
+    private fun evidenceSnapshot8386(): String = JSONObject()
+        .put("report_sections", JSONObject(evidenceSections8386(PipelineHealthCollector.dumpText())))
+        .put("qualification", EvidenceHold8336.statusLine8336())
+        .put("exploration", ExploreShadow8347.statusLine8347(0L))
+        .put("parameter_contracts", LlmParameterTuner.contractSummary8386())
+        .put("effective_mode_config", "not established; global adjustments must not claim mode-effective changes")
+        .toString()
+
     private data class LlmCandidate(val key: String, val delta: Double, val severity: String, val reason: String)
 
     private fun parseLlmCandidates(raw: String): List<LlmCandidate>? {
@@ -623,6 +641,8 @@ Respond with pure JSON:
             if (!advisoryOnly8353 && !LlmParameterTuner.isAllowedKey(key)) continue
             val delta = row.opt("delta")?.let { when (it) { is Number -> it.toDouble(); is String -> it.toDoubleOrNull(); else -> null } } ?: continue
             if (!delta.isFinite() || delta == 0.0) continue
+            if (!advisoryOnly8353 && LlmParameterTuner.proposalError8386(key, delta, row.optString("unit"),
+                    row.optString("scope"), row.optString("semantics"), row.optString("effect")) != null) continue
             if (advisoryOnly8353) AdvisorKeyAuthority8353.noteAdvisoryOnly8353(key, delta, row.optString("reason"))
             out += LlmCandidate(
                 key = key, delta = delta,
@@ -655,6 +675,7 @@ Respond with pure JSON:
                     put("key", c.key)
                     put("delta", c.delta)
                     put("reason", "auto6462:${c.reason.take(140)}")
+                    LlmParameterTuner.addContract8386(this, c.key, c.delta)
                 })
             })
         }

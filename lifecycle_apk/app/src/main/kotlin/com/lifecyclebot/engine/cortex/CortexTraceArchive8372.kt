@@ -67,6 +67,16 @@ class CortexTraceArchive8372(
     private var invalid = 0L
     private var corrupt = 0L
 
+    /** Compressed byte arrays are private immutable values: entries are replaced, never edited or exposed. */
+    @Synchronized internal fun detached8386(nowMs: Long): CortexTraceArchive8372 {
+        prune(nowMs)
+        return CortexTraceArchive8372(maxRecords, maxCompressedBytes).also { out ->
+            out.entries.putAll(entries); out.byDecision.putAll(byDecision); out.byExpiry.putAll(byExpiry)
+            out.compressedBytes = compressedBytes; out.capacityEvicted = capacityEvicted; out.capacityRejected = capacityRejected
+            out.expired = expired; out.invalid = invalid; out.corrupt = corrupt
+        }
+    }
+
     @Synchronized fun size(): Int = entries.size
     @Synchronized fun bytes(): Long = compressedBytes
     @Synchronized fun counts(): Counts = Counts(capacityEvicted, capacityRejected, expired, invalid, corrupt)

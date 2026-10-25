@@ -24,7 +24,7 @@ class Aate8062DataChangesTest {
     @Test fun priceCoverage() {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(f.contains("CanonicalMarkPurpose6570.values().mapNotNull { CanonicalPriceMarkRegistry6522.get(mint, it) }"))
-        assertTrue(f.contains("CurveReserves7951.priceSolFor7951(mint, nowMs, MARK_MAX_AGE_MS_7731)"))
+        assertTrue(f.contains("CurveReserves7951.activeExitObservation(mint, nowMs, MARK_MAX_AGE_MS_7731)"))
         val p = src("network/ParallelMarkFanout7088.kt")
         assertTrue(p.contains("\"dataSlice\""))
         assertTrue(p.contains("return \"helius_curve\""))

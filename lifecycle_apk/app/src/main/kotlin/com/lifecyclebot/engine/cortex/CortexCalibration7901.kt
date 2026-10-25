@@ -446,6 +446,14 @@ class CortexCalibration7901 {
     /** V5.0.8324 — lanes with a fit (diagnostic). */
     fun laneCount8324(): Int = lanes.size
 
+    internal fun detached8386(): CortexCalibration7901 = CortexCalibration7901().also { out ->
+        lanes.forEach { (k, v) -> out.lanes[k] = Reg().also { r ->
+            r.n = v.n; r.sd = v.sd; r.sdd = v.sdd; r.sy = v.sy; r.sdy = v.sdy; r.logScale8322 = v.logScale8322
+        } }
+        iso8366.forEach { (k, v) -> out.iso8366[k] = ArrayDeque(v.map { it.copyOf() }) }
+        // Fits are derived caches and not persisted. Never capture their mutable arrays for an encoder.
+    }
+
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->
         // V5.0.8371: the sixth field preserves the decay-coordinate used by
         // revise8322. Without it every in-flight runner revision after restart

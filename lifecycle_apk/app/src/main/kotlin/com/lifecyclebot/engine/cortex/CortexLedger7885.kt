@@ -254,6 +254,11 @@ class CortexLedger7885(
             val dw = (if (yNew > 0.0) 1.0 else 0.0) - (if (yOld > 0.0) 1.0 else 0.0)
             if (dw != 0.0) wins = (wins + weight * dw).coerceIn(0.0, n)
         }
+        internal fun copyInto8386(out: Stat) {
+            out.n = n; out.sum = sum; out.sumSq = sumSq; out.runners = runners; out.wins = wins
+            out.logScale = logScale; out.witnessed8324 = witnessed8324; out.readOffset8187 = readOffset8187
+        }
+        internal fun detached8386(): Stat = Stat(cap8187, runnerFloor8187).also { copyInto8386(it) }
         fun encode(): String = "$n,$sum,$sumSq,$runners,$wins,$logScale,$witnessed8324,INDEPENDENT_CURVE_8365"  // V5.0.8365 independent proof epoch
         fun decode(s: String) {
             val f = s.split(','); if (f.size !in 4..8) return
@@ -299,6 +304,12 @@ class CortexLedger7885(
         // and its above/below split points the way it claims (see [cleanAuthority8007]).
         fun authority(): Double = cleanAuthority8007(this, 0)
 
+        internal fun detached8386(): Seat = Seat(bins.size, above.cap8187, above.runnerFloor8187).also { out ->
+            out.scored = scored; out.sseModel = sseModel; out.sseBase = sseBase
+            out.brierModel = brierModel; out.brierBase = brierBase; out.logLossModel = logLossModel; out.logLossBase = logLossBase
+            above.copyInto8386(out.above); below.copyInto8386(out.below)
+            bins.forEachIndexed { i, b -> b.copyInto8386(out.bins[i]) }
+        }
         fun encode(): String = buildString {
             append(scored).append(';').append(sseModel).append(';').append(sseBase).append(';')
             append(above.encode()).append(';').append(below.encode())
@@ -727,6 +738,13 @@ class CortexLedger7885(
             }
         }
         return "seats=$n seasoned=$seasoned seated=$seated (half-weight=$half) filtered: noise=$noise flat=$flat inverted=$inverted fdr=${"%.2f".format(fdrFactor8007(n))} antiRunnerDemoted8324=$antiRunner8324"
+    }
+
+    /** Deep detached numerical state. Caller owns the assessment monitor; encoding takes no live maps. */
+    internal fun detached8386(): CortexLedger7885 = CortexLedger7885(labelCap8187).also { out ->
+        lanes.forEach { (k, v) -> out.lanes[k] = v.detached8386() }
+        seats.forEach { (k, v) -> out.seats[k] = v.detached8386() }
+        pairs.forEach { (k, v) -> out.pairs[k] = v.copyOf() }
     }
 
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->

@@ -84,7 +84,10 @@ object HeliusSwapCandles7819 {
 
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val nextAllowedMs = ConcurrentHashMap<String, Long>()
-    private val jobStarts = ArrayList<Long>()
+    private val jobStarts = ArrayList<Long>() // retained as the started-only history
+    private val admission8386 = CandleAdmission8386(MAX_IN_FLIGHT, jobStarts, ::budgetAdmits8284)
+    private val refused8386 = ConcurrentHashMap<String, AtomicLong>()
+    private fun refusal8386(reason: String) { refused8386.computeIfAbsent(reason) { AtomicLong() }.incrementAndGet() }
     @Volatile private var cachedKey = ""
     @Volatile private var cachedKeyAtMs = 0L
 
@@ -137,7 +140,7 @@ object HeliusSwapCandles7819 {
         if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint)) return // V5.0.7819 HeliusScope — Solana mints only (Field Manual L186)
         // V5.0.8284 — 1 m coverage (not the bar count, not the active timeframe) decides; a held or 4 h token's bars go to
         // the compatible 1 m store (CandleCoverage8284.merge8284). Too young for 1 m bars: its own observed trades only.
-        if (inFlight.contains(mint)) return
+        if (inFlight.contains(mint)) { refusal8386("duplicate"); return }
         val priority = priority8284(mint, nowMs)
         val cov1m = CandleCoverage8284.noteNeed8284(ts, nowMs)
         if (cov1m == CandleCoverage8284.Coverage8284.COVERED) { coveredSkips8284.incrementAndGet(); return }
@@ -154,34 +157,43 @@ object HeliusSwapCandles7819 {
         // 60/h cap); now also paced on the economy's SWAP_CANDLES share.
         // V5.0.8284 — the per-minute / per-hour job budget is tiered: held > near-decision > hand-off > bulk.
         // V5.0.8307 — held / near-decision coins may use the day's on-pace headroom beyond the candles' own share.
-        if (inFlight.size >= MAX_IN_FLIGHT || !claimBudget(nowMs, priority) ||
-            !admitCredits8307(priority, nowMs)) {
-            budgetSkips.incrementAndGet()
-            localTape8284(ts, nowMs, "budget"); priceBars8287(ts, nowMs)
+        val reservation = admission8386.reserve(mint, nowMs, priority)
+        if (reservation != "reserved") {
+            refusal8386(reservation); budgetSkips.incrementAndGet()
+            localTape8284(ts, nowMs, reservation); priceBars8287(ts, nowMs)
             return
         }
-        if (!inFlight.add(mint)) return
-        nextAllowedMs[mint] = nowMs + MINT_RETRY_MS
-        if (nextAllowedMs.size > 4_000) nextAllowedMs.entries.removeIf { it.value < nowMs }
+        inFlight.add(mint)
+        val credits = HeliusCreditEconomy7881.reserve8386(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES,
+            200.0, priority >= PRIORITY_NEAR_DECISION_8284, nowMs)
+        if (credits == null) {
+            refusal8386("credit_pacing"); budgetSkips.incrementAndGet()
+            inFlight.remove(mint); admission8386.finish(mint)
+            localTape8284(ts, nowMs, "credit_pacing"); priceBars8287(ts, nowMs)
+            return
+        }
         try {
             Thread({
-                try { runJob(ts, marketAddress) } catch (_: Throwable) {
-                } finally { inFlight.remove(mint) }
+                try {
+                    val startedAt = System.currentTimeMillis()
+                    val key = apiKey(startedAt)
+                    if (key.isBlank()) { noKey.incrementAndGet(); refusal8386("missing_key") }
+                    else if (!Thread.currentThread().isInterrupted && admission8386.start(mint, startedAt)) {
+                        nextAllowedMs[mint] = startedAt + MINT_RETRY_MS
+                        if (nextAllowedMs.size > 4_000) nextAllowedMs.entries.removeIf { it.value < startedAt }
+                        runJob(ts, marketAddress, key, credits)
+                    } else refusal8386("cancelled_before_start")
+                } catch (_: Exception) { refusal8386("worker_failure") }
+                finally {
+                    HeliusCreditEconomy7881.finish8386(credits)
+                    inFlight.remove(mint); admission8386.finish(mint)
+                }
             }, "helius-candles-7819").apply { isDaemon = true }.start()
-        } catch (_: Throwable) { inFlight.remove(mint) }
-    }
-
-    /** V5.0.8307 — the credit admission for a job of [priority]: decision coins first (HeliusCreditEconomy7881.admitPriority8307). */
-    private fun admitCredits8307(priority: Int, nowMs: Long): Boolean =
-        if (priority >= PRIORITY_NEAR_DECISION_8284) HeliusCreditEconomy7881.admitPriority8307(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 200.0, nowMs)
-        else HeliusCreditEconomy7881.admit(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 200.0, nowMs)
-
-    private fun claimBudget(nowMs: Long, priority: Int): Boolean = synchronized(jobStarts) {
-        jobStarts.removeAll { nowMs - it > 3_600_000L }
-        val lastMinute = jobStarts.count { nowMs - it <= 60_000L }
-        if (!budgetAdmits8284(priority, lastMinute, jobStarts.size)) return@synchronized false
-        jobStarts.add(nowMs)
-        true
+        } catch (_: Exception) {
+            refusal8386("worker_start_failed")
+            HeliusCreditEconomy7881.finish8386(credits)
+            inFlight.remove(mint); admission8386.finish(mint)
+        }
     }
 
     const val PRIORITY_HELD_8284 = 3
@@ -289,10 +301,8 @@ object HeliusSwapCandles7819 {
         return cachedKey
     }
 
-    private fun runJob(ts: TokenState, marketAddress: String) {
+    private fun runJob(ts: TokenState, marketAddress: String, key: String, credits: HeliusCreditEconomy7881.Reservation8386) {
         val startedAt = System.currentTimeMillis()
-        val key = apiKey(startedAt)
-        if (key.isBlank()) { noKey.incrementAndGet(); return }
         jobs.incrementAndGet()
         val prints = ArrayList<SwapPrint7819>()
         var before = ""
@@ -303,7 +313,7 @@ object HeliusSwapCandles7819 {
             // A time floor excludes ancient transfers on very busy market accounts.
             val url = "$BASE/$marketAddress/transactions?api-key=$key&limit=$PAGE_LIMIT&gte-time=${(startedAt - WINDOW_MS) / 1000L}" +
                 if (before.isNotBlank()) "&before-signature=$before" else ""
-            val body = get(url) ?: break
+            val body = get(url, credits) ?: break
             pages.incrementAndGet()
             val arr = try { JSONArray(body.trim()) } catch (_: Throwable) { null } ?: break
             if (arr.length() == 0) break
@@ -369,9 +379,9 @@ object HeliusSwapCandles7819 {
         } catch (_: Throwable) {}
     }
 
-    private fun get(url: String): String? {
+    private fun get(url: String, credits: HeliusCreditEconomy7881.Reservation8386): String? {
         val started = System.currentTimeMillis()
-        val req = Request.Builder().url(url).header("Accept", "application/json").build()
+        val req = Request.Builder().url(url).header("Accept", "application/json").tag(HeliusCreditEconomy7881.Reservation8386::class.java, credits).build()
         return try {
             http.newCall(req).execute().use { resp ->
                 try { ApiHealthMonitor.record(HOST, resp.code, System.currentTimeMillis() - started) } catch (_: Throwable) {}
@@ -545,7 +555,7 @@ object HeliusSwapCandles7819 {
         "requests=${requests.get()} jobs=${jobs.get()} pages=${pages.get()} prints=${printsParsed.get()} " +
             "served=${served.get()} barsDelivered=${barsDelivered.get()} merged=${barsMerged.get()} " +
             "empty=${empty.get()} httpErr=${httpErrors.get()} budgetSkips=${budgetSkips.get()} noKey=${noKey.get()} noMarket8269=${noMarketAddress8269.get()} " +
-            "inFlight=${inFlight.size} budget=${MAX_JOBS_PER_MIN}/min,${MAX_JOBS_PER_HOUR}/h,x${MAX_PAGES}pages backfillTaped8307=${backfillTaped8307.get()}"
+            "admission8386=$refused8386 inFlight=${inFlight.size} budget=${MAX_JOBS_PER_MIN}/min,${MAX_JOBS_PER_HOUR}/h,x${MAX_PAGES}pages backfillTaped8307=${backfillTaped8307.get()}"
 
     /** V5.0.8284 — Helius candles returned vs merged vs replaced vs kept, the local-tape path and coverage / time-to-feature. */
     fun statusLine8284(): String =
@@ -555,11 +565,33 @@ object HeliusSwapCandles7819 {
             "}] " + CandleCoverage8284.statusLine8284() + " " + PriceShapeBars8287.statusLine8287()
 
     internal fun resetForTest() {
-        inFlight.clear(); nextAllowedMs.clear(); synchronized(jobStarts) { jobStarts.clear() }
+        inFlight.clear(); nextAllowedMs.clear(); admission8386.reset()
         requests.set(0L); jobs.set(0L); pages.set(0L); served.set(0L); barsDelivered.set(0L)
         barsMerged.set(0L); printsParsed.set(0L); empty.set(0L); httpErrors.set(0L); budgetSkips.set(0L); noKey.set(0L); noMarketAddress8269.set(0L)
         localTapeAt8284.clear(); localTapeRuns8284.set(0L); localTapeBarCount8284.set(0L); localTapeChanged8284.set(0L)
         localTapeByReason8284.clear(); coveredSkips8284.set(0L); heliusReplaced8284.set(0L); heliusKept8284.set(0L)
         onCandlesMerged8284Listener = {}
     }
+}
+
+/** The production mint, worker and rate reservation. No provider or Android dependency. */
+internal class CandleAdmission8386(private val maxWorkers: Int, private val starts: MutableList<Long>,
+                                  private val admits: (Int, Int, Int) -> Boolean) {
+    private val reservations = LinkedHashMap<String, Boolean>()
+    @Synchronized fun reserve(mint: String, now: Long, priority: Int): String {
+        if (mint in reservations) return "duplicate"
+        if (reservations.size >= maxWorkers) return "worker_full"
+        starts.removeAll { now - it >= 3_600_000L }
+        val waiting = reservations.values.count { !it }
+        if (!admits(priority, starts.count { now - it < 60_000L } + waiting, starts.size + waiting)) return "job_rate"
+        reservations[mint] = false
+        return "reserved"
+    }
+    @Synchronized fun start(mint: String, now: Long): Boolean {
+        if (reservations[mint] != false) return false
+        reservations[mint] = true; starts.add(now)
+        return true
+    }
+    @Synchronized fun finish(mint: String) { reservations.remove(mint) }
+    @Synchronized fun reset() { reservations.clear(); starts.clear() }
 }

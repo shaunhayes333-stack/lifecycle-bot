@@ -257,19 +257,27 @@ object ForwardReturnLabeler7731 {
         val quality: String,
         val regime: String,
         val phase: String,
-        var entryPrice: Double,   // V5.0.8076 — re-based once to the first reachable mark
+        entryPrice: Double,   // V5.0.8076 — re-based once to the first reachable mark
         @Volatile var costPct: Double,
         val atMs: Long,
     ) {
+        @Volatile var basis8386 = LabelBasis8386(LabelMark8386(mint, "", entryPrice, 0L, atMs, "UNKNOWN"), 0.0)
+        @Volatile var decisionBasis8386 = basis8386
+        @Volatile var lastMark8386: LabelMark8386? = null
+        var entryPrice: Double
+            get() = basis8386.mark.usd
+            set(value) { basis8386 = basis8386.copy(mark = basis8386.mark.copy(usd = value)) }
         /** V5.0.8094 — the price at the decision itself, never re-based (the fill-time move check reads it). */
-        val decisionPx8094: Double = entryPrice
+        val decisionPx8094: Double get() = decisionBasis8386.mark.usd
         var entryStyle8077: String = "" // frozen decision style; old pending labels retain legacy semantics
         @Volatile var done15 = false
         @Volatile var done60 = false
         @Volatile var done240 = false
         @Volatile var peakPct = 0.0
         /** V5.0.7769 — market cap at the decision, the second witness for a big move. */
-        @Volatile var entryMcap = 0.0
+        var entryMcap: Double
+            get() = basis8386.capUsd
+            set(value) { basis8386 = basis8386.copy(capUsd = value) }
         /** V5.0.7928 — the token's lifecycle stage at the decision (TokenMetricStageRouter). */
         @Volatile var stage = ""
         /** V5.0.7944 — the last price seen for it and when, so a vanished mark books at its real last value. */
@@ -576,6 +584,8 @@ object ForwardReturnLabeler7731 {
                     // V5.0.8063 — the coin's kind (field 33).
                     o.kind8063.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '),
                     o.entryStyle8077,
+                    org.json.JSONObject().put("v", 8386).put("entry", o.basis8386.json())
+                        .put("decision", o.decisionBasis8386.json()).put("last", o.lastMark8386?.json()).toString(),
                 ).joinToString(fs)
             }
     }
@@ -596,7 +606,7 @@ object ForwardReturnLabeler7731 {
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size !in 17..34) return@forEach
+            if (f.size !in 17..35) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
             val ck8013 = if (f.size >= 24) f[23].toIntOrNull() ?: 0 else 0
             if (atMs <= 0L) return@forEach
@@ -625,6 +635,13 @@ object ForwardReturnLabeler7731 {
             if (f.size >= 32) o.reason7967 = f[31]
             if (f.size >= 33) o.kind8063 = f[32]
             if (f.size >= 34) o.entryStyle8077 = f[33]
+            if (f.size >= 35) try {
+                val e = org.json.JSONObject(f[34])
+                o.basis8386 = LabelBasis8386.decode(e.getJSONObject("entry"))
+                o.decisionBasis8386 = LabelBasis8386.decode(e.getJSONObject("decision"))
+                o.lastMark8386 = e.optJSONObject("last")?.let { LabelMark8386.decode(it) }
+            } catch (_: Exception) { /* incomplete legacy evidence remains observed-only */ }
+
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
@@ -872,6 +889,11 @@ object ForwardReturnLabeler7731 {
                     com.lifecyclebot.engine.AgenticStyleRouter.decide(ts, com.lifecyclebot.engine.ModeRouter.classify(ts), l).style.name
                 } catch (_: Throwable) { "" }
                 it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
+                typedMark8386(ts.mint, { null }, nowMs)?.takeIf { m -> m.usd == px }?.let { m ->
+                    it.basis8386 = LabelBasis8386(m, it.entryMcap)
+                }
+                it.decisionBasis8386 = it.basis8386
+
                 it.reason7967 = reason.orEmpty().take(120)
                 it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
                 it.feats7972 = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
@@ -916,6 +938,7 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun book(o: Obs, horizon: Int, net: Double, gross: Double, witnessed8324: Boolean = false) {
+        if (!eligible8386(o)) return
         val keys = keysOf7928(o)
         for (k in keys) {
             val t = tallyFor(k)
@@ -1209,6 +1232,7 @@ object ForwardReturnLabeler7731 {
     fun spikeCredit8064(@Suppress("UNUSED_PARAMETER") peakPct: Double, restPct: Double): Double = restPct
 
     private fun bookSixty7944(o: Obs, net0: Double, gross0: Double, nowMs: Long) {
+        if (!eligible8386(o)) return
         // V5.0.7955 — the give-back from the peak to the 5-minute read rides on the observation to its 60-minute sample.
         o.giveback5_7955 = com.lifecyclebot.engine.ExitProfile7955.giveback7955(o.peakPct, gross0)
         val (net, gross) = captured7945(o, net0, gross0)
@@ -1336,6 +1360,7 @@ object ForwardReturnLabeler7731 {
 
     /** Revises the 5-minute label at each due checkpoint; true when the coin is no longer followed. */
     private fun checkpoint7997(o: Obs, net0: Double, gross0: Double, age: Long, nowMs: Long): Boolean {
+        if (!eligible8386(o)) return false
         if (o.ck7997 >= CK_MS_7997.size) return true
         if (age < CK_MS_7997[o.ck7997]) return false
         o.ck7997 += 1
@@ -1363,6 +1388,7 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun revise7997(o: Obs, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double, witnessNew8324: Boolean = false) {
+        if (!eligible8386(o)) return
         val witnessOld8324 = o.bookedWitness8324
         o.bookedWitness8324 = witnessNew8324
         for (k in keysOf7928(o)) {
@@ -1392,6 +1418,7 @@ object ForwardReturnLabeler7731 {
             "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()} runExitSamples8006=${exitRunSamples8006.get()}"
 
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false) {
+        if (!eligible8386(o)) return
         // V5.0.7955 — one exit-profile sample per observation: peak, time to peak, give-back to the 60-minute read.
         // V5.0.7955 review — exits are learned from decisions the bot took (and realised closes),
         // not from the refused pool, which is mostly tokens that fade.
@@ -1447,6 +1474,7 @@ object ForwardReturnLabeler7731 {
 
     /** The observation's one exit-profile sample, at the hour or at the end of a followed run. */
     private fun exitSample8006(o: Obs, gross0: Double) {
+        if (!eligible8386(o)) return
         val setupFired7961 = try { com.lifecyclebot.engine.ExitProfile7955.setupFired7961(o.setup7955) } catch (_: Throwable) { false }
         if (o.admitted || setupFired7961) try {
             com.lifecyclebot.engine.ExitProfile7955.onLabel7955(
@@ -1459,6 +1487,7 @@ object ForwardReturnLabeler7731 {
 
     /** V5.0.8006 — a followed run ended: its deferred exit sample is taken on the whole path. */
     private fun endRun8006(o: Obs, gross: Double) {
+        if (!eligible8386(o)) return
         if (!o.exitDeferred8006) return
         o.exitDeferred8006 = false
         exitRunSamples8006.incrementAndGet()
@@ -1571,26 +1600,39 @@ object ForwardReturnLabeler7731 {
         return freshest
     }
 
-    private fun markFor(mint: String, priceFor: (String) -> Double?, nowMs: Long): Double? {
-        val fromLoop = try { priceFor(mint) } catch (_: Throwable) { null }
-        if (fromLoop != null && fromLoop.isFinite() && fromLoop > 0.0) return fromLoop
-        // V5.0.8062 — the freshest mark across every purpose. get(mint) returned the first purpose holding ANY mark, so a
-        // stale executable quote hid a fresh observation mark: 5.0.8059 skipped 4,557 decisions for noPrice vs 764 labelled.
-        val fromRegistry = try {
-            CanonicalMarkPurpose6570.values().mapNotNull { CanonicalPriceMarkRegistry6522.get(mint, it) }
-                .filter { it.timestampMs > 0L && nowMs - it.timestampMs in 0L..MARK_MAX_AGE_MS_7731 }
-                .maxByOrNull { it.timestampMs }?.priceUsd?.value?.toDouble()?.takeIf { it.isFinite() && it > 0.0 }
-        } catch (_: Throwable) { null }
-        if (fromRegistry != null) return fromRegistry
-        val off = offWatchMarks7737[mint]
-        if (off != null && nowMs - off.second <= MARK_MAX_AGE_MS_7731) return off.first
-        // V5.0.8062 — an active pump.fun curve's own observed reserves (PumpPortal frame or chain read) are a real price.
-        return try {
-            val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-            val pxSol = CurveReserves7951.priceSolFor7951(mint, nowMs, MARK_MAX_AGE_MS_7731)
-            if (solUsd.isFinite() && solUsd > 0.0 && pxSol.isFinite() && pxSol > 0.0) { curvePriced8062.incrementAndGet(); pxSol * solUsd } else null
-        } catch (_: Throwable) { null }
+    internal fun typedMark8386(mint: String, priceFor: (String) -> Double?, nowMs: Long): LabelMark8386? {
+        val candidates = ArrayList<LabelMark8386>(6)
+        try {
+            for (purpose in CanonicalMarkPurpose6570.values()) {
+                val m = CanonicalPriceMarkRegistry6522.get(mint, purpose) ?: continue
+                if (m.mint != mint || m.baseMint != mint || m.canonicalAssetId7424 != mint) continue
+                candidates.add(LabelMark8386(mint, m.pairId, m.priceUsd.value.toDouble(), m.timestampMs, nowMs,
+                    m.source, m.priceUnits7424, m.tokenDecimals7424))
+            }
+            val o = CurveReserves7951.activeExitObservation(mint, nowMs, MARK_MAX_AGE_MS_7731)
+            val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+            val accepted = CurveReserves7951.acceptedObservation8385(mint)
+            if (o != null && solUsd.isFinite() && solUsd > 0) candidates.add(LabelMark8386(mint, "pump.curve",
+                CurveReserves7951.priceSol7951(o.virtualSol, o.virtualTokens) * solUsd, o.observedAtMs, nowMs,
+                "CURVE_${accepted?.source ?: "UNKNOWN"}", decimals = 6,
+                independentBasis = accepted?.source == "ACCOUNT" && accepted.atMs == o.observedAtMs))
+        } catch (_: Exception) {}
+        offWatchMarks7737[mint]?.let { candidates.add(LabelMark8386(mint, "", it.first, it.second, nowMs, "OFFWATCH")) }
+        // A bare loop price has no timestamp. It may only reuse the matching state observation, never this read's clock.
+        try {
+            val px = priceFor(mint)
+            val ts = com.lifecyclebot.engine.BotService.status.tokens[mint]
+            if (px != null && ts != null && ts.mint == mint && ts.lastPrice == px)
+                candidates.add(LabelMark8386(mint, ts.lastPriceDex, px, ts.lastPriceUpdate, nowMs, "TOKEN_STATE"))
+        } catch (_: Exception) {}
+        return candidates.filter { it.known() && nowMs - it.observedAtMs in 0L..MARK_MAX_AGE_MS_7731 }
+            .maxWithOrNull(compareBy<LabelMark8386> { it.observedAtMs }.thenBy { it.independentBasis })
     }
+
+    private fun markFor(mint: String, priceFor: (String) -> Double?, nowMs: Long): Double? =
+        typedMark8386(mint, priceFor, nowMs)?.usd
+
+    private fun eligible8386(o: Obs): Boolean = LabelEvidence8386.eligible(o.basis8386.mark, o.lastMark8386)
 
     private val curvePriced8062 = AtomicLong(0)
 
@@ -1685,7 +1727,8 @@ object ForwardReturnLabeler7731 {
         val dueUnpriced7737 = ArrayList<Pair<String, Long>>()
         for ((key, o) in pending.entries.toList()) {
             val age = nowMs - o.atMs
-            val px = markFor(o.mint, priceFor, nowMs)
+            val observed8386 = typedMark8386(o.mint, priceFor, nowMs)
+            val px = observed8386?.usd
             if (px == null) {
                 // V5.0.8187 — an unpriced observation inside its re-base window asks the off-watch batch FIRST: its label can
                 // only start from a buyable price if a mark lands inside 60 s (else LATE_FIRST_PRICE: observed only, and its
@@ -1714,16 +1757,18 @@ object ForwardReturnLabeler7731 {
                 }
                 continue
             }
+            val mark8386 = observed8386 ?: continue
+            if (mark8386.observedAtMs <= o.lastPxAtMs) continue // a cache read is not a new path event
             // V5.0.8167 — validate before rebasing or deleting the observation. The chain witness: a mark the coin's own active bonding curve contradicts is a basis error, not a
             // move. Rejecting it must leave the entry basis and rebase eligibility unchanged.
-            if (curveContradicts8165(o.mint, px, nowMs)) {
+            if (curveContradicts8165(o.mint, px, nowMs, mark8386.observedAtMs)) {
                 curveRefusedMark8165.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_CONTRADICTED_8165") } catch (_: Throwable) {}
                 continue
             }
             // V5.0.8337 (10d) — a curve read more than 5 s from the mark that disagrees HOLDS the mark (the observation and its
             // basis untouched) until a newer curve read agrees or the read leaves the witness window; it is never dropped.
-            if (curveHolds8337(o.mint, px, nowMs)) {
+            if (curveHolds8337(o.mint, px, nowMs, mark8386.observedAtMs)) {
                 curveHeldMark8337.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_HELD_8337") } catch (_: Throwable) {}
                 continue
@@ -1735,11 +1780,11 @@ object ForwardReturnLabeler7731 {
             // that pumps between the decision and the fill was graded from a price live never gets, so setups graded
             // positive lost live (-17..-40% stop-outs within minutes).
             if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {
-              if (age >= rebaseDelayMs8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) {
+              if (mark8386.observedAtMs - o.atMs >= rebaseDelayMs8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) {
                 o.rebased8076 = true
                 // V5.0.8153 — the FIRST mark ever seen (lastPxAtMs survives a restart), past the window: the entry stays unbuyable.
                 if (o.lastPxAtMs == 0L && com.lifecyclebot.engine.cortex.LearningEntryTruth8153.lateFirstPrice8153(age, REBASE_MAX_MS_8076)) noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)
-                if (age <= REBASE_MAX_MS_8076 && !basisSuspect7738(o.entryPrice, px)) {
+                if (mark8386.observedAtMs - o.atMs <= REBASE_MAX_MS_8076 && !basisSuspect7738(o.entryPrice, px)) {
                     // V5.0.8322 — an unchanged first mark is FLAT, not "down" (8319 read up=99 down=859).
                     when (com.lifecyclebot.engine.cortex.CortexFlatMark8322.rebaseDirection8322(o.entryPrice, px)) {
                         1 -> rebasedUp8076.incrementAndGet()
@@ -1747,7 +1792,7 @@ object ForwardReturnLabeler7731 {
                         else -> rebasedFlat8322.incrementAndGet()
                     }
                     rebaseGapSum8076 += (px / o.entryPrice - 1.0) * 100.0
-                    o.entryPrice = px
+                    o.basis8386 = o.basis8386.rebase(mark8386)
                     // V5.0.8094 — the rebased entry already holds the decision-to-fill move: the chase is not charged twice.
                     if (rebaseClearsChase8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) { o.costPct = (o.costPct - o.chase8094).coerceAtLeast(0.0); o.chase8094 = 0.0 }
                     o.peakPct = 0.0; o.minPct7962 = 0.0; o.heldPeak8071 = 0.0; o.dipBeforePeak7962 = Double.NaN
@@ -1755,19 +1800,22 @@ object ForwardReturnLabeler7731 {
                 }
               }
             }
-            if (basisSuspect7738(o.entryPrice, px) && !runCorroborated7769(
-                    o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint),
-                    try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
-                )) {
-                // V5.0.7738 — not a price move; the observation is dropped unbooked.
-                basisSuspect7738.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_SUSPECT_7738") } catch (_: Throwable) {}
-                pending.remove(key, o)
-                if (!o.done60) try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "BASIS", decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}  // V5.0.8187
+            o.lastMark8386 = mark8386
+            // Keep invalid observations for investigation; never turn missing proof into a loss or train on it.
+            if (!eligible8386(o)) {
+                val status8386 = LabelEvidence8386.status(o.basis8386.mark, mark8386)
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_$status8386") } catch (_: Exception) {}
+                if (status8386 == "OBSERVED_ONLY_UNWITNESSED_EXTREME") {
+                    // V5.0.7738/8386 — an unwitnessed 10x jump is a basis question, not a move: drop it unbooked and
+                    // release the Cortex decision as BASIS-lost (never a loss sample, never a capped win).
+                    basisSuspect7738.incrementAndGet()
+                    pending.remove(key, o)
+                    if (!o.done60) try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "BASIS", decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
+                }
                 continue
             }
             val gross = (px / o.entryPrice - 1.0) * 100.0
-            if (gross < o.minPct7962) { notePathLow8366(o, nowMs, gross); o.minPct7962 = gross }  // V5.0.8366 — first mark past a stop
+            if (gross < o.minPct7962) { notePathLow8366(o, mark8386.observedAtMs, gross); o.minPct7962 = gross }  // V5.0.8366 — first mark past a stop
             // V5.0.8000 — a runner inside its first 30 minutes is broadcast to every installed instance.
             if (gross >= 100.0 && age <= 30L * 60_000L) try { HiveEdge8000.noteRunner8000(o.mint, o.symbol, gross, o.atMs) } catch (_: Throwable) {}
             if (gross >= 400.0 && o.peakPct < 400.0) try {
@@ -1780,11 +1828,11 @@ object ForwardReturnLabeler7731 {
             // V5.0.8018 — a confirmed run (+100% over the decision price inside the hour) can earn a second entry.
             if (gross >= com.lifecyclebot.engine.RunnerPlay8018.RUN_CONFIRM_PCT_8018) try { com.lifecyclebot.engine.RunnerPlay8018.onRun8018(o.mint, gross, nowMs - o.atMs, nowMs) } catch (_: Throwable) {}
             if (gross >= RunnerCapture8017.RUNNER_PEAK_PCT_8017 && gross > o.peakPct) try { RunnerCapture8017.onRunnerPeak8017(o.mint, o.symbol, o.lane, o.entryPrice, gross, if (o.admitted) "" else o.reason7967.take(40), nowMs) } catch (_: Throwable) {}
-            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = nowMs; o.dipBeforePeak7962 = o.minPct7962 }
+            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = mark8386.observedAtMs; o.dipBeforePeak7962 = o.minPct7962 }
             // V5.0.8071 — the level the price held long enough to sell into.
-            synchronized(o.recent8071) { o.heldPeak8071 = heldPeakStep8071(o.recent8071, nowMs, gross, o.heldPeak8071); notePathHeld8366(o, nowMs, gross) }
+            synchronized(o.recent8071) { o.heldPeak8071 = heldPeakStep8071(o.recent8071, mark8386.observedAtMs, gross, o.heldPeak8071); notePathHeld8366(o, mark8386.observedAtMs, gross) }
             val priorPx7944 = o.lastPx to o.lastPxAtMs
-            o.lastPx = px; o.lastPxAtMs = nowMs
+            o.lastPx = px; o.lastPxAtMs = mark8386.observedAtMs
             val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
             // V5.0.7809 — a horizon label is booked only from a mark inside its own
             // window (Field Manual L357): a 15-minute label first priced at minute 70

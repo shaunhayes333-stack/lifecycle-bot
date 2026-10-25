@@ -87,7 +87,11 @@ class Aate8325CortexLockTest {
         assertTrue(durable.contains("additionalBlobs8372: Map<String, String> = emptyMap()"))
         assertTrue(durable.contains("synchronized(persistLock8325) { durableCloseCommitLocked8325(receipt, additionalBlobs8372) }"))
         val commit = fn("private fun durableCloseCommitLocked8325(", "private const val WF_REFRESH_MS_8144")
-        assertTrue(commit.indexOf("blobs.putAll(additionalBlobs8372)") in 0 until commit.indexOf("LearningPersistence.commitOnce8090(receipt, blobs)"))
+        assertTrue(commit.indexOf("blobs.putAll(encode())") in 0 until commit.indexOf("LearningPersistence.commitOnce8090(receipt, blobs)"))
+        // V5.0.8386 — encoding happens after the monitor is released: only copies are taken inside synchronized(this).
+        val enc = fn("private fun snapshotEncoder8386(", "private fun durableCloseCommitLocked8325(")
+        val locked = enc.substringBefore("val encode: () -> MutableMap<String, String> = {")
+        assertFalse(locked.contains(".encode()")); assertFalse(locked.contains("LearningPersistence."))
         assertTrue(commit.contains("LearningPersistence.Commit8090.COMMITTED, LearningPersistence.Commit8090.ALREADY_COMMITTED -> true"))
         assertTrue(commit.contains("LearningPersistence.Commit8090.RETRY -> { inc(\"CORTEX_CLOSE_DURABLE_RETRY_8198\"); false }"))
         // the close receipt is read before the lock; the executable refresh runs after it

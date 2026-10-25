@@ -166,7 +166,7 @@ class Aate8284HeliusCandleMergeTest {
         assertFalse(orch.contains("if (ts.history.size < 6 && DataPipeline8191.seedPriority8191(mint)) try {"))
         assertTrue(orch.contains("if (com.lifecyclebot.engine.truth.HeliusSwapCandles7819.priority8284(mint) > 0) try {"))
         val h = src("engine/truth/HeliusSwapCandles7819.kt")
-        val req = h.substringAfter("fun request7819(").substringBefore("private fun claimBudget(")
+        val req = h.substringAfter("fun request7819(").substringBefore("const val PRIORITY_HELD_8284")
         assertTrue(req.contains("CandleCoverage8284.noteNeed8284(ts, nowMs)"))
         assertFalse(req.contains("history.size"))
     }
@@ -249,8 +249,8 @@ class Aate8284HeliusCandleMergeTest {
         val job = h.substringAfter("private fun runJob(").substringBefore("private fun get(")
         assertTrue(job.contains("Quality8284.TRADE_OHLCV, \"helius_enhanced_tx\", marketAddress"))
         assertTrue(job.contains("featureArrived8284(ts, System.currentTimeMillis())"))
-        val req = h.substringAfter("fun request7819(").substringBefore("private fun claimBudget(")
-        assertTrue(req.contains("localTape8284(ts, nowMs, \"budget\")"))
+        val req = h.substringAfter("fun request7819(").substringBefore("const val PRIORITY_HELD_8284")
+        assertTrue(req.contains("localTape8284(ts, nowMs, reservation)"))
         assertTrue(req.contains("localTape8284(ts, nowMs, \"noMarket\")"))
         // the report line grows through statusLine7055, never PipelineHealthCollector.dumpText
         assertTrue(src("engine/truth/LocalCandleSynthesis7055.kt").contains("HeliusSwapCandles7819.statusLine8284()"))

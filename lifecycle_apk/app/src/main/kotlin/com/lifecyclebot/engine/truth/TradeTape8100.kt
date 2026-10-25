@@ -42,7 +42,7 @@ object TradeTape8100 {
     internal class Trade(
         val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean, val priceOnly: Boolean = false,
         val source: String = "", val pool: String = "", val signature: String = "", val recvMs: Long = atMs,
-        val tokenQty: Double = 0.0, val inferred: Boolean = false,
+        val tokenQty: Double = 0.0, val inferred: Boolean = false, val sourceTimeKnown8386: Boolean = false,
     )
     private val tapes = ConcurrentHashMap<String, ArrayDeque<Trade>>()
     private val notes = AtomicLong(0)
@@ -95,8 +95,10 @@ object TradeTape8100 {
         // per-trade copy of it, and the venue / feed strings are shared instances instead of one parsed copy per print.
         val t = Trade(at, priceSol, if (sol.isFinite() && sol > 0.0) sol else 0.0, isBuy, source = MemoryBounds8289.intern8289(src),
             pool = MemoryBounds8289.intern8289(poolKey8285(src, pool)), signature = "", recvMs = recvMs,
-            tokenQty = if (tokenQty.isFinite() && tokenQty > 0.0) tokenQty else 0.0)
+            tokenQty = if (tokenQty.isFinite() && tokenQty > 0.0) tokenQty else 0.0, sourceTimeKnown8386 = eventKnown)
         add8169(mint, t, at, src)
+        if (eventKnown && sol.isFinite() && sol > 0 && tokenQty.isFinite() && tokenQty > 0)
+            com.lifecyclebot.network.HeliusCurveTape8354.onValidEvent8386(mint, eventMs, recvMs)
         return true
     }
 
@@ -320,6 +322,11 @@ object TradeTape8100 {
     fun activeMints8293(nowMs: Long, windowMs: Long): List<String> =
         tapes.entries.filter { (_, q) -> synchronized(q) { q.lastOrNull { !it.priceOnly }?.let { nowMs - it.atMs in 0L..windowMs } == true } }
             .map { it.key }
+
+    fun latestValidEvent8386(mint: String): Long {
+        val q = tapes[mint] ?: return 0L
+        return synchronized(q) { q.lastOrNull { !it.priceOnly && it.sourceTimeKnown8386 && it.sol > 0 && it.tokenQty > 0 }?.atMs ?: 0L }
+    }
 
     fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()} youngShape15s8220=${youngShapes8220.get()}"
 

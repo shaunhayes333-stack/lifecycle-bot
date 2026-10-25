@@ -151,6 +151,57 @@ object LlmParameterTuner {
         // tested, live reader and evidence-calibrated semantics.
     )
 
+    data class Contract8386(val unit: String, val scope: String, val consumer: String,
+                            val increasingEffect: String, val decreasingEffect: String,
+                            val precedence: String = "global default; mode/lane overrides and hard safety win")
+
+    private fun contract8386(key: String): Contract8386? = when (key) {
+        "exitScoreThreshold" -> Contract8386("score_points", "exit", "LifecycleStrategy: exitScore >= effectiveExitThresh",
+            "harder_exit", "easier_exit", "modeConf.exitScoreThreshold overrides global; brain delta follows; clamp 35..75")
+        "stopLossPct", "trailingStopBasePct" -> Contract8386("percentage_points", "exit", "LifecycleStrategy loss/trailing thresholds", "wider_loss_tolerance", "tighter_loss_tolerance")
+        "partialSellTriggerPct" -> Contract8386("percentage_points", "exit", "partial profit threshold", "later_partial", "earlier_partial")
+        "minHoldMins", "maxHoldMinsHard" -> Contract8386("minutes", "exit", "hold-time controls", "longer_hold", "shorter_hold")
+        "entryCooldownSec" -> Contract8386("seconds", "entry", "entry cooldown", "longer_cooldown", "shorter_cooldown")
+        "pollSeconds", "scanIntervalSecs" -> Contract8386("seconds", "data", "poll/scanner cadence", "slower_polling", "faster_polling")
+        "sentimentEntryBoost" -> Contract8386("score_points", "entry", "sentiment entry shaping", "stronger_entry_boost", "weaker_entry_boost")
+        "sentimentExitBoost" -> Contract8386("score_points", "exit", "sentiment exit shaping", "stronger_exit_boost", "weaker_exit_boost")
+        "sentimentBlockThreshold" -> Contract8386("score_points", "entry", "sentiment negative threshold", "stricter_sentiment", "looser_sentiment")
+        "behaviorAggressionLevel" -> Contract8386("level", "entry", "behavior aggression", "more_aggressive", "less_aggressive")
+        "defensiveLossThreshold" -> Contract8386("count", "entry", "loss-streak defense", "later_defense", "earlier_defense")
+        "aggressiveWhaleThreshold" -> Contract8386("percentage_points", "entry", "whale pressure threshold", "higher_whale_requirement", "lower_whale_requirement")
+        "convictionMult1", "convictionMult2", "topUpSizeMultiplier" -> Contract8386("multiplier", "entry", "bounded sizing advisory", "larger_advisory", "smaller_advisory")
+        "topUpMaxCount" -> Contract8386("count", "entry", "top-up count limit", "more_topups", "fewer_topups")
+        else -> null
+    }
+
+    fun proposalError8386(key: String, delta: Double, unit: String, scope: String, semantics: String, effect: String): String? {
+        val c = contract8386(key) ?: return "unknown_parameter_contract"
+        if (!delta.isFinite() || delta == 0.0) return "invalid_delta"
+        if (unit != c.unit) return "wrong_units_expected_${c.unit}"
+        if (scope != c.scope) return "wrong_scope_expected_${c.scope}"
+        if (semantics != "additive") return "relative_change_not_supported"
+        if (effect != if (delta > 0) c.increasingEffect else c.decreasingEffect) return "inconsistent_direction"
+        return null
+    }
+
+    fun explain8386(key: String, before: Double, after: Double): String {
+        val c = contract8386(key) ?: return "unknown contract"
+        val delta = after - before
+        val effect = if (delta > 0) c.increasingEffect else c.decreasingEffect
+        return "global default $before to $after; additive delta=$delta ${c.unit}; scope=${c.scope}; " +
+            "effect=$effect; consumer=${c.consumer}; precedence=${c.precedence}; effective mode change not asserted"
+    }
+
+    fun addContract8386(row: org.json.JSONObject, key: String, delta: Double): org.json.JSONObject {
+        val c = contract8386(key) ?: return row
+        return row.put("unit", c.unit).put("scope", c.scope).put("semantics", "additive")
+            .put("effect", if (delta > 0) c.increasingEffect else c.decreasingEffect)
+    }
+
+    fun contractSummary8386(): String = ALLOWED_SPECS.keys.mapNotNull { key -> contract8386(key)?.let {
+        "$key: unit=${it.unit}, scope=${it.scope}, semantics=additive, plus=${it.increasingEffect}, minus=${it.decreasingEffect}; ${it.precedence}"
+    } }.joinToString("\n")
+
     fun isAllowedKey(key: String): Boolean = ALLOWED_SPECS.containsKey(key)
 
     fun allowedKeys(): List<String> = ALLOWED_SPECS.keys.toList()
@@ -278,6 +329,8 @@ object LlmParameterTuner {
                 continue
             }
 
+            val contractError8386 = proposalError8386(key, delta, entry.optString("unit"), entry.optString("scope"), entry.optString("semantics"), entry.optString("effect"))
+            if (contractError8386 != null) { rejected.add("$key: $contractError8386"); continue }
             val clampedStep = delta.coerceIn(-spec.maxStep * stepCapMultiplier, spec.maxStep * stepCapMultiplier)
             val oldValue = spec.get(working)
             val newValue = (oldValue + clampedStep).coerceIn(spec.min, spec.max)
@@ -288,7 +341,9 @@ object LlmParameterTuner {
             }
 
             working = spec.set(working, newValue)
-            applied.add(Change(key = key, oldValue = oldValue, newValue = newValue, reason = reason))
+            val actual8386 = spec.get(working)
+            if (actual8386 == oldValue) { rejected.add("$key: no effective change after type conversion"); continue }
+            applied.add(Change(key = key, oldValue = oldValue, newValue = actual8386, reason = explain8386(key, oldValue, actual8386)))
         }
         for (i in limit until arr.length()) {
             val extraKey = arr.optJSONObject(i)?.optString("key")?.trim().orEmpty()

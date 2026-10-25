@@ -46,6 +46,9 @@ object HeliusCreditMeterInterceptor7881 : Interceptor {
                 .body("{\"error\":{\"code\":429,\"message\":\"AATE_HELIUS_EXHAUSTED_8094\"}}".toResponseBody("application/json".toMediaType()))
                 .build()
         }
+        // A local denial above consumes nothing. A sent request is retained even if its response is uncertain.
+        req.tag(HeliusCreditEconomy7881.Reservation8386::class.java)?.sent8386(
+            HeliusCreditEconomy7881.creditsFor(host, req.url.encodedPath, methods))
         val resp = chain.proceed(req)
         try { HeliusCreditEconomy7881.meter(host, req.url.encodedPath, methods) } catch (_: Throwable) {}
         // V5.0.8169 — this process's Helius calls by caller, and repeated reads of one mint / account within 10 s.

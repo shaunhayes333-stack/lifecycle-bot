@@ -402,7 +402,7 @@ object Cortex7885 {
 
     private fun assessWaitLine8324(): String {
         val n = assessWaitN8324.get()
-        return "assessLockWait8324[mean=${if (n > 0) "%.1f".format(assessWaitNanos8324.get() / n / 1e6) else "-"}ms max=${"%.0f".format(assessWaitMaxNanos8324.get() / 1e6)}ms n=$n]"
+        return "snapshot8386[g=$snapshotGeneration8386 wait=${snapshotWaitMs8386}ms hold=${snapshotHoldMs8386}ms encode=${snapshotEncodeMs8386}ms db=${snapshotDbMs8386}ms] assessLockWait8324[mean=${if (n > 0) "%.1f".format(assessWaitNanos8324.get() / n / 1e6) else "-"}ms max=${"%.0f".format(assessWaitMaxNanos8324.get() / 1e6)}ms n=$n]"
     }
 
     // ── V5.0.8291 §CORE_VOTERS — the voters seated in a lane are never abstained by the read budget ──
@@ -800,16 +800,39 @@ object Cortex7885 {
     }
 
     /** Caller holds the Cortex lock: the traces and books must describe the same checkpoint. */
-    private fun pendingSnapshot8076(): org.json.JSONObject {
-            // Voter ids are written once in a dictionary; each decision stores indices (keeps the blob well under 1 MB).
+    private fun detachAssessment8386(a: Assessment): Assessment = Assessment(a.lane, a.runnerLane, a.raws.copyOf(), a.ids.toList(),
+        a.edges.map { it.copyOf() }, a.regime, a.fused.copy(top = a.fused.top.toList()), a.calibratedEdge, a.bucket,
+        a.unknownFeatures, a.staleMark, a.atMs,
+        a.prediction8076?.let { CortexLedger7885.PredictionSnapshot8076(it.preds.copyOf(), it.pWins.copyOf(), it.base, it.baseWin) },
+        a.tailEv8324, a.scoreVersion8372, a.calibrationInput8372)
+
+    private fun detachPending8386(p: Pending): Pending = Pending(detachAssessment8386(p.a), p.legacyAdmitted, p.atMs,
+        p.vetoRule, p.source, p.setup7961, p.fired8094.toList()).also {
+        it.selected8153 = p.selected8153; it.lateRead8169 = p.lateRead8169; it.decisionMode8196 = p.decisionMode8196
+        it.decisionReason8196 = p.decisionReason8196; it.context8372 = p.context8372 // immutable strings and booleans
+    }
+
+    private fun detachGraded8386(g: Graded8006): Graded8006 = Graded8006(detachPending8386(g.p),
+        CortexLedger7885.GradeTrace8006(g.trace.preds.copyOf(), g.trace.pWins.copyOf(), g.trace.base, g.trace.baseWin,
+            g.trace.scales?.copyOf(), g.trace.scoreAt?.copyOf()), g.net, g.gross, g.atMs,
+        g.bookScales?.copyOf(), g.auxScales?.copyOf(), g.calStamp8322).also {
+        it.witnessed8324 = g.witnessed8324; it.jointTrace8372 = g.jointTrace8372.toList()
+    }
+
+    /** Caller holds the monitor only while detaching state, not while encoding. */
+    private fun pendingSnapshot8076(): () -> String {
+        val now8144 = System.currentTimeMillis()
+        val rows8372 = pending.entries.filter { persistablePending8144(it.value.atMs, now8144) }
+            .sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX).map { Triple(it.key, detachPending8386(it.value), false) } +
+            shadowPending8372.entries.map { Triple(it.key, detachPending8386(it.value), true) }
+        val gradedRows = graded8006.entries.sortedByDescending { it.value.atMs }.take(GRADED_PERSIST_MAX_8013)
+            .map { it.key to detachGraded8386(it.value) }
+        val bounds = positionReads8076.snapshot().map { it.copy(read = detachAssessment8386(it.read)) }
+        val outcomes = outcomeBook8372.detached8386()
+        val archive = traceArchive8372.detached8386(now8144)
+        return {
             val dict = LinkedHashMap<String, Int>()
-            val arr = org.json.JSONArray()
-            // V5.0.8144 — only decisions a label can still reach: each row is ~400 JSON numbers, and the dead ones made
-            // every 2-minute checkpoint build a multi-MB JSON tree for rows no restart can grade.
-            val now8144 = System.currentTimeMillis()
-            val rows8372 = pending.entries.filter { persistablePending8144(it.value.atMs, now8144) }
-                .sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX).map { Triple(it.key, it.value, false) } +
-                shadowPending8372.entries.map { Triple(it.key, it.value, true) }
+            val arr = StringBuilder("[")
             rows8372.forEach { (k, p, shadow8372) ->
                 val a = p.a
                 val ids = org.json.JSONArray()
@@ -830,7 +853,8 @@ object Cortex7885 {
                         .put("cohort", c.cohort).put("latency", c.latencyMeasured)
                         .put("executable", c.executable)
                 } ?: org.json.JSONObject.NULL
-                arr.put(
+                if (arr.length > 1) arr.append(',')
+                arr.append(
                     org.json.JSONObject().put("k", k).put("l", a.lane).put("r", a.runnerLane).put("g", a.regime)
                         .put("b", a.bucket.ordinal).put("e", jsonNumber(a.fused.edgePct)).put("m", jsonNumber(a.fused.laneMean))
                         .put("ce", jsonNumber(a.calibratedEdge)).put("adm", p.legacyAdmitted).put("at", p.atMs)
@@ -849,16 +873,24 @@ object Cortex7885 {
             }
             // V5.0.8013 — graded decisions held for progressive revision ride along (newest decisions first),
             // so a 5 h / 24 h / later re-grade still reaches the voters after an app restart.
-            val garr = org.json.JSONArray()
+            val garr = StringBuilder("[")
             graded8006.entries.sortedByDescending { it.value.atMs }.take(GRADED_PERSIST_MAX_8013).forEach { (k, g) ->
-                garr.put(encodeGraded8372(k, g, dict))
+                garr.append(encodeGraded8372(k, g, dict))
             }
-            val bound = org.json.JSONArray()
-            positionReads8076.snapshot().forEach { b ->
-                bound.put(encodeEntryRead8076(b.read).put("pid", b.positionId).put("mint", b.mint).put("mode", b.mode))
+            val bound = StringBuilder("[")
+            bounds.forEach { b ->
+                if (bound.length > 1) bound.append(',')
+                bound.append(encodeEntryRead8076(b.read).put("pid", b.positionId).put("mint", b.mint).put("mode", b.mode))
             }
-            return org.json.JSONObject().put("dict", org.json.JSONArray(dict.keys.toList())).put("p", arr).put("g8013", garr).put("bound8076", bound)
-                .put("outcomes8372", outcomeBook8372.encode()).put("cold8372", traceArchive8372.snapshot(now8144))
+            buildString {
+                append("{\"dict\":").append(org.json.JSONArray(dict.keys.toList()))
+                append(",\"p\":").append(arr.append(']'))
+                append(",\"g8013\":").append(garr.append(']'))
+                append(",\"bound8076\":").append(bound.append(']'))
+                append(",\"outcomes8372\":").append(outcomes.encode())
+                append(",\"cold8372\":").append(archive.snapshot(now8144)).append('}')
+            }
+        }
     }
 
     /** Exact sparse prediction/weight provenance, shared by hot checkpoints and the bounded compressed archive. */
@@ -1319,7 +1351,9 @@ object Cortex7885 {
             val started = System.nanoTime()
             val durable = durableCloseCommit8198("CORTEX_SHADOW_BATCH_8372|${java.util.UUID.randomUUID()}", receipts)
             if (!durable) return false
-            counters.computeIfAbsent("SHADOW_CHECKPOINT_MS_8372") { AtomicLong(0) }.set((System.nanoTime() - started) / 1_000_000L)
+            val duration8386 = (System.nanoTime() - started) / 1_000_000L
+            counters.computeIfAbsent("SHADOW_CHECKPOINT_MS_8372") { AtomicLong(0) }.set(duration8386)
+            counters.computeIfAbsent("SHADOW_CHECKPOINT_MAX_MS_8386") { AtomicLong(0) }.updateAndGet { maxOf(it, duration8386) }
             if (durableTraining8372.size + trained.size >= 16_000) durableTraining8372.clear()
             durableTraining8372.putAll(trained)
             synchronized(this) {
@@ -1411,26 +1445,63 @@ object Cortex7885 {
         synchronized(persistLock8325) { durableCloseCommitLocked8325(receipt, additionalBlobs8372) }
 
     /** V5.0.8325 — [durableCloseCommit8198]'s body; the caller holds [persistLock8325] (never the Cortex lock). */
+    @Volatile private var snapshotGeneration8386 = 0L
+    @Volatile private var snapshotWaitMs8386 = 0L
+    @Volatile private var snapshotHoldMs8386 = 0L
+    @Volatile private var snapshotEncodeMs8386 = 0L
+    @Volatile private var snapshotDbMs8386 = 0L
+
+    private fun snapshotEncoder8386(periodic: Boolean): (() -> MutableMap<String, String>)? {
+        val started = System.nanoTime()
+        return synchronized(this) {
+            val acquired = System.nanoTime()
+            snapshotWaitMs8386 = (acquired - started) / 1_000_000
+            if (periodic && uncommittedCloseGrades8198.isNotEmpty()) return@synchronized null
+            val generation = ++snapshotGeneration8386
+            val l = ledger.detached8386(); val b = board.detached8386(); val c = calibration.detached8386()
+            val real = realLedgers.mapValues { it.value.detached8386() }
+            val veto = vetoBook.mapValues { it.value.detached8386() }; val joint = jointBook7961.mapValues { it.value.detached8386() }
+            val generations = jointGenerations8372.toMap(); val next = jointNextGeneration8372
+            val pend = pendingSnapshot8076(); val grades = gradeBook8144.detached8386()
+            val receipts = HashMap<String, String>()
+            uncommittedCloseGrades8198.forEach { receipts[closeReceipt8198(it)] = "{\"committed\":true}" }
+            shadowReady8372.forEach { (id, terminal) ->
+                receipts["CORTEX_SHADOW_RECEIPT_8372|$id"] = "{\"committed\":true}"
+                val kind = if (terminal.learned) "SHADOW_EXIT" else "FORWARD"
+                val ids = if (terminal.learned) listOf(terminal.shadowId, terminal.labelId, terminal.trainedId) else listOf(terminal.trainedId)
+                ids.filter { it.isNotBlank() }.forEach { receipts[TRAINING_RECEIPT_8372 + it] = "{\"kind\":\"$kind\"}" }
+            }
+            snapshotHoldMs8386 = (System.nanoTime() - acquired) / 1_000_000
+            val encode: () -> MutableMap<String, String> = {
+                val encodeAt = System.nanoTime()
+                val out = HashMap<String, String>()
+                out[PERSIST_KEY] = org.json.JSONObject().put("ledger", l.encode()).put("board", b.encode()).put("calibration", c.encode())
+                    .put("real", org.json.JSONObject().also { j -> real.forEach { (k, v) -> j.put(k, v.encode()) } })
+                    .put("vetoes", org.json.JSONObject().also { j -> veto.forEach { (k, v) -> j.put(k, v.encode()) } })
+                    .put("joint7961", org.json.JSONObject().also { j -> joint.forEach { (k, v) -> j.put(k, v.encode()) } })
+                    .put("jointGeneration8372", org.json.JSONObject(generations as Map<*, *>)).put("jointNext8372", next)
+                    .put("snapshotGeneration8386", generation).toString()
+                out[PENDING_PERSIST_KEY] = pend()
+                out[GRADES_KEY_8144] = grades.encode()
+                out.putAll(receipts)
+                snapshotEncodeMs8386 = (System.nanoTime() - encodeAt) / 1_000_000
+                out
+            }
+            encode
+        }
+    }
+
     private fun durableCloseCommitLocked8325(receipt: String, additionalBlobs8372: Map<String, String> = emptyMap()): Boolean {
         // V5.0.8324 — never commit a snapshot of books that were not read from the store: a boot-replayed close racing the
         // store opening wrote the EMPTY ledger over the stored one (loaded is false until ensureLoaded has read it).
         if (!loaded) { inc("CORTEX_CLOSE_COMMIT_UNLOADED_REFUSED_8324"); return false }
-        val blobs = synchronized(this) {
-        val out = HashMap<String, String>(4)
-        out[PERSIST_KEY] = org.json.JSONObject()
-            .put("ledger", ledger.encode()).put("board", board.encode()).put("calibration", calibration.encode())
-            .put("real", org.json.JSONObject().also { j -> realLedgers.forEach { (k, l) -> j.put(k, l.encode()) } })
-            .put("vetoes", org.json.JSONObject().also { j -> vetoBook.forEach { (k, v) -> j.put(k, v.encode()) } })
-            .put("joint7961", org.json.JSONObject().also { j -> jointBook7961.forEach { (k, v) -> j.put(k, v.encode()) } })
-            .put("jointGeneration8372", org.json.JSONObject(jointGenerations8372 as Map<*, *>))
-            .put("jointNext8372", jointNextGeneration8372)
-            .toString()
-        out[PENDING_PERSIST_KEY] = pendingSnapshot8076().toString()
-        out[GRADES_KEY_8144] = gradeBook8144.encode()
-        out
-        }
-        blobs.putAll(additionalBlobs8372)
-        return when (LearningPersistence.commitOnce8090(receipt, blobs)) {
+        val encode = snapshotEncoder8386(periodic = false) ?: return false
+        val blobs = HashMap(additionalBlobs8372)
+        blobs.putAll(encode()) // the captured generation's receipts win over an older caller batch
+        val dbAt = System.nanoTime()
+        val committed = LearningPersistence.commitOnce8090(receipt, blobs)
+        snapshotDbMs8386 = (System.nanoTime() - dbAt) / 1_000_000
+        return when (committed) {
             LearningPersistence.Commit8090.COMMITTED, LearningPersistence.Commit8090.ALREADY_COMMITTED -> true
             LearningPersistence.Commit8090.RETRY -> { inc("CORTEX_CLOSE_DURABLE_RETRY_8198"); false }
         }
@@ -3572,6 +3643,7 @@ object Cortex7885 {
                     restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis())
                     return
                 })
+                snapshotGeneration8386 = maxOf(snapshotGeneration8386, o.optLong("snapshotGeneration8386", 0L))
                 o.optJSONObject("ledger")?.let { ledger.decode(it) }
                 o.optJSONObject("board")?.let { board.decode(it) }
                 o.optJSONObject("calibration")?.let { calibration.decode(it) }
@@ -3821,21 +3893,12 @@ object Cortex7885 {
             // V5.0.8325 — one consistent snapshot under the Cortex lock (re-checked: no close grade awaiting its receipt), written
             // after it is released; [durableCloseCommit8198] takes [persistLock8325] too, so an older snapshot is never written
             // after a newer close commit.
-            val snap8325 = synchronized(this) {
-                if (uncommittedCloseGrades8198.isNotEmpty()) null else Triple(
-                    org.json.JSONObject().put("ledger", ledger.encode()).put("board", board.encode()).put("calibration", calibration.encode())
-                        .put("real", org.json.JSONObject().also { j -> realLedgers.forEach { (k, l) -> j.put(k, l.encode()) } })
-                        .put("vetoes", org.json.JSONObject().also { j -> vetoBook.forEach { (k, v) -> j.put(k, v.encode()) } })
-                        .put("joint7961", org.json.JSONObject().also { j -> jointBook7961.forEach { (k, v) -> j.put(k, v.encode()) } })
-                        .put("jointGeneration8372", org.json.JSONObject(jointGenerations8372 as Map<*, *>))
-                        .put("jointNext8372", jointNextGeneration8372).toString(),
-                    pendingSnapshot8076().toString(),
-                    gradeBook8144.encode())
-            } ?: return
-            // Keep individual SQLite rows bounded; one transaction binds the two snapshots.
-            LearningPersistence.saveTogether8076(mapOf(PERSIST_KEY to snap8325.first, PENDING_PERSIST_KEY to snap8325.second))
-            // V5.0.8144 — the grade records in their own bounded row (never written before the store was read: loaded gate).
-            LearningPersistence.save(GRADES_KEY_8144, snap8325.third)
+            val encode = snapshotEncoder8386(periodic = true) ?: return
+            val blobs = encode()
+            val dbAt = System.nanoTime()
+            if (!LearningPersistence.saveTogetherVerified8386(blobs)) inc("CHECKPOINT_RETRY_8386")
+            snapshotDbMs8386 = (System.nanoTime() - dbAt) / 1_000_000
+
         } catch (_: Throwable) {}
     } }
 

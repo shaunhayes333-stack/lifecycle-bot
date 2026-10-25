@@ -34,7 +34,7 @@ class Aate8027MemoryAndNamesTest {
         assertTrue(FlatChart8027.FLAT_MIN_BARS == 5 && FlatChart8027.FLAT_RANGE_PCT == 2.0 && FlatChart8027.DEAD_RATIO == 5.0)
         assertTrue(FlatChart8027.FLAT_WINDOW_MS == 6L * 60_000L)
         // V5.0.8259 — the flat-chart stop names itself on the ticket before returning.
-        assertTrue(src("engine/Executor.kt").contains("        if (flatChartRefused8027(ts, sol, attemptId8198 = attemptId)) { lastLiveBuyStop8252[ts.mint] = \"FLAT_CHART_8027\"; return false }"))
+        assertTrue(src("engine/Executor.kt").contains("if (flatChartRefused8027(ts, sol, attemptId8198 = attemptId)) return false"))
         assertTrue(FlatChart8027.statusLine().contains("deadRunnerRefused="))
     }
 }

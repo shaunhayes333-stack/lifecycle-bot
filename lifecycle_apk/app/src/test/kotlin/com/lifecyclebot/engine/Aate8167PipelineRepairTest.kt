@@ -55,7 +55,7 @@ class Aate8167PipelineRepairTest {
         val tick = source.substring(source.indexOf("fun tick(priceFor0:"))
         val mutation = tick.indexOf("o.rebased8076 = true")
         assertTrue(mutation > 0)
-        for (guard in listOf("if (curveContradicts8165(o.mint, px, nowMs))", "if (!PositionDisplayTruth8078.highStepOk8133")) {
+        for (guard in listOf("if (curveContradicts8165(o.mint, px, nowMs, mark8386.observedAtMs))", "if (!PositionDisplayTruth8078.highStepOk8133")) {
             assertTrue("$guard must precede all rebase mutations", tick.indexOf(guard) in 0 until mutation)
         }
     }

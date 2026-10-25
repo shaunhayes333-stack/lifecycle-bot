@@ -153,13 +153,34 @@ object ExploreShadow8347 {
     )
 
     /** An ordinary open / tier / peak write: asynchronous. Durable learning receipts commit in the tick slice's one batch (8377). */
+    private val openWrites8386 = ShadowWrites8386()
+    @Volatile private var openFlushedAt8386 = 0L
+    private val openFlushes8386 = AtomicLong(0)
+    private val openRetry8386 = AtomicLong(0)
+
     private fun persistTicket8355(key: String, t: Ticket8347, nowMs: Long): Boolean {
-        val p = openPrefs8355 ?: run { t.force8355 = true; return false }
-        val written = try {
-            p.edit().putString(TICKET_KEY_PREFIX_8355 + key, ShadowPersist8355.encodeTicket8355(ticketRec8355(t))).apply(); true
-        } catch (_: Throwable) { false }
-        if (written) { t.dirty8355 = false; t.force8355 = false; t.lastWriteMs8355 = nowMs } else t.force8355 = true
-        return written
+        if (openPrefs8355 == null) { t.force8355 = true; return false }
+        val queued = try { synchronized(ticketReservation8372) {
+            tickets[key] === t && openWrites8386.stage(TICKET_KEY_PREFIX_8355 + key, t.atMs,
+                ShadowPersist8355.encodeTicket8355(ticketRec8355(t)))
+        } } catch (_: Exception) { false }
+        if (queued) { t.dirty8355 = false; t.force8355 = false; t.lastWriteMs8355 = nowMs } else t.force8355 = true
+        return queued
+    }
+
+    private fun flushOpen8386(nowMs: Long, durable: Boolean = false): Boolean {
+        val p = openPrefs8355 ?: return false
+        if (!durable && nowMs - openFlushedAt8386 < 10_000L) return true
+        val ok = openWrites8386.flush { batch ->
+            try {
+                val e = p.edit()
+                batch.forEach { (k, w) -> if (w.value == null) e.remove(k) else e.putString(k, w.value) }
+                // One bounded writer. Even ordinary flushes commit, so a queued old apply cannot race a durable receipt.
+                e.commit()
+            } catch (_: Exception) { false }
+        }
+        if (ok) { openFlushedAt8386 = nowMs; openFlushes8386.incrementAndGet() } else openRetry8386.incrementAndGet()
+        return ok
     }
 
     // V5.0.8377 — 8376 died OOM at the 512 MiB heap after 3 h 47 m. Every SharedPreferences write re-serialises the WHOLE
@@ -177,9 +198,8 @@ object ExploreShadow8347 {
     private val bookKeysWritten8377 = AtomicLong(0)
 
     /** Encodes [t] into [edit] without writing; false when the record cannot be encoded. */
-    private fun stageTicket8377(edit: android.content.SharedPreferences.Editor, key: String, t: Ticket8347): Boolean = try {
-        edit.putString(TICKET_KEY_PREFIX_8355 + key, ShadowPersist8355.encodeTicket8355(ticketRec8355(t))); true
-    } catch (_: Throwable) { false }
+    private fun stageTicket8377(@Suppress("UNUSED_PARAMETER") edit: android.content.SharedPreferences.Editor, key: String, t: Ticket8347): Boolean =
+        persistTicket8355(key, t, System.currentTimeMillis())
 
     /** Writes every dirty cohort book in one editor, at most once per [BOOK_FLUSH_MS_8377] unless [force]. */
     internal fun flushBooks8377(nowMs: Long, force: Boolean = false) {
@@ -199,11 +219,12 @@ object ExploreShadow8347 {
     }
 
     fun persistStatus8377(): String =
-        "persist8377[sliceWrites=${sliceWrites8377.get()} ticketsStaged=${sliceTickets8377.get()} bookFlushes=${bookFlushes8377.get()} " +
+        "openWrites8386[queued=${openWrites8386.size()} flushes=${openFlushes8386.get()} retry=${openRetry8386.get()}] persist8377[sliceWrites=${sliceWrites8377.get()} ticketsStaged=${sliceTickets8377.get()} bookFlushes=${bookFlushes8377.get()} " +
             "bookKeys=${bookKeysWritten8377.get()} dirtyBooks=${dirtyBooks8377.size}]"
 
-    private fun forgetTicket8355(key: String) {
-        try { openPrefs8355?.edit()?.remove(TICKET_KEY_PREFIX_8355 + key)?.apply() } catch (_: Throwable) {}
+    private fun forgetTicket8355(key: String): Boolean {
+        val epoch = tickets[key]?.atMs ?: lastOpenAt[key] ?: return false
+        return openWrites8386.stage(TICKET_KEY_PREFIX_8355 + key, epoch, null)
     }
 
     /** The waits map, whole (it is small), at most once per 10 s and only after a change. */
@@ -211,7 +232,7 @@ object ExploreShadow8347 {
         if (!ShadowPersist8355.writeDue8355(waitsDirty8355, waitsWrittenAtMs8355, nowMs)) return
         waitsDirty8355 = false; waitsWrittenAtMs8355 = nowMs
         val ws = waits.entries.map { (k, w) -> ShadowPersist8355.WaitRec8355(k, w[0], java.lang.Double.longBitsToDouble(w[1])) }
-        try { openPrefs8355?.edit()?.putString(WAITS_KEY_8355, ShadowPersist8355.encodeWaits8355(ws))?.apply() } catch (_: Throwable) {}
+        try { if (!openWrites8386.stage(WAITS_KEY_8355, nowMs, ShadowPersist8355.encodeWaits8355(ws))) waitsDirty8355 = true } catch (_: Exception) { waitsDirty8355 = true }
     }
 
     private fun ticketFromRec8355(r: ShadowPersist8355.TicketRec8355): Ticket8347? {
@@ -510,7 +531,7 @@ object ExploreShadow8347 {
         tickets.computeIfPresent(k) { _, current ->
             if (!current.ready8372 || current.ticking8372 || current.cortex8372.awaiting8372() || current.legs.any { it.active && !it.dead }) current
             else {
-                forgetTicket8355(k)
+                if (!forgetTicket8355(k)) return@computeIfPresent current
                 scalpInMap8366.remove(k)
                 removed = current
                 null
@@ -708,6 +729,7 @@ object ExploreShadow8347 {
             try { com.lifecyclebot.engine.cortex.Cortex7885.flushShadowOutcomes8372() } catch (_: Throwable) {
                 skip8360("SHADOW_CHECKPOINT_RETRY_8372")
             }
+            try { flushOpen8386(nowMs) } catch (_: Exception) { openRetry8386.incrementAndGet() }
             tickActive8372.set(false)
         }
     }
@@ -781,7 +803,7 @@ object ExploreShadow8347 {
         }
         if (batch8377 != null && (staged8377.isNotEmpty() || receipts8377.isNotEmpty())) {
             // The one terminal receipt must survive a process death before Cortex ACKs it: commit when any is staged.
-            val written = try { if (receipts8377.isNotEmpty()) batch8377.commit() else { batch8377.apply(); true } } catch (_: Throwable) { false }
+            val written = flushOpen8386(nowMs, durable = receipts8377.isNotEmpty())
             sliceWrites8377.incrementAndGet(); sliceTickets8377.addAndGet((staged8377.size + receipts8377.size).toLong())
             for ((_, t) in staged8377) {
                 if (written) { t.dirty8355 = false; t.force8355 = false; t.lastWriteMs8355 = nowMs } else t.force8355 = true
@@ -804,7 +826,7 @@ object ExploreShadow8347 {
                 // preferences removed before a new reservation may take this key.
                 if (current !== completed || !current.legs.all { it.dead } || current.cortex8372.awaiting8372()) current
                 else {
-                    forgetTicket8355(key)
+                    if (!forgetTicket8355(key)) return@computeIfPresent current
                     scalpInMap8366.remove(key)
                     null
                 }

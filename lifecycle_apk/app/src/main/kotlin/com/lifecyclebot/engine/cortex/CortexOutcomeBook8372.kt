@@ -131,6 +131,11 @@ class CortexOutcomeBook8372(private val capacity: Int = 8_000) {
         return old.size
     }
 
+    internal fun detached8386(): CortexOutcomeBook8372 = CortexOutcomeBook8372(capacity).also { out ->
+        episodes.forEach { (k, v) -> out.episodes[k] = v.copy() }
+        out.labels.putAll(labels); out.full = full
+    }
+
     fun encode(): JSONObject = JSONObject().put("rows", JSONArray().also { rows ->
         episodes.values.forEach { e -> rows.put(JSONArray().put(e.shadowId).put(e.atMs).put(e.labelId)
             .put(e.trainedId).put(e.shadowTerminal).put(e.shadowLearned)) }

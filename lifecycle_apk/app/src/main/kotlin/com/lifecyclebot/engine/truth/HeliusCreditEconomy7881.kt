@@ -388,6 +388,34 @@ object HeliusCreditEconomy7881 {
         } catch (_: Throwable) { false }
     }
 
+    /** Reservations affect admission estimates only. The HTTP meter remains the sole actual-spend writer. */
+    class Reservation8386 internal constructor(val consumer: Consumer, val estimate: Double, internal val dayAt: String) {
+        private var sent = 0.0
+        private var closed = false
+        @Synchronized fun sent8386(credits: Double) { if (!closed && credits.isFinite() && credits > 0) sent += credits }
+        @Synchronized internal fun unused8386(): Double? {
+            if (closed) return null
+            closed = true
+            return (estimate - sent).coerceIn(0.0, estimate)
+        }
+    }
+
+    fun reserve8386(consumer: Consumer, estimate: Double, priority: Boolean, nowMs: Long): Reservation8386? = synchronized(this) {
+        if (!(estimate > 0) || !estimate.isFinite()) return@synchronized null
+        val ok = if (priority) admitPriority8307(consumer, estimate, nowMs) else admit(consumer, estimate, nowMs)
+        if (ok) Reservation8386(consumer, estimate, day.toString()) else null
+    }
+
+    fun finish8386(reservation: Reservation8386) {
+        val unused = reservation.unused8386() ?: return
+        synchronized(this) {
+            if (reservation.dayAt != day.toString()) return
+            val row = byConsumer[reservation.consumer.name] ?: return
+            row[1] = (row[1] - unused).coerceAtLeast(0.0)
+            enrichmentAdmitted = (enrichmentAdmitted - unused).coerceAtLeast(0.0)
+        }
+    }
+
     private fun admitWithinBudget8094(consumer: Consumer, estCredits: Double, nowMs: Long): Boolean = try {
         rollIfNewDay(nowMs)
         val value = valueOf(consumer)

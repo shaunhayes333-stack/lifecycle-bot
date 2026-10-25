@@ -74,10 +74,14 @@ class Aate8198CortexCloseDeliveryTest {
             .substringBefore("\n    private const val WF_REFRESH_MS_8144")
         assertTrue(commitFn.contains("LearningPersistence.commitOnce8090(receipt, blobs)"))
         // the receipt binds the exact graded state: the same three snapshots the periodic write takes
-        assertTrue(commitFn.contains("PERSIST_KEY]"))
-        assertTrue(commitFn.contains("PENDING_PERSIST_KEY]"))
-        assertTrue(commitFn.contains("GRADES_KEY_8144]"))
-        assertTrue(commitFn.indexOf("blobs.putAll(additionalBlobs8372)") in
+        // V5.0.8386 — the three snapshots are captured by one detached encoder (lock held only while copying).
+        val enc = c.substringAfter("private fun snapshotEncoder8386(").substringBefore("private fun durableCloseCommitLocked8325(")
+        assertTrue(enc.contains("out[PERSIST_KEY]") && enc.contains("out[PENDING_PERSIST_KEY]") && enc.contains("out[GRADES_KEY_8144]"))
+        assertTrue(enc.contains("uncommittedCloseGrades8198.forEach { receipts[closeReceipt8198(it)]"))
+        assertTrue(commitFn.contains("snapshotEncoder8386(periodic = false)"))
+        assertTrue(commitFn.indexOf("val blobs = HashMap(additionalBlobs8372)") in
+            0 until commitFn.indexOf("blobs.putAll(encode())"))
+        assertTrue(commitFn.indexOf("blobs.putAll(encode())") in
             0 until commitFn.indexOf("LearningPersistence.commitOnce8090(receipt, blobs)"))
         assertTrue(commitFn.contains("CORTEX_CLOSE_DURABLE_RETRY_8198"))
         assertFalse(commitFn.contains("GlobalScope"))

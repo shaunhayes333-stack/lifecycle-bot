@@ -173,7 +173,7 @@ class Aate8372ShadowLearningTest {
         assertTrue(source.contains("tickActive8372.compareAndSet(false, true)"))
         // V5.0.8377 — receipts are staged per slice and committed once, before delivery.
         assertTrue(source.contains("if (!t.receiptDurable8372) {"))
-        assertTrue(source.contains("if (receipts8377.isNotEmpty()) batch8377.commit()"))
+        assertTrue(source.contains("val written = flushOpen8386(nowMs, durable = receipts8377.isNotEmpty())"))
         assertFalse(assessment.contains("receiptDurable8372 = true"))
         assertTrue(source.contains("current !== completed"))
         assertTrue(source.contains("synchronized(ticketReservation8372)"))

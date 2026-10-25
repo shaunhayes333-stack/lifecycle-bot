@@ -247,7 +247,7 @@ class Aate8287DataDeliveryTest {
         assertTrue(PriceShapeBars8287.statusLine8287().contains("markOnlyMerged="))
         // the candle request path adds them beside the executed-tape bars
         val req = src("engine/truth/HeliusSwapCandles7819.kt")
-        assertTrue(req.contains("localTape8284(ts, nowMs, \"budget\"); priceBars8287(ts, nowMs)"))
+        assertTrue(req.contains("localTape8284(ts, nowMs, reservation); priceBars8287(ts, nowMs)"))
         assertTrue(req.contains("PriceShapeBars8287.mergePriceOnly8287(ts, nowMs, WINDOW_MS)"))
         TradeTape8100.resetForTest8100()
         CandleCoverage8284.resetForTest8284()

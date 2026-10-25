@@ -140,7 +140,7 @@ object HeliusCurveTape8354 {
     @Volatile private var heldSet: Set<String> = emptySet()
     @Volatile private var nearSet: Set<String> = emptySet()
     @Volatile private var watch: ((String) -> Boolean)? = null
-    @Volatile private var perMint: ((String) -> Unit)? = null
+    @Volatile private var perMint: ((String) -> TapeState8386)? = null
 
     // logs transport (shared standard socket)
     private val nextLogsId = AtomicInteger(LOGS_ID_BASE_8354)
@@ -189,27 +189,49 @@ object HeliusCurveTape8354 {
      * its prints are kept from now on; on the per-mint fallback the coin gets its own Helius stream. True when a stream
      * carries it now.
      */
-    fun ask8354(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
-        if (!HeliusSolanaScope7819.isSolanaMint7819(mint)) return false
+    sealed class TapeState8386 {
+        data class Unavailable(val reason: String): TapeState8386()
+        object Queued: TapeState8386()
+        object Acknowledged: TapeState8386()
+        data class Delivering(val lastValidEventAt: Long): TapeState8386()
+    }
+    private val waiting8386 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    internal fun freshEvent8386(eventAt: Long, requestedAt: Long, now: Long): Boolean =
+        eventAt > 0 && eventAt >= requestedAt && now - eventAt in 0L..30_000L
+
+    fun onValidEvent8386(mint: String, eventAt: Long, now: Long) {
+        val after = waiting8386[mint] ?: return
+        if (!freshEvent8386(eventAt, after, now) || !waiting8386.remove(mint, after)) return
+        com.lifecyclebot.engine.HandoffReceiverTasks8153.onHydrated8343(mint, now)
+    }
+
+    fun askState8386(mint: String, nowMs: Long = System.currentTimeMillis()): TapeState8386 {
+        if (!HeliusSolanaScope7819.isSolanaMint7819(mint)) return TapeState8386.Unavailable("invalid_mint")
         asks.incrementAndGet()
+        val last = com.lifecyclebot.engine.truth.TradeTape8100.latestValidEvent8386(mint)
+        if (freshEvent8386(last, 0L, nowMs)) return TapeState8386.Delivering(last)
         if (askedAt.size >= ASK_MAX_8354) {
             askedAt.entries.removeIf { nowMs - it.value > ASK_TTL_MS_8354 }
-            if (askedAt.size >= ASK_MAX_8354) askedAt.entries.minByOrNull { it.value }?.key?.let { askedAt.remove(it) }
+            if (askedAt.size >= ASK_MAX_8354) askedAt.entries.minByOrNull { it.value }?.key?.let { askedAt.remove(it); waiting8386.remove(it) }
         }
+        waiting8386.entries.removeIf { nowMs - it.value > ASK_TTL_MS_8354 }
         askedAt[mint] = nowMs
-        if (transport != Transport8354.NONE) return true
-        val cb = perMint ?: return false
+        waiting8386.putIfAbsent(mint, nowMs)
+        if (transport != Transport8354.NONE) return TapeState8386.Queued
+        val cb = perMint ?: return TapeState8386.Unavailable("no_socket_callback")
         perMintAsks.incrementAndGet()
-        try { cb(mint) } catch (_: Throwable) { return false }
-        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CURVE_TAPE_ASK_PER_MINT_8354") } catch (_: Throwable) {}
-        return true
+        return try { cb(mint) } catch (_: Exception) { TapeState8386.Unavailable("subscription_error") }
     }
+
+    /** Compatibility Boolean means DATA delivered, never a merely requested subscription. */
+    fun ask8354(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        askState8386(mint, nowMs) is TapeState8386.Delivering
 
     /**
      * DataOrchestrator.syncHeliusTape8307 (every 10 s): the held and near-decision sets, the watchlist test, the per-mint
      * fallback, and the decision which transport carries the program tape now.
      */
-    fun sync8354(held: Collection<String>, near: Collection<String>, nowMs: Long, watchlist: (String) -> Boolean, perMintAsk: (String) -> Unit) {
+    fun sync8354(held: Collection<String>, near: Collection<String>, nowMs: Long, watchlist: (String) -> Boolean, perMintAsk: (String) -> TapeState8386) {
         try {
             heldSet = held.toSet(); nearSet = near.toSet(); watch = watchlist; perMint = perMintAsk
             installShare()
@@ -444,6 +466,6 @@ object HeliusCurveTape8354 {
         fallbackUntilMs = 0L; fallbackN = 0; minute = 0L; bytesLastMinute = 0L; day = 0L
         bytesMinute.set(0L); bytesToday.set(0L); heliusPrints.set(0L); pumpPortalPrints.set(0L); kept.set(0L); dropped.set(0L)
         duplicates.set(0L); malformed.set(0L); frames.set(0L); failedTx.set(0L); asks.set(0L); perMintAsks.set(0L); stepDowns.set(0L)
-        askedAt.clear(); heldSet = emptySet(); nearSet = emptySet(); watch = null; perMint = null
+        askedAt.clear(); waiting8386.clear(); heldSet = emptySet(); nearSet = emptySet(); watch = null; perMint = null
     }
 }

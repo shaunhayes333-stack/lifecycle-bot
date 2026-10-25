@@ -863,10 +863,11 @@ object ParallelMarkFanout7088 {
                         val vSol = readU64Le7269(bytes, 16)
                         val complete = (bytes[48].toInt() and 0xFF) != 0
                         if (complete) {
+                            skippedComplete++; PumpCurveKeys7269.markGraduated7392(mint)
                             resolved8385.add(mint); answered7279 = true
                             com.lifecyclebot.engine.TicketRetry8327.onVerifiedMigration8385(mint, System.currentTimeMillis())
+                            continue
                         }
-                        if (complete) { skippedComplete++; PumpCurveKeys7269.markGraduated7392(mint); continue }
                         if (vTok <= 0.0 || vSol <= 0.0) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_ZERO_RESERVES_7278"); continue }
                         // V5.0.7951 — the account's virtual and REAL reserves are the curve's liquidity.
                         try {
