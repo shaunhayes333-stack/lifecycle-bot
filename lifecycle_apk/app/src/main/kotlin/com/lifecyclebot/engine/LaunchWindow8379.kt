@@ -119,9 +119,12 @@ object LaunchWindow8379 {
     }
 
     fun statusLine8379(): String =
-        "launchWindow8379[held=${held.get()} floor=-${FLOOR_PCT_8379.toInt()}% window<${TOKEN_AGE_MS_8379 / 60_000L}m/min${MIN_HOLD_MS_8379 / 60_000L}m " +
+        "launchWindow8379[held=${held.get()} labelsGraded=${try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.windowGraded8379() } catch (_: Throwable) { -1L }} floor=-${FLOOR_PCT_8379.toInt()}% window<${TOKEN_AGE_MS_8379 / 60_000L}m/min${MIN_HOLD_MS_8379 / 60_000L}m " +
             "heldBy=${heldReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "released=${released.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]"
 
-    internal fun resetForTest8379() { held.set(0); released.clear(); heldReasons.clear(); heldMints.clear() }
+    /** ForwardReturnLabeler7731: the window's minimum position age (labels grade the same window). */
+    fun minHoldMs8379(): Long = MIN_HOLD_MS_8379
+
+        internal fun resetForTest8379() { held.set(0); released.clear(); heldReasons.clear(); heldMints.clear() }
 }

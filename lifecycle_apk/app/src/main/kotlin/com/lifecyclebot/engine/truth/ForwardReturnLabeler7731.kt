@@ -305,6 +305,14 @@ object ForwardReturnLabeler7731 {
         val recent8366 = ArrayDeque<DoubleArray>()
         /** V5.0.8366 — the path's new lows in order: [atMs, gross, prevAtMs, prevGross] (HonestExit8366.noteLow8366). */
         val lows8366 = ArrayList<DoubleArray>()
+        /**
+         * V5.0.8379 — LaunchWindow8379 in the label: when the decision was a launch-window entry (MOONSHOT / SHITCOIN /
+         * EXPRESS, witnessed birth under 30 min), the window's end; 0 = not a window entry. The lane stop is graded only
+         * after it, on [postLows8379] (the path's new lows after the window, same format as [lows8366]); inside it the
+         * label grades the window floor, as live now trades it.
+         */
+        @Volatile var windowEnd8379 = 0L
+        val postLows8379 = ArrayList<DoubleArray>()
         /** V5.0.8006 — the exit-profile sample waits for the end of a followed run. */
         @Volatile var exitDeferred8006: Boolean = false
         /** V5.0.7972 — the decision's discrete facts (SpecialistMiner7972). */
@@ -858,6 +866,7 @@ object ForwardReturnLabeler7731 {
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score8051, sig8051.first, regime, sig8051.second, px, cost.coerceIn(0.0, 60.0), nowMs)
             .also {
                 it.honest8366 = true  // V5.0.8366
+                it.windowEnd8379 = launchWindowEnd8379(l, (try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }) ?: -1L, nowMs)  // V5.0.8379 — the live window's one age rule
                 it.chase8094 = chase8094.coerceAtLeast(0.0)
                 it.entryStyle8077 = try {
                     com.lifecyclebot.engine.AgenticStyleRouter.decide(ts, com.lifecyclebot.engine.ModeRouter.classify(ts), l).style.name
@@ -1024,7 +1033,9 @@ object ForwardReturnLabeler7731 {
             if (runner8106) heldCredit8071(minOf(pk, held8366), runnerRest8106(true, minOf(pk, held8366), rest), tiers8071)
             else heldCredit8071(minOf(pk, held8366), rest, tiers8071)
         }
-        val g = playGross8366(o, stop8029, gross, ladder8040)
+        // V5.0.8379 — a launch-window entry is graded the way live now trades it (LaunchWindow8379), not on the lane stop alone.
+        val g = if (o.honest8366 && o.windowEnd8379 > 0L && longFamily8080 == null) playWindow8379(o, stop8029, gross, ladder8040)
+            else playGross8366(o, stop8029, gross, ladder8040)
         // V5.0.8040 — the same path under every candidate stop: the lane learns its own stop (StopLearner8040).
         if (stop8029 > 0.0 && longFamily8080 == null) try {
             com.lifecyclebot.engine.cortex.StopLearner8040.onPath8040(o.lane, "${o.mint}|${o.atMs}", stop8029, System.currentTimeMillis() - o.atMs) { s ->
@@ -1061,8 +1072,51 @@ object ForwardReturnLabeler7731 {
         if (!o.honest8366) return
         val prevGross = if (o.lastPx > 0.0 && o.entryPrice > 0.0 && o.lastPxAtMs > 0L) (o.lastPx / o.entryPrice - 1.0) * 100.0 else 0.0
         val prevAt = if (o.lastPxAtMs > 0L) o.lastPxAtMs else o.atMs
-        synchronized(o.recent8071) { HonestExit8366.noteLow8366(o.lows8366, nowMs, gross, prevAt, prevGross) }
+        synchronized(o.recent8071) {
+            HonestExit8366.noteLow8366(o.lows8366, nowMs, gross, prevAt, prevGross)
+            // V5.0.8379 — after a launch window the lane stop applies again: its own path of new lows from the window's end.
+            if (o.windowEnd8379 > 0L && nowMs > o.windowEnd8379) HonestExit8366.noteLow8366(o.postLows8379, nowMs, gross, maxOf(prevAt, o.windowEnd8379), prevGross)
+        }
     }
+
+    /** Pure (V5.0.8379): the launch window's end for a decision in [lane] at coin age [birthAgeMs], or 0 when not a window entry. */
+    fun launchWindowEnd8379(lane: String, birthAgeMs: Long, decidedAtMs: Long): Long {
+        val l = try { Entry8114Mode8326.canon8326(lane) } catch (_: Throwable) { lane.trim().uppercase() }
+        if (l !in com.lifecyclebot.engine.LaunchWindow8379.LANES_8379) return 0L
+        if (birthAgeMs !in 0L until com.lifecyclebot.engine.LaunchWindow8379.TOKEN_AGE_MS_8379) return 0L
+        return decidedAtMs + maxOf(com.lifecyclebot.engine.LaunchWindow8379.minHoldMs8379(), com.lifecyclebot.engine.LaunchWindow8379.TOKEN_AGE_MS_8379 - birthAgeMs)
+    }
+
+    /**
+     * Pure (V5.0.8379): the lane play of a launch-window entry. Inside the window the stop is [floorMag] (filled at
+     * [earlyFill], HonestExit8366); after it the lane stop [laneStopMag], filled at [lateFill] at [lateAtMs]. A peak set
+     * before the late stop is credited on the ladder; one after it was never reached.
+     */
+    fun windowPlay8379(floorMag: Double, laneStopMag: Double, peakPct: Double, peakAtMs: Long, dipBeforePeakPct: Double, minPct: Double,
+                       grossNow: Double, earlyFill: Double, lateFill: Double, lateAtMs: Long, ladder: (Double, Double) -> Double): Double {
+        if (earlyFill.isFinite()) return HonestExit8366.playGross8366(floorMag, peakPct, dipBeforePeakPct, minPct, grossNow, earlyFill, ladder)
+        if (lateFill.isFinite() && laneStopMag > 0.0) {
+            val stopped = minOf(lateFill, -laneStopMag)
+            return if (peakAtMs in 1L until lateAtMs) ladder(peakPct, stopped) else stopped
+        }
+        return ladder(peakPct, grossNow)
+    }
+
+    private fun playWindow8379(o: Obs, laneStopMag: Double, gross: Double, ladder: (Double, Double) -> Double): Double {
+        val floor = com.lifecyclebot.engine.LaunchWindow8379.FLOOR_PCT_8379
+        val lat = HonestExit8366.sellLatencyMs8366()
+        val (early, late) = synchronized(o.recent8071) {
+            HonestExit8366.stopFill8366(o.lows8366.filter { it.isNotEmpty() && it[0] <= o.windowEnd8379.toDouble() }, floor, lat) to
+                o.postLows8379.firstOrNull { it.size >= 4 && it[1].isFinite() && laneStopMag > 0.0 && it[1] <= -laneStopMag }
+        }
+        val lateFill = late?.let { HonestExit8366.stopFill8366(listOf(it), laneStopMag, lat) } ?: Double.NaN
+        windowGraded8379.incrementAndGet()
+        return windowPlay8379(floor, laneStopMag, o.peakPct, o.peakAtMs7955, o.dipBeforePeak7962, o.minPct7962, gross, early, lateFill,
+            late?.get(0)?.toLong() ?: Long.MAX_VALUE, ladder)
+    }
+
+    private val windowGraded8379 = AtomicLong(0)
+    fun windowGraded8379(): Long = windowGraded8379.get()
 
     /** Caller holds o.recent8071. */
     private fun notePathHeld8366(o: Obs, nowMs: Long, gross: Double) {

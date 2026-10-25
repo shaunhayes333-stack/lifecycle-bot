@@ -67,4 +67,25 @@ class Aate8379LaunchWindowTest {
         assertTrue("persisted", r.contains("LearningPersistence.save(PERSIST_KEY_8379"))
         assertTrue("reported", r.contains("afterExit8379: \${horizonLine8379()}"))
     }
+
+    private val fr = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+    private val lad: (Double, Double) -> Double = { _, rest -> rest }
+
+    @Test fun labelsGradeTheWindowAsLiveTradesIt() {
+        assertEquals(1_000L + 25 * min, fr.launchWindowEnd8379("SHITCOIN", 5 * min, 1_000L))
+        assertEquals(1_000L + 10 * min, fr.launchWindowEnd8379("MOONSHOT", 25 * min, 1_000L))
+        assertEquals(0L, fr.launchWindowEnd8379("QUALITY", 5 * min, 1_000L))
+        assertEquals(0L, fr.launchWindowEnd8379("SHITCOIN", -1L, 1_000L))
+        assertEquals(0L, fr.launchWindowEnd8379("SHITCOIN", 31 * min, 1_000L))
+        // a -25% shakeout inside the window that recovers to +40%: not stopped (the lane's 15% stop would have sold it)
+        assertEquals(40.0, fr.windowPlay8379(35.0, 15.0, 120.0, 500L, -25.0, -25.0, 40.0, Double.NaN, Double.NaN, Long.MAX_VALUE, lad), 1e-9)
+        // through the window floor: stopped at its fill
+        assertEquals(-38.0, fr.windowPlay8379(35.0, 15.0, 5.0, 500L, -38.0, -38.0, -50.0, -38.0, Double.NaN, Long.MAX_VALUE, lad), 1e-9)
+        // after the window the lane stop binds again; a peak set after that stop was never reached
+        assertEquals(-17.0, fr.windowPlay8379(35.0, 15.0, 80.0, 9_000L, -10.0, -17.0, 60.0, Double.NaN, -17.0, 5_000L, lad), 1e-9)
+        assertEquals(-17.0, fr.windowPlay8379(35.0, 15.0, 80.0, 3_000L, -10.0, -17.0, 60.0, Double.NaN, -17.0, 5_000L, lad), 1e-9)
+        val src = src("engine/truth/ForwardReturnLabeler7731.kt")
+        assertTrue(src.contains("playWindow8379(o, stop8029, gross, ladder8040)"))
+        assertTrue("the label uses the live window's age rule", src.contains("CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs)"))
+    }
 }

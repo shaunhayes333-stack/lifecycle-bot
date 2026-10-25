@@ -328,7 +328,9 @@ class Aate8366CortexTest {
         val voters = src("engine/cortex/CortexVoters7885.kt")
         assertTrue(voters.contains("LaneBrainVotes8366.resolve8366(ts.mint, laneBrainVotes8003(ts), System.currentTimeMillis())"))
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(lab.contains("val g = playGross8366(o, stop8029, gross, ladder8040)"))
+        // V5.0.8379 — a launch-window entry grades the window play (still honest fills: HonestExit8366.stopFill8366); others the lane play.
+        assertTrue(lab.contains("else playGross8366(o, stop8029, gross, ladder8040)"))
+        assertTrue(lab.contains("HonestExit8366.stopFill8366(o.lows8366.filter"))
         assertTrue(lab.contains("playGross8366(o, s, gross, ladder8040)"))
         assertTrue(lab.contains("val held8366 = if (o.honest8366) o.heldPeak8366 else o.heldPeak8071"))
         assertTrue(lab.contains("it.honest8366 = true"))
