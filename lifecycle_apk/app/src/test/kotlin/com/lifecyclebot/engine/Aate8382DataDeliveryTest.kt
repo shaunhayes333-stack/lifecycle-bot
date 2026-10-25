@@ -57,7 +57,7 @@ class Aate8382DataDeliveryTest {
 
     @Test fun theSharedClientCarriesTheGeckoBudgetAndTheFeedIgnoresLocalRefusals() {
         val c = File("src/main/kotlin/com/lifecyclebot/network/SharedHttpClient.kt").readText()
-        assertTrue(c.indexOf("GeckoRateInterceptor8382") in 1 until c.indexOf(".addInterceptor(com.lifecyclebot.network.HostCircuitInterceptor)"))
+        assertTrue(c.indexOf("addInterceptor(com.lifecyclebot.network.GeckoHostBudget8382)") in 1 until c.indexOf(".addInterceptor(com.lifecyclebot.network.HostCircuitInterceptor)"))
         val f = File("src/main/kotlin/com/lifecyclebot/network/SolanaOhlcvFeed6916.kt").readText()
         assertTrue(f.indexOf("OHLCV_GECKO_LOCAL_BUDGET_WAIT_8382") in 1 until f.indexOf("noteResponse6944(resp.code"))
     }

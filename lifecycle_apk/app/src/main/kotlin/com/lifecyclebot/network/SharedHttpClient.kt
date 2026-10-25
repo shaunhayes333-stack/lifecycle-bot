@@ -90,7 +90,7 @@ object SharedHttpClient {
         // V5.0.8287 — one DexScreener budget for every caller (before the circuit: a local refusal is never a provider failure).
         .addInterceptor(com.lifecyclebot.network.DexRateInterceptor8287)
         // V5.0.8382 — one GeckoTerminal budget (~10/min documented): candle reads first, lists from the remainder.
-        .addInterceptor(com.lifecyclebot.network.GeckoRateInterceptor8382)
+        .addInterceptor(com.lifecyclebot.network.GeckoHostBudget8382)
         .addInterceptor(com.lifecyclebot.network.HostCircuitInterceptor)
         // V5.0.8191 — one shared per-second token bucket for Helius HTTP (429 / Retry-After aware; execution never waits).
         .addInterceptor(com.lifecyclebot.network.HeliusRateInterceptor8191)

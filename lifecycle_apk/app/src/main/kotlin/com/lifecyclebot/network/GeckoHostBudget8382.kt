@@ -19,8 +19,8 @@ import java.util.concurrent.atomic.AtomicLong
  * while [BULK_RESERVE_8382] remain; an exit-scoped call is never refused. A provider 429 pauses every non-exit caller for
  * its Retry-After. A refusal never reaches the wire (synthetic 599, HostCircuitInterceptor.SYNTHETIC_HEADER_6969).
  */
-object GeckoHostBudget8382 {
-    const val HOST_8382 = "api.geckoterminal.com"
+object GeckoHostBudget8382 : Interceptor {
+    private const val HOST_8382 = "api.geckoterminal.com"
     const val PER_MIN_8382 = 10
     const val BURST_8382 = 3.0
     const val BULK_RESERVE_8382 = 1.0
@@ -34,7 +34,7 @@ object GeckoHostBudget8382 {
     private val limited = AtomicLong(0L)
 
     /** Pure: a candle / trade read is the decision data this host serves; lists and token rows are bulk. */
-    fun decisionPath8382(path: String): Boolean = path.contains("/ohlcv/") || path.endsWith("/trades")
+    private fun decisionPath8382(path: String): Boolean = path.contains("/ohlcv/") || path.endsWith("/trades")
 
     /** Pure: the bucket class of a request. */
     fun prioOf8382(path: String, exit: Boolean): DexHostBudget8287.Prio8287 = when {
@@ -43,7 +43,7 @@ object GeckoHostBudget8382 {
         else -> DexHostBudget8287.Prio8287.BULK
     }
 
-    fun take8382(nowMs: Long, prio: DexHostBudget8287.Prio8287): Long {
+    private fun take8382(nowMs: Long, prio: DexHostBudget8287.Prio8287): Long {
         val w = bucket.take8287(nowMs, prio, DECISION_WAIT_MS_8382)
         val decision = prio != DexHostBudget8287.Prio8287.BULK
         when {
@@ -55,7 +55,7 @@ object GeckoHostBudget8382 {
         return w
     }
 
-    fun noteLimited8382(nowMs: Long, retryAfterMs: Long) {
+    private fun noteLimited8382(nowMs: Long, retryAfterMs: Long) {
         limited.incrementAndGet()
         bucket.noteLimited8287(nowMs, retryAfterMs)
     }
@@ -64,16 +64,14 @@ object GeckoHostBudget8382 {
     fun statusLine8382(nowMs: Long = System.currentTimeMillis()): String =
         "geckoHost8382[perMin=$PER_MIN_8382 tokens=${"%.1f".format(bucket.tokens8287(nowMs))} decision=${takenDecision.get()}/${refusedDecision.get()} " +
             "bulk=${takenBulk.get()}/${refusedBulk.get()} provider429=${limited.get()} pausedLeftMs=${bucket.pausedLeftMs8287(nowMs)}]"
-}
 
-/** V5.0.8382 — the shared client's GeckoTerminal budget; registered before HostCircuitInterceptor like DexRateInterceptor8287. */
-object GeckoRateInterceptor8382 : Interceptor {
+    /** The shared client's GeckoTerminal budget; registered before HostCircuitInterceptor like DexRateInterceptor8287. */
     override fun intercept(chain: Interceptor.Chain): Response {
         val req = chain.request()
-        if (!req.url.host.equals(GeckoHostBudget8382.HOST_8382, ignoreCase = true)) return chain.proceed(req)
+        if (!req.url.host.equals(HOST_8382, ignoreCase = true)) return chain.proceed(req)
         val exit = req.header(ExitHttpScope7314.HEADER) != null || ExitHttpScope7314.active()
-        val prio = GeckoHostBudget8382.prioOf8382(req.url.encodedPath, exit)
-        val wait = GeckoHostBudget8382.take8382(System.currentTimeMillis(), prio)
+        val prio = prioOf8382(req.url.encodedPath, exit)
+        val wait = take8382(System.currentTimeMillis(), prio)
         if (wait < 0L) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("GECKO_HOST_BUDGET_REFUSED_8382_${prio.name}") } catch (_: Throwable) {}
             return Response.Builder().request(req).protocol(Protocol.HTTP_1_1).code(599)
@@ -89,7 +87,7 @@ object GeckoRateInterceptor8382 : Interceptor {
             }
         }
         val resp = chain.proceed(req)
-        if (resp.code == 429) GeckoHostBudget8382.noteLimited8382(System.currentTimeMillis(), DexHostBudget8287.retryAfterMs8287(resp.header("Retry-After")))
+        if (resp.code == 429) noteLimited8382(System.currentTimeMillis(), DexHostBudget8287.retryAfterMs8287(resp.header("Retry-After")))
         return resp
     }
 }

@@ -337,7 +337,7 @@ object SolanaOhlcvFeed6916 {
         if (!rateGateOpen6944()) return Fetched6982(null, askedProvider = false)
         return try {
             http.newCall(req).execute().use { resp ->
-                // V5.0.8382 — a local host-budget refusal (GeckoRateInterceptor8382 / the circuit's synthetic 599) is not the
+                // V5.0.8382 — a local host-budget refusal (GeckoHostBudget8382 / the circuit's synthetic 599) is not the
                 // provider's answer: it never reaches the health table, the pacing ladder or the 7819 cooldown.
                 if (resp.header(HostCircuitInterceptor.SYNTHETIC_HEADER_6969) != null) {
                     try { PipelineHealthCollector.labelInc("OHLCV_GECKO_LOCAL_BUDGET_WAIT_8382") } catch (_: Throwable) {}
