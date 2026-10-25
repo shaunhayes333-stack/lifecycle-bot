@@ -173,14 +173,14 @@ class Aate8284HeliusCandleMergeTest {
 
     @Test fun jobBudgetFavoursHeldNearDecisionAndHandoffOverBulk() {
         val h = HeliusSwapCandles7819
-        // near-decision / held: the whole 8/min, 180/h
-        assertTrue(h.budgetAdmits8284(h.PRIORITY_HELD_8284, 7, 179))
-        assertTrue(h.budgetAdmits8284(h.PRIORITY_NEAR_DECISION_8284, 7, 0))
-        assertFalse(h.budgetAdmits8284(h.PRIORITY_NEAR_DECISION_8284, 8, 0))
-        assertFalse(h.budgetAdmits8284(h.PRIORITY_HELD_8284, 0, 180))
-        // hand-off: 6/min, 140/h
-        assertTrue(h.budgetAdmits8284(h.PRIORITY_HANDOFF_8284, 5, 139))
-        assertFalse(h.budgetAdmits8284(h.PRIORITY_HANDOFF_8284, 6, 0))
+        // near-decision / held: the whole 24/min, 720/h (8382; the credit economy bounds the day's spend)
+        assertTrue(h.budgetAdmits8284(h.PRIORITY_HELD_8284, 23, 719))
+        assertTrue(h.budgetAdmits8284(h.PRIORITY_NEAR_DECISION_8284, 23, 0))
+        assertFalse(h.budgetAdmits8284(h.PRIORITY_NEAR_DECISION_8284, 24, 0))
+        assertFalse(h.budgetAdmits8284(h.PRIORITY_HELD_8284, 0, 720))
+        // hand-off: 12/min, 360/h
+        assertTrue(h.budgetAdmits8284(h.PRIORITY_HANDOFF_8284, 11, 359))
+        assertFalse(h.budgetAdmits8284(h.PRIORITY_HANDOFF_8284, 12, 0))
         // bulk: 4/min, 100/h — never the decision coins' share
         assertTrue(h.budgetAdmits8284(0, 3, 99))
         assertFalse(h.budgetAdmits8284(0, 4, 0))

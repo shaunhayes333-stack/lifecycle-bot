@@ -60,8 +60,12 @@ object HeliusSwapCandles7819 {
     // V5.0.7925 — 3/min, 60/h starved the bars every setup and plan reads (5.0.7914:
     // 24 jobs ran, 654 skipped on budget, keyless OHLCV delivered 0 bars) while Helius
     // spend sat near 10% of its daily budget. Doubled+ within that headroom.
-    private const val MAX_JOBS_PER_MIN = 8
-    private const val MAX_JOBS_PER_HOUR = 180
+    // V5.0.8382 — 8/min, 180/h left shape missing on most decision coins (5.0.8381: budgetSkips=212 in 4 min, core
+    // features complete 3,479/9,834) while Helius ran at 15.2k of its 300k-credit day (pace 43k). Every job already passes
+    // HeliusCreditEconomy7881 (admitCredits8307: the day's pace bounds total spend), so the credit economy, not a fixed
+    // job count, is the budget: held / near-decision 24/min, 720/h; a hand-off 12/min, 360/h; bulk unchanged.
+    private const val MAX_JOBS_PER_MIN = 24
+    private const val MAX_JOBS_PER_HOUR = 720
     private const val MINT_RETRY_MS = 5L * 60_000L
     private const val EMPTY_RETRY_MS = 15L * 60_000L
     private const val KEY_TTL_MS = 5L * 60_000L
@@ -197,11 +201,12 @@ object HeliusSwapCandles7819 {
     /**
      * Pure (V5.0.8284): may a job of [priority] start with [lastMinute] / [lastHour] jobs already started? 8282: 4,704 of
      * 4,808 requests were skipped on budget, first come first served. Held and near-decision coins keep the whole
-     * 8/min, 180/h; a hand-off 6/min, 140/h; bulk 4/min, 100/h, so bulk can never spend the decision coins' share.
+     * 24/min, 720/h (8382; 8/min, 180/h before); a hand-off 12/min, 360/h; bulk 4/min, 100/h, so bulk can never spend
+     * the decision coins' share. The day's credit pace (HeliusCreditEconomy7881) bounds the total.
      */
     fun budgetAdmits8284(priority: Int, lastMinute: Int, lastHour: Int): Boolean {
-        val perMin = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_MIN; priority == PRIORITY_HANDOFF_8284 -> 6; else -> 4 }
-        val perHour = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_HOUR; priority == PRIORITY_HANDOFF_8284 -> 140; else -> 100 }
+        val perMin = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_MIN; priority == PRIORITY_HANDOFF_8284 -> 12; else -> 4 }
+        val perHour = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_HOUR; priority == PRIORITY_HANDOFF_8284 -> 360; else -> 100 }
         return lastMinute < perMin && lastHour < perHour
     }
 

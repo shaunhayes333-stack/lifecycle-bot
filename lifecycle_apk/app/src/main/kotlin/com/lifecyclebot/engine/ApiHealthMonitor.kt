@@ -53,10 +53,42 @@ object ApiHealthMonitor {
         }
 
         fun successRate(): Double {
+            decay8382(System.currentTimeMillis())
             val total = successes.get() + failures4xx.get() + failures5xx.get() + networkErrors.get()
             return if (total == 0) 1.0 else successes.get().toDouble() / total
         }
+
+        /** V5.0.8382 — the decay clock: the later of the last failure and the last quiet-decay step. */
+        val decayAtMs8382: AtomicLong = AtomicLong(0L)
+
+        /**
+         * V5.0.8382 §HEALTH_IS_RECENT — these counters were process-lifetime, so a provider that failed early in a session
+         * was judged by those failures forever. Gates that stop calling an unhealthy host (BirdeyeBudgetGate brownout,
+         * isCircuitBroken, LiveProviderQuorum) then never saw a success again: 5.0.8381 Birdeye sr=26% (22 rate-limit 4xx,
+         * 15 timeouts in the first minutes) latched the brownout and skipped every candle seed (BIRDEYE_SEED_SKIPPED_BUDGET
+         * =290) with 1.5% of the day's CU spent. Two decays make the rate recent:
+         *  - window: past [WINDOW_8382] samples every counter is halved (the rate tracks the last ~100-200 calls);
+         *  - quiet: [QUIET_MS_8382] with no new failure halves the failure counters (rounded up, so a failure is never
+         *    forgotten outright), letting a gated host be probed again; a failing probe re-arms the gate at once.
+         */
+        fun decay8382(nowMs: Long) {
+            val total = successes.get() + failures4xx.get() + failures5xx.get() + networkErrors.get()
+            if (total > WINDOW_8382) {
+                for (c in listOf(successes, failures4xx, failures5xx, networkErrors)) c.updateAndGet { it - it / 2 }
+            }
+            val clock = maxOf(lastFailureMs.get(), decayAtMs8382.get())
+            if (clock > 0L && nowMs - clock >= QUIET_MS_8382 && failures4xx.get() + failures5xx.get() + networkErrors.get() > 1) {
+                if (decayAtMs8382.compareAndSet(decayAtMs8382.get(), nowMs)) {
+                    for (c in listOf(failures4xx, failures5xx, networkErrors)) c.updateAndGet { it - it / 2 }
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("API_HEALTH_QUIET_DECAY_8382") } catch (_: Throwable) {}
+                }
+            }
+        }
     }
+
+    /** V5.0.8382 — the sample window the rate tracks, and the failure-free time that halves old failures. */
+    const val WINDOW_8382 = 200
+    const val QUIET_MS_8382 = 120_000L
 
     private val hosts = ConcurrentHashMap<String, HostStats>()
 
@@ -139,7 +171,11 @@ object ApiHealthMonitor {
     }
 
     /** UI snapshot. Returns one entry per tracked host. */
-    fun snapshot(): Map<String, HostStats> = hosts.toMap()
+    fun snapshot(): Map<String, HostStats> {
+        val now = System.currentTimeMillis()
+        for (st in hosts.values) st.decay8382(now)   // V5.0.8382 — every reader sees the recent rate
+        return hosts.toMap()
+    }
 
     /** V5.0.3676 — convenience helper used by FDG narrative health gate.
      *  Returns 1.0 when no samples (fail-open: don't penalize a brand-new
@@ -202,6 +238,7 @@ object ApiHealthMonitor {
      */
     fun isCircuitBroken(host: String): Boolean {
         val s = hosts[host.lowercase()] ?: return false
+        s.decay8382(System.currentTimeMillis())   // V5.0.8382 — a quiet host is probed again, not tripped forever
         val total = s.successes.get() + s.failures4xx.get() + s.failures5xx.get() + s.networkErrors.get()
         if (total < 10) return false
         val sr = s.successRate()

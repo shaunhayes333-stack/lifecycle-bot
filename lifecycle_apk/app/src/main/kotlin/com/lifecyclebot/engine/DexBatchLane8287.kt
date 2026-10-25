@@ -21,7 +21,10 @@ import java.util.concurrent.atomic.AtomicLong
  * Nothing is inferred for a mint the answer did not list.
  */
 object DexBatchLane8287 {
-    const val MAX_CALLS_PER_MIN_8287 = 60
+    // V5.0.8382 — 60 a minute left 119 mints pending and chg / bp unfetched on 1,314 setup reads (dexPair:NOT_FETCHED) in
+    // 5.0.8381 while DexScreener's host bucket (DexHostBudget8287, 180-270/min) had room: the pair lane is the one reader of
+    // chg / bp / liq for every coin, so it takes two thirds of the host's base rate. Held exit marks keep their priority.
+    const val MAX_CALLS_PER_MIN_8287 = 120
     const val MIN_SPACING_MS_8287 = 60_000L / MAX_CALLS_PER_MIN_8287
     const val COLLECT_MS_8287 = 750L
     private const val MAX_COOLDOWN_WAIT_MS_8287 = 30_000L

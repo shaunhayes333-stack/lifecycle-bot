@@ -94,10 +94,12 @@ class Aate8287DataDeliveryTest {
         assertEquals(lane.COLLECT_MS_8287, lane.waitMs8287(1, 0L, 99_999L, false))     // a lone mint waits for company
         assertEquals(0L, lane.waitMs8287(DexPools8285.BATCH_MAX_8285, 0L, 99_999L, false))   // a full batch goes now
         assertEquals(0L, lane.waitMs8287(1, 0L, 99_999L, true))                        // a held mint never waits to collect
-        assertEquals(800L, lane.waitMs8287(30, 0L, 200L, true))                        // but the cadence holds
-        assertTrue(lane.MAX_CALLS_PER_MIN_8287 <= 60)
+        assertEquals(lane.MIN_SPACING_MS_8287 - 200L, lane.waitMs8287(30, 0L, 200L, true))   // but the cadence holds
+        // 8382: two thirds of the host bucket's base rate, never the whole bucket (held exit marks keep their share)
+        assertTrue(lane.MAX_CALLS_PER_MIN_8287 <= com.lifecyclebot.network.DexHostBudget8287.PER_MIN_8287 * 2 / 3)
+        assertTrue(lane.MAX_CALLS_PER_MIN_8287 >= 120)
         assertEquals(60_000L, lane.MIN_SPACING_MS_8287 * lane.MAX_CALLS_PER_MIN_8287)
-        // one minute of mints arriving one every 100 ms: <= 60 calls, ~10 mints per call (8286: ~1 mint per "batch")
+        // one minute of mints arriving one every 100 ms: under the cap, ~7 mints per call (8286: ~1 mint per "batch")
         val pending = ArrayDeque<Long>()
         var next = 0L; var last = -999_999L; var calls = 0; var sent = 0; var t = 0L
         while (t < 60_000L) {
@@ -110,8 +112,9 @@ class Aate8287DataDeliveryTest {
             }
             t += 10L
         }
-        assertTrue("calls=$calls", calls in 50..60)
-        assertTrue("perCall=${sent / calls}", sent / calls >= 8)
+        // 8382: the 750 ms collect window, not the cadence, now paces a trickle: ~80 calls of ~7 mints, under the cap
+        assertTrue("calls=$calls", calls in 50..lane.MAX_CALLS_PER_MIN_8287)
+        assertTrue("perCall=${sent / calls}", sent / calls >= 7)
     }
 
     @Test fun theLaneWaitsOutTheProvidersCooldownAndALocalRefusalNeverClimbsIt() {
