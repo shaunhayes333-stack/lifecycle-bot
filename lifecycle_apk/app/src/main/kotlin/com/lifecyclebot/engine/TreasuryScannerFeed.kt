@@ -42,7 +42,9 @@ object TreasuryScannerFeed {
     )
 
     // Established token criteria (Treasury scalps NOT fresh launches)
-    const val MIN_TREASURY_MCAP = 1_000_000.0         // $1M+ = established
+    // V5.0.8383 — network labels (hive_edge_8076): TREASURY / CASHGEN 250k-1M caps 32% positive (n 482 / 2589) vs 16-17% at
+    // 1M-5M and 3-5% above 5M. The established-token floor moves to the band that pays; liquidity / volume / age stay.
+    const val MIN_TREASURY_MCAP = 250_000.0           // $250K+ = established (8383 evidence band)
     const val MIN_TREASURY_LIQUIDITY = 50_000.0       // $50K+ liq = tight spreads
     const val MIN_TREASURY_24H_VOL = 100_000.0        // $100K+ vol = tradeable
     const val MIN_TREASURY_AGE_DAYS = 7               // >7d old = past bond/graduation

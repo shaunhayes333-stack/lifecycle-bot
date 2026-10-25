@@ -245,7 +245,7 @@ class Aate8283FeatureCacheLifecycleTest {
         LifecycleData8283.clearForTest8283()
         val now = System.currentTimeMillis()
         val young = TokenState(mint = mint("young"), symbol = "YNG")
-        young.lastPrice = 0.0001; young.lastPriceUpdate = now; young.lastMcap = 6_000.0; young.lastLiquidityUsd = 4_000.0
+        young.lastPrice = 0.0001; young.lastPriceUpdate = now; young.lastMcap = 12_000.0  // V5.0.8383 — inside SHITCOIN's envelope (a sub-10k cap is its own OUTSIDE_ENVELOPE cohort); young.lastLiquidityUsd = 4_000.0
         AdmissionBirth8144.noteChainMintInit8179(young.mint, now - 10_000L)
         val split = LanePlaybook7907.lifecycleSplit8283(young, "SHITCOIN", now)
         assertNotNull("a token with no flow, move or shape is DATA_INCOMPLETE", split)

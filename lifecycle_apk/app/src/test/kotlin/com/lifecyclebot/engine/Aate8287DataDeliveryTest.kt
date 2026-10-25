@@ -306,7 +306,7 @@ class Aate8287DataDeliveryTest {
         LifecycleData8283.clearForTest8283()
         val now = System.currentTimeMillis()
         val launched = TokenState(mint = mint("judged"), symbol = "JDG")
-        launched.lastPrice = 0.0001; launched.lastPriceUpdate = now; launched.lastMcap = 6_000.0; launched.lastLiquidityUsd = 4_000.0
+        launched.lastPrice = 0.0001; launched.lastPriceUpdate = now; launched.lastMcap = 12_000.0  // V5.0.8383 — inside SHITCOIN's envelope (a sub-10k cap is its own OUTSIDE_ENVELOPE cohort); launched.lastLiquidityUsd = 4_000.0
         AdmissionBirth8144.noteChainMintInit8179(launched.mint, now - 20_000L)
         assertTrue(LaunchTape7921.recoverBirth8167(launched.mint, now - 20_000L, now))
         // two small first buys: observed, too few to state a flow, too few for any crowd setup to fire
@@ -317,7 +317,7 @@ class Aate8287DataDeliveryTest {
         assertTrue(split.binding.toString(), split.binding.none { it.startsWith("bp:") || it.startsWith("chg:") || it.startsWith("shape:") })
         // the same young token whose trades nobody observed still waits for its flow
         val unseen = TokenState(mint = mint("unseen"), symbol = "UNS")
-        unseen.lastPrice = 0.0001; unseen.lastPriceUpdate = now; unseen.lastMcap = 6_000.0; unseen.lastLiquidityUsd = 4_000.0
+        unseen.lastPrice = 0.0001; unseen.lastPriceUpdate = now; unseen.lastMcap = 12_000.0; unseen.lastLiquidityUsd = 4_000.0  // V5.0.8383 — inside SHITCOIN's envelope
         AdmissionBirth8144.noteChainMintInit8179(unseen.mint, now - 20_000L)
         val unseenSplit = LanePlaybook7907.lifecycleSplit8283(unseen, "SHITCOIN", now)
         assertNotNull(unseenSplit)

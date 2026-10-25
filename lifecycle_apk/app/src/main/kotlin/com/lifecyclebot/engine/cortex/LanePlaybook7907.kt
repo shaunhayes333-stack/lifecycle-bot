@@ -45,6 +45,11 @@ object LanePlaybook7907 {
     const val UNRANKABLE_8087 = "MATCHES_UNRANKABLE"
     const val CLASSIFIER_ERROR_8087 = "CLASSIFIER_ERROR"
     val UNCLASSIFIED_8087 = setOf(DATA_INCOMPLETE_8087, UNRANKABLE_8087, CLASSIFIER_ERROR_8087)
+    /**
+     * V5.0.8383 — the cohort of coins outside the lane's evidence-backed tradable envelope ([envelope8383]). Its own book
+     * (never NO_TRIGGER's): graded on every forward label, so the envelope itself stays measured and can be overturned.
+     */
+    const val OUTSIDE_ENVELOPE_8383 = "OUTSIDE_ENVELOPE_8383"
     private const val SHRINK_K = 20.0
     private const val NONE_PROOF_N = 40
     private const val NONE_PROOF_PCT = 1.0
@@ -127,6 +132,8 @@ object LanePlaybook7907 {
     class Classification8084(
         val lane: String, val outcome: Outcome8084, val chosen: String?, val matched: List<String>,
         val missing: List<String>, val errors: List<String>, val featureVersion: Int, val atMs: Long, val reason: String,
+        /** V5.0.8383 — why the coin sat outside the tradable envelope (null = inside / not evaluated). */
+        val envelope8383: String? = null,
     ) {
         /**
          * V5.0.8087 — the learning cohort of this classification. Until 8086 every non-matched outcome was tagged
@@ -136,7 +143,7 @@ object LanePlaybook7907 {
         val tag: String? get() = when (outcome) {
             Outcome8084.NO_PLAYBOOK -> null
             Outcome8084.MATCHED -> chosen
-            Outcome8084.NO_MATCH -> NO_TRIGGER
+            Outcome8084.NO_MATCH -> if (envelope8383 != null) OUTSIDE_ENVELOPE_8383 else NO_TRIGGER  // V5.0.8383
             Outcome8084.DATA_INCOMPLETE -> DATA_INCOMPLETE_8087
             Outcome8084.MATCHES_UNRANKABLE -> UNRANKABLE_8087
             Outcome8084.CLASSIFIER_ERROR -> CLASSIFIER_ERROR_8087
@@ -152,7 +159,7 @@ object LanePlaybook7907 {
         }
         val alternatives: List<String> get() = matched.filter { it != chosen }
         /** Only a genuine no-match is the NO_TRIGGER cohort a refusal or a NO_TRIGGER grade may read. */
-        val noMatchCohort: Boolean get() = outcome == Outcome8084.NO_MATCH
+        val noMatchCohort: Boolean get() = outcome == Outcome8084.NO_MATCH && envelope8383 == null
     }
 
     internal const val OBS_FRESH_MS_8084 = 15L * 60_000L
@@ -469,6 +476,116 @@ object LanePlaybook7907 {
     private val QUIET_ACCUMULATION = Setup("QUIET_ACCUMULATION", FLOW) { f -> le(f.runup, 20.0) && le(f.dd, 10.0) && ge(f.bp, 58.0) && ok(f.chg5m, -2.0, 3.0) }
     private val NEW_HIGH_PUSH = Setup("NEW_HIGH_PUSH", FLOW) { f -> ge(f.pxPeak, 0.99) && ok(f.runup, 40.0, 400.0) && ge(f.chg5m, 2.0) && ge(f.bp, 58.0) }
     private val SHAPE_8061 = listOf(BUYERS_DOMINATING, BASE_BREAKOUT_FLOW, IGNITION_5M, FIRST_PULLBACK_AFTER_RUN, DIP_IN_UPTREND, QUIET_ACCUMULATION, NEW_HIGH_PUSH)
+    // ── V5.0.8383 — evidence-built setup list ──
+    // Built from the network's own forward labels (Turso hive_edge_8076, 2026-10-25): CX|B feature bins per lane (n in the
+    // thousands per bin) and PB|lane|setup records (n>=150). In EVERY lane the winners sat in one band: market cap 10k-5M,
+    // liquidity 3k-250k, market cap <= 25x liquidity, buy pressure >= 45% (outside it: 0-9% of labels positive, inside 20-35%).
+    // Within it they were bought on a pullback in a rising 1h trend (drawdown 10-50%, 0.5-0.88 of peak), not at the top.
+    internal const val ENV_MCAP_MIN_8383 = 10_000.0
+    internal const val ENV_MCAP_MAX_8383 = 5_000_000.0
+    internal const val ENV_LIQ_MIN_8383 = 3_000.0
+    internal const val ENV_LIQ_MAX_8383 = 250_000.0
+    internal const val ENV_MCAP_TO_LIQ_MAX_8383 = 25.0
+    internal const val ENV_BP_MIN_8383 = 45.0
+
+    /**
+     * V5.0.8383 — each specialist keeps its own identity: a band is cut for a lane ONLY where that lane's own network bins
+     * proved it dead (n >= 300, positive-label rate <= 60% of the lane's average, runner rate no better than average).
+     * BLUECHIP keeps its large caps, CASHGEN / QUALITY their sub-10k coins, CYCLIC its whole cap range, etc.
+     */
+    internal val ENVELOPE_CUTS_8383: Map<String, Set<String>> = mapOf(
+        "SHITCOIN" to setOf("MCAP_LT_10K", "MCAP_GT_5M", "LIQ_LT_3K", "LIQ_GT_250K", "MCAP_LIQ_GT_25X", "BP_LT_45"),
+        "MOONSHOT" to setOf("MCAP_LT_10K", "MCAP_GT_5M", "LIQ_LT_3K", "LIQ_GT_250K", "MCAP_LIQ_GT_25X"),
+        "EXPRESS" to setOf("MCAP_LT_10K", "LIQ_LT_3K", "MCAP_LIQ_GT_25X", "BP_LT_45"),
+        "MANIPULATED" to setOf("MCAP_LT_10K", "LIQ_LT_3K", "MCAP_LIQ_GT_25X"),
+        "PROJECT_SNIPER" to setOf("MCAP_LT_10K", "LIQ_LT_3K", "MCAP_LIQ_GT_25X"),
+        "CORE" to setOf("MCAP_LT_10K", "MCAP_GT_5M", "LIQ_LT_3K", "LIQ_GT_250K", "MCAP_LIQ_GT_25X"),
+        "QUALITY" to setOf("LIQ_LT_3K", "MCAP_LIQ_GT_25X"),
+        "BLUECHIP" to setOf("LIQ_LT_3K"),
+        "TREASURY" to setOf("MCAP_LT_10K", "MCAP_GT_5M", "MCAP_LIQ_GT_25X"),
+        "CASHGEN" to setOf("MCAP_GT_5M", "MCAP_LIQ_GT_25X", "BP_LT_45"),
+        "CYCLIC" to setOf("MCAP_LIQ_GT_25X"),
+        "DIP_HUNTER" to setOf("MCAP_GT_5M", "LIQ_GT_250K", "MCAP_LIQ_GT_25X"),
+    )
+
+    /** Pure (V5.0.8383): every envelope band [f] breaks (unknown = no verdict), lane-independent. */
+    fun envelopeBreaks8383(f: F): List<String> = buildList {
+        if (f.mcap.isFinite() && f.mcap > 0.0 && f.mcap < ENV_MCAP_MIN_8383) add("MCAP_LT_10K")
+        if (f.mcap.isFinite() && f.mcap > ENV_MCAP_MAX_8383) add("MCAP_GT_5M")
+        if (f.liq.isFinite() && f.liq > 0.0 && f.liq < ENV_LIQ_MIN_8383) add("LIQ_LT_3K")
+        if (f.liq.isFinite() && f.liq > ENV_LIQ_MAX_8383) add("LIQ_GT_250K")
+        if (f.mcap.isFinite() && f.liq.isFinite() && f.liq > 0.0 && f.mcap / f.liq > ENV_MCAP_TO_LIQ_MAX_8383) add("MCAP_LIQ_GT_25X")
+        if (f.bp.isFinite() && f.bp < ENV_BP_MIN_8383) add("BP_LT_45")
+    }
+
+    /** Pure (V5.0.8383): null when [f] sits inside [lane]'s tradable envelope, else the first band of the lane's own cuts it breaks. */
+    fun envelope8383(lane: String, f: F): String? {
+        val cuts = ENVELOPE_CUTS_8383[lane] ?: return null
+        return envelopeBreaks8383(f).firstOrNull { it in cuts }
+    }
+
+    private fun mcapToLiq8383(f: F): Double = if (f.mcap.isFinite() && f.liq.isFinite() && f.liq > 0.0) f.mcap / f.liq else Double.NaN
+    /** Rising 1h trend, pulled back 10-50% from the peak, buyers back in, 5m no longer falling. */
+    private val TREND_PULLBACK_8383 = Setup("TREND_PULLBACK_8383", FLOW) { f ->
+        ge(f.chg1h, 30.0) && ok(f.dd, 10.0, 50.0) && ge(f.bp, 55.0) && ge(f.chg5m, -2.0) }
+    /** The highest-runner band: 10k-50k cap with 3-8x cap/liquidity, buyers in control and 5m flat-to-up. */
+    private val SWEET_SPOT_8383 = Setup("SWEET_SPOT_8383", FLOW) { f ->
+        ok(f.mcap, 10_000.0, 50_000.0) && ok(mcapToLiq8383(f), 3.0, 8.0) && ge(f.bp, 55.0) && ge(f.chg5m, 0.0) }
+    /** Momentum inside the band: +10..30% 5m on a +30% 1h, buyers 55-80% (not a blow-off). */
+    private val BAND_MOMENTUM_8383 = Setup("BAND_MOMENTUM_8383", FLOW) { f ->
+        ok(f.chg5m, 10.0, 30.0) && ge(f.chg1h, 30.0) && ok(f.bp, 55.0, 80.0) }
+    /** A proven run (70%+ from the low) holding a 10-50% pullback with buyers present. */
+    private val RUNUP_HOLD_8383 = Setup("RUNUP_HOLD_8383", FLOW) { f ->
+        ge(f.runup, 70.0) && ok(f.dd, 10.0, 50.0) && ge(f.bp, 50.0) && ge(f.chg5m, -2.0) }
+    /** Off the top (0.5-0.88 of peak) in an up hour, buyers reclaiming. */
+    private val PEAK_RECLAIM_8383 = Setup("PEAK_RECLAIM_8383", FLOW) { f ->
+        ok(f.pxPeak, 0.5, 0.88) && ge(f.chg1h, 5.0) && ge(f.bp, 55.0) && ge(f.chg5m, 0.0) }
+    /** CASHGEN / TREASURY: the young (<= 60 min) liquid coin (labels: 45-50% positive vs 11-14% past a day). */
+    private val YOUNG_LIQUID_8383 = Setup("YOUNG_LIQUID_8383", FLOW) { f ->
+        le(f.age, 60.0) && ge(f.bp, 45.0) && ge(f.chg5m, 0.0) }
+    /** TREASURY / CASHGEN / BLUECHIP: the strong hour (+100%) or a 400%+ run holding a 25-50% pullback. */
+    private val STRONG_TREND_8383 = Setup("STRONG_TREND_8383", FLOW) { f ->
+        (ge(f.chg1h, 100.0) && ge(f.bp, 45.0)) || (ge(f.runup, 400.0) && ok(f.dd, 25.0, 50.0) && ge(f.bp, 45.0)) }
+    /** CYCLIC: deep liquidity for its cap (<3x) in the 10k-250k band (35-38% positive, runner bins 12-14%). */
+    private val DEEP_RATIO_8383 = Setup("DEEP_RATIO_8383", FLOW) { f ->
+        le(mcapToLiq8383(f), 3.0) && ok(f.mcap, 10_000.0, 250_000.0) && ge(f.bp, 45.0) }
+    /** DIP_HUNTER: the dip inside a +30..100% hour with 55-80% buyers (48% positive, 16% runners). */
+    private val TREND_DIP_8383 = Setup("TREND_DIP_8383", FLOW) { f ->
+        ok(f.chg1h, 30.0, 100.0) && ok(f.bp, 55.0, 80.0) && ok(f.dd, 5.0, 50.0) }
+    private val MEME_8383 = listOf(TREND_PULLBACK_8383, SWEET_SPOT_8383, BAND_MOMENTUM_8383, RUNUP_HOLD_8383, PEAK_RECLAIM_8383)
+    /** V5.0.8383 — the evidence-built setups each lane adds (appended after every earlier menu bin). */
+    private val ADDED_8383: Map<String, List<Setup>> = mapOf(
+        "SHITCOIN" to MEME_8383, "MOONSHOT" to MEME_8383, "EXPRESS" to MEME_8383, "MANIPULATED" to MEME_8383,
+        "PROJECT_SNIPER" to MEME_8383, "CORE" to MEME_8383, "QUALITY" to MEME_8383,
+        "BLUECHIP" to listOf(TREND_PULLBACK_8383, RUNUP_HOLD_8383, STRONG_TREND_8383, PEAK_RECLAIM_8383),
+        "TREASURY" to listOf(STRONG_TREND_8383, RUNUP_HOLD_8383, YOUNG_LIQUID_8383, TREND_PULLBACK_8383),
+        "CASHGEN" to listOf(YOUNG_LIQUID_8383, STRONG_TREND_8383, TREND_PULLBACK_8383),
+        "CYCLIC" to listOf(DEEP_RATIO_8383, BAND_MOMENTUM_8383, TREND_PULLBACK_8383),
+        "DIP_HUNTER" to listOf(TREND_DIP_8383, TREND_PULLBACK_8383),
+    )
+    /**
+     * V5.0.8383 — (lane, setup) pairs the network proved losing (PB|lane|setup n>=150, mean < 0, win rate and runner rate
+     * at or below the lane's own average). They stay in the library and menu ids; they no longer fire as a lane's strategy.
+     */
+    internal val RETIRED_8383: Map<String, Set<String>> = mapOf(
+        "BLUECHIP" to setOf("QUIET_ACCUMULATION", "BUYERS_DOMINATING", "RS_IN_WEAK_MARKET", "FLAG_CONTINUATION"),
+        "CASHGEN" to setOf("BUYERS_DOMINATING", "QUIET_ACCUMULATION", "RECLAIM_AFTER_WEAKNESS"),
+        "CORE" to setOf("BUYERS_DOMINATING", "QUIET_ACCUMULATION"),
+        "CYCLIC" to setOf("QUIET_ACCUMULATION", "BUYERS_DOMINATING"),
+        "EXPRESS" to setOf("PRE_IGNITION_BASE", "QUIET_ACCUMULATION", "LAUNCH_CONTINUATION", "LIVESTREAM_LAUNCH", "HIGHER_LOW_CONTINUATION"),
+        "MANIPULATED" to setOf("GRADUATION_APPROACH", "MICRO_CAP_IGNITION", "LIVESTREAM_LAUNCH"),
+        "MOONSHOT" to setOf("PRE_IGNITION_BASE", "BUYERS_DOMINATING", "LAUNCH_CONTINUATION", "LIVESTREAM_LAUNCH", "FLAG_CONTINUATION", "QUIET_ACCUMULATION"),
+        "PROJECT_SNIPER" to setOf("VERIFIED_LAUNCH", "PRE_IGNITION_BASE", "LOW_RUNUP_BASE", "LIVESTREAM_LAUNCH", "BUYERS_DOMINATING",
+            "GRADUATION_APPROACH", "MICRO_CAP_IGNITION"),
+        "QUALITY" to setOf("QUIET_ACCUMULATION", "BUYERS_DOMINATING"),
+        "SHITCOIN" to setOf("LAUNCH_CONTINUATION", "QUIET_ACCUMULATION", "PRE_IGNITION_BASE", "BUYERS_DOMINATING", "FLAG_CONTINUATION",
+            "HIGHER_LOW_PULLBACK", "MICRO_FLAG", "LIVESTREAM_LAUNCH", "ACCELERATING_TAPE", "HIGHER_LOW_CONTINUATION", "COLOUR_SEQUENCE"),
+        "TREASURY" to setOf("BUYERS_DOMINATING", "QUIET_ACCUMULATION"),
+    )
+    fun retired8383(lane: String, setup: String): Boolean = RETIRED_8383[lane]?.contains(setup) == true
+    private val envelopeCounts8383 = ConcurrentHashMap<String, AtomicLong>()
+    private val retiredSkips8383 = ConcurrentHashMap<String, AtomicLong>()
+
     /** V5.0.8061 — library setups each meme lane's menu skipped (appended; never duplicates its own menu). */
     private val CROSS_8061: Map<String, List<Setup>> = mapOf(
         "SHITCOIN" to listOf(BREAKOUT_RUNNER, RS_LEADER, VOLUME_IGNITION, MOMENTUM_PULLBACK_5M, HIGHER_LOW_CONTINUATION, HIGHER_LOW_PULLBACK,
@@ -525,7 +642,14 @@ object LanePlaybook7907 {
     private fun menuOf7962(lane: String): List<Setup>? = MENU[lane]?.let { base ->
         val upTo7978 = (if (lane in EXPERT_LANES_7962) base + EXPERT_ENTRY_7962 else base) +
             (if (lane in MEME_LANES_7978) MEME_EXTRAS_7978 else OTHER_EXTRAS_7978)   // V5.0.7978
-        upTo7978 + extras8061(lane, upTo7978)   // V5.0.8061
+        val upTo8061 = upTo7978 + extras8061(lane, upTo7978)   // V5.0.8061
+        upTo8061 + added8383(lane, upTo8061)   // V5.0.8383
+    }
+
+    /** V5.0.8383 — this lane's evidence-built setups, never one its menu already has. */
+    private fun added8383(lane: String, existing: List<Setup>): List<Setup> {
+        val have = existing.map { it.id }.toHashSet()
+        return ADDED_8383[lane].orEmpty().filter { have.add(it.id) }
     }
 
     /** Pure: the setups of [lane]'s menu that [f] fires (empty = no trigger; unknown lane = null). */
@@ -545,6 +669,8 @@ object LanePlaybook7907 {
     }
 
     fun menuIds(lane: String): List<String> = menuOf7962(lane)?.map { it.id }.orEmpty()
+    /** V5.0.8383 — the lanes that have a playbook (each must carry an envelope evidence row). */
+    fun menuLanes8383(): Set<String> = MENU.keys
 
     // ── features ──
 
@@ -855,7 +981,7 @@ object LanePlaybook7907 {
     }
 
     private fun priorOf(lane: String, setup: String): Double =
-        if (setup == NO_TRIGGER) -1.0 else if (setup in UNCLASSIFIED_8087) 0.0 else menuOf7962(lane)?.firstOrNull { it.id == setup }?.prior ?: 0.0
+        if (setup == NO_TRIGGER || setup == OUTSIDE_ENVELOPE_8383) -1.0 else if (setup in UNCLASSIFIED_8087) 0.0 else menuOf7962(lane)?.firstOrNull { it.id == setup }?.prior ?: 0.0
 
     /** Shrunk expected net % of (lane, setup). Caller holds the lock. */
     private fun expected(lane: String, setup: String): Double {
@@ -1033,8 +1159,22 @@ object LanePlaybook7907 {
     internal fun evaluate8084(lane: String, f: F, fp: Int, nowMs: Long): Classification8084 {
         val det = matchDetailed8084(lane, f)
             ?: return Classification8084(lane, Outcome8084.NO_PLAYBOOK, null, emptyList(), emptyList(), emptyList(), fp, nowMs, "no playbook")
-        val (fired, errs) = det
+        val (fired0, errs) = det
         val missing = f.obs8084.filterValues { it != Obs8084.OBSERVED }.map { (k, v) -> "$k:${v.name}" }
+        // V5.0.8383 — a coin outside the evidence-backed envelope is its own measured cohort, whatever else is missing
+        // (its band is known), so it neither trades as a setup nor spends the data layer's re-fetch budget.
+        envelope8383(lane, f)?.let { why ->
+            envelopeCounts8383.computeIfAbsent("$lane|$why") { AtomicLong(0) }.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("SETUP_OUTSIDE_ENVELOPE_8383_$why"); PipelineHealthCollector.labelInc("SETUP_OUTSIDE_ENVELOPE_8383_$lane") } catch (_: Throwable) {}
+            return Classification8084(lane, Outcome8084.NO_MATCH, null, emptyList(), missing, errs, fp, nowMs,
+                "outside tradable envelope: $why", envelope8383 = why)
+        }
+        // V5.0.8383 — network-proven losers no longer fire as this lane's strategy.
+        val fired = fired0.filter { !retired8383(lane, it) }
+        if (fired.size != fired0.size) {
+            retiredSkips8383.computeIfAbsent(lane) { AtomicLong(0) }.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("SETUP_RETIRED_SKIPPED_8383_$lane") } catch (_: Throwable) {}
+        }
         val best = if (fired.isEmpty()) null else { ensureLoaded(); synchronized(this) { LaneCheatSheet8323.choose8323(lane, fired.map { setupEvidence8077(lane, it) })?.id } }  // V5.0.8323
         val coreMissing = CORE_8084.filter { (f.obs8084[it] ?: Obs8084.UNKNOWN) != Obs8084.OBSERVED }
             .map { "$it:${f.obs8084[it]?.name ?: Obs8084.UNKNOWN.name}" }
@@ -1148,6 +1288,10 @@ object LanePlaybook7907 {
             val why: String? = synchronized(this) {
                 val st = stat(lane, setup)
                 when {
+                    // V5.0.8383 — outside the envelope the network's bins measured 0-9% positive: live refuses until this
+                    // lane's own OUTSIDE_ENVELOPE record (n >= 30) is no longer losing. Paper keeps grading it.
+                    setup == OUTSIDE_ENVELOPE_8383 && (st == null || st.n < LOSING_N || st.mean() < 0.0) ->
+                        "PLAYBOOK_OUTSIDE_ENVELOPE_8383_$lane"
                     // V5.0.7930 — a NO_TRIGGER record proven to lose is evidence, not a prior.
                     setup == NO_TRIGGER && st != null && provenLosing(st, runner) -> "PLAYBOOK_NO_TRIGGER_PROVEN_LOSING_7907_$lane"
                     // V5.0.7936 — an unmeasured NO_TRIGGER explores (it has to trade to
@@ -2149,9 +2293,11 @@ object LanePlaybook7907 {
                 (if (lane in MEME_LANES_7978) MEME_EXTRAS_7978 else OTHER_EXTRAS_7978)
             extras8061(lane, upTo7978).map { it.id }
         }.orEmpty()
-        val menu = menuIds(lane).filter { it !in added7962 && it !in added8061 }
+        // V5.0.8383 — the evidence-built setups appended after every earlier bin too.
+        val added8383 = ADDED_8383.values.flatten().map { it.id }.distinct()
+        val menu = menuIds(lane).filter { it !in added7962 && it !in added8061 && it !in added8383 }
         val i = menu.indexOf(id)
-        val j = (added7962 + added8061).indexOf(id)
+        val j = (added7962 + added8061.filter { it !in added8383 } + added8383).indexOf(id)
         return (if (i >= 0) i else if (j >= 0) menu.size + 1 + j else menu.size).toDouble()
     }
 
@@ -2353,7 +2499,10 @@ object LanePlaybook7907 {
                     .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" }
                 val fwd = outcomeForward8084.entries.filter { it.key.startsWith("$lane|") }
                     .joinToString(",") { (k, a) -> "${k.substringAfter('|')} n${a[0].toInt()} ${outcomeMean8187(a)}" }.ifBlank { "-" }
-                "      $lane tagged{$tags} record: $rec\n        8084 outcomes{$oc} missing{$miss} forward-by-outcome{$fwd}"
+                val env8383 = envelopeCounts8383.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }
+                    .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" }
+                "      $lane tagged{$tags} record: $rec\n        8084 outcomes{$oc} missing{$miss} forward-by-outcome{$fwd}" +
+                    "\n        8383 outsideEnvelope{$env8383} retiredSkipped=${retiredSkips8383[lane]?.get() ?: 0L} retired=${RETIRED_8383[lane].orEmpty().size}"
             }
             "rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · measured setups expected to lose refused (7948) · setup auth>=0.5 admits over a smaller cell (7955) · paper never refused\n" +
                 "      refusals: ${refusals.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +
