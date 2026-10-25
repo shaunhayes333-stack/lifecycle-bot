@@ -79,6 +79,24 @@ object CostTrim8151 {
         else legacyTipLamports.coerceAtMost(ORDINARY_SENDER_TIP_LAMPORTS_8151).coerceAtLeast(SWQOS_MIN_TIP_LAMPORTS_8151)
 
     /**
+     * V5.0.8378 — Pure: does a sell keep the legacy (full) Sender tip? Yes for an urgent send, a stop / hard stop / rug /
+     * manual exit, a structural emergency or capital-preservation exit, and a retry after an accepted sell never landed.
+     * Everything else (take-profit, trail, time, rotation, dust, orphan) is ordinary.
+     */
+    fun sellProtective8378(reason: String?, urgent: Boolean, previousSellUnlanded: Boolean): Boolean {
+        if (urgent || previousSellUnlanded) return true
+        val r = reason.orEmpty()
+        if (com.lifecyclebot.engine.sell.SellSafetyPolicy.isEmergencyExit(r)) return true
+        if (com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(r) || com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(r)) return true
+        if (try { com.lifecyclebot.engine.sell.ProtectiveExitClass7807.acceptsPoorImpact(r) } catch (_: Throwable) { true }) return true
+        return when (try { com.lifecyclebot.engine.sell.SellSafetyPolicy.classify(r) } catch (_: Throwable) { com.lifecyclebot.engine.sell.ExitReason.UNKNOWN }) {
+            com.lifecyclebot.engine.sell.ExitReason.STOP_LOSS, com.lifecyclebot.engine.sell.ExitReason.HARD_STOP,
+            com.lifecyclebot.engine.sell.ExitReason.RUG_DRAIN, com.lifecyclebot.engine.sell.ExitReason.MANUAL_FULL_EXIT -> true
+            else -> false
+        }
+    }
+
+    /**
      * Pure: an ORDINARY transaction's CU price (micro-lamports). The market's medium reading (high, then [floorMicro],
      * when there is none), never above the high reading, and never spending more than [ORDINARY_PRIORITY_SHARE_8151]
      * of [tradeLamports] over [EST_SWAP_CU_8151] units; never below [floorMicro].
@@ -226,6 +244,17 @@ object CostMeter8151 {
     private const val ALPHA = 0.2
     @Volatile private var feeLamportsEwma = Double.NaN
     @Volatile private var tipLamportsEwma = Double.NaN
+    // V5.0.8378 — what sells actually tip (Executor.sellSenderTip8378): ordinary exits pay the SWQOS ordinary tip, protective
+    // ones the legacy floor. NaN until a sell is tipped; the round trip keeps the legacy figure until then.
+    @Volatile private var sellTipLamportsEwma8378 = Double.NaN
+    private val ordinarySellTips8378 = AtomicLong(0)
+    private val protectiveSellTips8378 = AtomicLong(0)
+
+    /** Executor.sellSenderTip8378: one sell leg's tip ([protective] = stop / rug / emergency / unlanded retry). */
+    fun noteSellTip8378(tipLamports: Long, protective: Boolean) {
+        if (tipLamports > 0L) sellTipLamportsEwma8378 = CostTrim8151.ewma8151(sellTipLamportsEwma8378, tipLamports.toDouble(), ALPHA)
+        (if (protective) protectiveSellTips8378 else ordinarySellTips8378).incrementAndGet()
+    }
     @Volatile private var lastTicketSol = Double.NaN
     @Volatile private var lastRoundTripPct = Double.NaN
     private val legs = AtomicLong(0)
@@ -283,13 +312,16 @@ object CostMeter8151 {
         if (!fee.isFinite() && !tip.isFinite()) return 2.0 * CostTrim8151.FALLBACK_FIXED_LEG_SOL_8151
         val feePart = if (fee.isFinite()) fee else CostTrim8151.BASE_FEE_LAMPORTS_8151.toDouble()
         val entryTip = if (tip.isFinite()) tip else SELL_TIP_ASSUMED_LAMPORTS
-        return (2.0 * feePart + entryTip + SELL_TIP_ASSUMED_LAMPORTS) / 1e9
+        val sellTip8378 = if (sellTipLamportsEwma8378.isFinite()) sellTipLamportsEwma8378 else SELL_TIP_ASSUMED_LAMPORTS
+        return (2.0 * feePart + entryTip + sellTip8378) / 1e9
     }
 
     /** One sell leg's fixed cost (SOL): measured network fee + the legacy sell tip; the fallback before any leg. */
     fun sellLegFixedSol8151(): Double {
         val fee = feeLamportsEwma
-        return if (!fee.isFinite()) CostTrim8151.FALLBACK_FIXED_LEG_SOL_8151 else (fee + SELL_TIP_ASSUMED_LAMPORTS) / 1e9
+        // V5.0.8378 — the measured sell tip once a sell has been tipped (ordinary exits no longer pay the legacy floor).
+        val sellTip8378 = if (sellTipLamportsEwma8378.isFinite()) sellTipLamportsEwma8378 else SELL_TIP_ASSUMED_LAMPORTS
+        return if (!fee.isFinite()) CostTrim8151.FALLBACK_FIXED_LEG_SOL_8151 else (fee + sellTip8378) / 1e9
     }
 
     private val boundedExec8151: java.util.concurrent.ExecutorService by lazy {
@@ -340,6 +372,8 @@ object CostMeter8151 {
             "ordinaryTips=${ordinaryTips.get()} tipSavedSol=${"%.6f".format(tipSavedLamports.get() / 1e9)} aggregatorFirst=${aggregatorFirst.get()} " +
             "simRefused=${simRefused.get()} partialFixedHeld=${partialFixedHeld.get()} rentOpenedSol=${"%.5f".format(rentOpenedLamports.get() / 1e9)} " +
             "rentClosedInTxSol=${"%.5f".format(rentClosedInTxLamports.get() / 1e9)} appFee=${CostTrim8151.APP_FEE_PCT_PER_SIDE_8151}%/side" +
+            " sellTips8378[ordinary=${ordinarySellTips8378.get()} protective=${protectiveSellTips8378.get()} " +
+            "avgLamports=${if (sellTipLamportsEwma8378.isFinite()) sellTipLamportsEwma8378.toLong().toString() else "-"}]" +
             " " + landing8169()
     }
 
@@ -357,6 +391,7 @@ object CostMeter8151 {
 
     internal fun resetForTest8151() {
         feeLamportsEwma = Double.NaN; tipLamportsEwma = Double.NaN; lastTicketSol = Double.NaN; lastRoundTripPct = Double.NaN
+        sellTipLamportsEwma8378 = Double.NaN; ordinarySellTips8378.set(0); protectiveSellTips8378.set(0)
         legs.set(0); failedLegs.set(0); failedFeeLamports.set(0); rentOpenedLamports.set(0); rentClosedInTxLamports.set(0)
         ordinaryTips.set(0); tipSavedLamports.set(0); aggregatorFirst.set(0); simRefused.set(0); partialFixedHeld.set(0)
         aggregatorTriedAt.clear()

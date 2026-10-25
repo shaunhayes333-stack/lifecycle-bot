@@ -34,8 +34,10 @@ object RentReclaimer7927 {
     private val skippedProtected = AtomicLong(0)
     @Volatile private var lastError = ""
     // V5.0.8102 — 5.0.8098: lastError=custom program error: 0x23 every pass. Token-2022 error 35 is
-    // AccountHasWithheldTransferFees: the account cannot close until its withheld fees are harvested to the mint, which
-    // only the mint's withdraw authority can do. Such an account is skipped for the rest of the process.
+    // AccountHasWithheldTransferFees: the account cannot close until its withheld fees are harvested to the mint.
+    // superseded by V5.0.8378 — harvesting TO THE MINT is permissionless (only withdrawing FROM the mint needs the
+    // authority): a 0x23 account is now harvested and closed in one tx (SolanaWallet.harvestAndCloseTokenAccount8378).
+    // Only an account whose harvest+close also fails is skipped for the rest of the process.
     private val unclosable8102 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     /** Pure: does a close failure say the account holds withheld Token-2022 transfer fees (error 0x23)? */
@@ -220,8 +222,8 @@ object RentReclaimer7927 {
         }
     }
 
-    private fun closeBatch(wallet: com.lifecyclebot.network.SolanaWallet, batch: List<com.lifecyclebot.network.SolanaWallet.EmptyTokenAccount7927>): Boolean =
-        try {
+    private fun closeBatch(wallet: com.lifecyclebot.network.SolanaWallet, batch: List<com.lifecyclebot.network.SolanaWallet.EmptyTokenAccount7927>): Boolean {
+        return try {
             val sig = wallet.closeTokenAccounts7927(batch)
             val lamports = batch.sumOf { it.lamports }
             closed.addAndGet(batch.size.toLong())
@@ -238,15 +240,42 @@ object RentReclaimer7927 {
             failed.incrementAndGet()
             // V5.0.8095 — keep the END of the message: the instruction error code is what names the cause.
             lastError = "close:${t.message?.takeLast(90) ?: t.javaClass.simpleName}"
-            if (batch.size == 1 && withheldFeesRefusal8102(t.message)) unclosable8102.add(batch[0].address)
+            if (batch.size == 1 && withheldFeesRefusal8102(t.message)) {
+                // V5.0.8378 — harvest the withheld fees to the mint (permissionless), then close: the rent comes back.
+                if (harvestAndClose8378(wallet, batch[0])) return true
+                unclosable8102.add(batch[0].address)
+            }
             try { PipelineHealthCollector.labelInc("RENT_RECLAIM_7927_FAILED") } catch (_: Throwable) {}
             false
         }
+    }
+
+    private val harvested8378 = AtomicLong(0)
+    private val harvestFailed8378 = AtomicLong(0)
+
+    private fun harvestAndClose8378(wallet: com.lifecyclebot.network.SolanaWallet, a: com.lifecyclebot.network.SolanaWallet.EmptyTokenAccount7927): Boolean {
+        if (a.programId != "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb") return false
+        return try {
+            val sig = wallet.harvestAndCloseTokenAccount8378(a)
+            closed.incrementAndGet(); reclaimedLamports.addAndGet(a.lamports); harvested8378.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("RENT_RECLAIM_HARVESTED_CLOSED_8378")
+                ForensicLogger.lifecycle("RENT_RECLAIM_HARVEST_8378", "mint=${a.mint.take(6)} reclaimedSol=${"%.6f".format(a.lamports / 1e9)} sig=${sig.take(16)}")
+            } catch (_: Throwable) {}
+            true
+        } catch (t: Throwable) {
+            harvestFailed8378.incrementAndGet()
+            lastError = "harvest:${t.message?.takeLast(90) ?: t.javaClass.simpleName}"
+            try { PipelineHealthCollector.labelInc("RENT_RECLAIM_HARVEST_FAILED_8378") } catch (_: Throwable) {}
+            false
+        }
+    }
 
     fun statusLine(): String =
         "closed=${closed.get()} reclaimedSol=${"%.5f".format(reclaimedLamports.get() / 1e9)} failed=${failed.get()} " +
             "protectedSkips=${skippedProtected.get()} lastRunAgoSec=${if (lastRunMs > 0) (System.currentTimeMillis() - lastRunMs) / 1000 else -1} " +
             "lastError=${lastError.ifBlank { "-" }} withheldFeeSkips8102=${unclosable8102.size} " +
+            "harvestClosed8378=${harvested8378.get()} harvestFailed8378=${harvestFailed8378.get()} " +
             "afterExit8151=${targetedClosed8151.get()} afterExitSol8151=${"%.5f".format(targetedLamports8151.get() / 1e9)} " +
             "afterExitWaiting8151=${targetedSkipped8151.get()} queued8151=${targetedDue8151.size} " +
             "rentLocked8369=${if (lockedLamports8369 < 0L) "-" else "%.5f".format(lockedLamports8369 / 1e9)}SOL/${lockedAccounts8369}acct " +

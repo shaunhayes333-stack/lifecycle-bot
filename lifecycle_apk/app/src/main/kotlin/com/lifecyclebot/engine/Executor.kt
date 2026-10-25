@@ -2712,6 +2712,27 @@ class Executor(
         return tip
     }
 
+    /**
+     * V5.0.8378 — a SELL's Sender tip by what the sell is. Every sell used to pay the legacy 200k-lamport floor
+     * ([effectiveSenderTipLamports]), ~0.85 % of a 0.024 SOL ticket per exit, so the round trip (and every entry's 1.5x bar)
+     * carried it. An ordinary exit (take-profit, trail, time, rotation, dust, orphan) now pays the SWQOS ordinary tip
+     * (CostTrim8151, the same tip ordinary partial slices pay since 8151). Protective exits keep the full floor: an urgent
+     * send ([urgent]: drain / profit capture / runner break), a stop / hard stop / rug / manual exit, a structural
+     * emergency, and any mint whose previous sell was accepted and never landed (pay to land on the retry).
+     */
+    private fun sellSenderTip8378(c: com.lifecyclebot.data.BotConfig, reason: String?, mint: String, urgent: Boolean): Long {
+        val legacy = effectiveSenderTipLamports(c, urgent)
+        val protective = CostTrim8151.sellProtective8378(reason, urgent, mint.isNotBlank() && sellUnlanded8164(mint))
+        val tip = if (protective) legacy else CostTrim8151.senderTipLamports8151(CostTrim8151.Urgency8151.ORDINARY, legacy)
+        try { CostMeter8151.noteSellTip8378(tip, protective) } catch (_: Throwable) {}
+        return tip
+    }
+
+    /** V5.0.8378 — liveSellInScope7314's short forms (ART method budget: that method may only shrink). */
+    private fun sellTip8378(c: com.lifecyclebot.data.BotConfig, reason: String, ts: TokenState, urgent: Boolean): Long =
+        sellSenderTip8378(c, reason, ts.mint, urgent)
+    private fun dustTip8378(c: com.lifecyclebot.data.BotConfig, ts: TokenState): Long = sellSenderTip8378(c, "DUST_BUSTER", ts.mint, false)
+
     /** V5.0.8151 — an entry is ORDINARY unless the runner grab marked it to land next slot (RunnerGrab7967). */
     private fun entryOrdinary8151(mint: String): Boolean = false   // V5.0.8337 — entries pay to land, as at 8114 (PumpPortal landed 3/18 vs Jupiter 25/25 after the 8151 trim); the 8169/8173 urgent exemptions are moot while every entry is URGENT
 
@@ -7814,7 +7835,7 @@ class Executor(
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                     val txResult = buildTxWithRetry(
                         activeQuote7228, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
-                        senderTipLamports = effectiveSenderTipLamports(c, urgent = isDrainExit),
+                        senderTipLamports = sellSenderTip8378(c, reason, ts.mint, urgent = isDrainExit),
                     )
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -24571,7 +24592,7 @@ class Executor(
                             }
                             val txResult = buildTxWithRetry(
                                 quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
-                                senderTipLamports = effectiveSenderTipLamports(c, urgent = isDrainExit || spike7944),
+                                senderTipLamports = sellSenderTip8378(c, reason, ts.mint, urgent = isDrainExit || spike7944),
                             )
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -28718,7 +28739,7 @@ class Executor(
                     if (!ProfitExitTruth8163.acceptQuote(ts, reason, quote!!, dynSlipCap)) return SellResult.FAILED_RETRYABLE
                     val txResult = buildTxWithRetry(
                         quote!!, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
-                        senderTipLamports = effectiveSenderTipLamports(c, urgent = fastLand7980),
+                        senderTipLamports = sellTip8378(c, reason, ts, fastLand7980),
                     )
                     onLog("📊 SELL DEBUG: Transaction built | requestId=${txResult.requestId?.take(16) ?: "none"}", tradeId.mint)
                     LiveTradeLogStore.log(
@@ -29267,7 +29288,7 @@ class Executor(
                                                                        sellTaker = wallet.publicKeyB58)
                             val dustTx = buildTxWithRetry(
                                 dustQuote, wallet.publicKeyB58,
-                                senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
+                                senderTipLamports = dustTip8378(c, ts),
                             )
                             val dustSig = sellSend8085(wallet, ts.mint, dustTx, c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
                                 if (dustQuote.isUltra) dustTx.requestId else null, c).signature
@@ -29340,7 +29361,7 @@ class Executor(
                                                                            sellTaker = wallet.publicKeyB58)
                                 val dustTx = buildTxWithRetry(
                                 dustQuote, wallet.publicKeyB58,
-                                senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
+                                senderTipLamports = dustTip8378(c, ts),
                             )
                                 val dustSig = sellSend8085(wallet, ts.mint, dustTx, c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
                                     if (dustQuote.isUltra) dustTx.requestId else null, c).signature
@@ -31551,7 +31572,7 @@ class Executor(
                 mint, JupiterApi.SOL_MINT, orphanJupiterPlan.rawAmount, sellSlippage, isBuy = false)
             val txResult = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
-                        senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
+                        senderTipLamports = sellSenderTip8378(c, "ORPHAN_SELL", mint, urgent = false),
                     )
             
             val useJito = c.jitoEnabled && !quote.isUltra

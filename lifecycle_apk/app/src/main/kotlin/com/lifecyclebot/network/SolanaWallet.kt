@@ -2154,6 +2154,43 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     }
 
     /**
+     * V5.0.8378 — close ONE empty Token-2022 account that holds withheld transfer fees (CloseAccount fails 0x23,
+     * AccountHasWithheldTransferFees). HarvestWithheldTokensToMint is PERMISSIONLESS (token-2022
+     * extension/transfer_fee/instruction.rs: "Permissionless instruction to transfer all withheld tokens to the mint";
+     * accounts [writable mint, writable source...]; data = TokenInstruction::TransferFeeExtension (26) +
+     * TransferFeeInstruction::HarvestWithheldTokensToMint (4)). It moves the withheld fee TOKENS to the mint (they are the
+     * mint's fees, never the owner's balance); CloseAccount then returns the rent to the owner. One atomic tx: harvest then
+     * close; if either fails nothing changes.
+     */
+    fun harvestAndCloseTokenAccount8378(account: EmptyTokenAccount7927): String {
+        require(account.programId == TOKEN_2022_PROGRAM_7927) { "harvest applies to Token-2022 accounts only" }
+        val bhResp = rpc("getLatestBlockhash", JSONArray().put(JSONObject().put("commitment", "confirmed")))
+        val blockhash = bhResp.optJSONObject("result")?.optJSONObject("value")?.optString("blockhash")
+            ?.takeIf { it.isNotBlank() } ?: throw Exception("Failed to fetch blockhash")
+        // Keys: 0 owner (signer, writable), 1 token account (writable), 2 mint (writable), 3 Token-2022 program (read-only).
+        val keys = listOf(publicKeyB58, account.address, account.mint, account.programId)
+        val msg = java.io.ByteArrayOutputStream().apply {
+            write(byteArrayOf(0x01, 0x00, 0x01))                 // 1 signer, 0 ro-signed, 1 ro-unsigned (program)
+            write(byteArrayOf(keys.size.toByte()))
+            for (k in keys) write(Base58.base58Decode(k))
+            write(Base58.base58Decode(blockhash))
+            write(byteArrayOf(0x02))                             // 2 instructions
+            write(byteArrayOf(0x03, 0x02, 0x02, 0x01))          // harvest: program 3, accounts [mint 2, source 1]
+            write(byteArrayOf(0x02, 26, 4))                      //   data: TransferFeeExtension, HarvestWithheldTokensToMint
+            write(byteArrayOf(0x03, 0x03, 0x01, 0x00, 0x00))    // close: program 3, accounts [account 1, dest owner 0, authority owner 0]
+            write(byteArrayOf(0x01, 0x09))                       //   data: TokenInstruction::CloseAccount
+        }.toByteArray()
+        val sig = TweetNaclFast.Signature(null, keyPair.secretKey).detached(msg)
+        val txB64 = android.util.Base64.encodeToString(byteArrayOf(0x01) + sig + msg, android.util.Base64.NO_WRAP)
+        val txResult = rpc("sendTransaction", JSONArray().put(txB64)
+            .put(JSONObject().put("encoding", "base64").put("preflightCommitment", "confirmed")))
+        val txSig = txResult.optString("result", "")
+        if (txSig.isBlank()) throw Exception("sendTransaction failed: ${txResult.optJSONObject("error")?.optString("message") ?: "unknown error"}")
+        awaitConfirmation(txSig)
+        return txSig
+    }
+
+    /**
      * Transfer SOL to a destination address — used for treasury withdrawals.
      * Constructs a legacy SystemProgram.transfer transaction, signs it with
      * the loaded keypair, broadcasts and awaits on-chain confirmation.
