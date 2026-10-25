@@ -57,6 +57,71 @@ object ExitRegret7752 {
     }
 
     private val pending = ConcurrentHashMap<String, Pending>()
+
+    // ── V5.0.8379 — after-exit horizons (owner option 3) ──
+    // Every live close is priced again 5, 15 and 60 minutes after the exit, by cohort: LAUNCH_HELD (the launch window held
+    // at least one of its exits), LAUNCH (bought under 30 min old, never held), OTHER; and by STOP vs other exits. A STOP
+    // cohort whose after% stays strongly positive is still selling coins before they run; LAUNCH_HELD vs LAUNCH is the test
+    // of LaunchWindow8379.
+    val HORIZONS_MIN_8379 = intArrayOf(5, 15, 60)
+    private const val PERSIST_KEY_8379 = "EXIT_REGRET_HORIZON_8379"
+    private class Horizon8379(val mint: String, val key: String, val exitPx: Double, val closeMs: Long, var next: Int = 0)
+    internal class HAgg8379 {
+        var n = 0; var sumAfter = 0.0; var up = 0; var ran50 = 0
+        fun add(after: Double) { n += 1; sumAfter += after; if (after > 0.0) up += 1; if (after >= 50.0) ran50 += 1 }
+        fun encode(): String = "$n,$sumAfter,$up,$ran50"
+        fun decode(s: String) { val f = s.split(','); if (f.size != 4) return
+            n = f[0].toIntOrNull() ?: 0; sumAfter = f[1].toDoubleOrNull() ?: 0.0; up = f[2].toIntOrNull() ?: 0; ran50 = f[3].toIntOrNull() ?: 0 }
+        fun line(): String = if (n == 0) "-" else "n=$n after=${"%+.1f".format(sumAfter / n)}% up=$up run50=$ran50"
+    }
+    private val horizons8379 = ConcurrentHashMap<String, Horizon8379>()
+    private val hAgg8379 = ConcurrentHashMap<String, HAgg8379>()   // "cohort|class|5m"
+    private val hLost8379 = AtomicLong(0)
+
+    /** Pure: the horizon cohort of a close. */
+    fun cohort8379(entryTokenAgeMs: Long?, heldByWindow: Boolean): String = when {
+        heldByWindow -> "LAUNCH_HELD"
+        entryTokenAgeMs != null && entryTokenAgeMs in 0L until com.lifecyclebot.engine.LaunchWindow8379.TOKEN_AGE_MS_8379 -> "LAUNCH"
+        else -> "OTHER"
+    }
+
+    private fun trackHorizons8379(env: CanonicalFinalizedTradeBus6464.Envelope, exitPx: Double) {
+        try {
+            val hold = env.holdingTimeMs.coerceAtLeast(0L)
+            val entryMs = env.atMs - hold
+            val birth = try { CanonicalTokenBirthTime7440.resolve(env.mint, env.atMs)?.birthMs } catch (_: Throwable) { null }
+            val held = try { com.lifecyclebot.engine.LaunchWindow8379.wasHeld8379(env.mint, env.atMs, hold + 60_000L) } catch (_: Throwable) { false }
+            val cls = if (isStopFamily7925(family(env.exitReason))) "STOP" else "EXIT"
+            horizons8379[env.tradeId] = Horizon8379(env.mint, "${cohort8379(birth?.let { entryMs - it }, held)}|$cls", exitPx, env.atMs)
+            if (horizons8379.size > 400) horizons8379.entries.removeIf { env.atMs - it.value.closeMs > 3L * 3_600_000L }
+        } catch (_: Throwable) {}
+    }
+
+    private fun tickHorizons8379(priceFor: (String) -> Double?, nowMs: Long, unpriced: MutableList<String>) {
+        var booked = false
+        for ((id, h) in horizons8379.entries.toList()) {
+            if (h.next >= HORIZONS_MIN_8379.size) { horizons8379.remove(id); continue }
+            val due = h.closeMs + HORIZONS_MIN_8379[h.next] * 60_000L
+            if (nowMs < due) continue
+            val px = (try { priceFor(h.mint) } catch (_: Throwable) { null })?.takeIf { it.isFinite() && it > 0.0 }
+                ?: offMarks[h.mint]?.takeIf { nowMs - it.second <= MARK_MAX_AGE_MS_7752 }?.first
+            if (px == null || ForwardReturnLabeler7731.basisSuspect7738(h.exitPx, px)) {
+                if (px != null || nowMs - due > 5L * 60_000L) { h.next += 1; hLost8379.incrementAndGet() } else unpriced.add(h.mint)
+                continue
+            }
+            synchronized(this) { hAgg8379.getOrPut("${h.key}|${HORIZONS_MIN_8379[h.next]}m") { HAgg8379() }.add((px / h.exitPx - 1.0) * 100.0) }
+            h.next += 1; booked = true
+            try { PipelineHealthCollector.labelInc("EXIT_REGRET_HORIZON_BOOKED_8379") } catch (_: Throwable) {}
+        }
+        if (booked) persist()
+    }
+
+    /** One report row per cohort|class: its 5 / 15 / 60 min after-exit read. */
+    fun horizonLine8379(): String = synchronized(this) {
+        hAgg8379.keys.map { it.substringBeforeLast('|') }.distinct().sorted().joinToString(" · ") { k ->
+            "$k[" + HORIZONS_MIN_8379.joinToString(" ") { m -> "${m}m:" + (hAgg8379["$k|${m}m"]?.line() ?: "-") } + "]"
+        }.ifBlank { "-" } + " pending=${horizons8379.size} lost=${hLost8379.get()}"
+    }
     private val byLane = ConcurrentHashMap<String, Agg>()
     private val byFamily = ConcurrentHashMap<String, Agg>()
     private val offMarks = ConcurrentHashMap<String, Pair<Double, Long>>()
@@ -87,6 +152,7 @@ object ExitRegret7752 {
                 if (m == null || nowMs - m.timestampMs > MARK_MAX_AGE_MS_7752) null else m.priceUsd.value.toDouble().takeIf { it.isFinite() && it > 0.0 }
             } catch (_: Throwable) { null }
         if (exitPx == null) { noExitMark.incrementAndGet(); return }
+        trackHorizons8379(env, exitPx)   // V5.0.8379
         val entryMs = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
         val due = maxOf(entryMs + HOLD_MS_7752, env.atMs + MIN_AFTER_CLOSE_MS_7752)
         pending[env.tradeId] = Pending(env.mint, CanonicalLaneIdentity6506.canonical(env.lane), family(env.exitReason), env.realizedReturnPct, exitPx, due,
@@ -104,8 +170,9 @@ object ExitRegret7752 {
         try { com.lifecyclebot.engine.market.LaunchTape7921.tick() } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.RentReclaimer7927.maybeRun() } catch (_: Throwable) {}
         ensureLoaded()
-        if (pending.isEmpty()) return
         val unpriced = ArrayList<String>()
+        tickHorizons8379(priceFor, nowMs, unpriced)   // V5.0.8379
+        if (pending.isEmpty()) { if (unpriced.isNotEmpty()) fetch(unpriced, nowMs); return }
         for ((id, p) in pending.entries.toList()) {
             if (nowMs < p.dueMs) continue
             val px = (try { priceFor(p.mint) } catch (_: Throwable) { null })?.takeIf { it.isFinite() && it > 0.0 }
@@ -170,6 +237,10 @@ object ExitRegret7752 {
                 o.optJSONObject("lane")?.let { j -> for (k in j.keys()) byLane.getOrPut(k) { Agg() }.decode(j.optString(k)) }
                 o.optJSONObject("family")?.let { j -> for (k in j.keys()) byFamily.getOrPut(k) { Agg() }.decode(j.optString(k)) }
             } catch (_: Throwable) {}
+            try {
+                val h = org.json.JSONObject(LearningPersistence.load(PERSIST_KEY_8379) ?: "{}")
+                for (k in h.keys()) hAgg8379.getOrPut(k) { HAgg8379() }.decode(h.optString(k))
+            } catch (_: Throwable) {}
         }
     }
 
@@ -181,6 +252,11 @@ object ExitRegret7752 {
                 o.put("family", org.json.JSONObject().also { j -> byFamily.forEach { (k, a) -> j.put(k, a.encode()) } })
             }
             LearningPersistence.save(PERSIST_KEY_7752, o.toString())
+        } catch (_: Throwable) {}
+        try {
+            val h = org.json.JSONObject()
+            synchronized(this) { hAgg8379.forEach { (k, a) -> h.put(k, a.encode()) } }
+            LearningPersistence.save(PERSIST_KEY_8379, h.toString())
         } catch (_: Throwable) {}
     }
 
@@ -341,6 +417,8 @@ object ExitRegret7752 {
         ensureLoaded()
         return synchronized(this) {
             "tracked=${pending.size} booked=${recorded.get()} noExitMark=${noExitMark.get()} lost=${lost.get()}\n" +
+                "      afterExit8379: ${horizonLine8379()}\n" +
+                "      ${try { com.lifecyclebot.engine.LaunchWindow8379.statusLine8379() } catch (_: Throwable) { "launchWindow8379=-" }}\n" +
                 "      byExit: ${byFamily.entries.sortedByDescending { it.value.n }.take(8).joinToString(" · ") { it.value.line(it.key) }.ifBlank { "-" }}\n" +
                 "      byLane: ${byLane.entries.sortedByDescending { it.value.n }.take(8).joinToString(" · ") { it.value.line(it.key) }.ifBlank { "-" }}\n" +
                 "      steering7877: stopMult[HARD_STOP-family]=${"%.2f".format(stopMult7877(familyRead("HARD_STOP", "STRICT_SL", "RAPID_CATASTROPHE_STOP", "STOP_LOSS", "STRUCTURE_STOP")))} underwaterExtended=${holdingPaid7877(familyRead("UNDERWATER_TIME_STOP"))}\n" +

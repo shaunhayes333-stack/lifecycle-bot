@@ -13,7 +13,9 @@ class Aate8020ExitTruthTest {
         assertTrue(core.contains("RunnerGrab7967.deferSell7967(ts, reason)"))
         // V5.0.8065 — + the lifecycle hold: three holds (lifecycle, runner, basis break) each withdraw the stamp.
         assertTrue(core.contains("LifecycleHold8065.defer8065(ts, reason)"))
-        assertTrue(core.split("ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)").size == 4)
+        // V5.0.8379 — + the launch window: four holds (lifecycle, launch window, runner, basis break) each withdraw the stamp.
+        assertTrue(core.contains("LaunchWindow8379.defer8379(ts, reason)"))
+        assertTrue(core.split("ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)").size == 5)
     }
 
     @Test fun aRedRunnerHoldNeedsATapeThatSaysTheRunStands() {

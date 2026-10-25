@@ -23645,6 +23645,12 @@ class Executor(
             try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
+        // V5.0.8379 — a coin in its launch window is not stopped out on noise above the window floor (LaunchWindow8379).
+        if (try { LaunchWindow8379.defer8379(ts, reason) } catch (_: Throwable) { null } != null) {
+            try { DecisionReasons8031.hold8031(ts, LaunchWindow8379.HOLD_LABEL_8379, reason) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
+            return SellResult.FAILED_RETRYABLE
+        }
         // V5.0.7967 — a grabbed runner holds through soft exits while its 1m structure stands.
         // V5.0.8020 — a deliberate hold / refusal withdraws the trigger stamp: 8018's NORMAL_STOP "queue" of 232 s
         // was the runner hold being timed as dispatch latency (ExitStageTiming7876 / ExitTelemetryStamper6732).
@@ -25036,6 +25042,11 @@ class Executor(
         // on STRICT_SL_-12, which calls doSell directly and never passed requestSellCore7948's hold.
         if (try { LifecycleHold8065.defer8065(ts, reason) } catch (_: Throwable) { null } != null) {
             try { DecisionReasons8031.hold8031(ts, "LIFECYCLE_HOLD_8065", reason) } catch (_: Throwable) {}
+            return SellResult.FAILED_RETRYABLE
+        }
+        // V5.0.8379 — the launch window at the lowest sell door too (STRICT_SL_* and riskCheck stops call doSell directly).
+        if (try { LaunchWindow8379.defer8379(ts, reason) } catch (_: Throwable) { null } != null) {
+            try { DecisionReasons8031.hold8031(ts, LaunchWindow8379.HOLD_LABEL_8379, reason) } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
 
