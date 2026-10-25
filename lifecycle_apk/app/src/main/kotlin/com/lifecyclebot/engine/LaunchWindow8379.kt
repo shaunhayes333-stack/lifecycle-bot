@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong
 object LaunchWindow8379 {
     val LANES_8379: Set<String> = setOf("MOONSHOT", "SHITCOIN", "EXPRESS")
     const val TOKEN_AGE_MS_8379 = 30L * 60_000L
-    const val MIN_HOLD_MS_8379 = 10L * 60_000L
+    private const val MIN_HOLD_MS_8379 = 10L * 60_000L
     const val FLOOR_PCT_8379 = 35.0
     const val HOLD_LABEL_8379 = "LAUNCH_WINDOW_HOLD_8379"
 
@@ -47,7 +47,7 @@ object LaunchWindow8379 {
     }
 
     /** Pure: a capital-preservation exit that is a PRICE line (held above the floor), not a wallet / kill / manual one. */
-    fun priceCatastrophe8379(reasonUpper: String): Boolean =
+    private fun priceCatastrophe8379(reasonUpper: String): Boolean =
         (reasonUpper.contains("CATASTROPH") || reasonUpper.contains("GAP_GUARD")) &&
             !reasonUpper.contains("WALLET") && !reasonUpper.contains("KILL") && !reasonUpper.contains("MANUAL") &&
             !reasonUpper.contains("EMERGENCY_LIQUIDATE")
@@ -77,7 +77,7 @@ object LaunchWindow8379 {
     } catch (_: Throwable) { ts.position.tradingMode.trim().uppercase() }
 
     /** Is [ts]'s open position in the launch window now? */
-    fun active8379(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
+    private fun active8379(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
         val pos = ts.position
         if (!pos.isOpen || pos.entryTime <= 0L || !(pos.entryPrice > 0.0)) return false
         if (lane(ts) !in LANES_8379) return false
