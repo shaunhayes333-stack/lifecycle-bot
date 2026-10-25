@@ -152,6 +152,7 @@ object DataPipeline8191 {
             (try { com.lifecyclebot.network.DexPools8285.statusLine8285() } catch (_: Throwable) { "dexPools8285 -" }) + " " +
             (try { DexBatchLane8287.statusLine8287() } catch (_: Throwable) { "dexLane8287 -" }) + " " +   // V5.0.8287
             (try { com.lifecyclebot.network.DexHostBudget8287.statusLine8287() } catch (_: Throwable) { "dexHost8287 -" }) + " " +
+            (try { com.lifecyclebot.network.GeckoHostBudget8382.statusLine8382() } catch (_: Throwable) { "geckoHost8382 -" }) + " " +
             (try { BirdeyeBudgetGate.statusLine8287() } catch (_: Throwable) { "birdeyeBudget8287 -" }) + " " +
             (try { IntakeFirstSight8317.statusLine8317() } catch (_: Throwable) { "intake8317 -" }) + " " +   // V5.0.8317
             (try { com.lifecyclebot.network.KeylessRpc8359.statusLine8359() } catch (_: Throwable) { "rpcRoute8359 -" }) + " " +   // V5.0.8359

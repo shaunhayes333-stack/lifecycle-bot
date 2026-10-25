@@ -37,4 +37,28 @@ class Aate8382DataDeliveryTest {
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt").readText()
         assertTrue(gate.contains("ApiHealthMonitor.snapshot()[\"birdeye\"]"))
     }
+
+    @Test fun geckoHostBudgetServesCandleReadsBeforeLists() {
+        val g = com.lifecyclebot.network.GeckoHostBudget8382
+        assertEquals(10, g.PER_MIN_8382)   // api.geckoterminal.com/docs: ~10 calls/minute
+        assertEquals(com.lifecyclebot.network.DexHostBudget8287.Prio8287.NEAR, g.prioOf8382("/api/v2/networks/solana/pools/Abc/ohlcv/minute", false))
+        assertEquals(com.lifecyclebot.network.DexHostBudget8287.Prio8287.NEAR, g.prioOf8382("/api/v2/networks/solana/pools/Abc/trades", false))
+        assertEquals(com.lifecyclebot.network.DexHostBudget8287.Prio8287.BULK, g.prioOf8382("/api/v2/networks/solana/trending_pools", false))
+        assertEquals(com.lifecyclebot.network.DexHostBudget8287.Prio8287.EXIT, g.prioOf8382("/api/v2/networks/solana/trending_pools", true))
+        val b = com.lifecyclebot.network.DexHostBudget8287.Bucket8287(g.PER_MIN_8382, g.BURST_8382, g.BULK_RESERVE_8382, 0, Long.MAX_VALUE)
+        val t = 1_000_000L
+        assertEquals(0L, b.take8287(t, com.lifecyclebot.network.DexHostBudget8287.Prio8287.BULK))          // 3 -> 2
+        assertEquals(0L, b.take8287(t, com.lifecyclebot.network.DexHostBudget8287.Prio8287.BULK))          // 2 -> 1
+        assertEquals(-1L, b.take8287(t, com.lifecyclebot.network.DexHostBudget8287.Prio8287.BULK))         // the last token is the candle reads'
+        assertEquals(0L, b.take8287(t, com.lifecyclebot.network.DexHostBudget8287.Prio8287.NEAR))
+        assertTrue(b.take8287(t, com.lifecyclebot.network.DexHostBudget8287.Prio8287.NEAR, g.DECISION_WAIT_MS_8382) < 0L)   // next token is 6 s away
+        assertEquals(10, b.perMin8359(t + 3_600_000L))   // never raised above the documented rate
+    }
+
+    @Test fun theSharedClientCarriesTheGeckoBudgetAndTheFeedIgnoresLocalRefusals() {
+        val c = File("src/main/kotlin/com/lifecyclebot/network/SharedHttpClient.kt").readText()
+        assertTrue(c.indexOf("GeckoRateInterceptor8382") in 1 until c.indexOf(".addInterceptor(com.lifecyclebot.network.HostCircuitInterceptor)"))
+        val f = File("src/main/kotlin/com/lifecyclebot/network/SolanaOhlcvFeed6916.kt").readText()
+        assertTrue(f.indexOf("OHLCV_GECKO_LOCAL_BUDGET_WAIT_8382") in 1 until f.indexOf("noteResponse6944(resp.code"))
+    }
 }
