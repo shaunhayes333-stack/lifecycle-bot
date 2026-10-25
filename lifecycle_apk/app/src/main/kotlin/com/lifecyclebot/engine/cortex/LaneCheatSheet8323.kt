@@ -196,6 +196,8 @@ object LaneCheatSheet8323 {
 
     fun mcapMin8323(lane: String): Double = mcapBand8323(lane).first
     fun mcapMax8323(lane: String): Double = mcapBand8323(lane).second
+    /** V5.0.8389 — the trader's own constant liquidity floor (its mandate, not the fluid live floor). */
+    fun liqMin8389(lane: String): Double = liqBand8323(lane).first
 
     /** The lane's base liquidity band (USD): the trader's own floor at cold start (the fluid floor is [liqFloorNow8323]). */
     private fun liqBand8323(lane: String): Pair<Double, Double> = when (lane.trim().uppercase()) {

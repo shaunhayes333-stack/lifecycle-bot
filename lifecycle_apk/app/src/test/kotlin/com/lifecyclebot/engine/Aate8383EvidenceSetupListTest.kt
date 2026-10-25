@@ -23,9 +23,11 @@ class Aate8383EvidenceSetupListTest {
         assertTrue(all.toString(), all.isEmpty())
         assertEquals(listOf("MCAP_LT_10K", "LIQ_LT_3K"), LanePlaybook7907.envelopeBreaks8383(f(mcap = 6_000.0, liq = 1_000.0)))
         assertNull(LanePlaybook7907.envelope8383("SHITCOIN", f()))
-        assertEquals("MCAP_LT_10K", LanePlaybook7907.envelope8383("SHITCOIN", f(mcap = 6_000.0)))
+        // V5.0.8389 — SHITCOIN's own mandate starts at a few hundred dollars: the 10k / 3k floors never cut its launches
+        assertNull(LanePlaybook7907.envelope8383("SHITCOIN", f(mcap = 6_000.0)))
+        assertEquals("MCAP_LT_10K", LanePlaybook7907.envelope8383("TREASURY", f(mcap = 6_000.0)))
         assertEquals("MCAP_GT_5M", LanePlaybook7907.envelope8383("SHITCOIN", f(mcap = 9_000_000.0, liq = 200_000.0)))
-        assertEquals("LIQ_LT_3K", LanePlaybook7907.envelope8383("SHITCOIN", f(liq = 1_500.0)))
+        assertNull(LanePlaybook7907.envelope8383("SHITCOIN", f(liq = 1_500.0)))
         assertEquals("LIQ_GT_250K", LanePlaybook7907.envelope8383("SHITCOIN", f(mcap = 2_000_000.0, liq = 400_000.0)))
         assertEquals("MCAP_LIQ_GT_25X", LanePlaybook7907.envelope8383("SHITCOIN", f(mcap = 900_000.0, liq = 20_000.0)))
         assertEquals("BP_LT_45", LanePlaybook7907.envelope8383("SHITCOIN", f(bp = 40.0)))
@@ -49,7 +51,7 @@ class Aate8383EvidenceSetupListTest {
     }
 
     @Test fun outsideTheEnvelopeIsItsOwnCohortNotNoTrigger() {
-        val c = LanePlaybook7907.evaluate8084("MOONSHOT", f(mcap = 6_000.0), 1, now)
+        val c = LanePlaybook7907.evaluate8084("TREASURY", f(mcap = 6_000.0), 1, now)
         assertEquals(Outcome8084.NO_MATCH, c.outcome)
         assertEquals("MCAP_LT_10K", c.envelope8383)
         assertEquals(LanePlaybook7907.OUTSIDE_ENVELOPE_8383, c.tag)
@@ -59,13 +61,14 @@ class Aate8383EvidenceSetupListTest {
     }
 
     @Test fun retiredLosersNeverFireAsTheLaneStrategy() {
-        // SHITCOIN's QUIET_ACCUMULATION (network n>=150, mean < 0, below-average win rate) still exists in the library
+        // a non-early lane's retired setup never fires as its strategy
+        assertTrue(LanePlaybook7907.retired8383("BLUECHIP", "QUIET_ACCUMULATION"))
+        assertTrue(LanePlaybook7907.retired8383("SHITCOIN", "BUYERS_DOMINATING"))
+        // V5.0.8389 — an early-band lane keeps its launch / early-accumulation family (its own 7907 book refuses real losers)
         val quiet = f(runup = 10.0, dd = 5.0, bp = 60.0, chg5m = 0.5, chg1h = 2.0, pxPeak = 0.95)
         assertTrue(LanePlaybook7907.matches("SHITCOIN", quiet)!!.any { it.id == "QUIET_ACCUMULATION" })
-        assertTrue(LanePlaybook7907.retired8383("SHITCOIN", "QUIET_ACCUMULATION"))
-        val c = LanePlaybook7907.evaluate8084("SHITCOIN", quiet, 2, now)
-        assertFalse("QUIET_ACCUMULATION" in c.matched)
-        assertFalse(c.chosen == "QUIET_ACCUMULATION")
+        assertFalse(LanePlaybook7907.retired8383("SHITCOIN", "QUIET_ACCUMULATION"))
+        assertTrue("QUIET_ACCUMULATION" in LanePlaybook7907.evaluate8084("SHITCOIN", quiet, 2, now).matched)
     }
 
     @Test fun theNewSetupsFireOnTheWinningShape() {

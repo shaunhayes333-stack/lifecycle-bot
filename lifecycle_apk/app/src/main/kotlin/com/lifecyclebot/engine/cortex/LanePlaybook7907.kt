@@ -521,7 +521,19 @@ object LanePlaybook7907 {
     /** Pure (V5.0.8383): null when [f] sits inside [lane]'s tradable envelope, else the first band of the lane's own cuts it breaks. */
     fun envelope8383(lane: String, f: F): String? {
         val cuts = ENVELOPE_CUTS_8383[lane] ?: return null
-        return envelopeBreaks8383(f).firstOrNull { it in cuts }
+        return envelopeBreaks8383(f).firstOrNull { it in cuts && insideMandate8389(lane, it) }
+    }
+
+    /**
+     * V5.0.8389 — an envelope floor never cuts below the specialist's OWN mandate. 8387 runtime:
+     * SETUP_OUTSIDE_ENVELOPE_8383_MCAP_LT_10K=4488 — the 10k cap / 3k liquidity floors erased the early-launch band of
+     * SHITCOIN (\$500 floor), EXPRESS, MOONSHOT, MANIPULATED, PROJECT_SNIPER (0.3-3 min launches) and CORE, leaving only
+     * already-pumped trending coins (chase). The floor applies only to a lane whose own mandate already starts at/above it.
+     */
+    internal fun insideMandate8389(lane: String, band: String): Boolean = when (band) {
+        "MCAP_LT_10K" -> LaneCheatSheet8323.mcapMin8323(lane) >= ENV_MCAP_MIN_8383
+        "LIQ_LT_3K" -> LaneCheatSheet8323.liqMin8389(lane) >= ENV_LIQ_MIN_8383
+        else -> true
     }
 
     private fun mcapToLiq8383(f: F): Double = if (f.mcap.isFinite() && f.liq.isFinite() && f.liq > 0.0) f.mcap / f.liq else Double.NaN
@@ -582,7 +594,15 @@ object LanePlaybook7907 {
             "HIGHER_LOW_PULLBACK", "MICRO_FLAG", "LIVESTREAM_LAUNCH", "ACCELERATING_TAPE", "HIGHER_LOW_CONTINUATION", "COLOUR_SEQUENCE"),
         "TREASURY" to setOf("BUYERS_DOMINATING", "QUIET_ACCUMULATION"),
     )
-    fun retired8383(lane: String, setup: String): Boolean = RETIRED_8383[lane]?.contains(setup) == true
+    fun retired8383(lane: String, setup: String): Boolean =
+        RETIRED_8383[lane]?.contains(setup) == true && !(setup in EARLY_FAMILY_8389 && LaneCheatSheet8323.mcapMin8323(lane) < ENV_MCAP_MIN_8383)
+
+    /**
+     * V5.0.8389 — the launch / early-accumulation setups are an early-band lane's identity, not network-retirable: the
+     * lane's own proven-losing refusal (7907, its own realised book) still refuses them where they lose for that lane.
+     */
+    internal val EARLY_FAMILY_8389 = setOf("PRE_IGNITION_BASE", "LAUNCH_CONTINUATION", "LIVESTREAM_LAUNCH", "VERIFIED_LAUNCH",
+        "GRADUATION_APPROACH", "MICRO_CAP_IGNITION", "LOW_RUNUP_BASE", "QUIET_ACCUMULATION")
     private val envelopeCounts8383 = ConcurrentHashMap<String, AtomicLong>()
     private val retiredSkips8383 = ConcurrentHashMap<String, AtomicLong>()
 
