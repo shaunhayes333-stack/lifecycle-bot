@@ -65,7 +65,7 @@ class Aate8368CortexShadowVerdictTest {
                 e.contains("Cortex7885.onShadowOutcome8372("))
         assertTrue("model outcomes wait for a durable exact-decision ACK before being retired",
             e.contains("if (!acknowledged) { cortexRetry8372.incrementAndGet(); return }") &&
-                e.contains("durable8372 = true"))
+                e.contains("t.receiptDurable8372 = true"))
         assertTrue("live simulator cannot invent a real wallet/journal row", !e.substringAfter("fun onCortexAssessment8368(").substringBefore("private fun open8347(")
             .contains("CanonicalFinalizedTradeBus6464.publish"))
     }

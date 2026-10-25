@@ -171,9 +171,10 @@ class Aate8372ShadowLearningTest {
         assertTrue(source.contains("if (!acknowledged) { cortexRetry8372.incrementAndGet(); return }"))
         assertTrue(source.contains("t.legs.all { it.dead } && !t.cortex8372.awaiting8372()"))
         assertTrue(source.contains("tickActive8372.compareAndSet(false, true)"))
-        assertTrue(source.contains("if (!t.receiptDurable8372 && !persistTicket8355(key, t, nowMs, durable8372 = true))"))
-        assertTrue(source.contains("if (durable8372) edit.commit()"))
-        assertFalse(assessment.contains("durable8372 = true"))
+        // V5.0.8377 — receipts are staged per slice and committed once, before delivery.
+        assertTrue(source.contains("if (!t.receiptDurable8372) {"))
+        assertTrue(source.contains("if (receipts8377.isNotEmpty()) batch8377.commit()"))
+        assertFalse(assessment.contains("receiptDurable8372 = true"))
         assertTrue(source.contains("current !== completed"))
         assertTrue(source.contains("synchronized(ticketReservation8372)"))
         assertTrue(source.contains("t.lastPxAtMs = observation.observedAtMs"))

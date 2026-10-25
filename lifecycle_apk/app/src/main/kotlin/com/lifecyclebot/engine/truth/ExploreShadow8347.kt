@@ -152,21 +152,55 @@ object ExploreShadow8347 {
         cortex8372 = t.cortex8372,
     )
 
-    private fun persistTicket8355(key: String, t: Ticket8347, nowMs: Long, durable8372: Boolean = false): Boolean {
+    /** An ordinary open / tier / peak write: asynchronous. Durable learning receipts commit in the tick slice's one batch (8377). */
+    private fun persistTicket8355(key: String, t: Ticket8347, nowMs: Long): Boolean {
         val p = openPrefs8355 ?: run { t.force8355 = true; return false }
         val written = try {
-            val enc = ShadowPersist8355.encodeTicket8355(ticketRec8355(t))
-            val edit = p.edit().putString(TICKET_KEY_PREFIX_8355 + key, enc)
-            // The one terminal receipt must survive a process death before Cortex ACKs it.
-            // Only the off-loop delivery path asks for durability, never an assessment.
-            if (durable8372) edit.commit() else { edit.apply(); true }
+            p.edit().putString(TICKET_KEY_PREFIX_8355 + key, ShadowPersist8355.encodeTicket8355(ticketRec8355(t))).apply(); true
         } catch (_: Throwable) { false }
-        if (written) {
-            t.dirty8355 = false; t.force8355 = false; t.lastWriteMs8355 = nowMs
-            if (durable8372) t.receiptDurable8372 = true
-        } else t.force8355 = true
+        if (written) { t.dirty8355 = false; t.force8355 = false; t.lastWriteMs8355 = nowMs } else t.force8355 = true
         return written
     }
+
+    // V5.0.8377 — 8376 died OOM at the 512 MiB heap after 3 h 47 m. Every SharedPreferences write re-serialises the WHOLE
+    // file (the open-ticket file is ~9.6 MB at 3,000 tickets) and every queued apply() holds a full map copy. 8376 wrote
+    // one ticket per write (a synchronous commit() per pending learning receipt, up to 600 per slice) and the cohort books
+    // one key per write (five-plus per closed leg). Writes are now staged into ONE editor per tick slice (one commit when any
+    // receipt needs durability, otherwise one apply), and the books flush dirty keys at most every BOOK_FLUSH_MS_8377.
+    // Durability order is unchanged: a receipt is committed before it is delivered to Cortex.
+    internal const val BOOK_FLUSH_MS_8377 = 15_000L
+    private val dirtyBooks8377 = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
+    @Volatile private var booksFlushedAtMs8377 = 0L
+    private val sliceWrites8377 = AtomicLong(0)
+    private val sliceTickets8377 = AtomicLong(0)
+    private val bookFlushes8377 = AtomicLong(0)
+    private val bookKeysWritten8377 = AtomicLong(0)
+
+    /** Encodes [t] into [edit] without writing; false when the record cannot be encoded. */
+    private fun stageTicket8377(edit: android.content.SharedPreferences.Editor, key: String, t: Ticket8347): Boolean = try {
+        edit.putString(TICKET_KEY_PREFIX_8355 + key, ShadowPersist8355.encodeTicket8355(ticketRec8355(t))); true
+    } catch (_: Throwable) { false }
+
+    /** Writes every dirty cohort book in one editor, at most once per [BOOK_FLUSH_MS_8377] unless [force]. */
+    internal fun flushBooks8377(nowMs: Long, force: Boolean = false) {
+        if (dirtyBooks8377.isEmpty() || (!force && nowMs - booksFlushedAtMs8377 < BOOK_FLUSH_MS_8377)) return
+        val p = prefs ?: return
+        val keys = synchronized(dirtyBooks8377) { ArrayList(dirtyBooks8377).also { dirtyBooks8377.clear() } }
+        booksFlushedAtMs8377 = nowMs
+        try {
+            val e = p.edit()
+            for (k in keys) {
+                val q = books[k] ?: continue
+                e.putString(k, synchronized(q) { q.joinToString(";") { "${it[0].toLong()},${"%.3f".format(it[1])}" } })
+            }
+            e.apply()
+            bookFlushes8377.incrementAndGet(); bookKeysWritten8377.addAndGet(keys.size.toLong())
+        } catch (_: Throwable) { dirtyBooks8377.addAll(keys) }
+    }
+
+    fun persistStatus8377(): String =
+        "persist8377[sliceWrites=${sliceWrites8377.get()} ticketsStaged=${sliceTickets8377.get()} bookFlushes=${bookFlushes8377.get()} " +
+            "bookKeys=${bookKeysWritten8377.get()} dirtyBooks=${dirtyBooks8377.size}]"
 
     private fun forgetTicket8355(key: String) {
         try { openPrefs8355?.edit()?.remove(TICKET_KEY_PREFIX_8355 + key)?.apply() } catch (_: Throwable) {}
@@ -688,6 +722,9 @@ object ExploreShadow8347 {
         rrCursor8360 = slice.second
         lastTicked8360 = slice.first.size
         val marks = HashMap<String, ShadowMark8360.Observation8372?>()
+        val batch8377 = openPrefs8355?.edit()
+        val staged8377 = ArrayList<Pair<String, Ticket8347>>()
+        val receipts8377 = ArrayList<Pair<String, Ticket8347>>()
         for (i in slice.first) {
             val key = keys[i]
             val t = synchronized(ticketReservation8372) {
@@ -722,8 +759,12 @@ object ExploreShadow8347 {
                 // Persist a completed learning receipt before delivery. A restart may replay it; the learner owns the
                 // exact decision-id receipt and acknowledges only after handling it. No Cortex call holds a ticket lock.
                 if (t.cortex8372.pending8372()) {
-                    if (!t.receiptDurable8372 && !persistTicket8355(key, t, nowMs, durable8372 = true)) {
-                        cortexRetry8372.incrementAndGet()
+                    if (!t.receiptDurable8372) {
+                        // V5.0.8377 — staged; committed once for the whole slice, then delivered (below)
+                        if (batch8377 == null || !stageTicket8377(batch8377, key, t)) {
+                            t.force8355 = true; cortexRetry8372.incrementAndGet(); continue
+                        }
+                        receipts8377 += key to t
                         continue
                     }
                     deliverCortex8372(t)
@@ -731,10 +772,31 @@ object ExploreShadow8347 {
                 if (t.legs.all { it.dead } && !t.cortex8372.awaiting8372()) {
                     done += key to t
                 } else if (ShadowPersist8355.writeDue8355(t.dirty8355, t.lastWriteMs8355, nowMs, t.force8355)) {
-                    persistTicket8355(key, t, nowMs)   // V5.0.8355 — a leg armed / closed writes now; a tier / peak move waits for the 10 s coalesce; nothing else writes
+                    // V5.0.8355 — a leg armed / closed writes now; a tier / peak move waits for the 10 s coalesce.
+                    // V5.0.8377 — staged into the slice's one editor instead of one full-file write per ticket.
+                    if (batch8377 != null && stageTicket8377(batch8377, key, t)) staged8377 += key to t
+                    else persistTicket8355(key, t, nowMs)
                 }
             } finally { t.ticking8372 = false }
         }
+        if (batch8377 != null && (staged8377.isNotEmpty() || receipts8377.isNotEmpty())) {
+            // The one terminal receipt must survive a process death before Cortex ACKs it: commit when any is staged.
+            val written = try { if (receipts8377.isNotEmpty()) batch8377.commit() else { batch8377.apply(); true } } catch (_: Throwable) { false }
+            sliceWrites8377.incrementAndGet(); sliceTickets8377.addAndGet((staged8377.size + receipts8377.size).toLong())
+            for ((_, t) in staged8377) {
+                if (written) { t.dirty8355 = false; t.force8355 = false; t.lastWriteMs8355 = nowMs } else t.force8355 = true
+            }
+            for ((key, t) in receipts8377) {
+                if (!written) { t.force8355 = true; cortexRetry8372.incrementAndGet(); continue }
+                t.dirty8355 = false; t.force8355 = false; t.lastWriteMs8355 = nowMs; t.receiptDurable8372 = true
+                val claimed = synchronized(ticketReservation8372) {
+                    (tickets[key] === t && !t.ticking8372).also { if (it) t.ticking8372 = true }
+                }
+                if (!claimed) continue   // replaced / busy: the next visit delivers the durable receipt
+                try { deliverCortex8372(t) } catch (_: Throwable) {} finally { t.ticking8372 = false }
+            }
+        }
+        flushBooks8377(nowMs)
         synchronized(ticketReservation8372) {
             for ((key, completed) in done) tickets.computeIfPresent(key) { _, current ->
                 // Entry-side eviction/re-open can replace a completed ticket between
@@ -960,8 +1022,8 @@ object ExploreShadow8347 {
         synchronized(q) {
             q.addLast(doubleArrayOf(nowMs.toDouble(), net.coerceIn(-100.0, 1_000.0)))
             while (q.size > MAX_CLOSES_8347) q.removeFirst()
-            try { prefs?.edit()?.putString(key, q.joinToString(";") { "${it[0].toLong()},${"%.3f".format(it[1])}" })?.apply() } catch (_: Throwable) {}
         }
+        dirtyBooks8377.add(key)   // V5.0.8377 — flushed with every other dirty book by flushBooks8377, not one full-file write per key
     }
 
     // ── V5.0.8351 §TUNE_THE_FAILING_SPECIALISTS_INTO_GREEN — a red lane is usually green somewhere: in one setup, one
@@ -1279,7 +1341,7 @@ object ExploreShadow8347 {
             "opened=${listOf(KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368).sumOf { byKind[it] ?: 0 }} " +
             "legsClosed=${listOf(KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368).sumOf { cortexClosesByKind8368[it]?.get() ?: 0 }}] " +
             "learning8372[outcomesAck=${cortexOutcomeAck8372.get()} unavailableAck=${cortexUnavailable8372.get()} " +
-            "retry=${cortexRetry8372.get()} pending=${tickets.values.count { it.cortex8372.pending8372() }}] " +
+            "retry=${cortexRetry8372.get()} pending=${tickets.values.count { it.cortex8372.pending8372() }}] ${persistStatus8377()} " +
             "skipped{${countLine8360(skipped)}} evicted=${evicted8360.get()} ticked/loop=$lastTicked8360/$TICK_PER_LOOP_8360 " +
             "markSrc{${countLine8360(bySrc)}} wanted8360=${wantedCalls8360.get()} legsClosed=${closed.get()} legsUnfilled8364=${unfilledN8364.get()} full=${full.get()} " +
             "restored8355=${restored8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} waitsRestored8355=${waitsRestored8355.get()} " +

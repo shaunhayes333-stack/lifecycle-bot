@@ -1286,9 +1286,24 @@ object Cortex7885 {
     }
 
     /** One atomic model/ownership checkpoint per shadow tick; no trade, wallet or live-authority mutation. */
+    // V5.0.8377 — every checkpoint re-encodes the WHOLE Cortex snapshot (ledger/board/calibration/real/vetoes/joint/grades,
+    // ~20 MB resident) into JSON strings. 8376 did that on every shadow tick with any ready outcome, and died OOM at 512 MiB
+    // after 3 h 47 m. A checkpoint now waits for SHADOW_FLUSH_MIN_BATCH_8377 ready outcomes or SHADOW_FLUSH_MAX_WAIT_MS_8377,
+    // whichever is first. Receipts stay staged (not ACKed) until the checkpoint commits, so durability order is unchanged.
+    internal const val SHADOW_FLUSH_MIN_BATCH_8377 = 64
+    internal const val SHADOW_FLUSH_MAX_WAIT_MS_8377 = 10_000L
+    @Volatile private var shadowFlushedAtMs8377 = 0L
+
+    /** Pure: is a shadow checkpoint due for [ready] staged outcomes, [sinceMs] after the last one? */
+    internal fun shadowFlushDue8377(ready: Int, sinceMs: Long): Boolean =
+        ready > 0 && (ready >= SHADOW_FLUSH_MIN_BATCH_8377 || sinceMs >= SHADOW_FLUSH_MAX_WAIT_MS_8377)
+
     fun flushShadowOutcomes8372(): Boolean {
         if (shadowReady8372.isEmpty()) return true
+        val now8377 = System.currentTimeMillis()
+        if (!shadowFlushDue8377(shadowReady8372.size, now8377 - shadowFlushedAtMs8377)) { inc("CORTEX_SHADOW_FLUSH_COALESCED_8377"); return true }
         if (!loaded || !LearningPersistence.ready() || !shadowFlushRunning8372.compareAndSet(false, true)) return false
+        shadowFlushedAtMs8377 = now8377
         try {
             val batch = shadowReady8372.entries.map { it.key to it.value }
             if (batch.isEmpty()) return true
