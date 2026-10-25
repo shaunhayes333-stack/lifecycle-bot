@@ -242,17 +242,19 @@ class ErrorLogActivity : AppCompatActivity() {
                     append(try { com.lifecyclebot.engine.PipelineHealthCollector.dumpText() } catch (_: Throwable) { "No fallback report available." })
                 }
                 val exportText = try { com.lifecyclebot.engine.ReportingHub.clipboardSafeText(com.lifecyclebot.engine.ReportBudget8176.forCopy8176(fullText)) } catch (_: Throwable) { fullText.take(60_000) }
-                val ok = try {
-                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", exportText))
-                    true
-                } catch (_: Throwable) { false }
                 val fullReportFile = try {
                     com.lifecyclebot.engine.execution.PipelineReportFileExporter6401
                         .writeReportSync(this, fullText, prefix = "aate_unified")
                 } catch (_: Throwable) { null }
                 Handler(Looper.getMainLooper()).post {
                     if (isFinishing || isDestroyed) return@post
+                    // V5.0.8381 — the clip is written on Main: from this worker thread Android 12+ dropped it silently
+                    // (the 6273 PipelineHealthActivity bug; this export screen still wrote it here, so "copy" did nothing).
+                    val ok = try {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", exportText))
+                        true
+                    } catch (_: Throwable) { false }
                     Toast.makeText(this, if (ok) com.lifecyclebot.engine.ReportBudget8176.fullShareNote8198(exportText.length, fullText.length) else "Clipboard failed; use Share", Toast.LENGTH_LONG).show()
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_EXPORT_COPIED_6304", "chars=${exportText.length} full=${fullText.length} ok=$ok hub=${report != null} source=error_log fileBytes=${fullReportFile?.length() ?: -1L}") } catch (_: Throwable) {}
                     ReportCopyDialog8198.show(this, fullText, fullReportFile, exportText.length, fullText.length, "AATE Unified Operational Report")
