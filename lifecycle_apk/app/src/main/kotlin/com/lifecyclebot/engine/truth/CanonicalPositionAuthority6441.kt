@@ -684,6 +684,12 @@ object CanonicalPositionAuthority6441 {
                 entryDex = actualEntryDex.ifBlank { prev.entryDex },
             )
             positions[positionId] = promoted
+            // V5.0.8387 — the verified fill proves the basis for EVERY promoter (Executor's verifier, 8308's late proof):
+            // the canonical row cleared its quarantine reason, but the learning gate kept the position excluded unless
+            // 8308 happened to be the promoter (8385 FbbLXq: finalized live close excluded as BASIS_UNCERTAIN_7807).
+            if (protective7807 && !paperMode && promoted.lifecycle != Lifecycle.CLOSED) {
+                try { if (LearningQuarantineGate6470.releaseProvenBasis8308(positionId)) PipelineHealthCollector.labelInc("PROTECTIVE_BASIS_RELEASED_ON_PROMOTE_8387") } catch (_: Throwable) {}
+            }
             if (promoted.lifecycle == Lifecycle.OPEN || promoted.lifecycle == Lifecycle.PARTIALLY_CLOSED) {
                 bindOpenLearning7863(promoted, candidateVersion7863)
                 // V5.0.8144 — a promoted pending entry has no economic Buy event: its birth is recorded here.
@@ -1061,6 +1067,11 @@ object CanonicalPositionAuthority6441 {
         val m7807 = mode?.trim()?.lowercase()
         return if (m7807.isNullOrEmpty()) all7807 else all7807.filter { it.mode.equals(m7807, true) }
     }
+
+    /** V5.0.8387 — live mints whose bot buy is still awaiting its on-chain verification (PENDING_ENTRY, recently mutated). */
+    fun pendingEntryLiveMints8387(maxAgeMs: Long = 10L * 60_000L, nowMs: Long = System.currentTimeMillis()): Set<String> =
+        positions.values.filter { it.lifecycle == Lifecycle.PENDING_ENTRY && it.mode.equals("live", true) && nowMs - it.lastMutationMs <= maxAgeMs }
+            .mapTo(LinkedHashSet()) { it.mint }
 
     /** V5.0.7807 — mint set of [protectiveInventory7807] (Helius held-position pinning, UI). */
     fun protectiveInventoryMints7807(mode: String? = null): Set<String> =

@@ -589,9 +589,11 @@ object FinalizedBusConsumerBridge6465 {
     } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToUnifiedExitPolicyHead6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean { return try {
-        val exitWasOptimal = env.mfePct.isFinite() && env.mfePct > 0.0 &&
-            env.realizedReturnPct >= env.mfePct * 0.70
-        if (!env.mfePct.isFinite() || env.mfePct <= 0.0) {
+        // V5.0.8387 — a finite MFE <= 0 is an observed path (never above entry): the exit captured the best available
+        // mark when it closed within 2 pp of it. Only an unknown MFE is unobservable (8385: 2 of 3 live closes excluded).
+        val exitWasOptimal = env.mfePct.isFinite() && env.realizedReturnPct.isFinite() &&
+            (if (env.mfePct > 0.0) env.realizedReturnPct >= env.mfePct * 0.70 else env.realizedReturnPct >= env.mfePct - 2.0)
+        if (!env.mfePct.isFinite() || !env.realizedReturnPct.isFinite()) {
             com.lifecyclebot.engine.UnifiedExitPolicyHead.discardOutcome7835(env.mint)
             CanonicalFinalizedTradeBus6464.exclude("UnifiedExitPolicyHead", env.tradeId, "EXIT_TIMING_LABEL_UNOBSERVABLE_7835")
             return false

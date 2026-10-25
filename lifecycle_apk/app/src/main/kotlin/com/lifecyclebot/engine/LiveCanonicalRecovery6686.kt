@@ -365,6 +365,7 @@ object LiveCanonicalRecovery6686 {
     internal fun protectUnadoptedBotHoldings7807(subset: Map<String, CanonicalTokenAmount>): Int {
         if (subset.isEmpty()) return 0
         val covered7807 = try { CanonicalPositionAuthority6441.protectiveInventoryMints7807("live") } catch (_: Throwable) { emptySet<String>() }
+        val pendingEntry8387 = try { CanonicalPositionAuthority6441.pendingEntryLiveMints8387() } catch (_: Throwable) { emptySet<String>() }
         var n7807 = 0
         for ((mint, amount) in subset) {
             // V5.0.7868 — a covered mint can still be under-covered (wallet > canonical
@@ -374,6 +375,9 @@ object LiveCanonicalRecovery6686 {
                 continue
             }
             if (mint.isBlank() || mint in covered7807 || amount.raw <= BigInteger.ONE) continue
+            // V5.0.8387 — the bot's own buy whose verifier has not promoted yet: the verified fill is seconds away and is
+            // the basis proof; adopting it here as BASIS_UNPROVEN only re-labels a known buy.
+            if (mint in pendingEntry8387) { try { PipelineHealthCollector.labelInc("BOT_HOLDING_PENDING_VERIFY_SKIPPED_8387") } catch (_: Throwable) {}; continue }
             // V5.0.8053 — a holding the bot's own journal bought is never left unmanaged: the dust stamp does not
             // exempt it from protective ownership (5.0.8051 Normie: coverage VIOLATION, 14 heal kicks, adopted 0).
             if (isDustUnroutable7714(mint) && !botJournalBought8053(mint)) continue

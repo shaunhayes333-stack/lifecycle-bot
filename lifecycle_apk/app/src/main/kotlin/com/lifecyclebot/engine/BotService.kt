@@ -889,6 +889,34 @@ class BotService : Service() {
     // stale or skipped tick could never remember a lock it had already earned.
     private val tickLockFloor7392 = java.util.concurrent.ConcurrentHashMap<String, Double>()
     private val OFF_LOOP_SELL_RETRY_MS_7288 = 60_000L
+
+    // V5.0.8387 — a queued emergency-class sell is retried on the emergency pool at its retry rung (2 s first), not at the
+    // next main-loop pass (8385: 21 s mean / 177 s max loop; FbbLXq queued 35.3 s). Same requestSell, same CloseLease.
+    private val urgentSellRetryAt8387 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private fun urgentPendingSell8387(mint: String, reason: String) {
+        val now = System.currentTimeMillis()
+        val delayMs = com.lifecyclebot.engine.sell.ProtectiveExitClass7807.emergencyRetryDelayMs(1)   // first rung; the queue carries the attempt count
+        val prior = urgentSellRetryAt8387[mint]
+        if (prior != null && now - prior < delayMs) { try { PipelineHealthCollector.labelInc("PENDING_SELL_URGENT_COALESCED_8387") } catch (_: Throwable) {}; return }
+        urgentSellRetryAt8387[mint] = now
+        if (urgentSellRetryAt8387.size > 256) urgentSellRetryAt8387.entries.removeIf { now - it.value > 10L * 60_000L }
+        scope.launch(com.lifecyclebot.engine.sell.EmergencyExitDispatcher7807.forReason(reason) + CoroutineName("urgent-sell-8387")) {
+            kotlinx.coroutines.delay(delayMs)
+            val sell = PendingSellQueue.take8387(mint) ?: return@launch
+            val ts = synchronized(status.tokens) { status.tokens[mint] }
+            if (ts == null || !ts.position.isOpen || ts.position.isPaperPosition) { PendingSellQueue.remove(mint); return@launch }
+            val wallet = try { com.lifecyclebot.engine.WalletManager.getWallet() } catch (_: Throwable) { null }
+            if (wallet == null) { PendingSellQueue.requeue(sell); return@launch }
+            try {
+                PipelineHealthCollector.labelInc("PENDING_SELL_URGENT_RETRY_8387")
+                ForensicLogger.lifecycle("PENDING_SELL_URGENT_RETRY_8387", "mint=${mint.take(10)} reason=${sell.reason.take(60)} attempt=${sell.retryCount} waitedMs=${System.currentTimeMillis() - now}")
+                executor.requestSell(ts, com.lifecyclebot.engine.sell.CloseLease.canonicalReason(sell.reason), wallet, wallet.getSolBalance())
+            } catch (e: Exception) {
+                PendingSellQueue.requeue(sell)
+                ErrorLogger.warn("BotService", "urgent sell retry failed: ${sell.symbol} | ${e.message?.take(60)}")
+            }
+        }
+    }
     private val RAPID_WAKE_PCT_8008 = -10.0
 
     /**
@@ -3280,6 +3308,7 @@ class BotService : Service() {
     }
 
     override fun onCreate() {
+        PendingSellQueue.urgentRetry8387 = { mint, reason -> urgentPendingSell8387(mint, reason) }   // V5.0.8387
         super.onCreate()
         android.util.Log.i("AATE_BOOTSTRAP", "SERVICE_ONCREATE_PHASE_7438 phase=ENTERED")
         instance = this

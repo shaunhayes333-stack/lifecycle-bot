@@ -41,6 +41,16 @@ object PendingSellQueue {
 
     private val queue = ConcurrentHashMap<String, PendingSell>()
 
+    /** V5.0.8387 — BotService: a queued protective (emergency-class) sell is retried off the main loop. */
+    @Volatile var urgentRetry8387: ((String, String) -> Unit)? = null
+
+    /** V5.0.8387 — take ONE mint's pending sell for an immediate retry (retry count advanced like [getAndClear]). */
+    fun take8387(mint: String): PendingSell? {
+        if (terminalForRuntime6702(mint)) { queue.remove(mint); return null }
+        val sell = queue.remove(mint) ?: return null
+        return sell.copy(retryCount = sell.retryCount + 1)
+    }
+
     // V5.0.6702 — retained only as telemetry thresholds. They MUST NOT evict an
     // open position from retry authority. The old implementation expired after
     // 24h or 50 retries and could leave a held token with no future sell owner.
@@ -138,6 +148,12 @@ object PendingSellQueue {
             )
         } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "📥 Pending sell owned: $symbol ($mint) | reason: $reason | queue=${queue.size}")
+        // V5.0.8387 — 8385 FbbLXq: a DEEP_CATASTROPHE exit failed in QUOTE_BUILD three times and each retry waited for the
+        // main loop (35.3 s queued of a 66.4 s trigger->broadcast). Emergency-class reasons wake their own retry.
+        val queued8387 = queue[mint]?.reason ?: reason
+        if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(queued8387)) {
+            try { urgentRetry8387?.invoke(mint, queued8387) } catch (_: Throwable) {}
+        }
     }
 
     fun hasPending(): Boolean = queue.isNotEmpty()
