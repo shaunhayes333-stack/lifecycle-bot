@@ -1126,6 +1126,8 @@ object LiveRiskPolicy7807 {
                 passes.computeIfAbsent(d.reason) { AtomicLong(0) }.incrementAndGet()
                 // V5.0.8098 — a proven candidate refused only for its lane's slots asks for the lane's worst slot.
                 if (d.reason == "LANE_SLOT_CAP_7807") OpportunityRotation8098.noteDemand8098(i.lane, mint, i.edgeKellyFrac8057)
+                PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_${stage}_REFUSED_8385")
+                // Retained legacy event name for dashboards; PASS meant passed-over, never approval.
                 PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_${stage}_PASS_7807")
                 PipelineHealthCollector.labelInc(d.reason)
             }
@@ -1194,7 +1196,7 @@ object LiveRiskPolicy7807 {
     }
 
     fun statusLine(): String =
-        "LiveRiskPolicy7807: opens=${opens.get()} passes=${passes.entries.joinToString(",") { "${it.key}=${it.value.get()}" }} " +
+        "LiveRiskPolicy7807: scope=decision_evaluations_not_unique_attempts opens=${opens.get()} refused=${passes.entries.joinToString(",") { "${it.key}=${it.value.get()}" }} " +
             "equityPeak=${"%.4f".format(CapitalDrawdown7948.currentPeak7948().peakSol)} " +
             "binding8136=[${bindings8136.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none yet" }}] " +
             "rotation8098[${OpportunityRotation8098.statusLine8098()}] " +

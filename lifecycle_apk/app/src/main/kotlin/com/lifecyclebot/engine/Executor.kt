@@ -14043,12 +14043,18 @@ class Executor(
     private fun flatChartRefused8027(ts: TokenState, sol: Double, attemptId8198: String = ""): Boolean {
         // V5.0.8038 — then the pool itself, read from the chain: API depth or price it contradicts is refused.
         // V5.0.8094 — a clean climb on a fresh launchpad coin in a proven runner cell is the runner, not a manufactured chart.
+        val preflightAt8385 = System.currentTimeMillis()
         val flat8094 = try { FlatChart8027.refusal8027(ts) } catch (_: Throwable) { null }
             ?.takeUnless { it.startsWith("MANUFACTURED_CLIMB") && freshProvenRunner8094(ts) }
         val why = flat8094
-            ?: try { com.lifecyclebot.engine.truth.OnChainDepth8038.buyRefusal8038(ts) } catch (_: Throwable) { null }
+            ?: try { com.lifecyclebot.engine.truth.OnChainDepth8038.buyRefusal8038(ts, preflightAt8385) } catch (_: Throwable) { null }
             ?: return false
-        emitLiveBuyFail(ts, sol, why, attemptId8198 = attemptId8198)
+        val result8385 = com.lifecyclebot.engine.truth.OnChainDepth8038.classifyPreflight8385(ts.mint, why, preflightAt8385)
+        if (result8385 is com.lifecyclebot.engine.truth.OnChainDepth8038.Preflight8385.DataDefer) {
+            TicketRetry8327.noteReserveWait8385(attemptId8198, result8385)
+            liveBuyDeferred(ts, sol, result8385.reason, "attemptId=$attemptId8198 preSubmission=true")
+            com.lifecyclebot.engine.truth.OnChainDepth8038.needCurve8039(ts.mint, approved8385 = true)
+        } else emitLiveBuyFail(ts, sol, why, attemptId8198 = attemptId8198)
         return true
     }
 

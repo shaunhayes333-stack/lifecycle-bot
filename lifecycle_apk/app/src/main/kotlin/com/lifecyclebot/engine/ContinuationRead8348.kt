@@ -112,6 +112,7 @@ object ContinuationRead8348 {
 
     /** Pure: a data deferral the hydration re-evaluation answers — 8343's UNHYDRATED (liquidity / mcap) or this momentum deferral. */
     fun dataDefer8348(reason: String?): Boolean =
+        (reason != null && com.lifecyclebot.engine.truth.OnChainDepth8038.reserveCause8385(reason.removePrefix("DEFERRED_")) != null) ||
         HydrationReeval8343.unhydratedDefer8343(reason) || reason?.uppercase()?.contains("MOMENTUM_UNOBSERVED_DEFER") == true
 
     /**

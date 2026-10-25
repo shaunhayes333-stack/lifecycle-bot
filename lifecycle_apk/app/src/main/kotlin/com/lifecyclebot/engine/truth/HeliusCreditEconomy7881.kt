@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicLong
  *  PURSE   Three tiers.
  *          EXECUTION  sends, blockhash, balances, finality, fees — never refused.
  *          DECISION   mint/holder/supply/curve reads that safety and marks need —
- *                     metered, never refused.
+ *                     metered; locally gated on budget or exhaustion.
  *          ENRICHMENT optional intelligence (insider scans, smart-money parsing
  *                     and streaming, bundle scans, swap-history candles, creator
  *                     history, market-sweep tx pulls) — admitted on a paced
@@ -480,7 +480,7 @@ object HeliusCreditEconomy7881 {
                     "${c.name}=${r?.get(0)?.toLong() ?: 0}/${k(r?.get(1) ?: 0.0)}/${r?.get(2)?.toLong() ?: 0} v=${"%.2f".format(valueOf(c))}"
                 } + "\n" +
                 "  ws bytes: " + wsBytes.entries.joinToString(" · ") { "${it.key}=${"%.1f".format(it.value.get() / 1_048_576.0)}MB(${k(creditsForWsBytes(it.value.get()))})" }.ifBlank { "-" } + "\n" +
-                "  read: EXECUTION and DECISION are never refused; ENRICHMENT is paced by value (deferred = served from cache or skipped)"
+                "  read: EXECUTION is not locally budget-gated; DECISION and ENRICHMENT can be locally refused by budget/exhaustion; enrichment is also value-paced"
         }
     }
 }

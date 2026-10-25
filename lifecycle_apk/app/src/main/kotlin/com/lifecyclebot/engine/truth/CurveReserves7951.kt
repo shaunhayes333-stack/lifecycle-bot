@@ -39,6 +39,7 @@ object CurveReserves7951 {
         @Volatile var realSol: Double,
         @Volatile var atMs: Long,
         @Volatile var accountObserved: Boolean,
+        @Volatile var version8385: Long = 0L,
     )
 
     private val rows = ConcurrentHashMap<String, Row>()
@@ -61,7 +62,7 @@ object CurveReserves7951 {
     fun noteFrame7951(mint: String, virtualSol: Double, virtualTokens: Double, atMs: Long = System.currentTimeMillis()) {
         if (!virtualSol.isFinite() || virtualSol <= 0.0) return
         val real8346 = realSolFromVirtual7951(virtualSol)
-        put(mint, virtualSol, virtualTokens, real8346, atMs, false)
+        if (put(mint, virtualSol, virtualTokens, real8346, atMs, false) == null) return
         try { LiquidityTruth8037.onCurveObserved8346(mint, real8346, fromAccount = false) } catch (_: Throwable) {}   // V5.0.8346 — the frame writes the tick
     }
 
@@ -69,28 +70,33 @@ object CurveReserves7951 {
     fun noteAccount7951(mint: String, virtualSol: Double, virtualTokens: Double, realSol: Double, atMs: Long = System.currentTimeMillis()) {
         if (!virtualSol.isFinite() || virtualSol <= 0.0) return
         if (!realSol.isFinite() || realSol < 0.0) return
-        put(mint, virtualSol, virtualTokens, realSol, atMs, true)
+        if (put(mint, virtualSol, virtualTokens, realSol, atMs, true) == null) return
         try { LiquidityTruth8037.onCurveObserved8346(mint, realSol, fromAccount = true) } catch (_: Throwable) {}   // V5.0.8346 — the curve read writes the tick
     }
 
-    private fun put(mint: String, vSol: Double, vTok: Double, real: Double, atMs: Long, accountObserved: Boolean) {
+    data class AcceptedObservation8385(val atMs: Long, val source: String, val version: Long)
+    fun acceptedObservation8385(mint: String): AcceptedObservation8385? {
+        val r = rows[mint] ?: return null
+        return synchronized(r) { AcceptedObservation8385(r.atMs, if (r.accountObserved) "ACCOUNT" else "FRAME", r.version8385) }
+    }
+    private fun put(mint: String, vSol: Double, vTok: Double, real: Double, atMs: Long, accountObserved: Boolean): AcceptedObservation8385? {
         val m = mint.trim()
-        if (m.isBlank()) return
+        if (m.isBlank() || atMs <= 0L) return null
         if (rows.size >= MAX_MINTS && !rows.containsKey(m)) trim(atMs)
-        val r = rows.computeIfAbsent(m) { Row(vSol, vTok, real, atMs, accountObserved) }
-        synchronized(r) {
-            if (atMs >= r.atMs) {
-                r.virtualSol = vSol
-                // Both reserve sides must belong to this observation. Carrying an
-                // older token side under this timestamp creates a synthetic exit quote.
-                r.virtualTokens = if (vTok.isFinite() && vTok > 0.0) vTok else Double.NaN
-                r.realSol = real
-                r.atMs = atMs
-                r.accountObserved = accountObserved
-            }
+        val r = rows.computeIfAbsent(m) { Row(vSol, vTok, real, 0L, accountObserved) }
+        val accepted = synchronized(r) {
+            if (atMs <= r.atMs) return null
+            r.virtualSol = vSol
+            r.virtualTokens = if (vTok.isFinite() && vTok > 0.0) vTok else Double.NaN
+            r.realSol = real
+            r.atMs = atMs
+            r.accountObserved = accountObserved
+            r.version8385 = notes.incrementAndGet()
+            AcceptedObservation8385(atMs, if (accountObserved) "ACCOUNT" else "FRAME", r.version8385)
         }
-        notes.incrementAndGet()
-        try { com.lifecyclebot.engine.HydrationReeval8343.onCurveRead8343(m, real, atMs) } catch (_: Throwable) {}  // V5.0.8343 — the curve read ends a liquidity deferral
+        try { com.lifecyclebot.engine.HydrationReeval8343.onCurveRead8343(m, real, atMs) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.TicketRetry8327.onReserveObserved8385(m, accepted.atMs, accepted.source, accepted.version) } catch (_: Throwable) {}
+        return accepted
     }
 
     private fun trim(nowMs: Long) {

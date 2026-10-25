@@ -772,9 +772,14 @@ object ParallelMarkFanout7088 {
         val out = HashMap<String, Double>()
         var skippedComplete = 0
         var answered7279 = false
+        val resolved8385 = HashSet<String>()
         var transportFails7809 = 0
         for ((rungIdx, rung) in rungs7279.withIndex()) {
-            if (answered7279) break
+            if (resolved8385.size == targets.size) break
+            val pending8385 = targets.filter { it.first !in resolved8385 }
+            val payload8385 = JSONObject(payload).apply {
+                getJSONArray("params").put(0, JSONArray(pending8385.map { it.second }))
+            }.toString()
             val hostLabel = rpcHostLabel7279(rung)
             // V5.0.7281 — a rung already in backoff is passed over without a
             // request, so the walk reaches a rung that can answer.
@@ -789,7 +794,7 @@ object ParallelMarkFanout7088 {
                 val req = Request.Builder()
                     .url(rung)
                     .header("Content-Type", "application/json")
-                    .post(payload.toRequestBody("application/json".toMediaType()))
+                    .post(payload8385.toRequestBody("application/json".toMediaType()))
                     .build()
                 com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = hostLabel).use { resp ->
                     if (HostCircuitInterceptor.isSyntheticBlock(resp)) {
@@ -818,11 +823,10 @@ object ParallelMarkFanout7088 {
                     // V5.0.8359 — a node far behind the newest slot seen never serves an old curve as the present: next rung.
                     if (KeylessRpc8359.staleAnswer8359(rung, root7278)) return@use
                     val values = root7278.optJSONObject("result")?.optJSONArray("value") ?: return@use
-                    answered7279 = true
                     if (rungIdx > 0) PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_LADDER_FALLBACK_7279")
                     try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", 200, 0L) } catch (_: Throwable) {}
-                    for (i in targets.indices) {
-                        val mint = targets[i].first
+                    for (i in pending8385.indices) {
+                        val mint = pending8385[i].first
                         val value = values.optJSONObject(i)
                         if (value == null) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_ACCOUNT_7278"); continue }
                         // V5.0.7283 — 5.0.7281 read NO_DATA=108 against NO_ACCOUNT=0
@@ -858,6 +862,10 @@ object ParallelMarkFanout7088 {
                         val vTok = readU64Le7269(bytes, 8)
                         val vSol = readU64Le7269(bytes, 16)
                         val complete = (bytes[48].toInt() and 0xFF) != 0
+                        if (complete) {
+                            resolved8385.add(mint); answered7279 = true
+                            com.lifecyclebot.engine.TicketRetry8327.onVerifiedMigration8385(mint, System.currentTimeMillis())
+                        }
                         if (complete) { skippedComplete++; PumpCurveKeys7269.markGraduated7392(mint); continue }
                         if (vTok <= 0.0 || vSol <= 0.0) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_ZERO_RESERVES_7278"); continue }
                         // V5.0.7951 — the account's virtual and REAL reserves are the curve's liquidity.
@@ -870,6 +878,8 @@ object ParallelMarkFanout7088 {
                         val px = priceSol * solUsd
                         if (px.isFinite() && px > 0.0) {
                             out[mint] = px
+                            resolved8385.add(mint)
+                            answered7279 = true
                             // V5.0.8236 — an active curve's read is a curve print on the tape (shape / change for fresh coins).
                             com.lifecyclebot.engine.truth.CurveShapeFeed8236.onCurveRead8236(mint, priceSol, System.currentTimeMillis())
                         }

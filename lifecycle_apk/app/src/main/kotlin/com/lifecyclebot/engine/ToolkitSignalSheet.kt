@@ -297,6 +297,22 @@ object ToolkitSignalSheet {
         classification?.confidence?.toInt(),
     ).hashCode()
 
+    private fun rankDeskCandidates8385(candidates: List<Candidate>, native: SpecialistBrainBridge7542.Snapshot,
+                                      causalScore: (Candidate) -> Double): LinkedHashMap<String, Pair<Candidate, Double>> {
+        val bestByDesk = linkedMapOf<String, Pair<Candidate, Double>>()
+        candidates.forEach { candidate ->
+            val score = causalScore(candidate).coerceIn(0.0, 100.0)
+            if (score >= 25.0) (candidate.lanes + native.opinions.values.filter {
+                com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(it.lane) && it.authoritative && it.eligible
+            }.map { it.lane }).forEach { rawLane ->
+                val lane = rawLane.uppercase()
+                val prior = bestByDesk[lane]
+                if (prior == null || score > prior.second) bestByDesk[lane] = candidate to score
+            }
+        }
+        return bestByDesk
+    }
+
     fun build(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
         val hist = try { ts.history.toList().filter { it.priceUsd.isFinite() && it.priceUsd > 0.0 } } catch (_: Throwable) { emptyList() }
         val prices = hist.map { it.priceUsd }
@@ -817,17 +833,7 @@ object ToolkitSignalSheet {
         val defensiveRisk = internetRiskMode.equals("risk_off", ignoreCase = true) || internetRiskMode.equals("hostile", ignoreCase = true)
         fun causalScore(c: Candidate): Double = c.score + InternetEdgeDesk.setupScoreBias(c.setup.name) +
             regimeSetupBias(c.setup, regime) + riskOffSetupBias(c.setup, defensiveRisk)
-        val bestByDesk = linkedMapOf<String, Pair<Candidate, Double>>()
-        candidates.forEach { candidate ->
-            val score = causalScore(candidate).coerceIn(0.0, 100.0)
-            if (score >= 25.0) (candidate.lanes + nativeBrains7542.opinions.values.filter {
-                com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(it.lane) && it.authoritative && it.eligible
-            }.map { it.lane }).forEach { rawLane ->
-                val lane = rawLane.uppercase()
-                val prior = bestByDesk[lane]
-                if (prior == null || score > prior.second) bestByDesk[lane] = candidate to score
-            }
-        }
+        val bestByDesk = rankDeskCandidates8385(candidates, nativeBrains7542) { causalScore(it) }
         val deskHypotheses = bestByDesk.mapValuesTo(linkedMapOf()) { (lane, pair) ->
             val c = pair.first
             DeskHypothesis(

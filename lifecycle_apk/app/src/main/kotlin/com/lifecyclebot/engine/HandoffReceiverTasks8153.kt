@@ -101,6 +101,7 @@ object HandoffReceiverTasks8153 {
         val r = reason?.trim()?.uppercase()?.replace(' ', '_').orEmpty()
         return when {
             r.isEmpty() -> Block8153.WAIT
+            com.lifecyclebot.engine.truth.OnChainDepth8038.reserveCause8385(r) != null -> Block8153.DATA
             r.startsWith("DEFERRED_") -> Block8153.DATA
             LANE_SCOPED_8153.any { r.startsWith(it) } -> Block8153.FIT
             LANE_JUDGEMENT_8153.any { r.startsWith(it) } -> Block8153.JUDGEMENT
@@ -331,6 +332,7 @@ object HandoffReceiverTasks8153 {
     fun hydrationAnswers8345(block: String): Boolean {
         val b = block.uppercase().replace(' ', '_')
         if (b.contains("NO_TOKEN_STATE")) return false
+        if (com.lifecyclebot.engine.truth.OnChainDepth8038.reserveCause8385(b.removePrefix(DEFERRED_PREFIX_8153)) != null) return true
         return ContinuationRead8348.dataDefer8348(b) || b.contains("LIQ") || b.contains("DATA_INCOMPLETE") ||   // V5.0.8348 — the momentum deferral too
             b.contains("UNKNOWN_ECONOMICS") || b.contains("DATA_MISSING") || b.contains("MISSING_DATA")
     }

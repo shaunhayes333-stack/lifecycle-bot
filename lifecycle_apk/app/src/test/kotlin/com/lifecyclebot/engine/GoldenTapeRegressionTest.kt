@@ -15361,4 +15361,20 @@ class GoldenTapeRegressionTest {
         assertTrue(persist.contains("sealed8384?.entryLane"))
     }
 
+    @Test fun reserve_wait_8385_preserves_reason_accepted_observation_and_art_budget() {
+        fun f(path: String) = java.io.File("src/main/kotlin/com/lifecyclebot/$path").readText()
+        val exec = f("engine/Executor.kt")
+        val retry = f("engine/TicketRetry8327.kt")
+        val reserves = f("engine/truth/CurveReserves7951.kt")
+        val curve = f("network/ParallelMarkFanout7088.kt")
+        assertTrue(exec.contains("Preflight8385.DataDefer") && exec.contains("TicketRetry8327.noteReserveWait8385"))
+        assertTrue(retry.contains("AUTHORIZATION_EXPIRED_8385") && retry.contains("RESERVE_WAIT_SUPERSEDED_8385"))
+        assertTrue(retry.contains("reserveMatches8385") && retry.contains("pool8330().schedule({ sweep8327"))
+        assertTrue(reserves.contains("if (atMs <= r.atMs) return null") && reserves.contains("onReserveObserved8385"))
+        assertTrue(curve.contains("val pending8385 = targets.filter") && curve.contains("resolved8385.add(mint)"))
+        assertTrue(f("engine/ToolkitSignalSheet.kt").contains("rankDeskCandidates8385"))
+        assertTrue(f("engine/truth/LiveRiskPolicy7807.kt").contains("scope=decision_evaluations_not_unique_attempts"))
+        assertTrue(f("engine/truth/LiveRiskPolicy7807.kt").contains("refused="))
+    }
+
 }

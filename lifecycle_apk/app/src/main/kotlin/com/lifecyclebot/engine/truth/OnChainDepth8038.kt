@@ -207,20 +207,38 @@ object OnChainDepth8038 {
      * Executor live buy door: verify [ts]'s pool on chain (cached if fresh, else read now, ~3 s at most) and return
      * the refusal label when the chain contradicts the numbers the bot is buying on, else null.
      */
+    // Explicitly enumerated pre-submission data waits. No strategy or hard-risk refusal is recoverable here.
+    const val STALE_RESERVES_8385 = "CURVE_RESERVES_STALE_DEFER_8174"
+    const val UNVERIFIED_RESERVES_8385 = "CURVE_RESERVES_UNVERIFIED_DEFER_8253"
+    fun reserveCause8385(reason: String): String? = listOf(STALE_RESERVES_8385, UNVERIFIED_RESERVES_8385)
+        .firstOrNull { cause -> reason.split(':').any { it == cause || it == "DEFERRED_$cause" } }
+    sealed class Preflight8385 {
+        object Ready : Preflight8385()
+        data class DataDefer(val reason: String, val mint: String, val observedAfterMs: Long, val accountRequired: Boolean) : Preflight8385()
+        data class HardRefusal(val reason: String) : Preflight8385()
+    }
+    fun classifyPreflight8385(mint: String, reason: String?, nowMs: Long): Preflight8385 = when {
+        reason == null -> Preflight8385.Ready
+        reserveCause8385(reason) != null -> Preflight8385.DataDefer(reason, mint, nowMs, reason == UNVERIFIED_RESERVES_8385)
+        else -> Preflight8385.HardRefusal(reason)
+    }
+
     fun buyRefusal8038(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
         // V5.0.8046 — owner: "these are all ... shit buys": DOGO, Gawkbot, BUNKER bought at pump.fun's creation cap with
         // $1-2 real in the curve. An active curve whose buyers have put in under [MIN_CURVE_REAL_SOL_8046] is refused;
         // an unknown curve on a pump mint is read from the chain first.
         val pumpLike = curveReadable8252(ts.mint)
         if (pumpLike && (try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }) == null) {
-            try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint)) } catch (_: Throwable) {}
+            try { needCurve8039(ts.mint, nowMs, approved8385 = true) } catch (_: Throwable) {}
         }
         var curveReal8046 = try { CurveReserves7951.realSolIfActive8046(ts.mint) } catch (_: Throwable) { null }
+        if (pumpLike && curveReal8046 == null && !com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint))
+            return UNVERIFIED_RESERVES_8385
         // Revalidate an old create/trade reserve before live buy. Formula-implied liquidity
         // is provisional discovery evidence, never confirmed chain depth.
         val observedAt8174 = if (curveReal8046 != null) try { CurveReserves7951.readingAtMs8173(ts.mint) } catch (_: Throwable) { null } else null
         if (observedAt8174 != null && !LaunchCohort8173.reserveFresh8174(observedAt8174, nowMs)) {
-            try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint)) } catch (_: Throwable) {}
+            try { needCurve8039(ts.mint, nowMs, approved8385 = true) } catch (_: Throwable) {}
             val refreshedAt8174 = try { CurveReserves7951.readingAtMs8173(ts.mint) } catch (_: Throwable) { null }
             if (!LaunchCohort8173.reserveFresh8174(refreshedAt8174, System.currentTimeMillis())) {
                 try { needCurve8039(ts.mint, nowMs) } catch (_: Throwable) {}
@@ -232,7 +250,7 @@ object OnChainDepth8038 {
         // A fresh create frame can still describe the opening curve while another venue is now active.
         // Re-read the account before binding a negative reserve verdict; unknown is not "nobody bought".
         if (curveNobodyBought8046(curveReal8046) && CurveReserves7951.accountRealSol8253(ts.mint, nowMs) == null) {
-            try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint)) } catch (_: Throwable) {}
+            try { needCurve8039(ts.mint, nowMs, approved8385 = true) } catch (_: Throwable) {}
             val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }
             curveReal8046 = CurveReserves7951.accountRealSol8253(ts.mint, System.currentTimeMillis())
             if (!graduated && curveReal8046 == null) {
@@ -331,12 +349,28 @@ object OnChainDepth8038 {
     private const val CURVE_FLUSH_MS = 10_000L
     private const val CURVE_RETRY_MS = 60_000L
     private const val CURVE_BATCH = 40   // V5.0.8062
-    private val curveQueue = ConcurrentHashMap<String, Long>()       // mint -> queued at
-    private val curveAsked = ConcurrentHashMap<String, Long>()       // mint -> last read at
-    private val curveFlushing = java.util.concurrent.atomic.AtomicBoolean(false)
-    @Volatile private var lastCurveFlushMs = 0L
     private val curveRequested = AtomicLong(0)
     private val curveRead = AtomicLong(0)
+    private val curveScheduler8385 = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "AATE-reserve-drain-8385").apply { isDaemon = true }
+    }
+    private val refresh8385 by lazy {
+        CurveRefreshQueue8385(System::currentTimeMillis,
+            { delay, run -> try { curveScheduler8385.schedule(run, delay, java.util.concurrent.TimeUnit.MILLISECONDS); true } catch (_: Throwable) { false } },
+            { run -> try { pool.execute(run); true } catch (_: Throwable) { false } },
+            { batch ->
+                curveRequested.addAndGet(batch.size.toLong())
+                com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(batch)
+                val usable = batch.filter { mint ->
+                    val obs = CurveReserves7951.acceptedObservation8385(mint)
+                    LaunchCohort8173.reserveFresh8174(obs?.atMs, System.currentTimeMillis()) ||
+                        com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint)
+                }.toSet()
+                curveRead.addAndGet(usable.size.toLong())
+                try { PipelineHealthCollector.labelInc("ONCHAIN_CURVE_DEPTH_READ_8039") } catch (_: Throwable) {}
+                usable.associateWith { CurveReserves7951.acceptedObservation8385(it)?.atMs ?: System.currentTimeMillis() }
+            }, { mint, reason -> com.lifecyclebot.engine.TicketRetry8327.onReserveTimeout8385(mint, reason) })
+    }
 
     /** Pure: may [mint] be asked for again ([lastAskedMs] = last read, 0 = never)? */
     fun curveDue8039(lastAskedMs: Long, nowMs: Long): Boolean = lastAskedMs <= 0L || nowMs - lastAskedMs >= CURVE_RETRY_MS
@@ -365,26 +399,8 @@ object OnChainDepth8038 {
     }
 
     /** LiquidityTruth8037: [mint]'s depth is unknown — read its curve from the chain in the next batch. Returns immediately. */
-    fun needCurve8039(mint: String, nowMs: Long = System.currentTimeMillis()) {
-        if (mint.isBlank() || !curveDue8039(curveAsked[mint] ?: 0L, nowMs)) return
-        curveQueue.putIfAbsent(mint, nowMs)
-        if (curveQueue.size > 2_000) curveQueue.keys.take(500).forEach { curveQueue.remove(it) }
-        if (nowMs - lastCurveFlushMs < CURVE_FLUSH_MS || !curveFlushing.compareAndSet(false, true)) return
-        lastCurveFlushMs = nowMs
-        val batch = curveQueue.entries.sortedBy { it.value }.take(CURVE_BATCH).map { it.key }
-        batch.forEach { curveQueue.remove(it); curveAsked[it] = nowMs }
-        if (curveAsked.size > 6_000) curveAsked.entries.removeIf { nowMs - it.value > 10 * CURVE_RETRY_MS }
-        try {
-            pool.execute {
-                try {
-                    curveRequested.addAndGet(batch.size.toLong())
-                    val got = com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(batch)
-                    curveRead.addAndGet(got.size.toLong())
-                    try { PipelineHealthCollector.labelInc("ONCHAIN_CURVE_DEPTH_READ_8039") } catch (_: Throwable) {}
-                } catch (_: Throwable) {
-                } finally { curveFlushing.set(false) }
-            }
-        } catch (_: Throwable) { curveFlushing.set(false) }
+    fun needCurve8039(mint: String, nowMs: Long = System.currentTimeMillis(), approved8385: Boolean = false) {
+        refresh8385.request(mint, approved8385, nowMs)
     }
 
     /** V5.0.8046 — SOL other buyers must have put into a curve before live money joins (a dev buy alone is not a market). */
@@ -487,7 +503,69 @@ object OnChainDepth8038 {
 
     fun statusLine(): String =
         "emptyCurveRefused=${emptyCurveRefused8046.get()} launchCapRefused=${launchCapRefused8047.get()} earlyRefused8048=${earlyRefused8048.get()} last=[$lastRefusal8047] " +
-            "poolDepthAsked=${poolDepthAsked8047.get()} curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${curveQueue.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
+            "poolDepthAsked=${poolDepthAsked8047.get()} curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${refresh8385.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
             "reads=${fetched.get()} failed=${failed.get()} pools=${vaultsOf.size} unsupportedPools=${unsupported.size} " +
             "venues=PumpSwap,RaydiumV4,RaydiumCPMM rule=refuse when API depth >=${CONTRADICTION_MULT_8038.toInt()}x chain or chain price ${(PRICE_DROP_TOLERANCE_8038 * 100).toInt()}%+ under the buy price"
+}
+
+/** Queue implementation owned by OnChainDepth8038. Wire pacing is unchanged; failed admission never consumes a wire slot. */
+internal class CurveRefreshQueue8385(
+    private val clock: () -> Long,
+    private val schedule: (Long, Runnable) -> Boolean,
+    private val execute: (Runnable) -> Boolean,
+    private val fetch: (List<String>) -> Map<String, Long>,
+    private val expired: (String, String) -> Unit = { _, _ -> },
+) {
+    private data class Work(val mint: String, val firstMs: Long, var priority: Boolean, var attempts: Int = 0)
+    private val pending = LinkedHashMap<String, Work>()
+    private val successfullyObservedAt = LinkedHashMap<String, Long>()
+    private var attemptedAt = 0L
+    private var scheduled = false
+    private var active = false
+    val size: Int get() = synchronized(this) { pending.size }
+    fun request(mint: String, approved: Boolean, nowMs: Long = clock()) = synchronized(this) {
+        if (mint.isBlank()) return@synchronized
+        val prior = pending[mint]
+        if (prior != null) { prior.priority = prior.priority || approved; return@synchronized }
+        if (!approved && successfullyObservedAt[mint]?.let { nowMs - it in 0L until 60_000L } == true) return@synchronized
+        if (pending.size >= 2_000) return@synchronized
+        pending[mint] = Work(mint, nowMs, approved)
+        arm(0L)
+    }
+    private fun arm(delay: Long) {
+        if (scheduled || active || pending.isEmpty()) return
+        scheduled = true
+        if (!schedule(delay.coerceAtLeast(0L), Runnable { drain() })) scheduled = false
+    }
+    private fun drain() {
+        val batch = synchronized(this) {
+            scheduled = false
+            val now = clock()
+            val ended = pending.values.filter { now - it.firstMs >= 90_000L || it.attempts >= 4 }
+            ended.forEach { w ->
+                pending.remove(w.mint)
+                expired(w.mint, if (w.attempts >= 4) "CURVE_REFRESH_RETRY_BUDGET_8385" else "CURVE_REFRESH_TIMEOUT_8385")
+            }
+            if (pending.isEmpty() || active) return
+            if (attemptedAt > 0L && now - attemptedAt < 10_000L) { arm(10_000L - (now - attemptedAt)); return }
+            active = true
+            pending.values.sortedWith(compareByDescending<Work> { it.priority }.thenBy { it.firstMs }).take(40)
+        }
+        val accepted = try { execute(Runnable {
+            synchronized(this) { attemptedAt = clock(); batch.forEach { it.attempts++ } }
+            val usable = try { fetch(batch.map { it.mint }) } catch (_: Throwable) { emptyMap() }
+            synchronized(this) {
+                val now = clock()
+                usable.forEach { (mint, observedAt) ->
+                    if (batch.any { it.mint == mint } && LaunchCohort8173.reserveFresh8174(observedAt, now)) {
+                        pending.remove(mint); successfullyObservedAt[mint] = observedAt
+                    }
+                }
+                while (successfullyObservedAt.size > 6_000) successfullyObservedAt.remove(successfullyObservedAt.keys.first())
+                active = false
+                arm(10_000L)
+            }
+        }) } catch (_: Throwable) { false }
+        if (!accepted) synchronized(this) { active = false; arm(1_000L) }
+    }
 }

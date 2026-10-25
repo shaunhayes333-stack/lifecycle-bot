@@ -47,6 +47,7 @@ object TicketRetry8327 {
 
     /** Pure: the transient cause named in a wrapper reason ("LIVE_BUY_NOT_OPENED_7948:<stop>"), else null. */
     fun transientCause8327(reason: String): String? {
+        com.lifecyclebot.engine.truth.OnChainDepth8038.reserveCause8385(reason)?.let { return it }
         val inner = reason.substringAfter(':', "").trim().uppercase()
         if (inner.isBlank()) return null
         return TRANSIENT_CAUSES_8327.firstOrNull { inner == it || inner.startsWith("$it:") || inner.startsWith("${it}_") }
@@ -84,10 +85,11 @@ object TicketRetry8327 {
         val holds = (prior?.holds ?: 0) + 1
         held8327[attemptId] = Hold8327(lane, attemptId, cause, prior?.firstMs ?: nowMs, holds)
         count8327(lane, "held")
+        if (prior == null) try { pool8330().schedule({ sweep8327(System.currentTimeMillis()) }, HOLD_TTL_MS_8327, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (_: Throwable) {}
         arm8330(attemptId, holds)  // V5.0.8330 — this hold resumes once when its cause clears (or on the late-event guard)
         try {
             ForensicLogger.lifecycle("TICKET_RETRY_HELD_8327",
-                "attemptId=${attemptId.take(28)} lane=$lane cause=$cause holds=$holds/$MAX_HOLDS_8327 " +
+                "attemptId=$attemptId lane=$lane cause=$cause mint=${reserveWaits8385[attemptId]?.mint} mode=${reserveWaits8385[attemptId]?.mode} candidateVersion=${reserveWaits8385[attemptId]?.version} requiredObservedAfter=${reserveWaits8385[attemptId]?.afterMs} holds=$holds/$MAX_HOLDS_8327 " +
                     "ageMs=${nowMs - (prior?.firstMs ?: nowMs)} ttlMs=$HOLD_TTL_MS_8327 action=keep_ticket_retry_next_fresh_buy")
         } catch (_: Throwable) {}
         return null
@@ -95,6 +97,7 @@ object TicketRetry8327 {
 
     /** TicketExec8304.onStage8304 EXEC: a held ticket executed. */
     fun onExec8327(attemptId: String) {
+        reserveWaits8385.remove(attemptId)
         resumes8330.remove(attemptId); armed8330.remove(attemptId)  // V5.0.8330
         val h = held8327.remove(attemptId) ?: return
         count8327(h.lane, "exec")
@@ -102,7 +105,7 @@ object TicketRetry8327 {
     }
 
     /** TicketExec8304.onDrop8304: a held ticket ended by another name (reseal, a non-transient stop, the sweep). */
-    fun onTerminal8327(attemptId: String) { held8327.remove(attemptId); resumes8330.remove(attemptId); armed8330.remove(attemptId) }
+    fun onTerminal8327(attemptId: String) { reserveWaits8385.remove(attemptId); held8327.remove(attemptId); resumes8330.remove(attemptId); armed8330.remove(attemptId) }
 
     // ── V5.0.8330 — event-driven dispatcher: a held ticket resumes the moment its cause clears ──
     //
@@ -147,7 +150,8 @@ object TicketRetry8327 {
 
     /** Pure: does [trigger] clear a hold of [cause]? The late-event guard re-checks any cause. */
     fun triggerMatches8330(cause: String, trigger: String): Boolean = when (trigger) {
-        TRIGGER_GUARD_8330 -> true
+        TRIGGER_GUARD_8330 -> com.lifecyclebot.engine.truth.OnChainDepth8038.reserveCause8385(cause) == null
+        "reserves8385" -> com.lifecyclebot.engine.truth.OnChainDepth8038.reserveCause8385(cause) != null
         TRIGGER_MUTEX_8330 -> cause == "MUTEX_BUSY_DEFERRED"
         TRIGGER_PROOF_8330 -> cause == "SAFETY_PROOF_PENDING_DEFERRED_8270"
         TRIGGER_ROUTE_8330 -> cause == "TOKEN_MAP_ROUTE_PENDING_7371" || cause == "TOKEN_MAP_PENDING_DEFERRED_7371"
@@ -193,8 +197,46 @@ object TicketRetry8327 {
 
     private fun arm8330(attemptId: String, holds: Int) {
         armed8330[attemptId] = holds
+        reserveWaits8385[attemptId]?.let { w ->
+            com.lifecyclebot.engine.truth.CurveReserves7951.acceptedObservation8385(w.mint)?.let { onReserveObserved8385(w.mint, it.atMs, it.source, it.version) }
+        }
         if (!resumes8330.containsKey(attemptId)) return
         try { pool8330().schedule(Runnable { dispatchOne8330(attemptId, TRIGGER_GUARD_8330) }, LATE_EVENT_GUARD_MS_8330, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (_: Throwable) {}
+    }
+
+    internal data class ReserveWait8385(val mint: String, val mode: String, val attemptId: String, val version: Long,
+        val afterMs: Long, val baselineVersion: Long, val accountRequired: Boolean)
+    private val reserveWaits8385 = ConcurrentHashMap<String, ReserveWait8385>()
+    fun noteReserveWait8385(attemptId: String, requirement: com.lifecyclebot.engine.truth.OnChainDepth8038.Preflight8385.DataDefer) {
+        val ticket = ExecutableOpenGate.ticketForAttempt(attemptId) ?: return
+        val observation = com.lifecyclebot.engine.truth.CurveReserves7951.acceptedObservation8385(requirement.mint)
+        reserveWaits8385.putIfAbsent(attemptId, ReserveWait8385(requirement.mint, ticket.mode, attemptId, ticket.candidateVersion,
+            requirement.observedAfterMs, observation?.let { if (it.atMs >= requirement.observedAfterMs) it.version - 1L else it.version } ?: 0L, requirement.accountRequired))
+    }
+    internal fun reserveMatches8385(w: ReserveWait8385, mint: String, atMs: Long, source: String, version: Long, nowMs: Long): Boolean =
+        w.mint == mint && atMs >= w.afterMs && version > w.baselineVersion &&
+            (!w.accountRequired || source == "ACCOUNT") && com.lifecyclebot.engine.truth.LaunchCohort8173.reserveFresh8174(atMs, nowMs)
+    fun onReserveObserved8385(mint: String, atMs: Long, source: String, version: Long) {
+        val now = System.currentTimeMillis()
+        reserveWaits8385.values.filter { reserveMatches8385(it, mint, atMs, source, version, now) }.forEach { w ->
+            try { ForensicLogger.lifecycle("DATA_DEFER_RESUMED_8385", "mint=$mint mode=${w.mode} attemptId=${w.attemptId} candidateVersion=${w.version} observedAt=$atMs source=$source observationVersion=$version") } catch (_: Throwable) {}
+            dispatchOne8330(w.attemptId, "reserves8385")
+        }
+    }
+
+    fun onVerifiedMigration8385(mint: String, observedAtMs: Long) {
+        val now = System.currentTimeMillis()
+        if (!com.lifecyclebot.engine.truth.LaunchCohort8173.reserveFresh8174(observedAtMs, now)) return
+        reserveWaits8385.values.filter { it.mint == mint && observedAtMs >= it.afterMs }.forEach {
+            dispatchOne8330(it.attemptId, "reserves8385")
+        }
+    }
+
+    fun onReserveTimeout8385(mint: String, cause: String) {
+        reserveWaits8385.values.filter { it.mint == mint }.forEach { w ->
+            val h = held8327[w.attemptId] ?: return@forEach
+            if (held8327.remove(w.attemptId, h)) terminal8327(h.lane, h.attemptId, "${h.cause}:$cause")
+        }
     }
 
     /** Executor.releaseBuyMutex8330: the wallet-spend mutex is free. */
@@ -231,6 +273,9 @@ object TicketRetry8327 {
             ts.position.isOpen || ts.position.pendingVerify || ts.position.qtyToken > 0.0
         val inFlight = (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(r.mint, "BUY") } catch (_: Throwable) { null }) != null ||
             (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedAttempt8198(h.attemptId) } catch (_: Throwable) { null }) != null
+        if (ticket != null && ticket.expiresAtMs6613 > 0L && System.currentTimeMillis() >= ticket.expiresAtMs6613) return "AUTHORIZATION_EXPIRED_8385"
+        val wait8385 = reserveWaits8385[h.attemptId]
+        if (wait8385 != null && (ticket?.mint != wait8385.mint || ticket.mode != wait8385.mode || ticket.candidateVersion != wait8385.version)) return "RESERVE_WAIT_SUPERSEDED_8385"
         val versionIntent = if (ticket == null) false else try {
             ExecutableOpenGate.activeExecutionIntent6519(ticket.mode, ticket.mint, ticket.candidateVersion)?.attemptId == ticket.attemptId
         } catch (_: Throwable) { false }
@@ -352,7 +397,7 @@ object TicketRetry8327 {
         return "PRESEAL_MINT_REENTRY_COOLDOWN_6312_8327"
     }
 
-    internal fun resetForTests8327() { held8327.clear(); counts8327.clear(); lastSweepMs8327 = 0L; resumes8330.clear(); armed8330.clear(); resumeCounts8330.clear() }
+    internal fun resetForTests8327() { reserveWaits8385.clear(); held8327.clear(); counts8327.clear(); lastSweepMs8327 = 0L; resumes8330.clear(); armed8330.clear(); resumeCounts8330.clear() }
 
     /** Tests (V5.0.8330): the hold's armed count and whether a resume closure is registered. */
     internal fun armedHolds8330(attemptId: String): Int? = armed8330[attemptId]

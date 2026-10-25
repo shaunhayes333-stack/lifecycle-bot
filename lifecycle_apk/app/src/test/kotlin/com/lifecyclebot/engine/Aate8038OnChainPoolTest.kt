@@ -46,7 +46,7 @@ class Aate8038OnChainPoolTest {
         // A coin pumping faster than the API is not refused.
         assertFalse(OnChainDepth8038.priceCollapsed8038(1.0e-5, 1.6e-5))
         val exec = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(exec.contains("OnChainDepth8038.buyRefusal8038(ts)"))
+        assertTrue(exec.contains("OnChainDepth8038.buyRefusal8038(ts, preflightAt8385)"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/LiquidityTruth8037.kt").readText().contains("chainDepthUsd8038"))
     }
 }
