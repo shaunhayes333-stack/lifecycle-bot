@@ -211,9 +211,9 @@ object AgenticStyleRouter {
             "MANIPULATED" -> if (fallback.lanes.contains("MANIPULATED")) fallback else Style.NARRATIVE_SOCIAL_IGNITION
             "PROJECT_SNIPER" -> if (fallback.lanes.contains("PROJECT_SNIPER")) fallback else Style.PUMP_GRADUATION_SNIPE
             "DIP_HUNTER" -> if (fallback.lanes.contains("DIP_HUNTER")) fallback else Style.PANIC_REVERSION_BOUNCE
-            "TREASURY" -> if (fallback.lanes.contains("TREASURY")) fallback else Style.PANIC_REVERSION_BOUNCE
-            "CASHGEN" -> if (fallback.lanes.contains("CASHGEN")) fallback else Style.CASHFLOW_SCALP
-            "CYCLIC" -> if (fallback.lanes.contains("CYCLIC")) fallback else Style.CYCLIC_COMPOUND
+            "TREASURY" -> fallback  // V5.0.8384: same receiving desk, shared specialist tactic
+            "CASHGEN" -> fallback  // V5.0.8384: same receiving desk, shared specialist tactic
+            "CYCLIC" -> fallback  // V5.0.8384: same receiving desk, shared specialist tactic
             "CORE" -> fallback
             "QUALITY" -> if (fallback.lanes.contains("QUALITY")) fallback else Style.WHALE_ACCUMULATION_HOLD
             "BLUECHIP", "BLUE_CHIP" -> if (fallback.lanes.contains("BLUECHIP")) fallback else Style.MAINSTREAM_CRYPTO_SWING
@@ -248,19 +248,19 @@ object AgenticStyleRouter {
 
     /** V5.0.8080: does the sheet's setup belong to [laneHint]? Same test decide() applies before using it. */
     fun toolkitFitsLane8080(sheet: ToolkitSignalSheet.Sheet?, laneHint: String): Boolean {
-        val st = sheet?.let { styleForToolkit(it) } ?: return false
+        val st = sheet?.let { styleForToolkit(ToolkitSignalSheet.forDesk8384(it, laneHint)) } ?: return false
         return toolkitStyleFitsLane8080(st.lanes, laneHint)
     }
 
     /** V5.0.8080: the setup to seal for [laneHint]: the sheet's when this lane can run it, else the coin's own lane setup. */
     fun sealedSetup8080(ts: TokenState, sheet: ToolkitSignalSheet.Sheet?, laneHint: String): String =
-        if (toolkitFitsLane8080(sheet, laneHint)) sheet!!.setup.name
+        if (toolkitFitsLane8080(sheet, laneHint)) ToolkitSignalSheet.forDesk8384(sheet!!, laneHint).setup.name
         else (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, laneHint) } catch (_: Throwable) { null } ?: "NONE")  // V5.0.8153 — the admitted strategy
 
-    /** Pure (V5.0.8080): may a style declared for [styleLanes] run in [laneHint]? Blank lane / CORE accept any. */
+    /** Pure (V5.0.8080): may a style declared for [styleLanes] run in [laneHint]? Blank lane / ensemble desks accept shared tools, never donor ownership. */
     fun toolkitStyleFitsLane8080(styleLanes: Set<String>, laneHint: String): Boolean {
         val lane = try { BleederMemoryRouter.canon(laneHint) } catch (_: Throwable) { laneHint.trim().uppercase() }
-        if (lane.isBlank() || lane == "CORE" || styleLanes.isEmpty()) return true
+        if (lane.isBlank() || com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(lane) || styleLanes.isEmpty()) return true
         return styleLanes.any { (try { BleederMemoryRouter.canon(it) } catch (_: Throwable) { it.uppercase() }) == lane }
     }
 
@@ -273,7 +273,8 @@ object AgenticStyleRouter {
             val inferred7883 = try { TokenMetricStageRouter.preferredPrimaryLane(ts, "") } catch (_: Throwable) { "" }
             if (inferred7883 == "STANDARD") "" else inferred7883
         }
-        val sheet = try { ToolkitSignalSheet.snapshot(ts, classification) } catch (_: Throwable) { ToolkitSignalSheet.fallbackSheet(ts, classification) }
+        val sheet = ToolkitSignalSheet.forDesk8384(
+            try { ToolkitSignalSheet.snapshot(ts, classification) } catch (_: Throwable) { ToolkitSignalSheet.fallbackSheet(ts, classification) }, laneHint)
         val score = try { (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 150) } catch (_: Throwable) { 0 }
         val tactic = try { TacticSwitcher.tacticForToken8050(ts, if (laneHint.isBlank()) "SHITCOIN" else laneHint, score) } catch (_: Throwable) { TacticSwitcher.Tactic.MOMENTUM }
         val provenRunnerCell8094 = laneHint.isNotBlank() && try {

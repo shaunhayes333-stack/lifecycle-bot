@@ -43,8 +43,23 @@ object LiveStrategyTuner {
     private const val MIN_WINNER_TRADES = 8
     private const val LIVE_PARTIAL_PROFIT_FLOOR_PCT = 8.0
 
-    @Volatile private var cacheAtMs: Long = 0L
-    @Volatile private var cached: Map<String, Adjustment> = emptyMap()
+    /** Mode is an input to cache identity, never a UI snapshot inferred after the event. */
+    internal class ModeCache8384<V>(private val ttlMs: Long) {
+        private data class Entry<V>(val cacheAtMs: Long, val value: V)
+        private val cached = java.util.concurrent.ConcurrentHashMap<Boolean, Entry<V>>()
+        fun read(paper: Boolean, nowMs: Long, loader: () -> V): V {
+            cached[paper]?.takeIf { nowMs - it.cacheAtMs in 0L until ttlMs }?.let { return it.value }
+            val fresh = loader()
+            cached[paper] = Entry(nowMs, fresh)
+            return fresh
+        }
+    }
+    private val modeCache8384 = ModeCache8384<Map<String, Adjustment>>(CACHE_MS)
+
+    fun adjustmentForPosition8384(rawLane: String?, paperPosition: Boolean): Adjustment {
+        val lane = canonical(rawLane)
+        return try { snapshot(paperPosition)[lane] ?: neutral(lane) } catch (_: Throwable) { neutral(lane) }
+    }
 
     fun adjustment(rawLane: String?): Adjustment {
         val lane = canonical(rawLane)
@@ -118,18 +133,10 @@ object LiveStrategyTuner {
         }
     } catch (_: Throwable) { "LiveStrategyTuner: unavailable" }
 
-    private fun snapshot(): Map<String, Adjustment> {
-        val now = System.currentTimeMillis()
-        val c = cached
-        if (now - cacheAtMs < CACHE_MS && c.isNotEmpty()) return c
-        val fresh = compute()
-        cached = fresh
-        cacheAtMs = now
-        return fresh
-    }
+    private fun snapshot(paperPosition8384: Boolean = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }): Map<String, Adjustment> =
+        modeCache8384.read(paperPosition8384, System.currentTimeMillis()) { compute(paperPosition8384) }
 
-    private fun compute(): Map<String, Adjustment> {
-        val paperRuntime6079 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+    private fun compute(paperRuntime6079: Boolean): Map<String, Adjustment> {
         val board = try {
             if (paperRuntime6079) StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 1_500)
             else StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)

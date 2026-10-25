@@ -58,7 +58,6 @@ object HeldPositionPivotArbiter {
     // Don't pivot in the first few seconds — let the entry thesis play out first.
     private const val MIN_HOLD_BEFORE_PIVOT_MS = 20_000L
 
-    private val lastPivotMs = ConcurrentHashMap<String, Long>()
     private val pivotCount  = ConcurrentHashMap<String, Int>()
 
     /** Candidate live exit techniques, expressed as tradingMode strings that the
@@ -71,6 +70,55 @@ object HeldPositionPivotArbiter {
         "MICRO_CAP",     // FRESH_LAUNCH — fastest stop/partial for a fading fresh
     )
 
+    /** Immutable event-local owner. A missing/mismatched seal never grants shared-tool authority. */
+    internal fun entryOwner8384(ts: TokenState): String {
+        val id = ts.position.positionId
+        if (id.isBlank()) return ""
+        val snap = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.cachedManagement8384(id) ?: return ""
+        val mode = if (ts.position.isPaperPosition) "paper" else "live"
+        return if (snap.mint == ts.mint && snap.mode8090.equals(mode, true)) snap.entryLane else ""
+    }
+
+    /** Shared tools are exit techniques, not entry-lane migrations. Unproved losers cannot buy patience. */
+    internal fun switchAllowed8384(owner: String, from: String, to: String, pnl: Double, peak: Double,
+                                  momentumConfirmed: Boolean): Boolean {
+        if (from == to || !pnl.isFinite() || !peak.isFinite() ||
+            to !in HoldingLogicLayer.getAllModeParams()) return false
+        val ensemble = com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(owner)
+        if (!ensemble && RunnerExitProfile7277.refusesLaneChange(from, to)) return false
+        val old = HoldingLogicLayer.getHoldParams(from)
+        val next = HoldingLogicLayer.getHoldParams(to)
+        val addsPatience = next.maxHoldTimeMs > old.maxHoldTimeMs || next.targetProfitPct > old.targetProfitPct
+        return !addsPatience || (pnl >= 8.0 && (peak - pnl).coerceAtLeast(0.0) <= 8.0 && momentumConfirmed)
+    }
+
+    /** One commit point for arbiter, hold layer and cross-talk. Position-scoped, mode-local and restart-durable. */
+    internal fun applyMode8384(ts: TokenState, target: String, pnl: Double, peak: Double,
+                              momentumConfirmed: Boolean, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val pos = ts.position
+        val owner = entryOwner8384(ts)
+        val from: String
+        synchronized(pos) {
+            from = pos.tradingMode.uppercase()
+            if (!pos.isOpen || nowMs - pos.entryTime < MIN_HOLD_BEFORE_PIVOT_MS ||
+                !switchSlotFree8384(pos.lastManagementSwitchAtMs8384, nowMs) ||
+                !switchAllowed8384(owner, from, target, pnl, peak, momentumConfirmed)) return false
+            pos.tradingMode = target
+            pos.tradingModeEmoji = HoldingLogicLayer.getModeEmoji(target)
+            pos.modeHistory = if (pos.modeHistory.isEmpty()) "$from>$target" else "${pos.modeHistory}>$target"
+            pos.lastManagementSwitchAtMs8384 = nowMs
+        }
+        // Existing periodic PositionPersistence checkpoints serialize mode/history/cooldown together.
+        try {
+            PipelineHealthCollector.labelInc("HELD_SHARED_TOOL_SWITCH_8384_${owner.ifBlank { "LEGACY" }}")
+            ForensicLogger.lifecycle("HELD_SHARED_TOOL_SWITCH_8384", "mint=${ts.mint} positionId=${pos.positionId} mode=${if(pos.isPaperPosition) "paper" else "live"} owner=$owner from=$from to=$target reason=$reason at=$nowMs build=8384")
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    internal fun switchSlotFree8384(lastMs: Long, nowMs: Long): Boolean =
+        lastMs == 0L || nowMs - lastMs >= PIVOT_COOLDOWN_MS
+
     data class PivotResult(
         val pivoted: Boolean,
         val fromMode: String,
@@ -82,8 +130,8 @@ object HeldPositionPivotArbiter {
 
     /**
      * Evaluate one held position. If a better-fitting technique is found with
-     * conviction, mutate ts.position.tradingMode in place and re-stamp the
-     * outcome model. Returns a PivotResult for logging. Never throws.
+     * conviction, change only its management technique through applyMode8384. The
+     * entry outcome signature is never re-stamped. Returns a PivotResult for logging. Never throws.
      */
     fun evaluate(
         ts: TokenState,
@@ -101,8 +149,8 @@ object HeldPositionPivotArbiter {
                 return PivotResult(false, current, current, 0.0, 0.0, "too_early")
             }
             // Gate 2: cooldown — don't thrash.
-            val last = lastPivotMs[mint] ?: 0L
-            if (now - last < PIVOT_COOLDOWN_MS) {
+            val last = ts.position.lastManagementSwitchAtMs8384
+            if (!switchSlotFree8384(last, now)) {
                 return PivotResult(false, current, current, 0.0, 0.0, "cooldown")
             }
 
@@ -119,9 +167,12 @@ object HeldPositionPivotArbiter {
             val momentumBias = momentumBiasFor(momentum)   // [-0.15, +0.20]
             val drawFromPeak = if (peakPnlPct > 0.0) (peakPnlPct - pnlPct) else 0.0
 
+            val owner8384 = entryOwner8384(ts)
+            val ensemble8384 = com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(owner8384)
+            // Shared techniques are not permission to import another entry desk's favourable learning.
             // ── Score the incumbent technique ──
             val incumbentScore = blendedScore(
-                lane = current, score = score, quality = quality, regime = regime,
+                lane = current, evidenceLane = if (ensemble8384) owner8384 else current, score = score, quality = quality, regime = regime,
                 edgePhase = edgePhase, momentumBias = momentumBias,
                 pnlPct = pnlPct, drawFromPeak = drawFromPeak, isIncumbent = true,
             )
@@ -130,10 +181,12 @@ object HeldPositionPivotArbiter {
             var bestLane = current
             var bestScore = incumbentScore
             var bestReason = "incumbent"
-            for (cand in CANDIDATES) {
+            val techniques8384 = if (com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(owner8384))
+                HoldingLogicLayer.getAllModeParams().keys else CANDIDATES
+            for (cand in techniques8384) {
                 if (cand == current) continue
                 val s = blendedScore(
-                    lane = cand, score = score, quality = quality, regime = regime,
+                    lane = cand, evidenceLane = if (ensemble8384) owner8384 else cand, score = score, quality = quality, regime = regime,
                     edgePhase = edgePhase, momentumBias = momentumBias,
                     pnlPct = pnlPct, drawFromPeak = drawFromPeak, isIncumbent = false,
                 )
@@ -144,7 +197,8 @@ object HeldPositionPivotArbiter {
             if (bestLane == current || (bestScore - incumbentScore) < CONVICTION_MARGIN) {
                 return PivotResult(false, current, current, bestScore, incumbentScore, "below_margin")
             }
-            if (RunnerExitProfile7277.refusesLaneChange(current, bestLane)) {
+            if (!switchAllowed8384(owner8384, current, bestLane, pnlPct, peakPnlPct,
+                    momentum?.name in setOf("STRONG_PUMP", "PUMP_BUILDING"))) {
                 return PivotResult(false, current, current, bestScore, incumbentScore, "runner_lane_kept_7369")
             }
 
@@ -172,20 +226,9 @@ object HeldPositionPivotArbiter {
             }
 
             // ── PIVOT. Soft-shape: only changes the live exit style. ──
-            ts.position.tradingMode = bestLane
-            ts.position.tradingModeEmoji = emojiFor(bestLane)
-            // V5.0.6866 §A_PIVOT_MUST_NOT_ERASE_WHO_MADE_THE_ENTRY — tradingMode was
-            // overwritten in place with no record, so the lane that actually opened
-            // the position disappeared. Position.modeHistory exists for this, is
-            // persisted (PositionPersistence:784/872) and is written the same way by
-            // the HoldingLogicLayer mode switch at Executor:9406 and by the lane
-            // promotion path fixed in V5.0.6855. Same treatment here.
-            ts.position.modeHistory = if (ts.position.modeHistory.isEmpty()) {
-                "$current>$bestLane"
-            } else {
-                "${ts.position.modeHistory}>$bestLane"
-            }
-            lastPivotMs[mint] = now
+            if (!applyMode8384(ts, bestLane, pnlPct, peakPnlPct,
+                    momentum?.name in setOf("STRONG_PUMP", "PUMP_BUILDING"), bestReason, now))
+                return PivotResult(false, current, current, bestScore, incumbentScore, "switch_not_granted_8384")
             pivotCount[mint] = (pivotCount[mint] ?: 0) + 1
 
             // V5.0.6866 §THE_RESTAMP_CREDITED_AN_ENTRY_TO_A_LANE_THAT_DID_NOT_MAKE_IT —
@@ -231,12 +274,12 @@ object HeldPositionPivotArbiter {
      * term that rewards letting a confirmed runner run and cutting a staller.
      */
     private fun blendedScore(
-        lane: String, score: Int, quality: String, regime: String, edgePhase: String,
+        lane: String, evidenceLane: String, score: Int, quality: String, regime: String, edgePhase: String,
         momentumBias: Double, pnlPct: Double, drawFromPeak: Double, isIncumbent: Boolean,
     ): Double {
         // Forward expectancy from the proven outcome database.
         val fwd = try {
-            ForwardOutcomeModel.forecast(lane, score, quality, regime, edgePhase)
+            ForwardOutcomeModel.forecast(evidenceLane, score, quality, regime, edgePhase)
         } catch (_: Throwable) { null }
 
         // pWin in [0,1]; expectedPnl normalised; bootstrap -> neutral 0.5.
@@ -250,7 +293,7 @@ object HeldPositionPivotArbiter {
         s *= sampleTrust
 
         // Hive-mind view of this mode (read-only).
-        s += hiveBiasFor(lane)
+        s += hiveBiasFor(evidenceLane)
 
         // Live momentum bias applies most to the "let it run" techniques.
         val runnerLane = lane == "MOONSHOT" || lane == "STANDARD"
@@ -294,17 +337,8 @@ object HeldPositionPivotArbiter {
         } catch (_: Throwable) { "C" }
     }
 
-    private fun emojiFor(lane: String): String = when (lane) {
-        "MOONSHOT"    -> "\uD83D\uDE80"
-        "PUMP_SNIPER" -> "\uD83C\uDFAF"
-        "REVIVAL"     -> "\uD83D\uDD04"
-        "MICRO_CAP"   -> "\uD83D\uDD2C"
-        else          -> "\uD83D\uDCC8"
-    }
-
     /** Called by Executor on close to clean per-position state. */
     fun onClosed(mint: String) {
-        lastPivotMs.remove(mint)
         pivotCount.remove(mint)
     }
 }

@@ -131,6 +131,24 @@ object ToolkitSignalSheet {
         val compactReason: String get() = reasons.take(5).joinToString(";")
     }
 
+    /** Receiving desk's own native eligibility is checked before borrowing; never overwrite a better
+     * observed specialist hypothesis with a fixed cashflow/compound placeholder. No donor proof is transferred. */
+    internal fun preferDesk8384(shared: DeskHypothesis?, native: DeskHypothesis): DeskHypothesis =
+        if (com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(native.lane) &&
+            shared?.lane == native.lane && shared.setup != Setup.NONE && shared.conviction > native.conviction)
+            shared.copy(reason = "shared_tool8384;native_role_ok;${shared.reason};${native.reason}") else native
+
+    /** Lane-local view of the cached sheet. Entry/hold/exit fields belong to the same elected hypothesis. */
+    internal fun forDesk8384(sheet: Sheet, lane: String): Sheet {
+        if (!com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(lane)) return sheet
+        val h = sheet.deskHypotheses[lane.trim().uppercase()] ?: return sheet.copy(
+            setup = Setup.NONE, confidence = 0.0, entryStyle = "none", exitStyle = "none",
+            holdMult = 1.0, sizeMult = 1.0, tpMult = 1.0, toolVotes = emptySet())
+        return sheet.copy(setup = h.setup, confidence = h.conviction, entryStyle = h.entryStyle,
+            exitStyle = h.exitStyle, holdMult = h.holdMult, sizeMult = h.sizeMult, tpMult = h.tpMult,
+            reasons = sheet.reasons + "desk8384=${h.lane};${h.reason}")
+    }
+
     private data class Candidate(
         val setup: Setup,
         val score: Double,
@@ -802,7 +820,9 @@ object ToolkitSignalSheet {
         val bestByDesk = linkedMapOf<String, Pair<Candidate, Double>>()
         candidates.forEach { candidate ->
             val score = causalScore(candidate).coerceIn(0.0, 100.0)
-            if (score >= 25.0) candidate.lanes.forEach { rawLane ->
+            if (score >= 25.0) (candidate.lanes + nativeBrains7542.opinions.values.filter {
+                com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(it.lane) && it.authoritative && it.eligible
+            }.map { it.lane }).forEach { rawLane ->
                 val lane = rawLane.uppercase()
                 val prior = bestByDesk[lane]
                 if (prior == null || score > prior.second) bestByDesk[lane] = candidate to score
@@ -824,12 +844,12 @@ object ToolkitSignalSheet {
                 if (deskHypotheses.remove(lane) != null) try { PipelineHealthCollector.labelInc("NATIVE_BRAIN_VETO_APPLIED_7542_$lane") } catch (_: Throwable) {}
             } else {
                 val setup = try { Setup.valueOf(native.setup) } catch (_: Throwable) { Setup.NONE }
-                deskHypotheses[lane] = DeskHypothesis(
+                deskHypotheses[lane] = preferDesk8384(deskHypotheses[lane], DeskHypothesis(
                     lane, setup, (native.ownershipConviction7948 ?: maxOf(native.score,native.confidence).toDouble()).coerceIn(25.0,100.0),
                     native.entryStyle,native.exitStyle,native.holdMult.coerceIn(0.30,3.50),
                     native.sizeMult.coerceIn(0.30,1.15),native.tpMult.coerceIn(0.60,1.70),
                     "nativeBrain7542;${native.reason}"
-                )
+                ))
                 try { PipelineHealthCollector.labelInc("NATIVE_BRAIN_HYPOTHESIS_APPLIED_7542_$lane") } catch (_: Throwable) {}
             }
         }
@@ -840,12 +860,12 @@ object ToolkitSignalSheet {
         // must still mark it authoritative+eligible before the hunter can tie-break.
         nativeBrains7542.opinions["CORE"]?.takeIf { it.authoritative && it.eligible }?.let { native ->
             val setup = try { Setup.valueOf(native.setup) } catch (_: Throwable) { Setup.NONE }
-            deskHypotheses["CORE"] = DeskHypothesis(
+            deskHypotheses["CORE"] = preferDesk8384(deskHypotheses["CORE"], DeskHypothesis(
                 "CORE", setup, maxOf(native.score,native.confidence).toDouble().coerceIn(25.0,100.0),
                 native.entryStyle,native.exitStyle,native.holdMult.coerceIn(0.30,3.50),
                 native.sizeMult.coerceIn(0.30,1.15),native.tpMult.coerceIn(0.60,1.70),
                 "nativeBrain7542;${native.reason}"
-            )
+            ))
         }
 
         // V5.0.7803 — specialist hunters own RESIDENT candidate books.

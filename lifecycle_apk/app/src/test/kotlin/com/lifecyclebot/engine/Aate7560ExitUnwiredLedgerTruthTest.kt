@@ -14,7 +14,8 @@ class Aate7560ExitUnwiredLedgerTruthTest {
         val hold = src("engine/HoldingLogicLayer.kt")
         assertTrue(hold.contains("val params = getHoldParams(mode)"))
         assertTrue(hold.contains("AdvancedExitManager.evaluateExit("))
-        assertTrue(hold.contains("LiveStrategyTuner.adjustment(mode)"))
+        assertTrue(hold.contains("LiveStrategyTuner.adjustmentForPosition8384(learningLane8384, position.isPaperPosition)"))
+        assertFalse(hold.contains("LiveStrategyTuner.adjustment(mode)"))
         assertTrue(hold.contains("FluidLearningAI.getFluidMinHoldMinutes(layer)"))
         assertTrue(hold.contains("FluidLearningAI.getFluidMaxHoldMinutes(layer)"))
 

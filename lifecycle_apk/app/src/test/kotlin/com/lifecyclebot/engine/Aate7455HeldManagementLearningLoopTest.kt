@@ -15,7 +15,9 @@ class Aate7455HeldManagementLearningLoopTest {
 
     @Test fun terminal_learning_shapes_tp_hold_and_partial_management() {
         val s = src("engine/HoldingLogicLayer.kt")
-        assertTrue(s.contains("val exitTune7455 = try { LiveStrategyTuner.adjustment(mode) }"))
+        assertTrue(s.contains("LiveStrategyTuner.adjustmentForPosition8384(learningLane8384, position.isPaperPosition)"))
+        assertTrue(s.contains("HeldPositionPivotArbiter.entryOwner8384(ts)"))
+        assertFalse(s.contains("LiveStrategyTuner.adjustment(mode)"))
         assertTrue(s.contains("exitTune7455?.tpMult"))
         assertTrue(s.contains("exitTune7455?.holdMult"))
         assertTrue(s.contains("exitTune7455?.partialTriggerMult"))

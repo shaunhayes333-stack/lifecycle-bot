@@ -96,6 +96,11 @@ object PositionPersistence {
         val tradingMode: String,
         val tradingModeEmoji: String,
         val modeHistory: String,
+        val lastManagementSwitchAtMs8384: Long = 0L,
+        val positionId8384: String = "",
+        val entryPolicySnapshot8384: String = "",
+        val styleHoldMult8384: Double = 1.0,
+        val styleTpMult8384: Double = 1.0,
         
         // Special modes
         val isTreasuryPosition: Boolean,
@@ -309,6 +314,9 @@ object PositionPersistence {
                 tradingMode = saved.tradingMode,
                 tradingModeEmoji = saved.tradingModeEmoji,
                 modeHistory = saved.modeHistory,
+                lastManagementSwitchAtMs8384 = saved.lastManagementSwitchAtMs8384,
+                positionId = saved.positionId8384,
+                entryPolicySnapshot = saved.entryPolicySnapshot8384,
                 isTreasuryPosition = saved.isTreasuryPosition,
                 isBlueChipPosition = saved.isBlueChipPosition,
                 isShitCoinPosition = saved.isShitCoinPosition,
@@ -389,7 +397,17 @@ object PositionPersistence {
             // restart. That made restored opens invisible to EmergentGuardrails
             // multi-layer protection and PortfolioHeatAI downstream exit/persona
             // reads until a new buy occurred.
-            val restoredLayer = saved.tradingMode.ifBlank { if (saved.isPaperPosition) "PAPER" else "LIVE" }
+            // V5.0.8384: hydrate once during restore, not on the held tick; observers register the entry owner,
+            // never a mutable exit technique. Legacy missing seals retain the existing non-authorizing fallback.
+            val sealed8384 = saved.positionId8384.takeIf { it.isNotBlank() }?.let {
+                com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(it)
+            }?.takeIf { it.mint == mint && it.mode8090.equals(if (saved.isPaperPosition) "paper" else "live", true) }
+            existingTokens[mint]?.let {
+                it.styleHoldMult = saved.styleHoldMult8384
+                it.styleTpMult = saved.styleTpMult8384
+            }
+            val restoredLayer = sealed8384?.entryLane?.takeIf { it.isNotBlank() }
+                ?: saved.tradingMode.ifBlank { if (saved.isPaperPosition) "PAPER" else "LIVE" }
             GlobalTradeRegistry.registerPosition(
                 mint = mint,
                 symbol = saved.symbol,
@@ -713,6 +731,11 @@ object PositionPersistence {
             tradingMode = pos.tradingMode,
             tradingModeEmoji = pos.tradingModeEmoji,
             modeHistory = pos.modeHistory,
+            lastManagementSwitchAtMs8384 = pos.lastManagementSwitchAtMs8384,
+            positionId8384 = pos.positionId,
+            entryPolicySnapshot8384 = pos.entryPolicySnapshot,
+            styleHoldMult8384 = ts.styleHoldMult,
+            styleTpMult8384 = ts.styleTpMult,
             isTreasuryPosition = pos.isTreasuryPosition,
             isBlueChipPosition = pos.isBlueChipPosition,
             isShitCoinPosition = pos.isShitCoinPosition,
@@ -789,6 +812,11 @@ object PositionPersistence {
                 put("tradingMode", pos.tradingMode)
                 put("tradingModeEmoji", pos.tradingModeEmoji)
                 put("modeHistory", pos.modeHistory)
+                put("lastManagementSwitchAtMs8384", pos.lastManagementSwitchAtMs8384)
+                put("positionId8384", pos.positionId8384)
+                put("entryPolicySnapshot8384", pos.entryPolicySnapshot8384)
+                put("styleHoldMult8384", pos.styleHoldMult8384)
+                put("styleTpMult8384", pos.styleTpMult8384)
                 put("isTreasuryPosition", pos.isTreasuryPosition)
                 put("isBlueChipPosition", pos.isBlueChipPosition)
                 put("isShitCoinPosition", pos.isShitCoinPosition)
@@ -879,6 +907,11 @@ object PositionPersistence {
                     tradingMode = obj.optString("tradingMode", "STANDARD"),
                     tradingModeEmoji = obj.optString("tradingModeEmoji", "📈"),
                     modeHistory = obj.optString("modeHistory", ""),
+                    lastManagementSwitchAtMs8384 = obj.optLong("lastManagementSwitchAtMs8384", 0L),
+                    positionId8384 = obj.optString("positionId8384", ""),
+                    entryPolicySnapshot8384 = obj.optString("entryPolicySnapshot8384", ""),
+                    styleHoldMult8384 = obj.optDouble("styleHoldMult8384", 1.0).let { if (it.isFinite() && it > 0.0) it else 1.0 },
+                    styleTpMult8384 = obj.optDouble("styleTpMult8384", 1.0).let { if (it.isFinite() && it > 0.0) it else 1.0 },
                     isTreasuryPosition = obj.optBoolean("isTreasuryPosition", false),
                     isBlueChipPosition = obj.optBoolean("isBlueChipPosition", false),
                     isShitCoinPosition = obj.optBoolean("isShitCoinPosition", false),

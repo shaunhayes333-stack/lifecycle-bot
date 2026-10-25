@@ -37,7 +37,11 @@ class Aate7541AllSpecialistSpineTest {
         val growth = src("engine/LiveGrowthDoctrine.kt")
         assertTrue(growth.contains("CASH_GENERATION\") -> \"CASHGEN\""))
         val agent = src("engine/AgenticStyleRouter.kt")
-        assertTrue(agent.contains("\"CASHGEN\" -> if (fallback.lanes.contains(\"CASHGEN\")) fallback else Style.CASHFLOW_SCALP"))
+        assertTrue(agent.contains("\"CASHGEN\" -> fallback"))
+        assertTrue(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("MOONSHOT"), "CASHGEN"))
+        assertTrue(agent.contains("val tuneLane = laneHint.ifBlank"))
+        assertTrue(ToolkitSignalSheet.preferDesk8384(null, ToolkitSignalSheet.DeskHypothesis(
+            "CASHGEN", ToolkitSignalSheet.Setup.CASHFLOW_SCALP, 70.0, "entry", "exit", 1.0, 1.0, 1.0, "native")).lane == "CASHGEN")
     }
 
     @Test fun sealed_fdg_owner_replaces_preseal_caller_order() {

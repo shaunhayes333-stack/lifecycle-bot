@@ -164,6 +164,7 @@ data class Position(
     // reached capital, instead of merely being available in reports.
     var entryPolicySnapshot: String = "",
     val positionId: String = "",          // V5.0.6512 canonical position/decision lineage
+    var lastManagementSwitchAtMs8384: Long = 0L,
     var modeHistory: String = "",           // Track mode switches: "PUMP_SNIPER>MOMENTUM_SWING"
     // ═══════════════════════════════════════════════════════════════════
     // TREASURY MODE - Quick scalp exits

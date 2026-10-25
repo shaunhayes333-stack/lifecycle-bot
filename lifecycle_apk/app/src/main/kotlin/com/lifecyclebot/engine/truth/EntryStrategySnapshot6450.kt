@@ -247,6 +247,9 @@ object EntryStrategySnapshot6450 {
         )
     }
 
+    /** V5.0.8384: management reads sealed, already-hydrated identity without synchronous disk/provider work. */
+    internal fun cachedManagement8384(positionId: String): Snapshot? = snapshots[positionId]
+
     fun snapshot(positionId: String): Snapshot? {
         // V5.0.8332 — every read is counted (entrySnap8332[readOk, missing]); a miss first retries any seal still queued.
         val s = lookup8332(positionId)

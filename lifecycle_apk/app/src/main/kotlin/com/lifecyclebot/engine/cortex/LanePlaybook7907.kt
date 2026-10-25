@@ -643,8 +643,32 @@ object LanePlaybook7907 {
         val upTo7978 = (if (lane in EXPERT_LANES_7962) base + EXPERT_ENTRY_7962 else base) +
             (if (lane in MEME_LANES_7978) MEME_EXTRAS_7978 else OTHER_EXTRAS_7978)   // V5.0.7978
         val upTo8061 = upTo7978 + extras8061(lane, upTo7978)   // V5.0.8061
-        upTo8061 + added8383(lane, upTo8061)   // V5.0.8383
+        val native = upTo8061 + added8383(lane, upTo8061)   // V5.0.8383
+        if (!isEnsemble8384(lane)) native else {
+            // V5.0.8384: reuse predicates, never a donor lane's record or mandate. Every fired setup is
+            // still classified/ranked/graded as (receiving lane, setup), downstream of that desk's role checks.
+            val have = native.map { it.id }.toHashSet()
+            native + sharedLibrary8384.filter { have.add(it.id) }
+        }
     }
+
+    /** Multi-tool desks borrow strategies, not ownership, age/cap eligibility, capital or learned proof. */
+    fun isEnsemble8384(lane: String): Boolean = canon(lane) in setOf("CORE", "TREASURY", "CASHGEN", "CYCLIC")
+
+    // Evaluated once, after object initialization. Stable library order is append-only, independent of election order.
+    private val sharedLibrary8384: List<Setup> by lazy {
+        (MENU.values.flatten() + EXPERT_ENTRY_7962 + MEME_EXTRAS_7978 + OTHER_EXTRAS_7978 +
+            CROSS_8061.values.flatten() + SHAPE_8061 + EARLY_BUYER_EXPANSION_8170 + ADDED_8383.values.flatten())
+            .distinctBy { it.id }
+    }
+
+    /** Exact prior-release menu: used only to preserve learned Cortex bin identities across an expansion. */
+    private fun nativeMenu8384(lane: String): List<Setup> = MENU[lane]?.let { base ->
+        val old = (if (lane in EXPERT_LANES_7962) base + EXPERT_ENTRY_7962 else base) +
+            (if (lane in MEME_LANES_7978) MEME_EXTRAS_7978 else OTHER_EXTRAS_7978)
+        val previous = old + extras8061(lane, old)
+        previous + added8383(lane, previous)
+    }.orEmpty()
 
     /** V5.0.8383 — this lane's evidence-built setups, never one its menu already has. */
     private fun added8383(lane: String, existing: List<Setup>): List<Setup> {
@@ -2295,10 +2319,17 @@ object LanePlaybook7907 {
         }.orEmpty()
         // V5.0.8383 — the evidence-built setups appended after every earlier bin too.
         val added8383 = ADDED_8383.values.flatten().map { it.id }.distinct()
-        val menu = menuIds(lane).filter { it !in added7962 && it !in added8061 && it !in added8383 }
+        val menu = nativeMenu8384(lane).map { it.id }.filter { it !in added7962 && it !in added8061 && it !in added8383 }
+        val appended = added7962 + added8061.filter { it !in added8383 } + added8383
         val i = menu.indexOf(id)
-        val j = (added7962 + added8061.filter { it !in added8383 } + added8383).indexOf(id)
-        return (if (i >= 0) i else if (j >= 0) menu.size + 1 + j else menu.size).toDouble()
+        val j = appended.indexOf(id)
+        // V5.0.8384: NO_TRIGGER and every existing bin remain bit-for-bit stable; borrowed setups follow ALL
+        // reserved slots (including absent legacy entries), not the length of the newly enlarged menu.
+        val borrowed = if (isEnsemble8384(lane)) sharedLibrary8384.map { it.id }
+            .filter { it !in menu && it !in appended } else emptyList()
+        val k = borrowed.indexOf(id)
+        return (if (i >= 0) i else if (j >= 0) menu.size + 1 + j
+            else if (k >= 0) menu.size + 1 + appended.size + k else menu.size).toDouble()
     }
 
     /** The voter covers the complete current menu, including NO_TRIGGER and appended strategies. */
@@ -2502,7 +2533,7 @@ object LanePlaybook7907 {
                 val env8383 = envelopeCounts8383.entries.filter { it.key.startsWith("$lane|") }.sortedByDescending { it.value.get() }
                     .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "-" }
                 "      $lane tagged{$tags} record: $rec\n        8084 outcomes{$oc} missing{$miss} forward-by-outcome{$fwd}" +
-                    "\n        8383 outsideEnvelope{$env8383} retiredSkipped=${retiredSkips8383[lane]?.get() ?: 0L} retired=${RETIRED_8383[lane].orEmpty().size}"
+                    "\n        8383 outsideEnvelope{$env8383} retiredSkipped=${retiredSkips8383[lane]?.get() ?: 0L} retired=${RETIRED_8383[lane].orEmpty().size} menu8384=${menuIds(lane).size} sharedTools=${isEnsemble8384(lane)}"
             }
             "rule=live needs a lane setup (NO_TRIGGER refused unless proven positive) · proven-losing setups refused · measured setups expected to lose refused (7948) · setup auth>=0.5 admits over a smaller cell (7955) · paper never refused\n" +
                 "      refusals: ${refusals.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}\n" +

@@ -169,6 +169,8 @@ object HoldingLogicLayer {
             // was previously dead while this hot path reached around it into the
             // backing map, leaving two apparent authorities for the same policy.
             val params = getHoldParams(mode)
+            // Management mode may change; training/tuning always belongs to the event-local entry owner.
+            val learningLane8384 = HeldPositionPivotArbiter.entryOwner8384(ts).ifBlank { mode }
             try { PipelineHealthCollector.labelInc("HOLD_PARAMS_CANONICAL_READ_7455") } catch (_: Throwable) {}
             
             val holdTimeMs = System.currentTimeMillis() - position.entryTime
@@ -179,7 +181,7 @@ object HoldingLogicLayer {
             val ssiExitPatience6091 = try { SsiPilotCouncil.exitPatience().coerceIn(0.65, 1.55) } catch (_: Throwable) { 1.0 }
             // V5.0.6684 — exact promoted Lab strategy becomes this lane's
             // TP/SL/hold profile. It cannot loosen the existing hard stop.
-            val labExit6684 = try { AdaptiveLaneReproof6684.exitStrategy(mode) } catch (_: Throwable) { null }
+            val labExit6684 = try { AdaptiveLaneReproof6684.exitStrategy(learningLane8384) } catch (_: Throwable) { null }
             val baseTarget6684 = labExit6684?.takeProfitPct?.coerceIn(3.0, 100.0) ?: params.targetProfitPct
             val activeStopLoss6684 = maxOf(
                 params.stopLossPct,
@@ -197,7 +199,7 @@ object HoldingLogicLayer {
             //
             // This remains SOFT management only. Hard stop loss and AEM critical
             // exits below are not multiplied, bypassed or delayed by this tuner.
-            val exitTune7455 = try { LiveStrategyTuner.adjustment(mode) } catch (_: Throwable) { null }
+            val exitTune7455 = try { LiveStrategyTuner.adjustmentForPosition8384(learningLane8384, position.isPaperPosition) } catch (_: Throwable) { null }
             val tpMult7455 = (exitTune7455?.tpMult ?: 1.0).coerceIn(0.75, 1.75)
             val holdMult7455 = (exitTune7455?.holdMult ?: 1.0).coerceIn(0.70, 3.20)
             val partialMult7455 = (exitTune7455?.partialTriggerMult ?: 1.0).coerceIn(0.70, 3.80)
@@ -217,7 +219,7 @@ object HoldingLogicLayer {
             // V5.2: Get fluid hold time parameters from FluidLearningAI
             // These adapt based on learning progress and layer type
             // ─────────────────────────────────────────────────────────────────
-            val layer = getLayerFromMode(mode)
+            val layer = getLayerFromMode(learningLane8384)
             val fluidMinHold = FluidLearningAI.getFluidMinHoldMinutes(layer)
             val rawFluidMaxHold = FluidLearningAI.getFluidMaxHoldMinutes(layer)
             // V5.9.11: Symbolic patience — mood stretches/shrinks how long winners breathe
@@ -718,7 +720,24 @@ object HoldingLogicLayer {
      * Get hold parameters for a specific mode.
      */
     fun getHoldParams(mode: String): ModeHoldParams {
-        return MODE_PARAMS[mode] ?: MODE_PARAMS["STANDARD"]!!
+        val lane = mode.trim().uppercase()
+        MODE_PARAMS[lane]?.let { return it }
+        // V5.0.8384: named specialist modes must not silently receive STANDARD's four-hour policy.
+        // Existing field-guide mandates own risk/target; an internal technique switch never loosens hard safety.
+        val alias = when (lane) {
+            "TREASURY", "CASHGEN" -> "MARKET_MAKER"
+            "CORE" -> "STANDARD"
+            "QUALITY", "BLUECHIP" -> "BLUE_CHIP"
+            "SHITCOIN", "PROJECT_SNIPER" -> "MICRO_CAP"
+            "EXPRESS" -> "PUMP_SNIPER"
+            "MANIPULATED" -> "PUMP_DUMP"
+            "DIP_HUNTER" -> "REVIVAL"
+            else -> return MODE_PARAMS["STANDARD"]!!
+        }
+        val base = MODE_PARAMS.getValue(alias)
+        val mandate = com.lifecyclebot.engine.truth.FieldManual7715.mandateFor(lane)
+        return base.copy(mode = lane, targetProfitPct = mandate.expectedGrossPct,
+            stopLossPct = maxOf(base.stopLossPct, -mandate.invalidationPct), allowModeSwitch = true)
     }
     
     /**
@@ -730,7 +749,7 @@ object HoldingLogicLayer {
      * Check if a position should consider mode switch based on time alone.
      */
     fun shouldCheckModeSwitch(position: Position): Boolean {
-        val params = MODE_PARAMS[position.tradingMode] ?: return false
+        val params = getHoldParams(position.tradingMode)
         return params.allowModeSwitch
     }
     

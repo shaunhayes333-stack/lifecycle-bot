@@ -300,6 +300,9 @@ object TacticSwitcher {
         val s = bestSetup.orEmpty().uppercase()
         val fromSetup = when {
             s.isBlank() || s == "NO_TRIGGER" || s == "SPECIALIST_EDGE" || s == "EXPERT_ENTRY" || s == "LAUNCH_LADDER_PROVEN" -> null
+            // V5.0.8384: explicit family for new names without a legacy keyword. Shared tools retain receiving-lane books.
+            s == "RUNUP_HOLD_8383" -> Tactic.BREAKOUT
+            s == "SWEET_SPOT_8383" || s == "DEEP_RATIO_8383" -> Tactic.REACCUMULATION
             // BASE_BREAKOUT describes a breakout, not accumulation merely because it contains BASE.
             s.contains("BREAKOUT") -> Tactic.BREAKOUT
             listOf("PULLBACK", "DIP", "RECLAIM", "BOUNCE").any { s.contains(it) } -> Tactic.PULLBACK

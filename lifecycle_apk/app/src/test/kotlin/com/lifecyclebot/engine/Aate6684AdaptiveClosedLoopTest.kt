@@ -45,7 +45,8 @@ class Aate6684AdaptiveClosedLoopTest {
         assertTrue(open.contains("EXEC_OPEN_LAB_STRATEGY_WAIT_6684"))
         assertTrue(size.contains("AdaptiveLaneReproof6684.sizeMultiplierForLane"))
         assertTrue(size.contains("SsiPilotCouncil.sizeMultiplierForLane"))
-        assertTrue(hold.contains("AdaptiveLaneReproof6684.exitStrategy(mode)"))
+        assertTrue(hold.contains("AdaptiveLaneReproof6684.exitStrategy(learningLane8384)"))
+        assertTrue(hold.contains("HeldPositionPivotArbiter.entryOwner8384(ts)"))
         assertTrue(bucket.contains("AdaptiveLaneReproof6684.activeStrategy"))
     }
 

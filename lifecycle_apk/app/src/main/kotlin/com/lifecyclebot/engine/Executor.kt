@@ -12825,7 +12825,7 @@ class Executor(
                 // With 20+ tokens evaluated concurrently the IO dispatcher
                 // drained and the supervisor hung on Unsafe.park. The function
                 // is now a regular synchronous fun; call directly.
-                val causalPositionId6599 = try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint) } catch (_: Throwable) { ts.mint }
+                val causalPositionId6599 = try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, ts.position.isPaperPosition) } catch (_: Throwable) { ts.position.positionId }
                 val causalEntry6599 = try { com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(causalPositionId6599) } catch (_: Throwable) { null }
                 causalEntry6599?.let { com.lifecyclebot.engine.ToolkitSignalSheet.recordContributorSummary(it.specialistContributions, "EXIT_INFLUENCE", causalPositionId6599) }
                 // V5.0.6696 — activate the dormant predictive mid-hold arbiter.
@@ -12852,7 +12852,7 @@ class Executor(
                     position = ts.position,
                     ts = ts,
                     currentPnlPct = currentPnlPct,
-                    isPaperMode = isPaperRT(),
+                    isPaperMode = ts.position.isPaperPosition,
                 )
                 
                 if (holdEval.action == HoldingLogicLayer.HoldAction.ADD_MORE && cfg().autoTrade && !cbState.isHalted && !cbState.isPaused && freshness !is GuardResult.Block) {
@@ -12869,18 +12869,12 @@ class Executor(
 
                 if (holdEval.action == HoldingLogicLayer.HoldAction.SWITCH_MODE &&
                     holdEval.modeSwitchRecommendation?.shouldSwitch == true &&
-                    !RunnerExitProfile7277.refusesLaneChange(ts.position.tradingMode, holdEval.modeSwitchRecommendation.newMode)) {
+                    HeldPositionPivotArbiter.applyMode8384(ts, holdEval.modeSwitchRecommendation.newMode,
+                        currentPnlPct, ts.position.peakGainPct, ts.meta.momScore > 30 && !ts.meta.exhaustion,
+                        "holding:${holdEval.reason}")) {
                     val rec = holdEval.modeSwitchRecommendation
-                    val oldMode = ts.position.tradingMode
+                    val oldMode = ts.position.modeHistory.split(">").dropLast(1).lastOrNull().orEmpty()
                     val oldEmoji = ts.position.tradingModeEmoji
-                    
-                    ts.position.tradingMode = rec.newMode
-                    ts.position.tradingModeEmoji = rec.newModeEmoji
-                    ts.position.modeHistory = if (ts.position.modeHistory.isEmpty()) {
-                        "$oldMode>${rec.newMode}"
-                    } else {
-                        "${ts.position.modeHistory}>${rec.newMode}"
-                    }
                     
                     onLog("🔄 MODE SWITCH: ${identity.symbol} | $oldEmoji $oldMode → ${rec.newModeEmoji} ${rec.newMode} | ${rec.reason}", identity.mint)
                     ErrorLogger.info("HoldingLogic", "Mode switch: ${identity.symbol} $oldMode→${rec.newMode} (conf=${rec.confidence.toInt()}%)")
@@ -12918,18 +12912,12 @@ class Executor(
                     )
                     
                     if (modeSwitchSignal.shouldSwitch && modeSwitchSignal.confidence >= 70.0 &&
-                        !RunnerExitProfile7277.refusesLaneChange(ts.position.tradingMode, modeSwitchSignal.recommendedMode)) {
-                        val oldMode = ts.position.tradingMode
+                        HeldPositionPivotArbiter.applyMode8384(ts, modeSwitchSignal.recommendedMode,
+                            currentPnl, ts.position.peakGainPct, ts.meta.momScore > 30 && !ts.meta.exhaustion,
+                            "crosstalk:${modeSwitchSignal.reason}")) {
+                        val oldMode = ts.position.modeHistory.split(">").dropLast(1).lastOrNull().orEmpty()
                         val oldEmoji = ts.position.tradingModeEmoji
                         val newEmoji = HoldingLogicLayer.getModeEmoji(modeSwitchSignal.recommendedMode)
-                        
-                        ts.position.tradingMode = modeSwitchSignal.recommendedMode
-                        ts.position.tradingModeEmoji = newEmoji
-                        ts.position.modeHistory = if (ts.position.modeHistory.isEmpty()) {
-                            "$oldMode>${modeSwitchSignal.recommendedMode}"
-                        } else {
-                            "${ts.position.modeHistory}>${modeSwitchSignal.recommendedMode}"
-                        }
                         
                         onLog("🔗🔄 CROSSTALK SWITCH: ${identity.symbol} | $oldEmoji $oldMode → $newEmoji ${modeSwitchSignal.recommendedMode} | ${modeSwitchSignal.participatingAIs.joinToString("+")} | ${modeSwitchSignal.reason}", identity.mint)
                         ErrorLogger.info("CrossTalk", "Mode switch applied: ${identity.symbol} $oldMode→${modeSwitchSignal.recommendedMode} (conf=${modeSwitchSignal.confidence.toInt()}%)")
