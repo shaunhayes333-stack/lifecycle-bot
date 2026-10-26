@@ -92,7 +92,7 @@ class Aate8065LifecycleHoldTest {
         val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(spikeSrc.contains("onConfirmedPartial8081"))
         assertTrue(spikeSrc.contains("SellExecutionLocks.isLocked(ts.mint)"))
-        assertTrue(executor.contains("SpikeCapture7943.onConfirmedPartial8081(ts, reason, settled7835.actualConsumedRaw)"))
+        assertTrue(executor.contains("SpikeCapture7943.onConfirmedPartial8081(ts, reason, settled7835.actualConsumedRaw, alreadyCommitted8397 = true)"))
         assertFalse(executor.contains("if (pct >= 0.9)"))
         assertTrue(executor.contains("if (pct >= 1.0 - 1e-9)"))
     }

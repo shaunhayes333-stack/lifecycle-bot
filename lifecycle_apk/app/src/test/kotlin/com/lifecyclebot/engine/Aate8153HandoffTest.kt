@@ -392,7 +392,7 @@ class Aate8153HandoffTest {
         val o = src("engine/SpecialistOwnership7951.kt")
         assertTrue(o.contains("if (HandoffTaskRuntime8153.admits8153(l, mint, primaryLane, nowMs)) return true"))
         assertTrue(o.contains("HandoffTaskRuntime8153.onNotScheduled8153(mint, l)"))
-        assertTrue(o.contains("HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs, candidateVersion)"))
+        assertTrue(o.contains("HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs, candidateVersion, receipt8397)"))
         assertTrue(o.contains("HandoffTaskRuntime8153.onYield8153(mint, lane7951(primary), named, ops)"))
         val el = src("engine/SpecialistElection8136.kt")
         assertTrue(el.contains("HandoffReceiverTasks8153.markScheduled8153(mint, l, nowMs)"))

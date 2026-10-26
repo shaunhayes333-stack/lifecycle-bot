@@ -29,9 +29,20 @@ class Aate8013GradingScheduleTest {
         assertTrue(f.contains(".filter { nowMs - it.atMs <= H240_MS_7731 + LOST_GRACE_MS_7731 || followed8013(it, nowMs) }"))
         // superseded by V5.0.8291 — the checkpoint still asks for an off-watch mark, its due time now carries the off-watch rank.
         assertTrue(f.contains("else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, o.atMs + CK_MS_7997[o.ck7997]))"))
-        // superseded by V5.0.8395: a followed coin's bounded deadline is its last checkpoint (R2), and a 240 booking keeps it while followed.
+        // A followed coin's bounded deadline is its last checkpoint. Recovered and on-time hours share continuation rules.
         assertTrue(f.contains("else -> CK_MS_7997.last() + LOST_GRACE_MS_7731"))
-        assertTrue(f.contains("else { o.done240=true; bookTwoForty7944(o,net,gross); if (!followed8013(o,nowMs)) pending.remove(key,o) }"))
+        val recoveryStart = f.indexOf("private fun recoveredHorizon8397(")
+        val hourStart = f.indexOf("private fun completeHour8397(")
+        val expiryStart = f.indexOf("private fun expired8395(")
+        assertTrue(recoveryStart >= 0 && hourStart > recoveryStart && expiryStart > hourStart)
+        val recovery = f.substring(recoveryStart, hourStart)
+        val hour = f.substring(hourStart, expiryStart)
+        assertTrue(f.contains("recoveredHorizon8397(key, o, recovered, nowMs)"))
+        assertTrue(recovery.contains("completeHour8397(key, o, net, gross, stop, bookable = true)"))
+        assertTrue(f.contains("completeHour8397(key, o, net, gross, stop7997, horizonOpen7809(age, H240_MS_7731))"))
+        assertTrue(hour.contains("val follow = !stop && keepRunning7997(o, gross)"))
+        assertTrue(hour.contains("bookTwoForty7944(o, net, gross, deferExit8006 = follow)"))
+        assertTrue(hour.contains("if (!follow) pending.remove(key, o) else extended7997.incrementAndGet()"))
         assertTrue(f.contains("o.feats7972 = f[30].split('\\u0002').filter { it.isNotBlank() }"))
         val c = src("engine/cortex/Cortex7885.kt")
         assertTrue(c.contains("append(\",\\\"g8013\\\":\").append(garr.append(']'))"))

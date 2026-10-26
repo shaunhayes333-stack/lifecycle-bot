@@ -210,7 +210,7 @@ class Aate8144AdmissionTest {
         assertEquals(State8144.EMITTED, again.state)
         // Wiring: native snapshots and FDG verdicts feed the ledger; the sniper's routes emit into it.
         assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("AdmissionHandoff8144.onNativeSnapshot8144(s.mint, s.evaluatedAtMs,"))
-        assertTrue(src("engine/SpecialistOwnership7951.kt").contains("AdmissionHandoff8144.onFdgVerdict8144(mint, lane, shouldTrade, blockReason, nowMs)"))
+        assertTrue(src("engine/SpecialistOwnership7951.kt").contains("AdmissionHandoff8144.onFdgVerdict8144(mint, lane, shouldTrade, blockReason, nowMs, receipt8397, candidateVersion)"))
         assertTrue(src("engine/truth/LaunchLifecycle8136.kt").contains("AdmissionHandoff8144.emitHandoff8144(mint, \"PROJECT_SNIPER\", route.handoffLane, route.reason)"))
         assertEquals("MOONSHOT", com.lifecyclebot.engine.truth.LaunchLifecycle8136.handoffLaneFor8144(25_000.0, 10_000.0))
         assertEquals("SHITCOIN", com.lifecyclebot.engine.truth.LaunchLifecycle8136.handoffLaneFor8144(6_000.0, 10_000.0))

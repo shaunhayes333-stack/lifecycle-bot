@@ -160,7 +160,13 @@ class Aate8290PredictiveAuditTest {
         assertTrue(g.contains("if (st != null && !st.outlierSuspect8185 && cellEarnsLive7994(st.n60, watchMean8290))"))
         // 8243: a specific ADMIT no longer stands the spike-chase rule down — superseded by V5.0.8298: only a lane whose
         // realised live record earned it (RegressionRestore8298) stands it down; every other admit refuses the chase.
-        val chase = g.substringAfter("if (snap8065 != null && chasing8065(").substringBefore("// Keep watch-first")
+        val chaseCall = g.substringAfter("if (snap8065 != null) chaseRefusal8397(", "")
+            .substringBefore("// Keep watch-first", "")
+        assertTrue(chaseCall.contains("snap8065.currentVsPeak, nowMs, admittedJudged8201)?.let { reason ->"))
+        assertTrue(chaseCall.contains("return reason"))
+        val chase = g.substringAfter("internal fun chaseRefusal8397(", "")
+            .substringBefore("private fun developingRunGrab8117(", "")
+        assertTrue(chase.contains("if (!provenCell && admittedJudged) {"))
         assertTrue(chase.contains("return \"CHASING_SPIKE_8065\""))
         assertTrue(g.contains("val admittedJudged8201 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l8059, nowMs)"))
         // 8256: the measured shape bin binds over a specific admission (the earned Cortex overrule stays the one exit)

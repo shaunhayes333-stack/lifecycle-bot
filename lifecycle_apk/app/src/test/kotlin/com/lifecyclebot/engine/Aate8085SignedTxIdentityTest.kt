@@ -146,7 +146,7 @@ class Aate8085SignedTxIdentityTest {
         val x = src("engine/Executor.kt")
         assertFalse(x.contains("wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)"))
         assertTrue(x.split("sellSend8085(").size >= 9)
-        assertTrue(x.contains("buySend8085(wallet, ts.mint, tx, useJito, jitoTip, ultraReqId, c)"))
+        assertTrue(x.contains("buySend8085(wallet, ts.mint, tx, useJito, jitoTip, ultraReqId, c, submission8397)"))
         val pump = x.substringAfter("private fun tryPumpPortalBuy(").substringBefore("private fun ", )
         assertTrue(pump.contains("catch (e: SolanaWallet.SentButUnconfirmed7733) {\n            throw e"))
         assertTrue(x.contains("if (deferDuplicateBuy8085(ts, sol, e))"))

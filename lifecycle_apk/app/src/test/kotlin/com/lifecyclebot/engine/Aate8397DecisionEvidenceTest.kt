@@ -31,7 +31,7 @@ class Aate8397DecisionEvidenceTest {
 
     private fun chain(request: Request, sent: () -> Unit): Interceptor.Chain = mock(Interceptor.Chain::class.java).also { chain ->
         `when`(chain.request()).thenReturn(request)
-        `when`(chain.proceed(any())).thenAnswer {
+        `when`(chain.proceed(request)).thenAnswer {
             sent()
             Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("OK")
                 .body("[]".toResponseBody("application/json".toMediaType())).build()

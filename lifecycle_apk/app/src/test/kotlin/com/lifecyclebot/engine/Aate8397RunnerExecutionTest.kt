@@ -170,7 +170,7 @@ class Aate8397RunnerExecutionTest {
             runBlocking { assertFalse(RungDispatch8397.dispatch8397(ts, reason, offered) { fail("superseded request submitted"); true }) }
             assertEquals(now + 2L, book.pending8153(key(ts))!!.atMs)
             val oldPosition = RungDispatch8397.capture8397(ts, reason)
-            ts.position.entryTime = now + 10L
+            ts.position = ts.position.copy(entryTime = now + 10L)
             runBlocking { assertFalse(RungDispatch8397.dispatch8397(ts, reason, oldPosition) { fail("replacement position sold"); true }) }
         } finally { clean(ts) }
     }

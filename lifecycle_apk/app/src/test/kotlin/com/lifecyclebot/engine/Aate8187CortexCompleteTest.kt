@@ -371,8 +371,20 @@ class Aate8187CortexCompleteTest {
         val cx = src("engine/cortex/Cortex7885.kt")
         val pool = cx.substringAfter("private val capturePool8171").substringBefore("// ── V5.0.8187 §ACCOUNTABLE_CAPTURE_QUEUE")
         assertFalse("no oldest-job eviction", pool.contains("ex.queue.poll()"))
-        assertTrue(cx.contains("if (captureLatest8187.put(key, job) != null) { inc(\"CAPTURE_COALESCED_SAME_KEY_8187\"); return }"))
-        assertTrue(cx.contains("inc(if (admitted) \"CAPTURE_DROP_FULL_ADMITTED_8187\" else \"CAPTURE_DROP_FULL_NEWEST_8187\")"))
+        val queue = cx.substringAfter("private fun submitCaptureKeyed8187(", "")
+            .substringBefore("private fun submitCapture8171(", "")
+        val ownerCheck = queue.indexOf("if (!captureOwners8397.current(ticket))")
+        val coalesce = queue.indexOf("captureLatest8187.put(key, ownedJob8397)")
+        assertTrue("a stale owner cannot replace the current queued job", ownerCheck in 0 until coalesce)
+        assertTrue(queue.contains("try { job() } finally {"))
+        assertTrue(queue.contains("if (captureLatest8187.put(key, ownedJob8397) != null) { inc(\"CAPTURE_COALESCED_SAME_KEY_8187\"); return }"))
+        assertTrue(queue.contains("if (!captureAdmits8187(captureQueued8187.get(), admitted))"))
+        assertTrue(queue.contains("captureLatest8187.remove(key, ownedJob8397)"))
+        assertTrue(queue.contains("captureOwners8397.terminal(key, ticket.atMs)"))
+        assertTrue(queue.contains("inc(if (admitted) \"CAPTURE_DROP_FULL_ADMITTED_8187\" else \"CAPTURE_DROP_FULL_NEWEST_8187\")"))
+        assertTrue(queue.contains("submitCapture8171 { try { captureLatest8187.remove(key)?.invoke() } finally { captureQueued8187.decrementAndGet() } }"))
+        assertTrue(cx.contains("submitCaptureKeyed8187(ticket8397, admitted) { captureCold8178("))
+        assertTrue(cx.contains("submitCaptureKeyed8187(ticket8397, admitted) { captureNow("))
     }
 
     @Test fun forwardLabelsAloneNeverRaiseSize() {
