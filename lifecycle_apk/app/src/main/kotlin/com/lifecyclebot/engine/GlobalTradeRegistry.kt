@@ -524,28 +524,28 @@ object GlobalTradeRegistry {
                 com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
                     .mapNotNull { it.mint.trim().takeIf { m -> m.isNotBlank() } }.toSet()
             } catch (_: Throwable) { emptySet() }
-            val MIN_ADMISSION_AGE_MS_6598 = 60_000L
-            val MIN_PROCESSING_IDLE_MS_6598 = 30_000L
-            val evictable6598 = watchlist.values.asSequence()
-                .filter { it.mint != mint }
-                .filter { it.mint !in openMints6598 }
-                .filter { now - it.addedAt >= MIN_ADMISSION_AGE_MS_6598 }
-                .filter { it.lastProcessedAt == 0L || now - it.lastProcessedAt >= MIN_PROCESSING_IDLE_MS_6598 }
-                .sortedWith(compareBy<WatchlistEntry> { it.processCount }.thenBy { it.addedAt })
-                .toList()
+            // V5.0.8398 — undecided coins (fewer than three completed cycles, under five minutes old) are not
+            // evictable: 5.0.8397 evicted every coin at 60-131 s with processCount 0-1, before its shape / buy-pressure /
+            // change inputs could be observed, and kept the long-cycled veterans. Oldest admission goes first.
+            val pool8398 = WatchlistEviction8398.pool8398(
+                watchlist.values.map {
+                    WatchlistEviction8398.Row(it.mint, it.source, it.addedAt, it.lastProcessedAt, it.processCount, it.mint in openMints6598)
+                }, now, mint,
+            )
             // V5.0.8029 — pump.fun may hold at most half the hot watchlist: over that share, the victim is a pump.fun coin
             // (5.0.8027: ~95% of intake was pump.fun and 476 evictions in 23 min pushed the market hunters' coins out).
             val pumpOver8029 = watchlist.values.count { LaneParticipation8029.pumpFamily8029(it.source) } >=
                 LaneParticipation8029.PUMP_MAX_SHARE * watchlist.size
-            val victim = (if (pumpOver8029) evictable6598.firstOrNull { LaneParticipation8029.pumpFamily8029(it.source) } else null)
-                ?.also { LaneParticipation8029.notePumpEviction8029() }
-                ?: evictable6598.firstOrNull()
+            val victimRow8398 = WatchlistEviction8398.victim8398(pool8398, pumpOver8029) { LaneParticipation8029.pumpFamily8029(it) }
+            if (victimRow8398 != null && pumpOver8029 && LaneParticipation8029.pumpFamily8029(victimRow8398.source)) LaneParticipation8029.notePumpEviction8029()
+            val victim = victimRow8398?.let { watchlist[it.mint] }
+            if (pool8398.protectedUndecided > 0) try { PipelineHealthCollector.labelInc("WATCHLIST_EVICT_UNDECIDED_PROTECTED_8398") } catch (_: Throwable) {}
             if (victim != null) {
                 watchlist.remove(victim.mint)
                 try {
                     ForensicLogger.lifecycle(
                         "WATCHLIST_LRU_EVICT_6287",
-                        "victim=${victim.symbol} mint=${victim.mint.take(10)} pc=${victim.processCount} ageMs=${now - victim.addedAt} cap=$MAX_WATCHLIST_SIZE size=${watchlist.size} incoming=$symbol"
+                        "victim=${victim.symbol} mint=${victim.mint.take(10)} pc=${victim.processCount} ageMs=${now - victim.addedAt} cap=$MAX_WATCHLIST_SIZE size=${watchlist.size} incoming=$symbol protectedUndecided8398=${pool8398.protectedUndecided}"
                     )
                     PipelineHealthCollector.labelInc("WATCHLIST_LRU_EVICT_6287")
                 } catch (_: Throwable) {}
