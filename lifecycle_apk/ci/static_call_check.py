@@ -29,6 +29,7 @@ a parameter, or an import alias — all of which make `Name.member(` legitimate.
 A guard that cries wolf gets switched off, and then it is worth nothing.
 """
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -78,7 +79,7 @@ def declarations():
                 continue
             p = os.path.join(root, fn)
             try:
-                lines = open(p, encoding="utf-8").read().split("\n")
+                lines = Path(p).read_text(encoding="utf-8").split("\n")
             except Exception:
                 continue
             for line in lines:
@@ -86,6 +87,32 @@ def declarations():
                 if m:
                     out.setdefault(m.group(2), []).append((m.group(1), p))
     return out
+
+
+def declared_function_names(block):
+    """Read a function name after its optional, balanced type-parameter list."""
+    names = set()
+    for declaration in re.finditer(r"\bfun\s+", block):
+        i = declaration.end()
+        if i < len(block) and block[i] == "<":
+            depth = 0
+            while i < len(block):
+                char = block[i]
+                if char in "{};":
+                    break
+                if char == "<":
+                    depth += 1
+                elif char == ">" and block[i - 1] != "-":
+                    depth -= 1
+                i += 1
+                if depth == 0:
+                    break
+            if depth != 0:
+                continue
+        name = re.match(r"\s*([a-z][A-Za-z0-9_]*)\s*\(", block[i:])
+        if name:
+            names.add(name.group(1))
+    return names
 
 
 def companion_members(path, cls):
@@ -99,7 +126,7 @@ def companion_members(path, cls):
     body, producing a false NEGATIVE on the very bug this check exists for.
     """
     try:
-        text = open(path, encoding="utf-8").read()
+        text = Path(path).read_text(encoding="utf-8")
     except Exception:
         return set()
     out = set()
@@ -115,7 +142,10 @@ def companion_members(path, cls):
                     break
             j += 1
         block = text[i:j]
-        out |= set(re.findall(r"\bfun\s+([a-z][A-Za-z0-9_]*)", block))
+        # V5.0.8397 — `fun <T : String?> observe(...)` is a companion
+        # function too. Balance type arguments so nested bounds also resolve;
+        # keep the existing companion block boundary for instance methods.
+        out |= declared_function_names(block)
         out |= set(re.findall(r"\b(?:val|var)\s+([a-z][A-Za-z0-9_]*)", block))
     return out
 
@@ -145,7 +175,7 @@ def main():
         p = os.path.join(REPO, rel)
         if not os.path.exists(p):
             continue
-        text = open(p, encoding="utf-8").read()
+        text = Path(p).read_text(encoding="utf-8")
         # Strip comments and strings so prose cannot produce a finding.
         body = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
         body = re.sub(r"//.*", "", body)
@@ -187,7 +217,7 @@ def main():
             # Is the repo declaration even visible from this file?
             try:
                 decl_pkg = (re.search(r"^package\s+([\w.]+)",
-                                      open(path, encoding="utf-8").read(), re.M) or [None, ""])[1]
+                                      Path(path).read_text(encoding="utf-8"), re.M) or [None, ""])[1]
             except Exception:
                 decl_pkg = ""
             resolvable = (

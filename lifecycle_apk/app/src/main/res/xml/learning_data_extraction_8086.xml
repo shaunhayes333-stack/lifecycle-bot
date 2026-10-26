@@ -3,8 +3,10 @@
 <data-extraction-rules>
     <cloud-backup>
         <include domain="database" path="learning_kv.db" />
+        <include domain="database" path="shadow_cold_8397.db" />
     </cloud-backup>
     <device-transfer>
         <include domain="database" path="learning_kv.db" />
+        <include domain="database" path="shadow_cold_8397.db" />
     </device-transfer>
 </data-extraction-rules>

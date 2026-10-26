@@ -166,7 +166,8 @@ class Aate8355ShadowPersistTest {
         val ordinary = writer.substringBefore("private fun flushOpen8386(")
         assertTrue("ordinary open/tier/peak writes are staged, never written inline", ordinary.contains("openWrites8386.stage(") &&
             !ordinary.contains("commit()") && !ordinary.contains(".apply()"))
-        assertEquals("the ordered flush is the only preference commit", 1, Regex("\\.commit\\(\\)").findAll(s).count())
+        assertEquals("no whole-file preference commits remain", 0, Regex("\\.commit\\(\\)").findAll(s).count())
+        assertTrue("the ordered writer commits per-key SQL batches", s.contains("p.write(batch.mapValues { it.value.value })"))
         val pendingReceipt = s.substringAfter("if (t.cortex8372.pending8372()) {")
             .substringBefore("if (t.legs.all { it.dead } && !t.cortex8372.awaiting8372())")
         assertTrue("an undurable receipt is staged, never delivered in the same pass", pendingReceipt.contains("if (!t.receiptDurable8372) {") &&

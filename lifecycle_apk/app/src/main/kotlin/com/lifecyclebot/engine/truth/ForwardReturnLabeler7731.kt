@@ -1739,6 +1739,42 @@ object ForwardReturnLabeler7731 {
         else -> CK_MS_7997.last() + LOST_GRACE_MS_7731
     }
 
+    /**
+     * Recovery finishes a horizon, not the original observation. Keep its identity and basis for the next
+     * checkpoint. The hour uses the same tokenomics/exit-deferral decision as an on-time hour completion.
+     */
+    private fun recoveredHorizon8397(key: String, o: Obs, recovered: LabelMark8386, nowMs: Long) {
+        val gross = (recovered.usd / o.entryPrice - 1.0) * 100.0
+        if (recovered.observedAtMs > o.lastPxAtMs) {
+            if (gross < o.minPct7962) { notePathLow8366(o, recovered.observedAtMs, gross); o.minPct7962 = gross }
+            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = recovered.observedAtMs; o.dipBeforePeak7962 = o.minPct7962 }
+            synchronized(o.recent8071) {
+                o.heldPeak8071 = heldPeakStep8071(o.recent8071, recovered.observedAtMs, gross, o.heldPeak8071)
+                notePathHeld8366(o, recovered.observedAtMs, gross)
+            }
+        }
+        o.lastMark8386 = recovered; o.lastAcceptedMark8395 = recovered
+        o.lastPx = recovered.usd; o.lastPxAtMs = recovered.observedAtMs
+        val net = netPct(o.entryPrice, recovered.usd, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
+        if (!o.done60) {
+            o.done60 = true
+            bookSixty7944(o, net, gross, nowMs)
+            // deadline8395 now points to the ORIGINAL decision's hour + grace; it never moves with wall time.
+            try { PipelineHealthCollector.labelInc("FORWARD_RECOVERED_FIRST_HORIZON_CONTINUES_8397") } catch (_: Throwable) {}
+        } else {
+            val stop = checkpoint7997(o, net, gross, nowMs - o.atMs, nowMs)
+            completeHour8397(key, o, net, gross, stop, bookable = true)
+        }
+    }
+
+    private fun completeHour8397(key: String, o: Obs, net: Double, gross: Double, stop: Boolean, bookable: Boolean) {
+        o.done240 = true
+        val follow = !stop && keepRunning7997(o, gross)
+        if (bookable) bookTwoForty7944(o, net, gross, deferExit8006 = follow)
+        else horizonMissed7809.incrementAndGet()
+        if (!follow) pending.remove(key, o) else extended7997.incrementAndGet()
+    }
+
     /** Every fresh/invalid/unchanged/rejected mark crosses this deadline before any early continue. */
     private fun expired8395(key: String, o: Obs, incoming: LabelMark8386?, nowMs: Long): Boolean {
         val deadline=deadline8395(o)
@@ -1753,12 +1789,8 @@ object ForwardReturnLabeler7731 {
                     try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }))
         }.maxByOrNull { it.observedAtMs }
         if (recovered != null && !o.done240) {
-            o.lastMark8386=recovered; o.lastAcceptedMark8395=recovered; o.lastPx=recovered.usd; o.lastPxAtMs=recovered.observedAtMs
-            val gross=(recovered.usd/o.entryPrice-1.0)*100.0
-            val net=netPct(o.entryPrice,recovered.usd,o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
             // valid in-window recovery of the ORIGINAL basis; a later price never becomes the entry
-            if (!o.done60) { o.done60=true; bookSixty7944(o,net,gross,nowMs); pending.remove(key,o) }
-            else { o.done240=true; bookTwoForty7944(o,net,gross); if (!followed8013(o,nowMs)) pending.remove(key,o) }
+            recoveredHorizon8397(key, o, recovered, nowMs)
             return true
         }
         // V5.0.8395 — a token whose last ACCEPTED in-window mark already showed it dying (<= -60% on the original basis) and
@@ -1915,11 +1947,7 @@ object ForwardReturnLabeler7731 {
             // V5.0.7997 — progressive grading: 15 m, 30 m, 1 h, 4 h, 8 h, 12 h, 24 h while the coin lives.
             val stop7997 = if (o.done60) checkpoint7997(o, net, gross, age, nowMs) else false
             if (!o.done240 && age >= H240_MS_7731) {
-                o.done240 = true
-                val follow8006 = !stop7997 && keepRunning7997(o, gross)
-                if (horizonOpen7809(age, H240_MS_7731)) bookTwoForty7944(o, net, gross, deferExit8006 = follow8006)
-                else horizonMissed7809.incrementAndGet()
-                if (!follow8006) pending.remove(key, o) else extended7997.incrementAndGet()
+                completeHour8397(key, o, net, gross, stop7997, horizonOpen7809(age, H240_MS_7731))
             } else if (o.done240 && stop7997) {
                 endRun8006(o, gross)
                 pending.remove(key, o)

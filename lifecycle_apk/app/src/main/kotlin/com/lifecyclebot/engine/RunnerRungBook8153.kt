@@ -92,12 +92,24 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
 
     /** The pending tranche moved forward (never back, never to the confirmed stages: those are [confirm8153]). */
     @Synchronized
-    fun advance8153(key: String, stage: Stage8153, nowMs: Long): Boolean {
+    fun advance8153(key: String, stage: Stage8153, nowMs: Long, expectedReason8397: String? = null, expectedRequestAtMs8397: Long? = null): Boolean {
         val r = book[key] ?: return false
         val p = r.pending ?: return false
+        if (expectedReason8397 != null && p.reason != expectedReason8397) return false
+        if (expectedRequestAtMs8397 != null && p.atMs != expectedRequestAtMs8397) return false
         if (stage.ordinal <= p.stage.ordinal || stage.ordinal >= Stage8153.CONFIRMED_PARTIAL_FILL.ordinal) return false
         r.pending = p.copy(stage = stage, stageAtMs = nowMs)
         if (stage == Stage8153.TICKET_ACCEPTED) accepted++ else broadcast++
+        return true
+    }
+
+    /** The arbiter may already have accepted this offer before its queued coroutine starts. */
+    @Synchronized
+    fun acceptDispatch8397(key: String, reason: String, requestedAtMs: Long, nowMs: Long, expectedLadder8397: String? = null): Boolean {
+        val p = book[key]?.pending ?: return false
+        if (p.reason != reason || p.atMs != requestedAtMs || p.stage.ordinal > Stage8153.TICKET_ACCEPTED.ordinal) return false
+        if (expectedLadder8397 != null && p.ladder != expectedLadder8397) return false
+        if (p.stage == Stage8153.REQUESTED) advance8153(key, Stage8153.TICKET_ACCEPTED, nowMs, reason, requestedAtMs)
         return true
     }
 
@@ -113,6 +125,16 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
             Revert8153.EXPIRED -> expired++
         }
         return p
+    }
+
+    /** A late failed dispatch cannot release a newer request for the same position/tier. */
+    @Synchronized
+    fun revertMatching8397(key: String, reason: String, requestedAtMs: Long, nowMs: Long, slowAfter: Int = 16,
+                           expectedLadder8397: String? = null): Boolean {
+        val pending = book[key]?.pending ?: return false
+        if (pending.reason != reason || pending.atMs != requestedAtMs) return false
+        if (expectedLadder8397 != null && pending.ladder != expectedLadder8397) return false
+        return revert8153(key, Revert8153.REJECTED, nowMs, slowAfter) != null
     }
 
     /**

@@ -125,11 +125,14 @@ object AdmissionHandoff8144 {
     }
 
     /** Pure: a FinalDecisionGate verdict by [lane] at [atMs]: a completed evaluation when it is the receiver (or none was set yet). */
-    fun onFdg8144(h: Handoff8144, lane: String, allow: Boolean, reason: String?, atMs: Long): Handoff8144 {
+    fun onFdg8144(h: Handoff8144, lane: String, allow: Boolean, reason: String?, atMs: Long,
+                 outcome: com.lifecyclebot.engine.FdgReceipt8397.Outcome = com.lifecyclebot.engine.FdgReceipt8397.outcome(allow, reason)): Handoff8144 {
         if (!h.open || atMs + SAME_READ_SLACK_MS_8144 < h.emittedAtMs) return h
         val l = canon8144(lane)
         if (l.isBlank() || l == h.from) return h
         if (h.receiver != null && l != h.receiver) return h
+        if (outcome == com.lifecyclebot.engine.FdgReceipt8397.Outcome.DEFER_DATA)
+            return h.copy(receiver = l, state = State8144.RECEIVER_QUALIFIED, verdict = "FDG_DEFER_DATA:${reason.orEmpty().take(60)}")
         return h.copy(receiver = l, state = State8144.ARRIVED_EVALUATED,
             verdict = if (allow) "FDG_ALLOW" else "FDG_REFUSED:${reason.orEmpty().take(60)}", settledAtMs = atMs)
     }
@@ -342,10 +345,14 @@ object AdmissionHandoff8144 {
     }
 
     /** SpecialistOwnership7951.onFdgVerdict7951: the FinalDecisionGate judged [mint] for [lane]. */
-    fun onFdgVerdict8144(mint: String, lane: String, allow: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis()) {
+    fun onFdgVerdict8144(mint: String, lane: String, allow: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(),
+                         outcome: com.lifecyclebot.engine.FdgReceipt8397.Outcome = com.lifecyclebot.engine.FdgReceipt8397.outcome(allow, reason),
+                         candidateVersion: Long = -1L) {
+        val task = com.lifecyclebot.engine.HandoffReceiverTasks8153.taskOf8153(mint, nowMs)
+        if (candidateVersion > 0L && task != null && task.version > 0L && task.version != candidateVersion) return
         try { AdmissionRunnerTrace8144.noteFdg8144(mint, lane, allow, reason, nowMs) } catch (_: Throwable) {}
         val prior = ledger[mint] ?: return
-        val next = onFdg8144(expireLive8153(prior, nowMs), lane, allow, reason, nowMs)
+        val next = onFdg8144(expireLive8153(prior, nowMs), lane, allow, reason, nowMs, outcome)
         if (next === prior) return
         ledger[mint] = next
         settled8144(prior, next)
@@ -353,6 +360,9 @@ object AdmissionHandoff8144 {
 
     /** The current hand-off record for [mint] (expired on read), or null. */
     fun handoffOf8144(mint: String, nowMs: Long = System.currentTimeMillis()): Handoff8144? = ledger[mint]?.let { expireLive8153(it, nowMs) }
+
+    internal fun installForTest8397(h: Handoff8144) { ledger[h.mint] = h }
+    internal fun resetForTest8397() { ledger.clear(); counts.clear(); verdicts8169.clear() }
 
     private fun sweep8144(nowMs: Long) {
         try {

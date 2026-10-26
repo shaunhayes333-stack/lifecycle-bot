@@ -211,7 +211,8 @@ object Cortex7885 {
                     }
                     if (shadowContext8372 != null) shadowCtx8372[shadowId8372] = shadowContext8372
                 }
-                assessCache[key] = a
+                // A slower read from an older snapshot must not replace a newer cached prediction.
+                if ((assessCache[key]?.atMs ?: Long.MIN_VALUE) <= a.atMs) assessCache[key] = a
             }
         }
         try {
@@ -451,7 +452,15 @@ object Cortex7885 {
         if (!force && nowMs - lastDeadPrune8144 < 60_000L) return
         lastDeadPrune8144 = nowMs
         val before = pending.size
-        pending.entries.removeIf { nowMs - it.value.atMs > DEAD_PENDING_MS_8144 }
+        for ((key, p) in pending.entries) if (nowMs - p.atMs > DEAD_PENDING_MS_8144) {
+            synchronized(this) {
+                if (pending.remove(key, p)) {
+                    captureOwners8397.terminal(key, p.atMs)
+                    deferredLabels8397.remove("$key|${p.atMs}")
+                    p.context8372?.let { pendingCtx8144.remove(key, it) }
+                }
+            }
+        }
         deadPendingEvicted8144.addAndGet((before - pending.size).coerceAtLeast(0).toLong())
     }
 
@@ -599,6 +608,13 @@ object Cortex7885 {
     /** "mint|LANE" -> the newest decision's capture job not yet run (one queued runnable per key). */
     private val captureLatest8187 = ConcurrentHashMap<String, () -> Unit>()
     private val captureQueued8187 = java.util.concurrent.atomic.AtomicInteger(0)
+    private val captureOwners8397 = CortexCaptureOwnership8397(this)
+
+    /** A label can beat a queued immutable capture; retain it until that exact capture publishes. */
+    private data class DeferredLabel8397(val mint: String, val lane: String, val atMs: Long,
+        val net: Double, val gross: Double, val family: DoubleArray?, val flat: Boolean, val witness: Boolean,
+        val proof: CortexOutcomeProof8395?)
+    private val deferredLabels8397 = HashMap<String, DeferredLabel8397>() // guarded by the model lock, <= queued/running captures
 
     /** Pure (V5.0.8187): may a new key enter a capture queue already holding [queued] keys? */
     fun captureAdmits8187(queued: Int, admitted: Boolean): Boolean =
@@ -610,14 +626,31 @@ object Cortex7885 {
      * carries its own frozen decision-time evidence). A new key on a full queue is the one refused (the newest, never a queued
      * decision), admitted decisions keep headroom, and every refusal is counted by reason.
      */
-    private fun submitCaptureKeyed8187(key: String, admitted: Boolean, job: () -> Unit) {
-        if (captureLatest8187.put(key, job) != null) { inc("CAPTURE_COALESCED_SAME_KEY_8187"); return }
-        if (!captureAdmits8187(captureQueued8187.get(), admitted)) {
-            captureLatest8187.remove(key, job)
-            inc(if (admitted) "CAPTURE_DROP_FULL_ADMITTED_8187" else "CAPTURE_DROP_FULL_NEWEST_8187")
-            return
+    private fun submitCaptureKeyed8187(ticket: CortexCaptureOwnership8397.Ticket, admitted: Boolean, job: () -> Unit) {
+        val key = ticket.key
+        val ownedJob8397 = {
+            try { job() } finally {
+                synchronized(this) {
+                    if (captureOwners8397.abandon(ticket)) {
+                        deferredLabels8397.remove("$key|${ticket.atMs}")
+                        inc("CAPTURE_ENDED_WITHOUT_PUBLICATION_8397")
+                    }
+                }
+            }
         }
-        captureQueued8187.incrementAndGet()
+        synchronized(this) {
+            // Freeze/setup work can itself finish out of order before enqueue. An old enqueue must not replace the new job.
+            if (!captureOwners8397.current(ticket)) { inc("CAPTURE_SUPERSEDED_BEFORE_QUEUE_8397"); return }
+            if (captureLatest8187.put(key, ownedJob8397) != null) { inc("CAPTURE_COALESCED_SAME_KEY_8187"); return }
+            if (!captureAdmits8187(captureQueued8187.get(), admitted)) {
+                captureLatest8187.remove(key, ownedJob8397)
+                captureOwners8397.terminal(key, ticket.atMs)
+                deferredLabels8397.remove("$key|${ticket.atMs}")
+                inc(if (admitted) "CAPTURE_DROP_FULL_ADMITTED_8187" else "CAPTURE_DROP_FULL_NEWEST_8187")
+                return
+            }
+            captureQueued8187.incrementAndGet()
+        }
         submitCapture8171 { try { captureLatest8187.remove(key)?.invoke() } finally { captureQueued8187.decrementAndGet() } }
     }
 
@@ -677,51 +710,75 @@ object Cortex7885 {
         } catch (_: Throwable) { inc("PREWARM_FAILED_8196") }
     }
 
+    /** Setup/freezing happens before queue handoff and can fail too; no unfinished owner may be stranded there. */
+    private fun prepareCapture8397(ticket: CortexCaptureOwnership8397.Ticket, prepare: () -> Unit) {
+        try {
+            prepare()
+        } catch (failure: Throwable) {
+            synchronized(this) {
+                if (captureOwners8397.abandon(ticket)) {
+                    deferredLabels8397.remove("${ticket.key}|${ticket.atMs}")
+                    inc("CAPTURE_PREPARATION_FAILED_8397")
+                }
+            }
+            throw failure
+        }
+    }
+
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
     fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
-        CortexVoters7885.stampLaneBrains8366(ts, nowMs)  // V5.0.8366 — decision-time lane-brain votes for the capture read
-        // V5.0.8084 — the setup classification is frozen NOW (decision time); the async job used to classify the
-        // TokenState as it was whenever the queue reached it, crediting setups the decision never saw.
-        val snap8084 = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
-        // V5.0.8153 — and the strategy the coin trades as (proven / valid alternative / classified), at the same instant.
-        val sel8153 = try { LanePlaybook7907.selectedSetup8094(ts, labelLane, nowMs) } catch (_: Throwable) { null }
-        // Playbook labels belong to the decision even when the 291-voter Cortex is not ready.
-        // Freeze the tag and timing here; never classify the mutable TokenState minutes later.
-        val timing8174 = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
-        try { LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap8084, sel8153, timing8174) } catch (_: Throwable) {}
-        val a8174 = assessCache["${ts.mint}|${canon(labelLane)}"]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS }
-        if (a8174 == null) {
-            // A voter read after the decision would predict a move it has already observed.
-            inc("CAPTURE_VOTERS_NOT_READY_AT_DECISION_8174")
-            // V5.0.8178 — 8174 dropped every cold decision (5.0.8175: 1081 dropped vs 19 captured, graded=0). The
-            // voters are read now on the capture pool; captureNow audits that read against the label start, so a read
-            // after the label opens is held out of authority (LABEL_HYGIENE_LATE_VOTER_READ_8169), never graded as proof.
-            val ctxCold8178 = try { decisionCtx8144(ts, canon(labelLane), admitted, reason) } catch (_: Throwable) { null }
-            val sourceCold8178 = ts.source
+        val captureKey8397 = "${ts.mint}|${labelLane.trim().uppercase()}"
+        val ticket8397 = synchronized(this) {
+            captureOwners8397.claim(captureKey8397, nowMs, pending[captureKey8397]?.atMs ?: 0L)?.also {
+                deferredLabels8397.keys.removeIf { id -> id.startsWith("$captureKey8397|") && id != "$captureKey8397|$nowMs" }
+            }
+        } ?: run { inc("CAPTURE_DUPLICATE_STALE_OR_FULL_8397"); return }
+        prepareCapture8397(ticket8397) {
+            CortexVoters7885.stampLaneBrains8366(ts, nowMs)  // V5.0.8366 — decision-time lane-brain votes for the capture read
+            // V5.0.8084 — the setup classification is frozen NOW (decision time); the async job used to classify the
+            // TokenState as it was whenever the queue reached it, crediting setups the decision never saw.
+            val snap8084 = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
+            // V5.0.8153 — and the strategy the coin trades as (proven / valid alternative / classified), at the same instant.
+            val sel8153 = try { LanePlaybook7907.selectedSetup8094(ts, labelLane, nowMs) } catch (_: Throwable) { null }
+            // Playbook labels belong to the decision even when the 291-voter Cortex is not ready.
+            // Freeze the tag and timing here; never classify the mutable TokenState minutes later.
+            val timing8174 = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
+            try { LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap8084, sel8153, timing8174) } catch (_: Throwable) {}
+            val a8174 = assessCache["${ts.mint}|${canon(labelLane)}"]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS }
+            if (a8174 == null) {
+                // A voter read after the decision would predict a move it has already observed.
+                inc("CAPTURE_VOTERS_NOT_READY_AT_DECISION_8174")
+                // V5.0.8178 — 8174 dropped every cold decision (5.0.8175: 1081 dropped vs 19 captured, graded=0). The
+                // voters are read now on the capture pool; captureNow audits that read against the label start, so a read
+                // after the label opens is held out of authority (LABEL_HYGIENE_LATE_VOTER_READ_8169), never graded as proof.
+                val ctxCold8178 = try { decisionCtx8144(ts, canon(labelLane), admitted, reason) } catch (_: Throwable) { null }
+                val sourceCold8178 = ts.source
+                val decisionMode8196 = accountMode8077()
+                // V5.0.8273 (R9) — freeze the decision-time features NOW: the cold voter read runs later on the capture pool
+                // and must not reconstruct a past prediction from the live, mutating TokenState. The voters read this copy.
+                val frozen8273 = try { ts.copy() } catch (_: Throwable) { ts }
+                inc("CAPTURE_COLD_FEATURES_FROZEN_8273")
+                submitCaptureKeyed8187(ticket8397, admitted) { captureCold8178(frozen8273, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178, decisionMode8196, ticket8397) }
+                return@prepareCapture8397
+            }
+            val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason) } catch (_: Throwable) { null }
+            // Timing requires the decision's price, before the asynchronous queue mutates its TokenState.
+            try { CortexTiming7900.capture(ts, a8174, nowMs) } catch (_: Throwable) {}
+            val source8174 = ts.source
             val decisionMode8196 = accountMode8077()
-            // V5.0.8273 (R9) — freeze the decision-time features NOW: the cold voter read runs later on the capture pool
-            // and must not reconstruct a past prediction from the live, mutating TokenState. The voters read this copy.
-            val frozen8273 = try { ts.copy() } catch (_: Throwable) { ts }
-            inc("CAPTURE_COLD_FEATURES_FROZEN_8273")
-            submitCaptureKeyed8187("${ts.mint}|${labelLane.trim().uppercase()}", admitted) { captureCold8178(frozen8273, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178, decisionMode8196) }
-            return
+            submitCaptureKeyed8187(ticket8397, admitted) { captureNow(ts.mint, labelLane, admitted, nowMs, reason, snap8084, sel8153, a8174, ctx8174, source8174, decisionMode8196, ticket8397) }
         }
-        val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason) } catch (_: Throwable) { null }
-        // Timing requires the decision's price, before the asynchronous queue mutates its TokenState.
-        try { CortexTiming7900.capture(ts, a8174, nowMs) } catch (_: Throwable) {}
-        val source8174 = ts.source
-        val decisionMode8196 = accountMode8077()
-        submitCaptureKeyed8187("${ts.mint}|${labelLane.trim().uppercase()}", admitted) { captureNow(ts.mint, labelLane, admitted, nowMs, reason, snap8084, sel8153, a8174, ctx8174, source8174, decisionMode8196) }
     }
 
     /** V5.0.8178 — a cold decision: one voter read on the capture pool (stamped with its own read time), then captureNow. */
     private fun captureCold8178(ts: TokenState, labelLane: String, admitted: Boolean, decisionAtMs: Long, reason: String?,
                                 snap8084: LanePlaybook7907.Classification8084?, sel8153: String?,
-                                ctx: DecisionCtx8144?, source: String, decisionMode8196: String) {
+                                ctx: DecisionCtx8144?, source: String, decisionMode8196: String, ticket8397: CortexCaptureOwnership8397.Ticket) {
+        if (!captureOwners8397.current(ticket8397)) { inc("CAPTURE_SUPERSEDED_BEFORE_READ_8397"); return }
         val a = assess(ts, labelLane) ?: run { inc("CAPTURE_COLD_ASSESS_FAILED_8178"); return }
         inc("CAPTURE_COLD_READ_8178")
-        captureNow(ts.mint, labelLane, admitted, decisionAtMs, reason, snap8084, sel8153, a, ctx?.takeIf { a.lane == canon(labelLane) }, source, decisionMode8196)
+        captureNow(ts.mint, labelLane, admitted, decisionAtMs, reason, snap8084, sel8153, a, ctx?.takeIf { a.lane == canon(labelLane) }, source, decisionMode8196, ticket8397)
         // Timing needs the decision's price: only a read that still preceded the label start opens a timing sample.
         val p = pending["${ts.mint}|${labelLane.trim().uppercase()}"]
         if (p != null && p.atMs == decisionAtMs && !p.lateRead8169) try { CortexTiming7900.capture(ts, a, decisionAtMs) } catch (_: Throwable) {}
@@ -729,7 +786,9 @@ object Cortex7885 {
 
     private fun captureNow(mint: String, labelLane: String, admitted: Boolean, nowMs: Long, reason: String?,
                            snap8084: LanePlaybook7907.Classification8084?, sel8153: String?,
-                           a: Assessment, frozenCtx8174: DecisionCtx8144?, frozenSource8174: String, decisionMode8196: String) {
+                           a: Assessment, frozenCtx8174: DecisionCtx8144?, frozenSource8174: String, decisionMode8196: String,
+                           ticket8397: CortexCaptureOwnership8397.Ticket) {
+        if (!captureOwners8397.current(ticket8397)) { inc("CAPTURE_SUPERSEDED_BEFORE_PUBLISH_8397"); return }
         // Decision-time immutable assessment. An asynchronous fresh read is NEVER evidence from an earlier decision.
         val late8169 = lateVoterRead8169(labelLane, nowMs, a.atMs)
         pruneDeadPending8144(nowMs)
@@ -753,8 +812,17 @@ object Cortex7885 {
             it.decisionReason8196 = reason
             it.context8372 = frozenCtx8174
         }
-        synchronized(this) {
+        val published8397 = captureOwners8397.publish(ticket8397) {
+            // The owner check and both maps commit together. A prior episode is explicitly unresolved, never relabelled.
+            pending[captureKey8372]?.takeIf { it.atMs != nowMs }?.let { old ->
+                val oldId = "$captureKey8372|${old.atMs}"
+                if (gradeBook8144.decision(oldId) == null)
+                    gradeBook8144.addDecision(newDecision8144(oldId, captureKey8372, old, old.context8372, verdict8144(captureKey8372, old, old.context8372)))
+                gradeBook8144.markLost(oldId)
+                inc("CAPTURE_PREVIOUS_EPISODE_SUPERSEDED_8397")
+            }
             pending[captureKey8372] = captured8372
+            if (frozenCtx8174 != null) pendingCtx8144[captureKey8372] = frozenCtx8174 else pendingCtx8144.remove(captureKey8372)
             val shadowId = "$mint|${a.lane}|${a.atMs}"
             val labelId = "$captureKey8372|$nowMs"
             if (!late8169 && outcomeBook8372.bind(shadowId, labelId, gradeBook8144.decision(labelId)?.executablePct?.isFinite() == true)) {
@@ -769,15 +837,17 @@ object Cortex7885 {
                 }
                 inc("SHADOW_LABEL_BOUND_8372")
             }
+            if (admitted && !late8169 && reason?.startsWith("NATIVE_") != true) noteEntryRead(mint, decisionMode8196 == "PAPER", a, nowMs)
+            else if (admitted) inc("ENTRY_READ_LATE_NOT_BOUND_8187")
         }
-        // The decision's executable context is frozen before enqueue, not read after the price move.
-        if (frozenCtx8174 != null) pendingCtx8144["$mint|${labelLane.trim().uppercase()}"] = frozenCtx8174
+        if (!published8397) { inc("CAPTURE_SUPERSEDED_BEFORE_PUBLISH_8397"); return }
         try { sweepLost8144(nowMs) } catch (_: Throwable) {}
-        // V5.0.8187 — the entry read carries its decision time; a read taken after the label started is not an entry verdict.
-        if (admitted && !late8169 && reason?.startsWith("NATIVE_") != true) noteEntryRead(mint, decisionMode8196 == "PAPER", a, nowMs)
-        else if (admitted) inc("ENTRY_READ_LATE_NOT_BOUND_8187")
         // Timing was already captured at decision time, never recomputed behind the queue.
         inc(if (a.bucket == CortexScoreboard7885.Bucket.REFUSE) "SEEN_REFUSE" else if (a.bucket == CortexScoreboard7885.Bucket.STRONG) "SEEN_STRONG" else "SEEN_NEUTRAL")
+        synchronized(this) { deferredLabels8397.remove("$captureKey8372|$nowMs") }?.let { label ->
+            onLabel(label.mint, label.lane, 60, label.net, label.gross, label.family,
+                label.flat, label.witness, label.atMs, label.proof)
+        }
         persistPendingMaybe(nowMs)
         try { LanePlaybook7907.persistPendingMaybe(nowMs) } catch (_: Throwable) {}
     }
@@ -1101,6 +1171,10 @@ object Cortex7885 {
     fun onLabelLost8187(mint: String, labelLane: String, reason: String, decisionAtMs8371: Long = 0L) {
         ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
+        if (decisionAtMs8371 > 0L) synchronized(this) {
+            captureOwners8397.terminal(key, decisionAtMs8371)
+            deferredLabels8397.remove("$key|$decisionAtMs8371")
+        }
         val p = pending[key] ?: return
         if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371) {
             inc("LABEL_LOST_EPISODE_MISMATCH_8371")
@@ -1108,6 +1182,7 @@ object Cortex7885 {
         }
         if (!pending.remove(key, p)) return
         synchronized(this) {
+            captureOwners8397.terminal(key, p.atMs)
             val id = "$key|${p.atMs}"
             val ctx = p.context8372
             if (ctx != null) pendingCtx8144.remove(key, ctx)
@@ -1143,18 +1218,32 @@ object Cortex7885 {
     fun onLabel(mint: String, labelLane: String, horizonMin: Int, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null,
                 flat8322: Boolean = false, witness8324: Boolean = false, decisionAtMs8371: Long = 0L,
                 proof8395: CortexOutcomeProof8395? = null) {
+        if (horizonMin != 60 || !netPct.isFinite()) return
         ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
-        val p = pending[key] ?: return
-        if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371) {
-            inc("LABEL_EPISODE_MISMATCH_8371")
-            return
+        val p = synchronized(this) {
+            val captured = pending[key]
+            if (decisionAtMs8371 > 0L && captured?.atMs != decisionAtMs8371 && captureOwners8397.awaiting(key, decisionAtMs8371)) {
+                val id = "$key|$decisionAtMs8371"
+                if (deferredLabels8397.containsKey(id) || deferredLabels8397.size < CAPTURE_QUEUE_HARD_8187 + 32) {
+                    deferredLabels8397.putIfAbsent(id, DeferredLabel8397(mint, labelLane, decisionAtMs8371, netPct, grossPct,
+                        fam8080?.copyOf(), flat8322, witness8324, proof8395))
+                    inc("LABEL_WAITING_FOR_EXACT_CAPTURE_8397")
+                } else inc("LABEL_CAPTURE_WAIT_FULL_8397")
+                return
+            }
+            if (captured == null) { inc("LABEL_ORIGINAL_CAPTURE_MISSING_8397"); return }
+            if (decisionAtMs8371 > 0L && captured.atMs != decisionAtMs8371) {
+                inc("LABEL_EPISODE_MISMATCH_8371")
+                return
+            }
+            if (!pending.remove(key, captured)) return
+            captureOwners8397.terminal(key, captured.atMs)
+            captured
         }
         // V5.0.7946 — every lane is graded at THE read (slot 60 = 5 minutes). Runner lanes
         // used to wait for the 4-hour label; with the spike tiers credited in the label,
         // a runner's first minutes carry its capture, and the Cortex learns 48x sooner.
-        if (horizonMin != 60) return
-        if (!netPct.isFinite() || !pending.remove(key, p)) return
         val id8372 = "$key|${p.atMs}"
         if (!gradingForward8372.add(id8372)) return
         try {

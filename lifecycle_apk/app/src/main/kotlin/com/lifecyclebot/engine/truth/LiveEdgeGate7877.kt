@@ -479,7 +479,7 @@ object LiveEdgeGate7877 {
         val basis = if (paper) null else try { FdgGate8365.holdBasis8365(l, nowMs) } catch (_: Throwable) { null }
         val hold = if (paper) null else try {
             (if (EvidenceHold8336.shadowProven8344(l)) null else EntryEconomics8329.laneRealisedRefusal8329(l, nowMs))
-                ?: EvidenceHold8336.refusal8336(ts, l, false, nowMs)
+                ?: EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)
         } catch (_: Throwable) { "EVIDENCE_HOLD_READ_FAILED_8392" }
         // A held decision may rehearse evidence doors, but this captured hold remains the final live veto.
         val shadowOnly8393 = !paper && hold != null &&
@@ -706,27 +706,14 @@ object LiveEdgeGate7877 {
             // +1774% refused CHASING_SPIKE after ADMIT:SPECIFIC_EDGE_PROVEN). The admitted-terminal count is kept.
             // V5.0.8310 D4 — in a lane whose verified live closes lose, a label-only cell / kind proof no longer stands the
             // spike rule down (SelectionDoors8310); a developing runner grab and the rule's own tail audit still do.
-            if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
-                !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) && !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
-                cellOrKindProven8094(ts, l8059, nowMs) && !SelectionDoors8310.labelStandsDownChase8310(l8059)) {
-                chaseRefused8065.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
-                observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
-                return "CHASING_SPIKE_8065"
-            }
-            if (snap8065 != null && chasing8065(snap8065.runupFromLocalLowPct, snap8065.currentVsPeak, ts.lastPriceChange5m) &&
-                !developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs) &&
-                !spikeRuleRefusesRunners8097(ts, l8059, nowMs) &&
-                !cellOrKindProven8094(ts, l8059, nowMs)) {
-                if (admittedJudged8201) {
-                    try { PipelineHealthCollector.labelInc("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_$l8059") } catch (_: Throwable) {}
-                } else {
-                    if (candidateSpecificAdmission8136) { RegressionRestore8298.note8298("CHASE", l8059); admittedTerminal8201(ts, lane, "CHASING_SPIKE_8065", candidateVersion) }
-                    chaseRefused8065.incrementAndGet()
-                    try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$l8059") } catch (_: Throwable) {}
-                    observeTail7996(ts, lane, "CHASING_SPIKE_8065", nowMs)
-                    return "CHASING_SPIKE_8065"
+            if (snap8065 != null) chaseRefusal8397(ts, l8059, snap8065.runupFromLocalLowPct,
+                snap8065.currentVsPeak, nowMs, admittedJudged8201)?.let { reason ->
+                if (candidateSpecificAdmission8136) {
+                    RegressionRestore8298.note8298("CHASE", l8059)
+                    admittedTerminal8201(ts, lane, reason, candidateVersion)
                 }
+                observeTail7996(ts, lane, reason, nowMs)
+                return reason
             }
             // Keep watch-first on the same immutable admission snapshot as the preceding live checks.
             // 8213: the same qualified native admission also clears an UNMEASURED thin-cell wait.
@@ -929,6 +916,32 @@ object LiveEdgeGate7877 {
             (try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Throwable) { false })
         if (ok) try { PipelineHealthCollector.labelInc("LIVE_PROVEN_RUNNER_FORMING_8113") } catch (_: Throwable) {}
         return ok
+    }
+
+    /**
+     * The canonical chase decision. The 8373 restoration admitted an active, independently
+     * guarded RunnerPlay ticket; deleting its compatibility caller in 8392 lost that case.
+     * A ticket clears this heuristic only. Data, exact safety, executable costs and holds still bind.
+     */
+    internal fun chaseRefusal8397(
+        ts: TokenState, lane: String, runupFromLowPct: Double, currentVsPeak: Double,
+        nowMs: Long, admittedJudged: Boolean = false,
+    ): String? {
+        if (!chasing8065(runupFromLowPct, currentVsPeak, ts.lastPriceChange5m)) return null
+        if (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false }) {
+            try { PipelineHealthCollector.labelInc("CHASE_STOOD_DOWN_RUNNER_TICKET_8397_$lane") } catch (_: Throwable) {}
+            return null
+        }
+        if (developingRunGrab8117(ts, runupFromLowPct, nowMs) || spikeRuleRefusesRunners8097(ts, lane, nowMs)) return null
+        val provenCell = cellOrKindProven8094(ts, lane, nowMs)
+        if (provenCell && SelectionDoors8310.labelStandsDownChase8310(lane)) return null
+        if (!provenCell && admittedJudged) {
+            try { PipelineHealthCollector.labelInc("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_$lane") } catch (_: Throwable) {}
+            return null
+        }
+        chaseRefused8065.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$lane") } catch (_: Throwable) {}
+        return "CHASING_SPIKE_8065"
     }
 
     /**

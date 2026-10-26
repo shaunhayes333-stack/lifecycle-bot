@@ -2381,9 +2381,12 @@ class Executor(
 
     /** V5.0.8085 — every Jupiter live BUY send: bound to (mint, BUY); unknown outcomes propagate to liveBuy's 7733 path. */
     private fun buySend8085(wallet: SolanaWallet, mint: String, tx: com.lifecyclebot.network.SwapTxResult, useJito: Boolean,
-                            jitoTip: Long, ultraReqId: String?, c: com.lifecyclebot.data.BotConfig): String {
-        com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "BUY", route = if (ultraReqId != null) "JUPITER_ULTRA" else "JUPITER"))
-        return wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
+                            jitoTip: Long, ultraReqId: String?, c: com.lifecyclebot.data.BotConfig,
+                            submission8397: BuySubmissionReceipt8397? = null): String {
+        com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "BUY", intentId = submission8397?.attemptId.orEmpty(), route = if (ultraReqId != null) "JUPITER_ULTRA" else "JUPITER"))
+        return BuySubmissionReceipt8397.observe8397(submission8397) {
+            wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
+        }
     }
 
     /**
@@ -7388,12 +7391,13 @@ class Executor(
     /**
      * V5.0.8189 — an uneconomic discretionary profit slice escalates to a full profit exit when the WHOLE remaining
      * position nets a profit after one exit leg's costs (ProfitEscalation8189). Runner holds / confirmed continuations
-     * keep their residual. True when the full exit was requested (it still passes ProfitExitTruth8163 on its own quote).
+     * keep their residual. Null means no escalation; otherwise the receipt carries the actual full-exit result
+     * (which still passes ProfitExitTruth8163 on its own quote). A handled request is not necessarily an applied sale.
      */
-    private fun profitEscalated8189(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): Boolean {
+    private fun profitEscalated8189(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): PartialSellReceipt6566? {
         val pos = ts.position
-        if (pos.isPaperPosition || !pos.isOpen || reason.startsWith(com.lifecyclebot.engine.sell.ProfitEscalation8189.REASON_PREFIX_8189)) return false
-        val full = proceedsSol7029(pos.qtyToken, getActualPrice(ts)) ?: return false
+        if (pos.isPaperPosition || !pos.isOpen || reason.startsWith(com.lifecyclebot.engine.sell.ProfitEscalation8189.REASON_PREFIX_8189)) return null
+        val full = proceedsSol7029(pos.qtyToken, getActualPrice(ts)) ?: return null
         val canon = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pos.positionId)?.takeIf { it.mint == ts.mint } } catch (_: Throwable) { null }
         val remainingCost = canon?.let { it.entryCostSol - it.soldCostBasisSol }?.takeIf { it.isFinite() && it > 0.0 } ?: pos.costSol
         // V5.0.8271 — variable exit cost only; the fixed sell fee is the separate argument below (charged once each).
@@ -7402,10 +7406,11 @@ class Executor(
         val runner = com.lifecyclebot.engine.sell.ProfitEscalation8189.runnerProtected8297(ts)  // V5.0.8297 — the residual budget's runner set
         val v = com.lifecyclebot.engine.sell.ProfitEscalation8189.verdict8189(true, full, remainingCost, exitCostPct, CostMeter8151.sellLegFixedSol8151(), runner)
         com.lifecyclebot.engine.sell.ProfitEscalation8189.count8189(v)
-        if (v != com.lifecyclebot.engine.sell.ProfitEscalation8189.Verdict8189.ESCALATE_FULL) return false
+        if (v != com.lifecyclebot.engine.sell.ProfitEscalation8189.Verdict8189.ESCALATE_FULL) return null
         try { ForensicLogger.lifecycle("PROFIT_SLICE_ESCALATED_FULL_8189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} slice=${reason.take(48)} fullProceeds=${"%.6f".format(full)} cost=${"%.6f".format(remainingCost)}") } catch (_: Throwable) {}
-        requestSell(ts, com.lifecyclebot.engine.sell.ProfitEscalation8189.reason8189(reason), wallet, walletSol)
-        return true
+        return ProfitEscalationReceipt8397.request8397 {
+            requestSell(ts, com.lifecyclebot.engine.sell.ProfitEscalation8189.reason8189(reason), wallet, walletSol)
+        }
     }
 
     private fun executeProfitLockSell(
@@ -20020,6 +20025,7 @@ class Executor(
         var buyTerminalRecorded = false
         // V5.0.7733 — the signature of the transaction this attempt sent, once it exists.
         var broadcastSig7733: String? = null
+        val submission8397 = BuySubmissionReceipt8397(recoveredLiveAttemptId)
         fun buyAttemptTrace4576(stage: String, detail: String = "") {
             try {
                 ForensicLogger.lifecycle(
@@ -20855,6 +20861,12 @@ class Executor(
             }
             // V5.0.8329 — the curve mark against the decision price before the PumpPortal send (this route has no quote): a consumed edge is not bought.
             if (pumpBuyPlan != null) com.lifecyclebot.engine.truth.EntryEconomics8329.markRefusal8329(ts, layerTag, pumpBuyPlan.solAmount)?.let { buyTerminalFail(it); return false }
+            // V5.0.8397 — evidence reads do not spend an exception. Reserve the sealed attempt
+            // before any route (including preparation's direct Raydium path) can submit it.
+            com.lifecyclebot.engine.truth.EvidenceHold8336.reserveEntry8397(ts, sealedIntent7835)?.let {
+                buyTerminalFail(it)
+                return false
+            }
             val pumpFirstResult: Pair<String, Double>? = if (pumpBuyPlan == null) null else tryPumpPortalBuy(
                 ts = ts,
                 wallet = wallet,
@@ -20865,6 +20877,7 @@ class Executor(
                 jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                 tradeKey = tradeKey,
                 traderTag = "MEME",
+                submission8397 = submission8397,
             )
 
             // V5.9.495 — Jupiter ladder runs ONLY if PUMP-FIRST failed.
@@ -20875,7 +20888,7 @@ class Executor(
             // like liveSell does, so memes actually fill instead of phantoming.
             val buyBaseSlippage = c.slippageBps.coerceAtLeast(200)
             val prepared8090 = if (pumpFirstResult == null) {
-                prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835)
+                prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835, submission8397)
                     ?: return false
             } else null
             val quote = prepared8090?.quote
@@ -20942,7 +20955,7 @@ class Executor(
                     PipelineHealthCollector.labelInc("LIVE_BUY_SUBMITTED")
                 } catch (_: Throwable) {}
                 liveStage("TX_SUBMIT_START", "route=${q.router}")
-                sig = buySend8085(wallet, ts.mint, tx, useJito, jitoTip, ultraReqId, c)
+                sig = buySend8085(wallet, ts.mint, tx, useJito, jitoTip, ultraReqId, c, submission8397)
                 broadcastSig7733 = sig
                 buyPhase("TX_SIGNED")
                 try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} sig=${sig.take(16)}") } catch (_: Throwable) {}
@@ -22189,6 +22202,8 @@ class Executor(
             // V5.0.7733 — a throw AFTER the transaction was sent is not a failed
             // buy: the signature decides, through wallet proof, not the exception.
             val sentSig7733 = broadcastSig7733 ?: (e as? SolanaWallet.SentButUnconfirmed7733)?.signature
+            // Keep unknown submitted liability visible to the outer reservation receipt as well.
+            broadcastSig7733 = sentSig7733
             if (deferDuplicateBuy8085(ts, sol, e)) { buyTerminalRecorded = true; return false }
             if (!sentSig7733.isNullOrBlank()) {
                 onLiveBuyThrownAfterSend7733(ts, sentSig7733, sol, routedLaneTag, safe, tradeKey)
@@ -22232,6 +22247,7 @@ class Executor(
             return false
         }
         } finally {
+            com.lifecyclebot.engine.truth.EvidenceHold8336.finishEntry8397(recoveredLiveAttemptId, submission8397.signature ?: broadcastSig7733)
             if (!buyTerminalRecorded) {
                 liveBuyDeferred(ts, sol, "NO_TERMINAL_EVENT_REQUEUED", "lastStage=$liveBuyLastStage")
                 buyTerminalRecorded = true
@@ -23963,8 +23979,8 @@ class Executor(
         }
         // V5.0.8094 — a discretionary profit slice whose net its own exit costs consume is not sent.
         if (partialUneconomic8094(ts, requested8337, reason)) {
-            // V5.0.8189 — escalated to a full exit. V5.0.8337: the receipt says so (applied, not terminal), so the rung is not re-armed.
-            if (profitEscalated8189(ts, reason, wallet, walletBalance)) { receipt6566?.invoke(PartialSellReceipt6566(applied = true, terminal = false, authorityResult = "ESCALATED_FULL_8189")); return }
+            // A requested full exit can still be refused by its quote/route/finality doors. Preserve that result.
+            profitEscalated8189(ts, reason, wallet, walletBalance)?.let { receipt6566?.invoke(it); return }
             try { DecisionReasons8031.hold8031(ts, "PARTIAL_EXIT_NET_UNECONOMIC", reason) } catch (_: Throwable) {}
             spikeRefused8337(reason, "UNECONOMIC")
             receipt6566?.invoke(PartialSellReceipt6566(false))
@@ -24637,7 +24653,7 @@ class Executor(
                     val proof7835 = verifiedSlice7835 ?: return
                     val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason) ?: return
                     // Only chain-verified token consumption graduates a spike tier.
-                    try { SpikeCapture7943.onConfirmedPartial8081(ts, reason, settled7835.actualConsumedRaw) } catch (_: Throwable) {}
+                    try { SpikeCapture7943.onConfirmedPartial8081(ts, reason, settled7835.actualConsumedRaw, alreadyCommitted8397 = true) } catch (_: Throwable) {}
                     val solBack = settled7835.solReceived
                     val livePartialCostBasisSol = settled7835.realizedPnl.proportionalCostBasisSol
                     val livePnl = settled7835.realizedPnl.realizedPnlSol
@@ -30909,6 +30925,7 @@ class Executor(
         tradeKey: String, c: com.lifecyclebot.data.BotConfig,
         buyTerminalFail: (String) -> Unit,
         intent8198: ExecutableOpenGate.ExecutionIntent,
+        submission8397: BuySubmissionReceipt8397,
     ): JupiterBuyPreparation8090? {
         val buyBaseSlippage = c.slippageBps.coerceAtLeast(200)
         val slippageLadder = listOf(buyBaseSlippage, 350, 500).distinct()
@@ -30926,7 +30943,7 @@ class Executor(
         // buy (venue pivot, advisory). Jupiter is still attempted below when Raydium has no pool.
         if (JupiterApi.swapBuildDegraded8089()) {
             try { PipelineHealthCollector.labelInc("LIVE_BUY_VENUE_FIRST_JUPITER_DEGRADED_8089") } catch (_: Throwable) {}
-            raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
+            raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey, submission8397)
             if (raydiumBuy7325 != null) return JupiterBuyPreparation8090(directFill = raydiumBuy7325)
         }
         // V5.9.495d — explicit Ultra-first signal for forensics.
@@ -30992,7 +31009,7 @@ class Executor(
             }
         }
         if (jq7325 == null) {
-            raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
+            raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey, submission8397)
             if (raydiumBuy7325 != null) return JupiterBuyPreparation8090(directFill = raydiumBuy7325)
             onLog("🚫 BUY ABORTED: all slippage levels failed (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
             LiveTradeLogStore.log(
@@ -31107,7 +31124,7 @@ class Executor(
         }
 
         var executionQuote7688 = requireNotNull(jq7325) { "JUPITER_QUOTE_MISSING_BEFORE_BUILD_7688" }
-        var txResultLocal = buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c) { raydiumBuy7325 = it }
+        var txResultLocal = buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c, submission8397) { raydiumBuy7325 = it }
             ?: return JupiterBuyPreparation8090(directFill = raydiumBuy7325)  // V5.0.8089 — Jupiter /swap 5xx: the Raydium builder filled this buy instead
         txResult = txResultLocal
         buyPhase("SWAP_BUILT")
@@ -31218,6 +31235,7 @@ class Executor(
     private fun buildBuyTxOrRaydium8089(
         ts: TokenState, wallet: SolanaWallet, sol: Double, tradeKey: String,
         quote: com.lifecyclebot.network.SwapQuote, c: com.lifecyclebot.data.BotConfig,
+        submission8397: BuySubmissionReceipt8397,
         onRaydiumFill: (Pair<String, Double>) -> Unit,
     ): com.lifecyclebot.network.SwapTxResult? {
         return try {
@@ -31229,7 +31247,7 @@ class Executor(
             try { PipelineHealthCollector.labelInc("LIVE_BUY_BUILD_5XX_RAYDIUM_FALLBACK_8089") } catch (_: Throwable) {}
             LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.INFO,
                 "Jupiter builder unavailable (${e.message?.take(60)}) → RAYDIUM builder", solAmount = sol, traderTag = "MEME")
-            val fill = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
+            val fill = tryRaydiumBuy7325(ts, wallet, sol, tradeKey, submission8397)
             if (fill == null) {
                 try { PipelineHealthCollector.labelInc("LIVE_BUY_BUILD_5XX_NO_VENUE_8089") } catch (_: Throwable) {}
                 throw e
@@ -32019,7 +32037,9 @@ class Executor(
      * delta when already visible, else the price-math estimate, and an
      * unproven delta is handed to PendingReconcileQueue exactly as Pump does.
      */
-    private fun tryRaydiumBuy7325(ts: TokenState, wallet: SolanaWallet, solAmount: Double, tradeKey: String): Pair<String, Double>? {
+    private fun tryRaydiumBuy7325(ts: TokenState, wallet: SolanaWallet, solAmount: Double, tradeKey: String,
+                                 submission8397: BuySubmissionReceipt8397): Pair<String, Double>? {
+        var submittedSig8397: String? = null
         return try {
             val c = cfg()
             val lamports = (solAmount * 1_000_000_000.0).toLong()
@@ -32032,10 +32052,14 @@ class Executor(
                 "RAYDIUM buy (third builder) ${"%.4f".format(solAmount)}◎ | txs=${built.transactions.size} | sender=HELIUS_FIRST",
                 traderTag = "MEME",
             )
-            val sig = com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(
-                wallet, built, effectiveSenderTipLamports(c, urgent = false), c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
-                intent8085 = com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", route = "RAYDIUM"),
-            ) ?: return null
+            val sig = BuySubmissionReceipt8397.observe8397(submission8397) {
+                com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(
+                    wallet, built, effectiveSenderTipLamports(c, urgent = false), c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
+                    intent8085 = com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", intentId = submission8397.attemptId, route = "RAYDIUM"),
+                    sendObserver8397 = { send -> BuySubmissionReceipt8397.observe8397(submission8397, send) },
+                )
+            } ?: return null
+            submittedSig8397 = sig.takeIf { it.isNotBlank() }
             try { com.lifecyclebot.engine.WalletAccountCache.bustNow() } catch (_: Throwable) {}  // V5.0.8009
             val firstReadQty = try {
                 ((wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0) - preTokenQty).coerceAtLeast(0.0)
@@ -32058,6 +32082,8 @@ class Executor(
         } catch (e: SolanaWallet.DuplicateOrderPrevented8085) {
             throw e
         } catch (e: Throwable) {
+            // A post-send observer failure cannot turn a signed buy into an unsent route miss.
+            submittedSig8397?.let { throw SolanaWallet.SentButUnconfirmed7733(it, e) }
             if (e is kotlinx.coroutines.CancellationException) throw e
             try {
                 PipelineHealthCollector.labelInc("RAYDIUM_BUY_FAILED_7325")
@@ -32077,7 +32103,9 @@ class Executor(
         jitoTipLamports: Long,
         tradeKey: String,
         traderTag: String,
+        submission8397: BuySubmissionReceipt8397? = null,
     ): Pair<String, Double>? {
+        var submittedSig8397: String? = null
         return try {
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
@@ -32188,13 +32216,16 @@ class Executor(
             )
             // V5.0.8085 — bound to (mint, BUY): an unresolved earlier buy blocks a second order; a sent-but-unconfirmed
             // outcome propagates to liveBuy's 7733 pending-wallet-delta path instead of falling through to Jupiter.
-            com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", route = "PUMPPORTAL"))
-            val sig = wallet.signSendAndConfirm(
-                pumpEnv7311?.txBase64 ?: pumpTx8288,
-                useJito && pumpEnv7311 == null,
-                maxOf(jitoTipLamports, 200_000L),
-                senderCompatible = pumpEnv7311 != null,
-            )
+            com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", intentId = submission8397?.attemptId.orEmpty(), route = "PUMPPORTAL"))
+            val sig = BuySubmissionReceipt8397.observe8397(submission8397) {
+                wallet.signSendAndConfirm(
+                    pumpEnv7311?.txBase64 ?: pumpTx8288,
+                    useJito && pumpEnv7311 == null,
+                    maxOf(jitoTipLamports, 200_000L),
+                    senderCompatible = pumpEnv7311 != null,
+                )
+            }
+            submittedSig8397 = sig.takeIf { it.isNotBlank() }
             // Sanity: signSendAndConfirm throws on RPC/on-chain failure, but defensively
             // verify the returned sig is non-blank before trusting it.
             if (sig.isBlank()) {
@@ -32352,6 +32383,8 @@ class Executor(
         } catch (e: SolanaWallet.DuplicateOrderPrevented8085) {
             throw e
         } catch (pumpEx: Exception) {
+            submittedSig8397?.let { throw SolanaWallet.SentButUnconfirmed7733(it, pumpEx) }
+            if (pumpEx is kotlinx.coroutines.CancellationException) throw pumpEx
             val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
             // V5.9.778 — EMERGENT MEME-ONLY: classify TLS / cert errors.
             // Operator forensics 5.0.2709 showed

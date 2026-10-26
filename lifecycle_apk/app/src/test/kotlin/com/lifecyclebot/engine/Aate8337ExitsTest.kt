@@ -95,16 +95,16 @@ class Aate8337ExitsTest {
         val iLife = body.indexOf("LifecycleHold8065.partialHeld8065(ts, reason)")
         // 9a — net-profit and uneconomic doors before the budget (which takes the arbiter ticket); tail / lifecycle after it.
         assertTrue(iNet in 0 until iUnecon && iUnecon < iBudget && iBudget < iTail && iTail < iLife)
-        // 9b — the escalated full exit is reported as applied (not terminal) under its own authority result.
-        assertTrue(body.contains("if (profitEscalated8189(ts, reason, wallet, walletBalance)) { receipt6566?.invoke(PartialSellReceipt6566(applied = true, terminal = false, authorityResult = \"ESCALATED_FULL_8189\")); return }"))
-        assertFalse(body.contains("if (profitEscalated8189(ts, reason, wallet, walletBalance)) { receipt6566?.invoke(PartialSellReceipt6566(false)); return }"))
+        // 8397 corrects 9b: escalation is handled, but only an actually completed full exit acknowledges the rung.
+        assertTrue(body.contains("profitEscalated8189(ts, reason, wallet, walletBalance)?.let { receipt6566?.invoke(it); return }"))
+        assertTrue(e.contains("return ProfitEscalationReceipt8397.request8397 {"))
         // 9c — a spike-capture rung refused at a door is counted by the door.
         for (door in listOf("NET_PROFIT", "UNECONOMIC", "TAILBAG", "LIFECYCLE_HOLD")) assertTrue(door, body.contains("spikeRefused8337(reason, \"$door\")"))
         assertTrue(e.contains("if (reason.contains(\"SPIKE_CAPTURE_7943\")) try { PipelineHealthCollector.labelInc(\"SPIKE_REFUSED_8337_\$door\") } catch (_: Throwable) {}"))
-        val r = Executor.PartialSellReceipt6566(applied = true, terminal = false, authorityResult = "ESCALATED_FULL_8189")
-        assertTrue(r.applied)
+        val r = ProfitEscalationReceipt8397.request8397 { Executor.SellResult.FAILED_RETRYABLE }
+        assertFalse(r.applied)
         assertFalse(r.terminal)
-        assertEquals("ESCALATED_FULL_8189", r.authorityResult)
+        assertEquals("ESCALATED_FULL_8189_FAILED_RETRYABLE", r.authorityResult)
     }
 
     @Test fun aRunnerFromEntrySellsTheScalpTierUntilItsPlanIsConfirmed() {

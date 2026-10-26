@@ -1,0 +1,145 @@
+package com.lifecyclebot.engine
+
+import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
+import com.lifecyclebot.engine.truth.*
+import org.junit.*
+import org.junit.Assert.*
+import org.mockito.ArgumentMatchers.*
+import org.mockito.Mockito.*
+import java.io.File
+import java.nio.file.Files
+import java.sql.Connection
+import java.sql.DriverManager
+
+/** Production migration, SQL transactions, cohort cache and writer queue against a real on-disk SQLite database. */
+class Aate8397ShadowStorageTest {
+    private lateinit var directory: File
+    private lateinit var connection: Connection
+    private lateinit var db: SQLiteDatabase
+
+    @Before fun setup() {
+        Class.forName("org.sqlite.JDBC")
+        directory = Files.createTempDirectory("shadow8397").toFile()
+        connect()
+        ShadowColdStore8397.createSchema(db)
+    }
+    private fun connect() {
+        connection = DriverManager.getConnection("jdbc:sqlite:${File(directory, "shadow.db")}")
+        db = mock(SQLiteDatabase::class.java)
+        doAnswer { a -> connection.createStatement().use { it.execute(a.getArgument<String>(0)) }; null }
+            .`when`(db).execSQL(anyString())
+        doAnswer { a ->
+            connection.prepareStatement(a.getArgument<String>(0)).use { p ->
+                a.getArgument<Array<Any?>>(1).forEachIndexed { i, v -> p.setObject(i + 1, v) }; p.execute()
+            }; null
+        }.`when`(db).execSQL(anyString(), any())
+        doAnswer { a ->
+            val rows = connection.prepareStatement(a.getArgument<String>(0)).use { p ->
+                a.getArgument<Array<String>?>(1)?.forEachIndexed { i, v -> p.setString(i + 1, v) }
+                p.executeQuery().use { r -> buildList { while (r.next()) add((1..r.metaData.columnCount).map { r.getObject(it) }) } }
+            }
+            var index = -1
+            mock(Cursor::class.java).also { cursor ->
+                `when`(cursor.moveToFirst()).thenAnswer { index = 0; rows.isNotEmpty() }
+                `when`(cursor.moveToNext()).thenAnswer { index++; index < rows.size }
+                `when`(cursor.getString(anyInt())).thenAnswer { rows[index][it.getArgument<Int>(0)]?.toString() }
+            }
+        }.`when`(db).rawQuery(anyString(), any())
+        var successful = false
+        doAnswer { connection.autoCommit = false; successful = false; null }.`when`(db).beginTransaction()
+        doAnswer { successful = true; null }.`when`(db).setTransactionSuccessful()
+        doAnswer { if (successful) connection.commit() else connection.rollback(); connection.autoCommit = true; null }
+            .`when`(db).endTransaction()
+    }
+    @After fun cleanup() { connection.close(); directory.deleteRecursively() }
+    private fun cold(name: String = "explorer") = ShadowColdStore8397(db, name)
+
+    @Test fun streamsEveryLegacyCohortThenReadsColdKeysWithTheSameProof() {
+        val legacy = File(directory, "explorer.xml")
+        val payload = (1..60).joinToString(";") { "$it,${if (it % 10 == 0) -4 else 18},8394,$it" }
+        legacy.bufferedWriter().use { w ->
+            w.write("<?xml version=\"1.0\" encoding=\"utf-8\"?><map>")
+            repeat(256) { w.write("<string name=\"C|MOONSHOT|NOW|RUNNER|S:setup$it\">$payload</string>") }
+            w.write("<string name=\"escaped&amp;key\">${payload.replace(",", "&#44;")}</string></map>")
+        }
+        val store = cold(); store.migrate(legacy)
+        assertFalse(legacy.exists()); assertTrue(File(legacy.path + ".migrated8397").exists())
+        assertEquals(257, store.keys().size)
+        val book = ShadowCohortBook8397(4, hotCapacity = 8); book.attach(store)
+        assertEquals(0, book.hotCount())
+        val expected = payload.split(';').map { it.split(',')[1].toDouble() }
+        for (key in book.keys) {
+            val actual = book[key]!!.map { it[1] }
+            assertEquals(expected, actual)
+            assertEquals(ExploreShadow8347.cohortProof8351(expected), ExploreShadow8347.cohortProof8351(actual))
+            assertTrue(book.hotCount() <= 8)
+        }
+        book.trim(); assertEquals(0, book.hotCount())
+        assertEquals(expected, book["C|MOONSHOT|NOW|RUNNER|S:setup0"]!!.map { it[1] })
+        assertEquals(payload, store.read("escaped&key"))
+        assertEquals(257, book.keys.size) // evicting parsed rows never changes the durable universe
+    }
+
+    @Test fun malformedMigrationRollsBackAndPreservesOriginalUntilSuccessfulRetry() {
+        val legacy = File(directory, "broken.xml")
+        legacy.writeText("<map><string name=\"first\">one</string><string name=\"broken\">unfinished")
+        val store = cold()
+        assertThrows(Exception::class.java) { store.migrate(legacy) }
+        assertTrue(legacy.exists()); assertNull(store.read("first"))
+        legacy.writeText("<map><string name=\"first\">one</string><string name=\"second\">two</string></map>")
+        store.migrate(legacy)
+        assertEquals(setOf("first", "second"), store.keys())
+        store.write(mapOf("first" to "newer receipt"))
+        // Retrying init after archive preserves new data; it cannot import the old value over it.
+        store.migrate(legacy)
+        assertEquals("newer receipt", store.read("first"))
+    }
+
+    @Test fun cohortReceiptIsAtomicAndRestartCannotDoubleContribute() {
+        var book = ShadowCohortBook8397(4, maxRows = 3, hotCapacity = 1)
+        book.attach(cold())
+        book.append(listOf("variant", "cohort"), doubleArrayOf(100.0, 18.0, 8394.0, 1.0), "episode-one")
+        connection.close(); connect()
+        book = ShadowCohortBook8397(4, maxRows = 3, hotCapacity = 1); book.attach(cold())
+        book.append(listOf("variant", "cohort"), doubleArrayOf(200.0, -80.0, 8394.0, 1.0), "episode-one")
+        assertEquals(listOf(18.0), book["variant"]!!.map { it[1] })
+        assertEquals(listOf(18.0), book["cohort"]!!.map { it[1] })
+        db.execSQL("CREATE TRIGGER fail_receipt BEFORE INSERT ON shadow_receipts WHEN NEW.event='fail' BEGIN SELECT RAISE(ABORT,'disk failure'); END")
+        assertThrows(ShadowStorageUnavailable8397::class.java) {
+            book.append(listOf("variant", "cohort"), doubleArrayOf(300.0, 5.0, 8394.0, 2.0), "fail")
+        }
+        book.trim()
+        assertEquals(listOf(18.0), book["cohort"]!!.map { it[1] }) // first key's SQL update also rolled back
+        db.execSQL("DROP TRIGGER fail_receipt")
+        book.append(listOf("variant", "cohort"), doubleArrayOf(300.0, 5.0, 8394.0, 2.0), "fail")
+        assertEquals(listOf(18.0, 5.0), book["variant"]!!.map { it[1] })
+        repeat(4) { book.append(listOf("variant"), doubleArrayOf(400.0 + it, it.toDouble(), 8394.0, 3.0), "later-$it") }
+        assertEquals(listOf(1.0, 2.0, 3.0), book["variant"]!!.map { it[1] })
+    }
+
+    @Test fun writerRetainsFailedReceiptsAndReleasesSerializedValuesAfterFlush() {
+        val writes = ShadowWrites8386(8, byteCapacity = 50_000, batchCapacity = 2)
+        assertTrue(writes.stage("ticket", 1, "x".repeat(20_000)))
+        assertFalse(writes.stage("another", 1, "y".repeat(20_000)))
+        assertFalse(writes.flush { false }); assertEquals(1, writes.size())
+        val durable = HashMap<String, String?>()
+        assertTrue(writes.flush { rows -> assertTrue(rows.size <= 2); rows.forEach { durable[it.key] = it.value.value }; true })
+        assertEquals(20_000, durable["ticket"]!!.length)
+        assertEquals(0, writes.size()); assertTrue(writes.bytes() < 1_000) // metadata cannot keep the flushed 40KB string alive
+        assertTrue(writes.stage("ticket", 1, null)); assertTrue(writes.flush { true })
+        assertFalse(writes.stage("ticket", 1, "stale receipt"))
+        assertTrue(writes.stage("ticket", 2, "new episode"))
+    }
+
+    @Test fun earlyClosesAttachWithTheirReceiptAndRemainIdempotentAfterRestart() {
+        val early = ShadowCohortBook8397(4)
+        early.append(listOf("cohort"), doubleArrayOf(10.0, 18.0, 8394.0, 1.0), "before-init")
+        early.attach(cold())
+        connection.close(); connect()
+        val restored = ShadowCohortBook8397(4); restored.attach(cold())
+        restored.append(listOf("cohort"), doubleArrayOf(20.0, 18.0, 8394.0, 1.0), "before-init")
+        assertEquals(1, restored["cohort"]!!.size)
+        assertEquals(10.0, restored["cohort"]!!.single()[0], 0.0)
+    }
+}

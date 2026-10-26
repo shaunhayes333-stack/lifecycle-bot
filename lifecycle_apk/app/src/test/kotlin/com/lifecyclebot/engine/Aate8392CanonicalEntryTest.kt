@@ -63,7 +63,7 @@ class Aate8392CanonicalEntryTest {
     }
     @Test fun existingHoldAndShadowRecoveryAreNotDeletedWithTheMode() {
         val s=src("engine/truth/LiveEdgeGate7877")
-        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertTrue(s.contains("EvidenceShadow8344.open8344(ts, l, nowMs, advisoryEntry8393 = shadowOnly8393)"))
         assertTrue(s.contains("ExploreShadow8347.liveEntryWait8347("))
         assertTrue(s.contains("ExploreShadow8347.nicheRefusal8351("))

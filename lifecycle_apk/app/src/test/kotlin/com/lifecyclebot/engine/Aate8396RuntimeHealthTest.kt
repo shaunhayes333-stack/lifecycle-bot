@@ -32,10 +32,12 @@ class Aate8396RuntimeHealthTest {
         assertEquals(row[0], back[0], 0.0); assertEquals(row[1], back[1], 1e-4); assertEquals(row[3], back[3], 0.0); assertEquals(row[4], back[4], 0.0)
         assertEquals("-3.5", ShadowPersist8355.compactRow8396(doubleArrayOf(-3.5)))
         assertEquals("NaN", ShadowPersist8355.compactRow8396(doubleArrayOf(Double.NaN)))
-        // both books write through it
+        // Both books use the cold cohort store; the single serializer still preserves the compact numeric contract.
+        val cold = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ShadowColdStore8397.kt").readText()
+        assertTrue(cold.contains("ShadowPersist8355.compactRow8396(it)"))
         listOf("EvidenceShadow8344", "ExploreShadow8347").forEach {
             val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/$it.kt").readText()
-            assertTrue(it, src.contains("ShadowPersist8355.compactRow8396(it)")); assertFalse(it, src.contains("q.joinToString(\";\") { it.joinToString(\",\") }"))
+            assertTrue(it, src.contains("ShadowCohortBook8397(")); assertFalse(it, src.contains("q.joinToString(\";\") { it.joinToString(\",\") }"))
         }
     }
 

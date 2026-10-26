@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicLong
  * Now a qualified receiver is a bounded, version-bound evaluation task per mint ([Task8153]). The cycle consumes it in the
  * lane gate (SpecialistOwnership7951.handOffAllowed7960 -> [HandoffTaskRuntime8153.admits8153] -> the election's one
  * rescue slot, SpecialistElection8136.claimHandoffReceiver8153), and the task ends exactly one way:
- *  - EVALUATED: the receiver's FinalDecisionGate verdict (allow or refuse);
+ *  - EVALUATED: the receiver's completed FinalDecisionGate judgement (allow or refuse, never missing data);
  *  - DEFERRED_DATA: only data was missing (DEFERRED_*), and the task lapsed still waiting for it;
  *  - REFUSED: a named hard refusal — token-wide safety / structure (binding, never handed on), the receiver's own
  *    judgement, another lane already sealed this version's buy, or stale (no fresh valid read kept it alive).
@@ -61,6 +61,9 @@ object HandoffReceiverTasks8153 {
         /** V5.0.8190 — the version of the pending task this one carried forward (0 = opened fresh). */
         val carriedFrom8190: Long = 0L,
         val schedulerUntil8394: Long = 0L,
+        val dataDeferredAtMs8397: Long = 0L,
+        val missingFeatures8397: Set<String> = emptySet(),
+        val dataRetryAtMs8397: Long = 0L,
     ) {
         val pending: Boolean get() = outcome == Outcome8153.PENDING
     }
@@ -188,17 +191,22 @@ object HandoffReceiverTasks8153 {
 
     /** Pure: [lane] holds a live task the cycle must consume (inside its validity, and its candidate version not left behind). */
     fun due8153(t: Task8153?, lane: String, nowMs: Long, currentVersion: Long = -1L): Boolean =
-        t != null && t.pending && t.lane == canon8153(lane) && nowMs >= t.schedulerUntil8394 && nowMs <= t.validUntilMs &&
+        t != null && t.pending && t.lane == canon8153(lane) && nowMs >= t.schedulerUntil8394 && nowMs >= t.dataRetryAtMs8397 && nowMs <= t.validUntilMs &&
             (currentVersion <= 0L || t.version <= 0L || currentVersion == t.version)
 
     /** Pure: the cycle let the receiver evaluate. */
     fun scheduled8153(t: Task8153, lane: String, nowMs: Long): Task8153 =
         if (!t.pending || t.lane != canon8153(lane)) t else t.copy(scheduledAtMs = nowMs, schedules = t.schedules + 1)
 
-    /** Pure: the receiver's FinalDecisionGate verdict completes the task (another lane's verdict does not). */
-    fun onFdg8153(t: Task8153, lane: String, allow: Boolean, reason: String?, atMs: Long, currentVersion: Long = -1L): Task8153 {
+    /** Pure: only a completed judgement settles. Missing FDG evidence stays on this bounded transfer. */
+    fun onFdg8153(t: Task8153, lane: String, allow: Boolean, reason: String?, atMs: Long, currentVersion: Long = -1L,
+                 outcome: FdgReceipt8397.Outcome = FdgReceipt8397.outcome(allow, reason), missing: Set<String> = emptySet()): Task8153 {
         if (!t.pending || t.lane != canon8153(lane) || atMs + SAME_READ_SLACK_MS_8153 < t.createdAtMs ||
-            (currentVersion > 0L && !due8153(t, lane, atMs, currentVersion))) return t
+            atMs > t.validUntilMs || (currentVersion > 0L && t.version > 0L && currentVersion != t.version)) return t
+        if (outcome == FdgReceipt8397.Outcome.DEFER_DATA) return t.copy(
+            lastBlock = DEFERRED_PREFIX_8153 + "FDG:" + reason.orEmpty().take(100),
+            dataDeferredAtMs8397 = atMs, missingFeatures8397 = missing,
+            dataRetryAtMs8397 = minOf(atMs + 5_000L, t.validUntilMs))
         return t.copy(outcome = Outcome8153.EVALUATED, settledAtMs = atMs,
             verdict = if (allow) "FDG_ALLOW" else "FDG_REFUSED:${reason.orEmpty().take(60)}")
     }
@@ -381,9 +389,33 @@ object HandoffReceiverTasks8153 {
     /** Pure: the same task resumed on hydration — block cleared, validity extended within the max age, version carried. */
     fun resumeOnHydration8343(t: Task8153?, nowMs: Long): Task8153? {
         if (t == null || !awaitsHydration8343(t)) return null
+        if (t.dataDeferredAtMs8397 > 0L && (nowMs <= t.dataDeferredAtMs8397 ||
+                !FdgReceipt8397.answers(t.missingFeatures8397, setOf("liq")))) return null
         val until = minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)
         if (until <= nowMs) return null
-        return t.copy(lastBlock = "", validUntilMs = maxOf(t.validUntilMs, until))
+        return t.copy(lastBlock = "", validUntilMs = maxOf(t.validUntilMs, until), dataDeferredAtMs8397 = 0L,
+            missingFeatures8397 = emptySet(), dataRetryAtMs8397 = 0L)
+    }
+
+    /** The matching evidence wakes the same pending transfer; stale arrivals and completed tasks do nothing. */
+    fun onEvidenceArrived8397(mint: String, features: Set<String>, nowMs: Long): Boolean {
+        val before = tasks8153[mint] ?: return false
+        if (!before.pending || before.dataDeferredAtMs8397 <= 0L || nowMs <= before.dataDeferredAtMs8397 ||
+            nowMs > before.validUntilMs || !FdgReceipt8397.answers(before.missingFeatures8397, features)) return false
+        var resumed = false
+        val after = update8153(mint, nowMs) { t ->
+            if (t == null || !t.pending || t.dataDeferredAtMs8397 <= 0L || nowMs <= t.dataDeferredAtMs8397 ||
+                !FdgReceipt8397.answers(t.missingFeatures8397, features)) t else {
+                resumed = true
+                t.copy(lastBlock = "",
+                    validUntilMs = maxOf(t.validUntilMs, minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)),
+                    dataDeferredAtMs8397 = 0L, missingFeatures8397 = emptySet(), dataRetryAtMs8397 = 0L)
+            }
+        }
+        if (!resumed || after == null || !after.pending || after.dataDeferredAtMs8397 != 0L) return false
+        try { FinalDecisionGate.invalidateCandidate6734(mint) } catch (_: Throwable) {}
+        count8153("DATA_ARRIVAL_RESUMED_8397")
+        return true
     }
 
     /** HydrationReeval8343: the liquidity of [mint] was just read: resume its task awaiting it at once. */
@@ -393,10 +425,17 @@ object HandoffReceiverTasks8153 {
         // V5.0.8345 — a found task that is not resumed says why.
         if (!t.pending) { whyNotResumed("SETTLED_${t.outcome.name}"); return false }
         if (!awaitsHydration8343(t)) { whyNotResumed(blockKey8345(t.lastBlock)); return false }
+        if (t.dataDeferredAtMs8397 > 0L && (nowMs <= t.dataDeferredAtMs8397 ||
+                !FdgReceipt8397.answers(t.missingFeatures8397, setOf("liq")))) {
+            whyNotResumed("FDG_WAITING_OTHER_EVIDENCE_8397"); return false
+        }
         if (hydrationSeen8345.size > 2_048) hydrationSeen8345.entries.removeIf { nowMs - it.value > TASK_MAX_AGE_MS_8153 }
         hydrationSeen8345[t.mint] = nowMs
-        val after = update8153(t.mint, nowMs) { prior -> resumeOnHydration8343(prior, nowMs) ?: prior }
-        if (after != null && after.pending && after.lastBlock.isEmpty()) {
+        var resumed = false
+        val after = update8153(t.mint, nowMs) { prior ->
+            resumeOnHydration8343(prior, nowMs)?.also { resumed = true } ?: prior
+        }
+        if (resumed && after != null && after.pending && after.lastBlock.isEmpty()) {
             resumedHydration8343.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("HANDOFF_TASK_RESUMED_ON_HYDRATION_8343_${after.lane}")
@@ -517,10 +556,14 @@ object HandoffReceiverTasks8153 {
         update8153(mint, nowMs) { it?.let { t -> scheduled8153(t, lane, nowMs) } }
     }
 
-    fun onFdgVerdict8153(mint: String, lane: String, allow: Boolean, reason: String?, nowMs: Long, candidateVersion: Long = -1L) {
+    fun onFdgVerdict8153(mint: String, lane: String, allow: Boolean, reason: String?, nowMs: Long, candidateVersion: Long = -1L,
+                         outcome: FdgReceipt8397.Outcome = FdgReceipt8397.outcome(allow, reason)) {
         if (tasks8153[mint]?.pending != true) return
         carryForward8190(mint, candidateVersion, nowMs)  // V5.0.8190 — the receiver's verdict on the newer bucket is its evaluation
-        update8153(mint, nowMs) { it?.let { t -> onFdg8153(t, lane, allow, reason, nowMs, candidateVersion) } }
+        val missing = if (outcome == FdgReceipt8397.Outcome.DEFER_DATA)
+            com.lifecyclebot.engine.truth.CandidateAdmission8136.missingForReceipt8397(mint, lane, candidateVersion, nowMs) else emptySet()
+        val after = update8153(mint, nowMs) { it?.let { t -> onFdg8153(t, lane, allow, reason, nowMs, candidateVersion, outcome, missing) } }
+        if (after?.dataDeferredAtMs8397 == nowMs) count8153("FDG_DEFER_ATTEMPT_8397")
     }
 
     fun blockTask8153(mint: String, lane: String, block: Block8153, reason: String, nowMs: Long): Task8153? =
@@ -586,6 +629,7 @@ object HandoffReceiverTasks8153 {
         val c = { k: String -> counts8153[k]?.get() ?: 0L }
         return "handoffTask8153[opened=${c("OPENED")} scheduled=${c("SCHEDULED")} transferred=${c("TRANSFERRED")} " +
             "evaluated=${c(Outcome8153.EVALUATED.name)} deferredData=${c(Outcome8153.DEFERRED_DATA.name)} " +
+            "fdgDeferAttempts8397=${c("FDG_DEFER_ATTEMPT_8397")} dataResumed8397=${c("DATA_ARRIVAL_RESUMED_8397")} " +
             "refused=${c(Outcome8153.REFUSED.name)} pending=${tasks8153.values.count { it.pending }} " +
             verdictLine8169() + "]" + resumeLine8330() + HandoffTrace8190.statusLine8190()  // V5.0.8190 / V5.0.8330
     }

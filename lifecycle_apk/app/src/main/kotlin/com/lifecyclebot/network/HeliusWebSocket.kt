@@ -191,6 +191,7 @@ class HeliusWebSocket(
 
     fun disconnect() {
         running = false
+        decisionTape8397.clear()
         callbacks7863.queue.clear()
         reconnectScheduled7803.set(false)
         clientClosedSocket7819 = ws
@@ -265,7 +266,14 @@ class HeliusWebSocket(
      * was bought (or dropped by an error ACK).
      */
     fun ensurePinnedSubscriptions7807() {
-        expireStaleRequests7807(System.currentTimeMillis())
+        val now8397 = System.currentTimeMillis()
+        expireStaleRequests7807(now8397)
+        decisionTape8397.expire(now8397)
+        if (com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066(now8397)) {
+            // Stop optional old subscriptions too; a fallback allowance cannot coexist with an unbounded old stream.
+            releaseTokens7948 { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.dailyRoom8397(now8397) &&
+                decisionTape8397.active(it, now8397) }
+        }
         val pinned = pinnedMints7807()
         HeliusSubscriptionTelemetry7807.pinnedHeld = pinned.size
         if (pinned.isEmpty()) { publishGauges7807(); return }
@@ -293,6 +301,7 @@ class HeliusWebSocket(
         }
         if (released.isEmpty()) return 0
         for ((mint, serverId) in released) {
+            decisionTape8397.release(mint)
             // Pending request kept, as on eviction: its late ACK finds the mint unwanted and unsubscribes.
             subscriptionToMint7765.entries.removeIf { it.value == mint }
             serverId?.let { sendUnsubscribe7803("logsUnsubscribe", it) }
@@ -304,7 +313,7 @@ class HeliusWebSocket(
 
     fun subscribeTokenState8386(mint: String): HeliusCurveTape8354.TapeState8386 {
         if (ws == null) return HeliusCurveTape8354.TapeState8386.Unavailable("socket_unavailable")
-        subscribeToken(mint)
+        subscribeToken(mint, decisionEvidence8397 = true)
         return synchronized(subscriptions) {
             when {
                 subscriptions[mint] != null -> HeliusCurveTape8354.TapeState8386.Acknowledged
@@ -315,14 +324,21 @@ class HeliusWebSocket(
     }
 
     /** Subscribe to all swaps for a specific token mint. */
-    fun subscribeToken(mint: String) {
+    private val decisionTape8397 = DecisionTapeLeases8397()
+
+    fun subscribeToken(mint: String, decisionEvidence8397: Boolean = false) {
         if (mint.isBlank()) return
         if (!admitMint7819(mint)) return // V5.0.7819 — Field Manual L186: Solana mints only
         if (undecodableNow8096(mint)) return // V5.0.8096 — its logs never decode into a trade
         expireStaleRequests7807(System.currentTimeMillis())
         val pinned = pinnedMints7807()
-        // V5.0.8066 — past the day's Helius budget only held positions get a tape.
-        if (mint !in pinned && (try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066() } catch (_: Throwable) { false })) return
+        val now8397 = System.currentTimeMillis()
+        if (mint !in pinned && com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.exhaustedLatched8094(now8397)) return
+        // Explicit setup/near-decision asks may use six expiring leases from the protected allowance. The paid
+        // PumpPortal policy is untouched, and incoming logs still have to decode into an actual executed trade.
+        if (mint !in pinned && com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066(now8397) &&
+            !decisionTape8397.active(mint, now8397) &&
+            (!decisionEvidence8397 || !decisionTape8397.admit(mint, now8397))) return
         var evictedMint: String? = null
         var evictedServerId: Int? = null
         var requestId = -1
@@ -569,6 +585,8 @@ class HeliusWebSocket(
 
     private fun sendSubscribe(id: Int, mints: List<String>) {
         val mint = mints.firstOrNull()?.takeIf { it.isNotBlank() } ?: return
+        if (mint !in pinnedMints7807() && com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066() &&
+            !decisionTape8397.active(mint, System.currentTimeMillis())) return
         if (id < 0) return
         // V5.0.7807 — no socket: register nothing; onOpen re-subscribes every
         // desired mint. One in-flight request per mint, never two.
@@ -693,7 +711,12 @@ class HeliusWebSocket(
                     // request, pre-7807 orphan) is a live server subscription nobody
                     // reads: unsubscribe it instead of silently paying for it.
                     if (!subscriptionToMint7765.containsKey(params.optInt("subscription", -1))) unsubscribeOrphan7807("logsUnsubscribe", params.optInt("subscription", -1))
-                    parseLogsNotification(value, subscriptionToMint7765[params.optInt("subscription", -1)].orEmpty())
+                    val mint8397 = subscriptionToMint7765[params.optInt("subscription", -1)].orEmpty()
+                    parseLogsNotification(value, mint8397)
+                    if ((decisionTape8397.tracked(mint8397) &&
+                        !decisionTape8397.noteBytes(mint8397, text.length, System.currentTimeMillis())) ||
+                        !com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.dailyRoom8397())
+                        releaseTokens7948 { it != mint8397 }
                 }
                 "accountNotification" -> {
                     if (!subscriptionToWallet7803.containsKey(params.optInt("subscription", -1))) unsubscribeOrphan7807("accountUnsubscribe", params.optInt("subscription", -1))

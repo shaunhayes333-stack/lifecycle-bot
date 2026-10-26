@@ -78,7 +78,7 @@ class Aate8339SmokeTest {
         val gate=src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)"))
         assertTrue(gate.contains("FdgGate8365.inContext8365(ts, l, basis, paper, shadowOnly8393)"))
-        assertTrue(gate.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertTrue(gate.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertTrue(gate.contains("if (paper && final == null) Rehearsal8339.notePaperAdmit8342"))
         assertFalse(gate.contains("entryRefusal8114"))
     }

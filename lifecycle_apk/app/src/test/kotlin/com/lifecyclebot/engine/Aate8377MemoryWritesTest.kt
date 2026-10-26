@@ -18,11 +18,11 @@ class Aate8377MemoryWritesTest {
 
     @Test fun exploreBooksAndTicketsWriteOncePerSlice() {
         val s = src("engine/truth/ExploreShadow8347.kt")
-        val book = s.substringAfter("private fun bookKey8351(").substringBefore("const val COHORT_SE_MULT_8351")
+        val book = s.substringAfter("private fun bookKeys8397(").substringBefore("const val COHORT_SE_MULT_8351")
         assertFalse("a book close never writes the file itself", book.contains("prefs?.edit()"))
-        assertTrue(book.contains("dirtyBooks8377.add(key)"))
+        assertTrue("cohort rows commit through the bounded cold store", book.contains("books.append(keys,"))
         val tick = s.substringAfter("private fun tickSingle8372(").substringBefore("private fun deliverCortex8372(")
-        assertEquals("one editor per slice", 1, Regex("openPrefs8355\\?\\.edit\\(\\)").findAll(tick).count())
+        assertEquals("one cold-store batch owner per slice", 1, Regex("val batch8377 = openPrefs8355").findAll(tick).count())
         assertTrue(tick.contains("flushBooks8377(nowMs)"))
         assertTrue(s.contains("\${persistStatus8377()}"))
     }

@@ -222,11 +222,16 @@ object SpecialistOwnership7951 {
      * OWNER_SELECTED + BUY_INTENT + FDG_BLOCK with a named capital refusal.
      */
     internal fun onFdgVerdict7951(mint: String, lane: String, candidateVersion: Long, shouldTrade: Boolean, blockReason: String?, nowMs: Long = System.currentTimeMillis()) {
-        // V5.0.8136 — every FDG verdict (allow or refuse) terminates its lane's proposal in the candidate's election.
+        val receipt8397 = FdgReceipt8397.outcome(shouldTrade, blockReason)
+        // An FDG attempt can be deferred. The same typed meaning reaches the election, task and ledger.
         noteFdgVerdict8136(mint, lane, candidateVersion, shouldTrade, blockReason, nowMs)
-        try { HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs, candidateVersion) } catch (_: Throwable) {}  // V5.0.8153 — the receiver's task is evaluated only on its candidate generation
-        try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.onFdgVerdict8144(mint, lane, shouldTrade, blockReason, nowMs) } catch (_: Throwable) {}  // V5.0.8144 — hand-off arrival
+        try { HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs, candidateVersion, receipt8397) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.onFdgVerdict8144(mint, lane, shouldTrade, blockReason, nowMs, receipt8397, candidateVersion) } catch (_: Throwable) {}
         OwnershipChain8364.onFdgVerdict8364(lane, mint, candidateVersion, shouldTrade, blockReason, nowMs)  // V5.0.8364 — the candidate's FDG verdict on its chain
+        if (receipt8397 == FdgReceipt8397.Outcome.DEFER_DATA) {
+            try { PipelineHealthCollector.labelInc("FDG_DATA_PENDING_8397_${lane7951(lane)}") } catch (_: Throwable) {}
+            return
+        }
         if (shouldTrade || mint.isBlank()) return
         val l = lane7951(lane)
         if (l !in SpecialistCandidateBooks7803.LANES) return

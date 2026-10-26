@@ -38,11 +38,16 @@ object SpikeCapture7943 {
      * V5.0.8153 — the request is REJECTED and goes back; its confirmed milestone never moved, so nothing is consumed.
      * After [MAX_REARMS_7944] refusals it is no longer dropped for good: it retries on the slow backoff (60 s).
      */
-    fun rearm(ts: TokenState, tier: Int, reason: String = "SPIKE_CAPTURE_7943_T$tier"): Boolean {
+    fun rearm(ts: TokenState, tier: Int, reason: String = "SPIKE_CAPTURE_7943_T$tier", expectedRequestAtMs8397: Long? = null,
+              expectedLadder8397: String? = null): Boolean {
         val key = "${ts.mint}|${ts.position.entryTime}"
-        rearms.merge(key, 1, Int::plus)
         if (!ts.position.isOpen) return false
-        try { RunnerLive8153.revert8153(ts, RunnerRungBook8153.Revert8153.REJECTED, System.currentTimeMillis(), MAX_REARMS_7944) } catch (_: Throwable) {}
+        if (expectedRequestAtMs8397 != null) {
+            if (!RunnerLive8153.revertMatching8397(ts, reason, expectedRequestAtMs8397, System.currentTimeMillis(), MAX_REARMS_7944, expectedLadder8397)) return false
+        } else {
+            try { RunnerLive8153.revert8153(ts, RunnerRungBook8153.Revert8153.REJECTED, System.currentTimeMillis(), MAX_REARMS_7944) } catch (_: Throwable) {}
+        }
+        rearms.merge(key, 1, Int::plus)
         RunnerFunnel8331.blocked8331("SELL_NOT_APPLIED", "$key|T$tier|${rearms[key] ?: 0}")  // V5.0.8331 — every refused dispatch counts
         // V5.0.8144 — the rung's sale did not land: it gives back the arbitration ticket it held.
         try { ExitTruthArbiterLive8144.releaseTranche8144(ts.mint, reason) } catch (_: Throwable) {}
@@ -62,13 +67,15 @@ object SpikeCapture7943 {
     internal fun pendingExpired8081(atMs: Long?, nowMs: Long): Boolean =
         atMs != null && nowMs - atMs >= 5_000L
 
-    fun onConfirmedPartial8081(ts: TokenState, reason: String, consumedRaw: java.math.BigInteger) {
+    fun onConfirmedPartial8081(ts: TokenState, reason: String, consumedRaw: java.math.BigInteger, alreadyCommitted8397: Boolean = false) {
         if (consumedRaw.signum() <= 0) return
         val tier = RunnerLive8153.rungOf8153(reason)
         if (tier !in 1..3) return
         // V5.0.8153 — chain-verified consumption CONFIRMS the tier (idempotent: Executor.commitVerifiedLiveSlice7835 has
         // already confirmed it and booked the slice's proceeds once, RunnerLive8153.bookSlice8153).
-        try { RunnerLive8153.confirmTier8153(ts, tier, reason) } catch (_: Throwable) {}
+        // commitVerifiedLiveSlice7835 already booked the original ladder and cleared pending. Recomputing
+        // a plan now could incorrectly confirm RUNNER after an initial SCALP sale on that runner position.
+        if (!alreadyCommitted8397) try { RunnerLive8153.confirmTier8153(ts, tier, reason) } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("SPIKE_CAPTURE_CHAIN_PARTIAL_CONFIRMED_8081") } catch (_: Throwable) {}
     }
 
@@ -78,7 +85,8 @@ object SpikeCapture7943 {
      */
     fun dispatched8153(ts: TokenState, reason: String) {
         if (RunnerLive8153.rungOf8153(reason) <= 0) return
-        try { RunnerLive8153.advance8153(ts, RunnerRungBook8153.Stage8153.TICKET_ACCEPTED, System.currentTimeMillis()) } catch (_: Throwable) {}
+        val pending = RunnerLive8153.pendingRequest8397(ts, reason) ?: return
+        try { RunnerLive8153.advance8153(ts, RunnerRungBook8153.Stage8153.TICKET_ACCEPTED, System.currentTimeMillis(), reason, pending.atMs) } catch (_: Throwable) {}
     }
 
     /**
@@ -86,10 +94,10 @@ object SpikeCapture7943 {
      * issued only after the chain-confirmed slice was committed (the tier is already confirmed — idempotent); paper has
      * no chain, its applied receipt is its fill.
      */
-    fun onApplied8153(ts: TokenState, reason: String) {
+    fun onApplied8153(ts: TokenState, reason: String, expectedLadder8397: String? = null) {
         val tier = RunnerLive8153.rungOf8153(reason)
         if (tier <= 0) return
-        try { RunnerLive8153.confirmTier8153(ts, tier, reason) } catch (_: Throwable) {}
+        try { RunnerLive8153.confirmTier8153(ts, tier, reason, expectedLadder8397) } catch (_: Throwable) {}
     }
 
     /**

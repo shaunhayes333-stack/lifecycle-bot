@@ -101,7 +101,7 @@ class Aate8345EvidencePathTest {
         assertEquals(1L, EvidenceShadow8344.gapCounts8345().third[EvidenceShadow8344.SOURCE_GRAB_8345])
         assertTrue(EvidenceShadow8344.statusLine8344(t0 - 1L, t0).contains("open=1/120 (MOONSHOT=1)"))
         val lane = src("engine/RunnerGrabLane8343.kt")
-        assertTrue("the hold is asked with the grab lane's own legs", lane.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, grabLegs8345 = grabLegs8345(evidence, venue))"))
+        assertTrue("the hold is asked with the grab lane's own legs", lane.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs,") && lane.contains("grabLegs8345 = grabLegs8345(evidence, venue), candidateVersion8397 = version8397)"))
         assertTrue("refused by the hold alone -> the host lane's shadow", lane.contains("if (hold != null && hold.startsWith(\"EVIDENCE_HOLD_8336_\"))") &&
             lane.contains("EvidenceShadow8344.open8344(ts, l, nowMs, com.lifecyclebot.engine.truth.EvidenceShadow8344.SOURCE_GRAB_8345)"))
         assertEquals("GRAB_7967 venue=POOL_EXIT_FLOOR_500 safety=FULL economics=1.5x chase=CAP_LAUNCH", RunnerGrabLane8343.grabLegs8345("GRAB_7967", "POOL_EXIT_FLOOR_500"))
@@ -254,8 +254,8 @@ class Aate8345EvidencePathTest {
         assertTrue("the rate bound is read inside the core", hold.indexOf("if (!rateAllows8337(l, nowMs))", core) > core)
         assertTrue("venue leg (b) and lane leg (d) are read for both doors", hold.indexOf("val venue = venueLeg8337(ts, l, nowMs)", core) > core &&
             hold.indexOf("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)", core) > core)
-        assertTrue("counted apart", hold.contains("\"EVIDENCE_HOLD_EXCEPTION_8345_GRAB_$" + "l\"") && hold.contains("\"EVIDENCE_HOLD_EXCEPTION_8337_$" + "l\""))
-        assertTrue("the grab lane's hold call carries its legs", hold.contains("if (grabLegs8345 == null) exceptional8336(ts, l, nowMs) else exceptionalViaGrab8345(ts, l, grabLegs8345, nowMs)"))
+        assertTrue("submitted exceptions are counted apart", hold.contains("\"EVIDENCE_HOLD_EXCEPTION_8345_GRAB_$" + "{c.lane}\"") && hold.contains("\"EVIDENCE_HOLD_EXCEPTION_8337_$" + "{c.lane}\""))
+        assertTrue("the hold carries the grab legs and exact generation into qualification", hold.contains("exceptionalCore8345(ts, l, nowMs, grabLegs8345, version)"))
         // runtime: without an exit-safe venue the grab door stays shut (nothing granted, nothing counted)
         val ts = TokenState(mint = "mint8345-novenue", symbol = "NV")
         assertNull(EvidenceHold8336.exceptionalViaGrab8345(ts, "MOONSHOT", legs, 4_000_000_000L))
