@@ -826,6 +826,8 @@ object FinalDecisionGate {
         val v = if (sealed == null) FinalEconomicsVerdict8395(FinalEconomics8395.DEFER, REQUOTE_UNAVAILABLE_8395)
             else requote8395(admission.expectedNetPct, admission.costPct, sealed.costPct,
                 try { com.lifecyclebot.engine.truth.NetEdge8030.margin8391(lane, sealedSizeSol, sealed.costPct) } catch (_: Throwable) { Double.NaN })
+        com.lifecyclebot.engine.truth.EpisodeTrace8395.latestSafe8395(ts.mint, lane, com.lifecyclebot.engine.truth.EpisodeTrace8395.Stage.ECONOMICS,
+            v.verdict.name, v.reason.orEmpty(), sealed?.costPct ?: Double.NaN, com.lifecyclebot.engine.truth.EpisodeTrace8395.Basis.MODELLED)
         checks.add(GateCheck("admission_cost_requote_8209", v.clears,
             "${v.verdict} quoted ${"%.2f".format(admission.costPct)}% @${"%.4f".format(admission.costSizeSol)}SOL -> sealed ${sealed?.costPct?.let { "%.2f".format(it) } ?: "UNAVAILABLE"}% @${"%.4f".format(sealedSizeSol)}SOL net=${"%.2f".format(admission.expectedNetPct)}% ${sealed?.breakdown?.take(120).orEmpty()}"))
         try { PipelineHealthCollector.labelInc(when (v.verdict) {

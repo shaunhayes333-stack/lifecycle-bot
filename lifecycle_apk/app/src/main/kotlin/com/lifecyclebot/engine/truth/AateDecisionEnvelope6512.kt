@@ -74,6 +74,7 @@ object AateDecisionFabric6512 {
     fun record(e: AateDecisionEnvelope6512): AateDecisionEnvelope6512 {
         val c = e.context
         byAuthority[key(c.mode, c.mint, c.candidateVersion, c.primaryStrategy)] = e
+        try { EpisodeTrace8395.onElection(c.mode, c.mint, c.candidateVersion, c.primaryStrategy, e.createdAtMs, e.pWin, e.expectedPnlPct, e.action) } catch (_: Throwable) {}
         policies.incrementAndGet(); emitPolicy(e); return e
     }
 
@@ -85,6 +86,7 @@ object AateDecisionFabric6512 {
         val prior = get(mode, mint, version, lane) ?: return null
         val sealed = prior.copy(executionTicket = attemptId, sealed = true)
         byAuthority[key(mode, mint, version, lane)] = sealed; byAttempt[attemptId] = sealed
+        try { EpisodeTrace8395.onTicket(attemptId, mode, mint, version, lane, System.currentTimeMillis(), sealed.sizeFinal) } catch (_: Throwable) {}
         emitPolicy(sealed); return sealed
     }
 
@@ -215,6 +217,8 @@ object AateDecisionFabric6512 {
 
     fun onFinalized(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         if (rewardedPositions.contains(env.positionId)) return true
+        try { EpisodeTrace8395.onDisposition(env.positionId, env.mode, env.lane, env.atMs, env.realizedPnlSol, env.realizedReturnPct, env.proofState,
+            env.terminal, AccountingIntegrity8169.chainProvenProofState8169(env.proofState)) } catch (_: Throwable) {}
         if (AateEntryIdentityBook8136.isShadowMode8136(env.mode)) return observeShadowOnly8136(env)
         // Entry-time snapshot facts (sealed at entry, carried by the close) fill identity fields the open left blank.
         try { AateEntryIdentityBook8136.fillBlanks8136(env.positionId, env.entrySetup, env.entryStrategyVariantId, env.entryEntryStyle, env.entryExitStyle) } catch (_: Throwable) {}

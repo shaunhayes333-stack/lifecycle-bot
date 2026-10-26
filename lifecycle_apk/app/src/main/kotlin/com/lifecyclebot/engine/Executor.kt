@@ -17146,6 +17146,7 @@ class Executor(
                 return
             }
             ledgerDebited6485 = true
+            com.lifecyclebot.engine.truth.EpisodeTrace8395.submissionSafe8395(executionAttemptId6514, "PAPER", tradeId.mint, tradeId.fdgCandidateVersion, layerTag, actualSol)
             if (!com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(
                     mint = tradeId.mint, actualQtyRaw = buyQtyRaw6485, actualCostSol = actualSol,
                     actualFeesSol = fee6485, tokenDecimals = paperTokenDecimals6509, paperMode = true,
@@ -17159,6 +17160,7 @@ class Executor(
                 return
             }
             pid6485 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(tradeId.mint)
+            com.lifecyclebot.engine.truth.EpisodeTrace8395.fillSafe8395("PAPER", tradeId.mint, tradeId.fdgCandidateVersion, layerTag, pid6485, actualSol, executionAttemptId6514)
             com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.onBuyFilled(pid6485, tradeId.mint, buyQtyRaw6485)
             if (!com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.hasFundedOpenLot6485(pid6485)) {
                 rollbackPaperEntry6485("FUNDED_LOT_MISSING")
@@ -18737,6 +18739,7 @@ class Executor(
         val layerTag: String = LaneAlias.normalize(layerTag).ifBlank { layerTag }
         val sealedIntent7835 = ExecutableOpenGate.ticketForAttempt(attemptId)
         try { com.lifecyclebot.engine.truth.LivePipelineTrace6431.bumpStage(com.lifecyclebot.engine.truth.LivePipelineTrace6431.Stage.EXEC_ATTEMPT) } catch (_: Throwable) {}  // V5.0.8224
+        com.lifecyclebot.engine.truth.EpisodeTrace8395.submissionSafe8395(attemptId, "LIVE", ts.mint, sealedIntent7835?.candidateVersion ?: 0L, layerTag)
         try { ForensicLogger.lifecycle("EXECUTOR_ENTERED",
             "attemptId=$attemptId mint=${ts.mint} mode=LIVE lane=$layerTag " +
                 "candidateVersion=${sealedIntent7835?.candidateVersion ?: 0L} " +
@@ -21730,6 +21733,7 @@ class Executor(
                         candidateVersion7863 = sealedIntent7835.candidateVersion,
                     )
                     val pidLive6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false)
+                    if (canonicalOpen6486) com.lifecyclebot.engine.truth.EpisodeTrace8395.fillSafe8395("LIVE", verifyMint, sealedIntent7835.candidateVersion, sealedIntent7835.canonicalLane, pidLive6486, actualCostSol6486, attemptId)
                     if (!canonicalOpen6486) {
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_REJECTED_6486", "mint=${verifyMint.take(10)} pid=${pidLive6486.take(18)} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
                         protectLandedLiveBuy7807(ts, pidLive6486, proof, actualCostSol6486, ts.position.entryPrice, verifySig, "CANONICAL_COMMIT_REJECTED_6486", sealedIntent7835, verifyWallet)

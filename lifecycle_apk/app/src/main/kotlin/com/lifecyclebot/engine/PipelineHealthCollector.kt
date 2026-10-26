@@ -3717,6 +3717,8 @@ object PipelineHealthCollector {
                 com.lifecyclebot.engine.truth.RootCauseClassifier6460.statusLine()
             ).append("\n")
             sb.append(com.lifecyclebot.engine.truth.LivePipelineTrace6431.render())
+            try { sb.append("  ").append(com.lifecyclebot.engine.truth.EpisodeTrace8395.statusLine8395()).append('\n') } catch (_: Throwable) {}
+            try { sb.append(com.lifecyclebot.engine.truth.EpisodeTrace8395.replayReport8395()) } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
         // ── ANR health (watchdog) ───────────────────────────────────

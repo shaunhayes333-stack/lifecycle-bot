@@ -271,6 +271,8 @@ object AdmissionRunnerTrace8144 {
 
     /** AdmissionHandoff8144.onNativeSnapshot8144: every lane's native read; the first read is the decision-time record. */
     fun noteNative8144(mint: String, atMs: Long, reads: Collection<AdmissionHandoff8144.LaneRead8144>) {
+        if (reads.isNotEmpty()) EpisodeTrace8395.preSafe8395(mint, EpisodeTrace8395.Stage.NATIVE_SCOPE, "READ",
+            reads.joinToString(",") { "${it.lane}:${if (it.eligible) "Y" else "N"}" })
         val e = earlyFor8144(mint, atMs) ?: return
         val ts = tokenOf8144(mint)
         if (e.nativeAtMs == 0L && reads.isNotEmpty()) {
@@ -325,6 +327,7 @@ object AdmissionRunnerTrace8144 {
 
     /** CandidateAdmission8136.assess8136: the first terminal admission (a later one replaces only a data deferral). */
     fun noteAdmission8144(mint: String, lane: String, terminal: String, reason: String) {
+        EpisodeTrace8395.latestSafe8395(mint, lane, EpisodeTrace8395.Stage.ADMISSION, terminal, reason)
         val e = earlyFor8144(mint, System.currentTimeMillis()) ?: return
         if (e.admission.isBlank() || e.admission.startsWith(CandidateAdmission8136.Terminal8136.DEFER_DATA.name)) {
             e.admission = "$terminal:$reason@$lane".take(90)
@@ -333,6 +336,7 @@ object AdmissionRunnerTrace8144 {
 
     /** AdmissionHandoff8144.onFdgVerdict8144: the first FinalDecisionGate verdict for this mint. */
     fun noteFdg8144(mint: String, lane: String, allow: Boolean, reason: String?, atMs: Long) {
+        EpisodeTrace8395.latestSafe8395(mint, lane, EpisodeTrace8395.Stage.FDG, if (allow) "ALLOW" else "REFUSE", reason.orEmpty())
         val e = earlyFor8144(mint, atMs) ?: return
         // V5.0.8153 — the FDG verdict is the last word of a cycle: it is the binding gate (or clears it on an allow).
         noteBindingOf8153(e, tokenOf8144(mint), lane, if (allow) null else reason.orEmpty().ifBlank { "FDG_REFUSED" }, atMs)
@@ -367,6 +371,7 @@ object AdmissionRunnerTrace8144 {
 
     /** AdmissionHandoff8144: the sniper hand-off's latest state. */
     fun noteHandoff8144(mint: String, state: String) {
+        EpisodeTrace8395.preSafe8395(mint, EpisodeTrace8395.Stage.RECEIVER, "HANDOFF", state)
         val e = earlyFor8144(mint, System.currentTimeMillis()) ?: return
         e.handoff = state.take(90)
     }

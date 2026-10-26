@@ -496,6 +496,8 @@ object HandoffReceiverTasks8153 {
         // "scheduled" but never "evaluated". Only invalidate on an actual new task;
         // repeated native reads of the SAME handoff retain the cache.
         if (opened8196) {
+            com.lifecyclebot.engine.truth.EpisodeTrace8395.preSafe8395(mint, com.lifecyclebot.engine.truth.EpisodeTrace8395.Stage.TASK,
+                "OPENED", "$from->$lane v$version", lane, evidenceAtMs)
             try { FinalDecisionGate.invalidateCandidate6734(mint) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("HANDOFF_NEW_RECEIVER_FDG_CACHE_BUST_8196") } catch (_: Throwable) {}
         }

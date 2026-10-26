@@ -331,8 +331,10 @@ object FinalizedBusConsumerBridge6465 {
      * other consumer — never silently dropped the way the old direct publish call was.
      */
     private fun deliverToCortexOutcome7885(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean =
-        com.lifecyclebot.engine.cortex.Cortex7885.onCanonicalClose(env) ==
-            com.lifecyclebot.engine.cortex.Cortex7885.CloseDelivery8198.ACKED
+        (com.lifecyclebot.engine.cortex.Cortex7885.onCanonicalClose(env) ==
+            com.lifecyclebot.engine.cortex.Cortex7885.CloseDelivery8198.ACKED).also { acked ->
+            try { EpisodeTrace8395.onAck(env.positionId, "Cortex7885", acked, System.currentTimeMillis()) } catch (_: Throwable) {}
+        }
 
     private fun deliverToCausalFeedback6715(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         CausalFeedbackAuthority6715.onTerminal(env)
