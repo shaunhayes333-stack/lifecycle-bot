@@ -98,7 +98,7 @@ object HandoffRefusal8190 {
         verdict.startsWith("BINDING:") || verdict.startsWith("VERSION_SEALED") -> "BINDING"
         verdict.startsWith("FIT_NO_COMPATIBLE_RECEIVER") -> "SCOPE"
         verdict.startsWith("RECEIVER_REFUSED:") -> "JUDGEMENT"
-        verdict.startsWith("SCHEDULED_NO_FDG") || verdict.startsWith("NOT_SCHEDULED") || verdict.startsWith("STALE_NOT_SCHEDULED") -> "UNEVALUATED"
+        verdict.startsWith("SCHEDULED_NO_FDG") || verdict.startsWith("SCHEDULED_STOPPED_AT_") || verdict.startsWith("NOT_SCHEDULED") || verdict.startsWith("STALE_NOT_SCHEDULED") -> "UNEVALUATED"
         else -> "OTHER"
     }
 }

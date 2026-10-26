@@ -15286,6 +15286,13 @@ class BotService : Service() {
     private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean =
         LoadTelemetry8169.timedLaneGate8169(ts.mint, lane, primaryLane) { laneEvaluationAllowed7951(ts, lane, primaryLane) }.also { allowed ->  // V5.0.8169 — gate time + skips by reason
             if (!allowed) try { SpecialistOwnership7951.noteReadyNotEvaluated7951(lane, ts.mint, primaryLane) } catch (_: Throwable) {}
+            // V5.0.8396 — a due hand-off receiver whose OWN lane cycle did not let it evaluate gets that gate as its named
+            // terminal. 8395: GTA 6 Coin's MOONSHOT task ended SCHEDULED_NO_FDG_VERDICT / EXPIRED_NOT_EVALUATED with the
+            // stopping gate unrecorded. ExecutableOpenGate (8204) already did this past the lane gate; this is its
+            // sibling at the lane-cycle gate. It is recorded as a WAIT only: the task stays pending and is evaluated the
+            // next cycle the lane lets it (a one-cycle slot or stale gate never refuses a receiver early).
+            if (!allowed) HandoffTaskRuntime8153.noteLaneCycleGate8396(ts.mint, lane,
+                (try { SpecialistElection8136.gateReasonOf8153(ts.mint, lane) } catch (_: Throwable) { null }) ?: "LANE_CYCLE_NOT_ALLOWED")
         }
 
     private val RESCUE_EXCLUDED_8031 = setOf("CORE", "CYCLIC")

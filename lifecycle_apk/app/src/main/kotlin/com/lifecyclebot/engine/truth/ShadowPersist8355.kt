@@ -133,6 +133,20 @@ object ShadowPersist8355 {
     }
 
     const val TRADE_CONTRACT_8394 = 8394
+
+    /**
+     * V5.0.8396 — one compact book row. Integral fields (timestamps, flags, contract version) are written as integers and
+     * returns at 4 decimals: 8394 wrote `1.761462E12,12.345678901234567,1.0,8394.0,1.761462E12` per row through a
+     * 15 MB preference file that SharedPreferences holds in memory and rewrites whole on every apply(). Every decoder
+     * parses each field with toDoubleOrNull, so old and new rows read identically (a 1e-4 % return rounding).
+     */
+    fun compactRow8396(a: DoubleArray): String = a.joinToString(",") { v ->
+        when {
+            !v.isFinite() -> v.toString()
+            v == Math.rint(v) && kotlin.math.abs(v) < 1e15 -> v.toLong().toString()
+            else -> String.format(java.util.Locale.ROOT, "%.4f", v).trimEnd('0').trimEnd('.')
+        }
+    }
     fun proofEligible8394(version: Double?, openedAtMs: Double?, sinceMs: Long): Boolean =
         version == TRADE_CONTRACT_8394.toDouble() && openedAtMs != null && openedAtMs.isFinite() &&
             openedAtMs >= maxOf(sinceMs, LearningEpoch8164.epochMs8164())

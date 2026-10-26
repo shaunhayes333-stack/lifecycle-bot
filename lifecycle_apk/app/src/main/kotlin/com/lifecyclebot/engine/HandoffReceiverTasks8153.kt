@@ -40,6 +40,8 @@ object HandoffReceiverTasks8153 {
     /** How a refusal met by a pending task is treated. */
     enum class Block8153 { DATA, WAIT, FIT, BINDING, JUDGEMENT }
 
+    const val LANE_CYCLE_PREFIX_8396 = "LANE_CYCLE_GATE_8396:"
+
     data class Task8153(
         val mint: String,
         val lane: String,
@@ -157,7 +159,7 @@ object HandoffReceiverTasks8153 {
         if (prior.pending || evidenceAtMs <= prior.settledAtMs) return false
         return prior.outcome == Outcome8153.DEFERRED_DATA ||
             (prior.outcome == Outcome8153.REFUSED && (prior.verdict.startsWith("STALE_NOT_SCHEDULED") ||
-                prior.verdict.startsWith("NOT_SCHEDULED:") || prior.verdict.startsWith("SCHEDULED_NO_FDG_VERDICT")))
+                prior.verdict.startsWith("NOT_SCHEDULED:") || prior.verdict.startsWith("SCHEDULED_NO_FDG_VERDICT") || prior.verdict.startsWith("SCHEDULED_STOPPED_AT_")))
     }
 
     /**
@@ -280,6 +282,9 @@ object HandoffReceiverTasks8153 {
             // V5.0.8190 — the receiver evaluated natively and kept saying WAIT for the whole validity: its judgement.
             t.lastBlock.startsWith(HandoffRefusal8190.NATIVE_WAIT_PREFIX_8190) -> t.copy(outcome = Outcome8153.REFUSED,
                 verdict = "RECEIVER_REFUSED:" + t.lastBlock.removePrefix(HandoffRefusal8190.NATIVE_WAIT_PREFIX_8190), settledAtMs = nowMs)
+            // V5.0.8396 — the lane cycle's own gate stopped it: that gate is the terminal, not an anonymous no-verdict.
+            t.lastBlock.startsWith(LANE_CYCLE_PREFIX_8396) -> t.copy(outcome = Outcome8153.REFUSED,
+                verdict = "SCHEDULED_STOPPED_AT_" + t.lastBlock + "_x${t.schedules}", settledAtMs = nowMs)
             t.schedules > 0 -> t.copy(outcome = Outcome8153.REFUSED, verdict = "SCHEDULED_NO_FDG_VERDICT_x${t.schedules}", settledAtMs = nowMs)
             t.lastBlock.isNotEmpty() -> t.copy(outcome = Outcome8153.REFUSED, verdict = "NOT_SCHEDULED:${t.lastBlock}", settledAtMs = nowMs)
             else -> t.copy(outcome = Outcome8153.REFUSED, verdict = "STALE_NOT_SCHEDULED", settledAtMs = nowMs)
@@ -748,6 +753,17 @@ object HandoffTaskRuntime8153 {
      * SpecialistOwnership7951 and is skipped here. Data/not-yet gates defer (the task survives to re-evaluate); scope
      * gates transfer to the next eligible receiver; everything else is this lane's named refusal.
      */
+    /** V5.0.8396 — a due receiver its own lane cycle gated: named WAIT (stays pending); see BotService.shouldRunBuyLaneForCycle. */
+    fun noteLaneCycleGate8396(mint: String, lane: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
+        try {
+            val l = HandoffReceiverTasks8153.canon8153(lane)
+            if (!HandoffReceiverTasks8153.isDue8153(mint, l, nowMs, version8153(mint))) return
+            HandoffReceiverTasks8153.blockTask8153(mint, l, HandoffReceiverTasks8153.Block8153.WAIT,
+                "${HandoffReceiverTasks8153.LANE_CYCLE_PREFIX_8396}${reason.take(44)}", nowMs)
+            try { PipelineHealthCollector.labelInc("HANDOFF_RECEIVER_LANE_CYCLE_GATE_8396_$l") } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+    }
+
     fun onPreFdgGateBlock8204(mint: String, lane: String, gateLog: String, reason: String, nowMs: Long = System.currentTimeMillis()) {
         try {
             val l = HandoffReceiverTasks8153.canon8153(lane)

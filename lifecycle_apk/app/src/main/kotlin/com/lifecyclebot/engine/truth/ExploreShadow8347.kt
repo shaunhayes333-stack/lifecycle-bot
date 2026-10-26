@@ -218,7 +218,7 @@ object ExploreShadow8347 {
             val e = p.edit()
             for (k in keys) {
                 val q = books[k] ?: continue
-                e.putString(k, synchronized(q) { q.joinToString(";") { it.joinToString(",") } })
+                e.putString(k, synchronized(q) { q.joinToString(";") { ShadowPersist8355.compactRow8396(it) } })
             }
             e.apply()
             bookFlushes8377.incrementAndGet(); bookKeysWritten8377.addAndGet(keys.size.toLong())

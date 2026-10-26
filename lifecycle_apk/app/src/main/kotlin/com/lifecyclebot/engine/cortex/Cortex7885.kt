@@ -1402,10 +1402,25 @@ object Cortex7885 {
     internal fun shadowFlushDue8377(ready: Int, sinceMs: Long): Boolean =
         ready > 0 && (ready >= SHADOW_FLUSH_MIN_BATCH_8377 || sinceMs >= SHADOW_FLUSH_MAX_WAIT_MS_8377)
 
+    internal const val UNAVAILABLE_FLUSH_MIN_BATCH_8396 = 256
+    internal const val UNAVAILABLE_FLUSH_MAX_WAIT_MS_8396 = 120_000L
+
+    /**
+     * V5.0.8396 — pure: every shadow checkpoint encodes the WHOLE Cortex snapshot (~35 MB of ledger/board/grade-book/
+     * pending JSON). 8395's observation deadlines (R2) made "no outcome" terminals a continuous trickle, so the 10 s
+     * learned-outcome cadence fired on them alone: heap 490/512 MB CRITICAL, 40 hard trims (16 ineffective), 19.5 %
+     * main-thread stall. An unavailable terminal teaches nothing and is already durable in the labeler's outbox
+     * (redelivered after a crash), so on its own it waits for a large batch or two minutes. A learned outcome keeps the
+     * 8377 cadence and carries any staged unavailable terminals with it.
+     */
+    internal fun shadowFlushDue8396(learned: Int, unavailable: Int, sinceMs: Long): Boolean =
+        if (learned > 0) shadowFlushDue8377(learned + unavailable, sinceMs)
+        else unavailable > 0 && (unavailable >= UNAVAILABLE_FLUSH_MIN_BATCH_8396 || sinceMs >= UNAVAILABLE_FLUSH_MAX_WAIT_MS_8396)
+
     fun flushShadowOutcomes8372(): Boolean {
         if (shadowReady8372.isEmpty() && observationTerminals8395.isEmpty()) return true
         val now8377 = System.currentTimeMillis()
-        if (!shadowFlushDue8377(shadowReady8372.size + observationTerminals8395.size, now8377 - shadowFlushedAtMs8377)) { inc("CORTEX_SHADOW_FLUSH_COALESCED_8377"); return true }
+        if (!shadowFlushDue8396(shadowReady8372.size, observationTerminals8395.size, now8377 - shadowFlushedAtMs8377)) { inc("CORTEX_SHADOW_FLUSH_COALESCED_8377"); return true }
         if (!loaded || !LearningPersistence.ready() || !shadowFlushRunning8372.compareAndSet(false, true)) return false
         shadowFlushedAtMs8377 = now8377
         try {
@@ -2344,7 +2359,15 @@ object Cortex7885 {
         if (a.bucket != CortexScoreboard7885.Bucket.REFUSE) {
             val setup8082 = try { LanePlaybook7907.selectedSetup8094(ts, a.lane, System.currentTimeMillis()) } catch (_: Throwable) { null }  // V5.0.8094
             val st8082 = setup8082?.let { synchronized(this) { cohort8372(a.lane, it)[a.bucket.ordinal] } }
-            if (jointProvenDead8082(st8082)) return negativeOrUnknown8395("C6_SETUP_DEAD_8082", a.lane)
+            // V5.0.8396 (R4/R5) — a setup-dead negative binds only when its OWN cohort (lane, setup, bucket) has full outcome
+            // coverage. 8395 bound it on any n/se test: NEGATIVE_PROOF_UNKNOWN_8395_C6_SETUP_DEAD_8082=38 beside
+            // REFUSED_LIVE_C6_SETUP_DEAD_8082=38, while MOONSHOT/CORE/EXPRESS had 85-89% of matured assessments without
+            // an outcome — a mean over the observable survivors is not a scoped negative. Uncovered = UNKNOWN, never a
+            // refusal and never a BUY: the decision falls to the next precedence level (candidate proof, then lane prior).
+            if (jointProvenDead8082(st8082)) {
+                if (setupCovered8396(a.lane, setup8082!!, a.bucket.ordinal)) return negativeOrUnknown8395("C6_SETUP_DEAD_8082", a.lane)
+                inc("C6_SETUP_DEAD_COVERAGE_INCOMPLETE_NONBINDING_8396")
+            }
         }
         if (!paper && a.bucket == CortexScoreboard7885.Bucket.NEUTRAL && lastSlot(ts)) {
             // V5.0.8395 (R4) — a slot is saved only on the shared VALID proof and a STRONG read that could actually execute now.
@@ -2508,6 +2531,19 @@ object Cortex7885 {
         if(refusalCoverageCache8392.size>128) refusalCoverageCache8392.clear()
         refusalCoverageCache8392[lane]=RefusalCoverage8392(now,gradeBook8144.revision,n,covered)
         return covered
+    }
+
+    private val setupCoverageCache8396 = HashMap<String, RefusalCoverage8392>()
+    /** V5.0.8396 — the [setup] cohort's own outcome coverage for [bucket] (same walk-forward rows), cached like [refuseCoverage8392]. */
+    private fun setupCovered8396(lane: String, setup: String, bucket: Int): Boolean = synchronized(this) {
+        val now = System.currentTimeMillis(); val n = pending.size + shadowPending8372.size; val k = "$lane|$setup|$bucket"
+        setupCoverageCache8396[k]?.let {
+            if (it.revision == gradeBook8144.revision && it.pendingN == n && now - it.atMs in 0L until WF_REFRESH_MS_8144) return@synchronized it.covered
+        }
+        val covered = try { CortexAuthority8366.cohortCovered8392(authorityRows8392(lane, setup), bucket, now) } catch (_: Throwable) { false }
+        if (setupCoverageCache8396.size > 256) setupCoverageCache8396.clear()
+        setupCoverageCache8396[k] = RefusalCoverage8392(now, gradeBook8144.revision, n, covered)
+        covered
     }
 
     /** Caller holds the lock. [lane]'s one walk-forward test on its graded executable records, refreshed every 30 s. */

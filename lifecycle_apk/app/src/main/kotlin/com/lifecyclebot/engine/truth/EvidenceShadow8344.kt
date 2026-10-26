@@ -430,7 +430,7 @@ object EvidenceShadow8344 {
                 if (p.advisoryEntry8393 && why != "LOST_MARK" && why != ShadowAlign8366.UNLANDED_WHY_8366) 1.0 else 0.0,
                 if (why != "LOST_MARK" && why != ShadowAlign8366.UNLANDED_WHY_8366) p.contractVersion8394.toDouble() else 0.0, p.atMs.toDouble()))
             while (q.size > MAX_CLOSES_PER_LANE_8344) q.removeFirst()
-            try { prefs?.edit()?.putString(p.lane, q.joinToString(";") { it.joinToString(",") })?.apply() } catch (_: Throwable) {}
+            try { prefs?.edit()?.putString(p.lane, q.joinToString(";") { ShadowPersist8355.compactRow8396(it) })?.apply() } catch (_: Throwable) {}
         }
         closedN.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_CLOSE_8344_${why}") } catch (_: Throwable) {}

@@ -56,10 +56,10 @@ object EpisodeTrace8395 {
         fun snapshot(): List<Event> = synchronized(this) { events.toList() }
     }
 
-    private const val MAX_EPISODES_8395 = 1_500
-    private const val MAX_EVENTS_8395 = 32
-    private const val MAX_PRE_MINTS_8395 = 3_000
-    private const val MAX_PRE_EVENTS_8395 = 12
+    private const val MAX_EPISODES_8395 = 600
+    private const val MAX_EVENTS_8395 = 24
+    private const val MAX_PRE_MINTS_8395 = 1_500
+    private const val MAX_PRE_EVENTS_8395 = 8
     private const val PRE_TTL_MS_8395 = 30 * 60_000L
     internal const val FILE_8395 = "episode_traces_8395.jsonl"
 

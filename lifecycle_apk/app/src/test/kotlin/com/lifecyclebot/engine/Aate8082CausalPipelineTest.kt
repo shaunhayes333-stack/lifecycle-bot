@@ -138,7 +138,9 @@ class Aate8082CausalPipelineTest {
         val constitution = src.substringAfter("private fun constitutionRefusal(").substringBefore("// ── Cortex v9")
         assertTrue(constitution.contains("cohort8372(a.lane, it)[a.bucket.ordinal]"))
         // superseded by V5.0.8395: the same binding C6 refusal, proof standing counted under the shared predictive proof (R4).
-        assertTrue(constitution.contains("if (jointProvenDead8082(st8082)) return negativeOrUnknown8395(\"C6_SETUP_DEAD_8082\", a.lane)"))
+        // superseded by V5.0.8396: the dead-setup refusal binds only on its own covered (lane, setup, bucket) cohort.
+        assertTrue(constitution.contains("if (jointProvenDead8082(st8082)) {"))
+        assertTrue(constitution.contains("if (setupCovered8396(a.lane, setup8082!!, a.bucket.ordinal)) return negativeOrUnknown8395(\"C6_SETUP_DEAD_8082\", a.lane)"))
         assertFalse(constitution.contains("jointBook7961["))
     }
 
