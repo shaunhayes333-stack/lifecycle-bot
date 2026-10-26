@@ -189,9 +189,10 @@ object ExecutionSpineAcceptanceWindow6647 {
         return since to (nowMs - since < graceMs)
     }
 
-    /** Reuse the existing window budget when a completed accounting pass is stale.
-     * A current accounting failure gets no grace. A current reconciled account may still wait for its young receipt,
-     * as before. Neither a committed receipt nor zero cached deltas can turn stale accounting into a passing result. */
+    /** Reuse the existing window budget when accounting is stale or only young OPEN receipts remain.
+     * V5.0.8398 — a current pass can observe a legitimate ledger/journal gap while an OPEN receipt is still writing.
+     * Preserve its original 8322/8339 grace; a current failure without a young receipt is evaluated immediately.
+     * Neither a young receipt nor zero cached deltas can make unreconciled accounting pass at the deadline. */
     internal fun shouldDeferAccounting8397(
         forensic: ForensicReconciliation6635.Deltas6647?,
         onlyYoungOpen8397: Boolean,
@@ -200,7 +201,7 @@ object ExecutionSpineAcceptanceWindow6647 {
     ): Boolean {
         if (forensic?.reconciled == true) return false
         val stale8397 = forensic?.accountingCurrent8397 != true
-        if (!stale8397 && !(forensic?.cashSideReconciled8397 == true && onlyYoungOpen8397)) return false
+        if (!stale8397 && !onlyYoungOpen8397) return false
         val wait8339 = inFlightWaitDecision8339(inFlightWaitSinceMs8339.get(), nowMs)
         inFlightWaitSinceMs8339.set(wait8339.first)
         if (wait8339.second) {

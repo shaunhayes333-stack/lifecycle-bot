@@ -232,6 +232,7 @@ jobs:
         run: |
           ./gradlew testReleaseUnitTest \
             --tests '*Aate8397*' \
+            --tests '*Aate8398*' \
             --tests '*Aate8372*' \
             --tests '*Aate8253*' \
             --tests '*Aate8136AdmissionRecordTest*' \
@@ -408,7 +409,7 @@ jobs:
             --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
 
       # Keep required release checks strict while measuring every historical
-      # test against the actual unmodified 8089 main report (453 existing failures).
+      # test against the unchanged recorded 8089 baseline and rejecting regressions.
       - name: Complete historical suite and reject new failures
         run: |
           set +e
