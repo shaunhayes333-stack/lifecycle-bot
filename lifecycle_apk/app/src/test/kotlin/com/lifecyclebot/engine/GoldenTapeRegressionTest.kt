@@ -11747,7 +11747,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7346_journal_validated_once_per_revision() {
         val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
         assertTrue(h.contains("val (rev, copy) = synchronized(lock) { journalRevision7343.get() to ArrayList(trades) }"))
-        assertTrue(h.contains("return validRowsNewestFirst7346().take(cap)"))
+        assertTrue(h.contains("return validRowsNewestFirst7346(ceilingRead8397).take(cap)"))
         assertTrue(h.contains("private val NON_ALNUM_7346 = Regex(\"[^A-Z0-9]\")"))
         val st = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
         assertTrue(st.contains("if (!onMain7346 && rev7346 >= 0L) paperBoardCache7346[limit] = PaperBoardEntry7346(rev7346, now7346, board7346)"))
@@ -11777,7 +11777,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7348_small_read_does_not_rebuild_journal() {
         val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
-        assertTrue(h.contains("if (cap > SMALL_READ_CAP_7348) return validRowsNewestFirst7346().take(cap)"))
+        assertTrue(h.contains("if (cap > SMALL_READ_CAP_7348) return validRowsNewestFirst7346(ceilingRead8397).take(cap)"))
         assertTrue(h.contains("synchronized(validRowsBuildLock7348) {"))
         assertTrue(h.contains("return validRowsHead7348(cap)"))
         assertFalse(h.contains("return validRowsNewestFirst7346().take(limit.coerceAtLeast(1))"))

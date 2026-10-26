@@ -8,8 +8,7 @@ import com.lifecyclebot.data.Trade
 object PaperLearningSanity {
     data class Verdict(val ok: Boolean, val reason: String = "")
 
-    fun configuredMinTradeSol(): Double {
-        val cfg = loadCfg()
+    private fun configuredMinTradeSol8397(cfg: BotConfig): Double {
         val legacyMin = cfg.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: BotConfig().smallBuySol
         // V5.0.3873 — same live-transfer floor as Executor.paperBuy().
         return maxOf(legacyMin, (cfg.paperSimulatedBalance * 0.01).coerceIn(0.05, 0.15))
@@ -17,7 +16,7 @@ object PaperLearningSanity {
 
     fun configuredMaxTradeSol(): Double {
         val cfg = loadCfg()
-        val min = configuredMinTradeSol()
+        val min = configuredMinTradeSol8397(cfg)
         val legacyMax = maxOf(min, cfg.maxPositionSol.takeIf { it.isFinite() && it > 0.0 } ?: BotConfig().maxPositionSol)
         // V5.0.6366 — raise the learning-eligibility ceiling so paper positions
         // that trade LARGER than the legacy 2.0 SOL cap can still feed the
@@ -44,16 +43,19 @@ object PaperLearningSanity {
         return maxOf(legacyMax, paperCeiling6366, equityCeiling7352)
     }
 
-    fun inspect(t: Trade): Verdict {
+    fun inspect(t: Trade): Verdict = inspect8397(t, null)
+
+    /** A journal pass supplies the same ceiling it used for its memo identity; standalone reads resolve it lazily. */
+    internal fun inspect8397(t: Trade, maxTradeSol8397: Double?): Verdict {
         if (!isPaper(t.mode)) return Verdict(true)
-        val maxSol = configuredMaxTradeSol()
         if (!t.sol.isFinite()) return Verdict(false, "PAPER_SOL_NOT_FINITE")
         if (t.side.equals("BUY", true) && t.sol <= 0.0) return Verdict(false, "PAPER_BUY_SOL_NON_POSITIVE")
         if (t.side.equals("BUY", true) && (t.price <= 0.0 || t.entryPriceSnapshot <= 0.0 || t.entryCostSol <= 0.0)) return Verdict(false, "PAPER_BUY_ENTRY_BASIS_MISSING")
         // The configured ceiling is an entry-size guard. On SELL, `sol` is
         // gross proceeds and may legitimately exceed the original size (a
         // runner) or be exactly zero (a total-loss close).
-        if (t.side.equals("BUY", true) && t.sol > maxSol + 0.0000001) return Verdict(false, "PAPER_SOL_ABOVE_CONFIG_MAX")
+        if (t.side.equals("BUY", true) && t.sol > (maxTradeSol8397 ?: configuredMaxTradeSol()) + 0.0000001)
+            return Verdict(false, "PAPER_SOL_ABOVE_CONFIG_MAX")
         if ((t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)) && t.sol < 0.0) return Verdict(false, "PAPER_SELL_PROCEEDS_NEGATIVE")
         if ((t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)) && t.sol > 0.0) {
             val pnlAbs = kotlin.math.abs(t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol)

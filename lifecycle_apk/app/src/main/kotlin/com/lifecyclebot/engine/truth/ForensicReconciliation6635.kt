@@ -69,7 +69,7 @@ object ForensicReconciliation6635 {
     private val failedChecks = AtomicLong(0L)
 
     /** Readers observe one completed pass, never a mixture of independent scalar publications. */
-    private data class CompletedAccounting8372(
+    internal data class CompletedAccounting8372(
         val key: String? = null,
         val cashLedger: Double = 0.0,
         val cashJournal: Double = 0.0,
@@ -429,9 +429,11 @@ object ForensicReconciliation6635 {
     }
 
     /** Operator-facing forensic reconciliation line — item §10 mandated. */
-    fun healthLine6635(): String {
-        val completed8372 = completedAccounting8372.get()
-        val eventLine = try { CanonicalEconomicEvent6635.forensicReconciliationLine6635() } catch (_: Throwable) { "" }
+    fun healthLine6635(): String = deltas6647().healthLine8397
+
+    private fun healthLine8397(
+        completed8372: CompletedAccounting8372, eventLine: String, current8397: Boolean,
+    ): String {
         val cashLedger = completed8372.cashLedger
         val cashJournal = completed8372.cashJournal
         val cashDelta = completed8372.cashDelta
@@ -444,9 +446,10 @@ object ForensicReconciliation6635 {
         val quantityDeltaRaw = completed8372.quantityDeltaRaw
         val eventStatus = if (eventLine.contains("status=RECONCILED")) "RECONCILED" else "FAILED"
         val cashStatus = completed8372.cashStatus
-        val overallStatus = if (eventStatus == "RECONCILED" && cashStatus == "RECONCILED" && completedCurrent8372(completed8372)) "RECONCILED" else "FAILED"
+        val overallStatus = if (eventStatus == "RECONCILED" && cashStatus == "RECONCILED" && current8397) "RECONCILED" else "FAILED"
         return buildString {
             append("FORENSIC_ACCOUNTING_RECONCILIATION ")
+            append("accountingCurrent=$current8397 accountingStatus=$cashStatus ")
             append("cashLedger=${"%.6f".format(cashLedger)} ")
             append("cashJournal=${"%.6f".format(cashJournal)} ")
             append("cashDelta=${"%.6f".format(cashDelta)} ")
@@ -468,17 +471,47 @@ object ForensicReconciliation6635 {
         val realizedSol: Double,
         val quantityRaw: java.math.BigInteger,
         val reconciled: Boolean,
+        // Defaults preserve callers constructing the original five-field observation.
+        // Production always captures these from the same completed accounting pass.
+        val accountingCurrent8397: Boolean = reconciled,
+        val cashSideReconciled8397: Boolean = reconciled,
+        val healthLine8397: String = "",
+        val incompleteReceipts8397: String = "unavailable",
     )
 
     fun deltas6647(): Deltas6647 {
         val completed8372 = completedAccounting8372.get()
+        val before8397 = stateKey8372()
+        val eventLine8397 = try { CanonicalEconomicEvent6635.forensicReconciliationLine6635() } catch (_: Throwable) { "" }
+        val incomplete8397 = try { CanonicalEconomicEvent6635.incompleteReceipts8253() } catch (_: Throwable) { "unavailable" }
+        return captureAccounting8397(completed8372, lastKey7387.get(), before8397, stateKey8372(), eventLine8397, incomplete8397)
+    }
+
+    /** A completed pass may describe the moment before a real journal receipt landed.
+     * Keep its values and diagnostics together, and identify staleness separately from a current failed verdict.
+     * Receipt changes during capture also invalidate freshness; observation never repairs the underlying stores. */
+    internal fun captureAccounting8397(
+        completed8372: CompletedAccounting8372,
+        publishedKey8397: String?,
+        stateKeyBefore8397: String?,
+        stateKeyAfter8397: String?,
+        eventLine8397: String,
+        incompleteReceipts8397: String = "unavailable",
+    ): Deltas6647 {
+        val current8397 = completed8372.key != null && completed8372.key == publishedKey8397 &&
+            completed8372.key == stateKeyBefore8397 && completed8372.key == stateKeyAfter8397 &&
+            completed8372.cashStatus in setOf("RECONCILED", "FAILED")
+        val cashSide8397 = current8397 && completed8372.cashStatus == "RECONCILED"
         return Deltas6647(
             cashSol = completed8372.cashDelta,
             basisSol = completed8372.openCostDelta,
             realizedSol = completed8372.realizedDelta,
             quantityRaw = completed8372.quantityDeltaRaw,
-            reconciled = completed8372.cashStatus == "RECONCILED" && completedCurrent8372(completed8372) &&
-                (try { CanonicalEconomicEvent6635.forensicReconciliationLine6635().contains("status=RECONCILED") } catch (_: Throwable) { false }),
+            reconciled = cashSide8397 && eventLine8397.contains("status=RECONCILED"),
+            accountingCurrent8397 = current8397,
+            cashSideReconciled8397 = cashSide8397,
+            healthLine8397 = healthLine8397(completed8372, eventLine8397, current8397),
+            incompleteReceipts8397 = incompleteReceipts8397,
         )
     }
 
