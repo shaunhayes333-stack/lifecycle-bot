@@ -64,7 +64,7 @@ object AdmissionHandoff8144 {
     }
 
     /** Pure: the read's claim on one scale — calibrated conviction when known, else the raw score (0..100). */
-    fun conviction8395(r: LaneRead8144): Double =
+    private fun conviction8395(r: LaneRead8144): Double =
         if (r.conviction.isFinite()) r.conviction.coerceIn(0.0, 100.0)
         else com.lifecyclebot.engine.SpecialistElection8136.normalised8136(r.score.toDouble(), Double.NaN, null)
 

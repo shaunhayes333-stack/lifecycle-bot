@@ -7,12 +7,12 @@ data class CortexOutcomeProof8395(
     val entry: com.lifecyclebot.engine.truth.LabelMark8386? = null,
     val outcome: com.lifecyclebot.engine.truth.LabelMark8386? = null,
 ) {
-    fun matches8395(id: String, horizon: Long, at: Long, net: Double, gross: Double): Boolean =
+    internal fun matches8395(id: String, horizon: Long, at: Long, net: Double, gross: Double): Boolean =
         decisionId == id && horizonMs == horizon && observedAtMs == at && netPct.toBits() == net.toBits() && grossPct.toBits() == gross.toBits()
     fun witnessed8395(): Boolean = entry != null && outcome != null && entry.independentBasis && outcome.independentBasis &&
         entry.mint == decisionId.substringBefore('|') && outcome.observedAtMs == observedAtMs &&
         com.lifecyclebot.engine.truth.LabelEvidence8386.eligible(entry, outcome)
-    fun encode8395(): String = org.json.JSONObject().put("id",decisionId).put("h",horizonMs).put("at",observedAtMs)
+    internal fun encode8395(): String = org.json.JSONObject().put("id",decisionId).put("h",horizonMs).put("at",observedAtMs)
         .put("net",netPct).put("gross",grossPct).put("entry",entry?.json()).put("outcome",outcome?.json()).toString()
     companion object {
         fun decode8395(raw: String): CortexOutcomeProof8395? = try {
@@ -113,7 +113,7 @@ class CortexGradeRecord8144(
     var firstOutcomeProof8395: String = ""
     var revisedOutcomeProof8395: String = ""
     var modelContribution8395: String = ""
-    var disposition8395: String = "UNRESOLVED"
+    internal var disposition8395: String = "UNRESOLVED"
 
     /** May this decision's label grade authority (executable, first of its episode)? */
     val eligibleToGrade8395: Boolean get() = kind == 'D' && executable && !repeat
