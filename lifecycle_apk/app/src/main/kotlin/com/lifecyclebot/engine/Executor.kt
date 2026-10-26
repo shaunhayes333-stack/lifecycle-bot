@@ -483,7 +483,12 @@ class Executor(
          */
         private const val FEE_SEND_MIN_SOL = 0.000005
         // V5.7.3: Fee percentages
-        private const val MEME_TRADING_FEE_PERCENT = 0.0 // V8391: no volume fee; terminal net-profit performance fee only.
+        // V8391: no volume fee; terminal net-profit performance fee only (PerformanceFees8391).
+        // V5.0.8392b — a @Volatile field, not a const: as a const 0.0 R8 folded `x * MEME_TRADING_FEE_PERCENT` out of
+        // paperSell (1,678 lines, >256 dex registers) and re-allocated its registers into a shape ART's verifier rejected
+        // ("copy1 v2<-v447 type=Undefined", runtime smoke 5.0.8392/8392a: Executor failed to verify, service never
+        // started). A volatile read cannot be constant-folded, so the paper cost model keeps its bytecode shape.
+        @Volatile private var MEME_TRADING_FEE_PERCENT = 0.0
         private const val PERPS_TRADING_FEE_PERCENT = 0.01  // 1% for leverage/perps trades
         
         // Fee split (50/50 between wallets)

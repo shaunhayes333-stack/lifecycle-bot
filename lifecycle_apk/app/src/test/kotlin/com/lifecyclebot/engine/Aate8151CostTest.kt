@@ -114,7 +114,7 @@ class Aate8151CostTest {
 
     @Test fun theAppFeeConstantMirrorsTheExecutorsLiveFee() {
         assertEquals(0.0, CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, 1e-12)
-        assertTrue(src("engine/Executor.kt").contains("private const val MEME_TRADING_FEE_PERCENT = 0.0"))
+        assertTrue(src("engine/Executor.kt").contains("@Volatile private var MEME_TRADING_FEE_PERCENT = 0.0"))   // V5.0.8392b — volatile, never a foldable const
     }
 
     // ── partial slices ──
