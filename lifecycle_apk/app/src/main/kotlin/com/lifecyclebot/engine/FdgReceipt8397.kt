@@ -26,12 +26,18 @@ object FdgReceipt8397 {
     fun featureKey(feature: String): String = when (val f = feature.substringBefore(':').lowercase()) {
         "liquidity" -> "liq"
         "candles", "bars", "history" -> "shape"
-        "tape", "swaps", "buy_pressure", "buyers" -> "bp"
+        "swaps" -> "tape"
+        "buy_pressure", "buyers" -> "bp"
         else -> f
     }
 
     private fun answersKey(missingKey: String, arrived: Set<String>): Boolean = missingKey == "core" ||
-        arrived.any { val key = featureKey(it); key == missingKey || (missingKey == "economics" && key in economicsInputs) }
+        arrived.any {
+            val key = featureKey(it)
+            // A trade print can refresh buy pressure. An aggregate pair ratio does not supply a missing print.
+            key == missingKey || (missingKey == "bp" && key == "tape") ||
+                (missingKey == "economics" && key in economicsInputs)
+        }
 
     fun answersFeature(missing: String, arrived: Set<String>): Boolean =
         arrived.isNotEmpty() && answersKey(featureKey(missing), arrived)

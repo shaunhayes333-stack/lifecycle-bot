@@ -11487,10 +11487,10 @@ class GoldenTapeRegressionTest {
         assertTrue(ray.contains("HeliusSenderEnvelope7250.build(tx, wallet.publicKeyB58, senderTipLamports)"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("val prepared8090 = if (pumpFirstResult == null) {"))
-        assertTrue(ex.contains("prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835)"))
-        assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)"))
+        assertTrue(ex.contains("prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835, submission8397)"))
+        assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey, submission8397)"))
         assertTrue(ex.contains("val directFill7325 = pumpFirstResult ?: raydiumBuy7325"))
-        assertTrue(ex.indexOf("raydiumBuy7325 = tryRaydiumBuy7325") < ex.indexOf("BUY ABORTED: all slippage levels failed"))
+        assertTrue(ex.indexOf("raydiumBuy7325 = tryRaydiumBuy7325") in 0 until ex.indexOf("BUY ABORTED: all slippage levels failed"))
     }
 
     @Test
@@ -14727,7 +14727,10 @@ class GoldenTapeRegressionTest {
         assertTrue(h.contains("val mentions = listOf(mint)"))
         assertFalse(h.contains("val mentions = mints + programIds"))
         assertTrue(h.contains("subscriptionToMint7765[sub] = mint"))
-        assertTrue(h.contains("parseLogsNotification(value, subscriptionToMint7765[params.optInt(\"subscription\", -1)].orEmpty())"))
+        val logs = h.substringAfter("\"logsNotification\" -> {", "").substringBefore("\"accountNotification\" -> {", "")
+        val mintLookup = logs.indexOf("val mint8397 = subscriptionToMint7765[params.optInt(\"subscription\", -1)].orEmpty()")
+        val parse = logs.indexOf("parseLogsNotification(value, mint8397)")
+        assertTrue("each notification is parsed with the mint belonging to its server subscription", mintLookup in 0 until parse)
         assertFalse(h.contains("onSwap(\"\", "))
         assertTrue(h.contains("b.copyOfRange(8, 40).contentEquals(mintBytes)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())

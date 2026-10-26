@@ -23,7 +23,7 @@ class Aate8397HandoffContinuityTest {
     }
     @After fun clean() = reset()
 
-    private fun pending(version: Long = 1L) {
+    private fun pending(version: Long = 1L, missing: List<String> = listOf("liq:UNKNOWN")) {
         SpecialistElection8136.registerNative8136(mint, version, t0, mapOf(
             "SHITCOIN" to SpecialistElection8136.NativeView8136(true, 70.0, "READY"),
             lane to SpecialistElection8136.NativeView8136(true, 80.0, "READY")), t0)
@@ -34,7 +34,7 @@ class Aate8397HandoffContinuityTest {
         HandoffReceiverTasks8153.markScheduled8153(mint, lane, t0 + 100)
         AdmissionHandoff8144.installForTest8397(AdmissionHandoff8144.Handoff8144(mint, "SHITCOIN", lane, "FIT", t0,
             receiver = lane, state = AdmissionHandoff8144.State8144.RECEIVER_QUALIFIED))
-        CandidateAdmission8136.holdDeferForTest8252(mint, lane, listOf("liq:UNKNOWN"), t0)
+        CandidateAdmission8136.holdDeferForTest8252(mint, lane, missing, t0)
     }
 
     private fun early(reason: String) = FinalDecisionGate.FinalDecision(false, FinalDecisionGate.TradeMode.LIVE,
@@ -88,6 +88,24 @@ class Aate8397HandoffContinuityTest {
         pending()
         FdgOutcomeContinuity8197.recordEarlyVerdict8397(mint, lane, 1, early("DATA_DEFER_FETCH_NEVER_COMPLETED_8204"), t0 + 1_000)
         assertDeferredThenRecover()
+    }
+
+    @Test fun aggregatePairPressureCannotWakeAWaitForAnActualTradePrint() {
+        pending(missing = listOf("tape:NO_PRINTS"))
+        SpecialistOwnership7951.onFdgVerdict7951(mint, lane, 1, false, "DATA_INCOMPLETE_DEFER_8136", t0 + 1_000)
+        CandidateAdmission8136.evidenceArrived8252(mint, CandidateAdmission8136.PAIR_FEATURES_8252, t0 + 1_500)
+        assertFalse(CandidateAdmission8136.reevalDueForTest8252(mint, "tape:NO_PRINTS", t0 + 1_501))
+        assertFalse(HandoffReceiverTasks8153.isDue8153(mint, lane, t0 + 1_501, 1))
+        assertEquals(0L, HandoffReceiverTasks8153.outcomeCounts8153()["DATA_ARRIVAL_RESUMED_8397"] ?: 0L)
+
+        CandidateAdmission8136.evidenceArrived8252(mint, setOf("swaps"), t0 + 2_000)
+        assertTrue(CandidateAdmission8136.reevalDueForTest8252(mint, "tape:NO_PRINTS", t0 + 2_001))
+        assertTrue(HandoffReceiverTasks8153.isDue8153(mint, lane, t0 + 2_001, 1))
+        assertEquals(1L, HandoffReceiverTasks8153.outcomeCounts8153()["DATA_ARRIVAL_RESUMED_8397"])
+        assertTrue(HandoffReceiverTasks8153.taskOf8153(mint, t0 + 2_001)!!.pending)
+        assertEquals(0L, HandoffReceiverTasks8153.outcomeCounts8153()["EVALUATED"] ?: 0L)
+        assertTrue(FdgReceipt8397.answersFeature("bp:UNKNOWN", setOf("tape")))
+        assertFalse(FdgReceipt8397.answersFeature("swaps:NO_PRINTS", setOf("bp")))
     }
 
     @Test fun recoveredReceiverCanAllowExactlyOnce() {

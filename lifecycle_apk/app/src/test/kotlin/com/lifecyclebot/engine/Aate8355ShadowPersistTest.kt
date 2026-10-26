@@ -121,7 +121,9 @@ class Aate8355ShadowPersistTest {
             restore.indexOf("if (open.containsKey(r.mint)) continue") in 0 until restore.indexOf("ShadowPersist8355.expiredOnRestore8355("))
         assertTrue("a concurrent or newer in-memory episode is neither overwritten nor deleted",
             restore.contains("if (open.putIfAbsent(r.mint, pos) == null)") &&
-                restore.contains("for (k in drop) if (!open.containsKey(k)) e.remove(k)"))
+                restore.contains("p.write(drop.filter { !open.containsKey(it) }.associateWith { null as String? })"))
+        assertTrue("a failed deletion batch leaves restore retryable",
+            restore.contains("if (drop.isNotEmpty() && !p.write(drop.filter { !open.containsKey(it) }.associateWith { null as String? })) throw ShadowStorageUnavailable8397()"))
         assertTrue("lost-on-restore is counted", s.contains("if (why == \"LOST_MARK\" && p.noMarkSinceRestore8355) lostOnRestore8355.incrementAndGet()"))
         assertTrue(s.contains("restored8355=\${restored8355.get()} lostOnRestore8355=\${lostOnRestore8355.get()}"))
         assertTrue("apply(), never commit()", !s.contains("commit()"))
@@ -135,7 +137,14 @@ class Aate8355ShadowPersistTest {
                 s.contains("persistTicket8355(ticketKey8368, t, nowMs)   // V5.0.8355 — written on open"))
         // superseded by V5.0.8364 — the armed fill is booked at the trigger mark plus the lane's chase (ShadowFill8364); the arm still forces a write
         assertTrue("arm forces a write", s.contains("leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true"))
-        assertTrue("a leg close forces a write", s.contains("leg.dead = true\n        t.force8355 = true"))
+        val close = s.substringAfter("private fun close8347(", "").substringBefore("private fun bookKeys8397(", "")
+        val unavailable = close.substringAfter("if (!executable) {", "").substringBefore("when (t.kind8360)", "")
+        assertTrue("an unavailable leg close forces a write", unavailable.contains("leg.dead = true; t.force8355 = true"))
+        val booking = close.indexOf("val booked8397 = bookKeys8397(")
+        val terminal = close.indexOf("leg.dead = true; t.force8355 = true; t.cortex8372 = outcome8397")
+        assertTrue("an executable leg closes and forces a write only after its durable receipt", booking in 0 until terminal)
+        assertTrue("crash replay also persists the terminal before skipping repeated side effects",
+            terminal in 0 until close.indexOf("if (!booked8397.inserted) return"))
         assertTrue("tier moves are coalesced", s.contains("leg.tiers = maxOf(leg.tiers, leg.sellTier8394)") && s.contains("t.force8355 = true"))
         assertTrue("peak moves are coalesced", s.contains("if (g > leg.peak) { leg.peak = g; t.dirty8355 = true }"))
         assertTrue("coalesced on the tick", s.contains("else if (ShadowPersist8355.writeDue8355(t.dirty8355, t.lastWriteMs8355, nowMs, t.force8355)) {"))

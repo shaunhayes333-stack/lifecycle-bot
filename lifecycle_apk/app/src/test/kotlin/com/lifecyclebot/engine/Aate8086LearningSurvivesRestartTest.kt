@@ -87,12 +87,25 @@ class Aate8086LearningSurvivesRestartTest {
         val manifest = File("src/main/AndroidManifest.xml").readText()
         assertTrue(manifest.contains("android:dataExtractionRules=\"@xml/learning_data_extraction_8086\""))
         assertTrue(manifest.contains("android:fullBackupContent=\"@xml/learning_backup_rules_8086\""))
+        val learningDatabases = setOf("database" to "learning_kv.db", "database" to "shadow_cold_8397.db")
         for (x in listOf("learning_backup_rules_8086.xml", "learning_data_extraction_8086.xml")) {
-            val r = File("src/main/res/xml/$x").readText()
-            val includes = Regex("<include [^>]*/>").findAll(r).map { it.value }.toList()
-            assertTrue(includes.isNotEmpty())
-            assertTrue("$x must back up the learning store only", includes.all { it.contains("domain=\"database\" path=\"learning_kv.db\"") })
-            assertFalse(r.contains("sharedpref"))
+            val file = File("src/main/res/xml/$x")
+            val document = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
+            val policies = if (x == "learning_backup_rules_8086.xml") listOf("full-backup-content")
+                else listOf("cloud-backup", "device-transfer")
+            for (policy in policies) {
+                val sections = document.getElementsByTagName(policy)
+                assertEquals("$x must define $policy exactly once", 1, sections.length)
+                val includes = (sections.item(0) as org.w3c.dom.Element).getElementsByTagName("include")
+                val allowed = (0 until includes.length).map { i ->
+                    val include = includes.item(i) as org.w3c.dom.Element
+                    include.getAttribute("domain") to include.getAttribute("path")
+                }
+                assertEquals("$x/$policy must carry both learning databases and no wallet, config, position or preference paths",
+                    learningDatabases, allowed.toSet())
+                assertEquals("$x/$policy must contain only the two explicit database paths", 2, allowed.size)
+            }
+            assertFalse(file.readText().contains("sharedpref"))
         }
     }
 }
