@@ -15478,8 +15478,10 @@ class GoldenTapeRegressionTest {
     @Test fun integration8394_preserves_claims_scheduling_and_detached_checkpoint_rows() {
         fun src(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/$p.kt").readText()
         val bot = src("engine/BotService")
-        assertTrue(bot.contains("explicitLaneClaims8394 = merged.laneAffinity"))
-        assertTrue(bot.contains("explicitToolClaims8394 = merged.toolAffinity"))
+        assertTrue(bot.contains("claims8394 = IntakeClaims8394(merged.laneAffinity, merged.toolAffinity, merged.firstObservedAtMs8394, merged.lastObservedAtMs8394)"))
+        assertTrue(bot.contains("inferIntakeLaneAffinity(source, sources, mcapUsd, liquidityUsd) + claims?.lanes.orEmpty()"))
+        assertTrue(bot.contains("inferIntakeToolAffinity(source, sources, mcapUsd, liquidityUsd) + claims?.tools.orEmpty()"))
+        assertEquals(3, Regex("intakeAffinity8394\\(").findAll(bot).count() - 1)
         assertTrue(bot.contains("HandoffReceiverTasks8153.deferForScheduler8394(mint, until, now)"))
         val cortex = src("engine/cortex/Cortex7885")
         val encoding = cortex.substringAfter("return {\n            val dict = LinkedHashMap<String, Int>()")
