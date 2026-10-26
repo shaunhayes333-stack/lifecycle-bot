@@ -73,8 +73,15 @@ object CanonicalFinalityPersistence6486 {
     fun record(event: CanonicalTradeFinalizedBus6450.Event) {
         // Only rows already stored are skipped, so a new terminal that lands during
         // the replay window is still persisted.
-        if (replaying7387 && prefs?.contains(PREFIX + event.positionId) == true) return
-        prefs?.edit()?.putString(PREFIX + event.positionId, encode(event))?.apply()
+        if (replaying7387 && prefs?.contains(PREFIX + event.positionId) == true) {
+            com.lifecyclebot.engine.PerformanceFees8391.activate(event.positionId, event.mode.lowercase(), event.performanceFeeSol8391)
+            return
+        }
+        val editor = prefs?.edit()?.putString(PREFIX + event.positionId, encode(event))
+        if (com.lifecyclebot.engine.PerformanceFees8391.hasAssessment(event.positionId)) {
+            check(editor?.commit() == true) { "PERFORMANCE_FEE_CANONICAL_PERSIST_RETRY_8391" }
+            com.lifecyclebot.engine.PerformanceFees8391.activate(event.positionId, event.mode.lowercase(), event.performanceFeeSol8391)
+        } else editor?.apply()
     }
 
     fun recordAck6486(consumer: String, positionId: String) {
@@ -222,7 +229,7 @@ object CanonicalFinalityPersistence6486 {
     private fun encode(e: CanonicalTradeFinalizedBus6450.Event): String = JSONObject().apply {
         put("positionId", e.positionId); put("mint", e.mint); put("outcome", e.outcome.name)
         put("netRealizedPnlSol", e.netRealizedPnlSol); put("grossRealizedPnlSol", e.grossRealizedPnlSol)
-        put("returnFraction", e.returnFraction); put("netReturnPct", e.netReturnPct); put("feesSol", e.feesSol)
+        put("returnFraction", e.returnFraction); put("netReturnPct", e.netReturnPct); put("feesSol", e.feesSol); put("performanceFeeSol8391", e.performanceFeeSol8391)
         put("entryLane", e.entryLane); put("entryStrategyPid", e.entryStrategyPid); put("entryTactic", e.entryTactic)
         put("exitReason", e.exitReason); put("holdingTimeMs", e.holdingTimeMs); put("dataQuality", e.dataQuality)
         put("priceIntegrity", e.priceIntegrity); put("finality8082", e.economicFinality)
@@ -247,6 +254,7 @@ object CanonicalFinalityPersistence6486 {
             netRealizedPnlSol = j.getDouble("netRealizedPnlSol"),
             grossRealizedPnlSol = j.getDouble("grossRealizedPnlSol"),
             returnFraction = j.getDouble("returnFraction"), netReturnPct = j.getDouble("netReturnPct"),
+            performanceFeeSol8391 = j.optDouble("performanceFeeSol8391", 0.0),
             feesSol = j.getDouble("feesSol"), entryLane = j.optString("entryLane"),
             entryStrategyPid = j.optString("entryStrategyPid"), entryTactic = j.optString("entryTactic"),
             exitReason = j.optString("exitReason"), holdingTimeMs = j.optLong("holdingTimeMs"),

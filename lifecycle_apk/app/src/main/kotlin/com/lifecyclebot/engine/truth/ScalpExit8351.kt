@@ -48,7 +48,7 @@ object ScalpExit8351 {
             val scalp = try { ExploreShadow8347.liveExitStyle8351(lane, EvidenceHold8336.startMs8336) == ExploreShadow8347.Exit8347.SCALP } catch (_: Throwable) { false }
             val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
             val cost = try { NetEdge8030.costPct8030(lane, pos.costSol, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { 7.0 }
-            val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
+            val stop = try { FieldManual7715.stopPct8392(lane, cost) } catch (_: Throwable) { 10.0 }   // V5.0.8392 — never inside the round trip
             if (scalp) try { PipelineHealthCollector.labelInc("SCALP_EXIT_ADOPTED_8351_${lane.uppercase()}") } catch (_: Throwable) {}
             // V5.0.8363 — the coin's measured 1-minute range and the lane's measured entry chase, fixed at the first mark.
             val noise8363 = if (scalp) com.lifecyclebot.engine.ScalpStop8363.noise1mPct8363(ts) else Double.NaN

@@ -30,6 +30,9 @@ import java.io.File
  */
 class Aate8367DirectiveRegressionTest {
 
+    /** Private 8392: read a production source file relative to com/lifecyclebot (test working dir is lifecycle_apk/app). */
+    private fun src(path: String) = File("src/main/kotlin/com/lifecyclebot/$path").readText()
+
     // ── 8337 FIX 1 / 8350 — curve impact on VIRTUAL reserves ──
 
     @Test fun d01_activeCurveImpactIsPricedOnVirtualReserves() {
@@ -154,7 +157,7 @@ class Aate8367DirectiveRegressionTest {
     // ── 8324 (owner choice) / 8117 / 8197 — 8114 entry mode on, loss-streak cooldown off, entry edge 1.5x ──
 
     @Test fun d12_ownerChosenDefaults() {
-        assertTrue(BotConfig().entry8114ModeEnabled)
+        assertFalse(src("data/BotConfig.kt").contains("val entry8114ModeEnabled"))
         assertFalse(BotConfig().lossStreakCooldownEnabled)
         assertEquals(1.5, NetEdge8030.EDGE_MULT, 0.0)
         assertTrue(NetEdge8030.entryClears8030(15.0, 10.0))
@@ -231,14 +234,11 @@ class Aate8367DirectiveRegressionTest {
         assertTrue(GreenFloor8363.floor8363(22.0, 50.0) >= 22.0 * 0.4 - 1e-9)   // the owner's 3a rule stays
     }
 
-    @Test fun d21_noFiredSetupRule() {
-        // the 8364 classification is counted only; the NO_TRIGGER playbook door is as at 8114 (not demoted as a 8364 duplicate)
-        assertEquals("LIVE_NO_FIRED_SETUP_8364_MOONSHOT",
-            com.lifecyclebot.engine.truth.Entry8114Gate8326.noFiredSetupRefusal8364("MOONSHOT", false, null, emptyList()))
-        assertNull(com.lifecyclebot.engine.truth.FdgGate8365.demotedBy8365("PLAYBOOK_NO_TRIGGER_PROVEN_LOSING_7907_MOONSHOT", true, null, null, false))
-        val niche = com.lifecyclebot.engine.truth.ExploreShadow8347.Choice8351(com.lifecyclebot.engine.truth.ExploreShadow8347.Entry8347.NOW,
-            com.lifecyclebot.engine.truth.ExploreShadow8347.Exit8347.RUNNER, "M", "MC_10K_100K",
-            com.lifecyclebot.engine.truth.EvidenceHold8336.Proof8336(60, 10.0, 2.0, 2.0, true))
-        assertTrue(com.lifecyclebot.engine.truth.ExploreShadow8347.inNiche8364(niche, null, "MC_10K_100K", emptyList()))
+    @Test fun namedSetupMetadataDoesNotCreateASecondEntryAuthority() {
+        val p=com.lifecyclebot.engine.cortex.LanePlaybook7907
+        assertFalse(p.namedSetup8392(null));assertFalse(p.namedSetup8392("NO_TRIGGER"))
+        assertFalse(p.namedSetup8392("matches_unrankable"))
+        assertTrue(p.namedSetup8392("IGNITION_5M"))
+        assertFalse(src("engine/truth/LiveEdgeGate7877.kt").contains("liveFiredSetupRefusal8364"))
     }
 }

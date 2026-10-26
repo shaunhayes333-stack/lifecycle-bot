@@ -267,7 +267,7 @@ private fun shouldTryPumpDirectFirst6099(ts: TokenState, label: String): Boolean
             System.currentTimeMillis()) == com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Admit8144.ALLOWED
     } catch (_: Throwable) { false }
     val pumpFirst = priority == SellRoutePriority6099.PUMP_FIRST && !pumpInvalid
-    if (pumpFirst && jupiterOk8390) try { PipelineHealthCollector.labelInc("SELL_JUPITER_FIRST_FEE_FREE_8390_$label") } catch (_: Throwable) {}
+    if (pumpFirst && jupiterOk8390) try { PipelineHealthCollector.labelInc("SELL_JUPITER_FIRST_QUOTED_FEE_8391_$label") } catch (_: Throwable) {}
     try {
         ForensicLogger.lifecycle(
             "SELL_ROUTE_PRIORITY_BUY_ROUTE_6099",
@@ -482,77 +482,8 @@ class Executor(
          * micro-fee tx spam, no fees silently lost.
          */
         private const val FEE_SEND_MIN_SOL = 0.000005
-        private fun sendFeeSplit(
-            wallet: SolanaWallet,
-            amount1: Double,
-            amount2: Double,
-            tag: String,
-        ): Boolean {
-            val self = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
-            fun dest(primary: String, fallback: String): String? = when {
-                !primary.equals(self, false) -> primary
-                !fallback.equals(self, false) -> fallback   // redirect self→other
-                else -> null                                 // both self — skip
-            }
-            var accrued = false
-            // share 1 → wallet1, falling back to wallet2 if wallet1 is self
-            if (amount1 >= FEE_SEND_MIN_SOL) {
-                val d = dest(TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2)
-                if (d != null) {
-                    // V5.0.6439 — observability. Prove the fee actually reached the pipe.
-                    // V5.0.7124 — MOVED AFTER the accrual, and made conditional on it.
-                    // It used to fire first, unconditionally, so a share that accrue()
-                    // then dropped (uninitialised prefs returned 0.0 without throwing)
-                    // was counted as having reached the pipe. That is the exact shape
-                    // of instrument that turns "fees never send" into an unfalsifiable
-                    // complaint: the counter agreed the fee had been taken.
-                    try {
-                        val bucket7124 = FeeAccumulator.accrue(d, amount1, "${tag}_w1")
-                        if (bucket7124 > 0.0) {
-                            accrued = true
-                            try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount1, "${tag}_w1", false) } catch (_: Throwable) {}
-                        } else {
-                            PipelineHealthCollector.labelInc("FEE_ACCRUE_RETURNED_ZERO_7124")
-                        }
-                    }
-                    catch (e: Exception) {
-                        // Accumulator persistence failed — fall back to immediate retry queue
-                        FeeRetryQueue.enqueue(d, amount1, "${tag}_w1_acc_fail")
-                    }
-                } else {
-                    ErrorLogger.warn("Executor", "🪙 fee_w1 ($tag) skipped: both fee wallets == self")
-                }
-            } else if (amount1 > 0.0) {
-                ErrorLogger.debug("Executor", "🪙 fee_w1 ($tag) dust-skipped: ${amount1} SOL < ${FEE_SEND_MIN_SOL}")
-            }
-            // share 2 → wallet2, falling back to wallet1 if wallet2 is self
-            if (amount2 >= FEE_SEND_MIN_SOL) {
-                val d = dest(TRADING_FEE_WALLET_2, TRADING_FEE_WALLET_1)
-                if (d != null) {
-                    // V5.0.6439 — observability. V5.0.7124 — see the w1 share above.
-                    try {
-                        val bucket7124 = FeeAccumulator.accrue(d, amount2, "${tag}_w2")
-                        if (bucket7124 > 0.0) {
-                            accrued = true
-                            try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount2, "${tag}_w2", false) } catch (_: Throwable) {}
-                        } else {
-                            PipelineHealthCollector.labelInc("FEE_ACCRUE_RETURNED_ZERO_7124")
-                        }
-                    }
-                    catch (e: Exception) {
-                        FeeRetryQueue.enqueue(d, amount2, "${tag}_w2_acc_fail")
-                    }
-                } else {
-                    ErrorLogger.warn("Executor", "🪙 fee_w2 ($tag) skipped: both fee wallets == self")
-                }
-            } else if (amount2 > 0.0) {
-                ErrorLogger.debug("Executor", "🪙 fee_w2 ($tag) dust-skipped: ${amount2} SOL < ${FEE_SEND_MIN_SOL}")
-            }
-            return accrued
-        }
-        
         // V5.7.3: Fee percentages
-        private const val MEME_TRADING_FEE_PERCENT = 0.005  // V5.9.1451 operator: 1% ROUND-TRIP = 0.5% per side (buy + sell both charge this)
+        private const val MEME_TRADING_FEE_PERCENT = 0.0 // V8391: no volume fee; terminal net-profit performance fee only.
         private const val PERPS_TRADING_FEE_PERCENT = 0.01  // 1% for leverage/perps trades
         
         // Fee split (50/50 between wallets)
@@ -4584,7 +4515,12 @@ class Executor(
         return try { com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade) } catch (_: Throwable) { "" }
     }
 
-    private fun recordTrade(ts: TokenState, trade: Trade) {
+    private fun recordTrade(ts: TokenState, inputTrade8391: Trade) {
+        val performanceFee8391 = if (inputTrade8391.side.equals("SELL", true) && inputTrade8391.mode.equals("live", true))
+            PerformanceFees8391.feeForSignature(inputTrade8391.sig, "live", inputTrade8391.mint.ifBlank { ts.mint }) else 0.0
+        val trade = if (performanceFee8391 > 0.0) inputTrade8391.copy(
+            feeSol = inputTrade8391.feeSol + performanceFee8391,
+            netPnlSol = inputTrade8391.netPnlSol - performanceFee8391) else inputTrade8391
         // V5.0.6324 — ACCOUNTING IDEMPOTENCY GATE (operator hotfix §13).
         // A single confirmed transaction can arrive via websocket +
         // polling + wallet reconciliation + retry sweep. Each callback
@@ -8337,26 +8273,7 @@ class Executor(
             // same 0.5% fee as full sells. Basis = costSol × sellFraction
             // (portion actually being sold). Previously this path silently
             // skipped the fee split, short-changing the two wallets.
-            try {
-                val sellBasisSol = pos.costSol * sellFraction
-                val feeAmountSol = sellBasisSol * MEME_TRADING_FEE_PERCENT
-                if (feeAmountSol >= FEE_SEND_MIN_SOL) {
-                    val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
-                    val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
-                    sendFeeSplit(wallet, feeWallet1, feeWallet2, "profit_lock")
-                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of profit-lock) split 50/50", ts.mint)
-                    ErrorLogger.info("Executor", "💸 LIVE PROFIT-LOCK FEE: ${feeAmountSol} SOL split to both wallets")
-                }
-            } catch (feeEx: Exception) {
-                ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — PROFIT-LOCK fee NOT sent, will retry next trade: ${feeEx.message}")
-                // V5.9.226: Bug #7 — enqueue for retry instead of silently dropping
-                val sellBasisSol2 = pos.costSol * sellFraction
-                val feeAmt2 = sellBasisSol2 * MEME_TRADING_FEE_PERCENT
-                if (feeAmt2 >= FEE_SEND_MIN_SOL) {
-                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt2 * FEE_SPLIT_RATIO, "profit_lock_w1")
-                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt2 * (1.0 - FEE_SPLIT_RATIO), "profit_lock_w2")
-                }
-            }
+            // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee.
 
             val solPrice = WalletManager.lastKnownSolPrice
             val gainMultiple = (solBack + pos.lockedProfitFloor) / pos.costSol
@@ -10872,23 +10789,7 @@ class Executor(
                 } catch (_: Throwable) {}
                 // V5.9.109: FAIRNESS — partial sell #1 pays same 0.5% fee
                 // (of the portion sold) to both wallets as full sells do.
-                try {
-                    val feeAmountSol = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
-                    if (feeAmountSol >= FEE_SEND_MIN_SOL) {
-                        val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
-                        val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
-                        sendFeeSplit(wallet, feeWallet1, feeWallet2, "partial_sell")
-                        ErrorLogger.info("Executor", "💸 LIVE PARTIAL-SELL FEE: ${feeAmountSol} SOL split to both wallets")
-                    }
-                } catch (feeEx: Exception) {
-                    ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — PARTIAL-SELL fee NOT sent, will retry next trade: ${feeEx.message}")
-                    // V5.9.226: Bug #7 — enqueue for retry
-                    val feeAmt3 = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
-                    if (feeAmt3 >= FEE_SEND_MIN_SOL) {
-                        FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt3 * FEE_SPLIT_RATIO, "partial_sell_w1")
-                        FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt3 * (1.0 - FEE_SPLIT_RATIO), "partial_sell_w2")
-                    }
-                }
+                // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee.
                 releasePartialSellLock(ts.mint)
                 // V5.9.495z47 — operator P0 (forensics 0508_143519):
                 // Verify post-sell wallet drop ≤ expected. If actual > expected
@@ -21249,6 +21150,7 @@ class Executor(
                     return
                 }
 
+                PerformanceFees8391.bind(canonicalPositionId, wallet.publicKeyB58, "live", ts.mint, ts.position.entryTime)
                 val verifiedEntryPrice = verifiedFillEntryPrice7875(ts, actualCostSol, qtyUi)
                 val verifiedTrade = Trade(
                     side = "BUY",
@@ -21335,39 +21237,7 @@ class Executor(
                 LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
 
                 sounds?.playBuySound()
-                try {
-                    val feeAmountSol = actualCostSol * MEME_TRADING_FEE_PERCENT
-                    if (feeAmountSol >= FEE_SEND_MIN_SOL) {
-                        sendFeeSplit(
-                            wallet,
-                            feeAmountSol * FEE_SPLIT_RATIO,
-                            feeAmountSol * (1.0 - FEE_SPLIT_RATIO),
-                            "buy_finalized_6637",
-                        )
-                        onLog(
-                            "💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (finalized BUY) split 50/50",
-                            tradeId.mint,
-                        )
-                    }
-                } catch (feeEx: Exception) {
-                    ErrorLogger.error(
-                        "Executor",
-                        "🚨 FINALIZED BUY FEE SEND FAILED — queued for retry: ${feeEx.message}",
-                    )
-                    val retryFee = actualCostSol * MEME_TRADING_FEE_PERCENT
-                    if (retryFee >= FEE_SEND_MIN_SOL) {
-                        FeeRetryQueue.enqueue(
-                            TRADING_FEE_WALLET_1,
-                            retryFee * FEE_SPLIT_RATIO,
-                            "buy_finalized_w1",
-                        )
-                        FeeRetryQueue.enqueue(
-                            TRADING_FEE_WALLET_2,
-                            retryFee * (1.0 - FEE_SPLIT_RATIO),
-                            "buy_finalized_w2",
-                        )
-                    }
-                }
+                // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee.
 
                 onLog(
                     "LIVE BUY VERIFIED @ ${verifiedEntryPrice.fmt()} | ${actualCostSol.fmt(4)} SOL | qty=${qtyUi.fmt(4)} | router=$routerLabel | sig=${sig.take(16)}…",
@@ -24784,23 +24654,7 @@ class Executor(
                     recordTrade(ts, liveTrade)
                     security.recordTrade(liveTrade)
                     // V5.9.109: FAIRNESS — partial sell #2 pays same 0.5% fee.
-                    try {
-                        val feeAmountSol = (pos.costSol * pct) * MEME_TRADING_FEE_PERCENT
-                        if (feeAmountSol >= FEE_SEND_MIN_SOL) {
-                            val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
-                            val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
-                            sendFeeSplit(activeWallet, feeWallet1, feeWallet2, "partial_sell_v2")
-                            ErrorLogger.info("Executor", "💸 LIVE PARTIAL-SELL FEE (v2): ${feeAmountSol} SOL split to both wallets")
-                        }
-                    } catch (feeEx: Exception) {
-                        ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — PARTIAL-SELL FEE (v2) failed: ${feeEx.message}")
-                        // V5.9.226: Bug #7 — enqueue for retry
-                        val feeAmt5 = (pos.costSol * pct) * MEME_TRADING_FEE_PERCENT
-                        if (feeAmt5 >= 0.0001) {
-                            FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt5 * FEE_SPLIT_RATIO, "partial_sell_v2_w1")
-                            FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt5 * (1.0 - FEE_SPLIT_RATIO), "partial_sell_v2_w2")
-                        }
-                    }
+                    // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee.
 
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -28999,66 +28853,7 @@ class Executor(
             // the two derefs rather than NPE on a perfectly good direct-route sell.
             val finalQuote: com.lifecyclebot.network.SwapQuote? = quote
             
-            try {
-                // V5.9.455 — FEE FAIRNESS FIX.
-                // Previously this computed fee as 0.5% of the SELL PROCEEDS
-                // (quote.outAmount), which meant losing sells paid far less
-                // than winning sells and total-loss rugs paid ≈0 SOL because
-                // the feeAmountSol >= 0.0001 guard rounded it away. Every
-                // other fee path (profit-lock, partial-sell v1/v2, buy)
-                // already uses pos.costSol as the basis. Align this path:
-                // fee = 0.5% of ENTRY BASIS, applied to every live sell
-                // whether it was profitable or not. Operator directive:
-                // "live transaction fees should be on all sells profitable
-                // or not."
-                val feeAmountSol = pos.costSol * MEME_TRADING_FEE_PERCENT
-                if (feeAmountSol >= FEE_SEND_MIN_SOL) {
-                    val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
-                    val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
-                    
-                    // V5.9.1504 — single resolver call handles BOTH shares,
-                    // redirecting any self-addressed fee wallet to the other.
-                    sendFeeSplit(wallet, feeWallet1, feeWallet2, "fee")
-                    
-                    // V5.0.6288 — LIVE ORACLE MODE: wire the recordLiveFee hook.
-                    // LiveLaneGovernor.recordLiveFee was defined but had ZERO callers
-                    // (feeSumSol=0, feeN=0 in every op report). Without this, the
-                    // fee-economic floor guard (SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247) was
-                    // effectively disabled and dust-sized buys kept eating fees > profit.
-                    try { com.lifecyclebot.engine.LiveLaneGovernor.recordLiveFee(feeAmountSol) } catch (_: Throwable) {}
-                    
-                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of entry) split 50/50", tradeId.mint)
-                    ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL split to both wallets (entry-basis, pnl-agnostic)")
-                } else {
-                    // V5.0.7124 — the silent branch. A live sell whose fee rounds
-                    // below the send minimum charged NOTHING and said nothing, so
-                    // "fees are not being sent on every trade" and "fees were never
-                    // due on that trade" were the same observation.
-                    //
-                    // The basis is pos.costSol, and the acceptance audit on this
-                    // build is failing J_BASIS_DELTA. A live position whose cost
-                    // basis is recorded as zero therefore produces a zero fee on an
-                    // otherwise perfectly good sell. Splitting the two cases here is
-                    // what decides whether the fee complaint is a fee-path defect or
-                    // a cost-basis defect wearing its clothes.
-                    if (pos.costSol <= 0.0) {
-                        PipelineHealthCollector.labelInc("FEE_SKIPPED_ZERO_COST_BASIS_7124")
-                        ErrorLogger.warn("Executor",
-                            "🚨 LIVE SELL FEE SKIPPED — cost basis is ${pos.costSol} for ${ts.symbol}. " +
-                                "No fee was charged because there is no basis to charge it against.")
-                    } else {
-                        PipelineHealthCollector.labelInc("FEE_SKIPPED_DUST_BASIS_7124")
-                    }
-                }
-            } catch (feeEx: Exception) {
-                ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — TRADING fee NOT sent, will retry next trade: ${feeEx.message}")
-                // V5.9.226: Bug #7 — enqueue for retry (recalculate — feeAmountSol not in catch scope)
-                val feeAmtSellRetry = (pos.costSol * MEME_TRADING_FEE_PERCENT).coerceAtLeast(0.0)
-                if (feeAmtSellRetry >= 0.0001) {
-                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmtSellRetry * FEE_SPLIT_RATIO, "sell_fee_w1")
-                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmtSellRetry * (1.0 - FEE_SPLIT_RATIO), "sell_fee_w2")
-                }
-            }
+            // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee.
             
             // V5.9.495y/z — TRADE-VERIFIER FULL-SELL AUTHORITY (spec items
             // 6, 8). Run tx-parse first; if LANDED we skip the legacy

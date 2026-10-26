@@ -110,6 +110,9 @@ object CortexLabelHygiene8144 {
 
     private fun executableHorizonMs8144(runnerLane: Boolean): Long = if (runnerLane) EXEC_HORIZON_RUNNER_MS_8144 else EXEC_HORIZON_DEFAULT_MS_8144
 
+    /** V5.0.8392 — the hold the books grade, for the shadow books and the hold layer to run the same window. */
+    fun executableHorizonMs8392(runnerLane: Boolean): Long = executableHorizonMs8144(runnerLane)
+
     /** Pure: does a revision [ageMs] after the decision still describe a hold the lane actually runs? */
     fun revisionCounts8144(runnerLane: Boolean, ageMs: Long): Boolean = ageMs in 0L..executableHorizonMs8144(runnerLane)
 

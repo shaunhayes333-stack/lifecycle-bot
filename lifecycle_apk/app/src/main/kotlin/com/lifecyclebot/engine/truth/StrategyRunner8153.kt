@@ -84,8 +84,8 @@ object StrategyMove8153 {
     }
 
     /** Pure: defer for history only when the sparse-range move would refuse (a move that clears needs no wait). */
-    fun needsDefer8153(m: Move8153, costPct: Double): Boolean =
-        m.deferForHistory && !NetEdge8030.entryClears8030(m.expectedGrossPct, costPct)
+    fun needsDefer8153(m: Move8153, costPct: Double, margin: Double = NetEdge8030.EDGE_MULT): Boolean =
+        m.deferForHistory && !NetEdge8030.entryClears8030(m.expectedGrossPct, costPct, margin)
 
     /** Pure: the probe ticket a launch read is costed at — impact only on depth that was actually read. */
     fun probeSizeUsd8153(liquidityUsd: Double): Double = if (liquidityUsd.isFinite() && liquidityUsd > 0.0) 10.0 else 0.0

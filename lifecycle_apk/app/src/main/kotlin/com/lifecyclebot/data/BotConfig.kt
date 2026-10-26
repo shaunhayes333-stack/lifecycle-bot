@@ -140,8 +140,7 @@ data class BotConfig(
     val circuitBreakerPauseMin: Int = 15,
     // V5.0.8117 — owner: the loss-streak cooldown is an option, not always on. Off by default.
     val lossStreakCooldownEnabled: Boolean = false,
-    // V5.0.8326 — owner: "Make 8114 live now." The live meme entry decision is the 8114 one (Entry8114Mode8326). On by default.
-    val entry8114ModeEnabled: Boolean = true,
+    // V5.0.8326 — owner: "Make 8114 live now." The live meme entry decision is the 8114 one (retired compatibility mode). On by default.
     val maxPriceImpactPct: Double = 3.0,
     val closePositionsOnStop: Boolean = true, // SAFETY: close all positions when bot stops
     // External API keys. Production credentials never ship in source or APK;
@@ -509,7 +508,7 @@ object ConfigStore {
             putInt("circuit_breaker_losses",          cfg.circuitBreakerLosses)
             putInt("circuit_breaker_pause_min",       cfg.circuitBreakerPauseMin)
             putBoolean("loss_streak_cooldown_enabled_8117", cfg.lossStreakCooldownEnabled)
-            putBoolean(com.lifecyclebot.engine.truth.Entry8114Mode8326.SETTING_KEY_8326, cfg.entry8114ModeEnabled)  // V5.0.8326
+            remove("entry_8114_mode_enabled_8326") // retired policy setting; cannot reactivate on upgrade
             putBoolean(com.lifecyclebot.network.PumpFunWS.TRADE_STREAM_SETTING_KEY_8354, cfg.pumpPortalTradeStreamEnabled)  // V5.0.8354
             putFloat("max_price_impact_pct",          cfg.maxPriceImpactPct.toFloat())
             putBoolean("close_positions_on_stop",     cfg.closePositionsOnStop)
@@ -684,7 +683,6 @@ object ConfigStore {
             circuitBreakerLosses        = p.getInt("circuit_breaker_losses", 5),
             circuitBreakerPauseMin      = p.getInt("circuit_breaker_pause_min", 15),
             lossStreakCooldownEnabled   = p.getBoolean("loss_streak_cooldown_enabled_8117", false),
-            entry8114ModeEnabled        = p.getBoolean(com.lifecyclebot.engine.truth.Entry8114Mode8326.SETTING_KEY_8326, com.lifecyclebot.engine.truth.Entry8114Mode8326.DEFAULT_ON_8326),
             pumpPortalTradeStreamEnabled = p.getBoolean(com.lifecyclebot.network.PumpFunWS.TRADE_STREAM_SETTING_KEY_8354, com.lifecyclebot.network.PumpFunWS.TRADE_STREAM_DEFAULT_8354),  // V5.0.8354
             maxPriceImpactPct           = p.getFloat("max_price_impact_pct", 3.0f).toDouble(),
             closePositionsOnStop        = p.getBoolean("close_positions_on_stop", true),
@@ -820,7 +818,6 @@ object ConfigStore {
                 autoTrade = it.autoTrade,
             )
             // V5.0.8326 — the persisted Entry 8114 mode reaches the live entry decision.
-            com.lifecyclebot.engine.truth.Entry8114Mode8326.noteConfig8326(it.entry8114ModeEnabled)
             // V5.0.8354 — the persisted PumpPortal trade-stream switch reaches the socket (default OFF: paid per frame).
             try { com.lifecyclebot.network.PumpFunWS.noteTradeStreamConfig8354(it.pumpPortalTradeStreamEnabled) } catch (_: Throwable) {}
             // V5.9.706 — cache for 2s to avoid repeated AES-GCM decryption on main thread

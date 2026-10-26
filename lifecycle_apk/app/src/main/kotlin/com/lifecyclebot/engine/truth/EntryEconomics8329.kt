@@ -7,7 +7,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * V5.0.8329 §ENTRY_ECONOMICS_BIND_INSIDE_8114_MODE — the owner keeps Entry8114Mode8326 ON; the few candidate-specific,
+ * V5.0.8329 §ENTRY_ECONOMICS_BIND_INSIDE_8114_MODE — the owner keeps retired compatibility mode ON; the few candidate-specific,
  * blockchain-provable reads now bind inside it. 5.0.8326 live (8114 mode): 1W/7L, PF 0.08; decision-to-fill chase MOONSHOT
  * +13.5 % (3 s), EXPRESS +10.7 %, CASHGEN +6.1 %; measured round trip MOONSHOT 14.8 % / QUALITY 19.1 % / CASHGEN 8.4 %
  * against a 3.7 % modelled breakeven; ROUTE_MIN_PROMOTED_KELLY_BELOW_MIN = 34 on a Kelly of ~0; MOONSHOT four consecutive
@@ -68,13 +68,13 @@ object EntryEconomics8329 {
 
     private fun laneCloses8329(lane: String): List<Triple<Long, Double, Double>> = try {
         CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("live")
-            .filter { Entry8114Mode8326.canon8326(it.lane) == lane }
+            .filter { CanonicalLaneIdentity6506.desk8392(it.lane) == lane }
             .map { Triple(it.atMs, it.realizedPnlSol, it.realizedReturnPct) }
     } catch (_: Throwable) { emptyList() }
 
-    /** Entry8114Mode8326.decide8326: the realised-lane refusal for [lane] now (binds in mode), else null. */
+    /** LiveEdgeGate7877.liveRefusal: the realised-lane refusal for [lane] now (binds in mode), else null. */
     fun laneRealisedRefusal8329(lane: String, nowMs: Long = System.currentTimeMillis()): String? {
-        val l = Entry8114Mode8326.canon8326(lane)
+        val l = CanonicalLaneIdentity6506.desk8392(lane)
         val r = try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(l) } catch (_: Throwable) { null }
         if (r == null || r.size < 2 || !laneShut8329(r[0], r[1])) { shut8329.remove(l); return null }
         val closes = laneCloses8329(l)
@@ -131,12 +131,12 @@ object EntryEconomics8329 {
      * [capPct] from [chaseCapPct8329], [expectedGrossPct] the move the entry was admitted on, [costPct] the round trip at
      * this size. A cheaper or unchanged quote never refuses.
      */
-    fun consumed8329(movePct: Double, capPct: Double, expectedGrossPct: Double, costPct: Double): String? {
+    fun consumed8329(movePct: Double, capPct: Double, expectedGrossPct: Double, costPct: Double, margin: Double = NetEdge8030.EDGE_MULT): String? {
         if (!movePct.isFinite() || movePct <= 0.0) return null
         if (!capPct.isFinite()) return "EXHAUSTED_RALLY"
         if (movePct > capPct) return "OVER_CAP"
         if (!expectedGrossPct.isFinite() || !costPct.isFinite()) return null
-        return if (NetEdge8030.entryClears8030(expectedGrossPct - movePct, costPct)) null else "EDGE_CONSUMED"
+        return if (NetEdge8030.entryClears8030(expectedGrossPct - movePct, costPct, margin)) null else "EDGE_CONSUMED"
     }
 
     /** Pure: the USD price one UI token costs at a quote of [outRaw] raw tokens for [inSol] SOL; NaN when unknown. */
@@ -166,7 +166,7 @@ object EntryEconomics8329 {
         ts: TokenState, laneRaw: String, sizeSol: Double, quotePxUsd: Double, impactPct: Double, source: String,
         nowMs: Long = System.currentTimeMillis(),
     ): String? {
-        val lane = Entry8114Mode8326.canon8326(laneRaw)
+        val lane = CanonicalLaneIdentity6506.desk8392(laneRaw)
         val book = chase8329.computeIfAbsent(lane) { ChaseBook8329() }
         val d = try { ForwardReturnLabeler7731.decisionPx8094(ts.mint) } catch (_: Throwable) { null }
         if (d == null || nowMs - d.second !in 0L..DECISION_MAX_AGE_MS_8329) {
@@ -191,7 +191,7 @@ object EntryEconomics8329 {
         val gross = try { NetEdge8030.expectedGrossFor8153(ts, lane, sel, cost) } catch (_: Throwable) { Double.NaN }
         val expected = if (gross.isFinite()) gross else (try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { Double.NaN })
         val cap = chaseCapPct8329(setup, tactic, exhausted)
-        val why = consumed8329(move, cap, expected, cost)
+        val why = consumed8329(move, cap, expected, cost, NetEdge8030.margin8391(lane, sizeSol, cost))
         synchronized(book) {
             book.checked.incrementAndGet()
             book.moves.addLast(move)
@@ -263,7 +263,7 @@ object EntryEconomics8329 {
      */
     fun promotionReasonRefusal8329(mint: String, laneRaw: String, requestedSol: Double, promotedSol: Double, nowMs: Long = System.currentTimeMillis()): String? {
         if (!(promotedSol > 0.0) || !(requestedSol < promotedSol)) return null
-        val lane = Entry8114Mode8326.canon8326(laneRaw)
+        val lane = CanonicalLaneIdentity6506.desk8392(laneRaw)
         val ts = if (mint.isNotBlank()) try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } else null
         val rec = if (ts != null) try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedRecord8153(ts, lane, null, nowMs) } catch (_: Throwable) { null } else null
         // V5.0.8343 — a grab-lane admit (RunnerGrabLane8343: forming runner on its own evidence) is the early runner at the route minimum.

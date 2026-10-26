@@ -87,6 +87,7 @@ object RunnerGrabLane8343 {
         val movePct: Double,
         val openGrabs: Int,
         val liveHoldRefusal: String?,
+        val costMargin8391: Double = NetEdge8030.EDGE_MULT,
     )
 
     data class Verdict8343(val admitted: Boolean, val why: String, val evidence: String, val venue: String, val atMs: Long)
@@ -127,8 +128,8 @@ object RunnerGrabLane8343 {
     }
 
     /** Pure: the 8329 chase leg for the launch-breakout tactic — null passes, else the consumed-edge why. */
-    fun chaseLeg8343(movePct: Double, expectedGrossPct: Double, costPct: Double): String? =
-        EntryEconomics8329.consumed8329(movePct, EntryEconomics8329.CAP_LAUNCH_PCT_8329, expectedGrossPct, costPct)
+    fun chaseLeg8343(movePct: Double, expectedGrossPct: Double, costPct: Double, margin: Double = NetEdge8030.EDGE_MULT): String? =
+        EntryEconomics8329.consumed8329(movePct, EntryEconomics8329.CAP_LAUNCH_PCT_8329, expectedGrossPct, costPct, margin)
 
     /** Pure: why the legs refuse, else null (admit). Nothing here reads a mandate. */
     fun refusal8343(l: Legs8343): String? {
@@ -137,8 +138,8 @@ object RunnerGrabLane8343 {
         if (l.mayhem) return "MAYHEM"
         if (l.venue.isNullOrBlank()) return "VENUE_NOT_EXIT_SAFE"
         if (l.evidence.isNullOrBlank()) return "NO_FORMING_RUN"
-        if (!NetEdge8030.entryClears8030(l.expectedGrossPct, l.costPct)) return "ECONOMICS_1_5X_COST"
-        val chase = chaseLeg8343(l.movePct, l.expectedGrossPct, l.costPct)
+        if (!NetEdge8030.entryClears8030(l.expectedGrossPct, l.costPct, l.costMargin8391)) return "ECONOMICS_1_5X_COST"
+        val chase = chaseLeg8343(l.movePct, l.expectedGrossPct, l.costPct, l.costMargin8391)
         if (chase != null) return "CHASE_$chase"
         if (l.openGrabs >= MAX_OPEN_8343) return "OPEN_BOUND_$MAX_OPEN_8343"
         if (l.liveHoldRefusal != null) return "LIVE_${l.liveHoldRefusal}"
@@ -255,7 +256,7 @@ object RunnerGrabLane8343 {
         val liq = try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
         val cost = try { NetEdge8030.preTradeCostPct8329(l, size, liq, mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
         val gross = expectedGross(ts, l, cost)
-        val legs = Legs8343(false, safety, mayhem, venue, evidence, gross, cost, movePct(ts, nowMs), openGrabs8343(nowMs), null)
+        val legs = Legs8343(false, safety, mayhem, venue, evidence, gross, cost, movePct(ts, nowMs), openGrabs8343(nowMs), null, NetEdge8030.margin8391(l, size, cost))
         var why = refusal8343(legs)
         val live = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
         if (why == null && live) {

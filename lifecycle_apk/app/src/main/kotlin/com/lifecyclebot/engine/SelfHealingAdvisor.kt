@@ -195,6 +195,7 @@ object SelfHealingAdvisor {
         }
         val adjustmentsArr = JSONArray()
         for (s in suggestions) {
+            if (!AdvisorInbox.isCurrent8391(s)) continue
             if (AdvisorKeyAuthority8353.isAdvisoryOnly8353(s.key)) continue  // V5.0.8353 — advisory-only, never written
             adjustmentsArr.put(
                 JSONObject()
@@ -251,6 +252,10 @@ Respond with pure JSON — no prose, no code fences — of the shape:
     {
       "key": "<one of the allowed keys>",
       "delta": <signed number>,
+      "unit": "<required parameter unit>",
+      "scope": "<required parameter scope>",
+      "semantics": "additive",
+      "effect": "<required direction effect>",
       "severity": "high|med|low",
       "reason": "<short explanation grounded in a specific metric from the report>",
       "expected_impact": "<one line, what improves and by how much>"
@@ -329,7 +334,10 @@ If nothing needs tuning, return {"suggestions": []}.
     /** Apply a reviewed set as ONE bounded config transaction, never N independent calls of the tuner. */
     fun applyBatch8373(ctx: Context, suggestions: List<Suggestion>): List<Pair<Boolean, String>> {
         if (suggestions.isEmpty()) return emptyList()
-        val plan = batchPlan8373(suggestions.map { it.key })
+        // The tuner counts effective changes, not attempted/no-op proposals.
+        val plan = batchPlan8373(suggestions.map { it.key }, Int.MAX_VALUE).mapIndexed { i, reason ->
+            reason ?: if (!AdvisorInbox.isCurrent8391(suggestions[i])) "superseded or already applied proposal" else null
+        }
         val selected = suggestions.indices.filter { plan[it] == null }
         if (selected.isEmpty()) return plan.map { false to (it ?: "no selection") }
         val payload = JSONObject().apply {
@@ -353,6 +361,7 @@ If nothing needs tuning, return {"suggestions": []}.
             val change = if (ignored == null) applied[suggestion.key] else null
             if (change != null) {
                 AdvisorInbox.markApplied(suggestion.id)
+                registerManual8391(suggestion, change)
                 try {
                     PipelineHealthCollector.labelInc("SELF_HEALING_ADVISOR_BATCH_APPLIED_8373")
                     ForensicLogger.lifecycle("SELF_HEALING_ADVISOR_BATCH_APPLIED_8373",
@@ -366,13 +375,21 @@ If nothing needs tuning, return {"suggestions": []}.
         }
     }
 
+    private fun registerManual8391(suggestion: Suggestion, change: LlmParameterTuner.Change) {
+        com.lifecyclebot.engine.truth.AdvisorRegressionMonitor6463.registerApply(
+            id = suggestion.id, key = change.key, deltaApplied = change.newValue - change.oldValue,
+            reason = "advisor8391:${change.reason.take(120)}")
+    }
+
     fun applySuggestion(ctx: Context, suggestion: Suggestion): Pair<Boolean, String> {
+        if (!AdvisorInbox.isCurrent8391(suggestion)) return false to "superseded or already applied proposal"
         val jsonBlock = JSONObject().apply {
             put("adjustments", JSONArray().apply {
                 put(JSONObject().apply {
                     put("key", suggestion.key)
                     put("delta", suggestion.delta)
                     put("reason", "advisor:${suggestion.reason}")
+                    LlmParameterTuner.addContract8386(this, suggestion.key, suggestion.delta)
                 })
             })
         }
@@ -394,6 +411,7 @@ If nothing needs tuning, return {"suggestions": []}.
         return if (res.changes.isNotEmpty()) {
             AdvisorInbox.markApplied(suggestion.id)
             val c = res.changes.first()
+            registerManual8391(suggestion, c)
             try {
                 ForensicLogger.lifecycle(
                     "SELF_HEALING_ADVISOR_APPLIED_OK_6417",
@@ -451,17 +469,38 @@ object AdvisorInbox {
     private val applied = ConcurrentHashMap<String, Long>()
     private const val MAX_PENDING = 30
 
+    @Synchronized
     fun addAll(items: List<SelfHealingAdvisor.Suggestion>) {
-        for (s in items) store[s.id] = s
+        // New evidence supersedes older advice. Same-generation conflicts stay visible;
+        // identical proposals collapse without adding deltas or defeating tuner caps.
+        for ((key, incoming) in items.groupBy { it.key }) {
+            val newest = maxOf(incoming.maxOf { it.createdAtMs },
+                store.values.filter { it.key == key }.maxOfOrNull { it.createdAtMs } ?: Long.MIN_VALUE)
+            val candidates = (store.values.filter { it.key == key } + incoming)
+                .filter { it.createdAtMs == newest }.distinctBy { it.delta }
+            store.values.filter { it.key == key && it.createdAtMs < newest }.forEach { store.remove(it.id); applied.remove(it.id) }
+            for (candidate in candidates) {
+                if (store.values.none { it.key == key && it.createdAtMs == newest && it.delta == candidate.delta }) store[candidate.id] = candidate
+            }
+        }
         pruneIfNeeded()
     }
+
+    @Synchronized
+    fun isCurrent8391(suggestion: SelfHealingAdvisor.Suggestion): Boolean =
+        store[suggestion.id] == suggestion && !applied.containsKey(suggestion.id)
 
     fun pending(): List<SelfHealingAdvisor.Suggestion> =
         store.values.filter { !applied.containsKey(it.id) }
             .sortedByDescending { it.createdAtMs }
 
+    @Synchronized
     fun markApplied(id: String) {
-        applied[id] = System.currentTimeMillis()
+        val selected = store[id] ?: return
+        val now = System.currentTimeMillis()
+        // A successful individual review resolves same-key conflicts, not just its UUID.
+        store.values.filter { it.key == selected.key && it.createdAtMs <= selected.createdAtMs }
+            .forEach { applied[it.id] = now }
     }
 
     fun dismiss(id: String) {
@@ -477,6 +516,6 @@ object AdvisorInbox {
         if (store.size <= MAX_PENDING) return
         val excess = store.size - MAX_PENDING
         val toRemove = store.values.sortedBy { it.createdAtMs }.take(excess)
-        for (r in toRemove) store.remove(r.id)
+        for (r in toRemove) { store.remove(r.id); applied.remove(r.id) }
     }
 }

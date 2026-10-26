@@ -393,7 +393,8 @@ object LaneCheatSheet8323 {
         val m = try { com.lifecyclebot.engine.truth.FieldManual7715.mandateFor(lane) } catch (_: Throwable) { null }
         val arm = if (runner) (try { com.lifecyclebot.engine.RunnerExitProfile7277.giveBackArmPct7791(lane) } catch (_: Throwable) { Double.NaN }) else Double.NaN
         val style = if (runner) "RUNNER: hold the tail, trail armed past +${if (arm.isFinite()) arm.toInt() else 0}%" else "SCALP: take the planned move"
-        return Exit8323(runner, m?.invalidationPct ?: Double.NaN, m?.expectedGrossPct ?: Double.NaN, arm, style)
+        val stop8392 = try { com.lifecyclebot.engine.truth.FieldManual7715.laneStopPct8392(lane) } catch (_: Throwable) { m?.invalidationPct ?: Double.NaN }
+        return Exit8323(runner, stop8392, m?.expectedGrossPct ?: Double.NaN, arm, style)   // V5.0.8392 — the stop the desk trades, cost-widened
     }
 
     // ── verdicts (pure) ──

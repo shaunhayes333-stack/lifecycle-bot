@@ -89,12 +89,11 @@ object RebuyLockout8019 {
             }
         }
         val change1h8130 = try { synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }?.lastPriceChange1h } catch (_: Throwable) { null }
-        val legacy8326 = com.lifecyclebot.engine.truth.Entry8114Mode8326.legacyScope8326()  // V5.0.8326 — 8114 had no 8130 locks
-        if (!legacy8326 && fallingKnife8130(change1h8130, ticket)) {
+        if (fallingKnife8130(change1h8130, ticket)) {
             try { PipelineHealthCollector.labelInc("FALLING_KNIFE_REFUSED_8130") } catch (_: Throwable) {}
             return "FALLING_KNIFE_8130"
         }
-        if (!legacy8326 && bigLossLocked8130(mint, nowMs, ticket)) {
+        if (bigLossLocked8130(mint, nowMs, ticket)) {
             try { PipelineHealthCollector.labelInc("BIG_LOSER_REFUSED_8130") } catch (_: Throwable) {}
             return "BIG_LOSER_8130"
         }

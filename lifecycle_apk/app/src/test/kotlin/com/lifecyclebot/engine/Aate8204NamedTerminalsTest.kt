@@ -43,8 +43,9 @@ class Aate8204NamedTerminalsTest {
     }
 
     @Test fun economicRefusalCarriesItsEvidence() {
-        val a = src("truth/CandidateAdmission8136.kt").substringAfter("if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct)) {").substringBefore("return done(Terminal8136.REFUSE, \"EXECUTION_ECONOMICS_8136\", true, chosen)")
-        assertTrue(a.contains("econRefused8204 gross=${'$'}{fmt8136(decisionGross)} cost=${'$'}{fmt8136(c.costPct)} needMult=${'$'}{NetEdge8030.EDGE_MULT}"))
+        val a = src("truth/CandidateAdmission8136.kt").substringAfter("if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct, c.costMargin8391)) {").substringBefore("return done(Terminal8136.REFUSE, \"EXECUTION_ECONOMICS_8136\", true, chosen)")
+        // V8391: the margin is evidence-adaptive per candidate; the refusal must still name it.
+        assertTrue(a.contains("econRefused8204 gross=${'$'}{fmt8136(decisionGross)} cost=${'$'}{fmt8136(c.costPct)} needMult=${'$'}{c.costMargin8391}"))
         assertTrue(a.contains("NetEdge8030.lastEntryBreakdown8204()"))
         assertEquals("-", com.lifecyclebot.engine.truth.NetEdge8030.lastEntryBreakdown8204().takeIf { it == "-" } ?: "-")
     }

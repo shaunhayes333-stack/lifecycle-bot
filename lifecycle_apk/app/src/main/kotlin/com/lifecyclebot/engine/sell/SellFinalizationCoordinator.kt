@@ -260,13 +260,18 @@ object SellFinalizationCoordinator {
                         skipCanonical7362("TERMINAL_CLAIM_DUP")
                         return@run
                     }
+                    val performanceFee8391 = if (!partial && sellSig.isNotBlank() && actualConsumedRaw.signum() > 0)
+                        com.lifecyclebot.engine.PerformanceFees8391.settle(positionId, intent.mint, "live", sellSig,
+                            canonicalPosition6522.realizedProceedsSol + sellSolReceived - canonicalPosition6522.entryCostSol - canonicalPosition6522.feesSol - feesSol)
+                        else 0.0
+                    val settlementFees8391 = feesSol + performanceFee8391
                     val positionApplied6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(
                         mint = intent.mint,
                         generation = canonicalPosition6522.openedAtMs,
                         soldQtyRaw = actualConsumedRaw,
                         proceedsSol = sellSolReceived,
                         soldCostBasisSol = pnl.proportionalCostBasisSol,
-                        feesSol = feesSol,
+                        feesSol = settlementFees8391,
                         paperMode = false,
                         terminal = !partial,
                         lane = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.resolveExitLane(positionId, traderTag),
@@ -293,8 +298,9 @@ object SellFinalizationCoordinator {
                         soldQty = actualConsumedRaw,
                         preRemainingQty = intent.entryTokenRaw.takeIf { it.signum() > 0 } ?: intent.confirmedWalletRaw,
                         preRemainingCostBasisSol = intent.entrySolSpent,
-                        grossProceedsSol = sellSolReceived, exitFeesSol = feesSol,
+                        grossProceedsSol = sellSolReceived, exitFeesSol = settlementFees8391,
                         solUsdAtExit = liveSolUsd8094(),
+                        performanceFeeSol8391 = performanceFee8391,
                     )
                     if (!partial) {
                         val whole7835 = com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(
@@ -322,6 +328,7 @@ object SellFinalizationCoordinator {
                                 dataQuality = "confirmed_signature", priceIntegrity = "confirmed_signature",
                                 mode = "live", settledAtMs = settledAt6485,
                                 economicEventId = idKey,
+                                performanceFeeSol8391 = performanceFee8391,
                                 // V5.0.8082 — finality stated from the evidence in hand: a signed sell that consumed tokens.
                                 economicFinality = if (sellSig.isNotBlank() && actualConsumedRaw.signum() > 0) "LIVE_FINALIZED" else "LIVE_UNVERIFIED",
                             )
@@ -353,7 +360,10 @@ object SellFinalizationCoordinator {
         }
         // V5.0.8144 — sell spine: chain-proven wallet delta read; canonical close mutated (terminal) or not.
         try { SellRouteSpine8144.onFinalized8144(intent.mint, !canonicalMutationFailed6486, remainingRaw.signum() == 0) } catch (_: Throwable) {}
-        return if (canonicalMutationFailed6486) result6486.copy(pendingRetry = true) else result6486
+        val assessedFee8391 = com.lifecyclebot.engine.PerformanceFees8391.feeForSignature(sellSig, "live", intent.mint)
+        val netResult8391 = if (assessedFee8391 > 0.0) result6486.copy(realizedPnl = RealizedPnLCalculator.calculate(
+            intent.entrySolSpent, intent.entryTokenRaw, actualConsumedRaw, sellSolReceived, feesSol + assessedFee8391)) else result6486
+        return if (canonicalMutationFailed6486) netResult8391.copy(pendingRetry = true) else netResult8391
     }
 }
 

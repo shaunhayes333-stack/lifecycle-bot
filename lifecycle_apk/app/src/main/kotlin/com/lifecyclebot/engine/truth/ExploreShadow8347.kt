@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong
  * Self-correction: [bestVariant8347] is a lane's best PROVEN variant (n >= [MIN_N_8347], mean - 1.5 SE above
  * [MARGIN_PCT_8347], PF >= [MIN_PF_8347]; stricter than 8336's bar because six variants are tried per lane).
  *  - EvidenceHold8336 unlocks the lane on it;
- *  - Entry8114Mode8326 makes the LIVE entry wait for that variant's entry condition ([liveEntryWait8347]).
+ *  - retired compatibility mode makes the LIVE entry wait for that variant's entry condition ([liveEntryWait8347]).
  * Spends nothing, opens no position, takes no slot or ledger row. Model limits: every fill lands, marks are the fill.
  * (superseded by V5.0.8366 — a fill lands at the route's measured rate, an exit fills after the live sell latency, the
  * charged cost is the lane's measured round trip once measured, and the exits are live's own (ShadowAlign8366).)
@@ -65,8 +65,9 @@ object ExploreShadow8347 {
     private const val CONFIRM_WAIT_MS_8347 = 3 * 60_000L
     private const val CONFIRM_RISE_PCT_8347 = 2.0
     private const val LOST_MARK_MS_8347 = 10 * 60_000L
-    private const val RUNNER_TIMEOUT_MS_8347 = 120 * 60_000L
-    private const val OTHER_TIMEOUT_MS_8347 = 30 * 60_000L
+    // V5.0.8392 — the explore legs run the hold the Cortex grades (CortexLabelHygiene8144 executable horizon), as EvidenceShadow8344
+    private val RUNNER_TIMEOUT_MS_8347 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(true)
+    private val OTHER_TIMEOUT_MS_8347 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false)
     private const val SCALP_TIMEOUT_MS_8347 = 10 * 60_000L
     private const val MAX_CLOSES_8347 = 300
     private const val PREFS_8347 = "aate_explore_shadow_8347"
@@ -662,7 +663,7 @@ object ExploreShadow8347 {
         val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
         // V5.0.8366 — the lane's measured round trip (CostLedger7962, n >= 8) once measured, the NetEdge8030 model before (ShadowAlign8366)
         val cost = try { ShadowAlign8366.laneCostPct8366(lane, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
-        val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
+        val stop = try { FieldManual7715.stopPct8392(lane, cost) } catch (_: Throwable) { 10.0 }   // V5.0.8392 — never inside the round trip
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
         val arm = try { com.lifecyclebot.engine.RunnerExitProfile7277.giveBackArmPct7791(lane) } catch (_: Throwable) { 20.0 }
         val tactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, lane, o.score).name } catch (_: Throwable) { "MOMENTUM" }
@@ -1216,7 +1217,7 @@ object ExploreShadow8347 {
     // that also carries a named setup: a market-cap band alone is not a chart setup.
     fun inNiche8351(c: Choice8351, setup: String?, band: String?): Boolean = when (c.dim) {
         null -> true
-        "S" -> setup != null && Entry8114Gate8326.namedSetup8364(setup) && setup.trim().equals(c.value, ignoreCase = true)
+        "S" -> setup != null && com.lifecyclebot.engine.cortex.LanePlaybook7907.namedSetup8392(setup) && setup.trim().equals(c.value, ignoreCase = true)
         // V5.0.8370 — owner chose "No fired-setup rule" (as 8114): an M: band niche is the band; it needs no named setup.
         "M" -> band != null && band.equals(c.value, ignoreCase = true)
         else -> true
@@ -1231,7 +1232,7 @@ object ExploreShadow8347 {
     }
 
     /**
-     * Entry8114Mode8326.decide8326, after a LIVE admit: when the lane is unlocked by a NICHE, a candidate outside it is
+     * LiveEdgeGate7877.liveRefusal, after a LIVE admit: when the lane is unlocked by a NICHE, a candidate outside it is
      * refused (NICHE_ONLY_8351_<lane>). The shadow keeps exploring every candidate either way.
      */
     fun nicheRefusal8351(ts: TokenState, lane: String, sinceMs: Long): String? {
@@ -1281,7 +1282,7 @@ object ExploreShadow8347 {
             .maxByOrNull { it.second.meanPct - 1.5 * it.second.sePct }
 
     /**
-     * Entry8114Mode8326.decide8326, after a LIVE admit: when the lane's best proven variant enters on a PULLBACK or a
+     * LiveEdgeGate7877.liveRefusal, after a LIVE admit: when the lane's best proven variant enters on a PULLBACK or a
      * CONFIRM, the live entry waits for that condition (the first admit's mark is the signal). Null = buy now.
      */
     fun liveEntryWait8347(ts: TokenState, lane: String, sinceMs: Long, nowMs: Long = System.currentTimeMillis()): String? {
@@ -1293,7 +1294,7 @@ object ExploreShadow8347 {
         val w = waits[key] ?: longArrayOf(nowMs, java.lang.Double.doubleToRawLongBits(px)).also { waits[key] = it; waitsDirty8355 = true }   // V5.0.8355 — a new wait is a change
         val signal = java.lang.Double.longBitsToDouble(w[1])
         val age = nowMs - w[0]
-        val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
+        val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }   // V5.0.8392 — the pullback depth is an ENTRY read: mandate, not the cost-widened exit stop
         val ready = when (entry) {
             Entry8347.PULLBACK -> px <= signal * (1.0 - pullbackPct8347(stop) / 100.0)
             Entry8347.CONFIRM -> age >= CONFIRM_AFTER_MS_8347 && px >= signal * (1.0 + CONFIRM_RISE_PCT_8347 / 100.0)

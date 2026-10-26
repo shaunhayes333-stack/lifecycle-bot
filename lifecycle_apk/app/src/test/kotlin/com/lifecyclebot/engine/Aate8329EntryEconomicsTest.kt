@@ -2,7 +2,6 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.learning.TacticSwitcher
 import com.lifecyclebot.engine.truth.CostLedger7962
-import com.lifecyclebot.engine.truth.Entry8114Mode8326
 import com.lifecyclebot.engine.truth.EntryEconomics8329
 import com.lifecyclebot.engine.truth.NetEdge8030
 import com.lifecyclebot.engine.truth.TradePlan7739
@@ -35,16 +34,12 @@ class Aate8329EntryEconomicsTest {
     }
 
     @Test fun realisedRefusalBindsOverThe8114AdmitButNotOverHardSafety() {
-        val realised = "${EntryEconomics8329.LANE_REALISED_BINDS_8329}_MOONSHOT"
-        assertEquals(realised, Entry8114Mode8326.finalVerdict8326(null, null, realised))
-        assertEquals("a label refusal of the current verdict is still bypassed", realised,
-            Entry8114Mode8326.finalVerdict8326(null, "CANDIDATE_ADMISSION_8136_LIVE_LANE_LABELS_NOT_POSITIVE_8325", realised))
-        assertEquals("hard safety comes first", "CANDIDATE_ADMISSION_8136_SAFETY_REFUSED_8136",
-            Entry8114Mode8326.finalVerdict8326(null, "CANDIDATE_ADMISSION_8136_SAFETY_REFUSED_8136", realised))
-        assertEquals("a candidate's clearly losing timing still binds without a realised lane shut",
-            "CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136",
-            Entry8114Mode8326.finalVerdict8326(null, "CANDIDATE_ADMISSION_8136_TIMING_ADVERSE_8136", null))
-        assertEquals("the two-argument form is unchanged", "CHASING_SPIKE_8065", Entry8114Mode8326.finalVerdict8326("CHASING_SPIKE_8065", null))
+        val s=src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
+        assertTrue(s.contains("val final = core ?: hold"))
+        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertFalse(s.contains("Entry8114Mode8326"))
+        assertFalse(com.lifecyclebot.engine.truth.FdgGate8365.hardSafety8392("LIVE_PROVEN_SETUP_ONLY_8059"))
     }
 
     @Test fun shutLaneReopensOnAWinAfterTheShutOrALastFiveMeanAtOrAboveZero() {
@@ -62,14 +57,12 @@ class Aate8329EntryEconomicsTest {
     }
 
     @Test fun modeDecisionConsultsTheRealisedLaneRead() {
-        val mode = src("engine/truth/Entry8114Mode8326.kt")
-        assertTrue(mode.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
-        assertTrue(mode.contains("finalVerdict8326(old.reason, now, realised)"))
-        assertTrue(mode.contains("EntryEconomics8329.statusLine8329()"))
-        val econ = src("engine/truth/EntryEconomics8329.kt")
-        assertTrue("the shut rule is the realised governor's own", econ.contains("LaneRealisedGovernor8295.tailRefuted8295(doubleArrayOf(closes, meanPct))"))
-        assertTrue("the lane's closes are the canonical live terminal envelopes", econ.contains("terminalEnvelopes7863(\"live\")"))
-        assertEquals("ENTRY8114_LANE_REALISED_LOSING_BINDS_8329", EntryEconomics8329.LANE_REALISED_BINDS_8329)
+        val s=src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
+        assertTrue(s.contains("val final = core ?: hold"))
+        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertFalse(s.contains("Entry8114Mode8326"))
+        assertFalse(com.lifecyclebot.engine.truth.FdgGate8365.hardSafety8392("LIVE_PROVEN_SETUP_ONLY_8059"))
     }
 
     // ── 2. pre-broadcast chase check ──
@@ -191,10 +184,11 @@ class Aate8329EntryEconomicsTest {
     // ── 6. the mode stays on; nothing label-based became binding ──
 
     @Test fun modeStaysOnByDefaultAndLabelRefusalsStayBypassed() {
-        assertTrue(Entry8114Mode8326.DEFAULT_ON_8326)
-        assertFalse(Entry8114Mode8326.hardSafety8326("CANDIDATE_ADMISSION_8136_LIVE_LANE_LABELS_NOT_POSITIVE_8325"))
-        assertFalse(Entry8114Mode8326.hardSafety8326("LIVE_PROVEN_SETUP_ONLY_8059"))
-        assertFalse(Entry8114Mode8326.hardSafety8326("CANDIDATE_ADMISSION_8136_SHEET_AVOID_8323"))
-        assertNull(Entry8114Mode8326.finalVerdict8326(null, "CANDIDATE_ADMISSION_8136_LIVE_LANE_LABELS_NOT_POSITIVE_8325", null))
+        val s=src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
+        assertTrue(s.contains("val final = core ?: hold"))
+        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertFalse(s.contains("Entry8114Mode8326"))
+        assertFalse(com.lifecyclebot.engine.truth.FdgGate8365.hardSafety8392("LIVE_PROVEN_SETUP_ONLY_8059"))
     }
 }

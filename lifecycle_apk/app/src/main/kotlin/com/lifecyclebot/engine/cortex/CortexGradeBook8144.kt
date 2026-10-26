@@ -367,15 +367,17 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
      * apples-to-oranges performance comparison or relabelling after a win.
      * "TAKE" is a recorded proposal, not proof that a live fill occurred.
      */
-    fun executableDecisionSeries8269(lane: String, admitted: Boolean): List<Double> =
+    fun executableDecisionSeries8269(lane: String, admitted: Boolean, scoreVersion: Int? = null): List<Double> =
         decisions.filter {
             it.graded && !it.lost && it.lane == lane && it.admitted == admitted &&
+                (scoreVersion == null || it.scoreVersion8372 == scoreVersion) &&
                 it.executablePct.isFinite()
         }.sortedBy { it.atMs }.map { objectivePct8322(it) - offsetFor8372(it) }
 
-    fun executableDecisionGrossSeries8269(lane: String, admitted: Boolean): List<Double> =
+    fun executableDecisionGrossSeries8269(lane: String, admitted: Boolean, scoreVersion: Int? = null): List<Double> =
         decisions.filter {
             it.graded && !it.lost && it.lane == lane && it.admitted == admitted &&
+                (scoreVersion == null || it.scoreVersion8372 == scoreVersion) &&
                 it.executablePct.isFinite() && objectiveGross8324(it).isFinite()
         }.sortedBy { it.atMs }.map { objectiveGross8324(it) }  // V5.0.8324 — the objective's own horizon
 
@@ -402,13 +404,17 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
      * executable-net lane objective), oldest first: what CortexAuthority8366's walk-forward reads. The score is the tail EV
      * the bucket was read on for a runner lane (when recorded), else the calibrated edge.
      */
+    fun outcomeDueAt8392(atMs: Long): Long = atMs + FIRST_LABEL_MS_8322
+
     fun scoredRows8366(lane: String, runner: Boolean, scoreVersion: Int? = null, setup: String? = null): List<CortexAuthority8366.Row8366> {
-        return decisions.filter { it.graded && !it.lost && it.lane == lane && it.executablePct.isFinite() &&
+        return decisions.filter { it.graded && it.lane == lane &&
             (scoreVersion == null || it.scoreVersion8372 == scoreVersion) && (setup == null || it.setup == setup) }
             .sortedBy { it.atMs }
             .map { CortexAuthority8366.Row8366(it.atMs,
                 if (it.scoreVersion8372 == 0 && runner && it.tailEv8324.isFinite()) it.tailEv8324 else it.predictedEdgePct,
-                objectivePct8322(it) - offsetFor8372(it), it.bucket, objectiveAvailableAt8322(it)) }
+                if (!it.lost && it.executablePct.isFinite()) objectivePct8322(it) - offsetFor8372(it) else Double.NaN,
+                it.bucket, if (it.executablePct.isFinite()) objectiveAvailableAt8322(it) else 0L,
+                it.atMs + FIRST_LABEL_MS_8322) }
     }
 
     /** The same frozen, executable current-predictor cohorts used by the visible verdict row and authority.
@@ -449,11 +455,11 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
      * V5.0.8325 §COPY_ON_READ — every lane's ranking rows in ONE pass (the Cortex copies them under its lock and ranks them
      * outside it, cached). Same rows and order as [rankRows8324].
      */
-    fun rankRowsByLane8325(): Map<String, List<RankRow8324>> {
+    fun rankRowsByLane8325(scoreVersion: Int? = null): Map<String, List<RankRow8324>> {
         val by = HashMap<String, ArrayList<CortexGradeRecord8144>>()
-        for (d in decisions) if (d.graded && !d.lost && d.executablePct.isFinite()) by.getOrPut(d.lane) { ArrayList() }.add(d)
+        for (d in decisions) if (d.graded && !d.lost && d.executablePct.isFinite() && (scoreVersion == null || d.scoreVersion8372 == scoreVersion)) by.getOrPut(d.lane) { ArrayList() }.add(d)
         return by.mapValues { (lane, rs) ->
-            rs.sortedBy { it.atMs }.map { RankRow8324(it.predictedEdgePct, it.tailEv8324, objectivePct8322(it) - offsetFor8372(it), it.bucket, it.admitted) }
+            rs.sortedBy { it.atMs }.map { RankRow8324(it.predictedEdgePct, if (it.scoreVersion8372 == 1) Double.NaN else it.tailEv8324, objectivePct8322(it) - offsetFor8372(it), it.bucket, it.admitted) }
         }
     }
 

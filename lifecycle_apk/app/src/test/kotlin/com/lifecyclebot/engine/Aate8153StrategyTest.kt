@@ -223,8 +223,9 @@ class Aate8153StrategyTest {
         // superseded by V5.0.8326 — the 8114 legacy branch reads provenSetup8056 first; the current branch keeps admitted < ranked < proven
         assertTrue(sel.indexOf("rankedSetup8153(ts, laneRaw, nowMs)") < sel.lastIndexOf("provenSetup8056(ts, laneRaw, nowMs)"))
         assertTrue(pb.contains("primaryTag8153(c, try { selectedSetup8094(ts, c.lane, nowMs) } catch (_: Throwable) { null })"))
-        // superseded by V5.0.8326 — outside Entry8114Mode8326's legacy scope the strategy the coin trades as is still strategyFor8153
-        assertTrue(pb.contains("c8084.tag else strategyFor8153(ts, lane, c8084, nowMs)) ?: return null"))
+        // V5.0.8392 — one strategy read: the coin trades as strategyFor8153 (no legacy classified-tag branch)
+        assertTrue(pb.contains("val setup = strategyFor8153(ts, lane, c8084, nowMs) ?: return null"))
+        assertFalse(pb.contains("c8084.tag else strategyFor8153"))
         assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("StrategyIdentity8153.record8153(mint, lane, d.chosenSetup, d.basis, nowMs,"))
         assertTrue(src("engine/learning/TacticSwitcher.kt").contains("LanePlaybook7907.selectedSetup8094(ts, lane)"))
         assertTrue(src("engine/AgenticStyleRouter.kt").contains("LanePlaybook7907.selectedSetup8094(ts, laneHint)"))

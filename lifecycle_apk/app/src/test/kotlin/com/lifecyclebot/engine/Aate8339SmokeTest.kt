@@ -75,16 +75,12 @@ class Aate8339SmokeTest {
     }
 
     @Test fun rehearsalHookPoints() {
-        val gate = src("engine/truth/Entry8114Gate8326.kt")
-        assertTrue(gate.contains("if (Rehearsal8339.walletDoorBindsNow8339()) (try { LiveBootRecovery8074.blind8074(nowMs) } catch (_: Throwable) { null })?.let {"))
-        val mode = src("engine/truth/Entry8114Mode8326.kt")
-        assertTrue(mode.contains("inCurrent8326 { LiveEdgeGate7877.liveRefusal(ts, lane, Rehearsal8339.shadowPaper8339(paper8336), nowMs, candidateVersion, candidateAdmission) }"))
-        assertFalse(mode.contains("LiveEdgeGate7877.liveRefusal(ts, lane, false, nowMs, candidateVersion, candidateAdmission)"))
-        // Rehearsal itself stays on, and a paper admit is still not a live admit (8336).
-        assertTrue(mode.contains("(!paper || (EvidenceHold8336.enabled8336 && EvidenceHold8336.rehearsal8336))"))
-        assertTrue(mode.contains("// V5.0.8336 — rehearsal admits are not live admits"))
-        val hold = src("engine/truth/EvidenceHold8336.kt")
-        assertTrue(hold.contains("@Volatile var rehearsal8336: Boolean = true"))
+        val gate=src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(gate.contains("canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)"))
+        assertTrue(gate.contains("FdgGate8365.inContext8365(ts, l, basis)"))
+        assertTrue(gate.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertTrue(gate.contains("if (paper && final == null) Rehearsal8339.notePaperAdmit8342"))
+        assertFalse(gate.contains("entryRefusal8114"))
     }
 
     // ── 3. repair rows off the init path ──

@@ -90,7 +90,6 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var switchMarketsTrader: SwitchCompat
     private lateinit var switchCryptoAltsTrader: SwitchCompat
     private lateinit var switchLossStreakCooldown: SwitchCompat
-    private lateinit var switchEntry8114Mode: SwitchCompat  // V5.0.8326
     private lateinit var switchPumpPortalTradeStream8354: SwitchCompat  // V5.0.8354
     // V5.7.7: Individual Markets sub-trader switches
     private lateinit var switchPerpsEnabled: SwitchCompat
@@ -195,7 +194,6 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchMarketsTrader = view.findViewById(R.id.switchMarketsTrader)
         switchCryptoAltsTrader = view.findViewById(R.id.switchCryptoAltsTrader)
         switchLossStreakCooldown = view.findViewById(R.id.switchLossStreakCooldown)
-        switchEntry8114Mode = view.findViewById(R.id.switchEntry8114Mode)
         switchPumpPortalTradeStream8354 = view.findViewById(R.id.switchPumpPortalTradeStream8354)
         // V5.7.7: Individual Markets sub-trader switches
         switchPerpsEnabled = view.findViewById(R.id.switchPerpsEnabled)
@@ -375,7 +373,6 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchMarketsTrader.isChecked = cfg.marketsTraderEnabled
         switchCryptoAltsTrader.isChecked = cfg.cryptoAltsEnabled
         switchLossStreakCooldown.isChecked = cfg.lossStreakCooldownEnabled
-        switchEntry8114Mode.isChecked = cfg.entry8114ModeEnabled
         switchPumpPortalTradeStream8354.isChecked = cfg.pumpPortalTradeStreamEnabled
         // V5.7.7: Sub-trader switches
         switchPerpsEnabled.isChecked = cfg.perpsEnabled
@@ -455,7 +452,6 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             marketsTraderEnabled = switchMarketsTrader.isChecked,
             cryptoAltsEnabled = switchCryptoAltsTrader.isChecked,
             lossStreakCooldownEnabled = switchLossStreakCooldown.isChecked,
-            entry8114ModeEnabled = switchEntry8114Mode.isChecked,
             pumpPortalTradeStreamEnabled = switchPumpPortalTradeStream8354.isChecked,  // V5.0.8354
             // V5.7.7: Individual Markets sub-trader toggles
             perpsEnabled = switchPerpsEnabled.isChecked,

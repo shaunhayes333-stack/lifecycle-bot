@@ -108,7 +108,7 @@ object FdgGate8365 {
      * when it is a label / record door and neither the current hard verdict nor the realised / hold refusal decided.
      */
     fun oldYields8365(old: String?, finalSoFar: String?, realised: String?): Boolean =
-        old != null && finalSoFar == old && realised == null && !Entry8114Mode8326.hardSafety8326(old) && Rehearsal8339.evidenceDoor8342(old)
+        old != null && finalSoFar == old && realised == null && !FdgGate8365.hardSafety8392(old) && Rehearsal8339.evidenceDoor8342(old)
 
     /** Pure: the class a refusal is attributed to. */
     fun class8365(reason: String?): String? {
@@ -119,7 +119,7 @@ object FdgGate8365 {
             r.contains("DATA_") || r.contains("UNHYDRATED") || r.contains("_DEFER") || r.contains("EVAL_FAILED") -> CLASS_DATA
             r.contains("NET_EDGE") || r.contains("ECONOMIC") || r.contains("SIZE_NOT_EXECUTABLE") || r.contains("COST_") ||
                 r.contains("ROUTE_MIN") -> CLASS_ECONOMICS
-            Entry8114Mode8326.hardSafety8326(r) || r.contains("CURVE_NOBODY_BOUGHT") -> CLASS_SAFETY
+            FdgGate8365.hardSafety8392(r) || r.contains("CURVE_NOBODY_BOUGHT") -> CLASS_SAFETY
             Rehearsal8339.evidenceDoor8342(r) || r.contains("EDGE_7877") -> CLASS_LABEL
             else -> CLASS_STRUCTURE
         }
@@ -128,7 +128,7 @@ object FdgGate8365 {
     /** Pure: a memoised 8114 decision is reused only inside [MEMO_TTL_MS_8365]. */
     fun memoFresh8365(atMs: Long, nowMs: Long): Boolean = nowMs - atMs in 0L..MEMO_TTL_MS_8365
 
-    // ── the decision context (set by Entry8114Mode8326.decide8326 around the 8114 verdict) ──
+    // ── the decision context (set by LiveEdgeGate7877.liveRefusal around the 8114 verdict) ──
 
     private class Ctx8365(val ts: TokenState, val lane: String, val holdBasis: String?)
     private val ctx8365 = ThreadLocal<Ctx8365>()
@@ -157,7 +157,7 @@ object FdgGate8365 {
     fun demoteNow8365(reason: String, lane: String): Boolean {
         val c = ctx8365.get() ?: return false
         if (!liveNow8365() || !Rehearsal8339.evidenceDoor8342(reason)) return false
-        val l = Entry8114Mode8326.canon8326(lane.ifBlank { c.lane })
+        val l = CanonicalLaneIdentity6506.desk8392(lane.ifBlank { c.lane })
         val realised = if (c.holdBasis == null && setupLossDoor8365(reason)) {
             val setup = setupOfReason8365(reason, l)
                 ?: (if (reason.uppercase().contains("TIMING_RECORD_NEGATIVE") || reason.uppercase().contains("PICKED_SETUP_RECORD_NEGATIVE"))
@@ -199,21 +199,21 @@ object FdgGate8365 {
     private val admits8365 = AtomicLong(0)
 
     fun noteDemoted8365(reason: String, by: String, lane: String) {
-        val gate = Entry8114Mode8326.gateKey8326(reason)
+        val gate = FdgGate8365.gateKey8392(reason)
         demoted8365.computeIfAbsent("$gate>$by") { AtomicLong(0) }.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc("FDG8365_DEMOTED_${gate}_BY_$by")
-            PipelineHealthCollector.labelInc("FDG8365_DEMOTED_${gate}_${Entry8114Mode8326.canon8326(lane)}")
+            PipelineHealthCollector.labelInc("FDG8365_DEMOTED_${gate}_${CanonicalLaneIdentity6506.desk8392(lane)}")
         } catch (_: Throwable) {}
     }
 
-    /** Entry8114Mode8326.decide8326: the one final verdict of the decision, attributed once. */
+    /** LiveEdgeGate7877.liveRefusal: the one final verdict of the decision, attributed once. */
     fun noteFinal8365(final: String?, lane: String) {
         if (final == null) { admits8365.incrementAndGet(); return }
         val cls = class8365(final) ?: return
-        val gate = Entry8114Mode8326.gateKey8326(final)
+        val gate = FdgGate8365.gateKey8392(final)
         refused8365.computeIfAbsent("$cls=$gate") { AtomicLong(0) }.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("FDG8365_REFUSED_${cls.replace('-', '_')}_${Entry8114Mode8326.canon8326(lane)}") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("FDG8365_REFUSED_${cls.replace('-', '_')}_${CanonicalLaneIdentity6506.desk8392(lane)}") } catch (_: Throwable) {}
     }
 
     fun statusLine8365(): String {
@@ -224,4 +224,31 @@ object FdgGate8365 {
             .joinToString(",") { "${it.key}=${it.value.get()}" }
         return "fdg8365[book=$book admitted=${admits8365.get()} refused{$refused} reused=${memoHits8365.get()}] duplicatesDemoted=[$demoted]"
     }
+    private val HARD_MARKERS_8392 = listOf(
+        "SAFETY_REFUSED", "STRUCTURAL_RISK", "RUG", "FREEZE", "MINT_AUTH", "AUTHORITY", "TOKEN_2022", "TOKEN2022", "T22_",
+        "HOSTILE", "HONEYPOT", "SELLAB", "UNSELLABLE", "MAYHEM", "BLACKLIST", "HARD_BLOCK", "LIQ_TOO_LOW", "LIQUIDITY_FLOOR",
+        "LIQUIDITY_COLLAPSE", "LANE_LIQ", "EXIT_SAFE", "IDENTITY", "PRICE_BASIS", "BASIS_PROOF", "WALLET_BLIND", "BALANCE",
+        "LEDGER", "DUPLICATE", "SINGLE_FLIGHT", "KILL_SWITCH", "HALT", "AT_LAUNCH_CAP", "DEAD_LAUNCH",
+        "ECONOMICS", "NET_EDGE_BELOW", "COST_REQUOTE", "ROUTE_MIN", "CANONICAL_ENTRY_EVAL_FAILED_8392",
+    )
+
+    /** Pure: a refusal that binds whatever the mode (safety / correctness / economics, not selection). */
+    fun hardSafety8392(reason: String?): Boolean {
+        if (reason.isNullOrBlank()) return false
+        val r = reason.uppercase()
+        return HARD_MARKERS_8392.any { r.contains(it) }
+    }
+
+    /** Pure: the gate a refusal belongs to, for ENTRY8114_BYPASSED_<gate>. */
+    fun gateKey8392(reason: String): String {
+        val r = reason.uppercase().trim()
+        val body = if (r.startsWith("CANDIDATE_ADMISSION_8136_")) "ADMISSION8136_" + r.removePrefix("CANDIDATE_ADMISSION_8136_") else r
+        val m = Regex("^(.*?_\\d{4})(?:_|$)").find(body)
+        val head = m?.groupValues?.getOrNull(1) ?: body
+        val key = if (body.startsWith("ADMISSION8136_")) {
+            Regex("^ADMISSION8136_(.*?_\\d{4})(?:_|$)").find(body)?.groupValues?.getOrNull(1)?.let { "ADMISSION8136_$it" } ?: head
+        } else head
+        return key.replace(Regex("[^A-Z0-9_]"), "_").take(56)
+    }
+
 }

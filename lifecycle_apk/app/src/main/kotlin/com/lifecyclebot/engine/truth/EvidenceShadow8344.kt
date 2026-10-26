@@ -37,8 +37,10 @@ object EvidenceShadow8344 {
     const val MAX_OPEN_8344 = 120
     const val TICKET_SOL_8344 = 0.03
     private const val LOST_MARK_MS_8344 = 10 * 60_000L
-    private const val RUNNER_TIMEOUT_MS_8344 = 120 * 60_000L
-    private const val OTHER_TIMEOUT_MS_8344 = 30 * 60_000L
+    // V5.0.8392 — the shadow runs the hold the Cortex grades (CortexLabelHygiene8144 executable horizon: 6 h runner, 60 min
+    // other). 5.0.8390: TREASURY coins were labelled +229 % over the 60-min hold while the shadow clocked out at 30 min.
+    private val RUNNER_TIMEOUT_MS_8344 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(true)
+    private val OTHER_TIMEOUT_MS_8344 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false)
     private const val REOPEN_GAP_MS_8344 = 15 * 60_000L
     private const val MAX_CLOSES_PER_LANE_8344 = 300
     private const val PREFS_8344 = "aate_evidence_shadow_8344"
@@ -137,7 +139,7 @@ object EvidenceShadow8344 {
     // the book did not open is counted by the reason it was skipped ([SKIP_*]), so the next report reads the gap off one line.
     const val SOURCE_DECISION_8345 = "DECISION"
     const val SOURCE_GRAB_8345 = "GRAB"
-    const val SKIP_LEGACY_REFUSED_8345 = "LEGACY_8114_REFUSED"     // the 8114 verdict refused too: not an admitted candidate
+    const val SKIP_LEGACY_REFUSED_8345 = "CANONICAL_ENTRY_REFUSED_8392"     // the canonical entry verdict refused too: not an admitted candidate
     const val SKIP_HARD_SAFETY_8345 = "HARD_SAFETY_BINDS"
     const val SKIP_ALREADY_OPEN_8345 = "ALREADY_OPEN"
     const val SKIP_REOPEN_GAP_8345 = "REOPEN_GAP_15M"
@@ -153,7 +155,7 @@ object EvidenceShadow8344 {
     private val openedBySource8345 = ConcurrentHashMap<String, AtomicLong>()  // source -> opens
     private val markSrc8360 = ConcurrentHashMap<String, AtomicLong>()         // V5.0.8360 — entry-mark source -> opens
 
-    /** Entry8114Mode8326.decide8326: the hold refused [lane]'s candidate; the decision's other verdicts say whether the book may take it. */
+    /** LiveEdgeGate7877.liveRefusal: the hold refused [lane]'s candidate; the decision's other verdicts say whether the book may take it. */
     fun noteHoldRefusal8345(lane: String, legacyRefused: Boolean, hardSafetyBinds: Boolean) {
         holdRefused8345.computeIfAbsent(lane) { AtomicLong(0) }.incrementAndGet()
         if (hardSafetyBinds) skip8345(lane, SKIP_HARD_SAFETY_8345) else if (legacyRefused) skip8345(lane, SKIP_LEGACY_REFUSED_8345)
@@ -239,7 +241,7 @@ object EvidenceShadow8344 {
     // ── open ──
 
     /**
-     * Entry8114Mode8326.decide8326: the live decision admitted [ts] in [lane], the hold (or the live-loss shut) refused.
+     * LiveEdgeGate7877.liveRefusal: the live decision admitted [ts] in [lane], the hold (or the live-loss shut) refused.
      * V5.0.8345 — also RunnerGrabLane8343 ([source] = [SOURCE_GRAB_8345]): the grab lane's candidate refused in LIVE by the
      * hold alone is traded here on its HOST lane, so the hold can unlock that lane on it. Every skip is counted by reason;
      * a tick price older than [PRICE_FRESH_MS_8345] falls back to the mark the tick reads (ForwardReturnLabeler7731.markFor7948:
@@ -271,7 +273,7 @@ object EvidenceShadow8344 {
             val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
             // V5.0.8366 — the lane's measured round trip (CostLedger7962, n >= 8) once measured, the NetEdge8030 model before
             val cost = try { ShadowAlign8366.laneCostPct8366(lane, liq, mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
-            val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }
+            val stop = try { FieldManual7715.stopPct8392(lane, cost) } catch (_: Throwable) { 10.0 }   // V5.0.8392 — never inside the round trip
             val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
             val arm = try { com.lifecyclebot.engine.RunnerExitProfile7277.giveBackArmPct7791(lane) } catch (_: Throwable) { 20.0 }
             // V5.0.8364 — booked at the decision mark plus the lane's decision-to-fill chase (ShadowFill8364), as a live buy fills

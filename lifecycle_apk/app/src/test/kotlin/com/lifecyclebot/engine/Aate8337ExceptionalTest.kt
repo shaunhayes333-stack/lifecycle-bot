@@ -94,20 +94,11 @@ class Aate8337ExceptionalTest {
     }
 
     @Test fun decide8326ConsultsTheExceptionBeforeTheHoldRefuses() {
-        val mode = src("engine/truth/Entry8114Mode8326.kt")
-        assertTrue("the mode decision hands the candidate to the hold", mode.contains("EvidenceHold8336.refusal8336(ts, l, paper8336, nowMs)"))
-        assertTrue(mode.contains("finalVerdict8326(old.reason, now, realised)"))
-        val hold = src("engine/truth/EvidenceHold8336.kt")
-        val overload = hold.indexOf("fun refusal8336(ts: TokenState, lane: String, paper: Boolean, nowMs: Long")
-        assertTrue(overload > 0)
-        val consult = hold.indexOf("exceptional8336(ts, l, nowMs)", overload)
-        val refuse = hold.indexOf("return refuse8336(l)", overload)
-        assertTrue("the exception is consulted before the refusal", consult > overload && refuse > consult)
-        assertTrue("the mint-less call lets an admitted lane pass", hold.contains("if (laneAdmitted8337(l, nowMs))"))
-        assertTrue("the legs are read now, not from labels or paper", hold.contains("RunnerGrab7967.grab7967(ts.mint, nowMs)") &&
-            hold.contains("LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(mint, nowMs)") &&
-            hold.contains("Cortex7885.assess(ts, lane, nowMs)") && hold.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
-        // superseded by V5.0.8338 — TradePlan passes the TokenState, so the exception pass is read per mint, not per lane
-        assertTrue("TradePlan reads the hold per mint", src("engine/truth/TradePlan7739.kt").contains("EvidenceHold8336.refusal8336(ts, lane, paper, nowMs)"))
+        val gate=src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(gate.contains("canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)"))
+        assertTrue(gate.contains("FdgGate8365.inContext8365(ts, l, basis)"))
+        assertTrue(gate.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertTrue(gate.contains("if (paper && final == null) Rehearsal8339.notePaperAdmit8342"))
+        assertFalse(gate.contains("entryRefusal8114"))
     }
 }

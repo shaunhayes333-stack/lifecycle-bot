@@ -73,6 +73,7 @@ object CandidateAdmission8136 {
         /** V5.0.8209 — the executable size (SOL) [costPct] was quoted for, and that quote's breakdown; immutable with the decision. */
         val costSizeSol: Double = Double.NaN,
         val costBreakdown: String = "",
+        val costMargin8391: Double = NetEdge8030.EDGE_MULT,
         val downsidePct: Double = Double.NaN,
         /** Executable move per fired setup; an alternative cannot inherit the selected setup's economics. */
         val expectedGrossBySetup: Map<String, Double> = emptyMap(),
@@ -184,6 +185,7 @@ object CandidateAdmission8136 {
         val costPct: Double = Double.NaN,
         val costSizeSol: Double = Double.NaN,
         val costBreakdown: String = "",
+        val costMargin8391: Double = NetEdge8030.EDGE_MULT,
         /** Lifecycle prior already weighed against this decision's selected strategy. */
         val evaluatedStage: String = "",
     ) {
@@ -350,7 +352,7 @@ object CandidateAdmission8136 {
             !priceStale8136(c.priceAgeMs, c.hotLaunch) &&
             c.missingInputs.none(::criticalMissing8170) &&
             c.safetyRefusal == null && c.structuralRisk == null &&
-            NetEdge8030.entryClears8030(gross, c.costPct)
+            NetEdge8030.entryClears8030(gross, c.costPct, c.costMargin8391)
 
     // ── the decision ──
 
@@ -365,7 +367,7 @@ object CandidateAdmission8136 {
         if (c.liveShortfall8290 > 0.0) trace += "liveShortfall8290=${fmt8136(-c.liveShortfall8290)} off every label record at the support tests (loss tests read raw, 8316)"
         fun done(t: Terminal8136, reason: String, specific: Boolean, setup: String?, basis: String = ""): Decision8136 =
             Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason },
-                costPct = c.costPct, costSizeSol = c.costSizeSol, costBreakdown = c.costBreakdown,
+                costPct = c.costPct, costSizeSol = c.costSizeSol, costBreakdown = c.costBreakdown, costMargin8391 = c.costMargin8391,
                 evaluatedStage = c.stage)
 
         // 1. hard safety and structural selling risk: nothing overrides them.
@@ -538,11 +540,11 @@ object CandidateAdmission8136 {
 
         // 4. execution economics: the expected executable move must clear NetEdge8030.EDGE_MULT x the round trip.
         val econKnown = decisionGross.isFinite() && c.costPct.isFinite()
-        if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct)) {
+        if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct, c.costMargin8391)) {
             // V5.0.8204 — the refusal names its evidence: expected gross, round-trip cost at the ticket it was costed at
             // (CostMeter8151 last ticket / default), and the cost breakdown. 5.0.8202: 319 economic refusals, no record of
             // which notional or liquidity they were judged at.
-            trace += "econRefused8204 gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} needMult=${NetEdge8030.EDGE_MULT} " +
+            trace += "econRefused8204 gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} needMult=${c.costMargin8391} " +
                 "breakdown=${c.costBreakdown.ifBlank { try { NetEdge8030.lastEntryBreakdown8204() } catch (_: Throwable) { "-" } }}"
             return done(Terminal8136.REFUSE, "EXECUTION_ECONOMICS_8136", true, chosen)
         }
@@ -1232,6 +1234,7 @@ object CandidateAdmission8136 {
             // V5.0.8153 — the selected strategy's expected executable move (NetEdge8030.executableMove8153), as the gate judges it.
             expectedGrossPct = try { NetEdge8030.expectedGrossFor8153(ts, lane, selected, cost8153) } catch (_: Throwable) { Double.NaN },
             costPct = cost8153,
+            costMargin8391 = NetEdge8030.margin8391(lane, costRec8209?.sizeSol ?: Double.NaN, cost8153),
             costSizeSol = costRec8209?.sizeSol ?: Double.NaN,
             costBreakdown = costRec8209?.breakdown.orEmpty(),
             downsidePct = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(lane) } catch (_: Throwable) { Double.NaN },

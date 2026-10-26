@@ -528,8 +528,7 @@ class SmartSizerV3(
         // OrderSizeResolver6441 / MinPromotion8188, so a cold lane's one unproven order can reach the floor; runtimeRefusal8188
         // still re-proves the loss budget AT the floor and LiveRiskPolicy7807 re-proves the open.
         val admitted8180 = isLive && (com.lifecyclebot.engine.truth.AdmissionEdge8180.admittedNow8198(false, candidate.mint, candidate.extraString("lane")) ||
-            com.lifecyclebot.engine.truth.MinPromotion8188.explorationSlotFree8316(candidate.extraString("lane")) ||
-            com.lifecyclebot.engine.truth.Entry8114Mode8326.admittedNow8326(candidate.mint, candidate.extraString("lane"))) &&  // V5.0.8326
+            com.lifecyclebot.engine.truth.MinPromotion8188.explorationSlotFree8316(candidate.extraString("lane"))) &&  // V5.0.8326
             (cappedSize >= liveFloorEff7697 || com.lifecyclebot.engine.truth.MinPromotion8188.runtimeRefusal8188(
                 candidate.mint, candidate.extraString("lane"), cappedSize, liveFloorEff7697, candidate.liquidityUsd) == null)
         val promoted8180 = com.lifecyclebot.engine.truth.AdmissionEdge8180.promote8180(admitted8180, cappedSize, liveFloorEff7697, minOf(safeShareCap7142, tradeable))

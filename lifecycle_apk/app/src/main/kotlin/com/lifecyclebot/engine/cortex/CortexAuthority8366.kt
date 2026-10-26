@@ -32,7 +32,7 @@ object CortexAuthority8366 {
     const val MIN_FULL_MARGIN_PCT_8366 = 2.0
     const val REVOKE_MIN_N_8366 = 20
 
-    enum class Verdict8366 { INSUFFICIENT_OOS, NO_RANK, SPREAD_BELOW_COST, TOP_NOT_POSITIVE, GRANTED }
+    enum class Verdict8366 { INSUFFICIENT_OOS, NO_RANK, SPREAD_BELOW_COST, TOP_NOT_POSITIVE, INCOMPLETE_OUTCOMES, GRANTED }
 
     /**
      * One graded executable decision: its immutable decision-time score/verdict and executable-net objective (%).
@@ -45,6 +45,7 @@ object CortexAuthority8366 {
         val netPct: Double,
         val frozenBucket: Int? = null,
         val outcomeAvailableAtMs: Long = 0L,
+        val dueAtMs8392: Long = 0L,
     )
 
     data class Result8366(
@@ -63,12 +64,17 @@ object CortexAuthority8366 {
         val cohort: String = "RANK_QUANTILES_8366",
         /** Current rows not usable yet, or lacking valid frozen prediction/outcome provenance. */
         val excludedRows8372: Int = 0,
+        val matured8392: Int = 0,
+        val missing8392: Int = 0,
+        val pending8392: Int = 0,
+        val strongCoverage8392: Double = 1.0,
+        val restCoverage8392: Double = 1.0,
     ) {
         val spread: Double get() = if (topMean.isFinite() && bottomMean.isFinite()) topMean - bottomMean else Double.NaN
         val granted: Boolean get() = verdict == Verdict8366.GRANTED && fraction > 0.0
         fun compact(): String = "${verdict.name} oos=n$oosN ic=${f(ic)} top=${f(topMean)}(n$topN) bot=${f(bottomMean)}(n$bottomN) " +
             "spread=${f(spread)} cost=${f(costPct)} auth=${(kotlin.math.round(fraction * 100.0) / 100.0)}" +
-            if (cohort == "RANK_QUANTILES_8366") "" else " cohort=$cohort excluded=$excludedRows8372"
+            if (cohort == "RANK_QUANTILES_8366") "" else " cohort=$cohort excluded=$excludedRows8372 matured=$matured8392 missing=$missing8392 pending=$pending8392 coverageS=${f(strongCoverage8392)} coverageRest=${f(restCoverage8392)}"
         private fun f(v: Double) = if (v.isFinite()) (kotlin.math.round(v * 100.0) / 100.0).toString() else "-"
     }
 
@@ -138,7 +144,34 @@ object CortexAuthority8366 {
                 else nonStrong.add(r.netPct)
             }
         }
-        return evaluate8366(oosScore, oosNet, strong, nonStrong, cost, "STRONG_VS_NON_STRONG_8372", rows.size - xs.size)
+        // Coverage population: every frozen, in-time decision whose outcome is known, still pending, or LOST (netPct NaN).
+        // Corrupt rows (infinite outcome, no bucket) are excluded here exactly as above; they are neither missing nor pending.
+        val population = rows.filter { it.atMs > 0L && it.atMs <= asOfMs && it.score.isFinite() && it.frozenBucket != null &&
+            it.frozenBucket in buckets && !(it.netPct.isInfinite()) }
+        val matured = population.filter { (it.dueAtMs8392 > 0L && it.dueAtMs8392 <= asOfMs) ||
+            (it.outcomeAvailableAtMs > it.atMs && it.outcomeAvailableAtMs <= asOfMs) }
+        fun available(r: Row8366) = r.netPct.isFinite() && r.outcomeAvailableAtMs > r.atMs && r.outcomeAvailableAtMs <= asOfMs
+        fun coverage(strongSide: Boolean): Double {
+            val group = matured.filter { (it.frozenBucket == CortexScoreboard7885.Bucket.STRONG.ordinal) == strongSide }
+            return if (group.isEmpty()) 1.0 else group.count { available(it) }.toDouble() / group.size
+        }
+        val missing = matured.count { it.netPct.isNaN() }
+        val result = evaluate8366(oosScore, oosNet, strong, nonStrong, cost, "STRONG_VS_NON_STRONG_8372", rows.size - xs.size)
+            .copy(matured8392=matured.size, missing8392=missing, pending8392=population.size-matured.size,
+                strongCoverage8392=coverage(true), restCoverage8392=coverage(false))
+        // Same proof, truthful denominator. Never impute missing outcomes as gains or losses.
+        return if (missing > 0 && minOf(result.strongCoverage8392,result.restCoverage8392) < CortexWalkForward8144.MIN_RESOLVED_SHARE_8144)
+            result.copy(verdict=Verdict8366.INCOMPLETE_OUTCOMES, fraction=0.0) else result
+    }
+
+    /** Same maturity rule for either positive or negative predictive authority. */
+    fun cohortCovered8392(rows: List<Row8366>, bucket: Int, asOfMs: Long): Boolean {
+        val eligible=rows.filter { it.atMs>0 && it.atMs<=asOfMs && it.score.isFinite() && it.frozenBucket != null &&
+            ((it.dueAtMs8392>0 && it.dueAtMs8392<=asOfMs) || (it.outcomeAvailableAtMs>it.atMs && it.outcomeAvailableAtMs<=asOfMs)) }
+        return listOf(true,false).all { side ->
+            val group=eligible.filter { (it.frozenBucket==bucket)==side }
+            group.isEmpty() || group.count { it.netPct.isFinite() && it.outcomeAvailableAtMs>it.atMs && it.outcomeAvailableAtMs<=asOfMs }.toDouble()/group.size >= CortexWalkForward8144.MIN_RESOLVED_SHARE_8144
+        }
     }
 
     /** Same evidence test for both cohort selectors; 8372 replaces the cohort semantics, not the proof bar. */

@@ -134,6 +134,7 @@ object EconomicEventSchema6464 {
          */
         val exitPriceUsd: Double = 0.0,
         val solUsdAtExit: Double = 0.0,
+        val performanceFeeSol8391: Double = 0.0,
     ) : Event()
 
     data class ReplayCarry6489(
@@ -311,6 +312,7 @@ object EconomicEventSchema6464 {
         // call site compiles unchanged; a row that leaves them at zero is
         // self-identifying as unreconstructible. See the Sell fields.
         exitPriceUsd: Double = 0.0, solUsdAtExit: Double = 0.0,
+        performanceFeeSol8391: Double = 0.0,
     ) {
         val idKey = idempotencyKey.ifBlank { "sell_${System.nanoTime()}" }
         val gross = grossProceedsSol.coerceAtLeast(0.0)
@@ -341,6 +343,7 @@ object EconomicEventSchema6464 {
             remainingCostBasisSol = remainingCost,
             exitPriceUsd = exitPriceUsd,
             solUsdAtExit = solUsdAtExit,
+            performanceFeeSol8391 = performanceFeeSol8391,
         )
         if (!appendBounded(e)) return
         if (partial) recordedPartials.incrementAndGet() else recordedSells.incrementAndGet()
@@ -392,7 +395,7 @@ object EconomicEventSchema6464 {
             is Sell -> {
                 put("partial", e.partial); put("soldQty", e.soldQty.toString())
                 put("allocatedCostBasisSol", e.allocatedCostBasisSol); put("grossProceedsSol", e.grossProceedsSol)
-                put("exitFeesSol", e.exitFeesSol); put("netProceedsSol", e.netProceedsSol)
+                put("performanceFeeSol8391", e.performanceFeeSol8391); put("exitFeesSol", e.exitFeesSol); put("netProceedsSol", e.netProceedsSol)
                 put("realizedPnlSol", e.realizedPnlSol); put("realizedReturnPct", e.realizedReturnPct)
                 put("remainingQty", e.remainingQty.toString()); put("remainingCostBasisSol", e.remainingCostBasisSol)
                 put("exitPriceUsd", e.exitPriceUsd); put("solUsdAtExit", e.solUsdAtExit)
@@ -420,7 +423,7 @@ object EconomicEventSchema6464 {
             j.getDouble("grossProceedsSol"), j.getDouble("exitFeesSol"), j.getDouble("netProceedsSol"),
             j.getDouble("realizedPnlSol"), j.getDouble("realizedReturnPct"),
             java.math.BigInteger(j.getString("remainingQty")), j.getDouble("remainingCostBasisSol"),
-            j.optDouble("exitPriceUsd", 0.0), j.optDouble("solUsdAtExit", 0.0),
+            j.optDouble("exitPriceUsd", 0.0), j.optDouble("solUsdAtExit", 0.0), j.optDouble("performanceFeeSol8391", 0.0),
         )
     } catch (_: Throwable) { null }
 

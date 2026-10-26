@@ -7,16 +7,16 @@ import com.lifecyclebot.engine.PipelineHealthCollector
  * V5.0.8339 §REHEARSAL_HAS_NO_WALLET — 8336 rehearsal decides PAPER meme entries with the LIVE (8114) decision so the
  * paper record measures the live entry policy. Two of the doors that decision runs are not policy but LIVE ACCOUNT
  * proofs, and in a PAPER runtime they refused every paper entry (5.0.8336 runtime smoke: paperBuyTickets=0):
- *   - Entry8114Gate8326.liveVerdict8114 runs LiveBootRecovery8074.blind8074 — "the wallet cannot be read, refuse the live
+ *   - the former entry replay runs LiveBootRecovery8074.blind8074 — "the wallet cannot be read, refuse the live
  *     buy". A paper book has no wallet; in the smoke JVM / a paper device the wallet is never readable, so the door
  *     refused paper forever — and with it the evidence the hold needs before any lane can go live (a deadlock of the
  *     owner's own 8336 rule).
- *   - Entry8114Mode8326.decide8326 computed the shadow verdict with paper = false in a paper runtime, which runs the live
+ *   - LiveEdgeGate7877.liveRefusal computed the shadow verdict with paper = false in a paper runtime, which runs the live
  *     chain / wallet doors (OnChainDepth live requests, CandidateAdmission live prefetch, WALLET_BLIND) and binds their
  *     hard markers; before 8336 the paper runtime never ran them.
  * The rule: the live wallet door binds a LIVE runtime only; the shadow is computed for the runtime's own book. Policy
  * doors (proven setup, timing / tactic records, 8329 realised closes, hard token safety) are untouched: rehearsal stays
- * on, and a paper admit is still never a live admit (Entry8114Mode8326.fileFinal8326, 8336).
+ * on, and a paper admit is still never a live admit (canonical verdict publication, 8336).
  */
 object Rehearsal8339 {
     const val WALLET_DOOR_SKIPPED_8339 = "ENTRY8114_REHEARSAL_WALLET_DOOR_SKIPPED_8339"
@@ -48,7 +48,7 @@ object Rehearsal8339 {
     // records / lane-label ponds / the cheat sheet / the repeat-loser book) is ADVISORY — the live verdict it would have
     // made is recorded on the paper entry (REHEARSAL_EVIDENCE_DOOR_ADVISORY_8342_<door>, liveWouldRefuse=<door>) and the
     // decision continues through every later door. BINDING in paper as in live: hard safety / structural risk
-    // (Entry8114Mode8326.hardSafety8326), the chase rules (CHASING_SPIKE_8065, SWING_LANE_ALREADY_RAN_8054), economics
+    // (FdgGate8365.hardSafety8392), the chase rules (CHASING_SPIKE_8065, SWING_LANE_ALREADY_RAN_8054), economics
     // (NET_EDGE_*, NON_ECONOMIC_APPROVAL_7835, SIZE_NOT_EXECUTABLE_7835, EXECUTION_ECONOMICS_8136, CURVE_NOBODY_BOUGHT_8046,
     // the 8320 curve rule), the rebuy lockout, Mayhem, cost priors and the shape / cell edge verdicts: the paper record
     // is then a record of realistic entries. LIVE is untouched: every door binds. Paper results still never size or admit
@@ -80,7 +80,7 @@ object Rehearsal8339 {
     fun evidenceDoor8342(reason: String?): Boolean {
         if (reason.isNullOrBlank()) return false
         val r = reason.uppercase().trim()
-        if (Entry8114Mode8326.hardSafety8326(r)) return false
+        if (FdgGate8365.hardSafety8392(r)) return false
         if (BINDING_MARKERS_8342.any { r.contains(it) }) return false
         return EVIDENCE_DOORS_8342.any { r.contains(it) }
     }
@@ -91,7 +91,7 @@ object Rehearsal8339 {
 
     private val advisories8342 = ThreadLocal<ArrayList<String>>()
 
-    /** Entry8114Mode8326.decide8326: runs [block] collecting the doors made advisory on this thread. */
+    /** LiveEdgeGate7877.liveRefusal: runs [block] collecting the doors made advisory on this thread. */
     fun <T> collecting8342(block: () -> T): Pair<T, List<String>> {
         val prev = advisories8342.get()
         val mine = ArrayList<String>()
@@ -100,7 +100,7 @@ object Rehearsal8339 {
     }
 
     /**
-     * Entry8114Gate8326 door sites: true when [reason] binds now (LIVE runtime, rehearsal off, or a binding door); false
+     * retired compatibility gate door sites: true when [reason] binds now (LIVE runtime, rehearsal off, or a binding door); false
      * when it is advisory in this PAPER runtime — then it is recorded on the collecting decision and counted, and the
      * caller continues to the next door. Unknown mode binds (safe side).
      */
@@ -111,8 +111,8 @@ object Rehearsal8339 {
         if (evidenceDoorBinds8342(paper, rehearsal, reason)) return !(try { FdgGate8365.demoteNow8365(reason, lane) } catch (_: Throwable) { false })
         advisories8342.get()?.add(reason)
         try {
-            PipelineHealthCollector.labelInc("${ADVISORY_LABEL_8342}_${Entry8114Mode8326.gateKey8326(reason)}")
-            PipelineHealthCollector.labelInc("${ADVISORY_LABEL_8342}_${Entry8114Mode8326.gateKey8326(reason)}_${Entry8114Mode8326.canon8326(lane)}")
+            PipelineHealthCollector.labelInc("${ADVISORY_LABEL_8342}_${FdgGate8365.gateKey8392(reason)}")
+            PipelineHealthCollector.labelInc("${ADVISORY_LABEL_8342}_${FdgGate8365.gateKey8392(reason)}_${CanonicalLaneIdentity6506.desk8392(lane)}")
         } catch (_: Throwable) {}
         return false
     }
@@ -132,7 +132,7 @@ object Rehearsal8339 {
     private val seenCloses8342 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     @Volatile private var prefs8342: android.content.SharedPreferences? = null
 
-    private fun key8342(mint: String, lane: String) = "$mint|${Entry8114Mode8326.canon8326(lane)}"
+    private fun key8342(mint: String, lane: String) = "$mint|${CanonicalLaneIdentity6506.desk8392(lane)}"
 
     /** BotService: the tags survive a restart (a paper close can come hours after its entry). */
     fun init8342(ctx: android.content.Context) {
@@ -166,7 +166,7 @@ object Rehearsal8339 {
     }
 
     /**
-     * Entry8114Mode8326.decide8326: a PAPER entry admitted under rehearsal; [advisories] are the evidence doors the live
+     * LiveEdgeGate7877.liveRefusal: a PAPER entry admitted under rehearsal; [advisories] are the evidence doors the live
      * policy would have refused it on (empty: the live policy would have admitted it too).
      */
     fun notePaperAdmit8342(ts: TokenState, lane: String, advisories: List<String>, nowMs: Long) {
@@ -177,7 +177,7 @@ object Rehearsal8339 {
         if (tags8342.size > MAX_TAGS_8342) tags8342.entries.sortedBy { it.value.atMs }.take(tags8342.size - MAX_TAGS_8342).forEach { tags8342.remove(it.key) }
         persist8342()
         try {
-            val l = Entry8114Mode8326.canon8326(lane)
+            val l = CanonicalLaneIdentity6506.desk8392(lane)
             PipelineHealthCollector.labelInc(if (door == null) "REHEARSAL_PAPER_ADMIT_LIVE_WOULD_ADMIT_8342_$l" else "REHEARSAL_PAPER_ADMIT_LIVE_WOULD_REFUSE_8342_$l")
             if (door != null) com.lifecyclebot.engine.truth.AdmissionRunnerTrace8144.noteAdmission8144(ts.mint, l, "ADMIT", "ADMIT_8114_8326|liveWouldRefuse=$door")
             if (com.lifecyclebot.engine.ForensicEmitRateLimiter6356.shouldEmit("REHEARSAL_ADVISORY_8342", k)) {
@@ -205,7 +205,7 @@ object Rehearsal8339 {
         val tag = closeTag8342(entryTag8342(mint, lane, closeMs))
         if (seenCloses8342.add(rowKey)) {
             if (seenCloses8342.size > 20_000) seenCloses8342.clear()
-            try { PipelineHealthCollector.labelInc("${CLOSE_LABEL_8342}_${tag}_${Entry8114Mode8326.canon8326(lane)}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("${CLOSE_LABEL_8342}_${tag}_${CanonicalLaneIdentity6506.desk8392(lane)}") } catch (_: Throwable) {}
         }
         return tag
     }

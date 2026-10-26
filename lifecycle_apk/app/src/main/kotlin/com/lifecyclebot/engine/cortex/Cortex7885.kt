@@ -373,7 +373,7 @@ object Cortex7885 {
     /** V5.0.8325 — every lane's ranking check, cached ([CortexRank8325.TTL_MS_8325]); rows copied under the lock, ranked outside. */
     private fun rankings8325(nowMs: Long = System.currentTimeMillis()): Map<String, CortexRank8325.LaneRank8325> =
         rankCache8325.get(nowMs) {
-            val rows = synchronized(this) { gradeBook8144.rankRowsByLane8325() }
+            val rows = synchronized(this) { gradeBook8144.rankRowsByLane8325(scoreVersion = 1) }
             rows.mapNotNull { (lane, r) -> CortexRank8325.rankLane8325(lane, r, isRunner(lane), tailPonds8324[lane]?.compact) }.associateBy { it.lane }
         } ?: emptyMap()
 
@@ -385,7 +385,7 @@ object Cortex7885 {
     private fun inversionLine8324(): String {
         // V5.0.8325 — cached; computed outside the lock (CortexRank8325). Never call while holding the lock.
         val parts = rankings8325().values.sortedBy { it.lane }.map { it.line }
-        return "inversion8324[${parts.joinToString(" · ").ifBlank { "no lane with 10+ graded records" }}]"
+        return "inversion8324[currentFrozenV1 score=executed_forecast ${parts.joinToString(" · ").ifBlank { "no lane with 10+ graded records" }}]"
     }
 
     // ── V5.0.8324 — how long an assessment waits for the Cortex lock (the capture pool queues behind it) ──
@@ -1289,6 +1289,16 @@ object Cortex7885 {
         if (!loaded || !LearningPersistence.ready()) return false
         val id = "$mint|${canon(lane)}|$assessmentAtMs"
         synchronized(this) {
+            // Unavailable executable predictions must survive the receipt retiring their pending trace.
+            shadowPending8372[id]?.let { p ->
+                val target = outcomeBook8372.shadowPlan(id).decisionId.ifBlank { id }
+                val key = target.substringBeforeLast('|')
+                val v = verdict8144(key,p,p.context8372)
+                if (v.authority && !p.lateRead8169 && !p.a.staleMark) {
+                    if (gradeBook8144.decision(target)==null) gradeBook8144.addDecision(newDecision8144(target,key,p,p.context8372,v))
+                    gradeBook8144.markLost(target) // never overwrites an already observed outcome
+                }
+            }
             outcomeBook8372.finishedShadow(id, learned = false)
             inc("SHADOW_UNAVAILABLE_8372_${reason.take(32)}")
         }
@@ -2346,11 +2356,11 @@ object Cortex7885 {
     }
 
     private fun refusalCurrent8372(lane: String, runner: Boolean, paper: Boolean): Boolean =
-        CortexScoreboard7885.refuseProven(cohort8372(lane)[0], restCurrent8372(lane), runner,
+        refuseCoverage8392(lane) && CortexScoreboard7885.refuseProven(cohort8372(lane)[0], restCurrent8372(lane), runner,
             if (paper) CortexScoreboard7885.MIN_N_PAPER else CortexScoreboard7885.MIN_N_LIVE)
 
     private fun relativeRefusalCurrent8372(lane: String, runner: Boolean): Boolean =
-        CortexScoreboard7885.relativeRefuseProven8019(cohort8372(lane)[0], restCurrent8372(lane), evidenceCurrent8372(lane), runner)
+        refuseCoverage8392(lane) && CortexScoreboard7885.relativeRefuseProven8019(cohort8372(lane)[0], restCurrent8372(lane), evidenceCurrent8372(lane), runner)
 
     /** Read-only display of the existing refusal paths, without incrementing action counters. */
     private fun refusalPowerCurrent8372(lane: String, runner: Boolean, paper: Boolean): Boolean {
@@ -2367,6 +2377,36 @@ object Cortex7885 {
             b[2].mean() - b[1].mean() > CortexScoreboard7885.PROOF_MARGIN_PCT
     }
 
+    /** Frozen unresolved decisions participate in coverage, never as invented gains/losses. Caller holds lock. */
+    private fun authorityRows8392(lane: String, setup: String? = null): List<CortexAuthority8366.Row8366> {
+        val rows=gradeBook8144.scoredRows8366(lane,runnerHorizon8144(lane),scoreVersion=1,setup=setup).toMutableList()
+        val seen=HashSet<String>()
+        fun append(id: String,p: Pending) {
+            if (!seen.add(id) || gradeBook8144.decision(id)!=null || p.a.lane!=lane || p.a.scoreVersion8372!=1 || p.lateRead8169 || p.a.staleMark) return
+            if (setup!=null && p.selected8153.ifBlank { p.setup7961 }!=setup) return
+            val key=id.substringBeforeLast('|')
+            if (!verdict8144(key,p,p.context8372).authority) return
+            rows += CortexAuthority8366.Row8366(p.atMs,p.a.calibratedEdge,Double.NaN,p.a.bucket.ordinal,0L,
+                gradeBook8144.outcomeDueAt8392(p.atMs))
+        }
+        for ((key,p) in pending) append("$key|${p.atMs}",p)
+        for ((id,p) in shadowPending8372) append(outcomeBook8372.shadowPlan(id).decisionId.ifBlank { id },p)
+        return rows
+    }
+
+    private data class RefusalCoverage8392(val atMs: Long, val revision: Long, val pendingN: Int, val covered: Boolean)
+    private val refusalCoverageCache8392 = HashMap<String,RefusalCoverage8392>()
+    private fun refuseCoverage8392(lane: String): Boolean {
+        val now=System.currentTimeMillis();val n=pending.size+shadowPending8372.size
+        refusalCoverageCache8392[lane]?.let {
+            if(it.revision==gradeBook8144.revision && it.pendingN==n && now-it.atMs in 0L until WF_REFRESH_MS_8144) return it.covered
+        }
+        val covered=CortexAuthority8366.cohortCovered8392(authorityRows8392(lane),CortexScoreboard7885.Bucket.REFUSE.ordinal,now)
+        if(refusalCoverageCache8392.size>128) refusalCoverageCache8392.clear()
+        refusalCoverageCache8392[lane]=RefusalCoverage8392(now,gradeBook8144.revision,n,covered)
+        return covered
+    }
+
     /** Caller holds the lock. [lane]'s one walk-forward test on its graded executable records, refreshed every 30 s. */
     private fun authorityTest8366(lane: String, setup: String? = null): CortexAuthority8366.Result8366 {
         val now = System.currentTimeMillis()
@@ -2374,9 +2414,9 @@ object Cortex7885 {
         // a previously granted proof at another cost basis, even inside the normal refresh interval.
         val offset = executableOffset8187(lane).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val cost = try { com.lifecyclebot.engine.truth.CostLedger7962.laneCostPct7962(lane) } catch (_: Throwable) { CortexAuthority8366.MIN_FULL_MARGIN_PCT_8366 }
-        val key = "$lane|${setup ?: "*"}|offset=$offset|cost=$cost"
+        val key = "$lane|${setup ?: "*"}|offset=$offset|cost=$cost|pending=${pending.size}:${shadowPending8372.size}"
         auth8366Cache[key]?.let { if (it.gradeRevision == gradeBook8144.revision && now - it.atMs in 0L until WF_REFRESH_MS_8144) return it.value }
-        val r = CortexAuthority8366.test8372(gradeBook8144.scoredRows8366(lane, runnerHorizon8144(lane), scoreVersion = 1, setup = setup), cost, now)
+        val r = CortexAuthority8366.test8372(authorityRows8392(lane, setup), cost, now)
         if (auth8366Cache.size > 200) auth8366Cache.clear()
         auth8366Cache[key] = AuthorityCache8372(now, gradeBook8144.revision, r)
         return r
@@ -2704,6 +2744,7 @@ object Cortex7885 {
      * Caller holds Cortex's lock.
      */
     private fun refusalAuthority8269(lane: String, runnerLane: Boolean, paper: Boolean, relative: Boolean = false): Boolean {
+        if (!refuseCoverage8392(lane)) return false
         val refuse = CortexScoreboard7885.Bucket.REFUSE.ordinal
         val neutral = CortexScoreboard7885.Bucket.NEUTRAL.ordinal
         val strong = CortexScoreboard7885.Bucket.STRONG.ordinal
@@ -2802,23 +2843,10 @@ object Cortex7885 {
     }
 
     /**
-     * V5.0.8326 — Entry8114Mode8326: the 8114 (379ad2fa0) LIVE entry refusal. The scoreboard's own refusal authority or
+     * V5.0.8326 — retired compatibility mode: the 8114 (379ad2fa0) LIVE entry refusal. The scoreboard's own refusal authority or
      * the 8019 relative bar, then the constitution / timing rules; no 8269 held-out proof, no 8310 inverted-column
-     * stand-down. Read only by Entry8114Gate8326 (live meme lanes while the mode is ON). Counted, never logged twice.
+     * stand-down. Read only by retired compatibility gate (live meme lanes while the mode is ON). Counted, never logged twice.
      */
-    fun entryRefusal8114(ts: TokenState, laneRaw: String): String? {
-        return try {
-            val a = cachedOrSchedule(ts, laneRaw) ?: assess(ts, laneRaw) ?: return null
-            val proven = synchronized(this) { refusalCurrent8372(a.lane, a.runnerLane, false) && consistent(a.lane) }
-            val relative8019 = !proven && synchronized(this) { relativeRefusalCurrent8372(a.lane, a.runnerLane) && consistent(a.lane) }
-            val rule = constitutionRefusal(a, ts, false, proven || relative8019)?.let { if (it == "C3_PROVEN_NEGATIVE_EDGE" && relative8019) "C3_RELATIVE_REFUSE_8019" else it }
-                ?: try { CortexTiming7900.waitRefusal(a) } catch (_: Throwable) { null }
-            if (rule == null) null else {
-                try { PipelineHealthCollector.labelInc("CORTEX_7885_REFUSED_8114_MODE_8326_$rule") } catch (_: Throwable) {}
-                "CORTEX_7885_${rule}_${a.lane}"
-            }
-        } catch (_: Throwable) { null }
-    }
 
     /**
      * Called by LiveEdgeGate7877 when it would refuse a LIVE entry. True means the
@@ -4014,7 +4042,7 @@ object Cortex7885 {
                 // V5.0.8153 — the verdict stats come from the tradeable grade records (executable, first of episode, on time);
                 // the decayed bucket books still carry the pre-8146 repeat-inflated labels and are kept as legacy fields only.
                 val v = LearningEntryTruth8153.verdictRow8153(gradeBook8144, lane, scoreVersion = 1)
-                val d8269 = LearningEntryTruth8153.decisionRow8269(gradeBook8144, lane)
+                val d8269 = LearningEntryTruth8153.decisionRow8269(gradeBook8144, lane, scoreVersion = 1)
                 UiLane8069(lane, v.strongN + v.neutralN + v.refuseN, v.strongN, v.strongMean, v.neutralN, v.neutralMean,
                     v.refuseN, v.refuseMean, calibration.slope(lane), auth, powers,
                     legacyStrongMean8153 = b.byBucket[2].mean(), legacyRefuseMean8153 = b.byBucket[0].mean(), source8153 = "CURRENT_FROZEN_V1_8372; legacy separately retained",
@@ -4026,7 +4054,7 @@ object Cortex7885 {
                     aateTakeNetMedian8269 = d8269.takeNetMedian, aateRefuseNetMedian8269 = d8269.refuseNetMedian,
                     aateTakeNetMean8269 = d8269.takeNetMean, aateRefuseNetMean8269 = d8269.refuseNetMean,
                     inversion8324 = "current ${authorityTest8366(lane).compact()}" +
-                        (ranks8325[lane]?.short?.let { " · legacy rank: $it" } ?: ""))
+                        (ranks8325[lane]?.short?.let { " · frozen-v1 rank: $it" } ?: ""))
             }
             val vetoes = vetoBook.entries.filter { it.value.n >= 5.0 }.sortedByDescending { it.value.n }.take(10).map { (k, st) ->
                 UiVeto8069(k, st.n.toInt(), st.mean(), if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.NaN)

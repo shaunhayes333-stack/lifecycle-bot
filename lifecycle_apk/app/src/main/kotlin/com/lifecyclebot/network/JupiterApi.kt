@@ -370,6 +370,7 @@ class JupiterApi(
                 "router=$router rfq=$isRfqRoute (${elapsed}ms)"
         )
 
+        com.lifecyclebot.engine.Costs8369.noteJupiterQuote8391(inputMint, outputMint, json, v2 = true)
         return SwapQuote(
             raw = json,
             outAmount = outAmount,
@@ -449,6 +450,7 @@ class JupiterApi(
                 "txLen=${swapTx.length} router=$router rfq=$isRfqRoute (${elapsed}ms)"
         )
 
+        com.lifecyclebot.engine.Costs8369.noteJupiterQuote8391(inputMint, outputMint, json, v2 = true)
         return SwapQuote(
             raw = json,
             outAmount = outAmount,
@@ -555,6 +557,7 @@ class JupiterApi(
 
         log("✅ V6 QUOTE OK: out=$outAmount impact=${fmt2(priceImpactPct)}% params=$picked (${elapsed}ms)")
 
+        com.lifecyclebot.engine.Costs8369.noteJupiterQuote8391(inputMint, outputMint, json, v2 = false)
         return SwapQuote(
             raw = json,
             outAmount = outAmount,

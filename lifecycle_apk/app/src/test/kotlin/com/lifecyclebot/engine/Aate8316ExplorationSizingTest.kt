@@ -54,8 +54,9 @@ class Aate8316ExplorationSizingTest {
         assertTrue(osr.contains("!liveEdgeAllows7877(mint, laneName) && !MinPromotion8188.explorationSlotFree8316(laneName)"))
         assertTrue(osr.contains("promotionRefusal8188 != null -> promotionRefusal8188"))   // the 8188 re-proof still refuses
         val ssv3 = src("v3/sizing/SmartSizerV3.kt")
-        // superseded by V5.0.8326 — the exploration slot is one of three promotion grounds (Entry8114Mode8326 admitted is the third)
-        assertTrue(ssv3.contains("com.lifecyclebot.engine.truth.MinPromotion8188.explorationSlotFree8316(candidate.extraString(\"lane\")) ||"))
+        // V5.0.8392 — two promotion grounds only: the proven specific edge or the lane's free exploration slot (the 8114 mode's third is gone)
+        assertTrue(ssv3.contains("com.lifecyclebot.engine.truth.MinPromotion8188.explorationSlotFree8316(candidate.extraString(\"lane\"))) &&"))
+        assertFalse(ssv3.contains("Entry8114Mode8326"))
         assertTrue(ssv3.contains("(cappedSize >= liveFloorEff7697 || com.lifecyclebot.engine.truth.MinPromotion8188.runtimeRefusal8188("))
         for (r in listOf("ROUTE_MIN_PROMOTION_REFUSED_UNMEASURED_EDGE_8188", "ROUTE_MIN_PROMOTION_REFUSED_LOSS_BUDGET_8188",
             "ORDER_SIZE_CONVICTION_REFUSED_MIN_PROMOTION_6909", "SMART_SIZER_V3_SUB_ROUTABLE_REFUSED_7831", "CAPITAL_BELOW_MIN_EXECUTABLE_6490")) {

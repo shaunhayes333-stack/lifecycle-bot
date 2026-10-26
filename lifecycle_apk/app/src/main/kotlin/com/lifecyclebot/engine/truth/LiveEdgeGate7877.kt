@@ -401,30 +401,32 @@ object LiveEdgeGate7877 {
     /** Immutable: the single live entry decision for one candidate (mint + lane + setup), read by FDG / sizing / plan. */
     data class Assessment8083(
         val mint: String, val lane: String, val setup: String, val verdict: Verdict8083, val reason: String,
-        val sizeFactor: Double, val lanePriorLosing: Boolean, val atMs: Long,
+        val sizeFactor: Double, val lanePriorLosing: Boolean, val atMs: Long, val paper8392: Boolean = false,
     )
 
     private val assessments8083 = ConcurrentHashMap<String, Assessment8083>()
     private val verdictCounts8083 = ConcurrentHashMap<String, AtomicLong>()
     private const val ASSESSMENT_TTL_MS_8083 = 120_000L
 
-    internal fun recordAssessment8083(ts: TokenState, lane: String, setup: String?, verdict: Verdict8083, reason: String, sizeFactor: Double, nowMs: Long) {
+    internal fun recordAssessment8083(ts: TokenState, lane: String, setup: String?, verdict: Verdict8083, reason: String, sizeFactor: Double, nowMs: Long, paper: Boolean = entryContext8392.get()?.paper ?: com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
         val losing = sizeFactor < 1.0
-        val a = Assessment8083(ts.mint, lane, setup ?: "UNCLASSIFIED", verdict, reason, sizeFactor.coerceIn(LiveTruth8064.LOSING_LANE_SIZE_FACTOR_8083, 1.0), losing, nowMs)
-        assessments8083["${ts.mint}|$lane"] = a
+        val a = Assessment8083(ts.mint, lane, setup ?: "UNCLASSIFIED", verdict, reason, sizeFactor.coerceIn(LiveTruth8064.LOSING_LANE_SIZE_FACTOR_8083, 1.0), losing, nowMs, paper)
+        entryContext8392.get()?.let { it.assessment = a; return }
+        assessments8083["${ts.mint}|$lane|$paper"] = a
         if (assessments8083.size > 3_000) assessments8083.entries.removeIf { nowMs - it.value.atMs > ASSESSMENT_TTL_MS_8083 }
         verdictCounts8083.computeIfAbsent(verdict.name) { AtomicLong(0) }.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("LIVE_ENTRY_ASSESSMENT_8083_${verdict.name}_$lane") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("${if (paper) "PAPER" else "LIVE"}_ENTRY_ASSESSMENT_8083_${verdict.name}_$lane") } catch (_: Throwable) {}
         // V5.0.8136 — the same terminal, filed in the one admission ledger (ADMIT / REFUSE(reason) / DEFER_DATA).
         // V5.0.8342 — a PAPER (rehearsal) assessment is filed as PAPER_REHEARSAL, never as LIVE: paper rows are not live evidence.
-        val paper8342 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val paper8342 = paper
         CandidateAdmission8136.noteVerdict8136(Rehearsal8339.assessmentSource8342(paper8342), verdict.name, reason)
     }
 
     /** V5.0.8083 — the fresh live assessment of [mint] in [lane], or null. */
-    fun assessment8083(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): Assessment8083? {
-        val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
-        return assessments8083["$mint|$l"]?.takeIf { nowMs - it.atMs in 0L..ASSESSMENT_TTL_MS_8083 }
+    fun assessment8083(mint: String, lane: String, nowMs: Long = System.currentTimeMillis(), paper: Boolean = entryContext8392.get()?.paper ?: com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()): Assessment8083? {
+        val l = CanonicalLaneIdentity6506.desk8392(lane)
+        entryContext8392.get()?.assessment?.takeIf { it.mint==mint && it.lane==l && it.paper8392==paper }?.let { return it }
+        return assessments8083["$mint|$l|$paper"]?.takeIf { nowMs - it.atMs in 0L..ASSESSMENT_TTL_MS_8083 }
     }
 
     /** V5.0.8083 — the size factor of an ADMITTED live assessment (bounded lane negative prior), 1.0 otherwise. */
@@ -460,15 +462,69 @@ object LiveEdgeGate7877 {
         it.admitted && !it.specific && it.reason == "GENERIC_PRIOR_CLEARS_8136" &&
             !it.chosenSetup.isNullOrBlank() && it.expectedNetPct.isFinite() && it.expectedNetPct > 0.0 &&
             it.costPct.isFinite() && it.costPct >= 0.0 &&
-            com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(it.expectedNetPct + it.costPct, it.costPct)
+            com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(it.expectedNetPct + it.costPct, it.costPct, it.costMargin8391)
     } == true
 
+    private class EntryContext8392(val paper: Boolean) { var assessment: Assessment8083? = null }
+    private val entryContext8392 = ThreadLocal<EntryContext8392>()
+
+    /** One admission path. Scope buffers intermediate telemetry, never changes evidence or policy. */
     fun liveRefusal(
         ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis(), candidateVersion: Long = 0L,
         candidateAdmission: CandidateAdmission8136.Decision8136? = null,
     ): String? {
-        // V5.0.8326 — Entry8114Mode8326 (owner: "Make 8114 live now"): a live meme entry is decided the 8114 way.
-        if (Entry8114Mode8326.routes8326(lane, paper)) return Entry8114Mode8326.decide8326(ts, lane, nowMs, candidateVersion, candidateAdmission)
+        val l = CanonicalLaneIdentity6506.desk8392(lane)
+        val key = FdgGate8365.memoKey8365(ts.mint, l, candidateVersion, paper)
+        FdgGate8365.memoGet8365(key, nowMs)?.let { return it.second }
+        val context = EntryContext8392(paper)
+        val previous = entryContext8392.get()
+        val basis = if (paper) null else try { FdgGate8365.holdBasis8365(l, nowMs) } catch (_: Throwable) { null }
+        entryContext8392.set(context)
+        val result = try {
+            Rehearsal8339.collecting8342 {
+                FdgGate8365.inContext8365(ts, l, basis) {
+                    canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)
+                }
+            }
+        } catch (_: Throwable) { "CANONICAL_ENTRY_EVAL_FAILED_8392" to emptyList<String>() }
+        finally { if (previous == null) entryContext8392.remove() else entryContext8392.set(previous) }
+        val core = result.first
+        // These holds were nested in the removed mode. They remain canonical safety/economic authority.
+        val hold = if (paper) null else try {
+            (if (EvidenceHold8336.shadowProven8344(l)) null else EntryEconomics8329.laneRealisedRefusal8329(l, nowMs))
+                ?: EvidenceHold8336.refusal8336(ts, l, false, nowMs)
+        } catch (_: Throwable) { "EVIDENCE_HOLD_READ_FAILED_8392" }
+        // V5.0.8392 — a niche / timing choice vetoes only a lane that has NOT proven lane-wide; on a lane-wide proven lane it is
+        // a preference (sizing / priority read it), never a refusal of the whole desk (MOONSHOT: 462 NICHE_ONLY refusals on a
+        // shadow book +60.1% pf4.42 PROVEN).
+        val laneWide = !paper && core == null && hold == null && (try { EvidenceHold8336.laneWideProven8392(l, nowMs) } catch (_: Throwable) { false })
+        val niche = if (paper || laneWide) null else try { ExploreShadow8347.nicheRefusal8351(ts, l, EvidenceHold8336.startMs8336) } catch (_: Throwable) { "NICHE_EVIDENCE_READ_FAILED_8392" }
+        val wait = if (paper || laneWide || niche != null) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { "ENTRY_TIMING_READ_FAILED_8392" }
+        if (laneWide) try {
+            if (ExploreShadow8347.bestFor8351(l, EvidenceHold8336.startMs8336)?.dim != null) PipelineHealthCollector.labelInc("NICHE_PREFERENCE_NOT_VETO_8392_$l")
+        } catch (_: Throwable) {}
+        val final = core ?: hold ?: niche ?: wait
+        val provisional = context.assessment
+        val verdict = when { final == null -> Verdict8083.ADMIT
+            provisional?.verdict == Verdict8083.DEFER && final == core -> Verdict8083.DEFER
+            else -> Verdict8083.REFUSE }
+        recordAssessment8083(ts, l, provisional?.setup ?: candidateAdmission?.chosenSetup, verdict,
+            final ?: candidateAdmission?.reason ?: "CANONICAL_ADMIT_8392", provisional?.sizeFactor ?: 1.0, nowMs, paper)
+        observeTail7996(ts, l, final, nowMs)
+        FdgGate8365.noteFinal8365(final, l)
+        FdgGate8365.memoPut8365(key, final, nowMs)
+        if (!paper && hold?.startsWith("EVIDENCE_HOLD_8336_") == true)
+            try { EvidenceShadow8344.noteHoldRefusal8345(l, core != null, FdgGate8365.hardSafety8392(core)) } catch (_: Throwable) { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_TELEMETRY_FAILED_8392") }
+        if (!paper && core == null && hold != null && final == hold)
+            try { EvidenceShadow8344.open8344(ts, l, nowMs) } catch (_: Throwable) { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_OPEN_FAILED_8392") }
+        if (paper && final == null) Rehearsal8339.notePaperAdmit8342(ts, l, result.second, nowMs)
+        return final
+    }
+
+    private fun canonicalRefusal8392(
+        ts: TokenState, lane: String, paper: Boolean, nowMs: Long, candidateVersion: Long,
+        candidateAdmission: CandidateAdmission8136.Decision8136?,
+    ): String? {
         var auditedAdmission8076 = false
         var candidateSpecificAdmission8136 = false
         var resolvedAdmission: CandidateAdmission8136.Decision8136? = null
@@ -884,7 +940,7 @@ object LiveEdgeGate7877 {
     private const val EARLY_RUNUP_MAX_PCT_8117 = 150.0
     private const val EARLY_CHG5M_MAX_PCT_8117 = 100.0
 
-    /** Pure (V5.0.8117): is a forming run still early enough to buy (not at its peak)? V5.0.8337 — internal: Entry8114Gate8326 reads it. */
+    /** Pure (V5.0.8117): is a forming run still early enough to buy (not at its peak)? V5.0.8337 — internal: retired compatibility gate reads it. */
     internal fun earlyRun8117(runupFromLowPct: Double, chg5mPct: Double): Boolean =
         runupFromLowPct.isFinite() && runupFromLowPct < EARLY_RUNUP_MAX_PCT_8117 &&
             (!chg5mPct.isFinite() || chg5mPct < EARLY_CHG5M_MAX_PCT_8117)
@@ -1071,6 +1127,7 @@ object LiveEdgeGate7877 {
 
     /** V5.0.7996 — every live decision opens a 4-hour ladder replay (TailHunter7996). */
     private fun observeTail7996(ts: TokenState, lane: String, reason: String?, nowMs: Long) {
+        if (entryContext8392.get() != null) return // only the final canonical verdict enters trace/learning
         try { TailHunter7996.observe7996(ts, lane, reason, nowMs) } catch (_: Throwable) {}
         // V5.0.8153 — the live edge gate's verdict is the runner trace's binding gate, with its decision-time evidence.
         try { AdmissionRunnerTrace8144.noteBinding8153(ts, lane, reason, nowMs) } catch (_: Throwable) {}

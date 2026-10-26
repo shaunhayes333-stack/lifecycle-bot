@@ -220,7 +220,7 @@ object CostLedger7962 {
             if (!s.solUsdAtExit.isFinite() || s.solUsdAtExit <= 0.0) {
                 return commitMeasurement8090(e, em, null, 0.0, "EXIT_SOL_USD_UNOBSERVED")
             }
-            legs += TradeCostMeasurement8090.Sale(s.soldQty, s.netProceedsSol, mark, s.solUsdAtExit)
+            legs += TradeCostMeasurement8090.Sale(s.soldQty, s.netProceedsSol + s.performanceFeeSol8391, mark, s.solUsdAtExit)
         }
         val share = soldShare8094(buy.filledQty, soldRaw)
         val spent = (buy.executedCostSol + buy.entryFeesSol) * share
@@ -279,6 +279,28 @@ object CostLedger7962 {
     private fun rowsOf(l: String): List<DoubleArray> = synchronized(this) { byLane[l]?.toList().orEmpty() }
 
     /** The lane's measured all-in cost (%) at [sizeSol], or null until [MIN_LIVE_N] live trades. */
+    /** V8391: live-clean execution dispersion, not shadow WR, shapes the uncertainty reserve. */
+    fun margin8391(laneRaw: String, sizeSol: Double, costPct: Double): Double {
+        ensureLoaded()
+        val rows = rowsOf(lane(laneRaw))
+        val band = sizeBand7962(sizeSol)
+        val sameSize = rows.filter { sizeBand7962(it[1]) == band }
+        // Never substitute another notional's cheap executions for this ticket.
+        val samples = if (band == "UNK") rows else sameSize
+        return adaptiveMargin8391(samples.map { it[0] }, costPct)
+    }
+
+    internal fun adaptiveMargin8391(costs: List<Double>, costPct: Double): Double {
+        val valid = costs.filter { it.isFinite() && it >= 0.0 }.sorted()
+        if (valid.size < 30 || !costPct.isFinite() || costPct <= 0.0) return NetEdge8030.EDGE_MULT
+        val q90 = valid[(kotlin.math.ceil(valid.size * 0.9).toInt() - 1).coerceIn(0, valid.lastIndex)]
+        val weight = valid.size.toDouble() / (valid.size + 30.0)
+        val priorReserve = costPct * (NetEdge8030.EDGE_MULT - 1.0)
+        val measuredReserve = maxOf(0.0, q90 - costPct)
+        // Reserve stays positive with finite data; volatile tails can INCREASE the bar.
+        return 1.0 + ((1.0-weight)*priorReserve + weight*measuredReserve) / costPct
+    }
+
     fun measuredCostPct7962(laneRaw: String?, sizeSol: Double = Double.NaN): Double? {
         ensureLoaded()
         return measuredFrom7962(rowsOf(lane(laneRaw)), sizeSol)

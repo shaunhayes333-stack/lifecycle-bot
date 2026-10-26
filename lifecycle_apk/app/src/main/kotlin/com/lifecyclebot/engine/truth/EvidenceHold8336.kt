@@ -20,12 +20,14 @@ import java.util.concurrent.atomic.AtomicLong
  *     optimistic), and profit factor at least [MIN_PF_8336];
  *   - PAPER is never refused here: paper is where the evidence is built.
  * Only paper closes made after the hold started count ([startMs8336], persisted): older paper rows were made by a looser
- * entry policy. While [rehearsal8336] is on, Entry8114Mode8326 decides PAPER meme entries the same way it decides LIVE
- * ones, so the paper record measures the live policy (see Entry8114Mode8326.liveActive8326).
+ * entry policy. While [rehearsal8336] is on, retired compatibility mode decides PAPER meme entries the same way it decides LIVE
+ * ones, so the paper record measures the live policy (see the canonical entry policy).
  * A lane that has proven goes live; its live closes then answer to EntryEconomics8329 (3+ closes, mean < 0 shuts it).
  * Hard safety, exits and sizing are untouched.
  */
 object EvidenceHold8336 {
+    val HELD_LANES_8392 = setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "MANIPULATED", "PROJECT_SNIPER", "QUALITY", "BLUECHIP", "DIP_HUNTER", "TREASURY", "CASHGEN", "CYCLIC", "CORE")
+
     const val MIN_N_8336 = 30
     const val MARGIN_PCT_8336 = 2.0
     const val MIN_PF_8336 = 1.3
@@ -49,8 +51,8 @@ object EvidenceHold8336 {
     data class LaneRecord8342(val all: Proof8336, val liveAdmit: Proof8336, val liveRefuse: Int, val untagged: Int)
     @Volatile private var records8342: Map<String, LaneRecord8342> = emptyMap()
 
-    /** Pure: the hold covers the meme lanes Entry8114Mode8326 decides (CRYPTO_ALT and the LLM desks are not held). */
-    fun heldLane8342(lane: String): Boolean = canon(lane) in Entry8114Mode8326.LANES_8326
+    /** Pure: the hold covers the meme lanes retired compatibility mode decides (CRYPTO_ALT and the LLM desks are not held). */
+    fun heldLane8342(lane: String): Boolean = canon(lane) in EvidenceHold8336.HELD_LANES_8392
 
     /** Pure: the lane's status fragment — both records; the bar is read on ALL closes. */
     fun laneLine8342(lane: String, r: LaneRecord8342): String =
@@ -88,10 +90,20 @@ object EvidenceHold8336 {
     fun explorationProven8347(lane: String): Boolean =
         try { ExploreShadow8347.bestFor8351(canon(lane), startMs8336) != null } catch (_: Throwable) { false }
 
+    /**
+     * V5.0.8392 — the lane has proven LANE-WIDE (its whole paper record, or its whole shadow book with real exits and costs),
+     * not merely through one exploration niche. A niche/timing choice then shapes preference, it does not veto the lane:
+     * MOONSHOT 5.0.8390 read shadow n30 +60.1% pf4.42 PROVEN lane-wide while NICHE_ONLY_8351 refused 462 of its live entries.
+     */
+    fun laneWideProven8392(lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val l = canon(lane)
+        return proofFor8336(l, nowMs).proven || (try { EvidenceShadow8344.proof8344(l, startMs8336).proven } catch (_: Throwable) { false })
+    }
+
     fun shadowProven8344(lane: String): Boolean = explorationProven8347(lane) ||
         try { EvidenceShadow8344.proof8344(canon(lane), startMs8336).proven } catch (_: Throwable) { false }
 
-    private fun canon(lane: String): String = Entry8114Mode8326.canon8326(lane)   // V5.0.8365 — SHITCOIN_EXPRESS files as EXPRESS
+    private fun canon(lane: String): String = CanonicalLaneIdentity6506.desk8392(lane)   // V5.0.8365 — SHITCOIN_EXPRESS files as EXPRESS
 
     private fun proofs8336(nowMs: Long): Map<String, Proof8336> {
         cache?.let { (at, m) -> if (nowMs - at in 0L until CACHE_MS_8336) return m }
@@ -99,7 +111,7 @@ object EvidenceHold8336 {
         val rows: List<Trade> = try {
             com.lifecyclebot.engine.TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 5_000, includePartials = false)
         } catch (_: Throwable) { emptyList() }
-        // V5.0.8342 — meme lanes only (Entry8114Mode8326.LANES_8326): CRYPTO_ALT is an LLM desk, not a lane this hold decides.
+        // V5.0.8342 — meme lanes only (EvidenceHold8336.HELD_LANES_8392): CRYPTO_ALT is an LLM desk, not a lane this hold decides.
         val paper = rows.filter { it.mode.equals("paper", true) && it.side.equals("SELL", true) && it.ts >= since && heldLane8342(it.tradingMode.ifBlank { "STANDARD" }) }
         val recs = paper.groupBy { canon(it.tradingMode.ifBlank { "STANDARD" }) }.mapValues { (lane, t) ->
             // V5.0.8342 — every paper close is tagged with the live policy's verdict on its entry (Rehearsal8339); the bar
@@ -138,7 +150,7 @@ object EvidenceHold8336 {
     }
 
     /**
-     * V5.0.8337 — [refusal8336] for a caller that has the candidate (Entry8114Mode8326.decide8326): an unproven lane still
+     * V5.0.8337 — [refusal8336] for a caller that has the candidate (LiveEdgeGate7877.liveRefusal): an unproven lane still
      * takes an exceptional runner opportunity ([exceptional8336]) live. Everything downstream (hard safety, economics,
      * sizing, the chase check) still binds: only the evidence hold is lifted.
      */
@@ -171,7 +183,7 @@ object EvidenceHold8336 {
     //       (LiquidityTruth8037.hydrate8037 >= LaneAgeLiquidityScope8140.EXIT_SAFE_HARD_FLOOR_USD_8140);
     //   (c) the Cortex run-odds read ranks the coin in the lane's top bucket (Cortex7885.assess: STRONG, with a run-odds book —
     //       pRun8325 finite from run-skilled seats); a lane with no run-odds book yet falls back to the early-run evidence
-    //       Entry8114Gate8326 / EntryEconomics8329 use (a LAUNCH_EARLY plan inside the launch window) and the reason says so;
+    //       retired compatibility gate / EntryEconomics8329 use (a LAUNCH_EARLY plan inside the launch window) and the reason says so;
     //   (d) the lane is not shut by its own realised live losses (EntryEconomics8329.laneRealisedRefusal8329 == null).
     // Bounded: one exceptional live entry per lane per [LANE_GAP_MS_8337], at most [MAX_PER_HOUR_8337] an hour across lanes.
     const val LANE_GAP_MS_8337 = 30 * 60_000L
@@ -326,7 +338,7 @@ object EvidenceHold8336 {
         val lanes = records8342.entries.sortedByDescending { it.value.all.n }.joinToString(" · ") { (l, r) -> laneLine8342(l, r) }
             .ifBlank { "no meme-lane paper closes since start" }
         return "evidenceHold8336[on=$enabled8336 rehearsal=$rehearsal8336 sinceMin=${if (startMs8336 > 0) (nowMs - startMs8336) / 60_000 else -1} " +
-            "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 lanes=${Entry8114Mode8326.LANES_8326.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
+            "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 lanes=${EvidenceHold8336.HELD_LANES_8392.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "exceptions=${exceptions8337.get()} last=$lastException8337 grabDoor8345=${grabExceptions8345.get()} $lanes" +  // V5.0.8337 / V5.0.8345
             (try { EvidenceShadow8344.recoveryLine8345(startMs8336, nowMs) } catch (_: Throwable) { " recovery8345{?}" }) + "]"  // V5.0.8345 — the bounded path to the bar
     }

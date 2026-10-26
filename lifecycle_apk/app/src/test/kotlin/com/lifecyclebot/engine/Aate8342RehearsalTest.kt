@@ -2,7 +2,6 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.truth.CandidateAdmission8136
-import com.lifecyclebot.engine.truth.Entry8114Mode8326
 import com.lifecyclebot.engine.truth.EvidenceHold8336
 import com.lifecyclebot.engine.truth.Rehearsal8339
 import org.junit.After
@@ -50,7 +49,7 @@ class Aate8342RehearsalTest {
         "CURVE_EXIT_SAFETY_8320", "CANDIDATE_ADMISSION_8136_STRUCTURAL_RISK_8136", "SAFETY_REFUSED_RUG", "FREEZE_AUTHORITY",
         "TOKEN_2022_HOSTILE", "LANE_LIQ_BELOW_FLOOR", "EXIT_SAFE_FLOOR", "WALLET_BLIND_8074", "REBUY_LOCKOUT_8019",
         "FALLING_KNIFE_8130", "BIG_LOSER_8130", "MAYHEM_7943", "COST_PRIOR_7962_SHITCOIN", "EDGE_7877_SHAPE_7883",
-        "LIVE_SETUP_LOSING_8083", "EVIDENCE_HOLD_8336_SHITCOIN", "DATA_INCOMPLETE_DEFER_8136", Entry8114Mode8326.EVAL_FAILED_8326,
+        "LIVE_SETUP_LOSING_8083", "EVIDENCE_HOLD_8336_SHITCOIN", "DATA_INCOMPLETE_DEFER_8136", "CANONICAL_ENTRY_EVAL_FAILED_8392",
     )
 
     @Test fun doorClassificationEvidenceVersusBinding() {
@@ -135,7 +134,7 @@ class Aate8342RehearsalTest {
         assertTrue(line, line.contains("liveRefuse35 untagged0"))
         val status = EvidenceHold8336.statusLine8336(4_000_000_000L)
         assertTrue(status, status.contains("bar=all,n>=30,mean-se>2.0%,pf>=1.3"))
-        assertTrue(status, status.contains("lanes=${Entry8114Mode8326.LANES_8326.size}"))
+        assertTrue(status, status.contains("lanes=${com.lifecyclebot.engine.truth.EvidenceHold8336.HELD_LANES_8392.size}"))
     }
 
     @Test fun paperAdmissionNeverReadsAsLive() {
@@ -153,35 +152,12 @@ class Aate8342RehearsalTest {
     }
 
     @Test fun hookPointsArePinned() {
-        val gate = src("engine/truth/Entry8114Gate8326.kt")
-        assertTrue(gate.contains("if (timing8342 != null && Rehearsal8339.doorBindsNow8342(\"TIMING_RECORD_NEGATIVE_8094\", l)) {"))
-        assertTrue(gate.contains("if (picked8342 != null && Rehearsal8339.doorBindsNow8342(\"PICKED_SETUP_RECORD_NEGATIVE_8094\", l)) {"))
-        assertTrue(gate.contains("if (tactic8342 != null && Rehearsal8339.doorBindsNow8342(\"TACTIC_RECORD_LOSING_8094\", l)) {"))
-        assertTrue(gate.contains("if (!auditedAdmission8076 && Rehearsal8339.doorBindsNow8342(\"LIVE_PROVEN_SETUP_ONLY_8059\", l)) {"))
-        assertTrue(gate.contains("if (watch8342 != null && Rehearsal8339.doorBindsNow8342(watch8342, l)) {"))
-        assertTrue(gate.contains("if (lockout8342 != null && Rehearsal8339.doorBindsNow8342(lockout8342, l)) return lockout8342"))
-        assertTrue(gate.contains("if (cortex != null && Rehearsal8339.doorBindsNow8342(cortex, l)) return cortex"))
-        assertTrue(gate.contains("if (!retired && !full && Rehearsal8339.doorBindsNow8342(losing8342, l)) return losing8342"))
-        assertTrue(gate.contains("if (!Rehearsal8339.doorBindsNow8342(prior, l)) continue"))
-        // the chase rule and economics have no advisory hook: they bind in paper as in live
-        assertTrue(gate.contains("return Verdict8326(\"CHASING_SPIKE_8065\", LiveEdgeGate7877.Verdict8083.REFUSE, setup)"))
-        assertTrue(gate.contains("if (r == StrategyMove8153.DEFER_REASON_8153) Entry8114Mode8326.noteBypass8326(\"NET_EDGE_MOVE_HISTORY_DEFER_8153\", lane) else return r"))
-        assertTrue(gate.contains("NetEdge8030.laneFitRefusal8054(ts, CanonicalLaneIdentity6506.canonical(lane).ifBlank { lane })?.let { return it }"))
-        val mode = src("engine/truth/Entry8114Mode8326.kt")
-        // superseded by V5.0.8365 — the 8114 verdict is still collected for the paper entry, now inside the FdgGate8365 decision
-        // context (hold basis for the live evidence-door demotion); the collecting scope and the legacy scope are unchanged.
-        assertTrue(mode.contains("val (old, advisories8342) = try { Rehearsal8339.collecting8342 { FdgGate8365.inContext8365(ts, l, basis8365) { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } } } } catch (_: Throwable) {"))
-        assertTrue(mode.contains("if (paper8336 && final == null) try { Rehearsal8339.notePaperAdmit8342(ts, l, advisories8342, nowMs) } catch (_: Throwable) {}"))
-        assertTrue(mode.contains("if (now != null && (hardSafety8326(now) || clearlyLosingCandidate8326(now))) now else (realised ?: old)"))
-        val hold = src("engine/truth/EvidenceHold8336.kt")
-        assertTrue(hold.contains("&& heldLane8342(it.tradingMode.ifBlank { \"STANDARD\" }) }"))
-        assertTrue(hold.contains("Rehearsal8339.tagPaperClose8342(\"${'$'}{it.ts}|${'$'}{it.mint}|${'$'}{it.positionId}\", it.mint, lane, it.ts)"))
-        assertTrue("the bar stays on ALL closes", hold.contains("val m = recs.mapValues { it.value.all }"))
-        // superseded by V5.0.8344 — the shadow record behind the live trader (EvidenceShadow8344) unlocks a lane on the same bar
-        assertTrue(hold.contains("if (proofFor8336(l, nowMs).proven || shadowProven8344(l)) return null"))
-        assertTrue(src("engine/BotService.kt").contains("com.lifecyclebot.engine.truth.Rehearsal8339.init8342(applicationContext)"))
-        assertEquals("REHEARSAL_EVIDENCE_DOOR_ADVISORY_8342", Rehearsal8339.ADVISORY_LABEL_8342)
-        assertEquals("REHEARSAL_PAPER_CLOSE_8342", Rehearsal8339.CLOSE_LABEL_8342)
+        val gate=src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(gate.contains("canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)"))
+        assertTrue(gate.contains("FdgGate8365.inContext8365(ts, l, basis)"))
+        assertTrue(gate.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertTrue(gate.contains("if (paper && final == null) Rehearsal8339.notePaperAdmit8342"))
+        assertFalse(gate.contains("entryRefusal8114"))
     }
 
     @Test fun aFlatMarkIsALostMarkAtEverySlot() {

@@ -65,10 +65,10 @@ class Aate8345EvidencePathTest {
         assertEquals(1L, after.second["SHITCOIN:${EvidenceShadow8344.SKIP_ALREADY_OPEN_8345}"])
         val line = EvidenceShadow8344.statusLine8344(t0 - 60_000L, t0 + 2_000L)
         assertTrue(line, line.contains("holdRefused{MOONSHOT=3,SHITCOIN=1}") && line.contains("openedBy{DECISION=1}") &&
-            line.contains("skipped{MOONSHOT:LEGACY_8114_REFUSED=2,") && line.contains("recovery8345{"))
+            line.contains("skipped{MOONSHOT:CANONICAL_ENTRY_REFUSED_8392=2,") && line.contains("recovery8345{"))
         // the decision accounts the refusal before the open
-        val mode = src("engine/truth/Entry8114Mode8326.kt")
-        assertTrue(mode.indexOf("EvidenceShadow8344.noteHoldRefusal8345(l, old.reason != null, now != null && hardSafety8326(now))") <
+        val mode = src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(mode.indexOf("EvidenceShadow8344.noteHoldRefusal8345(l, core != null, FdgGate8365.hardSafety8392(core))") <
             mode.indexOf("EvidenceShadow8344.open8344(ts, l, nowMs)"))
     }
 

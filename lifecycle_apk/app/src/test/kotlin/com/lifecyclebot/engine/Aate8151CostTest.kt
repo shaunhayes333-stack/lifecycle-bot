@@ -86,7 +86,8 @@ class Aate8151CostTest {
 
     @Test fun aggregatorFirstOnlyForAnOrdinaryBuyOfAConfirmedGraduatedPool() {
         assertEquals(0.5, c.routeFeePctPerSide8151("PUMPPORTAL"), 1e-12)
-        assertEquals(0.05, c.routeFeePctPerSide8151("jupiter"), 1e-12)
+        // V8391: documented general-pair aggregator fee is 0.1 per side; Costs8369 routeFee8391 uses live quote-specific fees.
+        assertEquals(0.1, c.routeFeePctPerSide8151("jupiter"), 1e-12)
         assertEquals(0.0, c.routeFeePctPerSide8151("RAYDIUM"), 1e-12)
         assertTrue(c.aggregatorFirstForCost8151(Urgency8151.ORDINARY, "PUMPSWAP", pumpEligible = true, recentlyTried = false))
         assertTrue(c.aggregatorFirstForCost8151(Urgency8151.ORDINARY, "RAYDIUM", pumpEligible = true, recentlyTried = false))
@@ -112,8 +113,8 @@ class Aate8151CostTest {
     }
 
     @Test fun theAppFeeConstantMirrorsTheExecutorsLiveFee() {
-        assertEquals(0.5, CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, 1e-12)
-        assertTrue(src("engine/Executor.kt").contains("private const val MEME_TRADING_FEE_PERCENT = 0.005"))
+        assertEquals(0.0, CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, 1e-12)
+        assertTrue(src("engine/Executor.kt").contains("private const val MEME_TRADING_FEE_PERCENT = 0.0"))
     }
 
     // ── partial slices ──

@@ -120,11 +120,11 @@ object MinPromotion8188 {
      */
     fun runtimeRefusal8188(mint: String, lane: String, requestedSol: Double, promotedSol: Double, liquidityUsd: Double): String? {
         if (!(requestedSol < promotedSol)) return null
-        val r = Entry8114Mode8326.promotionFilter8326(mint, lane, try {  // V5.0.8326 — an 8114-admitted candidate is promoted as at 8114
+        val r = try {
             val l = LiveRiskPolicy7807.canonicalLane(lane)
             val plan = if (mint.isNotBlank()) try { TradePlan7739.freshPlan7783(mint) } catch (_: Throwable) { null } else null
             val stop = plan?.stopPnlPct?.let { -it }?.takeIf { it > 0.0 }
-                ?: (try { FieldManual7715.mandateFor(l).invalidationPct } catch (_: Throwable) { 10.0 })
+                ?: (try { FieldManual7715.laneStopPct8392(l) } catch (_: Throwable) { 10.0 })   // V5.0.8392 — the stop the trade carries
             val ts = if (mint.isNotBlank()) try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } else null
             val liq = if (liquidityUsd.isFinite() && liquidityUsd > 0.0) liquidityUsd else (ts?.lastLiquidityUsd ?: 0.0)
             val mcap = ts?.lastMcap ?: 0.0
@@ -155,7 +155,7 @@ object MinPromotion8188 {
             // refuse here (8316: NEGATIVE_EDGE_8188 = 106, ADMISSION_BASIS_8224 = 0). The loss budget still binds;
             // LiveRiskPolicy7807.decide re-runs every test at the last mile on the admission's own gross.
             deferredEdge8319(r8188, admissionGross8224 != null)
-        } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 })
+        } catch (_: Throwable) { REFUSED_UNEVALUATED_8188 }
             // V5.0.8329 — a sub-minimum stake is promoted only for one named candidate-level reason (setup record positive on
             // 12+ labels, early runner, Kelly >= 25 % of the minimum); binds in 8114 mode too (ROUTE_MIN_PROMOTED_KELLY_BELOW_MIN = 34 on Kelly ~0).
             // superseded by V5.0.8370 — owner restored 8114 behaviour: asked below as a label, never a refusal.

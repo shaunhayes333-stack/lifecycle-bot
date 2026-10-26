@@ -40,8 +40,12 @@ object NetEdge8030 {
     // ── pure ──
 
     /** The expected move clears [EDGE_MULT]x the round-trip cost. */
-    fun entryClears8030(expectedGrossPct: Double, costPct: Double): Boolean =
-        expectedGrossPct.isFinite() && costPct.isFinite() && expectedGrossPct >= EDGE_MULT * costPct
+    fun entryClears8030(expectedGrossPct: Double, costPct: Double, margin: Double = EDGE_MULT): Boolean =
+        expectedGrossPct.isFinite() && costPct.isFinite() && costPct >= 0.0 && margin.isFinite() && margin >= 1.0 &&
+            expectedGrossPct >= margin * costPct
+
+    fun margin8391(lane: String, sizeSol: Double, costPct: Double): Double =
+        try { CostLedger7962.margin8391(lane, sizeSol, costPct) } catch (_: Throwable) { EDGE_MULT }
 
     /** The lowest gross gain a profit-taking exit may sell at: the round trip plus the net buffer. */
     /**
@@ -221,7 +225,7 @@ object NetEdge8030 {
         // mandate capped by a dense range / the 1h change; a fresh launch with only a sparse range defers for evidence
         // (bounded, coalesced per mint) instead of being refused as slow on two candles (StrategyMove8153).
         val move = executableMove8153(ts, lane, mandate, cost)
-        if (StrategyMove8153.needsDefer8153(move, cost) &&
+        if (StrategyMove8153.needsDefer8153(move, cost, margin8391(lane, entryTicket8151(), cost)) &&
             CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153))) {
             historyDeferred8153.incrementAndGet()
             // The evidence the deferral waits for is asked for now: the candle seed and a forced poll (1h change, depth).
@@ -230,7 +234,7 @@ object NetEdge8030 {
             return StrategyMove8153.DEFER_REASON_8153
         }
         val expected = move.expectedGrossPct
-        if (entryClears8030(expected, cost)) return null
+        if (entryClears8030(expected, cost, margin8391(lane, entryTicket8151(), cost))) return null
         entryRefused.incrementAndGet()
         val slow = move.basis != "MANDATE" && move.basis != "STRATEGY" && expected < mandate
         if (slow) slowRefused8035.incrementAndGet()
@@ -246,7 +250,7 @@ object NetEdge8030 {
     fun expectedGrossFor8153(ts: TokenState, lane: String, setup: String?, costPct: Double): Double {
         val mandate = try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { return Double.NaN }
         val m = executableMove8153(ts, lane, mandate, costPct, setup)
-        return if (StrategyMove8153.needsDefer8153(m, costPct)) Double.NaN else m.expectedGrossPct
+        return if (StrategyMove8153.needsDefer8153(m, costPct, margin8391(lane, entryTicket8151(), costPct))) Double.NaN else m.expectedGrossPct
     }
 
     /** V5.0.8153 — the expected executable move of [setup] (default: the strategy the coin trades as) for this entry. */
@@ -386,7 +390,7 @@ object NetEdge8030 {
         val mandate = try { FieldManual7715.mandateFor("CRYPTO_ALT").expectedGrossPct } catch (_: Throwable) { 12.0 }
         val realized = kotlin.math.abs(change24hPct).takeIf { it.isFinite() }
         val cost = costPct8030("CRYPTO_ALT", sizeSol, liquidityUsd)
-        if (entryClears8030(expectedMove8035(mandate, realized), cost)) return null
+        if (entryClears8030(expectedMove8035(mandate, realized), cost, margin8391("CRYPTO_ALT", sizeSol, cost))) return null
         cryptoRefused8042.incrementAndGet()
         try { PipelineHealthCollector.labelInc("NET_EDGE_CRYPTO_REFUSED_8042") } catch (_: Throwable) {}
         return "NET_EDGE_CRYPTO_TOO_SLOW_8042"

@@ -1599,7 +1599,8 @@ class GoldenTapeRegressionTest {
         val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val accumulator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FeeAccumulator.kt").readText()
-        assertTrue("meme fee helper must accrue to FeeAccumulator, not send every micro fee", exec.contains("FeeAccumulator.accrue") && exec.contains("FEE ACCUMULATOR"))
+        assertTrue("V5.0.8391: meme live trading has no per-trade volume fee; the 5% net-profit fee settles at terminal close, never inline micro sends",
+            exec.contains("MEME_TRADING_FEE_PERCENT = 0.0") && !exec.contains("sendFeeSplit(") && !exec.contains("FeeAccumulator.accrue"))
         // V5.0.6060 — operator directive: revert daily batching, transfer fees per-cycle live.
         // FeeAccumulator still exists as a per-cycle safety net (transient send failures fall
         // into FeeRetryQueue) but the threshold is now sub-cent so tryFlush() drains every
@@ -12408,7 +12409,9 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("safetyChecker.peekFresh7387(mint) ?: run {"))
         assertTrue(bot.contains("maxEmit = if (loopCount <= 3) 24 else 96"))
         val fin = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt").readText()
-        assertTrue(fin.contains("if (replaying7387 && prefs?.contains(PREFIX + event.positionId) == true) return"))
+        assertTrue(fin.contains("if (replaying7387 && prefs?.contains(PREFIX + event.positionId) == true) {"))
+        assertTrue("V5.0.8391: a replayed receipt must still activate its fee record before the durable skip",
+            fin.contains("if (replaying7387 && prefs?.contains(PREFIX + event.positionId) == true) {\n            com.lifecyclebot.engine.PerformanceFees8391.activate(event.positionId, event.mode.lowercase(), event.performanceFeeSol8391)\n            return"))
         val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
         assertTrue(tx.contains("awaitDurableJournalBoundary6669(timeoutMs = 5_000L)"))
         val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt").readText()
@@ -15348,7 +15351,10 @@ class GoldenTapeRegressionTest {
         assertTrue(toolkit.contains("native_role_ok") && toolkit.contains("it.authoritative && it.eligible") && toolkit.contains("preferDesk8384"))
         assertTrue(router.contains("ToolkitSignalSheet.forDesk8384") && router.contains("isEnsemble8384(lane)"))
         assertTrue(hold.contains("LiveStrategyTuner.adjustmentForPosition8384(learningLane8384, position.isPaperPosition)"))
-        assertTrue(hold.contains("FieldManual7715.mandateFor(lane)") && hold.contains("maxOf(base.stopLossPct, -mandate.invalidationPct)"))
+        // V5.0.8392 — the specialist hold stop is never inside the lane's round trip, and a non-runner desk holds the window the Cortex grades
+        assertTrue(hold.contains("FieldManual7715.mandateFor(lane)") && hold.contains("stopLossPct = -maxOf(-base.stopLossPct, stop8392)"))
+        assertTrue(hold.contains("else maxOf(base.maxHoldTimeMs, com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false))"))
+        assertFalse(hold.contains("maxOf(base.stopLossPct, -mandate.invalidationPct)"))
         assertTrue(pivot.contains("synchronized(pos)") && pivot.contains("switchSlotFree8384") && pivot.contains("switchAllowed8384"))
         assertTrue(pivot.contains("ForwardOutcomeModel.forecast(evidenceLane") && pivot.contains("hiveBiasFor(evidenceLane)"))
         assertFalse(pivot.lineSequence().any { it.trimStart().startsWith("ForwardOutcomeModel.stamp(") })
@@ -15378,4 +15384,77 @@ class GoldenTapeRegressionTest {
         assertTrue(f("engine/truth/LiveRiskPolicy7807.kt").contains("refused="))
     }
 
+    @org.junit.Test fun fair_fee_8391_preserves_identity_finality_and_net_cost_separation() {
+        fun source(path: String) = java.io.File("src/main/kotlin/com/lifecyclebot/$path.kt").readText()
+        val fee=source("engine/PerformanceFees8391")
+        assertTrue(fee.contains("CREATE TABLE bindings"))
+        assertTrue(fee.contains("pid TEXT PRIMARY KEY"))
+        assertTrue(fee.contains("db.beginTransaction()"))
+        assertTrue(fee.contains("high / 20L - state.high / 20L"))
+        val durablePayout = fee.indexOf("INSERT INTO payouts(account,dest,gross,sig,raw,sent,network,state,lastValid,preparedAt)")
+        assertTrue(durablePayout >= 0)
+        assertTrue(durablePayout < fee.lastIndexOf("wallet.broadcastFeeTransfer8391(prepared.signature,prepared.base64)"))
+        assertFalse(fee.contains("@Synchronized fun flush"))
+        assertTrue(fee.contains("WHEN state='FAILED' THEN network"))
+        assertTrue(fee.contains("abortUnappliedPaper"))
+        assertTrue(source("engine/ProcessorAmountPlanner").contains("freshWalletSol - reserveSol - performanceLiability8391"))
+        assertTrue(source("engine/truth/CanonicalFinalityPersistence6486").contains("performanceFeeSol8391"))
+        assertTrue(source("engine/truth/EconomicEventSchema6464").contains("performanceFeeSol8391"))
+        assertTrue(source("engine/truth/CostLedger7962").contains("s.netProceedsSol + s.performanceFeeSol8391"))
+        assertTrue(source("engine/Executor").contains("MEME_TRADING_FEE_PERCENT = 0.0"))
+        assertFalse(source("engine/Executor").contains("sendFeeSplit("))
+        assertTrue("V5.0.8391: a payout is PAID only at finalized commitment, never on optimistic confirmation",
+            source("network/SolanaWallet").contains("""row.optString("confirmationStatus") != "finalized""""))
+    }
+
+    @org.junit.Test fun advisor_8391_counts_effective_changes_and_preserves_conflicts() {
+        val advisor=java.io.File("src/main/kotlin/com/lifecyclebot/engine/SelfHealingAdvisor.kt").readText()
+        val tuner=java.io.File("src/main/kotlin/com/lifecyclebot/engine/LlmParameterTuner.kt").readText()
+        assertTrue(advisor.contains("isCurrent8391"))
+        assertTrue(advisor.contains("distinctBy { it.delta }"))
+        assertTrue(advisor.contains("LlmParameterTuner.addContract8386(this, suggestion.key, suggestion.delta)"))
+        assertTrue(advisor.contains("registerManual8391(suggestion, change)"))
+        assertTrue(tuner.contains("applied.size >= maxAdjustments"))
+        assertTrue(tuner.indexOf("if (actual8386 == oldValue)") < tuner.indexOf("if (applied.size >= maxAdjustments)"))
+    }
+
+    @org.junit.Test fun canonical8392_removes_alternate_authority_and_preserves_outcome_coverage() {
+        val root=java.io.File("src/main/kotlin/com/lifecyclebot")
+        for(name in listOf("Entry8114Mode8326", "Entry8114Gate8326", "Entry8114Shadow8326"))
+            assertFalse(java.io.File(root,"engine/truth/$name.kt").exists())
+        val gate=java.io.File(root,"engine/truth/LiveEdgeGate7877.kt").readText()
+        assertTrue(gate.contains("canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)"))
+        assertTrue(gate.contains("val final = core ?: hold"))
+        assertTrue(gate.contains("if (!paper && core == null && hold != null && final == hold)"))
+        // V5.0.8392 §STOP_NEVER_INSIDE_THE_ROUND_TRIP — one rule at the Field Manual, every stop consumer reads it
+        fun src8392(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/" + p).readText()
+        val fm8392 = src8392("engine/truth/FieldManual7715.kt")
+        assertTrue(fm8392.contains("const val STOP_COST_MULT_8392 = 1.5") && fm8392.contains("fun stopPct8392(lane: String?, costPct: Double): Double"))
+        assertTrue(fm8392.contains("maxOf(m, STOP_COST_MULT_8392 * costPct).coerceAtMost(maxOf(m, STOP_CAP_PCT_8392))"))
+        for ((f, lit) in listOf(
+            "engine/truth/EvidenceShadow8344.kt" to "FieldManual7715.stopPct8392(lane, cost)",
+            "engine/truth/ExploreShadow8347.kt" to "FieldManual7715.stopPct8392(lane, cost)",
+            "engine/truth/ScalpExit8351.kt" to "FieldManual7715.stopPct8392(lane, cost)",
+            "engine/truth/LiveRiskPolicy7807.kt" to "FieldManual7715.laneStopPct8392(canonicalLane(i.lane))",
+            "engine/truth/MinPromotion8188.kt" to "FieldManual7715.laneStopPct8392(l)",
+            "engine/ExitDoctrine8169.kt" to "FieldManual7715.laneStopPct8392(lane)",
+            "engine/cortex/LaneCheatSheet8323.kt" to "FieldManual7715.laneStopPct8392(lane)",
+        )) assertTrue("8392 stop consumer $f", src8392(f).contains(lit))
+        assertFalse("no exit stop reads the bare mandate any more", src8392("engine/truth/EvidenceShadow8344.kt").contains("mandateFor(lane).invalidationPct"))
+        assertFalse(src8392("engine/truth/ScalpExit8351.kt").contains("mandateFor(lane).invalidationPct"))
+        assertFalse(src8392("engine/ExitDoctrine8169.kt").contains("FieldManual7715.mandateFor(lane).invalidationPct"))
+        // the shadow books run the hold the Cortex grades
+        assertTrue(src8392("engine/truth/EvidenceShadow8344.kt").contains("OTHER_TIMEOUT_MS_8344 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false)"))
+        assertTrue(src8392("engine/truth/ExploreShadow8347.kt").contains("OTHER_TIMEOUT_MS_8347 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false)"))
+        assertTrue("8392: a niche/timing choice is a preference, not a veto, on a lane-wide proven lane",
+            gate.contains("val final = core ?: hold ?: niche ?: wait") && gate.contains("EvidenceHold8336.laneWideProven8392(l, nowMs)"))
+        assertTrue(gate.contains("entryContext8392.get()?.let { it.assessment = a; return }"))
+        val cortex=java.io.File(root,"engine/cortex/Cortex7885.kt").readText()
+        assertTrue(cortex.contains("authorityRows8392(lane, setup)"))
+        assertTrue(cortex.contains("gradeBook8144.markLost(target)"))
+        assertTrue(cortex.contains("refuseCoverage8392(lane)"))
+        assertTrue(cortex.contains("shadowInvertedRefusal8310(ts, a)"))
+        assertTrue(cortex.contains("LearningEntryTruth8153.decisionRow8269(gradeBook8144, lane, scoreVersion = 1)"))
+        assertTrue(cortex.contains("gradeBook8144.rankRowsByLane8325(scoreVersion = 1)"))
+    }
 }

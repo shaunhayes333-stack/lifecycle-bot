@@ -145,7 +145,7 @@ class Aate8325CortexLockTest {
         assertEquals("v3", cache.get(31_001L) { n++; "v$n" })
         // the Cortex reads both through the cache, copying rows under the lock in one pass
         assertTrue(cx.contains("rankCache8325.get(nowMs) {"))
-        assertTrue(cx.contains("val rows = synchronized(this) { gradeBook8144.rankRowsByLane8325() }"))
+        assertTrue(cx.contains("val rows = synchronized(this) { gradeBook8144.rankRowsByLane8325(scoreVersion = 1) }"))
         assertTrue(cx.contains("pondCache8325.get(System.currentTimeMillis()) {"))
         assertTrue(cx.contains("val rows = synchronized(this) { gradeBook8144.pondRowsByLane8325() }"))
         assertTrue(CortexRank8325.TTL_MS_8325 >= 30_000L)

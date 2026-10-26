@@ -287,8 +287,8 @@ object LlmParameterTuner {
             arr.optJSONObject(i)?.optString("key")?.trim()?.takeIf { it.isNotBlank() }
         }.groupingBy { it }.eachCount()
 
-        val limit = minOf(arr.length(), maxAdjustments)
-        for (i in 0 until limit) {
+        // V8391: validate all proposals; no-op/invalid rows never consume the change budget.
+        for (i in 0 until arr.length()) {
             val entry = arr.optJSONObject(i) ?: continue
             val key = entry.optString("key").trim()
             val deltaRaw = entry.opt("delta")
@@ -340,14 +340,15 @@ object LlmParameterTuner {
                 continue
             }
 
-            working = spec.set(working, newValue)
-            val actual8386 = spec.get(working)
+            val proposed8391 = spec.set(working, newValue)
+            val actual8386 = spec.get(proposed8391)
             if (actual8386 == oldValue) { rejected.add("$key: no effective change after type conversion"); continue }
+            if (applied.size >= maxAdjustments) {
+                rejected.add("$key: per-call adjustment limit $maxAdjustments reached; proposal remains pending")
+                continue
+            }
+            working = proposed8391
             applied.add(Change(key = key, oldValue = oldValue, newValue = actual8386, reason = explain8386(key, oldValue, actual8386)))
-        }
-        for (i in limit until arr.length()) {
-            val extraKey = arr.optJSONObject(i)?.optString("key")?.trim().orEmpty()
-            rejected.add("${extraKey.ifBlank { "unnamed" }}: per-call adjustment limit $maxAdjustments reached")
         }
 
         if (applied.isEmpty()) {

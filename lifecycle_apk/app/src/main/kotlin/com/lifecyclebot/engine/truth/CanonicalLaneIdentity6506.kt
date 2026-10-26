@@ -130,4 +130,15 @@ object CanonicalLaneIdentity6506 {
 
     fun size(): Int = aliases.size
     fun aliasesForTest(): Map<String, String> = aliases
+    fun desk8392(lane: String?): String =
+        expressAlias8392((try { canonical(lane) } catch (_: Throwable) { "" }).uppercase().ifBlank { lane.orEmpty().trim().uppercase() })
+
+    /**
+     * V5.0.8365 — pure: the specialist side (SpecialistOwnership7951, ToolkitSignalSheet, RuntimeConfigOverlay) files the
+     * SHITCOIN_EXPRESS lane as EXPRESS, CanonicalLaneIdentity6506 does not; a candidate arriving as SHITCOIN_EXPRESS read
+     * an empty SHITCOIN_EXPRESS hold / realised / memo book beside the EXPRESS one. The 8114 stack keys both as EXPRESS.
+     */
+    fun expressAlias8392(canonical: String): String =
+        if (canonical == "SHITCOIN_EXPRESS" || canonical == "SHITCOINEXPRESS") "EXPRESS" else canonical
+
 }

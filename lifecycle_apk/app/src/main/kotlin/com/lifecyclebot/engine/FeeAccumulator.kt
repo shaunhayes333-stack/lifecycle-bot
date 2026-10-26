@@ -172,6 +172,7 @@ object FeeAccumulator {
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        PerformanceFees8391.init(context)
     }
 
     fun setFlushThresholdSol(sol: Double) {
@@ -244,9 +245,11 @@ object FeeAccumulator {
      * total SOL successfully transferred this drain.
      */
     fun tryFlush(wallet: SolanaWallet): Double {
-        val p = prefs ?: return 0.0
+        // Separate wallet-scoped performance liabilities from historical volume-fee buckets.
+        val performanceSent8391 = PerformanceFees8391.flush(wallet)
+        val p = prefs ?: return performanceSent8391
         val buckets = loadBuckets(p)
-        if (buckets.length() == 0) return 0.0
+        if (buckets.length() == 0) return performanceSent8391
 
         val selfPk = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
         var balance = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
@@ -259,7 +262,7 @@ object FeeAccumulator {
         // default; anything above that drains this cycle. The V5.0.6058
         // scheduled daily flush + accumulation model is REMOVED per
         // operator directive after it drained a large batch in one shot.
-        if (totalPending < flushThresholdSol) return 0.0
+        if (totalPending < flushThresholdSol) return performanceSent8391
         // V5.0.7213 §I_BLOCKED_THE_PAYOUT_I_WAS_TRYING_TO_UNBLOCK.
         //
         // V5.0.7212 put `if (!anyBucketSendable7212(buckets)) return 0.0`
@@ -398,21 +401,21 @@ object FeeAccumulator {
             }
         }
         if (changed) p.edit().putString(KEY_BUCKETS, buckets.toString()).apply()
-        return totalSent
+        return totalSent + performanceSent8391
     }
 
     /** Operator diagnostics. Returns "dest=balance|dest=balance" snapshot. */
     fun snapshot(): String {
         val p = prefs ?: return "uninitialized"
         val buckets = loadBuckets(p)
-        if (buckets.length() == 0) return "empty"
+        if (buckets.length() == 0) return "legacy=empty; ${PerformanceFees8391.status()}"
         val sb = StringBuilder()
         val keys = buckets.keys().asSequence().toList()
         for ((i, k) in keys.withIndex()) {
             if (i > 0) sb.append("|")
             sb.append("${k.take(6)}…=${buckets.optDouble(k, 0.0).fmt(5)}")
         }
-        return sb.toString()
+        return sb.toString() + "; " + PerformanceFees8391.status()
     }
 
     /** Returns the total SOL currently held in all buckets. */

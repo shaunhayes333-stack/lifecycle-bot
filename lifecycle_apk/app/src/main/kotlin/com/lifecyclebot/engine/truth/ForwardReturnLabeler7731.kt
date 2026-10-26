@@ -1104,7 +1104,7 @@ object ForwardReturnLabeler7731 {
 
     /** Pure (V5.0.8379): the launch window's end for a decision in [lane] at coin age [birthAgeMs], or 0 when not a window entry. */
     fun launchWindowEnd8379(lane: String, birthAgeMs: Long, decidedAtMs: Long): Long {
-        val l = try { Entry8114Mode8326.canon8326(lane) } catch (_: Throwable) { lane.trim().uppercase() }
+        val l = try { CanonicalLaneIdentity6506.desk8392(lane) } catch (_: Throwable) { lane.trim().uppercase() }
         if (l !in com.lifecyclebot.engine.LaunchWindow8379.LANES_8379) return 0L
         if (birthAgeMs !in 0L until com.lifecyclebot.engine.LaunchWindow8379.TOKEN_AGE_MS_8379) return 0L
         return decidedAtMs + maxOf(com.lifecyclebot.engine.LaunchWindow8379.minHoldMs8379(), com.lifecyclebot.engine.LaunchWindow8379.TOKEN_AGE_MS_8379 - birthAgeMs)
@@ -1881,7 +1881,6 @@ object ForwardReturnLabeler7731 {
             val wins = t.win60 + (hive?.get(3)?.toInt() ?: 0)
             val runners = t.runner60 + (hive?.get(4)?.toInt() ?: 0)
             if (n <= 0 && t.lost <= 0) null
-            else if (Entry8114Mode8326.legacyScope8326()) legacyCell8326(key, n, sum, sumSq, wins, runners, t.lost, t.n240, t.sum240)  // V5.0.8326
             else {
                 // V5.0.8185 — robust read: a record impossible under the per-label plausibility cap proves nothing either way.
                 // V5.0.8322 — unless its tail is real: 3+ local runners on chain-observed (basis-checked) marks read raw.
@@ -1947,7 +1946,7 @@ object ForwardReturnLabeler7731 {
     fun cellStatFor(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): CellStat? {
         // V5.0.8337 (FIX 7a) — inside the 8114 legacy scope the cell is keyed on the 8114 age (time since discovery), so the
         // 8114 decision reads the cells 8114 wrote; the 8208 birth-witness age keys everything else.
-        val ageMs = if (Entry8114Mode8326.legacyScope8326()) (if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L) else cellAgeMs8208(ts, nowMs)
+        val ageMs = cellAgeMs8208(ts, nowMs)
         return executable8187(cellStat(cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts), ageMs)), lane)  // V5.0.8019 / V5.0.8187
     }
 
@@ -1956,23 +1955,10 @@ object ForwardReturnLabeler7731 {
      * read executable: the lane's measured label-to-bank gap (Cortex7885.executableOffset8187) comes off the mean. The stored
      * tallies and every display line stay raw.
      */
-    /** V5.0.8326 — the 8114 read of a cell (raw mean, population SE, never suspect): Entry8114Mode8326's legacy scope. */
-    internal fun legacyCell8326(key: String, n: Int, sum: Double, sumSq: Double, wins: Int, runners: Int, lost: Int, n240: Int, sum240: Double): CellStat {
-        val mean = if (n > 0) sum / n else 0.0
-        val variance = if (n > 1) ((sumSq / n) - mean * mean).coerceAtLeast(0.0) else 0.0
-        val se = if (n > 1) kotlin.math.sqrt(variance / n) else Double.POSITIVE_INFINITY
-        return CellStat(
-            key = key, n60 = n, meanNet60Pct = mean,
-            winRate60 = if (n > 0) wins.toDouble() / n else 0.0,
-            runnerRate60 = if (n > 0) runners.toDouble() / n else 0.0,
-            stderr60Pct = se, lost = lost,
-            n240 = n240, meanNet240Pct = if (n240 > 0) sum240 / n240 else 0.0,
-        )
-    }
+    /** V5.0.8326 — the 8114 read of a cell (raw mean, population SE, never suspect): retired compatibility mode's legacy scope. */
 
     fun executable8187(c: CellStat?, lane: String): CellStat? {
         if (c == null) return null
-        if (Entry8114Mode8326.legacyScope8326()) return c  // V5.0.8326 — the 8114 read carries no executable offset
         val off = try { com.lifecyclebot.engine.cortex.Cortex7885.executableOffset8187(lane) } catch (_: Throwable) { 0.0 }
         return execShift8187(c, off)
     }

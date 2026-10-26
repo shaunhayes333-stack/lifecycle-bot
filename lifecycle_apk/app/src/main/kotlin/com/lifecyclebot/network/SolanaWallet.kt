@@ -2197,6 +2197,116 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      *
      * Fixed from original:
      */
+    data class PreparedFee8391(val signature: String, val base64: String, val amountLamports: Long, val networkLamports: Long,
+        val lastValidBlockHeight: Long = 0L, val preparedAtMs: Long = System.currentTimeMillis())
+
+    fun prepareFeeTransfer8391(destinationAddress: String, grossLamports: Long): PreparedFee8391 {
+        require(grossLamports >= 1_000_000L)
+        require(destinationAddress.length in 32..44)
+        val lamports = grossLamports
+        // Fetch latest blockhash using class-level http + rpc() helper
+        val bhResp = rpc("getLatestBlockhash",
+            JSONArray().put(JSONObject().put("commitment", "confirmed")))
+        val blockhash = bhResp.optJSONObject("result")
+            ?.optJSONObject("value")
+            ?.optString("blockhash")
+            ?: throw Exception("Failed to fetch blockhash")
+
+        // Decode addresses + blockhash
+        val fromPkBytes = Base58.base58Decode(publicKeyB58)
+        val toPkBytes   = Base58.base58Decode(destinationAddress)
+        val bhBytes     = Base58.base58Decode(blockhash)
+        val systemProg  = ByteArray(32)  // SystemProgram = 32 zero bytes
+
+        // Transfer instruction data: SystemProgram.transfer wire format
+        //   bytes 0-3:  opcode as u32 little-endian = [0x02, 0x00, 0x00, 0x00]
+        //   bytes 4-11: lamports as u64 little-endian (8 bytes)
+        // CRITICAL: opcode MUST be 4 bytes (u32), not 1 byte.
+        // The original code used instrData[0]=2 with lamports in bytes 1-8,
+        // which produced [0x02, lam0..lam7, 0x00, 0x00, 0x00] — 12 bytes but
+        // with the lamports shifted by 3 bytes from what Solana expects.
+        // RPC response: "invalid instruction data" — FEE_SEND_FAILED on EVERY call.
+        val instrData = ByteArray(12)
+        instrData[0] = 0x02; instrData[1] = 0x00; instrData[2] = 0x00; instrData[3] = 0x00
+        var lam = lamports
+        for (i in 4..11) { instrData[i] = (lam and 0xFF).toByte(); lam = lam ushr 8 }
+
+        // Compact-array encoding (Solana wire format)
+        fun compactU16(n: Int): ByteArray = when {
+            n < 0x80   -> byteArrayOf(n.toByte())
+            n < 0x4000 -> byteArrayOf((n and 0x7F or 0x80).toByte(), (n shr 7).toByte())
+            else       -> byteArrayOf(
+                (n and 0x7F or 0x80).toByte(),
+                ((n shr 7) and 0x7F or 0x80).toByte(),
+                (n shr 14).toByte()
+            )
+        }
+
+        // Build legacy transaction message
+        val msg = java.io.ByteArrayOutputStream().apply {
+            write(byteArrayOf(0x01, 0x00, 0x01))  // 1 signer, 0 read-only signed, 1 read-only unsigned
+            write(compactU16(3))                    // 3 accounts: from, to, SystemProgram
+            write(fromPkBytes)
+            write(toPkBytes)
+            write(systemProg)
+            write(bhBytes)                          // recent blockhash (32 bytes)
+            write(compactU16(1))                    // 1 instruction
+            write(byteArrayOf(0x02))                // programIdIndex = 2 (SystemProgram)
+            write(compactU16(2))                    // 2 account references
+            write(byteArrayOf(0x00, 0x01))          // accounts: from=0, to=1
+            write(compactU16(instrData.size))
+            write(instrData)
+        }.toByteArray()
+
+
+        val feeReply = rpc("getFeeForMessage", JSONArray().put(android.util.Base64.encodeToString(msg, android.util.Base64.NO_WRAP))
+            .put(JSONObject().put("commitment", "confirmed")))
+        val feeValue = feeReply.optJSONObject("result")?.opt("value") as? Number
+            ?: throw IllegalStateException("FEE_NETWORK_COST_UNVERIFIED_8391")
+        val network = feeValue.toLong()
+        require(network > 0 && network <= grossLamports / 100) { "Uneconomic fee payout" }
+        val send = grossLamports - network
+        // The transfer's u64 is the last eight bytes of this exact SystemProgram-only message.
+        var value = send
+        for (i in msg.size-8 until msg.size) { msg[i] = (value and 0xff).toByte(); value = value ushr 8 }
+        val signatureBytes = TweetNaclFast.Signature(null, keyPair.secretKey).detached(msg)
+        val signature = Base58.base58Encode(signatureBytes)
+        val raw = android.util.Base64.encodeToString(byteArrayOf(1) + signatureBytes + msg, android.util.Base64.NO_WRAP)
+        return PreparedFee8391(signature, raw, send, network,
+            bhResp.optJSONObject("result")?.optJSONObject("value")?.optLong("lastValidBlockHeight",0L) ?: 0L)
+    }
+
+    fun broadcastFeeTransfer8391(expectedSignature: String, raw: String) {
+        val response = rpc("sendTransaction", JSONArray().put(raw).put(JSONObject()
+            .put("encoding", "base64").put("preflightCommitment", "confirmed")))
+        val signature = response.optString("result", "")
+        if (signature != expectedSignature) throw IllegalStateException("Fee broadcast unresolved: ${response.optJSONObject("error")?.optString("message") ?: signature}")
+    }
+
+    fun feeTransferState8391(signature: String, lastValid: Long = 0L, preparedAt: Long = 0L): String {
+        val response = rpc("getSignatureStatuses", JSONArray().put(JSONArray().put(signature))
+            .put(JSONObject().put("searchTransactionHistory", true)))
+        if (response.has("error")) throw IllegalStateException("Fee finality lookup failed")
+        val rows = response.optJSONObject("result")?.optJSONArray("value")
+            ?: throw IllegalStateException("Fee finality lookup incomplete")
+        val row = rows.optJSONObject(0)
+        if (row == null) {
+            // Never infer absence from an old/pruned transaction history after long downtime.
+            if (lastValid <= 0 || System.currentTimeMillis()-preparedAt !in 0L..900_000L) return "UNKNOWN"
+            val height = rpc("getBlockHeight", JSONArray().put(JSONObject().put("commitment","finalized")))
+            if (height.has("error") || height.optLong("result",0L) <= lastValid) return "UNKNOWN"
+            val tx = rpc("getTransaction", JSONArray().put(signature).put(JSONObject().put("commitment","finalized").put("maxSupportedTransactionVersion",0)))
+            if (tx.has("error") || !tx.has("result")) return "UNKNOWN"
+            // Both history lookup and finalized transaction lookup prove absence past blockhash validity.
+            return if (tx.isNull("result")) "EXPIRED" else "UNKNOWN"
+        }
+        // V5.0.8391: only "finalized" may mark a payout PAID. A merely "confirmed" transfer stays
+        // PENDING for the next drain cycle (a reorg must never credit an undelivered share); a landed
+        // transaction with err != null failed permanently at any confirmation level.
+        if (row.optString("confirmationStatus") != "finalized" || !row.has("err")) return "UNKNOWN"
+        return if (!row.isNull("err")) "FAILED" else "CONFIRMED"
+    }
+
     fun sendSol(destinationAddress: String, amountSol: Double): String {
         val lamports = (amountSol * 1_000_000_000L).toLong()
         require(lamports >= 5_000)               { "Amount too small (min 0.000005 SOL)" }

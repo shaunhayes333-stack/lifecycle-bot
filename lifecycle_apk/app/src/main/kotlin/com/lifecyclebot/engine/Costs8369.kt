@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicLong
  *     close on every full exit, rentLocked8369 on the status line, and the model charges the rent that is not coming
  *     back ([rentLossRate8369]).
  *  2. ROUTE. Un-graduated pump.fun curve coins were bought through PumpPortal (0.5 %/side local-trade fee, landed 3 of
- *     17) although Jupiter routes the pump.fun curve without that fee and landed 18 of 18. A curve buy now goes Jupiter
+ *     17) although Jupiter may route the pump.fun curve; its quoted fee must be measured and landed 18 of 18. A curve buy now goes Jupiter
  *     first whenever Jupiter quotes the mint ([jupiterFirstForBuy8369]); PumpPortal only when it has no route. The
  *     model's route fee follows the route actually chosen ([modelRouteFeePctPerSide8369]).
  *  3. FIXED LEG. Every entry paid the URGENT Sender tip (200,000 lamports) plus the High CU price — about 0.8 % of a
@@ -134,6 +134,34 @@ object Costs8369 {
         else -> "PUMPPORTAL"
     }
 
+    private data class QuoteFee8391(val pct: Double, val atMs: Long)
+    private val jupiterFees8391 = ConcurrentHashMap<String, QuoteFee8391>()
+    private const val SOL8391 = "So11111111111111111111111111111111111111112"
+
+    internal fun quotedFeePct8391(json: org.json.JSONObject, v2: Boolean): Double? {
+        val bps = if (v2) json.optDouble("feeBps", Double.NaN)
+            else if (json.has("platformFee") && json.isNull("platformFee")) 0.0
+            else json.optJSONObject("platformFee")?.optDouble("feeBps", Double.NaN) ?: Double.NaN
+        return bps.takeIf { it.isFinite() && it in 0.0..10000.0 }?.div(100.0)
+    }
+
+    /** Quotes already include these fees in outAmount. Cache for independent mid-price modelling only; never subtract again. */
+    fun noteJupiterQuote8391(input: String, output: String, json: org.json.JSONObject, v2: Boolean, now: Long = System.currentTimeMillis()) {
+        val key = when { input == SOL8391 && output != SOL8391 -> "$output|BUY"
+            output == SOL8391 && input != SOL8391 -> "$input|SELL"; else -> return }
+        val pct = quotedFeePct8391(json, v2) ?: return
+        jupiterFees8391[key] = QuoteFee8391(pct, now)
+        if (jupiterFees8391.size > 1024) jupiterFees8391.entries.sortedBy { it.value.atMs }
+            .take(jupiterFees8391.size - 1024).forEach { jupiterFees8391.remove(it.key, it.value) }
+    }
+
+    internal fun routeFee8391(route: String, mint: String, side: String, now: Long = System.currentTimeMillis()): Double {
+        if (route !in setOf("JUPITER", "JUPITER_ULTRA")) return CostTrim8151.routeFeePctPerSide8151(route)
+        val quote = jupiterFees8391["$mint|$side"]
+        // No quote is not proof of a zero fee. Swap V2 charges 50bps for new tokens.
+        return if (quote != null && now - quote.atMs in 0L..60_000L) quote.pct else 0.5
+    }
+
     /** Pure: the route fee per side of a round trip bought on [buyRoute] and sold on [sellRoute]. */
     fun routeFeePerSide8369(buyRoute: String, sellRoute: String): Double =
         (CostTrim8151.routeFeePctPerSide8151(buyRoute) + CostTrim8151.routeFeePctPerSide8151(sellRoute)) / 2.0
@@ -153,7 +181,8 @@ object Costs8369 {
             com.lifecyclebot.engine.sell.SellRouteEndpoint8144.peek8144(mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.JUPITER,
                 System.currentTimeMillis()) == com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Admit8144.ALLOWED
         } catch (_: Throwable) { false }
-        return routeFeePerSide8369(buy, plannedSellRoute8369(pump, venue, jupiterOk))
+        val sell = plannedSellRoute8369(pump, venue, jupiterOk)
+        return (routeFee8391(buy, mint, "BUY") + routeFee8391(sell, mint, "SELL")) / 2.0
     }
 
     // ── fixed leg of an entry ──

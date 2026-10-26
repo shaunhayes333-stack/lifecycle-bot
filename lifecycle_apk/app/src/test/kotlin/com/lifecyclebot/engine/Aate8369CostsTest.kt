@@ -77,7 +77,7 @@ class Aate8369CostsTest {
         assertEquals("RAYDIUM", k.plannedSellRoute8369(pumpMint = true, venue = "RAYDIUM"))
         assertEquals("JUPITER", k.plannedSellRoute8369(pumpMint = false, venue = "UNKNOWN"))
         // bought on Jupiter (0.05), sold on PumpPortal (0.5): 0.275 per side, not PumpPortal's 0.5 both ways
-        assertEquals(0.275, k.routeFeePerSide8369("JUPITER", "PUMPPORTAL"), 1e-12)
+        assertEquals(0.3, k.routeFeePerSide8369("JUPITER", "PUMPPORTAL"), 1e-12)
         assertEquals(0.5, k.routeFeePerSide8369("PUMPPORTAL", "PUMPPORTAL"), 1e-12)
         assertEquals(null, k.jupiterShare8369(1L, 1L))
         assertEquals(0.75, k.jupiterShare8369(3L, 1L)!!, 1e-12)
@@ -137,8 +137,8 @@ class Aate8369CostsTest {
         assertTrue(ex.contains("val tip = if (entry && !urgent && !grabbed8369) Costs8369.entryTip8369(tip8151, ticketSol8369, pump8369) else tip8151"))
         assertTrue(ex.contains("entry = true, ticketSol8369 = buySol, pump8369 = true)"))
         assertTrue(ex.contains("Costs8369.entryCapActive8369(true, RunnerGrab7967.isGrabbed7980(ts.mint))"))
-        // the owner's app fee is untouched
-        assertEquals(0.5, CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, 0.0)
+        // V8391: no volume fee; verified terminal profit is assessed separately.
+        assertEquals(0.0, CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, 0.0)
         assertTrue(src("engine/truth/NetEdge8030.kt").contains("val routePct = com.lifecyclebot.engine.Costs8369.modelRouteFeePctPerSide8369(mint)"))
         assertTrue(src("engine/CostTrim8151.kt").contains("Costs8369.statusLine8369()"))
     }

@@ -400,7 +400,7 @@ class LearningCounterActivity : Activity() {
             target7023().addView(AateComponents6994.metricRow(this, l.lane,
                 "${pct8069(l.aateTakeNetMean8269)} / ${pct8069(l.aateRefuseNetMean8269)}",
                 when { !gap.isFinite() -> AateUi.TEXT_MUTED; gap > 0.0 -> AateUi.GREEN; else -> AateUi.RED },
-                "AATE would TAKE n${l.aateTakeN8269} vs REFUSE n${l.aateRefuseN8269} · net mean, same executable forward-label population · " +
+                "AATE selection (frozen-v1 labels) TAKE n${l.aateTakeN8269} vs REFUSE n${l.aateRefuseN8269} · net mean, same executable forward-label population · " +
                     "net median ${pct8069(l.aateTakeNetMedian8269)} / ${pct8069(l.aateRefuseNetMedian8269)} · gross median ${pct8069(l.aateTakeGrossMedian8269)} / ${pct8069(l.aateRefuseGrossMedian8269)} · " +
                     "Cortex predicted STRONG n${l.strongN} net mean ${pct8069(l.strongMean)} vs REFUSE n${l.refuseN} ${pct8069(l.refuseMean)} · " +
                     "neutral n${l.neutralN} ${pct8069(l.neutralMean)} · " +
@@ -408,10 +408,10 @@ class LearningCounterActivity : Activity() {
                     "exec offset -${"%.1f".format(l.execOffset8198)}pt · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}" +
                     (if (l.source8153.isNotBlank()) " · executable first-of-episode on-time labels; old decayed cohorts display-only" else "") +
                     (if (l.inversion8324.isNotBlank()) " · ranking (§8324): ${l.inversion8324}" else "")))
-            target7023().addView(AateComponents6994.barRow(this, "authority", (l.auth * 100.0).coerceIn(0.0, 100.0),
+            target7023().addView(AateComponents6994.barRow(this, "Cortex positive authority", (l.auth * 100.0).coerceIn(0.0, 100.0),
                 if (l.auth > 0.0) AateUi.GREEN else AateUi.TEXT_MUTED))
         }
-        addText("Left = net mean forward return (runner lanes: their hold-window label) of tokens AATE would TAKE; right = ones it would REFUSE. These are decision-time counterfactual labels, not confirmed trading profits. Cortex STRONG/REFUSE predictions remain in each lane's detail. Colour needs 5+ qualified labels on both sides; the authority bar reports STRONG-side power, not refusal power.", AateUi.TEXT_MUTED, small = true)
+        addText("Left = net mean forward return (runner lanes: their hold-window label) of tokens AATE would TAKE; right = ones it would REFUSE. These are current frozen-v1 counterfactual labels, not confirmed trading profits. Both selection columns and Cortex predictions use the same generation; missing outcomes are reported in the authority proof. Cortex STRONG/REFUSE predictions remain in each lane's detail. Colour needs 5+ qualified labels on both sides; the authority bar reports STRONG-side power, not refusal power.", AateUi.TEXT_MUTED, small = true)
 
         addHeader("🎯 Cortex · setups")
         val setups = cachedSetups8069

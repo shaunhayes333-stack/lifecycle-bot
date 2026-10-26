@@ -57,7 +57,8 @@ object ProcessorAmountPlanner {
         val senderTipSol = (jitoTipLamports.coerceAtLeast(0L).toDouble() / 1_000_000_000.0)
         val baseFeeReserveSol = 0.0030
         val reserveSol = (priorityFeeSol.coerceAtLeast(0.0) + senderTipSol + baseFeeReserveSol).coerceAtLeast(0.0030)
-        val spendableSol = (freshWalletSol - reserveSol).coerceAtLeast(0.0)
+        val performanceLiability8391 = PerformanceFees8391.pendingSol(wallet.publicKeyB58)
+        val spendableSol = (freshWalletSol - reserveSol - performanceLiability8391).coerceAtLeast(0.0)
         val clampedSol = requestedSol.coerceAtMost(spendableSol)
         if (clampedSol <= 0.0 || clampedSol < 0.000001) {
             try {

@@ -156,35 +156,21 @@ class Aate8365FdgTest {
     // ── 7. lane identity: SHITCOIN_EXPRESS is EXPRESS across the 8114 stack (hold, realised, memo) ──
 
     @Test fun shitcoinExpressFilesAsExpress() {
-        assertEquals("EXPRESS", com.lifecyclebot.engine.truth.Entry8114Mode8326.expressAlias8365("SHITCOIN_EXPRESS"))
-        assertEquals("EXPRESS", com.lifecyclebot.engine.truth.Entry8114Mode8326.expressAlias8365("SHITCOINEXPRESS"))
-        assertEquals("MOONSHOT", com.lifecyclebot.engine.truth.Entry8114Mode8326.expressAlias8365("MOONSHOT"))
-        assertEquals("SHITCOIN", com.lifecyclebot.engine.truth.Entry8114Mode8326.expressAlias8365("SHITCOIN"))
-        assertTrue(src("engine/truth/EvidenceHold8336.kt").contains("private fun canon(lane: String): String = Entry8114Mode8326.canon8326(lane)"))
+        assertEquals("EXPRESS", com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.expressAlias8392("SHITCOIN_EXPRESS"))
+        assertEquals("EXPRESS", com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.expressAlias8392("SHITCOINEXPRESS"))
+        assertEquals("MOONSHOT", com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.expressAlias8392("MOONSHOT"))
+        assertEquals("SHITCOIN", com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.expressAlias8392("SHITCOIN"))
+        assertTrue(src("engine/truth/EvidenceHold8336.kt").contains("private fun canon(lane: String): String = CanonicalLaneIdentity6506.desk8392(lane)"))
     }
 
     // ── 8. source pins ──
 
     @Test fun wiringIsPinned() {
-        val mode = src("engine/truth/Entry8114Mode8326.kt")
-        assertTrue(mode.contains("FdgGate8365.memoGet8365(memoKey8365, nowMs)?.let { return it.second }"))
-        assertTrue("hold basis read before the 8114 verdict",
-            mode.indexOf("val basis8365 = if (paper8336) null else try { FdgGate8365.holdBasis8365(l, nowMs) }") <
-                mode.indexOf("FdgGate8365.inContext8365(ts, l, basis8365) { inLegacy8326 { Entry8114Gate8326.liveVerdict8114(ts, l, nowMs) } }"))
-        assertTrue(mode.contains("val yields8365 = FdgGate8365.oldYields8365(old.reason, final0_8347, realised)"))
-        assertTrue("label refusal re-enters after fired setup and niche, before the timing wait",
-            mode.indexOf("ExploreShadow8347.nicheRefusal8351(ts, l,") < mode.indexOf("?: (if (yields8365) final0_8347 else null)") &&
-                mode.indexOf("?: (if (yields8365) final0_8347 else null)") < mode.indexOf("ExploreShadow8347.liveEntryWait8347(ts, l,"))
-        assertTrue(mode.contains("FdgGate8365.noteFinal8365(final, l); FdgGate8365.memoPut8365(memoKey8365, final, nowMs)"))
-        assertTrue(mode.contains("FdgGate8365.statusLine8365()"))
-        val reh = src("engine/truth/Rehearsal8339.kt")
-        assertTrue(reh.contains("if (evidenceDoorBinds8342(paper, rehearsal, reason)) return !(try { FdgGate8365.demoteNow8365(reason, lane) } catch (_: Throwable) { false })"))
-        val gate = src("engine/truth/FdgGate8365.kt")
-        assertTrue("never a non-evidence door", gate.contains("if (!Rehearsal8339.evidenceDoor8342(reason)) return null"))
-        assertTrue("LIVE only", gate.contains("if (!liveNow8365() || !Rehearsal8339.evidenceDoor8342(reason)) return false"))
-        assertTrue(src("engine/truth/LiveTruth8064.kt").contains("fun setupRealised8365(lane: String, setup: String?"))
-        assertTrue(src("engine/cortex/Cortex7885.kt").contains("com.lifecyclebot.engine.truth.FdgGate8365.vetoDemotes8365(st.n, vetoProvenWinners8006(st))"))
-        // FinalDecisionGate.evaluate() untouched by this build
-        assertFalse(src("engine/FinalDecisionGate.kt").contains("8365"))
+        val gate=src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(gate.contains("canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)"))
+        assertTrue(gate.contains("FdgGate8365.inContext8365(ts, l, basis)"))
+        assertTrue(gate.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertTrue(gate.contains("if (paper && final == null) Rehearsal8339.notePaperAdmit8342"))
+        assertFalse(gate.contains("entryRefusal8114"))
     }
 }

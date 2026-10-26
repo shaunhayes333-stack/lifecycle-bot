@@ -762,9 +762,8 @@ object FinalDecisionGate {
     ): String? {
         val ageMs = nowMs - veto.timestamp
         val cls = EdgeOptimizer.legacyVetoClass8207(veto.reason)
-        // V5.0.8326 — Entry8114Mode8326: at 8114 an active edge veto refused (no admission superseded it).
-        val specificAdmit = com.lifecyclebot.engine.truth.Entry8114Mode8326.admission8326(owner?.takeIf { it.isNotBlank() } ?: "CORE",
-            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(), admission)?.let { it.specific && it.admitted && it.basis.isNotBlank() } == true
+        // V5.0.8326 — retired compatibility mode: at 8114 an active edge veto refused (no admission superseded it).
+        val specificAdmit = admission?.let { it.specific && it.admitted && it.basis.isNotBlank() } == true
         val prov = "legacy='${veto.reason.take(60)}' quality=${veto.quality} ageMs=$ageMs source=${veto.source} fresh=${veto.fresh} " +
             "owner=${owner.orEmpty().ifBlank { "CORE" }} v=$candidateVersion class=$cls admission=${admission?.terminal?.name}:${admission?.reason}" +
             (admission?.chosenSetup?.let { " setup=$it" } ?: "")
@@ -791,9 +790,9 @@ object FinalDecisionGate {
     }
 
     /** Pure (V5.0.8209): does the admission's gross still clear NetEdge8030 at the cost quoted for the sealed size? */
-    internal fun requoteClears8209(expectedNetPct: Double, admittedCostPct: Double, sealedCostPct: Double): Boolean {
+    internal fun requoteClears8209(expectedNetPct: Double, admittedCostPct: Double, sealedCostPct: Double, margin: Double = com.lifecyclebot.engine.truth.NetEdge8030.EDGE_MULT): Boolean {
         if (!(expectedNetPct.isFinite() && admittedCostPct.isFinite() && sealedCostPct.isFinite())) return true   // nothing to re-prove
-        return com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(expectedNetPct + admittedCostPct, sealedCostPct)
+        return com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(expectedNetPct + admittedCostPct, sealedCostPct, margin)
     }
 
     /**
@@ -808,7 +807,7 @@ object FinalDecisionGate {
         if (admission == null || !admission.admitted) return true
         if (!admissionCostStale8209(admission.costSizeSol, sealedSizeSol)) return true
         val sealed = try { com.lifecyclebot.engine.truth.NetEdge8030.entryCost8209(ts, lane, sealedSizeSol) } catch (_: Throwable) { return true }
-        val ok = requoteClears8209(admission.expectedNetPct, admission.costPct, sealed.costPct)
+        val ok = requoteClears8209(admission.expectedNetPct, admission.costPct, sealed.costPct, com.lifecyclebot.engine.truth.NetEdge8030.margin8391(lane, sealedSizeSol, sealed.costPct))
         checks.add(GateCheck("admission_cost_requote_8209", ok,
             "quoted ${"%.2f".format(admission.costPct)}% @${"%.4f".format(admission.costSizeSol)}SOL -> sealed ${"%.2f".format(sealed.costPct)}% @${"%.4f".format(sealedSizeSol)}SOL net=${"%.2f".format(admission.expectedNetPct)}% ${sealed.breakdown.take(120)}"))
         try { PipelineHealthCollector.labelInc(if (ok) "FDG_ADMISSION_COST_REQUOTED_OK_8209" else "FDG_ADMISSION_COST_REQUOTE_FAILED_8209") } catch (_: Throwable) {}
@@ -1007,9 +1006,9 @@ object FinalDecisionGate {
         // V5.0.8244 — the cell (source|lane|mcap|age) is a lane-wide prior the candidate admission has already weighed
         // against this coin's SUPPORTED strategy (8240: a supported setup carries a losing cell). A candidate-specific
         // ADMIT is not re-vetoed by the same prior read a second time here.
-        val adm8326 = com.lifecyclebot.engine.truth.Entry8114Mode8326.admission8326(lane, paper, candidateAdmission)  // V5.0.8326 — 8114: no admission
-        val admitted8244 = adm8326 != null && adm8326.specific &&
-            adm8326.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT &&
+        val canonicalAdmission8392 = candidateAdmission  // V5.0.8326 — 8114: no admission
+        val admitted8244 = canonicalAdmission8392 != null && canonicalAdmission8392.specific &&
+            canonicalAdmission8392.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT &&
             com.lifecyclebot.engine.truth.RegressionRestore8298.restoredDoorStandsDown8298(raw, lane)  // V5.0.8298
         val reason = if (raw != null && admitted8244) {
             try { PipelineHealthCollector.labelInc("CELL_PROOF_STOOD_DOWN_FOR_ADMITTED_STRATEGY_8244_$lane") } catch (_: Throwable) {}
@@ -1055,9 +1054,9 @@ object FinalDecisionGate {
         // learned prior, not a structural hazard (8221). A candidate-specific ADMIT already weighed this coin's SUPPORTED
         // strategy against the same forward labels; the learned stops-first prior does not re-veto it (8241: ZFROG
         // +129,601% bound to FRESH_LAUNCH_SETUP_STOPS_FIRST_7737 after ADMIT:SPECIFIC_EDGE_PROVEN). Structural refusals stand.
-        val adm8326 = com.lifecyclebot.engine.truth.Entry8114Mode8326.admission8326(lane, paper, candidateAdmission)  // V5.0.8326 — 8114: no admission
-        val admitted8243 = adm8326 != null && adm8326.specific &&
-            adm8326.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT &&
+        val canonicalAdmission8392 = candidateAdmission  // V5.0.8326 — 8114: no admission
+        val admitted8243 = canonicalAdmission8392 != null && canonicalAdmission8392.specific &&
+            canonicalAdmission8392.terminal == com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136.ADMIT &&
             (raw != "FRESH_LAUNCH_SETUP_STOPS_FIRST_7737" || com.lifecyclebot.engine.truth.RegressionRestore8298.restoredDoorStandsDown8298(raw, lane))  // V5.0.8298
         val reason = if (raw == "FRESH_LAUNCH_SETUP_STOPS_FIRST_7737" && admitted8243) {
             try { PipelineHealthCollector.labelInc("FRESH_LAUNCH_LEARNED_STOOD_DOWN_FOR_ADMITTED_STRATEGY_8243_$lane") } catch (_: Throwable) {}
@@ -1144,9 +1143,8 @@ object FinalDecisionGate {
         // V5.0.8136 — the candidate's own admission record answers first: supported specific edge clears the generic
         // floor (and is carried past the executor's pre-lease floor); a specific refusal (hostile mint, structure, a
         // losing setup / cell / stage / tactic, adverse timing, bad economics) holds it with no lane-wide bypass below.
-        // V5.0.8326 — Entry8114Mode8326: the 8114 floor had no admission answer (the bypasses below decide).
-        if (!com.lifecyclebot.engine.truth.Entry8114Mode8326.liveActiveNow8326(lane)) floorFromAdmission8136(ts, lane, waitFloor, candidateVersion, candidateAdmission)?.let { return it }
-        else com.lifecyclebot.engine.truth.Entry8114Mode8326.noteFdg8326("FLOOR_ADMISSION_SKIPPED", lane)
+        // V5.0.8326 — retired compatibility mode: the 8114 floor had no admission answer (the bypasses below decide).
+        floorFromAdmission8136(ts, lane, waitFloor, candidateVersion, candidateAdmission)?.let { return it }
         if (com.lifecyclebot.engine.truth.FreshLaunchSelector7737.ladderProven7932(ts)) {
             try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_OVERRULED_BY_LADDER_7932") } catch (_: Throwable) {}
             return true
@@ -1365,11 +1363,10 @@ object FinalDecisionGate {
         tags: MutableList<String>,
     ): Pair<String?, Boolean> {
         if (blockReason != null) return null to false
-        // V5.0.8326 — Entry8114Mode8326: the 8114 base-signal rule read no admission.
-        val adm8326 = com.lifecyclebot.engine.truth.Entry8114Mode8326.admission8326(
-            specialistLane?.takeIf { it.isNotBlank() } ?: laneNameForBaseSignal, com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(), candidateAdmission8136)
+        // V5.0.8326 — retired compatibility mode: the 8114 base-signal rule read no admission.
+        val canonicalAdmission8392 = candidateAdmission8136
         if (candidate.blockReason.isEmpty()) {
-            val nativeWait8210 = nativeGenericWait8210(candidate, specialistLane, adm8326)
+            val nativeWait8210 = nativeGenericWait8210(candidate, specialistLane, canonicalAdmission8392)
             checks.add(GateCheck("candidate_block", true, if (nativeWait8210) "qualified native WAIT superseded by positive admission 8210" else null))
             if (nativeWait8210) {
                 tags.add("native_wait_admitted_8210")
@@ -1387,15 +1384,15 @@ object FinalDecisionGate {
             laneNameForBaseSignal != null &&
             laneNameForBaseSignal != "STANDARD"
         val specificAdmitSupersedes8203 = staleBaseSignalBlock && specialistLane?.isNotBlank() == true &&
-            adm8326?.let { it.specific && it.admitted && it.basis.isNotBlank() } == true
+            canonicalAdmission8392?.let { it.specific && it.admitted && it.basis.isNotBlank() } == true
         if (specificAdmitSupersedes8203 && laneNameForBaseSignal != null) {
             checks.add(GateCheck("candidate_base_signal", true,
-                "specific_admit_supersedes_generic_wait_8203 lane=$laneNameForBaseSignal setup=${adm8326?.chosenSetup} basis=${adm8326?.basis?.take(40)} v=$candidateVersion7623"))
+                "specific_admit_supersedes_generic_wait_8203 lane=$laneNameForBaseSignal setup=${canonicalAdmission8392?.chosenSetup} basis=${canonicalAdmission8392?.basis?.take(40)} v=$candidateVersion7623"))
             tags.add("base_signal_superseded_8203:$laneNameForBaseSignal")
             try { PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_SUPERSEDED_BY_SPECIFIC_ADMIT_8203_$laneNameForBaseSignal") } catch (_: Throwable) {}
             return null to true
         }
-        if (staleBaseSignalBlock && nativeGenericWait8210(candidate, specialistLane, adm8326)) {
+        if (staleBaseSignalBlock && nativeGenericWait8210(candidate, specialistLane, canonicalAdmission8392)) {
             checks.add(GateCheck("candidate_base_signal", true, "qualified native WAIT superseded by economics-cleared admission 8210 v=$candidateVersion7623"))
             tags.add("native_wait_admitted_8210")
             try { PipelineHealthCollector.labelInc("FDG_NATIVE_GENERIC_WAIT_ADMITTED_8210") } catch (_: Throwable) {}
@@ -1405,7 +1402,7 @@ object FinalDecisionGate {
             // V5.9.1124 — 3090 showed FDG_BASE_SIGNAL_BLOCK_IGNORED=43k. A WAIT/SELL base signal is not executable.
             checks.add(GateCheck("candidate_base_signal", false, "hard_block_for_lane=$laneNameForBaseSignal: ${candidate.blockReason}"))
             tags.add("base_signal_hard_block:$laneNameForBaseSignal")
-            try { if (adm8326?.admitted == true) PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_BLOCK_AFTER_${if (adm8326.specific) "SPECIFIC_NO_BASIS" else "GENERIC"}_ADMIT_8203_$laneNameForBaseSignal") } catch (_: Throwable) {}
+            try { if (canonicalAdmission8392?.admitted == true) PipelineHealthCollector.labelInc("FDG_BASE_SIGNAL_BLOCK_AFTER_${if (canonicalAdmission8392.specific) "SPECIFIC_NO_BASIS" else "GENERIC"}_ADMIT_8203_$laneNameForBaseSignal") } catch (_: Throwable) {}
             return candidate.blockReason to false
         }
         checks.add(GateCheck("candidate_block", false, candidate.blockReason))

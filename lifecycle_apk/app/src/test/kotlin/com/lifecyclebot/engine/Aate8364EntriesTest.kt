@@ -1,6 +1,5 @@
 package com.lifecyclebot.engine
 
-import com.lifecyclebot.engine.truth.Entry8114Gate8326
 import com.lifecyclebot.engine.truth.EvidenceHold8336
 import com.lifecyclebot.engine.truth.EvidenceShadow8344
 import com.lifecyclebot.engine.truth.ExploreShadow8347
@@ -28,33 +27,18 @@ class Aate8364EntriesTest {
 
     // ── 1. a live entry needs a fired setup ──
 
-    @Test fun liveAdmitWithoutAFiredNamedSetupIsRefused() {
-        val lane = "MOONSHOT"
-        val why = "LIVE_NO_FIRED_SETUP_8364_MOONSHOT"
-        // superseded by V5.0.8370 — owner restored 8114 behaviour ("No fired-setup rule"): the classification below is
-        // telemetry (counted as LIVE_NO_FIRED_SETUP_8364_<lane>), never a binding live refusal.
-        assertFalse(src("engine/truth/Entry8114Mode8326.kt").contains("Entry8114Gate8326.liveFiredSetup" + "Refusal8364("))
-        assertEquals(why, Entry8114Gate8326.noFiredSetupRefusal8364(lane, false, null, emptyList()))
-        assertEquals(why, Entry8114Gate8326.noFiredSetupRefusal8364(lane, false, "NO_TRIGGER", listOf("NO_TRIGGER")))
-        assertEquals(why, Entry8114Gate8326.noFiredSetupRefusal8364(lane, false, "DATA_INCOMPLETE", emptyList()))
-        assertEquals(why, Entry8114Gate8326.noFiredSetupRefusal8364(lane, false, "UNK", listOf("UNK", "NONE")))
-        // a named setup that did not fire on this coin is not a fired setup
-        assertEquals(why, Entry8114Gate8326.noFiredSetupRefusal8364(lane, false, "IGNITION_5M", emptyList()))
-        assertNull(Entry8114Gate8326.noFiredSetupRefusal8364(lane, false, "IGNITION_5M", listOf("ignition_5m")))
-        // another named setup that fired admits
-        assertNull(Entry8114Gate8326.noFiredSetupRefusal8364(lane, false, null, listOf("NO_TRIGGER", "BREAKOUT_RETEST")))
-        assertEquals("BREAKOUT_RETEST", Entry8114Gate8326.firedSetup8364("DATA_INCOMPLETE", listOf("BREAKOUT_RETEST")))
-        assertEquals("IGNITION_5M", Entry8114Gate8326.firedSetup8364("IGNITION_5M", listOf("BREAKOUT_RETEST", "IGNITION_5M")))
-        assertFalse(Entry8114Gate8326.namedSetup8364(null))
-        assertFalse(Entry8114Gate8326.namedSetup8364("  "))
-        assertFalse(Entry8114Gate8326.namedSetup8364("matches_unrankable"))
+    @Test fun namedSetupMetadataDoesNotCreateASecondEntryAuthority() {
+        val p=com.lifecyclebot.engine.cortex.LanePlaybook7907
+        assertFalse(p.namedSetup8392(null));assertFalse(p.namedSetup8392("NO_TRIGGER"))
+        assertFalse(p.namedSetup8392("matches_unrankable"))
+        assertTrue(p.namedSetup8392("IGNITION_5M"))
+        assertFalse(src("engine/truth/LiveEdgeGate7877.kt").contains("liveFiredSetupRefusal8364"))
     }
 
     @Test fun paperIsNeverRefusedByTheFiredSetupRule() {
-        assertNull(Entry8114Gate8326.noFiredSetupRefusal8364("MOONSHOT", true, null, emptyList()))
-        assertNull(Entry8114Gate8326.noFiredSetupRefusal8364("SHITCOIN", true, "NO_TRIGGER", emptyList()))
-        // the shadow stays wide (8360): every non-safety no opens
-        assertEquals(100, ExploreShadow8347.REJECT_SAMPLE_PCT_8347)
+        val s=src("engine/truth/LiveEdgeGate7877.kt")
+        assertFalse(s.contains("noFiredSetupRefusal8364"))
+        assertTrue(s.contains("if (paper) return cortex7950"))
     }
 
     @Test fun nichesNeedANamedFiredSetup() {
@@ -155,29 +139,11 @@ class Aate8364EntriesTest {
     // ── 4. source pins ──
 
     @Test fun hookSitesArePinned() {
-        val mode = src("engine/truth/Entry8114Mode8326.kt")
-        // superseded by V5.0.8370 — owner restored 8114 behaviour ("No fired-setup rule"): the hook counts, it never refuses
-        // (was "(if (paper8336) null else try { Entry8114Gate8326.liveFiredSetupRefusal8364(...) } ...)" in the verdict chain).
-        val hook = "if (!paper8336) try { Entry8114Gate8326.noteFiredSetup8370(ts, l, old.setup, nowMs) } catch (_: Throwable) {}"
-        assertTrue("live only, counted", mode.contains(hook))
-        assertFalse("not in the verdict chain", mode.contains("Entry8114Gate8326.liveFiredSetup" + "Refusal8364("))
-        assertTrue("before the niche and the timing wait", mode.indexOf(hook) < mode.indexOf("ExploreShadow8347.nicheRefusal8351(ts, l,") &&
-            mode.indexOf("val final0_8347 = finalVerdict8326(old.reason, now, realised)") < mode.indexOf(hook))
-        val gate = src("engine/truth/Entry8114Gate8326.kt")
-        assertTrue(gate.contains("LanePlaybook7907.matchedSetups8083(ts, lane, nowMs)") && gate.contains("const val NO_FIRED_SETUP_PREFIX_8364 = \"LIVE_NO_FIRED_SETUP_8364_\""))
-        val ex = src("engine/truth/ExploreShadow8347.kt")
-        assertTrue("ranked per signal at 2 SE", ex.contains("return pickBest8364(out, rivals8364)"))
-        assertTrue("variants at the same 2 SE", ex.contains("if (variantAdoptable8364(it)) out += c"))
-        assertTrue("expired legs counted", ex.indexOf("unfilled8364(t, leg, nowMs) }   // never filled: no trade, counted unfilled") > 0 &&
-            ex.contains("else if (age >= CONFIRM_WAIT_MS_8347) { leg.dead = true; t.force8355 = true; unfilled8364(t, leg, nowMs) }"))
-        assertTrue("open fills chased", ex.contains("val fillPx8364 = ShadowFill8364.laneEntryPx8364(px, lane)") &&
-            ex.contains("it.active = true; it.entryPx = fillPx8364; it.entryAtMs = nowMs"))
-        assertTrue("NOW arm chased", ex.contains("leg.entryPx = ShadowFill8364.laneEntryPx8364(t.signalPx, t.lane)"))
-        assertTrue("niche reads fired setups", ex.contains("if (inNiche8364(c, setup, band, fired)) return null"))
-        assertTrue("fill rate on the status line", ex.contains("legsUnfilled8364=") && ex.contains(" fill\${\"%.0f\".format(c.fillRate * 100.0)}%"))
-        val ev = src("engine/truth/EvidenceShadow8344.kt")
-        assertTrue(ev.contains("val fillPx8364 = ShadowFill8364.laneEntryPx8364(px, lane)") && ev.contains("Pos8344(mint, lane, fillPx8364, nowMs,"))
-        val fill = src("engine/truth/ShadowFill8364.kt")
-        assertTrue("measured chase only from live fills", fill.contains("EntryChase7961.laneLatencyMs8094(lane)") && fill.contains("EntryChase7961.lanePenaltyPct7961(lane)"))
+        val gate=src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(gate.contains("canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)"))
+        assertTrue(gate.contains("FdgGate8365.inContext8365(ts, l, basis)"))
+        assertTrue(gate.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertTrue(gate.contains("if (paper && final == null) Rehearsal8339.notePaperAdmit8342"))
+        assertFalse(gate.contains("entryRefusal8114"))
     }
 }

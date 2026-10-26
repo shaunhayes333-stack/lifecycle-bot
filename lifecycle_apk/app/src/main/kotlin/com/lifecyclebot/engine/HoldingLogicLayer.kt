@@ -736,8 +736,15 @@ object HoldingLogicLayer {
         }
         val base = MODE_PARAMS.getValue(alias)
         val mandate = com.lifecyclebot.engine.truth.FieldManual7715.mandateFor(lane)
+        // V5.0.8392 — the stop is never inside the lane's round trip (FieldManual7715.stopPct8392: TREASURY / CASHGEN traded a
+        // 5 % stop against a 9.28 % measured trip), and a non-runner desk holds at least the 60-min window the Cortex grades
+        // (MARKET_MAKER clocked out at 30 min while its coins were labelled +229 % over the hour). Runner mandates keep their
+        // own specialist clocks (MICRO_CAP 12 h, PUMP_DUMP 15 min): a wider window there is not evidence, it is a different desk.
+        val stop8392 = try { com.lifecyclebot.engine.truth.FieldManual7715.laneStopPct8392(lane) } catch (_: Throwable) { mandate.invalidationPct }
+        val hold8392 = if (mandate.runner) base.maxHoldTimeMs
+            else maxOf(base.maxHoldTimeMs, com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false))
         return base.copy(mode = lane, targetProfitPct = mandate.expectedGrossPct,
-            stopLossPct = maxOf(base.stopLossPct, -mandate.invalidationPct), allowModeSwitch = true)
+            stopLossPct = -maxOf(-base.stopLossPct, stop8392), maxHoldTimeMs = hold8392, allowModeSwitch = true)
     }
     
     /**

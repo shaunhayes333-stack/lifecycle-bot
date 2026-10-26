@@ -209,7 +209,7 @@ class Aate8343RunnerGrabTest {
         assertTrue(lane.contains("LaneAgeLiquidityScope8140.EXIT_SAFE_HARD_FLOOR_USD_8140"))
         assertTrue(lane.contains("if (!graduated && known) return null"))
         assertTrue(lane.contains("RunnerGrab7967.grab7967(ts.mint, nowMs)") && lane.contains("RunnerGrab7967.formingNative8260(ts, nowMs)"))
-        assertTrue(lane.contains("NetEdge8030.preTradeCostPct8329(l, size, liq, mint, ts.lastMcap)") && lane.contains("NetEdge8030.entryClears8030(l.expectedGrossPct, l.costPct)"))
+        assertTrue(lane.contains("NetEdge8030.preTradeCostPct8329(l, size, liq, mint, ts.lastMcap)") && lane.contains("NetEdge8030.entryClears8030(l.expectedGrossPct, l.costPct, l.costMargin8391)"))
         assertTrue(lane.contains("EntryEconomics8329.CAP_LAUNCH_PCT_8329"))
         assertTrue("the hold is latched on the runner ladder", lane.contains("RunnerGrab7967.holdAsRunner7972(ts, nowMs)"))
         assertTrue("the grab size is the route minimum of the live wallet", lane.contains(".routableMinSol"))

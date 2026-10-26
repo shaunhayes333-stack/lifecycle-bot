@@ -95,9 +95,9 @@ class Aate8171IntegratedRepairTest {
 
     @Test fun aProvenCostClearingAdmissionGetsAPlanBeforeOptionalBarsWait() {
         val p = src("engine/truth/TradePlan7739.kt")
-        // superseded by V5.0.8326 — in Entry8114Mode8326 the plan reads no admission; the read still comes before the bars wait
-        val start = p.indexOf("val specific8171 = if (Entry8114Mode8326.liveActive8326(lane, paper)) null")
-        assertTrue(p.indexOf("else candidateAdmission ?: try {", start) in (start + 1) until p.indexOf("val read = readForEntry7837(ts, nowMs)"))
+        // V5.0.8392 — the plan reads the one canonical admission (or looks it up) before the bars wait
+        val start = p.indexOf("val specific8171 = candidateAdmission ?: try {")
+        assertTrue(start in 0 until p.indexOf("val read = readForEntry7837(ts, nowMs)"))
         val wait = p.indexOf("val read = readForEntry7837(ts, nowMs)")
         assertTrue(start > 0)
         assertTrue(start < wait)

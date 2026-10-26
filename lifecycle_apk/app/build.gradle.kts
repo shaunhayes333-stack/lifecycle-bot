@@ -226,6 +226,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("org.mockito:mockito-core:5.12.0")
+    testImplementation("org.xerial:sqlite-jdbc:3.46.1.0") // JVM-only real transaction/restart tests; never bundled in the APK
     // Android's local-test android.jar stubs JSONObject mutators to return null;
     // use the real org.json implementation for persistence round-trip tests.
     testImplementation("org.json:json:20250517")

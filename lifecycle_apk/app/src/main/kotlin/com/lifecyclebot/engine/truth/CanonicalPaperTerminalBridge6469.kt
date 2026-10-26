@@ -103,6 +103,7 @@ object CanonicalPaperTerminalBridge6469 {
      * Finalise a paper sell / partial. Idempotent per stable sellSig/positionId.
      * This is the only paper close entrypoint executor code should use.
      */
+    @Synchronized
     fun finalizeSell(
         positionId: String,
         mint: String,
@@ -238,6 +239,15 @@ object CanonicalPaperTerminalBridge6469 {
             return Result(applied = false, terminalClaimed = false, busPublished = false, reason = claim.reason)
         }
 
+        val performanceFee8391 = if (terminal && !suppressLearningFanout6490 && canonicalBefore6522 != null) {
+            com.lifecyclebot.engine.PerformanceFees8391.bind(positionId, "", "paper", mint, canonicalBefore6522.openedAtMs)
+            com.lifecyclebot.engine.PerformanceFees8391.settle(positionId, mint, "paper", sellSig,
+                canonicalBefore6522.realizedProceedsSol + grossProceedsSol - canonicalBefore6522.entryCostSol - canonicalBefore6522.feesSol - feesSol)
+        } else 0.0
+        val settlementFees8391 = feesSol + performanceFee8391
+        var feePositionApplied8391 = false
+        try {
+
         val event6635 = CanonicalEconomicEvent6635.Event(
             economicEventId = sellSig, positionId = positionId, mint = mint,
             canonicalMint = ExecutorCanonicalMirror6442.canonicalMint(mint), symbol = symbol,
@@ -245,9 +255,9 @@ object CanonicalPaperTerminalBridge6469 {
             side = if (terminal) CanonicalEconomicEvent6635.Side.SELL else CanonicalEconomicEvent6635.Side.PARTIAL_SELL,
             timestampMs = System.currentTimeMillis(), qtyRaw = soldQtyRaw,
             decimals = sellDecimals6522, executionPriceUsd = 0.0,
-            executionPriceSol = 0.0, notionalSol = grossProceedsSol, feeSol = feesSol,
-            cashDeltaSol = grossProceedsSol - feesSol, positionQtyDeltaRaw = soldQtyRaw.negate(),
-            realizedPnlDeltaSol = grossProceedsSol - soldCostBasisSol - feesSol,
+            executionPriceSol = 0.0, notionalSol = grossProceedsSol, feeSol = settlementFees8391,
+            cashDeltaSol = grossProceedsSol - settlementFees8391, positionQtyDeltaRaw = soldQtyRaw.negate(),
+            realizedPnlDeltaSol = grossProceedsSol - soldCostBasisSol - settlementFees8391,
             terminalFillIndex = if (terminal) 1 else 0,
         )
         if (!CanonicalEconomicEvent6635.openEvent(event6635)) {
@@ -271,7 +281,7 @@ object CanonicalPaperTerminalBridge6469 {
                     soldQtyRaw = soldQtyRaw,
                     proceedsSol = grossProceedsSol,
                     soldCostBasisSol = soldCostBasisSol,
-                    feesSol = feesSol,
+                    feesSol = settlementFees8391,
                     paperMode = false,
                 ) == CanonicalPositionAuthority6441.MutateResult.APPLIED
             } else {
@@ -281,7 +291,7 @@ object CanonicalPaperTerminalBridge6469 {
                     soldQtyRaw = soldQtyRaw,
                     proceedsSol = grossProceedsSol,
                     soldCostBasisSol = soldCostBasisSol,
-                    feesSol = feesSol,
+                    feesSol = settlementFees8391,
                     paperMode = true,
                     terminal = terminal,
                     lane = lane,
@@ -289,6 +299,7 @@ object CanonicalPaperTerminalBridge6469 {
                     positionId7835 = positionId, sellExecutionId7835 = sellSig,
                 )
             }
+            feePositionApplied8391 = positionApplied6486
             if (!positionApplied6486) {
                 try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_POSITION_REJECTED_6486") } catch (_: Throwable) {}
                 return Result(applied = false, terminalClaimed = true, busPublished = false, reason = "POSITION_MUTATION_REJECTED")
@@ -301,7 +312,7 @@ object CanonicalPaperTerminalBridge6469 {
             val ledgerApplied6486 = PaperAccountLedger6430.onSellAtomic6632(
                 grossProceedsSol = grossProceedsSol,
                 costBasisSoldSol = soldCostBasisSol,
-                feeSol = feesSol,
+                feeSol = settlementFees8391,
                 mint = mint,  // V5.0.6502 §1 — enable quarantine reject at ledger source
                 attemptKey = sellSig,
                 side = if (terminal) PaperEconomicAtomicCommit6632.Side.SELL
@@ -343,7 +354,7 @@ object CanonicalPaperTerminalBridge6469 {
                 preRemainingCostBasisSol = preRemainingCostBasisSol,
                 grossProceedsSol = grossProceedsSol,
                 soldCostBasisSol = soldCostBasisSol,
-                feesSol = feesSol,
+                feesSol = settlementFees8391,
                 lane = lane,
                 exitReason = exitReason,
                 terminal = terminal,
@@ -361,7 +372,7 @@ object CanonicalPaperTerminalBridge6469 {
             }
             return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "GRANTED",
                 economicEventId = sellSig, grossProceedsSol = grossProceedsSol,
-                soldCostBasisSol = soldCostBasisSol, feesSol = feesSol,
+                soldCostBasisSol = soldCostBasisSol, feesSol = settlementFees8391,
                 preRemainingCostBasisSol = preRemainingCostBasisSol,
                 postRemainingCostBasisSol = (preRemainingCostBasisSol - soldCostBasisSol).coerceAtLeast(0.0),
                 canonicalConsumedRaw = soldQtyRaw, preRemainingRaw = preRemainingRaw,
@@ -378,12 +389,15 @@ object CanonicalPaperTerminalBridge6469 {
             } catch (_: Throwable) {}
             return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "APPLIED_WITH_FANOUT_ERROR",
                 economicEventId = sellSig, grossProceedsSol = grossProceedsSol,
-                soldCostBasisSol = soldCostBasisSol, feesSol = feesSol,
+                soldCostBasisSol = soldCostBasisSol, feesSol = settlementFees8391,
                 preRemainingCostBasisSol = preRemainingCostBasisSol,
                 postRemainingCostBasisSol = (preRemainingCostBasisSol - soldCostBasisSol).coerceAtLeast(0.0),
                 canonicalConsumedRaw = soldQtyRaw, preRemainingRaw = preRemainingRaw,
                 postRemainingRaw = preRemainingRaw.subtract(soldQtyRaw).coerceAtLeast(BigInteger.ZERO),
                 tokenDecimals = CanonicalPositionAuthority6441.getPosition(positionId)?.quantityScale ?: -1)
+        }
+        } finally {
+            if (!feePositionApplied8391) com.lifecyclebot.engine.PerformanceFees8391.abortUnappliedPaper(positionId)
         }
     }
 
@@ -489,6 +503,7 @@ object CanonicalPaperTerminalBridge6469 {
                 exitFeesSol = feesSol,
                 exitPriceUsd = exitPriceUsd7032,
                 solUsdAtExit = solUsdAtExit7032,
+                performanceFeeSol8391 = if (terminal) com.lifecyclebot.engine.PerformanceFees8391.fee(positionId) else 0.0,
             )
         } catch (_: Throwable) {}
 
@@ -516,6 +531,7 @@ object CanonicalPaperTerminalBridge6469 {
                 mode = "paper", settledAtMs = settledAt6485,
                 assetClassTag = entrySnap6485?.assetClassTag ?: CanonicalPositionAuthority6441.getPosition(positionId)?.assetClass?.tag.orEmpty(),
                 economicEventId = economicEventId,
+                performanceFeeSol8391 = com.lifecyclebot.engine.PerformanceFees8391.fee(positionId),
             )
 
             fun publishCommitted6653() {

@@ -150,9 +150,13 @@ object ExitDoctrine8169 {
         return if (runnerProtectFloor8169(peakPct, costPct).isFinite()) RunnerLock8169.BREAKEVEN_FLOOR else RunnerLock8169.UNDER_BREAKEVEN
     }
 
-    /** Pure: the lane's Field Manual invalidation (positive %), the floor of any ordinary stop on it. */
+    /**
+     * The lane's Field Manual invalidation widened to its measured round trip (positive %), the floor of any ordinary stop
+     * on it. V5.0.8392 — FieldManual7715.stopPct8392: the floor is never inside the trip the lane actually pays, with or
+     * without a measured 1-minute noise (noiseCostFloored8169 still adds the noise term when it is measured).
+     */
     fun doctrinePct8169(lane: String): Double = try {
-        com.lifecyclebot.engine.truth.FieldManual7715.mandateFor(lane).invalidationPct
+        com.lifecyclebot.engine.truth.FieldManual7715.laneStopPct8392(lane)
     } catch (_: Throwable) { Double.NaN }
 
     // ── live adapters ──

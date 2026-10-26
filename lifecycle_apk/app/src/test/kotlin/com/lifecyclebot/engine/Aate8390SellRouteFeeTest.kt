@@ -3,7 +3,7 @@ package com.lifecyclebot.engine
 import org.junit.Assert.*
 import org.junit.Test
 
-/** V5.0.8390 — exits sell through Jupiter (fee-free) first; PumpPortal (0.5 %/side) is the rescue, or first when Jupiter is out. */
+/** V5.0.8390 — exits sell through Jupiter (quote-priced) first; PumpPortal (0.5 %/side) is the rescue, or first when Jupiter is out. */
 class Aate8390SellRouteFeeTest {
     private fun src(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/$p").readText()
 
@@ -12,7 +12,7 @@ class Aate8390SellRouteFeeTest {
         val fn = e.substring(e.indexOf("private fun shouldTryPumpDirectFirst6099"), e.indexOf("Executor v3 — SecurityGuard integrated"))
         assertTrue(fn.contains("Route8144.JUPITER"))
         assertTrue(fn.contains("return pumpFirst && !jupiterOk8390"))
-        assertTrue(fn.contains("SELL_JUPITER_FIRST_FEE_FREE_8390_"))
+        assertTrue(fn.contains("SELL_JUPITER_FIRST_QUOTED_FEE_8391_"))
         // every ordinary exit decides through this one function; the PumpPortal rescue legs stay
         for (k in listOf("\"PROFIT-LOCK\")", "\"PARTIAL\")", "\"ORPHAN-SWEEP\")")) assertTrue(k, e.contains("shouldTryPumpDirectFirst6099(") && e.contains(k))
         for (k in listOf("PROFIT-LOCK-RESCUE", "EXIT-RESCUE", "ORPHAN-RESCUE", "PARTIAL-RESCUE-")) assertTrue(k, e.contains(k))

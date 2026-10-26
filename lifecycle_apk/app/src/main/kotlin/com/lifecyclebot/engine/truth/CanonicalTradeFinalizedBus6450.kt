@@ -88,6 +88,7 @@ object CanonicalTradeFinalizedBus6450 {
         /** V5.0.8082 §OBSERVED_EXCURSION — NaN when the path was never observed. */
         val mfePct: Double = PositionExcursion8082.mfeFor(positionId),
         val maePct: Double = PositionExcursion8082.maeFor(positionId),
+        val performanceFeeSol8391: Double = 0.0,
     )
 
     /**
@@ -250,6 +251,13 @@ object CanonicalTradeFinalizedBus6450 {
             // failed after the rich finalization had already been claimed.
         }
         val economicInvalid6495 = economicInvalidReason6495(event)
+        if (economicInvalid6495 == null && event.netRealizedPnlSol <= 0.0 &&
+            event.economicFinality in setOf("LIVE_FINALIZED", "LIVE_RECONCILED") &&
+            event.performanceFeeSol8391 == 0.0 && !com.lifecyclebot.engine.PerformanceFees8391.hasAssessment(event.positionId)) {
+            // Include verified terminal write-offs in the same wallet's loss carryforward.
+            com.lifecyclebot.engine.PerformanceFees8391.settle(event.positionId, event.mint, event.mode.lowercase(),
+                event.economicEventId.ifBlank { event.positionId }, event.netRealizedPnlSol)
+        }
         if (economicInvalid6495 != null) {
             quarantinedEconomics6495.incrementAndGet()
             try {
@@ -288,8 +296,11 @@ object CanonicalTradeFinalizedBus6450 {
         // handed to any 6450 subscriber. Only the 6464 parity fanout below runs
         // for it, and there it lands excluded.
         if (economicInvalid6495 == null && !richDuplicate7473) {
+            try { CanonicalFinalityPersistence6486.record(event) } catch (t: Throwable) {
+                finalized.remove(event.positionId, event.settledAtMs)
+                throw t
+            }
             published.incrementAndGet()
-            CanonicalFinalityPersistence6486.record(event)
             try { PositionExcursion8082.release(event.positionId) } catch (_: Throwable) {}
             val quarantined6485 = try {
                 LearningQuarantineGate6470.shouldDropForLearning(positionId = event.positionId, mint = event.mint)

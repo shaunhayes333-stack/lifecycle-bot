@@ -31,11 +31,11 @@ object CostTrim8151 {
     // ── constants (each mirrors the code that charges it) ──
 
     /** Executor.MEME_TRADING_FEE_PERCENT (0.005): the app's own live trading fee, per side, in percent. */
-    const val APP_FEE_PCT_PER_SIDE_8151 = 0.5
+    const val APP_FEE_PCT_PER_SIDE_8151 = 0.0 // V8391 performance fee is a share of positive net profit, not notional
     /** PumpPortal local-trade API fee, per trade, in percent. */
     const val PUMPPORTAL_FEE_PCT_PER_SIDE_8151 = 0.5
     /** Jupiter: Metis /swap charges no platform fee here; Ultra charges a few bps. Upper bound, per side. */
-    internal const val AGGREGATOR_FEE_PCT_PER_SIDE_8151 = 0.05
+    internal const val AGGREGATOR_FEE_PCT_PER_SIDE_8151 = 0.1 // documented general pair; Costs8369 uses quote-specific/young-token fees
     /** HeliusSender posts to `/fast?swqos_only=true`, whose minimum tip is 5,000 lamports (HeliusSenderEnvelope7250). */
     internal const val SWQOS_MIN_TIP_LAMPORTS_8151 = 5_000L
     /** An ordinary transaction's Sender tip: 10x the SWQOS minimum (was the 200,000-lamport dual-routing figure). */

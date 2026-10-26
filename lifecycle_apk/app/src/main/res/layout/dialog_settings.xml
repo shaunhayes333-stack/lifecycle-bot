@@ -349,36 +349,7 @@
                     android:checked="false"/>
             </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="8dp">
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Entry 8114 mode"
-                        android:textColor="@color/aate_text"
-                        android:textSize="12sp"/>
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Live meme buys use the 8114 entry decision (safety, route and cost checks still apply)"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="9sp"/>
-                </LinearLayout>
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/switchEntry8114Mode"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"/>
-            </LinearLayout>
+
         </LinearLayout>
 
         <!-- ═══════════════════════════════

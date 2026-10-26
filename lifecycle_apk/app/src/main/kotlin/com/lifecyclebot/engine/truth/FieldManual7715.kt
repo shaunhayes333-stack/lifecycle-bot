@@ -227,6 +227,33 @@ object FieldManual7715 {
     private val GENERIC_LANE = LaneMandate("GENERIC", SetupFamily.BASE_BREAKOUT, expectedGrossPct = 20.0, invalidationPct = 10.0, riskFraction = 0.065, runner = false)
 
     /** Which part of the playbook owns a lane. Unknown lanes get the generic breakout mandate. */
+    // ── V5.0.8392 §STOP_NEVER_INSIDE_THE_ROUND_TRIP ──
+    // The mandate's invalidation was traded as the stop whatever the trip cost. 5.0.8390 live: measured round trip 9.28 %
+    // at a 0.031 SOL ticket (buy side 7.53 %), TREASURY / CASHGEN stop 5 %, QUALITY / EXPRESS / DIP 10 %: a noise move the
+    // size of the fees closed the trade at -12 .. -17 % net, so desks whose coins were labelled +229 % / +79 % forward
+    // (Cortex, 60-min hold) booked shadow records of -1.1 % PF 0.40 (TREASURY), -3.4 % (QUALITY), -6.4 % (CASHGEN) and stayed
+    // held from live. Live's own stop floor (ExitDoctrine8169.noiseCostFloored8169) only priced the cost once 1-minute
+    // noise was measured, and the shadow books never priced it — the evidence that decides live admission ran a stop live
+    // would not. One rule, every consumer: a desk's stop is the wider of its mandate and STOP_COST_MULT_8392 x the round
+    // trip it actually pays (the same 1.5x NetEdge8030 demands of the entry edge). Asset-class aware through the cost
+    // itself: PERPS / CARRY / ARB pay basis points and keep their mandates; a bigger ticket pays less and the stop
+    // tightens back toward the mandate on its own. Runner lanes (15 %) are already outside today's trip and do not move.
+    const val STOP_COST_MULT_8392 = 1.5
+    const val STOP_CAP_PCT_8392 = 40.0
+
+    /** The stop [lane] actually trades at [costPct] round trip: max(mandate invalidation, 1.5 x cost), never over the cap. */
+    fun stopPct8392(lane: String?, costPct: Double): Double {
+        val m = mandateFor(lane).invalidationPct
+        if (!costPct.isFinite() || costPct <= 0.0) return m
+        val widened = maxOf(m, STOP_COST_MULT_8392 * costPct).coerceAtMost(maxOf(m, STOP_CAP_PCT_8392))
+        if (widened > m + 1e-9) try { PipelineHealthCollector.labelInc("STOP_WIDENED_TO_COST_8392_${lane?.trim()?.uppercase().orEmpty().take(16)}") } catch (_: Throwable) {}
+        return widened
+    }
+
+    /** [stopPct8392] at the lane's measured round trip (CostLedger7962, else the base estimate) for callers without a size. */
+    fun laneStopPct8392(lane: String?): Double =
+        stopPct8392(lane, try { CostLedger7962.laneCostPct7962(lane.orEmpty()) } catch (_: Throwable) { Double.NaN })
+
     fun mandateFor(lane: String?): LaneMandate {
         val l = lane?.trim()?.uppercase().orEmpty()
         return when {

@@ -22,6 +22,10 @@ class Aate8372CortexAuthorityTest {
         CortexAuthority8366.Row8366(at, score, outcome(x), CortexScoreboard7885.bucketOf(score, 0.0, false).ordinal, at + 300_000L)
     }
 
+    /** V5.0.8392 — the proof fields, with the coverage bookkeeping normalised (asserted separately). */
+    private fun core8392(r: CortexAuthority8366.Result8366) = r.copy(excludedRows8372 = 0, matured8392 = 0, missing8392 = 0,
+        pending8392 = 0, strongCoverage8392 = 1.0, restCoverage8392 = 1.0)
+
     private fun after(rows: List<CortexAuthority8366.Row8366>): Long = rows.maxOf { it.outcomeAvailableAtMs } + 1L
 
     @Test fun profitableScoreQuintilesCannotAuthoriseLosingActualStrongDecisions() {
@@ -119,7 +123,9 @@ class Aate8372CortexAuthorityTest {
         val expected = CortexAuthority8366.test8372(sample, 1.5, now)
         val actual = CortexAuthority8366.test8372(sample + future, 1.5, now)
         assertEquals(100, actual.excludedRows8372)
-        assertEquals(expected, actual.copy(excludedRows8372 = 0))
+        assertEquals("unseen outcomes are PENDING, never missing or imputed", 100, actual.pending8392)
+        assertEquals(0, actual.missing8392)
+        assertEquals(core8392(expected), core8392(actual))
     }
 
     @Test fun missingOrImpossibleProvenanceIsCountedAndNotInvented() {
@@ -135,7 +141,8 @@ class Aate8372CortexAuthorityTest {
         val expected = CortexAuthority8366.test8372(sample, 1.5, now)
         val actual = CortexAuthority8366.test8372(sample + invalid, 1.5, now)
         assertEquals(invalid.size, actual.excludedRows8372)
-        assertEquals(expected, actual.copy(excludedRows8372 = 0))
+        assertEquals("corrupt rows are excluded, not counted as missing outcomes", 0, actual.missing8392)
+        assertEquals(core8392(expected), core8392(actual))
     }
 
     @Test fun runtimeRowsAreChronologicalAndLegacyDiagnosticRowsStaySeparate() {
@@ -175,6 +182,9 @@ class Aate8372CortexAuthorityTest {
         val authority = source.substringAfter("private fun authorityTest8366(").substringBefore("private fun realisedStrong8366(")
         assertTrue(authority.contains("|offset=\$offset|cost=\$cost"))
         assertTrue(authority.contains("it.gradeRevision == gradeBook8144.revision"))
-        assertTrue(authority.contains("scoreVersion = 1, setup = setup"))
+        assertTrue(authority.contains("authorityRows8392(lane, setup)"))
+        val rows8392 = source.substringAfter("private fun authorityRows8392(").substringBefore("private data class RefusalCoverage8392(")
+        assertTrue(rows8392.contains("scoredRows8366(lane,runnerHorizon8144(lane),scoreVersion=1,setup=setup)"))
+        assertTrue("unresolved pending predictions join the authority denominator", rows8392.contains("for ((key,p) in pending)"))
     }
 }

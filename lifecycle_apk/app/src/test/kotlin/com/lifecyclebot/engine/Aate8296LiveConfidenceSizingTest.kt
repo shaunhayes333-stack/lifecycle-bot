@@ -133,7 +133,7 @@ class Aate8296LiveConfidenceSizingTest {
         assertTrue(p.contains("LiveConfidence8296.onLiveClose8296(e)"))
         assertTrue(p.contains("recentLive8296 = try { LiveConfidence8296.recentFor8296(effectiveLane7811) }"))
         // superseded by V5.0.8326 — the recency shrink applies through Entry8114Mode8326.sizeExpMult8326 unless the 8114 decision admitted it
-        assertTrue(p.contains("val expMult = Entry8114Mode8326.sizeExpMult8326(i.entry8114Admitted8326, expectancyMultiplier("))
+        assertTrue(p.contains("val expMult = LiveConfidence8296.recencyAdjusted8296(expectancyMultiplier("))
         assertTrue(p.contains("recentKellyGate8296(ts, l, validated8296)"))
         assertTrue(p.contains("LiveConfidence8296.statusLine8296()"))
     }

@@ -1,6 +1,5 @@
 package com.lifecyclebot.engine
 
-import com.lifecyclebot.engine.truth.Entry8114Gate8326
 import com.lifecyclebot.engine.truth.EntryEconomics8329
 import com.lifecyclebot.engine.truth.EvidenceHold8336
 import com.lifecyclebot.engine.truth.ExploreShadow8347
@@ -63,12 +62,14 @@ class Aate8370Restore8114Test {
         solUsd = 200.0, liquidityUsd = 200_000.0, liveCloses = 0, liveMeanNetPct = 0.0,
         liveTotalNetSol = 0.0, liveWrPct = 0.0, drawdownFrac = 0.0, laneDailyLossSol = 0.0,
         governorLossMult = 1.0, partialProviderEvidence = false, oracleUnproven = false, laneOpenLive = 0,
-        setupExpectedGrossPct8153 = 20.0, tradeableSol8153 = tradeable, entry8114Admitted8326 = true,
+        setupExpectedGrossPct8153 = 20.0, tradeableSol8153 = tradeable,
     )
 
     @Test fun aStakeFarUnderTheMinimumIsPromotedAndTradedInsideTheCaps() {
         // 0.002 SOL requested (8 % of the 0.025 minimum, no named reason): 8365 refused KELLY_TOO_SMALL_FOR_ROUTE_8365.
-        val d = LiveRiskPolicy7807.decide(quality(0.17, 0.002))
+        // V5.0.8392 — the loss budget is the account's own safe share (8236), read from the decision's tradeable cash: an
+        // unknown wallet is never guessed (the removed 8114 mode waived the budget outright).
+        val d = LiveRiskPolicy7807.decide(quality(0.17, 0.002, tradeable = 0.17))
         assertTrue(d.reason, d.open)
         assertEquals("OPEN_RISK_SAFE_MIN_PROMOTED_7840", d.reason)
         assertEquals(0.025, d.sizeSol, 1e-12)
@@ -116,21 +117,12 @@ class Aate8370Restore8114Test {
 
     // ── 3. no fired-setup rule ──
 
-    @Test fun aCoinWithNoNamedSetupIsNotRefusedFor8114Mode() {
-        val why = Entry8114Gate8326.noFiredSetupRefusal8364("MOONSHOT", false, "NO_TRIGGER", emptyList())
-        assertEquals("LIVE_NO_FIRED_SETUP_8364_MOONSHOT", why)       // still classified and counted, never in the verdict chain
-        // the NO_TRIGGER playbook door is no longer a duplicate of the (telemetry) 8364 rule: it is as at 8114
-        assertNull(FdgGate8365.demotedBy8365("PLAYBOOK_NO_TRIGGER_PROVEN_LOSING_7907_MOONSHOT", true, null, null, false))
-        // niches: an M: band is the band; an S: niche still means that setup
-        val p = EvidenceHold8336.Proof8336(60, 10.0, 2.0, 2.0, true)
-        val m = ExploreShadow8347.Choice8351(ExploreShadow8347.Entry8347.NOW, ExploreShadow8347.Exit8347.RUNNER, "M", "MC_10K_100K", p)
-        val s = ExploreShadow8347.Choice8351(ExploreShadow8347.Entry8347.NOW, ExploreShadow8347.Exit8347.RUNNER, "S", "IGNITION_5M", p)
-        assertTrue(ExploreShadow8347.inNiche8364(m, null, "MC_10K_100K", emptyList()))
-        assertTrue(ExploreShadow8347.inNiche8364(m, "NO_TRIGGER", "MC_10K_100K", listOf("NO_TRIGGER")))
-        assertFalse(ExploreShadow8347.inNiche8364(m, null, "MC_LT10K", emptyList()))
-        assertFalse(ExploreShadow8347.inNiche8364(s, null, "MC_10K_100K", emptyList()))
-        assertFalse(ExploreShadow8347.inNiche8364(s, "NO_TRIGGER", null, listOf("NO_TRIGGER")))
-        assertTrue(ExploreShadow8347.inNiche8364(s, null, null, listOf("IGNITION_5M")))
+    @Test fun namedSetupMetadataDoesNotCreateASecondEntryAuthority() {
+        val p=com.lifecyclebot.engine.cortex.LanePlaybook7907
+        assertFalse(p.namedSetup8392(null));assertFalse(p.namedSetup8392("NO_TRIGGER"))
+        assertFalse(p.namedSetup8392("matches_unrankable"))
+        assertTrue(p.namedSetup8392("IGNITION_5M"))
+        assertFalse(src("engine/truth/LiveEdgeGate7877.kt").contains("liveFiredSetupRefusal8364"))
     }
 
     // ── wiring ──
@@ -149,11 +141,9 @@ class Aate8370Restore8114Test {
         assertTrue(src("engine/RunnerGrab7967.kt").contains("GreenFloor8363.breachedFor8363(ts, g) -> \"RUNNER_GREEN_FLOOR_8363_"))
         assertTrue(src("engine/LifecycleHold8065.kt").contains("GreenFloor8363.breachedFor8363(ts, g) -> \"LIFECYCLE_GREEN_FLOOR_8363_"))
         assertTrue(src("engine/TailBag8034.kt").contains("GreenFloor8363.floorFor8363(ts)"))
-        val gate = src("engine/truth/Entry8114Gate8326.kt")
-        assertTrue(gate.contains("fun noteFiredSetup8370(ts: TokenState, lane: String, selected: String?, nowMs: Long): String?"))
-        val mode = src("engine/truth/Entry8114Mode8326.kt")
-        assertTrue(mode.contains("if (!paper8336) try { Entry8114Gate8326.noteFiredSetup8370(ts, l, old.setup, nowMs) } catch (_: Throwable) {}"))
-        assertFalse("no fired-setup refusal in the live verdict chain", mode.contains("liveFiredSetupRefusal8364"))
+        val canonical = src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(canonical.contains("canonicalRefusal8392"))
+        assertFalse(canonical.contains("liveFiredSetupRefusal8364"))
         assertFalse("NO_TRIGGER is not demoted as a 8364 duplicate",
             Regex("^\\s*return BY_FIRED_SETUP_8365\\b", RegexOption.MULTILINE).containsMatchIn(src("engine/truth/FdgGate8365.kt")))
         // the hard runner stop and the lifecycle floor stay

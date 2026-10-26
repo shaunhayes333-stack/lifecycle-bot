@@ -34,7 +34,7 @@ class Aate8373AdvisorBatchTest {
         assertTrue(tuner.contains("val proposalCounts8373 ="))
         assertTrue(tuner.contains("proposalCounts8373[key]"))
         assertTrue(tuner.contains("repeated/conflicting proposal; no change applied"))
-        assertTrue(tuner.contains("for (i in limit until arr.length())"))
+        assertTrue(tuner.contains("applied.size >= maxAdjustments"))
         assertTrue(tuner.contains("per-call adjustment limit"))
         assertTrue(tuner.contains("ConfigStore.save(ctx, working)"))
     }

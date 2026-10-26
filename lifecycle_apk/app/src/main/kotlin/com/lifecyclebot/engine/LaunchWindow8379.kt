@@ -73,7 +73,7 @@ object LaunchWindow8379 {
     }
 
     private fun lane(ts: TokenState): String = try {
-        com.lifecyclebot.engine.truth.Entry8114Mode8326.canon8326(ts.position.tradingMode)
+        com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.desk8392(ts.position.tradingMode)
     } catch (_: Throwable) { ts.position.tradingMode.trim().uppercase() }
 
     /** Is [ts]'s open position in the launch window now? */
