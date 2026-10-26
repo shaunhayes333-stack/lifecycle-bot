@@ -105,14 +105,14 @@ class Aate8355ShadowPersistTest {
         assertTrue(s.contains("private const val PREFS_OPEN_8355 = \"aate_evidence_shadow_open_8355\""))
         assertTrue("written on open", s.contains("open[mint] = pos8355") && s.contains("persistOpen8355(pos8355, nowMs)"))
         assertTrue("a peak change is a persisted change", s.contains("if (g > p.peakPct) { p.peakPct = g; p.dirty8355 = true }"))
-        assertTrue("a tier change is a persisted change", s.contains("p.tiersHit++") && s.contains("p.dirty8355 = true   // V5.0.8355 — a tier change is a persisted change"))
+        assertTrue("a tier change is a persisted change", s.contains("p.tiersHit = maxOf(p.tiersHit, p.sellTier8394)") && s.contains("persistOpen8355(p, nowMs)"))
         assertTrue("coalesced on the tick", s.contains("if (ShadowPersist8355.writeDue8355(p.dirty8355, p.lastWriteMs8355, nowMs)) persistOpen8355(p, nowMs)"))
         assertTrue("removed on close", s.contains("done.forEach { open.remove(it); forgetOpen8355(it) }"))
         val init = s.substringAfter("fun init8344(").substringBefore("\n    }")
         assertTrue("restored in retryable serialized init", init.contains("synchronized(initLock8372)") &&
             init.contains("if (!openRestored8372) openRestored8372 = restoreOpen8355(ctx, nowMs)") &&
             init.contains("initReady8372()"))
-        assertTrue("a restored position keeps its real marks and clock", s.contains("Pos8344(r.mint, r.lane, r.entryPx, r.atMs, r.costPct, r.stopPct, r.armPct, r.timeoutMs)") &&
+        assertTrue("a restored position keeps its real marks and clock", s.contains("Pos8344(r.mint, r.lane, r.entryPx, r.atMs, r.costPct, r.stopPct, r.armPct, r.timeoutMs, r.advisoryEntry8393, r.contractVersion8394)") &&
             s.contains("pos.lastPx = r.lastPx; pos.lastPxAtMs = r.lastPxAtMs"))
         val restore = s.substringAfter("private fun restoreOpen8355(").substringBefore("fun restoreCounts8355()")
         assertTrue("the restore honours the cap and the age rule", restore.contains("ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)") &&
@@ -136,7 +136,7 @@ class Aate8355ShadowPersistTest {
         // superseded by V5.0.8364 — the armed fill is booked at the trigger mark plus the lane's chase (ShadowFill8364); the arm still forces a write
         assertTrue("arm forces a write", s.contains("leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true"))
         assertTrue("a leg close forces a write", s.contains("leg.dead = true\n        t.force8355 = true"))
-        assertTrue("tier moves are coalesced", s.contains("leg.held -= sold; leg.tiers++; t.dirty8355 = true") && s.contains("leg.tiers = 2; t.dirty8355 = true"))
+        assertTrue("tier moves are coalesced", s.contains("leg.tiers = maxOf(leg.tiers, leg.sellTier8394)") && s.contains("t.force8355 = true"))
         assertTrue("peak moves are coalesced", s.contains("if (g > leg.peak) { leg.peak = g; t.dirty8355 = true }"))
         assertTrue("coalesced on the tick", s.contains("else if (ShadowPersist8355.writeDue8355(t.dirty8355, t.lastWriteMs8355, nowMs, t.force8355)) {"))
         // V5.0.8372 retains a dead ticket until its learner receipt is ACKed, and cleanup may remove

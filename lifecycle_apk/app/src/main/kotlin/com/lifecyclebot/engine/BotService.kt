@@ -15942,7 +15942,7 @@ class BotService : Service() {
         val tags = (allSources + source).joinToString("|").uppercase()
         val out = linkedSetOf<String>()
         // V5.0.7297 — a lane-hunted row seeds its hunting lane first.
-        (allSources + source).firstNotNullOfOrNull { com.lifecyclebot.engine.market.LaneHunter7297.laneFromSource(it) }?.let { out += it }
+        (allSources + source).mapNotNull { com.lifecyclebot.engine.market.LaneHunter7297.laneFromSource(it) }.forEach { out += it }
         // V5.9.1576 — source-only birth affinity must be a seed, not a full
         // strategy fanout. 1575's AgenticStyleRouter now expands/ranks lanes
         // once character is known. If raw source already adds 3-4 lanes here,
@@ -16266,7 +16266,14 @@ class BotService : Service() {
         playSound: Boolean = false,
         operatorLog: Boolean = false,
         expectedRuntimeGeneration: Long? = null,
+        explicitLaneClaims8394: Set<String> = emptySet(),
+        explicitToolClaims8394: Set<String> = emptySet(),
+        firstObservedAtMs8394: Long = 0L,
+        lastObservedAtMs8394: Long = 0L,
     ): Boolean {
+        if (firstObservedAtMs8394 > 0L && lastObservedAtMs8394 >= firstObservedAtMs8394 &&
+            lastObservedAtMs8394 <= System.currentTimeMillis())
+            com.lifecyclebot.engine.truth.AdmissionBirth8144.noteObservation8394(mint, firstObservedAtMs8394)
         // V5.0.6548 §P0-C — background pipeline instrumentation. Every
         // successful intake admit call must record an INTAKE progress
         // beacon so the BG_INTAKE counter reflects real intake activity
@@ -16688,8 +16695,8 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
             }
             if (coldPump) {
-                val laneAffinity = inferIntakeLaneAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd)
-                val toolAffinity = inferIntakeToolAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd)
+                val laneAffinity = inferIntakeLaneAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd) + explicitLaneClaims8394
+                val toolAffinity = inferIntakeToolAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd) + explicitToolClaims8394
                 val added = try {
                     GlobalTradeRegistry.addToProbationOnly(
                         mint = mint,
@@ -16780,8 +16787,8 @@ class BotService : Service() {
         // re-serves it every poll (trending / boosted / hunts) is held to the 5-minute window, not
         // 30 s (5.0.7983: SIB re-intaken 26x, STUTUTU 19x in 7 minutes). New evidence still merges.
         if (prevAt != null && (nowMs - prevAt) < dedupTtl7984(mint, prevAt, nowMs)) {
-            val lanes6566 = inferIntakeLaneAffinity(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd)
-            val tools6566 = inferIntakeToolAffinity(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd)
+            val lanes6566 = inferIntakeLaneAffinity(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd) + explicitLaneClaims8394
+            val tools6566 = inferIntakeToolAffinity(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd) + explicitToolClaims8394
             val registryBefore7475 = GlobalTradeRegistry.getEntry(mint)
             val affinityChanged7475 = GlobalTradeRegistry.mergeAffinity(mint, lanes6566, tools6566)
             val registryEvidenceImproved7475 = registryBefore7475 != null && (
@@ -16921,8 +16928,8 @@ class BotService : Service() {
         )
 
         val joinedSources = allSources.ifEmpty { setOf(source) }.joinToString(",")
-        val laneAffinity = inferIntakeLaneAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd)
-        val toolAffinity = inferIntakeToolAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd)
+        val laneAffinity = inferIntakeLaneAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd) + explicitLaneClaims8394
+        val toolAffinity = inferIntakeToolAffinity(source, allSources, trustedMarketCapUsd6492, liquidityUsd) + explicitToolClaims8394
         try {
             val affinitySymbol = if (symbol.isBlank()) mint.take(6) else symbol
             val laneAffinityLabel = laneAffinity.joinToString("+")
@@ -17709,6 +17716,10 @@ class BotService : Service() {
                 volumeH1 = merged.volumeH1,
                 confidence = merged.confidence,
                 allSources = merged.allScanners,
+                explicitLaneClaims8394 = merged.laneAffinity,
+                explicitToolClaims8394 = merged.toolAffinity,
+                firstObservedAtMs8394 = merged.firstObservedAtMs8394,
+                lastObservedAtMs8394 = merged.lastObservedAtMs8394,
                 playSound = true,
                 operatorLog = true,
                 expectedRuntimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
@@ -24386,6 +24397,7 @@ if (hotExitHandledSweep) {
             supervisorTimeoutCooldownUntil.remove(mint, until)
             return false
         }
+        HandoffReceiverTasks8153.deferForScheduler8394(mint, until, now)
         return true
     }
 
@@ -25853,7 +25865,7 @@ if (hotExitHandledSweep) {
             } catch (t: Throwable) {
                 try { ErrorLogger.warn("BotService", "SPIKE_CAPTURE_7943 sell failed: ${t.message}") } catch (_: Throwable) {}
             }
-            if (!applied && tier > 0) SpikeCapture7943.rearm(ts, tier) else if (applied) try { SpikeCapture7943.onApplied8153(ts, reason) } catch (_: Throwable) {}
+            if (!applied && tier > 0) SpikeCapture7943.rearm(ts, tier, reason) else if (applied) try { SpikeCapture7943.onApplied8153(ts, reason) } catch (_: Throwable) {}
         }
     }
 

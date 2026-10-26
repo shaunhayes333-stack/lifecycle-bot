@@ -58,7 +58,7 @@ class Aate8325LiveLossTest {
         val pb = src("engine/cortex/LanePlaybook7907.kt")
         assertFalse(pb.contains("st.mean() + tailCredit8324(lane, st)"))
         val adm = src("engine/truth/CandidateAdmission8136.kt")
-        val decide = adm.substringAfter("fun decide8136(c: Candidate8136): Decision8136 {").substringBefore("internal fun bestSetup8153(")
+        val decide = adm.substringAfter("fun decide8136(c: Candidate8136, doorBinds8393:").substringBefore("internal fun bestSetup8153(")
         assertFalse(decide.contains("tailCredited8324("))
         // the sheet's clear-loss read carries no missed-runner credit either
         val sheet = src("engine/cortex/LaneCheatSheet8323.kt")

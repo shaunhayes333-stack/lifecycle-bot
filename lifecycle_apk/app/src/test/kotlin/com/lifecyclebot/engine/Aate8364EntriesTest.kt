@@ -38,7 +38,7 @@ class Aate8364EntriesTest {
     @Test fun paperIsNeverRefusedByTheFiredSetupRule() {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
         assertFalse(s.contains("noFiredSetupRefusal8364"))
-        assertTrue(s.contains("if (paper) return cortex7950"))
+        assertTrue(s.contains("if (paper && !(EvidenceHold8336.heldLane8342(lane)"))
     }
 
     @Test fun nichesNeedANamedFiredSetup() {
@@ -141,7 +141,7 @@ class Aate8364EntriesTest {
     @Test fun hookSitesArePinned() {
         val gate=src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)"))
-        assertTrue(gate.contains("FdgGate8365.inContext8365(ts, l, basis)"))
+        assertTrue(gate.contains("FdgGate8365.inContext8365(ts, l, basis, paper, shadowOnly8393)"))
         assertTrue(gate.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
         assertTrue(gate.contains("if (paper && final == null) Rehearsal8339.notePaperAdmit8342"))
         assertFalse(gate.contains("entryRefusal8114"))

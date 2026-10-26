@@ -286,7 +286,7 @@ class Aate8144AdmissionTest {
         assertEquals(listOf("shape:UNKNOWN", "price"), c.missingOf8144(d))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)"))
         val admission = src("engine/truth/CandidateAdmission8136.kt")
-        assertTrue(admission.contains("coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) ?: decide8136(candidate)"))
+        assertTrue(admission.contains("coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: decide8136(candidate)"))
         assertTrue(admission.contains("if (h.candidateVersion != candidateVersion || h.mode != mode) return null"))
         assertTrue(admission.contains("if (h.candidate != cacheIdentity8144(candidate)) return null"))
     }

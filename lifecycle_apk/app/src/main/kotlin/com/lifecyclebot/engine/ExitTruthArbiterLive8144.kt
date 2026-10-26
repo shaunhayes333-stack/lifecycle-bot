@@ -140,7 +140,7 @@ object ExitTruthArbiterLive8144 {
         }
     }
 
-    private fun spikeRung8144(reason: String): Boolean = reason.startsWith("SPIKE_CAPTURE_7943_T")
+    private fun spikeRung8144(reason: String): Boolean = RunnerLive8153.rungOf8153(reason) > 0
 
     private fun settle8144(
         ts: TokenState, tick: Long, startedMs: Long, intents: List<ExitTruthArbiter8144.Intent8144>, px: Double?,

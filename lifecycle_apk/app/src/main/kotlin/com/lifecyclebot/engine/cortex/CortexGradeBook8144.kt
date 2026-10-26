@@ -79,6 +79,8 @@ class CortexGradeRecord8144(
     var scoreVersion8372: Int = 0
     /** A banked simulated exit is labelled explicitly, never a canonical or realised trade. */
     var outcomeSource8372: String = "FORWARD"
+    var outcomeKind8394: String = "FORWARD"
+    var outcomeDueAtMs8394: Long = 0L
     var firstAvailableAtMs8372: Long = 0L
 
     /** May this decision's label grade authority (executable, first of its episode)? */
@@ -110,6 +112,7 @@ class CortexGradeRecord8144(
         out.calStamp8371 = calStamp8371
         out.scoreVersion8372 = scoreVersion8372
         out.outcomeSource8372 = outcomeSource8372
+        out.outcomeKind8394 = outcomeKind8394; out.outcomeDueAtMs8394 = outcomeDueAtMs8394
         out.firstAvailableAtMs8372 = firstAvailableAtMs8372
     }
 
@@ -414,7 +417,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
                 if (it.scoreVersion8372 == 0 && runner && it.tailEv8324.isFinite()) it.tailEv8324 else it.predictedEdgePct,
                 if (!it.lost && it.executablePct.isFinite()) objectivePct8322(it) - offsetFor8372(it) else Double.NaN,
                 it.bucket, if (it.executablePct.isFinite()) objectiveAvailableAt8322(it) else 0L,
-                it.atMs + FIRST_LABEL_MS_8322) }
+                it.outcomeDueAtMs8394.takeIf { due -> due > 0L } ?: (it.atMs + FIRST_LABEL_MS_8322)) }
     }
 
     /** The same frozen, executable current-predictor cohorts used by the visible verdict row and authority.
@@ -624,6 +627,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         r.laneMean8371.takeIf { it.isFinite() }?.toString().orEmpty(),
         r.calStamp8371.takeIf { it.isFinite() }?.toString().orEmpty(),
         r.scoreVersion8372.toString(), clean(r.outcomeSource8372), r.firstAvailableAtMs8372.toString(),
+        clean(r.outcomeKind8394), r.outcomeDueAtMs8394.toString(),
     ).joinToString(FS.toString())
 
     internal fun detached8386(): CortexGradeBook8144 = CortexGradeBook8144(maxDecisions, maxTrades).also { out ->
@@ -644,7 +648,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             // V5.0.8187 — 26 fields (late voter read); a 25-field row reads as on time.
             // V5.0.8322 — 29 fields (revised executable, its availability, flat mark); 24..26-field rows read as before.
             // V5.0.8324 — 32 fields (objective gross first / revised, tail EV); 24..29-field rows read as before.
-            if (f.size !in 24..40 || f[0].length != 1 || f[1].isBlank()) continue
+            if (f.size !in 24..42 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
@@ -662,6 +666,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             r.scoreVersion8372 = f.getOrNull(37)?.toIntOrNull() ?: 0
             r.outcomeSource8372 = f.getOrNull(38)?.takeIf { it == "SHADOW_EXIT" } ?: "FORWARD"
             r.firstAvailableAtMs8372 = f.getOrNull(39)?.toLongOrNull() ?: 0L
+            r.outcomeKind8394 = f.getOrNull(40) ?: "FORWARD"
+            r.outcomeDueAtMs8394 = f.getOrNull(41)?.toLongOrNull() ?: 0L
             if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
             // V5.0.8388 — historical rows whose unwitnessed executable value is physically implausible (8385 SHITCOIN strong
             // cohort mean +3.3e10 %) are read as observed-only: they stay in the book, never in a graded cohort or authority.

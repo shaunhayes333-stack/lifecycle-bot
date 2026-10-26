@@ -26,7 +26,7 @@ class Aate8238ProvenEvidenceOnlyTest {
 
     @Test fun theLiveAdapterAndTheCortexDoorCarryTheContract() {
         val adm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
-        assertTrue(adm.contains("if (c.live && !cellSupported) {"))
+        assertTrue(adm.contains("if (c.live && !cellSupported && doorBinds8393("))
         assertTrue(adm.contains("live = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() }"))
         val cortex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         // superseded by V5.0.8366 — the door is the one walk-forward test on executable labels (out-of-sample, cost-margined); the

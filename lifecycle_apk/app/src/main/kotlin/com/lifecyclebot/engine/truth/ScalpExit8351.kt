@@ -19,7 +19,7 @@ object ScalpExit8351 {
     const val CLOCK_MS_8351 = 10 * 60_000L
 
     private class State8351(val scalp: Boolean, val costPct: Double, val stopPct: Double,
-                            val noise1mPct8363: Double = Double.NaN, val chasePct8363: Double = 0.0) { var tier = 0 }
+                            val noise1mPct8363: Double = Double.NaN, val chasePct8363: Double = 0.0)
     private val states = ConcurrentHashMap<String, State8351>()
 
     /** Pure: the scalp exit for gross [g] at peak [peak] and position age [ageMs]: (fraction of the holding, reason) or null. */
@@ -61,10 +61,18 @@ object ScalpExit8351 {
         val peak = if (pos.highestPrice > 0.0) (pos.highestPrice / pos.entryPrice - 1.0) * 100.0 else g
         // superseded by V5.0.8363 — decide8351's stop (0.6 x lane stop from the first tick) sat inside entry noise: the stop is
         // max(0.6 x lane stop, 2 x 1m range + chase, 6 %) with a 60 s warmup (ScalpStop8363); the ladder is decide8351's.
-        val d = com.lifecyclebot.engine.ScalpStop8363.decide8363(g, maxOf(peak, g), nowMs - pos.entryTime, st.tier, st.stopPct, st.costPct,
+        val tier = com.lifecyclebot.engine.RunnerLive8153.confirmedTier8153(ts, com.lifecyclebot.engine.RunnerRungBook8153.LADDER_SCALP_EXIT_8394)
+        val d = com.lifecyclebot.engine.ScalpStop8363.decide8363(g, maxOf(peak, g), nowMs - pos.entryTime, tier, st.stopPct, st.costPct,
             st.noise1mPct8363, st.chasePct8363) ?: return
-        if (d.second.endsWith("_T1")) st.tier = 1
-        if (d.second.endsWith("_T2")) st.tier = 2
+        val rung = com.lifecyclebot.engine.RunnerLive8153.rungOf8153(d.second)
+        if (rung > 0) {
+            val inFlight = com.lifecyclebot.engine.sell.SellExecutionLocks.isLocked(ts.mint) ||
+                com.lifecyclebot.engine.sell.CloseLease.sellInFlight7948(ts.mint)
+            if (!com.lifecyclebot.engine.RunnerLive8153.settlePending8153(ts, inFlight, nowMs)) return
+            if (!com.lifecyclebot.engine.RunnerLive8153.request8153(ts,
+                    com.lifecyclebot.engine.RunnerRungBook8153.LADDER_SCALP_EXIT_8394, rung, d.second, nowMs)) return
+        }
+        // Safety/time exits still reach arbitration while a take-profit request is outstanding.
         offer(ts, d.first, d.second)
     }
 }

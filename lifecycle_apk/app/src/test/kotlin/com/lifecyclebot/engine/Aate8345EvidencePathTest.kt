@@ -69,7 +69,7 @@ class Aate8345EvidencePathTest {
         // the decision accounts the refusal before the open
         val mode = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(mode.indexOf("EvidenceShadow8344.noteHoldRefusal8345(l, core != null, FdgGate8365.hardSafety8392(core))") <
-            mode.indexOf("EvidenceShadow8344.open8344(ts, l, nowMs)"))
+            mode.indexOf("EvidenceShadow8344.open8344(ts, l, nowMs, advisoryEntry8393 = shadowOnly8393)"))
     }
 
     @Test fun theEntryMarkFallsBackToTheTapeMarkTheTickReads() {

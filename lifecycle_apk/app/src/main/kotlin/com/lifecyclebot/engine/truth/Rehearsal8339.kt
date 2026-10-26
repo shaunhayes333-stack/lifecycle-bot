@@ -89,6 +89,22 @@ object Rehearsal8339 {
     fun evidenceDoorBinds8342(paper: Boolean, rehearsal: Boolean, reason: String?): Boolean =
         !(paper && rehearsal && evidenceDoor8342(reason))
 
+    // These earlier candidate-specific refusals can be explored only in paper/held shadow.
+    // They never become live permissions merely because a broad lane proof exists.
+    internal fun candidateEvidence8393(reason: String): Boolean = reason in setOf(
+        "SETUP_RECORD_LOSING_8136", "TIMING_ADVERSE_8136", "TACTIC_RECORD_LOSING_8136",
+        "LIVE_GENERIC_PRIOR_UNSUPPORTED_8238")
+
+    internal fun binds8393(reason: String, paper: Boolean, rehearsal: Boolean, shadowOnly: Boolean,
+                           liveDemoted: Boolean = false): Boolean {
+        // The captured outer hold still refuses live money; its shadow can measure a losing lane's recovery.
+        if (shadowOnly && reason == CandidateAdmission8136.LIVE_LANE_LOSING_8325) return false
+        val evidence = evidenceDoor8342(reason) || candidateEvidence8393(reason)
+        if (!evidence) return true
+        if (shadowOnly || (paper && rehearsal)) return false
+        return candidateEvidence8393(reason) || !liveDemoted
+    }
+
     private val advisories8342 = ThreadLocal<ArrayList<String>>()
 
     /** LiveEdgeGate7877.liveRefusal: runs [block] collecting the doors made advisory on this thread. */
@@ -105,10 +121,13 @@ object Rehearsal8339 {
      * caller continues to the next door. Unknown mode binds (safe side).
      */
     fun doorBindsNow8342(reason: String, lane: String): Boolean {
-        val paper = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val paper = FdgGate8365.paperContext8393()
+            ?: (try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false })
         val rehearsal = EvidenceHold8336.enabled8336 && EvidenceHold8336.rehearsal8336
-        // V5.0.8365 — LIVE: an evidence door whose question an authoritative check already answered is advisory (FdgGate8365).
-        if (evidenceDoorBinds8342(paper, rehearsal, reason)) return !(try { FdgGate8365.demoteNow8365(reason, lane) } catch (_: Throwable) { false })
+        val shadowOnly = FdgGate8365.shadowOnly8393()
+        val demoted = !paper && !shadowOnly && !candidateEvidence8393(reason) &&
+            (try { FdgGate8365.demoteNow8365(reason, lane) } catch (_: Throwable) { false })
+        if (binds8393(reason, paper, rehearsal, shadowOnly, demoted)) return true
         advisories8342.get()?.add(reason)
         try {
             PipelineHealthCollector.labelInc("${ADVISORY_LABEL_8342}_${FdgGate8365.gateKey8392(reason)}")

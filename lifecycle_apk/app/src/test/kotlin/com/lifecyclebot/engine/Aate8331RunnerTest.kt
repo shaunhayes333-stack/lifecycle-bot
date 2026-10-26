@@ -105,7 +105,7 @@ class Aate8331RunnerTest {
         assertEquals(1L, RunnerFunnel8331.count8331(Stage8331.PLAN_SEALED))
         // A fill confirms the ladder its tranche was requested on, never a ladder the request did not use.
         val live = src("engine/RunnerLive8153.kt")
-        assertTrue(live.contains("val ladder8331 = if (pending8331 != null && pending8331.tier == tier) pending8331.ladder else ladderOf8153(plan8153(ts))"))
+        assertTrue(live.contains("else if (pending8331 != null && pending8331.tier == tier && pending8331.ladder != RunnerRungBook8153.LADDER_SCALP_EXIT_8394) pending8331.ladder else ladderOf8153(plan8153(ts))"))
         assertTrue(live.contains("if (book.confirm8153(key8153(ts), ladder8331, tier, signature, proceedsSol, soldCostSol)) {"))
         // The sealed entry identity reaches the plan through the position's own snapshot (mint-checked) and sealed style.
         assertTrue(live.contains("val runnerAdmit = snap?.takeIf { it.mint == ts.mint }?.runnerEntry == true"))

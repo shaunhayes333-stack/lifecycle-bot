@@ -32,7 +32,7 @@ class Aate8083CortexLiveEntryTest {
         // the candidate's own losing setup still refuses, before any admission door
         assertTrue(body.indexOf("LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs)") < body.indexOf("LanePlaybook7907.provenSetup8056(ts, l8059, nowMs)"))
         assertTrue(body.contains("Verdict8083.DEFER, \"LIVE_PROVEN_SETUP_ONLY_8059\""))
-        assertTrue(body.contains("LiveTruth8064.noteLiveAdmit8083(ts.mint, l8083, setupAt, nowMs)"))
+        assertTrue(g.contains("if (!paper && final == null) LiveTruth8064.noteLiveAdmit8083"))
     }
 
     @Test fun negativeCandidateSetupRefusesOnItsOwnBookOnly() {

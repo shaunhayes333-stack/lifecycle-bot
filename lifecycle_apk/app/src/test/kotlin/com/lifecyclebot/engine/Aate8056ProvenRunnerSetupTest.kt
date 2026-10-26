@@ -34,10 +34,10 @@ class Aate8059ProvenOnlyLiveTest {
         val gate = g.indexOf("return \"LIVE_PROVEN_SETUP_ONLY_8059\"")
         val watch = g.indexOf("watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136 || genericNative8211, candidateVersion, admission8136)")
         assertTrue(gate in 1 until watch)
-        assertTrue(g.contains("if (!paper) {\n            val l8059"))
+        assertTrue(g.contains("if (!paper || rehearsal8393) {\n            val l8059"))
         val audit = g.indexOf("Cortex7885.ownLaneVetoRefusesWinners8076(\"LIVE_PROVEN_SETUP_ONLY_8059\", l8059)")
         assertTrue(audit in 1 until gate)
-        assertTrue(g.substring(audit, gate).contains("if (!auditedAdmission8076)"))
+        assertTrue(g.substring(audit, gate).contains("if (!auditedAdmission8076 && Rehearsal8339.doorBindsNow8342("))
     }
 }
 

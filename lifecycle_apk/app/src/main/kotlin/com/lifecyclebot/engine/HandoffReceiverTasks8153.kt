@@ -58,6 +58,7 @@ object HandoffReceiverTasks8153 {
         val tried: Set<String> = emptySet(),
         /** V5.0.8190 — the version of the pending task this one carried forward (0 = opened fresh). */
         val carriedFrom8190: Long = 0L,
+        val schedulerUntil8394: Long = 0L,
     ) {
         val pending: Boolean get() = outcome == Outcome8153.PENDING
     }
@@ -185,7 +186,7 @@ object HandoffReceiverTasks8153 {
 
     /** Pure: [lane] holds a live task the cycle must consume (inside its validity, and its candidate version not left behind). */
     fun due8153(t: Task8153?, lane: String, nowMs: Long, currentVersion: Long = -1L): Boolean =
-        t != null && t.pending && t.lane == canon8153(lane) && nowMs <= t.validUntilMs &&
+        t != null && t.pending && t.lane == canon8153(lane) && nowMs >= t.schedulerUntil8394 && nowMs <= t.validUntilMs &&
             (currentVersion <= 0L || t.version <= 0L || currentVersion == t.version)
 
     /** Pure: the cycle let the receiver evaluate. */
@@ -239,8 +240,27 @@ object HandoffReceiverTasks8153 {
      * Pure: a pending task past its validity ends by name — DEFERRED_DATA when it was waiting only for data, else REFUSED:
      * scheduled but no FDG verdict, never scheduled (with the last block), or stale.
      */
+    /** Scheduling is not strategy judgement. Same cooldown/evidence cannot extend the absolute task budget. */
+    internal fun suspendForScheduler8394(t: Task8153, untilMs: Long, nowMs: Long): Task8153 {
+        if (!t.pending || untilMs <= nowMs || nowMs > t.validUntilMs || untilMs <= t.schedulerUntil8394) return t
+        val end = minOf(untilMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)
+        return t.copy(validUntilMs = maxOf(t.validUntilMs, end), schedulerUntil8394 = untilMs,
+            lastBlock = "SCHEDULING_DEFER_8394:SUPERVISOR_BACKOFF")
+    }
+
+    fun deferForScheduler8394(mint: String, untilMs: Long, nowMs: Long) {
+        tasks8153.computeIfPresent(mint) { _, t ->
+            suspendForScheduler8394(t, untilMs, nowMs).also {
+                if (it != t) try { PipelineHealthCollector.labelInc("HANDOFF_SCHEDULING_DEFER_8394_${t.lane}") } catch (_: Throwable) {}
+            }
+        }
+    }
+
     fun expire8153(t: Task8153, nowMs: Long): Task8153 {
         if (!t.pending || nowMs <= t.validUntilMs) return t
+        if (t.lastBlock.startsWith("SCHEDULING_DEFER_8394:")) return t.copy(
+            outcome = Outcome8153.DEFERRED_DATA, verdict = "SCHEDULING_REVALIDATION_REQUIRED_8394:SUPERVISOR_BACKOFF",
+            settledAtMs = nowMs)
         // V5.0.8330 — a task deferred for a missing TokenState is not terminalised before asking whether the state arrived.
         if (awaitsState8330(t) && stateSeen8330.containsKey(t.mint)) {
             expiredAfterState8330.incrementAndGet()

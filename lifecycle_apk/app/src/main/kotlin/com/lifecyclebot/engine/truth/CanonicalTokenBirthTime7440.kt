@@ -44,10 +44,7 @@ object CanonicalTokenBirthTime7440 {
         // V5.0.8179 — the mint was initialised in the confirmed transaction that created its first pool (chain launch feed).
         try { AdmissionBirth8144.chainMintInitMs8179(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.FIRST_POOL_CREATION) } } catch (_: Throwable) {}
 
-        try {
-            val poolMs = PoolCreationTime7385.createdAtMs(m) ?: 0L
-            if (plausible(poolMs, nowMs)) candidates += Resolution(poolMs, Source.FIRST_POOL_CREATION)
-        } catch (_: Throwable) {}
+        // Ordinary pool creation is only an age lower bound (AdmissionBirth8144), never verified birth.
 
         // V5.0.7770 — on a tie the direct witness is credited, not the cache copy
         // this function wrote from it (create event, then pool, then cache).
@@ -92,9 +89,7 @@ object CanonicalTokenBirthTime7440 {
      * never fresh. Field Manual §4: an early entry needs a known start.
      */
     fun launchAgeMs7767(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long? =
-        rememberedLaunchAge7809(ts.mint, nowMs, resolvedAgeMs(ts, nowMs) ?: try {
-            FreshLaunchSelector7737.unresolvedLaunchAgeMs7738(ts.source, ts.addedToWatchlistAt, ts.lastMcap, nowMs)
-        } catch (_: Throwable) { null })
+        rememberedLaunchAge7809(ts.mint, nowMs, resolvedAgeMs(ts, nowMs))
 
     /**
      * V5.0.7809 §BIRTH_EVIDENCE_SURVIVES_HANDOFF. 5.0.7808 live refused sniper

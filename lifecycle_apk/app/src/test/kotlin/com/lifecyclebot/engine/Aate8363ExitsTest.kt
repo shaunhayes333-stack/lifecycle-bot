@@ -176,7 +176,7 @@ class Aate8363ExitsTest {
         // The profit ladder is unchanged, warmup or not.
         assertEquals(0.5 to "SCALP_TAKE_PROFIT_8351_T1", ScalpStop8363.decide8363(16.0, 16.0, 5_000L, 0, 15.0, 6.0, 4.1, 2.9))
         val se = src("engine/truth/ScalpExit8351.kt")
-        assertTrue(se.contains("com.lifecyclebot.engine.ScalpStop8363.decide8363(g, maxOf(peak, g), nowMs - pos.entryTime, st.tier, st.stopPct, st.costPct,"))
+        assertTrue(se.contains("com.lifecyclebot.engine.ScalpStop8363.decide8363(g, maxOf(peak, g), nowMs - pos.entryTime, tier, st.stopPct, st.costPct,"))
         assertTrue(se.contains("// superseded by V5.0.8363"))
         assertTrue(src("engine/Exits8363.kt").contains("ExitDoctrine8169.noisePct8169(candles.takeLast(12)"))
         assertTrue(src("engine/Exits8363.kt").contains("EntryChase7961.lanePenaltyPct7961(lane)"))

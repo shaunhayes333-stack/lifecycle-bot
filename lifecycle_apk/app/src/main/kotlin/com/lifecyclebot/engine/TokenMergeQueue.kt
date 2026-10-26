@@ -112,6 +112,8 @@ object TokenMergeQueue {
         val multiScannerBoost: Boolean,
         val laneAffinity: Set<String> = emptySet(),
         val toolAffinity: Set<String> = emptySet(),
+        val firstObservedAtMs8394: Long = 0L,
+        val lastObservedAtMs8394: Long = 0L,
     )
 
     /**
@@ -321,6 +323,8 @@ object TokenMergeQueue {
                 multiScannerBoost = entry.scanners.size > 1,
                 laneAffinity = entry.laneAffinity.toSet(),
                 toolAffinity = entry.toolAffinity.toSet(),
+                firstObservedAtMs8394 = entry.firstSeenAt,
+                lastObservedAtMs8394 = entry.lastSeenAt,
             )
 
             readyToEmit.add(merged)

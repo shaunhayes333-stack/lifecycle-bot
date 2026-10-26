@@ -93,6 +93,8 @@ object Cortex7885 {
         @Volatile var decisionReason8196: String? = null
         /** Owned by this exact observation, never borrowed from a newer mint|lane capture. */
         @Volatile var context8372: DecisionCtx8144? = null
+        var outcomeKind8394: String = "FORWARD"
+        var outcomeDueAtMs8394: Long = atMs + 5 * 60_000L
     }
 
     private val ledger = CortexLedger7885().also { it.runnerLane8324 = { l -> isRunner(l) } }  // V5.0.8324 — anti-runner seats demoted
@@ -758,6 +760,10 @@ object Cortex7885 {
             if (!late8169 && outcomeBook8372.bind(shadowId, labelId, gradeBook8144.decision(labelId)?.executablePct?.isFinite() == true)) {
                 // Preserve the exact original prediction, setup and original decision-context mode for its later exit.
                 if (outcomeBook8372.shadowPlan(shadowId).action != CortexOutcomeBook8372.Action.OBSERVE_ONLY) {
+                    shadowPending8372[shadowId]?.let { original ->
+                        captured8372.outcomeKind8394 = original.outcomeKind8394
+                        captured8372.outcomeDueAtMs8394 = original.outcomeDueAtMs8394
+                    }
                     shadowPending8372[shadowId] = captured8372
                     if (frozenCtx8174 != null) shadowCtx8372[shadowId] = frozenCtx8174
                 }
@@ -810,6 +816,7 @@ object Cortex7885 {
         p.vetoRule, p.source, p.setup7961, p.fired8094.toList()).also {
         it.selected8153 = p.selected8153; it.lateRead8169 = p.lateRead8169; it.decisionMode8196 = p.decisionMode8196
         it.decisionReason8196 = p.decisionReason8196; it.context8372 = p.context8372 // immutable strings and booleans
+        it.outcomeKind8394 = p.outcomeKind8394; it.outcomeDueAtMs8394 = p.outcomeDueAtMs8394
     }
 
     private fun detachGraded8386(g: Graded8006): Graded8006 = Graded8006(detachPending8386(g.p),
@@ -863,6 +870,7 @@ object Cortex7885 {
                         .put("base8076", jsonNumber(a.prediction8076?.base)).put("bw8076", jsonNumber(a.prediction8076?.baseWin))
                         .put("lr8169", p.lateRead8169)
                         .put("mode8196", p.decisionMode8196)
+                        .put("outcomeKind8394", p.outcomeKind8394).put("outcomeDueAtMs8394", p.outcomeDueAtMs8394)
                         .put("reason8196", p.decisionReason8196.orEmpty())
                         .put("selected8196", p.selected8153)
                         .put("fired8196", org.json.JSONArray(p.fired8094))
@@ -874,7 +882,8 @@ object Cortex7885 {
             // V5.0.8013 — graded decisions held for progressive revision ride along (newest decisions first),
             // so a 5 h / 24 h / later re-grade still reaches the voters after an app restart.
             val garr = StringBuilder("[")
-            graded8006.entries.sortedByDescending { it.value.atMs }.take(GRADED_PERSIST_MAX_8013).forEach { (k, g) ->
+            gradedRows.forEach { (k, g) ->
+                if (garr.length > 1) garr.append(',')
                 garr.append(encodeGraded8372(k, g, dict))
             }
             val bound = StringBuilder("[")
@@ -909,6 +918,7 @@ object Cortex7885 {
         repeat(3) { rs.put(jsonNumber(g.trace.scales?.getOrNull(a.ids.size * 4 + it))) }
         return org.json.JSONObject().put("k", key).put("l", a.lane).put("g", a.regime).put("b", a.bucket.ordinal)
             .put("adm", g.p.legacyAdmitted).put("at", g.atMs).put("v", g.p.vetoRule.orEmpty()).put("su", g.p.setup7961)
+            .put("outcomeKind8394", g.p.outcomeKind8394).put("outcomeDueAtMs8394", g.p.outcomeDueAtMs8394)
             .put("s", g.p.source).put("mode8372", g.p.decisionMode8196).put("reason8372", g.p.decisionReason8196.orEmpty())
             .put("selected8372", g.p.selected8153).put("fired8372", org.json.JSONArray(g.p.fired8094))
             .put("base", jsonNumber(g.trace.base)).put("bw", jsonNumber(g.trace.baseWin)).put("n", jsonNumber(g.net)).put("gr", jsonNumber(g.gross))
@@ -983,6 +993,8 @@ object Cortex7885 {
                 it.decisionMode8196 = o.optString("mode8196", "UNKNOWN").takeIf { m -> m == "LIVE" || m == "PAPER" } ?: "UNKNOWN"
                 it.decisionReason8196 = o.optString("reason8196").ifBlank { null }
                 it.selected8153 = o.optString("selected8196")
+                it.outcomeKind8394 = o.optString("outcomeKind8394", "FORWARD")
+                it.outcomeDueAtMs8394 = o.optLong("outcomeDueAtMs8394", at + 5 * 60_000L)
             }
             if (shadow8372) shadowPending8372[k] = restored8372 else pending[k] = restored8372
             o.optJSONObject("ctx8196")?.let { c ->
@@ -1045,6 +1057,8 @@ object Cortex7885 {
             it.decisionMode8196 = o.optString("mode8372", "UNKNOWN")
             it.decisionReason8196 = o.optString("reason8372").ifBlank { null }
             it.selected8153 = o.optString("selected8372")
+            it.outcomeKind8394 = o.optString("outcomeKind8394", "FORWARD")
+            it.outcomeDueAtMs8394 = o.optLong("outcomeDueAtMs8394", at + 5 * 60_000L)
         }
         repeat(3) { scales.add(rs?.optDouble(ji.length() * 4 + it, Double.NaN) ?: Double.NaN) }
         val trace = CortexLedger7885.GradeTrace8006(preds.toDoubleArray(), pws.toDoubleArray(), o.optDouble("base", 0.0), o.optDouble("bw", 0.5),
@@ -1296,7 +1310,11 @@ object Cortex7885 {
                 val v = verdict8144(key,p,p.context8372)
                 if (v.authority && !p.lateRead8169 && !p.a.staleMark) {
                     if (gradeBook8144.decision(target)==null) gradeBook8144.addDecision(newDecision8144(target,key,p,p.context8372,v))
-                    gradeBook8144.markLost(target) // never overwrites an already observed outcome
+                    if (gradeBook8144.markLost(target)) {
+                        val unavailableAt8394 = System.currentTimeMillis()
+                        p.outcomeDueAtMs8394 = minOf(p.outcomeDueAtMs8394, unavailableAt8394)
+                        gradeBook8144.decision(target)?.let { it.outcomeKind8394 = "UNAVAILABLE"; it.outcomeDueAtMs8394 = p.outcomeDueAtMs8394 }
+                    } // never overwrites an already observed outcome
                 }
             }
             outcomeBook8372.finishedShadow(id, learned = false)
@@ -1491,8 +1509,12 @@ object Cortex7885 {
                     .put("joint7961", org.json.JSONObject().also { j -> joint.forEach { (k, v) -> j.put(k, v.encode()) } })
                     .put("jointGeneration8372", org.json.JSONObject(generations as Map<*, *>)).put("jointNext8372", next)
                     .put("snapshotGeneration8386", generation).toString()
-                out[PENDING_PERSIST_KEY] = pend()
+                out[PENDING_PERSIST_KEY] = org.json.JSONObject(pend())
+                    .put("snapshotGeneration8386", generation).toString()
                 out[GRADES_KEY_8144] = grades.encode()
+                // Validation belongs outside the model monitor and BEFORE usable commit receipts.
+                require(org.json.JSONObject(out[PENDING_PERSIST_KEY]!!).getJSONArray("g8013") != null)
+                require(org.json.JSONObject(out[PENDING_PERSIST_KEY]!!).getJSONArray("p") != null)
                 out.putAll(receipts)
                 snapshotEncodeMs8386 = (System.nanoTime() - encodeAt) / 1_000_000
                 out
@@ -2377,8 +2399,29 @@ object Cortex7885 {
             b[2].mean() - b[1].mean() > CortexScoreboard7885.PROOF_MARGIN_PCT
     }
 
+    /** The frozen simulator owns its terminal deadline; a mark/retry never extends it from wall-clock now. */
+    fun shadowMaturity8394(mint: String, lane: String, assessmentAtMs: Long, kind: String, dueAtMs: Long) {
+        if (dueAtMs <= assessmentAtMs || kind !in setOf("TERMINAL_SCALP", "TERMINAL_RUNNER", "TERMINAL_HOLD")) return
+        synchronized(this) {
+            val id = "$mint|$lane|$assessmentAtMs"
+            val p = shadowPending8372[id] ?: return@synchronized
+            if (p.outcomeKind8394 != kind || p.outcomeDueAtMs8394 != dueAtMs) {
+                p.outcomeKind8394 = kind; p.outcomeDueAtMs8394 = dueAtMs
+                refusalCoverageCache8392.remove(lane)
+            }
+            val bound = outcomeBook8372.shadowPlan(id).decisionId.ifBlank { id }
+            gradeBook8144.decision(bound)?.let { it.outcomeKind8394 = kind; it.outcomeDueAtMs8394 = dueAtMs }
+        }
+    }
+
     /** Frozen unresolved decisions participate in coverage, never as invented gains/losses. Caller holds lock. */
     private fun authorityRows8392(lane: String, setup: String? = null): List<CortexAuthority8366.Row8366> {
+        // A forward alias retains its terminal owner's deadline, including after restore.
+        for ((id, p) in shadowPending8372) {
+            gradeBook8144.decision(outcomeBook8372.shadowPlan(id).decisionId.ifBlank { id })?.let {
+                it.outcomeKind8394 = p.outcomeKind8394; it.outcomeDueAtMs8394 = p.outcomeDueAtMs8394
+            }
+        }
         val rows=gradeBook8144.scoredRows8366(lane,runnerHorizon8144(lane),scoreVersion=1,setup=setup).toMutableList()
         val seen=HashSet<String>()
         fun append(id: String,p: Pending) {
@@ -2387,7 +2430,7 @@ object Cortex7885 {
             val key=id.substringBeforeLast('|')
             if (!verdict8144(key,p,p.context8372).authority) return
             rows += CortexAuthority8366.Row8366(p.atMs,p.a.calibratedEdge,Double.NaN,p.a.bucket.ordinal,0L,
-                gradeBook8144.outcomeDueAt8392(p.atMs))
+                p.outcomeDueAtMs8394)
         }
         for ((key,p) in pending) append("$key|${p.atMs}",p)
         for ((id,p) in shadowPending8372) append(outcomeBook8372.shadowPlan(id).decisionId.ifBlank { id },p)
@@ -3668,7 +3711,12 @@ object Cortex7885 {
                         org.json.JSONObject(legacy).optJSONObject("real")?.let { j -> for (k in j.keys()) j.optJSONObject(k)?.let { realLedgers[k] = CortexLedger7885(Double.POSITIVE_INFINITY).also { l -> l.decode(it) } } }
                         inc("LEGACY_REAL_CARRIED_7947")
                     }
-                    restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis())
+                    try { restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis()) }
+                    catch (pendingFailure8394: Throwable) {
+                        if (pendingFailure8394 is VirtualMachineError) throw pendingFailure8394
+                        LearningPersistence.decodeFailed8086(PENDING_PERSIST_KEY, pendingFailure8394)
+                        inc("CORTEX_PENDING_RECOVERY_INCOMPLETE_8394")
+                    }
                     return
                 })
                 snapshotGeneration8386 = maxOf(snapshotGeneration8386, o.optLong("snapshotGeneration8386", 0L))
@@ -3679,7 +3727,12 @@ object Cortex7885 {
                 o.optJSONObject("vetoes")?.let { j -> for (k in j.keys()) vetoBook[k] = CortexLedger7885.labelStat8187().also { it.decode(j.optString(k)) } }
                 o.optJSONObject("joint7961")?.let { j -> for (k in j.keys()) jointBook7961[k] = CortexLedger7885.labelStat8187().also { it.decode(j.optString(k)) } }
                 restoreJointGenerations8372(o)
-                restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis())
+                try { restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis()) }
+                    catch (pendingFailure8394: Throwable) {
+                        if (pendingFailure8394 is VirtualMachineError) throw pendingFailure8394
+                        LearningPersistence.decodeFailed8086(PENDING_PERSIST_KEY, pendingFailure8394)
+                        inc("CORTEX_PENDING_RECOVERY_INCOMPLETE_8394")
+                    }
                 // V5.0.8324 §RESTORE_WITHOUT_RESET — a boot that read a far smaller book than one kept aside restores from it.
                 try { afterLoad8324(raw8324) } catch (_: Throwable) { inc("CORTEX_RESTORE_FAILED_8324") }
             } catch (e: Throwable) {

@@ -30,6 +30,7 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         var ladder: String,
         var scalpConfirmed: Int = 0,
         var runnerConfirmed: Int = 0,
+        var scalpExitConfirmed8394: Int = 0,
         var pending: Pending8153? = null,
         var refusals: Int = 0,
         var retryAtMs: Long = 0L,
@@ -60,7 +61,11 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         return Rungs8153(ladder).also { book[key] = it }
     }
 
-    private fun confirmedOf(r: Rungs8153, ladder: String): Int = if (ladder == LADDER_RUNNER_8153) r.runnerConfirmed else r.scalpConfirmed
+    private fun confirmedOf(r: Rungs8153, ladder: String): Int = when (ladder) {
+        LADDER_RUNNER_8153 -> r.runnerConfirmed
+        LADDER_SCALP_EXIT_8394 -> r.scalpExitConfirmed8394
+        else -> r.scalpConfirmed
+    }
 
     /** The confirmed tier of [ladder] for the position [key] (0 = none). */
     @Synchronized
@@ -161,10 +166,13 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         if (key.isBlank() || tier !in 1..16) return false
         val r = rungs(key, ladder)
         val p = r.pending
-        val l = if (p != null && p.tier == tier) p.ladder else ladder
+        val l = ladder // the confirmed receipt owns its ladder; equal tier numbers are not identity
         val previous = confirmedOf(r, l)
-        if (l == LADDER_RUNNER_8153) r.runnerConfirmed = maxOf(r.runnerConfirmed, tier)
-        else r.scalpConfirmed = maxOf(r.scalpConfirmed, tier)
+        when (l) {
+            LADDER_RUNNER_8153 -> r.runnerConfirmed = maxOf(r.runnerConfirmed, tier)
+            LADDER_SCALP_EXIT_8394 -> r.scalpExitConfirmed8394 = maxOf(r.scalpExitConfirmed8394, tier)
+            else -> r.scalpConfirmed = maxOf(r.scalpConfirmed, tier)
+        }
         if (p != null && p.tier <= confirmedOf(r, p.ladder)) { r.pending = null; confirmed++ }
         r.refusals = 0
         r.retryAtMs = 0L
@@ -228,7 +236,7 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         for ((k, r) in book) {
             sb.append(k).append(';').append(r.scalpConfirmed).append(';').append(r.runnerConfirmed).append(';').append(r.ladder)
                 .append(';').append(if (r.promoted) 1 else 0).append(';').append(r.proceedsSol).append(';').append(r.soldCostSol)
-                .append(';').append(r.opportunitySol).append('\n')
+                .append(';').append(r.opportunitySol).append(';').append(r.scalpExitConfirmed8394).append('\n')
         }
         return sb.toString()
     }
@@ -256,10 +264,11 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
                 continue
             }
             if (f.size < 8 || f[0].isBlank() || !f[0].contains('|')) continue
-            val ladder = if (f[3] == LADDER_RUNNER_8153) LADDER_RUNNER_8153 else LADDER_SCALP_8153
+            val ladder = f[3].takeIf { it == LADDER_RUNNER_8153 || it == LADDER_SCALP_EXIT_8394 } ?: LADDER_SCALP_8153
             val r = rungs(f[0], ladder)
             r.scalpConfirmed = maxOf(r.scalpConfirmed, f[1].toIntOrNull()?.coerceIn(0, 16) ?: 0)
             r.runnerConfirmed = maxOf(r.runnerConfirmed, f[2].toIntOrNull()?.coerceIn(0, 16) ?: 0)
+            r.scalpExitConfirmed8394 = maxOf(r.scalpExitConfirmed8394, f.getOrNull(8)?.toIntOrNull()?.coerceIn(0, 2) ?: 0)
             if (ladder == LADDER_RUNNER_8153) r.ladder = ladder
             if (f[4] == "1") r.promoted = true
             r.proceedsSol = maxOf(r.proceedsSol, f[5].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0)
@@ -284,6 +293,7 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
     }
 
     companion object {
+        const val LADDER_SCALP_EXIT_8394 = "SCALP_EXIT_8351"
         const val LADDER_SCALP_8153 = "SCALP"
         const val LADDER_RUNNER_8153 = "RUNNER"
 

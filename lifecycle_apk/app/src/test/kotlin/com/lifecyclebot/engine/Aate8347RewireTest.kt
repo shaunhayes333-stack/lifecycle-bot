@@ -156,7 +156,7 @@ class Aate8347RewireTest {
         assertTrue(src("engine/TicketRetry8327.kt").contains("ToolkitSignalSheet.terminalizeUnexecutedTicket7948(lane, attemptId, reason)"))
         val spike = src("engine/SpikeCapture7943.kt")
         assertFalse(spike.contains("fun resetTiers8018("))
-        assertTrue(spike.contains("RunnerLive8153.confirmTier8153(ts, tier)"))
+        assertTrue(spike.contains("RunnerLive8153.confirmTier8153(ts, tier, reason)"))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("RuntimeDoctor.faultsForReport8214(loopNow8214)"))
         assertFalse(src("engine/PipelineHealthCollector.kt").contains("RuntimeDoctor.currentFaults()"))
         assertTrue(src("engine/BotService.kt").contains("val poolAgeSecs7389 = LaneAgeLiquidityTruth8140.chainAgeSecs8140(ts)"))

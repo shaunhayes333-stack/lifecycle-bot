@@ -29,6 +29,10 @@ object ShadowPersist8355 {
         val peakPct: Double, val lastPx: Double, val lastPxAtMs: Long,
         // V5.0.8366 — the lifecycle hold a +100 % position is promoted into (ShadowAlign8366): appended, so a pre-8366 record decodes
         val hold8366: Boolean = false, val taken8366: Int = 0, val peakAt8366: Long = 0L,
+        val advisoryEntry8393: Boolean = false, // absent on legacy records; never retroactively reclassified
+        val exitAt8394: Long = 0L, val exitWhy8394: String = "",
+        val sellFraction8394: Double = 1.0, val sellTier8394: Int = 0, val sellTaken8394: Int = 0,
+        val contractVersion8394: Int = 0,
     )
 
     /** One ExploreShadow8347 leg (entry / exit variant) with its full state, dead legs included. */
@@ -39,6 +43,7 @@ object ShadowPersist8355 {
         val hold8366: Boolean = false, val taken8366: Int = 0, val peakAt8366: Long = 0L,
         // V5.0.8372 — a triggered exit retains its original cause and latency clock across restart.
         val exitAt8366: Long = 0L, val exitWhy8366: String = "",
+        val sellFraction8394: Double = 1.0, val sellTier8394: Int = 0, val sellTaken8394: Int = 0,
     )
 
     /**
@@ -89,10 +94,11 @@ object ShadowPersist8355 {
         val kind8360: String = "", val markSrc8360: String = "",
         // V5.0.8372 — appended: old books stay intact; old tickets carry no invented prediction receipt.
         val cortex8372: CortexShadowOutcome8372 = CortexShadowOutcome8372(),
+        val entryPullbackPct8394: Double = Double.NaN, val contractVersion8394: Int = 0,
     )
 
     /** One liveEntryWait8347 wait: the first admit's time and mark for mint|lane. */
-    data class WaitRec8355(val key: String, val firstAtMs: Long, val signalPx: Double)
+    data class WaitRec8355(val key: String, val firstAtMs: Long, val signalPx: Double, val entryPullbackPct8394: Double = Double.NaN, val contractVersion8394: Int = 0)
 
     // ── pure rules ──
 
@@ -126,6 +132,11 @@ object ShadowPersist8355 {
         return listOf("C|$v|CX:$verdict", "C|$v|CXS:$verdict:${setup.take(48)}", "C|$v|CXT:$verdict:$tactic")
     }
 
+    const val TRADE_CONTRACT_8394 = 8394
+    fun proofEligible8394(version: Double?, openedAtMs: Double?, sinceMs: Long): Boolean =
+        version == TRADE_CONTRACT_8394.toDouble() && openedAtMs != null && openedAtMs.isFinite() &&
+            openedAtMs >= maxOf(sinceMs, LearningEpoch8164.epochMs8164())
+
     // ── encoding ──
 
     private fun clean(s: String): String {
@@ -145,6 +156,8 @@ object ShadowPersist8355 {
         VERSION_8355, "P", clean(r.mint), clean(r.lane), d(r.entryPx), r.atMs.toString(), d(r.costPct), d(r.stopPct), d(r.armPct),
         r.timeoutMs.toString(), d(r.held), d(r.bankedGrossPct), r.tiersHit.toString(), d(r.peakPct), d(r.lastPx), r.lastPxAtMs.toString(),
         b(r.hold8366), r.taken8366.toString(), r.peakAt8366.toString(),   // V5.0.8366
+        b(r.advisoryEntry8393),
+        r.exitAt8394.toString(), clean(r.exitWhy8394), d(r.sellFraction8394), r.sellTier8394.toString(), r.sellTaken8394.toString(), r.contractVersion8394.toString(),
     ).joinToString(F.toString())
 
     fun decodePos8355(s: String?): PosRec8355? {
@@ -161,6 +174,10 @@ object ShadowPersist8355 {
             tiersHit = pi(p[12]) ?: return null, peakPct = pd(p[13]) ?: return null, lastPx = pd(p[14]) ?: return null,
             lastPxAtMs = pl(p[15]) ?: return null,
             hold8366 = pb(p.getOrNull(16)) ?: false, taken8366 = pi(p.getOrNull(17)) ?: 0, peakAt8366 = pl(p.getOrNull(18)) ?: 0L,   // V5.0.8366
+            advisoryEntry8393 = pb(p.getOrNull(19)) ?: false,
+            exitAt8394 = pl(p.getOrNull(20)) ?: 0L, exitWhy8394 = p.getOrNull(21) ?: "",
+            sellFraction8394 = pd(p.getOrNull(22)) ?: 1.0, sellTier8394 = pi(p.getOrNull(23)) ?: 0,
+            sellTaken8394 = pi(p.getOrNull(24)) ?: 0, contractVersion8394 = pi(p.getOrNull(25)) ?: 0,
         )
     }
 
@@ -169,6 +186,7 @@ object ShadowPersist8355 {
         l.tiers.toString(), d(l.peak), d(l.trough),
         b(l.hold8366), l.taken8366.toString(), l.peakAt8366.toString(),   // V5.0.8366
         l.exitAt8366.toString(), clean(l.exitWhy8366),   // V5.0.8372
+        d(l.sellFraction8394), l.sellTier8394.toString(), l.sellTaken8394.toString(),
     ).joinToString(LEG_F.toString())
 
     private fun decodeLeg(s: String): LegRec8355? {
@@ -181,6 +199,7 @@ object ShadowPersist8355 {
             trough = pd(p[10]) ?: return null,
             hold8366 = pb(p.getOrNull(11)) ?: false, taken8366 = pi(p.getOrNull(12)) ?: 0, peakAt8366 = pl(p.getOrNull(13)) ?: 0L,   // V5.0.8366
             exitAt8366 = pl(p.getOrNull(14)) ?: 0L, exitWhy8366 = p.getOrNull(15) ?: "",   // V5.0.8372
+            sellFraction8394 = pd(p.getOrNull(16)) ?: 1.0, sellTier8394 = pi(p.getOrNull(17)) ?: 0, sellTaken8394 = pi(p.getOrNull(18)) ?: 0,
         )
     }
 
@@ -191,6 +210,7 @@ object ShadowPersist8355 {
         clean(r.kind8360), clean(r.markSrc8360),   // V5.0.8360
         clean(r.cortex8372.exit), r.cortex8372.atMs.toString(), d(r.cortex8372.netPct), d(r.cortex8372.grossPct),
         clean(r.cortex8372.unavailable), b(r.cortex8372.delivered),   // V5.0.8372
+        d(r.entryPullbackPct8394), r.contractVersion8394.toString(),
     ).joinToString(F.toString())
 
     fun decodeTicket8355(s: String?): TicketRec8355? {
@@ -218,12 +238,13 @@ object ShadowPersist8355 {
                 grossPct = pd(p.getOrNull(24)) ?: Double.NaN, unavailable = p.getOrNull(25) ?: "",
                 delivered = pb(p.getOrNull(26)) ?: false,
             ),
+            entryPullbackPct8394 = pd(p.getOrNull(27)) ?: Double.NaN, contractVersion8394 = pi(p.getOrNull(28)) ?: 0,
         )
     }
 
     /** The whole waits map in one string: `v1|W|key,firstAtMs,signalPx;...` (the key is mint|lane, so its '|' is kept). */
     fun encodeWaits8355(ws: List<WaitRec8355>): String =
-        VERSION_8355 + F + "W" + F + ws.joinToString(LEG_SEP.toString()) { "${it.key.replace(LEG_SEP, '_').replace(LEG_F, '_')}$LEG_F${it.firstAtMs}$LEG_F${d(it.signalPx)}" }
+        VERSION_8355 + F + "W" + F + ws.joinToString(LEG_SEP.toString()) { "${it.key.replace(LEG_SEP, '_').replace(LEG_F, '_')}$LEG_F${it.firstAtMs}$LEG_F${d(it.signalPx)}$LEG_F${d(it.entryPullbackPct8394)}$LEG_F${it.contractVersion8394}" }
 
     fun decodeWaits8355(s: String?): List<WaitRec8355> {
         if (s == null) return emptyList()
@@ -237,7 +258,7 @@ object ShadowPersist8355 {
             val at = pl(p[1]) ?: continue
             val px = pd(p[2]) ?: continue
             if (p[0].isBlank() || at <= 0L || !(px > 0.0)) continue
-            out += WaitRec8355(p[0], at, px)
+            out += WaitRec8355(p[0], at, px, pd(p.getOrNull(3)) ?: Double.NaN, pi(p.getOrNull(4)) ?: 0)
         }
         return out
     }

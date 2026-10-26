@@ -130,8 +130,15 @@ object FdgGate8365 {
 
     // ── the decision context (set by LiveEdgeGate7877.liveRefusal around the 8114 verdict) ──
 
-    private class Ctx8365(val ts: TokenState, val lane: String, val holdBasis: String?)
+    private class Ctx8365(val ts: TokenState, val lane: String, val holdBasis: String?,
+                         val paper8393: Boolean = false, val shadowOnly8393: Boolean = false)
     private val ctx8365 = ThreadLocal<Ctx8365>()
+
+    internal fun paperContext8393(): Boolean? = ctx8365.get()?.paper8393
+    internal fun shadowOnly8393(): Boolean = ctx8365.get()?.shadowOnly8393 == true
+    internal fun policyKey8393(): String = ctx8365.get()?.let {
+        "paper=${it.paper8393}|shadow=${it.shadowOnly8393}|basis=${it.holdBasis ?: "NONE"}"
+    } ?: "OUTSIDE"
 
     private fun liveNow8365(): Boolean = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
 
@@ -142,11 +149,14 @@ object FdgGate8365 {
         val paperAll = try { EvidenceHold8336.proofFor8336(lane, nowMs).proven } catch (_: Throwable) { false }
         val explore = !paperAll && (try { EvidenceHold8336.explorationProven8347(lane) } catch (_: Throwable) { false })
         return holdBasisOf8365(true, live, paperAll, explore)
+            ?: if (EvidenceShadow8344.advisoryProof8393(CanonicalLaneIdentity6506.desk8392(lane), EvidenceHold8336.startMs8336).proven)
+                "SHADOW_ADVISORY_8393" else null
     }
 
-    fun <T> inContext8365(ts: TokenState, lane: String, holdBasis: String?, block: () -> T): T {
+    fun <T> inContext8365(ts: TokenState, lane: String, holdBasis: String?, paper8393: Boolean = false,
+                         shadowOnly8393: Boolean = false, block: () -> T): T {
         val prev = ctx8365.get()
-        ctx8365.set(Ctx8365(ts, lane, holdBasis))
+        ctx8365.set(Ctx8365(ts, lane, holdBasis, paper8393, shadowOnly8393))
         try { return block() } finally { if (prev == null) ctx8365.remove() else ctx8365.set(prev) }
     }
 

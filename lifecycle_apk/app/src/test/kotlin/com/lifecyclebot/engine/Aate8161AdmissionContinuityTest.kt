@@ -31,7 +31,7 @@ class Aate8161AdmissionContinuityTest {
         val fdg = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
 
-        assertTrue(gate.contains("val admission8136 = candidateAdmission ?: try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion)"))
+        assertTrue(gate.contains("val admission8136 = try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion)"))
         assertTrue(gate.contains("candidateSpecificAdmission8136 = admission8136?.specific == true"))
         assertTrue(gate.contains("!measuredEdge8060(ts, l8059, nowMs) && !candidateSpecificAdmission8136"))
         assertTrue(gate.contains("if (candidateSpecificAdmission8136 && !provenNegativeRefusal8136(prior)"))

@@ -89,6 +89,9 @@ object ExploreShadow8347 {
         var peakAt8366 = 0L
         var exitAt8366 = 0L
         var exitWhy8366: String? = null
+        var sellFraction8394 = 1.0
+        var sellTier8394 = 0
+        var sellTaken8394 = 0
     }
 
     private class Ticket8347(
@@ -99,6 +102,8 @@ object ExploreShadow8347 {
         val kind8360: String = KIND_NATIVE_8360,   // V5.0.8360 — NATIVE / REJECT / SETUP
         val markSrc8360: String = "",              // V5.0.8360 — the observed source that priced the entry
         var cortex8372: ShadowPersist8355.CortexShadowOutcome8372 = ShadowPersist8355.CortexShadowOutcome8372(),
+        val entryPullbackPct8394: Double = pullbackPct8347(FieldManual7715.mandateFor(lane).invalidationPct),
+        val contractVersion8394: Int = ShadowPersist8355.TRADE_CONTRACT_8394,
     ) {
         var lastPx = signalPx
         var lastPxAtMs = atMs
@@ -148,9 +153,10 @@ object ExploreShadow8347 {
         t.runner, t.nativeEligible, t.lastPx, t.lastPxAtMs,
         t.legs.map { l -> ShadowPersist8355.LegRec8355(l.entry.name, l.exit.name, l.active, l.dead, l.entryPx, l.entryAtMs, l.held, l.banked, l.tiers, l.peak, l.trough,
             hold8366 = l.hold8366, taken8366 = l.taken8366, peakAt8366 = l.peakAt8366,
-            exitAt8366 = l.exitAt8366, exitWhy8366 = l.exitWhy8366 ?: "") },   // V5.0.8372
+            exitAt8366 = l.exitAt8366, exitWhy8366 = l.exitWhy8366 ?: "",
+            sellFraction8394 = l.sellFraction8394, sellTier8394 = l.sellTier8394, sellTaken8394 = l.sellTaken8394) },   // V5.0.8372
         kind8360 = t.kind8360, markSrc8360 = t.markSrc8360,   // V5.0.8360
-        cortex8372 = t.cortex8372,
+        cortex8372 = t.cortex8372, entryPullbackPct8394 = t.entryPullbackPct8394, contractVersion8394 = t.contractVersion8394,
     )
 
     /** An ordinary open / tier / peak write: asynchronous. Durable learning receipts commit in the tick slice's one batch (8377). */
@@ -212,7 +218,7 @@ object ExploreShadow8347 {
             val e = p.edit()
             for (k in keys) {
                 val q = books[k] ?: continue
-                e.putString(k, synchronized(q) { q.joinToString(";") { "${it[0].toLong()},${"%.3f".format(it[1])}" } })
+                e.putString(k, synchronized(q) { q.joinToString(";") { it.joinToString(",") } })
             }
             e.apply()
             bookFlushes8377.incrementAndGet(); bookKeysWritten8377.addAndGet(keys.size.toLong())
@@ -232,7 +238,7 @@ object ExploreShadow8347 {
     private fun flushWaits8355(nowMs: Long) {
         if (!ShadowPersist8355.writeDue8355(waitsDirty8355, waitsWrittenAtMs8355, nowMs)) return
         waitsDirty8355 = false; waitsWrittenAtMs8355 = nowMs
-        val ws = waits.entries.map { (k, w) -> ShadowPersist8355.WaitRec8355(k, w[0], java.lang.Double.longBitsToDouble(w[1])) }
+        val ws = waits.entries.map { (k, w) -> ShadowPersist8355.WaitRec8355(k, w[0], java.lang.Double.longBitsToDouble(w[1]), w.getOrNull(2)?.let { java.lang.Double.longBitsToDouble(it) } ?: Double.NaN, w.getOrNull(3)?.toInt() ?: 0) }
         try { if (!openWrites8386.stage(WAITS_KEY_8355, nowMs, ShadowPersist8355.encodeWaits8355(ws))) waitsDirty8355 = true } catch (_: Exception) { waitsDirty8355 = true }
     }
 
@@ -246,13 +252,15 @@ object ExploreShadow8347 {
             leg.held = l.held; leg.banked = l.banked; leg.tiers = l.tiers; leg.peak = l.peak; leg.trough = l.trough
             leg.hold8366 = l.hold8366; leg.taken8366 = l.taken8366; leg.peakAt8366 = l.peakAt8366   // V5.0.8366
             leg.exitAt8366 = l.exitAt8366; leg.exitWhy8366 = l.exitWhy8366.takeIf { it.isNotBlank() }
+            leg.sellFraction8394 = l.sellFraction8394; leg.sellTier8394 = l.sellTier8394; leg.sellTaken8394 = l.sellTaken8394
             legs += leg
         }
         if (legs.isEmpty() || (legs.all { it.dead } && !r.cortex8372.awaiting8372())) return null
         val kind8360 = r.kind8360.ifBlank { if (r.nativeEligible) KIND_NATIVE_8360 else KIND_REJECT_8360 }   // V5.0.8360 — pre-8360 records
         val t = Ticket8347(r.mint, r.symbol, r.lane, r.setup, r.tactic, r.scoreBand, r.signalPx, r.atMs, r.costPct, r.stopPct, r.armPct,
             r.runner, r.nativeEligible, legs, r.band, kind8360 = kind8360, markSrc8360 = r.markSrc8360,
-            cortex8372 = r.cortex8372)
+            cortex8372 = r.cortex8372, entryPullbackPct8394 = r.entryPullbackPct8394.takeIf { it.isFinite() } ?: pullbackPct8347(r.stopPct),
+            contractVersion8394 = r.contractVersion8394)
         t.lastPx = r.lastPx; t.lastPxAtMs = r.lastPxAtMs
         t.ready8372 = true
         return t
@@ -269,7 +277,7 @@ object ExploreShadow8347 {
                 if (k == WAITS_KEY_8355) {
                     for (w in ShadowPersist8355.decodeWaits8355(s)) {
                         if (nowMs - w.firstAtMs !in 0L until PULLBACK_WAIT_MS_8347) continue
-                        if (waits.putIfAbsent(w.key, longArrayOf(w.firstAtMs, java.lang.Double.doubleToRawLongBits(w.signalPx))) == null)
+                        if (waits.putIfAbsent(w.key, longArrayOf(w.firstAtMs, java.lang.Double.doubleToRawLongBits(w.signalPx), java.lang.Double.doubleToRawLongBits(w.entryPullbackPct8394), w.contractVersion8394.toLong())) == null)
                             waitsRestored8355.incrementAndGet()
                     }
                     continue
@@ -341,8 +349,8 @@ object ExploreShadow8347 {
                 val q = ArrayDeque<DoubleArray>()
                 (v as? String)?.split(';')?.forEach { row ->
                     val parts = row.split(',')
-                    val at = parts.getOrNull(0)?.toLongOrNull(); val net = parts.getOrNull(1)?.toDoubleOrNull()
-                    if (at != null && net != null && net.isFinite()) q.addLast(doubleArrayOf(at.toDouble(), net))
+                    val at = parts.getOrNull(0)?.toDoubleOrNull()?.toLong(); val net = parts.getOrNull(1)?.toDoubleOrNull()
+                    if (at != null && net != null && net.isFinite()) q.addLast(doubleArrayOf(at.toDouble(), net, parts.getOrNull(2)?.toDoubleOrNull() ?: 0.0, parts.getOrNull(3)?.toDoubleOrNull() ?: 0.0))
                 }
                 if (q.isNotEmpty()) books.putIfAbsent(k, q)
             }
@@ -677,6 +685,9 @@ object ExploreShadow8347 {
             val selectedExit = (try { liveExitStyle8351(lane, EvidenceHold8336.startMs8336) } catch (_: Throwable) { null })
                 ?: if (runner) Exit8347.RUNNER else Exit8347.SCALP
             t.cortex8372 = ShadowPersist8355.CortexShadowOutcome8372(exit = selectedExit.name)
+            com.lifecyclebot.engine.cortex.Cortex7885.shadowMaturity8394(t.mint, t.lane, t.atMs,
+                if (selectedExit == Exit8347.SCALP) "TERMINAL_SCALP" else "TERMINAL_RUNNER",
+                t.atMs + if (selectedExit == Exit8347.SCALP) SCALP_TIMEOUT_MS_8347 else if (t.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347)
         }
         // V5.0.8364 — the fill is booked at the signal mark plus the lane's decision-to-fill chase (ShadowFill8364), as live pays it
         val fillPx8364 = ShadowFill8364.laneEntryPx8364(px, lane)
@@ -854,17 +865,26 @@ object ExploreShadow8347 {
         if (learned) cortexOutcomeAck8372.incrementAndGet() else cortexUnavailable8372.incrementAndGet()
     }
 
+    internal fun entryReady8394(entry: Entry8347, px: Double, signal: Double, ageMs: Long, pullbackPct: Double): Boolean {
+        if (!px.isFinite() || px <= 0.0 || !signal.isFinite() || signal <= 0.0) return false
+        return when (entry) {
+            Entry8347.NOW -> true
+            Entry8347.PULLBACK -> pullbackPct.isFinite() && px <= signal * (1.0 - pullbackPct / 100.0)
+            Entry8347.CONFIRM -> ageMs >= CONFIRM_AFTER_MS_8347 && px >= signal * (1.0 + CONFIRM_RISE_PCT_8347 / 100.0)
+        }
+    }
+
     private fun arm8347(t: Ticket8347, leg: Leg8347, px: Double?, nowMs: Long) {
         val age = nowMs - t.atMs
         when (leg.entry) {
             // V5.0.8364 — a fill is booked at the trigger mark plus the lane's chase (ShadowFill8364); an expired leg is a
             // "no trade" signal (net 0, never a loss) counted in the arm's fill rate (unfilled8364), so arms compare per signal.
             Entry8347.PULLBACK -> {
-                if (px != null && px <= t.signalPx * (1.0 - pullbackPct8347(t.stopPct) / 100.0)) { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true; landed8366(t, leg, nowMs) }
+                if (px != null && entryReady8394(Entry8347.PULLBACK, px, t.signalPx, age, t.entryPullbackPct8394)) { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true; landed8366(t, leg, nowMs) }
                 else if (age >= PULLBACK_WAIT_MS_8347) { leg.dead = true; t.force8355 = true; unfilled8364(t, leg, nowMs) }   // never filled: no trade, counted unfilled
             }
             Entry8347.CONFIRM -> {
-                if (px != null && age >= CONFIRM_AFTER_MS_8347 && px >= t.signalPx * (1.0 + CONFIRM_RISE_PCT_8347 / 100.0)) { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true; landed8366(t, leg, nowMs) }
+                if (px != null && entryReady8394(Entry8347.CONFIRM, px, t.signalPx, age, t.entryPullbackPct8394)) { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(px, t.lane); leg.entryAtMs = nowMs; t.force8355 = true; landed8366(t, leg, nowMs) }
                 else if (age >= CONFIRM_WAIT_MS_8347) { leg.dead = true; t.force8355 = true; unfilled8364(t, leg, nowMs) }
             }
             Entry8347.NOW -> { leg.active = true; leg.entryPx = ShadowFill8364.laneEntryPx8364(t.signalPx, t.lane); leg.entryAtMs = t.atMs; t.force8355 = true; landed8366(t, leg, nowMs) }
@@ -873,6 +893,12 @@ object ExploreShadow8347 {
 
     private fun step8347(t: Ticket8347, leg: Leg8347, px: Double?, lost: Boolean, nowMs: Long,
                          scalp8366: DoubleArray? = null, observedAtMs8372: Long = 0L) {
+        if (t.cortex8372.owns8372(leg.entry.name, leg.exit.name)) {
+            val horizon = if (leg.hold8366) ShadowAlign8366.holdWindowMs8366() else if (leg.exit == Exit8347.SCALP) SCALP_TIMEOUT_MS_8347 else if (t.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347
+            com.lifecyclebot.engine.cortex.Cortex7885.shadowMaturity8394(t.mint, t.lane, t.atMs,
+                if (leg.hold8366) "TERMINAL_HOLD" else if (leg.exit == Exit8347.SCALP) "TERMINAL_SCALP" else "TERMINAL_RUNNER",
+                leg.entryAtMs + horizon)
+        }
         val g = (t.lastPx / leg.entryPx - 1.0) * 100.0
         if (!g.isFinite()) {
             leg.dead = true; t.force8355 = true
@@ -887,9 +913,17 @@ object ExploreShadow8347 {
         // still-fresh cached mark does not make a fill. A lost mark ends the experiment as unavailable to Cortex.
         val pending8366 = leg.exitWhy8366
         if (pending8366 != null) {
-            if (lost || (px != null && ShadowPersist8355.exitFillObserved8372(observedAtMs8372, leg.exitAt8366,
-                    ShadowAlign8366.sellLatencyMs8366(false), nowMs)))
-                closeAt8366(t, leg, g, if (lost) "LOST_MARK" else pending8366, nowMs, executable = !lost && px != null)
+            if (lost) { closeAt8366(t, leg, g, "LOST_MARK", nowMs, executable = false); return }
+            if (px == null || !ShadowPersist8355.exitFillObserved8372(observedAtMs8372, leg.exitAt8366,
+                    ShadowAlign8366.sellLatencyMs8366(false), nowMs)) return
+            if (leg.sellTier8394 > 0 || leg.sellTaken8394 > 0) {
+                val sold = leg.held * leg.sellFraction8394.coerceIn(0.0, 1.0)
+                leg.banked += sold * ShadowFill8364.exitGrossPct8364(g); leg.held -= sold
+                leg.tiers = maxOf(leg.tiers, leg.sellTier8394); leg.taken8366 = maxOf(leg.taken8366, leg.sellTaken8394)
+                leg.exitWhy8366 = null; leg.exitAt8366 = 0L; leg.sellFraction8394 = 1.0; leg.sellTier8394 = 0; leg.sellTaken8394 = 0
+                t.force8355 = true
+                if (leg.held <= 0.0001) closeAt8366(t, leg, g, "SOLD_OUT", nowMs)
+            } else closeAt8366(t, leg, g, pending8366, nowMs)
             return
         }
         val why: String? = when (leg.exit) {
@@ -914,6 +948,11 @@ object ExploreShadow8347 {
      * live's fluid stop holds (ShadowAlign8366.liveStopLevel8366: net break-even once cleared, the green floor on a runner
      * lane), the clock; and once at +100 % (LifecycleHold8065's promotion) the lifecycle hold's own exits, no clock.
      */
+    private fun requestSlice8394(t: Ticket8347, leg: Leg8347, fraction: Double, why: String, nowMs: Long, tier: Int = 0, taken: Int = 0) {
+        leg.sellFraction8394 = fraction; leg.sellTier8394 = tier; leg.sellTaken8394 = taken
+        leg.exitWhy8366 = why; leg.exitAt8366 = nowMs; t.force8355 = true
+    }
+
     private fun runnerWhy8366(t: Ticket8347, leg: Leg8347, g: Double, px: Double?, lost: Boolean, nowMs: Long): String? {
         if (!leg.hold8366 && px != null && ShadowAlign8366.holdPromotes8366(g, leg.peak)) { leg.hold8366 = true; t.force8355 = true }
         if (leg.hold8366) {
@@ -921,7 +960,8 @@ object ExploreShadow8347 {
             if (d != null) {
                 val n = ShadowAlign8366.takeOf8366(d.first)
                 if (n < 0) return d.first
-                val sold = leg.held * d.second; leg.banked += sold * ShadowFill8364.exitGrossPct8364(g); leg.held -= sold; leg.taken8366 = n; t.dirty8355 = true
+                requestSlice8394(t, leg, d.second, d.first, nowMs, taken = n)
+                return null
             }
             return when {
                 leg.held <= 0.0001 -> "SOLD_OUT"
@@ -929,10 +969,9 @@ object ExploreShadow8347 {
                 else -> null
             }
         }
-        if (px != null) while (leg.tiers < com.lifecyclebot.engine.SpikeCapture7943.TIERS.size) {
+        if (px != null && leg.tiers < com.lifecyclebot.engine.SpikeCapture7943.TIERS.size) {
             val (at, frac) = com.lifecyclebot.engine.SpikeCapture7943.TIERS[leg.tiers]
-            if (g < at) break
-            val sold = leg.held * frac; leg.banked += sold * ShadowFill8364.exitGrossPct8364(g); leg.held -= sold; leg.tiers++; t.dirty8355 = true
+            if (g >= at) { requestSlice8394(t, leg, frac, "SPIKE_PARTIAL_8394", nowMs, tier = leg.tiers + 1); return null }
         }
         val floor = EvidenceShadow8344.giveBackFloor8344(leg.peak, t.armPct, t.costPct)
         val level = ShadowAlign8366.liveStopLevel8366(t.runner, t.stopPct, leg.peak, t.costPct)
@@ -957,13 +996,15 @@ object ExploreShadow8347 {
             val noise = scalpIn?.getOrNull(0) ?: Double.NaN
             val chase = scalpIn?.getOrNull(1) ?: 0.0
             var guard = 0
-            while (guard++ < 3 && leg.held > 0.0001) {
-                val d = com.lifecyclebot.engine.ScalpStop8363.decide8363(g, maxOf(leg.peak, g), nowMs - leg.entryAtMs, leg.tiers, t.stopPct, t.costPct, noise, chase) ?: break
-                if (d.second.endsWith("_T1")) { val s = leg.held * d.first; leg.banked += s * ShadowFill8364.exitGrossPct8364(g); leg.held -= s; leg.tiers = 1; t.dirty8355 = true }
-                else if (d.second.endsWith("_T2")) { leg.banked += leg.held * ShadowFill8364.exitGrossPct8364(g); leg.held = 0.0; leg.tiers = 2; t.dirty8355 = true }
-                else return d.second
+            val d = com.lifecyclebot.engine.ScalpStop8363.decide8363(g, maxOf(leg.peak, g), nowMs - leg.entryAtMs, leg.tiers, t.stopPct, t.costPct, noise, chase)
+            if (d != null) {
+                val tier = if (d.second.endsWith("_T1")) 1 else if (d.second.endsWith("_T2")) 2 else 0
+                if (tier == 0) return d.second
+                requestSlice8394(t, leg, d.first, d.second, nowMs, tier = tier)
+                return null
             }
         }
+
         return when {
             leg.held <= 0.0001 -> "SOLD_OUT"
             nowMs - leg.entryAtMs >= SCALP_TIMEOUT_MS_8347 -> "TIMEOUT"
@@ -1002,6 +1043,11 @@ object ExploreShadow8347 {
         // NOW/RUNNER; a REJECT ticket only R:REJECT (the FILTER_INVERTED comparison; now every reject, so it stays out of the
         // live proof); a SETUP ticket only its own S:<setup> (SR:<setup> when the lane refused) — it shares the coin's price
         // path with the native ticket, so it never re-enters the variant book as a second sample.
+        if (!executable) {
+            t.cortex8372 = t.cortex8372.closed8372(leg.entry.name, leg.exit.name, net, net + t.costPct, why, nowMs, false)
+            try { PipelineHealthCollector.labelInc("SHADOW_OUTCOME_UNAVAILABLE_8394_$why") } catch (_: Throwable) {}
+            return
+        }
         when (t.kind8360) {
             KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368 -> {
                 // Shadow-only realised result for the Cortex's own verdict in its own lane.
@@ -1009,21 +1055,21 @@ object ExploreShadow8347 {
                 // Outcomes also teach the exact setup and tactic within this lane/verdict.
                 // Kept in Cortex-only books so a rejected trade never earns native LIVE authority.
                 for (k in ShadowPersist8355.cortexPopulationKeys8372(t.lane, leg.entry.name, leg.exit.name,
-                    t.kind8360, t.setup, t.tactic)) bookKey8351(k, net, nowMs)
+                    t.kind8360, t.setup, t.tactic)) bookKey8351(t, k, net, nowMs)
                 cortexClosesByKind8368.computeIfAbsent(t.kind8360) { AtomicLong(0) }.incrementAndGet()
                 // The prediction learns the actual modelled position return (banked partials plus its final exit),
                 // never raw token mark return, the best of two exits, or two samples for one assessment.
                 t.cortex8372 = t.cortex8372.closed8372(leg.entry.name, leg.exit.name, net, net + t.costPct,
-                    why, nowMs, executable)
+                    why, nowMs, executable && ShadowPersist8355.proofEligible8394(t.contractVersion8394.toDouble(), t.atMs.toDouble(), 0L))
             }
-            KIND_SETUP_8360 -> bookKey8351("C|$v|${if (t.nativeEligible) "S" else "SR"}:${t.setup}", net, nowMs)
-            KIND_REJECT_8360 -> bookKey8351("C|$v|R:REJECT", net, nowMs)
+            KIND_SETUP_8360 -> bookKey8351(t, "C|$v|${if (t.nativeEligible) "S" else "SR"}:${t.setup}", net, nowMs)
+            KIND_REJECT_8360 -> bookKey8351(t, "C|$v|R:REJECT", net, nowMs)
             else -> {
-                bookKey8351(v, net, nowMs)
-                bookKey8351("C|$v|S:${t.setup}", net, nowMs)
-                bookKey8351("C|$v|M:${t.band}", net, nowMs)
-                bookKey8351("C|$v|R:${if (t.nativeEligible) "NATIVE" else "REJECT"}", net, nowMs)
-                if (leg.entry == Entry8347.NOW && leg.exit == Exit8347.RUNNER) bookKey8351("C|$v|T:${t.tactic}", net, nowMs)
+                bookKey8351(t, v, net, nowMs)
+                bookKey8351(t, "C|$v|S:${t.setup}", net, nowMs)
+                bookKey8351(t, "C|$v|M:${t.band}", net, nowMs)
+                bookKey8351(t, "C|$v|R:${if (t.nativeEligible) "NATIVE" else "REJECT"}", net, nowMs)
+                if (leg.entry == Entry8347.NOW && leg.exit == Exit8347.RUNNER) bookKey8351(t, "C|$v|T:${t.tactic}", net, nowMs)
             }
         }
         closed.incrementAndGet()
@@ -1040,10 +1086,10 @@ object ExploreShadow8347 {
         } catch (_: Throwable) {}
     }
 
-    private fun bookKey8351(key: String, net: Double, nowMs: Long) {
+    private fun bookKey8351(t: Ticket8347, key: String, net: Double, nowMs: Long) {
         val q = books.computeIfAbsent(key) { ArrayDeque() }
         synchronized(q) {
-            q.addLast(doubleArrayOf(nowMs.toDouble(), net.coerceIn(-100.0, 1_000.0)))
+            q.addLast(doubleArrayOf(nowMs.toDouble(), net.coerceIn(-100.0, 1_000.0), t.contractVersion8394.toDouble(), t.atMs.toDouble()))
             while (q.size > MAX_CLOSES_8347) q.removeFirst()
         }
         dirtyBooks8377.add(key)   // V5.0.8377 — flushed with every other dirty book by flushBooks8377, not one full-file write per key
@@ -1080,7 +1126,7 @@ object ExploreShadow8347 {
 
     private fun netsSince(key: String, sinceMs: Long): List<Double> {
         val q = books[key] ?: return emptyList()
-        return synchronized(q) { q.filter { it[0] >= sinceMs }.map { it[1] } }
+        return synchronized(q) { q.filter { it[0] >= sinceMs && ShadowPersist8355.proofEligible8394(it.getOrNull(2), it.getOrNull(3), sinceMs) }.map { it[1] } }
     }
 
     private val choiceCache8351 = ConcurrentHashMap<String, Pair<Long, Choice8351?>>()
@@ -1090,9 +1136,10 @@ object ExploreShadow8347 {
     fun bestFor8351(lane: String, sinceMs: Long): Choice8351? {
         val l = canon(lane)
         val now = System.currentTimeMillis()
-        choiceCache8351[l]?.let { (at, c) -> if (now - at in 0L until CHOICE_CACHE_MS_8351) return c }
+        val cacheKey8394 = "$l|$sinceMs|${LearningEpoch8164.epochMs8164()}|${ShadowPersist8355.TRADE_CONTRACT_8394}"
+        choiceCache8351[cacheKey8394]?.let { (at, c) -> if (now - at in 0L until CHOICE_CACHE_MS_8351) return c }
         val c = computeBest8351(l, sinceMs)
-        choiceCache8351[l] = now to c
+        choiceCache8351[cacheKey8394] = now to c
         return c
     }
 
@@ -1189,7 +1236,7 @@ object ExploreShadow8347 {
     /** An expired PULLBACK / CONFIRM leg: a "no trade" signal (net 0) under U|<key>, read only by the fill rate. */
     private fun unfilled8364(t: Ticket8347, leg: Leg8347, nowMs: Long) {
         try {
-            for (k in unfilledKeys8364(t, leg)) bookKey8351(UNFILLED_PREFIX_8364 + k, 0.0, nowMs)
+            for (k in unfilledKeys8364(t, leg)) bookKey8351(t, UNFILLED_PREFIX_8364 + k, 0.0, nowMs)
             unfilledN8364.incrementAndGet()
         } catch (_: Throwable) {}
     }
@@ -1271,7 +1318,7 @@ object ExploreShadow8347 {
 
     fun variantRecord8347(lane: String, entry: Entry8347, exit: Exit8347, sinceMs: Long): EvidenceHold8336.Proof8336 {
         val q = books["${canon(lane)}|$entry|$exit"] ?: return variantProof8347(emptyList())
-        val nets = synchronized(q) { q.filter { it[0] >= sinceMs }.map { it[1] } }
+        val nets = synchronized(q) { q.filter { it[0] >= sinceMs && ShadowPersist8355.proofEligible8394(it.getOrNull(2), it.getOrNull(3), sinceMs) }.map { it[1] } }
         return variantProof8347(nets)
     }
 
@@ -1291,15 +1338,17 @@ object ExploreShadow8347 {
         if (entry == Entry8347.NOW) return null
         val px = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: return "ENTRY_TIMING_NO_MARK_8347"
         val key = "${ts.mint}|${canon(lane)}"
-        val w = waits[key] ?: longArrayOf(nowMs, java.lang.Double.doubleToRawLongBits(px)).also { waits[key] = it; waitsDirty8355 = true }   // V5.0.8355 — a new wait is a change
+        waits[key]?.let { old ->
+            if (old[0] < maxOf(sinceMs, LearningEpoch8164.epochMs8164()) || old.size < 4 || old[3] != ShadowPersist8355.TRADE_CONTRACT_8394.toLong()) {
+                waits.remove(key, old); waitsDirty8355 = true
+            }
+        }
+        val depth8394 = pullbackPct8347(FieldManual7715.mandateFor(lane).invalidationPct)
+        val w = waits[key] ?: longArrayOf(nowMs, java.lang.Double.doubleToRawLongBits(px), java.lang.Double.doubleToRawLongBits(depth8394), ShadowPersist8355.TRADE_CONTRACT_8394.toLong()).also { waits[key] = it; waitsDirty8355 = true }   // V5.0.8355 — a new wait is a change
         val signal = java.lang.Double.longBitsToDouble(w[1])
         val age = nowMs - w[0]
         val stop = try { FieldManual7715.mandateFor(lane).invalidationPct } catch (_: Throwable) { 10.0 }   // V5.0.8392 — the pullback depth is an ENTRY read: mandate, not the cost-widened exit stop
-        val ready = when (entry) {
-            Entry8347.PULLBACK -> px <= signal * (1.0 - pullbackPct8347(stop) / 100.0)
-            Entry8347.CONFIRM -> age >= CONFIRM_AFTER_MS_8347 && px >= signal * (1.0 + CONFIRM_RISE_PCT_8347 / 100.0)
-            Entry8347.NOW -> true
-        }
+        val ready = entryReady8394(entry, px, signal, age, java.lang.Double.longBitsToDouble(w[2]))
         val limit = if (entry == Entry8347.PULLBACK) PULLBACK_WAIT_MS_8347 else CONFIRM_WAIT_MS_8347
         if (ready) { waits.remove(key); waitsDirty8355 = true; return null }
         if (age >= limit) { waits.remove(key); waitsDirty8355 = true; return "ENTRY_TIMING_EXPIRED_8347_$entry" }

@@ -105,14 +105,17 @@ object EvidenceHold8336 {
 
     private fun canon(lane: String): String = CanonicalLaneIdentity6506.desk8392(lane)   // V5.0.8365 — SHITCOIN_EXPRESS files as EXPRESS
 
+    @Volatile private var cachedEpoch8394: Long = Long.MIN_VALUE
     private fun proofs8336(nowMs: Long): Map<String, Proof8336> {
+        val epoch8394 = LearningEpoch8164.epochMs8164()
+        if (cachedEpoch8394 != epoch8394) { cache = null; records8342 = emptyMap(); cachedEpoch8394 = epoch8394 }
         cache?.let { (at, m) -> if (nowMs - at in 0L until CACHE_MS_8336) return m }
-        val since = startMs8336
+        val since = maxOf(startMs8336, epoch8394)
         val rows: List<Trade> = try {
             com.lifecyclebot.engine.TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 5_000, includePartials = false)
         } catch (_: Throwable) { emptyList() }
         // V5.0.8342 — meme lanes only (EvidenceHold8336.HELD_LANES_8392): CRYPTO_ALT is an LLM desk, not a lane this hold decides.
-        val paper = rows.filter { it.mode.equals("paper", true) && it.side.equals("SELL", true) && it.ts >= since && heldLane8342(it.tradingMode.ifBlank { "STANDARD" }) }
+        val paper = rows.filter { it.mode.equals("paper", true) && it.side.equals("SELL", true) && it.ts >= since && (epoch8394 <= 0L || it.entryTsMs >= epoch8394) && heldLane8342(it.tradingMode.ifBlank { "STANDARD" }) }
         val recs = paper.groupBy { canon(it.tradingMode.ifBlank { "STANDARD" }) }.mapValues { (lane, t) ->
             // V5.0.8342 — every paper close is tagged with the live policy's verdict on its entry (Rehearsal8339); the bar
             // stays on ALL closes (paper results never admit live on their own, and a liveAdmit-only bar is zero again).

@@ -148,13 +148,13 @@ class Aate8342RehearsalTest {
         assertFalse(gate.contains("CandidateAdmission8136.noteVerdict8136(\"LIVE\", verdict.name, reason)"))
         val admission = src("engine/truth/CandidateAdmission8136.kt")
         assertTrue(admission.contains("live = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false },"))
-        assertTrue(admission.contains("val mode = try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) \"PAPER\" else \"LIVE\" } catch (_: Throwable) { \"UNKNOWN\" }"))
+        assertTrue(admission.contains("val mode = FdgGate8365.paperContext8393()"))
     }
 
     @Test fun hookPointsArePinned() {
         val gate=src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)"))
-        assertTrue(gate.contains("FdgGate8365.inContext8365(ts, l, basis)"))
+        assertTrue(gate.contains("FdgGate8365.inContext8365(ts, l, basis, paper, shadowOnly8393)"))
         assertTrue(gate.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
         assertTrue(gate.contains("if (paper && final == null) Rehearsal8339.notePaperAdmit8342"))
         assertFalse(gate.contains("entryRefusal8114"))

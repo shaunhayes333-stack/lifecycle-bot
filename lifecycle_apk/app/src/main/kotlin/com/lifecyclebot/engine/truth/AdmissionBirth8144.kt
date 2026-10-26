@@ -98,6 +98,7 @@ object AdmissionBirth8144 {
     private val pumpRecords = ConcurrentHashMap<String, Long>()
     private val oldestSigs = ConcurrentHashMap<String, Long>()
     private val historyFloors = ConcurrentHashMap<String, Long>()
+    private val observedFloors8394 = ConcurrentHashMap<String, Long>()
     private val reads = ConcurrentHashMap<String, AtomicLong>()
     // V5.0.8169 — DexScreener pair creation, already on the wire (best pair, sweep enrichment) and dropped: a pump mint's
     // own bonding-curve pair is its create event (direct); any other pool only proves the token existed then (a floor).
@@ -137,6 +138,9 @@ object AdmissionBirth8144 {
             putEarliest8144(pumpRecords, mint, ms)
         }
     }
+
+    /** Discovery observation is a minimum-age witness, never a chain signature or verified birth. */
+    fun noteObservation8394(mint: String, atMs: Long) = putEarliest8144(observedFloors8394, mint, atMs)
 
     /** TokenBirthHydrator7441: the mint's history was read to its end; its oldest successful signature is the birth. */
     fun noteOldestSignature8144(mint: String, ms: Long) {
@@ -195,14 +199,18 @@ object AdmissionBirth8144 {
             pumpRecordMs = pumpRecords[m] ?: 0L,
             oldestSignatureMs = oldestSigs[m] ?: 0L,
             historyFloorMs = historyFloors[m] ?: 0L,
-            firstSeenMs = ts.addedToWatchlistAt,
+            firstSeenMs = listOf(ts.addedToWatchlistAt, observedFloors8394[m] ?: 0L).filter { it > 0L }.minOrNull() ?: 0L,
             pairCreatedMs = curvePairs8169[m] ?: 0L,   // V5.0.8169 — a pump mint's own bonding-curve pair (direct)
             poolFloorMs = poolFloors8169[m] ?: 0L,      // V5.0.8169 — any other pool (lower bound)
             chainMintInitMs = chainMintInits8179[m] ?: 0L,   // V5.0.8179 — mint initialised on chain (direct)
         )
     }
 
-    fun readFor8144(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Read8144 = read8144(witnessFor8144(ts), nowMs)
+    fun readFor8144(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Read8144 {
+        val w = witnessFor8144(ts)
+        val verified = CanonicalTokenBirthTime7440.resolve(ts.mint, nowMs)?.birthMs ?: 0L
+        return read8144(w.copy(metaCreationMs = verified), nowMs)
+    }
 
     /**
      * ProjectSniperAI / launch lanes, when the canonical birth is unresolved: the age to judge the launch window on —

@@ -357,7 +357,7 @@ object CandidateAdmission8136 {
     // ── the decision ──
 
     /** Pure: the one terminal admission for [c]. Order: safety, structure, loss patterns, timing, economics, data, edge, prior. */
-    fun decide8136(c: Candidate8136): Decision8136 {
+    fun decide8136(c: Candidate8136, doorBinds8393: (String) -> Boolean = { true }): Decision8136 {
         val trace = ArrayList<String>(10)
         trace += "lane=${c.lane} version=${c.candidateVersion} setup=${c.selectedSetup ?: "-"} regime=${c.regime.ifBlank { "-" }} stage=${c.stage.ifBlank { "-" }}${if (c.hotLaunch) " hot" else ""}"
         var decisionGross = c.expectedGrossPct
@@ -423,7 +423,7 @@ object CandidateAdmission8136 {
             if (bestSetup == null) {
                 trace += "setupLosing=${selectedRec?.compact}${if (cellSupported) " cellSupported=${c.cell?.compact} names_no_strategy" else ""}"
                 // V5.0.8257 — a thin record inside one SE of zero is advisory, not a live refusal (see clearlyLosing8136).
-                if (clearlyLosing8136(selectedRec)) return done(Terminal8136.REFUSE, "SETUP_RECORD_LOSING_8136", true, c.selectedSetup)
+                if (clearlyLosing8136(selectedRec) && doorBinds8393("SETUP_RECORD_LOSING_8136")) return done(Terminal8136.REFUSE, "SETUP_RECORD_LOSING_8136", true, c.selectedSetup)
                 // V5.0.8316 — the 8290 "liveThinLossBinds" live refusal is withdrawn (8314: SETUP_RECORD_LOSING 407 on
                 //    records the shortfall had shifted below zero): 8257's rule holds live too — only a CLEAR loss refuses;
                 //    a thin one-SE loser falls to the generic prior, where economics, safety and the V3 floor decide.
@@ -443,7 +443,7 @@ object CandidateAdmission8136 {
             } else {
                 trace += "sheetAvoid8323=$chosen"
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHEET_AVOID_REFUSED_8323_${c.lane.uppercase()}") } catch (_: Throwable) {}
-                return done(Terminal8136.REFUSE, "SHEET_AVOID_8323", true, chosen)
+                if (doorBinds8393("SHEET_AVOID_8323")) return done(Terminal8136.REFUSE, "SHEET_AVOID_8323", true, chosen)
             }
         }
         // V5.0.8169 — a loss pattern refuses on the record graded since the epoch; an older one is noted and decays to
@@ -454,7 +454,7 @@ object CandidateAdmission8136 {
         // independently been blocking the same unclassified tokens on STAGE|LANE|UNKNOWN.
         val stageLoss = if (c.stage.equals("UNKNOWN", ignoreCase = true)) null
             else if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord  // V5.0.8325 — own labels (no tail credit)
-        if (provenLosing8136(cellLoss)) {
+        if (provenLosing8136(cellLoss) && doorBinds8393("CELL_PROVEN_LOSING_8136")) {
             // V5.0.8240 — the cell (source|lane|mcap|age) is a lane-wide prior over every coin of that shape, exactly like
             //    the stage record below: it names no strategy. 8241 runner ledger: MONPAD +30584% and KimWhale +2962% were
             //    MISSED(CELL_PROVEN_LOSING) while a SUPPORTED setup (n, mean - SE and timing band clearing cost — the
@@ -469,7 +469,7 @@ object CandidateAdmission8136 {
         if (provenLosing8136(stageLoss) && !cellSupported && stageLatePays8198(stageLoss)) {
             trace += "stageLosing5m=${stageLoss?.compact} spared late60m=n${stageLoss?.lateN} ${fmt8136(stageLoss?.lateMeanPct ?: Double.NaN)}"
         }
-        if (provenLosing8136(stageLoss) && !cellSupported && !stageLatePays8198(stageLoss)) {
+        if (provenLosing8136(stageLoss) && !cellSupported && !stageLatePays8198(stageLoss) && doorBinds8393("STAGE_PROVEN_LOSING_8136")) {
             // V5.0.8173 — the stage record is a lane-wide prior (every coin of the lane at this lifecycle stage). A fired
             //    setup supported on its own record (StrategyRank8153: n, mean - SE, its own timing band) is the token-specific
             //    edge and is the strategy instead, exactly as for a losing selected setup or tactic above — unless the
@@ -487,7 +487,7 @@ object CandidateAdmission8136 {
             if (bestSetup != null && bestSetup.id != chosen) chooseSetup(bestSetup.id)
         }
         if (!cellSupported && staleLoss8169(c.lossEpochAware8169, c.stageRecord, stageLoss)) trace += "$STALE_STAGE_TRACE_8169${c.stageRecord?.compact}"
-        if (c.losingTactic != null && bestSetup == null && !cellSupported) {
+        if (c.losingTactic != null && bestSetup == null && !cellSupported && doorBinds8393("TACTIC_RECORD_LOSING_8136")) {
             trace += "tacticLosing=${c.losingTactic}"
             return done(Terminal8136.REFUSE, "TACTIC_RECORD_LOSING_8136", true, chosen)
         }
@@ -503,7 +503,7 @@ object CandidateAdmission8136 {
         if (chosen == c.selectedSetup && losing8136(timingLoss8324) && !cellSupported) {
             trace += "timing=${c.timing?.compact}"
             // V5.0.8257 — the same thin-record rule as the setup record: a clear loss refuses, a one-SE band is advisory.
-            if (clearlyLosing8136(timingLoss8324)) return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
+            if (clearlyLosing8136(timingLoss8324) && doorBinds8393("TIMING_ADVERSE_8136")) return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
             // V5.0.8316 — the 8290 live thin-loss refusal is withdrawn here too (8314: TIMING_ADVERSE 118); see the setup record above.
             trace += "timingThin=advisory"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TIMING_ADVERSE_THIN_ADVISORY_8257") } catch (_: Throwable) {}
@@ -577,7 +577,7 @@ object CandidateAdmission8136 {
         liveLocalGuard8325(c, edge, own8325)?.let { why ->
             trace += "liveLocal8325=$why edge=${edge?.compact ?: "-"} setup=${own8325?.compact ?: "-"}"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${why}_${c.lane.uppercase()}") } catch (_: Throwable) {}
-            return done(Terminal8136.REFUSE, why, true, chosen)
+            if (doorBinds8393(why)) return done(Terminal8136.REFUSE, why, true, chosen)
         }
         // 6. supported candidate-specific edge: the generic score is only a prior.
         if (edge != null) {
@@ -615,7 +615,7 @@ object CandidateAdmission8136 {
             // CASHGEN|NONE, MOONSHOT|NONE, …) was a generic-prior admit: a V3 score over a fluid floor of 15 with no setup
             // record, no supported cell, no validated Cortex read. The 700% wins were proven setups. Live money needs a
             // supported record (step 6); the prior alone admits paper and the shadow book, where it is learnt from.
-            if (c.live && !cellSupported) {
+            if (c.live && !cellSupported && doorBinds8393("LIVE_GENERIC_PRIOR_UNSUPPORTED_8238")) {
                 trace += "liveGenericPriorUnsupported8238 cell=${c.cell?.compact ?: "-"}"
                 return done(Terminal8136.REFUSE, "LIVE_GENERIC_PRIOR_UNSUPPORTED_8238", false, chosen)
             }
@@ -1042,7 +1042,8 @@ object CandidateAdmission8136 {
         genericScore: Double = Double.NaN, genericFloor: Double = Double.NaN,
         proposedSizeSol: Double = Double.NaN,   // V5.0.8209 — cost at THIS candidate's size; a material size change re-quotes (identity miss)
     ): Decision8136? = try {
-        val mode = try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "UNKNOWN" }
+        val mode = FdgGate8365.paperContext8393()?.let { if (it) "PAPER" else "LIVE" }
+            ?: (try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "UNKNOWN" })
         // V5.0.8212: an unrouteable 0.0100 SOL proposal has a hypothetical 11.6% round trip
         // in 8211. The live sizing gate can promote to the wallet's routable minimum when
         // permitted; price admission on that achievable ticket (only if this wallet can
@@ -1077,12 +1078,20 @@ object CandidateAdmission8136 {
         val sizeForQuote8223 = if (admissionSize8212.isFinite() && admissionSize8212 > 0.0) admissionSize8212 else prior8223?.sizeSol ?: admissionSize8212
         val built = candidateFor8136(ts, laneRaw, nowMs, sizeForQuote8223)
         val rawCandidate = if (prior8223 != null) built.copy(genericScore = prior8223.score, genericFloor = prior8223.floor) else built
-        val candidate = rawCandidate.copy(candidateVersion = version)
-        val key = "$mode|${ts.mint}|${candidate.lane}|$version"
+        val candidate = rawCandidate.copy(candidateVersion = version, live = mode == "LIVE")
+        // Policy-scoped results never overwrite the ordinary LIVE admission cache or its defer budget.
+        val policyMode8393 = "$mode|${FdgGate8365.policyKey8393()}"
+        val key = "$policyMode8393|${ts.mint}|${candidate.lane}|$version"
         val identity = cacheIdentity8144(candidate)
         val cached = memos8153[key]?.takeIf { nowMs - it.atMs in 0L..MEMO_MS_8153 && it.candidate == identity }?.decision
-        cached ?: coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) ?: decide8136(candidate).also {
-            noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs)
+        cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: decide8136(candidate) {
+            Rehearsal8339.doorBindsNow8342(it, candidate.lane)
+        }.also {
+            // A held shadow rehearsal must not publish an ADMIT into live sizing, strategy identity or the runner trace.
+            if (!FdgGate8365.shadowOnly8393())
+                noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs)
+            if (memos8153.size > 4_000) memos8153.entries.removeIf { e -> nowMs - e.value.atMs > MEMO_MS_8153 }
+            memos8153[key] = Memo8153(nowMs, identity, it)
         }
     } catch (_: Throwable) { null }
 

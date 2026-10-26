@@ -48,6 +48,8 @@ object EvidenceShadow8344 {
     private class Pos8344(
         val mint: String, val lane: String, val entryPx: Double, val atMs: Long, val costPct: Double,
         val stopPct: Double, val armPct: Double, val timeoutMs: Long,
+        val advisoryEntry8393: Boolean = false,
+        val contractVersion8394: Int = ShadowPersist8355.TRADE_CONTRACT_8394,
     ) {
         var held = 1.0                 // fraction of the ticket still held
         var bankedGrossPct = 0.0        // sum of (fraction sold x gross % at the sale)
@@ -65,6 +67,9 @@ object EvidenceShadow8344 {
         var peakAt8366 = 0L
         var exitAt8366 = 0L
         var exitWhy8366: String? = null
+        var sellFraction8394 = 1.0
+        var sellTier8394 = 0
+        var sellTaken8394 = 0
     }
 
     // ── V5.0.8355 §SHADOW_EVIDENCE_SURVIVES_RESTARTS — the open book is persisted (its own prefs, the close book untouched):
@@ -87,6 +92,9 @@ object EvidenceShadow8344 {
             p.mint, p.lane, p.entryPx, p.atMs, p.costPct, p.stopPct, p.armPct, p.timeoutMs,
             p.held, p.bankedGrossPct, p.tiersHit, p.peakPct, p.lastPx, p.lastPxAtMs,
             hold8366 = p.hold8366, taken8366 = p.taken8366, peakAt8366 = p.peakAt8366,   // V5.0.8366
+            advisoryEntry8393 = p.advisoryEntry8393, contractVersion8394 = p.contractVersion8394,
+            exitAt8394 = p.exitAt8366, exitWhy8394 = p.exitWhy8366 ?: "",
+            sellFraction8394 = p.sellFraction8394, sellTier8394 = p.sellTier8394, sellTaken8394 = p.sellTaken8394,
         ))
         try { openPrefs8355?.edit()?.putString(p.mint, enc)?.apply() } catch (_: Throwable) {}
     }
@@ -108,9 +116,11 @@ object EvidenceShadow8344 {
                 if (r.hold8366 && ShadowPersist8355.expiredOnRestore8355(r.atMs, ShadowAlign8366.holdWindowMs8366(), nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
                 if (!r.hold8366 && ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
                 if (open.size >= MAX_OPEN_8344) { drop += k; continue }
-                val pos = Pos8344(r.mint, r.lane, r.entryPx, r.atMs, r.costPct, r.stopPct, r.armPct, r.timeoutMs)
+                val pos = Pos8344(r.mint, r.lane, r.entryPx, r.atMs, r.costPct, r.stopPct, r.armPct, r.timeoutMs, r.advisoryEntry8393, r.contractVersion8394)
                 pos.held = r.held; pos.bankedGrossPct = r.bankedGrossPct; pos.tiersHit = r.tiersHit; pos.peakPct = r.peakPct
                 pos.lastPx = r.lastPx; pos.lastPxAtMs = r.lastPxAtMs
+                pos.exitAt8366 = r.exitAt8394; pos.exitWhy8366 = r.exitWhy8394.takeIf { it.isNotBlank() }
+                pos.sellFraction8394 = r.sellFraction8394; pos.sellTier8394 = r.sellTier8394; pos.sellTaken8394 = r.sellTaken8394
                 pos.hold8366 = r.hold8366; pos.taken8366 = r.taken8366; pos.peakAt8366 = r.peakAt8366   // V5.0.8366
                 pos.noMarkSinceRestore8355 = true; pos.lastWriteMs8355 = nowMs
                 if (open.putIfAbsent(r.mint, pos) == null) {
@@ -216,8 +226,9 @@ object EvidenceShadow8344 {
                 val q = ArrayDeque<DoubleArray>()
                 (v as? String)?.split(';')?.forEach { row ->
                     val parts = row.split(',')
-                    val at = parts.getOrNull(0)?.toLongOrNull(); val net = parts.getOrNull(1)?.toDoubleOrNull()
-                    if (at != null && net != null && net.isFinite()) q.addLast(doubleArrayOf(at.toDouble(), net))
+                    val at = parts.getOrNull(0)?.toDoubleOrNull()?.toLong(); val net = parts.getOrNull(1)?.toDoubleOrNull()
+                    if (at != null && net != null && net.isFinite()) q.addLast(doubleArrayOf(at.toDouble(), net, parts.getOrNull(2)?.toDoubleOrNull() ?: 0.0,
+                        parts.getOrNull(3)?.toDoubleOrNull() ?: 0.0, parts.getOrNull(4)?.toDoubleOrNull() ?: 0.0))
                 }
                 if (q.isNotEmpty()) closes.putIfAbsent(lane, q)
             }
@@ -247,7 +258,7 @@ object EvidenceShadow8344 {
      * a tick price older than [PRICE_FRESH_MS_8345] falls back to the mark the tick reads (ForwardReturnLabeler7731.markFor7948:
      * the curve / tape mark of coins whose price never reaches ts.lastPriceUpdate) instead of refusing the entry.
      */
-    fun open8344(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis(), source: String = SOURCE_DECISION_8345) {
+    fun open8344(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis(), source: String = SOURCE_DECISION_8345, advisoryEntry8393: Boolean = false) {
         try {
             val mint = ts.mint
             if (mint.isBlank()) return
@@ -279,7 +290,7 @@ object EvidenceShadow8344 {
             // V5.0.8364 — booked at the decision mark plus the lane's decision-to-fill chase (ShadowFill8364), as a live buy fills
             val fillPx8364 = ShadowFill8364.laneEntryPx8364(px, lane)
             val pos8355 = Pos8344(mint, lane, fillPx8364, nowMs, if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm,
-                if (runner) RUNNER_TIMEOUT_MS_8344 else OTHER_TIMEOUT_MS_8344)
+                if (runner) RUNNER_TIMEOUT_MS_8344 else OTHER_TIMEOUT_MS_8344, advisoryEntry8393)
             // V5.0.8366 — the live buy lands at its route's measured rate (deterministic per mint x lane x decision time); an
             // unlanded entry is no trade, booked as the failed-tx fee alone
             val unlanded8366 = try { ShadowAlign8366.unlandedEntryFeePct8366("$mint|$lane|$nowMs|EVIDENCE", mint, nowMs) } catch (_: Throwable) { null }
@@ -319,10 +330,9 @@ object EvidenceShadow8344 {
         for ((mint, p) in open) {
             try {
                 val ts = tokens[mint]
-                val fresh = ts?.takeIf { it.lastPriceUpdate > 0L && nowMs - it.lastPriceUpdate <= 45_000L }?.lastPrice?.takeIf { it > 0.0 }
-                    ?: ForwardReturnLabeler7731.markFor7948(mint, { null }, nowMs)?.takeIf { it > 0.0 }
-                    ?: (try { ShadowMark8360.observed8360(ts, mint, nowMs)?.first } catch (_: Throwable) { null })   // V5.0.8360 — the same observed marks the open may price on
-                if (fresh != null) { p.lastPx = fresh; p.lastPxAtMs = nowMs; p.noMarkSinceRestore8355 = false }
+                val observed8394 = ShadowMark8360.observedTimed8372(ts, mint, nowMs)
+                val fresh = observed8394?.priceUsd
+                if (observed8394 != null) { p.lastPx = observed8394.priceUsd; p.lastPxAtMs = observed8394.observedAtMs; p.noMarkSinceRestore8355 = false }
                 val g = (p.lastPx / p.entryPx - 1.0) * 100.0
                 if (!g.isFinite()) { done += mint; continue }
                 if (g > p.peakPct) p.peakAt8366 = nowMs   // V5.0.8366 — when the peak was set (the hold's dead-money clock)
@@ -350,11 +360,29 @@ object EvidenceShadow8344 {
      * (ShadowAlign8366.liveStopLevel8366), the clock; at +100 % the lifecycle hold's own exits and no clock. A triggered full
      * exit fills at the first observed mark once PaperExitLatency8223's latency has passed since the trigger.
      */
+    private fun requestSlice8394(p: Pos8344, fraction: Double, why: String, nowMs: Long, tier: Int = 0, taken: Int = 0) {
+        p.sellFraction8394 = fraction; p.sellTier8394 = tier; p.sellTaken8394 = taken
+        p.exitWhy8366 = why; p.exitAt8366 = nowMs; p.dirty8355 = true
+        persistOpen8355(p, nowMs)
+    }
+
     private fun why8366(p: Pos8344, g: Double, fresh: Double?, nowMs: Long): String? {
         val lost = nowMs - p.lastPxAtMs >= LOST_MARK_MS_8344
         val pending = p.exitWhy8366
         if (pending != null) {
-            return if (lost || (fresh != null && ShadowAlign8366.latencyElapsed8366(p.exitAt8366, ShadowAlign8366.sellLatencyMs8366(false), nowMs))) pending else WAIT_8366
+            if (lost) return "LOST_MARK"
+            if (fresh == null || !ShadowPersist8355.exitFillObserved8372(p.lastPxAtMs, p.exitAt8366,
+                    ShadowAlign8366.sellLatencyMs8366(false), nowMs)) return WAIT_8366
+            if (p.sellTier8394 > 0 || p.sellTaken8394 > 0) {
+                val sold = p.held * p.sellFraction8394.coerceIn(0.0, 1.0)
+                p.bankedGrossPct += sold * ShadowFill8364.exitGrossPct8364(g); p.held -= sold
+                p.tiersHit = maxOf(p.tiersHit, p.sellTier8394); p.taken8366 = maxOf(p.taken8366, p.sellTaken8394)
+                p.exitWhy8366 = null; p.exitAt8366 = 0L; p.sellFraction8394 = 1.0; p.sellTier8394 = 0; p.sellTaken8394 = 0
+                p.dirty8355 = true
+                persistOpen8355(p, nowMs)
+                return if (p.held <= 0.0001) "SOLD_OUT" else WAIT_8366
+            }
+            return pending
         }
         val runner = p.timeoutMs >= RUNNER_TIMEOUT_MS_8344
         if (!p.hold8366 && fresh != null && ShadowAlign8366.holdPromotes8366(g, p.peakPct)) { p.hold8366 = true; p.dirty8355 = true }
@@ -364,7 +392,7 @@ object EvidenceShadow8344 {
             if (d != null) {
                 val n = ShadowAlign8366.takeOf8366(d.first)
                 if (n < 0) full = d.first
-                else { val sold = p.held * d.second; p.bankedGrossPct += sold * ShadowFill8364.exitGrossPct8364(g); p.held -= sold; p.taken8366 = n; p.dirty8355 = true }
+                else { requestSlice8394(p, d.second, d.first, nowMs, taken = n); return WAIT_8366 }
             }
             when {
                 full != null -> full
@@ -374,14 +402,9 @@ object EvidenceShadow8344 {
             }
         } else {
             // spike tiers, in order, each sells its share of what is held
-            while (p.tiersHit < com.lifecyclebot.engine.SpikeCapture7943.TIERS.size && fresh != null) {
+            if (p.tiersHit < com.lifecyclebot.engine.SpikeCapture7943.TIERS.size && fresh != null) {
                 val (at, frac) = com.lifecyclebot.engine.SpikeCapture7943.TIERS[p.tiersHit]
-                if (g < at) break
-                val sold = p.held * frac
-                p.bankedGrossPct += sold * ShadowFill8364.exitGrossPct8364(g)   // V5.0.8364 — exit slippage not in costPct8030 (none today)
-                p.held -= sold
-                p.tiersHit++
-                p.dirty8355 = true   // V5.0.8355 — a tier change is a persisted change
+                if (g >= at) { requestSlice8394(p, frac, "SPIKE_PARTIAL_8394", nowMs, tier = p.tiersHit + 1); return WAIT_8366 }
             }
             val floor = giveBackFloor8344(p.peakPct, p.armPct, p.costPct)
             val level = ShadowAlign8366.liveStopLevel8366(runner, p.stopPct, p.peakPct, p.costPct)
@@ -403,9 +426,11 @@ object EvidenceShadow8344 {
     private fun book8344(p: Pos8344, net: Double, why: String, nowMs: Long) {
         val q = closes.computeIfAbsent(p.lane) { ArrayDeque() }
         synchronized(q) {
-            q.addLast(doubleArrayOf(nowMs.toDouble(), net.coerceIn(-100.0, 1_000.0)))
+            q.addLast(doubleArrayOf(nowMs.toDouble(), net.coerceIn(-100.0, 1_000.0),
+                if (p.advisoryEntry8393 && why != "LOST_MARK" && why != ShadowAlign8366.UNLANDED_WHY_8366) 1.0 else 0.0,
+                if (why != "LOST_MARK" && why != ShadowAlign8366.UNLANDED_WHY_8366) p.contractVersion8394.toDouble() else 0.0, p.atMs.toDouble()))
             while (q.size > MAX_CLOSES_PER_LANE_8344) q.removeFirst()
-            try { prefs?.edit()?.putString(p.lane, q.joinToString(";") { "${it[0].toLong()},${"%.3f".format(it[1])}" })?.apply() } catch (_: Throwable) {}
+            try { prefs?.edit()?.putString(p.lane, q.joinToString(";") { it.joinToString(",") })?.apply() } catch (_: Throwable) {}
         }
         closedN.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_CLOSE_8344_${why}") } catch (_: Throwable) {}
@@ -418,21 +443,32 @@ object EvidenceShadow8344 {
     /** The lane's shadow record since [sinceMs], on EvidenceHold8336's bar (PnL in SOL at the route-minimum ticket). */
     fun proof8344(lane: String, sinceMs: Long): EvidenceHold8336.Proof8336 {
         val q = closes[lane] ?: return EvidenceHold8336.proof8336(emptyList(), emptyList())
-        val nets = synchronized(q) { q.filter { it[0] >= sinceMs }.map { it[1] } }
+        val nets = synchronized(q) { q.filter { it[0] >= sinceMs && ShadowPersist8355.proofEligible8394(it.getOrNull(3), it.getOrNull(4), sinceMs) }.map { it[1] } }
+        return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 })
+    }
+
+    // New policy's proof is isolated from legacy gate-filtered outcomes. Historical proof is untouched.
+    internal fun advisoryNets8393(rows: List<DoubleArray>, sinceMs: Long): List<Double> =
+        rows.filter { it.size >= 3 && it[0] >= sinceMs && it[2] == 1.0 && it[1].isFinite() && ShadowPersist8355.proofEligible8394(it.getOrNull(3), it.getOrNull(4), sinceMs) }.map { it[1] }
+
+    fun advisoryProof8393(lane: String, sinceMs: Long): EvidenceHold8336.Proof8336 {
+        val q = closes[lane]
+        val nets = if (q == null) emptyList() else synchronized(q) { advisoryNets8393(q.toList(), sinceMs) }
         return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 })
     }
 
     /** Tests only: a booked close for [lane] at [atMs] (no position, no prefs). */
     internal fun noteCloseForTests8345(lane: String, netPct: Double, atMs: Long) {
         val q = closes.computeIfAbsent(lane) { ArrayDeque() }
-        synchronized(q) { q.addLast(doubleArrayOf(atMs.toDouble(), netPct)) }
+        synchronized(q) { q.addLast(doubleArrayOf(atMs.toDouble(), netPct, 0.0, ShadowPersist8355.TRADE_CONTRACT_8394.toDouble(), atMs.toDouble())) }
         closedN.incrementAndGet()
     }
 
     fun statusLine8344(sinceMs: Long, nowMs: Long = System.currentTimeMillis()): String {
         val lanes = closes.keys.sorted().joinToString(" · ") { l ->
             val p = proof8344(l, sinceMs)
-            "$l n${p.n} mean${"%+.1f".format(p.meanPct)}% pf${"%.2f".format(p.pf)}${if (p.proven) " PROVEN" else ""}"
+            val advisory = advisoryProof8393(l, sinceMs)
+            "$l advisory8393[n=${advisory.n},proven=${advisory.proven}] n${p.n} mean${"%+.1f".format(p.meanPct)}% pf${"%.2f".format(p.pf)}${if (p.proven) " PROVEN" else ""}"
         }.ifBlank { "no shadow closes yet" }
         val openByLane = open.values.groupingBy { it.lane }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
         val (held, skipped, bySource) = gapCounts8345()  // V5.0.8345

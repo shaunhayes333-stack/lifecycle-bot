@@ -119,10 +119,12 @@ class Aate7809EntryLastMileTest {
     // ── 11: launch birth survives handoff ──────────────────────────────────
 
     @Test fun launchBirthSurvivesMutableIdentityChurn() {
-        val ts = TokenState(mint = "Birth7809${System.nanoTime() % 100000}")
+        val ts = TokenState(mint = "Birth7809${System.nanoTime()}".padEnd(40, 'A'))
         ts.source = "PUMP_FUN_NEW"
         ts.lastMcap = 12_000.0
         ts.addedToWatchlistAt = System.currentTimeMillis() - 60_000L
+        assertNull("a watchlist sighting is not verified birth", CanonicalTokenBirthTime7440.launchAgeMs7767(ts))
+        com.lifecyclebot.engine.truth.AdmissionBirth8144.noteCreateFrame8144(ts.mint, ts.addedToWatchlistAt)
         val first = CanonicalTokenBirthTime7440.launchAgeMs7767(ts)
         assertNotNull(first)
         // Canonical handoff rewrites the mutable fields; the birth does not move.

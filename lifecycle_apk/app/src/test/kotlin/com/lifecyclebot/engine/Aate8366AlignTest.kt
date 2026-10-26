@@ -239,7 +239,8 @@ class Aate8366AlignTest {
         assertTrue(ex.contains("val cost = try { ShadowAlign8366.laneCostPct8366(lane, liq, ts.mint, ts.lastMcap) }"))
         assertTrue(ex.replace(Regex("\\s+"), "").contains(
             "ShadowPersist8355.exitFillObserved8372(observedAtMs8372,leg.exitAt8366,ShadowAlign8366.sellLatencyMs8366(false),nowMs)"))
-        assertTrue("lost or missing marks cannot become executable exits", ex.contains("executable = !lost && px != null"))
+        assertTrue("lost marks are explicitly unavailable", ex.contains("if (lost) { closeAt8366(t, leg, g,") && ex.contains("executable = false); return }"))
+        assertTrue("missing observations cannot fill a pending sale", ex.contains("if (px == null || !ShadowPersist8355.exitFillObserved8372"))
         assertTrue(ex.contains("ShadowAlign8366.noteShadow8366(\"EXPLORE\", t.lane, t.mint, leg.entryAtMs, net, nowMs)"))
         assertFalse("the old inline scalp stop is gone", ex.contains("g <= -(t.stopPct * 0.6).coerceAtLeast(4.0)"))
         val ev = src("engine/truth/EvidenceShadow8344.kt")

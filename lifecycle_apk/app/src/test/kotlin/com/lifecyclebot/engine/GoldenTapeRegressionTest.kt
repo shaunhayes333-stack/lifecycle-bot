@@ -12367,7 +12367,8 @@ class GoldenTapeRegressionTest {
         // V5.0.7440/7767 — the sniper reads the canonical birth time, which consumes the pool creation time.
         assertTrue(sniper.contains("CanonicalTokenBirthTime7440.launchAgeMs7767(ts)"))
         val birth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTokenBirthTime7440.kt").readText()
-        assertTrue(birth.contains("PoolCreationTime7385.createdAtMs(m)"))
+        assertFalse("8394: ordinary pools cannot establish verified token birth", birth.contains("PoolCreationTime7385.createdAtMs(m)"))
+        assertTrue(birth.contains("AdmissionBirth8144.chainMintInitMs8179(m)"))
         assertTrue(sniper.contains("GRADUATED: not a launch"))
     }
 
@@ -15456,5 +15457,52 @@ class GoldenTapeRegressionTest {
         assertTrue(cortex.contains("shadowInvertedRefusal8310(ts, a)"))
         assertTrue(cortex.contains("LearningEntryTruth8153.decisionRow8269(gradeBook8144, lane, scoreVersion = 1)"))
         assertTrue(cortex.contains("gradeBook8144.rankRowsByLane8325(scoreVersion = 1)"))
+    }
+
+    @Test fun canonical8393_evidence_policy_is_wired_and_shadow_cannot_authorize_live() {
+        fun source(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/$p.kt").readText()
+        val g = source("LiveEdgeGate7877")
+        assertTrue(g.contains("Rehearsal8339.doorBindsNow8342"))
+        assertTrue(g.contains("val final = core ?: hold ?: niche ?: wait"))
+        assertTrue(g.contains("advisoryEntry8393 = shadowOnly8393"))
+        assertTrue(g.contains("if (!paper && final == null) LiveTruth8064.noteLiveAdmit8083"))
+        val a = source("CandidateAdmission8136")
+        assertTrue(a.contains("if (!FdgGate8365.shadowOnly8393())"))
+        assertTrue(a.contains("val policyMode8393"))
+        assertTrue(a.contains("Rehearsal8339.doorBindsNow8342(it, candidate.lane)"))
+        assertTrue(source("ShadowPersist8355").contains("advisoryEntry8393 = pb(p.getOrNull(19)) ?: false"))
+        assertTrue(source("EvidenceShadow8344").contains("it.size >= 3 && it[0] >= sinceMs && it[2] == 1.0"))
+        assertTrue(source("FdgGate8365").contains("EvidenceShadow8344.advisoryProof8393"))
+    }
+
+    @Test fun integration8394_preserves_claims_scheduling_and_detached_checkpoint_rows() {
+        fun src(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/$p.kt").readText()
+        val bot = src("engine/BotService")
+        assertTrue(bot.contains("explicitLaneClaims8394 = merged.laneAffinity"))
+        assertTrue(bot.contains("explicitToolClaims8394 = merged.toolAffinity"))
+        assertTrue(bot.contains("HandoffReceiverTasks8153.deferForScheduler8394(mint, until, now)"))
+        val cortex = src("engine/cortex/Cortex7885")
+        val encoding = cortex.substringAfter("return {\n            val dict = LinkedHashMap<String, Int>()")
+            .substringBefore("private fun encodeGraded8372")
+        assertTrue(encoding.contains("gradedRows.forEach"))
+        assertFalse(encoding.contains("graded8006.entries"))
+        assertTrue(cortex.contains("LearningPersistence.decodeFailed8086(PENDING_PERSIST_KEY, pendingFailure8394)"))
+    }
+
+    @Test fun integration8394_maturity_and_slices_follow_confirmed_contracts() {
+        fun src(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/engine/$p.kt").readText()
+        val scalp=src("truth/ScalpExit8351")
+        assertFalse(scalp.contains("st.tier ="))
+        assertTrue(scalp.contains("RunnerLive8153.request8153"))
+        assertTrue(scalp.contains("RunnerLive8153.confirmedTier8153"))
+        val shadow=src("truth/ExploreShadow8347")
+        assertTrue(shadow.contains("entryReady8394(Entry8347.PULLBACK"))
+        assertTrue(shadow.contains("entryReady8394(entry, px, signal"))
+        assertTrue(shadow.contains("ShadowPersist8355.exitFillObserved8372"))
+        assertTrue(shadow.contains("leg.tiers = maxOf(leg.tiers, leg.sellTier8394)"))
+        assertTrue(src("truth/EvidenceShadow8344").contains("ShadowMark8360.observedTimed8372"))
+        assertTrue(src("cortex/CortexGradeBook8144").contains("f.size !in 24..42"))
+        assertTrue(src("cortex/Cortex7885").contains("shadowMaturity8394"))
+        assertTrue(src("truth/EvidenceHold8336").contains("it.entryTsMs >= epoch8394"))
     }
 }

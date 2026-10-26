@@ -34,7 +34,7 @@ class Aate8201AdmittedTerminalTest {
         // only for a lane whose realised live record earned it (RegressionRestore8298).
         assertTrue(gate.contains("val admittedJudged8201 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l8059, nowMs)"))
         assertTrue(gate.contains("admittedTerminal8201(ts, lane, \"CHASING_SPIKE_8065\", candidateVersion)"))
-        assertTrue(gate.contains("""if (!paper && candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, why ?: "ALLOW", candidateVersion)"""))
+        assertTrue(gate.contains("""if (!paper && !FdgGate8365.shadowOnly8393() && candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, why ?: "ALLOW", candidateVersion)"""))
         assertTrue(gate.contains("""PipelineHealthCollector.labelInc("ADMITTED_THEN_${'$'}{terminal.take(48)}_8201_${'$'}l")"""))
     }
 

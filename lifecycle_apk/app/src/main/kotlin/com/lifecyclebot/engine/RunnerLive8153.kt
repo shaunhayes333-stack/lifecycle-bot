@@ -21,7 +21,7 @@ object RunnerLive8153 {
     private const val FILE_8153 = "runner_rungs_8153.txt"
     private const val MAX_STATE_KEYS_8153 = 2_000
     private const val MAX_COUNTER_KEYS_8153 = 48
-    private val SPIKE_RUNG_8153 = Regex("SPIKE_CAPTURE_7943_T([0-9]+)")
+    private val SPIKE_RUNG_8153 = Regex("(?:SPIKE_CAPTURE_7943|SCALP_TAKE_PROFIT_8351)_T([0-9]+)")
 
     private val book = RunnerRungBook8153()
     private val continuation = ConcurrentHashMap<String, RunnerPlan8153.Continuation8153>()
@@ -201,10 +201,12 @@ object RunnerLive8153 {
     fun rungOf8153(reason: String): Int = SPIKE_RUNG_8153.find(reason)?.groupValues?.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..16 } ?: 0
 
     /** SpikeCapture7943.onConfirmedPartial8081 / paper receipt: the tier's sale is confirmed (no proceeds read here). */
-    fun confirmTier8153(ts: TokenState, tier: Int) {
+    fun confirmTier8153(ts: TokenState, tier: Int, reason: String = "") {
         if (tier <= 0 || !ts.position.isOpen) return
         ensureLoaded8153()
-        book.confirmAppliedTier8198(key8153(ts), ladderOf8153(plan8153(ts)), tier)
+        val ladder = if (reason.startsWith("SCALP_TAKE_PROFIT_8351_T")) RunnerRungBook8153.LADDER_SCALP_EXIT_8394
+            else book.pending8153(key8153(ts))?.takeIf { it.tier == tier && it.ladder != RunnerRungBook8153.LADDER_SCALP_EXIT_8394 }?.ladder ?: ladderOf8153(plan8153(ts))
+        book.confirmAppliedTier8198(key8153(ts), ladder, tier)
         save8153()
     }
 
@@ -220,7 +222,8 @@ object RunnerLive8153 {
         // V5.0.8331 — the fill confirms the ladder its tranche was REQUESTED on (the pending tranche's), else the plan's:
         // the request ladder and the plan ladder could differ (RunnerGrab7967.tiersFor7967 vs RunnerPlan8153).
         val pending8331 = book.pending8153(key8153(ts))
-        val ladder8331 = if (pending8331 != null && pending8331.tier == tier) pending8331.ladder else ladderOf8153(plan8153(ts))
+        val ladder8331 = if (reason.startsWith("SCALP_TAKE_PROFIT_8351_T")) RunnerRungBook8153.LADDER_SCALP_EXIT_8394
+            else if (pending8331 != null && pending8331.tier == tier && pending8331.ladder != RunnerRungBook8153.LADDER_SCALP_EXIT_8394) pending8331.ladder else ladderOf8153(plan8153(ts))
         if (book.confirm8153(key8153(ts), ladder8331, tier, signature, proceedsSol, soldCostSol)) {
             count8153("SLICE_PROCEEDS_BOOKED_8153")
             if (ladder8331 == RunnerRungBook8153.LADDER_RUNNER_8153 && tier > 0) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.PROCEEDS_BOOKED, "${key8153(ts)}|T$tier")
