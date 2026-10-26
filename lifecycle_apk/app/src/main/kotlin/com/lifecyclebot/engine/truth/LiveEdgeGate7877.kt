@@ -423,7 +423,7 @@ object LiveEdgeGate7877 {
     }
 
     /** V5.0.8083 — the fresh live assessment of [mint] in [lane], or null. */
-    fun assessment8083(mint: String, lane: String, nowMs: Long = System.currentTimeMillis(), paper: Boolean = entryContext8392.get()?.paper ?: com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()): Assessment8083? {
+    private fun assessment8083(mint: String, lane: String, nowMs: Long = System.currentTimeMillis(), paper: Boolean = entryContext8392.get()?.paper ?: com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()): Assessment8083? {
         val l = CanonicalLaneIdentity6506.desk8392(lane)
         entryContext8392.get()?.assessment?.takeIf { it.mint==mint && it.lane==l && it.paper8392==paper }?.let { return it }
         return assessments8083["$mint|$l|$paper"]?.takeIf { nowMs - it.atMs in 0L..ASSESSMENT_TTL_MS_8083 }

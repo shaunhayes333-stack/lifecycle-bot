@@ -10,8 +10,8 @@ import java.math.RoundingMode
 /** Prospective, wallet-scoped performance fees. This is a fee subledger, never a position/cash authority. */
 object PerformanceFees8391 {
     const val RATE = 0.05
-    const val WALLET1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
-    const val WALLET2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
+    private const val WALLET1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
+    private const val WALLET2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
     data class State(val net: Long = 0, val high: Long = 0)
     data class Assessment(val state: State, val fee: Long)
     /** Cumulative realised profit BEFORE this fee. Deposits/withdrawals never enter this series. */
