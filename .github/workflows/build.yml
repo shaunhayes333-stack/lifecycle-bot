@@ -120,6 +120,7 @@ jobs:
       - name: Static-call receiver guard
         run: |
           git fetch --deepen=2 --quiet || true
+          python3 ci/test_static_call_check.py
           python3 ci/static_call_check.py HEAD~1
 
       # V5.0.7043 — third counter this session that reported a refusal which
@@ -230,6 +231,7 @@ jobs:
       - name: Required lane and history regression tests
         run: |
           ./gradlew testReleaseUnitTest \
+            --tests '*Aate8397*' \
             --tests '*Aate8372*' \
             --tests '*Aate8253*' \
             --tests '*Aate8136AdmissionRecordTest*' \

@@ -25862,19 +25862,20 @@ if (hotExitHandledSweep) {
      * it tries again instead of the spike being lost to a busy lock or a slipped quote.
      */
     private fun sellIntoSpike7943(ts: com.lifecyclebot.data.TokenState, fraction: Double, reason: String) {
-        val tier = reason.substringAfter("_T", "").substringBefore('_').toIntOrNull() ?: 0
+        val offer8397 = RungDispatch8397.capture8397(ts, reason)
         scope.launch(Dispatchers.IO) {
-            var applied = false
-            try { SpikeCapture7943.dispatched8153(ts, reason) } catch (_: Throwable) {}  // V5.0.8153 — the rung's tranche is handed to the sell door
             try {
-                val paper = ts.position.isPaperPosition
-                val wallet = if (paper) null else WalletManager.getWallet()
-                val bal = try { status.getEffectiveBalance(paper) } catch (_: Throwable) { 0.0 }
-                applied = executor.requestPartialSellConfirmed6566(ts, fraction, reason, wallet, bal).applied
+                RungDispatch8397.dispatch8397(ts, reason, offer8397) {
+                    val paper = ts.position.isPaperPosition
+                    val wallet = if (paper) null else WalletManager.getWallet()
+                    val bal = try { status.getEffectiveBalance(paper) } catch (_: Throwable) { 0.0 }
+                    if (ts.position.entryTime != offer8397.entryTime) false
+                    else executor.requestPartialSellConfirmed6566(ts, fraction, reason, wallet, bal).applied
+                }
             } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
                 try { ErrorLogger.warn("BotService", "SPIKE_CAPTURE_7943 sell failed: ${t.message}") } catch (_: Throwable) {}
             }
-            if (!applied && tier > 0) SpikeCapture7943.rearm(ts, tier, reason) else if (applied) try { SpikeCapture7943.onApplied8153(ts, reason) } catch (_: Throwable) {}
         }
     }
 

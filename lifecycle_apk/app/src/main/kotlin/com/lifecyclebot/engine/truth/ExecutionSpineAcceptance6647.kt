@@ -189,6 +189,33 @@ object ExecutionSpineAcceptanceWindow6647 {
         return since to (nowMs - since < graceMs)
     }
 
+    /** Reuse the existing window budget when a completed accounting pass is stale.
+     * A current accounting failure gets no grace. A current reconciled account may still wait for its young receipt,
+     * as before. Neither a committed receipt nor zero cached deltas can turn stale accounting into a passing result. */
+    internal fun shouldDeferAccounting8397(
+        forensic: ForensicReconciliation6635.Deltas6647?,
+        onlyYoungOpen8397: Boolean,
+        inFlightWaitSinceMs8339: java.util.concurrent.atomic.AtomicLong,
+        nowMs: Long,
+    ): Boolean {
+        if (forensic?.reconciled == true) return false
+        val stale8397 = forensic?.accountingCurrent8397 != true
+        if (!stale8397 && !(forensic?.cashSideReconciled8397 == true && onlyYoungOpen8397)) return false
+        val wait8339 = inFlightWaitDecision8339(inFlightWaitSinceMs8339.get(), nowMs)
+        inFlightWaitSinceMs8339.set(wait8339.first)
+        if (wait8339.second) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (stale8397) "EXECUTION_SPINE_CLOSE_WAITS_CURRENT_ACCOUNTING_8397"
+                    else "EXECUTION_SPINE_CLOSE_WAITS_IN_FLIGHT_RECEIPT_8322",
+                )
+            } catch (_: Throwable) {}
+            return true
+        }
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_IN_FLIGHT_WAIT_BOUNDED_8339") } catch (_: Throwable) {}
+        return false
+    }
+
     /** The window's own later tick: the single-shot 6668 closer has none. Same window (baseline identity) and same runtime generation only. */
     private fun scheduleRetry8339(start: Baseline) {
         if (!retryPending8339.compareAndSet(false, true)) return
@@ -338,7 +365,7 @@ object ExecutionSpineAcceptanceWindow6647 {
     private fun captureInFlightOnly8367(forensic: ForensicReconciliation6635.Deltas6647?, nowMs: Long): ExecutionSpineAcceptance6647.InFlightOnly8367? {
         if (forensic == null || forensic.reconciled) return null
         val open = (try { CanonicalEconomicEvent6635.openInFlightOnly8367(nowMs) } catch (_: Throwable) { null }) ?: return null
-        val cashSide = try { ForensicReconciliation6635.cashSideReconciled8367() } catch (_: Throwable) { false }
+        val cashSide = forensic.cashSideReconciled8397
         return ExecutionSpineAcceptance6647.InFlightOnly8367(
             n = open.n, kinds = open.kinds, oldestMs = open.oldestMs, cashSideReconciled = cashSide,
             rawCashDeltaSol = forensic.cashSol, rawBasisDeltaSol = forensic.basisSol,
@@ -392,19 +419,14 @@ object ExecutionSpineAcceptanceWindow6647 {
                 desks.sumOf { SpecialistCausalFunnel6625.phantomSizedInWindow7809(it, start.atMs, phantomUpToMs7809) }.toLong()
             } catch (_: Throwable) { (end.phantomSizedOnly - start.phantomSizedOnly).coerceAtLeast(0L) }
             val forensic = try { ForensicReconciliation6635.deltas6647() } catch (_: Throwable) { null }
-            // V5.0.8322 — the same 10 s in-flight grace the dispatch cardinality uses: a receipt landing at the sampling
-            // edge is waited for (the window closes on a later tick), never healed and never counted reconciled.
-            if (forensic?.reconciled != true && (try { CanonicalEconomicEvent6635.onlyYoungOpen8322(nowMs, 10_000L) } catch (_: Throwable) { false })) {
-                // V5.0.8339 — bounded: the first waiting tick is remembered; the window re-ticks itself; after the grace
-                // it is evaluated as it stands (the unreconciled receipt fails as before — never healed).
-                val wait8339 = inFlightWaitDecision8339(inFlightWaitSinceMs8339.get(), nowMs)
-                inFlightWaitSinceMs8339.set(wait8339.first)
-                if (wait8339.second) {
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_CLOSE_WAITS_IN_FLIGHT_RECEIPT_8322") } catch (_: Throwable) {}
-                    scheduleRetry8339(start)
-                    return null
-                }
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_IN_FLIGHT_WAIT_BOUNDED_8339") } catch (_: Throwable) {}
+            // V5.0.8397 — META's durable receipt completed while the prior divergent accounting pass was still cached.
+            // The receipt's completion must not remove our chance to observe the next current pass. Wait only within
+            // the existing 8339 budget; at expiry the same unreconciled sentinels below still fail every invariant.
+            val youngOpen8397 = forensic?.reconciled != true &&
+                (try { CanonicalEconomicEvent6635.onlyYoungOpen8322(nowMs, 10_000L) } catch (_: Throwable) { false })
+            if (shouldDeferAccounting8397(forensic, youngOpen8397, inFlightWaitSinceMs8339, nowMs)) {
+                scheduleRetry8339(start)
+                return null
             }
             // A dispatch begun at the sampling edge may still be legitimately in
             // flight; terminal-cardinality applies after a bounded grace period.
@@ -510,11 +532,9 @@ object ExecutionSpineAcceptanceWindow6647 {
                     // tell "the reconciler disagrees" from "the reconciler has not
                     // spoken". Print its own verdict next to the deltas.
                     append(" forensicReconciled=${forensic?.reconciled}")
-                    append(" forensicLine=${
-                        (try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "UNAVAILABLE" })
-                            .take(520)
-                    }")
-                    append(" incompleteReceipts=${CanonicalEconomicEvent6635.incompleteReceipts8253()}")
+                    append(" forensicCurrent=${forensic?.accountingCurrent8397}")
+                    append(" forensicLine=${forensic?.healthLine8397?.take(520) ?: "UNAVAILABLE"}")
+                    append(" incompleteReceipts=${forensic?.incompleteReceipts8397 ?: "unavailable"}")
                     if ("PHANTOM_SIZED_ONLY" in result.failures) {
                         for (desk in desks) {
                             val snap = try { SpecialistCausalFunnel6625.laneSnapshot6647(desk) } catch (_: Throwable) { null }

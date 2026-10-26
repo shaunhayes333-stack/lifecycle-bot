@@ -223,6 +223,11 @@ object OwnershipChain8364 {
                 sweep8364(nowMs)
                 val c = (if (version > 0L) recordFor8364(lane, CandidateId8364(mint, version), qualify = false, create = false, nowMs = nowMs) else
                     latestByLaneMint8364["$lane|$mint"]?.let { records8364[it] }) ?: return
+                if (FdgReceipt8397.outcome(allow, reason) == FdgReceipt8397.Outcome.DEFER_DATA) {
+                    if (c.terminal.isBlank()) c.softTerminal = "FDG_DEFER_DATA_" + reasonKey8364(reason)
+                    c.touchedMs = nowMs
+                    return
+                }
                 if (allow) {
                     addStep8364(c, Step8364.FDG_ALLOW)
                     c.softTerminal = ""

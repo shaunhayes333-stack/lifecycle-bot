@@ -35,22 +35,20 @@ object HeliusCreditMeterInterceptor7881 : Interceptor {
         // V5.0.8066 — the hard daily budget: past the day's pace, every non-execution Helius call is answered here with
         // a 429 (no network, no credits). Callers already treat a 429 as "back off / use the next source".
         val tier8066 = try { HeliusCreditEconomy7881.tierFor(host, req.url.encodedPath, methods) } catch (_: Throwable) { null }
-        if (tier8066 != null && HeliusCreditEconomy7881.budgetGated8066(tier8066) && HeliusCreditEconomy7881.overBudget8066()) {
-            return Response.Builder().request(req).protocol(okhttp3.Protocol.HTTP_1_1).code(429).message("AATE_HELIUS_BUDGET_8066")
-                .body("{\"error\":{\"code\":429,\"message\":\"AATE_HELIUS_BUDGET_8066\"}}".toResponseBody("application/json".toMediaType()))
-                .build()
-        }
         // V5.0.8094 — plan credits exhausted: non-execution calls are answered locally while latched.
         if (tier8066 != null && HeliusCreditEconomy7881.budgetGated8066(tier8066) && HeliusCreditEconomy7881.exhaustedGate8094()) {
             return Response.Builder().request(req).protocol(okhttp3.Protocol.HTTP_1_1).code(429).message("AATE_HELIUS_EXHAUSTED_8094")
                 .body("{\"error\":{\"code\":429,\"message\":\"AATE_HELIUS_EXHAUSTED_8094\"}}".toResponseBody("application/json".toMediaType()))
                 .build()
         }
-        // A local denial above consumes nothing. A sent request is retained even if its response is uncertain.
-        req.tag(HeliusCreditEconomy7881.Reservation8386::class.java)?.sent8386(
-            HeliusCreditEconomy7881.creditsFor(host, req.url.encodedPath, methods))
+        // The producer's bounded decision reserve is honored at the actual wire door. Optional work still uses
+        // the ordinary paced allowance. Admission and metering are atomic, including uncertain network attempts.
+        if (!HeliusCreditEconomy7881.authorizeWire8397(host, req.url.encodedPath, methods,
+                req.tag(HeliusCreditEconomy7881.Reservation8386::class.java))) {
+            return Response.Builder().request(req).protocol(okhttp3.Protocol.HTTP_1_1).code(429).message("AATE_HELIUS_BUDGET_8066")
+                .body("{\"error\":{\"code\":429,\"message\":\"AATE_HELIUS_BUDGET_8066\"}}".toResponseBody("application/json".toMediaType())).build()
+        }
         val resp = chain.proceed(req)
-        try { HeliusCreditEconomy7881.meter(host, req.url.encodedPath, methods) } catch (_: Throwable) {}
         // V5.0.8169 — this process's Helius calls by caller, and repeated reads of one mint / account within 10 s.
         try { com.lifecyclebot.engine.LoadTelemetry8169.noteHelius8169(req.url.encodedPath, methods, bodyText8169, HeliusCreditEconomy7881.creditsFor(host, req.url.encodedPath, methods)) } catch (_: Throwable) {}
         if (resp.code == 402 || resp.code == 403 || resp.code == 429) try {

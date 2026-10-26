@@ -11487,10 +11487,10 @@ class GoldenTapeRegressionTest {
         assertTrue(ray.contains("HeliusSenderEnvelope7250.build(tx, wallet.publicKeyB58, senderTipLamports)"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("val prepared8090 = if (pumpFirstResult == null) {"))
-        assertTrue(ex.contains("prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835)"))
-        assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)"))
+        assertTrue(ex.contains("prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835, submission8397)"))
+        assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey, submission8397)"))
         assertTrue(ex.contains("val directFill7325 = pumpFirstResult ?: raydiumBuy7325"))
-        assertTrue(ex.indexOf("raydiumBuy7325 = tryRaydiumBuy7325") < ex.indexOf("BUY ABORTED: all slippage levels failed"))
+        assertTrue(ex.indexOf("raydiumBuy7325 = tryRaydiumBuy7325") in 0 until ex.indexOf("BUY ABORTED: all slippage levels failed"))
     }
 
     @Test
@@ -11747,7 +11747,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7346_journal_validated_once_per_revision() {
         val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
         assertTrue(h.contains("val (rev, copy) = synchronized(lock) { journalRevision7343.get() to ArrayList(trades) }"))
-        assertTrue(h.contains("return validRowsNewestFirst7346().take(cap)"))
+        assertTrue(h.contains("return validRowsNewestFirst7346(ceilingRead8397).take(cap)"))
         assertTrue(h.contains("private val NON_ALNUM_7346 = Regex(\"[^A-Z0-9]\")"))
         val st = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
         assertTrue(st.contains("if (!onMain7346 && rev7346 >= 0L) paperBoardCache7346[limit] = PaperBoardEntry7346(rev7346, now7346, board7346)"))
@@ -11777,7 +11777,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7348_small_read_does_not_rebuild_journal() {
         val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
-        assertTrue(h.contains("if (cap > SMALL_READ_CAP_7348) return validRowsNewestFirst7346().take(cap)"))
+        assertTrue(h.contains("if (cap > SMALL_READ_CAP_7348) return validRowsNewestFirst7346(ceilingRead8397).take(cap)"))
         assertTrue(h.contains("synchronized(validRowsBuildLock7348) {"))
         assertTrue(h.contains("return validRowsHead7348(cap)"))
         assertFalse(h.contains("return validRowsNewestFirst7346().take(limit.coerceAtLeast(1))"))
@@ -14727,7 +14727,10 @@ class GoldenTapeRegressionTest {
         assertTrue(h.contains("val mentions = listOf(mint)"))
         assertFalse(h.contains("val mentions = mints + programIds"))
         assertTrue(h.contains("subscriptionToMint7765[sub] = mint"))
-        assertTrue(h.contains("parseLogsNotification(value, subscriptionToMint7765[params.optInt(\"subscription\", -1)].orEmpty())"))
+        val logs = h.substringAfter("\"logsNotification\" -> {", "").substringBefore("\"accountNotification\" -> {", "")
+        val mintLookup = logs.indexOf("val mint8397 = subscriptionToMint7765[params.optInt(\"subscription\", -1)].orEmpty()")
+        val parse = logs.indexOf("parseLogsNotification(value, mint8397)")
+        assertTrue("each notification is parsed with the mint belonging to its server subscription", mintLookup in 0 until parse)
         assertFalse(h.contains("onSwap(\"\", "))
         assertTrue(h.contains("b.copyOfRange(8, 40).contentEquals(mintBytes)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())

@@ -90,7 +90,8 @@ object RunnerGrabLane8343 {
         val costMargin8391: Double = NetEdge8030.EDGE_MULT,
     )
 
-    data class Verdict8343(val admitted: Boolean, val why: String, val evidence: String, val venue: String, val atMs: Long)
+    data class Verdict8343(val admitted: Boolean, val why: String, val evidence: String, val venue: String, val atMs: Long,
+                           val candidateVersion8397: Long = 0L, val paper8397: Boolean = true)
 
     private class Admit8343(val atMs: Long, val lane: String, val paper: Boolean, val evidence: String)
 
@@ -222,24 +223,26 @@ object RunnerGrabLane8343 {
     /**
      * The grab lane's verdict on [ts] for host [lane] now. Idempotent inside [ADMIT_TTL_MS_8343] for an admit, cached
      * [VERDICT_CACHE_MS_8343] otherwise. The evidence hold is consulted only once every other leg has passed, so its
-     * exception counters are spent on real candidates only.
+     * qualification is cached without spending an exception slot. The executor reserves/submits the exact attempt.
      */
     fun admit8343(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Verdict8343 {
         val mint = ts.mint
         val l = canon(lane)
         if (mint.isBlank()) return Verdict8343(false, "NO_MINT", "", "", nowMs)
+        val version8397 = try { LaneExecutionCoordinator.candidateVersionFor(mint) } catch (_: Throwable) { 0L }
+        val paper8397 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
         val key = "$mint|$l"
         verdicts[key]?.let { v ->
             val ttl = if (v.admitted) ADMIT_TTL_MS_8343 else VERDICT_CACHE_MS_8343
-            if (nowMs - v.atMs in 0L..ttl) return v
+            if (nowMs - v.atMs in 0L..ttl && v.candidateVersion8397 == version8397 && v.paper8397 == paper8397) return v
         }
         if (verdicts.size > 2_000) verdicts.entries.removeIf { nowMs - it.value.atMs > ADMIT_TTL_MS_8343 }
-        val v = decide(ts, l, nowMs)
+        val v = decide(ts, l, nowMs, version8397).copy(candidateVersion8397 = version8397, paper8397 = paper8397)
         verdicts[key] = v
         return v
     }
 
-    private fun decide(ts: TokenState, l: String, nowMs: Long): Verdict8343 {
+    private fun decide(ts: TokenState, l: String, nowMs: Long, version8397: Long): Verdict8343 {
         val mint = ts.mint
         if (ts.position.isOpen) return Verdict8343(false, "POSITION_OPEN", "", "", nowMs)
         val evidence = evidenceLeg(ts, nowMs)
@@ -263,7 +266,8 @@ object RunnerGrabLane8343 {
             // V5.0.8345 — every grab leg passed: the hold is asked WITH the grab lane's own forming-run evidence, which satisfies
             // the exception door's legs (a)+(c) (EvidenceHold8336.exceptionalViaGrab8345; venue, lane-open and the rate bounds
             // still bind inside the hold). superseded: refusal8336(ts, l, false, nowMs) — the door only knew a proven grab cell.
-            val hold = try { com.lifecyclebot.engine.truth.EvidenceHold8336.refusal8336(ts, l, false, nowMs, grabLegs8345 = grabLegs8345(evidence, venue)) } catch (_: Throwable) { "EVIDENCE_HOLD_ERROR" }
+            val hold = try { com.lifecyclebot.engine.truth.EvidenceHold8336.refusal8336(ts, l, false, nowMs,
+                grabLegs8345 = grabLegs8345(evidence, venue), candidateVersion8397 = version8397) } catch (_: Throwable) { "EVIDENCE_HOLD_ERROR" }
             why = refusal8343(legs.copy(liveHoldRefusal = hold))
             // V5.0.8345 — refused by the hold alone: the evidence shadow trades it on the HOST lane so the hold can unlock on it.
             if (hold != null && hold.startsWith("EVIDENCE_HOLD_8336_")) {

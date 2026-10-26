@@ -65,7 +65,16 @@ class Aate8243StrategyElectionTest {
         // Superseded by V5.0.8290/8298: a specific ADMIT stands the spike-chase rule down only on the lane's earned realised
         // record (RegressionRestore8298); otherwise the chase names the admitted terminal.
         assertTrue(gate.contains("val admittedJudged8201 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l8059, nowMs)"))
-        assertTrue(gate.contains("admittedTerminal8201(ts, lane, \"CHASING_SPIKE_8065\", candidateVersion)"))
+        val chaseCall = gate.substringAfter("if (snap8065 != null) chaseRefusal8397(", "")
+            .substringBefore("// Keep watch-first", "")
+        assertTrue(chaseCall.contains("snap8065.currentVsPeak, nowMs, admittedJudged8201)?.let { reason ->"))
+        assertTrue(chaseCall.contains("if (candidateSpecificAdmission8136) {"))
+        assertTrue(chaseCall.contains("admittedTerminal8201(ts, lane, reason, candidateVersion)"))
+        assertTrue(chaseCall.contains("return reason"))
+        val chaseDecision = gate.substringAfter("internal fun chaseRefusal8397(", "")
+            .substringBefore("private fun developingRunGrab8117(", "")
+        assertTrue(chaseDecision.contains("if (!provenCell && admittedJudged) {"))
+        assertTrue(chaseDecision.contains("return \"CHASING_SPIKE_8065\""))
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("raw == \"FRESH_LAUNCH_SETUP_STOPS_FIRST_7737\" && admitted8243"))
         assertTrue(fdg.contains("freshLaunchBlock7737(ts, candidate, specialistLane, laneName, config.paperMode, mode, candidateAdmission8136)"))

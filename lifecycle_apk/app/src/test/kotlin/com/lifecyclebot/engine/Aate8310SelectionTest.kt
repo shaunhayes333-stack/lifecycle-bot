@@ -131,9 +131,13 @@ class Aate8310SelectionTest {
         assertTrue(ticket.contains("SelectionDoors8310.noteTicketClose8310(e.positionId, e.mode, e.economicFinality"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("SelectionDoors8310.admitRefusal8310(ts, l8059, setup8083, nowMs)"))
-        assertTrue(gate.contains("cellOrKindProven8094(ts, l8059, nowMs) && !SelectionDoors8310.labelStandsDownChase8310(l8059)) {"))
+        val chase = gate.substringAfter("internal fun chaseRefusal8397(", "")
+            .substringBefore("private fun developingRunGrab8117(", "")
+        assertTrue(chase.contains("val provenCell = cellOrKindProven8094(ts, lane, nowMs)"))
+        assertTrue(chase.contains("if (provenCell && SelectionDoors8310.labelStandsDownChase8310(lane)) return null"))
+        assertTrue(chase.contains("return \"CHASING_SPIKE_8065\""))
         // the admit refusal sits after the proven-only door and before the chase rule
         assertTrue(gate.indexOf("SelectionDoors8310.admitRefusal8310") > gate.indexOf("provenOnlyAdmitted8059.incrementAndGet()"))
-        assertTrue(gate.indexOf("SelectionDoors8310.admitRefusal8310") < gate.indexOf("chaseRefused8065.incrementAndGet()"))
+        assertTrue(gate.indexOf("SelectionDoors8310.admitRefusal8310") in 0 until gate.indexOf("if (snap8065 != null) chaseRefusal8397("))
     }
 }

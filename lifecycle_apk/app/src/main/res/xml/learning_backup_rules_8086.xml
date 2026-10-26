@@ -4,4 +4,5 @@
      excluded by omission: only listed paths are backed up. -->
 <full-backup-content>
     <include domain="database" path="learning_kv.db" />
+    <include domain="database" path="shadow_cold_8397.db" />
 </full-backup-content>

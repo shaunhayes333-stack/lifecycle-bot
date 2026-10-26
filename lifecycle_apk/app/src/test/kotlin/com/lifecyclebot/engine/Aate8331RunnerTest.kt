@@ -53,7 +53,13 @@ class Aate8331RunnerTest {
         assertTrue(bot.contains("try { SpikeCapture7943.onMark(ts, px) { t, frac, reason -> sellIntoSpike7943(t, frac, reason) } } catch (_: Throwable) {}"))
         // The rung sells through the normal partial path: quote at the rung size, slippage ladder, chain-verified finality.
         val exec = src("engine/Executor.kt")
-        assertTrue(exec.contains("applied = executor.requestPartialSellConfirmed6566(ts, fraction, reason, wallet, bal).applied") || bot.contains("applied = executor.requestPartialSellConfirmed6566(ts, fraction, reason, wallet, bal).applied"))
+        val rungSell = bot.substringAfter("private fun sellIntoSpike7943(", "")
+            .substringBefore("\n    }\n", "")
+        assertTrue(rungSell.contains("val offer8397 = RungDispatch8397.capture8397(ts, reason)"))
+        assertTrue(rungSell.indexOf("val offer8397") in 0 until rungSell.indexOf("scope.launch(Dispatchers.IO)"))
+        assertTrue(rungSell.contains("RungDispatch8397.dispatch8397(ts, reason, offer8397) {"))
+        assertTrue(rungSell.contains("if (ts.position.entryTime != offer8397.entryTime) false"))
+        assertTrue(rungSell.contains("else executor.requestPartialSellConfirmed6566(ts, fraction, reason, wallet, bal).applied"))
         assertTrue(exec.indexOf("val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason) ?: return") > 0)
         assertTrue(exec.contains("try { RunnerLive8153.bookSlice8153(ts, reason, proof.sig, result.actualConsumedRaw, result.solReceived, result.realizedPnl.proportionalCostBasisSol) } catch (_: Throwable) {}"))
     }

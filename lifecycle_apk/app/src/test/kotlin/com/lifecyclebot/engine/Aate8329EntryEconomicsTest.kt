@@ -37,7 +37,7 @@ class Aate8329EntryEconomicsTest {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
         assertTrue(s.contains("val final = core ?: hold"))
-        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertFalse(s.contains("Entry8114Mode8326"))
         assertFalse(com.lifecyclebot.engine.truth.FdgGate8365.hardSafety8392("LIVE_PROVEN_SETUP_ONLY_8059"))
     }
@@ -60,7 +60,7 @@ class Aate8329EntryEconomicsTest {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
         assertTrue(s.contains("val final = core ?: hold"))
-        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertFalse(s.contains("Entry8114Mode8326"))
         assertFalse(com.lifecyclebot.engine.truth.FdgGate8365.hardSafety8392("LIVE_PROVEN_SETUP_ONLY_8059"))
     }
@@ -112,7 +112,7 @@ class Aate8329EntryEconomicsTest {
         val jup = exec.indexOf("EntryEconomics8329.jupiterQuoteRefusal8329(ts, intent8198.canonicalLane, effectiveSol, jq7325)")
         assertTrue("the Jupiter quote is checked after the SecurityGuard quote check", jup > 0)
         val guard = exec.lastIndexOf("val qGuard = security.validateQuote(jq7325, isBuy = true, inputSol = sol)", jup)
-        val build = exec.indexOf("buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c)", jup)
+        val build = exec.indexOf("buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c, submission8397)", jup)
         assertTrue("after the quote guard, before the swap is built / signed", guard in 1 until jup && build > jup)
         val pump = exec.indexOf("EntryEconomics8329.markRefusal8329(ts, layerTag, pumpBuyPlan.solAmount)")
         val pumpSend = exec.indexOf("val pumpFirstResult: Pair<String, Double>? = if (pumpBuyPlan == null) null else tryPumpPortalBuy(")
@@ -187,7 +187,7 @@ class Aate8329EntryEconomicsTest {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
         assertTrue(s.contains("val final = core ?: hold"))
-        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs)"))
+        assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertFalse(s.contains("Entry8114Mode8326"))
         assertFalse(com.lifecyclebot.engine.truth.FdgGate8365.hardSafety8392("LIVE_PROVEN_SETUP_ONLY_8059"))
     }

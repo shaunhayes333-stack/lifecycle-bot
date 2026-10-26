@@ -77,7 +77,7 @@ object LearningResetSweep7781 {
      * 230, CORTEX C3 234) while the positive evidence was gone — and the bot would not trade.
      * Deleting them at boot, before anything opens them, makes the reset final.
      */
-    internal val LEARNING_DBS_7975: List<String> = listOf("learning_kv.db")
+    internal val LEARNING_DBS_7975: List<String> = listOf("learning_kv.db", "shadow_cold_8397.db")
     // V5.0.8169 — the learned lane stops are learning too (a reset left 5.0.8168's 5% BLUECHIP / QUALITY stops in force).
     internal val LEARNING_FILES_7975: List<String> = listOf("specialists7972.bin", "specialists8064.bin", "specialists8076.bin", "runner_grab_7989.txt", "tail_hunter_7996.txt", "stop_learner_8042.txt")
 

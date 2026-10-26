@@ -173,16 +173,10 @@ object RunnerPlay8018 {
         val firming = RunnerGrab7967.runStandingNow8019(mint, nowMs)  // V5.0.8019 — firming or standing with buyers
         if (!confirmsRun8018(gross, runAgeMs, firming, ts.position.isOpen)) { if (!firming) notFirming.incrementAndGet(); return }
         if (armed.size > 2_000) { armed.entries.removeIf { nowMs - it.value > SEEN_MS }; windows8297.keys.retainAll(armed.keys); firstArmed8297.keys.retainAll(armed.keys); closedAt8297.keys.retainAll(armed.keys) }
-        val windowsBefore8297 = if (armed.containsKey(mint)) windows8297[mint] ?: 1 else 0
-        armed[mint] = nowMs
-        windows8297[mint] = windowsBefore8297 + 1
-        if (windowsBefore8297 == 0) { firstArmed8297[mint] = nowMs; runsConfirmed.incrementAndGet() } else rearmed8297.incrementAndGet()
         val px = ts.lastPrice
         if (px.isFinite() && px > 0.0 && signals.size < 2_000) signals.putIfAbsent(mint, px to nowMs)
-        if (synchronized(reentryRecord) { standsDown8018(reentryRecord) }) { ticketShadow.incrementAndGet(); return }
         val open = armed.keys.count { m -> m != mint && try { BotService.status.tokens[m]?.position?.isOpen == true } catch (_: Throwable) { false } }
-        if (open >= MAX_OPEN_REENTRIES) { ticketShadow.incrementAndGet(); return }
-        tickets.incrementAndGet()
+        if (!issueTicket8397(mint, nowMs, open)) return
         try {
             RunnerGrab7967.holdAsRunner7972(ts, nowMs)
             PipelineHealthCollector.labelInc("RUN_REENTRY_TICKET_8018")
@@ -203,6 +197,27 @@ object RunnerPlay8018 {
     private val firstArmed8297 = ConcurrentHashMap<String, Long>()
     private val closedAt8297 = ConcurrentHashMap<String, Long>()
     private val rearmed8297 = AtomicLong(0)
+
+    /** Publish only an issued ticket: the old writer armed the mint before its own capacity refusal. */
+    @Synchronized
+    internal fun issueTicket8397(mint: String, nowMs: Long, openReentries: Int): Boolean {
+        if (mint.isBlank()) return false
+        if (synchronized(reentryRecord) { standsDown8018(reentryRecord) } || openReentries >= MAX_OPEN_REENTRIES) {
+            ticketShadow.incrementAndGet()
+            return false
+        }
+        armed[mint]?.let { previous ->
+            if (nowMs - previous < SEEN_MS && !rearms8297(windows8297[mint] ?: 1, previous, nowMs,
+                    (closedAt8297[mint] ?: 0L) >= (firstArmed8297[mint] ?: previous))) return false
+        }
+        val before = if (armed.containsKey(mint)) windows8297[mint] ?: 1 else 0
+        armed[mint] = nowMs
+        windows8297[mint] = before + 1
+        if (before == 0) { firstArmed8297[mint] = nowMs; runsConfirmed.incrementAndGet() }
+        else rearmed8297.incrementAndGet()
+        tickets.incrementAndGet()
+        return true
+    }
 
     /** Pure: may a lapsed ticket window armed at [lastArmedAtMs] re-arm now? */
     fun rearms8297(windowsUsed: Int, lastArmedAtMs: Long, nowMs: Long, closedSinceFirstTicket: Boolean): Boolean =

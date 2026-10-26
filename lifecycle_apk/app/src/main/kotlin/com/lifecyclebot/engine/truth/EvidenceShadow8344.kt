@@ -77,7 +77,7 @@ object EvidenceShadow8344 {
     // 10 s), removed on close; restored in init8344 with its real entry mark and clock, never re-priced. A restored position
     // resumes on the next tick; with no mark within LOST_MARK of its last one it closes LOST_MARK at its last mark, as it would have. ──
     private const val PREFS_OPEN_8355 = "aate_evidence_shadow_open_8355"
-    @Volatile private var openPrefs8355: android.content.SharedPreferences? = null
+    @Volatile private var openPrefs8355: ShadowColdStore8397? = null
     private val initLock8372 = Any()
     @Volatile private var openRestored8372 = false
     @Volatile private var booksRestored8372 = false
@@ -86,8 +86,6 @@ object EvidenceShadow8344 {
     private val expiredOnRestore8355 = AtomicLong(0)
 
     private fun persistOpen8355(p: Pos8344, nowMs: Long) {
-        p.dirty8355 = false
-        p.lastWriteMs8355 = nowMs
         val enc = ShadowPersist8355.encodePos8355(ShadowPersist8355.PosRec8355(
             p.mint, p.lane, p.entryPx, p.atMs, p.costPct, p.stopPct, p.armPct, p.timeoutMs,
             p.held, p.bankedGrossPct, p.tiersHit, p.peakPct, p.lastPx, p.lastPxAtMs,
@@ -96,19 +94,21 @@ object EvidenceShadow8344 {
             exitAt8394 = p.exitAt8366, exitWhy8394 = p.exitWhy8366 ?: "",
             sellFraction8394 = p.sellFraction8394, sellTier8394 = p.sellTier8394, sellTaken8394 = p.sellTaken8394,
         ))
-        try { openPrefs8355?.edit()?.putString(p.mint, enc)?.apply() } catch (_: Throwable) {}
+        val written = try { openPrefs8355?.write(mapOf(p.mint to enc)) == true } catch (_: Exception) { false }
+        p.dirty8355 = !written
+        if (written) p.lastWriteMs8355 = nowMs
     }
 
     private fun forgetOpen8355(mint: String) {
-        try { openPrefs8355?.edit()?.remove(mint)?.apply() } catch (_: Throwable) {}
+        try { openPrefs8355?.write(mapOf(mint to null)) } catch (_: Exception) {}
     }
 
     private fun restoreOpen8355(ctx: Context, nowMs: Long): Boolean = try {
-            val p = ctx.getSharedPreferences(PREFS_OPEN_8355, Context.MODE_PRIVATE)
+            val p = ShadowColdStore8397.open(ctx, PREFS_OPEN_8355)
             openPrefs8355 = p
             val drop = ArrayList<String>()
             var n = 0L
-            for ((k, v) in p.all) {
+            for ((k, v) in p.entries()) {
                 val r = ShadowPersist8355.decodePos8355(v as? String)
                 if (r == null) { drop += k; continue }
                 if (open.containsKey(r.mint)) continue   // partial-init retry never erases the live in-memory episode
@@ -128,7 +128,7 @@ object EvidenceShadow8344 {
                     n++
                 }
             }
-            if (drop.isNotEmpty()) { val e = p.edit(); for (k in drop) if (!open.containsKey(k)) e.remove(k); e.apply() }
+            if (drop.isNotEmpty() && !p.write(drop.filter { !open.containsKey(it) }.associateWith { null as String? })) throw ShadowStorageUnavailable8397()
             restored8355.addAndGet(n)
             true
         } catch (_: Throwable) { false }
@@ -138,11 +138,11 @@ object EvidenceShadow8344 {
 
     private val open = ConcurrentHashMap<String, Pos8344>()                 // mint -> position
     private val lastOpenAt = ConcurrentHashMap<String, Long>()              // mint|lane -> last open
-    private val closes = ConcurrentHashMap<String, ArrayDeque<DoubleArray>>() // lane -> [atMs, netPct]
+    private val closes = ShadowCohortBook8397(fields = 5, hotCapacity = 32) // lane -> [atMs, netPct]
     private val opened = AtomicLong(0)
     private val closedN = AtomicLong(0)
     private val skippedFull = AtomicLong(0)
-    @Volatile private var prefs: android.content.SharedPreferences? = null
+
 
     // ── V5.0.8345 §THE_HOLD_TO_SHADOW_GAP_IS_EXPLAINED — 5.0.8344 audit (9 min LIVE): 288 hold refusals, 7 shadow opens, and
     // nothing said where the other 281 went. Every hold refusal is counted per lane against this book, and every candidate
@@ -220,18 +220,7 @@ object EvidenceShadow8344 {
     fun init8344(ctx: Context, nowMs: Long = System.currentTimeMillis()): Boolean = synchronized(initLock8372) {
         if (!openRestored8372) openRestored8372 = restoreOpen8355(ctx, nowMs)
         if (!booksRestored8372) booksRestored8372 = try {
-            val p = ctx.getSharedPreferences(PREFS_8344, Context.MODE_PRIVATE)
-            prefs = p
-            for ((lane, v) in p.all) {
-                val q = ArrayDeque<DoubleArray>()
-                (v as? String)?.split(';')?.forEach { row ->
-                    val parts = row.split(',')
-                    val at = parts.getOrNull(0)?.toDoubleOrNull()?.toLong(); val net = parts.getOrNull(1)?.toDoubleOrNull()
-                    if (at != null && net != null && net.isFinite()) q.addLast(doubleArrayOf(at.toDouble(), net, parts.getOrNull(2)?.toDoubleOrNull() ?: 0.0,
-                        parts.getOrNull(3)?.toDoubleOrNull() ?: 0.0, parts.getOrNull(4)?.toDoubleOrNull() ?: 0.0))
-                }
-                if (q.isNotEmpty()) closes.putIfAbsent(lane, q)
-            }
+            closes.attach(ShadowColdStore8397.open(ctx, PREFS_8344))
             true
         } catch (_: Throwable) { false }
         initReady8372()
@@ -260,6 +249,11 @@ object EvidenceShadow8344 {
      */
     fun open8344(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis(), source: String = SOURCE_DECISION_8345, advisoryEntry8393: Boolean = false) {
         try {
+            val pressure8397 = com.lifecyclebot.engine.MemoryGuard7977.pressure8144()
+            if (pressure8397 == com.lifecyclebot.engine.RetentionPolicy8136.Pressure.HARD ||
+                pressure8397 == com.lifecyclebot.engine.RetentionPolicy8136.Pressure.CRITICAL) {
+                skip8345(lane, "SHADOW_CAPACITY_PRESSURE_8397"); return
+            }
             val mint = ts.mint
             if (mint.isBlank()) return
             if (open.containsKey(mint)) { skip8345(lane, SKIP_ALREADY_OPEN_8345); return }
@@ -347,7 +341,8 @@ object EvidenceShadow8344 {
                 book8344(p, netPct8344(p.bankedGrossPct, p.held, ShadowFill8364.exitGrossPct8364(g), p.costPct), why, nowMs)
                 if (why == "LOST_MARK" && p.noMarkSinceRestore8355) lostOnRestore8355.incrementAndGet()   // V5.0.8355
                 done += mint
-            } catch (_: Throwable) { done += mint }
+            } catch (_: ShadowStorageUnavailable8397) { p.dirty8355 = true }
+            catch (_: Throwable) { done += mint }
         }
         done.forEach { open.remove(it); forgetOpen8355(it) }   // V5.0.8355 — a closed (or dropped) position leaves the open prefs
     }
@@ -424,19 +419,20 @@ object EvidenceShadow8344 {
     }
 
     private fun book8344(p: Pos8344, net: Double, why: String, nowMs: Long) {
-        val q = closes.computeIfAbsent(p.lane) { ArrayDeque() }
-        synchronized(q) {
-            q.addLast(doubleArrayOf(nowMs.toDouble(), net.coerceIn(-100.0, 1_000.0),
-                if (p.advisoryEntry8393 && why != "LOST_MARK" && why != ShadowAlign8366.UNLANDED_WHY_8366) 1.0 else 0.0,
-                if (why != "LOST_MARK" && why != ShadowAlign8366.UNLANDED_WHY_8366) p.contractVersion8394.toDouble() else 0.0, p.atMs.toDouble()))
-            while (q.size > MAX_CLOSES_PER_LANE_8344) q.removeFirst()
-            try { prefs?.edit()?.putString(p.lane, q.joinToString(";") { ShadowPersist8355.compactRow8396(it) })?.apply() } catch (_: Throwable) {}
-        }
+        val booked8397 = closes.append(listOf(p.lane), doubleArrayOf(nowMs.toDouble(), net.coerceIn(-100.0, 1_000.0),
+            if (p.advisoryEntry8393 && why != "LOST_MARK" && why != ShadowAlign8366.UNLANDED_WHY_8366) 1.0 else 0.0,
+            if (why != "LOST_MARK" && why != ShadowAlign8366.UNLANDED_WHY_8366) p.contractVersion8394.toDouble() else 0.0,
+            p.atMs.toDouble()), "${p.mint}|${p.lane}|${p.atMs}")
+        if (!booked8397.inserted) return
         closedN.incrementAndGet()
         try { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_CLOSE_8344_${why}") } catch (_: Throwable) {}
         // V5.0.8366 — every landed close models the live position on this mint: the alignment pairs read it
         if (why != ShadowAlign8366.UNLANDED_WHY_8366) try { ShadowAlign8366.noteShadow8366("EVIDENCE", p.lane, p.mint, p.atMs, net, nowMs) } catch (_: Throwable) {}
     }
+
+    fun memoryCount8397(): Int = open.size + closes.hotCount()
+    fun memoryBytes8397(): Long = open.size * 1024L + closes.bytes()
+    fun trimCold8397(): Int = closes.trim()
 
     // ── proof ──
 
@@ -459,8 +455,8 @@ object EvidenceShadow8344 {
 
     /** Tests only: a booked close for [lane] at [atMs] (no position, no prefs). */
     internal fun noteCloseForTests8345(lane: String, netPct: Double, atMs: Long) {
-        val q = closes.computeIfAbsent(lane) { ArrayDeque() }
-        synchronized(q) { q.addLast(doubleArrayOf(atMs.toDouble(), netPct, 0.0, ShadowPersist8355.TRADE_CONTRACT_8394.toDouble(), atMs.toDouble())) }
+        closes.append(listOf(lane), doubleArrayOf(atMs.toDouble(), netPct, 0.0,
+            ShadowPersist8355.TRADE_CONTRACT_8394.toDouble(), atMs.toDouble()), "test|$lane|$atMs|${closedN.get()}")
         closedN.incrementAndGet()
     }
 

@@ -38,17 +38,23 @@ object FdgOutcomeContinuity8197 {
         val result = FinalDecisionGate.evaluate(ts, candidate, config, proposedSizeSol, brain,
             tradingModeTag, laneScore, specialistLane, fanoutRole)
         shadowObserveAdmittedBlock8233(ts, lane, version, result, proposedSizeSol, laneScore)
+        recordEarlyVerdict8397(ts.mint, lane, version, result)
+        return result
+    }
+
+    /** The actual early-return adapter, shared with production-path continuity tests. Never creates an allow. */
+    internal fun recordEarlyVerdict8397(mint: String, lane: String, version: Long, result: FinalDecisionGate.FinalDecision,
+                                       nowMs: Long = System.currentTimeMillis()) {
         if (needsEarlyRecord8197(result)) {
-            // Early returns are refusals; never manufacture an allow, finality,
-            // size or sealed intent to "unstick" a specialist.
+            // False results retain DATA_DEFER through the typed receipt adapter; no execution is authorized here.
             val reason = result.blockReason ?: result.approvalReason.ifBlank { "FDG_EARLY_RETURN_UNSPECIFIED_8197" }
             try {
-                SpecialistOwnership7951.onFdgVerdict7951(ts.mint, lane, version,
-                    false, reason)
-                PipelineHealthCollector.labelInc("FDG_EARLY_TERMINAL_ACCOUNTED_8197_$lane")
+                SpecialistOwnership7951.onFdgVerdict7951(mint, lane, version,
+                    false, reason, nowMs)
+                PipelineHealthCollector.labelInc(if (FdgReceipt8397.outcome(false, reason) == FdgReceipt8397.Outcome.DEFER_DATA)
+                    "FDG_EARLY_DATA_PENDING_8397_$lane" else "FDG_EARLY_TERMINAL_ACCOUNTED_8197_$lane")
             } catch (_: Throwable) {}
         }
-        return result
     }
 
     /**

@@ -182,9 +182,9 @@ object RunnerLive8153 {
         return book.request8153(key8153(ts), ladder, tier, reason, nowMs)
     }
 
-    fun advance8153(ts: TokenState, stage: RunnerRungBook8153.Stage8153, nowMs: Long): Boolean {
+    fun advance8153(ts: TokenState, stage: RunnerRungBook8153.Stage8153, nowMs: Long, expectedReason8397: String? = null, expectedRequestAtMs8397: Long? = null): Boolean {
         val key = key8153(ts)
-        val advanced = book.advance8153(key, stage, nowMs)
+        val advanced = book.advance8153(key, stage, nowMs, expectedReason8397, expectedRequestAtMs8397)
         // V5.0.8331 — the runner funnel: a runner rung's tranche reached the sell door (once per position and tier).
         if (advanced && stage == RunnerRungBook8153.Stage8153.TICKET_ACCEPTED && !ts.position.isPaperPosition) {
             val p = book.pending8153(key)
@@ -197,14 +197,36 @@ object RunnerLive8153 {
         if (book.revert8153(key8153(ts), why, nowMs, slowAfter) != null) count8153("SPIKE_TRANCHE_${why.name}_NOT_CONSUMED_8153")
     }
 
+    fun pendingRequest8397(ts: TokenState, reason: String): RunnerRungBook8153.Pending8153? {
+        ensureLoaded8153()
+        return book.pending8153(key8153(ts))?.takeIf { it.reason == reason }
+    }
+
+    fun acceptDispatch8397(ts: TokenState, reason: String, requestedAtMs: Long, nowMs: Long, expectedLadder8397: String? = null): Boolean {
+        val key = key8153(ts)
+        val accepted = book.acceptDispatch8397(key, reason, requestedAtMs, nowMs, expectedLadder8397)
+        if (accepted && !ts.position.isPaperPosition) book.pending8153(key)?.let { p ->
+            if (p.ladder == RunnerRungBook8153.LADDER_RUNNER_8153)
+                RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_SENT, "$key|T${p.tier}")
+        }
+        return accepted
+    }
+
+    fun revertMatching8397(ts: TokenState, reason: String, requestedAtMs: Long, nowMs: Long, slowAfter: Int = 16,
+                           expectedLadder8397: String? = null): Boolean {
+        val reverted = book.revertMatching8397(key8153(ts), reason, requestedAtMs, nowMs, slowAfter, expectedLadder8397)
+        if (reverted) count8153("SPIKE_TRANCHE_REJECTED_NOT_CONSUMED_8153")
+        return reverted
+    }
+
     /** Pure: the spike / runner rung a reason sells (1-based), or 0. */
     fun rungOf8153(reason: String): Int = SPIKE_RUNG_8153.find(reason)?.groupValues?.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..16 } ?: 0
 
     /** SpikeCapture7943.onConfirmedPartial8081 / paper receipt: the tier's sale is confirmed (no proceeds read here). */
-    fun confirmTier8153(ts: TokenState, tier: Int, reason: String = "") {
+    fun confirmTier8153(ts: TokenState, tier: Int, reason: String = "", expectedLadder8397: String? = null) {
         if (tier <= 0 || !ts.position.isOpen) return
         ensureLoaded8153()
-        val ladder = if (reason.startsWith("SCALP_TAKE_PROFIT_8351_T")) RunnerRungBook8153.LADDER_SCALP_EXIT_8394
+        val ladder = expectedLadder8397 ?: if (reason.startsWith("SCALP_TAKE_PROFIT_8351_T")) RunnerRungBook8153.LADDER_SCALP_EXIT_8394
             else book.pending8153(key8153(ts))?.takeIf { it.tier == tier && it.ladder != RunnerRungBook8153.LADDER_SCALP_EXIT_8394 }?.ladder ?: ladderOf8153(plan8153(ts))
         book.confirmAppliedTier8198(key8153(ts), ladder, tier)
         save8153()

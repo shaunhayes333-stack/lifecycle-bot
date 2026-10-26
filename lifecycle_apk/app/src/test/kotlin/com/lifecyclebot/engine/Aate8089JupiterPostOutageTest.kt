@@ -44,7 +44,7 @@ class Aate8089JupiterPostOutageTest {
         assertTrue("5xx retried per host then next host", jup.contains("if (attempt >= 1) throw lastErr   // two tries per host, then the next host / venue pivot"))
         assertTrue("5xx noted for the gauge", jup.contains("notePost5xx8089(endpoint, code)"))
         assertTrue("degraded builder → Raydium first", ex.contains("if (JupiterApi.swapBuildDegraded8089()) {"))
-        assertTrue("build 5xx → Raydium, not abort", ex.contains("buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c) { raydiumBuy7325 = it }"))
+        assertTrue("build 5xx → Raydium, not abort", ex.contains("buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c, submission8397) { raydiumBuy7325 = it }"))
         assertTrue("non-transient build errors keep their true cause", ex.contains("if (!JupiterApi.isTransientPostFailure8089(e.message)) throw e"))
         assertTrue("Raydium miss keeps the Jupiter error", ex.contains("LIVE_BUY_BUILD_5XX_NO_VENUE_8089"))
         assertTrue("no second full build on a transient", ex.contains("if (JupiterApi.isTransientPostFailure8089(e.message)) throw e\n            Thread.sleep(1000)"))

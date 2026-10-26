@@ -50,7 +50,7 @@ class Aate6659dSellJournalRoundTripTest {
     @Test
     fun `paper sell ceiling applies to entries not profitable exits`() {
         val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt").readText()
-        assertTrue(source.contains("t.side.equals(\"BUY\", true) && t.sol > maxSol"))
+        assertTrue(source.contains("t.side.equals(\"BUY\", true) && t.sol > (maxTradeSol8397 ?: configuredMaxTradeSol()) + 0.0000001"))
     }
 
     @Test

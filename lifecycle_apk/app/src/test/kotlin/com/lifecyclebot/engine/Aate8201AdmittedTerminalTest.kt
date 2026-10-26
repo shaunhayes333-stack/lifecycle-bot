@@ -23,7 +23,9 @@ class Aate8201AdmittedTerminalTest {
         // hard safety and realised live-close evidence stay ahead of it
         assertTrue(gate.indexOf("earlyLaunchRefusal8048(ts)") < gate.indexOf("val admittedJudged8201"))
         assertTrue(gate.indexOf("LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs)") < gate.indexOf("val admittedJudged8201"))
-        assertTrue(gate.indexOf("val admittedJudged8201") < gate.indexOf("CHASING_SPIKE_8065_\$l8059"))
+        val judgement = gate.indexOf("val admittedJudged8201")
+        val chaseCall = gate.indexOf("if (snap8065 != null) chaseRefusal8397(")
+        assertTrue("the captured judgement precedes the canonical chase decision", judgement in 0 until chaseCall)
     }
 
     @Test fun everyAdmittedCandidateTerminalIsNamed() {
@@ -33,7 +35,15 @@ class Aate8201AdmittedTerminalTest {
         // Superseded by V5.0.8290/8298: the spike-chase rule names the admitted terminal again; the CHASE stand-down holds
         // only for a lane whose realised live record earned it (RegressionRestore8298).
         assertTrue(gate.contains("val admittedJudged8201 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l8059, nowMs)"))
-        assertTrue(gate.contains("admittedTerminal8201(ts, lane, \"CHASING_SPIKE_8065\", candidateVersion)"))
+        val chaseCall = gate.substringAfter("if (snap8065 != null) chaseRefusal8397(", "")
+            .substringBefore("// Keep watch-first", "")
+        assertTrue(chaseCall.contains("snap8065.currentVsPeak, nowMs, admittedJudged8201)?.let { reason ->"))
+        assertTrue(chaseCall.contains("if (candidateSpecificAdmission8136) {"))
+        assertTrue(chaseCall.contains("admittedTerminal8201(ts, lane, reason, candidateVersion)"))
+        assertTrue(chaseCall.contains("return reason"))
+        val chaseDecision = gate.substringAfter("internal fun chaseRefusal8397(", "")
+            .substringBefore("private fun developingRunGrab8117(", "")
+        assertTrue(chaseDecision.contains("return \"CHASING_SPIKE_8065\""))
         assertTrue(gate.contains("""if (!paper && !FdgGate8365.shadowOnly8393() && candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, why ?: "ALLOW", candidateVersion)"""))
         assertTrue(gate.contains("""PipelineHealthCollector.labelInc("ADMITTED_THEN_${'$'}{terminal.take(48)}_8201_${'$'}l")"""))
     }

@@ -51,6 +51,7 @@ object HeliusCreditEconomy7881 {
         SWAP_CANDLES(0.08),
         CREATOR_HISTORY(0.05),
         MARKET_SWEEP(0.06),
+        DECISION_TAPE_8397(0.0),
     }
 
     /** Default daily target. 5.0.7880 era: ~5M credits/day observed by the operator. */
@@ -58,6 +59,7 @@ object HeliusCreditEconomy7881 {
     // left (59.7M used). The plan pays for ~333k a day; the target is 300k, and it is now enforced (overBudget8066).
     private const val DAILY_BUDGET_CREDITS = 300_000.0
     private const val ENRICHMENT_POOL_SHARE = 0.50
+    internal const val DECISION_RESERVE_SHARE_8397 = 0.05
     private const val WS_CREDITS_PER_100KB = 2.0
     private const val PERSIST_EVERY_MS = 60_000L
     private const val PERSIST_KEY = "HELIUS_CREDIT_ECONOMY_7881"
@@ -136,6 +138,8 @@ object HeliusCreditEconomy7881 {
     @Volatile private var day: Long = -1L
     @Volatile private var total = 0.0
     @Volatile private var enrichmentAdmitted = 0.0
+    // Charged at reservation, refunded only for unsent work. A restart conservatively keeps the charge.
+    @Volatile private var decisionReserved8397 = 0.0
     @Volatile private var loaded = false
     @Volatile private var lastPersistMs = 0L
 
@@ -156,7 +160,7 @@ object HeliusCreditEconomy7881 {
             if (d == day) return
             if (d != day) {
                 byMethod.clear(); byConsumer.clear(); byTier.clear(); wsBytes.clear()
-                total = 0.0; enrichmentAdmitted = 0.0; day = d
+                total = 0.0; enrichmentAdmitted = 0.0; decisionReserved8397 = 0.0; day = d
             }
         }
     }
@@ -322,12 +326,62 @@ object HeliusCreditEconomy7881 {
 
     fun overBudget8066(nowMs: Long = System.currentTimeMillis()): Boolean = try {
         rollIfNewDay(nowMs)
-        val pace = (dayFraction(nowMs) + 1.0 / 24.0).coerceIn(0.0, 1.0)
-        val over = synchronized(this) { total } > DAILY_BUDGET_CREDITS * pace
+        val over = synchronized(this) { total } >= ordinaryLimit8397(DAILY_BUDGET_CREDITS, dayFraction(nowMs))
         if (over) refused8066.incrementAndGet()
         over
     } catch (_: Throwable) { false }
     private val refused8066 = AtomicLong(0)
+
+    /** Five percent of the existing daily allowance is protected from optional work, never added to it. */
+    internal fun ordinaryLimit8397(budget: Double, fraction: Double): Double =
+        budget * (1.0 - DECISION_RESERVE_SHARE_8397) * (fraction + 1.0 / 24.0).coerceIn(0.0, 1.0)
+
+    internal fun reserveFits8397(budget: Double, spent: Double, reserved: Double, estimate: Double): Boolean =
+        estimate.isFinite() && estimate > 0.0 && spent + estimate <= budget &&
+            reserved + estimate <= budget * DECISION_RESERVE_SHARE_8397
+
+    fun dailyRoom8397(nowMs: Long = System.currentTimeMillis()): Boolean {
+        rollIfNewDay(nowMs)
+        return total < DAILY_BUDGET_CREDITS
+    }
+
+    /** A bounded, explicit decision-evidence lease; optional scanners cannot obtain one through admit(). */
+    fun reserveDecision8397(consumer: Consumer, estimate: Double, nowMs: Long): Reservation8386? = synchronized(this) {
+        rollIfNewDay(nowMs)
+        if (exhaustedLatched8094(nowMs) ||
+            !reserveFits8397(DAILY_BUDGET_CREDITS, total, decisionReserved8397, estimate)) return@synchronized null
+        decisionReserved8397 += estimate
+        byConsumer.getOrPut(consumer.name) { DoubleArray(3) }.let { it[0]++; it[1] += estimate }
+        enrichmentAdmitted += estimate
+        maybePersist(nowMs, force8397 = true)
+        Reservation8386(consumer, estimate, day.toString(), true)
+    }
+
+    /** The wire adapter uses the same lease as the producer. Meter even an uncertain network attempt exactly once. */
+    fun authorizeWire8397(host: String, path: String, methods: List<String>, reservation: Reservation8386?,
+                          nowMs: Long = System.currentTimeMillis()): Boolean = synchronized(this) {
+        rollIfNewDay(nowMs)
+        val cost = creditsFor(host, path, methods)
+        val execution = tierFor(host, path, methods) == Tier.EXECUTION
+        var reserved = reservation?.let {
+            it.decision8397 && it.dayAt == day.toString() && it.remaining8397() + 1e-9 >= cost
+        } == true
+        // Optional work may consume ordinary headroom after a priority job was queued. Its original priority tag
+        // can claim only this wire request's cost from the protected reserve, rather than being refused a second time.
+        if (!execution && !reserved && total + cost > ordinaryLimit8397(DAILY_BUDGET_CREDITS, dayFraction(nowMs)) &&
+            reservation?.priority8397 == true && reservation.dayAt == day.toString() && reservation.remaining8397() >= cost &&
+            reserveFits8397(DAILY_BUDGET_CREDITS, total, decisionReserved8397, cost)) {
+            decisionReserved8397 += cost; reserved = true
+            maybePersist(nowMs, force8397 = true)
+        }
+        if (!execution && (total + cost > DAILY_BUDGET_CREDITS ||
+                (!reserved && total + cost > ordinaryLimit8397(DAILY_BUDGET_CREDITS, dayFraction(nowMs))))) {
+            refused8066.incrementAndGet(); return@synchronized false
+        }
+        reservation?.sent8386(cost)
+        meter(host, path, methods, nowMs)
+        true
+    }
 
     /** Pure (V5.0.8066): is a request of this tier ever refused by the hard budget? Execution is never refused. */
     fun budgetGated8066(tier: Tier): Boolean = tier != Tier.EXECUTION
@@ -389,21 +443,28 @@ object HeliusCreditEconomy7881 {
     }
 
     /** Reservations affect admission estimates only. The HTTP meter remains the sole actual-spend writer. */
-    class Reservation8386 internal constructor(val consumer: Consumer, val estimate: Double, internal val dayAt: String) {
+    class Reservation8386 internal constructor(val consumer: Consumer, val estimate: Double, internal val dayAt: String,
+                                               internal val decision8397: Boolean = false,
+                                               internal val priority8397: Boolean = decision8397) {
         private var sent = 0.0
         private var closed = false
         @Synchronized fun sent8386(credits: Double) { if (!closed && credits.isFinite() && credits > 0) sent += credits }
+        @Synchronized internal fun remaining8397(): Double = if (closed) 0.0 else (estimate - sent).coerceAtLeast(0.0)
         @Synchronized internal fun unused8386(): Double? {
             if (closed) return null
             closed = true
-            return (estimate - sent).coerceIn(0.0, estimate)
+            // An in-flight websocket frame can cross a lease's byte boundary. Charge that overshoot too.
+            return (estimate - sent).coerceAtMost(estimate)
         }
     }
 
     fun reserve8386(consumer: Consumer, estimate: Double, priority: Boolean, nowMs: Long): Reservation8386? = synchronized(this) {
         if (!(estimate > 0) || !estimate.isFinite()) return@synchronized null
+        rollIfNewDay(nowMs)
+        if (total + estimate > ordinaryLimit8397(DAILY_BUDGET_CREDITS, dayFraction(nowMs)))
+            return@synchronized if (priority) reserveDecision8397(consumer, estimate, nowMs) else null
         val ok = if (priority) admitPriority8307(consumer, estimate, nowMs) else admit(consumer, estimate, nowMs)
-        if (ok) Reservation8386(consumer, estimate, day.toString()) else null
+        if (ok) Reservation8386(consumer, estimate, day.toString(), priority8397 = priority) else null
     }
 
     fun finish8386(reservation: Reservation8386) {
@@ -413,6 +474,7 @@ object HeliusCreditEconomy7881 {
             val row = byConsumer[reservation.consumer.name] ?: return
             row[1] = (row[1] - unused).coerceAtLeast(0.0)
             enrichmentAdmitted = (enrichmentAdmitted - unused).coerceAtLeast(0.0)
+            if (reservation.decision8397) decisionReserved8397 = (decisionReserved8397 - unused).coerceAtLeast(0.0)
         }
     }
 
@@ -452,8 +514,8 @@ object HeliusCreditEconomy7881 {
 
     // ── persistence ──
 
-    private fun maybePersist(nowMs: Long) {
-        if (nowMs - lastPersistMs < PERSIST_EVERY_MS) return
+    private fun maybePersist(nowMs: Long, force8397: Boolean = false) {
+        if (!force8397 && nowMs - lastPersistMs < PERSIST_EVERY_MS) return
         // V5.0.8073 — never save over the stored day before it has been read back.
         if (!loaded) return
         lastPersistMs = nowMs
@@ -461,6 +523,7 @@ object HeliusCreditEconomy7881 {
             val o = org.json.JSONObject()
             synchronized(this) {
                 o.put("day", day); o.put("total", total); o.put("enrich", enrichmentAdmitted)
+                o.put("decisionReserved8397", decisionReserved8397)
                 o.put("method", org.json.JSONObject().also { j -> byMethod.forEach { (k, v) -> j.put(k, "${v[0]},${v[1]}") } })
                 o.put("consumer", org.json.JSONObject().also { j -> byConsumer.forEach { (k, v) -> j.put(k, "${v[0]},${v[1]},${v[2]}") } })
                 o.put("tier", org.json.JSONObject().also { j -> byTier.forEach { (k, v) -> j.put(k.name, "${v[0]},${v[1]}") } })
@@ -488,6 +551,7 @@ object HeliusCreditEconomy7881 {
             o.optJSONObject("tier")?.let { j -> for (k in j.keys()) try { val t = Tier.valueOf(k); byTier[t] = add(byTier[t], parse(j.optString(k), 2)) } catch (_: Throwable) {} }
             o.optJSONObject("ws")?.let { j -> for (k in j.keys()) wsBytes.getOrPut(k) { AtomicLong(0L) }.addAndGet(j.optLong(k)) }
             total += o.optDouble("total", 0.0); enrichmentAdmitted += o.optDouble("enrich", 0.0)
+            decisionReserved8397 += o.optDouble("decisionReserved8397", 0.0).coerceAtLeast(0.0)
             day = today
         } catch (_: Throwable) {}
     }
@@ -499,7 +563,7 @@ object HeliusCreditEconomy7881 {
         fun k(v: Double) = if (v >= 1_000_000) "%.2fM".format(v / 1_000_000) else if (v >= 1_000) "%.1fk".format(v / 1_000) else "%.0f".format(v)
         return synchronized(this) {
             "  exhausted8094=${if (exhaustedLatched8094(nowMs)) "LATCHED" else "no"}(latches=${exhaustedLatches8094.get()} unconfirmed8191=${exhaustUnconfirmed8191.get()})" +
-            "  today=${k(total)} credits  pace→${k(projected)}/day  budget=${k(DAILY_BUDGET_CREDITS)}/day (${"%.0f".format(total / DAILY_BUDGET_CREDITS * 100)}%) hardGate8066[refused=${refused8066.get()}] priorityAdmit8307=${priorityAdmittedN8307.get()}\n" +
+            "  today=${k(total)} credits  pace→${k(projected)}/day  budget=${k(DAILY_BUDGET_CREDITS)}/day (${"%.0f".format(total / DAILY_BUDGET_CREDITS * 100)}%) hardGate8066[refused=${refused8066.get()}] priorityAdmit8307=${priorityAdmittedN8307.get()} decisionReserve8397=${k(decisionReserved8397)}/${k(DAILY_BUDGET_CREDITS * DECISION_RESERVE_SHARE_8397)}\n" +
                 "  tiers: " + Tier.values().joinToString(" · ") { t -> byTier[t]?.let { "${t.name}=${k(it[1])}(${it[0].toLong()} calls)" } ?: "${t.name}=0" } + "\n" +
                 "  top methods: " + byMethod.entries.sortedByDescending { it.value[1] }.take(8)
                     .joinToString(" · ") { "${it.key}=${k(it.value[1])}(${it.value[0].toLong()})" }.ifBlank { "-" } + "\n" +

@@ -157,14 +157,16 @@ object EvidenceHold8336 {
      * takes an exceptional runner opportunity ([exceptional8336]) live. Everything downstream (hard safety, economics,
      * sizing, the chase check) still binds: only the evidence hold is lifted.
      */
-    fun refusal8336(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis(), grabLegs8345: String? = null): String? {
+    fun refusal8336(ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis(), grabLegs8345: String? = null,
+                    candidateVersion8397: Long = versionForException8397(ts.mint)): String? {
         if (!enabled8336 || paper) return null
         val live = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
         if (!live) return null
         val l = canon(lane)
         if (proofFor8336(l, nowMs).proven || shadowProven8344(l)) return null
         // V5.0.8345 — a candidate arriving through the grab lane brings its own forming-run legs ([grabLegs8345]).
-        val ex = try { if (grabLegs8345 == null) exceptional8336(ts, l, nowMs) else exceptionalViaGrab8345(ts, l, grabLegs8345, nowMs) } catch (_: Throwable) { null }
+        val version = candidateVersion8397.takeIf { it > 0L } ?: versionForException8397(ts.mint)
+        val ex = try { exceptionalCore8345(ts, l, nowMs, grabLegs8345, version) } catch (_: Throwable) { null }
         if (ex != null) return null
         return refuse8336(l)
     }
@@ -188,7 +190,8 @@ object EvidenceHold8336 {
     //       pRun8325 finite from run-skilled seats); a lane with no run-odds book yet falls back to the early-run evidence
     //       retired compatibility gate / EntryEconomics8329 use (a LAUNCH_EARLY plan inside the launch window) and the reason says so;
     //   (d) the lane is not shut by its own realised live losses (EntryEconomics8329.laneRealisedRefusal8329 == null).
-    // Bounded: one exceptional live entry per lane per [LANE_GAP_MS_8337], at most [MAX_PER_HOUR_8337] an hour across lanes.
+    // V5.0.8397 — bounded submitted live attempts: reserve only after the executable ticket passes,
+    // commit when a signature exists (including unknown confirmation), release every pre-submit abort/defer.
     const val LANE_GAP_MS_8337 = 30 * 60_000L
     const val MAX_PER_HOUR_8337 = 3
     const val PASS_TTL_MS_8337 = 60_000L
@@ -197,11 +200,11 @@ object EvidenceHold8336 {
     const val VENUE_ACTIVE_CURVE_8337 = "ACTIVE_CURVE_IN_WINDOW_REAL_SOL_8319"
     const val VENUE_POOL_FLOOR_8337 = "POOL_EXIT_FLOOR_500_MET"
 
-    private val lastByLane8337 = ConcurrentHashMap<String, Long>()          // lane -> last exception granted
-    private val grants8337 = java.util.ArrayDeque<Long>()                   // grant times, last hour (guarded by itself)
-    private val passes8337 = ConcurrentHashMap<String, Pair<Long, String>>() // mint|lane -> (atMs, reason)
-    private val exceptions8337 = AtomicLong(0)
-    @Volatile private var lastException8337: String = "-"
+    private val exceptionBudget8397 = ExceptionalEntryBudget8397(LANE_GAP_MS_8337, MAX_PER_HOUR_8337, PASS_TTL_MS_8337)
+    private fun versionForException8397(mint: String): Long =
+        try { com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint) } catch (_: Throwable) { 0L }
+
+    private fun candidate8397(mint: String, lane: String, version: Long) = ExceptionalEntryBudget8397.Candidate(mint, canon(lane), version)
 
     /** Pure: the reason the four legs make, or null when any leg is missing. */
     fun exceptionalReason8337(grab: Boolean, venue: String?, odds: String?, laneOpen: Boolean): String? {
@@ -210,36 +213,24 @@ object EvidenceHold8336 {
     }
 
     /** Pure over the in-memory counters: may [lane] take an exception now (per-lane gap and the hourly cap)? */
-    fun rateAllows8337(lane: String, nowMs: Long): Boolean {
-        val last = lastByLane8337[canon(lane)]
-        if (last != null && nowMs - last in 0L until LANE_GAP_MS_8337) return false
-        synchronized(grants8337) {
-            while (grants8337.isNotEmpty() && nowMs - grants8337.peekFirst() >= 3_600_000L) grants8337.pollFirst()
-            return grants8337.size < MAX_PER_HOUR_8337
-        }
-    }
+    fun rateAllows8337(lane: String, nowMs: Long): Boolean = exceptionBudget8397.rateAllows(canon(lane), nowMs)
 
-    /** Counts a granted exception for [lane] / [mint] (the rate counters and the 60 s pass for the TradePlan call). */
-    fun noteException8337(lane: String, mint: String, reason: String, nowMs: Long) {
-        val l = canon(lane)
-        lastByLane8337[l] = nowMs
-        synchronized(grants8337) { grants8337.addLast(nowMs) }
-        passes8337["$mint|$l"] = nowMs to reason
-        if (passes8337.size > 200) passes8337.entries.removeIf { nowMs - it.value.first > PASS_TTL_MS_8337 }
-        exceptions8337.incrementAndGet()
-        lastException8337 = "$l ${mint.take(10)} $reason"
+    /** Historical test fixture only. Production qualification never calls this immediate-commit helper. */
+    internal fun noteException8337(lane: String, mint: String, reason: String, nowMs: Long) {
+        val c = candidate8397(mint, lane, 1L)
+        val attempt = "test8337|$mint|${c.lane}|$nowMs"
+        exceptionBudget8397.qualify(c, reason, false, nowMs)
+        if (exceptionBudget8397.reserve(attempt, c, nowMs) == null) exceptionBudget8397.submitted(attempt, "TEST_ONLY", nowMs)
     }
 
     /** The reason [mint] in [lane] was admitted by the exception inside the last [PASS_TTL_MS_8337]; null otherwise. */
     fun admitted8337(mint: String, lane: String, nowMs: Long): String? {
-        val p = passes8337["$mint|${canon(lane)}"] ?: return null
-        return if (nowMs - p.first in 0L..PASS_TTL_MS_8337) p.second else null
+        return exceptionBudget8397.recentProof(mint, canon(lane), nowMs)?.reason
     }
 
     /** Any candidate of [lane] admitted by the exception inside the last [PASS_TTL_MS_8337] (the mint-less TradePlan call). */
     fun laneAdmitted8337(lane: String, nowMs: Long): Boolean {
-        val suffix = "|${canon(lane)}"
-        return passes8337.entries.any { it.key.endsWith(suffix) && nowMs - it.value.first in 0L..PASS_TTL_MS_8337 }
+        return exceptionBudget8397.laneHasSubmittedPass(canon(lane), nowMs)
     }
 
     private fun venueLeg8337(ts: TokenState, lane: String, nowMs: Long): String? {
@@ -271,8 +262,7 @@ object EvidenceHold8336 {
     }
 
     /**
-     * The reason [ts] in [lane] is an exceptional runner opportunity the hold lets through live, or null. A grant is
-     * counted once per mint|lane per [PASS_TTL_MS_8337] (re-reads of the same candidate return the recorded reason).
+     * Qualification only: a bounded proof for this mint/lane/generation. No slot is consumed by this read.
      */
     fun exceptional8336(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): String? = exceptionalCore8345(ts, lane, nowMs, null)
 
@@ -285,7 +275,6 @@ object EvidenceHold8336 {
     // (1 per lane per 30 min, 3 an hour) are the same code. Counted apart: EVIDENCE_HOLD_EXCEPTION_8345_GRAB_<lane>.
     const val GRAB_LANE_LEGS_8345 = "GRAB_LANE_8343"
     const val ODDS_GRAB_LANE_8345 = "GRAB_LANE_FORMING_RUN_8343"
-    private val grabExceptions8345 = AtomicLong(0)
 
     /** Pure: the reason the grab lane's legs make with the venue / lane legs, or null when one is missing. */
     fun exceptionalReason8345(grabLegs: String?, venue: String?, odds: String?, laneOpen: Boolean): String? {
@@ -297,10 +286,14 @@ object EvidenceHold8336 {
     fun exceptionalViaGrab8345(ts: TokenState, lane: String, grabLegs: String, nowMs: Long = System.currentTimeMillis()): String? =
         exceptionalCore8345(ts, lane, nowMs, grabLegs.ifBlank { null })
 
-    private fun exceptionalCore8345(ts: TokenState, lane: String, nowMs: Long, grabLegs: String?): String? {
+    private fun exceptionalCore8345(ts: TokenState, lane: String, nowMs: Long, grabLegs: String?,
+                                    version8397: Long = versionForException8397(ts.mint)): String? {
         val l = canon(lane)
         if (ts.mint.isBlank()) return null
-        admitted8337(ts.mint, l, nowMs)?.let { return it }
+        val identity8397 = candidate8397(ts.mint, l, version8397)
+        exceptionBudget8397.proof(identity8397, nowMs)?.let {
+            if (exceptionBudget8397.canQualify(identity8397, nowMs)) return it.reason
+        }
         val grab = try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Throwable) { false }
         if (!grab && grabLegs == null) return null
         val laneOpen = (try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { "ERR" }) == null
@@ -315,24 +308,40 @@ object EvidenceHold8336 {
             try { PipelineHealthCollector.labelInc("EVIDENCE_HOLD_EXCEPTION_RATE_BOUND_8337_$l") } catch (_: Throwable) {}
             return null
         }
-        noteException8337(l, ts.mint, reason, nowMs)
-        if (viaGrab) grabExceptions8345.incrementAndGet()
-        try { PipelineHealthCollector.labelInc(if (viaGrab) "EVIDENCE_HOLD_EXCEPTION_8345_GRAB_$l" else "EVIDENCE_HOLD_EXCEPTION_8337_$l") } catch (_: Throwable) {}
-        try {
-            com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                if (viaGrab) "EVIDENCE_HOLD_EXCEPTION_8345_GRAB" else "EVIDENCE_HOLD_EXCEPTION_8337",
-                "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$l $reason action=hold_lifted_downstream_gates_still_bind",
-            )
-        } catch (_: Throwable) {}
+        if (!exceptionBudget8397.qualify(identity8397, reason, viaGrab, nowMs)) return null
         return reason
     }
 
-    fun exceptionCount8337(): Long = exceptions8337.get()
-    fun grabExceptionCount8345(): Long = grabExceptions8345.get()
+    /** Executor: after ticket validation, before preparation or any route can submit this LIVE attempt. */
+    fun reserveEntry8397(ts: TokenState, intent: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent?,
+                         nowMs: Long = System.currentTimeMillis()): String? {
+        if (intent == null || intent.mint != ts.mint || !intent.mode.equals("LIVE", true) || !intent.fdgAllowed ||
+            !intent.fdgVerdict.equals("BUY", true) || intent.hardNoReasons.isNotEmpty()) return "EVIDENCE_EXCEPTION_TICKET_INVALID_8397"
+        val lane = canon(intent.canonicalLane.ifBlank { intent.lane })
+        if (!enabled8336 || !heldLane8342(lane) || proofFor8336(lane, nowMs).proven || shadowProven8344(lane)) return null
+        // A stale/missing proof is not silently reconstructed from a different generation at the buy door.
+        return exceptionBudget8397.reserve(intent.attemptId, candidate8397(ts.mint, lane, intent.candidateVersion), nowMs)
+    }
+
+    /** Executor finally: blank signature releases; a sent/unknown signature commits once and must never be released. */
+    fun finishEntry8397(attemptId: String, signature: String?, nowMs: Long = System.currentTimeMillis()) {
+        if (signature.isNullOrBlank()) { exceptionBudget8397.release(attemptId); return }
+        val charged = exceptionBudget8397.submitted(attemptId, signature, nowMs) ?: return
+        val c = charged.reservation.candidate
+        val proof = charged.reservation.proof
+        try { PipelineHealthCollector.labelInc(if (proof.viaGrab) "EVIDENCE_HOLD_EXCEPTION_8345_GRAB_${c.lane}" else "EVIDENCE_HOLD_EXCEPTION_8337_${c.lane}") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EVIDENCE_EXCEPTION_SUBMITTED_8397",
+            "mint=${c.mint.take(10)} lane=${c.lane} version=${c.version} attempt=$attemptId signature=${signature.take(16)} ${proof.reason}") } catch (_: Throwable) {}
+    }
+
+    fun exceptionCount8337(): Long = exceptionBudget8397.counts().first
+    fun grabExceptionCount8345(): Long = exceptionBudget8397.counts().second
+
+    internal fun qualifyForTest8397(mint: String, lane: String, version: Long, nowMs: Long): Boolean =
+        exceptionBudget8397.qualify(candidate8397(mint, lane, version), "TEST_VERIFIED_LEGS", true, nowMs)
 
     internal fun resetForTests8337() {
-        lastByLane8337.clear(); synchronized(grants8337) { grants8337.clear() }; passes8337.clear(); exceptions8337.set(0); lastException8337 = "-"
-        grabExceptions8345.set(0)
+        exceptionBudget8397.clear()
     }
 
     fun statusLine8336(nowMs: Long = System.currentTimeMillis()): String {
@@ -342,7 +351,7 @@ object EvidenceHold8336 {
             .ifBlank { "no meme-lane paper closes since start" }
         return "evidenceHold8336[on=$enabled8336 rehearsal=$rehearsal8336 sinceMin=${if (startMs8336 > 0) (nowMs - startMs8336) / 60_000 else -1} " +
             "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 lanes=${EvidenceHold8336.HELD_LANES_8392.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
-            "exceptions=${exceptions8337.get()} last=$lastException8337 grabDoor8345=${grabExceptions8345.get()} $lanes" +  // V5.0.8337 / V5.0.8345
+            "exceptions=${exceptionCount8337()} last=${exceptionBudget8397.last()} grabDoor8345=${grabExceptionCount8345()} reserved8397=${exceptionBudget8397.reservations()} meter8397=SUBMITTED_ATTEMPT $lanes" +
             (try { EvidenceShadow8344.recoveryLine8345(startMs8336, nowMs) } catch (_: Throwable) { " recovery8345{?}" }) + "]"  // V5.0.8345 — the bounded path to the bar
     }
 }

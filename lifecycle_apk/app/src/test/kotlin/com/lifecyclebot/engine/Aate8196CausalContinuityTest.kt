@@ -64,7 +64,7 @@ class Aate8196CausalContinuityTest {
         val meter = source("network/HeliusCreditMeterInterceptor7881.kt")
         assertTrue(meter.contains("providerRecovered8196(resp.code, resp.peekBody(4_096).string())"))
         assertTrue(meter.contains("clearExhaustionOnProof8196()"))
-        assertTrue(meter.indexOf("overBudget8066()") < meter.indexOf("clearExhaustionOnProof8196()"))
+        assertTrue(meter.indexOf("authorizeWire8397(") < meter.indexOf("clearExhaustionOnProof8196()"))
     }
 
     @Test fun quickFinalisedCloseUsesItsOwnImmutablePendingCortexRead() {

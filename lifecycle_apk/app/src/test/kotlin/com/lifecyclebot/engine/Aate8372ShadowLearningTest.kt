@@ -232,11 +232,11 @@ class Aate8372ShadowLearningTest {
             assertTrue(source.contains("catch (_: Throwable) { false }"))
         }
         val explore = File(truth + "ExploreShadow8347.kt").readText()
-        assertTrue(explore.contains("books.putIfAbsent(k, q)"))
+        assertTrue(explore.contains("books.attach(ShadowColdStore8397.open(ctx, PREFS_8347))"))
         assertTrue(explore.contains("waits.putIfAbsent(w.key,"))
         assertTrue(explore.contains("if (tickets.containsKey(key)) continue   // partial-init retry"))
         val evidence = File(truth + "EvidenceShadow8344.kt").readText()
-        assertTrue(evidence.contains("closes.putIfAbsent(lane, q)"))
+        assertTrue(evidence.contains("closes.attach(ShadowColdStore8397.open(ctx, PREFS_8344))"))
         assertTrue(evidence.contains("open.putIfAbsent(r.mint, pos)"))
         assertTrue(evidence.contains("if (open.containsKey(r.mint)) continue   // partial-init retry"))
     }
@@ -252,7 +252,7 @@ class Aate8372ShadowLearningTest {
         }
         assertTrue(ShadowPersist8355.cortexPopulationKeys8372("EXPRESS", "NOW", "RUNNER", "NATIVE", "IGNITION", "MOMENTUM").isEmpty())
         val source = File("src/main/kotlin/com/lifecyclebot/engine/truth/ExploreShadow8347.kt").readText()
-        val closes = source.substringAfter("private fun close8347(").substringBefore("private fun bookKey8351(")
+        val closes = source.substringAfter("private fun close8347(").substringBefore("private fun bookKeys8397(")
         val unfilled = source.substringAfter("private fun unfilledKeys8364(").substringBefore("private fun unfilled8364(")
         assertTrue(closes.contains("ShadowPersist8355.cortexPopulationKeys8372("))
         assertTrue(unfilled.contains("ShadowPersist8355.cortexPopulationKeys8372("))

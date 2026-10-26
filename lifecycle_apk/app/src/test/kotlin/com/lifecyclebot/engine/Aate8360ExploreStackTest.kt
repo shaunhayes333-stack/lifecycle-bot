@@ -121,10 +121,10 @@ class Aate8360ExploreStackTest {
                 s.contains("t.lastPxAtMs = observation.observedAtMs"))
         assertTrue("marks kept flowing", s.contains("want8360(t.mint, nowMs)") && s.contains("want8360(ts.mint, nowMs)") &&
             s.contains("try { KeylessMarks8359.noteWanted8359(mint, untilMs) } catch (_: Throwable) {}") &&   // 8359 merged: the keyless feed is asked
-            s.contains("com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint, System.currentTimeMillis())"))
-        assertTrue("tactic cohort", s.contains("bookKey8351(t, \"C|\$v|T:\${t.tactic}\", net, nowMs)"))
-        assertTrue("reject cohort kept for FILTER_INVERTED", s.contains("KIND_REJECT_8360 -> bookKey8351(t, \"C|\$v|R:REJECT\", net, nowMs)"))
-        assertTrue("setup cohort", s.contains("KIND_SETUP_8360 -> bookKey8351(t, \"C|\$v|\${if (t.nativeEligible) \"S\" else \"SR\"}:\${t.setup}\", net, nowMs)"))
+            !s.contains("com.lifecyclebot.engine.DataPipeline8191.noteNearDecision8191(mint, System.currentTimeMillis())"))
+        assertTrue("tactic cohort", s.contains("cohortKeys8397 += \"C|\$v|T:\${t.tactic}\""))
+        assertTrue("reject cohort kept for FILTER_INVERTED", s.contains("KIND_REJECT_8360 -> cohortKeys8397 += \"C|\$v|R:REJECT\""))
+        assertTrue("setup cohort", s.contains("KIND_SETUP_8360 -> cohortKeys8397 += \"C|\$v|\${if (t.nativeEligible) \"S\" else \"SR\"}:\${t.setup}\""))
         assertTrue("the legacy guarded canonical tactic hook stays native-only; shadow verdicts use isolated cohorts",
             s.contains("if (t.kind8360 == KIND_NATIVE_8360 && t.nativeEligible && leg.entry == Entry8347.NOW") &&
                 !s.contains("withMode(\"LIVE\", canonical = true)"))

@@ -757,6 +757,22 @@ object SpecialistElection8136 {
             val r = recordFor8136(mint, -1L, nowMs, create = ready || l == p) ?: return
             if (r.primary.isEmpty()) setPrimary8136(r, p, nowMs)
             val s = r.slots[l] ?: if (ready) slotFor8136(r, l, normalised, nowMs) else null
+            // A skipped retry cycle is not the receiver's judgement. Check its bounded pending task
+            // before releasing an unconsumed rescue; a data backoff is deliberately not due yet.
+            if (s != null && !r.primaryJudgement && (l == r.rescue || l == namedOpen8144(r)) &&
+                (s.terminal == null || s.terminal == Terminal8136.DEFERRED_DATA || s.terminal == Terminal8136.CONTRIBUTOR_SHADOW)) {
+                val transient = gate == null || when (HandoffReceiverTasks8153.classify8153(gate, false, false)) {
+                    HandoffReceiverTasks8153.Block8153.DATA, HandoffReceiverTasks8153.Block8153.WAIT -> true
+                    else -> false
+                }
+                val task = if (transient) HandoffReceiverTasks8153.taskOf8153(mint, nowMs) else null
+                if (task?.pending == true && task.lane == l && task.version == r.version) {
+                    if (s.terminal != Terminal8136.DEFERRED_DATA)
+                        end8136(r, s, Terminal8136.CONTRIBUTOR_SHADOW,
+                            if (r.rescue.isNotEmpty()) "RECEIVER_TASK_WAITING_SLOT_${r.rescue}" else "RECEIVER_TASK_PENDING_8153")
+                    return
+                }
+            }
             if (l == p) {
                 if (p == r.primary && r.primaryRefusal.isEmpty()) r.primaryRefusal = "$TRIGGER_PRE_FDG:PRIMARY_GATED"
                 s?.let { end8136(r, it, Terminal8136.INELIGIBLE, if (gate == null) "PRIMARY_GATED_PRE_FDG" else "PRIMARY_GATED_PRE_FDG:$gate") }
@@ -833,6 +849,10 @@ object SpecialistElection8136 {
         val l = canon8136(lane)
         if (mint.isBlank() || l.isBlank()) return
         val why = reason?.takeIf { it.isNotBlank() } ?: "FDG_NO_REASON"
+        if (FdgReceipt8397.outcome(shouldTrade, reason) == FdgReceipt8397.Outcome.DEFER_DATA) {
+            noteFdgDataDefer8397(mint, l, version, why, qualified, normalised, nowMs)
+            return
+        }
         if (!shouldTrade) fdgRefusals8136["$l|$mint"] = why to nowMs
         synchronized(lock8136) {
             val r = recordFor8136(mint, version, nowMs) ?: return
@@ -906,6 +926,29 @@ object SpecialistElection8136 {
                     rescueOverflow8136++
                     end8136(r, s, Terminal8136.RESCUE_EVALUATED, "OVERFLOW_SECOND_RESCUE:${if (shouldTrade) "ALLOW" else why}")
                 }
+            }
+        }
+    }
+
+    /** A data attempt neither completes the named yield nor consumes its rescue evaluation. */
+    private fun noteFdgDataDefer8397(mint: String, lane: String, version: Long, reason: String,
+                                     qualified: Boolean, normalised: Double, nowMs: Long) {
+        synchronized(lock8136) {
+            val r = recordFor8136(mint, version, nowMs) ?: return
+            val s = r.slots[lane] ?: if (qualified) slotFor8136(r, lane, normalised, nowMs) else return
+            if (r.primary.isEmpty()) setPrimary8136(r, lane, nowMs)
+            // A late data result cannot undo a genuine judgement or an executable owner.
+            if (s.terminal != null && s.terminal != Terminal8136.DEFERRED_DATA && s.terminal != Terminal8136.CONTRIBUTOR_SHADOW) return
+            if (s.terminal == Terminal8136.CONTRIBUTOR_SHADOW) reopen8136(s)
+            end8136(r, s, Terminal8136.DEFERRED_DATA, "DEFERRED_FDG_8397:$reason")
+            if (lane == r.primary && !r.primaryJudgement) {
+                r.primaryRefusal = short8136("$TRIGGER_FDG:$reason")
+                r.primaryDataDefer8395 = true
+                r.primaryVerdictSeen = true
+            }
+            if (lane == r.rescue) {
+                r.rescueConsumed = false
+                r.rescueRefusedOpen8364 = false
             }
         }
     }

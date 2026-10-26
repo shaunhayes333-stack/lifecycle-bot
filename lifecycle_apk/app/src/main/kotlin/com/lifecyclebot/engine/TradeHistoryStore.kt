@@ -654,7 +654,9 @@ object TradeHistoryStore {
 
     fun isXrefRugRow7364(t: Trade): Boolean = t.economicEventId.startsWith("EXTERNAL_RUG_CLOSE_7362:")
 
-    fun isValidAccountingTrade(t: Trade): Boolean {
+    fun isValidAccountingTrade(t: Trade): Boolean = isValidAccountingTrade8397(t, null)
+
+    private fun isValidAccountingTrade8397(t: Trade, paperCeiling8397: Double?): Boolean {
         if (isXrefRugRow7364(t)) return false
         // V5.0.8041 — a LIVE row the chain proves is an on-chain fact: it is never excluded on its numbers (no % ceiling,
         // no %-vs-SOL basis check, no notional cap, no price-field rule). Only a non-number cannot be shown.
@@ -664,7 +666,8 @@ object TradeHistoryStore {
             t.entryCostSol > 0.0 && t.entryCostSol.isFinite() && t.entryPriceSnapshot > 0.0 && t.entryPriceSnapshot.isFinite()) {
             return t.price.isFinite() && t.sol.isFinite() && t.pnlSol.isFinite() && t.pnlPct.isFinite() && t.netPnlSol.isFinite()
         }
-        val paperVerdict = com.lifecyclebot.engine.PaperLearningSanity.inspect(t)
+        val paperVerdict = if (paperCeiling8397 == null) com.lifecyclebot.engine.PaperLearningSanity.inspect(t)
+            else com.lifecyclebot.engine.PaperLearningSanity.inspect8397(t, paperCeiling8397)
         if (!paperVerdict.ok) {
             com.lifecyclebot.engine.PaperLearningSanity.emitQuarantine(t, paperVerdict.reason)
             return false
@@ -1344,20 +1347,22 @@ object TradeHistoryStore {
     private const val SMALL_READ_CAP_7348 = 500
     private val validRowsBuildLock7348 = Any()
 
-    private fun validRowsHead7348(cap: Int): List<Trade> {
+    private fun validRowsHead7348(
+        cap: Int,
+        ceilingRead8397: () -> Double = { com.lifecyclebot.engine.PaperLearningSanity.configuredMaxTradeSol() },
+    ): List<Trade> {
+        if (cap > SMALL_READ_CAP_7348) return validRowsNewestFirst7346(ceilingRead8397).take(cap)
         val memo = validRowsMemo7346
-        val cfgBits = try {
-            com.lifecyclebot.engine.PaperLearningSanity.configuredMaxTradeSol().toRawBits()
-        } catch (_: Throwable) { 0L }
+        val paperCeiling8397 = try { ceilingRead8397() } catch (_: Throwable) { null }
+        val cfgBits = paperCeiling8397?.toRawBits() ?: 0L
         if (memo != null && memo.rev == journalRevision7343.get() && memo.cfgBits == cfgBits) {
             validRowsReuse7346.incrementAndGet()
             return memo.newestFirst.take(cap)
         }
-        if (cap > SMALL_READ_CAP_7348) return validRowsNewestFirst7346().take(cap)
         val copy = synchronized(lock) { ArrayList(trades) }
         return copy.asReversed().asSequence()
             .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
-            .filter { isValidAccountingTrade(it) }
+            .filter { isValidAccountingTrade8397(it, paperCeiling8397) }
             .take(cap)
             .toList()
     }
@@ -1380,10 +1385,13 @@ object TradeHistoryStore {
     private val validRowsBuilds7346 = java.util.concurrent.atomic.AtomicLong(0L)
     private val validRowsReuse7346 = java.util.concurrent.atomic.AtomicLong(0L)
 
-    private fun validRowsNewestFirst7346(): List<Trade> {
-        val cfgBits = try {
-            com.lifecyclebot.engine.PaperLearningSanity.configuredMaxTradeSol().toRawBits()
-        } catch (_: Throwable) { 0L }
+    private fun validRowsNewestFirst7346(
+        ceilingRead8397: () -> Double = { com.lifecyclebot.engine.PaperLearningSanity.configuredMaxTradeSol() },
+    ): List<Trade> {
+        // The persisted-history runtime exposed 6–7 second monitor stalls: each of 8,192 rows
+        // entered the synchronized configuration reader twice. One captured ceiling governs this pass.
+        val paperCeiling8397 = try { ceilingRead8397() } catch (_: Throwable) { null }
+        val cfgBits = paperCeiling8397?.toRawBits() ?: 0L
         val memo = validRowsMemo7346
         if (memo != null && memo.rev == journalRevision7343.get() && memo.cfgBits == cfgBits) {
             validRowsReuse7346.incrementAndGet()
@@ -1402,7 +1410,7 @@ object TradeHistoryStore {
             val (rev, copy) = synchronized(lock) { journalRevision7343.get() to ArrayList(trades) }
             val out = copy.asReversed()
                 .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
-                .filter { isValidAccountingTrade(it) }
+                .filter { isValidAccountingTrade8397(it, paperCeiling8397) }
             validRowsMemo7346 = ValidRowsMemo7346(rev, cfgBits, out)
             validRowsBuilds7346.incrementAndGet()
             return out

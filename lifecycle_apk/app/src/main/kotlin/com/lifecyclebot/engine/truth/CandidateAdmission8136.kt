@@ -800,6 +800,14 @@ object CandidateAdmission8136 {
     private val snapshotPriors8223 = ConcurrentHashMap<String, SnapshotPrior8223>()
     private const val PRIOR_CARRY_MS_8223 = 120_000L
     private val held8144 = ConcurrentHashMap<String, Held8144>()
+
+    /** Missing facts from the same lane/generation; a receipt never borrows another candidate's evidence. */
+    fun missingForReceipt8397(mint: String, lane: String, version: Long, nowMs: Long): Set<String> {
+        val l = CanonicalLaneIdentity6506.desk8392(lane)
+        val h = held8144["$mint|$l"] ?: return emptySet()
+        if (nowMs - h.atMs !in 0L..REEVAL_MAX_MS_8144 || (version > 0L && h.candidateVersion > 0L && version != h.candidateVersion)) return emptySet()
+        return h.features.toSet()
+    }
     private val coalesced8144 = AtomicLong(0)
 
     // ── V5.0.8252 §EVIDENCE_ARRIVAL ──
@@ -824,13 +832,15 @@ object CandidateAdmission8136 {
         memos8153.keys.removeIf { memoForMint8289(it, mint) }
         StrategyElection8243.invalidateEvidence(mint)
         com.lifecyclebot.engine.LaneExecutionCoordinator.invalidateUnsealedEvidence8253(mint)
-        if (held8144.isEmpty()) return
-        var woke = false
+        // The FDG receipt may be waiting on this exact named transfer as well as on the general admission queue.
+        val namedResumed8397 = com.lifecyclebot.engine.HandoffReceiverTasks8153.onEvidenceArrived8397(mint, features, nowMs)
+        if (held8144.isEmpty() && !namedResumed8397) return
+        var woke = namedResumed8397
         val prefix8289 = "$mint|"  // V5.0.8289 — one prefix per call, not one string per held entry
         for ((key, h) in held8144) {
             if (!key.startsWith(prefix8289)) continue
             for (f in h.features) {
-                if (f.substringBefore(':') !in features) continue
+                if (!com.lifecyclebot.engine.FdgReceipt8397.answersFeature(f, features)) continue
                 val rk = "$mint|$f"
                 reevals8144[rk] = Reeval8144(nowMs, reevals8144[rk]?.attempts ?: 0)
                 woke = true
@@ -998,11 +1008,12 @@ object CandidateAdmission8136 {
 
     /** Pure: a data-gap reason (recoverable) rather than a verdict on the token. */
     internal fun dataReason8136(reason: String): Boolean =
-        reason.startsWith("DATA_INCOMPLETE") || reason.contains("TOO_FEW_BARS")
+        com.lifecyclebot.engine.FdgReceipt8397.outcome(false, reason) == com.lifecyclebot.engine.FdgReceipt8397.Outcome.DEFER_DATA
 
     /** Pure: an existing gate's verdict (LiveEdgeGate7877.Verdict8083 name / plan wait) as a terminal admission. */
     fun terminalOf8136(verdict: String, reason: String): Terminal8136 = when {
         verdict == Terminal8136.ADMIT.name -> Terminal8136.ADMIT
+        verdict == Terminal8136.DEFER_DATA.name -> Terminal8136.DEFER_DATA
         dataReason8136(reason) -> Terminal8136.DEFER_DATA
         else -> Terminal8136.REFUSE
     }

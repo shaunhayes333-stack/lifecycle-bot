@@ -401,7 +401,7 @@ object TradePlan7739 {
         requestBarsIfShort7819(ts, nowMs)
         if (paper) return null
         // V5.0.8336 — the executor chokepoint holds an unproven lane out of LIVE too (chart BUYs and lanes outside 8114 mode).
-        EvidenceHold8336.refusal8336(ts, lane, paper, nowMs)?.let { return it }   // V5.0.8338 — per-mint: the exception pass is the candidate's, not the lane's
+        EvidenceHold8336.refusal8336(ts, lane, paper, nowMs, candidateVersion8397 = candidateVersion)?.let { return it }
         // V5.0.7950 — the chart reader's BUY is the plan (hard safety still runs in the edge gate's chart path).
         // V5.0.8136 — the plan, not a pass around the edge gate: FinalDecisionGate runs LiveEdgeGate7877.liveRefusal before
         // this plan (liveEdgeBlock7877), but the executor chokepoint (sniper / native paths) asks only this function, so a

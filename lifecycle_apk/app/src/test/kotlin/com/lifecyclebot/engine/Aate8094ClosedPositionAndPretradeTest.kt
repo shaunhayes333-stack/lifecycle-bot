@@ -11,6 +11,16 @@ import java.io.File
 class Aate8094ClosedPositionAndPretradeTest {
     private fun src(rel: String) = File("src/main/kotlin/com/lifecyclebot/$rel").readText()
 
+    private fun chaseDecisionSource8397(): String {
+        val gate = src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(gate.contains("if (snap8065 != null) chaseRefusal8397(ts, l8059, snap8065.runupFromLocalLowPct,"))
+        assertTrue(gate.contains("snap8065.currentVsPeak, nowMs, admittedJudged8201)?.let { reason ->"))
+        val start = gate.indexOf("internal fun chaseRefusal8397(")
+        val end = gate.indexOf("private fun developingRunGrab8117(", start)
+        assertTrue("the canonical chase helper must exist before its developing-run helper", start >= 0 && end > start)
+        return gate.substring(start, end)
+    }
+
     @Test fun aRuntimePositionIsRetiredOnlyWithEveryCloseProof() {
         val dust = java.math.BigInteger.ONE
         // EMUZCh: entry 23:50, canonical close 23:56:57, a COMPLETE wallet snapshot at 23:58 without the mint -> retire.
@@ -426,8 +436,9 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(g.cellWinsProven8094(65, 0.55, 40.0))      // a coin-flip win rate is not proof
         assertFalse(g.cellWinsProven8094(20, 0.90, 300.0))     // too few labels
         assertFalse(g.cellWinsProven8094(65, 0.80, -1.0))      // negative mean
-        val gate = src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(gate.contains("!cellOrKindProven8094(ts, l8059, nowMs)) {"))   // chase stands down for a proven cell
+        val chase = chaseDecisionSource8397()
+        assertTrue(chase.contains("val provenCell = cellOrKindProven8094(ts, lane, nowMs)"))
+        assertTrue(chase.contains("if (provenCell && SelectionDoors8310.labelStandsDownChase8310(lane)) return null"))
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("C3_STOOD_DOWN_CELL_PROVEN_8094"))
         assertTrue(src("engine/Executor.kt").contains("it.startsWith(\"MANUFACTURED_CLIMB\") && freshProvenRunner8094(ts)"))
         assertTrue(src("engine/BotService.kt").contains("return designatedDeskQualified6599 && SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane)"))
@@ -548,7 +559,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(t.laneTailBar8097(93, 500.0, 1))       // one runner is luck
         val th = src("engine/truth/TailHunter7996.kt")
         assertTrue(th.contains("cellThin && laneRuleTailProven8097(rule, l)"))
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("!spikeRuleRefusesRunners8097(ts, l8059, nowMs)"))
+        assertTrue(chaseDecisionSource8397().contains("spikeRuleRefusesRunners8097(ts, lane, nowMs)) return null"))
         assertTrue(src("engine/SpecialistOwnership7951.kt").contains("Cortex7885.vetoRefusesWinners8006(LaneParticipation8029.SHADOW_REASON, lane7951(lane))"))
     }
 
@@ -752,10 +763,10 @@ class Aate8094ClosedPositionAndPretradeTest {
         val g = src("engine/truth/LiveEdgeGate7877.kt")
         val door = g.substringAfter("proven8059 == null && !measuredEdge8060(ts, l8059, nowMs)").substringBefore("!coldStartAdmits8080(ts, l8059, nowMs)) {")
         assertTrue(door.contains("!runnerForming8113(ts, nowMs) && !shadowAuditAdmits8113(ts, l8059)"))
-        // V5.0.8115 — the chase rule still applies to a confirmed run: 8114 bought 34fph3 at +1,238% (banked -5%).
-        // A re-entry waits for its pullback / base instead of buying the high.
-        val chase = g.substringAfter("chasing8065(snap8065.runupFromLocalLowPct").substringBefore("!cellOrKindProven8094(ts, l8059, nowMs)) {")
+        // A forming run alone does not clear the chase rule. The restored, independently guarded active ticket does.
+        val chase = chaseDecisionSource8397()
         assertFalse(chase.contains("runnerForming8113"))
+        assertTrue(chase.contains("RunnerPlay8018.ticketActive8018(ts.mint, nowMs)"))
         val helper = g.substringAfter("private fun runnerForming8113(").substringBefore("private fun shadowAuditAdmits8113(")
         assertTrue(helper.contains("RunnerPlay8018.ticketActive8018(ts.mint, nowMs)") && helper.contains("RunnerGrab7967.grab7967(ts.mint, nowMs)"))
     }
@@ -787,10 +798,9 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(g.earlyRun8117(runupFromLowPct = 1_238.0, chg5mPct = 30.0))  // 34fph3: the peak, not the run
         assertFalse(g.earlyRun8117(runupFromLowPct = 90.0, chg5mPct = 140.0))    // a vertical 5-minute spike
         assertFalse(g.earlyRun8117(Double.NaN, 10.0))                            // unknown run-up: the chase rule decides
-        val src = src("engine/truth/LiveEdgeGate7877.kt")
-        val chase = src.substringAfter("chasing8065(snap8065.runupFromLocalLowPct").substringBefore("!cellOrKindProven8094(ts, l8059, nowMs)) {")
-        assertTrue(chase.contains("!developingRunGrab8117(ts, snap8065.runupFromLocalLowPct, nowMs)"))
-        assertFalse(chase.contains("runnerForming8113"))                         // re-entry tickets wait for their pullback
+        val chase = chaseDecisionSource8397()
+        assertTrue(chase.contains("if (developingRunGrab8117(ts, runupFromLowPct, nowMs) || spikeRuleRefusesRunners8097(ts, lane, nowMs)) return null"))
+        assertFalse(chase.contains("runnerForming8113")) // broad forming-run status is not an exemption
     }
 
     @Test fun aPumpLaunchIsAdmittedWhenItEntersTheProvenBand() {

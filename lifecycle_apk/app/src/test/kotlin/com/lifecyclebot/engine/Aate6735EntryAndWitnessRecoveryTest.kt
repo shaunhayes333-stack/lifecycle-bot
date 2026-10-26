@@ -89,9 +89,22 @@ class Aate6735EntryAndWitnessRecoveryTest {
     }
 
     @Test(timeout = 10000L) fun `completed runtime witness returns even without a trading bootstrap`() {
+        BotRuntimeController.resetForTests()
+        ForensicReconciliation6635.resetForTest()
         val t = System.currentTimeMillis()
+        val grace = ExecutionSpineAcceptanceWindow6647.IN_FLIGHT_WAIT_GRACE_MS_8339
         ExecutionSpineAcceptanceWindow6647.beginWindow6662(t - ExecutionSpineAcceptance6647.MIN_WINDOW_MS - 1L)
-        assertNotNull(ExecutionSpineAcceptanceWindow6647.closeCompletedWindow(t))
+        assertFalse(ForensicReconciliation6635.deltas6647().accountingCurrent8397)
+        // Unknown accounting may await a current pass, but the same unbootstrapped window must finish at its deadline.
+        assertNull(ExecutionSpineAcceptanceWindow6647.closeCompletedWindow(t))
+        assertNull(ExecutionSpineAcceptanceWindow6647.lastCompletedResult6735())
+        assertNull(ExecutionSpineAcceptanceWindow6647.closeCompletedWindow(t + grace - 1L))
+        val completed = requireNotNull(ExecutionSpineAcceptanceWindow6647.closeCompletedWindow(t + grace))
+        assertSame(completed, ExecutionSpineAcceptanceWindow6647.lastCompletedResult6735())
+        assertFalse(completed.passed)
+        assertTrue(completed.failures.containsAll(listOf("CASH_DELTA", "BASIS_DELTA", "REALIZED_DELTA", "QUANTITY_DELTA")))
+        assertEquals(0L, BotRuntimeController.currentGeneration())
+        assertEquals(BotRuntimeController.RuntimeState.STOPPED, BotRuntimeController.state.value.state)
     }
 
     @Test fun `runtime witness is read only and retains strict economic checks`() {

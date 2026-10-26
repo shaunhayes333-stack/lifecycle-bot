@@ -202,7 +202,7 @@ class Aate8343RunnerGrabTest {
     @Test fun theHooksAreWiredAndTheLiveDoorIsTheOwnersExceptionNotARewrite() {
         val lane = src("engine/RunnerGrabLane8343.kt")
         // superseded by V5.0.8345 — the grab lane hands the hold its own forming-run legs (EvidenceHold8336.exceptionalViaGrab8345 reads them as legs (a)+(c)); the hold is still the one called, never re-implemented
-        assertTrue("live goes through the evidence hold (which consults the exception door with the grab's legs)", lane.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, grabLegs8345 = grabLegs8345(evidence, venue))"))
+        assertTrue("live goes through the evidence hold (which consults the exception door with the grab's legs)", lane.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs,") && lane.contains("grabLegs8345 = grabLegs8345(evidence, venue), candidateVersion8397 = version8397)"))
         assertFalse("the exception door is called, never re-implemented", lane.contains("exceptionalReason8337(") || lane.contains("rateAllows8337("))
         assertTrue("the hold is consulted only after every other leg passed", lane.indexOf("if (why == null && live)") > lane.indexOf("var why = refusal8343(legs)"))
         assertTrue(lane.contains("LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(mint, nowMs)"))

@@ -36,7 +36,7 @@ class Aate8066HoldsCapOwnersHeliusBudgetTest {
         assertFalse(HeliusCreditEconomy7881.budgetGated8066(HeliusCreditEconomy7881.Tier.EXECUTION))
         assertTrue(HeliusCreditEconomy7881.budgetGated8066(HeliusCreditEconomy7881.Tier.DECISION))
         assertTrue(HeliusCreditEconomy7881.budgetGated8066(HeliusCreditEconomy7881.Tier.ENRICHMENT))
-        assertTrue(src("network/HeliusCreditMeterInterceptor7881.kt").contains("HeliusCreditEconomy7881.overBudget8066()"))
+        assertTrue(src("network/HeliusCreditMeterInterceptor7881.kt").contains("HeliusCreditEconomy7881.authorizeWire8397("))
         assertTrue(src("network/HeliusWebSocket.kt").contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 8"))
         assertTrue(src("network/CurveTicks7968.kt").contains("meterWs(\"CURVE_TICKS\""))
         assertTrue(src("network/GradTicks8018.kt").contains("meterWs(\"GRAD_TICKS\""))

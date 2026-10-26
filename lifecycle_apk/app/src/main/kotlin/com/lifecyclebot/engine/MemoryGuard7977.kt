@@ -450,7 +450,16 @@ object MemoryGuard7977 {
             val live = liveMints8309(now)
             if (live != null) ScannerHydrationQueues6347.pruneStale8309(now, if (hard(p)) 10L * 60_000L else 30L * 60_000L, live)
         })
-        // Learning books: counted, never trimmed.
+        // Shadow history remains durable in SQLite; only clean parsed hot cohorts are pressure-evictable.
+        r.register8144("exploreShadow8397", 0L, { com.lifecyclebot.engine.truth.ExploreShadow8347.memoryCount8397() },
+            { _ -> com.lifecyclebot.engine.truth.ExploreShadow8347.trimCold8397() }) {
+            com.lifecyclebot.engine.truth.ExploreShadow8347.memoryBytes8397()
+        }
+        r.register8144("evidenceShadow8397", 0L, { com.lifecyclebot.engine.truth.EvidenceShadow8344.memoryCount8397() },
+            { _ -> com.lifecyclebot.engine.truth.EvidenceShadow8344.trimCold8397() }) {
+            com.lifecyclebot.engine.truth.EvidenceShadow8344.memoryBytes8397()
+        }
+        // Other learning books: counted, never trimmed.
         r.register8144("cortexLedgers8309", 0L, { -1 }, null) {
             com.lifecyclebot.engine.cortex.Cortex7885.ledgerBytes8309() + com.lifecyclebot.engine.cortex.CortexExit7897.ledgerBytes8309() +
                 com.lifecyclebot.engine.cortex.CortexTiming7900.ledgerBytes8309()

@@ -263,7 +263,7 @@ class DataOrchestrator(
             .filter { it in status.tokens && it !in held && heliusMintEligible7819(it) }
             .take(capacity).toSet()
         socket.releaseTokens7948 { it in held || it in focus }
-        for (mint in focus) socket.subscribeToken(mint)
+        for (mint in focus) socket.subscribeToken(mint, decisionEvidence8397 = true)
         heliusFocus8269 = focus
         heliusFocusRotateAt8269 = nowMs + 90_000L
         try { PipelineHealthCollector.labelInc("HELIUS_WS_FOCUS_ROTATED_8269") } catch (_: Throwable) {}
