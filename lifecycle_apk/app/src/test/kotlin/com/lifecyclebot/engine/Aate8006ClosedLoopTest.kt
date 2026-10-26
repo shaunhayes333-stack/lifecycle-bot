@@ -52,7 +52,8 @@ class Aate8006ClosedLoopTest {
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
         // V5.0.8372: keep the chain witness AND the exact token/lane episode timestamp.
         // A later observation of the same mint must never receive an earlier episode's correction.
-        assertTrue(frl.contains("Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324, decisionAtMs8371 = o.atMs)"))
+        // superseded by V5.0.8395: every revision carries its own outcome-specific proof (R3).
+        assertTrue(frl.contains("Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324, decisionAtMs8371 = o.atMs, proof8395 = outcomeProof8395(o, newNet, newGross,"))
         assertTrue(frl.contains("if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)"))
         assertTrue(frl.contains("endRun8006(o, gross)"))
         val cx = src("engine/cortex/Cortex7885.kt")

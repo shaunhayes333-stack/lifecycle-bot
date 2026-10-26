@@ -87,8 +87,13 @@ class Aate8325LiveLossTest {
             val lr = CandidateAdmission8136.decide8136(cand(lane, proven, live = true, laneR = doubleArrayOf(7.0, -9.0)))
             assertEquals(lane, CandidateAdmission8136.LIVE_LANE_LOSING_8325, lr.reason)
             // the lane's own labels not positive after cost
+            // superseded by V5.0.8395 (R5, deliberate policy): the chosen setup's own complete supported record (n60 +20 +-3
+            // past cost) outranks a heterogeneous lane-label average; an unsupported setup still meets the lane prior.
             val ll = CandidateAdmission8136.decide8136(cand(lane, proven, live = true, laneLabel = ev(lane, 200, -3.0, 1.0, kind = "LANE")))
-            assertEquals(lane, CandidateAdmission8136.LIVE_LANE_LABELS_8325, ll.reason)
+            assertTrue(lane, ll.admitted)
+            val thin = ev("P", 12, 20.0, 3.0)
+            val llThin = CandidateAdmission8136.decide8136(cand(lane, thin, live = true, laneLabel = ev(lane, 200, -3.0, 1.0, kind = "LANE")))
+            assertEquals(lane, CandidateAdmission8136.LIVE_LANE_LABELS_8325, llThin.reason)
             // positive lane labels and a lane not losing: admitted
             assertTrue(lane, CandidateAdmission8136.decide8136(cand(lane, proven, live = true, laneR = doubleArrayOf(4.0, 6.0),
                 laneLabel = ev(lane, 200, 12.0, 4.0, kind = "LANE"))).admitted)

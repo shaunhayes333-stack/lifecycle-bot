@@ -120,7 +120,8 @@ class Aate8325CortexLockTest {
         for (b in lockedBlocks(label)) assertFalse(b.contains("refreshExecutable8187("))
         // V5.0.8372 shares grading with shadow exits; the shared mutation returns from its lock before
         // afterGrade refreshes external economics. Following the delegate preserves the original lock rule.
-        assertTrue(label.contains("gradeDecision8372(key, p, net8187, gross8187, witness8324)"))
+        // superseded by V5.0.8395 (R3): grading takes the atomically validated witness disposition, not the raw flag.
+        assertTrue(label.contains("gradeDecision8372(key, p, net8187, gross8187, witnessed8395)"))
         val grade = fn("private fun gradeDecision8372(", "private fun afterGrade8372(")
         val gradeLock = lockedBlocks(grade).single()
         assertTrue(gradeLock.contains("gradeModelsLocked8372(key, p, net8187, gross8187, witness8324)"))

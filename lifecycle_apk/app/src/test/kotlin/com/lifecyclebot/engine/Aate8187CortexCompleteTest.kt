@@ -314,7 +314,8 @@ class Aate8187CortexCompleteTest {
         assertTrue(cx.contains("if (!shadow8372 && !persistablePending8144(at, nowMs)) { inc(\"PENDING_RESTORE_PAST_LABEL_8187\"); continue }"))
         assertTrue(cx.contains("nowMs - at > (if (shadow8372) GRADED_KEEP_MS_8013 else PENDING_TTL_MS) || at > nowMs"))
         val fl = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(fl.contains("Cortex7885.onLabelLost8187(o.mint, o.lane, \"GAP\", decisionAtMs8371 = o.atMs)"))
+        // superseded by V5.0.8395: a gap is no longer a silent price-only loss; it reaches the one durable unavailable terminal.
+        assertTrue(fl.contains("Cortex7885.observationUnavailable8395(j.getString(\"mint\"),j.getString(\"lane\"),j.getLong(\"at\"),j.getString(\"why\"))"))
         assertTrue(fl.contains("Cortex7885.onLabelLost8187(o.mint, o.lane, \"BASIS\", decisionAtMs8371 = o.atMs)"))
         // superseded by V5.0.8291 — the first-mark check is read once and ranked (CortexLabelFeed8291).
         assertTrue(fl.contains("val first8291 = firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age)"))

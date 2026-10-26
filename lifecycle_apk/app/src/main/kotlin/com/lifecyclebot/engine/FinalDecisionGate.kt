@@ -789,30 +789,56 @@ object FinalDecisionGate {
         return r < 0.65 || r > 1.5
     }
 
-    /** Pure (V5.0.8209): does the admission's gross still clear NetEdge8030 at the cost quoted for the sealed size? */
-    internal fun requoteClears8209(expectedNetPct: Double, admittedCostPct: Double, sealedCostPct: Double, margin: Double = com.lifecyclebot.engine.truth.NetEdge8030.EDGE_MULT): Boolean {
-        if (!(expectedNetPct.isFinite() && admittedCostPct.isFinite() && sealedCostPct.isFinite())) return true   // nothing to re-prove
-        return com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(expectedNetPct + admittedCostPct, sealedCostPct, margin)
+    /** V5.0.8395 — the final-size economics terminal: one verdict, one named reason, consumed by every reader. */
+    enum class FinalEconomics8395 { CLEAR, REJECT, DEFER }
+    data class FinalEconomicsVerdict8395(val verdict: FinalEconomics8395, val reason: String?) {
+        val clears: Boolean get() = verdict == FinalEconomics8395.CLEAR
+    }
+    internal const val REQUOTE_FAILED_8209 = "ADMISSION_COST_REQUOTE_FAILED_8209"
+    internal const val REQUOTE_UNAVAILABLE_8395 = "ADMISSION_COST_REQUOTE_UNAVAILABLE_8395"
+    private val CLEAR_8395 = FinalEconomicsVerdict8395(FinalEconomics8395.CLEAR, null)
+
+    /** Pure: a REQUIRED re-quote that is missing / non-finite is a DEFER (no executable ticket), never a pass. */
+    internal fun requote8395(expectedNetPct: Double, admittedCostPct: Double, sealedCostPct: Double,
+                             margin: Double = com.lifecyclebot.engine.truth.NetEdge8030.EDGE_MULT): FinalEconomicsVerdict8395 {
+        if (!(expectedNetPct.isFinite() && admittedCostPct.isFinite() && sealedCostPct.isFinite() && margin.isFinite()))
+            return FinalEconomicsVerdict8395(FinalEconomics8395.DEFER, REQUOTE_UNAVAILABLE_8395)
+        return if (com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(expectedNetPct + admittedCostPct, sealedCostPct, margin)) CLEAR_8395
+            else FinalEconomicsVerdict8395(FinalEconomics8395.REJECT, REQUOTE_FAILED_8209)
     }
 
+    /** Back-compat boolean read of [requote8395]: only CLEAR clears. */
+    internal fun requoteClears8209(expectedNetPct: Double, admittedCostPct: Double, sealedCostPct: Double, margin: Double = com.lifecyclebot.engine.truth.NetEdge8030.EDGE_MULT): Boolean =
+        requote8395(expectedNetPct, admittedCostPct, sealedCostPct, margin).clears
+
     /**
-     * V5.0.8209 — the one cost record (CandidateAdmission8136.Decision8136.costPct/costSizeSol) is preserved through FDG and
-     * sizing: when the sealed executable size moved materially from the quoted size, the economics are re-quoted at the sealed
-     * size and must still clear; a failure is the named terminal ADMISSION_COST_REQUOTE_FAILED_8209 with both quotes in the check.
+     * V5.0.8209 / 8395 — the one cost record is preserved through FDG and sizing: when the sealed executable size moved
+     * materially from the quoted size, the economics are re-quoted at the sealed size. A failing quote is REJECT
+     * (ADMISSION_COST_REQUOTE_FAILED_8209); an unavailable / thrown / non-finite required quote is DEFER — no ticket.
      */
-    private fun sealedCostHolds8209(
+    private fun sealedEconomics8395(
         ts: TokenState, lane: String, admission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
         sealedSizeSol: Double, checks: MutableList<GateCheck>,
-    ): Boolean {
-        if (admission == null || !admission.admitted) return true
-        if (!admissionCostStale8209(admission.costSizeSol, sealedSizeSol)) return true
-        val sealed = try { com.lifecyclebot.engine.truth.NetEdge8030.entryCost8209(ts, lane, sealedSizeSol) } catch (_: Throwable) { return true }
-        val ok = requoteClears8209(admission.expectedNetPct, admission.costPct, sealed.costPct, com.lifecyclebot.engine.truth.NetEdge8030.margin8391(lane, sealedSizeSol, sealed.costPct))
-        checks.add(GateCheck("admission_cost_requote_8209", ok,
-            "quoted ${"%.2f".format(admission.costPct)}% @${"%.4f".format(admission.costSizeSol)}SOL -> sealed ${"%.2f".format(sealed.costPct)}% @${"%.4f".format(sealedSizeSol)}SOL net=${"%.2f".format(admission.expectedNetPct)}% ${sealed.breakdown.take(120)}"))
-        try { PipelineHealthCollector.labelInc(if (ok) "FDG_ADMISSION_COST_REQUOTED_OK_8209" else "FDG_ADMISSION_COST_REQUOTE_FAILED_8209") } catch (_: Throwable) {}
-        return ok
+    ): FinalEconomicsVerdict8395 {
+        if (sealedSizeSol <= 0.0 || admission == null || !admission.admitted) return CLEAR_8395
+        if (!admissionCostStale8209(admission.costSizeSol, sealedSizeSol)) return CLEAR_8395
+        val sealed = try { com.lifecyclebot.engine.truth.NetEdge8030.entryCost8209(ts, lane, sealedSizeSol) } catch (_: Throwable) { null }
+        val v = if (sealed == null) FinalEconomicsVerdict8395(FinalEconomics8395.DEFER, REQUOTE_UNAVAILABLE_8395)
+            else requote8395(admission.expectedNetPct, admission.costPct, sealed.costPct,
+                try { com.lifecyclebot.engine.truth.NetEdge8030.margin8391(lane, sealedSizeSol, sealed.costPct) } catch (_: Throwable) { Double.NaN })
+        checks.add(GateCheck("admission_cost_requote_8209", v.clears,
+            "${v.verdict} quoted ${"%.2f".format(admission.costPct)}% @${"%.4f".format(admission.costSizeSol)}SOL -> sealed ${sealed?.costPct?.let { "%.2f".format(it) } ?: "UNAVAILABLE"}% @${"%.4f".format(sealedSizeSol)}SOL net=${"%.2f".format(admission.expectedNetPct)}% ${sealed?.breakdown?.take(120).orEmpty()}"))
+        try { PipelineHealthCollector.labelInc(when (v.verdict) {
+            FinalEconomics8395.CLEAR -> "FDG_ADMISSION_COST_REQUOTED_OK_8209"
+            FinalEconomics8395.REJECT -> "FDG_ADMISSION_COST_REQUOTE_FAILED_8209"
+            FinalEconomics8395.DEFER -> "FDG_ADMISSION_COST_REQUOTE_DEFERRED_8395"
+        }) } catch (_: Throwable) {}
+        return v
     }
+
+    /** One assembled terminal: the final economics reason outranks every earlier advisory reason once size is sealed. */
+    internal fun finalReason8395(econ: FinalEconomicsVerdict8395, earlier: String?, fallback: String?): String? =
+        if (!econ.clears) econ.reason else earlier ?: fallback
 
     fun hasActiveEdgeVeto(mint: String): EdgeVeto? {
         val veto = edgeVetoes[mint] ?: return null
@@ -6260,27 +6286,26 @@ object FinalDecisionGate {
             resolveExecutableSize7835(ts, canonicalPrimaryLane6658, finalSize, config, candidateVersion7623)
         } else 0.0
         // V5.0.8209 — the admission's net-of-cost proof was quoted at proposedSizeSol; a materially different sealed size is re-quoted here.
-        val sealedCostOk8209 = executableSize7835 <= 0.0 || sealedCostHolds8209(ts, canonicalPrimaryLane6658, candidateAdmission8136, executableSize7835, checks)
-        if (!sealedCostOk8209 && blockReason == null) blockReason = "ADMISSION_COST_REQUOTE_FAILED_8209"
+        val econ8395 = sealedEconomics8395(ts, canonicalPrimaryLane6658, candidateAdmission8136, executableSize7835, checks)
 
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
             shouldTrade = shouldTradeFinal &&
                 canonicalEconomicApproval7548 &&
-                policyAllows7848 && executableSize7835 > 0.0 && sealedCostOk8209,
+                policyAllows7848 && executableSize7835 > 0.0 && econ8395.clears,
             mode = mode,
             approvalClass = approvalClass,
             quality = candidate.finalQuality,
             confidence = adjustedConfidence,
             edge = edgeVerdict,
-            blockReason = blockReasonFinal ?: when {
+            blockReason = finalReason8395(econ8395, blockReasonFinal, when {
                 !policyAllows7848 -> "CANONICAL_ENVELOPE_BLOCK_7835"
                 shouldTradeFinal && !canonicalEconomicApproval7548 -> "NON_ECONOMIC_APPROVAL_7835"
                 shouldTradeFinal && executableSize7835 <= 0.0 -> "SIZE_NOT_EXECUTABLE_7835"
                 !shouldTradeFinal -> "FINAL_NOT_EXECUTABLE_UNNAMED_8203"  // V5.0.8203 — never a denied decision without a terminal
                 else -> null
-            },
-            blockLevel = blockLevelFinal,
-            sizeSol = executableSize7835,
+            }),
+            blockLevel = if (econ8395.clears) blockLevelFinal else BlockLevel.EDGE,
+            sizeSol = if (econ8395.clears) executableSize7835 else 0.0,
             tags = tags,
             mint = ts.mint,
             symbol = ts.symbol,

@@ -539,7 +539,8 @@ object CanonicalPositionAuthority6441 {
             // A rejected/missing cross-asset seal is not permission to guess a generic lane or bind a LONG read to a
             // SHORT. markConfirmed's exact immutable-intent callback can bind later; Solana's owner path is unchanged.
             if (cortexLane8076 != null) com.lifecyclebot.engine.cortex.Cortex7885.bindPosition8076(
-                positionId, mint, cortexLane8076, canonicalMode6490, p.openedAtMs)
+                positionId, mint, cortexLane8076, canonicalMode6490, p.openedAtMs,
+                candidateVersion8395 = if (p.assetClass == AssetClass.SOLANA_TOKEN) candidateVersion7863 else 0L)
             else try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_CORTEX_BIND_UNSEALED_8372") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
         try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane, candidateVersion7863) } catch (_: Throwable) {}

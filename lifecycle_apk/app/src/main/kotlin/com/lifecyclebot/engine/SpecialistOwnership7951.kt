@@ -667,9 +667,17 @@ object SpecialistOwnership7951 {
             if (p.isBlank()) return
             val snap = SpecialistBrainBridge7542.cachedSnapshot7650(mint) ?: return
             val op = snap.opinions[p] ?: return
-            if (op.eligible || !op.authoritative) return
+            if (!op.authoritative) return
+            // V5.0.8395 — a data-scoped deferral is THIS lane waiting for its inputs: it neither judges the token nor blocks a
+            // qualified alternate. Material recovery (the lane now eligible) clears only that data deferral.
+            val scope8395 = SpecialistElection8136.refusalScope8395(op.reason, op.gradeable, op.eligible) { refusalIsJudgement8136(it, fdg = false) }
+            if (op.eligible) { SpecialistElection8136.clearPrimaryDataDefer8395(mint, p); return }
             SpecialistElection8136.notePrimaryRefusal8136(mint, p, "${SpecialistElection8136.TRIGGER_NATIVE}:${op.reason}",
-                !op.gradeable || refusalIsJudgement8136(op.reason, fdg = false), nowMs)
+                scope8395 == SpecialistElection8136.RefusalScope8395.JUDGEMENT, nowMs,
+                dataScoped8395 = scope8395 == SpecialistElection8136.RefusalScope8395.DATA)
+            if (scope8395 == SpecialistElection8136.RefusalScope8395.DATA) {
+                try { PipelineHealthCollector.labelInc("PRIMARY_DATA_DEFER_LANE_SCOPED_8395_${p}") } catch (_: Throwable) {}
+            }
             // V5.0.8180 — any graded, non-binding, non-data refusal names the lane that qualified the coin (NativeYield8180).
             val fit8180 = laneFitRefusal8132(op.reason)
             val data8180 = HandoffTaskRuntime8153.blockOf8153(op.reason) == HandoffReceiverTasks8153.Block8153.DATA

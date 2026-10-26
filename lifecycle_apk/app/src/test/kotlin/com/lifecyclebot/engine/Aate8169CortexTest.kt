@@ -104,7 +104,8 @@ class Aate8169CortexTest {
         assertTrue(cx.contains("assessCache[\"${'$'}{ts.mint}|${'$'}{canon(labelLane)}\"]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS }"))
         assertFalse(cx.substringAfter("private fun captureNow(").substringBefore("// ── V5.0.7920").contains("assess(ts, labelLane, nowMs)"))
         // superseded by V5.0.8322: a flat five-minute mark is observed only too.
-        assertTrue(cx.contains("if (!hyg8144.authority || late8153 || lateRead8169 || flat) {"))
+        // superseded by V5.0.8395: an unaccepted outcome is observed only before hygiene authority is read (R3).
+        assertTrue(cx.contains("if (!accepted8395 || !hyg8144.authority || late8153 || lateRead8169 || flat) {"))
         assertTrue(cx.contains("inc(\"LABEL_HYGIENE_LATE_VOTER_READ_8169\")"))
         assertTrue("survives a restart", cx.contains(".put(\"lr8169\", p.lateRead8169)") && cx.contains("o.optBoolean(\"lr8169\", false)"))
     }

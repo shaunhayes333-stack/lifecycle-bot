@@ -138,7 +138,7 @@ class Aate8322CortexSignalTest {
         assertTrue(back.decision(flat)!!.flat8322)
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
         // The five-minute label carries chain-witness provenance and the original token-episode identity (8371).
-        assertTrue(frl.contains("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324, decisionAtMs8371 = o.atMs)"))
+        assertTrue(frl.contains("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324, decisionAtMs8371 = o.atMs, proof8395 = outcomeProof8395(o, net, gross, H60_MS_7731))") /* superseded by V5.0.8395 (R3): label and its proof travel together */)
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("gradeBook8144.markFlat8322(\"\$key|\${p.atMs}\")"))
     }
 
@@ -217,7 +217,8 @@ class Aate8322CortexSignalTest {
         val forward = cx.substringAfter("fun reviseLabel8006(").substringBefore("private fun reviseModelsLocked8372(")
         assertTrue(forward.contains("val id = \"\$key|\$decisionAtMs8371\""))
         assertTrue(forward.contains("val g = gradedTrace8372(id) ?: run {"))
-        assertTrue(forward.contains("reviseModelsLocked8372(id, g, newNet, newGross, witness8324)"))
+        // superseded by V5.0.8395: the revision mutates models only with its validated proof (R3).
+        assertTrue(forward.contains("reviseModelsLocked8372(id, g, newNet, newGross, proof8395?.witnessed8395() == true)"))
     }
 
     @Test fun aLegacyClampedRecordIsMarkedNotRewritten() {

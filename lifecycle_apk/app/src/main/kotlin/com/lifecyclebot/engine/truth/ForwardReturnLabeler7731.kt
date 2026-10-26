@@ -263,6 +263,7 @@ object ForwardReturnLabeler7731 {
     ) {
         @Volatile var basis8386 = LabelBasis8386(LabelMark8386(mint, "", entryPrice, 0L, atMs, "UNKNOWN"), 0.0)
         @Volatile var decisionBasis8386 = basis8386
+        @Volatile var lastAcceptedMark8395: LabelMark8386? = null
         @Volatile var lastMark8386: LabelMark8386? = null
         var entryPrice: Double
             get() = basis8386.mark.usd
@@ -494,6 +495,7 @@ object ForwardReturnLabeler7731 {
             context.applicationContext.getSharedPreferences(PREFS_7731, Context.MODE_PRIVATE)
         } catch (_: Throwable) { return }
         prefs = p
+        p.all.forEach { (key,value) -> if (key.startsWith(TERMINAL_PREFIX_8395) && value is String) terminalOutbox8395[key]=value }
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.attach(context) } catch (_: Throwable) {}
         try { SpecialistMiner7972.attach7972(context) } catch (_: Throwable) {}
@@ -554,7 +556,11 @@ object ForwardReturnLabeler7731 {
             val freshEnc8169 = fresh8169.entries.joinToString(";") { (k, t) -> "$k=${synchronized(t) { t.encode() }}" }
             p.edit().putString(CELLS_KEY_7946, enc).putString(PENDING_KEY_7946, encodePending7735(now))
                 .putString(FRESH_KEY_8169, freshEnc8169).putLong(FRESH_EPOCH_KEY_8169, freshEpochMs8169)
-                .remove("cells").remove("pending").apply()
+                .remove("cells").remove("pending").also { editor ->
+                    // Same preference transaction removes the old pending row and its delivered tombstone.
+                    terminalOutbox8395.entries.filter { deliveredTerminals8395.contains(it.key) }.forEach { editor.remove(it.key) }
+                }.apply()
+            terminalOutbox8395.keys.filter { deliveredTerminals8395.remove(it) }.forEach { terminalOutbox8395.remove(it) }
         } catch (_: Throwable) {}
     }
 
@@ -564,6 +570,7 @@ object ForwardReturnLabeler7731 {
         // long as its schedule runs, and saved first: a restart used to drop every followed runner
         // after 70 minutes, so the 5 h / 24 h / beyond grades never happened across an app update.
         return pending.values.asSequence()
+            .filterNot { terminalOutbox8395.containsKey(terminalKey8395(it)) }
             .filter { nowMs - it.atMs <= H240_MS_7731 + LOST_GRACE_MS_7731 || followed8013(it, nowMs) }
             .sortedWith(compareByDescending<Obs> { followed8013(it, nowMs) }.thenByDescending { it.atMs })
             .take(MAX_PERSISTED_PENDING_7735)
@@ -585,7 +592,8 @@ object ForwardReturnLabeler7731 {
                     o.kind8063.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '),
                     o.entryStyle8077,
                     org.json.JSONObject().put("v", 8386).put("entry", o.basis8386.json())
-                        .put("decision", o.decisionBasis8386.json()).put("last", o.lastMark8386?.json()).toString(),
+                        .put("decision", o.decisionBasis8386.json()).put("last", o.lastMark8386?.json())
+                        .put("accepted8395",o.lastAcceptedMark8395?.json()).toString(),
                 ).joinToString(fs)
             }
     }
@@ -640,10 +648,13 @@ object ForwardReturnLabeler7731 {
                 o.basis8386 = LabelBasis8386.decode(e.getJSONObject("entry"))
                 o.decisionBasis8386 = LabelBasis8386.decode(e.getJSONObject("decision"))
                 o.lastMark8386 = e.optJSONObject("last")?.let { LabelMark8386.decode(it) }
+                o.lastAcceptedMark8395 = e.optJSONObject("accepted8395")?.let { LabelMark8386.decode(it) }
+                    ?: o.lastMark8386?.takeIf { LabelEvidence8386.eligible(o.basis8386.mark,it) }
             } catch (_: Exception) { /* incomplete legacy evidence remains observed-only */ }
 
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
+            if (terminalOutbox8395.containsKey(terminalKey8395(o))) return@forEach
             if (pending.putIfAbsent(key, o) == null) { lastSeenAt[key] = atMs; n++ }
         }
         return n
@@ -1231,6 +1242,12 @@ object ForwardReturnLabeler7731 {
     /** Pure (V5.0.8064): what a label credits for a peak [peakPct] above the mark at the read [restPct] — nothing. */
     fun spikeCredit8064(@Suppress("UNUSED_PARAMETER") peakPct: Double, restPct: Double): Double = restPct
 
+    private fun outcomeProof8395(o: Obs, net: Double, gross: Double, horizonMs: Long): com.lifecyclebot.engine.cortex.CortexOutcomeProof8395? {
+        val mark = o.lastMark8386 ?: return null
+        return com.lifecyclebot.engine.cortex.CortexOutcomeProof8395("${o.mint}|${o.lane.trim().uppercase()}|${o.atMs}",
+            horizonMs, mark.observedAtMs, net, gross, o.basis8386.mark, mark)
+    }
+
     private fun bookSixty7944(o: Obs, net0: Double, gross0: Double, nowMs: Long) {
         if (!eligible8386(o)) return
         // V5.0.7955 — the give-back from the peak to the 5-minute read rides on the observation to its 60-minute sample.
@@ -1260,7 +1277,7 @@ object ForwardReturnLabeler7731 {
         // V5.0.8322 — a flat mark (no price other than the entry ever seen) reaches the Cortex flagged: observed only there.
         // V5.0.8337 (FIX 2) — the flat test now runs before the 60 slot is booked (above); the Cortex still receives the flag
         // (it resolves its pending decision as observed-only), every other learner hook is skipped on a flat mark.
-        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324, decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324, decisionAtMs8371 = o.atMs, proof8395 = outcomeProof8395(o, net, gross, H60_MS_7731)) } catch (_: Throwable) {}
         if (flat8322) return
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
         try { com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}
@@ -1410,7 +1427,7 @@ object ForwardReturnLabeler7731 {
         try { SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet) } catch (_: Throwable) {}
         // V5.0.8006 — the Cortex (every voter seat, scoreboard bucket, veto audit, setup x verdict book) too.
-        try { com.lifecyclebot.engine.cortex.Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324, decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324, decisionAtMs8371 = o.atMs, proof8395 = outcomeProof8395(o, newNet, newGross, ((o.lastMark8386?.observedAtMs ?: o.atMs) - o.atMs).coerceAtLeast(1L))) } catch (_: Throwable) {}
     }
 
     fun progressiveLine7997(): String =
@@ -1520,46 +1537,6 @@ object ForwardReturnLabeler7731 {
 
     private val vanishedDead7944 = AtomicLong(0)
     private val vanishedLastMark7944 = AtomicLong(0)
-
-    private fun resolveVanished7944(o: Obs, horizon: Int, nowMs: Long) {
-        val horizonMs = if (horizon == 60) H60_MS_7731 else H240_MS_7731
-        val cutoff = o.atMs + horizonMs + graceFor7946(horizonMs)
-        var px = o.lastPx; var at = o.lastPxAtMs
-        // A stale registry read newer than ours is still a later real price.
-        try {
-            val m = CanonicalPriceMarkRegistry6522.get(o.mint)
-            val rp = m?.priceUsd?.value?.toDouble() ?: 0.0
-            if (m != null && m.timestampMs > at && m.timestampMs in (o.atMs + 1)..cutoff && rp.isFinite() && rp > 0.0) { px = rp; at = m.timestampMs }
-        } catch (_: Throwable) {}
-        if (at > cutoff) at = 0L
-        // V5.0.8180 — the same basis rule as the main mark loop: a registry / last mark the entry cannot share a basis with
-        // is no read at all (5.0.8175 BAND|*|MC_GT1M +1,500-1,700% with basisSuspect7738=0 came through this path).
-        if (px > 0.0 && o.entryPrice > 0.0 && !LabelBasis8180.bookable8180(o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint),
-                try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 })) {
-            basisSuspect7738.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("FORWARD_LABEL_VANISHED_BASIS_SUSPECT_8180") } catch (_: Throwable) {}
-            at = 0L
-        }
-        val gross = if (px > 0.0 && o.entryPrice > 0.0) (px / o.entryPrice - 1.0) * 100.0 else Double.NaN
-        when (classifyVanished7944(gross, if (at > o.atMs) at - o.atMs else 0L, horizonMs)) {
-            Vanished7944.GAP -> if (horizon == 60) {
-                markLost(o)
-                // V5.0.8187 — the Cortex files the decision unresolved now (it lingered unlabelled until a 90-minute prune).
-                try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "GAP", decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
-            }
-            Vanished7944.DEAD -> {
-                vanishedDead7944.incrementAndGet()
-                if (horizon == 60) bookSixty7944(o, -100.0, -100.0, nowMs) else bookTwoForty7944(o, -100.0, -100.0)
-                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_VANISHED_DEAD_7944") } catch (_: Throwable) {}
-            }
-            Vanished7944.LAST_MARK -> {
-                vanishedLastMark7944.incrementAndGet()
-                val net = netPct(o.entryPrice, px, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
-                if (horizon == 60) bookSixty7944(o, net, gross, nowMs) else bookTwoForty7944(o, net, gross)
-                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_VANISHED_LAST_MARK_7944") } catch (_: Throwable) {}
-            }
-        }
-    }
 
     /** A price for [mint] from the loop's token states, else the canonical mark registry when fresh. */
     /**
@@ -1719,15 +1696,102 @@ object ForwardReturnLabeler7731 {
         }
     }
 
+    private const val TERMINAL_PREFIX_8395 = "terminal8395|"
+    private val terminalOutbox8395 = java.util.concurrent.ConcurrentHashMap<String,String>()
+    private val deliveredTerminals8395 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val terminalLock8395 = Any()
+    private fun terminalKey8395(o: Obs) = "$TERMINAL_PREFIX_8395${o.mint}|${o.lane}|${o.atMs}"
+
+    /** Input is durably owned before the observation releases capacity. No return is fabricated. */
+    private fun unavailable8395(key: String, o: Obs, why: String, nowMs: Long): Boolean {
+        val id = terminalKey8395(o)
+        val durable = synchronized(terminalLock8395) {
+            if (terminalOutbox8395.containsKey(id)) true
+            else if (terminalOutbox8395.size >= MAX_PENDING_7731) false
+            else {
+                val value=org.json.JSONObject().put("mint",o.mint).put("lane",o.lane).put("at",o.atMs).put("why",why)
+                    .put("terminalAt",nowMs).put("entry",o.basis8386.json()).put("last",o.lastMark8386?.json()).toString()
+                val committed=try { prefs?.edit()?.putString(id,value)?.commit() == true } catch (_: Exception) { false }
+                if (committed) terminalOutbox8395[id]=value
+                committed
+            }
+        }
+        if (!durable) { try { PipelineHealthCollector.labelInc("FORWARD_TERMINAL_DURABILITY_WAIT_8395") } catch (_: Throwable) {}; return false }
+        if (pending.remove(key,o) && !o.done60) markLost(o)
+        return true
+    }
+
+    private fun drainTerminals8395() {
+        for ((key,raw) in terminalOutbox8395.entries.take(64)) {
+            if (deliveredTerminals8395.contains(key)) continue
+            try {
+                val j=org.json.JSONObject(raw)
+                if (com.lifecyclebot.engine.cortex.Cortex7885.observationUnavailable8395(j.getString("mint"),j.getString("lane"),j.getLong("at"),j.getString("why")))
+                    deliveredTerminals8395.add(key)
+            } catch (_: Exception) { /* retained durable outbox, never treated as delivered */ }
+        }
+        if (terminalOutbox8395.isNotEmpty()) try { com.lifecyclebot.engine.cortex.Cortex7885.flushShadowOutcomes8372() } catch (_: Exception) {}
+    }
+
+    private fun deadline8395(o: Obs): Long = o.atMs + when {
+        !o.done60 -> H60_MS_7731 + graceFor7946(H60_MS_7731)
+        !o.done240 -> H240_MS_7731 + graceFor7946(H240_MS_7731)
+        else -> CK_MS_7997.last() + LOST_GRACE_MS_7731
+    }
+
+    /** Every fresh/invalid/unchanged/rejected mark crosses this deadline before any early continue. */
+    private fun expired8395(key: String, o: Obs, incoming: LabelMark8386?, nowMs: Long): Boolean {
+        val deadline=deadline8395(o)
+        if (nowMs < deadline) return false
+        val horizon=if (!o.done60) H60_MS_7731 else H240_MS_7731
+        val recovered=listOfNotNull(o.lastAcceptedMark8395,incoming).filter {
+            it.observedAtMs in (o.atMs+horizon/2)..deadline && LabelEvidence8386.eligible(o.basis8386.mark,it) &&
+                !curveContradicts8165(o.mint,it.usd,nowMs,it.observedAtMs) && !curveHolds8337(o.mint,it.usd,nowMs,it.observedAtMs) &&
+                PositionDisplayTruth8078.highStepOk8133(o.mint,o.entryPrice,o.entryPrice*(1.0+o.peakPct/100.0),it.usd,"FORWARD_LABEL") &&
+                // V5.0.8180 — a recovered mark the entry cannot share a basis with is no read at all.
+                (o.entryPrice <= 0.0 || LabelBasis8180.bookable8180(o.entryPrice, it.usd, o.entryMcap, nowMcap7769(o.mint),
+                    try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }))
+        }.maxByOrNull { it.observedAtMs }
+        if (recovered != null && !o.done240) {
+            o.lastMark8386=recovered; o.lastAcceptedMark8395=recovered; o.lastPx=recovered.usd; o.lastPxAtMs=recovered.observedAtMs
+            val gross=(recovered.usd/o.entryPrice-1.0)*100.0
+            val net=netPct(o.entryPrice,recovered.usd,o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
+            // valid in-window recovery of the ORIGINAL basis; a later price never becomes the entry
+            if (!o.done60) { o.done60=true; bookSixty7944(o,net,gross,nowMs); pending.remove(key,o) }
+            else { o.done240=true; bookTwoForty7944(o,net,gross); if (!followed8013(o,nowMs)) pending.remove(key,o) }
+            return true
+        }
+        // V5.0.8395 — a token whose last ACCEPTED in-window mark already showed it dying (<= -60% on the original basis) and
+        // that then vanished is a real outcome, not missing data: it is booked DEAD (-100%) exactly as 7944 did, so rug
+        // evidence still reaches the toxic-setup books. An invalid/unaccepted mark never reaches this classification.
+        if (!o.done240) {
+            val horizonMs=if (!o.done60) H60_MS_7731 else H240_MS_7731
+            val lastAt=o.lastPxAtMs.takeIf { it in (o.atMs+1)..deadline } ?: 0L
+            val lastGross=if (lastAt > 0L && o.lastPx > 0.0 && o.entryPrice > 0.0) (o.lastPx/o.entryPrice-1.0)*100.0 else Double.NaN
+            if (classifyVanished7944(lastGross, if (lastAt > 0L) lastAt-o.atMs else 0L, horizonMs) == Vanished7944.DEAD) {
+                vanishedDead7944.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_VANISHED_DEAD_7944") } catch (_: Throwable) {}
+                if (!o.done60) { o.done60=true; bookSixty7944(o,-100.0,-100.0,nowMs); pending.remove(key,o) }
+                else { o.done240=true; bookTwoForty7944(o,-100.0,-100.0); pending.remove(key,o) }
+                return true
+            }
+        }
+        if (o.done240 && o.lastPx > 0.0 && o.entryPrice > 0.0) endRun8006(o, (o.lastPx / o.entryPrice - 1.0) * 100.0)
+        unavailable8395(key,o,"OBSERVATION_DEADLINE_${LabelEvidence8386.status(o.basis8386.mark,incoming)}",nowMs)
+        return true
+    }
+
     fun tick(priceFor0: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
         // V5.0.7931 — crypto-universe and Markets identities are priced by their own feeds.
         val priceFor: (String) -> Double? = { m -> priceFor0(m) ?: com.lifecyclebot.engine.cortex.CrossAssetCortex7931.priceFor(m, nowMs) }
         val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs) }, nowMs) } catch (_: Throwable) { emptyList() }
-        if (pending.isEmpty() && freshUnpriced7737.isEmpty()) return
+        drainTerminals8395()
+        if (pending.isEmpty() && freshUnpriced7737.isEmpty()) { if (deliveredTerminals8395.isNotEmpty()) persist(force=true); return }
         val dueUnpriced7737 = ArrayList<Pair<String, Long>>()
         for ((key, o) in pending.entries.toList()) {
             val age = nowMs - o.atMs
             val observed8386 = typedMark8386(o.mint, priceFor, nowMs)
+            if (expired8395(key,o,observed8386,nowMs)) continue
             val px = observed8386?.usd
             if (px == null) {
                 // V5.0.8187 — an unpriced observation inside its re-base window asks the off-watch batch FIRST: its label can
@@ -1740,24 +1804,17 @@ object ForwardReturnLabeler7731 {
                 else if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
                 // V5.0.8013 — a followed coin's due checkpoint asks for an off-watch mark too.
                 else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, o.atMs + CK_MS_7997[o.ck7997]))
-                if (!o.done60 && age >= H60_MS_7731 + graceFor7946(H60_MS_7731)) {
-                    // V5.0.7944 — nothing priced it at its 60-minute horizon: booked at its
-                    // real last price (or -100% when it died), lost only when there is no read.
-                    resolveVanished7944(o, 60, nowMs)
-                    pending.remove(key, o)
-                } else if (o.done60 && age >= H240_MS_7731 + graceFor7946(H240_MS_7731)) {
-                    if (!o.done240) { o.done240 = true; resolveVanished7944(o, 240, nowMs); pending.remove(key, o) }
-                    // V5.0.8013 — a coin still on the progressive schedule is kept while unpriced (it left
-                    // the watchlist; its checkpoint fetches an off-watch mark); it used to be dropped here,
-                    // so the 5 h / 24 h grades almost never happened.
-                    else if (!followed8013(o, nowMs)) {
-                        if (o.lastPx > 0.0 && o.entryPrice > 0.0) endRun8006(o, (o.lastPx / o.entryPrice - 1.0) * 100.0)
-                        pending.remove(key, o)
-                    }
-                }
                 continue
             }
             val mark8386 = observed8386 ?: continue
+            if (!o.basis8386.mark.known() && age <= REBASE_MAX_MS_8076 && o.decisionBasis8386.mark.known())
+                o.basis8386 = o.decisionBasis8386
+            // Validate against the original typed basis BEFORE a rebase can erase a decimals/units mismatch.
+            if (!LabelEvidence8386.eligible(o.basis8386.mark,mark8386)) {
+                o.lastMark8386=mark8386
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_${LabelEvidence8386.status(o.basis8386.mark,mark8386)}") } catch (_: Throwable) {}
+                continue
+            }
             if (mark8386.observedAtMs <= o.lastPxAtMs) continue // a cache read is not a new path event
             // V5.0.8167 — validate before rebasing or deleting the observation. The chain witness: a mark the coin's own active bonding curve contradicts is a basis error, not a
             // move. Rejecting it must leave the entry basis and rebase eligibility unchanged.
@@ -1814,6 +1871,8 @@ object ForwardReturnLabeler7731 {
                 }
                 continue
             }
+            val priorAccepted8395 = o.lastAcceptedMark8395
+            o.lastAcceptedMark8395=mark8386
             val gross = (px / o.entryPrice - 1.0) * 100.0
             if (gross < o.minPct7962) { notePathLow8366(o, mark8386.observedAtMs, gross); o.minPct7962 = gross }  // V5.0.8366 — first mark past a stop
             // V5.0.8000 — a runner inside its first 30 minutes is broadcast to every installed instance.
@@ -1842,9 +1901,11 @@ object ForwardReturnLabeler7731 {
             if (!o.done60 && age >= H60_MS_7731 && !horizonOpen7809(age, H60_MS_7731)) {
                 // Restored after its 60-minute window closed: priced at the last mark seen before it
                 // (V5.0.7944), lost only when there is none inside the window.
+                // V5.0.8395 — the same bounded recovery / durable unavailable terminal as every other expiry: only the
+                // last ACCEPTED in-window mark may label it; otherwise one exact unavailable terminal.
                 o.lastPx = priorPx7944.first; o.lastPxAtMs = priorPx7944.second
-                resolveVanished7944(o, 60, nowMs)
-                pending.remove(key, o)
+                o.lastAcceptedMark8395 = priorAccepted8395; o.lastMark8386 = priorAccepted8395
+                expired8395(key, o, null, maxOf(nowMs, deadline8395(o)))
                 continue
             }
             if (!o.done60 && age >= H60_MS_7731) {

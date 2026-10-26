@@ -1,5 +1,33 @@
 package com.lifecyclebot.engine.cortex
 
+/** Evidence belongs to one value at one observation time, never to a mutable decision-wide Boolean. */
+data class CortexOutcomeProof8395(
+    val decisionId: String, val horizonMs: Long, val observedAtMs: Long,
+    val netPct: Double, val grossPct: Double,
+    val entry: com.lifecyclebot.engine.truth.LabelMark8386? = null,
+    val outcome: com.lifecyclebot.engine.truth.LabelMark8386? = null,
+) {
+    fun matches8395(id: String, horizon: Long, at: Long, net: Double, gross: Double): Boolean =
+        decisionId == id && horizonMs == horizon && observedAtMs == at && netPct.toBits() == net.toBits() && grossPct.toBits() == gross.toBits()
+    fun witnessed8395(): Boolean = entry != null && outcome != null && entry.independentBasis && outcome.independentBasis &&
+        entry.mint == decisionId.substringBefore('|') && outcome.observedAtMs == observedAtMs &&
+        com.lifecyclebot.engine.truth.LabelEvidence8386.eligible(entry, outcome)
+    fun encode8395(): String = org.json.JSONObject().put("id",decisionId).put("h",horizonMs).put("at",observedAtMs)
+        .put("net",netPct).put("gross",grossPct).put("entry",entry?.json()).put("outcome",outcome?.json()).toString()
+    companion object {
+        fun decode8395(raw: String): CortexOutcomeProof8395? = try {
+            val j=org.json.JSONObject(raw)
+            CortexOutcomeProof8395(j.getString("id"),j.getLong("h"),j.getLong("at"),j.getDouble("net"),j.getDouble("gross"),
+                j.optJSONObject("entry")?.let { com.lifecyclebot.engine.truth.LabelMark8386.decode(it) },
+                j.optJSONObject("outcome")?.let { com.lifecyclebot.engine.truth.LabelMark8386.decode(it) })
+        } catch (_: Exception) { null }
+    }
+}
+
+enum class CortexOutcomeDisposition8395(val accepted: Boolean) {
+    ACCEPTED_FIRST(true), ACCEPTED_REVISION(true), DUPLICATE_ACCEPTED(true), OBSERVED_ONLY(false), IDENTITY_MISMATCH(false), MISSING(false)
+}
+
 /**
  * V5.0.8144 §GRADE_RECORDS — one stored record per graded Cortex decision and per Cortex-bound trade.
  *
@@ -82,9 +110,14 @@ class CortexGradeRecord8144(
     var outcomeKind8394: String = "FORWARD"
     var outcomeDueAtMs8394: Long = 0L
     var firstAvailableAtMs8372: Long = 0L
+    var firstOutcomeProof8395: String = ""
+    var revisedOutcomeProof8395: String = ""
+    var modelContribution8395: String = ""
+    var disposition8395: String = "UNRESOLVED"
 
     /** May this decision's label grade authority (executable, first of its episode)? */
-    val graded: Boolean get() = kind == 'D' && executable && !repeat
+    val eligibleToGrade8395: Boolean get() = kind == 'D' && executable && !repeat
+    val graded: Boolean get() = eligibleToGrade8395
 
     internal fun detached8386(): CortexGradeRecord8144 = CortexGradeRecord8144(kind, id, episode, atMs, lane, setup,
         regime, timing, costBand, cohort, bucket, predictedEdgePct, admitted, executable, repeat).also { out ->
@@ -114,6 +147,8 @@ class CortexGradeRecord8144(
         out.outcomeSource8372 = outcomeSource8372
         out.outcomeKind8394 = outcomeKind8394; out.outcomeDueAtMs8394 = outcomeDueAtMs8394
         out.firstAvailableAtMs8372 = firstAvailableAtMs8372
+        out.firstOutcomeProof8395 = firstOutcomeProof8395; out.revisedOutcomeProof8395 = revisedOutcomeProof8395
+        out.modelContribution8395 = modelContribution8395; out.disposition8395 = disposition8395
     }
 
     fun key(): String = "$lane|$setup|$regime|$timing|$costBand|$cohort"
@@ -250,33 +285,57 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
     }
 
     /** A label for decision [id] (first read or a later horizon). [executableAllowed] gates the executable value. */
+    private val UNSTAMPED_8395 = Long.MIN_VALUE
+
     fun label(id: String, netPct: Double, grossPct: Double, executableValue: Double, executableAllowed: Boolean,
-              availableAtMs: Long = System.currentTimeMillis()): Boolean {
-        val r = byId[id] ?: return false
-        if (!netPct.isFinite()) return false
-        r.observedNetPct = netPct; r.observedGrossPct = grossPct; r.lost = false
-        // V5.0.8322 — the executable (authority) value is stored RAW (8187 clamped it to the cohort's cap at ingestion,
-        // destroying the runner tail; owner directive 8072: no win caps). The first stays immutable (8272); later horizons
-        // are stored apart with when they became knowable.
-        if (r.graded && executableAllowed && executableValue.isFinite() && !r.lateEntry8153 && !r.lateRead8187 && !r.flat8322 &&
-            !implausible8388(executableValue, r.labelCap8187(), r.witnessed8324).also { if (it) noteImplausible8388(r, executableValue, "LABEL") }) {
-            if (!r.executablePct.isFinite()) {
-                r.executablePct = executableValue; r.firstGross8324 = grossPct
-                r.firstAvailableAtMs8372 = availableAtMs
-            }       // the immutable first target
-            else { r.executableRevisedPct = executableValue; r.revisedAvailableAtMs = availableAtMs; r.revisions8272++; r.revisedGross8324 = grossPct }
-        }
-        noteGraded(r)
-        revision++
-        return true
+              availableAtMs: Long = UNSTAMPED_8395): Boolean {
+        // An unstamped legacy/replay label is observed at its decision's own first horizon, never at the wall clock.
+        val at = if (availableAtMs == UNSTAMPED_8395) (byId[id]?.atMs ?: 0L) + FIRST_LABEL_MS_8322 else availableAtMs
+        return labelOutcome8395(id, netPct, grossPct, executableValue, executableAllowed, FIRST_LABEL_MS_8322, at, at)
+            .let { it != CortexOutcomeDisposition8395.MISSING && it != CortexOutcomeDisposition8395.IDENTITY_MISMATCH }
     }
 
-    /** The already costed, selected simulated exit replaces this experiment's contribution, not its prediction. */
+    /** Caller holds the model lock. Validation and the accepted value's OWN provenance change together. */
+    fun labelOutcome8395(id: String, netPct: Double, grossPct: Double, executableValue: Double, executableAllowed: Boolean,
+                         horizonMs: Long, outcomeAtMs: Long, availableAtMs: Long,
+                         proof: CortexOutcomeProof8395? = null): CortexOutcomeDisposition8395 {
+        val r = byId[id] ?: return CortexOutcomeDisposition8395.MISSING
+        if (horizonMs <= 0L || outcomeAtMs < r.atMs || availableAtMs < outcomeAtMs ||
+            (proof != null && !proof.matches8395(id,horizonMs,outcomeAtMs,netPct,grossPct)))
+            return CortexOutcomeDisposition8395.IDENTITY_MISMATCH
+        if (!netPct.isFinite() || !grossPct.isFinite()) return CortexOutcomeDisposition8395.OBSERVED_ONLY
+        val bound = proof ?: CortexOutcomeProof8395(id,horizonMs,outcomeAtMs,netPct,grossPct)
+        val encoded = org.json.JSONObject(bound.encode8395()).put("exec", executableValue.takeIf { it.isFinite() }).toString()
+        r.observedNetPct = netPct; r.observedGrossPct = grossPct
+        val witnessed = bound.witnessed8395()
+        val implausible = implausible8388(executableValue, r.labelCap8187(), witnessed)
+        if (!r.graded || !executableAllowed || !executableValue.isFinite() || r.lateEntry8153 || r.lateRead8187 || r.flat8322 || implausible) {
+            if (implausible) noteImplausible8388(r, executableValue, "LABEL")
+            r.disposition8395 = "OBSERVED_ONLY"; revision++
+            return CortexOutcomeDisposition8395.OBSERVED_ONLY
+        }
+        if (encoded == r.firstOutcomeProof8395 || encoded == r.revisedOutcomeProof8395)
+            return CortexOutcomeDisposition8395.DUPLICATE_ACCEPTED
+        val disposition = if (!r.executablePct.isFinite()) {
+            r.executablePct = executableValue; r.firstGross8324 = grossPct
+            r.firstAvailableAtMs8372 = availableAtMs; r.firstOutcomeProof8395 = encoded
+            CortexOutcomeDisposition8395.ACCEPTED_FIRST
+        } else {
+            r.executableRevisedPct = executableValue; r.revisedAvailableAtMs = availableAtMs
+            r.revisions8272++; r.revisedGross8324 = grossPct; r.revisedOutcomeProof8395 = encoded
+            CortexOutcomeDisposition8395.ACCEPTED_REVISION
+        }
+        r.witnessed8324 = witnessed; r.lost = false; r.disposition8395 = disposition.name
+        noteGraded(r); revision++
+        return disposition
+    }
+
+    /** Selected simulated exit: observation acceptance must precede every model/source/playbook mutation. */
     fun shadowOutcome8372(id: String, netPct: Double, grossPct: Double, availableAtMs: Long): Boolean {
         val r = byId[id] ?: return false
-        if (!netPct.isFinite() || !grossPct.isFinite() || availableAtMs < r.atMs) return false
-        r.outcomeSource8372 = "SHADOW_EXIT"
-        return label(id, netPct, grossPct, netPct, true, availableAtMs)
+        val result = labelOutcome8395(id,netPct,grossPct,netPct,true,(availableAtMs-r.atMs).coerceAtLeast(1L),availableAtMs,availableAtMs)
+        if (result.accepted) r.outcomeSource8372 = "SHADOW_EXIT"
+        return result.accepted
     }
 
     /** V5.0.8153 — decision [id]'s label started from a late first price: its executable value is withdrawn for good. */
@@ -486,6 +545,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
     /** V5.0.8324 — record [id]'s current label provenance. */
     fun markWitness8324(id: String, witnessed: Boolean): Boolean {
         val r = byId[id] ?: return false
+        // Legacy restoration only. New accepted outcomes carry their own immutable proof.
+        if (r.firstOutcomeProof8395.isNotBlank() || r.revisedOutcomeProof8395.isNotBlank()) return false
         r.witnessed8324 = witnessed
         return true
     }
@@ -628,6 +689,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         r.calStamp8371.takeIf { it.isFinite() }?.toString().orEmpty(),
         r.scoreVersion8372.toString(), clean(r.outcomeSource8372), r.firstAvailableAtMs8372.toString(),
         clean(r.outcomeKind8394), r.outcomeDueAtMs8394.toString(),
+        clean(r.firstOutcomeProof8395), clean(r.revisedOutcomeProof8395), clean(r.modelContribution8395), clean(r.disposition8395),
     ).joinToString(FS.toString())
 
     internal fun detached8386(): CortexGradeBook8144 = CortexGradeBook8144(maxDecisions, maxTrades).also { out ->
@@ -648,7 +710,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             // V5.0.8187 — 26 fields (late voter read); a 25-field row reads as on time.
             // V5.0.8322 — 29 fields (revised executable, its availability, flat mark); 24..26-field rows read as before.
             // V5.0.8324 — 32 fields (objective gross first / revised, tail EV); 24..29-field rows read as before.
-            if (f.size !in 24..42 || f[0].length != 1 || f[1].isBlank()) continue
+            if (f.size !in 24..46 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
@@ -668,6 +730,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             r.firstAvailableAtMs8372 = f.getOrNull(39)?.toLongOrNull() ?: 0L
             r.outcomeKind8394 = f.getOrNull(40) ?: "FORWARD"
             r.outcomeDueAtMs8394 = f.getOrNull(41)?.toLongOrNull() ?: 0L
+            r.firstOutcomeProof8395 = f.getOrNull(42).orEmpty(); r.revisedOutcomeProof8395 = f.getOrNull(43).orEmpty()
+            r.modelContribution8395 = f.getOrNull(44).orEmpty(); r.disposition8395 = f.getOrNull(45) ?: "LEGACY"
             if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
             // V5.0.8388 — historical rows whose unwitnessed executable value is physically implausible (8385 SHITCOIN strong
             // cohort mean +3.3e10 %) are read as observed-only: they stay in the book, never in a graded cohort or authority.
@@ -691,8 +755,17 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
 
     private fun sanitize8388(r: CortexGradeRecord8144, stage: String) {
         val cap = r.labelCap8187()
-        if (implausible8388(r.executablePct, cap, r.witnessed8324)) { noteImplausible8388(r, r.executablePct, stage); r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
-        else if (implausible8388(r.executableRevisedPct, cap, r.witnessed8324)) { noteImplausible8388(r, r.executableRevisedPct, stage); r.executableRevisedPct = Double.NaN }
+        fun witnessed(raw: String, value: Double, gross: Double, available: Long): Boolean {
+            if (raw.isBlank()) return r.witnessed8324 // preserved legacy evidence, not a newly created receipt
+            val proof = CortexOutcomeProof8395.decode8395(raw) ?: return false
+            val executable = try { org.json.JSONObject(raw).getDouble("exec") } catch (_: Exception) { return false }
+            return proof.decisionId == r.id && proof.grossPct.toBits() == gross.toBits() && executable.toBits() == value.toBits() &&
+                proof.observedAtMs >= r.atMs && proof.observedAtMs <= available && proof.witnessed8395()
+        }
+        val firstWitness = witnessed(r.firstOutcomeProof8395,r.executablePct,r.firstGross8324,r.firstAvailableAtMs8372)
+        val revisedWitness = witnessed(r.revisedOutcomeProof8395,r.executableRevisedPct,r.revisedGross8324,r.revisedAvailableAtMs)
+        if (implausible8388(r.executablePct, cap, firstWitness)) { noteImplausible8388(r, r.executablePct, stage); r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
+        else if (implausible8388(r.executableRevisedPct, cap, revisedWitness)) { noteImplausible8388(r, r.executableRevisedPct, stage); r.executableRevisedPct = Double.NaN }
     }
 
     private fun noteImplausible8388(r: CortexGradeRecord8144, v: Double, stage: String) {

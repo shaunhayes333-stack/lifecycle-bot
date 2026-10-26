@@ -46,12 +46,27 @@ object AdmissionHandoff8144 {
         val settledAtMs: Long = 0L,
         /** V5.0.8153 — receivers that refused this hand-off on fit (it is not handed back to them). */
         val tried8153: Set<String> = emptySet(),
+        /** V5.0.8395 — an unevaluated settlement reopens at most once, on material (newly qualified) evidence. */
+        val reopened8395: Boolean = false,
     ) {
         val open: Boolean get() = state == State8144.EMITTED || state == State8144.RECEIVER_QUALIFIED
     }
 
     /** One lane's native read of the token in one assessment. */
-    data class LaneRead8144(val lane: String, val eligible: Boolean, val score: Int, val reason: String)
+    data class LaneRead8144(val lane: String, val eligible: Boolean, val score: Int, val reason: String,
+                            /** V5.0.8395 — the lane's own-scale conviction (SpecialistElection8136.normalised8136); NaN = derive from score. */
+                            val conviction: Double = Double.NaN)
+
+    /** V5.0.8395 — ONE schedulable-receiver policy for the ledger, the receiver tasks and the election. */
+    fun schedulable8395(lane: String?): Boolean {
+        val l = canon8144(lane)
+        return l.isNotBlank() && l !in com.lifecyclebot.engine.SpecialistElection8136.RESCUE_EXCLUDED_8136
+    }
+
+    /** Pure: the read's claim on one scale — calibrated conviction when known, else the raw score (0..100). */
+    fun conviction8395(r: LaneRead8144): Double =
+        if (r.conviction.isFinite()) r.conviction.coerceIn(0.0, 100.0)
+        else com.lifecyclebot.engine.SpecialistElection8136.normalised8136(r.score.toDouble(), Double.NaN, null)
 
     const val HANDOFF_TTL_MS_8144 = 120_000L
     /** A native read computed in the same assessment as the hand-off is stamped a little before it. */
@@ -66,10 +81,12 @@ object AdmissionHandoff8144 {
     /** Pure: the receiving lane — the named lane when natively qualified, else the best other qualified lane, else null. */
     fun receiver8144(named: String?, from: String, reads: Collection<LaneRead8144>): String? {
         val sender = canon8144(from)
-        val q = reads.filter { it.eligible && canon8144(it.lane) != sender && canon8144(it.lane) != "CORE" && canon8144(it.lane).isNotBlank() }
+        val q = reads.filter { it.eligible && canon8144(it.lane) != sender && schedulable8395(it.lane) }
         val n = canon8144(named)
         if (n.isNotBlank()) q.firstOrNull { canon8144(it.lane) == n }?.let { return n }
-        return q.maxByOrNull { it.score }?.let { canon8144(it.lane) }
+        // V5.0.8395 — raw specialist scores are on different scales: rank the fallback on own-lane conviction.
+        return q.sortedWith(compareByDescending<LaneRead8144> { conviction8395(it) }.thenBy { canon8144(it.lane) })
+            .firstOrNull()?.let { canon8144(it.lane) }
     }
 
     /** Pure: a new hand-off unless one for this mint is still open, or settled within [SETTLED_HOLD_MS_8144]. */
@@ -102,7 +119,7 @@ object AdmissionHandoff8144 {
                 verdict = "NATIVE_REFUSED:${namedRead.reason.take(60)}", settledAtMs = atMs)
         }
         if (reads.any { canon8144(it.lane) != h.from && dataPending8167(it.reason) }) return h
-        val others = reads.count { canon8144(it.lane) != h.from && canon8144(it.lane) != "CORE" }
+        val others = reads.count { canon8144(it.lane) != h.from && schedulable8395(it.lane) }
         return if (others > 0) h.copy(state = State8144.NO_QUALIFIED_RECEIVER, verdict = "NONE_OF_${others}_QUALIFIED", settledAtMs = atMs)
         else h
     }
@@ -225,9 +242,31 @@ object AdmissionHandoff8144 {
             if (after.state != State8144.RECEIVER_QUALIFIED || receiver == null) return after
             val eligible = reads.filter { it.eligible }.map { canon8144(it.lane) }.toSet()
             val lane = rt.onReceiverQualified8153(after.mint, after.from, receiver, after.reason, eligible, after.emittedAtMs, atMs, atMs)
-            if (lane != null && lane != receiver) return after.copy(receiver = lane, verdict = "TASK_RECEIVER_$lane")
+            // V5.0.8395 — no committed matching task: the ledger may not claim a qualified receiver. Retryable, still open.
+            if (lane == null) return taskNotCommitted8395(after, receiver)
+            if (lane != receiver) return after.copy(receiver = lane, verdict = "TASK_RECEIVER_$lane")
         } catch (_: Throwable) {}
         return after
+    }
+
+    /** Pure: a qualification with no committed task returns to a retryable pending state, named. */
+    internal fun taskNotCommitted8395(h: Handoff8144, receiver: String): Handoff8144 =
+        h.copy(receiver = null, state = State8144.EMITTED, verdict = "TASK_NOT_COMMITTED_8395:$receiver")
+
+    /** Settlements that never reached a lane judgement (data / scheduling / no task), as opposed to a verdict. */
+    internal fun unevaluated8395(h: Handoff8144): Boolean = !h.open && (h.state == State8144.EXPIRED_NOT_EVALUATED ||
+        (h.state == State8144.NO_QUALIFIED_RECEIVER && !h.verdict.startsWith("FIT_NO_COMPATIBLE_RECEIVER")))
+
+    /**
+     * Pure (V5.0.8395): an unevaluated settlement reopens ONCE when a read newer than the settlement newly qualifies a
+     * schedulable non-sender lane (material evidence; a timestamp refresh of the same refusal is not). Judged, safety,
+     * duplicate and execution terminals never reopen here.
+     */
+    fun reopenOnMaterial8395(h: Handoff8144, reads: Collection<LaneRead8144>, atMs: Long): Handoff8144 {
+        if (!unevaluated8395(h) || h.reopened8395 || atMs <= h.settledAtMs) return h
+        if (reads.none { it.eligible && schedulable8395(it.lane) && canon8144(it.lane) != h.from && canon8144(it.lane) !in h.tried8153 }) return h
+        return h.copy(state = State8144.EMITTED, receiver = null, emittedAtMs = atMs, settledAtMs = 0L,
+            verdict = "REOPENED_MATERIAL_8395:${h.verdict.take(40)}", reopened8395 = true)
     }
 
     private fun count8144(key: String) {
@@ -293,7 +332,7 @@ object AdmissionHandoff8144 {
         try { AdmissionRunnerTrace8144.noteNative8144(mint, atMs, reads) } catch (_: Throwable) {}
         val prior = ledger[mint] ?: return
         // V5.0.8153 — a fit refusal by the receiver hands it on; a qualified receiver becomes a task the cycle consumes.
-        val live = expireLive8153(prior, atMs)
+        val live = reopenOnMaterial8395(expireLive8153(prior, atMs), reads, atMs)
         // V5.0.8190 — a lane floor / band (LANE_LIQ_BELOW_FLOOR ...) hands the receiver on here too, as the task does.
         val judged = onNativeTransfer8153(live, reads, atMs) { r -> try { com.lifecyclebot.engine.HandoffTaskRuntime8153.blockOf8153(r) == com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.FIT } catch (_: Throwable) { false } }
         val next = followTask8153(live, judged, reads, atMs)

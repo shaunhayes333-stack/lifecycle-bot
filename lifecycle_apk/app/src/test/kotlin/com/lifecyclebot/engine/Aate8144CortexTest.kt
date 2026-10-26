@@ -42,7 +42,7 @@ class Aate8144CortexTest {
         val id = "$episode|$atMs"
         val r = CortexGradeRecord8144('D', id, episode, atMs, lane, setup, "BULL", "MID", "C3_6", "MC_10K_100K", bucket, 4.5, admitted, v.executable, v.repeat)
         assertTrue(book.addDecision(r))
-        assertTrue(book.label(id, net, net, CortexLabelHygiene8144.executablePct8144(net, latencyMeasured), true))
+        assertTrue(book.label(id, net, net, CortexLabelHygiene8144.executablePct8144(net, latencyMeasured), true, atMs + 5 * 60_000L))
         return r
     }
 
@@ -352,10 +352,12 @@ class Aate8144CortexTest {
         assertTrue(cx.contains("AateEntryIdentityBook8136.identity8136(env.positionId)"))
         val on = cx.substringAfter("fun onLabel(mint: String, labelLane: String").substringBefore("private fun sourceOutcome8372(")
         // Hygiene still precedes playbook learning; both delivery and removal are now scoped to the original episode.
-        assertTrue(on.indexOf("recordLabel8144(key, p, netPct, grossPct, lat8144)") in 0 until on.indexOf("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs)"))
+        assertTrue(on.indexOf("recordLabel8144(key, p, netPct, grossPct, lat8144, proof8395)") in 0 until on.indexOf("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs)"))
         assertTrue(on.contains("LanePlaybook7907.dropPending8144(mint, labelLane, decisionAtMs8372 = p.atMs)"))
         val rv = cx.substringAfter("fun reviseLabel8006(").substringBefore("fun progressiveLine8006(")
-        assertTrue(rv.indexOf("if (!exec8144) { inc(\"REVISION_PAST_EXEC_HORIZON_8144\"); return }") in 0 until rv.indexOf("reviseModelsLocked8372(id, g, newNet, newGross, witness8324)"))
+        // superseded by V5.0.8395: the revision validates against its own proof before any model mutation.
+        assertTrue(rv.indexOf("if (!exec8144) { inc(\"REVISION_PAST_EXEC_HORIZON_8144\"); return }") in 0 until rv.indexOf("reviseModelsLocked8372(id, g, newNet, newGross, proof8395?.witnessed8395() == true)"))
+        assertTrue(rv.indexOf("gradeBook8144.labelOutcome8395(") in 0 until rv.indexOf("reviseModelsLocked8372(id, g, newNet, newGross,"))
         assertTrue(rv.substringAfter("private fun reviseModelsLocked8372(").contains("ledger.revise8006("))
         assertTrue(cx.contains("FirstSight8026.grant8026(ts, a.lane, refusal, if (barred8144) -1.0 else evidence, strong, maturity)"))
         val pb = src("engine/cortex/LanePlaybook7907.kt")

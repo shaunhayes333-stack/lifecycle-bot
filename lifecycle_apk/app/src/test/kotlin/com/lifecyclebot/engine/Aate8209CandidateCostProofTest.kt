@@ -45,14 +45,14 @@ class Aate8209CandidateCostProofTest {
         // net 1% on a 3% cost = 4% gross; at 3.2% sealed cost the entry must fail NetEdge8030's multiple
         assertFalse(FinalDecisionGate.requoteClears8209(1.0, 3.0, 3.2))
         assertTrue(FinalDecisionGate.requoteClears8209(40.0, 3.0, 3.2))
-        assertTrue("nothing to re-prove without numbers", FinalDecisionGate.requoteClears8209(Double.NaN, 3.0, 3.2))
+        assertFalse("a required re-quote without numbers defers, it never clears (8395)", FinalDecisionGate.requoteClears8209(Double.NaN, 3.0, 3.2))
     }
 
     @Test fun fdgPassesTheProposedSizeAndRefusesANamedRequoteFailure() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(src.contains("proposedSizeSol = proposedSizeSol,   // V5.0.8209"))
-        assertTrue(src.contains("policyAllows7848 && executableSize7835 > 0.0 && sealedCostOk8209"))
-        assertTrue(src.contains("blockReason = \"ADMISSION_COST_REQUOTE_FAILED_8209\""))
+        assertTrue(src.contains("policyAllows7848 && executableSize7835 > 0.0 && econ8395.clears"))
+        assertTrue(src.contains("internal const val REQUOTE_FAILED_8209 = \"ADMISSION_COST_REQUOTE_FAILED_8209\""))
         val adm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         assertFalse("the refusal breakdown is the candidate's own quote, never only a global last-write", adm.contains("\"breakdown=\${try { NetEdge8030.lastEntryBreakdown8204() }"))
     }

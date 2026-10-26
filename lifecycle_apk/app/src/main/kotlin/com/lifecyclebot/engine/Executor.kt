@@ -26479,6 +26479,10 @@ class Executor(
             "pnl=${pnlP.toInt()}% | hold=${holdTimeMins.toInt()}min | " +
             "learn=${if(isScratchTrade) "NO (scratch)" else "YES"}")
         
+        // V5.0.8395 — ART VerifyError P0: paperSell (1,678 lines) was rejected on device since 8392 ("[0x4C95] copy1
+        // v2<-v447 type=Undefined", runtime smoke: Executor failed to verify, service never started, executor never ran).
+        // The post-close learning/telemetry tail runs in its own compiled method; order and behaviour are unchanged.
+        fun paperSellLearningTail8395() {
         if (shouldLearnAsLoss) {
             val fanName = ts.meta.emafanAlignment
             val ph      = pos.entryPhase
@@ -26887,6 +26891,8 @@ class Executor(
         TradeLifecycle.closed(tradeId.mint, price, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classification, if (isScratchTrade) null else shouldLearnAsWin)
         TradeLifecycle.clearProposalTracking(tradeId.mint)
+        }
+        fun paperSellLearningTailB8395() {
 
         // V5.9.9: Feed meme paper trade into V4 TradeLessonRecorder → StrategyTrustAI
         try {
@@ -27300,6 +27306,9 @@ class Executor(
         
         // V5.9.248: stamp cooldown so universal gate blocks immediate re-entry
         com.lifecyclebot.engine.BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
+        }
+        paperSellLearningTail8395()
+        paperSellLearningTailB8395()
         try { ForensicLogger.lifecycle("PAPER_SELL_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
         try { ToolkitSignalSheet.recordDeskStage(canonicalTerminalPosition6492.lane, "SELL_CONFIRMED", terminalPid6455) } catch (_: Throwable) {}
 

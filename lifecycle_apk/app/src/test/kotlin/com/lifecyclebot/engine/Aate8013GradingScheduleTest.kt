@@ -29,7 +29,9 @@ class Aate8013GradingScheduleTest {
         assertTrue(f.contains(".filter { nowMs - it.atMs <= H240_MS_7731 + LOST_GRACE_MS_7731 || followed8013(it, nowMs) }"))
         // superseded by V5.0.8291 — the checkpoint still asks for an off-watch mark, its due time now carries the off-watch rank.
         assertTrue(f.contains("else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, o.atMs + CK_MS_7997[o.ck7997]))"))
-        assertTrue(f.contains("else if (!followed8013(o, nowMs)) {"))
+        // superseded by V5.0.8395: a followed coin's bounded deadline is its last checkpoint (R2), and a 240 booking keeps it while followed.
+        assertTrue(f.contains("else -> CK_MS_7997.last() + LOST_GRACE_MS_7731"))
+        assertTrue(f.contains("else { o.done240=true; bookTwoForty7944(o,net,gross); if (!followed8013(o,nowMs)) pending.remove(key,o) }"))
         assertTrue(f.contains("o.feats7972 = f[30].split('\\u0002').filter { it.isNotBlank() }"))
         val c = src("engine/cortex/Cortex7885.kt")
         assertTrue(c.contains("append(\",\\\"g8013\\\":\").append(garr.append(']'))"))

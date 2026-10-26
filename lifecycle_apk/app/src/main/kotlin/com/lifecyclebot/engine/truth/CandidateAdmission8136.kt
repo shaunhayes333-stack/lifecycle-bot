@@ -266,13 +266,26 @@ object CandidateAdmission8136 {
         if (!c.live) return null
         if (com.lifecyclebot.engine.cortex.LaneRealisedGovernor8295.tailRefuted8295(c.laneRealised8325)) return LIVE_LANE_LOSING_8325
         val lane = c.laneLabel8325
-        if (lane != null && lane.n >= LANE_LABEL_MIN_N_8325 && !(lane.meanPct > 0.0)) return LIVE_LANE_LABELS_8325
+        // V5.0.8395 (R5) — explicit precedence: safety > candidate-specific valid negatives > COMPLETE supported candidate
+        // proof > lane prior. The realised-loss governor above stays separate and binding. A heterogeneous lane-label average
+        // yields only to the chosen setup's own live record, supported after cost on at least as many labels as the prior.
+        if (lane != null && lane.n >= LANE_LABEL_MIN_N_8325 && !(lane.meanPct > 0.0)) {
+            if (setupProofSupersedesLanePrior8395(own, c.costPct)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_PRIOR_SUPERSEDED_BY_SETUP_PROOF_8395_${c.lane.uppercase()}") } catch (_: Throwable) {}
+                return null
+            }
+            return LIVE_LANE_LABELS_8325
+        }
         // V5.0.8328 — the third read (LIVE_TAIL_ALONE_8325: a lane-wide edge with the setup's own record absent, thin or
         // not positive) is withdrawn: it bound the thin one-SE live loss the 8316 directive made advisory (8257 band) and
         // refused a setup with no record at all. The setup's own clear loss still refuses upstream (clearlyLosing8136);
         // [own] stays in the signature for the trace line.
         return null
     }
+
+    /** Pure (V5.0.8395): the chosen setup's own record is complete (>= the lane-prior sample) and supported after cost. */
+    fun setupProofSupersedesLanePrior8395(own: Evidence8136?, costPct: Double): Boolean =
+        own != null && !own.suspect8290 && own.n >= LANE_LABEL_MIN_N_8325 && supported8136(own, costPct) && !losing8136(own)
 
     /** Pure: losing on its own evidence — [LOSING_MIN_N_8136]+ labels and mean + SE below zero (LanePlaybook7907.setupRecordNegative8094). */
     fun losing8136(e: Evidence8136?): Boolean =

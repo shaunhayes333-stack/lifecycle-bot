@@ -233,7 +233,8 @@ class Aate8180RunnerCaptureTest {
         assertFalse(LabelBasis8180.bookable8180(0.001, 1.0, 2_000_000.0, 2_000_000_000.0, 150.0))
         // An ordinary move books.
         assertTrue(LabelBasis8180.bookable8180(0.001, 0.0015, 2_000_000.0, 3_000_000.0, 150.0))
-        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("!LabelBasis8180.bookable8180(o.entryPrice, px, o.entryMcap, nowMcap7769(o.mint),"))
+        // superseded by V5.0.8395: the price-only vanished path is gone; bounded recovery of an accepted mark keeps the same basis rule.
+        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("LabelBasis8180.bookable8180(o.entryPrice, it.usd, o.entryMcap, nowMcap7769(o.mint),"))
     }
 
     // ── 9. DATA_INCOMPLETE: the deferral requests what it waits for ──

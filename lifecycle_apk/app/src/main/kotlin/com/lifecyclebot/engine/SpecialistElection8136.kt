@@ -155,6 +155,8 @@ object SpecialistElection8136 {
         var primary = ""
         var primaryRefusal = ""
         var primaryJudgement = false
+        /** V5.0.8395 — the primary refusal on record is a data-scoped deferral (clears on material recovery only). */
+        var primaryDataDefer8395 = false
         var rescue = ""
         var rescueConsumed = false
         var offerTo = ""
@@ -529,16 +531,40 @@ object SpecialistElection8136 {
     }
     private var strategyProven8243 = 0L
 
+    /** V5.0.8395 — the typed scope of a native refusal; never inferred from gradeability alone. */
+    enum class RefusalScope8395 { NONE, DATA, FIT, JUDGEMENT }
+
+    /** Pure: DATA = this lane lacks inputs (lane-scoped deferral); JUDGEMENT = binding token verdict; FIT = hand on. */
+    fun refusalScope8395(reason: String, gradeable: Boolean, eligible: Boolean, judgement: (String) -> Boolean): RefusalScope8395 = when {
+        eligible -> RefusalScope8395.NONE
+        !gradeable || HandoffRefusal8190.classify8190(reason, fit = false, binding = false) == HandoffReceiverTasks8153.Block8153.DATA -> RefusalScope8395.DATA
+        judgement(reason) -> RefusalScope8395.JUDGEMENT
+        else -> RefusalScope8395.FIT
+    }
+
+    /** Material recovery: the primary is now eligible. Clears ONLY a data-scoped refusal; judgements stand. */
+    fun clearPrimaryDataDefer8395(mint: String, primary: String) {
+        val p = canon8136(primary)
+        synchronized(lock8136) {
+            val r = records8136[mint] ?: return
+            if (r.primary != p || !r.primaryDataDefer8395 || r.primaryJudgement) return
+            r.primaryRefusal = ""; r.primaryDataDefer8395 = false
+        }
+    }
+
     /** The primary's native refusal (graded verdict of its own brain). [judgement] = never rescued. */
-    fun notePrimaryRefusal8136(mint: String, primary: String, refusal: String, judgement: Boolean, nowMs: Long = System.currentTimeMillis()) {
+    fun notePrimaryRefusal8136(mint: String, primary: String, refusal: String, judgement: Boolean, nowMs: Long = System.currentTimeMillis(),
+                               dataScoped8395: Boolean = false) {
         val p = canon8136(primary)
         if (mint.isBlank() || p.isBlank()) return
         synchronized(lock8136) {
             val r = recordFor8136(mint, -1L, nowMs) ?: return
             if (r.primary.isEmpty()) setPrimary8136(r, p, nowMs)
             if (r.primary != p) return
-            if (r.primaryRefusal.isEmpty() || r.primaryRefusal.startsWith(TRIGGER_PRE_FDG)) r.primaryRefusal = short8136(refusal)
-            if (judgement) r.primaryJudgement = true
+            if (r.primaryRefusal.isEmpty() || r.primaryRefusal.startsWith(TRIGGER_PRE_FDG) || (r.primaryDataDefer8395 && !dataScoped8395)) {
+                r.primaryRefusal = short8136(refusal); r.primaryDataDefer8395 = dataScoped8395 && !judgement
+            }
+            if (judgement) { r.primaryJudgement = true; r.primaryDataDefer8395 = false }
         }
     }
 
@@ -1145,6 +1171,14 @@ object SpecialistElection8136 {
     /** The last FDG refusal reason of [lane] for [mint] within the hand-off window. */
     fun lastFdgRefusal8136(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()): String? =
         fdgRefusals8136["${canon8136(lane)}|$mint"]?.takeIf { nowMs - it.second in 0..FDG_REFUSAL_TTL_MS_8136 }?.first
+
+    /** V5.0.8395 — (primary refusal, judgement, data-scoped) for diagnostics and the rescue tests. */
+    internal fun primaryState8395(mint: String): Triple<String, Boolean, Boolean>? = synchronized(lock8136) {
+        records8136[mint]?.let { Triple(it.primaryRefusal, it.primaryJudgement, it.primaryDataDefer8395) }
+    }
+
+    /** True when the candidate's rescue is open: a primary refusal on record that is not a binding judgement. */
+    internal fun rescueOpen8395(mint: String): Boolean = synchronized(lock8136) { records8136[mint]?.let { refusalOpen8144(it) } == true }
 
     /** The candidate's current primary ("" = none yet). */
     fun primaryOf8136(mint: String): String = synchronized(lock8136) { records8136[mint]?.primary.orEmpty() }

@@ -131,12 +131,14 @@ class Aate8082CausalPipelineTest {
         repeat(150) { i -> s.scale(com.lifecyclebot.engine.cortex.CortexScoreboard7885.BOOK_DECAY); s.add(8.0 + if (i % 2 == 0) 2.0 else -2.0, false) }
         assertFalse(C.jointProvenDead8082(s))                  // it starts paying: the refusal lifts
         val src = src("engine/cortex/Cortex7885.kt")
-        assertTrue(src.contains("return \"C6_SETUP_DEAD_8082\""))
+        // superseded by V5.0.8395 (R4): the same binding refusal, its proof standing counted under the shared predictive proof.
+        assertTrue(src.contains("return negativeOrUnknown8395(\"C6_SETUP_DEAD_8082\", a.lane)"))
         // 8372: the same dead-setup bar reads actual frozen current-version lane x setup outcomes. The legacy
         // decayed book remains historical telemetry, not a second predictor's authority over today's verdict.
         val constitution = src.substringAfter("private fun constitutionRefusal(").substringBefore("// ── Cortex v9")
         assertTrue(constitution.contains("cohort8372(a.lane, it)[a.bucket.ordinal]"))
-        assertTrue(constitution.contains("if (jointProvenDead8082(st8082)) return \"C6_SETUP_DEAD_8082\""))
+        // superseded by V5.0.8395: the same binding C6 refusal, proof standing counted under the shared predictive proof (R4).
+        assertTrue(constitution.contains("if (jointProvenDead8082(st8082)) return negativeOrUnknown8395(\"C6_SETUP_DEAD_8082\", a.lane)"))
         assertFalse(constitution.contains("jointBook7961["))
     }
 

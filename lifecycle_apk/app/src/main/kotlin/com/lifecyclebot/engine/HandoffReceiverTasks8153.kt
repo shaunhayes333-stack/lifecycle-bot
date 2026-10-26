@@ -74,7 +74,7 @@ object HandoffReceiverTasks8153 {
     private const val DEFERRED_PREFIX_8153 = "DEFERRED:"
 
     /** Never a receiver: no per-token buy block (RESCUE_EXCLUDED_8136). */
-    private val NOT_RECEIVERS_8153 = setOf("CORE", "CYCLIC")
+    private val NOT_RECEIVERS_8153: Set<String> get() = SpecialistElection8136.RESCUE_EXCLUDED_8136  // V5.0.8395 — one policy
     /** A refusal that says only "THIS lane cannot take it" — handed on, like a fit refusal. */
     private val LANE_SCOPED_8153 = listOf("LANE_QUARANTINE", "TRADER_DISABLED", "OWN_EXECUTOR", "LANE_EXECUTOR_WOULD_REFUSE",
         "SNIPER_NOT_DESIGNATED_POOL")

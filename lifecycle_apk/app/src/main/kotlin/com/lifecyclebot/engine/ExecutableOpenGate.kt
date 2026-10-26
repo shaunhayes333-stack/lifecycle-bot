@@ -647,6 +647,8 @@ object ExecutableOpenGate {
     private fun publishFdgIntent6519(intent: ExecutionIntent, fallbackSizeSol6556: Double = 0.0) {
         val sizedIntent = if (intent.resolvedSize > 0.0 || fallbackSizeSol6556 <= 0.0) intent
         else intent.copy(resolvedSize = fallbackSizeSol6556)
+        // V5.0.8395 (R9) — the approving Cortex read is sealed into this candidate version; the fill binds exactly it.
+        try { com.lifecyclebot.engine.cortex.Cortex7885.sealEntryRead8395(intent.mint, intent.mode, intent.canonicalLane, intent.candidateVersion) } catch (_: Throwable) {}
         // V5.0.6753 §PER_LANE_STAGE_INSTRUMENTATION — operator directive
         // Feb 2026: "add mint→sizer→ticket→executor visibility so
         // BLUECHIP/SHITCOIN/CYCLIC stalls surface which stage kills
