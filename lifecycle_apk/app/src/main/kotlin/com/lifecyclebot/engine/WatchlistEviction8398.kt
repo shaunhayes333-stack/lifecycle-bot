@@ -20,13 +20,13 @@ package com.lifecyclebot.engine
  */
 object WatchlistEviction8398 {
     /** Three completed cycles: the minimum that can observe the 8084 shape input (three spaced readings). */
-    const val MIN_EVALS_8398 = 3
+    internal const val MIN_EVALS_8398 = 3
     /** An undecided coin may hold a bench slot this long at most; past it the cap wins. */
-    const val MAX_UNDECIDED_AGE_MS_8398 = 300_000L
+    internal const val MAX_UNDECIDED_AGE_MS_8398 = 300_000L
     /** V5.0.6598 — no eviction before this admission age, so lane history can start accumulating. */
-    const val MIN_ADMISSION_AGE_MS_6598 = 60_000L
+    internal const val MIN_ADMISSION_AGE_MS_6598 = 60_000L
     /** V5.0.6598 — a coin the pipeline touched this recently is being actively worked. */
-    const val MIN_PROCESSING_IDLE_MS_6598 = 30_000L
+    internal const val MIN_PROCESSING_IDLE_MS_6598 = 30_000L
 
     data class Row(
         val mint: String,
