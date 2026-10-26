@@ -77,14 +77,16 @@ class Aate8397AccountingFreshnessTest {
         assertTrue(verdict(fresh).passed)
     }
 
-    @Test fun aCurrentRealFailureEndsTheWaitImmediatelyEvenWithAYoungReceipt() {
+    @Test fun aCurrentRealFailureEndsTheWaitImmediatelyWithoutAYoungReceipt() {
         val wait = AtomicLong(0L)
-        assertTrue(defer(capture(completed("old", failed = true)), wait, start))
+        assertTrue(defer(capture(completed("old", failed = true)), wait, start, young = true))
         val failure = capture(completed(failed = true))
         assertTrue(failure.accountingCurrent8397)
         assertFalse(failure.cashSideReconciled8397)
         assertFalse(failure.reconciled)
-        assertFalse(defer(failure, wait, start + 5_000L, young = true))
+        // The earlier young receipt has now completed.
+        // A current persistent failure gets no grace once there is no young OPEN receipt.
+        assertFalse(defer(failure, wait, start + 5_000L, young = false))
         assertEquals(start, wait.get())
         assertEquals(deltaFailures, verdict(failure).failures)
     }
