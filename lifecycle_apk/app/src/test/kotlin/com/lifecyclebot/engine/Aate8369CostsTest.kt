@@ -70,7 +70,10 @@ class Aate8369CostsTest {
         assertEquals("PUMPPORTAL", k.plannedBuyRoute8369(pumpMint = true, venue = "UNKNOWN", chosen = null, jupiterShare = null))
         assertEquals("JUPITER", k.plannedBuyRoute8369(pumpMint = true, venue = "PUMPSWAP", chosen = null, jupiterShare = null))
         assertEquals("JUPITER", k.plannedBuyRoute8369(pumpMint = false, venue = "UNKNOWN", chosen = "PUMPPORTAL", jupiterShare = null))
-        assertEquals("PUMPPORTAL", k.plannedSellRoute8369(pumpMint = true, venue = "PUMP_CURVE"))
+        // V5.0.8390 — a curve exit sells through Jupiter first; PumpPortal only when Jupiter is not admissible
+        assertEquals("JUPITER", k.plannedSellRoute8369(pumpMint = true, venue = "PUMP_CURVE"))
+        assertEquals("JUPITER", k.plannedSellRoute8369(pumpMint = true, venue = "PUMPSWAP"))
+        assertEquals("PUMPPORTAL", k.plannedSellRoute8369(pumpMint = true, venue = "PUMP_CURVE", jupiterOk = false))
         assertEquals("RAYDIUM", k.plannedSellRoute8369(pumpMint = true, venue = "RAYDIUM"))
         assertEquals("JUPITER", k.plannedSellRoute8369(pumpMint = false, venue = "UNKNOWN"))
         // bought on Jupiter (0.05), sold on PumpPortal (0.5): 0.275 per side, not PumpPortal's 0.5 both ways

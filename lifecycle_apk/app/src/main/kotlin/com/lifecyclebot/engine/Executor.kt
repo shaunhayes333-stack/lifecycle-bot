@@ -259,7 +259,15 @@ private fun sellRoutePriorityFromBuyRoute6099(ts: TokenState): SellRoutePriority
 private fun shouldTryPumpDirectFirst6099(ts: TokenState, label: String): Boolean {
     val priority = sellRoutePriorityFromBuyRoute6099(ts)
     val pumpInvalid = try { com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint) } catch (_: Throwable) { false }
+    // V5.0.8390 — PumpPortal charges 0.5 % of every sell it routes; Jupiter routes the pump curve / PumpSwap fee-free and
+    // already takes curve buys (8369: 18/18 landed vs PumpPortal 3/17) and every stop (8189). An exit sells through Jupiter
+    // first whenever Jupiter is admissible for the mint; PumpPortal stays the rescue route after it (and first when Jupiter is not).
+    val jupiterOk8390 = try {
+        com.lifecyclebot.engine.sell.SellRouteEndpoint8144.peek8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.JUPITER,
+            System.currentTimeMillis()) == com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Admit8144.ALLOWED
+    } catch (_: Throwable) { false }
     val pumpFirst = priority == SellRoutePriority6099.PUMP_FIRST && !pumpInvalid
+    if (pumpFirst && jupiterOk8390) try { PipelineHealthCollector.labelInc("SELL_JUPITER_FIRST_FEE_FREE_8390_$label") } catch (_: Throwable) {}
     try {
         ForensicLogger.lifecycle(
             "SELL_ROUTE_PRIORITY_BUY_ROUTE_6099",
@@ -267,7 +275,7 @@ private fun shouldTryPumpDirectFirst6099(ts: TokenState, label: String): Boolean
         )
     } catch (_: Throwable) {}
     try { PipelineHealthCollector.labelInc("SELL_ROUTE_PRIORITY_${priority.name}_6099") } catch (_: Throwable) {}
-    return pumpFirst
+    return pumpFirst && !jupiterOk8390
 }
 
 /**

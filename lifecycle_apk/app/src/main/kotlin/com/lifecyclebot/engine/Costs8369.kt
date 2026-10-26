@@ -126,10 +126,11 @@ object Costs8369 {
     }
 
     /** Pure: the SELL route a mint's exit takes first (SellRouteEndpoint8144.routeOrder8144; a non-pump mint: Jupiter). */
-    fun plannedSellRoute8369(pumpMint: Boolean, venue: String): String = when {
+    fun plannedSellRoute8369(pumpMint: Boolean, venue: String, jupiterOk: Boolean = true): String = when {
         !pumpMint -> "JUPITER"
         venue == "RAYDIUM" -> "RAYDIUM"
         venue == "AGGREGATOR_ONLY" -> "JUPITER"
+        jupiterOk -> "JUPITER"   // V5.0.8390 — a curve / PumpSwap exit sells through Jupiter first (Executor.shouldTryPumpDirectFirst6099)
         else -> "PUMPPORTAL"
     }
 
@@ -148,7 +149,11 @@ object Costs8369 {
         val pump = try { com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) } catch (_: Throwable) { false }
         val venue = if (pump) venueOf8369(mint) else "UNKNOWN"
         val buy = plannedBuyRoute8369(pump, venue, routeOf8369[mint], jupiterShare8369(jupiterChosen8369.get(), pumpChosen8369.get()))
-        return routeFeePerSide8369(buy, plannedSellRoute8369(pump, venue))
+        val jupiterOk = try {
+            com.lifecyclebot.engine.sell.SellRouteEndpoint8144.peek8144(mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.JUPITER,
+                System.currentTimeMillis()) == com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Admit8144.ALLOWED
+        } catch (_: Throwable) { false }
+        return routeFeePerSide8369(buy, plannedSellRoute8369(pump, venue, jupiterOk))
     }
 
     // ── fixed leg of an entry ──
