@@ -249,7 +249,11 @@ object SpecialistBrainBridge7542 {
 
     fun evaluate(ts:TokenState):Snapshot{
         // V5.0.8399 — a curve token's market cap comes from its own reserves before any specialist judges "mcap unknown".
-        try { com.lifecyclebot.engine.truth.CurveReserves7951.hydrateMcap8399(ts, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice) } catch (_: Throwable) {}
+        // V5.0.8400 §CAPTURED_WITH_THE_TOKEN_AT_DISCOVERY — the one resolver (DiscoveryCapture8400: reserves, price x supply,
+        // curve-from-liquidity, else the batched chain read) runs at intake for every source; this is the backstop for a
+        // row that reached a specialist still uncapped. 5.0.8399: MOONSHOT NATIVE_MCAP_UNHYDRATED_DEFER=925 with zero
+        // MCAP_HYDRATED_FROM_CURVE_8399 — the deferred coins had no reserve observation and nothing else was tried.
+        try { com.lifecyclebot.engine.truth.DiscoveryCapture8400.captureMcap8400(ts, "BRIDGE") } catch (_: Throwable) {}
         val paper=try{RuntimeModeAuthority.isPaper()}catch(_:Throwable){try{BotRuntimeController.snapshot().paperMode}catch(_:Throwable){true}};ensureInitialized(paper)
         // V5.0.8037 — every native scorer reads ts.lastLiquidityUsd; fill it from the observed value first (LiquidityTruth8037).
         try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}

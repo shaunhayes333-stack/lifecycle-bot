@@ -427,6 +427,18 @@ object MoonshotTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     // SPACE MODE DETECTION
     // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Pure (V5.0.8400): the fluid-score penalty for a CONFIRMED low safety score (2..14 under the 8399 reading: provider
+     * risk 86..98). 0 for pending/unfetched (1, -1) and for safety >= 15; linear 2 -> 13 points, 14 -> 1 point. A confirmed
+     * rug (0) is refused before this is read. Edge-weighted: the learner's `rc` feature and Cortex grade the outcome.
+     */
+    fun rugcheckSoftPenalty8400(rugcheckScore: Int): Int {
+        if (rugcheckScore <= 1 || rugcheckScore >= RUGCHECK_SOFT_FLOOR_8400) return 0
+        return RUGCHECK_SOFT_FLOOR_8400 - rugcheckScore
+    }
+    const val RUGCHECK_SOFT_FLOOR_8400 = 15
+
     
     private fun detectSpaceMode(marketCapUsd: Double, isCollectiveWinner: Boolean = false): SpaceMode {
         // Collective winners get JUPITER mode regardless of mcap
@@ -538,12 +550,19 @@ object MoonshotTraderAI {
         // block"); 8233 forensic: LANE_RUGCHECK=5604 Moonshot refusals ("rugcheck_-1_below_min_15") while /api/providers
         // was degraded — the lane's whole native population refused on an answer nobody gave. Unfetched = pending, like 1.
         val pendingRc = rugcheckScore == 1 || rugcheckScore < 0
-        // V5.0.7550 — pending RC=1 remains pending in both modes; confirmed
-        // low RC 2..14 is rejected in both modes.
-        val minRcScore = if (pendingRc) 1 else 15
-        if (rugcheckScore < minRcScore) {
-            return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
+        // V5.0.8400 §RUGCHECK_IS_EDGE_NOT_A_DOOR — 8399c read the provider's RISK score correctly (safety = 100 - risk),
+        // which turned this 15-floor into a lane-wide hard veto: 5.0.8399 LANE_RUGCHECK=1,322 MOONSHOT refusals in
+        // twelve minutes (the lane's top refusal, ahead of every mandate rule) on fresh pump launches whose normalised
+        // risk sits above 85 from holder concentration and thin curves — exactly the population the lane's own runners
+        // came from, and a door the profitable 5.0.8114 line never had (under the inverted reading the floor refused only
+        // raw-risk < 15, i.e. nearly nothing). Only a CONFIRMED rug (score 0: provider `rugged` or risk >= 99) is a door;
+        // every other confirmed score is a graded penalty on the fluid score below (RUGCHECK_SOFT_PENALTY_8400), and the
+        // same reading already reaches FDG / TradeAuthorizer / LifecycleStrategy / QuarantineStore as penalties, the
+        // SafetyReport ladder, and the learner's `rc` feature — the edge decides, not a constant.
+        if (rugcheckScore == 0) {
+            return MoonshotScore(false, 0, 0.0, "rugcheck_0_confirmed_rug")
         }
+        val rcPenalty8400 = rugcheckSoftPenalty8400(rugcheckScore)
 
         // V5.9.316: REVERTED V5.9.235 base44 HARD ENTRY GATES — they were
         // strangling moonshot entries. Build #1941 era found 500% trades by
@@ -561,6 +580,8 @@ object MoonshotTraderAI {
         
         // ─── SCORING ───
         var score = 0
+        // V5.0.8400 — confirmed low safety is a graded penalty on the fluid score, never a door (see above).
+        score -= rcPenalty8400
         
         // Market cap bonus - sweet spots by mode
         val mode = detectSpaceMode(marketCapUsd, isCollective)

@@ -41,7 +41,10 @@ class Aate8399CurveMcapHydrationTest {
 
     @Test fun theSpecialistReadAndThePrintMarkBothHydrate() {
         val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SpecialistBrainBridge7542.kt").readText()
-        assertTrue(bridge.contains("CurveReserves7951.hydrateMcap8399(ts, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)"))
+        // V5.0.8400 — the bridge reads the curve through the one discovery resolver, whose first step is hydrateMcap8399.
+        assertTrue(bridge.contains("DiscoveryCapture8400.captureMcap8400(ts, \"BRIDGE\")"))
+        val resolver = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/DiscoveryCapture8400.kt").readText()
+        assertTrue(resolver.contains("CurveReserves7951.hydrateMcap8399(ts, solUsd)"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("ts.lastMcap = px * com.lifecyclebot.engine.truth.CurveReserves7951.PUMP_TOTAL_SUPPLY_8399"))
     }

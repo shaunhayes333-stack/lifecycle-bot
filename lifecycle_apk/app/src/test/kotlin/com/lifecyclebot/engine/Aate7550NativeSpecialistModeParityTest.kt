@@ -19,7 +19,12 @@ class Aate7550NativeSpecialistModeParityTest {
     @Test fun moonshot_native_admission_is_mode_neutral() {
         val s=src("v3/scoring/MoonshotTraderAI.kt")
         val score=s.substringAfter("fun scoreToken(").substringBefore("fun openPosition")
-        assertTrue(score.contains("val minRcScore = if (pendingRc) 1 else 15"))
+        // V5.0.8400 — the RC floor became a graded penalty on the fluid score (mode-neutral, no isPaperMode read);
+        // only a confirmed rug (score 0) is refused. The 7550 invariant (one RC reading for both modes) is preserved.
+        assertTrue(score.contains("if (rugcheckScore == 0) {"))
+        assertTrue(score.contains("val rcPenalty8400 = rugcheckSoftPenalty8400(rugcheckScore)"))
+        assertFalse(score.contains("val minRcScore = if (pendingRc) 1 else 15"))
+        assertFalse(score.substringAfter("val pendingRc").substringBefore("SCORING").contains("isPaperMode"))
         // V5.0.7791 superseded the 7550 score-floor parity: paper MOONSHOT is an exploratory tail scanner
         // (Aate7791MoonshotAuthorityRestorationTest asserts the paper 20/28 floors); the RC floor stays mode-neutral.
     }

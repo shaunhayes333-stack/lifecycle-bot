@@ -44,6 +44,7 @@ object HotConvictionWarmup {
         val convictionScore: Double,
         val lastSeenMs: Long,
         val liquidityUsdEstimate: Double,
+        val mcapUsdEstimate: Double = 0.0,   // V5.0.8400 — captured with the token; warmup intake passed NaN before
     )
 
     private val entries = ConcurrentHashMap<String, HotMint>()
@@ -109,6 +110,7 @@ object HotConvictionWarmup {
                     convictionScore = 1000.0,
                     lastSeenMs = now,
                     liquidityUsdEstimate = ts.lastLiquidityUsd,
+                    mcapUsdEstimate = ts.lastMcap,
                 )
             }
         } catch (_: Throwable) {}
@@ -127,6 +129,7 @@ object HotConvictionWarmup {
                     convictionScore = score,
                     lastSeenMs = w.timestamp.takeIf { it > 0L } ?: now,
                     liquidityUsdEstimate = w.entryLiquidity,
+                    mcapUsdEstimate = w.entryMcap,
                 )
             }
         } catch (_: Throwable) {}
@@ -151,6 +154,7 @@ object HotConvictionWarmup {
                     convictionScore = score,
                     lastSeenMs = r.addedAt,
                     liquidityUsdEstimate = r.initialLiquidityUsd,
+                    mcapUsdEstimate = r.initialMcap,
                 )
             }
         } catch (_: Throwable) {}
@@ -197,6 +201,7 @@ object HotConvictionWarmup {
                         put("convictionScore", h.convictionScore)
                         put("lastSeenMs", h.lastSeenMs)
                         put("liquidityUsdEstimate", h.liquidityUsdEstimate)
+                        put("mcapUsdEstimate", h.mcapUsdEstimate)
                     }
                 )
             }
@@ -232,6 +237,7 @@ object HotConvictionWarmup {
                 convictionScore = o.optDouble("convictionScore", 100.0),
                 lastSeenMs = lastSeen,
                 liquidityUsdEstimate = o.optDouble("liquidityUsdEstimate", 0.0),
+                mcapUsdEstimate = o.optDouble("mcapUsdEstimate", 0.0),
             )
         }
     }
