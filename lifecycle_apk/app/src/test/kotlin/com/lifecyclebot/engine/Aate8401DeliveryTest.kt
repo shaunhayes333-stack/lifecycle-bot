@@ -14,6 +14,15 @@ class Aate8401DeliveryTest {
     private fun call(owner: Any, name: String, vararg args: Any?): Any? = owner.javaClass.declaredMethods
         .single { it.name == name && it.parameterCount == args.size }.apply { isAccessible = true }.invoke(owner, *args)
 
+    @Test fun companionCompressionPreservesFrozenPredictionsAndRejectsCorruption() {
+        val raw = "{\"predictions\":[" + List(1100) { "[0.1,0.7,12.3]" }.joinToString(",") + "]}"
+        val packed = ForwardCheckpoint8401.pack(raw)
+        assertTrue(packed.length < raw.length / 5)
+        assertEquals(raw, ForwardCheckpoint8401.unpack(packed))
+        assertEquals(raw, ForwardCheckpoint8401.unpack(raw))
+        assertThrows(Exception::class.java) { ForwardCheckpoint8401.unpack("gzip8401:bad") }
+    }
+
     @Test fun blockedVerdictsAreNotReportedAsMissingIntentOrDeadDiscovery() {
         assertEquals("FDG_BLOCKED_ALL", ToolkitSignalSheet.preExecutionStatus8401(100, 10, 0, 0, 50))
         assertEquals("FDG_BLOCKED_ALL", ToolkitSignalSheet.preExecutionStatus8401(0, 0, 0, 0, 1))
@@ -57,6 +66,34 @@ class Aate8401DeliveryTest {
             val second = call(owner, "terminalBatch8401") as List<Map.Entry<String, String>>
             assertEquals(32, second.size); assertTrue(second.none { it.key in ack })
         } finally { outbox.clear(); outbox.putAll(saved); ack.clear(); ack.addAll(savedAck) }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    @Test fun failedAcknowledgementCommitRetainsOutboxAndSuccessfulRetryRemovesOldObservation() {
+        val owner = ForwardReturnLabeler7731
+        val outbox = field(owner, "terminalOutbox8395").get(owner) as MutableMap<String, String>
+        val ack = field(owner, "deliveredTerminals8395").get(owner) as MutableSet<String>
+        val prefsField = field(owner, "prefs"); val oldPrefs = prefsField.get(owner)
+        val saved = HashMap(outbox); val savedAck = HashSet(ack)
+        val prefs = mock(android.content.SharedPreferences::class.java)
+        val editor = mock(android.content.SharedPreferences.Editor::class.java)
+        val id = "terminal8395|mint|MOONSHOT|1000"
+        val row = MutableList(17) { "0" }.also { it[0] = "mint"; it[4] = "MOONSHOT"; it[12] = "1000" }
+        val separator = field(owner, "FIELD_SEP_7735").get(owner) as Char
+        `when`(prefs.getString(anyString(), isNull())).thenReturn(row.joinToString(separator.toString()))
+        `when`(prefs.edit()).thenReturn(editor)
+        `when`(editor.putString(anyString(), anyString())).thenReturn(editor)
+        `when`(editor.remove(anyString())).thenReturn(editor)
+        `when`(editor.commit()).thenReturn(false, true)
+        try {
+            prefsField.set(owner, prefs); outbox.clear(); ack.clear(); outbox[id] = "{}"; ack += id
+            call(owner, "cleanupTerminals8401")
+            assertTrue(id in outbox); assertTrue(id in ack)
+            call(owner, "cleanupTerminals8401")
+            assertFalse(id in outbox); assertFalse(id in ack)
+            verify(editor, times(2)).putString("pending_8350", "")
+            verify(editor, times(2)).remove(id)
+        } finally { prefsField.set(owner, oldPrefs); outbox.clear(); outbox.putAll(saved); ack.clear(); ack.addAll(savedAck) }
     }
 
     @Test fun coldReadWith13500KeysDoesNotHoldTheOutcomeAppendMonitor() {

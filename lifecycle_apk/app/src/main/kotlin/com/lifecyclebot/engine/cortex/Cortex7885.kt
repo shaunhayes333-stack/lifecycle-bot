@@ -734,7 +734,7 @@ object Cortex7885 {
 
     /** For CortexInvariants7911. */
     fun queuedTasks(): Int = try { pool.queue.size + capturePool8171.queue.size } catch (_: Throwable) { 0 }
-    fun pendingCount(): Int = pending.size
+    fun pendingCount(): Int = pending.size + pairedPending8401.size
 
     /** The fresh cached assessment, or null after scheduling one (never computes inline). */
     private fun cachedOrSchedule(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Assessment? {
@@ -1058,14 +1058,15 @@ object Cortex7885 {
         ensureLoaded()
         check(loaded) { "Cortex not restored; retain prior paired checkpoint" }
         val encode = synchronized(this) { pendingSnapshot8076(episodes) }
-        return encode()
+        return ForwardCheckpoint8401.pack(encode())
     }
 
     fun restoreForward8401(raw: String): Boolean {
         ensureLoaded()
         if (!loaded) return false
-        synchronized(this) { restorePending(raw, System.currentTimeMillis(), paired8401 = true) }
-        val missing = org.json.JSONObject(raw).optJSONArray("unpaired8401")
+        val unpacked = ForwardCheckpoint8401.unpack(raw)
+        synchronized(this) { restorePending(unpacked, System.currentTimeMillis(), paired8401 = true) }
+        val missing = org.json.JSONObject(unpacked).optJSONArray("unpaired8401")
         if (missing != null && missing.length() > 0) counters.computeIfAbsent("FORWARD_CHECKPOINT_ORIGINAL_UNAVAILABLE_8401") { AtomicLong(0) }.addAndGet(missing.length().toLong())
         return true
     }
@@ -1271,7 +1272,7 @@ object Cortex7885 {
             deferredLabels8397.remove("$key|$decisionAtMs8371")
         }
         val p = pending[key]?.takeIf { decisionAtMs8371 <= 0L || it.atMs == decisionAtMs8371 }
-            ?: pairedPending8401["$key|$decisionAtMs8371"] ?: return
+            ?: pairedPending8401["$key|$decisionAtMs8371"] ?: pending[key] ?: return
         if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371) {
             inc("LABEL_LOST_EPISODE_MISMATCH_8371")
             return
@@ -1319,7 +1320,7 @@ object Cortex7885 {
         val key = "$mint|${labelLane.trim().uppercase()}"
         val p = synchronized(this) {
             val captured = pending[key]?.takeIf { decisionAtMs8371 <= 0L || it.atMs == decisionAtMs8371 }
-                ?: pairedPending8401["$key|$decisionAtMs8371"]
+                ?: pairedPending8401["$key|$decisionAtMs8371"] ?: pending[key]
             if (decisionAtMs8371 > 0L && captured?.atMs != decisionAtMs8371 && captureOwners8397.awaiting(key, decisionAtMs8371)) {
                 val id = "$key|$decisionAtMs8371"
                 if (deferredLabels8397.containsKey(id) || deferredLabels8397.size < CAPTURE_QUEUE_HARD_8187 + 32) {

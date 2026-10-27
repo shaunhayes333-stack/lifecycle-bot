@@ -1739,6 +1739,24 @@ object ForwardReturnLabeler7731 {
     private val terminalCapacityRefusals8401 = AtomicLong(0)
     private var lastTerminalCleanup8401 = 0L
 
+    /** Remove at most one acknowledged batch and its old checkpoint rows atomically, without rebuilding learner books. */
+    private fun cleanupTerminals8401() = synchronized(checkpointLock8401) {
+        val p = prefs ?: return@synchronized
+        val acknowledged = terminalOutbox8395.keys.asSequence().filter { deliveredTerminals8395.contains(it) }.take(64).toSet()
+        if (acknowledged.isEmpty()) return@synchronized
+        try {
+            val old = p.getString(PENDING_KEY_7946, null).orEmpty()
+            val retained = old.split(ROW_SEP_7735).filterNot { row ->
+                val f = row.split(FIELD_SEP_7735)
+                f.size >= 13 && "$TERMINAL_PREFIX_8395${f[0]}|${f[4]}|${f[12]}" in acknowledged
+            }.joinToString(ROW_SEP_7735.toString())
+            val editor = p.edit().putString(PENDING_KEY_7946, retained)
+            acknowledged.forEach { editor.remove(it) }
+            if (editor.commit()) acknowledged.forEach { terminalOutbox8395.remove(it); deliveredTerminals8395.remove(it) }
+            else terminalStorageFailures8401.incrementAndGet()
+        } catch (_: Exception) { terminalStorageFailures8401.incrementAndGet() }
+    }
+
     private fun terminalBatch8401(): List<Map.Entry<String, String>> = terminalOutbox8395.entries.asSequence()
         .filterNot { deliveredTerminals8395.contains(it.key) }.take(64).toList()
 
@@ -1755,7 +1773,7 @@ object ForwardReturnLabeler7731 {
         val now = System.currentTimeMillis()
         if (deliveredTerminals8395.isNotEmpty() && now - lastTerminalCleanup8401 >= 30_000L) {
             lastTerminalCleanup8401 = now
-            persist(force = true)
+            cleanupTerminals8401()
         }
     }
 
@@ -1849,7 +1867,7 @@ object ForwardReturnLabeler7731 {
         val priceFor: (String) -> Double? = { m -> priceFor0(m) ?: com.lifecyclebot.engine.cortex.CrossAssetCortex7931.priceFor(m, nowMs) }
         val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs) }, nowMs) } catch (_: Throwable) { emptyList() }
         drainTerminals8395()
-        if (pending.isEmpty() && freshUnpriced7737.isEmpty()) { if (deliveredTerminals8395.isNotEmpty()) persist(force=true); return }
+        if (pending.isEmpty() && freshUnpriced7737.isEmpty()) return
         val dueUnpriced7737 = ArrayList<Pair<String, Long>>()
         for ((key, o) in pending.entries.toList()) {
             val age = nowMs - o.atMs

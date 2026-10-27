@@ -439,9 +439,10 @@ object EvidenceShadow8344 {
 
     /** The lane's shadow record since [sinceMs], on EvidenceHold8336's bar (PnL in SOL at the route-minimum ticket). */
     fun proof8344(lane: String, sinceMs: Long): EvidenceHold8336.Proof8336 {
-        val q = closes[lane] ?: return EvidenceHold8336.proof8336(emptyList(), emptyList(), lane)
+        val l = CanonicalLaneIdentity6506.desk8392(lane)
+        val q = closes[l] ?: return EvidenceHold8336.proof8336(emptyList(), emptyList(), l)
         val nets = synchronized(q) { q.filter { it[0] >= sinceMs && ShadowPersist8355.proofEligible8394(it.getOrNull(3), it.getOrNull(4), sinceMs) }.map { it[1] } }
-        return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 }, lane)
+        return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 }, l)
     }
 
     // New policy's proof is isolated from legacy gate-filtered outcomes. Historical proof is untouched.
@@ -449,9 +450,10 @@ object EvidenceShadow8344 {
         rows.filter { it.size >= 3 && it[0] >= sinceMs && it[2] == 1.0 && it[1].isFinite() && ShadowPersist8355.proofEligible8394(it.getOrNull(3), it.getOrNull(4), sinceMs) }.map { it[1] }
 
     fun advisoryProof8393(lane: String, sinceMs: Long): EvidenceHold8336.Proof8336 {
-        val q = closes[lane]
+        val l = CanonicalLaneIdentity6506.desk8392(lane)
+        val q = closes[l]
         val nets = if (q == null) emptyList() else synchronized(q) { advisoryNets8393(q.toList(), sinceMs) }
-        return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 }, lane)
+        return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 }, l)
     }
 
     /** Tests only: a booked close for [lane] at [atMs] (no position, no prefs). */
