@@ -437,7 +437,7 @@ object MoonshotTraderAI {
         if (rugcheckScore <= 1 || rugcheckScore >= RUGCHECK_SOFT_FLOOR_8400) return 0
         return RUGCHECK_SOFT_FLOOR_8400 - rugcheckScore
     }
-    const val RUGCHECK_SOFT_FLOOR_8400 = 15
+    private const val RUGCHECK_SOFT_FLOOR_8400 = 15
 
     
     private fun detectSpaceMode(marketCapUsd: Double, isCollectiveWinner: Boolean = false): SpaceMode {

@@ -17255,21 +17255,11 @@ class BotService : Service() {
                 // wins over older Pump-portal/WS seeds.
                 // V5.0.8345 — written through the hydration hook: a first fill resumes the mint's deferred hand-off task.
                 HydrationReeval8343.intakeLiquidity8345(ts, liquidityUsd)
-                if (trustedMarketCapUsd6492 > ts.lastMcap) {
-                    // V5.9.769 — max-take (was `<= 0.0`).
-                    ts.lastMcap = trustedMarketCapUsd6492
-                }
-                // V5.0.8400 §CAPTURED_WITH_THE_TOKEN_AT_DISCOVERY — a row admitted without a cap (warmup NaN, probation /
-                // restore, aggregator with no fdv) is capped here from the curve's reserves, its independent price x
-                // supply, or the curve invariant on its depth; failing all, its chain read is queued now, not after a
-                // specialist has deferred it. Labels name the resolver and the uncapped source (DiscoveryCapture8400).
-                try { com.lifecyclebot.engine.truth.DiscoveryCapture8400.captureMcap8400(ts, "INTAKE_$source") } catch (_: Throwable) {}
-                // V5.0.8400 — and its depth: the same hydrate the bridge runs (curve account / observed pool / cap-derived
-                // 8164 / else the chain read is queued), now at discovery and after the cap so the derivation has a cap.
-                if (!(ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0)) {
-                    val liq8400 = try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { 0.0 }
-                    try { PipelineHealthCollector.labelInc(if (liq8400 > 0.0) "DISCOVERY_LIQ_HYDRATED_8400" else "DISCOVERY_LIQ_MISSING_8400_${source.take(40)}") } catch (_: Throwable) {}
-                }
+                // V5.9.769 max-take of the source's cap, then V5.0.8400 §CAPTURED_WITH_THE_TOKEN_AT_DISCOVERY: a row admitted
+                // without a cap / depth is capped from the curve's reserves, independent price x supply, or the curve
+                // invariant, and its depth hydrated; failing all, the chain read is queued now, not after a specialist
+                // has deferred it (DiscoveryCapture8400.captureAtIntake8400 — kept out of this ART-pinned method).
+                com.lifecyclebot.engine.truth.DiscoveryCapture8400.captureAtIntake8400(ts, source, trustedMarketCapUsd6492)
                 // V5.0.7077 §LOCK THE FACTS IN AT DISCOVERY, NOT AT THE TRADE.
                 //
                 // Operator: "if we cant lock in full data integrity at

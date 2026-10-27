@@ -51,13 +51,15 @@ class Aate8400RugcheckEdgeAndDiscoveryCaptureTest {
     @Test fun market_cap_is_captured_at_intake_for_every_source_and_backstopped_at_the_bridge() {
         val bs = src("engine/BotService.kt")
         val intake = bs.substringAfter("private fun admitProtectedMemeIntake(")
-        val capWrite = intake.indexOf("ts.lastMcap = trustedMarketCapUsd6492")
-        val capture = intake.indexOf("DiscoveryCapture8400.captureMcap8400(ts, \"INTAKE_\$source\")")
-        assertTrue(capWrite >= 0 && capture > capWrite)   // after the source's own cap, before the row is handed on
-        // liquidity is captured right after the cap (so the 8164 cap -> depth derivation has a cap to read)
-        val liq = intake.indexOf("LiquidityTruth8037.hydrate8037(ts)", capture)
-        assertTrue(liq > capture)
-        assertTrue(intake.contains("DISCOVERY_LIQ_MISSING_8400_"))
+        // the ART-pinned intake method delegates: source cap max-take, cap resolver, depth hydrate, in one helper
+        assertTrue(intake.contains("DiscoveryCapture8400.captureAtIntake8400(ts, source, trustedMarketCapUsd6492)"))
+        assertFalse(intake.contains("ts.lastMcap = trustedMarketCapUsd6492"))
+        val helper = src("engine/truth/DiscoveryCapture8400.kt").substringAfter("fun captureAtIntake8400(")
+        val capWrite = helper.indexOf("ts.lastMcap = trustedMarketCapUsd")
+        val capture = helper.indexOf("captureMcap8400(ts, \"INTAKE_\$source\")")
+        val liq = helper.indexOf("LiquidityTruth8037.hydrate8037(ts)")
+        assertTrue(capWrite in 0 until capture && capture < liq)   // cap before depth so the 8164 derivation has a cap
+        assertTrue(helper.contains("DISCOVERY_LIQ_MISSING_8400_"))
         // warmup carries the cap it captured instead of NaN
         assertTrue(bs.contains("marketCapUsd = if (h.mcapUsdEstimate > 0.0) h.mcapUsdEstimate else Double.NaN"))
         val warm = src("engine/HotConvictionWarmup.kt")

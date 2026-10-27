@@ -27,12 +27,12 @@ import java.util.concurrent.atomic.AtomicLong
  * report shows which discovery path delivers incomplete tokens.
  */
 object DiscoveryCapture8400 {
-    const val ROW = "ROW"
-    const val CURVE_RESERVES = "CURVE_RESERVES"
-    const val PRICE_X_SUPPLY = "PRICE_X_SUPPLY"
-    const val CURVE_FROM_LIQUIDITY = "CURVE_FROM_LIQUIDITY"
-    const val CHAIN_READ_QUEUED = "CHAIN_READ_QUEUED"
-    const val UNRESOLVED = "UNRESOLVED"
+    private const val ROW = "ROW"
+    private const val CURVE_RESERVES = "CURVE_RESERVES"
+    private const val PRICE_X_SUPPLY = "PRICE_X_SUPPLY"
+    private const val CURVE_FROM_LIQUIDITY = "CURVE_FROM_LIQUIDITY"
+    private const val CHAIN_READ_QUEUED = "CHAIN_READ_QUEUED"
+    private const val UNRESOLVED = "UNRESOLVED"
 
     /** pump.fun curve invariant: 30 + r virtual SOL over a 1B supply gives cap = (30 + r)^2 / 32.19 SOL (inverse of 8048). */
     private const val CURVE_K_8400 = 30.0 * 1.073
@@ -48,7 +48,9 @@ object DiscoveryCapture8400 {
     /** Pure: the cap in USD an active curve's USD depth implies, or NaN. */
     fun curveCapUsdFromLiquidity8400(liquidityUsd: Double, solUsd: Double): Double {
         if (!(liquidityUsd.isFinite() && liquidityUsd > 0.0 && solUsd.isFinite() && solUsd > 0.0)) return Double.NaN
-        val capSol = curveCapSolFromRealSol8400(liquidityUsd / solUsd)
+        val realSol = EconomicUnitInvariant7061.usdToSol(liquidityUsd, solUsd)   // the one USD->SOL authority (ci/economic_units_scan §1)
+        if (!(realSol.isFinite() && realSol > 0.0)) return Double.NaN
+        val capSol = curveCapSolFromRealSol8400(realSol)
         return if (capSol.isFinite() && capSol > 0.0) capSol * solUsd else Double.NaN
     }
 
@@ -93,6 +95,20 @@ object DiscoveryCapture8400 {
             if (how == UNRESOLVED || how == CHAIN_READ_QUEUED) PipelineHealthCollector.labelInc("DISCOVERY_MCAP_MISSING_8400_${where.take(40)}")
         } catch (_: Throwable) {}
         return how
+    }
+
+    /**
+     * BotService.admitProtectedMemeIntake (V5.0.8400): the source's own cap first (V5.9.769 max-take), then the cap
+     * resolver, then the depth hydrate (LiquidityTruth8037: curve account / observed pool / 8164 cap-derived / chain read
+     * queued) — after the cap so the derivation has a cap to read. Lives here so the ART-pinned intake method only shrinks.
+     */
+    fun captureAtIntake8400(ts: TokenState, source: String, trustedMarketCapUsd: Double) {
+        if (trustedMarketCapUsd.isFinite() && trustedMarketCapUsd > ts.lastMcap) ts.lastMcap = trustedMarketCapUsd
+        try { captureMcap8400(ts, "INTAKE_$source") } catch (_: Throwable) {}
+        if (!(ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0)) {
+            val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { 0.0 }
+            try { PipelineHealthCollector.labelInc(if (liq > 0.0) "DISCOVERY_LIQ_HYDRATED_8400" else "DISCOVERY_LIQ_MISSING_8400_${source.take(40)}") } catch (_: Throwable) {}
+        }
     }
 
     fun statusLine(): String = "discoveryMcap8400 resolved=${resolved.get()} chainQueued=${queued.get()} unresolved=${unresolved.get()}"
