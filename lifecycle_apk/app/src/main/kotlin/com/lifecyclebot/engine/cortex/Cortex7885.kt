@@ -954,17 +954,29 @@ object Cortex7885 {
     }
 
     /** Caller holds the monitor only while detaching state, not while encoding. */
-    private fun pendingSnapshot8076(): () -> String {
+    private fun pendingSnapshot8076(): () -> String = pendingSnapshot8076(null)
+
+    private fun pendingSnapshot8076(episodes8401: Set<String>?): () -> String {
         val now8144 = System.currentTimeMillis()
-        val rows8372 = pending.entries.filter { persistablePending8144(it.value.atMs, now8144) }
-            .sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX).map { Triple(it.key, detachPending8386(it.value), false) } +
-            shadowPending8372.entries.map { Triple(it.key, detachPending8386(it.value), true) }
-        val gradedRows = graded8006.entries.sortedByDescending { it.value.atMs }.take(GRADED_PERSIST_MAX_8013)
+        val ordinary = if (episodes8401 == null) pending.entries
+            .filter { persistablePending8144(it.value.atMs, now8144) }.sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX)
+            else emptyList()
+        val forwardRows8401 = episodes8401?.mapNotNull { id ->
+            val key = id.substringBeforeLast('|')
+            val at = id.substringAfterLast('|').toLongOrNull()
+            val p = pending[key]?.takeIf { it.atMs == at } ?: pairedPending8401[id] ?: gradedTrace8372(id, now8144)?.p
+            p?.let { Triple(key, detachPending8386(it), false) }
+        }.orEmpty()
+        val rows8372 = ordinary.map { Triple(it.key, detachPending8386(it.value), false) } + forwardRows8401 +
+            (if (episodes8401 == null) shadowPending8372.entries.map { Triple(it.key, detachPending8386(it.value), true) } else emptyList())
+        val gradedRows = if (episodes8401 == null) graded8006.entries.sortedByDescending { it.value.atMs }.take(GRADED_PERSIST_MAX_8013)
             .map { it.key to detachGraded8386(it.value) }
-        val bounds = positionReads8076.snapshot().map { it.copy(read = detachAssessment8386(it.read)) }
-        val sealRows8395 = entrySeals8395.snapshot()
-        val outcomes = outcomeBook8372.detached8386()
-        val archive = traceArchive8372.detached8386(now8144)
+            else emptyList() // A companion preserves predictions, never imports gradients without their atomic ledger checkpoint.
+        val missing8401 = episodes8401.orEmpty() - rows8372.map { "${it.first}|${it.second.atMs}" }.toSet() - gradedRows.map { it.first }.toSet()
+        val bounds = if (episodes8401 == null) positionReads8076.snapshot().map { it.copy(read = detachAssessment8386(it.read)) } else emptyList()
+        val sealRows8395 = if (episodes8401 == null) entrySeals8395.snapshot() else emptyList()
+        val outcomes = if (episodes8401 == null) outcomeBook8372.detached8386() else null
+        val archive = if (episodes8401 == null) traceArchive8372.detached8386(now8144) else null
         return {
             val dict = LinkedHashMap<String, Int>()
             val arr = StringBuilder("[")
@@ -1031,10 +1043,30 @@ object Cortex7885 {
                 append(",\"g8013\":").append(garr.append(']'))
                 append(",\"bound8076\":").append(bound.append(']'))
                 append(",\"seal8395\":").append(seals8395.append(']'))
-                append(",\"outcomes8372\":").append(outcomes.encode())
-                append(",\"cold8372\":").append(archive.snapshot(now8144)).append('}')
+                append(",\"outcomes8372\":").append(outcomes?.encode() ?: "null")
+                append(",\"cold8372\":").append(archive?.snapshot(now8144) ?: "null")
+                append(",\"unpaired8401\":").append(org.json.JSONArray(missing8401.toList())).append('}')
             }
         }
+    }
+
+    private val pairedPending8401 = java.util.concurrent.ConcurrentHashMap<String, Pending>()
+
+    /** The labeler stores this exact episode subset in the same transaction as its observations. */
+    fun checkpointForward8401(episodes: Set<String>): String {
+        ensureLoaded()
+        check(loaded) { "Cortex not restored; retain prior paired checkpoint" }
+        val encode = synchronized(this) { pendingSnapshot8076(episodes) }
+        return encode()
+    }
+
+    fun restoreForward8401(raw: String): Boolean {
+        ensureLoaded()
+        if (!loaded) return false
+        synchronized(this) { restorePending(raw, System.currentTimeMillis(), paired8401 = true) }
+        val missing = org.json.JSONObject(raw).optJSONArray("unpaired8401")
+        if (missing != null && missing.length() > 0) counters.computeIfAbsent("FORWARD_CHECKPOINT_ORIGINAL_UNAVAILABLE_8401") { AtomicLong(0) }.addAndGet(missing.length().toLong())
+        return true
     }
 
     /** Exact sparse prediction/weight provenance, shared by hot checkpoints and the bounded compressed archive. */
@@ -1077,7 +1109,9 @@ object Cortex7885 {
     }
 
     /** Caller holds the lock (ensureLoaded). */
-    private fun restorePending(raw: String?, nowMs: Long) {
+    private fun restorePending(raw: String?, nowMs: Long) = restorePending(raw, nowMs, false)
+
+    private fun restorePending(raw: String?, nowMs: Long, paired8401: Boolean) {
         val root = org.json.JSONObject(raw ?: return)
         val jd = root.optJSONArray("dict") ?: return
         val dict = List(jd.length()) { jd.optString(it) }
@@ -1088,7 +1122,8 @@ object Cortex7885 {
             val k = o.optString("k")
             val at = o.optLong("at")
             val shadow8372 = o.optBoolean("shadow8372", false)
-            if (k.isBlank() || (if (shadow8372) shadowPending8372.containsKey(k) else pending.containsKey(k)) ||
+            if (k.isBlank() || (if (shadow8372) shadowPending8372.containsKey(k)
+                else if (paired8401) pending[k]?.atMs == at || pairedPending8401.containsKey("$k|$at") else pending.containsKey(k)) ||
                 nowMs - at > (if (shadow8372) GRADED_KEEP_MS_8013 else PENDING_TTL_MS) || at > nowMs) continue
             // V5.0.8187 — a decision past the labeler's reach (it keeps an observation 70 min at most) cannot be graded: it is
             // not restored as "pending" (5.0.8175 counted 626 restored, 608 of them pruned unlabelled within a minute).
@@ -1131,17 +1166,19 @@ object Cortex7885 {
                 it.outcomeKind8394 = o.optString("outcomeKind8394", "FORWARD")
                 it.outcomeDueAtMs8394 = o.optLong("outcomeDueAtMs8394", at + 5 * 60_000L)
             }
-            if (shadow8372) shadowPending8372[k] = restored8372 else pending[k] = restored8372
+            if (shadow8372) shadowPending8372[k] = restored8372
+            else if (paired8401 && pending.containsKey(k)) pairedPending8401["$k|$at"] = restored8372
+            else pending[k] = restored8372
             o.optJSONObject("ctx8196")?.let { c ->
                 val ctx = DecisionCtx8144(c.optString("timing"), c.optString("cost"), c.optString("cohort"), c.optBoolean("latency"), c.optBoolean("executable"))
                 restored8372.context8372 = ctx
-                if (shadow8372) shadowCtx8372[k] = ctx else pendingCtx8144[k] = ctx
+                if (shadow8372) shadowCtx8372[k] = ctx else if (pending[k] === restored8372) pendingCtx8144[k] = ctx
             }
             if (pending[k]?.decisionMode8196 == "UNKNOWN") inc("PENDING_RESTORED_UNVERIFIED_MODE_8196")
             inc("PENDING_RESTORED")
         }
-        outcomeBook8372.decode(root.optJSONObject("outcomes8372"))
-        traceArchive8372.restore(root.optJSONObject("cold8372"), nowMs)
+        root.optJSONObject("outcomes8372")?.let { outcomeBook8372.decode(it) }
+        root.optJSONObject("cold8372")?.let { traceArchive8372.restore(it, nowMs) }
         restoreGraded8013(root, dict, nowMs)
         root.optJSONArray("seal8395")?.let { arr ->
             for (i in 0 until arr.length()) {
@@ -1232,12 +1269,13 @@ object Cortex7885 {
             captureOwners8397.terminal(key, decisionAtMs8371)
             deferredLabels8397.remove("$key|$decisionAtMs8371")
         }
-        val p = pending[key] ?: return
+        val p = pending[key]?.takeIf { decisionAtMs8371 <= 0L || it.atMs == decisionAtMs8371 }
+            ?: pairedPending8401["$key|$decisionAtMs8371"] ?: return
         if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371) {
             inc("LABEL_LOST_EPISODE_MISMATCH_8371")
             return
         }
-        if (!pending.remove(key, p)) return
+        if (!pending.remove(key, p) && !pairedPending8401.remove("$key|${p.atMs}", p)) return
         synchronized(this) {
             captureOwners8397.terminal(key, p.atMs)
             val id = "$key|${p.atMs}"
@@ -1279,7 +1317,8 @@ object Cortex7885 {
         ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
         val p = synchronized(this) {
-            val captured = pending[key]
+            val captured = pending[key]?.takeIf { decisionAtMs8371 <= 0L || it.atMs == decisionAtMs8371 }
+                ?: pairedPending8401["$key|$decisionAtMs8371"]
             if (decisionAtMs8371 > 0L && captured?.atMs != decisionAtMs8371 && captureOwners8397.awaiting(key, decisionAtMs8371)) {
                 val id = "$key|$decisionAtMs8371"
                 if (deferredLabels8397.containsKey(id) || deferredLabels8397.size < CAPTURE_QUEUE_HARD_8187 + 32) {
@@ -1294,7 +1333,7 @@ object Cortex7885 {
                 inc("LABEL_EPISODE_MISMATCH_8371")
                 return
             }
-            if (!pending.remove(key, captured)) return
+            if (!pending.remove(key, captured) && !pairedPending8401.remove("$key|${captured.atMs}", captured)) return
             captureOwners8397.terminal(key, captured.atMs)
             captured
         }

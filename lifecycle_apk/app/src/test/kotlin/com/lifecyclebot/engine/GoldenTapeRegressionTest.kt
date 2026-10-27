@@ -14134,7 +14134,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
         assertTrue(lab.indexOf("fromRegistry != null -> {") < lab.indexOf("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
-        assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now))"))
+        assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now, selected))"))
         assertTrue(lab.contains("restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())"))
         assertTrue(lab.contains("if (f.size !in 17..35) return@forEach"))
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))

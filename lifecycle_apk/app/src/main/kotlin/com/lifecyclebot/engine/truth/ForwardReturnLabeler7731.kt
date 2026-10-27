@@ -495,6 +495,7 @@ object ForwardReturnLabeler7731 {
             context.applicationContext.getSharedPreferences(PREFS_7731, Context.MODE_PRIVATE)
         } catch (_: Throwable) { return }
         prefs = p
+        pairedRestore8401 = p.getString(PAIRED_CORTEX_KEY_8401, null)
         p.all.forEach { (key,value) -> if (key.startsWith(TERMINAL_PREFIX_8395) && value is String) terminalOutbox8395[key]=value }
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.attach(context) } catch (_: Throwable) {}
@@ -538,7 +539,15 @@ object ForwardReturnLabeler7731 {
         } catch (_: Throwable) {}
     }
 
-    private fun persist(force: Boolean = false) {
+    private const val PAIRED_CORTEX_KEY_8401 = "paired_cortex_8401"
+    @Volatile private var pairedRestore8401: String? = null
+
+    private val checkpointLock8401 = Any()
+    private fun persist(force: Boolean = false) = synchronized(checkpointLock8401) { persistLocked8401(force) }
+
+    private fun persistLocked8401(force: Boolean) {
+        // Never overwrite a checkpoint whose original predictions have not been restored yet.
+        if (pairedRestore8401 != null) return
         val p = prefs ?: return
         val now = System.currentTimeMillis()
         if (!force && now - lastPersistMs < 60_000L) return
@@ -554,26 +563,31 @@ object ForwardReturnLabeler7731 {
             val enc = cells.entries.joinToString(";") { (k, t) -> "$k=${synchronized(t) { t.encode() }}" }
             // V5.0.8169 — the fresh (post-epoch) tallies ride beside the cells.
             val freshEnc8169 = fresh8169.entries.joinToString(";") { (k, t) -> "$k=${synchronized(t) { t.encode() }}" }
-            p.edit().putString(CELLS_KEY_7946, enc).putString(PENDING_KEY_7946, encodePending7735(now))
+            val selected = selectedPending8401(now)
+            val paired = com.lifecyclebot.engine.cortex.Cortex7885.checkpointForward8401(
+                selected.map { "${it.mint}|${it.lane}|${it.atMs}" }.toSet())
+            val acknowledged = terminalOutbox8395.keys.filter { deliveredTerminals8395.contains(it) }
+            val committed = p.edit().putString(CELLS_KEY_7946, enc).putString(PENDING_KEY_7946, encodePending7735(now, selected))
+                .putString(PAIRED_CORTEX_KEY_8401, paired)
                 .putString(FRESH_KEY_8169, freshEnc8169).putLong(FRESH_EPOCH_KEY_8169, freshEpochMs8169)
                 .remove("cells").remove("pending").also { editor ->
                     // Same preference transaction removes the old pending row and its delivered tombstone.
-                    terminalOutbox8395.entries.filter { deliveredTerminals8395.contains(it.key) }.forEach { editor.remove(it.key) }
-                }.apply()
-            terminalOutbox8395.keys.filter { deliveredTerminals8395.remove(it) }.forEach { terminalOutbox8395.remove(it) }
+                    acknowledged.forEach { editor.remove(it) }
+                }.commit()
+            if (committed) acknowledged.forEach { terminalOutbox8395.remove(it); deliveredTerminals8395.remove(it) }
+            else { terminalStorageFailures8401.incrementAndGet(); lastPersistMs = 0L }
         } catch (_: Throwable) {}
     }
 
-    private fun encodePending7735(nowMs: Long): String {
+    private fun selectedPending8401(nowMs: Long): List<Obs> = pending.values.asSequence()
+        .filterNot { terminalOutbox8395.containsKey(terminalKey8395(it)) }
+        .filter { nowMs - it.atMs <= H240_MS_7731 + LOST_GRACE_MS_7731 || followed8013(it, nowMs) }
+        .sortedWith(compareByDescending<Obs> { followed8013(it, nowMs) }.thenByDescending { it.atMs })
+        .take(MAX_PERSISTED_PENDING_7735).toList()
+
+    private fun encodePending7735(nowMs: Long, selected: List<Obs> = selectedPending8401(nowMs)): String {
         val fs = FIELD_SEP_7735.toString()
-        // V5.0.8013 — a coin still being followed past the hour (progressive grading) is saved for as
-        // long as its schedule runs, and saved first: a restart used to drop every followed runner
-        // after 70 minutes, so the 5 h / 24 h / beyond grades never happened across an app update.
-        return pending.values.asSequence()
-            .filterNot { terminalOutbox8395.containsKey(terminalKey8395(it)) }
-            .filter { nowMs - it.atMs <= H240_MS_7731 + LOST_GRACE_MS_7731 || followed8013(it, nowMs) }
-            .sortedWith(compareByDescending<Obs> { followed8013(it, nowMs) }.thenByDescending { it.atMs })
-            .take(MAX_PERSISTED_PENDING_7735)
+        return selected
             .joinToString(ROW_SEP_7735.toString()) { o ->
                 listOf(
                     o.mint, o.symbol.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '), o.cell, o.source, o.lane,
@@ -1707,12 +1721,12 @@ object ForwardReturnLabeler7731 {
         val id = terminalKey8395(o)
         val durable = synchronized(terminalLock8395) {
             if (terminalOutbox8395.containsKey(id)) true
-            else if (terminalOutbox8395.size >= MAX_PENDING_7731) false
+            else if (terminalOutbox8395.size >= MAX_PENDING_7731) { terminalCapacityRefusals8401.incrementAndGet(); false }
             else {
                 val value=org.json.JSONObject().put("mint",o.mint).put("lane",o.lane).put("at",o.atMs).put("why",why)
                     .put("terminalAt",nowMs).put("entry",o.basis8386.json()).put("last",o.lastMark8386?.json()).toString()
                 val committed=try { prefs?.edit()?.putString(id,value)?.commit() == true } catch (_: Exception) { false }
-                if (committed) terminalOutbox8395[id]=value
+                if (committed) terminalOutbox8395[id]=value else terminalStorageFailures8401.incrementAndGet()
                 committed
             }
         }
@@ -1721,9 +1735,15 @@ object ForwardReturnLabeler7731 {
         return true
     }
 
+    private val terminalStorageFailures8401 = AtomicLong(0)
+    private val terminalCapacityRefusals8401 = AtomicLong(0)
+    private var lastTerminalCleanup8401 = 0L
+
+    private fun terminalBatch8401(): List<Map.Entry<String, String>> = terminalOutbox8395.entries.asSequence()
+        .filterNot { deliveredTerminals8395.contains(it.key) }.take(64).toList()
+
     private fun drainTerminals8395() {
-        for ((key,raw) in terminalOutbox8395.entries.take(64)) {
-            if (deliveredTerminals8395.contains(key)) continue
+        for ((key,raw) in terminalBatch8401()) {
             try {
                 val j=org.json.JSONObject(raw)
                 if (com.lifecyclebot.engine.cortex.Cortex7885.observationUnavailable8395(j.getString("mint"),j.getString("lane"),j.getLong("at"),j.getString("why")))
@@ -1731,6 +1751,12 @@ object ForwardReturnLabeler7731 {
             } catch (_: Exception) { /* retained durable outbox, never treated as delivered */ }
         }
         if (terminalOutbox8395.isNotEmpty()) try { com.lifecyclebot.engine.cortex.Cortex7885.flushShadowOutcomes8372() } catch (_: Exception) {}
+        // Independent of successful label booking and of the observation queue becoming empty.
+        val now = System.currentTimeMillis()
+        if (deliveredTerminals8395.isNotEmpty() && now - lastTerminalCleanup8401 >= 30_000L) {
+            lastTerminalCleanup8401 = now
+            persist(force = true)
+        }
     }
 
     private fun deadline8395(o: Obs): Long = o.atMs + when {
@@ -1814,6 +1840,11 @@ object ForwardReturnLabeler7731 {
     }
 
     fun tick(priceFor0: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
+        pairedRestore8401?.let { raw ->
+            val restored = try { com.lifecyclebot.engine.cortex.Cortex7885.restoreForward8401(raw) } catch (_: Exception) { false }
+            if (!restored) { PipelineHealthCollector.labelInc("FORWARD_PAIRED_RESTORE_RETRY_8401"); return }
+            pairedRestore8401 = null
+        }
         // V5.0.7931 — crypto-universe and Markets identities are priced by their own feeds.
         val priceFor: (String) -> Double? = { m -> priceFor0(m) ?: com.lifecyclebot.engine.cortex.CrossAssetCortex7931.priceFor(m, nowMs) }
         val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs) }, nowMs) } catch (_: Throwable) { emptyList() }
@@ -2121,6 +2152,12 @@ object ForwardReturnLabeler7731 {
         if (s == null) "n=0" else "n=${s.n60} net=${"%+.1f".format(s.meanNet60Pct)}% wr=${"%.0f".format(s.winRate60 * 100)}% run=${"%.0f".format(s.runnerRate60 * 100)}% lost=${s.lost}" +
             (if (s.outlierSuspect8185) " OUTLIER_SUSPECT_8185" else if (s.outlierFlag8322) " OUTLIER_FLAG_TAIL_8322" else "")
 
+    private fun terminalStatus8401(): String {
+        val oldest = terminalOutbox8395.entries.asSequence().filterNot { deliveredTerminals8395.contains(it.key) }
+            .mapNotNull { try { org.json.JSONObject(it.value).optLong("terminalAt").takeIf { at -> at > 0L } } catch (_: Exception) { null } }.minOrNull()
+        return "terminal8401[queued=${terminalOutbox8395.size} ack=${deliveredTerminals8395.size} oldestMs=${oldest?.let { System.currentTimeMillis() - it } ?: 0L} capacity=${terminalCapacityRefusals8401.get()} storageFailures=${terminalStorageFailures8401.get()}]"
+    }
+
     fun statusLine(): String {
         val cellStats = cells.keys
             .filter { !it.startsWith("AGG|") && !it.startsWith("LANE|") && !it.startsWith("SRC|") && !it.startsWith("STAGE|") && !it.startsWith("KIND|") && !it.startsWith("NARR|") }
@@ -2142,7 +2179,7 @@ object ForwardReturnLabeler7731 {
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      kinds8063 best: ${kindBest.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }} | worst: ${kindWorst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none" }}\n" +
             "      lanes60: ${lanes.joinToString(" · ").ifBlank { "no labels yet" }}" +
-            " | robust8185[cap=${RobustLabelRead8185.CAP_LABEL_PCT_8185.toInt()}% capGT1M=${RobustLabelRead8185.CAP_LARGE_CAP_PCT_8185.toInt()}% suspectReads=${RobustLabelRead8185.suspectReads8185()} tailReadRaw8322=${tailReadRaw8322.get()}]"
+            " | ${terminalStatus8401()} robust8185[cap=${RobustLabelRead8185.CAP_LABEL_PCT_8185.toInt()}% capGT1M=${RobustLabelRead8185.CAP_LARGE_CAP_PCT_8185.toInt()}% suspectReads=${RobustLabelRead8185.suspectReads8185()} tailReadRaw8322=${tailReadRaw8322.get()}]"
     }
 
     /** Called when the service stops: the table survives the restart. */

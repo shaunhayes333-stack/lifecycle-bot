@@ -293,7 +293,32 @@ object SolanaOhlcvFeed6916 {
      */
     // V5.0.8078 — [failed8078]: the provider was asked but errored (HTTP error, empty body, transport). That is NOT
     // confirmed absence and must never be negative-cached as "this mint has no pool".
-    private class Fetched6982(val json: JSONObject?, val askedProvider: Boolean, val failed8078: Boolean = false)
+    private val requestState8401 = ThreadLocal<OhlcvRequestQueue8401.State?>()
+    private val seedQueue8401 by lazy {
+        OhlcvRequestQueue8401<Candle>(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()))
+    }
+
+    internal suspend fun queuedCandles8401(mint: String, timeframe: String, limit: Int, poolHint: String, attempts: Int): List<Candle> {
+        val deadline = System.currentTimeMillis() + 60_000L
+        val answer = seedQueue8401.request("$mint|$timeframe|$limit", deadline, attempts,
+            waitMs = { providerSlotWait7809().waitMs }, fetch = {
+                requestState8401.set(OhlcvRequestQueue8401.State.ANSWERED_EMPTY)
+                try {
+                    val rows = fetchCandles6916(mint, timeframe, limit, poolHint)
+                    OhlcvRequestQueue8401.Answer(if (rows.isNotEmpty()) OhlcvRequestQueue8401.State.ANSWERED_BARS
+                        else requestState8401.get() ?: OhlcvRequestQueue8401.State.PROVIDER_FAILURE, rows)
+                } finally { requestState8401.remove() }
+            })
+        try { PipelineHealthCollector.labelInc("OHLCV_QUEUE_8401_${answer.state}") } catch (_: Exception) {}
+        return answer.rows
+    }
+
+    private class Fetched6982(val json: JSONObject?, val askedProvider: Boolean, val failed8078: Boolean = false) {
+        init {
+            if (!askedProvider) requestState8401.set(OhlcvRequestQueue8401.State.WAIT_BUDGET)
+            else if (failed8078) requestState8401.set(OhlcvRequestQueue8401.State.PROVIDER_FAILURE)
+        }
+    }
 
     /**
      * V5.0.8191 §THE_POOL_RESOLVE_ATE_THE_CANDLE_SLOT — 5.0.8186: fetches=347 poolResolves=326 barsDelivered=0
@@ -442,6 +467,7 @@ object SolanaOhlcvFeed6916 {
         val priorSameKey7484 = sameKeyLastAttempt7484.put(key, now)
         if (priorSameKey7484 != null && now - priorSameKey7484 < SAME_KEY_COALESCE_MS_7484) {
             sameKeyCoalesced7484.incrementAndGet()
+            requestState8401.set(OhlcvRequestQueue8401.State.WAIT_BUDGET)
             try { PipelineHealthCollector.labelInc("OHLCV_SAME_KEY_WINDOW_COALESCED_7484") } catch (_: Throwable) {}
             return emptyList()
         }
@@ -527,6 +553,7 @@ object SolanaOhlcvFeed6916 {
         // not asked on every read: the coin's own local candles (Helius swap backfill + venue prints on the tape) are served
         // and the source is probed once per back-off interval. Nothing is cached as the provider's answer.
         if (OhlcvRoute8332.dead8332(OhlcvRoute8332.GECKO_8332) && !OhlcvRoute8332.probeDue8332(OhlcvRoute8332.GECKO_8332, now)) {
+            requestState8401.set(OhlcvRequestQueue8401.State.WAIT_BUDGET)
             OhlcvRoute8332.noteRoutedAroundDead8332(OhlcvRoute8332.GECKO_8332)
             FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.THROTTLED)
             return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList()

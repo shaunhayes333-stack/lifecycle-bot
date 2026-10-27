@@ -211,7 +211,8 @@ object EvidenceShadow8344 {
             val first = closes[l]?.let { q -> synchronized(q) { q.firstOrNull { it[0] >= sinceMs }?.get(0)?.toLong() } }
             val age = if (first != null && first > 0L) (nowMs - first).coerceAtLeast(60_000L) else if (sinceMs > 0L) nowMs - sinceMs else 0L
             val cph = closesPerHour8345(n, age)
-            "$l n$n/${EvidenceHold8336.MIN_N_8336} closesPerHour=${"%.2f".format(cph)} etaToBarMin=${etaToBarMin8345(n, cph)?.toString() ?: "-"}"
+            val bar = EvidenceHold8336.minN8399(l)
+            "$l n$n/${bar} closesPerHour=${"%.2f".format(cph)} etaToBarMin=${etaToBarMin8345(n, cph, bar)?.toString() ?: "-"}"
         } + "}"
     }
 
@@ -438,9 +439,9 @@ object EvidenceShadow8344 {
 
     /** The lane's shadow record since [sinceMs], on EvidenceHold8336's bar (PnL in SOL at the route-minimum ticket). */
     fun proof8344(lane: String, sinceMs: Long): EvidenceHold8336.Proof8336 {
-        val q = closes[lane] ?: return EvidenceHold8336.proof8336(emptyList(), emptyList())
+        val q = closes[lane] ?: return EvidenceHold8336.proof8336(emptyList(), emptyList(), lane)
         val nets = synchronized(q) { q.filter { it[0] >= sinceMs && ShadowPersist8355.proofEligible8394(it.getOrNull(3), it.getOrNull(4), sinceMs) }.map { it[1] } }
-        return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 })
+        return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 }, lane)
     }
 
     // New policy's proof is isolated from legacy gate-filtered outcomes. Historical proof is untouched.
@@ -450,7 +451,7 @@ object EvidenceShadow8344 {
     fun advisoryProof8393(lane: String, sinceMs: Long): EvidenceHold8336.Proof8336 {
         val q = closes[lane]
         val nets = if (q == null) emptyList() else synchronized(q) { advisoryNets8393(q.toList(), sinceMs) }
-        return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 })
+        return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 }, lane)
     }
 
     /** Tests only: a booked close for [lane] at [atMs] (no position, no prefs). */
