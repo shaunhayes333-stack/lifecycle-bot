@@ -965,7 +965,7 @@ object Cortex7885 {
         val forwardRows8401 = episodes8401?.mapNotNull { id ->
             val key = id.substringBeforeLast('|')
             val at = id.substringAfterLast('|').toLongOrNull()
-            val p = pending[key]?.takeIf { it.atMs == at } ?: pairedPending8401[id] ?: gradedTrace8372(id, now8144)?.p
+            val p = pending[key]?.takeIf { it.atMs == at } ?: pairedPending8401[id]
             p?.let { Triple(key, detachPending8386(it), false) }
         }.orEmpty()
         val rows8372 = ordinary.map { Triple(it.key, detachPending8386(it.value), false) } + forwardRows8401 +

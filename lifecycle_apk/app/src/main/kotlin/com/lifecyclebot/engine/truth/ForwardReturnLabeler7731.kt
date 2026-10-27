@@ -567,8 +567,10 @@ object ForwardReturnLabeler7731 {
             // its tombstone, even if this snapshot still contains its old observation row.
             val acknowledged = terminalOutbox8395.keys.filter { deliveredTerminals8395.contains(it) }
             val selected = selectedPending8401(now)
+            // First-label predictions are paired here. Already-trained progressive traces stay with the atomic
+            // Cortex ledger checkpoint; do not decode its cold archive under the capture monitor on every save.
             val paired = com.lifecyclebot.engine.cortex.Cortex7885.checkpointForward8401(
-                selected.map { "${it.mint}|${it.lane}|${it.atMs}" }.toSet())
+                selected.filterNot { it.done60 }.map { "${it.mint}|${it.lane}|${it.atMs}" }.toSet())
             val committed = p.edit().putString(CELLS_KEY_7946, enc).putString(PENDING_KEY_7946, encodePending7735(now, selected))
                 .putString(PAIRED_CORTEX_KEY_8401, paired)
                 .putString(FRESH_KEY_8169, freshEnc8169).putLong(FRESH_EPOCH_KEY_8169, freshEpochMs8169)
