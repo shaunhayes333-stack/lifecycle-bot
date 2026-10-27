@@ -1684,6 +1684,7 @@ object PipelineHealthCollector {
             }
 
     fun dumpText(): String {
+        inFlightDumpEnteredMs8398 = System.currentTimeMillis()   // V5.0.8398b — before snapshot(), so a slow snapshot is visible
         val s = snapshot()
         // V5.0.6368 — Locale.ROOT for date formatting so we never touch the
         // default-locale clone lock during dump (source-of-creation ANR cure
@@ -4670,6 +4671,9 @@ object PipelineHealthCollector {
 
     @Volatile private var inFlightDump8398: StringBuilder? = null
     @Volatile private var inFlightDumpStartedMs8398 = 0L
+    @Volatile private var inFlightDumpEnteredMs8398 = 0L
+    @Volatile var copyThreadStartedMs8398 = 0L
+    @Volatile var copyRequestedMs8398 = 0L
 
     /**
      * V5.0.8398 — the full report built so far by a builder that has not returned, for the watchdog fallback. Null when
@@ -4681,7 +4685,12 @@ object PipelineHealthCollector {
         return try {
             val t = b.toString()
             val tail = t.trimEnd().substringAfterLast('\n').take(160)
-            "builderRunningMs=${nowMs - inFlightDumpStartedMs8398} partialChars=${t.length} stalledAfter=\"$tail\"\n$t"
+            val progress = try { com.lifecyclebot.engine.truth.ExploreShadow8347.progress8398() } catch (_: Throwable) { "exploreShadowStatus[unavailable]" }
+            "builderRunningMs=${nowMs - inFlightDumpStartedMs8398} partialChars=${t.length} stalledAfter=\"$tail\"\n" +
+                "timeline8398: copyRequestedAgoMs=${if (copyRequestedMs8398 > 0) nowMs - copyRequestedMs8398 else -1} " +
+                "copyThreadStartedAgoMs=${if (copyThreadStartedMs8398 > 0) nowMs - copyThreadStartedMs8398 else -1} " +
+                "dumpEnteredAgoMs=${if (inFlightDumpEnteredMs8398 > 0) nowMs - inFlightDumpEnteredMs8398 else -1} " +
+                "snapshotMs=${inFlightDumpStartedMs8398 - inFlightDumpEnteredMs8398} $progress\n$t"
         } catch (_: Throwable) { null }
     }
 

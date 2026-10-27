@@ -457,6 +457,7 @@ class PipelineHealthActivity : AppCompatActivity() {
         // simply needs longer, not a stripped emergency fallback. The
         // reason label token `full_builder_timeout_8s` is retained
         // verbatim because Golden Tape still asserts it.
+        com.lifecyclebot.engine.PipelineHealthCollector.copyRequestedMs8398 = System.currentTimeMillis()
         bgHandler.postDelayed({
             if (delivered.get() || destroyed) return@postDelayed
             var fallback = try { buildEmergencyPipelineReport6308("full_builder_timeout_8s") } catch (_: Throwable) { "(emergency builder crashed — Main-thread ANR fallback)" }
@@ -474,6 +475,7 @@ class PipelineHealthActivity : AppCompatActivity() {
         Thread({
             var text: String
             var buildErr = ""
+            com.lifecyclebot.engine.PipelineHealthCollector.copyThreadStartedMs8398 = System.currentTimeMillis()
             try {
                 text = com.lifecyclebot.engine.PipelineHealthCollector.pasteSafeSnapshot()
                 if (text.isBlank()) text = buildEmergencyPipelineReport6308("blank_full_dump")

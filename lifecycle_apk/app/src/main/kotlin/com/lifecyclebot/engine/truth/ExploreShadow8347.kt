@@ -1387,21 +1387,33 @@ object ExploreShadow8347 {
 
     fun statusLine8347(sinceMs: Long): String {
         reportMemo8398.set(HashMap())
-        try { return statusLineUnmemoised8398(sinceMs) } finally { reportMemo8398.remove() }
+        val t0 = System.currentTimeMillis()
+        progress8398 = "started"
+        try { return statusLineUnmemoised8398(sinceMs) } finally { reportMemo8398.remove(); progress8398 = "done in ${System.currentTimeMillis() - t0}ms" }
     }
+
+    @Volatile private var progress8398: String = "idle"
+    private fun mark8398(lane: String, step: String) { progress8398 = "lane=$lane step=$step" }
+    /** V5.0.8398b — where the status walk is right now, plus the cohort book's read/lock/append accounting (watchdog partial). */
+    fun progress8398(): String = "exploreShadowStatus[$progress8398] books[${books.stats8398()}]"
 
     private fun statusLineUnmemoised8398(sinceMs: Long): String {
         // V5.0.8360 — every lane with any book (native variant or a cohort), so a lane trading only rejects / setups shows too
         val laneSet = books.keys.map { it.removePrefix(UNFILLED_PREFIX_8364) }   // V5.0.8364 — U|<key> fill-rate rows name their key's lane
             .map { if (it.startsWith("C|")) it.removePrefix("C|").substringBefore('|') else it.substringBefore('|') }.toSortedSet()
         val lanes = laneSet.joinToString(" · ") { l ->
+            mark8398(l, "cells")
             val cells = Entry8347.values().flatMap { e -> Exit8347.values().map { x -> Triple(e, x, variantRecord8347(l, e, x, sinceMs)) } }
                 .filter { it.third.n > 0 }
                 .joinToString(",") { (e, x, p) -> "${e.name.take(4)}/${x.name.take(4)} n${p.n} ${"%+.1f".format(p.meanPct)}%${if (p.proven) "*" else ""}" +
                     (if (e != Entry8347.NOW) " fill${"%.0f".format(variantFillRate8364(l, e, x, sinceMs) * 100.0)}%" else "") }   // V5.0.8364
+            mark8398(l, "best")
             val best = bestFor8351(l, sinceMs)?.let { c -> c.label + " fill${"%.0f".format(c.fillRate * 100.0)}% perSignal${"%+.1f".format(perSignal8364(c))}" } ?: "-"
+            mark8398(l, "inverted")
             val inv = if (inverted8351(l, sinceMs)) " FILTER_INVERTED" else ""
+            mark8398(l, "cohorts")
             val cohorts = listOf("S", "T", "M", "CX", "CXS", "CXT").mapNotNull { bestCohort8360(l, it, sinceMs) }.joinToString(" ; ").ifBlank { "-" }
+            mark8398(l, "cortex")
             // Use this specialist's live exit doctrine for one outcome per decision.
             // A second modelled exit style is a counterfactual, NOT an independent trade.
             val cortexLiveExit8368 = try {
@@ -1414,6 +1426,7 @@ object ExploreShadow8347 {
             }.joinToString(",").ifBlank { "-" }
             "$l cortex{$cortex8368} adopt=$best$inv [$cells] best{$cohorts} chase8364=${"%.1f".format(ShadowFill8364.laneChasePct8364(l))}%"
         }.ifBlank { "no exploration closes yet" }
+        mark8398("-", "counts")
         val (byKind, skipped, bySrc) = counts8360()
         return "exploreShadow8347[tickets=${tickets.size}/$MAX_TICKETS_8347 opened=${opened.get()} " +
             "byKind{native=${byKind[KIND_NATIVE_8360] ?: 0},reject=${byKind[KIND_REJECT_8360] ?: 0},setup=${byKind[KIND_SETUP_8360] ?: 0}} " +

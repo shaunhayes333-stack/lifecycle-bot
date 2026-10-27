@@ -157,6 +157,10 @@ class Aate8397ShadowStorageTest {
         restored.trim()
         assertEquals(2, restored.keys.size)
         assertTrue(restored.containsKey("CORE|NOW|SCALP"))
+        // a key the index does not hold never reaches the disk; a held one is read cold once, then served hot
+        assertNull(restored["MOONSHOT|NOW|SCALP"]); assertEquals(1, restored["CORE|NOW|SCALP"]!!.size); restored["CORE|NOW|SCALP"]
+        assertTrue(restored.stats8398(), restored.stats8398().contains("coldReads=1"))
+        assertTrue(restored.stats8398().startsWith("keys=2 hot=1"))
         // report builder contract: the watchdog can ship the partial full report with the stalled section named
         val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt").readText()
         assertTrue(ui.contains("PipelineHealthCollector.inFlightDumpPartial8398()"))

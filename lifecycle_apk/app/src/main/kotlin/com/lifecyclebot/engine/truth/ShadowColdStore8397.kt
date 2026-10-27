@@ -126,6 +126,13 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
     // key query per call and the status walks (per lane × per cohort dimension) made hundreds of such calls, each read
     // then missing a 64-entry hot cache; the same monitor serialised the trading path's appends behind that walk.
     private val keyIndex = HashSet<String>()
+    // V5.0.8398b — where the time goes: cold reads, monitor waits and append (durable write) time, for the report walk RCA.
+    private val coldReads8398 = java.util.concurrent.atomic.AtomicLong()
+    private val lockWaitNs8398 = java.util.concurrent.atomic.AtomicLong()
+    private val appendNs8398 = java.util.concurrent.atomic.AtomicLong()
+    private val appends8398 = java.util.concurrent.atomic.AtomicLong()
+    fun stats8398(): String = "keys=${keyIndex.size} hot=${hot.size} coldReads=${coldReads8398.get()} lockWaitMs=${lockWaitNs8398.get() / 1_000_000L} " +
+        "appends=${appends8398.get()} appendMs=${appendNs8398.get() / 1_000_000L}"
     data class AppendResult(val inserted: Boolean, val terminal: DoubleArray)
     private data class Early(val keys: List<String>, val row: DoubleArray, val terminal: DoubleArray)
     private val preAttachReceipts = LinkedHashMap<String, Early>()
@@ -157,16 +164,30 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
         while (hot.size > hotCapacity) { val it = hot.entries.iterator(); it.next(); it.remove() }
     }
 
-    @Synchronized operator fun get(key: String): List<DoubleArray>? {
-        hot[key]?.let { return it }
-        val value = try { store?.read(key) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) } ?: return null
-        return decode(value).also { putHot(key, it) }
+    operator fun get(key: String): List<DoubleArray>? {
+        val t0 = System.nanoTime()
+        synchronized(this) {
+            lockWaitNs8398.addAndGet(System.nanoTime() - t0)
+            hot[key]?.let { return it }
+            if (store != null && key !in keyIndex) return null   // V5.0.8398b — a known-absent key never reaches the disk
+            coldReads8398.incrementAndGet()
+            val value = try { store?.read(key) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) } ?: return null
+            return decode(value).also { putHot(key, it) }
+        }
     }
     val keys: Set<String> @Synchronized get() = if (store == null) hot.keys.toSet() else (keyIndex + hot.keys)
     @Synchronized fun containsKey(key: String): Boolean = hot.containsKey(key) || (store != null && key in keyIndex)
 
     /** One event's variants/cohorts are atomic and idempotent, including replay after a crash before ticket deletion. */
-    @Synchronized fun append(keys: Collection<String>, row: DoubleArray, event: String, terminal: DoubleArray = row): AppendResult {
+    fun append(keys: Collection<String>, row: DoubleArray, event: String, terminal: DoubleArray = row): AppendResult {
+        val t0 = System.nanoTime()
+        synchronized(this) {
+            lockWaitNs8398.addAndGet(System.nanoTime() - t0)
+            try { return appendLocked8398(keys, row, event, terminal) } finally { appends8398.incrementAndGet(); appendNs8398.addAndGet(System.nanoTime() - t0) }
+        }
+    }
+
+    private fun appendLocked8398(keys: Collection<String>, row: DoubleArray, event: String, terminal: DoubleArray): AppendResult {
         if (keys.isEmpty()) return AppendResult(false, terminal)
         val cold = store
         if (cold == null) preAttachReceipts[event]?.let { return AppendResult(false, it.terminal.copyOf()) }
