@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -77,18 +79,11 @@ class Aate6658HotLoopUnchokeTest {
     @Test
     fun `specialist role liveness distinguishes fdg-blocked-all from sizing-choked`() {
         val toolkit = File("src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt").readText()
-        val start = toolkit.indexOf("val status = when {")
-        val end = toolkit.indexOf("else -> \"ACTIVE\"", start)
-        assertTrue("designated role liveness block must exist", start > 0 && end > start)
-        val block = toolkit.substring(start, end)
-        assertTrue(
-            "FDG_BLOCKED_ALL must be triggered when fdgAllow == 0 before SIZING_CHOKED",
-            block.indexOf("FDG_BLOCKED_ALL") in (block.indexOf("FDG_CHOKED") + 1) until block.indexOf("SIZING_CHOKED"),
-        )
-        assertTrue(
-            "status detection must reference fdgAllow == 0L as the FDG_BLOCKED_ALL condition",
-            block.contains("fdgAllow == 0L -> \"FDG_BLOCKED_ALL\""),
-        )
+        assertTrue(toolkit.contains("val status = preExecutionStatus8401(pool, qualified, intent, fdgAllow, fdgBlock) ?: when {"))
+        assertEquals("FDG_BLOCKED_ALL", ToolkitSignalSheet.preExecutionStatus8401(10, 5, 0, 0, 3))
+        assertEquals("FDG_BLOCKED_ALL", ToolkitSignalSheet.preExecutionStatus8401(10, 5, 1, 0, 3))
+        assertNull("Only an allowed candidate with intent proceeds to mark/sizing diagnostics",
+            ToolkitSignalSheet.preExecutionStatus8401(10, 5, 1, 2, 3))
     }
 
     @Test
