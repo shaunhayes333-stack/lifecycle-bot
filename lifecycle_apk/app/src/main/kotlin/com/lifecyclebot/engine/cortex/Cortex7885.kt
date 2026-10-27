@@ -1618,7 +1618,10 @@ object Cortex7885 {
         if (!loaded || !LearningPersistence.ready()) return false
         // A label/shadow tick must keep observing prices while a multi-MB checkpoint runs.
         // Scheduling is not a durable ACK: producers still consult their exact stored receipt.
-        enqueueCheckpoint8403(persistPool8094, shadowFlushRunning8372) { flushShadowOutcomesBlocking8403() }
+        enqueueCheckpoint8403(persistPool8094, shadowFlushRunning8372) {
+            try { flushShadowOutcomesBlocking8403() }
+            catch (_: Throwable) { inc("SHADOW_CHECKPOINT_WORKER_RETRY_8403") } // no ACK; next tick retries
+        }
         return false
     }
 
