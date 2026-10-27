@@ -203,6 +203,7 @@ class CortexScoreboard7885 {
             for (b in listOf(Bucket.NEUTRAL, Bucket.STRONG)) {
                 // V5.0.8187 — winners too: the robust read bounds a book by its winners and runners.
                 val s = byBucket[b.ordinal]; r.n += s.n; r.sum += s.sum; r.sumSq += s.sumSq; r.runners += s.runners; r.wins += s.wins
+                r.shadowWeight8404 += s.shadowWeight8404
                 r.witnessed8324 += s.witnessed8324  // V5.0.8324
             }
             r.readOffset8187 = byBucket[Bucket.NEUTRAL.ordinal].readOffset8187  // V5.0.8187 — the same executable read
@@ -234,7 +235,7 @@ class CortexScoreboard7885 {
 
     val books = HashMap<String, Book>()
 
-    fun record(lane: String, bucket: Bucket, legacyAdmitted: Boolean, netPct: Double, grossPct: Double, witnessed8324: Boolean = false): DoubleArray? {
+    fun record(lane: String, bucket: Bucket, legacyAdmitted: Boolean, netPct: Double, grossPct: Double, witnessed8324: Boolean = false, shadowNet8404: Boolean = false): DoubleArray? {
         if (!netPct.isFinite()) return null
         val y = netPct.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // V5.0.8322 — stored raw (8187 clamped at ingestion)
         val runner = grossPct.isFinite() && grossPct >= CortexLedger7885.RUNNER_GROSS_PCT
@@ -244,18 +245,19 @@ class CortexScoreboard7885 {
         // V5.0.8082 — per-book decay: only the books this grade lands in age.
         val scales = DoubleArray(3) { Double.NaN }
         b.byBucket[bucket.ordinal].scale(BOOK_DECAY)
-        scales[0] = b.byBucket[bucket.ordinal].add(y, runner, witnessed8324)
+        scales[0] = b.byBucket[bucket.ordinal].add(y, runner, witnessed8324, shadowNet8404)
         if (bucket == Bucket.STRONG) b.strongLifetime8025 += 1.0
         val legacy8082 = if (legacyAdmitted) b.legacyAdmitted else b.legacyRefused
         legacy8082.scale(BOOK_DECAY)
-        scales[1] = legacy8082.add(y, runner, witnessed8324)
-        if (!legacyAdmitted && bucket == Bucket.STRONG) { b.missedStrong.scale(BOOK_DECAY); scales[2] = b.missedStrong.add(y, runner, witnessed8324) }
+        scales[1] = legacy8082.add(y, runner, witnessed8324, shadowNet8404)
+        if (!legacyAdmitted && bucket == Bucket.STRONG) { b.missedStrong.scale(BOOK_DECAY); scales[2] = b.missedStrong.add(y, runner, witnessed8324, shadowNet8404) }
         return scales
     }
 
     /** V5.0.8006 — a progressive label revision replaces the booked value in this decision's books. */
     fun revise8006(lane: String, bucket: Bucket, legacyAdmitted: Boolean, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double, scales: DoubleArray? = null,
-                   witnessedOld8324: Boolean = false, witnessedNew8324: Boolean = false) {
+                   witnessedOld8324: Boolean = false, witnessedNew8324: Boolean = false,
+                   shadowOld8404: Boolean = false, shadowNew8404: Boolean = shadowOld8404) {
         if (!oldNet.isFinite() || !newNet.isFinite()) return
         if (scales == null) return
         val b = books[lane] ?: return
@@ -264,7 +266,7 @@ class CortexScoreboard7885 {
         val ro = oldGross.isFinite() && oldGross >= CortexLedger7885.RUNNER_GROSS_PCT
         val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
         fun revise(st: CortexLedger7885.Stat, index: Int) =
-            st.revise(yo, yn, ro, rn, st.revisionWeight(scales.getOrNull(index) ?: Double.NaN), witnessedOld8324, witnessedNew8324)
+            st.revise(yo, yn, ro, rn, st.revisionWeight(scales.getOrNull(index) ?: Double.NaN), witnessedOld8324, witnessedNew8324, shadowOld8404, shadowNew8404)
         revise(b.byBucket[bucket.ordinal], 0)
         revise(if (legacyAdmitted) b.legacyAdmitted else b.legacyRefused, 1)
         if (!legacyAdmitted && bucket == Bucket.STRONG) revise(b.missedStrong, 2)

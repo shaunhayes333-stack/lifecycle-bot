@@ -118,7 +118,7 @@ class Aate8325RunOddsTest {
         // 8372 uses the arithmetic fit at the same frozen token score; an unmeasured fit retains the token read.
         assertTrue(cx.contains("val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane))"))
         assertFalse(cx.contains("calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372) - executableOffset8187(lane)"))
-        assertTrue(cx.contains("return calibratedRead8325(runner, fused, slope)"))
+        assertTrue(cx.contains("return calibratedRead8325(runner, costFused8404, slope)"))
         assertTrue(cx.contains("CortexRunOdds8325.ev8325(pond, fused.pRun8325)"))
         // The displayed token forecast, not a separate tail/rank diagnostic, assigns its frozen verdict.
         assertTrue(cx.contains("val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)"))

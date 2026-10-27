@@ -1289,11 +1289,9 @@ object ForwardReturnLabeler7731 {
         val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
         val fam8080 = doubleArrayOf(scalp8080.first, scalp8080.second, long8080.first, long8080.second)
         // Own the value and its frozen prediction durably BEFORE completing this horizon or notifying learners.
-        if (!stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324)) return false
+        val frozen8404 = stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324) ?: return false
         // A failed disk write may have frozen an earlier value. All consumers must use that same
         // value when storage recovers, rather than the newer price used by this retrying tick.
-        val frozen8404 = com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404.decode(
-            requireNotNull(forwardOutbox8404.payload("${o.mint}|${o.lane}|${o.atMs}")))
         net = frozen8404.net; gross = frozen8404.gross
         flat8322 = frozen8404.flat; w8324 = frozen8404.witness
         if (flat8322) {
@@ -1743,29 +1741,29 @@ object ForwardReturnLabeler7731 {
         try { prefs?.edit()?.putString(FORWARD_PREFIX_8404 + id, raw)?.commit() == true } catch (_: Exception) { false }
 
     private fun stageForwardOutcome8404(o: Obs, net: Double, gross: Double, family: DoubleArray,
-                                       flat: Boolean, witness: Boolean, revision: Boolean = false): Boolean {
+                                       flat: Boolean, witness: Boolean, revision: Boolean = false): com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404? {
         val proof = outcomeProof8395(o, net, gross, if (revision)
             ((o.lastMark8386?.observedAtMs ?: o.atMs) - o.atMs).coerceAtLeast(1L) else H60_MS_7731)
-        if (revision && proof == null) return false
+        if (revision && proof == null) return null
         val episode = "${o.mint}|${o.lane}|${o.atMs}"
         val id = if (revision) "$episode|R|${proof?.observedAtMs}|${proof?.horizonMs}" else episode
         val staged = try {
-            forwardOutbox8404.stage(id, {
+            forwardOutbox8404.stagePayload(id, {
                 com.lifecyclebot.engine.cortex.Cortex7885.freezeForwardOutcome8404(o.mint, o.lane, o.atMs)?.let { frozen ->
                     com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404(o.mint, o.lane, o.atMs, net, gross,
                         family.copyOf(), flat, witness, proof, frozen, revision,
                         if (revision) o.bookedNet7997 else net, if (revision) o.bookedGross7997 else gross).encode()
                 }
             }, ::writeForward8404)
-        } catch (_: Exception) { false }
-        if (!staged) PipelineHealthCollector.labelInc("FORWARD_SUCCESS_OUTBOX_WAIT_8404")
-        return staged
+        } catch (_: Exception) { null }
+        if (staged == null) PipelineHealthCollector.labelInc("FORWARD_SUCCESS_OUTBOX_WAIT_8404")
+        return staged?.let { com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404.decode(it) }
     }
 
     private fun stageForwardRevision8404(o: Obs, net: Double, gross: Double, nowMs: Long): Boolean {
         if (!o.bookedNet7997.isFinite() || !net.isFinite() || kotlin.math.abs(net - o.bookedNet7997) < 0.5) return true
         return stageForwardOutcome8404(o, net, gross, doubleArrayOf(), false,
-            gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs), revision = true)
+            gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs), revision = true) != null
     }
 
     private fun drainForwardOutcomes8404() {

@@ -4,9 +4,22 @@ Audited source: repair branch production tree in 9d8be97c2a61ec400eabf7e3754b897
 
 ## Verdict
 
-The Cortex is receiving assessments and some labels, but reliable end-to-end learning is not established. The 8402 repairs address specific delivery, checkpoint, coverage and scheduling defects. They do not close the successful-forward-label acknowledgement gap identified below. Passing the APK build or the current regression suite must not be described as full Cortex recovery.
+The Cortex is receiving assessments and some labels, but reliable end-to-end learning is not established. The 8402 repairs address specific delivery, checkpoint, coverage and scheduling defects. The subsequent 8404 repair implements the successful-forward-label acknowledgement contract; its validation status is recorded below. Passing the APK build or the current regression suite must not be described as full Cortex recovery.
 
 Zero positive authority is not itself proof of an incorrect veto. In the screenshots, most lanes have no qualifying STRONG observations; QUALITY has nine with a negative mean. Their missing-outcome populations are also substantial. Increasing authority would not repair those facts.
+
+## 8404 repair status (validation pending)
+
+The implementation now addresses the concrete C1, C2, C3 and C5 paths below; the descriptions later in this document preserve the original 8402 findings.
+
+- **C1/C2 delivery:** a bounded successful-outcome outbox durably owns the original prediction, exact episode, observed value and proof before the producer completes the horizon. First labels and progressive revisions remain until Cortex's atomic model/receipt checkpoint and the source learner's acknowledgement. A retry invokes the delivery consumer, not the entire multi-learner booking method. Failed initial writes freeze the first value; all booking hooks use that value when storage recovers. Durable explicit dispositions cover originals that genuinely cannot be recovered. Batch delivery rotates past pending consumers. Storage refusals, source acknowledgement waits, missing originals and durable acknowledgements have separate counters.
+- **Revision integrity:** duplicate and older proven outcomes cannot rewind an accepted newer revision. Hold-window checks use the observation timestamp rather than delivery time. Shadow-exit ownership still prevents later forward labels from adding another contribution.
+- **C3 predictive coverage:** each new reserved Cortex assessment offers its frozen timestamp to the existing bounded forward observer before simulation. Existing observations coalesce; this does not introduce another exploration book or fabricate a fill. A simulated unavailable outcome does not immediately mature a decision that still has its exact forward observer. A later live admission preserves the predictive observation and obtains its own execution read.
+- **Prediction hygiene:** stale-price provenance survives checkpoint/restore and is enforced in the shared forward verdict, as it already was in the shadow path. A restart cannot convert that original into eligible training.
+- **C5 cost basis:** new grades retain decayed executable-shadow contribution weight alongside unchanged raw returns. Revisions replace that weighted basis; snapshots preserve both the statistics and the trace's basis. The fallback forecast, scoreboard and auxiliary-book reads charge the forward-label share once and do not re-charge known executable-shadow outcomes. Measured NET calibration still uses its own basis-aware target. Legacy aggregates without basis provenance receive no invented credit; unavailable historical detail cannot be reconstructed faithfully.
+- **C4 authority:** the fresh report has active voters, so the earlier zero-seat explanation does not apply. No grade floor, evidence hold or live admission rule is relaxed to manufacture authority.
+
+New regression fixtures cover durable first-value retention, capacity and fair delivery, retry after restart, failed consumer/deletion, duplicate/older revisions, admission identity, cost-basis revision/decay/restore, and actual Cortex outcome delivery with failed then successful SQLite receipt commits. Required and full Android CI results must still be recorded before distributing an APK. A successful test suite is not evidence of profitable live selection or a replay of the complete phone database.
 
 ## Fresh 02:58 report: 8402 is still failing under restored state
 
@@ -44,7 +57,7 @@ These are counterfactual selection/outcome records, not realised account P&L. AA
 
 These totals must not be combined with the earlier report as though they were one session. `coverageS=1.0` with zero STRONG rows is the empty-group convention, not evidence of a well-covered STRONG predictor.
 
-## Blocking delivery defects still present
+## Delivery defects confirmed in the audited 8402 baseline
 
 ### C1. Successful forward outcomes have no durable consumer acknowledgement
 
@@ -118,4 +131,4 @@ The restored-state responsive-report fixture covers approximately 13,500 cohort 
 
 An APK must pass release compilation, required regressions, the complete historical suite, Android upgrade/ART startup and the runtime execution witness for the same source revision. Record those actual results separately from this source audit.
 
-Full Cortex recovery additionally requires an exact recorded candidate to complete data arrival, immutable capture, native and Cortex assessment, shadow/paper exit, durable per-consumer outcome acknowledgement, correct learner update and chronological authority evaluation. A live-policy-eligible fixture must reach FDG allow, sealed intent and executor invocation without making an unsolicited real trade. Until those paths and the outstanding defects above are exercised, the status is **partially repaired; end-to-end Cortex recovery unproven**.
+Full Cortex recovery additionally requires an exact recorded candidate to complete data arrival, immutable capture, native and Cortex assessment, shadow/paper exit, durable per-consumer outcome acknowledgement, correct learner update and chronological authority evaluation. A live-policy-eligible fixture must reach FDG allow, sealed intent and executor invocation without making an unsolicited real trade. The code repairs and test results must be reported separately from restored-device recovery. Profitable live selection and the complete phone-state candidate replay remain unproven until observed on that device; missing historical evidence must not be invented to claim otherwise.

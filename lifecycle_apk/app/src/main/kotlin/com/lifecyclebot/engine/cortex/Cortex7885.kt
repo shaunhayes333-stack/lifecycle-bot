@@ -162,8 +162,11 @@ object Cortex7885 {
         val locked8325 = synchronized(this) {
             noteAssessWait8324(System.nanoTime() - wait8324)
             val cross = try { crossVotes(lane, staticRaws) } catch (_: Throwable) { emptyList() }
-            val fp = ledger.fuseWithSnapshot8324(lane, baseVotes8325 + cross, regime)  // V5.0.8324 — one prediction per voter (was two)
-            Locked8325(cross, fp.first, fp.second, calibration.slope(lane), calibration.netFit8372(lane, executableOffset8187(lane)))
+            val fp = ledger.fuseWithSnapshot8324(lane, baseVotes8325 + cross, regime)  // Freeze the raw prequential prediction before the optional cost-basis projection.
+            val offset8404 = executableOffset8187(lane)
+            val fit8404 = calibration.netFit8372(lane, offset8404)
+            Locked8325(cross, fp.first, fp.second, calibration.slope(lane), fit8404,
+                if (fit8404?.calibrated == true || offset8404 <= 0.0 || !ledger.hasShadowBasis8404()) fp.first else ledger.fuseCostBasis8404(lane, baseVotes8325 + cross, regime, offset8404))
         }
         val dyn = dynamic8325 + locked8325.cross
         val ids = CortexVoters7885.IDS + dyn.map { it.voterId }
@@ -178,7 +181,7 @@ object Cortex7885 {
         // past mean (TREASURY ic -0.33 INVERTED, QUALITY / BLUECHIP / CYCLIC FLAT on lanes with few seated voters).
         // One frozen per-token NET-return forecast drives the panel, verdict and validation record.
         // Log-growth, lane rank and tail ponds remain diagnostics; they must not silently rewrite YES/NO.
-        val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane))
+        val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane), locked8325.costFused8404)
         val ev8324 = if (runner) tailEvNow8324(lane, fused) else Double.NaN
         val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)
         val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
@@ -238,16 +241,18 @@ object Cortex7885 {
     private class Locked8325(val cross: List<CortexLedger7885.Vote>, val fused: CortexLedger7885.Fused,
                              val prediction: CortexLedger7885.PredictionSnapshot8076, val slope: Double,
                              /** Arithmetic net-return calibration, read in the same critical section. */
-                             val net8372: CortexCalibration7901.NetFit8372? = null)
+                             val net8372: CortexCalibration7901.NetFit8372? = null,
+                             val costFused8404: CortexLedger7885.Fused = fused)
 
     /** A flat/unmeasured map has no token discrimination: retain the original fused token read, never a lane-wide HOLD. */
     internal fun calibratedRead8372(runner: Boolean, fused: CortexLedger7885.Fused, slope: Double,
-                                    fit: CortexCalibration7901.NetFit8372?, executionOffset: Double = 0.0): Double {
+                                    fit: CortexCalibration7901.NetFit8372?, executionOffset: Double = 0.0,
+                                    costFused8404: CortexLedger7885.Fused = fused): Double {
         if (fit?.calibrated == true) {
             val edge = fit.expectedNetPct8372(calibratedRead8325(runner, fused, 1.0))
             if (edge.isFinite()) return edge
         }
-        return calibratedRead8325(runner, fused, slope) - executionOffset.takeIf { it.isFinite() && it > 0.0 }.orZero8372()
+        return calibratedRead8325(runner, costFused8404, slope) - executionOffset.takeIf { it.isFinite() && it > 0.0 }.orZero8372()
     }
 
     private fun Double?.orZero8372(): Double = this ?: 0.0
@@ -953,7 +958,7 @@ object Cortex7885 {
 
     private fun detachGraded8386(g: Graded8006): Graded8006 = Graded8006(detachPending8386(g.p),
         CortexLedger7885.GradeTrace8006(g.trace.preds.copyOf(), g.trace.pWins.copyOf(), g.trace.base, g.trace.baseWin,
-            g.trace.scales?.copyOf(), g.trace.scoreAt?.copyOf()), g.net, g.gross, g.atMs,
+            g.trace.scales?.copyOf(), g.trace.scoreAt?.copyOf(), g.trace.shadowNet8404), g.net, g.gross, g.atMs,
         g.bookScales?.copyOf(), g.auxScales?.copyOf(), g.calStamp8322).also {
         it.witnessed8324 = g.witnessed8324; it.jointTrace8372 = g.jointTrace8372.toList()
     }
@@ -1103,7 +1108,7 @@ object Cortex7885 {
             .put("r", a.runnerLane).put("e", jsonNumber(a.fused.edgePct)).put("m", jsonNumber(a.fused.laneMean))
             .put("ce8372", jsonNumber(a.calibratedEdge)).put("sv8372", a.scoreVersion8372).put("aat8372", a.atMs)
             .put("provenance8372", provenance8372(a).encode())
-            .put("cal", jsonNumber(g.calStamp8322)).put("w", g.witnessed8324)
+            .put("cal", jsonNumber(g.calStamp8322)).put("w", g.witnessed8324).put("shadowNet8404", g.trace.shadowNet8404)
             .put("jointTrace8372", org.json.JSONArray().also { rows -> g.jointTrace8372.forEach { c ->
                 rows.put(org.json.JSONArray().put(c.key).put(c.generation).put(jsonNumber(c.scale)))
             } })
@@ -1253,7 +1258,7 @@ object Cortex7885 {
         }
         repeat(3) { scales.add(rs?.optDouble(ji.length() * 4 + it, Double.NaN) ?: Double.NaN) }
         val trace = CortexLedger7885.GradeTrace8006(preds.toDoubleArray(), pws.toDoubleArray(), o.optDouble("base", 0.0), o.optDouble("bw", 0.5),
-            if (rs != null) scales.toDoubleArray() else null, if (sc != null) counts.toIntArray() else null)
+            if (rs != null) scales.toDoubleArray() else null, if (sc != null) counts.toIntArray() else null, o.optBoolean("shadowNet8404", false))
         val id = if (key.endsWith("|$at")) key else "$key|$at"
         return id to Graded8006(p, trace, o.optDouble("n", Double.NaN), o.optDouble("gr", Double.NaN), at,
             readNumbers(o, "bs"), readNumbers(o, "aux"), o.optDouble("cal", Double.NaN)).also {
@@ -1453,7 +1458,8 @@ object Cortex7885 {
         if (flat) synchronized(this) { gradeBook8144.markFlat8322("$key|${p.atMs}") }
         if (!accepted8395 || !hyg8144.authority || late8153 || lateRead8169 || flat) {
             try { LanePlaybook7907.dropPending8144(mint, labelLane, decisionAtMs8372 = p.atMs) } catch (_: Throwable) {}
-            if (flat) inc("LABEL_HYGIENE_FLAT_MARK_8322")
+            if (p.a.staleMark) inc("LABEL_HYGIENE_STALE_MARK_8404")
+            else if (flat) inc("LABEL_HYGIENE_FLAT_MARK_8322")
             else if (lateRead8169) inc("LABEL_HYGIENE_LATE_VOTER_READ_8169")
             else if (late8153 && hyg8144.authority) inc("LABEL_HYGIENE_LATE_FIRST_PRICE_8153") else inc("LABEL_HYGIENE_${hyg8144.tag}_8144")
             synchronized(this) { noteObservedOnly8153(key, p.atMs) }
@@ -1759,8 +1765,8 @@ object Cortex7885 {
     private fun gradeModelsLocked8372(key: String, p: Pending, net8187: Double, gross8187: Double, witness8324: Boolean,
                                       shadowExit8372: Boolean = false) {
             // V5.0.8324 §PROVENANCE — a chain-witnessed runner label is counted as such in every book (its tail reads raw).
-            val trace8006 = ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, net8187, gross8187, p.a.regime, predictionForGrade8076(p.a), witness8324)
-            val bookScales = board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187, witness8324)
+            val trace8006 = ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, net8187, gross8187, p.a.regime, predictionForGrade8076(p.a), witness8324, shadowNet8404 = shadowExit8372)
+            val bookScales = board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187, witness8324, shadowNet8404 = shadowExit8372)
             val auxScales = DoubleArray(3) { Double.NaN }
             val calStamp8322 = calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), calibrationScore8372(p.a),
                 targetBasis8372 = if (shadowExit8372) CortexCalibration7901.TARGET_SHADOW_NET_8372 else CortexCalibration7901.TARGET_FORWARD_NET_8372)
@@ -1777,17 +1783,17 @@ object Cortex7885 {
                 val st = jointStatForGrade8372(jk, allowEvict = setup == p.setup7961) ?: continue
                 st.scale(CortexScoreboard7885.BOOK_DECAY)
                 val stamp = st.add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX),
-                    gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324)
+                    gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324, shadowNet8404 = shadowExit8372)
                 if (setup == p.setup7961) auxScales[0] = stamp
                 jointTrace.add(JointContribution8372(jk, jointGenerations8372.getValue(jk), stamp))
             }
             if (p.fired8094.isNotEmpty()) inc("SETUP_FIRED_GRADED_8094")
             p.vetoRule?.let { r ->
                 auxScales[1] = vetoBook.getOrPut(r) { CortexLedger7885.labelStat8187() }
-                    .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324)
+                    .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324, shadowNet8404 = shadowExit8372)
                 // V5.0.8006 — the same rule per lane: a rule can refuse winners in one lane and losers in another.
                 auxScales[2] = vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane)) { CortexLedger7885.labelStat8187() }
-                    .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324)
+                    .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324, shadowNet8404 = shadowExit8372)
             }
             if (trace8006 != null) retain8006("$key|${p.atMs}", p, trace8006, net8187, gross8187, bookScales, auxScales, calStamp8322)
             graded8006["$key|${p.atMs}"]?.jointTrace8372 = jointTrace
@@ -1947,7 +1953,7 @@ object Cortex7885 {
     /** Caller holds the lock. */
     private fun verdict8144(key: String, p: Pending, ctx: DecisionCtx8144?): CortexLabelHygiene8144.Verdict8144 =
         CortexLabelHygiene8144.Verdict8144(
-            (ctx?.executable ?: (p.decisionReason8196 != null &&
+            !p.a.staleMark && (ctx?.executable ?: (p.decisionReason8196 != null &&
                 CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.decisionReason8196))) &&
                 CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.decisionReason8196),
             CortexLabelHygiene8144.repeatInEpisode8144(p.legacyAdmitted, gradeBook8144.lastGradedAt(key), p.atMs),
@@ -2587,15 +2593,17 @@ object Cortex7885 {
         if (g.trace.scales == null || g.trace.scoreAt == null || g.bookScales == null || g.auxScales == null || !g.net.isFinite()) {
             inc("REVISION_LEGACY_WEIGHT_UNKNOWN"); return false
         }
+        val oldShadow8404 = g.trace.shadowNet8404
+        val newShadow8404 = shadowExit8372 || oldShadow8404
         val a = g.p.a; val oldNet = g.net; val oldGross = g.gross; val wasWitnessed = g.witnessed8324
-        ledger.revise8006(a.lane, a.ids, a.edges, a.raws, g.trace, oldNet, newNet, oldGross, newGross, a.regime, wasWitnessed, witness)
+        ledger.revise8006(a.lane, a.ids, a.edges, a.raws, g.trace, oldNet, newNet, oldGross, newGross, a.regime, wasWitnessed, witness, shadowNet8404 = newShadow8404)
         if (calibration.revise8322(a.lane, a.fused.edgePct, a.fused.laneMean, oldNet, newNet, g.calStamp8322,
                 targetBasis8372 = if (shadowExit8372) CortexCalibration7901.TARGET_SHADOW_NET_8372 else null)) inc("CALIBRATION_REVISED_8322")
-        board.revise8006(a.lane, a.bucket, g.p.legacyAdmitted, oldNet, newNet, oldGross, newGross, g.bookScales, wasWitnessed, witness)
+        board.revise8006(a.lane, a.bucket, g.p.legacyAdmitted, oldNet, newNet, oldGross, newGross, g.bookScales, wasWitnessed, witness, oldShadow8404, newShadow8404)
         val ro = oldGross >= CortexLedger7885.RUNNER_GROSS_PCT; val rn = newGross >= CortexLedger7885.RUNNER_GROSS_PCT
         fun reviseAux(st: CortexLedger7885.Stat?, index: Int) {
             st?.revise(oldNet.coerceAtLeast(CortexLedger7885.Y_MIN), newNet.coerceAtLeast(CortexLedger7885.Y_MIN), ro, rn,
-                st.revisionWeight(g.auxScales[index]), wasWitnessed, witness)
+                st.revisionWeight(g.auxScales[index]), wasWitnessed, witness, oldShadow8404, newShadow8404)
         }
         g.p.vetoRule?.let { r -> reviseAux(vetoBook[r], 1); reviseAux(vetoBook[vetoLaneKey8006(r, a.lane)], 2) }
         for (contribution in g.jointTrace8372) {
@@ -2604,7 +2612,7 @@ object Cortex7885 {
             }
             val st = jointBook7961[contribution.key] ?: continue
             st.revise(oldNet.coerceAtLeast(CortexLedger7885.Y_MIN), newNet.coerceAtLeast(CortexLedger7885.Y_MIN), ro, rn,
-                st.revisionWeight(contribution.scale), wasWitnessed, witness)
+                st.revisionWeight(contribution.scale), wasWitnessed, witness, oldShadow8404, newShadow8404)
         }
         if (g.jointTrace8372.isEmpty() && (g.p.setup7961.isNotBlank() || g.p.fired8094.isNotEmpty()))
             inc("JOINT_REVISION_LEGACY_GENERATION_UNKNOWN_8372")
@@ -2979,7 +2987,7 @@ object Cortex7885 {
      */
     fun executableCopy8187(st: CortexLedger7885.Stat, offsetPct: Double, realisedN: Double, realisedMean: Double): CortexLedger7885.Stat {
         val off = if (offsetPct.isFinite()) offsetPct.coerceAtLeast(0.0) else 0.0
-        val m0 = st.mean() + st.readOffset8187
+        val m0 = st.mean() + st.effectiveReadOffset8404()
         val blend = realisedBlend8187(st.n, m0, realisedN, realisedMean)
         val blended = blend[0] != st.n || blend[1] != m0
         if (!blended && off <= 0.0) return st
@@ -2988,6 +2996,12 @@ object Cortex7885 {
         return CortexLedger7885.realisedStat8187().also { c ->
             c.n = n2; c.sum = m2 * n2; c.sumSq = (variance + m2 * m2) * n2
             c.wins = st.winRate() * n2; c.runners = st.runnerRate() * n2
+            val shadowShare8404 = if (st.n > 0.0) (st.shadowWeight8404 / st.n).coerceIn(0.0, 1.0) else 0.0
+            c.shadowWeight8404 = n2 * if (!blended) shadowShare8404 else {
+                val labelWeight = minOf(st.n, LABEL_N_CAP_8187)
+                val realisedWeight = REALISED_WEIGHT_8187 * realisedN
+                (labelWeight * shadowShare8404 + realisedWeight) / (labelWeight + realisedWeight)
+            }
             c.readOffset8187 = off
         }
     }

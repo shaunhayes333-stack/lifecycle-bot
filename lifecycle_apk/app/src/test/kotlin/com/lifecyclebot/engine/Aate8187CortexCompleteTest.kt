@@ -494,7 +494,7 @@ class Aate8187CortexCompleteTest {
         // 8372 retains the one-offset contract while restoring arithmetic per-token calibration.
         assertTrue(cx.contains("val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane))"))
         assertFalse(cx.contains("calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372) - executableOffset8187(lane)"))
-        assertTrue(cx.contains("return calibratedRead8325(runner, fused, slope)"))
+        assertTrue(cx.contains("return calibratedRead8325(runner, costFused8404, slope)"))
         assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane)"))
         assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("fun laneStatFor7737(lane: String): CellStat? = executable8187(laneStat(lane), lane)"))
     }

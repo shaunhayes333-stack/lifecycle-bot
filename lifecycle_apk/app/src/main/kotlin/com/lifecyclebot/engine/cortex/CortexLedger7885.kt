@@ -169,6 +169,8 @@ class CortexLedger7885(
         var n = 0.0; var sum = 0.0; var sumSq = 0.0; var runners = 0.0; var wins = 0.0
         /** V5.0.8324 — runners whose label was chain-witnessed (provenance), decayed with the book. */
         var witnessed8324 = 0.0
+        /** Decayed contribution weight already charged executable shadow costs. Raw returns stay unchanged. */
+        var shadowWeight8404 = 0.0
         // Cumulative decay, persisted with the book. A delayed correction must
         // replace only the weight that its original observation still owns.
         var logScale = 0.0
@@ -197,9 +199,11 @@ class CortexLedger7885(
          * [suspect8187] is a flag on the screen; nothing stored is changed.
          */
         fun tailReal8322(): Boolean = tailPlausible8320(sum, runners, cap8187, witnessed8324)  // V5.0.8320 plausible / V5.0.8324 witnessed
+        fun effectiveReadOffset8404(): Double = (readOffset8187.takeIf { it.isFinite() } ?: 0.0) *
+            (if (n > 0.0) 1.0 - (shadowWeight8404 / n).coerceIn(0.0, 1.0) else 1.0)
         fun mean(): Double {
             if (!(n > 0.0)) return 0.0
-            val off = readOffset8187.takeIf { it.isFinite() } ?: 0.0
+            val off = effectiveReadOffset8404()
             val raw = sum / n
             if (!cap8187.isFinite() || !raw.isFinite() || tailReal8322()) return raw - off
             val hi = upper8187()
@@ -218,19 +222,25 @@ class CortexLedger7885(
          */
         fun predictMean8322(): Double {
             if (!(n > 0.0)) return 0.0
-            val off = readOffset8187.takeIf { it.isFinite() } ?: 0.0
+            val off = effectiveReadOffset8404()
             val raw = sum / n
             if (!cap8187.isFinite() || !raw.isFinite()) return raw - off
             val hi = upper8187()
             return (if (raw > hi + 1e-9) hi else raw) - off
         }
+        /** Convert only known executable contributions to the fallback's forward basis before its one cost subtraction.
+         * Legacy aggregates have no per-outcome basis: zero credit preserves their conservative prior behavior. */
+        fun predictionWithShadowCredit8404(offset: Double): Double = predictMean8322() +
+            if (n > 0.0 && offset.isFinite() && offset > 0.0) offset * (shadowWeight8404 / n).coerceIn(0.0, 1.0) else 0.0
+        fun sumWithShadowCredit8404(offset: Double): Double = if (n > 0.0) predictionWithShadowCredit8404(offset) * n else 0.0
         /** V5.0.8187 — the sum a shrunk prediction may use: the bounded mean's worth of n labels (V5.0.8322: [predictMean8322]). */
         fun readSum8187(): Double = if (n > 0.0) predictMean8322() * n else 0.0
         fun runnerRate(): Double = if (n > 0.0) runners / n else 0.0
         fun winRate(): Double = if (n > 0.0) wins / n else 0.5
-        fun add(y: Double, runner: Boolean, witnessed: Boolean = false): Double {
+        fun add(y: Double, runner: Boolean, witnessed: Boolean = false, shadowNet8404: Boolean = false): Double {
             if (!y.isFinite() || !(y * y).isFinite()) return Double.NaN
             val stamp = logScale
+            if (shadowNet8404) shadowWeight8404 += 1.0
             n += 1.0; sum += y; sumSq += y * y; if (runner) runners += 1.0; if (y > 0.0) wins += 1.0
             if (runner && witnessed) witnessed8324 += 1.0  // V5.0.8324
             // V5.0.8014 — fresh edge: past [STAT_WINDOW_8014] outcomes the oldest evidence fades, so a busy
@@ -238,14 +248,17 @@ class CortexLedger7885(
             if (n > STAT_WINDOW_8014) scale(STAT_WINDOW_8014 / n)
             return stamp
         }
-        fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k; wins *= k; witnessed8324 *= k; logScale += kotlin.math.ln(k) }
+        fun scale(k: Double) { n *= k; sum *= k; sumSq *= k; runners *= k; wins *= k; witnessed8324 *= k; shadowWeight8404 *= k; logScale += kotlin.math.ln(k) }
         fun revisionWeight(stamp: Double): Double =
             if (stamp.isFinite() && logScale.isFinite() && logScale <= stamp + 1e-9)
                 kotlin.math.exp(logScale - stamp).coerceIn(0.0, 1.0) else 0.0
         /** V5.0.7997 — a label revised on a later checkpoint replaces its earlier value (n unchanged). */
         fun revise(yOld: Double, yNew: Double, runnerOld: Boolean, runnerNew: Boolean, weight: Double = 1.0,
-                   witnessedOld: Boolean = false, witnessedNew: Boolean = false) {
+                   witnessedOld: Boolean = false, witnessedNew: Boolean = false,
+                   shadowOld8404: Boolean = false, shadowNew8404: Boolean = shadowOld8404) {
             if (n <= 0.0 || !yOld.isFinite() || !yNew.isFinite() || !weight.isFinite() || weight <= 0.0 || weight > 1.0) return
+            if (shadowOld8404 != shadowNew8404) shadowWeight8404 =
+                (shadowWeight8404 + weight * (if (shadowNew8404) 1.0 else -1.0)).coerceIn(0.0, n)
             sum += weight * (yNew - yOld); sumSq = (sumSq + weight * (yNew * yNew - yOld * yOld)).coerceAtLeast(0.0)
             if (runnerNew != runnerOld) runners = (runners + weight * (if (runnerNew) 1.0 else -1.0)).coerceIn(0.0, n)
             // V5.0.8324 — the witnessed-runner count follows the revision (old contribution out, new one in).
@@ -256,13 +269,15 @@ class CortexLedger7885(
         }
         internal fun copyInto8386(out: Stat) {
             out.n = n; out.sum = sum; out.sumSq = sumSq; out.runners = runners; out.wins = wins
-            out.logScale = logScale; out.witnessed8324 = witnessed8324; out.readOffset8187 = readOffset8187
+            out.logScale = logScale; out.witnessed8324 = witnessed8324; out.shadowWeight8404 = shadowWeight8404; out.readOffset8187 = readOffset8187
         }
         internal fun detached8386(): Stat = Stat(cap8187, runnerFloor8187).also { copyInto8386(it) }
-        fun encode(): String = "$n,$sum,$sumSq,$runners,$wins,$logScale,$witnessed8324,INDEPENDENT_CURVE_8365"  // V5.0.8365 independent proof epoch
+        fun encode(): String = "$n,$sum,$sumSq,$runners,$wins,$logScale,$witnessed8324,INDEPENDENT_CURVE_8365,$shadowWeight8404"  // V5.0.8365 independent proof epoch
         fun decode(s: String) {
-            val f = s.split(','); if (f.size !in 4..8) return
-            n = f[0].toDoubleOrNull() ?: 0.0; sum = f[1].toDoubleOrNull() ?: 0.0
+            val f = s.split(','); if (f.size !in 4..9) return
+            n = f[0].toDoubleOrNull() ?: 0.0
+            shadowWeight8404 = (f.getOrNull(8)?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0).coerceIn(0.0, maxOf(n, 0.0))
+            sum = f[1].toDoubleOrNull() ?: 0.0
             sumSq = f[2].toDoubleOrNull() ?: 0.0; runners = f[3].toDoubleOrNull() ?: 0.0
             wins = if (f.size >= 5) f[4].toDoubleOrNull() ?: 0.0 else 0.0
             logScale = f.getOrNull(5)?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
@@ -366,18 +381,18 @@ class CortexLedger7885(
      * read at lane level and then refined by its regime-level bin. A blank
      * regime reproduces the lane-only Cortex exactly.
      */
-    private fun laneMean(lane: String, regime: String): Pair<Double, Double> {
+    private fun laneMean(lane: String, regime: String, shadowCredit8404: Double = 0.0): Pair<Double, Double> {
         val l = lanes[lane]
-        val m = l?.predictMean8322() ?: 0.0  // V5.0.8322 — the prediction prior keeps the bounded read
+        val m = l?.predictionWithShadowCredit8404(shadowCredit8404) ?: 0.0  // V5.0.8322 — the prediction prior keeps the bounded read
         val lr = l?.runnerRate() ?: 0.0
         if (regime.isBlank()) return m to lr
         val r = lanes["$lane@$regime"] ?: return m to lr
-        return ((r.readSum8187() + REGIME_K * m) / (r.n + REGIME_K)) to ((r.runners + REGIME_K * lr) / (r.n + REGIME_K))  // V5.0.8187 — robust sum
+        return ((r.sumWithShadowCredit8404(shadowCredit8404) + REGIME_K * m) / (r.n + REGIME_K)) to ((r.runners + REGIME_K * lr) / (r.n + REGIME_K))  // V5.0.8187 — robust sum
     }
 
     /** Shrunk prediction of the net return for [raw] on [edges] in [lane] (and [regime]). */
-    fun predict(voterId: String, lane: String, edges: DoubleArray, raw: Double, regime: String = ""): Prediction {
-        val (m, lr) = laneMean(lane, regime)
+    fun predict(voterId: String, lane: String, edges: DoubleArray, raw: Double, regime: String = "", shadowCredit8404: Double = 0.0): Prediction {
+        val (m, lr) = laneMean(lane, regime, shadowCredit8404)
         val st = seats["$voterId|$lane"]
         val bin = binOf(edges, raw)
         val b = st?.bins?.getOrNull(bin)
@@ -385,13 +400,13 @@ class CortexLedger7885(
         // V5.0.7905 — Cortex v10: hierarchical prior (cell -> lane -> global). A
         // thin lane borrows the voter's cross-lane bin deviation, so what a voter
         // learned on every lane informs a new one from its first decisions.
-        val prior = m + globalDeviation(voterId, bin, lane)
-        var pred = ((b?.readSum8187() ?: 0.0) + SHRINK_K * prior) / (n + SHRINK_K)  // V5.0.8187 — robust sum
+        val prior = m + globalDeviation(voterId, bin, lane, shadowCredit8404)
+        var pred = ((b?.sumWithShadowCredit8404(shadowCredit8404) ?: 0.0) + SHRINK_K * prior) / (n + SHRINK_K)  // V5.0.8187 — robust sum
         var runner = ((b?.runners ?: 0.0) + SHRINK_K * lr) / (n + SHRINK_K)
         if (regime.isNotBlank()) {
             val rb = seats["$voterId|$lane@$regime"]?.bins?.getOrNull(bin)
             if (rb != null && rb.n > 0.0) {
-                pred = (rb.readSum8187() + REGIME_K * pred) / (rb.n + REGIME_K)
+                pred = (rb.sumWithShadowCredit8404(shadowCredit8404) + REGIME_K * pred) / (rb.n + REGIME_K)
                 runner = (rb.runners + REGIME_K * runner) / (rb.n + REGIME_K)
             }
         }
@@ -405,7 +420,7 @@ class CortexLedger7885(
      * Shrunk deviation of [voterId]'s [bin] from the mean of the OTHER lanes
      * (this lane's own cell is subtracted out, so its evidence is not counted twice).
      */
-    private fun globalDeviation(voterId: String, bin: Int, ownLane: String): Double {
+    private fun globalDeviation(voterId: String, bin: Int, ownLane: String, shadowCredit8404: Double = 0.0): Double {
         // Playbook ordinals mean different setups in different lane menus.
         if (voterId.contains("PLAYBOOK_SETUP")) return 0.0
         if (CrossAssetCortex7931.isCrossAssetLane(ownLane)) return 0.0
@@ -420,7 +435,7 @@ class CortexLedger7885(
             if (other == ownLane || other == GLOBAL || '@' in other || CrossAssetCortex7931.isCrossAssetLane(other)) continue
             val cell = seats["$voterId|$other"]?.bins?.getOrNull(bin) ?: continue
             if (cell.n <= 0.0 || baseline.n <= 0.0) continue
-            n += cell.n; sum += cell.readSum8187(); laneN += baseline.n; laneSum += baseline.readSum8187()  // V5.0.8187
+            n += cell.n; sum += cell.sumWithShadowCredit8404(shadowCredit8404); laneN += baseline.n; laneSum += baseline.sumWithShadowCredit8404(shadowCredit8404)  // V5.0.8187
         }
         if (n <= 0.5 || laneN <= 0.5) return 0.0
         return (sum - n * (laneSum / laneN)) / (n + SHRINK_K)
@@ -448,7 +463,7 @@ class CortexLedger7885(
      * outcome before learning it, then learns it.
      */
     fun grade(lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, netPct: Double, grossPct: Double, regime: String = "",
-        prediction8076: PredictionSnapshot8076? = null, witnessed8324: Boolean = false): GradeTrace8006? {
+        prediction8076: PredictionSnapshot8076? = null, witnessed8324: Boolean = false, shadowNet8404: Boolean = false): GradeTrace8006? {
         if (!netPct.isFinite()) return null
         // V5.0.8322 — stored RAW (owner directive 8072: no win caps); 8187 clamped every label at ingestion to the cap.
         val y = netPct.coerceAtLeast(Y_MIN)
@@ -486,17 +501,17 @@ class CortexLedger7885(
                 st.sseBase = st.sseBase * DECAY + (y - base) * (y - base)
                 st.scored++
                 scoreAt[i] = st.scored
-                scales[i * 4 + 1] = (if (p >= base) st.above else st.below).add(y, runner, witnessed8324)
+                scales[i * 4 + 1] = (if (p >= base) st.above else st.below).add(y, runner, witnessed8324, shadowNet8404)
             }
-            scales[i * 4] = st.bins[binOf(edges[i], raw)].add(y, runner, witnessed8324)
+            scales[i * 4] = st.bins[binOf(edges[i], raw)].add(y, runner, witnessed8324, shadowNet8404)
             // Regime cells only for seasoned voters (bounds the store).
             if (regime.isNotBlank() && st.scored >= MIN_SCORED / 2) {
-                scales[i * 4 + 2] = seat(voterIds[i], "$lane@$regime", edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner, witnessed8324)
+                scales[i * 4 + 2] = seat(voterIds[i], "$lane@$regime", edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner, witnessed8324, shadowNet8404)
             }
         }
         val laneOffset = voterIds.size * 4
-        scales[laneOffset] = l.add(y, runner, witnessed8324)
-        if (regime.isNotBlank()) scales[laneOffset + 1] = lane("$lane@$regime").add(y, runner, witnessed8324)
+        scales[laneOffset] = l.add(y, runner, witnessed8324, shadowNet8404)
+        if (regime.isNotBlank()) scales[laneOffset + 1] = lane("$lane@$regime").add(y, runner, witnessed8324, shadowNet8404)
         // V5.0.7905 — the all-lane cell every voter's bins also feed.
         // V5.0.7931 — cross-asset lanes (crypto universe, Markets) learn in their own
         // lanes only: their outcomes must not move the memecoin all-lane prior.
@@ -504,9 +519,9 @@ class CortexLedger7885(
             for (i in voterIds.indices) {
                 val raw = raws.getOrNull(i) ?: continue
                 if (!raw.isFinite()) continue
-                scales[i * 4 + 3] = seat(voterIds[i], GLOBAL, edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner, witnessed8324)
+                scales[i * 4 + 3] = seat(voterIds[i], GLOBAL, edges[i].size + 1).bins[binOf(edges[i], raw)].add(y, runner, witnessed8324, shadowNet8404)
             }
-            scales[laneOffset + 2] = lane(GLOBAL).add(y, runner, witnessed8324)
+            scales[laneOffset + 2] = lane(GLOBAL).add(y, runner, witnessed8324, shadowNet8404)
         }
         // Error co-movement between seasoned voters (v1 §2.4): voters that are
         // wrong together are one opinion, not two.
@@ -516,12 +531,12 @@ class CortexLedger7885(
             val c = pairs.getOrPut(k) { DoubleArray(3) }
             c[0] = c[0] * DECAY + ra * rb; c[1] = c[1] * DECAY + ra * ra; c[2] = c[2] * DECAY + rb * rb
         }
-        return GradeTrace8006(preds8006, pWins8006, base, baseWin8006, scales, scoreAt)
+        return GradeTrace8006(preds8006, pWins8006, base, baseWin8006, scales, scoreAt, shadowNet8404)
     }
 
     /** V5.0.8006 — what a grade predicted, kept so a later checkpoint can revise the label. */
     class GradeTrace8006(val preds: DoubleArray, val pWins: DoubleArray, val base: Double, val baseWin: Double,
-        val scales: DoubleArray? = null, val scoreAt: IntArray? = null)
+        val scales: DoubleArray? = null, val scoreAt: IntArray? = null, var shadowNet8404: Boolean = false)
 
     /**
      * V5.0.8006 — progressive revision. A decision graded at 5 minutes is re-graded when the
@@ -536,6 +551,7 @@ class CortexLedger7885(
         lane: String, voterIds: List<String>, edges: List<DoubleArray>, raws: DoubleArray, trace: GradeTrace8006,
         oldNet: Double, newNet: Double, oldGross: Double, newGross: Double, regime: String = "",
         witnessedOld8324: Boolean = false, witnessedNew8324: Boolean = false,
+        shadowNet8404: Boolean = trace.shadowNet8404,
     ) {
         if (!oldNet.isFinite() || !newNet.isFinite()) return
         // Legacy traces have no contribution weights; preserving their booked
@@ -547,12 +563,12 @@ class CortexLedger7885(
             // V5.0.8187 — the old value leaves exactly as it was booked; V5.0.8322 — the new one is stored raw too.
             st?.revise(oldNet.coerceIn(Y_MIN, Y_MAX), newNet.coerceIn(Y_MIN, Y_MAX),
                 oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT,
-                newGross.isFinite() && newGross >= RUNNER_GROSS_PCT, st.revisionWeight(stamp), witnessedOld8324, witnessedNew8324)
+                newGross.isFinite() && newGross >= RUNNER_GROSS_PCT, st.revisionWeight(stamp), witnessedOld8324, witnessedNew8324, trace.shadowNet8404, shadowNet8404)
         }
         val yo = oldNet.coerceIn(Y_MIN, Y_MAX); val yn = newNet.coerceIn(Y_MIN, Y_MAX)  // V5.0.8322 — raw
         val ro = oldGross.isFinite() && oldGross >= RUNNER_GROSS_PCT
         val rn = newGross.isFinite() && newGross >= RUNNER_GROSS_PCT
-        if (yo == yn && ro == rn) return
+        if (yo == yn && ro == rn && trace.shadowNet8404 == shadowNet8404) return
         val wo = if (yo > 0.0) 1.0 else 0.0; val wn = if (yn > 0.0) 1.0 else 0.0
         val bw = trace.baseWin.coerceIn(0.01, 0.99)
         val crossAsset = CrossAssetCortex7931.isCrossAssetLane(lane)
@@ -587,6 +603,7 @@ class CortexLedger7885(
         revise(lanes[lane], voterIds.size * 4)
         if (regime.isNotBlank()) revise(lanes["$lane@$regime"], voterIds.size * 4 + 1)
         if (lane != GLOBAL && !crossAsset) revise(lanes[GLOBAL], voterIds.size * 4 + 2)
+        trace.shadowNet8404 = shadowNet8404
     }
 
     /** voterA|voterB (sorted) -> decayed sum(ra*rb), sum(ra^2), sum(rb^2). */
@@ -660,15 +677,21 @@ class CortexLedger7885(
         return fuseFrom8324(lane, votes, regime, cache) to PredictionSnapshot8076(preds, wins, laneMean(lane, regime).first, lanes[lane]?.winRate() ?: 0.5)
     }
 
-    private fun fuseFrom8324(lane: String, votes: List<Vote>, regime: String, cache: Array<Prediction?>?): Fused {
+    fun hasShadowBasis8404(): Boolean = lanes.values.any { it.shadowWeight8404 > 0.0 }
+
+    /** Same token fusion, with only explicitly recorded shadow cost already paid credited back. */
+    fun fuseCostBasis8404(lane: String, votes: List<Vote>, regime: String, executionOffset: Double): Fused =
+        fuseFrom8324(lane, votes, regime, null, executionOffset)
+
+    private fun fuseFrom8324(lane: String, votes: List<Vote>, regime: String, cache: Array<Prediction?>?, shadowCredit8404: Double = 0.0): Fused {
         val l = lanes[lane]
-        val (m, lr) = laneMean(lane, regime)
+        val (m, lr) = laneMean(lane, regime, shadowCredit8404)
         class W(val id: String, val ev: Set<String>, val a: Double, val d: Double, val rr: Double, val dw: Double = 0.0)
         val laneSd8007 = kotlin.math.sqrt(l?.variance() ?: 0.0)
         val seated = ArrayList<W>()
         for ((vi, v) in votes.withIndex()) {
             if (!v.raw.isFinite()) continue
-            val p = cache?.getOrNull(vi) ?: predict(v.voterId, lane, v.edges, v.raw, regime)
+            val p = cache?.getOrNull(vi) ?: predict(v.voterId, lane, v.edges, v.raw, regime, shadowCredit8404)
             if (p.authority <= 0.0) continue
             // V5.0.8007 — outlier pulls clamped (net and runner-rate deviations).
             seated.add(W(v.voterId, v.evidence, p.authority, clampPull8007(p.netPct - m, laneSd8007), (p.runnerRate - lr).coerceIn(-0.5, 0.5), p.pWin - (l?.winRate() ?: 0.5)))
@@ -693,7 +716,7 @@ class CortexLedger7885(
         val top = weights.sortedByDescending { kotlin.math.abs(it.second * it.first.d) }.take(3)
             .map { (w, x) -> "${w.id}${if (w.d >= 0) "+" else ""}${"%.1f".format(w.d)}@${"%.2f".format(x)}" }
         val pWin = ((l?.winRate() ?: 0.5) + swp / (1.0 + sw)).coerceIn(0.0, 1.0)
-        val mAll8325 = l?.predictMean8322() ?: Double.NaN
+        val mAll8325 = l?.predictionWithShadowCredit8404(shadowCredit8404) ?: Double.NaN
         val runOdds = if (runnerLaneSafe8324(lane)) runOdds8325(lane, votes) else null
         return Fused(edge, runner, m, l?.n ?: 0.0, sw, if (sw2 > 0.0) sw * sw / sw2 else 0.0, dissent, top, pWin, lr,
             laneMeanAll8325 = mAll8325, pRun8325 = runOdds?.first ?: Double.NaN, runVoters8325 = runOdds?.second ?: 0)

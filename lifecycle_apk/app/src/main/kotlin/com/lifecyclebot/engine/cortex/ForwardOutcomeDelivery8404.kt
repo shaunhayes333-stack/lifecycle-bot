@@ -65,6 +65,9 @@ internal class ForwardOutcomeOutbox8404(private val capacity: Int) {
         return true
     }
 
+    @Synchronized fun stagePayload(id: String, payload: () -> String?, write: (String, String) -> Boolean): String? =
+        if (stage(id, payload, write)) rows[id] else null
+
     /** Work is bounded and rotates past failures; a failed delete never causes a second consumer mutation. */
     @Synchronized fun drain(limit: Int, write: (String, String) -> Boolean,
                             consume: (String) -> Boolean, remove: (String) -> Boolean) {
