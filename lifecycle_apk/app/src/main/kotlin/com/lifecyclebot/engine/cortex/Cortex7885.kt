@@ -957,7 +957,9 @@ object Cortex7885 {
     /** Caller holds the monitor only while detaching state, not while encoding. */
     private fun pendingSnapshot8076(): () -> String = pendingSnapshot8076(null)
 
-    private fun pendingSnapshot8076(episodes8401: Set<String>?): () -> String {
+    private fun pendingSnapshot8076(episodes8401: Set<String>?): () -> String = pendingSnapshot8076(episodes8401, null)
+
+    private fun pendingSnapshot8076(episodes8401: Set<String>?, generation8403: Long?): () -> String {
         val now8144 = System.currentTimeMillis()
         val ordinary = if (episodes8401 == null) pending.entries
             .filter { persistablePending8144(it.value.atMs, now8144) }.sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX)
@@ -1046,7 +1048,9 @@ object Cortex7885 {
                 append(",\"seal8395\":").append(seals8395.append(']'))
                 append(",\"outcomes8372\":").append(outcomes?.encode() ?: "null")
                 append(",\"cold8372\":").append(archive?.snapshot(now8144) ?: "null")
-                append(",\"unpaired8401\":").append(org.json.JSONArray(missing8401.toList())).append('}')
+                append(",\"unpaired8401\":").append(org.json.JSONArray(missing8401.toList()))
+                generation8403?.let { append(",\"snapshotGeneration8386\":").append(it) }
+                append('}')
             }
         }
     }
@@ -1763,7 +1767,7 @@ object Cortex7885 {
             val real = realLedgers.mapValues { it.value.detached8386() }
             val veto = vetoBook.mapValues { it.value.detached8386() }; val joint = jointBook7961.mapValues { it.value.detached8386() }
             val generations = jointGenerations8372.toMap(); val next = jointNextGeneration8372
-            val pend = pendingSnapshot8076(); val grades = gradeBook8144.detached8386()
+            val pend = pendingSnapshot8076(null, generation); val grades = gradeBook8144.detached8386()
             val receipts = HashMap<String, String>()
             uncommittedCloseGrades8198.forEach { receipts[closeReceipt8198(it)] = "{\"committed\":true}" }
             shadowReady8372.forEach { (id, terminal) ->
@@ -1782,12 +1786,10 @@ object Cortex7885 {
                     .put("joint7961", org.json.JSONObject().also { j -> joint.forEach { (k, v) -> j.put(k, v.encode()) } })
                     .put("jointGeneration8372", org.json.JSONObject(generations as Map<*, *>)).put("jointNext8372", next)
                     .put("snapshotGeneration8386", generation).toString()
-                val pendingJson8403 = org.json.JSONObject(pend()).put("snapshotGeneration8386", generation)
-                // Validate this one parsed tree before serializing; rebuilding it twice more
-                // multiplied allocations precisely when restored pending history is largest.
-                require(pendingJson8403.getJSONArray("g8013") != null)
-                require(pendingJson8403.getJSONArray("p") != null)
-                out[PENDING_PERSIST_KEY] = pendingJson8403.toString()
+                // The typed streaming builder emits p/g8013 and the generation directly.
+                // Do not inflate the entire pending graph three times merely to add/check keys.
+                // JSON objects validate each row when constructed; round-trip tests pin the full wire contract.
+                out[PENDING_PERSIST_KEY] = pend()
                 out[GRADES_KEY_8144] = grades.encode()
                 out.putAll(receipts)
                 snapshotEncodeMs8386 = (System.nanoTime() - encodeAt) / 1_000_000

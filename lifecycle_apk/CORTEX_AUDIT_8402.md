@@ -21,7 +21,7 @@ The subsequently supplied `aate_pipeline_20261028_025852_004.txt` identifies 5.0
 
 Additional source defect confirmed: terminal delivery offers the first 64 *unacknowledged* entries repeatedly, while an unavailable-only checkpoint waits for 256 staged outcomes or two minutes. Filtering acknowledged records fixed one starvation case, but did not make unacknowledged/staged batches progress. The flush itself synchronously serializes the entire Cortex state on a label/shadow tick's caller, delaying further observations.
 
-The 8403 patch rotates bounded terminal batches while retaining every record until durable acknowledgement, schedules coalesced shadow checkpoint work on the existing persistence worker, and removes two redundant full parses of the pending-state JSON. Tests cover 300 unacknowledged records reaching the consumer, a blocked checkpoint leaving its producer free, coalescing, rejection and retry. These changes require CI validation and a restored-device run; they do not close C1/C2 or establish that the entire 584-second encode cost is removed.
+The 8403 patch rotates bounded terminal batches while retaining every record until durable acknowledgement, schedules coalesced shadow checkpoint work on the existing persistence worker, and streams the pending checkpoint generation directly, eliminating three full pending-state JSON parses. Tests cover 300 unacknowledged records reaching the consumer, a blocked checkpoint leaving its producer free, coalescing, rejection and retry. These changes require CI validation and a restored-device run; they do not close C1/C2 or establish that the entire 584-second encode cost is removed.
 
 ## What the screenshots establish
 

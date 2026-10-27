@@ -10,6 +10,47 @@ import org.junit.Test
 
 class Aate8403CheckpointProgressTest {
     @Suppress("UNCHECKED_CAST")
+    @Test fun wideFrozenPredictionCheckpointStreamsGenerationAndAllVoterValues() {
+        val owner = Cortex7885
+        val field = owner.javaClass.getDeclaredField("pending").apply { isAccessible = true }
+        val pending = field.get(owner) as MutableMap<String, Any>
+        val saved = HashMap(pending)
+        val ctor = Class.forName("${owner.javaClass.name}\$Pending").declaredConstructors
+            .single { it.parameterCount == 7 }.apply { isAccessible = true }
+        val method = owner.javaClass.declaredMethods.single { it.name == "pendingSnapshot8076" && it.parameterCount == 2 }
+            .apply { isAccessible = true }
+        val now = System.currentTimeMillis()
+        val episodes = LinkedHashSet<String>()
+        try {
+            pending.clear()
+            repeat(500) { row ->
+                val at = now - 1000 + row; val key = "wide8403-$row|MOONSHOT"
+                val a = Cortex7885.Assessment("MOONSHOT", true, DoubleArray(303) { row + it / 1000.0 },
+                    List(303) { "VOTER_$it" }, List(303) { doubleArrayOf(-1.0, 0.0, 1.0) }, "TEST",
+                    com.lifecyclebot.engine.cortex.CortexLedger7885.Fused(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, emptyList()),
+                    1.0, com.lifecyclebot.engine.cortex.CortexScoreboard7885.Bucket.STRONG, 0, false, at)
+                pending[key] = ctor.newInstance(a, false, at, null, "TEST", "SETUP", emptyList<String>())
+                episodes += "$key|$at"
+            }
+            val encode = synchronized(owner) { method.invoke(owner, episodes, 42L) as () -> String }
+            pending.clear()
+            val root = org.json.JSONObject(encode())
+            assertEquals(42L, root.getLong("snapshotGeneration8386"))
+            assertEquals(303, root.getJSONArray("dict").length())
+            assertEquals(0, root.getJSONArray("g8013").length())
+            assertEquals(0, root.getJSONArray("unpaired8401").length())
+            val rows = root.getJSONArray("p")
+            assertEquals(500, rows.length())
+            repeat(500) { row ->
+                val xs = rows.getJSONObject(row).getJSONArray("x")
+                assertEquals(303, xs.length())
+                assertEquals(row + 0.302, xs.getDouble(302), 0.0)
+                assertEquals(303, rows.getJSONObject(row).getJSONArray("ee8372").length())
+            }
+        } finally { pending.clear(); pending.putAll(saved) }
+    }
+
+    @Suppress("UNCHECKED_CAST")
     @Test fun unacknowledgedRecordsDoNotKeepLaterTerminalsOutOfTheConsumerBatch() {
         val owner = ForwardReturnLabeler7731
         fun field(name: String) = owner.javaClass.getDeclaredField(name).apply { isAccessible = true }
