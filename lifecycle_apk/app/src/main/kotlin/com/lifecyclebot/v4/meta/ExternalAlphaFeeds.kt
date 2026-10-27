@@ -225,11 +225,14 @@ object ExternalAlphaFeeds {
             val rcBody = httpGet("https://api.rugcheck.xyz/v1/tokens/$mint/report/summary")
             val rc = rcBody?.let { runCatching { JSONObject(it) }.getOrNull() }
             if (rc != null) {
-                val rs = rc.optInt("score_normalised", rc.optInt("score", -1))
+                // V5.0.8399 — read the provider's RISK 0..100 (the raw-score bands 1000/2500/5000 were being applied to the
+                // normalised 0..100 field, so every token landed in "0..1000" and earned the safety bonus).
+                val risk = com.lifecyclebot.engine.RugcheckScore8399.risk8399(rc)
                 when {
-                    rs in 0..1000 -> safety += 0.15
-                    rs >= 5000 -> { safety -= 0.25; flags.add("RUGCHECK_HIGH_RISK") }
-                    rs >= 2500 -> { safety -= 0.10; flags.add("RUGCHECK_ELEVATED") }
+                    risk.isNaN() -> flags.add("NO_RUGCHECK")
+                    risk >= 60.0 -> { safety -= 0.25; flags.add("RUGCHECK_HIGH_RISK") }
+                    risk >= 30.0 -> { safety -= 0.10; flags.add("RUGCHECK_ELEVATED") }
+                    else -> safety += 0.15
                 }
             } else flags.add("NO_RUGCHECK")
 

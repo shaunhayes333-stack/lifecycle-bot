@@ -4516,7 +4516,8 @@ class SolanaMarketScanner(
             val body = resp.body?.string() ?: return true
             val json = JSONObject(body)
 
-            val scoreNormalized = json.optInt("score_normalised", json.optInt("score", 50))
+            // V5.0.8399 — the provider's RISK score becomes the app's SAFETY score here too (RugcheckScore8399); unfetched -> 50 neutral.
+            val scoreNormalized = RugcheckScore8399.safety8399(json).let { if (it < 0) 50 else it }
             val rugged = json.optString("rugged", "").lowercase()
             rcScoreCache[mint] = scoreNormalized
 

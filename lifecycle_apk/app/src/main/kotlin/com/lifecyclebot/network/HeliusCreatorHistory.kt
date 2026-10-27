@@ -155,8 +155,8 @@ class HeliusCreatorHistory(private val apiKey: String) {
             val resp = http.newCall(req).execute()
             val body = resp.body?.string() ?: return -1
             val json = JSONObject(body)
-            // Use score_normalised (0-100), fallback to raw score only if not present
-            json.optInt("score_normalised", json.optInt("score", -1))
+            // V5.0.8399 — the provider's RISK score becomes the app's SAFETY score (avgRugcheckScore is read as higher = cleaner).
+            com.lifecyclebot.engine.RugcheckScore8399.safety8399(json)
         } catch (_: Exception) { -1 }
     }
 

@@ -388,12 +388,9 @@ object DataPipeline {
 
     private fun parseRugScore(rugData: JSONObject?): Int {
         if (rugData == null) return 50
-        return when {
-            rugData.has("score_normalised") -> rugData.optInt("score_normalised", 50)
-            rugData.has("scoreNormalized") -> rugData.optInt("scoreNormalized", 50)
-            rugData.has("score") -> rugData.optInt("score", 50)
-            else -> 50
-        }.coerceIn(0, 100)
+        // V5.0.8399 — risk -> safety via the one normaliser (this feature reads rugScore > 70 as clean, < 40 as risky).
+        if (RugcheckScore8399.ruggedFlag8399(rugData)) return 0
+        return RugcheckScore8399.safety8399(rugData).let { if (it < 0) 50 else it }
     }
 
     private fun parseMintAuthorityDisabled(rugData: JSONObject?): Boolean {

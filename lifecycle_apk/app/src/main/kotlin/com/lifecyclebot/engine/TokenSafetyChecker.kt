@@ -423,7 +423,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
         // ── 1. Rugcheck
         val rugcheck = fetchRugcheck(mint)
-        val rcScore = rugcheck?.optInt("score_normalised", rugcheck.optInt("score", -1)) ?: -1
+        // V5.0.8399 — the provider's RISK score becomes this ladder's SAFETY score in one place (RugcheckScore8399); a
+        // `rugged: true` report is a confirmed rug whatever the score says.
+        val rcScore = if (RugcheckScore8399.ruggedFlag8399(rugcheck)) 0 else RugcheckScore8399.safety8399(rugcheck)
 
         var mintDisabled: Boolean? = null
         var freezeDisabled: Boolean? = null
