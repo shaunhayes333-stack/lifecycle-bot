@@ -298,8 +298,11 @@ object SolanaOhlcvFeed6916 {
         OhlcvRequestQueue8401<Candle>(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()))
     }
 
-    internal suspend fun queuedCandles8401(mint: String, timeframe: String, limit: Int, poolHint: String, attempts: Int): List<Candle> {
-        val deadline = System.currentTimeMillis() + 60_000L
+    internal suspend fun queuedCandles8401(mint: String, timeframe: String, limit: Int, poolHint: String, attempts: Int): List<Candle> =
+        queuedAnswer8402(mint, timeframe, limit, poolHint, attempts).rows
+
+    internal suspend fun queuedAnswer8402(mint: String, timeframe: String, limit: Int, poolHint: String, attempts: Int, timeoutMs: Long = 60_000L): OhlcvRequestQueue8401.Answer<Candle> {
+        val deadline = System.currentTimeMillis() + timeoutMs.coerceIn(1L, 60_000L)
         val answer = seedQueue8401.request("$mint|$timeframe|$limit", deadline, attempts,
             waitMs = { providerSlotWait7809().waitMs }, fetch = {
                 requestState8401.set(OhlcvRequestQueue8401.State.ANSWERED_EMPTY)
@@ -310,7 +313,7 @@ object SolanaOhlcvFeed6916 {
                 } finally { requestState8401.remove() }
             })
         try { PipelineHealthCollector.labelInc("OHLCV_QUEUE_8401_${answer.state}") } catch (_: Exception) {}
-        return answer.rows
+        return answer
     }
 
     private class Fetched6982(val json: JSONObject?, val askedProvider: Boolean, val failed8078: Boolean = false) {
@@ -447,6 +450,19 @@ object SolanaOhlcvFeed6916 {
         return row.candles
     }
 
+    /** A refused read must not extend its own wait window forever under repeated polling. */
+    internal fun claimAttemptWindow8402(attempts: java.util.concurrent.ConcurrentHashMap<String, Long>,
+                                        key: String, nowMs: Long, gapMs: Long): Boolean {
+        var claimed = false
+        attempts.compute(key) { _, prior ->
+            if (prior == null || nowMs - prior >= gapMs || nowMs < prior) {
+                claimed = true
+                nowMs
+            } else prior
+        }
+        return claimed
+    }
+
     fun fetchCandles6916(
         mint: String,
         timeframeLabel: String,
@@ -464,8 +480,7 @@ object SolanaOhlcvFeed6916 {
         // V5.0.7484 — if another lane requested this exact OHLCV key inside
         // the existing 2.5s provider budget window, a second provider request
         // cannot legally be made yet. Avoid repeating pool/fallback work.
-        val priorSameKey7484 = sameKeyLastAttempt7484.put(key, now)
-        if (priorSameKey7484 != null && now - priorSameKey7484 < SAME_KEY_COALESCE_MS_7484) {
+        if (!claimAttemptWindow8402(sameKeyLastAttempt7484, key, now, SAME_KEY_COALESCE_MS_7484)) {
             sameKeyCoalesced7484.incrementAndGet()
             requestState8401.set(OhlcvRequestQueue8401.State.WAIT_BUDGET)
             try { PipelineHealthCollector.labelInc("OHLCV_SAME_KEY_WINDOW_COALESCED_7484") } catch (_: Throwable) {}

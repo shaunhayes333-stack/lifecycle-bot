@@ -31,6 +31,34 @@ object CrossAssetCortex7931 {
                              val nativePriceProvenance8372: Boolean = false)
     private val assets = ConcurrentHashMap<String, Asset>()
 
+    /** Only identities belonging to retained observations; marks remain subject to their original freshness checks. */
+    internal fun checkpointPriceIdentities8402(keys: Set<String>): String = org.json.JSONArray().also { rows ->
+        keys.forEach { key -> assets[key]?.let { a ->
+            rows.put(org.json.JSONArray(listOf(key, a.assetClass.name, a.symbol, a.dynKey, a.atMs, a.nativePriceProvenance8372)))
+        } }
+    }.toString()
+
+    internal fun restorePriceIdentities8402(raw: String?) {
+        if (raw.isNullOrBlank()) return
+        val rows = org.json.JSONArray(raw)
+        require(rows.length() <= 2000) { "oversized price identity checkpoint" }
+        for (i in 0 until rows.length()) {
+            val r = rows.getJSONArray(i)
+            val key = r.getString(0)
+            val restored = Asset(AssetClass.valueOf(r.getString(1)), r.getString(2), r.getString(3), r.getLong(4), r.getBoolean(5))
+            if (key.isNotBlank()) assets.compute(key) { _, current ->
+                if (current == null || current.atMs < restored.atMs) restored else current
+            }
+        }
+    }
+
+    private fun prunePriceIdentities8402() {
+        if (assets.size <= 4000) return
+        val retained = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.pendingPriceKeys8402()
+        assets.entries.asSequence().filterNot { it.key in retained }.sortedBy { it.value.atMs }
+            .take((assets.size - 3000).coerceAtLeast(0)).toList().forEach { assets.remove(it.key, it.value) }
+    }
+
     /** Pure: the Cortex lane of an asset class (null = not cross-asset). */
     fun laneFor(c: AssetClass): String? = when (c) {
         AssetClass.CRYPTO_ALT -> "CRYPTO_ALT"
@@ -110,9 +138,7 @@ object CrossAssetCortex7931 {
         if (c.assetClass == AssetClass.CRYPTO_ALT && (try {
                 com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(c.symbol, c.price, mcap8063, key)
             } catch (_: Throwable) { false })) { stablesSkipped8063.incrementAndGet(); return null }
-        if (assets.size > 4_000) {
-            assets.entries.sortedBy { it.value.atMs }.take(assets.size - 3_000).forEach { assets.remove(it.key, it.value) }
-        }
+        prunePriceIdentities8402()
         // An actual admission may follow a native observation; it must not weaken that episode's mark provenance.
         assets[key] = Asset(c.assetClass, c.symbol, c.assetId, nowMs,
             nativePriceProvenance8372 = assets[key]?.nativePriceProvenance8372 == true)
@@ -206,8 +232,7 @@ object CrossAssetCortex7931 {
         val key = keyOf(ts.mint, ts.symbol, null)
         if (key.isBlank()) return false
         if (com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap, key)) return false
-        if (assets.size > 4_000) assets.entries.sortedBy { it.value.atMs }.take(assets.size - 3_000)
-            .forEach { assets.remove(it.key, it.value) }
+        prunePriceIdentities8402()
         assets[key] = Asset(AssetClass.CRYPTO_ALT, ts.symbol, ts.mint, nowMs, nativePriceProvenance8372 = true)
         com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(
             if (key == ts.mint) ts else ts.copy(mint = key), lane, admitted, reason, nowMs, score)

@@ -20,7 +20,7 @@ class Aate8396RuntimeHealthTest {
         assertTrue(Cortex7885.shadowFlushDue8396(10, 60, 0L))
         assertFalse(Cortex7885.shadowFlushDue8396(1, 2, 1_000L))
         val cx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
-        assertTrue(cx.contains("if (!shadowFlushDue8396(shadowReady8372.size, observationTerminals8395.size, now8377 - shadowFlushedAtMs8377))"))
+        assertTrue(cx.contains("if (!shadowFlushDue8402(shadowReady8372.values.toList(), observationTerminals8395.size, now8377 - shadowFlushedAtMs8377))"))
     }
 
     @Test fun compactRowsDecodeToTheSameValuesAndAreSmaller() {

@@ -72,6 +72,10 @@ object CommoditiesTrader {
     private var engineJob: Job? = null
     private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    // Process-owned exit worker, independent of entry scoring on the shared CPU pool.
+    internal val monitorDispatcher8402 = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "commodities-exit-monitor-8402").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA CLASSES
@@ -259,7 +263,7 @@ object CommoditiesTrader {
         }
 
         // Start position monitor
-        monitorJob = scope.launch {
+        monitorJob = scope.launch(monitorDispatcher8402) {
             while (isRunning.get()) {
                 try {
                     delay(5000)
@@ -335,6 +339,7 @@ object CommoditiesTrader {
         val leverageSignals = mutableListOf<CommoditySignal>()
         
         for (market in commodityMarkets) {
+            currentCoroutineContext().ensureActive()
             try {
                 val data = PerpsMarketDataFetcher.getMarketData(market)
                 // V5.0.6633 §P0-H — per-symbol analyzer entry receipt.
@@ -422,11 +427,13 @@ object CommoditiesTrader {
         
         // Execute signals — respect UI SPOT/LEVERAGE toggle
         for (signal in topSpotSignals) {
+            currentCoroutineContext().ensureActive()
             if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
             executeSignal(signal)
         }
         if (preferLeverage.get()) {
             for (signal in topLeverageSignals) {
+            currentCoroutineContext().ensureActive()
                 if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
                 executeSignal(signal)
             }
@@ -835,10 +842,12 @@ if (signal.tradeType == TradeType.SPOT) {
     private suspend fun monitorPositions() {
         // Monitor SPOT positions
         spotPositions.values.toList().forEach { position ->
+            currentCoroutineContext().ensureActive()
             monitorSinglePosition(position, spotPositions)
         }
         // Monitor LEVERAGE positions
         leveragePositions.values.toList().forEach { position ->
+            currentCoroutineContext().ensureActive()
             monitorSinglePosition(position, leveragePositions)
         }
     }

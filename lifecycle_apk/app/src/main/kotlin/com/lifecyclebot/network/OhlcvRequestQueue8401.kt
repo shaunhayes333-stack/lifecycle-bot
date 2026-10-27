@@ -17,6 +17,7 @@ internal class OhlcvRequestQueue8401<T>(
         val fetch: () -> Answer<T>, val waitMs: () -> Long) {
         val result = CompletableDeferred<Answer<T>>()
         var asked = 0
+        var waitingBudget = false
     }
     private val requests = ConcurrentHashMap<String, Request<T>>()
     private val queue = Channel<Request<T>>(capacity)
@@ -27,13 +28,14 @@ internal class OhlcvRequestQueue8401<T>(
             try {
                 if (r.result.isCompleted) continue
                 if (nowMs() >= r.deadline) { r.result.complete(Answer(State.DEADLINE)); continue }
-                val wait = r.waitMs().coerceIn(0L, 6_000L)
+                val wait = if (r.waitingBudget) r.waitMs().coerceIn(0L, 6_000L) else 0L
                 if (wait > 0) pause(minOf(wait, (r.deadline - nowMs()).coerceAtLeast(0L)))
                 if (nowMs() >= r.deadline || r.result.isCompleted) { r.result.complete(Answer(State.DEADLINE)); continue }
                 val answer = r.fetch()
                 when (answer.state) {
                     State.ANSWERED_BARS, State.ANSWERED_EMPTY -> r.result.complete(answer)
                     State.WAIT_BUDGET, State.PROVIDER_FAILURE -> {
+                        r.waitingBudget = answer.state == State.WAIT_BUDGET
                         if (answer.state == State.PROVIDER_FAILURE) r.asked++
                         if (r.asked >= r.attempts) r.result.complete(answer)
                         else {
@@ -61,11 +63,14 @@ internal class OhlcvRequestQueue8401<T>(
                 }
             }
         }
-        val remaining = (r.deadline - nowMs()).coerceAtLeast(1L)
+        val remaining = (minOf(deadlineMs, r.deadline) - nowMs()).coerceAtLeast(1L)
         val answer = withTimeoutOrNull(remaining) { r.result.await() }
         if (answer != null) return answer
-        r.result.complete(Answer(State.DEADLINE))
-        requests.remove(key, r)
+        // A shorter-lived coalesced caller may leave without cancelling the request owned by other waiters.
+        if (nowMs() >= r.deadline) {
+            r.result.complete(Answer(State.DEADLINE))
+            requests.remove(key, r)
+        }
         return Answer(State.DEADLINE)
     }
 }

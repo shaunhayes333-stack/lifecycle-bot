@@ -1604,10 +1604,17 @@ object Cortex7885 {
         if (learned > 0) shadowFlushDue8377(learned + unavailable, sinceMs)
         else unavailable > 0 && (unavailable >= UNAVAILABLE_FLUSH_MIN_BATCH_8396 || sinceMs >= UNAVAILABLE_FLUSH_MAX_WAIT_MS_8396)
 
+    /** Unavailable simulation receipts are not learned outcomes and must use the unavailable cadence. */
+    internal fun shadowFlushDue8402(terminals: Collection<CortexOutcomeBook8372.Terminal8372>,
+                                   observationTerminals: Int, sinceMs: Long): Boolean {
+        val learned = terminals.count { it.learned }
+        return shadowFlushDue8396(learned, terminals.size - learned + observationTerminals, sinceMs)
+    }
+
     fun flushShadowOutcomes8372(): Boolean {
         if (shadowReady8372.isEmpty() && observationTerminals8395.isEmpty()) return true
         val now8377 = System.currentTimeMillis()
-        if (!shadowFlushDue8396(shadowReady8372.size, observationTerminals8395.size, now8377 - shadowFlushedAtMs8377)) { inc("CORTEX_SHADOW_FLUSH_COALESCED_8377"); return true }
+        if (!shadowFlushDue8402(shadowReady8372.values.toList(), observationTerminals8395.size, now8377 - shadowFlushedAtMs8377)) { inc("CORTEX_SHADOW_FLUSH_COALESCED_8377"); return true }
         if (!loaded || !LearningPersistence.ready() || !shadowFlushRunning8372.compareAndSet(false, true)) return false
         shadowFlushedAtMs8377 = now8377
         try {
@@ -2704,6 +2711,7 @@ object Cortex7885 {
                 p.outcomeDueAtMs8394)
         }
         for ((key,p) in pending) append("$key|${p.atMs}",p)
+        for ((id,p) in pairedPending8401) append(id,p)
         for ((id,p) in shadowPending8372) append(outcomeBook8372.shadowPlan(id).decisionId.ifBlank { id },p)
         return rows
     }
@@ -2711,7 +2719,7 @@ object Cortex7885 {
     private data class RefusalCoverage8392(val atMs: Long, val revision: Long, val pendingN: Int, val covered: Boolean)
     private val refusalCoverageCache8392 = HashMap<String,RefusalCoverage8392>()
     private fun refuseCoverage8392(lane: String): Boolean {
-        val now=System.currentTimeMillis();val n=pending.size+shadowPending8372.size
+        val now=System.currentTimeMillis();val n=pendingCount()+shadowPending8372.size
         refusalCoverageCache8392[lane]?.let {
             if(it.revision==gradeBook8144.revision && it.pendingN==n && now-it.atMs in 0L until WF_REFRESH_MS_8144) return it.covered
         }
@@ -2724,7 +2732,7 @@ object Cortex7885 {
     private val setupCoverageCache8396 = HashMap<String, RefusalCoverage8392>()
     /** V5.0.8396 — the [setup] cohort's own outcome coverage for [bucket] (same walk-forward rows), cached like [refuseCoverage8392]. */
     private fun setupCovered8396(lane: String, setup: String, bucket: Int): Boolean = synchronized(this) {
-        val now = System.currentTimeMillis(); val n = pending.size + shadowPending8372.size; val k = "$lane|$setup|$bucket"
+        val now = System.currentTimeMillis(); val n = pendingCount() + shadowPending8372.size; val k = "$lane|$setup|$bucket"
         setupCoverageCache8396[k]?.let {
             if (it.revision == gradeBook8144.revision && it.pendingN == n && now - it.atMs in 0L until WF_REFRESH_MS_8144) return@synchronized it.covered
         }
@@ -2757,7 +2765,7 @@ object Cortex7885 {
         // a previously granted proof at another cost basis, even inside the normal refresh interval.
         val offset = executableOffset8187(lane).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val cost = try { com.lifecyclebot.engine.truth.CostLedger7962.laneCostPct7962(lane) } catch (_: Throwable) { CortexAuthority8366.MIN_FULL_MARGIN_PCT_8366 }
-        val key = "$lane|${setup ?: "*"}|offset=$offset|cost=$cost|pending=${pending.size}:${shadowPending8372.size}"
+        val key = "$lane|${setup ?: "*"}|offset=$offset|cost=$cost|pending=${pendingCount()}:${shadowPending8372.size}"
         auth8366Cache[key]?.let { if (it.gradeRevision == gradeBook8144.revision && now - it.atMs in 0L until WF_REFRESH_MS_8144) return it.value }
         val r = CortexAuthority8366.test8372(authorityRows8392(lane, setup), cost, now)
         if (auth8366Cache.size > 200) auth8366Cache.clear()

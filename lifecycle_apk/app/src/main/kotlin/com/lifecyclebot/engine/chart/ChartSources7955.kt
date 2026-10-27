@@ -962,9 +962,9 @@ object ChartSources7955 {
         val fromSec = now / 1000L - BACKFILL_MINUTES * 60L
         val toSec = now / 1000L
         val sources: List<Pair<String, () -> List<Bar7950>?>> = listOf(
-            "geckoFeed" to { feedBars(mint) },
-            // V5.0.8128 — keyless local rung: the bot's own trade / mark tapes (every rung below needs a key).
+            // Available local evidence must not wait behind a remote provider's budget.
             "localTape8128" to { LocalTapeBars8128.bars8128(mint, now, BACKFILL_MINUTES * 60_000L, solUsd()) },
+            "geckoFeed" to { feedBars(mint) },
             MORALIS to { moralisBars(mint, fromSec, toSec) },
             SOLTRACKER to { keyedBars(SOLTRACKER, "https://data.solanatracker.io/chart/$mint?type=1m&time_from=$fromSec&time_to=$toSec", solTrackerHeaders(), null) { ChartParsers7955.solanaTracker7955(JSONObject(it)) } },
             CODEX to { keyedBars(CODEX, "https://graph.codex.io/graphql", codexHeaders(), codexBody(mint, fromSec, toSec)) { ChartParsers7955.codex7955(JSONObject(it)) } },
@@ -1003,7 +1003,9 @@ object ChartSources7955 {
 
     /** The app's keyless candle feed (DexPaprika, then the GeckoTerminal pool), already paced by its own gate. */
     private fun feedBars(mint: String): List<Bar7950>? {
-        val c = com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(mint, "1m", BACKFILL_MINUTES)
+        val c = kotlinx.coroutines.runBlocking {
+            com.lifecyclebot.network.SolanaOhlcvFeed6916.queuedAnswer8402(mint, "1m", BACKFILL_MINUTES, "", 2, timeoutMs = 3_000L).rows
+        }
         if (c.isEmpty()) return null
         return c.mapNotNull { k ->
             ChartParsers7955.bar7955(k.ts, if (k.openUsd > 0.0) k.openUsd else k.priceUsd, if (k.highUsd > 0.0) k.highUsd else k.priceUsd,

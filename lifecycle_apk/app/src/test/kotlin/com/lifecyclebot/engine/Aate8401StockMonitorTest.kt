@@ -21,15 +21,18 @@ class Aate8401StockMonitorTest {
         }
         try {
             assertTrue("default workers must be occupied", entered.await(5, TimeUnit.SECONDS))
-            val evaluated = CountDownLatch(1)
             var threadName = ""
-            val monitor = launch(TokenizedStockTrader.monitorDispatcher8401) {
-                threadName = Thread.currentThread().name
-                evaluated.countDown()
+            for ((dispatcher, name) in listOf(
+                TokenizedStockTrader.monitorDispatcher8401 to "stock-exit-monitor-8401",
+                com.lifecyclebot.perps.ForexTrader.monitorDispatcher8402 to "forex-exit-monitor-8402",
+                com.lifecyclebot.perps.MetalsTrader.monitorDispatcher8402 to "metals-exit-monitor-8402",
+                com.lifecyclebot.perps.CommoditiesTrader.monitorDispatcher8402 to "commodities-exit-monitor-8402")) {
+                val ran = CountDownLatch(1)
+                val monitor = launch(dispatcher) { threadName = Thread.currentThread().name; ran.countDown() }
+                assertTrue("$name must not wait for entry CPU workers", ran.await(2, TimeUnit.SECONDS))
+                assertTrue(threadName, threadName.startsWith(name))
+                monitor.join()
             }
-            assertTrue("exit work must not wait for entry CPU workers", evaluated.await(2, TimeUnit.SECONDS))
-            assertTrue(threadName, threadName.startsWith("stock-exit-monitor-8401"))
-            monitor.join()
         } finally { release.countDown(); blockers.joinAll() }
         val source = File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
         assertTrue(source.contains("monitorJob = scope.launch(monitorDispatcher8401)"))

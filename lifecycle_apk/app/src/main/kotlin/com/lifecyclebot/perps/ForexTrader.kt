@@ -71,6 +71,10 @@ object ForexTrader {
     private var engineJob: Job? = null
     private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    // Process-owned exit worker, independent of entry scoring on the shared CPU pool.
+    internal val monitorDispatcher8402 = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "forex-exit-monitor-8402").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA CLASSES
@@ -276,7 +280,7 @@ object ForexTrader {
         }
 
         // Start position monitor
-        monitorJob = scope.launch {
+        monitorJob = scope.launch(monitorDispatcher8402) {
             while (isRunning.get()) {
                 try {
                     delay(3000)  // Monitor forex more frequently
@@ -355,6 +359,7 @@ object ForexTrader {
         val leverageSignals = mutableListOf<ForexSignal>()
         
         for (market in forexMarkets) {
+            currentCoroutineContext().ensureActive()
             try {
                 val data = PerpsMarketDataFetcher.getMarketData(market)
                 if (data.price > 0.0) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.FOREX, "MARKET_DATA_OK")
@@ -413,11 +418,13 @@ object ForexTrader {
         ErrorLogger.info(TAG, "💱 ═══════════════════════════════════════════════")
         
         for (signal in topSpotSignals) {
+            currentCoroutineContext().ensureActive()
             if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
             executeSignal(signal, spotPositions, "💰 SPOT")
         }
         if (preferLeverage.get()) {
             for (signal in topLeverageSignals) {
+            currentCoroutineContext().ensureActive()
                 if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
                 executeSignal(signal, leveragePositions, "⚡ 10x")
             }
@@ -882,9 +889,11 @@ positionMap[position.id] = position
     
     private suspend fun monitorPositions() {
         spotPositions.values.toList().forEach { position ->
+            currentCoroutineContext().ensureActive()
             monitorSinglePosition(position, spotPositions)
         }
         leveragePositions.values.toList().forEach { position ->
+            currentCoroutineContext().ensureActive()
             monitorSinglePosition(position, leveragePositions)
         }
     }

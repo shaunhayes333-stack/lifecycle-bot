@@ -496,6 +496,8 @@ object ForwardReturnLabeler7731 {
         } catch (_: Throwable) { return }
         prefs = p
         pairedRestore8401 = p.getString(PAIRED_CORTEX_KEY_8401, null)
+        try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.restorePriceIdentities8402(p.getString(PRICE_IDENTITIES_KEY_8402, null)) }
+        catch (_: Exception) { PipelineHealthCollector.labelInc("FORWARD_PRICE_IDENTITY_RESTORE_FAILED_8402") }
         p.all.forEach { (key,value) -> if (key.startsWith(TERMINAL_PREFIX_8395) && value is String) terminalOutbox8395[key]=value }
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.attach(context) } catch (_: Throwable) {}
@@ -539,6 +541,8 @@ object ForwardReturnLabeler7731 {
         } catch (_: Throwable) {}
     }
 
+    internal fun pendingPriceKeys8402(): Set<String> = pending.values.mapTo(HashSet()) { it.mint }
+    private const val PRICE_IDENTITIES_KEY_8402 = "price_identities_8402"
     private const val PAIRED_CORTEX_KEY_8401 = "paired_cortex_8401"
     @Volatile private var pairedRestore8401: String? = null
 
@@ -573,6 +577,8 @@ object ForwardReturnLabeler7731 {
                 selected.filterNot { it.done60 }.map { "${it.mint}|${it.lane}|${it.atMs}" }.toSet())
             val committed = p.edit().putString(CELLS_KEY_7946, enc).putString(PENDING_KEY_7946, encodePending7735(now, selected))
                 .putString(PAIRED_CORTEX_KEY_8401, paired)
+                .putString(PRICE_IDENTITIES_KEY_8402, com.lifecyclebot.engine.cortex.CrossAssetCortex7931
+                    .checkpointPriceIdentities8402(selected.mapTo(HashSet()) { it.mint }))
                 .putString(FRESH_KEY_8169, freshEnc8169).putLong(FRESH_EPOCH_KEY_8169, freshEpochMs8169)
                 .remove("cells").remove("pending").also { editor ->
                     // Same preference transaction removes the old pending row and its delivered tombstone.
