@@ -398,6 +398,12 @@ object HandoffReceiverTasks8153 {
     }
 
     /** The matching evidence wakes the same pending transfer; stale arrivals and completed tasks do nothing. */
+    /** V5.0.8399 — a pending task deferred on data and still valid: its coin stays on the bench until the data lands. */
+    fun awaitingData8399(mint: String, nowMs: Long): Boolean {
+        val t = tasks8153[mint] ?: return false
+        return t.pending && t.dataDeferredAtMs8397 > 0L && nowMs <= t.validUntilMs
+    }
+
     fun onEvidenceArrived8397(mint: String, features: Set<String>, nowMs: Long): Boolean {
         val before = tasks8153[mint] ?: return false
         if (!before.pending || before.dataDeferredAtMs8397 <= 0L || nowMs <= before.dataDeferredAtMs8397 ||

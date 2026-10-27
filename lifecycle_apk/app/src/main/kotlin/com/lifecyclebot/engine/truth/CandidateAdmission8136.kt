@@ -801,6 +801,19 @@ object CandidateAdmission8136 {
     private const val PRIOR_CARRY_MS_8223 = 120_000L
     private val held8144 = ConcurrentHashMap<String, Held8144>()
 
+    /**
+     * V5.0.8399 — is [mint] waiting on a data fetch its admission asked for (a DATA_INCOMPLETE_DEFER held at most
+     * [WatchlistEviction8398.AWAIT_DATA_MS_8399] ago)? GlobalTradeRegistry keeps such a coin on the bench until the ask lands.
+     */
+    fun awaitingData8399(mint: String, nowMs: Long): Boolean {
+        if (mint.isBlank() || held8144.isEmpty()) return false
+        val prefix = "$mint|"
+        for ((key, h) in held8144) {
+            if (key.startsWith(prefix) && nowMs - h.atMs in 0L..com.lifecyclebot.engine.WatchlistEviction8398.AWAIT_DATA_MS_8399) return true
+        }
+        return false
+    }
+
     /** Missing facts from the same lane/generation; a receipt never borrows another candidate's evidence. */
     fun missingForReceipt8397(mint: String, lane: String, version: Long, nowMs: Long): Set<String> {
         val l = CanonicalLaneIdentity6506.desk8392(lane)

@@ -14,10 +14,20 @@ class Aate8392CortexCoverageTest {
         val observed=rows();val now=observed.last().outcomeAvailableAtMs+1
         val missing=List(300) { i -> CortexAuthority8366.Row8366(1_000_001L+i,10.0,Double.NaN,strong,0L,1_300_001L+i) }
         assertTrue(CortexAuthority8366.test8372(observed,1.5,now).granted)
+        val base=CortexAuthority8366.test8372(observed,1.5,now)
         val r=CortexAuthority8366.test8372(observed+missing,1.5,now)
-        assertEquals(CortexAuthority8366.Verdict8366.INCOMPLETE_OUTCOMES,r.verdict)
         assertEquals(300,r.missing8392);assertEquals(550,r.matured8392)
-        assertFalse(r.granted);assertEquals(0.0,r.fraction,0.0)
+        // V5.0.8399 — the missing outcomes stay in the denominator and SCALE the authority down (coverage/0.7), never vanish
+        // and are never imputed; at 45% STRONG coverage the lane keeps a reduced fraction instead of the 70% cliff's zero.
+        val minCov=minOf(r.strongCoverage8392,r.restCoverage8392)
+        assertTrue(minCov<CortexWalkForward8144.MIN_RESOLVED_SHARE_8144)
+        assertEquals(base.fraction*CortexAuthority8366.coverageScale8399(minCov),r.fraction,1e-12)
+        assertTrue(r.fraction<base.fraction)
+        // Under 30% known there is nothing to grant.
+        val mostlyMissing=List(1_200) { i -> CortexAuthority8366.Row8366(1_000_001L+i,10.0,Double.NaN,strong,0L,1_300_001L+i) }
+        val dark=CortexAuthority8366.test8372(observed+mostlyMissing,1.5,now)
+        assertEquals(CortexAuthority8366.Verdict8366.INCOMPLETE_OUTCOMES,dark.verdict)
+        assertFalse(dark.granted);assertEquals(0.0,dark.fraction,0.0)
     }
     @Test fun stillPendingIsNotAFabricatedLossAndDoesNotDiluteMatureCoverage() {
         val observed=rows();val now=observed.last().outcomeAvailableAtMs+1

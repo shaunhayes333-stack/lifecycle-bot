@@ -27,12 +27,23 @@ object CortexAuthority8366 {
     const val FOLDS_8366 = 5
     const val MIN_OOS_N_8366 = 100
     const val MIN_BUCKET_N_8366 = 10
+    // V5.0.8399 §EDGE_ADAPTIVE_RAMP — operator: "its meant to be 15, edge adaptive and intelligent". From 15 OOS graded
+    // decisions (5 per bucket) a lane/setup earns a PARTIAL authority that grows with its sample and shrinks with its
+    // uncertainty: the top bucket's lower bound (mean - k*SE, k 2.0 at 15 -> 1.0 at 100) must stay positive, the spread must
+    // still clear cost, the rank IC must still be positive. Full authority is still the 100/10 bar. 8096 granted partial
+    // authority from 15 STRONG grades; 8366-8398 made 100 the first rung, so every lane sat at 0 while learning accumulated.
+    const val MIN_RAMP_OOS_N_8399 = 15
+    const val MIN_RAMP_BUCKET_N_8399 = 5
+    const val RAMP_FLOOR_WEIGHT_8399 = 0.15
+    // V5.0.8399 — missing outcomes scale authority down (never disappear, never impute): fraction x coverage/0.7 while at
+    // least [MIN_COVERAGE_FOR_ANY_8399] of matured decisions are known; below that there is too little truth to grant.
+    const val MIN_COVERAGE_FOR_ANY_8399 = 0.30
     const val TOP_Q_8366 = 0.8
     const val BOTTOM_Q_8366 = 0.2
     const val MIN_FULL_MARGIN_PCT_8366 = 2.0
     const val REVOKE_MIN_N_8366 = 20
 
-    enum class Verdict8366 { INSUFFICIENT_OOS, NO_RANK, SPREAD_BELOW_COST, TOP_NOT_POSITIVE, INCOMPLETE_OUTCOMES, GRANTED }
+    enum class Verdict8366 { INSUFFICIENT_OOS, NO_RANK, SPREAD_BELOW_COST, TOP_NOT_POSITIVE, INCOMPLETE_OUTCOMES, GRANTED, RAMP_8399 }
 
     /**
      * One graded executable decision: its immutable decision-time score/verdict and executable-net objective (%).
@@ -71,7 +82,7 @@ object CortexAuthority8366 {
         val restCoverage8392: Double = 1.0,
     ) {
         val spread: Double get() = if (topMean.isFinite() && bottomMean.isFinite()) topMean - bottomMean else Double.NaN
-        val granted: Boolean get() = verdict == Verdict8366.GRANTED && fraction > 0.0
+        val granted: Boolean get() = (verdict == Verdict8366.GRANTED || verdict == Verdict8366.RAMP_8399) && fraction > 0.0   // V5.0.8399 — a ramp grant is a grant
         fun compact(): String = "${verdict.name} oos=n$oosN ic=${f(ic)} top=${f(topMean)}(n$topN) bot=${f(bottomMean)}(n$bottomN) " +
             "spread=${f(spread)} cost=${f(costPct)} auth=${(kotlin.math.round(fraction * 100.0) / 100.0)}" +
             if (cohort == "RANK_QUANTILES_8366") "" else " cohort=$cohort excluded=$excludedRows8372 matured=$matured8392 missing=$missing8392 pending=$pending8392 coverageS=${f(strongCoverage8392)} coverageRest=${f(restCoverage8392)}"
@@ -160,8 +171,17 @@ object CortexAuthority8366 {
             .copy(matured8392=matured.size, missing8392=missing, pending8392=population.size-matured.size,
                 strongCoverage8392=coverage(true), restCoverage8392=coverage(false))
         // Same proof, truthful denominator. Never impute missing outcomes as gains or losses.
-        return if (missing > 0 && minOf(result.strongCoverage8392,result.restCoverage8392) < CortexWalkForward8144.MIN_RESOLVED_SHARE_8144)
-            result.copy(verdict=Verdict8366.INCOMPLETE_OUTCOMES, fraction=0.0) else result
+        // V5.0.8399 — missing outcomes scale the authority down in proportion (coverage/0.7) instead of zeroing it at a
+        // 70% cliff: 5.0.8398 sat at ~3% STRONG coverage after capture drops and every lane read authority 0 while 1,042
+        // seasoned voters were retained. Under 30% known there is still nothing to grant.
+        if (missing == 0) return result
+        val minCov = minOf(result.strongCoverage8392, result.restCoverage8392)
+        val scale = coverageScale8399(minCov)
+        return when {
+            scale >= 1.0 -> result
+            scale <= 0.0 -> result.copy(verdict=Verdict8366.INCOMPLETE_OUTCOMES, fraction=0.0)
+            else -> result.copy(fraction=(result.fraction * scale).coerceIn(0.0, 1.0))
+        }
     }
 
     /** Same maturity rule for either positive or negative predictive authority. */
@@ -186,12 +206,39 @@ object CortexAuthority8366 {
         val tse = if (top.size < 2) Double.POSITIVE_INFINITY else
             kotlin.math.sqrt(top.sumOf { (it - tm) * (it - tm) } / (top.size - 1) / top.size)
         fun out(v: Verdict8366, fr: Double) = Result8366(v, n, ic, tm, bm, top.size, bottom.size, tse, cost, fr, cohort, excludedRows8372)
-        if (n < MIN_OOS_N_8366 || top.size < MIN_BUCKET_N_8366 || bottom.size < MIN_BUCKET_N_8366) return out(Verdict8366.INSUFFICIENT_OOS, 0.0)
+        if (n < MIN_RAMP_OOS_N_8399 || top.size < MIN_RAMP_BUCKET_N_8399 || bottom.size < MIN_RAMP_BUCKET_N_8399) return out(Verdict8366.INSUFFICIENT_OOS, 0.0)
+        val ramp = n < MIN_OOS_N_8366 || top.size < MIN_BUCKET_N_8366 || bottom.size < MIN_BUCKET_N_8366
         if (!ic.isFinite() || ic <= 0.0) return out(Verdict8366.NO_RANK, 0.0)
         val spread = tm - bm
         if (!(spread > cost)) return out(Verdict8366.SPREAD_BELOW_COST, 0.0)
         if (!(tm > 0.0)) return out(Verdict8366.TOP_NOT_POSITIVE, 0.0)
-        return out(Verdict8366.GRANTED, graduated8366(spread, cost))
+        if (!ramp) return out(Verdict8366.GRANTED, graduated8366(spread, cost))
+        // V5.0.8399 — the ramp: a small sample must show its edge beyond its own noise (lower bound positive), then earns
+        // the graduated fraction weighted by how far along the sample is.
+        val k = rampK8399(n)
+        if (!(tm - k * tse > 0.0)) return out(Verdict8366.TOP_NOT_POSITIVE, 0.0)
+        return out(Verdict8366.RAMP_8399, graduated8366(spread, cost) * rampWeight8399(n))
+    }
+
+    /** Pure (V5.0.8399): the SE multiple a ramp sample's top bucket must clear: 2.0 at 15 OOS, 1.0 at 100. */
+    fun rampK8399(n: Int): Double {
+        val t = ((n - MIN_RAMP_OOS_N_8399).toDouble() / (MIN_OOS_N_8366 - MIN_RAMP_OOS_N_8399)).coerceIn(0.0, 1.0)
+        return 2.0 - t
+    }
+
+    /** Pure (V5.0.8399): the share of the graduated fraction a ramp sample earns: sqrt progress 15 -> 100, floor 0.15, 1.0 at 100. */
+    fun rampWeight8399(n: Int): Double {
+        if (n >= MIN_OOS_N_8366) return 1.0
+        val t = ((n - MIN_RAMP_OOS_N_8399).toDouble() / (MIN_OOS_N_8366 - MIN_RAMP_OOS_N_8399)).coerceIn(0.0, 1.0)
+        return (RAMP_FLOOR_WEIGHT_8399 + (1.0 - RAMP_FLOOR_WEIGHT_8399) * kotlin.math.sqrt(t)).coerceIn(RAMP_FLOOR_WEIGHT_8399, 1.0)
+    }
+
+    /** Pure (V5.0.8399): how missing matured outcomes scale a fraction: 1 at >= 0.7 coverage, linear to 0.3, nothing below. */
+    fun coverageScale8399(minCoverage: Double): Double = when {
+        !minCoverage.isFinite() -> 0.0
+        minCoverage >= CortexWalkForward8144.MIN_RESOLVED_SHARE_8144 -> 1.0
+        minCoverage < MIN_COVERAGE_FOR_ANY_8399 -> 0.0
+        else -> (minCoverage / CortexWalkForward8144.MIN_RESOLVED_SHARE_8144).coerceIn(0.0, 1.0)
     }
 
     /** Pure: the authority fraction a granted OOS spread earns over [costPct]: (spread - cost) / max(cost, 2 points), in [0, 1]. */

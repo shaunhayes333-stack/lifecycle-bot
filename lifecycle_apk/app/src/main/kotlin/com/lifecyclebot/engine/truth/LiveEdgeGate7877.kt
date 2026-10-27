@@ -566,7 +566,10 @@ object LiveEdgeGate7877 {
                 ?: candidateAdmission // same score/size snapshot carried by 8223; policy-scoped cache in 8393
             resolvedAdmission = admission8136
             genericNative8211 = genericNativeClearsProvenOnly8211(admission8136)
-            when (RunnerDefer8297.terminalFor8297(ts, admission8136, nowMs)) {  // V5.0.8297 — a confirmed run passes an optional-only data defer
+            when (RunnerDefer8297.terminalFor8297(ts, admission8136, nowMs) {   // V5.0.8297 — a confirmed run passes an optional-only data defer
+                // V5.0.8399 — so does the candidate's own measured edge or lifecycle runner ticket (P1 precedence)
+                measuredEdge8060(ts, l8059, nowMs) || (try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false })
+            }) {
                 CandidateAdmission8136.Terminal8136.DEFER_DATA -> {
                     val d = admission8136!!  // V5.0.8297 — terminalFor8297 is null when the decision is null
                     val missing = CandidateAdmission8136.missingOf8144(d)

@@ -37,23 +37,34 @@ object WatchlistEviction8398 {
         val open: Boolean,
     )
 
-    data class Pool(val evictable: List<Row>, val protectedUndecided: Int)
+    data class Pool(val evictable: List<Row>, val protectedUndecided: Int, val protectedAwaitingData: Int = 0)
+
+    /**
+     * V5.0.8399 — a coin whose admission asked for data (CandidateAdmission8136 DATA_INCOMPLETE_DEFER / a handoff task
+     * deferred on data) is being actively worked: evicting it before the fetch lands is how 5.0.8398 produced
+     * DATA_DEFER_FETCH_NEVER_COMPLETED_8204 and EXPIRED_NOT_EVALUATED handoffs on coins whose data arrived seconds after
+     * they left the bench (DMnMwUvo: +336% observed, refused for data that never "completed"). The ask itself is bounded
+     * (deferral age <= [AWAIT_DATA_MS_8399], task validity), so the cap stays real.
+     */
+    internal const val AWAIT_DATA_MS_8399 = 180_000L
 
     fun undecided8398(row: Row, now: Long): Boolean =
         row.processCount < MIN_EVALS_8398 && now - row.addedAt < MAX_UNDECIDED_AGE_MS_8398
 
     /** The evictable residents, oldest admission first. [incomingMint] is never its own victim. */
-    fun pool8398(rows: Collection<Row>, now: Long, incomingMint: String): Pool {
+    fun pool8398(rows: Collection<Row>, now: Long, incomingMint: String, awaitingData: (String) -> Boolean = { false }): Pool {
         var protectedUndecided = 0
+        var protectedAwaiting = 0
         val evictable = rows.asSequence()
             .filter { it.mint != incomingMint }
             .filter { !it.open }
             .filter { now - it.addedAt >= MIN_ADMISSION_AGE_MS_6598 }
             .filter { it.lastProcessedAt == 0L || now - it.lastProcessedAt >= MIN_PROCESSING_IDLE_MS_6598 }
             .filter { row -> if (undecided8398(row, now)) { protectedUndecided++; false } else true }
+            .filter { row -> if (awaitingData(row.mint)) { protectedAwaiting++; false } else true }   // V5.0.8399
             .sortedWith(compareBy<Row> { it.addedAt }.thenByDescending { it.processCount })
             .toList()
-        return Pool(evictable, protectedUndecided)
+        return Pool(evictable, protectedUndecided, protectedAwaiting)
     }
 
     /** The victim: a pump.fun coin first while pump.fun holds over its share (V5.0.8029), else the oldest evictable. */

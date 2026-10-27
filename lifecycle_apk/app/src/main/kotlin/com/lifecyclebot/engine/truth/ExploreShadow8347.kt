@@ -1140,11 +1140,41 @@ object ExploreShadow8347 {
         val l = canon(lane)
         val now = System.currentTimeMillis()
         val cacheKey8394 = "$l|$sinceMs|${LearningEpoch8164.epochMs8164()}|${ShadowPersist8355.TRADE_CONTRACT_8394}"
-        choiceCache8351[cacheKey8394]?.let { (at, c) -> if (now - at in 0L until CHOICE_CACHE_MS_8351) return c }
-        val c = computeBest8351(l, sinceMs)
-        choiceCache8351[cacheKey8394] = now to c
-        return c
+        val hit = choiceCache8351[cacheKey8394]
+        if (hit != null && now - hit.first in 0L until CHOICE_CACHE_MS_8351) return hit.second
+        if (hit == null) {
+            // A key never computed (first read of a lane in this epoch) is answered once on the caller: one scan per lane per
+            // epoch, after which only the background refresh below ever walks the books.
+            val c = computeBest8351(l, sinceMs)
+            choiceCache8351[cacheKey8394] = now to c
+            choiceColdMiss8399.incrementAndGet()
+            return c
+        }
+        // V5.0.8399 — the cohort scan (every variant / setup / cap-band book, cold rows read from SQLite under the book
+        // monitor) never runs on the caller's thread: Cortex7885.assess -> onCortexAssessment8368 -> open8347 ->
+        // liveExitStyle8351, LiveEdgeGate7877 and EvidenceHold8336 all read here. 5.0.8398: 22 ms "assessment" with a
+        // 222 s mean capture delay and 239 queued assessments — the scan sat outside the timer. A stale answer is served
+        // while one background refresh per key recomputes it; a never-computed key is computed once on first read.
+        if (choiceRefreshing8399.add(cacheKey8394)) {
+            try {
+                choiceExecutor8399.execute {
+                    try { choiceCache8351[cacheKey8394] = System.currentTimeMillis() to computeBest8351(l, sinceMs) }
+                    catch (_: Throwable) {}
+                    finally { choiceRefreshing8399.remove(cacheKey8394) }
+                }
+            } catch (_: Throwable) { choiceRefreshing8399.remove(cacheKey8394) }
+        }
+        choiceServedStale8399.incrementAndGet()
+        return hit.second
     }
+
+    private val choiceRefreshing8399 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val choiceServedStale8399 = AtomicLong(0L)
+    private val choiceColdMiss8399 = AtomicLong(0L)
+    private val choiceExecutor8399: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "shadow-choice-8399").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
+    }
+    fun choiceStats8399(): String = "choice8399[staleServed=${choiceServedStale8399.get()} coldMiss=${choiceColdMiss8399.get()} refreshing=${choiceRefreshing8399.size} cached=${choiceCache8351.size}]"
 
     private fun computeBest8351(l: String, sinceMs: Long): Choice8351? {
         val out = ArrayList<Choice8351>()
@@ -1428,7 +1458,7 @@ object ExploreShadow8347 {
         }.ifBlank { "no exploration closes yet" }
         mark8398("-", "counts")
         val (byKind, skipped, bySrc) = counts8360()
-        return "exploreShadow8347[tickets=${tickets.size}/$MAX_TICKETS_8347 opened=${opened.get()} " +
+        return "exploreShadow8347[tickets=${tickets.size}/$MAX_TICKETS_8347 opened=${opened.get()} ${choiceStats8399()} " +
             "byKind{native=${byKind[KIND_NATIVE_8360] ?: 0},reject=${byKind[KIND_REJECT_8360] ?: 0},setup=${byKind[KIND_SETUP_8360] ?: 0}} " +
             "cortex8368[seen=${cortexSeen8368.get()} yes=${cortexSeenByKind8368[KIND_CORTEX_YES_8368]?.get() ?: 0} no=${cortexSeenByKind8368[KIND_CORTEX_NO_8368]?.get() ?: 0} hold=${cortexSeenByKind8368[KIND_CORTEX_HOLD_8368]?.get() ?: 0} " +
             "opened=${listOf(KIND_CORTEX_YES_8368, KIND_CORTEX_NO_8368, KIND_CORTEX_HOLD_8368).sumOf { byKind[it] ?: 0 }} " +

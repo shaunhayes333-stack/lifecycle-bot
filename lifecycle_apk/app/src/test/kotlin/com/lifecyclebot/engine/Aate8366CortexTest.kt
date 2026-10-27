@@ -279,7 +279,13 @@ class Aate8366CortexTest {
         assertEquals(0.0, CortexAuthority8366.graduated8366(2.9, 3.0), 0.0)
         assertEquals(0.25, CortexAuthority8366.graduated8366(1.5, 1.0), 1e-12)   // the 2-point floor on the scale
         // Too few out-of-sample rows: nothing yet (but no realised close is needed either).
-        assertEquals(CortexAuthority8366.Verdict8366.INSUFFICIENT_OOS, CortexAuthority8366.test8366(rankingRows(100), 3.0).verdict)
+        assertEquals(CortexAuthority8366.Verdict8366.INSUFFICIENT_OOS, CortexAuthority8366.test8366(rankingRows(15), 3.0).verdict)
+        // V5.0.8399 — from 15 OOS a sample whose edge clears its own noise earns a PARTIAL (ramp) authority, below the full grant.
+        val ramp = CortexAuthority8366.test8366(rankingRows(100), 3.0)
+        assertEquals(CortexAuthority8366.Verdict8366.RAMP_8399, ramp.verdict)
+        assertTrue(ramp.granted)
+        assertTrue(ramp.fraction > 0.0 && ramp.fraction < CortexAuthority8366.test8366(rankingRows(500), 3.0).fraction)
+        assertEquals(CortexAuthority8366.graduated8366(ramp.spread, 3.0) * CortexAuthority8366.rampWeight8399(ramp.oosN), ramp.fraction, 1e-12)
         // A score that ranks backwards, or a spread that does not pay the cost, earns nothing.
         val inv = rankingRows(500).map { it.copy(netPct = 40.0 - it.score * 0.5) }
         assertEquals(CortexAuthority8366.Verdict8366.NO_RANK, CortexAuthority8366.test8366(inv, 3.0).verdict)
@@ -298,9 +304,13 @@ class Aate8366CortexTest {
         assertEquals(1.0, CortexAuthority8366.authority8366(r, false, 19.0, -30.0), 1e-12)
         assertEquals(0.0, CortexAuthority8366.authority8366(r, false, 20.0, -0.1), 0.0)
         assertEquals("REVOKED_REALISED", CortexAuthority8366.code8366(r, false, 25.0, -3.0))
-        // Winning closes never raise an ungranted lane.
-        val none = CortexAuthority8366.test8366(rankingRows(100), 3.0)
+        // Winning closes never raise an ungranted lane (V5.0.8399: under 15 OOS is ungranted; 100 rows is a ramp grant).
+        val none = CortexAuthority8366.test8366(rankingRows(15), 3.0)
+        assertFalse(none.granted)
         assertEquals(0.0, CortexAuthority8366.authority8366(none, false, 200.0, 50.0), 0.0)
+        val ramp = CortexAuthority8366.test8366(rankingRows(100), 3.0)
+        assertEquals(ramp.fraction, CortexAuthority8366.authority8366(ramp, false, 200.0, 50.0), 1e-12)   // closes never raise above the proof
+        assertEquals(0.0, CortexAuthority8366.authority8366(ramp, false, 20.0, -0.1), 0.0)              // and still revoke a ramp
         assertEquals(CortexAuthority8366.REVOKE_MIN_N_8366, 20)
         assertEquals("OPEN", CortexAuthority8366.code8366(r, false, 0.0, Double.NaN))
     }

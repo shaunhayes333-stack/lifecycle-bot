@@ -259,14 +259,18 @@ object NetEdge8030 {
         val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
         val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
         val spanMs = if (bars.size >= 2) bars.maxOf { it.ts } - bars.minOf { it.ts } else 0L
-        val h1 = StrategyMove8153.positiveHour8153(ts.lastPriceChange1h)
+        // V5.0.8399 — the same dated hour move the setup classifier resolved (LanePlaybook7907.features: the row's reading
+        // only while OBSERVED, else the tape / DexScreener pair / sweep fallback). 5.0.8398 read the raw row scalar here:
+        // a stale or defaulted negative hour became FALLING_HOUR_UNPROVEN on a coin whose fresh pair reading was positive.
+        val hour8399 = com.lifecyclebot.engine.cortex.LanePlaybook7907.resolvedChg1h8399(ts, nowMs)
+        val h1 = StrategyMove8153.positiveHour8153(hour8399)
         val rec = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedRecord8153(ts, lane, setup, nowMs) } catch (_: Throwable) { null }
         val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null }
         val m = StrategyMove8153.expected8153(
             mandatePct = mandatePct, rangePct = range, rangeDense = StrategyMove8153.dense8153(bars.size, spanMs), h1Pct = h1,
             strategyN = rec?.get(0)?.toInt() ?: 0, strategyMeanPct = rec?.get(1) ?: Double.NaN, strategySePct = rec?.get(2) ?: Double.NaN,
             costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
-            signedHourPct = ts.lastPriceChange1h, momentumEntry = StrategyMove8153.momentumLane8153(lane),
+            signedHourPct = hour8399, momentumEntry = StrategyMove8153.momentumLane8153(lane),
         )
         if (ts.mint.isNotBlank()) {
             if (moves8153.size > 4_000) moves8153.clear()
@@ -432,7 +436,7 @@ object NetEdge8030 {
     private fun realizedMovePct8035(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? {
         val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
         val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
-        val h1 = StrategyMove8153.positiveHour8153(ts.lastPriceChange1h)
+        val h1 = StrategyMove8153.positiveHour8153(com.lifecyclebot.engine.cortex.LanePlaybook7907.resolvedChg1h8399(ts, nowMs))   // V5.0.8399 — same dated reading
         return when {
             range != null && h1 != null -> maxOf(range, h1)
             else -> range ?: h1

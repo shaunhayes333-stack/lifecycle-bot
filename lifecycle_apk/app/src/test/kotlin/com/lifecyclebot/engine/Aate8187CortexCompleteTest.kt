@@ -380,9 +380,19 @@ class Aate8187CortexCompleteTest {
         assertTrue(queue.contains("if (captureLatest8187.put(key, ownedJob8397) != null) { inc(\"CAPTURE_COALESCED_SAME_KEY_8187\"); return }"))
         assertTrue(queue.contains("if (!captureAdmits8187(captureQueued8187.get(), admitted))"))
         assertTrue(queue.contains("captureLatest8187.remove(key, ownedJob8397)"))
-        assertTrue(queue.contains("captureOwners8397.terminal(key, ticket.atMs)"))
-        assertTrue(queue.contains("inc(if (admitted) \"CAPTURE_DROP_FULL_ADMITTED_8187\" else \"CAPTURE_DROP_FULL_NEWEST_8187\")"))
-        assertTrue(queue.contains("submitCapture8171 { try { captureLatest8187.remove(key)?.invoke() } finally { captureQueued8187.decrementAndGet() } }"))
+        // V5.0.8399 — a full queue no longer ends the newest decision as terminal: it waits in the bounded overflow
+        // (one per key, admitted first) and drains as captures complete, so no frozen decision loses its outcome.
+        assertFalse(queue.contains("CAPTURE_DROP_FULL_ADMITTED_8187"))
+        assertTrue(queue.contains("overflowPut8399(key, ticket, admitted, ownedJob8397)"))
+        assertTrue(queue.contains("submitCapture8171 { try { captureLatest8187.remove(key)?.invoke() } finally { captureQueued8187.decrementAndGet(); drainOverflow8399() } }"))
+        val overflow = cx.substringAfter("private fun overflowPut8399(", "").substringBefore("private fun drainOverflow8399(", "")
+        assertTrue("a superseded waiter ends exactly as a drop did", overflow.contains("captureOwners8397.terminal(key, old.ticket.atMs)"))
+        assertTrue(overflow.contains("if (captureOverflow8399.size >= CAPTURE_OVERFLOW_MAX_8399)"))
+        assertTrue(overflow.contains("firstOrNull { !it.value.admitted }?.key ?: captureOverflow8399.keys.first()"))
+        val drain = cx.substringAfter("private fun drainOverflow8399(", "").substringBefore("captureOverflowStatsLocked8399", "")
+        assertTrue(drain.contains("if (!captureAdmits8187(captureQueued8187.get(), e.value.admitted)) return"))
+        assertTrue(drain.contains("if (!captureOwners8397.current(o!!.ticket))"))
+        assertTrue(cx.contains("captureQ=${'$'}{captureQueued8187.get()} ${'$'}{captureOverflowStatsLocked8399()}"))
         assertTrue(cx.contains("submitCaptureKeyed8187(ticket8397, admitted) { captureCold8178("))
         assertTrue(cx.contains("submitCaptureKeyed8187(ticket8397, admitted) { captureNow("))
     }

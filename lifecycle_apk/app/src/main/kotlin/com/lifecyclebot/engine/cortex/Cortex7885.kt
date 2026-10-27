@@ -592,7 +592,7 @@ object Cortex7885 {
     // observation time, never at the run time.
     private const val CAPTURE_QUEUE_HARD_8187 = 416
     private val capturePool8171: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
-        2, 2, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(CAPTURE_QUEUE_HARD_8187 + 32),
+        3, 3, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(CAPTURE_QUEUE_HARD_8187 + 32),   // V5.0.8399 — 2 → 3 workers
         { r -> Thread(r, "cortex-capture-8171").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
         java.util.concurrent.RejectedExecutionHandler { r, ex ->
             if (!ex.isShutdown) {
@@ -644,15 +644,72 @@ object Cortex7885 {
             if (captureLatest8187.put(key, ownedJob8397) != null) { inc("CAPTURE_COALESCED_SAME_KEY_8187"); return }
             if (!captureAdmits8187(captureQueued8187.get(), admitted)) {
                 captureLatest8187.remove(key, ownedJob8397)
-                captureOwners8397.terminal(key, ticket.atMs)
-                deferredLabels8397.remove("$key|${ticket.atMs}")
-                inc(if (admitted) "CAPTURE_DROP_FULL_ADMITTED_8187" else "CAPTURE_DROP_FULL_NEWEST_8187")
+                // V5.0.8399 §NO_DECISION_LOSES_ITS_OUTCOME — a frozen decision whose capture cannot queue now waits in a
+                // bounded overflow (one per key, admitted first) and drains as captures complete. 5.0.8398 dropped 135
+                // admitted + 594 newest captures as terminal: each became a matured decision with no outcome, CORE/MOONSHOT
+                // STRONG coverage fell to ~3%, and CortexAuthority8366 answered INCOMPLETE_OUTCOMES (authority 0) for every
+                // lane — the learning was retained while the permission to use it was lost.
+                overflowPut8399(key, ticket, admitted, ownedJob8397)
                 return
             }
             captureQueued8187.incrementAndGet()
         }
-        submitCapture8171 { try { captureLatest8187.remove(key)?.invoke() } finally { captureQueued8187.decrementAndGet() } }
+        submitCapture8171 { try { captureLatest8187.remove(key)?.invoke() } finally { captureQueued8187.decrementAndGet(); drainOverflow8399() } }
     }
+
+    // ── V5.0.8399 §NO_DECISION_LOSES_ITS_OUTCOME ──
+    private class Overflow8399(val ticket: CortexCaptureOwnership8397.Ticket, val admitted: Boolean, val job: () -> Unit)
+    private const val CAPTURE_OVERFLOW_MAX_8399 = 2_000
+    /** "mint|LANE" -> the newest decision's capture waiting for queue room; insertion-ordered so the oldest drains first. */
+    private val captureOverflow8399 = LinkedHashMap<String, Overflow8399>()   // guarded by the model lock
+    private val overflowPeak8399 = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** Model lock held. A newer decision for a key already waiting replaces it (the older ticket ends exactly as a drop did). */
+    private fun overflowPut8399(key: String, ticket: CortexCaptureOwnership8397.Ticket, admitted: Boolean, job: () -> Unit) {
+        captureOverflow8399.remove(key)?.let { old ->
+            captureOwners8397.terminal(key, old.ticket.atMs)
+            deferredLabels8397.remove("$key|${old.ticket.atMs}")
+            inc("CAPTURE_OVERFLOW_SUPERSEDED_SAME_KEY_8399")
+        }
+        if (captureOverflow8399.size >= CAPTURE_OVERFLOW_MAX_8399) {
+            // Evict the oldest NON-admitted waiter (an admitted decision is a trade's own verdict: it waits); if every
+            // waiter is admitted, the oldest admitted one goes. Bounded memory, and the loss is counted by kind.
+            val victimKey = captureOverflow8399.entries.firstOrNull { !it.value.admitted }?.key ?: captureOverflow8399.keys.first()
+            captureOverflow8399.remove(victimKey)?.let { v ->
+                captureOwners8397.terminal(victimKey, v.ticket.atMs)
+                deferredLabels8397.remove("$victimKey|${v.ticket.atMs}")
+                inc(if (v.admitted) "CAPTURE_OVERFLOW_EVICT_ADMITTED_8399" else "CAPTURE_OVERFLOW_EVICT_NEWEST_8399")
+            }
+        }
+        captureOverflow8399[key] = Overflow8399(ticket, admitted, job)
+        overflowPeak8399.updateAndGet { maxOf(it, captureOverflow8399.size) }
+        inc(if (admitted) "CAPTURE_OVERFLOW_WAIT_ADMITTED_8399" else "CAPTURE_OVERFLOW_WAIT_NEWEST_8399")
+    }
+
+    /** After a capture completes: move waiting decisions into the queue while it admits them (admitted keys first). */
+    private fun drainOverflow8399() {
+        while (true) {
+            var key: String? = null
+            var o: Overflow8399? = null
+            synchronized(this) {
+                if (captureOverflow8399.isEmpty()) return
+                val e = captureOverflow8399.entries.firstOrNull { it.value.admitted } ?: captureOverflow8399.entries.first()
+                if (!captureAdmits8187(captureQueued8187.get(), e.value.admitted)) return
+                key = e.key; o = e.value
+                captureOverflow8399.remove(e.key)
+                if (!captureOwners8397.current(o!!.ticket)) { inc("CAPTURE_OVERFLOW_SUPERSEDED_BEFORE_QUEUE_8399"); key = null; return@synchronized }
+                if (captureLatest8187.put(e.key, o!!.job) != null) { inc("CAPTURE_COALESCED_SAME_KEY_8187"); key = null; return@synchronized }
+                captureQueued8187.incrementAndGet()
+            }
+            val k = key ?: continue
+            inc("CAPTURE_OVERFLOW_DRAINED_8399")
+            submitCapture8171 { try { captureLatest8187.remove(k)?.invoke() } finally { captureQueued8187.decrementAndGet(); drainOverflow8399() } }
+            return   // one drain per completed capture keeps the queue's own accounting the authority
+        }
+    }
+
+    /** V5.0.8399 — report: decisions waiting for capture room and the high-water mark. */
+    private fun captureOverflowStatsLocked8399(): String = "overflow8399=${captureOverflow8399.size} peak=${overflowPeak8399.get()}"
 
     private fun submitCapture8171(job: () -> Unit) {
         try {
@@ -1885,7 +1942,8 @@ object Cortex7885 {
         val (rn, rm) = realisedStrong8366(lane)
         val r = authorityTest8366(lane)
         return CortexAuthority8366.revokes8366(rn, rm) ||
-            (r.verdict != CortexAuthority8366.Verdict8366.INSUFFICIENT_OOS && r.verdict != CortexAuthority8366.Verdict8366.GRANTED)
+            (r.verdict != CortexAuthority8366.Verdict8366.INSUFFICIENT_OOS && r.verdict != CortexAuthority8366.Verdict8366.GRANTED &&
+                r.verdict != CortexAuthority8366.Verdict8366.RAMP_8399)   // V5.0.8399 — a ramping lane is not a completed losing proof
     }
 
     /** Caller holds the lock. The pre-8366 first-sight bar (8136 realised denial or 8144 INVERTED_OOS): display only. */
@@ -4399,7 +4457,7 @@ object Cortex7885 {
                     "| legacyAdmit=${fmtStat(b.legacyAdmitted)} legacyRefuse=${fmtStat(b.legacyRefused)} missedStrong=${fmtStat(b.missedStrong)} " +
                     "| authority: paperRefuse=${refusalPowerCurrent8372(lane, runner, true)} liveRefuse=${refusalPowerCurrent8372(lane, runner, false)} liveOverrule=${heldFraction8153(lane) >= OVERRULE_FRACTION_7955} auth=${"%.2f".format(heldFraction8153(lane))}"
             }
-            "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.votersLine8003()} assessed=$n (${"%.2f".format(avgMs)}ms) pending=${pending.size} graded=${graded.get()} implausibleRefused8388=${gradeBook8144.implausibleRefused8388} " +
+            "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.votersLine8003()} assessed=$n (${"%.2f".format(avgMs)}ms) captureQ=${captureQueued8187.get()} ${captureOverflowStatsLocked8399()} pending=${pending.size} graded=${graded.get()} implausibleRefused8388=${gradeBook8144.implausibleRefused8388} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
                 "      vote cleaning (§8007): ${synchronized(this) { ledger.cleanLine8007() }}\n" +
                 "      store (§8324 restore without reset): bootSeasoned=$bootSeasoned8324 calibrationLanes=${calibration.laneCount8324()} $restoreNote8324 ${assessWaitLine8324()}\n" +

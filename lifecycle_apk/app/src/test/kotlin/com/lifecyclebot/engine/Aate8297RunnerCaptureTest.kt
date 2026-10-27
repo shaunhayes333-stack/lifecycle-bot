@@ -96,7 +96,14 @@ class Aate8297RunnerCaptureTest {
     }
 
     @Test fun wiredIntoTheLiveDoorTheEscalationTheCycleAndTheReport() {
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("when (RunnerDefer8297.terminalFor8297(ts, admission8136, nowMs)) {"))
+        val door = src("engine/truth/LiveEdgeGate7877.kt")
+        assertTrue(door.contains("when (RunnerDefer8297.terminalFor8297(ts, admission8136, nowMs) {"))
+        // V5.0.8399 — the candidate's own measured edge / lifecycle runner ticket passes the optional-only deferral too (P1 precedence).
+        assertTrue(door.contains("measuredEdge8060(ts, l8059, nowMs) || (try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false })"))
+        val funnel = src("engine/truth/RunnerFunnel8297.kt")
+        assertTrue(funnel.contains("val positive = run || (try { candidatePositive8399() } catch (_: Throwable) { false })"))
+        assertTrue(funnel.contains("if (!releases8297(t, missing, positive)) return t"))
+        assertTrue("critical misses still defer", funnel.contains("if (missing.isEmpty() || missing.any { CandidateAdmission8136.criticalMissing8170(it) }) return t"))
         assertTrue(src("engine/Executor.kt").contains("val runner = com.lifecyclebot.engine.sell.ProfitEscalation8189.runnerProtected8297(ts)"))
         val esc = src("engine/sell/ProfitEscalation8189.kt")
         assertTrue(esc.contains("RunnerGrab7967.holdingRunner8018(ts)"))

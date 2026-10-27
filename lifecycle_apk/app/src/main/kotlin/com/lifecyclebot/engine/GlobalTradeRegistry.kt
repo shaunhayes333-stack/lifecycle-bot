@@ -531,6 +531,12 @@ object GlobalTradeRegistry {
                 watchlist.values.map {
                     WatchlistEviction8398.Row(it.mint, it.source, it.addedAt, it.lastProcessedAt, it.processCount, it.mint in openMints6598)
                 }, now, mint,
+                // V5.0.8399 — a coin whose admission / handoff is waiting on a data fetch it asked for is not evictable
+                // while that ask is live (bounded): the fetch must be allowed to land on a coin that is still here.
+                awaitingData = { m ->
+                    (try { com.lifecyclebot.engine.truth.CandidateAdmission8136.awaitingData8399(m, now) } catch (_: Throwable) { false }) ||
+                        (try { HandoffReceiverTasks8153.awaitingData8399(m, now) } catch (_: Throwable) { false })
+                },
             )
             // V5.0.8029 — pump.fun may hold at most half the hot watchlist: over that share, the victim is a pump.fun coin
             // (5.0.8027: ~95% of intake was pump.fun and 476 evictions in 23 min pushed the market hunters' coins out).
@@ -540,6 +546,7 @@ object GlobalTradeRegistry {
             if (victimRow8398 != null && pumpOver8029 && LaneParticipation8029.pumpFamily8029(victimRow8398.source)) LaneParticipation8029.notePumpEviction8029()
             val victim = victimRow8398?.let { watchlist[it.mint] }
             if (pool8398.protectedUndecided > 0) try { PipelineHealthCollector.labelInc("WATCHLIST_EVICT_UNDECIDED_PROTECTED_8398") } catch (_: Throwable) {}
+            if (pool8398.protectedAwaitingData > 0) try { PipelineHealthCollector.labelInc("WATCHLIST_EVICT_AWAITING_DATA_PROTECTED_8399") } catch (_: Throwable) {}
             if (victim != null) {
                 watchlist.remove(victim.mint)
                 try {

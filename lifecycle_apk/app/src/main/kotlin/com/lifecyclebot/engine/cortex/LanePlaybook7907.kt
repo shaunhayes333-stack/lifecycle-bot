@@ -723,7 +723,30 @@ object LanePlaybook7907 {
         return if (c.isBlank()) lane.trim().uppercase() else c
     }
 
-    fun features(ts: TokenState, nowMs: Long = System.currentTimeMillis()): F {
+    // V5.0.8399 — the last resolved feature set per mint: the economics gate (NetEdge8030.executableMove8153) reads the
+    // SAME dated hour move the classifier judged, not the raw row scalar.
+    private val lastF8399 = ConcurrentHashMap<String, Pair<Long, F>>()
+    internal const val RESOLVED_F_TTL_MS_8399 = 30_000L
+    private fun remember8399(mint: String, nowMs: Long, f: F) {
+        if (mint.isBlank()) return
+        if (lastF8399.size > 4_000) lastF8399.entries.removeIf { nowMs - it.value.first > RESOLVED_F_TTL_MS_8399 }
+        lastF8399[mint] = nowMs to f
+    }
+
+    /**
+     * The hour move the setup classifier resolved for [ts] within [RESOLVED_F_TTL_MS_8399]; before any classification the
+     * row's own reading only while its observation is fresh (chgObs8084 OBSERVED), else NaN (unknown, never a default 0 or
+     * a stale sign). Pure apart from the memo.
+     */
+    fun resolvedChg1h8399(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double {
+        lastF8399[ts.mint]?.let { (at, f) -> if (nowMs - at in 0L..RESOLVED_F_TTL_MS_8399) return f.chg1h }
+        return if (chgObs8084(ts.lastPriceChange5m, ts.lastPriceChange1h, ts.priceChangeObservedAtMs8084, nowMs) == Obs8084.OBSERVED)
+            ts.lastPriceChange1h else Double.NaN
+    }
+
+    fun features(ts: TokenState, nowMs: Long = System.currentTimeMillis()): F = featuresUnmemoized8399(ts, nowMs).also { remember8399(ts.mint, nowMs, it) }
+
+    private fun featuresUnmemoized8399(ts: TokenState, nowMs: Long): F {
         val s = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts) } catch (_: Throwable) { null }
         fun pos(v: Double?) = if (v != null && v.isFinite() && v > 0.0) v else Double.NaN
         fun nn(v: Double?) = if (v != null && v.isFinite() && v >= 0.0) v else Double.NaN

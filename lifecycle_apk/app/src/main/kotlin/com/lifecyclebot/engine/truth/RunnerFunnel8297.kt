@@ -168,18 +168,27 @@ object RunnerDefer8297 {
      * LiveEdgeGate7877.liveRefusal: the admission terminal the live door branches on — [d]'s own terminal, or null (no
      * terminal: the later gates decide) when a confirmed run passes an optional-only data deferral.
      */
-    fun terminalFor8297(ts: TokenState, d: CandidateAdmission8136.Decision8136?, nowMs: Long): CandidateAdmission8136.Terminal8136? {
+    fun terminalFor8297(ts: TokenState, d: CandidateAdmission8136.Decision8136?, nowMs: Long,
+                        candidatePositive8399: () -> Boolean = { false }): CandidateAdmission8136.Terminal8136? {
         val t = d?.terminal ?: return null
         if (t != CandidateAdmission8136.Terminal8136.DEFER_DATA) return t
         val missing = CandidateAdmission8136.missingOf8144(d)
         if (missing.isEmpty() || missing.any { CandidateAdmission8136.criticalMissing8170(it) }) return t
         val run = (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false }) ||
             (try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Throwable) { false })
-        if (!releases8297(t, missing, run)) return t
+        // V5.0.8399 §P1_PRECEDENCE — candidate-specific POSITIVE evidence (measured cell edge, kind proven in this lane, a
+        // specialist match, a lifecycle runner ticket, an expert-wallet entry) outranks a generic missing-optional-input
+        // deferral, exactly as the directive orders it (hard safety > candidate negative > candidate positive > lane priors
+        // > economics > missing data / generic prior). 8096 reached these routes; 8136-8398 returned the deferral first, so
+        // a coin with a proven reason to trade waited on a fetch for an input its route did not need. Critical misses
+        // (price / liq / route / sellability) still defer above.
+        val positive = run || (try { candidatePositive8399() } catch (_: Throwable) { false })
+        if (!releases8297(t, missing, positive)) return t
         released.incrementAndGet()
+        if (!run) releasedPositive8399.incrementAndGet()
         try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
         try {
-            PipelineHealthCollector.labelInc("RUNNER_CONFIRMED_PASSES_OPTIONAL_DEFER_8297")
+            PipelineHealthCollector.labelInc(if (run) "RUNNER_CONFIRMED_PASSES_OPTIONAL_DEFER_8297" else "CANDIDATE_POSITIVE_PASSES_OPTIONAL_DEFER_8399")
             if (com.lifecyclebot.engine.ForensicEmitRateLimiter6356.shouldEmit("RUNNER_DEFER_8297", ts.mint)) {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle("RUNNER_CONFIRMED_PASSES_OPTIONAL_DEFER_8297",
                     "mint=${ts.mint.take(10)} sym=${ts.symbol} optionalMissing=${missing.joinToString(",").take(120)} action=later_gates_decide")
@@ -188,5 +197,6 @@ object RunnerDefer8297 {
         return null
     }
 
-    fun statusLine8297(): String = "runnerDefer8297[released=${released.get()}]"
+    private val releasedPositive8399 = java.util.concurrent.atomic.AtomicLong(0L)
+    fun statusLine8297(): String = "runnerDefer8297[released=${released.get()} candidatePositive8399=${releasedPositive8399.get()}]"
 }

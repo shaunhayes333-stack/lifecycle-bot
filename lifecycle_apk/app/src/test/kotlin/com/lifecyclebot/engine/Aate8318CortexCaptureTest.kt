@@ -24,7 +24,7 @@ class Aate8318CortexCaptureTest {
         assertTrue(cx.contains("private const val ASSESS_TTL_MS = 60_000L"))
         assertFalse(cx.contains("private const val ASSESS_TTL_MS = 20_000L"))
         val capture = cx.substringAfter("private val capturePool8171").substringBefore("// ── V5.0.8187 §ACCOUNTABLE_CAPTURE_QUEUE")
-        assertTrue("two capture workers", capture.contains("2, 2, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(CAPTURE_QUEUE_HARD_8187 + 32)"))
+        assertTrue("three capture workers (V5.0.8399)", capture.contains("3, 3, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(CAPTURE_QUEUE_HARD_8187 + 32)"))
         val assess = cx.substringAfter("private val pool: java.util.concurrent.ThreadPoolExecutor").substringBefore("private const val CAPTURE_QUEUE_HARD_8187")
         assertTrue("assessment pool max 4", assess.contains("2, 4, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(256)"))
     }

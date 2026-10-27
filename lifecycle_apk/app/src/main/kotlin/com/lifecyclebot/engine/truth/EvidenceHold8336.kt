@@ -72,7 +72,16 @@ object EvidenceHold8336 {
     }
 
     /** Pure: the proof a lane's paper returns (% per whole close) and SOL results make. */
-    fun proof8336(returnsPct: List<Double>, pnlSol: List<Double>): Proof8336 {
+    // V5.0.8399 §LANE_BAR — operator (27 Oct 2026): the lanes that carried the 8096-8114 cash gains (CORE, MOONSHOT,
+    // PROJECT_SNIPER) prove on 15 closes at PF 1.2 so live growth can restart while the proof population rebuilds; every
+    // other lane keeps the 30 / 1.3 bar. The margin (mean - SE > MARGIN_PCT_8336) is unchanged for all.
+    val FAST_BAR_LANES_8399: Set<String> = setOf("CORE", "MOONSHOT", "PROJECT_SNIPER")
+    const val FAST_MIN_N_8399 = 15
+    const val FAST_MIN_PF_8399 = 1.2
+    fun minN8399(lane: String?): Int = if (lane != null && canon(lane) in FAST_BAR_LANES_8399) FAST_MIN_N_8399 else MIN_N_8336
+    fun minPf8399(lane: String?): Double = if (lane != null && canon(lane) in FAST_BAR_LANES_8399) FAST_MIN_PF_8399 else MIN_PF_8336
+
+    fun proof8336(returnsPct: List<Double>, pnlSol: List<Double>, lane: String? = null): Proof8336 {
         val r = returnsPct.filter { it.isFinite() }.map { it.coerceIn(-100.0, 1_000.0) }
         val n = r.size
         if (n == 0) return Proof8336(0, Double.NaN, Double.NaN, Double.NaN, false)
@@ -81,7 +90,7 @@ object EvidenceHold8336 {
         val wins = pnlSol.filter { it.isFinite() && it > 0.0 }.sum()
         val losses = -pnlSol.filter { it.isFinite() && it < 0.0 }.sum()
         val pf = if (losses > 0.0) wins / losses else if (wins > 0.0) Double.POSITIVE_INFINITY else 0.0
-        val proven = n >= MIN_N_8336 && mean - se > MARGIN_PCT_8336 && pf >= MIN_PF_8336
+        val proven = n >= minN8399(lane) && mean - se > MARGIN_PCT_8336 && pf >= minPf8399(lane)   // V5.0.8399 — lane bar
         return Proof8336(n, mean, se, pf, proven)
     }
 
@@ -122,8 +131,8 @@ object EvidenceHold8336 {
             val tagged = t.map { it to Rehearsal8339.tagPaperClose8342("${it.ts}|${it.mint}|${it.positionId}", it.mint, lane, it.ts) }
             val admit = tagged.filter { it.second == Rehearsal8339.LIVE_ADMIT_8342 }.map { it.first }
             LaneRecord8342(
-                all = proof8336(t.map { it.pnlPct }, t.map { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }),
-                liveAdmit = proof8336(admit.map { it.pnlPct }, admit.map { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }),
+                all = proof8336(t.map { it.pnlPct }, t.map { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }, lane),
+                liveAdmit = proof8336(admit.map { it.pnlPct }, admit.map { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }, lane),
                 liveRefuse = tagged.count { it.second == Rehearsal8339.LIVE_REFUSE_8342 },
                 untagged = tagged.count { it.second == Rehearsal8339.UNTAGGED_8342 },
             )
@@ -350,7 +359,7 @@ object EvidenceHold8336 {
         val lanes = records8342.entries.sortedByDescending { it.value.all.n }.joinToString(" · ") { (l, r) -> laneLine8342(l, r) }
             .ifBlank { "no meme-lane paper closes since start" }
         return "evidenceHold8336[on=$enabled8336 rehearsal=$rehearsal8336 sinceMin=${if (startMs8336 > 0) (nowMs - startMs8336) / 60_000 else -1} " +
-            "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 lanes=${EvidenceHold8336.HELD_LANES_8392.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
+            "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 fast8399=${FAST_BAR_LANES_8399.joinToString("/")}:n>=$FAST_MIN_N_8399,pf>=$FAST_MIN_PF_8399 lanes=${EvidenceHold8336.HELD_LANES_8392.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "exceptions=${exceptionCount8337()} last=${exceptionBudget8397.last()} grabDoor8345=${grabExceptionCount8345()} reserved8397=${exceptionBudget8397.reservations()} meter8397=SUBMITTED_ATTEMPT $lanes" +
             (try { EvidenceShadow8344.recoveryLine8345(startMs8336, nowMs) } catch (_: Throwable) { " recovery8345{?}" }) + "]"  // V5.0.8345 — the bounded path to the bar
     }

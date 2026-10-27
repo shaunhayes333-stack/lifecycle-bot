@@ -280,6 +280,17 @@ class DataOrchestrator(
                 .filter { it in status.tokens && it !in held && heliusMintEligible7819(it) }
             val over = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066(nowMs) } catch (_: Throwable) { false }
             val set = tape.tapeSet8307(held, tape.migratedFirst8307(near), tape.tapeWidth8307(), over)
+            // V5.0.8399 — 5.0.8398 ran with tapeSub=NONE tapeMints=0 while 462 coins were near a decision and every lane
+            // answered tape8100:NO_PRINTS. The empty set names its cause (the only way the per-mint parsed tape goes dark).
+            if (set.isEmpty()) {
+                val why = when {
+                    over -> "OVER_BUDGET"
+                    near.isEmpty() && DataPipeline8191.recentNearDecisionMints8269(tape.TAPE_MAX_8307, nowMs).isEmpty() -> "NEAR0"
+                    near.isEmpty() -> "NEAR_FILTERED"
+                    else -> "NON_SOLANA"
+                }
+                try { PipelineHealthCollector.labelInc("HELIUS_TAPE_SET_EMPTY_8399_$why") } catch (_: Throwable) {}
+            }
             com.lifecyclebot.network.HeliusEnhancedWS.updateTapeAccounts8307(set, nowMs)
             tape.noteTapeSet8307(set)
             // V5.0.8354 — the program-wide bonding-curve tape: who the bot cares about, and the per-mint fallback.
@@ -1306,6 +1317,15 @@ class DataOrchestrator(
     internal fun refreshMissingInputs8087(mint: String, symbol: String, missing: List<String>) {
         val keys = missing.map { it.substringBefore(':').trim().lowercase() }.toSet()
         fun lbl(k: String) { try { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_${k.uppercase()}_8087") } catch (_: Throwable) {} }
+        // V5.0.8399 — a Crypto Universe id ("robinhood|0x…", "solana|…") is not a Solana mint: DexScreener's Solana pair
+        // lane, GeckoTerminal trades, PumpPortal and the Helius tape cannot answer for it, and 5.0.8398 spent those lanes'
+        // quota on such ids (CORE / CYCLIC / MOONSHOT / SHITCOIN classified robinhood|0x8c0e… DATA_INCOMPLETE on every
+        // cycle). Its own chain-aware poll (forcePoll8085) still runs; the Solana sources are not asked.
+        if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint)) {
+            forcePoll8085.add(mint)
+            try { PipelineHealthCollector.labelInc("SETUP_INPUT_REFRESH_NON_SOLANA_POLL_ONLY_8399") } catch (_: Throwable) {}
+            return
+        }
         refreshSources8191(mint, keys)
         if (keys.any { it in POLL_INPUTS_8087 }) { forcePoll8085.add(mint); keys.filter { it in POLL_INPUTS_8087 }.forEach(::lbl) }
         if ("shape" in keys) scope.launch {

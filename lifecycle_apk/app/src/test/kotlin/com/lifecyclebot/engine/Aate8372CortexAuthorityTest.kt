@@ -165,7 +165,12 @@ class Aate8372CortexAuthorityTest {
         assertEquals(CortexAuthority8366.Verdict8366.NO_RANK, bad.verdict)
         assertFalse(bad.granted)
         val thin = rows(80)
-        val insufficient = CortexAuthority8366.test8372(thin, 1.5, after(thin))
+        val ramp = CortexAuthority8366.test8372(thin, 1.5, after(thin))
+        // V5.0.8399 — 80 rows is a ramp sample: partial authority, never the full grant; under 15 OOS stays INSUFFICIENT.
+        assertEquals(CortexAuthority8366.Verdict8366.RAMP_8399, ramp.verdict)
+        assertTrue(ramp.fraction < CortexAuthority8366.test8372(rows(), 1.5, after(rows())).fraction)
+        val tiny = rows(12)
+        val insufficient = CortexAuthority8366.test8372(tiny, 1.5, after(tiny))
         assertEquals(CortexAuthority8366.Verdict8366.INSUFFICIENT_OOS, insufficient.verdict)
         assertFalse(insufficient.granted)
     }
