@@ -112,4 +112,20 @@ class Aate8397DecisionEvidenceTest {
         assertEquals(0, leases.size())
         assertEquals(2.0, read("decisionReserved8397"), 1e-9)
     }
+
+    @Test fun v8399TheParsedTapeIsCutOnlyByTheHardDayCapNotThePace() {
+        // On the pace line (setup: ordinary limit + 100) the ordinary gate is closed but the tape's gate is open...
+        assertTrue(Economy.overBudget8066(now))
+        assertFalse(Economy.overHardBudget8399(now))
+        // ...until the absolute day cap.
+        set("total", 300_000.0)
+        assertTrue(Economy.overHardBudget8399(now))
+        val orch = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
+        assertTrue(orch.contains("val set = tape.tapeSet8307(held, tape.migratedFirst8307(near), tape.tapeWidth8307(), tapeOver8399)"))
+        assertTrue("the optional DAS batch still follows the pace", orch.contains("if (!over) com.lifecyclebot.network.HeliusDasAuthority8307.request8307("))
+        val curve = java.io.File("src/main/kotlin/com/lifecyclebot/network/HeliusCurveTape8354.kt").readText()
+        assertTrue(curve.contains("val over = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overHardBudget8399(nowMs) }"))
+        com.lifecyclebot.network.PumpSwapTape8307.noteTapeSet8307(listOf("So11111111111111111111111111111111111111112"), "PACE_OVER_TAPE_KEPT")
+        assertEquals("PACE_OVER_TAPE_KEPT", com.lifecyclebot.network.PumpSwapTape8307.tapeBudget8399())
+    }
 }

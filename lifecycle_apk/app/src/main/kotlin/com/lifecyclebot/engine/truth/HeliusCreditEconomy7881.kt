@@ -332,6 +332,22 @@ object HeliusCreditEconomy7881 {
     } catch (_: Throwable) { false }
     private val refused8066 = AtomicLong(0)
 
+    /**
+     * V5.0.8399 §TAPE_IS_DECISION_EVIDENCE — the absolute day cap, not the pro-rated ordinary pace. 5.0.8398 ran all day ON
+     * the pace line (creditsToday 141,856 vs an ordinary limit of ~141.6k at 10:55 UTC, pace 311k/day vs 300k): overBudget8066
+     * flipped minute by minute, and the first thing it cut was the near-decision parsed swap tape (tapeSub=NONE, tapeMints=0,
+     * 8 resubscribes in 10 min) and the program curve tape — the very prints every lane then reported as tape8100:NO_PRINTS.
+     * The tape's bytes are metered at [WS_CREDITS_PER_100KB] (cents of the bulk REST spend); it is decision evidence and is
+     * paced by its own byte governor (PumpSwapTape8307.tapeWidth8307), so only the hard cap may switch it off.
+     */
+    fun overHardBudget8399(nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        rollIfNewDay(nowMs)
+        val over = synchronized(this) { total } >= DAILY_BUDGET_CREDITS
+        if (over) refusedHard8399.incrementAndGet()
+        over
+    } catch (_: Throwable) { false }
+    private val refusedHard8399 = AtomicLong(0)
+
     /** Five percent of the existing daily allowance is protected from optional work, never added to it. */
     internal fun ordinaryLimit8397(budget: Double, fraction: Double): Double =
         budget * (1.0 - DECISION_RESERVE_SHARE_8397) * (fraction + 1.0 / 24.0).coerceIn(0.0, 1.0)

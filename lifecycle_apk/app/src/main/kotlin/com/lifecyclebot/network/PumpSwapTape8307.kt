@@ -260,14 +260,17 @@ object PumpSwapTape8307 {
             "tape{width=$tapeWidth tx=${enhancedTx.get()} prints=${enhancedPrints.get()} curve=${enhancedCurvePrints.get()} " +
             "amm=${enhancedAmmPrints.get()} printsLastMin=$eventsLastMinute noSwap=${enhancedNoSwap.get()} " +
             "unattributed=${enhancedUnattributed.get()} failedTx=${enhancedFailedTx.get()}} " +
-            "das{${try { HeliusDasAuthority8307.line8307() } catch (_: Throwable) { "-" }} tapeMintsWithFacts=${dasFacts8307()}} " +
+            "das{${try { HeliusDasAuthority8307.line8307() } catch (_: Throwable) { "-" }} tapeMintsWithFacts=${dasFacts8307()}} tapeBudget8399=${tapeBudget8399()} " +
             "credits{today=${"%.0f".format(today)} projectedDay=${"%.0f".format(projected)}}]"
     }
 
     @Volatile private var lastTapeSet8307: List<String> = emptyList()
 
     /** DataOrchestrator: the set the parsed stream was last asked for (for the report). */
-    fun noteTapeSet8307(set: List<String>) { lastTapeSet8307 = set }
+    fun noteTapeSet8307(set: List<String>, budget8399: String = "OK") { lastTapeSet8307 = set; tapeBudget8399 = budget8399 }
+    @Volatile private var tapeBudget8399: String = "OK"
+    /** V5.0.8399 — the budget state the last tape set was built under (report). */
+    fun tapeBudget8399(): String = tapeBudget8399
 
     private fun dasFacts8307(): String {
         val s = lastTapeSet8307

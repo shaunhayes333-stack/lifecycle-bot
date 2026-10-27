@@ -237,7 +237,8 @@ object HeliusCurveTape8354 {
             installShare()
             rollClocks(nowMs)
             val pumpPortalOn = try { PumpFunWS.tradeStreamEnabled8354() } catch (_: Throwable) { false }
-            val over = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066(nowMs) } catch (_: Throwable) { false }
+            // V5.0.8399 — the program curve tape has its own byte governor (programAffordable8354): only the HARD day cap stops it.
+            val over = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overHardBudget8399(nowMs) } catch (_: Throwable) { false }
             val inHold = nowMs < fallbackUntilMs
             if (!inHold && fallbackUntilMs > 0L) { fallbackUntilMs = 0L; level = LEVEL_LOGS_8354 }   // the hold served: re-probe logs only
             val affordable = programAffordable8354(programCreditsToday(), bytesLastMinute, dayFraction(nowMs), over)

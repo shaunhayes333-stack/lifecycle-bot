@@ -279,12 +279,15 @@ class DataOrchestrator(
             val near = DataPipeline8191.recentNearDecisionMints8269(tape.TAPE_MAX_8307, nowMs)
                 .filter { it in status.tokens && it !in held && heliusMintEligible7819(it) }
             val over = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overBudget8066(nowMs) } catch (_: Throwable) { false }
-            val set = tape.tapeSet8307(held, tape.migratedFirst8307(near), tape.tapeWidth8307(), over)
+            // V5.0.8399 — the parsed tape is decision evidence: only the HARD day cap switches it off (HeliusCreditEconomy7881.
+            // overHardBudget8399). The pro-rated pace still governs the optional DAS authority batch below.
+            val tapeOver8399 = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overHardBudget8399(nowMs) } catch (_: Throwable) { false }
+            val set = tape.tapeSet8307(held, tape.migratedFirst8307(near), tape.tapeWidth8307(), tapeOver8399)
             // V5.0.8399 — 5.0.8398 ran with tapeSub=NONE tapeMints=0 while 462 coins were near a decision and every lane
             // answered tape8100:NO_PRINTS. The empty set names its cause (the only way the per-mint parsed tape goes dark).
             if (set.isEmpty()) {
                 val why = when {
-                    over -> "OVER_BUDGET"
+                    tapeOver8399 -> "OVER_HARD_BUDGET"
                     near.isEmpty() && DataPipeline8191.recentNearDecisionMints8269(tape.TAPE_MAX_8307, nowMs).isEmpty() -> "NEAR0"
                     near.isEmpty() -> "NEAR_FILTERED"
                     else -> "NON_SOLANA"
@@ -292,7 +295,7 @@ class DataOrchestrator(
                 try { PipelineHealthCollector.labelInc("HELIUS_TAPE_SET_EMPTY_8399_$why") } catch (_: Throwable) {}
             }
             com.lifecyclebot.network.HeliusEnhancedWS.updateTapeAccounts8307(set, nowMs)
-            tape.noteTapeSet8307(set)
+            tape.noteTapeSet8307(set, if (tapeOver8399) "HARD_OVER" else if (over) "PACE_OVER_TAPE_KEPT" else "OK")
             // V5.0.8354 — the program-wide bonding-curve tape: who the bot cares about, and the per-mint fallback.
             com.lifecyclebot.network.HeliusCurveTape8354.sync8354(held, near, nowMs, { m -> status.tokens.containsKey(m) }) { m -> heliusWs?.subscribeTokenState8386(m) ?: com.lifecyclebot.network.HeliusCurveTape8354.TapeState8386.Unavailable("socket_unavailable") }
             // The same coins' DAS authority facts, batched and cached (one getAssetBatch for every new mint, none while fresh).
