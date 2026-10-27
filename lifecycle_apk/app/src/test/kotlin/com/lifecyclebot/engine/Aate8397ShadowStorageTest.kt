@@ -167,8 +167,14 @@ class Aate8397ShadowStorageTest {
         assertTrue(ui.contains("UNIFIED_REPORT_PARTIAL_SHIPPED_8398"))
         val coll = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(coll.indexOf("inFlightDump8398 = sb") < coll.indexOf("===== AATE Pipeline Health Snapshot ====="))
-        val explore = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExploreShadow8347.kt").readText()
-        assertTrue(explore.contains("reportMemo8398.set(HashMap())"))
-        assertTrue(explore.contains("memo.getOrPut(\"" + "\$" + "key|" + "\$" + "sinceMs\")"))
+        // Reports read a completed snapshot and return immediately while a background refresh is busy.
+        // The old per-report memo retained every cold cohort and is deliberately no longer populated.
+        val explore = com.lifecyclebot.engine.truth.ExploreShadow8347
+        val busyField = explore.javaClass.getDeclaredField("reportBusy8401").apply { isAccessible = true }
+        val busy = busyField.get(explore) as java.util.concurrent.atomic.AtomicBoolean
+        val oldBusy = busy.getAndSet(true)
+        try {
+            assertTrue(explore.statusLine8347(Long.MAX_VALUE).contains("summary pending"))
+        } finally { busy.set(oldBusy) }
     }
 }
