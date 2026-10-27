@@ -1093,7 +1093,10 @@ object CandidateAdmission8136 {
                     com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
                 com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
             )
-        } catch (_: Throwable) { proposedSizeSol } else proposedSizeSol
+        } catch (_: Throwable) { proposedSizeSol }
+        // V5.0.8399 — paper prices admission at the paper ledger's wallet-percent ticket, not the live wallet's dust minimum.
+        else if (mode == "PAPER" && !(proposedSizeSol.isFinite() && proposedSizeSol > 0.0)) try { com.lifecyclebot.engine.truth.NetEdge8030.paperTicket8399() } catch (_: Throwable) { proposedSizeSol }
+        else proposedSizeSol
         val version = candidateVersion.takeIf { it > 0L }
             ?: try { com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
         // V5.0.8223 — one canonical prior per candidate generation. FDG is the only caller that knows the authoritative

@@ -25781,6 +25781,9 @@ if (hotExitHandledSweep) {
             if (pool8018.isNotBlank()) { ts.lastPricePoolAddr = pool8018; ts.lastPriceDex = "PUMPSWAP" }
             ts.lastPriceUpdate = now
             if (marketCapSol.isFinite() && marketCapSol > 0.0) ts.lastMcap = marketCapSol * solUsd
+            // V5.0.8399 — a print without the venue's market cap (PumpSwap vault tick) still prices the fixed pump supply.
+            else if (!(ts.lastMcap.isFinite() && ts.lastMcap > 0.0) && (ts.tokenMap.pumpFunExecutable || ts.tokenMap.virtualSolReserves != null))
+                ts.lastMcap = px * com.lifecyclebot.engine.truth.CurveReserves7951.PUMP_TOTAL_SUPPLY_8399
         }
         try {
             com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(

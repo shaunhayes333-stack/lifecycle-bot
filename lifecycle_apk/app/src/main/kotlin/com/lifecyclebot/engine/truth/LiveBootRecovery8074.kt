@@ -36,7 +36,14 @@ object LiveBootRecovery8074 {
     @Volatile private var lastCandidates = 0
 
     /** SolanaWallet: a full wallet token read succeeded / failed. */
-    fun noteTokenRead8074(ok: Boolean, nowMs: Long = System.currentTimeMillis()) {
+    @Volatile private var lastFailReason8399: String = ""
+    private val failStreak8399 = AtomicLong(0)
+
+    fun noteTokenRead8074(ok: Boolean, nowMs: Long = System.currentTimeMillis()) = noteTokenRead8074(ok, nowMs, "")
+
+    /** V5.0.8399 — the failure's own reason rides with the read so the report can say WHY the wallet is blind. */
+    fun noteTokenRead8074(ok: Boolean, nowMs: Long, reason: String) {
+        if (ok) { failStreak8399.set(0); lastFailReason8399 = "" } else { failStreak8399.incrementAndGet(); if (reason.isNotBlank()) lastFailReason8399 = reason.take(160) }
         if (ok) {
             lastReadOkMs = nowMs
             lastReadFailMs = 0L
@@ -110,5 +117,5 @@ object LiveBootRecovery8074 {
 
     fun statusLine(nowMs: Long = System.currentTimeMillis()): String =
         "unmanagedLiveBuys=$lastCandidates kicks=${kicks.get()} walletRead[ok=${if (lastReadOkMs > 0) "${(nowMs - lastReadOkMs) / 1000}s ago" else "never"} " +
-            "fail=${if (lastReadFailMs > 0) "${(nowMs - lastReadFailMs) / 1000}s ago" else "never"}] blind=${blindPure8074(lastReadOkMs, lastReadFailMs, nowMs, firstConsecutiveFailMs8268)} refusedBlind=${refusedBlind.get()}"
+            "fail=${if (lastReadFailMs > 0) "${(nowMs - lastReadFailMs) / 1000}s ago" else "never"}] blind=${blindPure8074(lastReadOkMs, lastReadFailMs, nowMs, firstConsecutiveFailMs8268)} failStreak=${failStreak8399.get()} lastFail=${lastFailReason8399.ifBlank { "-" }} refusedBlind=${refusedBlind.get()}"
 }

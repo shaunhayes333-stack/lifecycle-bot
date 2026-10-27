@@ -491,8 +491,33 @@ object NetEdge8030 {
     // Pre-size evaluations use the configured preview notional promoted only within
     // current wallet capacity. Another mint's last sealed ticket is never input.
     private fun entryTicket8151(): Double = try {
-        admissionQuoteSize8212(DEFAULT_TICKET_SOL,
+        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) paperTicket8399()
+        else admissionQuoteSize8212(DEFAULT_TICKET_SOL,
             (com.lifecyclebot.engine.BotService.status.walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
             com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
     } catch (_: Throwable) { DEFAULT_TICKET_SOL }
+
+    /** Paper previews cost at a meaningful share of the PAPER ledger, never at the live wallet's dust ticket. */
+    const val PAPER_TICKET_WALLET_PCT_8399 = 5.0
+
+    /**
+     * V5.0.8399 §PAPER_COST_AT_LIVE_DUST — the admission cost preview priced every paper candidate at the LIVE wallet's
+     * routable minimum (0.31 SOL wallet -> ~0.027 SOL tickets, 15–25% round trips from fixed fees + ATA rent), so paper
+     * refused EXECUTION_ECONOMICS_8136 on exactly the setups it exists to learn (374 in ten minutes on 5.0.8398) and never
+     * produced the closes the evidence hold needs. Paper is a live-economics mirror at wallet-percent size: 5% of the
+     * paper ledger, floored at the default ticket, capped by the routable preflight's safe share when it is known.
+     */
+    fun paperTicket8399(
+        paperWalletSol: Double = try { com.lifecyclebot.engine.BotService.status.paperWalletSol } catch (_: Throwable) { Double.NaN },
+        solUsd: Double = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { Double.NaN },
+    ): Double {
+        if (!paperWalletSol.isFinite() || paperWalletSol <= 0.0) return DEFAULT_TICKET_SOL
+        val share = (paperWalletSol * PAPER_TICKET_WALLET_PCT_8399 / 100.0).coerceAtLeast(DEFAULT_TICKET_SOL)
+        val cap = try {
+            if (solUsd.isFinite() && solUsd > 0.0) com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(paperWalletSol, solUsd).safeShareCapSol else Double.NaN
+        } catch (_: Throwable) { Double.NaN }
+        val t = if (cap.isFinite() && cap > 0.0) minOf(share, cap).coerceAtLeast(DEFAULT_TICKET_SOL) else share
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_TICKET_WALLET_PCT_8399") } catch (_: Throwable) {}
+        return t
+    }
 }

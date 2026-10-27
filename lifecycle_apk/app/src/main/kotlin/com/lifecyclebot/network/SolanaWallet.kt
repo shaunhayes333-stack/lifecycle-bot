@@ -1629,7 +1629,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
         if (!splProgramOk) {
             // V5.0.8074 — a failed token read makes the wallet blind: no new live buys until one succeeds.
-            try { com.lifecyclebot.engine.truth.LiveBootRecovery8074.noteTokenRead8074(false) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.LiveBootRecovery8074.noteTokenRead8074(false, System.currentTimeMillis(), failures.joinToString(";")) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_READ_INDETERMINATE", "successPrograms=0/2 required=Tokenkeg failures=${failures.joinToString(";").take(220)}") } catch (_: Throwable) {}
             throw RuntimeException("wallet token snapshot indeterminate: required SPL Token program failed; ${failures.joinToString(";")}")
         }

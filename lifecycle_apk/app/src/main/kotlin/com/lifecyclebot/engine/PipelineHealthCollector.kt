@@ -1516,6 +1516,10 @@ object PipelineHealthCollector {
         ).append(" | warm ").append(
             try { com.lifecyclebot.network.ExecWarm8009.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        // V5.0.8399 — the live wallet's token-read health (WALLET_BLIND_8074 refused 213 live buys with a known SOL balance and no reason on the page).
+        sb.append("  Wallet read (§8074): ").append(
+            try { com.lifecyclebot.engine.truth.LiveBootRecovery8074.statusLine() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Runner capture (§8017): ").append(
             try { com.lifecyclebot.engine.truth.RunnerCapture8017.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

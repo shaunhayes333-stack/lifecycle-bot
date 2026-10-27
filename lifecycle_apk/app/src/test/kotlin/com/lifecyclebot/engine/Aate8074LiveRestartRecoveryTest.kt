@@ -28,7 +28,9 @@ class Aate8074LiveRestartRecoveryTest {
         assertTrue(LiveBootRecovery8074.blindPure8074(lastOkMs = 0L, lastFailMs = 200_000L, nowMs = 400_000L))
         assertFalse(LiveBootRecovery8074.blindPure8074(lastOkMs = 300_000L, lastFailMs = 200_000L, nowMs = 400_000L))
         assertFalse(LiveBootRecovery8074.blindPure8074(lastOkMs = 300_000L, lastFailMs = 350_000L, nowMs = 400_000L)) // < 3 min
-        assertTrue(File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText().contains("LiveBootRecovery8074.noteTokenRead8074(false)"))
+        // V5.0.8399 — the failed read carries its own reason so the report can say why the wallet is blind.
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText().contains("LiveBootRecovery8074.noteTokenRead8074(false, System.currentTimeMillis(), failures.joinToString(\";\"))"))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText().contains("Wallet read (§8074): "))
     }
     @Test fun coldStartWalletBlindnessUsesFailureStreakRatherThanUnixEpoch() {
         assertFalse(LiveBootRecovery8074.blindPure8074(0L, 40_000L, 100_000L, firstFailMs = 40_000L))

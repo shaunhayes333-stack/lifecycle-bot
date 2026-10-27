@@ -75,6 +75,36 @@ object CurveReserves7951 {
     }
 
     data class AcceptedObservation8385(val atMs: Long, val source: String, val version: Long)
+    /** pump.fun mints a fixed 1,000,000,000 supply; the curve price times that supply is the venue's own market cap. */
+    const val PUMP_TOTAL_SUPPLY_8399 = 1_000_000_000.0
+    private const val MCAP_FROM_CURVE_MAX_AGE_MS_8399 = 15L * 60_000L
+
+    /** Pure: market cap in USD from the curve's virtual reserves, or NaN when the reserves cannot price it. */
+    fun mcapUsdFromCurve8399(virtualSol: Double, virtualTokens: Double, solUsd: Double): Double {
+        if (!solUsd.isFinite() || solUsd <= 0.0) return Double.NaN
+        val px = priceSol7951(virtualSol, virtualTokens)
+        if (!px.isFinite() || px <= 0.0) return Double.NaN
+        return px * PUMP_TOTAL_SUPPLY_8399 * solUsd
+    }
+
+    /**
+     * V5.0.8399 §MCAP_FROM_THE_CURVE — 867 MOONSHOT readies in ten minutes sat in NATIVE_MCAP_UNHYDRATED_DEFER while this
+     * store already held their curve reserves (prints that landed before the token row existed never reach
+     * applyPumpTradeMark7278, whose `status.tokens[mint] ?: return` drops them). The curve prices its own token: when the
+     * row has no market cap and a fresh reserve observation exists, the row is hydrated from it. Returns the value written, or NaN.
+     */
+    fun hydrateMcap8399(ts: com.lifecyclebot.data.TokenState, solUsd: Double, nowMs: Long = System.currentTimeMillis()): Double {
+        if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) return Double.NaN
+        val r = rows[ts.mint] ?: return Double.NaN
+        val (vSol, vTok, atMs) = synchronized(r) { Triple(r.virtualSol, r.virtualTokens, r.atMs) }
+        if (atMs <= 0L || nowMs - atMs > MCAP_FROM_CURVE_MAX_AGE_MS_8399) return Double.NaN
+        val mcap = mcapUsdFromCurve8399(vSol, vTok, solUsd)
+        if (!mcap.isFinite() || mcap <= 0.0) return Double.NaN
+        synchronized(ts) { if (!(ts.lastMcap.isFinite() && ts.lastMcap > 0.0)) ts.lastMcap = mcap }
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MCAP_HYDRATED_FROM_CURVE_8399") } catch (_: Throwable) {}
+        return mcap
+    }
+
     fun acceptedObservation8385(mint: String): AcceptedObservation8385? {
         val r = rows[mint] ?: return null
         return synchronized(r) { AcceptedObservation8385(r.atMs, if (r.accountObserved) "ACCOUNT" else "FRAME", r.version8385) }
