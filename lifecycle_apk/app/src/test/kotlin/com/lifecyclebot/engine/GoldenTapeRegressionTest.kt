@@ -9196,7 +9196,9 @@ class GoldenTapeRegressionTest {
         assertTrue(marks.contains("refreshFromExecutableTokenMap6614") && marks.contains("TOKEN_MAP_ROUTE_NOT_EXECUTABLE"))
         assertTrue(gate.contains("markId6614") && gate.contains("markVersion6614") && gate.contains("sealedProvenance6614"))
         assertTrue(gate.contains("TICKET_REFRESH_AUTHORITY_FAILURE") && gate.contains("EXPIRED_TICKET_ECONOMIC_REJECT_6614"))
-        assertTrue(sheet.contains("fdgAllow + fdgBlock == 0L") && sheet.contains("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME="))
+        assertTrue(sheet.contains("preExecutionStatus8401(pool, qualified, intent, fdgAllow, fdgBlock)") && sheet.contains("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME="))
+        assertEquals("FDG_CHOKED", ToolkitSignalSheet.preExecutionStatus8401(10, 5, 1, 0, 0))
+        assertEquals("FDG_BLOCKED_ALL", ToolkitSignalSheet.preExecutionStatus8401(10, 5, 0, 0, 1))
     }
 
 
