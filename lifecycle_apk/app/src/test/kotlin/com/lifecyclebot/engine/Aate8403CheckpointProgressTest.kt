@@ -10,6 +10,41 @@ import org.junit.Test
 
 class Aate8403CheckpointProgressTest {
     @Suppress("UNCHECKED_CAST")
+    @Test fun actualFlushCallerReturnsWhilePersistenceIsBusyAndFailedCommitKeepsReceiptPending() {
+        val owner = Cortex7885
+        fun field(name: String) = owner.javaClass.getDeclaredField(name).apply { isAccessible = true }
+        val loaded = field("loaded"); val oldLoaded = loaded.get(owner)
+        val lastFlush = field("shadowFlushedAtMs8377"); val oldLastFlush = lastFlush.get(owner)
+        val pool = field("persistPool8094").get(owner) as ExecutorService
+        val terminals = field("observationTerminals8395").get(owner) as MutableMap<String, String>
+        val dbField = LearningPersistence.javaClass.getDeclaredField("db").apply { isAccessible = true }
+        val oldDb = dbField.get(LearningPersistence)
+        val db = org.mockito.Mockito.mock(android.database.sqlite.SQLiteDatabase::class.java)
+        org.mockito.Mockito.`when`(db.inTransaction()).thenReturn(true) // a real commit must return RETRY
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        val caller = Executors.newSingleThreadExecutor()
+        val receipt = "audit8403-terminal"
+        try {
+            pool.submit { entered.countDown(); check(release.await(10, TimeUnit.SECONDS)) }
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            loaded.set(owner, true); lastFlush.set(owner, 0L); dbField.set(LearningPersistence, db)
+            terminals[receipt] = "{}"
+            assertFalse("scheduled is not acknowledged", caller.submit<Boolean> { owner.flushShadowOutcomes8372() }.get(2, TimeUnit.SECONDS))
+            assertTrue(terminals.containsKey(receipt))
+            release.countDown()
+            pool.submit {}.get(10, TimeUnit.SECONDS)
+            org.mockito.Mockito.verify(db).inTransaction()
+            assertTrue("a refused database commit cannot discard the pending receipt", terminals.containsKey(receipt))
+        } finally {
+            release.countDown()
+            try { pool.submit {}.get(10, TimeUnit.SECONDS) } finally {
+                caller.shutdownNow(); terminals.remove(receipt); loaded.set(owner, oldLoaded)
+                lastFlush.set(owner, oldLastFlush); dbField.set(LearningPersistence, oldDb)
+            }
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
     @Test fun wideFrozenPredictionCheckpointStreamsGenerationAndAllVoterValues() {
         val owner = Cortex7885
         val field = owner.javaClass.getDeclaredField("pending").apply { isAccessible = true }
