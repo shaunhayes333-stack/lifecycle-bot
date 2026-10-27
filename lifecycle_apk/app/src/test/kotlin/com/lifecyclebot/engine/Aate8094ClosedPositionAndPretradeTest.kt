@@ -172,7 +172,10 @@ class Aate8094ClosedPositionAndPretradeTest {
         val body = plan.substringAfter("private fun requestKeylessBars8094(").substringBefore("// ── setups (pure) ──")
         assertTrue(body.contains("if (!HeliusCreditEconomy7881.exhaustedLatched8094(nowMs)) return"))
         assertTrue(body.contains("if (age < 30L * 60_000L) return"))
-        assertTrue(body.contains("mergeIntoHistory7819(ts, bars)"))
+        assertTrue(body.contains("queuedAnswer8402(ts.mint, \"1m\", 30, pool, 3)"))
+        assertTrue(body.contains("mergeIntoHistory7819(ts, answer.rows)"))
+        assertTrue(body.contains("keylessBarsAt8094.remove(ts.mint, nowMs)"))
+        assertTrue(plan.contains("ThreadPoolExecutor.AbortPolicy()"))
         val sweep = src("engine/market/MarketSweep7297.kt")
         assertTrue(sweep.contains("PoolCreationTime7385.record(mint, createdMs, \"JUP_FIRST_POOL_8094\")"))
     }
