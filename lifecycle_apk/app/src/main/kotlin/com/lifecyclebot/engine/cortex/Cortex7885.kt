@@ -222,7 +222,8 @@ object Cortex7885 {
             if (reserved8372) LanePlaybook7907.onShadowObserved8372(ts.mint, lane, a.atMs)
             // Price evidence has its own bounded observation lifecycle. A simulated non-fill must not
             // decide whether this already-frozen prediction gets a future price outcome.
-            if (reserved8372) com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(
+            if (reserved8372 && shadowContext8372?.executable == true && !a.staleMark)
+                com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(
                 ts, lane, false, "CORTEX_SHADOW_${a.bucket.name}", a.atMs)
             val opened8372 = if (reserved8372) com.lifecyclebot.engine.truth.ExploreShadow8347.onCortexAssessment8368(
                 ts, a.lane, a.bucket.name, a.fused.pWin, nowMs,
@@ -904,7 +905,8 @@ object Cortex7885 {
                 }
                 inc("SHADOW_LABEL_BOUND_8372")
             }
-            if (admitted && !late8169 && reason?.startsWith("NATIVE_") != true) noteEntryRead(mint, decisionMode8196 == "PAPER", a, nowMs)
+            if (com.lifecyclebot.engine.NativeDecisionEnrollment8372.executionAdmission(admitted, reason) && !late8169)
+                noteEntryRead(mint, decisionMode8196 == "PAPER", a, nowMs)
             else if (admitted) inc("ENTRY_READ_LATE_NOT_BOUND_8187")
         }
         if (!published8397) { inc("CAPTURE_SUPERSEDED_BEFORE_PUBLISH_8397"); return }
