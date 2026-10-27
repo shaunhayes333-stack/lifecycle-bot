@@ -499,6 +499,9 @@ object ForwardReturnLabeler7731 {
         try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.restorePriceIdentities8402(p.getString(PRICE_IDENTITIES_KEY_8402, null)) }
         catch (_: Exception) { PipelineHealthCollector.labelInc("FORWARD_PRICE_IDENTITY_RESTORE_FAILED_8402") }
         p.all.forEach { (key,value) -> if (key.startsWith(TERMINAL_PREFIX_8395) && value is String) terminalOutbox8395[key]=value }
+        forwardOutbox8404.restore(p.all.mapNotNull { (key, value) ->
+            if (key.startsWith(FORWARD_PREFIX_8404) && value is String) key.removePrefix(FORWARD_PREFIX_8404) to value else null
+        }.toMap())
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.attach(context) } catch (_: Throwable) {}
         try { SpecialistMiner7972.attach7972(context) } catch (_: Throwable) {}
@@ -870,7 +873,7 @@ object ForwardReturnLabeler7731 {
             lastAdmit8094[key] = px to nowMs
         }
         val prior7930 = pending[key]
-        val nativePrior8372 = prior7930?.reason7967?.startsWith("NATIVE_", ignoreCase = true) == true
+        val nativePrior8372 = com.lifecyclebot.engine.NativeDecisionEnrollment8372.predictionObservation8404(prior7930?.reason7967)
         if (com.lifecyclebot.engine.NativeDecisionEnrollment8372.bindExecutionWithoutReplacingObservation(
                 admitted, reason, prior7930?.reason7967)) {
             // The initial YES/NO observation keeps its original price, time and verdict. A later actual FDG allow
@@ -1272,16 +1275,27 @@ object ForwardReturnLabeler7731 {
             horizonMs, mark.observedAtMs, net, gross, o.basis8386.mark, mark)
     }
 
-    private fun bookSixty7944(o: Obs, net0: Double, gross0: Double, nowMs: Long) {
-        if (!eligible8386(o)) return
+    private fun bookSixty7944(o: Obs, net0: Double, gross0: Double, nowMs: Long): Boolean {
+        if (!eligible8386(o)) return true
         // V5.0.7955 — the give-back from the peak to the 5-minute read rides on the observation to its 60-minute sample.
         o.giveback5_7955 = com.lifecyclebot.engine.ExitProfile7955.giveback7955(o.peakPct, gross0)
-        val (net, gross) = captured7945(o, net0, gross0)
+        var (net, gross) = captured7945(o, net0, gross0)
         // V5.0.8324 §PROVENANCE — a runner label whose marks the chain witnessed (curve reserves / launch-scale cap) is real at any size.
-        val w8324 = gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs)
+        var w8324 = gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs)
         // V5.0.8337 (FIX 2) — a flat mark (no price other than the entry ever seen) is a LOST mark, never a -cost label:
         // 8322 booked it first and flagged it after, so every lane / cell / shape / specialist book read "lost the round trip".
-        val flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)
+        var flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)
+        val scalp8080 = captured7945(o, net0, gross0, longFamily8080 = false)
+        val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
+        val fam8080 = doubleArrayOf(scalp8080.first, scalp8080.second, long8080.first, long8080.second)
+        // Own the value and its frozen prediction durably BEFORE completing this horizon or notifying learners.
+        if (!stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324)) return false
+        // A failed disk write may have frozen an earlier value. All consumers must use that same
+        // value when storage recovers, rather than the newer price used by this retrying tick.
+        val frozen8404 = com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404.decode(
+            requireNotNull(forwardOutbox8404.payload("${o.mint}|${o.lane}|${o.atMs}")))
+        net = frozen8404.net; gross = frozen8404.gross
+        flat8322 = frozen8404.flat; w8324 = frozen8404.witness
         if (flat8322) {
             flatMarks8322.incrementAndGet()
             o.bookedNet7997 = Double.NaN
@@ -1294,15 +1308,13 @@ object ForwardReturnLabeler7731 {
         // V5.0.8080 §ONE_PATH_TWO_EXIT_FAMILIES. The setup books graded every setup that fired on one value, so a
         // momentum scalp and a breakout runner on the same coin were credited the same return. The same observed path is
         // now played under the scalp exits and under the long-hold exits; each setup is graded on its own family.
-        val scalp8080 = captured7945(o, net0, gross0, longFamily8080 = false)
-        val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
-        o.bookedLongNet8080 = long8080.first; o.bookedLongGross8080 = long8080.second
-        val fam8080 = doubleArrayOf(scalp8080.first, scalp8080.second, long8080.first, long8080.second)
+        o.bookedLongNet8080 = frozen8404.family?.getOrNull(2) ?: long8080.first
+        o.bookedLongGross8080 = frozen8404.family?.getOrNull(3) ?: long8080.second
         // V5.0.8322 — a flat mark (no price other than the entry ever seen) reaches the Cortex flagged: observed only there.
         // V5.0.8337 (FIX 2) — the flat test now runs before the 60 slot is booked (above); the Cortex still receives the flag
         // (it resolves its pending decision as observed-only), every other learner hook is skipped on a flat mark.
-        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324, decisionAtMs8371 = o.atMs, proof8395 = outcomeProof8395(o, net, gross, H60_MS_7731)) } catch (_: Throwable) {}
-        if (flat8322) return
+        // Cortex delivery is retried independently; a retry must not call these other learner hooks twice.
+        if (flat8322) return true
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
         try { com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}
         // V5.0.7972 — the same label grades every pair/triple of the decision's facts (specialist miner).
@@ -1312,6 +1324,7 @@ object ForwardReturnLabeler7731 {
         try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net) } catch (_: Throwable) {}
         // V5.0.7813 — counterfactual entry-quality learning, graded whether FDG admitted or refused.
         try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.recordForwardOutcome7813(o.mint, o.lane, net, o.admitted, o.atMs) } catch (_: Throwable) {}
+        return true
     }
 
     // ── V5.0.7997 — PROGRESSIVE GRADING ──
@@ -1404,8 +1417,9 @@ object ForwardReturnLabeler7731 {
         if (!eligible8386(o)) return false
         if (o.ck7997 >= CK_MS_7997.size) return true
         if (age < CK_MS_7997[o.ck7997]) return false
-        o.ck7997 += 1
         val (net, gross) = captured7945(o, net0, gross0)
+        if (!stageForwardRevision8404(o, net, gross, nowMs)) return false
+        o.ck7997 += 1
         // V5.0.8080 — only a LONG-HOLD setup's grade follows the coin past its first read: a scalp has exited by then,
         // so the 1 h / 4 h / 24 h path is not its return (LanePlaybook7907.reviseLabel7997 revises long-hold setups only).
         val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
@@ -1450,16 +1464,18 @@ object ForwardReturnLabeler7731 {
         // V5.0.8080 — the setup books are revised on the long-hold family in checkpoint7997, not on this decision value.
         try { SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet) } catch (_: Throwable) {}
-        // V5.0.8006 — the Cortex (every voter seat, scoreboard bucket, veto audit, setup x verdict book) too.
-        try { com.lifecyclebot.engine.cortex.Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324, decisionAtMs8371 = o.atMs, proof8395 = outcomeProof8395(o, newNet, newGross, ((o.lastMark8386?.observedAtMs ?: o.atMs) - o.atMs).coerceAtLeast(1L))) } catch (_: Throwable) {}
+        // The immutable Cortex revision was durably staged before any of these aggregate mutations.
     }
 
     fun progressiveLine7997(): String =
         "checkpoints=1m,5m,15m,1h,4h,24h,48h,72h,7d (past 1h on tokenomics: kept=${tokenomicsKept8040.get()} dropped=${tokenomicsDropped8040.get()}) revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
             "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()} runExitSamples8006=${exitRunSamples8006.get()}"
 
-    private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false) {
-        if (!eligible8386(o)) return
+    private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false): Boolean {
+        if (!eligible8386(o)) return true
+        val (net, gross) = captured7945(o, net0, gross0)
+        if (runnerSlot8337(o.lane) && !flatMarkNow8342(o, gross0) &&
+            !stageForwardRevision8404(o, net, gross, System.currentTimeMillis())) return false
         // V5.0.7955 — one exit-profile sample per observation: peak, time to peak, give-back to the 60-minute read.
         // V5.0.7955 review — exits are learned from decisions the bot took (and realised closes),
         // not from the refused pool, which is mostly tokens that fade.
@@ -1470,11 +1486,10 @@ object ForwardReturnLabeler7731 {
         if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)
         // V5.0.8342 — a mark still flat at the hour (no price other than the entry ever seen) is a LOST mark here too, never a
         // -cost label: 8337 FIX 2 closed the 60 slot; this slot booked it (and its lane / stage late tallies) unchanged.
-        if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); return }
-        val (net, gross) = captured7945(o, net0, gross0)
+        if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); return true }
         if (runnerSlot8337(o.lane)) reviseToHour8337(o, net0, gross0, net, gross)  // V5.0.8337 (10e) — runner lanes grade on the hour slot
         book(o, 240, net, gross)
-        try { com.lifecyclebot.engine.cortex.Cortex7885.onLabel(o.mint, o.lane, 240, net, gross, decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
+        return true // Cortex's old onLabel(..., 240) was a no-op; the exact revision now owns delivery.
     }
 
     /** V5.0.8342 — the observation's mark at [grossPct] has never left its entry (8322's flat test, on the live peak / dip). */
@@ -1721,6 +1736,49 @@ object ForwardReturnLabeler7731 {
     }
 
     private const val TERMINAL_PREFIX_8395 = "terminal8395|"
+    private const val FORWARD_PREFIX_8404 = "forward8404|"
+    private val forwardOutbox8404 = com.lifecyclebot.engine.cortex.ForwardOutcomeOutbox8404(MAX_PENDING_7731)
+
+    private fun writeForward8404(id: String, raw: String): Boolean =
+        try { prefs?.edit()?.putString(FORWARD_PREFIX_8404 + id, raw)?.commit() == true } catch (_: Exception) { false }
+
+    private fun stageForwardOutcome8404(o: Obs, net: Double, gross: Double, family: DoubleArray,
+                                       flat: Boolean, witness: Boolean, revision: Boolean = false): Boolean {
+        val proof = outcomeProof8395(o, net, gross, if (revision)
+            ((o.lastMark8386?.observedAtMs ?: o.atMs) - o.atMs).coerceAtLeast(1L) else H60_MS_7731)
+        if (revision && proof == null) return false
+        val episode = "${o.mint}|${o.lane}|${o.atMs}"
+        val id = if (revision) "$episode|R|${proof?.observedAtMs}|${proof?.horizonMs}" else episode
+        val staged = try {
+            forwardOutbox8404.stage(id, {
+                com.lifecyclebot.engine.cortex.Cortex7885.freezeForwardOutcome8404(o.mint, o.lane, o.atMs)?.let { frozen ->
+                    com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404(o.mint, o.lane, o.atMs, net, gross,
+                        family.copyOf(), flat, witness, proof, frozen, revision,
+                        if (revision) o.bookedNet7997 else net, if (revision) o.bookedGross7997 else gross).encode()
+                }
+            }, ::writeForward8404)
+        } catch (_: Exception) { false }
+        if (!staged) PipelineHealthCollector.labelInc("FORWARD_SUCCESS_OUTBOX_WAIT_8404")
+        return staged
+    }
+
+    private fun stageForwardRevision8404(o: Obs, net: Double, gross: Double, nowMs: Long): Boolean {
+        if (!o.bookedNet7997.isFinite() || !net.isFinite() || kotlin.math.abs(net - o.bookedNet7997) < 0.5) return true
+        return stageForwardOutcome8404(o, net, gross, doubleArrayOf(), false,
+            gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs), revision = true)
+    }
+
+    private fun drainForwardOutcomes8404() {
+        forwardOutbox8404.drain(32, ::writeForward8404, { raw ->
+            com.lifecyclebot.engine.cortex.Cortex7885.deliverForwardOutcome8404(
+                com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404.decode(raw))
+        }, { id ->
+            (prefs?.edit()?.remove(FORWARD_PREFIX_8404 + id)?.commit() == true).also { removed ->
+                if (removed) PipelineHealthCollector.labelInc("FORWARD_SUCCESS_DURABLE_ACK_8404")
+            }
+        })
+        if (forwardOutbox8404.size() > 0) com.lifecyclebot.engine.cortex.Cortex7885.flushShadowOutcomes8372()
+    }
     private val terminalOutbox8395 = java.util.concurrent.ConcurrentHashMap<String,String>()
     private val deliveredTerminals8395 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val terminalLock8395 = Any()
@@ -1819,8 +1877,8 @@ object ForwardReturnLabeler7731 {
         o.lastPx = recovered.usd; o.lastPxAtMs = recovered.observedAtMs
         val net = netPct(o.entryPrice, recovered.usd, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
         if (!o.done60) {
-            o.done60 = true
-            bookSixty7944(o, net, gross, nowMs)
+            o.done60 = bookSixty7944(o, net, gross, nowMs)
+            if (!o.done60) return
             // deadline8395 now points to the ORIGINAL decision's hour + grace; it never moves with wall time.
             try { PipelineHealthCollector.labelInc("FORWARD_RECOVERED_FIRST_HORIZON_CONTINUES_8397") } catch (_: Throwable) {}
         } else {
@@ -1830,10 +1888,10 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun completeHour8397(key: String, o: Obs, net: Double, gross: Double, stop: Boolean, bookable: Boolean) {
-        o.done240 = true
         val follow = !stop && keepRunning7997(o, gross)
-        if (bookable) bookTwoForty7944(o, net, gross, deferExit8006 = follow)
+        if (bookable) { if (!bookTwoForty7944(o, net, gross, deferExit8006 = follow)) return }
         else horizonMissed7809.incrementAndGet()
+        o.done240 = true
         if (!follow) pending.remove(key, o) else extended7997.incrementAndGet()
     }
 
@@ -1865,8 +1923,8 @@ object ForwardReturnLabeler7731 {
             if (classifyVanished7944(lastGross, if (lastAt > 0L) lastAt-o.atMs else 0L, horizonMs) == Vanished7944.DEAD) {
                 vanishedDead7944.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_VANISHED_DEAD_7944") } catch (_: Throwable) {}
-                if (!o.done60) { o.done60=true; bookSixty7944(o,-100.0,-100.0,nowMs); pending.remove(key,o) }
-                else { o.done240=true; bookTwoForty7944(o,-100.0,-100.0); pending.remove(key,o) }
+                if (!o.done60) { o.done60=bookSixty7944(o,-100.0,-100.0,nowMs); if (o.done60) pending.remove(key,o) }
+                else { o.done240=bookTwoForty7944(o,-100.0,-100.0); if (o.done240) pending.remove(key,o) }
                 return true
             }
         }
@@ -1876,6 +1934,7 @@ object ForwardReturnLabeler7731 {
     }
 
     fun tick(priceFor0: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
+        drainForwardOutcomes8404()
         pairedRestore8401?.let { raw ->
             val restored = try { com.lifecyclebot.engine.cortex.Cortex7885.restoreForward8401(raw) } catch (_: Exception) { false }
             if (!restored) { PipelineHealthCollector.labelInc("FORWARD_PAIRED_RESTORE_RETRY_8401"); return }
@@ -2008,8 +2067,8 @@ object ForwardReturnLabeler7731 {
                 continue
             }
             if (!o.done60 && age >= H60_MS_7731) {
-                o.done60 = true
-                bookSixty7944(o, net, gross, nowMs)
+                o.done60 = bookSixty7944(o, net, gross, nowMs)
+                if (!o.done60) continue
             }
             // V5.0.7997 — progressive grading: 15 m, 30 m, 1 h, 4 h, 8 h, 12 h, 24 h while the coin lives.
             val stop7997 = if (o.done60) checkpoint7997(o, net, gross, age, nowMs) else false

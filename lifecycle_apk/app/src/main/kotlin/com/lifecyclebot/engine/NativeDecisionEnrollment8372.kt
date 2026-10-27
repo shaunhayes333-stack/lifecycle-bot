@@ -35,9 +35,13 @@ internal object NativeDecisionEnrollment8372 {
     }
 
     /** Native READY describes a prediction; only downstream admission may stamp a fill/chase reference price. */
+    fun predictionObservation8404(reason: String?): Boolean =
+        reason?.startsWith("NATIVE_", ignoreCase = true) == true ||
+            reason?.startsWith("CORTEX_SHADOW_", ignoreCase = true) == true
+
     fun executionAdmission(admitted: Boolean, reason: String?): Boolean =
-        admitted && reason?.startsWith("NATIVE_", ignoreCase = true) != true
+        admitted && !predictionObservation8404(reason)
 
     fun bindExecutionWithoutReplacingObservation(admitted: Boolean, reason: String?, priorReason: String?): Boolean =
-        executionAdmission(admitted, reason) && priorReason?.startsWith("NATIVE_", ignoreCase = true) == true
+        executionAdmission(admitted, reason) && predictionObservation8404(priorReason)
 }
