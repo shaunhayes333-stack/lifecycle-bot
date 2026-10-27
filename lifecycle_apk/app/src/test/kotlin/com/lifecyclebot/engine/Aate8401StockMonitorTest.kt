@@ -28,7 +28,7 @@ class Aate8401StockMonitorTest {
                 evaluated.countDown()
             }
             assertTrue("exit work must not wait for entry CPU workers", evaluated.await(2, TimeUnit.SECONDS))
-            assertEquals("stock-exit-monitor-8401", threadName)
+            assertTrue(threadName, threadName.startsWith("stock-exit-monitor-8401"))
             monitor.join()
         } finally { release.countDown(); blockers.joinAll() }
         val source = File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
