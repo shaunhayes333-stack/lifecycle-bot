@@ -25,7 +25,7 @@ data class CortexOutcomeProof8395(
 }
 
 enum class CortexOutcomeDisposition8395(val accepted: Boolean) {
-    ACCEPTED_FIRST(true), ACCEPTED_REVISION(true), DUPLICATE_ACCEPTED(true), OBSERVED_ONLY(false), IDENTITY_MISMATCH(false), MISSING(false)
+    ACCEPTED_FIRST(true), ACCEPTED_REVISION(true), DUPLICATE_ACCEPTED(true), OBSERVED_ONLY(false), IDENTITY_MISMATCH(false), MISSING(false), STALE_OUTCOME(false)
 }
 
 /**
@@ -292,7 +292,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         // An unstamped legacy/replay label is observed at its decision's own first horizon, never at the wall clock.
         val at = if (availableAtMs == UNSTAMPED_8395) (byId[id]?.atMs ?: 0L) + FIRST_LABEL_MS_8322 else availableAtMs
         return labelOutcome8395(id, netPct, grossPct, executableValue, executableAllowed, FIRST_LABEL_MS_8322, at, at)
-            .let { it != CortexOutcomeDisposition8395.MISSING && it != CortexOutcomeDisposition8395.IDENTITY_MISMATCH }
+            .let { it != CortexOutcomeDisposition8395.MISSING && it != CortexOutcomeDisposition8395.IDENTITY_MISMATCH && it != CortexOutcomeDisposition8395.STALE_OUTCOME }
     }
 
     /** Caller holds the model lock. Validation and the accepted value's OWN provenance change together. */
@@ -306,6 +306,12 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         if (!netPct.isFinite() || !grossPct.isFinite()) return CortexOutcomeDisposition8395.OBSERVED_ONLY
         val bound = proof ?: CortexOutcomeProof8395(id,horizonMs,outcomeAtMs,netPct,grossPct)
         val encoded = org.json.JSONObject(bound.encode8395()).put("exec", executableValue.takeIf { it.isFinite() }).toString()
+        if (encoded == r.firstOutcomeProof8395 || encoded == r.revisedOutcomeProof8395)
+            return CortexOutcomeDisposition8395.DUPLICATE_ACCEPTED
+        val latest = CortexOutcomeProof8395.decode8395(r.revisedOutcomeProof8395.ifBlank { r.firstOutcomeProof8395 })
+        // A selected shadow exit is a different target and may legitimately precede the forward horizon.
+        if (proof != null && latest != null && (outcomeAtMs < latest.observedAtMs || horizonMs < latest.horizonMs))
+            return CortexOutcomeDisposition8395.STALE_OUTCOME
         r.observedNetPct = netPct; r.observedGrossPct = grossPct
         val witnessed = bound.witnessed8395()
         val implausible = implausible8388(executableValue, r.labelCap8187(), witnessed)
@@ -314,8 +320,6 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             r.disposition8395 = "OBSERVED_ONLY"; revision++
             return CortexOutcomeDisposition8395.OBSERVED_ONLY
         }
-        if (encoded == r.firstOutcomeProof8395 || encoded == r.revisedOutcomeProof8395)
-            return CortexOutcomeDisposition8395.DUPLICATE_ACCEPTED
         val disposition = if (!r.executablePct.isFinite()) {
             r.executablePct = executableValue; r.firstGross8324 = grossPct
             r.firstAvailableAtMs8372 = availableAtMs; r.firstOutcomeProof8395 = encoded

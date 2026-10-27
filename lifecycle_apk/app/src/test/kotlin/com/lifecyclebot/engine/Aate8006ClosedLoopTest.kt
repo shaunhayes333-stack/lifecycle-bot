@@ -53,10 +53,11 @@ class Aate8006ClosedLoopTest {
         // V5.0.8372: keep the chain witness AND the exact token/lane episode timestamp.
         // A later observation of the same mint must never receive an earlier episode's correction.
         // superseded by V5.0.8395: every revision carries its own outcome-specific proof (R3).
-        assertTrue(frl.contains("Cortex7885.reviseLabel8006(o.mint, o.lane, oldNet, newNet, oldGross, newGross, witnessNew8324, decisionAtMs8371 = o.atMs, proof8395 = outcomeProof8395(o, newNet, newGross,"))
+        assertTrue(frl.contains("stageForwardRevision8404(o, net, gross, nowMs)"))
         assertTrue(frl.contains("if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)"))
         assertTrue(frl.contains("endRun8006(o, gross)"))
         val cx = src("engine/cortex/Cortex7885.kt")
+        assertTrue(cx.contains("reviseLabel8006(d.mint, d.lane, d.previousNet, d.net, d.previousGross, d.gross, d.witness, d.atMs, d.proof)"))
         // The retained raw contribution has its original calibration stamp and exact episode key.
         assertTrue(cx.contains("if (trace8006 != null) retain8006(\"\$key|\${p.atMs}\", p, trace8006, net8187, gross8187, bookScales, auxScales, calStamp8322)"))
         assertTrue(cx.contains("vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane))"))

@@ -275,25 +275,34 @@ object TradePlan7739 {
     private val keylessBarsAt8094 = ConcurrentHashMap<String, Long>()
     private val keylessBarsPool8094 = java.util.concurrent.ThreadPoolExecutor(0, 2, 30L, java.util.concurrent.TimeUnit.SECONDS,
         java.util.concurrent.SynchronousQueue<Runnable>(), { r -> Thread(r, "plan-keyless-bars-8094").apply { isDaemon = true } },
-        java.util.concurrent.ThreadPoolExecutor.DiscardPolicy())
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy())
 
     private fun requestKeylessBars8094(ts: TokenState, nowMs: Long) {
         if (!HeliusCreditEconomy7881.exhaustedLatched8094(nowMs)) return
         val age = try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null } ?: return
         if (age < 30L * 60_000L) return
-        val last = keylessBarsAt8094[ts.mint] ?: 0L
-        if (nowMs - last < 120_000L) return
-        keylessBarsAt8094[ts.mint] = nowMs
+        if (!com.lifecyclebot.network.SolanaOhlcvFeed6916.claimAttemptWindow8402(
+                keylessBarsAt8094, ts.mint, nowMs, 120_000L)) return
         if (keylessBarsAt8094.size > 4_000) keylessBarsAt8094.entries.removeIf { nowMs - it.value > 600_000L }
-        keylessBarsPool8094.execute {
+        try { keylessBarsPool8094.execute {
             try {
                 val pool = ts.pairAddress.ifBlank { ts.lastPricePoolAddr }
-                val bars = com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(ts.mint, "1m", 30, pool)
-                if (bars.isNotEmpty()) {
-                    val merged = HeliusSwapCandles7819.mergeIntoHistory7819(ts, bars)
+                val answer = kotlinx.coroutines.runBlocking {
+                    com.lifecyclebot.network.SolanaOhlcvFeed6916.queuedAnswer8402(ts.mint, "1m", 30, pool, 3)
+                }
+                if (answer.rows.isNotEmpty()) {
+                    val merged = HeliusSwapCandles7819.mergeIntoHistory7819(ts, answer.rows)
                     PipelineHealthCollector.labelInc(if (merged > 0) "PLAN_KEYLESS_BARS_MERGED_8094" else "PLAN_KEYLESS_BARS_NOTHING_NEW_8094")
-                } else PipelineHealthCollector.labelInc("PLAN_KEYLESS_BARS_EMPTY_8094")
-            } catch (_: Throwable) {}
+                } else {
+                    PipelineHealthCollector.labelInc("PLAN_KEYLESS_BARS_8402_${answer.state}")
+                    if (answer.state != com.lifecyclebot.network.OhlcvRequestQueue8401.State.ANSWERED_EMPTY)
+                        keylessBarsAt8094.remove(ts.mint, nowMs)
+                }
+            } catch (_: Exception) { keylessBarsAt8094.remove(ts.mint, nowMs) }
+        } } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // No provider request was accepted; leave the next decision eligible to retry.
+            keylessBarsAt8094.remove(ts.mint, nowMs)
+            PipelineHealthCollector.labelInc("PLAN_KEYLESS_BARS_WORKER_DEFERRED_8402")
         }
     }
 

@@ -162,8 +162,11 @@ object Cortex7885 {
         val locked8325 = synchronized(this) {
             noteAssessWait8324(System.nanoTime() - wait8324)
             val cross = try { crossVotes(lane, staticRaws) } catch (_: Throwable) { emptyList() }
-            val fp = ledger.fuseWithSnapshot8324(lane, baseVotes8325 + cross, regime)  // V5.0.8324 — one prediction per voter (was two)
-            Locked8325(cross, fp.first, fp.second, calibration.slope(lane), calibration.netFit8372(lane, executableOffset8187(lane)))
+            val fp = ledger.fuseWithSnapshot8324(lane, baseVotes8325 + cross, regime)  // Freeze the raw prequential prediction before the optional cost-basis projection.
+            val offset8404 = executableOffset8187(lane)
+            val fit8404 = calibration.netFit8372(lane, offset8404)
+            Locked8325(cross, fp.first, fp.second, calibration.slope(lane), fit8404,
+                if (fit8404?.calibrated == true || offset8404 <= 0.0 || !ledger.hasShadowBasis8404()) fp.first else ledger.fuseCostBasis8404(lane, baseVotes8325 + cross, regime, offset8404), offset8404)
         }
         val dyn = dynamic8325 + locked8325.cross
         val ids = CortexVoters7885.IDS + dyn.map { it.voterId }
@@ -178,7 +181,7 @@ object Cortex7885 {
         // past mean (TREASURY ic -0.33 INVERTED, QUALITY / BLUECHIP / CYCLIC FLAT on lanes with few seated voters).
         // One frozen per-token NET-return forecast drives the panel, verdict and validation record.
         // Log-growth, lane rank and tail ponds remain diagnostics; they must not silently rewrite YES/NO.
-        val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane))
+        val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, locked8325.executionOffset8404, locked8325.costFused8404)
         val ev8324 = if (runner) tailEvNow8324(lane, fused) else Double.NaN
         val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)
         val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
@@ -217,6 +220,11 @@ object Cortex7885 {
         }
         try {
             if (reserved8372) LanePlaybook7907.onShadowObserved8372(ts.mint, lane, a.atMs)
+            // Price evidence has its own bounded observation lifecycle. A simulated non-fill must not
+            // decide whether this already-frozen prediction gets a future price outcome.
+            if (reserved8372 && shadowContext8372?.executable == true && !a.staleMark)
+                com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(
+                ts, lane, false, "CORTEX_SHADOW_${a.bucket.name}", a.atMs)
             val opened8372 = if (reserved8372) com.lifecyclebot.engine.truth.ExploreShadow8347.onCortexAssessment8368(
                 ts, a.lane, a.bucket.name, a.fused.pWin, nowMs,
             ) else null
@@ -234,16 +242,19 @@ object Cortex7885 {
     private class Locked8325(val cross: List<CortexLedger7885.Vote>, val fused: CortexLedger7885.Fused,
                              val prediction: CortexLedger7885.PredictionSnapshot8076, val slope: Double,
                              /** Arithmetic net-return calibration, read in the same critical section. */
-                             val net8372: CortexCalibration7901.NetFit8372? = null)
+                             val net8372: CortexCalibration7901.NetFit8372? = null,
+                             val costFused8404: CortexLedger7885.Fused = fused,
+                             val executionOffset8404: Double = 0.0)
 
     /** A flat/unmeasured map has no token discrimination: retain the original fused token read, never a lane-wide HOLD. */
     internal fun calibratedRead8372(runner: Boolean, fused: CortexLedger7885.Fused, slope: Double,
-                                    fit: CortexCalibration7901.NetFit8372?, executionOffset: Double = 0.0): Double {
+                                    fit: CortexCalibration7901.NetFit8372?, executionOffset: Double = 0.0,
+                                    costFused8404: CortexLedger7885.Fused = fused): Double {
         if (fit?.calibrated == true) {
             val edge = fit.expectedNetPct8372(calibratedRead8325(runner, fused, 1.0))
             if (edge.isFinite()) return edge
         }
-        return calibratedRead8325(runner, fused, slope) - executionOffset.takeIf { it.isFinite() && it > 0.0 }.orZero8372()
+        return calibratedRead8325(runner, costFused8404, slope) - executionOffset.takeIf { it.isFinite() && it > 0.0 }.orZero8372()
     }
 
     private fun Double?.orZero8372(): Double = this ?: 0.0
@@ -451,6 +462,7 @@ object Cortex7885 {
     private fun pruneDeadPending8144(nowMs: Long, force: Boolean = false) {
         if (!force && nowMs - lastDeadPrune8144 < 60_000L) return
         lastDeadPrune8144 = nowMs
+        pairedPending8401.entries.removeIf { nowMs - it.value.atMs > DEAD_PENDING_MS_8144 }
         val before = pending.size
         for ((key, p) in pending.entries) if (nowMs - p.atMs > DEAD_PENDING_MS_8144) {
             synchronized(this) {
@@ -733,7 +745,7 @@ object Cortex7885 {
 
     /** For CortexInvariants7911. */
     fun queuedTasks(): Int = try { pool.queue.size + capturePool8171.queue.size } catch (_: Throwable) { 0 }
-    fun pendingCount(): Int = pending.size
+    fun pendingCount(): Int = pending.size + pairedPending8401.size
 
     /** The fresh cached assessment, or null after scheduling one (never computes inline). */
     private fun cachedOrSchedule(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Assessment? {
@@ -894,7 +906,8 @@ object Cortex7885 {
                 }
                 inc("SHADOW_LABEL_BOUND_8372")
             }
-            if (admitted && !late8169 && reason?.startsWith("NATIVE_") != true) noteEntryRead(mint, decisionMode8196 == "PAPER", a, nowMs)
+            if (com.lifecyclebot.engine.NativeDecisionEnrollment8372.executionAdmission(admitted, reason) && !late8169)
+                noteEntryRead(mint, decisionMode8196 == "PAPER", a, nowMs)
             else if (admitted) inc("ENTRY_READ_LATE_NOT_BOUND_8187")
         }
         if (!published8397) { inc("CAPTURE_SUPERSEDED_BEFORE_PUBLISH_8397"); return }
@@ -948,23 +961,37 @@ object Cortex7885 {
 
     private fun detachGraded8386(g: Graded8006): Graded8006 = Graded8006(detachPending8386(g.p),
         CortexLedger7885.GradeTrace8006(g.trace.preds.copyOf(), g.trace.pWins.copyOf(), g.trace.base, g.trace.baseWin,
-            g.trace.scales?.copyOf(), g.trace.scoreAt?.copyOf()), g.net, g.gross, g.atMs,
+            g.trace.scales?.copyOf(), g.trace.scoreAt?.copyOf(), g.trace.shadowNet8404), g.net, g.gross, g.atMs,
         g.bookScales?.copyOf(), g.auxScales?.copyOf(), g.calStamp8322).also {
         it.witnessed8324 = g.witnessed8324; it.jointTrace8372 = g.jointTrace8372.toList()
     }
 
     /** Caller holds the monitor only while detaching state, not while encoding. */
-    private fun pendingSnapshot8076(): () -> String {
+    private fun pendingSnapshot8076(): () -> String = pendingSnapshot8076(null)
+
+    private fun pendingSnapshot8076(episodes8401: Set<String>?): () -> String = pendingSnapshot8076(episodes8401, null)
+
+    private fun pendingSnapshot8076(episodes8401: Set<String>?, generation8403: Long?): () -> String {
         val now8144 = System.currentTimeMillis()
-        val rows8372 = pending.entries.filter { persistablePending8144(it.value.atMs, now8144) }
-            .sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX).map { Triple(it.key, detachPending8386(it.value), false) } +
-            shadowPending8372.entries.map { Triple(it.key, detachPending8386(it.value), true) }
-        val gradedRows = graded8006.entries.sortedByDescending { it.value.atMs }.take(GRADED_PERSIST_MAX_8013)
+        val ordinary = if (episodes8401 == null) pending.entries
+            .filter { persistablePending8144(it.value.atMs, now8144) }.sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX)
+            else emptyList()
+        val forwardRows8401 = episodes8401?.mapNotNull { id ->
+            val key = id.substringBeforeLast('|')
+            val at = id.substringAfterLast('|').toLongOrNull()
+            val p = pending[key]?.takeIf { it.atMs == at } ?: pairedPending8401[id] ?: graded8006[id]?.p
+            p?.let { Triple(key, detachPending8386(it), false) }
+        }.orEmpty()
+        val rows8372 = ordinary.map { Triple(it.key, detachPending8386(it.value), false) } + forwardRows8401 +
+            (if (episodes8401 == null) shadowPending8372.entries.map { Triple(it.key, detachPending8386(it.value), true) } else emptyList())
+        val gradedRows = if (episodes8401 == null) graded8006.entries.sortedByDescending { it.value.atMs }.take(GRADED_PERSIST_MAX_8013)
             .map { it.key to detachGraded8386(it.value) }
-        val bounds = positionReads8076.snapshot().map { it.copy(read = detachAssessment8386(it.read)) }
-        val sealRows8395 = entrySeals8395.snapshot()
-        val outcomes = outcomeBook8372.detached8386()
-        val archive = traceArchive8372.detached8386(now8144)
+            else emptyList() // A companion preserves predictions, never imports gradients without their atomic ledger checkpoint.
+        val missing8401 = episodes8401.orEmpty() - rows8372.map { "${it.first}|${it.second.atMs}" }.toSet() - gradedRows.map { it.first }.toSet()
+        val bounds = if (episodes8401 == null) positionReads8076.snapshot().map { it.copy(read = detachAssessment8386(it.read)) } else emptyList()
+        val sealRows8395 = if (episodes8401 == null) entrySeals8395.snapshot() else emptyList()
+        val outcomes = if (episodes8401 == null) outcomeBook8372.detached8386() else null
+        val archive = if (episodes8401 == null) traceArchive8372.detached8386(now8144) else null
         return {
             val dict = LinkedHashMap<String, Int>()
             val arr = StringBuilder("[")
@@ -1004,6 +1031,7 @@ object Cortex7885 {
                         .put("fired8196", org.json.JSONArray(p.fired8094))
                         .put("ctx8196", ctx8196).put("shadow8372", shadow8372)
                         .put("aat8372", a.atMs).put("sv8372", a.scoreVersion8372)
+                        .put("staleMark8404", a.staleMark)
                         .put("ee8372", frozenEdges8372).put("provenance8372", provenance8372(a).encode()),
                 )
             }
@@ -1031,10 +1059,33 @@ object Cortex7885 {
                 append(",\"g8013\":").append(garr.append(']'))
                 append(",\"bound8076\":").append(bound.append(']'))
                 append(",\"seal8395\":").append(seals8395.append(']'))
-                append(",\"outcomes8372\":").append(outcomes.encode())
-                append(",\"cold8372\":").append(archive.snapshot(now8144)).append('}')
+                append(",\"outcomes8372\":").append(outcomes?.encode() ?: "null")
+                append(",\"cold8372\":").append(archive?.snapshot(now8144) ?: "null")
+                append(",\"unpaired8401\":").append(org.json.JSONArray(missing8401.toList()))
+                generation8403?.let { append(",\"snapshotGeneration8386\":").append(it) }
+                append('}')
             }
         }
+    }
+
+    private val pairedPending8401 = java.util.concurrent.ConcurrentHashMap<String, Pending>()
+
+    /** The labeler stores this exact episode subset in the same transaction as its observations. */
+    fun checkpointForward8401(episodes: Set<String>): String {
+        ensureLoaded()
+        check(loaded) { "Cortex not restored; retain prior paired checkpoint" }
+        val encode = synchronized(this) { pendingSnapshot8076(episodes) }
+        return ForwardCheckpoint8401.pack(encode())
+    }
+
+    fun restoreForward8401(raw: String): Boolean {
+        ensureLoaded()
+        if (!loaded) return false
+        val unpacked = ForwardCheckpoint8401.unpack(raw)
+        synchronized(this) { restorePending(unpacked, System.currentTimeMillis(), paired8401 = true) }
+        val missing = org.json.JSONObject(unpacked).optJSONArray("unpaired8401")
+        if (missing != null && missing.length() > 0) counters.computeIfAbsent("FORWARD_CHECKPOINT_ORIGINAL_UNAVAILABLE_8401") { AtomicLong(0) }.addAndGet(missing.length().toLong())
+        return true
     }
 
     /** Exact sparse prediction/weight provenance, shared by hot checkpoints and the bounded compressed archive. */
@@ -1060,7 +1111,7 @@ object Cortex7885 {
             .put("r", a.runnerLane).put("e", jsonNumber(a.fused.edgePct)).put("m", jsonNumber(a.fused.laneMean))
             .put("ce8372", jsonNumber(a.calibratedEdge)).put("sv8372", a.scoreVersion8372).put("aat8372", a.atMs)
             .put("provenance8372", provenance8372(a).encode())
-            .put("cal", jsonNumber(g.calStamp8322)).put("w", g.witnessed8324)
+            .put("cal", jsonNumber(g.calStamp8322)).put("w", g.witnessed8324).put("shadowNet8404", g.trace.shadowNet8404)
             .put("jointTrace8372", org.json.JSONArray().also { rows -> g.jointTrace8372.forEach { c ->
                 rows.put(org.json.JSONArray().put(c.key).put(c.generation).put(jsonNumber(c.scale)))
             } })
@@ -1077,7 +1128,9 @@ object Cortex7885 {
     }
 
     /** Caller holds the lock (ensureLoaded). */
-    private fun restorePending(raw: String?, nowMs: Long) {
+    private fun restorePending(raw: String?, nowMs: Long) = restorePending(raw, nowMs, false)
+
+    private fun restorePending(raw: String?, nowMs: Long, paired8401: Boolean) {
         val root = org.json.JSONObject(raw ?: return)
         val jd = root.optJSONArray("dict") ?: return
         val dict = List(jd.length()) { jd.optString(it) }
@@ -1088,7 +1141,8 @@ object Cortex7885 {
             val k = o.optString("k")
             val at = o.optLong("at")
             val shadow8372 = o.optBoolean("shadow8372", false)
-            if (k.isBlank() || (if (shadow8372) shadowPending8372.containsKey(k) else pending.containsKey(k)) ||
+            if (k.isBlank() || (if (shadow8372) shadowPending8372.containsKey(k)
+                else if (paired8401) pending[k]?.atMs == at || pairedPending8401.containsKey("$k|$at") else pending.containsKey(k)) ||
                 nowMs - at > (if (shadow8372) GRADED_KEEP_MS_8013 else PENDING_TTL_MS) || at > nowMs) continue
             // V5.0.8187 — a decision past the labeler's reach (it keeps an observation 70 min at most) cannot be graded: it is
             // not restored as "pending" (5.0.8175 counted 626 restored, 608 of them pruned unlabelled within a minute).
@@ -1116,7 +1170,7 @@ object Cortex7885 {
             val pv8372 = CortexAssessmentProvenance8372.decode(o.optJSONObject("provenance8372"))
             val fused = CortexLedger7885.Fused(pv8372?.rawEdge ?: o.optDouble("e", 0.0), 0.0, pv8372?.laneMean ?: o.optDouble("m", 0.0), 0.0, 0.0, 0.0, 0.0, emptyList(), laneMeanAll8325 = pv8372?.laneMeanAll ?: Double.NaN)
             val a = Assessment(o.optString("l"), o.optBoolean("r"), raws.toDoubleArray(), ids, edges, o.optString("g"),
-                fused, o.optDouble("ce", 0.0), b, 0, false, o.optLong("aat8372", at),
+                fused, o.optDouble("ce", 0.0), b, 0, o.optBoolean("staleMark8404", false), o.optLong("aat8372", at),
                 CortexLedger7885.PredictionSnapshot8076(preds.toDoubleArray(), wins.toDoubleArray(),
                     o.optDouble("base8076", Double.NaN), o.optDouble("bw8076", Double.NaN)), scoreVersion8372 = pv8372?.scoreVersion ?: o.optInt("sv8372", 0),
                     calibrationInput8372 = pv8372?.calibrationInput ?: Double.NaN)
@@ -1131,17 +1185,19 @@ object Cortex7885 {
                 it.outcomeKind8394 = o.optString("outcomeKind8394", "FORWARD")
                 it.outcomeDueAtMs8394 = o.optLong("outcomeDueAtMs8394", at + 5 * 60_000L)
             }
-            if (shadow8372) shadowPending8372[k] = restored8372 else pending[k] = restored8372
+            if (shadow8372) shadowPending8372[k] = restored8372
+            else if (paired8401 && pending.containsKey(k)) pairedPending8401["$k|$at"] = restored8372
+            else pending[k] = restored8372
             o.optJSONObject("ctx8196")?.let { c ->
                 val ctx = DecisionCtx8144(c.optString("timing"), c.optString("cost"), c.optString("cohort"), c.optBoolean("latency"), c.optBoolean("executable"))
                 restored8372.context8372 = ctx
-                if (shadow8372) shadowCtx8372[k] = ctx else pendingCtx8144[k] = ctx
+                if (shadow8372) shadowCtx8372[k] = ctx else if (pending[k] === restored8372) pendingCtx8144[k] = ctx
             }
             if (pending[k]?.decisionMode8196 == "UNKNOWN") inc("PENDING_RESTORED_UNVERIFIED_MODE_8196")
             inc("PENDING_RESTORED")
         }
-        outcomeBook8372.decode(root.optJSONObject("outcomes8372"))
-        traceArchive8372.restore(root.optJSONObject("cold8372"), nowMs)
+        root.optJSONObject("outcomes8372")?.let { outcomeBook8372.decode(it) }
+        root.optJSONObject("cold8372")?.let { traceArchive8372.restore(it, nowMs) }
         restoreGraded8013(root, dict, nowMs)
         root.optJSONArray("seal8395")?.let { arr ->
             for (i in 0 until arr.length()) {
@@ -1205,7 +1261,7 @@ object Cortex7885 {
         }
         repeat(3) { scales.add(rs?.optDouble(ji.length() * 4 + it, Double.NaN) ?: Double.NaN) }
         val trace = CortexLedger7885.GradeTrace8006(preds.toDoubleArray(), pws.toDoubleArray(), o.optDouble("base", 0.0), o.optDouble("bw", 0.5),
-            if (rs != null) scales.toDoubleArray() else null, if (sc != null) counts.toIntArray() else null)
+            if (rs != null) scales.toDoubleArray() else null, if (sc != null) counts.toIntArray() else null, o.optBoolean("shadowNet8404", false))
         val id = if (key.endsWith("|$at")) key else "$key|$at"
         return id to Graded8006(p, trace, o.optDouble("n", Double.NaN), o.optDouble("gr", Double.NaN), at,
             readNumbers(o, "bs"), readNumbers(o, "aux"), o.optDouble("cal", Double.NaN)).also {
@@ -1232,12 +1288,13 @@ object Cortex7885 {
             captureOwners8397.terminal(key, decisionAtMs8371)
             deferredLabels8397.remove("$key|$decisionAtMs8371")
         }
-        val p = pending[key] ?: return
+        val p = pending[key]?.takeIf { decisionAtMs8371 <= 0L || it.atMs == decisionAtMs8371 }
+            ?: pairedPending8401["$key|$decisionAtMs8371"] ?: pending[key] ?: return
         if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371) {
             inc("LABEL_LOST_EPISODE_MISMATCH_8371")
             return
         }
-        if (!pending.remove(key, p)) return
+        if (!pending.remove(key, p) && !pairedPending8401.remove("$key|${p.atMs}", p)) return
         synchronized(this) {
             captureOwners8397.terminal(key, p.atMs)
             val id = "$key|${p.atMs}"
@@ -1271,6 +1328,77 @@ object Cortex7885 {
         return false
     }
 
+    private const val FORWARD_RECEIPT_8404 = "CORTEX_FORWARD_RECEIPT_8404|"
+    private val forwardReady8404 = ConcurrentHashMap<String, String>()
+    private val forwardLearned8404 = ConcurrentHashMap.newKeySet<String>()
+    private val forwardDelivering8404 = ConcurrentHashMap.newKeySet<String>()
+
+    /** Null means capture is still in flight; a durable outcome must not freeze a temporary cache miss. */
+    fun freezeForwardOutcome8404(mint: String, lane: String, atMs: Long): String? {
+        ensureLoaded()
+        if (!loaded) return null
+        val key = "$mint|${lane.trim().uppercase()}"
+        val encode = synchronized(this) {
+            if (captureOwners8397.awaiting(key, atMs)) return null
+            pendingSnapshot8076(setOf("$key|$atMs"))
+        }
+        return ForwardCheckpoint8401.pack(encode())
+    }
+
+    /** Called from the producer's durable outbox. A scheduling/in-memory grade is never an acknowledgement. */
+    fun deliverForwardOutcome8404(d: ForwardOutcomeDelivery8404): Boolean {
+        ensureLoaded()
+        if (!loaded || !LearningPersistence.ready()) return false
+        val id = d.id; val receipt = FORWARD_RECEIPT_8404 + d.deliveryId
+        if (LearningPersistence.load(receipt) != null) return true
+        if (forwardReady8404.containsKey(receipt) || !forwardDelivering8404.add(id)) return false
+        try {
+            val key = "${d.mint}|${d.lane}"
+            val original = synchronized(this) {
+                val existing = pending[key]?.takeIf { it.atMs == d.atMs } ?: pairedPending8401[id]
+                if (existing == null) {
+                    // This frozen prediction was already owned by a durable outcome. Delivery delay must not
+                    // expire it as ordinary pending work; the embedded proof retains the real observation time.
+                    restorePending(ForwardCheckpoint8401.unpack(d.frozenPrediction), d.atMs, paired8401 = true)
+                }
+                pending[key]?.takeIf { it.atMs == d.atMs } ?: pairedPending8401[id] ?: gradedTrace8372(id)?.p
+            }
+            if (d.revision && synchronized(this) { gradeBook8144.decision(id) == null } &&
+                LearningPersistence.load(FORWARD_RECEIPT_8404 + id) == null) return false // first label still in delivery
+            if (original == null) {
+                forwardReady8404[receipt] = org.json.JSONObject().put("id", id)
+                    .put("disposition", "ORIGINAL_PREDICTION_UNAVAILABLE").toString()
+                inc("FORWARD_ORIGINAL_UNAVAILABLE_8404")
+                return false
+            }
+            if (d.revision) reviseLabel8006(d.mint, d.lane, d.previousNet, d.net, d.previousGross, d.gross, d.witness, d.atMs, d.proof)
+            else onLabel(d.mint, d.lane, 60, d.net, d.gross, d.family, d.flat, d.witness, d.atMs, d.proof)
+            val record = synchronized(this) { gradeBook8144.decision(id)?.detached8386() }
+            if (record == null) {
+                if (durableTrainingKind8372("$key|${original.a.atMs}") != "SHADOW_EXIT") return false
+                forwardReady8404[receipt] = org.json.JSONObject().put("id", id)
+                    .put("disposition", "ALREADY_TRAINED_SHADOW").toString()
+                return false
+            }
+            val learned = record.modelContribution8395 == id
+            // A shadow contribution owns its own source acknowledgement. Never replace that reward
+            // with the older forward value when the forward delivery arrives after the shadow exit.
+            val sourceNet = synchronized(this) { gradedTrace8372(id)?.net } ?: record.observedNetPct
+            if (learned && record.outcomeSource8372 != "SHADOW_EXIT" && !sourceOutcome8372(key, original, sourceNet, revision = true)) {
+                inc("FORWARD_SOURCE_ACK_WAIT_8404")
+                return false
+            }
+            synchronized(this) {
+                forwardReady8404[receipt] = org.json.JSONObject().put("id", id)
+                    .put("disposition", if (learned) "LEARNED" else "OBSERVED_ONLY")
+                    .put("source", record.outcomeSource8372).toString()
+                if (learned) forwardLearned8404.add(receipt)
+                pending.remove(key, original); pairedPending8401.remove(id, original)
+            }
+            return false
+        } finally { forwardDelivering8404.remove(id) }
+    }
+
     /** ForwardReturnLabeler7731.tick: a horizon label booked for (mint, labelLane). */
     fun onLabel(mint: String, labelLane: String, horizonMin: Int, netPct: Double, grossPct: Double, fam8080: DoubleArray? = null,
                 flat8322: Boolean = false, witness8324: Boolean = false, decisionAtMs8371: Long = 0L,
@@ -1279,7 +1407,8 @@ object Cortex7885 {
         ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
         val p = synchronized(this) {
-            val captured = pending[key]
+            val captured = pending[key]?.takeIf { decisionAtMs8371 <= 0L || it.atMs == decisionAtMs8371 }
+                ?: pairedPending8401["$key|$decisionAtMs8371"] ?: pending[key]
             if (decisionAtMs8371 > 0L && captured?.atMs != decisionAtMs8371 && captureOwners8397.awaiting(key, decisionAtMs8371)) {
                 val id = "$key|$decisionAtMs8371"
                 if (deferredLabels8397.containsKey(id) || deferredLabels8397.size < CAPTURE_QUEUE_HARD_8187 + 32) {
@@ -1294,7 +1423,7 @@ object Cortex7885 {
                 inc("LABEL_EPISODE_MISMATCH_8371")
                 return
             }
-            if (!pending.remove(key, captured)) return
+            if (!pending.remove(key, captured) && !pairedPending8401.remove("$key|${captured.atMs}", captured)) return
             captureOwners8397.terminal(key, captured.atMs)
             captured
         }
@@ -1332,7 +1461,8 @@ object Cortex7885 {
         if (flat) synchronized(this) { gradeBook8144.markFlat8322("$key|${p.atMs}") }
         if (!accepted8395 || !hyg8144.authority || late8153 || lateRead8169 || flat) {
             try { LanePlaybook7907.dropPending8144(mint, labelLane, decisionAtMs8372 = p.atMs) } catch (_: Throwable) {}
-            if (flat) inc("LABEL_HYGIENE_FLAT_MARK_8322")
+            if (p.a.staleMark) inc("LABEL_HYGIENE_STALE_MARK_8404")
+            else if (flat) inc("LABEL_HYGIENE_FLAT_MARK_8322")
             else if (lateRead8169) inc("LABEL_HYGIENE_LATE_VOTER_READ_8169")
             else if (late8153 && hyg8144.authority) inc("LABEL_HYGIENE_LATE_FIRST_PRICE_8153") else inc("LABEL_HYGIENE_${hyg8144.tag}_8144")
             synchronized(this) { noteObservedOnly8153(key, p.atMs) }
@@ -1500,7 +1630,8 @@ object Cortex7885 {
                 val v = verdict8144(key,p,p.context8372)
                 if (v.authority && !p.lateRead8169 && !p.a.staleMark) {
                     if (gradeBook8144.decision(target)==null) gradeBook8144.addDecision(newDecision8144(target,key,p,p.context8372,v))
-                    if (gradeBook8144.markLost(target)) {
+                    val awaitingForward8404 = pending[key]?.atMs == p.atMs || pairedPending8401.containsKey(target)
+                    if (!awaitingForward8404 && gradeBook8144.markLost(target)) {
                         val unavailableAt8394 = System.currentTimeMillis()
                         p.outcomeDueAtMs8394 = minOf(p.outcomeDueAtMs8394, unavailableAt8394)
                         gradeBook8144.decision(target)?.let { it.outcomeKind8394 = "UNAVAILABLE"; it.outcomeDueAtMs8394 = p.outcomeDueAtMs8394 }
@@ -1563,17 +1694,47 @@ object Cortex7885 {
         if (learned > 0) shadowFlushDue8377(learned + unavailable, sinceMs)
         else unavailable > 0 && (unavailable >= UNAVAILABLE_FLUSH_MIN_BATCH_8396 || sinceMs >= UNAVAILABLE_FLUSH_MAX_WAIT_MS_8396)
 
+    /** Unavailable simulation receipts are not learned outcomes and must use the unavailable cadence. */
+    internal fun shadowFlushDue8402(terminals: Collection<CortexOutcomeBook8372.Terminal8372>,
+                                   observationTerminals: Int, sinceMs: Long,
+                                   forwardLearned: Int = 0, forwardReady: Int = 0): Boolean {
+        val shadowLearned = terminals.count { it.learned }
+        return shadowFlushDue8396(shadowLearned + forwardLearned,
+            terminals.size - shadowLearned + observationTerminals + (forwardReady - forwardLearned).coerceAtLeast(0), sinceMs)
+    }
+
     fun flushShadowOutcomes8372(): Boolean {
-        if (shadowReady8372.isEmpty() && observationTerminals8395.isEmpty()) return true
+        if (shadowReady8372.isEmpty() && observationTerminals8395.isEmpty() && forwardReady8404.isEmpty()) return true
         val now8377 = System.currentTimeMillis()
-        if (!shadowFlushDue8396(shadowReady8372.size, observationTerminals8395.size, now8377 - shadowFlushedAtMs8377)) { inc("CORTEX_SHADOW_FLUSH_COALESCED_8377"); return true }
-        if (!loaded || !LearningPersistence.ready() || !shadowFlushRunning8372.compareAndSet(false, true)) return false
-        shadowFlushedAtMs8377 = now8377
-        try {
+        if (!shadowFlushDue8402(shadowReady8372.values.toList(), observationTerminals8395.size, now8377 - shadowFlushedAtMs8377,
+                forwardLearned8404.size, forwardReady8404.size)) { inc("CORTEX_SHADOW_FLUSH_COALESCED_8377"); return true }
+        if (!loaded || !LearningPersistence.ready()) return false
+        // A label/shadow tick must keep observing prices while a multi-MB checkpoint runs.
+        // Scheduling is not a durable ACK: producers still consult their exact stored receipt.
+        enqueueCheckpoint8403(persistPool8094, shadowFlushRunning8372) {
+            try { flushShadowOutcomesBlocking8403() }
+            catch (_: Throwable) { inc("SHADOW_CHECKPOINT_WORKER_RETRY_8403") } // no ACK; next tick retries
+        }
+        return false
+    }
+
+    internal fun enqueueCheckpoint8403(executor: java.util.concurrent.Executor, running: java.util.concurrent.atomic.AtomicBoolean,
+                                       checkpoint: () -> Unit): Boolean {
+        if (!running.compareAndSet(false, true)) return false
+        return try {
+            executor.execute { try { checkpoint() } finally { running.set(false) } }
+            true
+        } catch (_: java.util.concurrent.RejectedExecutionException) { running.set(false); false }
+    }
+
+    private fun flushShadowOutcomesBlocking8403(): Boolean {
+        shadowFlushedAtMs8377 = System.currentTimeMillis()
             val batch = shadowReady8372.entries.map { it.key to it.value }
             val unavailable8395 = observationTerminals8395.toMap()
-            if (batch.isEmpty() && unavailable8395.isEmpty()) return true
+            val forward8404 = forwardReady8404.toMap()
+            if (batch.isEmpty() && unavailable8395.isEmpty() && forward8404.isEmpty()) return true
             val receipts = HashMap<String, String>(unavailable8395)
+            receipts.putAll(forward8404)
             val trained = HashMap<String, String>()
             for ((id, terminal) in batch) {
                 receipts["CORTEX_SHADOW_RECEIPT_8372|$id"] = "{\"committed\":true}"
@@ -1586,6 +1747,9 @@ object Cortex7885 {
             val durable = durableCloseCommit8198("CORTEX_SHADOW_BATCH_8372|${java.util.UUID.randomUUID()}", receipts)
             if (!durable) return false
             unavailable8395.forEach { (key,value) -> observationTerminals8395.remove(key,value) }
+            forward8404.forEach { (key,value) ->
+                if (forwardReady8404.remove(key,value)) forwardLearned8404.remove(key)
+            }
             val duration8386 = (System.nanoTime() - started) / 1_000_000L
             counters.computeIfAbsent("SHADOW_CHECKPOINT_MS_8372") { AtomicLong(0) }.set(duration8386)
             counters.computeIfAbsent("SHADOW_CHECKPOINT_MAX_MS_8386") { AtomicLong(0) }.updateAndGet { maxOf(it, duration8386) }
@@ -1598,15 +1762,14 @@ object Cortex7885 {
                 }
             }
             return true
-        } finally { shadowFlushRunning8372.set(false) }
     }
 
     /** Caller holds the model lock. All external delivery and checkpoint I/O are outside this section. */
     private fun gradeModelsLocked8372(key: String, p: Pending, net8187: Double, gross8187: Double, witness8324: Boolean,
                                       shadowExit8372: Boolean = false) {
             // V5.0.8324 §PROVENANCE — a chain-witnessed runner label is counted as such in every book (its tail reads raw).
-            val trace8006 = ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, net8187, gross8187, p.a.regime, predictionForGrade8076(p.a), witness8324)
-            val bookScales = board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187, witness8324)
+            val trace8006 = ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, net8187, gross8187, p.a.regime, predictionForGrade8076(p.a), witness8324, shadowNet8404 = shadowExit8372)
+            val bookScales = board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187, witness8324, shadowNet8404 = shadowExit8372)
             val auxScales = DoubleArray(3) { Double.NaN }
             val calStamp8322 = calibration.learn(p.a.lane, p.a.fused.edgePct, p.a.fused.laneMean, net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), calibrationScore8372(p.a),
                 targetBasis8372 = if (shadowExit8372) CortexCalibration7901.TARGET_SHADOW_NET_8372 else CortexCalibration7901.TARGET_FORWARD_NET_8372)
@@ -1623,17 +1786,17 @@ object Cortex7885 {
                 val st = jointStatForGrade8372(jk, allowEvict = setup == p.setup7961) ?: continue
                 st.scale(CortexScoreboard7885.BOOK_DECAY)
                 val stamp = st.add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX),
-                    gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324)
+                    gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324, shadowNet8404 = shadowExit8372)
                 if (setup == p.setup7961) auxScales[0] = stamp
                 jointTrace.add(JointContribution8372(jk, jointGenerations8372.getValue(jk), stamp))
             }
             if (p.fired8094.isNotEmpty()) inc("SETUP_FIRED_GRADED_8094")
             p.vetoRule?.let { r ->
                 auxScales[1] = vetoBook.getOrPut(r) { CortexLedger7885.labelStat8187() }
-                    .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324)
+                    .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324, shadowNet8404 = shadowExit8372)
                 // V5.0.8006 — the same rule per lane: a rule can refuse winners in one lane and losers in another.
                 auxScales[2] = vetoBook.getOrPut(vetoLaneKey8006(r, p.a.lane)) { CortexLedger7885.labelStat8187() }
-                    .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324)
+                    .add(net8187.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), gross8187 >= CortexLedger7885.RUNNER_GROSS_PCT, witness8324, shadowNet8404 = shadowExit8372)
             }
             if (trace8006 != null) retain8006("$key|${p.atMs}", p, trace8006, net8187, gross8187, bookScales, auxScales, calStamp8322)
             graded8006["$key|${p.atMs}"]?.jointTrace8372 = jointTrace
@@ -1698,8 +1861,9 @@ object Cortex7885 {
             val real = realLedgers.mapValues { it.value.detached8386() }
             val veto = vetoBook.mapValues { it.value.detached8386() }; val joint = jointBook7961.mapValues { it.value.detached8386() }
             val generations = jointGenerations8372.toMap(); val next = jointNextGeneration8372
-            val pend = pendingSnapshot8076(); val grades = gradeBook8144.detached8386()
+            val pend = pendingSnapshot8076(null, generation); val grades = gradeBook8144.detached8386()
             val receipts = HashMap<String, String>()
+            receipts.putAll(forwardReady8404)
             uncommittedCloseGrades8198.forEach { receipts[closeReceipt8198(it)] = "{\"committed\":true}" }
             shadowReady8372.forEach { (id, terminal) ->
                 receipts["CORTEX_SHADOW_RECEIPT_8372|$id"] = "{\"committed\":true}"
@@ -1717,12 +1881,11 @@ object Cortex7885 {
                     .put("joint7961", org.json.JSONObject().also { j -> joint.forEach { (k, v) -> j.put(k, v.encode()) } })
                     .put("jointGeneration8372", org.json.JSONObject(generations as Map<*, *>)).put("jointNext8372", next)
                     .put("snapshotGeneration8386", generation).toString()
-                out[PENDING_PERSIST_KEY] = org.json.JSONObject(pend())
-                    .put("snapshotGeneration8386", generation).toString()
+                // The typed streaming builder emits p/g8013 and the generation directly.
+                // Do not inflate the entire pending graph three times merely to add/check keys.
+                // JSON objects validate each row when constructed; round-trip tests pin the full wire contract.
+                out[PENDING_PERSIST_KEY] = pend()
                 out[GRADES_KEY_8144] = grades.encode()
-                // Validation belongs outside the model monitor and BEFORE usable commit receipts.
-                require(org.json.JSONObject(out[PENDING_PERSIST_KEY]!!).getJSONArray("g8013") != null)
-                require(org.json.JSONObject(out[PENDING_PERSIST_KEY]!!).getJSONArray("p") != null)
                 out.putAll(receipts)
                 snapshotEncodeMs8386 = (System.nanoTime() - encodeAt) / 1_000_000
                 out
@@ -1793,7 +1956,7 @@ object Cortex7885 {
     /** Caller holds the lock. */
     private fun verdict8144(key: String, p: Pending, ctx: DecisionCtx8144?): CortexLabelHygiene8144.Verdict8144 =
         CortexLabelHygiene8144.Verdict8144(
-            (ctx?.executable ?: (p.decisionReason8196 != null &&
+            !p.a.staleMark && (ctx?.executable ?: (p.decisionReason8196 != null &&
                 CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.decisionReason8196))) &&
                 CortexLabelHygiene8144.executableDecision8144(p.legacyAdmitted, p.decisionReason8196),
             CortexLabelHygiene8144.repeatInEpisode8144(p.legacyAdmitted, gradeBook8144.lastGradedAt(key), p.atMs),
@@ -2368,14 +2531,15 @@ object Cortex7885 {
         val id = "$key|$decisionAtMs8371"
         val r = gradeBook8144.decision(id) ?: run { inc("REVISION_DECISION_MISSING_8371"); return }
         if (r.outcomeSource8372 == "SHADOW_EXIT") { inc("FORWARD_REVISION_AFTER_SHADOW_8372"); return }
-        val exec = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(r.lane), System.currentTimeMillis() - r.atMs)
+        val exec = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(r.lane),
+            (proof8395?.observedAtMs ?: System.currentTimeMillis()) - r.atMs)
         val oldNet = CortexOutcomeProof8395.decode8395(r.revisedOutcomeProof8395.ifBlank { r.firstOutcomeProof8395 })?.netPct ?: r.observedNetPct
         val mayReviseCalibration = exec && r.graded && r.executablePct.isFinite() && oldNet.isFinite()
         val now8395 = System.currentTimeMillis()
         val result8395 = gradeBook8144.labelOutcome8395(id, newNet, newGross,
             CortexLabelHygiene8144.executablePct8144(newNet, latencyMeasured), exec,
             proof8395?.horizonMs ?: (now8395-r.atMs).coerceAtLeast(1L), proof8395?.observedAtMs ?: now8395, now8395, proof8395)
-        if (mayReviseCalibration && result8395.accepted) {
+        if (mayReviseCalibration && result8395.accepted && result8395 != CortexOutcomeDisposition8395.DUPLICATE_ACCEPTED) {
             if (calibration.revise8322(r.lane, r.rawEdge8371, r.laneMean8371, oldNet, newNet, r.calStamp8371))
                 inc("CALIBRATION_GRADE_ONLY_REVISED_8371")
             // The 600-trace hot store cannot reconstruct every original voter/scoreboard
@@ -2410,12 +2574,14 @@ object Cortex7885 {
                 return
             }
             // V5.0.8144 — the observed record follows every horizon; the books only revise inside the lane's executable hold.
-            val exec8144 = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(g.p.a.lane), System.currentTimeMillis() - g.p.atMs)
+            val exec8144 = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(g.p.a.lane),
+                (proof8395?.observedAtMs ?: System.currentTimeMillis()) - g.p.atMs)
             val now8395 = System.currentTimeMillis()
             val result8395 = gradeBook8144.labelOutcome8395(id,newNet,newGross,CortexLabelHygiene8144.executablePct8144(newNet,lat8144),exec8144,
                 proof8395?.horizonMs ?: (now8395-g.p.atMs).coerceAtLeast(1L),proof8395?.observedAtMs ?: now8395,now8395,proof8395)
             if (!exec8144) { inc("REVISION_PAST_EXEC_HORIZON_8144"); return }
             if (!result8395.accepted) { inc("REVISION_VALUE_OBSERVED_ONLY_8395"); return }
+            if (result8395 == CortexOutcomeDisposition8395.DUPLICATE_ACCEPTED) return
             if (!reviseModelsLocked8372(id, g, newNet, newGross, proof8395?.witnessed8395() == true)) return
             revisedPending8372 = g.p
         }
@@ -2430,15 +2596,17 @@ object Cortex7885 {
         if (g.trace.scales == null || g.trace.scoreAt == null || g.bookScales == null || g.auxScales == null || !g.net.isFinite()) {
             inc("REVISION_LEGACY_WEIGHT_UNKNOWN"); return false
         }
+        val oldShadow8404 = g.trace.shadowNet8404
+        val newShadow8404 = shadowExit8372 || oldShadow8404
         val a = g.p.a; val oldNet = g.net; val oldGross = g.gross; val wasWitnessed = g.witnessed8324
-        ledger.revise8006(a.lane, a.ids, a.edges, a.raws, g.trace, oldNet, newNet, oldGross, newGross, a.regime, wasWitnessed, witness)
+        ledger.revise8006(a.lane, a.ids, a.edges, a.raws, g.trace, oldNet, newNet, oldGross, newGross, a.regime, wasWitnessed, witness, shadowNet8404 = newShadow8404)
         if (calibration.revise8322(a.lane, a.fused.edgePct, a.fused.laneMean, oldNet, newNet, g.calStamp8322,
                 targetBasis8372 = if (shadowExit8372) CortexCalibration7901.TARGET_SHADOW_NET_8372 else null)) inc("CALIBRATION_REVISED_8322")
-        board.revise8006(a.lane, a.bucket, g.p.legacyAdmitted, oldNet, newNet, oldGross, newGross, g.bookScales, wasWitnessed, witness)
+        board.revise8006(a.lane, a.bucket, g.p.legacyAdmitted, oldNet, newNet, oldGross, newGross, g.bookScales, wasWitnessed, witness, oldShadow8404, newShadow8404)
         val ro = oldGross >= CortexLedger7885.RUNNER_GROSS_PCT; val rn = newGross >= CortexLedger7885.RUNNER_GROSS_PCT
         fun reviseAux(st: CortexLedger7885.Stat?, index: Int) {
             st?.revise(oldNet.coerceAtLeast(CortexLedger7885.Y_MIN), newNet.coerceAtLeast(CortexLedger7885.Y_MIN), ro, rn,
-                st.revisionWeight(g.auxScales[index]), wasWitnessed, witness)
+                st.revisionWeight(g.auxScales[index]), wasWitnessed, witness, oldShadow8404, newShadow8404)
         }
         g.p.vetoRule?.let { r -> reviseAux(vetoBook[r], 1); reviseAux(vetoBook[vetoLaneKey8006(r, a.lane)], 2) }
         for (contribution in g.jointTrace8372) {
@@ -2447,7 +2615,7 @@ object Cortex7885 {
             }
             val st = jointBook7961[contribution.key] ?: continue
             st.revise(oldNet.coerceAtLeast(CortexLedger7885.Y_MIN), newNet.coerceAtLeast(CortexLedger7885.Y_MIN), ro, rn,
-                st.revisionWeight(contribution.scale), wasWitnessed, witness)
+                st.revisionWeight(contribution.scale), wasWitnessed, witness, oldShadow8404, newShadow8404)
         }
         if (g.jointTrace8372.isEmpty() && (g.p.setup7961.isNotBlank() || g.p.fired8094.isNotEmpty()))
             inc("JOINT_REVISION_LEGACY_GENERATION_UNKNOWN_8372")
@@ -2663,6 +2831,7 @@ object Cortex7885 {
                 p.outcomeDueAtMs8394)
         }
         for ((key,p) in pending) append("$key|${p.atMs}",p)
+        for ((id,p) in pairedPending8401) append(id,p)
         for ((id,p) in shadowPending8372) append(outcomeBook8372.shadowPlan(id).decisionId.ifBlank { id },p)
         return rows
     }
@@ -2670,7 +2839,7 @@ object Cortex7885 {
     private data class RefusalCoverage8392(val atMs: Long, val revision: Long, val pendingN: Int, val covered: Boolean)
     private val refusalCoverageCache8392 = HashMap<String,RefusalCoverage8392>()
     private fun refuseCoverage8392(lane: String): Boolean {
-        val now=System.currentTimeMillis();val n=pending.size+shadowPending8372.size
+        val now=System.currentTimeMillis();val n=pendingCount()+shadowPending8372.size
         refusalCoverageCache8392[lane]?.let {
             if(it.revision==gradeBook8144.revision && it.pendingN==n && now-it.atMs in 0L until WF_REFRESH_MS_8144) return it.covered
         }
@@ -2683,7 +2852,7 @@ object Cortex7885 {
     private val setupCoverageCache8396 = HashMap<String, RefusalCoverage8392>()
     /** V5.0.8396 — the [setup] cohort's own outcome coverage for [bucket] (same walk-forward rows), cached like [refuseCoverage8392]. */
     private fun setupCovered8396(lane: String, setup: String, bucket: Int): Boolean = synchronized(this) {
-        val now = System.currentTimeMillis(); val n = pending.size + shadowPending8372.size; val k = "$lane|$setup|$bucket"
+        val now = System.currentTimeMillis(); val n = pendingCount() + shadowPending8372.size; val k = "$lane|$setup|$bucket"
         setupCoverageCache8396[k]?.let {
             if (it.revision == gradeBook8144.revision && it.pendingN == n && now - it.atMs in 0L until WF_REFRESH_MS_8144) return@synchronized it.covered
         }
@@ -2716,7 +2885,7 @@ object Cortex7885 {
         // a previously granted proof at another cost basis, even inside the normal refresh interval.
         val offset = executableOffset8187(lane).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val cost = try { com.lifecyclebot.engine.truth.CostLedger7962.laneCostPct7962(lane) } catch (_: Throwable) { CortexAuthority8366.MIN_FULL_MARGIN_PCT_8366 }
-        val key = "$lane|${setup ?: "*"}|offset=$offset|cost=$cost|pending=${pending.size}:${shadowPending8372.size}"
+        val key = "$lane|${setup ?: "*"}|offset=$offset|cost=$cost|pending=${pendingCount()}:${shadowPending8372.size}"
         auth8366Cache[key]?.let { if (it.gradeRevision == gradeBook8144.revision && now - it.atMs in 0L until WF_REFRESH_MS_8144) return it.value }
         val r = CortexAuthority8366.test8372(authorityRows8392(lane, setup), cost, now)
         if (auth8366Cache.size > 200) auth8366Cache.clear()
@@ -2821,7 +2990,7 @@ object Cortex7885 {
      */
     fun executableCopy8187(st: CortexLedger7885.Stat, offsetPct: Double, realisedN: Double, realisedMean: Double): CortexLedger7885.Stat {
         val off = if (offsetPct.isFinite()) offsetPct.coerceAtLeast(0.0) else 0.0
-        val m0 = st.mean() + st.readOffset8187
+        val m0 = st.mean() + st.effectiveReadOffset8404()
         val blend = realisedBlend8187(st.n, m0, realisedN, realisedMean)
         val blended = blend[0] != st.n || blend[1] != m0
         if (!blended && off <= 0.0) return st
@@ -2830,6 +2999,12 @@ object Cortex7885 {
         return CortexLedger7885.realisedStat8187().also { c ->
             c.n = n2; c.sum = m2 * n2; c.sumSq = (variance + m2 * m2) * n2
             c.wins = st.winRate() * n2; c.runners = st.runnerRate() * n2
+            val shadowShare8404 = if (st.n > 0.0) (st.shadowWeight8404 / st.n).coerceIn(0.0, 1.0) else 0.0
+            c.shadowWeight8404 = n2 * if (!blended) shadowShare8404 else {
+                val labelWeight = minOf(st.n, LABEL_N_CAP_8187)
+                val realisedWeight = REALISED_WEIGHT_8187 * realisedN
+                (labelWeight * shadowShare8404 + realisedWeight) / (labelWeight + realisedWeight)
+            }
             c.readOffset8187 = off
         }
     }

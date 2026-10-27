@@ -90,5 +90,8 @@ class Aate8386PersistenceTest {
         val pending = blobs.entries.first { it.key.startsWith("CORTEX_PENDING_") }.value
         val root = JSONObject(pending)
         assertTrue(root.has("dict")); assertTrue(root.has("p")); assertTrue(root.has("g8013")); assertTrue(root.has("bound8076"))
+        val model = JSONObject(blobs.entries.first { it.key.startsWith("CORTEX_7885_") }.value)
+        assertEquals(model.getLong("snapshotGeneration8386"), root.getLong("snapshotGeneration8386"))
+        assertNotNull(root.getJSONArray("p")); assertNotNull(root.getJSONArray("g8013"))
     }
 }

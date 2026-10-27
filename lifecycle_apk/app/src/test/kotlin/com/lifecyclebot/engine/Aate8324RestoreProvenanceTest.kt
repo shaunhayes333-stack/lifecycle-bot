@@ -152,7 +152,7 @@ class Aate8324RestoreProvenanceTest {
         assertFalse(after.suspect)
         assertEquals(sum / n, after.mean, 1e-9)
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(frl.contains("val w8324 = gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs)"))
+        assertTrue(frl.contains("var w8324 = gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs)"))
         assertTrue(frl.contains("if (gross >= RUNNER_PCT_7731) { t.runner60 += 1; if (witnessed8324) t.witness60 += 1 }"))
         val t = ForwardReturnLabeler7731.Tally().also { it.decode("0,0,0,10,100.0,5000.0,3,2,0,0,0,0,2") }
         assertEquals("pre-8365 cap-only witnesses are not independently proven", 0, t.witness60)

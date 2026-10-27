@@ -26,11 +26,17 @@ class Aate8365IndependentProofTest {
         original.add(6_500.0, true, witnessed = true)
         original.add(-20.0, false)
         val rawSum = original.sum
-        val oldWire = original.encode().substringBeforeLast(",")
+        // Legacy pre-8365 rows have exactly seven fields, without the independent-proof epoch.
+        val oldWire = original.encode().split(',').take(7).joinToString(",")
         val migrated = CortexLedger7885.labelStat8187().also { it.decode(oldWire) }
         assertEquals(0.0, migrated.witnessed8324, 0.0)
         assertEquals(rawSum, migrated.sum, 0.0)
         assertEquals(original.n, migrated.n, 0.0)
+        // Eight-field 8365 rows retain independent proof but have no executable-shadow basis.
+        val previous = CortexLedger7885.labelStat8187().also { it.decode(original.encode().split(',').take(8).joinToString(",")) }
+        assertEquals(1.0, previous.witnessed8324, 0.0)
+        assertEquals(0.0, previous.shadowWeight8404, 0.0)
+        assertEquals(rawSum, previous.sum, 0.0)
         val current = CortexLedger7885.labelStat8187().also { it.decode(original.encode()) }
         assertEquals(1.0, current.witnessed8324, 0.0)
         assertEquals(rawSum, current.sum, 0.0)

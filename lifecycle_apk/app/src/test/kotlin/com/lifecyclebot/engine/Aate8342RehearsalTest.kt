@@ -164,7 +164,7 @@ class Aate8342RehearsalTest {
         val labeler = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(labeler.contains("else if (flatMarkNow8342(o, gross)) flatMarks8322.incrementAndGet() else captured7945(o, net, gross).let { (n, g) -> book(o, 15, n, g) }"))
         val twoForty = labeler.substringAfter("private fun bookTwoForty7944(").substringBefore("private fun flatMarkNow8342(")
-        assertTrue(twoForty.contains("if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); return }"))
+        assertTrue(twoForty.contains("if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); return true }"))
         assertTrue(twoForty.indexOf("flatMarkNow8342(o, gross0)") < twoForty.indexOf("book(o, 240, net, gross)"))
         assertTrue(labeler.contains("flatLostMarks8342=${'$'}{flatMarks8322.get()}"))
         assertFalse(labeler.contains("flatLabels8322="))

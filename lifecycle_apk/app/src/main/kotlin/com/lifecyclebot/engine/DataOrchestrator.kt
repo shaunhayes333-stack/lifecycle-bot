@@ -361,11 +361,13 @@ class DataOrchestrator(
         poolHint: String,
         attempts: Int,
         cached: () -> List<Candle> = { SolanaOhlcvFeed6916.cachedCandles8253(mint, timeframe, limit) },
-        fetch: () -> List<Candle> = { SolanaOhlcvFeed6916.fetchCandles6916(mint, timeframe, limit, poolHint) },
+        fetch: (() -> List<Candle>)? = null,
         slotWait: () -> SolanaOhlcvFeed6916.SlotWait7809 = { SolanaOhlcvFeed6916.providerSlotWait7809() },
     ): List<Candle> {
         if (attempts <= 0) return emptyList()
         cached().takeIf { it.isNotEmpty() }?.let { return it }
+        if (fetch == null) return SolanaOhlcvFeed6916.queuedCandles8401(mint, timeframe, limit, poolHint, attempts)
+        // Compatibility injection for existing deterministic provider tests; production uses the shared queue above.
         var tries = 0
         while (tries < attempts) {
             tries++

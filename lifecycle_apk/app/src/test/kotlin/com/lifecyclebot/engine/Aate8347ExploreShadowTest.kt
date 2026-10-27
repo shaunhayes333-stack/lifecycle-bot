@@ -38,7 +38,7 @@ class Aate8347ExploreShadowTest {
         assertTrue(body.contains("if (hit != null && now - hit.first in 0L until CHOICE_CACHE_MS_8351) return hit.second"))
         assertTrue(body.contains("if (choiceRefreshing8399.add(cacheKey8394))"))
         assertTrue(body.contains("choiceExecutor8399.execute {"))
-        assertTrue("a stale answer is served, never a scan", body.contains("choiceServedStale8399.incrementAndGet()\n        return hit.second"))
+        assertTrue("a stale answer is served, never a scan", body.contains("choiceServedStale8399.incrementAndGet()\n        return hit?.second"))
         assertTrue(ExploreShadow8347.choiceStats8399().startsWith("choice8399[staleServed="))
         assertTrue(src.contains("opened=${'$'}{opened.get()} ${'$'}{choiceStats8399()} "))
     }

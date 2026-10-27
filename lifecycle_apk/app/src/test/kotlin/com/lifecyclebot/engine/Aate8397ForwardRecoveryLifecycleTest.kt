@@ -9,6 +9,32 @@ import org.junit.Test
 /** Runs the actual expiry, booking and checkpoint functions on one original production observation. */
 class Aate8397ForwardRecoveryLifecycleTest {
     private val runtime = ForwardReturnLabeler7731
+    private var savedPrefs: Any? = null
+    private var savedLoaded: Any? = null
+    @org.junit.Before fun durableProducerFixture8404() {
+        savedPrefs = get(runtime, "prefs")
+        savedLoaded = get(com.lifecyclebot.engine.cortex.Cortex7885, "loaded")
+        val prefs = org.mockito.Mockito.mock(android.content.SharedPreferences::class.java)
+        val editor = org.mockito.Mockito.mock(android.content.SharedPreferences.Editor::class.java)
+        org.mockito.Mockito.`when`(prefs.edit()).thenReturn(editor)
+        org.mockito.Mockito.`when`(editor.putString(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString())).thenReturn(editor)
+        org.mockito.Mockito.`when`(editor.commit()).thenReturn(true)
+        set(runtime, "prefs", prefs)
+        set(com.lifecyclebot.engine.cortex.Cortex7885, "loaded", true)
+    }
+    @org.junit.After fun restoreProducerFixture8404() {
+        set(runtime, "prefs", savedPrefs)
+        set(com.lifecyclebot.engine.cortex.Cortex7885, "loaded", savedLoaded)
+        val outbox = get(runtime, "forwardOutbox8404")!!
+        @Suppress("UNCHECKED_CAST")
+        val rows = get(outbox, "rows") as MutableMap<String, String>
+        rows.keys.removeAll { it.startsWith("forward-recovery-8397-") }
+        for (name in listOf("durable", "acknowledged")) {
+            @Suppress("UNCHECKED_CAST")
+            val keys = get(outbox, name) as MutableSet<String>
+            keys.removeAll { it.startsWith("forward-recovery-8397-") }
+        }
+    }
     private fun call(name: String, vararg args: Any?): Any? = runtime::class.java.declaredMethods
         .single { it.name == name && it.parameterCount == args.size }.apply { isAccessible = true }
         .invoke(runtime, *args)
@@ -101,6 +127,7 @@ class Aate8397ForwardRecoveryLifecycleTest {
     }
 
     @Test fun wrongBasisCannotBecomeARecoveredLabelAndUncommittedTerminalKeepsOwnership() {
+        set(runtime, "prefs", null) // explicit storage refusal for this case
         val mint = "forward-recovery-8397-unavailable"; val key = "$mint|MOONSHOT"
         val at = System.currentTimeMillis() - 10 * 60_000L
         val obs = observation(mint, at)

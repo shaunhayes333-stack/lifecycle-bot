@@ -303,7 +303,7 @@ class Aate8187CortexCompleteTest {
         assertTrue(on.contains("val net8187 = netPct"))
         assertTrue(on.contains("ledger.grade(p.a.lane, p.a.ids, p.a.edges, p.a.raws, net8187, gross8187"))
         // superseded by V5.0.8324: the label's chain-witness provenance rides with it into the bucket books.
-        assertTrue(on.contains("board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187, witness8324)"))
+        assertTrue(on.contains("board.record(p.a.lane, p.a.bucket, p.legacyAdmitted, net8187, gross8187, witness8324, shadowNet8404 = shadowExit8372)"))
         assertTrue(on.contains("gradeBook8144.markLateRead8187("))
         // Lost labels are filed at once; restores past the labeler's reach are not "pending".
         // 8371/8372: a lost label addresses its original token episode, never a newer pending observation.
@@ -328,7 +328,7 @@ class Aate8187CortexCompleteTest {
         assertTrue(close.indexOf("recoverRead8187(env, closeKey7931, mode, sealed8144, snap8332)") in 0 until close.indexOf("fileUnboundClose8153(env, mode, sealed8144, snapTag8144)"))
         assertTrue(close.contains("REALIZED_REPLAY_ALREADY_FILED_8187"))
         // Native YES/NO enrollment is learning, not execution admission; a real admission binds its own exact read.
-        assertTrue(cx.contains("if (admitted && !late8169 && reason?.startsWith(\"NATIVE_\") != true) noteEntryRead(mint, decisionMode8196 == \"PAPER\", a, nowMs)"))
+        assertTrue(cx.contains("if (com.lifecyclebot.engine.NativeDecisionEnrollment8372.executionAdmission(admitted, reason) && !late8169)"))
         assertTrue(fl.contains("Cortex7885.noteExecutionAdmission8372(ts, l, nowMs)"))
         val admission = cx.substringAfter("fun noteExecutionAdmission8372(").substringBefore("/**")
         assertTrue(admission.contains("noteEntryRead(ts.mint, accountMode8077() == \"PAPER\", a, nowMs)"))
@@ -492,9 +492,9 @@ class Aate8187CortexCompleteTest {
         val cx = src("engine/cortex/Cortex7885.kt")
         // superseded by V5.0.8325: the calibrated read moved into calibratedRead8325 (same offset subtracted once)
         // 8372 retains the one-offset contract while restoring arithmetic per-token calibration.
-        assertTrue(cx.contains("val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane))"))
+        assertTrue(cx.contains("val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, locked8325.executionOffset8404, locked8325.costFused8404)"))
         assertFalse(cx.contains("calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372) - executableOffset8187(lane)"))
-        assertTrue(cx.contains("return calibratedRead8325(runner, fused, slope)"))
+        assertTrue(cx.contains("return calibratedRead8325(runner, costFused8404, slope)"))
         assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane)"))
         assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("fun laneStatFor7737(lane: String): CellStat? = executable8187(laneStat(lane), lane)"))
     }

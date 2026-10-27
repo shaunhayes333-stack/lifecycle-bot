@@ -1779,8 +1779,18 @@ object ToolkitSignalSheet {
         appendLine("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME=${causalIssue6600("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME")}")
     }
 
+    internal fun preExecutionStatus8401(pool: Long, qualified: Long, intent: Long, fdgAllow: Long, fdgBlock: Long): String? = when {
+        fdgAllow == 0L && fdgBlock > 0L -> "FDG_BLOCKED_ALL"
+        fdgAllow > 0L && intent == 0L -> "INTENT_CHOKED"
+        fdgAllow + fdgBlock > 0L -> null
+        pool == 0L -> "DEAD"
+        qualified == 0L -> "DISCOVERY_ONLY"
+        else -> "FDG_CHOKED"
+    }
+
     fun designatedRoleLivenessReport6599(): String = buildString {
         appendLine("===== MEME SPECIALIST ROLE LIVENESS =====")
+        appendLine("fdgN is legacy allow-only; fdgReachedN counts verdict-stage records. Owner/intent follow FDG allow.")
         val openByLane7809 = openPositionsByLane7809()
         configuredMemeDesks6599.forEach { lane ->
             val causal = com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.laneSnapshot6647(lane)
@@ -1854,12 +1864,7 @@ object ToolkitSignalSheet {
             // the report naming the wrong subsystem.
             val markRefusals7214 = o("MARK_REJECT")
             val markStageRecorded7214 = mark > 0L || markRefusals7214 > 0L
-            val status = when {
-                pool == 0L -> "DEAD"
-                qualified == 0L -> "DISCOVERY_ONLY"
-                intent == 0L -> "INTENT_CHOKED"
-                fdgAllow + fdgBlock == 0L -> "FDG_CHOKED"
-                fdgAllow == 0L -> "FDG_BLOCKED_ALL"
+            val status = preExecutionStatus8401(pool, qualified, intent, fdgAllow, fdgBlock) ?: when {
                 !markStageRecorded7214 -> "MARK_STAGE_UNRECORDED_7214"
                 mark == 0L -> "MARK_CHOKED"
                 sized == 0L -> "SIZING_CHOKED"
@@ -1961,7 +1966,7 @@ object ToolkitSignalSheet {
             // capital-only) says why instead of INTENT_CHOKED with no stamp to explain it.
             val preIntent7951 = SpecialistOwnership7951.preIntentRefusals7951(lane)
             val reportedStatus7809 = SpecialistOwnership7951.shownStatus7951(baseStatus7951, buyerEnabled7609, intent, residentReady7815, preIntent7951)
-            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible pendingExecutableTicket=$pendingExecutableTicket7863 heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$reportedStatus7809 rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} preIntentRefusals7951=${preIntent7951.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 residentOwnLane7815=${resident7815.size} residentReady7815=$residentReady7815 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609 election8136=${election8136(lane)}")
+            appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible pendingExecutableTicket=$pendingExecutableTicket7863 heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow fdgAllowN=$fdgAllow fdgBlockN=$fdgBlock fdgReachedN=${causal.rawCounts7086[com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.FDG] ?: 0} markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$reportedStatus7809 rawStatus7809=$status preSizeRefusals7809=${refusals7809.ifBlank { "NONE" }} preIntentRefusals7951=${preIntent7951.ifBlank { "NONE" }} openPositions7809=$openOnLane7809 residentOwnLane7815=${resident7815.size} residentReady7815=$residentReady7815 nativeScope7815=RESIDENT_OR_BOUNDED_SPECIALIST_SCOPE_7828 nativeCalled=${native7608?.called ?: 0} nativeAllow=${native7608?.allowed ?: 0} nativeReject=${native7608?.rejected ?: 0} nativeErr=${native7608?.errors ?: 0} nativeEligible=${native7608?.eligible ?: false} nativeScore=${native7608?.score ?: 0} nativeConf=${native7608?.confidence ?: 0} nativeReason=$nativeReason7608 liveQuarantine=$liveQuarantine7609 buyerEnabled=$buyerEnabled7609 ownershipModel=$ownershipModel7609 election8136=${election8136(lane)}")
         }
         appendLine("PROJECT_SNIPER_NON_SNIPER_ADMISSION = ${deskCount6599("PROJECT_SNIPER", "NON_SNIPER_ADMISSION")}")
     }

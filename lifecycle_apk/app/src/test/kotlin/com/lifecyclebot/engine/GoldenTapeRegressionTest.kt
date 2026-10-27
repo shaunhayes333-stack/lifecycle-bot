@@ -9196,7 +9196,9 @@ class GoldenTapeRegressionTest {
         assertTrue(marks.contains("refreshFromExecutableTokenMap6614") && marks.contains("TOKEN_MAP_ROUTE_NOT_EXECUTABLE"))
         assertTrue(gate.contains("markId6614") && gate.contains("markVersion6614") && gate.contains("sealedProvenance6614"))
         assertTrue(gate.contains("TICKET_REFRESH_AUTHORITY_FAILURE") && gate.contains("EXPIRED_TICKET_ECONOMIC_REJECT_6614"))
-        assertTrue(sheet.contains("fdgAllow + fdgBlock == 0L") && sheet.contains("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME="))
+        assertTrue(sheet.contains("preExecutionStatus8401(pool, qualified, intent, fdgAllow, fdgBlock)") && sheet.contains("SPECIALIST_INTENT_WITHOUT_FDG_OUTCOME="))
+        assertEquals("FDG_CHOKED", ToolkitSignalSheet.preExecutionStatus8401(10, 5, 1, 0, 0))
+        assertEquals("FDG_BLOCKED_ALL", ToolkitSignalSheet.preExecutionStatus8401(10, 5, 0, 0, 1))
     }
 
 
@@ -14134,7 +14136,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
         assertTrue(lab.indexOf("fromRegistry != null -> {") < lab.indexOf("tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {"))
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
-        assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now))"))
+        assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now, selected))"))
         assertTrue(lab.contains("restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())"))
         assertTrue(lab.contains("if (f.size !in 17..35) return@forEach"))
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
@@ -15119,7 +15121,7 @@ class GoldenTapeRegressionTest {
         // superseded by V5.0.8322: the five-minute label carries its flat-mark flag.
         // superseded by V5.0.8324: the five-minute label carries its chain-witness provenance.
         // 8372 also binds the label to the original token/lane episode, not whichever one is newest.
-        assertTrue(fl.contains("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324, decisionAtMs8371 = o.atMs, proof8395 = outcomeProof8395(o, net, gross, H60_MS_7731))") /* superseded by V5.0.8395 (R3): label and its proof travel together */)
+        assertTrue(fl.contains("stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324)") /* superseded by V5.0.8395 (R3): label and its proof travel together */)
         assertEquals(3, com.lifecyclebot.engine.truth.LiveEdgeGate7877.COLD_BUDGET_8080)
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("DEFERRED_DATA_TOKEN_MAP_8080"))

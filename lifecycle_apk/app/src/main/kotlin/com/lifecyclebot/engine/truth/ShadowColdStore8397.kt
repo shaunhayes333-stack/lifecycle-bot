@@ -126,6 +126,7 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
     // key query per call and the status walks (per lane × per cohort dimension) made hundreds of such calls, each read
     // then missing a 64-entry hot cache; the same monitor serialised the trading path's appends behind that walk.
     private val keyIndex = HashSet<String>()
+    private var revision8401 = 0L
     // V5.0.8398b — where the time goes: cold reads, monitor waits and append (durable write) time, for the report walk RCA.
     private val coldReads8398 = java.util.concurrent.atomic.AtomicLong()
     private val lockWaitNs8398 = java.util.concurrent.atomic.AtomicLong()
@@ -146,6 +147,7 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
                 cold.appendReceipt(event, payloads, early.terminal.joinToString(","))
             }
         } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
+        revision8401++
         store = cold; hot.clear(); preAttachReceipts.clear()
         keyIndex.clear(); try { keyIndex.addAll(cold.keys()) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
     }
@@ -165,15 +167,27 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
     }
 
     operator fun get(key: String): List<DoubleArray>? {
-        val t0 = System.nanoTime()
-        synchronized(this) {
-            lockWaitNs8398.addAndGet(System.nanoTime() - t0)
-            hot[key]?.let { return it }
-            if (store != null && key !in keyIndex) return null   // V5.0.8398b — a known-absent key never reaches the disk
+        repeat(3) {
+            val source = synchronized(this) {
+                hot[key]?.let { return it }
+                val cold = store ?: return null
+                if (key !in keyIndex) return null
+                cold to revision8401
+            }
+            // Read and decode without the append monitor. Never install a snapshot over a concurrent close.
             coldReads8398.incrementAndGet()
-            val value = try { store?.read(key) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) } ?: return null
-            return decode(value).also { putHot(key, it) }
+            val value = try { source.first.read(key) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
+            val rows = value?.let { decode(it) }
+            synchronized(this) {
+                hot[key]?.let { return it }
+                if (store === source.first && revision8401 == source.second) {
+                    if (rows != null) putHot(key, rows)
+                    return rows
+                }
+            }
         }
+        // Busy writers win. An incomplete read must not masquerade as an empty cohort.
+        throw ShadowStorageUnavailable8397()
     }
     val keys: Set<String> @Synchronized get() = if (store == null) hot.keys.toSet() else (keyIndex + hot.keys)
     @Synchronized fun containsKey(key: String): Boolean = hot.containsKey(key) || (store != null && key in keyIndex)
@@ -200,6 +214,7 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
                 if (!result.inserted) return AppendResult(false, result.terminal.split(',').map { it.toDouble() }.toDoubleArray())
             }
         } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
+        revision8401++
         updated.forEach { (k, v) -> putHot(k, v) }
         if (cold != null) keyIndex.addAll(updated.keys)
         if (cold == null) preAttachReceipts[event] = Early(keys.distinct(), row.copyOf(), terminal.copyOf())
@@ -210,5 +225,5 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
     @Synchronized fun hotCount(): Int = hot.size
     @Synchronized fun bytes(): Long = hot.entries.sumOf { (k, v) -> 64L + k.length * 2L + v.sumOf { 32L + it.size * 8L } } +
         preAttachReceipts.entries.sumOf { (k, v) -> 96L + k.length * 2L + v.row.size * 8L + v.keys.sumOf { 32L + it.length * 2L } }
-    @Synchronized fun clear() { hot.clear(); preAttachReceipts.clear(); keyIndex.clear() } // test-local reset; durable learning is never evicted
+    @Synchronized fun clear() { revision8401++; hot.clear(); preAttachReceipts.clear(); keyIndex.clear() } // test-local reset; durable learning is never evicted
 }

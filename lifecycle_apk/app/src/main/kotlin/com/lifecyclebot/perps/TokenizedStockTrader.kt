@@ -140,6 +140,11 @@ object TokenizedStockTrader {
     private var engineJob: Job? = null
     private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    // Exit monitoring must remain schedulable while entry scoring blocks the shared CPU pool.
+    // One process-owned thread; stop/start cancels the child job, not this reusable dispatcher.
+    internal val monitorDispatcher8401 = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "stock-exit-monitor-8401").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
     
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -680,7 +685,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         }
 
         // Start position monitor
-        monitorJob = scope.launch {
+        monitorJob = scope.launch(monitorDispatcher8401) {
             while (isRunning.get()) {
                 try {
                     monitorPositions()
@@ -762,6 +767,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         var skippedBadPrice = 0
         
         for (market in stockMarkets) {
+            currentCoroutineContext().ensureActive()
             try {
                 // Skip if we already have a position
                 if (hasPosition(market)) {
@@ -910,6 +916,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         
         // Execute top signals
         for (signal in topSignals) {
+            currentCoroutineContext().ensureActive()
             if (positions.size >= MAX_STOCK_POSITIONS) {
                 ErrorLogger.debug(TAG, "Max positions reached")
                 break
@@ -1511,6 +1518,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     
     private suspend fun monitorPositions() {
         for ((id, position) in positions) {
+            currentCoroutineContext().ensureActive()
             try {
                 // Update current price
                 val data = PerpsMarketDataFetcher.getMarketData(position.market)

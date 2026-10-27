@@ -1142,19 +1142,8 @@ object ExploreShadow8347 {
         val cacheKey8394 = "$l|$sinceMs|${LearningEpoch8164.epochMs8164()}|${ShadowPersist8355.TRADE_CONTRACT_8394}"
         val hit = choiceCache8351[cacheKey8394]
         if (hit != null && now - hit.first in 0L until CHOICE_CACHE_MS_8351) return hit.second
-        if (hit == null) {
-            // A key never computed (first read of a lane in this epoch) is answered once on the caller: one scan per lane per
-            // epoch, after which only the background refresh below ever walks the books.
-            val c = computeBest8351(l, sinceMs)
-            choiceCache8351[cacheKey8394] = now to c
-            choiceColdMiss8399.incrementAndGet()
-            return c
-        }
-        // V5.0.8399 — the cohort scan (every variant / setup / cap-band book, cold rows read from SQLite under the book
-        // monitor) never runs on the caller's thread: Cortex7885.assess -> onCortexAssessment8368 -> open8347 ->
-        // liveExitStyle8351, LiveEdgeGate7877 and EvidenceHold8336 all read here. 5.0.8398: 22 ms "assessment" with a
-        // 222 s mean capture delay and 239 queued assessments — the scan sat outside the timer. A stale answer is served
-        // while one background refresh per key recomputes it; a never-computed key is computed once on first read.
+        // Cold and stale choices both refresh in the background. Until a cold proof exists, no exploration unlock.
+        if (hit == null) choiceColdMiss8399.incrementAndGet()
         if (choiceRefreshing8399.add(cacheKey8394)) {
             try {
                 choiceExecutor8399.execute {
@@ -1165,7 +1154,7 @@ object ExploreShadow8347 {
             } catch (_: Throwable) { choiceRefreshing8399.remove(cacheKey8394) }
         }
         choiceServedStale8399.incrementAndGet()
-        return hit.second
+        return hit?.second
     }
 
     private val choiceRefreshing8399 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -1415,11 +1404,30 @@ object ExploreShadow8347 {
         return best
     }
 
+    private data class Report8401(val sinceMs: Long, val epoch: Long, val atMs: Long, val text: String)
+    @Volatile private var report8401: Report8401? = null
+    private val reportBusy8401 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val reportExecutor8401 = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "shadow-report-8401").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
+    }
+
     fun statusLine8347(sinceMs: Long): String {
-        reportMemo8398.set(HashMap())
-        val t0 = System.currentTimeMillis()
-        progress8398 = "started"
-        try { return statusLineUnmemoised8398(sinceMs) } finally { reportMemo8398.remove(); progress8398 = "done in ${System.currentTimeMillis() - t0}ms" }
+        val now = System.currentTimeMillis()
+        val epoch = LearningEpoch8164.epochMs8164()
+        val hit = report8401?.takeIf { it.sinceMs == sinceMs && it.epoch == epoch }
+        if ((hit == null || now - hit.atMs >= 30_000L) && reportBusy8401.compareAndSet(false, true)) {
+            try { reportExecutor8401.execute {
+                try {
+                    // The report retains only aggregate rows; no unbounded map of every cohort's outcomes.
+                    val text = statusLineUnmemoised8398(sinceMs)
+                    report8401 = Report8401(sinceMs, epoch, System.currentTimeMillis(), text)
+                    progress8398 = "complete"
+                } catch (_: Exception) { progress8398 = "refresh failed; prior snapshot retained" }
+                finally { reportBusy8401.set(false) }
+            } } catch (_: Exception) { reportBusy8401.set(false) }
+        }
+        return hit?.let { "snapshotAgeMs=${now - it.atMs} ${it.text}" }
+            ?: "exploreShadow8347[summary pending; tickets=${tickets.size} opened=${opened.get()} closed=${closed.get()}]"
     }
 
     @Volatile private var progress8398: String = "idle"

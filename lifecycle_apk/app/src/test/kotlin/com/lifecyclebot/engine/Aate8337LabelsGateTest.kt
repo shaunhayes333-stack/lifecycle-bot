@@ -26,7 +26,7 @@ class Aate8337LabelsGateTest {
         assertFalse(CortexFlatMark8322.flatMark8322(0.0, 0.4, 0.0))
         val labeler = src("engine/truth/ForwardReturnLabeler7731.kt")
         val sixty = labeler.substringAfter("private fun bookSixty7944(").substringBefore("// ── V5.0.7997 — PROGRESSIVE GRADING ──")
-        val flatTest = sixty.indexOf("val flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)")
+        val flatTest = sixty.indexOf("var flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)")
         val booked = sixty.indexOf("book(o, 60, net, gross, w8324)")
         assertTrue(flatTest in 0 until booked)                                      // the flat test runs BEFORE the 60 slot is booked
         assertTrue(sixty.contains("markLost(o)                       // counted as lost mark, never as a -cost label"))
@@ -36,7 +36,7 @@ class Aate8337LabelsGateTest {
         assertTrue(shape > sixty.indexOf("} else {") && shape > flatTest)
         val skip = sixty.indexOf("if (flat8322) return")
         assertTrue(skip > 0)
-        assertTrue(skip > sixty.indexOf("Cortex7885.onLabel(o.mint, o.lane, 60, net, gross, fam8080, flat8322 = flat8322, witness8324 = w8324)"))
+        assertTrue(skip > sixty.indexOf("stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324)"))
         assertTrue(skip < sixty.indexOf("CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net)"))
         assertTrue(skip < sixty.indexOf("SpecialistMiner7972.onLabel7972(o.lane, o.mint, o.feats7972, net, gross, o.atMs)"))
     }

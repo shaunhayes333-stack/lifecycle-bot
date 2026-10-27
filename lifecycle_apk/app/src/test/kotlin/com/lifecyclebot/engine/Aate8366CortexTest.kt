@@ -334,8 +334,9 @@ class Aate8366CortexTest {
         assertTrue(cx.contains("private fun heldFraction8153(lane: String): Double = authorityFraction8366(lane)"))
         // 8372 restores one arithmetic token forecast. The old log fit remains a diagnostic API,
         // not the decision path; an uncalibrated lane must not rewrite every token to NEUTRAL.
-        assertTrue(cx.contains("calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane))"))
-        assertTrue(cx.contains("calibration.netFit8372(lane, executableOffset8187(lane))"))
+        assertTrue(cx.contains("calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, locked8325.executionOffset8404, locked8325.costFused8404)"))
+        assertTrue(cx.contains("val offset8404 = executableOffset8187(lane)"))
+        assertTrue(cx.contains("calibration.netFit8372(lane, offset8404)"))
         assertFalse(cx.contains("uncalibratedNeutral8366(lane, locked8325.iso8366,"))
         assertTrue(cx.contains("CortexAuthority8366.test8372("))
         assertTrue(cx.contains("scoreVersion = 1"))

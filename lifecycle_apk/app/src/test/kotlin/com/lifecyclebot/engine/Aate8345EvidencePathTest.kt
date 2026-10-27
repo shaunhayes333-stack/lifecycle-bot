@@ -123,8 +123,8 @@ class Aate8345EvidencePathTest {
         EvidenceShadow8344.noteCloseForTests8345("MOONSHOT", 2.0, t0 + 30 * 60_000L)
         EvidenceShadow8344.noteHoldRefusal8345("EXPRESS", false, false)
         val line = EvidenceShadow8344.recoveryLine8345(t0, t0 + 3_600_000L)
-        // superseded by V5.0.8351 — the rate is read over the lane's own shadow activity (first close in the window → now): 3 closes in 50 min = 3.60/h, 27 to go = 450 min
-        assertTrue(line, line.contains("MOONSHOT n3/30 closesPerHour=3.60 etaToBarMin=450") && line.contains("EXPRESS n0/30 closesPerHour=0.00 etaToBarMin=-"))
+        // superseded by V5.0.8351 — the rate is read over the lane's own shadow activity (first close in the window → now): 3 closes in 50 min = 3.60/h, the lane-aware 15-close bar leaves 12 to go = 200 min
+        assertTrue(line, line.contains("MOONSHOT n3/15 closesPerHour=3.60 etaToBarMin=200") && line.contains("EXPRESS n0/30 closesPerHour=0.00 etaToBarMin=-"))
         EvidenceShadow8344.resetForTests8345()
         assertEquals(" recovery8345{-}", EvidenceShadow8344.recoveryLine8345(0L, t0))
         assertTrue("the hold line carries the projection", src("engine/truth/EvidenceHold8336.kt").contains("EvidenceShadow8344.recoveryLine8345(startMs8336, nowMs)"))
