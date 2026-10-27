@@ -1767,8 +1767,16 @@ object ForwardReturnLabeler7731 {
         } catch (_: Exception) { terminalStorageFailures8401.incrementAndGet() }
     }
 
-    private fun terminalBatch8401(): List<Map.Entry<String, String>> = terminalOutbox8395.entries.asSequence()
-        .filterNot { deliveredTerminals8395.contains(it.key) }.take(64).toList()
+    private var terminalCursor8403 = ""
+    private fun terminalBatch8401(): List<Map.Entry<String, String>> = synchronized(terminalLock8395) {
+        // Staged is not acknowledged. Rotate past staged records too, otherwise the first 64
+        // keep a consumer waiting for its 256-record checkpoint while later records never arrive.
+        val waiting = terminalOutbox8395.entries.filterNot { deliveredTerminals8395.contains(it.key) }.sortedBy { it.key }
+        val after = waiting.indexOfFirst { it.key > terminalCursor8403 }.takeIf { it >= 0 } ?: 0
+        val batch = (waiting.drop(after) + waiting.take(after)).take(64)
+        batch.lastOrNull()?.let { terminalCursor8403 = it.key }
+        batch
+    }
 
     private fun drainTerminals8395() {
         for ((key,raw) in terminalBatch8401()) {

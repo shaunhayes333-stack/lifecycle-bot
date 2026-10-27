@@ -233,6 +233,7 @@ jobs:
           ./gradlew testReleaseUnitTest \
             --tests '*Aate8401*' \
             --tests '*Aate8402*' \
+            --tests '*Aate8403*' \
             --tests '*Aate8397*' \
             --tests '*Aate8398*' \
             --tests '*Aate8372*' \

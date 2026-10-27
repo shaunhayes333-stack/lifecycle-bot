@@ -1615,9 +1615,24 @@ object Cortex7885 {
         if (shadowReady8372.isEmpty() && observationTerminals8395.isEmpty()) return true
         val now8377 = System.currentTimeMillis()
         if (!shadowFlushDue8402(shadowReady8372.values.toList(), observationTerminals8395.size, now8377 - shadowFlushedAtMs8377)) { inc("CORTEX_SHADOW_FLUSH_COALESCED_8377"); return true }
-        if (!loaded || !LearningPersistence.ready() || !shadowFlushRunning8372.compareAndSet(false, true)) return false
-        shadowFlushedAtMs8377 = now8377
-        try {
+        if (!loaded || !LearningPersistence.ready()) return false
+        // A label/shadow tick must keep observing prices while a multi-MB checkpoint runs.
+        // Scheduling is not a durable ACK: producers still consult their exact stored receipt.
+        enqueueCheckpoint8403(persistPool8094, shadowFlushRunning8372) { flushShadowOutcomesBlocking8403() }
+        return false
+    }
+
+    internal fun enqueueCheckpoint8403(executor: java.util.concurrent.Executor, running: java.util.concurrent.atomic.AtomicBoolean,
+                                       checkpoint: () -> Unit): Boolean {
+        if (!running.compareAndSet(false, true)) return false
+        return try {
+            executor.execute { try { checkpoint() } finally { running.set(false) } }
+            true
+        } catch (_: java.util.concurrent.RejectedExecutionException) { running.set(false); false }
+    }
+
+    private fun flushShadowOutcomesBlocking8403(): Boolean {
+        shadowFlushedAtMs8377 = System.currentTimeMillis()
             val batch = shadowReady8372.entries.map { it.key to it.value }
             val unavailable8395 = observationTerminals8395.toMap()
             if (batch.isEmpty() && unavailable8395.isEmpty()) return true
@@ -1646,7 +1661,6 @@ object Cortex7885 {
                 }
             }
             return true
-        } finally { shadowFlushRunning8372.set(false) }
     }
 
     /** Caller holds the model lock. All external delivery and checkpoint I/O are outside this section. */
@@ -1765,12 +1779,13 @@ object Cortex7885 {
                     .put("joint7961", org.json.JSONObject().also { j -> joint.forEach { (k, v) -> j.put(k, v.encode()) } })
                     .put("jointGeneration8372", org.json.JSONObject(generations as Map<*, *>)).put("jointNext8372", next)
                     .put("snapshotGeneration8386", generation).toString()
-                out[PENDING_PERSIST_KEY] = org.json.JSONObject(pend())
-                    .put("snapshotGeneration8386", generation).toString()
+                val pendingJson8403 = org.json.JSONObject(pend()).put("snapshotGeneration8386", generation)
+                // Validate this one parsed tree before serializing; rebuilding it twice more
+                // multiplied allocations precisely when restored pending history is largest.
+                require(pendingJson8403.getJSONArray("g8013") != null)
+                require(pendingJson8403.getJSONArray("p") != null)
+                out[PENDING_PERSIST_KEY] = pendingJson8403.toString()
                 out[GRADES_KEY_8144] = grades.encode()
-                // Validation belongs outside the model monitor and BEFORE usable commit receipts.
-                require(org.json.JSONObject(out[PENDING_PERSIST_KEY]!!).getJSONArray("g8013") != null)
-                require(org.json.JSONObject(out[PENDING_PERSIST_KEY]!!).getJSONArray("p") != null)
                 out.putAll(receipts)
                 snapshotEncodeMs8386 = (System.nanoTime() - encodeAt) / 1_000_000
                 out
