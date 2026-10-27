@@ -459,8 +459,15 @@ class PipelineHealthActivity : AppCompatActivity() {
         // verbatim because Golden Tape still asserts it.
         bgHandler.postDelayed({
             if (delivered.get() || destroyed) return@postDelayed
-            val fallback = try { buildEmergencyPipelineReport6308("full_builder_timeout_8s") } catch (_: Throwable) { "(emergency builder crashed — Main-thread ANR fallback)" }
+            var fallback = try { buildEmergencyPipelineReport6308("full_builder_timeout_8s") } catch (_: Throwable) { "(emergency builder crashed — Main-thread ANR fallback)" }
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_WATCHDOG_FALLBACK_6308") } catch (_: Throwable) {}
+            // V5.0.8398 — ship the full report built so far; its last line names the section that did not return.
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.inFlightDumpPartial8398()?.let { partial ->
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UNIFIED_REPORT_PARTIAL_SHIPPED_8398") } catch (_: Throwable) {}
+                    fallback = fallback + "\n===== PARTIAL FULL REPORT (builder still running at watchdog; last line = stalled section) V5.0.8398 =====\n" + partial
+                }
+            } catch (_: Throwable) {}
             deliverReport6308(fallback, "watchdog_fallback", "full_builder_timeout_8s")
         }, 20_000L)
 

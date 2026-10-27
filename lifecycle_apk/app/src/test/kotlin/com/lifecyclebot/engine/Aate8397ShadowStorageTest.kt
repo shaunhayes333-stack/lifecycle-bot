@@ -142,4 +142,29 @@ class Aate8397ShadowStorageTest {
         assertEquals(1, restored["cohort"]!!.size)
         assertEquals(10.0, restored["cohort"]!!.single()[0], 0.0)
     }
+
+    /** V5.0.8398 — `keys` / `containsKey` answer from the resident key index; the key query runs once, at attach. */
+    @Test fun keysAreIndexedAtAttachAndMaintainedByAppendWithoutRequeryingTheStore() {
+        val book = ShadowCohortBook8397(4); book.attach(cold())
+        book.append(listOf("C|CORE|NOW|SCALP|S:dip", "CORE|NOW|SCALP"), doubleArrayOf(10.0, 2.0, 8394.0, 1.0), "e1")
+        assertEquals(setOf("C|CORE|NOW|SCALP|S:dip", "CORE|NOW|SCALP"), book.keys)
+        assertTrue(book.containsKey("CORE|NOW|SCALP")); assertFalse(book.containsKey("MOONSHOT|NOW|SCALP"))
+        connection.close(); connect()
+        val restored = ShadowCohortBook8397(4); restored.attach(cold())
+        assertEquals(setOf("C|CORE|NOW|SCALP|S:dip", "CORE|NOW|SCALP"), restored.keys)
+        assertTrue(restored.containsKey("C|CORE|NOW|SCALP|S:dip"))
+        // keys stay answerable after the hot set is trimmed: the index, not the 64-entry hot cache, is the authority
+        restored.trim()
+        assertEquals(2, restored.keys.size)
+        assertTrue(restored.containsKey("CORE|NOW|SCALP"))
+        // report builder contract: the watchdog can ship the partial full report with the stalled section named
+        val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt").readText()
+        assertTrue(ui.contains("PipelineHealthCollector.inFlightDumpPartial8398()"))
+        assertTrue(ui.contains("UNIFIED_REPORT_PARTIAL_SHIPPED_8398"))
+        val coll = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(coll.indexOf("inFlightDump8398 = sb") < coll.indexOf("===== AATE Pipeline Health Snapshot ====="))
+        val explore = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExploreShadow8347.kt").readText()
+        assertTrue(explore.contains("reportMemo8398.set(HashMap())"))
+        assertTrue(explore.contains("memo.getOrPut(\"" + "\$" + "key|" + "\$" + "sinceMs\")"))
+    }
 }

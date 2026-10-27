@@ -1700,6 +1700,11 @@ object PipelineHealthCollector {
         }
 
         val sb = StringBuilder(16 * 1024)
+        // V5.0.8398 — the builder registers its buffer so the 20 s watchdog fallback can ship whatever was already
+        // built (runtime 5.0.8397/8398: two consecutive dumps were emergency fallbacks only, with no line naming the
+        // section that stalled). The last line of the partial text is the section that did not return.
+        inFlightDump8398 = sb
+        inFlightDumpStartedMs8398 = System.currentTimeMillis()
         sb.append("===== AATE Pipeline Health Snapshot =====\n")
         sb.append("  Report revision: ${s.reportRevision}\n")
         // V5.0.7717 — the last process crash, at the top, so the next pasted
@@ -4659,7 +4664,25 @@ object PipelineHealthCollector {
             sb.append(com.lifecyclebot.engine.BotService.backgroundLivenessSnapshot6544()).append("\n")
         } catch (_: Throwable) {}
 
+        inFlightDump8398 = null
         return sb.toString()
+    }
+
+    @Volatile private var inFlightDump8398: StringBuilder? = null
+    @Volatile private var inFlightDumpStartedMs8398 = 0L
+
+    /**
+     * V5.0.8398 — the full report built so far by a builder that has not returned, for the watchdog fallback. Null when
+     * no build is in flight. The buffer is read while another thread appends, so the tail may be a torn line; that tail
+     * is exactly the section still executing.
+     */
+    fun inFlightDumpPartial8398(nowMs: Long = System.currentTimeMillis()): String? {
+        val b = inFlightDump8398 ?: return null
+        return try {
+            val t = b.toString()
+            val tail = t.trimEnd().substringAfterLast('\n').take(160)
+            "builderRunningMs=${nowMs - inFlightDumpStartedMs8398} partialChars=${t.length} stalledAfter=\"$tail\"\n$t"
+        } catch (_: Throwable) { null }
     }
 
     /**

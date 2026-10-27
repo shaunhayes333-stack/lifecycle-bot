@@ -121,6 +121,11 @@ internal class ShadowStorageUnavailable8397(cause: Throwable? = null) : RuntimeE
 internal class ShadowCohortBook8397(private val fields: Int, private val maxRows: Int = 300, private val hotCapacity: Int = 64) {
     private val hot = LinkedHashMap<String, List<DoubleArray>>(16, .75f, true)
     private var store: ShadowColdStore8397? = null
+    // V5.0.8398 — every key the store holds, resident. Keys are short; the values were the memory the cold store removed.
+    // Runtime 5.0.8397/8398: the operator report fell to the 20 s watchdog fallback twice because `keys` re-ran a full
+    // key query per call and the status walks (per lane × per cohort dimension) made hundreds of such calls, each read
+    // then missing a 64-entry hot cache; the same monitor serialised the trading path's appends behind that walk.
+    private val keyIndex = HashSet<String>()
     data class AppendResult(val inserted: Boolean, val terminal: DoubleArray)
     private data class Early(val keys: List<String>, val row: DoubleArray, val terminal: DoubleArray)
     private val preAttachReceipts = LinkedHashMap<String, Early>()
@@ -135,6 +140,7 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
             }
         } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
         store = cold; hot.clear(); preAttachReceipts.clear()
+        keyIndex.clear(); try { keyIndex.addAll(cold.keys()) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
     }
 
     private fun decode(value: String?): List<DoubleArray> = value.orEmpty().lineSequence().flatMap { it.splitToSequence(';') }
@@ -156,8 +162,8 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
         val value = try { store?.read(key) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) } ?: return null
         return decode(value).also { putHot(key, it) }
     }
-    val keys: Set<String> @Synchronized get() = (store?.keys().orEmpty() + hot.keys).toSet()
-    @Synchronized fun containsKey(key: String): Boolean = hot.containsKey(key) || store?.read(key) != null
+    val keys: Set<String> @Synchronized get() = if (store == null) hot.keys.toSet() else (keyIndex + hot.keys)
+    @Synchronized fun containsKey(key: String): Boolean = hot.containsKey(key) || (store != null && key in keyIndex)
 
     /** One event's variants/cohorts are atomic and idempotent, including replay after a crash before ticket deletion. */
     @Synchronized fun append(keys: Collection<String>, row: DoubleArray, event: String, terminal: DoubleArray = row): AppendResult {
@@ -174,6 +180,7 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
             }
         } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
         updated.forEach { (k, v) -> putHot(k, v) }
+        if (cold != null) keyIndex.addAll(updated.keys)
         if (cold == null) preAttachReceipts[event] = Early(keys.distinct(), row.copyOf(), terminal.copyOf())
         return AppendResult(true, terminal.copyOf())
     }
@@ -182,5 +189,5 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
     @Synchronized fun hotCount(): Int = hot.size
     @Synchronized fun bytes(): Long = hot.entries.sumOf { (k, v) -> 64L + k.length * 2L + v.sumOf { 32L + it.size * 8L } } +
         preAttachReceipts.entries.sumOf { (k, v) -> 96L + k.length * 2L + v.row.size * 8L + v.keys.sumOf { 32L + it.length * 2L } }
-    @Synchronized fun clear() { hot.clear(); preAttachReceipts.clear() } // test-local reset; durable learning is never evicted
+    @Synchronized fun clear() { hot.clear(); preAttachReceipts.clear(); keyIndex.clear() } // test-local reset; durable learning is never evicted
 }

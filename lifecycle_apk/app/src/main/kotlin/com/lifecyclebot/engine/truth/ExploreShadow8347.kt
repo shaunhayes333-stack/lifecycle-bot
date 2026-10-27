@@ -1119,9 +1119,18 @@ object ExploreShadow8347 {
     }
 
     private fun netsSince(key: String, sinceMs: Long): List<Double> {
+        // V5.0.8398 — inside one status-line walk each (key, since) is read from the cold store once, not once per cohort scan.
+        val memo = reportMemo8398.get()
+        if (memo != null) return memo.getOrPut("$key|$sinceMs") { netsSinceUncached8398(key, sinceMs) }
+        return netsSinceUncached8398(key, sinceMs)
+    }
+
+    private fun netsSinceUncached8398(key: String, sinceMs: Long): List<Double> {
         val q = books[key] ?: return emptyList()
         return synchronized(q) { q.filter { it[0] >= sinceMs && ShadowPersist8355.proofEligible8394(it.getOrNull(2), it.getOrNull(3), sinceMs) }.map { it[1] } }
     }
+
+    private val reportMemo8398 = ThreadLocal<HashMap<String, List<Double>>?>()
 
     private val choiceCache8351 = ConcurrentHashMap<String, Pair<Long, Choice8351?>>()
     private const val CHOICE_CACHE_MS_8351 = 30_000L
@@ -1377,6 +1386,11 @@ object ExploreShadow8347 {
     }
 
     fun statusLine8347(sinceMs: Long): String {
+        reportMemo8398.set(HashMap())
+        try { return statusLineUnmemoised8398(sinceMs) } finally { reportMemo8398.remove() }
+    }
+
+    private fun statusLineUnmemoised8398(sinceMs: Long): String {
         // V5.0.8360 — every lane with any book (native variant or a cohort), so a lane trading only rejects / setups shows too
         val laneSet = books.keys.map { it.removePrefix(UNFILLED_PREFIX_8364) }   // V5.0.8364 — U|<key> fill-rate rows name their key's lane
             .map { if (it.startsWith("C|")) it.removePrefix("C|").substringBefore('|') else it.substringBefore('|') }.toSortedSet()
