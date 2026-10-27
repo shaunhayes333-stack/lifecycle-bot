@@ -47,6 +47,17 @@ class Aate8404CostBasisTest {
         assertEquals(-5.0, read(book), 1e-9)
     }
 
+    @Test fun sameReturnWithNewIndependentWitnessUpdatesTheOriginalContribution() {
+        val book = CortexLedger7885()
+        val trace = book.grade(lane, emptyList(), emptyList(), doubleArrayOf(), 95.0, 100.0)!!
+        assertEquals(0.0, book.lanes.getValue(lane).witnessed8324, 0.0)
+        book.revise8006(lane, emptyList(), emptyList(), doubleArrayOf(), trace,
+            95.0, 95.0, 100.0, 100.0, witnessedOld8324 = false, witnessedNew8324 = true)
+        assertEquals(1.0, book.lanes.getValue(lane).witnessed8324, 0.0)
+        assertEquals(1.0, book.lanes.getValue(lane).n, 0.0)
+        assertEquals(95.0, book.lanes.getValue(lane).rawMean8187(), 0.0)
+    }
+
     @Test fun contributionBasisDecaysWithItsOriginalValueAndLegacyRowsGetNoInventedCredit() {
         val stat = CortexLedger7885.Stat()
         val stamp = stat.add(-5.0, false)
