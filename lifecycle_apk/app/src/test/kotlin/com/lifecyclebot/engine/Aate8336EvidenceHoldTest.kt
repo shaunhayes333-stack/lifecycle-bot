@@ -33,4 +33,16 @@ class Aate8336EvidenceHoldTest {
         EvidenceHold8336.enabled8336 = false
         assertNull(EvidenceHold8336.refusal8336("SHITCOIN", paper = false))
     }
+
+    @Test fun v8399LaneBarIsFifteenClosesAtPf12ForTheProfitableLanesOnly() {
+        // V5.0.8399 — CORE / MOONSHOT / PROJECT_SNIPER prove on 15 closes at PF 1.2; every other lane keeps 30 / 1.3; the margin is shared.
+        assertEquals(setOf("CORE", "MOONSHOT", "PROJECT_SNIPER"), EvidenceHold8336.FAST_BAR_LANES_8399)
+        assertEquals(EvidenceHold8336.FAST_MIN_N_8399, EvidenceHold8336.minN8399("CORE")); assertEquals(EvidenceHold8336.MIN_N_8336, EvidenceHold8336.minN8399("SHITCOIN"))
+        assertEquals(EvidenceHold8336.FAST_MIN_PF_8399, EvidenceHold8336.minPf8399("MOONSHOT"), 0.0); assertEquals(EvidenceHold8336.MIN_PF_8336, EvidenceHold8336.minPf8399(null), 0.0)
+        val rets = List(16) { if (it % 4 == 3) -5.0 else 8.0 }                 // 16 closes, mean +4.75, SE ~1.45, PF 96/20 = 4.8
+        val sol = rets.map { it / 100.0 }
+        assertTrue(EvidenceHold8336.proof8336(rets, sol, "CORE").proven)
+        assertFalse("the same record does not prove a 30-close lane", EvidenceHold8336.proof8336(rets, sol, "SHITCOIN").proven)
+        assertFalse("nor an un-laned read", EvidenceHold8336.proof8336(rets, sol).proven)
+    }
 }

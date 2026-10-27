@@ -286,6 +286,17 @@ class Aate8366CortexTest {
         assertTrue(ramp.granted)
         assertTrue(ramp.fraction > 0.0 && ramp.fraction < CortexAuthority8366.test8366(rankingRows(500), 3.0).fraction)
         assertEquals(CortexAuthority8366.graduated8366(ramp.spread, 3.0) * CortexAuthority8366.rampWeight8399(ramp.oosN), ramp.fraction, 1e-12)
+        // The ramp's shape: 15 OOS / 5 per bucket is the first rung, the noise multiple falls 2.0 -> 1.0, the weight rises 0.15 -> 1.0.
+        assertEquals(15, CortexAuthority8366.MIN_RAMP_OOS_N_8399); assertEquals(5, CortexAuthority8366.MIN_RAMP_BUCKET_N_8399)
+        assertEquals(2.0, CortexAuthority8366.rampK8399(CortexAuthority8366.MIN_RAMP_OOS_N_8399), 1e-12)
+        assertEquals(1.0, CortexAuthority8366.rampK8399(CortexAuthority8366.MIN_OOS_N_8366), 1e-12)
+        assertEquals(CortexAuthority8366.RAMP_FLOOR_WEIGHT_8399, CortexAuthority8366.rampWeight8399(CortexAuthority8366.MIN_RAMP_OOS_N_8399), 1e-12)
+        assertEquals(1.0, CortexAuthority8366.rampWeight8399(CortexAuthority8366.MIN_OOS_N_8366), 1e-12)
+        assertTrue(CortexAuthority8366.rampWeight8399(50) > CortexAuthority8366.rampWeight8399(20))
+        // Coverage scaling: 1 at the 0.7 bar, proportional below it, nothing under MIN_COVERAGE_FOR_ANY_8399.
+        assertEquals(1.0, CortexAuthority8366.coverageScale8399(0.7), 1e-12)
+        assertEquals(0.5 / 0.7, CortexAuthority8366.coverageScale8399(0.5), 1e-12)
+        assertEquals(0.0, CortexAuthority8366.coverageScale8399(CortexAuthority8366.MIN_COVERAGE_FOR_ANY_8399 - 0.01), 0.0)
         // A score that ranks backwards, or a spread that does not pay the cost, earns nothing.
         val inv = rankingRows(500).map { it.copy(netPct = 40.0 - it.score * 0.5) }
         assertEquals(CortexAuthority8366.Verdict8366.NO_RANK, CortexAuthority8366.test8366(inv, 3.0).verdict)
