@@ -166,7 +166,7 @@ object Cortex7885 {
             val offset8404 = executableOffset8187(lane)
             val fit8404 = calibration.netFit8372(lane, offset8404)
             Locked8325(cross, fp.first, fp.second, calibration.slope(lane), fit8404,
-                if (fit8404?.calibrated == true || offset8404 <= 0.0 || !ledger.hasShadowBasis8404()) fp.first else ledger.fuseCostBasis8404(lane, baseVotes8325 + cross, regime, offset8404))
+                if (fit8404?.calibrated == true || offset8404 <= 0.0 || !ledger.hasShadowBasis8404()) fp.first else ledger.fuseCostBasis8404(lane, baseVotes8325 + cross, regime, offset8404), offset8404)
         }
         val dyn = dynamic8325 + locked8325.cross
         val ids = CortexVoters7885.IDS + dyn.map { it.voterId }
@@ -181,7 +181,7 @@ object Cortex7885 {
         // past mean (TREASURY ic -0.33 INVERTED, QUALITY / BLUECHIP / CYCLIC FLAT on lanes with few seated voters).
         // One frozen per-token NET-return forecast drives the panel, verdict and validation record.
         // Log-growth, lane rank and tail ponds remain diagnostics; they must not silently rewrite YES/NO.
-        val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, executableOffset8187(lane), locked8325.costFused8404)
+        val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, locked8325.executionOffset8404, locked8325.costFused8404)
         val ev8324 = if (runner) tailEvNow8324(lane, fused) else Double.NaN
         val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)
         val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
@@ -243,7 +243,8 @@ object Cortex7885 {
                              val prediction: CortexLedger7885.PredictionSnapshot8076, val slope: Double,
                              /** Arithmetic net-return calibration, read in the same critical section. */
                              val net8372: CortexCalibration7901.NetFit8372? = null,
-                             val costFused8404: CortexLedger7885.Fused = fused)
+                             val costFused8404: CortexLedger7885.Fused = fused,
+                             val executionOffset8404: Double = 0.0)
 
     /** A flat/unmeasured map has no token discrimination: retain the original fused token read, never a lane-wide HOLD. */
     internal fun calibratedRead8372(runner: Boolean, fused: CortexLedger7885.Fused, slope: Double,

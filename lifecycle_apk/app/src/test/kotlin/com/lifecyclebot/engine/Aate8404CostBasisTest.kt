@@ -15,6 +15,15 @@ class Aate8404CostBasisTest {
             book.fuseCostBasis8404(lane, emptyList(), "", 3.0))
     }
 
+    @Test fun assessmentUsesOneFrozenOffsetForProjectionAndFinalSubtraction() {
+        val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
+        val assessment = source.substringAfter("fun assess(").substringBefore("private class Locked8325")
+        assertEquals("a concurrent refresh must not mix two cost bases", 1,
+            Regex("executableOffset8187\\(lane\\)").findAll(assessment).count())
+        assertTrue(assessment.contains("regime, offset8404), offset8404)"))
+        assertTrue(assessment.contains("locked8325.executionOffset8404, locked8325.costFused8404)"))
+    }
+
     @Test fun executableShadowLossIsNotChargedTwiceAndStoredLossNeverBecomesProfit() {
         val book = CortexLedger7885()
         grade(book, true)
