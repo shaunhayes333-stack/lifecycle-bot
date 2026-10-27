@@ -451,6 +451,7 @@ object Cortex7885 {
     private fun pruneDeadPending8144(nowMs: Long, force: Boolean = false) {
         if (!force && nowMs - lastDeadPrune8144 < 60_000L) return
         lastDeadPrune8144 = nowMs
+        pairedPending8401.entries.removeIf { nowMs - it.value.atMs > DEAD_PENDING_MS_8144 }
         val before = pending.size
         for ((key, p) in pending.entries) if (nowMs - p.atMs > DEAD_PENDING_MS_8144) {
             synchronized(this) {

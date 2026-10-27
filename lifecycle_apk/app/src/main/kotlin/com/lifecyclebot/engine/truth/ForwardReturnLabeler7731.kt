@@ -576,7 +576,7 @@ object ForwardReturnLabeler7731 {
                 }.commit()
             if (committed) acknowledged.forEach { terminalOutbox8395.remove(it); deliveredTerminals8395.remove(it) }
             else { terminalStorageFailures8401.incrementAndGet(); lastPersistMs = 0L }
-        } catch (_: Throwable) {}
+        } catch (_: Exception) { terminalStorageFailures8401.incrementAndGet(); lastPersistMs = 0L }
     }
 
     private fun selectedPending8401(nowMs: Long): List<Obs> = pending.values.asSequence()

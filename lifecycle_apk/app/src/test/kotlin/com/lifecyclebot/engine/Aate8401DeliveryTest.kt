@@ -14,6 +14,14 @@ class Aate8401DeliveryTest {
     private fun call(owner: Any, name: String, vararg args: Any?): Any? = owner.javaClass.declaredMethods
         .single { it.name == name && it.parameterCount == args.size }.apply { isAccessible = true }.invoke(owner, *args)
 
+    @Test fun blockedVerdictsAreNotReportedAsMissingIntentOrDeadDiscovery() {
+        assertEquals("FDG_BLOCKED_ALL", ToolkitSignalSheet.preExecutionStatus8401(100, 10, 0, 0, 50))
+        assertEquals("FDG_BLOCKED_ALL", ToolkitSignalSheet.preExecutionStatus8401(0, 0, 0, 0, 1))
+        assertEquals("INTENT_CHOKED", ToolkitSignalSheet.preExecutionStatus8401(10, 5, 0, 1, 2))
+        assertEquals("FDG_CHOKED", ToolkitSignalSheet.preExecutionStatus8401(10, 5, 0, 0, 0))
+        assertNull(ToolkitSignalSheet.preExecutionStatus8401(10, 5, 1, 1, 2))
+    }
+
     @Test fun bothRealShadowProofCallersUseTheFastLaneBarAndLosingCohortsStayHeld() {
         val owner = EvidenceShadow8344
         val book = field(owner, "closes").get(owner) as ShadowCohortBook8397
