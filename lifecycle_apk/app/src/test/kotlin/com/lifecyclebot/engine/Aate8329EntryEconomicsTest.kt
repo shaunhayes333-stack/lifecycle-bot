@@ -166,7 +166,9 @@ class Aate8329EntryEconomicsTest {
         assertEquals("never negative", 0.0, CostLedger7962.measuredMedianFrom8329(listOf(doubleArrayOf(-2.0, 0.03), doubleArrayOf(-1.0, 0.03)), 2)!!, 1e-9)
         assertNull("the 8-trade rule is unchanged for labels and exits", CostLedger7962.measuredFrom7962(rows, 0.03))
         val ne = src("engine/truth/NetEdge8030.kt")
-        assertTrue(ne.contains("val measured = (try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }) ?: return model"))
+        // superseded by V5.0.8418 — the measured median still lifts the model, but only until realised slippage is receipt-
+        // measured (RoundTrip8418.markLift8418; behaviour in Aate8418RoundTripTest).
+        assertTrue(ne.contains("try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }, receipts8418) ?: return model"))
         assertTrue(ne.contains("return maxOf(model, measured)"))
         assertTrue("the 8114 core's economic refusal reads the cost truth", ne.contains("val cost = preTradeCostPct8329(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)"))
         assertTrue("exits keep the model (wins are not capped)", ne.contains("val rt = costPct8030(lane, sizeSol, liquidityUsd, mint, mcapUsd)"))
