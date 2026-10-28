@@ -479,6 +479,7 @@ object CanonicalEntryAuthority6551 {
             cortexLearningLane8372 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.laneFor8107(
                 candidate.assetClass, candidate.evidence["deskLane7391"]).orEmpty(),
             cortexLearningIdentity8372 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.learningIdentity8372(candidate),
+            spotScaleLeverage8418 = SpotScale8418.fromEvidence(candidate.evidence),
         )
         val registered = ExecutableOpenGate.registerCanonicalIntent6554(intent)
             ?: return deferred(candidate, venue, "EXEC_INTENT_REGISTRATION_FAILED")

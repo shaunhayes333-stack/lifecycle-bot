@@ -1336,6 +1336,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     "walletSol" to balance.toString(),
                     "laneRiskCapSol" to (balance * 0.30).toString(),
                     "laneMinExecutableSol" to "0.001",
+                    com.lifecyclebot.engine.truth.SpotScale8418.evidence(signal.market.isCrypto, leverage),
                 ),
                 requestedSizeSol = hiveSizeSol,
                 price = signal.price,
@@ -1980,9 +1981,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 val instanceId = CollectiveLearning.getInstanceId() ?: ""
                 
                 // Get SOL price for USD conversion
-                val solPrice = try {
-                    PerpsMarketDataFetcher.getSolPrice()
-                } catch (_: Exception) { 150.0 }
+                val solPrice = com.lifecyclebot.engine.SolUsd8418.liveOrRefuse("STOCKS_TURSO_RECORD") ?: return@launch  // V5.0.8418 — no $150 constant
                 
                 val tradeRecord = MarketsTradeRecord(
                     tradeHash = "STOCK_${position.id}_${System.currentTimeMillis()}",
@@ -2046,9 +2045,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 val client = CollectiveLearning.getClient() ?: return@launch
                 val instanceId = CollectiveLearning.getInstanceId() ?: ""
                 
-                val solPrice = try {
-                    PerpsMarketDataFetcher.getSolPrice()
-                } catch (_: Exception) { 150.0 }
+                val solPrice = com.lifecyclebot.engine.SolUsd8418.liveOrRefuse("STOCKS_TURSO_RECORD") ?: return@launch  // V5.0.8418 — no $150 constant
                 
                 val posRecord = MarketsPositionRecord(
                     id = position.id,

@@ -228,8 +228,9 @@ object CryptoUniverseExecutor {
             else -> Unit
         }
 
-        val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
-        val sizeUsd = sizeSol * solPriceUsd
+        // V5.0.8418 — SOL size × live SOL/USD; unknown/stale refuses (no $150 constant).
+        val sizeUsd = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol, "CRYPTO_UNIVERSE_BUY")
+            ?: return@runAwaited Outcome.ExecFailed(resolution, "SOL/USD unknown or stale", "SIZING", "SOL_USD_UNKNOWN_8418")
         val sizeLamports7326 = (sizeSol * 1_000_000_000.0).toLong()
 
         // V5.0.7326 — route proof IS the order that will run: SOL -> target,

@@ -2240,7 +2240,10 @@ object FluidLearningAI {
         // Add estimated price impact based on liquidity
         // V5.0.6479 — sizing/exit math is hot-path; never block on provider IO.
         // EfficiencyLayer is refreshed elsewhere and a conservative fallback is neutral.
-        val solPrice = try { EfficiencyLayer.getCachedPrice()?.solPriceUsd ?: 150.0 } catch (_: Exception) { 150.0 }
+        // V5.0.8418 — observed SOL/USD only; unknown leaves impact unpriced (fees floor), never $150.
+        val solPrice = (try { EfficiencyLayer.getCachedPrice()?.solPriceUsd } catch (_: Exception) { null })
+            ?.takeIf { it.isFinite() && it > 0.0 } ?: com.lifecyclebot.engine.SolUsd8418.liveOrNull()
+            ?: return (minPct * 1.2).coerceAtLeast(1.0)
         val positionUsd = positionSizeSol * solPrice
         
         val priceImpactPct = when {

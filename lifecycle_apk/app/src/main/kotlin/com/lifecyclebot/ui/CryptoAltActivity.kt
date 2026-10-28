@@ -410,7 +410,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val trades = performance.trades
         val phase  = getPhaseLabel()
         // V5.9.5: Show USD as main balance
-        val solUsdPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0 //
+        val solUsdPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — 0.0 = unknown, never $85
         // V5.0.7392 — the shared snapshot decides availability (ledger renders
         // while reconciliation is pending); this screen no longer re-derives it.
         val paperSafe = isLive || unified?.accountAvailable == true
@@ -429,8 +429,8 @@ class CryptoAltActivity : AppCompatActivity() {
         tvHeroBalance.contentDescription = if (!displayReady6830) unified?.forensicLine
             ?: "Paper accounting has not reconciled. Balance withheld."
         else "Cash ${"%.4f".format(bal)} SOL, equity ${"%.4f".format(equity)} SOL"
-        val pnlUsd = pnl * solUsdPrice
-        tvHeroPnl.text     = if (performanceSafe || hasCredibleBalance6830) "${if (pnlUsd >= 0) "+" else ""}$${"%.2f".format(pnlUsd)} (${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL)" else "ACCOUNT UNAVAILABLE"
+        val pnlUsdText8418 = if (solUsdPrice > 0.0) "${if (pnl >= 0) "+" else ""}$${"%.2f".format(pnl * solUsdPrice)}" else "$—"
+        tvHeroPnl.text     = if (performanceSafe || hasCredibleBalance6830) "$pnlUsdText8418 (${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL)" else "ACCOUNT UNAVAILABLE"
         tvHeroPnl.setTextColor(if (pnl >= 0) green else red)
         tvHeroWinRate.text = "${"%.1f".format(wr)}% WR"
         // V5.9.358 — show W/L/S breakdown so the previous "62% WR / -13 SOL"
@@ -877,7 +877,6 @@ class CryptoAltActivity : AppCompatActivity() {
         val status      = stats["status"] as? String ?: "Idle"
         val wr          = if (cycles > 0) (wins.toDouble() / cycles * 100).toInt() else 0
         val modeLabel   = if (live) "🔴 LIVE" else "📄 PAPER"
-        val solPx       = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
         val ringGrowth  = ringUsd - 500.0
         val growthColor = if (ringGrowth >= 0) green else red
         val tileColor   = if (inPos) amber else blue

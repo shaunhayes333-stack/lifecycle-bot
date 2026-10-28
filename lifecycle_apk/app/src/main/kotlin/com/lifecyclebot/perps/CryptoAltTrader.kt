@@ -311,7 +311,8 @@ object CryptoAltTrader {
      *      (LiveExitCoverageGuard7701, as the meme admission gate checks).
      */
     private fun liveCryptoEntryGate7708(balance: Double, requested: Double): Pair<Double, String?> {
-        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        // V5.0.8418 — the observed rate must also be fresh (<= 5 min), not merely non-zero.
+        val solUsd = try { WalletManager.freshSolPrice8163() } catch (_: Throwable) { 0.0 }
         if (!solUsd.isFinite() || solUsd <= 0.0) return requested to "CRYPTO_LIVE_REFUSED_NO_SOL_PRICE_7708"
         val reserve = try { com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL } catch (_: Throwable) { 0.0 }
         val tradeable = (balance - reserve).coerceAtLeast(0.0)
@@ -3812,7 +3813,7 @@ object CryptoAltTrader {
             // Without those witnesses, refuse before cash is debited.
             val paperQuantityScale7252 = 9
             val paperSolUsd7252 = try {
-                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — fresh observation only
             } catch (_: Throwable) { 0.0 }
             val paperQtyRaw7252 = if (
                 paperSolUsd7252.isFinite() && paperSolUsd7252 in 50.0..5_000.0 &&
@@ -5467,6 +5468,8 @@ object CryptoAltTrader {
             try {
                 val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
                 val instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: ""
+                // V5.0.8418 (item 7) — USD notional is SOL size × SOL/USD, never × the alt's own price.
+                val sizeUsd8418 = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(pos.sizeSol, "CRYPTO_ALT_TURSO_RECORD") ?: return@launch
                 // Reuse the Markets position schema
                 client.saveMarketsPosition(com.lifecyclebot.collective.MarketsPositionRecord(
                     id               = pos.id,
@@ -5478,7 +5481,7 @@ object CryptoAltTrader {
                     entryPrice       = pos.entryPrice,
                     currentPrice     = pos.currentPrice,
                     sizeSol          = pos.sizeSol,
-                    sizeUsd          = pos.sizeSol * pos.currentPrice,
+                    sizeUsd          = sizeUsd8418,
                     leverage         = pos.leverage,
                     takeProfitPrice  = pos.takeProfitPrice,
                     stopLossPrice    = pos.stopLossPrice,

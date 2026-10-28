@@ -423,8 +423,9 @@ object JupiterPerps {
             }
             
             // Calculate position parameters
-            val collateralUsd = sizeSol * currentPrice / leverage
-            val collateralSol = collateralUsd / currentPrice
+            // V5.0.8418 (item 7) — collateral is SOL margin / leverage; the market price is
+            // USD per unit of the traded asset and never converts a SOL size.
+            val collateralSol = sizeSol / leverage
             
             ErrorLogger.info(TAG, "⚡ Building LIVE perps tx: ${market.symbol} ${direction.symbol} " +
                 "${leverage}x | collateral=${collateralSol.fmt(4)}◎")

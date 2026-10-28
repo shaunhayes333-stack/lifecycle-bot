@@ -132,9 +132,10 @@ object UniversalBridgeEngine {
             val sol = wallet.getSolBalance()
             if (sol > 0.001) {
                 balances[SOL_MINT] = sol
-                val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-                usdValues[SOL_MINT] = sol * solPriceUsd
-                approxPricesUsd[SOL_MINT] = solPriceUsd
+                // V5.0.8418 — SOL is valued only at the live observed rate; unknown stays unvalued
+                // (never a $150 constant, and never cached here where it could go stale).
+                val solPriceUsd = SolUsd8418.liveOrNull()
+                if (solPriceUsd != null) usdValues[SOL_MINT] = sol * solPriceUsd else SolUsd8418.refuse("BRIDGE_CAPACITY")
             }
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "SOL balance error: ${e.message}")
@@ -216,7 +217,7 @@ object UniversalBridgeEngine {
         val preUsdcUi6486 = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
 
         // Calculate how much of source token = sizeUsd
-        val sourcePrice = approxPricesUsd[sourceMint] ?: estimateTokenPriceUsd(sourceMint)
+        val sourcePrice = priceUsd8418(sourceMint)
         if (sourcePrice <= 0) {
             return@withContext BridgeResult(false, sourceMint, USDC_MINT, 0, 0.0, null, "Cannot price $sourceMint")
         }
@@ -329,7 +330,7 @@ object UniversalBridgeEngine {
             val tokenAmount = if (targetMint == SOL_MINT) null else try { wallet.getTokenAccountsWithDecimalsBounded()[targetMint] } catch (_: Throwable) { null }
             val availableUi = if (targetMint == SOL_MINT) try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 } else tokenAmount?.uiDoubleForDisplay() ?: 0.0
             val decimals = if (targetMint == SOL_MINT) 9 else tokenAmount?.decimals ?: (TOKEN_DECIMALS[targetMint] ?: 9)
-            val price = approxPricesUsd[targetMint] ?: estimateTokenPriceUsd(targetMint)
+            val price = priceUsd8418(targetMint)
             val requestedUi = if (price > 0.0) sizeUsd / price else 0.0
             if (requestedUi <= 0.0 || availableUi + 1e-12 < requestedUi) {
                 return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null,
@@ -388,7 +389,7 @@ object UniversalBridgeEngine {
         // directly. prepareCapital() now ONLY does atomic single-call routes.
         // ════════════════════════════════════════════════════════════════════
 
-        val sourcePrice = approxPricesUsd[src] ?: estimateTokenPriceUsd(src)
+        val sourcePrice = priceUsd8418(src)
         if (sourcePrice <= 0) {
             return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null, "Cannot price ${mintLabel(src)}")
         }
@@ -769,32 +770,62 @@ object UniversalBridgeEngine {
     /** V5.0.7326 — Sender tip for bridge swaps (same 200k floor the meme path uses). */
     private const val SENDER_TIP_LAMPORTS_7326 = 200_000L
 
+    /** V5.0.8418 — SOL always at the live rate (0.0 = unknown → "Cannot price" refusal), others as before. */
+    private fun priceUsd8418(mint: String): Double =
+        if (mint == SOL_MINT) SolUsd8418.liveOrNull() ?: run { SolUsd8418.refuse("BRIDGE_SOURCE_PRICE"); 0.0 }
+        else approxPricesUsd[mint] ?: estimateTokenPriceUsd(mint)
+
     private fun estimateUsdValue(mint: String, amount: Double): Double {
+        if (mint == SOL_MINT) return amount * (SolUsd8418.liveOrNull() ?: 0.0)
         val known = approxPricesUsd[mint]
         if (known != null) return amount * known
         return when (mint) {
-            SOL_MINT    -> amount * (WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0)
+            SOL_MINT    -> 0.0  // V5.0.8418 — handled above at the live rate only
             USDC_MINT,
             USDT_MINT   -> amount
-            WBTC_MINT   -> amount * 85_000.0   // rough estimate
-            WETH_MINT   -> amount * 3_000.0
-            WBNB_MINT   -> amount * 600.0
-            WAVAX_MINT  -> amount * 35.0
-            WMATIC_MINT -> amount * 0.8
-            else        -> 0.0  // unknown token
+            // V5.0.8418 — wrapped majors at their live observed price only (were fixed
+            // $85k / $3k / $600 / $35 / $0.8 guesses). Unknown = 0 value: not a funding source.
+            else        -> amount * (wrappedLivePriceUsd8418(mint) ?: 0.0)
         }
     }
 
     private fun estimateTokenPriceUsd(mint: String): Double {
         return approxPricesUsd[mint] ?: when (mint) {
-            SOL_MINT    -> WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+            SOL_MINT    -> SolUsd8418.liveOrNull() ?: 0.0  // V5.0.8418 — never a constant
             USDC_MINT,
             USDT_MINT   -> 1.0
-            WBTC_MINT   -> 85_000.0
-            WETH_MINT   -> 3_000.0
-            WBNB_MINT   -> 600.0
-            else        -> 0.0
+            // V5.0.8418 — 0.0 = unknown → prepareCapital/bridgeToUsdc refuse "Cannot price".
+            else        -> wrappedLivePriceUsd8418(mint) ?: 0.0
         }
+    }
+
+    /** V5.0.8418 — the wrapped-major mint → its perps market symbol, or null for any other mint. */
+    internal fun wrappedMarket8418(mint: String): com.lifecyclebot.perps.PerpsMarket? = when (mint) {
+        WBTC_MINT   -> com.lifecyclebot.perps.PerpsMarket.BTC
+        WETH_MINT   -> com.lifecyclebot.perps.PerpsMarket.ETH
+        WBNB_MINT   -> com.lifecyclebot.perps.PerpsMarket.BNB
+        WAVAX_MINT  -> com.lifecyclebot.perps.PerpsMarket.AVAX
+        WMATIC_MINT -> com.lifecyclebot.perps.PerpsMarket.MATIC
+        else        -> null
+    }
+
+    /** V5.0.8418 — a price is usable only when positive and observed within [WRAPPED_PRICE_MAX_AGE_MS_8418]. */
+    internal fun freshPriceOrNull8418(price: Double, observedAtMs: Long, nowMs: Long): Double? =
+        if (price.isFinite() && price > 0.0 && nowMs - observedAtMs in 0L..WRAPPED_PRICE_MAX_AGE_MS_8418) price else null
+
+    private const val WRAPPED_PRICE_MAX_AGE_MS_8418 = 5L * 60L * 1000L
+
+    /**
+     * V5.0.8418 — the live USD price of a wrapped major from the existing market-data cache
+     * (PerpsMarketDataFetcher: Pyth / PriceAggregator). Null when unknown or stale; never guessed.
+     */
+    internal fun wrappedLivePriceUsd8418(mint: String, nowMs: Long = System.currentTimeMillis()): Double? {
+        val market = wrappedMarket8418(mint) ?: return null
+        val data = try { com.lifecyclebot.perps.PerpsMarketDataFetcher.getCachedPrice(market) } catch (_: Throwable) { null }
+            ?: return null
+        val p = freshPriceOrNull8418(data.price, data.lastUpdate, nowMs)
+        if (p == null) try { PipelineHealthCollector.labelInc("BRIDGE_WRAPPED_PRICE_UNKNOWN_8418_${market.symbol}") } catch (_: Throwable) {}
+        return p
     }
 
     fun mintLabel(mint: String): String = when (mint) {

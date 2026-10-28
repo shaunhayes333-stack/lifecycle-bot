@@ -156,7 +156,8 @@ object ExpertWallets7962 {
                     ?: o.optJSONArray("items") ?: o.optJSONArray("rank") ?: JSONArray()
             }
         } catch (_: Throwable) { return emptyList() }
-        val sol = if (solUsd.isFinite() && solUsd > 0.0) solUsd else 150.0
+        // V5.0.8418 — unknown SOL/USD: USD-only P&L rows stay unconverted (skipped), never priced at $150.
+        val sol = if (solUsd.isFinite() && solUsd > 0.0) solUsd else Double.NaN
         val out = ArrayList<Pair<String, Double>>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
@@ -170,7 +171,7 @@ object ExpertWallets7962 {
             if (pnl > 1e7) pnl /= 1e9
             if (pnl <= 0.0) {
                 val usd = listOf("realized_profit_7d", "realized_profit", "pnl_usd", "realizedPnlUsd").map { num(o, it) }.firstOrNull { it > 0.0 } ?: 0.0
-                pnl = usd / sol
+                pnl = if (sol.isFinite()) usd / sol else 0.0
             }
             if (pnl > 0.0 && out.none { it.first == addr }) out += addr to pnl
         }

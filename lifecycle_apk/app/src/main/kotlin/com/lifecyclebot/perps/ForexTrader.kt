@@ -685,7 +685,8 @@ object ForexTrader {
                 mode = if (paper7835) "PAPER" else "LIVE", direction = signal.direction.name, requestedVenue = if (paper7835) "PAPER_FOREX" else "MARKETS_SPOT",
                 adapter = "ForexTrader", source = "ForexTrader", specialist = "FOREX",
                 score = signal.score.toDouble(), confidence = 1.0,
-                evidence = mapOf("upstreamConfidence" to signal.confidence.toString(), "walletSol" to balance.toString()),
+                evidence = mapOf("upstreamConfidence" to signal.confidence.toString(), "walletSol" to balance.toString(),
+                    com.lifecyclebot.engine.truth.SpotScale8418.evidence(signal.market.isCrypto, signal.leverage)),
                 requestedSizeSol = requestedSizeSol, price = signal.price, routeAvailable = paper7835 || TokenizedAssetRegistry.mintFor(signal.market.symbol) != null,
                 candidateVersion = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(signal.market.symbol),
                 diagnosticSignal = "BUY",
@@ -1190,7 +1191,7 @@ positionMap[position.id] = position
             try {
                 val client = CollectiveLearning.getClient() ?: return@launch
                 val instanceId = CollectiveLearning.getInstanceId() ?: ""
-                val solPrice = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 150.0 }
+                val solPrice = com.lifecyclebot.engine.SolUsd8418.liveOrRefuse("FOREX_TURSO_RECORD") ?: return@launch  // V5.0.8418 — no $150 constant
                 val holdMins = (System.currentTimeMillis() - position.openTime) / 60_000.0
                 
                 val tradeRecord = MarketsTradeRecord(
