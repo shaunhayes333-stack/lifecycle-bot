@@ -20,6 +20,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version_name: ${{ steps.aate_build.outputs.version_name }}
+      apk_sha256: ${{ steps.release_verify.outputs.apk_sha256 }}
     defaults:
       run:
         working-directory: lifecycle_apk
@@ -227,6 +230,20 @@ jobs:
           python3 ci/build_gate_summary.py
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
+
+      # V5.0.8418 — the APK itself, not the Gradle script, is checked: apksigner v2 + the pinned
+      # release certificate, versionCode/versionName/min/targetSdk, not debuggable, R8 mapping,
+      # no exported component without a permission, no cleartext, system-CA-only network
+      # config, include-only learning backup (wallet keys/prefs never backed up), and no
+      # wallet secret / API key / obfuscated credential in classes*.dex, assets or resources.
+      - name: Release APK signing, identity and security
+        id: release_verify
+        run: |
+          set -euo pipefail
+          python3 ci/test_release_apk_verify_8418.py
+          APK="app/build/outputs/apk/release/AATE_v${AATE_VERSION_NAME}.apk"
+          python3 ci/release_apk_verify_8418.py verify --apk "$APK" --out-dir "$GITHUB_WORKSPACE/release_evidence_8418"
+          echo "apk_sha256=$(sha256sum "$APK" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Required lane and history regression tests
         run: |
@@ -463,12 +480,26 @@ jobs:
           PREVIOUS_ARTIFACT=$(python3 -c 'import json; print(next(a["id"] for a in json.load(open("release_art_evidence/previous_artifacts.json"))["artifacts"] if a["name"].startswith("AATE_v") and not a["expired"]))')
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREVIOUS_ARTIFACT/zip" > /tmp/previous-apk.zip
           unzip -q /tmp/previous-apk.zip -d previous_apk
+
+      # V5.0.8418 — Android only upgrades in place (keeping the owner's wallet, PIN and learning
+      # data) when the signer is identical and the versionCode does not go down.
+      - name: Release upgrade order and signer continuity
+        run: |
+          set -euo pipefail
+          PREVIOUS_APK=$(find "$GITHUB_WORKSPACE/previous_apk" -name '*.apk' | head -1)
+          [ -n "$PREVIOUS_APK" ] || { echo "::error::previous published APK missing from its artifact"; exit 1; }
+          python3 ci/release_apk_verify_8418.py compare \
+            --apk "app/build/outputs/apk/release/AATE_v${AATE_VERSION_NAME}.apk" \
+            --previous "$PREVIOUS_APK" --out-dir "$GITHUB_WORKSPACE/release_evidence_8418"
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - uses: reactivecircus/android-emulator-runner@v2
+      # V5.0.8418 — the previous release now RUNS first (PIN, Start, first loop) so the upgrade
+      # carries real data; then install -r in place, files/PIN/canonical events must survive.
+      - name: Release upgrade over the previous APK on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
@@ -480,7 +511,9 @@ jobs:
         if: always()
         with:
           name: release-art-evidence-${{ github.sha }}
-          path: release_art_evidence/
+          path: |
+            release_art_evidence/
+            release_evidence_8418/
           if-no-files-found: warn
 
       - name: Require runtime acceptance for this main commit
@@ -488,7 +521,9 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const deadline = Date.now() + 20 * 60 * 1000;
+            // V5.0.8418 — the runtime run now also proves background, doze, every screen and
+            // force-stop recovery (~15 more minutes in the same emulator session).
+            const deadline = Date.now() + 45 * 60 * 1000;
             while (Date.now() < deadline) {
               const { data } = await github.rest.actions.listWorkflowRuns({
                 ...context.repo, workflow_id: 'runtime-test.yml', head_sha: context.sha, per_page: 20
@@ -505,7 +540,7 @@ jobs:
               }
               await new Promise(resolve => setTimeout(resolve, 15000));
             }
-            core.setFailed('No successful runtime acceptance for this exact commit within 20 minutes');
+            core.setFailed('No successful runtime acceptance for this exact commit within 45 minutes');
 
       # V5.0.7803 — a release APK is an acceptance artifact, not merely
       # compiler output. Publish it only after the required pipeline regressions
@@ -533,3 +568,79 @@ jobs:
             lifecycle_apk/app/build/test-results/
             lifecycle_apk/app/build/reports/tests/
           if-no-files-found: warn
+
+  # V5.0.8418 — the only job that may publish an ACCEPTED APK. Green only when the build job
+  # (compile, release APK verification, required + historical unit suites, upgrade order,
+  # emulator upgrade over the previous release, runtime acceptance) and the Runtime Smoke Test
+  # for this exact commit (smoke, 120 s execution-spine witness, background, doze, screens,
+  # restart recovery) all succeeded, and the APK it publishes is byte-identical to the one the
+  # release verifier checked.
+  release-gate:
+    needs: build
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Require every release check green
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const need = async (runId, jobName, steps) => {
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
+                { ...context.repo, run_id: runId, per_page: 100 });
+              const job = jobs.find(j => j.name === jobName);
+              if (!job) throw new Error(`job ${jobName} missing from run ${runId}`);
+              if (job.conclusion !== 'success') throw new Error(`job ${jobName} concluded ${job.conclusion}`);
+              for (const name of steps) {
+                const step = (job.steps || []).find(s => s.name === name);
+                if (!step || step.conclusion !== 'success') {
+                  throw new Error(`${jobName} / ${name}: ${step ? step.conclusion : 'not run'}`);
+                }
+                core.info(`PASS ${jobName} / ${name}`);
+              }
+            };
+            await need(context.runId, 'build', [
+              'Build Release APK',
+              'Release APK signing, identity and security',
+              'Required lane and history regression tests',
+              'Complete historical suite and reject new failures',
+              'Download previous published APK for an Android upgrade test',
+              'Release upgrade order and signer continuity',
+              'Release upgrade over the previous APK on an emulator',
+              'Require runtime acceptance for this main commit',
+            ]);
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              ...context.repo, workflow_id: 'runtime-test.yml', head_sha: context.sha, per_page: 20 });
+            const run = data.workflow_runs.filter(r => r.head_sha === context.sha && r.status === 'completed')
+              .sort((a, b) => b.id - a.id)[0];
+            if (!run || run.conclusion !== 'success') {
+              core.setFailed(`Runtime Smoke Test for ${context.sha}: ${run ? run.conclusion : 'none'}`);
+              return;
+            }
+            await need(run.id, 'smoke', [
+              'Build, install, run, capture logcat',
+              'Enforce current 120-second execution-spine witness',
+              'Enforce V5.0.8418 device checks (background, doze, screens, restart)',
+            ]);
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: AATE_v${{ needs.build.outputs.version_name }}
+          path: accepted
+
+      - name: Accepted APK is the verified APK
+        run: |
+          set -euo pipefail
+          APK="accepted/AATE_v${{ needs.build.outputs.version_name }}.apk"
+          ACTUAL=$(sha256sum "$APK" | cut -d' ' -f1)
+          echo "verified=${{ needs.build.outputs.apk_sha256 }} published=$ACTUAL"
+          [ -n "${{ needs.build.outputs.apk_sha256 }}" ] && [ "$ACTUAL" = "${{ needs.build.outputs.apk_sha256 }}" ]
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AATE_v${{ needs.build.outputs.version_name }}_ACCEPTED
+          path: accepted/AATE_v${{ needs.build.outputs.version_name }}.apk
+          compression-level: 0
+          if-no-files-found: error
