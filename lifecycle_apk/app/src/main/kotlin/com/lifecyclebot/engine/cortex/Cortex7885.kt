@@ -37,6 +37,20 @@ object Cortex7885 {
     // (priceAge > MARK_STALE_MS) and the cache stays bounded by MAX_ASSESS_CACHE / ASSESS_PRUNE_AT_8144.
     private const val ASSESS_TTL_MS = 60_000L
     private const val PENDING_TTL_MS = 5L * 60L * 60_000L
+    /** V5.0.8415 — hour-lane decisions whose 5-minute label filed the observed record only (bounded; lost on restart = ungraded). */
+    private const val DEFERRED_HOUR_MAX_8415 = 20_000
+    private const val HOUR_GRADE_MIN_MS_8415 = 55L * 60_000L
+    private val deferredHour8415 = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
+    /** Pure: does this 5-minute label defer its model grade to the hour (hour-graded lane, clean authority label)? */
+    internal fun deferHourRule8415(hourLane: Boolean, accepted: Boolean, authority: Boolean, lateFirstPrice: Boolean, lateRead: Boolean): Boolean =
+        hourLane && accepted && authority && !lateFirstPrice && !lateRead
+
+    /** Pure: is a revision at [horizonMs] the hour outcome (not an intermediate 15-minute checkpoint)? */
+    internal fun hourGradeDue8415(horizonMs: Long): Boolean = horizonMs >= HOUR_GRADE_MIN_MS_8415
+
+    private fun hourDeferred8415(p: Pending, accepted: Boolean, authority: Boolean, late: Boolean, lateRead: Boolean): Boolean =
+        deferHourRule8415(runnerHorizon8144(p.a.lane), accepted, authority, late, lateRead)
     private const val MAX_PENDING = 8_000
     private const val MAX_ASSESS_CACHE = 4_000
     /**
@@ -1457,6 +1471,20 @@ object Cortex7885 {
         if (lateRead8169) synchronized(this) { gradeBook8144.markLateRead8187("$key|${p.atMs}") }
         // V5.0.8322 — a flat five-minute mark (no price other than the entry ever seen) is observed only: it taught every
         // voter and cohort "lost the round trip" on a frozen / repeated mark (the 8319 rebase down=859 vs up=99 split).
+        // V5.0.8415 — an hour-graded lane (runner / momentum / dip / quality mandate, LaneGradeHorizon8406) does not train its
+        // models on the 5-minute read. 8406 moved the grade to the hour by REVISING the 5-minute contribution, but the
+        // revision can only reach the books through the hot 600-trace store, which turns over in ~15 minutes at 2,000+
+        // grades/h: 5.0.8412 revisions were OBSERVED_ONLY=170, GRADE_ONLY=41, VOTER_TRACE_MISSING=37, model-revised=1.
+        // Every hour-lane book was therefore the 5-minute mark net of a full round trip (refuse -10..-19% in every lane,
+        // STRONG empty), and a flat 5-minute mark (the quiet base before ignition) disqualified the coin permanently. Now the
+        // 5-minute label files the observed record only and the hour outcome makes the ONE original model contribution.
+        val deferHour8415 = hourDeferred8415(p, accepted8395, hyg8144.authority, late8153, lateRead8169)
+        if (deferHour8415) {
+            synchronized(this) { deferredHour8415.add("$key|${p.atMs}"); if (deferredHour8415.size > DEFERRED_HOUR_MAX_8415) deferredHour8415.clear() }
+            inc("CORTEX_GRADE_DEFERRED_TO_HOUR_8415")
+            try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080, p.setup7961, decisionAtMs8372 = p.atMs) } catch (_: Throwable) {}
+            return
+        }
         val flat = CortexFlatMark8322.observedOnly8322(flat8322, hyg8144.authority, late8153, lateRead8169)
         if (flat) synchronized(this) { gradeBook8144.markFlat8322("$key|${p.atMs}") }
         if (!accepted8395 || !hyg8144.authority || late8153 || lateRead8169 || flat) {
@@ -2579,6 +2607,7 @@ object Cortex7885 {
         if (durableTrainingKind8372(id) == "SHADOW_EXIT") { inc("FORWARD_REVISION_AFTER_SHADOW_8372"); return }
         val lat8144 = latencyMeasured8144(canon(labelLane))
         var revisedPending8372: Pending? = null
+        var hourGrade8415: Triple<String, Pending, Boolean>? = null
         synchronized(this) {
             if (outcomeBook8372.shadowHasLearnedFor(id)) { inc("FORWARD_REVISION_AFTER_SHADOW_8372"); return }
             val record = gradeBook8144.decision(id)
@@ -2588,6 +2617,27 @@ object Cortex7885 {
                 if (gradeBook8144.label(id, newNet, newGross, Double.NaN, false))
                     inc("REVISION_OBSERVED_ONLY_8153")
                 return
+            }
+            // V5.0.8415 — the deferred hour-lane decision makes its first (only) model contribution at the hour.
+            // Durable after restart: an hour-lane record with a clean 5-minute filing and no model contribution yet.
+            val deferred8415 = deferredHour8415.contains(id) || (record != null && record.graded && record.modelContribution8395.isBlank() &&
+                runnerHorizon8144(canon(labelLane)) && record.executablePct.isFinite())
+            if (gradedTrace8372(id) == null && deferred8415) {
+                val original8415 = pending[key]?.takeIf { it.atMs == decisionAtMs8371 } ?: pairedPending8401[id]
+                val horizon8415 = proof8395?.horizonMs ?: (System.currentTimeMillis() - decisionAtMs8371)
+                if (original8415 == null) { inc("CORTEX_HOUR_GRADE_ORIGINAL_MISSING_8415") }
+                else if (!hourGradeDue8415(horizon8415)) { inc("CORTEX_HOUR_GRADE_NOT_DUE_8415"); return }
+                else {
+                    val now8415 = System.currentTimeMillis()
+                    val r8415 = gradeBook8144.labelOutcome8395(id, newNet, newGross, CortexLabelHygiene8144.executablePct8144(newNet, lat8144),
+                        CortexLabelHygiene8144.revisionCounts8144(true, (proof8395?.observedAtMs ?: now8415) - decisionAtMs8371),
+                        horizon8415.coerceAtLeast(1L), proof8395?.observedAtMs ?: now8415, now8415, proof8395)
+                    if (r8415.accepted && r8415 != CortexOutcomeDisposition8395.DUPLICATE_ACCEPTED) {
+                        deferredHour8415.remove(id)
+                        hourGrade8415 = Triple(key, original8415, proof8395?.witnessed8395() == true || witness8324)
+                    } else inc("CORTEX_HOUR_GRADE_VALUE_OBSERVED_ONLY_8415")
+                    return@synchronized
+                }
             }
             val g = gradedTrace8372(id) ?: run {
                 reviseGradeOnly8324(key, decisionAtMs8371, newNet, newGross, lat8144, witness8324, proof8395)
@@ -2604,6 +2654,11 @@ object Cortex7885 {
             if (result8395 == CortexOutcomeDisposition8395.DUPLICATE_ACCEPTED) return
             if (!reviseModelsLocked8372(id, g, newNet, newGross, proof8395?.witnessed8395() == true)) return
             revisedPending8372 = g.p
+        }
+        hourGrade8415?.let { (k, original, witnessed) ->
+            gradeDecision8372(k, original, newNet, newGross, witnessed)
+            inc("CORTEX_GRADED_AT_HOUR_8415")
+            return
         }
         revisedPending8372?.let { sourceOutcome8372(key, it, newNet, revision = true) }
         revised8006.incrementAndGet()
