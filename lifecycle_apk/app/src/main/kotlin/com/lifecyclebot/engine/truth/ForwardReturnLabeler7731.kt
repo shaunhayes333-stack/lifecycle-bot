@@ -505,9 +505,11 @@ object ForwardReturnLabeler7731 {
         pairedRestore8401 = p.getString(PAIRED_CORTEX_KEY_8401, null)
         try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.restorePriceIdentities8402(p.getString(PRICE_IDENTITIES_KEY_8402, null)) }
         catch (_: Exception) { PipelineHealthCollector.labelInc("FORWARD_PRICE_IDENTITY_RESTORE_FAILED_8402") }
-        p.all.forEach { (key,value) -> if (key.startsWith(TERMINAL_PREFIX_8395) && value is String) terminalOutbox8395[key]=value }
-        forwardOutbox8404.restore(p.all.mapNotNull { (key, value) ->
-            if (key.startsWith(FORWARD_PREFIX_8404) && value is String) key.removePrefix(FORWARD_PREFIX_8404) to value else null
+        try { openRowStore8409(context, p) } catch (_: Throwable) {}   // V5.0.8409 — rows leave the checkpoint file
+        val rows8409 = loadRows8409(p)
+        rows8409.forEach { (key, value) -> if (key.startsWith(TERMINAL_PREFIX_8395)) terminalOutbox8395[key] = value }
+        forwardOutbox8404.restore(rows8409.mapNotNull { (key, value) ->
+            if (key.startsWith(FORWARD_PREFIX_8404)) key.removePrefix(FORWARD_PREFIX_8404) to value else null
         }.toMap())
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.attach(context) } catch (_: Throwable) {}
@@ -1746,10 +1748,61 @@ object ForwardReturnLabeler7731 {
 
     private const val TERMINAL_PREFIX_8395 = "terminal8395|"
     private const val FORWARD_PREFIX_8404 = "forward8404|"
+
+    // ── V5.0.8409 §ROWS_DO_NOT_LIVE_IN_THE_CHECKPOINT_FILE ───────────────────────────────────────────────────────────────────
+    // Every forward outcome write, forward acknowledgement and terminal write was a synchronous commit() on the one preferences
+    // XML that also carries the pending checkpoint (~3,200 rows), the cells and the paired Cortex restore: one row = one full
+    // rewrite of a multi-MiB file, 64+ times per drain. The rows now live as individually addressable SQLite rows in the
+    // transactional store the shadow books already use (ShadowColdStore8397, namespace below); a write or an acknowledgement
+    // is one row transaction. Durable acknowledgement is unchanged in meaning: the consumer's update and receipt commit first,
+    // then the producer row is deleted. Rows already in the preferences file migrate once (batch write, then one removal
+    // commit); a migration interrupted before the removal simply repeats (INSERT OR REPLACE), losing and duplicating nothing.
+    private const val ROWS_NAMESPACE_8409 = "labeler_rows_8409"
+    @Volatile private var rowStore8409: ShadowColdStore8397? = null
+    private val rowStoreFailures8409 = AtomicLong(0)
+    private val rowsMigrated8409 = AtomicLong(0)
+
+    private fun openRowStore8409(context: Context, p: SharedPreferences) {
+        val store = try { ShadowColdStore8397.open(context, ROWS_NAMESPACE_8409) } catch (_: Throwable) { null } ?: return
+        rowStore8409 = store
+        // migrate the row entries the preferences file still holds
+        val legacy = p.all.mapNotNull { (k, v) -> if ((k.startsWith(TERMINAL_PREFIX_8395) || k.startsWith(FORWARD_PREFIX_8404)) && v is String) k to v else null }
+        if (legacy.isNotEmpty() && store.write(legacy.toMap())) {
+            val e = p.edit(); legacy.forEach { e.remove(it.first) }
+            if (e.commit()) rowsMigrated8409.addAndGet(legacy.size.toLong())
+        }
+    }
+
+    /** One row written durably (true) or not (false, counted). The preferences file is the fallback only while the store is absent. */
+    private fun putRow8409(key: String, value: String): Boolean {
+        val store = rowStore8409
+        val ok = if (store != null) store.write(mapOf(key to value))
+        else try { prefs?.edit()?.putString(key, value)?.commit() == true } catch (_: Exception) { false }
+        if (!ok) rowStoreFailures8409.incrementAndGet()
+        return ok
+    }
+
+    private fun removeRows8409(keys: Collection<String>): Boolean {
+        if (keys.isEmpty()) return true
+        val store = rowStore8409
+        val ok = if (store != null) store.write(keys.associateWith { null })
+        else try { val e = prefs?.edit() ?: return false; keys.forEach { e.remove(it) }; e.commit() } catch (_: Exception) { false }
+        if (!ok) rowStoreFailures8409.incrementAndGet()
+        return ok
+    }
+
+    private fun loadRows8409(p: SharedPreferences): Map<String, String> {
+        val out = HashMap<String, String>()
+        p.all.forEach { (k, v) -> if ((k.startsWith(TERMINAL_PREFIX_8395) || k.startsWith(FORWARD_PREFIX_8404)) && v is String) out[k] = v }
+        rowStore8409?.let { st -> try { st.entries().forEach { (k, v) -> out[k] = v } } catch (_: Throwable) { rowStoreFailures8409.incrementAndGet() } }
+        return out
+    }
+
+    private fun rowStoreLine8409(): String = "rows8409[store=${if (rowStore8409 != null) "sqlite" else "prefs"} migrated=${rowsMigrated8409.get()} failures=${rowStoreFailures8409.get()}]"
     private val forwardOutbox8404 = com.lifecyclebot.engine.cortex.ForwardOutcomeOutbox8404(MAX_PENDING_7731)
 
     private fun writeForward8404(id: String, raw: String): Boolean =
-        try { prefs?.edit()?.putString(FORWARD_PREFIX_8404 + id, raw)?.commit() == true } catch (_: Exception) { false }
+        putRow8409(FORWARD_PREFIX_8404 + id, raw)   // V5.0.8409 — one row transaction, not a checkpoint-file rewrite
 
     private fun stageForwardOutcome8404(o: Obs, net: Double, gross: Double, family: DoubleArray,
                                        flat: Boolean, witness: Boolean, revision: Boolean = false): com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404? {
@@ -1782,7 +1835,7 @@ object ForwardReturnLabeler7731 {
             com.lifecyclebot.engine.cortex.Cortex7885.deliverForwardOutcome8404(
                 com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404.decode(raw))
         }, { id ->
-            (prefs?.edit()?.remove(FORWARD_PREFIX_8404 + id)?.commit() == true).also { removed ->
+            removeRows8409(listOf(FORWARD_PREFIX_8404 + id)).also { removed ->   // V5.0.8409
                 if (removed) PipelineHealthCollector.labelInc("FORWARD_SUCCESS_DURABLE_ACK_8404")
             }
         })
@@ -1802,7 +1855,7 @@ object ForwardReturnLabeler7731 {
             else {
                 val value=org.json.JSONObject().put("mint",o.mint).put("lane",o.lane).put("at",o.atMs).put("why",why)
                     .put("terminalAt",nowMs).put("entry",o.basis8386.json()).put("last",o.lastMark8386?.json()).toString()
-                val committed=try { prefs?.edit()?.putString(id,value)?.commit() == true } catch (_: Exception) { false }
+                val committed = putRow8409(id, value)   // V5.0.8409
                 if (committed) terminalOutbox8395[id]=value else terminalStorageFailures8401.incrementAndGet()
                 committed
             }
@@ -1827,9 +1880,10 @@ object ForwardReturnLabeler7731 {
                 val f = row.split(FIELD_SEP_7735)
                 f.size >= 13 && "$TERMINAL_PREFIX_8395${f[0]}|${f[4]}|${f[12]}" in acknowledged
             }.joinToString(ROW_SEP_7735.toString())
-            val editor = p.edit().putString(PENDING_KEY_7946, retained)
-            acknowledged.forEach { editor.remove(it) }
-            if (editor.commit()) acknowledged.forEach { terminalOutbox8395.remove(it); deliveredTerminals8395.remove(it) }
+            // V5.0.8409 — the checkpoint shrinks in its own commit; the acknowledged rows leave in one store transaction. If the
+            // second fails the rows stay queued and acknowledged in memory and are retried next cleanup (receipts are idempotent).
+            if (p.edit().putString(PENDING_KEY_7946, retained).commit() && removeRows8409(acknowledged))
+                acknowledged.forEach { terminalOutbox8395.remove(it); deliveredTerminals8395.remove(it) }
             else terminalStorageFailures8401.incrementAndGet()
         } catch (_: Exception) { terminalStorageFailures8401.incrementAndGet() }
     }
@@ -2259,7 +2313,7 @@ object ForwardReturnLabeler7731 {
     private fun terminalStatus8401(): String {
         val oldest = terminalOutbox8395.entries.asSequence().filterNot { deliveredTerminals8395.contains(it.key) }
             .mapNotNull { try { org.json.JSONObject(it.value).optLong("terminalAt").takeIf { at -> at > 0L } } catch (_: Exception) { null } }.minOrNull()
-        return "terminal8401[queued=${terminalOutbox8395.size} ack=${deliveredTerminals8395.size} oldestMs=${oldest?.let { System.currentTimeMillis() - it } ?: 0L} capacity=${terminalCapacityRefusals8401.get()} storageFailures=${terminalStorageFailures8401.get()}]"
+        return "${rowStoreLine8409()} terminal8401[queued=${terminalOutbox8395.size} ack=${deliveredTerminals8395.size} oldestMs=${oldest?.let { System.currentTimeMillis() - it } ?: 0L} capacity=${terminalCapacityRefusals8401.get()} storageFailures=${terminalStorageFailures8401.get()}]"
     }
 
     fun statusLine(): String {
