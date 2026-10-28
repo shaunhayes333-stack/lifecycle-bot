@@ -336,6 +336,9 @@ object ForwardReturnLabeler7731 {
         /** V5.0.7997 — the label value last given to the learners, the next checkpoint, liquidity at the decision. */
         @Volatile var bookedNet7997 = Double.NaN
         @Volatile var bookedGross7997 = Double.NaN
+        /** V5.0.8410 — decay each destination carried at booking (tally keys / allocator nodes); empty = legacy, weight unknown. */
+        @Volatile var tallyScales8410: DoubleArray = DoubleArray(0)
+        @Volatile var allocScales8410: DoubleArray = DoubleArray(0)
         @Volatile var ck7997 = 0
         @Volatile var entryLiq7997 = 0.0
         /** V5.0.8063 — the coin's kind at the decision: "VENUE/NARRATIVE" (memes), blank for cross-asset rows. */
@@ -356,6 +359,10 @@ object ForwardReturnLabeler7731 {
         var witness60 = 0
         var n240 = 0; var sum240 = 0.0; var win240 = 0
         var lost = 0
+        /** V5.0.8410 — cumulative decay of the 60 slot (ln k per window pass, falling); a revision owns exp(logScale60 - bookScale). */
+        var logScale60 = 0.0
+        /** V5.0.8410 — fractional remainders of weighted count revisions (wins / runners / witnessed), carried, never dropped. */
+        var winFrac60 = 0.0; var runnerFrac60 = 0.0; var witnessFrac60 = 0.0
         /**
          * V5.0.8014 — fresh edge: a horizon past [w] labels keeps its most recent ~[w] (the oldest fade
          * proportionally), so the cell record watch-first and every lane read is recent, not all-time.
@@ -364,6 +371,7 @@ object ForwardReturnLabeler7731 {
             if (n15 > w) { val k = w.toDouble() / n15; n15 = w; sum15 *= k; win15 = (win15 * k).roundToIntSafe8014().coerceIn(0, n15) }
             if (n60 > w) {
                 val k = w.toDouble() / n60; n60 = w; sum60 *= k; sumSq60 *= k
+                logScale60 += kotlin.math.ln(k)   // V5.0.8410
                 win60 = (win60 * k).roundToIntSafe8014().coerceIn(0, n60); runner60 = (runner60 * k).roundToIntSafe8014().coerceIn(0, n60)
                 witness60 = (witness60 * k).roundToIntSafe8014().coerceIn(0, runner60)
             }
@@ -630,6 +638,9 @@ object ForwardReturnLabeler7731 {
                     org.json.JSONObject().put("v", 8386).put("entry", o.basis8386.json())
                         .put("decision", o.decisionBasis8386.json()).put("last", o.lastMark8386?.json())
                         .put("accepted8395",o.lastAcceptedMark8395?.json()).toString(),
+                    // V5.0.8410 (field 36) — booking-time decay per tally key / allocator node; a revision's remaining weight.
+                    o.tallyScales8410.joinToString(":") { "%.5f".format(java.util.Locale.ROOT, it) } + "~" +
+                        o.allocScales8410.joinToString(":") { "%.5f".format(java.util.Locale.ROOT, it) },
                 ).joinToString(fs)
             }
     }
@@ -650,7 +661,7 @@ object ForwardReturnLabeler7731 {
         var n = 0
         enc.split(ROW_SEP_7735).forEach { row ->
             val f = row.split(FIELD_SEP_7735)
-            if (f.size !in 17..35) return@forEach
+            if (f.size !in 17..36) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
             val ck8013 = if (f.size >= 24) f[23].toIntOrNull() ?: 0 else 0
             if (atMs <= 0L) return@forEach
@@ -679,6 +690,11 @@ object ForwardReturnLabeler7731 {
             if (f.size >= 32) o.reason7967 = f[31]
             if (f.size >= 33) o.kind8063 = f[32]
             if (f.size >= 34) o.entryStyle8077 = f[33]
+            if (f.size >= 36) try {   // V5.0.8410
+                val halves = f[35].split('~')
+                fun arr(x: String?) = x.orEmpty().split(':').mapNotNull { it.toDoubleOrNull() }.toDoubleArray()
+                o.tallyScales8410 = arr(halves.getOrNull(0)); o.allocScales8410 = arr(halves.getOrNull(1))
+            } catch (_: Exception) {}
             if (f.size >= 35) try {
                 val e = org.json.JSONObject(f[34])
                 o.basis8386 = LabelBasis8386.decode(e.getJSONObject("entry"))
@@ -987,8 +1003,10 @@ object ForwardReturnLabeler7731 {
     private fun book(o: Obs, horizon: Int, net: Double, gross: Double, witnessed8324: Boolean = false) {
         if (!eligible8386(o)) return
         val keys = keysOf7928(o)
-        for (k in keys) {
+        val scales8410 = DoubleArray(keys.size)   // V5.0.8410 — the 60-slot decay each key had when this label was booked
+        for ((i, k) in keys.withIndex()) {
             val t = tallyFor(k)
+            scales8410[i] = synchronized(t) { t.logScale60 }
             synchronized(t) {
                 when (horizon) {
                     15 -> { t.n15 += 1; t.sum15 += net; if (net > 0.0) t.win15 += 1 }
@@ -998,6 +1016,7 @@ object ForwardReturnLabeler7731 {
                 t.window8014(CELL_WINDOW_8014)
             }
         }
+        if (horizon == 60) o.tallyScales8410 = scales8410
         when (horizon) { 15 -> booked15.incrementAndGet(); 60 -> booked60.incrementAndGet(); else -> booked240.incrementAndGet() }
         if (horizon == 60) bookFresh8169(o, keys, net, gross, witnessed8324)
         // V5.0.8198 — the late (60-minute) read books into the fresh tally too: the stage rule spares a stage that pays late.
@@ -1323,7 +1342,7 @@ object ForwardReturnLabeler7731 {
         // Cortex delivery is retried independently; a retry must not call these other learner hooks twice.
         if (flat8322) return true
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
-        try { com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}
+        try { o.allocScales8410 = com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}   // V5.0.8410
         // V5.0.7972 — the same label grades every pair/triple of the decision's facts (specialist miner).
         try { SpecialistMiner7972.onLabel7972(o.lane, o.mint, o.feats7972, net, gross, o.atMs) } catch (_: Throwable) {}
         try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
@@ -1449,28 +1468,47 @@ object ForwardReturnLabeler7731 {
         return !alive || o.ck7997 >= CK_MS_7997.size
     }
 
+    private val revisionWeightUnknown8410 = AtomicLong(0)
+
+    /** V5.0.8410 — pure: the share of a booked label an aggregate still carries after decaying from [atBook] to [now]. */
+    fun revisionWeight8410(atBook: Double, now: Double): Double =
+        if (!atBook.isFinite() || !now.isFinite()) 1.0 else kotlin.math.exp(now - atBook).coerceIn(0.0, 1.0)
+
+    /** V5.0.8410 — pure: split an accumulated fractional count into (whole, remainder), the remainder in (-1, 1). */
+    fun carry8410(x: Double): Pair<Int, Double> { val whole = if (x >= 0.0) kotlin.math.floor(x) else kotlin.math.ceil(x); return whole.toInt() to (x - whole) }
+
     private fun revise7997(o: Obs, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double, witnessNew8324: Boolean = false) {
         if (!eligible8386(o)) return
         val witnessOld8324 = o.bookedWitness8324
         o.bookedWitness8324 = witnessNew8324
-        for (k in keysOf7928(o)) {
+        val keys = keysOf7928(o)
+        // V5.0.8410 §A_REVISION_OWNS_ONLY_WHAT_IT_STILL_WEIGHS — window8014 fades a booked label by k per pass, but the revision
+        // subtracted its full original value (and a whole win / runner), over-correcting every decayed book. Each key now
+        // applies the delta at the weight the label still owns, exp(logScale60 - scaleAtBook); counts carry their fraction.
+        // A legacy observation (no scales recorded) is NOT assumed weight one: its revision is skipped and counted.
+        if (o.tallyScales8410.size != keys.size) {
+            revisionWeightUnknown8410.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("REVISION_WEIGHT_UNKNOWN_8410_TALLY") } catch (_: Throwable) {}
+        } else for ((i, k) in keys.withIndex()) {
             val t = tallyFor(k)
             synchronized(t) {
                 if (t.n60 <= 0) return@synchronized
-                t.sum60 += newNet - oldNet
-                t.sumSq60 = (t.sumSq60 + newNet * newNet - oldNet * oldNet).coerceAtLeast(0.0)
-                t.win60 = (t.win60 + (if (newNet > 0.0) 1 else 0) - (if (oldNet > 0.0) 1 else 0)).coerceIn(0, t.n60)
+                val wt = revisionWeight8410(o.tallyScales8410[i], t.logScale60)
+                t.sum60 += wt * (newNet - oldNet)
+                t.sumSq60 = (t.sumSq60 + wt * (newNet * newNet - oldNet * oldNet)).coerceAtLeast(0.0)
+                val dWin = ((if (newNet > 0.0) 1 else 0) - (if (oldNet > 0.0) 1 else 0)) * wt
+                if (dWin != 0.0) { val c = carry8410(t.winFrac60 + dWin); t.winFrac60 = c.second; t.win60 = (t.win60 + c.first).coerceIn(0, t.n60) }
                 val ro = oldGross.isFinite() && oldGross >= RUNNER_PCT_7731
                 val rn = newGross.isFinite() && newGross >= RUNNER_PCT_7731
-                if (ro != rn) t.runner60 = (t.runner60 + if (rn) 1 else -1).coerceIn(0, t.n60)
+                if (ro != rn) { val c = carry8410(t.runnerFrac60 + (if (rn) wt else -wt)); t.runnerFrac60 = c.second; t.runner60 = (t.runner60 + c.first).coerceIn(0, t.n60) }
                 // V5.0.8324 — the witnessed-runner count follows the revision.
                 val wo = ro && witnessOld8324; val wn = rn && witnessNew8324
-                if (wo != wn) t.witness60 = (t.witness60 + if (wn) 1 else -1).coerceIn(0, t.runner60)
+                if (wo != wn) { val c = carry8410(t.witnessFrac60 + (if (wn) wt else -wt)); t.witnessFrac60 = c.second; t.witness60 = (t.witness60 + c.first).coerceIn(0, t.runner60) }
             }
         }
         // V5.0.8080 — the setup books are revised on the long-hold family in checkpoint7997, not on this decision value.
         try { SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet, o.allocScales8410) } catch (_: Throwable) {}
         // The immutable Cortex revision was durably staged before any of these aggregate mutations.
     }
 
@@ -2313,7 +2351,7 @@ object ForwardReturnLabeler7731 {
     private fun terminalStatus8401(): String {
         val oldest = terminalOutbox8395.entries.asSequence().filterNot { deliveredTerminals8395.contains(it.key) }
             .mapNotNull { try { org.json.JSONObject(it.value).optLong("terminalAt").takeIf { at -> at > 0L } } catch (_: Exception) { null } }.minOrNull()
-        return "${rowStoreLine8409()} terminal8401[queued=${terminalOutbox8395.size} ack=${deliveredTerminals8395.size} oldestMs=${oldest?.let { System.currentTimeMillis() - it } ?: 0L} capacity=${terminalCapacityRefusals8401.get()} storageFailures=${terminalStorageFailures8401.get()}]"
+        return "revisionWeight8410[unknownSkipped=${revisionWeightUnknown8410.get()} miner=${SpecialistMiner7972.decayedRevisionSkipped8410()}] ${rowStoreLine8409()} terminal8401[queued=${terminalOutbox8395.size} ack=${deliveredTerminals8395.size} oldestMs=${oldest?.let { System.currentTimeMillis() - it } ?: 0L} capacity=${terminalCapacityRefusals8401.get()} storageFailures=${terminalStorageFailures8401.get()}]"
     }
 
     fun statusLine(): String {

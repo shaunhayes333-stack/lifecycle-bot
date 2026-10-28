@@ -14138,7 +14138,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
         assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now, selected))"))
         assertTrue(lab.contains("restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())"))
-        assertTrue(lab.contains("if (f.size !in 17..35) return@forEach"))
+        assertTrue(lab.contains("if (f.size !in 17..36) return@forEach"))   // V5.0.8410 — field 36 carries the booking-time decay
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))

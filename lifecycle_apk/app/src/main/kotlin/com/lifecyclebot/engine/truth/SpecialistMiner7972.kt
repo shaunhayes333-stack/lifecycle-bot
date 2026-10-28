@@ -62,15 +62,23 @@ object SpecialistMiner7972 {
             // V5.0.8014 — fresh edge: a combination's record is its most recent ~[STAT_WINDOW_8014] outcomes.
             if (n > STAT_WINDOW_8014) {
                 val k = STAT_WINDOW_8014.toDouble() / n
+                decayed8410 = true   // V5.0.8410 — this record has forgotten; a full-value revision would over-correct it
                 n = STAT_WINDOW_8014; sum *= k; sumSq *= k
                 wins = kotlin.math.round(wins * k).toInt().coerceIn(0, n); runners = kotlin.math.round(runners * k).toInt().coerceIn(0, n)
             }
         }
         fun mean(): Double = if (n > 0) sum / n else 0.0
         fun se(): Double = if (n > 1) sqrt(((sumSq / n) - mean() * mean()).coerceAtLeast(0.0) / n) else Double.POSITIVE_INFINITY
-        /** V5.0.7997 — a label revised on a later checkpoint replaces its earlier value. */
+        /** V5.0.8410 — set once the window has faded this record (session + persisted books rebuilt from n==window). */
+        @Volatile var decayed8410 = false
+        /**
+         * V5.0.7997 — a label revised on a later checkpoint replaces its earlier value.
+         * V5.0.8410 — only while this record has never forgotten (every booked label still owns weight one, exactly). A
+         * combination that has faded keeps its booked value rather than being over-corrected; the skip is counted.
+         */
         fun revise(oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
             if (n <= 0 || !oldNet.isFinite() || !newNet.isFinite()) return
+            if (decayed8410 || n >= STAT_WINDOW_8014) { decayedRevisionSkipped8410.incrementAndGet(); return }
             val yo = oldNet.coerceIn(-100.0, NET_CAP); val yn = newNet.coerceIn(-100.0, NET_CAP)
             sum += yn - yo; sumSq = (sumSq + yn * yn - yo * yo).coerceAtLeast(0.0)
             wins = (wins + (if (yn > 0.0) 1 else 0) - (if (yo > 0.0) 1 else 0)).coerceIn(0, n)
@@ -279,6 +287,9 @@ object SpecialistMiner7972 {
      * coin is alive) revises the decision's label in every fact combination it was booked to, so a
      * runner's later path promotes the combinations that found it.
      */
+    private val decayedRevisionSkipped8410 = java.util.concurrent.atomic.AtomicLong(0)
+    fun decayedRevisionSkipped8410(): Long = decayedRevisionSkipped8410.get()
+
     fun reviseLabel7997(lane: String, facts: List<String>, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
         if (facts.size < 3 || !oldNet.isFinite() || !newNet.isFinite() || lane.startsWith("PLAN")) return
         for (k in combos7972(lane, facts)) {

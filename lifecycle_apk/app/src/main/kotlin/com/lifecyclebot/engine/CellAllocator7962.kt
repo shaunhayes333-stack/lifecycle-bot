@@ -89,6 +89,8 @@ object CellAllocator7962 {
     /** Weighted sufficient statistics of winsorized net returns (percent), plus realised hold minutes. */
     class Stat7962 {
         var w = 0.0; var sx = 0.0; var sxx = 0.0; var holdW = 0.0; var holdSum = 0.0
+        /** V5.0.8410 — cumulative forgetting (ln k per pass, falling); a revision owns exp(logScale - scaleAtBook). */
+        var logScale = 0.0
 
         fun add(netPct: Double, weight: Double, holdMin: Double = Double.NaN) {
             if (!netPct.isFinite() || !(weight > 0.0)) return
@@ -99,14 +101,15 @@ object CellAllocator7962 {
                 // Forgetting: the oldest evidence fades once a node is deep, so a cell can turn.
                 val k = MAX_W_7962 / w
                 w *= k; sx *= k; sxx *= k
+                logScale += kotlin.math.ln(k)   // V5.0.8410
             }
         }
 
-        /** V5.0.7997 — a label revised on a later checkpoint replaces its earlier value (weight 1). */
-        fun revise(oldNet: Double, newNet: Double) {
-            if (!(w > 0.0) || !oldNet.isFinite() || !newNet.isFinite()) return
+        /** V5.0.7997 / V5.0.8410 — a label revised on a later checkpoint replaces its earlier value at the weight it still owns. */
+        fun revise(oldNet: Double, newNet: Double, weight: Double = 1.0) {
+            if (!(w > 0.0) || !oldNet.isFinite() || !newNet.isFinite() || !(weight > 0.0)) return
             val xo = winsorize7962(oldNet); val xn = winsorize7962(newNet)
-            sx += xn - xo; sxx = (sxx + xn * xn - xo * xo).coerceAtLeast(0.0)
+            sx += weight * (xn - xo); sxx = (sxx + weight * (xn * xn - xo * xo)).coerceAtLeast(0.0)
         }
 
         fun plus(o: Stat7962?): Stat7962 {
@@ -116,7 +119,7 @@ object CellAllocator7962 {
             return r
         }
 
-        fun encode(): String = "$w,$sx,$sxx,$holdW,$holdSum"
+        fun encode(): String = "$w,$sx,$sxx,$holdW,$holdSum,$logScale"   // V5.0.8410 — forgetting persists with the book
     }
 
     fun winsorize7962(x: Double): Double = x.coerceIn(WIN_LO_PCT_7962, WIN_HI_PCT_7962)
@@ -387,27 +390,42 @@ object CellAllocator7962 {
     // ── evidence hooks ─────────────────────────────────────────────────────
 
     /** ForwardReturnLabeler7731.bookSixty7944: one 5-minute net label (cost + chase already charged). */
-    fun onLabel7962(cell: String, lane: String, setup: String, netPct: Double) {
-        if (cell.isBlank() || !netPct.isFinite()) return
+    /** Returns the EV_LABEL nodes' forgetting at booking, in [reviseLabel7997] node order (V5.0.8410). */
+    fun onLabel7962(cell: String, lane: String, setup: String, netPct: Double): DoubleArray {
+        if (cell.isBlank() || !netPct.isFinite()) return DoubleArray(0)
         val l = canonLane(lane)
-        if (l.startsWith("PLANWAIT_") || l.startsWith("PLANADMIT_")) return
-        addAll(EV_LABEL, Ref7962(cell, bandOf(cell), l, setup.trim()), netPct, 1.0)
+        if (l.startsWith("PLANWAIT_") || l.startsWith("PLANADMIT_")) return DoubleArray(0)
+        val ref = Ref7962(cell, bandOf(cell), l, setup.trim())
+        val scales = labelNodes8410(ref).map { node -> nodes[nodeKey(EV_LABEL, node)]?.let { s -> synchronized(s) { s.logScale } } ?: 0.0 }.toDoubleArray()
+        addAll(EV_LABEL, ref, netPct, 1.0)
         labelsIn.incrementAndGet()
+        return scales
     }
 
+    private fun labelNodes8410(ref: Ref7962): List<String> = buildList {
+        add(GLOBAL_NODE); add(laneNode(ref.lane))
+        if (ref.setup.isNotBlank()) add(setupNode(ref.lane, ref.setup))
+        add(cellNode(ref.cell))
+        if (ref.band.isNotBlank()) add(bandNode(ref.band))
+    }
+    private val decayedRevisionUnknown8410 = java.util.concurrent.atomic.AtomicLong(0)
+
     /** V5.0.7997 — ForwardReturnLabeler7731: a later checkpoint revises a label in every node it was booked to. */
-    fun reviseLabel7997(cell: String, lane: String, setup: String, oldNet: Double, newNet: Double) {
+    fun reviseLabel7997(cell: String, lane: String, setup: String, oldNet: Double, newNet: Double, scalesAtBook: DoubleArray = DoubleArray(0)) {
         if (cell.isBlank() || !oldNet.isFinite() || !newNet.isFinite()) return
         val l = canonLane(lane)
         if (l.startsWith("PLANWAIT_") || l.startsWith("PLANADMIT_")) return
         val ref = Ref7962(cell, bandOf(cell), l, setup.trim())
-        val nodeList = buildList {
-            add(GLOBAL_NODE); add(laneNode(ref.lane))
-            if (ref.setup.isNotBlank()) add(setupNode(ref.lane, ref.setup))
-            add(cellNode(ref.cell))
-            if (ref.band.isNotBlank()) add(bandNode(ref.band))
+        val nodeList = labelNodes8410(ref)
+        // V5.0.8410 — a legacy label without its booking-time forgetting is not assumed weight one: skipped and counted.
+        if (scalesAtBook.size != nodeList.size) {
+            decayedRevisionUnknown8410.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("REVISION_WEIGHT_UNKNOWN_8410_ALLOCATOR") } catch (_: Throwable) {}
+            return
         }
-        for (node in nodeList) nodes[nodeKey(EV_LABEL, node)]?.let { s -> synchronized(s) { s.revise(oldNet, newNet) } }
+        for ((i, node) in nodeList.withIndex()) nodes[nodeKey(EV_LABEL, node)]?.let { s ->
+            synchronized(s) { s.revise(oldNet, newNet, kotlin.math.exp(s.logScale - scalesAtBook[i]).coerceIn(0.0, 1.0)) }
+        }
     }
 
     /** CanonicalFinalizedTradeBus6464.publish: a realised close, booked in its own mode's book. */
@@ -597,13 +615,14 @@ object CellAllocator7962 {
                 val sep = row.lastIndexOf('=')
                 if (sep <= 0) return@forEach
                 val f = row.substring(sep + 1).split(',')
-                if (f.size != 5) return@forEach
+                if (f.size !in 5..6) return@forEach   // V5.0.8410 — field 6 is the node's forgetting
                 val s = Stat7962()
                 s.w = f[0].toDoubleOrNull() ?: return@forEach
                 s.sx = f[1].toDoubleOrNull() ?: 0.0
                 s.sxx = f[2].toDoubleOrNull() ?: 0.0
                 s.holdW = f[3].toDoubleOrNull() ?: 0.0
                 s.holdSum = f[4].toDoubleOrNull() ?: 0.0
+                s.logScale = f.getOrNull(5)?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
                 if (s.w.isFinite() && s.w > 0.0) nodes[row.substring(0, sep)] = s
             }
         } catch (_: Throwable) {}
