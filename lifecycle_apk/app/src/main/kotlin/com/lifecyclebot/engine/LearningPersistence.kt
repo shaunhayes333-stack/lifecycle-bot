@@ -421,7 +421,7 @@ object LearningPersistence {
     /** Synchronous all-or-nothing checkpoint for ordered writers. Never queues a stale snapshot behind a newer one. */
     fun saveTogetherVerified8386(blobs: Map<String, String>): Boolean {
         val d = db ?: return false
-        if (Looper.getMainLooper().thread == Thread.currentThread() || d.inTransaction()) return false
+        if (Looper.getMainLooper()?.thread == Thread.currentThread() || d.inTransaction()) return false  // V5.0.8418 test seam: null-safe (JVM has no main looper), same as Commit8090 above
         return try {
             d.beginTransaction()
             try {
