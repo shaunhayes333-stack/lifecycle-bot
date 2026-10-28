@@ -14,14 +14,12 @@ class Aate8013GradingScheduleTest {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
         // V5.0.8040 — owner's schedule: 1 m / 5 m labels, then 1 h, 4 h, 24 h and beyond for coins worth watching.
         // superseded by V5.0.8357 — owner's schedule restores the 15-minute checkpoint ahead of the hour (1m, 5m, 15m, 1h, 4h, 24h, then 48h/72h/7d on tokenomics)
-        assertTrue(f.contains("longArrayOf(15L * 60_000L, 60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L,"))
-        assertTrue(f.contains("48L * 3_600_000L, 72L * 3_600_000L, 7L * 24L * 3_600_000L)"))
+        // superseded by V5.0.8416 — owner: 5m, 15m, 30m, 1h, 4h, 24h; from 30m only coins worth following. Indices 0=15m 1=30m 2=1h 3=4h 4=24h
+        assertTrue(f.contains("longArrayOf(15L * 60_000L, 30L * 60_000L, 60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L)"))
         assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(0, 1 * h))
-        // superseded by V5.0.8357 — indices shift by one: 0=15m 1=1h 2=4h 3=24h 4=48h 5=72h 6=7d
-        assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(4, 30 * h))      // the 24 h checkpoint passed, 48 h next
-        assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(6, 6 * 24 * h))  // the 7 d checkpoint still ahead
-        assertFalse(ForwardReturnLabeler7731.scheduleOpen8013(7, 2 * h))      // schedule finished
-        assertFalse(ForwardReturnLabeler7731.scheduleOpen8013(6, 8 * 24 * h)) // past the last checkpoint's grace
+        assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(4, 20 * h))      // the 4 h checkpoint passed, 24 h next
+        assertFalse(ForwardReturnLabeler7731.scheduleOpen8013(5, 2 * h))      // schedule finished
+        assertFalse(ForwardReturnLabeler7731.scheduleOpen8013(4, 30 * h))     // past the 24 h checkpoint's grace
     }
 
     @Test fun followedCoinsSurviveRestartsAndLeavingTheWatchlist() {

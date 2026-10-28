@@ -627,7 +627,7 @@ object ForwardReturnLabeler7731 {
                     o.entryMcap.toString(), o.stage, o.lastPx.toString(), o.lastPxAtMs.toString(),
                     o.setup7955.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' '), o.peakAtMs7955.toString(),
                     // V5.0.8013 — the progressive-grading state rides along (fields 23..30).
-                    o.ck7997.toString(), o.bookedNet7997.toString(), o.bookedGross7997.toString(), o.entryLiq7997.toString(),
+                    ckField8416(o.ck7997), o.bookedNet7997.toString(), o.bookedGross7997.toString(), o.entryLiq7997.toString(),
                     if (o.exitDeferred8006) "1" else "0", o.minPct7962.toString(), o.dipBeforePeak7962.toString(),
                     o.feats7972.joinToString("\u0002") { it.replace(FIELD_SEP_7735, ' ').replace(ROW_SEP_7735, ' ') },
                     // V5.0.8016 — the refusal reason survives a restart (missed runners read UNKNOWN without it).
@@ -663,7 +663,7 @@ object ForwardReturnLabeler7731 {
             val f = row.split(FIELD_SEP_7735)
             if (f.size !in 17..36) return@forEach
             val atMs = f[12].toLongOrNull() ?: return@forEach
-            val ck8013 = if (f.size >= 24) f[23].toIntOrNull() ?: 0 else 0
+            val ck8013 = if (f.size >= 24) ckFromField8416(f[23]) else 0
             if (atMs <= 0L) return@forEach
             if (nowMs - atMs > H240_MS_7731 + LOST_GRACE_MS_7731 && !scheduleOpen8013(ck8013, nowMs - atMs)) return@forEach
             val px = f[10].toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
@@ -1376,8 +1376,32 @@ object ForwardReturnLabeler7731 {
     // V5.0.8357 — owner: "we were grading at 1 min 5 min 15 min 1 hour 4 hours then 24 hours, to establish a wide data range
     // and establish data faster". The 15-minute checkpoint is back: between the 5-minute label and the hour every coin's
     // grade is revised once more (alive rule), so a coin that runs (or dies) inside the first hour teaches its learners at 15 m.
-    private val CK_MS_7997 = longArrayOf(15L * 60_000L, 60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L,
+    // V5.0.8416 — owner: "its meant to be 5 minutes 15 minutes 30 minutes 1 hour 4 hours and 24 hours. but only follow
+    // tokens after 30 minutes to 1 hour that are worth following." The 5-minute read is THE label; the checkpoints revise it
+    // at 15 m, 30 m, 1 h, 4 h and 24 h. From the 30-minute checkpoint on, a coin is followed only while it is worth
+    // following on its tokenomics ([worthWatching8040]); 48 h / 72 h / 7 d are gone.
+    private val CK_MS_7997 = longArrayOf(15L * 60_000L, 30L * 60_000L, 60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L)
+    /** V5.0.8416 — the pre-8416 schedule, only to read a persisted checkpoint index from an older build. */
+    private val CK_MS_LEGACY_8416 = longArrayOf(15L * 60_000L, 60L * 60_000L, 4L * 3_600_000L, 24L * 3_600_000L,
         48L * 3_600_000L, 72L * 3_600_000L, 7L * 24L * 3_600_000L)
+    /** V5.0.8416 — from this checkpoint on, a coin is followed only while it is worth following. */
+    private const val FOLLOW_GATE_MS_8416 = 30L * 60_000L
+
+    /** Pure (V5.0.8416): the next-due checkpoint as its horizon (persisted), so a schedule change never shifts an index. */
+    fun ckField8416(ck: Int): String = if (ck in CK_MS_7997.indices) "H${CK_MS_7997[ck]}" else "H-1"
+
+    /** Pure (V5.0.8416): a persisted checkpoint field (new horizon form, or a legacy index) -> index in today's schedule. */
+    fun ckFromField8416(field: String?): Int {
+        val f = field?.trim().orEmpty()
+        val dueMs = if (f.startsWith("H")) f.drop(1).toLongOrNull() ?: return 0
+            else { val i = f.toIntOrNull() ?: return 0; if (i in CK_MS_LEGACY_8416.indices) CK_MS_LEGACY_8416[i] else return CK_MS_7997.size }
+        if (dueMs < 0L) return CK_MS_7997.size
+        val i = CK_MS_7997.indexOfFirst { it >= dueMs }
+        return if (i < 0) CK_MS_7997.size else i
+    }
+
+    /** Pure (V5.0.8416): at checkpoint age [ageMs], does the worth-following gate (not just "alive") decide? */
+    fun followGate8416(ageMs: Long): Boolean = ageMs >= FOLLOW_GATE_MS_8416
     private const val RUNNING_GROSS_7997 = 20.0
     private const val DEAD_GROSS_7997 = -60.0
     private const val MAX_EXTENDED_7997 = 1_500
@@ -1463,7 +1487,8 @@ object ForwardReturnLabeler7731 {
             if (net > oldNet) upgraded7997.incrementAndGet()
         }
         // V5.0.8040 — past the hour, alive means worth watching on tokenomics (a surviving or recovering coin).
-        val alive = if (age >= H240_MS_7731) worthWatchingNow8040(o, gross0) else alive7997(gross0, o.entryLiq7997, nowLiq7997(o.mint))
+        // V5.0.8416 — from 30 minutes on, only a coin worth following on its tokenomics is followed (was: past the hour).
+        val alive = if (followGate8416(age)) worthWatchingNow8040(o, gross0) else alive7997(gross0, o.entryLiq7997, nowLiq7997(o.mint))
         if (!alive) { diedEarly7997.incrementAndGet(); o.ck7997 = CK_MS_7997.size }
         return !alive || o.ck7997 >= CK_MS_7997.size
     }
@@ -1513,7 +1538,7 @@ object ForwardReturnLabeler7731 {
     }
 
     fun progressiveLine7997(): String =
-        "checkpoints=1m,5m,15m,1h,4h,24h,48h,72h,7d (past 1h on tokenomics: kept=${tokenomicsKept8040.get()} dropped=${tokenomicsDropped8040.get()}) revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
+        "checkpoints=5m,15m,30m,1h,4h,24h (from 30m only if worth following: kept=${tokenomicsKept8040.get()} dropped=${tokenomicsDropped8040.get()}) revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
             "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()} runExitSamples8006=${exitRunSamples8006.get()}"
 
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false): Boolean {

@@ -132,9 +132,9 @@ class Aate8367DirectiveRegressionTest {
     @Test fun d09_fifteenMinuteCheckpointIsInTheSchedule() {
         val h = 3_600_000L
         assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(0, 10L * 60_000L))
-        // Seven checkpoints (15m first): index 6 (7 d) is a real checkpoint, index 7 is past the end.
-        assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(6, 6L * 24L * h))
-        assertFalse(ForwardReturnLabeler7731.scheduleOpen8013(7, 2L * h))
+        // superseded by V5.0.8416 — five checkpoints (15m, 30m, 1h, 4h, 24h): index 4 (24 h) is the last, index 5 is past the end.
+        assertTrue(ForwardReturnLabeler7731.scheduleOpen8013(4, 20L * h))
+        assertFalse(ForwardReturnLabeler7731.scheduleOpen8013(5, 2L * h))
     }
 
     // ── 8354 — PumpPortal per-token trade stream OFF by default ──

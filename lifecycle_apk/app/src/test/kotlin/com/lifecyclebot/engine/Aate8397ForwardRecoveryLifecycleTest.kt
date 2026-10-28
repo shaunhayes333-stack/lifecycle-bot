@@ -89,7 +89,7 @@ class Aate8397ForwardRecoveryLifecycleTest {
             assertSame(obs, pending()[key])
             assertSame(originalBasis, get(obs, "basis8386"))
             assertEquals(at, get(obs, "atMs"))
-            assertEquals(at + 7 * 24 * 3_600_000L + 600_000L, call("deadline8395", obs))
+            assertEquals(at + 24 * 3_600_000L + 600_000L, call("deadline8395", obs))  // V5.0.8416 — the 24 h checkpoint is the last
         } finally { pending().remove(key, obs) }
     }
 
