@@ -63,6 +63,8 @@ object EvidenceShadow8344 {
         var dirty8355 = false
         var lastWriteMs8355 = 0L
         var noMarkSinceRestore8355 = false
+        // V5.0.8418 — when this position was restored (0 = opened in this process): the lost-mark clock restarts there
+        var restoredAtMs8418 = 0L
         // V5.0.8366 — the lifecycle hold (persisted) and a triggered exit waiting out the live sell latency (not persisted)
         var hold8366 = false
         var taken8366 = 0
@@ -131,6 +133,8 @@ object EvidenceShadow8344 {
                 pos.sellFraction8394 = r.sellFraction8394; pos.sellTier8394 = r.sellTier8394; pos.sellTaken8394 = r.sellTaken8394
                 pos.hold8366 = r.hold8366; pos.taken8366 = r.taken8366; pos.peakAt8366 = r.peakAt8366   // V5.0.8366
                 pos.noMarkSinceRestore8355 = true; pos.lastWriteMs8355 = nowMs
+                pos.restoredAtMs8418 = nowMs
+                wantMark8418(r.mint, nowMs)   // V5.0.8418 — a restored mint is in no token map yet: ask the keyless feed to price it
                 if (open.putIfAbsent(episodeKey, pos) == null) {
                     lastOpenAt[episodeKey] = r.atMs
                     n++
@@ -324,6 +328,7 @@ object EvidenceShadow8344 {
         open.clear(); lastOpenAt.clear(); closes.clear(); opened.set(0); closedN.set(0); skippedFull.set(0)
         holdRefused8345.clear(); skipped8345.clear(); openedBySource8345.clear(); markSrc8360.clear()   // V5.0.8360
         restored8355.set(0); lostOnRestore8355.set(0); expiredOnRestore8355.set(0)   // V5.0.8355
+        wantedAt8418.clear(); wantCallsN8418.set(0)   // V5.0.8418
     }
 
     // ── tick ──
@@ -336,6 +341,7 @@ object EvidenceShadow8344 {
             val mint = p.mint
             try {
                 val ts = tokens[mint]
+                wantMark8418(mint, nowMs)   // V5.0.8418 — keep the data side pricing every open evidence position
                 val observed8394 = ShadowMark8360.observedTimed8372(ts, mint, nowMs)
                 val fresh = observed8394?.priceUsd
                 if (observed8394 != null) { p.lastPx = observed8394.priceUsd; p.lastPxAtMs = observed8394.observedAtMs; p.noMarkSinceRestore8355 = false }
@@ -364,6 +370,27 @@ object EvidenceShadow8344 {
 
     private const val WAIT_8366 = "WAIT_8366"
 
+    // ── V5.0.8418 §RESTORED_SHADOW_KEEPS_ITS_MARK — runtime 8416: restored8355=45 lostOnRestore8355=27. The open book was
+    // persisted and restored with its entry price, clock and checkpoints, but nothing asked the data side to price a restored
+    // mint (after a restart it is in no token map, and only ExploreShadow8347 registered shadow mark demand), and its
+    // lost-mark clock ran from the pre-restart mark, so most restored episodes closed LOST_MARK unpriced. Every open evidence
+    // position now registers keyless mark demand (at most once per mint per 30 s) and restored ones get a full lost-mark window.
+    private const val WANT_EVERY_MS_8418 = 30_000L
+    private val wantedAt8418 = ConcurrentHashMap<String, Long>()
+    private val wantCallsN8418 = AtomicLong(0)
+
+    private fun wantMark8418(mint: String, nowMs: Long) {
+        val last = wantedAt8418[mint]
+        if (last != null && nowMs - last in 0L until WANT_EVERY_MS_8418) return
+        wantedAt8418[mint] = nowMs
+        if (wantedAt8418.size > 2_000) wantedAt8418.entries.removeIf { nowMs - it.value > WANT_EVERY_MS_8418 }
+        try { KeylessMarks8359.noteWanted8359(mint, nowMs + LOST_MARK_MS_8344) } catch (_: Throwable) {}
+        wantCallsN8418.incrementAndGet()
+    }
+
+    /** V5.0.8418 — mark-demand registrations (tests and the status line). */
+    fun wantCalls8418(): Long = wantCallsN8418.get()
+
     /**
      * V5.0.8366 — the position's exit on live's levers (null = hold, [WAIT_8366] = triggered, waiting out the live sell
      * latency): SpikeCapture7943 tiers, the lane stop, the 8338 give-back floor, the level live's fluid stop holds
@@ -377,7 +404,8 @@ object EvidenceShadow8344 {
     }
 
     private fun why8366(p: Pos8344, g: Double, fresh: Double?, nowMs: Long): String? {
-        val lost = nowMs - p.lastPxAtMs >= LOST_MARK_MS_8344
+        // superseded by V5.0.8418 — a restored position's lost-mark clock restarts at the restore (the process was down, not the mark)
+        val lost = ShadowPersist8355.lostMark8418(p.lastPxAtMs, p.restoredAtMs8418, nowMs, LOST_MARK_MS_8344)
         val pending = p.exitWhy8366
         if (pending != null) {
             if (lost) return "LOST_MARK"
@@ -486,7 +514,7 @@ object EvidenceShadow8344 {
         val openByLane = open.values.groupingBy { it.lane }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
         val (held, skipped, bySource) = gapCounts8345()  // V5.0.8345
         return "evidenceShadow8344[open=${open.size}/$MAX_OPEN_8344 ($openByLane) opened=${opened.get()} closed=${closedN.get()} full=${skippedFull.get()} " +
-            "restored8355=${restored8355.get()} lostOnRestore8355=${lostOnRestore8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} " +
+            "restored8355=${restored8355.get()} lostOnRestore8355=${lostOnRestore8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} markWants8418=${wantCallsN8418.get()} " +
             "exits=lane stop+spike tiers+give-back floor+timeout cost=NetEdge8030 @${TICKET_SOL_8344}SOL | $lanes" +
             " holdRefused{${countLine8345(held)}} openedBy{${countLine8345(bySource)}} skipped{${countLine8345(skipped)}}" +
             " entryMark8360{${countLine8345(markSrc8360.mapValues { it.value.get() })}}" + recoveryLine8345(sinceMs, nowMs) + "]"

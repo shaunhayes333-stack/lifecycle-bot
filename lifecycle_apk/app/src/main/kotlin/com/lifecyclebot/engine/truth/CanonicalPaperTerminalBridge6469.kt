@@ -361,6 +361,7 @@ object CanonicalPaperTerminalBridge6469 {
                 suppressLearningFanout6490 = suppressLearningFanout6490,
                 exitPriceUsd7032 = exitPriceUsd7032,
                 solUsdAtExit7032 = solUsdAtExit7032,
+                basisDerived8418 = basisDerivedProceeds8083,   // V5.0.8418 — the durable row says how its proceeds were formed
             )
             CanonicalEconomicEvent6635.markCommitted(sellSig, CanonicalEconomicEvent6635.Store.TERMINAL_EXEC, "CanonicalPaperTerminalBridge6469")
             if (terminal) {
@@ -478,6 +479,7 @@ object CanonicalPaperTerminalBridge6469 {
         // matched on text, not on ownership.
         exitPriceUsd7032: Double = 0.0,
         solUsdAtExit7032: Double = 0.0,
+        basisDerived8418: Boolean = false,
     ): Boolean {
         try {
             CanonicalLotQuantity6464.onSellFilled(
@@ -504,6 +506,7 @@ object CanonicalPaperTerminalBridge6469 {
                 exitPriceUsd = exitPriceUsd7032,
                 solUsdAtExit = solUsdAtExit7032,
                 performanceFeeSol8391 = if (terminal) com.lifecyclebot.engine.PerformanceFees8391.fee(positionId) else 0.0,
+                basisDerived8418 = basisDerived8418,
             )
         } catch (_: Throwable) {}
 

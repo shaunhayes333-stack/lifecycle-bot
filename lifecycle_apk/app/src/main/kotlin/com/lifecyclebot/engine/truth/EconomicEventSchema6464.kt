@@ -135,6 +135,12 @@ object EconomicEventSchema6464 {
         val exitPriceUsd: Double = 0.0,
         val solUsdAtExit: Double = 0.0,
         val performanceFeeSol8391: Double = 0.0,
+        /**
+         * V5.0.8418 — proceeds were derived as `soldBasisSol x (1 + pnl%)` (CanonicalPaperTransaction6486.partial, the
+         * cross-asset path, checked by 6510's 7066 ratio bound and 7056's basis-derived branch). SOL by construction: there
+         * is no SOL/USD rate to record, so solUsdAtExit = 0 on such a row is NOT the pre-7032 "unreconstructible" marker.
+         */
+        val basisDerived8418: Boolean = false,
     ) : Event()
 
     data class ReplayCarry6489(
@@ -313,6 +319,7 @@ object EconomicEventSchema6464 {
         // self-identifying as unreconstructible. See the Sell fields.
         exitPriceUsd: Double = 0.0, solUsdAtExit: Double = 0.0,
         performanceFeeSol8391: Double = 0.0,
+        basisDerived8418: Boolean = false,   // V5.0.8418 — see Sell.basisDerived8418
     ) {
         val idKey = idempotencyKey.ifBlank { "sell_${System.nanoTime()}" }
         val gross = grossProceedsSol.coerceAtLeast(0.0)
@@ -344,6 +351,7 @@ object EconomicEventSchema6464 {
             exitPriceUsd = exitPriceUsd,
             solUsdAtExit = solUsdAtExit,
             performanceFeeSol8391 = performanceFeeSol8391,
+            basisDerived8418 = basisDerived8418,
         )
         if (!appendBounded(e)) return
         if (partial) recordedPartials.incrementAndGet() else recordedSells.incrementAndGet()
@@ -399,6 +407,7 @@ object EconomicEventSchema6464 {
                 put("realizedPnlSol", e.realizedPnlSol); put("realizedReturnPct", e.realizedReturnPct)
                 put("remainingQty", e.remainingQty.toString()); put("remainingCostBasisSol", e.remainingCostBasisSol)
                 put("exitPriceUsd", e.exitPriceUsd); put("solUsdAtExit", e.solUsdAtExit)
+                if (e.basisDerived8418) put("basisDerived8418", true)   // V5.0.8418 — absent on older rows = false
             }
         }
     }.toString()
@@ -424,6 +433,7 @@ object EconomicEventSchema6464 {
             j.getDouble("realizedPnlSol"), j.getDouble("realizedReturnPct"),
             java.math.BigInteger(j.getString("remainingQty")), j.getDouble("remainingCostBasisSol"),
             j.optDouble("exitPriceUsd", 0.0), j.optDouble("solUsdAtExit", 0.0), j.optDouble("performanceFeeSol8391", 0.0),
+            j.optBoolean("basisDerived8418", false),
         )
     } catch (_: Throwable) { null }
 

@@ -116,6 +116,13 @@ object CanonicalPaperPartialOperation6510 {
      */
     private const val BASIS_DERIVED_MAX_RATIO_7066 = 1000.0
 
+    /** V5.0.8418 — pure: the journal's exit price — the observed USD mark when present, else the legacy figure (unchanged). */
+    internal fun journalExitPrice8418(markPriceUsd: Double, grossSol: Double, soldQtyToken: Double, entryPriceUsd: Double): Double {
+        if (markPriceUsd.isFinite() && markPriceUsd > 0.0) return markPriceUsd
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_PARTIAL_JOURNAL_PRICE_UNMARKED_8418") } catch (_: Throwable) {}
+        return if (soldQtyToken > 0.0) grossSol / soldQtyToken else entryPriceUsd
+    }
+
     fun commit(positionId: String, mint: String, symbol: String, fraction: Double,
                grossProceeds: Double, fees: Double, exitReason: String,
                // V5.0.7029 — the mark that produced grossProceeds, and the rate
@@ -409,7 +416,9 @@ object CanonicalPaperPartialOperation6510 {
             val realizedNet = gross - basis - fee
             val pnlPct = if (basis > 0.0) realizedNet * 100.0 / basis else 0.0
             val soldQtyToken = tokenQty(r.canonicalConsumedRaw)
-            val exitPrice = if (soldQtyToken > 0.0) gross / soldQtyToken else pre.entryPriceUsd
+            // superseded by V5.0.8418 — Trade.price is the USD exit mark; gross / qty is SOL per unit (a units error that
+            // made a priced partial read ~solUsd times cheaper than its entry). The observed mark wins when the caller had one.
+            val exitPrice = journalExitPrice8418(markPriceUsd7029, gross, soldQtyToken, pre.entryPriceUsd)
 
             TradeHistoryStore.recordTrade(
                 Trade(

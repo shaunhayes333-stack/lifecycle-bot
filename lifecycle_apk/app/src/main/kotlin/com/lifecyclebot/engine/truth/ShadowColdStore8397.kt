@@ -127,6 +127,11 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
     // then missing a 64-entry hot cache; the same monitor serialised the trading path's appends behind that walk.
     private val keyIndex = HashSet<String>()
     private var revision8401 = 0L
+    // V5.0.8418 — per-lane content revision: the lane's last booked revision (monotone, unique). A cached choice computed at
+    // revision r is current while laneRevision8418(lane) == r; attach (restore) and clear raise the floor for every lane.
+    // Lock-free reads: the assess thread asks this on every choice read and must never wait behind a durable append.
+    private val laneRevisions8418 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    @Volatile private var revisionFloor8418 = 0L
     // V5.0.8398b — where the time goes: cold reads, monitor waits and append (durable write) time, for the report walk RCA.
     private val coldReads8398 = java.util.concurrent.atomic.AtomicLong()
     private val lockWaitNs8398 = java.util.concurrent.atomic.AtomicLong()
@@ -147,7 +152,7 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
                 cold.appendReceipt(event, payloads, early.terminal.joinToString(","))
             }
         } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
-        revision8401++
+        revision8401++; revisionFloor8418 = revision8401
         store = cold; hot.clear(); preAttachReceipts.clear()
         keyIndex.clear(); try { keyIndex.addAll(cold.keys()) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
     }
@@ -215,6 +220,7 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
             }
         } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
         revision8401++
+        for (k in updated.keys) laneRevisions8418[laneOfKey8418(k)] = revision8401
         updated.forEach { (k, v) -> putHot(k, v) }
         if (cold != null) keyIndex.addAll(updated.keys)
         if (cold == null) preAttachReceipts[event] = Early(keys.distinct(), row.copyOf(), terminal.copyOf())
@@ -225,5 +231,17 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
     @Synchronized fun hotCount(): Int = hot.size
     @Synchronized fun bytes(): Long = hot.entries.sumOf { (k, v) -> 64L + k.length * 2L + v.sumOf { 32L + it.size * 8L } } +
         preAttachReceipts.entries.sumOf { (k, v) -> 96L + k.length * 2L + v.row.size * 8L + v.keys.sumOf { 32L + it.length * 2L } }
-    @Synchronized fun clear() { revision8401++; hot.clear(); preAttachReceipts.clear(); keyIndex.clear() } // test-local reset; durable learning is never evicted
+    /** V5.0.8418 — the revision of [lane]'s rows (variant, cohort and fill-rate keys); changes whenever any of them changes. */
+    fun laneRevision8418(lane: String): Long =
+        maxOf(laneRevisions8418[lane.trim().uppercase()] ?: 0L, revisionFloor8418)
+
+    @Synchronized fun clear() { revision8401++; revisionFloor8418 = revision8401; hot.clear(); preAttachReceipts.clear(); keyIndex.clear() } // test-local reset; durable learning is never evicted
+}
+
+/** V5.0.8418 — the lane a book key belongs to: `lane|E|X`, `C|lane|E|X|dim:value`, `U|<either>` (fill-rate rows). */
+internal fun laneOfKey8418(key: String): String {
+    var k = key
+    if (k.startsWith("U|")) k = k.removePrefix("U|")
+    if (k.startsWith("C|")) k = k.removePrefix("C|")
+    return k.substringBefore('|').trim().uppercase()
 }
