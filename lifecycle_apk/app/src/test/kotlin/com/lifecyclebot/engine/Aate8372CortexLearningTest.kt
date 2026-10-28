@@ -77,9 +77,13 @@ class Aate8372CortexLearningTest {
     }
 
     @Test fun specialistSoftNoMustNotDeleteTheCounterfactualLearningPopulation() {
+        // superseded by V5.0.8418 — 8372 "a judgement NO is learnable" as an EXECUTABLE grade. A native NO stays an observed
+        // record (CortexGradeBook8144 keeps it), but it never grades the authority population.
         for (reason in listOf("NATIVE_THRESHOLD_FAIL_SCORE", "NATIVE_NO_CONTINUATION", "CANDIDATE_ADMISSION_8136_SETUP_RECORD_LOSING")) {
-            assertTrue("A judgement NO is learnable: $reason",
+            assertFalse("A native NO is not an executable grade: $reason",
                 CortexLabelHygiene8144.executableDecision8144(false, reason, nativeEligible = false))
+            assertTrue("The same refusal without a native NO is still a counterfactual: $reason",
+                CortexLabelHygiene8144.executableDecision8144(false, reason, nativeEligible = null) || reason.startsWith("NATIVE_"))
         }
     }
 
@@ -91,8 +95,11 @@ class Aate8372CortexLearningTest {
     }
 
     @Test fun counterfactualHelperRequiresGradeableOwnLaneEvidenceWithoutTreatingJudgementAsSafety() {
-        assertTrue(CortexLabelHygiene8144.counterfactualExecutable8372(
+        // superseded by V5.0.8418 — with nativeEligible=false the counterfactual is not executable (8372: true).
+        assertFalse(CortexLabelHygiene8144.counterfactualExecutable8372(
             false, "FDG_SETUP_RECORD_LOSING", false, true, "THRESHOLD_FAIL_SCORE"))
+        assertTrue(CortexLabelHygiene8144.counterfactualExecutable8372(
+            false, "FDG_SETUP_RECORD_LOSING", true, true, "THRESHOLD_FAIL_SCORE"))
         assertFalse(CortexLabelHygiene8144.counterfactualExecutable8372(
             false, "FDG_SETUP_RECORD_LOSING", false, false, "THRESHOLD_FAIL_SCORE"))
         assertFalse(CortexLabelHygiene8144.counterfactualExecutable8372(
@@ -248,11 +255,12 @@ class Aate8372CortexLearningTest {
         val restored = CortexGradeBook8144().also {
             it.decode(grades.encode()); it.execOffset8187 = { 3.0 }
         }
-        val row = restored.scoredRows8366("QUALITY", false, 1).single()
-        assertEquals("Already-costed shadow exits must not lose the haircut twice", 12.0, row.netPct, 0.0)
-        assertEquals(421_000L, row.outcomeAvailableAtMs)
-        assertEquals(CortexScoreboard7885.Bucket.REFUSE.ordinal, row.frozenBucket)
+        // superseded by V5.0.8418 — 8372 graded the restored shadow exit into scoredRows8366 (authority test8372) at +12.0.
+        // A model-filled exit is kept (values, source, provenance) but is never authority / sizing evidence.
+        assertTrue(restored.scoredRows8366("QUALITY", false, 1).isEmpty())
+        assertTrue(restored.bucketStats8372("QUALITY").all { it.n == 0.0 })
         assertEquals("SHADOW_EXIT", restored.decision(r.id)!!.outcomeSource8372)
+        assertEquals(12.0, restored.objectivePct8322(restored.decision(r.id)!!), 0.0)
         assertEquals(301_000L, restored.decision(r.id)!!.firstAvailableAtMs8372)
         assertEquals('D', restored.decision(r.id)!!.kind)
         assertEquals("A simulated exit is not a realised transaction", 0, restored.tradeCount())

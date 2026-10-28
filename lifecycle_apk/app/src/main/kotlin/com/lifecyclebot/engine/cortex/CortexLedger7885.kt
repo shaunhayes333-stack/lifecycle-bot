@@ -199,8 +199,13 @@ class CortexLedger7885(
          * [suspect8187] is a flag on the screen; nothing stored is changed.
          */
         fun tailReal8322(): Boolean = tailPlausible8320(sum, runners, cap8187, witnessed8324)  // V5.0.8320 plausible / V5.0.8324 witnessed
-        fun effectiveReadOffset8404(): Double = (readOffset8187.takeIf { it.isFinite() } ?: 0.0) *
-            (if (n > 0.0) 1.0 - (shadowWeight8404 / n).coerceIn(0.0, 1.0) else 1.0)
+        /**
+         * V5.0.8418 §NO_SHADOW_COST_CREDIT — the full measured offset, whatever share of the book is shadow-marked. 8404 credited the
+         * offset back in proportion to [shadowWeight8404], which was only right if every shadow net had paid the whole
+         * executableOffset8187 (impact + latency chase + fees); that was never proven, so the credit is removed. The shadow weight
+         * stays stored (no reset) and only describes the book. superseded by V5.0.8418 — 8404 "credit back the execution offset".
+         */
+        fun effectiveReadOffset8404(): Double = readOffset8187.takeIf { it.isFinite() } ?: 0.0
         fun mean(): Double {
             if (!(n > 0.0)) return 0.0
             val off = effectiveReadOffset8404()
@@ -230,8 +235,8 @@ class CortexLedger7885(
         }
         /** Convert only known executable contributions to the fallback's forward basis before its one cost subtraction.
          * Legacy aggregates have no per-outcome basis: zero credit preserves their conservative prior behavior. */
-        fun predictionWithShadowCredit8404(offset: Double): Double = predictMean8322() +
-            if (n > 0.0 && offset.isFinite() && offset > 0.0) offset * (shadowWeight8404 / n).coerceIn(0.0, 1.0) else 0.0
+        @Suppress("UNUSED_PARAMETER")
+        fun predictionWithShadowCredit8404(offset: Double): Double = predictMean8322()   // V5.0.8418 — no shadow credit (see effectiveReadOffset8404)
         fun sumWithShadowCredit8404(offset: Double): Double = if (n > 0.0) predictionWithShadowCredit8404(offset) * n else 0.0
         /** V5.0.8187 — the sum a shrunk prediction may use: the bounded mean's worth of n labels (V5.0.8322: [predictMean8322]). */
         fun readSum8187(): Double = if (n > 0.0) predictMean8322() * n else 0.0

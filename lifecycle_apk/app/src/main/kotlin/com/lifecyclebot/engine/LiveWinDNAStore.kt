@@ -268,11 +268,39 @@ object LiveWinDNAStore {
         return if (k >= list.size) list else list.take(k)
     }
 
+    /**
+     * V5.0.8418 §DNA_LIVE_SCOPED — the rows a reader sees: [mode] (PAPER / LIVE; null = both, the AGI histograms) and [lane].
+     * ea9f1f0ac fed PAPER settlements into the live size boost (dnaProvenWinnerSizeBoost6518), the proven-loser veto and
+     * LiveLaneGovernor; those callers now pass their runtime mode ([runtimeMode8418]). The lane is canonicalised; a blank or
+     * unknown lane (Executor's layerTag defaults to "") matched NO row, which switched the loser veto off. With [fallbackAll]
+     * (veto readers) such a lane reads every lane; without it (size-up readers) it reads nothing, never another lane's winners.
+     */
+    internal fun scoped8418(all: List<WinDNA>, lane: String?, mode: String?, fallbackAll: Boolean): List<WinDNA> {
+        val m = mode?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        val byMode = if (m == null) all else all.filter { it.paperOrLive.equals(m, true) }
+        if (lane == null) return byMode
+        val key = laneKey8418(lane)
+        if (key.isBlank()) return if (fallbackAll) byMode else emptyList()
+        val inLane = byMode.filter { laneKey8418(it.lane) == key }
+        return if (inLane.isEmpty() && fallbackAll) byMode else inLane
+    }
+
+    /** Pure (V5.0.8418): the canonical lane key ("" when none). */
+    internal fun laneKey8418(lane: String?): String {
+        val raw = lane?.trim().orEmpty()
+        if (raw.isBlank()) return ""
+        val c = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(raw) } catch (_: Throwable) { "" }
+        return c.ifBlank { raw }.uppercase()
+    }
+
+    /** V5.0.8418 — the account mode a sizing / veto reader must read its DNA in (LIVE in a live runtime). */
+    fun runtimeMode8418(): String = try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }
+
     /** Winning-setup histogram (setup name → count, avgPnl). AGI layers use this.
      *  V5.0.6258 — filters to WINNING rows only (pnlPct > 0). */
-    fun setupFrequency(minCount: Int = 2, lane: String? = null): List<Triple<String, Int, Double>> {
+    fun setupFrequency(minCount: Int = 2, lane: String? = null, mode: String? = null, fallbackAll8418: Boolean = false): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        realRows().filter { it.pnlPct > 0.0 && (lane == null || it.lane.equals(lane, true)) }
+        scoped8418(realRows(), lane, mode, fallbackAll = fallbackAll8418).filter { it.pnlPct > 0.0 }
             .forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
@@ -282,9 +310,9 @@ object LiveWinDNAStore {
     /** V5.0.6258 — LOSING-setup histogram. The AGI must learn what NOT to trade,
      *  not just what worked. Losing patterns are 5x more informative than winners
      *  because they define the AVOID surface for live-trade shape. */
-    fun losingSetupFrequency(minCount: Int = 2, lane: String? = null): List<Triple<String, Int, Double>> {
+    fun losingSetupFrequency(minCount: Int = 2, lane: String? = null, mode: String? = null): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        realRows().filter { it.pnlPct < 0.0 && (lane == null || it.lane.equals(lane, true)) }
+        scoped8418(realRows(), lane, mode, fallbackAll = true).filter { it.pnlPct < 0.0 }
             .forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
@@ -293,9 +321,9 @@ object LiveWinDNAStore {
 
     /** Winning chart-pattern histogram. Chart brains use this.
      *  V5.0.6258 — filters to WINNING rows only. */
-    fun chartPatternFrequency(minCount: Int = 2, lane: String? = null): List<Triple<String, Int, Double>> {
+    fun chartPatternFrequency(minCount: Int = 2, lane: String? = null, mode: String? = null): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        realRows().filter { it.pnlPct > 0.0 && (lane == null || it.lane.equals(lane, true)) &&
+        scoped8418(realRows(), lane, mode, fallbackAll = false).filter { it.pnlPct > 0.0 &&
             it.chartPattern.isNotBlank() && !it.chartPattern.equals("UNKNOWN", true) }
             .forEach { map.getOrPut(it.chartPattern) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }

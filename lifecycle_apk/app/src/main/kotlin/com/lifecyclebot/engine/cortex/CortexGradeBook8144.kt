@@ -9,7 +9,8 @@ data class CortexOutcomeProof8395(
 ) {
     internal fun matches8395(id: String, horizon: Long, at: Long, net: Double, gross: Double): Boolean =
         decisionId == id && horizonMs == horizon && observedAtMs == at && netPct.toBits() == net.toBits() && grossPct.toBits() == gross.toBits()
-    fun witnessed8395(): Boolean = entry != null && outcome != null && entry.independentBasis && outcome.independentBasis &&
+    fun witnessed8395(): Boolean = entry != null && outcome != null &&
+        com.lifecyclebot.engine.truth.LabelEvidence8386.independent8418(entry) && com.lifecyclebot.engine.truth.LabelEvidence8386.independent8418(outcome) &&
         entry.mint == decisionId.substringBefore('|') && outcome.observedAtMs == observedAtMs &&
         com.lifecyclebot.engine.truth.LabelEvidence8386.eligible(entry, outcome)
     internal fun encode8395(): String = org.json.JSONObject().put("id",decisionId).put("h",horizonMs).put("at",observedAtMs)
@@ -114,10 +115,24 @@ class CortexGradeRecord8144(
     var revisedOutcomeProof8395: String = ""
     var modelContribution8395: String = ""
     internal var disposition8395: String = "UNRESOLVED"
+    /**
+     * V5.0.8418 §NO_NAN_ON_RESTORE — a restored executable value that [CortexGradeBook8144.implausible8388] refuses is HELD here
+     * (out of every reader: [executablePct] reads NaN in memory) and written back unchanged on the next save. 8388 overwrote the
+     * stored value with NaN, which a later save made permanent. A later witness (8418 chain-provable sources) re-qualifies it.
+     */
+    internal var heldExecutable8418: Double = Double.NaN
+    internal var heldRevised8418: Double = Double.NaN
 
     /** May this decision's label grade authority (executable, first of its episode)? */
     val eligibleToGrade8395: Boolean get() = kind == 'D' && executable && !repeat
-    val graded: Boolean get() = eligibleToGrade8395
+    /**
+     * V5.0.8418 §SHADOW_LEDGER_ISOLATED — a row whose outcome is a model-filled shadow exit ("SHADOW_EXIT", written by 8372-8417)
+     * is never graded evidence: every authority (scoredRows8366 / test8372), sizing (bucketStats8372 / Kelly), verdict-row,
+     * pond, rank and series reader filters on [graded]. The row and its values stay stored (no learning reset); they just
+     * never speak for a live decision. New shadow exits no longer reach the grade book at all (Cortex7885.onShadowOutcome8372).
+     */
+    val shadowExit8418: Boolean get() = outcomeSource8372 == "SHADOW_EXIT"
+    val graded: Boolean get() = eligibleToGrade8395 && !shadowExit8418
 
     internal fun detached8386(): CortexGradeRecord8144 = CortexGradeRecord8144(kind, id, episode, atMs, lane, setup,
         regime, timing, costBand, cohort, bucket, predictedEdgePct, admitted, executable, repeat).also { out ->
@@ -149,6 +164,7 @@ class CortexGradeRecord8144(
         out.firstAvailableAtMs8372 = firstAvailableAtMs8372
         out.firstOutcomeProof8395 = firstOutcomeProof8395; out.revisedOutcomeProof8395 = revisedOutcomeProof8395
         out.modelContribution8395 = modelContribution8395; out.disposition8395 = disposition8395
+        out.heldExecutable8418 = heldExecutable8418; out.heldRevised8418 = heldRevised8418
     }
 
     fun key(): String = "$lane|$setup|$regime|$timing|$costBand|$cohort"
@@ -168,7 +184,7 @@ class CortexGradeRecord8144(
         executablePct.isFinite() && kotlin.math.abs(executablePct - labelCap8187()) < 1e-9 && observedNetPct.isFinite() && observedNetPct > labelCap8187()
 
     /** V5.0.8187 — may this record carry authority evidence (an executable, first-of-episode decision)? Evicted last. */
-    internal val evidence8187: Boolean get() = kind == 'D' && executable && !repeat
+    internal val evidence8187: Boolean get() = kind == 'D' && executable && !repeat && !shadowExit8418   // V5.0.8418
 }
 
 class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val maxTrades: Int = 600) {
@@ -321,11 +337,11 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             return CortexOutcomeDisposition8395.OBSERVED_ONLY
         }
         val disposition = if (!r.executablePct.isFinite()) {
-            r.executablePct = executableValue; r.firstGross8324 = grossPct
+            r.executablePct = executableValue; r.heldExecutable8418 = Double.NaN; r.firstGross8324 = grossPct
             r.firstAvailableAtMs8372 = availableAtMs; r.firstOutcomeProof8395 = encoded
             CortexOutcomeDisposition8395.ACCEPTED_FIRST
         } else {
-            r.executableRevisedPct = executableValue; r.revisedAvailableAtMs = availableAtMs
+            r.executableRevisedPct = executableValue; r.heldRevised8418 = Double.NaN; r.revisedAvailableAtMs = availableAtMs
             r.revisions8272++; r.revisedGross8324 = grossPct; r.revisedOutcomeProof8395 = encoded
             CortexOutcomeDisposition8395.ACCEPTED_REVISION
         }
@@ -485,12 +501,12 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
 
     /** The same frozen, executable current-predictor cohorts used by the visible verdict row and authority.
      * Historical observations remain in the book; they are not reclassified as predictions made by a new scorer. */
-    fun bucketStats8372(lane: String, setup: String? = null, scoreVersion: Int = 1): Array<CortexLedger7885.Stat> {
+    fun bucketStats8372(lane: String, setup: String? = null, scoreVersion: Int? = 1): Array<CortexLedger7885.Stat> {   // V5.0.8418: null = every version
         val out = Array(CortexScoreboard7885.Bucket.values().size) {
             CortexLedger7885.Stat(Double.POSITIVE_INFINITY, CortexLedger7885.RUNNER_GROSS_PCT)
         }
         for (r in decisions) {
-            if (!r.graded || r.lost || r.lane != lane || r.scoreVersion8372 != scoreVersion ||
+            if (!r.graded || r.lost || r.lane != lane || (scoreVersion != null && r.scoreVersion8372 != scoreVersion) ||
                 !r.executablePct.isFinite() || (setup != null && r.setup != setup)) continue
             val st = out.getOrNull(r.bucket) ?: continue
             val net = objectivePct8322(r) - offsetFor8372(r)
@@ -633,7 +649,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
     fun resolvedShare(lane: String, bucket: Int, setup: String? = null, scoreVersion: Int? = null): Double {
         var ok = 0; var lost = 0
         for (r in decisions) {
-            if (r.kind != 'D' || !r.executable || r.repeat || r.lane != lane || r.bucket != bucket || (setup != null && r.setup != setup) ||
+            if (r.kind != 'D' || !r.executable || r.repeat || r.shadowExit8418 || r.lane != lane || r.bucket != bucket || (setup != null && r.setup != setup) ||
                 (scoreVersion != null && r.scoreVersion8372 != scoreVersion)) continue
             // V5.0.8187 — a late voter read is neither resolved nor lost: its label came, its verdict was read too late to
             // count (the lag is queue timing, not outcome), so it leaves the cohort instead of dragging the share down.
@@ -679,12 +695,12 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         r.kind.toString(), clean(r.id), clean(r.episode), r.atMs.toString(), clean(r.lane), clean(r.setup), clean(r.regime),
         clean(r.timing), clean(r.costBand), clean(r.cohort), r.bucket.toString(), num(r.predictedEdgePct),
         if (r.admitted) "1" else "0", if (r.executable) "1" else "0", if (r.repeat) "1" else "0",
-        num(r.observedNetPct), num(r.observedGrossPct), num(r.executablePct), if (r.lost) "1" else "0",
+        num(r.observedNetPct), num(r.observedGrossPct), num(storedExecutable8418(r.executablePct, r.heldExecutable8418)), if (r.lost) "1" else "0",
         num(r.realisedPct), clean(r.ownerLane), clean(r.ownerSetup), clean(r.attribution), clean(r.mode),
         if (r.lateEntry8153) "1" else "0",
         if (r.lateRead8187) "1" else "0",
         // V5.0.8322 — the later-horizon executable value and when it became knowable survive a restart; the flat-mark flag.
-        num(r.executableRevisedPct), r.revisedAvailableAtMs.toString(), if (r.flat8322) "1" else "0",
+        num(storedExecutable8418(r.executableRevisedPct, r.heldRevised8418)), r.revisedAvailableAtMs.toString(), if (r.flat8322) "1" else "0",
         // V5.0.8324 — the objective's gross (first / revised) and the decision-time tail EV.
         num(r.firstGross8324), num(r.revisedGross8324), num(r.tailEv8324), if (r.witnessed8324) "1" else "0", "INDEPENDENT_CURVE_8365",
         // Exact double precision: a rounded decay stamp does not match its isotonic pair after restart.
@@ -768,9 +784,20 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         }
         val firstWitness = witnessed(r.firstOutcomeProof8395,r.executablePct,r.firstGross8324,r.firstAvailableAtMs8372)
         val revisedWitness = witnessed(r.revisedOutcomeProof8395,r.executableRevisedPct,r.revisedGross8324,r.revisedAvailableAtMs)
-        if (implausible8388(r.executablePct, cap, firstWitness)) { noteImplausible8388(r, r.executablePct, stage); r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
-        else if (implausible8388(r.executableRevisedPct, cap, revisedWitness)) { noteImplausible8388(r, r.executableRevisedPct, stage); r.executableRevisedPct = Double.NaN }
+        // V5.0.8418 — held, not destroyed: the stored values survive every save (storedExecutable8418) and re-qualify on a witness.
+        if (implausible8388(r.executablePct, cap, firstWitness)) {
+            noteImplausible8388(r, r.executablePct, stage)
+            r.heldExecutable8418 = r.executablePct; r.executablePct = Double.NaN
+            if (r.executableRevisedPct.isFinite()) { r.heldRevised8418 = r.executableRevisedPct; r.executableRevisedPct = Double.NaN }
+        }
+        else if (implausible8388(r.executableRevisedPct, cap, revisedWitness)) {
+            noteImplausible8388(r, r.executableRevisedPct, stage)
+            r.heldRevised8418 = r.executableRevisedPct; r.executableRevisedPct = Double.NaN
+        }
     }
+
+    /** Pure (V5.0.8418): the executable value a save writes — the held (refused, kept) value when one is held, else the live one. */
+    internal fun storedExecutable8418(live: Double, held: Double): Double = if (held.isFinite()) held else live
 
     private fun noteImplausible8388(r: CortexGradeRecord8144, v: Double, stage: String) {
         implausibleRefused8388++

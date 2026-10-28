@@ -138,7 +138,7 @@ class Aate8322CortexSignalTest {
         assertTrue(back.decision(flat)!!.flat8322)
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
         // The five-minute label carries chain-witness provenance and the original token-episode identity (8371).
-        assertTrue(frl.contains("stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324)") /* superseded by V5.0.8395 (R3): label and its proof travel together */)
+        assertTrue(frl.contains("stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324)") /* superseded by V5.0.8395 (R3): label and its proof travel together; superseded by V5.0.8404 — staged durably (outbox) before the learners; V5.0.8418 — the non-Cortex learners no longer wait on it */)
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("gradeBook8144.markFlat8322(\"\$key|\${p.atMs}\")"))
     }
 

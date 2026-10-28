@@ -63,6 +63,8 @@ class Aate8034MoonbagAndFirstSightTest {
         assertTrue(firstSight.contains("evidenceCurrent8372(a.lane) else -1.0"))
         assertTrue(firstSight.contains("if (barred8144) -1.0 else evidence"))
         assertFalse(firstSight.contains("board.books"))
+        // superseded by V5.0.8418 — 21d066011 replaced the board.evidenceFor8025 pin without a note: first sight reads the
+        // current cohort; inconsistency and inversion still send the revocation sentinel (asserted above).
         assertFalse(firstSight.contains("board.evidenceFor8025"))
     }
 

@@ -27,7 +27,9 @@ class Aate8013GradingScheduleTest {
         assertTrue(f.contains(".filter { nowMs - it.atMs <= H240_MS_7731 + LOST_GRACE_MS_7731 || followed8013(it, nowMs) }"))
         // superseded by V5.0.8291 — the checkpoint still asks for an off-watch mark, its due time now carries the off-watch rank.
         assertTrue(f.contains("else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, o.atMs + CK_MS_7997[o.ck7997]))"))
-        // A followed coin's bounded deadline is its last checkpoint. Recovered and on-time hours share continuation rules.
+        // superseded by V5.0.8395: a followed coin's bounded deadline is its last checkpoint (R2), and a 240 booking keeps it while followed.
+        // superseded by V5.0.8397 — the 240 booking moved into completeHour8397 (recovered and on-time hours share continuation
+        // rules); restored V5.0.8418 (42d5f61fd had turned the 8395 note into a plain comment).
         assertTrue(f.contains("else -> CK_MS_7997.last() + LOST_GRACE_MS_7731"))
         val recoveryStart = f.indexOf("private fun recoveredHorizon8397(")
         val hourStart = f.indexOf("private fun completeHour8397(")

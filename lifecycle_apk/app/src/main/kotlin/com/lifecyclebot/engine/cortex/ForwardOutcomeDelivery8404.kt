@@ -68,6 +68,26 @@ internal class ForwardOutcomeOutbox8404(private val capacity: Int) {
     @Synchronized fun stagePayload(id: String, payload: () -> String?, write: (String, String) -> Boolean): String? =
         if (stage(id, payload, write)) rows[id] else null
 
+    /**
+     * V5.0.8418 §OUTBOX_PER_OBSERVATION — 440f2009b stages every due horizon (15m/30m/1h/4h/24h) of every observation, so one
+     * observation could hold five revision rows and the shared capacity starved first values. Before staging revision [keep]
+     * of an episode, every older revision of it ([prefix]) that the consumer has NOT acknowledged is dropped (its newer value
+     * replaces it; a revision replaces the contribution, it never adds one). An acknowledged row waits for its own removal.
+     * Returns the rows dropped; [remove] deletes the durable copy first, and a row whose delete fails stays.
+     */
+    @Synchronized fun supersedeRevisions8418(prefix: String, keep: String, remove: (String) -> Boolean): Int {
+        if (prefix.isBlank()) return 0
+        var dropped = 0
+        for (id in rows.keys.filter { it.startsWith(prefix) && it != keep && it !in acknowledged }) {
+            if (id in durable && !remove(id)) continue
+            rows.remove(id); durable.remove(id); dropped++
+        }
+        return dropped
+    }
+
+    /** V5.0.8418 — rows of one episode (first value + revisions) currently held. */
+    @Synchronized fun rowsFor8418(episode: String): Int = rows.keys.count { it == episode || it.startsWith("$episode|R|") }
+
     /** Work is bounded and rotates past failures; a failed delete never causes a second consumer mutation. */
     @Synchronized fun drain(limit: Int, write: (String, String) -> Boolean,
                             consume: (String) -> Boolean, remove: (String) -> Boolean) {

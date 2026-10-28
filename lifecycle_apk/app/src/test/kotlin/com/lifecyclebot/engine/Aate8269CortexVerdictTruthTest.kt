@@ -76,6 +76,10 @@ class Aate8269CortexVerdictTruthTest {
         assertTrue(live.contains("refusalAuthority8269(a.lane, a.runnerLane, paper)"))
         // 8372 preserves the absolute / relative veto bars, now on the same current frozen
         // cohort shown in the UI rather than the mixed historical scoreboard.
+        // superseded by V5.0.8372 (46ec35d5b deleted the board.refusalAuthority / relativeRefusalAuthority8019 pins with no note);
+        // V5.0.8418 — the current-cohort refusal reads the historical (every-version) cohort until the current one holds MIN_N
+        // grades, so the 8114 Cortex veto keeps its evidence across the upgrade (refusalCohort8418).
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText().contains("val (b, history) = refusalCohort8418(lane, null, CortexScoreboard7885.Bucket.REFUSE.ordinal, minN.toDouble())"))
         assertTrue(live.contains("refusalCurrent8372(a.lane, a.runnerLane, paper) || refusalAuthority8269(a.lane, a.runnerLane, paper)"))
         assertTrue(live.contains("relativeRefusalCurrent8372(a.lane, a.runnerLane) ||"))
         assertTrue(live.contains("heldFraction8153(a.lane) >= OVERRULE_FRACTION_7955"))

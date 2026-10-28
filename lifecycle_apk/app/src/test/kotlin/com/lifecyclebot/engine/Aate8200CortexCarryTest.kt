@@ -67,7 +67,11 @@ class Aate8200CortexCarryTest {
         assertTrue(fn.contains("authorityTest8366(a.lane).let { r -> CortexWalkForward8144.Stat8144(r.topN, r.topMean, r.topSe) }"))
         assertTrue(fn.contains("if (st.n <= 0 || !st.mean.isFinite())"))
         assertTrue(fn.contains("netOfCost = true"))
+        // superseded by V5.0.8418 — 9ab828783 deleted the inversion / realisedCapped8136 / walkForwardCapped8144 pins. The stacked
+        // 8136 / 8144 caps stay diagnostic (one authority test, 8366); inversion is a revocation of that authority on the current
+        // cohort (authorityFraction8366), and a SHADOW_EXIT row never reaches bucketStats8372 / the Kelly stake.
         assertFalse(fn.contains("board.inverted7948"))
+        assertTrue(cx.contains("if (invertedCurrent8372(lane)) { inc(\"AUTHORITY_REVOKED_INVERTED_8418_\$lane\"); return 0.0 }"))
         assertFalse(fn.contains("gradeBook8144.executableSeries("))
         val proof = cx.substringAfter("private fun authorityTest8366(").substringBefore("private fun realisedStrong8366(")
         assertTrue(proof.contains("CortexAuthority8366.test8372("))

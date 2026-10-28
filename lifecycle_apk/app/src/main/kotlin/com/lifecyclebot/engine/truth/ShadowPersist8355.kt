@@ -155,6 +155,17 @@ object ShadowPersist8355 {
             else -> String.format(java.util.Locale.ROOT, "%.4f", v).trimEnd('0').trimEnd('.')
         }
     }
+    /**
+     * Pure (V5.0.8418 §LEGACY_SHADOW_KEPT): a pre-8394-contract close (or one with no contract stamp) opened after [sinceMs] and
+     * the learning epoch. b7e24dfc0 dropped these from every proof without a word, so each lane's unlock proof restarted
+     * from n = 0. They were recorded under the pre-8394 fill contract (partial sells booked before an observed fill), so their
+     * weight in a LIVE unlock stays zero (no paper / shadow loosening); they are kept, counted and reported as a legacy
+     * record beside the 8394 proof instead of silently vanishing.
+     */
+    fun legacyProofRow8418(version: Double?, openedAtMs: Double?, sinceMs: Long): Boolean =
+        version != TRADE_CONTRACT_8394.toDouble() && openedAtMs != null && openedAtMs.isFinite() &&
+            openedAtMs >= maxOf(sinceMs, LearningEpoch8164.epochMs8164())
+
     fun proofEligible8394(version: Double?, openedAtMs: Double?, sinceMs: Long): Boolean =
         version == TRADE_CONTRACT_8394.toDouble() && openedAtMs != null && openedAtMs.isFinite() &&
             openedAtMs >= maxOf(sinceMs, LearningEpoch8164.epochMs8164())

@@ -2272,60 +2272,16 @@ object LanePlaybook7907 {
     }
 
     /**
-     * An actual selected shadow exit replaces only its original selected setup. ACK follows its OWN durable receipt,
-     * not an in-memory terminal flag or an asynchronously queued checkpoint. Cortex never owns the playbook's blobs.
+     * V5.0.8418 §SHADOW_LEDGER_ISOLATED — a model-filled shadow exit never rewrites a setup record. 8372 replaced the selected
+     * setup's grade with the shadow net (reviseEpisode8372), and those records are what [stat] / provenSetup8056 / live
+     * admission read, so ExploreShadow results admitted and refused live entries. The shadow outcome now lives only in
+     * Cortex7885's shadow ledger; the episode stays open for its own forward label. Acknowledged, nothing mutated.
+     * superseded by V5.0.8418 — 8372 "An actual selected shadow exit replaces only its original selected setup".
      */
     fun onShadowTerminal8372(mint: String, lane: String, decisionAtMs: Long, net: Double, gross: Double, nowMs: Long): Boolean {
-        // commitOnce8090 cannot ACK on Main. Do not build a deferred snapshot there either.
-        if (android.os.Looper.getMainLooper()?.thread == Thread.currentThread()) return false
-        ensureLoaded()
-        if (!loaded || !net.isFinite() || decisionAtMs <= 0L || nowMs < decisionAtMs) return false
-        val identity = LaneSetupEpisodes8372.key(mint, lane, decisionAtMs) ?: return false
-        val receipt = "LANE_PLAYBOOK_SHADOW_RECEIPT_8372|$identity"
-        return checkpoints8372.terminal(receipt,
-            readReceipt = { key ->
-                val saved = LearningPersistence.load(key)
-                when {
-                    LearningPersistence.readFailed8086(key) -> LanePlaybookCheckpoint8372.Receipt.RETRY
-                    saved != null -> LanePlaybookCheckpoint8372.Receipt.COMMITTED
-                    else -> LanePlaybookCheckpoint8372.Receipt.MISSING
-                }
-            },
-            applyOnce = { applyShadowTerminal8372(mint, lane, decisionAtMs, net, gross, nowMs) },
-            snapshot = { checkpoint8372() },
-            commit = { key, blobs ->
-                when (LearningPersistence.commitOnce8090(key, blobs)) {
-                    LearningPersistence.Commit8090.COMMITTED, LearningPersistence.Commit8090.ALREADY_COMMITTED -> true
-                    LearningPersistence.Commit8090.RETRY -> false
-                }
-            }).also { durable ->
-                if (!durable) PipelineHealthCollector.labelInc("SETUP_SHADOW_DURABILITY_RETRY_8372")
-            }
-    }
-
-    /** Invoked only inside the checkpoint ordering boundary; retries reuse, rather than regrade, terminal episodes. */
-    private fun applyShadowTerminal8372(mint: String, lane: String, decisionAtMs: Long, net: Double, gross: Double, nowMs: Long): Boolean {
-        if (episodes8372.disposition(mint, lane, decisionAtMs) != null) return true
-        if (episodes8372.grade(mint, lane, decisionAtMs) == null) {
-            if (episodes8372.inFlight(mint, lane, decisionAtMs)) return false
-            val p = episodes8372.pending(mint, lane, decisionAtMs)
-                ?: return shadowObservedOnly8372(mint, lane, decisionAtMs, "NO_SETUP_CAPTURE_8372")
-            if (!CortexLabelHygiene8144.revisionCounts8144(runnerHorizonLane8144(p.lane), nowMs - p.atMs))
-                return shadowObservedOnly8372(mint, lane, decisionAtMs, "OUTSIDE_HORIZON_8372")
-            onLabel(mint, lane, net, gross, decisionAtMs8372 = decisionAtMs, selectedOnly8372 = true)
-        }
-        if (episodes8372.disposition(mint, lane, decisionAtMs) != null) return true
-        val grade = episodes8372.grade(mint, lane, decisionAtMs) ?: return false
-        if (grade.terminal) return true
-        if (grade.primary !in grade.contributions)
-            return shadowObservedOnly8372(mint, lane, decisionAtMs, "NO_SELECTED_SETUP_8372")
-        if (!CortexLabelHygiene8144.revisionCounts8144(runnerHorizonLane8144(grade.decision.lane), nowMs - decisionAtMs))
-            return shadowObservedOnly8372(mint, lane, decisionAtMs, "OUTSIDE_HORIZON_8372")
-        return reviseEpisode8372(mint, lane, decisionAtMs, net, gross, true, nowMs).also { accepted ->
-            if (accepted) {
-                PipelineHealthCollector.labelInc("SETUP_SHADOW_TERMINAL_LEARNED_8372")
-            }
-        }
+        if (mint.isBlank() || decisionAtMs <= 0L || !net.isFinite() || !gross.isFinite() || nowMs < decisionAtMs) return true
+        try { PipelineHealthCollector.labelInc("SETUP_SHADOW_TERMINAL_ISOLATED_8418") } catch (_: Throwable) {}
+        return true
     }
 
     /** Index of the setup in the lane menu (NO_TRIGGER = menu size), for the Cortex voter. */

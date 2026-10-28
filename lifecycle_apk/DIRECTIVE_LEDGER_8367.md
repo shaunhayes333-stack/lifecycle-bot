@@ -29,7 +29,7 @@ Status: **IN FORCE** = HEAD behaves as directed. **WEAKENED** = still there but 
 | 12 | Exit door order: net-profit and uneconomic doors before the share budget | 8337 FIX 9 | IN FORCE (`Executor.requestPartialSell` ~24016) | none | — |
 | 13 | RAPID_FLUID_STOP on the normal loss path | 8337 FIX 10b (undid 8327) | IN FORCE | 8327 was the earlier reversal; 8337 restored it | d08 |
 | 14 | Runner-from-entry sells the scalp tiers until the plan is sealed AND continuation confirmed | 8337 FIX 10a | IN FORCE | none | d07 |
-| 15 | 15-minute grading checkpoint (1m/5m/15m/1h/4h/24h, 48h/72h/7d on tokenomics) | 8357 3fe23cc55 | IN FORCE (`CK_MS_7997`, `checkpointDue8013`) | 7997 had dropped the 15 m slot; 8357 restored it | d09 |
+| 15 | Grading schedule 1m/5m/15m/30m/1h/4h/24h (1 m slot `H15_MS_7731` and the 5 m label first; checkpoints 15m/30m/1h/4h/24h; from 30 m only coins worth following) | 8357 3fe23cc55; 8416 4af85d027 (owner: 30 m added, 48h/72h/7d removed); ledger text V5.0.8418 | IN FORCE (`CK_MS_7997`, `H15_MS_7731`, `followGate8416`) | 7997 had dropped the 15 m slot; 8357 restored it; superseded by V5.0.8418 — this row read "1m/5m/15m/1h/4h/24h, 48h/72h/7d on tokenomics" until the 8416 owner change | d09 |
 | 16 | PumpPortal per-token trade stream off | 8354 5d1c66898 | IN FORCE. Held curves get marks from HeliusCurveTape8354 (`caresAbout8354`). | none | d10 |
 | 17 | Keyless-first market reads | 8359 1e9692a22, 8360/8361 cadence | IN FORCE (recent; pins in Aate8359KeylessDataTest) | none | — |
 | 18 | slippage / minLiquidity / walletReserve owner-only | 8353 1d2aec230, 8363 b2c072c20 | IN FORCE. No writer outside the UI and the one-shot restore. SentienceHooks filters through `isAllowedKey`. | none | d11 |

@@ -113,8 +113,9 @@ class Aate8360ExploreStackTest {
         assertTrue("setup tickets per lane", s.contains("for (setup in firedSetups8360(ts, lane, primary, nowMs)) open8347(ts, lane, o, mark.first, nowMs, KIND_SETUP_8360, setup, mark.second)"))
         assertTrue("fired setups from the playbook", s.contains("LanePlaybook7907.matchedSetups8083(ts, lane, nowMs)"))
         assertTrue("keyed by setup", s.contains("val key = ticketKey8360(ts.mint, lane, setup)"))
-        assertTrue("evict before refusing", s.contains("tickets.size >= MAX_TICKETS_8347 && !evict8360(null, nowMs)") &&
-            s.contains("laneCount8360(lane) >= MAX_TICKETS_PER_LANE_8351 && !evict8360(lane, nowMs)"))
+        // superseded by V5.0.8418 — the eviction also names its kind: a Cortex ticket only evicts another Cortex ticket.
+        assertTrue("evict before refusing", s.contains("tickets.size >= MAX_TICKETS_8347 && !evict8360(null, nowMs, cortexOnly8418 = cortex8418)") &&
+            s.contains("laneCount8360(lane) >= MAX_TICKETS_PER_LANE_8351 && !evict8360(lane, nowMs, cortexOnly8418 = cortex8418)"))
         assertTrue("round-robin tick", s.contains("val slice = rrSlice8360(keys.size, rrCursor8360)"))
         assertTrue("the tick retains the source observation clock for executable exits",
             s.contains("ShadowMark8360.observedTimed8372(tokens[t.mint], t.mint, nowMs)") &&

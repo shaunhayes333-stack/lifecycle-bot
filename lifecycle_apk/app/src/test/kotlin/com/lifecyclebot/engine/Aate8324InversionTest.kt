@@ -157,7 +157,9 @@ class Aate8324InversionTest {
 
     @Test fun theCortexWiresTheTailBucketAndTheRankingLine() {
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertTrue(cx.contains("val bucket = CortexScoreboard7885.bucketOf(calibrated, fused.runnerRate, runner)"))
+        // superseded by V5.0.8418 — the bare 8372 bucketOf line is replaced by the restored 8324 / 8325 / 8366 chain.
+        assertTrue(cx.contains("val bucket = bucketNow8418(lane, runner, calibrated, fused.runnerRate, ev8324, locked8325.net8372)"))
+        assertTrue(cx.contains("if (runner && ev8324.isFinite()) runnerBucketNow8324(lane, calibrated, ev8324)"))
         assertTrue(cx.contains("val ev8324 = if (runner) tailEvNow8324(lane, fused) else Double.NaN"))
         assertTrue(cx.contains("try { refreshPonds8324(lanes) }"))
         // superseded by V5.0.8325: the ranking line is read before the lock (cached)

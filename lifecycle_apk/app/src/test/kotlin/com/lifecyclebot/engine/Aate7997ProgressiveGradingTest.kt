@@ -31,7 +31,8 @@ class Aate7997ProgressiveGradingTest {
         val playbookRevision = "LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second, decisionAtMs8372 = o.atMs)"
         assertTrue(f.substringAfter("private fun checkpoint7997(").substringBefore("private fun revise7997(").contains(playbookRevision))
         assertTrue(f.substringAfter("private fun reviseToHour8337(").substringBefore("private val exitRunSamples8006").contains(playbookRevision))
-        assertTrue(f.contains("SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross)"))
+        // superseded by V5.0.8418 — the miner revision carries the label's booking stamps (weighted, mature combinations revise).
+        assertTrue(f.contains("SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross, o.minerScales8418)"))
         assertTrue(f.contains("CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet, o.allocScales8410)"))   // V5.0.8410 — weighted by remaining ownership
     }
 

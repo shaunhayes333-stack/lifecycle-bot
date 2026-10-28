@@ -7,8 +7,11 @@ import org.junit.Test
 /** Forward runner incidence is not executable profit and cannot mask a losing net EV. */
 class Aate8373CortexExecutableVerdictTest {
     @Test fun negativeExecutableEdgeStaysRefusedEvenForRunnerHeavyLane() {
-        assertEquals(CortexScoreboard7885.Bucket.REFUSE, CortexScoreboard7885.bucketOf(-8.0, 0.95, true))
-        assertEquals(CortexScoreboard7885.Bucket.REFUSE, CortexScoreboard7885.bucketOf(-2.1, 0.10, true))
+        // superseded by V5.0.8418 — the runner-lane tail exemption is restored: at a runner rate >= TAIL_RUNNER_RATE (0.10) a
+        // runner lane's negative read is NEUTRAL (8373 asserted REFUSE for -8 % @ 0.95 and -2.1 % @ 0.10). Below the rate it refuses.
+        assertEquals(CortexScoreboard7885.Bucket.NEUTRAL, CortexScoreboard7885.bucketOf(-8.0, 0.95, true))
+        assertEquals(CortexScoreboard7885.Bucket.NEUTRAL, CortexScoreboard7885.bucketOf(-2.1, 0.10, true))
+        assertEquals(CortexScoreboard7885.Bucket.REFUSE, CortexScoreboard7885.bucketOf(-2.1, 0.09, true))
         assertEquals(CortexScoreboard7885.Bucket.REFUSE, CortexScoreboard7885.bucketOf(-8.0, 0.0, false))
     }
 

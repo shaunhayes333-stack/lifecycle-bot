@@ -204,11 +204,27 @@ object ForwardReturnLabeler7731 {
         val synchronous = curveAt != null && o.lastPxAtMs > 0L &&
             kotlin.math.abs(curveAt - o.lastPxAtMs) <= CURVE_WITNESS_SYNC_MS_8337
         val curveUsd = if (synchronous && curveSol > 0.0 && solUsd > 0.0) curveSol * solUsd else 0.0
-        val w = witnessed8324(px, curveUsd, false)
+        // V5.0.8418 — a graduated / non-curve token has no curve spot: its own chain-provable mark (parsed swap, pool reserve,
+        // curve tape) at this exact price and time witnesses it, so post-curve runners are not capped by a missing curve.
+        val w = witnessed8324(px, curveUsd, false) || markWitnesses8418(o.lastMark8386, px, o.lastPxAtMs)
         if (w && !o.witnessed8324) witnessedLabels8324.incrementAndGet()
         o.witnessed8324 = w
         return w
     }
+
+    /** Pure (V5.0.8418): the typed basis a pre-8386 observation keeps — its own stored price at its decision time. */
+    internal fun legacyBasisMark8418(mint: String, px: Double, atMs: Long): LabelMark8386? =
+        if (mint.isBlank() || !px.isFinite() || px <= 0.0 || atMs <= 0L) null
+        else LabelMark8386(mint, "", px, atMs, atMs, "LEGACY_PRE8386")
+
+    /** Pure (V5.0.8418): may an UNKNOWN basis adopt [mark]? Only before the re-base and inside its window. */
+    internal fun adoptBasis8418(basisKnown: Boolean, rebased: Boolean, ageMs: Long, mark: LabelMark8386?): Boolean =
+        !basisKnown && !rebased && ageMs in 0L..REBASE_MAX_MS_8076 && mark != null && mark.known()
+
+    /** Pure (V5.0.8418): [mark] is chain-provable and is exactly the observation priced at [px] / [pxAtMs]. */
+    internal fun markWitnesses8418(mark: LabelMark8386?, px: Double, pxAtMs: Long): Boolean =
+        mark != null && px > 0.0 && px.isFinite() && pxAtMs > 0L && mark.observedAtMs == pxAtMs && mark.usd == px &&
+            LabelEvidence8386.independent8418(mark)
 
     /** Pure (V5.0.8165): a USD mark more than 2x away (either way) from the curve's own USD spot price. */
     fun curveDisagrees8165(markUsd: Double, curveUsd: Double): Boolean {
@@ -272,6 +288,10 @@ object ForwardReturnLabeler7731 {
         @Volatile var decisionBasis8386 = basis8386
         @Volatile var lastAcceptedMark8395: LabelMark8386? = null
         @Volatile var lastMark8386: LabelMark8386? = null
+        /** V5.0.8418 — the first value the non-Cortex learners booked while the Cortex staging waits (null = none waiting). */
+        @Volatile var staged8418: DoubleArray? = null
+        /** V5.0.8418 — SpecialistMiner7972 booking stamps [boot, per combination] (a revision's remaining weight there). */
+        @Volatile var minerScales8418: DoubleArray = DoubleArray(0)
         var entryPrice: Double
             get() = basis8386.mark.usd
             set(value) { basis8386 = basis8386.copy(mark = basis8386.mark.copy(usd = value)) }
@@ -329,6 +349,9 @@ object ForwardReturnLabeler7731 {
          */
         @Volatile var windowEnd8379 = 0L
         val postLows8379 = ArrayList<DoubleArray>()
+        /** V5.0.8418 — when live would have released the launch-window hold (metrics collapsed: LifecycleHold8065.metricsCollapsed8109). */
+        @Volatile var windowReleasedAtMs8418 = 0L
+        @Volatile var windowReleaseGross8418 = Double.NaN
         /** V5.0.8006 — the exit-profile sample waits for the end of a followed run. */
         @Volatile var exitDeferred8006: Boolean = false
         /** V5.0.7972 — the decision's discrete facts (SpecialistMiner7972). */
@@ -568,6 +591,12 @@ object ForwardReturnLabeler7731 {
     private const val PRICE_IDENTITIES_KEY_8402 = "price_identities_8402"
     private const val PAIRED_CORTEX_KEY_8401 = "paired_cortex_8401"
     @Volatile private var pairedRestore8401: String? = null
+    @Volatile private var pairedRestoreSinceMs8418 = 0L
+    private val pairedSkipped8418 = AtomicLong(0)
+    private const val PAIRED_RESTORE_MAX_WAIT_MS_8418 = 5L * 60_000L
+
+    /** Pure (V5.0.8418): drop the paired blob — corrupt, or the Cortex has not restored it within [maxWaitMs]. */
+    internal fun pairedRestoreAbandoned8418(corrupt: Boolean, waitedMs: Long, maxWaitMs: Long): Boolean = corrupt || waitedMs >= maxWaitMs
 
     private val checkpointLock8401 = Any()
     private fun persist(force: Boolean = false) = synchronized(checkpointLock8401) { persistLocked8401(force) }
@@ -596,10 +625,13 @@ object ForwardReturnLabeler7731 {
             val selected = selectedPending8401(now)
             // First-label predictions are paired here. Already-trained progressive traces stay with the atomic
             // Cortex ledger checkpoint; do not decode its cold archive under the capture monitor on every save.
-            val paired = com.lifecyclebot.engine.cortex.Cortex7885.checkpointForward8401(
-                selected.filterNot { it.done60 }.map { "${it.mint}|${it.lane}|${it.atMs}" }.toSet())
+            // V5.0.8418 — a Cortex that is not loaded (checkpointForward8401 throws) no longer stops the labeler persisting its
+            // own rows: the cells and observations are saved and the prior paired checkpoint is retained unchanged.
+            val paired = try { com.lifecyclebot.engine.cortex.Cortex7885.checkpointForward8401(
+                selected.filterNot { it.done60 }.map { "${it.mint}|${it.lane}|${it.atMs}" }.toSet()) }
+                catch (_: Exception) { pairedSkipped8418.incrementAndGet(); null }
             val committed = p.edit().putString(CELLS_KEY_7946, enc).putString(PENDING_KEY_7946, encodePending7735(now, selected))
-                .putString(PAIRED_CORTEX_KEY_8401, paired)
+                .also { editor -> if (paired != null) editor.putString(PAIRED_CORTEX_KEY_8401, paired) }
                 .putString(PRICE_IDENTITIES_KEY_8402, com.lifecyclebot.engine.cortex.CrossAssetCortex7931
                     .checkpointPriceIdentities8402(selected.mapTo(HashSet()) { it.mint }))
                 .putString(FRESH_KEY_8169, freshEnc8169).putLong(FRESH_EPOCH_KEY_8169, freshEpochMs8169)
@@ -640,10 +672,15 @@ object ForwardReturnLabeler7731 {
                     o.entryStyle8077,
                     org.json.JSONObject().put("v", 8386).put("entry", o.basis8386.json())
                         .put("decision", o.decisionBasis8386.json()).put("last", o.lastMark8386?.json())
-                        .put("accepted8395",o.lastAcceptedMark8395?.json()).toString(),
+                        .put("accepted8395",o.lastAcceptedMark8395?.json())
+                        .put("staged8418", o.staged8418?.joinToString(":") { it.toString() } ?: "")
+                        .put("windowRelease8418", o.windowReleasedAtMs8418)
+                        .put("windowReleaseGross8418", if (o.windowReleaseGross8418.isFinite()) o.windowReleaseGross8418.toString() else "").toString(),
                     // V5.0.8410 (field 36) — booking-time decay per tally key / allocator node; a revision's remaining weight.
                     o.tallyScales8410.joinToString(":") { "%.5f".format(java.util.Locale.ROOT, it) } + "~" +
-                        o.allocScales8410.joinToString(":") { "%.5f".format(java.util.Locale.ROOT, it) },
+                        o.allocScales8410.joinToString(":") { "%.5f".format(java.util.Locale.ROOT, it) } +
+                        // V5.0.8418 — the miner stamps ride as a third half (the boot id exact; NaN stamps stay NaN).
+                        (if (o.minerScales8418.isEmpty()) "" else "~" + o.minerScales8418.joinToString(":") { it.toString() }),
                 ).joinToString(fs)
             }
     }
@@ -697,6 +734,7 @@ object ForwardReturnLabeler7731 {
                 val halves = f[35].split('~')
                 fun arr(x: String?) = x.orEmpty().split(':').mapNotNull { it.toDoubleOrNull() }.toDoubleArray()
                 o.tallyScales8410 = arr(halves.getOrNull(0)); o.allocScales8410 = arr(halves.getOrNull(1))
+                o.minerScales8418 = halves.getOrNull(2)?.split(':')?.map { it.toDoubleOrNull() ?: Double.NaN }?.toDoubleArray() ?: DoubleArray(0)   // V5.0.8418
             } catch (_: Exception) {}
             if (f.size >= 35) try {
                 val e = org.json.JSONObject(f[34])
@@ -705,7 +743,18 @@ object ForwardReturnLabeler7731 {
                 o.lastMark8386 = e.optJSONObject("last")?.let { LabelMark8386.decode(it) }
                 o.lastAcceptedMark8395 = e.optJSONObject("accepted8395")?.let { LabelMark8386.decode(it) }
                     ?: o.lastMark8386?.takeIf { LabelEvidence8386.eligible(o.basis8386.mark,it) }
+                // V5.0.8418 — a first value the learners already booked survives the restart (never re-booked).
+                o.windowReleasedAtMs8418 = e.optLong("windowRelease8418", 0L)
+                o.windowReleaseGross8418 = e.optString("windowReleaseGross8418", "").toDoubleOrNull() ?: Double.NaN
+                o.staged8418 = e.optString("staged8418", "").takeIf { it.isNotBlank() }?.split(':')?.map { it.toDoubleOrNull() ?: Double.NaN }
+                    ?.toDoubleArray()?.takeIf { it.size == 8 }
             } catch (_: Exception) { /* incomplete legacy evidence remains observed-only */ }
+            // V5.0.8418 — a pre-8386 row (no typed evidence) keeps its own stored decision price as a LEGACY basis instead of
+            // stalling as UNKNOWN until its deadline. Not chain-provable: a 10x move from it stays observed-only (LabelEvidence8386).
+            if (f.size < 35) legacyBasisMark8418(o.mint, o.entryPrice, o.atMs)?.let { m ->
+                o.basis8386 = LabelBasis8386(m, o.entryMcap); o.decisionBasis8386 = o.basis8386
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_LEGACY_BASIS_KEPT_8418") } catch (_: Throwable) {}
+            }
 
             if (o.mint.isBlank() || o.lane.isBlank()) return@forEach
             val key = "${o.mint}|${o.lane}"
@@ -1197,15 +1246,38 @@ object ForwardReturnLabeler7731 {
     private fun playWindow8379(o: Obs, laneStopMag: Double, gross: Double, ladder: (Double, Double) -> Double): Double {
         val floor = com.lifecyclebot.engine.LaunchWindow8379.FLOOR_PCT_8379
         val lat = HonestExit8366.sellLatencyMs8366()
+        // V5.0.8418 §WINDOW_LABELS_HONOUR_LIVE_RELEASES — live releases the window hold the moment the token's metrics collapse
+        // (liquidity under half its entry depth, or sellers owning a fresh tape); from then the lane stop applies. 64422194d
+        // graded the whole window on the -35 % floor, so window labels read better than live could bank.
+        val end8418 = windowHoldEnd8418(o.windowEnd8379, o.windowReleasedAtMs8418)
         val (early, late) = synchronized(o.recent8071) {
-            HonestExit8366.stopFill8366(o.lows8366.filter { it.isNotEmpty() && it[0] <= o.windowEnd8379.toDouble() }, floor, lat) to
-                o.postLows8379.firstOrNull { it.size >= 4 && it[1].isFinite() && laneStopMag > 0.0 && it[1] <= -laneStopMag }
+            HonestExit8366.stopFill8366(o.lows8366.filter { it.isNotEmpty() && it[0] <= end8418.toDouble() }, floor, lat) to
+                (if (end8418 < o.windowEnd8379) o.lows8366.firstOrNull { it.size >= 4 && it[0] >= end8418.toDouble() && it[1].isFinite() && laneStopMag > 0.0 && it[1] <= -laneStopMag }
+                 else o.postLows8379.firstOrNull { it.size >= 4 && it[1].isFinite() && laneStopMag > 0.0 && it[1] <= -laneStopMag })
         }
-        val lateFill = late?.let { HonestExit8366.stopFill8366(listOf(it), laneStopMag, lat) } ?: Double.NaN
+        // V5.0.8418 — released already past the lane stop: live sells at the release mark itself (an observed mark).
+        val atRelease8418 = end8418 < o.windowEnd8379 && laneStopMag > 0.0 && o.windowReleaseGross8418.isFinite() && o.windowReleaseGross8418 <= -laneStopMag
+        val lateFill = if (atRelease8418) o.windowReleaseGross8418 else late?.let { HonestExit8366.stopFill8366(listOf(it), laneStopMag, lat) } ?: Double.NaN
         windowGraded8379.incrementAndGet()
         return windowPlay8379(floor, laneStopMag, o.peakPct, o.peakAtMs7955, o.dipBeforePeak7962, o.minPct7962, gross, early, lateFill,
-            late?.get(0)?.toLong() ?: Long.MAX_VALUE, ladder)
+            if (atRelease8418) end8418 else late?.get(0)?.toLong() ?: Long.MAX_VALUE, ladder)
     }
+
+    /** Pure (V5.0.8418): where the window's floor stops holding — its end, or the earlier live release. */
+    internal fun windowHoldEnd8418(windowEndMs: Long, releasedAtMs: Long): Long =
+        if (releasedAtMs in 1L until windowEndMs) releasedAtMs else windowEndMs
+
+    /** V5.0.8418 — the first in-window mark at which live's metrics-collapse release would have fired. */
+    private fun noteWindowRelease8418(o: Obs, gross: Double, atMs: Long) {
+        if (o.windowEnd8379 <= 0L || o.windowReleasedAtMs8418 > 0L || atMs > o.windowEnd8379 || !(gross < 0.0)) return
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[o.mint] } catch (_: Throwable) { null }
+        val collapsed = try {
+            com.lifecyclebot.engine.LifecycleHold8065.metricsCollapsed8109(gross, o.entryLiq7997, nowLiq7997(o.mint),
+                ts?.lastBuyPressurePct ?: Double.NaN, ts != null && atMs - ts.buyPressureObservedAtMs8084 in 0L..120_000L)
+        } catch (_: Throwable) { false }
+        if (collapsed) { o.windowReleasedAtMs8418 = atMs; o.windowReleaseGross8418 = gross; windowReleased8418.incrementAndGet() }
+    }
+    private val windowReleased8418 = AtomicLong(0)
 
     private val windowGraded8379 = AtomicLong(0)
     fun windowGraded8379(): Long = windowGraded8379.get()
@@ -1307,6 +1379,7 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun bookSixty7944(o: Obs, net0: Double, gross0: Double, nowMs: Long): Boolean {
+        if (o.staged8418 != null) return retryCortexStage8418(o)   // V5.0.8418 — learners already booked; never twice
         if (!eligible8386(o)) return true
         // V5.0.7955 — the give-back from the peak to the 5-minute read rides on the observation to its 60-minute sample.
         o.giveback5_7955 = com.lifecyclebot.engine.ExitProfile7955.giveback7955(o.peakPct, gross0)
@@ -1320,11 +1393,19 @@ object ForwardReturnLabeler7731 {
         val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
         val fam8080 = doubleArrayOf(scalp8080.first, scalp8080.second, long8080.first, long8080.second)
         // Own the value and its frozen prediction durably BEFORE completing this horizon or notifying learners.
-        val frozen8404 = stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324) ?: return false
-        // A failed disk write may have frozen an earlier value. All consumers must use that same
-        // value when storage recovers, rather than the newer price used by this retrying tick.
-        net = frozen8404.net; gross = frozen8404.gross
-        flat8322 = frozen8404.flat; w8324 = frozen8404.witness
+        val frozen8404 = stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324)
+        if (frozen8404 != null) {
+            // A failed disk write may have frozen an earlier value. All consumers must use that same
+            // value when storage recovers, rather than the newer price used by this retrying tick.
+            net = frozen8404.net; gross = frozen8404.gross
+            flat8322 = frozen8404.flat; w8324 = frozen8404.witness
+        } else {
+            // V5.0.8418 §LEARNERS_INDEPENDENT_OF_CORTEX_STAGING — 91bc4a52f returned here, so a Cortex that was not loaded (or a
+            // full outbox) starved EVERY forward learner until the window closed and the label went UNAVAILABLE. The non-Cortex
+            // learners now book this value once; the value is kept on the observation and only the Cortex staging retries.
+            o.staged8418 = stagedValue8418(net, gross, flat8322, w8324, fam8080)
+            try { PipelineHealthCollector.labelInc("FORWARD_LEARNERS_BOOKED_CORTEX_STAGE_WAIT_8418") } catch (_: Throwable) {}
+        }
         if (flat8322) {
             flatMarks8322.incrementAndGet()
             o.bookedNet7997 = Double.NaN
@@ -1343,18 +1424,40 @@ object ForwardReturnLabeler7731 {
         // V5.0.8337 (FIX 2) — the flat test now runs before the 60 slot is booked (above); the Cortex still receives the flag
         // (it resolves its pending decision as observed-only), every other learner hook is skipped on a flat mark.
         // Cortex delivery is retried independently; a retry must not call these other learner hooks twice.
-        if (flat8322) return true
+        if (flat8322) return frozen8404 != null
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
         try { o.allocScales8410 = com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net, "${o.mint}|${o.lane}|${o.atMs}") } catch (_: Throwable) {}   // V5.0.8410
         // V5.0.7972 — the same label grades every pair/triple of the decision's facts (specialist miner).
-        try { SpecialistMiner7972.onLabel7972(o.lane, o.mint, o.feats7972, net, gross, o.atMs) } catch (_: Throwable) {}
+        try { o.minerScales8418 = SpecialistMiner7972.onLabel7972(o.lane, o.mint, o.feats7972, net, gross, o.atMs) } catch (_: Throwable) {}   // V5.0.8418
         try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
         // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
         try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net, "${o.mint}|${o.lane}|${o.atMs}") } catch (_: Throwable) {}
         // V5.0.7813 — counterfactual entry-quality learning, graded whether FDG admitted or refused.
         try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.recordForwardOutcome7813(o.mint, o.lane, net, o.admitted, o.atMs) } catch (_: Throwable) {}
+        return frozen8404 != null
+    }
+
+    /** Pure (V5.0.8418): the value the learners booked while Cortex staging waits: [net, gross, flat, witness, family x4]. */
+    internal fun stagedValue8418(net: Double, gross: Double, flat: Boolean, witness: Boolean, family: DoubleArray): DoubleArray =
+        doubleArrayOf(net, gross, if (flat) 1.0 else 0.0, if (witness) 1.0 else 0.0,
+            family.getOrElse(0) { Double.NaN }, family.getOrElse(1) { Double.NaN }, family.getOrElse(2) { Double.NaN }, family.getOrElse(3) { Double.NaN })
+
+    /**
+     * V5.0.8418 — the learners already booked [o]'s first value ([Obs.staged8418]); only the Cortex staging remains. Retries it
+     * with that exact value. Never re-books a learner. True once staged (the horizon is then complete).
+     */
+    private fun retryCortexStage8418(o: Obs): Boolean {
+        val v = o.staged8418 ?: return true
+        if (v.size < 8) { o.staged8418 = null; return true }
+        val frozen = stageForwardOutcome8404(o, v[0], v[1], v.copyOfRange(4, 8), v[2] == 1.0, v[3] == 1.0) ?: return false
+        o.staged8418 = null
+        try { PipelineHealthCollector.labelInc(if (frozen.net.toBits() == v[0].toBits()) "FORWARD_CORTEX_STAGED_LATE_8418" else "FORWARD_CORTEX_STAGED_EARLIER_VALUE_8418") } catch (_: Throwable) {}
         return true
     }
+
+    /** Pure (V5.0.8418): give up the Cortex staging (learners keep the label; the Cortex decision is released) past [graceMs]. */
+    internal fun stageAbandoned8418(nowMs: Long, deadlineMs: Long, graceMs: Long): Boolean = deadlineMs > 0L && nowMs >= deadlineMs + graceMs
+    private const val STAGE_GRACE_MS_8418 = 10L * 60_000L
 
     // ── V5.0.7997 — PROGRESSIVE GRADING ──
     //
@@ -1471,7 +1574,12 @@ object ForwardReturnLabeler7731 {
         if (o.ck7997 >= CK_MS_7997.size) return true
         if (age < CK_MS_7997[o.ck7997]) return false
         val (net, gross) = captured7945(o, net0, gross0)
-        if (!stageForwardRevision8404(o, net, gross, nowMs)) return false
+        // V5.0.8418 — a Cortex revision that cannot stage is retried (fresh mark, fresh proof) for at most
+        // [REVISION_STAGE_WAIT_MS_8418] past the checkpoint; then the non-Cortex revisions proceed without it (counted).
+        if (!stageForwardRevision8404(o, net, gross, nowMs)) {
+            if (!revisionStageGiveUp8418(age, CK_MS_7997[o.ck7997], REVISION_STAGE_WAIT_MS_8418)) return false
+            try { PipelineHealthCollector.labelInc("FORWARD_REVISION_CORTEX_SKIPPED_8418") } catch (_: Throwable) {}
+        }
         o.ck7997 += 1
         // V5.0.8080 — only a LONG-HOLD setup's grade follows the coin past its first read: a scalp has exited by then,
         // so the 1 h / 4 h / 24 h path is not its return (LanePlaybook7907.reviseLabel7997 revises long-hold setups only).
@@ -1496,11 +1604,17 @@ object ForwardReturnLabeler7731 {
         return !alive || o.ck7997 >= CK_MS_7997.size
     }
 
+    /** Pure (V5.0.8418): has a checkpoint waited long enough for its Cortex revision to stage? */
+    internal fun revisionStageGiveUp8418(ageMs: Long, checkpointMs: Long, waitMs: Long): Boolean = ageMs >= checkpointMs + waitMs
+    private const val REVISION_STAGE_WAIT_MS_8418 = 120_000L
+
     private val revisionWeightUnknown8410 = AtomicLong(0)
 
     /** V5.0.8410 — pure: the share of a booked label an aggregate still carries after decaying from [atBook] to [now]. */
     fun revisionWeight8410(atBook: Double, now: Double): Double =
-        if (!atBook.isFinite() || !now.isFinite()) 1.0 else kotlin.math.exp(now - atBook).coerceIn(0.0, 1.0)
+        // V5.0.8418 — an unknown (non-finite) weight is 0: the revision is skipped, never applied at full weight.
+        // superseded by V5.0.8418 — 8410 returned 1.0 for a non-finite input.
+        if (!atBook.isFinite() || !now.isFinite()) 0.0 else kotlin.math.exp(now - atBook).coerceIn(0.0, 1.0)
 
     /** V5.0.8410 — pure: split an accumulated fractional count into (whole, remainder), the remainder in (-1, 1). */
     fun carry8410(x: Double): Pair<Int, Double> { val whole = if (x >= 0.0) kotlin.math.floor(x) else kotlin.math.ceil(x); return whole.toInt() to (x - whole) }
@@ -1522,6 +1636,7 @@ object ForwardReturnLabeler7731 {
             synchronized(t) {
                 if (t.n60 <= 0) return@synchronized
                 val wt = revisionWeight8410(o.tallyScales8410[i], t.logScale60)
+                if (!(wt > 0.0)) { revisionWeightUnknown8410.incrementAndGet(); return@synchronized }   // V5.0.8418 — skipped, counted
                 t.sum60 += wt * (newNet - oldNet)
                 t.sumSq60 = (t.sumSq60 + wt * (newNet * newNet - oldNet * oldNet)).coerceAtLeast(0.0)
                 val dWin = ((if (newNet > 0.0) 1 else 0) - (if (oldNet > 0.0) 1 else 0)) * wt
@@ -1535,13 +1650,13 @@ object ForwardReturnLabeler7731 {
             }
         }
         // V5.0.8080 — the setup books are revised on the long-hold family in checkpoint7997, not on this decision value.
-        try { SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross) } catch (_: Throwable) {}
+        try { SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross, o.minerScales8418) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet, o.allocScales8410) } catch (_: Throwable) {}
         // The immutable Cortex revision was durably staged before any of these aggregate mutations.
     }
 
     fun progressiveLine7997(): String =
-        "checkpoints=5m,15m,30m,1h,4h,24h (from 30m only if worth following: kept=${tokenomicsKept8040.get()} dropped=${tokenomicsDropped8040.get()}) revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
+        "checkpoints=1m,5m,15m,30m,1h,4h,24h (from 30m only if worth following: kept=${tokenomicsKept8040.get()} dropped=${tokenomicsDropped8040.get()}) revisions=${revisions7997.get()} upgraded=${upgraded7997.get()} " +
             "followedPast1h=${extended7997.get()} stoppedDead=${diedEarly7997.get()} runExitSamples8006=${exitRunSamples8006.get()}"
 
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false): Boolean {
@@ -1698,7 +1813,8 @@ object ForwardReturnLabeler7731 {
                 val m = CanonicalPriceMarkRegistry6522.get(mint, purpose) ?: continue
                 if (m.mint != mint || m.baseMint != mint || m.canonicalAssetId7424 != mint) continue
                 candidates.add(LabelMark8386(mint, m.pairId, m.priceUsd.value.toDouble(), m.timestampMs, nowMs,
-                    m.source, m.priceUnits7424, m.tokenDecimals7424))
+                    m.source, m.priceUnits7424, m.tokenDecimals7424,
+                    independentBasis = LabelEvidence8386.independentSource8418(m.source)))   // V5.0.8418 — swap prints / pool reserves
             }
             val o = CurveReserves7951.activeExitObservation(mint, nowMs, MARK_MAX_AGE_MS_7731)
             val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
@@ -1706,7 +1822,9 @@ object ForwardReturnLabeler7731 {
             if (o != null && solUsd.isFinite() && solUsd > 0) candidates.add(LabelMark8386(mint, "pump.curve",
                 CurveReserves7951.priceSol7951(o.virtualSol, o.virtualTokens) * solUsd, o.observedAtMs, nowMs,
                 "CURVE_${accepted?.source ?: "UNKNOWN"}", decimals = 6,
-                independentBasis = accepted?.source == "ACCOUNT" && accepted.atMs == o.observedAtMs))
+                // V5.0.8418 — the curve tape (FRAME: a trade print with its post-trade reserves) is chain data as much as the
+                // account read; either one, at this exact observation, is an independent basis.
+                independentBasis = accepted != null && (accepted.source == "ACCOUNT" || accepted.source == "FRAME") && accepted.atMs == o.observedAtMs))
         } catch (_: Exception) {}
         offWatchMarks7737[mint]?.let { candidates.add(LabelMark8386(mint, "", it.first, it.second, nowMs, "OFFWATCH")) }
         // A bare loop price has no timestamp. It may only reuse the matching state observation, never this read's clock.
@@ -1914,7 +2032,8 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun rowStoreLine8409(): String = "rows8409[store=${if (rowStore8409 != null) "sqlite" else "prefs"} migrated=${rowsMigrated8409.get()} failures=${rowStoreFailures8409.get()}]"
-    private val forwardOutbox8404 = com.lifecyclebot.engine.cortex.ForwardOutcomeOutbox8404(MAX_PENDING_7731)
+    // V5.0.8418 — first values and the (coalesced, at most one undelivered per observation) latest revision share 2x the cap.
+    private val forwardOutbox8404 = com.lifecyclebot.engine.cortex.ForwardOutcomeOutbox8404(MAX_PENDING_7731 * 2)
 
     private fun writeForward8404(id: String, raw: String): Boolean =
         putRow8409(FORWARD_PREFIX_8404 + id, raw)   // V5.0.8409 — one row transaction, not a checkpoint-file rewrite
@@ -1926,6 +2045,10 @@ object ForwardReturnLabeler7731 {
         if (revision && proof == null) return null
         val episode = "${o.mint}|${o.lane}|${o.atMs}"
         val id = if (revision) "$episode|R|${proof?.observedAtMs}|${proof?.horizonMs}" else episode
+        if (revision) try {
+            val dropped = forwardOutbox8404.supersedeRevisions8418("$episode|R|", id) { old -> removeRows8409(listOf(FORWARD_PREFIX_8404 + old)) }
+            if (dropped > 0) PipelineHealthCollector.labelInc("FORWARD_REVISION_COALESCED_8418")
+        } catch (_: Exception) {}
         val staged = try {
             forwardOutbox8404.stagePayload(id, {
                 com.lifecyclebot.engine.cortex.Cortex7885.freezeForwardOutcome8404(o.mint, o.lane, o.atMs)?.let { frozen ->
@@ -2084,6 +2207,16 @@ object ForwardReturnLabeler7731 {
     /** Every fresh/invalid/unchanged/rejected mark crosses this deadline before any early continue. */
     private fun expired8395(key: String, o: Obs, incoming: LabelMark8386?, nowMs: Long): Boolean {
         val deadline=deadline8395(o)
+        // V5.0.8418 — the learners booked this observation's first value; only the Cortex staging is outstanding. It is never
+        // turned into a lost mark (that would count the label twice): retry, and past the grace release the Cortex decision.
+        if (!o.done60 && o.staged8418 != null) {
+            if (retryCortexStage8418(o)) { o.done60 = true; return false }
+            if (!stageAbandoned8418(nowMs, deadline, STAGE_GRACE_MS_8418)) return nowMs >= deadline
+            o.staged8418 = null; o.done60 = true
+            try { PipelineHealthCollector.labelInc("FORWARD_CORTEX_STAGE_ABANDONED_8418") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "STAGE", decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
+            return false
+        }
         if (nowMs < deadline) return false
         val horizon=if (!o.done60) H60_MS_7731 else H240_MS_7731
         val recovered=listOfNotNull(o.lastAcceptedMark8395,incoming).filter {
@@ -2122,9 +2255,23 @@ object ForwardReturnLabeler7731 {
     fun tick(priceFor0: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
         drainForwardOutcomes8404()
         pairedRestore8401?.let { raw ->
-            val restored = try { com.lifecyclebot.engine.cortex.Cortex7885.restoreForward8401(raw) } catch (_: Exception) { false }
-            if (!restored) { PipelineHealthCollector.labelInc("FORWARD_PAIRED_RESTORE_RETRY_8401"); return }
+            // V5.0.8418 §PAIRED_RESTORE_BOUNDED — 0e5412fb7 returned here until the restore succeeded, so one corrupt blob (or a
+            // Cortex that never loads) stopped the 1m/5m/15m/30m/1h/4h/24h grading and the labeler's own saves for good. A corrupt
+            // blob is dropped at once; a not-yet-loaded Cortex is retried for [PAIRED_RESTORE_MAX_WAIT_MS_8418]; then the blob is
+            // dropped, logged and counted, and labelling continues (the affected decisions read ORIGINAL_UNAVAILABLE in Cortex).
+            var corrupt8418 = false
+            val restored = try { com.lifecyclebot.engine.cortex.Cortex7885.restoreForward8401(raw) } catch (_: Exception) { corrupt8418 = true; false }
+            if (!restored) {
+                if (pairedRestoreSinceMs8418 == 0L) pairedRestoreSinceMs8418 = nowMs
+                if (!pairedRestoreAbandoned8418(corrupt8418, nowMs - pairedRestoreSinceMs8418, PAIRED_RESTORE_MAX_WAIT_MS_8418)) {
+                    PipelineHealthCollector.labelInc("FORWARD_PAIRED_RESTORE_RETRY_8401"); return
+                }
+                PipelineHealthCollector.labelInc(if (corrupt8418) "FORWARD_PAIRED_RESTORE_DROPPED_CORRUPT_8418" else "FORWARD_PAIRED_RESTORE_DROPPED_TIMEOUT_8418")
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("FORWARD_PAIRED_RESTORE_DROPPED_8418",
+                    "corrupt=$corrupt8418 waitedMs=${nowMs - pairedRestoreSinceMs8418} bytes=${raw.length} action=drop_blob_continue_labelling") } catch (_: Throwable) {}
+            }
             pairedRestore8401 = null
+            pairedRestoreSinceMs8418 = 0L
         }
         // V5.0.7931 — crypto-universe and Markets identities are priced by their own feeds.
         val priceFor: (String) -> Double? = { m -> priceFor0(m) ?: com.lifecyclebot.engine.cortex.CrossAssetCortex7931.priceFor(m, nowMs) }
@@ -2157,6 +2304,13 @@ object ForwardReturnLabeler7731 {
             val mark8386 = observed8386 ?: continue
             if (!o.basis8386.mark.known() && age <= REBASE_MAX_MS_8076 && o.decisionBasis8386.mark.known())
                 o.basis8386 = o.decisionBasis8386
+            // V5.0.8418 — the decision price had no exactly-matching typed mark (observe: m.usd == px): the first typed mark
+            // inside the re-base window becomes the basis (what the re-base would do), instead of a silent UNKNOWN stall.
+            if (adoptBasis8418(o.basis8386.mark.known(), o.rebased8076, age, mark8386)) {
+                o.basis8386 = LabelBasis8386(mark8386, o.entryMcap)
+                if (!o.decisionBasis8386.mark.known()) o.decisionBasis8386 = o.basis8386
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_ADOPTED_8418") } catch (_: Throwable) {}
+            }
             // Validate against the original typed basis BEFORE a rebase can erase a decimals/units mismatch.
             if (!LabelEvidence8386.eligible(o.basis8386.mark,mark8386)) {
                 o.lastMark8386=mark8386
@@ -2222,6 +2376,7 @@ object ForwardReturnLabeler7731 {
             val priorAccepted8395 = o.lastAcceptedMark8395
             o.lastAcceptedMark8395=mark8386
             val gross = (px / o.entryPrice - 1.0) * 100.0
+            noteWindowRelease8418(o, gross, mark8386.observedAtMs)   // V5.0.8418 — before the low is graded
             if (gross < o.minPct7962) { notePathLow8366(o, mark8386.observedAtMs, gross); o.minPct7962 = gross }  // V5.0.8366 — first mark past a stop
             // V5.0.8000 — a runner inside its first 30 minutes is broadcast to every installed instance.
             if (gross >= 100.0 && age <= 30L * 60_000L) try { HiveEdge8000.noteRunner8000(o.mint, o.symbol, gross, o.atMs) } catch (_: Throwable) {}

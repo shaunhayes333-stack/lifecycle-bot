@@ -66,9 +66,9 @@ class Aate7885CortexTest {
         assertFalse(CortexScoreboard7885.refuseProven(loser, rest, runnerLane = false, minN = 60))
         val tail = CortexLedger7885.Stat().also { s -> repeat(45) { s.add(if (it % 2 == 0) -9.0 else -5.0, it < 6) } }
         assertFalse(CortexScoreboard7885.refuseProven(tail, rest, runnerLane = true, minN = 40))
-        // A high runner rate may prevent a PROVEN live refusal above, but may
-        // no longer re-label a negative executable forecast as neutral.
-        assertEquals(Bucket.REFUSE, CortexScoreboard7885.bucketOf(-6.0, 0.15, runnerLane = true))
+        // superseded by V5.0.8418 — the runner-lane tail exemption is restored (8373 bucketed -6 % at runner rate 0.15 on a
+        // runner lane REFUSE): a runner lane paying on its tail reads NEUTRAL, so the 8114 veto cohort never holds it.
+        assertEquals(Bucket.NEUTRAL, CortexScoreboard7885.bucketOf(-6.0, 0.15, runnerLane = true))
         assertEquals(Bucket.REFUSE, CortexScoreboard7885.bucketOf(-6.0, 0.15, runnerLane = false))
         assertEquals(Bucket.STRONG, CortexScoreboard7885.bucketOf(4.0, 0.0, runnerLane = false))
     }

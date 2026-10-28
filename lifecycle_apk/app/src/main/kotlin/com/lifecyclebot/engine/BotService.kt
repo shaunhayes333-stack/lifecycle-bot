@@ -1505,6 +1505,7 @@ class BotService : Service() {
         // be draining despite cancellation and must not race a new Service.
         shadowEvidenceTickEpoch8372.incrementAndGet()
         shadowEvidenceTickJob8372.get()?.cancel(CancellationException("shadow-evidence:$reason"))
+        try { com.lifecyclebot.engine.truth.ExploreShadow8347.flushOnStop8418() } catch (_: Throwable) {}   // V5.0.8418 — forced book flush on stop
     }
 
     private fun requestSellOffLoop7288(

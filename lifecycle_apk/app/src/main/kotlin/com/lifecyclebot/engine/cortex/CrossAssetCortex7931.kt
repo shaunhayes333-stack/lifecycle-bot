@@ -116,7 +116,25 @@ object CrossAssetCortex7931 {
         if (mint.startsWith("solana|", true)) return mint.substringAfter('|')
         if (assets.containsKey(mint)) return mint
         val routed = try { com.lifecyclebot.perps.TokenizedAssetRegistry.mintFor(mint) } catch (_: Throwable) { null }
-        return if (!routed.isNullOrBlank() && assets.containsKey(routed)) routed else mint
+        if (!routed.isNullOrBlank() && assets.containsKey(routed)) return routed
+        // V5.0.8418 §EVM_KEY_MIGRATION — 8372 keyed EVM identities "chain|0xabc" (was "0xabc"). A close row that still carries the
+        // bare address binds to the one captured chain-qualified identity instead of being orphaned (and vice versa).
+        return migratedKey8418(mint, assets.keys) ?: mint
+    }
+
+    /**
+     * Pure (V5.0.8418): the one captured key [mint] names across the 8372 EVM key change — a bare "0x.." address matches exactly
+     * one "<chain>|0x.." key; a "<chain>|0x.." key matches a captured bare "0x..". Null when none or ambiguous (two chains).
+     */
+    internal fun migratedKey8418(mint: String, keys: Collection<String>): String? {
+        if (mint.isBlank()) return null
+        if (!mint.contains('|')) {
+            if (!mint.startsWith("0x", true)) return null
+            val hits = keys.filter { it.contains('|') && it.substringAfterLast('|').equals(mint, true) }
+            return hits.singleOrNull()
+        }
+        val bare = mint.substringAfterLast('|')
+        return if (bare.startsWith("0x", true)) keys.firstOrNull { it.equals(bare, true) } else null
     }
 
     /** A fresh TokenState snapshot of the candidate for the labeler and the voters. */

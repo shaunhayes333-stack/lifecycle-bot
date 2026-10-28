@@ -48,6 +48,18 @@ object ExploreShadow8347 {
 
     const val MAX_TICKETS_8347 = 3_000   // V5.0.8360 — 1,000 (8351); every lane x token x setup now opens
     const val MAX_TICKETS_PER_LANE_8351 = 300   // V5.0.8360 — 120 (8351); one busy lane still cannot starve the rest
+    /**
+     * V5.0.8418 §NATIVE_RESERVED_SHARE — Cortex YES/NO/HOLD tickets (8368: one per assessment) shared the 3,000 pool with the
+     * NATIVE tickets, and only native tickets build the live-unlock proof (EvidenceHold / 8344 / 8351). Cortex tickets now hold
+     * at most [MAX_CORTEX_TICKETS_8418] (and [MAX_CORTEX_PER_LANE_8418] per lane) and, when the pool is full, evict only other
+     * Cortex tickets: the remaining 2,000 slots are reserved for native exploration.
+     */
+    const val MAX_CORTEX_TICKETS_8418 = 1_000
+    const val MAX_CORTEX_PER_LANE_8418 = 100
+
+    /** Pure (V5.0.8418): may a ticket of this kind take a slot, given the pool counts? (eviction is decided separately) */
+    fun cortexRoom8418(cortexKind: Boolean, cortexTotal: Int, cortexInLane: Int): Boolean =
+        !cortexKind || (cortexTotal < MAX_CORTEX_TICKETS_8418 && cortexInLane < MAX_CORTEX_PER_LANE_8418)
     const val TICKET_SOL_8347 = 0.03
     const val REJECT_SAMPLE_PCT_8347 = 100   // V5.0.8360 — 10 % (8347); every non-safety reject with an observed mark opens
     const val TICK_PER_LOOP_8360 = 600   // V5.0.8360 — tickets marked per shadow loop, round-robin (bounded CPU at 3,000 tickets)
@@ -210,6 +222,19 @@ object ExploreShadow8347 {
     /** Closed cohort rows already commit atomically with their event receipt; retained for tick/shutdown callers. */
     internal fun flushBooks8377(nowMs: Long, force: Boolean = false) {
         booksFlushedAtMs8377 = nowMs
+        // V5.0.8418 §FLUSH_ON_STOP — a forced flush (stop / onDestroy) drains the queued open-ticket writes now, so no closed
+        // leg or ticket state of the last interval is lost on process death (the cohort rows already commit with their receipt).
+        if (force) try { flushOpen8386(nowMs, durable = true) } catch (_: Throwable) { openRetry8386.incrementAndGet() }
+    }
+
+    /**
+     * V5.0.8418 — BotService stop / onDestroy: force the flush off the caller's thread (the store refuses Main), waiting at
+     * most [waitMs] so a stop never blocks; a write still running finishes on its own daemon thread.
+     */
+    fun flushOnStop8418(waitMs: Long = 1_500L): Boolean {
+        val t = Thread({ try { flushBooks8377(System.currentTimeMillis(), force = true) } catch (_: Throwable) {} }, "explore-shadow-stop-flush-8418")
+        t.isDaemon = true
+        return try { t.start(); t.join(waitMs.coerceIn(0L, 5_000L)); !t.isAlive } catch (_: Throwable) { false }
     }
 
     fun memoryCount8397(): Int = tickets.size + books.hotCount()
@@ -397,6 +422,7 @@ object ExploreShadow8347 {
     fun cortexTicketKey8368(nativeKey: String, kind: String): String =
         if (isCortexKind8368(kind)) "$nativeKey|$kind" else nativeKey
     const val SKIP_SAFETY_TOKEN_8360 = "HARD_SAFETY_TOKEN"
+    const val SKIP_CORTEX_SHARE_8418 = "CORTEX_SHARE_FULL_8418"
     const val SKIP_SAFETY_REASON_8360 = "HARD_SAFETY_REASON"
     const val SKIP_LANE_ERROR_8360 = "LANE_ERROR_NO_OPINION"
     const val SKIP_NOT_SAMPLED_8360 = "NOT_SAMPLED"
@@ -503,13 +529,14 @@ object ExploreShadow8347 {
     }
 
     /** When full: evict the oldest ticket (in [lane], or anywhere when null) with no active leg; false = none evictable. */
-    private fun evict8360(lane: String?, nowMs: Long): Boolean = synchronized(ticketReservation8372) {
-        val scope = lane ?: "*"
+    private fun evict8360(lane: String?, nowMs: Long, cortexOnly8418: Boolean = false): Boolean = synchronized(ticketReservation8372) {
+        val scope = (lane ?: "*") + if (cortexOnly8418) "|CORTEX8418" else ""
         val until = noEvictUntil8360[scope]
         if (until != null && nowMs < until) return@synchronized false
         val cands = ArrayList<Triple<String, Long, Boolean>>()
         for ((k, t) in tickets) {
             if (lane != null && t.lane != lane) continue
+            if (cortexOnly8418 && !isCortexKind8368(t.kind8360)) continue   // V5.0.8418 — a Cortex ticket never evicts a native one
             // An undelivered Cortex receipt is learning still owed, never an evictable inactive ticket.
             cands += Triple(k, t.atMs, !t.ready8372 || t.ticking8372 || t.cortex8372.awaiting8372() || t.legs.any { it.active && !it.dead })
         }
@@ -684,8 +711,16 @@ object ExploreShadow8347 {
             if (tickets.containsKey(ticketKey8368)) { skip8360(SKIP_ALREADY_OPEN_8360); return null }
             val recent = lastOpenAt[ticketKey8368]
             if (recent != null && nowMs - recent in 0L until REOPEN_GAP_MS_8347) { skip8360(SKIP_REOPEN_GAP_8360); return null }
-            if (tickets.size >= MAX_TICKETS_8347 && !evict8360(null, nowMs)) { full.incrementAndGet(); skip8360(SKIP_FULL_8360); return null }
-            if (laneCount8360(lane) >= MAX_TICKETS_PER_LANE_8351 && !evict8360(lane, nowMs)) { full.incrementAndGet(); skip8360(SKIP_LANE_FULL_8360); return null }
+            // V5.0.8418 — a Cortex ticket stays inside its own share and only ever evicts another Cortex ticket.
+            val cortex8418 = isCortexKind8368(kind)
+            if (cortex8418) {
+                var cTotal = 0; var cLane = 0
+                for (x in tickets.values) if (isCortexKind8368(x.kind8360)) { cTotal++; if (x.lane == lane) cLane++ }
+                if (!cortexRoom8418(true, cTotal, cLane) &&
+                    !evict8360(if (cLane >= MAX_CORTEX_PER_LANE_8418) lane else null, nowMs, cortexOnly8418 = true)) { full.incrementAndGet(); skip8360(SKIP_CORTEX_SHARE_8418); return null }
+            }
+            if (tickets.size >= MAX_TICKETS_8347 && !evict8360(null, nowMs, cortexOnly8418 = cortex8418)) { full.incrementAndGet(); skip8360(SKIP_FULL_8360); return null }
+            if (laneCount8360(lane) >= MAX_TICKETS_PER_LANE_8351 && !evict8360(lane, nowMs, cortexOnly8418 = cortex8418)) { full.incrementAndGet(); skip8360(SKIP_LANE_FULL_8360); return null }
             if (tickets.putIfAbsent(ticketKey8368, t) != null) { skip8360(SKIP_ALREADY_OPEN_8360); return null }
             laneCounts8360.computeIfAbsent(lane) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
             lastOpenAt[ticketKey8368] = nowMs
