@@ -138,7 +138,8 @@ class Aate8369CostsTest {
         assertTrue(ex.contains("entry = true, ticketSol8369 = buySol, pump8369 = true)"))
         assertTrue(ex.contains("Costs8369.entryCapActive8369(true, RunnerGrab7967.isGrabbed7980(ts.mint))"))
         // V8391: no volume fee; verified terminal profit is assessed separately.
-        assertEquals(0.0, CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, 0.0)
+        // superseded by V5.0.8418 — owner re-added 0.5% on the BUY only; the per-side mean is 0.25 (sell side still 0).
+        assertEquals(0.25, CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, 0.0)
         assertTrue(src("engine/truth/NetEdge8030.kt").contains("val routePct = com.lifecyclebot.engine.Costs8369.modelRouteFeePctPerSide8369(mint)"))
         assertTrue(src("engine/CostTrim8151.kt").contains("Costs8369.statusLine8369()"))
     }

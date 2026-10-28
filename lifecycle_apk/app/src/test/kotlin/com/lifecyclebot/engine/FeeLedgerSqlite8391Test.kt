@@ -13,6 +13,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 
 /** Real SQLite transactions against the production fee code. Android adapters only are mocked; no funds move. */
+// superseded by V5.0.8418 — owner: performance fee 1% (was 5%): a 1.0 SOL net win now accrues 0.01 SOL (was 0.05).
 class FeeLedgerSqlite8391Test {
     private lateinit var conn: Connection
     private lateinit var path: java.nio.file.Path
@@ -74,18 +75,18 @@ class FeeLedgerSqlite8391Test {
         return w
     }
     @Test fun receiptSurvivesRestartAndCannotChargeTwice() {
-        bind("one");assertEquals(.05,settle("one",1.0),0.0);activate("one",.05)
+        bind("one");assertEquals(.01,settle("one",1.0),0.0);activate("one",.01)
         conn.close();connect(false)
-        assertEquals(.05,settle("one",1.0),0.0)
+        assertEquals(.01,settle("one",1.0),0.0)
         assertEquals(1L,scalar("SELECT COUNT(*) FROM assessments"))
         bind("loss");assertEquals(0.0,settle("loss",-.5),0.0);activate("loss",0.0)
         bind("recover");assertEquals(0.0,settle("recover",.5),0.0);activate("recover",0.0)
-        assertEquals(.05,PerformanceFees8391.pendingSol("ownerA"),0.0)
+        assertEquals(.01,PerformanceFees8391.pendingSol("ownerA"),0.0)
     }
     @Test fun exactWalletModeMintAndSignatureAreRequired() {
         bind("one");assertEquals(0.0,PerformanceFees8391.settle("one","otherMint","live","s",1.0),0.0)
         assertEquals(0.0,PerformanceFees8391.settle("one","mint-one","paper","s",1.0),0.0)
-        settle("one",1.0);activate("one",.05)
+        settle("one",1.0);activate("one",.01)
         assertThrows(IllegalStateException::class.java) { settle("one",2.0) }
         assertEquals(0.0,PerformanceFees8391.pendingSol("ownerB"),0.0)
         val other=wallet("ownerB");PerformanceFees8391.flush(other)
@@ -95,27 +96,27 @@ class FeeLedgerSqlite8391Test {
         bind("one");settle("one",1.0)
         val w=wallet();PerformanceFees8391.flush(w)
         verify(w,never()).prepareFeeTransfer8391(anyString(),anyLong())
-        activate("one",.05)
+        activate("one",.01)
         doThrow(IllegalStateException("timeout after broadcast")).`when`(w).broadcastFeeTransfer8391(anyString(),anyString())
         PerformanceFees8391.flush(w);PerformanceFees8391.flush(w)
         assertEquals(2L,scalar("SELECT COUNT(*) FROM payouts WHERE state='PENDING'"))
         verify(w,times(2)).prepareFeeTransfer8391(anyString(),anyLong())
-        assertEquals(50_000_000L,scalar("SELECT SUM(gross) FROM payouts"))
+        assertEquals(10_000_000L,scalar("SELECT SUM(gross) FROM payouts"))
         `when`(w.feeTransferState8391(anyString(),anyLong(),anyLong())).thenReturn("CONFIRMED")
         PerformanceFees8391.flush(w)
         assertEquals(0.0,PerformanceFees8391.pendingSol("ownerA"),0.0)
         assertEquals(2L,scalar("SELECT COUNT(*) FROM payouts WHERE state='PAID'"))
     }
     @Test fun failedPayoutGasIsDeductedFromDeveloperEntitlement() {
-        bind("one");settle("one",1.0);activate("one",.05)
+        bind("one");settle("one",1.0);activate("one",.01)
         val w=wallet();PerformanceFees8391.flush(w)
         `when`(w.feeTransferState8391(anyString(),anyLong(),anyLong())).thenReturn("FAILED")
         PerformanceFees8391.flush(w)
-        assertEquals(50_000_000L,scalar("SELECT SUM(CASE WHEN state='FAILED' THEN network ELSE gross END) FROM payouts"))
+        assertEquals(10_000_000L,scalar("SELECT SUM(CASE WHEN state='FAILED' THEN network ELSE gross END) FROM payouts"))
     }
     @Test fun failedPaperCloseCannotManufactureFeeOrHighWater() {
         bind("loss",mode="paper");settle("loss",-1.0,"paper");activate("loss",0.0,"paper")
-        bind("phantom",mode="paper");assertEquals(.05,settle("phantom",2.0,"paper"),0.0)
+        bind("phantom",mode="paper");assertEquals(.01,settle("phantom",2.0,"paper"),0.0)
         bind("valid",mode="paper");assertEquals(0.0,settle("valid",.5,"paper"),0.0);activate("valid",0.0,"paper")
         PerformanceFees8391.abortUnappliedPaper("phantom")
         bind("recover",mode="paper");assertEquals(0.0,settle("recover",.25,"paper"),0.0)
