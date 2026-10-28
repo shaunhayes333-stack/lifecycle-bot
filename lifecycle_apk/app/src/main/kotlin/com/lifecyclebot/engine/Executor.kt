@@ -13708,6 +13708,7 @@ class Executor(
             if (ts.position.entryPrice == pos.entryPrice) Settlement8418.count8418("LIVE_TOPUP_SOL_USD_MISSING_BASIS_KEPT_8418")
             try { com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.economicNotionalCheck6537(ts.position)?.takeIf { !it.ok }?.let { Settlement8418.count8418("LIVE_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539") } } catch (_: Throwable) {}
             mirrorLiveTopUpCanonical7807(ts.mint, sig, fill8418.costSol, fill8418.qtyUi, fill8418.decimals, fill8418.rawQty, fill8418.feeSol)
+            ReceiptBooking8418.noteBookedInFlow8418(owner8418.intentId, sig)  // V5.0.8418 — booked once; a recovered copy is a duplicate
             val gainPct = pct(pos.entryPrice, price)
             val trade   = Trade("BUY", "live", fill8418.costSol, price,
                                 System.currentTimeMillis(), "top_up_${pos.topUpCount + 1}",

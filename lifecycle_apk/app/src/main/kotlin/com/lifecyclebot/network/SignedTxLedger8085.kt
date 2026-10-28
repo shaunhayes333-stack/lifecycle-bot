@@ -84,8 +84,30 @@ object SignedTxLedger8085 {
      */
     fun attemptSpent8418(attemptId: String): Entry? =
         if (attemptId.isBlank()) null else rows.values.filter {
-            it.intentId == attemptId && it.side == "BUY" && (it.unresolved || it.state == State.CONFIRMED)
+            it.intentId == attemptId && it.side == "BUY" && (it.unresolved || it.state == State.CONFIRMED) && !isBooked8418(it)
         }.maxByOrNull { it.createdAtMs }
+
+    /** V5.0.8418 — chain-confirmed rows owned by a position whose receipt was never booked (restart: re-queue them). */
+    fun confirmedUnbooked8418(): List<Entry> =
+        rows.values.filter { it.state == State.CONFIRMED && it.positionId.isNotBlank() && it.mint.isNotBlank() && !isBooked8418(it) }
+
+    private const val BOOKED_8418 = "BOOKED_8418"
+
+    /** V5.0.8418 — this row's receipt has been booked to its position (persisted with the row's detail). */
+    fun isBooked8418(e: Entry): Boolean = e.detail.contains(BOOKED_8418)
+
+    /**
+     * V5.0.8418 — record that [signature]'s receipt was booked (once). Returns false when it already was. A booked row
+     * no longer blocks a later attempt for its owner: the outcome it held is now on the position.
+     */
+    @Synchronized fun markBooked8418(signature: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val e = rows[signature] ?: return false
+        if (isBooked8418(e)) return false
+        e.detail = (e.detail.take(120) + ";" + BOOKED_8418).trimStart(';')
+        e.updatedAtMs = nowMs
+        persist()
+        return true
+    }
 
     /** Exact dispatch only. Another generation on this mint cannot borrow pending status. */
     fun unresolvedAttempt8198(attemptId: String): Entry? =
