@@ -106,6 +106,14 @@ object ShadowPersist8355 {
     fun expiredOnRestore8355(atMs: Long, timeoutMs: Long, nowMs: Long, lostMarkMs: Long = LOST_MARK_MS_8355): Boolean =
         atMs <= 0L || nowMs - atMs > timeoutMs + lostMarkMs
 
+    /**
+     * V5.0.8418 — the lost-mark rule across a restart: a mark is lost after [lostMarkMs] without an observation, counted from
+     * the later of the last observed mark and the restore ([restoredAtMs], 0 = never restored). Downtime is not a lost mark;
+     * the close (if it comes) is still booked at the last OBSERVED mark — nothing is re-priced.
+     */
+    fun lostMark8418(lastPxAtMs: Long, restoredAtMs: Long, nowMs: Long, lostMarkMs: Long = LOST_MARK_MS_8355): Boolean =
+        nowMs - maxOf(lastPxAtMs, restoredAtMs) >= lostMarkMs
+
     /** The coalescing rule: a forced write (open, arm, close) always goes; a changed record waits [coalesceMs] since its last write. */
     fun writeDue8355(dirty: Boolean, lastWriteMs: Long, nowMs: Long, force: Boolean = false, coalesceMs: Long = COALESCE_MS_8355): Boolean =
         force || (dirty && (lastWriteMs <= 0L || nowMs - lastWriteMs >= coalesceMs || nowMs < lastWriteMs))

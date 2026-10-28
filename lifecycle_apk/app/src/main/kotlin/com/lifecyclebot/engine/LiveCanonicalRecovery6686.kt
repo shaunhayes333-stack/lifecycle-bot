@@ -375,6 +375,8 @@ object LiveCanonicalRecovery6686 {
                 continue
             }
             if (mint.isBlank() || mint in covered7807 || amount.raw <= BigInteger.ONE) continue
+            if (com.lifecyclebot.engine.truth.QuoteAssetBasis8418.kind8418(mint) !=
+                com.lifecyclebot.engine.truth.QuoteAssetBasis8418.Kind8418.NONE) continue   // V5.0.8418 — a quote asset is never a bot holding
             // V5.0.8387 — the bot's own buy whose verifier has not promoted yet: the verified fill is seconds away and is
             // the basis proof; adopting it here as BASIS_UNPROVEN only re-labels a known buy.
             if (mint in pendingEntry8387) { try { PipelineHealthCollector.labelInc("BOT_HOLDING_PENDING_VERIFY_SKIPPED_8387") } catch (_: Throwable) {}; continue }
@@ -559,7 +561,8 @@ object LiveCanonicalRecovery6686 {
     fun adoptionStatus7706(): String =
         "adoptedAtMark=${adoptedAtMark7706.get()} belowRoutableNotAdopted=${adoptionBelowRoutable7706.get()} awaitingMark=${adoptionAwaitingMark7706.get()} dustUnroutable7714=${dustUnroutableCount7714()} ${healStatus7718()}" +
             (if (lastAdoption7706.isNotBlank()) " last=[$lastAdoption7706]" else "") +
-            " read=basis_missing_holdings_are_adopted_at_observed_mark_in_WALLET_RECOVERED_and_exit_through_normal_rules"
+            " read=basis_missing_holdings_are_adopted_at_observed_mark_in_WALLET_RECOVERED_and_exit_through_normal_rules" +
+            " " + com.lifecyclebot.engine.truth.QuoteAssetBasis8418.statusLine8418()   // V5.0.8418 — cash, not positions
 
     /**
      * V5.0.7706 — the observed-mark basis for a wallet holding no durable
@@ -788,6 +791,8 @@ object LiveCanonicalRecovery6686 {
 
         for ((mint, amount) in walletMints) {
             if (mint.isBlank() || amount.raw <= BigInteger.ONE || existingLive.contains(mint)) continue
+            // V5.0.8418 — USDC / USDT / wSOL (and every guarded base mint) is cash at its quote basis, never a position
+            if (com.lifecyclebot.engine.truth.QuoteAssetBasis8418.skipRecovery8418(mint, amount.raw, amount.decimals)) continue
             // V5.0.7714 — see DUST_THE_ROUTES_REFUSE above.
             if (isDustUnroutable7714(mint)) {
                 if (botJournalBought8053(mint)) {

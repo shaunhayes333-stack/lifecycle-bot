@@ -111,6 +111,12 @@ object ContaminatedPartialQuarantine7032 {
         // V5.0.7064 §9 — scale lookups are per position, not per event.
         val scaleCache7064 = HashMap<String, Int>()
         var firstCorrupt7064 = Long.MAX_VALUE
+        // V5.0.8418 — evidence of how a rateless partial was formed: its own marker, else its position's asset class
+        // (canonical position first, then the durable Buy's assetClassTag).
+        val buyClass8418 = HashMap<String, String>()
+        for (e in events) if (e is EconomicEventSchema6464.Buy && e.positionId.isNotBlank() && e.assetClassTag.isNotBlank()) buyClass8418[e.positionId] = e.assetClassTag
+        var basisDerived8418 = 0
+        val verified8418 = HashSet<String>()
         for (e in events) {
             if (e !is EconomicEventSchema6464.Sell) continue
             if (!e.partial) continue
@@ -120,6 +126,13 @@ object ContaminatedPartialQuarantine7032 {
             // its proceeds were converted with; one written before does not,
             // and nothing on disk can supply it after the fact.
             if (e.solUsdAtExit <= 0.0) {
+                val crossAsset8418 = crossAssetPosition8418(e.positionId, buyClass8418[e.positionId])
+                if (classifyRatelessPartial8418(e.basisDerived8418, crossAsset8418, e.allocatedCostBasisSol, e.grossProceedsSol) ==
+                    RatelessPartial8418.BASIS_DERIVED_VERIFIED) {
+                    basisDerived8418++
+                    if (e.positionId.isNotBlank()) verified8418.add(e.positionId)
+                    continue
+                }
                 unreconstructible++
                 if (e.positionId.isNotBlank()) ids.add(e.positionId)
                 continue
@@ -182,10 +195,14 @@ object ContaminatedPartialQuarantine7032 {
             firstCorruptAtMs7064 = firstCorrupt7064
         }
         contaminated.addAll(ids)
+        // V5.0.8418 — a position whose only rateless partials are verified basis-derived ones is clean: release it.
+        val released8418 = verified8418.filter { it !in ids && contaminated.remove(it) }.size
+        releasedTotal8418 += released8418
         partialsSeen = partials
         scanned = true
         lastSummary = "partials=$partials unreconstructible=$unreconstructible " +
-            "dimensional=$dimensional7064 downstream=$downstream7064 positions=${ids.size}"
+            "dimensional=$dimensional7064 downstream=$downstream7064 positions=${ids.size} " +
+            "basisDerivedVerified8418=$basisDerived8418 released8418=$releasedTotal8418"
         try {
             PipelineHealthCollector.labelInc("CONTAMINATED_PARTIAL_QUARANTINE_7032")
             ForensicLogger.lifecycle(
@@ -194,6 +211,45 @@ object ContaminatedPartialQuarantine7032 {
                     "action=exclude_position_from_learning_ledger_untouched",
             )
         } catch (_: Throwable) {}
+    }
+
+    // ── V5.0.8418 §CROSS_ASSET_PARTIALS_ARE_NOT_PRE_7032 — runtime 8416: quarantinedPositions=23 from partials=29
+    // unreconstructible=29 dimensional=0, all paper history. Their source was not a live/paper crossover, a bad price or
+    // wrong decimals: every one is a cross-asset (CRYPTO_ALT / CRYPTO_SPOT / FX / metals / stocks) partial committed through
+    // CanonicalPaperTransaction6486.partial, whose proceeds are `soldBasisSol x (1 + pnl%)` — SOL by construction, bounded
+    // by 6510's 7066 ratio check — and which therefore never had a SOL/USD rate to record. "solUsdAtExit = 0" is the pre-7032
+    // marker only for token-quantity partials. A rateless partial is now verified when its row says it is basis-derived
+    // (Sell.basisDerived8418, written from this build) or its position is a cross-asset position (that path has been the
+    // only cross-asset partial since 6566), AND its own row passes the same ratio bound. Solana-token rateless partials and
+    // rows whose position cannot be identified stay quarantined: unknown stays unknown. Nothing is re-priced. ──
+    enum class RatelessPartial8418 { BASIS_DERIVED_VERIFIED, UNRECONSTRUCTIBLE }
+    private const val BASIS_DERIVED_MAX_RATIO_8418 = 1000.0   // = CanonicalPaperPartialOperation6510.BASIS_DERIVED_MAX_RATIO_7066
+    @Volatile private var releasedTotal8418 = 0
+
+    /** Pure: a rateless paper partial's verdict. [crossAssetPosition] null = the position's asset class is unknown. */
+    fun classifyRatelessPartial8418(basisDerivedMarker: Boolean, crossAssetPosition: Boolean?,
+                                    allocatedCostBasisSol: Double, grossProceedsSol: Double): RatelessPartial8418 {
+        val formedFromBasis = basisDerivedMarker || crossAssetPosition == true
+        if (!formedFromBasis) return RatelessPartial8418.UNRECONSTRUCTIBLE
+        if (!allocatedCostBasisSol.isFinite() || allocatedCostBasisSol <= 0.0) return RatelessPartial8418.UNRECONSTRUCTIBLE
+        if (!grossProceedsSol.isFinite() || grossProceedsSol < 0.0) return RatelessPartial8418.UNRECONSTRUCTIBLE
+        val ratio = grossProceedsSol / allocatedCostBasisSol
+        return if (ratio.isFinite() && ratio <= BASIS_DERIVED_MAX_RATIO_8418) RatelessPartial8418.BASIS_DERIVED_VERIFIED
+            else RatelessPartial8418.UNRECONSTRUCTIBLE
+    }
+
+    /** Pure: is [assetClass] a cross-asset (non-Solana-token, known) class? null when unknown. */
+    fun crossAssetClass8418(assetClass: String?): Boolean? {
+        val c = assetClass?.trim()?.uppercase().orEmpty()
+        if (c.isBlank() || c == AssetClass.UNKNOWN.name) return null
+        if (AssetClass.values().none { it.name == c }) return null
+        return c != AssetClass.SOLANA_TOKEN.name
+    }
+
+    private fun crossAssetPosition8418(positionId: String, buyAssetClassTag: String?): Boolean? {
+        if (positionId.isBlank()) return null
+        val canonical = try { CanonicalPositionAuthority6441.getPosition(positionId)?.assetClass?.name } catch (_: Throwable) { null }
+        return crossAssetClass8418(canonical) ?: crossAssetClass8418(buyAssetClassTag)
     }
 
     /**

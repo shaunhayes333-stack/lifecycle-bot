@@ -4754,6 +4754,7 @@ object CryptoAltTrader {
         val receipt = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.partial(
             position.id, position.canonicalAssetKey, position.marketSymbol, 0.5,
             position.getPnlPct(), 0.005, reason,
+            exitMarkUsd8418 = if (position.hasTrustedMark()) position.currentPrice else 0.0,   // V5.0.8418 — the observed exit mark rides the durable row
         )
         if (!receipt.applied) {
             ErrorLogger.warn(TAG, "PAPER PARTIAL REJECTED: ${position.marketSymbol} ${receipt.reason}")

@@ -941,6 +941,7 @@ positionMap[position.id] = position
         val receipt = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.partial(
             position.id, position.market.symbol, position.market.symbol, 0.5,
             position.getPnlPercent(), feeRate, reason,
+            exitMarkUsd8418 = position.currentPrice,   // V5.0.8418 — the observed exit mark rides the durable row
         )
         if (!receipt.applied) {
             ErrorLogger.warn(TAG, "PAPER PARTIAL REJECTED: ${position.market.symbol} ${receipt.reason}")
