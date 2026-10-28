@@ -62,8 +62,11 @@ class Aate8383EvidenceSetupListTest {
 
     @Test fun retiredLosersNeverFireAsTheLaneStrategy() {
         // a non-early lane's retired setup never fires as its strategy
-        assertTrue(LanePlaybook7907.retired8383("BLUECHIP", "QUIET_ACCUMULATION"))
-        assertTrue(LanePlaybook7907.retired8383("SHITCOIN", "BUYERS_DOMINATING"))
+        // V5.0.8406 — a retirement measured on the 5-minute read does not bind a patient setup on an hour-graded lane
+        // (LaneGradeHorizon8406); TREASURY (12% range reversion) is still graded at 5 minutes and keeps its retirement.
+        assertTrue(LanePlaybook7907.retired8383("TREASURY", "QUIET_ACCUMULATION"))
+        assertFalse(LanePlaybook7907.retired8383("BLUECHIP", "QUIET_ACCUMULATION"))
+        assertFalse(LanePlaybook7907.retired8383("SHITCOIN", "BUYERS_DOMINATING"))
         // V5.0.8389 — an early-band lane keeps its launch / early-accumulation family (its own 7907 book refuses real losers)
         val quiet = f(runup = 10.0, dd = 5.0, bp = 60.0, chg5m = 0.5, chg1h = 2.0, pxPeak = 0.95)
         assertTrue(LanePlaybook7907.matches("SHITCOIN", quiet)!!.any { it.id == "QUIET_ACCUMULATION" })

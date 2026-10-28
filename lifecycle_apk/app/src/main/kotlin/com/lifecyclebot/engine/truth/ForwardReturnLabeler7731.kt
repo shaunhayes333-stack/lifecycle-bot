@@ -1514,7 +1514,8 @@ object ForwardReturnLabeler7731 {
     /** Pure (V5.0.8337): is [lane] graded on its hour slot — a runner-from-entry lane or a runner lane? */
     fun runnerSlot8337(lane: String): Boolean =
         (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false }) ||
-            (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false })
+            (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }) ||
+            (try { com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.hourGraded8406(lane) } catch (_: Throwable) { false })   // V5.0.8406 — the mandate decides
 
     private fun reviseToHour8337(o: Obs, net0: Double, gross0: Double, net: Double, gross: Double) {
         val oldNet = o.bookedNet7997

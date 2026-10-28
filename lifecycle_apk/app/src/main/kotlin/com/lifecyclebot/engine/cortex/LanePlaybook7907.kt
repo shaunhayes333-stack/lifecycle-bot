@@ -595,7 +595,8 @@ object LanePlaybook7907 {
         "TREASURY" to setOf("BUYERS_DOMINATING", "QUIET_ACCUMULATION"),
     )
     fun retired8383(lane: String, setup: String): Boolean =
-        RETIRED_8383[lane]?.contains(setup) == true && !(setup in EARLY_FAMILY_8389 && LaneCheatSheet8323.mcapMin8323(lane) < ENV_MCAP_MIN_8383)
+        RETIRED_8383[lane]?.contains(setup) == true && !(setup in EARLY_FAMILY_8389 && LaneCheatSheet8323.mcapMin8323(lane) < ENV_MCAP_MIN_8383) &&
+            !LaneGradeHorizon8406.retirementSuspended8406(lane, setup)   // V5.0.8406 — 5-minute evidence does not retire patience on an hour-graded lane
 
     /**
      * V5.0.8389 — the launch / early-accumulation setups are an early-band lane's identity, not network-retirable: the
@@ -2162,7 +2163,8 @@ object LanePlaybook7907 {
         // V5.0.8106 — or the lane rides every live buy on the runner ladder from entry (TradeExitContract8077, 8104): its
         // setups are graded on that family and revised over 1 h / 4 h / 24 h like any hold, not frozen at the 5-minute read.
         return (long && (try { com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(lane) } catch (_: Throwable) { false })) ||
-            (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false })
+            (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false }) ||
+            LaneGradeHorizon8406.hourGraded8406(lane)   // V5.0.8406 — every setup book of an hour-graded lane takes the hour read
     }
 
     /** Pure (V5.0.8080): the (net, gross) a setup is graded on; [fam] = [scalpNet, scalpGross, longNet, longGross]. */
@@ -2189,7 +2191,8 @@ object LanePlaybook7907 {
 
     private fun runnerHorizonLane8144(lane: String): Boolean =
         (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false }) ||
-            (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false })
+            (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }) ||
+            LaneGradeHorizon8406.hourGraded8406(lane)   // V5.0.8406
 
     private class Grade8076(val lane: String, val stamps: Map<String, Double>, var net: Double, var gross: Double, val atMs: Long)
     private val graded7997 = ConcurrentHashMap<String, Grade8076>()

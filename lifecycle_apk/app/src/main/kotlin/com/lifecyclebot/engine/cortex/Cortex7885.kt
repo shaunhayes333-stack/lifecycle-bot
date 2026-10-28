@@ -1926,7 +1926,8 @@ object Cortex7885 {
         try { com.lifecyclebot.engine.truth.EntryChase7961.laneLatencyMs8094(lane) > 0L } catch (_: Throwable) { false }
 
     private fun runnerHorizon8144(lane: String): Boolean =
-        (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false }) || isRunner(lane)
+        (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false }) || isRunner(lane) ||
+            LaneGradeHorizon8406.hourGraded8406(lane)   // V5.0.8406
 
     private fun decisionCtx8144(ts: TokenState, lane: String, admitted: Boolean, reason: String?): DecisionCtx8144 {
         val timing = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }

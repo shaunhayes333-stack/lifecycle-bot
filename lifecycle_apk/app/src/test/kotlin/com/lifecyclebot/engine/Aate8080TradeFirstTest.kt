@@ -16,9 +16,13 @@ class Aate8080TradeFirstTest {
         // Same coin, same path, QUALITY (a lifecycle lane): a breakout setup holds long, a pullback exits as a scalp.
         // (V5.0.8106 — MOONSHOT rides every live buy on the runner ladder since 8104, so all its setups hold long.)
         assertTrue(LanePlaybook7907.setupHoldsLong8080("QUALITY", "BASE_BREAKOUT"))
-        assertFalse(LanePlaybook7907.setupHoldsLong8080("QUALITY", "HIGHER_LOW_PULLBACK"))
+        // V5.0.8406 — QUALITY's +20% trend-pullback mandate is hour-graded (LaneGradeHorizon8406): every setup book of the
+        // lane takes the hour read. A range-reversion lane (TREASURY, 12%) keeps the 5-minute freeze for a short setup.
+        assertTrue(LanePlaybook7907.setupHoldsLong8080("QUALITY", "HIGHER_LOW_PULLBACK"))
+        assertFalse(LanePlaybook7907.setupHoldsLong8080("TREASURY", "HIGHER_LOW_PULLBACK"))
         assertEquals(80.0, LanePlaybook7907.familyLabel8080("QUALITY", "BASE_BREAKOUT", 40.0, 41.0, fam).first, 1e-9)
-        assertEquals(12.0, LanePlaybook7907.familyLabel8080("QUALITY", "HIGHER_LOW_PULLBACK", 40.0, 41.0, fam).first, 1e-9)
+        assertEquals(80.0, LanePlaybook7907.familyLabel8080("QUALITY", "HIGHER_LOW_PULLBACK", 40.0, 41.0, fam).first, 1e-9)   // 8406: hour-graded lane, hold family
+        assertEquals(12.0, LanePlaybook7907.familyLabel8080("TREASURY", "HIGHER_LOW_PULLBACK", 40.0, 41.0, fam).first, 1e-9)
         assertTrue(LanePlaybook7907.setupHoldsLong8080("MOONSHOT", "HIGHER_LOW_PULLBACK"))
     }
 

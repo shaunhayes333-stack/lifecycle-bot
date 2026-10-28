@@ -87,8 +87,9 @@ class Aate8337LabelsGateTest {
 
     @Test fun runnerLanesGradeOnTheHourSlot() {
         for (l in listOf("MOONSHOT", "SHITCOIN", "EXPRESS", "PROJECT_SNIPER")) assertTrue(l, ForwardReturnLabeler7731.runnerSlot8337(l))
-        assertFalse(ForwardReturnLabeler7731.runnerSlot8337("CASHGEN"))
-        assertFalse(ForwardReturnLabeler7731.runnerSlot8337("QUALITY"))
+        // V5.0.8406 — the hour slot belongs to every lane whose mandate is >= 20% (QUALITY 20, DIP 25); TREASURY (12%) keeps 5 min.
+        assertTrue(ForwardReturnLabeler7731.runnerSlot8337("QUALITY"))
+        assertFalse(ForwardReturnLabeler7731.runnerSlot8337("TREASURY"))
         val labeler = src("engine/truth/ForwardReturnLabeler7731.kt")
         val twoForty = labeler.substringAfter("private fun bookTwoForty7944(").substringBefore("private val exitRunSamples8006")
         // one-line slot selection: the hour's label revises a runner lane's 5-minute slot before the 240 slot is booked
