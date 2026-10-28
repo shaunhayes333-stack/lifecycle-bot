@@ -1207,7 +1207,8 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("Live keeps the existing"))
         assertTrue(exec.contains("SCRATCH"))
         assertFalse("Exit labels must not synthesize fill prices", exec.contains("fun parsePaperExitClamp("))
-        assertTrue(exec.contains("val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice)"))
+        // superseded by V5.0.8418 — paperSell's close arithmetic moved unchanged into PaperFillCore8418.close8418.
+        assertTrue(exec.contains("PaperFillCore8418.close8418(") && java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperFillCore8418.kt").readText().contains("val priceDerivedPnlPct = pct(entryPrice, effectivePrice)"))
     }
 
 
@@ -8714,7 +8715,8 @@ class GoldenTapeRegressionTest {
         val terminal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText()
         val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalRawQuantityAuthority6520.kt").readText()
         assertTrue(model.contains("val entryRawQty: BigInteger") && model.contains("val canonicalConsumedRaw: BigInteger") && model.contains("val remainingRawQty: BigInteger"))
-        assertTrue(executor.contains("paperRawFromEconomics(") && !executor.contains("journalSoldRaw(trade.soldQtyToken"))
+        // superseded by V5.0.8418 — paperBuy's raw quantity moved unchanged into PaperFillCore8418.buyRaw8418.
+        assertTrue(executor.contains("PaperFillCore8418.buyRaw8418(") && java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperFillCore8418.kt").readText().contains("paperRawFromEconomics(") && !executor.contains("journalSoldRaw(trade.soldQtyToken"))
         assertTrue(executor.contains("canonicalConsumedRaw = rawVerdict6520.normalizedRaw") && terminal.contains("canonicalConsumedRaw = soldQtyRaw"))
         assertTrue(history.contains("entry_raw_qty TEXT") && history.contains("put(" + "\"canonical_consumed_raw\"" + ", t.canonicalConsumedRaw.toString())"))
         assertTrue(authority.contains("LEGACY_ROUNDING_EPSILON_RAW: BigInteger = BigInteger.ONE") && authority.contains("DECIMAL_SCALE_MISMATCH"))
@@ -10065,7 +10067,8 @@ class GoldenTapeRegressionTest {
         // Paper sell door: gain above the shared clamp, uncorroborated → refused
         // before the close-idempotency stamp and the CAS door; corroborated → booked.
         assertTrue(exec.contains("private const val PAPER_GAIN_CLAMP_PCT_7271: Double = 1000.0"))
-        assertTrue(exec.contains(".coerceIn(-100.0, StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)"))
+        // superseded by V5.0.8418 — the clamp moved unchanged with the close arithmetic into PaperFillCore8418.close8418.
+        assertTrue(exec.contains("PaperFillCore8418.close8418(") && java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperFillCore8418.kt").readText().contains(".coerceIn(-100.0, StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)"))
         assertTrue(exec.contains("if (gainPct7271 > PAPER_GAIN_CLAMP_PCT_7271) {"))
         // V5.0.7272 — the label test is the first leg; the door then asks the stack.
         assertTrue(exec.contains("val feedsCorroborate7271 = ts.lastPriceSource.contains(\"FANOUT_CORROBORATED\", ignoreCase = true) ||"))

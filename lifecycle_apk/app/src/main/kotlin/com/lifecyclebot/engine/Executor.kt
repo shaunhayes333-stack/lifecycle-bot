@@ -16888,11 +16888,6 @@ class Executor(
                 } catch (_: Throwable) { /* async hydrate; retry next cycle */ }
             }
         }
-        val buyQtyRawEconomic6485 = try {
-            com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.paperRawFromEconomics(
-                effectiveSol.toString(), solPriceForQty6509.toString(), effectivePrice.toString(), paperQuantityScale6514,
-            )
-        } catch (_: Throwable) { java.math.BigInteger.ZERO }
         // V5.0.6550 §P0-B — MODE-AWARE RAW QUANTITY.
         // Operator forensic (V5.0.6549): raw quantity was returning ZERO for
         // paper mints whose decimals were unresolved (decimals=-1), and the
@@ -16913,15 +16908,10 @@ class Executor(
         // economic accuracy — paper P&L is derived from cost/entryPrice,
         // not from the raw integer — while removing the LIVE-only
         // integrity veto from the paper commit path.
-        val paperEconomicsValid6550 = effectiveSol > 0.0 && effectivePrice > 0.0 &&
-            solPriceForQty6509.isFinite() && solPriceForQty6509 > 0.0 && effectivePrice.isFinite()
-        val buyQtyRaw6485: java.math.BigInteger = if (buyQtyRawEconomic6485 <= java.math.BigInteger.ZERO && paperEconomicsValid6550) {
-            try {
-                val qtyTokens = (effectiveSol * solPriceForQty6509) / effectivePrice
-                val scale = paperQuantityScale6514.coerceIn(0, 18)
-                val bi = java.math.BigDecimal.valueOf(qtyTokens)
-                    .multiply(java.math.BigDecimal.TEN.pow(scale))
-                    .toBigInteger()
+        // V5.0.8418 — the raw quantity (paperRawFromEconomics, then the 6550 fallback) is PaperFillCore8418.buyRaw8418.
+        val buyQtyRaw6485: java.math.BigInteger = com.lifecyclebot.engine.truth.PaperFillCore8418.buyRaw8418(
+            effectiveSol, solPriceForQty6509, effectivePrice, paperQuantityScale6514,
+        ) { qtyTokens, scale ->
                 PipelineHealthCollector.labelInc("PAPER_RAW_QTY_ECONOMICS_FALLBACK_6550")
                 ForensicLogger.lifecycle(
                     "PAPER_RAW_QTY_ECONOMICS_FALLBACK_6550",
@@ -16931,9 +16921,7 @@ class Executor(
                         "priceUsd=${"%.8f".format(effectivePrice)} qtyTokens=${"%.4f".format(qtyTokens)} " +
                         "encodedScale=$scale action=synthesize_from_economics_no_terminal_block",
                 )
-                bi
-            } catch (_: Throwable) { java.math.BigInteger.ZERO }
-        } else buyQtyRawEconomic6485
+        }
         if (buyQtyRaw6485 <= java.math.BigInteger.ZERO) {
             markPaperBuyNotOpened("RAW_QTY_ECONOMICS_INVALID_6520")
             return
@@ -16991,8 +16979,8 @@ class Executor(
         // network leg, debited once. See PaperVenueCost7287.
         val venueFeePct7287 = com.lifecyclebot.engine.truth.PaperVenueCost7287
             .venueFeePct(ts.mint, ts.lastLiquidityUsd, ts.lastMcap)
-        val fee6485 = actualSol * (venueFeePct7287 / 100.0 + MEME_BUY_FEE_PERCENT_8418) +
-            com.lifecyclebot.engine.truth.PaperVenueCost7287.FIXED_SOL_PER_SIDE
+        // V5.0.8418 — the paper buy charges the app's BUY rate (MEME_BUY_FEE_PERCENT_8418), the arithmetic in PaperFillCore8418.
+        val fee6485 = com.lifecyclebot.engine.truth.PaperFillCore8418.buyFeeSol8418(actualSol, venueFeePct7287, MEME_BUY_FEE_PERCENT_8418)
         try {
             PipelineHealthCollector.labelInc(
                 "PAPER_FEE_VENUE_7287_BUY_" + com.lifecyclebot.engine.truth.PaperVenueCost7287
@@ -25924,35 +25912,28 @@ class Executor(
         // +1,000% the feeds do not corroborate (and above 1,000x demands an
         // executable quote), so a fill that reaches here was proven; it books at
         // its price up to the learnable ceiling. Pool liquidity still caps proceeds.
-        val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice)
-            .coerceIn(-100.0, StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)
-        val rawValue = (terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0) -
-            com.lifecyclebot.engine.truth.PaperVenueCost7287.FIXED_SOL_PER_SIDE).coerceAtLeast(0.0)
+        // V5.0.8418 — the close arithmetic below is PaperFillCore8418.close8418 (moved unchanged, JVM-tested).
+        val solPriceUsd8418 = WalletManager.lastKnownSolPrice
+        val close8418 = com.lifecyclebot.engine.truth.PaperFillCore8418.close8418(
+            terminalRemainingCost6492, pos.entryPrice, effectivePrice, simulatedFeePct,
+            if (ts.lastLiquidityUsd > 0.0 && solPriceUsd8418 > 0.0) (ts.lastLiquidityUsd * 0.5) / solPriceUsd8418 else Double.NaN,
+        )
         // (3) Cost-basis paper proceeds — paper has no real token balance. Do
         // NOT book proceeds from qtyToken * price; a stale qty or source-basis
         // mismatch creates impossible million-SOL rows. We already have the
         // correct comparable entry/exit price after getActualPrice() rebase and
         // optional reason clamp, so proceeds are cost basis × price return.
-        val cappedValue = run {
-            val solPriceUsd = WalletManager.lastKnownSolPrice
-            if (ts.lastLiquidityUsd > 0.0 && solPriceUsd > 0.0) {
-                val maxValueSol = (ts.lastLiquidityUsd * 0.5) / solPriceUsd
-                if (rawValue > maxValueSol) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "PAPER_PNL_LIQUIDITY_CAPPED",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} rawValueSol=${"%.6f".format(rawValue)} capSol=${"%.6f".format(maxValueSol)} liqUsd=${"%.0f".format(ts.lastLiquidityUsd)}",
-                        )
-                    } catch (_: Throwable) {}
-                    maxValueSol
-                } else rawValue
-            } else rawValue
-        }
-        val value = cappedValue.coerceAtLeast(0.0)
-        val grossNoFrictionValue = (terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0)).coerceAtLeast(0.0)
-        val simulatedFeeSol = (grossNoFrictionValue - value).coerceAtLeast(0.0)
-        val pnl   = value - terminalRemainingCost6492
-        val pnlP  = pct(terminalRemainingCost6492, value)
+        if (close8418.liquidityCapped) try {
+            ForensicLogger.lifecycle(
+                "PAPER_PNL_LIQUIDITY_CAPPED",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} rawValueSol=${"%.6f".format(close8418.rawValue)} capSol=${"%.6f".format(close8418.maxValueSol)} liqUsd=${"%.0f".format(ts.lastLiquidityUsd)}",
+            )
+        } catch (_: Throwable) {}
+        val value = close8418.value
+        val grossNoFrictionValue = close8418.grossNoFrictionValue
+        val simulatedFeeSol = close8418.simulatedFeeSol
+        val pnl   = close8418.pnl
+        val pnlP  = close8418.pnlP
         // V5.0.6449 §3 SELL QTY SOURCE LOCK. Operator KMNo3n snapshot showed
         // buy=10.495 sell=19.535 — 2x oversell. Root cause: journal Trade row
         // was reading pos.qtyToken which had drifted (alias-merge/double-count).

@@ -9,11 +9,15 @@ import com.lifecyclebot.engine.cortex.CortexOutcomeDisposition8395
 import com.lifecyclebot.engine.cortex.CortexScoreboard7885
 import com.lifecyclebot.engine.cortex.LaneCheatSheet8323
 import com.lifecyclebot.engine.cortex.LaneGradeHorizon8406
+import com.lifecyclebot.engine.truth.EconomicUnitInvariant7061
 import com.lifecyclebot.engine.truth.EpisodeTrace8395
 import com.lifecyclebot.engine.truth.EpisodeTrace8395.Basis
 import com.lifecyclebot.engine.truth.EpisodeTrace8395.Stage
 import com.lifecyclebot.engine.truth.FieldManual7715
 import com.lifecyclebot.engine.truth.NetEdge8030
+import com.lifecyclebot.engine.truth.PaperFillCore8418
+import com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509
+import com.lifecyclebot.engine.truth.PaperVenueCost7287
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,16 +36,19 @@ import java.io.File
  *   intelligence          CortexLedger7885 fusion of a seated voter -> CortexScoreboard7885 verdict bucket
  *   election / owner      EpisodeTrace8395.onElection files the episode under the canonical lane
  *   sizing                NetEdge8030.paperTicket8399 x Cortex7885.graduatedMult7955 x CellAllocator7962.combinedMult7962
- *   execution (PAPER)     ticket / submission / fill hops on the episode (observer); the paper fill itself is BLOCKED (below)
+ *   execution (PAPER)     the canonical paper fill (PaperFillCore8418.buyRaw8418 / buyFeeSol8418, the arithmetic Executor.paperBuy
+ *                         books) plus the ticket / submission / fill hops on the episode
  *   holds / exits         the lane's stop (FieldManual7715.stopPct8392) and target on a price path; hold horizon
  *                         CortexLabelHygiene8144.executableHorizonMs8392
- *   verified outcome      canonical PAPER close -> REALISED basis -> replay8395 counts it once in its lane
+ *   verified outcome      the canonical paper close (PaperFillCore8418.close8418, the arithmetic Executor.paperSell books)
+ *                         -> REALISED basis -> replay8395 counts it once in its lane
  *   learning              CortexGradeBook8144 accepts the lane's first label once; a redelivery is DUPLICATE; ACK closes it
  *
- * BLOCKED in a JVM test (named, not faked): the canonical paper transaction (Executor.paperBuy / Executor.paperSell) needs an
- * Executor instance (BotConfig provider, SecurityGuard, SoundManager, Android Context-backed wallet/registry singletons) that no
- * JVM test can construct; the finalized-bus fan-out (CanonicalFinalizedTradeBus6464.publish) delivers to Android-persisted
- * consumers. Those two stages are represented here only by the observer hops they emit in production.
+ * V5.0.8418 — the fill and close money now run for real: Executor.paperBuy / paperSell call PaperFillCore8418 for their raw
+ * quantity, buy fee and close proceeds, and this test calls the same functions. Still BLOCKED in a JVM test (named, not
+ * faked): the rest of paperBuy / paperSell (ledger debit, canonical lifecycle, journal) needs an Executor instance
+ * (BotConfig provider, SecurityGuard, SoundManager, Android Context-backed wallet/registry singletons), and the
+ * finalized-bus fan-out (CanonicalFinalizedTradeBus6464.publish) delivers to Android-persisted consumers.
  */
 class Aate8418TwelveLaneJourneyTest {
 
@@ -110,7 +117,20 @@ class Aate8418TwelveLaneJourneyTest {
             val sized = ticket * CellAllocator7962.combinedMult7962(Cortex7885.graduatedMult7955(0.0, 0.0, ticket), 1.0)
             assertEquals("$lane sizing: an unproven candidate is sized at the paper ticket", 0.5, sized, 1e-9)
 
-            // 6. execution in PAPER — observer hops at the sealed size (the fill itself is BLOCKED: see class doc)
+            // 6. execution in PAPER — the canonical paper fill at the sealed size (test inputs: SOL/USD 150, a quoted price)
+            val solUsd = 150.0
+            val entryPx = 0.0001 * (n + 1)
+            val liqUsd = 250_000.0
+            val raw = PaperFillCore8418.buyRaw8418(sized, solUsd, entryPx, 9)
+            assertTrue("$lane fill: a positive raw quantity", raw.signum() > 0)
+            val qty = PaperTokenQuantityAuthority6509.decode(raw, 9)
+            assertEquals("$lane fill: qty = notional USD / price", sized * solUsd / entryPx, qty, 1e-6)
+            assertTrue("$lane fill: dimensional invariant", PaperTokenQuantityAuthority6509.independentCheck(sized, solUsd, entryPx, raw, 9).ok)
+            val venueFeePct = PaperVenueCost7287.venueFeePct(mint, liqUsd, mcap)
+            // V5.0.8418 integration — paperBuy passes the app's BUY rate (int-8418-fee), so the journey does too.
+            val buyFee = PaperFillCore8418.buyFeeSol8418(sized, venueFeePct, CostTrim8151.BUY_APP_FEE_PCT_8418 / 100.0)
+            assertEquals("$lane fill: venue fee + app buy fee + fixed leg",
+                sized * (venueFeePct / 100.0 + CostTrim8151.BUY_APP_FEE_PCT_8418 / 100.0) + PaperVenueCost7287.FIXED_SOL_PER_SIDE, buyFee, 1e-12)
             val attempt = "att8418-$n"; val pid = "pid8418-$n"
             EpisodeTrace8395.onTicket(attempt, "PAPER", mint, 1L, lane, t + 400L, sized)
             EpisodeTrace8395.onSubmission(attempt, "PAPER", mint, 1L, lane, t + 500L, sized)
@@ -128,9 +148,18 @@ class Aate8418TwelveLaneJourneyTest {
             val holdMs = CortexLabelHygiene8144.executableHorizonMs8392(runnerHold)
             assertTrue("$lane hold horizon", holdMs >= 60L * 60_000L)
 
-            // 8. verified outcome: canonical PAPER close
-            val retPct = (path[exitAt] - 1.0) * 100.0
-            val pnlSol = sized * retPct / 100.0
+            // 8. verified outcome: the canonical paper close at the exit mark less exit impact and the venue fee
+            val exitMark = entryPx * path[exitAt]
+            val impactPct = PaperVenueCost7287.impactPct(mint, sized * path[exitAt], liqUsd, solUsd)
+            val closed = PaperFillCore8418.close8418(sized, entryPx, exitMark * (1.0 - impactPct / 100.0), venueFeePct,
+                EconomicUnitInvariant7061.usdToSol(liqUsd * 0.5, solUsd))
+            assertFalse("$lane close: a 0.5 SOL clip is not liquidity-capped", closed.liquidityCapped)
+            assertTrue("$lane close: fees are charged", closed.simulatedFeeSol > 0.0)
+            assertTrue("$lane close: net below gross", closed.value < closed.grossNoFrictionValue)
+            assertEquals("$lane close: pnl = proceeds - cost", closed.value - sized, closed.pnl, 1e-12)
+            assertTrue("$lane close: the target exit nets a profit after costs", closed.pnl > 0.0)
+            val retPct = closed.pnlP
+            val pnlSol = closed.pnl
             val closeAt = t + 600L + 30L * 60_000L
             EpisodeTrace8395.onDisposition(pid, "PAPER", lane, closeAt, pnlSol, retPct, "PAPER_CANONICAL", terminal = true, chainProven = false)
             val close = ep.snapshot().last { it.stage == Stage.DISPOSITION && it.verdict == "TERMINAL" }
@@ -142,9 +171,9 @@ class Aate8418TwelveLaneJourneyTest {
             assertTrue(book.addDecision(CortexGradeRecord8144('D', id, "$mint|$lane", t + 300L, lane, mandate.setup.name, "TREND",
                 "EARLY", "LOW", "SMALL", bucket.ordinal, fused.edgePct, true, true, false)))
             assertEquals("$lane learning first", CortexOutcomeDisposition8395.ACCEPTED_FIRST,
-                book.labelOutcome8395(id, retPct, retPct + 2.0, retPct, true, closeAt - (t + 300L), closeAt, closeAt))
+                book.labelOutcome8395(id, retPct, closed.priceDerivedPnlPct, retPct, true, closeAt - (t + 300L), closeAt, closeAt))
             assertEquals("$lane learning once", CortexOutcomeDisposition8395.DUPLICATE_ACCEPTED,
-                book.labelOutcome8395(id, retPct, retPct + 2.0, retPct, true, closeAt - (t + 300L), closeAt, closeAt))
+                book.labelOutcome8395(id, retPct, closed.priceDerivedPnlPct, retPct, true, closeAt - (t + 300L), closeAt, closeAt))
             EpisodeTrace8395.onAck(pid, "Cortex7885", true, closeAt + 100L)
             val ev = ep.snapshot()
             assertEquals("$lane terminal", "DISPOSED_ACKED", EpisodeTrace8395.terminal8395(ev))
@@ -173,6 +202,9 @@ class Aate8418TwelveLaneJourneyTest {
         val exec = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("Executor.paperBuy is the canonical paper entry", exec.contains("fun paperBuy(ts: TokenState, sol: Double"))
         assertTrue("Executor.paperSell is the canonical paper close", exec.contains("fun paperSell(ts: TokenState, reason: String"))
+        // V5.0.8418 — the fill and close money the journey runs is the money Executor books.
+        assertTrue(exec.contains("PaperFillCore8418.buyRaw8418(") && exec.contains("PaperFillCore8418.buyFeeSol8418(") &&
+            exec.contains("PaperFillCore8418.close8418("))
         assertTrue("and it needs an Executor (SecurityGuard, BotConfig) no JVM test constructs", exec.contains("val security: SecurityGuard,"))
     }
 }

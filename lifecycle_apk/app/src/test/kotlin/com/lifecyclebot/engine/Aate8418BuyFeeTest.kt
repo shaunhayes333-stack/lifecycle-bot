@@ -108,7 +108,11 @@ class Aate8418BuyFeeTest {
         assertTrue(ex.contains("\"buy_finalized_8418\"") && ex.contains("\"topup_8418\""))
         assertFalse(ex.contains("sendFeeSplit("))
         // Paper mirrors live: the paper buy charges the buy rate, paper sells keep the 0.0 sell rate.
-        assertTrue(ex.contains("val fee6485 = actualSol * (venueFeePct7287 / 100.0 + MEME_BUY_FEE_PERCENT_8418) +"))
+        // superseded by V5.0.8418 — the paper buy fee arithmetic moved into PaperFillCore8418.buyFeeSol8418 (int-8418-leftovers);
+        // the buy rate is still what paperBuy passes. Was: "val fee6485 = actualSol * (venueFeePct7287 / 100.0 + MEME_BUY_FEE_PERCENT_8418) +".
+        assertTrue(ex.contains("PaperFillCore8418.buyFeeSol8418(actualSol, venueFeePct7287, MEME_BUY_FEE_PERCENT_8418)"))
+        assertEquals(0.5 * (1.25 / 100.0 + 0.005) + com.lifecyclebot.engine.truth.PaperVenueCost7287.FIXED_SOL_PER_SIDE,
+            com.lifecyclebot.engine.truth.PaperFillCore8418.buyFeeSol8418(0.5, 1.25, CostTrim8151.BUY_APP_FEE_PCT_8418 / 100.0), 1e-15)
         assertTrue(ex.contains("@Volatile private var MEME_TRADING_FEE_PERCENT = 0.0"))
     }
 
