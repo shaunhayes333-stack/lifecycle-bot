@@ -555,7 +555,8 @@ object CanonicalPaperTransaction6486 {
             qtyRaw == syntheticUnit && decimals == 9 && quantityScale == 9
         val effectiveQtyRaw7258 = if (usesLegacySyntheticQty7258) {
             val solUsd7258 = try {
-                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf {
+                // V5.0.8418 — the fresh (<= 5 min) observed rate only; a stale last-known is unknown.
+                com.lifecyclebot.engine.SolUsd8418.liveOrNull()?.takeIf {
                     it.isFinite() && it in 20.0..5_000.0
                 } ?: 0.0
             } catch (_: Throwable) { 0.0 }

@@ -302,7 +302,7 @@ object MarketsLiveExecutor {
         sealedIntent7914: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null,
     ): MarketsFill6486 = withContext(Dispatchers.IO) {
         sealedIntent7914?.let { t ->
-            val why = ticketRefusal7914(t, sizeSol)
+            val why = ticketRefusal7914(t, sizeSol) ?: spotScaleRefusal8418(t, market, sizeSol, leverage)
             if (why != null) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(why) } catch (_: Throwable) {}
                 return@withContext MarketsFill6486(FillState6486.FAILED, positionId, null, "NONE", "",
@@ -436,6 +436,21 @@ object MarketsLiveExecutor {
      * carry. Null = allowed; otherwise the named refusal. Used by every
      * cross-asset live dispatcher (markets, stocks, crypto alts).
      */
+    /**
+     * V5.0.8418 — leveraged tokenized trades go through the sealed ticket too: the ticket's
+     * sealed notional (margin × sealed spot multiple) must equal what this executor submits
+     * (sizeSol × the SPOT multiple it applies) and what it records as canonical principal.
+     */
+    fun spotScaleRefusal8418(
+        t: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent, market: PerpsMarket, sizeSol: Double, leverage: Double,
+    ): String? {
+        val factor = com.lifecyclebot.engine.truth.SpotScale8418.factor(market.isCrypto, leverage)
+        val submitted = sizeSol * factor
+        val recorded = if (!market.isCrypto && leverage > 1.0) sizeSol * leverage else sizeSol
+        return if (com.lifecyclebot.engine.truth.SizeTriple8418.check("MARKETS_SPOT_SCALE", t.sealedSpotNotionalSol8418, submitted, recorded)) null
+        else "SIZE_TRIPLE_MISMATCH_8418_MARKETS_SPOT_SCALE"
+    }
+
     fun ticketRefusal7914(t: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent, sizeSol: Double): String? = when {
         !t.fdgAllowed || t.hardNoReasons.isNotEmpty() -> "EXECUTION_TICKET_NOT_ALLOWED_7914"
         !t.resolvedSize.isFinite() || t.resolvedSize <= 0.0 -> "EXECUTION_TICKET_INVALID_SIZE_7914"

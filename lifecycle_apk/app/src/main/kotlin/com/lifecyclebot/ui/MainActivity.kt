@@ -5827,7 +5827,7 @@ for legal compliance.
             }
         } catch (_: Throwable) { /* best-effort */ }
         val sdf = openPosTimeSdf  // V5.9.1070 — class-field, no ICU init
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+        val solPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — 0.0 = unknown, never $85
 
         // V5.9.802 — operator audit Fix (b): defensive render cap.
         // Build-5.0.2741 forensic showed 122 open positions × full
@@ -6702,7 +6702,7 @@ for legal compliance.
         if (samePositions) return lastTreasuryCachedPnlSol
         lastTreasuryMints = mintKey
         llTreasuryPositions.removeAllViews()
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+        val solPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — 0.0 = unknown, never $85
         // V5.9.420 — accumulate children unrealized PnL so the card header
         // matches the visible rows below (was showing daily realized PnL).
         var childrenUnrealizedSum = 0.0
@@ -10062,7 +10062,7 @@ This cannot be undone!
         llIdleList.removeAllViews()
 
         val active = state.config.activeToken
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+        val solPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — 0.0 = unknown, never $85
 
         // ═══════════════════════════════════════════════════════════════════════
         // V5.2: THREE-COLUMN LAYOUT - Probation | Watchlist | Idle
@@ -11215,7 +11215,7 @@ risking real capital.
             val treasuryAI = com.lifecyclebot.v3.scoring.CashGenerationAI
             val stats = treasuryAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+            val solPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — 0.0 = unknown, never $85
 
             // Get both paper and live balances for comparison
             val paperBalance = treasuryAI.getTreasuryBalance(true)
@@ -11231,7 +11231,6 @@ risking real capital.
 
             val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
             val currentBalance = stats.treasuryBalanceSol
-            val currentBalanceUsd = currentBalance * solPrice
 
             val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
 
@@ -11240,7 +11239,7 @@ CASH GENERATION AI · TREASURY MODE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $currentModeLabel
-Current Treasury: ${"%.4f".format(currentBalance)} SOL (~$${"%.0f".format(currentBalanceUsd)})
+Current Treasury: ${"%.4f".format(currentBalance)} SOL (~$${com.lifecyclebot.engine.SolUsd8418.usdTextOrDash(currentBalance, 0)})
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ANALYTICS DAILY PERFORMANCE
@@ -11407,7 +11406,7 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
             val blueChipAI = com.lifecyclebot.v3.scoring.BlueChipTraderAI
             val blueChipStats = blueChipAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+            val solPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — 0.0 = unknown, never $85
 
             val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
 
@@ -11514,11 +11513,10 @@ Entry Criteria:
             val shitCoinAI = com.lifecyclebot.v3.scoring.ShitCoinTraderAI
             val stats = shitCoinAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+            val solPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — 0.0 = unknown, never $85
 
             val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
             val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
-            val dailyPnlUsd = stats.dailyPnlSol * solPrice
 
             val modeEmoji = when (stats.mode) {
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "TARGET"
@@ -11539,7 +11537,7 @@ $modeEmoji Mode: ${stats.mode.name}
 ANALYTICS DAILY PERFORMANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Daily P&L: $pnlSign${"%.4f".format(stats.dailyPnlSol)} SOL (~$${"%.2f".format(dailyPnlUsd)})
+Daily P&L: $pnlSign${"%.4f".format(stats.dailyPnlSol)} SOL (~$${com.lifecyclebot.engine.SolUsd8418.usdTextOrDash(stats.dailyPnlSol, 2)})
 Trades: ${stats.dailyTradeCount} | W/L: ${stats.dailyWins}/${stats.dailyLosses}
 Win Rate: ${"%.1f".format(stats.winRate)}%
 Active Positions: ${stats.activePositions}
@@ -11583,7 +11581,7 @@ Use with caution - moon or zero!
         try {
             val tradeStore = com.lifecyclebot.engine.TradeHistoryStore
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+            val solPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — 0.0 = unknown, never $85
 
             val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
 
@@ -11603,7 +11601,6 @@ Use with caution - moon or zero!
             val winRate = if (allTrades.isNotEmpty()) (wins.toDouble() / allTrades.size * 100) else 0.0
 
             val pnlSign = if (totalPnl >= 0) "+" else ""
-            val totalPnlUsd = totalPnl * solPrice
 
             // Get fluid learning progress
             val learningProgress = try {
@@ -11642,7 +11639,7 @@ Total Open: $totalOpenPos
 ANALYTICS 24H PERFORMANCE (All Layers)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Daily P&L: $pnlSign${"%.4f".format(totalPnl)} SOL (~$${"%.2f".format(totalPnlUsd)})
+Daily P&L: $pnlSign${"%.4f".format(totalPnl)} SOL (~$${com.lifecyclebot.engine.SolUsd8418.usdTextOrDash(totalPnl, 2)})
 Trades: ${allTrades.size} | W/L/S: $wins/$losses/$scratches
 Win Rate: ${"%.1f".format(winRate)}%
 
@@ -11678,11 +11675,10 @@ HoldTime, Whale, Regime + 15 more
         try {
             val moonshotAI = com.lifecyclebot.v3.scoring.MoonshotTraderAI
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+            val solPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — 0.0 = unknown, never $85
 
             val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
             val pnlSign = if (moonshotAI.getDailyPnlSol() >= 0) "+" else ""
-            val dailyPnlUsd = moonshotAI.getDailyPnlSol() * solPrice
 
             val winRate = moonshotAI.getWinRatePct()
             val learningPct = (moonshotAI.getLearningProgress() * 100).toInt()
@@ -11706,7 +11702,7 @@ AI Learning: $learningPct%
 ANALYTICS DAILY PERFORMANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Daily P&L: $pnlSign${"%.4f".format(moonshotAI.getDailyPnlSol())} SOL (~$${"%.2f".format(dailyPnlUsd)})
+Daily P&L: $pnlSign${"%.4f".format(moonshotAI.getDailyPnlSol())} SOL (~$${com.lifecyclebot.engine.SolUsd8418.usdTextOrDash(moonshotAI.getDailyPnlSol(), 2)})
 W/L: ${moonshotAI.getDailyWins()}/${moonshotAI.getDailyLosses()} | Win Rate: $winRate%
 10X Today's 10x+: ${moonshotAI.getDailyTenX()}
 100X Today's 100x+: ${moonshotAI.getDailyHundredX()}
@@ -11758,7 +11754,7 @@ get PROMOTED here to ride for
         try {
             val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+            val solPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()  // V5.0.8418 — 0.0 = unknown, never $85
 
             // Check if user has acknowledged risk
             if (!perpsAI.hasAcknowledgedRisk()) {
@@ -11771,7 +11767,6 @@ get PROMOTED here to ride for
             val readiness = perpsAI.getLiveReadiness()
 
             val pnlSign = if (state.dailyPnlSol >= 0) "+" else ""
-            val dailyPnlUsd = state.dailyPnlSol * solPrice
 
             val streakEmoji = when {
                 state.currentStreak >= 5 -> "HOTHOTHOT"
@@ -11799,7 +11794,7 @@ Live: ${"%.4f".format(state.liveBalanceSol)} ◎
 ANALYTICS TODAY'S PERFORMANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Day P&L: $pnlSign${"%.4f".format(state.dailyPnlSol)} ◎ (~$${"%.2f".format(dailyPnlUsd)})
+Day P&L: $pnlSign${"%.4f".format(state.dailyPnlSol)} ◎ (~$${com.lifecyclebot.engine.SolUsd8418.usdTextOrDash(state.dailyPnlSol, 2)})
 W/L: ${state.dailyWins}/${state.dailyLosses} | Win Rate: ${perpsAI.getWinRatePct()}%
 Trades: ${state.dailyTrades}
 Streak: ${state.currentStreak} $streakEmoji

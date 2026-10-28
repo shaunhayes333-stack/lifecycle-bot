@@ -63,4 +63,14 @@ object SolUsd8418 {
     }
 
     fun refusalCount(stage: String): Long = refusals["SOL_USD_UNKNOWN_REFUSED_8418_$stage"]?.get() ?: 0L
+
+    /**
+     * Display only: the USD number for [sol] at the live rate, formatted with [decimals]
+     * (no "$"), or "—" when SOL/USD is unknown or stale. Callers render "$" + this.
+     */
+    fun usdTextOrDash(sol: Double, decimals: Int, nowMs: Long = System.currentTimeMillis()): String {
+        val usd = usdNotional(kotlin.math.abs(sol), liveOrNull(nowMs)) ?: return "—"
+        val signed = if (sol < 0.0) -usd else usd
+        return String.format(java.util.Locale.US, "%.${decimals.coerceIn(0, 6)}f", signed)
+    }
 }

@@ -4,10 +4,13 @@ import com.lifecyclebot.engine.ExecutableOpenGate
 import com.lifecyclebot.engine.ScalingMode
 import com.lifecyclebot.engine.SmartSizer
 import com.lifecyclebot.engine.SolUsd8418
+import com.lifecyclebot.engine.UniversalBridgeEngine
 import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.engine.truth.EconomicUnitInvariant7061
 import com.lifecyclebot.engine.truth.PaperSeededPrior6991
 import com.lifecyclebot.engine.truth.SizeTriple8418
+import com.lifecyclebot.engine.truth.SpotScale8418
+import com.lifecyclebot.perps.MarketsLiveExecutor
 import com.lifecyclebot.perps.PerpsDirection
 import com.lifecyclebot.perps.PerpsMarket
 import com.lifecyclebot.perps.PerpsRiskTier
@@ -86,10 +89,11 @@ class Aate8418SizingUnitsTest {
         assertEquals(3L, SizeTriple8418.mismatchCount("TEST_BAD_8418"))
     }
 
-    private fun intent(size: Double, symbol: String) = ExecutableOpenGate.ExecutionIntent(
+    private fun intent(size: Double, symbol: String, spotScale: Double = 1.0) = ExecutableOpenGate.ExecutionIntent(
         attemptId = "a8418", candidateId = "c8418", candidateVersion = 1L, mint = symbol, mode = "PAPER",
         canonicalLane = "PERPS", fdgVerdict = "BUY", fdgAllowed = true, authorityVersion = 1L,
         resolvedSize = size, createdAt = System.currentTimeMillis(), symbol = symbol,
+        spotScaleLeverage8418 = spotScale,
     )
 
     private fun signal(market: PerpsMarket) = PerpsSignal(
@@ -143,5 +147,54 @@ class Aate8418SizingUnitsTest {
         assertEquals(0.25, PaperSeededPrior6991.impactSurvival6992(1.0, 1_000_000.0, 0.0), 0.0)
         // With a real rate, 1 SOL round trip in a $1M pool is noise.
         assertEquals(1.0, PaperSeededPrior6991.impactSurvival6992(1.0, 1_000_000.0, 200.0), 0.0)
+    }
+
+    @Test
+    fun `spot scale factor applies only to leveraged non-crypto trades`() {
+        assertEquals(5.0, SpotScale8418.factor(isCrypto = false, leverage = 5.0), 0.0)
+        assertEquals(1.0, SpotScale8418.factor(isCrypto = true, leverage = 5.0), 0.0)
+        assertEquals(1.0, SpotScale8418.factor(isCrypto = false, leverage = 1.0), 0.0)
+        assertEquals(1.0, SpotScale8418.factor(isCrypto = false, leverage = Double.NaN), 0.0)
+        assertEquals(5.0, SpotScale8418.fromEvidence(mapOf(SpotScale8418.evidence(false, 5.0))), 0.0)
+        assertEquals(1.0, SpotScale8418.fromEvidence(emptyMap()), 0.0)
+        assertEquals(1.0, SpotScale8418.fromEvidence(mapOf(SpotScale8418.EVIDENCE_KEY to "0.2")), 0.0)
+        assertEquals(0.5, intent(0.1, "AAPL", spotScale = 5.0).sealedSpotNotionalSol8418, 1e-12)
+    }
+
+    @Test
+    fun `leveraged tokenized order must match the leveraged notional sealed on its ticket`() {
+        // Ticket sealed the 5x spot multiple: 0.1 margin -> 0.5 SOL submitted and recorded.
+        assertNull(MarketsLiveExecutor.spotScaleRefusal8418(intent(0.1, "AAPL", 5.0), PerpsMarket.AAPL, 0.1, 5.0))
+        // A ticket that sealed only the margin cannot authorise a 5x spot buy.
+        val before = SizeTriple8418.mismatchCount("MARKETS_SPOT_SCALE")
+        assertEquals("SIZE_TRIPLE_MISMATCH_8418_MARKETS_SPOT_SCALE",
+            MarketsLiveExecutor.spotScaleRefusal8418(intent(0.1, "AAPL", 1.0), PerpsMarket.AAPL, 0.1, 5.0))
+        assertEquals(before + 1, SizeTriple8418.mismatchCount("MARKETS_SPOT_SCALE"))
+        // Crypto is never spot-scaled: margin is the order.
+        assertNull(MarketsLiveExecutor.spotScaleRefusal8418(intent(0.2, "BTC", 1.0), PerpsMarket.BTC, 0.2, 3.0))
+    }
+
+    @Test
+    fun `wrapped majors are priced only from fresh observations, never fixed guesses`() {
+        val now = 1_000_000_000L
+        assertEquals(PerpsMarket.BTC, UniversalBridgeEngine.wrappedMarket8418(UniversalBridgeEngine.WBTC_MINT))
+        assertEquals(PerpsMarket.ETH, UniversalBridgeEngine.wrappedMarket8418(UniversalBridgeEngine.WETH_MINT))
+        assertEquals(PerpsMarket.BNB, UniversalBridgeEngine.wrappedMarket8418(UniversalBridgeEngine.WBNB_MINT))
+        assertNull(UniversalBridgeEngine.wrappedMarket8418(UniversalBridgeEngine.USDC_MINT))
+        assertEquals(64_000.0, UniversalBridgeEngine.freshPriceOrNull8418(64_000.0, now - 60_000L, now)!!, 0.0)
+        assertNull(UniversalBridgeEngine.freshPriceOrNull8418(64_000.0, now - 6 * 60_000L, now))
+        assertNull(UniversalBridgeEngine.freshPriceOrNull8418(0.0, now, now))
+        assertNull(UniversalBridgeEngine.freshPriceOrNull8418(Double.NaN, now, now))
+        // No fresh observation in the market-data cache: unknown, so not a funding source.
+        assertNull(UniversalBridgeEngine.wrappedLivePriceUsd8418(UniversalBridgeEngine.WBTC_MINT, Long.MAX_VALUE / 2))
+    }
+
+    @Test
+    fun `usd display text is a dash when SOL-USD is unknown`() {
+        withSolUsd(0.0) { assertEquals("—", SolUsd8418.usdTextOrDash(1.0, 2)) }
+        withSolUsd(200.0) {
+            assertEquals("100.00", SolUsd8418.usdTextOrDash(0.5, 2))
+            assertEquals("-100.00", SolUsd8418.usdTextOrDash(-0.5, 2))
+        }
     }
 }

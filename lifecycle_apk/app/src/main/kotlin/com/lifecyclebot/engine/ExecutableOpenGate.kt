@@ -152,7 +152,11 @@ object ExecutableOpenGate {
         val cortexLearningLane8372: String = "",
         /** Original decision lookup key, distinct from the eventual confirmed venue position identity. */
         val cortexLearningIdentity8372: String = "",
+        /** V5.0.8418 — the SPOT multiple sealed with this ticket (leveraged tokenized trades); 1 = none. */
+        val spotScaleLeverage8418: Double = 1.0,
     ) {
+        /** V5.0.8418 — the SOL notional the executor may submit and record for this ticket. */
+        val sealedSpotNotionalSol8418: Double get() = resolvedSize * spotScaleLeverage8418
         val lane: String get() = canonicalLane
         val signal: String get() = authoritativeSignal
         val resolvedSizeSol: Double get() = resolvedSize

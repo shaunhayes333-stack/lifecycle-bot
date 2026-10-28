@@ -1336,6 +1336,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     "walletSol" to balance.toString(),
                     "laneRiskCapSol" to (balance * 0.30).toString(),
                     "laneMinExecutableSol" to "0.001",
+                    com.lifecyclebot.engine.truth.SpotScale8418.evidence(signal.market.isCrypto, leverage),
                 ),
                 requestedSizeSol = hiveSizeSol,
                 price = signal.price,

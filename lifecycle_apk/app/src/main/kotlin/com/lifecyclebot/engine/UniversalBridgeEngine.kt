@@ -783,12 +783,9 @@ object UniversalBridgeEngine {
             SOL_MINT    -> 0.0  // V5.0.8418 — handled above at the live rate only
             USDC_MINT,
             USDT_MINT   -> amount
-            WBTC_MINT   -> amount * 85_000.0   // rough estimate
-            WETH_MINT   -> amount * 3_000.0
-            WBNB_MINT   -> amount * 600.0
-            WAVAX_MINT  -> amount * 35.0
-            WMATIC_MINT -> amount * 0.8
-            else        -> 0.0  // unknown token
+            // V5.0.8418 — wrapped majors at their live observed price only (were fixed
+            // $85k / $3k / $600 / $35 / $0.8 guesses). Unknown = 0 value: not a funding source.
+            else        -> amount * (wrappedLivePriceUsd8418(mint) ?: 0.0)
         }
     }
 
@@ -797,11 +794,38 @@ object UniversalBridgeEngine {
             SOL_MINT    -> SolUsd8418.liveOrNull() ?: 0.0  // V5.0.8418 — never a constant
             USDC_MINT,
             USDT_MINT   -> 1.0
-            WBTC_MINT   -> 85_000.0
-            WETH_MINT   -> 3_000.0
-            WBNB_MINT   -> 600.0
-            else        -> 0.0
+            // V5.0.8418 — 0.0 = unknown → prepareCapital/bridgeToUsdc refuse "Cannot price".
+            else        -> wrappedLivePriceUsd8418(mint) ?: 0.0
         }
+    }
+
+    /** V5.0.8418 — the wrapped-major mint → its perps market symbol, or null for any other mint. */
+    internal fun wrappedMarket8418(mint: String): com.lifecyclebot.perps.PerpsMarket? = when (mint) {
+        WBTC_MINT   -> com.lifecyclebot.perps.PerpsMarket.BTC
+        WETH_MINT   -> com.lifecyclebot.perps.PerpsMarket.ETH
+        WBNB_MINT   -> com.lifecyclebot.perps.PerpsMarket.BNB
+        WAVAX_MINT  -> com.lifecyclebot.perps.PerpsMarket.AVAX
+        WMATIC_MINT -> com.lifecyclebot.perps.PerpsMarket.MATIC
+        else        -> null
+    }
+
+    /** V5.0.8418 — a price is usable only when positive and observed within [WRAPPED_PRICE_MAX_AGE_MS_8418]. */
+    internal fun freshPriceOrNull8418(price: Double, observedAtMs: Long, nowMs: Long): Double? =
+        if (price.isFinite() && price > 0.0 && nowMs - observedAtMs in 0L..WRAPPED_PRICE_MAX_AGE_MS_8418) price else null
+
+    private const val WRAPPED_PRICE_MAX_AGE_MS_8418 = 5L * 60L * 1000L
+
+    /**
+     * V5.0.8418 — the live USD price of a wrapped major from the existing market-data cache
+     * (PerpsMarketDataFetcher: Pyth / PriceAggregator). Null when unknown or stale; never guessed.
+     */
+    internal fun wrappedLivePriceUsd8418(mint: String, nowMs: Long = System.currentTimeMillis()): Double? {
+        val market = wrappedMarket8418(mint) ?: return null
+        val data = try { com.lifecyclebot.perps.PerpsMarketDataFetcher.getCachedPrice(market) } catch (_: Throwable) { null }
+            ?: return null
+        val p = freshPriceOrNull8418(data.price, data.lastUpdate, nowMs)
+        if (p == null) try { PipelineHealthCollector.labelInc("BRIDGE_WRAPPED_PRICE_UNKNOWN_8418_${market.symbol}") } catch (_: Throwable) {}
+        return p
     }
 
     fun mintLabel(mint: String): String = when (mint) {
