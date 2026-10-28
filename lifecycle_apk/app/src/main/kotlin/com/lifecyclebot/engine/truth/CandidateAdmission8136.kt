@@ -157,6 +157,13 @@ object CandidateAdmission8136 {
          */
         val laneRealised8325: DoubleArray? = null,
         val laneLabel8325: Evidence8136? = null,
+        /**
+         * V5.0.8418 — why the SELECTED setup's expected move is NaN (NetEdge8030.moveWait8418): [NetEdge8030.MOVE_WAIT_HISTORY_8418]
+         * (a sparse history: the data step waits for "move:HISTORY_SPARSE", which a candle / hour arrival answers) or
+         * [NetEdge8030.MOVE_WAIT_FALLING_8418] (a momentum lane's falling hour with no supported strategy: an observation, not
+         * missing data — refused as [FALLING_HOUR_UNPROVEN_8418], never deferred forever). Null = a number, or no reason known.
+         */
+        val moveWait8418: String? = null,
     ) {
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
         val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
@@ -193,6 +200,9 @@ object CandidateAdmission8136 {
         val compact: String get() = "${terminal.name}:$reason${chosenSetup?.let { " setup=$it" } ?: ""} [${trace.joinToString("; ")}]"
     }
 
+    /** V5.0.8418 — a momentum lane's falling hour with no supported strategy (see [Candidate8136.moveWait8418]). */
+    const val FALLING_HOUR_UNPROVEN_8418 = "FALLING_HOUR_UNPROVEN_8418"
+
     internal const val SUPPORT_MIN_N_8136 = 30
     internal const val LOSING_MIN_N_8136 = 12
     internal const val PROVEN_LOSING_MIN_N_8136 = 30
@@ -210,6 +220,8 @@ object CandidateAdmission8136 {
         "TOKEN_MAP", "MINT", "IDENTITY", "DECIMALS", "SUPPLY", "DEPTH", "QUOTE",
         // V5.0.8283 — wallet balance, sellability and economic cost by their other names: binding at every lifecycle stage.
         "WALLET", "BALANCE", "WALLET_BALANCE", "SELLABLE", "COST", "EXECUTABLE_PRICE",
+        // V5.0.8418 — an unknown expected move ("move:HISTORY_SPARSE", the named form of "economics") is economics: binding.
+        "MOVE",
     )
     fun criticalMissing8170(missing: String): Boolean =
         missing.substringBefore(':').trim().uppercase() in CRITICAL_MISSING_8170
@@ -551,6 +563,15 @@ object CandidateAdmission8136 {
             trace += "grossFromProvenNetLower8171=${fmt8136(edge.lowerPct)} cost=${fmt8136(c.costPct)}"
         }
 
+        // V5.0.8418 — the selected setup's move is NaN because its momentum lane's hour is FALLING and nothing supports a
+        //    bounce: that is the coin's own observation, refused here by name. 8416: MOONSHOT DATA_INCOMPLETE_DEFER 6,682 — a
+        //    falling hour sat in "missing=economics", which no fetch answers, until the window reset and it deferred again.
+        val moveWaitChosen8418 = if (chosen == c.selectedSetup) c.moveWait8418 else null
+        if (!decisionGross.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418) {
+            trace += "fallingHour8418 setup=${chosen ?: "-"} noSupportedStrategy cost=${fmt8136(c.costPct)}"
+            return done(Terminal8136.REFUSE, FALLING_HOUR_UNPROVEN_8418, true, chosen)
+        }
+
         // 4. execution economics: the expected executable move must clear NetEdge8030.EDGE_MULT x the round trip.
         val econKnown = decisionGross.isFinite() && c.costPct.isFinite()
         if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct, c.costMargin8391)) {
@@ -574,7 +595,11 @@ object CandidateAdmission8136 {
         val nativeLive8259 = edge == null && optionalNativeContextClears8213(c, decisionGross)
         if (stale || !econKnown || criticalMissing8170.isNotEmpty() ||
             (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213 && !nativeLive8259)) {
-            val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + (if (!econKnown) listOf("economics") else emptyList())
+            // V5.0.8418 — an unknown move names what it waits for (candles / the hour), so its fetch and its arrival match.
+            val econMissing8418 = if (econKnown) emptyList()
+                else if (c.costPct.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_HISTORY_8418) listOf(StrategyMove8153.DEFER_FEATURE_8153)
+                else listOf("economics")
+            val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + econMissing8418
             trace += "missing=${missing.joinToString(",")}"
             if (criticalMissing8170.isNotEmpty()) trace += "criticalUnobserved8170=${criticalMissing8170.joinToString(",")}"
             return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, chosen)
@@ -1000,6 +1025,29 @@ object CandidateAdmission8136 {
         return first.isNotEmpty() && missingNow.map { it.trim() }.containsAll(first)
     }
 
+    // ── V5.0.8418 §A_DEFER_ENDS — 8416: DATA_INCOMPLETE_DEFER 6,682 (MOONSHOT) + FETCH_NEVER_COMPLETED 2,127. 8229 kept every
+    //    spent window a DEFER, so the receiver task, its rescue slot and the FDG re-ran the same pending coin until the 30-minute
+    //    reset opened a new window — the wait never ended. A spent window now ends the wait under a named terminal (a REFUSE
+    //    receipt, FdgReceipt8397): [DATA_NEVER_ARRIVED_8418] when the requested fetch never answered any first-missing input,
+    //    [DATA_WAIT_SPENT_8418] when some arrived but the record is still incomplete. The assessment stays DEFER (no verdict on
+    //    the coin, nothing filled in); arrival inside the window still resumes it (evidenceArrived8252); the reset re-opens it.
+    const val DATA_NEVER_ARRIVED_8418 = "DATA_NEVER_ARRIVED_8418"
+    const val DATA_WAIT_SPENT_8418 = "DATA_WAIT_SPENT_8418"
+    private val deferTerminals8418 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** Pure-ish: the named terminal of a spent data wait, or null while the window is open (counted per reason + first input). */
+    fun deferTerminal8418(budgetOpen: Boolean, unanswered: Boolean, missing: List<String>): String? {
+        if (budgetOpen) return null
+        val r = if (unanswered) DATA_NEVER_ARRIVED_8418 else DATA_WAIT_SPENT_8418
+        val f = missing.firstOrNull()?.substringBefore(':')?.trim()?.uppercase()?.take(16).orEmpty().ifBlank { "CORE" }
+        if (deferTerminals8418.size < 64 || deferTerminals8418.containsKey("$r|$f")) deferTerminals8418.computeIfAbsent("$r|$f") { AtomicLong() }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("${r}_$f") } catch (_: Throwable) {}
+        return r
+    }
+
+    private fun deferTerminalLine8418(): String =
+        "deferTerminal8418{" + deferTerminals8418.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" } + "}"
+
     fun deferBudgetFor8144(mint: String, missing: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (mint.isNotBlank()) {
             val prev = defers8136[mint]
@@ -1059,7 +1107,7 @@ object CandidateAdmission8136 {
         }
         val top = counts8136.entries.sortedByDescending { it.value.get() }.take(12)
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
-        return "admission8136[$byTerminal reasons{$top}] coalescedReevals8144=${coalesced8144.get()} arrivalReevals8252=${arrivalReevals8252.get()}"
+        return "admission8136[$byTerminal reasons{$top}] coalescedReevals8144=${coalesced8144.get()} arrivalReevals8252=${arrivalReevals8252.get()} ${deferTerminalLine8418()}"
     }
 
     // ── live adapter: the record from the bot's own stores (read-only peeks; no fetch, no synthetic data) ──
@@ -1134,6 +1182,13 @@ object CandidateAdmission8136 {
             memos8153[key] = Memo8153(nowMs, identity, it)
         }
     } catch (_: Throwable) { null }
+
+    /**
+     * Pure (V5.0.8418): the number NetEdge8030.expectedGrossFor8153 gives for [m] — NaN while it waits (a sparse or falling
+     * move that would not clear [margin] x [costPct] at the candidate's own quoted size), else its expected gross.
+     */
+    internal fun grossOf8418(m: StrategyMove8153.Move8153?, costPct: Double, margin: Double): Double =
+        if (m == null || StrategyMove8153.needsDefer8153(m, costPct, margin)) Double.NaN else m.expectedGrossPct
 
     /** V5.0.8325 — the lane's own graded label pond (executable-net, Cortex7885.lanePond8325) as an admission record; null without one. */
     private fun laneLabel8325(lane: String): Evidence8136? = try {
@@ -1243,6 +1298,9 @@ object CandidateAdmission8136 {
         } catch (_: Throwable) { null }
         val costRec8209 = try { NetEdge8030.entryCost8209(ts, lane, proposedSizeSol) } catch (_: Throwable) { null }
         val cost8153 = costRec8209?.costPct ?: Double.NaN
+        // V5.0.8418 — the selected setup's move read once: its number, and why it has none (moveWait8418).
+        val move8418 = try { NetEdge8030.expectedMove8418(ts, lane, selected, cost8153) } catch (_: Throwable) { null }
+        val margin8418 = NetEdge8030.margin8391(lane, costRec8209?.sizeSol ?: Double.NaN, cost8153)
         val curveActive8153 = try { CurveReserves7951.realSolIfActive8046(ts.mint, nowMs) != null } catch (_: Throwable) { false }
         // V5.0.8170: a live DexScreener pair or sweep already priced the actual
         // liquidity, but the token-local scalar hadn't received the ordinary poll.
@@ -1281,9 +1339,10 @@ object CandidateAdmission8136 {
                 (if (liquidityMissing8153) listOf("liquidity:UNKNOWN") else emptyList()),
             historyUnavailable8283 = lifecycle8283?.unavailable.orEmpty(),
             // V5.0.8153 — the selected strategy's expected executable move (NetEdge8030.executableMove8153), as the gate judges it.
-            expectedGrossPct = try { NetEdge8030.expectedGrossFor8153(ts, lane, selected, cost8153) } catch (_: Throwable) { Double.NaN },
+            expectedGrossPct = grossOf8418(move8418, cost8153, margin8418),
+            moveWait8418 = NetEdge8030.moveWait8418(move8418, cost8153, margin8418),
             costPct = cost8153,
-            costMargin8391 = NetEdge8030.margin8391(lane, costRec8209?.sizeSol ?: Double.NaN, cost8153),
+            costMargin8391 = margin8418,
             costSizeSol = costRec8209?.sizeSol ?: Double.NaN,
             costBreakdown = costRec8209?.breakdown.orEmpty(),
             downsidePct = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(lane) } catch (_: Throwable) { Double.NaN },

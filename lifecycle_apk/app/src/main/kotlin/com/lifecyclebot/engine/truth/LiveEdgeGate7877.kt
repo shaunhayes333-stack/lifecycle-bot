@@ -596,9 +596,11 @@ object LiveEdgeGate7877 {
                     // refusals of coins nothing had judged.
                     val terminal = Verdict8083.DEFER
                     if (!budgetOpen8204) try { PipelineHealthCollector.labelInc("DATA_DEFER_EXHAUSTED_KEPT_DEFER_8229") } catch (_: Throwable) {}
-                    recordAssessment8083(ts, l8059, d.chosenSetup, terminal, reason, 1.0, nowMs)
-                    observeTail7996(ts, lane, reason, nowMs)
-                    return reason
+                    // V5.0.8418 — a spent window ENDS the wait under a named terminal (the assessment stays DEFER: no verdict on the coin).
+                    val reason8418 = CandidateAdmission8136.deferTerminal8418(budgetOpen8204, unanswered8204, missing) ?: reason
+                    recordAssessment8083(ts, l8059, d.chosenSetup, terminal, reason8418, 1.0, nowMs)
+                    observeTail7996(ts, lane, reason8418, nowMs)
+                    return reason8418
                 }
                 CandidateAdmission8136.Terminal8136.REFUSE -> {
                     val d = admission8136
