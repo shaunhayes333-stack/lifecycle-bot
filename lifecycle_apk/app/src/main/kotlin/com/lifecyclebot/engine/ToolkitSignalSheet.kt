@@ -989,6 +989,12 @@ object ToolkitSignalSheet {
             recordDeskStage(h.lane, "POOL", causalId6647)
             if (cryptoDesk7803 || h.lane.uppercase() in nativeReady7803) recordDeskStage(h.lane, "QUALIFIED", causalId6647)
         }
+        // V5.0.8418 — a lane whose own hunter selected the coin observed it (POOL) even with no desk hypothesis: PROJECT_SNIPER read
+        // discovered=0 while its hunter emitted hundreds, because a hunted coin carries no toolkit hypothesis and a native refusal removes one.
+        if (!cryptoDesk7803) try {
+            LaneDispatch8418.hunterPoolLanes8418(residentHunterLanes7803, deskHypotheses.keys,
+                SniperScope8190.directSniperSource8212(ts.source)).forEach { recordDeskStage(it, "POOL", causalId6647) }
+        } catch (_: Throwable) {}
         // V5.0.6609 §RESTORE_SPECIALIST_LIVENESS (operator directive Feb 2026:
         //   "Every enabled specialist: taskAlive=true, poolAlive=true,
         //   discoveryAlive=true. No specialist remains DEAD merely because
