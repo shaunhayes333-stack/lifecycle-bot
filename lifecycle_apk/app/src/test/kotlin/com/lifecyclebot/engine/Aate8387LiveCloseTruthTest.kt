@@ -26,8 +26,11 @@ class Aate8387LiveCloseTruthTest {
     @Test fun theWalletSweepDoesNotAdoptABotBuyWhoseVerifierIsStillRunning() {
         val r = src("engine/LiveCanonicalRecovery6686.kt")
         val sweep = r.substringAfter("val covered7807 =").substringBefore("if (n7807 > 0)")
-        assertTrue(sweep.contains("CanonicalPositionAuthority6441.pendingEntryLiveMints8387()"))
-        assertTrue(sweep.indexOf("if (mint in pendingEntry8387)") in 0 until sweep.indexOf("ensureProtectiveLiveOwnership7807("))
+        // superseded by V5.0.8418 — the pending bot buy is no longer skipped (was `pendingEntryLiveMints8387()` + `if (mint in
+        // pendingEntry8387) ... continue`): it gets its protective owner at once on its own row (Aate8418ExitsDataRoutesTest).
+        assertTrue(sweep.contains("CanonicalPositionAuthority6441.pendingEntryLivePositions8418()"))
+        assertTrue(sweep.contains("positionIdHint = pendingId8418.orEmpty(),"))
+        assertFalse(sweep.contains("if (mint in pendingEntry8387)"))
         val c = src("engine/truth/CanonicalPositionAuthority6441.kt")
         assertTrue(c.contains("it.lifecycle == Lifecycle.PENDING_ENTRY && it.mode.equals(\"live\", true) && nowMs - it.lastMutationMs <= maxAgeMs"))
     }

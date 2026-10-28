@@ -193,4 +193,81 @@ class Aate8418ExitsDataRoutesTest {
             assertFalse(r, c.sellProtective8378(r, urgent = false, previousSellUnlanded = false))
         }
     }
+
+    // ── 7. curve reserves: an ACCOUNT read wins a same-ms tie against a frame ──
+
+    @Test fun anAccountReadWinsATieAgainstAFrame() {
+        val c = com.lifecyclebot.engine.truth.CurveReserves7951
+        assertTrue(c.accepts8418(1_001L, 1_000L, newAccount = false, storedAccount = true))
+        assertTrue("ACCOUNT over FRAME at the same ms", c.accepts8418(1_000L, 1_000L, newAccount = true, storedAccount = false))
+        assertFalse("FRAME never replaces at the same ms", c.accepts8418(1_000L, 1_000L, newAccount = false, storedAccount = false))
+        assertFalse(c.accepts8418(1_000L, 1_000L, newAccount = false, storedAccount = true))
+        assertFalse(c.accepts8418(1_000L, 1_000L, newAccount = true, storedAccount = true))
+        assertFalse(c.accepts8418(999L, 1_000L, newAccount = true, storedAccount = false))
+        c.resetForTest7951()
+        val m = "Tie8418Mint11111111111111111111111111111pump"
+        c.noteFrame7951(m, 34.0, 9.4e8, 5_000L)
+        assertEquals("FRAME", c.acceptedObservation8385(m)!!.source)
+        c.noteAccount7951(m, 34.0, 9.4e8, 4.0, 5_000L)
+        assertEquals("ACCOUNT", c.acceptedObservation8385(m)!!.source)
+        c.noteFrame7951(m, 35.0, 9.3e8, 5_000L)
+        assertEquals("a later frame at the same ms does not erase the account read", "ACCOUNT", c.acceptedObservation8385(m)!!.source)
+    }
+
+    // ── 8. reconciliation: a colliding pass is coalesced into one follow-up, never dropped ──
+
+    @Test fun aCollidingReconciliationIsCoalescedIntoOneFollowUp() {
+        val pub = com.lifecyclebot.engine.truth.ReconciliationPublication8372()
+        val lease = pub.claim("k1")!!
+        assertNull("second caller loses the lease", pub.claim("k2"))
+        assertTrue(pub.isBusy())
+        pub.notePending8418()
+        pub.notePending8418()
+        assertTrue(pub.finish(lease, "k1", coherent = true))
+        assertFalse(pub.isBusy())
+        assertTrue("one follow-up is owed", pub.takePending8418())
+        assertFalse("exactly one", pub.takePending8418())
+        val next = pub.claim("k2")
+        assertNotNull("the follow-up can claim the newer key", next)
+    }
+
+    // ── 9. a pending bot buy gets a protective owner at once, on its own row ──
+
+    @Test fun aPendingBotBuyGetsItsProtectiveOwnerImmediately() {
+        val cpa = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+        val m = "PEND8418Mint${System.nanoTime()}"
+        val pid = "LIVE:$m:p8418"
+        assertEquals(cpa.MutateResult.APPLIED, cpa.openPosition(
+            idempotencyKey = "OPEN8418:$pid", positionId = pid, mint = m, symbol = "P", lane = "SHITCOIN", runId = "r8418",
+            entryCostSol = 0.03, openedQtyRaw = java.math.BigInteger.ZERO, tokenDecimals = 6, feesSol = 0.0,
+            paperMode = false, modeOverride = "live", entryPriceUsd = 0.001, entryPriceSource = "TEST_8418"))
+        assertEquals(pid, cpa.pendingEntryLivePositions8418()[m])
+        assertFalse(m in cpa.protectiveInventoryMints7807("live"))
+        val n = LiveCanonicalRecovery6686.protectUnadoptedBotHoldings7807(
+            mapOf(m to com.lifecyclebot.engine.truth.CanonicalTokenAmount(java.math.BigInteger.valueOf(9_000_000L), 6)))
+        assertEquals(1, n)
+        assertTrue("protected immediately", m in cpa.protectiveInventoryMints7807("live"))
+        val row = cpa.getPosition(pid)!!
+        assertEquals("on the buy's own row", cpa.Lifecycle.QUARANTINED, row.lifecycle)
+        assertTrue(row.quarantineReason.startsWith("BASIS_UNCERTAIN_7807"))
+        assertEquals("keeps its own buy cost", 0.03, row.entryCostSol, 1e-12)
+        // the verified fill still promotes it
+        assertEquals(cpa.MutateResult.APPLIED, cpa.promotePendingToOpen(positionId = pid, actualQtyRaw = java.math.BigInteger.valueOf(9_000_000L),
+            actualEntryCostSol = 0.03, actualFeesSol = 0.0, tokenDecimals = 6, paperMode = false,
+            actualEntryPriceUsd = 0.001, actualEntryPriceSource = "TX_8418"))
+        assertEquals(cpa.Lifecycle.OPEN, cpa.getPosition(pid)!!.lifecycle)
+    }
+
+    // ── 10. an erroring shadow position closes after N consecutive failures ──
+
+    @Test fun aShadowPositionThatAlwaysThrowsClosesAsAnError() {
+        val e = com.lifecyclebot.engine.truth.EvidenceShadow8344
+        val k = "ERR8418|${System.nanoTime()}"
+        for (i in 1 until e.MAX_TICK_FAILURES_8418) assertFalse("failure $i", e.noteTickFailure8418(k))
+        assertTrue("closes at ${e.MAX_TICK_FAILURES_8418}", e.noteTickFailure8418(k))
+        val k2 = "ERR8418b|${System.nanoTime()}"
+        assertFalse(e.noteTickFailure8418(k2)); assertFalse(e.noteTickFailure8418(k2))
+        e.noteTickOk8418(k2)
+        assertFalse("a good tick restarts the streak", e.noteTickFailure8418(k2))
+    }
 }

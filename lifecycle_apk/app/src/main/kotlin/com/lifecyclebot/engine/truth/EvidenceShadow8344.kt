@@ -334,11 +334,29 @@ object EvidenceShadow8344 {
     // ── tick ──
 
     /** BotService shadow tick (every loop): mark, ladder, floor, stop, timeout. */
+    // ── V5.0.8418 — bounded tick retries ──
+    internal const val MAX_TICK_FAILURES_8418 = 3
+    private val tickFailures8418 = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val tickErrorClosed8418 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** One more consecutive tick failure for [key]; true when the position must now close as an error. */
+    internal fun noteTickFailure8418(key: String): Boolean {
+        val n = tickFailures8418.merge(key, 1) { a, b -> a + b } ?: 1
+        if (tickFailures8418.size > 4_096) tickFailures8418.clear()
+        return n >= MAX_TICK_FAILURES_8418
+    }
+
+    /** A tick that did not throw for [key]: its failure streak restarts. */
+    internal fun noteTickOk8418(key: String) { tickFailures8418.remove(key) }
+
+    private fun tickErrorLine8418(): String = "evidenceShadowTickErrorClosed8418=${tickErrorClosed8418.get()} retrying=${tickFailures8418.size}"
+
     @Synchronized fun tick8344(tokens: Map<String, TokenState>, nowMs: Long = System.currentTimeMillis()) {
         if (open.isEmpty()) return
         val done = ArrayList<String>()
         for ((key, p) in open) {
             val mint = p.mint
+            var threw8418 = false
             try {
                 val ts = tokens[mint]
                 wantMark8418(mint, nowMs)   // V5.0.8418 — keep the data side pricing every open evidence position
@@ -361,10 +379,22 @@ object EvidenceShadow8344 {
                 done += key
             } catch (_: ShadowStorageUnavailable8397) { p.dirty8355 = true }
             catch (_: Throwable) {
+                threw8418 = true
                 p.dirty8355 = true
                 try { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_TICK_RETRY_8417") } catch (_: Throwable) {}
+                // V5.0.8418 (review 76565f9ca) — a position that throws on every tick is closed as an ERROR after
+                // [MAX_TICK_FAILURES_8418] consecutive failures: it frees its MAX_OPEN_8344 slot and books NO outcome (an
+                // erroring position is not evidence; nothing is invented for it).
+                if (noteTickFailure8418(key)) {
+                    done += key
+                    tickErrorClosed8418.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_TICK_ERROR_CLOSED_8418") } catch (_: Throwable) {}
+                }
+            } finally {
+                if (!threw8418) noteTickOk8418(key)   // V5.0.8418 — only CONSECUTIVE failures close a position
             }
         }
+        done.forEach { tickFailures8418.remove(it) }
         done.forEach { key -> open.remove(key)?.let { forgetOpen8355(it.storageKey) } }   // V5.0.8355 — a closed (or dropped) position leaves the open prefs
     }
 
@@ -523,7 +553,7 @@ object EvidenceShadow8344 {
         val openByLane = open.values.groupingBy { it.lane }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
         val (held, skipped, bySource) = gapCounts8345()  // V5.0.8345
         return "evidenceShadow8344[open=${open.size}/$MAX_OPEN_8344 ($openByLane) opened=${opened.get()} closed=${closedN.get()} full=${skippedFull.get()} " +
-            "restored8355=${restored8355.get()} lostOnRestore8355=${lostOnRestore8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} markWants8418=${wantCallsN8418.get()} " +
+            "restored8355=${restored8355.get()} lostOnRestore8355=${lostOnRestore8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} markWants8418=${wantCallsN8418.get()} ${tickErrorLine8418()} " +
             "exits=lane stop+spike tiers+give-back floor+timeout cost=NetEdge8030 @${TICKET_SOL_8344}SOL | $lanes" +
             " holdRefused{${countLine8345(held)}} openedBy{${countLine8345(bySource)}} skipped{${countLine8345(skipped)}}" +
             " entryMark8360{${countLine8345(markSrc8360.mapValues { it.value.get() })}}" + recoveryLine8345(sinceMs, nowMs) + "]"

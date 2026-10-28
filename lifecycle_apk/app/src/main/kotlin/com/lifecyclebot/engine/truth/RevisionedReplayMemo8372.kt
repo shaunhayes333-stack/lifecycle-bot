@@ -68,6 +68,11 @@ internal class ReconciliationPublication8372(
         }
     }
 
+    // V5.0.8418 — a pass that collided with this one; the owner (or the collider, once the owner is gone) runs one follow-up.
+    private val pending8418 = AtomicBoolean(false)
+    fun notePending8418() { pending8418.set(true) }
+    fun takePending8418(): Boolean = pending8418.getAndSet(false)
+
     fun completedKey(): String? = completed.get()
     fun isBusy(): Boolean = active.get() != null
     fun clear() { completed.set(null) }

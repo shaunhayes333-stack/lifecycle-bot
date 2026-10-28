@@ -365,7 +365,7 @@ object LiveCanonicalRecovery6686 {
     internal fun protectUnadoptedBotHoldings7807(subset: Map<String, CanonicalTokenAmount>): Int {
         if (subset.isEmpty()) return 0
         val covered7807 = try { CanonicalPositionAuthority6441.protectiveInventoryMints7807("live") } catch (_: Throwable) { emptySet<String>() }
-        val pendingEntry8387 = try { CanonicalPositionAuthority6441.pendingEntryLiveMints8387() } catch (_: Throwable) { emptySet<String>() }
+        val pendingEntry8418 = try { CanonicalPositionAuthority6441.pendingEntryLivePositions8418() } catch (_: Throwable) { emptyMap<String, String>() }
         var n7807 = 0
         for ((mint, amount) in subset) {
             // V5.0.7868 — a covered mint can still be under-covered (wallet > canonical
@@ -377,26 +377,29 @@ object LiveCanonicalRecovery6686 {
             if (mint.isBlank() || mint in covered7807 || amount.raw <= BigInteger.ONE) continue
             if (com.lifecyclebot.engine.truth.QuoteAssetBasis8418.kind8418(mint) !=
                 com.lifecyclebot.engine.truth.QuoteAssetBasis8418.Kind8418.NONE) continue   // V5.0.8418 — a quote asset is never a bot holding
-            // V5.0.8387 — the bot's own buy whose verifier has not promoted yet: the verified fill is seconds away and is
-            // the basis proof; adopting it here as BASIS_UNPROVEN only re-labels a known buy.
-            if (mint in pendingEntry8387) { try { PipelineHealthCollector.labelInc("BOT_HOLDING_PENDING_VERIFY_SKIPPED_8387") } catch (_: Throwable) {}; continue }
+            // superseded by V5.0.8418 (review 55e527e6d) — the 8387 skip left a held token with no protective owner for up to
+            // 10 min while its buy sat unverified (a hung verifier = unowned stops / rug exits). The bot's own pending buy now
+            // gets its protective owner at once, on ITS OWN row (BASIS_UNCERTAIN, promotable by the verified fill, which keeps
+            // the row's own buy cost); nothing is relabelled as a wallet remnant.
+            val pendingId8418 = pendingEntry8418[mint]
+            if (pendingId8418 != null) try { PipelineHealthCollector.labelInc("BOT_HOLDING_PENDING_VERIFY_PROTECTED_8418") } catch (_: Throwable) {}
             // V5.0.8053 — a holding the bot's own journal bought is never left unmanaged: the dust stamp does not
             // exempt it from protective ownership (5.0.8051 Normie: coverage VIOLATION, 14 heal kicks, adopted 0).
             if (isDustUnroutable7714(mint) && !botJournalBought8053(mint)) continue
             val row7807 = try { HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
             val r7807 = try {
                 CanonicalPositionAuthority6441.ensureProtectiveLiveOwnership7807(
-                    positionIdHint = "",
+                    positionIdHint = pendingId8418.orEmpty(),
                     mint = mint,
                     symbol = row7807?.symbol.orEmpty(),
                     lane = row7807?.entryLane7708.orEmpty().ifBlank { "WALLET_RECOVERED" },
                     actualQtyRaw = amount.raw,
                     tokenDecimals = amount.decimals,
-                    // V5.0.7988 — a leftover is charged its share of the buy, not the whole buy.
-                    entryCostSol = remnantBasisSol7988(row7807?.entrySol ?: 0.0, mint, amount),
+                    // V5.0.7988 — a leftover is charged its share of the buy, not the whole buy (a pending bot buy keeps its own).
+                    entryCostSol = if (pendingId8418 != null) 0.0 else remnantBasisSol7988(row7807?.entrySol ?: 0.0, mint, amount),
                     entryPriceUsd = row7807?.entryPriceUsd ?: 0.0,
                     signature = row7807?.buySignature.orEmpty(),
-                    reason = "BOT_HOLDING_BASIS_UNPROVEN_7718",
+                    reason = if (pendingId8418 != null) "BOT_BUY_PENDING_VERIFY_8418" else "BOT_HOLDING_BASIS_UNPROVEN_7718",
                 )
             } catch (_: Throwable) { CanonicalPositionAuthority6441.ProtectiveOwnership7807.REFUSED }
             if (r7807 == CanonicalPositionAuthority6441.ProtectiveOwnership7807.CREATED ||

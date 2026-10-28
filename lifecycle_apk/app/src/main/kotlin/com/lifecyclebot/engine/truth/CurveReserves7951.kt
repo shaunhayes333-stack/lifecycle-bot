@@ -136,13 +136,21 @@ object CurveReserves7951 {
         val r = rows[mint] ?: return null
         return synchronized(r) { AcceptedObservation8385(r.atMs, if (r.accountObserved) "ACCOUNT" else "FRAME", r.version8385) }
     }
+    /**
+     * Pure (V5.0.8418, review d1cd74f2c): does an observation at [newAtMs] replace the stored one at [storedAtMs]? A newer one
+     * does; an equal timestamp does only when an ACCOUNT read meets a stored FRAME (a websocket frame and the account read
+     * stamped in the same ms left accountObserved=false, so an accountRequired reserve wait could not resume).
+     */
+    fun accepts8418(newAtMs: Long, storedAtMs: Long, newAccount: Boolean, storedAccount: Boolean): Boolean =
+        newAtMs > storedAtMs || (newAtMs == storedAtMs && newAccount && !storedAccount)
+
     private fun put(mint: String, vSol: Double, vTok: Double, real: Double, atMs: Long, accountObserved: Boolean): AcceptedObservation8385? {
         val m = mint.trim()
         if (m.isBlank() || atMs <= 0L) return null
         if (rows.size >= MAX_MINTS && !rows.containsKey(m)) trim(atMs)
         val r = rows.computeIfAbsent(m) { Row(vSol, vTok, real, 0L, accountObserved) }
         val accepted = synchronized(r) {
-            if (atMs <= r.atMs) return null
+            if (!accepts8418(atMs, r.atMs, accountObserved, r.accountObserved)) return null   // V5.0.8418 — an ACCOUNT read wins a same-ms tie
             r.virtualSol = vSol
             r.virtualTokens = if (vTok.isFinite() && vTok > 0.0) vTok else Double.NaN
             r.realSol = real

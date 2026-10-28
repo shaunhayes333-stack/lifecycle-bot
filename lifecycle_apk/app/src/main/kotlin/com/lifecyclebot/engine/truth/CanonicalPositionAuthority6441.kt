@@ -1093,6 +1093,14 @@ object CanonicalPositionAuthority6441 {
         positions.values.filter { it.lifecycle == Lifecycle.PENDING_ENTRY && it.mode.equals("live", true) && nowMs - it.lastMutationMs <= maxAgeMs }
             .mapTo(LinkedHashSet()) { it.mint }
 
+    /**
+     * V5.0.8418 — mint -> positionId of each LIVE PENDING_ENTRY row (the bot's own buys awaiting their verifier), newest per
+     * mint. The wallet sweep gives each its protective owner on that row at once (LiveCanonicalRecovery6686).
+     */
+    fun pendingEntryLivePositions8418(): Map<String, String> =
+        positions.values.filter { it.lifecycle == Lifecycle.PENDING_ENTRY && it.mode.equals("live", true) && it.mint.isNotBlank() }
+            .groupBy { it.mint }.mapValues { (_, rows) -> rows.maxByOrNull { it.lastMutationMs }!!.positionId }
+
     /** V5.0.7807 — mint set of [protectiveInventory7807] (Helius held-position pinning, UI). */
     fun protectiveInventoryMints7807(mode: String? = null): Set<String> =
         protectiveInventory7807(mode).mapTo(LinkedHashSet()) { it.mint }

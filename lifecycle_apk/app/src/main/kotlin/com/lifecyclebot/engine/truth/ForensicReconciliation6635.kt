@@ -105,6 +105,26 @@ object ForensicReconciliation6635 {
         snapshot.key != null && snapshot.key == lastKey7387.get() && snapshot.key == stateKey8372()
 
     fun reconcile6635(precomputedReplay6699: JournalEconomicReplay6619.ReplayResult? = null) {
+        // V5.0.8418 (review ae69f5eeb) — a caller that collides with a running pass is coalesced into ONE follow-up pass that
+        // runs after the current one, so the latest state key is always reconciled (the balance publication no longer
+        // stays FAILED on a mutation that landed mid-pass until the next mutation).
+        var replay8418 = precomputedReplay6699
+        var rounds8418 = 0
+        while (rounds8418++ < MAX_ROUNDS_8418) {
+            val coalesced = reconcileOnce8418(replay8418)
+            replay8418 = null
+            if (coalesced) {
+                publication8372.notePending8418()
+                if (publication8372.isBusy()) return   // the owner runs it after its pass
+            }
+            if (!publication8372.takePending8418()) return
+            try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_FOLLOW_UP_8418") } catch (_: Throwable) {}
+        }
+    }
+    private const val MAX_ROUNDS_8418 = 4
+
+    /** One pass; true when it lost the lease to a running pass (coalesced). */
+    private fun reconcileOnce8418(precomputedReplay6699: JournalEconomicReplay6619.ReplayResult?): Boolean {
         // V5.0.7501 — the unchanged-state guard applies regardless of whether
         // the caller supplied a precomputed journal replay. Precomputed replay
         // avoids replay cost, but previously still repeated the full canonical
@@ -117,12 +137,12 @@ object ForensicReconciliation6635 {
                     PipelineHealthCollector.labelInc("FORENSIC_PRECOMPUTED_RECONCILE_REUSED_7501")
                 }
             } catch (_: Throwable) {}
-            return
+            return false
         }
         // A competing caller does not wait while another pass reads the ledger/journal. Only its owner may publish.
         val lease8372 = publication8372.claim(key7387) ?: run {
             try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_COALESCED_8372") } catch (_: Throwable) {}
-            return
+            return publication8372.isBusy()
         }
         var coherent8372 = false
         try {
@@ -139,6 +159,7 @@ object ForensicReconciliation6635 {
             }
             if (!published8372) try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_REVISION_MOVED_8372") } catch (_: Throwable) {}
         }
+        return false
     }
 
     private fun reconcileClaimed8372(
