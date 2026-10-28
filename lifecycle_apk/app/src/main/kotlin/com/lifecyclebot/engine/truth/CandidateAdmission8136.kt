@@ -596,7 +596,7 @@ object CandidateAdmission8136 {
         if (stale || !econKnown || criticalMissing8170.isNotEmpty() ||
             (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213 && !nativeLive8259)) {
             // V5.0.8418 — an unknown move names what it waits for (candles / the hour), so its fetch and its arrival match.
-            val econMissing8418 = if (econKnown) emptyList()
+            val econMissing8418: List<String> = if (econKnown) emptyList()
                 else if (c.costPct.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_HISTORY_8418) listOf(StrategyMove8153.DEFER_FEATURE_8153)
                 else listOf("economics")
             val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + econMissing8418
