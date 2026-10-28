@@ -182,7 +182,8 @@ class Aate7807EconomicIntegrityTest {
 
     @Test fun `live top-up mirrors the verified add into the same canonical position and lot`() {
         val ex = src("com/lifecyclebot/engine/Executor.kt")
-        assertTrue(ex.contains("mirrorLiveTopUpCanonical7807(ts.mint, sig, sol, effectiveNewQty, topUpExplicitDecimals)"))
+        // superseded by V5.0.8418 — the mirrored add is the confirmed receipt's cost / raw qty / fee, not the planned sol
+        assertTrue(ex.contains("mirrorLiveTopUpCanonical7807(ts.mint, sig, fill8418.costSol, fill8418.qtyUi, fill8418.decimals, fill8418.rawQty, fill8418.feeSol)"))
         val fn = ex.substringAfter("private fun mirrorLiveTopUpCanonical7807").substringBefore("private fun buyPhase")
         assertTrue(fn.contains("addToPosition6486("))
         assertTrue(fn.contains("CanonicalLotQuantity6464.onBuyFilled(pid, mint, addedRaw)"))
