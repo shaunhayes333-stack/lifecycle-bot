@@ -14,6 +14,7 @@ object FdgReceipt8397 {
         "TOO_FEW_BARS", "PRICE_STALE", "PRICE_UNKNOWN", "PRICE_NOT_FRESH", "UNKNOWN_ECONOMICS",
         "CURVE_RESERVES_STALE", "CURVE_DEPTH_UNVERIFIED")
     private val economicsInputs = setOf("liq", "price", "quote", "route", "wallet")
+    private val moveInputs8418 = setOf("shape", "chg", "tape")
 
     fun outcome(allow: Boolean, reason: String?): Outcome {
         if (allow) return Outcome.ADMIT
@@ -36,7 +37,9 @@ object FdgReceipt8397 {
             val key = featureKey(it)
             // A trade print can refresh buy pressure. An aggregate pair ratio does not supply a missing print.
             key == missingKey || (missingKey == "bp" && key == "tape") ||
-                (missingKey == "economics" && key in economicsInputs)
+                (missingKey == "economics" && key in economicsInputs) ||
+                // V5.0.8418 — a sparse move ("move:HISTORY_SPARSE") is answered by candles or the hour change arriving.
+                (missingKey == "move" && key in moveInputs8418)
         }
 
     fun answersFeature(missing: String, arrived: Set<String>): Boolean =

@@ -71,7 +71,10 @@ object StrategyMove8153 {
         }
         val range = rangePct?.takeIf { it.isFinite() && it >= 0.0 }
         val h1 = h1Pct?.takeIf { it.isFinite() && it > 0.0 }
-        if (range != null && !rangeDense && h1 == null && freshLaunch) {
+        // V5.0.8418 §SPARSE_RANGE_IS_PRE_HISTORY — a sparse range (under DENSE_MIN_BARS over DENSE_MIN_SPAN) is the few minutes
+        // the bot happened to watch, not the coin's hour: it defers for history at ANY age, never caps the move. 8416: an older
+        // coin seen for two candles "moved 2%" and was refused EXECUTION_ECONOMICS / COIN_TOO_SLOW on that pre-history read.
+        if (range != null && !rangeDense && h1 == null && (freshLaunch || SPARSE_DEFERS_AT_ANY_AGE_8418)) {
             return Move8153(NetEdge8030.expectedMove8035(mandatePct, range), "RANGE_SPARSE", true)
         }
         val realized = if (range != null && h1 != null) maxOf(range, h1) else range ?: h1
@@ -82,6 +85,25 @@ object StrategyMove8153 {
         }
         return Move8153(NetEdge8030.expectedMove8035(mandatePct, realized), basis, false)
     }
+
+    /** V5.0.8418 — a sparse range defers at any age (see [expected8153]); the pre-8418 rule deferred fresh launches only. */
+    internal const val SPARSE_DEFERS_AT_ANY_AGE_8418 = true
+
+    /**
+     * Pure (V5.0.8418 §THE_WRONG_CLOCK_CANNOT_LOWER_THE_MOVE): [strategy] is the STRATEGY estimate from the selected setup's
+     * book; [fallback] the mandate / range / hour estimate of the same coin without it. On an hour-graded lane whose hour
+     * book is still short (LaneGradeHorizon8406.wrongClockSpares8408 — [spared] is asked only when it matters), a book filled
+     * on the 5-minute read may RAISE the expected move but may not LOWER it under what the coin and the lane mandate say.
+     * 8416: a supported setup at +1.5% (5-minute read) became a 6.0% "expected move" against a 4.5% x1.5 bar and refused
+     * EXECUTION_ECONOMICS where the lane's 50% mandate and the coin's own hour both cleared. A deferring fallback never
+     * replaces a measured strategy.
+     */
+    fun wrongClockMove8418(strategy: Move8153, fallback: Move8153, spared: () -> Boolean): Move8153 {
+        if (strategy.basis != "STRATEGY" || fallback.deferForHistory) return strategy
+        if (!fallback.expectedGrossPct.isFinite() || !(fallback.expectedGrossPct > strategy.expectedGrossPct)) return strategy
+        return if (spared()) fallback.copy(basis = fallback.basis + WRONG_CLOCK_SUFFIX_8418) else strategy
+    }
+    const val WRONG_CLOCK_SUFFIX_8418 = "_WRONG_CLOCK_8418"
 
     /** Pure: defer for history only when the sparse-range move would refuse (a move that clears needs no wait). */
     fun needsDefer8153(m: Move8153, costPct: Double, margin: Double = NetEdge8030.EDGE_MULT): Boolean =
