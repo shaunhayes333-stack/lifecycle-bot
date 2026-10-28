@@ -157,8 +157,11 @@ object ExitSweepTiming7264 {
     private val runtimeStarts8418 = AtomicLong(0L)
 
     /** Pure: is a gap of [gapMs] after an iteration that was [prevIdle] (no open positions) a slow one? */
-    fun slowHotTickGap8418(gapMs: Long, prevIdle: Boolean): Boolean =
-        gapMs >= (if (prevIdle) HOT_TICK_IDLE_SLOW_MS_8418 else HOT_TICK_SLOW_MS_7270)
+    fun slowHotTickGap8418(gapMs: Long, prevIdle: Boolean): Boolean {
+        // V5.0.8418 — threshold in its own val (house rule: no `x >= (if …)` comparison).
+        val slowMs8418 = if (prevIdle) HOT_TICK_IDLE_SLOW_MS_8418 else HOT_TICK_SLOW_MS_7270
+        return gapMs >= slowMs8418
+    }
 
     /** The running iteration found no open position and will sleep the idle cadence. */
     fun onHotTickIdle8418() {
