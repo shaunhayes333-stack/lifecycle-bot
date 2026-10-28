@@ -249,6 +249,27 @@ object FdgGate8365 {
         try { PipelineHealthCollector.labelInc("FDG8365_REFUSED_${cls.replace('-', '_')}_${CanonicalLaneIdentity6506.desk8392(lane)}") } catch (_: Throwable) {}
     }
 
+    // ── V5.0.8418 — the sealed-size economics verdict, carried from FinalDecisionGate's helper to its verdict record ──
+    // (owner: FDG's evaluate() is not retouched; the 8395 named / zero-sized terminal is applied outside it.)
+    private const val FINAL_ECON_TTL_MS_8418 = 5_000L
+    private val finalEconomics8418 = ConcurrentHashMap<String, Pair<Long, String>>()
+    private fun econKey8418(mint: String, lane: String?) = "$mint|${CanonicalLaneIdentity6506.canonical(lane)}"
+
+    /** FinalDecisionGate.sealedCostHolds8209: a refusing (REJECT / DEFER) verdict and its reason are held for the decision record. */
+    fun noteFinalEconomics8418(mint: String, lane: String, clears: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        val k = econKey8418(mint, lane)
+        if (clears || reason.isNullOrBlank()) { finalEconomics8418.remove(k); return }
+        finalEconomics8418[k] = nowMs to reason
+        if (finalEconomics8418.size > 2_000) finalEconomics8418.entries.removeIf { nowMs - it.value.first > FINAL_ECON_TTL_MS_8418 }
+    }
+
+    /** FinalDecisionGate.rememberFdgVerdict: the held refusing reason for [mint] / [lane] (consumed), or null. */
+    fun takeFinalEconomics8418(mint: String, lane: String?, nowMs: Long = System.currentTimeMillis()): String? {
+        val v = finalEconomics8418.remove(econKey8418(mint, lane)) ?: return null
+        return if (nowMs - v.first in 0L..FINAL_ECON_TTL_MS_8418) v.second else null
+    }
+
     private val exception8418 = ConcurrentHashMap<String, AtomicLong>()   // gate (or ADMITTED) -> n
 
     /** V5.0.8418 — the final verdict of a candidate the hold passed on its exception (ADMITTED or the refusing gate). */

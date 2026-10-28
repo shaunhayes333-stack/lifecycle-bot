@@ -154,7 +154,7 @@ The FDG gates have **no per-gate forward record** in this build (§0). What does
 | R8 | 1c378bd92 `PLAYBOOK_OUTSIDE_ENVELOPE_8383` new live refusal | Restrictive; no evidence it refuses winners (34 refusals) | Kept binding (stay-quiet policy). GateOutcome8418 will grade it. |
 | R9 | 1983e0bee RunnerTicket exempts the chase veto (lives in `chaseRefusal8397` since 8392 deleted Entry8114Gate) | Reverses DIRECTIVE_LEDGER #10 / 8337 FIX 6b | The ticket is no chase exemption (counted `CHASE_RUNNER_TICKET_NOT_EXEMPT_8418_*`). Early grab and grab-lane (C4) remain. Pin superseded (Aate8397). The watch-first ticket admits (pre-8326 7877 behaviour) are left as they are. |
 | R10 | 0c799f0f0 four "clearly losing" candidate refusals | 8114 mode is gone. They are `candidateEvidence8393` and bind live, which is restrictive. | No change. Noted. |
-| R11 | 03a800b4e edited `FinalDecisionGate.evaluate()` (final-economics verdict in the return block) | Rule violation; stricter in effect | **Not edited further.** Owner exception or refactor needed. |
+| R11 | 03a800b4e edited `FinalDecisionGate.evaluate()` (final-economics verdict in the return block) | Owner: "fdg was never meant to be retouched, only tweaked so the lanes had clean admission" | **Reverted.** `evaluate()` is byte-identical to 03a800b4e^ (pinned by `Aate8418FdgEvaluateTextTest`). The stricter verdict lives outside it: `sealedCostHolds8209` → `FdgGate8365.noteFinalEconomics8418` → `rememberFdgVerdict`, so DEFER is `ADMISSION_COST_REQUOTE_UNAVAILABLE_8395` (a data wait) and REJECT is `ADMISSION_COST_REQUOTE_FAILED_8209`, both at size 0. History scan since 613a8373d: 03a800b4e is the only commit that changed `evaluate()`. 17836cb9d and 0f574610c changed only helpers above it (lines 762–1405 / 826). |
 
 ## 6. Hard safety: unchanged
 
@@ -166,13 +166,28 @@ identity, the wallet / route / pre-broadcast proofs, economics at 1.5x (now a fl
   existing paths.
 - Nothing is fabricated: GateOutcome8418 holds only real graded labels, and a gate with none has no record.
 
+## 6b. Owner ruling "Shadow proof can unlock, not size" (DIRECTIVE_LEDGER_8367 #36)
+
+- **Unlock (admission only).** In LIVE, the shadow traders' proof unlocks a held lane.
+  - The EvidenceShadow8344 lane book uses the paper bar: 30 closes, mean − SE > 2 %, PF ≥ 1.3, net after cost.
+  - ExploreShadow8347 variants use their stricter 40-close bar.
+  - Only rows on the full executable-cost contract count (`proofEligible8394`).
+- **Size comes from realised live closes only.**
+  - LiveRiskPolicy7807 caps the label share by the realised-live proof. The walk-forward label proof is now 0
+    (`liveOnlyProof8418`).
+  - The 6265 DNA boost (`Executor.dnaProvenWinnerSizeBoost6518`) previously counted PAPER rows; it now reads LIVE rows
+    only.
+  - Kelly8365 and SmallStake8370 read no shadow.
+  - A shadow-unlocked lane therefore trades at the small live stake.
+- **Re-lock.** `laneRealisedRefusal8329` now binds before the hold on every lane, including shadow-proven lanes.
+- **Report.** The hold's report line now ends with `unlock8418{lane shadow=n/pf unlocked=Y/N(relocked) live=n/pf}`.
+- **Test.** `Aate8418ShadowUnlockTest`.
+
 ## 7. Still open / owner decisions
 
-- **The hold itself unlocks a lane on PAPER or SHADOW proof** (8336 / 8344, owner-set). By the standing rule that is a
-  paper/shadow result admitting live, so the owner should rule on it. The PAPER_ALL / EXPLORATION hold bases (8365 D1)
-  are the same kind of path.
+- **Ruled by the owner (§6b).** The hold unlocks on shadow proof for admission only. The PAPER_ALL / EXPLORATION hold
+  bases (8365 D1) still demote live evidence doors; that is admission, not size.
 - **R5b**: data-driven un-retirement of 8383 setups.
-- **R11**: the evaluate() edit.
 - **The TREASURY native role floor** (NATIVE_TREASURY_ROLE_FLOOR n176 +65.9%, outlier-suspect) and the inverted
   TREASURY Cortex. These are lane / learning owners' items.
 - **Cannot be proven without a device:**
