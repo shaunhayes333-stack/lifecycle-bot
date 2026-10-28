@@ -49,10 +49,30 @@ object PumpLanding8288 {
     fun routeAway8288(r: Rate8288, minResolved: Int = MIN_RESOLVED_8288, minPct: Int = MIN_LAND_RATE_PCT_8288): Boolean =
         r.resolved >= minResolved && r.pct in 0 until minPct
 
+    /**
+     * V5.0.8412 — one route-away rule for live buys AND the shadow that models them. The 120-minute window alone forgot a
+     * PumpPortal route that never lands whenever live was quiet for two hours (live starved => window empty => PumpPortal
+     * asked first again), while ShadowAlign8366 priced every pump.fun shadow entry on the LIFETIME BUY|PUMPPORTAL rate and
+     * booked ~half of all shadow entries UNLANDED (5.0.8412: landed=4015 unlanded=4397, PUMPPORTAL=4227): the pump.fun
+     * mints the runners come from were systematically removed from Cortex learning, and live paid failed legs to relearn
+     * the same thing. A window with enough resolved rows decides; with too few, the ledger's whole PumpPortal record does.
+     */
+    fun effectiveAway8412(window: Rate8288, lifetime: Rate8288, minResolved: Int = MIN_RESOLVED_8288, minPct: Int = MIN_LAND_RATE_PCT_8288): Boolean =
+        if (window.resolved >= minResolved) routeAway8288(window, minResolved, minPct) else routeAway8288(lifetime, minResolved, minPct)
+
+    /** The live/shadow route-away verdict now (window first, the ledger's lifetime PumpPortal record when the window is thin). */
+    fun awayNow8412(nowMs: Long = System.currentTimeMillis()): Rate8288? = try {
+        val window = pumpBuyRate8288(com.lifecyclebot.network.SignedTxLedger8085.rows8288(nowMs - WINDOW_MS_8288), nowMs)
+        val lifetime = pumpBuyRate8288(com.lifecyclebot.network.SignedTxLedger8085.rows8288(0L), nowMs, Long.MAX_VALUE)
+        if (!effectiveAway8412(window, lifetime)) null
+        else (if (window.resolved >= MIN_RESOLVED_8288) window else lifetime).also {
+            if (window.resolved < MIN_RESOLVED_8288) PipelineHealthCollector.labelInc("PUMP_BUY_ROUTED_AWAY_LIFETIME_RECORD_8412")
+        }
+    } catch (_: Throwable) { null }
+
     /** Executor.tryPumpPortalBuy: true = skip PumpPortal for this buy (the caller falls through to Jupiter / Raydium). */
     fun skipPumpPortalBuy8288(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
-        val r = try { pumpBuyRate8288(com.lifecyclebot.network.SignedTxLedger8085.rows8288(nowMs - WINDOW_MS_8288), nowMs) } catch (_: Throwable) { return false }
-        if (!routeAway8288(r)) return false
+        val r = awayNow8412(nowMs) ?: return false
         try {
             PipelineHealthCollector.labelInc("PUMP_BUY_ROUTED_AWAY_LOW_LAND_RATE_8288")
             ForensicLogger.lifecycle("PUMP_BUY_ROUTED_AWAY_LOW_LAND_RATE_8288",

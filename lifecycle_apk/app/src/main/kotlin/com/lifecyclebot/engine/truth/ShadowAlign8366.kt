@@ -100,10 +100,9 @@ object ShadowAlign8366 {
         val table = try {
             com.lifecyclebot.engine.CostLanding8169.landingByRoute8169(com.lifecyclebot.network.SignedTxLedger8085.landRows8169())
         } catch (_: Throwable) { emptyMap<String, com.lifecyclebot.engine.CostLanding8169.Landing8169>() }
-        val away = try {
-            com.lifecyclebot.engine.PumpLanding8288.routeAway8288(com.lifecyclebot.engine.PumpLanding8288.pumpBuyRate8288(
-                com.lifecyclebot.network.SignedTxLedger8085.rows8288(nowMs - com.lifecyclebot.engine.PumpLanding8288.WINDOW_MS_8288), nowMs))
-        } catch (_: Throwable) { false }
+        // V5.0.8412 — the same route-away verdict the live buy uses (PumpLanding8288.awayNow8412): a pump.fun shadow entry
+        // is priced on the route live would actually take, not on a PumpPortal route live has already abandoned.
+        val away = try { com.lifecyclebot.engine.PumpLanding8288.awayNow8412(nowMs) != null } catch (_: Throwable) { false }
         val n = LandCache8366(nowMs, table, away)
         landCache8366 = n
         return n
