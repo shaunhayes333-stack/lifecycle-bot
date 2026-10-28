@@ -770,6 +770,8 @@ object LanePlaybook7907 {
         // V5.0.8084 — validity from observation metadata, not value guesses: a stamped 50/50 tape and a stamped 0% move
         // are real readings; an unstamped default is not; three points must be time-ordered, spaced, sane and fresh.
         val bpRaw = s?.buyPressurePct ?: ts.lastBuyPressurePct
+        // V5.0.8407 — a thin history is first filled from the exchange's own reported 5m/1h changes (DiscoveryCapture8400).
+        if (ts.history.size < 3) try { com.lifecyclebot.engine.truth.DiscoveryCapture8400.seedShape8407(ts, nowMs) } catch (_: Throwable) {}
         val shapeObs = try { shapeObs8084(ts.history.toList(), nowMs) } catch (_: Throwable) { Obs8084.UNKNOWN }
         val bpObs = bpObs8084(bpRaw, ts.lastSellPressurePct, ts.buyPressureObservedAtMs8084, nowMs)
         val chgObs = chgObs8084(ts.lastPriceChange5m, ts.lastPriceChange1h, ts.priceChangeObservedAtMs8084, nowMs)

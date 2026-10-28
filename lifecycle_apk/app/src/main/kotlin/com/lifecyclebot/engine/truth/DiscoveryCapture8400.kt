@@ -1,7 +1,9 @@
 package com.lifecyclebot.engine.truth
 
+import com.lifecyclebot.data.Candle
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -122,9 +124,67 @@ object DiscoveryCapture8400 {
             try { PipelineHealthCollector.labelInc(if (liq > 0.0) "DISCOVERY_LIQ_HYDRATED_8400" else "DISCOVERY_LIQ_MISSING_8400_${source.take(40)}") } catch (_: Throwable) {}
             if (liq > 0.0) liqHydrated.incrementAndGet() else bump(liqMissingBySource, source.take(40))
         }
+        try { seedShape8407(ts) } catch (_: Throwable) {}   // V5.0.8407 — and its shape, from the exchange's reported changes
+    }
+
+    // ── V5.0.8407 §SHAPE_FROM_THE_EXCHANGE_YOU_ALREADY_ASKED ──────────────────────────────────────────────────────────────
+    // 5.0.8404: setup classification needs three time-separated price points ("shape"); a token discovered this cycle has one,
+    // so its first evaluations read DATA_INCOMPLETE (MOONSHOT shape missing 1,226; keyless OHLCV served 8 of 716 fetches,
+    // 335 shape repairs unresolved). DexScreener's pair row already reports the pair's own price change over the last 5 minutes
+    // and hour (PairFlow8169 keeps it at every fetch). price_now / (1 + chg) at (observedAt - lag) is that exchange's observation
+    // of the price then: exact arithmetic on reported data, not a guess, written only for a lag the token has lived through.
+    // The points carry synthetic=true (no OHLCV volume of their own): shape classifiers read them, the range / volume readers
+    // that filter synthetic candles keep ignoring them. Later real polls add to them, never replace them.
+    private val shapeSeeded8407 = AtomicLong(0)
+    private val shapeNotSeeded8407 = ConcurrentHashMap<String, AtomicLong>()
+    private const val LAG_5M_8407 = 5L * 60_000L
+    private const val LAG_1H_8407 = 60L * 60_000L
+    private const val FLOW_FRESH_MS_8407 = 10L * 60_000L
+
+    /** Pure: the price [chgPct] percent before [priceNow]; NaN when not derivable (a dead pair derives nothing). */
+    fun impliedPriceBefore8407(priceNow: Double, chgPct: Double): Double =
+        if (priceNow.isFinite() && priceNow > 0.0 && chgPct.isFinite() && chgPct > -99.9) priceNow / (1.0 + chgPct / 100.0) else Double.NaN
+
+    /** Pure: how many time-separated finite points [pts] holds (the shape read needs three). */
+    fun distinctPoints8407(pts: List<Candle>): Int =
+        pts.filter { it.priceUsd.isFinite() && it.priceUsd > 0.0 && it.ts > 0L }.map { it.ts }.distinct().size
+
+    /** Seed the exchange-reported points a thin history lacks; returns how many were added. */
+    fun seedShape8407(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Int {
+        val mint = ts.mint
+        if (mint.isBlank()) return 0
+        if (synchronized(ts.history) { distinctPoints8407(ts.history.toList()) } >= 3) return 0
+        fun miss(why: String): Int { shapeNotSeeded8407.computeIfAbsent(why) { AtomicLong() }.incrementAndGet(); return 0 }
+        val flow = try { PairFlow8169.peek8169(mint) } catch (_: Throwable) { null } ?: return miss("NO_FLOW")
+        if (nowMs - flow.atMs !in 0L..FLOW_FRESH_MS_8407) return miss("FLOW_STALE")
+        val px = ts.lastPrice
+        if (!(px.isFinite() && px > 0.0)) return miss("NO_PRICE")
+        val ageMs = try { CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs) } catch (_: Throwable) { null }
+        var added = 0
+        synchronized(ts.history) {
+            val existing = ts.history.map { it.ts }.toHashSet()
+            fun put(lagMs: Long, chg: Double) {
+                if (ageMs != null && ageMs < lagMs) return
+                val p = impliedPriceBefore8407(px, chg); if (!p.isFinite()) return
+                val at = flow.atMs - lagMs
+                if (at in existing) return
+                ts.history.addFirst(Candle(ts = at, priceUsd = p, marketCap = 0.0, volumeH1 = 0.0, volume24h = 0.0,
+                    highUsd = p, lowUsd = p, openUsd = p, synthetic = true))
+                added++
+            }
+            put(LAG_1H_8407, flow.chg1h)
+            put(LAG_5M_8407, flow.chg5m)
+            if (added > 0) { val sorted = ts.history.sortedBy { it.ts }; ts.history.clear(); ts.history.addAll(sorted) }
+        }
+        if (added > 0) {
+            shapeSeeded8407.addAndGet(added.toLong())
+            try { PipelineHealthCollector.labelAdd("DISCOVERY_SHAPE_SEEDED_8407", added.toLong()) } catch (_: Throwable) {}
+        } else miss("TOO_YOUNG_OR_PRESENT")
+        return added
     }
 
     fun statusLine(): String =
         "discoveryMcap8400 resolved=${resolved.get()} chainQueued=${queued.get()} unresolved=${unresolved.get()} by{${top(byHow)}} " +
-            "uncappedBySource{${top(missingBySource)}} liq[hydrated=${liqHydrated.get()} missingBySource{${top(liqMissingBySource)}}]"
+            "uncappedBySource{${top(missingBySource)}} liq[hydrated=${liqHydrated.get()} missingBySource{${top(liqMissingBySource)}}] " +
+            "shape8407[seeded=${shapeSeeded8407.get()} notSeeded{${shapeNotSeeded8407.entries.sortedByDescending { it.value.get() }.take(4).joinToString(",") { "${it.key}=${it.value.get()}" }}}]"
 }

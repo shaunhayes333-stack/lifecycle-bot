@@ -21,10 +21,10 @@ import com.lifecyclebot.engine.truth.FieldManual7715
  * (TREASURY 12%, CRYPTO 12%, PERPS, CARRY) keep the 5-minute read. Hard safety, exits and sizing untouched.
  */
 object LaneGradeHorizon8406 {
-    const val HOUR_GRADED_MANDATE_PCT_8406 = 20.0
+    private const val HOUR_GRADED_MANDATE_PCT_8406 = 20.0
 
     /** Setups whose 5-minute retirement is suspended on an hour-graded lane: patience cannot be measured in 5 minutes. */
-    val PATIENT_FAMILY_8406: Set<String> = setOf(
+    private val PATIENT_FAMILY_8406: Set<String> = setOf(
         "QUIET_ACCUMULATION", "BUYERS_DOMINATING", "PRE_IGNITION_BASE", "LAUNCH_CONTINUATION", "LOW_RUNUP_BASE",
         "VERIFIED_LAUNCH", "HIGHER_LOW_PULLBACK", "HIGHER_LOW_CONTINUATION", "FLAG_CONTINUATION", "MICRO_FLAG",
         "LIVESTREAM_LAUNCH", "GRADUATION_APPROACH",
