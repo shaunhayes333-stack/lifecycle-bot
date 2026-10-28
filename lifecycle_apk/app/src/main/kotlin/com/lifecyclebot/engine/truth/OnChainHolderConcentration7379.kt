@@ -134,6 +134,11 @@ object OnChainHolderConcentration7379 {
     private const val LARGEST_ACCOUNTS_CAP_8418 = 20
     const val LOWER_BOUND_DECISIVE_PCT_8418 = 80.0
 
+    // Sources (checked V5.0.8418): Raydium ids — raydium-io/raydium-sdk-V2 src/common/programId.ts (AMM_V4, CLMM_PROGRAM_ID,
+    // CREATE_CPMM_POOL_PROGRAM, LAUNCHPAD_PROGRAM) and raydium-io/raydium-clmm programs/amm/src/lib.rs declare_id; Meteora
+    // DLMM — MeteoraAg/dlmm-sdk idls/dlmm.json "address"; DAMM v1 / dynamic vault — MeteoraAg/damm-v1-sdk
+    // ts-client/src/amm/constants.ts (PROGRAM_ID, VAULT_PROGRAM); DAMM v2 — MeteoraAg/damm-v2 programs/cp-amm/src/lib.rs
+    // declare_id; DBC — MeteoraAg/dynamic-bonding-curve programs/dynamic-bonding-curve/src/lib.rs declare_id.
     val VENUE_PROGRAMS_8418: Set<String> = setOf(
         "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", // pump.fun bonding curve
         "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA", // PumpSwap
@@ -144,12 +149,18 @@ object OnChainHolderConcentration7379 {
         "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo", // Meteora DLMM
         "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB", // Meteora DAMM v1
         "24Uqj9JCLxUeoC3hGfh5W3s9FM9uCHDS2SG3LYwBpyTi", // Meteora dynamic vault (DAMM v1 reserves)
-        "cpamdpZCGKUy5JxQXB4dcpGPiikHswburH2KtCbTqRZ", // Meteora DAMM v2
+        "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG", // Meteora DAMM v2 (corrected V5.0.8418: damm-v2 lib.rs declare_id)
         "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN", // Meteora dynamic bonding curve
         "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc", // Orca Whirlpool
     )
 
-    /** Venue vault authorities that are PDAs with no account of their own (their program cannot be read from them). */
+    /**
+     * Venue vault authorities that are PDAs with no account of their own (their program cannot be read from them).
+     * Sources (checked V5.0.8418): Raydium CPMM / LaunchLab — raydium-sdk-V2 src/common/programId.ts (CREATE_CPMM_POOL_AUTH,
+     * LAUNCHPAD_AUTH); DAMM v2 and DBC — the PDA of seed b"pool_authority" (constants.rs POOL_AUTHORITY_PREFIX, const_pda.rs
+     * pool_authority) under each program id, derived offline; the same derivation reproduces the published CPMM, LaunchLab
+     * and Raydium v4 ("amm authority") authorities exactly.
+     */
     val VENUE_AUTHORITIES_8418: Set<String> = setOf(
         "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1", // Raydium AMM v4 authority
         "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL", // Raydium CPMM authority

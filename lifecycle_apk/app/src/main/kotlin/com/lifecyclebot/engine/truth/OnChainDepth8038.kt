@@ -45,7 +45,7 @@ object OnChainDepth8038 {
     // constant-product sell-out.
     const val RAYDIUM_CLMM_8418 = "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
     const val METEORA_DLMM_8418 = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
-    const val METEORA_DAMM_V2_8418 = "cpamdpZCGKUy5JxQXB4dcpGPiikHswburH2KtCbTqRZ"
+    const val METEORA_DAMM_V2_8418 = "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG"   // MeteoraAg/damm-v2 programs/cp-amm/src/lib.rs declare_id
     /** DAMM v1 holds its reserves as shares of Meteora dynamic vaults (not two token accounts): depth stays UNKNOWN. */
     const val METEORA_DAMM_V1_8418 = "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB"
     private val CONCENTRATED_8418 = setOf(RAYDIUM_CLMM_8418, METEORA_DLMM_8418, METEORA_DAMM_V2_8418)
@@ -80,9 +80,15 @@ object OnChainDepth8038 {
         PUMP_AMM -> 139 to 171          // disc 8, bump u8, index u16, creator, base_mint, quote_mint, lp_mint, base vault, quote vault
         RAYDIUM_V4 -> 336 to 368        // 32 u64 + swap u128/u64 block (336), base vault, quote vault
         RAYDIUM_CPMM -> 72 to 104       // disc 8, amm_config, pool_creator, token_0_vault, token_1_vault
-        RAYDIUM_CLMM_8418 -> 137 to 169   // disc 8, bump u8, amm_config, owner, mint_0, mint_1, token_vault_0, token_vault_1
-        METEORA_DLMM_8418 -> 152 to 184   // disc 8, static params 32, variable params 32, 16 bytes of u8/u16/i32, mint_x, mint_y, reserve_x, reserve_y
-        METEORA_DAMM_V2_8418 -> 232 to 264 // disc 8, pool_fees 160, token_a_mint, token_b_mint, token_a_vault, token_b_vault
+        // raydium-io/raydium-clmm programs/amm/src/states/pool.rs PoolState (repr(C, packed)): disc 8, bump [u8;1], amm_config,
+        // owner, token_mint_0, token_mint_1, token_vault_0 @137, token_vault_1 @169.
+        RAYDIUM_CLMM_8418 -> 137 to 169
+        // MeteoraAg/dlmm-sdk idls/dlmm.json LbPair, field sizes summed after the 8-byte discriminator: token_x_mint @88,
+        // token_y_mint @120, reserve_x @152, reserve_y @184.
+        METEORA_DLMM_8418 -> 152 to 184
+        // MeteoraAg/damm-v2 programs/cp-amm/src/state/pool.rs Pool: disc 8, pool_fees (fee.rs const_assert_eq
+        // PoolFeesStruct::INIT_SPACE = 160), token_a_mint @168, token_b_mint @200, token_a_vault @232, token_b_vault @264.
+        METEORA_DAMM_V2_8418 -> 232 to 264
         else -> null
     }
 

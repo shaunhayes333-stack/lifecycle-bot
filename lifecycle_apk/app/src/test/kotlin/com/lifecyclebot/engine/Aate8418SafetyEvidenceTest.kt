@@ -185,6 +185,11 @@ class Aate8418SafetyEvidenceTest {
         assertTrue(d.concentrated8418(OnChainDepth8038.METEORA_DAMM_V2_8418))
         assertFalse(d.concentrated8418(OnChainDepth8038.PUMP_AMM))
         assertFalse(d.concentrated8418(OnChainDepth8038.RAYDIUM_CPMM))
+        // the DAMM v2 program id is the one damm-v2's lib.rs declares, in both the depth reader and the holder venues
+        assertEquals("cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG", OnChainDepth8038.METEORA_DAMM_V2_8418)
+        assertTrue(OnChainHolderConcentration7379.VENUE_PROGRAMS_8418.contains(OnChainDepth8038.METEORA_DAMM_V2_8418))
+        assertTrue(OnChainHolderConcentration7379.VENUE_AUTHORITIES_8418.containsAll(listOf(
+            "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh", "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM", "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC")))
         assertEquals("MeteoraDAMMv1", d.venueName8418(OnChainDepth8038.METEORA_DAMM_V1_8418))
         assertEquals("OTHER", d.venueName8418("x"))
         assertFalse(d.depthOnlyFresh8418("NoRead8418", 90_000L))
