@@ -300,9 +300,10 @@ class Aate8153StrategyTest {
         // The deferral is a data gap (bounded by the admission's coalesced window), never a verdict on the coin.
         assertEquals(Terminal8136.DEFER_DATA, CandidateAdmission8136.terminalOf8136("DEFER", StrategyMove8153.DEFER_REASON_8153))
         // An older coin with sparse history keeps the old rule; a measured 1h change decides; a clearing move needs no wait.
+        // superseded by V5.0.8418 — a sparse range is pre-history at any age (8416 EXECUTION_ECONOMICS on two-candle reads): it defers, never caps.
         val old = StrategyMove8153.expected8153(50.0, 5.0, false, null, 0, Double.NaN, Double.NaN, 6.0, false)
         assertEquals("RANGE_SPARSE", old.basis)
-        assertFalse(StrategyMove8153.needsDefer8153(old, 6.0))
+        assertTrue(StrategyMove8153.needsDefer8153(old, 6.0))
         val h1 = StrategyMove8153.expected8153(50.0, 5.0, false, 30.0, 0, Double.NaN, Double.NaN, 6.0, true)
         assertEquals("H1", h1.basis)
         assertEquals(30.0, h1.expectedGrossPct, 1e-9)

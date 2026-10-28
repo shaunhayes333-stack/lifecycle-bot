@@ -236,6 +236,11 @@ object NetEdge8030 {
         val expected = move.expectedGrossPct
         if (entryClears8030(expected, cost, margin8391(lane, entryTicket8151(), cost))) return null
         entryRefused.incrementAndGet()
+        // V5.0.8418 — a sparse range whose wait is spent is still not the coin's hour: the refusal says so, not "too slow".
+        if (move.deferForHistory && move.basis == "RANGE_SPARSE") {
+            try { PipelineHealthCollector.labelInc("${MOVE_UNOBSERVED_8418}_${lane.uppercase().take(16)}") } catch (_: Throwable) {}
+            return MOVE_UNOBSERVED_8418
+        }
         val slow = move.basis != "MANDATE" && move.basis != "STRATEGY" && expected < mandate
         if (slow) slowRefused8035.incrementAndGet()
         try { PipelineHealthCollector.labelInc("NET_EDGE_ENTRY_REFUSED_8030_${lane.uppercase().take(16)}") } catch (_: Throwable) {}
@@ -248,10 +253,38 @@ object NetEdge8030 {
      * sparse history defers the move (the admission then defers on economics, never refuses on two candles).
      */
     fun expectedGrossFor8153(ts: TokenState, lane: String, setup: String?, costPct: Double): Double {
-        val mandate = try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { return Double.NaN }
-        val m = executableMove8153(ts, lane, mandate, costPct, setup)
+        val m = expectedMove8418(ts, lane, setup, costPct) ?: return Double.NaN
         return if (StrategyMove8153.needsDefer8153(m, costPct, margin8391(lane, entryTicket8151(), costPct))) Double.NaN else m.expectedGrossPct
     }
+
+    /**
+     * V5.0.8418 — the whole move read [expectedGrossFor8153] reduces to a number (its basis says WHY a NaN is NaN: a sparse
+     * history to wait for, or a falling hour that more history will not change); null when the lane has no mandate.
+     */
+    fun expectedMove8418(ts: TokenState, lane: String, setup: String?, costPct: Double): StrategyMove8153.Move8153? {
+        val mandate = try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { return null }
+        return executableMove8153(ts, lane, mandate, costPct, setup)
+    }
+
+    /** Pure (V5.0.8418): why [m] gives the admission no number at [costPct] — [MOVE_WAIT_HISTORY_8418], [MOVE_WAIT_FALLING_8418] or null. */
+    fun moveWait8418(m: StrategyMove8153.Move8153?, costPct: Double, margin: Double = EDGE_MULT): String? = when {
+        m == null || !StrategyMove8153.needsDefer8153(m, costPct, margin) -> null
+        m.basis == "FALLING_HOUR_UNPROVEN" -> MOVE_WAIT_FALLING_8418
+        else -> MOVE_WAIT_HISTORY_8418
+    }
+    private const val MOVE_UNOBSERVED_8418 = "NET_EDGE_MOVE_UNOBSERVED_8418"
+    const val MOVE_WAIT_HISTORY_8418 = "HISTORY_SPARSE"
+    const val MOVE_WAIT_FALLING_8418 = "FALLING_HOUR_UNPROVEN"
+
+    /** V5.0.8418 — the move [executableMove8153] judges with [setup]'s own book left out (the wrong-clock fallback). */
+    private fun moveWithoutBook8418(mandatePct: Double, range: Double?, dense: Boolean, h1: Double?, costPct: Double,
+                                    age: Double?, hour: Double, lane: String): StrategyMove8153.Move8153 =
+        StrategyMove8153.expected8153(
+            mandatePct = mandatePct, rangePct = range, rangeDense = dense, h1Pct = h1,
+            strategyN = 0, strategyMeanPct = Double.NaN, strategySePct = Double.NaN,
+            costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
+            signedHourPct = hour, momentumEntry = StrategyMove8153.momentumLane8153(lane),
+        )
 
     /** V5.0.8153 — the expected executable move of [setup] (default: the strategy the coin trades as) for this entry. */
     fun executableMove8153(ts: TokenState, lane: String, mandatePct: Double, costPct: Double, setup: String? = null): StrategyMove8153.Move8153 {
@@ -271,7 +304,13 @@ object NetEdge8030 {
             strategyN = rec?.get(0)?.toInt() ?: 0, strategyMeanPct = rec?.get(1) ?: Double.NaN, strategySePct = rec?.get(2) ?: Double.NaN,
             costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
             signedHourPct = hour8399, momentumEntry = StrategyMove8153.momentumLane8153(lane),
-        )
+        ).let { strat ->
+            // V5.0.8418 — a book on the wrong clock (hour-graded lane, hour book short) may raise the move, never lower it.
+            if (strat.basis != "STRATEGY") strat else StrategyMove8153.wrongClockMove8418(strat,
+                moveWithoutBook8418(mandatePct, range, StrategyMove8153.dense8153(bars.size, spanMs), h1, costPct, age, hour8399, lane)) {
+                com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.wrongClockSpares8408(lane, "NET_EDGE_MOVE_8418")
+            }
+        }
         if (ts.mint.isNotBlank()) {
             if (moves8153.size > 4_000) moves8153.clear()
             moves8153[ts.mint] = "${m.basis}:${"%.1f".format(m.expectedGrossPct)}/bars${bars.size}"
@@ -362,6 +401,41 @@ object NetEdge8030 {
             move < SCALP_EDGE_MULT_8054 * cost
     }
 
+    const val SCALP_MOVE_UNOBSERVED_8418 = "NET_EDGE_SCALP_MOVE_UNOBSERVED_8418"
+
+    /**
+     * Pure (V5.0.8418): the scalp-lane wait when the coin's own move is unobserved and the admission carries no own-setup
+     * prediction: [StrategyMove8153.DEFER_REASON_8153] while [budgetOpen], else [SCALP_MOVE_UNOBSERVED_8418] (a named
+     * terminal). Null when the move is known or the admission's own setup predicts it ([scalpMoveTooSmall8054] decides).
+     * 8416: SCALP_COIN_TOO_FLAT refused 1,397 — every unknown move among them was called "flat".
+     */
+    fun scalpWait8418(realizedPct: Double?, admission: CandidateAdmission8136.Decision8136?, budgetOpen: () -> Boolean): String? {
+        if (realizedPct != null && realizedPct.isFinite()) return null
+        if (ownSetupMove8418(admission) != null) return null
+        return if (budgetOpen()) StrategyMove8153.DEFER_REASON_8153 else SCALP_MOVE_UNOBSERVED_8418
+    }
+
+    private fun scalpUnobserved8418(ts: TokenState, lane: String, realized: Double?, admission: CandidateAdmission8136.Decision8136?): String? {
+        val why = scalpWait8418(realized, admission) {
+            CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153))
+        } ?: return null
+        if (why == StrategyMove8153.DEFER_REASON_8153) {
+            try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, listOf("shape:HISTORY_SPARSE", "chg:UNOBSERVED")) } catch (_: Throwable) {}
+        }
+        try { PipelineHealthCollector.labelInc("${if (why == SCALP_MOVE_UNOBSERVED_8418) why else "NET_EDGE_SCALP_MOVE_WAIT_8418"}_$lane") } catch (_: Throwable) {}
+        return why
+    }
+
+    /** V5.0.8417 — the admitted own-setup move (net + its quoted cost), else null: the same read [scalpMoveTooSmall8054] trusts. */
+    private fun ownSetupMove8418(admission: CandidateAdmission8136.Decision8136?): Double? {
+        val quoted = admission?.takeIf { it.admitted && it.costPct.isFinite() && it.costPct > 0.0 &&
+            it.costSizeSol.isFinite() && it.costSizeSol > 0.0 } ?: return null
+        val own = quoted.takeIf { it.specific && !it.chosenSetup.isNullOrBlank() &&
+            it.basis.substringBefore(" n") == "${CandidateAdmission8136.KIND_SETUP}:${it.chosenSetup}" &&
+            it.expectedNetPct.isFinite() && it.expectedNetPct > 0.0 } ?: return null
+        return own.expectedNetPct + own.costPct
+    }
+
     /**
      * Pure: a coin that already made its run — up 100%+ in the last hour, or a launchpad coin under 48 h old already
      * at 50x+ its launch cap (pump.fun opens at ~28 SOL; Normie $364K = ~83x).
@@ -377,6 +451,7 @@ object NetEdge8030 {
         if (lane in SCALP_LANES_8054) {
             val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
             val cost = costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
+            scalpUnobserved8418(ts, lane, realized, admission)?.let { return it }   // V5.0.8418 — unobserved is not flat
             if (scalpMoveTooSmall8054(realized, cost, admission)) {
                 scalpRefused8054.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("NET_EDGE_SCALP_COIN_TOO_FLAT_8054_$lane") } catch (_: Throwable) {}
@@ -452,10 +527,23 @@ object NetEdge8030 {
     private fun realizedMovePct8035(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? {
         val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
         val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) })
+        val spanMs = if (bars.size >= 2) bars.maxOf { it.ts } - bars.minOf { it.ts } else 0L
         val h1 = StrategyMove8153.positiveHour8153(com.lifecyclebot.engine.cortex.LanePlaybook7907.resolvedChg1h8399(ts, nowMs))   // V5.0.8399 — same dated reading
+        return realizedMove8418(range, StrategyMove8153.dense8153(bars.size, spanMs), h1)
+    }
+
+    /**
+     * Pure (V5.0.8418 §SPARSE_RANGE_IS_PRE_HISTORY): the coin's own last-hour move for the scalp test — the range only when it
+     * is DENSE (StrategyMove8153.dense8153); a sparse range (two candles at intake) is not the hour and only counts beside a
+     * measured hour change, never alone. Null = unobserved (the caller waits for history, it does not call the coin flat).
+     */
+    fun realizedMove8418(rangePct: Double?, rangeDense: Boolean, h1Pct: Double?): Double? {
+        val range = rangePct?.takeIf { it.isFinite() && it >= 0.0 }
+        val h1 = h1Pct?.takeIf { it.isFinite() && it > 0.0 }
         return when {
-            range != null && h1 != null -> maxOf(range, h1)
-            else -> range ?: h1
+            range != null && rangeDense -> if (h1 != null) maxOf(range, h1) else range
+            h1 != null -> if (range != null) maxOf(range, h1) else h1
+            else -> null
         }
     }
 

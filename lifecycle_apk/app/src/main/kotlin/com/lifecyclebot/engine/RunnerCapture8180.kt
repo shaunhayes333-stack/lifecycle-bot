@@ -140,6 +140,8 @@ object DataDeferFetch8180 {
                 "price", "economics" -> { out += "liq:REFRESH"; out += "chg:UNOBSERVED" }
                 "core" -> { out += "shape:HISTORY_SPARSE"; out += "chg:UNOBSERVED"; out += "bp:UNOBSERVED" }
                 "bars", "candles", "history" -> out += "shape:HISTORY_SPARSE"
+                // V5.0.8418 — an unknown expected move (StrategyMove8153 sparse range) waits for candles and the hour change.
+                "move" -> { out += "shape:HISTORY_SPARSE"; out += "chg:UNOBSERVED" }
                 else -> out += m.trim()
             }
         }
