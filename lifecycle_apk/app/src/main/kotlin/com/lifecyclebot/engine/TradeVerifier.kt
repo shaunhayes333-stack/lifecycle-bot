@@ -318,8 +318,12 @@ object TradeVerifier {
             }
             val preBalArr  = meta.optJSONArray("preBalances")  ?: JSONArray()
             val postBalArr = meta.optJSONArray("postBalances") ?: JSONArray()
-            val solBefore = if (ownerIdx in 0 until preBalArr.length()) preBalArr.optLong(ownerIdx, 0L) else 0L
-            val solAfter  = if (ownerIdx in 0 until postBalArr.length()) postBalArr.optLong(ownerIdx, 0L) else 0L
+            // V5.0.8418 — an owner absent from the account keys (or the balance arrays) is NOT a 0 -> 0 lamport
+            // receipt: that read booked a landed buy at zero cost. No owner balances = no receipt (pending).
+            if (ownerIdx !in 0 until preBalArr.length() || ownerIdx !in 0 until postBalArr.length() ||
+                !meta.has("fee")) return null
+            val solBefore = preBalArr.getLong(ownerIdx)
+            val solAfter  = postBalArr.getLong(ownerIdx)
 
             // Token balances pre/post
             val preTok  = meta.optJSONArray("preTokenBalances")  ?: JSONArray()

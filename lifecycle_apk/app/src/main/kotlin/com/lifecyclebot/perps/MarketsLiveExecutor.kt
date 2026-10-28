@@ -1649,17 +1649,12 @@ object MarketsLiveExecutor {
                 }
             }
         }
-        val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 150.0
-        val beforeSol = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
-        val beforeUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
         val core = closeLivePositionCore6486(positionId, market, direction, sizeSol, leverage, traderType,
             flashPositionKey, cryptoTargetMintOverride, cryptoSymbolOverride)
         val sig = core.second
         if (!core.first || sig.isNullOrBlank()) return@withContext MarketsClose6486(false, positionId, sig, 0.0,
             java.math.BigInteger.ZERO, "EXECUTION_FAILED")
         kotlinx.coroutines.delay(1_500L)
-        var afterSol = try { wallet.getSolBalance() } catch (_: Throwable) { beforeSol }
-        var afterUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: beforeUsdc } catch (_: Throwable) { beforeUsdc }
         var flashGone = true
         if (pos.mint.startsWith("flash:")) {
             flashGone = false
@@ -1668,10 +1663,12 @@ object MarketsLiveExecutor {
                 flashGone = findFlashPositionKey(wallet.publicKeyB58 ?: "", market.symbol, direction).isNullOrBlank()
                 if (flashGone) return@repeat
             }
-            afterSol = try { wallet.getSolBalance() } catch (_: Throwable) { afterSol }
-            afterUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: afterUsdc } catch (_: Throwable) { afterUsdc }
         }
-        val proceedsSol = ((afterSol - beforeSol) + ((afterUsdc - beforeUsdc) / solPrice)).coerceAtLeast(0.0)
+        // V5.0.8418 — proceeds from THIS close transaction's receipt (owner lamport + USDC deltas), never a whole-wallet
+        // before/after diff (any concurrent transfer or other position's trade leaked into it) nor a $150 SOL stand-in.
+        val proceedsSol = com.lifecyclebot.engine.Settlement8418.closeProceedsSol8418(
+            com.lifecyclebot.engine.execution.TxParseHelper.parseAllWithBackoff(wallet, sig, 20_000L), USDC_MINT,
+            WalletManager.lastKnownSolPrice) ?: 0.0
         if (!flashGone || proceedsSol <= 0.0) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_CLOSE_PENDING_PROOF_6486") } catch (_: Throwable) {}
             return@withContext MarketsClose6486(false, positionId, sig, proceedsSol, java.math.BigInteger.ZERO,

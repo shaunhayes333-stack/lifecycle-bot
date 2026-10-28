@@ -52,7 +52,7 @@ object SignedTxLedger8085 {
             throw SolanaWallet.DuplicateOrderPrevented8085(it.signature, i.side)
         }
         val e = rows[signature] ?: Entry(signature, signedB64, blockhash, i?.mint.orEmpty(), i?.side.orEmpty(), i?.rawQty ?: 0L,
-            i?.positionId.orEmpty(), i?.intentId.orEmpty(), i?.route.orEmpty(), nowMs, State.SIGNED, nowMs)
+            owner8418(i), i?.intentId.orEmpty(), i?.route.orEmpty(), nowMs, State.SIGNED, nowMs)
         rows[signature] = e
         trim(nowMs)
         if (requireDurable) {
@@ -65,6 +65,27 @@ object SignedTxLedger8085 {
     }
 
     fun get(signature: String): Entry? = rows[signature]
+
+    /**
+     * V5.0.8418 — the position a signed row belongs to. A sell (or top-up) names the open LIVE canonical position it
+     * spends from; the id is persisted with the row so a restart's recovery books the outcome to that position.
+     */
+    @Volatile var liveOwnerResolver8418: ((String) -> String)? = { mint -> com.lifecyclebot.engine.Settlement8418.liveOwnerOf8418(mint) }
+
+    internal fun owner8418(i: Intent?): String {
+        if (i == null) return ""
+        if (i.positionId.isNotBlank() || i.side != "SELL" || i.mint.isBlank()) return i.positionId
+        return try { liveOwnerResolver8418?.invoke(i.mint).orEmpty() } catch (_: Throwable) { "" }
+    }
+
+    /**
+     * V5.0.8418 — has this attempt already SPENT a buy (a row still unresolved, or chain-confirmed)? A confirmed buy
+     * whose booking failed is reconciled from its receipt, never re-sent: retry / resume / a repeated top-up consult this.
+     */
+    fun attemptSpent8418(attemptId: String): Entry? =
+        if (attemptId.isBlank()) null else rows.values.filter {
+            it.intentId == attemptId && it.side == "BUY" && (it.unresolved || it.state == State.CONFIRMED)
+        }.maxByOrNull { it.createdAtMs }
 
     /** Exact dispatch only. Another generation on this mint cannot borrow pending status. */
     fun unresolvedAttempt8198(attemptId: String): Entry? =
