@@ -138,7 +138,8 @@ object KeylessLlmProviders6999 {
                 val id = data.optJSONObject(i)?.optString("id", "")?.trim().orEmpty()
                 if (id.isNotEmpty()) out.add(id)
             }
-            return out
+            // V5.0.8418 — embedding / speech / image ids answer a chat call with a 4xx: keep the chat models only.
+            return LlmProviderHealth8418.chatModels8418(out)
         }
     }
 
@@ -152,8 +153,31 @@ object KeylessLlmProviders6999 {
     fun chat(system: String, user: String, maxTokens: Int): String? {
         val m = models()
         if (m.isEmpty()) return null
-        val idx = ((rotation++) % m.size + m.size) % m.size
-        return chatWithModel(m[idx], system, user, maxTokens)
+        // V5.0.8418 — the anonymous budget is per model: a model that just answered 429 sits out its minute, and the
+        // rotation moves to one with budget instead of spending a slot on a known refusal.
+        val now8418 = System.currentTimeMillis()
+        for (step in 0 until m.size) {
+            val idx = ((rotation++) % m.size + m.size) % m.size
+            if (LlmProviderHealth8418.modelCooling8418("ovh:" + m[idx], now8418)) continue
+            return chatWithModel(m[idx], system, user, maxTokens)
+        }
+        try { PipelineHealthCollector.labelInc("LLM_KEYLESS_OVH_ALL_MODELS_COOLING_8418") } catch (_: Throwable) {}
+        return null
+    }
+
+    /**
+     * V5.0.8418 — a refused model: rate-limited ones cool for their minute, a 404/400 model is dropped from the
+     * catalogue (retired or not a chat model), and the provider's words land on the health row.
+     */
+    private fun noteOvhRefusal8418(model: String, resp: okhttp3.Response) {
+        try {
+            val now = System.currentTimeMillis()
+            LlmProviderHealth8418.coolModel8418("ovh:$model", LlmProviderHealth8418.modelCoolMs8418(resp.code), now)
+            if ((resp.code == 404 || resp.code == 400) && catalog.size > 1) catalog = catalog.filterNot { it == model }
+            val snippet = try { resp.peekBody(300L).string().replace('\n', ' ').take(120) } catch (_: Throwable) { "" }
+            com.lifecyclebot.engine.ApiHealthMonitor.noteLastError(HOST_OVH, "http=${resp.code} model=$model $snippet")
+            PipelineHealthCollector.labelInc("LLM_KEYLESS_OVH_HTTP_${resp.code}_8418")
+        } catch (_: Throwable) {}
     }
 
     fun chatWithModel(model: String, system: String, user: String, maxTokens: Int): String? {
@@ -192,8 +216,10 @@ object KeylessLlmProviders6999 {
             HealthAwareHttp.execute(
                 http, outbound7026, host = HOST_OVH,
                 allowDuringLockout = forced7026,
+                isLocalFailure8288 = { e -> LlmProviderHealth8418.isOwnCancellation8418(e) },   // V5.0.8418
             ).use { resp ->
                 if (!resp.isSuccessful) {
+                    if (!HostCircuitInterceptor.isSyntheticBlock(resp)) noteOvhRefusal8418(model, resp)
                     if (HostCircuitInterceptor.isSyntheticBlock(resp)) {
                         try {
                             PipelineHealthCollector.labelInc("LLM_KEYLESS_OVH_REFUSED_BY_OWN_BACKOFF_7016")

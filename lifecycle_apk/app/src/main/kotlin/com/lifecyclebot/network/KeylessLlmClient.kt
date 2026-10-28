@@ -188,6 +188,8 @@ object KeylessLlmClient {
         return com.lifecyclebot.engine.HealthAwareHttp.execute(
             httpClient, outbound, host = host,
             allowDuringLockout = forced,
+            // V5.0.8418 — the ring cancelling a losing member ("interrupted") is our act, not the provider's failure.
+            isLocalFailure8288 = { e -> LlmProviderHealth8418.isOwnCancellation8418(e) },
         )
     }
 
@@ -283,6 +285,12 @@ object KeylessLlmClient {
     private fun withHostSlot7164(providerName: String, body: () -> Any?): Any? {
         val host = rateLimitHostOf7164(providerName) ?: return body()
         val sem = hostSlots7164.getOrPut(host) { java.util.concurrent.Semaphore(1, true) }
+        // V5.0.8418 — Pollinations' anonymous tier is one request per 30 s per IP (402 FREE_LIMIT otherwise): a member
+        // inside that interval is our own refusal (never asked, never penalised), not a fresh 402.
+        if (!LlmProviderHealth8418.tryPace8418(host, LlmProviderHealth8418.PACING_DEFAULT_MS_8418, System.currentTimeMillis())) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_HOST_PACED_8418") } catch (_: Throwable) {}
+            return OwnBackoffRefusal(host)
+        }
         if (!sem.tryAcquire()) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_HOST_SLOT_YIELDED_7164")
@@ -346,7 +354,8 @@ object KeylessLlmClient {
                 "provider=$host http=${resp.code} msg=${resp.message.take(40)} " +
                     "body=${snippet.take(240)}",
             )
-            classifyAndPenalise7150(host, resp.code, snippet)
+            LlmProviderHealth8418.noteRefusal8418(host, resp.code, snippet)   // V5.0.8418 — owner-only fixes named
+            classifyAndPenalise7150(host, resp.code, snippet, resp.header("Retry-After"), resp.header("X-RateLimit-Reset"))
         } catch (_: Throwable) {}
         return false
     }
@@ -388,7 +397,21 @@ object KeylessLlmClient {
     private val providerPenaltyUntil7150 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val providerPenaltyReason7150 = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    private fun classifyAndPenalise7150(host: String, code: Int, body: String) {
+    private fun classifyAndPenalise7150(host: String, code: Int, body: String, retryAfter8418: String? = null, reset8418: String? = null) {
+        // V5.0.8418 — a pacing notice or a per-day quota is benched for the provider's own stated wait, ahead of the
+        // status-code reading below (Pollinations' 402 FREE_LIMIT is "one reply every 30 s", not a spent account).
+        LlmProviderHealth8418.classify8418(code, body, retryAfter8418, reset8418, System.currentTimeMillis())?.let { v ->
+            providerPenaltyUntil7150[host] = System.currentTimeMillis() + v.penaltyMs
+            providerPenaltyReason7150[host] = "${v.kind.name}_${v.why}"
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_PROVIDER_PENALISED_8418_${v.why}")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "LLM_PROVIDER_PENALISED_8418",
+                    "provider=$host http=$code class=${v.kind.name}_${v.why} penaltyMs=${v.penaltyMs} action=retry_after_stated_wait",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
         val b = body.lowercase()
         val terminal = b.contains("budget has been exceeded") ||
             b.contains("budget_exceeded") ||
@@ -430,7 +453,8 @@ object KeylessLlmClient {
             return
         }
         val (ms, why) = when {
-            terminal -> PENALTY_TERMINAL_MS_7150 to "TERMINAL"
+            // V5.0.8418 — a repeated TERMINAL doubles (6 h -> 48 h cap); one served answer clears the strikes.
+            terminal -> LlmProviderHealth8418.noteTerminal8418(host) to "TERMINAL"
             quota -> PENALTY_QUOTA_MS_7150 to "QUOTA"
             // V5.0.7276 — a per-model rate limit on a laddered provider is
             // answered by the caller's model rotation; the host stays eligible.
@@ -459,6 +483,17 @@ object KeylessLlmClient {
     /** V5.0.7150 — true while a provider is serving a classified penalty. */
     private fun penalised7150(name: String, now: Long): Boolean =
         (providerPenaltyUntil7150[name] ?: 0L) > now
+
+    /** V5.0.8418 — the council's health line: who is benched, why, strikes, and what only the owner can fix. */
+    fun llmHealthLine8418(): String {
+        val now = System.currentTimeMillis()
+        val pen = HashMap<String, Pair<Long, String>>()
+        for ((h, until) in providerPenaltyUntil7150) pen[h] = until to (providerPenaltyReason7150[h] ?: "?")
+        val missing = ArrayList<String>()
+        if (operatorGeminiKey.isBlank()) missing.add("gemini")
+        if (operatorOpenRouterKey.isBlank()) missing.add("openrouter")
+        return LlmProviderHealth8418.healthLine8418(pen, missing, now)
+    }
 
     /** V5.0.7150 — operator-facing summary of who is benched and why. */
     fun penaltyStatusLine7150(): String {
@@ -697,7 +732,11 @@ object KeylessLlmClient {
                             cooldownUntil[pname] = now + COOLDOWN_MS
                             ErrorLogger.debug(TAG, "provider=$pname err=${outcome.message?.take(120)}")
                         }
-                        outcome is String && outcome.isNotBlank() -> winner7151 = outcome
+                        outcome is String && outcome.isNotBlank() -> {
+                            winner7151 = outcome
+                            // V5.0.8418 — a served answer clears that member's terminal strikes and owner action.
+                            LlmProviderHealth8418.noteSuccess8418(eligible7151.firstOrNull { it.name == pname }?.healthHost.orEmpty())
+                        }
                         else -> {
                             empty++
                             cooldownUntil[pname] = now + 15_000L
@@ -1273,9 +1312,11 @@ object KeylessLlmClient {
     // answer on a degraded transport is the entire point of this class.
     private fun callPollinationsGet(system: String, user: String, maxTokens: Int): String? {
         val prompt = (if (system.isBlank()) user else "$system\n\n$user").take(1800)
-        val encoded = java.net.URLEncoder.encode(prompt, "UTF-8")
+        // V5.0.8418 — the documented GET is https://text.pollinations.ai/{prompt}; the ?model=openai parameter it carried
+        // is not part of it and answered 404 on 5.0.8416. URLEncoder writes '+' for a space, which a PATH keeps as '+'.
+        val encoded = java.net.URLEncoder.encode(prompt, "UTF-8").replace("+", "%20")
         val req = Request.Builder()
-            .url("https://text.pollinations.ai/$encoded?model=openai")
+            .url("https://text.pollinations.ai/$encoded")
             .get()
             .build()
         exec(req, "llm_pollinations_get").use { resp ->

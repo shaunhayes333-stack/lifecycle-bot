@@ -390,6 +390,8 @@ object PriceResolverFallback {
      * over the quote probe.
      */
     private fun fetchJupiterLitePrice6914(mint: String): Double {
+        // V5.0.8418 — Price v3 answers 400 for a non-Solana id: never send one (JupiterPriceIds8418).
+        if (!com.lifecyclebot.network.JupiterPriceIds8418.solanaMint8418(mint)) return 0.0
         val json = getJson6914("jupiter", "https://lite-api.jup.ag/price/v3?ids=$mint") ?: return 0.0
         val obj = json.optJSONObject(mint)
             ?: json.optJSONObject("data")?.optJSONObject(mint)
@@ -405,7 +407,7 @@ object PriceResolverFallback {
      * off the loop. A mint Jupiter does not price is simply absent.
      */
     fun jupiterBatchPrices7737(mints: List<String>): Map<String, Double> {
-        val ids = mints.filter { it.isNotBlank() }.distinct().take(50)
+        val ids = com.lifecyclebot.network.JupiterPriceIds8418.ids8418(mints)   // V5.0.8418 — Solana mints only (one 0x id = 400 for all)
         if (ids.isEmpty()) return emptyMap()
         val json = getJson6914("jupiter", "https://lite-api.jup.ag/price/v3?ids=${ids.joinToString(",")}") ?: return emptyMap()
         val out = HashMap<String, Double>()

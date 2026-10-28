@@ -98,6 +98,7 @@ object ApiHealthMonitor {
     /** Record a completed HTTP response. */
     fun record(host: String, httpStatus: Int, latencyMs: Long = 0L, errorBody: String? = null) {
         val st = stats(host)
+        if (errorBody != null) try { com.lifecyclebot.network.RpcCapacityLatch8418.observe8418(host, errorBody) } catch (_: Throwable) {}  // V5.0.8418
         when (httpStatus) {
             in 200..399 -> {
                 st.successes.incrementAndGet()
@@ -133,6 +134,7 @@ object ApiHealthMonitor {
      */
     fun noteLastError(host: String, errorMessage: String?) {
         if (errorMessage.isNullOrBlank()) return
+        try { com.lifecyclebot.network.RpcCapacityLatch8418.observe8418(host, errorMessage) } catch (_: Throwable) {}  // V5.0.8418
         stats(host).lastErrorMessage.set(redactSecrets(errorMessage)?.take(140))
     }
 

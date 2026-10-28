@@ -118,7 +118,8 @@ object KeylessPriceSources6996 {
         if (mints.isEmpty()) return emptyMap()
         val out = HashMap<String, Double>(mints.size)
         try {
-            mints.chunked(50).forEach { chunk ->
+            // V5.0.8418 — Solana mints only: a single non-Solana id made Price v3 refuse the whole batch with 400.
+            com.lifecyclebot.network.JupiterPriceIds8418.ids8418(mints, Int.MAX_VALUE).chunked(50).forEach { chunk ->
                 val ids = chunk.joinToString(",")
                 val body = get("https://lite-api.jup.ag/price/v3?ids=$ids", "jupiter") ?: return@forEach
                 val root = JSONObject(body)

@@ -406,53 +406,36 @@ object JupiterPriceOracle {
 object BirdeyeOracle {
     
     private const val TAG = "🐦Birdeye"
-    private const val BIRDEYE_API = "https://public-api.birdeye.so/public/price"
-    
-    private val priceCache = ConcurrentHashMap<String, Double>()
-    private const val CACHE_TTL_MS = 5_000L
-    
-    private val client = SharedHttpClient.builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .build()
+    // superseded by V5.0.8418 — the keyless /public/price URL and its own client are gone: calls go through BirdeyeApi.
     
     /**
      * Get price from Birdeye by token address
      */
     suspend fun getPriceByAddress(address: String): Double? = withContext(Dispatchers.IO) {
-        // V5.9.952 — Birdeye budget gate. Jupiter/DexScreener cover price for free; this path only matters when those fail.
-        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(1)) {
-            com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
-            return@withContext null
-        }
-        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
+        // V5.0.8418 — this called the retired keyless `/public/price` path with no X-API-KEY: Birdeye authenticates every
+        // request (X-API-KEY + x-chain), so it could only be refused. It now asks /defi/price through BirdeyeApi with the
+        // owner's configured key, which also applies the budget gate, the auth-terminal circuit, ApiBackoff and the
+        // health row. No key configured -> no call (unknown stays unknown).
+        val key = birdeyeKey8418()
+        if (key.isBlank()) return@withContext null
         try {
-            val request = Request.Builder()
-                .url("${BIRDEYE_API}?address=${address}")
-                .header("User-Agent", "Mozilla/5.0")
-                .header("x-chain", "solana")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (body != null) {
-                    val json = JSONObject(body)
-                    val data = json.optJSONObject("data")
-                    val price = data?.optDouble("value", 0.0) ?: 0.0
-                    
-                    if (price > 0) {
-                        ErrorLogger.debug(TAG, "🐦 Birdeye: $address = \$${price}")
-                        return@withContext price
-                    }
-                }
+            val price = com.lifecyclebot.network.BirdeyeApi(key).getTokenPrice(address)
+            if (price != null && price > 0.0) {
+                ErrorLogger.debug(TAG, "🐦 Birdeye: $address = \$${price}")
+                return@withContext price
             }
-            response.close()
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Birdeye error: ${e.message}")
         }
         return@withContext null
     }
+
+    /** V5.0.8418 — the owner's saved Birdeye key, or "" (never a built-in key). */
+    private fun birdeyeKey8418(): String = try {
+        com.lifecyclebot.AATEApp.appContextOrNull()
+            ?.let { com.lifecyclebot.data.ConfigStore.load(it).birdeyeApiKey }
+            ?.trim().orEmpty()
+    } catch (_: Throwable) { "" }
 }
 
 /**

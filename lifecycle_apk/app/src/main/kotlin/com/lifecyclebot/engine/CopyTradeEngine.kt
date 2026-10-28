@@ -230,9 +230,13 @@ class CopyTradeEngine(
         // parsed tolerantly (bare array or wrapped; SOL or USD PnL) and GMGN's 7-day
         // wallet rank answers when pump.fun does not. Fail-soft: empty on any failure.
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        for (url in ExpertWallets7962.LEADERBOARD_URLS_7962) {
-            val body = get(url) ?: continue
+        // V5.0.8418 — a benched (dead / Cloudflare-closed) route is not asked; the keyless replacement is the Helius-swap
+        // alpha list (SmartMoneyDiscovery7277 / LeaderboardRoutes8418).
+        for (url in LeaderboardRoutes8418.live8418(ExpertWallets7962.LEADERBOARD_URLS_7962)) {
+            val body = get(url)
+            if (body == null) { LeaderboardRoutes8418.note8418(url, lastGetCode8418, lastGetChallenge8418, -1); continue }
             val rows = ExpertWallets7962.parseLeaderboard7962(body, solUsd)
+            LeaderboardRoutes8418.note8418(url, lastGetCode8418, lastGetChallenge8418, rows.size)
             ExpertWallets7962.noteLeaderboard7962(url, rows.size)
             if (rows.isNotEmpty()) return rows.sortedByDescending { it.second }.take(10)
         }
@@ -321,6 +325,10 @@ class CopyTradeEngine(
         } catch (_: Exception) {}
     }
 
+    /** V5.0.8418 — the last get()'s HTTP code (0 = transport failure) and whether it was a challenge page. */
+    @Volatile private var lastGetCode8418 = 0
+    @Volatile private var lastGetChallenge8418 = false
+
     private fun get(url: String): String? = try {
         // V5.9.861 — health-aware: AutoEndpointMigrator.rewrite + ApiHealthMonitor.record
         val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
@@ -337,9 +345,14 @@ class CopyTradeEngine(
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36")
             .build()
         val start = System.currentTimeMillis()
+        lastGetCode8418 = 0
+        lastGetChallenge8418 = false
         val resp = http.newCall(req).execute()
         try { com.lifecyclebot.engine.ApiHealthMonitor.record(host, resp.code, System.currentTimeMillis() - start) } catch (_: Throwable) {}
-        if (resp.isSuccessful) resp.body?.string() else null
+        val body8418 = resp.use { r -> r.body?.string() }
+        lastGetCode8418 = resp.code
+        lastGetChallenge8418 = try { com.lifecyclebot.engine.chart.ChartParsers7955.isChallenge7955(resp.code, body8418) } catch (_: Throwable) { false }
+        if (resp.isSuccessful && !lastGetChallenge8418) body8418 else null
     } catch (e: Exception) {
         try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("copytrade_other", e.message) } catch (_: Throwable) {}
         null

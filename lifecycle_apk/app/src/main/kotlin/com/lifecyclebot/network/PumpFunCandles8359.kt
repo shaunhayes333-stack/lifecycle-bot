@@ -73,6 +73,35 @@ object PumpFunCandles8359 {
         "https://frontend-api-v3.pump.fun/candlesticks/$mint?offset=0&limit=${limit.coerceIn(10, 1000)}&timeframe=1"
 
     /**
+     * V5.0.8418 — 5.0.8416: pumpCandles8359[asked=664 served=0]. The v3 `candlesticks` route answered nothing usable;
+     * pump.fun's swap-api serves the same one-minute series (`/v2/coins/{mint}/candles`, USD — the route ExpertWallets7962
+     * reads first). Routes in order; [routeAfter8418] moves on when a route is gone (404/400/410) or keeps answering
+     * empty, and the units check below still decides whether a series is used.
+     */
+    fun routes8418(mint: String, limit: Int): List<String> = listOf(
+        "https://swap-api.pump.fun/v2/coins/$mint/candles?interval=1m&limit=${limit.coerceIn(10, 1000)}&currency=USD",
+        url8359(mint, limit),
+    )
+
+    /** Pure: (next route index, next empty streak) after an answer [code] that carried [barsEmpty] on route [idx]. */
+    fun routeAfter8418(idx: Int, routeCount: Int, code: Int, barsEmpty: Boolean, emptyStreak: Int): Pair<Int, Int> {
+        val n = routeCount.coerceAtLeast(1)
+        val gone = code == 404 || code == 400 || code == 410
+        val streak = if (code in 200..299 && barsEmpty) emptyStreak + 1 else 0
+        return if (gone || streak >= 3) ((idx + 1) % n) to 0 else (idx % n) to streak
+    }
+
+    @Volatile private var routeIdx8418 = 0
+    @Volatile private var emptyStreak8418 = 0
+
+    private fun onRouteAnswer8418(code: Int, barsEmpty: Boolean) {
+        val (i, st) = routeAfter8418(routeIdx8418, 2, code, barsEmpty, emptyStreak8418)
+        if (i != routeIdx8418) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CANDLES_ROUTE_ROTATED_8418") } catch (_: Throwable) {}
+        routeIdx8418 = i
+        emptyStreak8418 = st
+    }
+
+    /**
      * The cached series for [mint] when one is fresh; otherwise schedules one off-thread fetch (when the source is open and
      * its gap has passed) and returns null now. [refUsd] / [solUsd] check the units of what comes back.
      */
@@ -99,11 +128,14 @@ object PumpFunCandles8359 {
 
     private fun fetch8359(mint: String, n: Int, refUsd: Double, solUsd: Double) {
         asked.incrementAndGet()
-        val req = Request.Builder().url(url8359(mint, maxOf(n, 60))).header("User-Agent", "Mozilla/5.0").header("Accept", "application/json").build()
+        val route8418 = routes8418(mint, maxOf(n, 60)).let { it[routeIdx8418.coerceIn(0, it.size - 1)] }
+        val req = Request.Builder().url(route8418).header("User-Agent", "Mozilla/5.0").header("Accept", "application/json").build()
+        var code8418 = 0
         val now = System.currentTimeMillis()
         val body: String? = try {
             com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, "pumpfun_candles_8359").use { r ->
                 if (HostCircuitInterceptor.isSyntheticBlock(r)) return
+                code8418 = r.code
                 val b = r.body?.string()
                 if (r.code == 403 || r.code == 429 || r.code >= 500 || com.lifecyclebot.engine.chart.ChartParsers7955.isChallenge7955(r.code, b)) {
                     refuse8359(now); return
@@ -111,12 +143,13 @@ object PumpFunCandles8359 {
                 if (!r.isSuccessful) null else b
             }
         } catch (_: Throwable) { refuse8359(now); return }
-        if (body.isNullOrBlank()) return
+        if (body.isNullOrBlank()) { onRouteAnswer8418(code8418, true); return }
         val arr = try {
             val t = body.trimStart()
             if (t.startsWith("[")) JSONArray(t) else JSONObject(t).let { o -> o.optJSONArray("candles") ?: o.optJSONArray("data") ?: JSONArray() }
         } catch (_: Throwable) { return }
         val bars = try { com.lifecyclebot.engine.chart.ChartParsers7955.pumpFun7955(arr) } catch (_: Throwable) { emptyList() }
+        onRouteAnswer8418(code8418, bars.isEmpty())
         level = 0
         closedUntilMs = 0L
         if (bars.isEmpty()) return
@@ -136,7 +169,7 @@ object PumpFunCandles8359 {
     /** pumpCandles8359[asked=.. served=.. cacheServed=.. refused=.. unitRejected=.. closedS=.. level=..] */
     fun statusLine8359(nowMs: Long = System.currentTimeMillis()): String =
         "pumpCandles8359[asked=${asked.get()} served=${served.get()} cacheServed=${cacheServed.get()} refused=${refused.get()} " +
-            "unitRejected=${unitRejected.get()} closedS=${((closedUntilMs - nowMs) / 1000L).coerceAtLeast(0L)} level=$level]"
+            "unitRejected=${unitRejected.get()} closedS=${((closedUntilMs - nowMs) / 1000L).coerceAtLeast(0L)} level=$level route8418=$routeIdx8418]"
 }
 
 /** V5.0.8359 — SolanaOhlcvFeed6916's pump.fun step for a curve coin with no local series: refs read here, units checked. */
