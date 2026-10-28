@@ -93,6 +93,14 @@ object ProjectSniperAI {
     
     // Cooldown tracking - don't re-snipe same token
     private val recentTargets = ConcurrentHashMap<String, Long>()
+
+    // V5.0.8418 — one target stamp per mint ever engaged (read only inside its 30 min cooldown), removed by nothing.
+    private const val MAX_TARGETS_8418 = 4_000
+    private const val TARGET_KEEP_MS_8418 = 30L * 60_000L
+    fun count8418(): Int = recentTargets.size
+    internal fun stampForTest8418(mint: String, atMs: Long) { recentTargets[mint] = atMs }
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int =
+        com.lifecyclebot.engine.truth.MemoryBounds8289.capByAge8289(recentTargets, MAX_TARGETS_8418, TARGET_KEEP_MS_8418, nowMs) { it }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // PERSISTENCE - V5.6.29d
@@ -697,6 +705,7 @@ object ProjectSniperAI {
         activeMissions[mint] = mission
         dailyMissions.incrementAndGet()
         recentTargets[mint] = System.currentTimeMillis()
+        if (recentTargets.size > MAX_TARGETS_8418) bound8418()
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, symbol, "PROJECT_SNIPER", "SNIPER_OPEN", assessment.confidence.coerceIn(0, 100), "open_age_${assessment.tokenAgeSecs}_size_${entrySol.fmt(4)}") } catch (_: Throwable) {}
         
         ErrorLogger.info(TAG, "🎯 MISSION ENGAGED: $symbol | " +

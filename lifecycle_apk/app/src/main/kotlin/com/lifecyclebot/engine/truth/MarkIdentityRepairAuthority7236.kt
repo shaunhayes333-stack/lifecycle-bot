@@ -227,6 +227,16 @@ object MarkIdentityRepairAuthority7236 {
     private const val EXEC_QUOTE_LAMPORTS_7301 = 10_000_000L
     private val executable7301 = ConcurrentHashMap<String, Repaired>()
     private val execAttempt7301 = ConcurrentHashMap<String, Long>()
+
+    // V5.0.8418 — one executable quote and one debounce stamp per mint ever asked, removed by nothing; a quote is read
+    // only inside EXEC_FRESH_MS_7301 and the stamp only inside EXEC_DEBOUNCE_MS_7301. Kept 30 min, capped.
+    private const val MAX_MINTS_8418 = 4_000
+    private const val KEEP_MS_8418 = 30L * 60_000L
+    fun count8418(): Int = executable7301.size + execAttempt7301.size
+    internal fun stampAttemptForTest8418(mint: String, atMs: Long) { execAttempt7301[mint] = atMs }
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int =
+        MemoryBounds8289.capByAge8289(executable7301, MAX_MINTS_8418, KEEP_MS_8418, nowMs) { it.tsMs } +
+            MemoryBounds8289.capByAge8289(execAttempt7301, MAX_MINTS_8418, KEEP_MS_8418, nowMs) { it }
     private val quoteApi7301 by lazy { com.lifecyclebot.network.JupiterApi("", observationOnly7397 = true) }
 
     fun requestExecutableQuote7301(mint: String, tokenDecimals: Int) {
@@ -235,6 +245,7 @@ object MarkIdentityRepairAuthority7236 {
         val now = System.currentTimeMillis()
         if (now - (execAttempt7301[mint] ?: 0L) < EXEC_DEBOUNCE_MS_7301) return
         execAttempt7301[mint] = now
+        if (execAttempt7301.size > MAX_MINTS_8418) bound8418(now)
         scope.launch {
             try {
                 val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }

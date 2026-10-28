@@ -32,6 +32,13 @@ object BirdeyeWhaleFeeder {
 
     private data class Stamp(val timestampMs: Long)
     private val lastFetched = ConcurrentHashMap<String, Stamp>()
+
+    // V5.0.8418 — one fetch stamp per mint ever asked (read only inside CACHE_TTL_MS), removed by nothing.
+    private const val MAX_MINTS_8418 = 4_000
+    fun count8418(): Int = lastFetched.size
+    internal fun stampForTest8418(mint: String, atMs: Long) { lastFetched[mint] = Stamp(atMs) }
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int =
+        com.lifecyclebot.engine.truth.MemoryBounds8289.capByAge8289(lastFetched, MAX_MINTS_8418, CACHE_TTL_MS, nowMs) { it.timestampMs }
     private val inFlight = ConcurrentHashMap<String, Boolean>()
     private val knownWhales = ConcurrentHashMap<String, Long>()
 
@@ -69,6 +76,7 @@ object BirdeyeWhaleFeeder {
             }
             consecutiveFails = 0
             lastFetched[mint] = Stamp(now)
+            if (lastFetched.size > MAX_MINTS_8418) bound8418(now)
 
             var fedCount = 0
             for (t in traders) {

@@ -92,6 +92,14 @@ object TokenMetricsAuthority7069 {
     private val supplyByMint = ConcurrentHashMap<String, Double>()
     // V5.0.7408 — missing supply is a STATE, not a new event on every lane read.
     private val noSupplyEmitAt7408 = ConcurrentHashMap<String, Long>()
+
+    // V5.0.8418 — one log-throttle stamp per unverifiable mint ever seen, removed by nothing. The verified supply map
+    // beside it is chain evidence and is not touched.
+    private const val MAX_EMIT_STAMPS_8418 = 4_000
+    fun count8418(): Int = noSupplyEmitAt7408.size
+    internal fun stampForTest8418(mint: String, atMs: Long) { noSupplyEmitAt7408[mint] = atMs }
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int =
+        MemoryBounds8289.capByAge8289(noSupplyEmitAt7408, MAX_EMIT_STAMPS_8418, NO_SUPPLY_EMIT_INTERVAL_MS_7408, nowMs) { it }
     private const val NO_SUPPLY_EMIT_INTERVAL_MS_7408 = 10_000L
 
     /**
@@ -298,6 +306,7 @@ object TokenMetricsAuthority7069 {
             val priorEmit7408 = noSupplyEmitAt7408[mint] ?: 0L
             if (now7268 - priorEmit7408 >= NO_SUPPLY_EMIT_INTERVAL_MS_7408) {
                 noSupplyEmitAt7408[mint] = now7268
+                if (noSupplyEmitAt7408.size > MAX_EMIT_STAMPS_8418) bound8418(now7268)
                 try { PipelineHealthCollector.labelInc("TOKEN_METRICS_UNVERIFIABLE_NO_ONCHAIN_SUPPLY_7075") } catch (_: Throwable) {}
             }
             return Metrics7069(price, mcap, 0.0, repaired = false, verifiable = false)

@@ -79,6 +79,16 @@ object GeminiCopilot {
 
     private val JSON_MT = "application/json".toMediaType()
 
+    // V5.0.8418 — expired entries were removed only when the same key was read again, and cleanup() had no caller, so
+    // every symbol ever analysed kept its LLM narrative / exit advice. Bounded at write and by MemoryGuard7977's census.
+    private const val MAX_CACHE_8418 = 500
+    fun count8418(): Int = narrativeCache.size + exitAdviceCache.size
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int =
+        com.lifecyclebot.engine.truth.MemoryBounds8289.capByAge8289(narrativeCache, MAX_CACHE_8418, CACHE_TTL_MS, nowMs) { it.timestamp } +
+            com.lifecyclebot.engine.truth.MemoryBounds8289.capByAge8289(exitAdviceCache, MAX_CACHE_8418, CACHE_TTL_MS, nowMs) { it.timestamp }
+
+    internal fun putNarrativeForTest8418(key: String, value: NarrativeAnalysis, atMs: Long) { narrativeCache[key] = TimedCache(value, atMs) }
+
     private data class TimedCache<T>(
         val value: T,
         val timestamp: Long
@@ -292,6 +302,7 @@ object GeminiCopilot {
         val result = parseNarrativeResponse(response) ?: return null
 
         narrativeCache[cacheKey] = TimedCache(result, System.currentTimeMillis())
+        if (narrativeCache.size > MAX_CACHE_8418) bound8418()
         ErrorLogger.info(
             TAG,
             "🤖 Narrative: " + symbol + " → " + result.recommendation + " (scam=" + result.scamConfidence.toInt() + "%)"
@@ -342,6 +353,7 @@ object GeminiCopilot {
         val result = parseExitAdviceResponse(response) ?: return null
 
         exitAdviceCache[cacheKey] = TimedCache(result, System.currentTimeMillis())
+        if (exitAdviceCache.size > MAX_CACHE_8418) bound8418()
         ErrorLogger.info(
             TAG,
             "🤖 Exit: " + ts.symbol + " → " + result.exitUrgency + " (conf=" + result.confidenceScore.toInt() + "%)"

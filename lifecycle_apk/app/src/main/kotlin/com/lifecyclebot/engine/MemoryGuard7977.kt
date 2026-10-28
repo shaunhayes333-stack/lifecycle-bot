@@ -394,6 +394,42 @@ object MemoryGuard7977 {
         registerStores8289(r)  // V5.0.8289
         registerStores8305(r)  // V5.0.8305
         registerStores8309(r)  // V5.0.8309
+        registerStores8418(r)  // V5.0.8418
+    }
+
+    /**
+     * V5.0.8418 — 5.0.8416 read censusMb=200 against a 360 MB heap: 160 MB the census could not name. These per-key stores
+     * were written for every mint / symbol the bot ever saw and removed by nothing (each owner now bounds itself at write
+     * with MemoryBounds8289: TTL first, then the oldest): the order-book pulse deques, the chart-insight lists and
+     * aggregated signals, the LLM narrative / exit-advice / vote caches (whose own cleanup() had no caller), the mark
+     * freshness telemetry, the executable-quote repairs and three throttle-stamp maps. They are registered here so the
+     * census names them and a pressure trim runs their bound. No learning or ledger state is among them; the no-trade
+     * observation ring (already capped at write) is counted as "capped".
+     */
+    private fun registerStores8418(r: MemoryRegistry8144) {
+        r.register8144("orderbookPulse8418", 3_200L, { com.lifecyclebot.v3.scoring.OrderbookImbalancePulseAI.count8418() },
+            { _ -> com.lifecyclebot.v3.scoring.OrderbookImbalancePulseAI.bound8418() })
+        r.register8144("chartInsights8418", 2_400L, { SuperBrainEnhancements.count8418() }, { _ -> SuperBrainEnhancements.bound8418() })
+        r.register8144("llmNarratives8418", 2_048L, { AsyncGeminiNarrativeCache6478.count8418() + GeminiCopilot.count8418() }, { _ ->
+            AsyncGeminiNarrativeCache6478.bound8418(); GeminiCopilot.bound8418()
+        })
+        r.register8144("llmExitAdvice8418", 512L, { AsyncGeminiExitAdviceCache6479.count8418() }, { _ -> AsyncGeminiExitAdviceCache6479.bound8418() })
+        r.register8144("llmVotes8418", 160L, { SentienceHooks.count8418() }, { _ -> SentienceHooks.bound8418() })
+        r.register8144("markFreshness8418", 200L, { com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832.count8418() },
+            { _ -> com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832.bound8418() })
+        r.register8144("execQuoteRepairs8418", 200L, { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.count8418() },
+            { _ -> com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.bound8418() })
+        r.register8144("throttleStamps8418", 150L, {
+            BirdeyeWhaleFeeder.count8418() + com.lifecyclebot.v3.scoring.ProjectSniperAI.count8418() +
+                com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.count8418()
+        }, { _ ->
+            BirdeyeWhaleFeeder.bound8418(); com.lifecyclebot.v3.scoring.ProjectSniperAI.bound8418()
+            com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.bound8418()
+        })
+        r.register8144("noTradeObservations8418", 1_200L, {
+            com.lifecyclebot.engine.learning.NoTradeObservationStore.snapshot().ringSize
+        }, null)
+        r.markKind8309("noTradeObservations8418", "capped")
     }
 
     /**
