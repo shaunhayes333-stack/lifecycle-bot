@@ -80,6 +80,8 @@ object RuntimeProviderAuthority6685 {
      */
     fun configuredAlchemyRpc(): String {
         val key = try { com.lifecyclebot.data.DefaultKeys.ALCHEMY.trim() } catch (_: Throwable) { "" }
+        // V5.0.8418 — a spent monthly plan is left out of every ladder until the month resets (RpcCapacityLatch8418).
+        if (try { com.lifecyclebot.network.RpcCapacityLatch8418.alchemyExhausted8418() } catch (_: Throwable) { false }) return ""
         return if (key.isBlank()) "" else "https://solana-mainnet.g.alchemy.com/v2/$key"
     }
 

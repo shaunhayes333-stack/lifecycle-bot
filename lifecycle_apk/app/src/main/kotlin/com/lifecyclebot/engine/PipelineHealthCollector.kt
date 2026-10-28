@@ -1563,6 +1563,7 @@ object PipelineHealthCollector {
         sb.append("  On-chain pools (§8038): ").append(
             try { com.lifecyclebot.engine.truth.OnChainDepth8038.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Market RPC outcomes (§8418): ").append(com.lifecyclebot.network.RpcOutcome8418.reportLine8418()).append("\n")  // V5.0.8418
         sb.append("  Lane participation (§8029): ").append(
             try { LaneParticipation8029.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
@@ -4533,6 +4534,7 @@ object PipelineHealthCollector {
             // spent key from a rate limit without them having to read bodies.
             try {
                 sb.appendLine("  " + com.lifecyclebot.network.KeylessLlmClient.penaltyStatusLine7150())
+                sb.appendLine("  " + com.lifecyclebot.network.KeylessLlmClient.llmHealthLine8418())   // V5.0.8418
             } catch (_: Throwable) {}
             val keySnap = KeyValidator.snapshot()
             if (keySnap.isNotEmpty()) {

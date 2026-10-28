@@ -263,6 +263,7 @@ object KeylessRpc8359 {
         val ladder = try { com.lifecyclebot.engine.RuntimeProviderAuthority6685.marketReadCandidates8359(null, method) } catch (_: Throwable) { emptyList() }
         val body = JSONObject().put("jsonrpc", "2.0").put("id", idTag).put("method", method).put("params", params).toString()
         var tried = 0
+        var why8418 = "noRung"   // V5.0.8418 — why this read came back empty (RpcOutcome8418.line8418)
         for (url in ladder) {
             if (tried >= maxRungs) break
             val label = label8359(url)
@@ -273,25 +274,32 @@ object KeylessRpc8359 {
                 val req = Request.Builder().url(url).header("Content-Type", "application/json")
                     .post(body.toRequestBody("application/json".toMediaType())).build()
                 val got: JSONObject? = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, label).use { r ->
-                    if (HostCircuitInterceptor.isSyntheticBlock(r)) return@use null
+                    if (HostCircuitInterceptor.isSyntheticBlock(r)) { why8418 = "ownBlock"; return@use null }
                     if (!r.isSuccessful) {
+                        why8418 = "http${r.code}"
                         afterCall8359(url, r.code, 0, r.header("Retry-After")?.trim()?.toLongOrNull()?.let { it * 1000L })
                         return@use null
                     }
                     val j = try { JSONObject(r.body?.string().orEmpty()) } catch (_: Throwable) { null }
-                    if (j == null) { afterCall8359(url, 0); return@use null }
+                    if (j == null) { why8418 = "parse"; afterCall8359(url, 0); return@use null }
                     val err = j.optJSONObject("error")
-                    if (err != null) { afterCall8359(url, r.code, err.optInt("code", -1)); return@use null }
+                    if (err != null) {
+                        why8418 = RpcOutcome8418.rpcErrorKey8418(label, err.optInt("code", -1), err.optString("message"))
+                        afterCall8359(url, r.code, err.optInt("code", -1)); return@use null
+                    }
                     afterCall8359(url, r.code)
-                    if (staleAnswer8359(url, j)) return@use null
+                    if (staleAnswer8359(url, j)) { why8418 = "stale"; return@use null }
+                    if (j.optJSONObject("result") == null) why8418 = "noResult"
                     j.optJSONObject("result")
                 }
                 if (got != null) {
                     if (cache != null && cacheKey != null) cache.put8359(cacheKey, got, System.currentTimeMillis())
+                    RpcOutcome8418.note8418(idTag, "ok")
                     return got
                 }
-            } catch (_: Throwable) { afterCall8359(url, 0) }
+            } catch (_: Throwable) { why8418 = "transport"; afterCall8359(url, 0) }
         }
+        RpcOutcome8418.note8418(idTag, why8418)
         return null
     }
 
