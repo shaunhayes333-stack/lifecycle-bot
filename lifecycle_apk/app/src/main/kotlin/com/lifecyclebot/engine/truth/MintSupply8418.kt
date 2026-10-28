@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine.truth
 
+import com.lifecyclebot.engine.writeTextAtomic8086
 import org.json.JSONObject
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -158,7 +159,90 @@ object MintSupply8418 {
         accepted.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MINT_SUPPLY_ACCEPTED_8418_${s.source.name}") } catch (_: Throwable) {}
         if (notifyMetrics) try { TokenMetricsAuthority7069.acceptOnChainSupply7075(s.mint, s.wholeTokens) } catch (_: Throwable) {}
+        try { saveSoon8418(System.currentTimeMillis()) } catch (_: Throwable) {}
         return true
+    }
+
+    // ── V5.0.8418 §THE_SUPPLY_RECORD_SURVIVES_A_RESTART ─────────────────────────
+    // The whole record (base units, decimals, slot, observation time, source) is kept in its own additive file
+    // (filesDir/mint_supply_8418.tsv) — no existing table or file is changed. It is loaded at startup through the same
+    // [replaces8418] rule as any read: a loaded record keeps its slot and observation time, so a read that arrived
+    // before the load, or any later one at a higher slot / stronger source, still wins. Nothing is defaulted: a line that
+    // does not parse to a valid record is dropped, never filled in.
+
+    private const val FILE_8418 = "mint_supply_8418.tsv"
+    private const val SAVE_EVERY_MS_8418 = 120_000L
+    @Volatile private var storeLoaded8418 = false
+    @Volatile private var lastSaveMs8418 = 0L
+    private val saving8418 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val loadStarted8418 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val loadedFromDisk8418 = AtomicLong(0)
+
+    /** Pure: one record as a tab-separated line (mint, raw base units, decimals, slot, observedAtMs, source). */
+    fun encodeLine8418(s: Supply8418): String =
+        "${s.mint}\t${s.rawAmount}\t${s.decimals}\t${s.slot}\t${s.observedAtMs}\t${s.source.name}"
+
+    /** Pure: [encodeLine8418]'s inverse; null for a line that is not a complete, valid record. */
+    fun decodeLine8418(line: String): Supply8418? {
+        val f = line.trim().split('\t')
+        if (f.size != 6) return null
+        val raw = rawOf8418(f[1]) ?: return null
+        val decimals = f[2].toIntOrNull() ?: return null
+        val slot = f[3].toLongOrNull() ?: return null
+        val at = f[4].toLongOrNull() ?: return null
+        val src = Source8418.values().firstOrNull { it.name == f[5] } ?: return null
+        return Supply8418(f[0].trim(), raw, decimals, slot, at, src).takeIf { valid8418(it) }
+    }
+
+    /** Pure: every held record, one line each. */
+    fun encodeAll8418(): String = buildString { for (s in held.values) append(encodeLine8418(s)).append('\n') }
+
+    /**
+     * Load persisted records (startup). Each goes through [accept8418], so a record already held from a fresher read is
+     * kept. Returns how many loaded records were taken. Saving is enabled only after this ran, so a save can never replace
+     * the file with a half-empty session.
+     */
+    fun loadText8418(text: String, notifyMetrics: Boolean = true): Int {
+        var n = 0
+        for (line in text.lineSequence()) {
+            if (line.isBlank()) continue
+            val s = decodeLine8418(line) ?: continue
+            if (accept8418(s, notifyMetrics)) n++
+        }
+        loadedFromDisk8418.addAndGet(n.toLong())
+        storeLoaded8418 = true
+        return n
+    }
+
+    /** BotService startup: read the persisted records once. Best effort; a missing file is an empty store. */
+    fun start8418(ctx: android.content.Context) {
+        if (storeLoaded8418 || !loadStarted8418.compareAndSet(false, true)) return
+        val f = java.io.File(ctx.applicationContext.filesDir, FILE_8418)
+        Thread({
+            try {
+                loadText8418(if (f.exists()) f.readText() else "")
+            } catch (_: Throwable) {
+                storeLoaded8418 = !f.exists()   // an unreadable file is never overwritten by this session's partial set
+            }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MINT_SUPPLY_LOADED_8418") } catch (_: Throwable) {}
+        }, "mint-supply-load-8418").apply { isDaemon = true }.start()
+    }
+
+    /** Persist at most every [SAVE_EVERY_MS_8418], off the caller's thread, and only once the store was loaded. */
+    private fun saveSoon8418(nowMs: Long) {
+        if (!storeLoaded8418 || nowMs - lastSaveMs8418 < SAVE_EVERY_MS_8418) return
+        val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: return
+        if (!saving8418.compareAndSet(false, true)) return
+        lastSaveMs8418 = nowMs
+        try {
+            Thread({
+                try {
+                    val f = java.io.File(ctx.filesDir, FILE_8418)
+                    f.writeTextAtomic8086(encodeAll8418())
+                } catch (_: Throwable) {
+                } finally { saving8418.set(false) }
+            }, "mint-supply-save-8418").apply { isDaemon = true }.start()
+        } catch (_: Throwable) { saving8418.set(false) }
     }
 
     /** OnChainMintAuthorityProof7248's mint read (getAccountInfo jsonParsed): the same answer is the supply. */
@@ -213,9 +297,9 @@ object MintSupply8418 {
         try { held.entries.sortedBy { it.value.observedAtMs }.take(MAX_MINTS_8418 / 10).forEach { held.remove(it.key) } } catch (_: Throwable) {}
     }
 
-    internal fun resetForTest8418() { held.clear(); accepted.set(0); keptStronger.set(0); decimalsConflict.set(0); unparsable.set(0) }
+    internal fun resetForTest8418() { held.clear(); accepted.set(0); keptStronger.set(0); decimalsConflict.set(0); unparsable.set(0); storeLoaded8418 = false; loadStarted8418.set(false); loadedFromDisk8418.set(0) }
 
     fun statusLine8418(): String =
         "mintSupply8418 held=${held.size} accepted=${accepted.get()} keptStronger=${keptStronger.get()} " +
-            "decimalsConflict=${decimalsConflict.get()} unparsable=${unparsable.get()} rule=mint account > DAS; later slot wins; no 1e9 default"
+            "decimalsConflict=${decimalsConflict.get()} unparsable=${unparsable.get()} loadedFromDisk=${loadedFromDisk8418.get()} rule=mint account > DAS; later slot wins; no 1e9 default"
 }

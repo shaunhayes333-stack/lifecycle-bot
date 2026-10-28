@@ -26004,6 +26004,7 @@ if (hotExitHandledSweep) {
         com.lifecyclebot.engine.DailyCorpusRefresher.start(applicationContext)
         // V5.0.7951 — the one-minute mark tape survives a restart (plan + chart reader bars).
         try { com.lifecyclebot.engine.truth.MarkBarsStore7951.start7951(applicationContext) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.MintSupply8418.start8418(applicationContext) } catch (_: Throwable) {}   // V5.0.8418 — the mint-account supply record survives a restart
         try { com.lifecyclebot.engine.chart.ChartLibraryBuilder7950.start(applicationContext) } catch (e: Exception) {
             ErrorLogger.warn("BotService", "ChartLibraryBuilder7950 start error: ${e.message}")
         }
