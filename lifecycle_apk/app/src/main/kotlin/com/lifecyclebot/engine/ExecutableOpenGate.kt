@@ -458,7 +458,7 @@ object ExecutableOpenGate {
             "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
         )
         val authoritative = activeExecutionIntents6519.compute(key) { _, existing ->
-            when {
+            spotScaleAdopt8418(when {
                 existing == null -> intent.also { created6734 = true }
                 sameDecisionContract6734(existing, intent) &&
                     existing.resolvedSize <= 0.0 && intent.resolvedSize.isFinite() && intent.resolvedSize > 0.0 ->
@@ -486,7 +486,7 @@ object ExecutableOpenGate {
                     intent.also { created6734 = true }
                 }
                 else -> existing
-            }
+            }, intent)
         } ?: return null
         supersededByPrimary7819?.let { old7819 -> retireSupersededIntent7819(old7819, intent) }
         supersededPlaceholder7612?.let { old7612 ->
@@ -637,6 +637,21 @@ object ExecutableOpenGate {
                     " oldAttempt=" + old.attemptId.take(28) + " newAttempt=" + owner.attemptId.take(28),
             )
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.8418 §THE_SPOT_MULTIPLE_IS_PART_OF_THE_SEAL. A ticket an upstream specialist sealed without the SPOT multiple
+     * (1 = none) for the same decision and the same margin is re-sealed with the canonical seal's multiple, so the
+     * executor's ticket == submitted == recorded check holds instead of refusing the trade. Two different multiples > 1
+     * are not merged (the adoption check then refuses UPSTREAM_INTENT_CONFLICT); the size is never changed here.
+     */
+    internal fun spotScaleAdopt8418(adopted: ExecutionIntent, offered: ExecutionIntent): ExecutionIntent {
+        if (adopted === offered || adopted.spotScaleLeverage8418 == offered.spotScaleLeverage8418) return adopted
+        if (!sameDecisionContract6734(adopted, offered)) return adopted
+        if (kotlin.math.abs(adopted.resolvedSize - offered.resolvedSize) > 1e-9) return adopted
+        if (adopted.spotScaleLeverage8418 != 1.0 || !(offered.spotScaleLeverage8418.isFinite() && offered.spotScaleLeverage8418 > 1.0)) return adopted
+        try { PipelineHealthCollector.labelInc("SPOT_SCALE_RESEALED_ON_ADOPTION_8418") } catch (_: Throwable) {}
+        return adopted.copy(spotScaleLeverage8418 = offered.spotScaleLeverage8418)
     }
 
     internal fun sameDecisionContract6734(a: ExecutionIntent, b: ExecutionIntent): Boolean =

@@ -488,7 +488,8 @@ object CanonicalEntryAuthority6551 {
         // never mint a rival authority or silently debit a differently-sized lot.
         if (registered.mint != candidate.assetId || registered.candidateVersion != candidate.candidateVersion ||
             !registered.mode.equals(candidate.mode, true) ||
-            kotlin.math.abs(registered.resolvedSize - sizing.finalSizeSol) > 1e-9) {
+            kotlin.math.abs(registered.resolvedSize - sizing.finalSizeSol) > 1e-9 ||
+            kotlin.math.abs(registered.spotScaleLeverage8418 - intent.spotScaleLeverage8418) > 1e-9) {   // V5.0.8418 — the SPOT multiple is part of the seal
             return blocked(candidate, venue, "UPSTREAM_INTENT_CONFLICT")
         }
         pending["${registered.mode}:${candidate.assetId}:${candidate.candidateVersion}"] = registered
