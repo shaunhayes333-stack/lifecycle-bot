@@ -1427,8 +1427,8 @@ object ForwardReturnLabeler7731 {
         // V5.0.8080 §ONE_PATH_TWO_EXIT_FAMILIES. The setup books graded every setup that fired on one value, so a
         // momentum scalp and a breakout runner on the same coin were credited the same return. The same observed path is
         // now played under the scalp exits and under the long-hold exits; each setup is graded on its own family.
-        o.bookedLongNet8080 = frozen8404.family?.getOrNull(2) ?: long8080.first
-        o.bookedLongGross8080 = frozen8404.family?.getOrNull(3) ?: long8080.second
+        o.bookedLongNet8080 = frozen8404?.family?.getOrNull(2) ?: long8080.first
+        o.bookedLongGross8080 = frozen8404?.family?.getOrNull(3) ?: long8080.second
         // V5.0.8322 — a flat mark (no price other than the entry ever seen) reaches the Cortex flagged: observed only there.
         // V5.0.8337 (FIX 2) — the flat test now runs before the 60 slot is booked (above); the Cortex still receives the flag
         // (it resolves its pending decision as observed-only), every other learner hook is skipped on a flat mark.
