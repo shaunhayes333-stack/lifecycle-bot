@@ -25,8 +25,9 @@ class Repair6518ExecutorVerifyErrorTest {
             source.indexOf("private fun dnaProvenWinnerSizeBoost6518"),
             source.indexOf("private fun liveBuy(")
         )
-        assertTrue(helper.contains("setupFrequency(minCount = 3, lane = layerTag)"))
-        assertTrue(helper.contains("losingSetupFrequency(minCount = 1, lane = layerTag)"))
+        // superseded by V5.0.8418 — the size-boost readers also name the runtime mode (paper settlements never size live).
+        assertTrue(helper.contains("setupFrequency(minCount = 3, lane = layerTag, mode = LiveWinDNAStore.runtimeMode8418())"))
+        assertTrue(helper.contains("losingSetupFrequency(minCount = 1, lane = layerTag, mode = LiveWinDNAStore.runtimeMode8418())"))
         assertFalse(helper.contains("setupFrequency(minCount = 3)"))
         assertFalse(helper.contains("losingSetupFrequency(minCount = 1)"))
         assertTrue(helper.contains("winCount >= 3 && wr >= 0.40 && avgWin > 20.0 && winCount > lossCount"))
