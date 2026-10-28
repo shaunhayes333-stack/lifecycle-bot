@@ -75,23 +75,13 @@ cd lifecycle_apk
 echo "::group::Build debug APK"
 chmod +x gradlew || true
 mkdir -p gradle/wrapper
-curl -sL --retry 5 --retry-delay 15 --retry-connrefused -o gradle/wrapper/gradle-wrapper.jar \
-  "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+# The reviewed wrapper JAR is committed with the source. Re-downloading it on
+# every runtime run added a second bootstrap dependency (curl TLS exit 35)
+# before the APK build could even start.
+[ -s gradle/wrapper/gradle-wrapper.jar ] || { echo "::error::Committed Gradle wrapper JAR missing"; exit 1; }
 export GRADLE_OPTS="-Dorg.gradle.internal.http.connectionTimeout=60000 -Dorg.gradle.internal.http.socketTimeout=60000 ${GRADLE_OPTS:-}"
 GRADLE_CMD="./gradlew"
-for i in 1 2 3 4 5; do
-  if ./gradlew --version --no-daemon; then
-    GRADLE_CMD="./gradlew"
-    break
-  fi
-  echo "Gradle wrapper bootstrap attempt $i failed; retrying in $((i*15))s..."
-  sleep $((i*15))
-done
-if ! ./gradlew --version --no-daemon; then
-  echo "Gradle wrapper unavailable (missing/bad gradle-wrapper.jar or CDN outage); falling back to system gradle"
-  GRADLE_CMD="gradle"
-  gradle --version
-fi
+./gradlew --version --no-daemon
 # V5.0.7453 — same single authority as Gradle/build.yml.
 PRODUCTION_VERSION="$(tr -d '[:space:]' < AATE_VERSION)"
 [[ "$PRODUCTION_VERSION" =~ ^5[.]0[.]([0-9]+)$ ]] || { echo "Invalid source version"; exit 1; }

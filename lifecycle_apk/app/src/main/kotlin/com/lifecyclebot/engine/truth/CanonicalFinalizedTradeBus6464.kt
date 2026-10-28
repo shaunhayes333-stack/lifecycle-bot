@@ -117,6 +117,7 @@ object CanonicalFinalizedTradeBus6464 {
         // (deliverOne6734 ack/backoff; quarantine / reset-epoch / exact-economics gates in the bridge) —
         // no longer a swallowed direct call inside publish.
         "CortexOutcome7885",
+        "LiveWinDNAStore",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 

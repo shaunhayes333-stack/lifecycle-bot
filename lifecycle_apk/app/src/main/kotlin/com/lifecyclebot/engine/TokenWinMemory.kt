@@ -281,69 +281,8 @@ object TokenWinMemory {
             pnl = trainablePnl,
         )
 
-        // V5.0.6258 — PAPER→LIVE AGI REWIRE. Fire LiveWinDNAStore capture on
-        // EVERY decisive close (wins AND losses). Prior V5.0.6238 impl only
-        // captured winners, so the DNA store had no read on the LOSS surface
-        // (equally critical for the AGI to learn what NOT to trade). Also
-        // enrich entrySetup/chartPattern via EntryContextRegistry populated at
-        // entry time — the previous "unknown" fallback made every real close
-        // undistinguishable in the aggregators.
-        val stampedCtx = try { com.lifecyclebot.engine.EntryContextRegistry.consume(mint) } catch (_: Throwable) { null }
-        // V5.0.6288 — LIVE ORACLE MODE. When a buy path skips
-        // AgenticStyleRouter (direct BLUECHIP/TREASURY/EXPRESS/CASHGEN),
-        // stampedCtx is null and the DNA row lands as "unknown". Op-report
-        // V5.0.6287 showed topWinSetup=UNKNOWN(n=427/500) — the AGI could
-        // not press winners because it couldn't tell them apart. Synthesize
-        // a meaningful setup key from canonical lane + mcap band so every
-        // live capture is actionable. Existing stamped context is preferred.
-        val srcU6288 = source.uppercase()
-        val canonicalLane6288 = when {
-            srcU6288.contains("PUMP_FUN") || srcU6288.contains("PUMP_PORTAL") -> "MOONSHOT"
-            srcU6288.contains("RAYDIUM") -> "STANDARD"
-            srcU6288.contains("GECKO") || srcU6288.contains("DEX_TRENDING") -> "BLUECHIP"
-            srcU6288.contains("DEX_BOOSTED") -> "CASHGEN"
-            srcU6288.contains("COINGECKO_ESTABLISHED") -> "BLUECHIP"
-            phase.isNotBlank() && !phase.equals("UNKNOWN", true) -> phase.uppercase()
-            else -> "STANDARD"
-        }
-        val mcapBand6288 = when {
-            entryMcap >= 500_000.0 -> "large_mcap"
-            entryMcap >= 100_000.0 -> "mid_mcap"
-            entryMcap >= 25_000.0 -> "small_mcap"
-            else -> "micro_mcap"
-        }
-        val synthesizedSetup6288 = "${canonicalLane6288}_${mcapBand6288}"
-        val enrichedSetup   = stampedCtx?.entrySetup?.takeIf { it.isNotBlank() && !it.equals("unknown", true) } ?: synthesizedSetup6288
-        val enrichedPattern = stampedCtx?.chartPattern?.takeIf { it.isNotBlank() && !it.equals("unknown", true) } ?: mcapBand6288
-        val enrichedLane    = stampedCtx?.lane?.takeIf { it.isNotBlank() && !it.equals("UNKNOWN", true) } ?: canonicalLane6288
-        val enrichedScore   = stampedCtx?.entryScore   ?: 0
-        val enrichedExitReason = when {
-            isWin  -> "TERMINAL_WIN"
-            isLoss -> "TERMINAL_LOSS"
-            else   -> "TERMINAL_SCRATCH"
-        }
-        try {
-            com.lifecyclebot.engine.LiveWinDNAStore.capture(
-                mint = mint,
-                symbol = symbol,
-                lane = enrichedLane,
-                source = source,
-                phase = phase,
-                entrySetup = enrichedSetup,
-                chartPattern = enrichedPattern,
-                entryScore = enrichedScore,
-                entryMcap = entryMcap,
-                exitMcap = exitMcap,
-                entryLiquidity = entryLiquidity,
-                holdTimeMinutes = holdTimeMinutes,
-                buyPercent = buyPercent,
-                pnlPct = trainablePnl,
-                peakPnl = peakPnl,
-                exitReason = enrichedExitReason,
-                // The settlement's mode survives a UI toggle before asynchronous delivery.
-                paperOrLive = mode.uppercase(),
-            )
-        } catch (_: Throwable) {}
+        // Setup/holding evidence is recorded by LiveWinDNAStore from the canonical terminal bus.
+        // Discovery source and the latest mint context cannot identify the strategy of a closed position.
 
         // ── Track creator stats ───────────────────────────────────────────
         if (!creatorAddress.isNullOrBlank()) {

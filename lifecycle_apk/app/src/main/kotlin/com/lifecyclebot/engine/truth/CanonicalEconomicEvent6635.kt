@@ -428,7 +428,7 @@ object CanonicalEconomicEvent6635 {
         return candidates.asSequence()
             .filter { it.terminal == Terminal.COMMITTED }
             .map { it.event }
-            .filter { it.positionId == positionId && (it.side == Side.SELL || it.side == Side.PARTIAL_SELL) }
+            .filter { it.positionId == positionId && it.side == Side.SELL }
             .maxByOrNull { it.timestampMs }
     }
 

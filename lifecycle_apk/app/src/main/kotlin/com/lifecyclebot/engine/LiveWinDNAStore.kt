@@ -10,6 +10,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import com.lifecyclebot.engine.truth.AssetClass
+import com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464
+import com.lifecyclebot.engine.truth.CanonicalTerminalProof6699
+import com.lifecyclebot.engine.truth.EntryStrategySnapshot6450
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -68,6 +72,8 @@ object LiveWinDNAStore {
         val exitReason: String,        // REALIZED_WIN_AFTER_PROFIT_SIGNAL etc.
         val paperOrLive: String,       // "PAPER" or "LIVE"
         val ts: Long,
+        val positionId: String = "",
+        val economicEventId: String = "",
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("mint", mint); put("symbol", symbol); put("lane", lane)
@@ -75,8 +81,10 @@ object LiveWinDNAStore {
             put("chartPattern", chartPattern); put("entryScore", entryScore)
             put("entryMcap", entryMcap); put("exitMcap", exitMcap)
             put("entryLiquidity", entryLiquidity); put("holdTimeMinutes", holdTimeMinutes)
-            put("buyPercent", buyPercent); put("pnlPct", pnlPct); put("peakPnl", peakPnl)
+            put("buyPercent", buyPercent); put("pnlPct", pnlPct)
+            put("peakPnl", if (peakPnl.isFinite()) peakPnl else JSONObject.NULL)
             put("exitReason", exitReason); put("paperOrLive", paperOrLive); put("ts", ts)
+            put("positionId", positionId); put("economicEventId", economicEventId)
         }
         companion object {
             fun fromJson(o: JSONObject): WinDNA = WinDNA(
@@ -89,10 +97,11 @@ object LiveWinDNAStore {
                 entryLiquidity = o.optDouble("entryLiquidity", 0.0),
                 holdTimeMinutes = o.optInt("holdTimeMinutes", 0),
                 buyPercent = o.optDouble("buyPercent", 0.0),
-                pnlPct = o.optDouble("pnlPct", 0.0), peakPnl = o.optDouble("peakPnl", 0.0),
+                pnlPct = o.optDouble("pnlPct", 0.0), peakPnl = o.optDouble("peakPnl", Double.NaN),
                 exitReason = o.optString("exitReason"),
                 paperOrLive = o.optString("paperOrLive", "PAPER"),
                 ts = o.optLong("ts", 0L),
+                positionId = o.optString("positionId", ""), economicEventId = o.optString("economicEventId", ""),
             )
         }
     }
@@ -107,6 +116,44 @@ object LiveWinDNAStore {
     private val persistDirty = AtomicBoolean(false)
     private val persistJob = AtomicReference<Job?>(null)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private fun rowKey8417(row: WinDNA): String = if (row.positionId.isNotBlank())
+        "${row.paperOrLive.uppercase()}|${row.positionId}" else "${row.mint}:${row.ts}"
+
+    /** All meme lanes use the same settled-outcome receiver and immutable entry identity. */
+    fun recordCanonical8417(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+        if (env.assetClassTag != AssetClass.SOLANA_TOKEN.tag) {
+            CanonicalFinalizedTradeBus6464.exclude("LiveWinDNAStore", env.tradeId, "NON_MEME_ASSET")
+            return false
+        }
+        if (!env.terminal || !env.learningEligible || env.mode.uppercase() !in setOf("LIVE", "PAPER") ||
+            !env.realizedReturnPct.isFinite() || env.positionId.isBlank()) return false
+        val proof = CanonicalTerminalProof6699.resolve(env.positionId, env.economicEventId) ?: return false
+        val entry = EntryStrategySnapshot6450.snapshot(env.positionId) ?: return false
+        if (entry.mint != env.mint || !entry.mode8090.equals(env.mode, true) ||
+            entry.entryLane.isBlank() || entry.entrySetup.isBlank() || entry.entrySetup.equals("UNKNOWN", true)) {
+            CanonicalFinalizedTradeBus6464.exclude("LiveWinDNAStore", env.tradeId, "ENTRY_STRATEGY_IDENTITY_UNPROVEN")
+            return false
+        }
+        val dna = WinDNA(
+            mint = env.mint,
+            symbol = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(env.positionId)?.symbol
+                ?: env.mint.take(8),
+            lane = entry.entryLane, source = entry.entrySource, phase = "UNKNOWN",
+            entrySetup = entry.entrySetup, chartPattern = "UNKNOWN", entryScore = entry.entryScore,
+            entryMcap = entry.entryMarketCapUsd, exitMcap = 0.0, entryLiquidity = entry.entryLiquidityUsd,
+            holdTimeMinutes = (env.holdingTimeMs / 60_000L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+            buyPercent = entry.entryBuyPressurePct, pnlPct = env.realizedReturnPct, peakPnl = env.mfePct,
+            exitReason = env.exitReason, paperOrLive = env.mode.uppercase(), ts = env.atMs,
+            positionId = env.positionId, economicEventId = proof.economicEventId,
+        )
+        // A retry or a process restore must not add a second lesson for the same position.
+        rows.putIfAbsent(rowKey8417(dna), dna)
+        trimIfOverCap()
+        invalidateSnapshots()
+        // The bus persists its ACK. Do not ACK a merely queued five-second memory write.
+        return writeSnapshot8417(durable = true)
+    }
 
     // V5.0.6244 — memoised top-by-pnl snapshot (invalidated on capture()).
     // LaneBucketPivot/AGI layers query top-K on every lane eval; the prior
@@ -189,6 +236,7 @@ object LiveWinDNAStore {
     /** Corpus returns/holding times are retrospective estimates, never settled trade outcomes. */
     internal fun observedTrade8417(row: WinDNA): Boolean {
         if (row.paperOrLive.uppercase() !in setOf("LIVE", "PAPER")) return false
+        if (row.positionId.isBlank() || row.economicEventId.isBlank()) return false
         val provenance = listOf(row.entrySetup, row.chartPattern, row.source, row.phase, row.exitReason)
         return provenance.none { it.contains("backfill", true) || it.contains("corpus", true) ||
             it.startsWith("HISTORICAL_SEED", true) } && row.pnlPct.isFinite()
@@ -222,9 +270,10 @@ object LiveWinDNAStore {
 
     /** Winning-setup histogram (setup name → count, avgPnl). AGI layers use this.
      *  V5.0.6258 — filters to WINNING rows only (pnlPct > 0). */
-    fun setupFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
+    fun setupFrequency(minCount: Int = 2, lane: String? = null): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        realRows().filter { it.pnlPct > 0.0 }.forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
+        realRows().filter { it.pnlPct > 0.0 && (lane == null || it.lane.equals(lane, true)) }
+            .forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
             .sortedByDescending { it.second }
@@ -233,9 +282,10 @@ object LiveWinDNAStore {
     /** V5.0.6258 — LOSING-setup histogram. The AGI must learn what NOT to trade,
      *  not just what worked. Losing patterns are 5x more informative than winners
      *  because they define the AVOID surface for live-trade shape. */
-    fun losingSetupFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
+    fun losingSetupFrequency(minCount: Int = 2, lane: String? = null): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        realRows().filter { it.pnlPct < 0.0 }.forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
+        realRows().filter { it.pnlPct < 0.0 && (lane == null || it.lane.equals(lane, true)) }
+            .forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
             .sortedByDescending { it.second }
@@ -243,9 +293,11 @@ object LiveWinDNAStore {
 
     /** Winning chart-pattern histogram. Chart brains use this.
      *  V5.0.6258 — filters to WINNING rows only. */
-    fun chartPatternFrequency(minCount: Int = 2): List<Triple<String, Int, Double>> {
+    fun chartPatternFrequency(minCount: Int = 2, lane: String? = null): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        realRows().filter { it.pnlPct > 0.0 }.forEach { map.getOrPut(it.chartPattern) { mutableListOf() }.add(it.pnlPct) }
+        realRows().filter { it.pnlPct > 0.0 && (lane == null || it.lane.equals(lane, true)) &&
+            it.chartPattern.isNotBlank() && !it.chartPattern.equals("UNKNOWN", true) }
+            .forEach { map.getOrPut(it.chartPattern) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
             .sortedByDescending { it.second }
@@ -584,14 +636,19 @@ object LiveWinDNAStore {
         persistJob.set(job)
     }
 
-    private fun persistNow() {
-        val p = prefs ?: return
-        try {
+    private fun persistNow() { writeSnapshot8417(durable = false) }
+
+    @Synchronized
+    private fun writeSnapshot8417(durable: Boolean): Boolean {
+        val p = prefs ?: return false
+        return try {
             val arr = JSONArray()
             rows.values.sortedByDescending { it.ts }.take(MAX_ROWS).forEach { arr.put(it.toJson()) }
-            p.edit().putString(KEY_ROWS, arr.toString()).apply()
+            val edit = p.edit().putString(KEY_ROWS, arr.toString())
+            if (durable) edit.commit() else { edit.apply(); true }
         } catch (t: Throwable) {
             try { ErrorLogger.warn(TAG, "persist failed: ${t.message}") } catch (_: Throwable) {}
+            false
         }
     }
 
@@ -602,7 +659,7 @@ object LiveWinDNAStore {
             val arr = JSONArray(raw)
             for (i in 0 until arr.length()) {
                 val d = WinDNA.fromJson(arr.getJSONObject(i))
-                rows["${d.mint}:${d.ts}"] = d
+                rows[rowKey8417(d)] = d
             }
             loaded.set(System.currentTimeMillis())
         } catch (_: Throwable) {}
@@ -614,7 +671,7 @@ object LiveWinDNAStore {
         // never evict a captured trade merely because that real trade has an older clock.
         val oldest = rows.values.sortedWith(compareBy<WinDNA> { if (observedTrade8417(it)) 1 else 0 }
             .thenBy { it.ts }).take(rows.size - MAX_ROWS)
-        oldest.forEach { rows.remove("${it.mint}:${it.ts}") }
+        oldest.forEach { rows.remove(rowKey8417(it)) }
     }
 
     private fun invalidateSnapshots() {

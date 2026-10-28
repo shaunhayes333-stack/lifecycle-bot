@@ -161,6 +161,7 @@ object FinalizedBusConsumerBridge6465 {
             "CostLedger7962" -> CostLedger7962.onLiveFinalized(env)
             "CortexExit7897" -> com.lifecyclebot.engine.cortex.CortexExit7897.onCanonicalClose8082(env)
             "CortexOutcome7885" -> deliverToCortexOutcome7885(env)
+            "LiveWinDNAStore" -> com.lifecyclebot.engine.LiveWinDNAStore.recordCanonical8417(env)
             "ExactStrategyPerformance7429" -> deliverToExactStrategyPerformance7429(env)
             "MemeCausalLearning6568" -> deliverToMemeCausalLearning6568(env)
             "ForwardOutcomeModel" -> deliverToForwardOutcomeModel6696(env)
@@ -248,7 +249,7 @@ object FinalizedBusConsumerBridge6465 {
             if (n < REFUSALS_BEFORE_RETIRE_7169) return
             // A temporary dependency failure is not a permanent exclusion.
             // Only legacy entry-bound learners with no immutable entry can be retired.
-            if (consumer !in setOf("MemeCausalLearning6568", "UnifiedExitPolicyHead") ||
+            if (consumer !in setOf("MemeCausalLearning6568", "UnifiedExitPolicyHead", "LiveWinDNAStore") ||
                 EntryStrategySnapshot6450.snapshot(env.positionId) != null ||
                 System.currentTimeMillis() - env.atMs < EXACT_EVENT_GRACE_MS_6699) return
             CanonicalFinalizedTradeBus6464.exclude(

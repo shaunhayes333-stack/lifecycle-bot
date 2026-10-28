@@ -18696,8 +18696,8 @@ class Executor(
         val ec = try { EntryContextRegistry.peek(ts.mint) } catch (_: Throwable) { null }
         val setupKey = ec?.entrySetup?.trim().orEmpty()
         if (setupKey.isBlank()) 1.0 else {
-            val winners = LiveWinDNAStore.setupFrequency(minCount = 3)
-            val losers = LiveWinDNAStore.losingSetupFrequency(minCount = 1)
+            val winners = LiveWinDNAStore.setupFrequency(minCount = 3, lane = layerTag)
+            val losers = LiveWinDNAStore.losingSetupFrequency(minCount = 1, lane = layerTag)
             val winnerRow = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
             val loserRow = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
             val winCount = winnerRow?.second ?: 0
@@ -19547,7 +19547,7 @@ class Executor(
                 if (setupKey6312.isNotBlank()) {
                     val realDnaN6312 = com.lifecyclebot.engine.LiveWinDNAStore.realCount()
                     if (realDnaN6312 >= 15) {
-                        val losers6312 = com.lifecyclebot.engine.LiveWinDNAStore.losingSetupFrequency(minCount = 8)
+                        val losers6312 = com.lifecyclebot.engine.LiveWinDNAStore.losingSetupFrequency(minCount = 8, lane = layerTag)
                         val loserRow6312 = losers6312.firstOrNull { it.first.equals(setupKey6312, ignoreCase = true) }
                         if (loserRow6312 != null && loserRow6312.second >= 8 && loserRow6312.third <= -20.0) {
                             // Journal-authority escape: if the LANE itself is
@@ -19623,8 +19623,8 @@ class Executor(
                     } catch (_: Throwable) {}
                     // fall through to remaining EXEC_GATE checks
                 } else {
-                val losers = com.lifecyclebot.engine.LiveWinDNAStore.losingSetupFrequency(minCount = 8)
-                val winners = com.lifecyclebot.engine.LiveWinDNAStore.setupFrequency(minCount = 1)
+                val losers = com.lifecyclebot.engine.LiveWinDNAStore.losingSetupFrequency(minCount = 8, lane = layerTag)
+                val winners = com.lifecyclebot.engine.LiveWinDNAStore.setupFrequency(minCount = 1, lane = layerTag)
                 val loserRow = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
                 val winnerRow = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
                 // V5.0.6283 — NET-EV VETO (fix DNA_PROVEN_LOSER_VETO false-positive).
