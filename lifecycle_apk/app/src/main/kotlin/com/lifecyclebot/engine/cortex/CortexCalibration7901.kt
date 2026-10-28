@@ -55,6 +55,8 @@ class CortexCalibration7901 {
         const val ISO_RING_8366 = 2048
         /** V5.0.8366 — pairs before the rank fit replaces the slope (and may declare a lane UNCALIBRATED). */
         const val ISO_MIN_N_8366 = 60
+        /** V5.0.8418 — distinct score values a measured fit needs before it may declare a lane UNCALIBRATED. */
+        const val MIN_DISTINCT_SCORES_8418 = 2
         /** V5.0.8366 — the return clip used inside the FIT only (fraction: -99 % .. +300 %). Stored pairs stay raw. */
         const val WINSOR_LO_8366 = -0.99
         const val WINSOR_HI_8366 = 3.0
@@ -117,7 +119,9 @@ class CortexCalibration7901 {
             val bx = DoubleArray(n); val by = DoubleArray(n); val bw = DoubleArray(n)
             var m = 0
             var at = 0
+            var distinct8418 = 0
             while (at < n) {
+                distinct8418++
                 val x = scores[idx[at]]
                 var y = netOutcomesPct[idx[at]]
                 var w = 1.0
@@ -137,7 +141,7 @@ class CortexCalibration7901 {
                 }
             }
             val sp = CortexTailEv8324.rankIc8324(idx.map { scores[it] }, idx.map { netOutcomesPct[it] })
-            return NetFit8372(bx.copyOf(m), by.copyOf(m), n, sp)
+            return NetFit8372(bx.copyOf(m), by.copyOf(m), n, sp, distinct8418)
         }
 
         // Weight before adding rather than summing raw returns: finite large labels stay finite without a win cap.
@@ -223,7 +227,13 @@ class CortexCalibration7901 {
      * and [flat]/[spearman] describe discrimination. These are deliberately separate: a constant positive/negative
      * cohort still has an expected return, although it does not prove that the score ranks individual tokens.
      */
-    class NetFit8372(val xs: DoubleArray, val ys: DoubleArray, val n: Int, val spearman: Double) {
+    class NetFit8372(val xs: DoubleArray, val ys: DoubleArray, val n: Int, val spearman: Double, val distinctScores8418: Int = -1) {
+        /**
+         * V5.0.8418 — the score took at least [MIN_DISTINCT_SCORES_8418] values over the pairs, so "does it rank the outcomes?"
+         * can be asked at all. A lane whose every pair carries one score has no rank evidence either way: INSUFFICIENT, not
+         * UNCALIBRATED (it then falls back to the stored-slope rule, exactly as a thin fit does). -1 = not counted (kept as before).
+         */
+        val rankable8418: Boolean get() = distinctScores8418 < 0 || distinctScores8418 >= MIN_DISTINCT_SCORES_8418
         val valid: Boolean = n > 0 && xs.isNotEmpty() && xs.size == ys.size && xs.all { it.isFinite() } &&
             ys.all { it.isFinite() } && (1 until xs.size).all { xs[it] > xs[it - 1] && ys[it] >= ys[it - 1] }
         val measured: Boolean get() = n >= ISO_MIN_N_8366
@@ -287,13 +297,31 @@ class CortexCalibration7901 {
     /** V5.0.8372 — the existing authority consistency check, now against the same NET target as token predictions. */
     fun uncalibrated8372(lane: String, executionOffset: Double = 0.0): Boolean {
         val f = netFit8372(lane, executionOffset) ?: return false
-        return f.measured && !f.calibrated
+        return f.measured && f.rankable8418 && !f.calibrated   // V5.0.8418 — no score spread = insufficient, not uncalibrated
     }
+
+    /**
+     * V5.0.8418 — the lane's rank-calibration state for the net target: INSUFFICIENT_PAIRS (no fit / under [ISO_MIN_N_8366]
+     * pairs), INSUFFICIENT_SPREAD (measured, but the score never varied), CALIBRATED, or UNCALIBRATED (measured, the score
+     * varied and does not rank the outcomes). Only UNCALIBRATED is a rank verdict; the INSUFFICIENT states defer to the slope.
+     */
+    fun rankState8418(lane: String, executionOffset: Double = 0.0): String {
+        val f = netFit8372(lane, executionOffset)
+        return when {
+            f == null || !f.measured -> "INSUFFICIENT_PAIRS"
+            !f.rankable8418 -> "INSUFFICIENT_SPREAD"
+            f.calibrated -> "CALIBRATED"
+            else -> "UNCALIBRATED"
+        }
+    }
+
+    /** V5.0.8418 — the lane is not suspended for want of rank evidence: too few pairs, or no score spread. */
+    fun insufficient8418(lane: String, executionOffset: Double = 0.0): Boolean = rankState8418(lane, executionOffset).startsWith("INSUFFICIENT")
 
     /** V5.0.8372 — identical maturity/slope fallback to [suspends8366], without using log utility as profit evidence. */
     fun suspends8372(lane: String, minSlope: Double, executionOffset: Double = 0.0): Boolean {
         val f = netFit8372(lane, executionOffset)
-        return if (f != null && f.measured) !f.calibrated else suspends8322(lane, minSlope)
+        return if (f != null && f.measured && f.rankable8418) !f.calibrated else suspends8322(lane, minSlope)   // V5.0.8418
     }
 
     /** V5.0.8366 — the rank fit is measured and the lane's score does not rank its outcomes (flat / Spearman <= 0). */

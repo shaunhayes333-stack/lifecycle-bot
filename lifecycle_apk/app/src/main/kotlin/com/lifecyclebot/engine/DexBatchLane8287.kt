@@ -135,6 +135,7 @@ object DexBatchLane8287 {
         if (r != null && !throttled) try {
             com.lifecyclebot.engine.truth.CandidateMarkFresh8094.onLaneAnswer8287(batch, r.prices8287)
         } catch (_: Throwable) {}
+        if (r != null && !throttled) try { com.lifecyclebot.engine.truth.KeylessMarks8359.onLaneAnswer8418(batch, r.prices8287) } catch (_: Throwable) {}   // V5.0.8418
     }
 
     private val PAIR_FEATURES_8287 = listOf("bp", "chg", "liq")
