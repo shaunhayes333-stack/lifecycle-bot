@@ -23,48 +23,62 @@ def tap(node):
     adb("shell", "input", "tap", str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
 
 
-args = argparse.ArgumentParser(description=__doc__)
-args.add_argument("apk", type=pathlib.Path)
-args.add_argument("--previous", type=pathlib.Path, required=True)
-options = args.parse_args()
-apk = options.apk.resolve()
-output = pathlib.Path("release_art_evidence")
-output.mkdir(exist_ok=True)
-subprocess.run(["adb", "uninstall", "com.lifecyclebot.aate"], capture_output=True)
-# Exercise Android's real signature/version upgrade checks. The previous
-# published APK is installed first in this disposable, unfunded emulator.
-(output / "previous_install.txt").write_text(adb("install", str(options.previous.resolve())))
-(output / "previous_package.txt").write_text(adb("shell", "dumpsys", "package", "com.lifecyclebot.aate"))
-(output / "upgrade_install.txt").write_text(adb("install", "-r", str(apk)))
-package = adb("shell", "dumpsys", "package", "com.lifecyclebot.aate")
-(output / "candidate_package.txt").write_text(package)
-version = pathlib.Path("AATE_VERSION").read_text().strip()
-version_match = re.fullmatch(r"5\.0\.(\d+)", version)
-if version_match is None:
-    raise RuntimeError("Invalid candidate AATE_VERSION")
-expected_code = 500 + int(version_match[1])
-if not re.search(rf"versionCode={expected_code}\b", package) or f"versionName={version}" not in package:
-    raise RuntimeError("Installed release version does not match the publishing build")
-adb("logcat", "-c")
-log = (output / "logcat.txt").open("w")
-capture = subprocess.Popen(["adb", "logcat", "-v", "threadtime"], stdout=log)
-try:
-    compiled = adb("shell", "cmd", "package", "compile", "-m", "verify", "-f", "com.lifecyclebot.aate")
-    (output / "art_compile.txt").write_text(compiled)
-    if "Success" not in compiled:
-        raise RuntimeError("ART package verification command did not succeed")
+PKG = "com.lifecyclebot.aate"
+PROTECTED_STORES_8418 = {"databases/learning_kv.db", "databases/shadow_cold_8397.db",
+                         "shared_prefs/canonical_economic_events_6486.xml"}
+BOOT_8418 = re.compile(r"CANONICAL_BOOTSTRAP_READY_6515\S*\s+events=(\d+)\s+positions=(\d+)\s+duplicateMints=(\d+)")
+
+
+def package_times_8418(dump):
+    """firstInstallTime survives `install -r`; an uninstall+install would reset it."""
+    first = re.search(r"firstInstallTime=([^\n]+)", dump)
+    last = re.search(r"lastUpdateTime=([^\n]+)", dump)
+    return (first.group(1).strip() if first else None, last.group(1).strip() if last else None)
+
+
+def data_files_8418():
+    """App-private files (root on the disposable google_apis emulator). Names only."""
+    names = set()
+    for sub in ("shared_prefs", "databases"):
+        listing = subprocess.run(["adb", "shell", "ls", "-1", f"/data/data/{PKG}/{sub}"],
+                                 capture_output=True, text=True, timeout=30).stdout
+        names |= {f"{sub}/{line.strip()}" for line in listing.splitlines()
+                  if line.strip() and "No such file" not in line
+                  and not line.strip().endswith(("-journal", "-wal", "-shm"))}
+    return names
+
+
+def bootstrap_8418(log_path):
+    found = BOOT_8418.findall(log_path.read_text(errors="replace"))
+    return tuple(int(x) for x in found[-1]) if found else None
+
+
+def capture_8418(name):
+    adb("logcat", "-c")
+    handle = (output / name).open("w")
+    return handle, subprocess.Popen(["adb", "logcat", "-v", "threadtime"], stdout=handle)
+
+
+def stop_capture_8418(handle, proc):
+    proc.terminate()
+    proc.wait(timeout=10)
+    handle.close()
+
+
+def drive_to_first_loop(log_path, ui_name):
+    """Launch through the LAUNCHER and the real UI (PIN, disclaimer, Start) until the service
+    bootstrap and first bot-loop tick are in log_path. Returns the PIN stages the UI showed."""
     adb("shell", "monkey", "-p", "com.lifecyclebot.aate", "-c", "android.intent.category.LAUNCHER", "1")
     deadline = time.monotonic() + 240
     start_tapped = False
     pin_stages = set()
     launcher_anr_dismissals = 0
     while time.monotonic() < deadline:
-        text = (output / "logcat.txt").read_text(errors="replace")
+        text = log_path.read_text(errors="replace")
         if re.search(r"Verifier rejected class com\.lifecyclebot|java\.lang\.VerifyError|SERVICE_BOOTSTRAP_FAILED_6516|FATAL EXCEPTION", text):
             raise RuntimeError("Release verifier/bootstrap failure; see logcat.txt")
         if "SERVICE_BOOTSTRAP_READY_6516" in text and "BOT_LOOP_TICK" in text:
-            (output / "verdict.txt").write_text("PASS: published-APK upgrade, release version identity, ART verification, service bootstrap, UI Start, first bot-loop tick\n")
-            break
+            return pin_stages
         if not start_tapped:
             # 8269 emulator upgrade run: the first UiAutomator dump returned
             # "ERROR: null root node" and no XML. A transient empty tree
@@ -79,7 +93,7 @@ try:
                     continue
                 xml = adb("shell", "cat", "/sdcard/release_ui.xml")
                 nodes = list(ET.fromstring(xml).iter("node"))
-                (output / "ui.xml").write_text(xml)
+                (output / ui_name).write_text(xml)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError) as exc:
                 print("UI tree unavailable, retrying:", type(exc).__name__, flush=True)
                 time.sleep(2)
@@ -139,10 +153,102 @@ try:
                     pin_stages.add(title)
                     print("Completed emulator PIN stage:", title, flush=True)
         time.sleep(2)
-    else:
-        raise RuntimeError("Release did not prove bootstrap and first loop within 240 seconds")
+    raise RuntimeError("Release did not prove bootstrap and first loop within 240 seconds: " + log_path.name)
+
+
+args = argparse.ArgumentParser(description=__doc__)
+args.add_argument("apk", type=pathlib.Path)
+args.add_argument("--previous", type=pathlib.Path, required=True)
+options = args.parse_args()
+apk = options.apk.resolve()
+output = pathlib.Path("release_art_evidence")
+output.mkdir(exist_ok=True)
+# V5.0.8418 — root on this disposable google_apis emulator, only to read app-private file NAMES
+# before/after the upgrade. Done first: adbd restarts, which would cut a running logcat capture.
+root = subprocess.run(["adb", "root"], capture_output=True, text=True, timeout=60)
+subprocess.run(["adb", "wait-for-device"], timeout=120)
+if adb("shell", "id", "-u").strip() != "0":
+    raise RuntimeError("adb root unavailable on the emulator; upgrade data survival cannot be proven: " + root.stdout + root.stderr)
+subprocess.run(["adb", "uninstall", PKG], capture_output=True)
+# Exercise Android's real signature/version upgrade checks. The previous
+# published APK is installed first in this disposable, unfunded emulator.
+(output / "previous_install.txt").write_text(adb("install", str(options.previous.resolve())))
+previous_package = adb("shell", "dumpsys", "package", PKG)
+(output / "previous_package.txt").write_text(previous_package)
+# V5.0.8418 — the previous release must RUN and create its data (PIN, config, canonical
+# events, learning DBs) before the candidate is installed over it; an upgrade over an empty
+# install proves only that the signatures match.
+handle, proc = capture_8418("previous_logcat.txt")
+try:
+    previous_pins = drive_to_first_loop(output / "previous_logcat.txt", "previous_ui.xml")
+    time.sleep(20)  # let the running previous release persist its stores
 finally:
-    capture.terminate()
-    capture.wait(timeout=10)
-    log.close()
-    adb("shell", "am", "force-stop", "com.lifecyclebot.aate")
+    stop_capture_8418(handle, proc)
+previous_boot = bootstrap_8418(output / "previous_logcat.txt")
+files_before = data_files_8418()
+(output / "previous_files.txt").write_text("\n".join(sorted(files_before)) + "\n")
+if not files_before:
+    raise RuntimeError("previous release created no shared_prefs/databases; nothing to carry across the upgrade")
+# Upgrade in place, as the owner does: no uninstall, same signature, over the used install.
+# The previous process is stopped first so every line in logcat.txt is the candidate's own
+# (a MY_PACKAGE_REPLACED restart included).
+adb("shell", "am", "force-stop", PKG)
+time.sleep(2)
+handle, proc = capture_8418("logcat.txt")
+try:
+    (output / "upgrade_install.txt").write_text(adb("install", "-r", str(apk)))
+    package = adb("shell", "dumpsys", "package", PKG)
+    (output / "candidate_package.txt").write_text(package)
+    version = pathlib.Path("AATE_VERSION").read_text().strip()
+    version_match = re.fullmatch(r"5\.0\.(\d+)", version)
+    if version_match is None:
+        raise RuntimeError("Invalid candidate AATE_VERSION")
+    expected_code = 500 + int(version_match[1])
+    if not re.search(rf"versionCode={expected_code}\b", package) or f"versionName={version}" not in package:
+        raise RuntimeError("Installed release version does not match the publishing build")
+    first_before, _ = package_times_8418(previous_package)
+    first_after, last_after = package_times_8418(package)
+    if not first_before or first_before != first_after:
+        raise RuntimeError(f"firstInstallTime changed {first_before} -> {first_after}: the upgrade was not in place")
+    files_after_install = data_files_8418()
+    lost = sorted(files_before - files_after_install)
+    if lost:
+        raise RuntimeError("upgrade install lost app data files: " + ", ".join(lost))
+    compiled = adb("shell", "cmd", "package", "compile", "-m", "verify", "-f", PKG)
+    (output / "art_compile.txt").write_text(compiled)
+    if "Success" not in compiled:
+        raise RuntimeError("ART package verification command did not succeed")
+    candidate_pins = drive_to_first_loop(output / "logcat.txt", "ui.xml")
+    time.sleep(10)
+    if "Set Your PIN" in candidate_pins and "Set Your PIN" in previous_pins:
+        raise RuntimeError("upgraded release asked to SET a PIN again: the previous release's security prefs did not survive")
+    candidate_boot = None
+    for _ in range(30):
+        candidate_boot = bootstrap_8418(output / "logcat.txt")
+        if candidate_boot is not None:
+            break
+        time.sleep(2)
+    if candidate_boot is None:
+        raise RuntimeError("upgraded release logged no CANONICAL_BOOTSTRAP_READY_6515")
+    if candidate_boot[2] != 0:
+        raise RuntimeError(f"upgraded release restored duplicateMints={candidate_boot[2]}")
+    if previous_boot is not None and candidate_boot[0] < previous_boot[0]:
+        raise RuntimeError(f"canonical events reset across upgrade: {previous_boot[0]} -> {candidate_boot[0]}")
+    files_after = data_files_8418()
+    lost = sorted(files_before - files_after)
+    # The installer itself may lose nothing (checked above). At startup the new release may
+    # retire an obsolete file, but never the learning or canonical economic stores.
+    protected_lost = [f for f in lost if f in PROTECTED_STORES_8418]
+    if protected_lost:
+        raise RuntimeError("upgraded release deleted learning/canonical stores at startup: " + ", ".join(protected_lost))
+    (output / "candidate_files.txt").write_text("\n".join(sorted(files_after)) + "\n")
+    (output / "verdict.txt").write_text(
+        "PASS: published-APK upgrade, release version identity, ART verification, service bootstrap, UI Start, first bot-loop tick\n"
+        f"PASS 8418: previous release ran (pins={sorted(previous_pins)} boot={previous_boot}) and created {len(files_before)} data files; "
+        f"install -r in place (firstInstallTime={first_after} lastUpdateTime={last_after}); installer kept every file; "
+        f"retired at startup={lost}; "
+        f"candidate pins={sorted(candidate_pins)} boot={candidate_boot}\n")
+    print((output / "verdict.txt").read_text(), flush=True)
+finally:
+    stop_capture_8418(handle, proc)
+    adb("shell", "am", "force-stop", PKG)

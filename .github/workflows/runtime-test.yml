@@ -25,7 +25,9 @@ concurrency:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    # V5.0.8418 — +~15 min: background (>=3 min), doze, every screen and force-stop recovery
+    # run in the same emulator session after the existing smoke.
+    timeout-minutes: 60
 
     defaults:
       run:
@@ -101,7 +103,9 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           working-directory: .
-          script: bash ci/runtime-test.sh
+          script: |
+            bash ci/runtime-test.sh
+            bash ci/runtime_device_checks_8418.sh
 
       - name: Enforce current 120-second execution-spine witness
         if: ${{ !cancelled() }}
@@ -112,6 +116,17 @@ jobs:
           python3 ci/runtime_evidence.py "$GITHUB_WORKSPACE/logcat_full.txt" \
             --output "$GITHUB_WORKSPACE/runtime_evidence.json" \
             --summary "$GITHUB_WORKSPACE/funnel_summary.txt"
+
+      # V5.0.8418 — each device check is PASS only with its own evidence; a check that never ran
+      # (because the smoke before it failed) is NOT_RUN and fails this step.
+      - name: Enforce V5.0.8418 device checks (background, doze, screens, restart)
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: |
+          set -euo pipefail
+          python3 ci/test_runtime_device_checks_8418.py
+          python3 ci/runtime_device_checks_8418.py enforce "$GITHUB_WORKSPACE/device_checks_8418.json" \
+            --require background_home doze screens report_pre restart
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -129,3 +144,5 @@ jobs:
             runtime_evidence.json
             bootstrap_stage_witness.log
             runtime_anr/
+            device_checks_8418.json
+            device_checks_8418/

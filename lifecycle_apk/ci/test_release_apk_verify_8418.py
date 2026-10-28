@@ -123,7 +123,8 @@ class SecretScan(unittest.TestCase):
         self.assertEqual(self.kinds(self.scan([json.dumps(list(kp))])), ["solana-keypair-json"])
         self.assertEqual(self.kinds(self.scan([kp.hex()])), ["solana-keypair-hex"])
         self.assertEqual(self.kinds(self.scan(["x " + VALID_MNEMONIC])), ["bip39-mnemonic"])
-        self.assertEqual(self.kinds(self.scan(["ok"], extra={"assets/k.pem": "-----BEGIN PRIVATE KEY-----\nAAA"})), ["pem-private-key"])
+        self.assertEqual(self.kinds(self.scan(["ok"], extra={"assets/k.pem": "-----BEGIN PRIVATE KEY-----\n" + "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC" * 3})), ["pem-private-key"])
+        self.assertEqual(self.scan(["-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----"]), [])
         self.assertTrue(all(f["wallet"] for f in self.scan([b58encode(kp)])))
 
     def test_signature_is_not_a_keypair(self):
@@ -250,6 +251,17 @@ class Signing(unittest.TestCase):
         if digest is None:
             self.skipTest("keystore not readable with the public fallback password")
         self.assertEqual(digest, rv.RELEASE_CERT_SHA256_8418)
+
+
+class VersionOrder(unittest.TestCase):
+    def test_monotonic(self):
+        w = []
+        self.assertEqual(rv.version_order_findings(8916, 8917, w), [])
+        self.assertEqual(w, [])
+        self.assertEqual(rv.version_order_findings(8917, 8917, w), [])
+        self.assertEqual(len(w), 1)
+        self.assertTrue(rv.version_order_findings(8917, 8916, []))
+        self.assertTrue(rv.version_order_findings(None, 8916, []))
 
 
 class Identity(unittest.TestCase):

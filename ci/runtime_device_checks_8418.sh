@@ -41,7 +41,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-start_capture() { adb logcat -v time > "$LOG" & LOGCAT_PID=$!; sleep 1; }
+# -T 1: only records written from now on; the ring buffer's older lines (earlier loop ticks)
+# must never count as evidence produced after HOME / doze / force-stop.
+start_capture() { adb logcat -v time -T 1 > "$LOG" & LOGCAT_PID=$!; sleep 2; }
 mark() { wc -l < "$LOG" | tr -d ' '; }
 since() { tail -n +"$(( $1 + 1 ))" "$LOG"; }
 app_pid() { adb shell pidof "$PKG" 2>/dev/null | tr -d '\r' || true; }
@@ -78,24 +80,30 @@ dismiss_system_dialogs() {  # dump file: accept Android's own background-run pro
 }
 crashes_since() { since "$1" > "$OUT/crash_probe.txt"; h crashes "$OUT/crash_probe.txt"; }
 
-pipeline_report() {  # output-file  -> 0 when a report file was pulled
-    local out="$1" attempt m path
+pipeline_report() {  # output-file -> 0 when a generated report carrying the §8324 store line was pulled
+    # The 6308 watchdog may first write a bounded emergency snapshot and the full report
+    # later; every file the app reports writing is read, newest last.
+    local out="$1" attempt m path c deadline
     for attempt in 1 2 3; do
         adb shell am start -W -n "$PKG/com.lifecyclebot.ui.PipelineHealthActivity" >/dev/null 2>&1 || true
         sleep 6
         dump_ui pipeline_report.xml
         dismiss_system_dialogs "$OUT/pipeline_report.xml" && dump_ui pipeline_report.xml
-        local c; c=$(h find "$OUT/pipeline_report.xml" id copyButton) || { sleep 4; continue; }
+        c=$(h find "$OUT/pipeline_report.xml" id copyButton) || { echo "report attempt $attempt: copyButton not rendered"; sleep 4; continue; }
         m=$(mark)
         set -- $c
         adb shell input tap "$1" "$2"
-        if wait_marker_since "$m" 'PIPELINE_REPORT_FILE_WRITTEN_6401' 120; then
-            path=$(since "$m" | grep -o 'PIPELINE_REPORT_FILE_WRITTEN_6401 *path=[^ ]*' | tail -1 | sed 's/.*path=//')
-            if [ -n "$path" ] && adb shell run-as "$PKG" cat "$path" > "$out" 2>/dev/null && [ -s "$out" ]; then
-                if grep -q '§8324 restore without reset' "$out"; then adb shell input keyevent KEYCODE_BACK; return 0; fi
-                echo "report attempt $attempt ($path) has no §8324 store line yet; regenerating"
-            fi
-        fi
+        deadline=$((SECONDS + 150))
+        while [ "$SECONDS" -lt "$deadline" ]; do
+            for path in $(since "$m" | grep -o 'PIPELINE_REPORT_FILE_WRITTEN_6401 *path=[^ ]*' | sed 's/.*path=//'); do
+                if adb shell run-as "$PKG" cat "$path" > "$out.part" 2>/dev/null && [ -s "$out.part" ]; then
+                    mv "$out.part" "$out"
+                    if grep -q '§8324 restore without reset' "$out"; then adb shell input keyevent KEYCODE_BACK; return 0; fi
+                fi
+            done
+            sleep 5
+        done
+        echo "report attempt $attempt: no generated report with the §8324 store line within 150s"
         adb shell input keyevent KEYCODE_BACK
         sleep 5
     done

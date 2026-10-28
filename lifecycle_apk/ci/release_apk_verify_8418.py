@@ -92,7 +92,8 @@ REVIEWED_CREDENTIALS_8418 = {
 }
 
 PLAINTEXT_SECRET_PATTERNS_8418 = [
-    ("pem-private-key", re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----")),
+    # Header AND key material: a parser library's bare header constant is not a key.
+    ("pem-private-key", re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----\s*[A-Za-z0-9+/=\s]{64,}")),
     ("groq-api-key", re.compile(r"\bgsk_[A-Za-z0-9]{40,}")),
     ("openai-api-key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}")),
     ("anthropic-api-key", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{32,}")),
@@ -540,14 +541,26 @@ def cmd_verify(a) -> int:
     return _finish(report, pathlib.Path(a.out_dir, "release_verify_8418.json"))
 
 
+def version_order_findings(previous, candidate, warnings: list) -> list:
+    """Android refuses a lower versionCode over an installed one (owner would have to uninstall
+    and lose wallet/learning data). An equal code is a same-version rebuild (main commits that do
+    not bump AATE_VERSION): installable, but reported so it is never mistaken for a new release."""
+    if not previous or not candidate:
+        return [f"versionCode unreadable: previous={previous} candidate={candidate}"]
+    if candidate < previous:
+        return [f"versionCode decreases: previous={previous} candidate={candidate} (Android rejects the downgrade)"]
+    if candidate == previous:
+        warnings.append(f"versionCode {candidate} equals the previous published APK (same-version rebuild; bump AATE_VERSION to release)")
+    return []
+
+
 def cmd_compare(a) -> int:
     report = {"errors": [], "warnings": []}
     new_signer, new_badging = apk_facts(pathlib.Path(a.apk))
     old_signer, old_badging = apk_facts(pathlib.Path(a.previous))
     report.update(candidate=new_badging, previous=old_badging,
                   candidate_cert=new_signer["cert_sha256"], previous_cert=old_signer["cert_sha256"])
-    if not old_badging.get("versionCode") or not new_badging.get("versionCode") or new_badging["versionCode"] <= old_badging["versionCode"]:
-        report["errors"].append(f"versionCode does not increase: previous={old_badging.get('versionCode')} candidate={new_badging.get('versionCode')}")
+    report["errors"] += version_order_findings(old_badging.get("versionCode"), new_badging.get("versionCode"), report["warnings"])
     if old_signer["cert_sha256"] != new_signer["cert_sha256"]:
         report["errors"].append(f"signer changed {old_signer['cert_sha256']} -> {new_signer['cert_sha256']}: Android rejects the upgrade")
     if old_badging.get("package") != new_badging.get("package"):
