@@ -291,6 +291,10 @@ object UnifiedExitPolicyHead {
         if (!LearningEnvironment7835.isCanonical()) return
         try {
             val rec = pending.remove(mint) ?: return
+            // V5.0.8418 — one weight set serves the runtime: it learns from the runtime's own book (the canonical scope's
+            // mode). Once per close: the pending stamp is consumed by the first delivery.
+            if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admitRuntimeBook8418("UnifiedExitPolicyHead", "",
+                    LearningEnvironment7835.mode())) return
             val (lane, x) = rec
             val y = if (exitWasOptimal) 1.0 else 0.0
 

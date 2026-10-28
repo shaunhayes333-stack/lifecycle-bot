@@ -357,6 +357,8 @@ object ExitProfile7955 {
             try { PipelineHealthCollector.labelInc("EXIT_PROFILE_NONCHAIN_CLOSE_EXCLUDED_8081") } catch (_: Throwable) {}
             return
         }
+        // V5.0.8418 — called straight from publish(): once per close, a restart republish is refused.
+        if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("ExitProfile7955.close", env.tradeId, env.mode)) return
         val entryMs = env.atMs - env.holdingTimeMs.coerceAtLeast(0L)
         val planKey = positionPlans.keys.firstOrNull { it.startsWith(env.mint + "|") && kotlin.math.abs((it.substringAfter('|').toLongOrNull() ?: 0L) - entryMs) < 120_000L }
         val plan = planKey?.let { positionPlans.remove(it) }

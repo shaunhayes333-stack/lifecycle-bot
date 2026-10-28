@@ -1577,6 +1577,9 @@ object PipelineHealthCollector {
         sb.append("  Exit thresholds (§8418): ").append(
             try { ExitThresholds8418.statusLine8418() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Learner attribution (§8418): ").append(
+            try { com.lifecyclebot.engine.truth.LearnerAttribution8418.statusLine8418() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Dead charts (§8027): ").append(
             try { FlatChart8027.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
