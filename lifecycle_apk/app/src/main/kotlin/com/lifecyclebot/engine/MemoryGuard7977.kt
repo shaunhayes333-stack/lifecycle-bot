@@ -394,6 +394,42 @@ object MemoryGuard7977 {
         registerStores8289(r)  // V5.0.8289
         registerStores8305(r)  // V5.0.8305
         registerStores8309(r)  // V5.0.8309
+        registerStores8418(r)  // V5.0.8418
+    }
+
+    /**
+     * V5.0.8418 — 5.0.8416 read censusMb=200 against a 360 MB heap: 160 MB the census could not name. These per-key stores
+     * were written for every mint / symbol the bot ever saw and removed by nothing (each owner now bounds itself at write
+     * with MemoryBounds8289: TTL first, then the oldest): the order-book pulse deques, the chart-insight lists and
+     * aggregated signals, the LLM narrative / exit-advice / vote caches (whose own cleanup() had no caller), the mark
+     * freshness telemetry, the executable-quote repairs and three throttle-stamp maps. They are registered here so the
+     * census names them and a pressure trim runs their bound. No learning or ledger state is among them; the no-trade
+     * observation ring (already capped at write) is counted as "capped".
+     */
+    private fun registerStores8418(r: MemoryRegistry8144) {
+        r.register8144("orderbookPulse8418", 3_200L, { com.lifecyclebot.v3.scoring.OrderbookImbalancePulseAI.count8418() },
+            { _ -> com.lifecyclebot.v3.scoring.OrderbookImbalancePulseAI.bound8418() })
+        r.register8144("chartInsights8418", 2_400L, { SuperBrainEnhancements.count8418() }, { _ -> SuperBrainEnhancements.bound8418() })
+        r.register8144("llmNarratives8418", 2_048L, { AsyncGeminiNarrativeCache6478.count8418() + GeminiCopilot.count8418() }, { _ ->
+            AsyncGeminiNarrativeCache6478.bound8418(); GeminiCopilot.bound8418()
+        })
+        r.register8144("llmExitAdvice8418", 512L, { AsyncGeminiExitAdviceCache6479.count8418() }, { _ -> AsyncGeminiExitAdviceCache6479.bound8418() })
+        r.register8144("llmVotes8418", 160L, { SentienceHooks.count8418() }, { _ -> SentienceHooks.bound8418() })
+        r.register8144("markFreshness8418", 200L, { com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832.count8418() },
+            { _ -> com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832.bound8418() })
+        r.register8144("execQuoteRepairs8418", 200L, { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.count8418() },
+            { _ -> com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.bound8418() })
+        r.register8144("throttleStamps8418", 150L, {
+            BirdeyeWhaleFeeder.count8418() + com.lifecyclebot.v3.scoring.ProjectSniperAI.count8418() +
+                com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.count8418()
+        }, { _ ->
+            BirdeyeWhaleFeeder.bound8418(); com.lifecyclebot.v3.scoring.ProjectSniperAI.bound8418()
+            com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.bound8418()
+        })
+        r.register8144("noTradeObservations8418", 1_200L, {
+            com.lifecyclebot.engine.learning.NoTradeObservationStore.snapshot().ringSize
+        }, null)
+        r.markKind8309("noTradeObservations8418", "capped")
     }
 
     /**
@@ -482,6 +518,10 @@ object MemoryGuard7977 {
         r.register8144("serviceQueues8309", 1_024L, { executorQueued8309() }, null)
         // Android holds every opened SharedPreferences file as a parsed map of Strings (UTF-16: ~2x the XML on disk).
         r.register8144("prefsMirror8309", 0L, { -1 }, null) { prefsBytes8309 * 2L }
+        // V5.0.8418 — the bot service's per-mint throttle stamps (bounded on every watchdog pass; trimmed here too).
+        r.register8144("serviceStamps8418", 180L, { BotService.instance?.serviceStampCount8418() ?: -1 }, { _ ->
+            BotService.instance?.boundServiceStamps8418(System.currentTimeMillis())
+        })
         for ((name, kind) in listOf(
             "tokenRows" to "guardPass", "tokenArchive" to "guardPass", "fdgSeals" to "guardPass", "chartLibrary" to "fixed",
             "labeler" to "ledger", "policyHeadStamps" to "ledger", "metaPolicyStamps" to "ledger", "pipelineLabels" to "capped",
@@ -501,6 +541,19 @@ object MemoryGuard7977 {
 
     /** V5.0.8309 — bytes of SharedPreferences XML on disk (census8031, every 60 s). */
     @Volatile private var prefsBytes8309 = 0L
+    @Volatile private var prefsArchivedBytes8418 = 0L
+
+    /**
+     * V5.0.8418 — Pure: is this shared_prefs file one Android parses into memory? Only `<name>.xml` is. 5.0.8416 counted
+     * every file in the directory as the in-memory mirror, including the 18 MB `aate_explore_shadow_8347.xml.migrated8397`
+     * archive the shadow cold store left after moving that book to SQLite (never opened again) and `.bak` write copies:
+     * prefsMirror8309 read 57 MB, about 36 MB of it files no process holds, so the census pointed at the wrong store.
+     */
+    fun residentPrefsFile8418(fileName: String): Boolean = fileName.endsWith(".xml")
+
+    /** V5.0.8418 — Pure: bytes of the loaded prefs files among [sizesByFileName] (file name -> bytes on disk). */
+    fun residentPrefsBytes8418(sizesByFileName: Map<String, Long>): Long =
+        sizesByFileName.entries.filter { residentPrefsFile8418(it.key) }.sumOf { it.value.coerceAtLeast(0L) }
     @Volatile private var residueFirstTickMs8309 = 0L
 
     /**
@@ -681,10 +734,12 @@ object MemoryGuard7977 {
         census8031 = try {
             val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: return "-"
             val prefsDir = java.io.File(ctx.applicationInfo.dataDir, "shared_prefs")
-            val prefs = prefsDir.listFiles()?.associate { it.name.removeSuffix(".xml") to it.length() }.orEmpty()
-            prefsBytes8309 = prefs.values.sum()   // V5.0.8309
+            val prefsFiles8418 = prefsDir.listFiles()?.associate { it.name to it.length() }.orEmpty()
+            val prefs = prefsFiles8418.filterKeys { residentPrefsFile8418(it) }.mapKeys { it.key.removeSuffix(".xml") }
+            prefsBytes8309 = residentPrefsBytes8418(prefsFiles8418)   // V5.0.8309; V5.0.8418 — loaded files only
+            prefsArchivedBytes8418 = prefsFiles8418.values.sum() - prefsBytes8309
             val files = ctx.filesDir.walkTopDown().maxDepth(2).filter { it.isFile }.associate { it.name to it.length() }
-            "prefsTotal=${prefs.values.sum() / 1024}KB prefsTop=[${topSizes8031(prefs)}] filesTotal=${files.values.sum() / 1024}KB filesTop=[${topSizes8031(files)}] " +
+            "prefsTotal=${prefs.values.sum() / 1024}KB prefsNotLoaded8418=${prefsArchivedBytes8418 / 1024}KB prefsTop=[${topSizes8031(prefs)}] filesTotal=${files.values.sum() / 1024}KB filesTop=[${topSizes8031(files)}] " +
                 "labelLoad=${"%.2f".format(try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.pendingLoad8031() } catch (_: Throwable) { -1.0 })}"
         } catch (_: Throwable) { "census_failed" }
         return census8031

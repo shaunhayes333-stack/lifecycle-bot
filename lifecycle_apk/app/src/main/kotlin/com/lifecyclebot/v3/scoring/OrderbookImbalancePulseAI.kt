@@ -31,6 +31,15 @@ object OrderbookImbalancePulseAI {
 
     private val history = ConcurrentHashMap<String, ArrayDeque<Sample>>()
 
+    // V5.0.8418 — one 60-sample deque per mint EVER scored (~3 KB each) and removed by nothing; the pulse reads only the last
+    // 30 s, so a mint silent for [STALE_MS_8418] has nothing left to say. Bounded at write and by MemoryGuard7977's census.
+    private const val MAX_MINTS_8418 = 2_000
+    private const val STALE_MS_8418 = 10L * 60_000L
+    private fun lastTs8418(dq: ArrayDeque<Sample>): Long = synchronized(dq) { dq.peekLast()?.ts ?: 0L }
+    fun count8418(): Int = history.size
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int =
+        com.lifecyclebot.engine.truth.MemoryBounds8289.capByAge8289(history, MAX_MINTS_8418, STALE_MS_8418, nowMs) { lastTs8418(it) }
+
     /** V5.9.362 — wiring health: total samples across all tracked mints (floor 3). */
     fun getWiringHealth(): Triple<Int, Int, Boolean> {
         val total = history.values.sumOf { dq -> synchronized(dq) { dq.size } }
@@ -43,6 +52,7 @@ object OrderbookImbalancePulseAI {
             dq.addLast(Sample(System.currentTimeMillis(), buyPressurePct))
             while (dq.size > MAX_SAMPLES) dq.removeFirst()
         }
+        if (history.size > MAX_MINTS_8418) bound8418()
     }
 
     /** Positive = buy-side spike, negative = sell-side spike. pts over WINDOW_MS. */

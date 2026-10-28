@@ -45,6 +45,17 @@ object SentienceHooks {
     private val vetoInFlight6678 = ConcurrentHashMap.newKeySet<String>()
     private const val CACHE_TTL_MS = 60_000L
 
+    // V5.0.8418 — one LLM vote / exit / size answer per symbol ever asked, read only inside CACHE_TTL_MS, removed by nothing.
+    private const val MAX_CACHE_8418 = 2_000
+    fun count8418(): Int = vetoCache.size + exitCache.size + sizeCache.size
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int {
+        val b = com.lifecyclebot.engine.truth.MemoryBounds8289
+        return b.capByAge8289(vetoCache, MAX_CACHE_8418, CACHE_TTL_MS, nowMs) { it.ts } +
+            b.capByAge8289(exitCache, MAX_CACHE_8418, CACHE_TTL_MS, nowMs) { it.ts } +
+            b.capByAge8289(sizeCache, MAX_CACHE_8418, CACHE_TTL_MS, nowMs) { it.ts }
+    }
+    internal fun putVoteForTest8418(symbol: String, allow: Boolean, atMs: Long) { vetoCache[symbol] = VetoResult(allow, atMs) }
+
     private val llmEntryRequests6678 = AtomicLong(0L)
     private val llmEntryVotes6678 = AtomicLong(0L)
     private val llmEntryVetoes6678 = AtomicLong(0L)
@@ -181,6 +192,7 @@ object SentienceHooks {
                                     !advice.contains("avoid", ignoreCase = true) &&
                                     !advice.contains("rug",   ignoreCase = true)
                         vetoCache[symbol] = VetoResult(allow, System.currentTimeMillis())
+                        if (vetoCache.size > MAX_CACHE_8418) bound8418()
                         llmEntryVotes6678.incrementAndGet()
                         if (!allow) {
                             llmEntryVetoes6678.incrementAndGet()
@@ -221,6 +233,7 @@ object SentienceHooks {
                     val ex = advice.contains("EXIT", ignoreCase = true) &&
                              !advice.contains("HOLD", ignoreCase = true)
                     exitCache[symbol] = ExitResult(ex, System.currentTimeMillis())
+                    if (exitCache.size > MAX_CACHE_8418) bound8418()
                     if (ex) ErrorLogger.info(TAG, "🚨 LLM EXIT suggested for $symbol @ ${"%.1f".format(pnlPct)}%")
                 }
             }
@@ -394,6 +407,7 @@ object SentienceHooks {
                         else -> 1.0
                     }.coerceIn(0.5, 1.5)
                     sizeCache[key] = SizeResult(proposed, System.currentTimeMillis())
+                    if (sizeCache.size > MAX_CACHE_8418) bound8418()
                 }
             }
         }

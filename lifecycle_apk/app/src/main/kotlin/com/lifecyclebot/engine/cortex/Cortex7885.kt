@@ -159,6 +159,8 @@ object Cortex7885 {
         if (ts.mint.isBlank() || laneRaw.isBlank()) return null
         val lane = canon(laneRaw)
         val key = "${ts.mint}|$lane"
+        // V5.0.8418 — the coin reached scoring: a first-block scan deferred at its safety check is released now.
+        try { com.lifecyclebot.engine.BundleScanScope8418.noteScored8418(ts.mint, nowMs) } catch (_: Throwable) {}
         assessCache[key]?.let { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
         ensureLoaded()
         val t0 = System.nanoTime()

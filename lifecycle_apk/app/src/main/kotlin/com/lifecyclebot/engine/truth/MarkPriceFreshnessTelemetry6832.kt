@@ -83,6 +83,14 @@ object MarkPriceFreshnessTelemetry6832 {
 
     private val states = ConcurrentHashMap<String, State>()
 
+    // V5.0.8418 — one State per mint ever marked, removed by nothing. Telemetry only; a mint unmarked for STALE_MS_8418
+    // starts a fresh State if it is marked again. Bounded at write and by MemoryGuard7977's census.
+    private const val MAX_MINTS_8418 = 4_000
+    private const val STALE_MS_8418 = 30L * 60_000L
+    fun count8418(): Int = states.size
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int =
+        MemoryBounds8289.capByAge8289(states, MAX_MINTS_8418, STALE_MS_8418, nowMs) { it.lastObservationMs }
+
     private val observations = AtomicLong(0L)
     private val freshCount = AtomicLong(0L)
     private val carryForwardTotal = AtomicLong(0L)
@@ -107,6 +115,7 @@ object MarkPriceFreshnessTelemetry6832 {
                 changeCount = 1L,
             )
             distinctMints.incrementAndGet()
+            if (states.size > MAX_MINTS_8418) bound8418(now)
             freshCount.incrementAndGet()
             try { PipelineHealthCollector.labelInc("MARK_FRESHNESS_FIRST_SEEN_6832") } catch (_: Throwable) {}
             return

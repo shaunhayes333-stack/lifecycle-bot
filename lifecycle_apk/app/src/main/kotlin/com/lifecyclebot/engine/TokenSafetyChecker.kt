@@ -1012,7 +1012,8 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // uses the first-block vote there (BUNDLE_SCAN was 43.3k of 65.9k credits on 5.0.8175).
         if (bundle7763 == null && ageMinutes <= BundleDetector.LAUNCH_VISIBLE_MINUTES_7881 && hard.isEmpty() &&
             com.lifecyclebot.engine.cortex.Cortex7885.enrichmentWorth(com.lifecyclebot.engine.cortex.CortexVoters7885.FIRST_BLOCK_SUPPLY)) {
-            try { BundleDetector.requestAsync7763(mint, symbol, cfg().heliusApiKey) } catch (_: Throwable) {}
+            // V5.0.8418 — scanned only once the coin reaches scoring (BundleScanScope8418): deferred until then.
+            try { BundleScanScope8418.requestOrDefer8418(mint, symbol, cfg().heliusApiKey) } catch (_: Throwable) {}
         }
         val bundleRisk = bundle7763?.bundleRisk?.name ?: "UNKNOWN"
         val bundleType = bundle7763?.bundleType?.name ?: "NONE"

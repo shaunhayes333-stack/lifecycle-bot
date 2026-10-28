@@ -17,6 +17,13 @@ object AsyncGeminiExitAdviceCache6479 {
     private val cache = ConcurrentHashMap<String, Entry>()
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
 
+    // V5.0.8418 — one advice per mint x pnl bucket x peak bucket ever asked, unreadable past TTL_MS, removed by nothing.
+    private const val MAX_8418 = 1_000
+    fun count8418(): Int = cache.size
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int =
+        com.lifecyclebot.engine.truth.MemoryBounds8289.capByAge8289(cache, MAX_8418, TTL_MS, nowMs) { it.updatedAtMs }
+    internal fun putForTest8418(k: String, e: Entry) { cache[k] = e }
+
     private fun key(mint: String, pnlPct: Double, peakPct: Double): String =
         "$mint|p${floor(pnlPct / 5.0).toInt()}|h${floor(peakPct / 5.0).toInt()}"
 
@@ -35,6 +42,7 @@ object AsyncGeminiExitAdviceCache6479 {
                 try {
                     val advice = GeminiCopilot.getExitAdvice(ts, currentPnlPct, holdTimeMinutes, peakPnlPct, recentPriceAction)
                     cache[k] = Entry(advice, System.currentTimeMillis())
+                    if (cache.size > MAX_8418) bound8418()
                     try { PipelineHealthCollector.labelInc("GEMINI_EXIT_CACHE_REFRESHED_6479") } catch (_: Throwable) {}
                 } catch (_: Throwable) {
                     try { PipelineHealthCollector.labelInc("GEMINI_EXIT_CACHE_REFRESH_FAILED_6479") } catch (_: Throwable) {}

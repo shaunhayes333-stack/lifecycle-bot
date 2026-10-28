@@ -48,6 +48,14 @@ object Awake8010 {
         lastElapsed = elapsedRealtimeMs; lastUptime = uptimeMs
     }
 
+    /**
+     * V5.0.8418 — a bot start re-bases the tick clock. 5.0.8416 reported tickGapMax=6502 s (and cpuSuspends=1, 1617 s)
+     * across a stop the owner made: the first tick after the restart was measured from the last tick before the stop, and
+     * the phone sleeping while the bot was stopped (wake lock released) was booked as the app being suspended.
+     */
+    @Synchronized
+    fun resetBaseline8418() { lastElapsed = 0L; lastUptime = 0L }
+
     fun noteEnvironment(batteryWhitelisted: Boolean?, canScheduleExact: Boolean?) {
         whitelisted = batteryWhitelisted; exactAlarms = canScheduleExact
     }

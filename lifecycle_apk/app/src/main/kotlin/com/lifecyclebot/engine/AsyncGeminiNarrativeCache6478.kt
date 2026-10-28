@@ -19,6 +19,13 @@ object AsyncGeminiNarrativeCache6478 {
     private val cache = ConcurrentHashMap<String, Entry>()
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
 
+    // V5.0.8418 — one LLM narrative per symbol|name ever asked, unreadable past TTL_MS and removed by nothing.
+    private const val MAX_8418 = 1_000
+    fun count8418(): Int = cache.size
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int =
+        com.lifecyclebot.engine.truth.MemoryBounds8289.capByAge8289(cache, MAX_8418, TTL_MS, nowMs) { it.updatedAtMs }
+    internal fun putForTest8418(k: String, e: Entry) { cache[k] = e }
+
     private fun key(symbol: String, name: String): String =
         "${symbol.trim().uppercase()}|${name.trim().uppercase()}"
 
@@ -60,6 +67,7 @@ object AsyncGeminiNarrativeCache6478 {
                         symbol = symbol, name = name, description = "", socialMentions = emptyList(),
                     )
                     cache[k] = Entry(quick, analysis, System.currentTimeMillis())
+                    if (cache.size > MAX_8418) bound8418()
                     try { PipelineHealthCollector.labelInc("GEMINI_NARRATIVE_CACHE_REFRESHED_6478") } catch (_: Throwable) {}
                 } catch (_: Throwable) {
                     try { PipelineHealthCollector.labelInc("GEMINI_NARRATIVE_CACHE_REFRESH_FAILED_6478") } catch (_: Throwable) {}

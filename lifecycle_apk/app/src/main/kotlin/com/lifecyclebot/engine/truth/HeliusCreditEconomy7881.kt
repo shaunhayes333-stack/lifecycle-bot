@@ -587,6 +587,8 @@ object HeliusCreditEconomy7881 {
                     val r = byConsumer[c.name]
                     "${c.name}=${r?.get(0)?.toLong() ?: 0}/${k(r?.get(1) ?: 0.0)}/${r?.get(2)?.toLong() ?: 0} v=${"%.2f".format(valueOf(c))}"
                 } + "\n" +
+                "  free-first 8418: " + (try { HeliusCandleGate8418.statusLine8418() } catch (_: Throwable) { "candleGate8418 -" }) + " " +
+                    (try { com.lifecyclebot.engine.BundleScanScope8418.statusLine8418() } catch (_: Throwable) { "bundleScope8418 -" }) + "\n" +
                 "  ws bytes: " + wsBytes.entries.joinToString(" · ") { "${it.key}=${"%.1f".format(it.value.get() / 1_048_576.0)}MB(${k(creditsForWsBytes(it.value.get()))})" }.ifBlank { "-" } + "\n" +
                 "  read: EXECUTION is not locally budget-gated; DECISION and ENRICHMENT can be locally refused by budget/exhaustion; enrichment is also value-paced"
         }

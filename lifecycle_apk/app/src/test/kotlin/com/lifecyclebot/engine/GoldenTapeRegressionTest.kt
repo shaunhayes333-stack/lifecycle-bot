@@ -14701,7 +14701,11 @@ class GoldenTapeRegressionTest {
     fun V5_0_7763_bundle_dev_wallet_holder_inputs_and_moonshot_signals_reach_their_readers() {
         val sc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
         assertTrue(sc.contains("BundleDetector.cachedFresh7763(mint)"))
-        assertTrue(sc.contains("BundleDetector.requestAsync7763(mint, symbol, cfg().heliusApiKey)"))
+        // superseded by V5.0.8418 — the safety check's first-block request now goes through BundleScanScope8418, which
+        // scans at once a coin that reached scoring and otherwise defers the same BundleDetector.requestAsync7763 call to it.
+        assertTrue(sc.contains("BundleScanScope8418.requestOrDefer8418(mint, symbol, cfg().heliusApiKey)"))
+        assertTrue(java.io.File("src/main/kotlin/com/lifecyclebot/engine/BundleScanScope8418.kt").readText()
+            .contains("BundleDetector.requestAsync7763(mint, symbol, key)"))
         assertFalse(sc.contains("val bundleRisk = \"UNKNOWN\""))
         val bd = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BundleDetector.kt").readText()
         assertTrue(bd.contains("if (inFlight7763.size >= 4 || !inFlight7763.add(mint)) return"))

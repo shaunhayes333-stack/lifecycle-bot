@@ -44,6 +44,17 @@ object SuperBrainEnhancements {
     )
     
     private val chartInsights = ConcurrentHashMap<String, MutableList<ChartInsight>>()
+
+    // V5.0.8418 — up to 50 insights per mint for every mint the chart scanner ever saw, and an aggregated signal per mint
+    // (read only inside 5 min), removed only by clear(). Bounded at write and by MemoryGuard7977's census.
+    private const val MAX_MINTS_8418 = 2_000
+    private const val INSIGHT_KEEP_MS_8418 = 60L * 60_000L
+    private const val SIGNAL_KEEP_MS_8418 = 5L * 60_000L
+    fun count8418(): Int = chartInsights.size + aggregatedSignals.size
+    fun bound8418(nowMs: Long = System.currentTimeMillis()): Int =
+        com.lifecyclebot.engine.truth.MemoryBounds8289.capByAge8289(chartInsights, MAX_MINTS_8418, INSIGHT_KEEP_MS_8418, nowMs) { l ->
+            synchronized(l) { l.lastOrNull()?.timestampMs ?: 0L }
+        } + com.lifecyclebot.engine.truth.MemoryBounds8289.capByAge8289(aggregatedSignals, MAX_MINTS_8418, SIGNAL_KEEP_MS_8418, nowMs) { it.timestampMs }
     private val insightCounter = AtomicLong(0)
     
     /**
@@ -78,6 +89,7 @@ object SuperBrainEnhancements {
             }
             
             insightCounter.incrementAndGet()
+            if (chartInsights.size > MAX_MINTS_8418) bound8418()
             
             // Log significant patterns
             if (confidence >= 70) {
@@ -313,6 +325,7 @@ object SuperBrainEnhancements {
             }
             
             aggregatedSignals[mint] = newSignal
+            if (aggregatedSignals.size > MAX_MINTS_8418) bound8418(now)
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "recordSignal error: ${e.message}")
         }

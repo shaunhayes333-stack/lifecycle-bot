@@ -48,6 +48,10 @@ object PumpFunCandles8359 {
     private val refused = AtomicLong(0L)
     private val unitRejected = AtomicLong(0L)
     private val cacheServed = AtomicLong(0L)
+    // V5.0.8418 — 5.0.8416 read asked=664 served=0 refused=2: 662 answers left no trace. Each outcome is counted now.
+    private val circuitBlocked8418 = AtomicLong(0L)
+    private val nonSuccess8418 = AtomicLong(0L)
+    private val emptyBars8418 = AtomicLong(0L)
 
     /** Pure: the back-off after the [level]-th consecutive refusal (60 s doubling, capped at 15 min). */
     fun backoffMs8359(level: Int): Long = (BACKOFF_BASE_MS_8359 shl level.coerceIn(0, 4)).coerceAtMost(BACKOFF_MAX_MS_8359)
@@ -134,16 +138,16 @@ object PumpFunCandles8359 {
         val now = System.currentTimeMillis()
         val body: String? = try {
             com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, "pumpfun_candles_8359").use { r ->
-                if (HostCircuitInterceptor.isSyntheticBlock(r)) return
+                if (HostCircuitInterceptor.isSyntheticBlock(r)) { circuitBlocked8418.incrementAndGet(); refuse8359(now); return }
                 code8418 = r.code
                 val b = r.body?.string()
                 if (r.code == 403 || r.code == 429 || r.code >= 500 || com.lifecyclebot.engine.chart.ChartParsers7955.isChallenge7955(r.code, b)) {
                     refuse8359(now); return
                 }
-                if (!r.isSuccessful) null else b
+                if (!r.isSuccessful) { nonSuccess8418.incrementAndGet(); null } else b
             }
         } catch (_: Throwable) { refuse8359(now); return }
-        if (body.isNullOrBlank()) { onRouteAnswer8418(code8418, true); return }
+        if (body.isNullOrBlank()) { emptyBars8418.incrementAndGet(); onRouteAnswer8418(code8418, true); return }
         val arr = try {
             val t = body.trimStart()
             if (t.startsWith("[")) JSONArray(t) else JSONObject(t).let { o -> o.optJSONArray("candles") ?: o.optJSONArray("data") ?: JSONArray() }
@@ -152,7 +156,7 @@ object PumpFunCandles8359 {
         onRouteAnswer8418(code8418, bars.isEmpty())
         level = 0
         closedUntilMs = 0L
-        if (bars.isEmpty()) return
+        if (bars.isEmpty()) { emptyBars8418.incrementAndGet(); return }
         val scale = unitScale8359(bars.last().c, refUsd, solUsd)
         if (scale == null) { unitRejected.incrementAndGet(); return }
         val candles = bars.map { b ->
@@ -169,7 +173,7 @@ object PumpFunCandles8359 {
     /** pumpCandles8359[asked=.. served=.. cacheServed=.. refused=.. unitRejected=.. closedS=.. level=..] */
     fun statusLine8359(nowMs: Long = System.currentTimeMillis()): String =
         "pumpCandles8359[asked=${asked.get()} served=${served.get()} cacheServed=${cacheServed.get()} refused=${refused.get()} " +
-            "unitRejected=${unitRejected.get()} closedS=${((closedUntilMs - nowMs) / 1000L).coerceAtLeast(0L)} level=$level route8418=$routeIdx8418]"
+            "unitRejected=${unitRejected.get()} circuitBlocked8418=${circuitBlocked8418.get()} nonSuccess8418=${nonSuccess8418.get()} empty8418=${emptyBars8418.get()} closedS=${((closedUntilMs - nowMs) / 1000L).coerceAtLeast(0L)} level=$level route8418=$routeIdx8418]"
 }
 
 /** V5.0.8359 — SolanaOhlcvFeed6916's pump.fun step for a curve coin with no local series: refs read here, units checked. */
