@@ -1564,6 +1564,7 @@ object PipelineHealthCollector {
             try { com.lifecyclebot.engine.truth.OnChainDepth8038.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
         sb.append("  Market RPC outcomes (§8418): ").append(com.lifecyclebot.network.RpcOutcome8418.reportLine8418()).append("\n")  // V5.0.8418
+        sb.append("  Leaderboard routes (§8418): ").append(try { LeaderboardRoutes8418.statusLine8418() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Lane participation (§8029): ").append(
             try { LaneParticipation8029.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

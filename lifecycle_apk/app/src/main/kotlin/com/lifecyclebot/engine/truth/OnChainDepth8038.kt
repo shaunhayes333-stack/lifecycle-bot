@@ -186,10 +186,44 @@ object OnChainDepth8038 {
         if (mint.isBlank() || freshRead8198(mint, maxAgeMs, System.currentTimeMillis()) != null || depthOnlyFresh8418(mint, maxAgeMs) || !inFlight.add(mint)) return
         val ps = pools(ts)
         if (ps.isEmpty()) { inFlight.remove(mint); return }
+        // V5.0.8418 — background reads are batched (PoolBatch8418: pool + vault accounts, up to 100 keys a
+        // getMultipleAccounts, one entry per mint); the per-mint executor is the fallback when the batch refuses.
+        if (PoolBatch8418.enqueue8418(mint, ps.take(2))) return
         try {
             pool.execute { try { fetch(mint, ps) } finally { inFlight.remove(mint) } }
         } catch (_: Throwable) { inFlight.remove(mint) }
     }
+
+    /** V5.0.8418 — PoolBatch8418 has finished with [mint] (answered or not): a later request may ask again. */
+    internal fun batchDone8418(mint: String) { inFlight.remove(mint) }
+
+    /** V5.0.8418 — the vault keys and owner program of [poolAddr] when already decoded, else null. */
+    internal fun knownPool8418(poolAddr: String): Pair<Pair<String, String>, String>? {
+        val v = vaultsOf[poolAddr] ?: return null
+        val o = poolOwner8418[poolAddr] ?: return null
+        return v to o
+    }
+
+    /** V5.0.8418 — a pool marked unsupported inside its retry window (not asked again yet). */
+    internal fun unsupportedNow8418(poolAddr: String, nowMs: Long): Boolean =
+        unsupported[poolAddr]?.let { nowMs - it <= UNSUPPORTED_RETRY_MS } ?: false
+
+    /** V5.0.8418 — a batch answered no account for [poolAddr]. */
+    internal fun noPoolAccount8418(poolAddr: String) { unsupported[poolAddr] = System.currentTimeMillis() }
+
+    /** V5.0.8418 — a batched vault read for [mint] got no RPC answer (the cause is counted by RpcOutcome8418). */
+    internal fun batchFailed8418(mint: String) { failed.incrementAndGet() }
+
+    /**
+     * V5.0.8418 — the account keys one read of [poolAddr] needs: its two vaults, plus the pool account itself on a venue
+     * whose spot price lives in pool state (ConcentratedPrice8418).
+     */
+    internal fun readKeys8418(vaults: Pair<String, String>, poolAddr: String, owner: String): List<String> =
+        if (priceInState8418(owner)) listOf(vaults.first, vaults.second, poolAddr) else listOf(vaults.first, vaults.second)
+
+    /** V5.0.8418 — venues whose spot price is decoded from the pool account (CLMM sqrt, Whirlpool sqrt, DLMM bin). */
+    internal fun priceInState8418(owner: String): Boolean =
+        owner == RAYDIUM_CLMM_8418 || owner == ORCA_WHIRLPOOL_8418 || owner == METEORA_DLMM_8418
 
     private val pool: java.util.concurrent.ThreadPoolExecutor by lazy {
         java.util.concurrent.ThreadPoolExecutor(
@@ -213,8 +247,18 @@ object OnChainDepth8038 {
         vaultsOf[poolAddr]?.let { return it }
         val res = rpc("getAccountInfo", JSONArray().put(poolAddr).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed"))) ?: return null
         val v = res.optJSONObject("value") ?: run { unsupported[poolAddr] = System.currentTimeMillis(); return null }
-        val owner = v.optString("owner")
-        val data = try { android.util.Base64.decode(v.optJSONArray("data")?.optString(0).orEmpty(), android.util.Base64.DEFAULT) } catch (_: Throwable) { null }
+        return adoptPool8418(poolAddr, v.optString("owner"), accountData8418(v))
+    }
+
+    /** V5.0.8418 — the raw bytes of an account answer encoded base64 (also jsonParsed's fallback for unparsed programs). */
+    internal fun accountData8418(acct: JSONObject?): ByteArray? {
+        val arr = acct?.optJSONArray("data") ?: return null
+        if (arr.optString(1) != "base64") return null
+        return try { java.util.Base64.getDecoder().decode(arr.optString(0).orEmpty()) } catch (_: Throwable) { null }
+    }
+
+    /** V5.0.8418 — decode a fetched pool account's vault keys (or mark it unsupported, counted by venue). */
+    internal fun adoptPool8418(poolAddr: String, owner: String, data: ByteArray?): Pair<String, String>? {
         val keys = data?.let { vaultKeys8038(owner, it) } ?: run {
             unsupported[poolAddr] = System.currentTimeMillis()
             // V5.0.8418 — an unreadable venue's depth is UNKNOWN (never estimated); the diag names the venue.
@@ -234,40 +278,77 @@ object OnChainDepth8038 {
         return info.optString("mint") to amt
     }
 
+    private fun parsedDecimals8418(acct: JSONObject?): Int? =
+        acct?.optJSONObject("data")?.optJSONObject("parsed")?.optJSONObject("info")?.optJSONObject("tokenAmount")
+            ?.takeIf { it.has("decimals") }?.optInt("decimals", -1)?.takeIf { it in 0..18 }
+
     private fun fetch(mint: String, poolAddrs: List<String>): Read? {
         for (p in poolAddrs.take(2)) {
-            val (a, b) = vaultsFor(p) ?: continue
+            val vaults = vaultsFor(p) ?: continue
             // V5.0.8418 — the venue decides how the vaults may be read; vaults without a known owner are re-read.
             val owner8418 = poolOwner8418[p] ?: run { vaultsOf.remove(p); null } ?: continue
             val observedAt = System.currentTimeMillis()
-            val res = rpc("getMultipleAccounts", JSONArray().put(JSONArray().put(a).put(b)).put(JSONObject().put("encoding", "jsonParsed").put("commitment", "confirmed")))
+            val keys8418 = JSONArray().apply { readKeys8418(vaults, p, owner8418).forEach { put(it) } }
+            val res = rpc("getMultipleAccounts", JSONArray().put(keys8418).put(JSONObject().put("encoding", "jsonParsed").put("commitment", "confirmed")))
             val arr = res?.optJSONArray("value")
             if (arr == null) { failed.incrementAndGet(); continue }
-            val sides = sides8038(mint, parsedSide(arr.optJSONObject(0)), parsedSide(arr.optJSONObject(1)))
-            if (sides == null) {
-                unsupported[p] = System.currentTimeMillis()
-                unsupportedByVenue8418.computeIfAbsent(venueName8418(owner8418) + "_NOT_COIN_SOL") { AtomicLong(0) }.incrementAndGet()
-                continue
-            }
-            val read = Read(p, sides.first, sides.second, observedAt)
-            if (concentrated8418(owner8418)) {
-                // V5.0.8418 — depth only: kept apart from [reads] so no price check or constant-product sell-out reads it.
-                depthOnlyReads8418[mint] = read
-                if (depthOnlyReads8418.size > 3_000) depthOnlyReads8418.entries.sortedBy { it.value.atMs }.take(300).forEach { depthOnlyReads8418.remove(it.key) }
-                CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
-                try { com.lifecyclebot.engine.HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs) } catch (_: Throwable) {}
-                fetched.incrementAndGet()
-                try { PipelineHealthCollector.labelInc("ONCHAIN_DEPTH_CONCENTRATED_READ_8418_${venueName8418(owner8418)}") } catch (_: Throwable) {}
-                return null
-            }
-            reads[mint] = read
-            CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
-            try { com.lifecyclebot.engine.HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs) } catch (_: Throwable) {}  // V5.0.8343 — the vault answer ends a liquidity deferral
-            if (reads.size > 3_000) reads.entries.sortedBy { it.value.atMs }.take(300).forEach { reads.remove(it.key) }
-            fetched.incrementAndGet()
-            return read
+            val outcome8418 = accept8418(mint, p, owner8418, arr.optJSONObject(0), arr.optJSONObject(1), arr.optJSONObject(2), observedAt)
+            if (outcome8418 == Accept8418.NOT_COIN_SOL) continue
+            return if (outcome8418 == Accept8418.CONSTANT_PRODUCT) reads[mint] else null
         }
         return null
+    }
+
+    /** V5.0.8418 — what one answered vault read became. */
+    internal enum class Accept8418 { CONSTANT_PRODUCT, CONCENTRATED, NOT_COIN_SOL }
+
+    /**
+     * V5.0.8418 — accept one answered read of [p] (owner [owner8418]): the two vault accounts and, on a price-in-state
+     * venue, the pool account. Shared by the blocking buy-door read and PoolBatch8418.
+     */
+    internal fun accept8418(mint: String, p: String, owner8418: String, acctA: JSONObject?, acctB: JSONObject?, poolAcct: JSONObject?, observedAt: Long): Accept8418 {
+        val sides = sides8038(mint, parsedSide(acctA), parsedSide(acctB))
+        if (sides == null) {
+            unsupported[p] = System.currentTimeMillis()
+            unsupportedByVenue8418.computeIfAbsent(venueName8418(owner8418) + "_NOT_COIN_SOL") { AtomicLong(0) }.incrementAndGet()
+            return Accept8418.NOT_COIN_SOL
+        }
+        val read = Read(p, sides.first, sides.second, observedAt)
+        if (concentrated8418(owner8418)) {
+            // V5.0.8418 — the spot price from pool state (layout-proved; tagged with its source), never the vault ratio.
+            if (priceInState8418(owner8418)) recordStatePrice8418(mint, owner8418, acctA, acctB, poolAcct, observedAt)
+            // V5.0.8418 — depth only: kept apart from [reads] so no price check or constant-product sell-out reads it.
+            depthOnlyReads8418[mint] = read
+            if (depthOnlyReads8418.size > 3_000) depthOnlyReads8418.entries.sortedBy { it.value.atMs }.take(300).forEach { depthOnlyReads8418.remove(it.key) }
+            CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
+            try { com.lifecyclebot.engine.HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs) } catch (_: Throwable) {}
+            fetched.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("ONCHAIN_DEPTH_CONCENTRATED_READ_8418_${venueName8418(owner8418)}") } catch (_: Throwable) {}
+            return Accept8418.CONCENTRATED
+        }
+        reads[mint] = read
+        CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
+        try { com.lifecyclebot.engine.HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs) } catch (_: Throwable) {}  // V5.0.8343 — the vault answer ends a liquidity deferral
+        if (reads.size > 3_000) reads.entries.sortedBy { it.value.atMs }.take(300).forEach { reads.remove(it.key) }
+        fetched.incrementAndGet()
+        return Accept8418.CONSTANT_PRODUCT
+    }
+
+    /** V5.0.8418 — decode and record the concentrated pool's spot price (ConcentratedPrice8418) from this same read. */
+    private fun recordStatePrice8418(mint: String, owner: String, acctA: JSONObject?, acctB: JSONObject?, poolAcct: JSONObject?, atMs: Long) {
+        try {
+            val data = accountData8418(poolAcct) ?: return
+            val sideA = parsedSide(acctA) ?: return
+            val decA = parsedDecimals8418(acctA) ?: return
+            val decB = parsedDecimals8418(acctB) ?: return
+            val coinIsA = sideA.first == mint
+            val px = ConcentratedPrice8418.decode8418(owner, data, mint, if (coinIsA) decA else decB, if (coinIsA) decB else decA) ?: run {
+                PipelineHealthCollector.labelInc("ONCHAIN_STATE_PRICE_LAYOUT_UNPROVEN_8418_${venueName8418(owner)}")
+                return
+            }
+            ConcentratedPrice8418.record8418(mint, px, owner, atMs)
+            PipelineHealthCollector.labelInc("ONCHAIN_STATE_PRICE_8418_${venueName8418(owner)}")
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -373,6 +454,20 @@ object OnChainDepth8038 {
         } catch (_: Throwable) {}
         val read = fresh(ts.mint, nowMs) ?: pools(ts).takeIf { it.isNotEmpty() }?.let { fetch(ts.mint, it) }
         if (read == null) {
+            // V5.0.8418 — a concentrated pool has no constant-product read, but its decoded spot price (pool state,
+            // tagged with its source) checks the buy price the same way. Depth-only reads never refuse here.
+            val cp8418 = ConcentratedPrice8418.fresh8418(ts.mint, FRESH_MS, nowMs)
+            val cpUsd8418 = cp8418?.let { it.solPerCoin * solUsd() } ?: Double.NaN
+            if (cp8418 != null && priceCollapsed8038(ts.lastPrice, cpUsd8418)) {
+                priceCollapsed.incrementAndGet()
+                lastRefusal8047 = "PRICE ${ts.symbol} src=${cp8418.source} chainPx=${"%.3g".format(cpUsd8418)} buyPx=${"%.3g".format(ts.lastPrice)}"
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_PRICE_COLLAPSED_ONCHAIN_8038")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("PRICE_COLLAPSED_ONCHAIN_8038",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} source=${cp8418.source} chainPx=$cpUsd8418 buyPx=${ts.lastPrice}")
+                } catch (_: Throwable) {}
+                return "PRICE_COLLAPSED_ONCHAIN_8038"
+            }
             unverified.incrementAndGet()
             try { PipelineHealthCollector.labelInc("ONCHAIN_POOL_UNVERIFIED_8038") } catch (_: Throwable) {}
             return null
@@ -572,7 +667,7 @@ object OnChainDepth8038 {
         "emptyCurveRefused=${emptyCurveRefused8046.get()} launchCapRefused=${launchCapRefused8047.get()} earlyRefused8048=${earlyRefused8048.get()} last=[$lastRefusal8047] " +
             "poolDepthAsked=${poolDepthAsked8047.get()} curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${refresh8385.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
             "reads=${fetched.get()} failed=${failed.get()} pools=${vaultsOf.size} unsupportedPools=${unsupported.size} " +
-            "unsupportedByVenue8418={${unsupportedByVenue8418.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }}} depthOnly8418=${depthOnlyReads8418.size} " +
+            "statePrices8418=${ConcentratedPrice8418.size8418()} batch8418[${PoolBatch8418.statusLine8418()}] unsupportedByVenue8418={${unsupportedByVenue8418.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }}} depthOnly8418=${depthOnlyReads8418.size} " +
             "venues=PumpSwap,RaydiumV4,RaydiumCPMM,RaydiumCLMM(depth),MeteoraDLMM(depth),MeteoraDAMMv2(depth),OrcaWhirlpool(depth) unknownDepth=MeteoraDAMMv1,other rule=refuse when API depth >=${CONTRADICTION_MULT_8038.toInt()}x chain or chain price ${(PRICE_DROP_TOLERANCE_8038 * 100).toInt()}%+ under the buy price"
 }
 

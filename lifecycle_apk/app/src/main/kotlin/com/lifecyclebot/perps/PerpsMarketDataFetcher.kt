@@ -739,9 +739,9 @@ object PerpsMarketDataFetcher {
             val body = response.body?.string() ?: return 0.0
             val json = JSONObject(body)
             
-            val data = json.getJSONObject("data")
-            val sol = data.getJSONObject("So11111111111111111111111111111111111111112")
-            val price = sol.getDouble("price")
+            // V5.0.8418 — the URL is Price v3 (flat {mint:{usdPrice}}); this read the retired v2 shape with getJSONObject,
+            // which threw on every v3 body, so this source always answered 0. Both shapes are read; absent stays 0.
+            val price = com.lifecyclebot.network.JupiterPriceIds8418.usdPrice8418(json, "So11111111111111111111111111111111111111112") ?: 0.0
             
             ErrorLogger.debug(TAG, "SOL price from Jupiter: \$${price.fmt(2)}")
             price

@@ -144,7 +144,14 @@ object HealthAwareHttp {
                 return resp
             }
 
-            try { ApiHealthMonitor.record(host, resp.code, latency) } catch (_: Throwable) {}
+            // V5.0.8418 — a refused call carries the provider's own reason (first 160 bytes, peeked — the caller still reads
+            // the whole body; ApiHealthMonitor redacts keys). 5.0.8416 had helius 4xx=18 and jupiter 4xx=12/5xx=10 with no
+            // last_err, so which endpoint and why could not be read off the snapshot.
+            val errSnippet8418: String? = if (resp.code < 400) null else try {
+                resp.peekBody(160L).string().replace('\n', ' ').trim().ifBlank { null }
+                    ?.let { "${finalRequest.url.encodedPath.take(48)} $it" }
+            } catch (_: Throwable) { null }
+            try { ApiHealthMonitor.record(host, resp.code, latency, errSnippet8418) } catch (_: Throwable) {}
             try {
                 if (resp.code in 200..299) ApiBackoff.markSuccess(host)
                 else if (resp.code in 400..599) ApiBackoff.markFailure(host, resp.code)
