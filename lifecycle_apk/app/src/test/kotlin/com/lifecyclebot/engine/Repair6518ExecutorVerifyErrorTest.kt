@@ -25,8 +25,10 @@ class Repair6518ExecutorVerifyErrorTest {
             source.indexOf("private fun dnaProvenWinnerSizeBoost6518"),
             source.indexOf("private fun liveBuy(")
         )
-        assertTrue(helper.contains("setupFrequency(minCount = 3)"))
-        assertTrue(helper.contains("losingSetupFrequency(minCount = 1)"))
+        assertTrue(helper.contains("setupFrequency(minCount = 3, lane = layerTag)"))
+        assertTrue(helper.contains("losingSetupFrequency(minCount = 1, lane = layerTag)"))
+        assertFalse(helper.contains("setupFrequency(minCount = 3)"))
+        assertFalse(helper.contains("losingSetupFrequency(minCount = 1)"))
         assertTrue(helper.contains("winCount >= 3 && wr >= 0.40 && avgWin > 20.0 && winCount > lossCount"))
         assertTrue(helper.contains("(1.0 + (wr - 0.40) * 1.5 + (avgWin - 20.0) / 100.0).coerceIn(1.10, 1.50)"))
         assertTrue(helper.contains("DNA_PROVEN_WINNER_SIZE_BOOST_6265"))

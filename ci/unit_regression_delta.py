@@ -15,6 +15,9 @@ import xml.etree.ElementTree as ET
 # 8090 replaces two source-contract tests with assertions for the repaired
 # attribution and HOLD semantics. Both replacements are mandatory release tests.
 RENAMED_TESTS = {
+    # 8417 strengthens the old paper-only terminal contract to one canonical publisher in both modes.
+    ('com.lifecyclebot.engine.Aate6679PaperOutcomeAuthorityTest', 'perps paper terminal is canonical and legacy publishers are live only'):
+        ('com.lifecyclebot.engine.Aate6679PaperOutcomeAuthorityTest', 'perps terminal economics have one canonical publisher in both modes'),
     ('com.lifecyclebot.engine.Aate8082CausalPipelineTest', 'exactStrategyCountsEachPositionOnce'):
         ('com.lifecyclebot.engine.Aate8082CausalPipelineTest', 'incompleteExactIdentityDoesNotConsumeTerminalCredit'),
     ('com.lifecyclebot.engine.Aate8082CausalPipelineTest', 'exitCortexIsGradedByTheVerifiedCanonicalClose'):

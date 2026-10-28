@@ -8904,8 +8904,10 @@ class GoldenTapeRegressionTest {
             report.contains("pre-V3 returns:") && report.contains("PRE_V3_RETURN_"))
         assertTrue(stocks.contains("CanonicalPublishHelper.publishExit") &&
             stocks.contains("entryPattern = \"STOCK_"))
-        assertTrue(perpsBrain.contains("CanonicalPublishHelper.publishExit") &&
-            perpsBrain.contains("entryPattern = \"PERPS_"))
+        // Terminal economics belongs to the canonical transaction in both modes; a second publisher duplicates learning.
+        assertTrue(perpsBrain.contains("CanonicalPaperTransaction6486.close("))
+        assertTrue(perpsBrain.contains("WholePositionEconomics7835.from(settled)"))
+        assertFalse(perpsBrain.contains("CanonicalPublishHelper.publishExit("))
     }
 
 
