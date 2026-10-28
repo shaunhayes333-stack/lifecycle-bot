@@ -1336,7 +1336,7 @@ object LanePlaybook7907 {
         return try {
             val lane = canon(laneRaw)
             val runner = runnerTail8295(lane)  // V5.0.8295 — a losing lane bank refutes the label runner tail
-            val why: String? = synchronized(this) {
+            var why: String? = synchronized(this) {
                 val st = stat(lane, setup)
                 when {
                     // V5.0.8383 — outside the envelope the network's bins measured 0-9% positive: live refuses until this
@@ -1362,6 +1362,9 @@ object LanePlaybook7907 {
                     else -> null
                 }
             }
+            // V5.0.8408 — a record filled on the 5-minute clock cannot refuse an hour-graded lane until its hour book exists
+            // (the envelope refusal is a cheat-sheet band, not a label record; it keeps binding).
+            if (why != null && why != "PLAYBOOK_OUTSIDE_ENVELOPE_8383_$lane" && LaneGradeHorizon8406.wrongClockSpares8408(lane, "PLAYBOOK_7907")) why = null
             if (why != null) {
                 refusals.computeIfAbsent(why.removeSuffix("_$lane").take(60)) { AtomicLong(0) }.incrementAndGet()
                 try {

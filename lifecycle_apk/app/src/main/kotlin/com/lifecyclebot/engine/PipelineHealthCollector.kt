@@ -1558,6 +1558,8 @@ object PipelineHealthCollector {
         // V5.0.8405 — the discovery-time capture is reported here (its counters sat below the top-400 cut in 5.0.8404).
         sb.append("  Discovery capture (§8400): ").append(
             try { com.lifecyclebot.engine.truth.DiscoveryCapture8400.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Grade horizon (§8406/8408): ").append(
+            try { com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.hourBookLine8408() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  On-chain pools (§8038): ").append(
             try { com.lifecyclebot.engine.truth.OnChainDepth8038.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

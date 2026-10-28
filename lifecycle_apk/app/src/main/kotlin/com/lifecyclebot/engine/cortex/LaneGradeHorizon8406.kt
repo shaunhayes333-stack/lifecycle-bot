@@ -1,6 +1,8 @@
 package com.lifecyclebot.engine.cortex
 
 import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import com.lifecyclebot.engine.truth.FieldManual7715
 
 /**
@@ -46,5 +48,71 @@ object LaneGradeHorizon8406 {
         if (setup !in PATIENT_FAMILY_8406 || !hourGraded8406(lane)) return false
         try { PipelineHealthCollector.labelInc("RETIREMENT_SUSPENDED_WRONG_HORIZON_8406_${lane.trim().uppercase()}") } catch (_: Throwable) {}
         return true
+    }
+
+    // ── V5.0.8408 §THE_WRONG_CLOCK_CANNOT_REFUSE ─────────────────────────────────────────────────────────────────────────────
+    // 8406 moved the GRADE of hour-mandate lanes to the hour read, but the books those lanes carry were filled on the 5-minute
+    // read (QUALITY LANE_PROVEN_LOSING_7938 -13.7% x274; PLAYBOOK_SETUP_EXPECTED_NEGATIVE_7948 QUALITY 67, TREASURY 6). Until a
+    // lane has banked [HOUR_BOOK_MIN_N_8408] hour-graded labels since the clock changed, its 5-minute evidence is observational:
+    // it may still ALLOW (a positive 5-minute record is good news on any clock) but it may not refuse. Nothing is reset: the
+    // books keep accumulating and the hour revisions keep landing in them; the refusal authority simply waits for the right
+    // clock. 5-minute lanes (TREASURY, CASHGEN, CRYPTO) are untouched. The count persists (LearningPersistence) across restarts.
+    private const val HOUR_BOOK_MIN_N_8408 = 30
+    private fun canon(lane: String?): String = lane?.trim()?.uppercase().orEmpty()
+    private const val HOUR_BOOK_KEY_8408 = "lane_grade_horizon_hour_book_8408"
+    private val hourBook8408 = ConcurrentHashMap<String, AtomicLong>()
+    private val wrongClockSpared8408 = ConcurrentHashMap<String, AtomicLong>()
+    @Volatile private var hourBookLoaded8408 = false
+    @Volatile private var lastPersist8408 = 0L
+
+    private fun ensureHourBook8408() {
+        if (hourBookLoaded8408) return
+        synchronized(hourBook8408) {
+            if (hourBookLoaded8408) return
+            try {
+                val raw = com.lifecyclebot.engine.LearningPersistence.load(HOUR_BOOK_KEY_8408)
+                if (!raw.isNullOrBlank()) {
+                    val o = org.json.JSONObject(raw)
+                    for (k in o.keys()) hourBook8408[k] = AtomicLong(o.optLong(k, 0L))
+                }
+            } catch (_: Throwable) {}
+            hourBookLoaded8408 = true
+        }
+    }
+
+    /** An hour-graded label landed for [lane] (the 8337 hour revision or a direct 240 book). */
+    fun noteHourGrade8408(lane: String) {
+        val l = canon(lane); if (l.isBlank()) return
+        ensureHourBook8408()
+        hourBook8408.computeIfAbsent(l) { AtomicLong() }.incrementAndGet()
+        val now = System.currentTimeMillis()
+        if (now - lastPersist8408 > 30_000L) {
+            lastPersist8408 = now
+            try {
+                val o = org.json.JSONObject(); for ((k, v) in hourBook8408) o.put(k, v.get())
+                com.lifecyclebot.engine.LearningPersistence.save(HOUR_BOOK_KEY_8408, o.toString())
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private fun hourGradedN8408(lane: String): Long { ensureHourBook8408(); return hourBook8408[canon(lane)]?.get() ?: 0L }
+
+    /** Pure: may 5-minute evidence refuse this lane? Never for an hour-graded lane short of its hour book. */
+    fun fiveMinuteMayRefuse8408(hourGraded: Boolean, hourGradedN: Long): Boolean = !hourGraded || hourGradedN >= HOUR_BOOK_MIN_N_8408
+
+    /** The lane's 5-minute refusal is spared (counted by [gate]); true when the refusal must NOT bind. */
+    fun wrongClockSpares8408(lane: String, gate: String): Boolean {
+        val l = canon(lane)
+        if (fiveMinuteMayRefuse8408(hourGraded8406(l), hourGradedN8408(l))) return false
+        wrongClockSpared8408.computeIfAbsent("$gate|$l") { AtomicLong() }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("WRONG_CLOCK_REFUSAL_SPARED_8408_${gate}_$l") } catch (_: Throwable) {}
+        return true
+    }
+
+    fun hourBookLine8408(): String {
+        ensureHourBook8408()
+        val book = hourBook8408.entries.sortedByDescending { it.value.get() }.take(12).joinToString(",") { "${it.key}=${it.value.get()}" }
+        val spared = wrongClockSpared8408.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }
+        return "hourBook8408[min=$HOUR_BOOK_MIN_N_8408 n{$book} spared{$spared}]"
     }
 }

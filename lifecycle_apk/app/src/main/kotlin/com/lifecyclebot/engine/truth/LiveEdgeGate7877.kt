@@ -202,7 +202,8 @@ object LiveEdgeGate7877 {
         val cohort7948 by lazy { provenCohort7948(ts, nowMs) }
         // V5.0.7939 — a runner lane is judged on its runner setups, not its lane mean:
         // a fired playbook setup with a positive expected record still gets its shot.
-        if (laneProvenLosing7938(laneStat7938) && !runnerSetupFires7939(ts, l, nowMs)) {
+        if (laneProvenLosing7938(laneStat7938) && !runnerSetupFires7939(ts, l, nowMs) &&
+            !com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.wrongClockSpares8408(l, "LANE_7938")) {   // V5.0.8408
             val own = judge(cell, false)
             // V5.0.7948 review — a pooled cross-lane cohort never overrules the lane's own proven loss
             // (the exact borrowed-cohort admission 7938 was written to stop).

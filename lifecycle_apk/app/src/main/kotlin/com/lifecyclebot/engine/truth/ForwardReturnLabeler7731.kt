@@ -1530,6 +1530,7 @@ object ForwardReturnLabeler7731 {
         o.bookedNet7997 = net; o.bookedGross7997 = gross
         revisedToHour8337.incrementAndGet()
         try { PipelineHealthCollector.labelInc("FORWARD_LABEL_RUNNER_HOUR_SLOT_8337") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.noteHourGrade8408(o.lane) } catch (_: Throwable) {}   // V5.0.8408 — the lane's hour book grows
     }
 
     private val exitRunSamples8006 = AtomicLong(0)
