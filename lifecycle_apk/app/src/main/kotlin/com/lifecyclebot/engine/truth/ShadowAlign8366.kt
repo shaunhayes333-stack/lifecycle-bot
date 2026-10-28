@@ -44,8 +44,9 @@ object ShadowAlign8366 {
     // ── landing (pure) ──
 
     /** Pure: the route a live buy takes — PumpPortal for a pump.fun mint unless PumpLanding8288 routed it away, else Jupiter. */
-    fun buyRoute8366(pumpMint: Boolean, pumpRoutedAway: Boolean): String =
-        if (pumpMint && !pumpRoutedAway) ROUTE_PUMPPORTAL_8366 else ROUTE_JUPITER_8366
+    // V5.0.8413 — the shadow buys on the route live takes: Jupiter first, PumpPortal only when Jupiter has no route for the mint.
+    fun buyRoute8366(pumpMint: Boolean, pumpRoutedAway: Boolean, jupiterNoRoute: Boolean = false): String =
+        if (pumpMint && !pumpRoutedAway && jupiterNoRoute) ROUTE_PUMPPORTAL_8366 else ROUTE_JUPITER_8366
 
     /** Pure: the route's landing rate, landed / resolved, once [minResolved] buys resolved; 1.0 before (unmeasured). */
     fun landRate8366(landed: Int, expired: Int, failed: Int, minResolved: Int = com.lifecyclebot.engine.PumpLanding8288.MIN_RESOLVED_8288): Double {
@@ -112,7 +113,8 @@ object ShadowAlign8366 {
     fun landFor8366(mint: String, nowMs: Long = System.currentTimeMillis()): Land8366 {
         val c = landTable8366(nowMs)
         val pump = try { com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) } catch (_: Throwable) { false }
-        val route = buyRoute8366(pump, c.pumpAway)
+        val jupNoRoute8413 = try { com.lifecyclebot.engine.Costs8369.cachedJupiterQuotes8369(mint, nowMs) == false } catch (_: Throwable) { false }
+        val route = buyRoute8366(pump, c.pumpAway, jupNoRoute8413)
         val l = c.table["BUY|$route"]
         if (l == null) return Land8366(route, 1.0, 0.0, 0)
         return Land8366(route, landRate8366(l.landed, l.expired, l.failed), failedShare8366(l.expired, l.failed), l.landed + l.expired + l.failed)

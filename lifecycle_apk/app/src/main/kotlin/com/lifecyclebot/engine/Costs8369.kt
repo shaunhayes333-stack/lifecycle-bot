@@ -68,15 +68,19 @@ object Costs8369 {
     // ── route ──
 
     /**
-     * Pure: should a PumpPortal-eligible BUY go to Jupiter first? A graduated pool (PUMPSWAP / RAYDIUM) always; an
-     * un-graduated curve (or an unconfirmed venue) when Jupiter quotes the mint. Never when the previous attempt for the
-     * mint already went Jupiter-first ([recentlyTried]: the second attempt is PumpPortal, so this can never choke a buy)
-     * or when Jupiter's own recent buys are not landing.
+     * Pure: should a PumpPortal-eligible BUY go to Jupiter first?
+     * V5.0.8413 — operator doctrine: Helius/Jupiter FIRST; PumpPortal only when it is the only route. Jupiter routes the
+     * pump.fun curve fee-free (landed 18/18) while PumpPortal landed 1/7 on 5.0.8412 (3/17 on 8341). The old rule kept
+     * PumpPortal first on an unanswered quote probe (null) and globally whenever Jupiter's recent buys stalled, so a
+     * slow probe sent the buy down the route that does not land. Now PumpPortal goes first only when Jupiter answered
+     * "no route" for this mint, or when this mint's previous attempt already went Jupiter-first ([recentlyTried]: the
+     * retry is the remaining route, so a Jupiter miss can never choke the buy). [jupiterLandFailing] is reported only.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun jupiterFirstForBuy8369(venue: String, jupiterQuotes: Boolean?, recentlyTried: Boolean, jupiterLandFailing: Boolean): Boolean {
-        if (recentlyTried || jupiterLandFailing) return false
         if (venue == "PUMPSWAP" || venue == "RAYDIUM") return true
-        return jupiterQuotes == true
+        if (recentlyTried) return false
+        return jupiterQuotes != false
     }
 
     /** Pure: is a cached Jupiter quote answer still usable? */
@@ -115,14 +119,14 @@ object Costs8369 {
 
     /**
      * Pure: the BUY route the model prices for a mint. A non-pump mint and a graduated pool go Jupiter; a curve mint
-     * takes the route chosen for it, else the route most eligible buys took (3+ choices), else PumpPortal (the dearer).
+     * takes the route chosen for it, else Jupiter (V5.0.8413: Jupiter first; PumpPortal only where it was the only route).
      */
     fun plannedBuyRoute8369(pumpMint: Boolean, venue: String, chosen: String?, jupiterShare: Double?): String = when {
         !pumpMint -> "JUPITER"
         venue == "PUMPSWAP" || venue == "RAYDIUM" -> "JUPITER"
         chosen != null && (chosen == "JUPITER" || chosen == "PUMPPORTAL") -> chosen
-        jupiterShare != null && jupiterShare >= 0.5 -> "JUPITER"
-        else -> "PUMPPORTAL"
+        // V5.0.8413 — Jupiter first is the doctrine; PumpPortal is priced only for a mint that was actually routed there.
+        else -> "JUPITER"
     }
 
     /** Pure: the SELL route a mint's exit takes first (SellRouteEndpoint8144.routeOrder8144; a non-pump mint: Jupiter). */

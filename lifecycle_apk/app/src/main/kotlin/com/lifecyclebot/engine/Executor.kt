@@ -2743,7 +2743,7 @@ class Executor(
 
     /**
      * V5.0.8369 — does Jupiter quote a buy of [ts] (SOL -> mint at the ticket)? Cached per mint (60 s yes / 30 s no); a
-     * probe that does not answer within Costs8369.JUP_PROBE_BUDGET_MS_8369 proves nothing (null: PumpPortal stays first).
+     * probe that does not answer within Costs8369.JUP_PROBE_BUDGET_MS_8369 proves nothing (null: V5.0.8413 keeps Jupiter first; only a definite no-route sends PumpPortal first).
      */
     private fun costJupiterQuotes8369(ts: TokenState): Boolean? {
         Costs8369.cachedJupiterQuotes8369(ts.mint)?.let { return it }

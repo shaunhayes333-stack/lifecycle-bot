@@ -100,7 +100,9 @@ class Aate8366AlignTest {
     // ── entry landing ──
 
     @Test fun landingProbabilityIsTheMeasuredRouteRateDrawnDeterministically() {
-        assertEquals(ShadowAlign8366.ROUTE_PUMPPORTAL_8366, ShadowAlign8366.buyRoute8366(pumpMint = true, pumpRoutedAway = false))
+        // V5.0.8413 — Jupiter first; PumpPortal only when Jupiter has no route for the pump mint
+        assertEquals(ShadowAlign8366.ROUTE_JUPITER_8366, ShadowAlign8366.buyRoute8366(pumpMint = true, pumpRoutedAway = false))
+        assertEquals(ShadowAlign8366.ROUTE_PUMPPORTAL_8366, ShadowAlign8366.buyRoute8366(pumpMint = true, pumpRoutedAway = false, jupiterNoRoute = true))
         assertEquals(ShadowAlign8366.ROUTE_JUPITER_8366, ShadowAlign8366.buyRoute8366(pumpMint = true, pumpRoutedAway = true))
         assertEquals(ShadowAlign8366.ROUTE_JUPITER_8366, ShadowAlign8366.buyRoute8366(pumpMint = false, pumpRoutedAway = false))
         // 5.0.8341: BUY|PUMPPORTAL landed 3 / expired 9 / failed 5; BUY|JUPITER 18 / 18

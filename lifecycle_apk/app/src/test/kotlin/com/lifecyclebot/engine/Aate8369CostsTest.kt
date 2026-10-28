@@ -49,15 +49,15 @@ class Aate8369CostsTest {
     @Test fun aCurveBuyGoesJupiterWhenJupiterQuotesIt() {
         assertTrue(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = true, recentlyTried = false, jupiterLandFailing = false))
         assertTrue(k.jupiterFirstForBuy8369("UNKNOWN", jupiterQuotes = true, recentlyTried = false, jupiterLandFailing = false))
-        // no Jupiter route (or an unanswered probe): PumpPortal
+        // V5.0.8413 — only a definite "no Jupiter route" sends PumpPortal first; an unanswered probe stays Jupiter-first
         assertFalse(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = false, recentlyTried = false, jupiterLandFailing = false))
-        assertFalse(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = null, recentlyTried = false, jupiterLandFailing = false))
+        assertTrue(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = null, recentlyTried = false, jupiterLandFailing = false))
         // graduated pools always go Jupiter
         assertTrue(k.jupiterFirstForBuy8369("PUMPSWAP", jupiterQuotes = null, recentlyTried = false, jupiterLandFailing = false))
         assertTrue(k.jupiterFirstForBuy8369("RAYDIUM", jupiterQuotes = null, recentlyTried = false, jupiterLandFailing = false))
-        // the second attempt for a mint is PumpPortal (never a no-buy choke); Jupiter not landing keeps PumpPortal
+        // the retry after a Jupiter-first attempt is PumpPortal (never a no-buy choke); a global Jupiter stall no longer flips every buy
         assertFalse(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = true, recentlyTried = true, jupiterLandFailing = false))
-        assertFalse(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = true, recentlyTried = false, jupiterLandFailing = true))
+        assertTrue(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = true, recentlyTried = false, jupiterLandFailing = true))
         assertTrue(k.quoteCacheFresh8369(true, 0L, 60_000L))
         assertFalse(k.quoteCacheFresh8369(true, 0L, 60_001L))
         assertFalse(k.quoteCacheFresh8369(false, 0L, 30_001L))
@@ -67,7 +67,7 @@ class Aate8369CostsTest {
         assertEquals("JUPITER", k.plannedBuyRoute8369(pumpMint = true, venue = "PUMP_CURVE", chosen = "JUPITER", jupiterShare = null))
         assertEquals("PUMPPORTAL", k.plannedBuyRoute8369(pumpMint = true, venue = "PUMP_CURVE", chosen = "PUMPPORTAL", jupiterShare = 0.9))
         assertEquals("JUPITER", k.plannedBuyRoute8369(pumpMint = true, venue = "PUMP_CURVE", chosen = null, jupiterShare = 0.8))
-        assertEquals("PUMPPORTAL", k.plannedBuyRoute8369(pumpMint = true, venue = "UNKNOWN", chosen = null, jupiterShare = null))
+        assertEquals("JUPITER", k.plannedBuyRoute8369(pumpMint = true, venue = "UNKNOWN", chosen = null, jupiterShare = null))  // V5.0.8413
         assertEquals("JUPITER", k.plannedBuyRoute8369(pumpMint = true, venue = "PUMPSWAP", chosen = null, jupiterShare = null))
         assertEquals("JUPITER", k.plannedBuyRoute8369(pumpMint = false, venue = "UNKNOWN", chosen = "PUMPPORTAL", jupiterShare = null))
         // V5.0.8390 — a curve exit sells through Jupiter first; PumpPortal only when Jupiter is not admissible
