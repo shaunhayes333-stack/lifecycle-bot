@@ -822,6 +822,8 @@ class BotService : Service() {
                 }
             }
         } catch (_: Throwable) {}
+        // V5.0.8418 — the mark loop's supervision no longer depends on the bot loop cycling.
+        try { HotExitWatchdog8418.start8418 { hotExitWatchdogTick8418() } } catch (_: Throwable) {}
     }
 
     /**
@@ -840,6 +842,26 @@ class BotService : Service() {
      * generation. The stuck iteration, if it ever returns, may not write.
      */
     private fun superviseOpenPositionTickLoop7283(openCount: Int, nowMs: Long) {
+        // V5.0.8418 — the bot loop and HotExitWatchdog8418 both call this; one pass at a time.
+        val ran8418 = openPosSuperviseGate8418.runExclusive { superviseOpenPositionTickLoopPass8418(openCount, nowMs) }
+        if (!ran8418) HotExitWatchdog8418.noteSkippedBusy8418()
+    }
+
+    private val openPosSuperviseGate8418 = HotExitWatchdog8418.Gate8418()
+
+    /**
+     * V5.0.8418 — the watchdog's pass, on its own thread: supervise the mark loop and bound the per-mint stamp maps,
+     * whether or not the bot loop is cycling.
+     */
+    private fun hotExitWatchdogTick8418() {
+        if (!status.running) return
+        val now = System.currentTimeMillis()
+        val open = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().size } catch (_: Throwable) { 0 }
+        superviseOpenPositionTickLoop7283(open, now)
+        boundServiceStamps8418(now)
+    }
+
+    private fun superviseOpenPositionTickLoopPass8418(openCount: Int, nowMs: Long) {
         if (!status.running) return
         val job = openPositionTickJob ?: return
         val inFlightMs = try {
@@ -2148,6 +2170,18 @@ class BotService : Service() {
 
     private fun openPosPhase7283(phase: String) {
         try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onHotTickPhase7283(phase) } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8418 — a (re)start: hot-tick and awake gauges never measure a gap across the time the bot was stopped. */
+    private fun rebaseRuntimeGauges8418() {
+        try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onRuntimeStart8418() } catch (_: Throwable) {}
+        try { Awake8010.resetBaseline8418() } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8418 — nothing held: the iteration sleeps the idle cadence under its own phase name (8416 read "ws_sync"). */
+    private fun openPosIdle8418() {
+        openPosPhase7283("idle_wait")
+        try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onHotTickIdle8418() } catch (_: Throwable) {}
     }
 
     private fun ensureSpecialistWorkers6647() {
@@ -5618,6 +5652,7 @@ class BotService : Service() {
         }
         
         serviceJob6647.cancel()
+        try { HotExitWatchdog8418.stop8418() } catch (_: Throwable) {}
         try { acceptanceWindowFuture6668?.cancel(false) } catch (_: Throwable) {}
         acceptanceWindowFuture6668 = null
         try { acceptanceWindowExecutor6668.shutdownNow() } catch (_: Throwable) {}
@@ -5628,6 +5663,7 @@ class BotService : Service() {
         try { exitExecutor6647.shutdownNow() } catch (_: Throwable) {}
         try { exitWorkerExecutor6647.shutdownNow() } catch (_: Throwable) {}
         try { supervisorExecutor6647.shutdownNow() } catch (_: Throwable) {}
+        try { entryHydrationExecutor8418.shutdownNow() } catch (_: Throwable) {}
         try { serviceExecutor6647.shutdownNow() } catch (_: Throwable) {}
         try { botLoopExecutor.shutdownNow() } catch (_: Throwable) {}
     }
@@ -5959,6 +5995,8 @@ class BotService : Service() {
         if (ts.position.isOpen) {
             return com.lifecyclebot.v3.ExecuteResult(success = false, error = "position already open")
         }
+        // V5.0.8418 — doBuy executes only an FDG-sealed order; V3's own executor carries none (V3ExecutionTicket8418).
+        v3TicketRefusal8418(ts, req.sizeSol)?.let { return it }
 
         val cfgNow = ConfigStore.load(applicationContext)
         val isPaper = cfgNow.paperMode
@@ -6138,6 +6176,44 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "runV3Execution error for ${ts.symbol}", e)
             com.lifecyclebot.v3.ExecuteResult(success = false, error = "exec exception: ${e.message ?: e.javaClass.simpleName}")
         }
+    }
+
+    /**
+     * V5.0.8418 §SHITCOIN_LIVE_ADAPTIVE_FORCE_SUPPRESSED_WAS_THE_PAPER_ONLY_RULE_FIRING_EVERY_TICK. 5.0.8416 logged it
+     * 1,244 times. The bootstrap force-entry is paper-only (forceBootstrapAllowed requires isPaper), while
+     * FluidLearningAI.shouldForceBootstrapEntry still answers true for a live candidate under 1,000 lifetime trades, so in
+     * live every bootstrap-shaped tick wrote a forensic "suppressed" event for a rule that can never apply there; the
+     * candidate's own ShitCoin verdict (shouldEnter) was used either way, so no healthy candidate was refused by it. Live
+     * now counts it once per tick as a label; the forensic event stays for paper, where a learned death bucket really
+     * withholds a force-entry that would otherwise have opened.
+     */
+    private fun noteShitcoinBootstrapRefused8418(ts: TokenState, reason: String, rawScore: Int, score: Int) {
+        val paper = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val label = ShitcoinBootstrap8418.refusalLabel8418(paper)
+        try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
+        if (!ShitcoinBootstrap8418.isForensicEvent8418(paper)) return
+        try {
+            ForensicLogger.lifecycle(
+                label,
+                "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=${reason.take(120)} rawScore=$rawScore score=$score",
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.8418 — the refusal executor.doBuy would return for a V3-callback request (no FDG attempt id -> no sealed
+     * ticket), typed and counted here instead of reaching doBuy and being booked ROUTE_FAILED_<mode>. Null = a ticket
+     * exists and doBuy runs as before.
+     */
+    private fun v3TicketRefusal8418(ts: TokenState, sizeSol: Double): com.lifecyclebot.v3.ExecuteResult? {
+        val mode = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        val ticket = try { ExecutableOpenGate.ticketForAttempt(V3ExecutionTicket8418.V3_ATTEMPT_ID_8418) } catch (_: Throwable) { null }
+        val refusal = V3ExecutionTicket8418.refusal8418(ticket, ts.mint, mode, sizeSol) ?: return null
+        try {
+            PipelineHealthCollector.labelInc("V3_EXEC_NO_FDG_TICKET_8418_$mode")
+            PipelineHealthCollector.labelInc("V3_EXEC_NOT_OPENED_7196|$refusal")
+        } catch (_: Throwable) {}
+        return com.lifecyclebot.v3.ExecuteResult(success = false, error = "V3_EXEC_NO_FDG_TICKET_8418:$refusal")
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -9381,6 +9457,7 @@ class BotService : Service() {
         userStartQueuedDuringStop = false
         // Acquire/reassert partial wake lock — keeps CPU alive during transaction confirmation and screen-off live management.
         ensureRuntimeWakeLock6031("startBot")
+        rebaseRuntimeGauges8418()
         ensureRuntimeWifiLock6032("startBot")
         
         // Schedule a repeating keep-alive alarm every 60 seconds
@@ -13042,6 +13119,7 @@ class BotService : Service() {
 
                 if (openMints.isEmpty()) {
                     try { PipelineHealthCollector.labelInc("OPEN_POS_TICK_SKIPPED_6983_NO_OPEN_POSITIONS") } catch (_: Throwable) {}
+                    openPosIdle8418()
                     kotlinx.coroutines.delay(IDLE_MS)
                     consecutiveEmpty = 0
                     continue
@@ -23733,6 +23811,8 @@ if (hotExitHandledSweep) {
         val completionState: java.util.concurrent.atomic.AtomicReference<String> = java.util.concurrent.atomic.AtomicReference("ACQUIRED"),
         val jobRef: java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?> =
             java.util.concurrent.atomic.AtomicReference(null),
+        // V5.0.8418 — when the worker actually got a pool thread (0 while queued); budgets and TTL run from here.
+        val workerStartedMs8418: java.util.concurrent.atomic.AtomicLong = java.util.concurrent.atomic.AtomicLong(0L),
     )
     private val supervisorLeaseSeq = java.util.concurrent.atomic.AtomicLong(0)
     private val supervisorLeases = java.util.concurrent.ConcurrentHashMap<Long, SupervisorLease>()
@@ -24443,7 +24523,7 @@ if (hotExitHandledSweep) {
             while (it.hasNext()) {
                 val e = it.next()
                 val lease = e.value
-                val age = nowMonotonic - lease.startedMonotonicMs
+                val age = supervisorLeaseAgeMs8418(lease, nowMonotonic)
                 val sinceProgress = nowMonotonic - lease.lastProgressMs.get()
                 val job = lease.jobRef.get()
                 val genuinelyStuck6616 = age >= SUPERVISOR_LEASE_TTL_MS &&
@@ -24474,7 +24554,7 @@ if (hotExitHandledSweep) {
         // non-cooperative processTokenCycle calls if APIs wedge.
         // V5.9.1319 (Item 3) — admit against the EFFECTIVE adaptive cap (base 32, or 16
         // during an emergency-throttle window). Replaces the old fixed 140 firehose.
-        if (live >= supervisorEffectiveCap()) return -1L
+        if (!supervisorPoolAdmits8418(live)) return -1L   // V5.0.8418 — only what a pool thread can run now
         val id = supervisorLeaseSeq.incrementAndGet()
         supervisorLeases[id] = SupervisorLease(mint = mint, startedMonotonicMs = android.os.SystemClock.elapsedRealtime(), leaseId = id)
         supervisorActive.set(supervisorLeases.size)
@@ -24488,10 +24568,57 @@ if (hotExitHandledSweep) {
         return active
     }
 
+    /** V5.0.8418 — the TTL prune's age: from the worker's start once it has a thread (SupervisorWorkerBudget8418). */
+    private fun supervisorLeaseAgeMs8418(lease: SupervisorLease, nowMonotonic: Long): Long =
+        SupervisorWorkerBudget8418.leaseAgeMs8418(nowMonotonic, lease.startedMonotonicMs, lease.workerStartedMs8418.get())
+
+    /** V5.0.8418 — admit a lease only under the adaptive cap, the entry pool's size, and with no thread backlog. */
+    private fun supervisorPoolAdmits8418(liveLeases: Int): Boolean {
+        val tpe = supervisorExecutor6647 as? java.util.concurrent.ThreadPoolExecutor
+        val ok = SupervisorWorkerBudget8418.admits8418(
+            liveLeases = liveLeases,
+            effectiveCap = supervisorEffectiveCap(),
+            poolThreads = tpe?.maximumPoolSize ?: SupervisorWorkerBudget8418.ENTRY_POOL_THREADS_8418,
+            busyThreads = tpe?.activeCount ?: 0,
+            queued = tpe?.queue?.size ?: 0,
+        )
+        if (!ok && liveLeases < supervisorEffectiveCap()) {
+            try { PipelineHealthCollector.labelInc("SUPERVISOR_ADMISSION_POOL_FULL_8418") } catch (_: Throwable) {}
+        }
+        return ok
+    }
+
+    /**
+     * V5.0.8418 — the safety-net watchdog's first delay ran from admission. Wait on until the worker has had its own
+     * budget from the moment it got a thread (or until a queued worker passes the queue-wait bound). Returns at once
+     * when the worker released its slot.
+     */
+    private suspend fun supervisorAwaitWorkerBudget8418(leaseId: Long, released: java.util.concurrent.atomic.AtomicBoolean) {
+        var rounds = 0
+        while (!released.get() && rounds < 8) {
+            val lease = supervisorLeases[leaseId] ?: return
+            val waitMs = SupervisorWorkerBudget8418.watchdogWaitMoreMs8418(
+                nowMs = android.os.SystemClock.elapsedRealtime(),
+                spawnedAtMs = lease.startedMonotonicMs,
+                workerStartedAtMs = lease.workerStartedMs8418.get(),
+                budgetMs = SUPERVISOR_WORKER_TIMEOUT_MS + 750L,
+                maxQueueWaitMs = SupervisorWorkerBudget8418.MAX_QUEUE_WAIT_MS_8418,
+            )
+            if (waitMs <= 0L) return
+            kotlinx.coroutines.delay(waitMs)
+            rounds++
+        }
+    }
+
+    /** V5.0.8418 — did the lease's worker ever get a thread? (false = the watchdog release is a queue expiry). */
+    private fun supervisorWorkerStarted8418(leaseId: Long): Boolean =
+        !SupervisorWorkerBudget8418.isQueueExpiry8418(supervisorLeases[leaseId]?.workerStartedMs8418?.get() ?: 0L)
+
     private fun supervisorLeaseProgress6448(leaseId: Long, state: String) {
         try {
             val l = supervisorLeases[leaseId] ?: return
             l.lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
+            if (state == "WORKER_STARTED") l.workerStartedMs8418.compareAndSet(0L, l.lastProgressMs.get())
             l.completionState.set(state.take(40))
             if (l.threadName.get().isBlank()) l.threadName.set(Thread.currentThread().name.take(80))
         } catch (_: Throwable) {}
@@ -24522,7 +24649,7 @@ if (hotExitHandledSweep) {
                 if (e.value.mint == mint) {
                     val lease = e.value
                     val nowMonotonic = android.os.SystemClock.elapsedRealtime()
-                    val age = nowMonotonic - lease.startedMonotonicMs
+                    val age = supervisorLeaseAgeMs8418(lease, nowMonotonic)
                     val sinceProgress = nowMonotonic - lease.lastProgressMs.get()
                     val job = lease.jobRef.get()
                     val genuinelyStuck6616 = age >= SUPERVISOR_LEASE_TTL_MS &&
@@ -24837,6 +24964,8 @@ if (hotExitHandledSweep) {
             scope.launch(serviceDispatcher6647 + CoroutineName("entry-watchdog-$leaseId")) {
                 try {
                     kotlinx.coroutines.delay(SUPERVISOR_WORKER_TIMEOUT_MS + 750L)
+                    supervisorAwaitWorkerBudget8418(leaseId, released)
+                    val started8418 = supervisorWorkerStarted8418(leaseId)
                     if (!released.get()) {
                         val wj6448 = try { workerJobRef.get() } catch (_: Throwable) { null }
                         try { wj6448?.cancel() } catch (_: Throwable) {}
@@ -24857,9 +24986,14 @@ if (hotExitHandledSweep) {
                         // floor stay unconditional). Also count it as a real worker
                         // timeout so PipelineHealthCollector reflects the true stuck-IO
                         // rate instead of hiding it behind force-releases.
-                        try { supervisorArmTimeoutCooldown(mint) } catch (_: Throwable) {}
-                        try { supervisorLifetimeWorkerTimeouts.incrementAndGet() } catch (_: Throwable) {}
-                        try { supervisorNoteWorkerTimeoutForThrottle() } catch (_: Throwable) {}
+                        if (started8418) {
+                            try { supervisorArmTimeoutCooldown(mint) } catch (_: Throwable) {}
+                            try { supervisorLifetimeWorkerTimeouts.incrementAndGet() } catch (_: Throwable) {}
+                            try { supervisorNoteWorkerTimeoutForThrottle() } catch (_: Throwable) {}
+                        } else {
+                            // V5.0.8418 — never got a thread: a queue expiry, not the mint's fault.
+                            try { PipelineHealthCollector.labelInc("SUPERVISOR_WORKER_QUEUE_EXPIRED_8418") } catch (_: Throwable) {}
+                        }
                         supervisorWatchdogRelease7809(released.get(), leaseId, mint, cancelAck6448, releaseSlot)
                     }
                 } catch (_: Throwable) {}
@@ -30374,14 +30508,7 @@ if (hotExitHandledSweep) {
                             !shitRejectReasonUpper.contains("SHITCOIN_DANGER_BUCKET_GUARD") &&
                             !shitRejectReasonUpper.contains("EXPECTANCY_REJECT") &&
                             !shitRejectReasonUpper.contains("WR_RECOVERY_SCORE_FLOOR")
-                        if (forceBootstrapEntry && !forceBootstrapAllowed) {
-                            try {
-                                ForensicLogger.lifecycle(
-                                    "SHITCOIN_LIVE_ADAPTIVE_FORCE_SUPPRESSED",
-                                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=${shitCoinSignal.reason.take(120)} rawScore=$rawShitcoinScore score=${shitCoinSignal.entryScore}"
-                                )
-                            } catch (_: Throwable) {}
-                        }
+                        if (forceBootstrapEntry && !forceBootstrapAllowed) noteShitcoinBootstrapRefused8418(ts, shitCoinSignal.reason, rawShitcoinScore, shitCoinSignal.entryScore)
                         var shouldEnter = !shitCoinV3HardReject && !shitCoinDumpBlocks &&
                             (shitCoinSignal.shouldEnter || forceBootstrapAllowed)
 
@@ -35381,12 +35508,59 @@ if (hotExitHandledSweep) {
     }
 
     private val entryHydrationPending6647 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    // V5.0.8418 — the hydration cascade (fan-out + provider chain, seconds of blocking IO) ran on AATE-Entry-6647, the
+    // supervisor workers' 16 threads, so every hydration queued a worker behind it (SupervisorWorkerBudget8418). It has
+    // its own pool now; the per-mint pending set already bounds the queue to one task per mint.
+    private val entryHydrationExecutor8418: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newFixedThreadPool(4) { r ->
+            Thread(r, "AATE-EntryHydration-8418").apply { isDaemon = true }
+        }
+    private val entryHydrationDispatcher8418: CoroutineDispatcher = entryHydrationExecutor8418.asCoroutineDispatcher()
     /** V5.0.7273 — last fan-out hydration per mint; one eight-feed pass per 30 s is plenty. */
     private val entryHydrationFanoutLastMs7273 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
+    /**
+     * V5.0.8418 §STAMP_MAPS_WITH_NO_EVICTION. These per-mint throttle stamps were written for every mint the service ever
+     * hydrated, priced or logged and removed by nothing (one map entry, ~180 B, per mint ever seen; 5.0.8416 walked
+     * 110k mint reads through the lanes in 3.7 h, heap peak 100%). Each holds a throttle of at most 60 s (a hold-until
+     * stamp for the warm-up map), so an entry older than [SERVICE_STAMP_TTL_MS_8418] answers nothing; above
+     * [SERVICE_STAMP_CAP_8418] those go first, then the oldest. No learning, position, safety or ledger state is here.
+     * Run by HotExitWatchdog8418 every pass (O(1) while under the cap). Returns the entries removed.
+     */
+    internal fun boundServiceStamps8418(nowMs: Long): Int {
+        val b = com.lifecyclebot.engine.truth.MemoryBounds8289
+        val cap = SERVICE_STAMP_CAP_8418
+        val ttl = SERVICE_STAMP_TTL_MS_8418
+        var n = 0
+        n += b.capByAge8289(entryHydrationFanoutLastMs7273, cap, ttl, nowMs) { it }
+        n += b.capByAge8289(staleFallbackLastTryMs, cap, ttl, nowMs) { it }
+        n += b.capByAge8289(staleMarkRefreshCooldown6721, cap, ttl, nowMs) { it }
+        n += b.capByAge8289(openPosFallbackLastAttempt, cap, ttl, nowMs) { it }
+        n += b.capByAge8289(rapidEntryWarmupHoldUntilMs, cap, ttl, nowMs) { it }
+        n += b.capByAge8289(layerSkipLogThrottle, cap, ttl, nowMs) { it }
+        n += b.capByAge8289(symbolFamilySuppressedUntil, cap, ttl, nowMs) { it }
+        val families = b.capByAge8289(symbolFamilyWindowStart, cap, ttl, nowMs) { it }
+        if (families > 0) {
+            try { symbolFamilyMintsSeen.keys.retainAll(symbolFamilyWindowStart.keys) } catch (_: Throwable) {}
+            n += families
+        }
+        if (n > 0) serviceStampsEvicted8418.addAndGet(n.toLong())
+        return n
+    }
+
+    /** V5.0.8418 — entries held by the bounded stamp maps (MemoryGuard7977 census). */
+    fun serviceStampCount8418(): Int =
+        entryHydrationFanoutLastMs7273.size + staleFallbackLastTryMs.size + staleMarkRefreshCooldown6721.size +
+            openPosFallbackLastAttempt.size + rapidEntryWarmupHoldUntilMs.size + layerSkipLogThrottle.size +
+            symbolFamilySuppressedUntil.size + symbolFamilyWindowStart.size + symbolFamilyMintsSeen.size
+
+    private val serviceStampsEvicted8418 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val SERVICE_STAMP_CAP_8418 = 4_096
+    private val SERVICE_STAMP_TTL_MS_8418 = 10L * 60_000L
+
     private fun requestEntryHydration6647(mint: String, ts: TokenState) {
         if (!entryHydrationPending6647.add(mint)) return
-        scope.launch(supervisorDispatcher6647 + CoroutineName("entry-hydration-${mint.take(8)}")) {
+        scope.launch(entryHydrationDispatcher8418 + CoroutineName("entry-hydration-${mint.take(8)}")) {
             try {
                 // V5.0.7273 §CANDIDATES_NEVER_REACHED_THE_FAN_OUT.
                 //

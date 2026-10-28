@@ -431,14 +431,8 @@ class DataOrchestrator(
     private suspend fun seedCandleHistory(mint: String, symbol: String, repairShape8168: Boolean = false) {
         val ts = status.tokens[mint] ?: return
         var seeded = 0
-        // Helius-first on-chain trade history is requested asynchronously for
-        // near-decision SOL mints with insufficient bars. It never waits in
-        // scanner/FDG; if no verified pool/curve exists, independent OHLCV
-        // sources below remain the honest fallback.
-        // V5.0.8284 — no history.size < 6 shortcut: held, near-decision and hand-off mints ask; request7819 decides on 1 m coverage.
-        if (com.lifecyclebot.engine.truth.HeliusSwapCandles7819.priority8284(mint) > 0) try {
-            com.lifecyclebot.engine.truth.HeliusSwapCandles7819.request7819(ts)
-        } catch (_: Throwable) {}
+        // V5.0.8418 — the Helius on-chain trade history (100-credit pages) is no longer asked FIRST: it is the
+        // fallback after the keyless seed below came back empty (HeliusCandleGate8418). See the call after that seed.
 
         // V5.0.4186 — BIRDEYE = BACKUP, not primary. Operator P0 mandate:
         // "we can get the data birdeye provides free. its meant to be
@@ -528,6 +522,13 @@ class DataOrchestrator(
                     }
                 }
             }
+        } catch (_: Throwable) {}
+        // V5.0.8418 — Helius history only when the free seed (and Codex) delivered nothing. Asynchronous; it never waits in
+        // scanner/FDG. V5.0.8284 — no history.size < 6 shortcut: held, near-decision and hand-off mints ask; request7819
+        // decides on 1 m coverage after its own free pass.
+        val heliusAfterKeyless8418 = keylessSeeded6916 == 0 && !codexFirst8191
+        if (heliusAfterKeyless8418) if (com.lifecyclebot.engine.truth.HeliusSwapCandles7819.priority8284(mint) > 0) try {
+            com.lifecyclebot.engine.truth.HeliusSwapCandles7819.request7819(ts)
         } catch (_: Throwable) {}
         if (keylessSeeded6916 > 0) {
             seeded += keylessSeeded6916

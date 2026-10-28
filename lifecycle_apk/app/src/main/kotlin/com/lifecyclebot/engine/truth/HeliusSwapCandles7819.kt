@@ -152,6 +152,7 @@ object HeliusSwapCandles7819 {
         }
         val next = nextAllowedMs[mint] ?: 0L
         if (nowMs < next) { localTape8284(ts, nowMs, "retryWait"); priceBars8287(ts, nowMs); return }
+        if (!heliusAfterFree8418(ts, nowMs, priority)) return   // V5.0.8418 — free sources first; Helius is the fallback
         requests.incrementAndGet()
         // V5.0.7881 — up to two 100-credit pages per job (288k credits/day at the old
         // 60/h cap); now also paced on the economy's SWAP_CANDLES share.
@@ -194,6 +195,35 @@ object HeliusSwapCandles7819 {
             HeliusCreditEconomy7881.finish8386(credits)
             inFlight.remove(mint); admission8386.finish(mint)
         }
+    }
+
+    /**
+     * V5.0.8418 — the free pass every request runs before any credit is reserved: the mint's own local tape, its observed
+     * price bars and (curve coins) the cached keyless pump.fun candles. True only when HeliusCandleGate8418 leaves Helius
+     * as the fallback: still short of 1 m bars, not a bulk coin, past the free grace (a held position does not wait).
+     */
+    private fun heliusAfterFree8418(ts: TokenState, nowMs: Long, priority: Int): Boolean {
+        val firstAsk = HeliusCandleGate8418.firstAsk8418(ts.mint, nowMs)
+        localTape8284(ts, nowMs, "free_first_8418"); priceBars8287(ts, nowMs)
+        pumpFunBars8418(ts, nowMs)
+        val covered = try {
+            CandleCoverage8284.coverage8284(ts, nowMs)[1] == CandleCoverage8284.Coverage8284.COVERED
+        } catch (_: Throwable) { false }
+        val d = HeliusCandleGate8418.decide8418(priority, covered, firstAsk, nowMs)
+        HeliusCandleGate8418.note8418(d)
+        if (d == HeliusCandleGate8418.Decision8418.HELIUS_FALLBACK) return true
+        if (d == HeliusCandleGate8418.Decision8418.COVERED_BY_FREE) coveredSkips8284.incrementAndGet()
+        else refusal8386(d.name.lowercase())
+        return false
+    }
+
+    /** V5.0.8418 — the keyless pump.fun curve candles (cached, fetched off-thread by their owner) merged by quality. */
+    private fun pumpFunBars8418(ts: TokenState, nowMs: Long) {
+        val bars = try { com.lifecyclebot.network.PumpFunCandleStep8359.forCurveCoin8359(ts.mint, 30, nowMs) } catch (_: Throwable) { null } ?: return
+        val r = try {
+            CandleCoverage8284.merge8284(ts, bars, CandleCoverage8284.Quality8284.VALID_POOL_OHLCV, "pumpfun8359", "", nowMs)
+        } catch (_: Throwable) { null } ?: return
+        if (r.changed > 0) featureArrived8284(ts, nowMs)
     }
 
     const val PRIORITY_HELD_8284 = 3

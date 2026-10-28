@@ -482,6 +482,10 @@ object MemoryGuard7977 {
         r.register8144("serviceQueues8309", 1_024L, { executorQueued8309() }, null)
         // Android holds every opened SharedPreferences file as a parsed map of Strings (UTF-16: ~2x the XML on disk).
         r.register8144("prefsMirror8309", 0L, { -1 }, null) { prefsBytes8309 * 2L }
+        // V5.0.8418 — the bot service's per-mint throttle stamps (bounded on every watchdog pass; trimmed here too).
+        r.register8144("serviceStamps8418", 180L, { BotService.instance?.serviceStampCount8418() ?: -1 }, { _ ->
+            BotService.instance?.boundServiceStamps8418(System.currentTimeMillis())
+        })
         for ((name, kind) in listOf(
             "tokenRows" to "guardPass", "tokenArchive" to "guardPass", "fdgSeals" to "guardPass", "chartLibrary" to "fixed",
             "labeler" to "ledger", "policyHeadStamps" to "ledger", "metaPolicyStamps" to "ledger", "pipelineLabels" to "capped",
@@ -501,6 +505,19 @@ object MemoryGuard7977 {
 
     /** V5.0.8309 — bytes of SharedPreferences XML on disk (census8031, every 60 s). */
     @Volatile private var prefsBytes8309 = 0L
+    @Volatile private var prefsArchivedBytes8418 = 0L
+
+    /**
+     * V5.0.8418 — Pure: is this shared_prefs file one Android parses into memory? Only `<name>.xml` is. 5.0.8416 counted
+     * every file in the directory as the in-memory mirror, including the 18 MB `aate_explore_shadow_8347.xml.migrated8397`
+     * archive the shadow cold store left after moving that book to SQLite (never opened again) and `.bak` write copies:
+     * prefsMirror8309 read 57 MB, about 36 MB of it files no process holds, so the census pointed at the wrong store.
+     */
+    fun residentPrefsFile8418(fileName: String): Boolean = fileName.endsWith(".xml")
+
+    /** V5.0.8418 — Pure: bytes of the loaded prefs files among [sizesByFileName] (file name -> bytes on disk). */
+    fun residentPrefsBytes8418(sizesByFileName: Map<String, Long>): Long =
+        sizesByFileName.entries.filter { residentPrefsFile8418(it.key) }.sumOf { it.value.coerceAtLeast(0L) }
     @Volatile private var residueFirstTickMs8309 = 0L
 
     /**
@@ -681,10 +698,12 @@ object MemoryGuard7977 {
         census8031 = try {
             val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: return "-"
             val prefsDir = java.io.File(ctx.applicationInfo.dataDir, "shared_prefs")
-            val prefs = prefsDir.listFiles()?.associate { it.name.removeSuffix(".xml") to it.length() }.orEmpty()
-            prefsBytes8309 = prefs.values.sum()   // V5.0.8309
+            val prefsFiles8418 = prefsDir.listFiles()?.associate { it.name to it.length() }.orEmpty()
+            val prefs = prefsFiles8418.filterKeys { residentPrefsFile8418(it) }.mapKeys { it.key.removeSuffix(".xml") }
+            prefsBytes8309 = residentPrefsBytes8418(prefsFiles8418)   // V5.0.8309; V5.0.8418 — loaded files only
+            prefsArchivedBytes8418 = prefsFiles8418.values.sum() - prefsBytes8309
             val files = ctx.filesDir.walkTopDown().maxDepth(2).filter { it.isFile }.associate { it.name to it.length() }
-            "prefsTotal=${prefs.values.sum() / 1024}KB prefsTop=[${topSizes8031(prefs)}] filesTotal=${files.values.sum() / 1024}KB filesTop=[${topSizes8031(files)}] " +
+            "prefsTotal=${prefs.values.sum() / 1024}KB prefsNotLoaded8418=${prefsArchivedBytes8418 / 1024}KB prefsTop=[${topSizes8031(prefs)}] filesTotal=${files.values.sum() / 1024}KB filesTop=[${topSizes8031(files)}] " +
                 "labelLoad=${"%.2f".format(try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.pendingLoad8031() } catch (_: Throwable) { -1.0 })}"
         } catch (_: Throwable) { "census_failed" }
         return census8031

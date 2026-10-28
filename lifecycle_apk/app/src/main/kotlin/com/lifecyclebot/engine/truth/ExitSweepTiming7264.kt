@@ -138,22 +138,63 @@ object ExitSweepTiming7264 {
         lastStall7283 = "$state phase=$phase inFlightMs=$inFlightMs $top"
     }
 
+    // V5.0.8418 §THE_GAP_WAS_A_STOPPED_BOT_AND_THE_SLOW_TICKS_WERE_IDLE_ONES.
+    //
+    // 5.0.8416 (3.7 h live): maxGapMs=6,505,712 and slowTicks=1,201 of 1,202. Read together with the same report:
+    // BOT_STOP_REQUESTED=1 / BOT_START_REQUESTED=2 and Awake tickGapMax=6502 s — the bot loop's own gap, identical to
+    // the second. The owner stopped the bot for ~108 minutes; the loop ended (`while (status.running)`), and the first
+    // iteration after the restart measured its gap from the last iteration before the stop. Not one held position went
+    // unchecked in that window: there was no runtime. And with no open positions the loop sleeps IDLE_MS (5 s) between
+    // iterations by design, so every idle gap (~5.4 s) crossed the 5 s "slow" bar. Both numbers described the stop and
+    // the idle cadence, not a starved exit path. Now: a runtime start re-bases the gauge ([onRuntimeStart8418]); an
+    // iteration that had nothing to price says so ([onHotTickIdle8418]) and the gap after it is held to the idle cadence;
+    // the gap that matters — after an iteration that priced held positions — is reported on its own (maxHeldGapMs8418).
+    private const val HOT_TICK_IDLE_SLOW_MS_8418 = 10_000L
+    @Volatile private var lastTickIdle8418 = false
+    @Volatile private var currentTickIdle8418 = false
+    private val idleTicks8418 = AtomicLong(0L)
+    private val maxHeldGapMs8418 = AtomicLong(0L)
+    private val runtimeStarts8418 = AtomicLong(0L)
+
+    /** Pure: is a gap of [gapMs] after an iteration that was [prevIdle] (no open positions) a slow one? */
+    fun slowHotTickGap8418(gapMs: Long, prevIdle: Boolean): Boolean =
+        gapMs >= (if (prevIdle) HOT_TICK_IDLE_SLOW_MS_8418 else HOT_TICK_SLOW_MS_7270)
+
+    /** The running iteration found no open position and will sleep the idle cadence. */
+    fun onHotTickIdle8418() {
+        if (!currentTickIdle8418) idleTicks8418.incrementAndGet()
+        currentTickIdle8418 = true
+    }
+
+    /** A bot start: the next iteration's gap is not measured from the last iteration of the previous run. */
+    fun onRuntimeStart8418() {
+        runtimeStarts8418.incrementAndGet()
+        lastHotTickStartMs.set(0L)
+        lastTickIdle8418 = false
+        currentTickIdle8418 = false
+    }
+
+    fun maxHeldGapMs8418(): Long = maxHeldGapMs8418.get()
+
     fun onHotTickStart(nowMs: Long) {
         hotTickStartSeq7288.set(hotTicks.incrementAndGet())
         hotTickThread7283 = Thread.currentThread()
         hotTickPhase7283 = "start"
+        lastTickIdle8418 = currentTickIdle8418
+        currentTickIdle8418 = false
         val prev = lastHotTickStartMs.getAndSet(nowMs)
         if (prev <= 0L) return
         val gap = (nowMs - prev).coerceAtLeast(0L)
         lastHotTickGapMs.set(gap)
         maxHotTickGapMs.accumulateAndGet(gap) { a, b -> maxOf(a, b) }
-        if (gap >= HOT_TICK_SLOW_MS_7270) {
+        if (!lastTickIdle8418) maxHeldGapMs8418.accumulateAndGet(gap) { a, b -> maxOf(a, b) }
+        if (slowHotTickGap8418(gap, lastTickIdle8418)) {
             slowHotTicks.incrementAndGet()
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_POS_TICK_GAP_SLOW_7270")
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "OPEN_POS_TICK_GAP_SLOW_7270",
-                    "gapMs=$gap thresholdMs=$HOT_TICK_SLOW_MS_7270 lastFanoutMs=${lastFanoutMs.get()} " +
+                    "gapMs=$gap thresholdMs=${if (lastTickIdle8418) HOT_TICK_IDLE_SLOW_MS_8418 else HOT_TICK_SLOW_MS_7270} prevIdle8418=$lastTickIdle8418 lastFanoutMs=${lastFanoutMs.get()} " +
                         "action=hot_exit_heartbeat_starved_by_this_iteration",
                 )
             } catch (_: Throwable) {}
@@ -178,8 +219,10 @@ object ExitSweepTiming7264 {
             "lastSeen=${lastSeen.get()} lastEvaluated=${lastEvaluated.get()} lastDeferred=${lastDeferred.get()} " +
             "perPositionMs=$perPos slowPositions=${slowPositions.get()} worstPositionMs=${maxPositionMs.get()} lastEndedAgoMs=$ago " +
             "| hotTicks7270=${hotTicks.get()} lastGapMs=${lastHotTickGapMs.get()} maxGapMs=${maxHotTickGapMs.get()} slowTicks=${slowHotTicks.get()} " +
+            "maxHeldGapMs8418=${maxHeldGapMs8418.get()} idleTicks8418=${idleTicks8418.get()} runtimeStarts8418=${runtimeStarts8418.get()} " +
             "fanouts=$f fanLastMs=${lastFanoutMs.get()} fanMeanMs=$fanMean fanMaxMs=${maxFanoutMs.get()} " +
             "| inFlightMs7283=${hotTickInFlightMs7283(System.currentTimeMillis())} phase=$hotTickPhase7283 " +
-            "stalls=${hotTickStalls7283.get()} lastStall=$lastStall7283"
+            "stalls=${hotTickStalls7283.get()} lastStall=$lastStall7283 " +
+            (try { com.lifecyclebot.engine.HotExitWatchdog8418.statusLine8418() } catch (_: Throwable) { "hotExitWatchdog8418 -" })
     }
 }
