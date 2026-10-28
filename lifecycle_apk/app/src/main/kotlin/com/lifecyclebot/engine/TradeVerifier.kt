@@ -140,6 +140,7 @@ object TradeVerifier {
                     // inflated every live entry basis by ~4.6% on a 0.044 SOL position.
                     val solSpent = buySolSpent7928(parsed.solBefore, parsed.solAfter, parsed.ataRentLamports)
                     try { CostMeter8151.noteLeg8151(parsed.feeLamports, parsed.ataRentLamports, 0L); CostMeter8151.noteTicket8151(solSpent / 1e9) } catch (_: Throwable) {}  // V5.0.8151
+                    try { RealisedSlip8418.noteBuyFill8418(mint, rawDelta, solSpent, parsed.feeLamports) } catch (_: Throwable) {}  // V5.0.8418 — fill vs quote
                     WalletAccountCache.bustNow()
                     return BuyResult(Outcome.LANDED, sig, mint, rawDelta, ui, parsed.decimals, solSpent, parsed.solBefore, parsed.solAfter, parsed.feeLamports, null, parsed.ataRentLamports)
                 }
@@ -197,6 +198,7 @@ object TradeVerifier {
                 if (tokensCleared && solRealised) {
                     WalletAccountCache.bustNow()
                     try { CostMeter8151.noteLeg8151(parsed.feeLamports, 0L, parsed.closedRentLamports) } catch (_: Throwable) {}  // V5.0.8151
+                    try { RealisedSlip8418.noteSellFill8418(mint, rawConsumed, solReceived, parsed.feeLamports, CostMeter8151.lastSellTipLamports8418()) } catch (_: Throwable) {}  // V5.0.8418
                     val ui = if (parsed.decimals > 0) {
                         rawConsumed.toBigDecimal().movePointLeft(parsed.decimals).toDouble()
                     } else rawConsumed.toLong().toDouble()

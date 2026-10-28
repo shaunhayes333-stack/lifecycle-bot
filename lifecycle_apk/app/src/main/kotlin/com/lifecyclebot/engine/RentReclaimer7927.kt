@@ -84,6 +84,9 @@ object RentReclaimer7927 {
         if (targetedDue8151.size > 200) targetedDue8151.entries.removeIf { nowMs - it.value > 30L * 60_000L }
     }
 
+    /** V5.0.8418 — is an after-exit close of [mint] queued (PositionCloseLedger.queueRentReclaim8418)? */
+    fun queued8418(mint: String): Boolean = targetedDue8151.containsKey(mint)
+
     /**
      * Share of empty accounts the reclaimer could not close (Token-2022 withheld fees): rent that is really spent.
      * V5.0.8369 — also the accounts a pass left stuck, and ALL of it while a live reclaimer has never completed a listing

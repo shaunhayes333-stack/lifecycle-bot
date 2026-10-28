@@ -108,16 +108,24 @@ object NetEdge8030 {
         // SOL), not its $3 of real SOL (which read as 50%/side). Fees/venue keep the real figure.
         val impactLiq8337 = FieldManual7715.depthUsdForImpact8337(mint, if (depthKnown) liquidityUsd else 0.0, solUsd)
         val components8151 = try { componentsPct8151(size, mint, if (depthKnown) liquidityUsd else 0.0, mcapUsd) } catch (_: Throwable) { Double.NaN }
-        val model = if (components8151.isFinite()) components8151 + FieldManual7715.SLIPPAGE_ALLOWANCE_PCT_7715 +
-            FieldManual7715.impactRoundTripPct(if (impactLiq8337 > 0.0) sizeUsd else 0.0, impactLiq8337)
+        // V5.0.8418 — slippage is the REALISED fill vs quote per side once receipts measure it (the 1 % allowance until
+        // then), and impact is raised to a fresh quote's own priceImpactPct (RoundTrip8418).
+        val depthImpact8418 = FieldManual7715.impactRoundTripPct(if (impactLiq8337 > 0.0) sizeUsd else 0.0, impactLiq8337)
+        val impact8418 = try { com.lifecyclebot.engine.RoundTrip8418.impactLive8418(mint, size, depthImpact8418) } catch (_: Throwable) { depthImpact8418 }
+        val slip8418 = try { com.lifecyclebot.engine.RoundTrip8418.slipRoundTripPctLive8418() } catch (_: Throwable) { FieldManual7715.SLIPPAGE_ALLOWANCE_PCT_7715 }
+        val model = if (components8151.isFinite()) components8151 + slip8418 + impact8418
         else try { FieldManual7715.roundTripCostPct7766(size, if (impactLiq8337 > 0.0) sizeUsd else 0.0, impactLiq8337) } catch (_: Throwable) { 5.0 }
-        val measured = try { CostLedger7962.measuredCostPct7962(lane, size) } catch (_: Throwable) { null }
+        // V5.0.8418 — the mark-based trip (SOL paid vs the tape 3 s before each fill) lifts the cost only until realised
+        // slippage is receipt-measured; after that its gap to the receipts is the market's move, reported, not charged.
+        val receipts8418 = try { com.lifecyclebot.engine.RealisedSlip8418.receiptMeasured8418() } catch (_: Throwable) { false }
+        val mark8418 = try { CostLedger7962.measuredCostPct7962(lane, size) } catch (_: Throwable) { null }
+        val measured = com.lifecyclebot.engine.RoundTrip8418.markLift8418(mark8418, receipts8418)
         try { com.lifecyclebot.engine.Costs8369.noteModel8369(lane, model) } catch (_: Throwable) {}  // V5.0.8369 — model vs measured
         return maxOf(model, measured ?: 0.0).also {
             lastCostPct = it
             // V5.0.8169 — what the figure is made of (5.0.8168 printed lastCost=58.64% with no lane, size or depth).
             lastBreakdown8169 = breakdown8169(lane, size, impactLiq8337, components8151.isFinite(),
-                FieldManual7715.impactRoundTripPct(if (impactLiq8337 > 0.0) sizeUsd else 0.0, impactLiq8337), measured, it)
+                impact8418, measured, it) + com.lifecyclebot.engine.RoundTrip8418.breakdownTail8418(slip8418, impact8418, mark8418, receipts8418)
             tlBreakdown8209.set(lastBreakdown8169)   // V5.0.8209 — the same thread reads its own quote's breakdown, not a racing one
         }
     }
@@ -209,7 +217,10 @@ object NetEdge8030 {
      */
     fun preTradeCostPct8329(lane: String, sizeSol: Double, liquidityUsd: Double, mint: String = "", mcapUsd: Double = 0.0): Double {
         val model = costPct8030(lane, sizeSol, liquidityUsd, mint, mcapUsd)
-        val measured = (try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }) ?: return model
+        // V5.0.8418 — the mark-based median lifts only until realised slippage is receipt-measured (RoundTrip8418.markLift8418).
+        val receipts8418 = try { com.lifecyclebot.engine.RealisedSlip8418.receiptMeasured8418() } catch (_: Throwable) { false }
+        val measured = com.lifecyclebot.engine.RoundTrip8418.markLift8418(
+            try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }, receipts8418) ?: return model
         if (measured > model) {
             measuredLifts8329.incrementAndGet()
             try { PipelineHealthCollector.labelInc("COST_TRUTH_MEASURED_LIFTS_MODEL_8329_${lane.uppercase().take(16)}") } catch (_: Throwable) {}

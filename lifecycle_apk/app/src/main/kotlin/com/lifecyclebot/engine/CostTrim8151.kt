@@ -47,8 +47,14 @@ object CostTrim8151 {
     internal const val AGGREGATOR_FEE_PCT_PER_SIDE_8151 = 0.1 // documented general pair; Costs8369 uses quote-specific/young-token fees
     /** HeliusSender posts to `/fast?swqos_only=true`, whose minimum tip is 5,000 lamports (HeliusSenderEnvelope7250). */
     internal const val SWQOS_MIN_TIP_LAMPORTS_8151 = 5_000L
-    /** An ordinary transaction's Sender tip: 10x the SWQOS minimum (was the 200,000-lamport dual-routing figure). */
-    internal const val ORDINARY_SENDER_TIP_LAMPORTS_8151 = 50_000L
+    /**
+     * An ordinary transaction's Sender tip: 5x the SWQOS minimum (was the 200,000-lamport dual-routing figure).
+     * superseded by V5.0.8418 — was 50,000 (10x the minimum, 0.16 % of a 0.031 SOL ticket a leg) with nothing measured
+     * showing the extra 45,000 lamports bought landing. Self-correcting: capped entries that stop landing go back to the
+     * legacy tip (Costs8369.capLandFailing8369), an unlanded sell retries at the protective tip (sellProtective8378), and
+     * stops / rugs / emergencies never take this tip.
+     */
+    internal const val ORDINARY_SENDER_TIP_LAMPORTS_8151 = 25_000L
     /** An ordinary transaction's CU priority spend may be at most this share of the trade. */
     internal const val ORDINARY_PRIORITY_SHARE_8151 = 0.003
     /** Compute units a routed swap is costed at when its CU price is derived from a SOL budget. */
@@ -288,9 +294,27 @@ object CostMeter8151 {
 
     /** Executor.sellSenderTip8378: one sell leg's tip ([protective] = stop / rug / emergency / unlanded retry). */
     fun noteSellTip8378(tipLamports: Long, protective: Boolean) {
+        lastSellTipLamports8418 = tipLamports.coerceAtLeast(0L)   // V5.0.8418 — RealisedSlip8418's sell receipt
+        if (protective && tipLamports > 0L) protectiveSellTipEwma8418 = CostTrim8151.ewma8151(protectiveSellTipEwma8418, tipLamports.toDouble(), ALPHA)
         if (tipLamports > 0L) sellTipLamportsEwma8378 = CostTrim8151.ewma8151(sellTipLamportsEwma8378, tipLamports.toDouble(), ALPHA)
         (if (protective) protectiveSellTips8378 else ordinarySellTips8378).incrementAndGet()
     }
+    @Volatile private var lastSellTipLamports8418 = 0L
+    @Volatile private var protectiveSellTipEwma8418 = Double.NaN
+
+    /**
+     * V5.0.8418 — the sell tip the cost model prices: the PROTECTIVE class (stop / rug / emergency / unlanded retry, and the
+     * give-back exits the exits work moves into it), measured once one was tipped, else the legacy floor; never below what
+     * ordinary sells measured. At entry the exit's class is unknown and most live exits are protective, so an ordinary
+     * exit's cheap tip may never lower the 1.5x entry bar. (8378 priced the mixed average of every sell tip.)
+     */
+    fun modelSellTipLamports8418(): Double {
+        val prot = if (protectiveSellTipEwma8418.isFinite()) protectiveSellTipEwma8418 else SELL_TIP_ASSUMED_LAMPORTS
+        val ord = sellTipLamportsEwma8378
+        return if (ord.isFinite()) maxOf(prot, ord) else prot
+    }
+    /** V5.0.8418 — the tip the last sell send set (0 = none yet): TradeVerifier adds it back to price the sell vs its quote. */
+    fun lastSellTipLamports8418(): Long = lastSellTipLamports8418
     @Volatile private var lastTicketSol = Double.NaN
     @Volatile private var lastRoundTripPct = Double.NaN
     private val legs = AtomicLong(0)
@@ -345,10 +369,15 @@ object CostMeter8151 {
     fun roundTripFixedSol8151(): Double {
         val fee = feeLamportsEwma
         val tip = tipLamportsEwma
-        if (!fee.isFinite() && !tip.isFinite()) return 2.0 * CostTrim8151.FALLBACK_FIXED_LEG_SOL_8151
-        val feePart = if (fee.isFinite()) fee else CostTrim8151.BASE_FEE_LAMPORTS_8151.toDouble()
-        val entryTip = if (tip.isFinite()) tip else SELL_TIP_ASSUMED_LAMPORTS
-        val sellTip8378 = if (sellTipLamportsEwma8378.isFinite()) sellTipLamportsEwma8378 else SELL_TIP_ASSUMED_LAMPORTS
+        // superseded by V5.0.8418 — before any leg was measured this returned 2 x FALLBACK_FIXED_LEG_SOL_8151 (0.0006 SOL,
+        // 1.94 % of a 0.031 SOL ticket; CostMeter is in memory, so after EVERY restart). Each part is now what the policy
+        // will pay: the base fee + the market's medium CU price (RoundTrip8418.plannedLegFeeLamportsNow8418), the ordinary
+        // entry tip, and the legacy (protective) sell tip until a sell is tipped. Measured values replace each part.
+        val feePart = if (fee.isFinite()) fee else RoundTrip8418.plannedLegFeeLamportsNow8418().toDouble()
+        val entryTip = if (tip.isFinite()) tip else CostTrim8151.ORDINARY_SENDER_TIP_LAMPORTS_8151.toDouble()
+        // superseded by V5.0.8418 — was the mixed average of every sell tip (ordinary exits pulled it down); now the tip class
+        // the exit will use (modelSellTipLamports8418).
+        val sellTip8378 = modelSellTipLamports8418()
         return (2.0 * feePart + entryTip + sellTip8378) / 1e9
     }
 
@@ -356,8 +385,9 @@ object CostMeter8151 {
     fun sellLegFixedSol8151(): Double {
         val fee = feeLamportsEwma
         // V5.0.8378 — the measured sell tip once a sell has been tipped (ordinary exits no longer pay the legacy floor).
-        val sellTip8378 = if (sellTipLamportsEwma8378.isFinite()) sellTipLamportsEwma8378 else SELL_TIP_ASSUMED_LAMPORTS
-        return if (!fee.isFinite()) CostTrim8151.FALLBACK_FIXED_LEG_SOL_8151 else (fee + sellTip8378) / 1e9
+        val sellTip8378 = modelSellTipLamports8418()   // superseded by V5.0.8418 — the protective class, not the mixed average
+        // V5.0.8418 — before a leg is measured: the planned leg fee (base + medium priority), not the 0.0003 SOL fallback.
+        return ((if (fee.isFinite()) fee else RoundTrip8418.plannedLegFeeLamportsNow8418().toDouble()) + sellTip8378) / 1e9
     }
 
     private val boundedExec8151: java.util.concurrent.ExecutorService by lazy {
@@ -427,7 +457,7 @@ object CostMeter8151 {
 
     internal fun resetForTest8151() {
         feeLamportsEwma = Double.NaN; tipLamportsEwma = Double.NaN; lastTicketSol = Double.NaN; lastRoundTripPct = Double.NaN
-        sellTipLamportsEwma8378 = Double.NaN; ordinarySellTips8378.set(0); protectiveSellTips8378.set(0)
+        sellTipLamportsEwma8378 = Double.NaN; ordinarySellTips8378.set(0); protectiveSellTips8378.set(0); lastSellTipLamports8418 = 0L; protectiveSellTipEwma8418 = Double.NaN
         legs.set(0); failedLegs.set(0); failedFeeLamports.set(0); rentOpenedLamports.set(0); rentClosedInTxLamports.set(0)
         ordinaryTips.set(0); tipSavedLamports.set(0); aggregatorFirst.set(0); simRefused.set(0); partialFixedHeld.set(0)
         aggregatorTriedAt.clear()
