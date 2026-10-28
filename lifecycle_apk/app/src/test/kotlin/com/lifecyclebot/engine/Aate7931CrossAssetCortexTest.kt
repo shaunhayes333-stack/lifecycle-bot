@@ -24,6 +24,8 @@ class Aate7931CrossAssetCortexTest {
     @Test fun paperAndLiveShareOneIdentity() {
         assertEquals("So1Mint", CrossAssetCortex7931.keyOf("solana|So1Mint", "ABC", null))
         assertEquals("XsMint", CrossAssetCortex7931.keyOf("AAPL", "AAPL", "XsMint"))
+        // superseded by V5.0.8418 — 8372 changed EVM identities from "0xabc" to "ethereum|0xabc" with no note or migration; the
+        // close side now maps the old bare form onto the captured chain key (migratedKey8418, Aate8418LearningIntegrityTest).
         assertEquals("ethereum|0xabc", CrossAssetCortex7931.keyOf("ethereum|0xabc", "PEPE", null))
         assertEquals("bsc|0xabc", CrossAssetCortex7931.keyOf("bsc|0xabc", "PEPE", null))
         assertEquals("BRENT", CrossAssetCortex7931.keyOf("BRENT", "BRENT", null))

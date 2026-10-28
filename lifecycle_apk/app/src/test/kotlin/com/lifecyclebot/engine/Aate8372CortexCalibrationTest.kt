@@ -204,50 +204,57 @@ class Aate8372CortexCalibrationTest {
         assertEquals(15.0, receiving.netFit8372("CORE")!!.expectedNetPct8372(1.0), 0.0)
     }
 
+    // superseded by V5.0.8418 — the three 8372/8404 shadow-basis tests (forwardAndAlreadyExecutableShadowOutcomesPayTheGapExactlyOnce,
+    // arithmeticCacheIncludesTheExecutionOffsetAndOnlyForwardRowsChange, aSelectedShadowRevisionChangesBasisWithoutAddingASecondOutcome)
+    // pinned a shadow exit TRAINING the live calibration with no execution offset charged. The live calibration now learns forward
+    // labels only; a stored legacy shadow pair is kept on disk and never fitted.
     @Test fun forwardAndAlreadyExecutableShadowOutcomesPayTheGapExactlyOnce() {
         val c = CortexCalibration7901()
         c.learn("CORE", 0.0, 0.0, 2.0, 7.0) // Forward net still owes the three-point fill gap.
-        c.learn("CORE", 0.0, 0.0, -1.0, 7.0, CortexCalibration7901.TARGET_SHADOW_NET_8372)
+        assertTrue("a shadow exit never trains the live calibration",
+            c.learn("CORE", 0.0, 0.0, -1.0, 7.0, CortexCalibration7901.TARGET_SHADOW_NET_8372).isNaN())
         assertEquals(-1.0, c.netFit8372("CORE", executionOffset = 3.0)!!.expectedNetPct8372(7.0), 1e-12)
+        assertEquals(1, c.netFit8372("CORE", 3.0)!!.n)
         val raw = c.encode().getString(CortexCalibration7901.ISO_KEY_PREFIX_8366 + "CORE").split(';')
+        assertEquals(1, raw.size)
         assertEquals(2.0, raw[0].split(':')[1].toDouble(), 0.0)
-        assertEquals(-1.0, raw[1].split(':')[1].toDouble(), 0.0)
-        assertTrue(raw[1].endsWith(":" + CortexCalibration7901.TARGET_SHADOW_NET_8372))
-        // Neither the raw losing result nor the legacy slope sums are rewritten as a fictional +2% win.
-        val withoutFitReads = CortexCalibration7901()
-        withoutFitReads.learn("CORE", 0.0, 0.0, 2.0, 7.0)
-        withoutFitReads.learn("CORE", 0.0, 0.0, -1.0, 7.0, CortexCalibration7901.TARGET_SHADOW_NET_8372)
-        assertEquals(withoutFitReads.encode().getString("CORE"), c.encode().getString("CORE"))
     }
 
     @Test fun arithmeticCacheIncludesTheExecutionOffsetAndOnlyForwardRowsChange() {
         val c = CortexCalibration7901()
         c.learn("CORE", 0.0, 0.0, 5.0, 1.0)
-        c.learn("CORE", 0.0, 0.0, 4.0, 1.0, CortexCalibration7901.TARGET_SHADOW_NET_8372)
+        c.learn("CORE", 0.0, 0.0, 4.0, 1.0, CortexCalibration7901.TARGET_SHADOW_NET_8372)   // refused
         val atTwo = c.netFit8372("CORE", 2.0)!!
         assertSame(atTwo, c.netFit8372("CORE", 2.0))
-        assertEquals(3.5, atTwo.expectedNetPct8372(1.0), 0.0)
+        assertEquals(3.0, atTwo.expectedNetPct8372(1.0), 0.0)
         val atFour = c.netFit8372("CORE", 4.0)!!
         assertNotSame(atTwo, atFour)
-        assertEquals(2.5, atFour.expectedNetPct8372(1.0), 0.0)
+        assertEquals(1.0, atFour.expectedNetPct8372(1.0), 0.0)
         val shadow = CortexCalibration7901()
         shadow.learn("CORE", 0.0, 0.0, -1.0, 1.0, CortexCalibration7901.TARGET_SHADOW_NET_8372)
-        assertEquals(-1.0, shadow.netFit8372("CORE", 50.0)!!.expectedNetPct8372(1.0), 0.0)
+        assertNull(shadow.netFit8372("CORE", 50.0))
     }
 
     @Test fun aSelectedShadowRevisionChangesBasisWithoutAddingASecondOutcome() {
         val c = CortexCalibration7901()
         val stamp = c.learn("CORE", 0.0, 0.0, 2.0, 1.0)
         assertEquals(-1.0, c.netFit8372("CORE", 3.0)!!.expectedNetPct8372(1.0), 0.0)
-        assertTrue(c.revise8322("CORE", 0.0, 0.0, 2.0, -1.0, stamp, CortexCalibration7901.TARGET_SHADOW_NET_8372))
-        val after = c.netFit8372("CORE", 3.0)!!
-        assertEquals(1, after.n)
-        assertEquals(-1.0, after.expectedNetPct8372(1.0), 0.0)
-        val restored = CortexCalibration7901().also { it.decode(c.encode()) }
-        assertTrue(restored.revise8322("CORE", 0.0, 0.0, -1.0, 8.0, stamp)) // Omitted basis preserves SHADOW.
-        assertEquals(1, restored.netFit8372("CORE", 3.0)!!.n)
-        assertEquals(8.0, restored.netFit8372("CORE", 3.0)!!.expectedNetPct8372(1.0), 0.0)
+        assertFalse("a shadow revision never rewrites a forward pair",
+            c.revise8322("CORE", 0.0, 0.0, 2.0, -1.0, stamp, CortexCalibration7901.TARGET_SHADOW_NET_8372))
         assertEquals(-1.0, c.netFit8372("CORE", 3.0)!!.expectedNetPct8372(1.0), 0.0)
+        val restored = CortexCalibration7901().also { it.decode(c.encode()) }
+        assertTrue(restored.revise8322("CORE", 0.0, 0.0, 2.0, 8.0, stamp))
+        assertEquals(1, restored.netFit8372("CORE", 3.0)!!.n)
+        assertEquals(5.0, restored.netFit8372("CORE", 3.0)!!.expectedNetPct8372(1.0), 0.0)
+    }
+
+    @Test fun legacyShadowPairsStayStoredButNeverEnterTheLiveFit8418() {
+        val raw = "1.0:40.0:x:" + CortexCalibration7901.TARGET_SHADOW_NET_8372 + ";1.0:5.0:x"
+        val c = CortexCalibration7901().also { it.decode(JSONObject().put(CortexCalibration7901.ISO_KEY_PREFIX_8366 + "CORE", raw)) }
+        val fit = c.netFit8372("CORE", 2.0)!!
+        assertEquals(1, fit.n)
+        assertEquals(3.0, fit.expectedNetPct8372(1.0), 0.0)
+        assertEquals(2, c.encode().getString(CortexCalibration7901.ISO_KEY_PREFIX_8366 + "CORE").split(';').size)   // never reset
     }
 
     @Test fun historicalThreeFieldPairsDefaultToForwardBasisWithoutChangingTheirRawStorage() {
@@ -260,11 +267,13 @@ class Aate8372CortexCalibrationTest {
 
     @Test fun consistencyAndPredictionShareTheSameCostAdjustedBasis() {
         val c = CortexCalibration7901()
+        // superseded by V5.0.8418 — the 8404 version mixed 40 shadow pairs (charged no offset) into this fit. Forward pairs only:
+        // both rows now pay the same offset, and the fit's consistency and prediction read the same forward basis.
         repeat(40) {
             c.learn("CORE", 0.0, 0.0, 2.0, 0.0)
-            c.learn("CORE", 1.0, 0.0, 1.0, 1.0, CortexCalibration7901.TARGET_SHADOW_NET_8372)
+            c.learn("CORE", 1.0, 0.0, 4.0, 1.0)
         }
-        assertTrue(c.uncalibrated8372("CORE", 0.0))
+        assertFalse(c.uncalibrated8372("CORE", 0.0))
         assertFalse(c.uncalibrated8372("CORE", 3.0))
         assertFalse(c.suspends8372("CORE", 0.5, 3.0))
         val fit = c.netFit8372("CORE", 3.0)!!

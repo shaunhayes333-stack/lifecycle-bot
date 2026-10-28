@@ -17,8 +17,8 @@ class Aate8392CortexCoverageTest {
         val base=CortexAuthority8366.test8372(observed,1.5,now)
         val r=CortexAuthority8366.test8372(observed+missing,1.5,now)
         assertEquals(300,r.missing8392);assertEquals(550,r.matured8392)
-        // V5.0.8399 — the missing outcomes stay in the denominator and SCALE the authority down (coverage/0.7), never vanish
-        // and are never imputed; at 45% STRONG coverage the lane keeps a reduced fraction instead of the 70% cliff's zero.
+        // V5.0.8399 — the missing outcomes stay in the denominator and SCALE the authority down, never vanish, never imputed.
+        // superseded by V5.0.8418 — under the 70 % bar the scale is 0 (8399 kept coverage/0.7 down to 30 %): no grant.
         val minCov=minOf(r.strongCoverage8392,r.restCoverage8392)
         assertTrue(minCov<CortexWalkForward8144.MIN_RESOLVED_SHARE_8144)
         assertEquals(base.fraction*CortexAuthority8366.coverageScale8399(minCov),r.fraction,1e-12)

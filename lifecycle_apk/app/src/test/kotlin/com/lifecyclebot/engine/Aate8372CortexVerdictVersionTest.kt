@@ -44,8 +44,10 @@ class Aate8372CortexVerdictVersionTest {
         book.addDecision(record("forward", 0, 1)); book.label("forward", -2.0, 0.0, -2.0, true, 20_000L)
         val restored = CortexGradeBook8144().also { it.execOffset8187 = { 3.0 }; it.decode(book.encode()) }
         val current = LearningEntryTruth8153.verdictRow8153(restored, "CORE", 1)
-        assertEquals(7.0, current.strongMean, 1e-12)
-        assertEquals(9.0, current.strongGrossMedian8198, 1e-12)
+        // superseded by V5.0.8418 — a SHADOW_EXIT row is stored but never graded evidence (8372 read strongMean 7.0 /
+        // gross median 9.0 from the simulated exit): the verdict row, authority and Kelly bucket stats skip it.
+        assertTrue(current.strongMean.isNaN())
+        assertEquals("SHADOW_EXIT", restored.decision("exit")!!.outcomeSource8372)
         assertEquals(-5.0, current.refuseMean, 1e-12)
         assertEquals(0.0, current.refuseGrossMedian8198, 1e-12)
         assertTrue(LearningEntryTruth8153.verdictRow8153(restored, "CORE", 0).strongMean.isNaN())

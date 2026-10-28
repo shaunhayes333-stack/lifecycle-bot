@@ -54,7 +54,9 @@ object SpecialistMiner7972 {
     class Stat(var n: Int = 0, var sum: Double = 0.0, var sumSq: Double = 0.0, var wins: Int = 0, var runners: Int = 0) {
         /** V5.0.8144 — last label booked here (eviction rank tie-break; session-only, not persisted). */
         @Volatile var touchedAtMs8144: Long = 0L
-        fun add(net: Double, gross: Double) {
+        /** Returns this label's booking stamp (V5.0.8418): the decay coordinate a later revision reads its weight against. */
+        fun add(net: Double, gross: Double): Double {
+            val stamp = logScale8418
             val y = net.coerceIn(-100.0, NET_CAP)
             n++; sum += y; sumSq += y * y
             if (y > 0.0) wins++
@@ -63,10 +65,14 @@ object SpecialistMiner7972 {
             if (n > STAT_WINDOW_8014) {
                 val k = STAT_WINDOW_8014.toDouble() / n
                 decayed8410 = true   // V5.0.8410 — this record has forgotten; a full-value revision would over-correct it
+                logScale8418 += kotlin.math.ln(k)   // V5.0.8418 — every booked label now owns k of its weight
                 n = STAT_WINDOW_8014; sum *= k; sumSq *= k
                 wins = kotlin.math.round(wins * k).toInt().coerceIn(0, n); runners = kotlin.math.round(runners * k).toInt().coerceIn(0, n)
             }
+            return stamp
         }
+        /** V5.0.8418 — cumulative decay of this record (session-scoped; stamps carry the boot they were taken in). */
+        @Volatile var logScale8418 = 0.0
         fun mean(): Double = if (n > 0) sum / n else 0.0
         fun se(): Double = if (n > 1) sqrt(((sumSq / n) - mean() * mean()).coerceAtLeast(0.0) / n) else Double.POSITIVE_INFINITY
         /** V5.0.8410 — set once the window has faded this record (session + persisted books rebuilt from n==window). */
@@ -76,14 +82,23 @@ object SpecialistMiner7972 {
          * V5.0.8410 — only while this record has never forgotten (every booked label still owns weight one, exactly). A
          * combination that has faded keeps its booked value rather than being over-corrected; the skip is counted.
          */
-        fun revise(oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+        /**
+         * V5.0.8418 §MATURE_COMBINATIONS_REVISE — [weight8418] is the share the booked label still owns
+         * (exp(logScale8418 - stamp), from [revisionWeight8418]); the revision applies at that weight, so a mature (faded)
+         * combination keeps learning its 15m/30m/1h/4h/24h grades. b79bd844f skipped every revision once the window filled.
+         * Without a stamp (null: a pre-8418 or cross-restart observation) the 8410 rule stands: exact only while never faded.
+         * A known but non-positive / non-finite weight is skipped (never treated as full weight).
+         */
+        fun revise(oldNet: Double, newNet: Double, oldGross: Double, newGross: Double, weight8418: Double? = null) {
             if (n <= 0 || !oldNet.isFinite() || !newNet.isFinite()) return
-            if (decayed8410 || n >= STAT_WINDOW_8014) { decayedRevisionSkipped8410.incrementAndGet(); return }
+            val w = weight8418 ?: if (decayed8410 || n >= STAT_WINDOW_8014) Double.NaN else 1.0
+            if (!(w > 0.0 && w <= 1.0)) { decayedRevisionSkipped8410.incrementAndGet(); return }
             val yo = oldNet.coerceIn(-100.0, NET_CAP); val yn = newNet.coerceIn(-100.0, NET_CAP)
-            sum += yn - yo; sumSq = (sumSq + yn * yn - yo * yo).coerceAtLeast(0.0)
-            wins = (wins + (if (yn > 0.0) 1 else 0) - (if (yo > 0.0) 1 else 0)).coerceIn(0, n)
+            sum += w * (yn - yo); sumSq = (sumSq + w * (yn * yn - yo * yo)).coerceAtLeast(0.0)
+            val dw = (if (yn > 0.0) 1 else 0) - (if (yo > 0.0) 1 else 0)
+            if (dw != 0) wins = (wins + kotlin.math.round(w * dw).toInt()).coerceIn(0, n)
             val ro = oldGross.isFinite() && oldGross >= RUNNER_GROSS; val rn = newGross.isFinite() && newGross >= RUNNER_GROSS
-            if (ro != rn) runners = (runners + if (rn) 1 else -1).coerceIn(0, n)
+            if (ro != rn) runners = (runners + kotlin.math.round(w * (if (rn) 1 else -1)).toInt()).coerceIn(0, n)
         }
     }
 
@@ -238,10 +253,13 @@ object SpecialistMiner7972 {
     }
 
     /** ForwardReturnLabeler7731 (5-minute label): book [net] to every combination of the decision's facts. */
-    fun onLabel7972(lane: String, mint: String, facts: List<String>, net: Double, gross: Double, decidedAtMs: Long) {
-        if (facts.size < 3 || !net.isFinite() || lane.startsWith("PLAN")) return
+    fun onLabel7972(lane: String, mint: String, facts: List<String>, net: Double, gross: Double, decidedAtMs: Long): DoubleArray {
+        if (facts.size < 3 || !net.isFinite() || lane.startsWith("PLAN")) return DoubleArray(0)
         // V5.0.8418 — one label per decision (lane, coin, decision time), across restarts.
-        if (!LearnerAttribution8418.admit8418("SpecialistMiner7972", "$lane|$mint|$decidedAtMs", "LABEL")) return
+        if (!LearnerAttribution8418.admit8418("SpecialistMiner7972", "$lane|$mint|$decidedAtMs", "LABEL")) return DoubleArray(0)
+        val combos8418 = combos7972(lane, facts)
+        // V5.0.8418 — [boot, stamp per combination]: a revision applies at the weight its label still owns in each one.
+        val stamps8418 = DoubleArray(combos8418.size + 1) { Double.NaN }.also { it[0] = BOOT_8418 }
         labels.incrementAndGet()
         // Dev reputation: one label per coin.
         try {
@@ -253,7 +271,7 @@ object SpecialistMiner7972 {
                 if (devLabelled.size > 10_000) devLabelled.clear()
             }
         } catch (_: Throwable) {}
-        for (k in combos7972(lane, facts)) {
+        for ((ci8418, k) in combos8418.withIndex()) {
             promoted[k]?.let { sp ->
                 if (decidedAtMs >= sp.promotedAtMs) {
                     val demote = synchronized(sp.live) { sp.live.add(net, gross); demotes7972(sp.live.n, sp.live.mean(), sp.live.se()) }
@@ -269,7 +287,7 @@ object SpecialistMiner7972 {
                 keys.getOrPut(k) { Stat() }
             }
             s.touchedAtMs8144 = decidedAtMs
-            val promote = synchronized(s) { s.add(net, gross); !promoted.containsKey(k) && promotes7972(s.n, s.mean(), s.se(), s.wins) }
+            val promote = synchronized(s) { stamps8418[ci8418 + 1] = s.add(net, gross); !promoted.containsKey(k) && promotes7972(s.n, s.mean(), s.se(), s.wins) }
             if (promote) {
                 val snap = synchronized(s) { Stat(s.n, s.sum, s.sumSq, s.wins, s.runners) }
                 if (promoted.putIfAbsent(k, Spec(k, System.currentTimeMillis(), snap)) == null) {
@@ -282,6 +300,19 @@ object SpecialistMiner7972 {
             }
         }
         if (sinceSave.incrementAndGet() >= 500) { sinceSave.set(0); file?.let { f -> Thread({ save(f) }, "specialists-7972-save").apply { isDaemon = true }.start() } }
+        return stamps8418
+    }
+
+    /** V5.0.8418 — this process's stamp coordinate id: a stamp from another boot (the decay coordinate is session-scoped) is unknown. */
+    private val BOOT_8418: Double = (System.currentTimeMillis() % 1_000_000_007L).toDouble()
+
+    /**
+     * Pure (V5.0.8418): the weight a label booked at [stamp] still owns in a record now at [logScale]; null when unknown
+     * (no / non-finite stamp, or a coordinate that moved the wrong way: another boot). Never above one.
+     */
+    fun revisionWeight8418(stamp: Double, logScale: Double): Double? {
+        if (!stamp.isFinite() || !logScale.isFinite() || logScale > stamp + 1e-9) return null
+        return kotlin.math.exp(logScale - stamp).coerceIn(0.0, 1.0)
     }
 
     /**
@@ -292,11 +323,19 @@ object SpecialistMiner7972 {
     private val decayedRevisionSkipped8410 = java.util.concurrent.atomic.AtomicLong(0)
     fun decayedRevisionSkipped8410(): Long = decayedRevisionSkipped8410.get()
 
-    fun reviseLabel7997(lane: String, facts: List<String>, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double) {
+    fun reviseLabel7997(lane: String, facts: List<String>, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double,
+                        stamps8418: DoubleArray = DoubleArray(0)) {
         if (facts.size < 3 || !oldNet.isFinite() || !newNet.isFinite() || lane.startsWith("PLAN")) return
-        for (k in combos7972(lane, facts)) {
+        val combos = combos7972(lane, facts)
+        val stamped = stamps8418.size == combos.size + 1 && stamps8418[0] == BOOT_8418
+        for ((ci, k) in combos.withIndex()) {
             val s = keys[k] ?: continue
-            val promote = synchronized(s) { s.revise(oldNet, newNet, oldGross, newGross); !promoted.containsKey(k) && promotes7972(s.n, s.mean(), s.se(), s.wins) }
+            val promote = synchronized(s) {
+                // V5.0.8418 — a stamped label revises at its remaining weight (a NaN stamp, e.g. a combination it never reached, skips).
+                val w = if (stamped) (revisionWeight8418(stamps8418[ci + 1], s.logScale8418) ?: 0.0) else null
+                s.revise(oldNet, newNet, oldGross, newGross, w)
+                !promoted.containsKey(k) && promotes7972(s.n, s.mean(), s.se(), s.wins)
+            }
             if (promote) {
                 val snap = synchronized(s) { Stat(s.n, s.sum, s.sumSq, s.wins, s.runners) }
                 if (promoted.putIfAbsent(k, Spec(k, System.currentTimeMillis(), snap)) == null) {

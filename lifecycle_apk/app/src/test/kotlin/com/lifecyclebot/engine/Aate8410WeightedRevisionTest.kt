@@ -14,7 +14,9 @@ class Aate8410WeightedRevisionTest {
         assertEquals(1.0, ForwardReturnLabeler7731.revisionWeight8410(0.0, 0.0), 1e-12)
         assertEquals(exp(-0.4), ForwardReturnLabeler7731.revisionWeight8410(-0.1, -0.5), 1e-12)   // faded since booking (scale fell 0.4)
         assertEquals(1.0, ForwardReturnLabeler7731.revisionWeight8410(-0.5, -0.1), 1e-12)        // never above one
-        assertEquals(1.0, ForwardReturnLabeler7731.revisionWeight8410(Double.NaN, -0.3), 1e-12)
+        // superseded by V5.0.8418 — an unknown (non-finite) weight is 0 (skipped, counted), never full weight (8410: 1.0).
+        assertEquals(0.0, ForwardReturnLabeler7731.revisionWeight8410(Double.NaN, -0.3), 0.0)
+        assertEquals(0.0, ForwardReturnLabeler7731.revisionWeight8410(-0.3, Double.NaN), 0.0)
         assertEquals(0 to 0.7, ForwardReturnLabeler7731.carry8410(0.7).let { it.first to it.second })
         val c = ForwardReturnLabeler7731.carry8410(1.3); assertEquals(1, c.first); assertEquals(0.3, c.second, 1e-12)
         val d = ForwardReturnLabeler7731.carry8410(-1.3); assertEquals(-1, d.first); assertEquals(-0.3, d.second, 1e-12)
@@ -63,6 +65,8 @@ class Aate8410WeightedRevisionTest {
         assertTrue(src.contains("if (f.size !in 17..36) return@forEach"))
         assertTrue(src.contains("""PipelineHealthCollector.labelInc("REVISION_WEIGHT_UNKNOWN_8410_TALLY")"""))
         val miner = File("src/main/kotlin/com/lifecyclebot/engine/truth/SpecialistMiner7972.kt").readText()
-        assertTrue(miner.contains("if (decayed8410 || n >= STAT_WINDOW_8014) { decayedRevisionSkipped8410.incrementAndGet(); return }"))
+        // superseded by V5.0.8418 — a mature combination revises at its stamped weight; only an unstamped (legacy) label keeps
+        // the 8410 skip once the window faded the record.
+        assertTrue(miner.contains("val w = weight8418 ?: if (decayed8410 || n >= STAT_WINDOW_8014) Double.NaN else 1.0"))
     }
 }

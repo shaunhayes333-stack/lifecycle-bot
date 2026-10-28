@@ -321,9 +321,9 @@ object LiveLaneGovernor {
         return try {
             val setupKey = entrySetup?.trim().orEmpty()
             val patternKey = chartPattern?.trim().orEmpty()
-            val winners = LiveWinDNAStore.setupFrequency(minCount = 2, lane = lane)
-            val losers = LiveWinDNAStore.losingSetupFrequency(minCount = 2, lane = lane)
-            val winPatterns = LiveWinDNAStore.chartPatternFrequency(minCount = 2, lane = lane)
+            val winners = LiveWinDNAStore.setupFrequency(minCount = 2, lane = lane, mode = LiveWinDNAStore.runtimeMode8418())
+            val losers = LiveWinDNAStore.losingSetupFrequency(minCount = 2, lane = lane, mode = LiveWinDNAStore.runtimeMode8418())
+            val winPatterns = LiveWinDNAStore.chartPatternFrequency(minCount = 2, lane = lane, mode = LiveWinDNAStore.runtimeMode8418())
             val setupWinner = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
             val setupLoser = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
             val patternWinner = winPatterns.firstOrNull { it.first.equals(patternKey, ignoreCase = true) }

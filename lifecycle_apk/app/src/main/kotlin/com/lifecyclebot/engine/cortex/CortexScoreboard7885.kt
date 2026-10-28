@@ -49,7 +49,10 @@ class CortexScoreboard7885 {
             // take. A runner ticket has its own verified strategy path; it
             // must not contaminate the Cortex verdict/label cohort. This is
             // classification only; live refuses still require OOS proof.
-            edgePct < REFUSE_EDGE_PCT -> Bucket.REFUSE
+            // V5.0.8418 §RUNNER_TAIL_EXEMPTION — restored: a runner-lane coin whose runner rate meets [TAIL_RUNNER_RATE] reads
+            // NEUTRAL on a negative mean, not REFUSE (REFUSE is the cohort the 8114 veto reads; the lane pays on its tail).
+            // superseded by V5.0.8418 — 8373 "an observed spike probability cannot convert a negative forecast into NEUTRAL".
+            edgePct < REFUSE_EDGE_PCT && !(runnerLane && runnerRate.isFinite() && runnerRate >= TAIL_RUNNER_RATE) -> Bucket.REFUSE
             edgePct > STRONG_EDGE_PCT -> Bucket.STRONG
             else -> Bucket.NEUTRAL
         }

@@ -37,7 +37,10 @@ object CortexAuthority8366 {
     const val RAMP_FLOOR_WEIGHT_8399 = 0.15
     // V5.0.8399 — missing outcomes scale authority down (never disappear, never impute): fraction x coverage/0.7 while at
     // least [MIN_COVERAGE_FOR_ANY_8399] of matured decisions are known; below that there is too little truth to grant.
-    const val MIN_COVERAGE_FOR_ANY_8399 = 0.30
+    // V5.0.8418 §COVERAGE_70 — restored to the 8392 bar: a POSITIVE grant needs 70 % of matured outcomes known on both sides.
+    // Missing marks skew to dead / rugged coins, so a STRONG cohort judged on its 30 % survivors was survivorship-inflated.
+    // superseded by V5.0.8418 — 8399 MIN_COVERAGE_FOR_ANY_8399 = 0.30 (linear scale-down between 0.30 and 0.70).
+    const val MIN_COVERAGE_FOR_ANY_8399 = 0.70
     const val TOP_Q_8366 = 0.8
     const val BOTTOM_Q_8366 = 0.2
     const val MIN_FULL_MARGIN_PCT_8366 = 2.0
@@ -236,9 +239,8 @@ object CortexAuthority8366 {
     /** Pure (V5.0.8399): how missing matured outcomes scale a fraction: 1 at >= 0.7 coverage, linear to 0.3, nothing below. */
     fun coverageScale8399(minCoverage: Double): Double = when {
         !minCoverage.isFinite() -> 0.0
-        minCoverage >= CortexWalkForward8144.MIN_RESOLVED_SHARE_8144 -> 1.0
-        minCoverage < MIN_COVERAGE_FOR_ANY_8399 -> 0.0
-        else -> (minCoverage / CortexWalkForward8144.MIN_RESOLVED_SHARE_8144).coerceIn(0.0, 1.0)
+        minCoverage >= maxOf(CortexWalkForward8144.MIN_RESOLVED_SHARE_8144, MIN_COVERAGE_FOR_ANY_8399) -> 1.0
+        else -> 0.0   // V5.0.8418 — under the bar nothing is granted (an unknown is never favourable)
     }
 
     /** Pure: the authority fraction a granted OOS spread earns over [costPct]: (spread - cost) / max(cost, 2 points), in [0, 1]. */

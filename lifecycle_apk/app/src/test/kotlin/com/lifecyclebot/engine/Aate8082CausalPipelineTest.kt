@@ -140,7 +140,11 @@ class Aate8082CausalPipelineTest {
         // superseded by V5.0.8395: the same binding C6 refusal, proof standing counted under the shared predictive proof (R4).
         // superseded by V5.0.8396: the dead-setup refusal binds only on its own covered (lane, setup, bucket) cohort.
         assertTrue(constitution.contains("if (jointProvenDead8082(st8082)) {"))
-        assertTrue(constitution.contains("if (setupCovered8396(a.lane, setup8082!!, a.bucket.ordinal)) return negativeOrUnknown8395(\"C6_SETUP_DEAD_8082\", a.lane)"))
+        // superseded by V5.0.8418 — coverage is read on the cohort the refusal used (current, or the historical book while the
+        // current cohort holds fewer than 12 grades); 8372 counted only post-8372 decisions, so a historically dead setup stopped
+        // refusing on the upgrade (21d066011 replaced the jointBook7961 pin with an assertFalse and no note).
+        assertTrue(constitution.contains("if (setupCovered8396(a.lane, setup8082!!, a.bucket.ordinal, c8418?.second == true)) return negativeOrUnknown8395(\"C6_SETUP_DEAD_8082\", a.lane)"))
+        assertTrue(constitution.contains("refusalCohort8418(a.lane, it, a.bucket.ordinal, JOINT_DEAD_MIN_N_8082)"))
         assertFalse(constitution.contains("jointBook7961["))
     }
 

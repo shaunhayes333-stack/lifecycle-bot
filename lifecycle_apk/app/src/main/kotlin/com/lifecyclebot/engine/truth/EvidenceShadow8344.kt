@@ -487,6 +487,14 @@ object EvidenceShadow8344 {
         return EvidenceHold8336.proof8336(nets, nets.map { it * TICKET_SOL_8344 / 100.0 }, l)
     }
 
+    /** V5.0.8418 — the lane's pre-8394-contract closes (report only; never an unlock): n and mean net %. */
+    fun legacyRecord8418(lane: String, sinceMs: Long): Pair<Int, Double> {
+        val l = CanonicalLaneIdentity6506.desk8392(lane)
+        val q = closes[l] ?: return 0 to Double.NaN
+        val nets = synchronized(q) { q.filter { it[0] >= sinceMs && it[1].isFinite() && ShadowPersist8355.legacyProofRow8418(it.getOrNull(3), it.getOrNull(4), sinceMs) }.map { it[1] } }
+        return nets.size to (if (nets.isEmpty()) Double.NaN else nets.average())
+    }
+
     // New policy's proof is isolated from legacy gate-filtered outcomes. Historical proof is untouched.
     internal fun advisoryNets8393(rows: List<DoubleArray>, sinceMs: Long): List<Double> =
         rows.filter { it.size >= 3 && it[0] >= sinceMs && it[2] == 1.0 && it[1].isFinite() && ShadowPersist8355.proofEligible8394(it.getOrNull(3), it.getOrNull(4), sinceMs) }.map { it[1] }
@@ -509,7 +517,8 @@ object EvidenceShadow8344 {
         val lanes = closes.keys.sorted().joinToString(" · ") { l ->
             val p = proof8344(l, sinceMs)
             val advisory = advisoryProof8393(l, sinceMs)
-            "$l advisory8393[n=${advisory.n},proven=${advisory.proven}] n${p.n} mean${"%+.1f".format(p.meanPct)}% se${"%.1f".format(p.sePct)}% lower${"%+.1f".format(p.meanPct - p.sePct)}% need>${EvidenceHold8336.MARGIN_PCT_8336}% pf${"%.2f".format(p.pf)}${if (p.proven) " PROVEN" else ""}"
+            val legacy8418 = legacyRecord8418(l, sinceMs)
+            "$l advisory8393[n=${advisory.n},proven=${advisory.proven}] legacy8418[n=${legacy8418.first},mean=${"%+.1f".format(legacy8418.second)}%] n${p.n} mean${"%+.1f".format(p.meanPct)}% se${"%.1f".format(p.sePct)}% lower${"%+.1f".format(p.meanPct - p.sePct)}% need>${EvidenceHold8336.MARGIN_PCT_8336}% pf${"%.2f".format(p.pf)}${if (p.proven) " PROVEN" else ""}"
         }.ifBlank { "no shadow closes yet" }
         val openByLane = open.values.groupingBy { it.lane }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
         val (held, skipped, bySource) = gapCounts8345()  // V5.0.8345

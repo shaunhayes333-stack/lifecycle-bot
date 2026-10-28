@@ -53,8 +53,9 @@ class Aate8144CortexTest {
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_MCAP_TOO_HIGH"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "OUTSIDE_NATIVE_CAP"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_SELLABILITY_REJECT"))
-        // A scored native NO remains counterfactual evidence; the physical/mandate exclusions above still apply.
-        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE", false))
+        // superseded by V5.0.8418 — 8372 "a scored native NO remains counterfactual evidence": the native specialist's NO
+        // means the coin was not a tradeable lane entry, so it never grades Cortex authority (restored pre-8372 rule).
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE", false))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, null, false))
         assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE", true))
         assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "EDGE_GATE_SOFT_SCORE"))

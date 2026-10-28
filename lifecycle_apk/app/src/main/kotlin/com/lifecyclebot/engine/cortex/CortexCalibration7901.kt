@@ -274,7 +274,8 @@ class CortexCalibration7901 {
     fun isoFit8366(lane: String): IsoFit8366? {
         val ring = iso8366[lane] ?: return null
         isoFits8366[lane]?.let { return it }
-        val f = fitIso8366(ring.map { it[0] }, ring.map { it[1] })
+        val live8418 = ring.filter { it.getOrElse(3) { 0.0 } != 1.0 }   // V5.0.8418 — shadow-exit pairs are stored, never fitted
+        val f = fitIso8366(live8418.map { it[0] }, live8418.map { it[1] })
         isoFits8366[lane] = f
         return f
     }
@@ -289,9 +290,11 @@ class CortexCalibration7901 {
         val ring = iso8366[lane] ?: return null
         val offset = executionOffset.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         netFits8372[lane]?.let { (cachedOffset, fit) -> if (cachedOffset == offset) return fit }
-        return fitNet8372(ring.map { it[0] }, ring.map { row ->
-            row[1] - if (row.getOrElse(3) { 0.0 } == 1.0) 0.0 else offset
-        }).also { netFits8372[lane] = offset to it }
+        // V5.0.8418 §SHADOW_LEDGER_ISOLATED — a shadow-exit pair (flag 1.0, written by 8372-8417) stays in the ring but never
+        // enters the live forecast fit: every forward pair pays the full execution offset, and no shadow pair is credited.
+        val live8418 = ring.filter { it.getOrElse(3) { 0.0 } != 1.0 }
+        return fitNet8372(live8418.map { it[0] }, live8418.map { row -> row[1] - offset })
+            .also { netFits8372[lane] = offset to it }
     }
 
     /** V5.0.8372 — the existing authority consistency check, now against the same NET target as token predictions. */
@@ -384,7 +387,8 @@ class CortexCalibration7901 {
      */
     fun learn(lane: String, rawEdge: Double, laneMean: Double, outcome: Double, score8366: Double = Double.NaN,
               targetBasis8372: String = TARGET_FORWARD_NET_8372): Double {
-        if (targetBasis8372 != TARGET_FORWARD_NET_8372 && targetBasis8372 != TARGET_SHADOW_NET_8372) return Double.NaN
+        // V5.0.8418 — the live calibration learns forward labels only; a shadow exit goes to Cortex7885's shadow ledger.
+        if (targetBasis8372 != TARGET_FORWARD_NET_8372) return Double.NaN
         val stamp = learnSlope7901(lane, rawEdge, laneMean, outcome)
         noteIso8366(lane, score8366, outcome, stamp, targetBasis8372)  // raw outcome and its cost basis stay separate
         return stamp
@@ -416,7 +420,7 @@ class CortexCalibration7901 {
      */
     fun revise8322(lane: String, rawEdge: Double, laneMean: Double, oldOutcome: Double, newOutcome: Double, stamp: Double,
                    targetBasis8372: String? = null): Boolean {
-        if (targetBasis8372 != null && targetBasis8372 != TARGET_FORWARD_NET_8372 && targetBasis8372 != TARGET_SHADOW_NET_8372) return false
+        if (targetBasis8372 != null && targetBasis8372 != TARGET_FORWARD_NET_8372) return false   // V5.0.8418 — never a shadow revision
         val isoRevised8371 = reviseIso8366(lane, stamp, newOutcome, targetBasis8372)
         val r = lanes[lane] ?: return isoRevised8371
         val d = rawEdge - laneMean

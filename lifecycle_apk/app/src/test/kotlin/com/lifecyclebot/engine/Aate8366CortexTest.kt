@@ -293,9 +293,11 @@ class Aate8366CortexTest {
         assertEquals(CortexAuthority8366.RAMP_FLOOR_WEIGHT_8399, CortexAuthority8366.rampWeight8399(CortexAuthority8366.MIN_RAMP_OOS_N_8399), 1e-12)
         assertEquals(1.0, CortexAuthority8366.rampWeight8399(CortexAuthority8366.MIN_OOS_N_8366), 1e-12)
         assertTrue(CortexAuthority8366.rampWeight8399(50) > CortexAuthority8366.rampWeight8399(20))
-        // Coverage scaling: 1 at the 0.7 bar, proportional below it, nothing under MIN_COVERAGE_FOR_ANY_8399.
+        // superseded by V5.0.8418 — 8399 scaled a grant down linearly from 0.7 to 0.3 coverage (0.5 -> 0.5/0.7). A positive
+        // grant again needs 70 % of matured outcomes known (missing marks skew to dead / rugged coins).
         assertEquals(1.0, CortexAuthority8366.coverageScale8399(0.7), 1e-12)
-        assertEquals(0.5 / 0.7, CortexAuthority8366.coverageScale8399(0.5), 1e-12)
+        assertEquals(0.0, CortexAuthority8366.coverageScale8399(0.5), 1e-12)
+        assertEquals(0.70, CortexAuthority8366.MIN_COVERAGE_FOR_ANY_8399, 0.0)
         assertEquals(0.0, CortexAuthority8366.coverageScale8399(CortexAuthority8366.MIN_COVERAGE_FOR_ANY_8399 - 0.01), 0.0)
         // A score that ranks backwards, or a spread that does not pay the cost, earns nothing.
         val inv = rankingRows(500).map { it.copy(netPct = 40.0 - it.score * 0.5) }
@@ -338,6 +340,9 @@ class Aate8366CortexTest {
         assertTrue(cx.contains("val offset8404 = executableOffset8187(lane)"))
         assertTrue(cx.contains("calibration.netFit8372(lane, offset8404)"))
         assertFalse(cx.contains("uncalibratedNeutral8366(lane, locked8325.iso8366,"))
+        // superseded by V5.0.8418 — 8372 removed the uncalibrated-NEUTRAL bucket (the 8366 "superseded" notes were deleted with
+        // it). It is re-wired on the 8372 NET fit: a measured, rankable, uncalibrated lane reads NEUTRAL.
+        assertTrue(cx.contains("return uncalibratedNeutral8366(lane, fit, rankConsistentBucket8325(lane, runner, first, calibrated))"))
         assertTrue(cx.contains("CortexAuthority8366.test8372("))
         assertTrue(cx.contains("scoreVersion = 1"))
         assertTrue(cx.contains("calibrationScore8372(p.a),"))

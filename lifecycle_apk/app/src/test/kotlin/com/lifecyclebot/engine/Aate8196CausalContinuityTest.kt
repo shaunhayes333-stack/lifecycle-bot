@@ -86,8 +86,9 @@ class Aate8196CausalContinuityTest {
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_MCAP_TOO_LOW"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "OUTSIDE_NATIVE_AGE"))
         assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "NATIVE_SELLABILITY_REJECT"))
-        // 8372: a specialist's scored NO is the counterfactual being measured, not a safety failure.
-        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", false))
+        // superseded by V5.0.8418 — 8372 "a specialist's scored NO is the counterfactual being measured": only decisions that
+        // were actually executable grade authority; a native NO (nativeEligible=false) is not one.
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", false))
         assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", true))
         assertFalse(CortexLabelHygiene8144.counterfactualExecutable8372(false, "SCORE_TOO_LOW", false, false, "PRICE_NOT_FRESH"))
         assertFalse(CortexLabelHygiene8144.counterfactualExecutable8372(false, "SCORE_TOO_LOW", false, true, "MCAP_TOO_LOW"))
