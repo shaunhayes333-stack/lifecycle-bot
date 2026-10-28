@@ -40,13 +40,15 @@ class Aate8401DeliveryTest {
                 book.append(listOf(lane), doubleArrayOf(1000.0 + it, if (lane == "CORE") -10.0 else 10.0,
                     1.0, ShadowPersist8355.TRADE_CONTRACT_8394.toDouble(), 1000.0 + it), "$lane|$it")
             }
-            assertTrue(owner.proof8344("MOONSHOT", 0).proven)
-            assertTrue(owner.advisoryProof8393("MOONSHOT", 0).proven)
+            // superseded by V5.0.8418 — the 15-close fast bar is retired (EvidenceHold8336.minN8399 = 30 for every lane): 15
+            // shadow closes no longer prove MOONSHOT (was assertTrue for both, and "MOONSHOT n15/15" below).
+            assertFalse(owner.proof8344("MOONSHOT", 0).proven)
+            assertFalse(owner.advisoryProof8393("MOONSHOT", 0).proven)
             assertFalse(owner.proof8344("QUALITY", 0).proven)
             assertFalse(owner.advisoryProof8393("QUALITY", 0).proven)
             assertFalse(owner.proof8344("CORE", 0).proven)
             assertFalse(owner.advisoryProof8393("CORE", 0).proven)
-            assertTrue(owner.recoveryLine8345(0, 2000).contains("MOONSHOT n15/15"))
+            assertTrue(owner.recoveryLine8345(0, 2000).contains("MOONSHOT n15/30"))
         } finally { owner.resetForTests8345() }
     }
 
