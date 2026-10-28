@@ -721,6 +721,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             }
             val saved = prefs.getString("rows", "").orEmpty().split('\n').filter { it.isNotBlank() }
             SignedTxLedger8085.restore(saved) { e -> scheduleResolve8085(e.signature, recovered = true) }
+            // V5.0.8418 — a confirmed-but-unbooked owned row from before the restart still books from its receipt.
+            try { SignedTxLedger8085.confirmedUnbooked8418().forEach { onFinalityRecovered8085(it, true) } } catch (_: Throwable) {}
             ledgerWired8085 = true
         }
     }

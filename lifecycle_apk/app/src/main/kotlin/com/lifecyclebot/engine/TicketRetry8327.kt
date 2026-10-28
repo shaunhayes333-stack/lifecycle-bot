@@ -75,6 +75,12 @@ object TicketRetry8327 {
         sweepAsync8327(nowMs)
         val cause = transientCause8327(reason) ?: return reason
         if (attemptId.isBlank()) return reason
+        // V5.0.8418 — an attempt whose buy is signed-unresolved or chain-confirmed is never re-sent: its receipt decides.
+        if ((try { com.lifecyclebot.network.SignedTxLedger8085.attemptSpent8418(attemptId) } catch (_: Throwable) { null }) != null) {
+            held8327.remove(attemptId)
+            count8327(lane, "spent8418")
+            return "${reason}_ATTEMPT_SPENT_NO_RETRY_8418"
+        }
         val prior = held8327[attemptId]
         if (!mayHold8327(prior, nowMs)) {
             held8327.remove(attemptId)
@@ -272,7 +278,7 @@ object TicketRetry8327 {
         val held = (try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(r.mint) } catch (_: Throwable) { true }) ||
             ts.position.isOpen || ts.position.pendingVerify || ts.position.qtyToken > 0.0
         val inFlight = (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(r.mint, "BUY") } catch (_: Throwable) { null }) != null ||
-            (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedAttempt8198(h.attemptId) } catch (_: Throwable) { null }) != null
+            (try { com.lifecyclebot.network.SignedTxLedger8085.attemptSpent8418(h.attemptId) } catch (_: Throwable) { null }) != null  // V5.0.8418 — confirmed too
         if (ticket != null && ticket.expiresAtMs6613 > 0L && System.currentTimeMillis() >= ticket.expiresAtMs6613) return "AUTHORIZATION_EXPIRED_8385"
         val wait8385 = reserveWaits8385[h.attemptId]
         if (wait8385 != null && (ticket?.mint != wait8385.mint || ticket.mode != wait8385.mode || ticket.candidateVersion != wait8385.version)) return "RESERVE_WAIT_SUPERSEDED_8385"

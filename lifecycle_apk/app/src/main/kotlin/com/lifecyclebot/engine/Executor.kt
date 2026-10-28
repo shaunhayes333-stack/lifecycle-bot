@@ -2382,11 +2382,38 @@ class Executor(
         }
     }
 
+    /**
+     * V5.0.8418 — a sell's proceeds when the full-sell verifier did not prove them inside its window: ONE more read of
+     * this signature's own receipt (owner lamport delta net of a closed account's rent). The old fallback diffed the
+     * whole wallet's SOL balance against the pre-sell read, so a concurrent transfer, another position's buy/sell or a
+     * rent reclaim landed in this position's P&L. No receipt = PENDING (null): no journal, no learning, retry.
+     */
+    private fun sellReceiptProceeds8418(wallet: SolanaWallet, sig: String, ts: TokenState, sellTradeKey: String): Double? {
+        val receipt = if (sig.isBlank() || sig.startsWith("PHANTOM_")) null
+            else try { TradeVerifier.verifySell(wallet, sig, ts.mint, timeoutMs = 20_000L) } catch (_: Throwable) { null }
+        val proceeds = Settlement8418.sellProceedsSol8418(receipt)
+        if (proceeds != null) {
+            onLog("📊 SELL PnL (receipt): received=${proceeds.fmt(6)} SOL (tx-parse authoritative)", ts.mint)
+            return proceeds
+        }
+        Settlement8418.count8418("SELL_PNL_PENDING_NO_RECEIPT_8418")
+        onLog("⏳ SELL_FINALITY_PENDING_RETRY: no receipt proceeds for ${sig.take(16)} — no normal journal close", ts.mint)
+        LiveTradeLogStore.log(
+            sellTradeKey, ts.mint, ts.symbol, "SELL",
+            LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+            "⏳ SELL finality pending retry: this tx's receipt does not prove proceeds yet. No normal SELL journal row.",
+            sig = sig, traderTag = "MEME",
+        )
+        try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_NO_PROCEEDS") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_NO_PROCEEDS") } catch (_: Throwable) {}
+        return null
+    }
+
     /** V5.0.8085 — every Jupiter live BUY send: bound to (mint, BUY); unknown outcomes propagate to liveBuy's 7733 path. */
     private fun buySend8085(wallet: SolanaWallet, mint: String, tx: com.lifecyclebot.network.SwapTxResult, useJito: Boolean,
                             jitoTip: Long, ultraReqId: String?, c: com.lifecyclebot.data.BotConfig,
-                            submission8397: BuySubmissionReceipt8397? = null): String {
-        com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "BUY", intentId = submission8397?.attemptId.orEmpty(), route = if (ultraReqId != null) "JUPITER_ULTRA" else "JUPITER"))
+                            submission8397: BuySubmissionReceipt8397? = null, owner8418: com.lifecyclebot.network.SignedTxLedger8085.Intent? = null): String {
+        com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "BUY", positionId = owner8418?.positionId.orEmpty(), intentId = submission8397?.attemptId ?: owner8418?.intentId.orEmpty(), route = if (ultraReqId != null) "JUPITER_ULTRA" else "JUPITER"))
         return BuySubmissionReceipt8397.observe8397(submission8397) {
             wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
         }
@@ -13573,11 +13600,17 @@ class Executor(
         val lamports = (sol * 1_000_000_000L).toLong()
         val tradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis())
         val pos = ts.position
+        // V5.0.8418 — the top-up's signed tx carries its owner (position + attempt) across restarts and retries.
+        val owner8418 = Settlement8418.liveOwnerOf8418(ts.mint).let { pid ->
+            com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", positionId = pid, intentId = Settlement8418.topUpAttemptId8418(pid, ts.mint, pos.topUpCount + 1))
+        }
+        com.lifecyclebot.network.SignedTxLedger8085.attemptSpent8418(owner8418.intentId)?.let {
+            Settlement8418.count8418("LIVE_TOPUP_ATTEMPT_ALREADY_SENT_8418")
+            onLog("⏳ Top-up #${pos.topUpCount + 1} already sent (${it.signature.take(12)}…) — its receipt decides; no second order", ts.mint)
+            return
+        }
         try {
-            // V5.9.603 — live top-ups must be wallet-delta verified before
-            // local qty/cost is inflated. Otherwise a confirmed tx with no
-            // token arrival creates a fake larger bag and corrupts PnL/exits.
-            val preTopUpQty = try { wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: pos.qtyToken } catch (_: Throwable) { pos.qtyToken }
+            // V5.9.603 / V5.0.8418 — live top-ups are receipt-verified (below) before local qty/cost change.
             // V5.9.495 — PUMP-FIRST routing for top-ups (add-to-position).
             // Same universal-auto routing the entry/exit ladder uses.
             // V5.0.8418 — a top-up took PumpPortal first for every mint with no route choice at all (not counted in
@@ -13602,6 +13635,7 @@ class Executor(
                 jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                 tradeKey = tradeKey,
                 traderTag = "MEME",
+                owner8418 = owner8418,
             )
 
             val price  = getActualPrice(ts)
@@ -13653,91 +13687,35 @@ class Executor(
                 } else {
                     onLog("Broadcasting top-up tx…", ts.mint)
                 }
-                sig = buySend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c)
+                sig = buySend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, owner8418 = owner8418)
                 newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = jupiterTopUpPlan.solAmount, priceUsd = price, explicitDecimals = topUpExplicitDecimals)
             }
 
-            val verifiedDelta = try {
-                var delta = 0.0
-                for (attempt in 0 until 5) {
-                    if (attempt > 0) Thread.sleep(2_000)
-                    val cur = wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0
-                    delta = (cur - preTopUpQty).coerceAtLeast(0.0)
-                    if (delta > 0.0) break
-                }
-                delta
-            } catch (_: Throwable) { 0.0 }
-
-            val effectiveNewQty = if (verifiedDelta > 0.0) verifiedDelta else 0.0
-            if (effectiveNewQty <= 0.0) {
+            // V5.0.8418 — TWO-PHASE TOP-UP. The order above was sent; the position changes only on THIS
+            // transaction's confirmed receipt (owner token delta, owner lamport delta, meta.fee). The old
+            // whole-wallet token-balance poll credited any concurrent transfer and booked the PLANNED sol as
+            // cost. No receipt: nothing is mutated, the signature goes to reconciliation (PENDING).
+            val fill8418 = Settlement8418.buyFill8418(try { TradeVerifier.verifyBuy(wallet, sig, ts.mint, timeoutMs = 30_000L) } catch (_: Throwable) { null })
+            if (fill8418 == null) {
+                Settlement8418.count8418("LIVE_TOPUP_RECEIPT_PENDING_8418")
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
-                    LiveTradeLogStore.Phase.BUY_FAILED,
-                    "⚠️ TOP-UP TX confirmed but wallet token delta not verified — local position NOT inflated",
+                    LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                    "⏳ TOP-UP receipt not proven — position NOT changed; reconciliation owns sig=${sig.take(16)}",
                     sig = sig, solAmount = sol, traderTag = "MEME",
                 )
-                onLog("⚠️ LIVE TOP-UP not credited: tx confirmed but token delta not verified", ts.mint)
+                try { PendingReconcileQueue.registerBuy(sig = sig, mint = ts.mint, symbol = ts.symbol, tradeKey = tradeKey, traderTag = "MEME", wallet = wallet) } catch (_: Throwable) {}
+                onLog("⏳ LIVE TOP-UP pending: no confirmed receipt yet — position unchanged", ts.mint)
                 return
             }
-
-            ts.position = pos.copy(
-                qtyToken       = pos.qtyToken + effectiveNewQty,
-                // V5.0.6539 §LIVE_TOP_UP_ROOT_FIX — pre-6539 used
-                //   entryPrice = (pos.costSol + sol) / (pos.qtyToken + qty)
-                // which is SOL/token and corrupts the USD basis. Now use
-                // authoritative SOL/USD to derive weighted USD entry:
-                //   addedNotionalUsd = sol × solUsd
-                //   weightedEntryUsd = (prevQty × prevEntryUsd + addedNotionalUsd)
-                //                    / (prevQty + effectiveNewQty)
-                // If SOL/USD is unavailable, keep the prior entryPrice and
-                // emit a lifecycle marker so the operator can see the fill
-                // landed without a basis-refresh (rather than silently
-                // corrupting the USD basis with a SOL/token number).
-                entryPrice     = run {
-                    val solUsdLive6539 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-                    if (!solUsdLive6539.isFinite() || solUsdLive6539 !in 5.0..10_000.0) {
-                        try {
-                            PipelineHealthCollector.labelInc("LIVE_TOPUP_SOL_USD_MISSING_BASIS_KEPT_6539")
-                            ForensicLogger.lifecycle(
-                                "LIVE_TOPUP_SOL_USD_MISSING_BASIS_KEPT_6539",
-                                "mint=${ts.mint.take(10)} solUsd=$solUsdLive6539 action=keep_prior_entryPrice",
-                            )
-                        } catch (_: Throwable) {}
-                        pos.entryPrice
-                    } else {
-                        val addedNotionalUsd6539 = sol * solUsdLive6539
-                        val prevNotional6539 = pos.qtyToken * pos.entryPrice.coerceAtLeast(0.0)
-                        val totalQty6539 = pos.qtyToken + effectiveNewQty
-                        if (totalQty6539 > 0.0)
-                            (prevNotional6539 + addedNotionalUsd6539) / totalQty6539
-                        else pos.entryPrice
-                    }
-                },
-                costSol        = pos.costSol + sol,
-                topUpCount     = pos.topUpCount + 1,
-                topUpCostSol   = pos.topUpCostSol + sol,
-                lastTopUpTime  = System.currentTimeMillis(),
-                lastTopUpPrice = price,
-            )
-            // V5.0.6539 §POST_MUTATION_ASSERT — verify the post-topup
-            // position satisfies the economic invariant.
-            try {
-                val econLive6539 = com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
-                    .economicNotionalCheck6537(ts.position)
-                if (econLive6539 != null && !econLive6539.ok) {
-                    PipelineHealthCollector.labelInc("LIVE_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539")
-                    ForensicLogger.lifecycle(
-                        "LIVE_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539",
-                        "mint=${ts.mint.take(10)} reason=${econLive6539.reason}",
-                    )
-                } else {
-                    PipelineHealthCollector.labelInc("LIVE_TOPUP_POST_MUTATION_INVARIANT_OK_6539")
-                }
-            } catch (_: Throwable) {}
-
-            mirrorLiveTopUpCanonical7807(ts.mint, sig, sol, effectiveNewQty, topUpExplicitDecimals)
+            val solUsd8418 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            ts.position = Settlement8418.appliedTopUp8418(pos, fill8418, solUsd8418, price, System.currentTimeMillis())
+            if (ts.position.entryPrice == pos.entryPrice) Settlement8418.count8418("LIVE_TOPUP_SOL_USD_MISSING_BASIS_KEPT_8418")
+            try { com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.economicNotionalCheck6537(ts.position)?.takeIf { !it.ok }?.let { Settlement8418.count8418("LIVE_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539") } } catch (_: Throwable) {}
+            mirrorLiveTopUpCanonical7807(ts.mint, sig, fill8418.costSol, fill8418.qtyUi, fill8418.decimals, fill8418.rawQty, fill8418.feeSol)
+            ReceiptBooking8418.noteBookedInFlow8418(owner8418.intentId, sig)  // V5.0.8418 — booked once; a recovered copy is a duplicate
             val gainPct = pct(pos.entryPrice, price)
-            val trade   = Trade("BUY", "live", sol, price,
+            val trade   = Trade("BUY", "live", fill8418.costSol, price,
                                 System.currentTimeMillis(), "top_up_${pos.topUpCount + 1}",
                                 sig = sig)
             recordTrade(ts, trade)
@@ -13791,13 +13769,15 @@ class Executor(
      * into the SAME canonical positionId. Requires wallet-known decimals; no
      * fabricated scale.
      */
-    private fun mirrorLiveTopUpCanonical7807(mint: String, sig: String, addedSol: Double, addedUi: Double, decimals: Int?) {
+    private fun mirrorLiveTopUpCanonical7807(mint: String, sig: String, addedSol: Double, addedUi: Double, decimals: Int?,
+                                             receiptRaw8418: java.math.BigInteger? = null, feeSol8418: Double = 0.0) {
         try {
             if (decimals == null || decimals !in 0..18 || !addedUi.isFinite() || addedUi <= 0.0 || !addedSol.isFinite() || addedSol <= 0.0) {
                 PipelineHealthCollector.labelInc("LIVE_TOPUP_CANONICAL_MIRROR_SKIPPED_7807")
                 return
             }
-            val addedRaw = java.math.BigDecimal.valueOf(addedUi).movePointRight(decimals).toBigInteger()
+            // V5.0.8418 — the receipt's raw token delta when known (no ui round trip).
+            val addedRaw = receiptRaw8418 ?: java.math.BigDecimal.valueOf(addedUi).movePointRight(decimals).toBigInteger()
             if (addedRaw.signum() <= 0) return
             val pid = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(mint, false)
             val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
@@ -13807,7 +13787,7 @@ class Executor(
                 positionId = pid,
                 addedCostSol = addedSol,
                 addedQtyRaw = addedRaw,
-                feesSol = 0.0,
+                feesSol = feeSol8418.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
                 addedEntryPriceUsd = addedUsdPerToken,
             )
             if (r == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED) {
@@ -13903,7 +13883,7 @@ class Executor(
             entryLiquidityUsd = intent.liquidityUsd.takeIf { it > 0.0 } ?: (ts?.lastLiquidityUsd ?: 0.0),
             entryRugEvidence = "rug=${intent.rugScore};safety=${intent.safetyVerdict}",
             entryPriceUsd = ts?.lastPrice ?: 0.0,
-            authorizationReason = "FDG:${intent.fdgVerdict};attempt=${intent.attemptId}",
+            authorizationReason = "FDG:${intent.fdgVerdict};attempt=${intent.attemptId}" + EntryContinuity8418.summary8418(intent.attemptId),  // V5.0.8418 — approved vs executed
             runnerEntry = intent.runnerEntry,
         )
     } catch (_: Throwable) { null }
@@ -29264,45 +29244,7 @@ class Executor(
                 val verifiedSol = fullSellVerifiedSol / 1_000_000_000.0
                 onLog("📊 SELL PnL (verifier): received=${verifiedSol.fmt(6)} SOL (tx-parse authoritative)", tradeId.mint)
                 verifiedSol
-            } else try {
-                var actualBalance = wallet.getSolBalance()
-                var delta = actualBalance - walletSol
-                if (delta <= 0.001) {
-                    // Retry up to 5×3s (15s window) — handles RPC lag.
-                    var attempt = 1
-                    while (attempt <= 5 && delta <= 0.001) {
-                        try { Thread.sleep(3000) } catch (_: InterruptedException) { break }
-                        actualBalance = try { wallet.getSolBalance() } catch (_: Throwable) { actualBalance }
-                        delta = actualBalance - walletSol
-                        attempt++
-                    }
-                }
-                if (delta > 0.001) {
-                    val quotedDisp = finalQuote?.let { (it.outAmount / 1_000_000_000.0).fmt(6) } ?: "n/a(direct)"
-                    onLog("📊 SELL PnL (actual): received=${delta.fmt(6)} SOL | quoted=$quotedDisp SOL", tradeId.mint)
-                    delta  // wallet SOL delta is proceeds from the sell, not cost+proceeds
-                } else {
-                    // V5.0.3985 — no proceeds proof means no finality. Do not
-                    // record SCRATCH and do not journal/train/close; keep retrying
-                    // until tx meta/proceeds or routed settlement proof exists.
-                    onLog("⏳ SELL_FINALITY_PENDING_RETRY: no SOL/proceeds delta after 15s — no normal journal close", tradeId.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                        "⏳ SELL finality pending retry: no SOL/proceeds delta after 15s. No normal SELL journal row.",
-                        sig = sig, traderTag = "MEME",
-                    )
-                    try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_NO_PROCEEDS") } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_NO_PROCEEDS") } catch (_: Throwable) {}
-                    return SellResult.FAILED_RETRYABLE
-                }
-            } catch (balEx: Exception) {
-                // Even SOL balance read failed entirely — pending retry, not scratch.
-                onLog("⏳ SELL_FINALITY_PENDING_RETRY: SOL balance read failed (${balEx.message?.take(40)})", tradeId.mint)
-                try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_SOL_READ_FAILED") } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_SOL_READ_FAILED") } catch (_: Throwable) {}
-                return SellResult.FAILED_RETRYABLE
-            }
+            } else sellReceiptProceeds8418(wallet, sig, ts, sellTradeKey) ?: return SellResult.FAILED_RETRYABLE  // V5.0.8418 — this sell's own receipt, never a wallet-balance delta
             val terminalAcct = liveSellAccountingAuthority(ts, pos.costSol, solBack, reason, "liveSell.terminal")
             pnl = terminalAcct.pnlSol
             pnlP = terminalAcct.pnlPct
@@ -31208,6 +31150,7 @@ class Executor(
 
         security.enforceSignDelay()
         SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(ts, sol, executionQuote7688, intent8198 = intent8198)?.let { buyTerminalFail("BUY_TERMINAL_PRE_BROADCAST_ECONOMICS:$it"); return null }  // V5.0.8167 — final quote economics
+        EntryContinuity8418.jupiterRefusal8418(ts, intent8198, jq7325, executionQuote7688, buyBaseSlippage)?.let { buyTerminalFail("BUY_TERMINAL_$it"); return null }  // V5.0.8418 — the exact approved decision
 
         useJito = c.jitoEnabled && !executionQuote7688.isUltra
         jitoTip = effectiveJitoTipLamports(c, urgent = false)
@@ -32110,6 +32053,7 @@ class Executor(
         tradeKey: String,
         traderTag: String,
         submission8397: BuySubmissionReceipt8397? = null,
+        owner8418: com.lifecyclebot.network.SignedTxLedger8085.Intent? = null,
     ): Pair<String, Double>? {
         var submittedSig8397: String? = null
         return try {
@@ -32162,6 +32106,12 @@ class Executor(
                 traderTag = traderTag,
             ) ?: return null
             val buySol = processorPlan.solAmount
+            // V5.0.8418 — an entry spends exactly its sealed ticket on this route too (no quote: size / strategy / chase).
+            if (submission8397 != null) EntryContinuity8418.pumpRefusal8418(ts, submission8397.attemptId, buySol)?.let {
+                LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.BUY_FAILED,
+                    "PUMP-FIRST refused: $it — the Jupiter route re-checks the same ticket", solAmount = buySol, traderTag = traderTag)
+                return null
+            }
 
             onLog("🚀 PUMP-FIRST BUY [$pumpVenue]: ${ts.symbol} → PumpPortal ${"%.4f".format(buySol)}◎ @ ${slipPct}% slip", ts.mint)
             LiveTradeLogStore.log(
@@ -32222,7 +32172,7 @@ class Executor(
             )
             // V5.0.8085 — bound to (mint, BUY): an unresolved earlier buy blocks a second order; a sent-but-unconfirmed
             // outcome propagates to liveBuy's 7733 pending-wallet-delta path instead of falling through to Jupiter.
-            com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", intentId = submission8397?.attemptId.orEmpty(), route = "PUMPPORTAL"))
+            com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", positionId = owner8418?.positionId.orEmpty(), intentId = submission8397?.attemptId ?: owner8418?.intentId.orEmpty(), route = "PUMPPORTAL"))
             val sig = BuySubmissionReceipt8397.observe8397(submission8397) {
                 wallet.signSendAndConfirm(
                     pumpEnv7311?.txBase64 ?: pumpTx8288,
@@ -32348,7 +32298,9 @@ class Executor(
                                     "🔄 Qty reconciled: estimate=${"%.4f".format(estimatedQty)} → actual=${"%.4f".format(tokenDelta)} (${"%.1f".format(divergence*100)}% off)",
                                     tokenAmount = tokenDelta, sig = sig, traderTag = traderTag,
                                 )
-                                ts.position = ts.position.copy(qtyToken = tokenDelta)
+                                // V5.0.8418 — a wallet-wide token read never sets the position: on a top-up this
+                                // replaced the whole bag with the added leg. The tx receipt books the quantity.
+                                Settlement8418.count8418("PUMP_BUY_WALLET_QTY_NOT_BOOKED_8418")
                             }
                         }
                     }

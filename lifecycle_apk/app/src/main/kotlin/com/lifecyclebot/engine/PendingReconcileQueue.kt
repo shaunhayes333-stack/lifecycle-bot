@@ -20,6 +20,7 @@
  * operator forensics tile will show the trade as inconclusive (rather
  * than falsely claiming it is stuck or phantom).
  *
+ * V5.0.8418: outcomes are BOOKED (ReceiptBooking8418); a restart re-queues confirmed-unbooked owned rows.
  * The queue is in-memory only; it does not survive process restarts,
  * which is fine — by the time the app is killed and restored, the
  * fresh wallet read on next start will pick up any settled state.
@@ -97,7 +98,7 @@ object PendingReconcileQueue {
                     pending.remove(e.sig)
                     return@launch
                 }
-                if (runOneCheck(e, cp)) {
+                if (runOneCheck(e, cp, cp == CHECKPOINTS_MS.last())) {
                     pending.remove(e.sig)
                     return@launch
                 }
@@ -109,59 +110,47 @@ object PendingReconcileQueue {
     }
 
     /** Returns true if the entry was authoritatively resolved (success or confirmed failure). */
-    private fun runOneCheck(e: Entry, checkpointMs: Long): Boolean {
+    private fun runOneCheck(e: Entry, checkpointMs: Long, lastCheckpoint8418: Boolean = false): Boolean {
         return try {
-            when (e.side) {
-                "SELL" -> {
-                    val r = TradeVerifier.verifySell(e.wallet, e.sig, e.mint, timeoutMs = 8_000L)
-                    when (r.outcome) {
-                        TradeVerifier.Outcome.LANDED -> {
-                            LiveTradeLogStore.log(
-                                e.tradeKey, e.mint, e.symbol, "SELL",
-                                LiveTradeLogStore.Phase.SELL_RECONCILE_LANDED,
-                                "✅ Reconciled at +${checkpointMs / 60_000}min: SELL LANDED rawConsumed=${r.rawTokenConsumed} solReceived=${r.solReceivedLamports} lam${if (r.tokenAccountClosedFullExit) " (ATA closed)" else ""}",
-                                sig = e.sig, tokenAmount = r.uiTokenConsumed, traderTag = e.traderTag,
-                            )
-                            true
-                        }
-                        TradeVerifier.Outcome.FAILED_CONFIRMED -> {
-                            LiveTradeLogStore.log(
-                                e.tradeKey, e.mint, e.symbol, "SELL",
-                                LiveTradeLogStore.Phase.SELL_FAILED_CONFIRMED,
-                                "🚨 Reconciled at +${checkpointMs / 60_000}min: SELL FAILED_CONFIRMED meta.err=${r.txErr}",
-                                sig = e.sig, traderTag = e.traderTag,
-                            )
-                            true
-                        }
-                        else -> false
-                    }
-                }
-                "BUY" -> {
-                    val r = TradeVerifier.verifyBuy(e.wallet, e.sig, e.mint, timeoutMs = 8_000L)
-                    when (r.outcome) {
-                        TradeVerifier.Outcome.LANDED -> {
-                            LiveTradeLogStore.log(
-                                e.tradeKey, e.mint, e.symbol, "BUY",
-                                LiveTradeLogStore.Phase.BUY_RECONCILE_LANDED,
-                                "✅ Reconciled at +${checkpointMs / 60_000}min: BUY LANDED rawDelta=${r.rawTokenDelta} ui=${"%.4f".format(r.uiTokenDelta)} solSpent=${r.solSpentLamports} lam",
-                                sig = e.sig, tokenAmount = r.uiTokenDelta, traderTag = e.traderTag,
-                            )
-                            true
-                        }
-                        TradeVerifier.Outcome.FAILED_CONFIRMED -> {
-                            LiveTradeLogStore.log(
-                                e.tradeKey, e.mint, e.symbol, "BUY",
-                                LiveTradeLogStore.Phase.BUY_FAILED,
-                                "🚨 Reconciled at +${checkpointMs / 60_000}min: BUY FAILED_CONFIRMED meta.err=${r.txErr}",
-                                sig = e.sig, traderTag = e.traderTag,
-                            )
-                            true
-                        }
-                        else -> false
-                    }
-                }
-                else -> false
+            // V5.0.8418 — the receipt is BOOKED to the signature's owner (ReceiptBooking8418), not only logged.
+            val row8418 = try { com.lifecyclebot.network.SignedTxLedger8085.get(e.sig) } catch (_: Throwable) { null }
+            val owner8418 = row8418?.positionId.orEmpty()
+            val attempt8418 = row8418?.intentId.orEmpty()
+            val outcome8418 = when (e.side) {
+                "SELL" -> ReceiptBooking8418.onSellReceipt8418(owner8418, e.mint, e.sig,
+                    try { TradeVerifier.verifySell(e.wallet, e.sig, e.mint, timeoutMs = 8_000L) } catch (_: Throwable) { null },
+                    lastCheckpoint8418, ReceiptBooking8418.LiveBooks8418)
+                "BUY" -> ReceiptBooking8418.onBuyReceipt8418(owner8418, attempt8418, e.mint, e.sig,
+                    try { TradeVerifier.verifyBuy(e.wallet, e.sig, e.mint, timeoutMs = 8_000L) } catch (_: Throwable) { null },
+                    lastCheckpoint8418, ReceiptBooking8418.LiveBooks8418)
+                else -> ReceiptBooking8418.Outcome8418.NO_EFFECT_NO_RECEIPT
             }
+            try {
+                PipelineHealthCollector.labelInc("RECONCILE_RECEIPT_${e.side}_${outcome8418.name}_8418")
+                if (outcome8418 != ReceiptBooking8418.Outcome8418.PENDING) ForensicLogger.lifecycle("RECONCILE_RECEIPT_BOOKING_8418",
+                    "side=${e.side} mint=${e.mint.take(10)} sig=${e.sig.take(16)} owner=${owner8418.take(32)} attempt=${attempt8418.take(40)} " +
+                        "outcome=${outcome8418.name} checkpointMin=${checkpointMs / 60_000}")
+            } catch (_: Throwable) {}
+            if (outcome8418 == ReceiptBooking8418.Outcome8418.PENDING) return false
+            if (outcome8418 == ReceiptBooking8418.Outcome8418.NO_EFFECT_NO_RECEIPT || outcome8418 == ReceiptBooking8418.Outcome8418.NO_EFFECT_FAILED ||
+                outcome8418 == ReceiptBooking8418.Outcome8418.NO_EFFECT_OWNER_GONE) {
+                val phase8418 = when {
+                    outcome8418 != ReceiptBooking8418.Outcome8418.NO_EFFECT_FAILED -> LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING
+                    e.side == "SELL" -> LiveTradeLogStore.Phase.SELL_FAILED_CONFIRMED
+                    else -> LiveTradeLogStore.Phase.BUY_FAILED
+                }
+                LiveTradeLogStore.log(e.tradeKey, e.mint, e.symbol, e.side, phase8418,
+                    "⏹ Reconcile terminal ${outcome8418.name}: no change to any position (sig=${e.sig.take(16)})", sig = e.sig, traderTag = e.traderTag)
+                return true
+            }
+            // BOOKED / DUPLICATE / ENTRY_PROOF_PATH: the receipt proved the landing (latches the trade log terminal-good).
+            LiveTradeLogStore.log(
+                e.tradeKey, e.mint, e.symbol, e.side,
+                if (e.side == "SELL") LiveTradeLogStore.Phase.SELL_RECONCILE_LANDED else LiveTradeLogStore.Phase.BUY_RECONCILE_LANDED,
+                "✅ Reconciled at +${checkpointMs / 60_000}min: ${e.side} LANDED — receipt ${outcome8418.name}",
+                sig = e.sig, traderTag = e.traderTag,
+            )
+            true
         } catch (t: Throwable) {
             ErrorLogger.debug(TAG, "checkpoint reconcile threw: ${t.message?.take(80)}")
             false

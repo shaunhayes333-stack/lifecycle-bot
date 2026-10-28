@@ -103,7 +103,8 @@ class Aate8397SubmissionReceiptTest {
         assertTrue(source.contains("buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c, submission8397)"))
         assertTrue(source.contains("sendObserver8397 = { send -> BuySubmissionReceipt8397.observe8397(submission8397, send) }"))
         assertTrue(source.contains("intentId = submission8397.attemptId, route = \"RAYDIUM\""))
-        assertTrue(source.contains("intentId = submission8397?.attemptId.orEmpty(), route = \"PUMPPORTAL\""))
+        // superseded by V5.0.8418 — the entry attempt id still binds first; a top-up (no submission) names its own owner
+        assertTrue(source.contains("intentId = submission8397?.attemptId ?: owner8418?.intentId.orEmpty(), route = \"PUMPPORTAL\""))
         val ray = File("src/main/kotlin/com/lifecyclebot/network/RaydiumSellRoute7311.kt").readText()
         val loop = ray.indexOf("for (tx in built.transactions)")
         assertTrue("multi-transaction builds observe each send", ray.indexOf("sig = sendObserver8397?.invoke(send) ?: send()", loop) > loop)

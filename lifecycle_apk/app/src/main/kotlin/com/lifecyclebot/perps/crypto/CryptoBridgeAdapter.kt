@@ -500,9 +500,11 @@ object CryptoBridgeAdapter {
                 val received = if (position.reverseTakeLamports > BigInteger.ZERO) {
                     position.reverseTakeLamports.toBigDecimal().movePointLeft(9).toDouble()
                 } else {
-                    // Legacy lot without a recorded take amount: fall back to the
-                    // balance checkpoint, single read, never negative.
-                    (wallet.getSolBalance() - beforeSol).coerceAtLeast(0.0)
+                    // V5.0.8418 — legacy lot without a recorded take amount: a whole-wallet balance
+                    // diff against the checkpoint also counts every other trade and transfer since,
+                    // so it is not this position's proceeds. Unproven stays PENDING.
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BRIDGE_REVERSE_PROCEEDS_PENDING_NO_RECEIPT_8418") } catch (_: Throwable) {}
+                    0.0
                 }
                 if (received <= 0.0)
                     return@withContext Exit.Pending("SOURCE_BALANCE_UNPROVEN", "fulfilled order without recorded proceeds")

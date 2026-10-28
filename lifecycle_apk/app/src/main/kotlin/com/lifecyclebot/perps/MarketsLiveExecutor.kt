@@ -1667,17 +1667,12 @@ object MarketsLiveExecutor {
                 }
             }
         }
-        val solPrice8418 = com.lifecyclebot.engine.SolUsd8418.liveOrNull()
-        val beforeSol = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
-        val beforeUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
         val core = closeLivePositionCore6486(positionId, market, direction, sizeSol, leverage, traderType,
             flashPositionKey, cryptoTargetMintOverride, cryptoSymbolOverride)
         val sig = core.second
         if (!core.first || sig.isNullOrBlank()) return@withContext MarketsClose6486(false, positionId, sig, 0.0,
             java.math.BigInteger.ZERO, "EXECUTION_FAILED")
         kotlinx.coroutines.delay(1_500L)
-        var afterSol = try { wallet.getSolBalance() } catch (_: Throwable) { beforeSol }
-        var afterUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: beforeUsdc } catch (_: Throwable) { beforeUsdc }
         var flashGone = true
         if (pos.mint.startsWith("flash:")) {
             flashGone = false
@@ -1686,16 +1681,19 @@ object MarketsLiveExecutor {
                 flashGone = findFlashPositionKey(wallet.publicKeyB58 ?: "", market.symbol, direction).isNullOrBlank()
                 if (flashGone) return@repeat
             }
-            afterSol = try { wallet.getSolBalance() } catch (_: Throwable) { afterSol }
-            afterUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: afterUsdc } catch (_: Throwable) { afterUsdc }
         }
-        // V5.0.8418 — a USDC leg converts only at an observed SOL/USD; never at a constant.
-        val usdcDelta8418 = afterUsdc - beforeUsdc
-        if (kotlin.math.abs(usdcDelta8418) > 1e-6 && solPrice8418 == null) {
+        // V5.0.8418 — proceeds from THIS close transaction's receipt (owner lamport + USDC deltas), never a whole-wallet
+        // before/after diff (any concurrent transfer or other position's trade leaked into it) nor a $150 SOL stand-in.
+        // A USDC leg converts only at the live, observed SOL/USD (SolUsd8418); unknown refuses by name, never a constant.
+        val solPrice8418 = com.lifecyclebot.engine.SolUsd8418.liveOrNull()
+        val closeParse8418 = com.lifecyclebot.engine.execution.TxParseHelper.parseAllWithBackoff(wallet, sig, 20_000L)
+        val usdcLeg8418 = (closeParse8418?.tokenDeltas?.get(USDC_MINT)?.rawDelta?.signum() ?: 0) != 0
+        if (usdcLeg8418 && solPrice8418 == null) {
             com.lifecyclebot.engine.SolUsd8418.refuse("MARKETS_CLOSE_PROCEEDS")
             return@withContext MarketsClose6486(false, positionId, sig, 0.0, java.math.BigInteger.ZERO, "SOL_USD_UNKNOWN_8418")
         }
-        val proceedsSol = ((afterSol - beforeSol) + (if (solPrice8418 == null) 0.0 else usdcDelta8418 / solPrice8418)).coerceAtLeast(0.0)
+        val proceedsSol = com.lifecyclebot.engine.Settlement8418.closeProceedsSol8418(
+            closeParse8418, USDC_MINT, solPrice8418 ?: Double.NaN) ?: 0.0
         if (!flashGone || proceedsSol <= 0.0) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_CLOSE_PENDING_PROOF_6486") } catch (_: Throwable) {}
             return@withContext MarketsClose6486(false, positionId, sig, proceedsSol, java.math.BigInteger.ZERO,
