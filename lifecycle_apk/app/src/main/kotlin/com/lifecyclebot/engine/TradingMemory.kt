@@ -164,7 +164,13 @@ object TradingMemory {
         isPumpFun: Boolean = false,
         priceVolatility: Double = 0.0,
         volumeToLiqRatio: Double = 0.0,
+        // V5.0.8418 — the close's book (null = unknown, refused) and stable id.
+        live8418: Boolean? = null,
+        closeId8418: String = "",
     ) {
+        // V5.0.8418 — one memory serves the runtime: a paper close never moves what a live runtime reads; once per close.
+        if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admitRuntimeBook8418("TradingMemory.loss", closeId8418,
+                when (live8418) { true -> "LIVE"; false -> "PAPER"; null -> null })) return
         // SAFETY: Only learn from MEANINGFUL losses (> 2% loss)
         // Scratch trades (-2% to +2%) are noise, not signal
         if (lossPct > -2.0) {
@@ -237,7 +243,11 @@ object TradingMemory {
         emaFan: String,
         source: String,
         holdTimeMinutes: Double,
+        live8418: Boolean? = null,
+        closeId8418: String = "",
     ) {
+        if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admitRuntimeBook8418("TradingMemory.win", closeId8418,
+                when (live8418) { true -> "LIVE"; false -> "PAPER"; null -> null })) return
         val now = System.currentTimeMillis()
         val patternKey = "phase=$phase+ema=$emaFan+src=$source"
         
@@ -286,6 +296,8 @@ object TradingMemory {
         holderDumpDetected: Boolean,
         timeFromLaunchHours: Double,
     ) {
+        // V5.0.8418 — a rug is a market observation (either book sees the same chain event): learned once per mint.
+        if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("TradingMemory.rug", mint, "LABEL")) return
         val now = System.currentTimeMillis()
         
         // Build pattern key from indicators

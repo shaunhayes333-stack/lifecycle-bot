@@ -129,7 +129,8 @@ class Aate7962AllocatorTest {
 
     @Test fun allocatorIsWiredWhereItChangesMoney() {
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(lab.contains("CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net)"))
+        // superseded by V5.0.8418 — the label carries its decision id (LearnerAttribution8418: one booking per decision)
+        assertTrue(lab.contains("CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net, \"\${o.mint}|\${o.lane}|\${o.atMs}\")"))
         assertTrue(lab.contains("CellAllocator7962.attach(context)"))
         assertTrue(src("engine/truth/CanonicalFinalizedTradeBus6464.kt").contains("CellAllocator7962.onClose7962(env)"))
         assertTrue(src("engine/truth/TraderSizingBridge6444.kt").contains("CellAllocator7962.combinedSizeMult7962("))

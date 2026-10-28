@@ -391,12 +391,14 @@ object CellAllocator7962 {
 
     /** ForwardReturnLabeler7731.bookSixty7944: one 5-minute net label (cost + chase already charged). */
     /** Returns the EV_LABEL nodes' forgetting at booking, in [reviseLabel7997] node order (V5.0.8410). */
-    fun onLabel7962(cell: String, lane: String, setup: String, netPct: Double): DoubleArray {
+    fun onLabel7962(cell: String, lane: String, setup: String, netPct: Double, id8418: String = ""): DoubleArray {
         if (cell.isBlank() || !netPct.isFinite()) return DoubleArray(0)
         val l = canonLane(lane)
         if (l.startsWith("PLANWAIT_") || l.startsWith("PLANADMIT_")) return DoubleArray(0)
         val ref = Ref7962(cell, bandOf(cell), l, setup.trim())
         val scales = labelNodes8410(ref).map { node -> nodes[nodeKey(EV_LABEL, node)]?.let { s -> synchronized(s) { s.logScale } } ?: 0.0 }.toDoubleArray()
+        // V5.0.8418 — one booking per labelled decision (a recovered horizon re-books it); the scales still return.
+        if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("CellAllocator7962.label", id8418, "LABEL")) return scales
         addAll(EV_LABEL, ref, netPct, 1.0)
         labelsIn.incrementAndGet()
         return scales
@@ -438,6 +440,8 @@ object CellAllocator7962 {
         }
         val lane = canonLane(env.lane)
         if (lane == "WALLET_RECOVERED") return
+        // V5.0.8418 — called straight from publish(): a restart republish (FinalizedLearningReconciler7423) is refused here.
+        if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("CellAllocator7962.close", env.tradeId, env.mode)) return
         val ref = refs.remove("${env.mint}|${if (live) "LIVE" else "PAPER"}")?.first
             ?: Ref7962("", "", lane, "")
         val holdMin = if (env.holdingTimeMs > 0L) env.holdingTimeMs / 60_000.0 else Double.NaN

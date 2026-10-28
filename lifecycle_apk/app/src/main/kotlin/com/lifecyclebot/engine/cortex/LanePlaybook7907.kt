@@ -2097,6 +2097,9 @@ object LanePlaybook7907 {
         val exact8372 = if (decisionAtMs8372 > 0L) episodes8372.take(mint, labelLane, decisionAtMs8372) ?: return else null
         val (lane, full) = exact8372?.let { it.lane to it.tag }
             ?: (pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return)
+        // V5.0.8418 — one label per decision episode, across restarts (an exact episode carries its decision time).
+        if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("LanePlaybook7907",
+                if (decisionAtMs8372 > 0L) "$mint|${labelLane.trim().uppercase()}|$decisionAtMs8372" else "", "LABEL")) return
         val timing8094 = if (exact8372 != null) exact8372.timing else pendingTiming8094.remove("$mint|${labelLane.trim().uppercase()}")
         // V5.0.8085 — the label must grade the decision the entry snapshot recorded (same setup, same feature version).
         try {

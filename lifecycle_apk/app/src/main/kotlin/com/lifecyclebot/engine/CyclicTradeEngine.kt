@@ -68,7 +68,8 @@ object CyclicTradeEngine {
     // (raw signal) is used as the proxy. 30 is still a real signal, not noise.
     private const val MIN_SCORE_TO_ENTER_BOOTSTRAP = 28.0  // V5.9.1481: 48 -> 28. Bootstrap must actually sample to climb the maturity curve (doctrine #3 throughput-first); 28 is still a real signal above the 0-20 noise floor.
     private const val COOLDOWN_MS = 30_000L    // 30s between cycles
-    private const val MAX_HOLD_MS = 90 * 60 * 1000L  // 90 min max hold
+    // V5.0.8418 — the 90-minute MAX_HOLD_MS (x3 with the runner bypass) is gone: CYCLIC is a scalp lane and its hold
+    // ends at the label's final read (CyclicContract8418.HOLD_MS_8418, 60 minutes).
 
     // V5.9.451 — loss-streak back-off window (user: "needs loop learning
     // and AI assistance symbolic reasoning and sentience etc for more
@@ -646,14 +647,15 @@ object CyclicTradeEngine {
             // (adaptiveTpSl, 8-12%) normally fires first, but loss-streak
             // overlays and runner trails could let an edge case slip; this is the
             // absolute backstop. Fires before any other exit decision.
-            if (pnlPct <= -15.0) {
+            // V5.0.8418 — the hard floor every other position gets (ExitDoctrine8169: 15%, wider only once earned).
+            if (pnlPct <= -CyclicContract8418.hardFloorMag8418(ts)) {
                 try { ErrorLogger.warn(TAG, "🛑 HARD_FLOOR_15 $currentSymbol @ ${"%+.1f".format(pnlPct)}% → force-close") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_HARD_FLOOR_15") } catch (_: Throwable) {}
                 closeCycle(context, ts, executor, wallet, walletSol, pnlPct, "HARD_FLOOR_-15", solPrice)
                 return
             }
 
-            val (tpPct, slPct) = adaptiveTpSl(currentMode)
+            val (tpPct, slPct) = scalpTpSl8418(ts)  // V5.0.8418 — CYCLIC's scalp contract, not the routed mode's
             val holdMs = System.currentTimeMillis() - entryTimeMs
 
             // V5.9.696 — Dynamic profit lock (ratchet).
@@ -714,16 +716,9 @@ object CyclicTradeEngine {
             //
             // Bypass rule: skip timeout while HW ≥ TP*0.6 AND pnl ≥ HW*0.7
             // (still close to high-water → trend intact). Hard ceiling at
-            // 3× MAX_HOLD_MS to prevent zombies.
-            val hwGate = positionHighWaterPnlPct >= tpPct * 0.6
-            val trendIntact = pnlPct >= positionHighWaterPnlPct * 0.7
-            val absoluteMaxHold = MAX_HOLD_MS * 3L
-            val timedOut = when {
-                holdMs >= absoluteMaxHold -> true                  // hard ceiling
-                hwGate && trendIntact     -> false                 // still riding
-                holdMs >= MAX_HOLD_MS     -> true                  // legacy timeout
-                else                       -> false
-            }
+            // 3× the max hold to prevent zombies.
+            // V5.0.8418 — a scalp lane: the hold ends at the label's final read (CyclicContract8418), no runner extension.
+            val timedOut = CyclicContract8418.holdEnded8418(holdMs)
 
             val floorBreached = runnerFloor != null && pnlPct < runnerFloor
             val hitSL    = pnlPct <= -slPct
@@ -1093,7 +1088,7 @@ object CyclicTradeEngine {
         // the position's tradingMode to "CYCLIC" (line ~574). This is the mode the
         // toolkit picked for the token, and it's what drives the mode-aware exit style.
         val chosenLaneMode = best.position.tradingMode.ifBlank { "STANDARD" }
-        val (tpPctEntry, slPctEntry) = adaptiveTpSl(chosenLaneMode)
+        val (tpPctEntry, slPctEntry) = scalpTpSl8418(null)  // V5.0.8418 — the lane's label stop and scalp take
 
         // V5.9.1210 — CYCLIC must use the same executable-open finality
         // contract as the other lanes. Restoring paper cyclic in 1207 exposed
@@ -1245,6 +1240,16 @@ object CyclicTradeEngine {
      * On loss streak (≥2 consecutive losses): widen TP to 20, tighten SL
      *   to 3 — hunt fatter moves, exit mediocre setups faster.
      */
+    /**
+     * V5.0.8418 — CYCLIC's (take, stop) from its scalp contract (CyclicContract8418): the position's StopAuthority7887
+     * stop (no position: the lane's label stop), the first spike rung as the runner activation. The routed-mode table
+     * below stays only as the fallback stop when the authority cannot be read.
+     */
+    private fun scalpTpSl8418(ts: TokenState?): Pair<Double, Double> {
+        val c = CyclicContract8418.contractFor8418(ts, adaptiveTpSl(currentMode).second)
+        return Pair(c.takePct, c.stopPct)
+    }
+
     private fun adaptiveTpSl(mode: String = currentMode): Pair<Double, Double> {
         val lp = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()

@@ -1201,7 +1201,13 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         maxGainPct: Double = 0.0,
         exitReason: String = "",
         tokenAgeMinutes: Double = 0.0,
+        // V5.0.8418 — the close's stable id (position id, else mint|lane|entry; blank: a fingerprint of the close).
+        closeId8418: String = "",
     ): Boolean {
+        // V5.0.8418 — one brain serves the runtime: a paper / shadow close never moves the brain a live runtime trades on;
+        // once per close.
+        if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admitRuntimeBook8418("BotBrain.trade",
+                closeId8418.ifBlank { "$mint|$exitReason|$pnlPct|$holdTimeMinutes" }, if (isLiveTrade) "LIVE" else "PAPER")) return false
         // Calculate weight based on trade quality
         // LIVE: 3x, BENCHMARK: 1x, EXPLORATION: 0.3x
         val tradeWeight = when {
@@ -1558,7 +1564,12 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         topHolderPct: Double,
         liquidityUsd: Double,
         pnlPct: Double,
+        // V5.0.8418 — every caller is a paper / shadow close; a live runtime's thresholds never learn from it.
+        closeId8418: String = "",
+        live8418: Boolean = false,
     ) {
+        if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admitRuntimeBook8418("BotBrain.threshold",
+                closeId8418, if (live8418) "LIVE" else "PAPER")) return
         // Bucket the values for statistical analysis
         val rugBucket = (rugcheckScore / 10) * 10  // 0, 10, 20, 30...
         val pressBucket = (buyPressure / 10).toInt() * 10  // 0, 10, 20, 30...

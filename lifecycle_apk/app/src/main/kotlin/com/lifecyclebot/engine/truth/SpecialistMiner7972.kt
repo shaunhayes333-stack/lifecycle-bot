@@ -240,6 +240,8 @@ object SpecialistMiner7972 {
     /** ForwardReturnLabeler7731 (5-minute label): book [net] to every combination of the decision's facts. */
     fun onLabel7972(lane: String, mint: String, facts: List<String>, net: Double, gross: Double, decidedAtMs: Long) {
         if (facts.size < 3 || !net.isFinite() || lane.startsWith("PLAN")) return
+        // V5.0.8418 — one label per decision (lane, coin, decision time), across restarts.
+        if (!LearnerAttribution8418.admit8418("SpecialistMiner7972", "$lane|$mint|$decidedAtMs", "LABEL")) return
         labels.incrementAndGet()
         // Dev reputation: one label per coin.
         try {
@@ -519,5 +521,5 @@ object SpecialistMiner7972 {
 
     fun size7977(): Int = keys.size
 
-    internal fun resetForTest7972() { keys.clear(); promoted.clear(); devs.clear(); devLabelled.clear(); labels.set(0); promotions.set(0); demotions.set(0); liveMatches.set(0) }
+    internal fun resetForTest7972() { keys.clear(); promoted.clear(); devs.clear(); devLabelled.clear(); labels.set(0); promotions.set(0); demotions.set(0); liveMatches.set(0); LearnerAttribution8418.forgetForTest8418("SpecialistMiner7972") }
 }

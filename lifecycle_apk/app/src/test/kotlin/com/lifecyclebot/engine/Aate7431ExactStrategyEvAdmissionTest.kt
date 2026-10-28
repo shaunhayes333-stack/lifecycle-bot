@@ -12,8 +12,10 @@ class Aate7431ExactStrategyEvAdmissionTest {
         assertTrue(src.contains("data class Evidence7431"))
         assertTrue(src.contains("fun evidenceFor7431("))
         assertTrue(src.contains("live.n >= 3L"))
-        assertTrue(src.contains("paper.n >= 5L"))
-        assertTrue(src.contains("PAPER_SEED"))
+        // superseded by V5.0.8418 — the live read no longer falls back to a PAPER seed (paper never admits live);
+        // behaviour: Aate8418LearnerAttributionTest.liveExactStrategyEvidenceIsNeverSeededByPaper.
+        assertFalse(src.contains("paper.n >= 5L"))
+        assertTrue(src.contains("EXACT_STRATEGY_EV_LIVE_UNKNOWN_NO_PAPER_SEED_8418"))
     }
 
     @Test fun exactStrategyEvSurvivesRestartAndAdmissionLookupIsConstantTime() {

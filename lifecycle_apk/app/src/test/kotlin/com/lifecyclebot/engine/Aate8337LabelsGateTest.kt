@@ -37,7 +37,8 @@ class Aate8337LabelsGateTest {
         val skip = sixty.indexOf("if (flat8322) return")
         assertTrue(skip > 0)
         assertTrue(skip > sixty.indexOf("stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324)"))
-        assertTrue(skip < sixty.indexOf("CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net)"))
+        // superseded by V5.0.8418 — the label carries its decision id (LearnerAttribution8418: one booking per decision)
+        assertTrue(skip < sixty.indexOf("CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net, \"\${o.mint}|\${o.lane}|\${o.atMs}\")"))
         assertTrue(skip < sixty.indexOf("SpecialistMiner7972.onLabel7972(o.lane, o.mint, o.feats7972, net, gross, o.atMs)"))
     }
 

@@ -12073,7 +12073,9 @@ class GoldenTapeRegressionTest {
         // Risk clock never tighter than the runner lane's own fluid stop.
         assertTrue(ex.contains("maxOf(effStopPctGlobal7366, laneStop7366)"))
         // Catastrophe price unchanged.
-        assertTrue(ex.contains("catastrophePx = pos.entryPrice * 0.75,"))
+        // superseded by V5.0.8418 — the 25 % line is ExitThresholds8418.catastropheMag8418 (25 %, never above a held
+        // lifecycle floor; behaviour: Aate8418ExitThresholdsTest.catastropheIsTwentyFiveAndNeverAboveAHeldLifecycleFloor).
+        assertTrue(ex.contains("catastrophePx = pos.entryPrice * (1.0 - ExitThresholds8418.catastropheMag8418(ts) / 100.0),"))
     }
 
 
@@ -14049,15 +14051,19 @@ class GoldenTapeRegressionTest {
         // Forecast model: label cells under their own tag, served after own- and other-mode cells, shrunk like a paper prior.
         val fom = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ForwardOutcomeModel.kt").readText()
         assertTrue(fom.contains("private const val LABEL_TAG_7734 = \"S\""))
-        assertTrue(fom.contains("fun recordLabel7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String, netPct: Double) {"))
+        // superseded by V5.0.8418 — the label carries its decision id (LearnerAttribution8418: one booking per decision)
+        assertTrue(fom.contains("fun recordLabel7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String, netPct: Double,\n                        id8418: String = \"\") {"))
         val whenBlock = fom.substringAfter("val cell: Cell?; val src: String").substringBefore("else -> return Forecast(0.5, 0.0, 0.0, 0.0,")
         assertTrue(whenBlock.indexOf("coarse_paper_prior") < whenBlock.indexOf("fine_label_prior"))
         assertTrue(whenBlock.indexOf("fine_label_prior") < whenBlock.indexOf("coarse_label_prior"))
-        assertTrue(fom.contains("val fromPaperPrior6991 = (!isPaper && src.endsWith(\"_paper_prior\")) || src.endsWith(\"_label_prior\")"))
+        // superseded by V5.0.8418 — the live forecast reads live evidence only (no paper / label prior); behaviour:
+        // Aate8418LearnerAttributionTest.liveForecastIsNeverSeededByPaperOrLabels.
+        assertTrue(fom.contains("val fromPaperPrior6991 = isPaper && src.endsWith(\"_label_prior\")"))
         // Labeler: the signature travels with the observation and the 60-minute label teaches the model.
         val labeler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         assertTrue(labeler.contains("fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {"))
-        assertTrue(labeler.contains("ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net)"))
+        // superseded by V5.0.8418 — the label carries its decision id
+        assertTrue(labeler.contains("ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net, \"\${o.mint}|\${o.lane}|\${o.atMs}\")"))
         assertTrue(labeler.indexOf("book(o, 60, net, gross)") < labeler.indexOf("ForwardOutcomeModel.recordLabel7734("))
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val rec = gate.substringAfter("fun recordFdg(").substringBefore("val tokenRouteUpper = tokenMapRouteStatus.uppercase()")

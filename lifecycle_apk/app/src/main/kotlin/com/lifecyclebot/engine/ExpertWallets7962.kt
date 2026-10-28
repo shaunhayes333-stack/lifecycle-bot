@@ -662,7 +662,10 @@ object ExpertWallets7962 {
                     if (bars.isEmpty()) bars = g
                 }
                 val tier = if (wallet == OWNER_WALLET_7962) Tier7962.OWNER else experts[wallet]?.tier ?: Tier7962.SMART
-                try { learnTrip(tier, trip, useBars, created, solUsd) } catch (_: Throwable) {}
+                // V5.0.8418 — another wallet's round trip is a market observation (label book), learned once across restarts
+                // (the per-wallet learned set is saved per batch; a crash before the save re-queued the trip).
+                if (com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("ExpertWallets7962", "$wallet|${trip.mint}|${trip.entryMs}", "LABEL"))
+                    try { learnTrip(tier, trip, useBars, created, solUsd) } catch (_: Throwable) {}
                 hists[wallet]?.let { h ->
                     h.learned += "${trip.mint}|${trip.entryMs}"
                     while (h.learned.size > MAX_LEARNED) h.learned.remove(h.learned.first())

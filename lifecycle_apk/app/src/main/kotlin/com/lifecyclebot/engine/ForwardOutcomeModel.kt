@@ -329,9 +329,12 @@ object ForwardOutcomeModel {
         "$LABEL_TAG_7734|${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
 
     /** A 60-minute forward label (net %, after cost) for a candidate the gate ruled on. */
-    fun recordLabel7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String, netPct: Double) {
+    fun recordLabel7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String, netPct: Double,
+                        id8418: String = "") {
         try {
             if (!netPct.isFinite() || lane.isBlank()) return
+            // V5.0.8418 — one label per decision (a recovered horizon re-books it).
+            if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("ForwardOutcomeModel.label", id8418, "LABEL")) return
             // V5.0.7738 — a label is a costless mark, not a close; one basis
             // artefact at +25,000% made S|PROJECT_SNIPER read E=+1245% at n=39.
             val pnl = netPct.coerceIn(-95.0, LABEL_GAIN_CEILING_PCT_7738)
@@ -380,8 +383,10 @@ object ForwardOutcomeModel {
                 isPaper && lcc != null && lcc.n >= MIN_SAMPLES -> { cell = lcc; src = "coarse_legacy" }
                 isPaper && ofc != null && ofc.n >= MIN_SAMPLES -> { cell = ofc; src = if (isPaper) "fine_live_prior" else "fine_paper_prior" }
                 isPaper && occ != null && occ.n >= MIN_SAMPLES -> { cell = occ; src = if (isPaper) "coarse_live_prior" else "coarse_paper_prior" }
-                lfs7734 != null && lfs7734.n >= MIN_SAMPLES -> { cell = lfs7734; src = "fine_label_prior" }
-                lcs7734 != null && lcs7734.n >= MIN_SAMPLES -> { cell = lcs7734; src = "coarse_label_prior" }
+                // V5.0.8418 — forward labels are shadow observations: they seed the PAPER forecast only. A LIVE forecast
+                // reads live closes alone; without them it is bootstrap (neutral pWin 0.5, nudge 1.0), never seeded.
+                isPaper && lfs7734 != null && lfs7734.n >= MIN_SAMPLES -> { cell = lfs7734; src = "fine_label_prior" }
+                isPaper && lcs7734 != null && lcs7734.n >= MIN_SAMPLES -> { cell = lcs7734; src = "coarse_label_prior" }
                 else -> return Forecast(0.5, 0.0, 0.0, 0.0, (fc?.n ?: 0L) + (cc?.n ?: 0L), 1.0, "bootstrap")
             }
             if (src.endsWith("_label_prior")) {
@@ -425,7 +430,9 @@ object ForwardOutcomeModel {
             // signature at full force, while only mildly encouraging it into a
             // winning one. Own-mode cells are untouched.
             // V5.0.7734 — a label prior is costless in both modes and is shrunk in both.
-            val fromPaperPrior6991 = (!isPaper && src.endsWith("_paper_prior")) || src.endsWith("_label_prior")
+            // V5.0.8418 — live reaches no prior at all (the branches above are PAPER-only), so the only prior left is a
+            // label prior inside PAPER, still shrunk as 6991 shrinks one.
+            val fromPaperPrior6991 = isPaper && src.endsWith("_label_prior")
             if (!fromPaperPrior6991) {
                 return Forecast(cell.pWin, cell.mean, cell.pRug, cell.stdev, cell.n, nudge, src)
             }
@@ -466,7 +473,7 @@ object ForwardOutcomeModel {
     }
 
     /** Feed settled PnL back — updates BOTH the fine and coarse cells (Welford). */
-    fun recordOutcome(mint: String, pnlPct: Double) {
+    fun recordOutcome(mint: String, pnlPct: Double, tradeId8418: String = "", mode8418: String? = null) {
         try {
             // V5.0.6862 — an unmapped close is a LOST learning sample, not a no-op.
             // It used to return in silence, so the drop was invisible; count it so a
@@ -475,6 +482,10 @@ object ForwardOutcomeModel {
                 try { PipelineHealthCollector.labelInc("FORWARD_OUTCOME_UNMAPPED_CLOSE_6862") } catch (_: Throwable) {}
                 return
             }
+            // V5.0.8418 — cells are keyed per mode already (cohortEvidence6911 reads its own book); counted per book and
+            // refused once per close id (the pending stamp is consumed by the first delivery as well).
+            if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("ForwardOutcomeModel.close", tradeId8418,
+                    mode8418 ?: LearningEnvironment7835.mode())) return
             val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) /* V5.0.7349b — was +1,000%: a real runner is the expectancy, not an outlier */
             update(fine.getOrPut(keys.first) { Cell() }, pnl)
             update(coarse.getOrPut(keys.second) { Cell() }, pnl)

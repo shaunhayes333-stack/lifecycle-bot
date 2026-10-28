@@ -224,6 +224,12 @@ object FieldManual7715 {
     private val PERPS_LANE = LaneMandate("PERPS", SetupFamily.DERIVATIVES, expectedGrossPct = 10.0, invalidationPct = 3.0, riskFraction = 0.02, runner = false)
     private val CARRY_LANE = LaneMandate("CARRY", SetupFamily.BASIS_CARRY, expectedGrossPct = 6.0, invalidationPct = 1.5, riskFraction = 0.02, runner = false)
     private val ARB_LANE = LaneMandate("ARB", SetupFamily.VENUE_ARB, expectedGrossPct = 4.0, invalidationPct = 0.8, riskFraction = 0.02, runner = false)
+    // V5.0.8418 — CYCLIC had no mandate and fell through to GENERIC (base breakout). It is a scalp lane that cycles one
+    // ring through range-bound coins (LanePlaybook7907 CYCLIC: deep liquidity for its cap, band momentum, trend pullback,
+    // range-low bounce / sweep-reclaim plans): range mean reversion, a cycle's expected gross +20 %, invalidation 10 %
+    // (StopAuthority7887's CYCLIC base 12 % stays outside it; the stop widens to the round trip via stopPct8392), never a
+    // runner. riskFraction is GENERIC's, unchanged (sizing is not moved by this mandate).
+    private val CYCLIC_LANE = LaneMandate("CYCLIC", SetupFamily.RANGE_REVERSION, expectedGrossPct = 20.0, invalidationPct = 10.0, riskFraction = 0.065, runner = false)
     private val GENERIC_LANE = LaneMandate("GENERIC", SetupFamily.BASE_BREAKOUT, expectedGrossPct = 20.0, invalidationPct = 10.0, riskFraction = 0.065, runner = false)
 
     /** Which part of the playbook owns a lane. Unknown lanes get the generic breakout mandate. */
@@ -258,6 +264,7 @@ object FieldManual7715 {
         val l = lane?.trim()?.uppercase().orEmpty()
         return when {
             l.isEmpty() -> GENERIC_LANE
+            l.contains("CYCLIC") -> CYCLIC_LANE.copy(lane = l)  // V5.0.8418
             l.contains("MOONSHOT") || l.contains("SHITCOIN") || l.contains("SNIPER") ||
                 l.contains("SNIPE") || l.contains("MICRO_CAP") || l.contains("MANIPULATED") ||
                 l.contains("PUMP") || l.contains("LAUNCH") -> RUNNER_LANE.copy(lane = l)

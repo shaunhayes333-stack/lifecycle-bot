@@ -1345,12 +1345,12 @@ object ForwardReturnLabeler7731 {
         // Cortex delivery is retried independently; a retry must not call these other learner hooks twice.
         if (flat8322) return true
         // V5.0.7962 — the same 5-minute net label grades the decision cell for slot / size / priority.
-        try { o.allocScales8410 = com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net) } catch (_: Throwable) {}   // V5.0.8410
+        try { o.allocScales8410 = com.lifecyclebot.engine.CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net, "${o.mint}|${o.lane}|${o.atMs}") } catch (_: Throwable) {}   // V5.0.8410
         // V5.0.7972 — the same label grades every pair/triple of the decision's facts (specialist miner).
         try { SpecialistMiner7972.onLabel7972(o.lane, o.mint, o.feats7972, net, gross, o.atMs) } catch (_: Throwable) {}
         try { SignalSourceProof7291.onForwardLabel7731(o.mint, net / 100.0, nowMs) } catch (_: Throwable) {}
         // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
-        try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net, "${o.mint}|${o.lane}|${o.atMs}") } catch (_: Throwable) {}
         // V5.0.7813 — counterfactual entry-quality learning, graded whether FDG admitted or refused.
         try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.recordForwardOutcome7813(o.mint, o.lane, net, o.admitted, o.atMs) } catch (_: Throwable) {}
         return true
