@@ -492,6 +492,11 @@ class Executor(
         // ("copy1 v2<-v447 type=Undefined", runtime smoke 5.0.8392/8392a: Executor failed to verify, service never
         // started). A volatile read cannot be constant-folded, so the paper cost model keeps its bytecode shape.
         @Volatile private var MEME_TRADING_FEE_PERCENT = 0.0
+        // V5.0.8418 — owner: "re add the 0.5% fee on the buy side." MEME_TRADING_FEE_PERCENT above is now the SELL-side app
+        // fee (0.0 = CostTrim8151.SELL_APP_FEE_PCT_8418; paper sells/partials mirror live: none). The BUY side charges
+        // CostTrim8151.BUY_APP_FEE_PCT_8418 (live: BuyAppFee8418; paper: paperBuy's fee6485). @Volatile for the same
+        // 8392b reason: never a foldable constant inside an oversized method.
+        @Volatile private var MEME_BUY_FEE_PERCENT_8418 = CostTrim8151.BUY_APP_FEE_PCT_8418 / 100.0
         private const val PERPS_TRADING_FEE_PERCENT = 0.01  // 1% for leverage/perps trades
         
         // Fee split (50/50 between wallets)
@@ -8313,7 +8318,7 @@ class Executor(
             // same 0.5% fee as full sells. Basis = costSol × sellFraction
             // (portion actually being sold). Previously this path silently
             // skipped the fee split, short-changing the two wallets.
-            // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee.
+            // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee. V5.0.8418: still none on sells (buy-side only).
 
             val solPrice = WalletManager.lastKnownSolPrice
             val gainMultiple = (solBack + pos.lockedProfitFloor) / pos.costSol
@@ -10829,7 +10834,7 @@ class Executor(
                 } catch (_: Throwable) {}
                 // V5.9.109: FAIRNESS — partial sell #1 pays same 0.5% fee
                 // (of the portion sold) to both wallets as full sells do.
-                // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee.
+                // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee. V5.0.8418: still none on sells (buy-side only).
                 releasePartialSellLock(ts.mint)
                 // V5.9.495z47 — operator P0 (forensics 0508_143519):
                 // Verify post-sell wallet drop ≤ expected. If actual > expected
@@ -13714,10 +13719,13 @@ class Executor(
             try { com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.economicNotionalCheck6537(ts.position)?.takeIf { !it.ok }?.let { Settlement8418.count8418("LIVE_TOPUP_POST_MUTATION_INVARIANT_BROKEN_6539") } } catch (_: Throwable) {}
             mirrorLiveTopUpCanonical7807(ts.mint, sig, fill8418.costSol, fill8418.qtyUi, fill8418.decimals, fill8418.rawQty, fill8418.feeSol)
             ReceiptBooking8418.noteBookedInFlow8418(owner8418.intentId, sig)  // V5.0.8418 — booked once; a recovered copy is a duplicate
+            // V5.0.8418 — a receipt-proven top-up is a live buy: the app's 0.5% buy fee on ITS receipt cost (lamports spent
+            // less the network fee — fill8418.costSol), charged once per signature on the real spend, never on the planned sol.
+            BuyAppFee8418.chargeLiveBuy8418(wallet, fill8418.costSol, com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, false), sig, ts.mint, "topup_8418", onLog)
             val gainPct = pct(pos.entryPrice, price)
             val trade   = Trade("BUY", "live", fill8418.costSol, price,
                                 System.currentTimeMillis(), "top_up_${pos.topUpCount + 1}",
-                                sig = sig)
+                                sig = sig, feeSol = BuyAppFee8418.bookedFeeSol8418(fill8418.costSol))
             recordTrade(ts, trade)
             security.recordTrade(trade)
             onLog("LIVE TOP-UP #${pos.topUpCount + 1} @ ${price.fmt()} | " +
@@ -16981,7 +16989,7 @@ class Executor(
         // network leg, debited once. See PaperVenueCost7287.
         val venueFeePct7287 = com.lifecyclebot.engine.truth.PaperVenueCost7287
             .venueFeePct(ts.mint, ts.lastLiquidityUsd, ts.lastMcap)
-        val fee6485 = actualSol * (venueFeePct7287 / 100.0 + MEME_TRADING_FEE_PERCENT) +
+        val fee6485 = actualSol * (venueFeePct7287 / 100.0 + MEME_BUY_FEE_PERCENT_8418) +
             com.lifecyclebot.engine.truth.PaperVenueCost7287.FIXED_SOL_PER_SIDE
         try {
             PipelineHealthCollector.labelInc(
@@ -21182,6 +21190,7 @@ class Executor(
                         .also { com.lifecyclebot.engine.truth.EntryMcapReconcile8237.noteReconciled8237(entryMarketSnapshot.marketCapUsd, it) },
                     entryQtyToken = qtyUi,
                     entryCostSol = actualCostSol,
+                    feeSol = BuyAppFee8418.bookedFeeSol8418(actualCostSol),  // V5.0.8418 — the app's buy fee
                     entryDecimals = decimals,
                     remainingQtyToken = qtyUi,
                     entryRawQty = actualRawQty,
@@ -21243,7 +21252,8 @@ class Executor(
                 LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
 
                 sounds?.playBuySound()
-                // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee.
+                // V5.0.8418 — the app's 0.5% BUY fee on the confirmed cost, booked into the canonical fees and split 50/50.
+                BuyAppFee8418.chargeLiveBuy8418(wallet, actualCostSol, canonicalPositionId, sig, tradeId.mint, "buy_finalized_8418", onLog)
 
                 onLog(
                     "LIVE BUY VERIFIED @ ${verifiedEntryPrice.fmt()} | ${actualCostSol.fmt(4)} SOL | qty=${qtyUi.fmt(4)} | router=$routerLabel | sig=${sig.take(16)}…",
@@ -21798,7 +21808,7 @@ class Executor(
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
                         mode = "live", positionId = pidLive6486, mint = verifyMint, symbol = verifySymbol,
                         idempotencyKey = "buy_live_tx_${verifySig}",
-                        executedCostSol = actualCostSol6486, entryFeesSol = actualFeeSol6486,
+                        executedCostSol = actualCostSol6486, entryFeesSol = actualFeeSol6486 + BuyAppFee8418.bookedFeeSol8418(actualCostSol6486),  // V5.0.8418
                         filledQty = proof.amountRaw,
                         // Typed durable field is USD/token; SOL/token belongs
                         // only in CanonicalBuyFillRegistry.entryPriceSol.
@@ -24664,7 +24674,7 @@ class Executor(
                     recordTrade(ts, liveTrade)
                     security.recordTrade(liveTrade)
                     // V5.9.109: FAIRNESS — partial sell #2 pays same 0.5% fee.
-                    // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee.
+                    // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee. V5.0.8418: still none on sells (buy-side only).
 
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -28872,7 +28882,7 @@ class Executor(
             // the two derefs rather than NPE on a perfectly good direct-route sell.
             val finalQuote: com.lifecyclebot.network.SwapQuote? = quote
             
-            // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee.
+            // V8391: no per-side volume fee. Canonical terminal net-profit settlement owns the fee. V5.0.8418: still none on sells (buy-side only).
             
             // V5.9.495y/z — TRADE-VERIFIER FULL-SELL AUTHORITY (spec items
             // 6, 8). Run tx-parse first; if LANDED we skip the legacy

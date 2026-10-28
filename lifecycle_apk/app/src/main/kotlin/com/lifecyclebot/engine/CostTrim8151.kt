@@ -30,8 +30,17 @@ object CostTrim8151 {
 
     // ── constants (each mirrors the code that charges it) ──
 
-    /** Executor.MEME_TRADING_FEE_PERCENT (0.005): the app's own live trading fee, per side, in percent. */
-    const val APP_FEE_PCT_PER_SIDE_8151 = 0.0 // V8391 performance fee is a share of positive net profit, not notional
+    // V5.0.8418 — owner: "re add the 0.5% fee on the buy side. leave the performance based fee on the sell side."
+    /** The app's fee on a confirmed BUY (live and paper), percent of the SOL the buy cost (BuyAppFee8418). */
+    const val BUY_APP_FEE_PCT_8418 = 0.5
+    /** The app's volume fee on a SELL / partial sell / profit lock: none. Sells pay only PerformanceFees8391 on winners. */
+    const val SELL_APP_FEE_PCT_8418 = 0.0
+    /**
+     * superseded by V5.0.8418 — was 0.0 (8391: no volume fee). The app fee is now asymmetric (buy 0.5 %, sell 0 %); this is
+     * the per-side MEAN, so every symmetric round-trip consumer ([roundTripPct8151]: 2 x per side) charges exactly the
+     * 0.5 % the buy pays. Breakeven uses the asymmetric legs ([breakEvenMovePct8418]).
+     */
+    const val APP_FEE_PCT_PER_SIDE_8151 = (BUY_APP_FEE_PCT_8418 + SELL_APP_FEE_PCT_8418) / 2.0
     /** PumpPortal local-trade API fee, per trade, in percent. */
     const val PUMPPORTAL_FEE_PCT_PER_SIDE_8151 = 0.5
     /** Jupiter: Metis /swap charges no platform fee here; Ultra charges a few bps. Upper bound, per side. */
@@ -197,6 +206,33 @@ object CostTrim8151 {
         if (half >= 1.0) return Double.POSITIVE_INFINITY
         return ((1.0 + half) / (1.0 - half) - 1.0) * 100.0
     }
+
+    /**
+     * V5.0.8418 — Pure: the break-even gross move for an ASYMMETRIC round trip. [roundTripPct] already holds the app fee
+     * at its per-side mean; the buy leg carries (buy - sell) / 2 more and the sell leg that much less:
+     * (1 + g)(1 - s) = 1 + b. The performance fee is a share of profit only, so it is zero at break even.
+     */
+    fun breakEvenMovePct8418(roundTripPct: Double, buyAppPct: Double = BUY_APP_FEE_PCT_8418, sellAppPct: Double = SELL_APP_FEE_PCT_8418): Double {
+        if (!roundTripPct.isFinite() || roundTripPct < 0.0) return Double.NaN
+        val shift = (nn(buyAppPct) - nn(sellAppPct)) / 2.0
+        val b = (roundTripPct / 2.0 + shift).coerceAtLeast(0.0) / 100.0
+        val s = (roundTripPct / 2.0 - shift).coerceAtLeast(0.0) / 100.0
+        if (s >= 1.0) return Double.POSITIVE_INFINITY
+        return ((1.0 + b) / (1.0 - s) - 1.0) * 100.0
+    }
+
+    /** V5.0.8418 — Pure: the buy / sell legs (percent) of a round trip whose app fee is at its per-side mean. */
+    fun buyLegPct8418(roundTripPct: Double): Double =
+        if (!roundTripPct.isFinite()) Double.NaN else roundTripPct / 2.0 + (BUY_APP_FEE_PCT_8418 - SELL_APP_FEE_PCT_8418) / 2.0
+    fun sellLegPct8418(roundTripPct: Double): Double =
+        if (!roundTripPct.isFinite()) Double.NaN else roundTripPct / 2.0 - (BUY_APP_FEE_PCT_8418 - SELL_APP_FEE_PCT_8418) / 2.0
+
+    /** V5.0.8418 — the status label: "appFee=buy0.5%/sell0%+perf1%". */
+    fun appFeeLabel8418(): String = "appFee=buy${pctLabel8418(BUY_APP_FEE_PCT_8418)}%/sell${pctLabel8418(SELL_APP_FEE_PCT_8418)}%" +
+        "+perf${PerformanceFees8391.ratePctLabel8418()}%"
+
+    private fun pctLabel8418(v: Double): String =
+        if (!v.isFinite()) "-" else java.math.BigDecimal.valueOf(v).stripTrailingZeros().toPlainString().let { if (it == "0.0") "0" else it }
 
     // ── partial slices ──
 
@@ -367,11 +403,11 @@ object CostMeter8151 {
         val share = CostTrim8151.fixedCostSharePct8151(fixed / 2.0, 0.0, ticket)
         val rt = lastRoundTripPct
         return "ticket=${"%.4f".format(ticket)} fixedRoundTrip=${"%.6f".format(fixed)} fixedShare=${if (share.isFinite()) "%.2f".format(share) + "%" else "-"} " +
-            "feesRoundTrip=${if (rt.isFinite()) "%.2f".format(rt) + "%" else "-"} breakEvenMove=${if (rt.isFinite()) "%.2f".format(CostTrim8151.breakEvenMovePct8151(rt)) + "%" else "-"} " +
+            "feesRoundTrip=${if (rt.isFinite()) "%.2f".format(rt) + "%" else "-"} breakEvenMove=${if (rt.isFinite()) "%.2f".format(CostTrim8151.breakEvenMovePct8418(rt)) + "%" else "-"} " +
             "legs=${legs.get()} failedLegs=${failedLegs.get()} failedFeeSol=${"%.6f".format(failedFeeLamports.get() / 1e9)} " +
             "ordinaryTips=${ordinaryTips.get()} tipSavedSol=${"%.6f".format(tipSavedLamports.get() / 1e9)} aggregatorFirst=${aggregatorFirst.get()} " +
             "simRefused=${simRefused.get()} partialFixedHeld=${partialFixedHeld.get()} rentOpenedSol=${"%.5f".format(rentOpenedLamports.get() / 1e9)} " +
-            "rentClosedInTxSol=${"%.5f".format(rentClosedInTxLamports.get() / 1e9)} appFee=${CostTrim8151.APP_FEE_PCT_PER_SIDE_8151}%/side" +
+            "rentClosedInTxSol=${"%.5f".format(rentClosedInTxLamports.get() / 1e9)} ${CostTrim8151.appFeeLabel8418()}" +
             " sellTips8378[ordinary=${ordinarySellTips8378.get()} protective=${protectiveSellTips8378.get()} " +
             "avgLamports=${if (sellTipLamportsEwma8378.isFinite()) sellTipLamportsEwma8378.toLong().toString() else "-"}]" +
             " " + landing8169()

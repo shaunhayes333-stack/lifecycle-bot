@@ -9,7 +9,12 @@ import java.math.RoundingMode
 
 /** Prospective, wallet-scoped performance fees. This is a fee subledger, never a position/cash authority. */
 object PerformanceFees8391 {
-    const val RATE = 0.05
+    // V5.0.8418 — owner: the performance fee is 1% of realised net profit on winners (was 5%). One named constant:
+    // the rate in basis points; every other figure (fraction, lamport divisor, status label) derives from it.
+    const val RATE_BPS_8418 = 100L
+    /** Lamport divisor of the cumulative high-water mark (10_000 bps / rate bps; 100 = 1%). */
+    const val RATE_DIVISOR_8418 = 10_000L / RATE_BPS_8418
+    const val RATE = RATE_BPS_8418 / 10_000.0
     private const val WALLET1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
     private const val WALLET2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
     data class State(val net: Long = 0, val high: Long = 0)
@@ -18,8 +23,10 @@ object PerformanceFees8391 {
     fun assess(state: State, realized: Long): Assessment {
         val net = Math.addExact(state.net, realized)
         val high = maxOf(state.high, net, 0L)
-        return Assessment(State(net, high), high / 20L - state.high / 20L)
+        return Assessment(State(net, high), high / RATE_DIVISOR_8418 - state.high / RATE_DIVISOR_8418)
     }
+    /** V5.0.8418 — the rate as a plain percent label ("1"). */
+    fun ratePctLabel8418(): String = BigDecimal.valueOf(RATE_BPS_8418).movePointLeft(2).stripTrailingZeros().toPlainString()
     fun lamports(sol: Double): Long {
         require(sol.isFinite())
         return BigDecimal.valueOf(sol).movePointRight(9).setScale(0, RoundingMode.HALF_EVEN).longValueExact()
@@ -144,7 +151,7 @@ object PerformanceFees8391 {
         }
         val held=db.rawQuery("SELECT COUNT(*) FROM held_accounts",null).use { it.moveToFirst();it.getLong(0) }
         val pending=db.rawQuery("SELECT COUNT(*) FROM payouts WHERE state='PENDING'",null).use { it.moveToFirst();it.getLong(0) }
-        return "5% net-profit HWM split=50/50 ${rows.joinToString(" ")} heldFeeAccounts=$held pendingSignatures=$pending"
+        return "${ratePctLabel8418()}% net-profit HWM split=50/50 ${rows.joinToString(" ")} heldFeeAccounts=$held pendingSignatures=$pending"
     }
 
     /** Payout gas comes OUT OF the developers' entitlement; trader debit never exceeds the accrued 5%. */

@@ -26,7 +26,9 @@ import java.util.concurrent.atomic.AtomicLong
  *     landing meter shows capped entries failing; when Sender's own minimum tip does not fit the cap the entry goes by
  *     the standard RPC / Jupiter path (tip 0). Sells (stops, emergencies, every exit) are untouched: they pay to land.
  *
- * The app's 0.5 %/side trading fee (Executor.MEME_TRADING_FEE_PERCENT) is the owner's and is not touched here.
+ * The app's trading fee is the owner's and is not touched here. superseded by V5.0.8418 — was "0.5 %/side": the app fee
+ * is 0.5 % on the BUY only (CostTrim8151.BUY_APP_FEE_PCT_8418, BuyAppFee8418), none on the sell
+ * (CostTrim8151.SELL_APP_FEE_PCT_8418); winning sells pay PerformanceFees8391 on realised net profit.
  */
 object Costs8369 {
 

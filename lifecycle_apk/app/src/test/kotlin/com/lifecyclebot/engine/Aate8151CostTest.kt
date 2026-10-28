@@ -113,7 +113,10 @@ class Aate8151CostTest {
     }
 
     @Test fun theAppFeeConstantMirrorsTheExecutorsLiveFee() {
-        assertEquals(0.0, CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, 1e-12)
+        // superseded by V5.0.8418 — owner re-added the 0.5% BUY fee (sell 0): the per-side constant is the mean, 0.25 (was 0.0).
+        assertEquals(0.25, CostTrim8151.APP_FEE_PCT_PER_SIDE_8151, 1e-12)
+        assertEquals(0.5, CostTrim8151.BUY_APP_FEE_PCT_8418, 0.0)
+        assertEquals(0.0, CostTrim8151.SELL_APP_FEE_PCT_8418, 0.0)
         assertTrue(src("engine/Executor.kt").contains("@Volatile private var MEME_TRADING_FEE_PERCENT = 0.0"))   // V5.0.8392b — volatile, never a foldable const
     }
 

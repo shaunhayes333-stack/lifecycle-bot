@@ -1600,8 +1600,12 @@ class GoldenTapeRegressionTest {
         val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val accumulator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FeeAccumulator.kt").readText()
-        assertTrue("V5.0.8391: meme live trading has no per-trade volume fee; the 5% net-profit fee settles at terminal close, never inline micro sends",
-            exec.contains("MEME_TRADING_FEE_PERCENT = 0.0") && !exec.contains("sendFeeSplit(") && !exec.contains("FeeAccumulator.accrue"))
+        // superseded by V5.0.8418 — owner re-added the 0.5% BUY fee; sells keep no volume fee and the (now 1%) net-profit
+        // fee settles at terminal close. The buy fee pools through BuyAppFee8418 -> FeeAccumulator.accrue, never inline sends.
+        val buyFee8418 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BuyAppFee8418.kt").readText()
+        assertTrue("V5.0.8418: sells pay no volume fee; buys pay the app fee through the pooled accumulator",
+            exec.contains("MEME_TRADING_FEE_PERCENT = 0.0") && !exec.contains("sendFeeSplit(") && !exec.contains("FeeAccumulator.accrue") &&
+                exec.contains("BuyAppFee8418.chargeLiveBuy8418(") && buyFee8418.contains("FeeAccumulator.accrue(dest, sol, tag)"))
         // V5.0.6060 — operator directive: revert daily batching, transfer fees per-cycle live.
         // FeeAccumulator still exists as a per-cycle safety net (transient send failures fall
         // into FeeRetryQueue) but the threshold is now sub-cent so tryFlush() drains every
@@ -15401,7 +15405,9 @@ class GoldenTapeRegressionTest {
         assertTrue(fee.contains("CREATE TABLE bindings"))
         assertTrue(fee.contains("pid TEXT PRIMARY KEY"))
         assertTrue(fee.contains("db.beginTransaction()"))
-        assertTrue(fee.contains("high / 20L - state.high / 20L"))
+        // superseded by V5.0.8418 — owner: the performance fee is 1% (was 5%, `high / 20L`); one named constant.
+        assertTrue(fee.contains("high / RATE_DIVISOR_8418 - state.high / RATE_DIVISOR_8418"))
+        assertTrue(fee.contains("const val RATE_BPS_8418 = 100L"))
         val durablePayout = fee.indexOf("INSERT INTO payouts(account,dest,gross,sig,raw,sent,network,state,lastValid,preparedAt)")
         assertTrue(durablePayout >= 0)
         assertTrue(durablePayout < fee.lastIndexOf("wallet.broadcastFeeTransfer8391(prepared.signature,prepared.base64)"))

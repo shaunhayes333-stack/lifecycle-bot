@@ -782,6 +782,25 @@ object CanonicalPositionAuthority6441 {
         } finally { lock.unlock() }
     }
 
+    /**
+     * V5.0.8418 — book the app's BUY fee (BuyAppFee8418) into an open position's fees, once per [idempotencyKey]. Cost
+     * basis and quantity stay the chain-proven fill; the fee is a liability the wallet pays through FeeAccumulator, so it
+     * belongs in feesSol, which every terminal (WholePositionEconomics7835, PerformanceFees8391 settle) nets out.
+     */
+    fun bookAppFee8418(idempotencyKey: String, positionId: String, feeSol: Double): MutateResult {
+        lock.lock()
+        try {
+            if (!feeSol.isFinite() || feeSol <= 0.0) return MutateResult.INVARIANT_VIOLATION
+            if (isDuplicate(idempotencyKey)) return MutateResult.DUPLICATE
+            val pos = positions[positionId] ?: return MutateResult.UNKNOWN_POSITION
+            if (pos.lifecycle !in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED)) return MutateResult.LIFECYCLE_FORBIDDEN
+            positions[positionId] = pos.copy(feesSol = pos.feesSol + feeSol, lastMutationMs = System.currentTimeMillis())
+            markKeyUsed(idempotencyKey)
+            muts.incrementAndGet()
+            return MutateResult.APPLIED
+        } finally { lock.unlock() }
+    }
+
     fun partialSell(
         idempotencyKey: String,
         positionId: String,

@@ -4,10 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class Aate8391FairFeesAdvisorTest {
-    @Test fun feeIsFivePercentTotalNotPerWallet() {
+    @Test fun feeIsOnePercentTotalNotPerWallet() {
+        // superseded by V5.0.8418 — owner: performance fee 1% of realised net profit (was 5%)
         val result = PerformanceFees8391.assess(PerformanceFees8391.State(), 1_000_000_000)
-        assertEquals(50_000_000L, result.fee)
-        assertEquals(25_000_000L, result.fee / 2)
+        assertEquals(10_000_000L, result.fee)
+        assertEquals(5_000_000L, result.fee / 2)
+        assertEquals(0.01, PerformanceFees8391.RATE, 0.0)
     }
     @Test fun losingAndRecoveringToPriorHighWaterPaysNothing() {
         val gain = PerformanceFees8391.assess(PerformanceFees8391.State(), 1_000_000_000)
@@ -16,13 +18,13 @@ class Aate8391FairFeesAdvisorTest {
         val recovery = PerformanceFees8391.assess(loss.state, 500_000_000)
         assertEquals(0L, recovery.fee)
         val newHigh = PerformanceFees8391.assess(recovery.state, 100_000_000)
-        assertEquals(5_000_000L, newHigh.fee)
+        assertEquals(1_000_000L, newHigh.fee) // superseded by V5.0.8418 — owner: performance fee 1% of realised net profit (was 5%)
     }
     @Test fun bootstrapLossMustBeRecoveredBeforeAnyFee() {
         val loss = PerformanceFees8391.assess(PerformanceFees8391.State(), -100_000_000)
         assertEquals(0L, loss.fee)
         val win = PerformanceFees8391.assess(loss.state, 150_000_000)
-        assertEquals(2_500_000L, win.fee)
+        assertEquals(500_000L, win.fee) // superseded by V5.0.8418 — owner: performance fee 1% of realised net profit (was 5%)
     }
     @Test fun onlyWholePositionEconomicsCountNotEarlyPartialProfit() {
         // +100 partial, -120 final: whole position is -20, not a charge on the early gain.
@@ -31,7 +33,7 @@ class Aate8391FairFeesAdvisorTest {
     @Test fun noCrossAccountHighWaterDependency() {
         val walletA = PerformanceFees8391.assess(PerformanceFees8391.State(), -500L)
         val walletB = PerformanceFees8391.assess(PerformanceFees8391.State(), 1000L)
-        assertEquals(0L, walletA.fee); assertEquals(50L, walletB.fee)
+        assertEquals(0L, walletA.fee); assertEquals(10L, walletB.fee) // superseded by V5.0.8418 — owner: performance fee 1% of realised net profit (was 5%)
     }
     @Test fun solConversionIsFiniteAndLamportExact() {
         assertEquals(1L, PerformanceFees8391.lamports(0.000000001))
@@ -72,7 +74,7 @@ class Aate8391FairFeesAdvisorTest {
         var state = PerformanceFees8391.State()
         var total=0L
         repeat(100) { val a=PerformanceFees8391.assess(state,1L); state=a.state; total+=a.fee }
-        assertEquals(5L,total)
+        assertEquals(1L,total) // superseded by V5.0.8418 — owner: performance fee 1% of realised net profit (was 5%)
     }
     @Test fun matureCleanCostsAdaptWithoutAPermanentOnePointOneMultiplier() {
         val cost=com.lifecyclebot.engine.truth.CostLedger7962

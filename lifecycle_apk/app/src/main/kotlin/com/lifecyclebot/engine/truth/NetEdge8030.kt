@@ -161,11 +161,14 @@ object NetEdge8030 {
         val rentPct = if (componentModel && size > 0.0) c[4] / size * 100.0 else Double.NaN
         val slipHalf = FieldManual7715.SLIPPAGE_ALLOWANCE_PCT_7715 / 2.0
         val impactHalf = if (impactRtPct.isFinite()) impactRtPct / 2.0 else 0.0
-        val buySide = perSideFees + fixedLegPct + slipHalf + impactHalf
-        val sellSide = perSideFees + fixedLegPct + slipHalf + impactHalf + (if (rentPct.isFinite()) rentPct else 0.0)
+        // V5.0.8418 — the app fee is asymmetric (buy 0.5 %, sell 0): c[2] is its per-side mean, so the buy leg carries the
+        // difference and the sell leg does not.
+        val appShift8418 = (com.lifecyclebot.engine.CostTrim8151.BUY_APP_FEE_PCT_8418 - com.lifecyclebot.engine.CostTrim8151.SELL_APP_FEE_PCT_8418) / 2.0
+        val buySide = perSideFees + appShift8418 + fixedLegPct + slipHalf + impactHalf
+        val sellSide = perSideFees - appShift8418 + fixedLegPct + slipHalf + impactHalf + (if (rentPct.isFinite()) rentPct else 0.0)
         fun p(v: Double) = if (v.isFinite()) "%.2f".format(v) else "-"
         return "lane=${lane.uppercase().take(14)} size=${"%.4f".format(size)} liq=${"%.0f".format(liq)} " +
-            "venue=${p(c[0])}+route=${p(c[1])}+app=${p(c[2])}%/side fixedLeg=${"%.6f".format(c[3])}SOL(${p(fixedLegPct)}%) rent=${p(rentPct)}% " +
+            "venue=${p(c[0])}+route=${p(c[1])}%/side app=buy${p(com.lifecyclebot.engine.CostTrim8151.BUY_APP_FEE_PCT_8418)}/sell${p(com.lifecyclebot.engine.CostTrim8151.SELL_APP_FEE_PCT_8418)}% fixedLeg=${"%.6f".format(c[3])}SOL(${p(fixedLegPct)}%) rent=${p(rentPct)}% " +
             "slip=${p(slipHalf)}%/side impact=${p(impactHalf)}%/side buySide=${p(buySide)}% sellSide=${p(sellSide)}% " +
             "measured=${measured?.let { p(it) } ?: "-"} used=${p(usedPct)}%"
     }
@@ -173,7 +176,8 @@ object NetEdge8030 {
     /**
      * V5.0.8151 — fees and fixed costs of one round trip (%), from the components each trade actually pays: the venue
      * fee (PaperVenueCost7287 for [mint]; an AMM's 0.25% when the mint is not known), the route fee (PumpPortal 0.5% on
-     * a bonding curve, the aggregator otherwise), the app's 0.5% a side, two measured fixed legs, and the rent share the
+     * a bonding curve, the aggregator otherwise), the app's fee (V5.0.8418: 0.5% on the buy, 0 on the sell, carried as its
+     * per-side mean CostTrim8151.APP_FEE_PCT_PER_SIDE_8151), two measured fixed legs, and the rent share the
      * reclaimer could not take back. Slippage allowance and impact are added by [costPct8030].
      */
     private fun componentsPct8151(sizeSol: Double, mint: String, liquidityUsd: Double, mcapUsd: Double): Double {

@@ -33,9 +33,10 @@ package com.lifecyclebot.engine.truth
  * the same number FeeAwareSizeFloor7277 sizes against (0.00161 a round
  * trip), so the floor and the ledger now agree.
  *
- * The app's own trading fee (Executor.MEME_TRADING_FEE_PERCENT, 0.5% a
- * side, the operator's fee-split revenue) is a real live cost and is added
- * by the caller, not here.
+ * The app's own trading fee (the operator's fee-split revenue) is a real
+ * live cost and is added by the caller, not here. V5.0.8418: 0.5% on the
+ * BUY only (Executor.MEME_BUY_FEE_PERCENT_8418); sells pay no volume fee
+ * (Executor.MEME_TRADING_FEE_PERCENT = 0.0).
  */
 object PaperVenueCost7287 {
     enum class Venue { BONDING_CURVE, PUMPSWAP, AMM }
