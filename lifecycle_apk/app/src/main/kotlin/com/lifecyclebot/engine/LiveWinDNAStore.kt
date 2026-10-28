@@ -186,38 +186,19 @@ object LiveWinDNAStore {
      */
     private val realRowsSnapshot = AtomicReference<List<WinDNA>?>(null)
 
+    /** Corpus returns/holding times are retrospective estimates, never settled trade outcomes. */
+    internal fun observedTrade8417(row: WinDNA): Boolean {
+        if (row.paperOrLive.uppercase() !in setOf("LIVE", "PAPER")) return false
+        val provenance = listOf(row.entrySetup, row.chartPattern, row.source, row.phase, row.exitReason)
+        return provenance.none { it.contains("backfill", true) || it.contains("corpus", true) ||
+            it.startsWith("HISTORICAL_SEED", true) } && row.pnlPct.isFinite()
+    }
+
     private fun realRows(): List<WinDNA> {
         realRowsSnapshot.get()?.let { return it }
-        val fresh = rows.values.filter {
-            val setup = it.entrySetup.lowercase()
-            val pattern = it.chartPattern.lowercase()
-            val src = it.source.lowercase()
-            // V5.0.6925 — ALSO CHECK exitReason.
-            //
-            // The V5.0.6251 filter looks for "backfill" in entrySetup,
-            // chartPattern and source. The V5.0.6285 paper-history backfill at
-            // BotService:6906 writes rows whose setup is a phase or a
-            // "LANE_MCAPBAND" proxy, whose pattern is an mcap band, and whose
-            // source is the real source or "PAPER_HISTORY" — none of which
-            // contain the word. Its marker is in exitReason:
-            // "PAPER_HISTORY_BACKFILL_6285".
-            //
-            // So a second synthetic-row path was added after the filter and
-            // slipped straight through it, back into exactly the aggregators
-            // 6251 was written to protect. Checking exitReason closes it.
-            //
-            // NOT excluded here, deliberately: the historical/daily CORPUS
-            // rows (paperOrLive == "CORPUS"). They are synthetic too, but
-            // they exist on purpose to bootstrap the learners out of a cold
-            // start, and pulling them out of every aggregator at once would
-            // starve layers that have depended on them for builds. They ARE
-            // excluded from the V5.0.6925 capture-ratio cohort, because their
-            // peak is fabricated (peakPnl = pnlPct * 1.15) and would inject a
-            // constant fake 87% capture that masks the real number.
-            val reason = it.exitReason.lowercase()
-            !(setup.contains("backfill") || pattern.contains("backfill") || src.contains("backfill") ||
-              reason.contains("backfill"))
-        }
+        // The same cohort feeds size shaping, setup vetoes and the winning hold-time floor.
+        // A synthetic seed cannot supply performance evidence to any of those consumers.
+        val fresh = rows.values.filter(::observedTrade8417)
         realRowsSnapshot.compareAndSet(null, fresh)
         return fresh
     }
@@ -547,7 +528,7 @@ object LiveWinDNAStore {
         val cap6925 = captureRatioOverall6925()?.let {
             " capture=${"%.0f".format(it.aggregateCapturePct)}%(n=${it.n},rt=${it.roundTrips})"
         } ?: " capture=n/a"
-        return "V5.0.6258_LIVE_WIN_DNA: rows=$n real=$nReal W/L=${winners.size}/${losers.size} avgWin=${"%.1f".format(avgWin)}% avgLoss=${"%.1f".format(avgLoss)}%$cap6925 topWinSetup=$topWinSetup topLossSetup=$topLossSetup topPattern=$topPattern hold_p50/p75/p90=${p50}/${p75}/${p90}m"
+        return "V5.0.6258_LIVE_WIN_DNA: rows=$n real=$nReal syntheticOrUnproven=${n - nReal} W/L=${winners.size}/${losers.size} avgWin=${"%.1f".format(avgWin)}% avgLoss=${"%.1f".format(avgLoss)}%$cap6925 topWinSetup=$topWinSetup topLossSetup=$topLossSetup topPattern=$topPattern hold_p50/p75/p90=${p50}/${p75}/${p90}m"
     }
 
     /** Multi-line detail block for the operational report. */
@@ -629,7 +610,10 @@ object LiveWinDNAStore {
 
     private fun trimIfOverCap() {
         if (rows.size <= MAX_ROWS) return
-        val oldest = rows.values.sortedBy { it.ts }.take(rows.size - MAX_ROWS)
+        // Daily corpus timestamps are synthetic (and can be in the future). They must
+        // never evict a captured trade merely because that real trade has an older clock.
+        val oldest = rows.values.sortedWith(compareBy<WinDNA> { if (observedTrade8417(it)) 1 else 0 }
+            .thenBy { it.ts }).take(rows.size - MAX_ROWS)
         oldest.forEach { rows.remove("${it.mint}:${it.ts}") }
     }
 

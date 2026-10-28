@@ -1827,7 +1827,23 @@ class MultiAssetActivity : AppCompatActivity() {
         }
     }
     
+    private suspend fun closeDisplayedPosition8417(tab: AssetTab, id: String): Boolean =
+        withContext(Dispatchers.IO) {
+            if (id.isBlank()) return@withContext false
+            when (tab) {
+                AssetTab.PERPS -> if (PerpsTraderAI.getActivePositions().any { it.id == id }) {
+                    PerpsExecutionEngine.manualClose(id) != null
+                } else TokenizedStockTrader.closePositionManual(id, "USER")
+                AssetTab.STOCKS -> TokenizedStockTrader.closePositionManual(id, "USER")
+                AssetTab.COMMODITIES -> CommoditiesTrader.closePositionManual(id, "USER")
+                AssetTab.METALS -> MetalsTrader.closePositionManual(id, "USER")
+                AssetTab.FOREX -> ForexTrader.closePositionManual(id, "USER")
+                AssetTab.CRYPTO -> CryptoAltTrader.closePositionManual(id, "USER")
+            }
+        }
+
     private fun showClosePositionDialog(pos: PositionInfo) {
+        val selectedTab = currentTab
         val builder = android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
         builder.setTitle("Close Position")
         builder.setMessage("Close ${pos.symbol} position?\n\nCurrent P&L: ${if (pos.pnl >= 0) "+" else ""}${"%.4f".format(pos.pnl)} SOL (${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%)")
@@ -1839,31 +1855,10 @@ class MultiAssetActivity : AppCompatActivity() {
             // found" spam).
             scope.launch {
                 try {
-                    val ok = withContext(Dispatchers.IO) {
-                        when (currentTab) {
-                            AssetTab.PERPS -> {
-                                val market = PerpsMarket.values().find { it.symbol == pos.symbol }
-                                val currentPrice = if (market != null) PerpsMarketDataFetcher.getMarketData(market).price else 0.0
-                                val perpResult = if (pos.id.isNotBlank()) {
-                                    PerpsTraderAI.closePosition(
-                                        positionId = pos.id,
-                                        exitPrice = currentPrice,
-                                        exitReason = PerpsExitSignal.AI_EXIT
-                                    )
-                                } else null
-                                if (perpResult != null) true
-                                else TokenizedStockTrader.closePositionManual(pos.id, "USER")
-                            }
-                            AssetTab.STOCKS       -> TokenizedStockTrader.closePositionManual(pos.id, "USER")
-                            AssetTab.COMMODITIES  -> CommoditiesTrader.closePositionManual(pos.id, "USER")
-                            AssetTab.METALS       -> MetalsTrader.closePositionManual(pos.id, "USER")
-                            AssetTab.FOREX        -> ForexTrader.closePositionManual(pos.id, "USER")
-                            AssetTab.CRYPTO       -> CryptoAltTrader.closePositionManual(pos.id, "USER")
-                        }
-                    }
+                    val ok = closeDisplayedPosition8417(selectedTab, pos.id)
                     withContext(Dispatchers.Main) {
-                        val msg = if (ok) "✅ ${pos.symbol} closed"
-                        else "⚠️ Could not close ${pos.symbol} — position not found (id=${pos.id.ifBlank { "<none>" }})"
+                        val msg = if (ok) "Close request accepted for ${pos.symbol}"
+                        else "⚠️ Close not confirmed for ${pos.symbol}; position retained"
                         android.widget.Toast.makeText(this@MultiAssetActivity, msg, android.widget.Toast.LENGTH_LONG).show()
                         refreshData()
                     }
@@ -1879,7 +1874,9 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     private fun showCloseAllDialog() {
-        val count = getCurrentPositionCount()
+        val selectedTab = currentTab
+        val selectedPositions = getCurrentPositions().toList()
+        val count = selectedPositions.size
         if (count == 0) {
             android.widget.Toast.makeText(this, "No positions to close", android.widget.Toast.LENGTH_SHORT).show()
             return
@@ -1890,20 +1887,17 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setMessage("Are you sure you want to close ALL $count positions?\n\nThis action cannot be undone.")
         builder.setPositiveButton("Close All") { _, _ ->
             android.widget.Toast.makeText(this, "Closing all positions...", android.widget.Toast.LENGTH_SHORT).show()
-            // V5.9: Close all via PerpsTraderAI
+            // Close exactly the positions shown when this confirmation was opened.
             scope.launch {
                 var closed = 0; var failed = 0
-                PerpsTraderAI.getActivePositions().forEach { perpsPos ->
+                selectedPositions.forEach { position ->
                     try {
-                        val mkt = PerpsMarket.values().find { it.symbol == perpsPos.market.symbol }
-                        val price = if (mkt != null) PerpsMarketDataFetcher.getMarketData(mkt).price else perpsPos.entryPrice
-                        val r = PerpsTraderAI.closePosition(perpsPos.id, price, PerpsExitSignal.AI_EXIT)
-                        if (r != null) closed++ else failed++
+                        if (closeDisplayedPosition8417(selectedTab, position.id)) closed++ else failed++
                     } catch (_: Exception) { failed++ }
                 }
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(this@MultiAssetActivity,
-                        "✅ Closed $closed position(s)${if (failed > 0) " | ❌ $failed failed" else ""}",
+                        "$closed close request(s) accepted${if (failed > 0) " | $failed not accepted" else ""}",
                         android.widget.Toast.LENGTH_LONG).show()
                     refreshData()
                 }

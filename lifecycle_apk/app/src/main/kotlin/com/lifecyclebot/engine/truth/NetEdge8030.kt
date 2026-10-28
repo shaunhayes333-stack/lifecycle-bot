@@ -344,8 +344,23 @@ object NetEdge8030 {
     private val overextendedRefused8054 = AtomicLong(0)
 
     /** Pure: a scalp lane needs the coin's own last-hour move (known) at 3x the round trip. */
-    fun scalpMoveTooSmall8054(realizedPct: Double?, costPct: Double): Boolean =
-        realizedPct == null || !realizedPct.isFinite() || !(costPct.isFinite() && costPct > 0.0) || realizedPct < SCALP_EDGE_MULT_8054 * costPct
+    fun scalpMoveTooSmall8054(
+        realizedPct: Double?, costPct: Double,
+        admission: CandidateAdmission8136.Decision8136? = null,
+    ): Boolean {
+        // A supported selected setup supplies its own predicted move. Replacing it with
+        // yesterday's movement here discards the intelligence admission just evaluated.
+        // Generic/cell/lane evidence cannot claim a different setup's prediction.
+        val quoted = admission?.takeIf { it.admitted && it.costPct.isFinite() && it.costPct > 0.0 &&
+            it.costSizeSol.isFinite() && it.costSizeSol > 0.0 }
+        val ownSetup = quoted?.takeIf { it.specific && !it.chosenSetup.isNullOrBlank() &&
+            it.basis.substringBefore(" n") == "${CandidateAdmission8136.KIND_SETUP}:${it.chosenSetup}" &&
+            it.expectedNetPct.isFinite() && it.expectedNetPct > 0.0 }
+        val move = ownSetup?.let { it.expectedNetPct + it.costPct } ?: realizedPct
+        val cost = quoted?.costPct ?: costPct
+        return move == null || !move.isFinite() || !(cost.isFinite() && cost > 0.0) ||
+            move < SCALP_EDGE_MULT_8054 * cost
+    }
 
     /**
      * Pure: a coin that already made its run — up 100%+ in the last hour, or a launchpad coin under 48 h old already
@@ -357,12 +372,12 @@ object NetEdge8030 {
                 capSol.isFinite() && capSol >= OVEREXTENDED_LAUNCH_MULT_8054 * LAUNCH_CAP_SOL_8054)
 
     /** LiveEdgeGate7877 (live): the scalp-lane and swing-lane fit refusals, or null. */
-    fun laneFitRefusal8054(ts: TokenState, laneRaw: String): String? {
+    fun laneFitRefusal8054(ts: TokenState, laneRaw: String, admission: CandidateAdmission8136.Decision8136? = null): String? {
         val lane = laneRaw.trim().uppercase()
         if (lane in SCALP_LANES_8054) {
             val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
             val cost = costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
-            if (scalpMoveTooSmall8054(realized, cost)) {
+            if (scalpMoveTooSmall8054(realized, cost, admission)) {
                 scalpRefused8054.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("NET_EDGE_SCALP_COIN_TOO_FLAT_8054_$lane") } catch (_: Throwable) {}
                 return "NET_EDGE_SCALP_COIN_TOO_FLAT_8054"
@@ -374,7 +389,8 @@ object NetEdge8030 {
             val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts) } catch (_: Throwable) { null }
             val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
             val capSol = try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd) } catch (_: Throwable) { Double.NaN }
-            if (overextended8054(ts.lastPriceChange1h, launchpad, age, capSol)) {
+            val hour = com.lifecyclebot.engine.cortex.LanePlaybook7907.resolvedChg1h8399(ts, System.currentTimeMillis())
+            if (overextended8054(hour, launchpad, age, capSol)) {
                 overextendedRefused8054.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("SWING_LANE_OVEREXTENDED_8054_$lane") } catch (_: Throwable) {}
                 return "SWING_LANE_ALREADY_RAN_8054"

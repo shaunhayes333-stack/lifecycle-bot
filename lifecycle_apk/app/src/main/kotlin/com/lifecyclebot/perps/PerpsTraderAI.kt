@@ -1043,16 +1043,17 @@ object PerpsTraderAI {
     /**
      * Close a position
      */
+    @Synchronized
     fun closePosition(positionId: String, exitPrice: Double, exitReason: PerpsExitSignal): PerpsTrade? {
         val position = activePositions[positionId] ?: return null
 
-        val pnlPct = position.getUnrealizedPnlPct()
-        val pnlUsd = position.getUnrealizedPnlUsd()
-        val pnlSol = position.sizeSol * (pnlPct / 100)
         if (position.isPaper) {
+            if (!exitPrice.isFinite() || exitPrice <= 0.0) return null
+            val marked = position.copy(currentPrice = exitPrice)
+            val paperPnlSol = marked.getPnlSol()
             val canonicalClose6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
                 positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
-                grossProceedsSol = (position.sizeSol + pnlSol).coerceAtLeast(0.0),
+                grossProceedsSol = (position.sizeSol + paperPnlSol).coerceAtLeast(0.0),
                 exitReason = exitReason.name, terminalSequence = System.currentTimeMillis(),
             )
             if (!canonicalClose6486.applied) {
@@ -1060,6 +1061,18 @@ object PerpsTraderAI {
                 return null
             }
         }
+        // A local price projection cannot settle a live trade. Both modes use the
+        // canonical terminal receipt for displayed performance and subsequent learning.
+        val settled = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)
+            ?.takeIf { it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED &&
+                it.mode.equals(if (position.isPaper) "paper" else "live", ignoreCase = true) }
+            ?: return null
+        val outcome = try { com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(settled) }
+            catch (_: IllegalArgumentException) { return null }
+        val pnlSol = outcome.netSol
+        if (!pnlSol.isFinite()) return null
+        val pnlPct = outcome.returnPct
+        val pnlUsd = if (position.sizeSol > 0.0) pnlSol * position.sizeUsd / position.sizeSol else 0.0
         activePositions.remove(positionId)
         if (position.isPaper) paperPositions.remove(positionId) else livePositions.remove(positionId)
         
@@ -1134,29 +1147,8 @@ object PerpsTraderAI {
             riskTier = position.riskTier,
         )
         
-        // V5.0.6564 — Perps local learning is not sufficient: publish the
-        // settled event to the shared causal outcome bus with immutable entry
-        // context so cross-lane intelligence can learn from paper Perps.
-        if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
-            tradeIdSeed = trade.id,
-            mint = position.market.symbol,
-            symbol = position.market.symbol,
-            source = com.lifecyclebot.engine.TradeSource.MARKETS,
-            isPaper = position.isPaper,
-            entryTimeMs = position.entryTime,
-            exitTimeMs = trade.closeTime,
-            entryPrice = position.entryPrice,
-            exitPrice = exitPrice,
-            entrySol = position.sizeSol,
-            exitSol = (position.sizeSol + pnlSol).coerceAtLeast(0.0),
-            realizedPnlSol = pnlSol,
-            realizedPnlPct = pnlPct,
-            closeReason = exitReason.name,
-            assetClass = com.lifecyclebot.engine.AssetClass.PERPS_CRYPTOALT,
-            entryScore = position.entryScore.toDouble(),
-            entryPattern = "PERPS_${position.market.symbol}_${position.direction.name}_${position.leverage.toInt()}X",
-            venue = if (position.isPaper) "PAPER" else "MARKETS_LIVE_EXECUTOR",
-        )
+        // CanonicalPaperTransaction / MarketsLiveExecutor already publishes the exact
+        // position's settled receipt. Do not publish a second price-derived close.
 
         // Add to recent trades
         synchronized(recentTrades) {

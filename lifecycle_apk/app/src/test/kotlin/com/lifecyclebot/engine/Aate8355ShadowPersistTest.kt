@@ -103,11 +103,11 @@ class Aate8355ShadowPersistTest {
     @Test fun evidenceShadowPersistsOnOpenTierPeakAndCloseAndRestoresInInit() {
         val s = src("engine/truth/EvidenceShadow8344.kt")
         assertTrue(s.contains("private const val PREFS_OPEN_8355 = \"aate_evidence_shadow_open_8355\""))
-        assertTrue("written on open", s.contains("open[mint] = pos8355") && s.contains("persistOpen8355(pos8355, nowMs)"))
+        assertTrue("written on open", s.contains("open[key] = pos8355") && s.contains("persistOpen8355(pos8355, nowMs)"))
         assertTrue("a peak change is a persisted change", s.contains("if (g > p.peakPct) { p.peakPct = g; p.dirty8355 = true }"))
         assertTrue("a tier change is a persisted change", s.contains("p.tiersHit = maxOf(p.tiersHit, p.sellTier8394)") && s.contains("persistOpen8355(p, nowMs)"))
         assertTrue("coalesced on the tick", s.contains("if (ShadowPersist8355.writeDue8355(p.dirty8355, p.lastWriteMs8355, nowMs)) persistOpen8355(p, nowMs)"))
-        assertTrue("removed on close", s.contains("done.forEach { open.remove(it); forgetOpen8355(it) }"))
+        assertTrue("removed on close", s.contains("done.forEach { key -> open.remove(key)?.let { forgetOpen8355(it.storageKey) } }"))
         val init = s.substringAfter("fun init8344(").substringBefore("\n    }")
         assertTrue("restored in retryable serialized init", init.contains("synchronized(initLock8372)") &&
             init.contains("if (!openRestored8372) openRestored8372 = restoreOpen8355(ctx, nowMs)") &&
@@ -118,12 +118,12 @@ class Aate8355ShadowPersistTest {
         assertTrue("the restore honours the cap and the age rule", restore.contains("ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)") &&
             restore.contains("if (open.size >= MAX_OPEN_8344) { drop += k; continue }"))
         assertTrue("partial-init retry preserves an existing episode before testing old persisted expiry",
-            restore.indexOf("if (open.containsKey(r.mint)) continue") in 0 until restore.indexOf("ShadowPersist8355.expiredOnRestore8355("))
+            restore.indexOf("if (open.containsKey(episodeKey)) continue") in 0 until restore.indexOf("ShadowPersist8355.expiredOnRestore8355("))
         assertTrue("a concurrent or newer in-memory episode is neither overwritten nor deleted",
-            restore.contains("if (open.putIfAbsent(r.mint, pos) == null)") &&
-                restore.contains("p.write(drop.filter { !open.containsKey(it) }.associateWith { null as String? })"))
+            restore.contains("if (open.putIfAbsent(episodeKey, pos) == null)") &&
+                restore.contains("p.write(drop.filter { open.values.none { pos -> pos.storageKey == it } }.associateWith { null as String? })"))
         assertTrue("a failed deletion batch leaves restore retryable",
-            restore.contains("if (drop.isNotEmpty() && !p.write(drop.filter { !open.containsKey(it) }.associateWith { null as String? })) throw ShadowStorageUnavailable8397()"))
+            restore.contains("if (drop.isNotEmpty() && !p.write(drop.filter { open.values.none { pos -> pos.storageKey == it } }.associateWith { null as String? })) throw ShadowStorageUnavailable8397()"))
         assertTrue("lost-on-restore is counted", s.contains("if (why == \"LOST_MARK\" && p.noMarkSinceRestore8355) lostOnRestore8355.incrementAndGet()"))
         assertTrue(s.contains("restored8355=\${restored8355.get()} lostOnRestore8355=\${lostOnRestore8355.get()}"))
         assertTrue("apply(), never commit()", !s.contains("commit()"))

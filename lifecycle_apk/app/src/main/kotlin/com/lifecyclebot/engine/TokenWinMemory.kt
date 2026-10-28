@@ -340,9 +340,8 @@ object TokenWinMemory {
                 pnlPct = trainablePnl,
                 peakPnl = peakPnl,
                 exitReason = enrichedExitReason,
-                paperOrLive = try {
-                    if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
-                } catch (_: Throwable) { "PAPER" },
+                // The settlement's mode survives a UI toggle before asynchronous delivery.
+                paperOrLive = mode.uppercase(),
             )
         } catch (_: Throwable) {}
 

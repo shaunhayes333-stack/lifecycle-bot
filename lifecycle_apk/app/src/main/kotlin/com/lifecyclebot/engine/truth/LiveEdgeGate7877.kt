@@ -509,22 +509,6 @@ object LiveEdgeGate7877 {
             if (ExploreShadow8347.bestFor8351(l, EvidenceHold8336.startMs8336)?.dim != null) PipelineHealthCollector.labelInc("NICHE_PREFERENCE_NOT_VETO_8392_$l")
         } catch (_: Throwable) {}
         val final = core ?: hold ?: niche ?: wait
-        // V5.0.8411 — evidence-hold deadlock repair. The report showed 3,556 live EVIDENCE_HOLD refusals while
-        // LaneShadowProof7307 remained `open=0 ... no closes yet`: the only shadow-opening caller was downstream of
-        // the specialist-score refusal branch in FinalDecisionGate, but this earlier live hold returned first. That made
-        // the lane wait for paper/shadow closes that the hold itself prevented from being created. Open a fee-net,
-        // non-cash shadow position for this exact refused candidate here. This changes no live verdict, never bypasses
-        // hard safety/economics, and uses the candidate's observed price/liquidity; its exits and persisted lane tally
-        // are the existing LaneShadowProof authority that can earn the lane's proof honestly.
-        if (!paper && core == null && final?.startsWith("EVIDENCE_HOLD_8336_") == true) {
-            try {
-                com.lifecyclebot.engine.truth.LaneShadowProof7307.onUnprovenRefusal(
-                    lane = l, mint = ts.mint, price = ts.lastPrice, liquidityUsd = ts.lastLiquidityUsd, sizeSol = 0.042,
-                    nowMs = nowMs,
-                )
-                PipelineHealthCollector.labelInc("LANE_SHADOW_PROOF_OPENED_FROM_EVIDENCE_HOLD_8411_$l")
-            } catch (_: Throwable) { PipelineHealthCollector.labelInc("LANE_SHADOW_PROOF_OPEN_FROM_EVIDENCE_HOLD_FAILED_8411_$l") }
-        }
         val provisional = context.assessment
         val verdict = when { final == null -> Verdict8083.ADMIT
             provisional?.verdict == Verdict8083.DEFER && final == core -> Verdict8083.DEFER
@@ -1201,7 +1185,7 @@ object LiveEdgeGate7877 {
         // contradictory economics verdict. The exact executable size is still re-quoted at FDG seal.
         if (!candidateSpecificAdmission8136 && !genericNative8211) NetEdge8030.entryRefusal8030(ts, lane)?.let { return it }
         // V5.0.8054 — scalp lanes need a coin that moves (3x cost in its last hour); swing lanes don't buy a finished run.
-        NetEdge8030.laneFitRefusal8054(ts, CanonicalLaneIdentity6506.canonical(lane).ifBlank { lane })?.let { return it }
+        NetEdge8030.laneFitRefusal8054(ts, CanonicalLaneIdentity6506.canonical(lane).ifBlank { lane }, admission)?.let { return it }
         // V5.0.8030 — a Cortex refusal that has EARNED authority (proven on its own record) is not bypassed by a
         // chart-reader BUY any more; the chart read still clears every unproven soft prior below.
         cortex7950?.let { if (Rehearsal8339.doorBindsNow8342(it, lane)) return it }

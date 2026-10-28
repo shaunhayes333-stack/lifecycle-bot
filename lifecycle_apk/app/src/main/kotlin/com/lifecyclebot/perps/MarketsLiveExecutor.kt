@@ -1628,15 +1628,16 @@ object MarketsLiveExecutor {
                     if (closed.lifecycle != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED)
                         return@withContext MarketsClose6486(false, positionId, bridgeExit.evmTransactionHash,
                             bridgeExit.receivedSol, bridgeExit.soldRaw, "NOT_TERMINAL_${closed.lifecycle}")
-                    val pnl = closed.realizedPnlSol
-                    val pct = if (closed.entryCostSol > 0.0) pnl / closed.entryCostSol * 100.0 else 0.0
+                    val economics = com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(closed)
+                    val pnl = economics.netSol
+                    val pct = economics.returnPct
                     com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(
                         com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(
                             positionId, closed.mint,
                             when { pnl > 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN
                                 pnl < 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS
                                 else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN },
-                            pnl, closed.realizedProceedsSol - closed.soldCostBasisSol,
+                            pnl, economics.grossSol,
                             if (closed.entryCostSol > 0.0) pnl / closed.entryCostSol else 0.0, pct,
                             closed.feesSol, closed.lane, closed.runId, entryTactic, exitReason,
                             (System.currentTimeMillis() - closed.openedAtMs).coerceAtLeast(0L),
@@ -1689,15 +1690,16 @@ object MarketsLiveExecutor {
         if (closed.lifecycle != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED) {
             return@withContext MarketsClose6486(false, positionId, sig, proceedsSol, soldQty, "NOT_TERMINAL_${closed.lifecycle}")
         }
-        val pnl = closed.realizedPnlSol
-        val pct = if (closed.entryCostSol > 0.0) pnl / closed.entryCostSol * 100.0 else 0.0
+        val economics = com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(closed)
+        val pnl = economics.netSol
+        val pct = economics.returnPct
         com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(
             com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(
                 positionId, closed.mint,
                 when { pnl > 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN
                     pnl < 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS
                     else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN },
-                pnl, closed.realizedProceedsSol - closed.soldCostBasisSol,
+                pnl, economics.grossSol,
                 if (closed.entryCostSol > 0.0) pnl / closed.entryCostSol else 0.0, pct,
                 closed.feesSol, closed.lane, closed.runId, entryTactic, exitReason,
                 (System.currentTimeMillis() - closed.openedAtMs).coerceAtLeast(0L),

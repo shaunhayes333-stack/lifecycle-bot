@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicLong
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object PerpsExecutionEngine {
+    private val closingPositions8417 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     
     private const val TAG = "⚡PerpsExecutor"
     
@@ -495,9 +496,10 @@ object PerpsExecutionEngine {
      */
     private suspend fun executeSignal(
         signal: PerpsSignal,
-        scanner: PerpsMarketScanners.ScannerType,
+        scanner: PerpsMarketScanners.ScannerType?,
         isPaper: Boolean,
-    ) {
+        sourceName: String = scanner?.name ?: "MANUAL",
+    ): PerpsPosition? {
         executionCount.incrementAndGet()
         
         try {
@@ -557,7 +559,7 @@ object PerpsExecutionEngine {
                 } catch (_: Throwable) {}
                 ErrorLogger.warn(TAG, "PERPS sizing gate declined ${signal.market.symbol}: ${perpsSizingRes.reason}")
                 failedExecutions.incrementAndGet()
-                return
+                return null
             }
             val sizeSol = perpsSizingRes.finalSizeSol
             try {
@@ -578,7 +580,7 @@ object PerpsExecutionEngine {
                 } catch (_: Throwable) {}
                 ErrorLogger.warn(TAG, "Position size too small: $sizeSol SOL (raw=$rawSizeSol × sym=$symSizeAdj) [floor=${if (isPaper) 0.01 else 0.05}]")
                 failedExecutions.incrementAndGet()
-                return
+                return null
             }
             try {
                 // V5.0.6592 §CLASS_ATTRIBUTED_DISPATCH — class-attribute
@@ -597,7 +599,7 @@ object PerpsExecutionEngine {
                     assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS,
                     mode = if (isPaper) "PAPER" else "LIVE", direction = signal.direction.name,
                     requestedVenue = perpsVenue6540.name, adapter = "PerpsExecutionEngine",
-                    source = scanner.name, specialist = "PERPS", score = signal.score.toDouble(),
+                    source = sourceName, specialist = "PERPS", score = signal.score.toDouble(),
                     confidence = signal.confidence.toDouble() / 100.0,
                     evidence = mapOf("leverage" to effectiveLeverage.toString()),
                     requestedSizeSol = sizeSol, price = entryPrice, liquidityUsd = 0.0,
@@ -610,16 +612,16 @@ object PerpsExecutionEngine {
                 is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> perpsAdmission6570.intent
                 is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> perpsAdmission6570.intent
                 is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
-                    failedExecutions.incrementAndGet(); return
+                    failedExecutions.incrementAndGet(); return null
                 }
                 is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
-                    failedExecutions.incrementAndGet(); return
+                    failedExecutions.incrementAndGet(); return null
                 }
             }
             val canonicalPerpsSize6570 = sealedPerpIntent6570.resolvedSizeSol
             if (!canonicalPerpsSize6570.isFinite() || canonicalPerpsSize6570 <= 0.0) {
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(sealedPerpIntent6570, "INVALID_SEALED_SIZE_6570")
-                failedExecutions.incrementAndGet(); return
+                failedExecutions.incrementAndGet(); return null
             }
             try { com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markAdapterDispatchFor6551(com.lifecyclebot.engine.truth.AssetClass.PERPS, signal.market.symbol) } catch (_: Throwable) {}
             
@@ -678,7 +680,7 @@ object PerpsExecutionEngine {
                         if (fill6486.state == MarketsLiveExecutor.FillState6486.FAILED) com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(sealedPerpIntent6570, "LIVE_PERP_FILL_FAILED_7809:${fill6486.reason.take(60)}")
                         failedExecutions.incrementAndGet()
                         ErrorLogger.warn(TAG, "⚡ LIVE OPEN FAILED (rolled back): ${signal.market.symbol}")
-                        return
+                        return null
                     }
                     com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(sealedPerpIntent6570, position.id)
 
@@ -708,10 +710,11 @@ object PerpsExecutionEngine {
                 // MARKETS_PERPS_OPEN_CONFIRMED_6540. The direct call here
                 // was double-counting every perps open.
                 
-                ErrorLogger.info(TAG, "⚡ EXECUTED [${scanner.displayName}]: " +
+                ErrorLogger.info(TAG, "⚡ EXECUTED [${scanner?.displayName ?: "Manual"}]: " +
                     "${position.direction.emoji} ${position.market.symbol} | " +
                     "${position.leverage}x (sym×${"%.2f".format(symLevCapMult)}) | size=${sizeSol.fmt(3)}◎ (sym×${"%.2f".format(symSizeAdj)}) | " +
                     "entry=\$${entryPrice.fmt(2)} [${if (isPaper) "PAPER" else "LIVE"}]")
+                return position
             } else {
                 failedExecutions.incrementAndGet()
                 ErrorLogger.warn(TAG, "Failed to open position")
@@ -721,23 +724,29 @@ object PerpsExecutionEngine {
             failedExecutions.incrementAndGet()
             ErrorLogger.error(TAG, "Execution error: ${e.message}", e)
         }
+        return null
     }
     
     /**
      * Execute an exit (close position)
      * V5.7.5: Enhanced with pattern learning and time-of-day recording
      */
-    private suspend fun executeExit(
+    internal suspend fun executeExit(
         position: PerpsPosition,
         exitPrice: Double,
         exitSignal: PerpsExitSignal,
-    ) {
+    ): PerpsTrade? {
+        if (!closingPositions8417.add(position.id)) return null
         try {
+            if (PerpsTraderAI.getActivePositions().none { it.id == position.id }) return null
+            val settledAlready = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(position.id)
+                ?.let { it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED &&
+                    it.mode.equals("live", ignoreCase = true) } == true
             // V5.9.600 BUG-1 FIX: fire real on-chain close before removing the position.
             // Previously PerpsTraderAI.closePosition was called first (wiping in-memory state)
             // and no DEX close was ever placed. Now: live close fires first; if it fails we
             // keep the position open so the next tick retries rather than recording a phantom exit.
-            if (!position.isPaper) {
+            if (!position.isPaper && !settledAlready) {
                 val close6486 = try {
                     MarketsLiveExecutor.closeLivePositionProof6486(
                         positionId       = position.id,
@@ -756,7 +765,7 @@ object PerpsExecutionEngine {
                 }
                 if (!close6486.confirmed) {
                     ErrorLogger.warn(TAG, "⚡ LIVE CLOSE FAILED: ${position.market.symbol} — keeping position open, will retry next tick")
-                    return
+                    return null
                 }
             }
 
@@ -811,10 +820,11 @@ object PerpsExecutionEngine {
                     "${position.market.symbol} | " +
                     "P&L: ${if (trade.pnlPct >= 0) "+" else ""}${trade.pnlPct.fmt(1)}%")
             }
-            
+            return trade
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Exit execution error: ${e.message}", e)
-        }
+        } finally { closingPositions8417.remove(position.id) }
+        return null
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -829,9 +839,9 @@ object PerpsExecutionEngine {
         direction: PerpsDirection,
         leverage: Double,
         sizePct: Double,
+        sourceName: String = "MANUAL",
     ): PerpsPosition? {
         val isPaper = PerpsTraderAI.isPaperMode
-        val marketData = PerpsMarketDataFetcher.getMarketData(market)
         
         // Create a manual signal
         val signal = PerpsSignal(
@@ -848,22 +858,12 @@ object PerpsExecutionEngine {
             },
             takeProfitPct = 15.0,
             stopLossPct = 8.0,
-            reasons = listOf("Manual trade"),
-            aiReasoning = "MANUAL: ${direction.symbol} ${market.symbol} @ ${leverage}x",
+            reasons = listOf(sourceName),
+            aiReasoning = "$sourceName: ${direction.symbol} ${market.symbol} @ ${leverage}x",
         )
         
-        val balance = PerpsTraderAI.getBalance(isPaper)
-        val sizeSol = balance * (sizePct / 100)
-        
-        return PerpsTraderAI.openPosition(
-            market = market,
-            direction = direction,
-            entryPrice = marketData.price,
-            sizeSol = sizeSol,
-            leverage = leverage,
-            signal = signal,
-            isPaper = isPaper,
-        )
+        // Manual and automated orders share admission, sizing, submission and fill proof.
+        return executeSignal(signal, scanner = null, isPaper = isPaper, sourceName = sourceName)
     }
     
     /**
@@ -874,7 +874,7 @@ object PerpsExecutionEngine {
             ?: return null
         
         val marketData = PerpsMarketDataFetcher.getMarketData(position.market)
-        return PerpsTraderAI.closePosition(positionId, marketData.price, PerpsExitSignal.AI_EXIT)
+        return executeExit(position, marketData.price, PerpsExitSignal.AI_EXIT)
     }
     
     /**
@@ -890,10 +890,10 @@ object PerpsExecutionEngine {
                 // cache is stale (3s TTL). On shutdown with multiple positions this causes
                 // a blocking 90s+ freeze. Use getCachedPrice() and fall back to entry
                 // price as a last resort — the exact close price doesn't matter for
-                // paper accounting, and on live the on-chain close happens separately.
+                // paper accounting. executeExit confirms the on-chain close for live positions.
                 val price = PerpsMarketDataFetcher.getCachedPrice(position.market)?.price
                     ?: position.entryPrice  // last resort: close at entry (0% PnL) rather than block
-                PerpsTraderAI.closePosition(position.id, price, PerpsExitSignal.AI_EXIT)
+                executeExit(position, price, PerpsExitSignal.AI_EXIT)
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Failed to close ${position.market.symbol}: ${e.message}")
             }

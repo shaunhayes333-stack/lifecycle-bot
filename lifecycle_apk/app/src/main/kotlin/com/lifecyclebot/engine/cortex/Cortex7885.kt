@@ -4018,11 +4018,14 @@ object Cortex7885 {
     }
 
     private fun retryDeferredBinds8187(key: String, a: Assessment) {
-        if (deferredBinds8187.isEmpty()) return
         val decidedAt = entryDecisionAt8187(a, key)
         // V5.0.8395 — a late read fills only the PENDING seals it was decided for, then their versioned binds.
+        // The capture can finish before the transaction confirms. Fill its pending intent seal even
+        // when there is no position waiting yet; otherwise that confirmed fill loses the original
+        // prediction and its eventual outcome cannot teach the entry decision that produced it.
         val filled8395 = entrySeals8395.fillLate(key, detachAssessment8386(a), decidedAt, SAME_SEAL_SLACK_MS_8395)
         if (filled8395.isNotEmpty()) inc("ENTRY_READ_SEAL_FILLED_LATE_8395")
+        if (deferredBinds8187.isEmpty()) return
         for (d in deferredBinds8187.values.toList()) {
             if (d.key != key) continue
             if (d.version8395 > 0L) {

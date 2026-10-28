@@ -3708,17 +3708,17 @@ class BotService : Service() {
                         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             try {
                                 val copySizeSol = (c.smallBuySol * 0.5).coerceIn(0.01, 0.5)
-                                val copyPositionId6486 = "COPY_PERPS:${mint}:${System.currentTimeMillis()}"
-                                val result = com.lifecyclebot.perps.MarketsLiveExecutor.executeLiveTradeProof6486(
-                                    positionId  = copyPositionId6486,
-                                    market      = com.lifecyclebot.perps.PerpsMarket.SOL,
-                                    direction   = com.lifecyclebot.perps.PerpsDirection.LONG,
-                                    sizeSol     = copySizeSol,
-                                    leverage    = 2.0,
-                                    priceUsd    = ts.lastPrice,
-                                    traderType  = "CopyTrade"
-                                )
-                                addLog("📋 COPY PERPS: ${if (result.confirmed) "✅ LONG SOL ${copySizeSol}◎" else "❌ ${result.state}:${result.reason.take(48)}"}", mint)
+                                val copyBalance = com.lifecyclebot.perps.PerpsTraderAI.getBalance(false)
+                                if (copyBalance.isFinite() && copyBalance > 0.0) {
+                                    val result = com.lifecyclebot.perps.PerpsExecutionEngine.manualOpen(
+                                        market = com.lifecyclebot.perps.PerpsMarket.SOL,
+                                        direction = com.lifecyclebot.perps.PerpsDirection.LONG,
+                                        leverage = 2.0,
+                                        sizePct = copySizeSol / copyBalance * 100.0,
+                                        sourceName = "COPY_PERPS",
+                                    )
+                                    addLog("📋 COPY PERPS: ${if (result != null) "✅ LONG SOL ${result.sizeSol}◎" else "❌ Not confirmed"}", mint)
+                                }
                             } catch (e: Exception) {
                                 ErrorLogger.warn("BotService", "Copy perps error: ${e.message}")
                             }

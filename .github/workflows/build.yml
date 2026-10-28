@@ -231,6 +231,7 @@ jobs:
       - name: Required lane and history regression tests
         run: |
           ./gradlew testReleaseUnitTest \
+            --tests '*Aate8417*' \
             --tests '*Aate8401*' \
             --tests '*Aate8402*' \
             --tests '*Aate8403*' \
@@ -482,10 +483,29 @@ jobs:
           path: release_art_evidence/
           if-no-files-found: warn
 
-      # V5.0.8255 — the emulator runtime witness (runtime-test.yml) runs independently on every main push and its
-      # verdict is read as evidence, not as the publisher's lock: a slow-emulator bootstrap stall must not leave the
-      # operator without the compiled, regression-green APK to install. The unverified name below keeps a failed-test
-      # build from ever being mistaken for green (owner request, 8094).
+      - name: Require runtime acceptance for this main commit
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deadline = Date.now() + 20 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                ...context.repo, workflow_id: 'runtime-test.yml', head_sha: context.sha, per_page: 20
+              });
+              const run = data.workflow_runs.filter(r => r.head_sha === context.sha)
+                .sort((a, b) => b.id - a.id)[0];
+              if (run && run.status === 'completed') {
+                if (run.conclusion !== 'success') {
+                  core.setFailed(`Runtime acceptance ${run.conclusion}: ${run.html_url}`);
+                } else {
+                  core.info(`Runtime acceptance passed: ${run.html_url}`);
+                }
+                return;
+              }
+              await new Promise(resolve => setTimeout(resolve, 15000));
+            }
+            core.setFailed('No successful runtime acceptance for this exact commit within 20 minutes');
 
       # V5.0.7803 — a release APK is an acceptance artifact, not merely
       # compiler output. Publish it only after the required pipeline regressions

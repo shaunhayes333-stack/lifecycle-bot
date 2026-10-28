@@ -55,6 +55,41 @@ class Aate8397ShadowStorageTest {
     @After fun cleanup() { connection.close(); directory.deleteRecursively() }
     private fun cold(name: String = "explorer") = ShadowColdStore8397(db, name)
 
+    @Test fun upgradeRestoresBothLanesAndRetiresLegacyKeysAfterObservedExit8417() {
+        val prefsField = EvidenceShadow8344::class.java.getDeclaredField("openPrefs8355").apply { isAccessible = true }
+        val previous = prefsField.get(EvidenceShadow8344)
+        val epoch = LearningEpoch8164.epochMs8164()
+        EvidenceShadow8344.resetForTests8345()
+        val at = maxOf(System.currentTimeMillis(), epoch, EvidenceHold8336.startMs8336) + 1_000
+        val mint = "upgrade-8417"
+        val moon = ShadowPersist8355.PosRec8355(mint, "MOONSHOT", 1.0, at, 3.0, 15.0, 20.0,
+            3_600_000, 1.0, 0.0, 0, 0.0, 1.0, at,
+            contractVersion8394 = ShadowPersist8355.TRADE_CONTRACT_8394,
+            exitAt8394 = at + 1_000, exitWhy8394 = "STOP")
+        try {
+            val store = cold("evidence-upgrade")
+            assertTrue(store.write(mapOf(mint to ShadowPersist8355.encodePos8355(moon),
+                "QUALITY|$mint" to ShadowPersist8355.encodePos8355(moon.copy(lane = "QUALITY")))))
+            connection.close(); connect()
+            assertTrue(EvidenceShadow8344.restoreOpen8417(cold("evidence-upgrade"), at + 2_000))
+            assertTrue(EvidenceShadow8344.statusLine8344(at).contains("open=2/120"))
+            assertEquals(2L, EvidenceShadow8344.restoreCounts8355().first)
+            assertTrue(EvidenceShadow8344.restoreOpen8417(cold("evidence-upgrade"), at + 3_000))
+            assertEquals("a retry cannot duplicate restored episodes", 2L, EvidenceShadow8344.restoreCounts8355().first)
+            val fillAt = at + 1_001 + ShadowAlign8366.sellLatencyMs8366(false)
+            val ts = com.lifecyclebot.data.TokenState(mint = mint, symbol = "TEST").also {
+                it.lastPrice = 0.8; it.lastPriceUpdate = fillAt
+            }
+            EvidenceShadow8344.tick8344(mapOf(mint to ts), fillAt)
+            assertEquals(1, EvidenceShadow8344.proof8344("MOONSHOT", at).n)
+            assertEquals(1, EvidenceShadow8344.proof8344("QUALITY", at).n)
+            assertTrue("closing removes the exact old and new storage identities", cold("evidence-upgrade").keys().isEmpty())
+        } finally {
+            EvidenceShadow8344.resetForTests8345()
+            prefsField.set(EvidenceShadow8344, previous)
+        }
+    }
+
     @Test fun streamsEveryLegacyCohortThenReadsColdKeysWithTheSameProof() {
         val legacy = File(directory, "explorer.xml")
         val payload = (1..60).joinToString(";") { "$it,${if (it % 10 == 0) -4 else 18},8394,$it" }
