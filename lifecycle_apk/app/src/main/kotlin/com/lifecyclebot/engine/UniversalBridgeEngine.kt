@@ -630,16 +630,11 @@ object UniversalBridgeEngine {
         val txSig = executeJupiterSwap(wallet, targetMint, returnToMint, balRaw, 200)
             ?: return@withContext BridgeResult(false, targetMint, returnToMint, 0, 0.0, null, "Release swap failed")
         val fill = if (returnToMint == SOL_MINT) {
-            var result: VerifiedDelta6486? = null
-            repeat(5) { attempt ->
-                if (result == null) {
-                    kotlinx.coroutines.delay(longArrayOf(1_200L, 2_000L, 3_000L, 4_000L, 5_000L)[attempt])
-                    val now = try { wallet.getSolBalance() } catch (_: Throwable) { preOutputUi }
-                    val delta = now - preOutputUi
-                    if (delta > 0.0) result = VerifiedDelta6486((delta * 1_000_000_000L).toLong(), delta, 9, "WALLET_SOL_DELTA_CONFIRMED_${attempt + 1}")
-                }
-            }
-            result
+            // V5.0.8418 — the release's own receipt (owner lamport delta of txSig), not a whole-wallet SOL diff that
+            // also counted every concurrent transfer and other position's trade. No receipt = unproved.
+            com.lifecyclebot.engine.execution.TxParseHelper.parseAllWithBackoff(wallet, txSig, 20_000L)
+                ?.takeIf { it.metaErr == null && it.solDeltaLamports > 0L }
+                ?.let { VerifiedDelta6486(it.solDeltaLamports, it.solDeltaLamports.toDouble() / 1_000_000_000.0, 9, "TX_RECEIPT_OWNER_SOL_DELTA_8418") }
         } else verifyTargetDelta6486(wallet, returnToMint, preOutputUi, txSig)
         if (fill == null || fill.raw <= 0L) {
             bridgesFailed.incrementAndGet()
