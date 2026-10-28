@@ -741,6 +741,26 @@ object PerpsTraderAI {
     fun getPositionCount(): Int = activePositions.size
     
     /**
+     * V5.0.8418 — V5.0.6855's correlation over-exposure penalty, as a pre-seal sizing step.
+     * Bounded [0.25, 1.0] by PerpsCorrelationMatrix; never blocks an entry. Must run before
+     * the size is sealed into an intent; after the seal the size is never changed.
+     */
+    fun correlationAdjustedSize8418(market: PerpsMarket, sizeSol: Double): Double {
+        val adjusted = try {
+            val over = PerpsCorrelationMatrix.checkOverexposure(
+                existingPositions = activePositions.values.map { it.market },
+                newMarket = market,
+            )
+            if (over.shouldReduceSize) {
+                ErrorLogger.warn(TAG, "🔗 CORRELATION_OVEREXPOSURE_6855 ${market.symbol}: size x${"%.2f".format(over.sizePenalty)} pre-seal — ${over.warnings.joinToString("; ")}")
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_CORRELATION_SIZE_PENALTY_6855") } catch (_: Throwable) {}
+                (sizeSol * over.sizePenalty).coerceAtLeast(0.0)
+            } else sizeSol
+        } catch (_: Throwable) { sizeSol }
+        return if (adjusted.isFinite() && adjusted > 0.0) adjusted else sizeSol
+    }
+
+    /**
      * Open a new position
      */
     fun openPosition(
@@ -768,26 +788,14 @@ object PerpsTraderAI {
         // nothing in the stack noticed. The result is a soft size penalty bounded to
         // [0.25, 1.0]; it never blocks an entry, so a correlated market can still be
         // traded and still produce a learning sample, just smaller.
-        val corrSizeSol6855 = try {
-            val openMarkets6855 = activePositions.values.map { it.market }
-            val over6855 = PerpsCorrelationMatrix.checkOverexposure(
-                existingPositions = openMarkets6855,
-                newMarket = market,
-            )
-            if (over6855.shouldReduceSize) {
-                ErrorLogger.warn(
-                    TAG,
-                    "🔗 CORRELATION_OVEREXPOSURE_6855 ${market.symbol}: size x${"%.2f".format(over6855.sizePenalty)} — ${over6855.warnings.joinToString("; ")}",
-                )
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_CORRELATION_SIZE_PENALTY_6855")
-                } catch (_: Throwable) {}
-                (sizeSol * over6855.sizePenalty).coerceAtLeast(0.0)
-            } else sizeSol
-        } catch (_: Throwable) { sizeSol }
-        val sizeSol6855 = if (corrSizeSol6855.isFinite() && corrSizeSol6855 > 0.0) corrSizeSol6855 else sizeSol
-
-        val sizeUsd = sizeSol6855 * entryPrice  // Simplified - would need SOL price
+        // V5.0.8418 — the correlation penalty is applied BEFORE the seal (PerpsExecutionEngine
+        // calls correlationAdjustedSize8418 ahead of CanonicalSizingBridge/admission). A sealed
+        // intent's size is final here: requested (intent) == submitted (sizeSol) == recorded.
+        val sizeSol6855 = if (executionIntent6565 == null) correlationAdjustedSize8418(market, sizeSol) else sizeSol
+        if (executionIntent6565 != null &&
+            !com.lifecyclebot.engine.truth.SizeTriple8418.check("PERPS_OPEN", executionIntent6565.resolvedSize, sizeSol, sizeSol6855)) return null
+        // V5.0.8418 (item 7) — USD notional is SOL size × SOL/USD, never × the market's own price.
+        val sizeUsd = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol6855, "PERPS_OPEN") ?: return null
         val marginUsd = sizeUsd / leverage
 
         // Calculate liquidation price
@@ -970,7 +978,7 @@ object PerpsTraderAI {
             PerpsNotificationManager.notifyPositionOpened(
                 market = market,
                 direction = direction,
-                sizeSol = sizeSol,
+                sizeSol = sizeSol6855,
                 leverage = leverage.toInt(),
                 entryPrice = entryPrice,
             )
@@ -983,7 +991,6 @@ object PerpsTraderAI {
             try {
                 val client = CollectiveLearning.getClient() ?: return@launch
                 val instanceId = CollectiveLearning.getInstanceId() ?: ""
-                val solPrice = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 150.0 }
                 client.savePerpsPosition(PerpsPositionRecord(
                     id = position.id,
                     instanceId = instanceId,
@@ -991,10 +998,10 @@ object PerpsTraderAI {
                     direction = direction.name,
                     entryPrice = entryPrice,
                     currentPrice = entryPrice,
-                    sizeSol = sizeSol,
-                    sizeUsd = sizeSol * solPrice,
+                    sizeSol = sizeSol6855,
+                    sizeUsd = sizeUsd,
                     leverage = leverage,
-                    marginUsd = sizeSol * solPrice / leverage,
+                    marginUsd = marginUsd,
                     liquidationPrice = position.liquidationPrice,
                     entryTime = position.entryTime,
                     riskTier = signal.recommendedRiskTier.name,

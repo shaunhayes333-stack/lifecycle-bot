@@ -116,6 +116,7 @@ object SmartSizer {
     ): SizeResult {
 
         val isPaperMode = cfg.paperMode
+        unpricedRefusal8418(solPriceUsd)?.let { return it }  // V5.0.8418 — unknown SOL/USD refuses; never a constant
         ErrorLogger.info("SmartSizer", "📏 SIZING: paper=$isPaperMode wallet=$walletSol reserve=${cfg.walletReserveSol} mcap=$mcapUsd liq=$liquidityUsd quality=$setupQuality")
         
         // ══════════════════════════════════════════════════════════════════════
@@ -399,9 +400,8 @@ object SmartSizer {
         val treasuryMult = if (isPaperMode && !cfg.fluidLearningEnabled) {
             1.0  // No treasury adjustment in legacy paper mode
         } else {
-            val solPrice = solPriceUsd.takeIf { it > 0 } ?: 100.0
-            val treasuryUsd = TreasuryManager.treasurySol * solPrice
-            val tier = ScalingMode.activeTier(treasuryUsd)
+            // V5.0.8418 — no $100 constant: an unpriced treasury earns no scale-up (most conservative tier).
+            val tier = treasuryTier8418(solPriceUsd, "SMARTSIZER_TREASURY_TIER")
             
             when (tier) {
                 // Higher treasury = more aggressive sizing
@@ -557,11 +557,7 @@ object SmartSizer {
         //   • INSTITUTIONAL→ 50  positions  (full size for first 8)
         // Diversification scaling now starts later AND falls off slower so
         // early positions actually carry meaningful size.
-        val livePosTier = run {
-            val solPx = solPriceUsd.takeIf { it > 0 } ?: 100.0
-            val treasuryUsd = TreasuryManager.treasurySol * solPx
-            ScalingMode.activeTier(treasuryUsd)
-        }
+        val livePosTier = treasuryTier8418(solPriceUsd, "SMARTSIZER_SLOT_TIER")
         val maxLivePositions = when (livePosTier) {
             ScalingMode.Tier.INSTITUTIONAL -> 50
             ScalingMode.Tier.SCALED        -> 28
@@ -930,6 +926,30 @@ object SmartSizer {
 
         return SizeResult(finalSize, tier, basePct, aiScoreMult, perfMult,
                           drawdownMult, concMult, treasuryMult, houseMoneyBonus, cappedBy, explanation)
+    }
+
+    /**
+     * V5.0.8418 — the treasury tier at an observed SOL/USD. Unknown (<= 0 / NaN) never
+     * borrows a constant: it refuses the scale-up and returns the most conservative tier.
+     */
+    /**
+     * V5.0.8418 — SmartSizer's USD caps (mcap/liquidity/treasury) divide by SOL/USD. With
+     * the rate unknown those caps silently switched OFF (they are guarded by `> 0`) or, at
+     * the Executor, ran at a $130 constant. Either is a fabricated size: refuse instead.
+     */
+    internal fun unpricedRefusal8418(solPriceUsd: Double): SizeResult? {
+        if (solPriceUsd.isFinite() && solPriceUsd > 0.0) return null
+        SolUsd8418.refuse("SMARTSIZER")
+        return SizeResult(0.0, "blocked", 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, "sol_usd_unknown_8418",
+            "SOL/USD unknown or stale — sizing refused (no constant substituted)")
+    }
+
+    internal fun treasuryTier8418(solPriceUsd: Double, stage: String): ScalingMode.Tier {
+        if (!solPriceUsd.isFinite() || solPriceUsd <= 0.0) {
+            SolUsd8418.refuse(stage)
+            return ScalingMode.Tier.MICRO
+        }
+        return ScalingMode.activeTier(TreasuryManager.treasurySol * solPriceUsd)
     }
 
     // ── Session peak tracker ──────────────────────────────────────────

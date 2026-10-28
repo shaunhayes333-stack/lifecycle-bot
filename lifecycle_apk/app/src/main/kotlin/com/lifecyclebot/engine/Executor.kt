@@ -3301,7 +3301,7 @@ class Executor(
         SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
         val perf = SmartSizer.getPerformanceContext(walletSol, walletTotalTrades, isPaperMode)
-        val solPx = try { WalletManager.lastKnownSolPrice } catch (_: Exception) { 130.0 }
+        val solPx = try { WalletManager.freshSolPrice8163() } catch (_: Exception) { 0.0 }  // V5.0.8418 — 0 => SmartSizer refuses
 
         val result = SmartSizer.calculate(
             walletSol            = walletSol,
@@ -3707,7 +3707,7 @@ class Executor(
         val rentReserve = 0.012
         val spendable = (walletSol - rentReserve).coerceAtLeast(0.0)
         if (spendable <= 0.0) return requestedSol
-        val solPx = try { WalletManager.lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 } ?: 104.0 } catch (_: Throwable) { 104.0 }
+        val solPx = SolUsd8418.liveOrRefuse("EXECUTOR_REALISTIC_ENTRY") ?: return 0.0  // V5.0.8418 — no $104 constant
         val liqUsd = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val laneKey = lane.ifBlank { ts.source }.uppercase()
         // V5.0.3947 — all live traders/lanes/tools consume one source-level

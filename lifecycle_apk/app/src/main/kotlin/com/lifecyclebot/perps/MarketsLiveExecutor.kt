@@ -524,7 +524,11 @@ object MarketsLiveExecutor {
                 val totalUsdValue = try {
                     com.lifecyclebot.engine.UniversalBridgeEngine.scanWalletCapacity(wallet).totalUsdValue
                 } catch (_: Exception) { 0.0 }
-                val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+                val solPriceUsd = com.lifecyclebot.engine.SolUsd8418.liveOrRefuse("MARKETS_CAPITAL_CHECK")
+                if (solPriceUsd == null) {
+                    failedExecutions.incrementAndGet()
+                    return@withContext Pair(false, null)
+                }
                 val totalSolEquiv = totalUsdValue / solPriceUsd
                 if (totalSolEquiv < sizeSol * 0.5) {
                     ErrorLogger.warn(TAG, "Insufficient capital: ${balance.fmt(4)} SOL (total wallet ~${totalSolEquiv.fmt(3)} SOL equiv) for ${sizeSol.fmt(4)} SOL trade")
@@ -853,11 +857,12 @@ object MarketsLiveExecutor {
         // V5.9.600 BUG-3 FIX: SHORT via SOL→USDC bridge (same logic as tokenized assets).
         if (direction == PerpsDirection.SHORT) {
             ErrorLogger.info(TAG, "⬇️ SHORT ${market.symbol}: SOL→USDC bridge (bearish USD lock, ${sizeSol.fmt(4)} SOL)")
+            val shortUsd8418 = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol, "MARKETS_SHORT_BRIDGE") ?: return null
             val balanceBefore = readTokenUi(wallet, USDC_MINT) ?: 0.0
             val bridge = com.lifecyclebot.engine.UniversalBridgeEngine.prepareCapital(
                 wallet     = wallet,
                 targetMint = USDC_MINT,
-                sizeUsd    = sizeSol * (com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0),
+                sizeUsd    = shortUsd8418,
             )
             if (!bridge.success) {
                 ErrorLogger.warn(TAG, "⬇️ SHORT ${market.symbol} bridge failed: ${bridge.errorMsg}")
@@ -883,8 +888,7 @@ object MarketsLiveExecutor {
         // Now: scan wallet, pick best source (USDC→SOL→other), bridge to USDC if needed,
         // then USDC→target. This makes the entire Solana DeFi universe accessible from
         // any held token.
-        val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-        val sizeUsd = sizeSol * solPriceUsd
+        val sizeUsd = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol, "MARKETS_CRYPTO_SPOT") ?: return null
 
         ErrorLogger.info(TAG, "  💱 SPOT swap: ${market.symbol} LONG | \$${sizeUsd.fmt(2)} via UniversalBridge → ${targetMint.take(8)}...")
 
@@ -906,6 +910,7 @@ object MarketsLiveExecutor {
                 ErrorLogger.warn(TAG, "⛔ ${market.symbol} SPOT skipped: insufficient SOL for fallback (${walletSol.fmt(4)} SOL)")
                 return null
             }
+            if (!com.lifecyclebot.engine.truth.SizeTriple8418.check("MARKETS_SPOT_FALLBACK_TRIM", sizeSol, effectiveSizeSol, sizeSol)) return null
             val amountLamports = (effectiveSizeSol * 1_000_000_000L).toLong()
             val sig = executeJupiterSwap(
                 wallet         = wallet,
@@ -939,8 +944,7 @@ object MarketsLiveExecutor {
             ErrorLogger.warn(TAG, "⚠️ ${market.symbol} SHORT via bridge not supported on SPOT — skipping")
             return null
         }
-        val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-        val sizeUsd = sizeSol * solPriceUsd
+        val sizeUsd = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol, "MARKETS_CRYPTO_BRIDGE") ?: return null
 
         // Runtime mint lookup — Jupiter strict list is fetched at startup into DynamicAltTokenRegistry
         val runtimeMint = com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(market.symbol)
@@ -999,11 +1003,12 @@ object MarketsLiveExecutor {
         // value rises when they exit (USDC→SOL). Honest, no synthetic multipliers.
         if (direction == PerpsDirection.SHORT) {
             ErrorLogger.info(TAG, "⬇️ SHORT ${market.symbol}: SOL→USDC bridge (bearish USD lock, ${sizeSol.fmt(4)} SOL)")
+            val shortUsd8418 = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol, "MARKETS_SHORT_BRIDGE") ?: return null
             val balanceBefore = readTokenUi(wallet, USDC_MINT) ?: 0.0
             val bridge = com.lifecyclebot.engine.UniversalBridgeEngine.prepareCapital(
                 wallet     = wallet,
                 targetMint = USDC_MINT,
-                sizeUsd    = sizeSol * (com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0),
+                sizeUsd    = shortUsd8418,
             )
             if (!bridge.success) {
                 ErrorLogger.warn(TAG, "⬇️ SHORT ${market.symbol} bridge failed: ${bridge.errorMsg}")
@@ -1031,16 +1036,15 @@ object MarketsLiveExecutor {
                 "⛔ ${market.symbol} ${label} skipped: wallet=${walletSol.fmt(4)} SOL, reserve=${RENT_RESERVE_SOL} SOL — not enough for swap+fees")
             return null
         }
-        if (effectiveSizeSol < sizeSol) {
-            ErrorLogger.info(TAG, "  ✂️ ${market.symbol}: trimmed sizeSol ${sizeSol.fmt(4)} → ${effectiveSizeSol.fmt(4)} (rent reserve)")
-        }
+        // V5.0.8418 — a post-seal rent trim made the submitted size differ from the sealed and
+        // recorded size (canonical entryCostSol = sizeSol). Refuse instead of silently trimming.
+        if (!com.lifecyclebot.engine.truth.SizeTriple8418.check("MARKETS_TOKENIZED_RENT_TRIM", sizeSol, effectiveSizeSol, sizeSol)) return null
         ErrorLogger.info(TAG, "  🧾 REAL tokenized trade: ${market.symbol} LONG via $label | ${effectiveSizeSol.fmt(4)} SOL")
         // V5.0.6545 — canonical bridge rail for every tokenized asset entry.
         // Do not hard-wire SOL as the funding asset: UniversalBridgeEngine may
         // select SOL/USDC/USDT/another verified wallet source and routes atomically.
         // The target delta remains mandatory; a signature alone never opens a position.
-        val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
-        val sizeUsd = effectiveSizeSol * solPriceUsd
+        val sizeUsd = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(effectiveSizeSol, "MARKETS_TOKENIZED") ?: return null
         val balanceBefore = readTokenUi(wallet, targetMint) ?: 0.0
         val bridge = try {
             UniversalBridgeEngine.prepareCapital(
@@ -1351,8 +1355,7 @@ object MarketsLiveExecutor {
         }
 
         val tradeType = if (direction == PerpsDirection.LONG) "LONG" else "SHORT"
-        val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-        val inputAmountUsd = sizeSol * solPriceUsd  // collateral in USD
+        val inputAmountUsd = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol, "MARKETS_FLASH_COLLATERAL") ?: return@withContext null  // collateral in USD
         val slippagePct = (configuredSlippageBps() / 100.0).coerceIn(0.1, 5.0)
 
         ErrorLogger.info(TAG, "⚡ Flash.trade PERPS: $symbol $tradeType ${leverage}x | \$${inputAmountUsd.fmt(2)} collateral")
@@ -1649,7 +1652,7 @@ object MarketsLiveExecutor {
                 }
             }
         }
-        val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 150.0
+        val solPrice8418 = com.lifecyclebot.engine.SolUsd8418.liveOrNull()
         val beforeSol = try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
         val beforeUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
         val core = closeLivePositionCore6486(positionId, market, direction, sizeSol, leverage, traderType,
@@ -1671,7 +1674,13 @@ object MarketsLiveExecutor {
             afterSol = try { wallet.getSolBalance() } catch (_: Throwable) { afterSol }
             afterUsdc = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: afterUsdc } catch (_: Throwable) { afterUsdc }
         }
-        val proceedsSol = ((afterSol - beforeSol) + ((afterUsdc - beforeUsdc) / solPrice)).coerceAtLeast(0.0)
+        // V5.0.8418 — a USDC leg converts only at an observed SOL/USD; never at a constant.
+        val usdcDelta8418 = afterUsdc - beforeUsdc
+        if (kotlin.math.abs(usdcDelta8418) > 1e-6 && solPrice8418 == null) {
+            com.lifecyclebot.engine.SolUsd8418.refuse("MARKETS_CLOSE_PROCEEDS")
+            return@withContext MarketsClose6486(false, positionId, sig, 0.0, java.math.BigInteger.ZERO, "SOL_USD_UNKNOWN_8418")
+        }
+        val proceedsSol = ((afterSol - beforeSol) + (if (solPrice8418 == null) 0.0 else usdcDelta8418 / solPrice8418)).coerceAtLeast(0.0)
         if (!flashGone || proceedsSol <= 0.0) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_CLOSE_PENDING_PROOF_6486") } catch (_: Throwable) {}
             return@withContext MarketsClose6486(false, positionId, sig, proceedsSol, java.math.BigInteger.ZERO,
@@ -1769,8 +1778,7 @@ object MarketsLiveExecutor {
 
         // ── Flash leveraged close (fastest path) ──────────────────────────────
         if (leverage > 1.0 && market != PerpsMarket.DYN && market.isCrypto && closeSymbol in FLASH_SUPPORTED_PUBLIC) {
-            val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-            val sizeUsd  = sizeSol * solPrice * leverage  // full notional
+            val sizeUsd  = (com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol, "MARKETS_FLASH_CLOSE") ?: return@withContext Pair(false, null)) * leverage  // full notional
             val (flashOk, flashSig) = closeFlashPosition(
                 wallet           = wallet,
                 walletAddress    = walletAddress!!,
@@ -1856,8 +1864,7 @@ object MarketsLiveExecutor {
                     if (cryptoDiagClose) try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase("CU_CLOSE_USDC_ABSENT", closeSymbol, USDC_MINT, USDC_MINT, SOL_MINT, null, null, false, "USDC fallback absent") } catch (_: Throwable) {}
                     return@withContext Pair(false, null)
                 }
-                val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 85.0
-                val positionUsdcValue = sizeSol * solPrice
+                val positionUsdcValue = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol, "MARKETS_USDC_CLOSE") ?: return@withContext Pair(false, null)
                 // Cap at actual USDC balance but never over-sell (protects other concurrent USDC positions)
                 val usdcToSell = minOf(positionUsdcValue, usdcData.first * 0.95)  // 5% safety margin
                 ErrorLogger.info(TAG, "  🌉 ${closeSymbol}: USDC-parked close | \$${usdcToSell.fmt(2)} USDC → SOL")

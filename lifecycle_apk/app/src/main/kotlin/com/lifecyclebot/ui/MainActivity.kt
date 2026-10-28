@@ -3527,7 +3527,8 @@ for legal compliance.
         }
 
         // ── Live SOL Price ──────────────────────────────────────────────
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+        // V5.0.8418 — the header shows the observed rate or "$—", never a fabricated $85.
+        val solPrice = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()
         if (solPrice >= 10) {
             tvSolPrice.setTextIfChanged("$${solPrice.toInt()}")
         } else {
@@ -4718,7 +4719,6 @@ for legal compliance.
             val body = AateUi.cardBody(card)
             body.removeAllViews()
 
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
             val ringUsd   = engine.ringBalanceUsd
             val cycles    = engine.cycleCount
             val wins      = engine.winCount

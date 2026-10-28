@@ -641,12 +641,14 @@ object InsiderTrackerAI {
                 if (tsMs > lastTs) lastTs = tsMs
                 if (tsMs > cutoff24h) tx24h++
 
-                // Sum native SOL transfers (lamports → SOL, approx $150)
+                // Sum native SOL transfers (lamports → SOL) at the live SOL/USD only.
+                // V5.0.8418 — was "approx $150"; unknown rate adds no USD volume.
                 val nativeTransfers = tx.optJSONArray("nativeTransfers") ?: JSONArray()
+                val solUsd8418 = com.lifecyclebot.engine.SolUsd8418.liveOrNull()
                 for (j in 0 until nativeTransfers.length()) {
                     val nt = nativeTransfers.optJSONObject(j) ?: continue
                     val lamports = nt.optLong("amount", 0L)
-                    totalVolUsd += (lamports / 1_000_000_000.0) * 150.0
+                    if (solUsd8418 != null) totalVolUsd += (lamports / 1_000_000_000.0) * solUsd8418
                 }
 
                 // Collect token symbols from tokenTransfers

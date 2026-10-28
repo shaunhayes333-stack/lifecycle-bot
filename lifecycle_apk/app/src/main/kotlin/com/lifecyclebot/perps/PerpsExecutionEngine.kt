@@ -525,7 +525,8 @@ object PerpsExecutionEngine {
             // Calculate position size (with symbolic bias)
             val balance = PerpsTraderAI.getBalance(isPaper)
             val rawSizeSol = balance * (signal.recommendedSizePct / 100)
-            val requestedSizeSol = (rawSizeSol * symSizeAdj).coerceAtLeast(0.0)
+            // V5.0.8418 — correlation penalty before the seal, not after it (was inside openPosition).
+            val requestedSizeSol = PerpsTraderAI.correlationAdjustedSize8418(signal.market, (rawSizeSol * symSizeAdj).coerceAtLeast(0.0))
             val effectiveLeverage = (signal.recommendedLeverage * symLevCapMult).coerceAtLeast(1.0)
             // V5.0.6540 §ONE_EXECUTION_AUTHORITY — perps engine must
             // announce its candidate to the canonical entry funnel. All

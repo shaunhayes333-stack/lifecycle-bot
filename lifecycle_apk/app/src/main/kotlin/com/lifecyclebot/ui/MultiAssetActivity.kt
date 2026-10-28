@@ -35,7 +35,8 @@ class MultiAssetActivity : AppCompatActivity() {
         private const val TAG = "MultiAssetActivity"
         // V5.7.6b: Balance refresh threshold (15000 USD worth of SOL)
         private const val MIN_BALANCE_USD = 15000.0
-        private var SOL_PRICE_USD = 150.0  // V5.9: updated dynamically via refreshSolPrice()
+        // V5.0.8418 — the live observed SOL/USD (0.0 when unknown/stale); was a $150 constant never updated.
+        private val SOL_PRICE_USD: Double get() = WalletManager.freshSolPrice8163()
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -816,7 +817,17 @@ class MultiAssetActivity : AppCompatActivity() {
                 .setMessage(message)
                 .setPositiveButton("Refresh Paper \$15K") { _, _ ->
                     lifecycleScope.launch(Dispatchers.IO) {
-                        val price = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { SOL_PRICE_USD }
+                        val price = (try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 0.0 })
+                            .takeIf { it.isFinite() && it > 0.0 } ?: SOL_PRICE_USD
+                        if (!price.isFinite() || price <= 0.0) {
+                            // V5.0.8418 — no SOL/USD observation: refuse instead of sizing at a constant.
+                            com.lifecyclebot.engine.SolUsd8418.refuse("PAPER_BALANCE_REFRESH")
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(this@MultiAssetActivity,
+                                    "SOL/USD unknown — paper refresh deferred", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            return@launch
+                        }
                         val requiredSol = MIN_BALANCE_USD / price
                         refreshAllBalances(requiredSol)
                         withContext(Dispatchers.Main) {

@@ -171,9 +171,10 @@ object CyclicTradeEngine {
         val impossible = !ringBalanceSol.isFinite() || !ringBalanceUsd.isFinite() ||
             ringBalanceSol <= 0.0 || ringBalanceUsd <= 0.0 || ringBalanceUsd > 1_250_000.0
         if (!impossible) return
-        val solPrice = WalletManager.lastKnownSolPrice.takeIf { it in 10.0..1000.0 } ?: 85.0
+        // V5.0.8418 — no $85 constant: unknown SOL/USD leaves the SOL ring at 0 for tick() to size once observed.
+        val solPrice = SolUsd8418.liveOrNull()
         ringBalanceUsd = RING_SIZE_USD
-        ringBalanceSol = RING_SIZE_USD / solPrice
+        ringBalanceSol = if (solPrice != null) RING_SIZE_USD / solPrice else 0.0
         lockedFloorUsd = RING_SIZE_USD
         milestoneTier = 0
         totalPnlSol = 0.0
@@ -548,7 +549,8 @@ object CyclicTradeEngine {
 
         // Determine live vs paper
         val treasuryUsd = TreasuryManager.treasuryUsd
-        val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
+        // V5.0.8418 — unknown SOL/USD is NaN, never $150: ring sizing refuses below; exits still run.
+        val solPrice = SolUsd8418.liveOrNull() ?: Double.NaN
         // V5.9.772 EMERGENT MEME — treasury must respect the GLOBAL trade
         // mode. Operator forensic 22:54 (V5.9.771) showed treasury firing
         // PAPER buys while the bot was in LIVE mode, polluting live state
@@ -571,6 +573,7 @@ object CyclicTradeEngine {
 
         // Compute ring size in SOL
         if (ringBalanceSol <= 0.0) {
+            if (!solPrice.isFinite()) { SolUsd8418.refuse("CYCLIC_RING_SIZE"); return }
             ringBalanceSol = ringBalanceUsd / solPrice
         }
 
@@ -1324,7 +1327,7 @@ object CyclicTradeEngine {
 
         // Update ring only after confirmed sell finality.
         ringBalanceSol = (ringBalanceSol + pnlSol).coerceAtLeast(0.001)
-        ringBalanceUsd = ringBalanceSol * solPrice
+        if (solPrice.isFinite() && solPrice > 0.0) ringBalanceUsd = ringBalanceSol * solPrice else SolUsd8418.refuse("CYCLIC_RING_USD")
         totalPnlSol   += pnlSol
         cycleCount++
 
@@ -1429,8 +1432,8 @@ object CyclicTradeEngine {
     }
 
     fun reset(context: Context) {
-        val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
-        ringBalanceSol = RING_SIZE_USD / solPrice
+        val solPrice = SolUsd8418.liveOrNull()  // V5.0.8418 — never $150; 0 => tick() sizes once observed
+        ringBalanceSol = if (solPrice != null) RING_SIZE_USD / solPrice else 0.0
         ringBalanceUsd = RING_SIZE_USD
         lockedFloorUsd = RING_SIZE_USD
         milestoneTier  = 0

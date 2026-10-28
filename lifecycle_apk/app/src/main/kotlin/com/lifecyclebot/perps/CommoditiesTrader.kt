@@ -1133,7 +1133,7 @@ if (signal.tradeType == TradeType.SPOT) {
             try {
                 val client = CollectiveLearning.getClient() ?: return@launch
                 val instanceId = CollectiveLearning.getInstanceId() ?: ""
-                val solPrice = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 150.0 }
+                val solPrice = com.lifecyclebot.engine.SolUsd8418.liveOrRefuse("COMMODITIES_TURSO_RECORD") ?: return@launch  // V5.0.8418 — no $150 constant
                 val holdMins = (System.currentTimeMillis() - position.openTime) / 60_000.0
                 
                 val tradeRecord = MarketsTradeRecord(

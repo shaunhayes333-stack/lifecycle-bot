@@ -132,9 +132,10 @@ object UniversalBridgeEngine {
             val sol = wallet.getSolBalance()
             if (sol > 0.001) {
                 balances[SOL_MINT] = sol
-                val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-                usdValues[SOL_MINT] = sol * solPriceUsd
-                approxPricesUsd[SOL_MINT] = solPriceUsd
+                // V5.0.8418 — SOL is valued only at the live observed rate; unknown stays unvalued
+                // (never a $150 constant, and never cached here where it could go stale).
+                val solPriceUsd = SolUsd8418.liveOrNull()
+                if (solPriceUsd != null) usdValues[SOL_MINT] = sol * solPriceUsd else SolUsd8418.refuse("BRIDGE_CAPACITY")
             }
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "SOL balance error: ${e.message}")
@@ -216,7 +217,7 @@ object UniversalBridgeEngine {
         val preUsdcUi6486 = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
 
         // Calculate how much of source token = sizeUsd
-        val sourcePrice = approxPricesUsd[sourceMint] ?: estimateTokenPriceUsd(sourceMint)
+        val sourcePrice = priceUsd8418(sourceMint)
         if (sourcePrice <= 0) {
             return@withContext BridgeResult(false, sourceMint, USDC_MINT, 0, 0.0, null, "Cannot price $sourceMint")
         }
@@ -329,7 +330,7 @@ object UniversalBridgeEngine {
             val tokenAmount = if (targetMint == SOL_MINT) null else try { wallet.getTokenAccountsWithDecimalsBounded()[targetMint] } catch (_: Throwable) { null }
             val availableUi = if (targetMint == SOL_MINT) try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 } else tokenAmount?.uiDoubleForDisplay() ?: 0.0
             val decimals = if (targetMint == SOL_MINT) 9 else tokenAmount?.decimals ?: (TOKEN_DECIMALS[targetMint] ?: 9)
-            val price = approxPricesUsd[targetMint] ?: estimateTokenPriceUsd(targetMint)
+            val price = priceUsd8418(targetMint)
             val requestedUi = if (price > 0.0) sizeUsd / price else 0.0
             if (requestedUi <= 0.0 || availableUi + 1e-12 < requestedUi) {
                 return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null,
@@ -388,7 +389,7 @@ object UniversalBridgeEngine {
         // directly. prepareCapital() now ONLY does atomic single-call routes.
         // ════════════════════════════════════════════════════════════════════
 
-        val sourcePrice = approxPricesUsd[src] ?: estimateTokenPriceUsd(src)
+        val sourcePrice = priceUsd8418(src)
         if (sourcePrice <= 0) {
             return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null, "Cannot price ${mintLabel(src)}")
         }
@@ -769,11 +770,17 @@ object UniversalBridgeEngine {
     /** V5.0.7326 — Sender tip for bridge swaps (same 200k floor the meme path uses). */
     private const val SENDER_TIP_LAMPORTS_7326 = 200_000L
 
+    /** V5.0.8418 — SOL always at the live rate (0.0 = unknown → "Cannot price" refusal), others as before. */
+    private fun priceUsd8418(mint: String): Double =
+        if (mint == SOL_MINT) SolUsd8418.liveOrNull() ?: run { SolUsd8418.refuse("BRIDGE_SOURCE_PRICE"); 0.0 }
+        else approxPricesUsd[mint] ?: estimateTokenPriceUsd(mint)
+
     private fun estimateUsdValue(mint: String, amount: Double): Double {
+        if (mint == SOL_MINT) return amount * (SolUsd8418.liveOrNull() ?: 0.0)
         val known = approxPricesUsd[mint]
         if (known != null) return amount * known
         return when (mint) {
-            SOL_MINT    -> amount * (WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0)
+            SOL_MINT    -> 0.0  // V5.0.8418 — handled above at the live rate only
             USDC_MINT,
             USDT_MINT   -> amount
             WBTC_MINT   -> amount * 85_000.0   // rough estimate
@@ -787,7 +794,7 @@ object UniversalBridgeEngine {
 
     private fun estimateTokenPriceUsd(mint: String): Double {
         return approxPricesUsd[mint] ?: when (mint) {
-            SOL_MINT    -> WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+            SOL_MINT    -> SolUsd8418.liveOrNull() ?: 0.0  // V5.0.8418 — never a constant
             USDC_MINT,
             USDT_MINT   -> 1.0
             WBTC_MINT   -> 85_000.0

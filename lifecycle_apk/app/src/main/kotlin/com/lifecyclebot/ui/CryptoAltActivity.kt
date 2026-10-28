@@ -877,7 +877,6 @@ class CryptoAltActivity : AppCompatActivity() {
         val status      = stats["status"] as? String ?: "Idle"
         val wr          = if (cycles > 0) (wins.toDouble() / cycles * 100).toInt() else 0
         val modeLabel   = if (live) "🔴 LIVE" else "📄 PAPER"
-        val solPx       = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
         val ringGrowth  = ringUsd - 500.0
         val growthColor = if (ringGrowth >= 0) green else red
         val tileColor   = if (inPos) amber else blue

@@ -120,6 +120,17 @@ object EconomicUnitInvariant7061 {
         if (solUsdPrice.isFinite() && solUsdPrice >= MIN_SOL_USD) usd / solUsdPrice else Double.NaN
 
     /**
+     * V5.0.8418 — [Denom.USD] notional from a [Denom.SOL] size. The rate is SOL/USD,
+     * never the traded asset's USD price. NaN when the rate is unknown.
+     */
+    fun solToUsd8418(sizeSol: Double, solUsdPrice: Double): Double =
+        if (sizeSol.isFinite() && sizeSol >= 0.0 && solUsdPrice.isFinite() && solUsdPrice >= MIN_SOL_USD) sizeSol * solUsdPrice else Double.NaN
+
+    /** V5.0.8418 — [Denom.TOKEN_QTY] from a USD notional and the asset's [Denom.USD_PER_TOKEN] price. NaN when unknown. */
+    fun usdToAssetQty8418(notionalUsd: Double, assetPriceUsd: Double): Double =
+        if (notionalUsd.isFinite() && notionalUsd >= 0.0 && assetPriceUsd.isFinite() && assetPriceUsd > 0.0) notionalUsd / assetPriceUsd else Double.NaN
+
+    /**
      * §2 + §6 — validate a paper sell before any economic mutation.
      *
      * [soldQtyRaw] / [preRemainingRaw] are raw base units at [quantityScale];

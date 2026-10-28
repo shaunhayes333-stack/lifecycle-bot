@@ -97,7 +97,9 @@ object PaperSeededPrior6991 {
     fun impactSurvival6992(positionSol: Double, liquidityUsd: Double, solPriceUsd: Double): Double {
         if (!positionSol.isFinite() || positionSol <= 0.0) return 1.0
         if (!liquidityUsd.isFinite() || liquidityUsd <= 0.0) return 0.25
-        val solPx = if (solPriceUsd.isFinite() && solPriceUsd > 1.0) solPriceUsd else 150.0
+        // V5.0.8418 — unknown SOL/USD is unknown footprint: the thin-pool answer, never a $150 constant.
+        if (!solPriceUsd.isFinite() || solPriceUsd <= 1.0) return 0.25
+        val solPx = solPriceUsd
         val roundTripUsd = positionSol * solPx * 2.0
         val footprint = roundTripUsd / liquidityUsd
         return when {

@@ -11386,8 +11386,8 @@ class BotService : Service() {
                             try { marketScanner?.recordNewTokenFound() } catch (_: Throwable) {}
                             // V5.0.3730 — scanner-active source truth (PumpPortal WS sibling).
                             try { com.lifecyclebot.engine.BotRuntimeController.markScannerActive(com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), true) } catch (_: Throwable) {}
-                            val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-                                .takeIf { it > 0.0 } ?: 150.0
+                            val solUsd = SolUsd8418.liveOrRefuse("PUMP_WS_INTAKE")
+                                ?: return@onNewToken  // V5.0.8418 — no $150 constant
                             val mcapUsd = mcapSol * solUsd
                             // V5.0.8048 — the curve's real SOL from its cap (was mcap x 0.85: a fresh launch read ~$2.6K deep
                             // with nobody in it — BOWNARROW). The chain read (CurveReserves7951) replaces it once it lands.
@@ -20896,7 +20896,7 @@ class BotService : Service() {
                     com.lifecyclebot.v3.scoring.CashGenerationAI.updateWalletBalance(walletBalanceForTreasury)
                     try {
                         val arbTreasurySol4335 = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(cfg.paperMode)
-                        val arbSolPrice4335 = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
+                        val arbSolPrice4335 = SolUsd8418.liveOrRefuse("ARB_TREASURY_SYNC") ?: return@submit  // V5.0.8418
                         com.lifecyclebot.v3.scoring.SolanaArbAI.syncTreasuryUsd(cfg.paperMode, arbTreasurySol4335 * arbSolPrice4335)
                     } catch (_: Throwable) { }
                 }
@@ -21724,7 +21724,7 @@ class BotService : Service() {
                     // Treasury milestone check — live mode uses real wallet; paper uses paper balance
                     // V5.5 FIX: Paper mode now also triggers milestones so scaling tiers work in testing
                     run {
-                        val solPx = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+                        val solPx = SolUsd8418.liveOrRefuse("TREASURY_MILESTONE") ?: return@run  // V5.0.8418
                         val paperAccount6647 = if (cfg.paperMode) try {
                             com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("GROWTH_RING", "paper")
                         } catch (_: Throwable) { null } else null
@@ -34458,8 +34458,8 @@ if (hotExitHandledSweep) {
         try {
             val treasuryBalance = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(cfg.paperMode)
             try { com.lifecyclebot.engine.TreasuryOpportunityEngine.setEnabled(true) } catch (_: Throwable) {}  // V5.0.4338 advisory Treasury deployment helper
-            val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-            val treasuryUsd = treasuryBalance * solPrice
+            // V5.0.8418 — unknown SOL/USD starts the arb treasury at zero capital (refuses to size) until the sync observes it.
+            val treasuryUsd = SolUsd8418.usdNotional(treasuryBalance, SolUsd8418.liveOrRefuse("ARB_INIT")) ?: 0.0
             com.lifecyclebot.v3.scoring.SolanaArbAI.init(cfg.paperMode, treasuryUsd)
             initCount++
         } catch (e: Exception) {
