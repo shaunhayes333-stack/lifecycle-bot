@@ -275,7 +275,10 @@ private fun shouldTryPumpDirectFirst6099(ts: TokenState, label: String): Boolean
         )
     } catch (_: Throwable) {}
     try { PipelineHealthCollector.labelInc("SELL_ROUTE_PRIORITY_${priority.name}_6099") } catch (_: Throwable) {}
-    return pumpFirst && !jupiterOk8390
+    // V5.0.8418 — PumpPortal first only when Jupiter has no route (endpoint not admitting it, or the bounded quote probe said no route).
+    val pumpFirst8418 = Costs8369.sellPumpFirst8418(pumpFirst, jupiterOk8390, Costs8369.cachedJupiterQuotes8369(ts.mint))
+    if (label != "EXIT") Costs8369.noteSellFirstRoute8418(pumpFirst8418)  // EXIT is counted once by exitPumpFirst8189
+    return pumpFirst8418
 }
 
 /**
@@ -13577,7 +13580,9 @@ class Executor(
             val preTopUpQty = try { wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: pos.qtyToken } catch (_: Throwable) { pos.qtyToken }
             // V5.9.495 — PUMP-FIRST routing for top-ups (add-to-position).
             // Same universal-auto routing the entry/exit ladder uses.
-            val pumpTopUpPlan = recalcBuyPlanForProcessor(
+            // V5.0.8418 — a top-up took PumpPortal first for every mint with no route choice at all (not counted in
+            // costs8369 route{}). It now takes the same choice as a fresh buy: Jupiter unless Jupiter has no route.
+            val pumpTopUpPlan = if (costAggregatorFirst8151(ts, wallet)) null else recalcBuyPlanForProcessor(
                 ts = ts,
                 wallet = wallet,
                 processor = "PUMPPORTAL_TOP_UP",
@@ -23381,8 +23386,8 @@ class Executor(
 
     /** V5.0.8189 — liveSellInScope7314's PumpPortal-first decision: never ahead of the aggregator for a stop. */
     private fun exitPumpFirst8189(ts: TokenState, reason: String): Boolean {
-        if (jupiterFirstFor8189(ts, reason)) { com.lifecyclebot.engine.sell.StopRoute8189.noteJupiterFirst8189(); return false }
-        return shouldTryPumpDirectFirst6099(ts, "EXIT")
+        if (jupiterFirstFor8189(ts, reason)) { com.lifecyclebot.engine.sell.StopRoute8189.noteJupiterFirst8189(); Costs8369.noteSellFirstRoute8418(false); return false }
+        return shouldTryPumpDirectFirst6099(ts, "EXIT").also { Costs8369.noteSellFirstRoute8418(it) }  // V5.0.8418 — counted
     }
 
     private fun emergencyRouteEscalated7807(ts: TokenState, reason: String): Boolean {
@@ -31623,6 +31628,7 @@ class Executor(
             com.lifecyclebot.engine.sell.SellRouteSpine8144.mark8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteSpine8144.Stage8144.VENUE_RESOLVE)
             if (!pumpPortalAdmitted8144(ts, venue8144, labelTag, sellTradeKey, traderTag)) return null
             if (com.lifecyclebot.engine.sell.EmergencySellRoute8308.skipPumpPortalSell8308(ts.mint, exitReason8168, labelTag)) return null  // V5.0.8308 — an emergency never goes first to a route that is not landing
+            Costs8369.notePumpSell8418(labelTag)  // V5.0.8418 — every PumpPortal sell that passed admission, rescue or first
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
             // V5.0.8144 — one wallet read serves the fraction check, the 95% check and the pre-sell snapshot (was three).

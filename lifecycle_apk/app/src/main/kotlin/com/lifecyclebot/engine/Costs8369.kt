@@ -34,7 +34,7 @@ object Costs8369 {
     const val ENTRY_FIXED_CAP_SHARE_8369 = 0.005
     /** Ticket assumed before the first confirmed buy (the route-minimum ticket of the 5.0.8363 report). */
     const val DEFAULT_TICKET_SOL_8369 = 0.029
-    /** A Jupiter route probe for a curve buy may take this long; an unanswered probe keeps PumpPortal first. */
+    /** A Jupiter route probe for a curve buy may take this long; an unanswered probe proves nothing (V5.0.8418: Jupiter stays first). */
     const val JUP_PROBE_BUDGET_MS_8369 = 1_200L
     private const val JUP_QUOTE_OK_TTL_MS_8369 = 60_000L
     private const val JUP_QUOTE_NO_TTL_MS_8369 = 30_000L
@@ -76,11 +76,47 @@ object Costs8369 {
      * "no route" for this mint, or when this mint's previous attempt already went Jupiter-first ([recentlyTried]: the
      * retry is the remaining route, so a Jupiter miss can never choke the buy). [jupiterLandFailing] is reported only.
      */
+    // superseded by V5.0.8418 — a retry after a Jupiter-first attempt ([recentlyTried]) went PumpPortal even when Jupiter
+    // quoted the mint (5.0.8416: BUY|PUMPPORTAL landed 1/7 vs Jupiter 22/23). PumpPortal is now first ONLY when the bounded
+    // Jupiter quote probe answered "no route" for this mint (jupiterQuotes == false); [recentlyTried] and
+    // [jupiterLandFailing] are reported only. A Jupiter miss on a quoted mint retries Jupiter; the probe cache (30 s on a
+    // no-route answer) sends the next attempt PumpPortal when Jupiter really has no route, so the buy is never choked.
     @Suppress("UNUSED_PARAMETER")
     fun jupiterFirstForBuy8369(venue: String, jupiterQuotes: Boolean?, recentlyTried: Boolean, jupiterLandFailing: Boolean): Boolean {
         if (venue == "PUMPSWAP" || venue == "RAYDIUM") return true
-        if (recentlyTried) return false
         return jupiterQuotes != false
+    }
+
+    /**
+     * V5.0.8418 — pure: does a sell go PumpPortal FIRST? Only for a pump-routed position ([pumpPriority]) when Jupiter has no
+     * route for the mint: its endpoint is not admitting it ([jupiterAdmitted] false) or the bounded quote probe answered
+     * "no route" ([jupiterQuotes] == false). Otherwise Jupiter first; PumpPortal stays the rescue after a Jupiter miss.
+     */
+    fun sellPumpFirst8418(pumpPriority: Boolean, jupiterAdmitted: Boolean, jupiterQuotes: Boolean?): Boolean =
+        pumpPriority && (!jupiterAdmitted || jupiterQuotes == false)
+
+    private val sellJupiterFirst8418 = AtomicLong(0)
+    private val sellPumpFirstN8418 = AtomicLong(0)
+    private val sellPumpSent8418 = AtomicLong(0)
+    private val sellPumpRescue8418 = AtomicLong(0)
+
+    /** V5.0.8418 — the first route an exit / partial / profit-lock took. */
+    fun noteSellFirstRoute8418(pumpFirst: Boolean) {
+        if (pumpFirst) sellPumpFirstN8418.incrementAndGet() else sellJupiterFirst8418.incrementAndGet()
+    }
+
+    /** Pure (V5.0.8418): is a PumpPortal sell [labelTag] the rescue after another route missed? */
+    fun pumpSellIsRescue8418(labelTag: String): Boolean = labelTag.uppercase().contains("RESCUE")
+
+    /** V5.0.8418 — the route counters: buys (every eligible choice) and sells (first route, PumpPortal sends, of which rescues). */
+    fun routeLine8418(): String =
+        "buyRoute8418{jupiter=${jupiterChosen8369.get()},pumpportal=${pumpChosen8369.get()}} " +
+            "sellRoute8418{jupiterFirst=${sellJupiterFirst8418.get()},pumpFirst=${sellPumpFirstN8418.get()},pumpSent=${sellPumpSent8418.get()},pumpRescue=${sellPumpRescue8418.get()}}"
+
+    /** V5.0.8418 — a PumpPortal sell passed its admission and is being built (first route or rescue). */
+    fun notePumpSell8418(labelTag: String) {
+        sellPumpSent8418.incrementAndGet()
+        if (pumpSellIsRescue8418(labelTag)) sellPumpRescue8418.incrementAndGet()
     }
 
     /** Pure: is a cached Jupiter quote answer still usable? */
@@ -287,6 +323,7 @@ object Costs8369 {
         return "costs8369[rentReclaimed=${if (reclaimed.isFinite()) "%.5f".format(reclaimed) else "-"} " +
             "rentLocked=${if (locked.isFinite()) "%.5f".format(locked) else "-"} " +
             "route{jupiter=${jupiterChosen8369.get()},pumpportal=${pumpChosen8369.get()}} " +
+            routeLine8418() + " " +
             "fixedLegPctOfTicket=${p(lastFixedLegPct8369)} entryTip=${lastTipLamports8369} capped=${cappedEntries8369.get()} " +
             "senderFallback=${senderFallbacks8369.get()} capFailing{jup=${capFailingNow8369(false)},pump=${capFailingNow8369(true)}} " +
             "modelVsMeasured{${mvm.ifBlank { "-" }}}]"

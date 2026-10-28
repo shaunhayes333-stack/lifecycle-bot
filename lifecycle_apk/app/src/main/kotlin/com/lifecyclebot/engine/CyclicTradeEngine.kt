@@ -543,6 +543,7 @@ object CyclicTradeEngine {
         // resurrect a trader that BotService intentionally disabled.
         if (!enabled.get()) {
             try { PipelineHealthCollector.labelInc("CYCLIC_TICK_SKIPPED_DISABLED_6566") } catch (_: Throwable) {}
+            LaneDispatch8418.noteCyclicRing8418(null, "CYCLIC_RING_DISABLED")  // V5.0.8418 — a qualified candidate ends by name
             return
         }
 
@@ -576,6 +577,7 @@ object CyclicTradeEngine {
 
         // ── 1. In position — check TP/SL/timeout ──────────────────────────────
         if (isInPosition && currentMint.isNotBlank()) {
+            LaneDispatch8418.noteCyclicRing8418(currentMint, "CYCLIC_RING_HOLDING")  // V5.0.8418 — the ring holds one coin at a time
             val ts = tokens[currentMint]
             if (ts == null) {
                 // V5.0.7246 — scanner/watchlist eviction is NOT an ownership event.
@@ -857,11 +859,8 @@ object CyclicTradeEngine {
             // chosen lane's confidence — so a 70-score the toolkit is sure about beats
             // an 80-score it's shaky on. Falls back to raw score when confidence is
             // absent (older/bootstrap tokens) so the ring is never starved.
-            .maxByOrNull { ts ->
-                val score = ((ts.lastV3Score ?: ts.entryScore.toInt())).toDouble()
-                val conf = (ts.lastV3Confidence ?: 50).coerceIn(1, 100).toDouble()
-                score * (conf / 100.0)
-            }
+            // V5.0.8418 — among the coins that pass every ring filter, the ones CYCLIC's own native brain qualified (READY) go first.
+            .maxByOrNull { ts -> LaneDispatch8418.cyclicRank8418((ts.lastV3Score ?: ts.entryScore.toInt()).toDouble(), ts.lastV3Confidence, LaneDispatch8418.cyclicReady8418(ts.mint)) }
             ?: run {
                 // V5.9.1492 — STARVATION PROBE FALLBACK. No token cleared the strict
                 // floor this tick. Rather than freeze at "Scanning…" indefinitely
@@ -875,6 +874,7 @@ object CyclicTradeEngine {
                 // other lane already has. NEVER bypasses blacklist / loss-streak /
                 // danger-bucket guards — those are re-checked in the probe filter.
                 noEligibleStreak++
+                LaneDispatch8418.noteCyclicRing8418(null, "CYCLIC_RING_BELOW_RING_FILTERS")  // V5.0.8418
                 if (noEligibleStreak < STARVATION_PROBE_TICKS) {
                     statusMessage = "Scanning… (need score ≥${effectiveMinScore.toInt()}${if (cyclicCold) " [COLD]" else if (isBootstrapPhase) " [BOOT]" else ""}${if (consecutiveLosses > 0) " +${consecutiveLosses}L" else ""}) probe in ${STARVATION_PROBE_TICKS - noEligibleStreak}"
                     return
@@ -942,6 +942,7 @@ object CyclicTradeEngine {
 
         // V5.9.1492 — a token WAS selected (strict or probe) → clear starvation.
         noEligibleStreak = 0
+        LaneDispatch8418.noteCyclicRing8418(best.mint, "CYCLIC_RING_TOOK_OTHER")  // V5.0.8418 — the ring takes one coin per tick
         // ── 4. Enter cycle ─────────────────────────────────────────────────────
         var ringDesiredSol = if (cyclicCold) (ringBalanceSol * COLD_RING_SIZE_MULT).coerceAtLeast(0.001) else ringBalanceSol
 

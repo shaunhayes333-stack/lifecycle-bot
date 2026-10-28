@@ -55,8 +55,10 @@ class Aate8369CostsTest {
         // graduated pools always go Jupiter
         assertTrue(k.jupiterFirstForBuy8369("PUMPSWAP", jupiterQuotes = null, recentlyTried = false, jupiterLandFailing = false))
         assertTrue(k.jupiterFirstForBuy8369("RAYDIUM", jupiterQuotes = null, recentlyTried = false, jupiterLandFailing = false))
-        // the retry after a Jupiter-first attempt is PumpPortal (never a no-buy choke); a global Jupiter stall no longer flips every buy
-        assertFalse(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = true, recentlyTried = true, jupiterLandFailing = false))
+        // superseded by V5.0.8418 — a retry on a mint Jupiter quotes stays Jupiter (PumpPortal only when Jupiter has no route);
+        // a retry whose probe answered no-route still goes PumpPortal, so the buy is never choked
+        assertTrue(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = true, recentlyTried = true, jupiterLandFailing = false))
+        assertFalse(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = false, recentlyTried = true, jupiterLandFailing = false))
         assertTrue(k.jupiterFirstForBuy8369("PUMP_CURVE", jupiterQuotes = true, recentlyTried = false, jupiterLandFailing = true))
         assertTrue(k.quoteCacheFresh8369(true, 0L, 60_000L))
         assertFalse(k.quoteCacheFresh8369(true, 0L, 60_001L))

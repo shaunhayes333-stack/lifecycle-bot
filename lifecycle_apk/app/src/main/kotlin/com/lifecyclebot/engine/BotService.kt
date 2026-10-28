@@ -27653,6 +27653,7 @@ if (hotExitHandledSweep) {
         }
     }
     val cyclePrimaryLane = canonicalCycleLaneFor(ts, modeClassification)
+    LaneDispatch8418.noteCycle8418(ts.mint, cyclePrimaryLane, ts.position.isOpen)  // V5.0.8418 — CORE / CYCLIC have no lane gate: not-primary ends by name
     try {
         ForensicLogger.lifecycle(
             "CYCLE_PRIMARY_LANE",
@@ -32663,6 +32664,7 @@ if (hotExitHandledSweep) {
     // set: operator, twice, "core and standard are trading lanes." V3_CORE stays
     // — the operator named the other two, and directive §11 forbids aliasing
     // CORE/STANDARD/V3_CORE together.
+    LaneDispatch8418.notePrimarySpine8418(ts.mint, cyclePrimaryLane, ts.position.isOpen, decision.finalSignal, canProposeEarly)  // V5.0.8418
     if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly &&
         cyclePrimaryLane.uppercase() !in setOf("V3_CORE")) {
         // V5.0.8136 — a credible BUY proposal starts its freeze/mint-authority proof now (single-flight, live only),
