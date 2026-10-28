@@ -1523,8 +1523,10 @@ object Cortex7885 {
      */
     fun onShadowOutcome8372(mint: String, lane: String, assessmentAtMs: Long, netPct: Double, grossPct: Double,
                             setup: String, nowMs: Long, executable: Boolean): Boolean {
-        if (!netPct.isFinite() || !grossPct.isFinite() || !executable || nowMs <= assessmentAtMs)
-            return onShadowUnavailable8372(mint, lane, assessmentAtMs, "INVALID_EXECUTABLE_OUTCOME")
+        if (!netPct.isFinite() || !grossPct.isFinite() || nowMs <= assessmentAtMs)
+            return onShadowUnavailable8372(mint, lane, assessmentAtMs, "INVALID_SHADOW_OUTCOME")
+        // V5.0.8412 — [executable] is no longer a learning gate. A non-executable Cortex assessment can still
+        // produce a valid shadow outcome, and must teach the isolated shadow books. It never authorizes live entry.
         ensureLoaded()
         if (!loaded || !LearningPersistence.ready()) return false
         val shadowId = "$mint|${canon(lane)}|$assessmentAtMs"
@@ -1564,7 +1566,24 @@ object Cortex7885 {
                     it.decisionMode8196 = original.decisionMode8196; it.decisionReason8196 = original.decisionReason8196
                     it.context8372 = ctx
                 } else original
-                if (ctx?.executable != true || p.lateRead8169 || p.a.staleMark) {
+                if (ctx?.executable != true && !p.lateRead8169 && !p.a.staleMark) {
+                    // V5.0.8412 — this was the logical break: every shadow row whose original candidate had been
+                    // refused/held was discarded as OBSERVED_ONLY, so Cortex's shadow exploration could count refusals
+                    // but could never learn whether those refused candidates later won. Train only the shadow-marked
+                    // books here. The grade record remains non-executable and cannot become a live admission.
+                    val existing = gradeBook8144.decision(targetId)
+                    if (existing == null) gradeBook8144.addDecision(
+                        newDecision8144(targetId, key, p, ctx, CortexLabelHygiene8144.Verdict8144(false, false)))
+                    if (gradeBook8144.shadowOutcome8372(targetId, netPct, grossPct, nowMs)) {
+                        gradeModelsLocked8372(key, p, netPct, grossPct, false, shadowExit8372 = true)
+                        outcomeBook8372.finishedShadow(shadowId, learned = true, trainedId = targetId)
+                        delivered = p; first = true
+                        inc("SHADOW_MODEL_LEARNED_NON_EXECUTABLE_8412")
+                    } else {
+                        outcomeBook8372.finishedShadow(shadowId, learned = false)
+                        inc("SHADOW_VALUE_OBSERVED_ONLY_8395")
+                    }
+                } else if (ctx?.executable != true || p.lateRead8169 || p.a.staleMark) {
                     outcomeBook8372.finishedShadow(shadowId, learned = false)
                     inc("SHADOW_UNEXECUTABLE_OBSERVED_ONLY_8372")
                 } else if (plan.action == CortexOutcomeBook8372.Action.REVISE) {
