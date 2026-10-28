@@ -32,7 +32,7 @@ class Aate8415CortexHourGradeTest {
         val revise = src.substringAfter("fun reviseLabel8006(").substringBefore("/** Replace the original weighted contribution")
         assertTrue(revise.contains("CORTEX_HOUR_GRADE_NOT_DUE_8415"))
         assertTrue(revise.contains("gradeDecision8372(k, original, newNet, newGross, witnessed)"))
-        assertTrue(revise.contains("record.modelContribution8395.isBlank()"))
+        assertTrue(revise.contains("awaitsHourGrade8417(id, record)"))
         assertTrue(revise.indexOf("deferred8415") < revise.indexOf("reviseGradeOnly8324("))
     }
 }

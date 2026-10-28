@@ -93,6 +93,18 @@ class Aate8397ForwardRecoveryLifecycleTest {
         } finally { pending().remove(key, obs) }
     }
 
+    @Test fun unchangedHourOutcomeStillStagesItsFirstHourModelGrade8417() {
+        val mint = "forward-recovery-8397-unchanged"; val at = System.currentTimeMillis() - 65 * 60_000L
+        val obs = observation(mint, at)
+        set(obs, "done60", true); set(obs, "bookedNet7997", 7.0); set(obs, "bookedGross7997", 10.0)
+        val mark = mark(mint, at + 60 * 60_000L, 1.1)
+        set(obs, "lastMark8386", mark)
+        val outbox = get(runtime, "forwardOutbox8404")!!
+        @Suppress("UNCHECKED_CAST") val rows = get(outbox, "rows") as MutableMap<String, String>
+        assertEquals(true, call("stageForwardRevision8404", obs, 7.0, 10.0, mark.observedAtMs))
+        assertTrue("a due horizon carries evidence even with zero return change", rows.keys.any { it.startsWith("$mint|MOONSHOT|$at|R|") })
+    }
+
     @Test fun recoveredHourDefersExitForAContinuingRunnerJustLikeTheNormalHourPath() {
         val mint = "forward-recovery-8397-hour"; val key = "$mint|MOONSHOT"
         val at = System.currentTimeMillis() - 2 * 3_600_000L

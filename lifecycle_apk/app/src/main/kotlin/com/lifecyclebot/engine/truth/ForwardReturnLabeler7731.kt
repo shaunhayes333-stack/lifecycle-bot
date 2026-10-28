@@ -1888,7 +1888,9 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun stageForwardRevision8404(o: Obs, net: Double, gross: Double, nowMs: Long): Boolean {
-        if (!o.bookedNet7997.isFinite() || !net.isFinite() || kotlin.math.abs(net - o.bookedNet7997) < 0.5) return true
+        // Each due horizon carries evidence even when its return is unchanged. In hour-graded lanes this may be
+        // the first model grade; the five-minute observation never made a contribution to revise.
+        if (!o.bookedNet7997.isFinite() || !net.isFinite()) return true
         return stageForwardOutcome8404(o, net, gross, doubleArrayOf(), false,
             gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs), revision = true) != null
     }

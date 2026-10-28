@@ -37,7 +37,7 @@ object Cortex7885 {
     // (priceAge > MARK_STALE_MS) and the cache stays bounded by MAX_ASSESS_CACHE / ASSESS_PRUNE_AT_8144.
     private const val ASSESS_TTL_MS = 60_000L
     private const val PENDING_TTL_MS = 5L * 60L * 60_000L
-    /** V5.0.8415 — hour-lane decisions whose 5-minute label filed the observed record only (bounded; lost on restart = ungraded). */
+    /** Hour-lane decisions awaiting their first model grade; paired checkpoints preserve the original prediction. */
     private const val DEFERRED_HOUR_MAX_8415 = 20_000
     private const val HOUR_GRADE_MIN_MS_8415 = 55L * 60_000L
     private val deferredHour8415 = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
@@ -996,8 +996,13 @@ object Cortex7885 {
             val p = pending[key]?.takeIf { it.atMs == at } ?: pairedPending8401[id] ?: graded8006[id]?.p
             p?.let { Triple(key, detachPending8386(it), false) }
         }.orEmpty()
-        val rows8372 = ordinary.map { Triple(it.key, detachPending8386(it.value), false) } + forwardRows8401 +
-            (if (episodes8401 == null) shadowPending8372.entries.map { Triple(it.key, detachPending8386(it.value), true) } else emptyList())
+        val pairedIds8417 = pairedPending8401.keys.toSet()
+        val awaitingHour8417 = if (episodes8401 == null) pairedPending8401.entries
+            .filter { persistablePending8144(it.value.atMs, now8144) }
+            .map { Triple(it.key.substringBeforeLast('|'), detachPending8386(it.value), false) } else emptyList()
+        val rows8372 = (ordinary.map { Triple(it.key, detachPending8386(it.value), false) } + awaitingHour8417 + forwardRows8401 +
+            (if (episodes8401 == null) shadowPending8372.entries.map { Triple(it.key, detachPending8386(it.value), true) } else emptyList()))
+            .distinctBy { "${it.first}|${it.second.atMs}|${it.third}" }
         val gradedRows = if (episodes8401 == null) graded8006.entries.sortedByDescending { it.value.atMs }.take(GRADED_PERSIST_MAX_8013)
             .map { it.key to detachGraded8386(it.value) }
             else emptyList() // A companion preserves predictions, never imports gradients without their atomic ledger checkpoint.
@@ -1044,6 +1049,7 @@ object Cortex7885 {
                         .put("selected8196", p.selected8153)
                         .put("fired8196", org.json.JSONArray(p.fired8094))
                         .put("ctx8196", ctx8196).put("shadow8372", shadow8372)
+                        .put("paired8417", "$k|${p.atMs}" in pairedIds8417)
                         .put("aat8372", a.atMs).put("sv8372", a.scoreVersion8372)
                         .put("staleMark8404", a.staleMark)
                         .put("ee8372", frozenEdges8372).put("provenance8372", provenance8372(a).encode()),
@@ -1155,8 +1161,9 @@ object Cortex7885 {
             val k = o.optString("k")
             val at = o.optLong("at")
             val shadow8372 = o.optBoolean("shadow8372", false)
+            val pairedEntry8417 = paired8401 || o.optBoolean("paired8417", false)
             if (k.isBlank() || (if (shadow8372) shadowPending8372.containsKey(k)
-                else if (paired8401) pending[k]?.atMs == at || pairedPending8401.containsKey("$k|$at") else pending.containsKey(k)) ||
+                else if (pairedEntry8417) pending[k]?.atMs == at || pairedPending8401.containsKey("$k|$at") else pending.containsKey(k)) ||
                 nowMs - at > (if (shadow8372) GRADED_KEEP_MS_8013 else PENDING_TTL_MS) || at > nowMs) continue
             // V5.0.8187 — a decision past the labeler's reach (it keeps an observation 70 min at most) cannot be graded: it is
             // not restored as "pending" (5.0.8175 counted 626 restored, 608 of them pruned unlabelled within a minute).
@@ -1200,7 +1207,7 @@ object Cortex7885 {
                 it.outcomeDueAtMs8394 = o.optLong("outcomeDueAtMs8394", at + 5 * 60_000L)
             }
             if (shadow8372) shadowPending8372[k] = restored8372
-            else if (paired8401 && pending.containsKey(k)) pairedPending8401["$k|$at"] = restored8372
+            else if (pairedEntry8417 && pending.containsKey(k)) pairedPending8401["$k|$at"] = restored8372
             else pending[k] = restored8372
             o.optJSONObject("ctx8196")?.let { c ->
                 val ctx = DecisionCtx8144(c.optString("timing"), c.optString("cost"), c.optString("cohort"), c.optBoolean("latency"), c.optBoolean("executable"))
@@ -1407,7 +1414,11 @@ object Cortex7885 {
                     .put("disposition", if (learned) "LEARNED" else "OBSERVED_ONLY")
                     .put("source", record.outcomeSource8372).toString()
                 if (learned) forwardLearned8404.add(receipt)
-                pending.remove(key, original); pairedPending8401.remove(id, original)
+                pending.remove(key, original)
+                // The five-minute/15-minute receipt is complete, but an hour lane still owns its frozen prediction.
+                // The labeler's next checkpoint must find it, including when another episode now owns mint|lane.
+                if (awaitsHourGrade8417(id, record) && !learned) pairedPending8401[id] = original
+                else pairedPending8401.remove(id, original)
             }
             return false
         } finally { forwardDelivering8404.remove(id) }
@@ -1480,7 +1491,11 @@ object Cortex7885 {
         // 5-minute label files the observed record only and the hour outcome makes the ONE original model contribution.
         val deferHour8415 = hourDeferred8415(p, accepted8395, hyg8144.authority, late8153, lateRead8169)
         if (deferHour8415) {
-            synchronized(this) { deferredHour8415.add("$key|${p.atMs}"); if (deferredHour8415.size > DEFERRED_HOUR_MAX_8415) deferredHour8415.clear() }
+            synchronized(this) {
+                deferredHour8415.add(id8372)
+                pairedPending8401[id8372] = p
+                if (deferredHour8415.size > DEFERRED_HOUR_MAX_8415) deferredHour8415.clear()
+            }
             inc("CORTEX_GRADE_DEFERRED_TO_HOUR_8415")
             try { LanePlaybook7907.onLabel(mint, labelLane, netPct, grossPct, fam8080, p.setup7961, decisionAtMs8372 = p.atMs) } catch (_: Throwable) {}
             return
@@ -2597,6 +2612,10 @@ object Cortex7885 {
         inc(if (exec) "REVISION_GRADE_ONLY_8324" else "REVISION_GRADE_ONLY_PAST_HORIZON_8324")
     }
 
+    private fun awaitsHourGrade8417(id: String, record: CortexGradeRecord8144?): Boolean =
+        deferredHour8415.contains(id) || (record != null && record.graded && record.modelContribution8395.isBlank() &&
+            runnerHorizon8144(record.lane) && record.executablePct.isFinite())
+
     /** ForwardReturnLabeler7731.revise7997: use the original observation timestamp, never just mint + lane. */
     fun reviseLabel8006(mint: String, labelLane: String, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double,
                         witness8324: Boolean = false, decisionAtMs8371: Long = 0L, proof8395: CortexOutcomeProof8395? = null) {
@@ -2620,8 +2639,7 @@ object Cortex7885 {
             }
             // V5.0.8415 — the deferred hour-lane decision makes its first (only) model contribution at the hour.
             // Durable after restart: an hour-lane record with a clean 5-minute filing and no model contribution yet.
-            val deferred8415 = deferredHour8415.contains(id) || (record != null && record.graded && record.modelContribution8395.isBlank() &&
-                runnerHorizon8144(canon(labelLane)) && record.executablePct.isFinite())
+            val deferred8415 = awaitsHourGrade8417(id, record)
             if (gradedTrace8372(id) == null && deferred8415) {
                 val original8415 = pending[key]?.takeIf { it.atMs == decisionAtMs8371 } ?: pairedPending8401[id]
                 val horizon8415 = proof8395?.horizonMs ?: (System.currentTimeMillis() - decisionAtMs8371)
