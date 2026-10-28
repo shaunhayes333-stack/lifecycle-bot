@@ -21,8 +21,14 @@ import java.util.concurrent.atomic.AtomicLong
  * [MAX_RATIO] either way, the price-implied cap replaces it (on the row, so every reader agrees)
  * and the event is counted. A price that is itself a cap-derived seed (PUMP_FUN_BC_SYNTHETIC)
  * proves nothing and is never used to "confirm" the cap it came from.
+ *
+ * V5.0.8418 — superseded "a pump.fun curve token has exactly 1e9 tokens": the supply is the mint account's
+ * (MintSupply8418: getAccountInfo / getTokenSupply / DAS, decimals-adjusted). A *pump suffix proves nothing about the
+ * supply; with no mint-account read the supply is UNKNOWN (0.0 here), a read is requested, and the row cap stands
+ * unconfirmed rather than being "corrected" from a guess.
  */
 object TrustedMcap8019 {
+    /** V5.0.8418 — no longer used for any cap here (see the class note); kept only for LiquidityTruth8037's curve arithmetic. */
     const val PUMP_SUPPLY_8019 = 1_000_000_000.0
     const val MAX_RATIO_8019 = 3.0
     private val corrected = AtomicLong(0)
@@ -44,11 +50,17 @@ object TrustedMcap8019 {
         return s.isNotBlank() && !s.contains("SYNTHETIC") && !s.contains("CAP_SEED") && !s.contains("CAP_OVER")
     }
 
-    /** The supply [ts] is capped on: 1e9 for a pump.fun curve mint, else the on-chain supply when resolved. */
+    /**
+     * The supply [ts] is capped on: the mint account's verified whole-token supply, else 0.0 (UNKNOWN; a chain read is
+     * requested). superseded by V5.0.8418 — was "1e9 for a pump.fun curve mint", a suffix guess.
+     */
     fun supplyFor8019(ts: TokenState): Double {
-        val onChain = try { OnChainSupplyAuthority7075.supplyOf7075(ts.mint) } catch (_: Throwable) { 0.0 }
-        if (onChain > 0.0) return onChain
-        return if (ts.mint.endsWith("pump")) PUMP_SUPPLY_8019 else 0.0
+        val verified = try { MintSupply8418.wholeOrRequest8418(ts.mint) } catch (_: Throwable) { 0.0 }
+        if (verified > 0.0) {
+            try { MintSupply8418.stamp8418(ts) } catch (_: Throwable) {}
+            return verified
+        }
+        return 0.0
     }
 
     /**
@@ -78,5 +90,5 @@ object TrustedMcap8019 {
         return v
     }
 
-    fun statusLine(): String = "capAgreed=${agreed.get()} capCorrected=${corrected.get()} rule=price x supply (1e9 on a pump curve) replaces a row cap off by >${MAX_RATIO_8019.toInt()}x"
+    fun statusLine(): String = "capAgreed=${agreed.get()} capCorrected=${corrected.get()} rule=price x verified mint-account supply (unknown supply: no correction) replaces a row cap off by >${MAX_RATIO_8019.toInt()}x"
 }

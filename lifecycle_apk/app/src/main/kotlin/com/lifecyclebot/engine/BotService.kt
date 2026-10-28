@@ -3184,9 +3184,9 @@ class BotService : Service() {
                                     }
                                     // Register + poll each open position
                                     openTokens.forEach { ts ->
-                                        val supply = if (ts.position.entryPrice > 0.0 && ts.position.entryMcap > 0.0)
-                                            ts.position.entryMcap / ts.position.entryPrice
-                                        else 1_000_000_000.0  // pump.fun default
+                                        val supply = com.lifecyclebot.engine.truth.MintSupply8418.wholeOrRequest8418(ts.mint).takeIf { it > 0.0 }   // V5.0.8418 — the mint account's supply first
+                                            ?: if (ts.position.entryPrice > 0.0 && ts.position.entryMcap > 0.0) ts.position.entryMcap / ts.position.entryPrice
+                                            else 0.0  // superseded by V5.0.8418 — no "pump.fun default" 1e9: unknown supply is not registered this cycle (retried next)
                                         if (!com.lifecyclebot.engine.BirdeyeMintBurnMonitor.isRegistered(ts.mint)) {
                                             com.lifecyclebot.engine.BirdeyeMintBurnMonitor.registerOpen(ts.mint, supply)
                                         }
@@ -17394,7 +17394,7 @@ class BotService : Service() {
                     } catch (_: Throwable) {}
                 }
                 val seedPrice7089: Double = when {
-                    isPumpMint7089 -> trustedMarketCapUsd6492 / 1_000_000_000.0
+                    isPumpMint7089 -> if (chainSupply7089 >= 1.0) trustedMarketCapUsd6492 / chainSupply7089 else 0.0   // superseded by V5.0.8418 — was cap / 1e9; the mint account's supply or no seed
                     chainSupply7089 >= 1.0 && !globalCapSource7270 -> trustedMarketCapUsd6492 / chainSupply7089
                     else -> 0.0
                 }
@@ -17471,7 +17471,7 @@ class BotService : Service() {
                         com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)
                     } catch (_: Throwable) { 0.0 }
                     val newPrice = when {
-                        isPumpMintWs7089 -> trustedMarketCapUsd6492 / 1_000_000_000.0
+                        isPumpMintWs7089 -> if (chainSupplyWs7089 >= 1.0) trustedMarketCapUsd6492 / chainSupplyWs7089 else 0.0   // superseded by V5.0.8418 — was cap / 1e9
                         chainSupplyWs7089 >= 1.0 -> trustedMarketCapUsd6492 / chainSupplyWs7089
                         else -> 0.0
                     }
@@ -25784,7 +25784,7 @@ if (hotExitHandledSweep) {
             if (marketCapSol.isFinite() && marketCapSol > 0.0) ts.lastMcap = marketCapSol * solUsd
             // V5.0.8399 — a print without the venue's market cap (PumpSwap vault tick) still prices the fixed pump supply.
             else if (!(ts.lastMcap.isFinite() && ts.lastMcap > 0.0) && (ts.tokenMap.pumpFunExecutable || ts.tokenMap.virtualSolReserves != null))
-                ts.lastMcap = px * com.lifecyclebot.engine.truth.CurveReserves7951.PUMP_TOTAL_SUPPLY_8399
+                com.lifecyclebot.engine.truth.MintSupply8418.capUsd8418(mint, px).takeIf { it.isFinite() }?.let { ts.lastMcap = it }   // V5.0.8418 — verified supply x print; unread supply: cap stays unknown
         }
         try {
             com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
@@ -25898,8 +25898,8 @@ if (hotExitHandledSweep) {
                 // promoted launch admitted with liq=0 and mcap=0 read as dust and was refused (INTAKE_LIQ_ZERO_REJECT).
                 val solUsd8165 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
                 val pxSol8165 = try { com.lifecyclebot.engine.market.LaunchTape7921.lastPriceSol8165(mint) } catch (_: Throwable) { 0.0 }
-                val capUsd8165 = if (solUsd8165 > 0.0 && pxSol8165 > 0.0) pxSol8165 * 1_000_000_000.0 * solUsd8165 else 0.0
-                val liqUsd8165 = com.lifecyclebot.engine.truth.LiquidityTruth8037.curveDepthUsd8164(capUsd8165, solUsd8165) ?: 0.0
+                val capUsd8165 = com.lifecyclebot.engine.truth.MintSupply8418.capSol8418(mint, pxSol8165) * solUsd8165   // V5.0.8418 — verified supply x print; NaN = unknown (was x 1e9)
+                val liqUsd8165 = com.lifecyclebot.engine.truth.CurveReserves7951.curveDepthUsdFromPrice8418(pxSol8165, solUsd8165) ?: 0.0
                 admitProtectedMemeIntake(
                     mint = mint,
                     symbol = symbol.ifBlank { mint.take(6) },
@@ -25990,10 +25990,10 @@ if (hotExitHandledSweep) {
         if (mint.isBlank() || FreshLaunchIntake8303.rowWatched8303(status.tokens.containsKey(mint), mint)) return  // V5.0.8303 — an evicted row no longer blocks
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!(solUsd.isFinite() && solUsd > 0.0)) return
-        val capSol = if (mcapSol.isFinite() && mcapSol > 0.0) mcapSol else priceSol * 1e9
+        val capSol = com.lifecyclebot.engine.truth.MintSupply8418.capSol8418(mint, priceSol).takeIf { it.isFinite() } ?: return   // V5.0.8418 — verified supply x price; the frame's own 1e9 cap (mcapSol=$mcapSol) is not evidence
         val bornAt = FreshLaunchIntake8303.createBirthMs8303(mint) ?: return  // V5.0.8303 — any witnessed create frame, not only one with reserves
         val meta = com.lifecyclebot.engine.truth.PumpBandEntry8118.claim8118(mint, capSol * solUsd, System.currentTimeMillis() - bornAt) ?: return
-        val liqUsd = com.lifecyclebot.engine.truth.LiquidityTruth8037.curveRealSolFromCap8048(capSol) * solUsd
+        val liqUsd = com.lifecyclebot.engine.truth.CurveReserves7951.realSolFromPrice8418(priceSol) * solUsd   // V5.0.8418 — curve invariant on the price, not on a cap
         try { PipelineHealthCollector.labelInc("PUMP_BAND_ENTRY_8118") } catch (_: Throwable) {}
         val admitted = admitProtectedMemeIntake(
             mint = mint, symbol = meta.symbol, name = meta.name, source = "PUMP_PORTAL_WS",
@@ -26243,8 +26243,9 @@ if (hotExitHandledSweep) {
                 val isPumpSource = try {
                     MemeChokes7951.curveVenueSeeded7951(ts) // V5.0.7951 — the curve is the venue (suffix, key or reserves); seeds its price
                 } catch (_: Throwable) { false }
-                if (isPumpSource && ts.lastPrice <= 0.0 && ts.lastMcap > 0.0) {
-                    val seededPrice = ts.lastMcap / 1_000_000_000.0
+                val verifiedSupply8418 = try { com.lifecyclebot.engine.truth.MintSupply8418.wholeOrRequest8418(mint) } catch (_: Throwable) { 0.0 }   // V5.0.8418 — no 1e9 seed
+                if (isPumpSource && ts.lastPrice <= 0.0 && ts.lastMcap > 0.0 && verifiedSupply8418 > 0.0) {
+                    val seededPrice = ts.lastMcap / verifiedSupply8418
                     synchronized(ts) {
                         ts.lastPrice = seededPrice
                         ts.lastPriceUpdate = System.currentTimeMillis()

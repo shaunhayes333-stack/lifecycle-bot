@@ -615,6 +615,8 @@ data class TokenState(
     // consensus evaluation. Populated post-BrainConsensusGate.evaluate.
     var lastConsensusObjections: List<String> = emptyList(),
 ) {
+    /** V5.0.8418 — what this mint's ACCOUNT said (supply in base units, decimals, slot, observed at); null = not yet read. */
+    @Volatile var mintSupply8418: com.lifecyclebot.engine.truth.MintSupply8418.Supply8418? = null
     /** V5.0.8084 — wall clock of the last MEASURED buy/sell pressure write (0 = never measured; 50/50 is then the default). */
     @Volatile var buyPressureObservedAtMs8084: Long = 0L
     /** V5.0.8084 — wall clock of the last measured 5m/1h price-change write (0 = the 0.0 defaults are unobserved). */

@@ -200,7 +200,9 @@ object OnChainMintAuthorityProof7248 {
                     .build()
                 HealthAwareHttp.execute(http, req, host = hostKey7369).use { resp ->
                     if (!resp.isSuccessful) { miss8094("HTTP_${resp.code}"); return@use }
-                    val value = JSONObject(resp.body?.string().orEmpty()).optJSONObject("result")?.optJSONObject("value")
+                    val result8418 = JSONObject(resp.body?.string().orEmpty()).optJSONObject("result")
+                    try { MintSupply8418.noteAccountInfo8418(mint, result8418) } catch (_: Throwable) {}   // V5.0.8418 — the mint read is the supply read too
+                    val value = result8418?.optJSONObject("value")
                     if (value == null) { miss8094("ACCOUNT_NOT_FOUND"); return@use }
                     val proof = parseAccountProof8253(value, provider) ?: run {
                         miss8094("INVALID_OR_INCOMPLETE_MINT_ACCOUNT")

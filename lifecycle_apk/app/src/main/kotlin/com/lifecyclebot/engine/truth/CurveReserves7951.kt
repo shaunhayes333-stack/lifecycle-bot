@@ -75,16 +75,41 @@ object CurveReserves7951 {
     }
 
     data class AcceptedObservation8385(val atMs: Long, val source: String, val version: Long)
-    /** pump.fun mints a fixed 1,000,000,000 supply; the curve price times that supply is the venue's own market cap. */
-    const val PUMP_TOTAL_SUPPLY_8399 = 1_000_000_000.0
+    // superseded by V5.0.8418 — PUMP_TOTAL_SUPPLY_8399 ("pump.fun mints a fixed 1,000,000,000 supply") is removed: the
+    // curve prices the token; the SUPPLY is the mint account's (MintSupply8418), and without it the cap is UNKNOWN.
     private const val MCAP_FROM_CURVE_MAX_AGE_MS_8399 = 15L * 60_000L
 
-    /** Pure: market cap in USD from the curve's virtual reserves, or NaN when the reserves cannot price it. */
-    fun mcapUsdFromCurve8399(virtualSol: Double, virtualTokens: Double, solUsd: Double): Double {
+    /**
+     * Pure: market cap in USD from the curve's virtual reserves x the mint account's verified whole-token supply
+     * [verifiedSupply], or NaN when the reserves cannot price it or the supply is not verified (V5.0.8418).
+     */
+    fun mcapUsdFromCurve8399(virtualSol: Double, virtualTokens: Double, solUsd: Double, verifiedSupply: Double): Double {
         if (!solUsd.isFinite() || solUsd <= 0.0) return Double.NaN
         val px = priceSol7951(virtualSol, virtualTokens)
         if (!px.isFinite() || px <= 0.0) return Double.NaN
-        return px * PUMP_TOTAL_SUPPLY_8399 * solUsd
+        return MintSupply8418.capOf8418(verifiedSupply, px * solUsd)
+    }
+
+    /**
+     * Pure (V5.0.8418): an active curve's real SOL from its spot price (SOL per token), by pump.fun's own invariant
+     * vSol x vTok = 30 x 1.073e9 (vSol = sqrt(price x k), real = vSol - 30). This is curve arithmetic over the curve's
+     * VIRTUAL token reserve — it does not depend on, or assume, the mint's supply. 0.0 for no price.
+     */
+    fun realSolFromPrice8418(priceSol: Double): Double {
+        if (!priceSol.isFinite() || priceSol <= 0.0) return 0.0
+        val vSol = kotlin.math.sqrt(priceSol * INITIAL_VIRTUAL_SOL_7951 * INITIAL_VIRTUAL_TOKENS_7951)
+        return (vSol - INITIAL_VIRTUAL_SOL_7951).coerceAtLeast(0.0)
+    }
+
+    /** V5.0.8418 — the curve completes near 85 real SOL (vSol ~115); a price beyond it is not an active curve's. */
+    private const val MAX_ACTIVE_REAL_SOL_8418 = 85.02
+
+    /** Pure (V5.0.8418): an active curve's depth in USD from its spot price; null for no price or a completed curve. */
+    fun curveDepthUsdFromPrice8418(priceSol: Double, solUsd: Double): Double? {
+        if (!(solUsd.isFinite() && solUsd > 0.0)) return null
+        val real = realSolFromPrice8418(priceSol)
+        if (!(real > 0.0) || real > MAX_ACTIVE_REAL_SOL_8418) return null
+        return real * solUsd
     }
 
     /**
@@ -98,7 +123,9 @@ object CurveReserves7951 {
         val r = rows[ts.mint] ?: return Double.NaN
         val (vSol, vTok, atMs) = synchronized(r) { Triple(r.virtualSol, r.virtualTokens, r.atMs) }
         if (atMs <= 0L || nowMs - atMs > MCAP_FROM_CURVE_MAX_AGE_MS_8399) return Double.NaN
-        val mcap = mcapUsdFromCurve8399(vSol, vTok, solUsd)
+        // V5.0.8418 — the mint account's supply, not 1e9; unread -> a read is requested and the cap stays UNKNOWN.
+        val supply8418 = try { MintSupply8418.wholeOrRequest8418(ts.mint) } catch (_: Throwable) { 0.0 }
+        val mcap = mcapUsdFromCurve8399(vSol, vTok, solUsd, supply8418)
         if (!mcap.isFinite() || mcap <= 0.0) return Double.NaN
         synchronized(ts) { if (!(ts.lastMcap.isFinite() && ts.lastMcap > 0.0)) ts.lastMcap = mcap }
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MCAP_HYDRATED_FROM_CURVE_8399") } catch (_: Throwable) {}

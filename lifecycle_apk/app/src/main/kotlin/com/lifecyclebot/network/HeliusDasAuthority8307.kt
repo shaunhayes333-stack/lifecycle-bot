@@ -117,6 +117,7 @@ object HeliusDasAuthority8307 {
         val now = System.currentTimeMillis()
         if (cache.size > CACHE_CAP_8307) cache.entries.removeIf { now - it.value.atMs > TTL_MS_8307 }
         for (i in 0 until arr.length()) {
+            try { com.lifecyclebot.engine.truth.MintSupply8418.noteDas8418(arr.optJSONObject(i), now) } catch (_: Throwable) {}   // V5.0.8418 — DAS supply + decimals
             val a = arr.optJSONObject(i)?.let { parseAsset8307(it, now) } ?: continue
             cache[a.mint] = a
             answered.incrementAndGet()
