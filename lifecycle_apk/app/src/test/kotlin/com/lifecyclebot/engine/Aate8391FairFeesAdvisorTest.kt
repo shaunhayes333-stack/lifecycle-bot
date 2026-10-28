@@ -79,8 +79,11 @@ class Aate8391FairFeesAdvisorTest {
         assertEquals(1.5,cost.adaptiveMargin8391(List(29){3.0},3.0),0.0)
         val early=cost.adaptiveMargin8391(List(30){3.0},3.0)
         val mature=cost.adaptiveMargin8391(List(120){3.0},3.0)
-        assertTrue(early<1.5); assertTrue(mature<early); assertTrue(mature>1.0)
-        assertTrue(com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(4.0,3.0,early))
+        // superseded by V5.0.8418 — the adaptive margin may only RAISE the owner's 1.5x (DIRECTIVE_LEDGER #28); clean costs no
+        // longer lower it toward 1.0 (was: early<1.5, mature<early, entryClears8030(4.0, 3.0, early)).
+        assertEquals(1.5,early,0.0); assertEquals(1.5,mature,0.0)
+        assertFalse(com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(4.0,3.0,early))
+        assertTrue(com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(4.5,3.0,mature))
         assertFalse(com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(2.9,3.0,mature))
         assertTrue(cost.adaptiveMargin8391(List(30){12.0},3.0)>1.5)
     }

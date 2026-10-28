@@ -203,7 +203,7 @@ object LiveEdgeGate7877 {
         // V5.0.7939 — a runner lane is judged on its runner setups, not its lane mean:
         // a fired playbook setup with a positive expected record still gets its shot.
         if (laneProvenLosing7938(laneStat7938) && !runnerSetupFires7939(ts, l, nowMs) &&
-            !com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.wrongClockSpares8408(l, "LANE_7938")) {   // V5.0.8408
+            com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.refusalKept8418(l, "LANE_7938")) {   // V5.0.8418 (was 8408 wrongClockSpares8408)
             val own = judge(cell, false)
             // V5.0.7948 review — a pooled cross-lane cohort never overrules the lane's own proven loss
             // (the exact borrowed-cohort admission 7938 was written to stop).
@@ -935,10 +935,12 @@ object LiveEdgeGate7877 {
         nowMs: Long, admittedJudged: Boolean = false,
     ): String? {
         if (!chasing8065(runupFromLowPct, currentVsPeak, ts.lastPriceChange5m)) return null
-        if (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false }) {
-            try { PipelineHealthCollector.labelInc("CHASE_STOOD_DOWN_RUNNER_TICKET_8397_$lane") } catch (_: Throwable) {}
-            return null
-        }
+        // superseded by V5.0.8418 — an active RunnerPlay8018 re-entry ticket no longer exempts the coin from the chase rule
+        // (8373 / 8397 restored the 8114 exemption): DIRECTIVE_LEDGER #10 (owner fix block 8337 FIX 6b) keeps the chase
+        // exemption for an EARLY run that is also a grab only. A re-entry ticket is +100% over its decision price by
+        // definition; it waits for its pullback (8115: 8113 bought 34fph3 on a ticket at +1,238%). Counted, not exempted.
+        if (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false })
+            try { PipelineHealthCollector.labelInc("CHASE_RUNNER_TICKET_NOT_EXEMPT_8418_$lane") } catch (_: Throwable) {}
         if (developingRunGrab8117(ts, runupFromLowPct, nowMs) || spikeRuleRefusesRunners8097(ts, lane, nowMs)) return null
         // V5.0.8418 — the grab lane's own admit (RunnerGrabLane8343: full safety, exit-safe venue, forming run, 1.5x at the
         // grab size, the 8329 chase cap) is the 8117 developing run too: still early by the same bound, it is bought on the

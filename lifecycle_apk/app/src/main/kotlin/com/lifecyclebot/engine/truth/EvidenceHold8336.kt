@@ -78,8 +78,11 @@ object EvidenceHold8336 {
     val FAST_BAR_LANES_8399: Set<String> = setOf("CORE", "MOONSHOT", "PROJECT_SNIPER")
     const val FAST_MIN_N_8399 = 15
     const val FAST_MIN_PF_8399 = 1.2
-    fun minN8399(lane: String?): Int = if (lane != null && canon(lane) in FAST_BAR_LANES_8399) FAST_MIN_N_8399 else MIN_N_8336
-    fun minPf8399(lane: String?): Double = if (lane != null && canon(lane) in FAST_BAR_LANES_8399) FAST_MIN_PF_8399 else MIN_PF_8336
+    // superseded by V5.0.8418 — the fast bar (15 closes / PF 1.2 for CORE, MOONSHOT, PROJECT_SNIPER) lowered the PAPER proof that
+    // unlocks LIVE; its "operator (27 Oct 2026)" instruction is not in DIRECTIVE_LEDGER_8367 (review 8418). Every lane reads the
+    // 8336 bar (30 / PF 1.3) again; the fast-lane set and constants stay for the report.
+    fun minN8399(lane: String?): Int = MIN_N_8336
+    fun minPf8399(lane: String?): Double = MIN_PF_8336
 
     fun proof8336(returnsPct: List<Double>, pnlSol: List<Double>, lane: String? = null): Proof8336 {
         val r = returnsPct.filter { it.isFinite() }.map { it.coerceIn(-100.0, 1_000.0) }
@@ -104,10 +107,16 @@ object EvidenceHold8336 {
      * not merely through one exploration niche. A niche/timing choice then shapes preference, it does not veto the lane:
      * MOONSHOT 5.0.8390 read shadow n30 +60.1% pf4.42 PROVEN lane-wide while NICHE_ONLY_8351 refused 462 of its live entries.
      */
-    fun laneWideProven8392(lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
-        val l = canon(lane)
-        return proofFor8336(l, nowMs).proven || (try { EvidenceShadow8344.proof8344(l, startMs8336).proven } catch (_: Throwable) { false })
-    }
+    // superseded by V5.0.8418 — the lane-wide proof was the PAPER record or the SHADOW book, and it lifted the LIVE niche veto
+    // and entry-timing wait (a paper / shadow result admitting live entries). It is now the lane's own realised LIVE closes in
+    // the account mode (Cortex7885.laneRealised8295): [MIN_N_8336]+ closes with a mean above [MARGIN_PCT_8336].
+    fun laneWideProven8392(lane: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        laneWideLive8418(try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(canon(lane)) } catch (_: Throwable) { null })
+
+    /** Pure (V5.0.8418): realised live [closes, mean %] that prove a lane lane-wide. */
+    fun laneWideLive8418(realised: DoubleArray?): Boolean =
+        realised != null && realised.size >= 2 && realised[0].isFinite() && realised[0] >= MIN_N_8336 &&
+            realised[1].isFinite() && realised[1] > MARGIN_PCT_8336
 
     fun shadowProven8344(lane: String): Boolean = explorationProven8347(lane) ||
         try { EvidenceShadow8344.proof8344(canon(lane), startMs8336).proven } catch (_: Throwable) { false }
@@ -393,7 +402,7 @@ object EvidenceHold8336 {
         val lanes = records8342.entries.sortedByDescending { it.value.all.n }.joinToString(" · ") { (l, r) -> laneLine8342(l, r) }
             .ifBlank { "no meme-lane paper closes since start" }
         return "evidenceHold8336[on=$enabled8336 rehearsal=$rehearsal8336 sinceMin=${if (startMs8336 > 0) (nowMs - startMs8336) / 60_000 else -1} " +
-            "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 fast8399=${FAST_BAR_LANES_8399.joinToString("/")}:n>=$FAST_MIN_N_8399,pf>=$FAST_MIN_PF_8399 lanes=${EvidenceHold8336.HELD_LANES_8392.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
+            "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 fast8399=retired8418(${FAST_BAR_LANES_8399.joinToString("/")}:n>=$FAST_MIN_N_8399,pf>=$FAST_MIN_PF_8399) lanes=${EvidenceHold8336.HELD_LANES_8392.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "exceptions=${exceptionCount8337()} last=${exceptionBudget8397.last()} grabDoor8345=${grabExceptionCount8345()} reserved8397=${exceptionBudget8397.reservations()} meter8397=SUBMITTED_ATTEMPT $lanes" +
             (try { EvidenceShadow8344.recoveryLine8345(startMs8336, nowMs) } catch (_: Throwable) { " recovery8345{?}" }) + "]"  // V5.0.8345 — the bounded path to the bar
     }

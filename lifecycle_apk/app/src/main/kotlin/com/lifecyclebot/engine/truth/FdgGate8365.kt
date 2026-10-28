@@ -165,9 +165,12 @@ object FdgGate8365 {
         if (!live || !EvidenceHold8336.enabled8336) return null
         val paperAll = try { EvidenceHold8336.proofFor8336(lane, nowMs).proven } catch (_: Throwable) { false }
         val explore = !paperAll && (try { EvidenceHold8336.explorationProven8347(lane) } catch (_: Throwable) { false })
-        return holdBasisOf8365(true, live, paperAll, explore)
-            ?: if (EvidenceShadow8344.advisoryProof8393(CanonicalLaneIdentity6506.desk8392(lane), EvidenceHold8336.startMs8336).proven)
-                "SHADOW_ADVISORY_8393" else null
+        // superseded by V5.0.8418 — a proven EvidenceShadow8344 advisory book was a hold basis ("SHADOW_ADVISORY_8393") that made
+        // every LIVE evidence door advisory: a shadow result admitting live entries. It is now counted only; the doors bind.
+        val basis = holdBasisOf8365(true, live, paperAll, explore)
+        if (basis == null && (try { EvidenceShadow8344.advisoryProof8393(CanonicalLaneIdentity6506.desk8392(lane), EvidenceHold8336.startMs8336).proven } catch (_: Throwable) { false }))
+            try { PipelineHealthCollector.labelInc("SHADOW_ADVISORY_PROOF_NOT_A_LIVE_BASIS_8418_${CanonicalLaneIdentity6506.desk8392(lane)}") } catch (_: Throwable) {}
+        return basis
     }
 
     fun <T> inContext8365(ts: TokenState, lane: String, holdBasis: String?, paper8393: Boolean = false,

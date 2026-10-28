@@ -190,7 +190,8 @@ class Aate8397RunnerExecutionTest {
         ts.lastPriceChange5m = 20.0
         try {
             assertTrue(RunnerPlay8018.issueTicket8397(ts.mint, now, 0))
-            assertNull(LiveEdgeGate7877.chaseRefusal8397(ts, "MOONSHOT", 200.0, 0.98, now))
+            // superseded by V5.0.8418 — a re-entry ticket is no chase exemption (DIRECTIVE_LEDGER #10, 8337 FIX 6b); was assertNull.
+            assertEquals("CHASING_SPIKE_8065", LiveEdgeGate7877.chaseRefusal8397(ts, "MOONSHOT", 200.0, 0.98, now))
             assertEquals("CHASING_SPIKE_8065", LiveEdgeGate7877.chaseRefusal8397(ts, "MOONSHOT", 200.0, 0.98, now + 180_001L))
             assertNull(LiveEdgeGate7877.chaseRefusal8397(ts, "MOONSHOT", 20.0, 0.80, now + 180_001L))
         } finally { clean(ts) }
