@@ -78,6 +78,11 @@ class TokenMetaCache private constructor(ctx: Context) :
         // decimals and creation time with it, and forcing a full rebuild
         // (and a fresh provider spend) if the bot ever touched it again.
         var lastInteractedMs: Long = 0L,
+        // V5.0.8418 §A_STORED_BIRTH_CARRIES_ITS_PROOF. 1 = creationTimeMs is the block time of the transaction that ran
+        // InitializeMint / InitializeMint2 on this mint (TokenBirthHydrator7441). 0 = anything else — a row written under
+        // the old rule (oldest signature the node kept), a pump.fun created_timestamp, a create frame, a hive import. An
+        // unproven stored birth is read back as a lower bound only (StoredBirth8418) and its proof is re-verified.
+        var birthProof8418: Int = 0,
     )
 
     private val live = ConcurrentHashMap<String, Entry>(8192)
@@ -168,7 +173,9 @@ class TokenMetaCache private constructor(ctx: Context) :
                 // needed: the schema for new installs, the version bump for
                 // the broken ones.
                 "supply_tokens REAL NOT NULL DEFAULT 0," +
-                "supply_captured_ms INTEGER NOT NULL DEFAULT 0" +
+                "supply_captured_ms INTEGER NOT NULL DEFAULT 0," +
+                // V5.0.8418 — additive: an existing row reads 0 (unproven), never a fabricated proof.
+                "birth_proof_8418 INTEGER NOT NULL DEFAULT 0" +
                 ");"
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_meta_last_seen ON token_meta(last_seen_ms DESC);")
@@ -201,6 +208,8 @@ class TokenMetaCache private constructor(ctx: Context) :
             // V5.0.7069 — supply, so price and market cap can verify each other.
             "ALTER TABLE token_meta ADD COLUMN supply_tokens REAL NOT NULL DEFAULT 0",
             "ALTER TABLE token_meta ADD COLUMN supply_captured_ms INTEGER NOT NULL DEFAULT 0",
+            // V5.0.8418 — the stored birth's proof; existing rows default to 0 = unproven (re-verified, never deleted).
+            "ALTER TABLE token_meta ADD COLUMN birth_proof_8418 INTEGER NOT NULL DEFAULT 0",
         )
         var applied = 0
         for (stmt in additive) {
@@ -240,7 +249,7 @@ class TokenMetaCache private constructor(ctx: Context) :
                     "last_price_source, last_price_pool_addr, last_price_dex, " +
                     "last_price, last_mcap, last_liquidity_usd, last_fdv, " +
                     "creation_time_ms, first_seen_ms, last_seen_ms, hit_count, " +
-                    "decimals, last_interacted_ms, supply_tokens, supply_captured_ms " +
+                    "decimals, last_interacted_ms, supply_tokens, supply_captured_ms, birth_proof_8418 " +
                     // V5.0.6908 — interacted rows load first and are never
                     // truncated by the row cap: a token the bot actually traded
                     // is the one whose archived pool/dex/decimals we most need
@@ -298,8 +307,10 @@ class TokenMetaCache private constructor(ctx: Context) :
                         lastInteractedMs = c.getLong(18),
                         supplyTokens = c.getDouble(19),
                         supplyCapturedAtMs = c.getLong(20),
+                        birthProof8418 = c.getInt(21),
                     )
                     live.putIfAbsent(keyMint7215, e)
+                    com.lifecyclebot.engine.truth.StoredBirth8418.onLoaded8418(keyMint7215, e.creationTimeMs, e.birthProof8418)   // V5.0.8418
                     hydrated++
                 }
             }
@@ -340,7 +351,7 @@ class TokenMetaCache private constructor(ctx: Context) :
                             "last_price_source, last_price_pool_addr, last_price_dex, " +
                             "last_price, last_mcap, last_liquidity_usd, last_fdv, " +
                             "creation_time_ms, first_seen_ms, last_seen_ms, hit_count, " +
-                            "decimals, last_interacted_ms, supply_tokens, supply_captured_ms " +
+                            "decimals, last_interacted_ms, supply_tokens, supply_captured_ms, birth_proof_8418 " +
                             "FROM token_meta WHERE mint = ? LIMIT 1",
                         arrayOf(key),
                     ).use { c ->
@@ -353,7 +364,9 @@ class TokenMetaCache private constructor(ctx: Context) :
                                 lastPrice = c.getDouble(9), lastMcap = c.getDouble(10), lastLiquidityUsd = c.getDouble(11), lastFdv = c.getDouble(12),
                                 creationTimeMs = c.getLong(13), firstSeenMs = c.getLong(14), lastSeenMs = c.getLong(15), hitCount = c.getLong(16),
                                 decimals = c.getInt(17), lastInteractedMs = c.getLong(18), supplyTokens = c.getDouble(19), supplyCapturedAtMs = c.getLong(20),
+                                birthProof8418 = c.getInt(21),
                             ))
+                            com.lifecyclebot.engine.truth.StoredBirth8418.onLoaded8418(key, c.getLong(13), c.getInt(21))   // V5.0.8418
                             diskLoads7979.incrementAndGet()
                         }
                     }
@@ -411,6 +424,8 @@ class TokenMetaCache private constructor(ctx: Context) :
         // retention exemption; observation alone must not, or every scanned
         // mint would become permanently unprunable.
         interacted: Boolean = false,
+        // V5.0.8418 — true only from TokenBirthHydrator7441 after InitializeMint proof: the chain proof is the birth.
+        birthProven8418: Boolean = false,
     ) {
         val key = com.lifecyclebot.data.CanonicalMint.normalize(mint)
         if (key.isEmpty()) return
@@ -440,7 +455,11 @@ class TokenMetaCache private constructor(ctx: Context) :
         // V5.0.7770 — a token is born once: the earliest plausible time wins. Any
         // different value used to overwrite it, so a later sighting could replace a
         // chain-proven birth and make an old token read as a fresh launch.
-        if (creationTimeMs != null && creationTimeMs >= MIN_BIRTH_MS_7770 && (e.creationTimeMs < MIN_BIRTH_MS_7770 || creationTimeMs < e.creationTimeMs)) { e.creationTimeMs = creationTimeMs; changed = true }
+        // V5.0.8418 — the chain proof wins when present: a proven birth replaces an unproven (observed) one either way,
+        // and an observation never replaces a proven birth.
+        val nextBirth8418 = com.lifecyclebot.engine.truth.StoredBirth8418.merge8418(e.creationTimeMs, e.birthProof8418, creationTimeMs, birthProven8418)
+        if (nextBirth8418 != null) { e.creationTimeMs = nextBirth8418.first; e.birthProof8418 = nextBirth8418.second; changed = true }
+        else if (creationTimeMs != null && e.birthProof8418 == 0 && creationTimeMs >= MIN_BIRTH_MS_7770 && (e.creationTimeMs < MIN_BIRTH_MS_7770 || creationTimeMs < e.creationTimeMs)) { e.creationTimeMs = creationTimeMs; changed = true }
         // Decimals are immutable for an SPL mint, so a known value is never
         // overwritten by a later unknown one — and a CHANGE is a genuine
         // integrity event worth surfacing rather than silently accepting,
@@ -554,6 +573,7 @@ class TokenMetaCache private constructor(ctx: Context) :
                             put("last_interacted_ms", e.lastInteractedMs)
                             put("supply_tokens", e.supplyTokens)
                             put("supply_captured_ms", e.supplyCapturedAtMs)
+                            put("birth_proof_8418", e.birthProof8418)
                         }
                         check(db.insertWithOnConflict("token_meta", null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L) { "token_meta insert failed" }
                         written++
@@ -705,7 +725,8 @@ class TokenMetaCache private constructor(ctx: Context) :
         // to those databases. onUpgrade is additive and idempotent (6908), so
         // an archive that already has the columns is untouched and nothing is
         // dropped.
-        private const val DB_VERSION = 4
+        // V5.0.8418 — 4 -> 5 delivers the additive birth_proof_8418 column (default 0 = unproven); nothing is dropped.
+        private const val DB_VERSION = 5
         private const val MAX_LIVE_ROWS = 50_000
         /** V5.0.7979 — memory working set; the rest of the archive stays on the device. */
         private const val MEMORY_ROWS_7979 = 4_000

@@ -45,10 +45,17 @@ object CanonicalTokenBirthTime7440 {
     private fun candidates8418(m: String, nowMs: Long): List<Resolution> {
         val candidates = ArrayList<Resolution>(3)
 
+        var chainProvenMs8418 = 0L
         try {
             val ctx = com.lifecyclebot.AATEApp.appContextOrNull()
-            val metaMs = ctx?.let { TokenMetaCache.get(it).lookup(m)?.creationTimeMs } ?: 0L
-            if (plausible(metaMs, nowMs)) candidates += Resolution(metaMs, Source.TOKEN_META_CREATION)
+            val row8418 = ctx?.let { TokenMetaCache.get(it).lookup(m) }
+            val metaMs = row8418?.creationTimeMs ?: 0L
+            // V5.0.8418 — a stored birth is the birth only with InitializeMint proof; an unproven one is a HISTORY_FLOOR
+            // (published by StoredBirth8418) and is queued for proof, never a candidate here.
+            if (plausible(metaMs, nowMs) && StoredBirth8418.usableAsBirth8418(metaMs, row8418?.birthProof8418 ?: 0)) {
+                candidates += Resolution(metaMs, Source.TOKEN_META_CREATION)
+                chainProvenMs8418 = metaMs
+            } else if (row8418 != null && plausible(metaMs, nowMs)) StoredBirth8418.onLoaded8418(m, metaMs, row8418.birthProof8418)
         } catch (_: Throwable) {}
 
         try {
@@ -56,7 +63,10 @@ object CanonicalTokenBirthTime7440 {
             if (plausible(pumpMs, nowMs)) candidates += Resolution(pumpMs, Source.PUMP_CREATE_EVENT)
         } catch (_: Throwable) {}
         // V5.0.8144 — every create frame (also throttled / reserve-less ones) and pump.fun's coin record are the create event too.
-        try { AdmissionBirth8144.pumpCreateMs8144(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.PUMP_CREATE_EVENT) } } catch (_: Throwable) {}
+        // V5.0.8418 §THE_CHAIN_PROOF_WINS — pump.fun's coin record (created_timestamp, an API observation) counts only while no
+        // chain proof of the mint's initialisation is held; with one, the record is not a candidate and the proof is the birth.
+        val chainHeld8418 = chainProof8418(chainProvenMs8418, m, nowMs)
+        try { (if (chainHeld8418 != null) AdmissionBirth8144.createFrameMs8169(m) else AdmissionBirth8144.pumpCreateMs8144(m))?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.PUMP_CREATE_EVENT) } } catch (_: Throwable) {}
         // V5.0.8173 — the other direct witnesses AdmissionBirth8144 already holds by mint: a pump mint's own bonding-curve pair
         // (MarketSweep7297 enrichment notes it there and nowhere else, so launch lanes read UNKNOWN_DEFER beside it) and the
         // mint's oldest signature with its history read to the end (in memory before the meta cache's lazy disk read).
@@ -87,6 +97,22 @@ object CanonicalTokenBirthTime7440 {
             } catch (_: Throwable) {}
         }
         return resolved
+    }
+
+    /** V5.0.8418 — the earliest chain-proven birth held for [mint] (proven meta row, proven oldest signature, chain launch), or null. */
+    private fun chainProof8418(metaProvenMs: Long, mint: String, nowMs: Long): Resolution? {
+        val sig = try { AdmissionBirth8144.oldestSignatureMs8169(mint) } catch (_: Throwable) { null } ?: 0L
+        val init = try { AdmissionBirth8144.chainMintInitMs8179(mint) } catch (_: Throwable) { null } ?: 0L
+        return chainProofOf8418(metaProvenMs, sig, init, nowMs)
+    }
+
+    /** Pure (V5.0.8418): the chain-proven birth among a proven meta row, a proven oldest signature and a chain mint init. */
+    internal fun chainProofOf8418(metaProvenMs: Long, oldestSigProvenMs: Long, chainMintInitMs: Long, nowMs: Long): Resolution? {
+        val c = ArrayList<Resolution>(3)
+        if (plausible(chainMintInitMs, nowMs)) c += Resolution(chainMintInitMs, Source.FIRST_POOL_CREATION)
+        if (plausible(oldestSigProvenMs, nowMs)) c += Resolution(oldestSigProvenMs, Source.TOKEN_META_CREATION)
+        if (plausible(metaProvenMs, nowMs)) c += Resolution(metaProvenMs, Source.TOKEN_META_CREATION)
+        return c.minByOrNull { it.birthMs }
     }
 
     private fun sourceRank7770(s: Source): Int = when (s) {

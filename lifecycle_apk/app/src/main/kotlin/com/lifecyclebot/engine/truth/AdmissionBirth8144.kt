@@ -65,9 +65,12 @@ object AdmissionBirth8144 {
 
     /** Pure: the birth the witnesses support at [nowMs] (direct witnesses first, earliest wins; then lower bounds). */
     fun read8144(w: Witness8144, nowMs: Long): Read8144 {
+        // V5.0.8418 §THE_CHAIN_PROOF_WINS — pump.fun's created_timestamp is an API observation of the creation; when the
+        // transaction that initialised the mint is held (proven oldest signature, chain mint init) the record is not used.
+        val chainProof8418 = plausible8144(w.oldestSignatureMs, nowMs) || plausible8144(w.chainMintInitMs, nowMs)
         val direct = listOf(
             "CREATE_FRAME" to w.createFrameMs,
-            "PUMP_COIN_RECORD" to w.pumpRecordMs,
+            "PUMP_COIN_RECORD" to (if (chainProof8418) 0L else w.pumpRecordMs),
             "PAIR_CREATION" to w.pairCreatedMs,
             "OLDEST_SIGNATURE" to w.oldestSignatureMs,
             "TOKEN_META" to w.metaCreationMs,

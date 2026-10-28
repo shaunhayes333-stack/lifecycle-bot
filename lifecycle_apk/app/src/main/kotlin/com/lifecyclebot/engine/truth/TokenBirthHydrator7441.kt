@@ -135,7 +135,7 @@ object TokenBirthHydrator7441 {
     fun statusLine7441(): String =
         "birthHydrator7441[requests=${requests8265.get()} launched=${launched8265.get()} busDropped=${busDropped8265.get()} " +
             "cooldownSkips=${cooldownSkips8265.get()} dropped8287=${dropped8287.get()} resolved=${resolved8265.get()} mintInitProven8418=${initProven8418.get()} unproven8418=${initUnproven8418.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
-            "inFlight=${inFlight.size} progress=${progress.size} cooling=${cooldownUntil.size}]"
+            "inFlight=${inFlight.size} progress=${progress.size} cooling=${cooldownUntil.size}] ${StoredBirth8418.statusLine8418()}"
 
     // V5.0.8144 §BIRTH_FROM_EVERY_WITNESS. 5.0.8142: 2,015 PROJECT_SNIPER refusals as BIRTH_METADATA_HYDRATING. Three
     // defects here: (1) the page cursor was the last SUCCESSFUL signature, so a page that ended in failed transactions
@@ -440,7 +440,7 @@ object TokenBirthHydrator7441 {
         }
         try {
             val ctx = com.lifecyclebot.AATEApp.appContextOrNull()
-            if (ctx != null) TokenMetaCache.get(ctx).register(mint = mint, creationTimeMs = ms)
+            if (ctx != null) TokenMetaCache.get(ctx).register(mint = mint, creationTimeMs = ms, birthProven8418 = true)   // V5.0.8418 — InitializeMint proven
         } catch (_: Throwable) {}
         AdmissionBirth8144.noteOldestSignature8144(mint, ms)  // V5.0.8144 — in memory too (the meta cache reads disk lazily)
         resolved8265.incrementAndGet()
