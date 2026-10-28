@@ -1431,7 +1431,7 @@ object PipelineHealthCollector {
                 .append("\n")
             // V5.0.8184 — paper refused while LIVE, by source; frozen / quietly closed paper positions.
             sb.append("  Live no-paper (§8184):        ").append(LiveNoPaper8184.statusLine8184()).append("\n")
-            try { sb.append("  Evidence hold (§8336):        ").append(com.lifecyclebot.engine.truth.EvidenceHold8336.statusLine8336()).append("\n") } catch (_: Throwable) {}
+            try { sb.append("  Evidence hold (§8336):        ").append(com.lifecyclebot.engine.truth.FdgGate8365.evidenceAndGates8418()).append("\n") } catch (_: Throwable) {}
             try { sb.append("  Evidence shadow (§8344):      ").append(com.lifecyclebot.engine.truth.EvidenceShadow8344.statusLine8344(com.lifecyclebot.engine.truth.EvidenceHold8336.startMs8336)).append("\n") } catch (_: Throwable) {}
             try { sb.append("  Explore shadow (§8347):       ").append(com.lifecyclebot.engine.truth.ExploreShadow8347.statusLine8347(com.lifecyclebot.engine.truth.EvidenceHold8336.startMs8336)).append("\n") } catch (_: Throwable) {}
             try { sb.append("  Live vs shadow (§8366):       ").append(com.lifecyclebot.engine.truth.ShadowAlign8366.statusLine8366()).append("\n") } catch (_: Throwable) {}

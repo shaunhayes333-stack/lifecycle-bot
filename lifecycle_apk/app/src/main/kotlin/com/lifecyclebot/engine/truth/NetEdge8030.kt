@@ -402,15 +402,13 @@ object NetEdge8030 {
         realizedPct: Double?, costPct: Double,
         admission: CandidateAdmission8136.Decision8136? = null,
     ): Boolean {
-        // A supported selected setup supplies its own predicted move. Replacing it with
-        // yesterday's movement here discards the intelligence admission just evaluated.
-        // Generic/cell/lane evidence cannot claim a different setup's prediction.
+        // superseded by V5.0.8418 (buy-path review of 76565f9ca) — a supported setup's PREDICTED net (label books) replaced the
+        // coin's MEASURED last-hour move here, and filled in for an unknown one. The 8054 rule is a measured fact: the coin must
+        // have moved 3x the round trip. The prediction is no longer the move; the admission's quote at the candidate's own size
+        // is still the cost it is judged at.
         val quoted = admission?.takeIf { it.admitted && it.costPct.isFinite() && it.costPct > 0.0 &&
             it.costSizeSol.isFinite() && it.costSizeSol > 0.0 }
-        val ownSetup = quoted?.takeIf { it.specific && !it.chosenSetup.isNullOrBlank() &&
-            it.basis.substringBefore(" n") == "${CandidateAdmission8136.KIND_SETUP}:${it.chosenSetup}" &&
-            it.expectedNetPct.isFinite() && it.expectedNetPct > 0.0 }
-        val move = ownSetup?.let { it.expectedNetPct + it.costPct } ?: realizedPct
+        val move = realizedPct
         val cost = quoted?.costPct ?: costPct
         return move == null || !move.isFinite() || !(cost.isFinite() && cost > 0.0) ||
             move < SCALP_EDGE_MULT_8054 * cost
@@ -419,14 +417,15 @@ object NetEdge8030 {
     const val SCALP_MOVE_UNOBSERVED_8418 = "NET_EDGE_SCALP_MOVE_UNOBSERVED_8418"
 
     /**
-     * Pure (V5.0.8418): the scalp-lane wait when the coin's own move is unobserved and the admission carries no own-setup
-     * prediction: [StrategyMove8153.DEFER_REASON_8153] while [budgetOpen], else [SCALP_MOVE_UNOBSERVED_8418] (a named
-     * terminal). Null when the move is known or the admission's own setup predicts it ([scalpMoveTooSmall8054] decides).
+     * Pure (V5.0.8418): the scalp-lane wait when the coin's own move is unobserved: [StrategyMove8153.DEFER_REASON_8153] while
+     * [budgetOpen], else [SCALP_MOVE_UNOBSERVED_8418] (a named terminal). Null when the move is known ([scalpMoveTooSmall8054]
+     * decides).
      * 8416: SCALP_COIN_TOO_FLAT refused 1,397 — every unknown move among them was called "flat".
      */
     fun scalpWait8418(realizedPct: Double?, admission: CandidateAdmission8136.Decision8136?, budgetOpen: () -> Boolean): String? {
         if (realizedPct != null && realizedPct.isFinite()) return null
-        if (ownSetupMove8418(admission) != null) return null
+        // superseded by V5.0.8418 (buy-path review) — the admission's own-setup prediction no longer stands in for an unobserved
+        // move: the scalp test is the coin's MEASURED hour, so an unknown one waits / ends by name ([admission] is not read).
         return if (budgetOpen()) StrategyMove8153.DEFER_REASON_8153 else SCALP_MOVE_UNOBSERVED_8418
     }
 
@@ -441,15 +440,6 @@ object NetEdge8030 {
         return why
     }
 
-    /** V5.0.8417 — the admitted own-setup move (net + its quoted cost), else null: the same read [scalpMoveTooSmall8054] trusts. */
-    private fun ownSetupMove8418(admission: CandidateAdmission8136.Decision8136?): Double? {
-        val quoted = admission?.takeIf { it.admitted && it.costPct.isFinite() && it.costPct > 0.0 &&
-            it.costSizeSol.isFinite() && it.costSizeSol > 0.0 } ?: return null
-        val own = quoted.takeIf { it.specific && !it.chosenSetup.isNullOrBlank() &&
-            it.basis.substringBefore(" n") == "${CandidateAdmission8136.KIND_SETUP}:${it.chosenSetup}" &&
-            it.expectedNetPct.isFinite() && it.expectedNetPct > 0.0 } ?: return null
-        return own.expectedNetPct + own.costPct
-    }
 
     /**
      * Pure: a coin that already made its run — up 100%+ in the last hour, or a launchpad coin under 48 h old already

@@ -43,9 +43,19 @@ object LaneGradeHorizon8406 {
         return hourGradedByMandate8406(m.expectedGrossPct)
     }
 
+    /** Pure (V5.0.8418): the lane's hour book is deep enough for the hour clock to overrule a 5-minute retirement. */
+    fun suspensionEarned8418(hourGradedN: Long): Boolean = hourGradedN >= HOUR_BOOK_MIN_N_8408
+
     /** A 5-minute retirement of a patient setup on an hour-graded lane is suspended (counted per lane). */
     fun retirementSuspended8406(lane: String, setup: String): Boolean {
         if (setup !in PATIENT_FAMILY_8406 || !hourGraded8406(lane)) return false
+        // V5.0.8418 — superseded: the suspension lifted the 8383 retirement on every hour-graded lane with NO hour evidence
+        // (review 8418). It now waits for the lane's hour book (HOUR_BOOK_MIN_N_8408 hour-graded labels); until then the
+        // 5-minute retirement stands and the would-be suspension is counted.
+        if (!suspensionEarned8418(hourGradedN8408(canon(lane)))) {
+            try { PipelineHealthCollector.labelInc("RETIREMENT_KEPT_NO_HOUR_BOOK_8418_${lane.trim().uppercase()}") } catch (_: Throwable) {}
+            return false
+        }
         try { PipelineHealthCollector.labelInc("RETIREMENT_SUSPENDED_WRONG_HORIZON_8406_${lane.trim().uppercase()}") } catch (_: Throwable) {}
         return true
     }
@@ -106,6 +116,20 @@ object LaneGradeHorizon8406 {
         if (fiveMinuteMayRefuse8408(hourGraded8406(l), hourGradedN8408(l))) return false
         wrongClockSpared8408.computeIfAbsent("$gate|$l") { AtomicLong() }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("WRONG_CLOCK_REFUSAL_SPARED_8408_${gate}_$l") } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
+     * V5.0.8418 — a refusal site's verdict on the clock: the 5-minute refusal KEEPS binding (always true). superseded by
+     * V5.0.8418 — 8408 spared PLAYBOOK_7907 / LANE_7938 refusals on every hour-graded lane until its hour book had 30 labels
+     * (the book starts at 0), while a positive 5-minute record still allowed: one-sided, and QUALITY read -13.7% over 274
+     * labels. Where 8408 would have spared, it is counted (WRONG_CLOCK_REFUSAL_KEPT_8418_<gate>_<lane>); once the hour book
+     * exists nothing changes. The raise-only move read (wrongClockSpares8408) is unaffected.
+     */
+    fun refusalKept8418(lane: String, gate: String): Boolean {
+        val l = canon(lane)
+        if (!fiveMinuteMayRefuse8408(hourGraded8406(l), hourGradedN8408(l)))
+            try { PipelineHealthCollector.labelInc("WRONG_CLOCK_REFUSAL_KEPT_8418_${gate}_$l") } catch (_: Throwable) {}
         return true
     }
 

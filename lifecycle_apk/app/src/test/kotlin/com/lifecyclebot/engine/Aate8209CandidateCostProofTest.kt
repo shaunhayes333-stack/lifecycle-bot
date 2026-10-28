@@ -51,7 +51,8 @@ class Aate8209CandidateCostProofTest {
     @Test fun fdgPassesTheProposedSizeAndRefusesANamedRequoteFailure() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(src.contains("proposedSizeSol = proposedSizeSol,   // V5.0.8209"))
-        assertTrue(src.contains("policyAllows7848 && executableSize7835 > 0.0 && econ8395.clears"))
+        // superseded by V5.0.8418 — evaluate()'s return block is the pre-8395 text again (was: "&& econ8395.clears").
+        assertTrue(src.contains("policyAllows7848 && executableSize7835 > 0.0 && sealedCostOk8209"))
         assertTrue(src.contains("internal const val REQUOTE_FAILED_8209 = \"ADMISSION_COST_REQUOTE_FAILED_8209\""))
         val adm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         assertFalse("the refusal breakdown is the candidate's own quote, never only a global last-write", adm.contains("\"breakdown=\${try { NetEdge8030.lastEntryBreakdown8204() }"))

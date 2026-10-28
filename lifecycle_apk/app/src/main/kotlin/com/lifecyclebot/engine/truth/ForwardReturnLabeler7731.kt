@@ -342,6 +342,8 @@ object ForwardReturnLabeler7731 {
         /** V5.0.8410 — decay each destination carried at booking (tally keys / allocator nodes); empty = legacy, weight unknown. */
         @Volatile var tallyScales8410: DoubleArray = DoubleArray(0)
         @Volatile var allocScales8410: DoubleArray = DoubleArray(0)
+        /** V5.0.8418 — the first buy-path gate that ruled on this candidate (GateOutcome8418), "" = none; not persisted. */
+        @Volatile var gate8418: String = ""
         @Volatile var ck7997 = 0
         @Volatile var entryLiq7997 = 0.0
         /** V5.0.8063 — the coin's kind at the decision: "VENUE/NARRATIVE" (memes), blank for cross-asset rows. */
@@ -854,6 +856,10 @@ object ForwardReturnLabeler7731 {
     fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {
         val l = lane.trim().uppercase().ifBlank { "UNKNOWN" }
         val key = "${ts.mint}|$l"
+        // V5.0.8418 — the buy-path gate that ruled on a candidate whose observation is already pending (GateOutcome8418).
+        pending[key]?.let { p ->
+            GateOutcome8418.attachGate8418(p.gate8418, p.atMs, admitted, reason, l, nowMs)?.let { g -> p.gate8418 = g; GateOutcome8418.noteAttached8418() }
+        }
         // V5.0.7733 — the entry mark comes from the token state when it is fresh,
         // else from the canonical registry (the same plumbing gap 7730 closed for
         // the Field Manual: a live canonical mark with lastPriceUpdate=0). 5.0.7732
@@ -949,6 +955,7 @@ object ForwardReturnLabeler7731 {
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score8051, sig8051.first, regime, sig8051.second, px, cost.coerceIn(0.0, 60.0), nowMs)
             .also {
                 it.honest8366 = true  // V5.0.8366
+                it.gate8418 = GateOutcome8418.attachGate8418("", nowMs, admitted, reason, l, nowMs).orEmpty()  // V5.0.8418
                 it.windowEnd8379 = launchWindowEnd8379(l, (try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }) ?: -1L, nowMs)  // V5.0.8379 — the live window's one age rule
                 it.chase8094 = chase8094.coerceAtLeast(0.0)
                 it.entryStyle8077 = try {
@@ -1020,6 +1027,7 @@ object ForwardReturnLabeler7731 {
             }
         }
         if (horizon == 60) o.tallyScales8410 = scales8410
+        if (horizon == 60 && o.gate8418.isNotEmpty()) try { GateOutcome8418.book8418(o.gate8418, o.lane, net, gross >= RUNNER_PCT_7731) } catch (_: Throwable) {}  // V5.0.8418
         when (horizon) { 15 -> booked15.incrementAndGet(); 60 -> booked60.incrementAndGet(); else -> booked240.incrementAndGet() }
         if (horizon == 60) bookFresh8169(o, keys, net, gross, witnessed8324)
         // V5.0.8198 — the late (60-minute) read books into the fresh tally too: the stage rule spares a stage that pays late.

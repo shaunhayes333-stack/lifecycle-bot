@@ -32,8 +32,18 @@ class Aate8395FinalEconomicsTest {
     }
     @Test fun deniedEconomicsReturnsZeroSizeAndOneAssembledTerminal() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue(src.contains("sizeSol = if (econ8395.clears) executableSize7835 else 0.0"))
-        assertTrue(src.contains("blockReason = finalReason8395(econ8395, blockReasonFinal, when {"))
-        assertFalse("no return can read a stale reason after the economics write", src.contains("if (!sealedCostOk8209 && blockReason == null)"))
+        // superseded by V5.0.8418 — owner: evaluate() is not retouched. Its return block is the pre-8395 text again (pinned in
+        // Aate8418FdgEvaluateTextTest); the zero size and the one named terminal are applied in rememberFdgVerdict from the
+        // verdict sealedCostHolds8209 hands FdgGate8365. Was: econ8395 / finalReason8395 inside the return block.
+        assertTrue(src.contains("com.lifecyclebot.engine.truth.FdgGate8365.noteFinalEconomics8418(ts.mint, lane, v.clears, v.reason)"))
+        assertTrue(src.contains("blockReason = econ8418, blockLevel = BlockLevel.EDGE, sizeSol = 0.0)"))
+        com.lifecyclebot.engine.truth.FdgGate8365.noteFinalEconomics8418("m8418", "TREASURY", false, "ADMISSION_COST_REQUOTE_UNAVAILABLE_8395", 1_000L)
+        assertEquals("ADMISSION_COST_REQUOTE_UNAVAILABLE_8395", com.lifecyclebot.engine.truth.FdgGate8365.takeFinalEconomics8418("m8418", "TREASURY", 2_000L))
+        assertNull("consumed once", com.lifecyclebot.engine.truth.FdgGate8365.takeFinalEconomics8418("m8418", "TREASURY", 2_000L))
+        com.lifecyclebot.engine.truth.FdgGate8365.noteFinalEconomics8418("m8418", "TREASURY", false, "ADMISSION_COST_REQUOTE_FAILED_8209", 1_000L)
+        assertNull("a stale verdict never names a later decision", com.lifecyclebot.engine.truth.FdgGate8365.takeFinalEconomics8418("m8418", "TREASURY", 9_000L))
+        com.lifecyclebot.engine.truth.FdgGate8365.noteFinalEconomics8418("m8418", "TREASURY", false, "ADMISSION_COST_REQUOTE_FAILED_8209", 1_000L)
+        com.lifecyclebot.engine.truth.FdgGate8365.noteFinalEconomics8418("m8418", "TREASURY", true, null, 1_500L)
+        assertNull("a clearing re-quote clears the held refusal", com.lifecyclebot.engine.truth.FdgGate8365.takeFinalEconomics8418("m8418", "TREASURY", 2_000L))
     }
 }

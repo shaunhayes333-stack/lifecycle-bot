@@ -56,12 +56,14 @@ class Aate8418EconomicsTruthTest {
         // The wait is a data defer at the FDG; its end is a named refusal.
         assertEquals(FdgReceipt8397.Outcome.DEFER_DATA, FdgReceipt8397.outcome(false, StrategyMove8153.DEFER_REASON_8153))
         assertEquals(FdgReceipt8397.Outcome.REFUSE, FdgReceipt8397.outcome(false, NetEdge8030.SCALP_MOVE_UNOBSERVED_8418))
-        // The admission's own supported setup supplies the move: no wait.
+        // superseded by V5.0.8418 (buy-path review) — the admission's own supported setup no longer supplies an unobserved move:
+        // the wait still ends by name (was assertNull(scalpWait8418(null, own) { false })).
         val own = CandidateAdmission8136.decide8136(Candidate8136(mint = "scalpOwn8418", lane = "CASHGEN", selectedSetup = "RANGE_LOW_BOUNCE",
             expectedGrossPct = 18.0, costPct = 4.0, costSizeSol = 0.08, expectedGrossBySetup = mapOf("RANGE_LOW_BOUNCE" to 18.0),
             setups = listOf(Evidence8136("SETUP", "RANGE_LOW_BOUNCE", 60, 14.0, 2.0)), genericScore = 70.0, genericFloor = 40.0))
         assertTrue(own.compact, own.admitted)
-        assertNull(NetEdge8030.scalpWait8418(null, own) { false })
+        assertEquals(NetEdge8030.SCALP_MOVE_UNOBSERVED_8418, NetEdge8030.scalpWait8418(null, own) { false })
+        assertEquals(StrategyMove8153.DEFER_REASON_8153, NetEdge8030.scalpWait8418(null, own) { true })
     }
 
     @Test fun aScalpCoinWithNoObservedMoveIsDeferredNotCalledFlat() {

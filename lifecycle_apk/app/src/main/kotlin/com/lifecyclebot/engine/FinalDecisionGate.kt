@@ -184,7 +184,11 @@ object FinalDecisionGate {
         return null
     }
 
-    private fun rememberFdgVerdict(key: String, verdict: FinalDecision): FinalDecision {
+    private fun rememberFdgVerdict(key: String, verdict0: FinalDecision): FinalDecision {
+        // V5.0.8418 — the sealed-size economics verdict (sealedCostHolds8209) names and zero-sizes the decision it refused.
+        val econ8418 = com.lifecyclebot.engine.truth.FdgGate8365.takeFinalEconomics8418(verdict0.mint, verdict0.canonicalLane7835)
+        val verdict = if (econ8418 == null || verdict0.shouldTrade) verdict0 else verdict0.copy(
+            blockReason = econ8418, blockLevel = BlockLevel.EDGE, sizeSol = 0.0)
         fdgVerdictCache[key] = FdgVerdictCacheEntry(verdict, System.currentTimeMillis())
         // V5.0.7951 — a lane block ends before authorize(): name it; a capital-only block is still owner + intent.
         try { SpecialistOwnership7951.onFdgVerdict7951(verdict.mint, verdict.canonicalLane7835, verdict.candidateVersion7835, verdict.shouldTrade, verdict.blockReason) } catch (_: Throwable) {}
@@ -836,6 +840,23 @@ object FinalDecisionGate {
             FinalEconomics8395.DEFER -> "FDG_ADMISSION_COST_REQUOTE_DEFERRED_8395"
         }) } catch (_: Throwable) {}
         return v
+    }
+
+    /**
+     * V5.0.8418 (owner: "fdg was never meant to be retouched, only tweaked so the lanes had clean admission") — evaluate()'s
+     * return block is the pre-8395 text again and calls this boolean helper, as at 8209. The stricter 8395 three-way verdict is
+     * kept here, outside evaluate(): REJECT and DEFER (an unavailable / non-finite required re-quote) both refuse this pass, and
+     * the verdict is handed to the admission chain (FdgGate8365.noteFinalEconomics8418) so the decision is named and sized 0 in
+     * [rememberFdgVerdict] — DEFER as ADMISSION_COST_REQUOTE_UNAVAILABLE_8395 (a data wait, FdgReceipt8397), REJECT as
+     * ADMISSION_COST_REQUOTE_FAILED_8209.
+     */
+    private fun sealedCostHolds8209(
+        ts: TokenState, lane: String, admission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
+        sealedSizeSol: Double, checks: MutableList<GateCheck>,
+    ): Boolean {
+        val v = sealedEconomics8395(ts, lane, admission, sealedSizeSol, checks)
+        com.lifecyclebot.engine.truth.FdgGate8365.noteFinalEconomics8418(ts.mint, lane, v.clears, v.reason)
+        return v.clears
     }
 
     /** One assembled terminal: the final economics reason outranks every earlier advisory reason once size is sealed. */
@@ -6288,26 +6309,27 @@ object FinalDecisionGate {
             resolveExecutableSize7835(ts, canonicalPrimaryLane6658, finalSize, config, candidateVersion7623)
         } else 0.0
         // V5.0.8209 — the admission's net-of-cost proof was quoted at proposedSizeSol; a materially different sealed size is re-quoted here.
-        val econ8395 = sealedEconomics8395(ts, canonicalPrimaryLane6658, candidateAdmission8136, executableSize7835, checks)
+        val sealedCostOk8209 = executableSize7835 <= 0.0 || sealedCostHolds8209(ts, canonicalPrimaryLane6658, candidateAdmission8136, executableSize7835, checks)
+        if (!sealedCostOk8209 && blockReason == null) blockReason = "ADMISSION_COST_REQUOTE_FAILED_8209"
 
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
             shouldTrade = shouldTradeFinal &&
                 canonicalEconomicApproval7548 &&
-                policyAllows7848 && executableSize7835 > 0.0 && econ8395.clears,
+                policyAllows7848 && executableSize7835 > 0.0 && sealedCostOk8209,
             mode = mode,
             approvalClass = approvalClass,
             quality = candidate.finalQuality,
             confidence = adjustedConfidence,
             edge = edgeVerdict,
-            blockReason = finalReason8395(econ8395, blockReasonFinal, when {
+            blockReason = blockReasonFinal ?: when {
                 !policyAllows7848 -> "CANONICAL_ENVELOPE_BLOCK_7835"
                 shouldTradeFinal && !canonicalEconomicApproval7548 -> "NON_ECONOMIC_APPROVAL_7835"
                 shouldTradeFinal && executableSize7835 <= 0.0 -> "SIZE_NOT_EXECUTABLE_7835"
                 !shouldTradeFinal -> "FINAL_NOT_EXECUTABLE_UNNAMED_8203"  // V5.0.8203 — never a denied decision without a terminal
                 else -> null
-            }),
-            blockLevel = if (econ8395.clears) blockLevelFinal else BlockLevel.EDGE,
-            sizeSol = if (econ8395.clears) executableSize7835 else 0.0,
+            },
+            blockLevel = blockLevelFinal,
+            sizeSol = executableSize7835,
             tags = tags,
             mint = ts.mint,
             symbol = ts.symbol,

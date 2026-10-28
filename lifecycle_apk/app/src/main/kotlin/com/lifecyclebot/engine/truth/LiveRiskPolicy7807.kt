@@ -217,7 +217,9 @@ object LiveRiskPolicy7807 {
         // V5.0.8326 — retired compatibility mode's legacy scope: the 8114 quarter-Kelly share (best proven setup / cell / kind).
         run {
             // V5.0.8365 — a share read from the setup's own LIVE realised closes is itself the independent proof.
-            val validated8296 = maxOf(validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l)),
+            // V5.0.8418 (owner: live size comes only from realised live closes) — the walk-forward label proof no longer lifts the
+            // cap: only the lane's realised live closes do (liveOnlyProof8418). Shadow / paper books are never read here.
+            val validated8296 = maxOf(validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), liveOnlyProof8418(laneWalkForwardKellyFrac8188(l))),
                 if (share8365.src == "live") setupFrac else 0.0)
             // V5.0.8296 — fresh live losses (lane) or a setup whose own live closes lose revoke the compounding share.
             recentKellyGate8296(ts, l, validated8296)
@@ -259,6 +261,16 @@ object LiveRiskPolicy7807 {
     /** The lane's walk-forward proof stake from the Cortex (0 on a fault: no proof). */
     private fun laneWalkForwardKellyFrac8188(lane: String): Double =
         try { walkForwardKellyFrac8188(com.lifecyclebot.engine.cortex.Cortex7885.walkForwardResult8188(lane)) } catch (_: Throwable) { 0.0 }
+
+    /**
+     * Pure (V5.0.8418): the walk-forward (label) proof's contribution to the live size cap — always 0 now; a positive one is
+     * counted (SIZE_PROOF_NOT_LIVE_8418) so the report shows what it would have lifted.
+     */
+    fun liveOnlyProof8418(walkForwardProofFrac: Double): Double {
+        if (walkForwardProofFrac.isFinite() && walkForwardProofFrac > 0.0)
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SIZE_PROOF_NOT_LIVE_8418_WALK_FORWARD") } catch (_: Throwable) {}
+        return 0.0
+    }
 
     /** Pure: the forward-label share [labelFrac] capped by the larger independent proof's own Kelly stake (0 without one). */
     fun validatedKellyFrac8188(labelFrac: Double, realisedProofFrac: Double, walkForwardProofFrac: Double): Double {

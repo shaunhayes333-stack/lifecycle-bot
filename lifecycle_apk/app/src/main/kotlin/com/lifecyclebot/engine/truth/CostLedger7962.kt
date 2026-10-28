@@ -298,7 +298,9 @@ object CostLedger7962 {
         val priorReserve = costPct * (NetEdge8030.EDGE_MULT - 1.0)
         val measuredReserve = maxOf(0.0, q90 - costPct)
         // Reserve stays positive with finite data; volatile tails can INCREASE the bar.
-        return 1.0 + ((1.0-weight)*priorReserve + weight*measuredReserve) / costPct
+        // V5.0.8418 — and only increase it: the owner's 1.5x (DIRECTIVE_LEDGER #28) is the floor. superseded by V5.0.8418 —
+        // with a measured q90 near the modelled cost the blend fell toward 1.0 (n=30 -> 1.25) under every economics gate.
+        return maxOf(NetEdge8030.EDGE_MULT, 1.0 + ((1.0-weight)*priorReserve + weight*measuredReserve) / costPct)
     }
 
     fun measuredCostPct7962(laneRaw: String?, sizeSol: Double = Double.NaN): Double? {

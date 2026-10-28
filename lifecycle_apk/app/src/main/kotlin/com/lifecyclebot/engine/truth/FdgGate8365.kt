@@ -104,6 +104,23 @@ object FdgGate8365 {
     }
 
     /**
+     * V5.0.8418 §THE_100X_DOOR_IS_ONE_CHECK — the basis of a candidate the evidence hold let through on its own exception
+     * (EvidenceHold8336 8337 / 8345: forming run, exit-safe venue, run odds or early-run evidence, lane not shut by realised
+     * losses, 1 per lane per 30 min, 3 an hour). That door is the authoritative answer to "may an unproven lane take this
+     * coin": the lane's LABEL / RECORD doors (Rehearsal8339.evidenceDoor8342) asking it again are advisory for this
+     * candidate (counted FDG8365_DEMOTED_<door>_BY_EVIDENCE_HOLD_EXCEPTION_8418). Hard safety, economics, data, chase, the
+     * realised-loss doors and Rehearsal8339.candidateEvidence8393 still bind. superseded by V5.0.8418 — 8365 kept the 8337
+     * exception's doors binding; every report since (8344: 0 in 431 min, 8416: 0 in 223 min beside 435 live grab-lane
+     * admits) submitted 0 exceptions: the owner's "if it sees a 100x opportunity take it" never reached a buy.
+     */
+    const val BASIS_EXCEPTION_8418 = "EXCEPTION_8418"
+
+    /** Pure (V5.0.8418): [BASIS_EXCEPTION_8418] when a LIVE held, unproven lane's hold passed on [exceptionProof]; else null. */
+    fun exceptionBasisOf8418(live: Boolean, holdOn: Boolean, heldLane: Boolean, holdPassed: Boolean, laneProven: Boolean,
+                             exceptionProof: String?): String? =
+        if (live && holdOn && heldLane && holdPassed && !laneProven && !exceptionProof.isNullOrBlank()) BASIS_EXCEPTION_8418 else null
+
+    /**
      * Pure: does the 8114 verdict [old] yield the attribution to the structural checks (8364 fired setup, 8351 niche)? Only
      * when it is a label / record door and neither the current hard verdict nor the realised / hold refusal decided.
      */
@@ -148,9 +165,12 @@ object FdgGate8365 {
         if (!live || !EvidenceHold8336.enabled8336) return null
         val paperAll = try { EvidenceHold8336.proofFor8336(lane, nowMs).proven } catch (_: Throwable) { false }
         val explore = !paperAll && (try { EvidenceHold8336.explorationProven8347(lane) } catch (_: Throwable) { false })
-        return holdBasisOf8365(true, live, paperAll, explore)
-            ?: if (EvidenceShadow8344.advisoryProof8393(CanonicalLaneIdentity6506.desk8392(lane), EvidenceHold8336.startMs8336).proven)
-                "SHADOW_ADVISORY_8393" else null
+        // superseded by V5.0.8418 — a proven EvidenceShadow8344 advisory book was a hold basis ("SHADOW_ADVISORY_8393") that made
+        // every LIVE evidence door advisory: a shadow result admitting live entries. It is now counted only; the doors bind.
+        val basis = holdBasisOf8365(true, live, paperAll, explore)
+        if (basis == null && (try { EvidenceShadow8344.advisoryProof8393(CanonicalLaneIdentity6506.desk8392(lane), EvidenceHold8336.startMs8336).proven } catch (_: Throwable) { false }))
+            try { PipelineHealthCollector.labelInc("SHADOW_ADVISORY_PROOF_NOT_A_LIVE_BASIS_8418_${CanonicalLaneIdentity6506.desk8392(lane)}") } catch (_: Throwable) {}
+        return basis
     }
 
     fun <T> inContext8365(ts: TokenState, lane: String, holdBasis: String?, paper8393: Boolean = false,
@@ -175,7 +195,10 @@ object FdgGate8365 {
             try { LiveTruth8064.setupRealised8365(l, setup) } catch (_: Throwable) { null }
         } else null
         val veto = c.holdBasis == null && !realisedContradicts8365(realised) &&  // V5.0.8370 — NO_TRIGGER takes the veto audit like every door
-            (try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRetiresAt100_8365(reason, l) } catch (_: Throwable) { false })
+            ((try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRetiresAt100_8365(reason, l) } catch (_: Throwable) { false }) ||
+                // V5.0.8418 — the door's own refused-candidate book (GateOutcome8418): the Cortex veto book only ever saw the
+                // first (native) reason of a mint, so an FDG door never reached its 100-refusal audit.
+                (try { GateOutcome8418.retiresAt100_8418(reason, l) } catch (_: Throwable) { false }))
         val by = demotedBy8365(reason, true, c.holdBasis, realised, veto) ?: return false
         noteDemoted8365(reason, by, l)
         return true
@@ -226,13 +249,52 @@ object FdgGate8365 {
         try { PipelineHealthCollector.labelInc("FDG8365_REFUSED_${cls.replace('-', '_')}_${CanonicalLaneIdentity6506.desk8392(lane)}") } catch (_: Throwable) {}
     }
 
+    // ── V5.0.8418 — the sealed-size economics verdict, carried from FinalDecisionGate's helper to its verdict record ──
+    // (owner: FDG's evaluate() is not retouched; the 8395 named / zero-sized terminal is applied outside it.)
+    private const val FINAL_ECON_TTL_MS_8418 = 5_000L
+    private val finalEconomics8418 = ConcurrentHashMap<String, Pair<Long, String>>()
+    private fun econKey8418(mint: String, lane: String?) = "$mint|${CanonicalLaneIdentity6506.canonical(lane)}"
+
+    /** FinalDecisionGate.sealedCostHolds8209: a refusing (REJECT / DEFER) verdict and its reason are held for the decision record. */
+    fun noteFinalEconomics8418(mint: String, lane: String, clears: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank()) return
+        val k = econKey8418(mint, lane)
+        if (clears || reason.isNullOrBlank()) { finalEconomics8418.remove(k); return }
+        finalEconomics8418[k] = nowMs to reason
+        if (finalEconomics8418.size > 2_000) finalEconomics8418.entries.removeIf { nowMs - it.value.first > FINAL_ECON_TTL_MS_8418 }
+    }
+
+    /** FinalDecisionGate.rememberFdgVerdict: the held refusing reason for [mint] / [lane] (consumed), or null. */
+    fun takeFinalEconomics8418(mint: String, lane: String?, nowMs: Long = System.currentTimeMillis()): String? {
+        val v = finalEconomics8418.remove(econKey8418(mint, lane)) ?: return null
+        return if (nowMs - v.first in 0L..FINAL_ECON_TTL_MS_8418) v.second else null
+    }
+
+    private val exception8418 = ConcurrentHashMap<String, AtomicLong>()   // gate (or ADMITTED) -> n
+
+    /** V5.0.8418 — the final verdict of a candidate the hold passed on its exception (ADMITTED or the refusing gate). */
+    fun noteException8418(final: String?, lane: String) {
+        val gate = if (final == null) "ADMITTED" else FdgGate8365.gateKey8392(final)
+        if (exception8418.size < 64 || exception8418.containsKey(gate)) exception8418.computeIfAbsent(gate) { AtomicLong(0) }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("EXCEPTION_FINAL_8418_${gate}_${CanonicalLaneIdentity6506.desk8392(lane)}") } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8418 — PipelineHealthCollector's evidence-hold line followed by the buy-path gate line (attribution + forward record). */
+    fun evidenceAndGates8418(): String =
+        EvidenceHold8336.statusLine8336() + "\n  Buy-path gates (§8418):      " +
+            (try { statusLine8365() } catch (_: Throwable) { "fdg8365[?]" }) + " " +
+            (try { GateOutcome8418.statusLine8418() } catch (_: Throwable) { "gateOutcome8418[?]" })
+
     fun statusLine8365(): String {
         val book = if (liveNow8365()) "LIVE" else "PAPER"
         val refused = refused8365.entries.sortedByDescending { it.value.get() }.take(14)
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
         val demoted = demoted8365.entries.sortedByDescending { it.value.get() }.take(12)
             .joinToString(",") { "${it.key}=${it.value.get()}" }
-        return "fdg8365[book=$book admitted=${admits8365.get()} refused{$refused} reused=${memoHits8365.get()}] duplicatesDemoted=[$demoted]"
+        val exceptions = exception8418.entries.sortedByDescending { it.value.get() }.take(10)
+            .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
+        return "fdg8365[book=$book admitted=${admits8365.get()} refused{$refused} reused=${memoHits8365.get()}] duplicatesDemoted=[$demoted] " +
+            "exceptionFinal8418{$exceptions}"
     }
     private val HARD_MARKERS_8392 = listOf(
         "SAFETY_REFUSED", "STRUCTURAL_RISK", "RUG", "FREEZE", "MINT_AUTH", "AUTHORITY", "TOKEN_2022", "TOKEN2022", "T22_",

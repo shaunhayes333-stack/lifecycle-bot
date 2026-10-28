@@ -25,9 +25,13 @@ class Aate8408WrongClockCannotRefuseTest {
     @Test fun the_three_refusal_sites_consult_the_clock_and_the_hour_book_grows_from_the_hour_revision() {
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("laneProvenLosing7938(laneStat7938) && !runnerSetupFires7939(ts, l, nowMs) &&"))
-        assertTrue(gate.contains("""LaneGradeHorizon8406.wrongClockSpares8408(l, "LANE_7938")"""))
+        // superseded by V5.0.8418 — the 5-minute refusal keeps binding on hour-graded lanes until the hour book exists (one-sided
+        // sparing withdrawn, review 8418: QUALITY -13.7% x274); the sites count it via refusalKept8418. Was: wrongClockSpares8408.
+        assertTrue(gate.contains("""LaneGradeHorizon8406.refusalKept8418(l, "LANE_7938")"""))
         val pb = src("engine/cortex/LanePlaybook7907.kt")
-        assertTrue(pb.contains("why != \"PLAYBOOK_OUTSIDE_ENVELOPE_8383_" + "\$" + "lane\" && LaneGradeHorizon8406.wrongClockSpares8408(lane, \"PLAYBOOK_7907\")) why = null"))
+        assertTrue(pb.contains("!LaneGradeHorizon8406.refusalKept8418(lane, \"PLAYBOOK_7907\")) why = null"))
+        assertTrue("a refusal site is never spared now", LaneGradeHorizon8406.refusalKept8418("QUALITY", "TEST"))
+        assertTrue(LaneGradeHorizon8406.refusalKept8418("TREASURY", "TEST"))
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt").substringAfter("private fun reviseToHour8337(")
         assertTrue(lab.substringBefore("private val exitRunSamples8006").contains("LaneGradeHorizon8406.noteHourGrade8408(o.lane)"))
         val phc = src("engine/PipelineHealthCollector.kt")

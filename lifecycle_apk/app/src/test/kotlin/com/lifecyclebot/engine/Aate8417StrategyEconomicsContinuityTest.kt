@@ -22,7 +22,11 @@ class Aate8417StrategyEconomicsContinuityTest {
             assertTrue(decision.compact, decision.admitted)
             assertTrue(decision.compact, decision.basis.startsWith("SETUP:RANGE_LOW_BOUNCE"))
             assertTrue("history alone cannot qualify", NetEdge8030.scalpMoveTooSmall8054(2.0, 10.0))
-            assertFalse("own setup predicts 18 at its quoted cost 4", NetEdge8030.scalpMoveTooSmall8054(2.0, 10.0, decision))
+            // superseded by V5.0.8418 — a setup's predicted net is not the coin's measured hour (was assertFalse: "own setup
+            // predicts 18 at its quoted cost 4"). The quote still sets the cost: a measured 12% hour clears 3 x 4.
+            assertTrue("a predicted move is not a measured one", NetEdge8030.scalpMoveTooSmall8054(2.0, 10.0, decision))
+            assertFalse("a measured 12% hour at the quoted 4% cost", NetEdge8030.scalpMoveTooSmall8054(12.0, 10.0, decision))
+            assertTrue("an unknown hour is never a move", NetEdge8030.scalpMoveTooSmall8054(null, 10.0, decision))
         }
     }
 

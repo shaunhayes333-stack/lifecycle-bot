@@ -78,8 +78,11 @@ object EvidenceHold8336 {
     val FAST_BAR_LANES_8399: Set<String> = setOf("CORE", "MOONSHOT", "PROJECT_SNIPER")
     const val FAST_MIN_N_8399 = 15
     const val FAST_MIN_PF_8399 = 1.2
-    fun minN8399(lane: String?): Int = if (lane != null && canon(lane) in FAST_BAR_LANES_8399) FAST_MIN_N_8399 else MIN_N_8336
-    fun minPf8399(lane: String?): Double = if (lane != null && canon(lane) in FAST_BAR_LANES_8399) FAST_MIN_PF_8399 else MIN_PF_8336
+    // superseded by V5.0.8418 — the fast bar (15 closes / PF 1.2 for CORE, MOONSHOT, PROJECT_SNIPER) lowered the PAPER proof that
+    // unlocks LIVE; its "operator (27 Oct 2026)" instruction is not in DIRECTIVE_LEDGER_8367 (review 8418). Every lane reads the
+    // 8336 bar (30 / PF 1.3) again; the fast-lane set and constants stay for the report.
+    fun minN8399(lane: String?): Int = MIN_N_8336
+    fun minPf8399(lane: String?): Double = MIN_PF_8336
 
     fun proof8336(returnsPct: List<Double>, pnlSol: List<Double>, lane: String? = null): Proof8336 {
         val r = returnsPct.filter { it.isFinite() }.map { it.coerceIn(-100.0, 1_000.0) }
@@ -104,10 +107,16 @@ object EvidenceHold8336 {
      * not merely through one exploration niche. A niche/timing choice then shapes preference, it does not veto the lane:
      * MOONSHOT 5.0.8390 read shadow n30 +60.1% pf4.42 PROVEN lane-wide while NICHE_ONLY_8351 refused 462 of its live entries.
      */
-    fun laneWideProven8392(lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
-        val l = canon(lane)
-        return proofFor8336(l, nowMs).proven || (try { EvidenceShadow8344.proof8344(l, startMs8336).proven } catch (_: Throwable) { false })
-    }
+    // superseded by V5.0.8418 — the lane-wide proof was the PAPER record or the SHADOW book, and it lifted the LIVE niche veto
+    // and entry-timing wait (a paper / shadow result admitting live entries). It is now the lane's own realised LIVE closes in
+    // the account mode (Cortex7885.laneRealised8295): [MIN_N_8336]+ closes with a mean above [MARGIN_PCT_8336].
+    fun laneWideProven8392(lane: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        laneWideLive8418(try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(canon(lane)) } catch (_: Throwable) { null })
+
+    /** Pure (V5.0.8418): realised live [closes, mean %] that prove a lane lane-wide. */
+    fun laneWideLive8418(realised: DoubleArray?): Boolean =
+        realised != null && realised.size >= 2 && realised[0].isFinite() && realised[0] >= MIN_N_8336 &&
+            realised[1].isFinite() && realised[1] > MARGIN_PCT_8336
 
     fun shadowProven8344(lane: String): Boolean = explorationProven8347(lane) ||
         try { EvidenceShadow8344.proof8344(canon(lane), startMs8336).proven } catch (_: Throwable) { false }
@@ -260,14 +269,35 @@ object EvidenceHold8336 {
     }
 
     private fun oddsLeg8337(ts: TokenState, lane: String, nowMs: Long): String? {
-        val a = try { com.lifecyclebot.engine.cortex.Cortex7885.assess(ts, lane, nowMs) } catch (_: Throwable) { null }
-        if (a != null && a.fused.pRun8325.isFinite() && a.fused.runVoters8325 > 0) {
-            // The lane has a run-odds book: only its top bucket (STRONG = top fifth of the lane's own ordering) qualifies.
-            return if (a.bucket == com.lifecyclebot.engine.cortex.CortexScoreboard7885.Bucket.STRONG)
-                "${ODDS_CORTEX_STRONG_8337}_pRun${"%.2f".format(a.fused.pRun8325)}_voters${a.fused.runVoters8325}" else null
+        // V5.0.8418 — the Cortex ordering votes here only where its walk-forward authority is granted and the lane is not
+        // inverted (Cortex7885.orderingVotes8418). An unvalidated / inverted ordering abstains: it is never read (no STRONG
+        // requirement that selects the measured losers) and the provable early-run evidence decides, as for a lane with no book.
+        val votes = try { com.lifecyclebot.engine.cortex.Cortex7885.orderingVotes8418(lane) } catch (_: Throwable) { false }
+        val a = if (!votes) null else try { com.lifecyclebot.engine.cortex.Cortex7885.assess(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val runBook = a != null && a.fused.pRun8325.isFinite() && a.fused.runVoters8325 > 0
+        val strong = a != null && a.bucket == com.lifecyclebot.engine.cortex.CortexScoreboard7885.Bucket.STRONG
+        val leg = oddsLeg8418(runBook, strong, a?.fused?.pRun8325 ?: Double.NaN, a?.fused?.runVoters8325 ?: 0, votes) {
+            try { EntryEconomics8329.earlyRunner8329(ts, nowMs) } catch (_: Throwable) { false }
         }
-        val early = try { EntryEconomics8329.earlyRunner8329(ts, nowMs) } catch (_: Throwable) { false }
-        return if (early) ODDS_NO_BOOK_EARLY_RUN_8337 else null
+        if (!votes && leg != null) try { PipelineHealthCollector.labelInc("EVIDENCE_ODDS_CORTEX_ABSTAINED_8418_${canon(lane)}") } catch (_: Throwable) {}
+        return leg
+    }
+
+    /** V5.0.8418 — the odds leg's reason when the lane's Cortex ordering abstains and the early-run evidence carries it. */
+    const val ODDS_CORTEX_ABSTAINS_EARLY_RUN_8418 = "CORTEX_UNVALIDATED_ABSTAINS_EARLY_RUN_8418"
+
+    /**
+     * Pure (V5.0.8418): the exception door's odds leg (c). A validated ordering ([orderingVotes]) with a run-odds book decides by
+     * its top bucket alone (STRONG qualifies, anything else does not). Otherwise the Cortex does not vote and the coin's own
+     * early-run evidence ([earlyRun], read only then) carries the leg: [ODDS_NO_BOOK_EARLY_RUN_8337] when the lane has no book,
+     * [ODDS_CORTEX_ABSTAINS_EARLY_RUN_8418] when its ordering is unvalidated or inverted.
+     */
+    fun oddsLeg8418(runBook: Boolean, strong: Boolean, pRun: Double, voters: Int, orderingVotes: Boolean, earlyRun: () -> Boolean): String? {
+        if (orderingVotes && runBook) {
+            return if (strong) "${ODDS_CORTEX_STRONG_8337}_pRun${"%.2f".format(pRun)}_voters$voters" else null
+        }
+        if (!earlyRun()) return null
+        return if (orderingVotes) ODDS_NO_BOOK_EARLY_RUN_8337 else ODDS_CORTEX_ABSTAINS_EARLY_RUN_8418
     }
 
     /**
@@ -343,6 +373,57 @@ object EvidenceHold8336 {
             "mint=${c.mint.take(10)} lane=${c.lane} version=${c.version} attempt=$attemptId signature=${signature.take(16)} ${proof.reason}") } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8418 — the hold basis a candidate carries when the hold let it through on its OWN exception (the 100x door) in an
+     * unproven held lane: FdgGate8365.BASIS_EXCEPTION_8418, else null. LiveEdgeGate7877.liveRefusal reads it after the hold.
+     */
+    fun exceptionBasis8418(mint: String, lane: String, holdPassed: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
+        val live = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+        if (!live || !holdPassed || mint.isBlank()) return null
+        val l = canon(lane)
+        val proven = proofFor8336(l, nowMs).proven || shadowProven8344(l)
+        return FdgGate8365.exceptionBasisOf8418(live, enabled8336, heldLane8342(l), holdPassed, proven,
+            if (proven) null else admitted8337(mint, l, nowMs))
+    }
+
+    // ── V5.0.8418 §SHADOW_PROOF_UNLOCKS_NOT_SIZES (owner ruling) ─────────────────────────────────────────────────────────
+    // In LIVE the hold counts the proof of the shadow traders running beside live (EvidenceShadow8344 lane book; the
+    // ExploreShadow8347 variants on their stricter 40-close bar), graded on the executable horizon at the real cost, on the
+    // paper bar (proof8336: 30 closes, mean - SE > 2 %, PF >= 1.3, net after cost). Only rows on the full executable-cost
+    // contract count (ShadowPersist8355.proofEligible8394). The proof is ADMISSION only (DIRECTIVE_LEDGER_8367 #36): live size
+    // reads realised live closes alone (LiveRiskPolicy7807, Kelly8365, LiveWinDNAStore.liveSizingRow8418), so a shadow-unlocked
+    // lane trades at the small live stake until its own closes prove; its realised live losses re-lock it
+    // (EntryEconomics8329.laneRealisedRefusal8329 binds before the hold in LiveEdgeGate7877.liveRefusal).
+
+    data class LaneUnlock8418(val lane: String, val shadow: Proof8336, val unlocked: Boolean, val live: Proof8336, val relocked: Boolean)
+
+    /** Pure: the lane's unlock row from its shadow proof, paper proof, realised live record and realised-loss refusal. */
+    fun laneUnlock8418(lane: String, shadow: Proof8336, paperProven: Boolean, explorationProven: Boolean,
+                       live: Proof8336, realisedRefusal: String?): LaneUnlock8418 {
+        val proofUnlocks = paperProven || shadow.proven || explorationProven
+        return LaneUnlock8418(lane, shadow, proofUnlocks && realisedRefusal == null, live, proofUnlocks && realisedRefusal != null)
+    }
+
+    /** The lane's realised LIVE whole-position closes (net % and SOL) as a proof record. */
+    private fun liveRecord8418(lane: String): Proof8336 {
+        val envs = try { CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("live").filter { it.learningEligible && canon(it.lane) == lane } }
+            catch (_: Throwable) { emptyList() }
+        return proof8336(envs.map { it.realizedReturnPct }, envs.map { it.realizedPnlSol }, lane)
+    }
+
+    private fun fmt8418(p: Proof8336): String = "n${p.n}/pf${if (p.pf.isFinite()) "%.2f".format(p.pf) else "-"}"
+
+    fun unlockLine8418(nowMs: Long = System.currentTimeMillis()): String {
+        val rows = HELD_LANES_8392.sorted().map { l ->
+            laneUnlock8418(l, try { EvidenceShadow8344.proof8344(l, startMs8336) } catch (_: Throwable) { Proof8336(0, Double.NaN, Double.NaN, Double.NaN, false) },
+                proofFor8336(l, nowMs).proven, explorationProven8347(l), liveRecord8418(l),
+                try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { null })
+        }
+        return " unlock8418{" + rows.joinToString(" · ") { r ->
+            "${r.lane} shadow=${fmt8418(r.shadow)} unlocked=${if (r.unlocked) "Y" else "N"}${if (r.relocked) "(relocked)" else ""} live=${fmt8418(r.live)}"
+        } + "}"
+    }
+
     fun exceptionCount8337(): Long = exceptionBudget8397.counts().first
     fun grabExceptionCount8345(): Long = exceptionBudget8397.counts().second
 
@@ -359,8 +440,9 @@ object EvidenceHold8336 {
         val lanes = records8342.entries.sortedByDescending { it.value.all.n }.joinToString(" · ") { (l, r) -> laneLine8342(l, r) }
             .ifBlank { "no meme-lane paper closes since start" }
         return "evidenceHold8336[on=$enabled8336 rehearsal=$rehearsal8336 sinceMin=${if (startMs8336 > 0) (nowMs - startMs8336) / 60_000 else -1} " +
-            "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 fast8399=${FAST_BAR_LANES_8399.joinToString("/")}:n>=$FAST_MIN_N_8399,pf>=$FAST_MIN_PF_8399 lanes=${EvidenceHold8336.HELD_LANES_8392.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
+            "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 fast8399=retired8418(${FAST_BAR_LANES_8399.joinToString("/")}:n>=$FAST_MIN_N_8399,pf>=$FAST_MIN_PF_8399) lanes=${EvidenceHold8336.HELD_LANES_8392.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "exceptions=${exceptionCount8337()} last=${exceptionBudget8397.last()} grabDoor8345=${grabExceptionCount8345()} reserved8397=${exceptionBudget8397.reservations()} meter8397=SUBMITTED_ATTEMPT $lanes" +
-            (try { EvidenceShadow8344.recoveryLine8345(startMs8336, nowMs) } catch (_: Throwable) { " recovery8345{?}" }) + "]"  // V5.0.8345 — the bounded path to the bar
+            (try { EvidenceShadow8344.recoveryLine8345(startMs8336, nowMs) } catch (_: Throwable) { " recovery8345{?}" }) +
+            (try { unlockLine8418(nowMs) } catch (_: Throwable) { " unlock8418{?}" }) + "]"  // V5.0.8345 — the bounded path to the bar
     }
 }

@@ -1364,7 +1364,8 @@ object LanePlaybook7907 {
             }
             // V5.0.8408 — a record filled on the 5-minute clock cannot refuse an hour-graded lane until its hour book exists
             // (the envelope refusal is a cheat-sheet band, not a label record; it keeps binding).
-            if (why != null && why != "PLAYBOOK_OUTSIDE_ENVELOPE_8383_$lane" && LaneGradeHorizon8406.wrongClockSpares8408(lane, "PLAYBOOK_7907")) why = null
+            // superseded by V5.0.8418 — the refusal keeps binding until the hour book exists (LaneGradeHorizon8406.refusalKept8418).
+            if (why != null && why != "PLAYBOOK_OUTSIDE_ENVELOPE_8383_$lane" && !LaneGradeHorizon8406.refusalKept8418(lane, "PLAYBOOK_7907")) why = null
             if (why != null) {
                 refusals.computeIfAbsent(why.removeSuffix("_$lane").take(60)) { AtomicLong(0) }.incrementAndGet()
                 try {

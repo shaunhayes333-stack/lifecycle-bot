@@ -270,9 +270,16 @@ object LiveWinDNAStore {
 
     /** Winning-setup histogram (setup name → count, avgPnl). AGI layers use this.
      *  V5.0.6258 — filters to WINNING rows only (pnlPct > 0). */
-    fun setupFrequency(minCount: Int = 2, lane: String? = null): List<Triple<String, Int, Double>> {
+    /**
+     * V5.0.8418 (owner: "shadow proof can unlock, not size") — a LIVE size reader counts only realised LIVE closes. The 6265
+     * DNA size boost in Executor.liveBuy read PAPER rows too (paper desks run beside live since 8336), so paper wins could
+     * raise a live stake 1.1-1.5x. Pure.
+     */
+    fun liveSizingRow8418(row: WinDNA): Boolean = row.paperOrLive.equals("LIVE", ignoreCase = true)
+
+    fun setupFrequency(minCount: Int = 2, lane: String? = null, liveOnly: Boolean = false): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        realRows().filter { it.pnlPct > 0.0 && (lane == null || it.lane.equals(lane, true)) }
+        realRows().filter { it.pnlPct > 0.0 && (lane == null || it.lane.equals(lane, true)) && (!liveOnly || liveSizingRow8418(it)) }
             .forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
@@ -282,9 +289,9 @@ object LiveWinDNAStore {
     /** V5.0.6258 — LOSING-setup histogram. The AGI must learn what NOT to trade,
      *  not just what worked. Losing patterns are 5x more informative than winners
      *  because they define the AVOID surface for live-trade shape. */
-    fun losingSetupFrequency(minCount: Int = 2, lane: String? = null): List<Triple<String, Int, Double>> {
+    fun losingSetupFrequency(minCount: Int = 2, lane: String? = null, liveOnly: Boolean = false): List<Triple<String, Int, Double>> {
         val map = HashMap<String, MutableList<Double>>()
-        realRows().filter { it.pnlPct < 0.0 && (lane == null || it.lane.equals(lane, true)) }
+        realRows().filter { it.pnlPct < 0.0 && (lane == null || it.lane.equals(lane, true)) && (!liveOnly || liveSizingRow8418(it)) }
             .forEach { map.getOrPut(it.entrySetup) { mutableListOf() }.add(it.pnlPct) }
         return map.filter { it.value.size >= minCount }
             .map { (k, v) -> Triple(k, v.size, v.average()) }
