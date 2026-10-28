@@ -69,16 +69,30 @@ android {
             // Uses default debug keystore at ~/.android/debug.keystore
         }
         create("release") {
-            storeFile = file("../keystore/release.keystore")
-            // takeIf(isNotBlank) is load-bearing, not defensive: build.yml maps
-            // these to repository secrets, and GitHub Actions sets the env var to
-            // an EMPTY STRING (not unset) when the secret does not exist. A plain
-            // `?:` only fires on null, so an empty password reached AGP and failed
-            // as BadPaddingException/UnrecoverableKeyException at packageRelease
-            // rather than as a missing-credential error.
-            storePassword = System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "aate2024bot"
-            keyAlias = "aate_release"
-            keyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: "aate2024bot"
+            // V5.0.8418 — GitHub secrets first: build.yml decodes RELEASE_KEYSTORE_B64 to RELEASE_KEYSTORE_FILE and
+            // passes RELEASE_KEYSTORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD. Without them the repo
+            // keystore below is used exactly as before. Either way the release verifier pins the signer certificate,
+            // so a secrets keystore holding a different key fails the build instead of breaking in-place upgrades.
+            val secretStore8418 = System.getenv("RELEASE_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }?.let { file(it) }?.takeIf { it.isFile }
+            if (secretStore8418 != null) {
+                storeFile = secretStore8418
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
+                    ?: throw GradleException("RELEASE_KEYSTORE_B64 is set but RELEASE_KEYSTORE_PASSWORD is empty")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "aate_release"
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+                    ?: System.getenv("RELEASE_KEYSTORE_PASSWORD")!!
+            } else {
+                storeFile = file("../keystore/release.keystore")
+                // takeIf(isNotBlank) is load-bearing, not defensive: build.yml maps
+                // these to repository secrets, and GitHub Actions sets the env var to
+                // an EMPTY STRING (not unset) when the secret does not exist. A plain
+                // `?:` only fires on null, so an empty password reached AGP and failed
+                // as BadPaddingException/UnrecoverableKeyException at packageRelease
+                // rather than as a missing-credential error.
+                storePassword = System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "aate2024bot"
+                keyAlias = "aate_release"
+                keyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: "aate2024bot"
+            }
         }
     }
 

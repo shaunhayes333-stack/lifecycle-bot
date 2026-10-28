@@ -302,5 +302,46 @@ class Identity(unittest.TestCase):
         self.assertTrue(rv.identity_findings(rv.parse_badging(BADGING.replace("sdkVersion:'26'", "sdkVersion:'21'")), "5.0.8417"))
 
 
+class ReleaseSigningEnv(unittest.TestCase):
+    """V5.0.8418 — release_signing_env_8418.sh: GitHub secrets first, the repo keystore otherwise."""
+    def run_sh(self, env):
+        import os
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            e = {k: v for k, v in os.environ.items() if not k.startswith("RELEASE_")}
+            e.update(env)
+            e["RUNNER_TEMP"] = d
+            out = subprocess.run(["bash", "-c", '. "$0"; release_signing_8418; rc=$?; '
+                                  'echo "rc=$rc file=${RELEASE_KEYSTORE_FILE:-} size=$( [ -n "${RELEASE_KEYSTORE_FILE:-}" ] && wc -c < "$RELEASE_KEYSTORE_FILE" | tr -d " " )"',
+                                  str(HERE / "release_signing_env_8418.sh")], capture_output=True, text=True, env=e)
+            return out.stdout.strip().splitlines()[-1], out.stdout, d
+
+    def test_secrets_present_decode_the_keystore(self):
+        import base64
+        last, out, d = self.run_sh({"RELEASE_KEYSTORE_B64": base64.b64encode(b"\xfe\xed\xfe\xed" + b"k" * 60).decode(),
+                                    "RELEASE_KEYSTORE_PASSWORD": "pw"})
+        self.assertIn("GitHub secrets keystore", out)
+        self.assertTrue(last.startswith(f"rc=0 file={d}/release_8418.keystore size=64"), last)
+
+    def test_no_secret_uses_the_repo_keystore(self):
+        last, out, _ = self.run_sh({"RELEASE_KEYSTORE_B64": "", "RELEASE_KEYSTORE_FILE": "/stale"})
+        self.assertIn("repository keystore", out)
+        self.assertEqual(last, "rc=0 file= size=")
+
+    def test_half_configured_fails(self):
+        last, out, _ = self.run_sh({"RELEASE_KEYSTORE_B64": "AAAA"})
+        self.assertIn("RELEASE_KEYSTORE_PASSWORD is empty", out)
+        self.assertTrue(last.startswith("rc=1"), last)
+        last, out, _ = self.run_sh({"RELEASE_KEYSTORE_B64": "!!!not base64", "RELEASE_KEYSTORE_PASSWORD": "pw"})
+        self.assertIn("did not decode", out)
+        self.assertTrue(last.startswith("rc=1 file= "), last)
+
+    def test_gradle_reads_the_same_names(self):
+        gradle = (HERE.parent / "app/build.gradle.kts").read_text()
+        for name in ("RELEASE_KEYSTORE_FILE", "RELEASE_KEYSTORE_PASSWORD", "RELEASE_KEY_ALIAS", "RELEASE_KEY_PASSWORD"):
+            self.assertIn(f'System.getenv("{name}")', gradle)
+        self.assertIn('storeFile = file("../keystore/release.keystore")', gradle)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
