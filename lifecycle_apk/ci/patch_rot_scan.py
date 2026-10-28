@@ -142,7 +142,8 @@ def main() -> int:
 
     perps_ai = (SRC / "com/lifecyclebot/perps/PerpsTraderAI.kt").read_text()
     perps_close = perps_ai.split("fun closePosition(positionId: String, exitPrice: Double, exitReason: PerpsExitSignal)", 1)[-1]
-    require(errors, perps_close, "if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(", "PERPS_PAPER_OUTCOME_SINGLE_PUBLISHER_6679")
+    forbid(errors, perps_close, "CanonicalPublishHelper.publishExit(", "PERPS_TERMINAL_CANONICAL_SINGLE_PUBLISHER_8417")
+    require(errors, perps_close, "WholePositionEconomics7835.from(settled)", "PERPS_SETTLED_NET_OUTCOME_8417")
     forbid(errors, perps_close, "modeStr248", "PERPS_MUTABLE_TERMINAL_MODE_RETIRED_6679")
     perps_fluid_count = perps_close.count("FluidLearning.recordPaperSell(")
     if perps_fluid_count != 1:

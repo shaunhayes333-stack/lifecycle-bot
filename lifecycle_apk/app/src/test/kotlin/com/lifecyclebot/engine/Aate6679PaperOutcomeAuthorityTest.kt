@@ -24,13 +24,14 @@ class Aate6679PaperOutcomeAuthorityTest {
     ).readText()
 
     @Test
-    fun `perps paper terminal is canonical and legacy publishers are live only`() {
+    fun `perps terminal economics have one canonical publisher in both modes`() {
         val close = perps.substringAfter(
             "fun closePosition(positionId: String, exitPrice: Double, exitReason: PerpsExitSignal)"
         )
 
         assertTrue(close.contains("CanonicalPaperTransaction6486.close("))
-        assertTrue(close.contains("if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit("))
+        assertFalse(close.contains("CanonicalPublishHelper.publishExit("))
+        assertTrue(close.contains("WholePositionEconomics7835.from(settled)"))
         assertFalse(close.contains("modeStr248"))
 
         val journal = close.substringAfter("// V5.0.6679 — PAPER is already journaled")
