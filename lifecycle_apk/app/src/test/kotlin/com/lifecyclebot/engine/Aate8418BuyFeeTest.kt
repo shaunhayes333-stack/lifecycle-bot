@@ -46,6 +46,30 @@ class Aate8418BuyFeeTest {
         assertEquals(0.00015, BuyAppFee8418.buyFeeSol8418(0.03), 1e-15)
     }
 
+    @Test fun aSecondChargeForTheSameSignatureIsNotAccruedAgain() {
+        // V5.0.8418 integration — the booking key already used (DUPLICATE) means the split was sent once already.
+        val sink = Rec8418()
+        val first = BuyAppFee8418.chargeUnlessDuplicate8418(CanonicalPositionAuthority6441.MutateResult.APPLIED, trader, 0.2, "topup_8418", sink)
+        val again = BuyAppFee8418.chargeUnlessDuplicate8418(CanonicalPositionAuthority6441.MutateResult.DUPLICATE, trader, 0.2, "topup_8418", sink)
+        assertEquals(0.001, first, 1e-15)
+        assertEquals(0.0, again, 1e-15)
+        assertEquals(2, sink.accrued.size)
+        assertEquals(0.001, sink.accrued.sumOf { it.second }, 1e-15)
+        // A booking that could not land (position gone) still charges: the wallet paid for the buy.
+        val orphan = BuyAppFee8418.chargeUnlessDuplicate8418(CanonicalPositionAuthority6441.MutateResult.UNKNOWN_POSITION, trader, 0.2, "t", sink)
+        assertEquals(0.001, orphan, 1e-15)
+    }
+
+    @Test fun aTopUpPaysTheFeeOnItsReceiptCostNotThePlannedSol() {
+        // Receipt: 0.100005 SOL left the owner, 0.000005 of it the network fee -> cost 0.1 (planned was 0.12).
+        val fill = Settlement8418.Fill8418("sigTopUp8418", BigInteger.valueOf(5_000_000L), 6, 5.0, 0.1, 0.000005)
+        assertEquals(0.0005, BuyAppFee8418.bookedFeeSol8418(fill.costSol), 1e-15)
+        assertTrue(BuyAppFee8418.bookedFeeSol8418(fill.costSol) < BuyAppFee8418.bookedFeeSol8418(0.12))
+        val ex = src("engine/Executor.kt")
+        assertTrue(ex.contains("BuyAppFee8418.chargeLiveBuy8418(wallet, fill8418.costSol,"))
+        assertTrue(ex.contains("feeSol = BuyAppFee8418.bookedFeeSol8418(fill8418.costSol))"))
+    }
+
     @Test fun aShareAddressedToTheTradingWalletGoesToTheOtherFeeWallet() {
         val sink = Rec8418()
         BuyAppFee8418.chargeBuy8418(BuyAppFee8418.WALLET_1_8418, 1.0, "t", sink)

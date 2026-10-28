@@ -114,6 +114,25 @@ object BuyAppFee8418 {
     }
 
     /**
+     * V5.0.8418 — the fee is charged ONCE per signature: when the canonical booking says this [tag]+signature was already
+     * booked ([CanonicalPositionAuthority6441.MutateResult.DUPLICATE]), the split was already sent and nothing more is
+     * accrued. Any other booking result charges (the wallet still paid for the buy). Returns the fee charged.
+     */
+    fun chargeUnlessDuplicate8418(
+        booked: com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult,
+        self: String,
+        confirmedCostSol: Double,
+        tag: String,
+        sink: Sink8418 = LiveSink8418,
+    ): Double {
+        if (booked == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE) {
+            try { PipelineHealthCollector.labelInc("APP_BUY_FEE_DUPLICATE_NOT_RECHARGED_8418") } catch (_: Throwable) {}
+            return 0.0
+        }
+        return chargeBuy8418(self, confirmedCostSol, tag, sink)
+    }
+
+    /**
      * Executor (finalized live BUY, live top-up): book the fee on the canonical position [positionId] (idempotent per
      * [signature]) and charge it from [wallet]. Returns the fee charged.
      */
@@ -133,7 +152,8 @@ object BuyAppFee8418 {
         } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.INVARIANT_VIOLATION }
         try { PipelineHealthCollector.labelInc("APP_BUY_FEE_BOOKED_${booked.name}_8418") } catch (_: Throwable) {}
         val self = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
-        val charged = chargeBuy8418(self, confirmedCostSol, tag)
+        val charged = chargeUnlessDuplicate8418(booked, self, confirmedCostSol, tag)
+        if (charged <= 0.0) return 0.0
         try { onLog("💸 APP FEE: ${"%.6f".format(charged)} SOL (${CostTrim8151.BUY_APP_FEE_PCT_8418}% of confirmed BUY) split 50/50", mint) } catch (_: Throwable) {}
         return charged
     }
