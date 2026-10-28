@@ -4608,6 +4608,7 @@ object Cortex7885 {
                         if (auth7955 >= OVERRULE_FRACTION_7955) append("O ")
                         if (auth7955 > 0.0) append("auth=${"%.2f".format(auth7955)} ")
                         if (calibration.suspends8372(lane, MIN_CONSISTENT_SLOPE, executableOffset8187(lane))) append("SUSPENDED ")
+                        else if (calibration.insufficient8418(lane, executableOffset8187(lane))) append("INSUFFICIENT ")   // V5.0.8418
                         if (invertedCurrent8372(lane)) append("INVERTED")
                     }.trim().ifBlank { "shadow" }
                     val currentGraded = row8153.strongN + row8153.neutralN + row8153.refuseN
