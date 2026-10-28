@@ -22,7 +22,7 @@ class Aate8417DiscoveryInputsTest {
     )
 
     @Test fun freshFrameReplacesStalePeaksAndReachesItsOwnLaneAndSetup() {
-        val old = row(now - 20 * 60_000L, 12.0, 2_000_000.0, 400_000.0, 70.0)
+        val old = row(now - 20 * 60_000L, 12.0, 2_000_000.0, 400_000.0, 70.0).copy(priceChangeH24Pct = 70.0)
         val fresh = row(now, 1.2, 200_000.0, 30_000.0, -12.0).copy(providers = setOf("JUP_TRENDING_5M"))
         for (order in listOf(listOf(old, fresh), listOf(fresh, old))) {
             val merged = MarketSweep7297.merge(order).single()
