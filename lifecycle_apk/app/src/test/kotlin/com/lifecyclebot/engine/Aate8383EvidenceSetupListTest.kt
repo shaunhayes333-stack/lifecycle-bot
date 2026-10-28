@@ -103,7 +103,8 @@ class Aate8383EvidenceSetupListTest {
     }
 
     @Test fun treasuryHuntsTheBandThatPays() {
-        assertEquals(250_000.0, TreasuryScannerFeed.MIN_TREASURY_MCAP, 0.0)
+        // superseded by V5.0.8418 — the established-token floor is $1M again (positive-label share is not net evidence).
+        assertEquals(1_000_000.0, TreasuryScannerFeed.MIN_TREASURY_MCAP, 0.0)
         assertTrue(LanePlaybook7907.ENV_MCAP_MAX_8383 > TreasuryScannerFeed.MIN_TREASURY_MCAP)
     }
 }

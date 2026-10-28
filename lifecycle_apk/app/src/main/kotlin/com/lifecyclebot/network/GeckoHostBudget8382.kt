@@ -65,6 +65,13 @@ object GeckoHostBudget8382 : Interceptor {
         "geckoHost8382[perMin=$PER_MIN_8382 tokens=${"%.1f".format(bucket.tokens8287(nowMs))} decision=${takenDecision.get()}/${refusedDecision.get()} " +
             "bulk=${takenBulk.get()}/${refusedBulk.get()} provider429=${limited.get()} pausedLeftMs=${bucket.pausedLeftMs8287(nowMs)}]"
 
+    /** Pure (V5.0.8418): may this call proceed after waiting [waitMs] (< 0 = refused by the budget) on this thread? */
+    fun waitMayBlock8418(waitMs: Long, onMainThread: Boolean): Boolean = waitMs == 0L || (waitMs > 0L && !onMainThread)
+
+    private fun onMainThread8418(): Boolean = try {
+        android.os.Looper.getMainLooper()?.thread === Thread.currentThread()
+    } catch (_: Throwable) { false }
+
     /** The shared client's GeckoTerminal budget; registered before HostCircuitInterceptor like DexRateInterceptor8287. */
     override fun intercept(chain: Interceptor.Chain): Response {
         val req = chain.request()
@@ -72,7 +79,9 @@ object GeckoHostBudget8382 : Interceptor {
         val exit = req.header(ExitHttpScope7314.HEADER) != null || ExitHttpScope7314.active()
         val prio = prioOf8382(req.url.encodedPath, exit)
         val wait = take8382(System.currentTimeMillis(), prio)
-        if (wait < 0L) {
+        // V5.0.8418 (review df436b883) — the budget wait never blocks the main thread: a call that would wait there is
+        // answered as the local budget refusal (synthetic 599, kept out of provider health) instead of a Thread.sleep.
+        if (!waitMayBlock8418(wait, onMainThread8418())) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("GECKO_HOST_BUDGET_REFUSED_8382_${prio.name}") } catch (_: Throwable) {}
             return Response.Builder().request(req).protocol(Protocol.HTTP_1_1).code(599)
                 .message("GECKO_HOST_BUDGET_8382 prio=${prio.name}")

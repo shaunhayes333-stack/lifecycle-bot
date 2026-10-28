@@ -246,12 +246,25 @@ object FieldManual7715 {
     // tightens back toward the mandate on its own. Runner lanes (15 %) are already outside today's trip and do not move.
     const val STOP_COST_MULT_8392 = 1.5
     const val STOP_CAP_PCT_8392 = 40.0
+    /** V5.0.8418 — the widest cost-widened stop a non-runner desk trades without its own evidence. */
+    const val NON_RUNNER_STOP_CAP_PCT_8418 = 25.0
+
+    /** Pure (V5.0.8418): a non-runner desk's cap — 25 %, or the lane's own learned stop up to the 40 % cap when wider. */
+    fun nonRunnerCap8418(learnedStopPct: Double?): Double =
+        if (learnedStopPct != null && learnedStopPct.isFinite() && learnedStopPct > NON_RUNNER_STOP_CAP_PCT_8418)
+            learnedStopPct.coerceAtMost(STOP_CAP_PCT_8392) else NON_RUNNER_STOP_CAP_PCT_8418
 
     /** The stop [lane] actually trades at [costPct] round trip: max(mandate invalidation, 1.5 x cost), never over the cap. */
     fun stopPct8392(lane: String?, costPct: Double): Double {
-        val m = mandateFor(lane).invalidationPct
+        val mandate = mandateFor(lane)
+        val m = mandate.invalidationPct
         if (!costPct.isFinite() || costPct <= 0.0) return m
-        val widened = maxOf(m, STOP_COST_MULT_8392 * costPct).coerceAtMost(maxOf(m, STOP_CAP_PCT_8392))
+        // superseded by V5.0.8418 — a NON-RUNNER desk's widening is capped at NON_RUNNER_STOP_CAP_PCT_8418 (25 %), not 40 %, unless
+        // the lane's own graded paths chose a wider stop (StopLearner8040); runner mandates keep the 40 % cap. The cost itself
+        // is the receipt-built trip once realised slippage is measured (CostLedger7962.laneCostPct7962, RoundTrip8418).
+        val cap8418 = if (mandate.runner) STOP_CAP_PCT_8392 else nonRunnerCap8418(
+            try { com.lifecyclebot.engine.cortex.StopLearner8040.learnedStop8040(lane.orEmpty()) } catch (_: Throwable) { null })
+        val widened = maxOf(m, STOP_COST_MULT_8392 * costPct).coerceAtMost(maxOf(m, cap8418))
         if (widened > m + 1e-9) try { PipelineHealthCollector.labelInc("STOP_WIDENED_TO_COST_8392_${lane?.trim()?.uppercase().orEmpty().take(16)}") } catch (_: Throwable) {}
         return widened
     }

@@ -277,7 +277,7 @@ object LiveWinDNAStore {
      */
     internal fun scoped8418(all: List<WinDNA>, lane: String?, mode: String?, fallbackAll: Boolean): List<WinDNA> {
         val m = mode?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
-        val byMode = if (m == null) all else all.filter { it.paperOrLive.equals(m, true) }
+        val byMode = if (m == null) all else all.filter { modeOk8418(it, m) }
         if (lane == null) return byMode
         val key = laneKey8418(lane)
         if (key.isBlank()) return if (fallbackAll) byMode else emptyList()
@@ -750,6 +750,29 @@ object LiveWinDNAStore {
      *  tiny 7-row DNA snapshot cannot lock the whole live pipeline out of
      *  buys. Uses the cached realRowsSnapshot when available; O(1). */
     fun realCount(): Int = realRows().size
+
+    // ── V5.0.8418 (review ea9f1f0ac) — mode and lane of the DNA readers that size / admit / veto ──
+    private val MEME_LANES_8418 = setOf("MOONSHOT", "SHITCOIN", "EXPRESS", "QUALITY", "BLUECHIP", "CORE", "DIP_HUNTER",
+        "PROJECT_SNIPER", "MANIPULATED", "CYCLIC", "TREASURY", "CASHGEN")
+
+    /** Pure: does [row] belong to [mode] ("LIVE" / "PAPER"; null = either)? A paper settlement never sizes or admits a live trade. */
+    internal fun modeOk8418(row: WinDNA, mode: String?): Boolean = mode == null || row.paperOrLive.equals(mode, true)
+
+    /** The mode the executor's DNA reads use: paper decisions read paper rows, live decisions live rows only. */
+    fun mode8418(paperMode: Boolean): String = if (paperMode) "PAPER" else "LIVE"
+
+    private fun canonicalMemeLane8418(layerTag: String): String? {
+        val c = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(layerTag).trim().uppercase() } catch (_: Throwable) { layerTag.trim().uppercase() }
+        return c.takeIf { it in MEME_LANES_8418 }
+    }
+
+    /** The lane a DNA VETO reads: the canonical meme lane, else null (every lane) — a blank tag never means "no rows". */
+    fun vetoLane8418(layerTag: String): String? = canonicalMemeLane8418(layerTag)
+
+
+    // V5.0.8418 integration — the mode-scoped histograms are setupFrequency / losingSetupFrequency / chartPatternFrequency
+    // with [mode] (scoped8418 above); the duplicate *8418 histogram readers were folded into them.
+
     fun reset() {
         rows.clear()
         invalidateSnapshots()

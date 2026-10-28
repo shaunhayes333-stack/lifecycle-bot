@@ -182,7 +182,9 @@ class Aate8284HeliusCandleMergeTest {
         assertTrue(h.budgetAdmits8284(h.PRIORITY_HANDOFF_8284, 11, 359))
         assertFalse(h.budgetAdmits8284(h.PRIORITY_HANDOFF_8284, 12, 0))
         // bulk: 4/min, 100/h — never the decision coins' share
-        assertTrue(h.budgetAdmits8284(0, 3, 99))
+        // superseded by V5.0.8418 — a bulk coin gets no Helius candle job at all (HeliusCandleGate8418 keyless-only; was 4/min, 100/h).
+        assertFalse(h.budgetAdmits8284(0, 3, 99))
+        assertFalse(h.budgetAdmits8284(0, 0, 0))
         assertFalse(h.budgetAdmits8284(0, 4, 0))
         assertFalse(h.budgetAdmits8284(0, 0, 100))
         assertEquals(0, h.priority8284("BulkMintZzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", now))

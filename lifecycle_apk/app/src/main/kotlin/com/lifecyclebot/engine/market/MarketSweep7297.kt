@@ -335,7 +335,8 @@ object MarketSweep7297 {
             try { PipelineHealthCollector.labelInc("MARKET_SWEEP_7297_${name}_${if (rows.isEmpty()) "EMPTY" else "SERVED"}") } catch (_: Throwable) {}
         }
 
-        val merged = merge(agedForward8293(results.flatMap { it.second }, System.currentTimeMillis()))  // V5.0.8293
+        val now8418 = System.currentTimeMillis()
+        val merged = merge(agedForward8293(results.flatMap { it.second }, System.currentTimeMillis())) { m -> chainBirthHours8418(m, now8418) }  // V5.0.8293; V5.0.8418 — chain birth first
         val enriched = enrichMissingCaps(merged)
         if (enriched.isEmpty()) return last
         val previous7777 = last
@@ -413,7 +414,7 @@ object MarketSweep7297 {
      * but market inputs and their timestamp stay together. Ages already advanced by agedForward8293 are lower
      * bounds: a later pool cannot make a token younger than an earlier witnessed pool.
      */
-    fun merge(rows: List<Row>): List<Row> =
+    fun merge(rows: List<Row>, birthAgeHours: (String) -> Double? = { null }): List<Row> =
         rows.filter { it.mint.length >= 32 && it.mint !in QUOTE_MINTS }
             .groupBy { it.mint }
             .map { (_, g) ->
@@ -426,10 +427,35 @@ object MarketSweep7297 {
                 market.copy(
                     symbol = named.symbol,
                     name = named.name,
-                    ageHours = g.map { it.ageHours }.filter { it.isFinite() && it > 0.0 }.maxOrNull() ?: 0.0,
+                    ageHours = mergedAge8418(market.ageHours, g.map { it.ageHours },
+                        try { birthAgeHours(market.mint) } catch (_: Throwable) { null }),   // V5.0.8418 — never inflated by the merge
                     providers = g.flatMap { it.providers }.toSet(),
                 )
             }
+
+    /** V5.0.8418 — an older provider age within this of the market row's own age corroborates it (ageing / poll lag). */
+    private const val AGE_CORROBORATION_HOURS_8418 = 10.0 / 60.0
+    private const val AGE_CORROBORATION_SHARE_8418 = 0.25
+
+    /**
+     * Pure (V5.0.8418, review bd9865ade): one mint's merged age. The chain-proven birth [birthHours] (CanonicalTokenBirthTime7440)
+     * wins. Otherwise the dated market row's own age [anchorHours] — the frame whose price and cap were taken — raised only by
+     * an older provider age that corroborates it (within max(10 min, 25 %) of it: poll lag / ageing, still a lower bound); a
+     * single provider's much older pool age no longer makes the token look older. A younger age never rejuvenates it. With no
+     * anchor, the youngest witnessed age (the merge never inflates). 0.0 = unknown.
+     */
+    fun mergedAge8418(anchorHours: Double, providerHours: List<Double>, birthHours: Double?): Double {
+        if (birthHours != null && birthHours.isFinite() && birthHours > 0.0) return birthHours
+        val known = providerHours.filter { it.isFinite() && it > 0.0 }
+        if (!(anchorHours.isFinite() && anchorHours > 0.0)) return known.minOrNull() ?: 0.0
+        val tol = maxOf(AGE_CORROBORATION_HOURS_8418, anchorHours * AGE_CORROBORATION_SHARE_8418)
+        return known.filter { it > anchorHours && it - anchorHours <= tol }.maxOrNull() ?: anchorHours
+    }
+
+    /** V5.0.8418 — the chain-proven birth of [mint] as an age in hours (peek only: no hydration request), or null. */
+    private fun chainBirthHours8418(mint: String, nowMs: Long): Double? =
+        try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.peekBirthMs8418(mint, nowMs) } catch (_: Throwable) { null }
+            ?.takeIf { it in 1L..nowMs }?.let { (nowMs - it) / 3_600_000.0 }
 
     // ── V5.0.8169 — the last sweep's row for one mint (setup-input fallback) ──
     @Volatile private var rowIndex8169: Pair<Long, Map<String, Row>> = 0L to emptyMap()

@@ -19,9 +19,30 @@ object CanonicalTokenBirthTime7440 {
     private fun plausible(ms: Long, nowMs: Long): Boolean =
         ms >= MIN_VALID_MS && ms <= nowMs + 60_000L
 
+    /**
+     * V5.0.8418 — the verified birth of [mint] from the witnesses already held, with NO hydration request and no counters
+     * (MarketSweep7297.merge reads it for hundreds of mints a sweep). Null when no direct witness is held.
+     */
+    fun peekBirthMs8418(mint: String, nowMs: Long = System.currentTimeMillis()): Long? {
+        val m = mint.trim()
+        if (m.isBlank()) return null
+        return candidates8418(m, nowMs).minWithOrNull(compareBy<Resolution>({ it.birthMs }, { sourceRank7770(it.source) }))?.birthMs
+    }
+
     fun resolve(mint: String, nowMs: Long = System.currentTimeMillis()): Resolution? {
         val m = mint.trim()
         if (m.isBlank()) return null
+        val candidates = candidates8418(m, nowMs)
+
+        // Ordinary pool creation is only an age lower bound (AdmissionBirth8144), never verified birth.
+
+        // V5.0.7770 — on a tie the direct witness is credited, not the cache copy
+        // this function wrote from it (create event, then pool, then cache).
+        val resolved = candidates.minWithOrNull(compareBy<Resolution>({ it.birthMs }, { sourceRank7770(it.source) }))
+        return afterResolve8418(m, resolved)
+    }
+
+    private fun candidates8418(m: String, nowMs: Long): List<Resolution> {
         val candidates = ArrayList<Resolution>(3)
 
         try {
@@ -43,12 +64,10 @@ object CanonicalTokenBirthTime7440 {
         try { AdmissionBirth8144.oldestSignatureMs8169(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.TOKEN_META_CREATION) } } catch (_: Throwable) {}
         // V5.0.8179 — the mint was initialised in the confirmed transaction that created its first pool (chain launch feed).
         try { AdmissionBirth8144.chainMintInitMs8179(m)?.let { if (plausible(it, nowMs)) candidates += Resolution(it, Source.FIRST_POOL_CREATION) } } catch (_: Throwable) {}
+        return candidates
+    }
 
-        // Ordinary pool creation is only an age lower bound (AdmissionBirth8144), never verified birth.
-
-        // V5.0.7770 — on a tie the direct witness is credited, not the cache copy
-        // this function wrote from it (create event, then pool, then cache).
-        val resolved = candidates.minWithOrNull(compareBy<Resolution>({ it.birthMs }, { sourceRank7770(it.source) }))
+    private fun afterResolve8418(m: String, resolved: Resolution?): Resolution? {
         if (resolved == null) {
             try { TokenBirthHydrator7441.request(m) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_HYDRATION_PENDING_7440") } catch (_: Throwable) {}

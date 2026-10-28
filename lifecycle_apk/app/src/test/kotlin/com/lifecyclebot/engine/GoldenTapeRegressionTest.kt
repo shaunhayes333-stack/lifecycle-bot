@@ -15463,7 +15463,8 @@ class GoldenTapeRegressionTest {
         fun src8392(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/" + p).readText()
         val fm8392 = src8392("engine/truth/FieldManual7715.kt")
         assertTrue(fm8392.contains("const val STOP_COST_MULT_8392 = 1.5") && fm8392.contains("fun stopPct8392(lane: String?, costPct: Double): Double"))
-        assertTrue(fm8392.contains("maxOf(m, STOP_COST_MULT_8392 * costPct).coerceAtMost(maxOf(m, STOP_CAP_PCT_8392))"))
+        // superseded by V5.0.8418 — the cap is per desk: 40 % for runner mandates, 25 % (or the lane's learned stop) otherwise.
+        assertTrue(fm8392.contains("maxOf(m, STOP_COST_MULT_8392 * costPct).coerceAtMost(maxOf(m, cap8418))"))
         for ((f, lit) in listOf(
             "engine/truth/EvidenceShadow8344.kt" to "FieldManual7715.stopPct8392(lane, cost)",
             "engine/truth/ExploreShadow8347.kt" to "FieldManual7715.stopPct8392(lane, cost)",

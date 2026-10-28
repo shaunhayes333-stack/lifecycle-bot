@@ -270,4 +270,113 @@ class Aate8418ExitsDataRoutesTest {
         e.noteTickOk8418(k2)
         assertFalse("a good tick restarts the streak", e.noteTickFailure8418(k2))
     }
+
+    // ── 6. off-watch marks: on-curve mints are curve-read before DexScreener ──
+
+    @Test fun onCurveMintsGoToTheCurveReadFirst() {
+        val fr = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+        val (on, off) = fr.splitOnCurve8418(listOf("a", "bpump", "c", "dpump")) { it.endsWith("pump") }
+        assertEquals(listOf("bpump", "dpump"), on)
+        assertEquals(listOf("a", "c"), off)
+        val (on2, off2) = fr.splitOnCurve8418(listOf("x", "y")) { m -> if (m == "x") throw IllegalStateException() else true }
+        assertEquals("a throwing probe is not on a curve", listOf("y"), on2); assertEquals(listOf("x"), off2)
+    }
+
+    // ── 11. stops: non-runner desks cap at 25 % unless their own evidence chose wider; runners keep 40 % ──
+
+    @Test fun nonRunnerStopsCapAtTwentyFivePercent() {
+        val fm = com.lifecyclebot.engine.truth.FieldManual7715
+        assertEquals(25.0, fm.stopPct8392("TREASURY", 30.0), 1e-9)
+        assertEquals(25.0, fm.stopPct8392("QUALITY", 60.0), 1e-9)
+        assertEquals(7.5, fm.stopPct8392("TREASURY", 5.0), 1e-9)          // 1.5 x a 5 % trip
+        assertEquals(40.0, fm.stopPct8392("MOONSHOT", 60.0), 1e-9)       // runner mandate keeps the 40 % cap
+        assertEquals(25.0, fm.nonRunnerCap8418(null), 0.0)
+        assertEquals(25.0, fm.nonRunnerCap8418(18.0), 0.0)
+        assertEquals(32.0, fm.nonRunnerCap8418(32.0), 0.0)               // the lane's own learned stop
+        assertEquals(40.0, fm.nonRunnerCap8418(70.0), 0.0)
+        assertEquals(25.0, fm.nonRunnerCap8418(Double.NaN), 0.0)
+    }
+
+    @Test fun theRestoredBuyFeeFeedsTheFeeEaterGuardAgain() {
+        repeat(50) { BuyAppFee8418.noteLiveFee8418(1.0) }
+        BuyAppFee8418.noteLiveFee8418(0.0); BuyAppFee8418.noteLiveFee8418(Double.NaN)
+        val (skip, why) = LiveLaneGovernor.feeEaterGuard(0.5)
+        assertTrue(why, skip)
+        assertTrue(why.startsWith("SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247"))
+    }
+
+    // ── 12. TREASURY / CASHGEN established-token floor ──
+
+    @Test fun treasuryFloorIsOneMillionAgain() {
+        assertEquals(1_000_000.0, TreasuryScannerFeed.MIN_TREASURY_MCAP, 0.0)
+        assertFalse(TreasuryScannerFeed.publishCandidate(TreasuryScannerFeed.TreasuryCandidate(
+            "Trs8418Low".padEnd(44, 'A'), "LOW", 500_000.0, 80_000.0, 200_000.0, "TEST")))
+    }
+
+    // ── (a) sweep merge age: chain birth first, never inflated by one provider ──
+
+    @Test fun theMergedAgeIsNeverInflatedByTheMerge() {
+        val ms = com.lifecyclebot.engine.market.MarketSweep7297
+        assertEquals("chain-proven birth wins", 2.0, ms.mergedAge8418(0.5, listOf(0.5, 40.0), 2.0), 0.0)
+        assertEquals("one provider's far older pool age is not taken", 0.5, ms.mergedAge8418(0.5, listOf(0.5, 40.0), null), 0.0)
+        assertEquals("a corroborating older age (poll lag) is", 0.6, ms.mergedAge8418(0.5, listOf(0.5, 0.6), null), 1e-12)
+        assertEquals("a younger age never rejuvenates", 4.0, ms.mergedAge8418(4.0, listOf(0.01, 4.0), null), 0.0)
+        assertEquals("no anchor: the youngest witness", 3.0, ms.mergedAge8418(0.0, listOf(3.0, 9.0), null), 0.0)
+        assertEquals("unknown stays unknown", 0.0, ms.mergedAge8418(0.0, emptyList(), null), 0.0)
+    }
+
+    // ── (b) Helius candle jobs follow the keyless-first gate ──
+
+    @Test fun bulkCoinsGetNoHeliusCandleJob() {
+        val h = com.lifecyclebot.engine.truth.HeliusSwapCandles7819
+        assertFalse(h.budgetAdmits8284(0, 0, 0))
+        assertTrue(h.budgetAdmits8284(h.PRIORITY_HELD_8284, 0, 0))
+        assertTrue(h.budgetAdmits8284(h.PRIORITY_HANDOFF_8284, 0, 0))
+        val g = com.lifecyclebot.engine.truth.HeliusCandleGate8418
+        assertEquals(g.Decision8418.FREE_GRACE, g.decide8418(h.PRIORITY_NEAR_DECISION_8284, false, 1_000L, 1_000L + g.FREE_GRACE_MS_8418 - 1))
+        assertEquals(g.Decision8418.COVERED_BY_FREE, g.decide8418(h.PRIORITY_HELD_8284, true, 0L, 0L))
+    }
+
+    // ── ea9f1f0ac — DNA readers: paper never sizes live; a blank lane never disables the veto ──
+
+    @Test fun dnaReadersKeepModesApartAndVetoEveryLaneOnABlankTag() {
+        val d = LiveWinDNAStore
+        fun row(mode: String) = LiveWinDNAStore.WinDNA("m", "S", "MOONSHOT", "src", "p", "SETUP", "UNKNOWN", 50, 1.0, 1.0, 1.0,
+            5, 50.0, 30.0, 40.0, "X", mode, 1L, "pid", "eid")
+        assertTrue(d.modeOk8418(row("LIVE"), "LIVE"))
+        assertFalse("a paper settlement never sizes a live trade", d.modeOk8418(row("PAPER"), "LIVE"))
+        assertTrue(d.modeOk8418(row("PAPER"), null))
+        assertEquals("LIVE", d.mode8418(false)); assertEquals("PAPER", d.mode8418(true))
+        assertNull("blank tag: the veto reads every lane", d.vetoLane8418(""))
+        assertEquals("MOONSHOT", d.vetoLane8418("MOONSHOT"))
+        assertNull(d.vetoLane8418("NETWORK_SIGNAL"))
+    }
+
+    // ── 7ce191799 — a quiet decay alone never makes an execution quorum member healthy ──
+
+    @Test fun quietDecayIsNotEvidenceForTheLiveQuorum() {
+        val a = ApiHealthMonitor
+        assertTrue(a.quorumHealthyOf8418(true, 0.6, lastSuccessMs = 0L, lastQuietDecayMs = 0L))
+        assertFalse("decayed, no success since", a.quorumHealthyOf8418(true, 0.6, lastSuccessMs = 100L, lastQuietDecayMs = 200L))
+        assertTrue("a real success after the decay", a.quorumHealthyOf8418(true, 0.6, lastSuccessMs = 300L, lastQuietDecayMs = 200L))
+        assertFalse(a.quorumHealthyOf8418(false, 1.0, 0L, 0L))
+        assertFalse(a.quorumHealthyOf8418(true, 0.3, 300L, 0L))
+    }
+
+    // ── df436b883 — the GeckoTerminal budget wait never blocks the main thread ──
+
+    @Test fun geckoBudgetNeverSleepsOnTheMainThread() {
+        val g = com.lifecyclebot.network.GeckoHostBudget8382
+        assertTrue(g.waitMayBlock8418(0L, onMainThread = true))
+        assertTrue(g.waitMayBlock8418(800L, onMainThread = false))
+        assertFalse(g.waitMayBlock8418(800L, onMainThread = true))
+        assertFalse(g.waitMayBlock8418(-1L, onMainThread = false))
+    }
+
+    // ── 89209931c — a held (pinned) tape is never released ──
+
+    @Test fun pinnedHeldTapesAreNeverReleased() {
+        val drop = com.lifecyclebot.network.releasableSubs7948(listOf("held", "a", "b"), setOf("held")) { it == "a" }
+        assertEquals(listOf("b"), drop)
+    }
 }

@@ -136,6 +136,15 @@ object BuyAppFee8418 {
      * Executor (finalized live BUY, live top-up): book the fee on the canonical position [positionId] (idempotent per
      * [signature]) and charge it from [wallet]. Returns the fee charged.
      */
+    /**
+     * V5.0.8418 (review 17836cb9d) — the live app fee charged feeds LiveLaneGovernor.recordLiveFee again (the hook was deleted
+     * with the old sell-fee block, so SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247 lost its input). 0 / unknown is not recorded.
+     */
+    internal fun noteLiveFee8418(chargedSol: Double) {
+        if (!(chargedSol.isFinite() && chargedSol > 0.0)) return
+        try { LiveLaneGovernor.recordLiveFee(chargedSol) } catch (_: Throwable) {}
+    }
+
     fun chargeLiveBuy8418(
         wallet: SolanaWallet,
         confirmedCostSol: Double,
@@ -154,6 +163,7 @@ object BuyAppFee8418 {
         val self = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
         val charged = chargeUnlessDuplicate8418(booked, self, confirmedCostSol, tag)
         if (charged <= 0.0) return 0.0
+        noteLiveFee8418(charged)
         try { onLog("💸 APP FEE: ${"%.6f".format(charged)} SOL (${CostTrim8151.BUY_APP_FEE_PCT_8418}% of confirmed BUY) split 50/50", mint) } catch (_: Throwable) {}
         return charged
     }

@@ -1936,6 +1936,17 @@ object ForwardReturnLabeler7731 {
         (!o.done15 && age >= H15_MS_7731) || (!o.done60 && age >= H60_MS_7731) || (!o.done240 && age >= H240_MS_7731)
 
     /** V5.0.7737 — prices the oldest due, unpriced mints (the 60-minute label first) in one batch on a background thread. */
+    /** Pure (V5.0.8418): split [batch] into (on an active pump curve, everything else), order kept. */
+    fun splitOnCurve8418(batch: List<String>, onCurve: (String) -> Boolean): Pair<List<String>, List<String>> {
+        val on = ArrayList<String>(); val off = ArrayList<String>()
+        for (m in batch) if (try { onCurve(m) } catch (_: Throwable) { false }) on += m else off += m
+        return on to off
+    }
+
+    private fun onActiveCurve8418(mint: String): Boolean =
+        (try { com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) } catch (_: Throwable) { false }) &&
+            !(try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true })
+
     private fun fetchOffWatchMarks7737(due: List<String>, nowMs: Long) {
         if (due.isEmpty() || nowMs - offWatchLastFetchMs7737 < OFFWATCH_FETCH_GAP_MS_7737) return
         if (!offWatchInFlight7737.compareAndSet(false, true)) return
@@ -1949,7 +1960,19 @@ object ForwardReturnLabeler7731 {
                     // account for pump mints it did not list, Jupiter last (free tier 429s; it also misses most young tokens,
                     // 5.0.7749 priced=1517 missed=7233). Every rung is a bounded batch call on this background thread.
                     val got = HashMap<String, Double>()
-                    for (chunk in batch.chunked(OFFWATCH_DEX_CHUNK_8405)) {
+                    // V5.0.8418 (review 2b46b8833) — a pump.fun mint still on its curve is priced from the curve account first
+                    // (chain-exact; DexScreener's curve price can lag); only the curve's misses and every other mint go to
+                    // DexScreener. Same rungs, same bounded batches; one curve call per batch.
+                    val (onCurve8418, offCurve8418) = splitOnCurve8418(batch) { m -> onActiveCurve8418(m) }
+                    if (onCurve8418.isNotEmpty()) {
+                        val curve8418 = try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(onCurve8418) } catch (_: Throwable) { emptyMap() }
+                        val priced8418 = curve8418.filter { it.value.isFinite() && it.value > 0.0 }
+                        got.putAll(priced8418)
+                        offWatchCurvePriced7753.addAndGet(priced8418.size.toLong())
+                        if (priced8418.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_CURVE_FIRST_8418", priced8418.size.toLong())
+                    }
+                    val dexBatch8418 = offCurve8418 + onCurve8418.filter { it !in got }
+                    for (chunk in dexBatch8418.chunked(OFFWATCH_DEX_CHUNK_8405)) {
                         // V5.0.8418 — a due label mint the pair lane was just asked for is not asked twice on the same host.
                         val ask8418 = chunk.filter { m -> !(try { KeylessMarks8359.laneCovered8418(m, nowMs) } catch (_: Throwable) { false }) }
                         if (ask8418.isEmpty()) continue
@@ -1959,7 +1982,7 @@ object ForwardReturnLabeler7731 {
                         got.putAll(dex8405)
                         if (dex8405.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_DEX_PRICED_8217", dex8405.size.toLong())
                     }
-                    val missed7753 = batch.filter { it !in got }
+                    val missed7753 = offCurve8418.filter { it !in got }   // V5.0.8418 — on-curve mints were curve-read already
                     if (missed7753.isNotEmpty()) {
                         val curve7753 = try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(missed7753) } catch (_: Throwable) { emptyMap() }
                         got.putAll(curve7753)

@@ -37,7 +37,7 @@ object LiveProviderQuorum {
         // request ever being made. Requiring samples turns the quorum back into
         // a count of providers that exist.
         fun hostHealthy(vararg names: String): Boolean =
-            names.any { ApiHealthMonitor.hasSamples(it) && ApiHealthMonitor.successRate(it) >= 0.45 }
+            names.any { ApiHealthMonitor.quorumHealthy8418(it) }   // V5.0.8418 — a quiet decay alone never makes a quorum member healthy
         fun hostDegraded(vararg names: String): Boolean = names.any { ApiHealthMonitor.successRate(it) < 0.45 }
 
         val routeCriticalOk = routeAllowed && (

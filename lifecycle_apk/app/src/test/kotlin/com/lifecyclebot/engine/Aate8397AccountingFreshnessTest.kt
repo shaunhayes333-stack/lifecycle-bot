@@ -89,6 +89,11 @@ class Aate8397AccountingFreshnessTest {
         assertFalse(defer(failure, wait, start + 5_000L, young = false))
         assertEquals(start, wait.get())
         assertEquals(deltaFailures, verdict(failure).failures)
+        // superseded by V5.0.8398 — the 8397 case "a current real failure ends the wait immediately EVEN WITH a young receipt"
+        // (was assertFalse(defer(failure, wait, start + 5_000L, young = true))) no longer holds: while a young OPEN receipt
+        // exists the close waits again, bounded by the 8339 30-second deadline (restored here as a note, V5.0.8418).
+        assertTrue(defer(failure, AtomicLong(start), start + 5_000L, young = true))
+        assertFalse("bounded: the deadline still fails it", defer(failure, AtomicLong(start), start + 31_000L, young = true))
     }
 
     @Test fun permanentlyStaleZeroDeltasFailAtTheOriginalThirtySecondDeadline() {

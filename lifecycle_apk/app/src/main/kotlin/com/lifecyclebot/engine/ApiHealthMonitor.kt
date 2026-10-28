@@ -222,6 +222,21 @@ object ApiHealthMonitor {
      * Callers that need "healthy" should use successRate(). Callers that need
      * "proven present" must use this as well.
      */
+    /**
+     * Pure (V5.0.8418, review 7ce191799): may a host count as HEALTHY in the execution-side LiveProviderQuorum? The 8382 quiet
+     * decay halves old failures so a gated discovery host is PROBED again; that is not evidence it works. The quorum needs
+     * samples, the >= 0.45 rate, and — once a quiet decay ran — a real success observed after it.
+     */
+    fun quorumHealthyOf8418(hasSamples: Boolean, rate: Double, lastSuccessMs: Long, lastQuietDecayMs: Long): Boolean =
+        hasSamples && rate.isFinite() && rate >= 0.45 && (lastQuietDecayMs <= 0L || lastSuccessMs >= lastQuietDecayMs)
+
+    /** LiveProviderQuorum: [quorumHealthyOf8418] for [host]. */
+    fun quorumHealthy8418(host: String): Boolean {
+        val s = hosts[host.lowercase()] ?: return false
+        val rate = s.successRate()
+        return quorumHealthyOf8418(hasSamples(host), rate, s.lastSuccessMs.get(), s.decayAtMs8382.get())
+    }
+
     fun hasSamples(host: String): Boolean {
         val s = hosts[host.lowercase()] ?: return false
         return (s.successes.get() + s.failures4xx.get() + s.failures5xx.get() + s.networkErrors.get()) > 0

@@ -247,8 +247,13 @@ object HeliusSwapCandles7819 {
      * the decision coins' share. The day's credit pace (HeliusCreditEconomy7881) bounds the total.
      */
     fun budgetAdmits8284(priority: Int, lastMinute: Int, lastHour: Int): Boolean {
-        val perMin = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_MIN; priority == PRIORITY_HANDOFF_8284 -> 12; else -> 4 }
-        val perHour = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_HOUR; priority == PRIORITY_HANDOFF_8284 -> 360; else -> 100 }
+        // superseded by V5.0.8418 (review 7ce191799) — the job count follows HeliusCandleGate8418: a bulk coin is keyless-only
+        // (0 Helius jobs; was 4/min, 100/h), and the decision tiers keep their budgets only for jobs the gate let through
+        // after the free sources (local tape, observed bars, pump.fun candles, the GeckoTerminal grace) left 1 m short.
+        if (HeliusCandleGate8418.decide8418(priority, coveredByFree = false, firstFreeAskAtMs = 0L, nowMs = Long.MAX_VALUE) !=
+            HeliusCandleGate8418.Decision8418.HELIUS_FALLBACK) return false
+        val perMin = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_MIN; priority == PRIORITY_HANDOFF_8284 -> 12; else -> 0 }
+        val perHour = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_HOUR; priority == PRIORITY_HANDOFF_8284 -> 360; else -> 0 }
         return lastMinute < perMin && lastHour < perHour
     }
 

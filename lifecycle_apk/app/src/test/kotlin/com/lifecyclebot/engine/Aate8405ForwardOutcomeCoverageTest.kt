@@ -23,15 +23,18 @@ class Aate8405ForwardOutcomeCoverageTest {
 
     @Test fun rungs_run_healthiest_first_and_jupiter_only_on_the_misses() {
         val body = lab.substringAfter("private fun fetchOffWatchMarks7737(").substringBefore("private const val TERMINAL_PREFIX_8395")
-        val dex = body.indexOf("for (chunk in batch.chunked(OFFWATCH_DEX_CHUNK_8405)) {")
+        // superseded by V5.0.8418 — on-curve pump mints are curve-read FIRST (chain-exact), then DexScreener for the rest and
+        // the curve's misses, the curve again for off-curve pump misses, Jupiter last (was dex `batch.chunked` before any curve read).
+        val curveFirst = body.indexOf("ParallelMarkFanout7088.curvePrices7392(onCurve8418)")
+        val dex = body.indexOf("for (chunk in dexBatch8418.chunked(OFFWATCH_DEX_CHUNK_8405)) {")
         val curve = body.indexOf("ParallelMarkFanout7088.curvePrices7392(missed7753)")
         val jup = body.indexOf("PriceResolverFallback.jupiterBatchPrices7737(missedJup8405)")
-        assertTrue(dex in 0 until curve && curve < jup)
+        assertTrue(curveFirst in 0 until dex && dex < curve && curve < jup)
         assertFalse(body.contains("jupiterBatchPrices7737(batch)"))
         assertTrue(body.contains("val missedJup8405 = batch.filter { it !in got }.take(50)"))
         assertTrue(body.contains("FORWARD_LABEL_OFFWATCH_JUP_PRICED_8405"))
         // every rung stays on the background thread the fetch already owned
-        assertTrue(body.indexOf("Thread({") in 0 until dex)
+        assertTrue(body.indexOf("Thread({") in 0 until curveFirst)
     }
 
     @Test fun discovery_capture_is_reported_above_the_counter_cut() {

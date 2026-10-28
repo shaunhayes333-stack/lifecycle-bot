@@ -40,7 +40,8 @@ class Aate8392StopNeverInsideCostTest {
     @Test fun aBiggerTicketTightensBackTowardTheMandateAndTheCapHolds() {
         assertEquals(10.0, FieldManual7715.stopPct8392("QUALITY", 4.0), 0.0)        // 6 < 10: mandate
         assertEquals(10.5, FieldManual7715.stopPct8392("QUALITY", 7.0), 1e-9)
-        assertEquals(FieldManual7715.STOP_CAP_PCT_8392, FieldManual7715.stopPct8392("QUALITY", 60.0), 0.0)
+        // superseded by V5.0.8418 — a non-runner desk caps at 25 % without its own evidence (was STOP_CAP_PCT_8392 = 40 %).
+        assertEquals(FieldManual7715.NON_RUNNER_STOP_CAP_PCT_8418, FieldManual7715.stopPct8392("QUALITY", 60.0), 0.0)
         assertEquals(10.0, FieldManual7715.stopPct8392("QUALITY", Double.NaN), 0.0)   // unknown cost: the mandate, never a guess
         assertEquals(10.0, FieldManual7715.stopPct8392("QUALITY", 0.0), 0.0)
     }

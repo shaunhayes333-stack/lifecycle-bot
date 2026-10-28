@@ -44,7 +44,12 @@ object TreasuryScannerFeed {
     // Established token criteria (Treasury scalps NOT fresh launches)
     // V5.0.8383 — network labels (hive_edge_8076): TREASURY / CASHGEN 250k-1M caps 32% positive (n 482 / 2589) vs 16-17% at
     // 1M-5M and 3-5% above 5M. The established-token floor moves to the band that pays; liquidity / volume / age stay.
-    const val MIN_TREASURY_MCAP = 250_000.0           // $250K+ = established (8383 evidence band)
+    // superseded by V5.0.8418 — restored to $1M (owner ruling pending). The 8383 evidence is a share of POSITIVE forward
+    // network labels from one snapshot (not net of the lane's cost, not realised, no live closes), and the only post-change
+    // record does not support the lower floor: 5.0.8416 lane shadow proof TREASURY n=13 net -17.8 %, CASHGEN n=15 net -13.2 %;
+    // the 60-min forward labels (TREASURY n=1300 +26.1 %, CASHGEN n=1215 +5.0 %) are not split by cap band. A lane-identity
+    // floor ("established token") is not lowered on that.
+    const val MIN_TREASURY_MCAP = 1_000_000.0         // $1M+ = established
     const val MIN_TREASURY_LIQUIDITY = 50_000.0       // $50K+ liq = tight spreads
     const val MIN_TREASURY_24H_VOL = 100_000.0        // $100K+ vol = tradeable
     const val MIN_TREASURY_AGE_DAYS = 7               // >7d old = past bond/graduation
