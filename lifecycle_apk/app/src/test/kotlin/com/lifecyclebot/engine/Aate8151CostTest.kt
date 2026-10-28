@@ -33,8 +33,9 @@ class Aate8151CostTest {
     // ── tips and priority ──
 
     @Test fun ordinarySenderTipDropsToTheSwqosMinimumWithHeadroomUrgentKeepsLegacy() {
-        assertEquals(50_000L, c.senderTipLamports8151(Urgency8151.ORDINARY, 200_000L))
-        assertEquals(50_000L, c.senderTipLamports8151(Urgency8151.ORDINARY, 400_000L))
+        // superseded by V5.0.8418 — the ordinary tip is 25,000 (5x the SWQoS minimum), was 50,000.
+        assertEquals(25_000L, c.senderTipLamports8151(Urgency8151.ORDINARY, 200_000L))
+        assertEquals(25_000L, c.senderTipLamports8151(Urgency8151.ORDINARY, 400_000L))
         assertEquals(5_000L, c.senderTipLamports8151(Urgency8151.ORDINARY, 1_000L))   // never below the Sender minimum
         assertEquals(400_000L, c.senderTipLamports8151(Urgency8151.URGENT, 400_000L))
         assertEquals(200_000L, c.senderTipLamports8151(Urgency8151.EMERGENCY, 200_000L))
@@ -159,8 +160,10 @@ class Aate8151CostTest {
     @Test fun meterUsesMeasuredFeesAndTipsAndFallsBackBeforeAnyLeg() {
         val m = CostMeter8151
         m.resetForTest8151()
-        assertEquals(0.0006, m.roundTripFixedSol8151(), 1e-12)
-        assertEquals(0.0003, m.sellLegFixedSol8151(), 1e-12)
+        // superseded by V5.0.8418 — before any leg: the PLANNED legs (base 5,000 + medium/floor 25,000 uL x 300k CU = 12,500
+        // lamports each, ordinary entry tip 25,000, legacy sell tip 200,000), was the flat 0.0006 / 0.0003 SOL fallback.
+        assertEquals(0.00025, m.roundTripFixedSol8151(), 1e-12)
+        assertEquals(0.0002125, m.sellLegFixedSol8151(), 1e-12)
         m.noteLeg8151(80_000L, 2_039_280L, 0L)
         m.noteTip8151(50_000L, 200_000L, entry = true)
         assertEquals(0.00041, m.roundTripFixedSol8151(), 1e-12)   // 2 fees + ordinary entry tip + legacy sell tip

@@ -102,6 +102,7 @@ object PositionCloseLedger {
         val id = "C${mode.uppercase()}_${now}_${mint.take(6)}"
         closed[key7858(mode, mint)] = CloseRecord(mint, id, now, reason.take(40), pnlPct, mode = mode.uppercase())
         try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(mode.lowercase(), mint) } catch (_: Throwable) {}
+        queueRentReclaim8418(mint, mode, 0L)   // V5.0.8418
         // V5.0.6454 §P0 — ONE SETTLEMENT, ONE REWARD EVENT. Deleted the
         // compact 0.05-SOL realizedPnL PROXY (operator: "PositionCloseLedger
         // may not invent financial values"). The compact markClosed is
@@ -111,6 +112,19 @@ object PositionCloseLedger {
         try { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_METADATA_ONLY_6454") } catch (_: Throwable) {}
         return id
     }
+
+    /**
+     * V5.0.8418 — every LIVE full-close stamp queues the after-exit rent close (RentReclaimer7927.noteFullExit8151). Only
+     * LivePositionCloseAuthority queued it; CanonicalCloseAuthority, Executor's finalize and the HostWalletTokenTracker /
+     * reconciler zero-balance closes left the 0.00204 SOL deposit to the 15-minute sweep (20-minute recent-buy guard). The
+     * close itself still re-proves an on-chain amount of exactly "0", no open position, no unresolved signed buy/sell.
+     */
+    internal fun queueRentReclaim8418(mint: String, mode: String, remainingQtyRaw: Long) {
+        if (rentReclaimQueued8418(mode, remainingQtyRaw)) try { RentReclaimer7927.noteFullExit8151(mint) } catch (_: Throwable) {}
+    }
+
+    /** Pure: does a close stamp in [mode] with [remainingQtyRaw] left queue the rent close? LIVE full closes only. */
+    fun rentReclaimQueued8418(mode: String, remainingQtyRaw: Long): Boolean = mode.equals("LIVE", true) && remainingQtyRaw <= 0L
 
     /** V5.9.1530 — atomic FULL close stamp from the SELL_FINALIZE path. Carries the
      *  entire canonical close payload so the ledger is the single source of truth.
@@ -137,6 +151,7 @@ object PositionCloseLedger {
             source = source.take(24), mode = mode.uppercase(),
         )
         try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(mode.lowercase(), mint) } catch (_: Throwable) {}
+        queueRentReclaim8418(mint, mode, remainingQtyRaw)   // V5.0.8418
         // V5.0.6453 §P0-#6 — the direct GrowthAlignedRewardShaper6439.shape
         // call has been DELETED from this path (obsolete writer). Reward
         // shaping now fires from the CanonicalTradeFinalizedBus6450

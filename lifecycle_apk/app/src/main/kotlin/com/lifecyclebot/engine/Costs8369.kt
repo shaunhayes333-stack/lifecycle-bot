@@ -151,8 +151,11 @@ object Costs8369 {
 
     /** Quotes already include these fees in outAmount. Cache for independent mid-price modelling only; never subtract again. */
     fun noteJupiterQuote8391(input: String, output: String, json: org.json.JSONObject, v2: Boolean, now: Long = System.currentTimeMillis()) {
-        val key = when { input == SOL8391 && output != SOL8391 -> "$output|BUY"
+        try { RealisedSlip8418.noteQuote8418(input, output, json, now) } catch (_: Throwable) {}   // V5.0.8418 — fill vs quote
+        val key0 = when { input == SOL8391 && output != SOL8391 -> "$output|BUY"
             output == SOL8391 && input != SOL8391 -> "$input|SELL"; else -> return }
+        // V5.0.8418 — Metis (/swap v1) and Ultra (/swap v2) are different routes with different fees: kept apart.
+        val key = if (v2) key0 else "$key0|V6"
         val pct = quotedFeePct8391(json, v2) ?: return
         jupiterFees8391[key] = QuoteFee8391(pct, now)
         if (jupiterFees8391.size > 1024) jupiterFees8391.entries.sortedBy { it.value.atMs }
@@ -161,9 +164,40 @@ object Costs8369 {
 
     internal fun routeFee8391(route: String, mint: String, side: String, now: Long = System.currentTimeMillis()): Double {
         if (route !in setOf("JUPITER", "JUPITER_ULTRA")) return CostTrim8151.routeFeePctPerSide8151(route)
-        val quote = jupiterFees8391["$mint|$side"]
         // No quote is not proof of a zero fee. Swap V2 charges 50bps for new tokens.
-        return if (quote != null && now - quote.atMs in 0L..60_000L) quote.pct else 0.5
+        // superseded by V5.0.8418 — the 0.5 % Ultra figure was charged whenever this mint had no fresh quote, also for the
+        // Metis /swap legs that carry 5.0.8416's landings (BUY|JUPITER 22 vs BUY|JUPITER_ULTRA 1, SELL 23 vs 1) and pay no
+        // platform fee (this app never sets platformFeeBps). The fee is the executed route's own, weighted by the landed share
+        // (RoundTrip8418.jupiterRouteFee8418); unknown share and no quote keep 0.5.
+        fun fresh(k: String): Double? = jupiterFees8391[k]?.takeIf { now - it.atMs in 0L..60_000L }?.pct
+        return RoundTrip8418.jupiterRouteFee8418(fresh("$mint|$side"), fresh("$mint|$side|V6"), ultraShare8418(side, now), typicalUltraFee8418(side, now))
+    }
+
+    @Volatile private var shareAt8418 = 0L
+    @Volatile private var shareBuy8418: Double? = null
+    @Volatile private var shareSell8418: Double? = null
+
+    /** V5.0.8418 — the share of landed Jupiter legs of [side] that went Ultra (SignedTxLedger8085, last 24 h; cached 30 s). */
+    private fun ultraShare8418(side: String, now: Long): Double? {
+        if (now - shareAt8418 !in 0L..30_000L) {
+            try {
+                val rows = com.lifecyclebot.network.SignedTxLedger8085.rows8288(now - 24L * 3_600_000L).filter { it.state == "CONFIRMED" && it.createdAtMs <= now }
+                fun share(s: String): Double? {
+                    val mine = rows.filter { it.side.equals(s, true) }
+                    return RoundTrip8418.ultraShare8418(mine.count { it.route == "JUPITER_ULTRA" }, mine.count { it.route == "JUPITER" })
+                }
+                shareBuy8418 = share("BUY"); shareSell8418 = share("SELL")
+            } catch (_: Throwable) { shareBuy8418 = null; shareSell8418 = null }
+            shareAt8418 = now
+        }
+        return if (side.equals("BUY", true)) shareBuy8418 else shareSell8418
+    }
+
+    /** V5.0.8418 — the median fee of the Ultra quotes of [side] seen in the last 30 min (5+ mints), else null. */
+    private fun typicalUltraFee8418(side: String, now: Long): Double? {
+        val suffix = "|${side.uppercase()}"
+        val xs = jupiterFees8391.entries.filter { it.key.endsWith(suffix) && now - it.value.atMs in 0L..1_800_000L }.map { it.value.pct }
+        return RealisedSlip8418.median8418(xs, 5)
     }
 
     /** Pure: the route fee per side of a round trip bought on [buyRoute] and sold on [sellRoute]. */
@@ -289,6 +323,6 @@ object Costs8369 {
             "route{jupiter=${jupiterChosen8369.get()},pumpportal=${pumpChosen8369.get()}} " +
             "fixedLegPctOfTicket=${p(lastFixedLegPct8369)} entryTip=${lastTipLamports8369} capped=${cappedEntries8369.get()} " +
             "senderFallback=${senderFallbacks8369.get()} capFailing{jup=${capFailingNow8369(false)},pump=${capFailingNow8369(true)}} " +
-            "modelVsMeasured{${mvm.ifBlank { "-" }}}]"
+            "modelVsMeasured{${mvm.ifBlank { "-" }}}] " + (try { RoundTrip8418.statusLine8418() } catch (_: Throwable) { "roundTrip8418=-" })
     }
 }

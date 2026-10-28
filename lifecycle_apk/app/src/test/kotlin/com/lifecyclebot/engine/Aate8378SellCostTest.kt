@@ -32,8 +32,10 @@ class Aate8378SellCostTest {
         m.noteTip8151(50_000L, 200_000L, entry = true)
         assertEquals(0.00041, m.roundTripFixedSol8151(), 1e-12)   // no sell tipped yet: legacy floor
         m.noteSellTip8378(50_000L, protective = false)
-        assertEquals(0.00026, m.roundTripFixedSol8151(), 1e-12)   // 2 fees + entry tip + measured ordinary sell tip
-        assertEquals(0.00013, m.sellLegFixedSol8151(), 1e-12)
+        // superseded by V5.0.8418 — the model prices the PROTECTIVE sell tip class (legacy floor until a protective sell is
+        // tipped); a cheap ordinary sell tip no longer lowers the round trip / 1.5x entry bar. Was 0.00026 / 0.00013.
+        assertEquals(0.00041, m.roundTripFixedSol8151(), 1e-12)
+        assertEquals(0.00028, m.sellLegFixedSol8151(), 1e-12)
         assertTrue(m.statusLine8151().contains("sellTips8378[ordinary=1 protective=0"))
         m.resetForTest8151()
     }

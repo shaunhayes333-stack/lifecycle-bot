@@ -358,8 +358,15 @@ object CostLedger7962 {
         measuredCostPct7962(laneRaw, sizeSol) ?: estimatePct
 
     /** StructureTracker7962: the lane's round-trip hurdle (measured, else the base estimate). */
-    fun laneCostPct7962(laneRaw: String): Double =
-        measuredCostPct7962(laneRaw) ?: FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715
+    fun laneCostPct7962(laneRaw: String): Double {
+        // V5.0.8418 — once realised slippage is receipt-measured, the hurdle (and FieldManual7715.laneStopPct8392's stop) is
+        // the receipt-built trip at the default ticket, not the mark-based median (whose gap is the market's own move).
+        if (receiptMeasured8418()) return try { NetEdge8030.costPct8030(laneRaw, NetEdge8030.DEFAULT_TICKET_SOL, 0.0) }
+            catch (_: Throwable) { measuredCostPct7962(laneRaw) ?: FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 }
+        return measuredCostPct7962(laneRaw) ?: FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715
+    }
+
+    private fun receiptMeasured8418(): Boolean = try { com.lifecyclebot.engine.RealisedSlip8418.receiptMeasured8418() } catch (_: Throwable) { false }
 
     /** The lane's typical live ticket (median SOL spent), the size admission is judged at. */
     private fun laneTicketSol(l: String): Double = median7962(rowsOf(l).map { it[1] })
@@ -388,7 +395,9 @@ object CostLedger7962 {
     fun liveRefusal7962(ts: TokenState, laneRaw: String): String? = try {
         ensureSubscribed()
         val l = lane(laneRaw)
-        val measuredCost = measuredCostPct7962(l, laneTicketSol(l)) ?: earlyCostFloor7962(rowsOf(l).map { it[0] })
+        // V5.0.8418 — the mark-based cost refuses only until receipts measure the trip (then NetEdge8030 judges on receipts).
+        val measuredCost = com.lifecyclebot.engine.RoundTrip8418.markLift8418(
+            measuredCostPct7962(l, laneTicketSol(l)) ?: earlyCostFloor7962(rowsOf(l).map { it[0] }), receiptMeasured8418())
         if (measuredCost == null) {
             priorOnly.incrementAndGet()
             null

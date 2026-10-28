@@ -216,6 +216,13 @@ object LiveRestoreExecutionPolicy {
     //   - pnl is non-positive (stop-loss path, not our concern), OR
     //   - paper mode (no real costs), OR
     //   - pnl beats true-break-even-with-treasury.
+    /** V5.0.8418 — the round trip of [ts]'s live position at its size and depth; [fallbackPct] when it cannot be priced. */
+    internal fun receiptCostPct8418(ts: TokenState, fallbackPct: Double): Double = try {
+        val c = com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(ts.position.tradingMode.ifBlank { "UNKNOWN" },
+            ts.position.costSol, trustedLiquidityUsd(ts), ts.mint, ts.lastMcap)
+        if (c.isFinite() && c >= 0.0) c else fallbackPct
+    } catch (_: Throwable) { fallbackPct }
+
     fun sellSideBreakEvenOk(ts: TokenState, currentPnlPct: Double, isPaper: Boolean): Boolean {
         if (isPaper) return true
         if (currentPnlPct <= 0.0) return true  // stop-loss handles negative side
@@ -223,12 +230,16 @@ object LiveRestoreExecutionPolicy {
             NONE, walletSol = 1.0, signalScore = ts.entryScore)
         val treasurySharePct = com.lifecyclebot.engine.TreasuryManager.currentSplitPct()
         val safetyMarginPct = 1.0
-        val effectiveBreakEven = (be.allInCostPct + safetyMarginPct) / (1.0 - treasurySharePct)
+        // V5.0.8418 — the round trip this position actually pays (NetEdge8030.costPct8030: receipts-built), not breakEvenCheck's
+        // tolerance-shaped estimate (buy+sell slippage bands, spread, liquidity give-back, a 0.0001 SOL leg, +1 % buffer:
+        // 6-15 % on a 0.031 SOL ticket) — that figure held green exits for profit the trip never cost.
+        val cost8418 = receiptCostPct8418(ts, be.allInCostPct)
+        val effectiveBreakEven = (cost8418 + safetyMarginPct) / (1.0 - treasurySharePct)
         val ok = currentPnlPct >= effectiveBreakEven
         if (!ok) {
             try { ForensicLogger.lifecycle(
                 "SELL_SIDE_BREAK_EVEN_DEFER",
-                "symbol=${ts.symbol} pnl=${"%.2f".format(currentPnlPct)}%% effBE=${"%.2f".format(effectiveBreakEven)}%% (allInCost=${"%.2f".format(be.allInCostPct)} treasuryShare=${(treasurySharePct*100).toInt()}%% safety=${safetyMarginPct}) — holding for more upside"
+                "symbol=${ts.symbol} pnl=${"%.2f".format(currentPnlPct)}%% effBE=${"%.2f".format(effectiveBreakEven)}%% (allInCost=${"%.2f".format(cost8418)} legacyBreakEven=${"%.2f".format(be.allInCostPct)} treasuryShare=${(treasurySharePct*100).toInt()}%% safety=${safetyMarginPct}) — holding for more upside"
             ) } catch (_: Throwable) {}
         }
         return ok
