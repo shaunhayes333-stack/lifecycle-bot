@@ -1574,6 +1574,9 @@ object PipelineHealthCollector {
         sb.append("  Exit doctrine (§8169): ").append(
             try { ExitDoctrine8169.statusLine8169() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Exit thresholds (§8418): ").append(
+            try { ExitThresholds8418.statusLine8418() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         sb.append("  Dead charts (§8027): ").append(
             try { FlatChart8027.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")

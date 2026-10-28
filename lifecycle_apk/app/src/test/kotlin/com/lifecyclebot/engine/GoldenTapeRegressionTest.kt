@@ -12069,7 +12069,9 @@ class GoldenTapeRegressionTest {
         // Risk clock never tighter than the runner lane's own fluid stop.
         assertTrue(ex.contains("maxOf(effStopPctGlobal7366, laneStop7366)"))
         // Catastrophe price unchanged.
-        assertTrue(ex.contains("catastrophePx = pos.entryPrice * 0.75,"))
+        // superseded by V5.0.8418 — the 25 % line is ExitThresholds8418.catastropheMag8418 (25 %, never above a held
+        // lifecycle floor; behaviour: Aate8418ExitThresholdsTest.catastropheIsTwentyFiveAndNeverAboveAHeldLifecycleFloor).
+        assertTrue(ex.contains("catastrophePx = pos.entryPrice * (1.0 - ExitThresholds8418.catastropheMag8418(ts) / 100.0),"))
     }
 
 
