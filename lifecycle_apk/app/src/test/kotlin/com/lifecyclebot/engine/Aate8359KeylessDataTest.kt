@@ -210,7 +210,8 @@ class Aate8359KeylessDataTest {
         assertFalse("Helius no longer leads holder reads", holders.contains("if (helius.isNotBlank()) add(helius)"))
         val supply = src("engine/truth/OnChainSupplyAuthority7075.kt")
         assertTrue(supply.contains("RuntimeProviderAuthority6685.marketReadCandidates8359(url, \"getTokenSupply\")"))
-        assertTrue(supply.contains("KeylessRpc8359.supplyCache8359.get8359(mint, System.currentTimeMillis())"))
+        // superseded by V5.0.8418 — the cached answer is read WITH its receipt time (the supply's observation time).
+        assertTrue(supply.contains("KeylessRpc8359.supplyCache8359.getAt8418(mint, System.currentTimeMillis())"))
         val birth = src("engine/truth/TokenBirthHydrator7441.kt")
         assertTrue(birth.contains("RuntimeProviderAuthority6685.marketReadCandidates8359(null, \"getSignaturesForAddress\")"))
         assertTrue(birth.contains("KeylessRpc8359.beforeCall8359(rpc)"))

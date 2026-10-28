@@ -99,7 +99,7 @@ object MemeChokes7951 {
                     ts.lastPrice = px
                     ts.lastPriceUpdate = now
                     ts.lastPriceSource = "PUMP_CURVE_RESERVES_SEED_7951"
-                    if (ts.lastMcap <= 0.0) ts.lastMcap = px * 1_000_000_000.0
+                    if (ts.lastMcap <= 0.0) com.lifecyclebot.engine.truth.MintSupply8418.capUsd8418(mint, px).takeIf { it.isFinite() }?.let { ts.lastMcap = it }   // V5.0.8418 — verified supply, not 1e9
                 }
             }
             count("CURVE_PRICE_SEEDED")

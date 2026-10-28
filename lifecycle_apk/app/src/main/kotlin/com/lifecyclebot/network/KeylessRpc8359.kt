@@ -159,6 +159,12 @@ object KeylessRpc8359 {
             if (nowMs - e.second !in 0L until ttlMs) { map.remove(mint); return null }
             return e.first
         }
+        /** V5.0.8418 — the cached answer with the wall-clock time it was received (its observation time), or null. */
+        fun getAt8418(mint: String, nowMs: Long): Pair<JSONObject, Long>? {
+            val e = map[mint] ?: return null
+            if (nowMs - e.second !in 0L until ttlMs) { map.remove(mint); return null }
+            return e
+        }
         fun put8359(mint: String, result: JSONObject, nowMs: Long) {
             if (map.size >= cap) map.entries.removeIf { nowMs - it.value.second >= ttlMs }
             if (map.size >= cap) map.clear()

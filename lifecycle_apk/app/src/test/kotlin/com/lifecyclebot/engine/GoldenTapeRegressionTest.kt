@@ -9926,7 +9926,8 @@ class GoldenTapeRegressionTest {
 
         // Seed: case 2 is refused for global-cap sources; pump constant unchanged.
         assertTrue(bot.contains("chainSupply7089 >= 1.0 && !globalCapSource7270 -> trustedMarketCapUsd6492 / chainSupply7089"))
-        assertTrue(bot.contains("isPumpMint7089 -> trustedMarketCapUsd6492 / 1_000_000_000.0"))
+        // superseded by V5.0.8418 — a pump mint's seed divides by the mint account's supply, never by 1e9.
+        assertTrue(bot.contains("isPumpMint7089 -> if (chainSupply7089 >= 1.0) trustedMarketCapUsd6492 / chainSupply7089 else 0.0"))
         assertTrue(bot.contains("INTAKE_PRICE_NOT_SEEDED_GLOBAL_CAP_7270"))
 
         // Basis guard: seeded non-pump entry vs corroborated mark >5x either way → entry price (0%).

@@ -109,8 +109,9 @@ class Aate8136LaunchObservationTest {
         // A stale band observation (35 s old) is no crossing; a fresh one is.
         val born = t0
         val now = t0 + 4 * 60_000L
-        val px = 2.0e-5     // USD per token -> $20k cap on the fixed 1B curve supply
-        fun obs(at: Long) = PumpBandEntry8118.Observation8136("DLY8136", born, px, at, PumpBandEntry8118.BandSource8136.EXECUTED_MARK)
+        val px = 2.0e-5     // USD per token -> $20k cap on a mint account that reads 1B whole tokens
+        // superseded by V5.0.8418 — the supply is the mint account's verified one, carried on the observation.
+        fun obs(at: Long) = PumpBandEntry8118.Observation8136("DLY8136", born, px, at, PumpBandEntry8118.BandSource8136.EXECUTED_MARK, 1e9)
         assertFalse(PumpBandEntry8118.crossing8136(obs(now - 35_000L), null, now))
         assertFalse(PumpBandEntry8118.crossing8136(obs(now + 1_000L), null, now))        // from the future
         assertTrue(PumpBandEntry8118.crossing8136(obs(now - 5_000L), null, now))
@@ -125,8 +126,11 @@ class Aate8136LaunchObservationTest {
         val born = t0
         val now = t0 + 3 * 60_000L
         // An executed-trade mark (Helius-decoded print) at $1.5e-5 -> $15k: a genuine crossing with no trade stream.
-        val mark = PumpBandEntry8118.Observation8136("DENY8136", born, 1.5e-5, now - 2_000L, PumpBandEntry8118.BandSource8136.EXECUTED_MARK)
+        val mark = PumpBandEntry8118.Observation8136("DENY8136", born, 1.5e-5, now - 2_000L, PumpBandEntry8118.BandSource8136.EXECUTED_MARK, 1e9)
         assertTrue(PumpBandEntry8118.crossing8136(mark, null, now))
+        // V5.0.8418 — no verified supply: the cap is UNKNOWN and nothing crosses (never price x 1e9).
+        assertFalse(PumpBandEntry8118.crossing8136(mark.copy(verifiedSupply8418 = Double.NaN), null, now))
+        assertFalse(PumpBandEntry8118.crossing8136(mark.copy(verifiedSupply8418 = 0.0), null, now))
         // The curve's own reserves read inside the window count the same.
         val curve = mark.copy(source = PumpBandEntry8118.BandSource8136.CURVE_RESERVES, observedAtMs = now)
         assertTrue(PumpBandEntry8118.crossing8136(curve, null, now))

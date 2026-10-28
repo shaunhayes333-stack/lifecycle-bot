@@ -244,6 +244,9 @@ object OnChainSupplyAuthority7075 {
 
     /** Resolved on-chain supply in whole tokens, or 0.0 when not yet known. */
     fun supplyOf7075(mint: String): Double {
+        // V5.0.8418 — the mint-account record (any chain read: getTokenSupply, getAccountInfo, DAS) is the supply.
+        val verified8418 = try { MintSupply8418.wholeOrZero8418(mint) } catch (_: Throwable) { 0.0 }
+        if (verified8418 > 0.0) return verified8418
         val s = resolved[mint] ?: return 0.0
         return if (s.isFinite() && s > 0.0) s else 0.0
     }
@@ -256,6 +259,7 @@ object OnChainSupplyAuthority7075 {
     fun requestAsync7075(mint: String) {
         if (mint.isBlank() || rpcUrl.isBlank()) return
         if (resolved.containsKey(mint)) return
+        if (try { MintSupply8418.chainRead8418(mint) } catch (_: Throwable) { false }) return   // V5.0.8418 — the mint account was already read
         // V5.0.7345 §DO_NOT_BUILD_A_REQUEST_THE_BACKOFF_WILL_REFUSE.
         //
         // With Helius at max usage for a whole run: requested=2245, dec7116=2237
@@ -339,7 +343,8 @@ object OnChainSupplyAuthority7075 {
             val (outcome, supply) = fetchSupply7116(mint)
             when (outcome) {
                 Outcome7116.RESOLVED -> {
-                    val s = supply ?: 0.0
+                    // V5.0.8418 — the strongest / latest-slot record wins; this read never displaces a better one.
+                    val s = (try { MintSupply8418.wholeOrZero8418(mint) } catch (_: Throwable) { 0.0 }).takeIf { it > 0.0 } ?: supply ?: 0.0
                     resolved[mint] = s
                     retryNotBefore.remove(mint)
                     fetched.incrementAndGet()
@@ -490,9 +495,11 @@ object OnChainSupplyAuthority7075 {
         if (url.isBlank()) return Outcome7116.DECLINED to null
         // V5.0.8359 — the shared per-mint supply answer (KeylessRpc8359, 10 min) is read before any rung is asked, and a
         // keyless rung whose host governor is closed is declined locally (nothing on the wire, not a provider fact).
-        com.lifecyclebot.network.KeylessRpc8359.supplyCache8359.get8359(mint, System.currentTimeMillis())?.let { cached8359 ->
+        com.lifecyclebot.network.KeylessRpc8359.supplyCache8359.getAt8418(mint, System.currentTimeMillis())?.let { (cached8359, receivedAtMs8418) ->
             com.lifecyclebot.network.KeylessRpc8359.noteCacheHit8359()
-            return supplyFromValue8359(cached8359.optJSONObject("value"))
+            val parsedCached8418 = supplyFromValue8359(cached8359.optJSONObject("value"))
+            if (parsedCached8418.first == Outcome7116.RESOLVED) record8418(mint, cached8359, receivedAtMs8418)
+            return parsedCached8418
         }
         if (!com.lifecyclebot.network.KeylessRpc8359.beforeCall8359(url)) return Outcome7116.DECLINED to null
         // V5.0.7809 — `confirmed`, not the node default `finalized`: a launch
@@ -541,10 +548,20 @@ object OnChainSupplyAuthority7075 {
                 ?: return Outcome7116.NOT_FOUND_YET_7809 to null
             val parsed8359 = supplyFromValue8359(value)
             if (parsed8359.first == Outcome7116.RESOLVED) json.optJSONObject("result")?.let {
-                com.lifecyclebot.network.KeylessRpc8359.supplyCache8359.put8359(mint, it, System.currentTimeMillis())
+                val at8418 = System.currentTimeMillis()
+                com.lifecyclebot.network.KeylessRpc8359.supplyCache8359.put8359(mint, it, at8418)
+                record8418(mint, it, at8418)
             }
             return parsed8359
         }
+    }
+
+    /**
+     * V5.0.8418 — keep the whole answer: base-unit amount, decimals, `context.slot` and when it was received. The
+     * metrics authority is told by [resolveOnce7116] (with the strongest record), not here.
+     */
+    private fun record8418(mint: String, result: JSONObject, observedAtMs: Long) {
+        try { MintSupply8418.accept8418(MintSupply8418.fromTokenSupplyResult8418(mint, result, observedAtMs), notifyMetrics = false) } catch (_: Throwable) {}
     }
 
     /** V5.0.8359 — pure: a getTokenSupply `value` object (string amount + decimals) as whole tokens. */

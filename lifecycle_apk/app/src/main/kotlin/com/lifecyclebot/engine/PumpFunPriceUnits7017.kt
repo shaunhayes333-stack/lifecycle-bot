@@ -66,6 +66,8 @@ import org.json.JSONObject
  *      supply, which self-corrects if pump.fun ever changes the field's units
  *      in either direction;
  *   3. otherwise fall back to the pump.fun standard 1e9.
+ *      (superseded by V5.0.8418: step 0 is the mint account's verified supply; step 3 is now "no quote" — a payload
+ *      that cannot state a supply prices nothing.)
  *
  * Guessing a unit is exactly what caused this. Preferring the payload's own
  * answer, then a plausibility test, then a documented constant, is the order
@@ -105,10 +107,21 @@ object PumpFunPriceUnits7017 {
      * Visible for the two call sites and for reasoning about a payload by hand.
      */
     fun wholeSupply(json: JSONObject): Double {
+        // V5.0.8418 — the mint account's own supply (MintSupply8418: getAccountInfo / getTokenSupply / DAS) outranks
+        // anything this payload says; when it is not on file a chain read is requested for next time.
+        val mint8418 = json.optString("mint", "")
+        if (mint8418.isNotBlank()) {
+            val verified8418 = try { com.lifecyclebot.engine.truth.MintSupply8418.wholeOrRequest8418(mint8418) } catch (_: Throwable) { 0.0 }
+            if (verified8418 > 0.0) {
+                note("SUPPLY_FROM_MINT_ACCOUNT_8418")
+                return verified8418
+            }
+        }
         val raw = json.optDouble("total_supply", 0.0)
         if (!raw.isFinite() || raw <= 0.0) {
-            note("SUPPLY_ABSENT_STANDARD_ASSUMED")
-            return STANDARD_WHOLE_SUPPLY
+            // superseded by V5.0.8418 — was "SUPPLY_ABSENT_STANDARD_ASSUMED" returning 1e9: no supply, no quote.
+            note("SUPPLY_ABSENT_NO_QUOTE_8418")
+            return 0.0
         }
 
         // 1. The payload's own decimals, when it carries them. This is the only
@@ -178,8 +191,9 @@ object PumpFunPriceUnits7017 {
 
         // 3. Nothing was plausible. Say so rather than dividing by a number we
         //    do not understand.
-        note("SUPPLY_IMPLAUSIBLE_STANDARD_ASSUMED")
-        return STANDARD_WHOLE_SUPPLY
+        // superseded by V5.0.8418 — was "SUPPLY_IMPLAUSIBLE_STANDARD_ASSUMED" returning 1e9: nothing plausible, no quote.
+        note("SUPPLY_IMPLAUSIBLE_NO_QUOTE_8418")
+        return 0.0
     }
 
     private fun plausible(v: Double): Boolean =

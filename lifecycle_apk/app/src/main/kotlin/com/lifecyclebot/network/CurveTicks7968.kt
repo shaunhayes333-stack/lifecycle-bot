@@ -261,7 +261,7 @@ object CurveTicks7968 {
         val (px, mc) = decode7968(bytes) ?: return
         ticks.incrementAndGet()
         lastTickMs = System.currentTimeMillis()
-        try { onTick(mint, px, mc) } catch (_: Throwable) {}
+        try { onTick(mint, px, com.lifecyclebot.engine.truth.MintSupply8418.capSolOrZero8418(mint, px)) } catch (_: Throwable) {}   // V5.0.8418 — verified mint supply x price; the curve's own total-supply field (mc) is not the mint account
         // V5.0.8252 — two snapshots of the same account are the trade (side, SOL, tokens); the orchestrator tapes it
         // unless a keyed stream already delivered this mint. Otherwise (first snapshot, no movement, stream covered):
         // V5.0.8169 — the curve's own price reaches the executed-trade tape (price only: change / shape, never buy pressure).

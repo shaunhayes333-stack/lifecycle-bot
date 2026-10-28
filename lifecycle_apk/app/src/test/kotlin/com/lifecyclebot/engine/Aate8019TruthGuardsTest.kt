@@ -22,7 +22,9 @@ class Aate8019TruthGuardsTest {
         assertEquals(50_000.0, TrustedMcap8019.reconcile8019(50_000.0, 1.0, Double.NaN), 0.0)     // no supply: row stands
         assertEquals(3_127.0, TrustedMcap8019.reconcile8019(0.0, 3.127e-6, 1e9), 1.0)             // no row cap: implied
         assertFalse(TrustedMcap8019.independentPrice8019("PUMP_FUN_BC_SYNTHETIC"))
-        assertEquals(TrustedMcap8019.PUMP_SUPPLY_8019, TrustedMcap8019.supplyFor8019(com.lifecyclebot.data.TokenState(mint = "465He1YecQuzyriK5BBMLANPh94CYpDtnWKRw14ppump", symbol = "Earth")), 0.0)
+        // superseded by V5.0.8418 — a *pump suffix is not a supply: unread mint account -> 0.0 (UNKNOWN), not 1e9.
+        com.lifecyclebot.engine.truth.MintSupply8418.resetForTest8418()
+        assertEquals(0.0, TrustedMcap8019.supplyFor8019(com.lifecyclebot.data.TokenState(mint = "465He1YecQuzyriK5BBMLANPh94CYpDtnWKRw14ppump", symbol = "Earth")), 0.0)
         assertEquals(0.0, TrustedMcap8019.supplyFor8019(com.lifecyclebot.data.TokenState(mint = "So11111111111111111111111111111111111111112", symbol = "SOL")), 0.0)
         assertTrue(TrustedMcap8019.independentPrice8019("LOCKED_VENUE_CURVE_7392"))
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")

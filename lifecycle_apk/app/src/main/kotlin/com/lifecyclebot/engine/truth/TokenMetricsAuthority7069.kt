@@ -152,7 +152,11 @@ object TokenMetricsAuthority7069 {
      * derived one. Returns true when it actually replaced a different number,
      * which is the count of positions that were being priced against a guess.
      */
-    fun acceptOnChainSupply7075(mint: String, supply: Double): Boolean {
+    fun acceptOnChainSupply7075(mint: String, offered: Double): Boolean {
+        // V5.0.8418 — when the mint account's record is on file it IS the supply: a caller cannot overwrite it with a
+        // weaker or older number (MintSupply8418.replaces8418 decided which read stands).
+        val best8418 = try { MintSupply8418.wholeOrZero8418(mint) } catch (_: Throwable) { 0.0 }
+        val supply = if (best8418 >= MIN_SUPPLY) best8418 else offered
         if (!supply.isFinite() || supply < MIN_SUPPLY) return false
         val prior = supplyByMint.put(mint, supply)
         supplyCaptured.incrementAndGet()
@@ -162,6 +166,12 @@ object TokenMetricsAuthority7069 {
         if (differed) noteSupplyConflict7069(mint, prior!!, supply)
         return differed
     }
+
+    /**
+     * V5.0.8418 — the full mint-account record behind the supply this authority verifies against (base units, decimals,
+     * slot, observed-at, source), or null when no chain read has stated one.
+     */
+    fun supplyRecord8418(mint: String): MintSupply8418.Supply8418? = try { MintSupply8418.of8418(mint) } catch (_: Throwable) { null }
 
     // V5.0.7075 — the admission gate (`supplyConfirmed`) is deliberately NOT
     // shipped in this build. It belongs on the economic path, and turning it on
@@ -546,5 +556,6 @@ object TokenMetricsAuthority7069 {
             "priceRepaired=${priceRepaired.get()}(retired_7087) unverifiable=${unverifiable.get()} " +
             "supplyConflicts=${supplyConflicts.get()} " +
             "worstBreak=${"%.3f".format(worstBreakMilli.get() / 1000.0)}x " +
-            (try { MarketEvidence8346.identityLine8346() } catch (_: Throwable) { "identity8346[unavailable]" })   // V5.0.8346
+            (try { MarketEvidence8346.identityLine8346() } catch (_: Throwable) { "identity8346[unavailable]" }) +   // V5.0.8346
+            (try { " " + MintSupply8418.statusLine8418() } catch (_: Throwable) { "" })   // V5.0.8418
 }

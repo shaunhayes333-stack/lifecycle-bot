@@ -29,6 +29,10 @@ import java.util.concurrent.atomic.AtomicLong
  *    trade mark (MarkBars7948: Helius/PumpPortal prints, the create frame) or the curve's own reserves
  *    (CurveReserves7951) — times pump.fun's fixed curve supply, and hands a genuine crossing to the same band entry.
  *    Nothing is estimated: no observation inside [OBS_FRESH_MS_8136], no crossing.
+ *
+ * V5.0.8418 — superseded "times pump.fun's fixed curve supply": the cap is the observed price x the mint account's
+ * verified supply (MintSupply8418, decimals-adjusted). A launch whose mint account has not been read has an UNKNOWN cap
+ * and is not a crossing yet (a read is requested; its claim is untouched, so the next sweep after the read can admit it).
  */
 object PumpBandEntry8118 {
     private const val BAND_LO_USD = 10_000.0
@@ -170,10 +174,14 @@ object PumpBandEntry8118 {
     enum class BandSource8136 { EXECUTED_MARK, CURVE_RESERVES }
 
     /** One observed price for a launch (USD per token), with when it was observed and from where. */
-    data class Observation8136(val mint: String, val createdAtMs: Long, val priceUsd: Double, val observedAtMs: Long, val source: BandSource8136)
+    data class Observation8136(
+        val mint: String, val createdAtMs: Long, val priceUsd: Double, val observedAtMs: Long, val source: BandSource8136,
+        /** V5.0.8418 — the mint account's verified whole-token supply; NaN / 0 = not read, so the cap is UNKNOWN. */
+        val verifiedSupply8418: Double = Double.NaN,
+    )
 
-    /** pump.fun mints its whole fixed 1B supply to the curve at create: cap = price x this, nothing estimated. */
-    internal const val PUMP_CURVE_SUPPLY_8136 = 1_000_000_000.0
+    // superseded by V5.0.8418 — PUMP_CURVE_SUPPLY_8136 (a 1e9 constant every cap here was multiplied by) is removed:
+    // the cap is price x the mint account's verified supply, or UNKNOWN.
     internal const val OBS_FRESH_MS_8136 = 30_000L
     private const val SWEEP_GAP_MS_8136 = 2_000L
     private const val SWEEP_MAX_FIRES_8136 = 2
@@ -195,7 +203,8 @@ object PumpBandEntry8118 {
         if (obs.createdAtMs <= 0L || obs.observedAtMs > nowMs || nowMs - obs.observedAtMs > OBS_FRESH_MS_8136) return false
         if (obs.observedAtMs < obs.createdAtMs) return false
         if (!obs.priceUsd.isFinite() || obs.priceUsd <= 0.0) return false
-        if (!inBand8118(obs.priceUsd * PUMP_CURVE_SUPPLY_8136, nowMs - obs.createdAtMs)) return false
+        val cap8418 = MintSupply8418.capOf8418(obs.verifiedSupply8418, obs.priceUsd)
+        if (!inBand8118(cap8418, nowMs - obs.createdAtMs)) return false
         return claimOpen8136(claim, nowMs)
     }
 
@@ -213,11 +222,15 @@ object PumpBandEntry8118 {
             if (born <= 0L || nowMs - born !in 0L until MAX_AGE_MS) continue
             val claim = claims[mint]
             if (!claimOpen8136(claim, nowMs)) continue
-            val obs = observed8136(mint, born, nowMs, solUsd) ?: continue
+            val obs0 = observed8136(mint, born, nowMs, solUsd) ?: continue
+            // V5.0.8418 — the mint account's supply, or a read is requested and this launch waits (cap UNKNOWN).
+            val supply8418 = try { MintSupply8418.wholeOrRequest8418(mint) } catch (_: Throwable) { 0.0 }
+            if (!(supply8418 > 0.0)) continue
+            val obs = obs0.copy(verifiedSupply8418 = supply8418)
             if (!crossing8136(obs, claim, nowMs)) continue
             val priceSol = EconomicUnitInvariant7061.usdToSol(obs.priceUsd, solUsd)
             if (!(priceSol.isFinite() && priceSol > 0.0)) continue
-            try { cb(mint, priceSol, priceSol * PUMP_CURVE_SUPPLY_8136) } catch (_: Throwable) {}
+            try { cb(mint, priceSol, priceSol * supply8418) } catch (_: Throwable) {}
             // Only a crossing that took a claim (a launch with no token row yet) spends the sweep's budget; one that
             // already has a row is a no-op in the band entry.
             if (claims[mint] == claim) continue

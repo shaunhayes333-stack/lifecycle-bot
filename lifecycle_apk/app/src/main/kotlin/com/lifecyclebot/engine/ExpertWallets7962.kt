@@ -104,7 +104,6 @@ object ExpertWallets7962 {
     private const val CELL_SHRINK_K = 10.0
     private const val CELL_CLIP_PCT = 300.0
     private const val CALL_GAP_MS = 1_500L
-    private const val PUMP_SUPPLY = 1_000_000_000.0
     private const val WSOL = "So11111111111111111111111111111111111111112"
     private val IGNORE_MINTS = setOf(
         WSOL,
@@ -691,8 +690,8 @@ object ExpertWallets7962 {
             }
         } else barsMissing.incrementAndGet()
         // 2. where experts buy: MC band x AGE band at entry.
-        val pumpSupply = trip.mint.endsWith("pump") || trip.mint.endsWith("bonk")
-        val mcap = if (pumpSupply && solUsd > 0.0 && trip.entryPriceSol > 0.0) trip.entryPriceSol * PUMP_SUPPLY * solUsd else 0.0
+        // superseded by V5.0.8418 — a "pump"/"bonk" suffix x 1e9 is not a supply: the mint account's verified supply, else MC_UNKNOWN.
+        val mcap = if (solUsd > 0.0) (com.lifecyclebot.engine.truth.MintSupply8418.capSol8418(trip.mint, trip.entryPriceSol) * solUsd).takeIf { it.isFinite() } ?: 0.0 else 0.0
         val age = if (createdMs > 0L && trip.entryMs >= createdMs) trip.entryMs - createdMs else -1L
         val r = realized.coerceIn(-100.0, CELL_CLIP_PCT)
         synchronized(cells) {
