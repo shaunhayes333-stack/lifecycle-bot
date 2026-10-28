@@ -12,6 +12,9 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import upgrade_data_access_8418 as access8418  # noqa: E402
+
 
 def adb(*args):
     return subprocess.check_output(["adb", *args], text=True, timeout=30)
@@ -37,15 +40,21 @@ def package_times_8418(dump):
 
 
 def data_files_8418():
-    """App-private files (root on the disposable google_apis emulator). Names only."""
+    """App-private file NAMES (root, else run-as), or None when neither can read them (package mode)."""
     names = set()
     for sub in ("shared_prefs", "databases"):
-        listing = subprocess.run(["adb", "shell", "ls", "-1", f"/data/data/{PKG}/{sub}"],
-                                 capture_output=True, text=True, timeout=30).stdout
-        names |= {f"{sub}/{line.strip()}" for line in listing.splitlines()
-                  if line.strip() and "No such file" not in line
-                  and not line.strip().endswith(("-journal", "-wal", "-shm"))}
+        cmd = access8418.list_command_8418(DATA_MODE_8418, PKG, sub)
+        if cmd is None:
+            return None
+        listing = subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout
+        names |= access8418.parse_listing_8418(sub, listing)
     return names
+
+
+def data_bytes_8418():
+    """The app's data size from dumpsys diskstats (no root needed; the service's cached value), or None."""
+    dump = subprocess.run(["adb", "shell", "dumpsys", "diskstats"], capture_output=True, text=True, timeout=60).stdout
+    return access8418.diskstats_data_bytes_8418(dump, PKG)
 
 
 def bootstrap_8418(log_path):
@@ -165,10 +174,11 @@ output = pathlib.Path("release_art_evidence")
 output.mkdir(exist_ok=True)
 # V5.0.8418 — root on this disposable google_apis emulator, only to read app-private file NAMES
 # before/after the upgrade. Done first: adbd restarts, which would cut a running logcat capture.
+# Without root the checks fall back to run-as, then to package-level checks (upgrade_data_access_8418).
 root = subprocess.run(["adb", "root"], capture_output=True, text=True, timeout=60)
 subprocess.run(["adb", "wait-for-device"], timeout=120)
-if adb("shell", "id", "-u").strip() != "0":
-    raise RuntimeError("adb root unavailable on the emulator; upgrade data survival cannot be proven: " + root.stdout + root.stderr)
+root_uid_8418 = subprocess.run(["adb", "shell", "id", "-u"], capture_output=True, text=True, timeout=30).stdout
+DATA_MODE_8418 = access8418.choose_mode_8418(root_uid_8418, None)
 subprocess.run(["adb", "uninstall", PKG], capture_output=True)
 # Exercise Android's real signature/version upgrade checks. The previous
 # published APK is installed first in this disposable, unfunded emulator.
@@ -185,10 +195,20 @@ try:
 finally:
     stop_capture_8418(handle, proc)
 previous_boot = bootstrap_8418(output / "previous_logcat.txt")
+if DATA_MODE_8418 != access8418.ROOT_8418:
+    # run-as needs the package installed, so it is probed only now.
+    run_as_uid_8418 = subprocess.run(["adb", "shell", "run-as", PKG, "id", "-u"], capture_output=True, text=True, timeout=30).stdout
+    DATA_MODE_8418 = access8418.choose_mode_8418(root_uid_8418, run_as_uid_8418)
+print("Upgrade data access mode:", DATA_MODE_8418, flush=True)
+(output / "data_access_mode.txt").write_text(DATA_MODE_8418 + "\n" + (root.stdout + root.stderr).strip() + "\n")
 files_before = data_files_8418()
-(output / "previous_files.txt").write_text("\n".join(sorted(files_before)) + "\n")
-if not files_before:
-    raise RuntimeError("previous release created no shared_prefs/databases; nothing to carry across the upgrade")
+bytes_before = data_bytes_8418()
+if files_before is not None:
+    (output / "previous_files.txt").write_text("\n".join(sorted(files_before)) + "\n")
+    if not files_before:
+        raise RuntimeError("previous release created no shared_prefs/databases; nothing to carry across the upgrade")
+elif previous_boot is None:
+    raise RuntimeError("package mode: the previous release logged no CANONICAL_BOOTSTRAP_READY_6515, so its data cannot be shown to exist")
 # Upgrade in place, as the owner does: no uninstall, same signature, over the used install.
 # The previous process is stopped first so every line in logcat.txt is the candidate's own
 # (a MY_PACKAGE_REPLACED restart included).
@@ -211,7 +231,7 @@ try:
     if not first_before or first_before != first_after:
         raise RuntimeError(f"firstInstallTime changed {first_before} -> {first_after}: the upgrade was not in place")
     files_after_install = data_files_8418()
-    lost = sorted(files_before - files_after_install)
+    lost = sorted(files_before - files_after_install) if files_before is not None and files_after_install is not None else []
     if lost:
         raise RuntimeError("upgrade install lost app data files: " + ", ".join(lost))
     compiled = adb("shell", "cmd", "package", "compile", "-m", "verify", "-f", PKG)
@@ -235,18 +255,24 @@ try:
     if previous_boot is not None and candidate_boot[0] < previous_boot[0]:
         raise RuntimeError(f"canonical events reset across upgrade: {previous_boot[0]} -> {candidate_boot[0]}")
     files_after = data_files_8418()
-    lost = sorted(files_before - files_after)
+    bytes_after = data_bytes_8418()
+    if bytes_before and bytes_after == 0:
+        raise RuntimeError(f"app data size dropped to 0 across the upgrade (diskstats {bytes_before} -> {bytes_after})")
+    lost = sorted(files_before - files_after) if files_before is not None and files_after is not None else []
     # The installer itself may lose nothing (checked above). At startup the new release may
     # retire an obsolete file, but never the learning or canonical economic stores.
     protected_lost = [f for f in lost if f in PROTECTED_STORES_8418]
     if protected_lost:
         raise RuntimeError("upgraded release deleted learning/canonical stores at startup: " + ", ".join(protected_lost))
-    (output / "candidate_files.txt").write_text("\n".join(sorted(files_after)) + "\n")
+    if files_after is not None:
+        (output / "candidate_files.txt").write_text("\n".join(sorted(files_after)) + "\n")
+    files_proof_8418 = (f"created {len(files_before)} data files; installer kept every file; retired at startup={lost}"
+                        if files_before is not None else
+                        f"file names unreadable without root/run-as (package checks only: diskstats data {bytes_before} -> {bytes_after})")
     (output / "verdict.txt").write_text(
         "PASS: published-APK upgrade, release version identity, ART verification, service bootstrap, UI Start, first bot-loop tick\n"
-        f"PASS 8418: previous release ran (pins={sorted(previous_pins)} boot={previous_boot}) and created {len(files_before)} data files; "
-        f"install -r in place (firstInstallTime={first_after} lastUpdateTime={last_after}); installer kept every file; "
-        f"retired at startup={lost}; "
+        f"PASS 8418 [data access={DATA_MODE_8418}]: previous release ran (pins={sorted(previous_pins)} boot={previous_boot}); "
+        f"{files_proof_8418}; install -r in place (firstInstallTime={first_after} lastUpdateTime={last_after}); "
         f"candidate pins={sorted(candidate_pins)} boot={candidate_boot}\n")
     print((output / "verdict.txt").read_text(), flush=True)
 finally:

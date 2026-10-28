@@ -496,8 +496,13 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Upgrade data-access fallback tests
+        working-directory: .
+        run: python3 ci/test_upgrade_data_access_8418.py
       # V5.0.8418 — the previous release now RUNS first (PIN, Start, first loop) so the upgrade
       # carries real data; then install -r in place, files/PIN/canonical events must survive.
+      # Without adb root the data checks fall back to run-as, then to package-level checks
+      # (ci/upgrade_data_access_8418.py); the verdict names the mode used.
       - name: Release upgrade over the previous APK on an emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
