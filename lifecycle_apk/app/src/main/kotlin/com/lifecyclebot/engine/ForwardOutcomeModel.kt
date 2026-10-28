@@ -329,9 +329,12 @@ object ForwardOutcomeModel {
         "$LABEL_TAG_7734|${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
 
     /** A 60-minute forward label (net %, after cost) for a candidate the gate ruled on. */
-    fun recordLabel7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String, netPct: Double) {
+    fun recordLabel7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String, netPct: Double,
+                        id8418: String = "") {
         try {
             if (!netPct.isFinite() || lane.isBlank()) return
+            // V5.0.8418 — one label per decision (a recovered horizon re-books it).
+            if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("ForwardOutcomeModel.label", id8418, "LABEL")) return
             // V5.0.7738 — a label is a costless mark, not a close; one basis
             // artefact at +25,000% made S|PROJECT_SNIPER read E=+1245% at n=39.
             val pnl = netPct.coerceIn(-95.0, LABEL_GAIN_CEILING_PCT_7738)
@@ -466,7 +469,7 @@ object ForwardOutcomeModel {
     }
 
     /** Feed settled PnL back — updates BOTH the fine and coarse cells (Welford). */
-    fun recordOutcome(mint: String, pnlPct: Double) {
+    fun recordOutcome(mint: String, pnlPct: Double, tradeId8418: String = "", mode8418: String? = null) {
         try {
             // V5.0.6862 — an unmapped close is a LOST learning sample, not a no-op.
             // It used to return in silence, so the drop was invisible; count it so a
@@ -475,6 +478,10 @@ object ForwardOutcomeModel {
                 try { PipelineHealthCollector.labelInc("FORWARD_OUTCOME_UNMAPPED_CLOSE_6862") } catch (_: Throwable) {}
                 return
             }
+            // V5.0.8418 — cells are keyed per mode already (cohortEvidence6911 reads its own book); counted per book and
+            // refused once per close id (the pending stamp is consumed by the first delivery as well).
+            if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("ForwardOutcomeModel.close", tradeId8418,
+                    mode8418 ?: LearningEnvironment7835.mode())) return
             val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) /* V5.0.7349b — was +1,000%: a real runner is the expectancy, not an outlier */
             update(fine.getOrPut(keys.first) { Cell() }, pnl)
             update(coarse.getOrPut(keys.second) { Cell() }, pnl)

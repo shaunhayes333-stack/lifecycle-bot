@@ -439,7 +439,7 @@ object FinalizedBusConsumerBridge6465 {
         } else {
             val band = env.scoreBand.ifBlank { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(env.entryScore) }
             com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486(
-                env.lane, band, env.entryTactic, env.realizedReturnPct,
+                env.lane, band, env.entryTactic, env.realizedReturnPct, env.tradeId,
             )
         }
         true
@@ -585,7 +585,7 @@ object FinalizedBusConsumerBridge6465 {
     // permanently dropped valid samples. 6465 runs only after the exact-event
     // check above succeeds and retries until durability is visible.
     private fun deliverToForwardOutcomeModel6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
+        com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct, env.tradeId, env.mode)
         // Close the prediction-quality loop from the same canonical terminal.
         com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(env.mint, env.realizedReturnPct)
         true

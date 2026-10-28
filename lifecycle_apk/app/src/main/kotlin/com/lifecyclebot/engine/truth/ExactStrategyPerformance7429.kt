@@ -280,9 +280,8 @@ object ExactStrategyPerformance7429 {
      * Variant ID is deliberately excluded from the lookup: the strategy
      * variant is a parameter experiment inside the playbook, while this read
      * answers whether the underlying tradeType/setup/style/tactic has earned
-     * positive expectancy. LIVE prefers its own outcomes; until it has enough,
-     * PAPER may seed the same playbook because canonical PAPER is the
-     * deployment-quality rehearsal book.
+     * positive expectancy. LIVE reads only its own outcomes (V5.0.8418: the
+     * PAPER seed was removed — paper never admits live); PAPER reads PAPER.
      */
     data class Evidence7431(
         val mode: String,
@@ -337,11 +336,9 @@ object ExactStrategyPerformance7429 {
                 try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_LIVE_READ_7431") } catch (_: Throwable) {}
                 return live.copy(source = "LIVE_EXACT")
             }
-            val paper = aggregate7431("PAPER", lane, tradeType, setup, style, tactic)
-            if (paper != null && paper.n >= 5L) {
-                try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_PAPER_SEED_READ_7431") } catch (_: Throwable) {}
-                return paper.copy(source = "PAPER_SEED")
-            }
+            // V5.0.8418 — the PAPER seed (paper.n >= 5 read as LIVE evidence until live had 3 closes) is gone: no paper
+            // result admits or shapes a live entry. Live without its own evidence reads unknown.
+            try { PipelineHealthCollector.labelInc("EXACT_STRATEGY_EV_LIVE_UNKNOWN_NO_PAPER_SEED_8418") } catch (_: Throwable) {}
             return null
         }
         val paper = aggregate7431("PAPER", lane, tradeType, setup, style, tactic)

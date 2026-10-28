@@ -423,9 +423,12 @@ object TacticSwitcher {
      * pnlPct: realized PnL% on the trade.
      */
     fun onCanonicalTradeClosed6486(
-        lane: String, scoreBand: String, entryTactic: String, pnlPct: Double,
+        lane: String, scoreBand: String, entryTactic: String, pnlPct: Double, tradeId8418: String = "",
     ) {
         if (!com.lifecyclebot.engine.LearningEnvironment7835.isCanonical()) return
+        // V5.0.8418 — one tactic row serves the runtime: a paper close never rotates the tactic live trades; once per close.
+        if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admitRuntimeBook8418("TacticSwitcher", tradeId8418,
+                com.lifecyclebot.engine.LearningEnvironment7835.mode())) return
         val pnlVerdict6495 = com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(
             pnlPct, "TacticSwitcher.onCanonicalTradeClosed6486/$lane/$scoreBand", emit = true,
         )
