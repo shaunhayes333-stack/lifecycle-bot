@@ -157,23 +157,28 @@ object DiscoveryCapture8400 {
         fun miss(why: String): Int { shapeNotSeeded8407.computeIfAbsent(why) { AtomicLong() }.incrementAndGet(); return 0 }
         val flow = try { PairFlow8169.peek8169(mint) } catch (_: Throwable) { null } ?: return miss("NO_FLOW")
         if (nowMs - flow.atMs !in 0L..FLOW_FRESH_MS_8407) return miss("FLOW_STALE")
-        val px = ts.lastPrice
+        val px = flow.priceUsd8417
         if (!(px.isFinite() && px > 0.0)) return miss("NO_PRICE")
-        val ageMs = try { CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs) } catch (_: Throwable) { null }
+        // A new pair's "1h change" may cover only its first minutes. Without a pool-age witness, do not invent
+        // an hour-old candle. Both the price and the age must refer to the answer's observation time.
+        if (flow.pairCreatedAtMs8417 < AdmissionBirth8144.MIN_VALID_MS_8144 || flow.pairCreatedAtMs8417 > flow.atMs)
+            return miss("PAIR_AGE_UNKNOWN")
+        val ageMs = flow.atMs - flow.pairCreatedAtMs8417
         var added = 0
         synchronized(ts.history) {
             val existing = ts.history.map { it.ts }.toHashSet()
             fun put(lagMs: Long, chg: Double) {
-                if (ageMs != null && ageMs < lagMs) return
+                if (ageMs < lagMs) return
                 val p = impliedPriceBefore8407(px, chg); if (!p.isFinite()) return
                 val at = flow.atMs - lagMs
-                if (at in existing) return
+                if (!existing.add(at)) return
                 ts.history.addFirst(Candle(ts = at, priceUsd = p, marketCap = 0.0, volumeH1 = 0.0, volume24h = 0.0,
                     highUsd = p, lowUsd = p, openUsd = p, synthetic = true))
                 added++
             }
             put(LAG_1H_8407, flow.chg1h)
             put(LAG_5M_8407, flow.chg5m)
+            if (added > 0) put(0L, 0.0)   // keep the matching endpoint when the token's current mark has moved on
             if (added > 0) { val sorted = ts.history.sortedBy { it.ts }; ts.history.clear(); ts.history.addAll(sorted) }
         }
         if (added > 0) {

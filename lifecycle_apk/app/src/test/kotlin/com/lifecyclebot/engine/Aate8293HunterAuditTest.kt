@@ -89,7 +89,7 @@ class Aate8293HunterAuditTest {
         val m = "SAME".padEnd(44, 'A')
         val fresh = row(m, age = 10.0 / 60.0, observedAt = now)
         val merged = MarketSweep7297.merge(MarketSweep7297.agedForward8293(listOf(fresh, row(m, age = 0.5 / 60.0, observedAt = t0)), now)).single()
-        assertEquals(10.0 / 60.0, merged.ageHours, 1e-9)
+        assertEquals(10.5 / 60.0, merged.ageHours, 1e-9) // earliest pool witness wins; a later pool cannot rejuvenate it
         assertTrue(src("engine/market/MarketSweep7297.kt").contains("merge(agedForward8293(results.flatMap { it.second }, System.currentTimeMillis()))"))
     }
 

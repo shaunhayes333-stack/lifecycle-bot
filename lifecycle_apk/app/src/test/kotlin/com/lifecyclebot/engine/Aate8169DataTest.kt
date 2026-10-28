@@ -84,13 +84,13 @@ class Aate8169DataTest {
         assertEquals("NO_SPLIT", r.sweepBp8169(row(-1, -1, 2.0, 8.0, now), now).why)
         assertEquals("STALE", r.sweepBp8169(row(60, 40, 2.0, 8.0, 0L), now).why)                 // undated = not fresh
         assertEquals("NOT_LISTED", r.sweepBp8169(null, now).why)
-        // merge keeps the sided counts and dates the merged row by its OLDEST dated answer
+        // The market frame and its date come from the same fresh answer; an old echo cannot make it stale.
         val merged = MarketSweep7297.merge(listOf(row(60, 40, 2.0, 8.0, now - 5_000L), row(-1, -1, Double.NaN, 0.0, now - 90_000L),
             row(-1, -1, Double.NaN, 0.0, 0L).copy(providers = setOf("RAYDIUM_VOLUME"))))
         assertEquals(1, merged.size)
         assertEquals(60, merged[0].buysH1)
         assertEquals(40, merged[0].sellsH1)
-        assertEquals(now - 90_000L, merged[0].observedAtMs8169)
+        assertEquals(now - 5_000L, merged[0].observedAtMs8169)
     }
 
     @Test fun aNewerPairAnswerIsKeptAndAnOlderOneNeverReplacesIt() {

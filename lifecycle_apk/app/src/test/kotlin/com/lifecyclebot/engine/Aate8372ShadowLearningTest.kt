@@ -237,8 +237,9 @@ class Aate8372ShadowLearningTest {
         assertTrue(explore.contains("if (tickets.containsKey(key)) continue   // partial-init retry"))
         val evidence = File(truth + "EvidenceShadow8344.kt").readText()
         assertTrue(evidence.contains("closes.attach(ShadowColdStore8397.open(ctx, PREFS_8344))"))
-        assertTrue(evidence.contains("open.putIfAbsent(r.mint, pos)"))
-        assertTrue(evidence.contains("if (open.containsKey(r.mint)) continue   // partial-init retry"))
+        assertTrue(evidence.contains("val episodeKey = episodeKey8417(r.mint, r.lane)"))
+        assertTrue(evidence.contains("open.putIfAbsent(episodeKey, pos)"))
+        assertTrue(evidence.contains("if (open.containsKey(episodeKey)) continue   // partial-init retry"))
     }
 
     @Test fun cortexFilledAndUnfilledPopulationKeysNeverTouchNativeVariantDenominators() {

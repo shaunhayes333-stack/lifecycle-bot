@@ -26,7 +26,8 @@ class Aate8407ShapeAtDiscoveryTest {
             lastPrice = 120.0
             history.add(Candle(ts = now, priceUsd = 120.0, marketCap = 0.0, volumeH1 = 0.0, volume24h = 0.0))
         }
-        PairFlow8169.note8169(ts.mint, PairFlow8169.Flow8169(10, 5, 60, 40, 20.0, -40.0, 5000.0, now))
+        PairFlow8169.note8169(ts.mint, PairFlow8169.Flow8169(10, 5, 60, 40, 20.0, -40.0, 5000.0, now,
+            priceUsd8417 = 120.0, pairCreatedAtMs8417 = now - 7_200_000L))
         assertEquals(2, DiscoveryCapture8400.seedShape8407(ts, now))
         assertEquals(3, DiscoveryCapture8400.distinctPoints8407(ts.history.toList()))
         val pts = ts.history.toList()

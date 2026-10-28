@@ -21,6 +21,8 @@ object PairFlow8169 {
     class Flow8169(
         val buysM5: Int, val sellsM5: Int, val buysH1: Int, val sellsH1: Int,
         val chg5m: Double, val chg1h: Double, val liquidityUsd: Double, val atMs: Long,
+        /** Same answer's price and pool age: never derive historical prices from a later TokenState mark. */
+        val priceUsd8417: Double = Double.NaN, val pairCreatedAtMs8417: Long = 0L,
     )
 
     private val flows = ConcurrentHashMap<String, Flow8169>()
@@ -53,7 +55,8 @@ object PairFlow8169 {
     /** DexscreenerApi.getBestPairInternal: the best pair served for [mint]. */
     fun notePair8169(mint: String, p: com.lifecyclebot.network.PairInfo, atMs: Long = System.currentTimeMillis()) {
         // PairInfo carries h1 counts as 0 when absent: 0/0 is no reading (countShare8169 returns null for it).
-        note8169(mint, Flow8169(p.buysM5, p.sellsM5, p.candle.buysH1, p.candle.sellsH1, p.priceChangeM5, p.priceChangeH1, p.liquidity, atMs))
+        note8169(mint, Flow8169(p.buysM5, p.sellsM5, p.candle.buysH1, p.candle.sellsH1, p.priceChangeM5, p.priceChangeH1, p.liquidity, atMs,
+            p.candle.priceUsd, p.pairCreatedAtMs))
     }
 
     /** Pure: one DexScreener pair object's flow (the batch /tokens/v1 answer); absent fields stay absent. */
@@ -72,6 +75,8 @@ object PairFlow8169 {
             chg1h = if (pc != null && pc.has("h1")) pc.optDouble("h1", Double.NaN) else Double.NaN,
             liquidityUsd = if (liq != null && liq.has("usd")) liq.optDouble("usd", Double.NaN) else Double.NaN,
             atMs = atMs,
+            priceUsd8417 = p.optDouble("priceUsd", Double.NaN),
+            pairCreatedAtMs8417 = p.optLong("pairCreatedAt", 0L),
         )
     }
 
@@ -214,11 +219,11 @@ object SetupFeatureResolver8169 {
             com.lifecyclebot.engine.WalletManager.lastKnownSolPrice, nowMs, maxAgeMs)
     } catch (_: Throwable) { Cand8169(CHAIN, null, "NOT_OBSERVED") }
 
-    /** The sweep's 1h move is 0.0 when no provider supplied it (Row contract), so only a non-zero 1h move is a reading. */
+    /** A provider's explicit flat hour is a reading; an absent legacy zero is not. */
     fun sweepChg8169(r: com.lifecyclebot.engine.market.MarketSweep7297.Row?, nowMs: Long, maxAgeMs: Long = FRESH_MS_8169): Cand8169<Pair<Double, Double>> = when {
         r == null -> Cand8169(SWEEP, null, "NOT_LISTED")
         !fresh8169(r.observedAtMs8169, nowMs, maxAgeMs) -> Cand8169(SWEEP, null, "STALE")
-        r.priceChange5mPct.isFinite() && r.priceChangeH1Pct.isFinite() && r.priceChangeH1Pct != 0.0 ->
+        r.priceChange5mPct.isFinite() && r.priceChangeH1Pct.isFinite() && r.hourChangeObserved8417 ->
             Cand8169(SWEEP, r.priceChange5mPct to r.priceChangeH1Pct, "")
         else -> Cand8169(SWEEP, null, "NO_CHANGE")
     }

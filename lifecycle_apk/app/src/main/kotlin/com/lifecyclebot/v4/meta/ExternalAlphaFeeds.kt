@@ -125,6 +125,8 @@ object ExternalAlphaFeeds {
                     verified = false,
                     ageHours = if (opened > 0L && opened <= now) (now - opened) / 3600.0 else 0.0,
                     providers = setOf("GMGN_SMART_MONEY"),
+                    observedAtMs8169 = now * 1000L,
+                    hourChangeObserved8417 = t.optDouble("price_change_percent1h", Double.NaN).isFinite(),
                 )
             }
             if (rows.isNotEmpty()) {

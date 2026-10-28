@@ -74,6 +74,8 @@ object MarketSweep7297 {
         val buysH1: Int = -1,
         val sellsH1: Int = -1,
         val observedAtMs8169: Long = 0L,
+        /** A reported flat hour is observed; legacy zero defaults are still unknown. */
+        val hourChangeObserved8417: Boolean = priceChangeH1Pct.isFinite() && priceChangeH1Pct != 0.0,
     )
 
     enum class Band(val minMcap: Double, val maxMcap: Double) {
@@ -404,36 +406,28 @@ object MarketSweep7297 {
     /** SolanaMarketScanner: the last sweep's rows when a whole scan came back empty. */
     fun emergencyRows8128(nowMs: Long = System.currentTimeMillis(), max: Int = 100): List<Row> = emergencyRowsOf8128(last, nowMs, max)
 
-    /** Pure: combine rows for one mint, keeping every provider-supplied value. */
+    /**
+     * One dated market observation per mint. Taking independent maxima made stale peaks in price/cap/liquidity
+     * coexist with another feed's momentum and could move a token into the wrong lane. Prefer the newest priced,
+     * capped row; retain an incomplete row for enrichment when none exists. Metadata/provenance can be combined,
+     * but market inputs and their timestamp stay together. Ages already advanced by agedForward8293 are lower
+     * bounds: a later pool cannot make a token younger than an earlier witnessed pool.
+     */
     fun merge(rows: List<Row>): List<Row> =
         rows.filter { it.mint.length >= 32 && it.mint !in QUOTE_MINTS }
             .groupBy { it.mint }
             .map { (_, g) ->
-                fun pick(f: (Row) -> Double) = g.map(f).filter { it.isFinite() && it > 0.0 }.maxOrNull() ?: 0.0
+                val dated = g.sortedByDescending { it.observedAtMs8169 }
+                fun positive(v: Double) = v.isFinite() && v > 0.0
+                val market = dated.firstOrNull { positive(it.priceUsd) && positive(it.mcapUsd) }
+                    ?: dated.firstOrNull { positive(it.priceUsd) || positive(it.mcapUsd) }
+                    ?: dated.first()
                 val named = g.firstOrNull { it.symbol.isNotBlank() } ?: g.first()
-                Row(
-                    mint = named.mint,
+                market.copy(
                     symbol = named.symbol,
                     name = named.name,
-                    priceUsd = pick { it.priceUsd },
-                    mcapUsd = pick { it.mcapUsd },
-                    liquidityUsd = pick { it.liquidityUsd },
-                    volumeH1Usd = pick { it.volumeH1Usd },
-                    volumeH24Usd = pick { it.volumeH24Usd },
-                    priceChangeH1Pct = g.firstOrNull { it.priceChangeH1Pct != 0.0 }?.priceChangeH1Pct ?: 0.0,
-                    txCountH1 = g.maxOf { it.txCountH1 },
-                    holders = g.maxOf { it.holders },
-                    organicScore = g.maxOf { it.organicScore },
-                    verified = g.any { it.verified },
-                    ageHours = g.map { it.ageHours }.filter { it > 0.0 }.minOrNull() ?: 0.0,
+                    ageHours = g.map { it.ageHours }.filter { it.isFinite() && it > 0.0 }.maxOrNull() ?: 0.0,
                     providers = g.flatMap { it.providers }.toSet(),
-                    priceChange5mPct = g.map { it.priceChange5mPct }.firstOrNull { it.isFinite() } ?: Double.NaN,
-                    priceChangeH24Pct = g.map { it.priceChangeH24Pct }.firstOrNull { it.isFinite() } ?: Double.NaN,
-                    // V5.0.8169 — the freshest sided row's counts; the OLDEST dated answer of the group (the dated
-                    // feeds are the ones that carry moves and counts), so a merged row is never dated fresher than them.
-                    buysH1 = g.filter { it.buysH1 >= 0 && it.sellsH1 >= 0 }.maxByOrNull { it.observedAtMs8169 }?.buysH1 ?: -1,
-                    sellsH1 = g.filter { it.buysH1 >= 0 && it.sellsH1 >= 0 }.maxByOrNull { it.observedAtMs8169 }?.sellsH1 ?: -1,
-                    observedAtMs8169 = g.map { it.observedAtMs8169 }.filter { it > 0L }.minOrNull() ?: 0L,
                 )
             }
 
@@ -720,6 +714,7 @@ object MarketSweep7297 {
                     buysH1 = if (tx != null && tx.has("buys") && tx.has("sells")) tx.optInt("buys", -1) else -1,   // V5.0.8169
                     sellsH1 = if (tx != null && tx.has("buys") && tx.has("sells")) tx.optInt("sells", -1) else -1,
                     observedAtMs8169 = now,
+                    hourChangeObserved8417 = p.optJSONObject("priceChange")?.optDouble("h1", Double.NaN)?.isFinite() == true,
                 )
             }
         }
@@ -766,6 +761,7 @@ object MarketSweep7297 {
                 buysH1 = if (s1 != null && s1.has("numBuys") && s1.has("numSells")) s1.optInt("numBuys", -1) else -1,   // V5.0.8169
                 sellsH1 = if (s1 != null && s1.has("numBuys") && s1.has("numSells")) s1.optInt("numSells", -1) else -1,
                 observedAtMs8169 = now,
+                hourChangeObserved8417 = s1?.optDouble("priceChange", Double.NaN)?.isFinite() == true,
             )
         }
         return out
@@ -803,6 +799,7 @@ object MarketSweep7297 {
                 verified = false,
                 ageHours = if (open > 0.0) ((nowSec - open) / 3600.0).coerceAtLeast(0.0) else 0.0,
                 providers = setOf("RAYDIUM_VOLUME"),
+                observedAtMs8169 = (nowSec * 1000.0).toLong(),
             )
         }
         return out
