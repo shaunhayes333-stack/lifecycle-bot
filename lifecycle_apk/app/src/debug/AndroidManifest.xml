@@ -19,6 +19,43 @@
             android:name=".ui.MainActivity"
             android:exported="true"
             tools:replace="android:exported" />
+
+        <!-- V5.0.8418 — DEBUG ONLY: every screen is reachable by `adb shell am start -n` so
+             ci/runtime_device_checks_8418.sh can open each one in the smoke emulator and
+             assert it renders without a crash/ANR. Release keeps exported=false
+             (ci/release_apk_verify_8418.py fails a release with an unprotected export). -->
+        <activity android:name=".ui.AlertsActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.BacktestActivity" android:exported="true" />
+        <activity android:name=".ui.BehaviorActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.CollectiveBrainActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.CryptoAltActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.CurrencyActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.ErrorLogActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.InsiderWalletsActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.JournalActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.LabActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.LearningCounterActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.LiveTradeLogActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.MultiAssetActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.PersonaStudioActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.PipelineHealthActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.SplashActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.TuningActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.UniverseHealthActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.WalletActivity" android:exported="true" tools:replace="android:exported" />
+        <activity android:name=".ui.WatchlistActivity" android:exported="true" tools:replace="android:exported" />
+
+        <!-- V5.9.661 smoke entry-point, moved here from src/main in V5.0.8418: used by
+             ci/runtime-test.sh to seed paper mode with `adb shell am broadcast`. The receiver
+             also hard-guards on FLAG_DEBUGGABLE; a release APK no longer declares it at all. -->
+        <receiver
+            android:name=".engine.SmokeTestReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="com.lifecyclebot.aate.SMOKE_AUTOSTART"/>
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
