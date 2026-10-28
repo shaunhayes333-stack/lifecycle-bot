@@ -29,6 +29,8 @@ object TokenBirthHydrator7441 {
         var before: String? = null,
         var oldestBlockMs: Long = Long.MAX_VALUE,
         var pages: Int = 0,
+        /** V5.0.8418 — signature of the oldest successful row read so far: the only candidate creation transaction. */
+        var oldestOkSig8418: String = "",
         @Volatile var lastTouchedMs: Long = System.currentTimeMillis(),
     )
     private val progress = ConcurrentHashMap<String, Progress>()
@@ -132,7 +134,7 @@ object TokenBirthHydrator7441 {
     private val noAnswer8265 = java.util.concurrent.atomic.AtomicLong(0)
     fun statusLine7441(): String =
         "birthHydrator7441[requests=${requests8265.get()} launched=${launched8265.get()} busDropped=${busDropped8265.get()} " +
-            "cooldownSkips=${cooldownSkips8265.get()} dropped8287=${dropped8287.get()} resolved=${resolved8265.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
+            "cooldownSkips=${cooldownSkips8265.get()} dropped8287=${dropped8287.get()} resolved=${resolved8265.get()} mintInitProven8418=${initProven8418.get()} unproven8418=${initUnproven8418.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
             "inFlight=${inFlight.size} progress=${progress.size} cooling=${cooldownUntil.size}]"
 
     // V5.0.8144 §BIRTH_FROM_EVERY_WITNESS. 5.0.8142: 2,015 PROJECT_SNIPER refusals as BIRTH_METADATA_HYDRATING. Three
@@ -159,7 +161,11 @@ object TokenBirthHydrator7441 {
      * slot of its oldest successful row when that row had no blockTime (0 otherwise), [cursor] the LAST row's signature
      * whatever its status (the next page starts before it), [complete] = the history ends on this page.
      */
-    data class PageScan8144(val oldestBlockMs: Long, val oldestOkSlotNoTime: Long, val cursor: String, val complete: Boolean)
+    data class PageScan8144(
+        val oldestBlockMs: Long, val oldestOkSlotNoTime: Long, val cursor: String, val complete: Boolean,
+        /** V5.0.8418 — the oldest successful row's signature on this page ("" when none succeeded). */
+        val oldestOkSignature8418: String = "",
+    )
 
     /** Pure: one page of newest-first signatures for the mint. Failed rows never date the mint, but they do page. */
     fun scanPage8144(rows: List<SigRow8144>, pageLimit: Int): PageScan8144 {
@@ -171,7 +177,7 @@ object TokenBirthHydrator7441 {
             if (r.blockTimeSec > 0L) oldest = minOf(oldest, r.blockTimeSec * 1000L)
         }
         val slotNoTime = lastOk?.takeIf { it.blockTimeSec <= 0L && it.slot > 0L }?.slot ?: 0L
-        return PageScan8144(oldest, slotNoTime, rows.lastOrNull()?.signature.orEmpty(), rows.size < pageLimit)
+        return PageScan8144(oldest, slotNoTime, rows.lastOrNull()?.signature.orEmpty(), rows.size < pageLimit, lastOk?.signature.orEmpty())
     }
 
     /** Pure: the history read so far reaches back far enough that no launch window can still contain the birth. */
@@ -275,13 +281,14 @@ object TokenBirthHydrator7441 {
                 state.pages++
                 state.lastTouchedMs = System.currentTimeMillis()
                 if (page.length() == 0) {
-                    publishIfComplete(mint, state)
+                    proveAndPublish8418(rpc, mint, state)
                     return
                 }
                 // V5.0.8144 — pure page read: the cursor is the last row whatever its status; a missing oldest blockTime
                 // is asked of its slot; every page's oldest successful time is a published lower bound of the age.
                 val scan = scanPage8144(rows8144(page), PAGE_LIMIT)
                 state.oldestBlockMs = minOf(state.oldestBlockMs, scan.oldestBlockMs)
+                if (scan.oldestOkSignature8418.isNotBlank()) state.oldestOkSig8418 = scan.oldestOkSignature8418
                 if (scan.complete && scan.oldestOkSlotNoTime > 0L) {
                     // The creation row itself had no time: a newer row's time is NOT the birth (it would read younger).
                     val bt = blockTimeMs8144(rpc, scan.oldestOkSlotNoTime)
@@ -294,7 +301,7 @@ object TokenBirthHydrator7441 {
                     state.oldestBlockMs = minOf(state.oldestBlockMs, bt)
                 }
                 if (scan.complete) {
-                    publishIfComplete(mint, state)
+                    proveAndPublish8418(rpc, mint, state)
                     return
                 }
                 if (state.oldestBlockMs != Long.MAX_VALUE) AdmissionBirth8144.noteHistoryFloor8144(mint, state.oldestBlockMs)
@@ -338,6 +345,90 @@ object TokenBirthHydrator7441 {
                 root8359.optJSONArray("result")
             }
         } catch (_: Throwable) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, 0); null }
+    }
+
+    /**
+     * V5.0.8418 §OLDEST_RETURNED_IS_NOT_CREATION. A history that "ends" on a page is only the history this node kept: a
+     * pruned or truncated ledger ends early, and its oldest row is then some later transfer, read as a far younger
+     * birth. The creation is proven only by the transaction that ran spl-token / token-2022 InitializeMint or
+     * InitializeMint2 on THIS mint. The oldest successful row is fetched; when it initialised the mint its block time is
+     * the birth, otherwise what was read stays a lower bound (HISTORY_FLOOR) and the birth stays unproven.
+     */
+    enum class MintInit8418 { PROVEN, NOT_IN_TRANSACTION, TRANSACTION_UNAVAILABLE }
+
+    private val MINT_INIT_TYPES_8418 = setOf("initializeMint", "initializeMint2")
+    private val TOKEN_PROGRAMS_8418 = setOf(
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    )
+    private val TOKEN_PROGRAM_NAMES_8418 = setOf("spl-token", "spl-token-2022")
+
+    /** Pure: [tx] (getTransaction "result", jsonParsed) ran InitializeMint / InitializeMint2 on [mint], top level or inner. */
+    fun mintInitProof8418(tx: JSONObject?, mint: String): MintInit8418 {
+        if (tx == null || mint.isBlank()) return MintInit8418.TRANSACTION_UNAVAILABLE
+        if (tx.optJSONObject("meta")?.let { !it.isNull("err") } == true) return MintInit8418.NOT_IN_TRANSACTION
+        val ixs = ArrayList<JSONObject>()
+        val top = tx.optJSONObject("transaction")?.optJSONObject("message")?.optJSONArray("instructions")
+        if (top != null) for (i in 0 until top.length()) top.optJSONObject(i)?.let { ixs.add(it) }
+        val inner = tx.optJSONObject("meta")?.optJSONArray("innerInstructions")
+        if (inner != null) for (i in 0 until inner.length()) {
+            val arr = inner.optJSONObject(i)?.optJSONArray("instructions") ?: continue
+            for (j in 0 until arr.length()) arr.optJSONObject(j)?.let { ixs.add(it) }
+        }
+        for (ix in ixs) {
+            val tokenProgram = ix.optString("programId", "") in TOKEN_PROGRAMS_8418 || ix.optString("program", "") in TOKEN_PROGRAM_NAMES_8418
+            if (!tokenProgram) continue
+            val parsed = ix.optJSONObject("parsed") ?: continue
+            if (parsed.optString("type", "") !in MINT_INIT_TYPES_8418) continue
+            if (parsed.optJSONObject("info")?.optString("mint", "") == mint) return MintInit8418.PROVEN
+        }
+        return MintInit8418.NOT_IN_TRANSACTION
+    }
+
+    private val initProven8418 = java.util.concurrent.atomic.AtomicLong(0)
+    private val initUnproven8418 = java.util.concurrent.atomic.AtomicLong(0)
+
+    private fun fetchTx8418(rpc: String, signature: String): JSONObject? {
+        val body = JSONObject().put("jsonrpc", "2.0").put("id", "birth8418").put("method", "getTransaction")
+            .put("params", JSONArray().put(signature).put(JSONObject().put("encoding", "jsonParsed")
+                .put("maxSupportedTransactionVersion", 0).put("commitment", "confirmed")))
+        val req = Request.Builder().url(rpc).header("Content-Type", "application/json")
+            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+        if (!com.lifecyclebot.network.KeylessRpc8359.beforeCall8359(rpc)) return null
+        return try {
+            HealthAwareHttp.execute(http, req, host = "solana_rpc").use { resp ->
+                if (!resp.isSuccessful) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code); return null }
+                val root = JSONObject(resp.body?.string() ?: return null)
+                com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code, root.optJSONObject("error")?.optInt("code", -1) ?: 0)
+                root.optJSONObject("result")
+            }
+        } catch (_: Throwable) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, 0); null }
+    }
+
+    /** V5.0.8418 — the history reached its end: publish the birth only when its oldest row initialised the mint. */
+    private fun proveAndPublish8418(rpc: String, mint: String, state: Progress) {
+        val floor = state.oldestBlockMs
+        val sig = state.oldestOkSig8418
+        val tx = if (sig.isBlank()) null else fetchTx8418(rpc, sig)
+        val verdict = if (sig.isBlank()) MintInit8418.NOT_IN_TRANSACTION else mintInitProof8418(tx, mint)
+        if (verdict == MintInit8418.PROVEN) {
+            val txMs = (tx?.optLong("blockTime", 0L) ?: 0L).takeIf { it > 0L }?.let { it * 1000L }
+            if (txMs != null) state.oldestBlockMs = minOf(state.oldestBlockMs, txMs)
+            initProven8418.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_MINT_INIT_PROVEN_8418") } catch (_: Throwable) {}
+            publishIfComplete(mint, state)
+            return
+        }
+        // Unproven: what was read is still a lower bound of the age, never the birth.
+        if (floor != Long.MAX_VALUE) AdmissionBirth8144.noteHistoryFloor8144(mint, floor)
+        if (verdict == MintInit8418.TRANSACTION_UNAVAILABLE) {
+            cooldownUntil[mint] = System.currentTimeMillis() + RETRY_COOLDOWN_MS
+            try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_MINT_INIT_TX_PENDING_8418") } catch (_: Throwable) {}
+            return
+        }
+        initUnproven8418.incrementAndGet()
+        progress.remove(mint)
+        cooldownUntil[mint] = System.currentTimeMillis() + PAGE_BUDGET_COOLDOWN_MS_7770
+        try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_HISTORY_TRUNCATED_UNPROVEN_8418") } catch (_: Throwable) {}
     }
 
     private fun publishIfComplete(mint: String, state: Progress) {

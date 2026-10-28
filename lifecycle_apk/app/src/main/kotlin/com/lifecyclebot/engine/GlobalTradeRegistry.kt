@@ -401,7 +401,8 @@ object GlobalTradeRegistry {
             // V5.0.3732 — preserve freshest known intake liquidity/confidence on duplicate hits.
             // Source-balance rebalancing can run before BotService hydrates status.tokens;
             // without registry-level liquidity, demotion fabricated liq=$0 for real $5k+ mints.
-            if (initialLiquidityUsd > existing.initialLiquidityUsd) existing.initialLiquidityUsd = initialLiquidityUsd
+            // V5.0.8418 — superseded max-take: the newest positive intake figure replaces the older one, up or down.
+            if (initialLiquidityUsd.isFinite() && initialLiquidityUsd > 0.0) existing.initialLiquidityUsd = initialLiquidityUsd
             if (confidence > existing.initialConfidence) existing.initialConfidence = confidence
             // V5.9.1328 — ROOT FIX B: Refresh addedAt on duplicate intake.
             // Without this, brand-new pump-portal tokens (which keep re-arriving

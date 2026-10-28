@@ -142,7 +142,10 @@ object AdmissionBirth8144 {
     /** Discovery observation is a minimum-age witness, never a chain signature or verified birth. */
     fun noteObservation8394(mint: String, atMs: Long) = putEarliest8144(observedFloors8394, mint, atMs)
 
-    /** TokenBirthHydrator7441: the mint's history was read to its end; its oldest successful signature is the birth. */
+    /**
+     * TokenBirthHydrator7441: the mint's history was read to its end AND (V5.0.8418) its oldest successful transaction
+     * ran InitializeMint / InitializeMint2 on this mint. An oldest row that did not is only [noteHistoryFloor8144].
+     */
     fun noteOldestSignature8144(mint: String, ms: Long) {
         if (!oldestSigs.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthSignatureWalk8346() } catch (_: Throwable) {}   // V5.0.8346
         putEarliest8144(oldestSigs, mint, ms)

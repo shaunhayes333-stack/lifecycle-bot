@@ -148,8 +148,9 @@ object TokenMergeQueue {
             existing.toolAffinity.addAll(inferredToolAffinity)
             val affinityAdded7503 = existing.laneAffinity.size != laneBefore7503 ||
                 existing.toolAffinity.size != toolBefore7503
-            val metricsImproved7503 = marketCapUsd > existing.marketCapUsd ||
-                liquidityUsd > existing.liquidityUsd ||
+            // V5.0.8418 — a changed (also lower) cap / liquidity is new evidence, not only a higher one.
+            val metricsImproved7503 = newerMetric8418(existing.marketCapUsd, marketCapUsd) ||
+                newerMetric8418(existing.liquidityUsd, liquidityUsd) ||
                 volumeH1 > existing.volumeH1 ||
                 symbol.length > existing.symbol.length
             existing.lastSeenAt = now
@@ -166,11 +167,13 @@ object TokenMergeQueue {
                 existing.bestScanner = scanner
             }
 
-            if (marketCapUsd > existing.marketCapUsd) {
+            // V5.0.8418 — superseded max-take: the newest positive observation replaces the older one, up or down
+            // (a drained pool or a falling cap must not keep its historical peak in the discovery row).
+            if (newerMetric8418(existing.marketCapUsd, marketCapUsd)) {
                 existing.marketCapUsd = marketCapUsd
             }
 
-            if (liquidityUsd > existing.liquidityUsd) {
+            if (newerMetric8418(existing.liquidityUsd, liquidityUsd)) {
                 existing.liquidityUsd = liquidityUsd
             }
 
@@ -471,6 +474,10 @@ object TokenMergeQueue {
         if (marketCapUsd >= 75_000.0 || liquidityUsd >= 25_000.0) out += "QUALITY_DEPTH"
         return out
     }
+
+    /** V5.0.8418 — pure: [incoming] is a positive observation that differs from the row's [existing] figure. */
+    fun newerMetric8418(existing: Double, incoming: Double): Boolean =
+        incoming.isFinite() && incoming > 0.0 && incoming != existing
 
     fun isPending(mint: String): Boolean = pendingDiscoveries.containsKey(mint)
     

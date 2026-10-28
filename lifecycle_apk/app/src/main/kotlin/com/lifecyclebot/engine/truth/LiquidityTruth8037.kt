@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicLong
  * SHITCOIN NATIVE_LIQ_TOO_LOW=1,607 · EXPRESS NATIVE_LIQ_TOO_LOW=1,570 · MOONSHOT "Low liquidity $0" · net edge
  * lastCost=23.5% refusing 80 coins · first sight refused 76.
  *
- * [hydrate8037] fills a missing (<= 0) tick liquidity with the observed value before a decision reads it. It never
- * lowers or overrides a real tick value with an API number, and never invents depth: an unobserved coin stays 0 and
+ * [hydrate8037] fills a missing (<= 0) tick liquidity with the observed value before a decision reads it. The tick is
+ * the newest reading (polls and real intake observations replace it up or down, V5.0.8418); it never invents depth: an unobserved coin stays 0 and
  * its own gates (ZERO_LIQUIDITY, Field Manual "no priced liquidity") still decide it. V5.0.8038: a fresh read of the
  * pool's vaults on chain (OnChainDepth8038) replaces any API figure, up or down — the chain is the depth.
  */
@@ -92,7 +92,11 @@ object LiquidityTruth8037 {
         // follows from the cap by the curve's own invariant ([curveRealSolFromCap8048]), so it is derived, not invented.
         // 5.0.8162 fresh run: SHITCOIN NATIVE_LANE_LIQ_UNHYDRATED_DEFER=1,633 and EXPRESS 1,606 on curve coins whose
         // cap every scorer already used, and forward labels on the same coins costed at the 20% unknown-depth impact.
-        if (!(ts.lastLiquidityUsd > 0.0)) curveDepthFromCap8164(ts)?.let { write8343(ts, it); curveCapDerived8164.incrementAndGet() }
+        // V5.0.8418 §A_CAP_IS_NOT_A_POOL — superseded: the cap-derived curve depth is no longer written. It is the cap
+        // read back through an invariant (and a 1e9-supply assumption), not a reading of the curve, and safety / exit-floor
+        // decisions read this field. Unknown depth stays unknown (0) and the curve / pool read below is queued; the
+        // estimate is only counted, so the diag shows how often it would have stood in.
+        if (!(ts.lastLiquidityUsd > 0.0) && curveDepthFromCap8164(ts) != null) curveCapDerived8164.incrementAndGet()
         val v = ts.lastLiquidityUsd
         if (!(v > 0.0)) {
             stillUnknown.incrementAndGet()
@@ -154,6 +158,58 @@ object LiquidityTruth8037 {
     fun curveRealSolFromCap8048(capSol: Double): Double =
         if (capSol.isFinite() && capSol > 0.0) (kotlin.math.sqrt(capSol * 30.0 * 1.073) - 30.0).coerceAtLeast(0.0) else 0.0
 
+    // ── V5.0.8418 §A_CAP_IS_NOT_A_POOL / §NEWER_REPLACES_OLDER ──────────────────────────────────────────────────────────
+    //
+    // Intake producers that only know a cap (PumpPortal WS, launch heat, band entry, the pump.fun coin scan's fallback)
+    // derive a depth from it for their own admission rule. That figure is tagged here and never becomes the tick
+    // liquidity safety and exit floors read. A real intake observation replaces the tick up OR down (the old max-take
+    // kept the largest historical figure after the pool had drained), except while the chain itself holds the answer.
+
+    private val capDerivedAt8418 = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    private val capDerivedRefused8418 = AtomicLong(0)
+    private val intakeLowered8418 = AtomicLong(0)
+
+    /** Intake producers: [usd] was derived from a market cap for [mint]. Returns [usd] unchanged (call-site wrapper). */
+    fun capDerived8418(mint: String, usd: Double): Double {
+        val m = mint.trim()
+        if (m.isNotBlank() && usd.isFinite() && usd > 0.0) {
+            if (capDerivedAt8418.size > 4_000) capDerivedAt8418.clear()
+            capDerivedAt8418[m] = usd
+        }
+        return usd
+    }
+
+    /** True when [usd] is the cap-derived figure recorded for [mint]. */
+    fun isCapDerived8418(mint: String, usd: Double): Boolean {
+        val d = capDerivedAt8418[mint.trim()] ?: return false
+        return usd.isFinite() && kotlin.math.abs(d - usd) <= 1e-6 * maxOf(1.0, d)
+    }
+
+    /** Pure: an intake figure writes the tick when it is a positive real observation that differs (up or down). */
+    fun intakeWrites8418(tickUsd: Double, intakeUsd: Double, capDerived: Boolean, chainHeld: Boolean): Boolean =
+        intakeUsd.isFinite() && intakeUsd > 0.0 && !capDerived && !chainHeld && intakeUsd != tickUsd
+
+    /** The chain holds [ts]'s depth now: a fresh vault read of its pool or an active curve's fresh reserves. */
+    fun chainHeld8418(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val vault = try { OnChainDepth8038.freshRead8198(ts.mint, 90_000L, nowMs) != null } catch (_: Throwable) { false }
+        if (vault) return true
+        return try { CurveReserves7951.realSolIfActive8046(ts.mint, nowMs) != null } catch (_: Throwable) { false }
+    }
+
+    /** HydrationReeval8343.intakeLiquidity8345: counts an intake figure refused as cap-derived / a decline written. */
+    fun noteIntake8418(capDerived: Boolean, lowered: Boolean) {
+        if (capDerived) capDerivedRefused8418.incrementAndGet()
+        if (lowered) intakeLowered8418.incrementAndGet()
+    }
+
+    /** Pure: the liquidity a decision reads from a current and an earlier reading — the current one when known. */
+    fun latest8418(currentUsd: Double, earlierUsd: Double): Double = when {
+        currentUsd.isFinite() && currentUsd > 0.0 -> currentUsd
+        earlierUsd.isFinite() && earlierUsd > 0.0 -> earlierUsd
+        else -> 0.0
+    }
+
     fun statusLine(): String =
-        "curveReal=${curveRealApplied8046.get()} curveCap8164=${curveCapDerived8164.get()} capFromPrice8317=${capFromPrice8317.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} rule=chain vaults first (§8038), then tick liquidity 0 -> observed (token map, curve reserves); never lowered, never invented"
+        "curveReal=${curveRealApplied8046.get()} curveCapEstimateNotWritten8418=${curveCapDerived8164.get()} capFromPrice8317=${capFromPrice8317.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} " +
+            "intakeCapDerivedRefused8418=${capDerivedRefused8418.get()} intakeLowered8418=${intakeLowered8418.get()} rule=chain vaults / curve account first (§8038), then tick, then observed (token map, curve reserves); a newer real observation replaces an older one up or down; a cap is never a depth (§8418)"
 }

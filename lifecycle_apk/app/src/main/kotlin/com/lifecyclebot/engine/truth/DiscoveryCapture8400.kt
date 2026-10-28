@@ -117,7 +117,8 @@ object DiscoveryCapture8400 {
      * queued) — after the cap so the derivation has a cap to read. Lives here so the ART-pinned intake method only shrinks.
      */
     fun captureAtIntake8400(ts: TokenState, source: String, trustedMarketCapUsd: Double) {
-        if (trustedMarketCapUsd.isFinite() && trustedMarketCapUsd > ts.lastMcap) ts.lastMcap = trustedMarketCapUsd
+        // V5.0.8418 — superseded V5.9.769 max-take: the source's newer cap replaces the older one, up or down.
+        if (trustedMarketCapUsd.isFinite() && trustedMarketCapUsd > 0.0) ts.lastMcap = trustedMarketCapUsd
         try { captureMcap8400(ts, "INTAKE_$source") } catch (_: Throwable) {}
         if (!(ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0)) {
             val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { 0.0 }

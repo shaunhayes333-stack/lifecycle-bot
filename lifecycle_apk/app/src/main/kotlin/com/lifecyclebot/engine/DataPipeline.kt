@@ -552,8 +552,9 @@ object DataPipeline {
         }
     }
 
+    // V5.0.8418 — no holder rows is UNKNOWN (-1), never a clean 0% concentration.
     private fun calculateTopHolderPct(topHolders: JSONArray?): Double {
-        if (topHolders == null || topHolders.length() == 0) return 0.0
+        if (topHolders == null || topHolders.length() == 0) return -1.0
 
         var totalPct = 0.0
         val limit = min(topHolders.length(), 10)
@@ -567,7 +568,8 @@ object DataPipeline {
     }
 
     private fun calculateWhaleRatio(topHolders: JSONArray?): Double {
-        return (calculateTopHolderPct(topHolders) / 100.0).coerceIn(0.0, 1.0)
+        val pct = calculateTopHolderPct(topHolders)
+        return if (pct < 0.0) -1.0 else (pct / 100.0).coerceIn(0.0, 1.0)
     }
 
     private fun calculateGrade(

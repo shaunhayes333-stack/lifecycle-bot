@@ -1157,7 +1157,8 @@ class GoldenTapeRegressionTest {
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
         assertTrue(registry.contains("var initialLiquidityUsd"))
         assertTrue(registry.contains("var initialConfidence"))
-        assertTrue(registry.contains("if (initialLiquidityUsd > existing.initialLiquidityUsd)"))
+        // superseded by V5.0.8418 — max-take kept a drained pool's historical figure; the newest positive intake replaces it.
+        assertTrue(registry.contains("if (initialLiquidityUsd.isFinite() && initialLiquidityUsd > 0.0) existing.initialLiquidityUsd = initialLiquidityUsd"))
 
         val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(service.contains("initialLiquidityUsd = liquidityUsd"))
