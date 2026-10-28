@@ -11219,7 +11219,7 @@ class Executor(
         return ProtectiveThresholds6882(
             markPx = markPx,
             stopPx = if (System.currentTimeMillis() - pos.entryTime >= 45_000L && effStopPct.isFinite() && effStopPct > 0.0) pos.entryPrice * (1.0 - effStopPct / 100.0) else 0.0,
-            catastrophePx = pos.entryPrice * 0.75,
+            catastrophePx = pos.entryPrice * (1.0 - ExitThresholds8418.catastropheMag8418(ts) / 100.0),  // V5.0.8418 — 25%, never above a lifecycle floor
             tpPx = if (effTpPct > 0.0) pos.entryPrice * (1.0 + effTpPct / 100.0) else 0.0,
             trailPx = if (pos.highestPrice > pos.entryPrice) pos.highestPrice * 0.90 else 0.0,
             markAgeMs = ts.lastPriceUpdate.takeIf { it > 0L }
@@ -11679,7 +11679,7 @@ class Executor(
             entryPrice = pos.entryPrice,
             history = ts.history.toList(),
             exitScore = ts.exitScore,
-            stopLossPct = modeConf?.stopLossPct ?: cfg().stopLossPct,
+            stopLossPct = laneStop8418(ts, modeConf, "V8_EXIT"),  // V5.0.8418 — the lane's stop, global only when unknown
         )
         
         if (exitSignal.shouldExit) {
@@ -11774,7 +11774,7 @@ class Executor(
         val volatility = ts.volatility ?: 50.0
         
         val dynamicStopPctBase6949 = try {
-            val modeDefault = modeConf?.stopLossPct ?: cfg().stopLossPct
+            val modeDefault = laneStop8418(ts, modeConf, "DYNAMIC_STOP")  // V5.0.8418 — lane stop, not the global 10%
             com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
                 modeDefaultStop = modeDefault,
                 currentPnlPct = gainPct,
@@ -11784,11 +11784,11 @@ class Executor(
                 lane = pos.tradingMode, // V5.0.7385 — the lane's learned give-back band
             )
         } catch (_: Exception) {
-            val modeDefault = modeConf?.stopLossPct ?: cfg().stopLossPct
+            val modeDefault = laneStop8418(ts, modeConf, "DYNAMIC_STOP")
             try {
                 -com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeDefault)
             } catch (_: Exception) {
-                -(modeConf?.stopLossPct ?: cfg().stopLossPct)
+                -modeDefault
             }
         }
         // V5.0.6949 — apply the exit AI's TIGHTEN_STOP verdict (see the block at
@@ -12086,7 +12086,7 @@ class Executor(
             }
         }
 
-        val effectiveStopPct = modeConf?.stopLossPct ?: cfg().stopLossPct
+        val effectiveStopPct = laneStop8418(ts, modeConf, "BACKUP_STOP")  // V5.0.8418 — ExitThresholds8418: lane before global
         if (gainPct <= -effectiveStopPct) {
             onLog("🛑 BACKUP STOP: ${ts.symbol} at ${gainPct.toInt()}%", ts.mint)
             return "stop_loss"
@@ -18310,6 +18310,10 @@ class Executor(
      * Returns the raw threshold unchanged when brain is null (bootstrap and
      * unit tests), matching brainAdjustedLaneScore's contract exactly.
      */
+    /** V5.0.8418 — the ordinary stop a riskCheck door applies (ExitThresholds8418): the lane's, the mode / global only when unknown. */
+    private fun laneStop8418(ts: TokenState, modeConf: AutoModeEngine.ModeConfig?, door: String): Double =
+        ExitThresholds8418.ordinaryStopMag8418(ts, modeConf?.stopLossPct ?: cfg().stopLossPct, door)
+
     private fun brainAdjustedExitThreshold6954(rawThreshold: Double): Double {
         val b = brain ?: return rawThreshold
         return try {

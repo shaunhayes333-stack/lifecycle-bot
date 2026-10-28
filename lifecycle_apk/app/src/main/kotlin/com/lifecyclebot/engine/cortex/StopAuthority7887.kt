@@ -54,12 +54,18 @@ object StopAuthority7887 {
     }
 
     /** The position's ordinary stop as a positive magnitude (e.g. 12.0 = -12%). */
-    fun stopMagFor(ts: TokenState): Double {
+    fun stopMagFor(ts: TokenState): Double = stopFor8418(ts).value
+
+    /**
+     * V5.0.8418 — the position's ordinary stop and the authority that bound it (ExitThresholds8418): PLAN, LIFECYCLE,
+     * LEARNED_8040, LANE, STYLE, WINNER_DIP (each possibly +DOCTRINE / +RUNNER_FLOOR / +NOISE).
+     */
+    fun stopFor8418(ts: TokenState): com.lifecyclebot.engine.ExitThresholds8418.Binding8418 {
         val pos = ts.position
         // V5.0.8091 — the live lifecycle position and its forward label use the same floor.
         if (com.lifecyclebot.engine.LifecycleHold8065.holding8065(ts)) {
             sources.computeIfAbsent("LIFECYCLE_8091") { AtomicLong() }.incrementAndGet()
-            return com.lifecyclebot.engine.LifecycleHold8065.FLOOR_PCT
+            return com.lifecyclebot.engine.ExitThresholds8418.Binding8418(com.lifecyclebot.engine.LifecycleHold8065.FLOOR_PCT, "LIFECYCLE")
         }
         // V5.0.7930 — canonical lane (CortexExit keys on it; raw aliases missed LANE_BASE).
         val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(pos.tradingMode).uppercase() }
@@ -82,9 +88,22 @@ object StopAuthority7887 {
             com.lifecyclebot.engine.ExitProfile7955.learnedStopMag7962(com.lifecyclebot.engine.ExitProfile7955.keyProfileFor7962(ts), composed)
         } catch (_: Throwable) { null }
         if (learned != null) sources.computeIfAbsent("WINNER_DIP_7962") { AtomicLong(0) }.incrementAndGet()
+        // V5.0.8418 — the winner-dip stop (bounded 4..25) replaced the floored stop AFTER the floors ran, so it silently
+        // took a runner lane under its 15% invariant and a no-plan lane inside its Field Manual invalidation.
+        val chosen = if (learned != null) winnerDipFloored8418(learned, lane, plan == null, runner) else composed
+        val base8418 = if (plan != null) "PLAN" else if (learned8040 != null) "LEARNED_8040" else if (LANE_BASE.containsKey(lane)) "LANE" else "STYLE"
+        val src8418 = (if (learned != null) "WINNER_DIP" else base8418) + (if (chosen > (learned ?: composed0) + 1e-9) "+FLOOR" else "")
         // V5.0.8169 — and never inside the position's round trip + 2x its measured 1-minute range (ordinary noise).
-        val chosen = learned ?: composed
-        return try { com.lifecyclebot.engine.ExitDoctrine8169.noiseCostFloored8169(ts, lane, chosen) } catch (_: Throwable) { chosen }
+        val out = try { com.lifecyclebot.engine.ExitDoctrine8169.noiseCostFloored8169(ts, lane, chosen) } catch (_: Throwable) { chosen }
+        return com.lifecyclebot.engine.ExitThresholds8418.Binding8418(out, if (out > chosen + 1e-9) "$src8418+NOISE" else src8418)
+    }
+
+    /** V5.0.8418 — pure: a winner-dip stop [learnedMag] kept on the runner floor and (no plan) the lane doctrine. */
+    fun winnerDipFloored8418(learnedMag: Double, lane: String, noPlan: Boolean, runnerLane: Boolean): Double {
+        var m = learnedMag
+        if (runnerLane) m = m.coerceAtLeast(RUNNER_FLOOR_PCT)
+        if (noPlan) m = com.lifecyclebot.engine.ExitDoctrine8169.doctrineFloored8169(lane, m)
+        return m
     }
 
     /**
