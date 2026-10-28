@@ -757,6 +757,21 @@ object Cortex7885 {
     fun laneInverted7948(laneRaw: String): Boolean =
         try { ensureLoaded(); synchronized(this) { invertedCurrent8372(canon(laneRaw)) } } catch (_: Throwable) { false }
 
+    /**
+     * V5.0.8418 §AN_INVERTED_SEAT_DOES_NOT_VOTE — may this lane's Cortex ORDERING (its STRONG / NEUTRAL / REFUSE bucket) vote
+     * on a live entry? Only when the one walk-forward authority test (8366) grants the lane authority AND the lane is not
+     * measured inverted (STRONG below NEUTRAL or REFUSE, 7948 / 8372). 5.0.8416: TREASURY STRONG n150 -14.3% vs REFUSE n107
+     * +113.0% (INVERTED); CORE ic -0.12, SHITCOIN -0.14, CYCLIC -0.14, every lane auth 0. A failed read abstains (false).
+     */
+    fun orderingVotes8418(laneRaw: String): Boolean =
+        try {
+            ensureLoaded()
+            synchronized(this) {
+                val l = canon(laneRaw)
+                authorityFraction8366(l) > 0.0 && !invertedCurrent8372(l)
+            }
+        } catch (_: Throwable) { false }
+
     /** For CortexInvariants7911. */
     fun queuedTasks(): Int = try { pool.queue.size + capturePool8171.queue.size } catch (_: Throwable) { 0 }
     fun pendingCount(): Int = pending.size + pairedPending8401.size

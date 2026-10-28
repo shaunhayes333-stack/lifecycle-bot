@@ -260,14 +260,35 @@ object EvidenceHold8336 {
     }
 
     private fun oddsLeg8337(ts: TokenState, lane: String, nowMs: Long): String? {
-        val a = try { com.lifecyclebot.engine.cortex.Cortex7885.assess(ts, lane, nowMs) } catch (_: Throwable) { null }
-        if (a != null && a.fused.pRun8325.isFinite() && a.fused.runVoters8325 > 0) {
-            // The lane has a run-odds book: only its top bucket (STRONG = top fifth of the lane's own ordering) qualifies.
-            return if (a.bucket == com.lifecyclebot.engine.cortex.CortexScoreboard7885.Bucket.STRONG)
-                "${ODDS_CORTEX_STRONG_8337}_pRun${"%.2f".format(a.fused.pRun8325)}_voters${a.fused.runVoters8325}" else null
+        // V5.0.8418 — the Cortex ordering votes here only where its walk-forward authority is granted and the lane is not
+        // inverted (Cortex7885.orderingVotes8418). An unvalidated / inverted ordering abstains: it is never read (no STRONG
+        // requirement that selects the measured losers) and the provable early-run evidence decides, as for a lane with no book.
+        val votes = try { com.lifecyclebot.engine.cortex.Cortex7885.orderingVotes8418(lane) } catch (_: Throwable) { false }
+        val a = if (!votes) null else try { com.lifecyclebot.engine.cortex.Cortex7885.assess(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val runBook = a != null && a.fused.pRun8325.isFinite() && a.fused.runVoters8325 > 0
+        val strong = a != null && a.bucket == com.lifecyclebot.engine.cortex.CortexScoreboard7885.Bucket.STRONG
+        val leg = oddsLeg8418(runBook, strong, a?.fused?.pRun8325 ?: Double.NaN, a?.fused?.runVoters8325 ?: 0, votes) {
+            try { EntryEconomics8329.earlyRunner8329(ts, nowMs) } catch (_: Throwable) { false }
         }
-        val early = try { EntryEconomics8329.earlyRunner8329(ts, nowMs) } catch (_: Throwable) { false }
-        return if (early) ODDS_NO_BOOK_EARLY_RUN_8337 else null
+        if (!votes && leg != null) try { PipelineHealthCollector.labelInc("EVIDENCE_ODDS_CORTEX_ABSTAINED_8418_${canon(lane)}") } catch (_: Throwable) {}
+        return leg
+    }
+
+    /** V5.0.8418 — the odds leg's reason when the lane's Cortex ordering abstains and the early-run evidence carries it. */
+    const val ODDS_CORTEX_ABSTAINS_EARLY_RUN_8418 = "CORTEX_UNVALIDATED_ABSTAINS_EARLY_RUN_8418"
+
+    /**
+     * Pure (V5.0.8418): the exception door's odds leg (c). A validated ordering ([orderingVotes]) with a run-odds book decides by
+     * its top bucket alone (STRONG qualifies, anything else does not). Otherwise the Cortex does not vote and the coin's own
+     * early-run evidence ([earlyRun], read only then) carries the leg: [ODDS_NO_BOOK_EARLY_RUN_8337] when the lane has no book,
+     * [ODDS_CORTEX_ABSTAINS_EARLY_RUN_8418] when its ordering is unvalidated or inverted.
+     */
+    fun oddsLeg8418(runBook: Boolean, strong: Boolean, pRun: Double, voters: Int, orderingVotes: Boolean, earlyRun: () -> Boolean): String? {
+        if (orderingVotes && runBook) {
+            return if (strong) "${ODDS_CORTEX_STRONG_8337}_pRun${"%.2f".format(pRun)}_voters$voters" else null
+        }
+        if (!earlyRun()) return null
+        return if (orderingVotes) ODDS_NO_BOOK_EARLY_RUN_8337 else ODDS_CORTEX_ABSTAINS_EARLY_RUN_8418
     }
 
     /**
@@ -341,6 +362,19 @@ object EvidenceHold8336 {
         try { PipelineHealthCollector.labelInc(if (proof.viaGrab) "EVIDENCE_HOLD_EXCEPTION_8345_GRAB_${c.lane}" else "EVIDENCE_HOLD_EXCEPTION_8337_${c.lane}") } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EVIDENCE_EXCEPTION_SUBMITTED_8397",
             "mint=${c.mint.take(10)} lane=${c.lane} version=${c.version} attempt=$attemptId signature=${signature.take(16)} ${proof.reason}") } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.8418 — the hold basis a candidate carries when the hold let it through on its OWN exception (the 100x door) in an
+     * unproven held lane: FdgGate8365.BASIS_EXCEPTION_8418, else null. LiveEdgeGate7877.liveRefusal reads it after the hold.
+     */
+    fun exceptionBasis8418(mint: String, lane: String, holdPassed: Boolean, nowMs: Long = System.currentTimeMillis()): String? {
+        val live = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+        if (!live || !holdPassed || mint.isBlank()) return null
+        val l = canon(lane)
+        val proven = proofFor8336(l, nowMs).proven || shadowProven8344(l)
+        return FdgGate8365.exceptionBasisOf8418(live, enabled8336, heldLane8342(l), holdPassed, proven,
+            if (proven) null else admitted8337(mint, l, nowMs))
     }
 
     fun exceptionCount8337(): Long = exceptionBudget8397.counts().first

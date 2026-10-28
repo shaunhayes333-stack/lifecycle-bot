@@ -477,11 +477,13 @@ object LiveEdgeGate7877 {
         candidateAdmission: CandidateAdmission8136.Decision8136? = null,
     ): String? {
         val l = CanonicalLaneIdentity6506.desk8392(lane)
-        val basis = if (paper) null else try { FdgGate8365.holdBasis8365(l, nowMs) } catch (_: Throwable) { null }
+        val lanBasis = if (paper) null else try { FdgGate8365.holdBasis8365(l, nowMs) } catch (_: Throwable) { null }
         val hold = if (paper) null else try {
             (if (EvidenceHold8336.shadowProven8344(l)) null else EntryEconomics8329.laneRealisedRefusal8329(l, nowMs))
                 ?: EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)
         } catch (_: Throwable) { "EVIDENCE_HOLD_READ_FAILED_8392" }
+        // V5.0.8418 — a candidate the hold passed on its own exception (the 100x door) carries that door as its basis.
+        val basis = lanBasis ?: if (paper || hold != null) null else try { EvidenceHold8336.exceptionBasis8418(ts.mint, l, true, nowMs) } catch (_: Throwable) { null }
         // A held decision may rehearse evidence doors, but this captured hold remains the final live veto.
         val shadowOnly8393 = !paper && hold != null &&
             (hold.startsWith("EVIDENCE_HOLD_8336_") || hold.contains("LANE_REALISED_LOSING"))
@@ -519,6 +521,7 @@ object LiveEdgeGate7877 {
             provisional?.setup ?: candidateAdmission?.chosenSetup, nowMs)
         observeTail7996(ts, l, final, nowMs)
         FdgGate8365.noteFinal8365(final, l)
+        if (basis == FdgGate8365.BASIS_EXCEPTION_8418) FdgGate8365.noteException8418(final, l)   // V5.0.8418 — where the 100x door's candidates end
         FdgGate8365.memoPut8365(key, final, nowMs)
         if (!paper && hold?.startsWith("EVIDENCE_HOLD_8336_") == true)
             try { EvidenceShadow8344.noteHoldRefusal8345(l, core != null, FdgGate8365.hardSafety8392(core)) } catch (_: Throwable) { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_TELEMETRY_FAILED_8392") }
@@ -937,6 +940,14 @@ object LiveEdgeGate7877 {
             return null
         }
         if (developingRunGrab8117(ts, runupFromLowPct, nowMs) || spikeRuleRefusesRunners8097(ts, lane, nowMs)) return null
+        // V5.0.8418 — the grab lane's own admit (RunnerGrabLane8343: full safety, exit-safe venue, forming run, 1.5x at the
+        // grab size, the 8329 chase cap) is the 8117 developing run too: still early by the same bound, it is bought on the
+        // way up. 8416: 435 live grab-lane admits, 0 buys — a forming run is "up 80% off its low near its high" by definition.
+        val grabLane8418 = try { com.lifecyclebot.engine.RunnerGrabLane8343.admitted8343(ts.mint, lane, nowMs) } catch (_: Throwable) { false }
+        if (grabLaneEarly8418(grabLane8418, runupFromLowPct, ts.lastPriceChange5m)) {
+            try { PipelineHealthCollector.labelInc("CHASE_STOOD_DOWN_GRAB_LANE_EARLY_8418_$lane") } catch (_: Throwable) {}
+            return null
+        }
         val provenCell = cellOrKindProven8094(ts, lane, nowMs)
         if (provenCell && SelectionDoors8310.labelStandsDownChase8310(lane)) return null
         if (!provenCell && admittedJudged) {
@@ -967,6 +978,10 @@ object LiveEdgeGate7877 {
         if (ok) try { PipelineHealthCollector.labelInc("CHASE_STOOD_DOWN_DEVELOPING_RUN_8117") } catch (_: Throwable) {}
         return ok
     }
+
+    /** Pure (V5.0.8418): a grab-lane admit still inside the 8117 early-run bound (the chase rule stands down for it). */
+    internal fun grabLaneEarly8418(grabLaneAdmitted: Boolean, runupFromLowPct: Double, chg5mPct: Double): Boolean =
+        grabLaneAdmitted && earlyRun8117(runupFromLowPct, chg5mPct)
 
     private const val EARLY_RUNUP_MAX_PCT_8117 = 150.0
     private const val EARLY_CHG5M_MAX_PCT_8117 = 100.0
