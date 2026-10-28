@@ -107,6 +107,7 @@ object ExploreShadow8347 {
     ) {
         var lastPx = signalPx
         var lastPxAtMs = atMs
+        var restoredAtMs8418 = 0L   // V5.0.8418 — restore time (0 = opened in this process): the lost-mark clock restarts there
         // V5.0.8355 — persistence state: a leg's tier / peak / trough moved (coalesced write); a leg armed or closed (forced write)
         var dirty8355 = false
         var force8355 = false
@@ -291,6 +292,7 @@ object ExploreShadow8347 {
                 }
                 val t = ticketFromRec8355(r)
                 if (t == null) { drop += k; continue }
+                t.restoredAtMs8418 = nowMs
                 val added = synchronized(ticketReservation8372) {
                     if (tickets.containsKey(key)) return@synchronized false
                     if (!t.cortex8372.pending8372()) {
@@ -756,7 +758,8 @@ object ExploreShadow8347 {
                     val fresh: Double? = observation?.priceUsd
                     if (observation != null) { t.lastPx = observation.priceUsd; t.lastPxAtMs = observation.observedAtMs }
                     want8360(t.mint, nowMs)   // V5.0.8360 — keep the data side pricing an open ticket
-                    val lost = nowMs - t.lastPxAtMs >= LOST_MARK_MS_8347
+                    // superseded by V5.0.8418 — a restored ticket gets a full lost-mark window after the restart (ShadowPersist8355.lostMark8418)
+                    val lost = ShadowPersist8355.lostMark8418(t.lastPxAtMs, t.restoredAtMs8418, nowMs, LOST_MARK_MS_8347)
                     for (leg in t.legs) {
                         if (leg.dead) continue
                         if (!leg.active) { arm8347(t, leg, fresh, nowMs); continue }
@@ -1132,40 +1135,73 @@ object ExploreShadow8347 {
 
     private val reportMemo8398 = ThreadLocal<HashMap<String, List<Double>>?>()
 
-    private val choiceCache8351 = ConcurrentHashMap<String, Pair<Long, Choice8351?>>()
+    // superseded by V5.0.8418 — runtime 8416 choice8399[staleServed=35569 cached=24]: the cache was only time-stamped, so every
+    // read after 30 s was "stale" whether or not a close had landed, all 24 keys expired together, and each refresh walked the
+    // whole 22k-key book index per variant on one MIN_PRIORITY thread (cold SQLite reads), so refreshes never kept up and an
+    // arbitrarily old choice was served. A cached choice now carries the lane's book revision: unchanged rows = the same
+    // answer (served, no recompute); changed rows = stale, recomputed in the background and served only within the grace
+    // window, after which the lane has no adopted choice (the cold state) until the fresh one lands.
+    private class CachedChoice8418(val atMs: Long, val revision: Long, val choice: Choice8351?)
+    private val choiceCache8351 = ConcurrentHashMap<String, CachedChoice8418>()
     private const val CHOICE_CACHE_MS_8351 = 30_000L
 
-    /** The lane's best proven way to trade (a whole variant, or a setup / market-cap-band cohort of one), or null. Cached 30 s. */
+    enum class ChoiceFreshness8418 { FRESH, STALE_GRACE, STALE_EXPIRED, COLD }
+
+    /** Pure: is a cached choice current? Same book revision = FRESH at any age; otherwise stale, servable only inside [graceMs]. */
+    fun choiceFreshness8418(cachedRevision: Long?, cachedAtMs: Long?, laneRevision: Long, nowMs: Long,
+                            graceMs: Long = CHOICE_CACHE_MS_8351): ChoiceFreshness8418 {
+        if (cachedRevision == null || cachedAtMs == null) return ChoiceFreshness8418.COLD
+        if (cachedRevision == laneRevision) return ChoiceFreshness8418.FRESH
+        val age = nowMs - cachedAtMs
+        return if (age in 0L until graceMs) ChoiceFreshness8418.STALE_GRACE else ChoiceFreshness8418.STALE_EXPIRED
+    }
+
+    /** Pure: what a read serves for [f] — the cached choice when fresh or inside grace, else none (no adopted choice). */
+    fun <T> choiceServed8418(f: ChoiceFreshness8418, cached: T?): T? =
+        if (f == ChoiceFreshness8418.FRESH || f == ChoiceFreshness8418.STALE_GRACE) cached else null
+
+    /** The lane's best proven way to trade (a whole variant, or a setup / market-cap-band cohort of one), or null. */
     fun bestFor8351(lane: String, sinceMs: Long): Choice8351? {
         val l = canon(lane)
         val now = System.currentTimeMillis()
         val cacheKey8394 = "$l|$sinceMs|${LearningEpoch8164.epochMs8164()}|${ShadowPersist8355.TRADE_CONTRACT_8394}"
         val hit = choiceCache8351[cacheKey8394]
-        if (hit != null && now - hit.first in 0L until CHOICE_CACHE_MS_8351) return hit.second
-        // Cold and stale choices both refresh in the background. Until a cold proof exists, no exploration unlock.
-        if (hit == null) choiceColdMiss8399.incrementAndGet()
+        val laneRev = try { books.laneRevision8418(l) } catch (_: Throwable) { -1L }
+        val fresh = choiceFreshness8418(hit?.revision, hit?.atMs, laneRev, now)
+        if (fresh == ChoiceFreshness8418.FRESH) { choiceFresh8418.incrementAndGet(); return hit?.choice }
+        // Cold and stale choices refresh in the background (never a scan on the caller's thread).
+        if (fresh == ChoiceFreshness8418.COLD) choiceColdMiss8399.incrementAndGet()
         if (choiceRefreshing8399.add(cacheKey8394)) {
             try {
                 choiceExecutor8399.execute {
-                    try { choiceCache8351[cacheKey8394] = System.currentTimeMillis() to computeBest8351(l, sinceMs) }
+                    try {
+                        val rev = books.laneRevision8418(l)   // read BEFORE the scan: a close landing mid-scan leaves it stale
+                        choiceCache8351[cacheKey8394] = CachedChoice8418(System.currentTimeMillis(), rev, computeBest8351(l, sinceMs))
+                    }
                     catch (_: Throwable) {}
                     finally { choiceRefreshing8399.remove(cacheKey8394) }
                 }
             } catch (_: Throwable) { choiceRefreshing8399.remove(cacheKey8394) }
         }
-        choiceServedStale8399.incrementAndGet()
-        return hit?.second
+        if (fresh == ChoiceFreshness8418.STALE_GRACE) choiceServedStale8399.incrementAndGet()
+        if (fresh == ChoiceFreshness8418.STALE_EXPIRED) choiceStaleWithheld8418.incrementAndGet()
+        return choiceServed8418(fresh, hit?.choice)
     }
 
+    private val choiceFresh8418 = AtomicLong(0L)
+    private val choiceStaleWithheld8418 = AtomicLong(0L)
     private val choiceRefreshing8399 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val choiceServedStale8399 = AtomicLong(0L)
     private val choiceColdMiss8399 = AtomicLong(0L)
     private val choiceExecutor8399: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
         Thread(r, "shadow-choice-8399").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
     }
-    fun choiceStats8399(): String = "choice8399[staleServed=${choiceServedStale8399.get()} coldMiss=${choiceColdMiss8399.get()} refreshing=${choiceRefreshing8399.size} cached=${choiceCache8351.size}]"
+    fun choiceStats8399(): String = "choice8399[staleServed=${choiceServedStale8399.get()} coldMiss=${choiceColdMiss8399.get()} refreshing=${choiceRefreshing8399.size} cached=${choiceCache8351.size} " +
+        "fresh8418=${choiceFresh8418.get()} staleWithheld8418=${choiceStaleWithheld8418.get()}]"
 
     private fun computeBest8351(l: String, sinceMs: Long): Choice8351? {
+        // V5.0.8418 — the lane's cohort keys once (was the whole book index copied and walked once per variant)
+        val laneCohortKeys8418 = books.keys.filter { it.startsWith("C|$l|") }
         val out = ArrayList<Choice8351>()
         val rivals8364 = ArrayList<Choice8351>()   // V5.0.8364 — every PROVEN (starred) variant / setup cohort, for the M: margin rule
         for (e in Entry8347.values()) for (x in Exit8347.values()) {
@@ -1177,7 +1213,7 @@ object ExploreShadow8347 {
                 if (variantAdoptable8364(it)) out += c
             }
             val prefix = "C|$v|"
-            for (k in books.keys) {
+            for (k in laneCohortKeys8418) {
                 if (!k.startsWith(prefix)) continue
                 val tail = k.removePrefix(prefix)
                 val dim = tail.substringBefore(':'); val value = tail.substringAfter(':')

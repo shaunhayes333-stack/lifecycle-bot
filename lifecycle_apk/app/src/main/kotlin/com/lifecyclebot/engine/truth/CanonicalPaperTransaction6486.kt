@@ -757,7 +757,11 @@ object CanonicalPaperTransaction6486 {
     )
 
     fun partial(positionId: String, mint: String, symbol: String, fraction: Double,
-                currentPnlPct: Double, feeRate: Double, exitReason: String): PartialResult = lock.withLock {
+                currentPnlPct: Double, feeRate: Double, exitReason: String,
+                // V5.0.8418 — the trader's observed exit mark (its own quote units per unit). It never prices the
+                // proceeds (those stay basis-derived); it is recorded so the durable row and the journal carry the
+                // real exit mark instead of 0 (6660 repair rows) or SOL-per-contract in a USD field (6677 journal).
+                exitMarkUsd8418: Double = 0.0): PartialResult = lock.withLock {
         val eligibility6570 = CanonicalPositionAuthority6441.exitEligibility6570(positionId, mint, expectedMode = "paper")
         val pos = eligibility6570.position
             ?: return@withLock PartialResult(false, positionId, eligibility6570.reason)
@@ -777,6 +781,7 @@ object CanonicalPaperTransaction6486 {
             // token-quantity reconstruction that cannot exist here. This is the
             // cross-asset path — contract counts, not token balances.
             basisDerivedProceeds7066 = true,
+            markPriceUsd7029 = if (exitMarkUsd8418.isFinite() && exitMarkUsd8418 > 0.0) exitMarkUsd8418 else 0.0,
         )
         if (!receipt.applied) return@withLock PartialResult(false, positionId, receipt.reason,
             receipt.operationId, receipt.partialSequence, receipt.postCost, receipt.realizedPnl)

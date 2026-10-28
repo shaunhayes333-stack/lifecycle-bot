@@ -35,10 +35,12 @@ class Aate8347ExploreShadowTest {
         // the status line carries the accounting so a stale serve / cold miss is visible in the report.
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExploreShadow8347.kt").readText()
         val body = src.substringAfter("fun bestFor8351(lane: String, sinceMs: Long): Choice8351? {").substringBefore("private fun computeBest8351(")
-        assertTrue(body.contains("if (hit != null && now - hit.first in 0L until CHOICE_CACHE_MS_8351) return hit.second"))
+        // superseded by V5.0.8418 — freshness is the lane's book revision (choiceFreshness8418), not a bare 30 s stamp
+        assertTrue(body.contains("if (fresh == ChoiceFreshness8418.FRESH) { choiceFresh8418.incrementAndGet(); return hit?.choice }"))
         assertTrue(body.contains("if (choiceRefreshing8399.add(cacheKey8394))"))
         assertTrue(body.contains("choiceExecutor8399.execute {"))
-        assertTrue("a stale answer is served, never a scan", body.contains("choiceServedStale8399.incrementAndGet()\n        return hit?.second"))
+        // superseded by V5.0.8418 — a stale answer is served only inside the grace window, never a scan on the caller's thread
+        assertTrue("a stale answer is served, never a scan", body.contains("return choiceServed8418(fresh, hit?.choice)"))
         assertTrue(ExploreShadow8347.choiceStats8399().startsWith("choice8399[staleServed="))
         assertTrue(src.contains("opened=${'$'}{opened.get()} ${'$'}{choiceStats8399()} "))
     }
