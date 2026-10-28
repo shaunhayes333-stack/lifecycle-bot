@@ -14211,7 +14211,10 @@ class GoldenTapeRegressionTest {
         assertTrue(guard.contains("if (labelEpoch7737 > 0L && t.ts < labelEpoch7737) continue"))
         assertTrue(guard.contains("if (prior != null && st.pausedAt > prior.atMs && s.n60 < prior.n60AtRelease + LABEL_RELEASE_MIN_N60_7737) return null"))
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertTrue(lab.contains("com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(batch)"))
+        // V5.0.8405 — the batch still prices off-watch marks in one background fetch; rungs are now ordered by measured health
+        // (DexScreener over the whole batch, curve for pump mints, Jupiter last on the misses).
+        assertTrue(lab.contains("com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(missedJup8405)"))
+        assertTrue(lab.contains("for (chunk in batch.chunked(OFFWATCH_DEX_CHUNK_8405)) {"))
         assertTrue(lab.contains("if (dueAtHorizon7737(o, age)) dueUnpriced7737.add("))
         assertTrue(lab.contains("FreshLaunchSelector7737.observe(ts, admitted, px, cost.coerceIn(0.0, 60.0), nowMs)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())

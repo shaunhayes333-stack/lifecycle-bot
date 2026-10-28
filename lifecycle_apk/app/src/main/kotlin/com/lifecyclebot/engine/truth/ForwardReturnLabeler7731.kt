@@ -103,8 +103,15 @@ object ForwardReturnLabeler7731 {
     private const val ROW_SEP_7735 = '\u001E'
     private val restoredPending7735 = AtomicLong(0)
     /** V5.0.7737 — off-watchlist marks fetched for observations due at a horizon. */
-    private const val OFFWATCH_FETCH_GAP_MS_7737 = 20_000L
-    private const val OFFWATCH_BATCH_7737 = 50
+    // V5.0.8405 §PRICE_THE_OUTCOME_YOU_PROMISED — 5.0.8404 (547 s): observed=3369, booked15=544, booked60=426, lostMark=1197,
+    // offWatch deferred=2663 priced=305, horizonMissed=426; CortexAuthority8366 INCOMPLETE_OUTCOMES on every lane with
+    // matured=925 missing=823 (CORE), coverageRest=0.11. The off-watch mark path was 50 mints every 20 s (150/min) led by
+    // Jupiter (429-limited free tier, sr=63%), re-asking a missed mint only after 90 s — past the 1-minute horizon's grace —
+    // while ~370 observations/min matured. Capacity, not data: DexScreener (sr=100%, 30 per call) now leads for the whole
+    // batch, the curve read prices pump mints, Jupiter is the last rung; 90 mints every 10 s; a missed mint is re-asked at 30 s.
+    private const val OFFWATCH_FETCH_GAP_MS_7737 = 10_000L
+    private const val OFFWATCH_BATCH_7737 = 90
+    private const val OFFWATCH_DEX_CHUNK_8405 = 30
     private val offWatchMarks7737 = ConcurrentHashMap<String, Pair<Double, Long>>()
     private val offWatchInFlight7737 = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var offWatchLastFetchMs7737 = 0L
@@ -1660,7 +1667,7 @@ object ForwardReturnLabeler7731 {
      * asked for waits [OFFWATCH_RETRY_MS_7809] before it is asked again, so the
      * batch rotates through every due observation.
      */
-    private const val OFFWATCH_RETRY_MS_7809 = 90_000L
+    private const val OFFWATCH_RETRY_MS_7809 = 30_000L   // V5.0.8405 — inside the 1-minute horizon grace (was 90 s)
     private val offWatchAttemptAt7809 = ConcurrentHashMap<String, Long>()
     private val offWatchDeferred7809 = AtomicLong(0)
     private val horizonMissed7809 = AtomicLong(0)
@@ -1695,26 +1702,28 @@ object ForwardReturnLabeler7731 {
         try {
             Thread({
                 try {
-                    val got = HashMap(com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(batch))
-                    // V5.0.7753 — Jupiter's price API misses most young tokens
-                    // (5.0.7749 offWatch priced=1517 missed=7233); a pump.fun token
-                    // still on its curve is priced from the curve account itself.
+                    // V5.0.8405 — rungs by measured health: DexScreener first over the whole batch (30 per call), the curve
+                    // account for pump mints it did not list, Jupiter last (free tier 429s; it also misses most young tokens,
+                    // 5.0.7749 priced=1517 missed=7233). Every rung is a bounded batch call on this background thread.
+                    val got = HashMap<String, Double>()
+                    for (chunk in batch.chunked(OFFWATCH_DEX_CHUNK_8405)) {
+                        val dex8405 = try {
+                            com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(chunk).filter { it.value.isFinite() && it.value > 0.0 }
+                        } catch (_: Throwable) { emptyMap() }
+                        got.putAll(dex8405)
+                        if (dex8405.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_DEX_PRICED_8217", dex8405.size.toLong())
+                    }
                     val missed7753 = batch.filter { it !in got }
                     if (missed7753.isNotEmpty()) {
                         val curve7753 = try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(missed7753) } catch (_: Throwable) { emptyMap() }
                         got.putAll(curve7753)
                         offWatchCurvePriced7753.addAndGet(curve7753.size.toLong())
                     }
-                    // V5.0.8217 — a graduated (PumpSwap/Raydium/Meteora) young token is off the curve and usually missing from
-                    // Jupiter's price API: its horizon read was lost as GAP (8215: 191 lost-gap). DexScreener's batched pair
-                    // price is a real observed USD mark for that mint; bookable8180 still applies its basis rule downstream.
-                    val missed8217 = batch.filter { it !in got }.take(30)
-                    if (missed8217.isNotEmpty()) {
-                        val dex8217 = try {
-                            com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(missed8217).filter { it.value.isFinite() && it.value > 0.0 }
-                        } catch (_: Throwable) { emptyMap() }
-                        got.putAll(dex8217)
-                        if (dex8217.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_DEX_PRICED_8217", dex8217.size.toLong())
+                    val missedJup8405 = batch.filter { it !in got }.take(50)
+                    if (missedJup8405.isNotEmpty()) {
+                        val jup = try { com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(missedJup8405) } catch (_: Throwable) { emptyMap() }
+                        got.putAll(jup)
+                        if (jup.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_JUP_PRICED_8405", jup.size.toLong())
                     }
                     val at = System.currentTimeMillis()
                     for ((m, px) in got) offWatchMarks7737[m] = px to at

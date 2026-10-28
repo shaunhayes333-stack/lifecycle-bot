@@ -20,8 +20,11 @@ class Aate8217CrossLaneAndNativeTest {
         assertTrue(a.contains("nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,"))
         assertTrue(a.contains("SpecialistCandidateBooks7803.State.READY"))
         val f = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        val curve = f.indexOf("offWatchCurvePriced7753.addAndGet"); val dex = f.indexOf("DexscreenerApi().batchPriceFetch(missed8217)")
-        assertTrue(curve in 1 until dex)
-        assertTrue("dex read lands before marks are stored", dex < f.indexOf("for ((m, px) in got) offWatchMarks7737[m] = px to at"))
+        // V5.0.8405 — DexScreener (sr=100%) now leads the off-watch batch over every chunk; the curve prices the pump mints it
+        // missed; Jupiter (429-limited) is last. The 8217 invariant (a DexScreener read lands before marks are stored) holds.
+        val body = f.substringAfter("private fun fetchOffWatchMarks7737(")
+        val dex = body.indexOf("DexscreenerApi().batchPriceFetch(chunk)"); val curve = body.indexOf("offWatchCurvePriced7753.addAndGet")
+        assertTrue(dex in 1 until curve)
+        assertTrue("dex read lands before marks are stored", dex < body.indexOf("for ((m, px) in got) offWatchMarks7737[m] = px to at"))
     }
 }

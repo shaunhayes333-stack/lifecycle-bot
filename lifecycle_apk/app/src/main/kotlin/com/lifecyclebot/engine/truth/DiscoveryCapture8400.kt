@@ -40,6 +40,16 @@ object DiscoveryCapture8400 {
     private val resolved = AtomicLong(0)
     private val queued = AtomicLong(0)
     private val unresolved = AtomicLong(0)
+    private val byHow = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private val missingBySource = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private val liqHydrated = AtomicLong(0)
+    private val liqMissingBySource = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private fun bump(m: java.util.concurrent.ConcurrentHashMap<String, AtomicLong>, k: String) {
+        if (m.size > 64 && !m.containsKey(k)) return
+        m.computeIfAbsent(k) { AtomicLong(0) }.incrementAndGet()
+    }
+    private fun top(m: Map<String, AtomicLong>, n: Int = 6): String =
+        m.entries.sortedByDescending { it.value.get() }.take(n).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
 
     /** Pure: an active curve's cap in SOL from the real SOL buyers put in, or NaN. */
     fun curveCapSolFromRealSol8400(realSol: Double): Double =
@@ -90,6 +100,8 @@ object DiscoveryCapture8400 {
             UNRESOLVED -> unresolved.incrementAndGet()
             else -> resolved.incrementAndGet()
         }
+        bump(byHow, how)
+        if (how == UNRESOLVED || how == CHAIN_READ_QUEUED) bump(missingBySource, where.take(40))
         try {
             PipelineHealthCollector.labelInc("DISCOVERY_MCAP_${how}_8400")
             if (how == UNRESOLVED || how == CHAIN_READ_QUEUED) PipelineHealthCollector.labelInc("DISCOVERY_MCAP_MISSING_8400_${where.take(40)}")
@@ -108,8 +120,11 @@ object DiscoveryCapture8400 {
         if (!(ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0)) {
             val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { 0.0 }
             try { PipelineHealthCollector.labelInc(if (liq > 0.0) "DISCOVERY_LIQ_HYDRATED_8400" else "DISCOVERY_LIQ_MISSING_8400_${source.take(40)}") } catch (_: Throwable) {}
+            if (liq > 0.0) liqHydrated.incrementAndGet() else bump(liqMissingBySource, source.take(40))
         }
     }
 
-    fun statusLine(): String = "discoveryMcap8400 resolved=${resolved.get()} chainQueued=${queued.get()} unresolved=${unresolved.get()}"
+    fun statusLine(): String =
+        "discoveryMcap8400 resolved=${resolved.get()} chainQueued=${queued.get()} unresolved=${unresolved.get()} by{${top(byHow)}} " +
+            "uncappedBySource{${top(missingBySource)}} liq[hydrated=${liqHydrated.get()} missingBySource{${top(liqMissingBySource)}}]"
 }
