@@ -52,6 +52,10 @@ object TokenBirthHydrator7441 {
         val m = mint.trim()
         if (m.length !in 32..44) return
         val now = System.currentTimeMillis()
+        if (establishedWitness8417(m, now)) {
+            try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_WALK_ALREADY_ESTABLISHED_8417") } catch (_: Throwable) {}
+            return
+        }
         if (progress.size > PROGRESS_SOFT_CAP_7502 || cooldownUntil.size > PROGRESS_SOFT_CAP_7502) {
             val cutoff7502 = now - DORMANT_PROGRESS_TTL_MS_7502
             val dormant7502 = progress.entries
@@ -140,6 +144,10 @@ object TokenBirthHydrator7441 {
     // publishes its lower bound (AdmissionBirth8144.noteHistoryFloor8144), and paging stops once the token is proven
     // older than the widest launch window — its exact birth no longer changes any lane's decision.
     private const val ESTABLISHED_PROOF_MS_8144 = 6L * 60L * 60_000L
+    internal fun establishedWitness8417(mint: String, nowMs: Long): Boolean {
+        val existedAt = AdmissionBirth8144.existenceFloorMs8417(mint) ?: return false
+        return nowMs - existedAt >= ESTABLISHED_PROOF_MS_8144
+    }
     private const val PUMP_RECORD_RETRY_MS_8144 = 10L * 60_000L
     private val pumpRecordAskedAt8144 = ConcurrentHashMap<String, Long>()
 
@@ -226,6 +234,9 @@ object TokenBirthHydrator7441 {
     fun walkNeeded8346(directWitnessMs: Long?): Boolean = directWitnessMs == null
 
     private fun hydrate(mint: String) {
+        // A pool answer may arrive after this walk queued. The same six-hour lower bound already terminates
+        // signature paging below; use the evidence we have before spending any provider request.
+        if (establishedWitness8417(mint, System.currentTimeMillis())) return
         // V5.0.8346 — 8344: launched 109 / resolved 4. A birth answered by a frame, a launch note or a pair while this walk
         // waited in the queue still cost its pages; now the walk ends here and the witness is the answer.
         val known8346 = try { LaunchBirth8169.launchBirth8169(mint, System.currentTimeMillis())?.birthMs } catch (_: Throwable) { null }

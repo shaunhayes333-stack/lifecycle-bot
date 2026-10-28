@@ -110,6 +110,17 @@ object SpecialistBrainBridge7542 {
                     ?: maxOf(it.score, it.confidence).toDouble()
             }.thenBy { it.lane })
 
+    /** Warm-cache hits do not spend the two-job budget. Otherwise the same leading two brains are warmed on
+     * every pass while qualified lower-ranked lanes never receive a decision-time Cortex assessment. */
+    internal fun warmNativeLanes8417(qualified: List<Opinion>, request: (Opinion) -> Boolean): Int {
+        var queued = 0
+        for (opinion in qualified) {
+            if (request(opinion)) queued++
+            if (queued >= 2) break
+        }
+        return queued
+    }
+
     private val primedAt8196 = ConcurrentHashMap<String, Long>()
     private const val PRIME_GAP_MS_8196 = 15_000L
     private fun primeDecisionData8196(ts: TokenState, snap: Snapshot) {
@@ -119,9 +130,9 @@ object SpecialistBrainBridge7542 {
         primedAt8196[ts.mint] = nowMs
         if (primedAt8196.size > 2048) primedAt8196.entries.removeIf { nowMs - it.value > PRIME_GAP_MS_8196 * 4L }
         val qualified = nativeEvidenceLanes8197(snap)
-        // Warm the two most promising Cortex decisions without swamping its pool.
-        qualified.take(2).forEach { o ->
-            try { com.lifecyclebot.engine.cortex.Cortex7885.prewarmNative8196(ts, o.lane) } catch (_: Throwable) {}
+        // At most two NEW jobs; cached or already queued leaders leave room for the next qualified brain.
+        warmNativeLanes8417(qualified) { o ->
+            try { com.lifecyclebot.engine.cortex.Cortex7885.prewarmNative8196(ts, o.lane) } catch (_: Throwable) { false }
         }
         // All natively qualified specialists, not just those two, require their
         // own missing setup features. Coalesce by mint + feature before asking

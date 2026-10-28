@@ -62,12 +62,15 @@ object LaneBrainVotes8366 {
     /** Stamp [votes] of [mint] read at [atMs] (empty reads stamp nothing). */
     fun stamp8366(mint: String, votes: List<CortexLedger7885.Vote>, atMs: Long) {
         if (mint.isBlank() || votes.isEmpty() || atMs <= 0L) return
-        if (byMint.size >= MAX_MINTS_8366) {
+        if (byMint.size >= MAX_MINTS_8366 && !byMint.containsKey(mint)) {
             val ttl = ttlNow8366()
             byMint.entries.removeIf { atMs - it.value.atMs > ttl }
             if (byMint.size >= MAX_MINTS_8366) return
         }
-        byMint[mint] = Stamped(votes, atMs)
+        // Prewarm and capture run concurrently. A delayed older observation cannot erase the newer brain read.
+        byMint.compute(mint) { _, prior ->
+            if (prior != null && prior.atMs >= atMs) prior else Stamped(votes.toList(), atMs)
+        }
     }
 
     /**

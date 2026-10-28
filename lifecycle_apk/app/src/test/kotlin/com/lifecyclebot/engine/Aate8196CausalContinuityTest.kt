@@ -117,7 +117,7 @@ class Aate8196CausalContinuityTest {
         // 8197 widened upstream data recovery from top-two Cortex candidates
         // to every qualified specialist, with one feature-coalesced refresh.
         assertTrue(native.contains("val qualified = nativeEvidenceLanes8197(snap)"))
-        assertTrue(native.contains("qualified.take(2).forEach { o ->"))
+        assertTrue(native.contains("warmNativeLanes8417(qualified) { o ->"))
         assertTrue(native.contains("qualified.forEach { o ->"))
         assertTrue(native.contains("LanePlaybook7907.requestEvidence8153(ts, missingByFeature.values.toList(), nowMs)"))
         assertTrue(cortex.contains("fun prewarmNative8196(ts: TokenState, lane: String)"))

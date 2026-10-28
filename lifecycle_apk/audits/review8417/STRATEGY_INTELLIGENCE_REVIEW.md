@@ -13,6 +13,13 @@ Baseline: 8416 / 4af85d027. This accompanies WORKING_REVIEW.md; it does not repl
 
 Outstanding discovery/brain checks: scanner completeness by provider and launch venue; birth hydration queue latency relative to the sniper window; immutable lane-voter capture; readiness and freshness for every feature family; native strategy-to-size/hold/exit continuity; and canonical outcome changing the next real decision. An ALIVE counter or a list of function callers is not acceptance of any of these.
 
+Further confirmed connections repaired:
+
+- Jupiter's `firstPool.createdAt` reached `PoolCreationTime7385`, but admission read only its separate pool-floor map. An old known pool therefore did not remove a birthless token from Project Sniper's launch scope. Admission now reads both existing stores as **minimum age only**, never verified mint birth. The birth hydrator uses the same existing six-hour established-age stopping rule before queueing and again before network work. A recent pool still requires a real birth witness. The production Jupiter parser -> witness -> sniper-scope regression verifies both cases.
+- Native Cortex warmup always selected the same leading two qualified lanes, including already cached assessments. Cache hits consumed the warmup opportunity while lower-ranked brains remained cold. The two-new-job budget now proceeds past cached/in-flight leaders. Scheduling claims are atomic, and an old job cannot release a newer job's claim. A twelve-lane regression checks eventual coverage within the unchanged budget and exclusion of an ineligible lane.
+- The native-vote stamp cache allowed a late older result to replace a newer read, and stopped updating existing mints when full. It now keeps monotonic observation times, copies the vote list, and continues refreshing existing entries at capacity. Existing expiry bounds remain.
+- Main revision `ea9f1f0` passed Runtime Smoke Test run 40699231095. Its release build ran 1468 required tests with only the obsolete mint-key source guard failing (corrected in `bd9865a`). This confirms those tested revisions only; later changes require their own CI and runtime results.
+
 ## Confirmed breaks under repair
 
 1. **Prediction-to-position race:** Cortex7885.retryDeferredBinds8187 returned when no confirmed position awaited a prediction. An asynchronous prediction arriving between intent sealing and chain confirmation could therefore leave that intent PENDING indefinitely. The callback now fills the existing intent seal before checking position waiters. A production-callback regression checks original prediction retention and rejects replacement by later reassessment.

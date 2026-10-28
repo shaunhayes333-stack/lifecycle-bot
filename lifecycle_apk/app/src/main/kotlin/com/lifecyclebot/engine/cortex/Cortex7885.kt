@@ -762,17 +762,18 @@ object Cortex7885 {
     fun pendingCount(): Int = pending.size + pairedPending8401.size
 
     /** The fresh cached assessment, or null after scheduling one (never computes inline). */
-    private fun cachedOrSchedule(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Assessment? {
+    private fun cachedOrSchedule(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(),
+                                 onScheduled8417: (() -> Unit)? = null): Assessment? {
         if (ts.mint.isBlank() || laneRaw.isBlank()) return null
         val key = "${ts.mint}|${canon(laneRaw)}"
-        assessCache[key]?.let { if (nowMs - it.atMs <= ASSESS_TTL_MS) return it }
+        assessCache[key]?.let { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
         // A job the full queue dropped never reaches its finally: a key may be
         // rescheduled after 30 s, so a dropped assessment cannot block a mint forever.
-        val prev = scheduled[key]
-        if (prev == null || nowMs - prev > 30_000L) {
-            scheduled[key] = nowMs
+        val prev = scheduled.putIfAbsent(key, nowMs)
+        if (prev == null || (nowMs - prev > 30_000L && scheduled.replace(key, prev, nowMs))) {
+            onScheduled8417?.invoke()
             CortexVoters7885.stampLaneBrains8366(ts, nowMs)  // V5.0.8366 — the queued assessment keeps the brains' votes
-            submit("ASSESS") { try { assess(ts, laneRaw) } finally { scheduled.remove(key) } }
+            submit("ASSESS") { try { assess(ts, laneRaw) } finally { scheduled.remove(key, nowMs) } }
         } else inc("ASYNC_ALREADY_SCHEDULED")
         if (scheduled.size > 4_000) scheduled.entries.removeIf { nowMs - it.value > 30_000L }
         return null
@@ -784,13 +785,16 @@ object Cortex7885 {
      * capture can reuse a warm prediction rather than opening an already-late
      * cold voter read. Strictly bounded by cachedOrSchedule's existing pool.
      */
-    fun prewarmNative8196(ts: TokenState, lane: String) {
+    fun prewarmNative8196(ts: TokenState, lane: String): Boolean {
         try {
             if (ts.mint.isNotBlank() && lane.isNotBlank()) {
-                val cached = cachedOrSchedule(ts, lane)
-                inc(if (cached == null) "PREWARM_QUEUED_8196" else "PREWARM_CACHE_HIT_8196")
+                var queued = false
+                val cached = cachedOrSchedule(ts, lane, onScheduled8417 = { queued = true })
+                inc(if (queued) "PREWARM_QUEUED_8196" else if (cached != null) "PREWARM_CACHE_HIT_8196" else "PREWARM_ALREADY_QUEUED_8417")
+                return queued
             }
         } catch (_: Throwable) { inc("PREWARM_FAILED_8196") }
+        return false
     }
 
     /** Setup/freezing happens before queue handoff and can fail too; no unfinished owner may be stranded there. */

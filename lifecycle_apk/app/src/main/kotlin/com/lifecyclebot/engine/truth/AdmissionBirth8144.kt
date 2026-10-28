@@ -185,6 +185,17 @@ object AdmissionBirth8144 {
     internal fun curvePairMs8169(mint: String): Long? = curvePairs8169[mint.trim()]
     internal fun oldestSignatureMs8169(mint: String): Long? = oldestSigs[mint.trim()]
 
+    /** All existing pool producers, including Jupiter's firstPool, already write PoolCreationTime7385. A pool
+     * proves the token existed then, not that its mint was created then. Keep that lower bound across handoffs. */
+    internal fun poolFloorMs8417(mint: String): Long? = listOfNotNull(
+        poolFloors8169[mint.trim()], PoolCreationTime7385.createdAtMs(mint.trim()),
+    ).filter { plausible8144(it, System.currentTimeMillis()) }.minOrNull()
+
+    /** Cheap lower bound for birth-walk scheduling; it never manufactures a verified creation time. */
+    internal fun existenceFloorMs8417(mint: String): Long? = listOfNotNull(
+        poolFloorMs8417(mint), historyFloors[mint.trim()], observedFloors8394[mint.trim()],
+    ).minOrNull()
+
     /** CanonicalTokenBirthTime7440: the pump create event witnessed here (create frame or pump.fun coin record), or null. */
     fun pumpCreateMs8144(mint: String): Long? {
         val m = mint.trim()
@@ -201,7 +212,7 @@ object AdmissionBirth8144 {
             historyFloorMs = historyFloors[m] ?: 0L,
             firstSeenMs = listOf(ts.addedToWatchlistAt, observedFloors8394[m] ?: 0L).filter { it > 0L }.minOrNull() ?: 0L,
             pairCreatedMs = curvePairs8169[m] ?: 0L,   // V5.0.8169 — a pump mint's own bonding-curve pair (direct)
-            poolFloorMs = poolFloors8169[m] ?: 0L,      // V5.0.8169 — any other pool (lower bound)
+            poolFloorMs = poolFloorMs8417(m) ?: 0L,     // every pool producer, always a lower bound
             chainMintInitMs = chainMintInits8179[m] ?: 0L,   // V5.0.8179 — mint initialised on chain (direct)
         )
     }
