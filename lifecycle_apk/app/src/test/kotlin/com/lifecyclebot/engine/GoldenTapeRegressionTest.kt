@@ -15539,7 +15539,8 @@ class GoldenTapeRegressionTest {
         assertTrue(shadow.contains("leg.tiers = maxOf(leg.tiers, leg.sellTier8394)"))
         assertTrue(src("truth/EvidenceShadow8344").contains("ShadowMark8360.observedTimed8372"))
         // superseded by V5.0.8395: the grade record carries R1/R3 disposition, receipt and provenance fields (rows 24..46, older rows still load).
-        assertTrue(src("cortex/CortexGradeBook8144").contains("f.size !in 24..46"))
+        // superseded by V5.0.8418 — the record adds its revision count (field 46); rows 24..46 still load.
+        assertTrue(src("cortex/CortexGradeBook8144").contains("f.size !in 24..47"))
         assertTrue(src("cortex/Cortex7885").contains("shadowMaturity8394"))
         assertTrue(src("truth/EvidenceHold8336").contains("it.entryTsMs >= epoch8394"))
     }

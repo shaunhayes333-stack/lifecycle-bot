@@ -30,7 +30,7 @@ Paths below are relative to `app/src/main/kotlin/com/lifecyclebot/engine/`.
 
 ## Findings
 
-1. `ScannerSourceBrain.shouldSkipIntake` (`ScannerSourceBrain.kt:118`) receives data but influences no decision: it has no caller.
-2. `CortexGradeRecord8144.revisions8272` is not in the grade-book encoding (`cortex/CortexGradeBook8144.kt` decode, lines 708-750), so the count restarts at 0 after every restart. Nothing reads it (diagnostic only), so no decision changes. Not fixed.
+1. `ScannerSourceBrain.shouldSkipIntake` (`ScannerSourceBrain.kt:118`) receives data but influences no decision: it has no caller. Left unwired by design: V5.0.4598 reverted the V5.0.4597 intake blackout on the operator directive "we aren't meant to choke or reduce things as a bandwidth" (`GlobalTradeRegistry.kt` comment); toxic sources are shaped by `intakeMultiplier` instead.
+2. `CortexGradeRecord8144.revisions8272` is not in the grade-book encoding (`cortex/CortexGradeBook8144.kt` decode, lines 708-750), so the count restarted at 0 after every restart. Nothing reads it (diagnostic only), so no decision changes. Fixed in int-8418-leftovers: the count is field 46 of the encoding (`Aate8418GradeRevisionsPersistTest`).
 3. `FieldManual7715.mandateFor("CYCLIC")` (`truth/FieldManual7715.kt:257-279`) has no CYCLIC branch, so CYCLIC falls through to the GENERIC mandate (BASE_BREAKOUT, +20 % expected gross / 10 % invalidation). This matters for item 14 (CYCLIC's strategy / holding contract), which another agent owns. The tests here do not pin it.
 4. Test seam: `LearningPersistence.saveTogetherVerified8386` dereferenced `Looper.getMainLooper()` without a null check. That call cannot return null on a device. In a JVM test it does return null, and the NPE made the Cortex periodic snapshot silently write nothing. It is now `?.thread`, matching `Commit8090` in the same file. Production behaviour is unchanged.

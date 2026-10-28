@@ -710,6 +710,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         r.scoreVersion8372.toString(), clean(r.outcomeSource8372), r.firstAvailableAtMs8372.toString(),
         clean(r.outcomeKind8394), r.outcomeDueAtMs8394.toString(),
         clean(r.firstOutcomeProof8395), clean(r.revisedOutcomeProof8395), clean(r.modelContribution8395), clean(r.disposition8395),
+        // V5.0.8418 — how many later-horizon revisions the record took survives a restart (it restarted at 0).
+        r.revisions8272.toString(),
     ).joinToString(FS.toString())
 
     internal fun detached8386(): CortexGradeBook8144 = CortexGradeBook8144(maxDecisions, maxTrades).also { out ->
@@ -730,7 +732,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             // V5.0.8187 — 26 fields (late voter read); a 25-field row reads as on time.
             // V5.0.8322 — 29 fields (revised executable, its availability, flat mark); 24..26-field rows read as before.
             // V5.0.8324 — 32 fields (objective gross first / revised, tail EV); 24..29-field rows read as before.
-            if (f.size !in 24..46 || f[0].length != 1 || f[1].isBlank()) continue
+            // V5.0.8418 — 47 fields (revision count); 24..46-field rows read with the count unknown-as-0 they always had.
+            if (f.size !in 24..47 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
@@ -752,6 +755,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             r.outcomeDueAtMs8394 = f.getOrNull(41)?.toLongOrNull() ?: 0L
             r.firstOutcomeProof8395 = f.getOrNull(42).orEmpty(); r.revisedOutcomeProof8395 = f.getOrNull(43).orEmpty()
             r.modelContribution8395 = f.getOrNull(44).orEmpty(); r.disposition8395 = f.getOrNull(45) ?: "LEGACY"
+            r.revisions8272 = f.getOrNull(46)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
             if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
             // V5.0.8388 — historical rows whose unwitnessed executable value is physically implausible (8385 SHITCOIN strong
             // cohort mean +3.3e10 %) are read as observed-only: they stay in the book, never in a graded cohort or authority.
