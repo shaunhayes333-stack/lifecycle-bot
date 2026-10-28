@@ -650,18 +650,26 @@ Default to a natural, normal LLM-style reply with emotional range.
                 } catch (_: Throwable) {}
             }
 
+            // V5.0.8418 — a keyed provider here draws on the SAME budget as its council member (one Groq key is one
+            // 30 rpm, whoever asks). A provider with no capacity left is skipped, not asked into a known 429; an
+            // operator's typed turn still goes out (7119) without taking a slot.
+            val pool8418 = com.lifecyclebot.network.LlmCapacityPool8418.copilotBucket8418(provider.name)
+            val pooled8418 = pool8418 != null && com.lifecyclebot.network.LlmCapacityPool8418.tryAcquire8418(pool8418, System.currentTimeMillis())
+            if (pool8418 != null && !pooled8418 && !operatorTurn7119) { failures.add(provider.name + ":no-capacity"); continue }
             try {
-                val text = when (provider.kind) {
-                    ProviderKind.GEMINI_DIRECT ->
-                        callGeminiDirect(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
-                    ProviderKind.OPENAI_COMPAT ->
-                        callOpenAiCompat(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
-                    ProviderKind.KEYLESS_FALLBACK ->
-                        com.lifecyclebot.network.KeylessLlmClient.runChat(
-                            system = systemPrompt,
-                            user = userPrompt,
-                            maxTokens = maxTokens,
-                        )
+                val text = com.lifecyclebot.network.LlmCapacityPool8418.pooled8418(if (pooled8418) pool8418 else null) {
+                    when (provider.kind) {
+                        ProviderKind.GEMINI_DIRECT ->
+                            callGeminiDirect(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
+                        ProviderKind.OPENAI_COMPAT ->
+                            callOpenAiCompat(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
+                        ProviderKind.KEYLESS_FALLBACK ->
+                            com.lifecyclebot.network.KeylessLlmClient.runChat(
+                                system = systemPrompt,
+                                user = userPrompt,
+                                maxTokens = maxTokens,
+                            )
+                    }
                 }
 
                 if (!text.isNullOrBlank()) {

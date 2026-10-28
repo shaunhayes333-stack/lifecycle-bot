@@ -26,6 +26,9 @@ data class SentimentResult(
     val divergenceSignal: Boolean = false,
     val summary: String = "",
     val updatedAt: Long = 0L,
+    // V5.0.8418 — market headline mood from the keyless RSS pool (NewsHeadlinePool8418). ADVISORY ONLY: never feeds
+    // `blocked`, the score, or any gate. "UNKNOWN" when nothing was read.
+    val newsMood8418: String = "UNKNOWN",
 ) {
     /** How stale this data is in minutes */
     val ageMins: Double get() = (System.currentTimeMillis() - updatedAt) / 60_000.0

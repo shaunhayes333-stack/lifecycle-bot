@@ -640,6 +640,15 @@ object KeylessLlmClient {
         var errored = 0
         // V5.0.7030 — which member the forced attempt ended up asking.
         var forcedName7030 = ""
+        // V5.0.8418 — the same prompt inside the cache TTL is answered without spending any provider's budget.
+        val cacheKey8418 = LlmResponseCache8418.key8418(system, user, maxTokens)
+        val cached8418 = LlmResponseCache8418.get8418(cacheKey8418, now)
+        if (cached8418 != null) {
+            lastCouncilDiagnostic7016 = ""
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_POOL_CACHE_HIT_8418") } catch (_: Throwable) {}
+            return cached8418
+        }
+        var noCapacity8418 = 0
 
         // ─────────────────────────────────────────────────────────────────
         // V5.0.7151 §THE COUNCIL IS A RING, NOT A QUEUE.
@@ -686,71 +695,17 @@ object KeylessLlmClient {
         }
 
         if (eligible7151.isNotEmpty()) {
-            val ecs = java.util.concurrent.ExecutorCompletionService<Pair<String, Any?>>(councilPool7151)
-            val futures = ArrayList<java.util.concurrent.Future<Pair<String, Any?>>>(eligible7151.size)
-            for (p in eligible7151) {
-                futures.add(
-                    // V5.0.7153 — Callable is explicit. Kotlin refuses an
-                    // explicit type argument on the Java submit(Callable<V>)
-                    // overload, and a bare lambda is ambiguous against
-                    // submit(Runnable), which would discard the result.
-                    ecs.submit(
-                        java.util.concurrent.Callable<Pair<String, Any?>> {
-                            try { p.name to withHostSlot7164(p.name) { p.call(system, user, maxTokens) } }
-                            catch (t: Throwable) { p.name to t }
-                        },
-                    ),
-                )
-            }
-            asked += eligible7151.size
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_COUNCIL_PARALLEL_RING_7151")
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
-                    "LLM_COUNCIL_PARALLEL_RING_7151_N${eligible7151.size}",
-                )
-            } catch (_: Throwable) {}
-            val deadline7151 = System.currentTimeMillis() + COUNCIL_WALL_MS_7151
-            var winner7151: String? = null
-            try {
-                var settled = 0
-                while (settled < futures.size && winner7151 == null) {
-                    val remaining = deadline7151 - System.currentTimeMillis()
-                    if (remaining <= 0L) break
-                    val done = ecs.poll(remaining, java.util.concurrent.TimeUnit.MILLISECONDS) ?: break
-                    settled++
-                    val (pname, outcome) = try { done.get() } catch (t: Throwable) { "?" to t }
-                    when {
-                        outcome is OwnBackoffRefusal -> {
-                            // Never asked — our own circuit short-circuited it.
-                            // No cooldown, and it does not count as asked.
-                            asked--
-                            ownBackoff++
-                            ErrorLogger.debug(TAG, "provider=$pname refused by our own backoff")
-                        }
-                        outcome is Throwable -> {
-                            errored++
-                            cooldownUntil[pname] = now + COOLDOWN_MS
-                            ErrorLogger.debug(TAG, "provider=$pname err=${outcome.message?.take(120)}")
-                        }
-                        outcome is String && outcome.isNotBlank() -> {
-                            winner7151 = outcome
-                            // V5.0.8418 — a served answer clears that member's terminal strikes and owner action.
-                            LlmProviderHealth8418.noteSuccess8418(eligible7151.firstOrNull { it.name == pname }?.healthHost.orEmpty())
-                        }
-                        else -> {
-                            empty++
-                            cooldownUntil[pname] = now + 15_000L
-                        }
-                    }
-                }
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-            } finally {
-                for (f in futures) if (!f.isDone) f.cancel(true)
-            }
-            if (winner7151 != null) {
+            // V5.0.8418 §DAISY_CHAIN — the ring is now a chain whose capacity adds up: each member draws on its own
+            // provider budget, the busiest/dead ones are skipped instead of asked, a failure launches the next member
+            // down the chain, and members still running when the first answer lands finish into the shared cache
+            // instead of being cancelled. See LlmDaisyChain8418.
+            val chain8418 = runDaisyChain8418(eligible7151, system, user, maxTokens, cacheKey8418)
+            asked += chain8418.asked; ownBackoff += chain8418.ownBackoff; empty += chain8418.empty; errored += chain8418.errored
+            noCapacity8418 = chain8418.noCapacity
+            val winner8418 = chain8418.answers.firstOrNull()?.second
+            if (winner8418 != null) {
                 lastCouncilDiagnostic7016 = ""
-                return winner7151
+                return winner8418
             }
         }
 
@@ -869,7 +824,8 @@ object KeylessLlmClient {
             // caller.
             val sweep7151 = ordered7145.filter {
                 val t7276 = System.currentTimeMillis()
-                !penalised7150(it.name, t7276) && !penalised7150(it.healthHost, t7276)
+                !penalised7150(it.name, t7276) && !penalised7150(it.healthHost, t7276) &&
+                    LlmCapacityPool8418.hasCapacity8418(it.name, t7276)   // V5.0.8418 — the sweep never exceeds a provider's own budget
             }
             if (sweep7151.isNotEmpty()) {
                 val ecs2 = java.util.concurrent.ExecutorCompletionService<Pair<String, Any?>>(councilPool7151)
@@ -944,7 +900,7 @@ object KeylessLlmClient {
         // that it was always emergent took a health table, a cooldown-map
         // reading and a paragraph of inference; the line should just say it.
         lastCouncilDiagnostic7016 =
-            "members=$n asked=$asked cooling=$cooling ownBackoff=$ownBackoff empty=$empty err=$errored" +
+            "members=$n asked=$asked cooling=$cooling ownBackoff=$ownBackoff empty=$empty err=$errored noCapacity=$noCapacity8418" +
                 (if (forcedName7030.isNotEmpty()) " forced=$forcedName7030" else "")
         try {
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -953,6 +909,55 @@ object KeylessLlmClient {
         } catch (_: Throwable) {}
         return null
     }
+
+    /** V5.0.8418 — the council's first pass as a daisy chain (LlmDaisyChain8418); every settled member is recorded. */
+    private fun runDaisyChain8418(
+        eligible: List<Provider>, system: String, user: String, maxTokens: Int, cacheKey: String,
+    ): LlmDaisyChain8418.Result8418 {
+        val byName = eligible.associateBy { it.name }
+        val members = eligible.map { p ->
+            LlmDaisyChain8418.Member8418(p.name) { withHostSlot7164(p.name) { p.call(system, user, maxTokens) } }
+        }
+        return LlmDaisyChain8418.run8418(
+            members = members,
+            wantAnswers = 1,
+            width = DAISY_WIDTH_8418,
+            wallMs = COUNCIL_WALL_MS_7151,
+            isOwnRefusal = { it is OwnBackoffRefusal },
+            isBenched = { name ->
+                val t = System.currentTimeMillis()
+                penalised7150(name, t) || penalised7150(byName[name]?.healthHost.orEmpty(), t)
+            },
+            onSettled = { name, out, outcome, late -> settleMember8418(name, byName[name]?.healthHost.orEmpty(), out, outcome, late, cacheKey) },
+        )
+    }
+
+    /** Width of the parallel fan-out; failures pull the next member in, so the chain is longer than this. */
+    private const val DAISY_WIDTH_8418 = 3
+
+    /** V5.0.8418 — one member's real outcome, on its own thread: cooldown, terminal strikes, and the shared cache. */
+    private fun settleMember8418(
+        name: String, healthHost: String, out: Any?, outcome: CapacityBucket8418.Outcome8418, late: Boolean, cacheKey: String,
+    ) {
+        val t = System.currentTimeMillis()
+        when (outcome) {
+            CapacityBucket8418.Outcome8418.OWN_REFUSAL -> {}
+            CapacityBucket8418.Outcome8418.OK -> {
+                LlmProviderHealth8418.noteSuccess8418(healthHost)
+                if (out is String) LlmResponseCache8418.put8418(cacheKey, out, name, t, late)
+            }
+            CapacityBucket8418.Outcome8418.EMPTY -> cooldownUntil[name] = t + 15_000L
+            else -> cooldownUntil[name] = t + COOLDOWN_MS
+        }
+        if (late) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_POOL_LATE_SETTLED_8418_${outcome.name}") } catch (_: Throwable) {}
+        }
+    }
+
+    /** V5.0.8418 — benches and owner actions, the LLM pool's capacity, the answer cache and the keyless news pool. */
+    fun healthAndPoolLines8418(): String =
+        llmHealthLine8418() + "\n  " + LlmCapacityPool8418.capacityLine8418() + "\n  " + LlmResponseCache8418.statusLine8418() +
+            "\n  " + NewsHeadlinePool8418.statusLine8418()
 
     /**
      * Set only for the duration of the single forced attempt above, so exec()
@@ -1051,6 +1056,9 @@ object KeylessLlmClient {
         // never bottom out again. They are LAST on purpose: a real operator
         // subscription always wins, and these only carry the load when every
         // keyed member is rate-limited, unpaid or unconfigured.
+        // V5.0.8418 — LLM7.io anonymous tier: its own ~30 rpm budget, independent of every member above and below.
+        // An operator with an LLM7 token adds `llm7|<token>` under extra endpoints and gets the 120 rpm tier as x_llm7.
+        list.add(Provider("llm7", "llm_llm7_8418") { s, u, m -> llm7Member8418.call(s, u, m) })
         list.add(Provider("pollinations", "llm_pollinations") { s, u, m -> callPollinations(s, u, m) })
         list.add(Provider("pollinations_get", "llm_pollinations_get") { s, u, m -> callPollinationsGet(s, u, m) })
 
@@ -1246,6 +1254,17 @@ object KeylessLlmClient {
         )
     }
 
+    /**
+     * V5.0.8418 — LLM7.io, an OpenAI-compatible gateway that serves anonymous callers with no token (about 30
+     * requests a minute per IP). Its catalogue is read from /v1/models; no model id is guessed here.
+     */
+    private val llm7Member8418 by lazy {
+        OpenAiCompatMember7276(
+            name = "llm7", healthHost = "llm_llm7_8418", baseUrl = LlmProviderPresets8418.LLM7_BASE_8418,
+            keyProvider = { "" }, seedModels = emptyList(),
+        )
+    }
+
     /** V5.0.7276 — parsed once per distinct settings string; members keep their ladders across calls. */
     @Volatile private var extraMembersSource7276: String = "\u0000"
     @Volatile private var extraMembersCache7276: List<OpenAiCompatMember7276> = emptyList()
@@ -1254,15 +1273,13 @@ object KeylessLlmClient {
         if (src == extraMembersSource7276) return extraMembersCache7276
         val out = ArrayList<OpenAiCompatMember7276>()
         for (raw in src.split('\n', ';')) {
-            val parts = raw.trim().split('|').map { it.trim() }
-            if (parts.size < 2) continue
-            val name = parts[0].lowercase().replace(Regex("[^a-z0-9_]+"), "_").trim('_').take(24)
-            val url = parts[1]
-            if (name.isBlank() || !url.startsWith("https://")) continue
-            val key = parts.getOrNull(2).orEmpty()
+            // V5.0.8418 — `name|key` (or `name||key`) for a known free provider fills in its base URL and seeds.
+            val ep = LlmProviderPresets8418.parse8418(raw) ?: continue
+            val name = ep.name
+            val key = ep.key
             out.add(OpenAiCompatMember7276(
-                name = "x_$name", healthHost = "llm_x_$name", baseUrl = url,
-                keyProvider = { key }, seedModels = emptyList(),
+                name = "x_$name", healthHost = "llm_x_$name", baseUrl = ep.baseUrl,
+                keyProvider = { key }, seedModels = ep.seedModels,
             ))
             LADDERED_HOSTS_7276.add("llm_x_$name")
         }

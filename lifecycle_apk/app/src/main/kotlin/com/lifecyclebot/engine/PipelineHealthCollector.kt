@@ -4541,7 +4541,7 @@ object PipelineHealthCollector {
             // spent key from a rate limit without them having to read bodies.
             try {
                 sb.appendLine("  " + com.lifecyclebot.network.KeylessLlmClient.penaltyStatusLine7150())
-                sb.appendLine("  " + com.lifecyclebot.network.KeylessLlmClient.llmHealthLine8418())   // V5.0.8418
+                sb.appendLine("  " + com.lifecyclebot.network.KeylessLlmClient.healthAndPoolLines8418())   // V5.0.8418 — benches, pool capacity, cache
             } catch (_: Throwable) {}
             val keySnap = KeyValidator.snapshot()
             if (keySnap.isNotEmpty()) {

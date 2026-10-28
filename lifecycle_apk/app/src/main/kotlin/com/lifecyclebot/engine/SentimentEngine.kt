@@ -178,6 +178,8 @@ class SentimentEngine(private val cfg: () -> BotConfig) {
             divergenceSignal       = divergence,
             summary                = summary,
             updatedAt              = now,
+            // V5.0.8418 — advisory market mood from the pooled keyless RSS feeds; not part of score or block.
+            newsMood8418           = try { com.lifecyclebot.network.NewsHeadlinePool8418.refreshIfDue8418(now).mood.name } catch (_: Throwable) { "UNKNOWN" },
         )
 
         lastSentiment[mint] = result
