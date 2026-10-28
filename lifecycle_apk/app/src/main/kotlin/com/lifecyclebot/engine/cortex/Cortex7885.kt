@@ -4166,7 +4166,11 @@ object Cortex7885 {
         synchronized(this) {
             val tradeId = env.tradeId
             // A close this process already committed durably is done, whatever the bus redelivers.
-            if (tradeId in closeReceipts8198) { inc("CORTEX_CLOSE_DUPLICATE_ACKED_8198"); return CloseDelivery8198.ACKED }
+            if (tradeId in closeReceipts8198) {
+                inc("CORTEX_CLOSE_DUPLICATE_ACKED_8198")
+                com.lifecyclebot.engine.truth.LearnerAttribution8418.observe8418("Cortex7885.close", mode, com.lifecyclebot.engine.truth.LearnerAttribution8418.Verdict8418.DUPLICATE)
+                return CloseDelivery8198.ACKED
+            }
             if (!eligible) {
                 // An unverified / learning-ineligible terminal is explicit, not a failure: release the captured entry
                 // (it never teaches) and acknowledge. Re-delivery is a harmless null re-release.
@@ -4180,6 +4184,7 @@ object Cortex7885 {
             if (storedReceipt8325) {
                 closeReceipts8198.add(tradeId)
                 inc("CORTEX_CLOSE_DURABLE_ALREADY_ACKED_8198")
+                com.lifecyclebot.engine.truth.LearnerAttribution8418.observe8418("Cortex7885.close", mode, com.lifecyclebot.engine.truth.LearnerAttribution8418.Verdict8418.REPLAY)
                 return CloseDelivery8198.ACKED
             }
             if (tradeId !in uncommittedCloseGrades8198) {
@@ -4257,6 +4262,7 @@ object Cortex7885 {
                 closeReceipts8198.add(env.tradeId)
                 uncommittedCloseGrades8198.remove(env.tradeId)
                 inc("CORTEX_CLOSE_DURABLE_ACKED_8198")
+                com.lifecyclebot.engine.truth.LearnerAttribution8418.observe8418("Cortex7885.close", mode, com.lifecyclebot.engine.truth.LearnerAttribution8418.Verdict8418.ADMIT)
                 postCloseCheckpoint8198()
                 CloseDelivery8198.ACKED
             }

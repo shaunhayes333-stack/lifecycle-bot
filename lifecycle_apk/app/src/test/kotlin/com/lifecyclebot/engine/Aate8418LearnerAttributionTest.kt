@@ -106,4 +106,45 @@ class Aate8418LearnerAttributionTest {
         assertTrue(FieldManual7715.stopPct8392("CYCLIC", 2.0) >= 10.0)
         assertEquals(15.0, FieldManual7715.stopPct8392("CYCLIC", 10.0), 1e-9)
     }
+
+    @Test fun liveForecastIsNeverSeededByPaperOrLabels() {
+        ForwardOutcomeModel.reset()
+        val lane = "FWD8418"
+        repeat(30) { i -> ForwardOutcomeModel.recordLabel7734(lane, 85, "A", "NORMAL", "EXPANSION", 40.0, "lab8418|$i") }
+        LearningEnvironment7835.withMode("PAPER") {
+            repeat(12) { i ->
+                ForwardOutcomeModel.stamp("pm8418$i", lane, 85, "A", "NORMAL", "EXPANSION")
+                ForwardOutcomeModel.recordOutcome("pm8418$i", 60.0)
+            }
+        }
+        val paper = LearningEnvironment7835.withMode("PAPER") { ForwardOutcomeModel.forecast(lane, 85, "A", "NORMAL", "EXPANSION") }
+        assertTrue(paper.source, paper.samples > 0L)
+        val live = LearningEnvironment7835.withMode("LIVE") { ForwardOutcomeModel.forecast(lane, 85, "A", "NORMAL", "EXPANSION") }
+        assertEquals("bootstrap", live.source)
+        assertEquals(0.5, live.pWin, 0.0)
+        assertEquals(1.0, live.convictionNudge, 0.0)
+        ForwardOutcomeModel.reset()
+    }
+
+    @Test fun tradingMemoryLearnsOnlyFromTheRuntimesBookOncePerClose() {
+        LearnerAttribution8418.resetForTest8418()
+        // the unit-test runtime is PAPER: a live close, an unknown book and a repeat are all refused
+        TradingMemory.learnFromWinningTrade("tm8418", "TM", 30.0, "p", "FLAT", "SRC", 5.0, live8418 = true, closeId8418 = "c1")
+        TradingMemory.learnFromWinningTrade("tm8418", "TM", 30.0, "p", "FLAT", "SRC", 5.0, closeId8418 = "c2")
+        TradingMemory.learnFromWinningTrade("tm8418", "TM", 30.0, "p", "FLAT", "SRC", 5.0, live8418 = false, closeId8418 = "c3")
+        TradingMemory.learnFromWinningTrade("tm8418", "TM", 30.0, "p", "FLAT", "SRC", 5.0, live8418 = false, closeId8418 = "c3")
+        val line = LearnerAttribution8418.statusLine8418()
+        assertTrue(line, line.contains("TradingMemory.win: paper=1,live=0,dupRefused=1,replayRefused=0,bookRefused=2"))
+    }
+
+    @Test fun observedAndRebuiltLearnersReportTheirBooks() {
+        LearnerAttribution8418.resetForTest8418()
+        LearnerAttribution8418.observe8418("Cx8418", "LIVE", LearnerAttribution8418.Verdict8418.ADMIT)
+        LearnerAttribution8418.observe8418("Cx8418", "LIVE", LearnerAttribution8418.Verdict8418.DUPLICATE)
+        LearnerAttribution8418.observe8418("Cx8418", "PAPER", LearnerAttribution8418.Verdict8418.REPLAY)
+        assertTrue(LearnerAttribution8418.statusLine8418().contains("Cx8418: paper=0,live=1,dupRefused=1,replayRefused=1"))
+        LearnerAttribution8418.rebuilt8418("Lp8418", 7L, 3L, 2L)
+        LearnerAttribution8418.rebuilt8418("Lp8418", 8L, 3L, 1L)   // a rebuild replaces, never adds
+        assertTrue(LearnerAttribution8418.statusLine8418().contains("Lp8418: paper=8,live=3,dupRefused=1,replayRefused=0"))
+    }
 }

@@ -14050,7 +14050,9 @@ class GoldenTapeRegressionTest {
         val whenBlock = fom.substringAfter("val cell: Cell?; val src: String").substringBefore("else -> return Forecast(0.5, 0.0, 0.0, 0.0,")
         assertTrue(whenBlock.indexOf("coarse_paper_prior") < whenBlock.indexOf("fine_label_prior"))
         assertTrue(whenBlock.indexOf("fine_label_prior") < whenBlock.indexOf("coarse_label_prior"))
-        assertTrue(fom.contains("val fromPaperPrior6991 = (!isPaper && src.endsWith(\"_paper_prior\")) || src.endsWith(\"_label_prior\")"))
+        // superseded by V5.0.8418 — the live forecast reads live evidence only (no paper / label prior); behaviour:
+        // Aate8418LearnerAttributionTest.liveForecastIsNeverSeededByPaperOrLabels.
+        assertTrue(fom.contains("val fromPaperPrior6991 = isPaper && src.endsWith(\"_label_prior\")"))
         // Labeler: the signature travels with the observation and the 60-minute label teaches the model.
         val labeler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         assertTrue(labeler.contains("fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {"))

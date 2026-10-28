@@ -88,8 +88,12 @@ object LosingPatternMemory {
         val liveAcc = ConcurrentHashMap<String, LongArray>(64)
         try {
             val sells = TradeHistoryStore.getRecentValidClosedTrades(limit = 2_000, includePartials = false)
+            // V5.0.8418 — one close counts once (position id, else mint|lane|entry|exit), in its own book only.
+            val seen8418 = HashSet<String>()
+            var paper8418 = 0L; var live8418 = 0L; var dup8418 = 0L
 
             for (t in sells) {
+                if (!seen8418.add(t.positionId.ifBlank { "${t.mint}|${t.tradingMode}|${t.entryTsMs}|${t.ts}" })) { dup8418++; continue }
                 // V5.0.7051 §ATTRIBUTE_THE_COHORT_TO_THE_LANE_THAT_ENTERED_IT.
                 //
                 // t.tradingMode is the lane the position was in when it CLOSED,
@@ -118,7 +122,9 @@ object LosingPatternMemory {
                 cell[2] += (t.pnlPct * 1000.0).toLong()
 
                 // V5.0.4072 — live-only cache. Filter by mode=live.
-                val isLive = t.mode.equals("live", true) || (!t.mode.equals("paper", true) && t.sig.isNotBlank())
+                // V5.0.8418 — only a close stamped LIVE is live evidence (an unstamped row with a signature no longer is).
+                val isLive = t.mode.equals("live", true)
+                if (isLive) live8418++ else if (t.mode.equals("paper", true)) paper8418++
                 if (isLive) {
                     val lc = liveAcc.getOrPut(key) { LongArray(3) }
                     if (t.pnlPct <= -5.0) lc[0]++
@@ -126,6 +132,7 @@ object LosingPatternMemory {
                     lc[2] += (t.pnlPct * 1000.0).toLong()
                 }
             }
+            com.lifecyclebot.engine.truth.LearnerAttribution8418.rebuilt8418("LosingPatternMemory", paper8418, live8418, dup8418)
         } catch (_: Throwable) {
         }
 
