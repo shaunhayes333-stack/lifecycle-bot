@@ -12116,7 +12116,11 @@ class GoldenTapeRegressionTest {
         assertTrue(piv.contains("\"runner_lane_kept_7369\""))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("HeldPositionPivotArbiter.applyMode8384(ts, holdEval.modeSwitchRecommendation.newMode"))
-        assertTrue(piv.contains("!ensemble && RunnerExitProfile7277.refusesLaneChange(from, to)"))
+        // superseded by V5.0.8418 — the 8384 ensemble exemption is reverted; the guard binds for every owner at the one commit
+        // point (was `!ensemble && RunnerExitProfile7277.refusesLaneChange(from, to)`; before 8384 the two Executor call sites
+        // carried `!RunnerExitProfile7277.refusesLaneChange(ts.position.tradingMode, ...)`, now inside applyMode8384).
+        assertTrue(piv.contains("if (RunnerExitProfile7277.refusesLaneChange(from, to)) return false"))
+        assertFalse(piv.contains("!ensemble && RunnerExitProfile7277.refusesLaneChange(from, to)"))
         assertTrue(ex.contains("HeldPositionPivotArbiter.applyMode8384(ts, modeSwitchSignal.recommendedMode"))
         assertFalse(HeldPositionPivotArbiter.switchAllowed8384("PROJECT_SNIPER", "PROJECT_SNIPER", "STANDARD", 12.0, 14.0, true))
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()

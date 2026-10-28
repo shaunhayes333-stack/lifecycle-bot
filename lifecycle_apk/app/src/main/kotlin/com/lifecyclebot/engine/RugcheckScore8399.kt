@@ -32,11 +32,28 @@ object RugcheckScore8399 {
             json.has("scoreNormalized") -> json.optDouble("scoreNormalized", Double.NaN)
             // V5.0.8418 — the raw score is an uncapped risk SUM: /100 is an approximation of the 0..100 scale, so a raw-only
             // report can read very risky but never reaches the confirmed ceiling (raw 20,000 was a "confirmed rug").
-            json.has("score") -> json.optDouble("score", Double.NaN).let { if (it.isNaN() || it < 0) it else minOf(it / RAW_SCORE_DIVISOR_8399, RAW_ONLY_MAX_RISK_8418) }
+            json.has("score") -> rawRisk8418(json.optDouble("score", Double.NaN))
             else -> Double.NaN
         }
         return if (r.isNaN() || r < 0) Double.NaN else r.coerceIn(0.0, 100.0)
     }
+
+    /**
+     * Pure (V5.0.8418 §RAW_SCORE_BANDS): the provider's raw (unnormalised, uncapped) risk SUM placed on the 0..100 risk scale
+     * by RugCheck's own raw bands (< 1000 good, 1000..2500 low, 2500..5000 elevated, >= 5000 danger — the ExternalAlphaFeeds
+     * bands of 6411), not by a linear divide: raw / 100 read raw 5000 (danger) as risk 50 = safety 50, the app's NEUTRAL
+     * default. Raw >= 5000 lands at the top of the app's very-risky band (risk 98 = safety 2: refused by MOONSHOT, penalised
+     * by the ladders); it never reaches the confirmed ceiling (99) — only `rugged` or a complete normalised report does.
+     * NaN for absent / negative.
+     */
+    private fun rawRisk8418(raw: Double): Double = when {
+        raw.isNaN() || raw < 0.0 -> Double.NaN
+        raw < 1_000.0 -> raw / RAW_SCORE_DIVISOR_8399                                      // 0..10
+        raw < 2_500.0 -> 10.0 + (raw - 1_000.0) / 1_500.0 * 20.0                           // 10..30
+        raw < RAW_DANGER_8418 -> 30.0 + (raw - 2_500.0) / 2_500.0 * 30.0                   // 30..60
+        else -> RAW_ONLY_MAX_RISK_8418                                                       // 98 = safety 2
+    }
+    private const val RAW_DANGER_8418 = 5_000.0
 
     /** The app's safety score: -1 unfetched, 0 confirmed rug, 2..100 otherwise (1 is reserved as the pending marker). */
     fun safety8399(risk: Double): Int = when {

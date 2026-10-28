@@ -1,8 +1,6 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.DiscoveryCapture8400
-import com.lifecyclebot.engine.truth.LiquidityTruth8037
-import com.lifecyclebot.v3.scoring.MoonshotTraderAI
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
@@ -11,41 +9,21 @@ import java.io.File
 class Aate8400RugcheckEdgeAndDiscoveryCaptureTest {
     private fun src(rel: String) = File("src/main/kotlin/com/lifecyclebot/$rel").readText()
 
-    @Test fun confirmed_low_safety_is_a_graded_penalty_pending_and_safe_are_free() {
-        assertEquals(0, MoonshotTraderAI.rugcheckSoftPenalty8400(-1))   // unfetched
-        assertEquals(0, MoonshotTraderAI.rugcheckSoftPenalty8400(1))    // pending
-        assertEquals(13, MoonshotTraderAI.rugcheckSoftPenalty8400(2))   // provider risk 98
-        assertEquals(7, MoonshotTraderAI.rugcheckSoftPenalty8400(8))
-        assertEquals(1, MoonshotTraderAI.rugcheckSoftPenalty8400(14))
-        assertEquals(0, MoonshotTraderAI.rugcheckSoftPenalty8400(15))
-        assertEquals(0, MoonshotTraderAI.rugcheckSoftPenalty8400(100))
-        var prev = Int.MAX_VALUE
-        for (s in 2..100) { val p = MoonshotTraderAI.rugcheckSoftPenalty8400(s); assertTrue(p <= prev); prev = p }
+    // superseded by V5.0.8418 — confirmed_low_safety_is_a_graded_penalty / moonshot_door_refuses_only_confirmed_rug_zero:
+    // the RugCheck danger band (safety 2..14 = provider risk 86..98) is a hard refusal again (rug is hard safety, never
+    // loosened); see Aate8418ExitsDataRoutesTest.moonshotRefusesConfirmedRugAndTheDangerBand.
+    @Test fun moonshot_door_refuses_the_danger_band_again() {
+        val score = src("v3/scoring/MoonshotTraderAI.kt").substringAfter("fun scoreToken(").substringBefore("fun openPosition")
+        assertTrue(score.contains("rugcheckRefusal8418(rugcheckScore)?.let { why -> return MoonshotScore(false, 0, 0.0, why) }"))
+        assertFalse(score.contains("score -= rcPenalty8400"))
     }
 
-    @Test fun moonshot_door_refuses_only_confirmed_rug_zero() {
-        val s = src("v3/scoring/MoonshotTraderAI.kt")
-        val score = s.substringAfter("fun scoreToken(").substringBefore("fun openPosition")
-        assertTrue(score.contains("if (rugcheckScore == 0) {"))
-        assertTrue(score.contains("\"rugcheck_0_confirmed_rug\""))
-        // no refusal is built from a "below minimum" reason any more (history of the old door stays in comments)
-        assertFalse(score.contains("\"rugcheck_\${rugcheckScore}_below_min_"))
-        assertFalse(score.contains("val minRcScore"))
-        val scoring = score.substringAfter("var score = 0")
-        assertTrue(scoring.substringBefore("val mcapScore").contains("score -= rcPenalty8400"))
-    }
-
-    @Test fun curve_cap_from_liquidity_inverts_the_8048_depth_rule() {
-        for (capSol in listOf(28.0, 40.0, 75.0, 150.0, 400.0)) {
-            val real = LiquidityTruth8037.curveRealSolFromCap8048(capSol)
-            val back = DiscoveryCapture8400.curveCapSolFromRealSol8400(real)
-            assertEquals(capSol, back, capSol * 1e-9)
-        }
-        assertTrue(DiscoveryCapture8400.curveCapUsdFromLiquidity8400(0.0, 100.0).isNaN())
-        assertTrue(DiscoveryCapture8400.curveCapUsdFromLiquidity8400(1000.0, 0.0).isNaN())
-        // $1,000 of real SOL at $100/SOL = 10 SOL real -> (40^2 / 32.19) SOL cap ~= 49.7 SOL ~= $4,970
-        val usd = DiscoveryCapture8400.curveCapUsdFromLiquidity8400(1000.0, 100.0)
-        assertEquals(40.0 * 40.0 / 32.19 * 100.0, usd, 1.0)
+    // superseded by V5.0.8418 — curve_cap_from_liquidity_inverts_the_8048_depth_rule: the CURVE_FROM_LIQUIDITY step (a cap
+    // derived from a depth over an assumed 1B supply) is deleted; a cap with no verified supply stays UNKNOWN.
+    @Test fun curve_cap_from_liquidity_is_gone() {
+        val dc = src("engine/truth/DiscoveryCapture8400.kt")
+        assertFalse(dc.contains("fun curveCapUsdFromLiquidity8400("))
+        assertFalse(dc.contains("how = CURVE_FROM_LIQUIDITY"))
     }
 
     @Test fun market_cap_is_captured_at_intake_for_every_source_and_backstopped_at_the_bridge() {
@@ -60,8 +38,9 @@ class Aate8400RugcheckEdgeAndDiscoveryCaptureTest {
         val liq = helper.indexOf("LiquidityTruth8037.hydrate8037(ts)")
         assertTrue(capWrite in 0 until capture && capture < liq)   // cap before depth so the 8164 derivation has a cap
         assertTrue(helper.contains("DISCOVERY_LIQ_MISSING_8400_"))
-        // warmup carries the cap it captured instead of NaN
-        assertTrue(bs.contains("marketCapUsd = if (h.mcapUsdEstimate > 0.0) h.mcapUsdEstimate else Double.NaN"))
+        // superseded by V5.0.8418 — warmup no longer feeds its stored (entry / first-seen) cap in as the current one:
+        // was `marketCapUsd = if (h.mcapUsdEstimate > 0.0) h.mcapUsdEstimate else Double.NaN`.
+        assertTrue(bs.contains("marketCapUsd = Double.NaN,   // superseded by V5.0.8418 — a stored entry/first-seen cap is history"))
         val warm = src("engine/HotConvictionWarmup.kt")
         assertTrue(warm.contains("val mcapUsdEstimate: Double = 0.0"))
         assertTrue(warm.contains("put(\"mcapUsdEstimate\", h.mcapUsdEstimate)"))
@@ -76,7 +55,8 @@ class Aate8400RugcheckEdgeAndDiscoveryCaptureTest {
         // the resolver order is evidence first, chain read last
         val dc = src("engine/truth/DiscoveryCapture8400.kt").substringAfter("fun captureMcap8400(")
         val a = dc.indexOf("CurveReserves7951.hydrateMcap8399"); val p = dc.indexOf("TrustedMcap8019.mcap8019(ts)")
-        val l = dc.indexOf("curveCapUsdFromLiquidity8400(ts.lastLiquidityUsd"); val q = dc.indexOf("OnChainDepth8038.needDepth8047(ts)")
-        assertTrue(a in 0 until p && p < l && l < q)
+        // superseded by V5.0.8418 — the curve-from-liquidity step between them is deleted (was `p < l && l < q`).
+        val q = dc.indexOf("OnChainDepth8038.needDepth8047(ts)")
+        assertTrue(a in 0 until p && p < q)
     }
 }

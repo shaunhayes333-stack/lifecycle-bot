@@ -96,14 +96,26 @@ object CostTrim8151 {
     /**
      * V5.0.8378 — Pure: does a sell keep the legacy (full) Sender tip? Yes for an urgent send, a stop / hard stop / rug /
      * manual exit, a structural emergency or capital-preservation exit, and a retry after an accepted sell never landed.
-     * Everything else (take-profit, trail, time, rotation, dust, orphan) is ordinary.
+     * Everything else (take-profit, time, rotation, dust, orphan) is ordinary. V5.0.8418: trail / floor / lock exits are protective.
      */
+    /** Pure (V5.0.8418): is [reason] a sell into a falling price (trail / floor / lock / give-back / peak capture / break)? */
+    fun fallingPriceExit8418(reason: String?): Boolean {
+        val r = reason.orEmpty().uppercase()
+        if (r.isBlank()) return false
+        if (try { ProfitLock8363.profitLock8363(r) } catch (_: Throwable) { false }) return true
+        return r.contains("PEAK_CAPTURE") || r.contains("STRUCTURE_BREAK") || r.contains("PEAK_GIVEBACK")
+    }
+
     fun sellProtective8378(reason: String?, urgent: Boolean, previousSellUnlanded: Boolean): Boolean {
         if (urgent || previousSellUnlanded) return true
         val r = reason.orEmpty()
         if (com.lifecyclebot.engine.sell.SellSafetyPolicy.isEmergencyExit(r)) return true
         if (com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(r) || com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(r)) return true
         if (try { com.lifecyclebot.engine.sell.ProtectiveExitClass7807.acceptsPoorImpact(r) } catch (_: Throwable) { true }) return true
+        // V5.0.8418 — a sell into a FALLING price (the 35 % runner trail, GreenFloor8363, ProfitLock8363, give-back, peak
+        // capture, runner structure break) is protective: a slow landing there gives back more than the ~0.006 SOL the
+        // ordinary tip saves. Take-profit / harvest into strength stays ordinary (ProfitLock8363.profitLock8363 excludes it).
+        if (fallingPriceExit8418(r)) return true
         return when (try { com.lifecyclebot.engine.sell.SellSafetyPolicy.classify(r) } catch (_: Throwable) { com.lifecyclebot.engine.sell.ExitReason.UNKNOWN }) {
             com.lifecyclebot.engine.sell.ExitReason.STOP_LOSS, com.lifecyclebot.engine.sell.ExitReason.HARD_STOP,
             com.lifecyclebot.engine.sell.ExitReason.RUG_DRAIN, com.lifecyclebot.engine.sell.ExitReason.MANUAL_FULL_EXIT -> true

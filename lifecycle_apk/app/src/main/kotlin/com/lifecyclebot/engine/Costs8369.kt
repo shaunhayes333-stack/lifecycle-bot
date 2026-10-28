@@ -83,10 +83,16 @@ object Costs8369 {
     // Jupiter quote probe answered "no route" for this mint (jupiterQuotes == false); [recentlyTried] and
     // [jupiterLandFailing] are reported only. A Jupiter miss on a quoted mint retries Jupiter; the probe cache (30 s on a
     // no-route answer) sends the next attempt PumpPortal when Jupiter really has no route, so the buy is never choked.
+    // superseded by V5.0.8418 (review 3f98a0875) — [jupiterLandFailing] binds again, symmetric with the 8413 PumpPortal
+    // route-away: when Jupiter's own recent BUYs are measured failing to land (>= 3 resolved, < 50 % landed) AND PumpPortal's
+    // recent buys are measured landing ([pumpLandsOk]), the buy goes PumpPortal first instead of paying a failed Jupiter leg
+    // first. With PumpPortal unmeasured or failing too (5.0.8416: 1/7) Jupiter stays first. [recentlyTried] is reported only.
     @Suppress("UNUSED_PARAMETER")
-    fun jupiterFirstForBuy8369(venue: String, jupiterQuotes: Boolean?, recentlyTried: Boolean, jupiterLandFailing: Boolean): Boolean {
+    fun jupiterFirstForBuy8369(venue: String, jupiterQuotes: Boolean?, recentlyTried: Boolean, jupiterLandFailing: Boolean,
+                               pumpLandsOk: Boolean = false): Boolean {
         if (venue == "PUMPSWAP" || venue == "RAYDIUM") return true
-        return jupiterQuotes != false
+        if (jupiterQuotes == false) return false
+        return !(jupiterLandFailing && pumpLandsOk)
     }
 
     /**
@@ -159,9 +165,11 @@ object Costs8369 {
      * Pure: the BUY route the model prices for a mint. A non-pump mint and a graduated pool go Jupiter; a curve mint
      * takes the route chosen for it, else Jupiter (V5.0.8413: Jupiter first; PumpPortal only where it was the only route).
      */
-    fun plannedBuyRoute8369(pumpMint: Boolean, venue: String, chosen: String?, jupiterShare: Double?): String = when {
+    fun plannedBuyRoute8369(pumpMint: Boolean, venue: String, chosen: String?, jupiterShare: Double?, jupiterQuotes: Boolean? = null): String = when {
         !pumpMint -> "JUPITER"
         venue == "PUMPSWAP" || venue == "RAYDIUM" -> "JUPITER"
+        // V5.0.8418 — a curve mint whose cached Jupiter quote says "no route" is bought through PumpPortal, so it is priced so.
+        jupiterQuotes == false -> "PUMPPORTAL"
         chosen != null && (chosen == "JUPITER" || chosen == "PUMPPORTAL") -> chosen
         // V5.0.8413 — Jupiter first is the doctrine; PumpPortal is priced only for a mint that was actually routed there.
         else -> "JUPITER"
@@ -252,14 +260,50 @@ object Costs8369 {
     fun modelRouteFeePctPerSide8369(mint: String): Double {
         val pump = try { com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) } catch (_: Throwable) { false }
         val venue = if (pump) venueOf8369(mint) else "UNKNOWN"
-        val buy = plannedBuyRoute8369(pump, venue, routeOf8369[mint], jupiterShare8369(jupiterChosen8369.get(), pumpChosen8369.get()))
+        val quotes8418 = cachedJupiterQuotes8369(mint)
+        val buy = plannedBuyRoute8369(pump, venue, routeOf8369[mint], jupiterShare8369(jupiterChosen8369.get(), pumpChosen8369.get()), quotes8418)
         val jupiterOk = try {
             com.lifecyclebot.engine.sell.SellRouteEndpoint8144.peek8144(mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.JUPITER,
                 System.currentTimeMillis()) == com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Admit8144.ALLOWED
         } catch (_: Throwable) { false }
         val sell = plannedSellRoute8369(pump, venue, jupiterOk)
-        return (routeFee8391(buy, mint, "BUY") + routeFee8391(sell, mint, "SELL")) / 2.0
+        // V5.0.8418 (review 6c100e26d) — a curve exit planned on Jupiter is priced on the route exits actually take: the
+        // PumpPortal share of recent first-route exits (pumpFirst + rescues), the dearer of the two while unmeasured.
+        val sellFee = if (pump && sell == "JUPITER")
+            sellLegFee8418(routeFee8391("JUPITER", mint, "SELL"), CostTrim8151.routeFeePctPerSide8151("PUMPPORTAL"),
+                pumpSellShare8418(), jupiterAdmitted = jupiterOk, jupiterQuotes = quotes8418)
+            else routeFee8391(sell, mint, "SELL")
+        return (routeFee8391(buy, mint, "BUY") + sellFee) / 2.0
     }
+
+    /**
+     * Pure (V5.0.8418): the sell leg's route fee for a curve exit planned on Jupiter. Jupiter not admitting the mint, or a
+     * "no route" quote, sends the exit to PumpPortal ([pumpFee]); an unmeasured route mix ([pumpShare] null) prices the
+     * dearer of the two (an unknown is never the cheap route); otherwise the measured blend.
+     */
+    fun sellLegFee8418(jupiterFee: Double, pumpFee: Double, pumpShare: Double?, jupiterAdmitted: Boolean, jupiterQuotes: Boolean?): Double {
+        if (!jupiterAdmitted || jupiterQuotes == false) return pumpFee
+        if (pumpShare == null || !pumpShare.isFinite()) return maxOf(jupiterFee, pumpFee)
+        val s = pumpShare.coerceIn(0.0, 1.0)
+        return s * pumpFee + (1.0 - s) * jupiterFee
+    }
+
+    /** The share of recent first-route exits that ended on PumpPortal (first route or rescue), null under 5 exits. */
+    private fun pumpSellShare8418(): Double? {
+        val n = sellJupiterFirst8418.get() + sellPumpFirstN8418.get()
+        if (n < 5L) return null
+        return (sellPumpSent8418.get().toDouble() / n.toDouble()).coerceIn(0.0, 1.0)
+    }
+
+    /** Executor.costAggregatorFirst8151: are PumpPortal buys measured LANDING (>= 3 resolved, >= 50 %) in the window? */
+    fun pumpBuysLanding8418(): Boolean = try {
+        val now = System.currentTimeMillis()
+        val rows = com.lifecyclebot.network.SignedTxLedger8085.rows8288(now - CAP_WINDOW_MS_8369)
+        val mine = rows.filter { it.side.equals("BUY", true) && it.route.equals("PUMPPORTAL", true) && now - it.createdAtMs in 0L..CAP_WINDOW_MS_8369 }
+        val landed = mine.count { it.state == "CONFIRMED" }
+        val resolved = landed + mine.count { it.state == "EXPIRED_PROVEN" || it.state == "FAILED_ON_CHAIN" }
+        resolved >= CAP_MIN_RESOLVED_8369 && landed * 100 >= CAP_MIN_LAND_PCT_8369 * resolved
+    } catch (_: Throwable) { false }
 
     // ── fixed leg of an entry ──
 

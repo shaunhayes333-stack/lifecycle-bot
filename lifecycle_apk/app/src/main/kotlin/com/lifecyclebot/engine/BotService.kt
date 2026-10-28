@@ -8390,7 +8390,7 @@ class BotService : Service() {
                     symbol = h.symbol.ifBlank { h.mint.take(6) },
                     name = h.symbol.ifBlank { h.mint.take(6) },
                     source = "HOT_CONVICTION_WARMUP_6282",
-                    marketCapUsd = if (h.mcapUsdEstimate > 0.0) h.mcapUsdEstimate else Double.NaN,   // V5.0.8400 — captured with the token
+                    marketCapUsd = Double.NaN,   // superseded by V5.0.8418 — a stored entry/first-seen cap is history, not the current cap: intake resolves a fresh one
                     liquidityUsd = if (h.liquidityUsdEstimate > 0.0) h.liquidityUsdEstimate else Double.NaN,
                     volumeH1 = 0.0,
                     confidence = 55,
@@ -25952,10 +25952,9 @@ if (hotExitHandledSweep) {
             ts.lastPriceSource = source8018
             if (pool8018.isNotBlank()) { ts.lastPricePoolAddr = pool8018; ts.lastPriceDex = "PUMPSWAP" }
             ts.lastPriceUpdate = now
-            if (marketCapSol.isFinite() && marketCapSol > 0.0) ts.lastMcap = marketCapSol * solUsd
-            // V5.0.8399 — a print without the venue's market cap (PumpSwap vault tick) still prices the fixed pump supply.
-            else if (!(ts.lastMcap.isFinite() && ts.lastMcap > 0.0) && (ts.tokenMap.pumpFunExecutable || ts.tokenMap.virtualSolReserves != null))
-                com.lifecyclebot.engine.truth.MintSupply8418.capUsd8418(mint, px).takeIf { it.isFinite() }?.let { ts.lastMcap = it }   // V5.0.8418 — verified supply x print; unread supply: cap stays unknown
+            // superseded by V5.0.8418 — the venue's marketCapSol (price x an assumed 1e9 supply) is not written:
+            // every print prices the mint account's verified supply; unread supply leaves the row's cap as it was (unknown stays unknown).
+            com.lifecyclebot.engine.truth.MintSupply8418.capUsd8418(mint, px).takeIf { it.isFinite() }?.let { ts.lastMcap = it }   // V5.0.8418 — verified supply x print; unread supply: cap stays unknown
         }
         try {
             com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(

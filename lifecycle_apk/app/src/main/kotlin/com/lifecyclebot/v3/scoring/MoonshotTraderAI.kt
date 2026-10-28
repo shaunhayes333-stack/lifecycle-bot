@@ -429,15 +429,18 @@ object MoonshotTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /**
-     * Pure (V5.0.8400): the fluid-score penalty for a CONFIRMED low safety score (2..14 under the 8399 reading: provider
-     * risk 86..98). 0 for pending/unfetched (1, -1) and for safety >= 15; linear 2 -> 13 points, 14 -> 1 point. A confirmed
-     * rug (0) is refused before this is read. Edge-weighted: the learner's `rc` feature and Cortex grade the outcome.
+     * Pure (V5.0.8418 §RUGCHECK_DANGER_BAND_IS_A_DOOR): the MOONSHOT RugCheck refusal, or null. 0 = confirmed rug; 2..14 =
+     * provider risk 86..98 under the 8399 reading (RugcheckScore8399: safety = 100 - risk), RugCheck's danger band one step
+     * from confirmed — also where a raw-only sum or a score-only answer at the ceiling lands (8418 intake: never 0 without a
+     * complete report, so it reads 2). Pending (1) and unfetched (< 0) are not answers and never refuse here. Hard safety:
+     * superseded V5.0.8400's rugcheckSoftPenalty8400 (a 13..1 point score penalty) — never loosen rug.
      */
-    fun rugcheckSoftPenalty8400(rugcheckScore: Int): Int {
-        if (rugcheckScore <= 1 || rugcheckScore >= RUGCHECK_SOFT_FLOOR_8400) return 0
-        return RUGCHECK_SOFT_FLOOR_8400 - rugcheckScore
+    fun rugcheckRefusal8418(rugcheckScore: Int): String? = when {
+        rugcheckScore == 0 -> "rugcheck_0_confirmed_rug"
+        rugcheckScore in 2 until RUGCHECK_DANGER_FLOOR_8418 -> "rugcheck_${rugcheckScore}_below_min_$RUGCHECK_DANGER_FLOOR_8418"
+        else -> null
     }
-    private const val RUGCHECK_SOFT_FLOOR_8400 = 15
+    private const val RUGCHECK_DANGER_FLOOR_8418 = 15
 
     
     private fun detectSpaceMode(marketCapUsd: Double, isCollectiveWinner: Boolean = false): SpaceMode {
@@ -559,10 +562,9 @@ object MoonshotTraderAI {
         // every other confirmed score is a graded penalty on the fluid score below (RUGCHECK_SOFT_PENALTY_8400), and the
         // same reading already reaches FDG / TradeAuthorizer / LifecycleStrategy / QuarantineStore as penalties, the
         // SafetyReport ladder, and the learner's `rc` feature — the edge decides, not a constant.
-        if (rugcheckScore == 0) {
-            return MoonshotScore(false, 0, 0.0, "rugcheck_0_confirmed_rug")
-        }
-        val rcPenalty8400 = rugcheckSoftPenalty8400(rugcheckScore)
+        // superseded by V5.0.8418 — the 8400 soft penalty is reverted: the danger band 2..14 (risk 86..98) is refused in both
+        // modes again (V5.0.7550), a confirmed rug (0) as before. Rug is hard safety; the count is RUGCHECK_RISK_BAND_8399_*.
+        rugcheckRefusal8418(rugcheckScore)?.let { why -> return MoonshotScore(false, 0, 0.0, why) }
 
         // V5.9.316: REVERTED V5.9.235 base44 HARD ENTRY GATES — they were
         // strangling moonshot entries. Build #1941 era found 500% trades by
@@ -580,8 +582,6 @@ object MoonshotTraderAI {
         
         // ─── SCORING ───
         var score = 0
-        // V5.0.8400 — confirmed low safety is a graded penalty on the fluid score, never a door (see above).
-        score -= rcPenalty8400
         
         // Market cap bonus - sweet spots by mode
         val mode = detectSpaceMode(marketCapUsd, isCollective)

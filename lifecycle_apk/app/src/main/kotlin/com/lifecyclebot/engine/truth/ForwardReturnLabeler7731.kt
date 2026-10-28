@@ -1232,6 +1232,7 @@ object ForwardReturnLabeler7731 {
     fun launchWindowEnd8379(lane: String, birthAgeMs: Long, decidedAtMs: Long): Long {
         val l = try { CanonicalLaneIdentity6506.desk8392(lane) } catch (_: Throwable) { lane.trim().uppercase() }
         if (l !in com.lifecyclebot.engine.LaunchWindow8379.LANES_8379) return 0L
+        if (!com.lifecyclebot.engine.LaunchWindow8379.lossHoldEnabled8418) return 0L   // V5.0.8418 — labels grade the stop live trades
         if (birthAgeMs !in 0L until com.lifecyclebot.engine.LaunchWindow8379.TOKEN_AGE_MS_8379) return 0L
         return decidedAtMs + maxOf(com.lifecyclebot.engine.LaunchWindow8379.minHoldMs8379(), com.lifecyclebot.engine.LaunchWindow8379.TOKEN_AGE_MS_8379 - birthAgeMs)
     }

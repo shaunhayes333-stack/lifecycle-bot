@@ -72,8 +72,14 @@ class Aate8379LaunchWindowTest {
     private val lad: (Double, Double) -> Double = { _, rest -> rest }
 
     @Test fun labelsGradeTheWindowAsLiveTradesIt() {
-        assertEquals(1_000L + 25 * min, fr.launchWindowEnd8379("SHITCOIN", 5 * min, 1_000L))
-        assertEquals(1_000L + 10 * min, fr.launchWindowEnd8379("MOONSHOT", 25 * min, 1_000L))
+        // superseded by V5.0.8418 — the loss hold is off until the owner confirms it, and labels grade what live trades: no
+        // window end while it is off. The window arithmetic below is asserted with the switch on (then restored).
+        assertEquals(0L, fr.launchWindowEnd8379("SHITCOIN", 5 * min, 1_000L))
+        w.lossHoldEnabled8418 = true
+        try {
+            assertEquals(1_000L + 25 * min, fr.launchWindowEnd8379("SHITCOIN", 5 * min, 1_000L))
+            assertEquals(1_000L + 10 * min, fr.launchWindowEnd8379("MOONSHOT", 25 * min, 1_000L))
+        } finally { w.lossHoldEnabled8418 = false }
         assertEquals(0L, fr.launchWindowEnd8379("QUALITY", 5 * min, 1_000L))
         assertEquals(0L, fr.launchWindowEnd8379("SHITCOIN", -1L, 1_000L))
         assertEquals(0L, fr.launchWindowEnd8379("SHITCOIN", 31 * min, 1_000L))

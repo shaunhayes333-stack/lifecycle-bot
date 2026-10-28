@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicLong
  *  1. the row already has a cap                         -> ROW
  *  2. the curve's own reserves (frame / account read)   -> CURVE_RESERVES   (CurveReserves7951.hydrateMcap8399)
  *  3. independent price x resolved supply               -> PRICE_X_SUPPLY   (TrustedMcap8019.mcap8019, writes the row)
- *  4. an active pump curve's real SOL -> cap invariant  -> CURVE_FROM_LIQUIDITY (inverse of LiquidityTruth8037.curveRealSolFromCap8048)
+ *  4. (V5.0.8418: the curve-from-liquidity derivation is removed — a cap is never derived from a depth)
  *  5. none of the above: queue the batched chain read   -> CHAIN_READ_QUEUED (OnChainDepth8038.needDepth8047; the next
  *     evaluate re-runs this and the fingerprint carries lastMcap)
  *
@@ -32,12 +32,8 @@ object DiscoveryCapture8400 {
     private const val ROW = "ROW"
     private const val CURVE_RESERVES = "CURVE_RESERVES"
     private const val PRICE_X_SUPPLY = "PRICE_X_SUPPLY"
-    private const val CURVE_FROM_LIQUIDITY = "CURVE_FROM_LIQUIDITY"
     private const val CHAIN_READ_QUEUED = "CHAIN_READ_QUEUED"
     private const val UNRESOLVED = "UNRESOLVED"
-
-    /** pump.fun curve invariant: 30 + r virtual SOL over a 1B supply gives cap = (30 + r)^2 / 32.19 SOL (inverse of 8048). */
-    private const val CURVE_K_8400 = 30.0 * 1.073
 
     private val resolved = AtomicLong(0)
     private val queued = AtomicLong(0)
@@ -52,19 +48,6 @@ object DiscoveryCapture8400 {
     }
     private fun top(m: Map<String, AtomicLong>, n: Int = 6): String =
         m.entries.sortedByDescending { it.value.get() }.take(n).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-
-    /** Pure: an active curve's cap in SOL from the real SOL buyers put in, or NaN. */
-    fun curveCapSolFromRealSol8400(realSol: Double): Double =
-        if (realSol.isFinite() && realSol >= 0.0) (realSol + 30.0) * (realSol + 30.0) / CURVE_K_8400 else Double.NaN
-
-    /** Pure: the cap in USD an active curve's USD depth implies, or NaN. */
-    fun curveCapUsdFromLiquidity8400(liquidityUsd: Double, solUsd: Double): Double {
-        if (!(liquidityUsd.isFinite() && liquidityUsd > 0.0 && solUsd.isFinite() && solUsd > 0.0)) return Double.NaN
-        val realSol = EconomicUnitInvariant7061.usdToSol(liquidityUsd, solUsd)   // the one USD->SOL authority (ci/economic_units_scan §1)
-        if (!(realSol.isFinite() && realSol > 0.0)) return Double.NaN
-        val capSol = curveCapSolFromRealSol8400(realSol)
-        return if (capSol.isFinite() && capSol > 0.0) capSol * solUsd else Double.NaN
-    }
 
     private fun activeCurve8400(mint: String): Boolean =
         (try { com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) } catch (_: Throwable) { false }) &&
@@ -86,13 +69,9 @@ object DiscoveryCapture8400 {
             val v = TrustedMcap8019.mcap8019(ts)   // writes the price-implied cap back to the row when it can
             if (v.isFinite() && v > 0.0) how = PRICE_X_SUPPLY
         } catch (_: Throwable) {}
-        if (how == UNRESOLVED && activeCurve8400(ts.mint)) {
-            val cap = curveCapUsdFromLiquidity8400(ts.lastLiquidityUsd, solUsd)
-            if (cap.isFinite() && cap > 0.0) {
-                synchronized(ts) { if (!(ts.lastMcap.isFinite() && ts.lastMcap > 0.0)) ts.lastMcap = cap }
-                how = CURVE_FROM_LIQUIDITY
-            }
-        }
+        // superseded by V5.0.8418 — step 4 (CURVE_FROM_LIQUIDITY: cap = (realSol + 30)^2 / 32.19 from ts.lastLiquidityUsd) is
+        // deleted: it derived a cap from a depth that LiquidityTruth8037 may itself have derived from a cap, over an assumed 1B
+        // supply. Without observed reserves x verified supply or price x verified supply the cap stays UNKNOWN (chain read queued).
         if (how == UNRESOLVED) {
             try { OnChainDepth8038.needDepth8047(ts) } catch (_: Throwable) {}
             how = if (activeCurve8400(ts.mint) || ts.mint.endsWith("pump", ignoreCase = true)) CHAIN_READ_QUEUED else UNRESOLVED

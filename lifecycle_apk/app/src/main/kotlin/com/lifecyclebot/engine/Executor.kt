@@ -2765,7 +2765,7 @@ class Executor(
         // goes Jupiter first whenever Jupiter quotes the mint; PumpPortal only when it has no route (Costs8369).
         val graduatedPool8369 = venue == "PUMPSWAP" || venue == "RAYDIUM"
         val quotes8369 = if (graduatedPool8369) null else costJupiterQuotes8369(ts)
-        val jupiterFirst8369 = Costs8369.jupiterFirstForBuy8369(venue, quotes8369, CostMeter8151.aggregatorTriedRecently8151(ts.mint), Costs8369.jupiterBuysFailing8369())
+        val jupiterFirst8369 = Costs8369.jupiterFirstForBuy8369(venue, quotes8369, CostMeter8151.aggregatorTriedRecently8151(ts.mint), Costs8369.jupiterBuysFailing8369(), Costs8369.pumpBuysLanding8418())
         try { Costs8369.noteBuyRoute8369(ts.mint, if (jupiterFirst8369) "JUPITER" else "PUMPPORTAL") } catch (_: Throwable) {}
         if (!jupiterFirst8369) return false
         try {

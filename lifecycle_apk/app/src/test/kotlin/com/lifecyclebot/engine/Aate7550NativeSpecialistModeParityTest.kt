@@ -21,8 +21,10 @@ class Aate7550NativeSpecialistModeParityTest {
         val score=s.substringAfter("fun scoreToken(").substringBefore("fun openPosition")
         // V5.0.8400 — the RC floor became a graded penalty on the fluid score (mode-neutral, no isPaperMode read);
         // only a confirmed rug (score 0) is refused. The 7550 invariant (one RC reading for both modes) is preserved.
-        assertTrue(score.contains("if (rugcheckScore == 0) {"))
-        assertTrue(score.contains("val rcPenalty8400 = rugcheckSoftPenalty8400(rugcheckScore)"))
+        // superseded by V5.0.8418 — the 8400 soft penalty is reverted: 0 and the danger band 2..14 refuse again, in both
+        // modes, through one pure rule (was: `if (rugcheckScore == 0) {` + `val rcPenalty8400 = rugcheckSoftPenalty8400(...)`).
+        assertTrue(score.contains("rugcheckRefusal8418(rugcheckScore)?.let { why -> return MoonshotScore(false, 0, 0.0, why) }"))
+        assertFalse(score.contains("rcPenalty8400"))
         assertFalse(score.contains("val minRcScore = if (pendingRc) 1 else 15"))
         assertFalse(score.substringAfter("val pendingRc").substringBefore("SCORING").contains("isPaperMode"))
         // V5.0.7791 superseded the 7550 score-floor parity: paper MOONSHOT is an exploratory tail scanner

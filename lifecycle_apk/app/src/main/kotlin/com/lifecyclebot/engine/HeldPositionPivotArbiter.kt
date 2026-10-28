@@ -84,8 +84,9 @@ object HeldPositionPivotArbiter {
                                   momentumConfirmed: Boolean): Boolean {
         if (from == to || !pnl.isFinite() || !peak.isFinite() ||
             to !in HoldingLogicLayer.getAllModeParams()) return false
-        val ensemble = com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(owner)
-        if (!ensemble && RunnerExitProfile7277.refusesLaneChange(from, to)) return false
+        // superseded by V5.0.8418 — the runner guard binds for EVERY owner again (8384 exempted ensemble desks, so a CORE /
+        // TREASURY / CASHGEN / CYCLIC-owned runner could be re-laned out of runner management): V5.0.7369 FBdrdZ.
+        if (RunnerExitProfile7277.refusesLaneChange(from, to)) return false
         val old = HoldingLogicLayer.getHoldParams(from)
         val next = HoldingLogicLayer.getHoldParams(to)
         val addsPatience = next.maxHoldTimeMs > old.maxHoldTimeMs || next.targetProfitPct > old.targetProfitPct

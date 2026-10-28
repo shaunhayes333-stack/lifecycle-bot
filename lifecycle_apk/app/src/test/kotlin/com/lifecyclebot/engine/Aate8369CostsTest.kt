@@ -135,7 +135,8 @@ class Aate8369CostsTest {
         assertTrue(dup.contains("RentReclaimer7927.noteFullExit8151(mint)"))
         assertTrue(lpca.contains("if (remainingQtyRaw <= 0L) try { com.lifecyclebot.engine.RentReclaimer7927.noteFullExit8151(mint) }"))
         val ex = src("engine/Executor.kt")
-        assertTrue(ex.contains("Costs8369.jupiterFirstForBuy8369(venue, quotes8369, CostMeter8151.aggregatorTriedRecently8151(ts.mint), Costs8369.jupiterBuysFailing8369())"))
+        // superseded by V5.0.8418 — the call also passes PumpPortal's measured landing (symmetric Jupiter route-away).
+        assertTrue(ex.contains("Costs8369.jupiterFirstForBuy8369(venue, quotes8369, CostMeter8151.aggregatorTriedRecently8151(ts.mint), Costs8369.jupiterBuysFailing8369(), Costs8369.pumpBuysLanding8418())"))
         assertTrue(ex.contains("val tip = if (entry && !urgent && !grabbed8369) Costs8369.entryTip8369(tip8151, ticketSol8369, pump8369) else tip8151"))
         assertTrue(ex.contains("entry = true, ticketSol8369 = buySol, pump8369 = true)"))
         assertTrue(ex.contains("Costs8369.entryCapActive8369(true, RunnerGrab7967.isGrabbed7980(ts.mint))"))

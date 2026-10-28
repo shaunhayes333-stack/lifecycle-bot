@@ -211,7 +211,7 @@ object HoldingLogicLayer {
             }
 
             val targetProfit6091 = baseTarget6684 * ssiExitPatience6091 * tpMult7455
-            val trailingStopPct6091 = params.trailingStopPct * ssiExitPatience6091
+            val trailingStopPct6091 = LaneHolds8418.trailFor8418(mode, learningLane8384, params.trailingStopPct) * ssiExitPatience6091   // V5.0.8418 — runner trail floor
             val maxHoldTimeMs6091 = (baseMaxHoldMs6684.toDouble() * ssiExitPatience6091 * holdMult7455).toLong()
                 .coerceAtLeast(baseMaxHoldMs6684 / 2L)
             
@@ -393,7 +393,7 @@ object HoldingLogicLayer {
             }
 
             // V5.2: Fluid max hold time exceeded (layer-specific, learning-aware)
-            if (holdTimeMinutes > tunedFluidMaxHold7455) {
+            if (holdTimeMinutes > tunedFluidMaxHold7455 && LaneHolds8418.clockBinds8418(mode, learningLane8384, currentPnlPct)) {   // V5.0.8418 — not on a green runner
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
                     reason = "Fluid hold time exceeded: ${holdTimeMinutes}min > ${tunedFluidMaxHold7455.toInt()}min [$layer] tune×${"%.2f".format(holdMult7455)}",
@@ -403,7 +403,7 @@ object HoldingLogicLayer {
             }
             
             // Legacy max hold time fallback
-            if (holdTimeMs > maxHoldTimeMs6091) {
+            if (holdTimeMs > maxHoldTimeMs6091 && LaneHolds8418.clockBinds8418(mode, learningLane8384, currentPnlPct)) {   // V5.0.8418 — not on a green runner
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
                     reason = "Max hold time exceeded: ${holdTimeMinutes}min > ${maxHoldTimeMs6091 / 60000}min ssiPatience=${"%.2f".format(ssiExitPatience6091)}",
@@ -723,18 +723,10 @@ object HoldingLogicLayer {
         val lane = mode.trim().uppercase()
         MODE_PARAMS[lane]?.let { return it }
         // V5.0.8384: named specialist modes must not silently receive STANDARD's four-hour policy.
-        // Existing field-guide mandates own risk/target; an internal technique switch never loosens hard safety.
-        val alias = when (lane) {
-            "TREASURY", "CASHGEN" -> "MARKET_MAKER"
-            "CORE" -> "STANDARD"
-            "QUALITY", "BLUECHIP" -> "BLUE_CHIP"
-            "SHITCOIN", "PROJECT_SNIPER" -> "MICRO_CAP"
-            "EXPRESS" -> "PUMP_SNIPER"
-            "MANIPULATED" -> "PUMP_DUMP"
-            "DIP_HUNTER" -> "REVIVAL"
-            else -> return MODE_PARAMS["STANDARD"]!!
-        }
-        val base = MODE_PARAMS.getValue(alias)
+        // superseded by V5.0.8418 — the silent alias table (EXPRESS -> PUMP_SNIPER 30 min, MANIPULATED -> PUMP_DUMP 15 min,
+        // TREASURY / CASHGEN -> MARKET_MAKER 30 min) is replaced by one documented hold per lane (LaneHolds8418).
+        val hold8418 = LaneHolds8418.holdFor8418(lane) ?: return MODE_PARAMS["STANDARD"]!!
+        val base = MODE_PARAMS.getValue(hold8418.base).copy(maxHoldTimeMs = hold8418.maxHoldMs, trailingStopPct = hold8418.trailPct)
         val mandate = com.lifecyclebot.engine.truth.FieldManual7715.mandateFor(lane)
         // V5.0.8392 — the stop is never inside the lane's round trip (FieldManual7715.stopPct8392: TREASURY / CASHGEN traded a
         // 5 % stop against a 9.28 % measured trip), and a non-runner desk holds at least the 60-min window the Cortex grades

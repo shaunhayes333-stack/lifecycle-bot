@@ -43,8 +43,14 @@ class Aate8384SharedSpecialistLifecycleTest {
         }
     }
     @Test fun sharedStylesDoNotBecomeCrossLaneOwnershipOrUniversalSpecialistPermission() {
-        for (lane in ensembles) for (style in AgenticStyleRouter.Style.values())
-            assertTrue("$lane/${style.name}", AgenticStyleRouter.toolkitStyleFitsLane8080(style.lanes, lane))
+        // superseded by V5.0.8418 — ensemble desks share every style except that a non-runner desk never runs a runner-only one
+        // (was: every style fits every ensemble desk).
+        for (lane in ensembles) for (style in AgenticStyleRouter.Style.values()) {
+            val expected = !AgenticStyleRouter.runnerOnlyStyle8418(style.lanes) || RunnerExitProfile7277.isRunnerLane(lane)
+            assertEquals("$lane/${style.name}", expected, AgenticStyleRouter.toolkitStyleFitsLane8080(style.lanes, lane))
+        }
+        assertFalse(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("MOONSHOT"), "TREASURY"))
+        assertTrue(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("MOONSHOT"), "CORE"))
         assertFalse(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("CASHGEN"), "MOONSHOT"))
     }
     @Test fun receivingDeskKeepsItsObservedEntryExitHoldBundle() {
@@ -78,7 +84,10 @@ class Aate8384SharedSpecialistLifecycleTest {
         for (lane in ensembles) assertTrue(HoldingLogicLayer.shouldCheckModeSwitch(Position(tradingMode = lane)))
     }
     @Test fun sharedSwitchesCanCutButCannotLaunderLosersIntoPatientRunners() {
-        assertTrue(HeldPositionPivotArbiter.switchAllowed8384("CORE", "CORE", "MARKET_MAKER", -8.0, 2.0, false))
+        // superseded by V5.0.8418 — CORE is a runner lane (RunnerExitProfile7277): an ensemble owner no longer skips the runner
+        // guard, so CORE -> MARKET_MAKER is refused (was assertTrue). A non-runner management mode may still cut to a tighter one.
+        assertFalse(HeldPositionPivotArbiter.switchAllowed8384("CORE", "CORE", "MARKET_MAKER", -8.0, 2.0, false))
+        assertTrue(HeldPositionPivotArbiter.switchAllowed8384("CORE", "STANDARD", "MARKET_MAKER", -8.0, 2.0, false))
         assertFalse(HeldPositionPivotArbiter.switchAllowed8384("MOONSHOT", "MOONSHOT", "MARKET_MAKER", 12.0, 14.0, true))
         for (lane in ensembles) {
             assertFalse(HeldPositionPivotArbiter.switchAllowed8384(lane, "PUMP_SNIPER", "MOONSHOT", -8.0, 2.0, true))
@@ -106,10 +115,13 @@ class Aate8384SharedSpecialistLifecycleTest {
         val before = EntryStrategySnapshot6450.cachedManagement8384(ts.position.positionId)
         val pool = Executors.newFixedThreadPool(6)
         try {
+            // superseded by V5.0.8418 — a MOONSHOT-managed (runner) position may not be re-laned to MARKET_MAKER even under an
+            // ensemble owner (was: the six racing switches to MARKET_MAKER, one committed). The race runs on a runner technique.
+            assertFalse(HeldPositionPivotArbiter.applyMode8384(ts, "MARKET_MAKER", 5.0, 8.0, false, "test", 100_000))
             val results = pool.invokeAll((1..6).map { Callable {
-                HeldPositionPivotArbiter.applyMode8384(ts, "MARKET_MAKER", 5.0, 8.0, false, "test", 100_000)
+                HeldPositionPivotArbiter.applyMode8384(ts, "PRESALE_SNIPE", 5.0, 8.0, false, "test", 100_000)
             } }).map { it.get() }
-            assertEquals(1, results.count { it }); assertEquals("MOONSHOT>MARKET_MAKER", ts.position.modeHistory)
+            assertEquals(1, results.count { it }); assertEquals("MOONSHOT>PRESALE_SNIPE", ts.position.modeHistory)
             assertEquals(100_000L, ts.position.lastManagementSwitchAtMs8384)
             assertSame(before, EntryStrategySnapshot6450.cachedManagement8384(ts.position.positionId))
             assertEquals("CORE", HeldPositionPivotArbiter.entryOwner8384(ts))

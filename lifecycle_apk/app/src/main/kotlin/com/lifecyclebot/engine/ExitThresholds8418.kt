@@ -81,7 +81,8 @@ object ExitThresholds8418 {
     fun statusLine8418(): String =
         "exitThresholds8418[" + bound.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
             "] rule=stop:plan>lifecycle>lane(doctrine,runnerFloor)>winnerDip>noise; global only when lane unknown; " +
-            "catastrophe>=${CATASTROPHE_BASE_PCT_8418.toInt()}%,lifecycleFloor " + CyclicContract8418.statusLine8418()
+            "catastrophe>=${CATASTROPHE_BASE_PCT_8418.toInt()}%,lifecycleFloor " + CyclicContract8418.statusLine8418() +
+            " " + LaneHolds8418.statusLine8418()
 }
 
 /**

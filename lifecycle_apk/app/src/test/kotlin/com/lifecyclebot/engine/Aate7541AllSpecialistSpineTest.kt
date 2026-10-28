@@ -38,7 +38,10 @@ class Aate7541AllSpecialistSpineTest {
         assertTrue(growth.contains("CASH_GENERATION\") -> \"CASHGEN\""))
         val agent = src("engine/AgenticStyleRouter.kt")
         assertTrue(agent.contains("\"CASHGEN\" -> fallback"))
-        assertTrue(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("MOONSHOT"), "CASHGEN"))
+        // superseded by V5.0.8418 — a runner-only style no longer fits the CASHGEN scalp desk (was assertTrue; the 8384 audit says
+        // the 8080 no-CASHGEN-to-MOONSHOT rule is retained); a shared non-runner style still does.
+        assertFalse(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("MOONSHOT"), "CASHGEN"))
+        assertTrue(AgenticStyleRouter.toolkitStyleFitsLane8080(setOf("QUALITY"), "CASHGEN"))
         assertTrue(agent.contains("val tuneLane = laneHint.ifBlank"))
         assertTrue(ToolkitSignalSheet.preferDesk8384(null, ToolkitSignalSheet.DeskHypothesis(
             "CASHGEN", ToolkitSignalSheet.Setup.CASHFLOW_SCALP, 70.0, "entry", "exit", 1.0, 1.0, 1.0, "native")).lane == "CASHGEN")

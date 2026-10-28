@@ -258,9 +258,18 @@ object AgenticStyleRouter {
         else (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, laneHint) } catch (_: Throwable) { null } ?: "NONE")  // V5.0.8153 — the admitted strategy
 
     /** Pure (V5.0.8080): may a style declared for [styleLanes] run in [laneHint]? Blank lane / ensemble desks accept shared tools, never donor ownership. */
+    /** Pure (V5.0.8418): is a style declared only for runner lanes? Empty = no declaration (not runner-only). */
+    fun runnerOnlyStyle8418(styleLanes: Set<String>): Boolean =
+        styleLanes.isNotEmpty() && styleLanes.all { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(it) }
+
     fun toolkitStyleFitsLane8080(styleLanes: Set<String>, laneHint: String): Boolean {
         val lane = try { BleederMemoryRouter.canon(laneHint) } catch (_: Throwable) { laneHint.trim().uppercase() }
-        if (lane.isBlank() || com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(lane) || styleLanes.isEmpty()) return true
+        if (lane.isBlank() || styleLanes.isEmpty()) return true
+        // V5.0.8418 — ensemble desks share every lane's styles EXCEPT that a non-runner desk (TREASURY / CASHGEN / CYCLIC) never
+        // runs a runner-only style (every declared lane a runner lane, e.g. MOONSHOT): the 8080 misfit rule the 8384 audit
+        // (AUDIT_SHARED_TOOLKIT_8384.md) says is retained. CORE, the runner ensemble, keeps them.
+        if (com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(lane))
+            return !runnerOnlyStyle8418(styleLanes) || com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane)
         return styleLanes.any { (try { BleederMemoryRouter.canon(it) } catch (_: Throwable) { it.uppercase() }) == lane }
     }
 
