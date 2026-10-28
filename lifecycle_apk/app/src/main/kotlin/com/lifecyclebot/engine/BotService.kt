@@ -1098,7 +1098,7 @@ class BotService : Service() {
     /** V5.0.7792 — 7791's unknown-mcap path: observed liquidity at the bootstrap floor. */
     private fun moonshotUnknownMcapLiquid7792(ts: com.lifecyclebot.data.TokenState): Boolean {
         if (ts.lastMcap > 0.0) return false
-        val liq = try { maxOf(ts.lastLiquidityUsd, TokenMapAuthority.observedLiquidityUsd(ts)) } catch (_: Throwable) { ts.lastLiquidityUsd }
+        val liq = try { com.lifecyclebot.engine.truth.LiquidityTruth8037.latest8418(TokenMapAuthority.observedLiquidityUsd(ts), ts.lastLiquidityUsd) } catch (_: Throwable) { ts.lastLiquidityUsd }  // V5.0.8418 — newest, not largest
         return liq >= com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_LIQUIDITY_USD_BOOTSTRAP
     }
 
@@ -11391,7 +11391,7 @@ class BotService : Service() {
                             val mcapUsd = mcapSol * solUsd
                             // V5.0.8048 — the curve's real SOL from its cap (was mcap x 0.85: a fresh launch read ~$2.6K deep
                             // with nobody in it — BOWNARROW). The chain read (CurveReserves7951) replaces it once it lands.
-                            val estLiq = com.lifecyclebot.engine.truth.LiquidityTruth8037.curveRealSolFromCap8048(mcapSol) * solUsd
+                            val estLiq = com.lifecyclebot.engine.truth.LiquidityTruth8037.capDerived8418(mint, com.lifecyclebot.engine.truth.LiquidityTruth8037.curveRealSolFromCap8048(mcapSol) * solUsd)  // V5.0.8418 — tagged: never the tick
                             // V5.9.1463 — DERIVED intake confidence (was hardcoded 80 for
                             // EVERY WS token). That constant lie was the root of the 6.3% WR:
                             // a brand-new bonding-curve launch with vol1h=$0 and ~$1.5k liq is
@@ -16196,7 +16196,7 @@ class BotService : Service() {
                 // because rebalance runs before status.tokens hydration. Use registry
                 // intake metadata first, then any live TokenState fallback.
                 // V5.0.6968 — snapshot read; same maxOf(intake, live) semantics.
-                val demoteLiq = maxOf(entry.initialLiquidityUsd, snap6968[entry.mint]?.second ?: 0.0)
+                val demoteLiq = com.lifecyclebot.engine.truth.LiquidityTruth8037.latest8418(snap6968[entry.mint]?.second ?: 0.0, entry.initialLiquidityUsd)  // V5.0.8418 — live first, not the larger
                 val demoteConf = entry.initialConfidence.coerceAtLeast(0)
                 val ok = try {
                     com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(
@@ -16817,7 +16817,7 @@ class BotService : Service() {
                     status.tokens[mint]?.let { existing ->
                         // V5.0.8345 — the max-take write goes through the hydration hook (a first fill resumes the deferred task).
                         if (HydrationReeval8343.intakeLiquidity8345(existing, liquidityUsd)) tokenEvidenceImproved7475 = true
-                        if (trustedMarketCapUsd6492 > existing.lastMcap) {
+                        if (trustedMarketCapUsd6492 > 0.0 && trustedMarketCapUsd6492 != existing.lastMcap) {  // V5.0.8418 — newer replaces, up or down
                             existing.lastMcap = trustedMarketCapUsd6492
                             tokenEvidenceImproved7475 = true
                         }
@@ -25899,7 +25899,7 @@ if (hotExitHandledSweep) {
                 val solUsd8165 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
                 val pxSol8165 = try { com.lifecyclebot.engine.market.LaunchTape7921.lastPriceSol8165(mint) } catch (_: Throwable) { 0.0 }
                 val capUsd8165 = com.lifecyclebot.engine.truth.MintSupply8418.capSol8418(mint, pxSol8165) * solUsd8165   // V5.0.8418 — verified supply x print; NaN = unknown (was x 1e9)
-                val liqUsd8165 = com.lifecyclebot.engine.truth.CurveReserves7951.curveDepthUsdFromPrice8418(pxSol8165, solUsd8165) ?: 0.0
+                val liqUsd8165 = com.lifecyclebot.engine.truth.LiquidityTruth8037.capDerived8418(mint, com.lifecyclebot.engine.truth.CurveReserves7951.curveDepthUsdFromPrice8418(pxSol8165, solUsd8165) ?: 0.0)  // V5.0.8418 — derived (not a reserve read): marked so it never overwrites a chain tick
                 admitProtectedMemeIntake(
                     mint = mint,
                     symbol = symbol.ifBlank { mint.take(6) },
@@ -25993,7 +25993,7 @@ if (hotExitHandledSweep) {
         val capSol = com.lifecyclebot.engine.truth.MintSupply8418.capSol8418(mint, priceSol).takeIf { it.isFinite() } ?: return   // V5.0.8418 — verified supply x price; the frame's own 1e9 cap (mcapSol=$mcapSol) is not evidence
         val bornAt = FreshLaunchIntake8303.createBirthMs8303(mint) ?: return  // V5.0.8303 — any witnessed create frame, not only one with reserves
         val meta = com.lifecyclebot.engine.truth.PumpBandEntry8118.claim8118(mint, capSol * solUsd, System.currentTimeMillis() - bornAt) ?: return
-        val liqUsd = com.lifecyclebot.engine.truth.CurveReserves7951.realSolFromPrice8418(priceSol) * solUsd   // V5.0.8418 — curve invariant on the price, not on a cap
+        val liqUsd = com.lifecyclebot.engine.truth.LiquidityTruth8037.capDerived8418(mint, com.lifecyclebot.engine.truth.CurveReserves7951.realSolFromPrice8418(priceSol) * solUsd)   // V5.0.8418 — curve invariant on the price, not on a cap; derived, so marked
         try { PipelineHealthCollector.labelInc("PUMP_BAND_ENTRY_8118") } catch (_: Throwable) {}
         val admitted = admitProtectedMemeIntake(
             mint = mint, symbol = meta.symbol, name = meta.name, source = "PUMP_PORTAL_WS",

@@ -113,9 +113,24 @@ object HydrationReeval8343 {
         return true
     }
 
-    /** BotService.admitProtectedMemeIntake (max-take semantics, V5.9.769): a higher intake figure writes; returns whether it did. */
-    fun intakeLiquidity8345(ts: TokenState, liquidityUsd: Double): Boolean =
-        if (liquidityUsd.isFinite() && liquidityUsd > ts.lastLiquidityUsd) writeTick8345(ts, liquidityUsd, "INTAKE") else false
+    /**
+     * BotService.admitProtectedMemeIntake: a real intake observation writes the tick; returns whether it did.
+     * V5.0.8418 — superseded V5.9.769 max-take (the largest historical figure survived a drained pool): a newer real
+     * observation replaces the tick up or down; a cap-derived intake figure never writes (its depth is read from the
+     * chain instead), and a tick the chain currently holds is not overwritten by an API figure.
+     */
+    fun intakeLiquidity8345(ts: TokenState, liquidityUsd: Double): Boolean {
+        val lt = com.lifecyclebot.engine.truth.LiquidityTruth8037
+        val capDerived = lt.isCapDerived8418(ts.mint, liquidityUsd)
+        if (capDerived) {
+            lt.noteIntake8418(capDerived = true, lowered = false)
+            try { com.lifecyclebot.engine.truth.OnChainDepth8038.needDepth8047(ts) } catch (_: Throwable) {}
+            return false
+        }
+        if (!lt.intakeWrites8418(ts.lastLiquidityUsd, liquidityUsd, false, lt.chainHeld8418(ts))) return false
+        if (ts.lastLiquidityUsd > 0.0 && liquidityUsd < ts.lastLiquidityUsd) lt.noteIntake8418(capDerived = false, lowered = true)
+        return writeTick8345(ts, liquidityUsd, "INTAKE")
+    }
 
     /** BotService.processTokenCycle: the DexScreener pair poll's figure, unless the 7323 curve-keep rule holds the last positive one. */
     fun pollLiquidity8345(ts: TokenState, pairLiquidityUsd: Double, curveKeep7323: Boolean, keptLabel7323: String = "CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323") {

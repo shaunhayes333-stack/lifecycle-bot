@@ -69,7 +69,7 @@ object HandoffRoute8180 {
         when (lane) {
             "MOONSHOT" -> {
                 // MoonshotTraderAI.scoreToken: cap band first (an unknown cap is below its floor), then the observed pool.
-                val liq = maxOf(hydrated, try { TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 })
+                val liq = com.lifecyclebot.engine.truth.LiquidityTruth8037.latest8418(hydrated, try { TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 })  // V5.0.8418
                 cap.isFinite() && cap >= MoonshotTraderAI.minMarketCapUsdFluid7719() && cap <= MoonshotTraderAI.MAX_MARKET_CAP_USD &&
                     meets8180(liq, LaneAgeLiquidityScope8140.effectiveLiquidityFloor8140(MoonshotTraderAI.minLiquidityUsdNow8180(), live))
             }

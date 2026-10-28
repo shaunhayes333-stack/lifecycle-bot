@@ -40,6 +40,15 @@ object OnChainDepth8038 {
     const val RAYDIUM_V4 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
     const val RAYDIUM_CPMM = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"
     const val WSOL = "So11111111111111111111111111111111111111112"
+    // V5.0.8418 — concentrated / dynamic venues: their vaults are the pool's real reserves (depth), but the vault ratio
+    // is NOT the price (liquidity sits in bins / ranges), so their reads give depth only — never a price or a
+    // constant-product sell-out.
+    const val RAYDIUM_CLMM_8418 = "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
+    const val METEORA_DLMM_8418 = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
+    const val METEORA_DAMM_V2_8418 = "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG"   // MeteoraAg/damm-v2 programs/cp-amm/src/lib.rs declare_id
+    /** DAMM v1 holds its reserves as shares of Meteora dynamic vaults (not two token accounts): depth stays UNKNOWN. */
+    const val METEORA_DAMM_V1_8418 = "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB"
+    private val CONCENTRATED_8418 = setOf(RAYDIUM_CLMM_8418, METEORA_DLMM_8418, METEORA_DAMM_V2_8418)
     private const val CONTRADICTION_MULT_8038 = 4.0
     private const val PRICE_DROP_TOLERANCE_8038 = 0.40
     private const val FRESH_MS = 90_000L
@@ -50,6 +59,9 @@ object OnChainDepth8038 {
     data class Read(val pool: String, val quoteSol: Double, val baseTokens: Double, val atMs: Long)
 
     private val vaultsOf = ConcurrentHashMap<String, Pair<String, String>>()     // pool -> vaults
+    private val poolOwner8418 = ConcurrentHashMap<String, String>()              // pool -> owner program
+    private val depthOnlyReads8418 = ConcurrentHashMap<String, Read>()           // mint -> concentrated-venue read (depth only)
+    private val unsupportedByVenue8418 = ConcurrentHashMap<String, AtomicLong>()
     private val unsupported = ConcurrentHashMap<String, Long>()                  // pool -> at
     private val reads = ConcurrentHashMap<String, Read>()                        // mint -> read
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
@@ -68,7 +80,33 @@ object OnChainDepth8038 {
         PUMP_AMM -> 139 to 171          // disc 8, bump u8, index u16, creator, base_mint, quote_mint, lp_mint, base vault, quote vault
         RAYDIUM_V4 -> 336 to 368        // 32 u64 + swap u128/u64 block (336), base vault, quote vault
         RAYDIUM_CPMM -> 72 to 104       // disc 8, amm_config, pool_creator, token_0_vault, token_1_vault
+        // raydium-io/raydium-clmm programs/amm/src/states/pool.rs PoolState (repr(C, packed)): disc 8, bump [u8;1], amm_config,
+        // owner, token_mint_0, token_mint_1, token_vault_0 @137, token_vault_1 @169.
+        RAYDIUM_CLMM_8418 -> 137 to 169
+        // MeteoraAg/dlmm-sdk idls/dlmm.json LbPair, field sizes summed after the 8-byte discriminator: token_x_mint @88,
+        // token_y_mint @120, reserve_x @152, reserve_y @184.
+        METEORA_DLMM_8418 -> 152 to 184
+        // MeteoraAg/damm-v2 programs/cp-amm/src/state/pool.rs Pool: disc 8, pool_fees (fee.rs const_assert_eq
+        // PoolFeesStruct::INIT_SPACE = 160), token_a_mint @168, token_b_mint @200, token_a_vault @232, token_b_vault @264.
+        METEORA_DAMM_V2_8418 -> 232 to 264
         else -> null
+    }
+
+    /** V5.0.8418 — pure: a venue whose vault ratio is not its price (depth only). */
+    fun concentrated8418(owner: String): Boolean = owner in CONCENTRATED_8418
+
+    /** V5.0.8418 — pure: the venue name of a pool-owner program for the diag, or "OTHER". */
+    fun venueName8418(owner: String): String = when (owner) {
+        PUMP_AMM -> "PumpSwap"
+        RAYDIUM_V4 -> "RaydiumV4"
+        RAYDIUM_CPMM -> "RaydiumCPMM"
+        RAYDIUM_CLMM_8418 -> "RaydiumCLMM"
+        METEORA_DLMM_8418 -> "MeteoraDLMM"
+        METEORA_DAMM_V2_8418 -> "MeteoraDAMMv2"
+        METEORA_DAMM_V1_8418 -> "MeteoraDAMMv1"
+        "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc" -> "OrcaWhirlpool"
+        "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P" -> "PumpCurve"
+        else -> "OTHER"
     }
 
     /** Pure: the vault keys of a pool account, or null. */
@@ -127,9 +165,14 @@ object OnChainDepth8038 {
             read.quoteSol.isFinite() && read.quoteSol > 0.0 &&
             read.baseTokens.isFinite() && read.baseTokens > 0.0
 
+    /** V5.0.8418 — a concentrated-venue (depth-only) read of [mint] at most [maxAgeMs] old exists. */
+    fun depthOnlyFresh8418(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
+        depthOnlyReads8418[mint]?.let { nowMs - it.atMs in 0L..maxAgeMs } == true
+
     /** LiquidityTruth8037: the fresh on-chain depth (USD, both sides) of [mint]'s pool, or NaN. Never requests. */
     fun chainDepthUsd8038(mint: String, nowMs: Long = System.currentTimeMillis()): Double =
-        fresh(mint, nowMs)?.let { depthUsd8038(it.quoteSol, solUsd()) } ?: Double.NaN
+        (fresh(mint, nowMs) ?: depthOnlyReads8418[mint]?.takeIf { nowMs - it.atMs in 0L..FRESH_MS })
+            ?.let { depthUsd8038(it.quoteSol, solUsd()) } ?: Double.NaN
 
     private fun pools(ts: TokenState): List<String> =
         listOf(ts.lastPricePoolAddr, ts.pairAddress, ts.tokenMap.poolAddress, ts.tokenMap.pairAddress)
@@ -139,7 +182,7 @@ object OnChainDepth8038 {
     /** Ask for a read of [ts]'s pool in the background (LiveEdgeGate, exits). Returns immediately. */
     fun request8038(ts: TokenState, maxAgeMs: Long = FRESH_MS) {
         val mint = ts.mint
-        if (mint.isBlank() || freshRead8198(mint, maxAgeMs, System.currentTimeMillis()) != null || !inFlight.add(mint)) return
+        if (mint.isBlank() || freshRead8198(mint, maxAgeMs, System.currentTimeMillis()) != null || depthOnlyFresh8418(mint, maxAgeMs) || !inFlight.add(mint)) return
         val ps = pools(ts)
         if (ps.isEmpty()) { inFlight.remove(mint); return }
         try {
@@ -171,9 +214,16 @@ object OnChainDepth8038 {
         val v = res.optJSONObject("value") ?: run { unsupported[poolAddr] = System.currentTimeMillis(); return null }
         val owner = v.optString("owner")
         val data = try { android.util.Base64.decode(v.optJSONArray("data")?.optString(0).orEmpty(), android.util.Base64.DEFAULT) } catch (_: Throwable) { null }
-        val keys = data?.let { vaultKeys8038(owner, it) } ?: run { unsupported[poolAddr] = System.currentTimeMillis(); return null }
+        val keys = data?.let { vaultKeys8038(owner, it) } ?: run {
+            unsupported[poolAddr] = System.currentTimeMillis()
+            // V5.0.8418 — an unreadable venue's depth is UNKNOWN (never estimated); the diag names the venue.
+            unsupportedByVenue8418.computeIfAbsent(venueName8418(owner)) { AtomicLong(0) }.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("ONCHAIN_DEPTH_UNKNOWN_VENUE_8418_${venueName8418(owner)}") } catch (_: Throwable) {}
+            return null
+        }
         vaultsOf[poolAddr] = keys
-        if (vaultsOf.size > 3_000) vaultsOf.keys.take(300).forEach { vaultsOf.remove(it) }
+        poolOwner8418[poolAddr] = owner
+        if (vaultsOf.size > 3_000) vaultsOf.keys.take(300).forEach { vaultsOf.remove(it); poolOwner8418.remove(it) }
         return keys
     }
 
@@ -186,13 +236,29 @@ object OnChainDepth8038 {
     private fun fetch(mint: String, poolAddrs: List<String>): Read? {
         for (p in poolAddrs.take(2)) {
             val (a, b) = vaultsFor(p) ?: continue
+            // V5.0.8418 — the venue decides how the vaults may be read; vaults without a known owner are re-read.
+            val owner8418 = poolOwner8418[p] ?: run { vaultsOf.remove(p); null } ?: continue
             val observedAt = System.currentTimeMillis()
             val res = rpc("getMultipleAccounts", JSONArray().put(JSONArray().put(a).put(b)).put(JSONObject().put("encoding", "jsonParsed").put("commitment", "confirmed")))
             val arr = res?.optJSONArray("value")
             if (arr == null) { failed.incrementAndGet(); continue }
             val sides = sides8038(mint, parsedSide(arr.optJSONObject(0)), parsedSide(arr.optJSONObject(1)))
-            if (sides == null) { unsupported[p] = System.currentTimeMillis(); continue }
+            if (sides == null) {
+                unsupported[p] = System.currentTimeMillis()
+                unsupportedByVenue8418.computeIfAbsent(venueName8418(owner8418) + "_NOT_COIN_SOL") { AtomicLong(0) }.incrementAndGet()
+                continue
+            }
             val read = Read(p, sides.first, sides.second, observedAt)
+            if (concentrated8418(owner8418)) {
+                // V5.0.8418 — depth only: kept apart from [reads] so no price check or constant-product sell-out reads it.
+                depthOnlyReads8418[mint] = read
+                if (depthOnlyReads8418.size > 3_000) depthOnlyReads8418.entries.sortedBy { it.value.atMs }.take(300).forEach { depthOnlyReads8418.remove(it.key) }
+                CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
+                try { com.lifecyclebot.engine.HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs) } catch (_: Throwable) {}
+                fetched.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("ONCHAIN_DEPTH_CONCENTRATED_READ_8418_${venueName8418(owner8418)}") } catch (_: Throwable) {}
+                return null
+            }
             reads[mint] = read
             CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
             try { com.lifecyclebot.engine.HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs) } catch (_: Throwable) {}  // V5.0.8343 — the vault answer ends a liquidity deferral
@@ -505,7 +571,8 @@ object OnChainDepth8038 {
         "emptyCurveRefused=${emptyCurveRefused8046.get()} launchCapRefused=${launchCapRefused8047.get()} earlyRefused8048=${earlyRefused8048.get()} last=[$lastRefusal8047] " +
             "poolDepthAsked=${poolDepthAsked8047.get()} curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${refresh8385.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
             "reads=${fetched.get()} failed=${failed.get()} pools=${vaultsOf.size} unsupportedPools=${unsupported.size} " +
-            "venues=PumpSwap,RaydiumV4,RaydiumCPMM rule=refuse when API depth >=${CONTRADICTION_MULT_8038.toInt()}x chain or chain price ${(PRICE_DROP_TOLERANCE_8038 * 100).toInt()}%+ under the buy price"
+            "unsupportedByVenue8418={${unsupportedByVenue8418.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }}} depthOnly8418=${depthOnlyReads8418.size} " +
+            "venues=PumpSwap,RaydiumV4,RaydiumCPMM,RaydiumCLMM(depth),MeteoraDLMM(depth),MeteoraDAMMv2(depth) unknownDepth=MeteoraDAMMv1,other rule=refuse when API depth >=${CONTRADICTION_MULT_8038.toInt()}x chain or chain price ${(PRICE_DROP_TOLERANCE_8038 * 100).toInt()}%+ under the buy price"
 }
 
 /** Queue implementation owned by OnChainDepth8038. Wire pacing is unchanged; failed admission never consumes a wire slot. */

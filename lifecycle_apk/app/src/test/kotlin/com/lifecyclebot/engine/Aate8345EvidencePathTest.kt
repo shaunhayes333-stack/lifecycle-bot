@@ -167,8 +167,10 @@ class Aate8345EvidencePathTest {
         // a later write to an already-read tick is not a hydration
         assertTrue(HydrationReeval8343.writeTick8345(ts, 700.0, "DEX_PAIR_POLL", t0 + 6_000L))
         assertEquals(1L, HydrationReeval8343.hydrationCounts8345().first.values.sum())
-        assertFalse("a lower intake figure does not write (max-take)", HydrationReeval8343.intakeLiquidity8345(ts, 100.0))
-        assertEquals(700.0, ts.lastLiquidityUsd, 1e-9)
+        // superseded by V5.0.8418 — max-take kept the historical peak: a newer lower intake observation replaces it.
+        assertTrue("a lower intake figure writes (newest replaces)", HydrationReeval8343.intakeLiquidity8345(ts, 100.0))
+        assertEquals(100.0, ts.lastLiquidityUsd, 1e-9)
+        assertTrue(HydrationReeval8343.writeTick8345(ts, 700.0, "DEX_PAIR_POLL", t0 + 7_000L))
         // a 0 write hydrates nothing
         val zero = TokenState(mint = "Z".repeat(44), symbol = "Z0")
         assertFalse(HydrationReeval8343.writeTick8345(zero, 0.0, "DEXSCREENER_WS", t0))

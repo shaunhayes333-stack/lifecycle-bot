@@ -507,7 +507,7 @@ object MoonshotTraderAI {
         // executor gates use when the passed value is below the floor.
         val liquidityObserved7389 = if (liquidityUsd >= minLiq) liquidityUsd else try {
             val ts7389 = com.lifecyclebot.engine.BotService.status.tokens[mint]
-            if (ts7389 != null) maxOf(liquidityUsd, com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts7389)) else liquidityUsd
+            if (ts7389 != null) com.lifecyclebot.engine.truth.LiquidityTruth8037.latest8418(com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts7389), liquidityUsd) else liquidityUsd  // V5.0.8418
         } catch (_: Throwable) { liquidityUsd }
         // V5.0.8140 — an unread pool defers (never "low"); a real one below the floor refuses, naming MOONSHOT.
         com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("MOONSHOT", liquidityObserved7389, minLiq, mint)?.let { return MoonshotScore(false, 0, 0.0, it) }
