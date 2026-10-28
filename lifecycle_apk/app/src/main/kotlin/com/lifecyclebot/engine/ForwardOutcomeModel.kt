@@ -383,8 +383,10 @@ object ForwardOutcomeModel {
                 isPaper && lcc != null && lcc.n >= MIN_SAMPLES -> { cell = lcc; src = "coarse_legacy" }
                 isPaper && ofc != null && ofc.n >= MIN_SAMPLES -> { cell = ofc; src = if (isPaper) "fine_live_prior" else "fine_paper_prior" }
                 isPaper && occ != null && occ.n >= MIN_SAMPLES -> { cell = occ; src = if (isPaper) "coarse_live_prior" else "coarse_paper_prior" }
-                lfs7734 != null && lfs7734.n >= MIN_SAMPLES -> { cell = lfs7734; src = "fine_label_prior" }
-                lcs7734 != null && lcs7734.n >= MIN_SAMPLES -> { cell = lcs7734; src = "coarse_label_prior" }
+                // V5.0.8418 — forward labels are shadow observations: they seed the PAPER forecast only. A LIVE forecast
+                // reads live closes alone; without them it is bootstrap (neutral pWin 0.5, nudge 1.0), never seeded.
+                isPaper && lfs7734 != null && lfs7734.n >= MIN_SAMPLES -> { cell = lfs7734; src = "fine_label_prior" }
+                isPaper && lcs7734 != null && lcs7734.n >= MIN_SAMPLES -> { cell = lcs7734; src = "coarse_label_prior" }
                 else -> return Forecast(0.5, 0.0, 0.0, 0.0, (fc?.n ?: 0L) + (cc?.n ?: 0L), 1.0, "bootstrap")
             }
             if (src.endsWith("_label_prior")) {
@@ -428,7 +430,9 @@ object ForwardOutcomeModel {
             // signature at full force, while only mildly encouraging it into a
             // winning one. Own-mode cells are untouched.
             // V5.0.7734 — a label prior is costless in both modes and is shrunk in both.
-            val fromPaperPrior6991 = (!isPaper && src.endsWith("_paper_prior")) || src.endsWith("_label_prior")
+            // V5.0.8418 — live reaches no prior at all (the branches above are PAPER-only), so the only prior left is a
+            // label prior inside PAPER, still shrunk as 6991 shrinks one.
+            val fromPaperPrior6991 = isPaper && src.endsWith("_label_prior")
             if (!fromPaperPrior6991) {
                 return Forecast(cell.pWin, cell.mean, cell.pRug, cell.stdev, cell.n, nudge, src)
             }

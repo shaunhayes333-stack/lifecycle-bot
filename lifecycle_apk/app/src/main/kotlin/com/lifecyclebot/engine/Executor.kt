@@ -14815,6 +14815,7 @@ class Executor(
             liquidityUsd = 10000.0,
             isLiveTrade = false,
             approvalClass = "PAPER_EXPLORATION",
+            closeId8418 = "SHADOW|${shadow.mint}|${shadow.entryTime}",  // V5.0.8418 — a shadow close: paper book
             holdTimeMinutes = shadowHoldMins,
             maxGainPct = pnlPct.coerceAtLeast(0.0),
             exitReason = shouldExit,
@@ -14828,6 +14829,7 @@ class Executor(
             topHolderPct = 10.0,
             liquidityUsd = 10000.0,
             pnlPct = pnlPct,
+            closeId8418 = "SHADOW|${shadow.mint}|${shadow.entryTime}",
         )
         
         // V5.0.7215 — the close acceptance test J counts. A shadow
@@ -18310,6 +18312,10 @@ class Executor(
      * Returns the raw threshold unchanged when brain is null (bootstrap and
      * unit tests), matching brainAdjustedLaneScore's contract exactly.
      */
+    /** V5.0.8418 — a close's stable id for the sell-path learners (LearnerAttribution8418): position id, else mint|lane|entry. */
+    private fun cid8418(ts: TokenState, pos: Position): String =
+        pos.positionId.ifBlank { "${ts.mint}|${pos.tradingMode}|${pos.entryTime}" }
+
     /** V5.0.8418 — the ordinary stop a riskCheck door applies (ExitThresholds8418): the lane's, the mode / global only when unknown. */
     private fun laneStop8418(ts: TokenState, modeConf: AutoModeEngine.ModeConfig?, door: String): Double =
         ExitThresholds8418.ordinaryStopMag8418(ts, modeConf?.stopLossPct ?: cfg().stopLossPct, door)
@@ -26545,12 +26551,7 @@ class Executor(
             
             brain?.let { b ->
                 val shouldBlacklist = b.learnFromTrade(
-                    isWin = false, 
-                    phase = ph, 
-                    emaFan = fanName, 
-                    source = src, 
-                    pnlPct = pnlP,
-                    mint = ts.mint,
+                    false, ph, fanName, src, pnlP, ts.mint, closeId8418 = cid8418(ts, pos),  // V5.0.8418
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
@@ -26579,16 +26580,10 @@ class Executor(
             }
             
             TradingMemory.learnFromBadTrade(
-                mint = ts.mint,
-                symbol = ts.symbol,
-                lossPct = pnlP,
-                phase = ph,
-                emaFan = fanName,
-                source = src,
+                ts.mint, ts.symbol, pnlP, ph, fanName, src, live8418 = false, closeId8418 = cid8418(ts, pos),  // V5.0.8418
                 liquidity = ts.lastLiquidityUsd,
                 mcap = ts.lastMcap,
                 ageHours = (System.currentTimeMillis() - (ts.history.firstOrNull()?.ts ?: System.currentTimeMillis())) / 3_600_000.0,
-                hadSocials = false,
                 isPumpFun = ts.source.contains("pump", ignoreCase = true),
                 volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) ts.history.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
             )
@@ -26621,12 +26616,7 @@ class Executor(
             
             brain?.let { b ->
                 b.learnFromTrade(
-                    isWin = true, 
-                    phase = ph, 
-                    emaFan = fanName, 
-                    source = src, 
-                    pnlPct = pnlP,
-                    mint = ts.mint,
+                    true, ph, fanName, src, pnlP, ts.mint, closeId8418 = cid8418(ts, pos),  // V5.0.8418
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
@@ -26641,13 +26631,7 @@ class Executor(
             }
             
             TradingMemory.learnFromWinningTrade(
-                mint = ts.mint,
-                symbol = ts.symbol,
-                winPct = pnlP,
-                phase = ph,
-                emaFan = fanName,
-                source = src,
-                holdTimeMinutes = holdTimeMins,
+                ts.mint, ts.symbol, pnlP, ph, fanName, src, holdTimeMins, live8418 = false, closeId8418 = cid8418(ts, pos),  // V5.0.8418
             )
             onLog("🤖 AI LEARNED: Win on ${ts.symbol} +${pnlP.toInt()}% | Pattern reinforced", ts.mint)
             
@@ -26676,12 +26660,8 @@ class Executor(
         
         if (shouldLearnAsWin || shouldLearnAsLoss) {
             brain?.learnThreshold(
-                isWin = shouldLearnAsWin,
-                rugcheckScore = ts.safety.rugcheckScore,
-                buyPressure = ts.meta.pressScore,
-                topHolderPct = ts.safety.topHolderPct,
-                liquidityUsd = ts.lastLiquidityUsd,
-                pnlPct = pnlP,
+                shouldLearnAsWin, ts.safety.rugcheckScore, ts.meta.pressScore, ts.safety.topHolderPct, ts.lastLiquidityUsd, pnlP,
+                closeId8418 = cid8418(ts, pos),  // V5.0.8418 — a paper close: never moves thresholds a live runtime reads
             )
         }
 
@@ -29818,12 +29798,7 @@ class Executor(
 
             brain?.let { b ->
                 val shouldBlacklist = b.learnFromTrade(
-                    isWin = false, 
-                    phase = ph, 
-                    emaFan = fanName, 
-                    source = src, 
-                    pnlPct = pnlP,
-                    mint = ts.mint,
+                    false, ph, fanName, src, pnlP, ts.mint, closeId8418 = cid8418(ts, pos),  // V5.0.8418
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
@@ -29856,16 +29831,10 @@ class Executor(
             // SmartSizer read it). Same call paper makes.
             try {
                 TradingMemory.learnFromBadTrade(
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    lossPct = pnlP,
-                    phase = ph,
-                    emaFan = fanName,
-                    source = src,
+                    ts.mint, ts.symbol, pnlP, ph, fanName, src, live8418 = true, closeId8418 = cid8418(ts, pos),  // V5.0.8418
                     liquidity = ts.lastLiquidityUsd,
                     mcap = ts.lastMcap,
                     ageHours = (System.currentTimeMillis() - (ts.history.firstOrNull()?.ts ?: System.currentTimeMillis())) / 3_600_000.0,
-                    hadSocials = false,
                     isPumpFun = ts.source.contains("pump", ignoreCase = true),
                     volumeToLiqRatio = if (ts.lastLiquidityUsd > 0) ts.history.lastOrNull()?.vol?.div(ts.lastLiquidityUsd) ?: 0.0 else 0.0,
                 )
@@ -29880,12 +29849,7 @@ class Executor(
             
             brain?.let { b ->
                 b.learnFromTrade(
-                    isWin = true, 
-                    phase = ph, 
-                    emaFan = fanName, 
-                    source = src, 
-                    pnlPct = pnlP,
-                    mint = ts.mint,
+                    true, ph, fanName, src, pnlP, ts.mint, closeId8418 = cid8418(ts, pos),  // V5.0.8418
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
                     topHolderPct = ts.safety.topHolderPct,
@@ -29902,13 +29866,7 @@ class Executor(
             // V5.0.7776 — wins reinforce the same memory live, as they do in paper.
             try {
                 TradingMemory.learnFromWinningTrade(
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    winPct = pnlP,
-                    phase = ph,
-                    emaFan = fanName,
-                    source = src,
-                    holdTimeMinutes = holdTimeMins,
+                    ts.mint, ts.symbol, pnlP, ph, fanName, src, holdTimeMins, live8418 = true, closeId8418 = cid8418(ts, pos),  // V5.0.8418
                 )
                 com.lifecyclebot.engine.truth.LiveEducationAudit7776.onTradingMemoryLive(win = true)
             } catch (_: Throwable) {}

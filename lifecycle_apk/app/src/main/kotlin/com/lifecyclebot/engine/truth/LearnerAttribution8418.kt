@@ -86,6 +86,26 @@ object LearnerAttribution8418 {
         return true
     }
 
+    /**
+     * A learner that already keeps its own durable once-only receipt (Cortex7885 close receipts): its verdict on a [mode]
+     * close is counted here so the report shows it beside the others. Changes nothing it decides.
+     */
+    fun observe8418(learner: String, mode: String?, verdict: Verdict8418) {
+        val c = counts(learner)
+        when (verdict) {
+            Verdict8418.DUPLICATE -> c.dup.incrementAndGet()
+            Verdict8418.REPLAY -> c.replay.incrementAndGet()
+            Verdict8418.UNKNOWN_BOOK -> c.unknownBook.incrementAndGet()
+            Verdict8418.ADMIT -> bookOf8418(mode)?.let { bump(c, it) } ?: c.unknownBook.incrementAndGet()
+        }
+    }
+
+    /** A learner rebuilt from the trade store on every read (LosingPatternMemory): its last rebuild's per-book totals. */
+    fun rebuilt8418(learner: String, paper: Long, live: Long, dup: Long) {
+        val c = counts(learner)
+        c.paper.set(paper); c.live.set(live); c.dup.set(dup)
+    }
+
     /** The book the runtime trades (PAPER / LIVE). */
     private fun runtimeBook8418(): String? = try {
         if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
