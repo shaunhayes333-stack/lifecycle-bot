@@ -139,6 +139,14 @@ object OnChainHolderConcentration7379 {
     // DLMM — MeteoraAg/dlmm-sdk idls/dlmm.json "address"; DAMM v1 / dynamic vault — MeteoraAg/damm-v1-sdk
     // ts-client/src/amm/constants.ts (PROGRAM_ID, VAULT_PROGRAM); DAMM v2 — MeteoraAg/damm-v2 programs/cp-amm/src/lib.rs
     // declare_id; DBC — MeteoraAg/dynamic-bonding-curve programs/dynamic-bonding-curve/src/lib.rs declare_id.
+    // V5.0.8418 (re-checked): Orca Whirlpool — orca-so/whirlpools programs/whirlpool/src/lib.rs
+    // declare_id!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"); its vaults are moved with the whirlpool account as authority
+    // (programs/whirlpool/src/util/token.rs transfer_from_vault_to_owner), an account owned by that program, so no extra
+    // authority entry is needed. pump.fun — pump-fun/pump-public-docs idl/pump.json "address"
+    // 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P; the curve's token account is the ATA of the bonding_curve PDA (seeds
+    // "bonding-curve", mint), owned by that program. PumpSwap — pump-fun/pump-public-docs idl/pump_amm.json "address"
+    // pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA; pool_base/quote_token_account are ATAs of the pool PDA (seeds "pool", index,
+    // creator, base_mint, quote_mint), owned by that program. All three ids were already correct.
     val VENUE_PROGRAMS_8418: Set<String> = setOf(
         "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", // pump.fun bonding curve
         "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA", // PumpSwap
