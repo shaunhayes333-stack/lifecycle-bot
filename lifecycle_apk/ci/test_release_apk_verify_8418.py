@@ -142,6 +142,32 @@ class SecretScan(unittest.TestCase):
         self.assertEqual(self.kinds(f), ["xor-obfuscated-credential"])
         self.assertEqual(f[0]["fingerprint"], hashlib.sha256(token.encode()).hexdigest())
 
+    def test_only_the_intended_hive_token_passes_silently(self):
+        # V5.0.8418 — the Hive database token (by fingerprint) is accepted with no error or warning;
+        # any other credential, or a wallet-class finding with that fingerprint, fails.
+        hive = next(iter(rv.INTENDED_CREDENTIALS_8418))
+        self.assertEqual(len(rv.INTENDED_CREDENTIALS_8418), 1)
+        ok = {"kind": "xor-obfuscated-credential", "where": "classes.dex", "wallet": False, "fingerprint": hive, "sample": "eyJ…"}
+        self.assertEqual(rv.credential_errors_8418([ok]), ([], 1))
+        other = dict(ok, fingerprint=hashlib.sha256(b"another-token").hexdigest())
+        errors, n = rv.credential_errors_8418([ok, other])
+        self.assertEqual(n, 1)
+        self.assertEqual(len(errors), 1)
+        self.assertTrue(errors[0].startswith("embedded secret: xor-obfuscated-credential"))
+        wallet = dict(ok, kind="solana-keypair-base58", wallet=True)
+        self.assertEqual(len(rv.credential_errors_8418([wallet])[0]), 1)
+        self.assertEqual(len(rv.credential_errors_8418([dict(ok, fingerprint="")])[0]), 1)
+
+    def test_the_intended_fingerprint_is_the_token_in_botconfig(self):
+        # A rotated or changed Hive token stops matching and fails the release until reviewed again.
+        import base64, re
+        src = (HERE.parent / "app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt").read_text()
+        b64 = "".join(re.findall(r'"([A-Za-z0-9+/=]+)"', src[src.index("OBF_B64 ="):src.index("OBF_KEY =")]))
+        key = re.search(r'OBF_KEY = "([^"]+)"', src).group(1).encode()
+        enc = base64.b64decode(b64)
+        token = bytes(c ^ key[i % len(key)] for i, c in enumerate(enc))
+        self.assertIn(hashlib.sha256(token).hexdigest(), rv.INTENDED_CREDENTIALS_8418)
+
     def test_missing_wordlist_fails_closed(self):
         self.assertEqual(self.kinds(self.scan(["ok"], with_wordlist=False)), ["bip39-wordlist-missing"])
 

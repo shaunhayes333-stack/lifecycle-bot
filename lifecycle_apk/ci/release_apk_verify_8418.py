@@ -82,14 +82,26 @@ DEBUG_ONLY_COMPONENTS_8418 = {"com.lifecyclebot.engine.SmokeTestReceiver"}
 # The only files Android backup may carry (learning stores; see res/xml/learning_*_8086.xml).
 BACKUP_ALLOWED_8418 = {("database", "learning_kv.db"), ("database", "shadow_cold_8397.db")}
 
-# Reviewed embedded credentials, by SHA-256 of the decoded value. Still printed as a warning
-# on every run; a NEW credential (or a changed one) fails the build.
-REVIEWED_CREDENTIALS_8418 = {
-    "cdc24d238c1e2dcc1712c2cf98b6c50c7e557a7c9e83f0f865752d3f99a545d8":
-        "TursoDefaults.AUTH_TOKEN (data/BotConfig.kt, V5.0.6672): operator's collective-learning "
-        "Superbrain DB token, XOR-obfuscated in the APK. Not a wallet secret; anyone with the APK "
-        "can recover it. Owner decision: rotate/scope it or move it to user settings.",
+# V5.0.8418 — embedded credentials the owner INTENDS to ship, by SHA-256 of the decoded value. Exactly these are
+# accepted silently (counted in secret_scan.intended_credentials, never a warning). Any other credential, a changed
+# value, or anything classed as a wallet secret fails the build.
+INTENDED_CREDENTIALS_8418 = {
+    # TursoDefaults.AUTH_TOKEN (data/BotConfig.kt, V5.0.6672): the Hive network's shared collective-learning database,
+    # XOR-obfuscated in the APK. Owner decision (V5.0.8418): intended, every install joins the same Hive database.
+    "cdc24d238c1e2dcc1712c2cf98b6c50c7e557a7c9e83f0f865752d3f99a545d8": "TursoDefaults.AUTH_TOKEN (Hive shared database)",
 }
+
+
+def credential_errors_8418(findings: list) -> tuple[list, int]:
+    """Pure: (errors, intended count) for the secret-scan findings. Only an intended, non-wallet fingerprint passes."""
+    errors, intended = [], 0
+    for f in findings:
+        if not f.get("wallet") and f.get("fingerprint") in INTENDED_CREDENTIALS_8418:
+            intended += 1
+            continue
+        fp = f.get("fingerprint") or ""
+        errors.append(f"embedded secret: {f['kind']} in {f['where']} ({f['sample']}) sha256={fp[:16]}")
+    return errors, intended
 
 PLAINTEXT_SECRET_PATTERNS_8418 = [
     # Header AND key material: a parser library's bare header constant is not a key.
@@ -531,13 +543,8 @@ def cmd_verify(a) -> int:
     report["errors"] += source_security_findings(pathlib.Path(a.src_main))
     findings, stats = scan_apk_secrets(apk)
     report["secret_scan"] = stats
-    for f in findings:
-        reason = REVIEWED_CREDENTIALS_8418.get(f["fingerprint"])
-        line = f"{f['kind']} in {f['where']} ({f['sample']}) sha256={f['fingerprint'][:16]}"
-        if reason and not f["wallet"]:
-            report["warnings"].append(line + " — REVIEWED: " + reason)
-        else:
-            report["errors"].append("embedded secret: " + line)
+    secret_errors, stats["intended_credentials"] = credential_errors_8418(findings)
+    report["errors"] += secret_errors
     return _finish(report, pathlib.Path(a.out_dir, "release_verify_8418.json"))
 
 
