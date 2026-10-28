@@ -215,7 +215,9 @@ object ProviderLanes8285 {
         val held = try { HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }
         // V5.0.8359 — a mint a shadow book wants marked (KeylessMarks8359) is served right after held positions.
         val wanted8359 = try { com.lifecyclebot.engine.truth.KeylessMarks8359.isWanted8359(mint, nowMs) } catch (_: Throwable) { false }
-        return prioOf8285(held, DataPipeline8191.nearDecision8191(mint, nowMs) || wanted8359, handoff)
+        // V5.0.8418 — a forward-label observation due for its mark rides at HANDOFF: after held and shadow, before bulk.
+        val label8418 = try { com.lifecyclebot.engine.truth.KeylessMarks8359.isLabelWanted8418(mint, nowMs) } catch (_: Throwable) { false }
+        return prioOf8285(held, DataPipeline8191.nearDecision8191(mint, nowMs) || wanted8359, handoff || label8418)
     }
 
     /** Pure: the cooldown after the [level]-th consecutive provider cooldown (30 s doubling, capped at 10 min). */

@@ -336,6 +336,9 @@ object ForwardReturnLabeler7731 {
         /** V5.0.7997 — the label value last given to the learners, the next checkpoint, liquidity at the decision. */
         @Volatile var bookedNet7997 = Double.NaN
         @Volatile var bookedGross7997 = Double.NaN
+        /** V5.0.8418 — reached its 5-minute read (counted once in labelMarks8418 due); its first mark there came after the window. */
+        @Volatile var due8418 = false
+        @Volatile var lateMark8418 = false
         /** V5.0.8410 — decay each destination carried at booking (tally keys / allocator nodes); empty = legacy, weight unknown. */
         @Volatile var tallyScales8410: DoubleArray = DoubleArray(0)
         @Volatile var allocScales8410: DoubleArray = DoubleArray(0)
@@ -1739,6 +1742,52 @@ object ForwardReturnLabeler7731 {
     private val offWatchDeferred7809 = AtomicLong(0)
     private val horizonMissed7809 = AtomicLong(0)
 
+    // V5.0.8418 §EVERY_LABEL_GETS_ITS_MARK — labelMarks8418: the 5-minute reads due, booked from a mark (by its source family),
+    // and closed unavailable (noSource: never priced by any source; late: marks seen, none accepted in the window). See CortexLabelFeed8291.
+    private val labelDue8418 = AtomicLong(0)
+    private val labelPricedDex8418 = AtomicLong(0)
+    private val labelPricedCurve8418 = AtomicLong(0)
+    private val labelPricedTape8418 = AtomicLong(0)
+    private val labelLostNoSource8418 = AtomicLong(0)
+    private val labelLostLate8418 = AtomicLong(0)
+    private const val MAX_OFFWATCH_MARKS_8418 = 6_000
+
+    /**
+     * V5.0.8418 — KeylessMarks8359: the pair lane priced [mint] (a due label mint) at [atMs]. Stored as its off-watch mark,
+     * exactly as the off-watch batch stores a DexScreener answer; an older entry never replaces a newer one. True when kept.
+     */
+    fun noteLaneMark8418(mint: String, px: Double, atMs: Long): Boolean {
+        if (mint.isBlank() || !px.isFinite() || px <= 0.0 || atMs <= 0L) return false
+        val prior = offWatchMarks7737[mint]
+        if (prior != null && prior.second >= atMs) return false
+        offWatchMarks7737[mint] = px to atMs
+        if (offWatchMarks7737.size > MAX_OFFWATCH_MARKS_8418) offWatchMarks7737.entries.removeIf { atMs - it.value.second > MARK_MAX_AGE_MS_7731 }
+        return true
+    }
+
+    /** V5.0.8418 — the window an unpriced [o] must be priced in now (0 = none): re-base, each open horizon, the due checkpoint. */
+    private fun labelWindowEnd8418(o: Obs, age: Long, firstMarkDue: Boolean): Long {
+        val ck = if (o.done60 && o.ck7997 in CK_MS_7997.indices) CK_MS_7997[o.ck7997] else -1L
+        val hs = longArrayOf(if (o.done15) -1L else H15_MS_7731, if (o.done60) -1L else H60_MS_7731, if (o.done240) -1L else H240_MS_7731, ck)
+        val gs = longArrayOf(graceFor7946(H15_MS_7731), graceFor7946(H60_MS_7731), graceFor7946(H240_MS_7731), if (ck > 0L) graceFor7946(ck) else 0L)
+        return com.lifecyclebot.engine.cortex.CortexLabelFeed8291.windowEnd8418(o.atMs, age, firstMarkDue, REBASE_MAX_MS_8076, hs, gs,
+            com.lifecyclebot.engine.cortex.CortexLabelFeed8291.LABEL_LEAD_MS_8418)
+    }
+
+    /** V5.0.8418 — the 5-minute read booked from a mark: counted by the mark's source family. */
+    private fun notePriced8418(o: Obs) {
+        if (o.bookedNet7997.isNaN()) return   // flat / ineligible: not a priced label
+        when (com.lifecyclebot.engine.cortex.CortexLabelFeed8291.markFamily8418(o.lastMark8386?.source)) {
+            "CURVE" -> labelPricedCurve8418.incrementAndGet()
+            "TAPE" -> labelPricedTape8418.incrementAndGet()
+            else -> labelPricedDex8418.incrementAndGet()
+        }
+    }
+
+    private fun labelMarksLine8418(): String = com.lifecyclebot.engine.cortex.CortexLabelFeed8291.labelMarksLine8418(
+        labelDue8418.get(), labelPricedDex8418.get(), labelPricedCurve8418.get(), labelPricedTape8418.get(),
+        labelLostNoSource8418.get(), labelLostLate8418.get(), try { KeylessMarks8359.labelCounts8418() } catch (_: Throwable) { null })
+
     /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
     fun horizonOpen7809(ageMs: Long, horizonMs: Long): Boolean =
         ageMs >= horizonMs && ageMs <= horizonMs + graceFor7946(horizonMs)
@@ -1774,8 +1823,11 @@ object ForwardReturnLabeler7731 {
                     // 5.0.7749 priced=1517 missed=7233). Every rung is a bounded batch call on this background thread.
                     val got = HashMap<String, Double>()
                     for (chunk in batch.chunked(OFFWATCH_DEX_CHUNK_8405)) {
+                        // V5.0.8418 — a due label mint the pair lane was just asked for is not asked twice on the same host.
+                        val ask8418 = chunk.filter { m -> !(try { KeylessMarks8359.laneCovered8418(m, nowMs) } catch (_: Throwable) { false }) }
+                        if (ask8418.isEmpty()) continue
                         val dex8405 = try {
-                            com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(chunk).filter { it.value.isFinite() && it.value > 0.0 }
+                            com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(ask8418).filter { it.value.isFinite() && it.value > 0.0 }
                         } catch (_: Throwable) { emptyMap() }
                         got.putAll(dex8405)
                         if (dex8405.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_DEX_PRICED_8217", dex8405.size.toLong())
@@ -1926,7 +1978,12 @@ object ForwardReturnLabeler7731 {
             }
         }
         if (!durable) { try { PipelineHealthCollector.labelInc("FORWARD_TERMINAL_DURABILITY_WAIT_8395") } catch (_: Throwable) {}; return false }
-        if (pending.remove(key,o) && !o.done60) markLost(o)
+        if (pending.remove(key,o) && !o.done60) {
+            markLost(o)
+            // V5.0.8418 — noSource: no source ever priced it; late: marks were seen, none accepted inside the window.
+            if (com.lifecyclebot.engine.cortex.CortexLabelFeed8291.lostLate8418(o.lateMark8418, o.lastAcceptedMark8395 != null, o.lastMark8386 != null))
+                labelLostLate8418.incrementAndGet() else labelLostNoSource8418.incrementAndGet()
+        }
         return true
     }
 
@@ -2007,6 +2064,7 @@ object ForwardReturnLabeler7731 {
         if (!o.done60) {
             o.done60 = bookSixty7944(o, net, gross, nowMs)
             if (!o.done60) return
+            notePriced8418(o)   // V5.0.8418
             // deadline8395 now points to the ORIGINAL decision's hour + grace; it never moves with wall time.
             try { PipelineHealthCollector.labelInc("FORWARD_RECOVERED_FIRST_HORIZON_CONTINUES_8397") } catch (_: Throwable) {}
         } else {
@@ -2076,6 +2134,7 @@ object ForwardReturnLabeler7731 {
         val dueUnpriced7737 = ArrayList<Pair<String, Long>>()
         for ((key, o) in pending.entries.toList()) {
             val age = nowMs - o.atMs
+            if (!o.due8418 && !o.done60 && age >= H60_MS_7731) { o.due8418 = true; labelDue8418.incrementAndGet() }   // V5.0.8418
             val observed8386 = typedMark8386(o.mint, priceFor, nowMs)
             if (expired8395(key,o,observed8386,nowMs)) continue
             val px = observed8386?.usd
@@ -2085,6 +2144,9 @@ object ForwardReturnLabeler7731 {
                 // cohort unresolved — the walk-forward's UNRESOLVED_COHORT). Its due time is its decision, so it sorts first.
                 // V5.0.8291 — asked in rank order (inside the 5-minute window first), oldest first within a rank (CortexLabelFeed8291).
                 val first8291 = firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age)
+                // V5.0.8418 — due in a window now: the pair lane and the curve read price it (KeylessMarks8359), in priority after held / shadow.
+                val end8418 = labelWindowEnd8418(o, age, first8291)
+                if (end8418 > nowMs) try { KeylessMarks8359.noteLabelDue8418(o.mint, end8418, nowMs) } catch (_: Throwable) {}
                 val rank8291 = com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchRank8291(age, o.done60, first8291, H60_MS_7731, graceFor7946(H60_MS_7731))
                 if (first8291) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, o.atMs - REBASE_MAX_MS_8076))
                 else if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
@@ -2191,12 +2253,14 @@ object ForwardReturnLabeler7731 {
                 // last ACCEPTED in-window mark may label it; otherwise one exact unavailable terminal.
                 o.lastPx = priorPx7944.first; o.lastPxAtMs = priorPx7944.second
                 o.lastAcceptedMark8395 = priorAccepted8395; o.lastMark8386 = priorAccepted8395
+                o.lateMark8418 = true   // V5.0.8418 — if this closes unavailable, its mark came after the window
                 expired8395(key, o, null, maxOf(nowMs, deadline8395(o)))
                 continue
             }
             if (!o.done60 && age >= H60_MS_7731) {
                 o.done60 = bookSixty7944(o, net, gross, nowMs)
                 if (!o.done60) continue
+                notePriced8418(o)   // V5.0.8418
             }
             // V5.0.7997 — progressive grading: 15 m, 30 m, 1 h, 4 h, 8 h, 12 h, 24 h while the coin lives.
             val stop7997 = if (o.done60) checkpoint7997(o, net, gross, age, nowMs) else false
@@ -2395,7 +2459,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} ${honestLine8366()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLostMarks8342=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} ${honestLine8366()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} ${labelMarksLine8418()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLostMarks8342=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      tail8303: ${best.joinToString(" · ") { CellTail8303.line8303(it.key, it.meanNet60Pct, it.winRate60, it.runnerRate60) }.ifBlank { "-" }}\n" +  // V5.0.8303
