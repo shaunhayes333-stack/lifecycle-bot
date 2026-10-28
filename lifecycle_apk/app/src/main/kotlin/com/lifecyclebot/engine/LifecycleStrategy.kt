@@ -1144,7 +1144,7 @@ class LifecycleStrategy(
         if (hardBlockReason != null) {
             ErrorLogger.info("Strategy", "🛑 ${ts.symbol}: HARD BLOCKED - $hardBlockReason")
             val decision = CandidateDecision.blocked(
-                reason = "HARD BLOCK: $hardBlockReason",
+                reason = IntakeUnknownTruth8418.strategyBlockedReason8418(hardBlockReason),  // V5.0.8418
                 meta = result.meta
             )
             return result to decision
@@ -1472,10 +1472,10 @@ class LifecycleStrategy(
         }
         
         // 2. LIQUIDITY - Must have minimum pool
+        // V5.0.8418 — on the hydrated pool: a measured pool below the floor or a proven zero blocks; an unread pool
+        // ($0 because no provider has answered yet) is a data deferral, not "Low liquidity $0".
         val minLiquidity = learned?.liquidityMin ?: 100.0
-        if (ts.lastLiquidityUsd < minLiquidity) {
-            return "Low liquidity \$${ts.lastLiquidityUsd.toInt()} (min=\$${minLiquidity.toInt()})"
-        }
+        IntakeUnknownTruth8418.strategyLiquidityBlock8418(ts, minLiquidity)?.let { return it }
         
         // 3. EXTREME SELL PRESSURE - Buy% below learned threshold
         val minBuyPressure = if (isLenient) 10.0 else (learned?.buyPressureMin ?: 18.0).coerceIn(15.0, 35.0)

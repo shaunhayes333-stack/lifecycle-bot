@@ -21,6 +21,8 @@ import org.json.JSONObject
 object RugcheckScore8399 {
     const val CONFIRMED_RISK_8399 = 99.0
     const val RAW_SCORE_DIVISOR_8399 = 100.0   // raw < 1000 ≈ Good -> risk < 10
+    /** V5.0.8418 — the highest risk a raw-only (unnormalised) report can carry: very risky (safety 2), not confirmed. */
+    const val RAW_ONLY_MAX_RISK_8418 = 98.0
 
     /** The provider's risk 0..100 (NaN when absent), from `score_normalised`, `scoreNormalized`, or raw `score`. */
     fun risk8399(json: JSONObject?): Double {
@@ -28,7 +30,9 @@ object RugcheckScore8399 {
         val r = when {
             json.has("score_normalised") -> json.optDouble("score_normalised", Double.NaN)
             json.has("scoreNormalized") -> json.optDouble("scoreNormalized", Double.NaN)
-            json.has("score") -> json.optDouble("score", Double.NaN).let { if (it.isNaN() || it < 0) it else it / RAW_SCORE_DIVISOR_8399 }
+            // V5.0.8418 — the raw score is an uncapped risk SUM: /100 is an approximation of the 0..100 scale, so a raw-only
+            // report can read very risky but never reaches the confirmed ceiling (raw 20,000 was a "confirmed rug").
+            json.has("score") -> json.optDouble("score", Double.NaN).let { if (it.isNaN() || it < 0) it else minOf(it / RAW_SCORE_DIVISOR_8399, RAW_ONLY_MAX_RISK_8418) }
             else -> Double.NaN
         }
         return if (r.isNaN() || r < 0) Double.NaN else r.coerceIn(0.0, 100.0)
@@ -50,6 +54,23 @@ object RugcheckScore8399 {
             })
         } catch (_: Throwable) {}
         return s
+    }
+
+    /**
+     * V5.0.8418 — TokenSafetyChecker's safety score for one /report response about [requestMint]. A report for another mint
+     * (echo mismatch) is no evidence about this one (-1, unfetched). `rugged: true` is the confirmed rug (0). The score's
+     * confirmed ceiling counts only from a COMPLETE report (risk inventory present, 8374): a score-only answer at the
+     * ceiling stays very risky (2) — its live spend is already deferred until the inventory lands — instead of a
+     * permanent "CONFIRMED RUG" ban on a response that cannot name a single finding.
+     */
+    fun reportSafety8418(json: JSONObject?, requestMint: String): Int {
+        if (json == null) return -1
+        val echoed = json.optString("mint", "")
+        if (echoed.isNotBlank() && requestMint.isNotBlank() && echoed != requestMint) return -1
+        if (ruggedFlag8399(json)) return 0
+        val s = safety8399(json)
+        val risksPresent = json.optJSONArray("risks") != null
+        return if (s == 0 && !risksPresent) 2 else s
     }
 
     /** `rugged: true` from the provider is a hard, mode-independent fact regardless of the score. */

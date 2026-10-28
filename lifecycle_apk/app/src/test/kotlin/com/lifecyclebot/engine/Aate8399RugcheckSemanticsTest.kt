@@ -32,7 +32,8 @@ class Aate8399RugcheckSemanticsTest {
 
     @Test fun rawScoreFallsBackThroughTheGoodBandAndRuggedIsHard() {
         assertEquals(95, RugcheckScore8399.safety8399(j("""{"score":500}""")))                 // raw < 1000 ≈ Good
-        assertEquals(0, RugcheckScore8399.safety8399(j("""{"score":20000}""")))
+        // superseded by V5.0.8418 — the raw score is an uncapped sum; raw-only reads very risky (2), never the confirmed ceiling.
+        assertEquals(2, RugcheckScore8399.safety8399(j("""{"score":20000}""")))
         assertTrue(RugcheckScore8399.ruggedFlag8399(j("""{"score_normalised":0,"rugged":true}""")))
         assertFalse(RugcheckScore8399.ruggedFlag8399(j("""{"score_normalised":0}""")))
     }
@@ -40,7 +41,8 @@ class Aate8399RugcheckSemanticsTest {
     @Test fun everyIngestionPointUsesTheOneNormaliser() {
         val root = java.io.File("src/main/kotlin/com/lifecyclebot/engine")
         val checker = root.resolve("TokenSafetyChecker.kt").readText()
-        assertTrue(checker.contains("val rcScore = if (RugcheckScore8399.ruggedFlag8399(rugcheck)) 0 else RugcheckScore8399.safety8399(rugcheck)"))
+        // superseded by V5.0.8418 — one report-level normaliser (rugged, mint echo, complete inventory) replaces the inline expression.
+        assertTrue(checker.contains("val rcScore = RugcheckScore8399.reportSafety8418(rugcheck, mint)"))
         assertFalse(checker.contains("""rugcheck?.optInt("score_normalised""""))
         val pipeline = root.resolve("DataPipeline.kt").readText()
         assertTrue(pipeline.contains("return RugcheckScore8399.safety8399(rugData).let { if (it < 0) 50 else it }"))

@@ -267,8 +267,9 @@ class EligibilityGate(
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_AGE_WINDOW_ESTABLISHED_SCOPE_SCORED_8140") } catch (_: Throwable) {}
         }
 
-        // Below min liquidity = too risky
-        if (candidate.liquidityUsd < config.minLiquidityUsd) {
+        // Below min liquidity = too risky — V5.0.8418: the $500 non-curve floor; an exit-safe active pump.fun curve
+        // (owner's 8320 rule: >= 0.5 real SOL observed inside the curve TTL) is scored, as every launch lane already does.
+        if (com.lifecyclebot.engine.IntakeUnknownTruth8418.v3FloorRefuses8418(candidate.mint, candidate.liquidityUsd, config.minLiquidityUsd)) {
             return EligibilityResult.fail("LOW_LIQUIDITY")
         }
 

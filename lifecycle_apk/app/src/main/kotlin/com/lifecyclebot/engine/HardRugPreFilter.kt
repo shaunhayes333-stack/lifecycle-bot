@@ -343,12 +343,20 @@ object HardRugPreFilter {
         // ─────────────────────────────────────────────────────────────────
         // CHECK 7: Price crashed to near-zero
         // ─────────────────────────────────────────────────────────────────
+        // V5.0.8418 — only finite positive prices count (an unread 0 is not a -100% candle), and at screening a
+        // price-only collapse is UNCONFIRMED (BotService's own rug detector does not blacklist it either): ask for a
+        // safety refresh and keep the candidate; the money door (spendAuthorization) still hard-fails it.
         if (hist.size >= 5) {
-            val prices = hist.map { it.priceUsd }
+            val prices = hist.map { it.priceUsd }.filter { it.isFinite() && it > 0.0 }
             val peakPrice = prices.maxOrNull() ?: 0.0
             val currentPrice = prices.lastOrNull() ?: 0.0
             
-            if (peakPrice > 0 && currentPrice < peakPrice * 0.05) {
+            if (IntakeUnknownTruth8418.priceCollapsed8418(prices) && !spendAuthorization) {
+                try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+                IntakeUnknownTruth8418.count8418("RUG_PREFILTER_PRICE_COLLAPSE_UNCONFIRMED_8418")
+                return PreFilterResult(pass = true, reason = "PRICE_COLLAPSE_UNCONFIRMED_8418", severity = FilterSeverity.SOFT_FAIL)
+            }
+            if (IntakeUnknownTruth8418.priceCollapsed8418(prices)) {
                 return PreFilterResult(
                     pass = false,
                     reason = "PRICE_COLLAPSED: -${((1 - currentPrice / peakPrice) * 100).toInt()}%",
@@ -432,10 +440,8 @@ object HardRugPreFilter {
 
         // CHECK 7 mirror — price crashed
         if (hist.size >= 5) {
-            val prices = hist.map { it.priceUsd }
-            val peakPrice = prices.maxOrNull() ?: 0.0
-            val currentPrice = prices.lastOrNull() ?: 0.0
-            if (peakPrice > 0 && currentPrice < peakPrice * 0.05) {
+            // V5.0.8418 — mirror of the strict check: finite positive prices only.
+            if (IntakeUnknownTruth8418.priceCollapsed8418(hist.map { it.priceUsd })) {
                 labels.add("PRICE_COLLAPSED")
             }
         }
@@ -458,6 +464,8 @@ object HardRugPreFilter {
     fun logFailure(ts: TokenState, result: PreFilterResult) {
         if (!result.pass) {
             ErrorLogger.debug(TAG, "❌ ${ts.symbol} PRE-FILTER: ${result.reason} [${result.severity}]")
+            // V5.0.8418 — HARD_RUG is counted by its own reason (and safety rule), so the report names what fired.
+            try { IntakeUnknownTruth8418.noteHardRug8418(result.reason, ts.safety.hardBlockReasons.firstOrNull()) } catch (_: Throwable) {}
         }
     }
 }

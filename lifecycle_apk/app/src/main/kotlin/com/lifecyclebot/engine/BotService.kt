@@ -16268,6 +16268,50 @@ class BotService : Service() {
         }
     }
 
+    /**
+     * V5.0.8418 — the INTAKE_LIQ_ZERO_REJECT arm. Liquidity AND market cap both unread is "no data", not a dust pool
+     * (6913: exact double zeros are the fingerprint of an unanswered provider): it parks in probation, cold, where a
+     * later sighting re-reads it, instead of being dropped. A real dust reading (some positive value under the dust
+     * line) is rejected exactly as before. Nothing is traded from probation without a real liquidity read.
+     */
+    private fun intakeDustOrUnread8418(mint: String, symbol: String, source: String, allSources: Set<String>,
+                                       liquidityUsd: Double, mcapUsd: Double, confidence: Int, claims8394: IntakeClaims8394?): Boolean {
+        val sym = symbol.ifBlank { mint.take(6) }
+        if (!IntakeUnknownTruth8418.intakeUnread8418(liquidityUsd, mcapUsd)) {
+            try {
+                ForensicLogger.lifecycle(
+                    "INTAKE_LIQ_ZERO_REJECT",
+                    "symbol=$sym mint=${mint.take(10)} src=$source srcN=${allSources.size} liq=${"%.4f".format(liquidityUsd)} mcap=${"%.4f".format(mcapUsd)}",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
+        val (laneAffinity, toolAffinity) = intakeAffinity8394(source, allSources, mcapUsd, liquidityUsd, claims8394)
+        val added = try {
+            GlobalTradeRegistry.addToProbationOnly(
+                mint = mint,
+                symbol = sym,
+                addedBy = source,
+                source = allSources.joinToString("+").ifBlank { source },
+                initialMcap = 0.0,
+                liquidityUsd = 0.0,
+                confidence = confidence,
+                isEstimatedLiquidity = true,
+                price = 0.0,
+                laneAffinity = laneAffinity,
+                toolAffinity = toolAffinity,
+            )
+        } catch (_: Throwable) { null }
+        IntakeUnknownTruth8418.count8418("INTAKE_LIQ_UNREAD_PROBATION_8418")
+        try {
+            ForensicLogger.lifecycle(
+                "INTAKE_LIQ_UNREAD_PROBATION_8418",
+                "symbol=$sym mint=${mint.take(10)} src=$source srcN=${allSources.size} liq=unread mcap=unread result=${added?.reason ?: "err"} action=probation_rehydrate_not_dust",
+            )
+        } catch (_: Throwable) {}
+        return added?.probation == true
+    }
+
     private fun intakeAffinity8394(source: String, sources: Set<String>, mcapUsd: Double, liquidityUsd: Double,
                                    claims: IntakeClaims8394?): Pair<Set<String>, Set<String>> =
         (inferIntakeLaneAffinity(source, sources, mcapUsd, liquidityUsd) + claims?.lanes.orEmpty()) to
@@ -16628,15 +16672,7 @@ class BotService : Service() {
                 // with a real read must be allowed in.
                 return false
             }
-            if (isDustLiq && !isUserAdded && !isRegistryRestore) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "INTAKE_LIQ_ZERO_REJECT",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source srcN=${allSources.size} liq=${"%.4f".format(liquidityUsd)} mcap=${"%.4f".format(trustedMarketCapUsd6492)}",
-                    )
-                } catch (_: Throwable) {}
-                return false
-            }
+            if (isDustLiq && !isUserAdded && !isRegistryRestore) return intakeDustOrUnread8418(mint, symbol, source, allSources, liquidityUsd, trustedMarketCapUsd6492, confidence, claims8394)  // V5.0.8418
         }
 
         // V5.9.1228 — PumpPortal cold-flow goes to probation-only, not hot

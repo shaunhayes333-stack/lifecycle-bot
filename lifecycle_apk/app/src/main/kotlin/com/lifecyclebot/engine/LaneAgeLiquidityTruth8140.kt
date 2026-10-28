@@ -37,7 +37,8 @@ object LaneAgeLiquidityTruth8140 {
 
     fun deferralLine8144(): String =
         "deferrals8144 liq[terminals=${liqDeferral8144.terminals8144()} open=${liqDeferral8144.size8144()}] " +
-            "birth[terminals=${birthDeferral8144.terminals8144()} open=${birthDeferral8144.size8144()}]"
+            "birth[terminals=${birthDeferral8144.terminals8144()} open=${birthDeferral8144.size8144()}] " +
+            (try { IntakeUnknownTruth8418.statusLine8418() } catch (_: Throwable) { "intake8418[unavailable]" })   // V5.0.8418
 
     /** Resolved chain-birth age in minutes; null while the birth is unresolved. */
     private fun chainAgeMinutes8140(ts: TokenState): Double? = try {
@@ -82,7 +83,8 @@ object LaneAgeLiquidityTruth8140 {
         } catch (_: Throwable) { 360.0 }
         val age = chainAgeMinutes8140(ts)
         // V5.0.8144 — unknown defers, but a proven lower bound past the window refuses (old, not unknown).
-        val v = LaneAgeLiquidityScope8140.ageVerdictBounded8144(lane, age, if (age == null) provenMinAgeMinutes8144(ts) else null, window)
+        val bound8418 = if (age == null) provenMinAgeMinutes8144(ts) else null
+        val v = LaneAgeLiquidityScope8140.ageVerdictBounded8144(lane, age, bound8418, window)
         if (age != null) birthDeferral8144.resolved8144(ts.mint)
         if (!v.blocksEntry) return false
         count8140(v.label)
@@ -93,7 +95,10 @@ object LaneAgeLiquidityTruth8140 {
         try {
             ForensicLogger.lifecycle(
                 v.label,
+                // V5.0.8418 — trueAgeMin=-1 is the UNRESOLVED exact birth; a refusal then rests on the proven lower bound
+                // named here (a witnessed sighting / signature / pool older than the window), never on the unknown itself.
                 "mint=${ts.mint.take(10)} symbol=${ts.symbol} trueAgeMin=${age?.toInt() ?: -1} " +
+                    "provenMinAgeMin8418=${bound8418?.toInt() ?: -1} boundSource8418=${if (bound8418 == null) "-" else (try { com.lifecyclebot.engine.truth.AdmissionBirth8144.readFor8144(ts).source } catch (_: Throwable) { "?" })} " +
                     "windowMin=${window.toInt()} action=${if (v.outcome == LaneAgeLiquidityScope8140.Outcome8140.DEFER) "defer_birth_hydrating" else "refuse_past_launch_window"}",
             )
         } catch (_: Throwable) {}
