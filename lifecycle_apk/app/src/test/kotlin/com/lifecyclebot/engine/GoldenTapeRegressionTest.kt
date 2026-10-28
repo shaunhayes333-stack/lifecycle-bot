@@ -14232,7 +14232,9 @@ class GoldenTapeRegressionTest {
         // V5.0.8405 — the batch still prices off-watch marks in one background fetch; rungs are now ordered by measured health
         // (DexScreener over the whole batch, curve for pump mints, Jupiter last on the misses).
         assertTrue(lab.contains("com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(missedJup8405)"))
-        assertTrue(lab.contains("for (chunk in batch.chunked(OFFWATCH_DEX_CHUNK_8405)) {"))
+        // superseded by V5.0.8418 — on-curve mints are curve-read first; DexScreener takes the rest and the curve's misses
+        // (was `for (chunk in batch.chunked(OFFWATCH_DEX_CHUNK_8405)) {`).
+        assertTrue(lab.contains("for (chunk in dexBatch8418.chunked(OFFWATCH_DEX_CHUNK_8405)) {"))
         assertTrue(lab.contains("if (dueAtHorizon7737(o, age)) dueUnpriced7737.add("))
         assertTrue(lab.contains("FreshLaunchSelector7737.observe(ts, admitted, px, cost.coerceIn(0.0, 60.0), nowMs)"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
