@@ -18696,8 +18696,9 @@ class Executor(
         val ec = try { EntryContextRegistry.peek(ts.mint) } catch (_: Throwable) { null }
         val setupKey = ec?.entrySetup?.trim().orEmpty()
         if (setupKey.isBlank()) 1.0 else {
-            val winners = LiveWinDNAStore.setupFrequency(minCount = 3, lane = layerTag)
-            val losers = LiveWinDNAStore.losingSetupFrequency(minCount = 1, lane = layerTag)
+            // V5.0.8418 — a live size boost reads realised LIVE closes only (never paper / shadow).
+            val winners = LiveWinDNAStore.setupFrequency(minCount = 3, lane = layerTag, liveOnly = true)
+            val losers = LiveWinDNAStore.losingSetupFrequency(minCount = 1, lane = layerTag, liveOnly = true)
             val winnerRow = winners.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
             val loserRow = losers.firstOrNull { it.first.equals(setupKey, ignoreCase = true) }
             val winCount = winnerRow?.second ?: 0

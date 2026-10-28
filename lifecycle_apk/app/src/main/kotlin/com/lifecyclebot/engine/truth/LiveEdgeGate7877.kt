@@ -479,7 +479,9 @@ object LiveEdgeGate7877 {
         val l = CanonicalLaneIdentity6506.desk8392(lane)
         val lanBasis = if (paper) null else try { FdgGate8365.holdBasis8365(l, nowMs) } catch (_: Throwable) { null }
         val hold = if (paper) null else try {
-            (if (EvidenceHold8336.shadowProven8344(l)) null else EntryEconomics8329.laneRealisedRefusal8329(l, nowMs))
+            // V5.0.8418 (owner: "shadow proof can unlock, not size") — a lane's own realised LIVE losses re-lock it whatever its
+            // shadow proof says. superseded: a shadow-proven lane skipped laneRealisedRefusal8329.
+            EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)
                 ?: EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)
         } catch (_: Throwable) { "EVIDENCE_HOLD_READ_FAILED_8392" }
         // V5.0.8418 — a candidate the hold passed on its own exception (the 100x door) carries that door as its basis.

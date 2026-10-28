@@ -193,8 +193,11 @@ class Aate8188RiskTruthTest {
         val withOutlier = rets.toMutableList().also { it[1] = 5_000.0 }
         val atCap = rets.toMutableList().also { it[1] = 1_000.0 }
         assertEquals(LiveRiskPolicy7807.realisedProofKellyFrac8188(atCap, sol), LiveRiskPolicy7807.realisedProofKellyFrac8188(withOutlier, sol), 1e-12)
+        // superseded by V5.0.8418 — owner: live size comes only from realised live closes; the walk-forward label proof is read
+        // through liveOnlyProof8418 (always 0, counted). Was: laneWalkForwardKellyFrac8188(l) passed straight in.
         assertTrue(src("engine/truth/LiveRiskPolicy7807.kt").contains(
-            "validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), laneWalkForwardKellyFrac8188(l))"))
+            "validatedKellyFrac8188(maxOf(setupFrac, cellFrac, kindFrac), laneRealisedProofFrac8188(l, System.currentTimeMillis()), liveOnlyProof8418(laneWalkForwardKellyFrac8188(l)))"))
+        assertEquals(0.0, LiveRiskPolicy7807.liveOnlyProof8418(0.2), 0.0)
         // Walk-forward: only a VALIDATED out-of-sample record is proof (5.0.8186 read IN_SAMPLE_ONLY on every lane).
         val oos = CortexWalkForward8144.Stat8144(40, 12.0, 2.0)
         val validated = CortexWalkForward8144.Result8144(CortexWalkForward8144.Verdict8144.VALIDATED, CortexWalkForward8144.Stat8144(80, 10.0, 1.5), oos, 4, 3, Double.NaN)

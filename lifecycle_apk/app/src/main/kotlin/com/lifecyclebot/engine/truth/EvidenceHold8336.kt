@@ -386,6 +386,44 @@ object EvidenceHold8336 {
             if (proven) null else admitted8337(mint, l, nowMs))
     }
 
+    // ── V5.0.8418 §SHADOW_PROOF_UNLOCKS_NOT_SIZES (owner ruling) ─────────────────────────────────────────────────────────
+    // In LIVE the hold counts the proof of the shadow traders running beside live (EvidenceShadow8344 lane book; the
+    // ExploreShadow8347 variants on their stricter 40-close bar), graded on the executable horizon at the real cost, on the
+    // paper bar (proof8336: 30 closes, mean - SE > 2 %, PF >= 1.3, net after cost). Only rows on the full executable-cost
+    // contract count (ShadowPersist8355.proofEligible8394). The proof is ADMISSION only (DIRECTIVE_LEDGER_8367 #36): live size
+    // reads realised live closes alone (LiveRiskPolicy7807, Kelly8365, LiveWinDNAStore.liveSizingRow8418), so a shadow-unlocked
+    // lane trades at the small live stake until its own closes prove; its realised live losses re-lock it
+    // (EntryEconomics8329.laneRealisedRefusal8329 binds before the hold in LiveEdgeGate7877.liveRefusal).
+
+    data class LaneUnlock8418(val lane: String, val shadow: Proof8336, val unlocked: Boolean, val live: Proof8336, val relocked: Boolean)
+
+    /** Pure: the lane's unlock row from its shadow proof, paper proof, realised live record and realised-loss refusal. */
+    fun laneUnlock8418(lane: String, shadow: Proof8336, paperProven: Boolean, explorationProven: Boolean,
+                       live: Proof8336, realisedRefusal: String?): LaneUnlock8418 {
+        val proofUnlocks = paperProven || shadow.proven || explorationProven
+        return LaneUnlock8418(lane, shadow, proofUnlocks && realisedRefusal == null, live, proofUnlocks && realisedRefusal != null)
+    }
+
+    /** The lane's realised LIVE whole-position closes (net % and SOL) as a proof record. */
+    private fun liveRecord8418(lane: String): Proof8336 {
+        val envs = try { CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("live").filter { it.learningEligible && canon(it.lane) == lane } }
+            catch (_: Throwable) { emptyList() }
+        return proof8336(envs.map { it.realizedReturnPct }, envs.map { it.realizedPnlSol }, lane)
+    }
+
+    private fun fmt8418(p: Proof8336): String = "n${p.n}/pf${if (p.pf.isFinite()) "%.2f".format(p.pf) else "-"}"
+
+    fun unlockLine8418(nowMs: Long = System.currentTimeMillis()): String {
+        val rows = HELD_LANES_8392.sorted().map { l ->
+            laneUnlock8418(l, try { EvidenceShadow8344.proof8344(l, startMs8336) } catch (_: Throwable) { Proof8336(0, Double.NaN, Double.NaN, Double.NaN, false) },
+                proofFor8336(l, nowMs).proven, explorationProven8347(l), liveRecord8418(l),
+                try { EntryEconomics8329.laneRealisedRefusal8329(l, nowMs) } catch (_: Throwable) { null })
+        }
+        return " unlock8418{" + rows.joinToString(" · ") { r ->
+            "${r.lane} shadow=${fmt8418(r.shadow)} unlocked=${if (r.unlocked) "Y" else "N"}${if (r.relocked) "(relocked)" else ""} live=${fmt8418(r.live)}"
+        } + "}"
+    }
+
     fun exceptionCount8337(): Long = exceptionBudget8397.counts().first
     fun grabExceptionCount8345(): Long = exceptionBudget8397.counts().second
 
@@ -404,6 +442,7 @@ object EvidenceHold8336 {
         return "evidenceHold8336[on=$enabled8336 rehearsal=$rehearsal8336 sinceMin=${if (startMs8336 > 0) (nowMs - startMs8336) / 60_000 else -1} " +
             "bar=all,n>=$MIN_N_8336,mean-se>$MARGIN_PCT_8336%,pf>=$MIN_PF_8336 fast8399=retired8418(${FAST_BAR_LANES_8399.joinToString("/")}:n>=$FAST_MIN_N_8399,pf>=$FAST_MIN_PF_8399) lanes=${EvidenceHold8336.HELD_LANES_8392.size} refused=${refused.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "exceptions=${exceptionCount8337()} last=${exceptionBudget8397.last()} grabDoor8345=${grabExceptionCount8345()} reserved8397=${exceptionBudget8397.reservations()} meter8397=SUBMITTED_ATTEMPT $lanes" +
-            (try { EvidenceShadow8344.recoveryLine8345(startMs8336, nowMs) } catch (_: Throwable) { " recovery8345{?}" }) + "]"  // V5.0.8345 — the bounded path to the bar
+            (try { EvidenceShadow8344.recoveryLine8345(startMs8336, nowMs) } catch (_: Throwable) { " recovery8345{?}" }) +
+            (try { unlockLine8418(nowMs) } catch (_: Throwable) { " unlock8418{?}" }) + "]"  // V5.0.8345 — the bounded path to the bar
     }
 }
