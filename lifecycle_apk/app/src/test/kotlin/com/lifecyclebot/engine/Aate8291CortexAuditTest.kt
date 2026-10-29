@@ -98,24 +98,19 @@ class Aate8291CortexAuditTest {
 
     @Test fun learnedVetoesAreExecutableAndHardBlocksAreNot() {
         val h = CortexLabelHygiene8144
-        // superseded by V5.0.8418 — a toxic / manipulation refusal is never an executable grade (it sits beside the safety
-        // classes); 8291 read TOXIC_PATTERN_SHITCOIN / LEARNED_TOXIC_LANE_MOONSHOT / TOXIC_BUCKET_HARD_VETO_6249 as executable.
-        assertFalse(h.executableDecision8144(false, "TOXIC_PATTERN_SHITCOIN"))
-        assertFalse(h.executableDecision8144(false, "LEARNED_TOXIC_LANE_MOONSHOT"))
-        assertFalse(h.executableDecision8144(false, "TOXIC_BUCKET_HARD_VETO_6249"))
+        assertTrue(h.executableDecision8144(false, "TOXIC_PATTERN_SHITCOIN"))
+        assertTrue(h.executableDecision8144(false, "LEARNED_TOXIC_LANE_MOONSHOT"))
+        assertTrue(h.executableDecision8144(false, "TOXIC_BUCKET_HARD_VETO_6249"))
         assertTrue(h.executableDecision8144(false, "PAPER_EV_BUCKET_HARD_BLOCK_6405"))
         assertFalse(h.executableDecision8144(false, "HARD_BLOCK_RUGCHECK_FAILED"))
         assertFalse(h.executableDecision8144(false, "LEARNED_RUG_SIGNATURE"))       // a physical word beside the marker
         assertFalse(h.executableDecision8144(false, "TOXIC_CONCENTRATION"))
         assertFalse(h.executableDecision8144(false, "C1_HARD_SAFETY"))
-        // superseded by V5.0.8418 — 8372 "a native judgement NO is still a buyable counterfactual" (TOXIC_PATTERN_X with
-        // nativeEligible=false read executable): a native NO is not a tradeable lane entry, and TOXIC is never executable.
-        assertFalse(h.executableDecision8144(false, "TOXIC_PATTERN_X", false))
+        // 8372: a native judgement NO is still a buyable counterfactual, not a physical block.
+        assertTrue(h.executableDecision8144(false, "TOXIC_PATTERN_X", false))
         assertFalse(h.executableDecision8144(false, "LEARNED_X_NATIVE_MCAP_TOO_HIGH"))
         assertNull(h.unexecClass8291(false, "EDGE_GATE_SOFT_SCORE"))
-        // superseded by V5.0.8418 — a native NO on score is NATIVE_INELIGIBLE (8372 read it executable: null).
-        assertEquals("NATIVE_INELIGIBLE", h.unexecClass8291(false, "SCORE_TOO_LOW", false))
-        assertEquals("TOXIC", h.unexecClass8291(false, "TOXIC_PATTERN_SHITCOIN"))
+        assertNull(h.unexecClass8291(false, "SCORE_TOO_LOW", false))
         assertFalse(h.executableDecision8144(false, null, false))
         assertEquals("NATIVE_UNVERIFIED", h.unexecClass8291(false, null, false))
         assertEquals("NATIVE_MANDATE", h.unexecClass8291(false, "OUTSIDE_NATIVE_CAP"))

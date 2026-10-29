@@ -283,12 +283,12 @@ class Aate8418LearningIntegrityTest {
 
     // ── (a) only executable decisions grade ──
 
-    @Test fun aNativeNoAndAToxicRefusalAreNotExecutableGrades() {
-        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", false))
-        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "TOXIC_PATTERN_X"))
-        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, "MANIPULATION_SUSPECTED"))
-        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", true))
-        assertTrue(CortexLabelHygiene8144.executableDecision8144(true, "TOXIC_PATTERN_X"))   // an admit was executed
-        assertNotNull(CortexLabelHygiene8144.unexecClass8291(false, "SCORE_TOO_LOW", false))
+    // V5.0.8418 — withdrawn: filing every native NO unexecutable cut Cortex grading from ~564/h to 16.7/h. A scored NO
+    // teaches (8372); only an unidentified NO is unverified.
+    @Test fun aScoredNativeNoStillTeachesAndAnUnidentifiedOneDoesNot() {
+        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "SCORE_TOO_LOW", false))
+        assertFalse(CortexLabelHygiene8144.executableDecision8144(false, null, false))
+        assertTrue(CortexLabelHygiene8144.executableDecision8144(false, "TOXIC_PATTERN_X"))
+        assertTrue(CortexLabelHygiene8144.executableDecision8144(true, "TOXIC_PATTERN_X"))
     }
 }

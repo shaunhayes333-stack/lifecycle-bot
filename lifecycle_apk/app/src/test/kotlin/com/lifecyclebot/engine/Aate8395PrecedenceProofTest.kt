@@ -23,7 +23,8 @@ class Aate8395PrecedenceProofTest {
         assertTrue(CandidateAdmission8136.decide8136(cand(ev("A", 60, 20.0, 3.0), weakLane)).admitted)
     }
     @Test fun unsupportedSetupWithWeakLaneAverageIsRefusedByTheLanePrior() {
-        assertEquals(CandidateAdmission8136.LIVE_LANE_LABELS_8325, CandidateAdmission8136.decide8136(cand(ev("A", 60, 1.0, 3.0), weakLane)).reason)
+        // superseded by V5.0.8418 §LANE_PRIOR_SIZES_DOWN_NOT_HALTS — a weak lane average no longer refuses the candidate
+        assertNotEquals(CandidateAdmission8136.LIVE_LANE_LABELS_8325, CandidateAdmission8136.decide8136(cand(ev("A", 60, 1.0, 3.0), weakLane)).reason)
         assertFalse("suspect records never supersede", CandidateAdmission8136.setupProofSupersedesLanePrior8395(ev("A", 60, 20.0, 3.0, suspect = true), 6.0))
     }
     @Test fun supportedSetupStillMeetsBindingRealisedLosses() {

@@ -54,9 +54,6 @@ object CortexLabelHygiene8144 {
     private fun learnedJudgement8291(r: String): Boolean =
         LEARNED_JUDGEMENT_8291.any { r.contains(it) } && PHYSICAL_8291.none { r.contains(it) }
 
-    /** V5.0.8418 — refusal words that keep a decision unexecutable even as a learned veto (superseded 8291's TOXIC_PATTERN rule). */
-    private val TOXIC_8418 = listOf("TOXIC", "MANIPULAT", "WASH_TRAD")
-
     data class Verdict8144(val executable: Boolean, val repeat: Boolean) {
         /** May this label grade the voters, the bucket / setup / veto books and calibration? */
         val authority: Boolean get() = executable && !repeat
@@ -66,13 +63,12 @@ object CortexLabelHygiene8144 {
     /** Pure: could the decision have been executed? An admit was; a refusal is unless its reason names a hard block. */
     fun executableDecision8144(admitted: Boolean, reason: String?, nativeEligible: Boolean? = null): Boolean {
         if (admitted) return true
-        // V5.0.8418 §GRADE_ONLY_EXECUTABLE — restored: where the contemporaneous native specialist evaluated this coin, its
-        // NO (on score or anything else) is evidence that this was NOT a tradeable lane entry, so it never grades authority.
-        // superseded by V5.0.8418 — 8372 "a scored NO must still teach" (`nativeEligible == false && reason.isNullOrBlank()`).
-        if (nativeEligible == false) return false
+        // 8372: eligible is the specialist's YES/NO, not physical executability. A scored NO must still teach both winners and
+        // losers; only an unidentified NO is unverified. V5.0.8418 — the brief 8418 rule that filed every native NO (and toxic
+        // learned vetoes) unexecutable is withdrawn: the specialists say NO to most coins, so Cortex grading fell from ~564/h
+        // to 16.7/h on the 8418 phone run and no refusal could ever be shown to refuse winners.
+        if (nativeEligible == false && reason.isNullOrBlank()) return false
         val r = reason?.uppercase() ?: return true
-        // V5.0.8418 — a toxic / manipulation refusal sits beside the safety classes: never an executable grade.
-        if (TOXIC_8418.any { r.contains(it) }) return false
         // V5.0.8291 — a LEARNED veto is a judgement of a buyable coin, not a physical block, even when its name carries a
         // hard word (TOXIC_PATTERN, LEARNED_TOXIC_LANE, TOXIC_BUCKET_HARD_VETO_6249, PAPER_EV_BUCKET_HARD_BLOCK_6405):
         // filed unexecutable, its refusals never reached the veto book, so it could never be shown to refuse winners.
@@ -102,8 +98,7 @@ object CortexLabelHygiene8144 {
     fun unexecClass8291(admitted: Boolean, reason: String?, nativeEligible: Boolean? = null): String? {
         if (executableDecision8144(admitted, reason, nativeEligible)) return null
         val r = reason?.uppercase().orEmpty()
-        if (nativeEligible == false) return if (r.isBlank()) "NATIVE_UNVERIFIED" else "NATIVE_INELIGIBLE"   // V5.0.8418
-        if (TOXIC_8418.any { r.contains(it) }) return "TOXIC"
+        if (nativeEligible == false && r.isBlank()) return "NATIVE_UNVERIFIED"
         if (UNEXECUTABLE_NATIVE_8196.any { r.startsWith(it) || r.contains("_$it") }) return "NATIVE_MANDATE"
         return UNEXECUTABLE_8144.firstOrNull { r.contains(it) } ?: "OTHER"
     }

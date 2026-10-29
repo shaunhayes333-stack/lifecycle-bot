@@ -77,13 +77,10 @@ class Aate8372CortexLearningTest {
     }
 
     @Test fun specialistSoftNoMustNotDeleteTheCounterfactualLearningPopulation() {
-        // superseded by V5.0.8418 — 8372 "a judgement NO is learnable" as an EXECUTABLE grade. A native NO stays an observed
-        // record (CortexGradeBook8144 keeps it), but it never grades the authority population.
+        // V5.0.8418 — the brief rule that filed a native NO unexecutable was withdrawn (grading fell to 16.7/h).
         for (reason in listOf("NATIVE_THRESHOLD_FAIL_SCORE", "NATIVE_NO_CONTINUATION", "CANDIDATE_ADMISSION_8136_SETUP_RECORD_LOSING")) {
-            assertFalse("A native NO is not an executable grade: $reason",
+            assertTrue("A judgement NO is learnable: $reason",
                 CortexLabelHygiene8144.executableDecision8144(false, reason, nativeEligible = false))
-            assertTrue("The same refusal without a native NO is still a counterfactual: $reason",
-                CortexLabelHygiene8144.executableDecision8144(false, reason, nativeEligible = null) || reason.startsWith("NATIVE_"))
         }
     }
 
@@ -95,11 +92,8 @@ class Aate8372CortexLearningTest {
     }
 
     @Test fun counterfactualHelperRequiresGradeableOwnLaneEvidenceWithoutTreatingJudgementAsSafety() {
-        // superseded by V5.0.8418 — with nativeEligible=false the counterfactual is not executable (8372: true).
-        assertFalse(CortexLabelHygiene8144.counterfactualExecutable8372(
-            false, "FDG_SETUP_RECORD_LOSING", false, true, "THRESHOLD_FAIL_SCORE"))
         assertTrue(CortexLabelHygiene8144.counterfactualExecutable8372(
-            false, "FDG_SETUP_RECORD_LOSING", true, true, "THRESHOLD_FAIL_SCORE"))
+            false, "FDG_SETUP_RECORD_LOSING", false, true, "THRESHOLD_FAIL_SCORE"))
         assertFalse(CortexLabelHygiene8144.counterfactualExecutable8372(
             false, "FDG_SETUP_RECORD_LOSING", false, false, "THRESHOLD_FAIL_SCORE"))
         assertFalse(CortexLabelHygiene8144.counterfactualExecutable8372(

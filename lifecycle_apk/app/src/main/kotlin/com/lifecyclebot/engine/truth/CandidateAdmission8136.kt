@@ -301,7 +301,13 @@ object CandidateAdmission8136 {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_PRIOR_SUPERSEDED_BY_SETUP_PROOF_8395_${c.lane.uppercase()}") } catch (_: Throwable) {}
                 return null
             }
-            return LIVE_LANE_LABELS_8325
+            // V5.0.8418 §LANE_PRIOR_SIZES_DOWN_NOT_HALTS — the lane-wide label average (every coin the lane looked at, junk
+            // included, still carrying the pre-8418 9 % mark cost) refused EVERY live candidate in the lane: 735 of 1,751
+            // refusals on the 8418 phone run with the evidence hold gone. Owner policy is size down, not halt, and live size
+            // already starts at the small stake until the lane's own live closes prove; so the prior is counted, not binding.
+            // The realised-loss governor above (LIVE_LANE_REALISED_LOSING_8325) still refuses.
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_LABEL_PRIOR_ADVISORY_8418_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return null
         }
         // V5.0.8328 — the third read (LIVE_TAIL_ALONE_8325: a lane-wide edge with the setup's own record absent, thin or
         // not positive) is withdrawn: it bound the thin one-SE live loss the 8316 directive made advisory (8257 band) and
