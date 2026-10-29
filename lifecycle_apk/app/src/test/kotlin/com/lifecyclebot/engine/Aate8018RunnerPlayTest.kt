@@ -79,6 +79,6 @@ class Aate8018RunnerPlayTest {
         // superseded by V5.0.8418 — the feed follows every held pool (any known venue), up to 60
         assertTrue(b.contains("GradTicks8018.sync8018(openMints.take(60).toSet())"))
         // superseded by V5.0.8418 — the tick names its venue (PumpSwap keeps PUMPSWAP_VAULT_WS_8018 via sourceFor8418)
-        assertTrue(b.contains("applyPumpTradeMark7278(mint, priceSol, 0.0, source8418, pool)"))
+        assertTrue(b.contains("applyPumpTradeMark7278(mint, priceSol, 0.0, source8418, pool, liq8418)"))
     }
 }

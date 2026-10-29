@@ -26,10 +26,10 @@ class Aate8418HeldPoolFeedTest {
         assertTrue(g.contains("OnChainDepth8038.priceInState8418(owner8418) ->"))
         assertTrue(g.contains("OnChainDepth8038.vaultKeys8038(owner8418, data)?.let { (a, b) ->"))
         assertTrue(g.contains("ConcentratedPrice8418.decode8418(pool.owner, bytes8418, mint, pool.baseDecimals, 9) ?: return"))
-        assertTrue(g.contains("onTick(mint, px, pool.pool, sourceFor8418(pool.owner, pool.stateAccount.isNotBlank()))"))
+        assertTrue(g.contains("onTick(mint, px, pool.pool, sourceFor8418(pool.owner, pool.stateAccount.isNotBlank()), quoteSol8418)"))
         val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(b.contains("{ mint, priceSol, pool, source8418 ->"))
-        assertTrue(b.contains("applyPumpTradeMark7278(mint, priceSol, 0.0, source8418, pool)"))
+        assertTrue(b.contains("{ mint, priceSol, pool, source8418, quoteSol8418 ->"))
+        assertTrue(b.contains("applyPumpTradeMark7278(mint, priceSol, 0.0, source8418, pool, liq8418)"))
         assertTrue(b.contains("GradTicks8018.sync8018(openMints.take(60).toSet())"))
     }
 }
