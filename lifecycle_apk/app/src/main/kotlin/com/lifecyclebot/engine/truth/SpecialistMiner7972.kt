@@ -47,23 +47,28 @@ object SpecialistMiner7972 {
     private const val MIN_WIN = 0.25
     private const val DEMOTE_N = 10
     private const val MAX_KEYS = 40_000
-    // V5.0.8420 — was 300: +500% and +600% runners booked as the same +300%, so the miner could not tell a 6x from a 4x and
-    // every runner combination's mean was cut to the cap (owner 8072: no win caps). The cap is now only a corrupt-unit
-    // guard (a 50x net return); real runner magnitude reaches the books.
-    private const val NET_CAP = 5_000.0
+    // superseded by V5.0.8423 — NET_CAP: 300 booked every label at min(net, +300) (a +500 % and a +600 % label were the same
+    // record; reviewers, 8418 wave); V5.0.8420 raised it to 5,000 as a corrupt-unit guard. A label reaching the miner has been
+    // classified by the labeler (LabelEvidence8386: identity, units, decimals, time order, chain proof for a >= 10x move); the
+    // miner books it at its observed value and refuses only arithmetic that cannot describe a position
+    // (ReturnMagnitude8419.classifyLabel8419) — a clamp writes a number that did not happen (owner 8072: no win caps).
     private const val RUNNER_GROSS = 50.0
     private const val STAT_WINDOW_8014 = 300
 
     class Stat(var n: Int = 0, var sum: Double = 0.0, var sumSq: Double = 0.0, var wins: Int = 0, var runners: Int = 0) {
         /** V5.0.8144 — last label booked here (eviction rank tie-break; session-only, not persisted). */
         @Volatile var touchedAtMs8144: Long = 0L
-        /** Returns this label's booking stamp (V5.0.8418): the decay coordinate a later revision reads its weight against. */
         /** V5.0.8420 — carried fractions of the faded win / runner counts (session-scoped; at most one count). */
         @Volatile var winCarry8420 = 0.0
         @Volatile var runnerCarry8420 = 0.0
+        /**
+         * Returns this label's booking stamp (V5.0.8418): the decay coordinate a later revision reads its weight against.
+         * V5.0.8419 — [net] is booked exactly as observed (callers classify through ReturnMagnitude8419; a non-finite or
+         * below-total-loss value is refused at the door, never reshaped here).
+         */
         fun add(net: Double, gross: Double): Double {
             val stamp = logScale8418
-            val y = net.coerceIn(-100.0, NET_CAP)
+            val y = net
             n++; sum += y; sumSq += y * y
             if (y > 0.0) wins++
             if (gross.isFinite() && gross >= RUNNER_GROSS) runners++
@@ -101,7 +106,7 @@ object SpecialistMiner7972 {
             if (n <= 0 || !oldNet.isFinite() || !newNet.isFinite()) return
             val w = weight8418 ?: if (decayed8410 || n >= STAT_WINDOW_8014) Double.NaN else 1.0
             if (!(w > 0.0 && w <= 1.0)) { decayedRevisionSkipped8410.incrementAndGet(); return }
-            val yo = oldNet.coerceIn(-100.0, NET_CAP); val yn = newNet.coerceIn(-100.0, NET_CAP)
+            val yo = oldNet; val yn = newNet   // V5.0.8419 — the revision replaces the observed value with the observed value
             sum += w * (yn - yo); sumSq = (sumSq + w * (yn * yn - yo * yo)).coerceAtLeast(0.0)
             val dw = (if (yn > 0.0) 1 else 0) - (if (yo > 0.0) 1 else 0)
             if (dw != 0) wins = (wins + kotlin.math.round(w * dw).toInt()).coerceIn(0, n)
@@ -263,6 +268,8 @@ object SpecialistMiner7972 {
     /** ForwardReturnLabeler7731 (5-minute label): book [net] to every combination of the decision's facts. */
     fun onLabel7972(lane: String, mint: String, facts: List<String>, net: Double, gross: Double, decidedAtMs: Long): DoubleArray {
         if (facts.size < 3 || !net.isFinite() || lane.startsWith("PLAN")) return DoubleArray(0)
+        // V5.0.8419 — classify, never clamp: a value below a total loss is a basis / unit break and is refused by name.
+        if (!ReturnMagnitude8419.classifyLabel8419(net).train) { corruptRefused8419.incrementAndGet(); return DoubleArray(0) }
         // V5.0.8418 — one label per decision (lane, coin, decision time), across restarts.
         if (!LearnerAttribution8418.admit8418("SpecialistMiner7972", "$lane|$mint|$decidedAtMs", "LABEL")) return DoubleArray(0)
         val combos8418 = combos7972(lane, facts)
@@ -330,10 +337,15 @@ object SpecialistMiner7972 {
      */
     private val decayedRevisionSkipped8410 = java.util.concurrent.atomic.AtomicLong(0)
     fun decayedRevisionSkipped8410(): Long = decayedRevisionSkipped8410.get()
+    /** V5.0.8419 — labels / revisions refused as corrupt arithmetic (below a total loss); never clamped into the record. */
+    private val corruptRefused8419 = java.util.concurrent.atomic.AtomicLong(0)
+    fun corruptRefused8419(): Long = corruptRefused8419.get()
 
     fun reviseLabel7997(lane: String, facts: List<String>, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double,
                         stamps8418: DoubleArray = DoubleArray(0)) {
         if (facts.size < 3 || !oldNet.isFinite() || !newNet.isFinite() || lane.startsWith("PLAN")) return
+        // V5.0.8419 — a revision to corrupt arithmetic is refused; the booked (classified) value stands.
+        if (!ReturnMagnitude8419.classifyLabel8419(newNet).train) { corruptRefused8419.incrementAndGet(); return }
         val combos = combos7972(lane, facts)
         val stamped = stamps8418.size == combos.size + 1 && stamps8418[0] == BOOT_8418
         for ((ci, k) in combos.withIndex()) {
@@ -440,6 +452,14 @@ object SpecialistMiner7972 {
 
     internal fun hasKeyForTest8144(key: String): Boolean = keys.containsKey(key)
 
+    /** V5.0.8419 — test seam: the resident record of [key] as [n, sum, sumSq, wins, runners], or null. */
+    internal fun statForTest8419(key: String): DoubleArray? = keys[key]?.let { s ->
+        synchronized(s) { doubleArrayOf(s.n.toDouble(), s.sum, s.sumSq, s.wins.toDouble(), s.runners.toDouble()) }
+    }
+
+    /** V5.0.8419 — test seam: the combination keys a label of [facts] in [lane] books to (the same order as the stamps). */
+    internal fun combosForTest8419(lane: String, facts: List<String>): List<String> = combos7972(lane, facts)
+
     /** The best promoted specialist of [lane] this token matches now, or null. */
     fun match7972(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Spec? {
         if (promoted.isEmpty()) return null
@@ -510,7 +530,7 @@ object SpecialistMiner7972 {
             "${it.key.take(70)}[n${it.disc.n} ${"%+.0f".format(it.disc.mean())}% live n${it.live.n} ${"%+.0f".format(it.live.mean())}%]"
         }.ifBlank { "-" }
         return "loaded=$loaded labels=${labels.get()} keys=${keys.size} specialists=${promoted.size} [$byLane] confirmed=$confirmed " +
-            "promoted=${promotions.get()} demoted=${demotions.get()} liveMatches=${liveMatches.get()} devs=${devs.size} bar=n>=$MIN_N,mean-2SE>=+$BAR_PCT% top[$top]"
+            "promoted=${promotions.get()} demoted=${demotions.get()} liveMatches=${liveMatches.get()} devs=${devs.size} corruptRefused8419=${corruptRefused8419.get()} bar=n>=$MIN_N,mean-2SE>=+$BAR_PCT% top[$top]"
     }
 
     // ── persistence ──
@@ -568,5 +588,5 @@ object SpecialistMiner7972 {
 
     fun size7977(): Int = keys.size
 
-    internal fun resetForTest7972() { keys.clear(); promoted.clear(); devs.clear(); devLabelled.clear(); labels.set(0); promotions.set(0); demotions.set(0); liveMatches.set(0); LearnerAttribution8418.forgetForTest8418("SpecialistMiner7972") }
+    internal fun resetForTest7972() { keys.clear(); promoted.clear(); devs.clear(); devLabelled.clear(); labels.set(0); promotions.set(0); demotions.set(0); liveMatches.set(0); corruptRefused8419.set(0); LearnerAttribution8418.forgetForTest8418("SpecialistMiner7972") }
 }

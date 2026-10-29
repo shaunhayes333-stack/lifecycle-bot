@@ -102,9 +102,12 @@ class SentimentEngine(private val cfg: () -> BotConfig) {
         } catch (_: Exception) {}
 
         // ── 5. Wallet concentration check ─────────────────────────────
-        val concentration = try {
-            tgScraper.checkWalletConcentration(c.rpcUrl, mint)
-        } catch (_: Exception) { 50.0 }
+        // V5.0.8419 — the one verified holder figure (owners classified, divided by getTokenSupply, UNKNOWN when the
+        // account evidence is incomplete). superseded: tgScraper.checkWalletConcentration(c.rpcUrl, mint) — it divided
+        // the top ten by the 20 returned rows' own total and answered 50.0 when the RPC failed (HolderShare8419).
+        val concentration = com.lifecyclebot.engine.truth.HolderShare8419.sentimentConcentration8419(
+            try { com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.top10Pct(mint) } catch (_: Throwable) { null },
+        )
 
         // ── Aggregate ─────────────────────────────────────────────────
 

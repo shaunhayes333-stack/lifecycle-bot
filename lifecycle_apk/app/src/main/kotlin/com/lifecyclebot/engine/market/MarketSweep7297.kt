@@ -76,6 +76,12 @@ object MarketSweep7297 {
         val observedAtMs8169: Long = 0L,
         /** A reported flat hour is observed; legacy zero defaults are still unknown. */
         val hourChangeObserved8417: Boolean = priceChangeH1Pct.isFinite() && priceChangeH1Pct != 0.0,
+        /**
+         * V5.0.8419 — provenance of [ageHours]: true only when the merge took it from the chain-proven birth
+         * (CanonicalTokenBirthTime7440). Otherwise it is a provider's POOL / pair age — a lower bound of the mint's age,
+         * never its birth — and no launch-window lane may read it as the birth (LaneHunter7297.sniperAgeFits8419).
+         */
+        val birthProven8419: Boolean = false,
     )
 
     enum class Band(val minMcap: Double, val maxMcap: Double) {
@@ -424,12 +430,13 @@ object MarketSweep7297 {
                     ?: dated.firstOrNull { positive(it.priceUsd) || positive(it.mcapUsd) }
                     ?: dated.first()
                 val named = g.firstOrNull { it.symbol.isNotBlank() } ?: g.first()
+                val birth8419 = try { birthAgeHours(market.mint) } catch (_: Throwable) { null }
                 market.copy(
                     symbol = named.symbol,
                     name = named.name,
-                    ageHours = mergedAge8418(market.ageHours, g.map { it.ageHours },
-                        try { birthAgeHours(market.mint) } catch (_: Throwable) { null }),   // V5.0.8418 — never inflated by the merge
+                    ageHours = mergedAge8418(market.ageHours, g.map { it.ageHours }, birth8419),   // V5.0.8418 — never inflated by the merge
                     providers = g.flatMap { it.providers }.toSet(),
+                    birthProven8419 = birth8419 != null && birth8419.isFinite() && birth8419 > 0.0,   // V5.0.8419 — pool age is not a birth
                 )
             }
 

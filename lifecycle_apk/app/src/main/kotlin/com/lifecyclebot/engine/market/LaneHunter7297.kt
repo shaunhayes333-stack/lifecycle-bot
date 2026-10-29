@@ -70,6 +70,16 @@ object LaneHunter7297 {
     private const val MIN_BUCKET_N = 8
     private const val PREFS = "aate_lane_hunter_7297"
 
+    /**
+     * Pure (V5.0.8419 §POOL_AGE_IS_NOT_A_BIRTH): may the PROJECT_SNIPER hunter take a sweep row of [ageHours]? Only a
+     * CHAIN-PROVEN birth ([birthProven], MarketSweep7297.Row.birthProven8419) inside [maxHours] fits. A provider's pool
+     * or pair age is a lower bound of the mint's age: a 3-minute-old Raydium pool of a week-old token read as "a
+     * 3-minute launch" here, was claimed for the sniper, and ProjectSniperAI (which reads only the verified birth) then
+     * refused every evaluation as BIRTH_METADATA_HYDRATING — 8418c: 618 of 720 sniper reads, qualified 0.
+     */
+    internal fun sniperAgeFits8419(ageHours: Double, birthProven: Boolean, maxHours: Double = 0.05): Boolean =
+        birthProven && HunterMandates8031.knownAgeWithin8031(ageHours, maxHours)
+
     /** Pure (V5.0.8201): is a sweep row of [ageHours] at sweep time [snapAtMs] past the sniper window by publish time [nowMs]? */
     internal fun sniperPastWindowAtPublish8201(ageHours: Double, snapAtMs: Long, nowMs: Long): Boolean {
         val ageSecs = (if (ageHours.isFinite() && ageHours > 0.0) ageHours * 3600.0 else 0.0) + ((nowMs - snapAtMs).coerceAtLeast(0L) / 1000.0)
@@ -232,7 +242,8 @@ object LaneHunter7297 {
             fits = { r ->
                 // ProjectSniperAI is explicitly a pre-ignition / first-minutes desk.
                 // V5.0.8031 — age must be KNOWN (0 meant unknown and let old coins in) and liquidity at the native $2k.
-                HunterMandates8031.knownAgeWithin8031(r.ageHours, 0.05) && r.priceChangeH1Pct in -5.0..35.0 &&
+                // V5.0.8419 — and the age must be the chain-proven BIRTH, never a provider's pool age (sniperAgeFits8419).
+                sniperAgeFits8419(r.ageHours, r.birthProven8419, 0.05) && r.priceChangeH1Pct in -5.0..35.0 &&
                     r.liquidityUsd >= 2_000.0
             },
             rank = { r ->

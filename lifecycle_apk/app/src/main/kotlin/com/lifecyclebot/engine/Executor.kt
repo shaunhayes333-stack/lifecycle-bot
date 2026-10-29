@@ -9852,7 +9852,7 @@ class Executor(
                 requestSell(ts, "SETTLE_MFE_FLOOR_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
                 return
             }
-            if (!settleRunnerDefer7335 && PeakDrawdownLock.shouldLock(peakPnlPct, curPnlPct)) {
+            if (PeakDrawdownLock.settleLock8419(ts, peakPnlPct, curPnlPct)) {   // V5.0.8419 — lane-aware: a runner lane locks at its trail
                 try {
                     ForensicLogger.lifecycle("SETTLE_PEAK_DRAWDOWN_FIRED_6063",
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPnlPct.toInt()} curPct=${curPnlPct.toInt()} ageMs=$posAgeMs reason=give_back_lock_fired_inside_settle")

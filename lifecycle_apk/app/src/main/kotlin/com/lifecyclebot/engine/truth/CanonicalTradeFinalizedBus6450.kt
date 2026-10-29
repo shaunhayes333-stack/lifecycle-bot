@@ -138,8 +138,14 @@ object CanonicalTradeFinalizedBus6450 {
         if (kotlin.math.abs(event.netReturnPct - expectedPct) > pctTolerance) return "RETURN_FRACTION_PCT_MISMATCH"
         val feeTolerance = maxOf(0.000001, kotlin.math.abs(event.grossRealizedPnlSol) * 0.01)
         if (kotlin.math.abs((event.grossRealizedPnlSol - event.feesSol) - event.netRealizedPnlSol) > feeTolerance) return "NET_GROSS_FEE_MISMATCH"
-        if (event.netReturnPct < com.lifecyclebot.engine.LearningPnlSanitizer.MIN_TRAINABLE_PNL_PCT ||
-            event.netReturnPct > com.lifecyclebot.engine.LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT) return "RETURN_OUTSIDE_TRAINABLE_RANGE"
+        if (event.netReturnPct < com.lifecyclebot.engine.LearningPnlSanitizer.MIN_TRAINABLE_PNL_PCT) return "RETURN_OUTSIDE_TRAINABLE_RANGE"
+        // V5.0.8419 §CLASSIFY_DONT_CLAMP — a return above the trainable ceiling: a unit break (its implied basis is dust) is
+        // corrupt by name; otherwise a chain-finalized / reconciled close is an on-chain fact and trains at its full value
+        // (owner: no win caps on chain-provable data), and only an UNVERIFIED close is still quarantined above the ceiling.
+        // superseded by V5.0.8419 — 6495 quarantined every netReturnPct > MAX_TRAINABLE_PNL_PCT, chain-finalized or not.
+        val ceiling8419 = com.lifecyclebot.engine.LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT
+        if (ReturnMagnitude8419.unitBreak8419(event.netRealizedPnlSol, event.returnFraction, ceiling8419)) return "RETURN_UNIT_BREAK_8419"
+        if (event.netReturnPct > ceiling8419 && !chainFinalized8419(event.economicFinality)) return "RETURN_OUTSIDE_TRAINABLE_RANGE"
         if (kotlin.math.abs(event.returnFraction) > 0.000000001) {
             val impliedBasis = event.netRealizedPnlSol / event.returnFraction
             if (!impliedBasis.isFinite() || impliedBasis <= 0.0) return "IMPLIED_BASIS_INVALID"
@@ -154,6 +160,10 @@ object CanonicalTradeFinalizedBus6450 {
     }
 
     internal fun economicInvalidReasonForTest6495(event: Event): String? = economicInvalidReason6495(event)
+
+    /** Pure (V5.0.8419): is [economicFinality] a chain-proven LIVE terminal (signed transaction confirmed / wallet delta reconciled)? */
+    fun chainFinalized8419(economicFinality: String): Boolean =
+        economicFinality == "LIVE_FINALIZED" || economicFinality == "LIVE_RECONCILED"
 
     fun subscribe(subscriber: Subscriber) {
         subscribers.addIfAbsent(subscriber)

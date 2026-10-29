@@ -211,9 +211,10 @@ object HoldingLogicLayer {
             }
 
             val targetProfit6091 = baseTarget6684 * ssiExitPatience6091 * tpMult7455
-            // V5.0.8420 — the runner floor is applied AFTER the patience multiplier: 35 x 0.65 (SSI's lowest patience) cut a runner
-            // lane's give-back to 22.75 points, under the owner's 35% runner trail. Non-runner desks are unchanged.
-            val trailingStopPct6091 = LaneHolds8418.trailFor8418(mode, learningLane8384, params.trailingStopPct * ssiExitPatience6091)
+            // superseded by V5.0.8419 — 8418 multiplied LaneHolds8418's 35-POINT runner trail by the patience (floored at 0.65: 22.75
+            // points under the peak GAIN); V5.0.8420 applied the floor after the patience (35 points). The owner's rule is 35 % under
+            // the peak PRICE (ledger #34): RunnerTrail8419 owns it for a runner lane, the table x patience stays for the other desks.
+            val trailingStopPct6091 = RunnerTrail8419.holdLayerTrailPoints8419(mode, learningLane8384, params.trailingStopPct, ssiExitPatience6091, position.peakGainPct)
             val maxHoldTimeMs6091 = (baseMaxHoldMs6684.toDouble() * ssiExitPatience6091 * holdMult7455).toLong()
                 .coerceAtLeast(baseMaxHoldMs6684 / 2L)
             
@@ -360,8 +361,20 @@ object HoldingLogicLayer {
                 )
             }
             
+            // V5.0.8419 — a runner lane's trail is RunnerTrail8419's (GreenFloor8363: 65 % of the peak PRICE with the owner's 8337 3a
+            // rule beneath), armed by its own rule and never multiplied by the patience; the table trail below is for the other desks.
+            val runnerLane8419 = RunnerTrail8419.runnerLane8419(mode, learningLane8384)
+            val runnerLevel8419 = if (runnerLane8419) RunnerTrail8419.holdLayerLevelFor8419(ts, mode, learningLane8384) else null
+            if (runnerLevel8419 != null && currentPnlPct <= runnerLevel8419.levelPct) {
+                return HoldEvaluation(
+                    action = HoldAction.EXIT_NOW,
+                    reason = "RUNNER_TRAIL_GREEN_FLOOR_8363_8419_${position.peakGainPct.toInt()}PK_${currentPnlPct.toInt()}PCT: ${currentPnlPct.toInt()}% <= ${runnerLevel8419.levelPct.toInt()}% (${runnerLevel8419.source}, ${runnerLevel8419.pointsUnderPeak.toInt()}pt under peak)",
+                    confidence = 90.0,
+                    urgency = Urgency.HIGH,
+                )
+            }
             // Trailing stop (after profit achieved)
-            if (position.peakGainPct > targetProfit6091 * 0.5) {
+            if (!runnerLane8419 && position.peakGainPct > targetProfit6091 * 0.5) {
                 val trailingStop = position.peakGainPct - trailingStopPct6091
                 if (currentPnlPct < trailingStop) {
                     return HoldEvaluation(
@@ -377,7 +390,8 @@ object HoldingLogicLayer {
             // the first move to monster FDV, then get out when the top starts giving back.
             // Hard safety above still fires first; this is profit/top capture.
             val diamondHandsMode6091 = position.tradingMode.equals("DIAMOND_HANDS", true) || position.isLongHold
-            if (diamondHandsMode6091 && position.peakGainPct >= 150.0) {
+            // V5.0.8419 — not on a runner lane: `35.0 * patience` (patience floored at 0.65) is the same 22.75-point trail; RunnerTrail8419 owns it.
+            if (diamondHandsMode6091 && !runnerLane8419 && position.peakGainPct >= 150.0) {
                 val diamondTrail6091 = when {
                     position.peakGainPct >= 1000.0 -> 22.0
                     position.peakGainPct >= 500.0 -> 28.0

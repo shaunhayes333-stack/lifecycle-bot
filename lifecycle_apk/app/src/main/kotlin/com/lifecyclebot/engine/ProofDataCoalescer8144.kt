@@ -100,20 +100,30 @@ class ProofDataCoalescer8144(
 
     @Synchronized fun size8144(): Int = rows.size
 
+    /**
+     * Pure (V5.0.8419): an attempt claimed [RUN] whose [done8144] never came (the caller threw past its finally, or the
+     * process died mid-fetch) is abandoned once a whole window has passed since it was claimed. [verdict] already lets such a
+     * key run again; the trim treats it as idle too, so a leaked claim never pins a row (pre-8419 every pass kept in-flight
+     * rows, and past [cap] only non-in-flight rows were evicted: leaked rows grew without bound).
+     */
+    private fun abandonedInFlight8419(inFlight: Boolean, lastAtMs: Long, nowMs: Long): Boolean = inFlight && nowMs - lastAtMs >= windowMs
+
+    private fun idle8419(r: Row, nowMs: Long): Boolean = !r.inFlight || abandonedInFlight8419(r.inFlight, r.lastAtMs, nowMs)
+
     /** Drop idle rows whose window and back-off are both over, then the oldest idle ones past [cap]. */
     @Synchronized
     fun trim8144(nowMs: Long): Int {
         val before = rows.size
-        rows.entries.removeIf { !it.value.inFlight && nowMs - it.value.windowStartMs >= windowMs && nowMs >= it.value.nextAtMs }
+        rows.entries.removeIf { idle8419(it.value, nowMs) && nowMs - it.value.windowStartMs >= windowMs && nowMs >= it.value.nextAtMs }
         if (rows.size > cap) {
-            rows.entries.filter { !it.value.inFlight }.sortedBy { it.value.lastAtMs }.take(rows.size - cap).forEach { rows.remove(it.key) }
+            rows.entries.filter { idle8419(it.value, nowMs) }.sortedBy { it.value.lastAtMs }.take(rows.size - cap).forEach { rows.remove(it.key) }
         }
         return (before - rows.size).coerceAtLeast(0)
     }
 
     @Synchronized
     fun line8144(): String =
-        "runs=$runs coalesced=$coalesced backoff=$backoffs capped=$capped useful=$successes futile=$failures keys=${rows.size}"
+        "runs=$runs coalesced=$coalesced backoff=$backoffs capped=$capped useful=$successes futile=$failures keys=${rows.size} inFlight8419=${rows.values.count { it.inFlight }}"
 }
 
 /**

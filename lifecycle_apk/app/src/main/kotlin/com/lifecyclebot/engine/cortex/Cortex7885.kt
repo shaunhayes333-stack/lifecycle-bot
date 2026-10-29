@@ -1409,7 +1409,18 @@ object Cortex7885 {
         val id = "$mint|${canon(lane)}|$atMs"
         val receipt = OBSERVATION_TERMINAL_PREFIX_8395 + id
         if (LearningPersistence.load(receipt) != null) return true
+        // V5.0.8419 (TerminalReceipt8419) — does acknowledging this terminal change Cortex state? Only an episode the Cortex still
+        // HOLDS (pending at this decision time, or paired) is removed by onLabelLost8187, and that mutation and its receipt must
+        // ride one snapshot. An episode it does not hold has no mutation: its receipt is one small verified row written here, not
+        // behind the multi-MB shadow checkpoint that left 5,000+ terminals unacknowledged while the labeler refused capacity
+        // (8418b: terminal8401 queued=5015 ack=0 capacity=68669). Read BEFORE onLabelLost8187, which removes a held episode.
+        val held8419 = TerminalReceipt8419.needsSnapshot8419(pending["$mint|${canon(lane)}"]?.atMs, atMs, pairedPending8401.containsKey(id))
         onLabelLost8187(mint,lane,reason,atMs)
+        if (!held8419 && !observationTerminals8395.containsKey(receipt)) {
+            val direct = try { LearningPersistence.saveTogetherVerified8386(mapOf(receipt to TerminalReceipt8419.directReceipt8419(id, reason, atMs))) } catch (_: Throwable) { false }
+            inc(if (direct) "OBSERVATION_TERMINAL_DIRECT_RECEIPT_8419" else "OBSERVATION_TERMINAL_DIRECT_RECEIPT_DEFERRED_8419")
+            if (direct) return true   // durable before the answer is true; a refused write (main thread / open transaction) takes the snapshot path below
+        }
         synchronized(this) {
             val original = gradeBook8144.decision(id)
             val disposition = if (original == null) "ORIGINAL_PREDICTION_UNAVAILABLE"

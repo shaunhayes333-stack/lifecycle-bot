@@ -226,6 +226,7 @@ object ExitSweepTiming7264 {
             "fanouts=$f fanLastMs=${lastFanoutMs.get()} fanMeanMs=$fanMean fanMaxMs=${maxFanoutMs.get()} " +
             "| inFlightMs7283=${hotTickInFlightMs7283(System.currentTimeMillis())} phase=$hotTickPhase7283 " +
             "stalls=${hotTickStalls7283.get()} lastStall=$lastStall7283 " +
-            (try { com.lifecyclebot.engine.HotExitWatchdog8418.statusLine8418() } catch (_: Throwable) { "hotExitWatchdog8418 -" })
+            (try { com.lifecyclebot.engine.HotExitWatchdog8418.statusLine8418() } catch (_: Throwable) { "hotExitWatchdog8418 -" }) +
+            " " + (try { com.lifecyclebot.engine.RunnerTrail8419.statusLine8419() } catch (_: Throwable) { "runnerTrail8419 -" })   // V5.0.8419
     }
 }

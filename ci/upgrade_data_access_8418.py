@@ -44,6 +44,11 @@ def parse_listing_8418(sub, listing):
             continue
         if name.endswith(("-journal", "-wal", "-shm")):
             continue
+        # V5.0.8423 — a SharedPreferences `<name>.xml.bak` is the backup Android keeps only for the duration of one commit
+        # (deleted when the write lands): seeing one in a listing is a write in flight, not a data file the upgrade must
+        # carry (8419 build: "upgrade install lost app data files: shared_prefs/canonical_entry_evidence_8093.xml.bak").
+        if name.endswith(".bak"):
+            continue
         out.add(f"{sub}/{name}")
     return out
 

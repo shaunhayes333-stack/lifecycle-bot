@@ -118,10 +118,13 @@ object EvidenceHold8336 {
     // V5.0.8420 — restored to 8392: the lane's live record, OR its whole paper record, OR its whole shadow book (real exits,
     // real costs) proves it lane-wide. 8418 read realised LIVE closes only (30+), which live with ~1 close can never reach, so
     // the niche veto and entry-timing wait could never lift for any lane. This lifts a shaping veto only; it sizes nothing up.
+    // V5.0.8423 (compatibility review of 8420) — the SHADOW leg stands: the owner's exception (ledger #36, "Shadow proof can
+    // unlock, not size") covers a shadow book of real exits at executable cost lifting a LIVE admission veto. The PAPER leg is
+    // withdrawn again: no paper result admits a live entry (standing rule; no owner exception names the paper book).
     fun laneWideProven8392(lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val l = canon(lane)
         return laneWideLive8418(try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(l) } catch (_: Throwable) { null }) ||
-            proofFor8336(l, nowMs).proven || (try { EvidenceShadow8344.proof8344(l, startMs8336).proven } catch (_: Throwable) { false })
+            (try { EvidenceShadow8344.proof8344(l, startMs8336).proven } catch (_: Throwable) { false })
     }
 
     /** Pure (V5.0.8418): realised live [closes, mean %] that prove a lane lane-wide. */

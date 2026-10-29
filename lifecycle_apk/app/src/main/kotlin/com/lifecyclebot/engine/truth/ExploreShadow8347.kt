@@ -1122,7 +1122,10 @@ object ExploreShadow8347 {
 
     private fun bookKeys8397(t: Ticket8347, keys: Collection<String>, net: Double, nowMs: Long, event: String): ShadowCohortBook8397.AppendResult {
         val terminal = doubleArrayOf(nowMs.toDouble(), net, t.contractVersion8394.toDouble(), t.atMs.toDouble())
-        val result = books.append(keys, terminal.copyOf().also { it[1] = net.coerceIn(-100.0, 1_000.0) }, event, terminal)
+        // V5.0.8419 §CLASSIFY_DONT_CLAMP — the row carries the close as it happened; the proof reads (EvidenceHold8336.proof8336 /
+        // cohortProof8351) keep their own conservative plausibility cap, so no unlock bar is loosened.
+        // superseded by V5.0.8419 — 8347 stored net.coerceIn(-100.0, 1_000.0) in the row while the receipt kept the real value.
+        val result = books.append(keys, terminal.copyOf().also { it[1] = ReturnMagnitude8419.bookedShadowValue8419(net) }, event, terminal)
         if (result.inserted) { bookFlushes8377.incrementAndGet(); bookKeysWritten8377.addAndGet(keys.size.toLong()) }
         return result
     }

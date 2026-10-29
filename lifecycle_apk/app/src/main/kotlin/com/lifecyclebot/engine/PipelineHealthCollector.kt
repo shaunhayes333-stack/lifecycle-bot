@@ -1662,7 +1662,7 @@ object PipelineHealthCollector {
     /** Pure: one scorecard cell — "n=3 wr=0% pf=0.00 exp=-0.0030" or "-" with no closes. */
     fun laneCell8280(s: LiveEntrySafetyHold.LiveConfidenceStats?): String =
         if (s == null || s.canonicalN == 0) "-".padEnd(32)
-        else "n=${s.canonicalN} wr=${"%.0f".format(s.winRatePct)}% pf=${"%.2f".format(s.profitFactor)} exp=${"%+.4f".format(s.expectancySol)}".padEnd(32)
+        else "n=${s.canonicalN} wr=${"%.0f".format(s.winRatePct)}% pf=${com.lifecyclebot.engine.truth.ReturnMagnitude8419.pfText8419(s.profitFactor)} exp=${"%+.4f".format(s.expectancySol)}".padEnd(32)   // V5.0.8419 — "inf", never 999
 
     private fun appendExecList8174(sb: StringBuilder, df: java.text.DateFormat, title: String, rows: List<ExecRecord>) {
                 sb.append("===== ").append(title).append(" (last ").append(rows.size).append(") =====\n")

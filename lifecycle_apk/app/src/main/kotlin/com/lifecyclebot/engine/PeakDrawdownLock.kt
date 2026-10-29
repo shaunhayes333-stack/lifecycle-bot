@@ -47,8 +47,21 @@ object PeakDrawdownLock {
         // (+50%), not at the general +20%; see RunnerExitProfile7277.
         if (peakPnlPct < RunnerExitProfile7277.armThresholdPct(lane, ARM_THRESHOLD_PCT)) return false
         if (currentPnlPct >= peakPnlPct) return false  // currently at/above peak
+        // superseded by V5.0.8419 — on a RUNNER lane the 7282 ratchet (peak +500 % -> lock +418 %) sat inside the owner's
+        // runner trail (35 % under the peak PRICE, ledger #34 / V5.0.8370): the lock fires at RunnerTrail8419's level there.
+        if (RunnerExitProfile7277.isRunnerLane(lane)) return RunnerTrail8419.lockFires8419(peakPnlPct, currentPnlPct)
         val drawdownFrac = (peakPnlPct - currentPnlPct) / peakPnlPct
         return drawdownFrac >= triggerFracForPeak(peakPnlPct, lane)
+    }
+
+    /**
+     * V5.0.8419 — Executor.runManageOnly's settle-window give-back lock, with the position's own lane: the runner arming
+     * bar (RunnerExitProfile7277.deferGiveBackLock) and, on a runner lane, the runner trail — no longer the lane-blind curve.
+     */
+    fun settleLock8419(ts: com.lifecyclebot.data.TokenState, peakPnlPct: Double, currentPnlPct: Double): Boolean {
+        val lane = ts.position.tradingMode
+        val deferred = try { RunnerExitProfile7277.deferGiveBackLock(lane, peakPnlPct) } catch (_: Throwable) { false }
+        return !deferred && shouldLock(peakPnlPct, currentPnlPct, lane)
     }
 
     /**

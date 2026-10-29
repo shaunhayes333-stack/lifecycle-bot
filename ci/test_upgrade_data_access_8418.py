@@ -37,6 +37,9 @@ class Listing(unittest.TestCase):
                                     "shadow_cold_8397.db\r\n")
         self.assertEqual(out, {"databases/learning_kv.db", "databases/shadow_cold_8397.db"})
         self.assertEqual(ua.parse_listing_8418("databases", "run-as: package not debuggable: x"), set())
+        # V5.0.8423 — a prefs commit in flight (<name>.xml.bak) is not a data file the upgrade must carry
+        self.assertEqual(ua.parse_listing_8418("shared_prefs", "a.xml\na.xml.bak\nperps_positions_stocks.xml.bak\n"),
+                         {"shared_prefs/a.xml"})
         self.assertEqual(ua.parse_listing_8418("databases", "ls: /data/data/x/databases: No such file or directory"), set())
 
 

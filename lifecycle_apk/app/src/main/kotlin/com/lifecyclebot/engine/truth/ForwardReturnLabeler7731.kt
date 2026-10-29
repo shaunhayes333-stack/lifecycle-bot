@@ -2160,17 +2160,17 @@ object ForwardReturnLabeler7731 {
     /** Remove at most one acknowledged batch and its old checkpoint rows atomically, without rebuilding learner books. */
     private fun cleanupTerminals8401() = synchronized(checkpointLock8401) {
         val p = prefs ?: return@synchronized
-        val acknowledged = terminalOutbox8395.keys.asSequence().filter { deliveredTerminals8395.contains(it) }.take(64).toSet()
+        // V5.0.8419 — up to TerminalOutbox8419.CLEANUP_BATCH_8419 acknowledged terminals per cleanup (64 every 30 s could not drain
+        // a 5,000-terminal outbox: 8418b queued=5015), and the multi-MB pending checkpoint is rewritten only when it holds one.
+        val acknowledged = TerminalOutbox8419.cleanupBatch8419(terminalOutbox8395.keys.filter { deliveredTerminals8395.contains(it) })
         if (acknowledged.isEmpty()) return@synchronized
         try {
             val old = p.getString(PENDING_KEY_7946, null).orEmpty()
-            val retained = old.split(ROW_SEP_7735).filterNot { row ->
-                val f = row.split(FIELD_SEP_7735)
-                f.size >= 13 && "$TERMINAL_PREFIX_8395${f[0]}|${f[4]}|${f[12]}" in acknowledged
-            }.joinToString(ROW_SEP_7735.toString())
+            val retained = TerminalOutbox8419.retainedRows8419(old, acknowledged, ROW_SEP_7735, FIELD_SEP_7735, TERMINAL_PREFIX_8395)
             // V5.0.8409 — the checkpoint shrinks in its own commit; the acknowledged rows leave in one store transaction. If the
             // second fails the rows stay queued and acknowledged in memory and are retried next cleanup (receipts are idempotent).
-            if (p.edit().putString(PENDING_KEY_7946, retained).commit() && removeRows8409(acknowledged))
+            val checkpointOk8419 = retained == null || p.edit().putString(PENDING_KEY_7946, retained).commit()
+            if (checkpointOk8419 && removeRows8409(acknowledged))
                 acknowledged.forEach { terminalOutbox8395.remove(it); deliveredTerminals8395.remove(it) }
             else terminalStorageFailures8401.incrementAndGet()
         } catch (_: Exception) { terminalStorageFailures8401.incrementAndGet() }
@@ -2198,7 +2198,8 @@ object ForwardReturnLabeler7731 {
         if (terminalOutbox8395.isNotEmpty()) try { com.lifecyclebot.engine.cortex.Cortex7885.flushShadowOutcomes8372() } catch (_: Exception) {}
         // Independent of successful label booking and of the observation queue becoming empty.
         val now = System.currentTimeMillis()
-        if (deliveredTerminals8395.isNotEmpty() && now - lastTerminalCleanup8401 >= 30_000L) {
+        // V5.0.8419 — a full batch of acknowledgements does not wait for the 30 s cadence.
+        if (deliveredTerminals8395.isNotEmpty() && (now - lastTerminalCleanup8401 >= 30_000L || deliveredTerminals8395.size >= TerminalOutbox8419.CLEANUP_BATCH_8419)) {
             lastTerminalCleanup8401 = now
             cleanupTerminals8401()
         }

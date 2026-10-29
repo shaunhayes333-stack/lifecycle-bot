@@ -1648,7 +1648,9 @@ object FluidLearningAI {
         // Safety net: never below 70% of peak (protects against very small peaks).
         // Only meaningful below the proportional band — above it, it would undo the
         // scaling above.
-        return if (peakPnlPct >= 100.0) floor else kotlin.math.max(floor, peakPnlPct * 0.70)
+        val out = if (peakPnlPct >= 100.0) floor else kotlin.math.max(floor, peakPnlPct * 0.70)
+        // V5.0.8419 — on a runner lane this profit floor never sits inside the owner's runner trail (RunnerTrail8419).
+        return com.lifecyclebot.engine.RunnerTrail8419.tickLockLevel8419(lane, peakPnlPct, out)
     }
 
     /**
@@ -1909,7 +1911,8 @@ object FluidLearningAI {
             }
 
             // Return POSITIVE trailing stop level.
-            return maxOf(continuousLock, breakEvenFloor)
+            // V5.0.8419 — a runner lane's tick lock never sits inside the owner's runner trail (RunnerTrail8419: 65 % of the peak price).
+            return maxOf(com.lifecyclebot.engine.RunnerTrail8419.tickLockLevel8419(lane, peakClamped, continuousLock), breakEvenFloor)
         }
         
         // ═══════════════════════════════════════════════════════════════

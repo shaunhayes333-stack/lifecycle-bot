@@ -2,8 +2,6 @@ package com.lifecyclebot.network
 
 import com.lifecyclebot.data.MentionEvent
 import com.lifecyclebot.engine.SentimentAnalyzer
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -201,30 +199,9 @@ class TelegramScraper(private val botToken: String = "") {
     }
 
     // ── Wallet concentration check via Solana RPC ─────────────────────
-
-    /**
-     * Check if top holders control > 80% of supply.
-     * Uses the Solana RPC getTokenLargestAccounts method.
-     * Returns concentration 0-100 (100 = one wallet holds everything).
-     */
-    fun checkWalletConcentration(rpcUrl: String, mintAddress: String): Double {
-        return try {
-            val payload = """{"jsonrpc":"2.0","id":1,"method":"getTokenLargestAccounts","params":["$mintAddress"]}"""
-            val resp    = post(rpcUrl, payload) ?: return 50.0  // unknown = neutral
-            val json    = JSONObject(resp)
-            val value   = json.optJSONObject("result")
-                ?.optJSONArray("value") ?: return 50.0
-
-            val amounts = (0 until value.length()).map { i ->
-                value.getJSONObject(i).optString("uiAmount", "0").toDoubleOrNull() ?: 0.0
-            }
-            if (amounts.isEmpty() || amounts.sum() == 0.0) return 50.0
-
-            val total   = amounts.sum()
-            val top10   = amounts.sortedDescending().take(10).sum()
-            (top10 / total * 100.0).coerceIn(0.0, 100.0)
-        } catch (_: Exception) { 50.0 }
-    }
+    // V5.0.8419 — removed: checkWalletConcentration divided the top ten of getTokenLargestAccounts by the total of the
+    // 20 rows returned (pool / curve accounts included) and returned 50.0 when the RPC failed. SentimentEngine reads the
+    // verified figure (OnChainHolderConcentration7379 via HolderShare8419) instead.
 
     // ── HTTP helpers ──────────────────────────────────────────────────
 
@@ -236,10 +213,4 @@ class TelegramScraper(private val botToken: String = "") {
         if (resp.isSuccessful) resp.body?.string() else null
     } catch (_: Exception) { null }
 
-    private fun post(url: String, json: String): String? = try {
-        val body = json.toRequestBody("application/json".toMediaType())
-        val req  = Request.Builder().url(url).post(body).build()
-        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "telegram")
-        if (resp.isSuccessful) resp.body?.string() else null
-    } catch (_: Exception) { null }
 }

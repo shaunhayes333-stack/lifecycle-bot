@@ -198,17 +198,64 @@ object HandoffReceiverTasks8153 {
     fun scheduled8153(t: Task8153, lane: String, nowMs: Long): Task8153 =
         if (!t.pending || t.lane != canon8153(lane)) t else t.copy(scheduledAtMs = nowMs, schedules = t.schedules + 1)
 
+    // ── V5.0.8419 §A_DATA_WAIT_IS_NOT_A_VERDICT ──
+    // 5.0.8418c: 46 FDG data-defer attempts, 13 resumed on arrival. Two windows disagreed with the fetch they waited for:
+    //  - an FDG DEFER_DATA set a 5 s retry but left the task's validity where it was, so a task deferred late in its 45 s
+    //    TTL expired DEFERRED_DATA before the input re-request (LanePlaybook7907 INPUT_REFRESH_GAP_MS_8085 = 30 s, the
+    //    HeliusCandleGate8418 20 s free grace) could possibly answer;
+    //  - a spent data wait (CandidateAdmission8136.DATA_NEVER_ARRIVED_8418 / DATA_WAIT_SPENT_8418) is a REFUSE receipt for the
+    //    election and the ledger, so onFdg8153 settled the task EVALUATED ("FDG_REFUSED:DATA_NEVER_ARRIVED_8418"): a 120 s
+    //    settled hold then swallowed the same-version hand-off, reopensOnFreshEvidence8190 did not reopen an evaluation, and
+    //    onEvidenceArrived8397 ignored a settled task — the receiver never saw the data it had asked for.
+    // Now a DEFER_DATA keeps the task valid for at least [DATA_WAIT_MS_8419] from the deferral (never past TASK_MAX_AGE), a
+    // spent wait settles DEFERRED_DATA by name with the features it waited for, and the arrival of those features reopens
+    // the SAME task (mint / lane / from / reason / version) inside its max age ([reopen8419]). Nothing is admitted here.
+    /** One input re-request window: a deferral's validity covers at least this long after it asked. */
+    const val DATA_WAIT_MS_8419 = 30_000L
+    const val SPENT_PREFIX_8419 = "FDG_DATA_WAIT_SPENT_8419:"
+
+    /** Pure: is [reason] a spent-data-wait receipt (the window closed with the record still incomplete; no verdict on the coin)? */
+    fun spentDataWait8419(reason: String?): Boolean {
+        val r = reason.orEmpty().uppercase()
+        return r.contains(com.lifecyclebot.engine.truth.CandidateAdmission8136.DATA_NEVER_ARRIVED_8418) ||
+            r.contains(com.lifecyclebot.engine.truth.CandidateAdmission8136.DATA_WAIT_SPENT_8418)
+    }
+
+    /** Pure: the validity a data deferral at [atMs] leaves the task with — never shorter, at least one fetch window, never past the max age. */
+    fun dataWaitUntil8419(t: Task8153, atMs: Long): Long =
+        maxOf(t.validUntilMs, minOf(atMs + DATA_WAIT_MS_8419, t.createdAtMs + TASK_MAX_AGE_MS_8153))
+
     /** Pure: only a completed judgement settles. Missing FDG evidence stays on this bounded transfer. */
     fun onFdg8153(t: Task8153, lane: String, allow: Boolean, reason: String?, atMs: Long, currentVersion: Long = -1L,
                  outcome: FdgReceipt8397.Outcome = FdgReceipt8397.outcome(allow, reason), missing: Set<String> = emptySet()): Task8153 {
         if (!t.pending || t.lane != canon8153(lane) || atMs + SAME_READ_SLACK_MS_8153 < t.createdAtMs ||
             atMs > t.validUntilMs || (currentVersion > 0L && t.version > 0L && currentVersion != t.version)) return t
-        if (outcome == FdgReceipt8397.Outcome.DEFER_DATA) return t.copy(
-            lastBlock = DEFERRED_PREFIX_8153 + "FDG:" + reason.orEmpty().take(100),
-            dataDeferredAtMs8397 = atMs, missingFeatures8397 = missing,
-            dataRetryAtMs8397 = minOf(atMs + 5_000L, t.validUntilMs))
+        if (outcome == FdgReceipt8397.Outcome.DEFER_DATA) {
+            val until = dataWaitUntil8419(t, atMs)   // V5.0.8419 — the window covers the fetch it waits for
+            return t.copy(
+                lastBlock = DEFERRED_PREFIX_8153 + "FDG:" + reason.orEmpty().take(100),
+                dataDeferredAtMs8397 = atMs, missingFeatures8397 = missing,
+                dataRetryAtMs8397 = minOf(atMs + 5_000L, until), validUntilMs = until)
+        }
+        // V5.0.8419 — a spent data wait ends the task DEFERRED_DATA (the receiver did not judge), keeping what it waited for.
+        if (!allow && spentDataWait8419(reason)) return t.copy(outcome = Outcome8153.DEFERRED_DATA, settledAtMs = atMs,
+            verdict = SPENT_PREFIX_8419 + reason.orEmpty().take(60), missingFeatures8397 = missing)
         return t.copy(outcome = Outcome8153.EVALUATED, settledAtMs = atMs,
             verdict = if (allow) "FDG_ALLOW" else "FDG_REFUSED:${reason.orEmpty().take(60)}")
+    }
+
+    /**
+     * Pure (V5.0.8419): a task settled on a spent data wait, reopened by the arrival of what it waited for ([features]
+     * answer its missing set, FdgReceipt8397.answers), as the SAME task: pending again, valid for TASK_TTL from now and
+     * never past TASK_MAX_AGE from its creation, its schedule and wait state cleared. Null when nothing reopens.
+     */
+    fun reopen8419(t: Task8153?, features: Set<String>, nowMs: Long): Task8153? {
+        if (t == null || t.pending || t.outcome != Outcome8153.DEFERRED_DATA || !t.verdict.startsWith(SPENT_PREFIX_8419)) return null
+        if (nowMs < t.settledAtMs || !FdgReceipt8397.answers(t.missingFeatures8397, features)) return null
+        val until = minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)
+        if (until <= nowMs) return null
+        return t.copy(outcome = Outcome8153.PENDING, verdict = "", settledAtMs = 0L, lastBlock = "", validUntilMs = until,
+            scheduledAtMs = 0L, schedules = 0, dataDeferredAtMs8397 = 0L, missingFeatures8397 = emptySet(), dataRetryAtMs8397 = 0L)
     }
 
     /**
@@ -241,9 +288,12 @@ object HandoffReceiverTasks8153 {
             .sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
             .firstOrNull()?.first
             ?: return block8153(t, t.lane, Block8153.FIT, reason, nowMs)
+        // V5.0.8419 — the refusing lane's FDG data wait does not travel: the next receiver has not asked for anything yet
+        // (its own FDG receipt sets its own wait); the claim's evidence (from / reason / version / lineage) does.
         return t.copy(lane = next, tried = tried, verdict = "TRANSFERRED_FROM_${t.lane}:${reason.take(40)}",
             validUntilMs = minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153),
-            scheduledAtMs = 0L, schedules = 0, lastBlock = "")
+            scheduledAtMs = 0L, schedules = 0, lastBlock = "",
+            dataDeferredAtMs8397 = 0L, missingFeatures8397 = emptySet(), dataRetryAtMs8397 = 0L)
     }
 
     /**
@@ -406,6 +456,7 @@ object HandoffReceiverTasks8153 {
 
     fun onEvidenceArrived8397(mint: String, features: Set<String>, nowMs: Long): Boolean {
         val before = tasks8153[mint] ?: return false
+        if (!before.pending) return reopenOnEvidence8419(mint, features, nowMs)   // V5.0.8419 — a spent wait, answered
         if (!before.pending || before.dataDeferredAtMs8397 <= 0L || nowMs <= before.dataDeferredAtMs8397 ||
             nowMs > before.validUntilMs || !FdgReceipt8397.answers(before.missingFeatures8397, features)) return false
         var resumed = false
@@ -421,6 +472,21 @@ object HandoffReceiverTasks8153 {
         if (!resumed || after == null || !after.pending || after.dataDeferredAtMs8397 != 0L) return false
         try { FinalDecisionGate.invalidateCandidate6734(mint) } catch (_: Throwable) {}
         count8153("DATA_ARRIVAL_RESUMED_8397")
+        return true
+    }
+
+    /** V5.0.8419 — the data a spent-wait task waited for arrived: the same task is pending again ([reopen8419]). */
+    private fun reopenOnEvidence8419(mint: String, features: Set<String>, nowMs: Long): Boolean {
+        if (reopen8419(tasks8153[mint], features, nowMs) == null) return false
+        var reopened = false
+        val after = update8153(mint, nowMs) { t -> reopen8419(t, features, nowMs)?.also { reopened = true } ?: t }
+        if (!reopened || after == null || !after.pending) return false
+        try { FinalDecisionGate.invalidateCandidate6734(mint) } catch (_: Throwable) {}
+        count8153("DATA_ARRIVAL_REOPENED_8419")
+        try {
+            ForensicLogger.lifecycle("HANDOFF_TASK_REOPENED_8419", "mint=${mint.take(10)} lane=${after.lane} from=${after.from} version=${after.version} " +
+                "validUntilMs=${after.validUntilMs} arrived=${features.joinToString(",").take(60)} action=same_task_next_cycle")
+        } catch (_: Throwable) {}
         return true
     }
 
@@ -566,7 +632,7 @@ object HandoffReceiverTasks8153 {
                          outcome: FdgReceipt8397.Outcome = FdgReceipt8397.outcome(allow, reason)) {
         if (tasks8153[mint]?.pending != true) return
         carryForward8190(mint, candidateVersion, nowMs)  // V5.0.8190 — the receiver's verdict on the newer bucket is its evaluation
-        val missing = if (outcome == FdgReceipt8397.Outcome.DEFER_DATA)
+        val missing = if (outcome == FdgReceipt8397.Outcome.DEFER_DATA || (!allow && spentDataWait8419(reason)))   // V5.0.8419 — a spent wait keeps what it waited for
             com.lifecyclebot.engine.truth.CandidateAdmission8136.missingForReceipt8397(mint, lane, candidateVersion, nowMs) else emptySet()
         val after = update8153(mint, nowMs) { it?.let { t -> onFdg8153(t, lane, allow, reason, nowMs, candidateVersion, outcome, missing) } }
         if (after?.dataDeferredAtMs8397 == nowMs) count8153("FDG_DEFER_ATTEMPT_8397")
@@ -635,7 +701,7 @@ object HandoffReceiverTasks8153 {
         val c = { k: String -> counts8153[k]?.get() ?: 0L }
         return "handoffTask8153[opened=${c("OPENED")} scheduled=${c("SCHEDULED")} transferred=${c("TRANSFERRED")} " +
             "evaluated=${c(Outcome8153.EVALUATED.name)} deferredData=${c(Outcome8153.DEFERRED_DATA.name)} " +
-            "fdgDeferAttempts8397=${c("FDG_DEFER_ATTEMPT_8397")} dataResumed8397=${c("DATA_ARRIVAL_RESUMED_8397")} " +
+            "fdgDeferAttempts8397=${c("FDG_DEFER_ATTEMPT_8397")} dataResumed8397=${c("DATA_ARRIVAL_RESUMED_8397")} dataReopened8419=${c("DATA_ARRIVAL_REOPENED_8419")} " +
             "refused=${c(Outcome8153.REFUSED.name)} pending=${tasks8153.values.count { it.pending }} " +
             verdictLine8169() + "]" + resumeLine8330() + HandoffTrace8190.statusLine8190()  // V5.0.8190 / V5.0.8330
     }

@@ -492,7 +492,10 @@ object EvidenceShadow8344 {
     }
 
     private fun book8344(p: Pos8344, net: Double, why: String, nowMs: Long) {
-        val booked8397 = closes.append(listOf(p.lane), doubleArrayOf(nowMs.toDouble(), net.coerceIn(-100.0, 1_000.0),
+        // V5.0.8419 §CLASSIFY_DONT_CLAMP — the book stores the close as it happened (ReturnMagnitude8419.bookedShadowValue8419);
+        // the proof read (EvidenceHold8336.proof8336) keeps its own conservative plausibility cap, so no unlock bar is loosened.
+        // superseded by V5.0.8419 — 8344 stored net.coerceIn(-100.0, 1_000.0): a +1,500 % and a +5,000 % close were the same row.
+        val booked8397 = closes.append(listOf(p.lane), doubleArrayOf(nowMs.toDouble(), ReturnMagnitude8419.bookedShadowValue8419(net),
             if (p.advisoryEntry8393 && why != "LOST_MARK" && why != ShadowAlign8366.UNLANDED_WHY_8366) 1.0 else 0.0,
             if (why != "LOST_MARK" && why != ShadowAlign8366.UNLANDED_WHY_8366) p.contractVersion8394.toDouble() else 0.0,
             p.atMs.toDouble()), "${p.mint}|${p.lane}|${p.atMs}")

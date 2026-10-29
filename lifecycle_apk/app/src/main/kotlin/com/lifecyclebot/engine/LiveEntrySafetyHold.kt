@@ -732,7 +732,10 @@ object LiveEntrySafetyHold {
                 }
                 val n = pnls.size
                 val wr = if (n > 0) wins.toDouble() * 100.0 / n else 0.0
-                val pf = if (grossLossSol > 0.0) grossWinSol / grossLossSol else if (grossWinSol > 0.0) 999.0 else 0.0
+                // V5.0.8419 — wins and no losses is an infinite profit factor, printed "inf" (ReturnMagnitude8419.pfText8419);
+                // 999.0 was a stand-in number that read and compared as if measured ("pf=999" display).
+                // superseded by V5.0.8419 — 8280 "else if (grossWinSol > 0.0) 999.0 else 0.0".
+                val pf = if (grossLossSol > 0.0) grossWinSol / grossLossSol else if (grossWinSol > 0.0) Double.POSITIVE_INFINITY else 0.0
                 val exp = if (n > 0) netSol / n else 0.0
                 return LiveConfidenceStats(n, wins, losses, wr, pf, exp)
             }
