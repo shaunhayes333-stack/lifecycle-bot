@@ -237,7 +237,7 @@ class Aate8418ExitsDataRoutesTest {
         val cpa = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
         val m = "PEND8418Mint${System.nanoTime()}"
         val pid = "LIVE:$m:p8418"
-        assertEquals(cpa.MutateResult.APPLIED, cpa.openPosition(
+        assertEquals(com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED, cpa.openPosition(
             idempotencyKey = "OPEN8418:$pid", positionId = pid, mint = m, symbol = "P", lane = "SHITCOIN", runId = "r8418",
             entryCostSol = 0.03, openedQtyRaw = java.math.BigInteger.ZERO, tokenDecimals = 6, feesSol = 0.0,
             paperMode = false, modeOverride = "live", entryPriceUsd = 0.001, entryPriceSource = "TEST_8418"))
@@ -248,14 +248,14 @@ class Aate8418ExitsDataRoutesTest {
         assertEquals(1, n)
         assertTrue("protected immediately", m in cpa.protectiveInventoryMints7807("live"))
         val row = cpa.getPosition(pid)!!
-        assertEquals("on the buy's own row", cpa.Lifecycle.QUARANTINED, row.lifecycle)
+        assertEquals("on the buy's own row", com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.QUARANTINED, row.lifecycle)
         assertTrue(row.quarantineReason.startsWith("BASIS_UNCERTAIN_7807"))
         assertEquals("keeps its own buy cost", 0.03, row.entryCostSol, 1e-12)
         // the verified fill still promotes it
-        assertEquals(cpa.MutateResult.APPLIED, cpa.promotePendingToOpen(positionId = pid, actualQtyRaw = java.math.BigInteger.valueOf(9_000_000L),
+        assertEquals(com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED, cpa.promotePendingToOpen(positionId = pid, actualQtyRaw = java.math.BigInteger.valueOf(9_000_000L),
             actualEntryCostSol = 0.03, actualFeesSol = 0.0, tokenDecimals = 6, paperMode = false,
             actualEntryPriceUsd = 0.001, actualEntryPriceSource = "TX_8418"))
-        assertEquals(cpa.Lifecycle.OPEN, cpa.getPosition(pid)!!.lifecycle)
+        assertEquals(com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN, cpa.getPosition(pid)!!.lifecycle)
     }
 
     // ── 10. an erroring shadow position closes after N consecutive failures ──
@@ -333,8 +333,8 @@ class Aate8418ExitsDataRoutesTest {
         assertTrue(h.budgetAdmits8284(h.PRIORITY_HELD_8284, 0, 0))
         assertTrue(h.budgetAdmits8284(h.PRIORITY_HANDOFF_8284, 0, 0))
         val g = com.lifecyclebot.engine.truth.HeliusCandleGate8418
-        assertEquals(g.Decision8418.FREE_GRACE, g.decide8418(h.PRIORITY_NEAR_DECISION_8284, false, 1_000L, 1_000L + g.FREE_GRACE_MS_8418 - 1))
-        assertEquals(g.Decision8418.COVERED_BY_FREE, g.decide8418(h.PRIORITY_HELD_8284, true, 0L, 0L))
+        assertEquals(com.lifecyclebot.engine.truth.HeliusCandleGate8418.Decision8418.FREE_GRACE, g.decide8418(h.PRIORITY_NEAR_DECISION_8284, false, 1_000L, 1_000L + g.FREE_GRACE_MS_8418 - 1))
+        assertEquals(com.lifecyclebot.engine.truth.HeliusCandleGate8418.Decision8418.COVERED_BY_FREE, g.decide8418(h.PRIORITY_HELD_8284, true, 0L, 0L))
     }
 
     // ── ea9f1f0ac — DNA readers: paper never sizes live; a blank lane never disables the veto ──
