@@ -288,7 +288,12 @@ object MintSupply8418 {
         try {
             val d = ts.tokenMap.decimals
             if (d == null || d < 0) ts.tokenMap.decimals = s.decimals
-            else if (d != s.decimals) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MINT_SUPPLY_ROW_DECIMALS_DISAGREE_8418")
+            else if (d != s.decimals) {
+                // V5.0.8418 — the mint account is the decimals authority (5,156 disagreements on the 8418 phone run kept a
+                // provider/default figure on the row that raw-amount conversions read). The chain value wins; still counted.
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MINT_SUPPLY_ROW_DECIMALS_DISAGREE_8418")
+                ts.tokenMap.decimals = s.decimals
+            }
         } catch (_: Throwable) {}
         return s
     }
