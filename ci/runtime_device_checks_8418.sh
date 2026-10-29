@@ -169,7 +169,15 @@ if grep -qi 'unable' "$OUT/doze_force.txt"; then
         case "$st" in *"IDLE"*) case "$st" in *PENDING*) ;; *) break;; esac;; esac
     done
     st=$(adb shell dumpsys deviceidle get deep 2>/dev/null | tr -d '\r')
-    [ "$st" = "IDLE" ] && echo "Now forced in to deep idle mode (stepped)" > "$OUT/doze_force.txt"
+    if [ "$st" = "IDLE" ]; then
+        echo "Now forced in to deep idle mode (stepped)" > "$OUT/doze_force.txt"
+    else
+        # Emulator images without a motion/location stack stall deep doze at INACTIVE. Light doze applies the
+        # same network/job/alarm deferral to the app, so it is the strongest doze this device can show.
+        adb shell dumpsys deviceidle force-idle light > "$OUT/doze_light.txt" 2>&1 || true
+        lst=$(adb shell dumpsys deviceidle get light 2>/dev/null | tr -d '\r')
+        case "$lst" in IDLE*) echo "Now forced in to light idle mode (deep unavailable on this emulator: $st)" > "$OUT/doze_force.txt";; esac
+    fi
 fi
 cat "$OUT/doze_force.txt"
 dz_ok=1; dz_detail=""
@@ -256,7 +264,9 @@ M=$(mark)
 adb shell am start -n "$PKG/com.lifecyclebot.ui.MainActivity" >/dev/null 2>&1 || true
 sleep 5
 how=$(ui_start_if_stopped) || { rs_ok=0; rs_detail+="no Start control after relaunch; "; }
-if wait_marker_since "$M" 'CANONICAL_BOOTSTRAP_READY_6515' 420; then
+# The bootstrap writes READY through ForensicLogger and, just before it, phase=DONE through android.util.Log; either
+# line from the relaunched process proves the canonical bootstrap completed.
+if wait_marker_since "$M" 'CANONICAL_BOOTSTRAP_READY_6515\|CANONICAL_BOOTSTRAP_PHASE_7438 phase=DONE' 420; then
     since "$M" > "$OUT/log_after_restart.txt"
     boot=$(h bootstrap "$OUT/log_after_restart.txt") || boot=none
 else

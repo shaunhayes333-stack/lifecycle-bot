@@ -103,7 +103,9 @@ object ForensicLogger {
     private val lifecycleReceiptNames8077 = setOf(
         "UI_RUNTIME_TOGGLE_TAP_6517", "UI_START_DISPATCHED_6517",
         "UI_START_FALLBACK_DISPATCHED_6517", "UI_START_DISPATCH_FAILED_6517",
-        "BOT_STOP_REQUESTED", "LIFECYCLE_STOP_COMPLETE")
+        "BOT_STOP_REQUESTED", "LIFECYCLE_STOP_COMPLETE",
+        // V5.0.8418 — the restart proof: the bootstrap's own receipt must not be lost in the startup log burst.
+        "CANONICAL_BOOTSTRAP_READY_6515", "SERVICE_BOOTSTRAP_READY_6516")
     internal fun lifecycleReceipt8077(event: String): Boolean = event in lifecycleReceiptNames8077
     private val drainScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
     private const val BATCH_MAX_DRAIN = 128
