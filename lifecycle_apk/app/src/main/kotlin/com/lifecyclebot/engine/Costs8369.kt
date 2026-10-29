@@ -92,7 +92,8 @@ object Costs8369 {
                                pumpLandsOk: Boolean = false): Boolean {
         if (venue == "PUMPSWAP" || venue == "RAYDIUM") return true
         if (jupiterQuotes == false) return false
-        return !(jupiterLandFailing && pumpLandsOk)
+        // An aggregate landing rate is not proof that this mint has no Jupiter route.
+        return true
     }
 
     /**

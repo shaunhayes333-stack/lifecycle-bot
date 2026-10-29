@@ -769,12 +769,57 @@ object JournalEconomicReplay6619 {
 
     }
 
+    /** Pure projection. Requires a signed, confirmed receipt and the same canonical position, never a ticker/latest buy. */
+    internal fun confirmedSellTrade8422(e: EconomicEventSchema6464.Sell, p: CanonicalPositionAuthority6441.Position): Trade? {
+        if (e.mode != "live" || p.mode != "live" || e.confirmedSignature8422.isBlank() ||
+            e.positionId != p.positionId || e.mint != p.mint || e.soldQty.signum() <= 0 ||
+            e.remainingQty.signum() < 0 || e.soldQty + e.remainingQty > p.originalQtyRaw ||
+            e.partial != (e.remainingQty.signum() > 0) || p.quantityScale !in 0..18 ||
+            !p.entryPriceUsd.isFinite() || p.entryPriceUsd <= 0.0 ||
+            !e.allocatedCostBasisSol.isFinite() || e.allocatedCostBasisSol <= 0.0 ||
+            !e.grossProceedsSol.isFinite() || e.grossProceedsSol < 0.0 ||
+            !e.exitFeesSol.isFinite() || e.exitFeesSol < 0.0) return null
+        val grossPnl = e.grossProceedsSol - e.allocatedCostBasisSol
+        val netPnl = grossPnl - e.exitFeesSol
+        val qty = e.soldQty.toBigDecimal().movePointLeft(p.quantityScale).toDouble()
+        val px = if (e.solUsdAtExit.isFinite() && e.solUsdAtExit > 0.0 && qty > 0.0)
+            e.grossProceedsSol * e.solUsdAtExit / qty else 0.0 // unknown, never a fabricated exit mark
+        return Trade(side = if (e.partial) "PARTIAL_SELL" else "SELL", mode = "live",
+            sol = e.grossProceedsSol, price = px, ts = e.atMs, reason = e.exitReason8422,
+            pnlSol = grossPnl, pnlPct = grossPnl / e.allocatedCostBasisSol * 100.0,
+            feeSol = e.exitFeesSol, netPnlSol = netPnl, sig = e.confirmedSignature8422,
+            tradingMode = p.lane, mint = e.mint, proofState = "LIVE_FINALIZED", positionId = p.positionId,
+            entryTsMs = p.openedAtMs, entryPriceSnapshot = p.entryPriceUsd,
+            entryCostSol = e.allocatedCostBasisSol, soldCostBasisSol = e.allocatedCostBasisSol,
+            entryQtyToken = p.originalQtyRaw.toBigDecimal().movePointLeft(p.quantityScale).toDouble(),
+            soldQtyToken = qty, remainingQtyToken = e.remainingQty.toBigDecimal().movePointLeft(p.quantityScale).toDouble(),
+            entryRawQty = p.originalQtyRaw, canonicalConsumedRaw = e.soldQty, remainingRawQty = e.remainingQty,
+            entryDecimals = p.tokenDecimals, tokenDecimals = p.quantityScale,
+            entryPriceSource = p.entryPriceSource, entryPoolAddress = p.entryPoolAddress,
+            grossProceedsSol = e.grossProceedsSol, economicEventId = e.idempotencyKey)
+    }
+
+    fun projectConfirmedSell8422(e: EconomicEventSchema6464.Sell) {
+        val p = CanonicalPositionAuthority6441.getPosition(e.positionId) ?: return
+        val row = confirmedSellTrade8422(e, p) ?: return
+        TradeHistoryStore.recordTrade(row)
+    }
+
+    /** Retry missing journal projections from durable signed receipts. Never reconstruct legacy verification. */
+    private fun repairConfirmedLiveJournals8422() {
+        EconomicEventSchema6464.snapshot().asSequence().filterIsInstance<EconomicEventSchema6464.Sell>()
+            .filter { it.mode == "live" && it.confirmedSignature8422.isNotBlank() }
+            .filter { !TradeHistoryStore.isDurableEconomicEvent7371("CHAIN_SELL_8422|${it.mint}|${it.confirmedSignature8422}") }
+            .take(64).forEach { projectConfirmedSell8422(it) }
+    }
+
     /**
      * V5.0.6662 — settle durable journal lots whose canonical position was
      * deliberately removed by an earlier Stop/restart implementation.
      */
     @Synchronized
     fun repairOrphanedOpenLots6662(): Int {
+        repairConfirmedLiveJournals8422()
         val replay = replay()
         if (replay.openBasisByPosition.isEmpty()) return 0
         val allBuys6697 = try {

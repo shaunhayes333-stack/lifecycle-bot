@@ -141,6 +141,9 @@ object EconomicEventSchema6464 {
          * is no SOL/USD rate to record, so solUsdAtExit = 0 on such a row is NOT the pre-7032 "unreconstructible" marker.
          */
         val basisDerived8418: Boolean = false,
+        // Only the tx-meta finalizer supplies this; legacy/paper receipts remain non-authorizing.
+        val confirmedSignature8422: String = "",
+        val exitReason8422: String = "",
     ) : Event()
 
     data class ReplayCarry6489(
@@ -320,6 +323,7 @@ object EconomicEventSchema6464 {
         exitPriceUsd: Double = 0.0, solUsdAtExit: Double = 0.0,
         performanceFeeSol8391: Double = 0.0,
         basisDerived8418: Boolean = false,   // V5.0.8418 — see Sell.basisDerived8418
+        confirmedSignature8422: String = "", exitReason8422: String = "",
     ) {
         val idKey = idempotencyKey.ifBlank { "sell_${System.nanoTime()}" }
         val gross = grossProceedsSol.coerceAtLeast(0.0)
@@ -352,8 +356,15 @@ object EconomicEventSchema6464 {
             solUsdAtExit = solUsdAtExit,
             performanceFeeSol8391 = performanceFeeSol8391,
             basisDerived8418 = basisDerived8418,
+            confirmedSignature8422 = confirmedSignature8422, exitReason8422 = exitReason8422,
         )
         if (!appendBounded(e)) return
+        // The journal is a projection of settlement, not a reward for passing legacy learning guards.
+        if (e.mode == "live" && e.confirmedSignature8422.isNotBlank()) try {
+            JournalEconomicReplay6619.projectConfirmedSell8422(e)
+        } catch (_: Throwable) {
+            PipelineHealthCollector.labelInc("LIVE_CONFIRMED_JOURNAL_RETRY_8422")
+        }
         if (partial) recordedPartials.incrementAndGet() else recordedSells.incrementAndGet()
         // V5.0.7066 §9 — RE-SCAN ON EVERY SELL, not only on durable load.
         //
@@ -407,6 +418,7 @@ object EconomicEventSchema6464 {
                 put("realizedPnlSol", e.realizedPnlSol); put("realizedReturnPct", e.realizedReturnPct)
                 put("remainingQty", e.remainingQty.toString()); put("remainingCostBasisSol", e.remainingCostBasisSol)
                 put("exitPriceUsd", e.exitPriceUsd); put("solUsdAtExit", e.solUsdAtExit)
+                put("confirmedSignature8422", e.confirmedSignature8422); put("exitReason8422", e.exitReason8422)
                 if (e.basisDerived8418) put("basisDerived8418", true)   // V5.0.8418 — absent on older rows = false
             }
         }
@@ -434,6 +446,7 @@ object EconomicEventSchema6464 {
             java.math.BigInteger(j.getString("remainingQty")), j.getDouble("remainingCostBasisSol"),
             j.optDouble("exitPriceUsd", 0.0), j.optDouble("solUsdAtExit", 0.0), j.optDouble("performanceFeeSol8391", 0.0),
             j.optBoolean("basisDerived8418", false),
+            j.optString("confirmedSignature8422", ""), j.optString("exitReason8422", ""),
         )
     } catch (_: Throwable) { null }
 

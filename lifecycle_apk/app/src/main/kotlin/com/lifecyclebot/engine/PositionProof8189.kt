@@ -131,7 +131,10 @@ object PositionProof8189 {
         val q = try { com.lifecyclebot.engine.truth.HeldExitQuote8189.last8189(mint) } catch (_: Throwable) { null }
         val markText = if (m != null) "%.4g@%s/%s".format(m.priceUsd.value.toDouble(), m.source.take(28), age(nowMs, m.timestampMs)) else "NONE"
         val quoteText = if (q != null) " heldQuote=%.4g/%s".format(q.priceUsd, age(nowMs, q.observedAtMs)) else ""
-        return markText + quoteText
+        val risk = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.heldRiskMark(mint) } catch (_: Throwable) { null }
+        val riskText = risk?.let { " riskMark=%.4g@%s/%s purpose=%s".format(it.priceUsd.value.toDouble(), it.source.take(28), age(nowMs, it.timestampMs), it.purpose.name) }.orEmpty()
+        val quoteFresh = q != null && nowMs - q.observedAtMs in 0L..60_000L
+        return markText + quoteText + " sellQuoteFresh=$quoteFresh" + riskText
     }
 
     private fun hold8189(mint: String): String {

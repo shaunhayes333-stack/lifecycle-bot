@@ -156,7 +156,7 @@ class Aate8418ExitsDataRoutesTest {
 
     @Test fun aMeasuredJupiterStallRoutesAwayOnlyToALandingPumpPortal() {
         val k = Costs8369
-        assertFalse("Jupiter failing, PumpPortal landing", k.jupiterFirstForBuy8369("PUMP_CURVE", true, false, jupiterLandFailing = true, pumpLandsOk = true))
+        assertTrue("Aggregate failures never prove this mint has no Jupiter route", k.jupiterFirstForBuy8369("PUMP_CURVE", true, false, jupiterLandFailing = true, pumpLandsOk = true))
         assertTrue("Jupiter failing, PumpPortal unmeasured / failing", k.jupiterFirstForBuy8369("PUMP_CURVE", true, false, jupiterLandFailing = true, pumpLandsOk = false))
         assertTrue("Jupiter landing", k.jupiterFirstForBuy8369("PUMP_CURVE", true, false, jupiterLandFailing = false, pumpLandsOk = true))
         assertFalse("no route", k.jupiterFirstForBuy8369("PUMP_CURVE", false, false, jupiterLandFailing = false, pumpLandsOk = false))

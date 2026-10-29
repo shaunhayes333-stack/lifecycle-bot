@@ -124,6 +124,15 @@ object ReceiptBooking8418 {
                 positionId7835 = positionId, sellExecutionId7835 = signature,
             )
             val after = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)
+            if (ok && after != null && after.remainingQtyRaw < pos.remainingQtyRaw) {
+                com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordSell(
+                    mode = "live", positionId = positionId, mint = mint, symbol = pos.symbol,
+                    idempotencyKey = "SELL:$positionId:$signature", partial = after.remainingQtyRaw.signum() > 0,
+                    soldQty = sold, preRemainingQty = pos.remainingQtyRaw,
+                    preRemainingCostBasisSol = (pos.entryCostSol - pos.soldCostBasisSol).coerceAtLeast(0.0),
+                    grossProceedsSol = proceedsSol, exitFeesSol = 0.0,
+                    confirmedSignature8422 = signature, exitReason8422 = "RECOVERED_RECEIPT_8418")
+            }
             return when {
                 // mirrorSell is true for APPLIED and DUPLICATE (same "SELL:<pid>:<sig>" key the live finalizer uses).
                 ok && (after == null || after.remainingQtyRaw < pos.remainingQtyRaw) -> "APPLIED"

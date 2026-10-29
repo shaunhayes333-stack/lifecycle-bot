@@ -46,6 +46,7 @@ object HeldPositionSupervisor7246 {
         val markSource: String,
         val markState: String,
         val remainingQty: Double,
+        val markPurpose: String = "UNKNOWN",
     )
 
     private const val FRESH_MS = 60_000L
@@ -114,7 +115,8 @@ object HeldPositionSupervisor7246 {
         val discoveryLeaks = rows.count { row ->
             try { GlobalTradeRegistry.getEntry(row.mint) != null } catch (_: Throwable) { false }
         }
-        return "held=${rows.size} fresh=$fresh staleRefresh=$stale missing=$missing suppressedRefresh=$suppressed discoveryResident=$discoveryLeaks"
+        val indicative = rows.count { it.markState == "INDICATIVE_FRESH" }
+        return "held=${rows.size} fresh=$fresh indicativeFresh=$indicative staleRefresh=$stale missing=$missing suppressedRefresh=$suppressed discoveryResident=$discoveryLeaks"
     }
 
     /** UI/telemetry projection. Cache-only: never blocks on a provider. */
@@ -124,12 +126,14 @@ object HeldPositionSupervisor7246 {
             var px = 0.0
             var ts = 0L
             var source = ""
+            var purpose = "OBSERVATION_SCORING"
 
-            fun consider(candidatePx: Double, candidateTs: Long, candidateSource: String) {
+            fun consider(candidatePx: Double, candidateTs: Long, candidateSource: String, candidatePurpose: String = "OBSERVATION_SCORING") {
                 if (candidatePx.isFinite() && candidatePx > 0.0 && candidateTs >= ts) {
                     px = candidatePx
                     ts = candidateTs
                     source = candidateSource
+                    purpose = candidatePurpose
                 }
             }
 
@@ -151,7 +155,7 @@ object HeldPositionSupervisor7246 {
                 consider(
                     try { mark.priceUsd.value.toDouble() } catch (_: Throwable) { 0.0 },
                     mark.timestampMs,
-                    mark.source,
+                    mark.source, mark.purpose.name,
                 )
             }
 
@@ -182,7 +186,8 @@ object HeldPositionSupervisor7246 {
             val state = when {
                 executionSuppressed -> "SUPPRESSED_REFRESH"
                 px <= 0.0 -> "MISSING"
-                age <= FRESH_MS -> "FRESH"
+                age <= FRESH_MS && purpose == "EXIT_ECONOMIC" -> "FRESH"
+                age <= FRESH_MS -> "INDICATIVE_FRESH"
                 else -> "STALE_REFRESH"
             }
             val qty = try {
@@ -202,7 +207,7 @@ object HeldPositionSupervisor7246 {
                 markAgeMs = age,
                 markSource = source,
                 markState = state,
-                remainingQty = qty,
+                remainingQty = qty, markPurpose = purpose,
             )
         }.sortedWith(
             compareBy<HeldRow> {

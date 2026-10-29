@@ -963,7 +963,14 @@ object TradeHistoryStore {
         return ""
     }
 
-    fun recordTrade(trade: Trade) {
+    /** One chain transaction/token movement, independent of caller, lane or partial label. No proof is inferred. */
+    internal fun liveSellKey8422(t: Trade): String? =
+        if (t.mode.equals("live", true) && t.sig.isNotBlank() && t.mint.isNotBlank() &&
+            (t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)))
+            "CHAIN_SELL_8422|${t.mint}|${t.sig}" else null
+
+    fun recordTrade(inputTrade8422: Trade) {
+        val trade = liveSellKey8422(inputTrade8422)?.let { inputTrade8422.copy(economicEventId = it) } ?: inputTrade8422
         ensureInitialized()
         // V5.0.6653 — canonical economic identity outranks heuristic mint/time
         // dedupe.  The old 30-second mint+size filter could discard the real
@@ -980,6 +987,14 @@ object TradeHistoryStore {
             }
             if (!economicEventWritesInFlight.add(trade.economicEventId)) {
                 try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_EXACT_EVENT_WRITE_INFLIGHT_6653") } catch (_: Throwable) {}
+                return
+            }
+        }
+        if (liveSellKey8422(trade) != null) {
+            val existing8422 = synchronized(lock) { trades.firstOrNull { liveSellKey8422(it) == liveSellKey8422(trade) } }
+            if (existing8422 != null) {
+                if (existing8422.economicEventId == trade.economicEventId) insertTradeAsync(existing8422)
+                else economicEventWritesInFlight.remove(trade.economicEventId) // legacy signature already has its own journal writer
                 return
             }
         }
@@ -2874,7 +2889,7 @@ object TradeHistoryStore {
         put("sold_cost_basis_sol", t.soldCostBasisSol)
         put("gross_proceeds_sol", t.grossProceedsSol)
         put("sig",           t.sig)  // V5.0.8169 — LIVE signature survives restart
-        put("dedup_key",     "${t.ts}_${t.mint}_${t.side}_${tradeSeq.incrementAndGet()}")
+        put("dedup_key",     liveSellKey8422(t) ?: "${t.ts}_${t.mint}_${t.side}_${tradeSeq.incrementAndGet()}")
     }
 
     private fun loadTradesFromDb() {
