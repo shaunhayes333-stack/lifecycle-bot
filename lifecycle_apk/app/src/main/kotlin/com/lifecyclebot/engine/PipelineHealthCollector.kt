@@ -1486,6 +1486,11 @@ object PipelineHealthCollector {
         sb.append("  Memory guard (§7977): ").append(
             try { MemoryGuard7977.statusLine7977() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        // V5.0.8433 — the report names its own defects: exceptions by in-app frame, failure-shaped counters, then the
+        // keyless council's advisory reading of that table (never on this thread, never a decision input).
+        sb.append("  ").append(DefectSweep8433.SECTION_8433).append(": ").append(
+            try { DefectSweep8433.section8433() } catch (_: Throwable) { "unavailable" }
+        ).append("\n")
         // V5.0.8169 — compute load: lane evaluations per candidate cycle, gate skips by reason, Helius calls by caller.
         sb.append("  Compute load (§8169): ").append(
             try { LoadTelemetry8169.statusLine8169() } catch (_: Throwable) { "unavailable" }
