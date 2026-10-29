@@ -39,7 +39,9 @@ class Aate7838AdmissionEvidenceTest {
         val lane = "LABEL7838"
         repeat(30) { ForwardOutcomeModel.recordLabel7734(lane, 85, "A", "NORMAL", "EXPANSION", -20.0) }
         val forecast = ForwardOutcomeModel.forecast(lane, 85, "A", "NORMAL", "EXPANSION")
-        assertEquals("fine_label_prior_assessed6991", forecast.source)
+        // superseded by V5.0.8418 — labels are shadow observations, so a LIVE forecast (the JVM runtime's mode here) no
+        // longer reads them at all: it bootstraps. A PAPER forecast still uses them as a prior. Either way, not terminal.
+        assertTrue(forecast.source, forecast.source == "bootstrap" || forecast.source == "fine_label_prior_assessed6991")
         assertFalse(ForwardOutcomeModel.hasTerminalEvidence7838(forecast))
         assertEquals(0L, ForwardOutcomeModel.cohortEvidence6911(lane, 85).samples)
         val inputs = LearnedAdmissionInputs6909.build(

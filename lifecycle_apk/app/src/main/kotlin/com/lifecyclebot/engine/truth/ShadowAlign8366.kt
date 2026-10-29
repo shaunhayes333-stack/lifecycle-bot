@@ -151,7 +151,9 @@ object ShadowAlign8366 {
 
     /** The round trip a shadow ticket in [lane] is charged (route-minimum ticket, curve-aware model before measurement). */
     fun laneCostPct8366(lane: String, liquidityUsd: Double, mint: String, mcapUsd: Double): Double {
-        val measured = try { CostLedger7962.measuredCostPct7962(lane, TICKET_SOL_8366) } catch (_: Throwable) { null }
+        // V5.0.8418 §MARK_GAP_IS_NOT_A_FEE — the shadow already books the decision-to-fill chase on its entry price
+        // (ShadowFill8364); the mark-based median carries that chase again plus market drift, so it is not charged here.
+        val measured: Double? = null
         val model = try { NetEdge8030.costPct8030(lane, TICKET_SOL_8366, liquidityUsd, mint, mcapUsd) } catch (_: Throwable) { Double.NaN }
         val fixed = fixedPct8366(try { com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() } catch (_: Throwable) { Double.NaN })
         return shadowCostPct8366(measured, model, fixed)

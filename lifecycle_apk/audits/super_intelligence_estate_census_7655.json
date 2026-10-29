@@ -1,6 +1,6 @@
 {
-  "all_kotlin": 1644,
-  "intelligence_candidates": 285,
+  "all_kotlin": 1688,
+  "intelligence_candidates": 286,
   "classifications": {
     "BACKGROUND_RESEARCH_REVIEW": 5,
     "CACHE_OR_READBACK_REVIEW": 80,
@@ -21,8 +21,8 @@
     "SOURCE_SELECTION_UPSTREAM": 1,
     "STRATEGY_LEARNED_UPSTREAM": 1,
     "SUPER_UPSTREAM_ROOT": 4,
-    "UNCLASSIFIED_INTELLIGENCE_REVIEW": 72
+    "UNCLASSIFIED_INTELLIGENCE_REVIEW": 73
   },
-  "unclassified": 72,
+  "unclassified": 73,
   "source_reviewed_with_consumer_proof": 12
 }

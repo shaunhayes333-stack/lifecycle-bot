@@ -94,7 +94,12 @@ object RoundTrip8418 {
      * from receipts. Once it is, the fee components are receipts and the mark gap (the market's move in the seconds around
      * each fill) is reported, never charged as a fee.
      */
-    fun markLift8418(markPct: Double?, receiptMeasured: Boolean): Double? = if (receiptMeasured) null else markPct
+    // V5.0.8418 §MARK_GAP_IS_NOT_A_FEE — the mark-based "cost" (SOL paid vs the tape 3 s before each fill) is the market's
+    // move around the fill plus the decision-to-fill chase; the one receipt-verified trip (8416, SHITCOIN 0.0304 SOL) cost
+    // 3.32 % all-in where the mark median read 9.28 %. It is never charged as a fee, measured receipts or not: fees are the
+    // itemised model (venue, route, app, tip, priority, impact, slippage) and the chase is charged once, by EntryChase7961.
+    @Suppress("UNUSED_PARAMETER")
+    fun markLift8418(markPct: Double?, receiptMeasured: Boolean): Double? = null
 
     /** One priced round trip, fixed SOL apart from percentage costs. */
     data class Itemised8418(

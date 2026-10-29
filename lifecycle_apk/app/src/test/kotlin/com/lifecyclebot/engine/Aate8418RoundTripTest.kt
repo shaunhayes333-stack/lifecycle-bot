@@ -103,7 +103,8 @@ class Aate8418RoundTripTest {
         val now = 1_800_000_000_000L
         assertEquals(1.0, RoundTrip8418.slipRoundTripPctLive8418(), 1e-12)   // allowance 0.5 a side before receipts
         assertFalse(RealisedSlip8418.receiptMeasured8418())
-        assertEquals(9.28, RoundTrip8418.markLift8418(9.28, RealisedSlip8418.receiptMeasured8418())!!, 0.0)
+        // superseded by V5.0.8418 §MARK_GAP_IS_NOT_A_FEE — the mark gap (market drift + chase) is never charged, receipts or not
+        assertNull(RoundTrip8418.markLift8418(9.28, RealisedSlip8418.receiptMeasured8418()))
         Costs8369.noteJupiterQuote8391(sol, mint, org.json.JSONObject("{\"inAmount\":\"30000000\",\"outAmount\":\"1000000\",\"feeBps\":0}"), true, now)
         Costs8369.noteJupiterQuote8391(mint, sol, org.json.JSONObject("{\"inAmount\":\"1000000\",\"outAmount\":\"30000000\"}"), false, now)
         repeat(5) {

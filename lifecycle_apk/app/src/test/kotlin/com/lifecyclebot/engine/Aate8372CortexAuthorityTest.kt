@@ -189,7 +189,8 @@ class Aate8372CortexAuthorityTest {
         assertTrue(authority.contains("it.gradeRevision == gradeBook8144.revision"))
         assertTrue(authority.contains("authorityRows8392(lane, setup)"))
         val rows8392 = source.substringAfter("private fun authorityRows8392(").substringBefore("private data class RefusalCoverage8392(")
-        assertTrue(rows8392.contains("scoredRows8366(lane,runnerHorizon8144(lane),scoreVersion=1,setup=setup)"))
+        // superseded by V5.0.8418 — refusal reads may fall back to every score version; grants still read the current one
+        assertTrue(rows8392.contains("scoredRows8366(lane,runnerHorizon8144(lane),scoreVersion=if (allVersions8418) null else 1,setup=setup)"))
         assertTrue("unresolved pending predictions join the authority denominator", rows8392.contains("for ((key,p) in pending)"))
     }
 }

@@ -39,9 +39,10 @@ class Aate8402LearningDeliveryTest {
             pending[key] = prediction(at + 1)
             paired["$key|$at"] = prediction(at)
             paired["$key|${at + 1}"] = pending.getValue(key)
-            val method = owner.javaClass.getDeclaredMethod("authorityRows8392", String::class.java, String::class.java)
+            // superseded by V5.0.8418 — authorityRows8392 gained allVersions8418 (default false = current score version only)
+            val method = owner.javaClass.getDeclaredMethod("authorityRows8392", String::class.java, String::class.java, java.lang.Boolean.TYPE)
                 .apply { isAccessible = true }
-            val rows = synchronized(owner) { method.invoke(owner, "MOONSHOT", "8402_ONLY") } as List<*>
+            val rows = synchronized(owner) { method.invoke(owner, "MOONSHOT", "8402_ONLY", false) } as List<*>
             assertEquals("both frozen episodes count once", 2, rows.size)
         } finally {
             pending.remove(key); paired.remove("$key|$at"); paired.remove("$key|${at + 1}")

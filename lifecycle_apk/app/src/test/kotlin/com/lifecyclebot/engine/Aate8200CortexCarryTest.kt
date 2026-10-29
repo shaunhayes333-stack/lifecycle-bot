@@ -78,7 +78,8 @@ class Aate8200CortexCarryTest {
         // V5.0.8392 — the proof rows come through authorityRows8392 (scored rows + unresolved pending predictions in the denominator)
         assertTrue(proof.contains("CortexAuthority8366.test8372(authorityRows8392(lane, setup), cost, now)"))
         val rows8392 = cx.substringAfter("private fun authorityRows8392(").substringBefore("private data class RefusalCoverage8392(")
-        assertTrue(rows8392.contains("scoredRows8366(lane,runnerHorizon8144(lane),scoreVersion=1,setup=setup)"))
+        // superseded by V5.0.8418 — refusal reads may fall back to every score version; grants still read the current one
+        assertTrue(rows8392.contains("scoredRows8366(lane,runnerHorizon8144(lane),scoreVersion=if (allVersions8418) null else 1,setup=setup)"))
         val held = cx.substringAfter("private fun authorityFraction8366(").substringBefore("private fun authorityCode8366(")
         assertTrue(held.contains("val (n, mean) = realisedStrong8366(lane)"))
         assertTrue(held.contains("CortexAuthority8366.authority8366(authorityTest8366(lane), calibration.uncalibrated8372(lane, executableOffset8187(lane)), n, mean)"))

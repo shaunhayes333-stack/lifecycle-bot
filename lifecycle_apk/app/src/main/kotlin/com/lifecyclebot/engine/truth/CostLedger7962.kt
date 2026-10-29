@@ -356,16 +356,19 @@ object CostLedger7962 {
     }
 
     /** ForwardReturnLabeler7731 / FieldManual7715: the measured cost when the lane has it, else [estimatePct]. */
-    fun costOr7962(laneRaw: String?, sizeSol: Double, estimatePct: Double): Double =
-        measuredCostPct7962(laneRaw, sizeSol) ?: estimatePct
+    // V5.0.8418 §MARK_GAP_IS_NOT_A_FEE — labels, the Cortex and the field manual were charged the lane's mark-based median
+    // (~9 % at 0.03 SOL: market drift + chase) on top of the separate chase charge, so every label read ~6 points worse
+    // than the trade (Cortex REFUSE everywhere, PROVEN_LOSING lanes, shape vetoes). The cost is the itemised estimate.
+    @Suppress("UNUSED_PARAMETER")
+    fun costOr7962(laneRaw: String?, sizeSol: Double, estimatePct: Double): Double = estimatePct
 
     /** StructureTracker7962: the lane's round-trip hurdle (measured, else the base estimate). */
     fun laneCostPct7962(laneRaw: String): Double {
         // V5.0.8418 — once realised slippage is receipt-measured, the hurdle (and FieldManual7715.laneStopPct8392's stop) is
         // the receipt-built trip at the default ticket, not the mark-based median (whose gap is the market's own move).
-        if (receiptMeasured8418()) return try { NetEdge8030.costPct8030(laneRaw, NetEdge8030.DEFAULT_TICKET_SOL, 0.0) }
-            catch (_: Throwable) { measuredCostPct7962(laneRaw) ?: FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 }
-        return measuredCostPct7962(laneRaw) ?: FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715
+        // V5.0.8418 §MARK_GAP_IS_NOT_A_FEE — always the itemised trip at the default ticket, never the mark-based median.
+        return try { NetEdge8030.costPct8030(laneRaw, NetEdge8030.DEFAULT_TICKET_SOL, 0.0) }
+            catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 }
     }
 
     private fun receiptMeasured8418(): Boolean = try { com.lifecyclebot.engine.RealisedSlip8418.receiptMeasured8418() } catch (_: Throwable) { false }
