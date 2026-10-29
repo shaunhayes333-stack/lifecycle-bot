@@ -101,7 +101,11 @@ object PositionProof8189 {
             val read = walletRead8189(p.mint, nowMs)
             val chainRaw = chain?.get(p.mint) ?: read?.first
             val signed = try { com.lifecyclebot.engine.sell.ExitHotPath7809.signedSellPending8189(p.mint) } catch (_: Throwable) { false }
-            val bucket = bucket8189(p.remainingQtyRaw, chainRaw, lastComplete8189, p.mint in frozen, signed)
+            // V5.0.8431 — the reconcile bucket is the chain reconciler's (ReconcileRunner8144.pendingMints8431), never this line's
+            // own signed-sell flag: 8422 printed recon=PENDING_TX under a chain line that said MATCHED for the same coin. The signed
+            // sell is still shown in route= (readiness8189).
+            val pendingTx8431 = try { p.mint in ReconcileRunner8144.pendingMints8431() } catch (_: Throwable) { false }
+            val bucket = bucket8189(p.remainingQtyRaw, chainRaw, lastComplete8189, p.mint in frozen, pendingTx8431)
             buckets += bucket
             sb.append("\n    proof8189 ").append(p.symbol.ifBlank { "?" }.take(10)).append(' ').append(p.mint.take(8))
                 .append(" wallet=").append(chainRaw?.toString() ?: "UNREAD").append(" canon=").append(p.remainingQtyRaw)

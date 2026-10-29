@@ -258,6 +258,7 @@ object ReconcileRunner8144 {
             if (try { LiveCanonicalRecovery6686.isDustUnroutable7714(m) } catch (_: Throwable) { false }) dust += m
             if (try { OwnerManualHoldings7976.isOwnerManual7976(m, nowMs) } catch (_: Throwable) { false }) manual += m
         }
+        lastPending8431 = pending.toSet()   // V5.0.8431 — the one PENDING_TX source (PositionProof8189 reads it)
         return ReconcileClassifier8144.Inputs8144(
             lots = lots, chain = chain, chainComplete = complete, txs = txs, journal = journal,
             parentMints = parentMints, parentPositionIds = parentPids, botEvidenceMints = evidence,
@@ -265,6 +266,15 @@ object ReconcileRunner8144 {
             ownerManualMints = manual,
         )
     }
+
+    /**
+     * V5.0.8431 §ONE_RECONCILE_SOURCE — the mints the last reconcile classified PENDING_TX (host tracker: a buy awaiting its
+     * balance, a sell pending or verifying). 8422: the chain line read `states[MATCHED=1, PENDING_TX=0]` while the proof line
+     * under it read `recon=PENDING_TX` for the same coin, because PositionProof8189 used its own "signed sell pending" flag
+     * as a reconcile state. The proof now reads this set; the signed sell stays in its `route=` field.
+     */
+    @Volatile private var lastPending8431: Set<String> = emptySet()
+    fun pendingMints8431(): Set<String> = lastPending8431
 
     fun statusLine8144(nowMs: Long = System.currentTimeMillis()): String =
         ReconcileClassifier8144.statusLine8144(last, if (lastAtMs > 0L) nowMs - lastAtMs else 0L, runs.get(), lastError) +
