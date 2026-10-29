@@ -522,6 +522,8 @@ object LiveEdgeGate7877 {
             final ?: candidateAdmission?.reason ?: "CANONICAL_ADMIT_8392", provisional?.sizeFactor ?: 1.0, nowMs, paper)
         if (!paper && final == null) LiveTruth8064.noteLiveAdmit8083(ts.mint, l,
             provisional?.setup ?: candidateAdmission?.chosenSetup, nowMs)
+        // V5.0.8428 — a shut lane's probe slot is claimed by the coin the FDG ADMITS, not by every coin it evaluates.
+        if (!paper && final == null) try { LaneRealisedProbe8424.claim8424(l, ts.mint, nowMs) } catch (_: Throwable) {}
         observeTail7996(ts, l, final, nowMs)
         FdgGate8365.noteFinal8365(final, l)
         if (basis == FdgGate8365.BASIS_EXCEPTION_8418) FdgGate8365.noteException8418(final, l)   // V5.0.8418 — where the 100x door's candidates end

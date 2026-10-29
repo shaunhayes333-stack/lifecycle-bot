@@ -181,9 +181,19 @@ object AdmissionRunnerTrace8144 {
         if (traces.isEmpty()) return "runners=0"
         val v = traces.map { classify8144(it) }
         val by = Miss8144.values().joinToString(" ") { m -> "${if (m == Miss8144.CAPTURED) "held_entry" else m.name.lowercase()}=${v.count { it.miss == m }}" }
-        val wrong = v.filter { it.miss == Miss8144.WRONGLY_REFUSED }.groupingBy { it.gate.substringBefore(':') }.eachCount()
+        // V5.0.8428 — a "qualified lane stopped" / "election shadowed" miss names the gate that stopped it (8422: wrongBy
+        // {QUALIFIED_LANE_STOPPED=65} said nothing about WHICH door; the gate stem is the actionable part).
+        val wrong = v.filter { it.miss == Miss8144.WRONGLY_REFUSED }.groupingBy { wrongKey8428(it.gate) }.eachCount()
             .entries.sortedByDescending { it.value }.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
         return "runners=${traces.size} $by wrongBy{$wrong}"
+    }
+
+    /** Pure (V5.0.8428): the wrongBy key of a verdict gate — the stem, plus the stopping gate for a stopped qualified lane. */
+    fun wrongKey8428(gate: String): String {
+        val stem = gate.substringBefore(':')
+        if (stem != "QUALIFIED_LANE_STOPPED" && stem != "ELECTION_SHADOWED") return stem
+        val door = gate.substringAfter(':', "").substringBefore(':').substringBefore('@').substringBefore(' ').take(48)
+        return if (door.isBlank()) stem else "$stem:$door"
     }
 
     // ── JSONL export / import (the device file is the replay input) ──

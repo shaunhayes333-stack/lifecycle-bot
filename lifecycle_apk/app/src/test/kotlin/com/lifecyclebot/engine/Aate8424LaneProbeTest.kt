@@ -53,20 +53,25 @@ class Aate8424LaneProbeTest {
         assertEquals(LaneRealisedProbe8424.Verdict8424.PROBE, LaneRealisedProbe8424.verdict8424(three, 0, -1L, 60L * 60_000L))
     }
 
-    @Test fun theRuntimeClaimBelongsToOneCoinAndSurvivesItsReAsks() {
+    @Test fun theSlotIsClaimedByTheAdmittedCoinNotByEveryCoinEvaluated() {
         LaneRealisedProbe8424.resetForTests8424()
         val closes = listOf(Triple(t0 - 60_000L, -0.004, -21.0), Triple(t0 - 50_000L, -0.003, -13.7), Triple(t0 - 40_000L, -0.005, -29.2))
         val lane = "ZZ_PROBE_8424"
-        assertNull("first coin: admitted as the probe", LaneRealisedProbe8424.probe8424(lane, "mintA", closes, t0 - 30_000L, t0))
-        assertNull("the same coin re-asked inside its claim keeps it", LaneRealisedProbe8424.probe8424(lane, "mintA", closes, t0 - 30_000L, t0 + 5_000L))
+        // evaluations read the door; none of them takes the slot
+        assertNull(LaneRealisedProbe8424.probe8424(lane, "mintA", closes, t0 - 30_000L, t0))
+        assertNull("a second coin evaluated is not blocked by the first coin's evaluation", LaneRealisedProbe8424.probe8424(lane, "mintB", closes, t0 - 30_000L, t0 + 1_000L))
+        // the FDG admits mintA live: the slot is its
+        LaneRealisedProbe8424.claim8424(lane, "mintA", t0 + 2_000L)
+        assertNull("the admitted coin re-asked inside its claim keeps it", LaneRealisedProbe8424.probe8424(lane, "mintA", closes, t0 - 30_000L, t0 + 5_000L))
         val other = LaneRealisedProbe8424.probe8424(lane, "mintB", closes, t0 - 30_000L, t0 + 6_000L)
         assertNotNull(other)
         assertTrue(other!!, other.startsWith(LaneRealisedProbe8424.OCCUPIED_8424))
         assertTrue("the refusal still reads as the lane-losing family (evidence shadow opens on it)", other.contains("LANE_REALISED_LOSING"))
         assertNotNull("a read-only ask (blank mint) sees the slot taken", LaneRealisedProbe8424.probe8424(lane, "", closes, t0 - 30_000L, t0 + 7_000L))
-        assertNull("after the claim expires another coin may probe", LaneRealisedProbe8424.probe8424(lane, "mintB", closes, t0 - 30_000L, t0 + LaneRealisedProbe8424.CLAIM_MS_8424 + 1L))
-        val line = LaneRealisedProbe8424.statusLine8424(t0 + LaneRealisedProbe8424.CLAIM_MS_8424 + 2L)
-        assertTrue(line, line.startsWith("laneProbe8424[probes=2 occupied=2"))
+        assertNull("after the claim expires another coin may probe", LaneRealisedProbe8424.probe8424(lane, "mintB", closes, t0 - 30_000L, t0 + 2_000L + LaneRealisedProbe8424.CLAIM_MS_8424 + 1L))
+        LaneRealisedProbe8424.claim8424(lane, "mintA", t0 + 3_000L)   // the same admission re-noted: not a second probe
+        val line = LaneRealisedProbe8424.statusLine8424(t0 + 4_000L)
+        assertTrue(line, line.startsWith("laneProbe8424[admitted=1 occupied=2"))
         LaneRealisedProbe8424.resetForTests8424()
     }
 
@@ -85,6 +90,7 @@ class Aate8424LaneProbeTest {
         assertTrue(eco.contains("fun laneRealisedRefusal8329(lane: String, nowMs: Long = System.currentTimeMillis(), mint: String = \"\"): String?"))
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         assertTrue(gate.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))
+        assertTrue("the slot is claimed on the live admission only", gate.contains("if (!paper && final == null) try { LaneRealisedProbe8424.claim8424(l, ts.mint, nowMs) } catch (_: Throwable) {}"))
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         assertTrue(adm.contains("tailRefuted8295(c.laneRealised8325) && !c.laneProbe8424) return LIVE_LANE_LOSING_8325"))
         assertTrue(adm.contains("laneProbe8424 = live8290 && (try { EntryEconomics8329.laneRealisedRefusal8329(lane, nowMs, ts.mint) == null } catch (_: Throwable) { false })"))
@@ -92,5 +98,18 @@ class Aate8424LaneProbeTest {
         assertTrue(eco.contains("if (reopens8329(s.sinceMs, closes)) {"))
         val reh = File("src/main/kotlin/com/lifecyclebot/engine/truth/Rehearsal8339.kt").readText()
         assertTrue(reh.contains("if (shadowOnly && reason == CandidateAdmission8136.LIVE_LANE_LOSING_8325) return false"))
+    }
+}
+
+/** V5.0.8428 — the runner-trace summary names the gate that stopped a qualified lane (8422: wrongBy{QUALIFIED_LANE_STOPPED=65}). */
+class Aate8428RunnerTraceKeyTest {
+    @Test fun aStoppedQualifiedLaneNamesItsDoor() {
+        val t = com.lifecyclebot.engine.truth.AdmissionRunnerTrace8144
+        assertEquals("QUALIFIED_LANE_STOPPED:CANDIDATE_ADMISSION_8136_LIVE_LANE_REALISED_LOSING_8325",
+            t.wrongKey8428("QUALIFIED_LANE_STOPPED:CANDIDATE_ADMISSION_8136_LIVE_LANE_REALISED_LOSING_8325@MOONSHOT extra"))
+        assertEquals("ELECTION_SHADOWED:FDG_TIMING_ADVERSE_8136", t.wrongKey8428("ELECTION_SHADOWED:FDG_TIMING_ADVERSE_8136:detail"))
+        assertEquals("QUALIFIED_LANE_STOPPED", t.wrongKey8428("QUALIFIED_LANE_STOPPED:"))
+        assertEquals("GENERIC_PRIOR_OVER_QUALIFIED", t.wrongKey8428("GENERIC_PRIOR_OVER_QUALIFIED:whatever"))
+        assertEquals("ADMITTED>NO_BUY_ATTEMPT", t.wrongKey8428("ADMITTED>NO_BUY_ATTEMPT"))
     }
 }

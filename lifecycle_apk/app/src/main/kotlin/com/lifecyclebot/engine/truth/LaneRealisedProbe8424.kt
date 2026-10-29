@@ -82,9 +82,10 @@ object LaneRealisedProbe8424 {
     }
 
     /**
-     * EntryEconomics8329.laneRealisedRefusal8329: may [mint] enter the shut lane [lane] as its probe now? Null admits it (and
-     * claims the slot when [mint] is named); otherwise the refusal. The same coin re-asked inside its claim keeps its admission
-     * (the FDG asks more than once per decision). A blank [mint] is a read-only ask (status / hold readers): no claim is made.
+     * EntryEconomics8329.laneRealisedRefusal8329: may [mint] enter the shut lane [lane] as its probe now? Null = the door is
+     * open to it; otherwise the refusal. This READS only: the slot is claimed by [claim8424] when the FDG actually admits the
+     * coin live (a candidate refused by another door must not hold the lane for 90 s). The lane's admitted probe re-asked
+     * inside its claim keeps its admission (the FDG asks more than once per decision).
      * [closes] = (atMs, realised SOL, realised %) of the lane's live closes; [shutSinceMs] when the shut was first seen.
      */
     fun probe8424(lane: String, mint: String, closes: List<Triple<Long, Double, Double>>, shutSinceMs: Long, nowMs: Long): String? {
@@ -94,26 +95,33 @@ object LaneRealisedProbe8424 {
         val lastClose = closes.filter { it.first > shutSinceMs }.maxOfOrNull { it.first }
         val lastCloseAgo = if (lastClose != null) nowMs - lastClose else -1L
         return when (verdict8424(closes.map { it.third }, openInLane8424(lane), claimedAgo, lastCloseAgo)) {
-            Verdict8424.PROBE -> {
-                if (mint.isNotBlank()) {
-                    claims[lane] = Claim8424(mint, nowMs); probes.incrementAndGet()
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_REALISED_PROBE_ADMITTED_8424_$lane") } catch (_: Throwable) {}
-                    try {
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle("LANE_REALISED_PROBE_8424",
-                            "lane=$lane mint=${mint.take(10)} closes=${closes.size} shutMin=${(nowMs - shutSinceMs) / 60_000L} action=one_small_stake_probe_record_decides")
-                    } catch (_: Throwable) {}
-                }
-                null
-            }
+            Verdict8424.PROBE -> null
             Verdict8424.OCCUPIED -> { occupied.incrementAndGet(); "${OCCUPIED_8424}_$lane" }
             Verdict8424.PROVEN_WAIT -> { provenWaits.incrementAndGet(); "${PROVEN_WAIT_8424}_$lane" }
         }
     }
 
+    /**
+     * LiveEdgeGate7877.liveRefusal, on a LIVE admission: [mint] holds [lane]'s one probe slot for [CLAIM_MS_8424] while its
+     * buy is in flight (an open position then keeps the lane occupied; a failed buy frees it). Cheap on an open lane: the
+     * claim is only ever read while the lane is shut.
+     */
+    fun claim8424(lane: String, mint: String, nowMs: Long) {
+        if (lane.isBlank() || mint.isBlank()) return
+        val prior = claims.put(lane, Claim8424(mint, nowMs))
+        if (prior?.mint == mint && nowMs - prior.atMs in 0L until CLAIM_MS_8424) return   // the same admission re-noted
+        probes.incrementAndGet()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_REALISED_PROBE_ADMITTED_8424_$lane") } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("LANE_REALISED_PROBE_8424",
+                "lane=$lane mint=${mint.take(10)} action=one_small_stake_probe_record_decides")
+        } catch (_: Throwable) {}
+    }
+
     fun statusLine8424(nowMs: Long = System.currentTimeMillis()): String {
         val live = claims.entries.filter { nowMs - it.value.atMs in 0L until CLAIM_MS_8424 }
             .joinToString(",") { "${it.key}:${it.value.mint.take(6)}" }.ifBlank { "-" }
-        return "laneProbe8424[probes=${probes.get()} occupied=${occupied.get()} provenWaits=${provenWaits.get()} claims=$live " +
+        return "laneProbe8424[admitted=${probes.get()} occupied=${occupied.get()} provenWaits=${provenWaits.get()} claims=$live " +
             "rule=losing lane probes 1 at a time at the small stake; proven(n>=$PROVEN_MIN_N_8424,mean+2se<0) every ${PROVEN_PROBE_GAP_MS_8424 / 3_600_000L}h]"
     }
 
