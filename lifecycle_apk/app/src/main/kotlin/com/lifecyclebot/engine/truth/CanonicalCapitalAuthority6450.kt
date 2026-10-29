@@ -111,6 +111,21 @@ object CanonicalCapitalAuthority6450 {
     private val markQuoteProviderRef =
         java.util.concurrent.atomic.AtomicReference<((String) -> MarkQuote7060?)?>(null)
 
+    /**
+     * V5.0.8418 — phone run 5.0.8418: MARK_QUOTE_7060_UNAVAILABLE_NO_TOKEN_STATE = PAPER_MARK_UNPRICED_6508 = 2,700 in 225 s:
+     * every snapshot asked the quote provider for each of the 54 canonical PAPER mints (LIVE mode: no TokenState is held
+     * for them), and every ask bailed on the missing state. The installed predicate answers "is there a TokenState to
+     * quote from" first; when there is none the provider is not asked — the outcome is the same (no quote, unpriced at
+     * cost basis), without the wasted call. Null predicate = ask, as before.
+     */
+    private val markQuoteStatePredicate8418 = java.util.concurrent.atomic.AtomicReference<((String) -> Boolean)?>(null)
+
+    fun installMarkQuoteStatePredicate8418(hasState: (String) -> Boolean) { markQuoteStatePredicate8418.set(hasState) }
+
+    /** Pure over [hasState]: may the quote provider be asked for [mint]? Unknown / throwing predicate = ask. */
+    internal fun quoteAskable8418(mint: String, hasState: ((String) -> Boolean)?): Boolean =
+        hasState == null || (try { hasState(mint) } catch (_: Throwable) { true })
+
     fun installMarkQuoteProvider7060(provider: (String) -> MarkQuote7060?) {
         markQuoteProviderRef.set(provider)
         try { PipelineHealthCollector.labelInc("CAPITAL_MARK_QUOTE_PROVIDER_INSTALLED_7060") } catch (_: Throwable) {}
@@ -185,7 +200,9 @@ object CanonicalCapitalAuthority6450 {
             // from one canonical row. Falls back to the whole-mint provider
             // when no quote provider is installed, so nothing depends on
             // install order.
-            val quote7060 = try { markQuoteProviderRef.get()?.invoke(aggregate.mint) } catch (_: Throwable) { null }
+            val askable8418 = quoteAskable8418(aggregate.mint, markQuoteStatePredicate8418.get())
+            if (!askable8418) try { PipelineHealthCollector.labelInc("MARK_QUOTE_SKIPPED_NO_TOKEN_STATE_8418") } catch (_: Throwable) {}
+            val quote7060 = if (!askable8418) null else try { markQuoteProviderRef.get()?.invoke(aggregate.mint) } catch (_: Throwable) { null }
             val corroborated7060 = quote7060?.corroborated == true
             val fresh = if (quote7060 != null && quote7060.solPerToken.isFinite() && quote7060.solPerToken > 0.0) {
                 // V5.0.7258 — old cross-asset rows were opened with the

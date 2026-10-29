@@ -550,6 +550,7 @@ object LaneHunter7297 {
                     }
                     claims[claimKey7803(lane, r.mint)] = Claim(lane, r.mcapUsd, now)
                     try { SpecialistCandidateBooks7803.publishHunt(lane, r.mint, r.symbol, SOURCE_PREFIX + lane) } catch (_: Throwable) {}
+                    com.lifecyclebot.engine.LaneDispatch8418.notePoolAtHunt8418(lane, r.mint)  // V5.0.8418 — the sniper's own selection is its discovery
                     hunted.merge(lane, 1L, Long::plus)
                     try {
                         val cs = commonSenseMult7797(lane, r)

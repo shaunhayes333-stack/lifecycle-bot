@@ -6796,6 +6796,7 @@ class BotService : Service() {
                 try { PipelineHealthCollector.labelInc("MARK_QUOTE_7060_UNAVAILABLE_$reason") } catch (_: Throwable) {}
                 return null
             }
+            com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.installMarkQuoteStatePredicate8418 { status.tokens.containsKey(it) }  // V5.0.8418 — no TokenState: not asked
             com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.installMarkQuoteProvider7060 { mint ->
                 try {
                     val ts = status.tokens[mint] ?: return@installMarkQuoteProvider7060 bail7098("NO_TOKEN_STATE")
@@ -32792,9 +32793,10 @@ if (hotExitHandledSweep) {
     // set: operator, twice, "core and standard are trading lanes." V3_CORE stays
     // — the operator named the other two, and directive §11 forbids aliasing
     // CORE/STANDARD/V3_CORE together.
-    LaneDispatch8418.notePrimarySpine8418(ts.mint, cyclePrimaryLane, ts.position.isOpen, decision.finalSignal, canProposeEarly)  // V5.0.8418
+    // V5.0.8418 — a READY CORE / CYCLIC candidate on a block lane's cycle is evaluated by the spine under its own lane.
+    val spineLane8418 = LaneDispatch8418.spineLane8418(ts.mint, cyclePrimaryLane, ts.position.isOpen, decision.finalSignal, canProposeEarly) { laneEvaluationAllowed7951(ts, it, cyclePrimaryLane) && cyclicPolicyAllows7809(it) }
     if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly &&
-        cyclePrimaryLane.uppercase() !in setOf("V3_CORE")) {
+        spineLane8418.uppercase() !in setOf("V3_CORE")) {
         // V5.0.8136 — a credible BUY proposal starts its freeze/mint-authority proof now (single-flight, live only),
         // so the pre-broadcast gate finds a fresh proof instead of asking the chain at quote time.
         try { com.lifecyclebot.engine.truth.AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint) } catch (_: Throwable) {}
@@ -32861,7 +32863,7 @@ if (hotExitHandledSweep) {
             decision.blockReason,
         ).joinToString("|")
         val cachedFdg = FdgReEvalThrottle.get(
-            identity.mint, fdgCandidateVersion6653, cyclePrimaryLane,
+            identity.mint, fdgCandidateVersion6653, spineLane8418,
             fdgEvidenceVersion6653, fdgScoreNow,
         )
         val fdgWasCached = cachedFdg != null
@@ -32871,7 +32873,7 @@ if (hotExitHandledSweep) {
         } else {
             // V5.0.8169 — the Field Manual reads the strategy's own candidate before capital authority runs.
             com.lifecyclebot.engine.truth.LearnedAdmissionInputs6909.stampFoundation8169(
-                lane = cyclePrimaryLane,
+                lane = spineLane8418,
                 mint = identity.mint,
                 ts = ts,
                 foundationCandidate = decision,
@@ -32884,7 +32886,7 @@ if (hotExitHandledSweep) {
                 proposedSizeSol = proposedSize,
                 brain = executor.brain,
                 tradingModeTag = tradingModeTag,
-                specialistLane = cyclePrimaryLane,
+                specialistLane = spineLane8418,
                 fanoutRole = "V3_EXEC",
             )
             // One immutable FDG result per candidate/evidence version.  BUY
@@ -32893,7 +32895,7 @@ if (hotExitHandledSweep) {
             // V5.0.7321 — a fan-out cap is "not looked at", not a verdict;
             // caching it replayed the refusal for another cycle.
             if (fresh.blockReason != "FDG_FANOUT_CAP_7232") FdgReEvalThrottle.put(
-                identity.mint, fdgCandidateVersion6653, cyclePrimaryLane,
+                identity.mint, fdgCandidateVersion6653, spineLane8418,
                 fdgEvidenceVersion6653, fdgScoreNow, fresh,
             )
             fresh
@@ -32947,7 +32949,7 @@ if (hotExitHandledSweep) {
                 )?.attemptId
             } catch (_: Throwable) { null }
             if (!markCausalId6883.isNullOrBlank()) {
-                try { ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "MARK_READY", markCausalId6883) } catch (_: Throwable) {}
+                try { ToolkitSignalSheet.recordDeskStage(spineLane8418, "MARK_READY", markCausalId6883) } catch (_: Throwable) {}
             } else {
                 try { PipelineHealthCollector.labelInc("MARK_PROMOTED_BEFORE_CAUSAL_IDENTITY_6883") } catch (_: Throwable) {}
             }

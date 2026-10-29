@@ -98,6 +98,77 @@ object LaneDispatch8418 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8418 (phone run: CORE qualified 182 fdg=0/0, CYCLIC qualified 342 fdg=0/0) — lanes that own a per-token buy block
+     * in processTokenCycle. When one of them is the cycle primary, it is evaluated by FDG in that block; the primary spine
+     * (BotService "MEME_SPINE", the V3 strategy decision) then evaluated the SAME candidate again under the primary's lane.
+     */
+    private val OWN_BLOCK_LANES_8418: Set<String> = setOf(
+        "TREASURY", "CASHGEN", "QUALITY", "BLUECHIP", "MOONSHOT", "SHITCOIN", "MANIPULATED", "EXPRESS", "PROJECT_SNIPER", "DIP_HUNTER",
+    )
+
+    /**
+     * Pure: the lane the primary spine evaluates under. A block-less lane (CORE, then CYCLIC) whose own native brain
+     * qualified the coin (READY) takes the spine when the primary is a lane with its own block (that lane is still
+     * evaluated there) and the block-less lane passes the same lane-cycle gate every other lane passes ([allowed]: quarantine,
+     * sealed owner, metric-stage safety, desk qualification, primary / rescue / hand-off / native slot). Otherwise the
+     * primary, unchanged. Ordering only: the FDG, TradeAuthorizer, lane election, caps and every gate after still decide.
+     */
+    fun spineLanePure8418(primaryLane: String, positionOpen: Boolean, coreReady: Boolean, cyclicReady: Boolean,
+                          allowed: (String) -> Boolean): String {
+        if (positionOpen) return primaryLane
+        val p = primaryLane.trim().uppercase()
+        if (p !in OWN_BLOCK_LANES_8418) return primaryLane
+        if (coreReady && allowed("CORE")) return "CORE"
+        if (cyclicReady && allowed("CYCLIC")) return "CYCLIC"
+        return primaryLane
+    }
+
+    /**
+     * BotService primary spine: the lane it evaluates under ([spineLanePure8418], READY read from the specialist books),
+     * with a block-less spine lane that did not propose ended by name (the former notePrimarySpine8418 call).
+     */
+    fun spineLane8418(mint: String, primaryLane: String, positionOpen: Boolean, finalSignal: String?, canPropose: Boolean,
+                      allowed: (String) -> Boolean): String {
+        val p = lane8418(primaryLane)
+        val spine = try {
+            spineLanePure8418(p, positionOpen, readyIn8418("CORE", mint), readyIn8418("CYCLIC", mint)) { l ->
+                try { allowed(l) } catch (_: Throwable) { false }
+            }
+        } catch (_: Throwable) { p }
+        val lane = if (spine == p) primaryLane else spine
+        if (lane != primaryLane) try { PipelineHealthCollector.labelInc("LANE_DISPATCH_8418_SPINE_${lane}_OVER_$p") } catch (_: Throwable) {}
+        notePrimarySpine8418(mint, lane, positionOpen, finalSignal, canPropose)
+        return lane
+    }
+
+    private fun readyIn8418(lane: String, mint: String): Boolean = try {
+        SpecialistCandidateBooks7803.entry(lane, mint)?.state == SpecialistCandidateBooks7803.State.READY
+    } catch (_: Throwable) { false }
+
+    /**
+     * V5.0.8418 (phone run: PROJECT_SNIPER residentOwnLane7815=22, hunter claims=22, MARKET_HUNT_7301_EMITTED_PROJECT_SNIPER=9,
+     * yet discovered=0 trafficSeen=false). The sheet-side POOL stamp ([hunterPoolLanes8418]) only fires when the coin's
+     * toolkit sheet is built while the claim is live and in band; a launch picked inside its 3-minute window that is still
+     * hydrating at intake (INTAKE PAIR_PENDING_HYDRATION) never gets that far, so the lane looked dead while its hunter was
+     * selecting coins. The hunter's own selection is the lane's observation of the coin: POOL is stamped at publish, on
+     * the candidate's causal id (the same one the sheet uses, so a later sheet stamp dedupes). Lanes listed in
+     * [HUNT_POOL_LANES_8418] only. Bookkeeping: nothing here qualifies, admits or sizes.
+     */
+    private val HUNT_POOL_LANES_8418: Set<String> = setOf("PROJECT_SNIPER")
+
+    /** Pure: does a hunter pick for [lane] stamp POOL at publish? */
+    fun poolAtHunt8418(lane: String): Boolean = lane.trim().uppercase() in HUNT_POOL_LANES_8418
+
+    fun notePoolAtHunt8418(lane: String, mint: String) {
+        if (mint.isBlank() || !poolAtHunt8418(lane)) return
+        try {
+            val v = LaneExecutionCoordinator.candidateVersionFor(mint)
+            ToolkitSignalSheet.recordDeskStage(lane.trim().uppercase(), "POOL", "$mint:$v")
+            PipelineHealthCollector.labelInc("LANE_DISPATCH_8418_POOL_AT_HUNT_${lane.trim().uppercase()}")
+        } catch (_: Throwable) {}
+    }
+
     /** CyclicTradeEngine: is [mint] a CYCLIC native-qualified (READY) candidate right now? */
     fun cyclicReady8418(mint: String): Boolean = try {
         SpecialistCandidateBooks7803.entry("CYCLIC", mint)?.state == SpecialistCandidateBooks7803.State.READY

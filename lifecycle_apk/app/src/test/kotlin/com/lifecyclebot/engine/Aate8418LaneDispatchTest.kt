@@ -114,7 +114,9 @@ class Aate8418LaneDispatchTest {
     @Test fun wiredAtTheCycleTheSpineTheRingAndTheSheet() {
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("LaneDispatch8418.noteCycle8418(ts.mint, cyclePrimaryLane, ts.position.isOpen)"))
-        assertTrue(bot.contains("LaneDispatch8418.notePrimarySpine8418(ts.mint, cyclePrimaryLane, ts.position.isOpen, decision.finalSignal, canProposeEarly)"))
+        // superseded by V5.0.8418 — the spine resolves its lane first (spineLane8418 names a non-proposing block-less lane inside)
+        assertTrue(bot.contains("val spineLane8418 = LaneDispatch8418.spineLane8418(ts.mint, cyclePrimaryLane, ts.position.isOpen, decision.finalSignal, canProposeEarly)"))
+        assertTrue(src("engine/LaneDispatch8418.kt").contains("notePrimarySpine8418(mint, lane, positionOpen, finalSignal, canPropose)"))
         val ring = src("engine/CyclicTradeEngine.kt")
         assertTrue(ring.contains("LaneDispatch8418.cyclicRank8418((ts.lastV3Score ?: ts.entryScore.toInt()).toDouble(), ts.lastV3Confidence, LaneDispatch8418.cyclicReady8418(ts.mint))"))
         for (k in listOf("CYCLIC_RING_DISABLED", "CYCLIC_RING_HOLDING", "CYCLIC_RING_BELOW_RING_FILTERS", "CYCLIC_RING_TOOK_OTHER")) assertTrue(k, ring.contains("\"$k\""))
