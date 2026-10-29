@@ -15419,7 +15419,15 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("Preflight8385.DataDefer") && exec.contains("TicketRetry8327.noteReserveWait8385"))
         assertTrue(retry.contains("AUTHORIZATION_EXPIRED_8385") && retry.contains("RESERVE_WAIT_SUPERSEDED_8385"))
         assertTrue(retry.contains("reserveMatches8385") && retry.contains("pool8330().schedule({ sweep8327"))
-        assertTrue(reserves.contains("if (atMs <= r.atMs) return null") && reserves.contains("onReserveObserved8385"))
+        // superseded by V5.0.8418 — a42bd7d30: the stale-observation guard is CurveReserves7951.accepts8418 (an equal
+        // timestamp replaces the stored row only when an ACCOUNT read meets a stored FRAME); older is still refused.
+        assertTrue(reserves.contains("if (!accepts8418(atMs, r.atMs, accountObserved, r.accountObserved)) return null") && reserves.contains("onReserveObserved8385"))
+        assertFalse(com.lifecyclebot.engine.truth.CurveReserves7951.accepts8418(9L, 10L, true, false))
+        assertFalse(com.lifecyclebot.engine.truth.CurveReserves7951.accepts8418(10L, 10L, false, false))
+        assertFalse(com.lifecyclebot.engine.truth.CurveReserves7951.accepts8418(10L, 10L, true, true))
+        assertFalse(com.lifecyclebot.engine.truth.CurveReserves7951.accepts8418(10L, 10L, false, true))
+        assertTrue(com.lifecyclebot.engine.truth.CurveReserves7951.accepts8418(10L, 10L, true, false))
+        assertTrue(com.lifecyclebot.engine.truth.CurveReserves7951.accepts8418(11L, 10L, false, true))
         assertTrue(curve.contains("val pending8385 = targets.filter") && curve.contains("resolved8385.add(mint)"))
         assertTrue(f("engine/ToolkitSignalSheet.kt").contains("rankDeskCandidates8385"))
         assertTrue(f("engine/truth/LiveRiskPolicy7807.kt").contains("scope=decision_evaluations_not_unique_attempts"))
@@ -15525,7 +15533,10 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("claims8394 = IntakeClaims8394(merged.laneAffinity, merged.toolAffinity, merged.firstObservedAtMs8394, merged.lastObservedAtMs8394)"))
         assertTrue(bot.contains("inferIntakeLaneAffinity(source, sources, mcapUsd, liquidityUsd) + claims?.lanes.orEmpty()"))
         assertTrue(bot.contains("inferIntakeToolAffinity(source, sources, mcapUsd, liquidityUsd) + claims?.tools.orEmpty()"))
-        assertEquals(3, Regex("intakeAffinity8394\\(").findAll(bot).count() - 1)
+        // superseded by V5.0.8418 — 26cdf3e47: the unread-liquidity probation arm (intakeDustOrUnread8418) is a fourth
+        // intake path, and it carries the same claims.
+        assertEquals(4, Regex("intakeAffinity8394\\(").findAll(bot).count() - 1)
+        assertTrue(bot.contains("intakeAffinity8394(source, allSources, mcapUsd, liquidityUsd, claims8394)"))
         assertTrue(bot.contains("HandoffReceiverTasks8153.deferForScheduler8394(mint, until, now)"))
         val cortex = src("engine/cortex/Cortex7885")
         val encoding = cortex.substringAfter("return {\n            val dict = LinkedHashMap<String, Int>()")

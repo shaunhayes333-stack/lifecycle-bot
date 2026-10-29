@@ -130,10 +130,12 @@ class Aate8418MintSupplyTest {
         assertNotNull(MintSupply8418.stamp8418(row))
         assertEquals(10L, row.mintSupply8418!!.slot)
         assertEquals(6, row.tokenMap.decimals)
-        // A row whose decimals are already set keeps them (the disagreement is counted, not silently rewritten).
+        // superseded by V5.0.8418 — d4c01f7b1: the mint account is the decimals authority. A row whose token-map
+        // decimals disagree (provider/default figure) takes the chain value; the disagreement is still counted.
         val other = TokenState(mint = pumpMint, symbol = "P").apply { tokenMap.decimals = 9 }
         MintSupply8418.stamp8418(other)
-        assertEquals(9, other.tokenMap.decimals)
+        assertEquals(6, other.tokenMap.decimals)
+        assertEquals(10L, other.mintSupply8418!!.slot)
     }
 
     @Test fun capsAreVerifiedSupplyTimesPriceOrUnknown() {

@@ -108,7 +108,10 @@ class Aate8418RuntimeHealthTest {
             budgetMs = budget, maxQueueWaitMs = s.MAX_QUEUE_WAIT_MS_8418))
         assertEquals(0L, s.watchdogWaitMoreMs8418(25_750L, 0L, 10_000L, budget, s.MAX_QUEUE_WAIT_MS_8418))
         // a worker that started at once keeps exactly the old deadline
-        assertEquals(0L, s.watchdogWaitMoreMs8418(15_750L, 0L, 1L, budget, s.MAX_QUEUE_WAIT_MS_8418))
+        // superseded by V5.0.8418 — the fixture started the worker 1 ms after admission and checked at admission + budget,
+        // so 1 ms correctly remained. Admission and start now share the same instant (0 is reserved for "never started").
+        assertEquals(0L, s.watchdogWaitMoreMs8418(15_751L, 1L, 1L, budget, s.MAX_QUEUE_WAIT_MS_8418))
+        assertEquals(1L, s.watchdogWaitMoreMs8418(15_750L, 1L, 1L, budget, s.MAX_QUEUE_WAIT_MS_8418))
         // never got a thread: released at the queue bound, and that is a queue expiry, not a timeout
         assertEquals(0L, s.watchdogWaitMoreMs8418(15_750L, 0L, 0L, budget, s.MAX_QUEUE_WAIT_MS_8418))
         assertTrue(s.isQueueExpiry8418(0L))

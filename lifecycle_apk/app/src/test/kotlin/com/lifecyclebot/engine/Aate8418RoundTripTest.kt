@@ -146,7 +146,10 @@ class Aate8418RoundTripTest {
         // (protective sell), rent reclaimed, venue 0.25 % a side, route 0.0213 % a side (landed share), slippage allowance.
         fun at(t: Double) = RoundTrip8418.itemise8418(t, 21_280L, 25_000L, 200_000L, 0.0, 0.25, 0.0213, 0.0, 0.0, 1.0)
         val a = at(0.031); val b = at(0.1); val c = at(0.5)
-        assertEquals(0.0002676, a.fixedSol, 1e-10)
+        // superseded by V5.0.8418 — 0.0002676 was a rounded figure: base 0.00001 + priority 0.00003256 + tips 0.000225
+        // (each asserted below) is exactly 0.00026756 SOL.
+        assertEquals(0.00026756, a.fixedSol, 1e-10)
+        assertEquals(a.baseFeeSol + a.prioritySol + a.tipSol + a.rentSol, a.fixedSol, 1e-15)
         assertEquals(0.00001, a.baseFeeSol, 1e-12)
         assertEquals(0.00003256, a.prioritySol, 1e-12)
         assertEquals(0.000225, a.tipSol, 1e-12)

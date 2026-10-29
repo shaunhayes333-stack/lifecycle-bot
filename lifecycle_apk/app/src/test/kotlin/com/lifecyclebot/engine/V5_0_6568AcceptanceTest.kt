@@ -22,6 +22,11 @@ class V5_0_6568AcceptanceTest {
     @Test fun hundred_close_replay_populates_exact_entry_cohorts_and_shaping() {
         val causal = com.lifecyclebot.engine.truth.MemeCausalLearning6568
         causal.resetForTest()
+        // superseded by V5.0.8418 — ee3508be7: TacticSwitcher learns only from the runtime's own book, so this PAPER
+        // replay pins a PAPER runtime (other tests leave the shared RuntimeModeAuthority LIVE) and restores it after.
+        val prior8418 = RuntimeModeAuthority.current()
+        RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = prior8418.autoTrade)
+        try {
         val before = com.lifecyclebot.engine.learning.TacticSwitcher.historicalOutcomeCount6486()
         repeat(100) { n ->
             val pid = "6568-replay-$n-${System.nanoTime()}"
@@ -50,6 +55,16 @@ class V5_0_6568AcceptanceTest {
         assertTrue(causal.rowCountForTest() == 100)
         assertTrue(com.lifecyclebot.engine.learning.TacticSwitcher.historicalOutcomeCount6486() >= before + 100)
         assertTrue(causal.sizeMultiplier("MOONSHOT","MOMENTUM") in 0.20..0.70)
+        // a paper close never moves the tactic row a LIVE runtime trades on
+        RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = prior8418.autoTrade)
+        val liveBefore = com.lifecyclebot.engine.learning.TacticSwitcher.historicalOutcomeCount6486()
+        LearningEnvironment7835.withMode("PAPER", canonical = true) {
+            com.lifecyclebot.engine.learning.TacticSwitcher.onCanonicalTradeClosed6486("MOONSHOT","S41-60","MOMENTUM",-5.0)
+        }
+        assertTrue(com.lifecyclebot.engine.learning.TacticSwitcher.historicalOutcomeCount6486() == liveBefore)
+        } finally {
+            RuntimeModeAuthority.publishConfig(paperMode = prior8418.authority == RuntimeModeAuthority.Mode.PAPER, autoTrade = prior8418.autoTrade)
+        }
     }
 
     @Test fun remaining_6568_integrity_and_causal_contracts_are_wired() {

@@ -181,7 +181,10 @@ class Aate8418StateFreshnessTest {
 
     @Test fun walletRecoveryAsksTheQuoteRuleBeforeAnyBasisSearch() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
-        val loop = src.substringAfter("fun recoverWalletSnapshot(").substringBefore("LIVE_WALLET_CANONICAL_RECOVERY_BASIS_MISSING_6686")
+        // superseded by V5.0.8418 — the window ended at the first mention of the label, which is an explanatory comment
+        // above the receipt chain, so durableLiveBuyBasis7931 was never inside it. It now ends at the emitted label.
+        val loop = src.substringAfter("fun recoverWalletSnapshot(").substringBefore("\"LIVE_WALLET_CANONICAL_RECOVERY_BASIS_MISSING_6686\"")
+        assertTrue(loop.contains("durableLiveBuyBasis7931(mint)"))
         val quote = loop.indexOf("QuoteAssetBasis8418.skipRecovery8418(mint, amount.raw, amount.decimals)")
         assertTrue(quote > 0)
         assertTrue("before the receipt chain", quote < loop.indexOf("durableLiveBuyBasis7931(mint)"))
