@@ -1666,8 +1666,29 @@ object Cortex7885 {
                 val original = shadowPending8372[shadowId]
                 val ctxExecutable = (original?.context8372 ?: shadowCtx8372[shadowId])?.executable == true && executable
                 shadowOutcomeIsolated8418(shadowLedger8418, canon(lane), original?.a?.bucket?.name.orEmpty(), ctxExecutable, netPct, grossPct)
-                outcomeBook8372.finishedShadow(shadowId, learned = false)
-                inc(if (setup.isBlank()) "SHADOW_OUTCOME_ISOLATED_8418" else "SHADOW_OUTCOME_ISOLATED_SETUP_8418")
+                // V5.0.8420 — operator: the Cortex shadow-learns every YES and NO it evaluates. 8418 made shadow exits
+                // report-only, which switched shadow learning off entirely (the operator's complaint: "its like the entire
+                // shadow learning for the Cortex is turned off"). A clean shadow exit trains the Cortex MODELS (voters, board,
+                // cells) marked shadowNet8404, once, in place of the forward label for that decision. It is still NOT graded
+                // authority evidence (8418 SHADOW_EXIT rows stay out of bucketStats / rank / coverage) and calibration still
+                // refuses shadow pairs, so a shadow result cannot by itself earn live authority or raise live size.
+                val targetId8420 = plan.decisionId
+                val decisionAt8420 = targetId8420.substringAfterLast('|').toLongOrNull()
+                if (original != null && decisionAt8420 != null && shadowLearnable8420(original.lateRead8169, original.a.staleMark, netPct, grossPct)) {
+                    val key8420 = targetId8420.substringBeforeLast('|')
+                    val p8420 = if (original.atMs == decisionAt8420) original else Pending(original.a, original.legacyAdmitted,
+                        decisionAt8420, original.vetoRule, original.source, original.setup7961.ifBlank { setup }, original.fired8094).also {
+                        it.selected8153 = original.selected8153.ifBlank { setup }; it.lateRead8169 = original.lateRead8169
+                        it.decisionMode8196 = original.decisionMode8196; it.decisionReason8196 = original.decisionReason8196
+                        it.context8372 = original.context8372
+                    }
+                    gradeModelsLocked8372(key8420, p8420, netPct, grossPct, false, shadowExit8372 = true)
+                    outcomeBook8372.finishedShadow(shadowId, learned = true, trainedId = targetId8420)
+                    inc(if (ctxExecutable) "SHADOW_MODEL_LEARNED_8420" else "SHADOW_MODEL_LEARNED_NON_EXECUTABLE_8420")
+                } else {
+                    outcomeBook8372.finishedShadow(shadowId, learned = false)
+                    inc(if (setup.isBlank()) "SHADOW_OUTCOME_ISOLATED_8418" else "SHADOW_OUTCOME_ISOLATED_SETUP_8418")
+                }
             }
         }
         if (missingOriginal8372) return onShadowUnavailable8372(mint, lane, assessmentAtMs, "ORIGINAL_PREDICTION_MISSING")
@@ -1675,6 +1696,10 @@ object Cortex7885 {
         // ExploreShadow flushes once after the whole tick. No full model snapshot for every individual exit.
         return false
     }
+
+    /** Pure (V5.0.8420): a shadow exit trains the models only when its read was on time, its mark fresh and its values finite. */
+    internal fun shadowLearnable8420(lateRead: Boolean, staleMark: Boolean, netPct: Double, grossPct: Double): Boolean =
+        !lateRead && !staleMark && netPct.isFinite() && grossPct.isFinite()
 
     /** V5.0.8418 — the shadow ledger the isolated shadow outcomes go to (report / shadow trader only; never assess()). */
     private val shadowLedger8418 = CortexShadowLedger8418()
