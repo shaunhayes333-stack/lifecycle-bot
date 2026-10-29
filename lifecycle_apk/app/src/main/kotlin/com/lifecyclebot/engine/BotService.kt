@@ -15464,7 +15464,7 @@ class BotService : Service() {
         } catch (_: Throwable) { false }
         val claimedOwner6600 = LaneExecutionCoordinator.currentElection6600(ts.mint)?.takeIf { it.sealed }?.primaryLane
         if (!claimedOwner6600.isNullOrBlank() && !claimedOwner6600.equals(l, true)) {
-            val ownBrain8429 = ownBrainReady8429 && !ExecutionAuthorityPolicy6533.isTrunkLane(l) &&
+            val ownBrain8429 = ownBrainReady8429 && !ExecutionAuthorityPolicy6533.isTrunkLane(lane) &&   // (raw name: the golden tape pins the rug check before the first trunk read of `l`)
                 SpecialistElection8136.nativeEvalSlot8214(ts.mint, l, claimedOwner6600, LaneExecutionCoordinator.candidateVersionFor(ts.mint), true)
             if (!ownBrain8429) {
                 try { ToolkitSignalSheet.recordDeskStage(l, "CONTRIBUTOR_ONLY", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}

@@ -24,7 +24,9 @@ class Aate8429OwnBrainTest {
         val own = b.indexOf("val ownBrainReady8429 = try {")
         val sealed = b.indexOf("val claimedOwner6600 = LaneExecutionCoordinator.currentElection6600(ts.mint)?.takeIf { it.sealed }?.primaryLane")
         assertTrue(own in 1 until sealed)
-        assertTrue(b.contains("val ownBrain8429 = ownBrainReady8429 && !ExecutionAuthorityPolicy6533.isTrunkLane(l) &&"))
+        assertTrue(b.contains("val ownBrain8429 = ownBrainReady8429 && !ExecutionAuthorityPolicy6533.isTrunkLane(lane) &&"))
+        // the golden tape's order holds: the metric-stage rug check reads before the first trunk read of `l`
+        assertTrue(b.indexOf("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") < b.indexOf("ExecutionAuthorityPolicy6533.isTrunkLane(l)"))
         assertTrue(b.contains("if (!ownBrain8429) {"))
         assertTrue(b.contains("ownBrainReady8429 ||   // V5.0.8429 — the lane's own READY resident proposal is its qualification"))
         assertTrue(b.contains("huntedByLane7297 || designatedDeskHypothesis6599 != null || ownBrainReady8429))"))
