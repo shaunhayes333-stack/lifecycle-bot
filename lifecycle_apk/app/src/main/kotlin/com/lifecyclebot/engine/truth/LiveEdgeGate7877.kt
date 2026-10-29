@@ -481,7 +481,8 @@ object LiveEdgeGate7877 {
         val hold = if (paper) null else try {
             // V5.0.8418 (owner: "shadow proof can unlock, not size") — a lane's own realised LIVE losses re-lock it whatever its
             // shadow proof says. superseded: a shadow-proven lane skipped laneRealisedRefusal8329.
-            EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)
+            // V5.0.8424 — by mint: a shut lane's one probe is this coin's claim (LaneRealisedProbe8424), size down not halt.
+            EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)
                 ?: EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)
         } catch (_: Throwable) { "EVIDENCE_HOLD_READ_FAILED_8392" }
         // V5.0.8418 — a candidate the hold passed on its own exception (the 100x door) carries that door as its basis.

@@ -35,7 +35,7 @@ class Aate8329EntryEconomicsTest {
 
     @Test fun realisedRefusalBindsOverThe8114AdmitButNotOverHardSafety() {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
+        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
         assertTrue(s.contains("val final = core ?: hold"))
         assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertFalse(s.contains("Entry8114Mode8326"))
@@ -58,7 +58,7 @@ class Aate8329EntryEconomicsTest {
 
     @Test fun modeDecisionConsultsTheRealisedLaneRead() {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
+        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
         assertTrue(s.contains("val final = core ?: hold"))
         assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertFalse(s.contains("Entry8114Mode8326"))
@@ -187,7 +187,7 @@ class Aate8329EntryEconomicsTest {
 
     @Test fun modeStaysOnByDefaultAndLabelRefusalsStayBypassed() {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs)"))
+        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
         assertTrue(s.contains("val final = core ?: hold"))
         assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertFalse(s.contains("Entry8114Mode8326"))

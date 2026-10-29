@@ -72,8 +72,13 @@ object EntryEconomics8329 {
             .map { Triple(it.atMs, it.realizedPnlSol, it.realizedReturnPct) }
     } catch (_: Throwable) { emptyList() }
 
-    /** LiveEdgeGate7877.liveRefusal: the realised-lane refusal for [lane] now (binds in mode), else null. */
-    fun laneRealisedRefusal8329(lane: String, nowMs: Long = System.currentTimeMillis()): String? {
+    /**
+     * LiveEdgeGate7877.liveRefusal: the realised-lane refusal for [lane] now (binds in mode), else null.
+     * V5.0.8424 — a shut lane is not halted: it PROBES (LaneRealisedProbe8424: one small-stake live position at a time; a
+     * proven-losing lane once per two hours). [mint] names the candidate so its probe claim survives the FDG's re-asks;
+     * blank = read-only (no claim).
+     */
+    fun laneRealisedRefusal8329(lane: String, nowMs: Long = System.currentTimeMillis(), mint: String = ""): String? {
         val l = CanonicalLaneIdentity6506.desk8392(lane)
         val r = try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(l) } catch (_: Throwable) { null }
         if (r == null || r.size < 2 || !laneShut8329(r[0], r[1])) { shut8329.remove(l); return null }
@@ -91,9 +96,13 @@ object EntryEconomics8329 {
             labelInc("ENTRY8114_LANE_REOPENED_8329_$l")
             return null
         }
+        // V5.0.8424 §A_LOSING_LANE_SIZES_DOWN_IT_DOES_NOT_HALT — the shut lane probes; only an occupied slot or a proven
+        // lane's probe gap refuses. superseded: `return "${LANE_REALISED_BINDS_8329}_$l"` for every candidate while shut
+        // (8422: MOONSHOT shut on n3/-21.3% with nothing able to enter and so nothing able to re-open it).
+        val probe8424 = LaneRealisedProbe8424.probe8424(l, mint, closes, s.sinceMs, nowMs) ?: return null
         realisedBinds8329.computeIfAbsent(l) { AtomicLong(0) }.incrementAndGet()
         labelInc("${LANE_REALISED_BINDS_8329}_$l")
-        return "${LANE_REALISED_BINDS_8329}_$l"
+        return probe8424
     }
 
     // ── 2. pre-broadcast re-quote and chase check ──
@@ -312,8 +321,8 @@ object EntryEconomics8329 {
         val shut = shut8329.entries.sortedBy { it.key }.joinToString(",") { (l, s) ->
             "$l: since=${(nowMs - s.sinceMs) / 60_000L}m closes=${s.closes} mean=${"%+.1f".format(s.meanPct)}% binds=${realisedBinds8329[l]?.get() ?: 0L}"
         }.ifBlank { "-" }
-        return "chase8329[$chase] promo8329[$promo] laneShut8329[$shut]"
+        return "chase8329[$chase] promo8329[$promo] laneShut8329[$shut] " + LaneRealisedProbe8424.statusLine8424(nowMs)
     }
 
-    internal fun resetForTests8329() { shut8329.clear(); reopenedAt8329.clear(); realisedBinds8329.clear(); chase8329.clear(); consumedAt8329.clear(); promoReasons8329.clear() }
+    internal fun resetForTests8329() { shut8329.clear(); reopenedAt8329.clear(); realisedBinds8329.clear(); chase8329.clear(); consumedAt8329.clear(); promoReasons8329.clear(); LaneRealisedProbe8424.resetForTests8424() }
 }

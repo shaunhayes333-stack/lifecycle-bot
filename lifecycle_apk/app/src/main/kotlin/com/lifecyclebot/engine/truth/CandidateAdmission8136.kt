@@ -158,6 +158,11 @@ object CandidateAdmission8136 {
         val laneRealised8325: DoubleArray? = null,
         val laneLabel8325: Evidence8136? = null,
         /**
+         * V5.0.8424 — this candidate is the shut lane's admitted PROBE (LaneRealisedProbe8424 via
+         * EntryEconomics8329.laneRealisedRefusal8329 == null): the realised-loss governor sizes it down, it does not refuse it.
+         */
+        val laneProbe8424: Boolean = false,
+        /**
          * V5.0.8418 — why the SELECTED setup's expected move is NaN (NetEdge8030.moveWait8418): [NetEdge8030.MOVE_WAIT_HISTORY_8418]
          * (a sparse history: the data step waits for "move:HISTORY_SPARSE", which a candle / hour arrival answers) or
          * [NetEdge8030.MOVE_WAIT_FALLING_8418] (a momentum lane's falling hour with no supported strategy: an observation, not
@@ -291,7 +296,8 @@ object CandidateAdmission8136 {
      */
     internal fun liveLocalGuard8325(c: Candidate8136, edge: Evidence8136?, own: Evidence8136?): String? {
         if (!c.live) return null
-        if (com.lifecyclebot.engine.cortex.LaneRealisedGovernor8295.tailRefuted8295(c.laneRealised8325)) return LIVE_LANE_LOSING_8325
+        // V5.0.8424 — the lane's admitted probe passes this door (LaneRealisedProbe8424: one small-stake position at a time).
+        if (com.lifecyclebot.engine.cortex.LaneRealisedGovernor8295.tailRefuted8295(c.laneRealised8325) && !c.laneProbe8424) return LIVE_LANE_LOSING_8325
         val lane = c.laneLabel8325
         // V5.0.8395 (R5) — explicit precedence: safety > candidate-specific valid negatives > COMPLETE supported candidate
         // proof > lane prior. The realised-loss governor above stays separate and binding. A heterogeneous lane-label average
@@ -1409,6 +1415,8 @@ object CandidateAdmission8136 {
             tailPremium8324 = pond8324?.premium ?: Double.NaN,
             laneRealised8325 = if (live8290) (try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(lane) } catch (_: Throwable) { null }) else null,
             laneLabel8325 = if (live8290) laneLabel8325(lane) else null,
+            // V5.0.8424 — the same ask LiveEdgeGate7877 makes (by mint, so the probe claim is this coin's): a shut lane's probe
+            laneProbe8424 = live8290 && (try { EntryEconomics8329.laneRealisedRefusal8329(lane, nowMs, ts.mint) == null } catch (_: Throwable) { false }),
         )
     }
 }
