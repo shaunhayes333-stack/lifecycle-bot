@@ -26,12 +26,15 @@ class Aate8396SetupDeadCoverageTest {
         val cx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         val c = cx.substringAfter("private fun constitutionRefusal(").substringBefore("// ── Cortex v9: self-consistency")
         val dead = c.substringAfter("if (jointProvenDead8082(st8082)) {").substringBefore("if (!paper && a.bucket == CortexScoreboard7885.Bucket.NEUTRAL")
-        assertTrue(dead.contains("setupCovered8396(a.lane, setup8082!!, a.bucket.ordinal)"))
+        // superseded by V5.0.8418 — the refusal reads the historical cohort until the current one holds 12 grades
+        // (refusalCohort8418); coverage is checked on that same cohort, so the call carries which one it read.
+        assertTrue(dead.contains("setupCovered8396(a.lane, setup8082!!, a.bucket.ordinal, c8418?.second == true)"))
         assertTrue(dead.contains("C6_SETUP_DEAD_COVERAGE_INCOMPLETE_NONBINDING_8396"))
         // C3 safety unchanged
         assertTrue(c.contains("return negativeOrUnknown8395(\"C3_PROVEN_NEGATIVE_EDGE\", a.lane)"))
         val cov = cx.substringAfter("private fun setupCovered8396(").substringBefore("/** Caller holds the lock.")
-        assertTrue(cov.contains("CortexAuthority8366.cohortCovered8392(authorityRows8392(lane, setup), bucket, now)"))
+        // superseded by V5.0.8418 — coverage rows follow the cohort the refusal read (current or every version)
+        assertTrue(cov.contains("CortexAuthority8366.cohortCovered8392(authorityRows8392(lane, setup, allVersions8418), bucket, now)"))
         assertTrue("a coverage failure is UNKNOWN, never a refusal", cov.contains("catch (_: Throwable) { false }"))
     }
 }

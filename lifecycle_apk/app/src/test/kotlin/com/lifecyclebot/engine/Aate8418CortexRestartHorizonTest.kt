@@ -186,10 +186,16 @@ class Aate8418CortexRestartHorizonTest {
             val ledger = field8418(cortex, "ledger").get(cortex) as CortexLedger7885
             val book = field8418(cortex, "gradeBook8144").get(cortex) as CortexGradeBook8144
             val kept = ledger.detached8386()   // deep copy: grade() mutates the shared lane / all-lane books in place
+            // V5.0.8418 — the Cortex is a process-wide object: an earlier test class in this JVM (Aate8198CortexCloseDeliveryTest)
+            // leaves a close grade awaiting its durable receipt, and the periodic checkpoint rightly refuses to write while one is
+            // pending (8198). This test isolates itself from that leftover and restores it afterwards.
+            @Suppress("UNCHECKED_CAST")
+            val awaitingReceipt = field8418(cortex, "uncommittedCloseGrades8198").get(cortex) as MutableSet<String>
+            val savedAwaiting = awaitingReceipt.toList()
             val voter = "PROOF8418_DISK"; val lane = "QUALITY"; val edges = doubleArrayOf(0.0)
             val decisionId = "disk8418mint|$lane|$at"
             try {
-                loaded.set(cortex, true); dbField.set(LearningPersistence, db)
+                loaded.set(cortex, true); dbField.set(LearningPersistence, db); awaitingReceipt.clear()
                 for (i in 0 until 240) {
                     val raw = if (i % 2 == 0) 1.0 else -1.0
                     ledger.grade(lane, listOf(voter), listOf(edges), doubleArrayOf(raw), 12.0 * raw, 12.0 * raw)
@@ -235,6 +241,7 @@ class Aate8418CortexRestartHorizonTest {
                 ledger.seats.clear(); ledger.seats.putAll(kept.seats)
                 ledger.pairs.clear(); ledger.pairs.putAll(kept.pairs)
                 loaded.set(cortex, savedLoaded); retry.set(cortex, savedRetry); dbField.set(LearningPersistence, savedDb)
+                awaitingReceipt.clear(); awaitingReceipt.addAll(savedAwaiting)
             }
         }
     }

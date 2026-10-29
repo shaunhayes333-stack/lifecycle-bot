@@ -4067,7 +4067,12 @@ class GoldenTapeRegressionTest {
         val reg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
         val scanner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
         assertTrue("hard rejects must persist in an onboard scanner quarantine", store.contains("scanner_hard_rejects") && store.contains("isRejected") && store.contains("SCANNER_HARD_REJECT_STAMPED"))
-        assertTrue("canonical protected intake must reject hard-stamped mints before probation/watchlist", bot.contains("INTAKE_HARD_REJECT_SKIPPED") && bot.indexOf("ScannerHardRejectStore.isRejected(mint)") < bot.indexOf("GlobalTradeRegistry.addToProbationOnly"))
+        // superseded by V5.0.8418 — the unread-liquidity probation helper (intakeDustOrUnread8418) is defined above the intake method,
+        // so the order is read inside admitProtectedMemeIntake: the hard reject precedes both the helper call and the direct probation add.
+        val intake8418 = bot.substringAfter("private fun admitProtectedMemeIntake(")
+        val hardReject8418 = intake8418.indexOf("ScannerHardRejectStore.isRejected(mint)")
+        assertTrue("canonical protected intake must reject hard-stamped mints before probation/watchlist", bot.contains("INTAKE_HARD_REJECT_SKIPPED") && hardReject8418 >= 0 &&
+            hardReject8418 < intake8418.indexOf("GlobalTradeRegistry.addToProbationOnly") && hardReject8418 < intake8418.indexOf("intakeDustOrUnread8418("))
         assertTrue("registry paths must not admit hard rejects into watchlist/probation/promotion", reg.contains("SCANNER_HARD_REJECT") && reg.contains("probation.remove(mint)") && reg.contains("watchlist.remove(mint)"))
         assertTrue("scanner local loop must skip hard rejects before seen/rejected cooldown repair", scanner.contains("ScannerHardRejectStore.isRejected(mint)") && scanner.contains("telemetryRugRejects++"))
         assertTrue("scanner breadth must be wider than the old RAW≈50 shallow bench", scanner.contains("offset in listOf(0, 50, 100, 150, 200, 250)") && scanner.contains("totalEmitted >= 120") && scanner.contains("take(10_000)"))
@@ -6567,7 +6572,8 @@ class GoldenTapeRegressionTest {
         // V5.0.6009 — exit-brain label fix. Prior `pnlForHeads4514 > -5.0` labelled -4%
         // losses as "optimal exits", so the brain learned to paper-hand every winner.
         // Correct: real banked win only (>= 2%) OR managed TP/trailing exit; SL never.
-        assertTrue("V5.0.4514/6696: canonical fanout must feed all policy heads", bridge.contains("ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)") && envelope.contains("UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct)") && bridge.contains("UnifiedExitPolicyHead.recordOutcome(env.mint, exitWasOptimal)"))
+        // superseded by V5.0.8418 — ForwardOutcomeModel.recordOutcome also takes the close id and its book (one admit per id per book)
+        assertTrue("V5.0.4514/6696: canonical fanout must feed all policy heads", bridge.contains("ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct, env.tradeId, env.mode)") && envelope.contains("UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct)") && bridge.contains("UnifiedExitPolicyHead.recordOutcome(env.mint, exitWasOptimal)"))
         // V5.0.6696/7835 superseded the 6009 reason/pnl label: optimal = realized captured >= 70% of an observed MFE; unobservable MFE is excluded.
         assertTrue("V5.0.7835: exit-brain label must credit only observed peak capture and exclude unobservable timing labels", bridge.contains("env.realizedReturnPct >= env.mfePct * 0.70") && bridge.contains("EXIT_TIMING_LABEL_UNOBSERVABLE_7835"))
     }

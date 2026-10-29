@@ -25,7 +25,9 @@ class Aate8217CrossLaneAndNativeTest {
         val body = f.substringAfter("private fun fetchOffWatchMarks7737(")
         // superseded by V5.0.8418 — on-curve mints are curve-read before DexScreener; the off-curve curve rung still follows it
         // (was: the first curve counter after the dex read).
-        val dex = body.indexOf("DexscreenerApi().batchPriceFetch(chunk)"); val curve = body.indexOf("offWatchCurvePriced7753.addAndGet(curve7753.size.toLong())")
+        // superseded by V5.0.8418 — each chunk drops the mints the pair lane was just asked for (KeylessMarks8359.laneCovered8418),
+        // so DexScreener is called on `ask8418`, not the raw chunk; the dex read still precedes the curve rung and the mark store.
+        val dex = body.indexOf("DexscreenerApi().batchPriceFetch(ask8418)"); val curve = body.indexOf("offWatchCurvePriced7753.addAndGet(curve7753.size.toLong())")
         assertTrue(dex in 1 until curve)
         assertTrue("dex read lands before marks are stored", dex < body.indexOf("for ((m, px) in got) offWatchMarks7737[m] = px to at"))
     }

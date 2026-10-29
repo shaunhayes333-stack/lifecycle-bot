@@ -30,7 +30,8 @@ class Aate7455HeldManagementLearningLoopTest {
     @Test fun learned_hold_policy_cannot_bypass_hard_stop() {
         val s = src("engine/HoldingLogicLayer.kt")
         val stop = s.indexOf("if (currentPnlPct <= activeStopLoss6684)")
-        val fluid = s.indexOf("if (holdTimeMinutes > tunedFluidMaxHold7455)")
+        // superseded by V5.0.8418 — the fluid clock also asks LaneHolds8418.clockBinds8418 (never on a green runner); the stop still comes first
+        val fluid = s.indexOf("if (holdTimeMinutes > tunedFluidMaxHold7455 && LaneHolds8418.clockBinds8418(")
         assertTrue(stop >= 0)
         assertTrue(fluid > stop)
         assertFalse(s.contains("activeStopLoss6684 * holdMult7455"))

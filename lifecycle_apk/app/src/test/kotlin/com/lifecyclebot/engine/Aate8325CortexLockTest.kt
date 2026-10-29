@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.cortex.Cortex7885
 import com.lifecyclebot.engine.cortex.CortexGradeBook8144
 import com.lifecyclebot.engine.cortex.CortexRank8325
 import org.junit.Assert.assertEquals
@@ -91,7 +92,16 @@ class Aate8325CortexLockTest {
         // V5.0.8386 — encoding happens after the monitor is released: only copies are taken inside synchronized(this).
         val enc = fn("private fun snapshotEncoder8386(", "private fun durableCloseCommitLocked8325(")
         val locked = enc.substringBefore("val encode: () -> MutableMap<String, String> = {")
-        assertFalse(locked.contains(".encode()")); assertFalse(locked.contains("LearningPersistence."))
+        // superseded by V5.0.8418 — two encodes are deliberately taken under the monitor: the small shadow ledger (<= 512 rows) and,
+        // only under memory pressure (snapshotEncodesInLock8418), the grade book (one copy instead of detach-then-encode). Every
+        // other book is still copied under the lock and encoded after it; no store IO is ever done under it.
+        val shadowEnc8418 = "val shadowLedger8418Json = shadowLedger8418.encode().toString()"
+        val gradeEnc8418 = "val gradesEncoded8418: String? = if (encodeInLock8418) gradeBook8144.encode() else null"
+        assertTrue(locked.contains(shadowEnc8418)); assertTrue(locked.contains(gradeEnc8418))
+        assertTrue(locked.contains("val encodeInLock8418 = snapshotEncodesInLock8418(memoryPressure8418())"))
+        assertFalse(Cortex7885.snapshotEncodesInLock8418("NORMAL"))
+        val lockedRest8418 = locked.replace(shadowEnc8418, "").replace(gradeEnc8418, "")
+        assertFalse(lockedRest8418.contains(".encode()")); assertFalse(locked.contains("LearningPersistence."))
         assertTrue(commit.contains("LearningPersistence.Commit8090.COMMITTED, LearningPersistence.Commit8090.ALREADY_COMMITTED -> true"))
         assertTrue(commit.contains("LearningPersistence.Commit8090.RETRY -> { inc(\"CORTEX_CLOSE_DURABLE_RETRY_8198\"); false }"))
         // the close receipt is read before the lock; the executable refresh runs after it
