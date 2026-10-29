@@ -439,6 +439,27 @@ object TradePlan7739 {
         val specific8171 = candidateAdmission ?: try {
             CandidateAdmission8136.assess8136(ts, lane, nowMs, candidateVersion)
         } catch (_: Throwable) { null }
+        // V5.0.8418 §NEVER_BUY_THE_UNRETRACED_IMPULSE — owner (8418 live): "it's buying at the wrong stage of the chart". The
+        // evidence admits below planned LAUNCH_EARLY without reading the chart, so a coin mid-spike was bought at its top and
+        // stopped out inside a minute (SHITCOIN 48 s RAPID_CATASTROPHE_STOP, QUALITY 77 s RAPID_FLUID_STOP). The chart is read
+        // first: a real setup plans on its own levels; an impulse with no pullback yet waits like any other plan; a tape too
+        // young to read keeps the evidence admit.
+        val read8418 = readForEntry7837(ts, nowMs)
+        val evidenceAdmit8418 = (specific8171?.admitted == true && specific8171.specific) ||
+            LiveEdgeGate7877.positiveAdmit7975(ts.mint, nowMs)
+        if (evidenceAdmit8418 && read8418.setup != null) {
+            val st = read8418.setup ?: Setup.LAUNCH_EARLY
+            plans[ts.mint] = Plan(st, -read8418.stopPct, read8418.firstTargetPct, read8418.targetPct, nowMs)
+            admitted.computeIfAbsent(st) { AtomicLong(0) }.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("PLAN_EVIDENCE_ADMIT_ON_CHART_SETUP_8418_${st.name}") } catch (_: Throwable) {}
+            return null
+        }
+        if (evidenceAdmit8418 && read8418.why == "NO_PULLBACK_YET") {
+            waited.incrementAndGet()
+            waitReasons.computeIfAbsent("EVIDENCE_ADMIT_NO_PULLBACK_8418") { AtomicLong(0) }.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("PLAN_WAIT_8418_EVIDENCE_ADMIT_NO_PULLBACK") } catch (_: Throwable) {}
+            return waitOrOverrule7757(ts, read8418.why, "NO_PLAN_WAIT_7739:NO_PULLBACK_YET_8418", nowMs, runner7878).also { notePlanWait8136(read8418.why, it) }
+        }
         if (specific8171?.admitted == true && specific8171.specific) {
             plans[ts.mint] = Plan(Setup.LAUNCH_EARLY, -gradedStopMag8094(lane), LAUNCH_FIRST_TARGET_PCT_7742, LAUNCH_TARGET_PCT_7742, nowMs)
             admitted.computeIfAbsent(Setup.LAUNCH_EARLY) { AtomicLong(0) }.incrementAndGet()
@@ -455,7 +476,7 @@ object TradePlan7739 {
             try { PipelineHealthCollector.labelInc("PLAN_ADMITTED_7975_POSITIVE_EVIDENCE") } catch (_: Throwable) {}
             return null
         }
-        val read = readForEntry7837(ts, nowMs)
+        val read = read8418
         val setup = read.setup
         if (setup == null && barsPermitLaunch7742(read.why)) {
             val lr = try { FreshLaunchSelector7737.launchRead7742(ts, LAUNCH_COST_PCT_7742, nowMs) } catch (_: Throwable) { null }

@@ -1022,10 +1022,16 @@ object FinalDecisionGate {
             val manual = fieldManualBlock7715(ts, candidate, specialistLane, laneName, paper, proposedSizeSol, mode)
             if (manual != null) PipelineHealthCollector.labelInc("FDG_ADVISORY_FIELD_MANUAL_7845")
         } catch (_: Throwable) {}
-        try {
-            val plan = tradePlanBlock7739(ts, candidate, specialistLane, admissionLane, paper, mode, candidateVersion, candidateAdmission)
-            if (plan != null) PipelineHealthCollector.labelInc("FDG_ADVISORY_TRADE_PLAN_7845")
-        } catch (_: Throwable) {}
+        // V5.0.8418 §CHART_TIMING_BINDS_FOR_SPECIALISTS — the trade plan (chart timing: pullback-reclaim / base breakout /
+        // sweep-reclaim, never an unretraced impulse) binds a LIVE specialist-owned buy as it binds the trunk path (8279).
+        // 8392 deleted the 8114 mode that timed specialist entries; since then they bought spikes (owner: "wrong stage").
+        val plan8418 = try {
+            tradePlanBlock7739(ts, candidate, specialistLane, admissionLane, paper, mode, candidateVersion, candidateAdmission)
+        } catch (_: Throwable) { null }
+        if (plan8418 != null) {
+            if (!paper) { try { PipelineHealthCollector.labelInc("FDG_TRADE_PLAN_BINDS_SPECIALIST_8418") } catch (_: Throwable) {}; return plan8418 }
+            try { PipelineHealthCollector.labelInc("FDG_ADVISORY_TRADE_PLAN_7845") } catch (_: Throwable) {}
+        }
         try {
             val council = councilBlock7740(ts, candidate, specialistLane, laneName, laneScore, paper, mode)
             if (council != null) PipelineHealthCollector.labelInc("FDG_ADVISORY_COUNCIL_7845")
