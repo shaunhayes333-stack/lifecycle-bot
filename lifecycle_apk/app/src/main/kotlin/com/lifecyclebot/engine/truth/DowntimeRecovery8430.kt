@@ -45,6 +45,7 @@ object DowntimeRecovery8430 {
     private val empty = AtomicLong(0)
     private val recovered = AtomicLong(0)
     private val gaveUp = AtomicLong(0)
+    private val yielded8439 = AtomicLong(0)
 
     /** Pure: did a window ending at [deadlineMs] close before this process started ([bootMs])? */
     fun downtime8430(deadlineMs: Long, bootMs: Long): Boolean = deadlineMs < bootMs
@@ -92,6 +93,8 @@ object DowntimeRecovery8430 {
         // labeler's tick, so "waitMs > 0 -> return" never fetched. A cooldown (429 / dead source) still defers; a short interval
         // gap is slept on the fetch thread instead.
         if (wait.cooldown || wait.waitMs > MAX_SLOT_SLEEP_MS_8435) return
+        // V5.0.8439 — learning yields to live reads: fetch only while the GeckoTerminal host bucket is full.
+        if (!(try { com.lifecyclebot.network.GeckoHostBudget8382.spare8439(nowMs) } catch (_: Throwable) { false })) { yielded8439.incrementAndGet(); return }
         val sleepMs8435 = wait.waitMs.coerceAtLeast(0L)
         if (!fetching.compareAndSet(false, true)) return
         val mint = synchronized(queue) { queue.firstOrNull()?.also { queue.remove(it) } }
@@ -115,11 +118,11 @@ object DowntimeRecovery8430 {
     @Volatile private var inFlight8430 = ""
 
     /** V5.0.8438 — DiagnosisBrief8438: (queued, fetched, recovered, gaveUp). */
-    fun counts8438(): LongArray = longArrayOf(queue.size.toLong(), fetched.get(), recovered.get(), gaveUp.get())
+    fun counts8438(): LongArray = longArrayOf(queue.size.toLong(), fetched.get(), recovered.get(), gaveUp.get(), empty.get(), yielded8439.get())
 
     fun statusLine8430(): String =
         "downtimeRecovery8430[queued=${queue.size} fetched=${fetched.get()} empty=${empty.get()} recovered=${recovered.get()} " +
-            "gaveUp=${gaveUp.get()} cap=$MAX_MINTS_PER_BOOT_8430 mints/${RECOVERY_WINDOW_MS_8430 / 60_000L}m]"
+            "gaveUp=${gaveUp.get()} yieldedToLive8439=${yielded8439.get()} cap=$MAX_MINTS_PER_BOOT_8430 mints/${RECOVERY_WINDOW_MS_8430 / 60_000L}m]"
 
     internal fun seedForTest8430(mint: String, cs: List<Candle>) { candles[mint] = cs }
     internal fun resetForTest8430() { candles.clear(); attempted.clear(); queue.clear(); fetching.set(false); lastFetchMs = 0L; fetched.set(0); empty.set(0); recovered.set(0); gaveUp.set(0) }

@@ -42,12 +42,27 @@ object DiagnosisBrief8438 {
     }
 
     /** Pure: a lane's state — positive forward edge it never bought, a bleeding live book, no edge, or too thin to judge. */
-    fun laneVerdict8438(fwdN: Int, fwdMean: Double, exec: Long, liveN: Int, liveExpectancySol: Double): String = when {
+    fun laneVerdict8438(fwdN: Int, fwdMean: Double, exec: Long, liveN: Int, liveExpectancySol: Double,
+                        winRate: Double = Double.NaN, runnerRate: Double = Double.NaN): String = when {
         liveN >= 3 && liveExpectancySol < 0.0 -> "BLEEDING_LIVE"
+        // V5.0.8439 — a positive mean whose median coin loses and whose non-runners average under a tenth of the mean is a
+        // runner lottery (8438: PROJECT_SNIPER +43.8% at wr17%, DIP_HUNTER +38.7% at wr35%): money only for a book that buys
+        // broadly at small size and HOLDS the runners, not an edge any single entry has.
+        fwdN >= 30 && fwdMean > 0.0 && exec == 0L && tailOnly8439(fwdMean, winRate, runnerRate) -> "LEAK_TAIL_ONLY"
         fwdN >= 30 && fwdMean > 0.0 && exec == 0L -> "LEAK_EDGE_NOT_BOUGHT"
         fwdN >= 30 && fwdMean <= 0.0 -> "NO_EDGE_SEEN"
         fwdN < 30 -> "THIN"
         else -> "OK"
+    }
+
+    /**
+     * Pure (V5.0.8439): the median coin loses (win rate under 50%) and the runners alone must average at least 3x the mean
+     * (CellTail8303 bounds) — the mean is carried by a few runners, not by the typical entry.
+     */
+    fun tailOnly8439(mean: Double, winRate: Double, runnerRate: Double): Boolean {
+        if (!mean.isFinite() || mean <= 0.0 || !winRate.isFinite()) return false
+        val t = com.lifecyclebot.engine.truth.CellTail8303.tail8303(mean, winRate, runnerRate)
+        return t.medianNonPositive && t.runnerMinMeanPct.isFinite() && t.runnerMinMeanPct >= 3.0 * mean
     }
 
     /** Pure: the live book's money verdict. */
@@ -102,21 +117,36 @@ object DiagnosisBrief8438 {
             val adm = ForwardReturnLabeler7731.aggregate8438(true)
             val ref = ForwardReturnLabeler7731.aggregate8438(false)
             val separates = adm != null && ref != null && adm.n60 >= 30 && ref.n60 >= 30 && adm.meanNet60Pct > ref.meanNet60Pct
+            // V5.0.8439 — 8438: admitted +38.3% run16% vs refused -57.5% run35%: the refused side held MORE runners, which a
+            // mean comparison hides (and a -57.5% mean with 35% runners is below what its own runners allow: a mixed book).
+            val runnerConflict = separates && adm!!.runnerRate60 + 0.05 < ref!!.runnerRate60
             sb.append("  C EDGE       forward 5-min executable net of what the bot saw: admitted[").append(stat(adm)).append("] refused[").append(stat(ref))
-                .append("] -> ").append(if (separates) "doors SEPARATE winners from losers" else "doors do NOT separate (or thin)").append('\n')
+                .append("] -> ").append(when {
+                    runnerConflict -> "CONFLICT means separate but the REFUSED side holds more runners"
+                    separates -> "doors SEPARATE winners from losers"
+                    else -> "doors do NOT separate (or thin)"
+                }).append('\n')
+            if (runnerConflict) fixes += Fix8438((ref!!.runnerRate60 - adm!!.runnerRate60) * 1000.0, "CONFLICT",
+                "refused coins run more often than admitted ones (run ${(ref.runnerRate60 * 100).toInt()}% vs ${(adm.runnerRate60 * 100).toInt()}%) -> the doors refuse runners at entry; D DOORS + Runner capture (§8017) funnel8297 name which")
             sb.append("               lane            fwd(n/mean/wr/run)          qualified fdg(allow/block) ticket exec | live closes | verdict\n")
             for (lane in com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.LANES.sorted()) {
                 val f = try { ForwardReturnLabeler7731.laneStatFor7737(lane) } catch (_: Throwable) { null }
                 val st = try { OwnershipChain8364.steps8438(lane) } catch (_: Throwable) { emptyMap() }
                 val ls = laneLive[lane]
                 val exec = st["EXEC"] ?: 0L
-                val v = laneVerdict8438(f?.n60 ?: 0, f?.meanNet60Pct ?: Double.NaN, exec, ls?.canonicalN ?: 0, ls?.expectancySol ?: 0.0)
+                val v = laneVerdict8438(f?.n60 ?: 0, f?.meanNet60Pct ?: Double.NaN, exec, ls?.canonicalN ?: 0, ls?.expectancySol ?: 0.0,
+                    f?.winRate60 ?: Double.NaN, f?.runnerRate60 ?: Double.NaN)
                 sb.append("               ").append(lane.padEnd(15)).append(' ').append(stat(f).padEnd(27))
                     .append(' ').append((st["QUALIFIED"] ?: 0L).toString().padStart(9)).append(' ')
                     .append("${st["FDG_ALLOW"] ?: 0L}/${st["FDG_BLOCK"] ?: 0L}".padStart(16)).append(' ')
                     .append((st["TICKET"] ?: 0L).toString().padStart(6)).append(' ').append(exec.toString().padStart(4))
                     .append(" | ").append(if (ls == null || ls.canonicalN == 0) "-" else "n${ls.canonicalN} exp${"%+.4f".format(ls.expectancySol)}")
                     .append(" | ").append(v).append('\n')
+                if (v == "LEAK_TAIL_ONLY" && f != null) {
+                    val t = com.lifecyclebot.engine.truth.CellTail8303.tail8303(f.meanNet60Pct, f.winRate60, f.runnerRate60)
+                    fixes += Fix8438(f.meanNet60Pct * f.n60 / 4.0, "LEAK_TAIL",
+                        "$lane ${pct(f.meanNet60Pct)} on n${f.n60} is runner-carried (wr${(f.winRate60 * 100).toInt()}% run${(f.runnerRate60 * 100).toInt()}%, non-runners <=${pct(t.exRunnerMaxPct)}, runners >=${pct(t.runnerMinMeanPct)}) and bought 0 -> pays only as many small entries held to the runner exit (RunnerTicket8073 budget, RunnerGrab7967); a single-entry door should keep refusing its median coin")
+                }
                 if (v == "LEAK_EDGE_NOT_BOUGHT" && f != null) fixes += Fix8438(f.meanNet60Pct * f.n60, "LEAK",
                     "$lane sees ${pct(f.meanNet60Pct)} forward on n${f.n60} and bought 0 (qualified ${st["QUALIFIED"] ?: 0L}, FDG ${st["FDG_ALLOW"] ?: 0L}/${st["FDG_BLOCK"] ?: 0L}) -> its ownerWhy8330 / nativeWhy8364 rows; BotService.laneEvaluationAllowed7951; LiveEdgeGate7877.canonicalRefusal8392")
                 if (v == "BLEEDING_LIVE" && ls != null) fixes += Fix8438(-ls.expectancySol * ls.canonicalN * 1000.0, "BLEEDING",
@@ -154,12 +184,16 @@ object DiagnosisBrief8438 {
         section(sb, "F LEARNING") {
             val (saved, failed) = com.lifecyclebot.engine.truth.FallingHourCohort8418.saves8438()
             val d = com.lifecyclebot.engine.truth.DowntimeRecovery8430.counts8438()
+            // V5.0.8439 — the recovery now yields the GeckoTerminal budget (10/min) to live chart reads: a queue that waits
+            // because live reads hold the budget is not a fault; one that never asks, or whose asks all come back empty, is.
+            val stalled = d[0] > 0L && d[1] == 0L && d[5] == 0L
             sb.append("  F LEARNING   fallingHour saves ok=").append(saved).append(" failed=").append(failed)
-                .append(" | downtime labels queued=").append(d[0]).append(" fetched=").append(d[1]).append(" recovered=").append(d[2]).append(" gaveUp=").append(d[3])
-                .append(if (d[0] > 0L && d[1] == 0L) " [FAULT queue not draining]" else "").append('\n')
+                .append(" | downtime labels queued=").append(d[0]).append(" fetched=").append(d[1]).append(" empty=").append(d[4])
+                .append(" recovered=").append(d[2]).append(" gaveUp=").append(d[3]).append(" yieldedToLive=").append(d[5])
+                .append(if (stalled) " [FAULT queue not draining]" else "").append('\n')
             if (failed > 0L && saved == 0L) fixes += Fix8438(failed.toDouble(), "FAULT",
                 "falling-hour record not being saved (failed=$failed ok=0) -> FallingHourCohort8418.persist / LearningPersistence.saveTogetherVerified8386")
-            if (d[0] > 0L && d[1] == 0L) fixes += Fix8438(d[0].toDouble(), "FAULT",
+            if (stalled) fixes += Fix8438(d[0].toDouble(), "FAULT",
                 "downtime label recovery queued ${d[0]} fetched 0 -> DowntimeRecovery8430.drain8430 / SolanaOhlcvFeed6916.providerSlotWait7809")
         }
 
@@ -170,6 +204,11 @@ object DiagnosisBrief8438 {
                 .append(if (launched >= 100L && share < 5.0) " [FAULT ${"%.1f".format(share)}% resolve]" else "").append('\n')
             if (launched >= 100L && share < 5.0) fixes += Fix8438(launched / 10.0, "FAULT",
                 "token birth unresolved (launched=$launched resolved=$resolved): PROJECT_SNIPER cannot judge a launch without it -> TokenBirthHydrator7441 walk8435 outcomes")
+            if (try { com.lifecyclebot.network.PumpFunWS.keyedStreamDenied8439() } catch (_: Throwable) { false }) {
+                sb.append("               PumpPortal: keyed trade stream DENIED (the wallet linked to the API key holds < 0.02 SOL) — launch creates still arrive free; per-coin trade tapes do not\n")
+                fixes += Fix8438(150.0, "OWNER_ACTION",
+                    "fund the wallet linked to the PumpPortal API key with >= 0.02 SOL (it is the key's own wallet, not the trading wallet): the per-coin trade tape (buy pressure, shape) for pump launches comes from it")
+            }
             val gas = try { com.lifecyclebot.perps.crypto.MultiChainMemeLane7962.gasBlockedPositive8438() } catch (_: Throwable) { emptyList() }
             if (gas.isNotEmpty()) {
                 sb.append("               crypto: positive EVM lanes held in SHADOW for want of gas: ").append(gas.joinToString(", ")).append('\n')

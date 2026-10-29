@@ -956,11 +956,18 @@ object ExploreShadow8347 {
             Exit8347.SCALP -> scalpWhy8366(t, leg, g, px, lost, nowMs, scalp8366)
         }
         if (why == null) return
-        // nothing left to sell, or no observed mark to wait for: booked now at the last mark
-        if (why == "SOLD_OUT" || why == "LOST_MARK" || px == null) {
+        // nothing left to sell, or the mark is lost: booked now at the last mark
+        // V5.0.8439 — a triggered exit (TIMEOUT / STOP / TRAIL ...) on a tick where no source priced the coin (px == null) is no
+        // longer closed "unavailable" on the spot: it waits for the next observed mark after the sell latency, exactly as the
+        // px != null case below does (and as a live sell fills at the next available price). 8438 (204 s):
+        // SHADOW_OUTCOME_UNAVAILABLE_8394_TIMEOUT=795, the top failure counter — every one a Cortex outcome lost, which kept
+        // all eight Cortex lanes at INCOMPLETE_OUTCOMES (30-56% coverage, 70% needed) and their authority at 0. A mark that
+        // never comes still ends as LOST_MARK (unavailable) through the pending branch above.
+        if (why == "SOLD_OUT" || why == "LOST_MARK" || lost) {
             closeAt8366(t, leg, g, why, nowMs, executable = why == "SOLD_OUT" || (!lost && px != null))
             return
         }
+        if (px == null) try { PipelineHealthCollector.labelInc("SHADOW_EXIT_WAITS_FOR_MARK_8439_$why") } catch (_: Throwable) {}
         leg.exitWhy8366 = why; leg.exitAt8366 = nowMs; t.force8355 = true
     }
 

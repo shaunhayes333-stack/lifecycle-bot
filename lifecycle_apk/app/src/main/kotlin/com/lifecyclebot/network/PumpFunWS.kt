@@ -74,6 +74,9 @@ object PumpFunWS {
     private val unsupportedTradeDemand7485 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val unsupportedTradeDemandCoalesced7485 = AtomicLong(0L)
     private val tradeAuthDenied7432 = AtomicBoolean(false)
+
+    /** V5.0.8439 — DiagnosisBrief8438: a key is set and PumpPortal refused its metered trade stream (linked wallet < 0.02 SOL). */
+    fun keyedStreamDenied8439(): Boolean = apiKey7284.isNotBlank() && tradeAuthDenied7432.get()
     // V5.0.8094 — owner: "it is funded". The denial latched for the whole process: a key funded AFTER PumpPortal's
     // "only available when ... funded with at least 0.02 SOL" refusal stayed locked out (8093: tradeStream=AUTH_DENIED,
     // subscribeSkippedNoKey=1014). The same key is re-probed every [AUTH_REPROBE_MS_8094].

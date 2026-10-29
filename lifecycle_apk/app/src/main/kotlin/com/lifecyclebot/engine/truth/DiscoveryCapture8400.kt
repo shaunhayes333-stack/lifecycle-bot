@@ -83,6 +83,8 @@ object DiscoveryCapture8400 {
         }
         bump(byHow, how)
         if (how == UNRESOLVED || how == CHAIN_READ_QUEUED) bump(missingBySource, where.take(40))
+        if (how == UNRESOLVED) bump(unresolvedWhy8439, missWhy8439(ts.lastPrice, ts.lastPriceSource,
+            try { MintSupply8418.wholeOrZero8418(ts.mint) } catch (_: Throwable) { 0.0 }) + "@" + ts.source.ifBlank { "?" }.take(24))
         try {
             PipelineHealthCollector.labelInc("DISCOVERY_MCAP_${how}_8400")
             if (how == UNRESOLVED || how == CHAIN_READ_QUEUED) PipelineHealthCollector.labelInc("DISCOVERY_MCAP_MISSING_8400_${where.take(40)}")
@@ -168,8 +170,21 @@ object DiscoveryCapture8400 {
         return added
     }
 
+    // V5.0.8439 — 8438: unresolved=455 (BRIDGE 449; MOONSHOT / MANIPULATED NATIVE_MCAP_UNHYDRATED_DEFER=449 each) with no line
+    // saying whether the coin had no price, a cap-derived price, or no verified supply. The next report names it, by source.
+    private val unresolvedWhy8439 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+
+    /** Pure: why price x verified supply could not cap the coin. */
+    fun missWhy8439(priceUsd: Double, priceSource: String, supply: Double): String = when {
+        !(priceUsd.isFinite() && priceUsd > 0.0) -> "NO_PRICE"
+        !TrustedMcap8019.independentPrice8019(priceSource) -> "PRICE_NOT_INDEPENDENT"
+        !(supply.isFinite() && supply > 0.0) -> "NO_VERIFIED_SUPPLY"
+        else -> "OTHER"
+    }
+
     fun statusLine(): String =
         "discoveryMcap8400 resolved=${resolved.get()} chainQueued=${queued.get()} unresolved=${unresolved.get()} by{${top(byHow)}} " +
+            "unresolvedWhy8439{${top(unresolvedWhy8439)}} " +
             "uncappedBySource{${top(missingBySource)}} liq[hydrated=${liqHydrated.get()} missingBySource{${top(liqMissingBySource)}}] " +
             "shape8407[seeded=${shapeSeeded8407.get()} notSeeded{${shapeNotSeeded8407.entries.sortedByDescending { it.value.get() }.take(4).joinToString(",") { "${it.key}=${it.value.get()}" }}}]"
 }

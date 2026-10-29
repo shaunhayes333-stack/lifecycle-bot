@@ -60,6 +60,14 @@ object GeckoHostBudget8382 : Interceptor {
         bucket.noteLimited8287(nowMs, retryAfterMs)
     }
 
+    /**
+     * V5.0.8439 — true when the bucket is full: no live candle / trade read is waiting on this host. Learning-only readers
+     * (DowntimeRecovery8430) fetch only then. 8438 (204 s): decision=26/9 — the label recovery took 10 of those 26 tokens
+     * (all empty) while live chart reads were refused 9 times.
+     */
+    fun spare8439(nowMs: Long = System.currentTimeMillis()): Boolean =
+        bucket.pausedLeftMs8287(nowMs) <= 0L && bucket.tokens8287(nowMs) >= BURST_8382 - 0.01
+
     /** geckoHost8382[perMin=10 tokens=.. decision=taken/refused bulk=taken/refused provider429=.. pausedLeftMs=..] */
     fun statusLine8382(nowMs: Long = System.currentTimeMillis()): String =
         "geckoHost8382[perMin=$PER_MIN_8382 tokens=${"%.1f".format(bucket.tokens8287(nowMs))} decision=${takenDecision.get()}/${refusedDecision.get()} " +

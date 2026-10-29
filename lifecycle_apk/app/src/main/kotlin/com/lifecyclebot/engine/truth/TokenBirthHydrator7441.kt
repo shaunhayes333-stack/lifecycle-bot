@@ -236,12 +236,21 @@ object TokenBirthHydrator7441 {
         return true
     }
 
+    /**
+     * V5.0.8439 — each rung's own health label (helius / rpc_<host>), as OnChainMintAuthorityProof7248 and
+     * ParallelMarkFanout7088 already do. 8438 (204 s): birth walks launched=1247 resolved=2, rpcFail=404 — every read here
+     * was filed under the one label "solana_rpc", so a single 429 from the free public node locked that label for the
+     * whole rate-limit window and every later birth read on ANY rung, Helius included, came back as the app's own
+     * synthetic 503. PROJECT_SNIPER then refused every launch as BIRTH_METADATA_HYDRATING (330) and qualified none.
+     */
+    private fun rpcLabel8439(rpc: String): String = com.lifecyclebot.network.KeylessRpc8359.label8359(rpc)
+
     private fun blockTimeMs8144(rpc: String, slot: Long): Long? {
         val body = JSONObject().put("jsonrpc", "2.0").put("id", "birth8144").put("method", "getBlockTime").put("params", JSONArray().put(slot))
         val req = Request.Builder().url(rpc).header("Content-Type", "application/json")
             .post(body.toString().toRequestBody("application/json".toMediaType())).build()
         return try {
-            HealthAwareHttp.execute(http, req, host = "solana_rpc").use { resp ->
+            HealthAwareHttp.execute(http, req, host = rpcLabel8439(rpc)).use { resp ->
                 if (!resp.isSuccessful) null
                 else JSONObject(resp.body?.string() ?: "{}").optLong("result", 0L).takeIf { it > 0L }?.let { it * 1000L }
             }
@@ -354,7 +363,7 @@ object TokenBirthHydrator7441 {
             .build()
         if (!com.lifecyclebot.network.KeylessRpc8359.beforeCall8359(rpc)) return null   // V5.0.8359 — keyless host governor
         return try {
-            HealthAwareHttp.execute(http, req, host = "solana_rpc").use { resp ->
+            HealthAwareHttp.execute(http, req, host = rpcLabel8439(rpc)).use { resp ->
                 if (!resp.isSuccessful) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code); return null }
                 val root8359 = JSONObject(resp.body?.string() ?: return null)
                 com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code, root8359.optJSONObject("error")?.optInt("code", -1) ?: 0)
@@ -411,7 +420,7 @@ object TokenBirthHydrator7441 {
             .post(body.toString().toRequestBody("application/json".toMediaType())).build()
         if (!com.lifecyclebot.network.KeylessRpc8359.beforeCall8359(rpc)) return null
         return try {
-            HealthAwareHttp.execute(http, req, host = "solana_rpc").use { resp ->
+            HealthAwareHttp.execute(http, req, host = rpcLabel8439(rpc)).use { resp ->
                 if (!resp.isSuccessful) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code); return null }
                 val root = JSONObject(resp.body?.string() ?: return null)
                 com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code, root.optJSONObject("error")?.optInt("code", -1) ?: 0)
