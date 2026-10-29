@@ -762,7 +762,20 @@ object MemoryGuard7977 {
             "ineffectiveHardTrims8136=${ineffectiveHardTrims8136.get()} lastRecoveredMb8136=$lastRecoveredMb8136 tapesFreed8136=${tapesFreed8136.get()} " +
             "attributed8169=[censusMb=${MemoryRegistry8144.totalBytes8144(censusRows8144) / (1L shl 20)} unattributedMb=${unattributedMb8169(lastUsedMb, MemoryRegistry8144.totalBytes8144(censusRows8144))} " +
             "bundleRestored=${try { BundleDetector.restoredCount8169() } catch (_: Throwable) { -1L }}] ${sizes()} " +
-            censusStatus8144 + " " + netLine8305()
+            censusStatus8144 + " " + netLine8305() + " " + pssKinds8432()
+
+    /**
+     * V5.0.8432 — what KIND of memory the process holds (Debug.MemoryInfo summary, KB): 8422 read heap=482/512 MB with
+     * censusMb=149 and unattributedMb=333, and nothing in the report said whether the 333 MB was Java heap at all or native /
+     * graphics / code pages that no Java census can see. The next report answers that before anyone prunes a Java store.
+     */
+    fun pssKinds8432(): String = try {
+        val mi = android.os.Debug.MemoryInfo()
+        android.os.Debug.getMemoryInfo(mi)
+        fun k(name: String) = mi.getMemoryStat(name) ?: "-"
+        "pss8432[java=${k("summary.java-heap")}KB native=${k("summary.native-heap")}KB graphics=${k("summary.graphics")}KB " +
+            "code=${k("summary.code")}KB stack=${k("summary.stack")}KB other=${k("summary.private-other")}KB system=${k("summary.system")}KB totalPss=${mi.totalPss}KB]"
+    } catch (_: Throwable) { "pss8432[-]" }
 
     /**
      * V5.0.8305 — the network side of the heap: the shared OkHttp dispatcher's queued / running calls, body-cap refusals and

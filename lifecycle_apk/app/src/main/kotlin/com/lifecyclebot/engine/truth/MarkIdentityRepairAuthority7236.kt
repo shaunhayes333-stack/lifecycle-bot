@@ -228,6 +228,18 @@ object MarkIdentityRepairAuthority7236 {
     private val executable7301 = ConcurrentHashMap<String, Repaired>()
     private val execAttempt7301 = ConcurrentHashMap<String, Long>()
 
+    /**
+     * V5.0.8432 §A_QUOTE_IS_KEYED_BY_THE_ATTEMPT_IT_SERVED — a sell attempt failed (SellRouteSpine8144.fail8144): the executable
+     * price read for it (cached by MINT for EXEC_FRESH_MS_7301, debounced EXEC_DEBOUNCE_MS_7301) answered that attempt and is
+     * void for the next one; the stop confirmation and the held-position proof must re-ask, not reuse it.
+     */
+    fun invalidateExecutable8432(mint: String) {
+        if (mint.isBlank()) return
+        executable7301.remove(mint)
+        execAttempt7301.remove(mint)
+        try { PipelineHealthCollector.labelInc("EXECUTABLE_QUOTE_INVALIDATED_ON_FAILED_SELL_8432") } catch (_: Throwable) {}
+    }
+
     // V5.0.8418 — one executable quote and one debounce stamp per mint ever asked, removed by nothing; a quote is read
     // only inside EXEC_FRESH_MS_7301 and the stamp only inside EXEC_DEBOUNCE_MS_7301. Kept 30 min, capped.
     private const val MAX_MINTS_8418 = 4_000

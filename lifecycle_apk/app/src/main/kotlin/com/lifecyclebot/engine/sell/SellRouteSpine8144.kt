@@ -209,6 +209,8 @@ object SellRouteSpine8144 {
         val t = live8144(mint, nowMs) ?: return null
         val s = t.fail(cause, nowMs, stage)
         if (t.lastFailureFresh) failures8144.computeIfAbsent("${cls(t)}|${s.name}") { AtomicLong() }.incrementAndGet()
+        // V5.0.8432 — the executable quote that served this attempt is void for the next attempt: re-ask, never reuse.
+        try { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.invalidateExecutable8432(mint) } catch (_: Throwable) {}
         return s
     }
 
