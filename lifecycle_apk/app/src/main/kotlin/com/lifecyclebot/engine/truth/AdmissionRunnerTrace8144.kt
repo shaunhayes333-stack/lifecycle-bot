@@ -192,7 +192,7 @@ object AdmissionRunnerTrace8144 {
     fun wrongKey8428(gate: String): String {
         val stem = gate.substringBefore(':')
         if (stem != "QUALIFIED_LANE_STOPPED" && stem != "ELECTION_SHADOWED") return stem
-        val door = gate.substringAfter(':', "").substringBefore(':').substringBefore('@').substringBefore(' ').take(48)
+        val door = gate.substringAfter(':', "").substringBefore(':').substringBefore('@').substringBefore(' ').take(64)   // 8428 CI: a 55-char door was cut at 48
         return if (door.isBlank()) stem else "$stem:$door"
     }
 

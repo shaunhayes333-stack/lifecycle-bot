@@ -451,6 +451,8 @@ object ForwardReturnLabeler7731 {
     }
 
     private val pending = ConcurrentHashMap<String, Obs>()          // key = mint|lane
+    /** V5.0.8430 — when this process started: a window that closed before it is a downtime window (DowntimeRecovery8430). */
+    private val bootMs8430 = System.currentTimeMillis()
 
     // ── V5.0.8169 §STALE_LEARNED_REFUSALS ──
     // 5.0.8168: ~697 CELL / STAGE_PROVEN_LOSING_8136 refusals rested on cells graded under stops this build calls
@@ -1924,7 +1926,8 @@ object ForwardReturnLabeler7731 {
 
     private fun labelMarksLine8418(): String = com.lifecyclebot.engine.cortex.CortexLabelFeed8291.labelMarksLine8418(
         labelDue8418.get(), labelPricedDex8418.get(), labelPricedCurve8418.get(), labelPricedTape8418.get(),
-        labelLostNoSource8418.get(), labelLostLate8418.get(), try { KeylessMarks8359.labelCounts8418() } catch (_: Throwable) { null })
+        labelLostNoSource8418.get(), labelLostLate8418.get(), try { KeylessMarks8359.labelCounts8418() } catch (_: Throwable) { null }) +
+        " " + DowntimeRecovery8430.statusLine8430()   // V5.0.8430
 
     /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
     fun horizonOpen7809(ageMs: Long, horizonMs: Long): Boolean =
@@ -2263,7 +2266,13 @@ object ForwardReturnLabeler7731 {
         }
         if (nowMs < deadline) return false
         val horizon=if (!o.done60) H60_MS_7731 else H240_MS_7731
-        val recovered=listOfNotNull(o.lastAcceptedMark8395,incoming).filter {
+        // V5.0.8430 §A_WINDOW_THAT_CLOSED_WHILE_THE_PROCESS_WAS_DOWN — the restart cohort (8422: 968 of 1,881 due reads lost,
+        // all of them windows that elapsed while the app was down) is offered the keyless 1-minute candle covering its horizon,
+        // through this same filter; it waits only while its bounded fetch is queued inside the boot window.
+        val downtime8430 = if (o.done240) DowntimeRecovery8430.Read8430(false, null)
+            else DowntimeRecovery8430.candleMark8430(o.mint, o.atMs + horizon, o.atMs + horizon / 2, deadline, bootMs8430, nowMs)
+        if (downtime8430.waiting) return false
+        val recovered=listOfNotNull(o.lastAcceptedMark8395,incoming,downtime8430.mark).filter {
             it.observedAtMs in (o.atMs+horizon/2)..deadline && LabelEvidence8386.eligible(o.basis8386.mark,it) &&
                 !curveContradicts8165(o.mint,it.usd,nowMs,it.observedAtMs) && !curveHolds8337(o.mint,it.usd,nowMs,it.observedAtMs) &&
                 PositionDisplayTruth8078.highStepOk8133(o.mint,o.entryPrice,o.entryPrice*(1.0+o.peakPct/100.0),it.usd,"FORWARD_LABEL") &&
@@ -2321,6 +2330,7 @@ object ForwardReturnLabeler7731 {
         val priceFor: (String) -> Double? = { m -> priceFor0(m) ?: com.lifecyclebot.engine.cortex.CrossAssetCortex7931.priceFor(m, nowMs) }
         val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs) }, nowMs) } catch (_: Throwable) { emptyList() }
         drainTerminals8395()
+        try { DowntimeRecovery8430.drain8430(nowMs) } catch (_: Throwable) {}   // V5.0.8430 — one bounded candle fetch when the provider is idle
         if (pending.isEmpty() && freshUnpriced7737.isEmpty()) return
         val dueUnpriced7737 = ArrayList<Pair<String, Long>>()
         for ((key, o) in pending.entries.toList()) {
