@@ -11381,8 +11381,8 @@ class BotService : Service() {
                     val px = status.tokens[m]?.lastPrice ?: 0.0
                     if (solUsd > 0.0 && px > 0.0) px / solUsd else Double.NaN
                 },
-            ) { mint, priceSol, pool ->
-                try { applyPumpTradeMark7278(mint, priceSol, 0.0, "PUMPSWAP_VAULT_WS_8018", pool) } catch (_: Throwable) {}
+            ) { mint, priceSol, pool, source8418 ->
+                try { applyPumpTradeMark7278(mint, priceSol, 0.0, source8418, pool) } catch (_: Throwable) {}
                 try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
             }
             // V5.0.7787 — the same mark from Helius-decoded pump.fun trades on held mints.
@@ -13118,7 +13118,7 @@ class BotService : Service() {
                     )
                 } catch (_: Throwable) {}
                 // V5.0.8018 — held coins on a PumpSwap pool (graduated) get per-trade vault ticks.
-                try { com.lifecyclebot.network.GradTicks8018.sync8018(openMints.take(40).toSet()) } catch (_: Throwable) {}
+                try { com.lifecyclebot.network.GradTicks8018.sync8018(openMints.take(60).toSet()) } catch (_: Throwable) {}   // V5.0.8418 — every held pool, any known venue
 
                 if (openMints.isEmpty()) {
                     try { PipelineHealthCollector.labelInc("OPEN_POS_TICK_SKIPPED_6983_NO_OPEN_POSITIONS") } catch (_: Throwable) {}

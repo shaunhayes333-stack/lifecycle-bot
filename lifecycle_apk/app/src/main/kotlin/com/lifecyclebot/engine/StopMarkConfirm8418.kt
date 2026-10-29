@@ -17,7 +17,7 @@ import com.lifecyclebot.data.TokenState
 object StopMarkConfirm8418 {
     private const val BYPASS_PCT_8418 = -60.0
     private const val BYPASS_AGE_MS_8418 = 10_000L
-    private val CHAIN_8418 = listOf("CURVE_RPC", "CURVE_ACCOUNT", "VAULT", "ONCHAIN", "LOCKED_VENUE", "EXEC_QUOTE", "JUPITER_QUOTE", "EXECUTABLE")
+    private val CHAIN_8418 = listOf("CURVE_RPC", "CURVE_ACCOUNT", "VAULT", "POOL_STATE", "ONCHAIN", "LOCKED_VENUE", "EXEC_QUOTE", "JUPITER_QUOTE", "EXECUTABLE")
 
     /** Pure: is a mark from [source] (pool [markPool]) on the basis of a position entered on [entryPool]? */
     fun onBasis8418(source: String, markPool: String, entryPool: String): Boolean {

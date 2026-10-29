@@ -16,9 +16,9 @@ import java.util.concurrent.ConcurrentHashMap
  * replaces the held candidate. Nothing is invented: the row keeps its last accepted mark until the market proves the move.
  */
 object MarkGate8418 {
-    const val JUMP_RATIO_8418 = 3.0
-    const val JUMP_WINDOW_MS_8418 = 60_000L
-    const val CONFIRM_GAP_MS_8418 = 300L
+    private const val JUMP_RATIO_8418 = 3.0
+    private const val JUMP_WINDOW_MS_8418 = 60_000L
+    private const val CONFIRM_GAP_MS_8418 = 300L
     private const val CONFIRM_BAND_8418 = 0.25
     private const val MAX_KEYS_8418 = 4_096
 

@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicLong
  * and re-sent instead of sitting pending forever.
  */
 object GradTicks8018 {
-    private const val MAX_POOLS = 20
+    private const val MAX_POOLS = 60   // V5.0.8418 — every held pool, any venue OnChainDepth8038 knows
     private const val RETRY_MS = 3L * 60_000L
     private const val RECONNECT_GAP_MS = 5_000L
     private const val PUMP_AMM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
@@ -57,7 +57,22 @@ object GradTicks8018 {
     private const val OFF_BASE_VAULT = 139
     private const val OFF_QUOTE_VAULT = 171
 
-    class Pool(val mint: String, val pool: String, val baseVault: String, val quoteVault: String, val baseDecimals: Int)
+    // V5.0.8418 §A_HELD_POSITION_IS_NEVER_PRICED_BY_A_POLL — owner: "there should never be a stale mark for a held token".
+    // Only pump curves (CurveTicks7968) and PumpSwap vaults were on a chain feed; a QUALITY / CASHGEN / BLUECHIP position
+    // on Raydium, Meteora or Orca was priced by DexScreener polls and an aggregator's price API, and its stops fired on
+    // marks the fill then contradicted (8418 journal). This feed now follows every held pool whose layout
+    // OnChainDepth8038 decodes: constant-product venues by their two vaults, concentrated venues (CLMM / Whirlpool /
+    // DLMM) by the pool account itself through ConcentratedPrice8418. [owner] is the pool program; a concentrated pool
+    // sets [stateAccount] (= pool) and no quote vault.
+    class Pool(val mint: String, val pool: String, val baseVault: String, val quoteVault: String, val baseDecimals: Int,
+               val owner: String = PUMP_AMM, val stateAccount: String = "")
+
+    /** V5.0.8418 — the mark source a tick of this pool carries (a VAULT / POOL_STATE source is on the position's basis). */
+    fun sourceFor8418(owner: String, concentrated: Boolean): String = when {
+        owner == PUMP_AMM -> "PUMPSWAP_VAULT_WS_8018"
+        concentrated -> "POOL_STATE_WS_8418_" + com.lifecyclebot.engine.truth.OnChainDepth8038.venueName8418(owner)
+        else -> "POOL_VAULT_WS_8418_" + com.lifecyclebot.engine.truth.OnChainDepth8038.venueName8418(owner)
+    }
     private class Side { @Volatile var amount = -1.0; @Volatile var slot = -1L }
 
     // ── pure ──
@@ -123,7 +138,7 @@ object GradTicks8018 {
     @Volatile private var rpcProvider: () -> String = { "" }
     @Volatile private var poolsFor: (String) -> List<String> = { emptyList() }
     @Volatile private var refSol: (String) -> Double = { Double.NaN }
-    @Volatile private var onTick: (mint: String, priceSol: Double, pool: String) -> Unit = { _, _, _ -> }
+    @Volatile private var onTick: (mint: String, priceSol: Double, pool: String, source: String) -> Unit = { _, _, _, _ -> }
     @Volatile private var ws: WebSocket? = null
     @Volatile private var open = false
     @Volatile private var lastConnectMs = 0L
@@ -174,7 +189,7 @@ object GradTicks8018 {
         rpc: () -> String,
         candidates: (String) -> List<String>,
         ref: (String) -> Double,
-        cb: (mint: String, priceSol: Double, pool: String) -> Unit,
+        cb: (mint: String, priceSol: Double, pool: String, source: String) -> Unit,
     ) {
         keyProvider = key; rpcProvider = rpc; poolsFor = candidates; refSol = ref; onTick = cb
     }
@@ -201,7 +216,7 @@ object GradTicks8018 {
         // V5.0.8144 — a vault subscribe neither acknowledged nor refused within the ack window is sent again.
         if (open) {
             pendingAt8144.entries.removeIf { (id, at) -> (now - at > ACK_TIMEOUT_MS_8144).also { if (it) pending.remove(id) } }
-            for (p in desired.values) for (v in listOf(p.baseVault, p.quoteVault)) {
+            for (p in desired.values) for (v in accounts8418(p)) {
                 if (!subByVault.containsKey(v) && !pending.containsValue(v)) { subscribe(v); subResent8144.incrementAndGet() }
             }
         }
@@ -210,20 +225,44 @@ object GradTicks8018 {
 
     /** True when [mint]'s PumpSwap pool resolved; otherwise counts the named reason (the gate schedules the retry). */
     private fun resolve(mint: String): Boolean {
-        val candidates = (listOfNotNull(try { canonicalPool8144(mint) } catch (_: Throwable) { null }) + poolsFor(mint).map { it.trim() })
+        // V5.0.8418 — the sealed / token-register pools join the candidates (a held position's own venue first).
+        val register8418 = try { com.lifecyclebot.AATEApp.appContextOrNull()?.let { com.lifecyclebot.engine.TokenMetaCache.get(it).lookup(mint) } } catch (_: Throwable) { null }
+        val candidates = (listOfNotNull(try { canonicalPool8144(mint) } catch (_: Throwable) { null }) + poolsFor(mint).map { it.trim() } +
+            listOfNotNull(register8418?.pairAddress, register8418?.lastPricePoolAddr).map { it.trim() })
             .filter { it.length in 32..44 && it != mint }.distinct()
         var anyAnswered = false
         for (addr in candidates) {
             val read = accountRead8144(addr) ?: continue
             anyAnswered = true
             val data = read.second ?: continue
-            if (read.first != PUMP_AMM) continue
-            val (bv, qv) = vaults8018(data, mint) ?: continue
+            val owner8418 = read.first
             val dec = accountInfo(mint)?.second?.takeIf { it.size > 44 }?.let { it[44].toInt() and 0xFF } ?: continue
-            pools[mint] = Pool(mint, addr, bv, qv, dec)
+            val found8418: Pool? = when {
+                owner8418 == PUMP_AMM -> vaults8018(data, mint)?.let { (bv, qv) -> Pool(mint, addr, bv, qv, dec) }
+                com.lifecyclebot.engine.truth.OnChainDepth8038.priceInState8418(owner8418) ->
+                    // the decode proves the layout and that the pool is coin / WSOL; a null is "not this coin's pool"
+                    com.lifecyclebot.engine.truth.ConcentratedPrice8418.decode8418(owner8418, data, mint, dec, 9)
+                        ?.let { Pool(mint, addr, addr, "", dec, owner8418, stateAccount = addr) }
+                else -> com.lifecyclebot.engine.truth.OnChainDepth8038.vaultKeys8038(owner8418, data)?.let { (a, b) ->
+                    // which vault holds the coin and which holds SOL: the SPL token account's mint is its first 32 bytes
+                    val da = accountInfo(a)?.second?.takeIf { it.size >= 72 }
+                    val db = accountInfo(b)?.second?.takeIf { it.size >= 72 }
+                    val ma = da?.let { b58(it, 0) }; val mb = db?.let { b58(it, 0) }
+                    when {
+                        ma == mint && mb == WSOL -> Pool(mint, addr, a, b, dec, owner8418)
+                        mb == mint && ma == WSOL -> Pool(mint, addr, b, a, dec, owner8418)
+                        else -> null
+                    }
+                }
+            }
+            if (found8418 == null) continue
+            pools[mint] = found8418
             failedAt.remove(mint)
             resolved.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("PUMPSWAP_POOL_RESOLVED_8018") } catch (_: Throwable) {}
+            try {
+                PipelineHealthCollector.labelInc("PUMPSWAP_POOL_RESOLVED_8018")
+                PipelineHealthCollector.labelInc("HELD_POOL_RESOLVED_8418_" + com.lifecyclebot.engine.truth.OnChainDepth8038.venueName8418(owner8418))
+            } catch (_: Throwable) {}
             return true
         }
         unresolved.incrementAndGet()
@@ -272,15 +311,17 @@ object GradTicks8018 {
         return read.first to data
     }
 
+    /** V5.0.8418 — the accounts a pool is followed by: its two vaults, or the pool account alone on a concentrated venue. */
+    private fun accounts8418(p: Pool): List<String> = if (p.stateAccount.isNotBlank()) listOf(p.stateAccount) else listOf(p.baseVault, p.quoteVault)
+
     private fun watch(p: Pool) {
-        vaultMint[p.baseVault] = p.mint; vaultMint[p.quoteVault] = p.mint
-        sides[p.baseVault] = Side(); sides[p.quoteVault] = Side()
-        if (open) { subscribe(p.baseVault); subscribe(p.quoteVault) }
+        for (a in accounts8418(p)) { vaultMint[a] = p.mint; sides[a] = Side() }
+        if (open) accounts8418(p).forEach { subscribe(it) }
     }
 
     private fun unwatch(p: Pool) {
         verified.remove(p.mint)
-        for (v in listOf(p.baseVault, p.quoteVault)) {
+        for (v in accounts8418(p)) {
             vaultMint.remove(v); sides.remove(v)
             val sub = subByVault.remove(v) ?: continue
             vaultBySub.remove(sub)
@@ -304,7 +345,7 @@ object GradTicks8018 {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 open = true
                 pending.clear(); subByVault.clear(); vaultBySub.clear()
-                desired.values.forEach { subscribe(it.baseVault); subscribe(it.quoteVault) }
+                desired.values.forEach { p -> accounts8418(p).forEach { subscribe(it) } }
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
                 // V5.0.8066 — metered like every Helius stream (2 credits per 0.1 MB).
@@ -364,13 +405,19 @@ object GradTicks8018 {
         val mint = vaultMint[vault] ?: return
         val pool = desired[mint] ?: return
         val data = res.optJSONObject("value")?.optJSONArray("data")?.optString(0) ?: return
-        val amount = tokenAmount8018(try { java.util.Base64.getDecoder().decode(data) } catch (_: Throwable) { return }) ?: return
-        val side = sides[vault] ?: return
-        side.amount = amount; side.slot = res.optJSONObject("context")?.optLong("slot", -1L) ?: -1L
-        val base = sides[pool.baseVault] ?: return
-        val quote = sides[pool.quoteVault] ?: return
-        if (base.slot < 0L || base.slot != quote.slot) return
-        val px = price8018(base.amount, quote.amount, pool.baseDecimals)
+        val bytes8418 = try { java.util.Base64.getDecoder().decode(data) } catch (_: Throwable) { return }
+        val px = if (pool.stateAccount.isNotBlank()) {
+            // V5.0.8418 — a concentrated pool's spot price is in the pool account (sqrt price / active bin), decoded by layout
+            com.lifecyclebot.engine.truth.ConcentratedPrice8418.decode8418(pool.owner, bytes8418, mint, pool.baseDecimals, 9) ?: return
+        } else {
+            val amount = tokenAmount8018(bytes8418) ?: return
+            val side = sides[vault] ?: return
+            side.amount = amount; side.slot = res.optJSONObject("context")?.optLong("slot", -1L) ?: -1L
+            val base = sides[pool.baseVault] ?: return
+            val quote = sides[pool.quoteVault] ?: return
+            if (base.slot < 0L || base.slot != quote.slot) return
+            price8018(base.amount, quote.amount, pool.baseDecimals)
+        }
         if (!px.isFinite() || px <= 0.0) return
         if (mint !in verified) {
             if (!basisAgrees8018(px, try { refSol(mint) } catch (_: Throwable) { Double.NaN })) {
@@ -384,9 +431,9 @@ object GradTicks8018 {
         }
         ticks.incrementAndGet()
         lastTickMs = System.currentTimeMillis()
-        try { onTick(mint, px, pool.pool) } catch (_: Throwable) {}
+        try { onTick(mint, px, pool.pool, sourceFor8418(pool.owner, pool.stateAccount.isNotBlank())) } catch (_: Throwable) {}
         // V5.0.8169 — the PumpSwap pool's own price reaches the executed-trade tape (price only: change / shape, never buy pressure).
-        try { com.lifecyclebot.engine.truth.TradeTape8100.notePrice8169(mint, px, com.lifecyclebot.engine.truth.TradeTape8100.SRC_PUMPSWAP_8169) } catch (_: Throwable) {}
+        if (pool.owner == PUMP_AMM) try { com.lifecyclebot.engine.truth.TradeTape8100.notePrice8169(mint, px, com.lifecyclebot.engine.truth.TradeTape8100.SRC_PUMPSWAP_8169) } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("PUMPSWAP_TICK_8018") } catch (_: Throwable) {}
     }
 
