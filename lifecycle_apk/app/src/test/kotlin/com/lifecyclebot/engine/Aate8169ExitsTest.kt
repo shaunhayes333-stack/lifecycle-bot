@@ -25,7 +25,10 @@ class Aate8169ExitsTest {
         assertEquals(10.0, ExitDoctrine8169.doctrinePct8169("BLUECHIP"), 1e-9)
         assertEquals(10.0, ExitDoctrine8169.doctrinePct8169("QUALITY"), 1e-9)
         assertEquals(15.0, ExitDoctrine8169.doctrinePct8169("MOONSHOT"), 1e-9)
-        assertEquals(5.0, ExitDoctrine8169.doctrinePct8169("CASHGEN"), 1e-9)
+        // superseded by V5.0.8418 §MARK_GAP_IS_NOT_A_FEE — the lane cost the 8392 stop reads is the itemised trip, not the 1.5 %
+        // base an unmeasured lane fell back to; CASHGEN's 5 % mandate still floors it and 1.5 x the trip may widen it.
+        val cashgenTrip8418 = com.lifecyclebot.engine.truth.CostLedger7962.laneCostPct7962("CASHGEN")
+        assertEquals(maxOf(5.0, 1.5 * cashgenTrip8418).coerceAtMost(25.0), ExitDoctrine8169.doctrinePct8169("CASHGEN"), 1e-6)
         // 5.0.8168: StopLearner8040 learned 5% for BLUECHIP / QUALITY — under the 10% Field Manual invalidation.
         assertEquals(10.0, ExitDoctrine8169.floorStopMag8169(5.0, 10.0, Double.NaN, Double.NaN), 1e-9)
         assertEquals("DOCTRINE", ExitDoctrine8169.floorSource8169(5.0, 10.0, Double.NaN, Double.NaN))

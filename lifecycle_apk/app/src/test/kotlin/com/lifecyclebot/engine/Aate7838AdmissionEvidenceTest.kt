@@ -52,10 +52,13 @@ class Aate7838AdmissionEvidenceTest {
         assertEquals(0, inputs.oracleRawCohortN7154)
         assertTrue("labels must not supply a terminal veto: $inputs", inputs.expectedPnl > 0.0)
         assertEquals(ExecutableEntryAuthority6450.Verdict.ALLOW, ExecutableEntryAuthority6450.gate(inputs).verdict)
-        assertTrue(ForwardOutcomeModel.hasTerminalEvidence7838(forecast.copy(source = "fine")))
-        assertTrue(ForwardOutcomeModel.hasTerminalEvidence7838(forecast.copy(source = "coarse_assessed6991")))
+        // superseded by V5.0.8418 — a LIVE bootstrap forecast carries samples=0; the source classification is checked on a
+        // forecast that has samples, as the label-prior forecast did before.
+        val sampled = forecast.copy(samples = 30L)
+        assertTrue(ForwardOutcomeModel.hasTerminalEvidence7838(sampled.copy(source = "fine")))
+        assertTrue(ForwardOutcomeModel.hasTerminalEvidence7838(sampled.copy(source = "coarse_assessed6991")))
         for (source in listOf("fine_paper_prior", "fine_paper_prior_assessed6991", "fine_label_prior", "coarse_label_prior", "coarse_label_prior_assessed6991", "unknown")) {
-            assertFalse(ForwardOutcomeModel.hasTerminalEvidence7838(forecast.copy(source = source)))
+            assertFalse(ForwardOutcomeModel.hasTerminalEvidence7838(sampled.copy(source = source)))
         }
     }
 
