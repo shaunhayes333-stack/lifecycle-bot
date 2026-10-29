@@ -1013,10 +1013,20 @@ object SpecialistElection8136 {
      * V5.0.8435 §EVERY_LANE_JUDGES_ITS_OWN_PREY. 8434: NON_OWNER_QUALIFIED_NO_SLOT_8364=336 — lanes whose own brain had
      * qualified the coin found all six slots held by lanes that only filed a desk hypothesis or a hunter claim (their own
      * resident book not READY), and every lane's ownerWhy was dominated by READY_NOT_EVALUATED_PRIMARY_<other>. A lane whose
-     * resident book holds a READY proposal for the coin takes the slot of a holder whose book does not; the cap is unchanged,
-     * and a READY holder is never displaced.
+     * resident book holds a READY proposal for the coin takes the slot of a holder whose book does not, and a READY holder
+     * is never displaced. The forward labels of those turned-away READY lanes (gateOutcome8418 SHADOW_NOT_PRIMARY_8029)
+     * read n79 / +3.9% / wr49% — the best-graded refusal in the run — so every READY lane also gets a slot of its own up to
+     * [READY_EVAL_CAP_8435] (all twelve lanes); a claim that is only a hypothesis or a hunter pick keeps the cap of six.
      */
+    internal const val READY_EVAL_CAP_8435 = 12
+
     private fun readySlot8435(set: MutableSet<String>, mint: String, lane: String): Boolean {
+        if (set.size < READY_EVAL_CAP_8435 && ready8435(lane, mint)) {
+            set.add(lane)
+            readySlotTaken8435.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("NATIVE_SPECIALIST_EVAL_READY_SLOT_8435_$lane") } catch (_: Throwable) {}
+            return true
+        }
         val victim = readyVictim8435(set.toList(), lane) { ready8435(it, mint) } ?: return false
         set.remove(victim)
         set.add(lane)

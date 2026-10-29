@@ -477,7 +477,7 @@ object CellAllocator7962 {
         val reserve = LiveSpendReserveAuthority7255.RESERVE_SOL
         val routableMin = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(0.0, solUsd).routableMinSol
         val open = CanonicalPositionAuthority6441.openPositions().filter { it.mode.equals("live", ignoreCase = true) }
-        val freeSlots = LiveConcentrationDoctrine7697.slots(0.0) - open.size
+        val freeSlots = LiveConcentrationDoctrine7697.LIVE_OPEN_LIMIT_8435 - open.size   // V5.0.8435 — the open limit
         val free = minOf(CapitalThroughput7951.routableCapacity7951(liquid, reserve, routableMin), freeSlots)
         val openMints = open.map { it.mint }.toSet()
         waiting.entries.removeIf { nowMs - it.value.lastAtMs > WAIT_MAX_BLOCK_MS_7962 || it.key in openMints }

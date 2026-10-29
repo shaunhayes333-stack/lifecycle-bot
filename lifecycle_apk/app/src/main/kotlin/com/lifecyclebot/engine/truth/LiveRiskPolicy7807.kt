@@ -1124,7 +1124,7 @@ object LiveRiskPolicy7807 {
             if (d.open) {
                 opens.incrementAndGet()
                 // V5.0.8103 — its lane has room but the whole live book is full: ask for the poorest slot of any lane.
-                if (i.edgeKellyFrac8057 > 0.0 && LiveConcentrationDoctrine7697.liveOpenCount() >= TOTAL_LIVE_SLOTS_7807)
+                if (i.edgeKellyFrac8057 > 0.0 && LiveConcentrationDoctrine7697.liveOpenCount() >= LiveConcentrationDoctrine7697.LIVE_OPEN_LIMIT_8435)  // V5.0.8435 — the book is full at the open limit
                     OpportunityRotation8098.noteBookDemand8103(mint, i.edgeKellyFrac8057)
                 if (stage == "FDG") noteSealedEconomics8153(mint, i, d)
                 PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_${stage}_OPEN_7807")

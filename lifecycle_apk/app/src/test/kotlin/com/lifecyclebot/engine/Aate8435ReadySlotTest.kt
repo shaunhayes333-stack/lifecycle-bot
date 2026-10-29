@@ -18,6 +18,21 @@ class Aate8435ReadySlotTest {
         assertNull("an asker not READY displaces nobody", SpecialistElection8136.readyVictim8435(holders, "DIP_HUNTER") { it in ready })
         assertNull("READY holders keep their slots", SpecialistElection8136.readyVictim8435(listOf("CYCLIC", "TREASURY"), "CORE") { it in ready })
         assertEquals(6, SpecialistElection8136.NATIVE_EVAL_CAP_8214)
+        assertEquals("every READY lane may evaluate (all twelve)", 12, SpecialistElection8136.READY_EVAL_CAP_8435)
+    }
+
+    @Test fun moreLiveSlotsWithoutSmallerPositions() {
+        val d = com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697
+        assertEquals(40, d.LIVE_OPEN_LIMIT_8435)
+        assertEquals("the sizing divisor is unchanged", 20, d.slots(1.0))
+        assertEquals(0.05, d.share(1.0), 1e-12)
+        val doc = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveConcentrationDoctrine7697.kt").readText()
+        assertTrue(doc.contains("val n = maxOf(slots(tradeable + deployed), LIVE_OPEN_LIMIT_8435)"))
+        assertTrue("paper / shadow never count", doc.contains("CanonicalPositionAuthority6441.openPositions().count { it.mode.equals(\"live\", ignoreCase = true) }"))
+        val pol = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveRiskPolicy7807.kt").readText()
+        assertTrue(pol.contains("LiveConcentrationDoctrine7697.liveOpenCount() >= LiveConcentrationDoctrine7697.LIVE_OPEN_LIMIT_8435"))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/CellAllocator7962.kt").readText()
+            .contains("val freeSlots = LiveConcentrationDoctrine7697.LIVE_OPEN_LIMIT_8435 - open.size"))
     }
 
     @Test fun wiring() {

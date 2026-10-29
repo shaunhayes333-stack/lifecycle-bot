@@ -64,6 +64,15 @@ object LiveConcentrationDoctrine7697 {
     const val LIVE_SLOT_LIMIT_7728 = 20
 
     /**
+     * V5.0.8435 — owner (30 Oct 2026): "open more live slots. do not let shadow or paper consume a slot a profitable trade
+     * could take." The live book may now hold up to this many positions at once. [LIVE_SLOT_LIMIT_7728] stays the SIZING
+     * divisor (each position's share, the lane envelopes in LiveRiskPolicy7807), so no position gets smaller; the wallet,
+     * the routable minimum and the per-lane cap still bound how many can actually be opened. Paper and shadow never count
+     * ([liveOpenCount] reads live canonical rows only).
+     */
+    const val LIVE_OPEN_LIMIT_8435 = 40
+
+    /**
      * Concurrent live positions the wallet may hold.
      *
      * Slots are an operator capacity setting, not a proxy for current wallet
@@ -143,7 +152,7 @@ object LiveConcentrationDoctrine7697 {
         // deployed), otherwise the second position would read a half-spent
         // wallet and halve itself again.
         val deployed = liveOpenCostSol8083()   // V5.0.8083 — live rows, not the paper account's open value
-        val n = slots(tradeable + deployed)
+        val n = maxOf(slots(tradeable + deployed), LIVE_OPEN_LIMIT_8435)   // V5.0.8435 — the open count, not the sizing share
         // V5.0.7708 — inventory adopted from the wallet (WALLET_RECOVERED) is
         // legacy capital being walked back to SOL, not a conviction entry; it
         // does not take one of the doctrine's slots.
