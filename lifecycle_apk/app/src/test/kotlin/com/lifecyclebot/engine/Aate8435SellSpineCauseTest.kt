@@ -33,10 +33,11 @@ class Aate8435SellSpineCauseTest {
 
     @Test fun aPreRouteAttemptIsChargedToTheLeaseUnderItsOwnCause() {
         val m = "MintPreRoute8435aaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        SellRouteSpine8144.trigger8144(m, "HARD_STOP", "p", 1_000L)
-        SellRouteSpine8144.mark8144(m, Stage8144.CLOSE_LEASE, 1_100L)
-        SellRouteSpine8144.notePhaseText8435(m, "SELL_VERIFY_INCONCLUSIVE_PENDING", "🔒 RECOVERY_LOCK: deferring", 1_150L)
-        SellRouteSpine8144.onResult8144(m, "FAILED_RETRYABLE", 1_200L)
+        val b = System.currentTimeMillis() - 10_000L   // the status line prunes spines older than 10 min by wall clock
+        SellRouteSpine8144.trigger8144(m, "HARD_STOP", "p", b + 1_000L)
+        SellRouteSpine8144.mark8144(m, Stage8144.CLOSE_LEASE, b + 1_100L)
+        SellRouteSpine8144.notePhaseText8435(m, "SELL_VERIFY_INCONCLUSIVE_PENDING", "🔒 RECOVERY_LOCK: deferring", b + 1_150L)
+        SellRouteSpine8144.onResult8144(m, "FAILED_RETRYABLE", b + 1_200L)
         val t = SellRouteSpine8144.timer8144(m)!!
         assertEquals(Stage8144.CLOSE_LEASE, t.failedStage)
         assertEquals("SELL_VERIFY_INCONCLUSIVE_PENDING:RECOVERY_LOCK|FAILED_RETRYABLE", t.failureCause)
@@ -44,13 +45,13 @@ class Aate8435SellSpineCauseTest {
         assertTrue(line, line.contains("failStage={CLOSE_LEASE=1}"))
         assertTrue(line, line.contains("preRoute8435{EMRG|SELL_VERIFY_INCONCLUSIVE_PENDING:RECOVERY_LOCK=1}"))
         // a row logged BEFORE this attempt's lease is not its cause
-        SellRouteSpine8144.mark8144(m, Stage8144.CLOSE_LEASE, 2_000L)
-        SellRouteSpine8144.onResult8144(m, "FAILED_RETRYABLE", 2_100L)
+        SellRouteSpine8144.mark8144(m, Stage8144.CLOSE_LEASE, b + 2_000L)
+        SellRouteSpine8144.onResult8144(m, "FAILED_RETRYABLE", b + 2_100L)
         assertEquals("FAILED_RETRYABLE", t.failureCause)
         // an attempt that reached the balance stage fails at the stage after it, as before
-        SellRouteSpine8144.mark8144(m, Stage8144.CLOSE_LEASE, 3_000L)
-        SellRouteSpine8144.onPhase8144(m, "SELL_BALANCE_CHECK", 3_100L)
-        SellRouteSpine8144.onResult8144(m, "FAILED_RETRYABLE", 3_200L)
+        SellRouteSpine8144.mark8144(m, Stage8144.CLOSE_LEASE, b + 3_000L)
+        SellRouteSpine8144.onPhase8144(m, "SELL_BALANCE_CHECK", b + 3_100L)
+        SellRouteSpine8144.onResult8144(m, "FAILED_RETRYABLE", b + 3_200L)
         assertEquals(Stage8144.VENUE_RESOLVE, t.failedStage)
     }
 
