@@ -663,7 +663,7 @@ object PipelineHealthCollector {
     private fun liveBuyFailReason(fields: String): String {
         val raw = fields.substringAfter("reason=", "").trim()
         val token = raw.takeWhile { !it.isWhitespace() }.ifBlank { "UNKNOWN" }
-        return token.take(96).replace('/', '_').replace('\n', '_').ifBlank { "UNKNOWN" }
+        return token.take(200).replace('/', '_').replace('\n', '_').ifBlank { "UNKNOWN" }  // V5.0.8418 — THROWN:<class>:<message 160>
     }
 
     fun onExec(action: String, symbol: String, fields: String) {

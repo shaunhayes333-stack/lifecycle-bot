@@ -1921,6 +1921,7 @@ object ExecutableOpenGate {
                     "mint=${mint.take(10)} lane=${canonicalLane(lane)} version=$candidateVersion hardNo=${postFdg7433?.hardNoReasons?.joinToString("|").orEmpty()} action=no_exec_intent",
                 )
             } catch (_: Throwable) {}
+            SealMiss8418.note8418(mint, candidateVersion, lane, "HARD_NO_" + (postFdg7433?.hardNoReasons?.firstOrNull() ?: postFdg7433?.preFdgVerdict.orEmpty()))  // V5.0.8418
             return null
         }
         if (!canExecute) return null
@@ -1933,6 +1934,8 @@ object ExecutableOpenGate {
                 it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty()
         }
         if (intent == null) noteFdgAllowWithoutOwnIntent7868(mode, mint, symbol, lane, candidateVersion)
+        if (intent == null) SealMiss8418.note8418(mint, candidateVersion, lane, sealMissAfterRecord8418(mode, mint, candidateVersion, lane))  // V5.0.8418
+        else SealMiss8418.clear8418(mint, candidateVersion, lane)
         // V5.0.7807 — was recordDeskStage(lane, ...) with the RAW requested lane,
         // so an alias (DIP, SNIPER, MANIP, CASH_GEN, ...) put TICKET in a funnel
         // lane the intent's EXEC/OPEN never reach. Stamp on the intent's own
@@ -1943,6 +1946,26 @@ object ExecutableOpenGate {
             }
         } catch (_: Throwable) {}
         return intent
+    }
+
+    /**
+     * V5.0.8418 — why recordFdgAndGetIntent6533 found no intent of its own after recording an executable FDG BUY
+     * (SealMiss8418): the stored verdict for this version belongs to another lane or is not a BUY, the stored state is
+     * another version, or no live intent was published (expired / publish failed).
+     */
+    private fun sealMissAfterRecord8418(mode: String, mint: String, candidateVersion: Long, lane: String): String {
+        val st = states[mint] ?: return "NO_STATE_AFTER_RECORD"
+        if (st.candidateVersion != candidateVersion) return "STATE_OTHER_VERSION"
+        if (canonicalLane(st.selectedLane) != canonicalLane(lane)) return "VERDICT_KEPT_BY_" + canonicalLane(st.selectedLane)
+        if (st.preFdgVerdict != "BUY") return "STATE_VERDICT_" + st.preFdgVerdict
+        if (st.hardNoReasons.isNotEmpty()) return "STATE_HARD_NO_" + st.hardNoReasons.first()
+        val any = activeExecutionIntents6519[intentKey6519(mode, mint, candidateVersion)]
+        return when {
+            any == null -> "INTENT_NOT_PUBLISHED"
+            canonicalLane(any.canonicalLane) != canonicalLane(lane) -> "INTENT_OWNED_BY_" + canonicalLane(any.canonicalLane)
+            !ticketLive(any) -> "INTENT_EXPIRED"
+            else -> "INTENT_NOT_BUY_" + any.fdgVerdict
+        }
     }
 
     fun recordV3(
@@ -2003,6 +2026,7 @@ object ExecutableOpenGate {
                 PipelineHealthCollector.labelInc("FDG_PRE_DECISION_DEDUP_SKIP_6743")
                 PipelineHealthCollector.labelInc("FDG_PRE_DECISION_DEDUP_SKIP_6743_${canonicalLane(lane).uppercase()}")
             } catch (_: Throwable) {}
+            SealMiss8418.note8418(mint, candidateVersion, lane, "FDG_DEDUP_SKIP_6743")  // V5.0.8418
             return
         }
         if (isShadowReadOnlyLane6487(lane) && !allowTrunkExecutionHandoff6533) {
@@ -2010,6 +2034,7 @@ object ExecutableOpenGate {
                 PipelineHealthCollector.labelInc("SHADOW_LANE_FDG_SUPPRESSED_6487_${lane.uppercase()}")
                 ForensicLogger.lifecycle("SHADOW_LANE_FDG_SUPPRESSED_6487", "mint=${mint.take(10)} symbol=$symbol lane=${lane.uppercase()} version=$candidateVersion action=score_report_learn_only")
             } catch (_: Throwable) {}
+            SealMiss8418.note8418(mint, candidateVersion, lane, "SHADOW_LANE_6487")  // V5.0.8418
             return
         }
         val preEntry6487 = entryAuthority6487[authorityKey6487(mint, candidateVersion)]
@@ -2034,6 +2059,7 @@ object ExecutableOpenGate {
                 PipelineHealthCollector.labelInc("FDG_SUPPRESSED_ENTRY_AUTHORITY_6487")
                 ForensicLogger.lifecycle("FDG_SUPPRESSED_ENTRY_AUTHORITY_6487", "mint=${mint.take(10)} symbol=$symbol lane=${lane.uppercase()} version=$candidateVersion verdict=${preEntry6487.verdict} reason=${preEntry6487.reason}")
             } catch (_: Throwable) {}
+            SealMiss8418.note8418(mint, candidateVersion, lane, "ENTRY_AUTHORITY_" + preEntry6487.verdict.name)  // V5.0.8418
             return
         }
         // V5.0.7731 — every distinct verdict that reaches here is observed for

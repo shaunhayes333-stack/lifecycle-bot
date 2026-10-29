@@ -20029,6 +20029,7 @@ class Executor(
             } catch (_: Throwable) {}
         }
         fun buyTerminalFail(reason: String) {
+            lastLiveBuyStop8252[ts.mint] = reason  // V5.0.8418 — the ticket's terminal names this stop (was UNNAMED_8330)
             if (!buyTerminalRecorded) {
                 buyTerminalRecorded = true
                 buyAttemptTrace4576("TERMINAL_FAIL", reason)
@@ -22224,7 +22225,7 @@ class Executor(
                 com.lifecyclebot.engine.ForensicLogger.exec(
                     "LIVE_BUY_FAIL",
                     tradeId.symbol,
-                    "attemptId=${execCtx.attemptId} execMode=${execCtx.execMode} mint=${tradeId.mint.take(10)} sol=$sol reason=THROWN:${safe.take(80)} lastStage=$liveBuyLastStage exception=${e.javaClass.simpleName}",
+                    "attemptId=${execCtx.attemptId} execMode=${execCtx.execMode} mint=${tradeId.mint.take(10)} sol=$sol reason=${LiveBuyThrown8418.reason8418(e, safe)} lastStage=$liveBuyLastStage exception=${e.javaClass.simpleName}",
                 )
             } catch (_: Throwable) {}
             ErrorLogger.error("Trade", "Live buy FAILED for ${tradeId.symbol}: $safe", e)
@@ -22237,8 +22238,8 @@ class Executor(
             )
             onNotify("⚠️ Buy Failed", "${tradeId.symbol}: ${safe.take(80)}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             onToast("❌ BUY FAILED: ${tradeId.symbol}\n${safe.take(50)}")
-            liveStage("LIVE_BUY_FAILED", "reason=THROWN exception=${e.javaClass.simpleName} message=${safe.take(100)} lastStage=$liveBuyLastStage")
-            buyTerminalFail("BUY_TERMINAL_SUBMIT_FAIL:THROWN_${safe.take(60)}")
+            liveStage("LIVE_BUY_FAILED", "reason=THROWN exception=${e.javaClass.simpleName} message=${LiveBuyThrown8418.compact8418(safe)} lastStage=$liveBuyLastStage")
+            buyTerminalFail("BUY_TERMINAL_SUBMIT_FAIL:" + LiveBuyThrown8418.reason8418(e, safe))
             return false
         }
         } finally {

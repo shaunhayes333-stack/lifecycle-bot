@@ -105,7 +105,7 @@ object BuyAppFee8418 {
         val w2 = fee * (1.0 - SPLIT_RATIO_8418)
         try {
             sendFeeSplit8418(self, w1, w2, tag, sink)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             try { ErrorLogger.error("BuyAppFee8418", "BUY FEE SEND FAILED ($tag) — queued for retry: ${e.message}") } catch (_: Throwable) {}
             try { sink.enqueue(WALLET_1_8418, w1, "${tag}_w1") } catch (_: Throwable) {}
             try { sink.enqueue(WALLET_2_8418, w2, "${tag}_w2") } catch (_: Throwable) {}
@@ -146,6 +146,23 @@ object BuyAppFee8418 {
     }
 
     fun chargeLiveBuy8418(
+        wallet: SolanaWallet,
+        confirmedCostSol: Double,
+        positionId: String,
+        signature: String,
+        mint: String,
+        tag: String,
+        onLog: (String, String) -> Unit,
+    ): Double = try {
+        chargeLiveBuyUnguarded8418(wallet, confirmedCostSol, positionId, signature, mint, tag, onLog)
+    } catch (t: Throwable) {
+        // V5.0.8418 — the fee is bookkeeping after a proven buy: whatever throws here (canonical booking, accumulator
+        // persistence, retry queue, logging) never reaches the buy path. Counted; the buy itself already stands.
+        try { PipelineHealthCollector.labelInc("APP_BUY_FEE_THREW_ISOLATED_8418_${t.javaClass.simpleName.take(32)}") } catch (_: Throwable) {}
+        0.0
+    }
+
+    private fun chargeLiveBuyUnguarded8418(
         wallet: SolanaWallet,
         confirmedCostSol: Double,
         positionId: String,

@@ -504,18 +504,22 @@ object TradeAuthorizer {
                 releasePrimaryAfterAuthFailure("OWNED_BY_${owner7868}_7868")
                 return rejectAuth4424(reason = "OWNED_BY_${owner7868}_7868", blockLevel = BlockLevel.SOFT, canRetry = false, stampCausal7858 = false)
             }
+            // V5.0.8418 — the seal failure carries its exact reason into the per-lane pre-size counter (8418 phone run:
+            // EXPRESS AUTH_FDG_SEAL_FAILED_7835=5 with the 7871 reason only in an unprinted stand-alone label).
+            val sealWhy8418 = try {
+                SpecialistPreauthSeal7834.failureReason7871(tokenState7835, fdgDecision7835, requestedBook.name, isPaperMode)
+            } catch (_: Throwable) { "REASON_UNAVAILABLE" }
             try {
                 ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613)
                 PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835")
                 PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_7835_${requestedBook.name}")
-                PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_REASON_7871_" +
-                    SpecialistPreauthSeal7834.failureReason7871(tokenState7835, fdgDecision7835, requestedBook.name, isPaperMode))
+                PipelineHealthCollector.labelInc("TRADE_AUTH_SEAL_FAILED_REASON_7871_$sealWhy8418")
                 ForensicLogger.lifecycle(
                     "TRADE_AUTH_SEAL_FAILED_7835",
-                    "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} candidateVersion=$candidateVersion7624 action=retry_after_exact_fdg_buy_seal",
+                    "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} candidateVersion=$candidateVersion7624 reason=$sealWhy8418 action=retry_after_exact_fdg_buy_seal",
                 )
             } catch (_: Throwable) {}
-            releasePrimaryAfterAuthFailure("FDG_SEAL_FAILED_7835")
+            releasePrimaryAfterAuthFailure("FDG_SEAL_FAILED_7835_$sealWhy8418")
             return rejectAuth4424(
                 reason = "FDG_SEAL_FAILED_7835",
                 blockLevel = BlockLevel.SOFT,

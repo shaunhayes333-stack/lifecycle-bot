@@ -39,7 +39,12 @@ class Aate7812HunterSelectionAndPipelineTest {
         assertFalse(pre.contains("recordPreSizeRefusal7809("))
         assertFalse(pre.contains("markLost("))
         val seal = src("engine/SpecialistPreauthSeal7834.kt")
-        assertTrue(seal.contains("it.fdgAllowed && it.fdgVerdict == \"BUY\" && it.hardNoReasons.isEmpty()"))
+        // superseded by V5.0.8418 — the same tests now name each mismatch in SealMiss8418.mismatch8418 (sealOnce7840 calls it)
+        assertTrue(seal.contains("SealMiss8418.mismatch8418(got8418"))
+        val miss = src("engine/SealMiss8418.kt")
+        assertTrue(miss.contains("!intent.fdgAllowed -> \"SEALED_NOT_ALLOWED\""))
+        assertTrue(miss.contains("intent.fdgVerdict != \"BUY\" ->"))
+        assertTrue(miss.contains("intent.hardNoReasons.isNotEmpty() ->"))
         assertTrue(s.contains("val finalityAttemptId = sealedIntent7812.attemptId"))
     }
 

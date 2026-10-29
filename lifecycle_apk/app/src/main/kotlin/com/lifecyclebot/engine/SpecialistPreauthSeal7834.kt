@@ -58,8 +58,8 @@ internal object SpecialistPreauthSeal7834 {
         if (ts.safety.hardBlockReasons.isEmpty()) ExecutableOpenGate.reuseSealedIntent7871(
             if (paper) "PAPER" else "LIVE", ts.mint, decision.candidateVersion7835, canonicalLane, size,
         )?.let { return it.also { TicketExec8304.ensureCausalStamp8304(it, decision.effectiveEntryScore7687) } }  // V5.0.8304
-        fun sealOnce7840(): ExecutableOpenGate.ExecutionIntent? =
-            ExecutableOpenGate.recordFdgAndGetIntent6533(
+        fun sealOnce7840(): ExecutableOpenGate.ExecutionIntent? {
+            val got8418 = ExecutableOpenGate.recordFdgAndGetIntent6533(
                 mint = ts.mint, symbol = ts.symbol, lane = canonicalLane,
                 canExecute = true, reason = decision.blockReason, signal = "BUY",
                 rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name,
@@ -71,16 +71,18 @@ internal object SpecialistPreauthSeal7834 {
                 requiresSolanaTokenMap = true, allowTrunkExecutionHandoff6533 = true,
                 resolvedSizeSol6558 = size,
                 authoritativeFdgDecision7858 = decision,
-            )?.takeIf {
-                it.mint == ts.mint && it.mode == (if (paper) "PAPER" else "LIVE")
-            }?.takeIf {
-                it.candidateVersion == decision.candidateVersion7835 &&
-                    CanonicalLaneIdentity6506.canonical(it.canonicalLane) == canonicalLane &&
-                    it.fdgAllowed && it.fdgVerdict == "BUY" && it.hardNoReasons.isEmpty() &&
-                    // V5.0.7948 — within the FDG verdict (same rule as reuse), not
-                    // bit-equal: the first seal of a version caps a later, larger FDG size.
-                    SpecialistExecution7948.sealWithinFdgSize7948(it.resolvedSize, size)
+            ) ?: return null
+            // V5.0.7948 — within the FDG verdict (same rule as reuse), not bit-equal: the first seal of a version caps a
+            // later, larger FDG size. V5.0.8418 — each mismatch is named (SealMiss8418) instead of a silent null.
+            val miss8418 = SealMiss8418.mismatch8418(got8418, ts.mint, if (paper) "PAPER" else "LIVE",
+                decision.candidateVersion7835, canonicalLane, size)
+            if (miss8418 != null) {
+                SealMiss8418.note8418(ts.mint, decision.candidateVersion7835, canonicalLane, miss8418)
+                return null
             }
+            SealMiss8418.clear8418(ts.mint, decision.candidateVersion7835, canonicalLane)
+            return got8418
+        }
 
         val first7840 = sealOnce7840()
         if (first7840 != null) return first7840.also { TicketExec8304.ensureCausalStamp8304(it, decision.effectiveEntryScore7687) }  // V5.0.8304
@@ -132,6 +134,8 @@ internal object SpecialistPreauthSeal7834 {
         if (paper != RuntimeModeAuthority.isPaper()) return "RUNTIME_MODE_CHANGED"
         if (ts.safety.hardBlockReasons.isNotEmpty()) return "HARD_NO_AFTER_FDG"
         val d = decision ?: return "FDG_DECISION_MISSING_7835"
+        // V5.0.8418 — the seal's own inner branch, when it named one (SealMiss8418).
+        SealMiss8418.reasonFor8418(ts.mint, d.candidateVersion7835, lane)?.let { return it }
         val live = ExecutableOpenGate.activeExecutionIntent6519(if (paper) "PAPER" else "LIVE", ts.mint, d.candidateVersion7835)
         return when {
             live == null -> "NO_LIVE_TICKET_FOR_VERSION"
