@@ -4645,6 +4645,14 @@ object Cortex7885 {
         // 8198 — never write a snapshot that separates the graded state from its receipt: while a close grade
         // awaits its durable commit, the close commit itself carries the state (see durableCloseCommit8198).
         if (uncommittedCloseGrades8198.isNotEmpty()) return
+        // V5.0.8429 — under memory pressure the grade book is encoded UNDER the Cortex lock (8418: one copy, not two), which on
+        // the 8422 device (heap 94 %, CRITICAL the whole session) meant a multi-second lock hold on every periodic save
+        // (encode=6916 ms, assessLockWait max 12465 ms: assessments and marks stalled behind it). A periodic save under
+        // pressure now runs at most every [PRESSURE_SNAPSHOT_GAP_MS_8429]; close commits (durableCloseCommit8198) are untouched.
+        val now8429 = System.currentTimeMillis()
+        if (periodicSnapshotDeferred8429(snapshotEncodesInLock8418(memoryPressure8418()), now8429 - lastPeriodicSnapshotMs8429)) {
+            inc("CHECKPOINT_DEFERRED_UNDER_PRESSURE_8429"); return
+        }
         try {
             // V5.0.8325 — one consistent snapshot under the Cortex lock (re-checked: no close grade awaiting its receipt), written
             // after it is released; [durableCloseCommit8198] takes [persistLock8325] too, so an older snapshot is never written
@@ -4652,11 +4660,18 @@ object Cortex7885 {
             val encode = snapshotEncoder8386(periodic = true) ?: return
             val blobs = encode()
             val dbAt = System.nanoTime()
-            if (!LearningPersistence.saveTogetherVerified8386(blobs)) inc("CHECKPOINT_RETRY_8386")
+            if (!LearningPersistence.saveTogetherVerified8386(blobs)) inc("CHECKPOINT_RETRY_8386") else lastPeriodicSnapshotMs8429 = now8429
             snapshotDbMs8386 = (System.nanoTime() - dbAt) / 1_000_000
 
         } catch (_: Throwable) {}
     } }
+
+    private const val PRESSURE_SNAPSHOT_GAP_MS_8429 = 5L * 60_000L
+    @Volatile private var lastPeriodicSnapshotMs8429 = 0L
+
+    /** Pure (V5.0.8429): a periodic save that would encode under the lock waits out the gap since the last one. */
+    internal fun periodicSnapshotDeferred8429(encodesInLock: Boolean, sinceLastMs: Long): Boolean =
+        encodesInLock && sinceLastMs in 0L until PRESSURE_SNAPSHOT_GAP_MS_8429
 
     /** V5.0.8325 — the other components' status lines, read outside the Cortex lock (each takes its own locks). */
     private fun statusExternals8325(): Map<String, String> = mapOf(

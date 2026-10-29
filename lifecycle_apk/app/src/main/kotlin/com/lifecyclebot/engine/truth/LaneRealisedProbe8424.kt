@@ -102,6 +102,19 @@ object LaneRealisedProbe8424 {
     }
 
     /**
+     * V5.0.8429 — CandidateAdmission8136: is [lane]'s one probe slot open to [mint] now (its own fresh claim, or no live
+     * position open in the lane and no other coin's fresh claim)? A learned-negative record door then sizes down instead of
+     * refusing. Read-only; the slot is claimed on the live admission ([claim8424]).
+     */
+    fun slotOpen8429(lane: String, mint: String, nowMs: Long): Boolean {
+        val l = CanonicalLaneIdentity6506.desk8392(lane)
+        if (ownClaim8424(l, mint, nowMs)) return true
+        val c = claims[l]
+        if (c != null && c.mint != mint && nowMs - c.atMs in 0L until CLAIM_MS_8424) return false
+        return openInLane8424(l) == 0
+    }
+
+    /**
      * LiveEdgeGate7877.liveRefusal, on a LIVE admission: [mint] holds [lane]'s one probe slot for [CLAIM_MS_8424] while its
      * buy is in flight (an open position then keeps the lane occupied; a failed buy frees it). Cheap on an open lane: the
      * claim is only ever read while the lane is shut.

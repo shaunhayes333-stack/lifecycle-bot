@@ -163,6 +163,13 @@ object CandidateAdmission8136 {
          */
         val laneProbe8424: Boolean = false,
         /**
+         * V5.0.8429 — the lane's one PROBE slot is open to this candidate (LaneRealisedProbe8424.slotOpen8429: no live position
+         * open in the lane, no other coin's fresh claim). A learned-negative record door (setup / cell / stage / tactic /
+         * timing / falling-hour / cheat sheet) then counts and sizes down instead of refusing: the record can only change
+         * with a new close, and a lane that never trades never gets one. Hard safety, structure, economics and data still bind.
+         */
+        val recordProbe8429: Boolean = false,
+        /**
          * V5.0.8418 — why the SELECTED setup's expected move is NaN (NetEdge8030.moveWait8418): [NetEdge8030.MOVE_WAIT_HISTORY_8418]
          * (a sparse history: the data step waits for "move:HISTORY_SPARSE", which a candle / hour arrival answers) or
          * [NetEdge8030.MOVE_WAIT_FALLING_8418] (a momentum lane's falling hour with no supported strategy: an observation, not
@@ -322,6 +329,20 @@ object CandidateAdmission8136 {
         return null
     }
 
+    /**
+     * V5.0.8429 §A_LOSING_RECORD_SIZES_DOWN_IT_DOES_NOT_HALT — may [door] (a learned-negative record refusal) stand aside for
+     * this candidate as the lane's one probe? True only when the lane's probe slot is open to it ([Candidate8136.recordProbe8429]);
+     * the door is then counted and traced, never silently dropped. 8422: TIMING_ADVERSE 647, FALLING_HOUR 344, SETUP_RECORD
+     * 290 on MOONSHOT alone, every one a book filled in the 9 %-cost / wrong-mark era with no trade able to change it.
+     */
+    private fun probe8429(c: Candidate8136, trace: MutableList<String>, door: String): Boolean {
+        if (!c.recordProbe8429) return false
+        trace += "probe8429=$door"
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNED_RECORD_PROBE_8429_$door") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNED_RECORD_PROBE_8429_${c.lane.uppercase()}") } catch (_: Throwable) {}
+        return true
+    }
+
     /** Pure (V5.0.8395): the chosen setup's own record is complete (>= the lane-prior sample) and supported after cost. */
     fun setupProofSupersedesLanePrior8395(own: Evidence8136?, costPct: Double): Boolean =
         own != null && !own.suspect8290 && own.n >= LANE_LABEL_MIN_N_8325 && supported8136(own, costPct) && !losing8136(own)
@@ -475,7 +496,7 @@ object CandidateAdmission8136 {
             if (bestSetup == null) {
                 trace += "setupLosing=${selectedRec?.compact}${if (cellSupported) " cellSupported=${c.cell?.compact} names_no_strategy" else ""}"
                 // V5.0.8257 — a thin record inside one SE of zero is advisory, not a live refusal (see clearlyLosing8136).
-                if (clearlyLosing8136(selectedRec) && doorBinds8393("SETUP_RECORD_LOSING_8136")) return done(Terminal8136.REFUSE, "SETUP_RECORD_LOSING_8136", true, c.selectedSetup)
+                if (clearlyLosing8136(selectedRec) && doorBinds8393("SETUP_RECORD_LOSING_8136") && !probe8429(c, trace, "SETUP_RECORD_LOSING_8136")) return done(Terminal8136.REFUSE, "SETUP_RECORD_LOSING_8136", true, c.selectedSetup)
                 // V5.0.8316 — the 8290 "liveThinLossBinds" live refusal is withdrawn (8314: SETUP_RECORD_LOSING 407 on
                 //    records the shortfall had shifted below zero): 8257's rule holds live too — only a CLEAR loss refuses;
                 //    a thin one-SE loser falls to the generic prior, where economics, safety and the V3 floor decide.
@@ -495,7 +516,7 @@ object CandidateAdmission8136 {
             } else {
                 trace += "sheetAvoid8323=$chosen"
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHEET_AVOID_REFUSED_8323_${c.lane.uppercase()}") } catch (_: Throwable) {}
-                if (doorBinds8393("SHEET_AVOID_8323")) return done(Terminal8136.REFUSE, "SHEET_AVOID_8323", true, chosen)
+                if (doorBinds8393("SHEET_AVOID_8323") && !probe8429(c, trace, "SHEET_AVOID_8323")) return done(Terminal8136.REFUSE, "SHEET_AVOID_8323", true, chosen)
             }
         }
         // V5.0.8169 — a loss pattern refuses on the record graded since the epoch; an older one is noted and decays to
@@ -512,10 +533,14 @@ object CandidateAdmission8136 {
             //    MISSED(CELL_PROVEN_LOSING) while a SUPPORTED setup (n, mean - SE and timing band clearing cost — the
             //    token-specific strategy evidence) had fired on them. As for the stage loss (8173), the supported setup is
             //    the strategy; without one the cell prior refuses. Economics, data and the edge test below still decide.
-            if (bestSetup == null) { trace += "cellLosing=${cellLoss?.compact}"; return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen) }
-            trace += "cellLosing=${cellLoss?.compact} carried by supported setup ${bestSetup.compact}"
-            if (chosen != bestSetup.id) chooseSetup(bestSetup.id)
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CELL_LOSS_CARRIED_BY_SUPPORTED_SETUP_8240") } catch (_: Throwable) {}
+            if (bestSetup == null) {
+                trace += "cellLosing=${cellLoss?.compact}"
+                if (!probe8429(c, trace, "CELL_PROVEN_LOSING_8136")) return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen)
+            } else {
+                trace += "cellLosing=${cellLoss?.compact} carried by supported setup ${bestSetup.compact}"
+                if (chosen != bestSetup.id) chooseSetup(bestSetup.id)
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CELL_LOSS_CARRIED_BY_SUPPORTED_SETUP_8240") } catch (_: Throwable) {}
+            }
         }
         if (staleLoss8169(c.lossEpochAware8169, c.cell, cellLoss)) trace += "$STALE_CELL_TRACE_8169${c.cell?.compact}"
         if (provenLosing8136(stageLoss) && !cellSupported && stageLatePays8198(stageLoss)) {
@@ -532,14 +557,15 @@ object CandidateAdmission8136 {
             val carry8180 = bestSetup ?: StageCarry8180.carry8180(c)
             if (carry8180 == null || (losing8136(cellLoss) && bestSetup == null)) {
                 trace += "stageLosing=${stageLoss?.compact}"
-                return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
+                if (!probe8429(c, trace, "STAGE_PROVEN_LOSING_8136")) return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
+            } else {
+                trace += "stageLosing=${stageLoss?.compact} carried by ${carry8180.kind.lowercase()} ${carry8180.compact}"
+                // A VALID carry is not an edge: the strategy (and its measured economics) changes only for a SUPPORTED setup.
+                if (bestSetup != null && bestSetup.id != chosen) chooseSetup(bestSetup.id)
             }
-            trace += "stageLosing=${stageLoss?.compact} carried by ${carry8180.kind.lowercase()} ${carry8180.compact}"
-            // A VALID carry is not an edge: the strategy (and its measured economics) changes only for a SUPPORTED setup.
-            if (bestSetup != null && bestSetup.id != chosen) chooseSetup(bestSetup.id)
         }
         if (!cellSupported && staleLoss8169(c.lossEpochAware8169, c.stageRecord, stageLoss)) trace += "$STALE_STAGE_TRACE_8169${c.stageRecord?.compact}"
-        if (c.losingTactic != null && bestSetup == null && !cellSupported && doorBinds8393("TACTIC_RECORD_LOSING_8136")) {
+        if (c.losingTactic != null && bestSetup == null && !cellSupported && doorBinds8393("TACTIC_RECORD_LOSING_8136") && !probe8429(c, trace, "TACTIC_RECORD_LOSING_8136")) {
             trace += "tacticLosing=${c.losingTactic}"
             return done(Terminal8136.REFUSE, "TACTIC_RECORD_LOSING_8136", true, chosen)
         }
@@ -555,7 +581,7 @@ object CandidateAdmission8136 {
         if (chosen == c.selectedSetup && losing8136(timingLoss8324) && !cellSupported) {
             trace += "timing=${c.timing?.compact}"
             // V5.0.8257 — the same thin-record rule as the setup record: a clear loss refuses, a one-SE band is advisory.
-            if (clearlyLosing8136(timingLoss8324) && doorBinds8393("TIMING_ADVERSE_8136")) return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
+            if (clearlyLosing8136(timingLoss8324) && doorBinds8393("TIMING_ADVERSE_8136") && !probe8429(c, trace, "TIMING_ADVERSE_8136")) return done(Terminal8136.REFUSE, "TIMING_ADVERSE_8136", true, chosen)
             // V5.0.8316 — the 8290 live thin-loss refusal is withdrawn here too (8314: TIMING_ADVERSE 118); see the setup record above.
             trace += "timingThin=advisory"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TIMING_ADVERSE_THIN_ADVISORY_8257") } catch (_: Throwable) {}
@@ -599,7 +625,7 @@ object CandidateAdmission8136 {
         //    is re-judged when the hour turns (the hour is part of its identity, so a held defer is not reused across it).
         if (!decisionGross.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418) {
             val proof8418 = c.fallingHourProof8418
-            if (FallingHourCohort8418.provenLosing8418(proof8418)) {
+            if (FallingHourCohort8418.provenLosing8418(proof8418) && !probe8429(c, trace, FALLING_HOUR_PROVEN_LOSING_8418)) {
                 trace += "fallingHour8418 setup=${chosen ?: "-"} noSupportedStrategy provenLosing=${proof8418?.compact} cost=${fmt8136(c.costPct)}"
                 FallingHourCohort8418.noteDecision8418(c.lane, refused = true)
                 return done(Terminal8136.REFUSE, FALLING_HOUR_PROVEN_LOSING_8418, true, chosen)
@@ -1417,6 +1443,7 @@ object CandidateAdmission8136 {
             laneLabel8325 = if (live8290) laneLabel8325(lane) else null,
             // V5.0.8424 — the same ask LiveEdgeGate7877 makes (by mint, so the probe claim is this coin's): a shut lane's probe
             laneProbe8424 = live8290 && (try { EntryEconomics8329.laneRealisedRefusal8329(lane, nowMs, ts.mint) == null } catch (_: Throwable) { false }),
+            recordProbe8429 = live8290 && (try { LaneRealisedProbe8424.slotOpen8429(lane, ts.mint, nowMs) } catch (_: Throwable) { false }),
         )
     }
 }

@@ -15454,10 +15454,23 @@ class BotService : Service() {
         //      lane shapes — but we still cap fanout per the operator P1 spec:
         //      "primary lane + at most one rescue lane".
         val l = lane.uppercase()
+        // V5.0.8429 §EVERY_LANE_JUDGES_ITS_OWN_PREY — this lane's resident book holds a READY proposal for the coin: its own
+        // brain qualified it. 8422 (8.5 min): CORE qualified 296 coins and evaluated 0, CYCLIC 531 / 0, TREASURY 440 / 0,
+        // MANIPULATED 62 / 0 — READY_NOT_EVALUATED_PRIMARY_SHITCOIN 249 on CORE alone — because a sealed owner (below) and the
+        // one-rescue cap turned every other qualified specialist away before its own FDG ever ran. A READY resident proposal
+        // is a native claim (nativeEvalSlot8214, bounded per candidate version); the sealed owner keeps its own decision.
+        val ownBrainReady8429 = try {
+            com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.entry(l, ts.mint)?.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY
+        } catch (_: Throwable) { false }
         val claimedOwner6600 = LaneExecutionCoordinator.currentElection6600(ts.mint)?.takeIf { it.sealed }?.primaryLane
         if (!claimedOwner6600.isNullOrBlank() && !claimedOwner6600.equals(l, true)) {
-            try { ToolkitSignalSheet.recordDeskStage(l, "CONTRIBUTOR_ONLY", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
-            return false
+            val ownBrain8429 = ownBrainReady8429 && !ExecutionAuthorityPolicy6533.isTrunkLane(l) &&
+                SpecialistElection8136.nativeEvalSlot8214(ts.mint, l, claimedOwner6600, LaneExecutionCoordinator.candidateVersionFor(ts.mint), true)
+            if (!ownBrain8429) {
+                try { ToolkitSignalSheet.recordDeskStage(l, "CONTRIBUTOR_ONLY", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
+                return false
+            }
+            try { PipelineHealthCollector.labelInc("OWN_BRAIN_EVALUATES_PAST_SEALED_OWNER_8429_$l") } catch (_: Throwable) {}
         }
         // V5.0.6533 — specialist execution is bounded below to primary + one deterministic rescue.
         // Trunk handling occurs after metric-stage hard safety below.
@@ -15527,6 +15540,7 @@ class BotService : Service() {
                 (l == "PROJECT_SNIPER" && SniperScope8190.directSniperSource8212(ts.source))
         } catch (_: Throwable) { false }
         val designatedDeskQualified6599 = designatedDeskSheet6599 == null || designatedDeskSheet6599.deskHypotheses.isEmpty() || designatedDeskHypothesis6599 != null || huntedByLane7297 ||
+            ownBrainReady8429 ||   // V5.0.8429 — the lane's own READY resident proposal is its qualification
             SpecialistElection8136.electionQualified8144(ts.mint, l)  // V5.0.8144 — the rescue holder / named receiver is qualified by its own native evidence
         val candidateVersion6600 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
         // V5.0.8031 — CORE and CYCLIC have no per-token buy block: as the one rescue lane they burned the slot a
@@ -15548,7 +15562,7 @@ class BotService : Service() {
                 // V5.0.8214 — a specialist with its OWN native claim (its hunter claimed the coin, or its desk filed a hypothesis)
                 // evaluates its own strategy instead of being dropped as NON_OWNER_NOT_RESCUE behind a hash-lottery rescue.
                 SpecialistElection8136.nativeEvalSlot8214(ts.mint, l, primaryLane, candidateVersion6600,
-                    huntedByLane7297 || designatedDeskHypothesis6599 != null))
+                    huntedByLane7297 || designatedDeskHypothesis6599 != null || ownBrainReady8429))   // V5.0.8429 — a READY resident proposal is a native claim
         // V5.0.6604 §SPECIALIST_CONSENSUS_GATE (troubleshoot_agent P0 fix).
         //   Root cause slice of the <10% MemeTrader WR: MEME specialists
         //   (SHITCOIN / EXPRESS / MOONSHOT / PROJECT_SNIPER) could satisfy

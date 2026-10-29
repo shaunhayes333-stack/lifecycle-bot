@@ -12822,6 +12822,23 @@ class Executor(
                     return
                 }
 
+                // V5.0.8429 §EXIT_NOW_IS_AN_ORDER — the hold layer's profit-side EXIT_NOW / SCALE_OUT (runner trail, trailing stop,
+                // give-back, take-profit) was only ever debug-logged here: every one of its verdicts was advisory. A profit exit
+                // now sells (a scale-out sells half); loss-side stops stay with the rapid monitor and Executor stops, which
+                // confirm an off-basis mark against the executable price first (StopMarkConfirm8418).
+                if ((holdEval.action == HoldingLogicLayer.HoldAction.EXIT_NOW || holdEval.action == HoldingLogicLayer.HoldAction.SCALE_OUT) &&
+                    currentPnlPct > 0.0 && cfg().autoTrade && !cbState.isHalted && !cbState.isPaused) {
+                    val why8429 = HoldingLogicLayer.exitReasonTag8429(holdEval.reason)
+                    try {
+                        PipelineHealthCollector.labelInc("HOLD_LAYER_EXIT_EXECUTED_8429")
+                        ForensicLogger.lifecycle("HOLD_LAYER_EXIT_EXECUTED_8429",
+                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=${ts.position.tradingMode} action=${holdEval.action} pnl=${currentPnlPct.fmt(1)} reason=${holdEval.reason.take(120)}")
+                    } catch (_: Throwable) {}
+                    if (holdEval.action == HoldingLogicLayer.HoldAction.SCALE_OUT) requestPartialSell(ts, 0.5, why8429, wallet, walletSol)
+                    else requestSell(ts, why8429, wallet, walletSol)
+                    return
+                }
+
                 if (holdEval.action == HoldingLogicLayer.HoldAction.SWITCH_MODE &&
                     holdEval.modeSwitchRecommendation?.shouldSwitch == true &&
                     HeldPositionPivotArbiter.applyMode8384(ts, holdEval.modeSwitchRecommendation.newMode,

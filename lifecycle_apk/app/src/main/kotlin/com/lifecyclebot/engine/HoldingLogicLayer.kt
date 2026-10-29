@@ -70,6 +70,12 @@ object HoldingLogicLayer {
     // HOLD EVALUATION RESULT
     // ═══════════════════════════════════════════════════════════════════════════
     
+    /** Pure (V5.0.8429): the sell reason an executed hold-layer verdict carries — its first token, as a tag. */
+    fun exitReasonTag8429(reason: String): String {
+        val head = reason.trim().substringBefore(':').substringBefore(' ').uppercase().replace(Regex("[^A-Z0-9_]"), "_").trim('_')
+        return "HOLD_LAYER_8429_" + head.ifBlank { "EXIT" }.take(48)
+    }
+
     data class HoldEvaluation(
         val action: HoldAction,
         val reason: String,

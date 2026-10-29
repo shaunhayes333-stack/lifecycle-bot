@@ -199,8 +199,12 @@ class Aate8364OwnershipTest {
         assertTrue(e.nativeEvalSlot8214(m, "MOONSHOT", "QUALITY", 1L, true))
         assertTrue(e.nativeEvalSlot8214(m, "SHITCOIN", "QUALITY", 1L, true))
         assertTrue(e.nativeEvalSlot8214(m, "EXPRESS", "QUALITY", 1L, true))
+        // superseded by V5.0.8429 — the cap is six; the seventh asker meets it. Was: the fourth refused at a cap of three.
+        assertTrue(e.nativeEvalSlot8214(m, "DIP_HUNTER", "QUALITY", 1L, true))
+        assertTrue(e.nativeEvalSlot8214(m, "MANIPULATED", "QUALITY", 1L, true))
+        assertTrue(e.nativeEvalSlot8214(m, "BLUECHIP", "QUALITY", 1L, true))
         // No cached native snapshot: unknown eligibility never evicts a holder.
-        assertFalse(e.nativeEvalSlot8214(m, "DIP_HUNTER", "QUALITY", 1L, true))
+        assertFalse(e.nativeEvalSlot8214(m, "PROJECT_SNIPER", "QUALITY", 1L, true))
         assertTrue(e.statusLine8136().contains("nativeSlotReassigned=0"))
     }
 

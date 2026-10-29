@@ -15,9 +15,14 @@ class Aate8214NativeSpecialistEvalTest {
         assertTrue(SpecialistElection8136.nativeEvalSlot8214(m, "MOONSHOT", "QUALITY", 1L, true))
         assertTrue(SpecialistElection8136.nativeEvalSlot8214(m, "SHITCOIN", "QUALITY", 1L, true))
         assertTrue(SpecialistElection8136.nativeEvalSlot8214(m, "EXPRESS", "QUALITY", 1L, true))
-        assertFalse("cap holds", SpecialistElection8136.nativeEvalSlot8214(m, "DIP_HUNTER", "QUALITY", 1L, true))
+        // superseded by V5.0.8429 — the cap is six (a READY resident proposal is a native claim; CORE / CYCLIC / TREASURY were
+        // left behind the first three lanes in order). Was: the fourth lane refused.
+        assertTrue(SpecialistElection8136.nativeEvalSlot8214(m, "DIP_HUNTER", "QUALITY", 1L, true))
+        assertTrue(SpecialistElection8136.nativeEvalSlot8214(m, "MANIPULATED", "QUALITY", 1L, true))
+        assertTrue(SpecialistElection8136.nativeEvalSlot8214(m, "BLUECHIP", "QUALITY", 1L, true))
+        assertFalse("cap holds", SpecialistElection8136.nativeEvalSlot8214(m, "PROJECT_SNIPER", "QUALITY", 1L, true))
         assertTrue("a holder keeps its slot across cycles", SpecialistElection8136.nativeEvalSlot8214(m, "MOONSHOT", "QUALITY", 1L, true))
-        assertTrue("a new candidate version reopens slots", SpecialistElection8136.nativeEvalSlot8214(m, "DIP_HUNTER", "QUALITY", 2L, true))
+        assertTrue("a new candidate version reopens slots", SpecialistElection8136.nativeEvalSlot8214(m, "PROJECT_SNIPER", "QUALITY", 2L, true))
     }
 
     @Test fun gateAndElectionAreWired() {

@@ -969,7 +969,10 @@ object SpecialistElection8136 {
         return h.terminal == Terminal8136.RESCUE_EVALUATED && !h.reason.startsWith("FDG_ALLOW") && !h.reason.startsWith("ADOPTED_FDG_ALLOW")
     }
 
-    internal const val NATIVE_EVAL_CAP_8214 = 3
+    // V5.0.8429 — 3 -> 6: with a READY resident proposal counting as a native claim (BotService.laneEvaluationAllowed7951), the
+    // cap of three left CORE / CYCLIC / TREASURY / MANIPULATED behind the first three lanes in order; six still bounds fan-out
+    // (primary + rescue + six natives at most) against the 8422 gate cost of 15.9 ms a call.
+    internal const val NATIVE_EVAL_CAP_8214 = 6
     private val nativeEval8214 = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
 
     /**
