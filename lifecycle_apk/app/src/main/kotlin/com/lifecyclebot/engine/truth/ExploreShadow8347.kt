@@ -1498,7 +1498,10 @@ object ExploreShadow8347 {
             } } catch (_: Exception) { reportBusy8401.set(false) }
         }
         return hit?.let { "snapshotAgeMs=${now - it.atMs} ${it.text}" }
-            ?: "exploreShadow8347[summary pending; tickets=${tickets.size} opened=${opened.get()} closed=${closed.get()}]"
+            // V5.0.8418 — the restore counters are plain atomics, so the pending line carries them too: a report taken
+            // before the first background summary still shows whether the restart restored the shadow book.
+            ?: ("exploreShadow8347[summary pending; tickets=${tickets.size} opened=${opened.get()} closed=${closed.get()} " +
+                "restored8355=${restored8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} waitsRestored8355=${waitsRestored8355.get()}]")
     }
 
     @Volatile private var progress8398: String = "idle"

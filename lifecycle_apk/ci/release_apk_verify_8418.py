@@ -280,6 +280,18 @@ def scan_text(text: str, where: str, wordlist_index, findings: list) -> None:
 _B64_RE = re.compile(r"^[A-Za-z0-9+/]{64,}={0,2}$")
 
 
+def _is_jwt_8418(text: str) -> bool:
+    """Pure: a decode only counts as a token when its header is real JSON. XOR keys that share a prefix
+    (the Turso and LLM keys both start AATE_V5.0.66) turn one blob into printable text starting "eyJ";
+    only the right key yields a parseable header, so a wrong-key decode is not a second credential."""
+    head = text.split(".", 1)[0]
+    try:
+        obj = json.loads(base64.urlsafe_b64decode(head + "=" * (-len(head) % 4)).decode("utf-8"))
+    except Exception:
+        return False
+    return isinstance(obj, dict) and "alg" in obj
+
+
 def scan_obfuscated(strings: list, where: str, findings: list) -> None:
     """XOR(base64) credentials decoded with any *OBF* key string from the same dex."""
     keys = {s.encode() for s in strings if "OBF" in s and 8 <= len(s) <= 64}
@@ -298,7 +310,7 @@ def scan_obfuscated(strings: list, where: str, findings: list) -> None:
                 text = dec.decode("ascii")
             except UnicodeDecodeError:
                 continue
-            if text.startswith("eyJ") or any(p.search(text) for _, p in PLAINTEXT_SECRET_PATTERNS_8418):
+            if (text.startswith("eyJ") and _is_jwt_8418(text)) or any(p.search(text) for _, p in PLAINTEXT_SECRET_PATTERNS_8418):
                 findings.append({"kind": "xor-obfuscated-credential", "where": where, "wallet": False,
                                  "fingerprint": _fingerprint(text), "sample": text[:6] + "…"})
 
@@ -448,7 +460,12 @@ def parse_apksigner(text: str) -> dict:
     for m in re.finditer(r"Verified using (v\d(?:\.\d)?) scheme[^:]*:\s*(true|false)", text):
         schemes[m.group(1)] = m.group(2) == "true"
     certs = sorted(set(m.group(1).lower() for m in re.finditer(r"certificate SHA-256 digest:\s*([0-9a-fA-F]{64})", text)))
-    signers = len(set(re.findall(r"Signer #(\d+) certificate", text)))
+    # apksigner numbers signers ("Signer #1 certificate …") only on some versions/schemes; others print
+    # "Signer (minSdkVersion=…) certificate …" or plain "Signer certificate …". Count the distinct signer
+    # labels that carry a SHA-256 digest, so a single-signer APK reads 1 on every apksigner build.
+    labels = set(m.group(1).strip() for m in re.finditer(r"(Signer[^\n]*?) certificate SHA-256 digest:", text))
+    numbered = set(re.findall(r"Signer #(\d+) certificate", text))
+    signers = len(numbered) if numbered else (len(certs) if labels else 0)
     return {"verified": text.strip().startswith("Verifies") or "\nVerifies" in text, "schemes": schemes,
             "cert_sha256": certs, "signers": signers}
 

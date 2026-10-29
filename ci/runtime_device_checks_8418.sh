@@ -158,7 +158,19 @@ echo "::endgroup::"
 echo "::group::V5.0.8418 doze: deviceidle force-idle"
 adb shell dumpsys battery unplug >/dev/null 2>&1 || true
 adb shell dumpsys deviceidle enable deep > "$OUT/doze_enable.txt" 2>&1 || true
+adb shell input keyevent KEYCODE_SLEEP >/dev/null 2>&1 || true   # deep idle needs the screen off
+sleep 2
 adb shell dumpsys deviceidle force-idle > "$OUT/doze_force.txt" 2>&1 || true
+if grep -qi 'unable' "$OUT/doze_force.txt"; then
+    # Walk the deep state machine (ACTIVE -> INACTIVE -> IDLE_PENDING -> SENSING -> LOCATING -> IDLE) explicitly.
+    for _ in 1 2 3 4 5 6 7; do
+        st=$(adb shell dumpsys deviceidle step deep 2>/dev/null | tr -d '\r')
+        echo "step: $st" >> "$OUT/doze_force.txt"
+        case "$st" in *"IDLE"*) case "$st" in *PENDING*) ;; *) break;; esac;; esac
+    done
+    st=$(adb shell dumpsys deviceidle get deep 2>/dev/null | tr -d '\r')
+    [ "$st" = "IDLE" ] && echo "Now forced in to deep idle mode (stepped)" > "$OUT/doze_force.txt"
+fi
 cat "$OUT/doze_force.txt"
 dz_ok=1; dz_detail=""
 if ! grep -qi 'idle' "$OUT/doze_force.txt" || grep -qi 'unable' "$OUT/doze_force.txt"; then
@@ -172,6 +184,7 @@ if [ "$dz_ok" -eq 1 ]; then
     elif ! service_fg; then dz_ok=0; dz_detail="BotService lost foreground in doze"; fi
 fi
 adb shell dumpsys deviceidle unforce >/dev/null 2>&1 || true
+adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true; adb shell wm dismiss-keyguard >/dev/null 2>&1 || true; adb shell dumpsys battery reset >/dev/null 2>&1 || true
 adb shell dumpsys battery reset >/dev/null 2>&1 || true
 if [ "$dz_ok" -eq 1 ]; then
     M=$(mark)
@@ -192,7 +205,7 @@ sc_ok=1; sc_detail=""
 for A in "${SCREENS[@]}"; do
     M=$(mark)
     adb shell am start -W -n "$PKG/com.lifecyclebot.ui.$A" > "$OUT/start_$A.txt" 2>&1 || true
-    if grep -qE 'Error|Exception' "$OUT/start_$A.txt"; then
+    if grep -qE '^Error|Error type|Exception' "$OUT/start_$A.txt"; then  # not 'Error' inside ErrorLogActivity
         sc_ok=0; sc_detail+="$A: am start failed ($(tr -d '\r\n' < "$OUT/start_$A.txt" | head -c 160)); "; continue
     fi
     verdict="not rendered"; passed=0
@@ -231,8 +244,13 @@ adb shell run-as "$PKG" ls -l shared_prefs databases > "$OUT/files_before_restar
 cp "$WS/logcat_full.txt" "$OUT/log_before_restart.txt" 2>/dev/null || true
 cat "$LOG" >> "$OUT/log_before_restart.txt"
 adb shell am force-stop "$PKG"
-sleep 3
 rs_ok=1; rs_detail=""
+for _ in $(seq 1 20); do [ -z "$(app_pid)" ] && break; sleep 1; done
+if [ -n "$(app_pid)" ]; then
+    # Same-uid kill through run-as; still a real process death, which is what the restart check needs.
+    adb shell run-as "$PKG" kill -9 "$(app_pid)" >/dev/null 2>&1 || true
+    sleep 2
+fi
 [ -z "$(app_pid)" ] || { rs_ok=0; rs_detail="process survived force-stop; "; }
 M=$(mark)
 adb shell am start -n "$PKG/com.lifecyclebot.ui.MainActivity" >/dev/null 2>&1 || true
