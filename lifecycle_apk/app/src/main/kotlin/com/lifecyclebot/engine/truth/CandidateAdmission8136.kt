@@ -164,6 +164,12 @@ object CandidateAdmission8136 {
          * missing data — refused as [FALLING_HOUR_UNPROVEN_8418], never deferred forever). Null = a number, or no reason known.
          */
         val moveWait8418: String? = null,
+        /**
+         * V5.0.8418 — the lane's falling-hour record (FallingHourCohort8418: forward-labelled outcomes, net of cost, of
+         * momentum-lane decisions taken on a falling hour with no supported strategy). Read only when [moveWait8418] is
+         * the falling hour: proven losing refuses, anything less defers until the hour turns. Null = nothing graded.
+         */
+        val fallingHourProof8418: Evidence8136? = null,
     ) {
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
         val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
@@ -200,8 +206,17 @@ object CandidateAdmission8136 {
         val compact: String get() = "${terminal.name}:$reason${chosenSetup?.let { " setup=$it" } ?: ""} [${trace.joinToString("; ")}]"
     }
 
-    /** V5.0.8418 — a momentum lane's falling hour with no supported strategy (see [Candidate8136.moveWait8418]). */
+    /**
+     * V5.0.8418 — a momentum lane's falling hour with no supported strategy (see [Candidate8136.moveWait8418]).
+     * Superseded as a terminal (8418 phone run: 403 MOONSHOT refusals on no evidence): kept as the name of the condition.
+     */
     const val FALLING_HOUR_UNPROVEN_8418 = "FALLING_HOUR_UNPROVEN_8418"
+    /** V5.0.8418 — refused: the lane's falling-hour record is proven losing after cost (FallingHourCohort8418.provenLosing8418). */
+    const val FALLING_HOUR_PROVEN_LOSING_8418 = "FALLING_HOUR_PROVEN_LOSING_8418"
+    /** V5.0.8418 — deferred: the falling-hour record is not proven; the candidate is re-judged when its hour turns. */
+    const val FALLING_HOUR_DEFER_8418 = "DATA_DEFER_FALLING_HOUR_8418"  // "DATA_DEFER_" keeps FdgReceipt8397 reading it as a data wait
+    /** V5.0.8418 — the missing input a falling-hour defer waits for: the hour reading (re-observed via the chg fetch). */
+    const val FALLING_HOUR_WAIT_8418 = "chg:FALLING_HOUR_8418"
 
     internal const val SUPPORT_MIN_N_8136 = 30
     internal const val LOSING_MIN_N_8136 = 12
@@ -567,9 +582,20 @@ object CandidateAdmission8136 {
         //    bounce: that is the coin's own observation, refused here by name. 8416: MOONSHOT DATA_INCOMPLETE_DEFER 6,682 — a
         //    falling hour sat in "missing=economics", which no fetch answers, until the window reset and it deferred again.
         val moveWaitChosen8418 = if (chosen == c.selectedSetup) c.moveWait8418 else null
+        // V5.0.8418 (phone run: 403 MOONSHOT refusals) — the refusal now needs its own evidence: the lane's falling-hour
+        //    record proven losing after cost (FallingHourCohort8418). Unproven, the candidate DEFERS on the hour reading and
+        //    is re-judged when the hour turns (the hour is part of its identity, so a held defer is not reused across it).
         if (!decisionGross.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418) {
-            trace += "fallingHour8418 setup=${chosen ?: "-"} noSupportedStrategy cost=${fmt8136(c.costPct)}"
-            return done(Terminal8136.REFUSE, FALLING_HOUR_UNPROVEN_8418, true, chosen)
+            val proof8418 = c.fallingHourProof8418
+            if (FallingHourCohort8418.provenLosing8418(proof8418)) {
+                trace += "fallingHour8418 setup=${chosen ?: "-"} noSupportedStrategy provenLosing=${proof8418?.compact} cost=${fmt8136(c.costPct)}"
+                FallingHourCohort8418.noteDecision8418(c.lane, refused = true)
+                return done(Terminal8136.REFUSE, FALLING_HOUR_PROVEN_LOSING_8418, true, chosen)
+            }
+            trace += "fallingHour8418 setup=${chosen ?: "-"} noSupportedStrategy unproven=${proof8418?.compact ?: "n0"} deferUntilHourTurns"
+            trace += "missing=$FALLING_HOUR_WAIT_8418,economics"
+            FallingHourCohort8418.noteDecision8418(c.lane, refused = false)
+            return done(Terminal8136.DEFER_DATA, FALLING_HOUR_DEFER_8418, false, chosen)
         }
 
         // 4. execution economics: the expected executable move must clear NetEdge8030.EDGE_MULT x the round trip.
@@ -1341,6 +1367,8 @@ object CandidateAdmission8136 {
             // V5.0.8153 — the selected strategy's expected executable move (NetEdge8030.executableMove8153), as the gate judges it.
             expectedGrossPct = grossOf8418(move8418, cost8153, margin8418),
             moveWait8418 = NetEdge8030.moveWait8418(move8418, cost8153, margin8418),
+            fallingHourProof8418 = if (NetEdge8030.moveWait8418(move8418, cost8153, margin8418) == NetEdge8030.MOVE_WAIT_FALLING_8418)
+                (try { FallingHourCohort8418.evidence8418(lane) } catch (_: Throwable) { null }) else null,
             costPct = cost8153,
             costMargin8391 = margin8418,
             costSizeSol = costRec8209?.sizeSol ?: Double.NaN,

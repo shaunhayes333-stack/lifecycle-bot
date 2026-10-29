@@ -1026,6 +1026,7 @@ object ForwardReturnLabeler7731 {
         lastSeenAt[key] = nowMs
         // V5.0.7883 — the lane's trade shape (tokenomics, timing, flow) at this decision.
         try { TradeShapeLearner7883.capture(ts, l, nowMs) } catch (_: Throwable) {}
+        try { FallingHourCohort8418.capture8418(ts, l, nowMs) } catch (_: Throwable) {}  // V5.0.8418 — the falling-hour rule's own evidence
         // V5.0.7885 — the Cortex snapshot + every voter's opinion at this decision.
         try { com.lifecyclebot.engine.cortex.Cortex7885.capture(ts, l, admitted, nowMs, reason) } catch (_: Throwable) {}
         // V5.0.7955 — the setup this decision is traded as keys its exit profile (classify is cached by the capture above).
@@ -1424,6 +1425,7 @@ object ForwardReturnLabeler7731 {
             book(o, 60, net, gross, w8324)
             o.bookedNet7997 = net; o.bookedGross7997 = gross; o.bookedWitness8324 = w8324
             try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
+            try { FallingHourCohort8418.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}  // V5.0.8418
         }
         // V5.0.8080 §ONE_PATH_TWO_EXIT_FAMILIES. The setup books graded every setup that fired on one value, so a
         // momentum scalp and a breakout runner on the same coin were credited the same return. The same observed path is

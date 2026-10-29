@@ -59,6 +59,7 @@ object StrategyMove8153 {
         freshLaunch: Boolean,
         signedHourPct: Double? = null,
         momentumEntry: Boolean = false,
+        inLaunchWindow8418: Boolean = false,
     ): Move8153 {
         if (strategySupported8153(strategyN, strategyMeanPct, strategySePct) && costPct.isFinite() && costPct >= 0.0) {
             return Move8153(strategyMeanPct + costPct, "STRATEGY", false)
@@ -66,7 +67,9 @@ object StrategyMove8153 {
         // A falling hour cannot become a +30% runner prediction just because its
         // absolute change or high-low range is large. Re-observe until a bounce/setup
         // has its own supported edge; DIP_HUNTER and other non-momentum lanes are exempt.
-        if (momentumEntry && signedHourPct != null && signedHourPct.isFinite() && signedHourPct < 0.0) {
+        // V5.0.8418 — never on hour direction alone inside a fresh launch's window (known age <= FRESH_AGE_MIN_8153): a
+        // launch younger than its hour has no "falling hour", only its first pullback; the range / mandate read below judges it.
+        if (momentumEntry && !inLaunchWindow8418 && signedHourPct != null && signedHourPct.isFinite() && signedHourPct < 0.0) {
             return Move8153(0.0, "FALLING_HOUR_UNPROVEN", true)
         }
         val range = rangePct?.takeIf { it.isFinite() && it >= 0.0 }

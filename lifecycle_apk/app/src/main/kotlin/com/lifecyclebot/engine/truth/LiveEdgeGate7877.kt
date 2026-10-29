@@ -592,7 +592,7 @@ object LiveEdgeGate7877 {
                         missing.forEach { PipelineHealthCollector.labelInc("DATA_DEFER_FETCH_NEVER_COMPLETED_8204_" + it.substringBefore(':').take(16).uppercase()) }
                         AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint)
                     } catch (_: Throwable) {}
-                    val reason = if (budgetOpen8204) "DATA_INCOMPLETE_DEFER_8136"
+                    val reason = if (budgetOpen8204) (d.reason.takeIf { it == CandidateAdmission8136.FALLING_HOUR_DEFER_8418 } ?: "DATA_INCOMPLETE_DEFER_8136")  // V5.0.8418 — named
                         else if (unanswered8204) "DATA_DEFER_FETCH_NEVER_COMPLETED_8204" else "DATA_DEFER_BUDGET_EXHAUSTED_8136"
                     // V5.0.8229 — a spent deferral budget with the data STILL missing is a data condition, not a verdict on
                     // the candidate: the assessment stays DEFER (FDG / sizing / plan read "pending", never "refused") while the

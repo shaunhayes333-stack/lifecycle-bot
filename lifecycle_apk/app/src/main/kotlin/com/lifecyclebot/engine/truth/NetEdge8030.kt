@@ -299,6 +299,7 @@ object NetEdge8030 {
             strategyN = 0, strategyMeanPct = Double.NaN, strategySePct = Double.NaN,
             costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
             signedHourPct = hour, momentumEntry = StrategyMove8153.momentumLane8153(lane),
+            inLaunchWindow8418 = FallingHourCohort8418.inLaunchWindow8418(age),
         )
 
     /** V5.0.8153 — the expected executable move of [setup] (default: the strategy the coin trades as) for this entry. */
@@ -319,6 +320,7 @@ object NetEdge8030 {
             strategyN = rec?.get(0)?.toInt() ?: 0, strategyMeanPct = rec?.get(1) ?: Double.NaN, strategySePct = rec?.get(2) ?: Double.NaN,
             costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
             signedHourPct = hour8399, momentumEntry = StrategyMove8153.momentumLane8153(lane),
+            inLaunchWindow8418 = FallingHourCohort8418.inLaunchWindow8418(age),
         ).let { strat ->
             // V5.0.8418 — a book on the wrong clock (hour-graded lane, hour book short) may raise the move, never lower it.
             if (strat.basis != "STRATEGY") strat else StrategyMove8153.wrongClockMove8418(strat,

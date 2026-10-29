@@ -32,7 +32,9 @@ class Aate7833SpecialistCausalClosureTest {
         val seal = src("engine/SpecialistPreauthSeal7834.kt")
         assertTrue(seal.contains("candidateVersion = decision.candidateVersion7835"))
         assertTrue(seal.contains("resolvedSizeSol6558 = size"))
-        assertTrue(seal.contains("it.hardNoReasons.isEmpty()"))
+        // superseded by V5.0.8418 — the hard-no test moved into SealMiss8418.mismatch8418 (named, same rule)
+        assertTrue(seal.contains("SealMiss8418.mismatch8418(got8418"))
+        assertTrue(src("engine/SealMiss8418.kt").contains("intent.hardNoReasons.isNotEmpty() -> \"SEALED_HARD_NO_\""))
     }
 
     @Test fun all_canonical_specialists_share_the_same_intent_mirror_contract() {

@@ -119,11 +119,13 @@ class Aate8418EconomicsTruthTest {
     )
 
     @Test fun aFallingHourIsRefusedByNameNotDeferredForever() {
+        // superseded by V5.0.8418 — 8418 phone run: 403 MOONSHOT refusals on no evidence. Unproven -> a named data defer that
+        // resumes when the hour turns; a refusal needs the lane's falling-hour record proven losing (Aate8418FallingHourTest).
         val d = CandidateAdmission8136.decide8136(base(NetEdge8030.MOVE_WAIT_FALLING_8418))
-        assertEquals(d.compact, Terminal8136.REFUSE, d.terminal)
-        assertEquals(CandidateAdmission8136.FALLING_HOUR_UNPROVEN_8418, d.reason)
-        assertTrue(d.specific)
-        assertEquals(FdgReceipt8397.Outcome.REFUSE, FdgReceipt8397.outcome(false, "CANDIDATE_ADMISSION_8136_${d.reason}"))
+        assertEquals(d.compact, Terminal8136.DEFER_DATA, d.terminal)
+        assertEquals(CandidateAdmission8136.FALLING_HOUR_DEFER_8418, d.reason)
+        assertFalse(d.specific)
+        assertEquals(FdgReceipt8397.Outcome.DEFER_DATA, FdgReceipt8397.outcome(false, d.reason))
         // A supported net-of-cost edge still translates to a gross move (8171) and is judged on it.
         val proven = CandidateAdmission8136.decide8136(base(NetEdge8030.MOVE_WAIT_FALLING_8418, Evidence8136("CELL", "c", 60, 10.0, 2.0)))
         assertTrue(proven.compact, proven.admitted)
