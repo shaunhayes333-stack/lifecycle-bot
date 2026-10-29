@@ -14146,7 +14146,8 @@ class GoldenTapeRegressionTest {
         assertTrue(req.contains("HOT_WATCHLIST_REBALANCE_COALESCED_7735"))
 
         // Rapid stop: an uncorroborated, observation or trade-stream mark is off-basis inside the 45 s window.
-        val off = bs.substringAfter("val stopConfirmed7385 = run {").substringBefore("if (ts.position.entryTime <= 0L || ageMs >= 45_000L || !offBasis) return@run true")
+        // superseded by V5.0.8418 — the off-basis confirmation no longer expires at 45 s (StopMarkConfirm8418)
+        val off = bs.substringAfter("val stopConfirmed7385 = run {").substringBefore("if (ts.position.entryTime <= 0L || !offBasis8418) return@run true")
         assertTrue(off.contains("src.contains(\"UNCORROBORATED\") || src.contains(\"OBSERVATION\") || src.contains(\"TRADE_WS\") ||"))
 
         // Crypto: the size clamp can no longer throw; the exception message travels with the disposition.

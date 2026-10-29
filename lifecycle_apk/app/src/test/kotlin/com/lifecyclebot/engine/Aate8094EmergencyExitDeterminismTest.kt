@@ -137,7 +137,9 @@ class Aate8094EmergencyExitDeterminismTest {
     @Test fun anOnRouteEarlyStopFiresImmediately() {
         val b = src("engine/BotService.kt")
         assertFalse(b.contains("earlyStopContradicted8094"))
-        assertTrue(b.contains("if (ts.position.entryTime <= 0L || ageMs >= 45_000L || !offBasis) return@run true"))
+        // superseded by V5.0.8418 — an on-route (on-basis) early stop still fires immediately; an OFF-basis mark now asks the
+        // executable price at any age instead of only inside 45 s (8418 journal: catastrophe stop at 48 s, fill -3.3 %)
+        assertTrue(b.contains("if (ts.position.entryTime <= 0L || !offBasis8418) return@run true"))
     }
 
     // Memory: finality acks / exclusions move out of SharedPreferences into the store, losslessly.

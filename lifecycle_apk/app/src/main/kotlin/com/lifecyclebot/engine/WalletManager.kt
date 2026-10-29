@@ -594,7 +594,10 @@ class WalletManager private constructor(private val ctx: Context) {
         // Unknown is not an observed SOL price. Preserve a real cached value;
         // callers must defer conversion when a cold start has no observation.
         ErrorLogger.warn("Wallet", "All SOL price sources failed; using observed cache if available")
-        return freshSolPrice8163().also { if (it == 0.0) lastKnownSolPrice = 0.0 }
+        // V5.0.8418 — a failed fetch chain never erases the last OBSERVED rate: zeroing it stopped every SOL-denominated
+        // mark (applyPumpTradeMark7278 returns on solUsd <= 0), wrote $0.00 on the journal export and quarantined closes.
+        // Freshness is a separate question (freshSolPrice8163 / SolUsd8418 answer it for sizing); the observation stands.
+        return freshSolPrice8163()
     }
     
     private fun tryCoinGecko(): Double {

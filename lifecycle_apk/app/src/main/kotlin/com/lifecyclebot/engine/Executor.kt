@@ -10096,7 +10096,8 @@ class Executor(
             val floor = try {
                 com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0)
             } catch (_: Throwable) { -25.0 }
-            if (pnlPct <= floor && currentPrice > 0.0) {
+            if (pnlPct <= floor && currentPrice > 0.0 &&
+                StopMarkConfirm8418.confirmed8418(ts, pnlPct, floor, ts.position.isPaperPosition)) {
                 onLog("🛑 SWEEP_FLUID_FLOOR: ${ts.symbol} pnl=${pnlPct.toInt()}% ≤ floor=${floor.toInt()}%", ts.mint)
                 doSell(ts, "SWEEP_FLUID_FLOOR_${floor.toInt()}", wallet, walletSol)
             }

@@ -12749,7 +12749,8 @@ class BotService : Service() {
                             RUNNER_LANE_MIN_FLUID_STOP_PCT_7696
                         } else dynamicStopPct
                         if (pnlPct <= dynamicStopPct7696 && ExitDoctrine8169.fires8169(ts, dynamicStopPct7696, runnerDefer7322) &&  // V5.0.8169 — a deferred runner's protective floor fires
-                            !planOwnsExit7754(ts, true, false, "RAPID_FLUID", stopSide = true)) {
+                            !planOwnsExit7754(ts, true, false, "RAPID_FLUID", stopSide = true) &&
+                            StopMarkConfirm8418.confirmed8418(ts, pnlPct, dynamicStopPct7696, cfg.paperMode)) {
                             // V5.9.1431 — RAPID ENTRY PROTECT REMOVED (operator
                             // directive). No more ENTRY_PROTECT stop label/behaviour.
                             // The 40s warmup HOLD above already prevents the dynamic
@@ -19770,7 +19771,10 @@ class BotService : Service() {
                     ts.position.entryPoolAddress != ts.lastPricePoolAddr)
             // V5.0.8094 entry repair — the 8094 on-route hold is withdrawn: a cached quote that lagged a real dump held a
             // catastrophe stop (H9NC5D: triggered near -23%, realised -43%). An on-route stop fires immediately, as through 8093.
-            if (ts.position.entryTime <= 0L || ageMs >= 45_000L || !offBasis) return@run true
+            // V5.0.8418 §A_STOP_SELLS_ON_A_PRICE_THE_ROUTE_AGREES_WITH — the 45 s expiry is gone: an off-basis mark asks the
+            // executable price at any age (8418 journal: Ac6PLX catastrophe stop at 48 s, the fill -3.3 % gross).
+            val offBasis8418 = offBasis || !StopMarkConfirm8418.onBasis8418(ts.lastPriceSource, ts.lastPricePoolAddr, ts.position.entryPoolAddress)
+            if (ts.position.entryTime <= 0L || !offBasis8418) return@run true
             if (pnlPct <= -60.0 && ageMs >= 10_000L) return@run true
             val exec = try {
                 com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getExecutablePriceIfFresh7301(ts.mint)
@@ -25948,6 +25952,24 @@ if (hotExitHandledSweep) {
         val px = priceSolPerToken * solUsd
         if (!px.isFinite() || px <= 0.0) return
         val now = System.currentTimeMillis()
+        // V5.0.8418 §ONE_PRINT_IS_NOT_A_PRICE — a held position's print that implies a 3x jump inside a minute is an
+        // observation until a second print agrees (MarkGate8418); it never becomes the row's price or drives an exit.
+        if (ts.position.isOpen && ts.position.entryPrice > 0.0) {
+            val ref8418 = if (ts.lastPrice > 0.0) ts.lastPrice else ts.position.entryPrice
+            val refAt8418 = if (ts.lastPrice > 0.0) ts.lastPriceUpdate else ts.position.entryTime
+            when (MarkGate8418.decide8418("$mint|${ts.position.entryTime}", ref8418, refAt8418, px, now)) {
+                MarkGate8418.Decision8418.HOLD -> {
+                    try { PipelineHealthCollector.labelInc("PUMP_TRADE_MARK_HELD_8418") } catch (_: Throwable) {}
+                    try {
+                        ForensicLogger.lifecycle("PUMP_TRADE_MARK_HELD_8418",
+                            "mint=${mint.take(10)} px=$px ref=$ref8418 source=$source8018 action=observation_only_until_second_print")
+                    } catch (_: Throwable) {}
+                    return
+                }
+                MarkGate8418.Decision8418.CONFIRMED -> try { PipelineHealthCollector.labelInc("PUMP_TRADE_MARK_CONFIRMED_8418") } catch (_: Throwable) {}
+                MarkGate8418.Decision8418.ACCEPT -> {}
+            }
+        }
         synchronized(ts) {
             ts.lastPrice = px
             ts.lastPriceSource = source8018

@@ -94,6 +94,13 @@ object LiveCanonicalRecovery6686 {
      * never-sold live row for it was quarantined DUST_UNROUTABLE_7714. Leftover dust after a real sell (sold basis > 0)
      * is not this, so the 7714 dust loop (WBTC) stays closed.
      */
+    /** V5.0.8418 — the bot itself bought [mint] inside the last minute (its canonical row may not be written yet). */
+    internal fun botBuySecondsOld8418(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        val row = HostWalletTokenTracker.getEntry(mint)
+        val at = row?.buyTimeMs ?: 0L
+        BotJournalMints8024.botTraded8024(mint) && at > 0L && nowMs - at in 0L..60_000L
+    } catch (_: Throwable) { false }
+
     private fun botJournalBought8053(mint: String): Boolean = try {
         BotJournalMints8024.botTraded8024(mint) &&
             CanonicalPositionAuthority6441.quarantinedLivePositions7454(mint).any {
@@ -383,6 +390,13 @@ object LiveCanonicalRecovery6686 {
             // the row's own buy cost); nothing is relabelled as a wallet remnant.
             val pendingId8418 = pendingEntry8418[mint]
             if (pendingId8418 != null) try { PipelineHealthCollector.labelInc("BOT_HOLDING_PENDING_VERIFY_PROTECTED_8418") } catch (_: Throwable) {}
+            // V5.0.8418 — the bot's own buy whose canonical row is not written yet (tokens land before the receipt is booked)
+            // gets no SECOND owner: 8418 live showed a LIVE_PROTECT_7807 row beside the real row for every live buy
+            // (reconcile ids LIVE_PROTECT_7807:677RzF… / Ac6PLX…). Its own row arrives within the minute and owns it.
+            if (pendingId8418 == null && botBuySecondsOld8418(mint)) {
+                try { PipelineHealthCollector.labelInc("BOT_BUY_OWN_ROW_PENDING_NO_SECOND_OWNER_8418") } catch (_: Throwable) {}
+                continue
+            }
             // V5.0.8053 — a holding the bot's own journal bought is never left unmanaged: the dust stamp does not
             // exempt it from protective ownership (5.0.8051 Normie: coverage VIOLATION, 14 heal kicks, adopted 0).
             if (isDustUnroutable7714(mint) && !botJournalBought8053(mint)) continue
