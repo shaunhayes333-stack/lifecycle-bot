@@ -30,7 +30,10 @@ import java.util.concurrent.atomic.AtomicLong
  *  - impact             the depth model, raised to the fresh quote's own priceImpactPct (scaled to the ticket) when larger.
  *  - slippage           REALISED fill vs the executed quote, per side, from receipts ([RealisedSlip8418]); the 0.5 %/side
  *                       allowance only until [RealisedSlip8418.MIN_N_8418] fills per side are measured. Never the tolerance.
- *  - app fee            read from CostTrim8151.APP_FEE_PCT_PER_SIDE_8151 (owned by the fee branch; not set here).
+ *                       V5.0.8426: "executed" means the quote the swap transaction was built from (JupiterApi.buildSwapTx),
+ *                       never the latest probe quote of the mint; protective sells (stops) are measured apart and never
+ *                       charged to an entry (8422: a 3.82 %/side "sell slip" from five stop exits priced every entry at 9.88 %).
+ *  - app fee           read from CostTrim8151.APP_FEE_PCT_PER_SIDE_8151 (owned by the fee branch; not set here).
  * Fixed SOL (base + priority + tips + unreclaimed rent) is shown apart from the percentage costs ([itemise8418]).
  */
 object RoundTrip8418 {
@@ -177,8 +180,19 @@ object RealisedSlip8418 {
     data class Quote8418(val inAmount: BigInteger, val outAmount: BigInteger, val impactPct: Double, val atMs: Long)
 
     private val quotes = ConcurrentHashMap<String, Quote8418>()
+    /**
+     * V5.0.8426 — the quote each swap transaction was BUILT from (JupiterApi.buildSwapTx), by mint and side. A fill is
+     * measured against this and nothing else. 8422: `realisedSlip8418{buy=-%/n2 sell=3.82%/n5 unmatched=24 quotes=18}` —
+     * fills were matched to the LATEST quote of the mint and side inside 180 s, which on a held coin is the executable-price
+     * probe (MarkIdentityRepairAuthority7236.requestExecutableQuote7301 every 5 s under a stop watch) or a sizing re-check at
+     * another amount: buys fell out as unmatched (24 of 27), sells "measured" minutes of a dumping tape against a probe quote
+     * (3.82 %/side) and the entry cost charged it (used=9.88 % on a 0.03 SOL ticket). The mark gap is not a fee (8418).
+     */
+    private val executed8426 = ConcurrentHashMap<String, Quote8418>()
     private val buys = ArrayDeque<Double>()
     private val sells = ArrayDeque<Double>()
+    /** V5.0.8426 — protective sells (stop / rug / emergency: the larger Sender tip) measured apart: a stop pays its own slippage. */
+    private val stops8426 = ArrayDeque<Double>()
     private val unmatched = AtomicLong(0)
     @Volatile private var loaded = false
 
@@ -245,9 +259,29 @@ object RealisedSlip8418 {
     internal fun freshBuyQuote8418(mint: String, nowMs: Long): Quote8418? =
         quotes["$mint|BUY"]?.takeIf { nowMs - it.atMs in 0L..QUOTE_FRESH_MS_8418 }
 
+    /**
+     * V5.0.8426 — JupiterApi.buildSwapTx: the quote this swap transaction is built from (Ultra order or Metis /swap). Only
+     * this quote answers for the fill; a later probe or sizing quote of the same mint never replaces it.
+     */
+    fun noteExecuted8426(inputMint: String, outputMint: String, inAmountRaw: Long, outAmountRaw: Long, impactPct: Double,
+                         nowMs: Long = System.currentTimeMillis()) {
+        val key = when {
+            inputMint == SOL_8418 && outputMint != SOL_8418 -> "$outputMint|BUY"
+            outputMint == SOL_8418 && inputMint != SOL_8418 -> "$inputMint|SELL"
+            else -> return
+        }
+        if (inAmountRaw <= 0L || outAmountRaw <= 0L) return
+        executed8426[key] = Quote8418(BigInteger.valueOf(inAmountRaw), BigInteger.valueOf(outAmountRaw), impactPct, nowMs)
+        if (executed8426.size > 512) executed8426.entries.removeIf { nowMs - it.value.atMs > QUOTE_MATCH_MS_8418 }
+    }
+
+    /** Pure (V5.0.8426): a sell sent with more than the ordinary Sender tip is a protective exit (stop / rug / emergency). */
+    fun protectiveSell8426(tipLamports: Long): Boolean = tipLamports > CostTrim8151.ORDINARY_SENDER_TIP_LAMPORTS_8151
+
     /** TradeVerifier.verifyBuy (landed): tokens received for the SOL spent (rent excluded), the leg's network fee. */
     fun noteBuyFill8418(mint: String, receivedRaw: BigInteger, solSpentLamports: Long, feeLamports: Long, nowMs: Long = System.currentTimeMillis()) {
-        val q = quotes["$mint|BUY"]?.takeIf { nowMs - it.atMs in 0L..QUOTE_MATCH_MS_8418 }
+        // V5.0.8426 — against the EXECUTED quote only (superseded: the latest quote of the mint and side, a probe more often than not)
+        val q = executed8426["$mint|BUY"]?.takeIf { nowMs - it.atMs in 0L..QUOTE_MATCH_MS_8418 }
         val slip = if (q == null) null else buySlipPct8418(q.inAmount, q.outAmount, solSpentLamports - feeLamports.coerceAtLeast(0L), receivedRaw)
         record8418(true, slip)
     }
@@ -255,17 +289,17 @@ object RealisedSlip8418 {
     /** TradeVerifier.verifySell (landed): tokens sold, SOL received net (rent excluded), the leg's fee and tip. */
     fun noteSellFill8418(mint: String, soldRaw: BigInteger, solReceivedLamports: Long, feeLamports: Long, tipLamports: Long,
                          nowMs: Long = System.currentTimeMillis()) {
-        val q = quotes["$mint|SELL"]?.takeIf { nowMs - it.atMs in 0L..QUOTE_MATCH_MS_8418 }
+        val q = executed8426["$mint|SELL"]?.takeIf { nowMs - it.atMs in 0L..QUOTE_MATCH_MS_8418 }   // V5.0.8426
         val gross = solReceivedLamports + feeLamports.coerceAtLeast(0L) + tipLamports.coerceAtLeast(0L)
         val slip = if (q == null) null else sellSlipPct8418(q.inAmount, q.outAmount, soldRaw, gross)
-        record8418(false, slip)
+        record8418(false, slip, protective = protectiveSell8426(tipLamports))
     }
 
-    private fun record8418(buy: Boolean, slip: Double?) {
+    private fun record8418(buy: Boolean, slip: Double?, protective: Boolean = false) {
         if (slip == null) { unmatched.incrementAndGet(); return }
         synchronized(this) {
             ensureLoaded8418()
-            val q = if (buy) buys else sells
+            val q = if (buy) buys else if (protective) stops8426 else sells   // V5.0.8426 — a stop's slippage is the stop's
             q.addLast(slip)
             while (q.size > RING_8418) q.removeFirst()
             persist8418()
@@ -274,11 +308,17 @@ object RealisedSlip8418 {
 
     // ── reads ──
 
-    /** The realised median slippage (%) of [side] ("BUY" / "SELL") once [MIN_N_8418] fills are measured, else null. */
+    /**
+     * The realised median slippage (%) of [side] ("BUY" / "SELL") once [MIN_N_8418] fills are measured, else null. The SELL
+     * median is the ORDINARY exits' (V5.0.8426): what the entry's planned exit will pay; protective exits read [stopMedianPct8426].
+     */
     fun medianPct8418(side: String): Double? = synchronized(this) {
         ensureLoaded8418()
         median8418((if (side.equals("BUY", true)) buys else sells).toList())
     }
+
+    /** V5.0.8426 — the protective exits' realised median slippage (%), for the report and the stop books; never the entry cost. */
+    fun stopMedianPct8426(): Double? = synchronized(this) { ensureLoaded8418(); median8418(stops8426.toList()) }
 
     internal fun sideMeasured8418(side: String): Boolean = medianPct8418(side) != null
 
@@ -289,7 +329,8 @@ object RealisedSlip8418 {
         ensureLoaded8418()
         fun p(v: Double?) = if (v != null && v.isFinite()) "%.2f".format(v) else "-"
         "realisedSlip8418{buy=${p(median8418(buys.toList()))}%/n${buys.size} sell=${p(median8418(sells.toList()))}%/n${sells.size} " +
-            "unmatched=${unmatched.get()} minN=$MIN_N_8418 quotes=${quotes.size}}"
+            "stopSell8426=${p(median8418(stops8426.toList()))}%/n${stops8426.size} unmatched=${unmatched.get()} minN=$MIN_N_8418 " +
+            "quotes=${quotes.size} executed8426=${executed8426.size}}"
     }
 
     // ── persistence ──
@@ -306,7 +347,9 @@ object RealisedSlip8418 {
                 for (i in 0 until a.length()) { val v = a.optDouble(i); if (v.isFinite()) into.addLast(v) }
                 while (into.size > RING_8418) into.removeFirst()
             }
-            read("buy", buys); read("sell", sells)
+            // V5.0.8426 — the pre-8426 "sell" ring measured fills against probe quotes (minutes of tape, not slippage): it is not
+            // restored; the executed-quote samples start from this build. "buy" rows were executed-amount checked and stand.
+            read("buy", buys); read("sell8426", sells); read("stop8426", stops8426)
         } catch (_: Throwable) {}
     }
 
@@ -314,9 +357,10 @@ object RealisedSlip8418 {
         if (!loaded) return
         try {
             LearningPersistence.save(PERSIST_KEY_8418, org.json.JSONObject()
-                .put("buy", org.json.JSONArray(buys.toList())).put("sell", org.json.JSONArray(sells.toList())).toString())
+                .put("buy", org.json.JSONArray(buys.toList())).put("sell8426", org.json.JSONArray(sells.toList()))
+                .put("stop8426", org.json.JSONArray(stops8426.toList())).toString())
         } catch (_: Throwable) {}
     }
 
-    internal fun resetForTest8418() = synchronized(this) { quotes.clear(); buys.clear(); sells.clear(); unmatched.set(0); loaded = false }
+    internal fun resetForTest8418() = synchronized(this) { quotes.clear(); executed8426.clear(); buys.clear(); sells.clear(); stops8426.clear(); unmatched.set(0); loaded = false }
 }

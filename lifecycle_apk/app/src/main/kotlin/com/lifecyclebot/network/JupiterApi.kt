@@ -584,6 +584,8 @@ class JupiterApi(
         ordinary8151: Boolean = false,   // V5.0.8151 — discretionary trade: medium CU price capped to its size
     ): SwapTxResult {
         require(userPublicKey.isNotBlank()) { "userPublicKey blank" }
+        // V5.0.8426 — this quote is the one the transaction is built from: the fill is measured against it and nothing else.
+        try { com.lifecyclebot.engine.RealisedSlip8418.noteExecuted8426(quote.inputMint, quote.outputMint, quote.inAmount, quote.outAmount, quote.priceImpactPct) } catch (_: Throwable) {}
 
         if (quote.isUltra) {
             // Ultra v2 binding orders already encode their own slippage
