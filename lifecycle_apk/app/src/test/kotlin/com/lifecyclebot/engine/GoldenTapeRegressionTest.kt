@@ -9709,7 +9709,9 @@ class GoldenTapeRegressionTest {
         assertTrue(fluid.contains("if (peakClamped >= 100.0) {"))
         assertTrue(fluid.contains("fluidProfitFloor(peakClamped, volatility, holdTimeSeconds, lane)"))
         assertTrue(fluid.contains("return maxOf(scaledBand7265, breakEvenFloor)"))
-        assertTrue(fluid.contains("return maxOf(continuousLock, breakEvenFloor)"))
+        // superseded by V5.0.8423 — on a runner lane the tick lock is held to the owner's runner trail (RunnerTrail8419); the
+        // breakeven floor still bounds it. Was: `return maxOf(continuousLock, breakEvenFloor)`.
+        assertTrue(fluid.contains("return maxOf(com.lifecyclebot.engine.RunnerTrail8419.tickLockLevel8419(lane, peakClamped, continuousLock), breakEvenFloor)"))
         assertFalse(fluid.contains("val peakDrawdownFloor = if (peakClamped >= 100.0) peakClamped - 12.0"))
         assertFalse(bot.contains("peakPnlPct >= 100.0 -> peakPnlPct - 12.0"))
         assertTrue(bot.contains("RAPID_PEAK_LOCK_BREACH_4301"))
@@ -9824,7 +9826,10 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("PeakDrawdownLock.triggerFracForPeak(peakGainPct, ts.position.tradingMode)"))
         // A blank lane keeps the base curve; the safety nets are untouched.
         assertTrue(PeakDrawdownLock.triggerFracForPeak(150.0, "") == PeakDrawdownLock.triggerFracForPeak(150.0))
-        assertTrue(fluid.contains("return if (peakPnlPct >= 100.0) floor else kotlin.math.max(floor, peakPnlPct * 0.70)"))
+        // superseded by V5.0.8423 — the same band, then held to the runner trail on a runner lane (RunnerTrail8419.tickLockLevel8419).
+        // Was: `return if (peakPnlPct >= 100.0) floor else kotlin.math.max(floor, peakPnlPct * 0.70)`.
+        assertTrue(fluid.contains("val out = if (peakPnlPct >= 100.0) floor else kotlin.math.max(floor, peakPnlPct * 0.70)"))
+        assertTrue(fluid.contains("return com.lifecyclebot.engine.RunnerTrail8419.tickLockLevel8419(lane, peakPnlPct, out)"))
         assertTrue(fluid.contains("val breakEvenFloor = if (peakClamped >= 8.0) 1.0 else Double.NEGATIVE_INFINITY"))
 
         // Moonshot minimum: learned bucket floor overrides the table both ways.

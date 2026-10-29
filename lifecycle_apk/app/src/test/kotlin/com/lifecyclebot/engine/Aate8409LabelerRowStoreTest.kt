@@ -94,7 +94,11 @@ class Aate8409LabelerRowStoreTest {
         assertTrue(src.contains("putRow8409(FORWARD_PREFIX_8404 + id, raw)"))
         assertTrue(src.contains("removeRows8409(listOf(FORWARD_PREFIX_8404 + id))"))
         assertTrue(src.contains("val committed = putRow8409(id, value)"))
-        assertTrue(src.contains("if (p.edit().putString(PENDING_KEY_7946, retained).commit() && removeRows8409(acknowledged))"))
+        // superseded by V5.0.8423 — the checkpoint is rewritten only when it holds an acknowledged row (TerminalOutbox8419.retainedRows8419
+        // null = nothing to rewrite); the order is unchanged: checkpoint commit first, then the rows leave the store in one transaction.
+        // Was: `if (p.edit().putString(PENDING_KEY_7946, retained).commit() && removeRows8409(acknowledged))`.
+        assertTrue(src.contains("val checkpointOk8419 = retained == null || p.edit().putString(PENDING_KEY_7946, retained).commit()"))
+        assertTrue(src.contains("if (checkpointOk8419 && removeRows8409(acknowledged))"))
         assertTrue(src.contains("openRowStore8409(context, p)"))
         assertTrue(src.indexOf("openRowStore8409(context, p)") < src.indexOf("val rows8409 = loadRows8409(p)"))
         // the only remaining row-level preferences commits are the fallback inside the 8409 helpers

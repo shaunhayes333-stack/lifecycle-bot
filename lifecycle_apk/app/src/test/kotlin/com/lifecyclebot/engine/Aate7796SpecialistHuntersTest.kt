@@ -31,7 +31,10 @@ class Aate7796SpecialistHuntersTest {
     @Test fun sniperHunterUsesTrueFirstMinutesWindow() {
         val s = src("engine/market/LaneHunter7297.kt")
         // V5.0.8031 — age must be KNOWN and within the first 3 minutes.
-        assertTrue(s.contains("HunterMandates8031.knownAgeWithin8031(r.ageHours, 0.05)"))
+        // superseded by V5.0.8423 — and it must be the chain-proven BIRTH, never a provider's pool age (LaneHunter7297.sniperAgeFits8419
+        // wraps the same knownAgeWithin8031 window). Was: `HunterMandates8031.knownAgeWithin8031(r.ageHours, 0.05)` at the fit.
+        assertTrue(s.contains("sniperAgeFits8419(r.ageHours, r.birthProven8419, 0.05)"))
+        assertTrue(s.contains("birthProven && HunterMandates8031.knownAgeWithin8031(ageHours, maxHours)"))
         assertTrue(s.contains("PROJECT_SNIPER"))
     }
 
