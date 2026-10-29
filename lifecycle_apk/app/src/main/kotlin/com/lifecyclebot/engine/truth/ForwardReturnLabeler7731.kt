@@ -454,7 +454,9 @@ object ForwardReturnLabeler7731 {
     // attach, no manual reset needed) and the learning reset line (LearningEpoch8164). A loss pattern may refuse only on
     // fresh labels (CandidateAdmission8136.cellLoss8169); older evidence decays to neutral, never to allow. Local
     // labels only: the hive's tallies carry no epoch.
-    private const val GRADING_VERSION_8169 = 8210
+    // V5.0.8418 — new grading contract: labels stop paying the ~9 % mark-based "cost" (§MARK_GAP_IS_NOT_A_FEE), so loss
+    // patterns graded under the old charge (~6 pt too negative) decay to neutral; positive evidence keeps its history.
+    private const val GRADING_VERSION_8169 = 8418
     private const val FRESH_KEY_8169 = "fresh_cells_8169"
     private const val FRESH_EPOCH_KEY_8169 = "fresh_epoch_8169"
     private const val GRADING_VERSION_KEY_8169 = "grading_version_8169"
