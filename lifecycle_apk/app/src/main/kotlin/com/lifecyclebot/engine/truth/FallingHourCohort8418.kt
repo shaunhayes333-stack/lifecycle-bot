@@ -145,6 +145,9 @@ object FallingHourCohort8418 {
             "persist8435[loaded=$loaded saved=${saved8435.get()} failed=${saveFailed8435.get()} savedN=${if (savedN8435 >= 0) savedN8435 else "-"} restoredPending=${restoredPending8435.get()} dirty=$dirty8435]"
     }
 
+    /** V5.0.8438 — DiagnosisBrief8438: (acknowledged saves, failed / refused saves). */
+    fun saves8438(): Pair<Long, Long> = saved8435.get() to saveFailed8435.get()
+
     /** Test seam: one lane's record (never called by production code). */
     internal fun seedForTest8418(lane: String, stat: Stat8418) {
         loaded = true

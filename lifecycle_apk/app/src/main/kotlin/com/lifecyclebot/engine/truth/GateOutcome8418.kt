@@ -110,6 +110,14 @@ object GateOutcome8418 {
         return retired
     }
 
+    /** V5.0.8438 — DiagnosisBrief8438: every gate's all-lane record (copies), largest first. */
+    fun ledger8438(): List<Pair<String, Stat8418>> {
+        load()
+        return book.entries.filter { !it.key.contains('@') }.map { (k, st) ->
+            k to synchronized(st) { Stat8418().also { c -> c.n = st.n; c.sum = st.sum; c.sumSq = st.sumSq; c.wins = st.wins; c.runners = st.runners } }
+        }.sortedByDescending { it.second.n }
+    }
+
     fun statusLine8418(): String {
         load()
         fun fmt(k: String, st: Stat8418): String = synchronized(st) {

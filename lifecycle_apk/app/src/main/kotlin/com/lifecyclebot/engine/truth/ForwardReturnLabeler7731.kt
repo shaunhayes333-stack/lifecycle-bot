@@ -2277,12 +2277,12 @@ object ForwardReturnLabeler7731 {
         // V5.0.8430 §A_WINDOW_THAT_CLOSED_WHILE_THE_PROCESS_WAS_DOWN — the restart cohort (8422: 968 of 1,881 due reads lost,
         // all of them windows that elapsed while the app was down) is offered the keyless 1-minute candle covering its horizon,
         // through this same filter; it waits only while its bounded fetch is queued inside the boot window.
-        val recoverable8435 = { m8435: LabelMark8386 ->
-            m8435.observedAtMs in (o.atMs+horizon/2)..deadline && LabelEvidence8386.eligible(o.basis8386.mark,m8435) &&
-                !curveContradicts8165(o.mint,m8435.usd,nowMs,m8435.observedAtMs) && !curveHolds8337(o.mint,m8435.usd,nowMs,m8435.observedAtMs) &&
-                PositionDisplayTruth8078.highStepOk8133(o.mint,o.entryPrice,o.entryPrice*(1.0+o.peakPct/100.0),m8435.usd,"FORWARD_LABEL") &&
+        val recoverable8435: (LabelMark8386) -> Boolean = {
+            it.observedAtMs in (o.atMs+horizon/2)..deadline && LabelEvidence8386.eligible(o.basis8386.mark,it) &&
+                !curveContradicts8165(o.mint,it.usd,nowMs,it.observedAtMs) && !curveHolds8337(o.mint,it.usd,nowMs,it.observedAtMs) &&
+                PositionDisplayTruth8078.highStepOk8133(o.mint,o.entryPrice,o.entryPrice*(1.0+o.peakPct/100.0),it.usd,"FORWARD_LABEL") &&
                 // V5.0.8180 — a recovered mark the entry cannot share a basis with is no read at all.
-                (o.entryPrice <= 0.0 || LabelBasis8180.bookable8180(o.entryPrice, m8435.usd, o.entryMcap, nowMcap7769(o.mint),
+                (o.entryPrice <= 0.0 || LabelBasis8180.bookable8180(o.entryPrice, it.usd, o.entryMcap, nowMcap7769(o.mint),
                     try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }))
         }
         // V5.0.8435 — the marks this observation already holds come first, and a token already proven dying is booked DEAD
@@ -2677,6 +2677,9 @@ object ForwardReturnLabeler7731 {
         charged8418[lane.trim().uppercase()]?.let { a -> synchronized(a) { if (a[0] >= 1.0) a[1] else null } }
 
     fun laneStatFor7737(lane: String): CellStat? = executable8187(laneStat(lane), lane)  // V5.0.8187 — executable read
+
+    /** V5.0.8438 — DiagnosisBrief8438: the forward record of every admitted / every refused decision. */
+    fun aggregate8438(admitted: Boolean): CellStat? = cellStat(if (admitted) AGG_ADMITTED else AGG_REFUSED)
 
     private fun fmtStat(s: CellStat?): String =
         if (s == null) "n=0" else "n=${s.n60} net=${"%+.1f".format(s.meanNet60Pct)}% wr=${"%.0f".format(s.winRate60 * 100)}% run=${"%.0f".format(s.runnerRate60 * 100)}% lost=${s.lost}" +

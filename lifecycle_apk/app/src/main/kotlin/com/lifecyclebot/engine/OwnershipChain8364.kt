@@ -301,6 +301,9 @@ object OwnershipChain8364 {
             "ended{$terms} lostNoTerminal{$lost}] (owner/intent are stamped after an FDG allow)"
     }
 
+    /** V5.0.8438 — DiagnosisBrief8438: [lane]'s stage counts (QUALIFIED, FDG_ALLOW, FDG_BLOCK, OWNER, INTENT, TICKET, EXEC). */
+    fun steps8438(laneRaw: String): Map<String, Long> = laneMap8364(stepCounts8364, lane8364(laneRaw))
+
     /** Totals across lanes of candidates closed with no terminal (by furthest stage). */
     fun lostNoTerminal8364(): Map<String, Long> =
         lostCounts8364.entries.groupBy({ it.key.substringAfter('|') }, { it.value.get() }).mapValues { it.value.sum() }

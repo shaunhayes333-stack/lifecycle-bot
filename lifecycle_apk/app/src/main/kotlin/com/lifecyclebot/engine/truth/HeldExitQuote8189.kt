@@ -169,6 +169,9 @@ object HeldExitQuote8189 {
 
     private val missCauses8435 = ConcurrentHashMap<String, AtomicLong>()
 
+    /** V5.0.8438 — DiagnosisBrief8438: (asked, answered) held sell quotes this process. */
+    fun askedOk8438(): Pair<Long, Long> = asked.get() to answered.get()
+
     fun statusLine8189(): String =
         "heldQuote8189[asked=${asked.get()} ok=${answered.get()} noRoute=${empty.get()} served=${served.get()} cached=${quotes.size} inFlight=${inFlight.size}" +
             " missBy8435{${missCauses8435.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}}]"

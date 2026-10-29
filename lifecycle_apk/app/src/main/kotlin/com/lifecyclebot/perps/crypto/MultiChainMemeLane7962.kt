@@ -932,6 +932,17 @@ object MultiChainMemeLane7962 {
         if (b.isEmpty()) "n0" else "n${b.size} mean=${"%+.1f".format(b.average())}% wr=${(b.count { it > 0.0 } * 100 / b.size)}%"
     }
 
+    /**
+     * V5.0.8438 — DiagnosisBrief8438: chains held in shadow for want of gas whose own lane labels are positive after cost
+     * ("chain lane n/mean"); funding the signer is what opens them.
+     */
+    fun gasBlockedPositive8438(): List<String> = EvmSwapExecutor7962.CHAINS_7962.mapNotNull { c ->
+        val cs = chains[c.key] ?: return@mapNotNull null
+        if (cs.gate.live || !cs.gate.reason.startsWith("NO_GAS") && !cs.gate.reason.startsWith("GAS_BELOW")) return@mapNotNull null
+        val ls = try { ForwardReturnLabeler7731.laneStatFor7737(laneOf7962(c.key)) } catch (_: Throwable) { null } ?: return@mapNotNull null
+        if (ls.n60 < 50 || !(ls.meanNet60Pct > 0.0)) null else "${c.key} n${ls.n60}/${"%+.1f".format(ls.meanNet60Pct)}%"
+    }
+
     /** PipelineHealthCollector: per chain gas balance, live/shadow, candidates, labels, cell EV. */
     fun statusLine(): String {
         val addr = signerAddress

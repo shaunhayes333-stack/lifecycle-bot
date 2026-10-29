@@ -102,7 +102,7 @@ object SellRouteSpine8144 {
             marksSinceFailure = 0
             if (lastFailureFresh) {
                 failedStage = s
-                failureCause = cause.take(60)
+                failureCause = cause.take(96)   // V5.0.8435 — room for "<sell row>:<NAME>|<result>"
                 failures += 1
             }
             return s
@@ -311,6 +311,13 @@ object SellRouteSpine8144 {
         if (preRouteCauses8435.size < 64 || preRouteCauses8435.containsKey(k)) preRouteCauses8435.computeIfAbsent(k) { AtomicLong() }.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SELL_PRE_ROUTE_CAUSE_8435_" + cause.substringBefore('|').substringBefore(':').take(40)) } catch (_: Throwable) {}
     }
+
+    /** V5.0.8438 — DiagnosisBrief8438: the most frequent pre-route causes ("EMRG|cause" -> count). */
+    fun preRouteTop8438(n: Int = 3): List<Pair<String, Long>> =
+        preRouteCauses8435.entries.sortedByDescending { it.value.get() }.take(n).map { it.key to it.value.get() }
+
+    /** V5.0.8438 — DiagnosisBrief8438: the worst emergency trigger -> broadcast this process (ms; 0 when none). */
+    fun emergencyT2bMax8438(): Long = latency8144["EMRG|trigger->broadcast"]?.let { a -> synchronized(a) { a.maxMs } } ?: 0L
 
     private fun preRouteLine8435(): String =
         "preRoute8435{" + preRouteCauses8435.entries.sortedByDescending { it.value.get() }.take(6)

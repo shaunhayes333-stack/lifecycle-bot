@@ -58,7 +58,9 @@ class Aate8280LaneScorecardAndRunnerBankingTest {
         assertTrue(block.contains("if (rung8280 < capitalRecoveryMultiple) {"))
         val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         val header = phc.substringAfter("===== AATE Pipeline Health Snapshot =====").substringBefore("Cortex scoreboard")
-        assertTrue(header.contains("appendLaneScorecard8280(sb)"))
+        // 8438: the header calls appendTop8438 (diagnosis brief, then this scorecard) in the scorecard's place
+        assertTrue(header.contains("appendTop8438(sb)"))
+        assertTrue(phc.substringAfter("private fun appendTop8438(sb: StringBuilder) {").substringBefore("private fun appendLaneScorecard8280(").contains("appendLaneScorecard8280(sb)"))
         assertTrue(phc.contains("LiveConfidenceStats.byLane8280(LiveEntrySafetyHold.governorWindowStart())"))
         assertTrue(phc.contains("LiveConfidenceStats.byLane8280(0L)"))
         // 8281: an UNKNOWN narrative is not a proven kind (NARR|lane|UNKNOWN = the unclassified rest of the lane)

@@ -132,6 +132,9 @@ object TokenBirthHydrator7441 {
     private val resolved8265 = java.util.concurrent.atomic.AtomicLong(0)
     private val noRpc8265 = java.util.concurrent.atomic.AtomicLong(0)
     private val noAnswer8265 = java.util.concurrent.atomic.AtomicLong(0)
+    /** V5.0.8438 — DiagnosisBrief8438: (walks launched, births resolved). */
+    fun launchedResolved8438(): Pair<Long, Long> = launched8265.get() to resolved8265.get()
+
     fun statusLine7441(): String =
         "birthHydrator7441[requests=${requests8265.get()} launched=${launched8265.get()} busDropped=${busDropped8265.get()} " +
             "cooldownSkips=${cooldownSkips8265.get()} dropped8287=${dropped8287.get()} resolved=${resolved8265.get()} mintInitProven8418=${initProven8418.get()} unproven8418=${initUnproven8418.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +

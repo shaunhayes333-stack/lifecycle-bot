@@ -114,6 +114,9 @@ object DowntimeRecovery8430 {
 
     @Volatile private var inFlight8430 = ""
 
+    /** V5.0.8438 — DiagnosisBrief8438: (queued, fetched, recovered, gaveUp). */
+    fun counts8438(): LongArray = longArrayOf(queue.size.toLong(), fetched.get(), recovered.get(), gaveUp.get())
+
     fun statusLine8430(): String =
         "downtimeRecovery8430[queued=${queue.size} fetched=${fetched.get()} empty=${empty.get()} recovered=${recovered.get()} " +
             "gaveUp=${gaveUp.get()} cap=$MAX_MINTS_PER_BOOT_8430 mints/${RECOVERY_WINDOW_MS_8430 / 60_000L}m]"

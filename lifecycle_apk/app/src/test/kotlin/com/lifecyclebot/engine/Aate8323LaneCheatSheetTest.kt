@@ -91,7 +91,8 @@ class Aate8323LaneCheatSheetTest {
     @Test fun huntersUseTheSheetBandAndMandate() {
         for (p in LaneHunter7297.profiles) {
             assertEquals(p.lane, LaneCheatSheet8323.mcapMin8323(p.lane), p.baseMin, 0.0)
-            assertEquals(p.lane, LaneCheatSheet8323.mcapMax8323(p.lane), p.baseMax, 0.0)
+            // 8435: the hunter's ceiling is the trader's maximum cut at the lane's own playbook envelope (huntMcapMax8435)
+            assertEquals(p.lane, LaneCheatSheet8323.huntMcapMax8435(p.lane), p.baseMax, 0.0)
         }
         // a sniper row past the first minutes, a QUALITY row too young, a row under the lane's liquidity floor: outside the mandate
         val sniper = LaneCheatSheet8323.ageBandMin8323("PROJECT_SNIPER")

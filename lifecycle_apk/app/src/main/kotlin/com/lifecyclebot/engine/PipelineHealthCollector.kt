@@ -1640,6 +1640,18 @@ object PipelineHealthCollector {
      * write-offs). A lane that stops paying is visible within one session: a session lane with n >= 3 whose
      * expectancy is negative is flagged BLEEDING; a lane with no live closes prints no row.
      */
+    /**
+     * V5.0.8438 — the head of the report: the diagnosis brief (DiagnosisBrief8438: verdicts on money, edge, doors, exits,
+     * learning, inputs, code faults and a ranked fix queue), then the 8280 lane scorecard. One call replaces the scorecard
+     * call in the ART-pinned dumpText so that method does not grow.
+     */
+    private fun appendTop8438(sb: StringBuilder) {
+        try { sb.append('\n').append(DiagnosisBrief8438.render8438()) } catch (t: Throwable) {
+            sb.append("  DIAGNOSIS BRIEF (§8438) FAILED ").append(t.javaClass.simpleName).append('\n')
+        }
+        appendLaneScorecard8280(sb)
+    }
+
     private fun appendLaneScorecard8280(sb: StringBuilder) {
         try {
             val session = LiveEntrySafetyHold.LiveConfidenceStats.byLane8280(LiveEntrySafetyHold.governorWindowStart())
@@ -1754,7 +1766,7 @@ object PipelineHealthCollector {
         sb.append("  Build:                 ${_appVer}  |  Tag: ${getBuildTag()}\n")
         sb.append("  Captured at:           ${df.format(Date(s.nowMs))}\n")
         sb.append("  Uptime since start:    ${uptimeSec}s\n")
-        appendLaneScorecard8280(sb)
+        appendTop8438(sb)
         sb.append("  Forensic logging:      ${if (ForensicLogger.enabled) "ON" else "OFF"}\n")
         // V5.9.1082 — operator-spec'd EXECUTION_STATE field. Sources its
         // value from the most recent EXECUTION_STATE_BLOCKED event tracked
