@@ -27694,7 +27694,8 @@ class Executor(
                 rLock.contains("STOP") || rLock.contains("STRICT_SL") || rLock.contains("CATASTROPHE") ||
                 rLock.contains("RUG") || rLock.contains("DRAIN") || rLock.contains("SHUTDOWN") ||
                 rLock.contains("MANUAL") || rLock.contains("EMERGENCY") || rLock.contains("LIQUIDATE") ||
-                rLock.contains("PROFIT_LOCK") || rLock.contains("TRAIL") || rLock.contains("GIVEBACK")
+                rLock.contains("PROFIT_LOCK") || rLock.contains("TRAIL") || rLock.contains("GIVEBACK") ||
+                com.lifecyclebot.engine.sell.SellDoor8435.protectiveExit8435(reason)  // V5.0.8435 — the canonical emergency class too
             val lockAgeMs = com.lifecyclebot.engine.sell.RecoveryLockTracker.lockAgeMs(ts.mint)
             val staleLock = lockAgeMs > 600_000L  // 10 min — basis clearly not loading
             if (isRiskExit || staleLock) {

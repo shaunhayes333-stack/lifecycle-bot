@@ -2251,6 +2251,14 @@ object ForwardReturnLabeler7731 {
         if (!follow) pending.remove(key, o) else extended7997.incrementAndGet()
     }
 
+    /** V5.0.8435 — the 8395 DEAD test below, asked before a downtime candle is waited for (a death needs no candle). */
+    private fun dying8435(o: Obs, deadline: Long): Boolean {
+        val horizonMs = if (!o.done60) H60_MS_7731 else H240_MS_7731
+        val lastAt = o.lastPxAtMs.takeIf { it in (o.atMs + 1)..deadline } ?: 0L
+        val lastGross = if (lastAt > 0L && o.lastPx > 0.0 && o.entryPrice > 0.0) (o.lastPx / o.entryPrice - 1.0) * 100.0 else Double.NaN
+        return classifyVanished7944(lastGross, if (lastAt > 0L) lastAt - o.atMs else 0L, horizonMs) == Vanished7944.DEAD
+    }
+
     /** Every fresh/invalid/unchanged/rejected mark crosses this deadline before any early continue. */
     private fun expired8395(key: String, o: Obs, incoming: LabelMark8386?, nowMs: Long): Boolean {
         val deadline=deadline8395(o)
@@ -2269,17 +2277,24 @@ object ForwardReturnLabeler7731 {
         // V5.0.8430 §A_WINDOW_THAT_CLOSED_WHILE_THE_PROCESS_WAS_DOWN — the restart cohort (8422: 968 of 1,881 due reads lost,
         // all of them windows that elapsed while the app was down) is offered the keyless 1-minute candle covering its horizon,
         // through this same filter; it waits only while its bounded fetch is queued inside the boot window.
-        val downtime8430 = if (o.done240) DowntimeRecovery8430.Read8430(false, null)
-            else DowntimeRecovery8430.candleMark8430(o.mint, o.atMs + horizon, o.atMs + horizon / 2, deadline, bootMs8430, nowMs)
-        if (downtime8430.waiting) return false
-        val recovered=listOfNotNull(o.lastAcceptedMark8395,incoming,downtime8430.mark).filter {
-            it.observedAtMs in (o.atMs+horizon/2)..deadline && LabelEvidence8386.eligible(o.basis8386.mark,it) &&
-                !curveContradicts8165(o.mint,it.usd,nowMs,it.observedAtMs) && !curveHolds8337(o.mint,it.usd,nowMs,it.observedAtMs) &&
-                PositionDisplayTruth8078.highStepOk8133(o.mint,o.entryPrice,o.entryPrice*(1.0+o.peakPct/100.0),it.usd,"FORWARD_LABEL") &&
+        val recoverable8435 = { m8435: LabelMark8386 ->
+            m8435.observedAtMs in (o.atMs+horizon/2)..deadline && LabelEvidence8386.eligible(o.basis8386.mark,m8435) &&
+                !curveContradicts8165(o.mint,m8435.usd,nowMs,m8435.observedAtMs) && !curveHolds8337(o.mint,m8435.usd,nowMs,m8435.observedAtMs) &&
+                PositionDisplayTruth8078.highStepOk8133(o.mint,o.entryPrice,o.entryPrice*(1.0+o.peakPct/100.0),m8435.usd,"FORWARD_LABEL") &&
                 // V5.0.8180 — a recovered mark the entry cannot share a basis with is no read at all.
-                (o.entryPrice <= 0.0 || LabelBasis8180.bookable8180(o.entryPrice, it.usd, o.entryMcap, nowMcap7769(o.mint),
+                (o.entryPrice <= 0.0 || LabelBasis8180.bookable8180(o.entryPrice, m8435.usd, o.entryMcap, nowMcap7769(o.mint),
                     try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }))
-        }.maxByOrNull { it.observedAtMs }
+        }
+        // V5.0.8435 — the marks this observation already holds come first, and a token already proven dying is booked DEAD
+        // below: 8430 made every pre-boot window wait for its candle fetch first, so an observation holding an acceptable
+        // mark (or a death) sat waiting and 8430-8434 CI failed Aate8397ForwardRecoveryLifecycleTest. The candle is asked for
+        // only when nothing held can answer.
+        var recovered=listOfNotNull(o.lastAcceptedMark8395,incoming).filter(recoverable8435).maxByOrNull { it.observedAtMs }
+        if (recovered == null && !o.done240 && !dying8435(o, deadline)) {
+            val downtime8430 = DowntimeRecovery8430.candleMark8430(o.mint, o.atMs + horizon, o.atMs + horizon / 2, deadline, bootMs8430, nowMs)
+            if (downtime8430.waiting) return false
+            recovered = downtime8430.mark?.takeIf(recoverable8435)
+        }
         if (recovered != null && !o.done240) {
             // valid in-window recovery of the ORIGINAL basis; a later price never becomes the entry
             recoveredHorizon8397(key, o, recovered, nowMs)

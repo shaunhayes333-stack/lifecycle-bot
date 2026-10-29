@@ -295,7 +295,8 @@ object CloseLease {
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SELL_PRE_ROUTE_WAIT_8288")
             ForensicLogger.lifecycle("SELL_PRE_ROUTE_WAIT_8288",
-                "mint=${mint.take(10)} waits=${l.preRouteWaits8288} delayMs=$delay attempts=${l.closeAttemptCount} originalExitReason=${l.originalExitReason}")
+                "mint=${mint.take(10)} waits=${l.preRouteWaits8288} delayMs=$delay attempts=${l.closeAttemptCount} originalExitReason=${l.originalExitReason} " +
+                    "cause8435=${SellRouteSpine8144.lastCause8435(mint)}")
         } catch (_: Throwable) {}
         return delay
     }

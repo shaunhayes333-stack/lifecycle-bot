@@ -135,7 +135,20 @@ object TokenBirthHydrator7441 {
     fun statusLine7441(): String =
         "birthHydrator7441[requests=${requests8265.get()} launched=${launched8265.get()} busDropped=${busDropped8265.get()} " +
             "cooldownSkips=${cooldownSkips8265.get()} dropped8287=${dropped8287.get()} resolved=${resolved8265.get()} mintInitProven8418=${initProven8418.get()} unproven8418=${initUnproven8418.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
-            "inFlight=${inFlight.size} progress=${progress.size} cooling=${cooldownUntil.size}] ${StoredBirth8418.statusLine8418()}"
+            "inFlight=${inFlight.size} progress=${progress.size} cooling=${cooldownUntil.size}] ${walkOutcomes8435()} ${StoredBirth8418.statusLine8418()}"
+
+    /**
+     * V5.0.8435 — 8434: launched=1769 resolved=13, and where the other walks ended (another page owed, the page budget, a
+     * slot with no time, proven established, a truncated history) was only in counters the export never printed.
+     */
+    private fun walkOutcomes8435(): String = try {
+        val l = PipelineHealthCollector.labelSnapshotByPrefix6607("TOKEN_BIRTH_")
+        val keys = listOf("HYDRATE_CONTINUE_7441" to "continue", "HYDRATE_RPC_FAIL_7441" to "rpcFail", "HYDRATE_PAGE_BUDGET_7770" to "pageBudget",
+            "SLOT_TIME_PENDING_8144" to "slotTime", "PROVEN_ESTABLISHED_8144" to "established", "HISTORY_TRUNCATED_UNPROVEN_8418" to "truncated",
+            "MINT_INIT_TX_PENDING_8418" to "initTxPending", "HYDRATE_NO_BLOCKTIME_7441" to "noBlockTime", "PUMP_RECORD_RESOLVED_8144" to "pumpRecord",
+            "WALK_SKIPPED_KNOWN_8346" to "skippedKnown")
+        "walk8435{" + keys.joinToString(" ") { (k, n) -> "$n=${l.entries.firstOrNull { it.key.endsWith(k) }?.value ?: 0L}" } + "}"
+    } catch (_: Throwable) { "walk8435{-}" }
 
     // V5.0.8144 §BIRTH_FROM_EVERY_WITNESS. 5.0.8142: 2,015 PROJECT_SNIPER refusals as BIRTH_METADATA_HYDRATING. Three
     // defects here: (1) the page cursor was the last SUCCESSFUL signature, so a page that ended in failed transactions

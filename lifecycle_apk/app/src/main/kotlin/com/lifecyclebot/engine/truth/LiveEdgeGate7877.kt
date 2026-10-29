@@ -582,14 +582,22 @@ object LiveEdgeGate7877 {
                 CandidateAdmission8136.Terminal8136.DEFER_DATA -> {
                     val d = admission8136!!  // V5.0.8297 — terminalFor8297 is null when the decision is null
                     val missing = CandidateAdmission8136.missingOf8144(d)
-                    // V5.0.8180 — first, so the mapped inputs (price / economics / core -> liq / chg / shape / bp) take the per-mint request.
-                    try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missing.map { it.replace("liquidity:", "liq:") }, nowMs) } catch (_: Throwable) {}
+                    // V5.0.8435 — a falling-hour wait is the coin's OWN known reading (hour < 0, no supported bounce), not a
+                    // missing datum: 8434 deferred it 792 times and each pass asked for depth, a mark and a stream that cannot
+                    // change it. It waits for the hour to turn (the hour is part of the candidate identity) without a fetch.
+                    if (CandidateAdmission8136.conditionWait8435(d.reason)) {
+                        try { PipelineHealthCollector.labelInc("FALLING_HOUR_WAIT_NO_FETCH_8435_$l8059") } catch (_: Throwable) {}
+                    } else {
+                        // V5.0.8180 — first, so the mapped inputs (price / economics / core -> liq / chg / shape / bp) take the per-mint request.
+                        try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missing.map { it.replace("liquidity:", "liq:") }, nowMs) } catch (_: Throwable) {}
+                    }
                     val budgetOpen8204 = CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)
                     // V5.0.8204 — a deferral that exhausts its budget with the SAME inputs still missing was never answered by
                     // the fetch it requested: that is a provider/queue terminal, not the candidate's, and it is named so and
                     // re-requested once at LIVE priority (near-decision coin first) rather than left to expire quietly.
-                    val unanswered8204 = !budgetOpen8204 && CandidateAdmission8136.deferUnanswered8204(ts.mint, missing, nowMs)
+                    val conditionWait8435 = CandidateAdmission8136.conditionWait8435(d.reason)
+                    val unanswered8204 = !budgetOpen8204 && !conditionWait8435 && CandidateAdmission8136.deferUnanswered8204(ts.mint, missing, nowMs)
                     if (unanswered8204) try {
                         PipelineHealthCollector.labelInc("DATA_DEFER_FETCH_NEVER_COMPLETED_8204")
                         missing.forEach { PipelineHealthCollector.labelInc("DATA_DEFER_FETCH_NEVER_COMPLETED_8204_" + it.substringBefore(':').take(16).uppercase()) }
@@ -605,7 +613,9 @@ object LiveEdgeGate7877 {
                     val terminal = Verdict8083.DEFER
                     if (!budgetOpen8204) try { PipelineHealthCollector.labelInc("DATA_DEFER_EXHAUSTED_KEPT_DEFER_8229") } catch (_: Throwable) {}
                     // V5.0.8418 — a spent window ENDS the wait under a named terminal (the assessment stays DEFER: no verdict on the coin).
-                    val reason8418 = CandidateAdmission8136.deferTerminal8418(budgetOpen8204, unanswered8204, missing) ?: reason
+                    // V5.0.8435 — a condition wait keeps its own name: a spent window is not a data failure of the coin.
+                    val reason8418 = if (conditionWait8435) CandidateAdmission8136.FALLING_HOUR_DEFER_8418
+                        else CandidateAdmission8136.deferTerminal8418(budgetOpen8204, unanswered8204, missing) ?: reason
                     recordAssessment8083(ts, l8059, d.chosenSetup, terminal, reason8418, 1.0, nowMs)
                     observeTail7996(ts, lane, reason8418, nowMs)
                     return reason8418

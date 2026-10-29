@@ -31,6 +31,11 @@ class Aate8297RunnerCaptureTest {
         assertEquals(Stage8297.ADMITTED_NOT_BOUGHT, admitted.stage)
         assertEquals("ROUTE_MIN_PROMOTION_REFUSED_LOSS_BUDGET_8188", admitted.gate)
         assertEquals("NO_BUY_ATTEMPT", missed("").gate)
+        // 8435: another lane's refusal never hides an admitted buy that aborted downstream (the furthest stage wins)
+        val furthest = missed("NATIVE_TREASURY_ROLE_FLOOR", downstream = "LIVE_BUY_ABORTED")
+        assertEquals(Stage8297.ADMITTED_NOT_BOUGHT, furthest.stage)
+        assertEquals("LIVE_BUY_ABORTED", furthest.gate)
+        assertEquals("safety still comes first", Stage8297.SAFETY, missed("RUG_PULL_DETECTED", downstream = "LIVE_BUY_ABORTED").stage)
     }
 
     @Test fun aBoughtRunnerIsNotCaughtUnlessItBankedTheRun() {

@@ -444,7 +444,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(chase.contains("if (provenCell && SelectionDoors8310.labelStandsDownChase8310(lane)) return null"))
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("C3_STOOD_DOWN_CELL_PROVEN_8094"))
         assertTrue(src("engine/Executor.kt").contains("it.startsWith(\"MANUFACTURED_CLIMB\") && freshProvenRunner8094(ts)"))
-        assertTrue(src("engine/BotService.kt").contains("return designatedDeskQualified6599 && SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane)"))
+        // 8435: the proven-cell pass is the first of two outside-ring returns (the second is the lane's own READY proposal on its native slot)
+        assertTrue(src("engine/BotService.kt").contains("if (designatedDeskQualified6599 && SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane)) return true"))
         assertTrue(src("engine/AgenticStyleRouter.kt").contains("provenRunnerCell8094 -> Style.BREAKOUT_RUNNER"))
         assertTrue(src("engine/BotService.kt").contains("if (TradeExitContract8077.longHold(ts) == true) null"))
         // The moonbag set-aside replaces a full exit: never skipped as an uneconomic slice.

@@ -173,6 +173,10 @@ object CanonicalTradeFinalizedBus6450 {
      * V5.0.7776 — pure check: does a signed-buy basis agree with itself? The entry
      * price in SOL (via EconomicUnitInvariant7061) must be within 2x of cost / qty.
      */
+    /** V5.0.8435 — Pure-ish: an on-chain-read cost (OnChainCost8024) that agrees with its own quantity and entry price. */
+    internal fun chainCostTeaches8435(entrySourceUpper: String, pos: CanonicalPositionAuthority6441.Position?): Boolean =
+        entrySourceUpper.contains("ONCHAIN_COST_8024") && signedBasisConsistent7776(pos)
+
     internal fun signedBasisConsistent7776(pos: CanonicalPositionAuthority6441.Position?): Boolean {
         if (pos == null) return false
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
@@ -206,6 +210,11 @@ object CanonicalTradeFinalizedBus6450 {
             pos7776 != null && !com.lifecyclebot.engine.sell.FrozenHeldUnsellable8141.freezeLossQuarantine8141(pos7776.quarantineReason) &&
                 (pos7776.lifecycle == CanonicalPositionAuthority6441.Lifecycle.QUARANTINED ||
                 pos7776.quarantineReason.isNotBlank()) -> "QUARANTINED_ACCOUNTING_7807"
+            // V5.0.8435 — 8434: the MOONSHOT HARD_STOP close at -79% (basis ONCHAIN_COST_8024: the SOL the wallet paid, read
+            // from its own buy transactions; sale LIVE_FINALIZED with the consumed raw quantity) was excluded as
+            // QUANTITY_QUARANTINED_7807 — a per-MINT bookkeeping flag raised at its wallet recovery. A chain-read cost that
+            // agrees with its own quantity and entry price is the trusted cost the quarantine exists to protect: it teaches.
+            chainCostTeaches8435(src7722, pos7776) -> null
             mint.isNotBlank() && QuantityInvariantAuthority6500.isQuarantined(mint) -> "QUANTITY_QUARANTINED_7807"
             src7722.contains("OBSERVED_MARK_ADOPTION_7706") -> "OBSERVED_MARK_ADOPTION_7706"
             // V5.0.7776 — the bot's own signed buy (and the fill-registry rebuild)

@@ -50,9 +50,21 @@ object SourceChokeDiagnostics4584 {
     fun stopTriggered(mint: String, lane: String, reason: String, pnlPct: Double) {
         val r = reason.uppercase()
         if (!r.contains("STOP") && !r.contains("CATASTROPHIC") && !r.contains("HARD_FLOOR")) return
-        stopTriggers[mint] = StopTrigger(lane.uppercase().ifBlank { "UNKNOWN" }, reason.take(72), pnlPct, System.currentTimeMillis())
+        // V5.0.8435 — 8434 printed avgStopMs=225 overrun=0/1 for a stop the sell spine timed at 20.5 s trigger -> broadcast:
+        // every re-trigger replaced the stored one, so the latency ran from the LAST trigger (and the overrun from its pnl).
+        // The episode keeps its FIRST trigger until the stop finalizes.
+        val now8435 = System.currentTimeMillis()
+        stopTriggers.merge(mint, StopTrigger(lane.uppercase().ifBlank { "UNKNOWN" }, reason.take(72), pnlPct, now8435)) { first, _ ->
+            if (now8435 - first.atMs > STOP_EPISODE_MAX_MS_8435) StopTrigger(lane.uppercase().ifBlank { "UNKNOWN" }, reason.take(72), pnlPct, now8435) else first
+        }
         bump(stopFinalityReasons, "TRIGGER|${lane.uppercase().ifBlank { "UNKNOWN" }}|${reason.take(48)}")
     }
+
+    /** A trigger older than this with no finalization is a new episode (an abandoned stop never pins later latency). */
+    private const val STOP_EPISODE_MAX_MS_8435 = 10L * 60_000L
+
+    /** Test seam: the stored trigger time of [mint]'s open stop episode, or null. */
+    internal fun stopTriggerAtForTest8435(mint: String): Long? = stopTriggers[mint]?.atMs
 
     fun stopFinalized(mint: String, lane: String, reason: String, pnlPct: Double) {
         val r = reason.uppercase()

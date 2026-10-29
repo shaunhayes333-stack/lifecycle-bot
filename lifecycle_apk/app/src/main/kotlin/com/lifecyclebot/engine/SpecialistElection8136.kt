@@ -986,7 +986,8 @@ object SpecialistElection8136 {
         if (nativeEval8214.size > 4_000) nativeEval8214.clear()
         val set = nativeEval8214.computeIfAbsent("$mint|$version") { java.util.Collections.synchronizedSet(LinkedHashSet()) }
         val ok = synchronized(set) {
-            l in set || (set.size < NATIVE_EVAL_CAP_8214 && set.add(l)) || reassignNativeSlot8364(set, mint, l)
+            l in set || (set.size < NATIVE_EVAL_CAP_8214 && set.add(l)) || reassignNativeSlot8364(set, mint, l) ||
+                readySlot8435(set, mint, l)
         }
         try { PipelineHealthCollector.labelInc(if (ok) "NATIVE_SPECIALIST_EVAL_8214_$l" else "NATIVE_SPECIALIST_EVAL_CAPPED_8214") } catch (_: Throwable) {}
         return ok
@@ -1007,6 +1008,33 @@ object SpecialistElection8136 {
         try { PipelineHealthCollector.labelInc("NATIVE_SPECIALIST_EVAL_REASSIGNED_8364_$lane") } catch (_: Throwable) {}
         return true
     }
+
+    /**
+     * V5.0.8435 §EVERY_LANE_JUDGES_ITS_OWN_PREY. 8434: NON_OWNER_QUALIFIED_NO_SLOT_8364=336 — lanes whose own brain had
+     * qualified the coin found all six slots held by lanes that only filed a desk hypothesis or a hunter claim (their own
+     * resident book not READY), and every lane's ownerWhy was dominated by READY_NOT_EVALUATED_PRIMARY_<other>. A lane whose
+     * resident book holds a READY proposal for the coin takes the slot of a holder whose book does not; the cap is unchanged,
+     * and a READY holder is never displaced.
+     */
+    private fun readySlot8435(set: MutableSet<String>, mint: String, lane: String): Boolean {
+        val victim = readyVictim8435(set.toList(), lane) { ready8435(it, mint) } ?: return false
+        set.remove(victim)
+        set.add(lane)
+        readySlotTaken8435.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("NATIVE_SPECIALIST_EVAL_READY_TOOK_SLOT_8435_$lane") } catch (_: Throwable) {}
+        return true
+    }
+
+    private val readySlotTaken8435 = java.util.concurrent.atomic.AtomicLong(0)
+
+    private fun ready8435(lane: String, mint: String): Boolean = try {
+        com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.entry(lane, mint)?.state ==
+            com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY
+    } catch (_: Throwable) { false }
+
+    /** Pure (V5.0.8435): the holder a READY asker displaces — the first holder not READY itself; null keeps the cap. */
+    fun readyVictim8435(holders: List<String>, asker: String, ready: (String) -> Boolean): String? =
+        if (!ready(asker)) null else holders.firstOrNull { !ready(it) }
 
     fun noteScheduled8144(mint: String, lane: String, nowMs: Long = System.currentTimeMillis()) {
         val l = canon8136(lane)
@@ -1301,7 +1329,7 @@ object SpecialistElection8136 {
             .joinToString(" ; ") { "${it.key}=${compact8136(it.value)}" }
         val refused = yieldRefusals8136.entries.sortedByDescending { it.value }.take(4).joinToString(",") { "${it.key}=${it.value}" }
         "election8136 records=${records8136.size} closed=$closedRecords8136 rescue(claim=$rescueClaims8136 adopted=$rescueAdopted8136 " +
-            "overflow=$rescueOverflow8136 replaced8214=$rescueReplaced8214 nativeEval8214=${nativeEval8214.size} heldDenied=$rescueHeldDenied8136 outranked=$outranked8136 judgementNone=$judgementNoRescue8136) " +
+            "overflow=$rescueOverflow8136 replaced8214=$rescueReplaced8214 nativeEval8214=${nativeEval8214.size} readySlot8435=${readySlotTaken8435.get()} heldDenied=$rescueHeldDenied8136 outranked=$outranked8136 judgementNone=$judgementNoRescue8136) " +
             "yield(named=$yieldNamed8136 reached=$yieldReached8136 refused={${refused.ifBlank { "-" }}}) authoritative=$authoritativeOverrides8136 " +
             "stale=$staleEvents8136 unqualifiedFdg=$unqualifiedFdg8136 | ${lanes.ifBlank { "no proposals yet" }}" +
             // V5.0.8144 — how the one slot was decided, and arbitration failures (never executable).

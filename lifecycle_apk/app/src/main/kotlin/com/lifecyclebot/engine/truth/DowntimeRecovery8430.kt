@@ -28,6 +28,8 @@ object DowntimeRecovery8430 {
     const val FETCH_GAP_MS_8430 = 10_000L
     private const val CANDLE_MS_8430 = 60_000L
     private const val CANDLES_8430 = 180
+    /** V5.0.8435 — a provider interval gap up to this long is slept on the fetch thread rather than skipped. */
+    private const val MAX_SLOT_SLEEP_MS_8435 = 5_000L
 
     /** [waiting]: the fetch for this mint is queued inside the boot window — keep the observation pending; else [mark] or nothing. */
     class Read8430(val waiting: Boolean, val mark: LabelMark8386?)
@@ -70,6 +72,10 @@ object DowntimeRecovery8430 {
             return Read8430(false, LabelMark8386(mint, "ohlcv", c.priceUsd, at, nowMs, SOURCE_8430))
         }
         if (mint == inFlight8430) return WAIT_8430   // its fetch is on the wire
+        // V5.0.8435 — 8434 (5.4 min): queued=150 fetched=0 gaveUp=197. The full-queue branch below ran BEFORE the queued-
+        // membership read, so once the queue held 150 mints every re-ask for a mint already in it was counted as given up and
+        // its observation closed UNKNOWN while its fetch still sat in the queue. Queued is waiting.
+        if (queue.contains(mint)) return WAIT_8430
         if (attempted.contains(mint)) return NONE_8430
         if (nowMs - bootMs > RECOVERY_WINDOW_MS_8430 || attempted.size + queue.size >= MAX_MINTS_PER_BOOT_8430) {
             attempted.add(mint); gaveUp.incrementAndGet(); return NONE_8430
@@ -82,7 +88,11 @@ object DowntimeRecovery8430 {
     fun drain8430(nowMs: Long) {
         if (queue.isEmpty() || nowMs - lastFetchMs < FETCH_GAP_MS_8430) return
         val wait = try { com.lifecyclebot.network.SolanaOhlcvFeed6916.providerSlotWait7809(nowMs) } catch (_: Throwable) { return }
-        if (wait.waitMs > 0L || wait.cooldown) return
+        // V5.0.8435 — 8434 (5.4 min): queued=150 fetched=0. The provider's own call interval rarely reads exactly zero at the
+        // labeler's tick, so "waitMs > 0 -> return" never fetched. A cooldown (429 / dead source) still defers; a short interval
+        // gap is slept on the fetch thread instead.
+        if (wait.cooldown || wait.waitMs > MAX_SLOT_SLEEP_MS_8435) return
+        val sleepMs8435 = wait.waitMs.coerceAtLeast(0L)
         if (!fetching.compareAndSet(false, true)) return
         val mint = synchronized(queue) { queue.firstOrNull()?.also { queue.remove(it) } }
         if (mint == null) { fetching.set(false); return }
@@ -92,6 +102,7 @@ object DowntimeRecovery8430 {
         try {
             Thread({
                 try {
+                    if (sleepMs8435 > 0L) try { Thread.sleep(sleepMs8435) } catch (_: InterruptedException) {}
                     val cs = try { com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(mint, "1m", CANDLES_8430) } catch (_: Throwable) { emptyList() }
                     if (cs.isEmpty()) empty.incrementAndGet() else fetched.incrementAndGet()
                     candles[mint] = cs

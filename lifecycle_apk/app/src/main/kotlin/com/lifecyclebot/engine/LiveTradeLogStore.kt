@@ -359,6 +359,7 @@ object LiveTradeLogStore {
         // V5.0.7876 — per-stage live exit timing (trigger stamped by ExitTelemetryStamper6732).
         if (side == "SELL" && modeTag == "LIVE") {
             try { com.lifecyclebot.engine.truth.ExitStageTiming7876.onPhase(mint, phase.name) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellRouteSpine8144.notePhaseText8435(mint, phase.name, message) } catch (_: Throwable) {}  // V5.0.8435 — the attempt's cause
             try { com.lifecyclebot.engine.sell.SellRouteSpine8144.onPhase8144(mint, phase.name) } catch (_: Throwable) {}  // V5.0.8144
         }
         emit(

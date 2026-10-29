@@ -31,6 +31,12 @@ class Aate8429OwnBrainTest {
         assertTrue(b.contains("ownBrainReady8429 ||   // V5.0.8429 — the lane's own READY resident proposal is its qualification"))
         assertTrue(b.contains("huntedByLane7297 || designatedDeskHypothesis6599 != null || ownBrainReady8429))"))
         assertEquals(6, SpecialistElection8136.NATIVE_EVAL_CAP_8214)
+        // 8435: outside the meme ring (CORE / CYCLIC under memeOnly) the lane's own READY proposal evaluates on its bounded
+        // native slot — the proven-cell pass stays first, and the trunk / rug-prone returns above are untouched.
+        val outside = b.indexOf("val ownBrainOutsideRing8435 = ownBrainReady8429 && specialistEvaluationAllowed6600")
+        assertTrue(outside > b.indexOf("if (designatedDeskQualified6599 && SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane)) return true"))
+        assertTrue(outside > b.indexOf("if (ExecutionAuthorityPolicy6533.isTrunkLane(l)) return true"))
+        assertTrue(b.contains("OWN_BRAIN_EVALUATES_OUTSIDE_RING_8435_\$l"))
     }
 
     @Test fun aLearnedRecordDoorStandsAsideOnlyForTheLanesOpenProbeSlot() {

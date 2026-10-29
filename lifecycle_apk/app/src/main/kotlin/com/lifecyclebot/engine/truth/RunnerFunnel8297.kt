@@ -77,6 +77,10 @@ object RunnerFunnel8297 {
         val all = "$binding $downstream".uppercase()
         SAFETY_8297.firstOrNull { all.contains(it) }?.let { return Attribution8297(Stage8297.SAFETY, stem8297(binding.ifBlank { downstream })) }
         if (!evaluated && binding.isBlank() && downstream.isBlank()) return Attribution8297(Stage8297.NOT_EVALUATED)
+        // V5.0.8435 — the FURTHEST stage wins. 8434: Shillcoin +855% was headlined GATE:NATIVE_TREASURY_ROLE_FLOOR while
+        // SHITCOIN's own hand-off reached FDG_ALLOW and the buy aborted downstream (LIVE_BUY_ABORTED): one lane's refusal
+        // hid another lane's admitted, unbought entry. A downstream stop of an admitted buy is the runner's losing stage.
+        if (downstream.isNotBlank()) return Attribution8297(Stage8297.ADMITTED_NOT_BOUGHT, stem8297(downstream))
         if (dataGate8297(binding)) return Attribution8297(Stage8297.DATA_DEFER, stem8297(binding))
         if (binding.isBlank()) return Attribution8297(Stage8297.ADMITTED_NOT_BOUGHT, stem8297(downstream.ifBlank { "NO_BUY_ATTEMPT" }))
         return Attribution8297(Stage8297.GATE_REFUSED, stem8297(binding))

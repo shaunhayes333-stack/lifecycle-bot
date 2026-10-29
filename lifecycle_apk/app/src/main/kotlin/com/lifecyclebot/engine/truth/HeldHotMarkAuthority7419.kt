@@ -450,19 +450,33 @@ object HeldHotMarkAuthority7419 {
 
     internal fun quoteSellEstimate(mint: String, rawQty: java.math.BigInteger, decimals: Int): SellEstimate? {
         val bare = mint.removePrefix("solana|").trim()
-        if (bare.isBlank() || bare.contains('|') || rawQty.signum() <= 0 || rawQty.bitLength() > 62 || decimals !in 0..18) return null
+        if (bare.isBlank() || bare.contains('|') || rawQty.signum() <= 0 || rawQty.bitLength() > 62 || decimals !in 0..18) { miss8435(mint, "BAD_INPUT"); return null }
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val observedAt = System.currentTimeMillis()
+        var jup8435 = "JUP_NULL"
         val q = try {
             quoteApi7876.getQuote(bare, com.lifecyclebot.network.JupiterApi.SOL_MINT, rawQty.toLong(), 300)
-        } catch (_: Throwable) { null }
+        } catch (_: Throwable) { jup8435 = "JUP_EXCEPTION"; null }
         if (q != null && quoteMatchesHolding(q, bare, rawQty)) {
-            val px = sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd) ?: return null
+            val px = sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd) ?: run { miss8435(mint, "JUP_PRICE_INVALID_SOLUSD"); return null }
             return SellEstimate(px, java.math.BigDecimal.valueOf(q.outAmount).movePointLeft(9).toDouble(),
                 observedAt, "JUPITER_HELD_SELL_QUOTE_8189")
         }
-        return venueReserveSellEstimate(bare, rawQty, decimals, solUsd)
+        if (q != null) jup8435 = "JUP_QTY_MISMATCH"
+        return venueReserveSellEstimate(bare, rawQty, decimals, solUsd) ?: run { miss8435(mint, "${jup8435}_NO_FRESH_RESERVE"); null }
     }
+
+    // V5.0.8435 — 8434: heldQuote asked=78 ok=0 noRoute=78 for the one live holding, while route read READY. "noRoute" lumped a
+    // Jupiter null, a thrown call, a quantity mismatch, an unknown SOL price and a missing reserve read into one number. The
+    // miss is kept per mint by cause (HeldExitQuote8189 counts them).
+    private val missByMint8435 = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private fun miss8435(mint: String, cause: String) {
+        if (missByMint8435.size > 500) missByMint8435.clear()
+        missByMint8435[mint] = cause
+    }
+
+    /** The cause of [mint]'s latest failed held sell estimate (null when none is pending). */
+    internal fun takeMiss8435(mint: String): String? = missByMint8435.remove(mint)
 
     /** Fee haircut applied to reserve-derived held marks (above PumpSwap / Raydium / curve published fees: conservative). */
     internal const val RESERVE_MARK_FEE_8198 = 0.0125

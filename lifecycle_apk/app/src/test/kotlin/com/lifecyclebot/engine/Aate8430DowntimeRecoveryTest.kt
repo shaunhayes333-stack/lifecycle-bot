@@ -78,12 +78,30 @@ class Aate8430DowntimeRecoveryTest {
         assertTrue(DowntimeRecovery8430.statusLine8430().contains("gaveUp=1"))
     }
 
+    @Test fun aQueuedMintKeepsWaitingWhenTheQueueIsFull() {
+        // V5.0.8435 — 8434: queued=150 fetched=0 gaveUp=197: the full-queue branch gave up on mints that were already queued.
+        val at = boot - 3_600_000L; val target = at + 300_000L; val from = at + 150_000L; val deadline = at + 450_000L
+        val now = boot + 30_000L
+        for (i in 0 until DowntimeRecovery8430.MAX_MINTS_PER_BOOT_8430) {
+            assertTrue(DowntimeRecovery8430.candleMark8430("Q$i", target, from, deadline, boot, now).waiting)
+        }
+        assertTrue(DowntimeRecovery8430.statusLine8430().contains("queued=${DowntimeRecovery8430.MAX_MINTS_PER_BOOT_8430} "))
+        // the queue is full: a mint already in it is still waiting (never given up); a new one is given up, once
+        assertTrue(DowntimeRecovery8430.candleMark8430("Q0", target, from, deadline, boot, now + 1_000L).waiting)
+        assertTrue(DowntimeRecovery8430.statusLine8430().contains("gaveUp=0 "))
+        assertFalse(DowntimeRecovery8430.candleMark8430("NEW", target, from, deadline, boot, now + 1_000L).waiting)
+        assertTrue(DowntimeRecovery8430.statusLine8430().contains("gaveUp=1 "))
+        assertTrue(DowntimeRecovery8430.candleMark8430("Q149", target, from, deadline, boot, now + 2_000L).waiting)
+    }
+
     @Test fun wiring() {
         val l = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         assertTrue(l.contains("private val bootMs8430 = System.currentTimeMillis()"))
-        assertTrue(l.contains("else DowntimeRecovery8430.candleMark8430(o.mint, o.atMs + horizon, o.atMs + horizon / 2, deadline, bootMs8430, nowMs)"))
+        // 8435: the held marks and the DEAD test come first; the candle is asked for only when nothing held answers
+        assertTrue(l.contains("val downtime8430 = DowntimeRecovery8430.candleMark8430(o.mint, o.atMs + horizon, o.atMs + horizon / 2, deadline, bootMs8430, nowMs)"))
         assertTrue(l.contains("if (downtime8430.waiting) return false"))
-        assertTrue("the candle goes through the SAME recovery filter as every other mark", l.contains("val recovered=listOfNotNull(o.lastAcceptedMark8395,incoming,downtime8430.mark).filter {"))
+        assertTrue(l.contains("if (recovered == null && !o.done240 && !dying8435(o, deadline)) {"))
+        assertTrue("the candle goes through the SAME recovery filter as every other mark", l.contains("recovered = downtime8430.mark?.takeIf(recoverable8435)"))
         assertTrue(l.contains("try { DowntimeRecovery8430.drain8430(nowMs) } catch (_: Throwable) {}"))
         assertEquals(150, DowntimeRecovery8430.MAX_MINTS_PER_BOOT_8430)
         assertEquals(10_000L, DowntimeRecovery8430.FETCH_GAP_MS_8430)

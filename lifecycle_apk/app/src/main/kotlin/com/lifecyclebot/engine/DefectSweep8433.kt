@@ -49,13 +49,27 @@ object DefectSweep8433 {
     /** Pure: error entries (component, message, stack) grouped by in-app frame, else by component + message signature. */
     fun fromErrors8433(entries: List<Triple<String, String, String?>>): List<Defect8433> {
         val groups = LinkedHashMap<String, Pair<Long, String>>()
+        val framed = HashSet<String>()
         for ((component, message, stack) in entries) {
             val frame = frame8433(stack)
             val where = if (frame != "-") frame else "$component:${signature8433(message)}"
+            if (frame != "-") framed.add(where)
             val prior = groups[where]
             groups[where] = (prior?.first ?: 0L) + 1L to message.take(96)
         }
-        return groups.entries.map { (where, v) -> Defect8433("EXCEPTION", where, v.first, v.second) }.sortedByDescending { it.count }
+        // V5.0.8435 — 8434's table called every logged error an EXCEPTION, and LP / top-holder hard blocks, manipulation
+        // overlays and the freeze warning (the safety layer doing its job) filled it. A row is an EXCEPTION only when a
+        // stack names an in-app frame; a stackless safety decision is SAFETY_DECISION (not shown as a defect).
+        return groups.entries.map { (where, v) -> Defect8433(kind8435(where in framed, v.second), where, v.first, v.second) }.sortedByDescending { it.count }
+    }
+
+    private val SAFETY_DECISION_8435 = Regex("HARD.?BLOCK|BLOCKED|OVERLAY|FREEZE|FROZEN|HONEYPOT|TOP.?HOLDER|RUG|MANIPULAT|MINT.?AUTH|LP[ _]", RegexOption.IGNORE_CASE)
+
+    /** Pure: EXCEPTION (a stack names an in-app frame), SAFETY_DECISION (a stackless safety verdict) or ERROR_LOG. */
+    fun kind8435(hasFrame: Boolean, message: String): String = when {
+        hasFrame -> "EXCEPTION"
+        SAFETY_DECISION_8435.containsMatchIn(message) -> "SAFETY_DECISION"
+        else -> "ERROR_LOG"
     }
 
     /** Pure: the failure-shaped counters, largest first. */
@@ -63,9 +77,16 @@ object DefectSweep8433 {
         labels.entries.filter { (k, v) -> v > 0L && FAILURE_SHAPE_8433.containsMatchIn(k.uppercase()) }
             .sortedByDescending { it.value }.map { (k, v) -> Defect8433("COUNTER", k, v, "") }
 
-    /** Pure: the ranked table (exceptions first, then counters), at most [max] rows. */
+    /**
+     * Pure: the ranked table, at most [max] rows. V5.0.8435 — errors and counters SHARE the rows (each gets half; a side
+     * with fewer fills the rest): 8434's 17 error groups took all 12 rows and none of its 43 failure counters was shown
+     * (nor given to the LLM). Safety decisions are not defects and are left out.
+     */
     fun render8433(errors: List<Defect8433>, counters: List<Defect8433>, max: Int = MAX_ROWS_8433): String {
-        val rows = (errors.take(max) + counters.take(max)).take(max)
+        val defects = errors.filter { it.kind != "SAFETY_DECISION" }
+        val eq = minOf(defects.size, max / 2)
+        val cq = minOf(counters.size, max - eq)
+        val rows = defects.take(minOf(defects.size, max - cq)) + counters.take(cq)
         if (rows.isEmpty()) return "none"
         return rows.withIndex().joinToString("\n    ") { (i, d) ->
             "#${i + 1} ${d.kind} where=${d.where} count=${d.count}" + (if (d.last.isNotBlank()) " last=\"${d.last}\"" else "")
@@ -105,7 +126,10 @@ object DefectSweep8433 {
             llmRunning.get() -> "\n    llmRead8433[pending]"
             else -> ""
         }
-        return "exceptions=${errors.sumOf { it.count }} groups=${errors.size} failureCounters=${counters.size}\n    $table$llm"
+        val ex8435 = errors.filter { it.kind == "EXCEPTION" }
+        val safety8435 = errors.filter { it.kind == "SAFETY_DECISION" }
+        return "exceptions=${ex8435.sumOf { it.count }} groups=${errors.size} errorLogs=${errors.count { it.kind == "ERROR_LOG" }} " +
+            "safetyDecisionsOmitted=${safety8435.sumOf { it.count }} failureCounters=${counters.size}\n    $table$llm"
     }
 
     private fun scheduleLlm8433(prompt: String, nowMs: Long) {

@@ -227,6 +227,12 @@ object CandidateAdmission8136 {
     const val FALLING_HOUR_PROVEN_LOSING_8418 = "FALLING_HOUR_PROVEN_LOSING_8418"
     /** V5.0.8418 — deferred: the falling-hour record is not proven; the candidate is re-judged when its hour turns. */
     const val FALLING_HOUR_DEFER_8418 = "DATA_DEFER_FALLING_HOUR_8418"  // "DATA_DEFER_" keeps FdgReceipt8397 reading it as a data wait
+
+    /**
+     * V5.0.8435 — Pure: a defer that waits on a KNOWN market condition of the coin (its falling hour) rather than on a
+     * missing input. It stays a DEFER (re-judged when the condition changes) but asks no fetch: none can answer it.
+     */
+    fun conditionWait8435(reason: String?): Boolean = reason == FALLING_HOUR_DEFER_8418
     /** V5.0.8418 — the missing input a falling-hour defer waits for: the hour reading (re-observed via the chg fetch). */
     const val FALLING_HOUR_WAIT_8418 = "chg:FALLING_HOUR_8418"
 

@@ -196,6 +196,18 @@ object LaneCheatSheet8323 {
 
     fun mcapMin8323(lane: String): Double = mcapBand8323(lane).first
     fun mcapMax8323(lane: String): Double = mcapBand8323(lane).second
+
+    /**
+     * V5.0.8435 — the cap the lane's HUNTER may select up to: its trader's own maximum, cut at the playbook envelope where the
+     * lane's own network labels proved the band above it dead (LanePlaybook7907.ENVELOPE_CUTS_8383 "MCAP_GT_5M"). 8434: the
+     * TREASURY / CASHGEN hunters (trader max: none) selected MEW at ~$40M and the same lane's playbook then classified it
+     * NO_MATCH "outside tradable envelope: MCAP_GT_5M" — the hunt spent the lane's slots on coins its own setups refuse.
+     */
+    fun huntMcapMax8435(lane: String): Double {
+        val trader = mcapMax8323(lane)
+        val cut = LanePlaybook7907.ENVELOPE_CUTS_8383[lane.trim().uppercase()]?.contains("MCAP_GT_5M") == true
+        return if (cut) minOf(trader, LanePlaybook7907.ENV_MCAP_MAX_8383) else trader
+    }
     /** V5.0.8389 — the trader's own constant liquidity floor (its mandate, not the fluid live floor). */
     fun liqMin8389(lane: String): Double = liqBand8323(lane).first
 

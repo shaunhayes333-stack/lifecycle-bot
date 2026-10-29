@@ -47,7 +47,14 @@ class Aate8433DefectSweepTest {
         assertEquals(listOf("EVIDENCE_SHADOW_TELEMETRY_FAILED_8392", "SHADOW_CHECKPOINT_WORKER_RETRY_8403"), c.map { it.where })
         val table = DefectSweep8433.render8433(DefectSweep8433.fromErrors8433(List(30) { Triple("C$it", "m$it", null) }), c)
         assertEquals(12, table.lines().size)
-        assertTrue(table.startsWith("#1 EXCEPTION where="))
+        // 8435: a stackless error row is an ERROR_LOG (EXCEPTION needs an in-app frame), and the counters share the rows
+        assertTrue(table.startsWith("#1 ERROR_LOG where="))
+        assertTrue(table.contains("COUNTER where=EVIDENCE_SHADOW_TELEMETRY_FAILED_8392"))
+        assertEquals("EXCEPTION", DefectSweep8433.kind8435(true, "boom"))
+        assertEquals("SAFETY_DECISION", DefectSweep8433.kind8435(false, "LP hard block: top holder 62%"))
+        assertEquals("ERROR_LOG", DefectSweep8433.kind8435(false, "mark lost for <mint>"))
+        // a safety decision is left out of the table entirely
+        assertEquals("none", DefectSweep8433.render8433(DefectSweep8433.fromErrors8433(listOf(Triple("Guard", "HARD_BLOCK freeze authority", null))), emptyList()))
         assertEquals("none", DefectSweep8433.render8433(emptyList(), emptyList()))
         val prompt = DefectSweep8433.prompt8433("x".repeat(10_000), "funnel")
         assertTrue(prompt.length <= 6_000)
@@ -58,7 +65,7 @@ class Aate8433DefectSweepTest {
         DefectSweep8433.resetForTest8433()
         // with no error store and no counters on the JVM the section is the empty table, no LLM scheduled
         val section = DefectSweep8433.section8433(1_800_000_000_000L)
-        assertTrue(section, section.startsWith("exceptions=0 groups=0 failureCounters="))
+        assertTrue(section, section.startsWith("exceptions=0 groups=0 errorLogs=0 safetyDecisionsOmitted=0 failureCounters="))  // 8435
         val phc = File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(phc.contains("sb.append(\"  \").append(DefectSweep8433.SECTION_8433).append(\": \").append("))
         val ds = File("src/main/kotlin/com/lifecyclebot/engine/DefectSweep8433.kt").readText()

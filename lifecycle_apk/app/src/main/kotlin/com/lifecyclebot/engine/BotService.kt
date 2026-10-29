@@ -15989,7 +15989,15 @@ class BotService : Service() {
             }
             // V5.0.8094 — a READY specialist outside the meme ring (MANIPULATED since 7389) still evaluates when its own
             // graded cell for this token is proven (8094: PUMP_PORTAL_WS|MANIPULATED|MC_10K_100K|AGE_LT15M n65 +737%).
-            return designatedDeskQualified6599 && SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane)
+            // V5.0.8435 — 8434 (5.4 min, memeOnly): CORE qualified 193 / evaluated 0, CYCLIC 397 / 0, every one of them
+            // READY_NOT_EVALUATED_PRIMARY_<ring lane>. The 8429 own-brain path only ran past a SEALED owner; here, outside
+            // the ring, a READY resident proposal still needed a proven cell before its own FDG ever ran. A lane whose own
+            // brain qualified the coin evaluates on the same bounded native slot every ring lane gets (nativeEvalSlot8214,
+            // cap per candidate version) — the FDG, TradeAuthorizer and sizing still decide.
+            if (designatedDeskQualified6599 && SpecialistOwnership7951.readyCellProvenEvaluates8094(l, ts.mint, primaryLane)) return true
+            val ownBrainOutsideRing8435 = ownBrainReady8429 && specialistEvaluationAllowed6600
+            if (ownBrainOutsideRing8435) try { PipelineHealthCollector.labelInc("OWN_BRAIN_EVALUATES_OUTSIDE_RING_8435_$l") } catch (_: Throwable) {}
+            return ownBrainOutsideRing8435
         }
 
         // (4) Mixed mode: all qualified desks remain contributors, but only

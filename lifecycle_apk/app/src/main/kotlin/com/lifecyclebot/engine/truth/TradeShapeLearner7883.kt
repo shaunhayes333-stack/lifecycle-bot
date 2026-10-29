@@ -238,6 +238,10 @@ object TradeShapeLearner7883 {
 
     private fun ensureLoaded() {
         if (loaded) return
+        // V5.0.8435 — the 7930 guard every other learner carries: a read before the store opened latched "loaded" with an
+        // empty book, and the next save replaced the real one with it (FallingHourCohort8418 lacked the same guard; 8434 showed
+        // its record 33 outcomes short of the previous process).
+        if (!(try { LearningPersistence.ready() } catch (_: Throwable) { false })) return
         synchronized(this) {
             if (loaded) return
             loaded = true

@@ -137,6 +137,9 @@ object HeldExitQuote8189 {
         if (estimate == null || !estimate.priceUsd.isFinite() || estimate.priceUsd <= 0.0) {
             empty.incrementAndGet()
             try { PipelineHealthCollector.labelInc("HELD_EXIT_QUOTE_NO_ROUTE_8189") } catch (_: Throwable) {}
+            // V5.0.8435 — the miss by cause (a thrown call / Jupiter null / qty mismatch / no fresh reserve / bad price).
+            val cause8435 = (try { HeldHotMarkAuthority7419.takeMiss8435(mint) } catch (_: Throwable) { null }) ?: if (estimate == null) "UNKNOWN" else "PRICE_INVALID"
+            if (missCauses8435.size < 32 || missCauses8435.containsKey(cause8435)) missCauses8435.computeIfAbsent(cause8435) { AtomicLong() }.incrementAndGet()
             return null
         }
         val q = Quote8189(estimate.priceUsd, minOf(askedAtMs, estimate.observedAtMs), qty, estimate.proceedsSol, estimate.source)
@@ -164,8 +167,11 @@ object HeldExitQuote8189 {
         return try { quoteInto8189(pos.mint, qty, pos.quantityScale, nowMs) } finally { inFlight.remove(pos.mint) }
     }
 
+    private val missCauses8435 = ConcurrentHashMap<String, AtomicLong>()
+
     fun statusLine8189(): String =
-        "heldQuote8189[asked=${asked.get()} ok=${answered.get()} noRoute=${empty.get()} served=${served.get()} cached=${quotes.size} inFlight=${inFlight.size}]"
+        "heldQuote8189[asked=${asked.get()} ok=${answered.get()} noRoute=${empty.get()} served=${served.get()} cached=${quotes.size} inFlight=${inFlight.size}" +
+            " missBy8435{${missCauses8435.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}}]"
 
     internal fun putForTest8189(mint: String, q: Quote8189) { quotes[mint] = q }
     internal fun resetForTest8189() { quotes.clear(); attempts.clear(); inFlight.clear() }

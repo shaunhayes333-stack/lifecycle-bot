@@ -260,11 +260,61 @@ object SellRouteSpine8144 {
             "CONFIRMED" -> finish8144(mint, "CONFIRMED", nowMs)
             "ALREADY_CLOSED", "FAILED_FATAL" -> finish8144(mint, result, nowMs)
             "WAITING_BALANCE_PROOF" -> fail8144(mint, "PROOF_WAIT", Stage8144.TOKEN_BALANCE, nowMs)
-            "ROUTE_FAILED_NO_SIGNATURE", "FAILED_RETRYABLE", "NO_WALLET" -> fail8144(mint, result, null, nowMs)
+            "ROUTE_FAILED_NO_SIGNATURE", "FAILED_RETRYABLE", "NO_WALLET" -> {
+                // V5.0.8435 — 8434: one HARD_STOP took 35 attempts / 20.5 s to broadcast and the spine read
+                // failStage={TOKEN_BALANCE=35}: an attempt that returned before ANY stage was charged to the stage after
+                // the lease (the balance), which never ran, and the return itself was not kept. A pre-route attempt is
+                // now charged to the lease stage it never left, under the last sell row it logged.
+                val t = live8144(mint, nowMs)
+                val preRoute = t != null && preRoute8435(t.lastStage, t.failedSinceLease8288)
+                val cause = if (t != null) attemptCause8435(mint, t.leaseMarkAtMs8288, result) else result
+                if (preRoute) notePreRoute8435(if (t?.emergency == true) "EMRG" else "NORM", cause)
+                fail8144(mint, cause, if (preRoute) Stage8144.CLOSE_LEASE else null, nowMs)
+            }
             "PAPER_CONFIRMED" -> open8144.remove(mint)
             else -> {}
         }
     }
+
+    // ── V5.0.8435 — what an attempt that failed before any stage actually returned on ──
+    private val lastText8435 = ConcurrentHashMap<String, Pair<String, Long>>()
+    private val preRouteCauses8435 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** Pure: an attempt with no stage closed since its lease (and no failure phase) never left the lease. */
+    fun preRoute8435(lastStage: Stage8144, failedSinceLease: Boolean): Boolean =
+        lastStage == Stage8144.CLOSE_LEASE && !failedSinceLease
+
+    /** Pure: a countable cause from a logged sell row — its phase and the first NAME in its message. */
+    fun causeKey8435(phase: String, message: String): String {
+        val head = Regex("[A-Z][A-Z0-9_]{3,}").find(message.uppercase())?.value.orEmpty().take(40)
+        return phase.trim().take(40) + if (head.isNotEmpty()) ":$head" else ""
+    }
+
+    /** LiveTradeLogStore: the newest LIVE SELL row of an open spine (every early return of the sell door logs one). */
+    fun notePhaseText8435(mint: String, phase: String, message: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || !open8144.containsKey(mint)) return
+        lastText8435[mint] = causeKey8435(phase, message) to nowMs
+        if (lastText8435.size > 500) lastText8435.entries.removeIf { nowMs - it.value.second > MAX_AGE_MS_8144 }
+    }
+
+    /** The row [mint]'s current attempt (since its lease at [leaseAtMs]) last logged, else the bare [result]. */
+    private fun attemptCause8435(mint: String, leaseAtMs: Long, result: String): String {
+        val r = lastText8435[mint] ?: return result
+        return if (r.second >= leaseAtMs) "${r.first}|$result" else result
+    }
+
+    /** CloseLease.recordPreRouteWait8288: the cause of [mint]'s latest pre-route wait, for its forensic row. */
+    fun lastCause8435(mint: String): String = lastText8435[mint]?.first ?: "-"
+
+    private fun notePreRoute8435(cls: String, cause: String) {
+        val k = "$cls|${cause.substringBefore('|').take(64)}"
+        if (preRouteCauses8435.size < 64 || preRouteCauses8435.containsKey(k)) preRouteCauses8435.computeIfAbsent(k) { AtomicLong() }.incrementAndGet()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SELL_PRE_ROUTE_CAUSE_8435_" + cause.substringBefore('|').substringBefore(':').take(40)) } catch (_: Throwable) {}
+    }
+
+    private fun preRouteLine8435(): String =
+        "preRoute8435{" + preRouteCauses8435.entries.sortedByDescending { it.value.get() }.take(6)
+            .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}"
 
     /**
      * SellFinalizationCoordinator: the chain-proven wallet delta was read, and the canonical close did / did not
@@ -342,12 +392,13 @@ object SellRouteSpine8144 {
                 "failStage={$fails} outcomes={$outs}]"
         }
         val recent = synchronized(recent8144) { recent8144.joinToString(" | ") }
-        return "open=${open8144.size} ${section("EMRG")} ${section("NORM")} recent=[${recent.ifBlank { "-" }}]" +
+        return "open=${open8144.size} ${section("EMRG")} ${section("NORM")} ${preRouteLine8435()} recent=[${recent.ifBlank { "-" }}]" +
             " " + (try { com.lifecyclebot.engine.SellLanding8368.statusLine8368() } catch (_: Throwable) { "sellLanding8368=-" })  // V5.0.8368
     }
 
     internal fun resetForTest8144() {
         open8144.clear(); latency8144.clear(); failures8144.clear(); outcomes8144.clear(); refused8363.clear()
+        lastText8435.clear(); preRouteCauses8435.clear()
         synchronized(recent8144) { recent8144.clear() }
     }
 }

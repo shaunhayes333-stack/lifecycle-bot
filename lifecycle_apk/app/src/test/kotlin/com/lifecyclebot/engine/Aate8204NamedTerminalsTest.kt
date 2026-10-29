@@ -29,7 +29,8 @@ class Aate8204NamedTerminalsTest {
     @Test fun deferralExhaustionNamesAnUnansweredFetch() {
         val le = src("truth/LiveEdgeGate7877.kt").substringAfter("CandidateAdmission8136.Terminal8136.DEFER_DATA -> {").substringBefore("CandidateAdmission8136.Terminal8136.REFUSE -> {")
         assertTrue(le.indexOf("DataDeferFetch8180.request8180(ts, missing, nowMs)") < le.indexOf("val budgetOpen8204"))
-        assertTrue(le.contains("val unanswered8204 = !budgetOpen8204 && CandidateAdmission8136.deferUnanswered8204(ts.mint, missing, nowMs)"))
+        // 8435: a condition wait (the falling hour: a known reading) is never an unanswered fetch
+        assertTrue(le.contains("val unanswered8204 = !budgetOpen8204 && !conditionWait8435 && CandidateAdmission8136.deferUnanswered8204(ts.mint, missing, nowMs)"))
         assertTrue(le.contains("AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint)"))
         assertTrue(le.contains("else if (unanswered8204) \"DATA_DEFER_FETCH_NEVER_COMPLETED_8204\" else \"DATA_DEFER_BUDGET_EXHAUSTED_8136\""))
         assertTrue("an unanswered fetch stays a DEFER (data pending, never an invented input, never a verdict on the coin) — V5.0.8229", le.contains("val terminal = Verdict8083.DEFER"))
