@@ -77,6 +77,25 @@ object GradTicks8018 {
 
     // ── pure ──
 
+    /**
+     * V5.0.8419 — a venue whose two vaults' ratio IS its spot price (PumpSwap, Raydium v4 / CPMM). A concentrated or
+     * dynamic venue (OnChainDepth8038.concentrated8418: CLMM, Whirlpool, DLMM, Meteora DAMM v2) keeps its liquidity in
+     * bins / ranges, so its vault ratio is depth, never a price; 8418 priced DAMM v2 positions from their vaults and
+     * stamped the mark on-basis (POOL_VAULT_WS_8418_MeteoraDAMMv2) — a fabricated price driving stops.
+     */
+    fun vaultRatioPrices8419(owner: String): Boolean =
+        com.lifecyclebot.engine.truth.OnChainDepth8038.vaultOffsets8038(owner) != null &&
+            !com.lifecyclebot.engine.truth.OnChainDepth8038.concentrated8418(owner)
+
+    /** V5.0.8419 — pure: can this feed follow a pool owned by [owner] at all? Decided before any further RPC read. */
+    fun followable8419(owner: String): Boolean =
+        owner == PUMP_AMM || com.lifecyclebot.engine.truth.OnChainDepth8038.priceInState8418(owner) || vaultRatioPrices8419(owner)
+
+    /** V5.0.8419 — pure: the dex label a tick's source carries into TokenState.lastPriceDex (copied to tokenMap.dexId / venue). */
+    fun dexFor8419(source: String): String =
+        if (source.startsWith("POOL_VAULT_WS_8418_") || source.startsWith("POOL_STATE_WS_8418_")) source.substringAfterLast("_8418_").uppercase()
+        else "PUMPSWAP"
+
     private fun b58(b: ByteArray, off: Int): String =
         io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(off, off + 32))
 
@@ -236,6 +255,9 @@ object GradTicks8018 {
             anyAnswered = true
             val data = read.second ?: continue
             val owner8418 = read.first
+            // V5.0.8419 — a bonding curve, a DexScreener pair id or a DAMM v1 / unknown program is decided here, before the
+            // mint-account and vault reads 8418 spent on every candidate (the pump curve of every ungraduated held coin included).
+            if (!followable8419(owner8418)) continue
             val dec = accountInfo(mint)?.second?.takeIf { it.size > 44 }?.let { it[44].toInt() and 0xFF } ?: continue
             val found8418: Pool? = when {
                 owner8418 == PUMP_AMM -> vaults8018(data, mint)?.let { (bv, qv) -> Pool(mint, addr, bv, qv, dec) }
@@ -243,6 +265,7 @@ object GradTicks8018 {
                     // the decode proves the layout and that the pool is coin / WSOL; a null is "not this coin's pool"
                     com.lifecyclebot.engine.truth.ConcentratedPrice8418.decode8418(owner8418, data, mint, dec, 9)
                         ?.let { Pool(mint, addr, addr, "", dec, owner8418, stateAccount = addr) }
+                !vaultRatioPrices8419(owner8418) -> null   // V5.0.8419 — DAMM v2: depth only, never a vault-ratio price
                 else -> com.lifecyclebot.engine.truth.OnChainDepth8038.vaultKeys8038(owner8418, data)?.let { (a, b) ->
                     // which vault holds the coin and which holds SOL: the SPL token account's mint is its first 32 bytes
                     val da = accountInfo(a)?.second?.takeIf { it.size >= 72 }

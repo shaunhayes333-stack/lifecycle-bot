@@ -19782,24 +19782,15 @@ class BotService : Service() {
             // catastrophe stop (H9NC5D: triggered near -23%, realised -43%). An on-route stop fires immediately, as through 8093.
             // V5.0.8418 §A_STOP_SELLS_ON_A_PRICE_THE_ROUTE_AGREES_WITH — the 45 s expiry is gone: an off-basis mark asks the
             // executable price at any age (8418 journal: Ac6PLX catastrophe stop at 48 s, the fill -3.3 % gross).
-            val offBasis8418 = offBasis || !StopMarkConfirm8418.onBasis8418(ts.lastPriceSource, ts.lastPricePoolAddr, ts.position.entryPoolAddress)
+            // V5.0.8419 — the coin's own chain state (StopFeed8327: curve account / decoded curve trade / pool vault) is never
+            // off-basis, whatever the 7735 TRADE_WS heuristic says; and the wait for an executable answer is bounded
+            // (StopMarkConfirm8418.executableConfirms8419: a quote newer than the ask decides, none within 15 s fires on the mark).
+            val offBasis8418 = StopMarkConfirm8418.offBasis8419(offBasis, ts.lastPriceSource, ts.lastPricePoolAddr, ts.position.entryPoolAddress)
             if (ts.position.entryTime <= 0L || !offBasis8418) return@run true
             if (pnlPct <= -60.0 && ageMs >= 10_000L) return@run true
-            val exec = try {
-                com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getExecutablePriceIfFresh7301(ts.mint)
-            } catch (_: Throwable) { null }
-            val entryPx = ts.position.entryPrice
-            if (exec != null && exec > 0.0 && entryPx > 0.0) {
-                val execPnl = (exec / entryPx - 1.0) * 100.0
-                return@run execPnl <= catastropheThreshold || execPnl <= -HARD_FLOOR_STOP_PCT_CONST
-            }
-            try {
-                val dec = com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint)
-                    ?: ts.tokenMap.decimals ?: 6
-                com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestExecutableQuote7301(ts.mint, dec)
-            } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("RAPID_STOP_AWAITING_EXECUTABLE_CONFIRM_7385") } catch (_: Throwable) {}
-            false
+            val confirmed8419 = StopMarkConfirm8418.executableConfirms8419(ts, maxOf(catastropheThreshold, -HARD_FLOOR_STOP_PCT_CONST))
+            if (!confirmed8419) try { PipelineHealthCollector.labelInc("RAPID_STOP_AWAITING_EXECUTABLE_CONFIRM_7385") } catch (_: Throwable) {}
+            confirmed8419
         }
         if (pnlPct <= catastropheThreshold && stopConfirmed7385) {
             ErrorLogger.warn("BotService", "🚨 RAPID STOP (CATASTROPHE): ${ts.symbol} at ${pnlPct.toInt()}%")
@@ -25984,7 +25975,7 @@ if (hotExitHandledSweep) {
         synchronized(ts) {
             ts.lastPrice = px
             ts.lastPriceSource = source8018
-            if (pool8018.isNotBlank()) { ts.lastPricePoolAddr = pool8018; ts.lastPriceDex = "PUMPSWAP" }
+            if (pool8018.isNotBlank()) { ts.lastPricePoolAddr = pool8018; ts.lastPriceDex = com.lifecyclebot.network.GradTicks8018.dexFor8419(source8018) }   // V5.0.8419 — the tick's venue, not "PUMPSWAP" for a Raydium / Meteora / Orca pool
             ts.lastPriceUpdate = now
             // superseded by V5.0.8418 — the venue's marketCapSol (price x an assumed 1e9 supply) is not written:
             // every print prices the mint account's verified supply; unread supply leaves the row's cap as it was (unknown stays unknown).

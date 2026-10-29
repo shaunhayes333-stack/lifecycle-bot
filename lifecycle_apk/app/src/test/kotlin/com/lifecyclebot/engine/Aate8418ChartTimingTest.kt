@@ -14,7 +14,10 @@ class Aate8418ChartTimingTest {
         val specificPlan = body.indexOf("if (specific8171?.admitted == true && specific8171.specific) {")
         assertTrue("the chart is read before any evidence admit plans", read in 0 until specificPlan)
         assertTrue(body.contains("if (evidenceAdmit8418 && read8418.setup != null)"))
-        assertTrue(body.contains("if (evidenceAdmit8418 && read8418.why == \"NO_PULLBACK_YET\")"))
+        // superseded by V5.0.8419 — NO_PULLBACK_YET alone is not the owner's shape (true of every three-bar tape); the wait
+        // needs an unretraced impulse (TradePlan7739.unretracedImpulse8419), else the evidence admit stands as before 8418
+        assertTrue(body.contains("if (evidenceAdmit8418 && read8418.why == \"NO_PULLBACK_YET\" && unretracedImpulse8419(barsFrom(ts, nowMs, entry8317 = true), tierFor(ts.lastMcap)))"))
+        assertTrue("the chart stop never widens past the graded lane stop", body.contains("val stop8419 = minOf(read8418.stopPct, gradedStopMag8094(lane))"))
     }
 
     @Test fun theTradePlanBindsALiveSpecialistBuy() {

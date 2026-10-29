@@ -239,11 +239,18 @@ object MarkIdentityRepairAuthority7236 {
             MemoryBounds8289.capByAge8289(execAttempt7301, MAX_MINTS_8418, KEEP_MS_8418, nowMs) { it }
     private val quoteApi7301 by lazy { com.lifecyclebot.network.JupiterApi("", observationOnly7397 = true) }
 
-    fun requestExecutableQuote7301(mint: String, tokenDecimals: Int) {
+    /** V5.0.8419 — a test injects an observed executable quote (StopMarkConfirm8418's verdicts are judged on its timestamp). */
+    internal fun recordExecutableForTest8419(mint: String, priceUsd: Double, atMs: Long) {
+        executable7301[mint] = Repaired(priceUsd, "JUPITER_EXECUTABLE_QUOTE_7301", atMs)
+    }
+
+    // V5.0.8419 — [minGapMs]: a pending loss stop (StopMarkConfirm8418) re-asks every few seconds after a refuting quote;
+    // every other caller keeps the 30 s debounce.
+    fun requestExecutableQuote7301(mint: String, tokenDecimals: Int, minGapMs: Long = EXEC_DEBOUNCE_MS_7301) {
         val bare = mint.removePrefix("solana|").trim()
         if (bare.isBlank() || bare.contains('|') || tokenDecimals !in 0..18) return
         val now = System.currentTimeMillis()
-        if (now - (execAttempt7301[mint] ?: 0L) < EXEC_DEBOUNCE_MS_7301) return
+        if (now - (execAttempt7301[mint] ?: 0L) < minGapMs.coerceIn(1_000L, EXEC_DEBOUNCE_MS_7301)) return
         execAttempt7301[mint] = now
         if (execAttempt7301.size > MAX_MINTS_8418) bound8418(now)
         scope.launch {

@@ -36,6 +36,17 @@ object MarkGate8418 {
         return r >= JUMP_RATIO_8418 || r <= 1.0 / JUMP_RATIO_8418
     }
 
+    /**
+     * V5.0.8419 — pure: is [px] a RISE of [JUMP_RATIO_8418]x or more against [refPx]? Only a rise is held for a second
+     * print. A drop of that size is the shape of a rug, and holding it (the row kept its old mark, ChainFedMarks8418 kept
+     * the polls off it for 60 s, and a rugged curve may never print again) delayed the one exit that must not wait; the
+     * 8418 journal's wrong prints were all rises (21-25x), and a wrong drop costs a round trip, not the position.
+     */
+    fun isRise8419(refPx: Double, px: Double): Boolean {
+        if (!refPx.isFinite() || refPx <= 0.0 || !px.isFinite() || px <= 0.0) return false
+        return px / refPx >= JUMP_RATIO_8418
+    }
+
     /** Pure: does [px] agree with a held candidate [heldPx] within [CONFIRM_BAND_8418]? */
     private fun agrees8418(heldPx: Double, px: Double): Boolean {
         if (!heldPx.isFinite() || heldPx <= 0.0 || !px.isFinite() || px <= 0.0) return false
@@ -54,12 +65,13 @@ object MarkGate8418 {
                 if (nowMs - h.atMs >= CONFIRM_GAP_MS_8418) { held.remove(key); confirmedN.incrementAndGet(); return Decision8418.CONFIRMED }
                 return Decision8418.HOLD   // same print burst: wait for a later one
             }
-            // a disagreeing print: the held candidate is replaced if this one is still a jump, else the row resumes
-            if (!isJump8418(refPx, px)) { held.remove(key); return Decision8418.ACCEPT }
+            // a disagreeing print: the held candidate is replaced if this one is still a rise, else the row resumes
+            // (V5.0.8419 — a drop, rug-shaped or ordinary, is accepted at once)
+            if (!isRise8419(refPx, px)) { held.remove(key); return Decision8418.ACCEPT }
             held[key] = Held8418(px, nowMs); return Decision8418.HOLD
         }
         val inWindow = refAtMs <= 0L || nowMs - refAtMs <= JUMP_WINDOW_MS_8418
-        if (inWindow && isJump8418(refPx, px)) {
+        if (inWindow && isRise8419(refPx, px)) {   // V5.0.8419 — rises only; isJump8418 stays the two-way diagnostic
             if (held.size > MAX_KEYS_8418) held.clear()
             held[key] = Held8418(px, nowMs); heldN.incrementAndGet(); return Decision8418.HOLD
         }

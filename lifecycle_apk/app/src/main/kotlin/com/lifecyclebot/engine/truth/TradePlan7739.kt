@@ -380,6 +380,25 @@ object TradePlan7739 {
         return planned(Setup.SWEEP_RECLAIM, cur, sweepLow * 0.98, mid, rangeHigh, tier)
     }
 
+    /**
+     * V5.0.8419 — pure: is this tape an UNRETRACED IMPULSE — the high in the last two bars after a rise of at least the
+     * tier's impulse from the base? That is the shape the owner named ("buying at the wrong stage": a spike bought at its
+     * top). pullbackReclaim's NO_PULLBACK_YET is not that test: at the launch-window minimum of three bars it is true for
+     * EVERY tape (iH < 1 || iH > n - 3 cannot be false), and it also names a decline from the first bar — so 8418's wait on
+     * that read held every three-bar evidence admit regardless of shape. Only a real impulse waits; the rest keep the admit.
+     */
+    fun unretracedImpulse8419(bars: List<Bar>, tier: Tier): Boolean {
+        val n = bars.size
+        if (n < 2) return false
+        var iH = 0
+        for (i in 1 until n) if (bars[i].high >= bars[iH].high) iH = i
+        if (iH < n - 2) return false
+        val h = bars[iH].high
+        val base = (0..iH).minOf { bars[it].low }
+        if (!(base > 0.0) || !h.isFinite()) return false
+        return (h / base - 1.0) * 100.0 >= tier.minImpulsePct
+    }
+
     /** Pure: the best-paying setup the bars show, or the reason none is present. */
     fun analyze(bars: List<Bar>, tier: Tier, chop: Boolean, buyTx: Int, sellTx: Int, minBars: Int = MIN_BARS_7739): Read {
         if (sellTx >= 3 && sellTx > buyTx) return Read(null, "SELL_DOMINANT_TAPE")
@@ -449,12 +468,17 @@ object TradePlan7739 {
             LiveEdgeGate7877.positiveAdmit7975(ts.mint, nowMs)
         if (evidenceAdmit8418 && read8418.setup != null) {
             val st = read8418.setup ?: Setup.LAUNCH_EARLY
-            plans[ts.mint] = Plan(st, -read8418.stopPct, read8418.firstTargetPct, read8418.targetPct, nowMs)
+            // V5.0.8419 — the stop is never wider than the one the admitting evidence was graded on (8094: a trade admitted
+            // on a graded record exits the way it was graded); the chart's levels keep the targets.
+            val stop8419 = minOf(read8418.stopPct, gradedStopMag8094(lane))
+            plans[ts.mint] = Plan(st, -stop8419, read8418.firstTargetPct, read8418.targetPct, nowMs)
             admitted.computeIfAbsent(st) { AtomicLong(0) }.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PLAN_EVIDENCE_ADMIT_ON_CHART_SETUP_8418_${st.name}") } catch (_: Throwable) {}
             return null
         }
-        if (evidenceAdmit8418 && read8418.why == "NO_PULLBACK_YET") {
+        // V5.0.8419 — the wait is for the owner's shape (unretracedImpulse8419), not for pullbackReclaim's NO_PULLBACK_YET,
+        // which at three bars is true of every tape and also names a decline from the first bar.
+        if (evidenceAdmit8418 && read8418.why == "NO_PULLBACK_YET" && unretracedImpulse8419(barsFrom(ts, nowMs, entry8317 = true), tierFor(ts.lastMcap))) {
             waited.incrementAndGet()
             waitReasons.computeIfAbsent("EVIDENCE_ADMIT_NO_PULLBACK_8418") { AtomicLong(0) }.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PLAN_WAIT_8418_EVIDENCE_ADMIT_NO_PULLBACK") } catch (_: Throwable) {}

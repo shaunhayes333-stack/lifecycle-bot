@@ -12,7 +12,10 @@ class Aate8418HeldPoolFeedTest {
     @Test fun aTickNamesItsVenueAndIsOnThePositionsBasis() {
         assertEquals("PUMPSWAP_VAULT_WS_8018", GradTicks8018.sourceFor8418(OnChainDepth8038.PUMP_AMM, false))
         assertEquals("POOL_VAULT_WS_8418_RaydiumV4", GradTicks8018.sourceFor8418(OnChainDepth8038.RAYDIUM_V4, false))
-        assertEquals("POOL_VAULT_WS_8418_MeteoraDAMMv2", GradTicks8018.sourceFor8418(OnChainDepth8038.METEORA_DAMM_V2_8418, false))
+        // superseded by V5.0.8419 — a Meteora DAMM v2 pool is never followed by its vaults (OnChainDepth8038.concentrated8418:
+        // the vault ratio is depth, not a price), so no tick of it carries a VAULT source; Raydium CPMM takes the example.
+        assertEquals("POOL_VAULT_WS_8418_RaydiumCPMM", GradTicks8018.sourceFor8418(OnChainDepth8038.RAYDIUM_CPMM, false))
+        assertFalse(GradTicks8018.vaultRatioPrices8419(OnChainDepth8038.METEORA_DAMM_V2_8418))
         assertEquals("POOL_STATE_WS_8418_RaydiumCLMM", GradTicks8018.sourceFor8418(OnChainDepth8038.RAYDIUM_CLMM_8418, true))
         for (s in listOf("POOL_VAULT_WS_8418_RaydiumV4", "POOL_STATE_WS_8418_OrcaWhirlpool", "PUMPSWAP_VAULT_WS_8018")) {
             assertTrue(s, StopMarkConfirm8418.onBasis8418(s, "", "MINT_ROUTE:x"))

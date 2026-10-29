@@ -98,8 +98,10 @@ class Aate8171IntegratedRepairTest {
         val p = src("engine/truth/TradePlan7739.kt")
         // V5.0.8392 — the plan reads the one canonical admission (or looks it up) before the bars wait
         val start = p.indexOf("val specific8171 = candidateAdmission ?: try {")
-        assertTrue(start in 0 until p.indexOf("val read = readForEntry7837(ts, nowMs)"))
-        val wait = p.indexOf("val read = readForEntry7837(ts, nowMs)")
+        // superseded by V5.0.8419 — 8418 renamed the chart read (`val read8418 = readForEntry7837(ts, nowMs)`, reused as
+        // `val read = read8418`) and this pin silently went to indexOf = -1; the admission is still read before the chart.
+        assertTrue(start in 0 until p.indexOf("val read8418 = readForEntry7837(ts, nowMs)"))
+        val wait = p.indexOf("val read8418 = readForEntry7837(ts, nowMs)")
         assertTrue(start > 0)
         assertTrue(start < wait)
         assertTrue(p.contains("if (specific8171?.admitted == true && specific8171.specific)"))
