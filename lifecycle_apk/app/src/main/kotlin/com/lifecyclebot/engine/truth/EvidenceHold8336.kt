@@ -83,8 +83,11 @@ object EvidenceHold8336 {
     // superseded by V5.0.8418 — the fast bar (15 closes / PF 1.2 for CORE, MOONSHOT, PROJECT_SNIPER) lowered the PAPER proof that
     // unlocks LIVE; its "operator (27 Oct 2026)" instruction is not in DIRECTIVE_LEDGER_8367 (review 8418). Every lane reads the
     // 8336 bar (30 / PF 1.3) again; the fast-lane set and constants stay for the report.
-    fun minN8399(lane: String?): Int = MIN_N_8336
-    fun minPf8399(lane: String?): Double = MIN_PF_8336
+    // V5.0.8420 — restored. The operator gave the fast bar in this repair conversation (27 Oct 2026, implemented 8399); the
+    // directive ledger missing it is a ledger gap, not a reason to remove it. The lane is canonicalised so every caller binds.
+    fun minN8399(lane: String?): Int = if (fastBarLane8420(lane)) FAST_MIN_N_8399 else MIN_N_8336
+    fun minPf8399(lane: String?): Double = if (fastBarLane8420(lane)) FAST_MIN_PF_8399 else MIN_PF_8336
+    private fun fastBarLane8420(lane: String?): Boolean = lane != null && canon(lane) in FAST_BAR_LANES_8399
 
     fun proof8336(returnsPct: List<Double>, pnlSol: List<Double>, lane: String? = null): Proof8336 {
         val r = returnsPct.filter { it.isFinite() }.map { it.coerceIn(-100.0, 1_000.0) }
@@ -112,8 +115,14 @@ object EvidenceHold8336 {
     // superseded by V5.0.8418 — the lane-wide proof was the PAPER record or the SHADOW book, and it lifted the LIVE niche veto
     // and entry-timing wait (a paper / shadow result admitting live entries). It is now the lane's own realised LIVE closes in
     // the account mode (Cortex7885.laneRealised8295): [MIN_N_8336]+ closes with a mean above [MARGIN_PCT_8336].
-    fun laneWideProven8392(lane: String, nowMs: Long = System.currentTimeMillis()): Boolean =
-        laneWideLive8418(try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(canon(lane)) } catch (_: Throwable) { null })
+    // V5.0.8420 — restored to 8392: the lane's live record, OR its whole paper record, OR its whole shadow book (real exits,
+    // real costs) proves it lane-wide. 8418 read realised LIVE closes only (30+), which live with ~1 close can never reach, so
+    // the niche veto and entry-timing wait could never lift for any lane. This lifts a shaping veto only; it sizes nothing up.
+    fun laneWideProven8392(lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val l = canon(lane)
+        return laneWideLive8418(try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(l) } catch (_: Throwable) { null }) ||
+            proofFor8336(l, nowMs).proven || (try { EvidenceShadow8344.proof8344(l, startMs8336).proven } catch (_: Throwable) { false })
+    }
 
     /** Pure (V5.0.8418): realised live [closes, mean %] that prove a lane lane-wide. */
     fun laneWideLive8418(realised: DoubleArray?): Boolean =

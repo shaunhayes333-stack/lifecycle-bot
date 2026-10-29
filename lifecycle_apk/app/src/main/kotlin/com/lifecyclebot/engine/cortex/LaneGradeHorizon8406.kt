@@ -52,10 +52,11 @@ object LaneGradeHorizon8406 {
         // V5.0.8418 — superseded: the suspension lifted the 8383 retirement on every hour-graded lane with NO hour evidence
         // (review 8418). It now waits for the lane's hour book (HOUR_BOOK_MIN_N_8408 hour-graded labels); until then the
         // 5-minute retirement stands and the would-be suspension is counted.
-        if (!suspensionEarned8418(hourGradedN8408(canon(lane)))) {
-            try { PipelineHealthCollector.labelInc("RETIREMENT_KEPT_NO_HOUR_BOOK_8418_${lane.trim().uppercase()}") } catch (_: Throwable) {}
-            return false
-        }
+        // V5.0.8420 — restored 8406: a 5-minute book has no standing to retire a patient (accumulation) setup on an hour-graded
+        // lane; keeping that retirement until the hour book fills retired exactly the early-accumulation entries (the goal of
+        // this repair) and kept the chase family. Retirement on the lane's own hour evidence is unaffected.
+        if (!suspensionEarned8418(hourGradedN8408(canon(lane))))
+            try { PipelineHealthCollector.labelInc("RETIREMENT_SUSPENDED_NO_HOUR_BOOK_8420_${lane.trim().uppercase()}") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("RETIREMENT_SUSPENDED_WRONG_HORIZON_8406_${lane.trim().uppercase()}") } catch (_: Throwable) {}
         return true
     }
@@ -126,11 +127,13 @@ object LaneGradeHorizon8406 {
      * labels. Where 8408 would have spared, it is counted (WRONG_CLOCK_REFUSAL_KEPT_8418_<gate>_<lane>); once the hour book
      * exists nothing changes. The raise-only move read (wrongClockSpares8408) is unaffected.
      */
+    // V5.0.8420 — restored to 8408: on an hour-graded lane without its hour book, a 5-minute-graded refusal does not bind
+    // (the operator's "the wrong clock cannot refuse"). Hard safety, cost economics and Cortex hour grades still refuse.
     fun refusalKept8418(lane: String, gate: String): Boolean {
         val l = canon(lane)
-        if (!fiveMinuteMayRefuse8408(hourGraded8406(l), hourGradedN8408(l)))
-            try { PipelineHealthCollector.labelInc("WRONG_CLOCK_REFUSAL_KEPT_8418_${gate}_$l") } catch (_: Throwable) {}
-        return true
+        val may = fiveMinuteMayRefuse8408(hourGraded8406(l), hourGradedN8408(l))
+        if (!may) try { PipelineHealthCollector.labelInc("WRONG_CLOCK_REFUSAL_SPARED_8420_${gate}_$l") } catch (_: Throwable) {}
+        return may
     }
 
     fun hourBookLine8408(): String {

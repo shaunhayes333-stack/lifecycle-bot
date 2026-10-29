@@ -78,9 +78,9 @@ class Aate8392CortexCoverageTest {
         assertFalse(com.lifecyclebot.engine.truth.EvidenceHold8336.laneWideProven8392(lane, 1L))
         val at=com.lifecyclebot.engine.truth.EvidenceHold8336.startMs8336+1
         repeat(40){ com.lifecyclebot.engine.truth.EvidenceShadow8344.noteCloseForTests8345(lane, if(it%4==0) -8.0 else 15.0, at+it) }
-        // superseded by V5.0.8418 — a SHADOW book no longer proves a lane lane-wide (it lifted the LIVE niche / timing vetoes):
-        // only realised live closes do (EvidenceHold8336.laneWideLive8418). Was: assertTrue after 40 shadow closes.
-        assertFalse(com.lifecyclebot.engine.truth.EvidenceHold8336.laneWideProven8392(lane, at+100))
+        // V5.0.8420 — restored: a whole-lane shadow book (real exits and costs) proves the lane lane-wide again (lifts the niche
+        // veto / timing wait only; no size input). The live-record path (laneWideLive8418) is kept beside it.
+        assertTrue(com.lifecyclebot.engine.truth.EvidenceHold8336.laneWideProven8392(lane, at+100))
         assertTrue(com.lifecyclebot.engine.truth.EvidenceHold8336.laneWideLive8418(doubleArrayOf(30.0, 4.0)))
         assertFalse(com.lifecyclebot.engine.truth.EvidenceHold8336.laneWideLive8418(doubleArrayOf(29.0, 40.0)))
         assertFalse(com.lifecyclebot.engine.truth.EvidenceHold8336.laneWideLive8418(doubleArrayOf(80.0, 1.0)))

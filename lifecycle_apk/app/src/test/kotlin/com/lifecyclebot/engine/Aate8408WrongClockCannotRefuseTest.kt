@@ -30,7 +30,8 @@ class Aate8408WrongClockCannotRefuseTest {
         assertTrue(gate.contains("""LaneGradeHorizon8406.refusalKept8418(l, "LANE_7938")"""))
         val pb = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(pb.contains("!LaneGradeHorizon8406.refusalKept8418(lane, \"PLAYBOOK_7907\")) why = null"))
-        assertTrue("a refusal site is never spared now", LaneGradeHorizon8406.refusalKept8418("QUALITY", "TEST"))
+        // V5.0.8420 — restored 8408: an hour-graded lane without its hour book is spared the 5-minute refusal; TREASURY is not.
+        assertFalse("hour lane, no hour book: spared", LaneGradeHorizon8406.refusalKept8418("QUALITY", "TEST"))
         assertTrue(LaneGradeHorizon8406.refusalKept8418("TREASURY", "TEST"))
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt").substringAfter("private fun reviseToHour8337(")
         assertTrue(lab.substringBefore("private val exitRunSamples8006").contains("LaneGradeHorizon8406.noteHourGrade8408(o.lane)"))

@@ -32,7 +32,8 @@ class Aate8406MandateHorizonGradingTest {
         // superseded by V5.0.8418 — the suspension needs the lane's hour book (30 hour labels, LaneGradeHorizon8406.suspensionEarned8418);
         // with none, QUALITY's 5-minute retirement of BUYERS_DOMINATING stands (was assertFalse). MOONSHOT / SHITCOIN above keep
         // their early-band (8389) exemption, which is independent of the clock.
-        assertTrue(LanePlaybook7907.retired8383("QUALITY", "BUYERS_DOMINATING"))
+        // V5.0.8420 — restored 8406: QUALITY's 5-minute retirement of the patient BUYERS_DOMINATING setup is suspended again.
+        assertFalse(LanePlaybook7907.retired8383("QUALITY", "BUYERS_DOMINATING"))
         assertFalse(LaneGradeHorizon8406.suspensionEarned8418(29L)); assertTrue(LaneGradeHorizon8406.suspensionEarned8418(30L))
         // a range-reversion lane keeps its 5-minute evidence
         assertTrue(LanePlaybook7907.retired8383("TREASURY", "QUIET_ACCUMULATION"))

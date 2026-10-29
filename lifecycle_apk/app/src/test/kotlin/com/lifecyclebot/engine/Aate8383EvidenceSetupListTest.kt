@@ -67,8 +67,9 @@ class Aate8383EvidenceSetupListTest {
         assertTrue(LanePlaybook7907.retired8383("TREASURY", "QUIET_ACCUMULATION"))
         // superseded by V5.0.8418 — the 8406 suspension waits for the lane's hour book; without one the retirement binds again
         // on hour-graded lanes (was assertFalse for both).
-        assertTrue(LanePlaybook7907.retired8383("BLUECHIP", "QUIET_ACCUMULATION"))
-        assertTrue(LanePlaybook7907.retired8383("SHITCOIN", "BUYERS_DOMINATING"))
+        // V5.0.8420 — restored 8406: the 5-minute retirement of a patient setup is suspended on hour-graded lanes.
+        assertFalse(LanePlaybook7907.retired8383("BLUECHIP", "QUIET_ACCUMULATION"))
+        assertFalse(LanePlaybook7907.retired8383("SHITCOIN", "BUYERS_DOMINATING"))
         // V5.0.8389 — an early-band lane keeps its launch / early-accumulation family (its own 7907 book refuses real losers)
         val quiet = f(runup = 10.0, dd = 5.0, bp = 60.0, chg5m = 0.5, chg1h = 2.0, pxPeak = 0.95)
         assertTrue(LanePlaybook7907.matches("SHITCOIN", quiet)!!.any { it.id == "QUIET_ACCUMULATION" })

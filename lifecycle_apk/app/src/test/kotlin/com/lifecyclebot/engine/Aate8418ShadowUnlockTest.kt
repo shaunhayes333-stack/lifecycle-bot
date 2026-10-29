@@ -42,8 +42,8 @@ class Aate8418ShadowUnlockTest {
         // ADMISSION: the shadow proof unlocks the hold in LIVE
         assertTrue(EvidenceHold8336.shadowProven8344(lane))
         assertNull(EvidenceHold8336.refusal8336(lane, paper = false))
-        // ...but it is no lane-wide proof (that is realised live closes only) and no size input:
-        assertFalse(EvidenceHold8336.laneWideProven8392(lane))
+        // V5.0.8420 — the shadow book proves the lane lane-wide again (niche veto / timing wait), but it is still no size input:
+        assertTrue(EvidenceHold8336.laneWideProven8392(lane))
         // no realised live closes -> no realised proof stake -> any label share is capped to 0 -> the route-minimum small stake
         val realised = LiveRiskPolicy7807.realisedProofKellyFrac8188(emptyList(), emptyList())
         assertEquals(0.0, realised, 0.0)
