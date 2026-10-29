@@ -38,6 +38,9 @@ class Aate7807ResidentHuntersTest {
                         priceChangeH1Pct = chg, txCountH1 = 100, holders = 500,
                         organicScore = 50.0, verified = true, ageHours = age,
                         providers = setOf("TEST_7807"),
+                        // V5.0.8423 — the grid's launch-window rows state a chain-proven birth: the PROJECT_SNIPER hunter no
+                        // longer reads a provider's pool age as a birth (LaneHunter7297.sniperAgeFits8419).
+                        birthProven8419 = age <= 0.1,
                     )
                 }
             }

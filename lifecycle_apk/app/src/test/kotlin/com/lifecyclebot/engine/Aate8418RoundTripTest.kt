@@ -107,6 +107,10 @@ class Aate8418RoundTripTest {
         assertNull(RoundTrip8418.markLift8418(9.28, RealisedSlip8418.receiptMeasured8418()))
         Costs8369.noteJupiterQuote8391(sol, mint, org.json.JSONObject("{\"inAmount\":\"30000000\",\"outAmount\":\"1000000\",\"feeBps\":0}"), true, now)
         Costs8369.noteJupiterQuote8391(mint, sol, org.json.JSONObject("{\"inAmount\":\"1000000\",\"outAmount\":\"30000000\"}"), false, now)
+        // V5.0.8426 — a fill is measured against the quote the swap was BUILT from (JupiterApi.buildSwapTx), never the latest
+        // probe quote of the mint; the swaps here are built from those two quotes.
+        RealisedSlip8418.noteExecuted8426(sol, mint, 30_000_000L, 1_000_000L, 0.0, now)
+        RealisedSlip8418.noteExecuted8426(mint, sol, 1_000_000L, 30_000_000L, 0.0, now)
         repeat(5) {
             // spent 30,040,000 incl. a 15,000 fee and a 25,000 tip; 997,000 tokens = 0.3 % under the quote
             RealisedSlip8418.noteBuyFill8418(mint, BigInteger.valueOf(997_000L), 30_040_000L, 15_000L, now + 2_000L)
