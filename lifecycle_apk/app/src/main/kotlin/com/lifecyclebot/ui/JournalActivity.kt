@@ -638,14 +638,18 @@ class JournalActivity : AppCompatActivity() {
         // >= +0.5%, a loss <= -2.0%, the rest scratches (now shown). The tiles used to read the saved
         // lifetime counters, which ignored the tab, survived Clear and could sit unchanged for days.
         val terminal8015 = entries.filter { it.side.equals("SELL", ignoreCase = true) }
-        val wins8015 = terminal8015.filter { it.pnlPct >= 0.5 }
-        val losses8015 = terminal8015.count { it.pnlPct <= -2.0 }
-        val scratches8015 = terminal8015.size - wins8015.size - losses8015
+        // V5.0.8419 — the tiles classify each close by its realised receipt return (sold cost basis, net SOL), as the
+        // CSV footer and getStatsFiltered do (V5.0.8365), never by the quoted mark: a sell whose mark says +16 % but
+        // that returned less SOL than it cost is a loss here too. A close with no economic basis is left out of W/L/S.
+        val realised8419 = terminal8015.mapNotNull { com.lifecyclebot.engine.JournalReceiptAccounting6663.realisedReturnPct8419(it) }
+        val wins8015 = realised8419.filter { it >= 0.5 }
+        val losses8015 = realised8419.count { it <= -2.0 }
+        val scratches8015 = realised8419.size - wins8015.size - losses8015
         val decided8015 = wins8015.size + losses8015
         val winRate8015 = if (decided8015 > 0) wins8015.size * 100.0 / decided8015 else 0.0
         tvJournalWinRate.text = "${winRate8015.toInt()}%  (${wins8015.size}W/${losses8015}L/${scratches8015}S)"
         tvJournalCount.text = terminal8015.size.toString()
-        tvJournalAvgWin.text = if (wins8015.isNotEmpty()) "%+.1f%%".format(wins8015.map { it.pnlPct }.average()) else "0.0%"
+        tvJournalAvgWin.text = if (wins8015.isNotEmpty()) "%+.1f%%".format(wins8015.average()) else "0.0%"
 
         llJournalTrades.removeAllViews()
         reattachTabBar()  // V5.9.264: keep the filter tabs visible across refreshes

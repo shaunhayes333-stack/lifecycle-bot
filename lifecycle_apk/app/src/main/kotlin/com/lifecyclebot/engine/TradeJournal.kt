@@ -64,6 +64,25 @@ internal object JournalReceiptAccounting6663 {
         val pct = 100.0 * (netGain / costBasis)
         return pct.takeIf { it.isFinite() }
     }
+
+    /**
+     * V5.0.8419 — the realised return of one sell-like journal row, read from its receipt (the sold cost basis and the
+     * net SOL it returned) exactly as the CSV footer and getStatsFiltered read it. A BUY row, or a sell with no economic
+     * basis, is null: a row is never classified from its quoted mark percentage.
+     */
+    fun realisedReturnPct8419(e: TradeJournal.JournalEntry): Double? {
+        val sellLike = e.side.equals("SELL", ignoreCase = true) || e.side.equals("PARTIAL_SELL", ignoreCase = true)
+        if (!sellLike) return null
+        val amt = sell(
+            solAmount = e.solAmount,
+            recordedPnl = e.pnlSol,
+            recordedFee = e.feeSol,
+            entryCost = e.entryCostSol,
+            soldCostBasis = e.soldCostBasisSol,
+            grossProceeds = e.grossProceedsSol,
+        )
+        return netReturnPct(amt.costBasis, amt.netGain)
+    }
 }
 
 /**
@@ -760,14 +779,23 @@ class TradeJournal(private val ctx: Context) {
         val redPaint = Paint(textPaint).apply { color = Color.parseColor("#FF4D6D") }
         val amberPaint = Paint(textPaint).apply { color = Color.parseColor("#FFB020") }
 
-        val decisiveSells = sells.filter { isDecisive(it.pnlPct) }
-        val wins = decisiveSells.count { isWin(it.pnlPct) }
-        val losses = decisiveSells.count { isLoss(it.pnlPct) }
-        val scratches = sells.count { isScratch(it.pnlPct) }
+        // V5.0.8419 — the PDF's win rate, totals and row colours read the sold-cost-basis receipt, as the CSV footer and
+        // getStatsFiltered have since V5.0.8365; a quoted mark percentage never classifies a realised SOL loss as a win,
+        // and a sell with no economic basis is reported unclassified rather than classified from its mark.
+        val pdfAcct8419 = sells.map { it to deriveRowAccounting(it, solPrice) }
+        val accountedPdf8419 = pdfAcct8419.mapNotNull { row ->
+            JournalReceiptAccounting6663.netReturnPct(row.second.costBasisSol, row.second.netGainSol)
+                ?.let { pct -> row.first to pct }
+        }
+        val decisiveSells = accountedPdf8419.filter { isDecisive(it.second) }
+        val wins = decisiveSells.count { isWin(it.second) }
+        val losses = decisiveSells.count { isLoss(it.second) }
+        val scratches = accountedPdf8419.count { isScratch(it.second) }
+        val unclassified8419 = sells.size - accountedPdf8419.size
 
-        val totalPnlSol = sells.sumOf { it.pnlSol }
+        val totalPnlSol = pdfAcct8419.sumOf { it.second.gainLossSol }
         val totalPnlUsd = totalPnlSol * solPrice
-        val totalFeeSol = sells.sumOf { it.feeSol }
+        val totalFeeSol = pdfAcct8419.sumOf { it.second.feeSol }
         val totalFeeUsd = totalFeeSol * solPrice
         val winRate = if (wins + losses > 0) wins * 100.0 / (wins + losses) else 0.0
 
@@ -796,6 +824,8 @@ class TradeJournal(private val ctx: Context) {
         canvas.drawText("Decisive Sells:           ${decisiveSells.size}", 50f, y, textPaint)
         y += 18f
         canvas.drawText("Scratch Sells:            $scratches", 50f, y, textPaint)
+        y += 18f
+        canvas.drawText("Unclassified Sells:       $unclassified8419 (no economic basis)", 50f, y, textPaint)
         y += 18f
         canvas.drawText("Win Rate:                 ${String.format("%.1f", winRate)}% ($wins wins / $losses losses)", 50f, y, textPaint)
         y += 25f
@@ -835,7 +865,7 @@ class TradeJournal(private val ctx: Context) {
         val itemsPerPage = 35
         var itemCount = 0
 
-        for (entry in sells) {
+        for ((entry, acct) in pdfAcct8419) {
             if (itemCount > 0 && itemCount % itemsPerPage == 0) {
                 document.finishPage(page)
                 pageNumber++
@@ -854,14 +884,16 @@ class TradeJournal(private val ctx: Context) {
 
             val dateStr = sdf.format(Date(entry.ts))
             val symbolStr = entry.symbol.take(12).padEnd(12)
-            val pnlUsd = entry.pnlSol * solPrice
+            // V5.0.8419 — each row's USD and % are its net realised receipt; a row without a basis prints n/a in amber.
+            val pct8419 = JournalReceiptAccounting6663.netReturnPct(acct.costBasisSol, acct.netGainSol)
+            val pnlUsd = acct.netGainSol * solPrice
             val pnlStr = String.format("%+,.2f", pnlUsd).padStart(10)
-            val pctStr = String.format("%+.1f%%", entry.pnlPct).padStart(8)
+            val pctStr = (if (pct8419 != null) String.format("%+.1f%%", pct8419) else "n/a").padStart(8)
             val modeStr = entry.tradingMode.take(10)
 
             val linePaint = when {
-                isWin(entry.pnlPct) -> greenPaint
-                isLoss(entry.pnlPct) -> redPaint
+                pct8419 != null && isWin(pct8419) -> greenPaint
+                pct8419 != null && isLoss(pct8419) -> redPaint
                 else -> amberPaint
             }
 

@@ -458,8 +458,9 @@ object SentienceHooks {
 
         val cfgLine = try {
             val c = com.lifecyclebot.data.ConfigStore.load(context)
-            "minDiscoveryScore=${"%.2f".format(c.minDiscoveryScore)} " +
-                "minLiquidityUsd=${"%.0f".format(c.minLiquidityUsd)} " +
+            // V5.0.8419 — minDiscoveryScore is not shown to the LLM: it has no decision-path consumer (V5.0.8365), so
+            // presenting it as a live setting only invited proposals the tuner must reject.
+            "minLiquidityUsd=${"%.0f".format(c.minLiquidityUsd)} " +
                 "sentimentBlockThreshold=${"%.1f".format(c.sentimentBlockThreshold)} " +
                 "behaviorAggressionLevel=${c.behaviorAggressionLevel} " +
                 "aggressiveWhaleThreshold=${"%.1f".format(c.aggressiveWhaleThreshold)}"
