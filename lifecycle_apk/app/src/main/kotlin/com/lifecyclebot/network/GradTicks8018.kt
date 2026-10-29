@@ -138,7 +138,7 @@ object GradTicks8018 {
     @Volatile private var rpcProvider: () -> String = { "" }
     @Volatile private var poolsFor: (String) -> List<String> = { emptyList() }
     @Volatile private var refSol: (String) -> Double = { Double.NaN }
-    @Volatile private var onTick: (mint: String, priceSol: Double, pool: String, source: String) -> Unit = { _, _, _, _ -> }
+    @Volatile private var onTick: (mint: String, priceSol: Double, pool: String, source: String, quoteSol: Double) -> Unit = { _, _, _, _, _ -> }
     @Volatile private var ws: WebSocket? = null
     @Volatile private var open = false
     @Volatile private var lastConnectMs = 0L
@@ -189,7 +189,7 @@ object GradTicks8018 {
         rpc: () -> String,
         candidates: (String) -> List<String>,
         ref: (String) -> Double,
-        cb: (mint: String, priceSol: Double, pool: String, source: String) -> Unit,
+        cb: (mint: String, priceSol: Double, pool: String, source: String, quoteSol: Double) -> Unit,
     ) {
         keyProvider = key; rpcProvider = rpc; poolsFor = candidates; refSol = ref; onTick = cb
     }
@@ -406,6 +406,7 @@ object GradTicks8018 {
         val pool = desired[mint] ?: return
         val data = res.optJSONObject("value")?.optJSONArray("data")?.optString(0) ?: return
         val bytes8418 = try { java.util.Base64.getDecoder().decode(data) } catch (_: Throwable) { return }
+        var quoteSol8418 = Double.NaN
         val px = if (pool.stateAccount.isNotBlank()) {
             // V5.0.8418 — a concentrated pool's spot price is in the pool account (sqrt price / active bin), decoded by layout
             com.lifecyclebot.engine.truth.ConcentratedPrice8418.decode8418(pool.owner, bytes8418, mint, pool.baseDecimals, 9) ?: return
@@ -416,6 +417,7 @@ object GradTicks8018 {
             val base = sides[pool.baseVault] ?: return
             val quote = sides[pool.quoteVault] ?: return
             if (base.slot < 0L || base.slot != quote.slot) return
+            quoteSol8418 = quote.amount / 1e9
             price8018(base.amount, quote.amount, pool.baseDecimals)
         }
         if (!px.isFinite() || px <= 0.0) return
@@ -431,7 +433,7 @@ object GradTicks8018 {
         }
         ticks.incrementAndGet()
         lastTickMs = System.currentTimeMillis()
-        try { onTick(mint, px, pool.pool, sourceFor8418(pool.owner, pool.stateAccount.isNotBlank())) } catch (_: Throwable) {}
+        try { onTick(mint, px, pool.pool, sourceFor8418(pool.owner, pool.stateAccount.isNotBlank()), quoteSol8418) } catch (_: Throwable) {}
         // V5.0.8169 — the PumpSwap pool's own price reaches the executed-trade tape (price only: change / shape, never buy pressure).
         if (pool.owner == PUMP_AMM) try { com.lifecyclebot.engine.truth.TradeTape8100.notePrice8169(mint, px, com.lifecyclebot.engine.truth.TradeTape8100.SRC_PUMPSWAP_8169) } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("PUMPSWAP_TICK_8018") } catch (_: Throwable) {}

@@ -11381,8 +11381,12 @@ class BotService : Service() {
                     val px = status.tokens[m]?.lastPrice ?: 0.0
                     if (solUsd > 0.0 && px > 0.0) px / solUsd else Double.NaN
                 },
-            ) { mint, priceSol, pool, source8418 ->
-                try { applyPumpTradeMark7278(mint, priceSol, 0.0, source8418, pool) } catch (_: Throwable) {}
+            ) { mint, priceSol, pool, source8418, quoteSol8418 ->
+                val solUsd8418 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                val liq8418 = if (quoteSol8418.isFinite() && quoteSol8418 > 0.0 && solUsd8418 > 0.0) quoteSol8418 * solUsd8418 else 0.0
+                try { applyPumpTradeMark7278(mint, priceSol, 0.0, source8418, pool, liq8418) } catch (_: Throwable) {}
+                // V5.0.8418 — the held pool's SOL side is its liquidity, written the moment the vault changes
+                if (liq8418 > 0.0) try { com.lifecyclebot.engine.truth.LiquidityTruth8037.onPoolVaultObserved8418(mint, liq8418) } catch (_: Throwable) {}
                 try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
             }
             // V5.0.7787 — the same mark from Helius-decoded pump.fun trades on held mints.
@@ -13503,10 +13507,15 @@ class BotService : Service() {
                         )
                     } catch (_: Throwable) {}
 
+                    // V5.0.8418 §A_POLL_NEVER_OVERWRITES_THE_CHAIN — a row on a chain feed keeps its tick; the poll is recorded only.
+                    val chainFed8418 = ChainFedMarks8418.chainFed8418(mint, now)
+                    if (chainFed8418) ChainFedMarks8418.pollSkipped8418()
                     synchronized(ts) {
-                        ts.lastPrice = priceUsd
-                        ts.lastPriceUpdate = now
-                        ts.lastPriceSource = resolvedSource6999  // V5.0.6999 (was always "DEXSCREENER_WS")
+                        if (!chainFed8418) {
+                            ts.lastPrice = priceUsd
+                            ts.lastPriceUpdate = now
+                            ts.lastPriceSource = resolvedSource6999
+                        }
                         // V5.0.7269 §THE_CAP_COMES_FROM_THE_STACK_TOO.
                         //
                         // ts.lastMcap was written only by DexScreener, Birdeye and
@@ -25945,6 +25954,7 @@ if (hotExitHandledSweep) {
         mint: String, priceSolPerToken: Double, marketCapSol: Double,
         // V5.0.8018 — a PumpSwap vault tick (GradTicks8018) rides the same path with its own source and pool.
         source8018: String = "PUMP_PORTAL_TRADE_WS_7278", pool8018: String = "",
+        liquidityUsd8418: Double = 0.0,   // V5.0.8418 — a vault tick knows the pool's SOL side; the registry may then promote it
     ) {
         val ts = status.tokens[mint] ?: return
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
@@ -25970,6 +25980,7 @@ if (hotExitHandledSweep) {
                 MarkGate8418.Decision8418.ACCEPT -> {}
             }
         }
+        ChainFedMarks8418.note8418(mint, now)   // V5.0.8418 — a chain tick: the polls stop overwriting this row
         synchronized(ts) {
             ts.lastPrice = px
             ts.lastPriceSource = source8018
@@ -26011,7 +26022,7 @@ if (hotExitHandledSweep) {
                 quoteMint = "So11111111111111111111111111111111111111112",
                 source = source8018,
                 priceUsd = px,
-                liquidityUsd = 0.0,
+                liquidityUsd = if (liquidityUsd8418.isFinite() && liquidityUsd8418 > 0.0) liquidityUsd8418 else 0.0,
                 evidenceTimestampMs = now,
                 nowMs = now,
             )

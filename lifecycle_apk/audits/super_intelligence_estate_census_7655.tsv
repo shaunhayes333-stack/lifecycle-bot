@@ -15,6 +15,7 @@ BrainMultiplierFloor6363	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/BrainM
 AssetClass	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/CanonicalLearning.kt	False
 CanonicalLearningContract6346	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/CanonicalLearningContract6346.kt	False
 CapitalEfficiencyBrain	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/CapitalEfficiencyBrain.kt	False
+ChainFedMarks8418	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/ChainFedMarks8418.kt	False
 CloudLearningSync	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/CloudLearningSync.kt	False
 DailyCompoundingTracker	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/DailyCompoundingTracker.kt	False
 pulls	PROVIDER_BACKED_REVIEW	com/lifecyclebot/engine/DailyCorpusRefresher.kt	False

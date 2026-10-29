@@ -55,6 +55,19 @@ object LiquidityTruth8037 {
         try { MarketEvidence8346.noteCurveWrite8346(fromAccount) } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8418 — GradTicks8018: a held pool's vault changed; its SOL side in USD is the tick liquidity now (up or down),
+     * through [write8343]. Any venue (graduated coins included): the vault is the pool's own account.
+     */
+    fun onPoolVaultObserved8418(mint: String, usd: Double) {
+        if (!(usd.isFinite() && usd > 0.0)) return
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint.trim()] } catch (_: Throwable) { null } ?: return
+        if (ts.lastLiquidityUsd == usd) return
+        write8343(ts, usd)
+        try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
+        try { MarketEvidence8346.noteCurveWrite8346(true) } catch (_: Throwable) {}
+    }
+
     /** Pure: the value to write when the tick has no liquidity but an observation does, else null. */
     fun fill8037(tickUsd: Double, observedUsd: Double): Double? =
         if (!(tickUsd > 0.0) && observedUsd.isFinite() && observedUsd > 0.0) observedUsd else null

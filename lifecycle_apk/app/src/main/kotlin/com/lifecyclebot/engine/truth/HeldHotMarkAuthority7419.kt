@@ -395,7 +395,8 @@ object HeldHotMarkAuthority7419 {
                     val ts = synchronized(BotService.status.tokens) { BotService.status.tokens[p.mint] }
                     val publishedAt7835 = currentCanonicalTs(p.mint)
                     if (ts != null) synchronized(ts) {
-                        if (publishedAt7835 >= ts.lastPriceUpdate) {
+                        // V5.0.8418 — a chain-fed row keeps its tick (ChainFedMarks8418); the registry mark above still published
+                        if (publishedAt7835 >= ts.lastPriceUpdate && !com.lifecyclebot.engine.ChainFedMarks8418.chainFed8418(p.mint, publishedAt7835)) {
                             ts.lastPrice = px
                             ts.lastPriceSource = source
                             ts.lastPriceUpdate = publishedAt7835

@@ -33,3 +33,27 @@ class Aate8418HeldPoolFeedTest {
         assertTrue(b.contains("GradTicks8018.sync8018(openMints.take(60).toSet())"))
     }
 }
+
+/** V5.0.8418 §A_POLL_NEVER_OVERWRITES_THE_CHAIN. */
+class Aate8418ChainFedMarksTest {
+    @Test fun aChainFedRowIsNotOverwrittenByAPollUntilTheFeedGoesQuiet() {
+        ChainFedMarks8418.resetForTest8418()
+        ChainFedMarks8418.note8418("M", 10_000L)
+        assertTrue(ChainFedMarks8418.chainFed8418("M", 10_500L))
+        assertTrue(ChainFedMarks8418.chainFed8418("M", 70_000L))
+        assertFalse("quiet for over a minute: the polls take over", ChainFedMarks8418.chainFed8418("M", 70_001L))
+        assertFalse(ChainFedMarks8418.chainFed8418("NEVER", 10_500L))
+        assertTrue(ChainFedMarks8418.pollMayWrite8418(0L, 5L))
+        assertFalse(ChainFedMarks8418.pollMayWrite8418(10_000L, 30_000L))
+        assertTrue(ChainFedMarks8418.pollMayWrite8418(10_000L, 71_000L))
+    }
+
+    @Test fun wiring() {
+        val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(b.contains("ChainFedMarks8418.note8418(mint, now)"))
+        assertTrue(b.contains("val chainFed8418 = ChainFedMarks8418.chainFed8418(mint, now)"))
+        assertTrue(b.contains("LiquidityTruth8037.onPoolVaultObserved8418(mint, liq8418)"))
+        val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/HeldHotMarkAuthority7419.kt").readText()
+        assertTrue(h.contains("!com.lifecyclebot.engine.ChainFedMarks8418.chainFed8418(p.mint, publishedAt7835)"))
+    }
+}
