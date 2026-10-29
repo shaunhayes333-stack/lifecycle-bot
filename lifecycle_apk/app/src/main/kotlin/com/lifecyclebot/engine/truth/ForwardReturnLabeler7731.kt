@@ -991,6 +991,7 @@ object ForwardReturnLabeler7731 {
         val chase8094 = (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
         val cost = CostLedger7962.costOr7962(l, Double.NaN, (try { FieldManual7715.allInCostPct8350(COST_SIZE_USD_7731, liq, ts.mint) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 })) +
             chase8094
+        noteChargedCost8418(l, cost - chase8094)
         val cell = cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)  // V5.0.8019 — the cap the price agrees with
         // V5.0.7734 — the regime is read now, at decision time, as the forecast
         // model keys it; the token state carries no setup quality or edge phase,
@@ -2620,6 +2621,25 @@ object ForwardReturnLabeler7731 {
     }
 
     /** V5.0.7737 — the lane's 60-minute label record (LaneAutoPauseGuard's label-proof release). */
+    // ── V5.0.8418 §OFFSET_READS_WHAT_LABELS_PAID — the Cortex executable offset (Cortex7885.costGap8187) compared the ticket's
+    // round trip with CostLedger7962.labelChargedCostPct8153, which assumed labels paid the 1.5 % base estimate; labels pay
+    // the all-in cost at their own size and depth (~3.3 %), so the gap (~2.1 pt) was charged a second time on every lane.
+    // The labeler keeps the mean cost (chase excluded) it actually charged per lane; the offset reads that.
+    private val charged8418 = ConcurrentHashMap<String, DoubleArray>()   // lane -> [n, mean]
+
+    internal fun noteChargedCost8418(lane: String, costPct: Double) {
+        if (!costPct.isFinite() || costPct < 0.0) return
+        val a = charged8418.computeIfAbsent(lane.trim().uppercase()) { DoubleArray(2) }
+        synchronized(a) {
+            val n = minOf(a[0] + 1.0, 500.0)   // a running mean that keeps adapting (window ~500 labels)
+            a[1] += (costPct - a[1]) / n; a[0] = n
+        }
+    }
+
+    /** The mean round trip (%, chase excluded) this lane's labels were charged; null before any label. */
+    fun chargedCostPct8418(lane: String): Double? =
+        charged8418[lane.trim().uppercase()]?.let { a -> synchronized(a) { if (a[0] >= 1.0) a[1] else null } }
+
     fun laneStatFor7737(lane: String): CellStat? = executable8187(laneStat(lane), lane)  // V5.0.8187 — executable read
 
     private fun fmtStat(s: CellStat?): String =

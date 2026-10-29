@@ -387,7 +387,9 @@ object CostLedger7962 {
         val l = lane(laneRaw)
         // V5.0.8094 — labels rebased at the measured lane latency carry no chase charge; adding it back would
         // overstate the gross edge (never looser: older labels still net of the chase read more negative).
-        return costOr7962(l, Double.NaN, FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715) +
+        // V5.0.8418 §OFFSET_READS_WHAT_LABELS_PAID — what the labels were actually charged, not the 1.5 % base estimate.
+        val paid8418 = try { ForwardReturnLabeler7731.chargedCostPct8418(l) } catch (_: Throwable) { null }
+        return costOr7962(l, Double.NaN, paid8418 ?: FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715) +
             (if (ForwardReturnLabeler7731.rebaseClearsChase8094(EntryChase7961.laneLatencyMs8094(l))) 0.0
             else try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
     }

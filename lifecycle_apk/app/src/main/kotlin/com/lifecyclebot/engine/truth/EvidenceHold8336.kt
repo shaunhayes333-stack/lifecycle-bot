@@ -35,8 +35,10 @@ object EvidenceHold8336 {
     private const val PREFS_8336 = "aate_evidence_hold_8336"
     private const val KEY_START_8336 = "start_ms"
 
-    /** On by default; the owner can switch it off (live trades without paper proof, as 8329). */
-    @Volatile var enabled8336: Boolean = true
+    /** V5.0.8418 — OFF. Owner: "there shouldn't be a reason for evidence hold mate!!!! zero". No lane is held from live
+     *  trading for want of paper/shadow proof; hard safety, economics, data and the realised-loss checks still bind, and the
+     *  proof books keep running for learning and display only. (Tests switch it on to exercise the retained logic.) */
+    @Volatile var enabled8336: Boolean = false
     /** Paper meme entries are decided by the live (8114-mode) decision while the hold is on. */
     @Volatile var rehearsal8336: Boolean = true
     @Volatile var startMs8336: Long = 0L
