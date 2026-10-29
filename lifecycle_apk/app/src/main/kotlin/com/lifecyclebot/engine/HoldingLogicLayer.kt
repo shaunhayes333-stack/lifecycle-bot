@@ -211,7 +211,9 @@ object HoldingLogicLayer {
             }
 
             val targetProfit6091 = baseTarget6684 * ssiExitPatience6091 * tpMult7455
-            val trailingStopPct6091 = LaneHolds8418.trailFor8418(mode, learningLane8384, params.trailingStopPct) * ssiExitPatience6091   // V5.0.8418 — runner trail floor
+            // V5.0.8420 — the runner floor is applied AFTER the patience multiplier: 35 x 0.65 (SSI's lowest patience) cut a runner
+            // lane's give-back to 22.75 points, under the owner's 35% runner trail. Non-runner desks are unchanged.
+            val trailingStopPct6091 = LaneHolds8418.trailFor8418(mode, learningLane8384, params.trailingStopPct * ssiExitPatience6091)
             val maxHoldTimeMs6091 = (baseMaxHoldMs6684.toDouble() * ssiExitPatience6091 * holdMult7455).toLong()
                 .coerceAtLeast(baseMaxHoldMs6684 / 2L)
             
@@ -525,7 +527,9 @@ object HoldingLogicLayer {
             // ─────────────────────────────────────────────────────────────────
             
             if (currentPnlPct > targetProfit6091 * 0.7) {
-                val tighterStop = currentPnlPct - (trailingStopPct6091 * 0.6)
+                // V5.0.8420 — a runner lane's give-back never tightens under its floor trail (0.6 x 35 = 21 points cut green runners).
+                val tighten8420 = if (RunnerExitProfile7277.isRunnerLane(mode) || RunnerExitProfile7277.isRunnerLane(learningLane8384)) 1.0 else 0.6
+                val tighterStop = currentPnlPct - (trailingStopPct6091 * tighten8420)
                 return HoldEvaluation(
                     action = HoldAction.HOLD_TIGHTER,
                     reason = "Near target, tightening stop to ${tighterStop.toInt()}%",

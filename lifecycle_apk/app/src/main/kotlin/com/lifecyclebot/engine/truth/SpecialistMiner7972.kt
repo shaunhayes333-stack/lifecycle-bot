@@ -47,7 +47,10 @@ object SpecialistMiner7972 {
     private const val MIN_WIN = 0.25
     private const val DEMOTE_N = 10
     private const val MAX_KEYS = 40_000
-    private const val NET_CAP = 300.0
+    // V5.0.8420 — was 300: +500% and +600% runners booked as the same +300%, so the miner could not tell a 6x from a 4x and
+    // every runner combination's mean was cut to the cap (owner 8072: no win caps). The cap is now only a corrupt-unit
+    // guard (a 50x net return); real runner magnitude reaches the books.
+    private const val NET_CAP = 5_000.0
     private const val RUNNER_GROSS = 50.0
     private const val STAT_WINDOW_8014 = 300
 
@@ -55,6 +58,9 @@ object SpecialistMiner7972 {
         /** V5.0.8144 — last label booked here (eviction rank tie-break; session-only, not persisted). */
         @Volatile var touchedAtMs8144: Long = 0L
         /** Returns this label's booking stamp (V5.0.8418): the decay coordinate a later revision reads its weight against. */
+        /** V5.0.8420 — carried fractions of the faded win / runner counts (session-scoped; at most one count). */
+        @Volatile var winCarry8420 = 0.0
+        @Volatile var runnerCarry8420 = 0.0
         fun add(net: Double, gross: Double): Double {
             val stamp = logScale8418
             val y = net.coerceIn(-100.0, NET_CAP)
@@ -67,7 +73,9 @@ object SpecialistMiner7972 {
                 decayed8410 = true   // V5.0.8410 — this record has forgotten; a full-value revision would over-correct it
                 logScale8418 += kotlin.math.ln(k)   // V5.0.8418 — every booked label now owns k of its weight
                 n = STAT_WINDOW_8014; sum *= k; sumSq *= k
-                wins = kotlin.math.round(wins * k).toInt().coerceIn(0, n); runners = kotlin.math.round(runners * k).toInt().coerceIn(0, n)
+                // V5.0.8420 — counts fade exactly (round() never let a count below ~150 fall: 150 wins after 3,000 losses).
+                DecayCount8420.fade(wins, winCarry8420, k).let { (c, r) -> wins = c.coerceIn(0, n); winCarry8420 = r }
+                DecayCount8420.fade(runners, runnerCarry8420, k).let { (c, r) -> runners = c.coerceIn(0, n); runnerCarry8420 = r }
             }
             return stamp
         }

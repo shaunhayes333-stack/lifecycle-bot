@@ -391,19 +391,25 @@ object ForwardReturnLabeler7731 {
         var logScale60 = 0.0
         /** V5.0.8410 — fractional remainders of weighted count revisions (wins / runners / witnessed), carried, never dropped. */
         var winFrac60 = 0.0; var runnerFrac60 = 0.0; var witnessFrac60 = 0.0
+        /** V5.0.8420 — carried fractions of the faded 15 / 240 win counts. */
+        var win15Frac8420 = 0.0; var win240Frac8420 = 0.0
         /**
          * V5.0.8014 — fresh edge: a horizon past [w] labels keeps its most recent ~[w] (the oldest fade
          * proportionally), so the cell record watch-first and every lane read is recent, not all-time.
          */
         fun window8014(w: Int) {
-            if (n15 > w) { val k = w.toDouble() / n15; n15 = w; sum15 *= k; win15 = (win15 * k).roundToIntSafe8014().coerceIn(0, n15) }
+            // V5.0.8420 — every count fades exactly (DecayCount8420); a rounded count below ~w/2 never fell.
+            if (n15 > w) { val k = w.toDouble() / n15; n15 = w; sum15 *= k
+                DecayCount8420.fade(win15, win15Frac8420, k).let { (c, r) -> win15 = c.coerceIn(0, n15); win15Frac8420 = r } }
             if (n60 > w) {
                 val k = w.toDouble() / n60; n60 = w; sum60 *= k; sumSq60 *= k
                 logScale60 += kotlin.math.ln(k)   // V5.0.8410
-                win60 = (win60 * k).roundToIntSafe8014().coerceIn(0, n60); runner60 = (runner60 * k).roundToIntSafe8014().coerceIn(0, n60)
-                witness60 = (witness60 * k).roundToIntSafe8014().coerceIn(0, runner60)
+                DecayCount8420.fade(win60, winFrac60, k).let { (c, r) -> win60 = c.coerceIn(0, n60); winFrac60 = r }
+                DecayCount8420.fade(runner60, runnerFrac60, k).let { (c, r) -> runner60 = c.coerceIn(0, n60); runnerFrac60 = r }
+                DecayCount8420.fade(witness60, witnessFrac60, k).let { (c, r) -> witness60 = c.coerceIn(0, runner60); witnessFrac60 = r }
             }
-            if (n240 > w) { val k = w.toDouble() / n240; n240 = w; sum240 *= k; win240 = (win240 * k).roundToIntSafe8014().coerceIn(0, n240) }
+            if (n240 > w) { val k = w.toDouble() / n240; n240 = w; sum240 *= k
+                DecayCount8420.fade(win240, win240Frac8420, k).let { (c, r) -> win240 = c.coerceIn(0, n240); win240Frac8420 = r } }
         }
         fun encode(): String = "$n15,$sum15,$win15,$n60,$sum60,$sumSq60,$win60,$runner60,$n240,$sum240,$win240,$lost,$witness60,INDEPENDENT_CURVE_8365"  // Proof epoch
         fun decode(s: String): Boolean {
@@ -2696,4 +2702,3 @@ object ForwardReturnLabeler7731 {
 }
 
 /** V5.0.8014 — Double to Int, rounded half up (counts scaled by a fresh-edge window). */
-private fun Double.roundToIntSafe8014(): Int = if (this.isFinite()) kotlin.math.round(this).toInt() else 0

@@ -102,7 +102,7 @@ object ExpertWallets7962 {
     private const val MIN_LEG_SOL = 0.005
     private const val LIVE_ENTRY_MS = 15L * 60_000L
     private const val CELL_SHRINK_K = 10.0
-    private const val CELL_CLIP_PCT = 300.0
+    private const val CELL_CLIP_PCT = 5_000.0   // V5.0.8420 — was 300: a 6x and a 4x expert round trip read the same (no win caps; corrupt-unit guard only)
     private const val CALL_GAP_MS = 1_500L
     private const val WSOL = "So11111111111111111111111111111111111111112"
     private val IGNORE_MINTS = setOf(
