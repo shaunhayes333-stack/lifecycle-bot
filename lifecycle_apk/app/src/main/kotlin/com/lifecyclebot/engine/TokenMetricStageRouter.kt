@@ -88,8 +88,14 @@ object TokenMetricStageRouter {
         // $428K pool and was staged RUG_PRONE, so it could never be BLUECHIP).
         // Valuation air is a thin-meme test; it does not apply to an
         // established asset.
-        val valuationAir = mcapToLiq >= 85.0 && mcap >= 150_000.0 && !isEstablished7306(ts, mcap, liq, ageMin)
-        val rugProne = topHeavy || (valuationAir && (sp >= 55.0 || bp < 52.0)) || (liqThin && runup >= 80.0)
+        // V5.0.8464 §A_DEFAULT_IS_NOT_A_READING (8236) — valuation air needs a READ pool and an observed book. An unread pool
+        // (liq 0 -> mcapToLiq 9999) with the default 50 / 50 buy pressure (bp < 52) staged every non-established $150k+ coin
+        // RUG_PRONE: refused STRUCTURAL_RISK_8136, routed observation-only and blocked live (8457: STRUCTURAL_RISK n47 with a
+        // 21 % runner share, 28 of the 65 wrongly refused runners). A read pool and a real book still stage it RUG_PRONE;
+        // the top-holder and thin-liquidity-runup tests are unchanged.
+        val bookObserved8464 = ts.buyPressureObservedAtMs8084 > 0L
+        val valuationAir = liq > 0.0 && mcapToLiq >= 85.0 && mcap >= 150_000.0 && !isEstablished7306(ts, mcap, liq, ageMin)
+        val rugProne = topHeavy || (valuationAir && bookObserved8464 && (sp >= 55.0 || bp < 52.0)) || (liqThin && runup >= 80.0)
         val acute5m7425 = ts.lastPriceChange5m.takeIf { it.isFinite() } ?: 0.0
         val pumpThenFade7425 = ts.lastPriceChange1h >= 80.0 && acute5m7425 <= -8.0
         val peakExhaustion = (currentVsPeak >= 0.88 && runup >= 70.0 &&
