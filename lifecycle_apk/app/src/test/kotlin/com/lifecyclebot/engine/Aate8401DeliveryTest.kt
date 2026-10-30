@@ -58,11 +58,14 @@ class Aate8401DeliveryTest {
         val ack = field(owner, "deliveredTerminals8395").get(owner) as MutableSet<String>
         val saved = HashMap(outbox); val savedAck = HashSet(ack)
         try {
+            // superseded by V5.0.8445 — the batch is TERMINAL_DRAIN_BATCH_8445 (192, was 64); same shape: 64 acknowledged,
+            // one full batch of the rest, then the 32 left over — acknowledged rows never take a later terminal's place.
+            val n = ForwardReturnLabeler7731.TERMINAL_DRAIN_BATCH_8445
             outbox.clear(); ack.clear()
-            repeat(160) { outbox["terminal|$it"] = "{}" }
+            repeat(64 + n + 32) { outbox["terminal|$it"] = "{}" }
             ack.addAll(outbox.keys.take(64))
             val first = call(owner, "terminalBatch8401") as List<Map.Entry<String, String>>
-            assertEquals(64, first.size); assertTrue(first.none { it.key in ack })
+            assertEquals(n, first.size); assertTrue(first.none { it.key in ack })
             ack.addAll(first.map { it.key })
             val second = call(owner, "terminalBatch8401") as List<Map.Entry<String, String>>
             assertEquals(32, second.size); assertTrue(second.none { it.key in ack })

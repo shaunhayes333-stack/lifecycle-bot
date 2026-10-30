@@ -100,7 +100,7 @@ class Aate8403CheckpointProgressTest {
             val offered = HashSet<String>()
             repeat(5) {
                 val rows = batch.invoke(owner) as List<Map.Entry<String, String>>
-                assertTrue(rows.size <= 64)
+                assertTrue(rows.size <= ForwardReturnLabeler7731.TERMINAL_DRAIN_BATCH_8445)   // superseded by V5.0.8445 — was 64
                 offered.addAll(rows.map { it.key })
             }
             assertEquals("the 256-record checkpoint can fill without waiting for a timeout", 300, offered.size)
