@@ -29,6 +29,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 class BotService : Service() {
 
     companion object {
+        // V5.0.8450 — the loop's sleep bounds (seconds); see pollMs8450.
+        const val POLL_MIN_S_8450 = 3
+        const val POLL_MAX_S_8450 = 8
+
+        /** Pure (V5.0.8450): the seconds the bot loop sleeps for a configured [pollSeconds]. */
+        fun pollSecondsFor8450(pollSeconds: Int): Int = pollSeconds.coerceIn(POLL_MIN_S_8450, POLL_MAX_S_8450)
+
         // V5.0.7884 — intake rug window bounds (Cortex Phase 0, Marks H1).
         private const val RUG_WINDOW_MAX_MS_7884 = 10L * 60_000L
         private const val RUG_NEWEST_MAX_AGE_MS_7884 = 120_000L
@@ -1414,6 +1421,14 @@ class BotService : Service() {
      * at 100%, and every second there is a second no exit or entry is evaluated. Single-flight on the default
      * pool; a tick still running skips the next.
      */
+    /**
+     * V5.0.8450 — the bot loop's sleep between cycles: pollSeconds held to [POLL_MIN_S_8450]..[POLL_MAX_S_8450]. 8446 (1.9 h):
+     * cycles ran a steady 30-35 s (last ten 30,449..34,553 ms) while the cycle body exceeded 5 s only 4 times — the loop
+     * was sleeping ~30 s, the LLM tuner's old ceiling for pollSeconds (persisted in the config). Labels, the exit backup
+     * and every entry decision waited on that sleep; the owner's cadence is 5 s.
+     */
+    private fun pollMs8450(c: com.lifecyclebot.data.BotConfig): Long = pollSecondsFor8450(c.pollSeconds) * 1000L
+
     private fun dispatchLearningTicks8020(tokenStatesCopy: Map<String, com.lifecyclebot.data.TokenState>, nowShadow7307: Long) {
         try { com.lifecyclebot.engine.truth.LabelClock8442.noteLoop8442(nowShadow7307) } catch (_: Throwable) {}   // V5.0.8442 — labels on their own 5 s clock
         if (learningTickInFlight8020.compareAndSet(false, true)) {
@@ -1529,6 +1544,28 @@ class BotService : Service() {
         shadowEvidenceTickEpoch8372.incrementAndGet()
         shadowEvidenceTickJob8372.get()?.cancel(CancellationException("shadow-evidence:$reason"))
         try { com.lifecyclebot.engine.truth.ExploreShadow8347.flushOnStop8418() } catch (_: Throwable) {}   // V5.0.8418 — forced book flush on stop
+    }
+
+    /**
+     * V5.0.8450 — the shadow book's position check (marks, stops, closes and their learning fanout for up to 60 shadow
+     * positions) ran synchronously on the bot-loop thread every cycle. It now runs on a worker, one at a time; a cycle
+     * that finds the previous check still running skips it (the next cycle checks again). Executor.shadowPositions is
+     * concurrent since 8450, so the loop's shadow opens and this check never race.
+     */
+    private val shadowPositionsInFlight8450 = AtomicBoolean(false)
+
+    private fun dispatchShadowPositions8450(tokenStatesCopy: Map<String, com.lifecyclebot.data.TokenState>) {
+        if (!shadowPositionsInFlight8450.compareAndSet(false, true)) {
+            try { PipelineHealthCollector.labelInc("SHADOW_POSITIONS_SKIPPED_IN_FLIGHT_8450") } catch (_: Throwable) {}
+            return
+        }
+        try {
+            scope.launch(kotlinx.coroutines.Dispatchers.Default + CoroutineName("shadow-positions-8450")) {
+                try { executor.checkShadowPositions(tokenStatesCopy) }
+                catch (e: Exception) { ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}") }
+                finally { shadowPositionsInFlight8450.set(false) }
+            }
+        } catch (_: Throwable) { shadowPositionsInFlight8450.set(false) }
     }
 
     private fun requestSellOffLoop7288(
@@ -20900,7 +20937,7 @@ class BotService : Service() {
                 } catch (e: Exception) {
                     ErrorLogger.error("BotService", "Markets watchdog (meme-off) error: ${e.message}", e)
                 }
-                delay(cfg.pollSeconds * 1000L)
+                delay(pollMs8450(cfg))
                 continue
             }
             
@@ -22549,7 +22586,7 @@ if (hotExitHandledSweep) {
                     dispatchLearningTicks8020(tokenStatesCopy, nowShadow7307)  // V5.0.8020 — off the trading loop
                     try { markProgress("POST_SUPERVISOR/SHADOW_POSITIONS") } catch (_: Throwable) {}
                     // V5.0.7809 — moved after the label ticks: a shadow-position exception no longer skips label bookout.
-                    executor.checkShadowPositions(tokenStatesCopy)
+                    dispatchShadowPositions8450(tokenStatesCopy)   // V5.0.8450 — off the trading loop
                     try { markProgress("POST_SUPERVISOR/SHADOW_EVIDENCE_DISPATCH") } catch (_: Throwable) {}
                     dispatchShadowEvidenceTicks8372(tokenStatesCopy)
                 } catch (e: Exception) {
@@ -22613,9 +22650,7 @@ if (hotExitHandledSweep) {
         // pattern (line 94: detached shared-IO launch).
         try { markProgress("POST_SUPERVISOR/PERSIST_QUEUE") } catch (_: Throwable) {}
         // Periodically persist session state - use synchronized copy
-            val tradeCount = synchronized(status.tokens) {
-                status.tokens.values.toList().sumOf { it.trades.size }
-            }
+            val tradeCount = status.tokens.values.sumOf { it.trades.size }   // V5.0.8450 — a ConcurrentHashMap: no lock wait on the loop
             val shouldSaveSession = tradeCount % 5 == 0 && status.running
             // V5.9.998 — bumped throttle from %6 to %12. PositionPersistence
             // additionally has MIN_SAVE_INTERVAL_MS internal throttle.
@@ -22722,7 +22757,7 @@ if (hotExitHandledSweep) {
             }
             markProgress("IDLE")  // V5.9.762 — between cycles is idle/safe-to-rescue.
 
-            delay(cfg.pollSeconds * 1000L)
+            delay(pollMs8450(cfg))
           } catch (ce: kotlinx.coroutines.CancellationException) {
             // V5.9.676 — DO NOT swallow CancellationException. The previous
             // catch (e: Exception) caught it (CE extends Exception in older

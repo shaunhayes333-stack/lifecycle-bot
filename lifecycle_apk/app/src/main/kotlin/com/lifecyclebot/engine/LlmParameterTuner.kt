@@ -71,10 +71,12 @@ object LlmParameterTuner {
             { c, v -> c.copy(entryCooldownSec = v.toInt()) },
             min = 30.0, max = 600.0, maxStep = 60.0
         ),
+        // superseded by V5.0.8450 — ceiling 8 s (was 30): a tune to ~30 s left the loop sleeping 30 s a cycle (8446: cycles
+        // 30-35 s, body under 5 s). The loop also clamps whatever is stored (BotService.pollSecondsFor8450).
         "pollSeconds" to ParamSpec(
             { it.pollSeconds.toDouble() },
             { c, v -> c.copy(pollSeconds = v.toInt()) },
-            min = 3.0, max = 30.0, maxStep = 5.0
+            min = 3.0, max = 8.0, maxStep = 5.0
         ),
         // V5.0.8363 — slippageBps removed: it feeds partial-TP and orphan sells, and the advisor tightened it with a
         // forced agreement. Advisory-only now (AdvisorKeyAuthority8353.ADVISORY_ONLY_KEYS_8353), like 8353's keys.
