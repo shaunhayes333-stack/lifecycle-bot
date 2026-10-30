@@ -59,7 +59,13 @@ object HeliusCreditEconomy7881 {
     // left (59.7M used). The plan pays for ~333k a day; the target is 300k, and it is now enforced (overBudget8066).
     private const val DAILY_BUDGET_CREDITS = 300_000.0
     private const val ENRICHMENT_POOL_SHARE = 0.50
-    internal const val DECISION_RESERVE_SHARE_8397 = 0.05
+    // superseded by V5.0.8452 — 15 % (was 5 %) and ENRICHMENT_WIRE_SHARE_8452 below. 8450 (one day, 300k budget): ENRICHMENT
+    // 155.8k (Enhanced v0/addresses/*/transactions, 100 credits a call: SWAP_CANDLES 109.7k, BUNDLE_SCAN 27.1k), DECISION
+    // 35.5k; the day's pace closed (hardGate8066 refused 2,263) and the 1-credit mint-account reads behind the safety proof
+    // were refused: 26 FDG allows, 23 tickets, 0 buys — every one LIVE_BUY_NOT_OPENED_7948:DEFERRED_DATA_SAFETY_PROOF_8270.
+    internal const val DECISION_RESERVE_SHARE_8397 = 0.15
+    /** V5.0.8452 — the whole ENRICHMENT tier may spend at most this share of the day's budget, paced through the day. */
+    internal const val ENRICHMENT_WIRE_SHARE_8452 = 0.25
     private const val WS_CREDITS_PER_100KB = 2.0
     private const val PERSIST_EVERY_MS = 60_000L
     private const val PERSIST_KEY = "HELIUS_CREDIT_ECONOMY_7881"
@@ -348,6 +354,12 @@ object HeliusCreditEconomy7881 {
     } catch (_: Throwable) { false }
     private val refusedHard8399 = AtomicLong(0)
 
+    private val enrichmentCapRefused8452 = AtomicLong(0)
+
+    /** Pure (V5.0.8452): would [cost] more ENRICHMENT credits pass the tier's paced share of the day ([spent] so far)? */
+    internal fun enrichmentCapped8452(spent: Double, cost: Double, budget: Double, fraction: Double): Boolean =
+        spent + cost > budget * ENRICHMENT_WIRE_SHARE_8452 * (fraction + 1.0 / 24.0).coerceIn(0.0, 1.0)
+
     /** Five percent of the existing daily allowance is protected from optional work, never added to it. */
     internal fun ordinaryLimit8397(budget: Double, fraction: Double): Double =
         budget * (1.0 - DECISION_RESERVE_SHARE_8397) * (fraction + 1.0 / 24.0).coerceIn(0.0, 1.0)
@@ -378,7 +390,14 @@ object HeliusCreditEconomy7881 {
                           nowMs: Long = System.currentTimeMillis()): Boolean = synchronized(this) {
         rollIfNewDay(nowMs)
         val cost = creditsFor(host, path, methods)
-        val execution = tierFor(host, path, methods) == Tier.EXECUTION
+        val tier8452 = tierFor(host, path, methods)
+        val execution = tier8452 == Tier.EXECUTION
+        // V5.0.8452 — optional intelligence never takes more than its share of the day, reservation or not: the
+        // 1-credit decision reads (mint accounts, supply, pools, holders) keep the rest.
+        if (tier8452 == Tier.ENRICHMENT && enrichmentCapped8452(byTier[Tier.ENRICHMENT]?.get(1) ?: 0.0, cost,
+                DAILY_BUDGET_CREDITS, dayFraction(nowMs))) {
+            refused8066.incrementAndGet(); enrichmentCapRefused8452.incrementAndGet(); return@synchronized false
+        }
         var reserved = reservation?.let {
             it.decision8397 && it.dayAt == day.toString() && it.remaining8397() + 1e-9 >= cost
         } == true

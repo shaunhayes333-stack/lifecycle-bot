@@ -55,7 +55,9 @@ class Aate8397DecisionEvidenceTest {
     }
 
     @Test fun dailyReserveAndPhysicalBudgetRemainBoundedAndUnsentCreditsReturn() {
-        val leases = (1..75).map { Economy.reserveDecision8397(Economy.Consumer.SWAP_CANDLES, 200.0, now)!! }
+        // superseded by V5.0.8452 — the reserve is 15 % of the day (was 5 %: 75 leases of 200); the bound is the same rule
+        val n = (300_000.0 * Economy.DECISION_RESERVE_SHARE_8397 / 200.0).toInt()
+        val leases = (1..n).map { Economy.reserveDecision8397(Economy.Consumer.SWAP_CANDLES, 200.0, now)!! }
         assertNull(Economy.reserveDecision8397(Economy.Consumer.SWAP_CANDLES, 1.0, now))
         leases.forEach(Economy::finish8386)
         assertEquals(0.0, read("decisionReserved8397"), 1e-9)
