@@ -317,6 +317,15 @@ object RealisedSlip8418 {
         median8418((if (side.equals("BUY", true)) buys else sells).toList())
     }
 
+    /**
+     * V5.0.8463 — ProfitExitTruth8163: the realised sell slippage (%, the sell's fill against its own quote) and how many sells
+     * measured it; null before the first. Replaces the lane's mark-based sell-side median (market drift, not friction).
+     */
+    fun sellReceipt8463(): Pair<Double, Int>? = synchronized(this) {
+        ensureLoaded8418()
+        median8418(sells.toList(), 1)?.let { it to sells.size }
+    }
+
     /** V5.0.8426 — the protective exits' realised median slippage (%), for the report and the stop books; never the entry cost. */
     fun stopMedianPct8426(): Double? = synchronized(this) { ensureLoaded8418(); median8418(stops8426.toList()) }
 

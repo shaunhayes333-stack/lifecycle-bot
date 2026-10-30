@@ -407,6 +407,8 @@ object Costs8369 {
             routeLine8418() + " " +
             "fixedLegPctOfTicket=${p(lastFixedLegPct8369)} entryTip=${lastTipLamports8369} capped=${cappedEntries8369.get()} " +
             "senderFallback=${senderFallbacks8369.get()} capFailing{jup=${capFailingNow8369(false)},pump=${capFailingNow8369(true)}} " +
-            "modelVsMeasured{${mvm.ifBlank { "-" }}}] " + (try { RoundTrip8418.statusLine8418() } catch (_: Throwable) { "roundTrip8418=-" })
+            // V5.0.8463 — the second figure is the mark gap (market drift + friction on the lane's past trips), not a cost the
+            // coin is charged: every coin is priced on its own itemised trip (route, venue, ticket, depth, realised slippage).
+            "modelVsMarkGap8463{${mvm.ifBlank { "-" }}}] " + (try { RoundTrip8418.statusLine8418() } catch (_: Throwable) { "roundTrip8418=-" })
     }
 }

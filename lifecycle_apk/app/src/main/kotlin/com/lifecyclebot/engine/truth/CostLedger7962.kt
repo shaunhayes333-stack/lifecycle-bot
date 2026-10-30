@@ -280,15 +280,13 @@ object CostLedger7962 {
 
     /** The lane's measured all-in cost (%) at [sizeSol], or null until [MIN_LIVE_N] live trades. */
     /** V8391: live-clean execution dispersion, not shadow WR, shapes the uncertainty reserve. */
-    fun margin8391(laneRaw: String, sizeSol: Double, costPct: Double): Double {
-        ensureLoaded()
-        val rows = rowsOf(lane(laneRaw))
-        val band = sizeBand7962(sizeSol)
-        val sameSize = rows.filter { sizeBand7962(it[1]) == band }
-        // Never substitute another notional's cheap executions for this ticket.
-        val samples = if (band == "UNK") rows else sameSize
-        return adaptiveMargin8391(samples.map { it[0] }, costPct)
-    }
+    // superseded by V5.0.8463 — owner: "we need to fix the lane specific round trip costs. that's excessive and unnecessary".
+    // The 8391 reserve raised a lane's bar to the q90 of THIS ledger's mark-based trips, whose gap is the market's move
+    // during the trade (rug-drain and stop sells), not friction (§MARK_GAP_IS_NOT_A_FEE, 8418): one lane's bad exits would
+    // have raised every coin's entry bar once 30 trips existed. The bar is the owner's 1.5x on the coin's own itemised trip
+    // (NetEdge8030.costPct8030); [adaptiveMargin8391] stays as the pure rule for the report.
+    @Suppress("UNUSED_PARAMETER")
+    fun margin8391(laneRaw: String, sizeSol: Double, costPct: Double): Double = NetEdge8030.EDGE_MULT
 
     internal fun adaptiveMargin8391(costs: List<Double>, costPct: Double): Double {
         val valid = costs.filter { it.isFinite() && it >= 0.0 }.sorted()

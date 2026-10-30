@@ -59,8 +59,12 @@ object ProfitExitTruth8163 {
         return (Math.round(pct * 100.0).toInt()).coerceIn(minOf(MIN_SLIP_BPS_8189, cap), cap)
     }
 
+    // superseded by V5.0.8463 — the lane's mark-based sell-side median (CostLedger7962.sellSidePct8189) is the market's move
+    // during the exit, not slippage: one lane's rug-drain sells discounted every later profit exit in it. Expected slippage
+    // is the wallet's realised sell fills against their quotes (RealisedSlip8418), 1.0% until 5 sells measured it.
+    @Suppress("UNUSED_PARAMETER")
     private fun expectedSlip8189(ts: TokenState, capBps: Int): Int {
-        val m = try { com.lifecyclebot.engine.truth.CostLedger7962.sellSidePct8189(ts.position.tradingMode) } catch (_: Throwable) { null }
+        val m = try { com.lifecyclebot.engine.RealisedSlip8418.sellReceipt8463() } catch (_: Throwable) { null }
         return expectedSlippageBps8189(m?.first, m?.second ?: 0, capBps)
     }
 
