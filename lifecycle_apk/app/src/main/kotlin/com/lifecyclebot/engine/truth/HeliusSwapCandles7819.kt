@@ -153,6 +153,10 @@ object HeliusSwapCandles7819 {
         val next = nextAllowedMs[mint] ?: 0L
         if (nowMs < next) { localTape8284(ts, nowMs, "retryWait"); priceBars8287(ts, nowMs); return }
         if (!heliusAfterFree8418(ts, nowMs, priority)) return   // V5.0.8418 — free sources first; Helius is the fallback
+        // V5.0.8453 — the 100-credit Enhanced history read is for HELD positions only (their exits read the chart). 8450:
+        // SWAP_CANDLES spent 109.7k of the day's 300k credits (near-decision coins claimed the decision reserve with a
+        // priority lease) while the 1-credit safety-proof reads were refused. Everything else keeps the free bars above.
+        if (!heliusCandlesAllowed8453(priority)) { refusal8386("not_held_8453"); return }
         requests.incrementAndGet()
         // V5.0.7881 — up to two 100-credit pages per job (288k credits/day at the old
         // 60/h cap); now also paced on the economy's SWAP_CANDLES share.
@@ -202,6 +206,9 @@ object HeliusSwapCandles7819 {
      * price bars and (curve coins) the cached keyless pump.fun candles. True only when HeliusCandleGate8418 leaves Helius
      * as the fallback: still short of 1 m bars, not a bulk coin, past the free grace (a held position does not wait).
      */
+    /** Pure (V5.0.8453): only a held position's chart may cost Enhanced-API credits. */
+    fun heliusCandlesAllowed8453(priority: Int): Boolean = priority >= PRIORITY_HELD_8284
+
     private fun heliusAfterFree8418(ts: TokenState, nowMs: Long, priority: Int): Boolean {
         val firstAsk = HeliusCandleGate8418.firstAsk8418(ts.mint, nowMs)
         localTape8284(ts, nowMs, "free_first_8418"); priceBars8287(ts, nowMs)

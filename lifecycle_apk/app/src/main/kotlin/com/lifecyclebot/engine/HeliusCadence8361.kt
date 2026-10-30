@@ -239,8 +239,11 @@ object HeliusCadence8361 {
         whales = whaleList.filter { it.isNotBlank() }.toSet()
         val alpha = try { ExpertWallets7962.alphaList8361() } catch (_: Throwable) { emptyList() }
         alphaListed = alpha.toSet()
-        val out = watchListOf8361(whaleList, alpha, copyActive, ExpertWallets7962.OWNER_WALLET_7962)
-        watching = out.size - whales.size
+        // V5.0.8453 — whale-only wallets leave the stream (owner: "reduce the amount of wasted data calls dramatically"):
+        // 8450's smart-money stream moved 242 MB (5.1k credits) with Smart Money detected=0; the busy whale wallets carry
+        // most of it and fed only WHALE_BIG_* signals. Owner, alpha and active copy wallets stay subscribed.
+        val out = watchListOf8361(emptyList(), alpha, copyActive, ExpertWallets7962.OWNER_WALLET_7962)
+        watching = out.size
         return out
     }
 

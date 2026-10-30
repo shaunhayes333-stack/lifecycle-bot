@@ -57,7 +57,11 @@ object HeliusCreditEconomy7881 {
     /** Default daily target. 5.0.7880 era: ~5M credits/day observed by the operator. */
     // V5.0.8066 — owner, 2026-10-12: the month's 10M plan credits AND the $250 autoscaling cap were burnt with 13 days
     // left (59.7M used). The plan pays for ~333k a day; the target is 300k, and it is now enforced (overBudget8066).
-    private const val DAILY_BUDGET_CREDITS = 300_000.0
+    // superseded by V5.0.8453 — owner, 2026-10-31: "raise the daily limit but reduce the amount of wasted data calls
+    // dramatically". 400k (was 300k; the 10M plan is ~333k a day, the rest is autoscaled). The waste cut in the same build:
+    // Enhanced swap-candle history for held positions only (HeliusSwapCandles7819.heliusCandlesAllowed8453), the
+    // whale-only wallets off the smart-money stream (HeliusCadence8361.watchList8361), enrichment capped at 25 % (8452).
+    internal const val DAILY_BUDGET_CREDITS = 400_000.0
     private const val ENRICHMENT_POOL_SHARE = 0.50
     // superseded by V5.0.8452 — 15 % (was 5 %) and ENRICHMENT_WIRE_SHARE_8452 below. 8450 (one day, 300k budget): ENRICHMENT
     // 155.8k (Enhanced v0/addresses/*/transactions, 100 credits a call: SWAP_CANDLES 109.7k, BUNDLE_SCAN 27.1k), DECISION

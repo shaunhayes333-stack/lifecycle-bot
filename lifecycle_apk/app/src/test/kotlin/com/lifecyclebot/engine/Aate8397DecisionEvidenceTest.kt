@@ -24,7 +24,7 @@ class Aate8397DecisionEvidenceTest {
     @Before fun setup() {
         now = System.currentTimeMillis()
         set("day", now / 86_400_000L); set("loaded", true)
-        set("total", Economy.ordinaryLimit8397(300_000.0, (now % 86_400_000L) / 86_400_000.0) + 100.0)
+        set("total", Economy.ordinaryLimit8397(Economy.DAILY_BUDGET_CREDITS, (now % 86_400_000L) / 86_400_000.0) + 100.0)
         set("decisionReserved8397", 0.0); set("exhaustedUntilMs8094", 0L); set("lastPersistMs", now)
     }
     @After fun restore() { saved.forEach { (f, v) -> f.set(null, v) } }
@@ -56,12 +56,12 @@ class Aate8397DecisionEvidenceTest {
 
     @Test fun dailyReserveAndPhysicalBudgetRemainBoundedAndUnsentCreditsReturn() {
         // superseded by V5.0.8452 — the reserve is 15 % of the day (was 5 %: 75 leases of 200); the bound is the same rule
-        val n = (300_000.0 * Economy.DECISION_RESERVE_SHARE_8397 / 200.0).toInt()
+        val n = (Economy.DAILY_BUDGET_CREDITS * Economy.DECISION_RESERVE_SHARE_8397 / 200.0).toInt()
         val leases = (1..n).map { Economy.reserveDecision8397(Economy.Consumer.SWAP_CANDLES, 200.0, now)!! }
         assertNull(Economy.reserveDecision8397(Economy.Consumer.SWAP_CANDLES, 1.0, now))
         leases.forEach(Economy::finish8386)
         assertEquals(0.0, read("decisionReserved8397"), 1e-9)
-        set("total", 299_950.0)
+        set("total", Economy.DAILY_BUDGET_CREDITS - 50.0)   // superseded by V5.0.8453 — the day cap is the constant (was 299,950)
         assertNull(Economy.reserveDecision8397(Economy.Consumer.SWAP_CANDLES, 100.0, now))
         set("total", 100.0); set("exhaustedUntilMs8094", now + 60_000)
         assertNull(Economy.reserveDecision8397(Economy.Consumer.SWAP_CANDLES, 100.0, now))
@@ -71,7 +71,7 @@ class Aate8397DecisionEvidenceTest {
         set("total", 0.0)
         val reservation = Economy.reserve8386(Economy.Consumer.SWAP_CANDLES, 200.0, true, now)!!
         assertFalse(reservation.decision8397)
-        set("total", Economy.ordinaryLimit8397(300_000.0, (now % 86_400_000L) / 86_400_000.0) + 100.0)
+        set("total", Economy.ordinaryLimit8397(Economy.DAILY_BUDGET_CREDITS, (now % 86_400_000L) / 86_400_000.0) + 100.0)
         val request = Request.Builder().url("https://api.helius.xyz/v0/addresses/mint/transactions?api-key=test")
             .tag(Economy.Reservation8386::class.java, reservation).build()
         var sent = 0
@@ -120,7 +120,7 @@ class Aate8397DecisionEvidenceTest {
         assertTrue(Economy.overBudget8066(now))
         assertFalse(Economy.overHardBudget8399(now))
         // ...until the absolute day cap.
-        set("total", 300_000.0)
+        set("total", Economy.DAILY_BUDGET_CREDITS)   // superseded by V5.0.8453 — the day cap is the constant (was 300k)
         assertTrue(Economy.overHardBudget8399(now))
         val orch = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
         assertTrue(orch.contains("val set = tape.tapeSet8307(held, tape.migratedFirst8307(near), tape.tapeWidth8307(), tapeOver8399)"))
