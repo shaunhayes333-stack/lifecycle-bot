@@ -40,7 +40,8 @@ class Aate8291CortexAuditTest {
         assertTrue(f.offWatchKey8291(2, t0) < f.offWatchKey8291(3, t0 - 3_600_000L))
         val fl = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(fl.contains("CortexLabelFeed8291.offWatchRank8291(age, o.done60, first8291, H60_MS_7731, graceFor7946(H60_MS_7731))"))
-        assertTrue(fl.contains("val due7737 = rotateDue7809(dueUnpriced7737.sortedBy { it.second }.map { it.first } + freshUnpriced7737, nowMs)"))
+        // superseded by V5.0.8442 — the label-due mints still lead (rank-sorted), fresh launches next, open shadow tickets last
+        assertTrue(fl.contains("val due7737 = rotateDue7809(dueUnpriced7737.sortedBy { it.second }.map { it.first } + freshUnpriced7737 + shadow8442, nowMs)"))
     }
 
     // ── voter budget: core voters inline, cheapest first, the refresh fills the cache ──
