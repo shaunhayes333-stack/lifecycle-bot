@@ -1446,6 +1446,7 @@ object ForwardReturnLabeler7731 {
         // V5.0.8337 (FIX 2) — a flat mark (no price other than the entry ever seen) is a LOST mark, never a -cost label:
         // 8322 booked it first and flagged it after, so every lane / cell / shape / specialist book read "lost the round trip".
         var flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)
+        if (flat8322 && liveMark8454(o.lastMark8386)) { flat8322 = false; flatLiveBooked8454.incrementAndGet() }   // V5.0.8454 — the market's own flat read
         val scalp8080 = captured7945(o, net0, gross0, longFamily8080 = false)
         val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
         val fam8080 = doubleArrayOf(scalp8080.first, scalp8080.second, long8080.first, long8080.second)
@@ -1740,7 +1741,24 @@ object ForwardReturnLabeler7731 {
 
     /** V5.0.8342 — the observation's mark at [grossPct] has never left its entry (8322's flat test, on the live peak / dip). */
     private fun flatMarkNow8342(o: Obs, grossPct: Double): Boolean =
-        com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(grossPct, o.peakPct, o.minPct7962)
+        com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(grossPct, o.peakPct, o.minPct7962) && !liveMark8454(o.lastMark8386)
+
+    // ── V5.0.8454 §A_FLAT_READ_FROM_THE_MARKET_IS_AN_OUTCOME ──
+    // Owner, 2026-10-31: "there isn't meant to be a lost mark ever, missing data ever, a stale price a stale mark nothing.
+    // everything is meant to be tracked from discovery until disposal with consistent true data". 8450 (10 min): 1,034
+    // labels went LOST as flat (8337 FIX 2 treated every unchanged price as no observation) — every coin that did not move
+    // left the books, so no book ever learned that a dead coin costs the round trip and TAKE / REFUSE read the same -6%.
+    // A flat read the market itself gave (the off-watch fetch, a curve account / tape read, an independent basis) is now
+    // the coin's real outcome; a flat read from a token-state price alone (which 42 writers stamp "now") is confirmed by a
+    // live fetch inside the window before anything is booked.
+    private val flatAwaitingLive8454 = AtomicLong(0)
+    private val flatLiveBooked8454 = AtomicLong(0)
+
+    /** Pure (V5.0.8454): did this mark observe the market itself (not a possibly reused token-state value)? */
+    fun liveMark8454(source: String?, independent: Boolean): Boolean =
+        independent || source == "OFFWATCH" || source?.startsWith("CURVE_") == true
+
+    private fun liveMark8454(m: LabelMark8386?): Boolean = m != null && liveMark8454(m.source, m.independentBasis)
 
     // ── V5.0.8337 (10e) — runner lanes grade on the 60-minute slot or the last 7997 checkpoint, not the 5-minute slot ──
     //
@@ -1968,7 +1986,8 @@ object ForwardReturnLabeler7731 {
         labelDue8418.get(), labelPricedDex8418.get(), labelPricedCurve8418.get(), labelPricedTape8418.get(),
         labelLostNoSource8418.get(), labelLostLate8418.get(), try { KeylessMarks8359.labelCounts8418() } catch (_: Throwable) { null }) +
         " " + DowntimeRecovery8430.statusLine8430() +   // V5.0.8430
-        " " + LabelClock8442.statusLine8442() + " shadowWanted8442=${shadowWanted8442.size}"   // V5.0.8442
+        " " + LabelClock8442.statusLine8442() + " shadowWanted8442=${shadowWanted8442.size}" +   // V5.0.8442
+        " flat8454[awaitingLive=${flatAwaitingLive8454.get()} liveBooked=${flatLiveBooked8454.get()}]"   // V5.0.8454
 
     /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
     fun horizonOpen7809(ageMs: Long, horizonMs: Long): Boolean =
@@ -2540,6 +2559,14 @@ object ForwardReturnLabeler7731 {
                 o.lastAcceptedMark8395 = priorAccepted8395; o.lastMark8386 = priorAccepted8395
                 o.lateMark8418 = true   // V5.0.8418 — if this closes unavailable, its mark came after the window
                 expired8395(key, o, null, maxOf(nowMs, deadline8395(o)))
+                continue
+            }
+            // V5.0.8454 — a flat 5-minute read from a token-state price alone is neither booked nor lost: the off-watch batch
+            // fetches the market's own price first (highest rank), inside the window.
+            if (!o.done60 && age >= H60_MS_7731 && com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross, o.peakPct, o.minPct7962) &&
+                !liveMark8454(mark8386)) {
+                flatAwaitingLive8454.incrementAndGet()
+                dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(0, o.atMs))
                 continue
             }
             if (!o.done60 && age >= H60_MS_7731) {
