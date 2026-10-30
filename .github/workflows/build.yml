@@ -610,7 +610,9 @@ jobs:
                 const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
                   { ...context.repo, run_id: runId, per_page: 100 });
                 job = jobs.find(j => j.name === jobName);
-                if (job && job.status === 'completed' && job.conclusion) break;
+                // V5.0.8466 — the step conclusions lag too (8464: "build / Build Release APK: null" on a green build).
+                const stepsRecorded = job && steps.every(n => { const st = (job.steps || []).find(x => x.name === n); return !st || st.conclusion; });
+                if (job && job.status === 'completed' && job.conclusion && stepsRecorded) break;
                 core.info(`waiting for ${jobName} in run ${runId}: ${job ? job.status + '/' + job.conclusion : 'missing'}`);
                 await sleep(30000);
               }
