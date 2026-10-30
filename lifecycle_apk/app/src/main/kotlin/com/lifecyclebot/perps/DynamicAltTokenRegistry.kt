@@ -1953,6 +1953,10 @@ object DynamicAltTokenRegistry {
                 val logoUrl = obj.optString("logoURI", "").ifBlank { obj.optString("icon", "") }
 
                 if (mint.isBlank() || symbol.isBlank()) continue
+                // V5.0.8460 — Jupiter's first pool proves a minimum age (MarketSweep7297 records it from the same API): an
+                // established verified coin leaves the launch scope at once instead of waiting on a signature walk
+                // (8457: birth unknownMints JUPITER_STRICT/other=933, walk rpcFail=391, sniper BIRTH_METADATA_HYDRATING=1107).
+                notePoolFloor8460(mint, obj)
 
                 // V5.0.6493 — NEVER migrate CoinGecko data onto a Jupiter
                 // mint by ticker. Mint/contract address is canonical identity.
@@ -1986,6 +1990,13 @@ object DynamicAltTokenRegistry {
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "fetchJupiterTokenList: ${e.message}")
         }
+    }
+
+    /** V5.0.8460 — [obj]'s firstPool.createdAt (ISO-8601) as a pool-creation floor; nothing when absent or unparsable. */
+    internal fun notePoolFloor8460(mint: String, obj: JSONObject) {
+        val created = obj.optJSONObject("firstPool")?.optString("createdAt", "").orEmpty()
+        val ms = try { if (created.isBlank()) 0L else java.time.Instant.parse(created).toEpochMilli() } catch (_: Throwable) { 0L }
+        if (ms > 0L) try { com.lifecyclebot.engine.truth.PoolCreationTime7385.record(mint, ms, "JUP_FIRST_POOL_8460") } catch (_: Throwable) {}
     }
 
     /**

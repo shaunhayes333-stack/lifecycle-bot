@@ -553,6 +553,7 @@ class DexscreenerApi {
         val prices8287 = HashMap<String, Double>()
         cacheBatchPairs8287(rows, json, nowMs, prices8287)
         val answered = HashSet<String>()
+        val liquidity8460 = HashMap<String, Double>()
         for ((mint, mine) in rows.groupBy { it.mint }) {
             val pick = DexPools8285.choose8285(mine, DexPools8285.chosen8285(mint)) ?: continue
             val o = json[pick.pairAddress] ?: continue
@@ -562,12 +563,14 @@ class DexscreenerApi {
             if (pick.liquidityUsd.isFinite() && pick.liquidityUsd > 0.0) {
                 // V5.0.8285 FEATURE_ARRIVED_LIQUIDITY(mint)
                 DexPools8285.liquidityRows8285.incrementAndGet()
+                // V5.0.8460 — and it reaches the token (DexBatchLane8287.applyLiquidity8460); a pump.fun curve's depth is its own account.
+                if (!pick.dexId.equals("pumpfun", ignoreCase = true)) liquidity8460[mint] = pick.liquidityUsd
             }
             answered += mint
         }
         DexPools8285.batches8285.incrementAndGet()
         val unlisted = want.filter { it !in answered }
-        return BatchPairs8285(answered, unlisted, if (answered.isEmpty()) BatchCause8087.NO_DATA else BatchCause8087.PRICED, prices8287)
+        return BatchPairs8285(answered, unlisted, if (answered.isEmpty()) BatchCause8087.NO_DATA else BatchCause8087.PRICED, prices8287, liquidity8460)
     }
 
     /**
@@ -577,6 +580,8 @@ class DexscreenerApi {
     data class BatchPairs8285(
         val answered: Set<String>, val notAnswered: List<String>, val cause: BatchCause8087,
         val prices8287: Map<String, Double> = emptyMap(),
+        /** V5.0.8460 — each answered mint's chosen pool liquidity (USD, observed; not for a pump.fun curve pair). */
+        val liquidity8460: Map<String, Double> = emptyMap(),
     )
 
     /**

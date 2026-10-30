@@ -136,6 +136,27 @@ object DexBatchLane8287 {
             com.lifecyclebot.engine.truth.CandidateMarkFresh8094.onLaneAnswer8287(batch, r.prices8287)
         } catch (_: Throwable) {}
         if (r != null && !throttled) try { com.lifecyclebot.engine.truth.KeylessMarks8359.onLaneAnswer8418(batch, r.prices8287) } catch (_: Throwable) {}   // V5.0.8418
+        if (r != null && !throttled) try { applyLiquidity8460(r.liquidity8460) } catch (_: Throwable) {}
+    }
+
+    // ── V5.0.8460 §THE_POOL_READ_REACHES_THE_TOKEN ──
+    // 8457: liq{dexBatch: a=10835 r=9855 rep=0} — each answered mint's chosen pool liquidity came back 9,855 times and was only
+    // counted (DexPools8285.liquidityRows8285), while SHITCOIN / EXPRESS deferred 1,061 / 1,053 evaluations
+    // LANE_LIQ_UNHYDRATED. The single-pair poll already writes this figure (HydrationReeval8343.pollLiquidity8345); this lane
+    // writes it by the intake rules: a positive observation that changed, never over a fresh chain / curve read.
+    private val liquidityWritten8460 = AtomicLong(0L)
+
+    private fun applyLiquidity8460(liq: Map<String, Double>) {
+        if (liq.isEmpty()) return
+        val lt = com.lifecyclebot.engine.truth.LiquidityTruth8037
+        for ((mint, usd) in liq) {
+            val ts = BotService.status.tokens[mint] ?: continue
+            if (!lt.intakeWrites8418(ts.lastLiquidityUsd, usd, false, lt.chainHeld8418(ts))) continue
+            HydrationReeval8343.writeTick8345(ts, usd, "DEX_BATCH_8460")
+            try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
+            liquidityWritten8460.incrementAndGet()
+            FeatureSourceCounters8285.note8285("liq", "dexBatch", FeatureSourceCounters8285.REPAIRED)
+        }
     }
 
     private val PAIR_FEATURES_8287 = listOf("bp", "chg", "liq")
@@ -145,6 +166,7 @@ object DexBatchLane8287 {
         val b = batches.get()
         val per = if (b > 0L) "%.1f".format(mintsSent.get().toDouble() / b) else "-"
         return "dexLane8287[calls=$b mints=${mintsSent.get()} perCall=$per answered=${answered.get()} " +
-            "refusedCalls=${refusedBatches.get()} cooldownWaits=${cooldownWaits.get()} pending=${pending8287()} maxPerMin=$MAX_CALLS_PER_MIN_8287]"
+            "refusedCalls=${refusedBatches.get()} cooldownWaits=${cooldownWaits.get()} pending=${pending8287()} maxPerMin=$MAX_CALLS_PER_MIN_8287 " +
+            "liqWritten8460=${liquidityWritten8460.get()}]"
     }
 }
