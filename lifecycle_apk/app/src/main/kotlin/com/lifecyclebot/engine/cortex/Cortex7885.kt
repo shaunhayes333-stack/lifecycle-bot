@@ -1494,6 +1494,51 @@ object Cortex7885 {
         return false
     }
 
+    /** V5.0.8449 — one labeler outbox terminal (its outbox key, the decision it closes and why). */
+    data class Terminal8449(val key: String, val mint: String, val lane: String, val atMs: Long, val why: String)
+
+    /**
+     * V5.0.8449 — [observationUnavailable8395] for a whole drain batch, with every new receipt in ONE verified write.
+     * 8446 (1.9 h): the labeler's 5 s clock ran 421 ticks (one per ~16 s) — each drain tick paid up to 192 separate
+     * verified SQLite commits. Same rules per terminal: an existing receipt acknowledges; onLabelLost8187 applies the
+     * release in memory; the receipt is durable before its key is returned. A refused write puts each terminal on the
+     * checkpoint path exactly as the single call does (nothing acknowledged, retried next drain). Returns the acked keys.
+     */
+    fun observationUnavailableBatch8449(items: List<Terminal8449>): Set<String> {
+        ensureLoaded()
+        if (!loaded || !LearningPersistence.ready() || items.isEmpty()) return emptySet()
+        val acked = HashSet<String>()
+        val write = LinkedHashMap<String, String>()
+        val keyOf = HashMap<String, Terminal8449>()
+        for (t in items) {
+            if (t.atMs <= 0L) continue
+            val id = "${t.mint}|${canon(t.lane)}|${t.atMs}"
+            val receipt = OBSERVATION_TERMINAL_PREFIX_8395 + id
+            if (LearningPersistence.load(receipt) != null) { acked += t.key; continue }
+            val held = TerminalReceipt8419.needsSnapshot8419(pending["${t.mint}|${canon(t.lane)}"]?.atMs, t.atMs,
+                pairedPending8401.containsKey(id) || superseded8443.containsKey(id))
+            onLabelLost8187(t.mint, t.lane, t.why, t.atMs)
+            if (observationTerminals8395.containsKey(receipt) || write.containsKey(receipt)) continue
+            write[receipt] = TerminalReceipt8419.directReceipt8419(id, t.why, t.atMs, held)
+            keyOf[receipt] = t
+        }
+        if (write.isEmpty()) return acked
+        val ok = try { LearningPersistence.saveTogetherVerified8386(write) } catch (_: Throwable) { false }
+        inc(if (ok) "OBSERVATION_TERMINAL_BATCH_RECEIPT_8449" else "OBSERVATION_TERMINAL_BATCH_RECEIPT_DEFERRED_8449")
+        if (ok) { write.keys.forEach { r -> keyOf[r]?.let { acked += it.key } }; return acked }
+        synchronized(this) {
+            for ((receipt, t) in keyOf) {
+                val id = receipt.removePrefix(OBSERVATION_TERMINAL_PREFIX_8395)
+                val original = gradeBook8144.decision(id)
+                val disposition = if (original == null) "ORIGINAL_PREDICTION_UNAVAILABLE"
+                    else if (original.executablePct.isFinite()) "EARLIER_ACCEPTED_OUTCOME_PRESERVED" else "UNAVAILABLE_COVERAGE_RETAINED"
+                observationTerminals8395.putIfAbsent(receipt, org.json.JSONObject().put("decisionId", id).put("reason", t.why)
+                    .put("disposition", disposition).put("at", t.atMs).toString())
+            }
+        }
+        return acked
+    }
+
     private const val FORWARD_RECEIPT_8404 = "CORTEX_FORWARD_RECEIPT_8404|"
     private val forwardReady8404 = ConcurrentHashMap<String, String>()
     private val forwardLearned8404 = ConcurrentHashMap.newKeySet<String>()

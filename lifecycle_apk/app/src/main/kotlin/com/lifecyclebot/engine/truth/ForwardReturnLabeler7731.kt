@@ -2235,13 +2235,16 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun drainTerminals8395() {
-        for ((key,raw) in terminalBatch8401()) {
+        // superseded by V5.0.8449 — one Cortex call and one verified receipt write per drain batch (was one
+        // observationUnavailable8395 call per terminal: up to 192 SQLite commits inside the label tick). An unparsable row
+        // stays in the outbox, never delivered.
+        val items = terminalBatch8401().mapNotNull { (key, raw) ->
             try {
-                val j=org.json.JSONObject(raw)
-                if (com.lifecyclebot.engine.cortex.Cortex7885.observationUnavailable8395(j.getString("mint"),j.getString("lane"),j.getLong("at"),j.getString("why")))
-                    deliveredTerminals8395.add(key)
-            } catch (_: Exception) { /* retained durable outbox, never treated as delivered */ }
+                val j = org.json.JSONObject(raw)
+                com.lifecyclebot.engine.cortex.Cortex7885.Terminal8449(key, j.getString("mint"), j.getString("lane"), j.getLong("at"), j.getString("why"))
+            } catch (_: Exception) { null }
         }
+        try { deliveredTerminals8395.addAll(com.lifecyclebot.engine.cortex.Cortex7885.observationUnavailableBatch8449(items)) } catch (_: Exception) {}
         if (terminalOutbox8395.isNotEmpty()) try { com.lifecyclebot.engine.cortex.Cortex7885.flushShadowOutcomes8372() } catch (_: Exception) {}
         // Independent of successful label booking and of the observation queue becoming empty.
         val now = System.currentTimeMillis()

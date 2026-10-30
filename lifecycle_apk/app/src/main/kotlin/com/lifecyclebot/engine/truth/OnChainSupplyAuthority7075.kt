@@ -322,6 +322,7 @@ object OnChainSupplyAuthority7075 {
     // MintSupply8418.fromAccountInfoResult8418 already accepts from OnChainMintAuthorityProof7248). A batch answer that is
     // not an initialised mint falls back to that mint's own getTokenSupply; no answer at all is a local retry, not evidence.
     const val BATCH_KEYS_8445 = 100
+    const val BATCH_GATHER_MS_8449 = 2_000L
     private const val MAX_BATCH_QUEUED_8445 = 2_000
     private val batch8445 = java.util.concurrent.ConcurrentHashMap<String, AtomicBoolean>()
     private val batchRunning8445 = AtomicBoolean(false)
@@ -344,6 +345,12 @@ object OnChainSupplyAuthority7075 {
     private fun drainBatch8445() {
         try {
             while (true) {
+                // V5.0.8449 — gather before reading: 8446 sent 3,697 calls for 5,963 asks (1.6 mints a call) because the drain
+                // read whatever one mint had queued. Up to [BATCH_GATHER_MS_8449] for a full batch; a full batch goes at once.
+                val gatherUntil = System.currentTimeMillis() + BATCH_GATHER_MS_8449
+                while (batch8445.size < BATCH_KEYS_8445 && System.currentTimeMillis() < gatherUntil) {
+                    try { Thread.sleep(100L) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+                }
                 val mints = batch8445.keys.take(BATCH_KEYS_8445)
                 if (mints.isEmpty()) break
                 readBatch8445(mints)
