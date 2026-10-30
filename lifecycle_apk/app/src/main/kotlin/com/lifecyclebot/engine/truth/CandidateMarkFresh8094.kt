@@ -100,7 +100,9 @@ object CandidateMarkFresh8094 {
         val mine = batch.filter { laneAsked8287.remove(it) != null }
         if (mine.isEmpty()) return
         val priced = prices.filterKeys { it in mine }.filterValues { it.isFinite() && it > 0.0 }
-        if (priced.isNotEmpty()) { dexReads.addAndGet(priced.size.toLong()); apply8094(priced) }
+        // V5.0.8459 — the pair lane's answer is DexScreener's price and is filed under its own name: it was written with the
+        // Jupiter default (8457 identity unitBreak{OTHER@JUPITER_CANDIDATE_REFRESH_8094=155} were DexScreener pair prices).
+        if (priced.isNotEmpty()) { dexReads.addAndGet(priced.size.toLong()); apply8094(priced, DEX_LANE_SOURCE_8459) }
         val unpriced = mine.filter { it !in priced.keys }
         if (unpriced.isEmpty() || !inFlight.compareAndSet(false, true)) return
         try {
@@ -111,6 +113,19 @@ object CandidateMarkFresh8094 {
         } catch (_: Throwable) { inFlight.set(false) }
     }
 
+    const val DEX_LANE_SOURCE_8459 = "DEXSCREENER_LANE_8287"
+
+    // ── V5.0.8459 §A_CHAIN_PRINT_OUTRANKS_A_LAGGING_AGGREGATOR ──
+    // Owner: "there isn't meant to be ... a stale price, a stale mark, nothing". A candidate's price was overwritten by the
+    // DexScreener pair lane / Jupiter batch whenever the held value was over 1 s old, so a chain-exact curve or pool print
+    // from seconds ago was replaced by an aggregator's lagging price stamped as new.
+    private const val CHAIN_KEEP_MS_8459 = 30_000L
+    private val chainKept8459 = AtomicLong(0)
+
+    /** Pure: the coin's current price is its own chain print (StopFeed8327.chainMark8327) under [CHAIN_KEEP_MS_8459] old. */
+    fun chainHeld8459(currentSource: String?, currentAtMs: Long, nowMs: Long): Boolean =
+        currentAtMs > 0L && nowMs - currentAtMs in 0L until CHAIN_KEEP_MS_8459 && com.lifecyclebot.engine.StopFeed8327.chainMark8327(currentSource)
+
     private fun apply8094(prices: Map<String, Double>, source8359: String = "JUPITER_CANDIDATE_REFRESH_8094") {
         if (prices.isEmpty()) return
         val tokens = com.lifecyclebot.engine.BotService.status.tokens
@@ -120,7 +135,11 @@ object CandidateMarkFresh8094 {
             val applied = synchronized(ts) {
                 val fresher = ts.lastPriceUpdate > 0L && at - ts.lastPriceUpdate < 1_000L
                 val suspect = ts.lastPrice > 0.0 && ForwardReturnLabeler7731.basisSuspect7738(ts.lastPrice, px)
-                if (ts.position.isOpen || fresher || suspect) false else {
+                // V5.0.8459 — an aggregator price never replaces the coin's own chain print while that print is recent.
+                val chainHeld = !com.lifecyclebot.engine.StopFeed8327.chainMark8327(source8359) &&
+                    chainHeld8459(ts.lastPriceSource, ts.lastPriceUpdate, at)
+                if (chainHeld) chainKept8459.incrementAndGet()
+                if (ts.position.isOpen || fresher || suspect || chainHeld) false else {
                     ts.lastMcap = rescaledMcap8094(ts.lastMcap, ts.lastPrice, px)
                     ts.lastPrice = px
                     ts.lastPriceUpdate = at
@@ -170,5 +189,5 @@ object CandidateMarkFresh8094 {
     // native tape. (The lane's pair flow goes to PairFlow8169 with its source named, read only where a reading is absent.)
 
     fun statusLine(): String =
-        "CANDIDATE_MARK_FRESH_8094 freshMs=$FRESH_MS_8094 requested=${requested.get()} refreshed=${refreshed.get()} batches=${batches.get()} dexReads=${dexReads.get()} waiting=${wanted.size} laneAsked8287=${laneAsked8287.size}"
+        "CANDIDATE_MARK_FRESH_8094 freshMs=$FRESH_MS_8094 requested=${requested.get()} refreshed=${refreshed.get()} batches=${batches.get()} dexReads=${dexReads.get()} waiting=${wanted.size} laneAsked8287=${laneAsked8287.size} chainKept8459=${chainKept8459.get()}"
 }
