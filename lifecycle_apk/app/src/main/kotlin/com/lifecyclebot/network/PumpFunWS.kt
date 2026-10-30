@@ -351,6 +351,22 @@ object PumpFunWS {
 
     fun tradeStreamEnabled8354(): Boolean = tradeStreamEnabled8354
 
+    // ── V5.0.8462 §A_SWITCH_IS_NOT_A_STREAM ──
+    // 8457: the PumpPortal trade switch was ON, but its data wallet was under the minimum ("Minimum balance not met",
+    // TOKEN_TRADE_STREAM_UNAVAILABLE_AUTH x3, subscribeSkippedNoKey=114, 40 trade frames), and HeliusCurveTape8354 stood
+    // its program tape down on the switch alone — no pump.fun trades with a wallet reached WhaleTrackerAI. The tape
+    // defers to PumpPortal only while PumpPortal is keyed and trade frames are actually arriving.
+    const val DELIVERING_MS_8462 = 5L * 60_000L
+    @Volatile private var lastTradeFrameMs8462 = 0L
+
+    /** Pure: a keyed stream whose last trade frame arrived within [DELIVERING_MS_8462] of [nowMs]. */
+    fun delivering8462(keyed: Boolean, lastFrameMs: Long, nowMs: Long): Boolean =
+        keyed && lastFrameMs > 0L && nowMs - lastFrameMs in 0L..DELIVERING_MS_8462
+
+    /** HeliusCurveTape8354: PumpPortal is carrying the curve tape now (switch on, keyed, frames arriving). */
+    fun tradeStreamDelivering8462(nowMs: Long = System.currentTimeMillis()): Boolean =
+        delivering8462(tradeStreamKeyed7284(), lastTradeFrameMs8462, nowMs)
+
     /** HeliusCurveTape8354's keep filter: a mint this socket's bookkeeping cares about (held, launch, setup watch, subscribed). */
     fun caresAbout8354(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
         mint in heldMints8192 || tradeSubscriptions7278.contains(mint) || setupWatched8191(mint, nowMs) ||
@@ -862,6 +878,7 @@ object PumpFunWS {
                         coverageSuspect8307.remove(mint)   // V5.0.8307 — its first print: the stream does carry it
                         // V5.0.8182 — an actual trade frame is the only proof the paid stream works.
                         tradeFramesSinceConnect8182.incrementAndGet()
+                        lastTradeFrameMs8462 = System.currentTimeMillis()
                         if (tradeConfirmedAtMs8182 == 0L) tradeConfirmedAtMs8182 = System.currentTimeMillis()
                         authDenials8182.set(0L)
                         // V5.0.8136 — one swap is one swap: a repeated or re-sent frame (same signature, or the same

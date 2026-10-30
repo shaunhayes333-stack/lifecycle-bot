@@ -958,6 +958,38 @@
                     android:checked="false"/>
             </LinearLayout>
 
+            <!-- V5.0.8462 — owner: "kill the smart money scan. put it in a toggle in settings" (side setting, default OFF) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="10dp">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Smart money scan (Helius alpha list)"
+                        android:textColor="@color/aate_text"
+                        android:textSize="12sp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Off: no runner mining, wallet histories or daily alpha list on Helius. Pump.fun whale buys and leaderboard copy wallets keep running."
+                        android:textColor="@color/aate_text_muted"
+                        android:textSize="9sp"/>
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchSmartMoneyScan8462"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="false"/>
+            </LinearLayout>
+
             <!-- V5.0.7955 — free-tier chart-source keys (engine/chart/ChartSources7955) -->
             <TextView
                 android:id="@+id/tvCoinMarketCapHelp7955"

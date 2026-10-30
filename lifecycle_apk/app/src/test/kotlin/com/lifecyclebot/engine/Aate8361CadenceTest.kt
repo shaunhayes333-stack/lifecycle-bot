@@ -158,7 +158,9 @@ class Aate8361CadenceTest {
 
     @Test fun alphaListIsDailyAndCopyStaysBehindItsProofBar() {
         val ew = src("engine/ExpertWallets7962.kt")
-        assertTrue(ew.contains("if (HeliusCadence8361.alphaRebuildDue8361(alphaAtMs8361, now8361)) rebuildAlpha8361(engine, onWatchlistChanged, now8361)"))
+        // superseded by V5.0.8462 — the daily rebuild also waits on the Settings smart-money switch (owner: "kill the smart money
+        // scan. put it in a toggle in settings"); still once a day when it is on.
+        assertTrue(ew.contains("if (scan8462 && HeliusCadence8361.alphaRebuildDue8361(alphaAtMs8361, now8361)) rebuildAlpha8361(engine, onWatchlistChanged, now8361)"))
         assertTrue(ew.contains("if (ownerOnly8361 && (e.tier != Tier7962.OWNER || h.backfillDone)) continue"))
         assertTrue(ew.contains("keylessOnly = true, caller = HeliusCadence8361.CALLER_ALPHA_8361"))
         assertFalse(ew.contains("PROVEN_LIVE"))

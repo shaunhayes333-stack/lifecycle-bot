@@ -91,6 +91,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var switchCryptoAltsTrader: SwitchCompat
     private lateinit var switchLossStreakCooldown: SwitchCompat
     private lateinit var switchPumpPortalTradeStream8354: SwitchCompat  // V5.0.8354
+    private lateinit var switchSmartMoneyScan8462: SwitchCompat  // V5.0.8462 — side setting (ConfigStore), not BotConfig
     // V5.7.7: Individual Markets sub-trader switches
     private lateinit var switchPerpsEnabled: SwitchCompat
     private lateinit var switchStocksEnabled: SwitchCompat
@@ -195,6 +196,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchCryptoAltsTrader = view.findViewById(R.id.switchCryptoAltsTrader)
         switchLossStreakCooldown = view.findViewById(R.id.switchLossStreakCooldown)
         switchPumpPortalTradeStream8354 = view.findViewById(R.id.switchPumpPortalTradeStream8354)
+        switchSmartMoneyScan8462 = view.findViewById(R.id.switchSmartMoneyScan8462)
         // V5.7.7: Individual Markets sub-trader switches
         switchPerpsEnabled = view.findViewById(R.id.switchPerpsEnabled)
         switchStocksEnabled = view.findViewById(R.id.switchStocksEnabled)
@@ -374,6 +376,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchCryptoAltsTrader.isChecked = cfg.cryptoAltsEnabled
         switchLossStreakCooldown.isChecked = cfg.lossStreakCooldownEnabled
         switchPumpPortalTradeStream8354.isChecked = cfg.pumpPortalTradeStreamEnabled
+        switchSmartMoneyScan8462.isChecked = com.lifecyclebot.data.ConfigStore.loadSmartMoneyScan8462(requireContext())
         // V5.7.7: Sub-trader switches
         switchPerpsEnabled.isChecked = cfg.perpsEnabled
         switchStocksEnabled.isChecked = cfg.stocksEnabled
@@ -439,6 +442,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     
     private fun saveSettings() {
         val cfg = currentConfig ?: return
+        try { com.lifecyclebot.data.ConfigStore.saveSmartMoneyScan8462(requireContext(), switchSmartMoneyScan8462.isChecked) } catch (_: Throwable) {}   // V5.0.8462
         
         val newConfig = cfg.copy(
             // V5.9.663 — activeToken preserved as-is from existing config;

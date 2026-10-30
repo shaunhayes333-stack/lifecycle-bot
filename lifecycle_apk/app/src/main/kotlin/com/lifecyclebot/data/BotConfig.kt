@@ -398,6 +398,22 @@ object ConfigStore {
         cachedConfigMs = 0L
     }
 
+    // ── V5.0.8462 — owner: "kill the smart money scan. put it in a toggle in settings". OFF by default. Kept out of BotConfig:
+    // its synthetic default constructor is at 254 of the JVM's 255 parameter slots (7958 crossed it once: ClassFormatError).
+    // Read by SmartMoneyDiscovery7277 (runner mining), ExpertWallets7962 (Helius histories, daily alpha list) and
+    // HeliusCadence8361 (alpha wallets on the push stream). The pump.fun / GMGN leaderboard copy wallets are not gated.
+    const val SMART_MONEY_SCAN_KEY_8462 = "smart_money_scan_enabled_8462"
+    @Volatile var smartMoneyScan8462: Boolean = false
+        private set
+
+    fun loadSmartMoneyScan8462(ctx: Context): Boolean =
+        (try { prefs(ctx).getBoolean(SMART_MONEY_SCAN_KEY_8462, false) } catch (_: Throwable) { false }).also { smartMoneyScan8462 = it }
+
+    fun saveSmartMoneyScan8462(ctx: Context, on: Boolean) {
+        try { prefs(ctx).edit().putBoolean(SMART_MONEY_SCAN_KEY_8462, on).apply() } catch (_: Throwable) {}
+        smartMoneyScan8462 = on
+    }
+
     /** V5.0.7958 — chart-source free-tier key names (same prefs keys as 5.0.7955), in settings order. */
     private val MARKET_DATA_KEY_NAMES_7958 = listOf(
         "coinmarketcap_api_key", "moralis_api_key", "bitquery_api_key",
@@ -820,6 +836,7 @@ object ConfigStore {
             // V5.0.8326 — the persisted Entry 8114 mode reaches the live entry decision.
             // V5.0.8354 — the persisted PumpPortal trade-stream switch reaches the socket (default OFF: paid per frame).
             try { com.lifecyclebot.network.PumpFunWS.noteTradeStreamConfig8354(it.pumpPortalTradeStreamEnabled) } catch (_: Throwable) {}
+            loadSmartMoneyScan8462(ctx)   // V5.0.8462 — the smart-money scan switch (side setting, default OFF)
             // V5.9.706 — cache for 2s to avoid repeated AES-GCM decryption on main thread
             cachedConfig = it
             cachedConfigMs = System.currentTimeMillis()

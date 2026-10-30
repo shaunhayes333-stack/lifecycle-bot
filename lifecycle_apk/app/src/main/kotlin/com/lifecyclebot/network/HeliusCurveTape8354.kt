@@ -236,7 +236,8 @@ object HeliusCurveTape8354 {
             heldSet = held.toSet(); nearSet = near.toSet(); watch = watchlist; perMint = perMintAsk
             installShare()
             rollClocks(nowMs)
-            val pumpPortalOn = try { PumpFunWS.tradeStreamEnabled8354() } catch (_: Throwable) { false }
+            // V5.0.8462 — PumpPortal carries the tape only while it delivers (switch on is not enough: 8457 wallet unfunded).
+            val pumpPortalOn = try { PumpFunWS.tradeStreamDelivering8462(nowMs) } catch (_: Throwable) { false }
             // V5.0.8399 — the program curve tape has its own byte governor (programAffordable8354): only the HARD day cap stops it.
             val over = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overHardBudget8399(nowMs) } catch (_: Throwable) { false }
             val inHold = nowMs < fallbackUntilMs
@@ -274,7 +275,7 @@ object HeliusCurveTape8354 {
             bytesMinute.set(0L)
         }
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CURVE_TAPE_STEP_DOWN_8354") } catch (_: Throwable) {}
-        val pumpPortalOn = try { PumpFunWS.tradeStreamEnabled8354() } catch (_: Throwable) { false }
+        val pumpPortalOn = try { PumpFunWS.tradeStreamDelivering8462(nowMs) } catch (_: Throwable) { false }   // V5.0.8462
         val enhancedOk = try { HeliusEnhancedWS.enhancedOk8354() } catch (_: Throwable) { false }
         val inHold = nowMs < fallbackUntilMs
         val (src, tr) = decide8354(pumpPortalOn, level, inHold, true, enhancedOk, HeliusSocketShare8191.attached8191())

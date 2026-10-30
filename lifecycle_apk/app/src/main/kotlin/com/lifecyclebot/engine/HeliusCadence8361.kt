@@ -237,7 +237,9 @@ object HeliusCadence8361 {
     /** BotService: the subscription's watch list (whales + owner + alpha) built from the live lists. */
     fun watchList8361(whaleList: List<String>, copyActive: List<String>): List<String> {
         whales = whaleList.filter { it.isNotBlank() }.toSet()
-        val alpha = try { ExpertWallets7962.alphaList8361() } catch (_: Throwable) { emptyList() }
+        // V5.0.8462 — the alpha list is the smart-money scan's: on the stream only when it is switched on (Settings).
+        val alpha = if (!com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) emptyList()
+            else try { ExpertWallets7962.alphaList8361() } catch (_: Throwable) { emptyList() }
         alphaListed = alpha.toSet()
         // V5.0.8453 — whale-only wallets leave the stream (owner: "reduce the amount of wasted data calls dramatically"):
         // 8450's smart-money stream moved 242 MB (5.1k credits) with Smart Money detected=0; the busy whale wallets carry

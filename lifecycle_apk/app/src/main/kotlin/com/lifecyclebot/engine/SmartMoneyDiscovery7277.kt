@@ -68,6 +68,7 @@ object SmartMoneyDiscovery7277 {
     // V5.0.8361 — runner mining (Helius Enhanced parse) runs once a day with the alpha rebuild, not every 15 minutes.
     @Volatile private var lastMineMs8361 = 0L
     private val promoted = AtomicLong(0L)
+    private val scanSkipped8462 = AtomicLong(0L)
 
     private val http by lazy {
         SharedHttpClient.builder()
@@ -107,7 +108,8 @@ object SmartMoneyDiscovery7277 {
     }
 
     fun statusLine(): String =
-        "SmartMoney7277: cycles=${cycles.get()} minedRunners=${minedRunners.size} walletsSeen=${walletHits.size} promoted=${promoted.get()}"
+        "SmartMoney7277: cycles=${cycles.get()} minedRunners=${minedRunners.size} walletsSeen=${walletHits.size} promoted=${promoted.get()} " +
+            "scan8462=${if (com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) "ON" else "OFF"} scanSkipped8462=${scanSkipped8462.get()}"
 
     private fun runCycle(key: String, engine: CopyTradeEngine?, onWatchlistChanged: (List<String>) -> Unit) {
         cycles.incrementAndGet()
@@ -118,6 +120,9 @@ object SmartMoneyDiscovery7277 {
             if (added > 0) PipelineHealthCollector.labelInc("SMART_MONEY_LEADERBOARD_SEEDED_7277")
         } catch (_: Throwable) {}
 
+        // V5.0.8462 — the smart-money scan (runner mining on Helius, wallet promotion) runs only when switched on in
+        // Settings (owner: "kill the smart money scan"); the pump.fun / GMGN leaderboard seed above keeps running.
+        if (!com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) { scanSkipped8462.incrementAndGet(); return }
         // 2. Runners the bot itself observed — V5.0.8361: once a day (owner: discovery compiles a daily alpha list).
         val now8361 = System.currentTimeMillis()
         if (!HeliusCadence8361.alphaRebuildDue8361(lastMineMs8361, now8361)) return

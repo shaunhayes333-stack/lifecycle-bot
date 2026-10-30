@@ -501,11 +501,14 @@ object ExpertWallets7962 {
         if (!loaded) return
         cycles.incrementAndGet()
         refreshExperts(engine, onWatchlistChanged)
-        if (key.isNotBlank() && KeyValidator.isUsableEnhancedHeliusKey(key)) fetchHistories(key)
+        // V5.0.8462 — the Helius history reads and the daily alpha list are the smart-money scan (8457: alpha=666 credits/h,
+        // buysSeen=0 copyFed=0): they run only when it is switched on in Settings.
+        val scan8462 = com.lifecyclebot.data.ConfigStore.smartMoneyScan8462
+        if (scan8462 && key.isNotBlank() && KeyValidator.isUsableEnhancedHeliusKey(key)) fetchHistories(key)
         drainStreamLegs8361()
         val now8361 = System.currentTimeMillis()
-        if (HeliusCadence8361.alphaRebuildDue8361(alphaAtMs8361, now8361)) rebuildAlpha8361(engine, onWatchlistChanged, now8361)
-        else if (!alphaPushed8361 && alphaWallets8361.isNotEmpty() && engine != null) {
+        if (scan8462 && HeliusCadence8361.alphaRebuildDue8361(alphaAtMs8361, now8361)) rebuildAlpha8361(engine, onWatchlistChanged, now8361)
+        else if (scan8462 && !alphaPushed8361 && alphaWallets8361.isNotEmpty() && engine != null) {
             // A stored list younger than a day: put it on the subscription once after boot.
             alphaPushed8361 = true
             try { onWatchlistChanged(engine.getWallets().filter { it.isActive && !it.isPaused }.map { it.address }.distinct()) } catch (_: Throwable) {}
