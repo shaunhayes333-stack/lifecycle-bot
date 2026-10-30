@@ -1,24 +1,26 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.DowntimeRecovery8430
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
 /**
- * V5.0.8456 — the labels a restart interrupted are recovered from 1-minute candles. GeckoTerminal (10 calls a minute) is
- * used only while its bucket is full; otherwise Birdeye serves the same candles inside its own CU budget. 8450:
- * queued=82 fetched=0 yieldedToLive=71 with Birdeye at 7.6 % of its daily CU.
+ * V5.0.8456 -> superseded by V5.0.8457 (owner: Birdeye is dead; free sources and Helius). Labels a restart interrupted are
+ * recovered from free GeckoTerminal 1-minute candles: while its bucket is full, and otherwise one call a minute while 2+
+ * tokens remain for live reads. 8450: queued=82 fetched=0 yieldedToLive=71. No Birdeye call.
  */
 class Aate8456DowntimeBirdeyeTest {
-    @Test fun aBusyGeckoHandsTheRecoveryToBirdeyeNotToNothing() {
+    @Test fun recoveryTricklesOnFreeGeckoAndNeverCallsBirdeye() {
         val d = File("src/main/kotlin/com/lifecyclebot/engine/truth/DowntimeRecovery8430.kt").readText()
         val drain = d.substring(d.indexOf("fun drain8430("), d.indexOf("@Volatile private var inFlight8430"))
         assertTrue(drain.contains("GeckoHostBudget8382.spare8439(nowMs)"))
-        assertTrue(drain.contains("val birdeye8456 = !gecko8456 && (try { com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(1) }"))
-        assertTrue("yields only when neither source can serve", drain.contains("if (!gecko8456 && !birdeye8456) { yielded8439.incrementAndGet(); return }"))
-        assertTrue(drain.contains("else try { birdeyeCandles8456(mint) } catch (_: Throwable) { emptyList() }"))
-        assertTrue(d.contains("com.lifecyclebot.network.BirdeyeApi(key).getCandles(mint, \"1m\", CANDLES_8430)"))
-        assertTrue(DowntimeRecovery8430.statusLine8430().contains("birdeye8456="))
+        assertTrue(drain.contains("com.lifecyclebot.network.GeckoHostBudget8382.trickle8457(nowMs)"))
+        assertTrue(drain.contains("nowMs - lastFetchMs >= TRICKLE_GAP_MS_8457"))
+        assertFalse("no Birdeye in recovery", d.contains("BirdeyeApi(") || d.contains("BirdeyeBudgetGate"))
+        assertTrue(DowntimeRecovery8430.statusLine8430().contains("trickle8457="))
+        val g = File("src/main/kotlin/com/lifecyclebot/network/GeckoHostBudget8382.kt").readText()
+        assertTrue(g.contains("bucket.tokens8287(nowMs) >= 3.0 - 0.01"))
     }
 }

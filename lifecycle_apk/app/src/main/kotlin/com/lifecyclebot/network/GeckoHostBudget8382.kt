@@ -68,6 +68,10 @@ object GeckoHostBudget8382 : Interceptor {
     fun spare8439(nowMs: Long = System.currentTimeMillis()): Boolean =
         bucket.pausedLeftMs8287(nowMs) <= 0L && bucket.tokens8287(nowMs) >= BURST_8382 - 0.01
 
+    /** V5.0.8457 — true while 2+ tokens remain for live reads (not paused): DowntimeRecovery8430's one-a-minute trickle. */
+    fun trickle8457(nowMs: Long = System.currentTimeMillis()): Boolean =
+        bucket.pausedLeftMs8287(nowMs) <= 0L && bucket.tokens8287(nowMs) >= 3.0 - 0.01
+
     /** geckoHost8382[perMin=10 tokens=.. decision=taken/refused bulk=taken/refused provider429=.. pausedLeftMs=..] */
     fun statusLine8382(nowMs: Long = System.currentTimeMillis()): String =
         "geckoHost8382[perMin=$PER_MIN_8382 tokens=${"%.1f".format(bucket.tokens8287(nowMs))} decision=${takenDecision.get()}/${refusedDecision.get()} " +
