@@ -291,6 +291,18 @@ object KeylessRpc8359 {
         return true
     }
 
+    // ── V5.0.8458 §ONE_BAD_KEY_REFUSES_THE_WHOLE_READ ──
+    // 8457: supply-batch-8445 {rpc-32602=81, ok=56}; batch8445[resolved=108 unanswered=1738]. A getMultipleAccounts call with
+    // one key that is not a Solana public key is refused whole ("Invalid params") by every node, and the ladder then sent
+    // the same refused request to the next rung, Helius included.
+    /** Pure: is [s] a Solana public key (base58 decoding to exactly 32 bytes)? */
+    fun solanaKey8458(s: String): Boolean = s.length in 32..44 && try {
+        io.github.novacrypto.base58.Base58.base58Decode(s).size == 32
+    } catch (_: Throwable) { false }
+
+    /** Pure: the request itself is malformed (-32602 that is not a capability refusal): every node answers it the same way. */
+    fun malformedRequest8458(code: Int, message: String): Boolean = code == -32602 && !capabilityRefusal8441(code, message)
+
     private fun isUnsupported8441(url: String, method: String, nowMs: Long): Boolean =
         (unsupported8441["${host8359(url)}|$method"] ?: 0L) > nowMs
 
@@ -313,7 +325,9 @@ object KeylessRpc8359 {
         val body = JSONObject().put("jsonrpc", "2.0").put("id", idTag).put("method", method).put("params", params).toString()
         var tried = 0
         var why8418 = "noRung"   // V5.0.8418 — why this read came back empty (RpcOutcome8418.line8418)
+        var malformed8458 = false
         for (url in ladder) {
+            if (malformed8458) break   // V5.0.8458 — the next rung would refuse the same request
             if (tried >= maxRungs) break
             val label = label8359(url)
             if (try { com.lifecyclebot.engine.ApiBackoff.isLockedOut(label) } catch (_: Throwable) { false }) continue
@@ -335,6 +349,7 @@ object KeylessRpc8359 {
                     if (err != null) {
                         why8418 = RpcOutcome8418.rpcErrorKey8418(label, err.optInt("code", -1), err.optString("message"))
                         noteRpcError8441(url, method, err.optInt("code", -1), err.optString("message"))
+                        malformed8458 = malformedRequest8458(err.optInt("code", -1), err.optString("message"))
                         afterCall8359(url, r.code, err.optInt("code", -1)); return@use null
                     }
                     afterCall8359(url, r.code)

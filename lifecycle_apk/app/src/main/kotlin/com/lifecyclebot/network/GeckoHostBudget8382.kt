@@ -68,9 +68,14 @@ object GeckoHostBudget8382 : Interceptor {
     fun spare8439(nowMs: Long = System.currentTimeMillis()): Boolean =
         bucket.pausedLeftMs8287(nowMs) <= 0L && bucket.tokens8287(nowMs) >= BURST_8382 - 0.01
 
-    /** V5.0.8457 — true while 2+ tokens remain for live reads (not paused): DowntimeRecovery8430's one-a-minute trickle. */
+    /**
+     * V5.0.8457 — DowntimeRecovery8430's one-a-minute trickle. Superseded by V5.0.8458: 8457 asked for 3 tokens, which is
+     * [BURST_8382] (a full bucket, the same test as [spare8439]), so the trickle never fired (8457: trickle8457=0 fetched=0
+     * yieldedToLive=94 with tokens=1.7). One whole token for this call, not paused: one call a minute is a tenth of the host.
+     */
     fun trickle8457(nowMs: Long = System.currentTimeMillis()): Boolean =
-        bucket.pausedLeftMs8287(nowMs) <= 0L && bucket.tokens8287(nowMs) >= 3.0 - 0.01
+        bucket.pausedLeftMs8287(nowMs) <= 0L && bucket.tokens8287(nowMs) >= TRICKLE_TOKENS_8458 - 0.01
+    const val TRICKLE_TOKENS_8458 = 1.0
 
     /** geckoHost8382[perMin=10 tokens=.. decision=taken/refused bulk=taken/refused provider429=.. pausedLeftMs=..] */
     fun statusLine8382(nowMs: Long = System.currentTimeMillis()): String =

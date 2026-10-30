@@ -93,8 +93,8 @@ object DowntimeRecovery8430 {
         // labeler's tick, so "waitMs > 0 -> return" never fetched. A cooldown (429 / dead source) still defers; a short interval
         // gap is slept on the fetch thread instead.
         // V5.0.8439 — learning yields to live reads on GeckoTerminal (10 calls a minute): it is used while its bucket is full.
-        // V5.0.8457 — and, so recovery is never starved, one call a minute while the bucket still holds 2+ tokens for live
-        // reads (8450: queued=82 fetched=0 yieldedToLive=71 — every label a restart interrupted was lost). Free sources only
+        // V5.0.8457 — and, so recovery is never starved, one call a minute while the bucket holds a whole token (8458; 8457
+        // asked for a full bucket by mistake) (8450: queued=82 fetched=0 yieldedToLive=71 — every label a restart interrupted was lost). Free sources only
         // (owner: Birdeye is dead; the 8456 Birdeye fallback is withdrawn).
         val slot8457 = !wait.cooldown && wait.waitMs <= MAX_SLOT_SLEEP_MS_8435
         val spare8457 = try { com.lifecyclebot.network.GeckoHostBudget8382.spare8439(nowMs) } catch (_: Throwable) { false }

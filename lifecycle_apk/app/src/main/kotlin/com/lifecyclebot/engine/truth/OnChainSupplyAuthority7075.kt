@@ -258,6 +258,8 @@ object OnChainSupplyAuthority7075 {
      */
     fun requestAsync7075(mint: String) {
         if (mint.isBlank() || rpcUrl.isBlank()) return
+        // V5.0.8458 — not a Solana public key: no SPL mint account to read, and one such key refused a whole 100-mint batch.
+        if (!com.lifecyclebot.network.KeylessRpc8359.solanaKey8458(mint)) { notSolanaKey8458.incrementAndGet(); return }
         if (resolved.containsKey(mint)) return
         if (try { MintSupply8418.chainRead8418(mint) } catch (_: Throwable) { false }) return   // V5.0.8418 — the mint account was already read
         // V5.0.7345 §DO_NOT_BUILD_A_REQUEST_THE_BACKOFF_WILL_REFUSE.
@@ -330,6 +332,7 @@ object OnChainSupplyAuthority7075 {
     private val batchResolved8445 = AtomicLong(0L)
     private val batchUnanswered8445 = AtomicLong(0L)
     private val batchFallback8445 = AtomicLong(0L)
+    private val notSolanaKey8458 = AtomicLong(0L)
 
     private fun enqueueBatch8445(mint: String, gate: AtomicBoolean): Boolean {
         if (batch8445.size >= MAX_BATCH_QUEUED_8445) return false
@@ -724,7 +727,7 @@ object OnChainSupplyAuthority7075 {
             "negCached7116=${skippedNegative.get()} cooling7116=${retryNotBefore.size} " +
             "notVisibleYet7809=${notFoundYet7809.get()} " +
             "batch8445[calls=${batchCalls8445.get()} resolved=${batchResolved8445.get()} unanswered=${batchUnanswered8445.get()} " +
-            "fallback=${batchFallback8445.get()} queued=${batch8445.size}]"
+            "fallback=${batchFallback8445.get()} queued=${batch8445.size}] notSolanaKey8458=${notSolanaKey8458.get()}"
 
     /** V5.0.8441 — DiagnosisBrief8438 G INPUTS: [requested, resolved, allRungsLocked, declinedLocally, noSupply]. */
     fun counts8441(): LongArray = longArrayOf(requested.get(), fetched.get(), skippedProviderLocked7345.get(), declinedLocally.get(), noSupply.get())

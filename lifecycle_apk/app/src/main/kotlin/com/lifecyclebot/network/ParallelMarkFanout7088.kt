@@ -603,6 +603,26 @@ object ParallelMarkFanout7088 {
     // V5.0.7281 — six rungs; locked rungs are skipped without a request.
     private const val CURVE_LADDER_RUNGS_7279 = 6
 
+    // ── V5.0.8458 §NO_CURVE_IS_AN_ANSWER ──
+    // 8457: PUMP_CURVE_RPC_ATTEMPT=678, NO_ACCOUNT=349. The labeler's off-curve misses (any mint DexScreener did not price)
+    // are read at their derived pump.fun curve address; a mint that never had a curve answers "no account", was asked
+    // again on the next rung (Helius included) and again on every pass. A node answering at a fresh slot that the
+    // account does not exist is an answer: the walk stops for that mint, and the mint is not curve-read again for
+    // [NO_CURVE_TTL_MS_8458] unless a curve key is announced for it (PumpCurveKeys7269.keyFor).
+    const val NO_CURVE_TTL_MS_8458 = 30L * 60_000L
+    private const val NO_CURVE_MAX_8458 = 4_000
+    private val noCurve8458 = ConcurrentHashMap<String, Long>()
+    private val noCurveSkipped8458 = AtomicLong(0)
+
+    /** Pure: may [mint] be curve-read now — no fresh "no account" answer is held for it, or a curve key was announced since. */
+    internal fun curveReadable8458(noCurveUntilMs: Long?, keyAnnounced: Boolean, nowMs: Long): Boolean =
+        keyAnnounced || noCurveUntilMs == null || nowMs >= noCurveUntilMs
+
+    private fun noteNoCurve8458(mint: String, nowMs: Long) {
+        if (noCurve8458.size >= NO_CURVE_MAX_8458) noCurve8458.entries.removeIf { it.value <= nowMs }
+        if (noCurve8458.size < NO_CURVE_MAX_8458) noCurve8458[mint] = nowMs + NO_CURVE_TTL_MS_8458
+    }
+
     private val jupiterQuoteApi7269 by lazy { JupiterApi("", observationOnly7397 = true) }
 
     private fun solUsd7269(): Double = try {
@@ -748,10 +768,12 @@ object ParallelMarkFanout7088 {
         // V5.0.8359 — the mints the shadow books want marked (KeylessMarks8359) ride the same getMultipleAccounts call,
         // after the caller's own (held) mints, up to the call's cap.
         val mints8359 = try { com.lifecyclebot.engine.truth.KeylessMarks8359.withWantedCurves8359(mints, CURVE_MAX_MINTS_7269) } catch (_: Throwable) { mints }
+        val now8458 = System.currentTimeMillis()
         val targets = HeliusSolanaScope7819.solanaMintsOnly7819(mints8359).mapNotNull { m ->
             val pumpLike7392 = explicitCurve7392 || PumpCurveKeys7269.keyFor(m) != null ||
                 m.endsWith("pump", ignoreCase = true)
-            if (!pumpLike7392 || PumpCurveKeys7269.isGraduated7392(m)) null
+            if (pumpLike7392 && !curveReadable8458(noCurve8458[m], PumpCurveKeys7269.keyFor(m) != null, now8458)) { noCurveSkipped8458.incrementAndGet(); null }
+            else if (!pumpLike7392 || PumpCurveKeys7269.isGraduated7392(m)) null
             else (PumpCurveKeys7269.canonicalCurveKey7392(m) ?: PumpCurveKeys7269.keyFor(m))?.let { m to it }
         }.take(CURVE_MAX_MINTS_7269)
         if (targets.isEmpty()) return emptyMap()
@@ -828,7 +850,13 @@ object ParallelMarkFanout7088 {
                     for (i in pending8385.indices) {
                         val mint = pending8385[i].first
                         val value = values.optJSONObject(i)
-                        if (value == null) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_ACCOUNT_7278"); continue }
+                        if (value == null) {
+                            PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_ACCOUNT_7278")
+                            // V5.0.8458 — a fresh-slot "no account" is the answer: not asked of the next rung, nor next pass.
+                            resolved8385.add(mint); answered7279 = true
+                            noteNoCurve8458(mint, System.currentTimeMillis())
+                            continue
+                        }
                         // V5.0.7283 — 5.0.7281 read NO_DATA=108 against NO_ACCOUNT=0
                         // and SHORT_ACCOUNT=0: the rung answered, every account
                         // existed, and every data field read blank to this line.
@@ -930,6 +958,7 @@ object ParallelMarkFanout7088 {
         return "passes=${passes.get()} corroborated=${corroborated.get()} " +
             "singleSource=${single.get()} contested=${contested.get()} " +
             "rpc=${if (rpcUrl.isBlank()) "unset" else "set"} curveKeys7269=${PumpCurveKeys7269.size()} " +
+            "noCurve8458[held=${noCurve8458.size} skipped=${noCurveSkipped8458.get()}] " +
             "quotesBySource=[$wins]"
     }
 }

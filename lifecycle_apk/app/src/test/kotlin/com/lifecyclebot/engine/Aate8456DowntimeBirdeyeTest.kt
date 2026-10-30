@@ -21,6 +21,8 @@ class Aate8456DowntimeBirdeyeTest {
         assertFalse("no Birdeye in recovery", d.contains("BirdeyeApi(") || d.contains("BirdeyeBudgetGate"))
         assertTrue(DowntimeRecovery8430.statusLine8430().contains("trickle8457="))
         val g = File("src/main/kotlin/com/lifecyclebot/network/GeckoHostBudget8382.kt").readText()
-        assertTrue(g.contains("bucket.tokens8287(nowMs) >= 3.0 - 0.01"))
+        // superseded by V5.0.8458 — one whole token (8457's 3.0 was the full burst: the trickle never fired)
+        assertTrue(g.contains("bucket.tokens8287(nowMs) >= TRICKLE_TOKENS_8458 - 0.01"))
+        assertTrue(com.lifecyclebot.network.GeckoHostBudget8382.TRICKLE_TOKENS_8458 < com.lifecyclebot.network.GeckoHostBudget8382.BURST_8382)
     }
 }
