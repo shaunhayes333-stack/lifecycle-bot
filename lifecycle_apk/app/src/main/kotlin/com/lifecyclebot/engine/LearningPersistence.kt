@@ -641,6 +641,23 @@ object LearningPersistence {
         return sb.toString()
     }
 
+    // V5.0.8440 — the largest persisted states, by the characters read back. 8439: heap 506/512 MB with 352 MB the memory census
+    // could not attribute, and it appears in the first three minutes of a boot (8438: 264 MB at 204 s) — the restore. A
+    // learner's in-memory graph is several times its JSON, so the biggest blobs name the heaviest restores.
+    private val blobChars8440 = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    private fun noteBlobSize8440(name: String, chars: Int) {
+        if (blobChars8440.size >= 256 && !blobChars8440.containsKey(name)) return
+        blobChars8440.merge(name, chars) { a, b -> maxOf(a, b) }
+    }
+
+    /** V5.0.8440 — "name:KB,..." the largest blobs read this process (UTF-16 in memory: about 2 bytes per character). */
+    fun largestBlobs8440(n: Int = 8): String =
+        blobChars8440.entries.sortedByDescending { it.value }.take(n).joinToString(",") { "${it.key}:${it.value / 1024}Kc" }.ifBlank { "-" }
+
+    /** V5.0.8440 — total characters across every blob read this process. */
+    fun blobCharsTotal8440(): Long = blobChars8440.values.sumOf { it.toLong() }
+
     private fun getBlob(name: String): String? {
         val d = db ?: return null
         // A held key is retried at most once a minute, never on every hot-path ensureLoaded().
@@ -654,6 +671,7 @@ object LearningPersistence {
                 sb.toString()
             }
             unreadable8086.remove(name)
+            noteBlobSize8440(name, out.length)
             return out
         } catch (e: Throwable) {
             // Unreadable is not absent: hold the key read-only so the empty fallback cannot replace it.

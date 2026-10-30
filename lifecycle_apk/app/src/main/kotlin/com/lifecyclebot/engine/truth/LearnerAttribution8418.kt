@@ -50,13 +50,18 @@ object LearnerAttribution8418 {
         @Synchronized fun size(): Int = current.size + prior.size
     }
 
+    /** V5.0.8440 — MemoryGuard7977 census: ids held across every learner's ledger. */
+    fun idCount8440(): Int = ledgers.values.sumOf { it.size() }
+
     private class Counts8418 {
         val paper = AtomicLong(0); val live = AtomicLong(0); val label = AtomicLong(0)
         val dup = AtomicLong(0); val replay = AtomicLong(0); val unknownBook = AtomicLong(0); val noId = AtomicLong(0)
     }
 
     private const val FILE_8418 = "learner_attribution_8418.txt"
-    private const val MAX_FILE_LINES_8418 = 200_000
+    /** V5.0.8440 — newest persisted ids kept per learner (the replay window), and the slack before the file is compacted. */
+    internal const val PRIOR_PER_LEARNER_8440 = 10_000
+    private const val COMPACT_SLACK_8440 = 20_000
 
     private val ledgers = ConcurrentHashMap<String, Ledger8418>()
     private val counts = ConcurrentHashMap<String, Counts8418>()
@@ -144,16 +149,27 @@ object LearnerAttribution8418 {
         loaded = true
         try {
             if (!f.exists()) return
-            val lines = f.readLines()
-            val byLearner = HashMap<String, MutableList<String>>()
-            for (l in lines.takeLast(MAX_FILE_LINES_8418)) {
-                val t = l.indexOf('\t')
-                if (t <= 0 || t >= l.length - 1) continue
-                byLearner.getOrPut(l.substring(0, t)) { ArrayList() }.add(l.substring(t + 1))
+            // V5.0.8440 — streamed, and at most [PRIOR_PER_LEARNER_8440] newest ids kept per learner. 8439 (3.2 h, heap 506/512 MB,
+            // one OutOfMemoryError): the 6 MB file was read whole (readLines) and up to 200,000 ids went into unbounded
+            // `prior` sets — ~40 MB held for the whole process, ~80 MB at load, none of it in the memory census. A replay
+            // can only reach recent ids (the finalized-bus redelivery window), which the newest ids per learner cover.
+            val byLearner = HashMap<String, ArrayDeque<String>>()
+            var lines8440 = 0
+            f.useLines { seq ->
+                for (l in seq) {
+                    lines8440++
+                    val t = l.indexOf('\t')
+                    if (t <= 0 || t >= l.length - 1) continue
+                    val q = byLearner.getOrPut(l.substring(0, t)) { ArrayDeque() }
+                    q.addLast(l.substring(t + 1))
+                    if (q.size > PRIOR_PER_LEARNER_8440) q.removeFirst()
+                }
             }
             for ((learner, ids) in byLearner) ledgers.computeIfAbsent(learner) { Ledger8418() }.loadPrior(ids)
-            // Compact a ledger that outgrew its bound (the newest ids are the ones a replay can still reach).
-            if (lines.size > MAX_FILE_LINES_8418) f.writeText(lines.takeLast(MAX_FILE_LINES_8418).joinToString("\n", postfix = "\n"))
+            // Compact a file that outgrew what is kept (the newest ids per learner are the ones a replay can still reach).
+            if (lines8440 > byLearner.values.sumOf { it.size } + COMPACT_SLACK_8440) {
+                f.bufferedWriter().use { w -> for ((learner, ids) in byLearner) for (id in ids) { w.write(learner); w.write("\t"); w.write(id); w.write("\n") } }
+            }
         } catch (_: Throwable) {}
     }
 

@@ -187,7 +187,10 @@ object KeylessRpc8359 {
     }
 
     // ── counters: rpcRoute8359[keyless{host=calls/ok/429}, helius{calls}, creditsSaved≈] ──
-    private class HostCount8359 { val calls = AtomicLong(0L); val ok = AtomicLong(0L); val limited = AtomicLong(0L); val stale = AtomicLong(0L) }
+    private class HostCount8359 {
+        val calls = AtomicLong(0L); val ok = AtomicLong(0L); val limited = AtomicLong(0L); val stale = AtomicLong(0L)
+        val fails8440 = ConcurrentHashMap<String, AtomicLong>()
+    }
     private val keylessCounts = ConcurrentHashMap<String, HostCount8359>()
     private val heliusCalls = AtomicLong(0L)
     private val otherPaidCalls = AtomicLong(0L)
@@ -225,7 +228,18 @@ object KeylessRpc8359 {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("KEYLESS_RPC_429_8359") } catch (_: Throwable) {}
             }
             httpCode in 200..299 && rpcErrorCode == 0 -> { count(h).ok.incrementAndGet(); g.onOk8359() }
+            else -> count(h).fails8440.computeIfAbsent(failKey8440(httpCode, rpcErrorCode)) { AtomicLong(0L) }.incrementAndGet()
         }
+    }
+
+    /**
+     * V5.0.8440 — pure: why a keyless answer was not served. 8439 (3.2 h): publicnode 3553 calls / 74 ok / 19 limited — the
+     * other 3460 had no name, and birth walks came back rpcFail=3379 of 5335 launched.
+     */
+    fun failKey8440(httpCode: Int, rpcErrorCode: Int): String = when {
+        httpCode == 0 -> "transport"
+        rpcErrorCode != 0 -> "rpc$rpcErrorCode"
+        else -> "http$httpCode"
     }
 
     /**
@@ -313,7 +327,9 @@ object KeylessRpc8359 {
     fun statusLine8359(nowMs: Long = System.currentTimeMillis()): String {
         val k = keylessCounts.entries.sortedBy { it.key }.joinToString(",") { (h, c) ->
             "$h=${c.calls.get()}/${c.ok.get()}/${c.limited.get()}/${c.stale.get()}" +
-                governors[h]?.closedLeftMs8359(nowMs)?.takeIf { it > 0L }?.let { "(closed${it / 1000L}s)" }.orEmpty()
+                governors[h]?.closedLeftMs8359(nowMs)?.takeIf { it > 0L }?.let { "(closed${it / 1000L}s)" }.orEmpty() +
+                c.fails8440.entries.sortedByDescending { it.value.get() }.take(3)
+                    .takeIf { it.isNotEmpty() }?.joinToString(" ", " fails[", "]") { "${it.key}=${it.value.get()}" }.orEmpty()
         }.ifBlank { "-" }
         val saved = keylessCounts.values.sumOf { it.ok.get() } + cacheHits.get()
         return "rpcRoute8359[keyless{$k}, helius{calls=${heliusCalls.get()}}, paid{calls=${otherPaidCalls.get()}}, " +

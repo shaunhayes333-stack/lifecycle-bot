@@ -288,6 +288,9 @@ object PipelineHealthCollector {
     private val maxCycleMs = AtomicLong(0L)
     private val cycleCount = AtomicLong(0L)
 
+    /** V5.0.8440 — DiagnosisBrief8438: the average bot-loop cycle this process (ms; 0 before the first cycle). */
+    fun avgCycleMs8440(): Long = cycleCount.get().let { n -> if (n > 0L) totalCycleMs.get() / n else 0L }
+
     /** V5.9.915 — recent executions ring (BUY/SELL with size + mode + reason). */
     data class ExecRecord(
         val tsMs: Long,

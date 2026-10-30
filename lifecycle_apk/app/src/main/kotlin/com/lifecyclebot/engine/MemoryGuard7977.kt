@@ -33,6 +33,9 @@ object MemoryGuard7977 {
     @Volatile private var lastUsedMb = 0L
     @Volatile private var maxMb = 0L
 
+    /** V5.0.8440 — DiagnosisBrief8438: (heap used MB, heap max MB, pressure name). */
+    fun heap8440(): Triple<Long, Long, String> = Triple(lastUsedMb, maxMb, pressure8136.name)
+
     /** Pure: what to do at this heap fraction (0 = nothing, 1 = trim, 2 = trim + GC). */
     fun level7977(frac: Double): Int = when {
         !frac.isFinite() -> 0
@@ -518,6 +521,8 @@ object MemoryGuard7977 {
         r.register8144("serviceQueues8309", 1_024L, { executorQueued8309() }, null)
         // Android holds every opened SharedPreferences file as a parsed map of Strings (UTF-16: ~2x the XML on disk).
         r.register8144("prefsMirror8309", 0L, { -1 }, null) { prefsBytes8309 * 2L }
+        // V5.0.8440 — the once-only learner ledgers (ids per learner, bounded at load since 8440; ~150 B an id).
+        r.register8144("learnerAttribution8440", 150L, { com.lifecyclebot.engine.truth.LearnerAttribution8418.idCount8440() }, null)
         // V5.0.8418 — the bot service's per-mint throttle stamps (bounded on every watchdog pass; trimmed here too).
         r.register8144("serviceStamps8418", 180L, { BotService.instance?.serviceStampCount8418() ?: -1 }, { _ ->
             BotService.instance?.boundServiceStamps8418(System.currentTimeMillis())
@@ -528,7 +533,7 @@ object MemoryGuard7977 {
             "sideEffectQueue" to "queue", "cortexQueue" to "queue", "dynAltRegistry8305" to "universe", "httpBodiesInFlight8305" to "transient",
             "cortexLedgers8309" to "ledger", "lanePlaybook8309" to "ledger", "cellAllocator8309" to "ledger", "tradeShape8309" to "ledger",
             "behaviorLearning8309" to "ledger", "playbookCache8309" to "capped", "launchTape8309" to "capped", "pairFlow8309" to "capped",
-            "prefsMirror8309" to "prefs", "serviceQueues8309" to "queue",
+            "prefsMirror8309" to "prefs", "serviceQueues8309" to "queue", "learnerAttribution8440" to "ledger",
         )) r.markKind8309(name, kind)
     }
 
@@ -762,7 +767,12 @@ object MemoryGuard7977 {
             "ineffectiveHardTrims8136=${ineffectiveHardTrims8136.get()} lastRecoveredMb8136=$lastRecoveredMb8136 tapesFreed8136=${tapesFreed8136.get()} " +
             "attributed8169=[censusMb=${MemoryRegistry8144.totalBytes8144(censusRows8144) / (1L shl 20)} unattributedMb=${unattributedMb8169(lastUsedMb, MemoryRegistry8144.totalBytes8144(censusRows8144))} " +
             "bundleRestored=${try { BundleDetector.restoredCount8169() } catch (_: Throwable) { -1L }}] ${sizes()} " +
-            censusStatus8144 + " " + netLine8305() + " " + pssKinds8432()
+            censusStatus8144 + " " + netLine8305() + " " + pssKinds8432() + " " + blobs8440()
+
+    /** V5.0.8440 — the persisted learning states this process read back, largest first (their JSON size; memory is a multiple). */
+    fun blobs8440(): String = try {
+        "blobs8440[totalKc=${LearningPersistence.blobCharsTotal8440() / 1024} top=${LearningPersistence.largestBlobs8440()}]"
+    } catch (_: Throwable) { "blobs8440[-]" }
 
     /**
      * V5.0.8432 — what KIND of memory the process holds (Debug.MemoryInfo summary, KB): 8422 read heap=482/512 MB with

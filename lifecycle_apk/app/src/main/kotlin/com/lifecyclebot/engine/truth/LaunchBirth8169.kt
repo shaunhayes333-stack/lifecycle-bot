@@ -153,6 +153,11 @@ object LaunchBirth8169 {
         } catch (_: Throwable) { scope }
     }
 
+    /** V5.0.8440 — [pastWindow, inWindow, unknown] for the brief's G INPUTS line. */
+    fun scope8440(): LongArray = listOf(
+        AdmissionBirth8144.Window8144.PAST_WINDOW, AdmissionBirth8144.Window8144.IN_WINDOW, AdmissionBirth8144.Window8144.UNKNOWN_DEFER,
+    ).map { scopeCounts8169[it.name]?.get() ?: 0L }.toLongArray()
+
     /** "sniperScope8169[pastWindowSkipped=.. inWindow=.. unknown=..]" — the native assessments the pre-filter saved. */
     fun sniperScopeLine8169(): String {
         val c = { k: AdmissionBirth8144.Window8144 -> scopeCounts8169[k.name]?.get() ?: 0L }

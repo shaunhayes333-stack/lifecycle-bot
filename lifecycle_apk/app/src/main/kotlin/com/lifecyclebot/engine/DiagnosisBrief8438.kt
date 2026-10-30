@@ -65,6 +65,17 @@ object DiagnosisBrief8438 {
         return t.medianNonPositive && t.runnerMinMeanPct.isFinite() && t.runnerMinMeanPct >= 3.0 * mean
     }
 
+    /** Pure (V5.0.8440): the process is degraded — heap at/over 90%, the loop over 10 s a cycle, or the last crash was OOM. */
+    fun runtimeFault8440(heapPct: Double, avgCycleMs: Long, lastCrashOom: Boolean): Boolean =
+        heapPct >= 90.0 || avgCycleMs > 10_000L || lastCrashOom
+
+    /**
+     * Pure (V5.0.8440): birth hydration is faulty when walks resolve under 5% AND at least half of them got no RPC answer.
+     * A walk that ends because the coin is proven established is an answer, not a fault.
+     */
+    fun birthFault8440(launched: Long, resolved: Long, noAnswer: Long): Boolean =
+        launched >= 100L && resolved * 20L < launched && noAnswer * 2L >= launched
+
     /** Pure: the live book's money verdict. */
     fun moneyVerdict8438(n: Int, expectancySol: Double): String = when {
         n < 10 -> "UNPROVEN"
@@ -100,6 +111,19 @@ object DiagnosisBrief8438 {
             sb.append("  A RUN        build=").append(ver).append(" mode=").append(if (live) "LIVE" else "PAPER")
                 .append(" wallet=").append(if (wallet.isFinite()) "%.4f".format(wallet) else "?").append(" SOL liveOpen=")
                 .append(open).append('/').append(com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.LIVE_OPEN_LIMIT_8435).append('\n')
+            // V5.0.8440 — 8439 (3.2 h): heap 506/512 MB (CRITICAL, 483 hard trims that freed nothing), the bot loop at 24 s a cycle
+            // (3 s fresh), one OutOfMemoryError, zero buys — and the brief's first line said nothing of it.
+            val (used, max, pressure) = MemoryGuard7977.heap8440()
+            val cycle = PipelineHealthCollector.avgCycleMs8440()
+            val heapPct = if (max > 0L) used * 100.0 / max else 0.0
+            val crash = try { com.lifecyclebot.engine.truth.StartupCrashGuard7717.lastCrashSummary() } catch (_: Throwable) { "" }
+            val oom = crash.contains("OutOfMemoryError")
+            val sick = runtimeFault8440(heapPct, cycle, oom)
+            sb.append("               runtime heap=").append(used).append('/').append(max).append("MB (").append("%.0f".format(heapPct))
+                .append("%) pressure=").append(pressure).append(" avgCycle=").append(cycle).append("ms")
+                .append(if (oom) " lastCrash=OutOfMemoryError" else "").append(if (sick) " [FAULT runtime degraded]" else "").append('\n')
+            if (sick) fixes += Fix8438(10_000.0, "FAULT",
+                "runtime degraded (heap ${"%.0f".format(heapPct)}%, cycle ${cycle}ms${if (oom) ", OutOfMemoryError" else ""}): every price, label and entry waits on the loop -> Memory guard (§7977) blobs8440 / census unattributedMb, the largest restored states")
         }
 
         val laneLive = try { LiveEntrySafetyHold.LiveConfidenceStats.byLane8280(0L) } catch (_: Throwable) { emptyMap() }
@@ -199,11 +223,18 @@ object DiagnosisBrief8438 {
 
         section(sb, "G INPUTS") {
             val (launched, resolved) = com.lifecyclebot.engine.truth.TokenBirthHydrator7441.launchedResolved8438()
-            val share = if (launched > 0L) resolved * 100.0 / launched else Double.NaN
+            val noAnswer = com.lifecyclebot.engine.truth.TokenBirthHydrator7441.noAnswer8440()
+            val sc = try { com.lifecyclebot.engine.truth.LaunchBirth8169.scope8440() } catch (_: Throwable) { longArrayOf(0L, 0L, 0L) }
+            val birthFault = birthFault8440(launched, resolved, noAnswer)
             sb.append("  G INPUTS     birth walks launched=").append(launched).append(" resolved=").append(resolved)
-                .append(if (launched >= 100L && share < 5.0) " [FAULT ${"%.1f".format(share)}% resolve]" else "").append('\n')
-            if (launched >= 100L && share < 5.0) fixes += Fix8438(launched / 10.0, "FAULT",
-                "token birth unresolved (launched=$launched resolved=$resolved): PROJECT_SNIPER cannot judge a launch without it -> TokenBirthHydrator7441 walk8435 outcomes")
+                .append(" noRpcAnswer=").append(noAnswer)
+                .append(" | sniper pastWindow=").append(sc[0]).append(" inWindow=").append(sc[1]).append(" undated=").append(sc[2])
+                .append(if (birthFault) " [FAULT walks unanswered]" else "").append('\n')
+            // V5.0.8440 — 8439: "PROJECT_SNIPER cannot judge a launch" was wrong; its in-window launches (725) are dated by
+            // create frames. Most walks are established coins (JUPITER_STRICT / MARKET_HUNT) with no launch to date. The
+            // fault is the walks no rung answered (3379 of 5335), named by rpcRoute8359's per-host fails[].
+            if (birthFault) fixes += Fix8438(noAnswer / 10.0, "FAULT",
+                "birth walks unanswered by every RPC rung ($noAnswer of $launched): ${sc[2]} sniper-scoped coins stay undated -> rpcRoute8359 keyless fails[] / TokenBirthHydrator7441.fetchPage")
             if (try { com.lifecyclebot.network.PumpFunWS.keyedStreamDenied8439() } catch (_: Throwable) { false }) {
                 sb.append("               PumpPortal: keyed trade stream DENIED (the wallet linked to the API key holds < 0.02 SOL) — launch creates still arrive free; per-coin trade tapes do not\n")
                 fixes += Fix8438(150.0, "OWNER_ACTION",

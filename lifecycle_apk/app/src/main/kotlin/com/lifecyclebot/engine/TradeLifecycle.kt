@@ -148,7 +148,10 @@ object TradeLifecycle {
     // LIFECYCLE TRACKING
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private val lifecycles = mutableMapOf<String, Lifecycle>()
+    // V5.0.8440 — concurrent: tokens are added from scanner / intake threads while others read and prune. The plain map threw
+    // ConcurrentModificationException inside pruneOldLifecycles' iteration and BotService dropped the token being added
+    // ("Error adding token <sym>: null", 36 times in the 8439 run — DefectSweep8433's #1 exception).
+    private val lifecycles = java.util.concurrent.ConcurrentHashMap<String, Lifecycle>()
     private const val MAX_TRACKED = 500  // Limit memory usage
     
     // ═══════════════════════════════════════════════════════════════════════════
