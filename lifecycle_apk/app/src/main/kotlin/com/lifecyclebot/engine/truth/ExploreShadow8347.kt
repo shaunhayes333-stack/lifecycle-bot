@@ -563,6 +563,8 @@ object ExploreShadow8347 {
     private fun wanted8360(mint: String, untilMs: Long) {
         // V5.0.8360 — the keyless mark feed (8359) prices shadow-wanted mints right after held positions; near-decision keeps the Helius focus.
         try { KeylessMarks8359.noteWanted8359(mint, untilMs) } catch (_: Throwable) {}
+        // V5.0.8442 — and the labeler's off-watch batch (DexScreener 30 a call, curve, Jupiter): keyless too, far wider.
+        try { ForwardReturnLabeler7731.noteShadowWanted8442(mint, untilMs) } catch (_: Throwable) {}
         // Shadow-only mark demand stays keyless; it must not promote optional exploration into the paid decision reserve.
     }
 

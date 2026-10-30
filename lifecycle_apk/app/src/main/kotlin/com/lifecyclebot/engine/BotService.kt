@@ -1415,6 +1415,7 @@ class BotService : Service() {
      * pool; a tick still running skips the next.
      */
     private fun dispatchLearningTicks8020(tokenStatesCopy: Map<String, com.lifecyclebot.data.TokenState>, nowShadow7307: Long) {
+        try { com.lifecyclebot.engine.truth.LabelClock8442.noteLoop8442(nowShadow7307) } catch (_: Throwable) {}   // V5.0.8442 — labels on their own 5 s clock
         if (learningTickInFlight8020.compareAndSet(false, true)) {
             try { markProgress("POST_SUPERVISOR/LEARNING_TICKS_DISPATCHED") } catch (_: Throwable) {}
             scope.launch(kotlinx.coroutines.Dispatchers.Default + CoroutineName("learning-ticks-8020")) {

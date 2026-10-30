@@ -110,8 +110,44 @@ object ForwardReturnLabeler7731 {
     // while ~370 observations/min matured. Capacity, not data: DexScreener (sr=100%, 30 per call) now leads for the whole
     // batch, the curve read prices pump mints, Jupiter is the last rung; 90 mints every 10 s; a missed mint is re-asked at 30 s.
     private const val OFFWATCH_FETCH_GAP_MS_7737 = 10_000L
-    private const val OFFWATCH_BATCH_7737 = 90
+    // superseded by V5.0.8442 — 150 a batch (was 90): ~370 label reads/min mature plus the open shadow tickets' marks
+    // (noteShadowWanted8442); five DexScreener calls every 10 s is 30/min of a 270/min host budget that used ~112/min in 8439.
+    private const val OFFWATCH_BATCH_7737 = 150
     private const val OFFWATCH_DEX_CHUNK_8405 = 30
+
+    // ── V5.0.8442 §SHADOW_TICKETS_SHARE_THE_LABEL_MARKS ──
+    // 8439: SHADOW_OUTCOME_UNAVAILABLE_8394_LOST_MARK=5634 — an open shadow ticket's mint was asked only of the keyless pair
+    // lane (KeylessMarks8359, 400 wanted at most) while ~860 tickets were open; the unpriced ones closed with no outcome,
+    // and the Cortex's outcome coverage (CortexAuthority8366 needs 70%) stayed short. They now ride this batch too, after
+    // every label-due mint. ExploreShadow reads the result through observedMark8372, which already reads this store.
+    private val shadowWanted8442 = ConcurrentHashMap<String, Long>()
+    private const val MAX_SHADOW_WANTED_8442 = 3_000
+
+    /** ExploreShadow8347.want8360: keep [mint] priced off-watch until [untilMs]. */
+    fun noteShadowWanted8442(mint: String, untilMs: Long) {
+        if (mint.isBlank()) return
+        shadowWanted8442.merge(mint, untilMs) { a, b -> maxOf(a, b) }
+        if (shadowWanted8442.size > MAX_SHADOW_WANTED_8442) {
+            val now = System.currentTimeMillis()
+            shadowWanted8442.entries.removeIf { it.value <= now }
+            if (shadowWanted8442.size > MAX_SHADOW_WANTED_8442) shadowWanted8442.entries.sortedBy { it.value }
+                .take(shadowWanted8442.size - MAX_SHADOW_WANTED_8442).forEach { shadowWanted8442.remove(it.key) }
+        }
+    }
+
+    /**
+     * Pure (V5.0.8442): the wanted shadow mints to ask now — still wanted, not priced elsewhere within [freshMs], and with
+     * no off-watch mark younger than [freshMs]; the longest-unpriced first.
+     */
+    fun shadowDue8442(wanted: Map<String, Long>, marks: Map<String, Pair<Double, Long>>, nowMs: Long, freshMs: Long,
+                      freshElsewhere: (String) -> Boolean): List<String> =
+        wanted.entries.asSequence()
+            .filter { it.value > nowMs && nowMs - (marks[it.key]?.second ?: 0L) >= freshMs && !freshElsewhere(it.key) }
+            .sortedBy { marks[it.key]?.second ?: 0L }.map { it.key }.toList()
+
+    private fun freshTokenState8442(mint: String, nowMs: Long, freshMs: Long): Boolean = try {
+        com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { nowMs - it.lastPriceUpdate in 0L until freshMs && it.lastPrice > 0.0 } == true
+    } catch (_: Throwable) { false }
     private val offWatchMarks7737 = ConcurrentHashMap<String, Pair<Double, Long>>()
     private val offWatchInFlight7737 = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var offWatchLastFetchMs7737 = 0L
@@ -1931,7 +1967,8 @@ object ForwardReturnLabeler7731 {
     private fun labelMarksLine8418(): String = com.lifecyclebot.engine.cortex.CortexLabelFeed8291.labelMarksLine8418(
         labelDue8418.get(), labelPricedDex8418.get(), labelPricedCurve8418.get(), labelPricedTape8418.get(),
         labelLostNoSource8418.get(), labelLostLate8418.get(), try { KeylessMarks8359.labelCounts8418() } catch (_: Throwable) { null }) +
-        " " + DowntimeRecovery8430.statusLine8430()   // V5.0.8430
+        " " + DowntimeRecovery8430.statusLine8430() +   // V5.0.8430
+        " " + LabelClock8442.statusLine8442() + " shadowWanted8442=${shadowWanted8442.size}"   // V5.0.8442
 
     /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
     fun horizonOpen7809(ageMs: Long, horizonMs: Long): Boolean =
@@ -2324,7 +2361,22 @@ object ForwardReturnLabeler7731 {
         return true
     }
 
+    /**
+     * V5.0.8442 — two drivers, one tick at a time. The bot loop's learning tick still calls this; [LabelClock8442] now also
+     * calls it every few seconds, so a label's 5-minute read no longer waits on the trading loop. 8439 (3.2 h, loop at 24 s
+     * a cycle): label marks due 9657, priced 1254 — the off-watch batch is only asked from inside a tick, and ran ~75 times.
+     */
+    private val ticking8442 = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun tick(priceFor0: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
+        if (!ticking8442.compareAndSet(false, true)) {
+            try { PipelineHealthCollector.labelInc("FORWARD_TICK_OVERLAP_SKIPPED_8442") } catch (_: Throwable) {}
+            return
+        }
+        try { tickOnce8442(priceFor0, nowMs) } finally { ticking8442.set(false) }
+    }
+
+    private fun tickOnce8442(priceFor0: (String) -> Double?, nowMs: Long) {
         drainForwardOutcomes8404()
         pairedRestore8401?.let { raw ->
             // V5.0.8418 §PAIRED_RESTORE_BOUNDED — 0e5412fb7 returned here until the restore succeeded, so one corrupt blob (or a
@@ -2499,7 +2551,8 @@ object ForwardReturnLabeler7731 {
                 pending.remove(key, o)
             }
         }
-        val due7737 = rotateDue7809(dueUnpriced7737.sortedBy { it.second }.map { it.first } + freshUnpriced7737, nowMs)
+        val shadow8442 = shadowDue8442(shadowWanted8442, offWatchMarks7737, nowMs, MARK_MAX_AGE_MS_7731 / 2) { m -> freshTokenState8442(m, nowMs, MARK_MAX_AGE_MS_7731 / 2) }
+        val due7737 = rotateDue7809(dueUnpriced7737.sortedBy { it.second }.map { it.first } + freshUnpriced7737 + shadow8442, nowMs)
         if (due7737.isNotEmpty()) fetchOffWatchMarks7737(due7737, nowMs)
     }
 
