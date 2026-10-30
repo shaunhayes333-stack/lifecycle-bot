@@ -120,6 +120,46 @@ object Cortex7885 {
         (try { realLedgers.values.toList() } catch (_: Throwable) { emptyList() }).sumOf { it.estBytes8309().coerceAtLeast(0L) }
     private val assessCache = ConcurrentHashMap<String, Assessment>()
     private val pending = ConcurrentHashMap<String, Pending>()
+
+    // ── V5.0.8443 §A_REDECIDED_COIN_KEEPS_ITS_EARLIER_LABEL ──
+    // pending holds one decision per mint|lane. A re-decision inside the 5-minute read replaced it and marked the earlier
+    // one lost; that decision's own label (priced, on time) then arrived and was dropped as LABEL_EPISODE_MISMATCH_8371
+    // (8439: LABEL_LOST_EPISODE_MISMATCH 641 of 2695 lost). The earlier decision now waits here, keyed by its own time,
+    // for its own label; it is marked lost only when that label is lost too, or when it is evicted.
+    private val superseded8443 = ConcurrentHashMap<String, Pending>()
+    private const val MAX_SUPERSEDED_8443 = 4_000
+    private const val SUPERSEDED_MAX_AGE_MS_8443 = 2L * 3_600_000L
+    private val supersededKept8443 = AtomicLong(0)
+    private val supersededEvicted8443 = AtomicLong(0)
+
+    /**
+     * Pure (V5.0.8443): the ids to evict from [atById] (id -> decision time): every one older than [maxAgeMs], then the
+     * oldest until at most [max] remain.
+     */
+    fun evictSuperseded8443(atById: Map<String, Long>, nowMs: Long, max: Int, maxAgeMs: Long): List<String> {
+        val stale = atById.filter { nowMs - it.value > maxAgeMs }.keys
+        val rest = atById.filterKeys { it !in stale }
+        val over = (rest.size - max).coerceAtLeast(0)
+        return stale.toList() + rest.entries.sortedBy { it.value }.take(over).map { it.key }
+    }
+
+    /** Called inside the capture publish (the Cortex monitor): keep [old] for its own label; evict as the cap requires. */
+    private fun keepSuperseded8443(key: String, old: Pending, nowMs: Long) {
+        superseded8443["$key|${old.atMs}"] = old
+        supersededKept8443.incrementAndGet()
+        if (superseded8443.size <= MAX_SUPERSEDED_8443 && supersededKept8443.get() % 64L != 0L) return
+        for (id in evictSuperseded8443(superseded8443.mapValues { it.value.atMs }, nowMs, MAX_SUPERSEDED_8443, SUPERSEDED_MAX_AGE_MS_8443)) {
+            val p = superseded8443.remove(id) ?: continue
+            val k = id.substringBeforeLast('|')
+            if (gradeBook8144.decision(id) == null) gradeBook8144.addDecision(newDecision8144(id, k, p, p.context8372, verdict8144(k, p, p.context8372)))
+            gradeBook8144.markLost(id)
+            supersededEvicted8443.incrementAndGet()
+        }
+    }
+
+    /** V5.0.8443 — "superseded8443[kept=.. waiting=.. evicted=..]". */
+    fun supersededLine8443(): String =
+        "superseded8443[kept=${supersededKept8443.get()} waiting=${superseded8443.size} evicted=${supersededEvicted8443.get()}]"
     private val shadowPending8372 = ConcurrentHashMap<String, Pending>()
     private val shadowCtx8372 = ConcurrentHashMap<String, DecisionCtx8144>()
     private val outcomeBook8372 = CortexOutcomeBook8372()
@@ -598,7 +638,7 @@ object Cortex7885 {
         "lateVoterRead=${counterSum8169("LABEL_HYGIENE_LATE_VOTER_READ_8169")} lateFirstPrice=${counterSum8169("LABEL_HYGIENE_LATE_FIRST_PRICE_8153")} " +
             "repeat=${counterSum8169("LABEL_HYGIENE_REPEAT")} unexec=${counterSum8169("LABEL_HYGIENE_UNEXECUTABLE")} seen[R/N/S]=" +
             "${counterSum8169("SEEN_REFUSE")}/${counterSum8169("SEEN_NEUTRAL")}/${counterSum8169("SEEN_STRONG")} " +
-            "lost8187=${counterSum8169("LABEL_LOST_")} restoredPastLabel8187=${counterSum8169("PENDING_RESTORE_PAST_LABEL_8187")} " +
+            "lost8187=${counterSum8169("LABEL_LOST_")} ${supersededLine8443()} restoredPastLabel8187=${counterSum8169("PENDING_RESTORE_PAST_LABEL_8187")} " +
             "clamped8187=${counterSum8169("LABEL_CLAMPED_AT_INGESTION_8187")} gradedPerHour8187=${"%.1f".format(gradedPerHour8187())} " +
             "unexecWhy8291=[${counters.entries.filter { it.key.startsWith("LABEL_UNEXEC_CLASS_8291_") }.sortedByDescending { it.value.get() }.take(6)
                 .joinToString(",") { "${it.key.removePrefix("LABEL_UNEXEC_CLASS_8291_")}=${it.value.get()}" }.ifBlank { "-" }}]"
@@ -943,10 +983,9 @@ object Cortex7885 {
         val published8397 = captureOwners8397.publish(ticket8397) {
             // The owner check and both maps commit together. A prior episode is explicitly unresolved, never relabelled.
             pending[captureKey8372]?.takeIf { it.atMs != nowMs }?.let { old ->
-                val oldId = "$captureKey8372|${old.atMs}"
-                if (gradeBook8144.decision(oldId) == null)
-                    gradeBook8144.addDecision(newDecision8144(oldId, captureKey8372, old, old.context8372, verdict8144(captureKey8372, old, old.context8372)))
-                gradeBook8144.markLost(oldId)
+                // superseded by V5.0.8443 — the prior episode waits for its own label (keepSuperseded8443); it is marked
+                // lost only if that label never comes (evicted, or onLabelLost8187), never relabelled with the new one.
+                keepSuperseded8443(captureKey8372, old, nowMs)
                 inc("CAPTURE_PREVIOUS_EPISODE_SUPERSEDED_8397")
             }
             pending[captureKey8372] = captured8372
@@ -1383,12 +1422,12 @@ object Cortex7885 {
             deferredLabels8397.remove("$key|$decisionAtMs8371")
         }
         val p = pending[key]?.takeIf { decisionAtMs8371 <= 0L || it.atMs == decisionAtMs8371 }
-            ?: pairedPending8401["$key|$decisionAtMs8371"] ?: pending[key] ?: return
+            ?: pairedPending8401["$key|$decisionAtMs8371"] ?: superseded8443["$key|$decisionAtMs8371"] ?: pending[key] ?: return
         if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371) {
             inc("LABEL_LOST_EPISODE_MISMATCH_8371")
             return
         }
-        if (!pending.remove(key, p) && !pairedPending8401.remove("$key|${p.atMs}", p)) return
+        if (!pending.remove(key, p) && !pairedPending8401.remove("$key|${p.atMs}", p) && !superseded8443.remove("$key|${p.atMs}", p)) return
         synchronized(this) {
             captureOwners8397.terminal(key, p.atMs)
             val id = "$key|${p.atMs}"
@@ -1524,7 +1563,7 @@ object Cortex7885 {
         val key = "$mint|${labelLane.trim().uppercase()}"
         val p = synchronized(this) {
             val captured = pending[key]?.takeIf { decisionAtMs8371 <= 0L || it.atMs == decisionAtMs8371 }
-                ?: pairedPending8401["$key|$decisionAtMs8371"] ?: pending[key]
+                ?: pairedPending8401["$key|$decisionAtMs8371"] ?: superseded8443["$key|$decisionAtMs8371"] ?: pending[key]
             if (decisionAtMs8371 > 0L && captured?.atMs != decisionAtMs8371 && captureOwners8397.awaiting(key, decisionAtMs8371)) {
                 val id = "$key|$decisionAtMs8371"
                 if (deferredLabels8397.containsKey(id) || deferredLabels8397.size < CAPTURE_QUEUE_HARD_8187 + 32) {
@@ -1539,7 +1578,8 @@ object Cortex7885 {
                 inc("LABEL_EPISODE_MISMATCH_8371")
                 return
             }
-            if (!pending.remove(key, captured) && !pairedPending8401.remove("$key|${captured.atMs}", captured)) return
+            if (!pending.remove(key, captured) && !pairedPending8401.remove("$key|${captured.atMs}", captured) &&
+                !superseded8443.remove("$key|${captured.atMs}", captured)) return
             captureOwners8397.terminal(key, captured.atMs)
             captured
         }
